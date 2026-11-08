@@ -69,7 +69,15 @@ Every task type is unknown. The `std.Io` vtable calls in the allocator and the c
    - **Mac:** with `--cold` naming `Poller.poll` (a what-if), bench/tasks' 3,776–3,872 B rows fall to 2,352–2,448 B.
    - **pup:** the same rows stay unknown, through `tick`'s other call through a pointer, `alloc.ask`'s, and `std.time.sleep`'s.
 2. **Move cold paths to the worker's stack** (the panel's step 3): `print`'s formatting, `flushBeforeWait`, the clock's vDSO call, and the panic path.
-3. **Resolve vtables by type,** from the debug information or from a table that emit writes. The slot rule cannot tell the Writer's vtables from the Allocator's or Io's. Debug builds stay unknown until this is done.
+3. **Vtables resolved by type (built, `type_vtables`).**
+   - **The interface:** each call through a slot is named by the innermost inlined frame of its code that belongs to a std namespace with a `VTable` (`Io.Writer.flush` → `Io.Writer`), and its slot by that `VTable`'s fields, from Zig's std source.
+   - **The vtables:** each vtable in the data is typed by its length, and by most of its functions being named for the fields (`heap.SmpAllocator.alloc` at `alloc`).
+   - **Typed on bench/tasks:** in debug, 106 slots of `Io`, 17 of `Io.Writer`, 28 of `mem.Allocator` and 8 of `Io.Reader`. Trig, release on pup: 106, 19, 24 and 12.
+   - **What stays unknown:** two recursions that type alone cannot break.
+     - Writers that wrap writers recurse through `Io.Writer`'s own vtable (`defaultFlush` → `drain` → `Io.File.Writer.drain`).
+     - Allocators that wrap allocators recurse through `mem.Allocator`'s (`heap.BufferFirstAllocator.free`).
+
+   So item 2 is required, not optional: no task that writes output through a `Writer` has a bound while that code runs on its stack.
 4. **`sched.sortStacks` (#1021) recurses** (merge sort, depth log2 n). It runs on the worker's stack, but the coarse pointer rule reaches it. An iterative sort removes the cycle.
 
 The go/no-go for classes waits on items 1 and 2: without them, no Linux task in these programs has a bound.

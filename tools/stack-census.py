@@ -768,6 +768,87 @@ def data_words(exe, fmt, starts):
     return words, fptr
 
 
+def zig_lib():
+    """Zig's lib directory, from `zig env`."""
+    z = shutil.which("zig")
+    if not z:
+        return None
+    out = subprocess.run([z, "env"], capture_output=True, text=True).stdout
+    m = re.search(r'\.lib_dir = "([^"]+)"', out)
+    if not m:
+        return None
+    d = m.group(1)
+    return d if os.path.isabs(d) else os.path.join(os.path.expanduser("~"), d)
+
+
+def vtable_fields(lib, namespace, cache={}):
+    """The fields of `namespace`'s `VTable`, in order, from Zig's std source
+    (`Io.Writer` is std/Io/Writer.zig, `Io` std/Io.zig), or None."""
+    if namespace in cache:
+        return cache[namespace]
+    cache[namespace] = None
+    if lib is None:
+        return None
+    path = os.path.join(lib, "std", *namespace.split(".")) + ".zig"
+    if not os.path.exists(path):
+        return None
+    text = open(path).read()
+    m = re.search(r"\npub const VTable = struct \{\n(.*?)\n\};", text, re.S)
+    if not m:
+        return None
+    fields = re.findall(r"^    (@\"[^\"]+\"|\w+): \*const fn", m.group(1), re.M)
+    cache[namespace] = [f.strip('@"') for f in fields] or None
+    return cache[namespace]
+
+
+def inline_frames(exe, fmt, addrs):
+    """For each address, its inline frames' function names, innermost first."""
+    if not addrs:
+        return {}
+    out = {}
+    hexes = ["%#x" % a for a in addrs]
+    for k in range(0, len(hexes), 500):
+        part = hexes[k:k + 500]
+        if fmt == "macho":
+            p = subprocess.run(["atos", "-o", exe, "-i"] + part, capture_output=True, text=True)
+            groups = p.stdout.split("\n\n")
+            for a, g in zip(part, groups):
+                out[int(a, 16)] = [l.split(" (in ")[0].strip() for l in g.strip().splitlines() if " (in " in l]
+        else:
+            sym = tool("llvm-symbolizer", "llvm-symbolizer-22")
+            p = subprocess.run([sym, "--inlining", "-e", exe] + part, capture_output=True, text=True)
+            groups = p.stdout.strip("\n").split("\n\n")
+            for a, g in zip(part, groups):
+                lines = g.strip().splitlines()
+                out[int(a, 16)] = [lines[i].strip() for i in range(0, len(lines), 2)]
+    return out
+
+
+def type_vtables(runs, names, lib, namespaces):
+    """The vtables of each interface among the data's runs of function
+    pointers: a window of a run as long as the interface's `VTable`, most
+    of whose functions are named for its fields (`heap.SmpAllocator.alloc`
+    at `alloc`, `Io.Writer.failingDrain` at `drain`). By namespace, the
+    functions at each slot."""
+    typed = {}
+    for ns in namespaces:
+        fields = vtable_fields(lib, ns)
+        if not fields:
+            continue
+        n = len(fields)
+        slots = [set() for _ in range(n)]
+        for r in runs:
+            for st in range(0, len(r) - n + 1):
+                w = r[st:st + n]
+                score = sum(1 for f, fld in zip(w, fields) if fld.lower() in names.get(f, "").rsplit(".", 1)[-1].lower())
+                if score * 2 >= n and score >= min(2, n):
+                    for j, f in enumerate(w):
+                        slots[j].add(f)
+        if any(slots):
+            typed[ns] = [sorted(x) for x in slots]
+    return typed
+
+
 def vtable_runs(fptr):
     """Runs of function pointers at neighbouring words: vtables, or several
     side by side."""
@@ -819,7 +900,7 @@ def bounds(fns, arch, resolved, by_slot=None):
         edges = [(d + ret_addr, t) for d, t in fn.calls] + list(fn.tails)
         ind = [(d + ret_addr, a) for d, a in fn.icalls] + list(fn.itails)
         if by_slot is not None:
-            edges += [(d + ret_addr, c) for d, off, _ in fn.islots for c in by_slot(off)]
+            edges += [(d + ret_addr, c) for d, off, at in fn.islots for c in by_slot(at, off)]
         else:
             ind += [(d + ret_addr, a) for d, _, a in fn.islots]
         for d, t in edges:
@@ -934,6 +1015,33 @@ def main():
     taken = taken_in_code(fns, arch, starts) | set(fptr.values())
     runs = vtable_runs(fptr)
     slot_sets = {}
+    # The interface of each call through a slot: the innermost frame of the
+    # call's inlined code that names a std namespace with a `VTable`.
+    lib = zig_lib()
+    slot_calls = [at for fn in fns for _, at, how in fn.icalls_how if how and how[0] in ("global", "slot")]
+    frames = inline_frames(a.exe, fmt, slot_calls)
+    iface = {}
+    for at, fr in frames.items():
+        for name in fr:
+            parts = name.split(".")
+            for cut in range(len(parts) - 1, 0, -1):
+                ns = ".".join(parts[:cut])
+                if vtable_fields(lib, ns):
+                    iface[at] = ns
+                    break
+            if at in iface:
+                break
+        if fr and fr[0].startswith("os.linux.clock_gettime"):
+            iface[at] = "vdso"
+    names_by = {fn.start: fn.name for fn in fns}
+    typed = type_vtables(runs, names_by, lib, set(v for v in iface.values() if v != "vdso"))
+
+    def by_call(at, off):
+        ns = iface.get(at)
+        j = off // 8
+        if ns in typed and j < len(typed[ns]) and typed[ns][j]:
+            return typed[ns][j]
+        return by_slot(off)
 
     def by_slot(off):
         j = off // 8
@@ -960,6 +1068,9 @@ def main():
                     exact.append((d, t))
                     continue
             if how and how[0] in ("global", "slot"):
+                if iface.get(at) == "vdso":
+                    fn.foreign.append("vDSO clock_gettime")
+                    continue
                 slots.append((d, how[-1], at))
                 continue
             rest.append((d, at))
@@ -974,7 +1085,7 @@ def main():
     reach, why_t, fo_t = 0, None, frozenset()
     for _ in range(64):
         cur = (reach, None, fo_t)
-        b = bounds(fns, arch, lambda cur=cur: cur, by_slot)
+        b = bounds(fns, arch, lambda cur=cur: cur, by_call)
         nxt, why_t, fo = 0, None, set(fo_t)
         for t in sorted(taken):
             c, w, f = b(t)
@@ -990,7 +1101,8 @@ def main():
         reach = nxt
     else:
         reach, why_t = UNKNOWN, "through a pointer, a cycle of calls through pointers"
-    with_taken = bounds(fns, arch, lambda: (reach, why_t, fo_t), by_slot)
+    with_taken = bounds(fns, arch, lambda: (reach, why_t, fo_t), by_call)
+    print("vtables typed: %s" % (", ".join("%s %d" % (ns, sum(len(x) for x in sl)) for ns, sl in sorted(typed.items())) or "none"))
     print("an indirect call's bound, any address-taken function: %s" % ("%d B" % reach if reach is not UNKNOWN else "unknown: " + why_t))
     entry_re = re.compile(a.entries)
     entries = [fn for fn in fns if entry_re.search(fn.name)]
