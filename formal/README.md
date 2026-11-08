@@ -50,6 +50,7 @@ model checks, by hand: several minutes and 8 GB.
 | `LambdaRig/Tasks.lean` | The task machine: who holds each handle, cores, pins, and the values that stay on one thread |
 | `LambdaRig/TasksSound.lean` | Its invariant, kept by every step, and what follows from it |
 | `LambdaRig/Crossing.lean` | API objects crossing tasks: erasing keeps what a crossing check reads |
+| `LRig.lean` | `lrig`, an executable of λRig's `check` and `run`, for the agreement test |
 | `Models/Explore.lean` | An explicit-state model checker: every state a system of atomic steps reaches |
 | `Models/Ring.lean` | A worker's ring of ready fibers: push, pop, steal, and the overflow |
 | `Models/Sleep.lean` | How workers search, sleep, and are woken: `searching`, `sleepers`, `notify`, and the pinned queue's `idle` flag |
@@ -480,13 +481,31 @@ worker's slot holds a fiber (`takeWaiting`; docs/internals/scheduler.md,
 "Yield checks"). That handshake is checked by unit tests in
 `src/sched.zig`, not here.
 
+## Agreement with bin/rig
+
+`test/cli/agree.sh`, in the suite, runs bin/rig's checker and λRig's
+side by side. `rig-oracle --lambda` (test/oracle/lambda.zig) writes each
+program λRig can express (one `sub main()` of bindings, assignments,
+`<x`, and `print`, over integers, names, `<x`, `+x`, `^e`, `?x`, `!x`,
+and `+`) as λRig's forms, with the compiler's verdict on it, and says
+why it leaves each other program out. `lrig` (LRig.lean, built by `lake
+build`) runs `accepts` and `run` on each. A program the compiler accepts
+whose λRig run faults always fails the test; one the two checkers
+decide differently fails unless `test/oracle/agreement` lists it with
+its kind and class. The corpus is the cases of test/rig and examples/.
+On 2026-11-07, 22 programs were in scope, 20 decided alike, 2 rejected
+by the compiler alone for rules λRig does not have (an unread local,
+`none` as a name), none rejected by λRig alone, and none unsound.
+
 ## What is not proved
 
 - **That `bin/rig` agrees with `check`.** `check` is written for
   λRig, not taken from `src/ownership.zig`. It is stricter than
   `rig check` in places: it rejects a bare name of a box, which Rig
-  reads in place. The link
-  is stage 3's validator, or running λRig beside the oracle (below).
+  reads in place. The agreement test (below) checks the two on every
+  program of the corpus λRig can express; it tests, it does not prove,
+  and the exporter that writes Rig as λRig is trusted. The proved link
+  is stage 3's validator.
 - **That the emitted Zig does what λRig does.** Zig has no formal
   semantics; the test suite and the sanitizer stand in for it.
 - **Anything outside the slice:** objects, optionals, `List`,

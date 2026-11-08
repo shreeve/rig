@@ -14,6 +14,8 @@
 //!                     semantic checks failed (prod=sema), as a probe;
 //!                     they count toward nothing
 //!   -v                print every function's verdicts
+//!   --lambda          print each program as λRig's forms, for lrig
+//!                     (lambda.zig; test/cli/agree.sh), and check nothing
 //!
 //! For each program it loads and checks the program as `rig check` does,
 //! which gives production's verdict per function: rejected when the
@@ -51,6 +53,7 @@ const lib = @import("rig_lib");
 const lower = @import("lower.zig");
 const flow = @import("flow.zig");
 const core = @import("core.zig");
+const lambda = @import("lambda.zig");
 
 const modules = lib.modules;
 const sema = lib.sema;
@@ -91,6 +94,7 @@ const Options = struct {
     stats: bool = false,
     verbose: bool = false,
     sema: bool = false,
+    lambda: bool = false,
 };
 
 const Totals = struct {
@@ -136,6 +140,8 @@ pub fn main(init: std.process.Init) !u8 {
             opts.stats = true;
         } else if (std.mem.eql(u8, a, "--sema")) {
             opts.sema = true;
+        } else if (std.mem.eql(u8, a, "--lambda")) {
+            opts.lambda = true;
         } else if (std.mem.eql(u8, a, "-v")) {
             opts.verbose = true;
         } else if (std.mem.startsWith(u8, a, "-")) {
@@ -163,9 +169,16 @@ pub fn main(init: std.process.Init) !u8 {
         try seen_programs.put(arena, prog[0], {});
         var program_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer program_arena.deinit();
+        if (opts.lambda) {
+            try exportProgram(program_arena.allocator(), io, prog[0], prog[1], out);
+            try out.flush();
+            continue;
+        }
         try checkProgram(program_arena.allocator(), io, prog[0], prog[1], opts, &allow, &rejects, &reasons, arena, out, &totals);
         try out.flush();
     }
+
+    if (opts.lambda) return 0;
 
     // An allowlist entry for a program of this run whose difference is gone.
     var it = allow.iterator();
@@ -263,6 +276,46 @@ fn readFloor(a: std.mem.Allocator, io: std.Io, path: []const u8, set: []const u8
         if (std.mem.eql(u8, name, set)) return try std.fmt.parseInt(u32, count, 10);
     }
     return null;
+}
+
+/// `--lambda`: one line, `name<TAB>verdict<TAB>program`. The verdict is
+/// the compiler's on the whole program, `accept` or `reject` and its first
+/// error; the program is λRig's forms, or `outside` and why.
+fn exportProgram(a: std.mem.Allocator, io: std.Io, name: []const u8, path: []const u8, out: *std.Io.Writer) !void {
+    var graph = modules.ModuleGraph.init(a, io);
+    graph.loadRoot(path) catch |err| {
+        try out.print("{s}\treject cannot load: {s}\toutside a program that does not load\n", .{ name, @errorName(err) });
+        return;
+    };
+    var first: []const u8 = if (graph.errors.items.len > 0) graph.errors.items[0] else "";
+    if (first.len == 0) for (graph.modules.items) |m| {
+        for (m.sema.diagnostics.items) |d| if (d.severity == .@"error") {
+            first = d.message;
+            break;
+        };
+        if (first.len > 0) break;
+    };
+    const rejected = graph.hasErrors();
+    if (rejected and first.len == 0) first = "an error";
+    const flat = try a.dupe(u8, first);
+    for (flat) |*c| if (c.* == '\t' or c.* == '\n') {
+        c.* = ' ';
+    };
+    try out.print("{s}\t{s}{s}{s}\t", .{ name, if (rejected) "reject" else "accept", if (rejected) " " else "", if (rejected) flat else "" });
+    const root = for (graph.modules.items) |*m| {
+        if (!m.is_std) break m;
+    } else {
+        try out.writeAll("outside no module\n");
+        return;
+    };
+    if (root.ir == .nil) {
+        try out.writeAll("outside a program that does not parse\n");
+        return;
+    }
+    switch (try lambda.exportModule(a, root)) {
+        .program => |p| try out.print("{s}\n", .{p}),
+        .outside => |why| try out.print("outside {s}\n", .{why}),
+    }
 }
 
 fn checkProgram(
