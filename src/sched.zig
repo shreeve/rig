@@ -400,12 +400,52 @@ pub noinline fn tick() void {
         if (ready.items.len > 0 and random(2) == 0) yield();
         return;
     }
-    serviceBusy(w);
+    // Timers and the poller are serviced on the worker's stack, after a
+    // stop, as a preempted fiber's are (`afterTick`): `Poller.poll`'s
+    // frame is a task's deepest, and a check reaches it at most every
+    // `poll_interval`.
+    if (serviceNow(w)) return stopIn(.{ .run = afterTick });
     if (hasOwnWork(w)) {
         if (leftToIdle(w)) return;
         return yield();
     }
     if (waiting.load(.monotonic) != 0) claimWaiting(w);
+}
+
+/// On the worker's stack, after a yield check's stop (`tick`): service
+/// the worker's timers and poller (`serviceBusy`), then go on as the
+/// check would: behind the work that waits (`yield`), or else run `f`
+/// again next, from the worker's newest "run next" slot (`wakeIn`).
+fn afterTick(f: *Fiber, _: ?*anyopaque) void {
+    const w = me().?;
+    serviceBusy(w);
+    if (yieldsAfterService(w)) wakeLastIn(f) else wakeIn(f);
+}
+
+/// Whether a check of the busy worker `w` has timers due or its poller to
+/// look at (`serviceBusy`). It reads the clock only when `w` holds a timer
+/// or a descriptor, so a loop that holds neither pays two loads.
+fn serviceNow(w: *Worker) bool {
+    const due = w.timers.due.load(.monotonic);
+    const polls = w.poller.count.load(.monotonic) != 0;
+    if (due == no_due and !polls) return false;
+    const now = nowNs();
+    return due <= now or (polls and now - w.polled_at >= poll_interval);
+}
+
+/// What a check decides on the worker's stack once it has serviced the
+/// worker (`afterTick`, `afterPreempt`): whether the stopped fiber goes
+/// behind the work that waits, for this worker or for another busy one,
+/// taken into this worker's ring (`stealWaiting`), as `tick` and
+/// `claimWaiting` decide on the fiber's stack.
+fn yieldsAfterService(w: *Worker) bool {
+    if (hasOwnWork(w)) return !leftToIdle(w);
+    if (waiting.load(.monotonic) == 0 or !takeWaiting(w) or !othersWait(w)) return false;
+    if (leftToIdle(w)) {
+        waiting.store(1, .monotonic);
+        return false;
+    }
+    return stealWaiting(w);
 }
 
 /// Whether work that waits on the busy worker `w`, or for any busy one
@@ -434,11 +474,10 @@ fn leftToIdle(w: *Worker) bool {
 /// at worst while every worker computes.
 const poll_interval: i96 = 250 * std.time.ns_per_us;
 
-/// A yield check of the busy worker `w`: wake the fibers whose timers are
-/// due on it, and those its poller's events make ready, looking at the
-/// poller at most every `poll_interval`. It reads the clock only when
-/// `w` holds a timer or a descriptor, so a loop that holds neither pays
-/// two loads.
+/// The service of the busy worker `w` at a yield check or a preemption
+/// stop, on the worker's stack (`afterTick`, `afterPreempt`): wake the
+/// fibers whose timers are due on it, and those its poller's events make
+/// ready, looking at the poller at most every `poll_interval`.
 fn serviceBusy(w: *Worker) void {
     const due = w.timers.due.load(.monotonic);
     const polls = w.poller.count.load(.monotonic) != 0;
@@ -501,23 +540,7 @@ fn claimWaiting(w: *Worker) void {
     // here.
     if (!hasOwnWork(w) and !othersWait(w)) return;
     if (leftToIdle(w)) return waiting.store(1, .monotonic);
-    if (hasOwnWork(w)) return yield();
-    if (workers.*.len < 2) return;
-    for (workers.*) |*v| {
-        if (v == w) continue;
-        if (w.ring.stealFrom(&v.ring)) |f| {
-            w.stole += 1;
-            _ = w.ring.push(f);
-            return yield();
-        }
-    }
-    for (workers.*) |*v| {
-        if (v == w) continue;
-        if (takeNext(v)) |f| {
-            _ = w.ring.push(f);
-            return yield();
-        }
-    }
+    if (hasOwnWork(w) or stealWaiting(w)) yield();
 }
 
 /// Take into `w`'s ring work that waits for another busy worker, as
@@ -1056,20 +1079,9 @@ fn afterPreempt(f: *Fiber, _: ?*anyopaque) void {
     const w = me().?;
     preOf(w).deepest = @max(preOf(w).deepest, preOf(w).stopped_sp -| f.sp);
     serviceBusy(w);
-    const yields = blk: {
-        if (!hasOwnWork(w)) {
-            if (waiting.load(.monotonic) == 0 or !takeWaiting(w) or !othersWait(w)) break :blk false;
-            if (leftToIdle(w)) {
-                waiting.store(1, .monotonic);
-                break :blk false;
-            }
-            if (!stealWaiting(w)) break :blk false;
-        } else if (leftToIdle(w)) break :blk false;
-        break :blk true;
-    };
     // Nothing to yield to: the fiber runs again next, from the newest of
     // the worker's "run next" slots, as one just woken would.
-    if (!yields) return wakeIn(f);
+    if (!yieldsAfterService(w)) return wakeIn(f);
     preOf(w).preempts += 1;
     behind(f, null);
 }
@@ -4995,17 +5007,39 @@ fn putSpare(list: ?*FreeStack, n: u32) void {
 }
 
 /// The `n` free stacks of `list`, in address order: a merge sort of the
-/// links in place.
+/// links in place, bottom up, in runs of 1, 2, 4 and on, so its frame is
+/// fixed and the worker's stack it runs on is bounded (no recursion).
 fn sortStacks(list: ?*FreeStack, n: u32) ?*FreeStack {
-    if (n < 2) return list;
-    var mid = list.?;
-    for (1..n / 2) |_| mid = mid.next.?;
-    const second = mid.next;
-    mid.next = null;
-    var a = sortStacks(list, n / 2);
-    var b = sortStacks(second, n - n / 2);
-    var head: ?*FreeStack = null;
-    var tail: *?*FreeStack = &head;
+    var head = list;
+    var width: usize = 1;
+    while (width < n) : (width *= 2) {
+        var rest = head;
+        var tail: *?*FreeStack = &head;
+        while (rest) |a| {
+            const b = cutAfter(a, width);
+            rest = if (b) |x| cutAfter(x, width) else null;
+            tail = mergeStacks(tail, a, b);
+        }
+    }
+    return head;
+}
+
+/// End the run of `k` free stacks that starts at `first`, and give the
+/// stack after it.
+fn cutAfter(first: *FreeStack, k: usize) ?*FreeStack {
+    var last = first;
+    for (1..k) |_| last = last.next orelse return null;
+    const after = last.next;
+    last.next = null;
+    return after;
+}
+
+/// Merge the address-ordered runs `a` and `b` into `tail.*`, and give the
+/// link after the merged run's last stack.
+fn mergeStacks(tail_in: *?*FreeStack, a_in: ?*FreeStack, b_in: ?*FreeStack) *?*FreeStack {
+    var tail = tail_in;
+    var a = a_in;
+    var b = b_in;
     while (a != null and b != null) {
         const take_a = a.?.stack.base < b.?.stack.base;
         const x = if (take_a) a.? else b.?;
@@ -5014,7 +5048,8 @@ fn sortStacks(list: ?*FreeStack, n: u32) ?*FreeStack {
         tail = &x.next;
     }
     tail.* = if (a != null) a else b;
-    return head;
+    while (tail.*) |x| tail = &x.next;
+    return tail;
 }
 
 /// Take up to `spare_batch` stacks from the spare list for `w`, which has
@@ -5451,6 +5486,27 @@ fn inChild(comptime run: fn () void, err: []u8) !struct { signaled: bool, code: 
     } else if (sys.waitpid(pid, &status, 0) != pid) return error.WaitFailed;
     const st: u32 = @bitCast(@as(i32, @intCast(status)));
     return .{ .signaled = st & 0x7f != 0, .code = @truncate(st >> 8), .stderr = err[0..n] };
+}
+
+test "free stacks sort into address order, whatever their number and order" {
+    var nodes: [100]FreeStack = undefined;
+    var prng = std.Random.DefaultPrng.init(7);
+    for ([_]u32{ 0, 1, 2, 3, 5, 8, 31, 64, 65, 100 }) |n| {
+        var list: ?*FreeStack = null;
+        for (nodes[0..n], 0..) |*x, i| {
+            x.* = .{ .stack = .{ .base = @as(usize, prng.random().int(u32)) * 128 + i, .guard = 0, .len = 0 }, .next = list };
+            list = x;
+        }
+        var count: u32 = 0;
+        var last: usize = 0;
+        var it = sortStacks(list, n);
+        while (it) |x| : (it = x.next) {
+            try std.testing.expect(x.stack.base >= last);
+            last = x.stack.base;
+            count += 1;
+        }
+        try std.testing.expectEqual(n, count);
+    }
 }
 
 test "onWorkerStack runs its function on the worker's stack, and in place when nested or off a worker" {

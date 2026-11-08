@@ -527,7 +527,10 @@ A loop's check also keeps its worker's timers and descriptors going
 while it computes (`sched.serviceBusy`): it wakes the fibers whose
 timers are due on its worker, and looks at its worker's poller at most
 every 250 µs, a system call. It reads the clock only when its worker
-holds a timer or a descriptor. A 10 ms sleep of a task whose worker
+holds a timer or a descriptor, and when one is due it stops the fiber
+first and does the work on the worker's stack (`sched.afterTick`), as a
+preemption stop does: `Poller.poll`'s frame, about 2 KiB, would
+otherwise be the deepest a task's stack needs. A 10 ms sleep of a task whose worker
 spins in `main` takes 10 ms, with one worker or eight, not the whole
 spin, and a round trip on a socket registered with that worker about
 1 ms. A recursive call's check
