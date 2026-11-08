@@ -91,7 +91,7 @@ Which document answers which question:
 | How does the compiler work? | docs/internals/INTERNALS.md |
 | What does the standard library offer? | docs/STD.md |
 | How does std.terminal work, and how is it checked against Ghostty? | docs/design/terminal.md |
-| How do tasks, actors, and the scheduler work? | docs/design/concurrency.md, docs/internals/scheduler.md |
+| How do tasks, actors, and the scheduler work? | docs/CONCURRENCY.md (the overview), then docs/design/concurrency.md, docs/internals/scheduler.md |
 | How are tests written and run? | docs/internals/tests.md, test/README.md |
 | Why is Rig this way? | docs/DESIGN.md, docs/design/mantras.md |
 | Which Zig 0.17 APIs does Rig use? | ZIG-0.17.md; docs/internals/INTERNALS.md, "Where Rig meets Zig 0.17" |

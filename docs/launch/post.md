@@ -169,8 +169,8 @@ sub main()!
   l = net.listen("127.0.0.1:8080")!
   http.serve(<l, |+hits, +rooms, req|
     match req.path
-      "/hit" => http.text(String("hits ", (!hits).add(1)))
-      "/join" => http.text(String("members ", (!rooms).join(req.arg("room") ?? String("lobby"))))
+      "/hit" => http.text(String("hits ", !hits.add(1)))
+      "/join" => http.text(String("members ", !rooms.join(req.arg("room") ?? String("lobby"))))
       "/boom" => http.text(String(pick(List([1, 2, 3]), 7)))
       _ => http.not_found()
   )!

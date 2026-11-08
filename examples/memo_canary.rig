@@ -23,7 +23,7 @@ obj IntSource
   # out to be walked, and swapped back.
   sub set(!@, v: Int)
     !@value.set(v)
-    listeners = (!@listeners).swap(List())
+    listeners = !@listeners.swap(List())
     for listener in ?listeners
       listener(v)
     _ = !@listeners.swap(<listeners)
@@ -38,8 +38,8 @@ obj IntSource
 
 sub main()
   count = IntSource.new(1)
-  doubled = (!count).map(*|n| n * 2)
-  squared = (!doubled).map(*|n| n * n)
+  doubled = !count.map(*|n| n * 2)
+  squared = !doubled.map(*|n| n * n)
   !squared.subscribe(*|n| print("squared", n))
   print(doubled.get(), squared.get())   # 2 4
 

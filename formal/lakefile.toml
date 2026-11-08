@@ -1,5 +1,5 @@
 name = "rig-formal"
-defaultTargets = ["LambdaRig", "Models"]
+defaultTargets = ["LambdaRig", "Models", "lrig"]
 
 [[lean_lib]]
 name = "LambdaRig"
@@ -9,3 +9,7 @@ leanOptions = { warningAsError = true }
 name = "Models"
 leanOptions = { warningAsError = true }
 precompileModules = true
+
+[[lean_exe]]
+name = "lrig"
+root = "LRig"

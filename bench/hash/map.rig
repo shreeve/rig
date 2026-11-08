@@ -232,7 +232,7 @@ called fun intern_words(names: !text.Interner, words: ?List[String]) -> WordsRow
   sum: U64 = 0
   t = time.now()
   for w in words
-    sum +%= U64((!names).intern(w))
+    sum +%= U64(!names.intern(w))
   WordsRow(ns: t.elapsed(), sum: sum)
 
 called sub intern(n: Int)
@@ -263,7 +263,7 @@ fun keys(n: Int) -> List[String]
 called fun int_ensure_pass(m: !IntMap, n: Int) -> Int
   t = time.now()
   for i in 0..n
-    w = (!m).ensure(i *% -7046029254386353131, 0)
+    w = !m.ensure(i *% -7046029254386353131, 0)
     w += 1
   t.elapsed()
 
@@ -277,7 +277,7 @@ called sub int_ensure(n: Int)
 called fun int_ensure_with_pass(m: !IntMap, n: Int) -> Int
   t = time.now()
   for i in 0..n
-    w = (!m).ensure_with(i *% -7046029254386353131, one)
+    w = !m.ensure_with(i *% -7046029254386353131, one)
     w += 1
   t.elapsed()
 
@@ -292,7 +292,7 @@ called fun int_edit_put_pass(m: !IntMap, n: Int) -> Int
   t = time.now()
   for i in 0..n
     k = i *% -7046029254386353131
-    if (!m).edit(k) as w
+    if !m.edit(k) as w
       w += 1
     else
       !m.put(k, 1)
@@ -308,7 +308,7 @@ called sub int_edit_put(n: Int)
 called fun string_ensure_pass(m: !StringMap, ks: List[String]) -> Int
   t = time.now()
   for k in <ks
-    w = (!m).ensure(<k, 0)
+    w = !m.ensure(<k, 0)
     w += 1
   t.elapsed()
 
@@ -324,7 +324,7 @@ called sub string_ensure(n: Int)
 called fun string_ensure_with_pass(m: !StringMap, ks: List[String]) -> Int
   t = time.now()
   for k in <ks
-    w = (!m).ensure_with(<k, one_of)
+    w = !m.ensure_with(<k, one_of)
     w += 1
   t.elapsed()
 
@@ -340,7 +340,7 @@ called sub string_ensure_with(n: Int)
 called fun string_edit_put_pass(m: !StringMap, ks: List[String]) -> Int
   t = time.now()
   for k in <ks
-    if (!m).edit(k) as w
+    if !m.edit(k) as w
       w += 1
     else
       !m.put(<k, 1)
@@ -393,7 +393,7 @@ called fun rnd_remove(maps: !List[IntMap], ks: ?List[Int], k: Int, s: Int) -> Ro
     m = !maps[j]
     base = j * s
     for i in 0..s
-      check += (!m).take(ks[base + i]) ?? 0
+      check += !m.take(ks[base + i]) ?? 0
   Row(ns: t.elapsed(), check: check)
 
 called fun rnd_hit(m: ?IntMap, hit: ?List[Int], rounds: Int) -> Row
@@ -482,7 +482,7 @@ called fun int_remove_maps(maps: !List[IntMap], k: Int, s: Int) -> Row
     m = !maps[j]
     base = j * s
     for i in 0..s
-      check += (!m).take((base + i) *% -7046029254386353131) ?? 0
+      check += !m.take((base + i) *% -7046029254386353131) ?? 0
   Row(ns: t.elapsed(), check: check)
 
 called fun int_hit_rounds(m: ?IntMap, s: Int, rounds: Int) -> Row
@@ -587,7 +587,7 @@ called fun churn_turns(m: !IntMap, ks: ?List[Int], s: Int, turns: Int) -> Row
   check = 0
   t = time.now()
   for i in 0..turns
-    check +%= (!m).take(ks[i]) ?? 0
+    check +%= !m.take(ks[i]) ?? 0
     !m.put(ks[s + i], s + i)
   Row(ns: t.elapsed(), check: check)
 
@@ -623,7 +623,7 @@ called fun str_insert(maps: !List[StringMap], put: List[String], s: Int) -> Int
   j = 0
   i = 0
   for key in <put
-    (!maps[j]).put(<key, i)
+    !maps[j].put(<key, i)
     i += 1
     if i == s
       i = 0
@@ -636,7 +636,7 @@ called fun str_remove(maps: !List[StringMap], take: ?List[String], s: Int) -> Ro
   j = 0
   i = 0
   for key in take
-    check += (!maps[j]).take(key) ?? 0
+    check += !maps[j].take(key) ?? 0
     i += 1
     if i == s
       i = 0
@@ -718,7 +718,7 @@ called fun big_remove(maps: !List[BigMap], ks: ?List[Int], k: Int, s: Int) -> Ro
     m = !maps[j]
     base = j * s
     for i in 0..s
-      if (!m).take(ks[base + i]) as v
+      if !m.take(ks[base + i]) as v
         check += v.h
   Row(ns: t.elapsed(), check: check)
 

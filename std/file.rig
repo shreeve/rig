@@ -185,8 +185,8 @@ pub fun read_dir(path: ?String) -> List[Entry]?!
   if not dir_entries(path, !names, !codes)!
     return none
   entries = List[Entry](capacity: names.len)
-  while (!names).pop() as name
-    c = (!codes).pop() ?? 0
+  while !names.pop() as name
+    c = !codes.pop() ?? 0
     !entries.push(Entry(name: <name, kind: kind_of(c % 4), link: c / 4 == 1))
   <entries
 

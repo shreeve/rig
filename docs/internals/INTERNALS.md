@@ -966,16 +966,23 @@ gives each plain enum an `exact` object holds its tag type (`enum(u8)`,
 (`SemContext.exact_enums`). `bytesRecord` admits only `exact` objects,
 so every record is flat and copies with one `memcpy`.
 
-**Mapped runs.** In a Linux build that takes the release allocator
-(`runtime.maps_runs`: no leak checker, heap profile, or sanitizer),
-`List.extend_from_bytes` of 64 KiB or more (`alloc.map_min`) into an
-empty List with no buffer, of an `exact` record or a number, maps the
-run where it lies rather than copying it (`alloc.mapRun`): the address
-less the image's load bias (`PT_PHDR` in the auxiliary vector) falls in
-a loaded segment without `PF_W`, whose file bytes are the image's, and
-`mmap` of `/proc/self/exe` (opened once) with `MAP_PRIVATE` at that
-file offset gives pages the kernel reads on first touch and copies for
-this mapping on first write. The List's buffer is the mapped run, its
+**Mapped runs.** In a Linux or macOS build that takes the release
+allocator (`runtime.maps_runs`: no leak checker, heap profile, or
+sanitizer), `List.extend_from_bytes` of 64 KiB or more (`alloc.map_min`)
+into an empty List with no buffer, of an `exact` record or a number,
+maps the run where it lies rather than copying it (`alloc.mapRun`): the
+address falls in a read-only loaded part of the image, whose file bytes
+are the image's, and `mmap` of the program's own file (opened once) with
+`MAP_PRIVATE` at that file offset gives pages the kernel reads on first
+touch and copies for this mapping on first write. `openExe` finds those
+parts once (`alloc.Load`): on Linux the loaded segments without `PF_W`,
+at their addresses plus the image's load bias (`PT_PHDR` in the
+auxiliary vector), in `/proc/self/exe`; on macOS the main image's
+`LC_SEGMENT_64` commands whose initial protection has no write
+(`__TEXT`, where `$embed` and literals lie), at their addresses plus the
+image's slide (`_dyld_get_image_header`, `_dyld_get_image_vmaddr_slide`),
+in the file `_NSGetExecutablePath` names, opened only when its first
+bytes are the image's own header, so a universal binary is copied. The List's buffer is the mapped run, its
 capacity its length; everything else about the List is unchanged. The
 allocator's `freeSlow` gives such a buffer's mapping back, and its
 `remap` declines to grow one, so the List copies it into a heap block
@@ -986,7 +993,9 @@ functions out of its PGO profile). A table of 256 mappings under a spin
 lock records them (`mapped_spans`); past it, or where anything fails, the
 run is copied. Measured on Trig (records/2026-11/zero-copy): mitt 17.3%
 fewer cycles, neverthrow 14.5%, the four larger 0.9-2.9%, none slower,
-anonymous memory lower on all six.
+anonymous memory lower on all six. On macOS, where the lib trees were
+copied, Trig's peak memory is 9.2 to 9.5 MiB lower on zod3 and
+ts-pattern at every checker count, with no run slower.
 
 **Records from embedded files.** `sema.bytesRecord` answers whether
 bytes make values of a type, and gives a record its `checks`: the
@@ -1991,7 +2000,9 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 `owned` storage holds a value of its own, made there or taken; `copy`
 holds a copy of a value still held where it was, so a view of the
 storage views the copy; `pointer` holds the address of a place, or of
-storage another fact records. How storage and bindings drop what they
+storage another fact records; `buffer` is a template's `temp` where a
+`?String` reads it, its text in a `rig.TextBuf`, 256 bytes in the slot
+and a heap block past them, which its drop frees. How storage and bindings drop what they
 hold is recorded by the plan too, from `sema.resourceKind`: for each
 parameter, local, and capture, `Symbol.hold`, which gives the binding
 `var` storage and a drop guard of its kind, and which the ownership
@@ -3201,7 +3212,7 @@ ends with its statement; the loans of a moved value stay in force
 until the call or statement that consumes it ends, so a later argument
 of the same call cannot lend or move their roots, and so does a write
 loan any argument's value carries (a write view a method's result keeps
-of its self: `both((!b).firstw(), ?b)` is rejected). Likewise, an
+of its self: `both(!b.firstw(), ?b)` is rejected). Likewise, an
 argument that reads a place by value whose value shares storage the
 place owns (a List, a box, a handle, an object holding one, or what a
 write view reaches: `print(v, grow(!v))`) leaves a read loan of the
@@ -3628,7 +3639,7 @@ and so are a `for` source's loan and a `match` payload's.
 
 **Desugaring.** For loans, an object binding, a write view's referent,
 and a box's value are each a group of bindings, one per field, nested;
-using the whole uses every binding in the group. `(!@a).mk(@t)`
+using the whole uses every binding in the group. `!@a.mk(@t)`
 is `w = !@a; t = ?@t; w.mk(t)`, a write loan on one binding
 beside a read loan on another, which sentence 5 already allows. Emit is
 unchanged: it passes `&self.a` and `self.t`, adds no temporary, and
@@ -4315,7 +4326,7 @@ place and a take as `*<x`'s make.
 
 ### Loops over an iterator
 
-`for x in !it` is `while (!it).next() as x`, and nothing else: no pass
+`for x in !it` is `while !it.next() as x`, and nothing else: no pass
 has a form of its own for it. A `for` source is an iterator when its
 type, past views, is an object or enum (not a `List`, array, slice,
 `?String`, or range, which keep their own meaning) that declares
@@ -4326,10 +4337,10 @@ what it hands over (`sema.handsOver`), as every header does:
 
 | The source | It desugars to |
 |---|---|
-| a name or field path, written `!it` (a bare `it` is rejected) | `while (!it).next() as x` |
-| a made value `e` | `{ h = e; while (!h).next() as x }` |
-| `<it`, a name or field path | `{ h = <it; while (!h).next() as x }` |
-| a method call whose sigil the self-sigil rule put on its self (`?b.each()`, `!b.drain()`): a made value | `{ h = (?b).each(); while (!h).next() as x }` |
+| a name or field path, written `!it` (a bare `it` is rejected) | `while !it.next() as x` |
+| a made value `e` | `{ h = e; while !h.next() as x }` |
+| `<it`, a name or field path | `{ h = <it; while !h.next() as x }` |
+| a method call whose sigil the self-sigil rule put on its self (`?b.each()`, `!b.drain()`): a made value | `{ h = ?b.each(); while !h.next() as x }` |
 | `?it`, any other `?e`, an element `xs[i]`, a branching or part-of-made value, or `!e` of a made value | rejected |
 
 `h` is a binding of the block that holds the `while`, so a value made
@@ -4360,7 +4371,7 @@ keyword, which holds no leaf, whose `id` says which name they are
 `new` so an enclosing loop's does not clash with it, and is quoted in the
 emitted Zig. So every position the checkers order by (liveness, scope
 ends, loop extents) lies in the loop, as it does in the `h = …; while
-(!h).next() as x` written by hand, and the ownership checker walks the
+!h.next() as x` written by hand, and the ownership checker walks the
 same thing: a view of `h` that outlives the block is reported where the
 block ends. A node keeps its id and span (the `while` has the `for`'s).
 The result is an ordinary `while` with an `as` header, which the
@@ -6085,6 +6096,62 @@ pass owns one part.
   which a generic instance may make optional itself (`E[Int?]`).
 - **Tests.** `test/rig/types-matches.rig.test`, the `matches` cases of
   `types-match`, and the examples of docs/design/matches.md.
+
+## How templates are built
+
+A template, `` `a{x}b{=y}c` ``, is text made from pieces and slots; the
+rules are SPEC "Templates", and the design is
+[docs/history/records/2026-11/templates-t1.md](../history/records/2026-11/templates-t1.md).
+Each pass owns one part.
+
+- **Lexer.** The base lexer reads a backtick as `backtick`, which the
+  wrapper never hands on: it reads the template's text itself
+  (`Lexer.templatePiece`), to a slot's `{` (`TPL_HEAD`, `TPL_MID`) or the
+  closing backtick (`TPL_TAIL`), each token its delimiters included, and
+  between them lexes the slot as any code, with one slot open at most
+  (`Lexer.slot`). A `=` touching a slot's `{` is `TPL_SHOW`. The text's
+  strict rules (no slot, ``` `` ```, a name touching the backtick, a lone
+  `}`, a raw control or bidirectional character, a `\` ending the line)
+  and the slot's (a newline, `#`, a template, a `:` or `=` at its top)
+  are lexer errors.
+- **Parser.** `(template piece slot piece ... piece)`, a piece first and
+  last, and `(show eq value)` for `{=e}` (`rig.Template` reads them). A
+  piece is a leaf that reads as a string literal (`isStringLiteralText`);
+  its escapes are checked with a string's (`Checker.checkEscapes`).
+- **Type checker.** Where the template stands decides it. An argument of
+  `print`, `warn`, `panic`, `String(...)`, or `!t.add(...)` is its slots,
+  each checked as one of the call's arguments (`checkFormatArgs`,
+  `checkTemplateSlots`). Where a `String` or `?String` goes
+  (`checkTemplateAgainst`) and as an unannotated local's value
+  (`template_ok`), it is a `String`, which a `?String` reads as a
+  temporary of its statement: the lend and the temporary are the ones
+  `String(...)` gets there. With every slot an Int, a Bool, or a
+  `Static` Zig knows when it compiles (`templateFolds`), a template where
+  a `?String` or a `Static` goes, and a module's constant, is a `Static`.
+  Anywhere else it is rejected (`synthTemplate`), and so is `` s =
+  `{s}…` `` (`checkTemplateGrows`).
+- **Ownership checker.** A template's slots are read as `print` reads its
+  arguments, flat among the call's (`walkReadArgs`), so a later argument
+  that lends one to write is rejected as it would be beside a plain
+  argument; a template's value reads its slots and holds none of them.
+  The oracle lowers the same (`flatArgs`).
+- **Storage.** A template's `temp` is held `by` `buffer` (`storageOf`);
+  each slot's value is read by address or copied as a print argument is
+  (`printsByAddress`).
+- **Over several lines.** A backtick ending its line, and `"""` or
+  `'''` ending it (`Lexer.textBlock`), is text over several lines: the
+  lexer finds the closer first (`templateCloser`, past each slot on its
+  line), and checks every line against the margin (`rig.Block`,
+  `checkBlockLines`), so inner line breaks never reach layout. `"""` and
+  `'''` text is one string token; a template's pieces are its tokens
+  still. One function lays out the text past the margin
+  (`Block.write`), which emit (`rig.writeTemplatePiece`,
+  `rig.zigLiteral`) and the checker (`rig.literalBytes`) read through.
+- **Emit.** The pieces join the tuple a print, `String.of`, or `add`
+  takes (`emitTemplatePieces`), a show slot as its label and
+  `rig.showSlot(v)`; a `String` is `rig.String.of(...)`, a buffered
+  temporary `rig.TextBuf.keep(...)`, and fixed text `rig.fixedText(...)`,
+  which Zig joins when it compiles.
 
 ## Where Rig meets Zig 0.17
 

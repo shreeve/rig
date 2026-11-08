@@ -70,6 +70,14 @@ tokens
     real            # 3.14, .5, 1.0e10, 2e-3
     string_sq       # 'single'
     string_dq       # "double"
+    # A template, `` `a{x}b` ``: the Lexer wrapper reads the text between
+    # the slots itself, from the `backtick` the base lexer finds, and
+    # hands the parser its pieces with the slots' own tokens between.
+    backtick        # `   the base lexer's; never reaches the parser
+    tpl_head        # `a{  from the opening backtick to a slot's `{`
+    tpl_mid         # }b{  from a slot's `}` to the next slot's `{`
+    tpl_tail        # }c`  from the last slot's `}` to the closing backtick
+    tpl_show        # =   touching a slot's `{`: the show form `{=e}`
 
     # Keywords, `true` first and `yield` last (src/rig.zig reads the range
     # as Rig's keywords). Every keyword but `new`, `obj`, `api`, `add`,
@@ -239,6 +247,7 @@ tokens
 # escape (`\t`, `\n`), which only double-quoted strings take.
 '"' ([^"\\\x00-\x1f\x7f] | '\\' [^\x00-\x1f\x7f])* '"'  → string_dq
 "'" ([^'\x00-\x1f\x7f] | "''")* "'"             → string_sq
+'`'                                         → backtick
 
 # Numbers: `_` may separate digits; radix prefixes are lowercase, and a
 # decimal number has no leading zero. Anything else that starts with a
@@ -473,6 +482,10 @@ tokens
     break                       value? label:leaf?
     continue                    label:leaf?
     panic                       ...args          # `panic(a, b)`: ends the program
+    # `` `a{x}b{=y}c` ``: text leaves (each piece's token, its delimiters
+    # included) and slots, alternately, first and last a text leaf
+    template                    ...parts
+    show                        eq:leaf value    # `{=e}`: `eq` is its `=`, which with the next text leaf bounds the label
     defer, errdefer             body
     raw_block                   body:block
     propagate, propagate_none   value
@@ -529,6 +542,7 @@ tokens
     # operator as it is written.
     IDENT: "a name", INTEGER: "an integer", REAL: "a number"
     STRING_SQ: "a string", STRING_DQ: "a string"
+    TPL_HEAD: "a template", TPL_MID: "`}`", TPL_TAIL: "`}`", TPL_SHOW: "`=`", BACKTICK: "a backtick"
     NEWLINE: "the end of the line", INDENT: "an indented block"
     OUTDENT: "the end of the block"
     POST_IF: "`if`", TERNARY_IF: "`if`", BAR_CAPTURE: "`|`", BAR_EMPTY: "`||`"
@@ -1410,6 +1424,14 @@ atom     = name
          | "(" expr ")"                             → (paren 2)
          | "(" cclosure ")"                         → 2
          | "(" expr "," texprs ![","] ")"           → (tuple 2 ...4)
+         | TPL_HEAD tslots TPL_TAIL                 → (template 1 ...2 3)
+
+# A template's slots and the text between them (`TPL_MID`), in order.
+tslots   = tslot                                    → (1)
+         | tslots TPL_MID tslot                     → (...1 2 3)
+
+tslot    = expr
+         | TPL_SHOW expr                            → (show 1 2)
 
 # ==============================================================================
 # INFIX OPERATORS (lowest precedence first; operands are `unary`)

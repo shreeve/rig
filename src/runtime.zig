@@ -6018,7 +6018,7 @@ const concurrent = builtin.is_test or makes_tasks;
 /// A program that makes tasks runs them on the scheduler (`sched.zig`).
 pub const scheduled = makes_tasks;
 
-/// Built with `RIG_PREEMPT=signal`, a program that makes tasks declares
+/// Built to be preempted, a program that makes tasks declares
 /// `__rig_preempt` in its root: where the system has the preemption it
 /// needs (`sched.preempt_built`), a task that runs a slice without
 /// waiting is stopped by a signal (`sched.zig`, "Preemption"), and its
@@ -6152,11 +6152,11 @@ fn ownAllocator() std.mem.Allocator {
 pub const fast_alloc = @import("alloc.zig");
 
 /// Whether `extend_from_bytes` maps a large run of the program's own
-/// bytes rather than copying it (`alloc.mapRun`): in a Linux build that
-/// takes `fast_alloc`, a release build with no heap profile. Debug and
-/// sanitized builds copy, so the leak checker and `RIG_SANITIZE` see heap
-/// buffers, and so does macOS.
-const maps_runs = builtin.os.tag == .linux and !leak_checked and !heap_profile and !fills;
+/// bytes rather than copying it (`alloc.mapRun`): in a Linux or macOS
+/// build that takes `fast_alloc`, a release build with no heap profile.
+/// Debug and sanitized builds copy, so the leak checker and `RIG_SANITIZE`
+/// see heap buffers.
+const maps_runs = fast_alloc.maps_files and !leak_checked and !heap_profile and !fills;
 
 // Rig's own allocations skip the fill Zig's safe builds write over every
 // new, moved, and freed buffer (`std.mem.Allocator.alloc`, `realloc`,
@@ -7470,7 +7470,7 @@ const SwitchStack = *const fn (arg: *anyopaque, run: *const fn (*anyopaque) call
 /// `switchStackNaked` as a function to call. The empty `asm` hides which
 /// function the pointer names, so no optimizer inlines the naked body,
 /// which takes its arguments in registers only a call sets.
-fn switchStack(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, top: usize) void {
+pub fn switchStack(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, top: usize) void {
     var f: SwitchStack = @ptrCast(&switchStackNaked);
     asm volatile (""
         : [f] "+r" (f),
@@ -7753,7 +7753,7 @@ pub fn start(init: std.process.Init.Minimal) void {
         const act: std.posix.Sigaction = .{
             .handler = .{ .handler = onBrokenPipe },
             .mask = std.posix.sigemptyset(),
-            .flags = 0,
+            .flags = std.posix.SA.ONSTACK,
         };
         var old: std.posix.Sigaction = undefined;
         std.posix.sigaction(.PIPE, &act, &old);
@@ -7761,6 +7761,7 @@ pub fn start(init: std.process.Init.Minimal) void {
     }
     if (traps_sent) installTrapHandler();
     if (cancels_on_interrupt) cancelOnInterrupt();
+    if (makes_tasks) handlersOnAltStack();
     // The backend that runs tasks, set up after that handler, which it
     // saves and puts back when `finish` joins it. Its own allocations are
     // outside the leak count.
@@ -7809,6 +7810,45 @@ pub fn start(init: std.process.Init.Minimal) void {
 }
 
 fn onBrokenPipe(_: std.posix.SIG) callconv(.c) void {}
+
+/// Every signal handler runs on its thread's alternate stack (`AltStack`),
+/// never on a task's, where the frame the kernel writes for it, up to
+/// several KiB, would take room the task's own frames were given. The
+/// runtime's own handlers are installed so (`SA_ONSTACK`); one other code
+/// installed before the program started, as a C library may as it loads,
+/// is installed again so here, as Go's runtime does.
+fn handlersOnAltStack() void {
+    if (std.posix.Sigaction == void) return;
+    inline for (.{ "HUP", "INT", "QUIT", "ILL", "TRAP", "ABRT", "BUS", "FPE", "USR1", "SEGV", "USR2", "PIPE", "ALRM", "TERM", "CHLD", "CONT", "TSTP", "TTIN", "TTOU", "URG", "XCPU", "XFSZ", "VTALRM", "PROF", "WINCH", "IO", "SYS" }) |name| {
+        if (@hasField(std.posix.SIG, name)) onAltStack(@field(std.posix.SIG, name));
+    }
+}
+
+/// Install `sig`'s handler again with `SA_ONSTACK`, if it has one without.
+fn onAltStack(sig: std.posix.SIG) void {
+    var old: std.posix.Sigaction = undefined;
+    std.posix.sigaction(sig, null, &old);
+    const h = old.handler.handler;
+    if (h == std.posix.SIG.DFL or h == std.posix.SIG.IGN or old.flags & std.posix.SA.ONSTACK != 0) return;
+    old.flags |= std.posix.SA.ONSTACK;
+    std.posix.sigaction(sig, &old, null);
+}
+
+test "a handler installed without SA_ONSTACK is installed again with it" {
+    if (std.posix.Sigaction == void) return;
+    const H = struct {
+        fn on(_: std.posix.SIG) callconv(.c) void {}
+    };
+    var before: std.posix.Sigaction = undefined;
+    const act: std.posix.Sigaction = .{ .handler = .{ .handler = H.on }, .mask = std.posix.sigemptyset(), .flags = 0 };
+    std.posix.sigaction(.USR2, &act, &before);
+    defer std.posix.sigaction(.USR2, &before, null);
+    handlersOnAltStack();
+    var now: std.posix.Sigaction = undefined;
+    std.posix.sigaction(.USR2, null, &now);
+    try std.testing.expect(now.flags & std.posix.SA.ONSTACK != 0);
+    try std.testing.expect(now.handler.handler == H.on);
+}
 
 /// What a write to stdout does once its reader has closed the pipe, as
 /// `os.on_broken_pipe` sets it: false ends a `print` with status 0 and
@@ -8014,7 +8054,7 @@ fn cancelOnInterrupt() void {
     const act: std.posix.Sigaction = .{
         .handler = .{ .handler = onInterrupt },
         .mask = std.posix.sigemptyset(),
-        .flags = if (scheduled) std.posix.SA.RESTART else 0,
+        .flags = std.posix.SA.ONSTACK | if (scheduled) std.posix.SA.RESTART else 0,
     };
     // A signal the program started with ignored (`nohup`, `prog &` in a
     // script) stays ignored, as a shell leaves it.
@@ -8069,7 +8109,7 @@ const wake_installed = split.cell(&wake_installed_var, "runtime.wake_installed")
 fn installWake() void {
     if (std.posix.Sigaction == void) return;
     if (wake_installed.load(.acquire)) return;
-    const act: std.posix.Sigaction = .{ .handler = .{ .handler = onWake }, .mask = std.posix.sigemptyset(), .flags = 0 };
+    const act: std.posix.Sigaction = .{ .handler = .{ .handler = onWake }, .mask = std.posix.sigemptyset(), .flags = std.posix.SA.ONSTACK };
     std.posix.sigaction(wake_signal, &act, null);
     wake_installed.store(true, .release);
 }
@@ -8173,7 +8213,21 @@ fn stdout() *std.Io.Writer {
 /// Write out everything `print` has buffered. A write that fails ends
 /// the program (`stdoutFailed`).
 fn flush() void {
-    if (stdout_writer.*) |*w| w.interface.flush() catch stdoutFailed();
+    if (stdout_writer.*) |*w| flushOff(&w.interface) catch stdoutFailed();
+}
+
+/// Write out `w`'s buffer on the worker's stack (`sched.onWorkerStack`),
+/// not the task's: the writer's drain and the system's `write` wait on no
+/// fiber, only on the thread (a full pipe blocks it, as before), and their
+/// frames, through the writer's vtable, are not the task's stack to bound
+/// (docs/history/records/2026-11/task-memory/cold-paths.md).
+fn flushOff(w: *std.Io.Writer) std.Io.Writer.Error!void {
+    if (scheduled) return sched.onWorkerStack(flushWriter, .{w});
+    return w.flush();
+}
+
+fn flushWriter(w: *std.Io.Writer) std.Io.Writer.Error!void {
+    return w.flush();
 }
 
 /// Write out what `print` has buffered before a thread blocks, waiting
@@ -8185,7 +8239,7 @@ fn flush() void {
 pub fn flushBeforeWait() void {
     if (concurrent and !tryLockOutput()) return;
     defer unlockOutput();
-    if (stdout_writer.*) |*w| if (w.interface.end != 0) w.interface.flush() catch {};
+    if (stdout_writer.*) |*w| if (w.interface.end != 0) flushOff(&w.interface) catch {};
 }
 
 /// Write out what `print` has buffered on the way out of a program that
@@ -8193,7 +8247,7 @@ pub fn flushBeforeWait() void {
 /// `main`, a fault): a write that fails is dropped, so the report still
 /// comes.
 fn flushQuietly() void {
-    if (stdout_writer.*) |*w| w.interface.flush() catch {};
+    if (stdout_writer.*) |*w| flushOff(&w.interface) catch {};
 }
 
 /// One `print`: its pieces in order, the spaces between its arguments and
@@ -8532,6 +8586,67 @@ fn writeArgs(w: *std.Io.Writer, pieces: anytype) std.Io.Writer.Error!void {
     };
 }
 
+/// A template whose slots are all known when the program compiles: its
+/// pieces joined there into one constant (`piecesOf`), a `Static`.
+pub inline fn fixedText(comptime pieces: anytype) []const u8 {
+    const plan = comptime piecesOf(@TypeOf(pieces));
+    comptime std.debug.assert(plan.len <= 1);
+    return if (plan.len == 0) "" else comptime plan[0].text;
+}
+
+/// The value of a template's show slot, `{=e}`: written as a part of
+/// another value is (`writeValue` not at the top), so text is quoted and
+/// escaped and `none` shows.
+pub fn Shown(comptime T: type) type {
+    return struct {
+        value: T,
+        pub const __rig_shown = {};
+    };
+}
+
+/// `{=e}`'s value, `v` (`Shown`).
+pub inline fn showSlot(v: anytype) Shown(@TypeOf(v)) {
+    return .{ .value = v };
+}
+
+/// The text of a template that a `?String` reads, a temporary of its
+/// statement: written into the slot's own `stack` while it fits, and
+/// into one heap block past it, which `__rig_drop` frees. The slot lives
+/// in the caller's frame, so the view `bytes` gives lives until the
+/// statement drops it. No String is made.
+pub const TextBuf = struct {
+    stack: [size]u8,
+    heap: String,
+    len: usize,
+
+    pub const size = 256;
+
+    /// Write `pieces` (as `String.of` takes them) into `slot`, mark it
+    /// live, and give it.
+    pub inline fn keep(slot: *TextBuf, live: *bool, pieces: anytype) *TextBuf {
+        slot.fill(pieces);
+        live.* = true;
+        return slot;
+    }
+
+    noinline fn fill(self: *TextBuf, pieces: anytype) void {
+        var out: Spill = .init(&self.stack);
+        writeArgs(&out.writer, pieces) catch unreachable;
+        self.len = out.writer.end;
+        self.heap = out.heap;
+    }
+
+    /// The text: in the stack, or in the heap block it spilled into.
+    pub fn bytes(self: *const TextBuf) []const u8 {
+        if (self.heap.list.capacity != 0) return self.heap.list.items.ptr[0..self.len];
+        return self.stack[0..self.len];
+    }
+
+    pub fn __rig_drop(self: *TextBuf) void {
+        self.heap.__rig_drop();
+    }
+};
+
 /// A writer whose bytes go into a buffer on the stack until it is full,
 /// then into `heap`, a String's block that grows as `add` grows one:
 /// what a rendered `print` or `warn` line, an error's report, and
@@ -8732,6 +8847,7 @@ pub noinline fn fail(pieces: anytype) noreturn {
 /// death answers the calls queued on it, and a caller that panics at
 /// that answer, on another worker, must not be the one reported.
 fn panicWith(what: anytype, comptime write: anytype, trace: ?usize) noreturn {
+    if (scheduled) sched.panicOnFiberStack(panicWith, .{ what, write, trace });
     const ends = if (comptime printRunsCode(@TypeOf(what), print_code_depth)) rendered: {
         var stack: [rendered_stack]u8 = undefined;
         var report: Spill = .init(&stack);
@@ -8755,11 +8871,19 @@ fn panicWith(what: anytype, comptime write: anytype, trace: ?usize) noreturn {
 fn reportPanic(what: anytype, comptime write: anytype) bool {
     const ends = panicEnds();
     if (ends) beginPanic() else flushForPanic();
-    var buf: [1024]u8 = undefined;
-    const ls = std.debug.lockStderr(&buf);
-    defer std.debug.unlockStderr();
-    write(&ls.file_writer.interface, what) catch {};
-    ls.file_writer.interface.flush() catch {};
+    // The report itself on the worker's stack (`sched.onWorkerStack`):
+    // `what` is text, or a value whose writing runs no program code
+    // (`panicWith` renders one that does first, on the task's stack).
+    const Report = struct {
+        fn run(w: @TypeOf(what)) void {
+            var buf: [1024]u8 = undefined;
+            const ls = std.debug.lockStderr(&buf);
+            defer std.debug.unlockStderr();
+            write(&ls.file_writer.interface, w) catch {};
+            ls.file_writer.interface.flush() catch {};
+        }
+    };
+    if (scheduled) sched.onWorkerStack(Report.run, .{what}) else Report.run(what);
     return ends;
 }
 
@@ -8940,6 +9064,8 @@ const max_print_depth = 64;
 /// is, and quoted everywhere else.
 fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!void {
     const T = @TypeOf(value);
+    // A template's show slot, `{=e}`: the value as a part of another.
+    if (comptime @typeInfo(T) == .@"struct" and @hasDecl(T, "__rig_shown")) return writeValue(w, value.value, false);
     if (comptime ownsApi(T, "__rig_own_print")) {
         var out: Printer = .{ .w = w };
         T.__rig_own_print(&value, &out);

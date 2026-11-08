@@ -373,8 +373,9 @@ it yields its bytes as `U8`. `s.is_empty()` is `s.len == 0`; it works
 the same on a List, an array, a slice, and a `Cell[List[T]]`, and a
 type's own `is_empty` method wins on that type.
 
-A string literal, in either quotes, ends on its line. A text longer than
-a line is made of several, `String(a, b, c)`, one String of their bytes
+A string literal, in either quotes, ends on its line, but for text over
+several lines ([below](#text-over-several-lines)). A String may also be
+made of several literals, `String(a, b, c)`, one String of their bytes
 in order.
 
 ```rig
@@ -525,6 +526,155 @@ sub main()
 
 ```error
 type mismatch: expected `Static`, got `?String`
+```
+
+#### Templates
+
+A template builds text from pieces: `` `n = {n}, {=total}` ``
+is fixed text with **slots** between braces. A slot takes exactly what
+an argument of `print` takes ([§17](#17-printing-and-stopping)); each is
+evaluated once, left to right, before any byte is written, and its
+value is written as `print` writes it, with no separators: a template
+writes what is typed. The show form `{=e}` writes the expression as
+typed, its outer spaces trimmed, then ` = `, then the value as it prints
+inside another value, so text is quoted and `none` is visible. Inside
+backticks a `"` needs no escape, and a literal brace or backtick is
+`\{`, `\}`, or `` \` ``; the other escapes are a `"…"` string's, which
+is to take these three too *(planned)*.
+
+Where a template stands decides what it becomes:
+
+- an argument of `print`, `warn`, or `panic`: its pieces, written
+  straight to the output, with nothing allocated;
+- an argument of `String(...)` or `!t.add(...)`: its pieces, as that
+  call's arguments;
+- where a `?String` is expected: a temporary of its statement
+  ([§7](#temporaries)), built in 256 bytes of the caller's stack and
+  then on the heap, and freed when the statement ends, so a view of it
+  cannot outlive the statement;
+- where a `String` is expected (a binding, a field, an array's element
+  or one pushed into a List, a return, an owning parameter): a new String, one allocation of its
+  length.
+
+Anywhere else, such as an operand of `==` or the object of `.len`, a
+template is rejected. A template whose every slot is a constant is
+built when the program is compiled.
+
+```rig
+use std.text
+
+obj User
+  name: String
+  age: Int
+
+fun label(u: ?User) -> String
+  `{u.name} ({u.age})`
+
+sub main()
+  first = "ada"
+  n = 3
+  print(`{first} has {n} tasks`, "!")
+  u = User(name: `{first} lovelace`, age: 36)
+  print(label(?u), text.trim(`  {u.age}  `).len)
+  t = String("[")
+  !t.add(`{n}, {n * 2}`, "]")
+  print(t, `{=first} {=n * 2}`)
+  o: Int? = none
+  print(`{=o} "quoted" \{braces\}`)
+```
+
+```output
+ada has 3 tasks !
+ada lovelace (36) 2
+[3, 6] first = "ada" n * 2 = 6
+o = none "quoted" {braces}
+```
+
+A template that reads the binding it assigns would copy all of its text
+on every step of a loop, so it is rejected; `!s.add(...)` appends in
+place. A view of a temporary template may not outlive its statement.
+
+```rig reject
+sub main()
+  s = `{1 + 1}`
+  for i in 0..3
+    s = `{s}{i}`
+  print(s)
+```
+
+```error
+this template reads `s`, the binding it assigns, so it copies all of `s` each time; append in place with `!s.add(...)`
+```
+
+A template has a slot: fixed text is written `"…"`. A slot holds an
+expression: an empty slot `{}`, a slot of only a literal (`{0}`), a `:`
+outside brackets (formatting is a method's job), a `#`, and a template
+in a slot are each rejected, as are a name touching a backtick and two
+backticks together, which are kept for later forms.
+
+```rig reject
+sub main()
+  print(`no slots here`)
+```
+
+```error
+a template has a slot; fixed text is written in double quotes, `"…"`
+```
+
+#### Text over several lines
+
+`"""` (with escapes) and `'''` (raw) open fixed text over several lines
+when the opener ends its line, and a backtick that ends its line opens a
+template over several lines. The text starts on the next line and runs to
+the same three quotes, or the closing backtick. The closer's column is
+the **margin**: each line's spaces up to it are layout, and the spaces
+past it are text, the first line's too. A line with text less indented
+than a closer that stands alone on its line is rejected. When the closer
+follows text on its last line, the margin is the shallowest line's
+indentation. The line break after the opener, and the one before a
+closer alone on its line, are not text; a line of only spaces is empty,
+the spaces ending a line are dropped (`\x20` keeps one), a CRLF is a line
+feed, and a tab in the margin is rejected. So moving the whole text
+deeper or shallower never changes it. A slot stays on one line, and code
+goes on after the closer. `"""` and `'''` text is a `Static`.
+Mid-line, `'''abc'''` is the raw string `'abc'`, as always, and
+`"""abc"""` is rejected.
+
+```rig
+sub main()
+  usage = """
+    usage: tool [flags] FILE
+      -v  say more
+    """
+  path = '''
+    C:\new
+    '''
+  name = "tool"
+  print(usage)
+  print(`
+    {name}: {usage.len} bytes
+      in {path}
+    `)
+```
+
+```output
+usage: tool [flags] FILE
+  -v  say more
+tool: 39 bytes
+  in C:\new
+```
+
+```rig reject
+sub main()
+  s = """
+    a
+   b
+    """
+  print(s)
+```
+
+```error
+this line is less indented than the text's closer, whose column is the margin
 ```
 
 ### Arrays
@@ -1714,7 +1864,7 @@ obj Counter
 
 sub main()
   c = Counter(n: 0, m: 0)
-  w, big = (!c).bump(5)
+  w, big = !c.bump(5)
   w += 10
   print(big, c.m)
 ```
@@ -2196,7 +2346,7 @@ sub main()
   v: List[Int] = List()
   !v.push(1)
   x = !v.pop() ?? 0
-  y = (!v).pop() ?? 0
+  y = !v.pop() ?? 0
   print(x, y)
 ```
 
@@ -3305,7 +3455,7 @@ obj Shelf[T]
     !@items.push(<x)
 
   fun take(!@) -> T?
-    (!@items).pop()
+    !@items.pop()
 
 fun pick[T](a: T, b: T, first: Bool) -> T
   if first
@@ -3318,7 +3468,7 @@ sub main()
   s = Shelf[*Track](items: List())
   !s.add(*Track(title: "intro"))
   !s.add(*Track(title: "outro"))
-  if (!s).take() as last
+  if !s.take() as last
     print("took", last.title)
   print("left", s.items.len, pick(1, 2, true))
 ```
@@ -3985,7 +4135,7 @@ with `Item` its `T`, and an API may build on it, `api Stream: Iter`.
 A bound by `Iter` takes the iterator itself, never a view of it or a
 box that holds it (`show[Words](!w)` lends a `^Words`'s iterator),
 whose `next` the module may call. A value of an associated type that a call
-on its base gives (`a = (!s).take()` of an `S.Item`, an item of
+on its base gives (`a = !s.take()` of an `S.Item`, an item of
 `next`) views that base only at an instance whose associated type may
 view memory the base owns (`next(!@) -> (?String)? from @` over the
 iterator's own `String`), and there it keeps the base lent as the same
@@ -3998,7 +4148,7 @@ views, view no base: `text.split`'s, and those of a `next` whose `from`
 names only fields declared as read views (`next(!@) -> (?K)? from
 @map`, as a Map's and a Set's iterators declare). A body that holds no
 item past a change of its base, as a chain's `count` does, takes every
-iterator: `(!it).count()` and `(!it).sum()` take any iterator
+iterator: `!it.count()` and `!it.sum()` take any iterator
 ([Chains](#chains)).
 
 ```rig
@@ -4017,11 +4167,11 @@ obj Count: Source
     @n
 
   fun next(!@) -> Int?
-    (!@).take()
+    !@take()
 
 fun most[S: Source, S.Item: Ord + Copy](s: !S) -> S.Item?
-  best = (!s).take() ?? return none
-  while (!s).take() as x
+  best = !s.take() ?? return none
+  while !s.take() as x
     best = x if x > best
   best
 
@@ -4030,7 +4180,7 @@ sub main()
   print(most(!c) ?? -1)
   d = Count(n: 0, hi: 4)
   e = Count(n: 0, hi: 4)
-  print((!d).count(), (!e).sum())
+  print(!d.count(), !e.sum())
 ```
 
 ```output
@@ -4046,7 +4196,7 @@ obj Floats
     none
 
 fun distinct[I: Iter, I.Item: Hash](it: !I) -> Int
-  (!it).count()
+  !it.count()
 
 sub main()
   f = Floats(x: 1.0)
@@ -4692,7 +4842,7 @@ test "a list grows and shrinks"
   !xs.push(1)
   !xs.push(2)
   return false if xs.len != 2
-  n = (!xs).pop() ?? -1
+  n = !xs.pop() ?? -1
   n == 2 and xs.len == 1
 
 # A call that can fail: `!` fails the test with its error.
@@ -6359,7 +6509,7 @@ a loop over a List of `String` walks a List that a name holds, or a field or ele
 ```
 
 An iterator is a value whose type declares `next(!@) -> T?`. A
-`for` over one is the loop `while (!it).next() as x`, so each `x` is
+`for` over one is the loop `while !it.next() as x`, so each `x` is
 what `as` binds over the `T?` the call gives, the loop ends when `next`
 gives `none`, and `break`, `continue`, and labels work as they do for a
 `while`.
@@ -6369,10 +6519,10 @@ written decides what the loop does with it:
 
 | Source | The loop is |
 |---|---|
-| `!it`: a name, or a field path from one (`a.b`); a bare `it` is rejected | `while (!it).next() as x` |
-| `mk()`: a value made there | `h = mk()` held for the loop, then `while (!h).next() as x`; `h` ends with the loop |
-| `<it`: a name or field path the loop takes | `h = <it` held for the loop, then `while (!h).next() as x`; `it` is moved |
-| `?b.each()`, `!b.drain()`: a method call, whose sigil lends its self as before any call | `h = (?b).each()` held for the loop, then `while (!h).next() as x`; `b` stays lent while the loop holds `h` |
+| `!it`: a name, or a field path from one (`a.b`); a bare `it` is rejected | `while !it.next() as x` |
+| `mk()`: a value made there | `h = mk()` held for the loop, then `while !h.next() as x`; `h` ends with the loop |
+| `<it`: a name or field path the loop takes | `h = <it` held for the loop, then `while !h.next() as x`; `it` is moved |
+| `?b.each()`, `!b.drain()`: a method call, whose sigil lends its self as before any call | `h = ?b.each()` held for the loop, then `while !h.next() as x`; `b` stays lent while the loop holds `h` |
 | `?it` | rejected: reading an iterator cannot advance it |
 
 A type with a `next` of another shape (`next(?@)`, one that takes
@@ -6408,7 +6558,7 @@ sub main()
     print("then", n)
   ws = text.words("a bb ccc")
   first = loop
-    w = (!ws).next() ?? break "none"
+    w = !ws.next() ?? break "none"
     break w if w.len > 1
   print(first)
   for n in upto(2)
@@ -6528,7 +6678,7 @@ function a chain takes is bound once, before the loop, so a capture
 holds for the whole chain; a function that can fail is rejected for
 now. `take` stops before the item it does not need, so a chain on an
 iterator pulls no item past it. An iterator in a place advances, so a
-chain lends it to write, `(!it).map(f).sum()`; a call whose result
+chain lends it to write, `!it.map(f).sum()`; a call whose result
 views its self is lent to read, `?m.keys().count()`. A chain is
 checked stage by stage before it becomes its loop, so an error names
 the stage and the items it meets: `` `sum` adds numbers, and these items
@@ -8208,7 +8358,7 @@ the checker tracks where every one came from.
   `from @a.b`, through fields and boxes, of at most 8 fields: the
   result then carries the loans self holds and a loan on that path
   alone, or, for a field declared as a read view, none on self
-  ([Places](#places)). A task (`(!s).m()&`) is its call, still
+  ([Places](#places)). A task (`!s.m()&`) is its call, still
   running, and keeps all of self lent. An API names no fields. A function lent as a value (`?first`) is called
   with what its type says, as if it had no clause.
 - A view reached through another view views what that view views,
@@ -8300,7 +8450,7 @@ obj Bag
 sub main()
   b = Bag(items: List(), taken: 0)
   !b.items.push(4)
-  r = (!b).take()
+  r = !b.take()
   print(b.taken, b.items.len)
   print(r)
 ```
@@ -8713,7 +8863,7 @@ sub main()
   for v in [1, 2, 3]
     !s.push(v)
   !s.reverse()
-  print((!s).pop(), (!s).pop(), (!s).pop(), (!s).pop())
+  print(!s.pop(), !s.pop(), !s.pop(), !s.pop())
 ```
 
 ```output
@@ -8763,7 +8913,7 @@ ab 1
 
 A method lends all of self: its signature says `!@`, and a
 caller does not look into its body. To lend only the fields a step
-writes, lend them, `(!@ast).add(...)`, or make the step a function
+writes, lend them, `!@ast.add(...)`, or make the step a function
 of those fields, which a caller gives disjoint paths:
 
 ```rig reject
@@ -8775,7 +8925,7 @@ obj Parser
     @count += t.len
 
   sub step(!@)
-    (!@).bump(@value)
+    !@bump(@value)
 
 sub main()
   p = Parser(value: String("id"), count: 0)
@@ -8825,7 +8975,7 @@ obj P
 
 sub main()
   p = P(a: Holder(t: ""), b: String("x"))
-  (!p.a).keep(?p.b)
+  !p.a.keep(?p.b)
   print(p.a.t)
 ```
 
@@ -8838,7 +8988,7 @@ self's type could hold what it views, unless its `from` names the path
 of self it views (`-> ?String from @text`, Core sentence 7): then it
 carries the loans self holds and a loan on that path alone, so the
 caller may use self's other fields while the result lives; a use of all
-of self (`(!s).m()`, `<s`, `s = x`) still touches the path. A path
+of self (`!s.m()`, `<s`, `s = x`) still touches the path. A path
 that is a field declared as a read view (`text: ?String` here) puts no
 loan on self at all, so `number` lends `@` to write again while
 `whole` lives:
@@ -8856,9 +9006,9 @@ obj Scanner
     @text[start..@pos]
 
   sub number(!@)
-    whole = (!@).digits()
+    whole = !@digits()
     @pos += 1
-    frac = (!@).digits()
+    frac = !@digits()
     print(whole, frac)
 
 sub main()
@@ -9228,10 +9378,10 @@ default (`hits: Cell[Int] = Cell(0)`).
 | `*Cell(v)` | construct, behind a shared handle |
 | `c.get()` | a copy of the value (a `T` that copies only) |
 | `!c.set(v)` | store `v`; the old value is dropped |
-| `(!c).swap(v)` | store `v` and return the old value |
+| `!c.swap(v)` | store `v` and return the old value |
 | `(!c).compare_swap(old, new)` | store `new` if the value is `old`, at once; whether it did (a Cell of one word) |
-| `(!c).add(n)`, `(!c).sub(n)` | count, and return the new value (a `Cell[Int]`) |
-| `!c.push(x)`, `(!c).pop()`, `!c.keep(n)`, `!c.clear()`, `c.len` | a `Cell[List[T]]`: its List's members |
+| `!c.add(n)`, `!c.sub(n)` | count, and return the new value (a `Cell[Int]`) |
+| `!c.push(x)`, `!c.pop()`, `!c.keep(n)`, `!c.clear()`, `c.len` | a `Cell[List[T]]`: its List's members |
 | `c[i]`, `(!c)[i] = x`, `c.get(i)` | a `Cell[List[T]]` whose `T` copies: an element, bounds-checked, or `T?` |
 
 `T` is plain data ([§2](#kinds-of-value)), a value that copies and
@@ -9404,13 +9554,13 @@ sub main()
   print(shared.len, shared[0], shared.get(1), shared.get(2))
 
   # Anything else: take the value out, use it, and put it back.
-  v = (!shared).swap(List())
+  v = !shared.swap(List())
   sum = 0
   for x in ?v
     sum += x
   !shared.set(<v)
   print(sum, shared.len)
-  if (!shared).pop() as last
+  if !shared.pop() as last
     print("popped", last, shared.len)
 ```
 
@@ -9556,7 +9706,7 @@ names the field that is not. A literal or an embedded file
 rejected where the call is written. The List keeps no view of `s`: its
 bytes are copied. A large run of the program's own bytes, 64 KiB or
 more of an embedded file or a literal, added to an empty List may be
-mapped rather than copied, in a Linux release build: its pages are read
+mapped rather than copied, in a Linux or macOS release build: its pages are read
 from the program's file when first touched and copied when first
 written, so a table the program only reads costs no copy and no memory
 it does not touch. The List owns its elements as any List does, and
@@ -9692,7 +9842,7 @@ sub main()
   nums: List[Int] = List()
   !nums.push(3)
   !nums.push(4)
-  while (!nums).pop() as n
+  while !nums.pop() as n
     !total.set(total.get() + n * 100)
   print(total.get(), steps.len)
 ```
@@ -9707,7 +9857,7 @@ sub main()
   !v.push("b")
   !v.insert(0, "a")
   !v.insert(v.len, "c")
-  gone = (!v).remove(1)
+  gone = !v.remove(1)
   print(gone, v)
 ```
 
@@ -9734,7 +9884,7 @@ sub main()
   bs: List[*B] = List()
   !bs.push(*B(n: 1))
   !bs.push(*B(n: 2))
-  if (!bs).pop() as last
+  if !bs.pop() as last
     print("popped", last.n)
   print("left", bs.len)
 ```
@@ -9760,7 +9910,7 @@ are; a slot is plain data.
 | Member | Meaning |
 |---|---|
 | `Table()`, `Table[T, n]()` | a table of `n` slots, each `T()` (typed by context or by brackets); made as the program runs, so it is never a field's default |
-| `(!t).push(x)`, `!t.push(x)` | write slot `len`, add one to `len`, and give that slot as a `Slot[n]`; panics with "a table of `n` slots is full" when all `n` are pushed |
+| `!t.push(x)` | write slot `len`, add one to `len`, and give that slot as a `Slot[n]`; panics with "a table of `n` slots is full" when all `n` are pushed |
 | `t.len` | the number of slots pushed |
 | `t[s]`, `t[s] = x` | slot `s`, a `Slot[n]`, a place as a List's element is: read in place, lent with `?t[s]` or `!t[s]`, and assigned, which drops the old value; no test |
 | `t[i]` | with an integer `i`, the slot tested `0 <= i < n` (not `len`) |
@@ -9783,8 +9933,8 @@ obj Ty
 
 sub main()
   t: Table[Ty, 1024] = Table()
-  a = (!t).push(Ty(flags: 1))
-  b = (!t).push(Ty(flags: 2))
+  a = !t.push(Ty(flags: 1))
+  b = !t.push(Ty(flags: 2))
   t[b].flags += 40
   print(a, b, t[b].flags, t.len)
   far: Slot[1024] = 1000
@@ -10048,9 +10198,10 @@ String. A `?String` is the view of text; a String is where text is built.
 Each value is written as `print` writes it at the top level: a `?String`
 or a String as its text, a number as `print` shows it, an object, enum,
 optional, array, or List as `print` writes it, with the `?String` values inside
-it quoted. Rig has no `+` on text and no interpolation: text is built
-with `String(...)` and `!t.add(...)`, and every change to a String is
-written with `!`.
+it quoted. Rig has no `+` on text: text is built with `String(...)`,
+`!t.add(...)`, and a template where a String goes
+(`` u.name = `{first} {last}` ``, [Templates](#templates)), and every
+change to a String is written with `!`.
 
 ```rig
 obj Point
@@ -10399,12 +10550,12 @@ obj RenderState
   template: String
 
   fun render(!@, name: ?String) -> String
-    +(!@cache).ensure_with(String(name), |?@template, k| String(@template, k, "!"))
+    +!@cache.ensure_with(String(name), |?@template, k| String(@template, k, "!"))
 
 sub main()
   s = RenderState(cache: Map[String, String](), template: String("Hello, "))
-  print((!s).render("Ada"))
-  print((!s).render("Ada"))
+  print(!s.render("Ada"))
+  print(!s.render("Ada"))
   print(s.cache.len)
 ```
 
@@ -10800,7 +10951,7 @@ sub main()
     k.calls += 1
     t * 2
   !c.mappers.push(Mapper(f: <double))
-  r = (!c).map(0, 21)
+  r = !c.map(0, 21)
   print(r, c.calls)
 ```
 
@@ -10831,7 +10982,7 @@ fun resolver(name: ?String) -> *fun(!Checker) -> Int
   *|<owned, <cache, c|
     if cache.get() as v
       return v
-    n = (!c).global_type(?owned)
+    n = !c.global_type(?owned)
     !cache.set(n)
     n
 
@@ -11041,7 +11192,7 @@ sub main()
 
 An `if` or `while` condition may join several bindings, and `Bool`
 conditions among them, with `and`: `if a as x and b as y`,
-`if a as x and x > 3`, `while (!q).pop() as n and n > 0`. `as` binds
+`if a as x and x > 3`, `while !q.pop() as n and n > 0`. `as` binds
 tighter than `and`, and the parts run in order, each only when the ones
 before it held. Each binding is visible to the parts after it and to
 the body, not to `else`, which runs when any part fails (and a loop
@@ -11071,7 +11222,7 @@ sub main()
   for n in 1..6
     !xs.push(n)
   total = 0
-  while (!xs).pop() as n and n > 2
+  while !xs.pop() as n and n > 2
     total += n
   print(total, xs.len)
 ```
@@ -12935,7 +13086,9 @@ writes the same line to stderr, and `panic(a, b, ...)` writes it to
 stderr and ends the program ([below](#panic)). They take values by
 position only: a keyword argument is rejected. `print` and `warn` are
 only special as direct calls; they are not values, and a declaration
-may hide either. `panic` is a keyword.
+may hide either. `panic` is a keyword. A template argument,
+`` print(`{a}, {b}`) ``, is written as its pieces, with no spaces but
+those it holds and nothing allocated ([Templates](#templates)).
 
 | Value | Printed as |
 |---|---|
@@ -13121,7 +13274,7 @@ sub main()
 
 A task is a call that runs concurrently with the code after it. A `&`
 touching the `)` of a call, with no operand touching it on the right,
-makes the call a task: `sq(4)&`, `total(?xs)&`, `(!c).bump(2)&`
+makes the call a task: `sq(4)&`, `total(?xs)&`, `!c.bump(2)&`
 ([SYNTAX §5](docs/SYNTAX.md#5-prefixes-infixes-and-suffixes)). Spaced, or
 with an operand touching it, `&` is bitwise and: `a & b`, `f()&b`. Only
 a call of a named function or method is a task; a closure's call or a
@@ -13187,7 +13340,7 @@ object, and returned, `-> Task[Int] from xs`, as any result is
 task's type may hold a view of anything, so the caller keeps what it
 was lent until it waits. No task is held in a Cell, a channel, an
 actor, or an owned closure. A method's self is lent as the
-method takes it: `?c.get()&` to read, `(<c).into()&` to move it in, and
+method takes it: `?c.get()&` to read, `<c.into()&` to move it in, and
 `!c.bump(2)&` to write, short as any write call that gives no `Bool`
 ([Self sigils](docs/SYNTAX.md#self-sigils)).
 
@@ -13803,7 +13956,7 @@ methods one at a time, each to its end, and the call waits for the
 answer.
 - A `?@` method is called bare, `a.count()`, through a handle or a read
   view of one.
-- A `!@` method is marked, `!a.add(x)`, or `(!a).add(x)` where its value
+- A `!@` method is marked, `!a.add(x)`, or `(!a).add(x)` where its `Bool` value
   is used, and needs a handle you hold: through `?a` it is rejected. The
   `!` marks the call, and lends nothing: the actor changes its own value.
 - A `<@` method, or one whose signature has `keeps` or `from`, cannot be
@@ -13911,7 +14064,7 @@ handles go to other tasks when `T` moves, and what it carries holds no
 view. `Chan[T](n)` stands only as the operand of `*`.
 
 - `!ch.send(<v)!` waits for room and sends `v`.
-- `(!ch).recv()!` waits for a value and gives it as `T?`; once the
+- `!ch.recv()!` waits for a value and gives it as `T?`; once the
   channel is closed and empty it gives `none`.
 - `!ch.close()` ends sending: tasks waiting to receive get `none`, the values
   sent before still come out, and a later send panics, as does a send
@@ -13979,7 +14132,7 @@ sub main()!
   p = produce(+ch, 5)&
   sum = 0
   loop
-    v = (!ch).recv()! ?? -1
+    v = !ch.recv()! ?? -1
     if v < 0
       break
     sum += v
@@ -14037,8 +14190,8 @@ near 10
 
 The old spelling of a select, still accepted, gives each arm a
 function instead of a name, and the select gives what the winner's
-function gives: `(!ch).on_recv(f)`, whose `f` takes the value as
-`T?`, and `(!ch).on_send(<v, f)`, whose `f` takes nothing. Each `f` is
+function gives: `!ch.on_recv(f)`, whose `f` takes the value as
+`T?`, and `!ch.on_send(<v, f)`, whose `f` takes nothing. Each `f` is
 a closure written in the arm, a closure's view (`?g`), or a function's
 name, and all give the same type, an arm that can fail meeting one
 that cannot as a `T` meets a `T!`, in any order; the select calls it
@@ -14246,6 +14399,11 @@ not parse, and their words and sigils stay reserved:
 | `async fun f()`, `await t` | `` Rig has no `async`; any function runs as a task with `&`: `t = f(x)&` starts one, and `>t` waits for its result ``, and `await`'s toward `>t` |
 | `trait Shape`, `impl Shape for Square` | `` Rig has no `trait`; write `api`: `api Shape` declares the methods a type provides ``, and `impl`'s toward `add` ([APIs](#apis)) |
 | float match patterns | `` a pattern is a name, an integer, a string, `true`, `false`, or an enum variant `` |
+| three backticks together, or a template touching another | `` two backticks together are reserved `` |
+| a name touching a template's backtick, ``sql`x{a}` `` | `` a name touching a backtick is reserved for tagged templates; put a space or a bracket between them `` |
+| a `:` at the top of a slot, `{x:5}` | `` a `:` in a slot is reserved for formatting; format with a method, or put the expression in parentheses `` |
+| a template in a slot | `` a template inside a slot is reserved; build the inner text first `` |
+| a `\` ending a template's line or a line of text over several | `` a `\` at the end of a line of text is reserved for joining lines `` |
 
 The rest parse, and the checker rejects them as not supported yet
 ([roadmap](docs/ROADMAP.md)):

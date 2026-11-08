@@ -206,7 +206,9 @@ fn rejectedEnd(source: []const u8, pos: u32) u32 {
     var probe = parser.BaseLexer.init(source);
     probe.pos = pos;
     const t = probe.next();
-    return if (t.pos == pos and t.cat != .eof) rig.endOf(&probe, t) else pos;
+    // A comment where one may not stand (in a template's slot) is
+    // coloured as the comment it is (`Comments`).
+    return if (t.pos == pos and t.cat != .eof and t.cat != .comment) rig.endOf(&probe, t) else pos;
 }
 
 fn isLayout(cat: TokenCat) bool {
@@ -264,7 +266,9 @@ fn colourOf(cat: TokenCat) Colour {
     return switch (cat) {
         .ident => .name,
         .integer, .real => .{ .class = .{ .kind = .number } },
-        .string_sq, .string_dq => .{ .class = .{ .kind = .string } },
+        .string_sq, .string_dq, .tpl_head, .tpl_mid, .tpl_tail => .{ .class = .{ .kind = .string } },
+        .tpl_show => .{ .class = operator },
+        .backtick => .{ .class = .{ .kind = .invalid } },
         .comment => .{ .class = .{ .kind = .comment } },
         .err => .{ .class = .{ .kind = .invalid } },
         .kwarg_name => .{ .class = .{ .kind = .parameter } },

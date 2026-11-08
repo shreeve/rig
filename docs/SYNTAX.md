@@ -301,6 +301,7 @@ The built-in types `Cell`, `List`, `String`, `Signal`, `Simd`, and
 | integer | `42`, `1_000_000`, `0xff`, `0b1010`, `0o17` | `_` separates digits; radix prefixes are lowercase; no leading zero and no type suffix |
 | float | `3.14`, `.5`, `1e10`, `2.5e-3`, `1.5E+2` | a `.` or an exponent; the digits before `.` may be left out |
 | string | `"tab\t, newline\n"`, `'it''s raw'` | double quotes take Zig's escapes (`\n`, `\t`, `\\`, `\"`, `\x41`, `\u{e9}`); single quotes take none, and `''` is one `'`; where a `U8` is expected, a string of one byte is that byte (`'A'` is 65, `"\n"` is 10), and where a `[N]U8` is, its bytes ([SPEC](../SPEC.md#byte-literals)) |
+| template | `` `n = {n}` ``, `` `{=total}` `` | text built from pieces and slots; a `"` needs no escape, and `\{`, `\}`, `` \` `` are literal; at least one slot ([SPEC](../SPEC.md#templates)) |
 | bool | `true`, `false` | |
 | absent optional | `none` | |
 | array | `[1, 2, 3]`, `[]` | |
@@ -309,9 +310,32 @@ The built-in types `Cell`, `List`, `String`, `Signal`, `Simd`, and
 | symbol | `:width`, `:if`, `:content-type` | a `Symbol`, whatever the context ([below](#symbols)) |
 
 A string holds no control character: a tab or newline in it is written
-`\t` or `\n`. There is no string interpolation; `print` takes several
-values. A literal's type comes from its context
+`\t` or `\n`. A literal's type comes from its context
 ([SPEC §2](../SPEC.md#primitive-types)).
+
+A template is written between backticks, with each slot in
+braces: `` `{name} is {age}` ``. A slot holds one expression, on the
+template's line, and `{=e}` shows the expression with its value. A slot
+holds no `:` outside brackets, no `#`, and no template; a name may not
+touch a backtick, and two backticks together are reserved.
+
+Text over several lines opens with `"""` (escapes), `'''` (raw), or a
+backtick (a template), the opener ending its line; the closer's column
+is the margin every line is read past
+([SPEC](../SPEC.md#text-over-several-lines)).
+
+```rig
+sub main()
+  name = "ada"
+  age = 36
+  print(`{name} is {age}; {=age + 1}`)
+  print(`say "hi" to {name} \{not a slot\}`)
+```
+
+```output
+ada is 36; age + 1 = 37
+say "hi" to ada {not a slot}
+```
 
 ```rig
 sub main()
@@ -1348,7 +1372,7 @@ test first, `if not xs.any(f)`, or take a chain's result,
 
 `for x in source` walks a range `a..b` or `a..=b`, an array, a slice, a `?String`
 (its bytes), a `List`, or an iterator, a value whose type has
-`next(!@) -> T?` (`for x in !it` is `while (!it).next() as x`).
+`next(!@) -> T?` (`for x in !it` is `while !it.next() as x`).
 `for x, i in xs` also binds the index, after the element (not for an
 iterator). A sigil on the source says how the loop holds it.
 
@@ -1572,7 +1596,7 @@ An `if` or `while` condition binds the value inside an optional with
 | `if ?a as x`, `if !a as x` | a read or write view of the value inside `a` |
 | `if <p.f as x` | the value taken out of a field, which is left `none` |
 | `while a as x` | each value `a` produces |
-| `while (!q).pop() as x` | what a call that lends its self to write returns |
+| `while !q.pop() as x` | what a call that lends its self to write returns |
 | `if a as x and x > 0 and b as y` | in order, each part only when the ones before it held |
 | `if a as _` | nothing: a test for a value |
 | `if f() as a, b`, `while f() as a, b` | each of the several results inside the optional a call gives, `-> (A, B)?` |
@@ -1810,8 +1834,8 @@ type Held = *(Node?)
 sub main()
   a = *Cell[*Node?](none)
   b = *Cell[Held](*none)
-  print((!a).swap(none) == none)
-  old = (!b).swap(*none)
+  print(!a.swap(none) == none)
+  old = !b.swap(*none)
   <old
 ```
 

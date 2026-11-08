@@ -252,6 +252,13 @@ const Checker = struct {
     /// expected (`lendView`), and a slice there is lent as `?xs[a..b]`
     /// would be (`synthSlice`).
     view_arg: Sexp = .nil,
+    /// The template whose context takes its value (`synthTemplate`): an
+    /// unannotated binding's, or one where a `String` or `?String` goes.
+    template_ok: Sexp = .nil,
+    /// The template whose context takes it as fixed text when its slots
+    /// are constant (`templateFolds`): where a `?String` or a `Static`
+    /// goes, or a module's constant.
+    template_fixed: Sexp = .nil,
     /// The parameter or field the argument being checked fills, which a
     /// diagnostic names (`ignoredWriteLend`).
     slot: Slot = .{},
@@ -1687,6 +1694,7 @@ const Checker = struct {
         self.bound_call = resultCall(rhs) orelse .nil;
         self.local_value = if (target == .src) rhs else .nil;
         self.local_target = target;
+        if (kind == .default) try self.checkTemplateGrows(rhs, target);
         // A binding, an assignment, and `_ = e` take the value.
         try self.recordUse(rhs, .take);
 
@@ -1821,6 +1829,13 @@ const Checker = struct {
             try self.checkExpr(rhs, declared);
             rhs_ty = declared;
         } else {
+            // An unannotated local binding holds the String a template
+            // makes; a module's constant is fixed text.
+            const saved_template = .{ self.template_ok, self.template_fixed };
+            defer self.template_ok, self.template_fixed = saved_template;
+            if (rhs.isKind(.template)) {
+                if (self.ctx.symbols.items[sym_id].scope != self.module_scope) self.template_ok = rhs else self.template_fixed = rhs;
+            }
             rhs_ty = try self.synthExpr(rhs);
             // A binding holds the write view a call or a lend hands over
             // (`yieldsWriteView`), as `w: !T = e` does, so assigning it
@@ -5306,7 +5321,9 @@ const Checker = struct {
     /// no escapes.
     fn checkEscapes(self: *Checker, leaf: Sexp) Error!void {
         const s = self.text(leaf);
-        if (s.len == 0 or s[0] != '"') return;
+        // A template's text takes `\{`, `\}`, and `\``` too.
+        const template = rig.isTemplateText(s);
+        if (s.len == 0 or (s[0] != '"' and !template)) return;
         const pos = leaf.src.pos;
         var i: usize = 1;
         while (i + 1 < s.len) : (i += 1) {
@@ -5314,6 +5331,7 @@ const Checker = struct {
             const c = s[i + 1];
             const ok = switch (c) {
                 'n', 'r', 't', '\\', '\'', '"' => true,
+                '{', '}', '`' => template,
                 'x' => i + 3 < s.len and std.ascii.isHex(s[i + 2]) and std.ascii.isHex(s[i + 3]),
                 'u' => blk: {
                     if (i + 2 >= s.len or s[i + 2] != '{') break :blk false;
@@ -5327,6 +5345,10 @@ const Checker = struct {
                 else => false,
             };
             if (!ok) {
+                if (template) {
+                    try self.err(pos + @as(u32, @intCast(i)), "invalid escape `\\{c}` in a template; the escapes are `\\n`, `\\r`, `\\t`, `\\\\`, `\\'`, `\\\"`, `\\xNN`, `\\u{{N}}`, `\\{{`, `\\}}`, and `` \\` ``", .{c});
+                    return;
+                }
                 try self.err(pos + @as(u32, @intCast(i)), "invalid escape `\\{c}` in a string; the escapes are `\\n`, `\\r`, `\\t`, `\\\\`, `\\'`, `\\\"`, `\\xNN`, and `\\u{{N}}`", .{c});
                 return;
             }
@@ -5689,6 +5711,7 @@ const Checker = struct {
             // A destructure's target takes the result in its position.
             .result_part => self.part_ty,
             .tuple => self.tupleValue(e),
+            .template => self.synthTemplate(e),
             else => blk: {
                 try self.errAt(e, "`{s}` expressions are not supported", .{@tagName(head)});
                 break :blk self.t().invalid_id;
@@ -9455,10 +9478,10 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         const elem_tys = try self.ctx.arena.allocator().alloc(TypeId, elems.len);
-        var elem = try self.synthExpr(elems[0]);
+        var elem = try self.synthElem(elems[0]);
         elem_tys[0] = elem;
         for (elems[1..], 1..) |e, i| {
-            const ty = try self.synthExpr(e);
+            const ty = try self.synthElem(e);
             elem_tys[i] = ty;
             elem = (try self.unify(elem, ty, self.startOf(e))) orelse return self.t().invalid_id;
         }
@@ -9476,6 +9499,15 @@ const Checker = struct {
         const ty = try self.ctx.intern(.{ .array = .{ .elem = concrete, .len = try sema.ctInt(self.ctx, elems.len) } });
         if (self.under_poison) return ty;
         return if (try sema.checkArrayBytes(self.ctx, self.startOf(node), ty)) ty else self.t().invalid_id;
+    }
+
+    /// An array literal's element: a template there is a String the
+    /// array holds, as one bound to a name is (SPEC "Templates").
+    fn synthElem(self: *Checker, e: Sexp) Error!TypeId {
+        const saved = self.template_ok;
+        defer self.template_ok = saved;
+        if (e.isKind(.template)) self.template_ok = e;
+        return self.synthExpr(e);
     }
 
     fn checkArray(self: *Checker, node: Sexp, expected: TypeId) Error!?TypeId {
@@ -10432,73 +10464,203 @@ const Checker = struct {
     /// enough.
     fn checkFormatArgs(self: *Checker, args: []const Sexp, who: []const u8, verb: []const u8) Error!void {
         for (args) |a| {
-            if (a.isKind(.kwarg)) {
-                try self.errAt(a, "{s} takes no keyword arguments", .{who});
-                _ = try self.synthQuiet(ir.Kwarg.value(a));
+            // A template's slots are the call's arguments where it stands
+            // (SPEC "Templates").
+            if (a.isKind(.template)) {
+                try self.checkTemplateSlots(a, who, verb);
                 continue;
             }
-            // The values are only read, so a slice is lent the way a read
-            // parameter's argument is: `print(w[1..3])`.
-            const saved_view = self.view_arg;
-            defer self.view_arg = saved_view;
-            self.view_arg = a;
-            const ty = try self.synthReadTemp(a);
-            if (!self.isPoison(ty) and self.slicedArg(a)) if (sliceArgLend(self.ctx, ty, ty)) |lend| {
-                var implicit = lend;
-                implicit.implicit = true;
-                try self.ctx.recordImplicitLend(a);
-                try self.ctx.recordLend(a, implicit);
-            };
-            if (try self.writeLendRead(a, ty, .{ .value = sema.unwrapViews(self.ctx, ty) })) continue;
-            // A task shows nothing of what it gives: what is meant is its
-            // result, and `<t` and `>t` are one key apart.
-            if (!self.isPoison(ty) and (sema.isTask(self.ctx, sema.unwrapViews(self.ctx, ty)) or sema.isTaskSet(self.ctx, sema.unwrapViews(self.ctx, ty)))) {
-                const shown = try self.plainText(stripSigil(a));
-                try self.errAt(a, "`{s}` is a task, which {s} cannot show: wait for what it gives, `>{s}`", .{ shown, who, shown });
-                continue;
+            try self.checkFormatArg(a, who, verb);
+        }
+    }
+
+    /// One value `checkFormatArgs` writes.
+    fn checkFormatArg(self: *Checker, a: Sexp, who: []const u8, verb: []const u8) Error!void {
+        if (a.isKind(.kwarg)) {
+            try self.errAt(a, "{s} takes no keyword arguments", .{who});
+            _ = try self.synthQuiet(ir.Kwarg.value(a));
+            return;
+        }
+        // The values are only read, so a slice is lent the way a read
+        // parameter's argument is: `print(w[1..3])`.
+        const saved_view = self.view_arg;
+        defer self.view_arg = saved_view;
+        self.view_arg = a;
+        const ty = try self.synthReadTemp(a);
+        if (!self.isPoison(ty) and self.slicedArg(a)) if (sliceArgLend(self.ctx, ty, ty)) |lend| {
+            var implicit = lend;
+            implicit.implicit = true;
+            try self.ctx.recordImplicitLend(a);
+            try self.ctx.recordLend(a, implicit);
+        };
+        if (try self.writeLendRead(a, ty, .{ .value = sema.unwrapViews(self.ctx, ty) })) return;
+        // A task shows nothing of what it gives: what is meant is its
+        // result, and `<t` and `>t` are one key apart.
+        if (!self.isPoison(ty) and (sema.isTask(self.ctx, sema.unwrapViews(self.ctx, ty)) or sema.isTaskSet(self.ctx, sema.unwrapViews(self.ctx, ty)))) {
+            const shown = try self.plainText(stripSigil(a));
+            try self.errAt(a, "`{s}` is a task, which {s} cannot show: wait for what it gives, `>{s}`", .{ shown, who, shown });
+            return;
+        }
+        // An integer literal is written as an `Int`, which must hold it.
+        if (ty == self.t().int_literal_id) try self.defaultIntLiteral(a);
+        // `?none` views a bare `none`.
+        const shown_ty = if (sema.unwrapViews(self.ctx, ty) == self.t().none_id) self.t().none_id else ty;
+        switch (self.ctx.types.get(shown_ty)) {
+            .void => try self.errAt(a, "{s} needs a value; this expression produces no value (`Void`)", .{who}),
+            .none_literal => try self.errAt(a, "cannot {s} a bare `none`", .{verb}),
+            .noreturn => try self.errAt(a, "{s} needs a value; this expression never produces one", .{who}),
+            else => {
+                if (!try sema.printable(self.ctx, ty)) {
+                    const name = try self.tyName(ty);
+                    const direct = std.mem.eql(u8, name, "[]U8");
+                    try self.errAt(a, "cannot {s} a `{s}`: {s}would {s} as text, like a `?String`; {s} the bytes one by one", .{ verb, name, if (direct) "it " else "the `[]U8` it holds ", verb, verb });
+                } else if (try sema.objectUnprinted(self.ctx, ty)) |held| {
+                    // An API object prints by the `Print` its braces or
+                    // API name, through its table.
+                    const printed = if (std.mem.eql(u8, verb, "write")) "written" else "printed";
+                    const h = sema.objectHeld(self.ctx, held) orelse {
+                        try self.errAt(a, "`{s}` cannot be {s}: it holds an API object whose type is erased, and whose braces and API name no `Print`", .{ try self.tyName(ty), printed });
+                        return;
+                    };
+                    const api = try sema.apiName(self.ctx, h.object.api);
+                    var with = h.object;
+                    with.builtins.insert(.Print);
+                    const sigil: []const u8 = switch (h.form) {
+                        .read => "?",
+                        .write => "!",
+                        .box => "^",
+                        .shared => "*",
+                        .weak => "~",
+                    };
+                    try self.errAt(a, "`{s}` cannot be {s}: its type is erased; write `{s}{s}`, or build `{s}` on `Print`", .{ try self.tyName(held), printed, sigil, try sema.objectSpelling(self.ctx, self.ctx.arena.allocator(), with), api });
+                }
+                // Each instance answers for a type parameter the value
+                // prints: held, viewed, an element, or a type
+                // argument (`[]T`, `List[T]`).
+                var printed: std.ArrayList(SymbolId) = .empty;
+                defer printed.deinit(self.ctx.allocator);
+                try sema.printedTypeVars(self.ctx, ty, &printed, self.ctx.allocator);
+                for (printed.items) |param| try self.require(param, .printable, self.startOf(a), verb);
+            },
+        }
+    }
+
+    // ---- templates -------------------------------------------------------------
+
+    /// The slots of template `t` where `who` writes it (`print`, `warn`,
+    /// `panic`, `String(...)`, `!t.add(...)`): each value checked as one
+    /// of `who`'s arguments (`checkFormatArg`), left to right, and its
+    /// text's escapes as a string literal's.
+    fn checkTemplateSlots(self: *Checker, tpl: Sexp, who: []const u8, verb: []const u8) Error!void {
+        const n = rig.Template.slotCount(tpl);
+        for (0..n + 1) |i| {
+            const piece = rig.Template.piece(tpl, i);
+            try self.checkEscapes(piece);
+            try self.ctx.recordType(piece, self.t().static_id);
+        }
+        for (0..n) |i| {
+            const v = rig.Template.value(tpl, i);
+            if (try self.literalSlot(v)) continue;
+            try self.checkFormatArg(v, who, verb);
+        }
+        try self.ctx.recordType(tpl, self.t().string_id);
+    }
+
+    /// A slot holding only a literal (`{0}`, `{"a"}`, `{true}`, `{-1}`),
+    /// which is rejected: its text belongs in the template's text, and a
+    /// ported `{0}` meant a value it does not name.
+    fn literalSlot(self: *Checker, v: Sexp) Error!bool {
+        const lit = if (v.isKind(.neg)) ir.Neg.operand(v) else v;
+        const only = switch (lit) {
+            .src => blk: {
+                const lit_text = self.text(lit);
+                break :blk sema.isStringLiteralText(lit_text) or sema.isIntLiteralText(lit_text) or sema.isFloatLiteralText(lit_text) or std.mem.eql(u8, lit_text, "true") or std.mem.eql(u8, lit_text, "false") or std.mem.eql(u8, lit_text, "none");
+            },
+            .list => lit.isKind(.symbol),
+            else => false,
+        };
+        if (!only) return false;
+        try self.errAt(v, "a slot holds only a literal; write its text in the template, or a brace as `\\{{` and `\\}}`", .{});
+        try self.ctx.recordType(v, self.t().invalid_id);
+        return true;
+    }
+
+    /// A template whose value its context takes (`template_ok`): a
+    /// String made from its pieces. Anywhere else a template is rejected
+    /// (SPEC "Templates").
+    fn synthTemplate(self: *Checker, tpl: Sexp) Error!TypeId {
+        try self.checkTemplateSlots(tpl, "a slot", "write");
+        // Fixed text, which the program holds as a literal's.
+        if (sameNode(tpl, self.template_fixed) and self.templateFolds(tpl)) {
+            try self.ctx.recordType(tpl, self.t().static_id);
+            return self.t().static_id;
+        }
+        if (sameNode(tpl, self.template_ok)) return self.t().string_id;
+        if (sameNode(tpl, self.template_fixed)) {
+            try self.errAt(tpl, "a module's constant is fixed text, so a template there takes only constant slots: an Int, a Bool, or a `Static` known when the program is compiled", .{});
+            try self.ctx.recordType(tpl, self.t().invalid_id);
+            return self.t().invalid_id;
+        }
+        try self.errAt(tpl, "a template stands where text is written (`print`, `warn`, `panic`, `String(...)`, `!t.add(...)`) or where a `String` or `?String` goes; bind it to a name first", .{});
+        try self.ctx.recordType(tpl, self.t().invalid_id);
+        return self.t().invalid_id;
+    }
+
+    /// A template where a value of type `expected` goes: a String where a
+    /// `String` (or a `String?`) goes, and a String a `?String` reads as a
+    /// temporary of its statement, which `checkActual` lends. A `Static`
+    /// is text fixed when the program is compiled, which a template is
+    /// not.
+    fn checkTemplateAgainst(self: *Checker, tpl: Sexp, expected: TypeId) Error!void {
+        const want = switch (self.ctx.types.get(expected)) {
+            .optional => |inner| inner,
+            else => expected,
+        };
+        const saved_fixed = self.template_fixed;
+        defer self.template_fixed = saved_fixed;
+        if (want == self.t().static_id or want == self.t().string_view_id) self.template_fixed = tpl;
+        if (want == self.t().static_id) {
+            try self.checkTemplateSlots(tpl, "a slot", "write");
+            if (self.templateFolds(tpl)) {
+                try self.ctx.recordType(tpl, self.t().static_id);
+                return self.checkActual(tpl, self.t().static_id, expected);
             }
-            // An integer literal is written as an `Int`, which must hold it.
-            if (ty == self.t().int_literal_id) try self.defaultIntLiteral(a);
-            // `?none` views a bare `none`.
-            const shown_ty = if (sema.unwrapViews(self.ctx, ty) == self.t().none_id) self.t().none_id else ty;
-            switch (self.ctx.types.get(shown_ty)) {
-                .void => try self.errAt(a, "{s} needs a value; this expression produces no value (`Void`)", .{who}),
-                .none_literal => try self.errAt(a, "cannot {s} a bare `none`", .{verb}),
-                .noreturn => try self.errAt(a, "{s} needs a value; this expression never produces one", .{who}),
-                else => {
-                    if (!try sema.printable(self.ctx, ty)) {
-                        const name = try self.tyName(ty);
-                        const direct = std.mem.eql(u8, name, "[]U8");
-                        try self.errAt(a, "cannot {s} a `{s}`: {s}would {s} as text, like a `?String`; {s} the bytes one by one", .{ verb, name, if (direct) "it " else "the `[]U8` it holds ", verb, verb });
-                    } else if (try sema.objectUnprinted(self.ctx, ty)) |held| {
-                        // An API object prints by the `Print` its braces or
-                        // API name, through its table.
-                        const printed = if (std.mem.eql(u8, verb, "write")) "written" else "printed";
-                        const h = sema.objectHeld(self.ctx, held) orelse {
-                            try self.errAt(a, "`{s}` cannot be {s}: it holds an API object whose type is erased, and whose braces and API name no `Print`", .{ try self.tyName(ty), printed });
-                            continue;
-                        };
-                        const api = try sema.apiName(self.ctx, h.object.api);
-                        var with = h.object;
-                        with.builtins.insert(.Print);
-                        const sigil: []const u8 = switch (h.form) {
-                            .read => "?",
-                            .write => "!",
-                            .box => "^",
-                            .shared => "*",
-                            .weak => "~",
-                        };
-                        try self.errAt(a, "`{s}` cannot be {s}: its type is erased; write `{s}{s}`, or build `{s}` on `Print`", .{ try self.tyName(held), printed, sigil, try sema.objectSpelling(self.ctx, self.ctx.arena.allocator(), with), api });
-                    }
-                    // Each instance answers for a type parameter the value
-                    // prints: held, viewed, an element, or a type
-                    // argument (`[]T`, `List[T]`).
-                    var printed: std.ArrayList(SymbolId) = .empty;
-                    defer printed.deinit(self.ctx.allocator);
-                    try sema.printedTypeVars(self.ctx, ty, &printed, self.ctx.allocator);
-                    for (printed.items) |param| try self.require(param, .printable, self.startOf(a), verb);
-                },
-            }
+            try self.ctx.recordType(tpl, self.t().invalid_id);
+            return self.errAt(tpl, "type mismatch: expected `Static`, got a template whose slots are not all constant; a `Static` is text fixed when the program is compiled", .{});
+        }
+        const saved = self.template_ok;
+        defer self.template_ok = saved;
+        if (want == self.t().string_id or want == self.t().string_view_id) self.template_ok = tpl;
+        const ty = try self.synthTemplate(tpl);
+        if (self.isPoison(ty)) return;
+        return self.checkActual(tpl, ty, expected);
+    }
+
+    /// Whether template `tpl` is fixed text: every slot an Int, a Bool, or
+    /// a `Static` Zig knows when it compiles (`isComptimeKnown`), which
+    /// it writes as text there; a show slot, a Float, and any other value
+    /// is written as the program runs.
+    fn templateFolds(self: *Checker, tpl: Sexp) bool {
+        for (0..rig.Template.slotCount(tpl)) |i| {
+            const v = rig.Template.slot(tpl, i);
+            if (v.isKind(.show) or !self.isComptimeKnown(v)) return false;
+            const ty = self.canonical(self.ctx.typeOf(v) orelse return false);
+            if (!(sema.isInteger(self.ctx, ty) or ty == self.t().bool_id or ty == self.t().static_id)) return false;
+        }
+        return true;
+    }
+
+    /// `s = `{s}…``: a template that reads the binding it assigns copies
+    /// all of it to add to it, on every step of a loop; `!s.add(...)`
+    /// appends in place.
+    fn checkTemplateGrows(self: *Checker, rhs: Sexp, target: Sexp) Error!void {
+        if (!rhs.isKind(.template) or target.isKind(.paren)) return;
+        const assigned = self.sourceText(target);
+        for (0..rig.Template.slotCount(rhs)) |i| {
+            const v = rig.Template.value(rhs, i);
+            const read = if (v.isKind(.read)) ir.Read.operand(v) else v;
+            if (!std.mem.eql(u8, self.sourceText(read), assigned)) continue;
+            return self.errAt(v, "this template reads `{s}`, the binding it assigns, so it copies all of `{s}` each time; append in place with `!{s}.add(...)`", .{ assigned, assigned, assigned });
         }
     }
 
@@ -13219,6 +13381,9 @@ const Checker = struct {
                 const h = e.kind() orelse return false;
                 return switch (h) {
                     .enum_lit, .symbol => true,
+                    // A template of constant slots, fixed text
+                    // (`templateFolds`).
+                    .template => self.ctx.typeOf(e) == self.t().static_id,
                     // `cap[8]`: a compile-time call, whose value the
                     // checker computed.
                     .ct_call => if (self.ctx.ctCallOf(e)) |c| c.result != null else false,
@@ -16963,6 +17128,7 @@ const Checker = struct {
             _ = try self.synthExpr(e);
             return;
         }
+        if (e.isKind(.template)) return self.checkTemplateAgainst(e, expected);
         if (try self.lentTempLiteral(e, expected)) return;
         // A variant literal where a view held by address goes is the value
         // `E.v(...)` is, which goes there as that value goes.
@@ -17717,6 +17883,10 @@ const Checker = struct {
             else => false,
         };
         if (!is_text) return false;
+        if (e.isKind(.template)) {
+            try self.errAt(e, "a template is a `?String` only as an argument a parameter reads, a temporary of its statement; elsewhere bind its String to a name first", .{});
+            return true;
+        }
         const shown = try self.plainText(stripSigil(e));
         try self.errAt(e, "type mismatch: expected `?String`, got `{s}`; lend it as a `?String` with `?{s}` or `?{s}[..]`", .{ try self.tyName(actual), shown, shown });
         return true;
@@ -20794,6 +20964,7 @@ const isText = sema.isText;
 /// read as Zig reads them, a single-quoted one as `sema.SingleQuoted`
 /// reads it. Null for an escape the checker rejects.
 fn textLiteralBytes(a: std.mem.Allocator, lit: []const u8) ?[]const u8 {
+    if (rig.isBlockText(lit)) return rig.literalBytes(a, lit);
     if (lit[0] == '"') return std.zig.string_literal.parseAlloc(a, lit) catch null;
     var bytes: std.ArrayList(u8) = .empty;
     var it = sema.SingleQuoted.init(lit);

@@ -1,0 +1,8 @@
+# The programs where bin/rig's checker and λRig's decide differently
+# (test/cli/agree.sh): `program kind class note...`. `rig-stricter`: the
+# compiler rejects what λRig accepts and proves runs clean;
+# `lambda-stricter`: λRig rejects what the compiler accepts, and its run
+# is clean. A program the compiler accepts whose λRig run faults is never
+# listed: it always fails.
+reject/probes/sc2-p.rig rig-stricter unread-local the compiler rejects a local never read (a lint error); λRig has no such rule
+reject/types/none_as_name.rig rig-stricter reserved-name `none` is reserved in Rig; λRig's names are any text

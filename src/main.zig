@@ -1902,7 +1902,8 @@ const Package = struct {
     links_libc: bool,
     /// How many units it is built as (`PackageKind.units`).
     units: u16 = 1,
-    /// It is built to be preempted (`RIG_PREEMPT=signal`).
+    /// It is built to be preempted by signal: it makes tasks and no local
+    /// task, for a target with the preemption (`sched.preempt_built`).
     preempting: bool = false,
 
     /// The flags after the mode's for this package (`Mode.releaseFlags`),

@@ -5,8 +5,8 @@
 # waiting. A tree of tasks, each making six (more than the slots hold)
 # and waiting for them in the order made, and a chain of six tasks
 # waited for newest first, count every task: on 1, 2, 4 and 8 workers,
-# with yield checks and, where preemption is built, with
-# RIG_PREEMPT=signal. A lost fiber hangs its waiter, which the timeout
+# preempted by signal where that is built and with yield checks
+# elsewhere. A lost fiber hangs its waiter, which the timeout
 # catches; a miscount fails the check.
 source "$ROOT/test/cli/_lib.sh"
 
@@ -42,11 +42,6 @@ RIG
 
 "$RIG" build --release=fast -o lost-plain lost.rig >build.txt 2>&1 || fail "build lost.rig: $(cat build.txt)"
 builds="plain"
-case "$(uname -s)/$(uname -m)" in
-    Linux/x86_64 | Darwin/arm64)
-        RIG_PREEMPT=signal "$RIG" build --release=fast -o lost-signal lost.rig >build.txt 2>&1 || fail "build lost.rig with the option: $(cat build.txt)"
-        builds="plain signal" ;;
-esac
 for b in $builds; do
     for w in 1 2 4 8; do
         for i in 1 2 3; do

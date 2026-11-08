@@ -204,8 +204,8 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   would have to see a `?L` reach an `A`, or a view of a temporary `A`
   outlives it.
 - Lending a handle parameter to write is accepted as `!c` but rejected
-  as a capture. In `sub poke(c: *Cell[Int])`, `(!c).set(2)` lends the
-  Cell `c` holds, while `f = |!c| (!c).set(3)` is "cannot lend parameter
+  as a capture. In `sub poke(c: *Cell[Int])`, `!c.set(2)` lends the
+  Cell `c` holds, while `f = |!c| !c.set(3)` is "cannot lend parameter
   `c` to write". So is `!o.h` for `o` an owned parameter. Decide whether
   a capture and a field lend, like `!c`, lend what the handle holds.
 - **A Map's value in its key's tail padding.** An ordered `Map`'s entry
