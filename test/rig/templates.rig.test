@@ -55,6 +55,50 @@ test "template slot runs once, left to right, before anything is written", '''
     n
   print(`[{step("a", 1)} {step("b", 2)}]`)
 
+test "template slot kinds by caller", '''
+  1 2.5 true ab cd [1, 2] none 7 P(n: 1) .red
+  1 2.5 true ab cd [1, 2] none 7 P(n: 1) .red
+  1 2.5 true ab cd [1, 2] none 7 P(n: 1) .red
+  1 2.5 true ab cd [1, 2] none 7 P(n: 1) .red
+  1 2.5 true ab cd [1, 2] none 7 P(n: 1) .red
+  1 2.5 true ab cd [1, 2] none 7 P(n: 1) .red
+  1 2.5 true ab cd [1, 2] none 7 P(n: 1) .red
+'''
+  # Each kind of slot, in each place a template stands: print,
+  # String(...), add, a ?String parameter, a String binding, a field,
+  # and an owning parameter its function returns.
+  obj P
+    n: Int
+  enum Color
+    red
+    blue
+  obj Box
+    s: String
+  fun made() -> Int
+    7
+  fun echo(s: String) -> String
+    s
+  i = 1
+  f = 2.5
+  b = true
+  st = "ab"
+  str = String("cd")
+  xs = [1, 2]
+  o: Int? = none
+  p = P(n: 1)
+  c = Color.red
+  print(`{i} {f} {b} {st} {str} {xs} {o} {made()} {p} {c}`)
+  print(String(`{i} {f} {b} {st} {str} {xs} {o} {made()} {p} {c}`))
+  t = String()
+  !t.add(`{i} {f} {b} {st} {str} {xs} {o} {made()} {p} {c}`)
+  print(t)
+  print(text.trim(`{i} {f} {b} {st} {str} {xs} {o} {made()} {p} {c}`))
+  s = `{i} {f} {b} {st} {str} {xs} {o} {made()} {p} {c}`
+  print(s)
+  bx = Box(s: `{i} {f} {b} {st} {str} {xs} {o} {made()} {p} {c}`)
+  print(bx.s)
+  print(echo(`{i} {f} {b} {st} {str} {xs} {o} {made()} {p} {c}`))
+
 # ---- the show form ---------------------------------------------------------
 
 test "template show form", '''
