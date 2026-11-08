@@ -248,9 +248,13 @@ overflow for frames that fit.
 
 A free stack's link in its worker's list is kept at its top, on the page
 the next fiber touches anyway, so a sleeping task holds one page of its
-stack and its record: about 17 KiB on the Mac, whose pages are 16 KiB,
-and 5.2 KiB on pup's Linux, where Tokio's task holds about 300 bytes and
-Go's about 3 KiB (`bench/tasks`, `memory`).
+stack and its record: about 17 KiB of resident memory on the Mac, whose
+pages are 16 KiB, and 5.2 KiB on pup's Linux (`bench/tasks`, `memory`).
+Each stack's range of address space is far enough from the next that it
+also has a page table of its own, so counted as the kernel counts it a
+sleeping task holds 32.7 KiB on the Mac and 8.9 KiB on pup, where
+Tokio's task holds about 300 bytes and Go's about 3 KiB
+([SCALING.md](../../bench/tasks/SCALING.md)).
 
 ## The teardown at `os.exit`
 

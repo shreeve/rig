@@ -37,6 +37,11 @@ Linux, 22 cores:
 | Tokio | 284 ns | 250 ns | 102.9 ms | 47 ns | 2.3 ms | 355 B |
 | Go | 296 ns | 271 ns | 92.7 ms | 440 ns | 2.0 ms | 2.9 KiB |
 
+`memory` counts resident pages only. Each Rig task's stack also has a
+page table of its own, which a Tokio or Go task does not: counted as
+the kernel counts it, a sleeping Rig task holds 32.7 KiB on the Mac and
+8.9 KiB on Linux ([bench/tasks/SCALING.md](../../bench/tasks/SCALING.md)).
+
 Rig is ahead of Tokio and Go in `spawn`, `chain`, `yield` and `hog` on
 both machines. It is behind in memory per task, since each task holds
 at least one page of its own stack, and in `fanout`, by 5 to 16
@@ -102,6 +107,11 @@ hyper; Go's is `net/http`.
 | Linux, Rig | 830,158 | 54 µs | 437 µs | 9.2 KiB |
 | Linux, hyper | 296,728 | 163 µs | 763 µs | 10.8 KiB |
 | Linux, Go | 235,075 | 153 µs | 1,492 µs | 18.7 KiB |
+
+The memory of an idle connection is resident memory, which leaves out
+the page table of each connection's stack (16 KiB on the Mac, about
+4 KiB on Linux). Counted with it, Rig's idle connection holds more than
+hyper's on both machines and more than Go's on the Mac.
 
 The load generator and the server share the machine, as in any loopback
 benchmark, so a server that spends less CPU leaves more to the load.
