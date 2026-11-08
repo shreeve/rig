@@ -3021,6 +3021,13 @@ const Callback = Closure(&.{}, void);
 // stack closure's environment, a function, an owned closure) for as long
 // as the ownership checker lets the view live, and owns nothing.
 
+/// The section a function the program's code calls through a pointer is
+/// placed in: the program's own in a build preempted by signal, where a
+/// signal stops a task only in that section (`sched.preempt_section`),
+/// so a task in a loop of calls through a closure is stopped there too;
+/// the usual one otherwise.
+const program_section = if (preempt) sched.preempt_section else if (builtin.object_format == .macho) "__TEXT,__text" else ".text";
+
 pub fn FnRef(comptime params: []const type, comptime R: type) type {
     return struct {
         ctx: *anyopaque,
@@ -3043,7 +3050,7 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
         pub fn of(comptime Env: type, env: *Env) Self {
             const n = @typeInfo(@TypeOf(Env.__rig_invoke)).@"fn".param_types.len - 1;
             const thunk = struct {
-                fn call(ctx: *anyopaque, args: Args) R {
+                fn call(ctx: *anyopaque, args: Args) linksection(program_section) R {
                     const e: *Env = ctxAs(*Env, ctx);
                     return @call(.auto, Env.__rig_invoke, .{e} ++ argsFor(n, args));
                 }
@@ -3057,7 +3064,7 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
             const F = @TypeOf(f);
             const n = @typeInfo(@typeInfo(F).pointer.child).@"fn".param_types.len;
             const thunk = struct {
-                fn call(ctx: *anyopaque, args: Args) R {
+                fn call(ctx: *anyopaque, args: Args) linksection(program_section) R {
                     const g: F = ctxAs(F, ctx);
                     return @call(.auto, g, argsFor(n, args));
                 }
@@ -3072,7 +3079,7 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
             const C = @TypeOf(box.value);
             const n = @typeInfo(C.Args).@"struct".field_types.len;
             const thunk = struct {
-                fn call(ctx: *anyopaque, args: Args) R {
+                fn call(ctx: *anyopaque, args: Args) linksection(program_section) R {
                     const c: *C = ctxAs(*C, ctx);
                     return c.invoke(argsFor(n, args));
                 }
@@ -5869,7 +5876,7 @@ fn slicePanic() noreturn {
 
 /// `a / b` on a type parameter's values: exact for floats, truncating
 /// toward zero for integers.
-pub fn div(a: anytype, b: anytype) @TypeOf(a, b) {
+pub inline fn div(a: anytype, b: anytype) @TypeOf(a, b) {
     const T = @TypeOf(a, b);
     return if (@typeInfo(T) == .float) @as(T, a) / @as(T, b) else @divTrunc(@as(T, a), @as(T, b));
 }
@@ -5877,7 +5884,7 @@ pub fn div(a: anytype, b: anytype) @TypeOf(a, b) {
 /// `a % b`: the remainder with the dividend's sign, for integers and
 /// floats. A signed integer's remainder by -1 is 0, `Int.min % -1`
 /// included, where the machine's division would trap.
-pub fn rem(a: anytype, b: anytype) @TypeOf(a, b) {
+pub inline fn rem(a: anytype, b: anytype) @TypeOf(a, b) {
     const T = @TypeOf(a, b);
     switch (@typeInfo(T)) {
         .int => |int| if (int.signedness == .signed and b == -1) return 0,
