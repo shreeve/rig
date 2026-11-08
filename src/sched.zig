@@ -5359,7 +5359,7 @@ fn inChild(comptime run: fn () void, err: []u8) !struct { signaled: bool, code: 
         n += got;
     }
     _ = sys.close(fds[0]);
-    var status: if (builtin.target.os.tag == .linux) u32 else c_int = 0;
+    var status: if (builtin.target.os.tag == .linux) i32 else c_int = 0;
     if (builtin.target.os.tag == .linux) {
         if (std.posix.errno(sys.waitpid(@intCast(pid), &status, 0)) != .SUCCESS) return error.WaitFailed;
     } else if (sys.waitpid(pid, &status, 0) != pid) return error.WaitFailed;
