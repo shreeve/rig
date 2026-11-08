@@ -14333,6 +14333,11 @@ not parse, and their words and sigils stay reserved:
 | `async fun f()`, `await t` | `` Rig has no `async`; any function runs as a task with `&`: `t = f(x)&` starts one, and `>t` waits for its result ``, and `await`'s toward `>t` |
 | `trait Shape`, `impl Shape for Square` | `` Rig has no `trait`; write `api`: `api Shape` declares the methods a type provides ``, and `impl`'s toward `add` ([APIs](#apis)) |
 | float match patterns | `` a pattern is a name, an integer, a string, `true`, `false`, or an enum variant `` |
+| three backticks together, or a template touching another | `` two backticks together are reserved `` |
+| a name touching a template's backtick, ``sql`x{a}` `` | `` a name touching a backtick is reserved for tagged templates; put a space or a bracket between them `` |
+| a `:` at the top of a slot, `{x:5}` | `` a `:` in a slot is reserved for formatting; format with a method, or put the expression in parentheses `` |
+| a template in a slot | `` a template inside a slot is reserved; build the inner text first `` |
+| a `\` ending a template's line | `` a `\` at the end of a template's line is reserved for joining lines `` |
 
 The rest parse, and the checker rejects them as not supported yet
 ([roadmap](docs/ROADMAP.md)):

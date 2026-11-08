@@ -16526,7 +16526,8 @@ pub fn captureList(captures: Sexp) []const Sexp {
     return ir.Captures.caps(captures);
 }
 
-/// Whether literal text `text` is a string's, double- or single-quoted.
+/// Whether literal text `text` is a string's, double- or single-quoted,
+/// or a piece of a template's text (`rig.isTemplateText`).
 pub fn isStringLiteralText(text: []const u8) bool {
     return text.len > 0 and (text[0] == '"' or text[0] == '\'' or rig.isTemplateText(text));
 }

@@ -755,7 +755,7 @@ program; [INTERNALS](../internals/INTERNALS.md) describes it.
 | do nothing | `;` | `pass` / `nil` | `{}` | `pass` |
 | exceptions | error codes | `raise` / `try` | `throw` / `error` returns | `T!`, `f()!`, `catch` |
 | several results | out-parameters | `return q, r`, a tuple | an array / `return q, r` | `-> (Int, Int)`, `return q, r`, `q, r = f()` |
-| string formatting | `printf` | f-strings / `#{}` | template strings / `Sprintf` | `print(a, b)`, `String(a, b)`: no interpolation |
+| string formatting | `printf` | f-strings / `#{}` | template strings / `Sprintf` | templates, `` `{a} and {b}` ``; `print(a, b)` |
 | memory | `malloc`, `free` | a garbage collector | a garbage collector | owners, released where their scope ends |
 
 A Rig program frees what it allocates at a point you can see: when its
@@ -1151,8 +1151,6 @@ says how each promise is kept.
 
 You will reach for these and not find them:
 
-- **string interpolation**: text is built with `String(...)` and
-  `!t.add(...)`, which write values as `print` does;
 - **a large standard library**: [the standard library](../STD.md)
   covers text and Unicode, hashing, JSON, files, time, tasks and
   parallel loops, TCP and an HTTP server, and a terminal; TLS, an HTTP
