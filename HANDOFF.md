@@ -148,7 +148,8 @@ A new session, human or agent, takes these steps in order:
   ceiling (2.4% fewer cycles on ts-pattern). `bench/tasks` `hog` was
   100 times slower with it: an awaited task that had not started waited
   behind the one newest-first slot; #1001 (four run-next slots, kept as a
-  circle) takes it from 8.3 ms to 0.01 ms. On pup (2026-11-07), signal
+  circle) takes it from 8.3 ms to 0.01 ms
+  ([run-next-2026-11-07.md](docs/history/records/2026-11/preempt/run-next-2026-11-07.md)). On pup (2026-11-07), signal
   against the yield checks on Trig: 1.3-3.3% faster and 3.8-4.6% fewer
   instructions at one checker on all seven projects, 4.0-6.4% fewer
   instructions at many. Default-on waits on #1001, a monitor that stops

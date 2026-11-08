@@ -127,11 +127,23 @@ const Worker = struct {
     current: ?*Fiber = null,
     after: ?After = null,
     ring: Ring = .{},
-    /// The fiber to run next: the one this worker's fibers last made
-    /// ready, still in cache. This worker takes it, at most `lifo_limit`
-    /// times in a row; a worker with nothing else to steal takes it once
-    /// it has waited there a while (`stealNext`), as Go's `runnext`.
-    lifo: std.atomic.Value(?*Fiber) = .init(null),
+    /// The fibers to run next: the ones this worker's fibers last made
+    /// ready, still in cache, in a circle whose newest is at `lifo_head`.
+    /// A fiber made ready takes the slot after the newest, which holds
+    /// the oldest or nothing, by one swap; the oldest it displaces goes to
+    /// the ring. This worker takes the newest, at most `lifo_limit` times
+    /// in a row; a worker with nothing else to steal takes the oldest
+    /// once it has waited there a while (`stealNext`), as Go's `runnext`.
+    /// A task made and waited for runs at once while it is still in a
+    /// slot (`handoff`), so a fiber that makes several and waits for each
+    /// in turn waits behind none of the ring's. Whoever moves a slot from
+    /// a fiber to null by one atomic step owns that fiber, as with one
+    /// slot.
+    lifo: [run_next_slots]std.atomic.Value(?*Fiber) = @splat(.init(null)),
+    /// The slot of the newest fiber in `lifo`. Only this worker writes
+    /// it; another reads it only to find the oldest, which its
+    /// compare-and-swap on the slot then confirms.
+    lifo_head: std.atomic.Value(u8) = .init(0),
     lifo_streak: u8 = 0,
     free: ?*FreeStack = null,
     free_count: u32 = 0,
@@ -286,8 +298,11 @@ fn wakeIn(f: *Fiber) void {
         global.push(f);
         return notifyNew();
     };
-    const before = w.lifo.swap(f, .seq_cst);
-    if (before) |b| {
+    // Into the slot after the newest, which holds the oldest or nothing:
+    // the oldest goes to the ring.
+    const i = (w.lifo_head.raw +% 1) % run_next_slots;
+    w.lifo_head.store(i, .monotonic);
+    if (w.lifo[i].swap(f, .seq_cst)) |b| {
         if (b.home != null) w.pinned.push(b) else {
             _ = w.ring.push(b);
             return notifyNew();
@@ -320,7 +335,7 @@ fn wakeLastIn(f: *Fiber) void {
     };
     // Only these could another worker take: pinned fibers stay, and the
     // global queue's push wakes one itself.
-    if (w.ring.push(f) or w.lifo.load(.monotonic) != null) notify();
+    if (w.ring.push(f) or nextHeld(w, .monotonic)) notify();
 }
 
 /// Queue the pinned fiber `f` on its worker, and wake that worker if it
@@ -528,13 +543,13 @@ fn stealWaiting(w: *Worker) bool {
 /// "run next" slot or its ring.
 fn othersWait(w: *Worker) bool {
     for (workers.*) |*v| {
-        if (v != w and (v.lifo.load(.monotonic) != null or !v.ring.isEmpty())) return true;
+        if (v != w and (nextHeld(v, .monotonic) or !v.ring.isEmpty())) return true;
     }
     return false;
 }
 
 fn hasOwnWork(w: *Worker) bool {
-    return w.lifo.load(.monotonic) != null or !w.ring.isEmpty() or w.pinned.count.load(.seq_cst) != 0 or global.count.load(.monotonic) != 0;
+    return nextHeld(w, .monotonic) or !w.ring.isEmpty() or w.pinned.count.load(.seq_cst) != 0 or global.count.load(.monotonic) != 0;
 }
 
 // -----------------------------------------------------------------------------
@@ -1101,7 +1116,7 @@ fn watchSlices(slice: i96, wait: i96) void {
 /// that were preempted wait in the global queue, which only the slice
 /// hurries (`preempted`).
 fn queuedHere(w: *Worker) bool {
-    return w.lifo.load(.monotonic) != null or !w.ring.isEmpty() or w.pinned.count.load(.monotonic) != 0;
+    return nextHeld(w, .monotonic) or !w.ring.isEmpty() or w.pinned.count.load(.monotonic) != 0;
 }
 
 /// Whether work waits that a preempted fiber of the busy worker `w` would
@@ -1152,6 +1167,50 @@ fn signalThread(id: usize) void {
 /// takes one from its ring, so two fibers waking each other cannot keep
 /// the others waiting.
 const lifo_limit = 3;
+
+/// How many fibers a worker holds to run next (`Worker.lifo`): enough
+/// that a fiber that makes a few tasks and waits for each runs them at
+/// once, past the ring.
+const run_next_slots = 4;
+
+/// Whether any of `w`'s "run next" slots holds a fiber.
+inline fn nextHeld(w: *Worker, comptime order: std.builtin.AtomicOrder) bool {
+    // All four read, and one test: no branch for each slot.
+    var any: usize = 0;
+    inline for (&w.lifo) |*slot| any |= @intFromPtr(slot.load(order));
+    return any != 0;
+}
+
+/// The slot of `w`'s "run next" circle that holds `f`, looked for by
+/// plain loads from the newest back, where a task just made sits.
+fn nextSlotOf(w: *Worker, f: *Fiber) ?u8 {
+    // Most waits find their task elsewhere: one test for all four.
+    var hit = false;
+    inline for (&w.lifo) |*slot| hit = hit or slot.load(.monotonic) == f;
+    if (!hit) return null;
+    const head = w.lifo_head.load(.monotonic);
+    var k: u8 = 0;
+    while (k < run_next_slots) : (k += 1) {
+        const i = (head +% run_next_slots -% k) % run_next_slots;
+        if (w.lifo[i].load(.monotonic) == f) return i;
+    }
+    return null;
+}
+
+/// Whether `f` is in one of `w`'s "run next" slots.
+fn nextHolds(w: *Worker, f: *Fiber) bool {
+    return nextSlotOf(w, f) != null;
+}
+
+/// Take `f` from the slot of `w`'s that holds it, by one atomic step:
+/// whether this took it. Called by `w`'s own fiber: when `f` was the
+/// newest, the next made takes the slot it leaves.
+fn takeFromNext(w: *Worker, f: *Fiber) bool {
+    const i = nextSlotOf(w, f) orelse return false;
+    if (w.lifo[i].cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) return false;
+    if (w.lifo_head.raw == i) w.lifo_head.store((i +% run_next_slots -% 1) % run_next_slots, .monotonic);
+    return true;
+}
 
 // -----------------------------------------------------------------------------
 // Waiting
@@ -3132,7 +3191,14 @@ fn next(w: *Worker) ?*Fiber {
         service(w);
         if (global.pop()) |f| return f;
     }
-    if (w.lifo.load(.monotonic) != null) if (w.lifo.swap(null, .seq_cst)) |f| {
+    // The newest first; the next made takes the slot it leaves.
+    var k: u8 = if (nextHeld(w, .monotonic)) 0 else run_next_slots;
+    while (k < run_next_slots) : (k += 1) {
+        const i = (w.lifo_head.raw +% run_next_slots -% k) % run_next_slots;
+        const slot = &w.lifo[i];
+        if (slot.load(.monotonic) == null) continue;
+        const f = slot.swap(null, .seq_cst) orelse continue;
+        w.lifo_head.store((i +% run_next_slots -% 1) % run_next_slots, .monotonic);
         if (w.lifo_streak < lifo_limit) {
             w.lifo_streak += 1;
             return f;
@@ -3140,7 +3206,8 @@ fn next(w: *Worker) ?*Fiber {
         // Run a fiber from the ring first, and leave this one to be
         // stolen meanwhile.
         if (f.home != null) w.pinned.push(f) else _ = w.ring.push(f);
-    };
+        break;
+    }
     w.lifo_streak = 0;
     // Pinned fibers and the ring take turns first, so neither keeps the
     // other waiting.
@@ -3198,20 +3265,34 @@ const steal_next_after: i96 = 3 * std.time.ns_per_us;
 /// `steal_next_after`. A pinned one taken so goes back to its home's
 /// queue.
 fn stealNext(v: *Worker) ?*Fiber {
-    const f = v.lifo.load(.seq_cst) orelse return null;
+    const slot = oldestNext(v) orelse return null;
+    const f = slot.load(.seq_cst) orelse return null;
     // Wait without reading the slot, whose line its owner writes.
     const until = nowNs() + steal_next_after;
     while (nowNs() < until) std.atomic.spinLoopHint();
-    if (v.lifo.cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) return null;
+    if (slot.cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) return null;
     return unlessPinned(f);
+}
+
+/// The oldest of `v`'s "run next" slots that holds a fiber, which a
+/// worker from outside takes: the first after the newest, going round.
+fn oldestNext(v: *Worker) ?*std.atomic.Value(?*Fiber) {
+    const head = v.lifo_head.load(.monotonic);
+    var k: u8 = 1;
+    while (k <= run_next_slots) : (k += 1) {
+        const i = (head +% k) % run_next_slots;
+        if (v.lifo[i].load(.seq_cst) != null) return &v.lifo[i];
+    }
+    return null;
 }
 
 /// Take the fiber in `v`'s "run next" slot at once: for a yield check
 /// told work waits (`claimWaiting`), as filling a slot tells them
 /// (`wake`).
 fn takeNext(v: *Worker) ?*Fiber {
-    const f = v.lifo.load(.seq_cst) orelse return null;
-    if (v.lifo.cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) return null;
+    const slot = oldestNext(v) orelse return null;
+    const f = slot.load(.seq_cst) orelse return null;
+    if (slot.cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) return null;
     return unlessPinned(f);
 }
 
@@ -3326,7 +3407,7 @@ fn takeWaiting(w: *Worker) bool {
     if (waiting.load(.monotonic) == 0) return false;
     if (waiting.swap(0, .seq_cst) == 0) return false;
     for (workers.*) |*v| {
-        if (v != w and v.lifo.load(.seq_cst) != null) {
+        if (v != w and nextHeld(v, .seq_cst)) {
             waiting.store(1, .monotonic);
             break;
         }
@@ -4290,7 +4371,7 @@ pub const Header = struct {
             // the "run next" slot may also be one woken partway, which
             // goes on where it stopped instead. A wait with a deadline
             // sleeps on its timer instead.
-            if (deadline == null and w.lifo.load(.monotonic) == &h.fiber and h.fiber.sp == 0) handoff(w, h, cancel);
+            if (deadline == null and h.fiber.sp == 0 and nextHolds(w, &h.fiber)) handoff(w, h, cancel);
         }
         return Done.waitIn(&h.done, cancel, deadline);
     }
@@ -4333,7 +4414,7 @@ pub fn Job(comptime T: type) type {
 }
 
 /// Hand this worker to the task of `h`, which has not started and is
-/// next on it (its "run next" slot, which only this worker takes): switch
+/// next on it (in one of its "run next" slots): switch
 /// straight to it, on its own stack, and straight back when it ends,
 /// past the queues. The fiber waiting sleeps as it hands its worker over,
 /// recorded as the task's waiter, so a task that stops on the way ends
@@ -4347,7 +4428,7 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool)) void 
     if (cancel) |c| if (c.load(.seq_cst)) return;
     // Taken by a worker with nothing else to do meanwhile: wait for it the
     // usual way.
-    if (w.lifo.cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) return;
+    if (!takeFromNext(w, f)) return;
     h.done.waiter.store(waiter, .seq_cst);
     h.done.epoch.store(e, .seq_cst);
     h.done.status.store(Done.waited, .seq_cst);
