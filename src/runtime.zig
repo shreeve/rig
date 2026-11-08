@@ -4829,7 +4829,7 @@ pub inline fn reduceInto(items: anytype, first: anytype, f: anytype, out: anytyp
 /// `!s.swap(i, j)`: panics unless both indexes are in range. An element
 /// swapped with itself stays, as `std.mem.swap` may not be given one
 /// place twice.
-pub inline fn swap(items: anytype, i: anytype, j: anytype) void {
+pub fn swap(items: anytype, i: anytype, j: anytype) linksection(program_section) void {
     const a = index(i, items.len);
     const b = index(j, items.len);
     if (a == b) return;
@@ -5885,7 +5885,7 @@ fn slicePanic() noreturn {
 
 /// `a / b` on a type parameter's values: exact for floats, truncating
 /// toward zero for integers.
-pub inline fn div(a: anytype, b: anytype) @TypeOf(a, b) {
+pub fn div(a: anytype, b: anytype) linksection(program_section) @TypeOf(a, b) {
     const T = @TypeOf(a, b);
     return if (@typeInfo(T) == .float) @as(T, a) / @as(T, b) else @divTrunc(@as(T, a), @as(T, b));
 }
@@ -5893,7 +5893,7 @@ pub inline fn div(a: anytype, b: anytype) @TypeOf(a, b) {
 /// `a % b`: the remainder with the dividend's sign, for integers and
 /// floats. A signed integer's remainder by -1 is 0, `Int.min % -1`
 /// included, where the machine's division would trap.
-pub inline fn rem(a: anytype, b: anytype) @TypeOf(a, b) {
+pub fn rem(a: anytype, b: anytype) linksection(program_section) @TypeOf(a, b) {
     const T = @TypeOf(a, b);
     switch (@typeInfo(T)) {
         .int => |int| if (int.signedness == .signed and b == -1) return 0,
