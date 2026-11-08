@@ -15,7 +15,7 @@ sub main()
   line = "the cat and the dog and the bird"
   seen = Map[?String, Int].new()
   for w in text.words(line)
-    c = (!seen).ensure(w, 0)
+    c = !seen.ensure(w, 0)
     c += 1
   print(seen.len, seen.get("the") ?? 0, seen.get("fish") ?? 0)
 

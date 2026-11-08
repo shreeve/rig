@@ -85,7 +85,7 @@ called fun int_churn(reps: Int) -> Int
     for k, i in ?ks
       !m.put(k, i)
     for k in ?ks
-      sum += (!m).take(k) ?? 0
+      sum += !m.take(k) ?? 0
   sum
 
 called fun int_iterate(reps: Int) -> Int
@@ -126,7 +126,7 @@ called fun text_churn(reps: Int) -> Int
     for i in 0..N
       !m.put(text_of(i), i)
     for k in ?ks
-      sum += (!m).take(k) ?? 0
+      sum += !m.take(k) ?? 0
   sum
 
 called fun pair_hit(reps: Int) -> Int

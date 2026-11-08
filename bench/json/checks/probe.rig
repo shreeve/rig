@@ -8,6 +8,6 @@ sub main()
   doc = json.Doc()
   n = 0
   for _ in 0..3
-    (!doc).load(args[args.len - 1]) catch continue
+    !doc.load(args[args.len - 1]) catch continue
     n += doc.len
   print(n)

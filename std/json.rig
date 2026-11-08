@@ -4,7 +4,7 @@
 # `json.parse(?src)` reads the whole of `src` in one pass and gives a
 # `Doc` holding its tape, or fails with the first error, a `JsonError`
 # member carrying the byte offset where reading stopped.
-# `(!doc).load(?src)` does the same into a `Doc` made by `json.Doc()`,
+# `!doc.load(?src)` does the same into a `Doc` made by `json.Doc()`,
 # reusing its lists. Nothing is lazy: every string's escapes are decoded
 # and its UTF-8 checked, and every number is converted, exactly, before
 # either returns. docs/design/json.md explains the design.
@@ -186,7 +186,7 @@ pub obj Doc
     !@text.clear()
     !@floats.clear()
     !@ints.clear()
-    if (!@).document(src) >= 0
+    if !@document(src) >= 0
       @len = @tape.len
       return
     # A failed parse leaves no partial tape.
@@ -201,9 +201,9 @@ pub obj Doc
   # Parses the one value `src` holds, with whitespace around it.
   fun document(!@, src: ?String) -> Int
     n = src.len
-    return (!@).fail(.too_large(at: 0)) if n > MAX_INPUT
+    return !@fail(.too_large(at: 0)) if n > MAX_INPUT
     i = skip_space(src, 0)
-    return (!@).fail(.empty(at: i)) if i == n
+    return !@fail(.empty(at: i)) if i == n
     # The innermost open array's or object's entry, its tape index * 2
     # + 1 for an object, or -1 at the top level. An open one's tape
     # entry holds the entry of the one around it until it closes, and
@@ -212,49 +212,49 @@ pub obj Doc
     depth = 0
     loop
       # A value starts at `i`.
-      return (!@).fail(.eof(at: i)) if i >= n
+      return !@fail(.eof(at: i)) if i >= n
       c = src[i]
       if c == '{' or c == '['
-        return (!@).fail(.depth(at: i)) if depth >= MAX_DEPTH
+        return !@fail(.depth(at: i)) if depth >= MAX_DEPTH
         depth +%= 1
-        top = (!@).open(c, top)
+        top = !@open(c, top)
         i = skip_indent(src, i + 1)
         # `}` is `{` + 2, and `]` is `[` + 2.
         if i < n and src[i] == c + 2
-          top = (!@).close(top)
+          top = !@close(top)
           depth -%= 1
           i += 1
         else if c == '{'
-          i = (!@).key(src, i)
+          i = !@key(src, i)
           return -1 if i < 0
           continue
         else
           continue
       else
-        i = (!@).scalar(src, i, c)
+        i = !@scalar(src, i, c)
         return -1 if i < 0
       # A value ended before `i`: a comma or a close comes next.
       loop
         i = skip_indent(src, i)
         if top < 0
           return 0 if i == n
-          return (!@).fail(.trailing(at: i))
-        return (!@).fail(.eof(at: i)) if i >= n
+          return !@fail(.trailing(at: i))
+        return !@fail(.eof(at: i)) if i >= n
         c = src[i]
         in_object = top & 1 == 1
         if c == ','
           i = skip_indent(src, i + 1)
           if in_object
-            i = (!@).key_at(src, i)
+            i = !@key_at(src, i)
             return -1 if i < 0
           break
         closing: U8 = '}' if in_object else ']'
         if c == closing
-          top = (!@).close(top)
+          top = !@close(top)
           depth -%= 1
           i += 1
         else
-          return (!@).fail(.unexpected(at: i))
+          return !@fail(.unexpected(at: i))
     -1
 
   # Records the first error; returns -1 for the caller to pass up.
@@ -286,12 +286,12 @@ pub obj Doc
   # An object's first key, after its `{`: `key_at` out of line, which
   # is inlined after a `,`, where most keys are.
   fun key(!@, src: ?String, at: Int) -> Int
-    (!@).key_at(src, at)
+    !@key_at(src, at)
 
   inline fun key_at(!@, src: ?String, at: Int) -> Int
-    return (!@).fail(.eof(at: at)) if at >= src.len
-    return (!@).fail(.unexpected(at: at)) if src[at] != '"'
-    end = (!@).scan_string(src, at)
+    return !@fail(.eof(at: at)) if at >= src.len
+    return !@fail(.unexpected(at: at)) if src[at] != '"'
+    end = !@scan_string(src, at)
     return -1 if end < 0
     # Most keys end at `:`, then the value's first byte, or `: ` and it.
     if end + 1 < src.len and src[end] == ':'
@@ -299,20 +299,20 @@ pub obj Doc
       return end + 2 if src[end + 1] == ' ' and end + 2 < src.len and src[end + 2] > ' '
       return skip_space(src, end + 1)
     i = skip_space(src, end)
-    return (!@).fail(.eof(at: i)) if i >= src.len
-    return (!@).fail(.unexpected(at: i)) if src[i] != ':'
+    return !@fail(.eof(at: i)) if i >= src.len
+    return !@fail(.unexpected(at: i)) if src[i] != ':'
     skip_space(src, i + 1)
 
   # Parses the string, number, or literal that starts with `c` at `at`;
   # returns the index after it.
   fun scalar(!@, src: ?String, at: Int, c: U8) -> Int
     match c
-      '"' => (!@).scan_string(src, at)
-      '-', '0'..='9' => (!@).number(src, at)
-      't' => (!@).literal(src, at, "true", T_TRUE)
-      'f' => (!@).literal(src, at, "false", T_FALSE)
-      'n' => (!@).literal(src, at, "null", T_NULL)
-      _ => (!@).fail(.unexpected(at: at))
+      '"' => !@scan_string(src, at)
+      '-', '0'..='9' => !@number(src, at)
+      't' => !@literal(src, at, "true", T_TRUE)
+      'f' => !@literal(src, at, "false", T_FALSE)
+      'n' => !@literal(src, at, "null", T_NULL)
+      _ => !@fail(.unexpected(at: at))
 
   fun literal(!@, src: ?String, at: Int, word: Static, tag: Int) -> Int
     end = at + word.len
@@ -320,8 +320,8 @@ pub obj Doc
       !@tape.push(tag)
       return end
     for b, k in word
-      return (!@).fail(.eof(at: at + k)) if at + k >= src.len
-      return (!@).fail(.unexpected(at: at + k)) if src[at + k] != b
+      return !@fail(.eof(at: at + k)) if at + k >= src.len
+      return !@fail(.unexpected(at: at + k)) if src[at + k] != b
     -1
 
   # ---- Strings --------------------------------------------------------
@@ -332,9 +332,9 @@ pub obj Doc
     i = scan_head(src, start)
     # Most strings are plain ASCII and end at a quote: one read decides.
     if i >= 0 and i < src.len and src[i] == '"'
-      return -1 if (!@).add_string(T_STR, start, i - start, at) < 0
+      return -1 if !@add_string(T_STR, start, i - start, at) < 0
       return i + 1
-    (!@).string_rest(src, start, at, i)
+    !@string_rest(src, start, at, i)
 
   # The rest of a string whose scan stopped at `from` on something other
   # than its closing quote: UTF-8, an escape, a control byte, or the
@@ -342,18 +342,18 @@ pub obj Doc
   fun string_rest(!@, src: ?String, start: Int, at: Int, from: Int) -> Int
     i = from
     if i < src.len and src[i] >= 0x80
-      i = (!@).utf8_text(src, i)
+      i = !@utf8_text(src, i)
       return -1 if i < 0
-    return (!@).fail(.eof(at: i)) if i >= src.len
+    return !@fail(.eof(at: i)) if i >= src.len
     c = src[i]
     if c == '"'
-      return -1 if (!@).add_string(T_STR, start, i - start, at) < 0
+      return -1 if !@add_string(T_STR, start, i - start, at) < 0
       return i + 1
-    return (!@).escaped(src, start, i) if c == "\\"
-    (!@).fail(.control(at: i))
+    return !@escaped(src, start, i) if c == "\\"
+    !@fail(.control(at: i))
 
   fun add_string(!@, tag: Int, offset: Int, n: Int, at: Int) -> Int
-    return (!@).fail(.too_large(at: at)) if n > MAX_STRING
+    return !@fail(.too_large(at: at)) if n > MAX_STRING
     !@tape.push(((offset <<% 27) +% n) *% 16 +% tag)
     0
 
@@ -363,7 +363,7 @@ pub obj Doc
   fun plain(!@, src: ?String, at: Int) -> Int
     i = skip_plain_ascii(src, at)
     return i if i >= src.len or src[i] < 0x80
-    (!@).utf8_text(src, i)
+    !@utf8_text(src, i)
 
   # `plain` from the non-ASCII byte at `at` on: out of line, since most
   # strings are ASCII. Checked 16 bytes at a time up to the next quote,
@@ -401,7 +401,7 @@ pub obj Doc
     loop
       while i < n and src[i] >= 0x80
         j = utf8_end(src, i)
-        return (!@).fail(.utf8(at: i)) if j < 0
+        return !@fail(.utf8(at: i)) if j < 0
         i = j
       i = skip_plain_ascii(src, i)
       return i if i >= n or src[i] < 0x80
@@ -417,28 +417,28 @@ pub obj Doc
     # `at + 2` to `i + 6` of the escapes below cannot overflow, and each
     # `0 <= i < n` takes one compare.
     n = src.len
-    return (!@).fail(.too_large(at: 0)) if n < 0 or n > MAX_INPUT
+    return !@fail(.too_large(at: 0)) if n < 0 or n > MAX_INPUT
     offset = @text.len
     !@text.add(src[start..at])
     i = at
     loop
       c = src[i]
       if c == '"'
-        return -1 if (!@).add_string(T_ESC_STR, offset, @text.len - offset, start - 1) < 0
+        return -1 if !@add_string(T_ESC_STR, offset, @text.len - offset, start - 1) < 0
         return i + 1
       if c != "\\"
-        return (!@).fail(.control(at: i))
-      j = (!@).three_byte_run(src, i)
-      i = j if j != i else (!@).escape(src, i)
+        return !@fail(.control(at: i))
+      j = !@three_byte_run(src, i)
+      i = j if j != i else !@escape(src, i)
       return -1 if i < 0
       # Escapes back to back need no scan between them.
       continue if i < src.len and src[i] == "\\"
-      i = (!@).copy_plain(src, i)
+      i = !@copy_plain(src, i)
       # Stopped at a quote, backslash or control byte: the loop's top takes it.
       continue if i < src.len and (src[i] == '"' or src[i] == "\\" or src[i] < 0x20)
-      j = (!@).plain(src, i)
+      j = !@plain(src, i)
       return -1 if j < 0
-      return (!@).fail(.eof(at: j)) if j >= src.len
+      return !@fail(.eof(at: j)) if j >= src.len
       !@text.add(src[i..j])
       i = j
     -1
@@ -484,11 +484,11 @@ pub obj Doc
 
   # Decodes the escape whose backslash is at `at`; returns the index after it.
   fun escape(!@, src: ?String, at: Int) -> Int
-    return (!@).fail(.eof(at: at + 1)) if at + 1 >= src.len
+    return !@fail(.eof(at: at + 1)) if at + 1 >= src.len
     e = src[at + 1]
-    return (!@).unicode(src, at) if e == 'u'
+    return !@unicode(src, at) if e == 'u'
     out = ESCAPES[e]
-    return (!@).fail(.escape(at: at + 1)) if out == 0
+    return !@fail(.escape(at: at + 1)) if out == 0
     !@text.push(out)
     at + 2
 
@@ -496,17 +496,17 @@ pub obj Doc
   # three-byte characters, as in escaped CJK text, go faster through
   # `three_byte_run`.
   fun unicode(!@, src: ?String, at: Int) -> Int
-    c = (!@).hex4(src, at + 2)
+    c = !@hex4(src, at + 2)
     return -1 if c < 0
     i = at + 6
     if c >= 0xDC00 and c <= 0xDFFF
-      return (!@).fail(.surrogate(at: at))
+      return !@fail(.surrogate(at: at))
     if c >= 0xD800 and c <= 0xDBFF
       if i + 1 >= src.len or src[i] != "\\" or src[i + 1] != 'u'
-        return (!@).fail(.surrogate(at: at))
-      low = (!@).hex4(src, i + 2)
+        return !@fail(.surrogate(at: at))
+      low = !@hex4(src, i + 2)
       return -1 if low < 0
-      return (!@).fail(.surrogate(at: at)) if low < 0xDC00 or low > 0xDFFF
+      return !@fail(.surrogate(at: at)) if low < 0xDC00 or low > 0xDFFF
       c = 0x10000 + ((c - 0xD800) << 10) + (low - 0xDC00)
       i += 6
     utf8.push_rune(!@text, c)
@@ -517,15 +517,15 @@ pub obj Doc
   fun hex4(!@, src: ?String, at: Int) -> Int
     v = hex_value(src, at)
     return v if v >= 0
-    (!@).hex_error(src, at)
+    !@hex_error(src, at)
 
   # Records the error in the four hex digits at `at`: one is missing or
   # is not a hex digit. Returns -1.
   fun hex_error(!@, src: ?String, at: Int) -> Int
     for k in 0..4
       i = at + k
-      return (!@).fail(.eof(at: i)) if i >= src.len
-      return (!@).fail(.escape(at: i)) if HEX[src[i]] < 0
+      return !@fail(.eof(at: i)) if i >= src.len
+      return !@fail(.escape(at: i)) if HEX[src[i]] < 0
     -1
 
   # ---- Numbers --------------------------------------------------------
@@ -540,8 +540,8 @@ pub obj Doc
     m: U64 = 0
     i, m = take_digits(src, i, m)
     int_digits = i - first
-    return (!@).fail(.number(at: i)) if int_digits == 0
-    return (!@).fail(.number(at: first + 1)) if int_digits > 1 and peek(src, first) == '0'
+    return !@fail(.number(at: i)) if int_digits == 0
+    return !@fail(.number(at: first + 1)) if int_digits > 1 and peek(src, first) == '0'
     frac_digits = 0
     is_float = false
     if peek(src, i) == '.'
@@ -550,7 +550,7 @@ pub obj Doc
       dot = i
       i, m = take_digits(src, i, m)
       frac_digits = i - dot
-      return (!@).fail(.number(at: i)) if frac_digits == 0
+      return !@fail(.number(at: i)) if frac_digits == 0
     else if int_digits <= 18 and peek(src, i) | 0x20 != 'e' and not (negative and m == 0)
       # Most numbers are integers of a few digits: with no exponent after
       # them, and at most 18 digits, which always fit, the value goes on
@@ -570,7 +570,7 @@ pub obj Doc
         if exp < 100000
           exp = exp * 10 + Int(src[i] - '0')
         i += 1
-      return (!@).fail(.number(at: i)) if i == exp_first
+      return !@fail(.number(at: i)) if i == exp_first
       exp = -exp if exp_negative
     digits = int_digits + frac_digits
     if not is_float and digits <= 19
@@ -592,7 +592,7 @@ pub obj Doc
       v = -v if negative
     else
       v = slow_float(src[at..i])
-    return (!@).fail(.range(at: at)) if v > Float.max or v < Float.min
+    return !@fail(.range(at: at)) if v > Float.max or v < Float.min
     !@add_float(v)
     i
 
@@ -611,7 +611,7 @@ pub obj Doc
 # fails with the first error.
 pub fun parse(src: ?String) -> Doc!JsonError
   doc = Doc()
-  (!doc).load(src)!
+  !doc.load(src)!
   doc
 
 # ---- Scanning ---------------------------------------------------------
