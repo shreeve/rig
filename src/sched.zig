@@ -671,6 +671,12 @@ const Preempt = struct {
     /// or too little stack for the trampoline.
     outside: u64 = 0,
     cramped: u64 = 0,
+    /// The stack pointer the last signal stopped a fiber at, and the most
+    /// any stop then took of the fiber's stack, from there to the switch
+    /// to the worker's stack: what `preempt_room` has to hold
+    /// (test/cli/preempt.sh).
+    stopped_sp: usize = 0,
+    deepest: usize = 0,
     /// Held while the monitor signals its thread, and as the thread
     /// leaves, which clears `tid` (`leavePreempt`): a thread is never
     /// signaled once it has ended.
@@ -811,6 +817,7 @@ fn onPreempt(_: std.posix.SIG, _: *const std.posix.siginfo_t, ctx: ?*anyopaque) 
     } else @as(*usize, @ptrFromInt(ret)).* = pc;
     sp_at.* = ret;
     pc_at.* = @intFromPtr(&preemptEntry);
+    preOf(w).stopped_sp = sp;
 }
 
 /// The vector and x87 state the trampoline saves: by `xsave`, x87, SSE,
@@ -1042,6 +1049,7 @@ fn preemptSwitch() void {
 /// trampoline returns into the stopped code.
 fn afterPreempt(f: *Fiber, _: ?*anyopaque) void {
     const w = me().?;
+    preOf(w).deepest = @max(preOf(w).deepest, preOf(w).stopped_sp -| f.sp);
     serviceBusy(w);
     const yields = blk: {
         if (!hasOwnWork(w)) {
@@ -3095,11 +3103,11 @@ fn printStats() void {
     const p = rt.process.* orelse return;
     const v = p.environ.getPosix("RIG_SCHED_STATS") orelse return;
     if (!std.mem.eql(u8, v, "1")) return;
-    var buf: [256]u8 = undefined;
+    var buf: [320]u8 = undefined;
     for (workers.*, 0..) |*w, i| {
         if (preempt) printDeclined(w, i);
         const line = (if (preempt)
-            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room)\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped })
+            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room), deepest stop {d} of {d} bytes\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped, preOf(w).deepest, preempt_room })
         else
             std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw })) catch continue;
         _ = std.posix.system.write(2, line.ptr, line.len);
