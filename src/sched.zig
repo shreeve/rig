@@ -286,7 +286,10 @@ fn currentOf() ?*Fiber {
 /// it gone. So two tasks that answer each other stay on one worker, and
 /// fork-join (`t = f()&; g(); >t`) spreads at `g`'s first yield check,
 /// loop or recursive (`waiting`), which wakes an idle worker for `f` and
-/// lets `g` run on. A worker that
+/// lets `g` run on. In a build preempted by signal, which has no yield
+/// checks, a worker that switches to a fiber while others wait in its
+/// slots wakes one (`spread`), and a maker that goes on computing hands
+/// `f` on at the monitor's stop (`afterPreempt`). A worker that
 /// searches also takes a fiber left in a busy worker's slot a while
 /// (`stealNext`). Outside the workers, `f` goes to the global queue.
 pub const wake = if (preempt) wakeApart else wakeIn;
@@ -3260,6 +3263,7 @@ fn runFiber(w: *Worker, f: *Fiber) void {
     if (preempt) preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
     if (f.home != null) w.ran_pinned += 1;
     prepare(f);
+    spread(w);
     w.current = f;
     switchTo(&w.sp, f.sp);
     // The fiber that switched away: `f`, or one `f` handed this worker.
@@ -3272,6 +3276,20 @@ fn runFiber(w: *Worker, f: *Fiber) void {
         endStack(w, gone);
         if (gone.done) |d| d(gone);
     }
+}
+
+/// As `w` switches to a fiber, at its loop or by a handoff: when other
+/// work still waits in its "run next" slots or its ring while a worker
+/// sleeps and none looks for work, wake one for it (`notify`). A fiber
+/// made ready into a slot wakes no worker (`wakeIn`), and a fiber that
+/// makes several tasks and waits for the first, or for anything, leaves
+/// the others there as its worker runs on: the woken worker takes them
+/// (`stealNext`). A build preempted by signal has no yield check that
+/// would hand them on, and without this they waited for the monitor's
+/// stop, about 1 ms. A switch with nothing else waiting costs two loads.
+inline fn spread(w: *Worker) void {
+    if (!nextHeld(w, .monotonic) and w.ring.isEmpty()) return;
+    notify();
 }
 
 /// The fiber `f` has switched away for good: its stack, unless a panic
@@ -4667,6 +4685,7 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool)) void 
     f.handoff = waiter;
     f.handoff_epoch = e;
     prepare(f);
+    spread(w);
     w.current = f;
     w.ran += 1;
     if (f.home != null) w.ran_pinned += 1;

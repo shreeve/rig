@@ -315,8 +315,9 @@ Machine-specific practice (the owner's machines):
   everything else runs on E-cores 12-19. `/tmp` is a 16 GB tmpfs shared
   with other projects' gates: binaries and outputs go on `/zfs`.
   `tools/pup-rig COMMIT` builds the Rig under test in its own folder.
-- **The Mac:** suites run as `tools/heavy swarm test/rig.rip -w 6`, so
-  the load stays near the core count when several sessions work.
+- **The Mac:** suites run as `tools/heavy swarm test/rig.rip -w 4`, and
+  `tools/heavy` takes a second slot only while the load is under the core
+  count, so the load stays near it when several sessions work.
 - **burst** is billed by the minute: use it in short bursts, and shut it
   down (`sudo -n shutdown -h now`) when nothing runs on it.
 - **One session per worktree and branch.** A session never rebases,
