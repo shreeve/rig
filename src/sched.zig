@@ -46,6 +46,7 @@ comptime {
         kicking,
         retire_after,
         pool,
+        spare,
         home_lost,
         all_workers,
         started,
@@ -2997,6 +2998,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
         w.timers.clear();
         w.poller.close();
     }
+    freeSpare();
     std.heap.smp_allocator.free(all_workers.*);
     workers.* = &.{};
     all_workers.* = &.{};
@@ -3557,6 +3559,7 @@ fn tearDownAll() ?[]const u8 {
     const work = rt.fast_alloc.exitWork(span);
     var stacks: usize = 0;
     for (ws) |*v| stacks += @atomicLoad(u32, &v.free_count, .monotonic);
+    stacks += spare.count.load(.monotonic);
     // About 13 µs a page-table page, and 8 µs a MiB of segments.
     if (13 * (work.page_tables + stacks) + 8 * work.segment_mib < teardown_min_us) return "little to free";
     if (othersRun(w, ws)) return "a task runs";
@@ -3659,6 +3662,15 @@ fn unmapShare(w: *Worker, ex: *Exit) void {
         unmapForExit(n.stack.base, stack_span);
     }
     w.free_count = 0;
+    // The spare list's stacks go with whichever worker takes them first.
+    if (spare.lock.tryLock()) {
+        defer spare.lock.unlock();
+        while (spare.head) |n| {
+            spare.head = n.next;
+            unmapForExit(n.stack.base, stack_span);
+        }
+        spare.count.store(0, .monotonic);
+    }
     while (true) {
         const k = ex.next.fetchAdd(1, .monotonic);
         if (k >= ex.total) return;
@@ -3996,19 +4008,45 @@ pub fn block(b: *const Blocked) void {
     if (leadsOn(b)) walkFrom(f, b);
 }
 
-/// `block`'s walk, in a frame of its own: its 15 KiB of waits and steps
-/// would otherwise sit in `block`'s frame, and every fiber that blocks
-/// would touch a stack page more than it needs, though most never walk.
+/// `block`'s walk, run on the worker's own stack (`walkOn`): its 16 KiB
+/// of waits, steps and message would otherwise sit on the fiber's, which
+/// only needs room for this frame. The worker's stack below the point it
+/// switched to the fiber is unused while the fiber runs. The walk holds
+/// the graph's lock, so no signal stops the fiber meanwhile (`lockGraph`).
 noinline fn walkFrom(f: *Fiber, b: *const Blocked) void {
+    const WalkCall = struct {
+        f: *Fiber,
+        b: *const Blocked,
+        text: ?[]const u8 = null,
+
+        fn run(p: *anyopaque) callconv(.c) void {
+            const c: *@This() = @ptrCast(@alignCast(p));
+            c.text = walkOn(c.f, c.b);
+        }
+    };
+    var call: WalkCall = .{ .f = f, .b = b };
+    // Below the worker's saved registers, past a red zone, 16-aligned.
+    const top = (me().?.sp - 256) & ~@as(usize, 15);
+    rt.switchStack(&call, &WalkCall.run, top);
+    if (call.text) |t| {
+        unblock();
+        @panic(t);
+    }
+}
+
+/// The walk, on the worker's stack: the deadlock's message, if the walk
+/// finds one. The message is copied off that stack, which the worker uses
+/// again once the fiber stops, to memory of its own that the panic's
+/// report reads and that stays: a deadlock's panic is rare, and its
+/// report may wait on the output's lock.
+noinline fn walkOn(f: *Fiber, b: *const Blocked) ?[]const u8 {
     var walk: Walk = .{ .me = f };
     var buf: [1024]u8 = undefined;
     lockGraph();
     const text = if (walk.stuck(b, 0) and walk.holds()) walk.describe(&buf) else null;
     unlockGraph();
-    if (text) |t| {
-        unblock();
-        @panic(t);
-    }
+    const t = text orelse return null;
+    return std.heap.page_allocator.dupe(u8, t) catch "deadlock";
 }
 
 /// Whether the wait `b` leads to a fiber that blocks too, which a cycle
@@ -4627,9 +4665,35 @@ comptime {
     std.debug.assert(@sizeOf(FreeStack) <= rt.unwind_headroom);
 }
 
-/// How many stacks a worker keeps free; one more is returned to the
-/// system, with what its fiber touched.
-const keep_free = 64;
+/// How many stacks a worker keeps free on its own list. Past that, it
+/// moves `spare_batch` of them to the spare list all workers share
+/// (`Spare`), from which a worker with none takes a batch back before it
+/// maps new ones. A fiber started on one worker often ends on another,
+/// which then holds more free stacks than it uses while the first maps
+/// new ones: the spare list moves them between the two, where each
+/// worker's alone would return one to the system, which flushes the
+/// other cores' TLBs, for every one the other maps.
+const keep_free = 32;
+
+/// How many free stacks the spare list holds for each worker; one more is
+/// returned to the system, with what its fiber touched. With `keep_free`,
+/// the free stacks kept are at most 64 a worker.
+const spare_per_worker = 32;
+
+/// How many stacks move between a worker's list and the spare list at once.
+const spare_batch = 16;
+
+/// The free stacks no worker holds: at most `spare_per_worker` for each
+/// worker, linked as a worker's are.
+const Spare = struct {
+    lock: SpinLock = .{},
+    head: ?*FreeStack = null,
+    /// Written under the lock; read without it to skip the lock when the
+    /// list has nothing to give, or no room.
+    count: std.atomic.Value(u32) = .init(0),
+};
+var spare_var: Spare = .{};
+const spare = split.cell(&spare_var, "sched.spare");
 
 /// How many stacks one reservation of address space holds.
 const chunk = 16;
@@ -4644,6 +4708,7 @@ fn takeStack() Stack {
     const len = rt.task_stack_size;
     const span = guard + len + std.heap.pageSize();
     if (w) |x| {
+        if (x.free == null and spare.count.load(.monotonic) != 0) takeSpare(x);
         if (x.free) |n| {
             x.free = n.next;
             x.free_count -= 1;
@@ -4659,6 +4724,7 @@ fn takeStack() Stack {
     const count: usize = if (w != null) chunk else 1;
     const got = std.posix.mmap(null, span * count, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch rt.oom();
     const base = @intFromPtr(got.ptr);
+    rt.fast_alloc.keepSmall(base, span * count);
     for (0..count) |i| {
         const b = base + i * span;
         if (std.posix.errno(std.posix.system.mprotect(@ptrFromInt(b + guard), len, .{ .READ = true, .WRITE = true })) != .SUCCESS) rt.oom();
@@ -4674,11 +4740,64 @@ fn takeStack() Stack {
 /// return it to the system when `w` keeps enough, or always in a build
 /// that sanitizes (`RIG_SANITIZE=1`), so a late write into it faults.
 fn releaseStack(w: *Worker, s: Stack) void {
-    if (rt.sanitize or w.free_count >= keep_free) return unmapStack(s);
+    if (rt.sanitize) return unmapStack(s);
+    if (w.free_count >= keep_free and !giveSpare(w)) return unmapStack(s);
     const n: *FreeStack = @ptrFromInt(s.base + s.guard + s.len - @sizeOf(FreeStack));
     n.* = .{ .stack = s, .next = w.free };
     w.free = n;
     w.free_count += 1;
+}
+
+/// Move `spare_batch` of `w`'s free stacks to the spare list, if it has
+/// room for them: whether it had.
+fn giveSpare(w: *Worker) bool {
+    const sp = spare;
+    const room = spare_per_worker * workers.*.len;
+    if (sp.count.load(.monotonic) + spare_batch > room) return false;
+    var last = w.free.?;
+    for (1..spare_batch) |_| last = last.next.?;
+    const first = w.free.?;
+    w.free = last.next;
+    w.free_count -= spare_batch;
+    sp.lock.lock();
+    defer sp.lock.unlock();
+    if (sp.count.raw + spare_batch > room) {
+        last.next = w.free;
+        w.free = first;
+        w.free_count += spare_batch;
+        return false;
+    }
+    last.next = sp.head;
+    sp.head = first;
+    sp.count.store(sp.count.raw + spare_batch, .monotonic);
+    return true;
+}
+
+/// Take up to `spare_batch` stacks from the spare list for `w`, which has
+/// none of its own.
+fn takeSpare(w: *Worker) void {
+    const sp = spare;
+    sp.lock.lock();
+    defer sp.lock.unlock();
+    var n: u32 = 0;
+    while (n < spare_batch) : (n += 1) {
+        const got = sp.head orelse break;
+        sp.head = got.next;
+        got.next = w.free;
+        w.free = got;
+    }
+    sp.count.store(sp.count.raw - n, .monotonic);
+    w.free_count += n;
+}
+
+/// Return the spare list's stacks to the system, as the scheduler ends.
+fn freeSpare() void {
+    const sp = spare;
+    while (sp.head) |n| {
+        sp.head = n.next;
+        unmapStack(n.stack);
+    }
+    sp.count.store(0, .monotonic);
 }
 
 fn unmapStack(s: Stack) void {

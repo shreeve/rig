@@ -579,6 +579,14 @@ fn ask(p: usize, len: usize, want: Want) void {
     std.posix.madvise(at, len, advice) catch {};
 }
 
+/// Ask that the `len` bytes at `p` get small pages, where the system
+/// would give huge ones unasked (`enabled=always`): a fiber's stack, of
+/// which a sleeping task touches a page or two, would otherwise take a
+/// 2 MiB page on its first touch.
+pub fn keepSmall(p: usize, len: usize) void {
+    ask(p, len, .small);
+}
+
 /// What Rig wants of a range: huge pages for one that has asked for
 /// nothing (`huge`); huge pages for one that may have asked for small
 /// ones, which only asking for huge pages undoes (`huge_again`, a large
