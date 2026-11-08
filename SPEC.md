@@ -551,8 +551,8 @@ Where a template stands decides what it becomes:
   ([§7](#temporaries)), built in 256 bytes of the caller's stack and
   then on the heap, and freed when the statement ends, so a view of it
   cannot outlive the statement;
-- where a `String` is expected (a binding, a field, an element, a
-  return, an owning parameter): a new String, one allocation of its
+- where a `String` is expected (a binding, a field, an array's element
+  or one pushed into a List, a return, an owning parameter): a new String, one allocation of its
   length.
 
 Anywhere else, such as an operand of `==` or the object of `.len`, a
