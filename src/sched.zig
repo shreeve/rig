@@ -4030,7 +4030,11 @@ pub fn block(b: *const Blocked) void {
 /// 4. Called from code already on the worker's stack, and off a worker
 ///    or outside a fiber (an after-hook, `main` before the scheduler),
 ///    `f` runs where it is.
-pub fn onWorkerStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
+///
+/// Never inlined, so its calls stay in a function of their own, which
+/// `tools/stack-census.py` counts as its frame alone: each call it makes
+/// runs on a worker's stack or outside any task.
+pub noinline fn onWorkerStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
     const R = @typeInfo(@TypeOf(f)).@"fn".return_type.?;
     const w = me() orelse return @call(.auto, f, args);
     if (w.current == null or w.on_own_stack) return @call(.auto, f, args);
