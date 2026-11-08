@@ -338,6 +338,17 @@ none of these ever built:
   `Int`), where it reported a view leaving the function, and rejects a
   consuming method called through a view or through a box of a read
   view (C7).
+- `tools/stack-census.py` reads a preempted Mach-O program's code in
+  `__rig_text`, which carries no instruction attributes, so bench/tasks'
+  release build on the Mac has 6 of its 9 task types bounded, where it
+  had 1. It resolves a call through a `FnRef` to the thunks of that
+  FnRef's type, a fact it checks in the runtime's source, and leaves out
+  `clone`'s child branch, which runs on the new thread's stack. Four
+  under-counts are gone: a pointer the linker wrote out whole read as a
+  fixup, two `__const` sections joined at the wrong addresses, a
+  function's address spilled to the stack trusted after a store or call
+  that may have written it, and a spill read at its offset from a moved
+  sp. `test/cli/stack_census.sh` tests each rule.
 - The core suite, `swarm test/rig.rip`, runs the scripts of `test/cli`
   and the probes of past reviews (`test/rig/probes-*.rig.test`) too, so
   a change that breaks one fails its gate; `cli` and `probes` run them

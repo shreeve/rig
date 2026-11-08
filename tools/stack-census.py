@@ -51,6 +51,10 @@ EXTRA_COLD = None
 # outside any task (its rules 4 and 5), so a task's bound counts its own
 # frame alone.
 ON_WORKER = re.compile(r"^rig\.sched\.onWorkerStack(__\w+)?$")
+# Zig's `clone` (Linux): after the syscall, the branch taken when it
+# gives 0 runs in the new thread, on the stack the call passed it, so the
+# walk does not follow it (`clone_child`); the parent's path returns.
+CLONE = re.compile(r"^os\.linux\.(x86_64|aarch64)\.clone$")
 # Zig's stack probe (x86-64): it touches each page of the frame its caller
 # is about to reserve, moving rsp down and back; the caller then reserves
 # the frame itself (`mov eax, N; call; sub rsp, rax`).
@@ -97,6 +101,11 @@ def disassemble(exe, arch):
     if arch == "x86_64":
         args.append("-M" "intel")
     out = subprocess.run(args + [exe], capture_output=True, text=True, check=True).stdout
+    # Mach-O's `__rig_text` carries no instruction attributes, so `-d`
+    # passes over it: disassembled by name, as every other section of
+    # the program's code is by `-d`.
+    if "Disassembly of section __TEXT,__rig_text:" not in out and section_range(exe, "__rig_text"):
+        out += subprocess.run(args + ["-D", "--section=__rig_text", exe], capture_output=True, text=True, check=True).stdout
     fns, cur = [], None
     head = re.compile(r"^([0-9a-f]+) <(.+)>:$")
     line = re.compile(r"^\s*([0-9a-f]+):\s+(\S+)\s*(.*)$")
@@ -329,15 +338,32 @@ def x86_flow(i, fn_range):
 
 # --- one function --------------------------------------------------------------
 
-def kstep(i, kst, tlv_range, starts):
+def kstep(i, kst, tlv_range, starts, depth=0):
     """aarch64, along one path: follow the registers whose value the code
     itself made, a function's address or a thread-local's getter (macOS:
     loaded from a descriptor in `__thread_vars`), through spills to the
     stack. For a call or jump through a register, its known target: a
-    function's address, TLV, or None."""
+    function's address, TLV, or None.
+
+    A spill is kept by its place in the frame (its offset from sp less
+    the depth), and only while nothing else may have written there: any
+    store to the stack but a plain `str xN, [sp, #n]` forgets every
+    spill, and so does any other store, or any call, once an address in
+    the frame has left sp and the frame pointer (`add x0, sp, #n`), since
+    a callee or a pointer may then write the frame."""
     addr, getter, slots = kst["addr"], kst["getter"], kst["slots"]
     parts = [p.strip() for p in re.split(r",(?![^\[]*\])", i.args)] if i.args else []
     dest = parts[0] if parts else ""
+    plain = i.op == "str" and len(parts) == 2 and re.match(r"^x\d+$", dest) and re.match(r"^\[sp(?:, #(0x[0-9a-f]+|\d+))?\]$", parts[1])
+    if i.op.startswith("st") and not plain:
+        if re.search(r"\[(sp|x29|fp)\b", i.args) or kst.get("escaped"):
+            slots.clear()
+    if i.op in ("bl", "blr", "blraa", "blrab", "blraaz", "blrabz") and kst.get("escaped"):
+        slots.clear()
+    # An address in the frame copied out of sp or the frame pointer.
+    outside = re.sub(r"\[[^\]]*\]!?", "", i.args)
+    if re.search(r"\b(sp|x29|fp)\b", ",".join(outside.split(",")[1:])) and not (dest in ("sp", "x29", "fp") and re.search(r"\b(sp|x29|fp)\b", outside.split(",")[1] if "," in outside else "")):
+        kst["escaped"] = True
     if i.op in ("blr", "br", "blraa", "blrab", "braa", "brab"):
         kst["how"] = kst.get("loads", {}).get(dest)
         t = TLV if dest in getter else addr.get(dest) if addr.get(dest) in starts else None
@@ -406,7 +432,7 @@ def kstep(i, kst, tlv_range, starts):
             return None
         m = re.match(r"^\[sp(?:, #(0x[0-9a-f]+|\d+))?\]$", parts[1])
         if m:
-            held = slots.get(num(m.group(1)) if m.group(1) else 0)
+            held = slots.get((num(m.group(1)) if m.group(1) else 0) - depth)
             clear(dest)
             if held == "tlv":
                 getter.add(dest)
@@ -416,7 +442,10 @@ def kstep(i, kst, tlv_range, starts):
     if i.op == "str" and len(parts) == 2:
         m = re.match(r"^\[sp(?:, #(0x[0-9a-f]+|\d+))?\]$", parts[1])
         if m:
-            slots[num(m.group(1)) if m.group(1) else 0] = "tlv" if dest in getter else addr.get(dest)
+            key = (num(m.group(1)) if m.group(1) else 0) - depth
+            for k in [k for k in slots if abs(k - key) < 8]:
+                del slots[k]
+            slots[key] = "tlv" if dest in getter else addr.get(dest)
             return None
     if i.op == "mov" and len(parts) == 2 and re.match(r"^x\d+$", parts[1]):
         src = parts[1]
@@ -531,6 +560,22 @@ def kstep_x86(i, kst, starts):
     return None
 
 
+def clone_child(ins, k):
+    """Whether the branch at `ins[k]` is `clone`'s to its child: the test
+    of the syscall's result just after the syscall (`syscall; test rax,
+    rax; je` on x86-64, `svc #0; cbz x0` on arm64), whose fall-through is
+    the parent's `ret`."""
+    i = ins[k]
+    nxt = ins[k + 1] if k + 1 < len(ins) else None
+    if nxt is None or nxt.op not in ("ret", "retq"):
+        return False
+    if i.op in ("je", "jz") and k >= 2:
+        return ins[k - 1].op == "test" and ins[k - 1].args.replace(" ", "") == "rax,rax" and ins[k - 2].op == "syscall"
+    if i.op == "cbz" and k >= 1:
+        return i.args.startswith("x0,") and ins[k - 1].op == "svc" and ins[k - 1].args.strip("# ") in ("0", "0x0")
+    return False
+
+
 def analyse(fn, end, arch, code, starts, tlv_range=None, words=None):
     if PROBES.search(fn.name):
         fn.own = 16
@@ -574,7 +619,7 @@ def analyse(fn, end, arch, code, starts, tlv_range=None, words=None):
                         return False
                     depth = depth + e[1] if e[0] == "add" else e[1]
                 track(ins, st, depth)
-                kt = kstep(ins, kst, tlv_range, starts) if arch == "aarch64" else kstep_x86(ins, kst, starts)
+                kt = kstep(ins, kst, tlv_range, starts, depth) if arch == "aarch64" else kstep_x86(ins, kst, starts)
                 fn.own = max(fn.own, depth)
                 f = flow(ins, (fn.start, end))
                 if f is None:
@@ -605,10 +650,13 @@ def analyse(fn, end, arch, code, starts, tlv_range=None, words=None):
                         fn.icalls_how.append((depth, ins.addr, kst.get("how")))
                     k += 1
                     continue
+                if kind == "cond" and CLONE.search(fn.name) and clone_child(fn.ins, k):
+                    k += 1
+                    continue
                 if kind in ("jump", "cond"):
                     t = f[1]
                     if t is not None and t in index:
-                        work.append((index[t], depth, dict(regs), {"addr": dict(kst["addr"]), "getter": set(kst["getter"]), "slots": dict(kst["slots"]), "loads": dict(kst.get("loads", {}))}))
+                        work.append((index[t], depth, dict(regs), {"addr": dict(kst["addr"]), "getter": set(kst["getter"]), "slots": dict(kst["slots"]), "loads": dict(kst.get("loads", {})), "escaped": kst.get("escaped", False)}))
                     elif t is not None:
                         if in_code(t):
                             fn.tails.append((depth, t))
@@ -626,7 +674,7 @@ def analyse(fn, end, arch, code, starts, tlv_range=None, words=None):
                     # entry in the function is a branch at this depth.
                     t, n = f[1], 0
                     while words is not None and words.get(t) in index:
-                        work.append((index[words[t]], depth, dict(regs), {"addr": dict(kst["addr"]), "getter": set(kst["getter"]), "slots": dict(kst["slots"]), "loads": dict(kst.get("loads", {}))}))
+                        work.append((index[words[t]], depth, dict(regs), {"addr": dict(kst["addr"]), "getter": set(kst["getter"]), "slots": dict(kst["slots"]), "loads": dict(kst.get("loads", {})), "escaped": kst.get("escaped", False)}))
                         t += 8
                         n += 1
                     if n == 0:
@@ -752,28 +800,36 @@ def data_words(exe, fmt, starts):
             continue
         names.append(n)
     base = min(starts) & ~0xFFFFFFF if fmt == "macho" else 0
+    # A word already inside the image is an address as it stands (a
+    # pointer the linker wrote out whole); any other is a chained fixup.
+    top = max((int(m.group(3), 16) + int(m.group(2), 16) for m in (re.match(r"^\s*\d+\s+(\S+)\s+([0-9a-f]+)\s+([0-9a-f]+)", l) for l in heads.splitlines()) if m), default=0)
     words, fptr = {}, {}
-    for n in names:
+    # A name may stand for several sections (Mach-O's `__TEXT,__const` and
+    # `__DATA_CONST,__const`), each dumped at its own addresses: the bytes
+    # are kept in runs of neighbouring lines, never joined across a gap.
+    for n in dict.fromkeys(names):
         out = subprocess.run([objdump, "-s", "-j", n, exe], capture_output=True, text=True).stdout
-        chunks = []
+        runs = []
         for l in out.splitlines():
             m = re.match(r"^ ([0-9a-f]+) ((?:[0-9a-f]{2,8} ?){1,4})", l)
-            if m:
-                chunks.append((int(m.group(1), 16), bytes.fromhex(m.group(2).replace(" ", ""))))
-        if not chunks:
-            continue
-        lo = chunks[0][0]
-        data = bytearray()
-        for a, b in chunks:
-            data += b
-        for k in range(0, len(data) - 7, 8 if (lo % 8 == 0) else 4):
-            w = int.from_bytes(data[k:k + 8], "little")
-            v = w
-            if fmt == "macho" and w not in starts and not (w >> 63):
-                v = base + (w & 0xFFFFFFFFF)
-            words[lo + k] = v
-            if v in starts:
-                fptr[lo + k] = v
+            if not m:
+                continue
+            a, b = int(m.group(1), 16), bytes.fromhex(m.group(2).replace(" ", ""))
+            if runs and runs[-1][0] + len(runs[-1][1]) == a:
+                runs[-1][1].extend(b)
+            else:
+                runs.append((a, bytearray(b)))
+        for lo, data in runs:
+            # Every word at a 4-byte boundary: a pointer packed at one is
+            # still a function's address taken.
+            for k in range((-lo) % 4, len(data) - 7, 4):
+                w = int.from_bytes(data[k:k + 8], "little")
+                v = w
+                if fmt == "macho" and not base <= w < top and not (w >> 63):
+                    v = base + (w & 0xFFFFFFFFF)
+                words[lo + k] = v
+                if v in starts:
+                    fptr[lo + k] = v
     return words, fptr
 
 
@@ -872,6 +928,49 @@ def vtable_fields(lib, namespace, cache={}):
     fields = re.findall(r"^    (@\"[^\"]+\"|\w+): \*const fn", m.group(1), re.M)
     cache[namespace] = [f.strip('@"') for f in fields] or None
     return cache[namespace]
+
+
+FNREF_CALL = re.compile(r"^rig\.runtime\.(FnRef\(.*\))\.call$")
+FNREF_THUNK = re.compile(r"^rig\.runtime\.(FnRef\(.*\))\.(of|ofFn|ofClosure)(__\w+)?\.thunk\.call$")
+
+
+def fnref_fact(src):
+    """Whether Rig's sources at `src` hold the fact a call through a
+    `FnRef` is resolved by: a `FnRef`'s function is set only by its own
+    `of`, `ofFn` and `ofClosure`, each to its thunk. Checked, failing
+    closed: in src/runtime.zig's `FnRef`, every mention of `call_fn` is
+    the field, a thunk stored by one of the three, or the call; and no
+    other file of src/ or std/ mentions it, but a type of its own that
+    declares a field of that name (a test's stand-in). (None, why) when
+    it does not hold or cannot be read."""
+    try:
+        rt = open(os.path.join(src, "src", "runtime.zig")).read()
+    except OSError as e:
+        return "cannot read Rig's runtime: %s" % e
+    m = re.search(r"\npub fn FnRef\(.*?\n\}\n", rt, re.S)
+    if not m:
+        return "no FnRef in src/runtime.zig"
+    body = m.group(0)
+    ok = (r"^\s*call_fn: \*const fn \(\*anyopaque, Args\) R,$", r"^\s*return \.\{ \.ctx = .*, \.call_fn = thunk\.call \};$", r"^\s*return self\.call_fn\(self\.ctx, args\);$")
+    stores = 0
+    for l in body.splitlines():
+        if "call_fn" in l:
+            if not any(re.match(r, l) for r in ok):
+                return "FnRef's call_fn used so: %s" % l.strip()
+            stores += ".call_fn = " in l
+    if stores != 3 or len(re.findall(r"\n        pub fn (of|ofFn|ofClosure)\(", body)) != 3:
+        return "FnRef is not made by of, ofFn and ofClosure alone"
+    rest = rt[:m.start()] + rt[m.end():]
+    files = [("src/runtime.zig (outside FnRef)", rest)]
+    for d in ("src", "std"):
+        for root, _, names in os.walk(os.path.join(src, d)):
+            for n in names:
+                if n.endswith(".zig") and not (d == "src" and n in ("runtime.zig", "parser.zig")):
+                    files.append((os.path.join(root, n), open(os.path.join(root, n)).read()))
+    for name, text in files:
+        if "call_fn" in text and ("FnRef" in "".join(l for l in text.splitlines() if "call_fn" in l) or not re.search(r"\bcall_fn: \*const fn", text)):
+            return "%s sets a FnRef's call_fn" % name
+    return None
 
 
 def inline_frames(exe, fmt, addrs):
@@ -1010,12 +1109,18 @@ def bounds(fns, arch, resolved, by_slot=None):
     return b
 
 
-def names_of(exe, fmt, entry_fns, program_files):
+def names_of(exe, fmt, entry_fns, program_files, by=None):
     """The program's function each entry runs: the outermost frame from the
-    program's own files in the inline frames of its code."""
+    program's own files in the inline frames of its code, and of the
+    `rig.runtime.inCode` it calls (a preempted build's: the program's code
+    is inlined there, in the preempted section)."""
     out = {}
     for fn in entry_fns:
-        addrs = ["%#x" % i.addr for i in fn.ins][:400]
+        code = [fn] + [by[t] for _, t in fn.calls + fn.tails if by and t in by and INCODE.search(by[t].name)]
+        # A task that runs a closure (`par.map`'s): the thunks of the
+        # `FnRef` it calls, where the closure's code is.
+        code += [by[t] for f in code[1:] for _, t in f.calls if t in by and FNREF_THUNK.search(by[t].name)]
+        addrs = ["%#x" % i.addr for f in code for i in f.ins[:400]]
         if fmt == "macho":
             p = subprocess.run(["atos", "-o", exe, "-i"] + addrs, capture_output=True, text=True)
             frames = p.stdout.splitlines()
@@ -1036,6 +1141,9 @@ def names_of(exe, fmt, entry_fns, program_files):
                 names[m.group(1)] += 1
         out[fn.start] = ", ".join(n for n, _ in names.most_common(3))
     return out
+
+
+INCODE = re.compile(r"^rig\.runtime\.inCode(__\w+)?$")
 
 
 # Namespaces of Zig's std and of Rig's runtime: a function outside them is
@@ -1071,6 +1179,7 @@ def main():
     ap.add_argument("--top", type=int, default=15, help="the deepest functions to list")
     ap.add_argument("--json")
     ap.add_argument("--cold", help="also count these functions as run off the task's stack, as a step that moves them would (a what-if)")
+    ap.add_argument("--rig-src", default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))), help="the Rig checkout whose runtime built EXE, for the fact a FnRef call is resolved by (default: this tool's)")
     ap.add_argument("--program-files", default="", help="emitted files of the program, comma-separated (default: the build's __rig_*.zig and module files)")
     a = ap.parse_args()
     global EXTRA_COLD
@@ -1134,11 +1243,26 @@ def main():
     if fmt == "elf" and any(v == "vdso" for v in iface.values()):
         VDSO_BOUND[:] = list(vdso_bound(arch))
         print("the vDSO's clock_gettime on this host: %s" % ("%d B" % VDSO_BOUND[0] if VDSO_BOUND[0] is not None else "unknown: " + VDSO_BOUND[1]))
+    # A call through a `FnRef`: every thunk of its type, as Rig's runtime
+    # makes them (`fnref_fact`), when the fact holds and the type has any.
+    thunks = collections.defaultdict(list)
+    for fn in fns:
+        m = FNREF_THUNK.search(fn.name)
+        if m:
+            thunks[m.group(1)].append(fn.start)
+    fnref_why = fnref_fact(a.rig_src) if any(fr and FNREF_CALL.search(fr[0]) for fr in frames.values()) else None
+    if fnref_why:
+        print("calls through a FnRef: unresolved, %s" % fnref_why)
     for fn in fns:
         exact, slots, rest = [], [], []
         for d, at, how in fn.icalls_how:
             if iface.get(at) == "vdso":
                 exact.append((d, VDSO))
+                continue
+            fr = frames.get(at) or []
+            m = FNREF_CALL.search(fr[0]) if fr else None
+            if m and not fnref_why and thunks.get(m.group(1)):
+                exact += [(d, t) for t in thunks[m.group(1)]]
                 continue
             if how and how[0] == "mem":
                 # A function pointer a global holds: its value in the file.
@@ -1199,7 +1323,7 @@ def main():
     if not files:
         files = None
     program_files = files or ProgramFiles()
-    names = names_of(a.exe, fmt, entries, program_files)
+    names = names_of(a.exe, fmt, entries, program_files, {fn.start: fn for fn in fns})
     by_addr = {fn.start: fn for fn in fns}
     for fn in entries:
         if not names[fn.start]:
