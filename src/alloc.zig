@@ -484,8 +484,9 @@ fn minLarge() usize {
 }
 
 /// A large block at least this long that no kept block fits grows by
-/// moving its pages (`mremap`, Linux), not by copying them into new
-/// ones, which the system would fault in afresh (`remap`).
+/// moving its pages (`mremap` on Linux, `mach_vm_remap` on macOS), not by
+/// copying them into new ones, which the system would fault in afresh,
+/// and leaving the old block resident and kept (`remap`).
 const move_large: usize = 64 << 10;
 
 /// The most bytes of freed large blocks a heap keeps: as many as leave
@@ -1891,9 +1892,9 @@ fn releaseMapped(memory: []u8) bool {
 /// A large block grown to `new_len`: copied into a kept block that fits,
 /// which then keeps the old one in turn, since a kept block's pages are
 /// resident and copying into them costs less than faulting in fresh
-/// ones; else, on Linux and from `move_large`, grown by moving its pages
-/// (`mremap`). Anything else, or a block that shrinks, is left to the
-/// caller, which copies it into a new block.
+/// ones; else, on Linux and macOS and from `move_large`, grown by moving
+/// its pages (`mremap`, `moveLarge`). Anything else, or a block that
+/// shrinks, is left to the caller, which copies it into a new block.
 fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize) ?[*]u8 {
     // A mapped run is not this heap's: the caller copies it into a new
     // block and frees it (`mapRun`).
@@ -1911,6 +1912,7 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
         if (counts) h.count(@intCast(new_size - old_size), 0);
         return p;
     }
+    if (builtin.os.tag == .macos and memory.len >= move_large) return moveLarge(h, memory, old_size, new_size);
     if (builtin.os.tag != .linux or memory.len < move_large) return null;
     const linux = std.os.linux;
     // A block grown to `huge_large` moves to pages aligned for huge ones.
@@ -1939,6 +1941,32 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
     if (counts) h.count(@intCast(new_size - old_size), 0);
     return @ptrFromInt(rc);
 }
+
+/// On macOS, the pages of a large block that grows, moved to the start of
+/// a new range of `new_size` bytes (`mach_vm_remap` with no copy), as
+/// Linux's `mremap` moves them: the block it grew from is not left
+/// resident and kept, and its bytes are not copied. Null, and the caller
+/// copies, where the system refuses.
+fn moveLarge(h: *Heap, memory: []u8, old_size: usize, new_size: usize) ?[*]u8 {
+    const to = mapLarge(new_size) orelse return null;
+    var dst: u64 = to;
+    var cur: c_int = 0;
+    var max: c_int = 0;
+    const vm_flags_fixed_overwrite: c_int = 0x4000;
+    const task = std.c.mach_task_self();
+    if (mach_vm_remap(task, &dst, old_size, 0, vm_flags_fixed_overwrite, task, @intFromPtr(memory.ptr), 0, &cur, &max, 1) != 0 or dst != to) {
+        unmapLarge(to, new_size);
+        return null;
+    }
+    unmapLarge(@intFromPtr(memory.ptr), old_size);
+    h.took(new_size - old_size);
+    lent(h, new_size - old_size);
+    trimKept(h);
+    if (counts) h.count(@intCast(new_size - old_size), 0);
+    return @ptrFromInt(to);
+}
+
+extern "c" fn mach_vm_remap(target_task: std.c.mach_port_t, target_address: *u64, size: u64, mask: u64, flags: c_int, src_task: std.c.mach_port_t, src_address: u64, copy: c_int, cur_protection: *c_int, max_protection: *c_int, inheritance: c_uint) c_int;
 
 /// What `free`'s fast path leaves: a block of another thread's heap, a
 /// larger or more aligned one, or a thread with no heap yet.
@@ -2249,8 +2277,8 @@ test "a large block grows into a kept block that fits, which keeps the old one, 
     trimAllForTest(h);
 }
 
-test "on Linux a large block from 64 KiB that no kept block fits grows by moving its pages" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+test "on Linux and macOS a large block from 64 KiB that no kept block fits grows by moving its pages" {
+    if (builtin.os.tag != .linux and builtin.os.tag != .macos) return error.SkipZigTest;
     const a = allocator;
     const h = heap().?;
     trimAllForTest(h);

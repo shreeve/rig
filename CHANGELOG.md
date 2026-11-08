@@ -118,6 +118,13 @@ none of these ever built:
 
 ### Added
 
+- **A large block grows on macOS by moving its pages**, as on Linux: a
+  block of 64 KiB or more that no kept block fits moves its pages to a
+  new range (`mach_vm_remap`, no copy) rather than being copied and left
+  resident among the blocks the heap keeps. Trig's peak memory on the
+  Mac is 16.4 to 20.6 MiB lower on ts-pattern and 1.8 to 5.8 MiB on zod3,
+  at one, four, and its balanced checkers, with no run slower.
+
 - **A large embedded table loads without a copy** in a Linux release
   build: `!xs.extend_from_bytes($embed(path))` of 64 KiB or more into an
   empty List maps the file's pages from the program itself
