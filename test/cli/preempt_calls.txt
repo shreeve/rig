@@ -53,3 +53,7 @@ compiler_rt.*memset*        fills bytes, in compiler-rt: as memset
 compiler_rt.*memmove*       copies bytes, in compiler-rt: as memcpy
 compiler_rt.strlen          a C string's length, in compiler-rt: as strlen
 Thread.getCpuCount          the runtime's start, once: how many workers to run
+rig.ordered.*.probePastHome a Map's probe past its home group: a few groups at most, bounded by the table's load, and kept beside the table's code, where bench/hash's speed holds
+rig.ordered.*.placePast     a Map's placing past its home group: as probePastHome
+rig.ordered.*.live_from     a Map's iteration step to its next entry: a short scan, kept beside the table's code
+rig.ordered.*.gone_from     as live_from, for removed entries
