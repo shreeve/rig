@@ -339,8 +339,9 @@ most once. The first task a program makes starts the workers.
 **The stack.** A task gets a stack only when it first runs, from the
 worker that runs it. A stack is 64 MiB of address space, committed only
 as the task touches it, so a sleeping task holds about a page of it.
-Each worker keeps up to 64 free ones, and no stack moves, since loans
-point into it. Below each is a guard wider than the program's largest
+Each worker keeps 32 free ones and shares up to 32 more on a spare list,
+returned to the system in runs once the workers are idle, and no stack
+moves, since loans point into it. Below each is a guard wider than the program's largest
 frame, by the compiler's bound on each frame, so an overflow faults.
 
 **The run-next slots and the ring.** The new task goes into one of its

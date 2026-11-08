@@ -52,7 +52,7 @@ The model of [CONCURRENCY](design/concurrency.md) is built ([SPEC §18](../SPEC.
 - **Checking the runtime**: the next slices of the model's proofs ([design/concurrency](design/concurrency.md), "Proof obligations"), and model checking (TLA+, GenMC) before more hand proofs.
 - **Tasks as small and as cheap as the best runtimes'** (the owner, 2026-11-04, for v0.3.1; [concurrency-review](history/records/2026-11/concurrency-review/SYNTHESIS.md)), in this order:
   - measure first: the stack a parked task has live, the page tables `ru_maxrss` does not count, and bench/tasks against Tokio, Rayon, Go, and Swift, scaling over cores too;
-  - the cheap fixes: the deadlock walk's frame off task stacks, and the dead pages of free stacks released;
+  - the cheap fixes (built): the deadlock walk off task stacks, free stacks shared between workers and returned in runs, small-page advice on stacks, and every signal handler on the alternate stack;
   - counted loops strip-mined, with one yield check for each block of turns, for `fanout`;
   - small stacks from a slab, sized by a bound proven on the linked executable, growing by segments that never move;
   - Rayon's fork-join at no cost behind the same `&`: the task record in its maker's frame, and an unstarted task run on its waiter's stack;

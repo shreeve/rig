@@ -357,6 +357,24 @@ none of these ever built:
 
 ### Runtime
 
+- Free task stacks move between workers through a spare list all
+  workers share, and the surplus a burst of tasks leaves goes back to
+  the system once the workers are idle, in address order, each run of
+  neighbouring stacks in one call. Each stack past a worker's 64 was
+  returned on its own as its task ended, flushing every running core's
+  TLB: bench-scale's `alloc` as tasks on pup at 8 workers took 3,220
+  flushes a run and takes 24 to 58, and `tree` is 2-3% faster at every
+  worker count. On the Mac, bench/tasks' `spawn` is 47% faster
+  (7.3 ms, from 13.7). A program keeps at most 64 free stacks a worker,
+  as before, and holds less memory after a burst of 4,096 tasks: 21-23
+  MiB, from 25, on the Mac, and 9.5-10 MiB, from 11, on pup.
+- Stacks ask for small pages where Linux gives huge ones unasked
+  (`enabled=always`), so a sleeping task cannot take a 2 MiB page.
+- The deadlock walk runs on the worker's stack, not the task's.
+- The runtime's SIGPIPE, SIGINT and SIGTERM, and SIGALRM handlers run on
+  the thread's alternate signal stack, and a program that makes tasks
+  installs again with `SA_ONSTACK` any handler other code installed
+  without it.
 - A worker keeps four tasks to run next, in a circle, where it kept
   one. A task made and then waited for runs at once while it is still
   in a slot, ahead of older tasks in the ring, and a thief takes the

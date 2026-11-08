@@ -106,6 +106,16 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **Small stacks, step 2: the cheap fixes** (draft PR, branch
+  `cheap-fixes`; the panel's order is
+  [records/2026-11/task-memory/small-stacks.md](docs/history/records/2026-11/task-memory/small-stacks.md)):
+  free stacks shared between workers and returned in runs once they are
+  idle, small-page advice on stacks, the deadlock walk on the worker's
+  stack, every handler on the alternate signal stack. Shootdowns on
+  bench-scale's `alloc` as tasks fall from 3,220 to 24-58 a run on pup
+  at 8 workers; `spawn` is 47% faster on the Mac. Steps 1a and 1b
+  (switch-first preemption, #1020, and the vector state off the stack)
+  wait on #1007; step 4's census tool is next.
 - **Backtick templates, T1** (owner-approved 2026-11-07; the design is
   [records/2026-11/templates-t1.md](docs/history/records/2026-11/templates-t1.md)):
   T1a, the record and pending rules (draft PR); T1b, lexing, parsing,

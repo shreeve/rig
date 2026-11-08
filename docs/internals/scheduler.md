@@ -185,15 +185,35 @@ A task's stack is 64 MiB of address space, as `main`'s is, since a
 frame may keep up to 13 MiB of values, committed only as the task
 touches it. Stacks never move, since loans point into them. They are
 carved 16 at a time from one reservation, whose stacks stay untouched,
-holding no page, until a task runs on each; each worker keeps up to 64
-that tasks have ended on for the next, returning more to the system.
+holding no page, until a task runs on each, and ask for small pages
+where the system gives huge ones unasked (`enabled=always`), since a
+sleeping task touches a page or two. Each worker keeps 32 free stacks
+that tasks have ended on for the next, and passes batches of 16 past
+that to a spare list all workers share, from which a worker with none
+takes a batch before it maps new ones (`sched.Spare`). A burst of tasks
+ends with more free stacks than the workers keep, often on other workers
+than the ones that mapped them: returning each to the system as its
+task ended flushed the TLB of every core running the program, once a
+stack (on pup at 8 workers, 3,220 flushes a run of bench-scale's
+`alloc` as tasks). The surplus waits on the spare list until a worker
+is idle, or until a burst leaves it 1,024 past what it keeps, and then
+goes back in address order, each run of neighbouring stacks in one
+call and one flush (24 to 58 flushes for the same run), keeping 64
+stacks a worker in all (`sched.trimSpare`).
 A task that waits on another task or an actor touches little of its
 stack: `sched.block` reserves under a page, and its deadlock walk, which
-few waits run, has a frame of its own (`walkFrom`, about 15 KiB). Each
-thread's alternate signal stack, on which a fault's handler runs, is a
+few waits run, runs on the worker's own stack (`walkFrom`, about 16 KiB
+of waits, steps and message), below the point the worker switched to
+the task, unused while the task runs. Each
+thread's alternate signal stack is a
 mapping of its own, untouched until a signal runs on it (`rt.AltStack`):
 the root turns off Zig's, a 256 KiB thread-local array every worker and
-pool thread would keep resident (`test/cli/thread_memory.sh`).
+pool thread would keep resident (`test/cli/thread_memory.sh`). Every
+handler the runtime installs runs there, not on a task's stack, where
+the frame the kernel writes for a signal, up to several KiB, would take
+room the task's frames were given; a program that makes tasks installs
+again so any handler other code installed before it started
+(`rt.handlersOnAltStack`), as Go's runtime does.
 
 Below each stack is a guard that a frame overflowing the stack faults
 in. A frame that skipped past its guard would land in another's memory,
@@ -246,7 +266,8 @@ as before.
   a task, or waiting 2 ms, the exit gives up and ends as before. Then the
   pool's lock is taken and never let go.
 - **Unmapping.** Up to four workers, the exiting one first (more gain
-  nothing on the Mac's kernel), unmap the free stacks on their own lists,
+  nothing on the Mac's kernel), unmap the free stacks on their own lists
+  and the spare list's,
   then take pieces of the segments' region and the Tables' regions, whole
   (`alloc.exitRanges`: the kernel walks even a range never touched),
   from one counter, cut on page-table boundaries. Stacks of parked tasks
