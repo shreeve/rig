@@ -106,6 +106,12 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **Language review fixes** (draft PR, branch `language-review-fixes`):
+  from the 2026-11-08 language review, nothing is written through a
+  `!?T` (an element of `for x in !vv` over a `List[?T]`), a view of a
+  module constant held in an object or array is a run-time value, and
+  SPEC names the slots that make a template fixed text (Int, Bool,
+  `Static`). Gates green on the Mac; the owner merges.
 - **Small stacks, step 2: the cheap fixes** (draft PR, branch
   `cheap-fixes`; the panel's order is
   [records/2026-11/task-memory/small-stacks.md](docs/history/records/2026-11/task-memory/small-stacks.md)):
