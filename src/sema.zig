@@ -10844,6 +10844,19 @@ pub fn boxedType(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
     };
 }
 
+/// The read view a value of type `ty_id` reaches through write views
+/// alone: `ty_id` itself when it is a `?T`, the `?T` a `!?T` (or a
+/// `!!?T`) views, and null otherwise. What such a value reaches is only
+/// read, as through the `?T` (SPEC §10).
+pub fn viewedReadView(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
+    var id = ty_id;
+    while (true) switch (ctx.types.get(id)) {
+        .read_view => return id,
+        .write_view => |inner| id = inner,
+        else => return null,
+    };
+}
+
 /// The read view a box of `ty_id` holds on the way to its value
 /// (`?Bag` of a `^?Bag`, a `!^?Bag`, or a `^^?Bag`), through any views
 /// and boxes; null when no box on the way holds one. A box reaches its

@@ -2458,6 +2458,34 @@ fail "write-iterate through a binding that holds a read view", "15:11: cannot wr
   seen.fill(0)
   print(first)
 
+fail "write through a write view of a read view", "16:3: cannot assign through a read view (`?T`)", "18:4: cannot lend to write through a read view (`?T`)", "20:3: cannot assign through a read view (`?T`)", "22:13: cannot write-iterate through a read view (`?T`)", "25:4: cannot lend to write through a read view (`?T`)", errors: 5
+  # `for x in !vs` over a `List[?T]` gives each element as a `!?T`: the
+  # loop may point it elsewhere, but what it reaches is only read, as
+  # through the `?T`. Each write would drop or move what `first` views.
+  obj P
+    t: String
+    ns: List[Int]
+
+    sub set(!@)
+      @t = String("q")
+
+  a = P(t: String("abc"), ns: List())
+  first = ?a.t
+  vv: List[?P] = List()
+  !vv.push(?a)
+  for x in !vv
+    x.t = String("zz")
+  for x in !vv
+    !x.set()
+  for x in !vv
+    x.t += "y"
+  for x in !vv
+    for n in !x.ns
+      n += 1
+  for x in !vv
+    !x.t.add("w")
+  print(first)
+
 test "write-iterate through a write view a binding holds, and a read view pointed elsewhere", '''
   1
   2

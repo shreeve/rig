@@ -76,9 +76,14 @@ a bare number, and of `per:` of `task.supervise` and
   `while`, and a ternary (`x = a + b if pair() as a, b else a` gave
   `a` two meanings). Rename the binding.
 
-**Three ownership holes are closed**, each rejecting programs 0.3.0
+**Four ownership holes are closed**, each rejecting programs 0.3.0
 accepted:
 
+- a write view of a read view, `x` of `for x in !vv` over a
+  `List[?T]`, reaches its value only to read it: `for n in !x.ns`,
+  which built and wrote through the view, is rejected, "cannot
+  write-iterate through a read view", as are the writes and lends
+  through `x` that Zig rejected. Write through the values' owners;
 - a box of a read view, `^?T`, reaches its value only to read it, as
   the view does: a consuming method through it (`(^<b).eat()` or
   `<x.eat()` of an `x = ^?b`, which freed the value `b` viewed), a
@@ -290,6 +295,14 @@ none of these ever built:
   to write through a read view, where it advised writing `!out.fill(0)`,
   which is rejected too; `for x in !xs` over a `?` parameter says the
   same, where it said parameters are immutable.
+- A write view of a read view, `x` of `for x in !vv` over a
+  `List[?P]`, writes nothing through the read view: `x.t = v`,
+  `!x.set()`, `x.n += 1`, `for n in !x.ns`, and `!x.push(1)` are
+  rejected, "cannot assign through a read view (`?T`)", "cannot lend to
+  write through a read view", or "cannot write-iterate through a read
+  view". The loop may still point the element at another view. Zig
+  rejected the writes and lends, but a write-iterate built and wrote
+  through the view (the element of a List another view reads).
 - A code a handle or box made where a view of a wider set goes holds,
   `look(*X.one)` with `look` taking `?error`, or `f(*B.z)` with `f`
   taking `?L` of `error L = A | B`, has its handle or box dropped at

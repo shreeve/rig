@@ -2203,7 +2203,8 @@ const Checker = struct {
         view: ?struct { ty: TypeId, pos: u32 } = null,
         /// The path crosses a shared handle (`sema.accessThroughShared`).
         crossed: bool = false,
-        /// Where the place itself holds a read view (`out` of `out = ?a`):
+        /// Where the place itself holds a read view (`out` of `out = ?a`),
+        /// or a write view of one (`x` of `for x in !vs` over a `List[?T]`):
         /// assigned whole, it points elsewhere; written through, it
         /// writes what it views, which nothing does through a read view.
         holds_view: ?u32 = null,
@@ -2270,12 +2271,19 @@ const Checker = struct {
                     place.view_blocked = true;
                     place.view = .{ .ty = ty, .pos = self.startOf(p) };
                 },
-                // A write view of a value that holds a Cell views shared
-                // storage, which only its Cells and Signals change in
-                // (`sema.changesByMark`).
+                // A write view of a read view (`!?T`, an element of
+                // `for x in !vs` over a `List[?T]`) reaches its value
+                // through the read view. A write view of a value that
+                // holds a Cell views shared storage, which only its Cells
+                // and Signals change in (`sema.changesByMark`).
                 .write_view => |viewed| {
                     place.indirect = true;
-                    if (sema.holdsCellByValue(self.ctx, viewed)) place.block(.shared, 0);
+                    if (sema.viewedReadView(self.ctx, viewed)) |view| {
+                        place.block(.read_view, self.startOf(p));
+                        place.leaf_blocked = true;
+                        place.view_blocked = true;
+                        place.view = .{ .ty = view, .pos = self.startOf(p) };
+                    } else if (sema.holdsCellByValue(self.ctx, viewed)) place.block(.shared, 0);
                 },
                 // A slice views elements held elsewhere.
                 .shared, .slice => place.indirect = true,
@@ -2298,7 +2306,7 @@ const Checker = struct {
         }
         place.base = p;
         place.pos = self.startOf(p);
-        if (self.ctx.typeOf(e)) |ty| if (self.ctx.types.get(ty) == .read_view) {
+        if (self.ctx.typeOf(e)) |ty| if (sema.viewedReadView(self.ctx, ty) != null) {
             place.holds_view = self.startOf(e);
         };
         if (self.lendOf(p)) |lend| place.marked = lend.isKind(.write);
