@@ -76,9 +76,14 @@ a bare number, and of `per:` of `task.supervise` and
   `while`, and a ternary (`x = a + b if pair() as a, b else a` gave
   `a` two meanings). Rename the binding.
 
-**Three ownership holes are closed**, each rejecting programs 0.3.0
+**Four ownership holes are closed**, each rejecting programs 0.3.0
 accepted:
 
+- a write view of a read view, `x` of `for x in !vv` over a
+  `List[?T]`, reaches its value only to read it: `for n in !x.ns`,
+  which built and wrote through the view, is rejected, "cannot
+  write-iterate through a read view", as are the writes and lends
+  through `x` that Zig rejected. Write through the values' owners;
 - a box of a read view, `^?T`, reaches its value only to read it, as
   the view does: a consuming method through it (`(^<b).eat()` or
   `<x.eat()` of an `x = ^?b`, which freed the value `b` viewed), a
@@ -136,9 +141,10 @@ none of these ever built:
   heap; where a `String` goes (a binding, a field, a return) it is a new
   String of its length. A slot takes what a print argument takes;
   `{=e}` shows the expression and its value; `\{`, `\}`, and
-  `` \` `` are literal, and a `"` needs no escape. A template of
-  constant slots is fixed text, a `Static`, so a module's constant may
-  be one. The strict rules (no slot, an empty slot, a literal slot, a
+  `` \` `` are literal, and a `"` needs no escape. A template whose
+  slots are all constant Ints, Bools, and `Static`s is fixed text, a
+  `Static`, so a module's constant may be one; a Float, an enum, or a
+  show slot is written as the program runs. The strict rules (no slot, an empty slot, a literal slot, a
   `:`, `#`, or template in a slot, a name touching a backtick, ``` `` ```,
   a lone `}`, and `` s = `{s}…` ``) are errors with hints (SPEC
   "Templates").
@@ -290,6 +296,14 @@ none of these ever built:
   to write through a read view, where it advised writing `!out.fill(0)`,
   which is rejected too; `for x in !xs` over a `?` parameter says the
   same, where it said parameters are immutable.
+- A write view of a read view, `x` of `for x in !vv` over a
+  `List[?P]`, writes nothing through the read view: `x.t = v`,
+  `!x.set()`, `x.n += 1`, `for n in !x.ns`, and `!x.push(1)` are
+  rejected, "cannot assign through a read view (`?T`)", "cannot lend to
+  write through a read view", or "cannot write-iterate through a read
+  view". The loop may still point the element at another view. Zig
+  rejected the writes and lends, but a write-iterate built and wrote
+  through the view (the element of a List another view reads).
 - A code a handle or box made where a view of a wider set goes holds,
   `look(*X.one)` with `look` taking `?error`, or `f(*B.z)` with `f`
   taking `?L` of `error L = A | B`, has its handle or box dropped at
@@ -301,6 +315,10 @@ none of these ever built:
   and a read view of a module constant's part, `row = ?grid[1]`, are
   run-time values: `x + 1` past the maximum, or a division by zero,
   panics when it runs, where Zig failed the build.
+- A read view of a module constant held in an object, an array, or an
+  optional, `p = P(a: ?top)`, `[?top, ?top]`, `Q(p: P(a: ?top))`, or
+  `P(a: ?top).a[0]`, is a run-time value, as `p = ?top` is: `p.a[0] + 1`
+  past the maximum panics when it runs, where Zig failed the build.
 - `<none` and `+none` become the optional they go into as `none` does,
   one held as a niche or beside a flag too: a binding, an argument, a
   push, and a return built. `print(?none)` is a bare `none`, reported.
