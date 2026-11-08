@@ -119,7 +119,14 @@ crashes on fails too.
    before `-`: `types-misc-1` is of `types`), up to 400 cases and never
    part of a file, compiled once with one copy of the runtime (`rig
    batch build`). Cases with `release: true` are also built into packs
-   of their own, up to 200 a pack, in Zig's safe mode.
+   of their own, up to 200 a pack, in Zig's safe mode. Where a program
+   is preempted by signal (x86-64 Linux and arm64 macOS), so are the
+   packs of the cases with no `seeds:` (`rig batch build --preempt`, a
+   family's packs named `FAMILY~p-N`), as each would be built alone; a
+   program with local tasks keeps its yield checks and runs alone. Seeded
+   cases keep packs with yield checks, as `rig test` does, so a seed
+   chooses among the same yields. `RIG_PACK_PREEMPT=0` builds every pack
+   with yield checks; the two take about the same time.
 4. **Each case runs alone**, as its own process: `rig batch run PACK N`
    starts case `N`, so a panic, a leak, or a crash ends only that case.
    On macOS a case's panic files no crash report.

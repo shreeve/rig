@@ -440,8 +440,10 @@ Everywhere else the yield checks run: on other targets, in a debug
 build for Linux (Zig's own backend, which preemption does not support),
 in a program that makes local tasks (`firstLocalTask`), whose tasks take
 turns on one thread at the checks, in `rig test`'s seeded runs, and in
-the test runner's batch packs, whose root declares no `__rig_preempt`,
-so a seed chooses among the same yields as `rig test` does. How the
+the test runner's packs of seeded cases, whose root declares no
+`__rig_preempt`, so a seed chooses among the same yields as `rig test`
+does. The runner's other packs are preempted, as each program would be
+built alone (`rig batch build --preempt`, docs/internals/tests.md). How the
 design was measured, and what it costs on Trig, is in
 [records/2026-11/preempt/](../history/records/2026-11/preempt/design.md).
 
