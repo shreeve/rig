@@ -132,9 +132,14 @@ sub main()
 ```
 
 **Underneath,** `count(...)&` puts the task in its worker's run-next
-slot, and `main` goes on with the second half. Its first yield check
-wakes an idle worker, which takes the task, so the halves run on two
-cores; if none took it, `>t` runs it at once by handoff (below).
+slot, and `main` goes on with the second half. An idle worker takes
+the task, so the halves run on two cores: on x86-64 Linux and arm64
+macOS, which have no yield checks, once the preemption monitor sees the
+task waiting, within about a millisecond; elsewhere, at `main`'s first
+yield check. A worker that switches to a task wakes an idle one at once
+while more wait behind it, so several tasks made and then waited for
+spread with no such delay. If no worker took the task, `>t` runs it at
+once by handoff (below).
 `par.map(?xs, f)` and `par.each(!xs, f)` run a function over a list on
 one task per worker, or `limit:` of them, and
 `par.workers(!states, ?items, f)` gives each task a state of its own.
