@@ -1828,7 +1828,8 @@ pub const maps_files = builtin.os.tag == .linux or builtin.os.tag == .macos;
 /// writes. Its address within a page is the run's, so it keeps the run's
 /// alignment. Null, and the caller copies, off Linux and macOS, where the
 /// file cannot be opened (`/proc/self/exe`, `_NSGetExecutablePath`) or is
-/// not the image (a universal binary's file begins with its own header),
+/// not the image (a universal binary's file begins with its own header,
+/// and a build put at the macOS path since has its own load commands),
 /// for a run not in a read-only loaded part, when `map_spans_max` runs are
 /// mapped, or when the system refuses. The mapping is given back by
 /// `free` or by growing the List past it, which copies (`releaseMapped`,
@@ -1890,8 +1891,10 @@ fn openExe(exe: *ExeFile) void {
         const slide = std.c._dyld_get_image_vmaddr_slide(0);
         var cmd: [*]const u8 = @ptrCast(hdr);
         cmd += @sizeOf(macho.mach_header_64);
+        var has_uuid = false;
         for (0..hdr.ncmds) |_| {
             const lc: *align(1) const macho.load_command = @ptrCast(cmd);
+            if (lc.cmd == .UUID) has_uuid = true;
             if (lc.cmd == .SEGMENT_64) {
                 const seg: *align(1) const macho.segment_command_64 = @ptrCast(cmd);
                 // Not written as the image loads: what the file holds is
@@ -1908,16 +1911,33 @@ fn openExe(exe: *ExeFile) void {
         if (std.c._NSGetExecutablePath(&path, &size) != 0) return;
         const fd = std.c.open(@ptrCast(&path), .{ .ACCMODE = .RDONLY, .CLOEXEC = true });
         if (fd < 0) return;
-        // The file is the image only if it begins with the image's own
-        // header: a universal binary begins with its list of slices.
-        var head: [@sizeOf(macho.mach_header_64)]u8 = undefined;
-        const got = std.c.pread(fd, &head, head.len, 0);
-        if (got != head.len or !std.mem.eql(u8, &head, std.mem.asBytes(hdr))) {
+        // The path names a file, not the image, unlike Linux's
+        // `/proc/self/exe`: it is the image only if it begins with the
+        // image's own header and load commands, the image's LC_UUID among
+        // them, which the linker derives from what it wrote. A universal
+        // binary begins with its list of slices, and a build put at the
+        // path since the image was loaded (installed by rename) has
+        // another UUID. An image with no LC_UUID maps nothing.
+        const commands = @as([*]const u8, @ptrCast(hdr))[0 .. @sizeOf(macho.mach_header_64) + hdr.sizeofcmds];
+        if (!has_uuid or !beginsWith(fd, commands)) {
             _ = std.c.close(fd);
             return;
         }
         exe.fd = fd;
     }
+}
+
+/// Whether the file `fd` begins with the bytes `want`.
+fn beginsWith(fd: i32, want: []const u8) bool {
+    var buf: [512]u8 = undefined;
+    var at: usize = 0;
+    while (at < want.len) {
+        const n = @min(buf.len, want.len - at);
+        if (std.c.pread(fd, &buf, n, @intCast(at)) != @as(isize, @intCast(n))) return false;
+        if (!std.mem.eql(u8, buf[0..n], want[at..][0..n])) return false;
+        at += n;
+    }
+    return true;
 }
 
 /// Whether `p` lies in a run `mapRun` mapped. Out of line, as `freeSlow`

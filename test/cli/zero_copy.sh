@@ -5,7 +5,9 @@
 # same bytes again reads them as they are. On Linux, the release build
 # opens its own file (`/proc/self/exe`) to map the run; strace shows it.
 # On macOS, vmmap shows the run's pages as a mapping of the program's
-# file while it waits.
+# file while it waits. A program whose file is replaced by another build
+# while it runs (an install by rename) maps nothing of the new file: it
+# reads its own run.
 # timeout: 300
 source "$ROOT/test/cli/_lib.sh"
 
@@ -68,3 +70,50 @@ R
         awk '/M$/ { n = $0 + 0; if (n >= 0.25) print "yes" } /K$/ { n = $0 + 0; if (n >= 256) print "yes" }' | head -1)
     expect_eq "$big" "yes" "the release build maps its run from its own file"
 fi
+
+# A build that waits before it adds its run, and a second build of the
+# same program over other bytes, renamed over the first's file while it
+# waits: the first reads its own run, not the second's bytes at the
+# same place (on macOS the file is found by its path, and taken as the
+# image only when its load commands, with the image's LC_UUID, are the
+# image's).
+cat >late.rig <<'R'
+use std.file
+use std.time
+
+obj Rec exact
+  a: U32
+  b: U32
+
+sub main()
+  file.write("ready", "") catch return
+  while (file.stat("ready") catch none) != none
+    time.sleep(ms: 5) catch return
+  xs: List[Rec] = List()
+  !xs.extend_from_bytes($embed("recs.bin"))
+  print(xs.len, xs[5].b)
+R
+mkdir -p other
+cp late.rig other/late.rig
+python3 -c "
+import struct
+open('other/recs.bin', 'wb').write(b''.join(struct.pack('<II', i, i * 5) for i in range(32768)))" || fail "write other/recs.bin"
+(rig build --release -o late late.rig) || fail "a release build that adds its run late"
+(cd other && rig build --release -o late late.rig) || fail "a second release build over other bytes"
+# late DIR [then]: run DIR/late in DIR, run `then` once it waits, and
+# let it go on.
+late() {
+    (
+        cd "$1" || exit 1
+        ./late >late.out &
+        local pid=$!
+        for _ in $(seq 1 400); do [[ -f ready ]] && break; sleep 0.05; done
+        [[ -f ready ]] || { kill $pid; echo "never got ready" >late.out; exit 1; }
+        if [[ -n ${2:-} ]]; then eval "$2"; fi
+        rm -f ready
+        wait $pid
+    )
+    cat "$1/late.out"
+}
+expect_eq "$(late other)" "32768 25" "the second build alone"
+expect_eq "$(late . 'mv other/late late')" "32768 15" "a build whose file was replaced while it ran"
