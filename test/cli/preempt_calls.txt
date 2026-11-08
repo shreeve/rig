@@ -27,6 +27,7 @@ rig.runtime.out*            output: takes the output lock
 rig.runtime.stdoutFailed    output failed: ends the program
 rig.runtime.*Panic*         a panic ends the task
 rig.runtime.panicWith       a panic ends the task
+rig.runtime.panicAfterFlush a panic ends the task
 rig.runtime.oom             out of memory ends the program
 rig.runtime.threadTask      reads a thread-local, whose address a task resumed on another worker would still hold
 process.exit                ends the program
