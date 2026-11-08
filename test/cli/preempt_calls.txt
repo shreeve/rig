@@ -47,3 +47,9 @@ sched_yield                 a system call
 sysctlbyname                a system call, once at start
 __rig_std_time.sleep        a wait: enters the scheduler (a std function written in Zig)
 mem.eql                     the runtime's start, once (an environment variable's value); the program's comparisons are inline (rig.eql)
+compiler_rt.*memcpy*        copies bytes, in Zig's compiler-rt where no C library is linked: as memcpy
+compiler_rt.*Memset*        fills bytes, in compiler-rt: as memset
+compiler_rt.*memset*        fills bytes, in compiler-rt: as memset
+compiler_rt.*memmove*       copies bytes, in compiler-rt: as memcpy
+compiler_rt.strlen          a C string's length, in compiler-rt: as strlen
+Thread.getCpuCount          the runtime's start, once: how many workers to run

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# timeout: 300
 # Where preemption by signal is built, a computation of any kind of code
 # is stopped for a timer that comes due: on one worker, a task that
 # sleeps 20 ms beside a task that computes for 130 to 500 ms wakes

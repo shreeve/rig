@@ -672,6 +672,9 @@ fn Unordered(comptime K: type, comptime V: type) type {
 
         /// The table grown, then a slot claimed in it.
         noinline fn claimGrown(self: *Self, hash: u64) usize {
+            // Grown, out of line: a caller in the program's code pays a yield
+            // check a signal left owed meanwhile (`sched.settleAt`).
+            defer if (rt.preempt) rt.sched.settleAt(@returnAddress());
             if (self.size >= max_entries) tooMany();
             self.rehash(self.growthSlots());
             self.size += 1;

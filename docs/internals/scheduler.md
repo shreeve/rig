@@ -381,8 +381,8 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
   the compiler could have put a check, and the handler switches it out.
   Elsewhere, in a system call, the runtime, or a lock's span, it leaves
   the yield check owed, which the fiber's next waiting point pays
-  (`atWaitingPoint`), as do the allocator's slow path and a List's growth
-  as they return (`settleAt`).
+  (`atWaitingPoint`), as do the allocator's slow path and the growth of
+  a List, a Map, or a HashMap as they return (`settleAt`).
 - **The emitted code** carries the yield checks of the next section, but
   `rig.turn` and `rig.tickCall` compile to nothing, so loops run with no
   check, and the program's functions are placed in `rig_text`.
