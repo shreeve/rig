@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
-# With RIG_PREEMPT=signal a computation of any kind of code is stopped
-# for a timer that comes due: on one worker, a task that sleeps 20 ms
-# beside a task that computes for 150 to 350 ms wakes within 25 ms, in
-# 20 runs of 20. The computation runs in a closure, a sort's comparator,
-# a Map's hashing (the runtime's Zig), an iterator's `next`, an actor's
-# method, a `par` element function, a `raw` block, and a std function
-# written in Zig (`text.width`). Where preemption is not built, nothing
+# Where preemption by signal is built, a computation of any kind of code
+# is stopped for a timer that comes due: on one worker, a task that
+# sleeps 20 ms beside a task that computes for 130 to 500 ms wakes
+# within 25 ms, in 20 runs of 20. The computation runs in a closure, a
+# sort's comparator, a Map's hashing (the runtime's Zig), an iterator's
+# `next`, an actor's method, a `par` element function, a `raw` block, a
+# std function written in Zig (`text.width`), and the runtime's helpers
+# the program's code calls: `%` and `/`, a comparison of text, a
+# HashMap's hash of a long key, and a slice passed to a function. The
+# program's section, where a signal stops a task, holds them, or calls
+# out only to what test/cli/preempt_calls.txt names
+# (test/cli/preempt_section.sh). Where preemption is not built, nothing
 # runs.
 source "$ROOT/test/cli/_lib.sh"
 case "$(uname -s)/$(uname -m)" in
@@ -141,9 +146,65 @@ fun cpu() -> Int
   w
 RIG
 
-for k in closure sort map iter actor par raw zig; do
+cat > k-divrem.rig <<'RIG'
+fun cpu() -> Int
+  s = 1
+  for i in 1..N
+    s = (s * 31 + i) % 1000003 + i / 7
+  s
+RIG
+
+cat > k-strcmp.rig <<'RIG'
+fun cpu() -> Int
+  a = String()
+  b = String()
+  for 0..200
+    !a.push(97)
+    !b.push(97)
+  !b.push(98)
+  n = 0
+  for 0..N / 40
+    if a == b
+      n += 1
+    if a < b
+      n += 1
+  n
+RIG
+
+cat > k-hash.rig <<'RIG'
+fun cpu() -> Int
+  m: HashMap[String, Int] = HashMap()
+  key = String()
+  for 0..100
+    !key.push(120)
+  !m.put(String(key), 1)
+  n = 0
+  for 0..N / 20
+    n += m.get(?key) ?? 0
+  n
+RIG
+
+cat > k-slice.rig <<'RIG'
+fun total(xs: ?[]Int) -> Int
+  s = 0
+  for x in xs
+    s +%= x
+  s
+
+fun cpu() -> Int
+  xs: List[Int] = List(capacity: 4096)
+  for i in 0..4096
+    !xs.push(i)
+  n = 0
+  for k in 0..N / 1500
+    part = ?xs[k % 100..4000]
+    n +%= total(?part)
+  n
+RIG
+
+for k in closure sort map iter actor par raw zig divrem strcmp hash slice; do
     cat head.rig "k-$k.rig" tail.rig > "$k.rig"
-    RIG_PREEMPT=signal "$RIG" build --release=fast -o "$k" "$k.rig" >build.txt 2>&1 || fail "build $k.rig: $(cat build.txt)"
+    "$RIG" build --release=fast -o "$k" "$k.rig" >build.txt 2>&1 || fail "build $k.rig: $(cat build.txt)"
     for i in $(seq 1 20); do
         out=$("$TIMEOUT_CMD" 60 "./$k" 2>&1) || fail "$k.rig, run $i (timeout 60 s): $out"
         set -- $out

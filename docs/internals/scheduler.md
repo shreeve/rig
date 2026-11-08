@@ -386,6 +386,17 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
 - **The emitted code** carries the yield checks of the next section, but
   `rig.turn` and `rig.tickCall` compile to nothing, so loops run with no
   check, and the program's functions are placed in `rig_text`.
+- **The runtime's helpers the program calls** are in `rig_text` too, or
+  inline in the program's code: `%` and `/`, comparisons, a slice's
+  swap, the tables' probes and long-text hash (`rt.wyhash`), and the
+  thunks that call a closure through a pointer (`rt.program_section`).
+  A helper that takes a lock, allocates, enters the scheduler, or reads
+  a thread-local stays outside, and pays a check a signal left owed as
+  it returns or at the fiber's next waiting point.
+  `test/cli/preempt_section.sh` checks every call from `rig_text` to a
+  function outside it against `test/cli/preempt_calls.txt`, which names
+  each one with its reason, and `test/cli/preempt_cover.sh` checks that
+  a 20 ms sleeper wakes within 25 ms beside a loop in each kind of code.
 
 Everywhere else the yield checks run: on other targets, in a debug
 build for Linux (Zig's own backend, which preemption does not support),

@@ -2073,7 +2073,9 @@ fn eqlAs(comptime T: type, a: T, b: T) bool {
             if (comptime isStringView(T)) return bytesEql(a, b);
             if (comptime isShared(T)) return eqlAs(@FieldType(p.child, "value"), a.value, b.value);
             if (p.size != .slice) @compileError("rig.eql: no `==` on " ++ @typeName(T));
-            if (comptime isScalar(p.child)) return if (comptime std.meta.hasUniqueRepresentation(p.child)) bytesEql(std.mem.sliceAsBytes(a), std.mem.sliceAsBytes(b)) else std.mem.eql(p.child, a, b);
+            // Scalars by their bytes where those are all of the value; any
+            // other slice by element, inline, in the code that compares.
+            if (comptime isScalar(p.child) and std.meta.hasUniqueRepresentation(p.child)) return bytesEql(std.mem.sliceAsBytes(a), std.mem.sliceAsBytes(b));
             if (a.len != b.len) return false;
             for (a, b) |x, y| if (!eqlAs(p.child, x, y)) return false;
             return true;
@@ -2238,7 +2240,7 @@ const hash_mul: u64 = 0x4b33a62ed433d4a3;
 
 /// Wyhash of `bytes`, seed 0, as Zig's `StringHashMap` hashes text.
 fn hashBytes(bytes: []const u8) u64 {
-    return std.hash.Wyhash.hash(0, bytes);
+    return wyhash(0, bytes);
 }
 
 /// An integer by its value, whatever its width or signedness: a value
@@ -3021,12 +3023,19 @@ const Callback = Closure(&.{}, void);
 // stack closure's environment, a function, an owned closure) for as long
 // as the ownership checker lets the view live, and owns nothing.
 
+/// Wyhash of `s`, as the tables and `hash` take it, in the program's
+/// section (`program_section`): a loop that hashes long text is stopped
+/// by a signal there as in the program's own code.
+pub fn wyhash(seed: u64, s: []const u8) linksection(program_section) u64 {
+    return @call(.always_inline, std.hash.Wyhash.hash, .{ seed, s });
+}
+
 /// The section a function the program's code calls through a pointer is
 /// placed in: the program's own in a build preempted by signal, where a
 /// signal stops a task only in that section (`sched.preempt_section`),
 /// so a task in a loop of calls through a closure is stopped there too;
 /// the usual one otherwise.
-const program_section = if (preempt) sched.preempt_section else if (builtin.object_format == .macho) "__TEXT,__text" else ".text";
+pub const program_section = if (preempt) sched.preempt_section else if (builtin.object_format == .macho) "__TEXT,__text" else ".text";
 
 pub fn FnRef(comptime params: []const type, comptime R: type) type {
     return struct {
@@ -4820,7 +4829,7 @@ pub inline fn reduceInto(items: anytype, first: anytype, f: anytype, out: anytyp
 /// `!s.swap(i, j)`: panics unless both indexes are in range. An element
 /// swapped with itself stays, as `std.mem.swap` may not be given one
 /// place twice.
-pub fn swap(items: anytype, i: anytype, j: anytype) void {
+pub inline fn swap(items: anytype, i: anytype, j: anytype) void {
     const a = index(i, items.len);
     const b = index(j, items.len);
     if (a == b) return;

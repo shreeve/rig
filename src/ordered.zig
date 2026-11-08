@@ -652,7 +652,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
         }
 
         /// The walk past the home group `home_g`, out of line.
-        noinline fn probePastHome(self: *const Self, k: KeyView, h: u64, tag: u8, home_g: usize) ?Found {
+        noinline fn probePastHome(self: *const Self, k: KeyView, h: u64, tag: u8, home_g: usize) linksection(rt.program_section) ?Found {
             @branchHint(.cold);
             return self.probeFrom(k, h, tag, (home_g + 1) & self.groupMask(), 1);
         }
@@ -725,7 +725,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
             return j;
         }
 
-        noinline fn placePast(self: *Self, g: usize, tag: u8, j: usize) void {
+        noinline fn placePast(self: *Self, g: usize, tag: u8, j: usize) linksection(rt.program_section) void {
             @branchHint(.unlikely);
             self.place(g, tag, j);
         }
@@ -965,7 +965,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
 
         /// `live_from(?@, j: Int) -> Int`: the first live entry from `j`
         /// on; `written` when none is. Called once a run of a walk.
-        pub noinline fn live_from(self: *const Self, from: i64) i64 {
+        pub noinline fn live_from(self: *const Self, from: i64) linksection(rt.program_section) i64 {
             const n: usize = self.len;
             var j: usize = @intCast(from);
             while (j < n) {
@@ -982,7 +982,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
 
         /// `gone_from(?@, j: Int) -> Int`: the first gone entry from `j`
         /// on; `written` when none is.
-        pub noinline fn gone_from(self: *const Self, from: i64) i64 {
+        pub noinline fn gone_from(self: *const Self, from: i64) linksection(rt.program_section) i64 {
             const n: usize = self.len;
             var j: usize = @intCast(from);
             while (j < n) {

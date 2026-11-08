@@ -229,7 +229,7 @@ inline fn textHash(s: []const u8) u64 {
         const d = read64(p + n - 8);
         return fold(a ^ k0, c ^ k1) ^ fold(b ^ k2, d ^ k3 ^ n);
     }
-    return std.hash.Wyhash.hash(0, s);
+    return rt.wyhash(0, s);
 }
 
 /// The multiplier of the table's integer hash: odd, and not the golden
