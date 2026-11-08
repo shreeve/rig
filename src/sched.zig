@@ -3126,6 +3126,7 @@ fn loop(w: *Worker) void {
                 w.searching = false;
                 _ = searching.fetchSub(1, .seq_cst);
             }
+            if (spare.count.load(.monotonic) > spareKept()) trimSpare();
             sleep(w);
             continue;
         };
@@ -4668,28 +4669,34 @@ comptime {
 /// How many stacks a worker keeps free on its own list. Past that, it
 /// moves `spare_batch` of them to the spare list all workers share
 /// (`Spare`), from which a worker with none takes a batch back before it
-/// maps new ones. A fiber started on one worker often ends on another,
-/// which then holds more free stacks than it uses while the first maps
-/// new ones: the spare list moves them between the two, where each
-/// worker's alone would return one to the system, which flushes the
-/// other cores' TLBs, for every one the other maps.
+/// maps new ones.
 const keep_free = 32;
 
-/// How many free stacks the spare list holds for each worker; one more is
-/// returned to the system, with what its fiber touched. With `keep_free`,
-/// the free stacks kept are at most 64 a worker.
+/// How many free stacks the spare list keeps for each worker once the
+/// workers are idle: with `keep_free`, at most 64 a worker, the rest
+/// returned to the system (`trimSpare`).
 const spare_per_worker = 32;
+
+/// How many stacks past `spare_per_worker` a worker the spare list holds
+/// before the worker that gives it more trims it at once, not when it is
+/// next idle.
+const spare_over = 1024;
 
 /// How many stacks move between a worker's list and the spare list at once.
 const spare_batch = 16;
 
-/// The free stacks no worker holds: at most `spare_per_worker` for each
-/// worker, linked as a worker's are.
+/// The free stacks no worker holds, linked as a worker's are. A burst of
+/// tasks ends with more free stacks than any worker keeps, often on other
+/// workers than the ones that mapped them. Returning each to the system
+/// as its fiber ends flushed the TLB of every core running the program,
+/// once a stack. Here they wait until a worker is idle, which returns the
+/// surplus in address order, a run of neighbouring stacks (`chunk`) in
+/// one call and one flush.
 const Spare = struct {
     lock: SpinLock = .{},
     head: ?*FreeStack = null,
     /// Written under the lock; read without it to skip the lock when the
-    /// list has nothing to give, or no room.
+    /// list has nothing to give or nothing to trim.
     count: std.atomic.Value(u32) = .init(0),
 };
 var spare_var: Spare = .{};
@@ -4741,36 +4748,105 @@ fn takeStack() Stack {
 /// that sanitizes (`RIG_SANITIZE=1`), so a late write into it faults.
 fn releaseStack(w: *Worker, s: Stack) void {
     if (rt.sanitize) return unmapStack(s);
-    if (w.free_count >= keep_free and !giveSpare(w)) return unmapStack(s);
+    if (w.free_count >= keep_free) giveSpare(w);
     const n: *FreeStack = @ptrFromInt(s.base + s.guard + s.len - @sizeOf(FreeStack));
     n.* = .{ .stack = s, .next = w.free };
     w.free = n;
     w.free_count += 1;
 }
 
-/// Move `spare_batch` of `w`'s free stacks to the spare list, if it has
-/// room for them: whether it had.
-fn giveSpare(w: *Worker) bool {
+/// Move `spare_batch` of `w`'s free stacks to the spare list, and trim
+/// the list if a burst has left it far past what it keeps.
+fn giveSpare(w: *Worker) void {
     const sp = spare;
-    const room = spare_per_worker * workers.*.len;
-    if (sp.count.load(.monotonic) + spare_batch > room) return false;
     var last = w.free.?;
     for (1..spare_batch) |_| last = last.next.?;
     const first = w.free.?;
     w.free = last.next;
     w.free_count -= spare_batch;
     sp.lock.lock();
-    defer sp.lock.unlock();
-    if (sp.count.raw + spare_batch > room) {
-        last.next = w.free;
-        w.free = first;
-        w.free_count += spare_batch;
-        return false;
-    }
     last.next = sp.head;
     sp.head = first;
-    sp.count.store(sp.count.raw + spare_batch, .monotonic);
-    return true;
+    const n = sp.count.raw + spare_batch;
+    sp.count.store(n, .monotonic);
+    sp.lock.unlock();
+    if (n > spareKept() + spare_over) trimSpare();
+}
+
+/// How many free stacks the spare list keeps.
+fn spareKept() u32 {
+    return @intCast(spare_per_worker * workers.*.len);
+}
+
+/// Return the spare list's stacks past `spareKept` to the system, in
+/// address order, each run of neighbouring stacks in one call: as a
+/// worker goes idle (`loop`), or as a burst passes `spare_over`.
+fn trimSpare() void {
+    const sp = spare;
+    const kept = spareKept();
+    sp.lock.lock();
+    var list = sp.head;
+    const n = sp.count.raw;
+    sp.head = null;
+    sp.count.store(0, .monotonic);
+    sp.lock.unlock();
+    if (n <= kept) return putSpare(list, n);
+    list = sortStacks(list, n);
+    const span = rt.task_guard + rt.task_stack_size + std.heap.pageSize();
+    var left = n - kept;
+    while (left > 0) {
+        const lo = list.?.stack.base;
+        var hi = lo + span;
+        var taken: u32 = 1;
+        var rest = list.?.next;
+        // Each link lives in its stack: read before the run is unmapped.
+        while (taken < left) : (taken += 1) {
+            const r = rest orelse break;
+            if (r.stack.base != hi) break;
+            hi += span;
+            rest = r.next;
+        }
+        std.posix.munmap(@as([*]align(std.heap.page_size_min) u8, @ptrFromInt(lo))[0 .. hi - lo]);
+        list = rest;
+        left -= taken;
+    }
+    putSpare(list, kept);
+}
+
+/// Put `n` stacks, linked from `list`, back on the spare list.
+fn putSpare(list: ?*FreeStack, n: u32) void {
+    const first = list orelse return;
+    var last = first;
+    while (last.next) |x| last = x;
+    const sp = spare;
+    sp.lock.lock();
+    defer sp.lock.unlock();
+    last.next = sp.head;
+    sp.head = first;
+    sp.count.store(sp.count.raw + n, .monotonic);
+}
+
+/// The `n` free stacks of `list`, in address order: a merge sort of the
+/// links in place.
+fn sortStacks(list: ?*FreeStack, n: u32) ?*FreeStack {
+    if (n < 2) return list;
+    var mid = list.?;
+    for (1..n / 2) |_| mid = mid.next.?;
+    const second = mid.next;
+    mid.next = null;
+    var a = sortStacks(list, n / 2);
+    var b = sortStacks(second, n - n / 2);
+    var head: ?*FreeStack = null;
+    var tail: *?*FreeStack = &head;
+    while (a != null and b != null) {
+        const take_a = a.?.stack.base < b.?.stack.base;
+        const x = if (take_a) a.? else b.?;
+        if (take_a) a = x.next else b = x.next;
+        tail.* = x;
+        tail = &x.next;
+    }
+    tail.* = if (a != null) a else b;
+    return head;
 }
 
 /// Take up to `spare_batch` stacks from the spare list for `w`, which has
