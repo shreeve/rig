@@ -5,6 +5,7 @@
 # RIG_SCHED_STATS=1 it says which path it took. Elsewhere, and in a
 # debug build, `os.exit` ends the process as before, and says nothing.
 # builds: shared
+# timeout: 240
 source "$ROOT/test/cli/_lib.sh"
 
 # Tables of 24 MiB: on 4 workers their regions' pieces are 96 MiB, a
