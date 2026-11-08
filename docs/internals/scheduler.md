@@ -386,10 +386,10 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
 - **The emitted code** carries the yield checks of the next section, but
   `rig.turn` and `rig.tickCall` compile to nothing, so loops run with no
   check, and the program's functions are placed in `rig_text`.
-- **The runtime's helpers the program calls** are in `rig_text` too, or
-  inline in the program's code: `%` and `/`, comparisons, a slice's
-  swap, the tables' long-text hash (`rt.wyhash`), and the thunks that
-  call a closure through a pointer (`rt.program_section`). A Map's probe
+- **The runtime's helpers the program calls** are in `rig_text` too
+  (`rt.program_section`), or inline in the program's code: `%` and `/`,
+  a slice's swap, the tables' long-text hash (`rt.wyhash`), and the
+  thunks that call a closure through a pointer; comparisons are inline. A Map's probe
   and iteration step past its home group stay beside the table's code,
   where bench/hash's speed depends on them; each runs a few groups at
   most.
