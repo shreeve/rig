@@ -65,6 +65,17 @@ On the Mac a sleeping task holds one 16 KiB stack page and one 16 KiB page-table
 
 So stacks a few to a page fit tasks like bench/tasks' in under 1 KiB plus this room. Trig's checker tasks need growth by segments, or a larger class.
 
+**Scaling** (bench-scale, main with yield checks, reps 3): Mac with any cores, pup on P-cores (6; 6,8; 0,6,8,10; then 8 with two siblings).
+- **One worker, the CPU loops (even, skew, tree):**
+  - Mac: Rig 203 to 215 ms; Go, Tokio and Rayon 157 to 163 ms.
+  - pup: Rig 182 to 205 ms; Tokio and Rayon 176 to 180 ms; Go 157 to 160 ms.
+  - The yield checks are much of the gap, as psum showed (records/2026-11/fork-join).
+- **Speedup:** Mac at 10 workers, Rig 7.5 to 8.3 times. pup at 8 workers, 7.0 to 7.5 times, as Go's 7.5 and Tokio's 7.3 to 7.4.
+- **alloc:** Rig is fastest at every count.
+  - Mac at 1 worker: 266 ms, against 529 to 539. At 10 workers: 38 ms, against 136 to 303.
+  - pup at 1 worker: 288 ms, against 509 to 729. At 8 workers: 49 ms, against 77 to 354.
+- **TLB shootdowns:** run as tasks, alloc takes 855 to 3,270 of them on pup, where par.map takes 14 to 45. Those come from releasing task stacks' pages, a cost that stacks sharing one mapping and kept between tasks would also cut.
+
 **Declined stops:** the monitor's "signaled" counts sends, and the kernel merges a SIGURG sent while one is pending, so the counts below are deliveries, from the probe.
 - **bench/tasks:** 2 to 6% of the trampolines entered end without a stop.
 - **Trig at 4 checkers:** 6 to 9 entries a run, 4 to 6 of them stopping; at one checker none.
