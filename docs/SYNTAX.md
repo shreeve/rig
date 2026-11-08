@@ -301,6 +301,7 @@ The built-in types `Cell`, `List`, `String`, `Signal`, `Simd`, and
 | integer | `42`, `1_000_000`, `0xff`, `0b1010`, `0o17` | `_` separates digits; radix prefixes are lowercase; no leading zero and no type suffix |
 | float | `3.14`, `.5`, `1e10`, `2.5e-3`, `1.5E+2` | a `.` or an exponent; the digits before `.` may be left out |
 | string | `"tab\t, newline\n"`, `'it''s raw'` | double quotes take Zig's escapes (`\n`, `\t`, `\\`, `\"`, `\x41`, `\u{e9}`); single quotes take none, and `''` is one `'`; where a `U8` is expected, a string of one byte is that byte (`'A'` is 65, `"\n"` is 10), and where a `[N]U8` is, its bytes ([SPEC](../SPEC.md#byte-literals)) |
+| template *(planned)* | `` `n = {n}` ``, `` `{=total}` `` | text built from pieces and slots; a `"` needs no escape, and `\{`, `\}`, `` \` `` are literal; at least one slot ([SPEC](../SPEC.md#templates)) |
 | bool | `true`, `false` | |
 | absent optional | `none` | |
 | array | `[1, 2, 3]`, `[]` | |
@@ -309,9 +310,27 @@ The built-in types `Cell`, `List`, `String`, `Signal`, `Simd`, and
 | symbol | `:width`, `:if`, `:content-type` | a `Symbol`, whatever the context ([below](#symbols)) |
 
 A string holds no control character: a tab or newline in it is written
-`\t` or `\n`. There is no string interpolation; `print` takes several
-values. A literal's type comes from its context
+`\t` or `\n`. A literal's type comes from its context
 ([SPEC §2](../SPEC.md#primitive-types)).
+
+*(planned)* A template is written between backticks, with each slot in
+braces: `` `{name} is {age}` ``. A slot holds one expression, on the
+template's line, and `{=e}` shows the expression with its value. A slot
+holds no `:` outside brackets, no `#`, and no template; a name may not
+touch a backtick, and two backticks together are reserved.
+
+```rig pending
+sub main()
+  name = "ada"
+  age = 36
+  print(`{name} is {age}; {=age + 1}`)
+  print(`say "hi" \{not a slot\}`)
+```
+
+```output
+ada is 36; age + 1 = 37
+say "hi" {not a slot}
+```
 
 ```rig
 sub main()

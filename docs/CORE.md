@@ -1080,9 +1080,9 @@ a
 
 - **Taking:** a binding, an argument to a parameter that owns it,
   `return`, a stored field or element, or `<`.
-- **Reading:** a `print` or `String(...)` argument, an `==` operand, `?e`,
-  `+e`, a `?@` self, a field or element read, or the value a
-  call calls.
+- **Reading:** a `print` or `String(...)` argument, or a template's slot
+  *(planned)*, an `==` operand, `?e`, `+e`, a `?@` self, a field or
+  element read, or the value a call calls.
 
 Reading never moves a name, whatever form reads it: `print(a if c else
 b)` moves nothing.
@@ -1093,7 +1093,9 @@ value. Its statement is its scope, so it is a *temporary*, dropped when
 the statement ends, the last made first, also when the statement fails
 or leaves early. A temporary may be lent to read or to write (sentence
 4), and a view of it may be used only within its statement. A value
-made to be called (`(+h.f)(x)`) is a temporary too *(planned)*.
+made to be called (`(+h.f)(x)`) is a temporary too *(planned)*, and so
+is a template where a `?String` is expected, built in 256 bytes of the
+statement's stack, then on the heap *(planned)*.
 
 **Headers are their own statements:** an `if` or `while` condition, a
 guard, and the subject of a `match` or `for`. A header's temporaries
@@ -1147,6 +1149,24 @@ sub main()
 
 ```error
 a view of the temporary `String("k", "=v")` outlives its statement
+```
+
+A template where a `?String` goes is the same temporary *(planned)*:
+
+```rig pending
+use std.text
+
+sub main()
+  a = "x"
+  n = 2
+  if text.starts_with(`{a}y{n}`, "xy")
+    print("starts")
+  if text.cut(`k{n}=v`, "=") as kv
+    print(kv.after)
+```
+
+```error
+outlives its statement
 ```
 
 ```rig pending
