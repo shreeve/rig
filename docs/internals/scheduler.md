@@ -416,7 +416,8 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
   millisecond, or every 50 µs while work waits (`watchSlices`). A
   worker whose fiber has run a slice, 10 ms, while other work waits, or
   whose own queue held work at two looks in a row, or whose timer or
-  poller is due, gets SIGURG.
+  poller is due, gets SIGURG. As `main` ends, `runMain` wakes it and
+  waits for it to end before it frees the workers (`stopMonitor`).
 - **The handler** stops the fiber only where its program counter is in
   the program's own code, the section `rig_text` (`__TEXT,__rig_text` on
   the Mac), and its worker holds no lock: there the fiber is at a point
