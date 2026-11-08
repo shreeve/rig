@@ -7454,7 +7454,7 @@ const SwitchStack = *const fn (arg: *anyopaque, run: *const fn (*anyopaque) call
 /// `switchStackNaked` as a function to call. The empty `asm` hides which
 /// function the pointer names, so no optimizer inlines the naked body,
 /// which takes its arguments in registers only a call sets.
-fn switchStack(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, top: usize) void {
+pub fn switchStack(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, top: usize) void {
     var f: SwitchStack = @ptrCast(&switchStackNaked);
     asm volatile (""
         : [f] "+r" (f),
@@ -7737,7 +7737,7 @@ pub fn start(init: std.process.Init.Minimal) void {
         const act: std.posix.Sigaction = .{
             .handler = .{ .handler = onBrokenPipe },
             .mask = std.posix.sigemptyset(),
-            .flags = 0,
+            .flags = std.posix.SA.ONSTACK,
         };
         var old: std.posix.Sigaction = undefined;
         std.posix.sigaction(.PIPE, &act, &old);
@@ -7745,6 +7745,7 @@ pub fn start(init: std.process.Init.Minimal) void {
     }
     if (traps_sent) installTrapHandler();
     if (cancels_on_interrupt) cancelOnInterrupt();
+    if (makes_tasks) handlersOnAltStack();
     // The backend that runs tasks, set up after that handler, which it
     // saves and puts back when `finish` joins it. Its own allocations are
     // outside the leak count.
@@ -7793,6 +7794,45 @@ pub fn start(init: std.process.Init.Minimal) void {
 }
 
 fn onBrokenPipe(_: std.posix.SIG) callconv(.c) void {}
+
+/// Every signal handler runs on its thread's alternate stack (`AltStack`),
+/// never on a task's, where the frame the kernel writes for it, up to
+/// several KiB, would take room the task's own frames were given. The
+/// runtime's own handlers are installed so (`SA_ONSTACK`); one other code
+/// installed before the program started, as a C library may as it loads,
+/// is installed again so here, as Go's runtime does.
+fn handlersOnAltStack() void {
+    if (std.posix.Sigaction == void) return;
+    inline for (.{ "HUP", "INT", "QUIT", "ILL", "TRAP", "ABRT", "BUS", "FPE", "USR1", "SEGV", "USR2", "PIPE", "ALRM", "TERM", "CHLD", "CONT", "TSTP", "TTIN", "TTOU", "URG", "XCPU", "XFSZ", "VTALRM", "PROF", "WINCH", "IO", "SYS" }) |name| {
+        if (@hasField(std.posix.SIG, name)) onAltStack(@field(std.posix.SIG, name));
+    }
+}
+
+/// Install `sig`'s handler again with `SA_ONSTACK`, if it has one without.
+fn onAltStack(sig: std.posix.SIG) void {
+    var old: std.posix.Sigaction = undefined;
+    std.posix.sigaction(sig, null, &old);
+    const h = old.handler.handler;
+    if (h == std.posix.SIG.DFL or h == std.posix.SIG.IGN or old.flags & std.posix.SA.ONSTACK != 0) return;
+    old.flags |= std.posix.SA.ONSTACK;
+    std.posix.sigaction(sig, &old, null);
+}
+
+test "a handler installed without SA_ONSTACK is installed again with it" {
+    if (std.posix.Sigaction == void) return;
+    const H = struct {
+        fn on(_: std.posix.SIG) callconv(.c) void {}
+    };
+    var before: std.posix.Sigaction = undefined;
+    const act: std.posix.Sigaction = .{ .handler = .{ .handler = H.on }, .mask = std.posix.sigemptyset(), .flags = 0 };
+    std.posix.sigaction(.USR2, &act, &before);
+    defer std.posix.sigaction(.USR2, &before, null);
+    handlersOnAltStack();
+    var now: std.posix.Sigaction = undefined;
+    std.posix.sigaction(.USR2, null, &now);
+    try std.testing.expect(now.flags & std.posix.SA.ONSTACK != 0);
+    try std.testing.expect(now.handler.handler == H.on);
+}
 
 /// What a write to stdout does once its reader has closed the pipe, as
 /// `os.on_broken_pipe` sets it: false ends a `print` with status 0 and
@@ -7998,7 +8038,7 @@ fn cancelOnInterrupt() void {
     const act: std.posix.Sigaction = .{
         .handler = .{ .handler = onInterrupt },
         .mask = std.posix.sigemptyset(),
-        .flags = if (scheduled) std.posix.SA.RESTART else 0,
+        .flags = std.posix.SA.ONSTACK | if (scheduled) std.posix.SA.RESTART else 0,
     };
     // A signal the program started with ignored (`nohup`, `prog &` in a
     // script) stays ignored, as a shell leaves it.
@@ -8053,7 +8093,7 @@ const wake_installed = split.cell(&wake_installed_var, "runtime.wake_installed")
 fn installWake() void {
     if (std.posix.Sigaction == void) return;
     if (wake_installed.load(.acquire)) return;
-    const act: std.posix.Sigaction = .{ .handler = .{ .handler = onWake }, .mask = std.posix.sigemptyset(), .flags = 0 };
+    const act: std.posix.Sigaction = .{ .handler = .{ .handler = onWake }, .mask = std.posix.sigemptyset(), .flags = std.posix.SA.ONSTACK };
     std.posix.sigaction(wake_signal, &act, null);
     wake_installed.store(true, .release);
 }
