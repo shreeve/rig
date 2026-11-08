@@ -54,6 +54,8 @@ comptime {
         graph,
         preempt_states,
         owing,
+        watch_thread,
+        watch_word,
         exit_state,
     };
 }
@@ -1118,11 +1120,29 @@ fn envUs(comptime name: []const u8, default: u32) i96 {
 var preempt_trace = false;
 var preempt_traced: std.atomic.Value(bool) = .init(false);
 
+/// The monitor's thread, which `stopMonitor` joins as `main` ends,
+/// before `runMain` frees the workers it reads; and the word it sleeps
+/// on between looks, which `stopMonitor` changes to wake it.
+var watch_thread_var: ?std.Thread = null;
+const watch_thread = split.cell(&watch_thread_var, "sched.watch_thread");
+var watch_word_var: std.atomic.Value(u32) = .init(0);
+const watch_word = split.cell(&watch_word_var, "sched.watch_word");
+
 fn startMonitor() void {
     if (rt.process.*) |p| preempt_trace = if (p.environ.getPosix("RIG_PREEMPT_TRACE")) |v| std.mem.eql(u8, v, "1") else false;
     installPreempt();
-    const t = std.Thread.spawn(.{ .stack_size = 64 << 10 }, watchSlices, .{ sliceNs(), envUs("RIG_PREEMPT_WAIT_US", 50) }) catch return;
-    t.detach();
+    watch_thread.* = std.Thread.spawn(.{ .stack_size = 64 << 10 }, watchSlices, .{ sliceNs(), envUs("RIG_PREEMPT_WAIT_US", 50) }) catch return;
+}
+
+/// As `main` ends, once `stopping` is set: wake the monitor and wait for
+/// it to end, so it reads no worker after `runMain` frees them, and the
+/// next run, in a test, starts a monitor of its own.
+fn stopMonitor() void {
+    const t = watch_thread.* orelse return;
+    _ = watch_word.fetchAdd(1, .seq_cst);
+    rt.io().futexWake(u32, &watch_word.raw, 1);
+    t.join();
+    watch_thread.* = null;
 }
 
 /// Every period: signal each worker that has run one fiber since the
@@ -1133,14 +1153,17 @@ fn startMonitor() void {
 /// timers are due or whose poller holds events. The period is the wait
 /// (`RIG_PREEMPT_WAIT_US`, 50 µs) while any worker has work waiting, 1
 /// ms while any runs a fiber, and twice as long each period every worker
-/// spends without, up to 10 ms.
+/// spends without, up to 10 ms. It ends as `main` ends (`stopMonitor`).
 fn watchSlices(slice: i96, wait: i96) void {
     var seen: [max_workers]u32 = @splat(0);
     var since: [max_workers]i96 = @splat(0);
     var had: [max_workers]bool = @splat(false);
     var period: i96 = std.time.ns_per_ms;
-    while (!stopping.load(.acquire)) {
-        sleepNs(period);
+    while (true) {
+        const word = watch_word.load(.seq_cst);
+        if (stopping.load(.seq_cst)) return;
+        rt.io().futexWaitTimeout(u32, &watch_word.raw, word, .{ .duration = .{ .raw = .{ .nanoseconds = period }, .clock = .awake } }) catch {};
+        if (stopping.load(.seq_cst)) return;
         const now = nowReal();
         var busy = false;
         var queued = false;
@@ -3047,6 +3070,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     if (preempt) preOf(&workers.*[0]).tid = rt.threadId();
     if (deterministic.*) wake(&m.fiber) else _ = workers.*[0].ring.push(&m.fiber);
     loop(&workers.*[0]);
+    stopMonitor();
     while (kicking.load(.seq_cst) != 0) std.atomic.spinLoopHint();
     pool.stop();
     printStats();

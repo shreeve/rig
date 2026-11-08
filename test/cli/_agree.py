@@ -1,7 +1,9 @@
 """The agreement test's two steps (test/cli/agree.sh).
 
     _agree.py list TESTS EXAMPLES   the programs worth exporting, `name<TAB>path`
-    _agree.py compare JUDGED LIST   compare the verdicts; exit 1 on a failure
+    _agree.py compare JUDGED LIST FLOOR
+                                    compare the verdicts; exit 1 on a failure,
+                                    or with fewer than FLOOR programs in scope
 
 `list` keeps a program only when it could be in λRig's scope: one
 `sub main()` and nothing else at the left margin, with no text, member,
@@ -53,7 +55,7 @@ def listing(tests, examples):
         print(f'{rel}\t{path}')
 
 
-def compare(judged, listed):
+def compare(judged, listed, floor):
     entries = {}
     for line in open(listed, encoding='utf-8'):
         line = line.rstrip('\n')
@@ -72,8 +74,8 @@ def compare(judged, listed):
     failures = 0
     for line in open(judged, encoding='utf-8'):
         f = line.rstrip('\n').split('\t')
-        if len(f) == 3:
-            why = f[2][len('outside '):] if f[2].startswith('outside') else f[2]
+        if len(f) == 3 and f[2].startswith('outside '):
+            why = f[2][len('outside '):]
             outside[why] = outside.get(why, 0) + 1
             continue
         if len(f) != 5:
@@ -119,6 +121,9 @@ def compare(judged, listed):
     scope = sum(counts.values())
     print(f'agree: {scope} programs in λRig\'s scope, {sum(outside.values())} outside; '
           + ', '.join(f'{counts.get(k, 0)} {k}' for k in ('agree', 'rig-stricter', 'lambda-stricter', 'unsound')))
+    if scope < floor:
+        print(f'agree: {scope} programs in λRig\'s scope, fewer than the floor of {floor}: the exporter or lrig lost programs')
+        failures += 1
     if os.environ.get('AGREE_STATS'):
         for why, n in sorted(outside.items(), key=lambda x: -x[1]):
             print(f'{n:6}  outside: {why}')
@@ -129,4 +134,4 @@ if __name__ == '__main__':
     if sys.argv[1] == 'list':
         listing(sys.argv[2], sys.argv[3])
     else:
-        sys.exit(compare(sys.argv[2], sys.argv[3]))
+        sys.exit(compare(sys.argv[2], sys.argv[3], int(sys.argv[4])))
