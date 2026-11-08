@@ -139,3 +139,4 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-11-07 | #1001: four run-next slots in a circle (pup core 3) | rig-fast | 73 ns | 82 ns | 559.2 ms | 32 ns | 192 ns | 4.5 KiB | 11.6 ms |
 | 2026-11-07 | main bdfc70ed9 before #1001, alternated (Mac) | rig-fast | 180 ns | 44 ns | 88.9 ms | 5 ns | 73.44 us | 16.6 KiB | 6.7 ms |
 | 2026-11-07 | #1001: four run-next slots in a circle (Mac) | rig-fast | 163 ns | 47 ns | 89.0 ms | 5 ns | 157 ns | 16.6 KiB | 6.6 ms |
+| 2026-11-08 | main 0d1c64647: preemption by signal by default (#1007), switch-first (#1020), shared free stacks (#1021) (Mac) | rig-fast | 151 ns | 42 ns | 81.1 ms | 4 ns | 162 ns | 16.6 KiB | 6.7 ms |
