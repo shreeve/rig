@@ -443,15 +443,22 @@ yield checks.
 | fanout, 10 CPU-bound tasks | 81.1 ms | 66.5 ms | 67.0 ms |
 | hog, a task waiting behind a long computation | 162 ns | 4.0 ms | 4.2 ms |
 | produce, tasks made while others take them | 6.7 ms | 5.6 ms | 6.1 ms |
-| memory, per sleeping task | 16.6 KiB | 262 B | 2.9 KiB |
+| resident memory, per sleeping task | 16.6 KiB | 262 B | 2.9 KiB |
 
 Starting a task costs less than Tokio's and Go's; a chain is 4.3 times
 as fast as Tokio's, and a yield 9 times. `fanout` is 22% slower than
 Tokio's, a gap in the compiled loop ([launch/benchmarks.md](launch/benchmarks.md)).
 A task behind a long computation waits for a slice of it, not all of it:
-162 ns, against Tokio's 4.0 ms and Go's 4.2 ms. On pup (x86-64 Linux,
-2026-11-07) a sleeping task holds 4.5 KiB, against Tokio's 372 B and
-Go's 2.9 KiB.
+162 ns, against Tokio's 4.0 ms and Go's 4.2 ms.
+
+The memory row counts resident pages only. The kernel also keeps a page
+table for each task's stack, which a Tokio or Go task does not need, so
+counted as the kernel counts it (`footprint` on macOS, VmRSS plus VmPTE
+on Linux; [bench/tasks/SCALING.md](../bench/tasks/SCALING.md)) a
+sleeping task holds 32.7 KiB on the Mac, 16.1 KiB of it page tables,
+against Tokio's 267 B and Go's 2.9 KiB; and 8.9 KiB on pup (x86-64
+Linux), 4.3 KiB of it page tables, against Tokio's 388 B and Go's
+2.9 KiB.
 
 Divide and conquer with `f()&` and `>t`, fastest of 20 on ten workers
 on the Mac: a parallel sum takes 2.74 ms, against Rayon's 2.43 ms, and
@@ -462,14 +469,19 @@ ns a call, against 3.7 ns behind Go's `sync.Mutex` and 134 ns for a
 Tokio actor; `bench/http/PROGRESS.md` has `http.serve` at 163,212
 requests a second (p99 786 µs), 9.5% fewer than hyper's 180,339 (p99
 614 µs) and about Go's 163,675 (p99 1,071 µs), and 16.8 KiB per idle
-connection against hyper's 18.6 KiB and Go's 18.5 KiB. Its load
+connection against hyper's 18.6 KiB and Go's 18.5 KiB, in resident
+memory; the page table of each connection's stack is not counted, and
+with it Rig's idle connection holds more than hyper's and Go's on the
+Mac. Its load
 generator is closed-loop, which understates p99, so no claim against
 Tokio or Go rests on these before the mixed-workload benchmark.
 
 **The gaps,** from the [ROADMAP](ROADMAP.md)'s "Concurrency":
 
-- **Task memory:** a sleeping task's 16.6 KiB brought under Go's
-  2.9 KiB on the Mac, through small stacks sized by a proven bound
+- **Task memory:** a sleeping task's 32.7 KiB brought to Go's 2.9 KiB
+  or under, first by stacks placed closer together (one page table for
+  many), then by small stacks packed into shared pages, sized by a
+  proven bound
   ([records/2026-11/task-memory/](history/records/2026-11/task-memory/small-stacks.md)).
 - **Free fork-join,** for the quicksort's gap: an awaited unstarted
   task run on the waiter's own stack, its record in the maker's frame,

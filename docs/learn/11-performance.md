@@ -436,7 +436,8 @@ Apple M5 with 10 cores, what a task costs:
 
 It also states where Rig is behind: `fanout`, ten tasks of CPU work,
 takes 78.2 ms in Rig and 71.6 ms in Tokio, and a sleeping task holds
-17.0 KiB against Tokio's 264 B.
+17.0 KiB of resident memory, and 32.7 KiB with its page table
+([SCALING.md](../../bench/tasks/SCALING.md)), against Tokio's 264 B.
 
 To reproduce one, build the compiler, then run a driver on a quiet
 machine. Each driver prints a table and takes `--help`. The task

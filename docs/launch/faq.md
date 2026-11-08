@@ -112,12 +112,18 @@ of data-race freedom for the full model is still to come.
 A task is a fiber with a stack of its own. Its stack reserves a large
 range of address space, but only the pages it touches are real memory,
 and it touches at least one: 16 KiB on Apple Silicon, 4 KiB on x86-64
-Linux. That puts a task at about 17 KiB on the Mac and 5.2 KiB on Linux,
-against about 300 bytes for a Tokio task, whose state machine is sized
-by the compiler. For a server, the number that matters is an idle
-connection, and there Rig holds no buffers while a connection waits, so
-it costs 17.0 KiB on the Mac and 9.2 KiB on Linux, less than Tokio or Go
-([benchmarks.md](benchmarks.md)).
+Linux. Each stack also has a page table of its own. That puts a
+sleeping task at 32.7 KiB on the Mac and 8.9 KiB on Linux, about half
+of it page tables, against about 300 bytes for a Tokio task, whose state
+machine is sized by the compiler, and 2.9 KiB for a goroutine. For a
+server, the number that matters is an idle connection: Rig holds no
+buffers while a connection waits, so it is 17.0 KiB of resident memory on
+the Mac and 9.2 KiB on Linux, against hyper's 18.6 and 10.8 KiB; with
+its page table it is more than hyper's on both, and more than Go's on
+the Mac
+([benchmarks.md](benchmarks.md)). Stacks placed closer together, then
+small stacks packed into shared pages, are how Rig is closing the gap
+([ROADMAP](../ROADMAP.md), "Concurrency").
 
 ## Why is the HTTP number on Linux so much higher than hyper's?
 

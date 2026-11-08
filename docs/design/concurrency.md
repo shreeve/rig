@@ -75,8 +75,9 @@ the rules below depend on them:
   `JoinHandle` detaches its task.
 
 Where Tokio is ahead is memory for a task at rest: a Tokio task can be
-a few hundred bytes, and a Rig task holds a page of its stack, 17 KiB
-on the Mac and 5.2 KiB on Linux ([the scheduler](../internals/scheduler.md),
+a few hundred bytes, and a Rig task holds a page of its stack and a page
+table for it, 32.7 KiB on the Mac and 8.9 KiB on Linux
+([bench/tasks/SCALING.md](../../bench/tasks/SCALING.md); [the scheduler](../internals/scheduler.md),
 "Stacks").
 
 ## What a program writes
