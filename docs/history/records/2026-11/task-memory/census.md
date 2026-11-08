@@ -1,0 +1,85 @@
+# The stack census, first pass (2026-11-08)
+
+Step 4 of the small-stacks order (the panel's revision of
+[small-stacks.md](small-stacks.md)): a bound for each task's stack, read
+from the final executable, failing closed (safety's R1). A measurement
+only: nothing in the runtime uses it yet. The tool is
+`tools/stack-census.py EXE`.
+
+## What it does
+
+- **Frames.** It follows the stack pointer through each function's whole
+  body, along its branches, by a positive list of the instructions that
+  may move it: on arm64, `sub`/`add sp`, pre- and post-indexed stores and
+  loads, and `mov sp`/`sub sp` from a register holding sp; on x86-64,
+  `push`, `pop`, `sub`/`add`/`lea`/`and rsp`, `leave`, and the probe's
+  `sub rsp, rax`.
+- **Fail-closed checks.**
+  - Any other write to sp makes the function unknown.
+  - So does a point reached at two depths. Compiled code keeps sp the same at each point, so this also catches the tool's own misreadings.
+- **Bounds.**
+  - A function's bound is the most of its own frame plus the red zone (128 bytes), or the stack at a call plus the callee's bound.
+  - A cycle of calls makes it unknown.
+  - A task's bound adds `fiberStartNaked` and `fiberMain` (24 + 16 bytes on x86-64, 0 + 32 on arm64).
+- **Calls through registers** that the code itself set are followed:
+  - a function's address made by `adrp`/`add`, `lea` or `mov eax, imm`;
+  - macOS's thread-local getters, counted as an axiom of 256 bytes;
+  - a global's function pointer, and a vtable that a global holds, by the global's value in the file;
+  - x86-64 jump tables.
+- **The two switch functions** (`switchNaked`, `switchStackNaked`) count only what they push before they leave the stack.
+- **The stack probe** (`zig_probe_stack`) counts 16 bytes, since its caller reserves the frame itself.
+- **Other calls through a vtable's slot** take every function at that slot or after in any run of function pointers in the data. That is sound over the data's vtables, and coarse. A call through a pointer with no slot takes every function whose address the program takes.
+- **Calls out of the program** (libSystem's stubs) and into the panic path are listed, not counted. Safety's R3 and R5 move them onto the worker's stack.
+
+## Results
+
+### bench/tasks, release (`--release=fast`)
+
+| task | Mac (arm64) | pup (x86-64) |
+|---|---|---|
+| spawn's tiny task | 656 B | 584 B |
+| `nap` (sleeps) | 688 B | unknown: `std.time.sleep` through a pointer |
+| `spin`, `even_chunk`, `skew_chunk` | 3,776 B | unknown |
+| `yielder`, `alloc_chunk` | 3,872 B | unknown |
+| `tree` | unknown: recursion | unknown |
+| a closure's task (`FnRef`) | unknown: through a pointer | unknown |
+
+7 of the 9 task types are bounded on the Mac, and 1 on pup.
+
+The Mac's 3.7–3.9 KiB rows, and every unknown row on pup, come from one path: **a yield check services the poller on the task's own stack.**
+- The path: `tick` → `Poller.poll` → `flushBeforeWait` → stdout's `Io.Writer.flush`, through its vtable.
+- `Poller.poll`'s frame alone is 2,208 bytes on the Mac, more than a 2 KiB class.
+- The writer is in `.bss`, set at run time, so its vtable is resolved only by slot. On x86-64, Writer's default methods then form a cycle under the slot rule (`defaultRebase`).
+
+### Trig, release (pup, x86-64)
+
+All 8 task types are unknown. Behind the pointers:
+- **Frames:** up to 125 KiB in one frame (`CheckerPool.check_groups`), 72 KiB (`emit_declarations`) and 67 KiB (`new_program`).
+- **Pointer calls:** the clock read through the vDSO pointer (`alloc.keptReading`), stdout's writer (`Io.Writer.writeAll`), and a channel's callback (`Chan.recv`).
+
+Trig's checker tasks belong to the large class whatever the pointers resolve to.
+
+### Debug builds
+
+Every task type is unknown. The `std.Io` vtable calls in the allocator and the clock resolve by slot to `Io.Threaded`'s functions, among them `netLookup`'s recursion. Safety's Q2 expected debug builds to take larger classes; with this tool they take the large one.
+
+## What the census says to do next
+
+1. **Service the poller on the worker's stack.** A yield check that finds the poller due should stop first, as switch-first preemption does (#1020), and poll from the worker's stack.
+   - **Mac:** with `--cold` naming `Poller.poll` (a what-if), bench/tasks' 3,776–3,872 B rows fall to 2,352–2,448 B.
+   - **pup:** the same rows stay unknown, through `tick`'s other call through a pointer, `alloc.ask`'s, and `std.time.sleep`'s.
+2. **Move cold paths to the worker's stack** (the panel's step 3): `print`'s formatting, `flushBeforeWait`, the clock's vDSO call, and the panic path.
+3. **Resolve vtables by type,** from the debug information or from a table that emit writes. The slot rule cannot tell the Writer's vtables from the Allocator's or Io's. Debug builds stay unknown until this is done.
+4. **`sched.sortStacks` (#1021) recurses** (merge sort, depth log2 n). It runs on the worker's stack, but the coarse pointer rule reaches it. An iterative sort removes the cycle.
+
+The go/no-go for classes waits on items 1 and 2: without them, no Linux task in these programs has a bound.
+
+## Running it
+
+```sh
+tools/stack-census.py EXE              # the table of task types, and the largest frames
+tools/stack-census.py EXE --json F     # also every function's frame, to F
+tools/stack-census.py EXE --cold RE    # what-if: functions matching RE run off the task's stack
+```
+
+It needs `llvm-objdump` (`/usr/lib/llvm-22/bin` on pup), and `atos` (macOS) or `llvm-symbolizer` (Linux) to name the tasks. bench/tasks takes under a second, and Trig about a minute.

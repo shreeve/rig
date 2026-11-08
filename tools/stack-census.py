@@ -41,6 +41,11 @@ TLV_BOUND = 256
 # The functions that leave the stack they run on, for another: what they
 # push before the switch is all they take of it.
 SWITCHES = re.compile(r"^rig\.(sched\.switchNaked|runtime\.switchStackNaked)$")
+EXTRA_COLD = None
+# Zig's stack probe (x86-64): it touches each page of the frame its caller
+# is about to reserve, moving rsp down and back; the caller then reserves
+# the frame itself (`mov eax, N; call; sub rsp, rax`).
+PROBES = re.compile(r"(^|\.)(zig_probe_stack|__zig_probe_stack|__chkstk|___chkstk_darwin|__rust_probestack)$")
 # The entries of the panic path (`rig.runtime.panicWith`, Zig's
 # `FullPanic` handlers, `std.debug`'s panic and trace).
 COLD = re.compile(r"(^rig\.runtime\.(panic|fullPanic|passPanic|outOfMemory|oom)|FullPanic|^debug\.(panic|defaultPanic|FullPanic|dumpCurrentStackTrace)|^builtin\.default_panic)")
@@ -302,6 +307,9 @@ def x86_flow(i, fn_range):
         return ("call", t) if t is not None and not i.args.startswith(("qword", "[")) and re.match(r"^0x", i.args) else ("icall",)
     if op == "jmp":
         t = target(i.args)
+        m = re.match(r"^qword ptr \[8\*\w+ \+ 0x([0-9a-f]+)\]$", i.args)
+        if m:
+            return ("table", int(m.group(1), 16))
         return ("jump", t) if t is not None and re.match(r"^0x", i.args) else ("ijump",)
     if op.startswith("j"):
         return ("cond", target(i.args))
@@ -514,7 +522,10 @@ def kstep_x86(i, kst, starts):
     return None
 
 
-def analyse(fn, end, arch, code, starts, tlv_range=None):
+def analyse(fn, end, arch, code, starts, tlv_range=None, words=None):
+    if PROBES.search(fn.name):
+        fn.own = 16
+        return
     """Fill `fn`'s own frame, calls and jumps by a walk of its branches.
     Compiled code keeps the stack pointer the same at each point however
     the point is reached, so a point reached at two depths makes the frame
@@ -601,8 +612,23 @@ def analyse(fn, end, arch, code, starts, tlv_range=None):
                         break
                     k += 1
                     continue
+                if kind == "table":
+                    # A jump table of absolute addresses (x86-64): each
+                    # entry in the function is a branch at this depth.
+                    t, n = f[1], 0
+                    while words is not None and words.get(t) in index:
+                        work.append((index[words[t]], depth, dict(regs), {"addr": dict(kst["addr"]), "getter": set(kst["getter"]), "slots": dict(kst["slots"]), "loads": dict(kst.get("loads", {}))}))
+                        t += 8
+                        n += 1
+                    if n == 0:
+                        fn.itails.append((depth, ins.addr))
+                    break
                 if kind == "ijump" and kt is not None:
                     fn.tails.append((depth, kt))
+                    break
+                if kind == "ijump" and depth == 0 and fn.own > 0:
+                    # After the epilogue: a tail call through a pointer.
+                    fn.itails.append((depth, ins.addr))
                     break
                 if kind == "ijump":
                     ijumps.append(depth)
@@ -768,7 +794,7 @@ def bounds(fns, arch, resolved, by_slot=None):
     by = {fn.start: fn for fn in fns}
     # The panic path: it moves to the worker's stack (safety's R5), and a
     # task's bound counts only a fixed stub for it.
-    cold = {fn.start for fn in fns if COLD.search(fn.name)}
+    cold = {fn.start for fn in fns if COLD.search(fn.name) or EXTRA_COLD and EXTRA_COLD.search(fn.name)}
     ret_addr = 8 if arch == "x86_64" else 0
     memo, onpath = {}, set()
     sys.setrecursionlimit(100000)
@@ -884,8 +910,11 @@ def main():
     ap.add_argument("--entries", default=r"rig\.sched\.spawn(In|Detached)__\w+\.Full\.start$")
     ap.add_argument("--top", type=int, default=15, help="the deepest functions to list")
     ap.add_argument("--json")
+    ap.add_argument("--cold", help="also count these functions as run off the task's stack, as a step that moves them would (a what-if)")
     ap.add_argument("--program-files", default="", help="emitted files of the program, comma-separated (default: the build's __rig_*.zig and module files)")
     a = ap.parse_args()
+    global EXTRA_COLD
+    EXTRA_COLD = re.compile(a.cold) if a.cold else None
     arch, fmt = arch_of(a.exe)
     fns = disassemble(a.exe, arch)
     for fn in fns:
@@ -897,11 +926,11 @@ def main():
     stub_names = stubs_of(a.exe) if fmt == "macho" else {}
     fns = [fn for fn in fns if any(lo <= fn.start < hi for lo, hi in code)]
     starts = {fn.start for fn in fns}
+    words, fptr = data_words(a.exe, fmt, starts)
     for k, fn in enumerate(fns):
         end = fns[k + 1].start if k + 1 < len(fns) else fn.start + 4 * len(fn.ins) + 16
-        analyse(fn, end, arch, code, starts, tlv)
+        analyse(fn, end, arch, code, starts, tlv, words)
         fn.foreign = [stub_names.get(t, "%#x" % t) for t in fn.foreign]
-    words, fptr = data_words(a.exe, fmt, starts)
     taken = taken_in_code(fns, arch, starts) | set(fptr.values())
     runs = vtable_runs(fptr)
     slot_sets = {}
