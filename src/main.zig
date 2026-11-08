@@ -40,7 +40,7 @@ const usage =
     \\       rig run [options] <file.rig> -- <program arguments>
     \\       rig build --release --bolt [options] <file.rig> -- <workload>
     \\       rig build --release --pgo [options] <file.rig> -- <workload>
-    \\       rig batch build [--release[=safe|fast]] <dir> <file.rig>...
+    \\       rig batch build [--release[=safe|fast]] [--preempt] <dir> <file.rig>...
     \\       rig batch run <dir> <n>
     \\       rig clean
     \\       rig lsp
@@ -58,7 +58,10 @@ const usage =
     \\  emit      Check, then print the root module's Zig to stdout
     \\  batch     Build many programs into one executable, <dir>/bin, with
     \\            one copy of the runtime (build), and run program <n> of it
-    \\            as `run` runs a program (run): test/rig.rip's packs
+    \\            as `run` runs a program (run): test/rig.rip's packs. Its
+    \\            internal `--preempt`, for the test runner alone, builds a
+    \\            batch preempted by signal, as a program is built (a
+    \\            program with local tasks is then built alone)
     \\  clean     Remove the programs rig built in its cache (see RIG_OUT_DIR)
     \\  lsp       Serve the language server protocol on stdin and stdout, for
     \\            an editor (editors/README.md)
@@ -1324,12 +1327,15 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
     }
     if (!eql(what, "build")) usageError("`rig batch` is `rig batch build` or `rig batch run`", .{});
     var mode: Mode = .debug;
+    var preempt = false;
     var i: usize = 1;
     while (i < args.len and args[i].len > 1 and args[i][0] == '-') : (i += 1) {
         if (eql(args[i], "--release") or eql(args[i], "--release=safe")) {
             mode = .safe;
         } else if (eql(args[i], "--release=fast")) {
             mode = .fast;
+        } else if (eql(args[i], "--preempt")) {
+            preempt = preempt_host;
         } else usageError("unknown option `{s}`", .{args[i]});
     }
     if (args.len < i + 2) usageError("`rig batch build` takes a directory and at least one .rig file", .{});
@@ -1356,6 +1362,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
     var built: usize = 0;
     var inputs = std.crypto.hash.sha2.Sha256.init(.{});
     hashPart(&inputs, "rig batch 2");
+    hashPart(&inputs, if (preempt) "preempt" else "checks");
     // Every program's files, each at its place in the batch
     // (`placeBatchFiles`).
     var placed: std.ArrayList(PackageFile) = .empty;
@@ -1378,6 +1385,13 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
             continue;
         }
         const pkg = try emitPackage(allocator, env, &graph, .{ .batch = true });
+        // A preempted batch's one runtime preempts every program in it,
+        // so a program that keeps its yield checks (local tasks) is built
+        // alone.
+        if (preempt and makesTasks(&graph) and !pkg.preempting) {
+            std.debug.print("{s}:1:1: note: local tasks: built alone, not in a preempted batch\n", .{graph.root().display});
+            continue;
+        }
         links_libc = links_libc or pkg.links_libc;
         makes_tasks = makes_tasks or makesTasks(&graph);
         makes_actors = makes_actors or makesActors(&graph);
@@ -1396,6 +1410,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
     try root.writer.writeAll("};\n");
     // One runtime serves the batch: it runs tasks if any program makes them.
     if (makes_tasks) try root.writer.print("\npub const __rig_tasks = true;\npub const __rig_task_guard: usize = {d};\n", .{sema.taskGuard(largest_frame)});
+    if (makes_tasks and preempt) try root.writer.writeAll("pub const __rig_preempt = true;\n");
     if (makes_actors) try root.writer.writeAll("pub const __rig_actors = true;\n");
     if (reads.since_start) try root.writer.writeAll("pub const __rig_since_start = true;\n");
     if (reads.memory) try root.writer.writeAll("pub const __rig_memory = true;\n");
@@ -1485,15 +1500,32 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         pruneShared(allocator, io, package_dir, package);
         const libc: []const []const u8 = if (links_libc) &.{"-lc"} else &.{};
         const zig_cache = if (store != null) home else try std.fs.path.join(allocator, &.{ dir, ".zig-cache" });
-        const argv = try std.mem.concat(allocator, []const u8, &.{
-            &.{ env.zig(), "build-exe", mode.zigFlag() },
-            mode.releaseFlags(env),
-            &.{ "--cache-dir", zig_cache, try allocator.print("-femit-bin={s}", .{entry_bin}) },
-            libc,
-            &.{ "--dep", emit.runtime_module, try allocator.print("-Mroot={s}", .{try std.fs.path.join(allocator, &.{ package_dir, "main.zig" })}), try allocator.print("-M{s}={s}", .{ emit.runtime_module, try std.fs.path.join(allocator, &.{ package_dir, emit.runtime_filename }) }) },
-        });
-        const code = try runZig(io, argv);
-        if (code != 0) return code;
+        const modules_args: []const []const u8 = &.{ "--dep", emit.runtime_module, try allocator.print("-Mroot={s}", .{try std.fs.path.join(allocator, &.{ package_dir, "main.zig" })}), try allocator.print("-M{s}={s}", .{ emit.runtime_module, try std.fs.path.join(allocator, &.{ package_dir, emit.runtime_filename }) }) };
+        // A preempted batch on arm64 macOS is built as a preempted program
+        // is (`buildApart`): an object with x15 reserved, whose program
+        // section is kept apart, then linked.
+        if (preempt and makes_tasks and builtin.os.tag == .macos) {
+            const flags = try std.mem.concat(allocator, []const u8, &.{ mode.releaseFlags(env), &.{"-mcpu=native+reserve_x15"} });
+            const object = try std.fs.path.join(allocator, &.{ package_dir, "__rig_program.o" });
+            const apart = try std.fs.path.join(allocator, &.{ package_dir, "__rig_program-apart.o" });
+            const compile = try std.mem.concat(allocator, []const u8, &.{ &.{ env.zig(), "build-obj", mode.zigFlag() }, flags, &.{ "--cache-dir", zig_cache, try allocator.print("-femit-bin={s}", .{object}) }, libc, modules_args });
+            var code = try runZig(io, compile);
+            if (code != 0) return code;
+            try keepCodeApart(allocator, io, object, apart);
+            code = try runZig(io, try std.mem.concat(allocator, []const u8, &.{ &.{ env.zig(), "build-exe", mode.zigFlag() }, flags, &.{ "--cache-dir", zig_cache, apart, try allocator.print("-femit-bin={s}", .{entry_bin}) }, libc }));
+            if (code != 0) return code;
+            writeDsym(allocator, io, entry_bin);
+        } else {
+            const argv = try std.mem.concat(allocator, []const u8, &.{
+                &.{ env.zig(), "build-exe", mode.zigFlag() },
+                mode.releaseFlags(env),
+                &.{ "--cache-dir", zig_cache, try allocator.print("-femit-bin={s}", .{entry_bin}) },
+                libc,
+                modules_args,
+            });
+            const code = try runZig(io, argv);
+            if (code != 0) return code;
+        }
         if (zig_identity != null) try writeFile(io, inputs_path, &hex);
     }
     if (store != null) std.Io.Dir.cwd().symLinkAtomic(io, entry_bin, bin, .{}) catch |err| fatal("error: cannot link `{s}` to `{s}`: {s}", .{ bin, entry_bin, @errorName(err) });

@@ -567,7 +567,7 @@ setup = ->
   # The compiler, and every setting of rig's that changes what it emits or
   # how a program runs (RIG_STRICT_OPTIONALS, RIG_NO_PROOFS, ...), but those
   # that only say where things go.
-  settings = Object.keys(process.env).filter((k) -> k.startsWith('RIG_') and not /^RIG_(OUT_DIR|BUILD_STORE|RESULTS_CACHE|RUN_STARTED|PROGRAM_STARTED|CACHE_MAX_GB|UCD|TESTS)$/.test(k)).sort().map((k) -> "#{k}=#{process.env[k]}")
+  settings = Object.keys(process.env).filter((k) -> k.startsWith('RIG_') and not /^RIG_(OUT_DIR|BUILD_STORE|RESULTS_CACHE|RUN_STARTED|PROGRAM_STARTED|CACHE_MAX_GB|UCD|TESTS|PACK_PREEMPT)$/.test(k)).sort().map((k) -> "#{k}=#{process.env[k]}")
   # Zig's version is part of it too: a new Zig builds every pack again.
   zigExe = process.env.ZIG ?? 'zig'
   zigVersion = Bun.spawnSync({ cmd: [zigExe, 'version'], stdout: 'pipe', stderr: 'pipe' }).stdout.toString().trim()
@@ -599,13 +599,31 @@ setup = ->
   packCases = { debug: 400, release: 200 }
   packs = []
   filling = {}
+  # Where a program is preempted by signal (x86-64 Linux, arm64 macOS;
+  # docs/internals/scheduler.md, "Preemption"), the packs of cases that
+  # are not seeded are too (`rig batch build --preempt`), as each would
+  # be built alone; seeded cases keep their packs' yield checks, as `rig
+  # test` does, so a seed chooses among the same yields.
+  # RIG_PACK_PREEMPT=0 builds every pack with yield checks.
+  preemptHost = (process.platform is 'linux' and process.arch is 'x64') or (process.platform is 'darwin' and process.arch is 'arm64')
+  preemptPacks = preemptHost and process.env.RIG_PACK_PREEMPT isnt '0'
   addPack = (family, mode, cases) ->
+    return if cases.length is 0
+    if preemptPacks
+      seeded = cases.filter((c) -> c.opts.seeds?)
+      plain = cases.filter((c) -> not c.opts.seeds?)
+      addPackTo(family, mode, seeded, false)
+      addPackTo("#{family}~p", mode, plain, true)
+    else
+      addPackTo(family, mode, cases, false)
+  addPackTo = (family, mode, cases, preempt) ->
     return if cases.length is 0
     families = (filling["#{family}.#{mode}"] ?= [])
     into = families[families.length - 1]
     if not into? or into.cases.length + cases.length > packCases[mode]
       packName = "#{family}-#{families.length + 1}"
-      into = { name: packName, dir: join(work, 'packs', packName, mode), cases: [], flags: (if mode is 'release' then ['--release'] else []), env: (if mode is 'release' then {} else { RIG_SANITIZE: '1' }) }
+      flags = (if mode is 'release' then ['--release'] else []).concat(if preempt then ['--preempt'] else [])
+      into = { name: packName, dir: join(work, 'packs', packName, mode), cases: [], flags, env: (if mode is 'release' then {} else { RIG_SANITIZE: '1' }) }
       families.push(into)
       packs.push(into)
     into.cases.push(...cases)
@@ -633,9 +651,9 @@ setup = ->
     rmSync(keyPath, { force: true })
     rmSync(join(p.dir, 'state'), { force: true })
     queued.push(p)
-  queued.sort((a, b) -> (if b.flags.length > 0 then 3 else 1) * (2000 + 15 * b.cases.length) - (if a.flags.length > 0 then 3 else 1) * (2000 + 15 * a.cases.length))
+  queued.sort((a, b) -> (if '--release' in b.flags then 3 else 1) * (2000 + 15 * b.cases.length) - (if '--release' in a.flags then 3 else 1) * (2000 + 15 * a.cases.length))
   for p, k in queued
-    mode = if p.flags.length > 0 then 'release' else 'debug'
+    mode = if '--release' in p.flags then 'release' else 'debug'
     todo("build.zig.#{String(k).padStart(3, '0')}.#{p.name}.#{mode}", JSON.stringify({ file: "#{p.name} (#{mode})", name: "#{p.name} #{mode} pack", verb: 'pack', line: 1, dir: p.dir, flags: p.flags, env: p.env, cases: p.cases.map((c) -> c.path), key: p.key, opts: { timeout: '1800' } }))
     builds++
   process.stdout.write("rig.rip: #{builds} pack#{if builds is 1 then '' else 's'} to compile, as jobs\n") if builds > 0
@@ -653,7 +671,7 @@ setup = ->
         todo(id, JSON.stringify(job))
         continue
       for p in (slots.get(c) ?? [])
-        release = p.flags.length > 0
+        release = '--release' in p.flags
         todo(id + (if release then 'r' else ''), JSON.stringify({ ...job, release, pack: p.dir, packKey: p.key }))
   # The oracle's sets: the tests (the probes of past reviews among them)
   # and the examples, the docs' examples, and the matrix (test/matrix.py). A doc example is named by
