@@ -76,6 +76,23 @@ grep -qE '\| [0-9,]+ B \|' <<<"$deep_row" && fail "a recursive task has a bound:
 out=$(python3 -I "$census" tasks --cold '^rig\.sched\.Poller\.failed$' 2>&1) || fail "the census, --cold: $out"
 expect_has "$(row "$out" "__rig_main.deep")" "unknown: a cycle of calls" "a recursive task's reason"
 
+# A frame of 4 KiB or more on arm64 is `sub sp, sp, #N, lsl #12`, which the
+# disassembler follows with a `; =0x...` comment: the shift counts, and a
+# shift the tool does not know fails closed.
+out=$(python3 -I - "$census" <<'PY'
+import importlib.util, sys
+s = importlib.util.spec_from_file_location("census", sys.argv[1])
+m = importlib.util.module_from_spec(s)
+s.loader.exec_module(m)
+class I:
+    def __init__(self, op, args): self.op, self.args = op, args
+print(m.arm_effect(I("sub", "sp, sp, #0x3, lsl #12   ; =0x3000"), {"regs": {}})[:2])
+print(m.arm_effect(I("sub", "sp, sp, #0x3, lsl #1"), {"regs": {}})[0])
+print(m.arm_effect(I("add", "sp, sp, #0x10   ; =0x10"), {"regs": {}})[:2])
+PY
+) || fail "the census's arm64 frames: $out"
+expect_eq "$out" "$(printf "('add', 12288)\nbad\n('add', -16)")" "an arm64 frame of 4 KiB or more counts its shift"
+
 # The FnRef fact, failing closed: a runtime that writes `call_fn` outside
 # FnRef's own makers, or none the tool can read.
 mkdir -p bad/src bad/std
