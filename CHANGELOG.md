@@ -241,6 +241,10 @@ none of these ever built:
 
 ### Compiler
 
+- `rig build --release`'s warning about a frame larger than a page reads
+  a program's own code section too, where a program that makes tasks
+  keeps its functions when it is preempted by signal, and where the
+  warning found none of them.
 - A debug build on x86-64 is built by LLVM (`-fllvm`), as on arm64. Zig
   0.17's own x86-64 backend, its default there, overwrote a compare's
   result with an atomic's flags, so a function that returned a compare
