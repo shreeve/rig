@@ -823,6 +823,12 @@ mechanism). A SIGSEGV, SIGBUS, SIGILL, or SIGFPE that another process
 sends, or the program sends itself, ends the program by that signal, as
 its default action does.
 
+A call in tail position is an ordinary call. Rig does not promise to
+reuse its frame, so a recursion as deep as its input can run out of
+stack, and whether it does can differ between a debug build and an
+optimized one. A `for`, `while`, or `loop` takes no more stack as it
+repeats.
+
 ```rig reject
 obj Grid
   cells: [1024][1024]Int
