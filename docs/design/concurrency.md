@@ -515,9 +515,10 @@ boundary. Three things are boundaries:
   `f` may be lent to it to write, so everything a panic in `f` could
   have half-changed is `f`'s own, and is abandoned: what survives is
   either untouched or was only read. `http.serve` runs each request
-  this way, so a bug fails that request with a 500, stops its tasks and
-  closes its files, leaving only its memory, and leaves every other
-  request running.
+  this way, so a bug fails that request with a 500, stops its tasks,
+  which close their files as they end, and leaves every other request
+  running. What the handler's own frames hold stays: its memory, and
+  any file or socket it had open.
 - **An actor** (built). An actor owns its state, so a panic in one of
   its methods kills that actor: its state, possibly half-changed, is
   abandoned, not dropped, and never served again. The caller waiting on
