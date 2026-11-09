@@ -230,9 +230,9 @@ var sleepers_var: Sleepers = .{};
 const sleepers = split.cell(&sleepers_var, "sched.sleepers");
 /// Workers looking for work to steal: a worker that makes work wakes a
 /// sleeping one only when none is looking.
-var searching_var: std.atomic.Value(u32) = .init(0);
+var searching_var: Flag = .{};
 const searching = split.cell(&searching_var, "sched.searching");
-var stopping_var: std.atomic.Value(bool) = .init(false);
+var stopping_var: OnLine(bool) = .{};
 const stopping = split.cell(&stopping_var, "sched.stopping");
 /// Set when work is made while every worker is busy, or a fiber that
 /// goes on running fills its worker's "run next" slot (`wake`); the first
@@ -245,20 +245,35 @@ const stopping = split.cell(&stopping_var, "sched.stopping");
 var waiting_var: Flag = .{};
 pub const waiting = split.cell(&waiting_var, "sched.waiting");
 
-const Flag = extern struct {
-    value: std.atomic.Value(u32) align(std.atomic.cache_line) = .init(0),
-    _: [std.atomic.cache_line - 4]u8 = undefined,
+/// An atomic the scheduler's workers write, or read at every step, on a
+/// cache line of its own: what any other thread writes beside it never
+/// slows it, wherever the linker puts it (the size of a type with an
+/// aligned field is a multiple of that alignment, so nothing follows it on
+/// its line).
+fn OnLine(comptime T: type) type {
+    return struct {
+        value: std.atomic.Value(T) align(std.atomic.cache_line) = .init(std.mem.zeroes(T)),
 
-    pub fn load(f: *const Flag, comptime order: std.builtin.AtomicOrder) u32 {
-        return f.value.load(order);
-    }
-    fn store(f: *Flag, v: u32, comptime order: std.builtin.AtomicOrder) void {
-        f.value.store(v, order);
-    }
-    fn swap(f: *Flag, v: u32, comptime order: std.builtin.AtomicOrder) u32 {
-        return f.value.swap(v, order);
-    }
-};
+        const Self = @This();
+
+        pub fn load(f: *const Self, comptime order: std.builtin.AtomicOrder) T {
+            return f.value.load(order);
+        }
+        fn store(f: *Self, v: T, comptime order: std.builtin.AtomicOrder) void {
+            f.value.store(v, order);
+        }
+        fn swap(f: *Self, v: T, comptime order: std.builtin.AtomicOrder) T {
+            return f.value.swap(v, order);
+        }
+        fn fetchAdd(f: *Self, v: T, comptime order: std.builtin.AtomicOrder) T {
+            return f.value.fetchAdd(v, order);
+        }
+        fn fetchSub(f: *Self, v: T, comptime order: std.builtin.AtomicOrder) T {
+            return f.value.fetchSub(v, order);
+        }
+    };
+}
+const Flag = OnLine(u32);
 
 /// The fiber running on this thread, or none outside every fiber.
 pub inline fn current() ?*Fiber {
@@ -675,7 +690,7 @@ const preempt_states = split.cell(&preempt_states_var, "sched.preempt_states");
 /// How many workers owe a yield check (`Preempt.owed`): what `settleAt`
 /// reads first, one load of a word no worker writes until a signal leaves
 /// a check owed, so a slow path that finds none owed pays nothing more.
-var owing_var: std.atomic.Value(u32) = .init(0);
+var owing_var: Flag = .{};
 const owing = split.cell(&owing_var, "sched.owing");
 
 /// A signal left the yield check it asked for owed on `w`.
@@ -3938,8 +3953,9 @@ const Ring = struct {
 /// empty without taking the lock.
 const Global = struct {
     /// Taken uncounted (`lockApart`): the queue is reached only from the
-    /// scheduler's entries, its workers, and its monitor.
-    lock: SpinLock = .{},
+    /// scheduler's entries, its workers, and its monitor. On a cache line
+    /// of its own with the fields below, which every worker writes.
+    lock: SpinLock align(std.atomic.cache_line) = .{},
     head: ?*Fiber = null,
     tail: ?*Fiber = null,
     count: std.atomic.Value(u32) = .init(0),
@@ -3974,8 +3990,9 @@ const Global = struct {
 
 /// The workers asleep, a stack a spin lock guards.
 const Sleepers = struct {
-    /// Taken uncounted (`lockApart`), as `Global`'s.
-    lock: SpinLock = .{},
+    /// Taken uncounted (`lockApart`), as `Global`'s, and on a cache line
+    /// of its own, as `Global`'s.
+    lock: SpinLock align(std.atomic.cache_line) = .{},
     top: ?*Worker = null,
     count: std.atomic.Value(u32) = .init(0),
 
@@ -4944,7 +4961,7 @@ const spare_batch = 16;
 /// surplus in address order, a run of neighbouring stacks (`chunk`) in
 /// one call and one flush.
 const Spare = struct {
-    lock: SpinLock = .{},
+    lock: SpinLock align(std.atomic.cache_line) = .{},
     head: ?*FreeStack = null,
     /// Written under the lock; read without it to skip the lock when the
     /// list has nothing to give or nothing to trim.
@@ -5416,6 +5433,13 @@ test "a watch on a task's end, taken back, leaves its finish waking no one" {
 test "no cache line holds two workers' fields" {
     try std.testing.expect(@alignOf(Worker) >= std.atomic.cache_line);
     try std.testing.expect(@sizeOf(Worker) % std.atomic.cache_line == 0);
+}
+
+test "the scheduler's shared counters each fill whole cache lines" {
+    inline for (.{ Flag, OnLine(bool), Global, Sleepers, Spare }) |T| {
+        try std.testing.expect(@alignOf(T) >= std.atomic.cache_line);
+        try std.testing.expect(@sizeOf(T) % std.atomic.cache_line == 0);
+    }
 }
 
 test "fibers switch, yield to each other in turn, and finish" {
