@@ -9281,7 +9281,7 @@ pub const Emitter = struct {
             try self.emitAddressOf(lentPlace(recv));
             try self.w.print(", \"{s}\", .{{ ", .{self.srcText(ir.Member.name(callee))});
         } else {
-            try self.w.writeAll(if (self.facts.isLocalTask(sexp)) ".spawnLocal(" else ".spawn(");
+            try self.w.writeAll(if (self.facts.isLocalTask(sexp)) ".spawnLocal(" else if (self.facts.isDenseCall(sexp)) ".spawnDense(" else ".spawn(");
             try self.emitExpr(callee);
             try self.w.writeAll(", .{ ");
         }

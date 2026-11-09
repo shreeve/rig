@@ -7213,7 +7213,7 @@ pub fn leaveFrames() void {
     const g = task().stack_guard;
     if (g.hi == 0) return;
     const from = @frameAddress();
-    const top = g.hi + task_stack_size - unwind_headroom;
+    const top = g.hi + g.len - unwind_headroom;
     if (from < g.hi or from >= top) return;
     LeakChecker.lock();
     defer LeakChecker.unlock();
@@ -7277,7 +7277,7 @@ comptime {
 
 /// The guard below a stack, once it is mapped: an access in it is a
 /// stack overflow. Each task has its own (`TaskState`).
-pub const StackGuard = struct { lo: usize = 0, hi: usize = 0 };
+pub const StackGuard = struct { lo: usize = 0, hi: usize = 0, len: usize = 0 };
 
 /// Map a stack, read-write, above its guard and below one inaccessible
 /// page, so a read past its top faults whatever else is mapped, and make
@@ -7292,7 +7292,7 @@ fn mapStack(guards: []const usize) ?usize {
             std.posix.munmap(got);
             continue;
         }
-        task().stack_guard = .{ .lo = base, .hi = base + size };
+        task().stack_guard = .{ .lo = base, .hi = base + size, .len = stack_size };
         return base + size + stack_size;
     }
     return null;
@@ -7340,6 +7340,27 @@ pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn
 /// it takes that guard.
 pub const task_stack_size = stack_size;
 pub const task_guard: usize = if (@hasDecl(root, "__rig_task_guard")) root.__rig_task_guard else guard_sizes[guard_sizes.len - 1];
+
+/// How far apart dense stacks lie (`sched.takeDense`), guard included, as
+/// `bin/rig` chose for the target (`sema.denseStride`). A page table covers
+/// 32 MiB on arm64 and 2 MiB on x86-64, so stacks this close share them.
+pub const dense_stride: usize = if (@hasDecl(root, "__rig_dense_stride")) root.__rig_dense_stride else 1 << 20;
+
+/// The guard below a dense stack, in bytes, which `bin/rig` writes into
+/// the executable after the link from the largest frame the executable
+/// reserves (`frames.largestReach`): the frames of the code it holds, Zig's
+/// inlining included, exist only then. It finds the word by `magic`. Zero,
+/// as it is built, means no dense stacks: every task keeps a large one.
+const DenseWord = extern struct { magic: [16]u8, guard: u64 };
+var dense_word: DenseWord = .{ .magic = "rig-dense-guard!".*, .guard = 0 };
+
+/// The guard `bin/rig` wrote, or 0 for none. Read once, as the scheduler
+/// starts; an odd value, from any other tool's hands, reads as none.
+pub fn denseGuard() usize {
+    const g: usize = @intCast(@as(*volatile u64, &dense_word.guard).*);
+    if (g < std.heap.pageSize() or !std.math.isPowerOfTwo(g) or g > dense_stride / 4) return 0;
+    return g;
+}
 
 fn attachSignalStack() callconv(.c) void {
     _ = AltStack.attach();

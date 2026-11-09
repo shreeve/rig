@@ -17,7 +17,10 @@
 const std = @import("std");
 
 /// A function of the executable and the bytes its prologue reserves.
-pub const Frame = struct { name: []const u8, bytes: u64 };
+/// `reach` bounds what its whole body may reserve (`armReach`, `x86Reach`),
+/// an overestimate on purpose; null when a stack adjustment in it cannot
+/// be read.
+pub const Frame = struct { name: []const u8, bytes: u64, reach: ?u64 };
 
 const Machine = enum { aarch64, x86_64 };
 
@@ -88,9 +91,97 @@ pub fn read(allocator: std.mem.Allocator, bytes: []const u8) ![]Frame {
             .aarch64 => armFrame(code),
             .x86_64 => x86Frame(code, s.addr, probe),
         };
-        try out.append(allocator, .{ .name = s.name, .bytes = n });
+        const reach = switch (machine) {
+            .aarch64 => armReach(code),
+            .x86_64 => x86Reach(code, s.addr, probe),
+        };
+        try out.append(allocator, .{ .name = s.name, .bytes = n, .reach = reach });
     }
     return out.items;
+}
+
+/// The most stack any function of the executable `bytes` may reserve at
+/// once, or null when that cannot be known: a file this does not read, or
+/// a function with a stack adjustment it cannot read. What a guard below
+/// a stack is sized from, so it fails closed.
+pub fn largestReach(allocator: std.mem.Allocator, bytes: []const u8) !?u64 {
+    const all = try read(allocator, bytes);
+    if (all.len == 0) return null;
+    var most: u64 = 0;
+    for (all) |f| most = @max(most, f.reach orelse return null);
+    return most + reach_margin;
+}
+
+/// Added to the largest bound: what `read` does not count, an x86
+/// function's pushes and its return address, and the room a frame that
+/// aligns itself rounds down by on x86.
+const reach_margin: u64 = 8 << 10;
+
+/// A bound on what an aarch64 function reserves anywhere in its body:
+/// every adjustment of the stack pointer added up, each read wherever it
+/// is, since shrink wrapping moves them out of the prologue. Several on
+/// separate paths count together, and bytes that only look like one
+/// count too; both only raise it. A register's value subtracted from the
+/// stack pointer gives null.
+fn armReach(code: []const u8) ?u64 {
+    var total: u64 = 0;
+    var i: usize = 0;
+    while (i + 4 <= code.len) : (i += 4) {
+        const ins = u32At(code, i);
+        // `sub Xd, sp, #imm{, lsl #12}`, Xd the stack pointer, or a
+        // register an aligned frame then moves to it.
+        if (ins & 0xff8003e0 == 0xd10003e0) {
+            const imm: u64 = (ins >> 10) & 0xfff;
+            total += if ((ins >> 22) & 1 == 1) imm << 12 else imm;
+        }
+        // `stp A, B, [sp, #-N]!`, of general or vector registers
+        if (ins & 0x3bc003e0 == 0x298003e0) {
+            const imm7: i64 = @as(i7, @bitCast(@as(u7, @truncate(ins >> 15))));
+            const vector = (ins >> 26) & 1 == 1;
+            const opc = ins >> 30;
+            const scale: i64 = if (vector) @as(i64, 4) << @intCast(opc) else if (opc == 2) 8 else 4;
+            if (imm7 < 0) total += @intCast(-imm7 * scale);
+        }
+        // `str A, [sp, #-N]!`
+        if (ins & 0x3b600fe0 == 0x38000fe0) {
+            const imm9: i64 = @as(i9, @bitCast(@as(u9, @truncate(ins >> 12))));
+            if (imm9 < 0) total += @intCast(-imm9);
+        }
+        // `and sp, Xn, #mask`: an aligned frame rounds down, by less than
+        // a page for any alignment Zig asks of a local.
+        if (ins & 0xff80001f == 0x9200001f) total += 4096;
+        // `sub sp, sp, Xm`
+        if (ins & 0xffe003ff == 0xcb2003ff) return null;
+    }
+    return total;
+}
+
+/// `armReach` for x86_64, by the bytes of each form at every offset,
+/// with no decoder: bytes that only look like a form raise the bound, and
+/// nothing lowers it. A register subtracted from the stack pointer is
+/// left out: x86's bytes cannot tell one from the middle of another
+/// instruction, and only the stack probe's call, which is counted, comes
+/// before one, since neither Zig nor Rig allocates on the stack by a
+/// run-time size. Pushes are left to the guard's margin (`reach_margin`).
+fn x86Reach(code: []const u8, addr: u64, probe: ?u64) u64 {
+    var total: u64 = 0;
+    var i: usize = 0;
+    while (i < code.len) : (i += 1) {
+        const rest = code[i..];
+        // `sub rsp, imm32`
+        if (rest.len >= 7 and rest[0] == 0x48 and rest[1] == 0x81 and rest[2] == 0xec) total += u32At(rest, 3);
+        // The step of a probe loop, `sub r11, imm32`: a prologue's.
+        if (i < 96 and rest.len >= 7 and rest[0] == 0x49 and rest[1] == 0x81 and rest[2] == 0xeb) total += u32At(rest, 3);
+        // `sub rsp, imm8`
+        if (rest.len >= 4 and rest[0] == 0x48 and rest[1] == 0x83 and rest[2] == 0xec) total += rest[3];
+        // `mov eax, imm32` then `call probe`
+        if (probe) |p| if (rest.len >= 10 and rest[0] == 0xb8 and rest[5] == 0xe8) {
+            const rel: i32 = @bitCast(u32At(rest, 6));
+            const next: i64 = @intCast(addr + i + 10);
+            if (next + rel == @as(i64, @intCast(p))) total += u32At(rest, 1);
+        };
+    }
+    return total;
 }
 
 /// What an aarch64 prologue reserves.

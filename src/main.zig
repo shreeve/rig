@@ -342,7 +342,7 @@ const Env = struct {
     /// package `rig run` or `rig test` builds (`hook`), the variable
     /// naming the file the program creates as it starts (`buildCommand`).
     fn writeRootFlags(env: Env, w: *std.Io.Writer, hook: bool, tasks: ?u64, actors: bool, reads: Reads) !void {
-        if (tasks) |guard| try w.print("pub const __rig_tasks = true;\npub const __rig_task_guard: usize = {d};\n", .{guard});
+        if (tasks) |guard| try w.print("pub const __rig_tasks = true;\npub const __rig_task_guard: usize = {d};\npub const __rig_dense_stride: usize = {d};\n", .{ guard, sema.denseStride(builtin.os.tag) });
         if (actors) try w.writeAll("pub const __rig_actors = true;\n");
         if (reads.since_start) try w.writeAll("pub const __rig_since_start = true;\n");
         if (reads.memory) try w.writeAll("pub const __rig_memory = true;\n");
@@ -606,6 +606,37 @@ const page_bytes: u64 = 4096;
 /// here changes the build.
 fn warnFrames(allocator: std.mem.Allocator, io: std.Io, graph: *modules.ModuleGraph, exe: []const u8) void {
     warnFramesIn(allocator, io, graph, exe) catch {};
+    sealDenseGuard(allocator, io, exe) catch {};
+}
+
+/// Write into the release executable `exe` the guard below its dense
+/// stacks (`rt.denseGuard`): twice the most stack any of its functions may
+/// reserve (`frames.largestReach`), a power of two and at least a page. The
+/// frames of what Zig inlined exist only now. Any step that fails leaves
+/// the executable as the linker wrote it, whose word says no dense stacks,
+/// and so does a guard too large for the stride.
+fn sealDenseGuard(allocator: std.mem.Allocator, io: std.Io, exe: []const u8) !void {
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, exe, allocator, .limited(1 << 32));
+    const magic = "rig-dense-guard!";
+    if (std.mem.indexOf(u8, bytes, magic) == null) return;
+    const reach = (try frames.largestReach(allocator, bytes)) orelse return;
+    const guard = @max(try std.math.ceilPowerOfTwo(u64, 2 * reach), @as(u64, std.heap.pageSize()));
+    if (guard > sema.denseStride(builtin.os.tag) / 4) return;
+    var at: usize = 0;
+    while (std.mem.indexOfPos(u8, bytes, at, magic)) |i| : (at = i + magic.len) {
+        std.mem.writeInt(u64, bytes[i + magic.len..][0..8], guard, .little);
+    }
+    const sealed = try std.fmt.allocPrint(allocator, "{s}.sealed", .{exe});
+    defer std.Io.Dir.cwd().deleteFile(io, sealed) catch {};
+    try writeFile(io, sealed, bytes);
+    const mode = (try std.Io.Dir.cwd().statFile(io, exe, .{})).permissions;
+    try std.Io.Dir.cwd().setFilePermissions(io, sealed, mode, .{});
+    // A changed page invalidates the signature arm64 macOS requires.
+    if (builtin.os.tag == .macos) {
+        const r = try std.process.run(allocator, io, .{ .argv = &.{ "codesign", "-f", "-s", "-", sealed }, .stdout_limit = .limited(1 << 16), .stderr_limit = .limited(1 << 16) });
+        if (!r.term.success()) return error.SignFailed;
+    }
+    try std.Io.Dir.cwd().rename(sealed, std.Io.Dir.cwd(), exe, io);
 }
 
 fn warnFramesIn(allocator: std.mem.Allocator, io: std.Io, graph: *modules.ModuleGraph, exe: []const u8) !void {

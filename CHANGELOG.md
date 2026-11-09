@@ -123,6 +123,7 @@ none of these ever built:
 
 ### Added
 
+- **Dense stacks.** `rig build --release` gives a task that cannot need much stack a dense stack, which holds 17.6 KB on the Mac where a large one holds 33.5 KB. A task with recursion, or a call through a pointer, keeps a large stack, as does every task of a debug build or `rig run`.
 - **Text over several lines** (T1c): `"""` (with escapes) and `'''`
   (raw) open fixed text over several lines, a `Static`, when the opener
   ends its line, and a backtick that ends its line opens a template over
