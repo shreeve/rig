@@ -5372,8 +5372,12 @@ fn trimDenseList(sp: *Spare, first: ?*FreeStack, n: u32, kept: u32) void {
             hi += rt.dense_stride;
             rest = r.next;
         }
-        // Room and the addresses under one hold of the lock: another
-        // worker trims too, and room made apart from them is shared.
+        // The pages go first: the moment an address is on the list another
+        // worker may take it and run on it, and Linux wipes what is
+        // advised at once. Room and the addresses under one hold of the
+        // lock: another worker trims too, and room made apart from them
+        // is shared.
+        adviseFree(lo, hi - lo);
         dense.lock.lock();
         const room = dense.cold.ensureUnusedCapacity(std.heap.smp_allocator, taken);
         if (room) |_| {
@@ -5381,8 +5385,7 @@ fn trimDenseList(sp: *Spare, first: ?*FreeStack, n: u32, kept: u32) void {
             while (b < hi) : (b += rt.dense_stride) dense.cold.appendAssumeCapacity(b);
         } else |_| {}
         dense.lock.unlock();
-        room catch break;
-        adviseFree(lo, hi - lo);
+        room catch rt.oom();
         list = rest;
         left -= taken;
         returned += taken;
