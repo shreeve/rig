@@ -837,6 +837,7 @@ same waiting points fail with `Stop.timeout`.
 | `check()!Stop` | a waiting point that waits for nothing: fail with `Stop.canceled` when this task is canceled, or `Stop.timeout` past its deadline, and otherwise give other tasks a turn |
 | `workers(n: Int) -> Bool` | run tasks on `n` workers, at most 64, in place of one per core or `RIG_WORKERS`: a program sets it from its own arguments, say. It takes effect only before the program makes its first task, which starts the workers, and gives whether it did; a deterministic run (`rig test`) runs on one thread whatever it asks |
 | `worker_count() -> Int` | the number of workers tasks run on: one per core, `RIG_WORKERS`, or what `workers(n)` set, before the first task starts them or after; 1 in a deterministic run and in a program that makes no task. A program sizes its own work by it, as one task per worker |
+| `fast_cores() -> Int` | how many fast physical cores the program may run on, at least 1 ([below](#the-fast-cores)) |
 | `all(a, b, ...)` | wait for two tasks or more, of any types, and give each one's value as several results; it can fail when any task can, and then the first to fail cancels the others |
 | `isolate(f)` | run `f`, which takes nothing, and give what it gives; a panic in it, or in a task it started, stops here: its tasks are canceled, and it fails with `Stop.panicked` ([SPEC §18](../SPEC.md#isolating-a-panic)) |
 | `supervise(f, restarts: n, per: s)` | run `f` isolated, and again each time it fails or panics, at most `n` times within `s` seconds, an `Int` or a `Float` (`per: 0.5`); past that, fail as its last run failed ([SPEC §18](../SPEC.md#isolating-a-panic)) |
@@ -867,6 +868,34 @@ sub main()!
 ```output
 Stop.canceled
 -1
+```
+
+### The fast cores
+
+`task.fast_cores()` tells a program how many tasks can each have a fast
+core to themselves. The threads of one core count once. On macOS it is
+the performance cores (`hw.perflevel0.physicalcpu`), or every physical
+core on a machine without performance levels. On Linux it is the cores
+within the process's affinity mask: the fast set of a hybrid Intel chip
+(`/sys/devices/cpu_core/cpus`), each counted when any of its threads is
+allowed. When the mask holds no fast core it counts the cores the mask
+does hold, so `taskset -c 12-19` on E-cores alone gives 8, never 0. ARM's
+big.LITTLE, which names no fast set, has every core counted. If a file it
+needs cannot be read, and on other systems, it is the logical CPUs the
+process may use. It is worked out at the first call and kept; a program
+that never calls it pays nothing. The workers do not follow it: there is
+one per logical CPU unless `task.workers(n)` or `RIG_WORKERS` says
+otherwise.
+
+```rig
+use std.task
+
+sub main()
+  print(task.fast_cores() >= 1)
+```
+
+```output
+true
 ```
 
 ## std.par

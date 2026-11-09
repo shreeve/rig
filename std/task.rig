@@ -29,3 +29,9 @@ extern zig "task.zig"
   # what `workers(n)` set, before the program's first task starts them or
   # after. One in a deterministic run, and in a program that makes no task.
   pub fun worker_count() -> Int
+
+  # How many fast physical cores the program may run on, at least 1:
+  # the threads of one core count once, and slower cores count only when
+  # it may run on no fast one. A hint for sizing work; the worker count
+  # does not follow it. Worked out at the first call and kept.
+  pub fun fast_cores() -> Int

@@ -106,6 +106,9 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **`task.fast_cores()`** (draft PR, branch `fast-cores`): the fast
+  physical cores within the affinity mask, on macOS and Linux. The name
+  is provisional, the owner's to settle; the worker count is unchanged.
 - **Language review fixes** (draft PR, branch `language-review-fixes`):
   from the 2026-11-08 language review, nothing is written through a
   `!?T` (an element of `for x in !vv` over a `List[?T]`), a view of a
