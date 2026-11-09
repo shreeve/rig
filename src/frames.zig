@@ -24,14 +24,35 @@ const Machine = enum { aarch64, x86_64 };
 /// A function symbol: its name and address.
 const Symbol = struct { name: []const u8, addr: u64 };
 
-/// The section of code: where it is in memory and in the file.
+/// A section of code: where it is in memory and in the file.
 const Text = struct { addr: u64, offset: u64, size: u64 };
+
+/// The sections of code read: the linker's, and the program's own, which
+/// a program built to be preempted keeps its functions in
+/// (`rig.preempt_section`).
+const Texts = struct {
+    items: [2]Text = undefined,
+    len: usize = 0,
+
+    fn add(t: *Texts, s: Text) void {
+        if (t.len < t.items.len) {
+            t.items[t.len] = s;
+            t.len += 1;
+        }
+    }
+
+    /// The section that holds `addr`.
+    fn holding(t: *const Texts, addr: u64) ?Text {
+        for (t.items[0..t.len]) |s| if (addr >= s.addr and addr < s.addr + s.size) return s;
+        return null;
+    }
+};
 
 /// Every function of the executable `bytes` with the frame it reserves,
 /// in no order; empty for a file this does not read.
 pub fn read(allocator: std.mem.Allocator, bytes: []const u8) ![]Frame {
     var symbols: std.ArrayList(Symbol) = .empty;
-    var text: Text = undefined;
+    var texts: Texts = .{};
     var machine: Machine = undefined;
     var probe: ?u64 = null;
     if (bytes.len >= 32 and u32At(bytes, 0) == 0xfeedfacf) {
@@ -40,14 +61,14 @@ pub fn read(allocator: std.mem.Allocator, bytes: []const u8) ![]Frame {
             0x01000007 => .x86_64,
             else => return &.{},
         };
-        text = (try machO(allocator, bytes, &symbols, &probe)) orelse return &.{};
+        texts = (try machO(allocator, bytes, &symbols, &probe)) orelse return &.{};
     } else if (bytes.len >= 64 and std.mem.eql(u8, bytes[0..4], "\x7fELF") and bytes[4] == 2 and bytes[5] == 1) {
         machine = switch (u16At(bytes, 18)) {
             183 => .aarch64,
             62 => .x86_64,
             else => return &.{},
         };
-        text = (try elf(allocator, bytes, &symbols, &probe)) orelse return &.{};
+        texts = (try elf(allocator, bytes, &symbols, &probe)) orelse return &.{};
     } else return &.{};
 
     std.mem.sort(Symbol, symbols.items, {}, struct {
@@ -57,7 +78,7 @@ pub fn read(allocator: std.mem.Allocator, bytes: []const u8) ![]Frame {
     }.lessThan);
     var out: std.ArrayList(Frame) = .empty;
     for (symbols.items, 0..) |s, i| {
-        if (s.addr < text.addr or s.addr >= text.addr + text.size) continue;
+        const text = texts.holding(s.addr) orelse continue;
         const end_addr = if (i + 1 < symbols.items.len) @min(symbols.items[i + 1].addr, text.addr + text.size) else text.addr + text.size;
         const start = text.offset + (s.addr - text.addr);
         const end = text.offset + (end_addr - text.addr);
@@ -117,11 +138,11 @@ fn x86Frame(code: []const u8, addr: u64, probe: ?u64) u64 {
 }
 
 /// The Mach-O executable's function symbols, and its `__TEXT,__text`.
-fn machO(allocator: std.mem.Allocator, bytes: []const u8, symbols: *std.ArrayList(Symbol), probe: *?u64) !?Text {
+fn machO(allocator: std.mem.Allocator, bytes: []const u8, symbols: *std.ArrayList(Symbol), probe: *?u64) !?Texts {
     const ncmds = u32At(bytes, 16);
     var off: usize = 32;
-    var text: ?Text = null;
-    var text_index: u32 = 0;
+    var texts: Texts = .{};
+    var text_index: [2]u32 = @splat(0);
     var sect_count: u32 = 0;
     var symoff: usize = 0;
     var nsyms: usize = 0;
@@ -141,9 +162,10 @@ fn machO(allocator: std.mem.Allocator, bytes: []const u8, symbols: *std.ArrayLis
                 const s = off + 72 + k * 80;
                 if (s + 80 > bytes.len) return null;
                 sect_count += 1;
-                if (std.mem.eql(u8, name16(bytes[s..][0..16]), "__text") and std.mem.eql(u8, name16(bytes[s + 16 ..][0..16]), "__TEXT")) {
-                    text = .{ .addr = u64At(bytes, s + 32), .size = u64At(bytes, s + 40), .offset = u32At(bytes, s + 48) };
-                    text_index = sect_count;
+                const sect = name16(bytes[s..][0..16]);
+                if (std.mem.eql(u8, name16(bytes[s + 16 ..][0..16]), "__TEXT") and (std.mem.eql(u8, sect, "__text") or std.mem.eql(u8, sect, "__rig_text"))) {
+                    if (texts.len < text_index.len) text_index[texts.len] = sect_count;
+                    texts.add(.{ .addr = u64At(bytes, s + 32), .size = u64At(bytes, s + 40), .offset = u32At(bytes, s + 48) });
                 }
             }
         } else if (cmd == 0x2) {
@@ -156,42 +178,42 @@ fn machO(allocator: std.mem.Allocator, bytes: []const u8, symbols: *std.ArrayLis
         if (size == 0) return null;
         off += size;
     }
-    if (text == null or symoff + nsyms * 16 > bytes.len or stroff + strsize > bytes.len) return null;
+    if (texts.len == 0 or symoff + nsyms * 16 > bytes.len or stroff + strsize > bytes.len) return null;
     const strs = bytes[stroff..][0..strsize];
     var i: usize = 0;
     while (i < nsyms) : (i += 1) {
         const e = symoff + i * 16;
         const n_type = bytes[e + 4];
         // A defined symbol of a section, not a debugging entry.
-        if (n_type & 0xe0 != 0 or n_type & 0x0e != 0x0e or bytes[e + 5] != text_index) continue;
+        if (n_type & 0xe0 != 0 or n_type & 0x0e != 0x0e or (bytes[e + 5] != text_index[0] and bytes[e + 5] != text_index[1])) continue;
         const name = cString(strs, u32At(bytes, e)) orelse continue;
         const shown = if (name.len > 0 and name[0] == '_') name[1..] else name;
         const addr = u64At(bytes, e + 8);
         if (std.mem.eql(u8, shown, "__zig_probe_stack")) probe.* = addr;
         try symbols.append(allocator, .{ .name = shown, .addr = addr });
     }
-    return text;
+    return texts;
 }
 
 /// The ELF executable's function symbols, and its `.text`.
-fn elf(allocator: std.mem.Allocator, bytes: []const u8, symbols: *std.ArrayList(Symbol), probe: *?u64) !?Text {
+fn elf(allocator: std.mem.Allocator, bytes: []const u8, symbols: *std.ArrayList(Symbol), probe: *?u64) !?Texts {
     const shoff: usize = @intCast(u64At(bytes, 40));
     const shentsize: usize = u16At(bytes, 58);
     const shnum: usize = u16At(bytes, 60);
     const shstrndx: usize = u16At(bytes, 62);
     if (shentsize < 64 or shoff + shnum * shentsize > bytes.len or shstrndx >= shnum) return null;
     const names = section(bytes, shoff + shstrndx * shentsize) orelse return null;
-    var text: ?Text = null;
+    var texts: Texts = .{};
     var symtab: ?usize = null;
     var k: usize = 0;
     while (k < shnum) : (k += 1) {
         const h = shoff + k * shentsize;
         const name = cString(names, u32At(bytes, h)) orelse continue;
-        if (std.mem.eql(u8, name, ".text")) text = .{ .addr = u64At(bytes, h + 16), .offset = u64At(bytes, h + 24), .size = u64At(bytes, h + 32) };
+        if (std.mem.eql(u8, name, ".text") or std.mem.eql(u8, name, "rig_text")) texts.add(.{ .addr = u64At(bytes, h + 16), .offset = u64At(bytes, h + 24), .size = u64At(bytes, h + 32) });
         if (u32At(bytes, h + 4) == 2) symtab = h;
     }
     const st = symtab orelse return null;
-    if (text == null) return null;
+    if (texts.len == 0) return null;
     const syms = section(bytes, st) orelse return null;
     const link: usize = u32At(bytes, st + 40);
     if (link >= shnum) return null;
@@ -204,7 +226,7 @@ fn elf(allocator: std.mem.Allocator, bytes: []const u8, symbols: *std.ArrayList(
         if (syms[e + 4] & 0xf != 2) continue;
         try symbols.append(allocator, .{ .name = name, .addr = addr });
     }
-    return text;
+    return texts;
 }
 
 /// The bytes of the ELF section whose header is at `h`.
