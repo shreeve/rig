@@ -153,6 +153,9 @@ const Owner = struct {
     compiled: bool = true,
     /// What its calls reach, once for each call, with the copies of it.
     calls: std.ArrayList(Edge) = .empty,
+    /// A call in it goes through a pointer: a closure, a function value,
+    /// or an API object's method (`indirect`).
+    indirect: bool = false,
     /// How messages name its function's type, for a method.
     type_name: []const u8 = "",
 };
@@ -502,12 +505,27 @@ const Pass = struct {
         return self.by_pos[module].get(s.decl_pos) orelse self.named(textOf(c, callee));
     }
 
+    /// Whether `call`, which reaches no function known here, goes through
+    /// a pointer, not to a builtin: an API object's method, or a callee
+    /// whose value is a function.
+    fn indirect(self: *Pass, module: usize, call: Sexp) bool {
+        const c = self.ctx(module);
+        if (c.dispatchOf(call)) |d| if (d == .dynamic) return true;
+        const ty = c.typeOf(c.calleeOf(call)) orelse return false;
+        return c.types.isCallableValue(ty);
+    }
+
     /// The calls of module `module`, each to its owner (`ownerOf`).
     fn calls(self: *Pass, module: usize) !void {
         const c = self.ctx(module);
         const base = self.owner_base[module];
         for (c.frame_calls.items) |fc| {
-            const t = self.target(module, fc.node) orelse continue;
+            const t = self.target(module, fc.node) orelse {
+                if (fc.owner) |o| if (self.indirect(module, fc.node)) {
+                    self.owners.items[base + o].indirect = true;
+                };
+                continue;
+            };
             const owner: ?u32 = if (fc.owner) |o| base + o else null;
             const from: ?u32 = if (owner) |o| self.owners.items[o].fun else null;
             const first: First = .{ .seq = self.seq, .caller = if (owner) |o| self.owners.items[o].in_fn else null };
@@ -990,6 +1008,66 @@ const Pass = struct {
         for (0..n) |v| if (self.state(@intCast(v)).index == 0) try self.strong(@intCast(v));
     }
 
+    /// For each function, the most stack it may take with all it calls,
+    /// each frame at `sema.reach_factor` times its reach; null when that
+    /// cannot be known: it is on a cycle of calls, makes a call through a
+    /// pointer, has a frame no count knows, or reaches one that does. By
+    /// an explicit stack, so a program's depth of calls is not this
+    /// compiler's.
+    fn denseDepths(self: *Pass) Error![]?u64 {
+        const n = self.fns.items.len;
+        const depth = try self.a.alloc(?u64, n);
+        @memset(depth, null);
+        // 0: not met; 1: on the path; 2: done.
+        const met = try self.a.alloc(u8, n);
+        @memset(met, 0);
+        const Open = struct { v: u32, edge: u32 = 0, member: u32 = 0, most: u64 = 0, known: bool = true };
+        var stack: std.ArrayList(Open) = .empty;
+        for (0..n) |root| {
+            if (met[root] != 0) continue;
+            met[root] = 1;
+            try stack.append(self.a, .{ .v = @intCast(root) });
+            walk: while (stack.items.len > 0) {
+                const top = &stack.items[stack.items.len - 1];
+                const owner = &self.owners.items[self.fns.items[top.v].owner];
+                if (top.edge == 0 and top.member == 0 and (self.isCyclic(top.v) or owner.indirect or owner.own == null)) top.known = false;
+                while (top.known and top.edge < owner.calls.items.len) {
+                    const t = owner.calls.items[top.edge].callee;
+                    const one = [1]u32{t};
+                    const reached: []const u32 = if (t & group_bit != 0) self.groups.items[t & ~group_bit].members.items else &one;
+                    if (top.member >= reached.len) {
+                        top.edge += 1;
+                        top.member = 0;
+                        continue;
+                    }
+                    const c = reached[top.member];
+                    switch (met[c]) {
+                        0 => {
+                            met[c] = 1;
+                            try stack.append(self.a, .{ .v = c });
+                            continue :walk;
+                        },
+                        1 => top.known = false,
+                        else => if (depth[c]) |d| {
+                            top.most = @max(top.most, d);
+                        } else {
+                            top.known = false;
+                        },
+                    }
+                    top.member += 1;
+                }
+                if (top.known) {
+                    const own = owner.own.?;
+                    const takes = (own.reach + owner.marked.reach + try self.added(self.fns.items[top.v].owner)) * sema.reach_factor;
+                    depth[top.v] = std.math.cast(u64, takes +| top.most) orelse null;
+                }
+                met[top.v] = 2;
+                _ = stack.pop();
+            }
+        }
+        return depth;
+    }
+
     fn isCyclic(self: *const Pass, v: u32) bool {
         return self.cyclic.items[v];
     }
@@ -1461,7 +1539,9 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
         if (takes >= sema.noinline_reach) try sema.markLarge(&m.sema.large_frames, allocator, o.pos, @intCast(takes));
     };
     // A call that may reach an inlined function hands back a value Zig
-    // would know at compile time (`Emitter.emitCallDirect`).
+    // would know at compile time (`Emitter.emitCallDirect`), and one whose
+    // every callee fits may start a task on a dense stack.
+    const depth = try pass.denseDepths();
     for (pass.sites.items) |site| {
         const one = [1]u32{site.callee};
         const reached: []const u32 = if (site.callee & group_bit != 0) pass.groups.items[site.callee & ~group_bit].members.items else &one;
@@ -1469,5 +1549,10 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
             try mods[site.module].sema.inlined_calls.put(allocator, site.id, {});
             break;
         };
+        const fits = reached.len > 0 and for (reached) |t| {
+            const d = depth[t] orelse break false;
+            if (d >= sema.dense_depth_limit) break false;
+        } else true;
+        if (fits) try mods[site.module].sema.dense_calls.put(allocator, site.id, {});
     }
 }

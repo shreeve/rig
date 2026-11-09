@@ -567,6 +567,12 @@ pub const Facts = struct {
     pub fn isOnceCapture(f: Facts, sym: SymbolId) bool {
         return f.c().isOnceCapture(sym);
     }
+    /// Whether a task that makes this call first may take a dense stack
+    /// (`SemContext.dense_calls`).
+    pub fn isDenseCall(f: Facts, call: Sexp) bool {
+        return call == .list and f.c().dense_calls.contains(call.list.id);
+    }
+
     pub fn isLocalTask(f: Facts, call: Sexp) bool {
         return f.c().isLocalTask(call);
     }

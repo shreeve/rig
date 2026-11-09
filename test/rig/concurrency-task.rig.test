@@ -1651,7 +1651,7 @@ test "task yield keeps registers", seeds: 20, release: true, "62493449 8377345"
     total += r
   print(total, mix(50000, 1))
 
-code "task free spawns free", ".spawn(spin, "
+code "task free spawns free", ".spawnDense(spin, "
   # A task given only what crosses cores starts free, to run on any
   # worker (test/cli/task_spread.sh checks that it does).
   fun spin(n: Int) -> Int

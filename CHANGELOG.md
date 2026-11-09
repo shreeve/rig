@@ -123,6 +123,7 @@ none of these ever built:
 
 ### Added
 
+- **Dense stacks.** `rig build --release` gives a task that cannot need much stack a dense stack, which holds 17.6 KB on the Mac where a large one holds 33.5 KB. A task with recursion, or a call through a pointer, keeps a large stack, as does every task of a debug build or `rig run`.
 - **`task.fast_cores()`** gives how many fast physical cores the
   program may run on, at least 1: on macOS the performance cores, on
   Linux the affinity mask's cores, the threads of one core counted once

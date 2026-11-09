@@ -47,6 +47,9 @@ comptime {
         retire_after,
         pool,
         spare,
+        dense_spare,
+        dense,
+        dense_lists,
         home_lost,
         all_workers,
         started,
@@ -70,6 +73,9 @@ pub const Fiber = struct {
     state: rt.TaskState = .{},
     /// Set by the fiber as its last act, before it switches away for good.
     finished: bool = false,
+    /// It runs on a dense stack when one can be had (`takeDense`): the
+    /// compiler found nothing in it that needs a large one.
+    dense: bool = false,
     /// What its worker does once it has switched away for good: publish
     /// its end (`Header`), or nothing for `main`.
     done: ?*const fn (*Fiber) void = null,
@@ -152,12 +158,8 @@ const Worker = struct {
     /// compare-and-swap on the slot then confirms.
     lifo_head: std.atomic.Value(u8) = .init(0),
     lifo_streak: u8 = 0,
-    free: ?*FreeStack = null,
-    free_count: u32 = 0,
-    /// The stacks of its last reservation no fiber has run on yet
-    /// (`takeStack`): `fresh_left` of them, from `fresh_next` up.
-    fresh_next: usize = 0,
-    fresh_left: u32 = 0,
+    /// The large stacks it keeps free and has yet to run a fiber on.
+    stacks: StackList = .{},
     /// Blocks to reuse (`takeBlock`).
     blocks: ?*FreeBlock = null,
     block_count: u32 = 0,
@@ -3115,6 +3117,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     for (all_workers.*, 0..) |*w, i| w.* = .{ .rng = @intCast(i * 2654435761 % 4294967291 + 1) };
     workers.* = all_workers.*[0..1];
     workers.*[0].poller.open();
+    openDense();
     started.* = false;
     stopping.store(false, .seq_cst);
     var m: Main = .{ .fiber = .{ .run = Main.start, .done = Main.end }, .arg = arg, .run = run };
@@ -3296,6 +3299,7 @@ fn loop(w: *Worker) void {
                 _ = searching.fetchSub(1, .seq_cst);
             }
             if (spare.count.load(.monotonic) > spareKept()) trimSpare();
+            if (dense_spare.count.load(.monotonic) > spareKept()) trimDense();
             sleep(w);
             continue;
         };
@@ -3313,7 +3317,7 @@ fn runFiber(w: *Worker, f: *Fiber) void {
     w.ran += 1;
     if (preempt) preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
     if (f.home != null) w.ran_pinned += 1;
-    prepare(f);
+    prepare(w, f);
     spread(w);
     w.current = f;
     switchTo(&w.sp, f.sp);
@@ -3353,11 +3357,11 @@ fn endStack(w: *Worker, f: *Fiber) void {
 
 /// Give a fiber that has not run yet its stack, from this worker, which
 /// keeps it for the next when the fiber ends.
-fn prepare(f: *Fiber) void {
+fn prepare(w: *Worker, f: *Fiber) void {
     if (f.sp != 0) return;
-    const s = takeStack();
+    const s = (if (f.dense) takeDense(w) else null) orelse takeStack();
     f.stack = s;
-    f.state.stack_guard = .{ .lo = s.base, .hi = s.base + s.guard };
+    f.state.stack_guard = .{ .lo = s.base, .hi = s.base + s.guard, .len = s.len };
     f.sp = initialFrame(f, s.top());
 }
 
@@ -3613,16 +3617,16 @@ fn hasWork() bool {
 }
 
 fn freeStacks(w: *Worker) void {
-    while (w.free) |n| {
-        w.free = n.next;
+    while (w.stacks.free) |n| {
+        w.stacks.free = n.next;
         unmapStack(n.stack);
     }
-    w.free_count = 0;
-    if (w.fresh_left > 0) {
+    w.stacks.free_count = 0;
+    if (w.stacks.fresh_left > 0) {
         const span = rt.task_guard + rt.task_stack_size + std.heap.pageSize();
-        std.posix.munmap(@as([*]align(std.heap.page_size_min) u8, @ptrFromInt(w.fresh_next))[0 .. span * w.fresh_left]);
+        std.posix.munmap(@as([*]align(std.heap.page_size_min) u8, @ptrFromInt(w.stacks.fresh_next))[0 .. span * w.stacks.fresh_left]);
     }
-    w.fresh_left = 0;
+    w.stacks.fresh_left = 0;
 }
 
 // -----------------------------------------------------------------------------
@@ -3743,7 +3747,7 @@ fn tearDownAll() ?[]const u8 {
     const span = tableSpan();
     const work = rt.fast_alloc.exitWork(span);
     var stacks: usize = 0;
-    for (ws) |*v| stacks += @atomicLoad(u32, &v.free_count, .monotonic);
+    for (ws) |*v| stacks += @atomicLoad(u32, &v.stacks.free_count, .monotonic);
     stacks += spare.count.load(.monotonic);
     // About 13 µs a page-table page, and 8 µs a MiB of segments.
     if (13 * (work.page_tables + stacks) + 8 * work.segment_mib < teardown_min_us) return "little to free";
@@ -3842,11 +3846,11 @@ fn plan(ex: *Exit, span: usize, helpers: usize) void {
 /// are left.
 fn unmapShare(w: *Worker, ex: *Exit) void {
     const stack_span = rt.task_guard + rt.task_stack_size + std.heap.pageSize();
-    while (w.free) |n| {
-        w.free = n.next;
+    while (w.stacks.free) |n| {
+        w.stacks.free = n.next;
         unmapForExit(n.stack.base, stack_span);
     }
-    w.free_count = 0;
+    w.stacks.free_count = 0;
     // The spare list's stacks go with whichever worker takes them first.
     if (spare.lock.tryLock()) {
         defer spare.lock.unlock();
@@ -4737,7 +4741,7 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool)) void 
     // it (`fiberMain`), so no waker queues it while it still runs.
     f.handoff = waiter;
     f.handoff_epoch = e;
-    prepare(f);
+    prepare(w, f);
     spread(w);
     w.current = f;
     w.ran += 1;
@@ -4763,11 +4767,11 @@ pub const spawn = if (preempt) spawnApart else spawnIn;
 
 /// `spawn` in a program built to be preempted: never inlined into the
 /// program's own code, and one call in all (`mustNotBeInCode`).
-noinline fn spawnApart(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool) Spawned(T, Extra) {
-    return spawnIn(T, Extra, f, args, extra, local);
+noinline fn spawnApart(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool, dense_stack: bool) Spawned(T, Extra) {
+    return spawnIn(T, Extra, f, args, extra, local, dense_stack);
 }
 
-fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool) Spawned(T, Extra) {
+fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool, dense_stack: bool) Spawned(T, Extra) {
     const Args = @TypeOf(args);
     const Full = struct {
         job: Job(T),
@@ -4796,7 +4800,7 @@ fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: an
     };
     if (!started.*) startWorkers();
     const full = std.heap.smp_allocator.create(Full) catch rt.oom();
-    full.* = .{ .job = .{ .header = .{ .fiber = .{ .run = Full.start, .done = Header.end }, .destroy = if (preempt) Full.destroyApart else Full.destroy } }, .extra = extra, .args = args };
+    full.* = .{ .job = .{ .header = .{ .fiber = .{ .run = Full.start, .done = Header.end, .dense = dense_stack }, .destroy = if (preempt) Full.destroyApart else Full.destroy } }, .extra = extra, .args = args };
     // An `Extra` that names its task's fiber is given it, for a cancel to
     // reach the fiber's wait (`interruptForCancel`), and one that records
     // its task somewhere does so before the task can run (`made`).
@@ -4854,6 +4858,12 @@ pub const Stack = struct {
     base: usize,
     guard: usize,
     len: usize,
+
+    /// Whether it lies in a reservation of dense stacks (`takeDense`):
+    /// only those are shorter than a large stack.
+    fn isDense(s: Stack) bool {
+        return s.len < rt.task_stack_size;
+    }
 
     fn top(s: Stack) usize {
         return s.base + s.guard + s.len - rt.unwind_headroom;
@@ -4926,6 +4936,16 @@ fn freeBlocks(w: *Worker) void {
 /// fiber would not.
 const FreeStack = struct { stack: Stack, next: ?*FreeStack };
 
+/// One class of a worker's stacks: those it keeps free, linked through
+/// the stacks themselves, and those of its last reservation no fiber has
+/// run on yet, `fresh_left` of them from `fresh_next` up.
+const StackList = struct {
+    free: ?*FreeStack = null,
+    free_count: u32 = 0,
+    fresh_next: usize = 0,
+    fresh_left: u32 = 0,
+};
+
 comptime {
     std.debug.assert(@sizeOf(FreeStack) <= rt.unwind_headroom);
 }
@@ -4965,6 +4985,8 @@ const Spare = struct {
 };
 var spare_var: Spare = .{};
 const spare = split.cell(&spare_var, "sched.spare");
+var dense_spare_var: Spare = .{};
+const dense_spare = split.cell(&dense_spare_var, "sched.dense_spare");
 
 /// How many stacks one reservation of address space holds.
 const chunk = 16;
@@ -4979,16 +5001,16 @@ fn takeStack() Stack {
     const len = rt.task_stack_size;
     const span = guard + len + std.heap.pageSize();
     if (w) |x| {
-        if (x.free == null and spare.count.load(.monotonic) != 0) takeSpare(x);
-        if (x.free) |n| {
-            x.free = n.next;
-            x.free_count -= 1;
+        if (x.stacks.free == null and spare.count.load(.monotonic) != 0) takeSpare(&x.stacks, spare);
+        if (x.stacks.free) |n| {
+            x.stacks.free = n.next;
+            x.stacks.free_count -= 1;
             return n.stack;
         }
-        if (x.fresh_left > 0) {
-            const b = x.fresh_next;
-            x.fresh_next += span;
-            x.fresh_left -= 1;
+        if (x.stacks.fresh_left > 0) {
+            const b = x.stacks.fresh_next;
+            x.stacks.fresh_next += span;
+            x.stacks.fresh_left -= 1;
             return .{ .base = b, .guard = guard, .len = len };
         }
     }
@@ -5001,8 +5023,8 @@ fn takeStack() Stack {
         if (std.posix.errno(std.posix.system.mprotect(@ptrFromInt(b + guard), len, .{ .READ = true, .WRITE = true })) != .SUCCESS) rt.oom();
     }
     if (w) |x| {
-        x.fresh_next = base + span;
-        x.fresh_left = @intCast(count - 1);
+        x.stacks.fresh_next = base + span;
+        x.stacks.fresh_left = @intCast(count - 1);
     }
     return .{ .base = base, .guard = guard, .len = len };
 }
@@ -5011,30 +5033,30 @@ fn takeStack() Stack {
 /// return it to the system when `w` keeps enough, or always in a build
 /// that sanitizes (`RIG_SANITIZE=1`), so a late write into it faults.
 fn releaseStack(w: *Worker, s: Stack) void {
+    if (s.isDense()) return releaseDense(w, s);
     if (rt.sanitize) return unmapStack(s);
-    if (w.free_count >= keep_free) giveSpare(w);
+    if (w.stacks.free_count >= keep_free and giveSpare(&w.stacks, spare) > spareKept() + spare_over) trimSpare();
     const n: *FreeStack = @ptrFromInt(s.base + s.guard + s.len - @sizeOf(FreeStack));
-    n.* = .{ .stack = s, .next = w.free };
-    w.free = n;
-    w.free_count += 1;
+    n.* = .{ .stack = s, .next = w.stacks.free };
+    w.stacks.free = n;
+    w.stacks.free_count += 1;
 }
 
-/// Move `spare_batch` of `w`'s free stacks to the spare list, and trim
-/// the list if a burst has left it far past what it keeps.
-fn giveSpare(w: *Worker) void {
-    const sp = spare;
-    var last = w.free.?;
+/// Move `spare_batch` of the free stacks of `l` to the spare list `sp`,
+/// and give how many it then holds.
+fn giveSpare(l: *StackList, sp: *Spare) u32 {
+    var last = l.free.?;
     for (1..spare_batch) |_| last = last.next.?;
-    const first = w.free.?;
-    w.free = last.next;
-    w.free_count -= spare_batch;
+    const first = l.free.?;
+    l.free = last.next;
+    l.free_count -= spare_batch;
     sp.lock.lock();
+    defer sp.lock.unlock();
     last.next = sp.head;
     sp.head = first;
     const n = sp.count.raw + spare_batch;
     sp.count.store(n, .monotonic);
-    sp.lock.unlock();
-    if (n > spareKept() + spare_over) trimSpare();
+    return n;
 }
 
 /// How many free stacks the spare list keeps.
@@ -5054,7 +5076,7 @@ fn trimSpare() void {
     sp.head = null;
     sp.count.store(0, .monotonic);
     sp.lock.unlock();
-    if (n <= kept) return putSpare(list, n);
+    if (n <= kept) return putSpare(sp, list, n);
     list = sortStacks(list, n);
     const span = rt.task_guard + rt.task_stack_size + std.heap.pageSize();
     var left = n - kept;
@@ -5074,15 +5096,14 @@ fn trimSpare() void {
         list = rest;
         left -= taken;
     }
-    putSpare(list, kept);
+    putSpare(sp, list, kept);
 }
 
 /// Put `n` stacks, linked from `list`, back on the spare list.
-fn putSpare(list: ?*FreeStack, n: u32) void {
+fn putSpare(sp: *Spare, list: ?*FreeStack, n: u32) void {
     const first = list orelse return;
     var last = first;
     while (last.next) |x| last = x;
-    const sp = spare;
     sp.lock.lock();
     defer sp.lock.unlock();
     last.next = sp.head;
@@ -5136,21 +5157,20 @@ fn mergeStacks(tail_in: *?*FreeStack, a_in: ?*FreeStack, b_in: ?*FreeStack) *?*F
     return tail;
 }
 
-/// Take up to `spare_batch` stacks from the spare list for `w`, which has
-/// none of its own.
-fn takeSpare(w: *Worker) void {
-    const sp = spare;
+/// Take up to `spare_batch` stacks from the spare list `sp` for `l`, which
+/// has none of its own.
+fn takeSpare(l: *StackList, sp: *Spare) void {
     sp.lock.lock();
     defer sp.lock.unlock();
     var n: u32 = 0;
     while (n < spare_batch) : (n += 1) {
         const got = sp.head orelse break;
         sp.head = got.next;
-        got.next = w.free;
-        w.free = got;
+        got.next = l.free;
+        l.free = got;
     }
     sp.count.store(sp.count.raw - n, .monotonic);
-    w.free_count += n;
+    l.free_count += n;
 }
 
 /// Return the spare list's stacks to the system, as the scheduler ends.
@@ -5161,6 +5181,219 @@ fn freeSpare() void {
         unmapStack(n.stack);
     }
     sp.count.store(0, .monotonic);
+}
+
+// Dense stacks: tasks with no recursion and no call through a pointer
+// (`Fiber.dense`) take a stack close beside the others of its reservation,
+// so they share page tables, under a guard sized from the executable's own
+// frames (`rt.denseGuard`). A fault in the guard is a stack overflow, as
+// on a large stack.
+
+/// How many dense stacks a worker reserves at a time.
+const dense_chunk = 32;
+
+/// The address space one mapping of dense stacks holds.
+const dense_region: usize = 64 << 30;
+
+/// Where a region's stacks begin: a page table's reach on arm64, so a
+/// chunk fills tables whole.
+const dense_align: usize = 32 << 20;
+
+const Dense = struct {
+    /// On a cache line of its own with the fields below (`OnLine`).
+    lock: SpinLock align(std.atomic.cache_line) = .{},
+    /// The guard (`rt.denseGuard`), read as the scheduler starts; 0 for
+    /// no dense stacks.
+    guard: usize = 0,
+    /// The part of the current region not yet handed out.
+    next: usize = 0,
+    end: usize = 0,
+    /// The bases of stacks returned to the system whose addresses are
+    /// kept, under `lock`. Not linked through the stacks, whose pages are
+    /// gone (`trimDense`).
+    cold: std.ArrayList(usize) = .empty,
+};
+var dense_var: Dense = .{};
+const dense = split.cell(&dense_var, "sched.dense");
+
+/// A worker's dense stacks, each list on a cache line of its own, and
+/// kept out of `Worker`: where its fields fall on their lines is what the
+/// scheduler's speed depends on, and Zig lays them out.
+const DenseList = struct { list: StackList align(std.atomic.cache_line) = .{} };
+var dense_lists_var: [max_workers]DenseList = @splat(.{});
+const dense_lists = split.cell(&dense_lists_var, "sched.dense_lists");
+
+/// The dense stacks `w` keeps.
+fn denseOf(w: *Worker) *StackList {
+    const i = (@intFromPtr(w) - @intFromPtr(all_workers.*.ptr)) / @sizeOf(Worker);
+    return &dense_lists[i].list;
+}
+
+/// Read the guard the executable holds, as the scheduler starts.
+fn openDense() void {
+    dense.guard = rt.denseGuard();
+}
+
+/// The dense stack at `base`.
+fn denseAt(base: usize) Stack {
+    return .{ .base = base, .guard = dense.guard, .len = rt.dense_stride - dense.guard - std.heap.pageSize() };
+}
+
+/// A dense stack for a fiber on `x`, or null for a large one: in a program
+/// with no guard, or out of address space. As `takeStack`,
+/// but the reservation is shared and never returned to the system.
+fn takeDense(x: *Worker) ?Stack {
+    if (dense.guard == 0) return null;
+    const l = denseOf(x);
+    if (l.free == null and dense_spare.count.load(.monotonic) != 0) takeSpare(l, dense_spare);
+    if (l.free) |n| {
+        l.free = n.next;
+        l.free_count -= 1;
+        return n.stack;
+    }
+    if (l.fresh_left == 0) {
+        @branchHint(.unlikely);
+        if (takeCold(l)) |s| return s;
+        if (!reserveDense(l)) return null;
+    }
+    const b = l.fresh_next;
+    l.fresh_next += rt.dense_stride;
+    l.fresh_left -= 1;
+    return writableDense(denseAt(b));
+}
+
+/// A dense stack whose pages went back (`trimDense`), and up to
+/// `spare_batch - 1` more for the list `l`, so workers meet at the lock
+/// once a batch and not once a stack. Null when there are none. Linking
+/// one touches its top page, which its fiber would touch first anyway.
+noinline fn takeCold(l: *StackList) ?Stack {
+    var batch: [spare_batch]usize = undefined;
+    dense.lock.lock();
+    const n = @min(batch.len, dense.cold.items.len);
+    const from = dense.cold.items.len - n;
+    @memcpy(batch[0..n], dense.cold.items[from..]);
+    dense.cold.items.len = from;
+    dense.lock.unlock();
+    if (n == 0) return null;
+    for (batch[1..n]) |base| {
+        const s = denseAt(base);
+        const n2: *FreeStack = @ptrFromInt(s.base + s.guard + s.len - @sizeOf(FreeStack));
+        n2.* = .{ .stack = s, .next = l.free };
+        l.free = n2;
+        l.free_count += 1;
+    }
+    return denseAt(batch[0]);
+}
+
+/// Give the list `l` a chunk of new dense stacks, mapping a region when the last
+/// is used up. False when no region can be reserved.
+noinline fn reserveDense(l: *StackList) bool {
+    const size = dense_chunk * rt.dense_stride;
+    dense.lock.lock();
+    if (dense.end - dense.next < size) {
+        const got = std.posix.mmap(null, dense_region, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch {
+            dense.lock.unlock();
+            return false;
+        };
+        rt.fast_alloc.keepSmall(@intFromPtr(got.ptr), dense_region);
+        dense.next = std.mem.alignForward(usize, @intFromPtr(got.ptr), dense_align);
+        dense.end = @intFromPtr(got.ptr) + dense_region;
+    }
+    const base = dense.next;
+    dense.next += size;
+    dense.lock.unlock();
+    l.fresh_next = base;
+    l.fresh_left = dense_chunk;
+    return true;
+}
+
+/// Make the dense stack `s` writable, as it is first handed out, so a
+/// chunk's stacks no task uses take no system call.
+fn writableDense(s: Stack) Stack {
+    if (std.posix.errno(std.posix.system.mprotect(@ptrFromInt(s.base + s.guard), s.len, .{ .READ = true, .WRITE = true })) != .SUCCESS) rt.oom();
+    return s;
+}
+
+/// Keep a dense stack a fiber has finished with, as `releaseStack`. A
+/// build that sanitizes makes it inaccessible and never uses it again, so
+/// a late write into it faults.
+fn releaseDense(w: *Worker, s: Stack) void {
+    if (rt.sanitize) return retireDense(s);
+    const l = denseOf(w);
+    if (l.free_count >= keep_free and giveSpare(l, dense_spare) > spareKept() + spare_over) trimDense();
+    const n: *FreeStack = @ptrFromInt(s.base + s.guard + s.len - @sizeOf(FreeStack));
+    n.* = .{ .stack = s, .next = l.free };
+    l.free = n;
+    l.free_count += 1;
+}
+
+/// Make the dense stack `s` inaccessible for good, so a late write into it
+/// faults. Its address is not used again.
+fn retireDense(s: Stack) void {
+    _ = std.posix.system.mprotect(@ptrFromInt(s.base + s.guard), s.len, .{});
+}
+
+/// Return the pages of the dense spare list's stacks past `spareKept` to
+/// the system, in address order, each run in one call, as `trimSpare`.
+/// Their addresses stay reserved, and wait on `Dense.cold`: their links
+/// went with their pages.
+noinline fn trimDense() void {
+    const sp = dense_spare;
+    const kept = spareKept();
+    sp.lock.lock();
+    const list = sp.head;
+    const n = sp.count.raw;
+    sp.head = null;
+    sp.count.store(0, .monotonic);
+    sp.lock.unlock();
+    trimDenseList(sp, list, n, kept);
+}
+
+/// `trimDense` of the `n` stacks of `list`, keeping `kept`.
+fn trimDenseList(sp: *Spare, first: ?*FreeStack, n: u32, kept: u32) void {
+    var list = first;
+    if (n <= kept) return putSpare(sp, list, n);
+    var left = n - kept;
+    list = sortStacks(list, n);
+    var returned: u32 = 0;
+    while (left > 0) {
+        const lo = list.?.stack.base;
+        var hi = lo + rt.dense_stride;
+        var taken: u32 = 1;
+        var rest = list.?.next;
+        // Each link lives in its stack: read before the run's pages go.
+        while (taken < left) : (taken += 1) {
+            const r = rest orelse break;
+            if (r.stack.base != hi) break;
+            hi += rt.dense_stride;
+            rest = r.next;
+        }
+        // The pages go first: the moment an address is on the list another
+        // worker may take it and run on it, and Linux wipes what is
+        // advised at once. Room and the addresses under one hold of the
+        // lock: another worker trims too, and room made apart from them
+        // is shared.
+        adviseFree(lo, hi - lo);
+        dense.lock.lock();
+        const room = dense.cold.ensureUnusedCapacity(std.heap.smp_allocator, taken);
+        if (room) |_| {
+            var b = lo;
+            while (b < hi) : (b += rt.dense_stride) dense.cold.appendAssumeCapacity(b);
+        } else |_| {}
+        dense.lock.unlock();
+        room catch rt.oom();
+        list = rest;
+        left -= taken;
+        returned += taken;
+    }
+    putSpare(sp, list, n - returned);
+}
+
+/// Give the pages of `[at, at + len)` back to the system and keep the
+/// addresses.
+fn adviseFree(at: usize, len: usize) void {
+    const advice: u32 = if (builtin.os.tag == .macos) 7 else std.posix.MADV.DONTNEED; // MADV_FREE_REUSABLE
+    _ = std.posix.system.madvise(@ptrFromInt(at), len, advice);
 }
 
 fn unmapStack(s: Stack) void {
@@ -5364,7 +5597,7 @@ fn runApartIn(home: *usize, arg: *anyopaque, entry: *const fn (*anyopaque) callc
     const s = takeStack();
     const state = rt.task();
     const guard = state.stack_guard;
-    state.stack_guard = .{ .lo = s.base, .hi = s.base + s.guard };
+    state.stack_guard = .{ .lo = s.base, .hi = s.base + s.guard, .len = s.len };
     switchTo(home, frameCalling(@intFromPtr(arg), @intFromPtr(entry), s.top()));
     rt.task().stack_guard = guard;
     releaseStack(me().?, s);
@@ -5533,7 +5766,7 @@ test "a worker's surplus of free stacks waits on the spare list, then goes back 
             var i: usize = 0;
             while (i < n) : (i += 1) releaseStack(w, stacks[(i * 37) % n]);
             spare_before = spare.count.load(.monotonic);
-            kept = w.free_count;
+            kept = w.stacks.free_count;
             trimSpare();
             spare_after = spare.count.load(.monotonic);
             const page = std.heap.pageSize();
@@ -5549,6 +5782,157 @@ test "a worker's surplus of free stacks waits on the spare list, then goes back 
     try std.testing.expectEqual(@as(u32, Run.n), Run.spare_before + Run.kept);
     try std.testing.expectEqual(@as(u32, spare_per_worker), Run.spare_after);
     try std.testing.expectEqual(@as(usize, Run.kept + spare_per_worker), Run.mapped);
+}
+
+test "dense stacks lie one stride apart under their guards, and their pages go back while their addresses stay" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    if (rt.sanitize) return error.SkipZigTest;
+    const Run = struct {
+        const n = 200;
+        var stacks: [n]Stack = undefined;
+        var stride_ok = true;
+        var writable = true;
+        var dense_all = true;
+        var spare_after: u32 = 0;
+        var cold: usize = 0;
+        var again: ?Stack = null;
+        var guarded: Stack = undefined;
+        fn first(_: *anyopaque) callconv(.c) void {
+            const w = me().?;
+            dense.guard = 64 << 10;
+            for (&stacks) |*s| s.* = takeDense(me().?).?;
+            for (stacks[1..dense_chunk], stacks[0 .. dense_chunk - 1]) |b, a| stride_ok = stride_ok and b.base == a.base + rt.dense_stride;
+            for (stacks) |s| {
+                dense_all = dense_all and s.isDense() and s.guard == dense.guard and s.guard + s.len + std.heap.pageSize() == rt.dense_stride;
+                const last: *volatile usize = @ptrFromInt(s.base + s.guard + s.len - @sizeOf(usize));
+                last.* = 7;
+                const low: *volatile usize = @ptrFromInt(s.base + s.guard);
+                low.* = 7;
+                writable = writable and last.* == 7 and low.* == 7;
+            }
+            guarded = stacks[0];
+            var i: usize = 0;
+            while (i < n) : (i += 1) releaseDense(w, stacks[(i * 37) % n]);
+            trimDense();
+            spare_after = dense_spare.count.load(.monotonic);
+            cold = dense.cold.items.len;
+            // With its own list and the spare list used up, a worker takes
+            // an address whose pages went back.
+            const l = denseOf(w);
+            while (l.free) |f| {
+                l.free = f.next;
+            }
+            l.free_count = 0;
+            while (dense_spare.head) |f| dense_spare.head = f.next;
+            dense_spare.count.store(0, .monotonic);
+            l.fresh_left = 0;
+            again = takeDense(w);
+            dense.guard = 0;
+        }
+    };
+    runForTest(Run.first, 1);
+    try std.testing.expect(Run.stride_ok);
+    try std.testing.expect(Run.dense_all);
+    try std.testing.expect(Run.writable);
+    try std.testing.expectEqual(@as(u32, spare_per_worker), Run.spare_after);
+    try std.testing.expect(Run.cold > 0);
+    const s = Run.again.?;
+    try std.testing.expect(s.isDense());
+    try std.testing.expectEqual(@as(usize, 0), (s.base - Run.guarded.base) % rt.dense_stride);
+}
+
+test "workers that return dense stacks at once do not overrun the list of their addresses" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    if (rt.sanitize) return error.SkipZigTest;
+    const Run = struct {
+        const Unit = struct {};
+        const workers_n = 4;
+        const per = 400;
+        const rounds = 30;
+        var arrived: std.atomic.Value(u32) = .init(0);
+        var cleared: std.atomic.Value(u32) = .init(0);
+        fn trims(_: *Unit) u64 {
+            var stacks: [per]Stack = undefined;
+            for (0..rounds) |r| {
+                for (&stacks) |*s| s.* = takeDense(me().?).?;
+                var list: ?*FreeStack = null;
+                for (stacks) |s| {
+                    const n: *FreeStack = @ptrFromInt(s.base + s.guard + s.len - @sizeOf(FreeStack));
+                    n.* = .{ .stack = s, .next = list };
+                    list = n;
+                }
+                // Together, with the list of addresses at no capacity, so
+                // each trim's room is all that holds its own addresses.
+                if (arrived.fetchAdd(1, .seq_cst) + 1 == (r + 1) * workers_n) {
+                    dense.lock.lock();
+                    dense.cold.clearAndFree(std.heap.smp_allocator);
+                    dense.lock.unlock();
+                    cleared.store(@intCast(r + 1), .seq_cst);
+                }
+                while (cleared.load(.seq_cst) < r + 1) yield();
+                trimDenseList(dense_spare, list, per, 0);
+            }
+            return 1;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            dense.guard = 64 << 10;
+            var jobs: [workers_n]*Job(u64) = undefined;
+            for (&jobs) |*j| j.* = spawn(u64, Unit, trims, .{}, .{}, false, false).job;
+            var total: u64 = 0;
+            for (jobs) |j| {
+                total += j.join();
+                j.free();
+            }
+            dense.guard = 0;
+            done = total;
+        }
+        var done: u64 = 0;
+    };
+    runForTest(Run.first, Run.workers_n);
+    try std.testing.expectEqual(@as(u64, Run.workers_n), Run.done);
+}
+
+test "a dense stack a sanitizing build retires faults at a late write" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var retired: Stack = undefined;
+        fn first(_: *anyopaque) callconv(.c) void {
+            dense.guard = 64 << 10;
+            retired = takeDense(me().?).?;
+            const top: *volatile usize = @ptrFromInt(retired.base + retired.guard + retired.len - @sizeOf(usize));
+            top.* = 7;
+            retireDense(retired);
+            dense.guard = 0;
+        }
+        fn touch() void {
+            const top: *volatile usize = @ptrFromInt(retired.base + retired.guard + retired.len - @sizeOf(usize));
+            top.* = 8;
+        }
+    };
+    runForTest(Run.first, 1);
+    var err: [1024]u8 = undefined;
+    const r = try inChild(Run.touch, &err);
+    try std.testing.expect(r.signaled);
+}
+
+test "a dense stack's guard faults" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var guarded: Stack = undefined;
+        fn first(_: *anyopaque) callconv(.c) void {
+            dense.guard = 64 << 10;
+            guarded = takeDense(me().?).?;
+            dense.guard = 0;
+        }
+        fn touch() void {
+            const below: *volatile usize = @ptrFromInt(guarded.base + guarded.guard - @sizeOf(usize));
+            below.* = 7;
+        }
+    };
+    runForTest(Run.first, 1);
+    var err: [1024]u8 = undefined;
+    const r = try inChild(Run.touch, &err);
+    try std.testing.expect(r.signaled);
 }
 
 /// Run `run` in a child process: whether a signal ended it, its exit
@@ -5695,7 +6079,7 @@ test "many workers run many fibers, each waited for, and their results add up" {
         fn first(_: *anyopaque) callconv(.c) void {
             var jobs: [2000]*Job(u64) = undefined;
             for (0..50) |_| {
-                for (&jobs, 0..) |*j, i| j.* = spawn(u64, Unit, leaf, .{@as(u64, i)}, .{}, false).job;
+                for (&jobs, 0..) |*j, i| j.* = spawn(u64, Unit, leaf, .{@as(u64, i)}, .{}, false, false).job;
                 for (jobs) |j| {
                     sum += j.join();
                     j.free();
@@ -5722,7 +6106,7 @@ test "a task waited for as soon as it is made runs by handoff, and one that stop
         }
         fn first(_: *anyopaque) callconv(.c) void {
             for (0..20000) |i| {
-                const j = spawn(u64, Unit, leaf, .{@as(u64, i)}, .{}, false).job;
+                const j = spawn(u64, Unit, leaf, .{@as(u64, i)}, .{}, false, false).job;
                 sum += j.join();
                 j.free();
             }
@@ -5753,7 +6137,7 @@ test "local tasks and the fiber that made them stay on its worker, woken there b
         fn local(_: *Unit, home: *Worker, i: u64) u64 {
             var got: u64 = 0;
             for (0..4) |k| {
-                const j = spawn(u64, Unit, leaf, .{i * 4 + k}, .{}, false).job;
+                const j = spawn(u64, Unit, leaf, .{i * 4 + k}, .{}, false, false).job;
                 yield();
                 if (me().? != home) _ = moved.fetchAdd(1, .seq_cst);
                 got += j.join();
@@ -5765,7 +6149,7 @@ test "local tasks and the fiber that made them stay on its worker, woken there b
         fn first(_: *anyopaque) callconv(.c) void {
             var jobs: [200]*Job(u64) = undefined;
             const home = me().?;
-            for (&jobs, 0..) |*j, i| j.* = spawn(u64, Unit, local, .{ home, @as(u64, i) }, .{}, true).job;
+            for (&jobs, 0..) |*j, i| j.* = spawn(u64, Unit, local, .{ home, @as(u64, i) }, .{}, true, false).job;
             for (jobs) |j| {
                 sum += j.join();
                 j.free();
@@ -5804,7 +6188,7 @@ test "a fiber waiting on a pipe wakes when its other end is written, and a deadl
         fn first(_: *anyopaque) callconv(.c) void {
             const fds = testPipe();
             const r = register(fds[0]).?;
-            const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false).job;
+            const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false, false).job;
             while (true) {
                 const seen = edges(r, Registration.readable);
                 var b: [1]u8 = undefined;
@@ -5871,7 +6255,7 @@ test "a cancel that lands after a wait on a descriptor last looked, but before i
             const fds = testPipe();
             const r = register(fds[0]).?;
             test_pause.store(&pause, .seq_cst);
-            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false).job;
+            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false, false).job;
             while (!pause.reached.load(.seq_cst)) yield();
             ctl.cancel();
             const start = nowNs();
@@ -5917,7 +6301,7 @@ test "an edge after a wait's call would block reaches it, though another waiter 
             const fds = testPipe();
             const r = register(fds[0]).?;
             test_pause.store(&pause, .seq_cst);
-            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false).job;
+            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false, false).job;
             while (!pause.reached.load(.seq_cst)) yield();
             // This fiber waits too, and is woken by the byte, before the
             // reader looks again, whose read came before it.
@@ -5966,7 +6350,7 @@ test "a cancel that lands as a waiter is about to hand its worker to a task stil
             const f = current().?;
             f.state.control = &outer;
             outer.fiber = f;
-            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false).job;
+            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false, false).job;
             waited = j.waitEnd(&outer.canceled, null);
             if (!waited) inner.cancel();
             got = j.join();
@@ -5978,7 +6362,7 @@ test "a cancel that lands as a waiter is about to hand its worker to a task stil
             const fds = testPipe();
             const r = register(fds[0]).?;
             test_pause.store(&pause, .seq_cst);
-            const j = spawn(u8, Unit, waiter, .{r}, .{}, false).job;
+            const j = spawn(u8, Unit, waiter, .{r}, .{}, false, false).job;
             while (!pause.reached.load(.seq_cst)) yield();
             outer.cancel();
             pause.go.store(true, .seq_cst);
@@ -6032,7 +6416,7 @@ test "a timer set earlier than a sleeping worker's wakes it, though the timer's 
             _ = pinHere();
             _ = workersRunning();
             testNap(20 * std.time.ns_per_ms);
-            const j = spawn(u8, Unit, napper, .{}, .{}, false).job;
+            const j = spawn(u8, Unit, napper, .{}, .{}, false, false).job;
             // The napper runs here, sets its timer on this worker, and
             // this fiber computes without a yield check.
             yield();
@@ -6067,14 +6451,14 @@ test "a lone worker's yield checks wake the fibers its timers and its poller mak
             return 0;
         }
         fn first(_: *anyopaque) callconv(.c) void {
-            const a = spawn(u8, Unit, napper, .{}, .{}, false).job;
+            const a = spawn(u8, Unit, napper, .{}, .{}, false, false).job;
             yield();
             napped_in_time = testSpinUntil(&napped, true);
             _ = a.join();
             a.free();
             const fds = testPipe();
             const r = register(fds[0]).?;
-            const b = spawn(u8, Unit, reader, .{r}, .{}, false).job;
+            const b = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
             yield();
             _ = std.posix.system.write(fds[1], "x", 1);
             read_in_time = testSpinUntil(&read, true);
@@ -6114,7 +6498,7 @@ test "a task made while its maker computes runs beside it, from the maker's next
             _ = workersRunning();
             // Let the other worker go to sleep.
             testNap(20 * std.time.ns_per_ms);
-            const j = spawn(u8, Unit, beside, .{}, .{}, false).job;
+            const j = spawn(u8, Unit, beside, .{}, .{}, false, false).job;
             // The task is in this worker's run-next slot, and this one
             // computes, with a yield check each turn.
             const until = nowNs() + 2 * std.time.ns_per_s;
@@ -6151,7 +6535,7 @@ test "a task's maker that computes keeps its worker while an idle worker runs wh
             // Let the other worker go to sleep.
             testNap(20 * std.time.ns_per_ms);
             const home = me();
-            const j = spawn(u8, Unit, child, .{}, .{}, false).job;
+            const j = spawn(u8, Unit, child, .{}, .{}, false, false).job;
             // The child waits in this worker's run-next slot while this
             // one computes, checking each turn: the check leaves it to the
             // idle worker, which it wakes, and never yields.
@@ -6195,12 +6579,12 @@ test "a task's maker that computes yields to what it made when every other worke
         }
         fn first(_: *anyopaque) callconv(.c) void {
             _ = workersRunning();
-            const h = spawn(u8, Unit, hold, .{}, .{}, false).job;
+            const h = spawn(u8, Unit, hold, .{}, .{}, false, false).job;
             // Hand the holder to the other worker: yield until it runs there.
             const until = nowNs() + 2 * std.time.ns_per_s;
             while (!holding.load(.seq_cst) and nowNs() < until) yield();
             const home = me();
-            const j = spawn(u8, Unit, child, .{}, .{}, false).job;
+            const j = spawn(u8, Unit, child, .{}, .{}, false, false).job;
             while (child_on.load(.seq_cst) == null and nowNs() < until) tick();
             ok = child_on.load(.seq_cst) == home;
             release.store(true, .seq_cst);
@@ -6231,7 +6615,7 @@ test "a task's maker that computes yields to a local task it made, though a work
         fn first(_: *anyopaque) callconv(.c) void {
             _ = workersRunning();
             testNap(20 * std.time.ns_per_ms);
-            const j = spawn(u8, Unit, child, .{}, .{}, true).job;
+            const j = spawn(u8, Unit, child, .{}, .{}, true, false).job;
             const until = nowNs() + 2 * std.time.ns_per_s;
             while (!ran.load(.seq_cst) and nowNs() < until) tick();
             ok = ran.load(.seq_cst);
@@ -6281,7 +6665,7 @@ test "two tasks that answer each other over a socket stay on one worker" {
             _ = workersRunning();
             const fds = testTcpPair();
             const rs = [2]*Registration{ register(fds[0]).?, register(fds[1]).? };
-            const j = spawn(u8, Unit, server, .{rs[1]}, .{}, false).job;
+            const j = spawn(u8, Unit, server, .{rs[1]}, .{}, false, false).job;
             for (0..trips) |_| {
                 send(rs[0], 0);
                 receive(rs[0], 0);
@@ -6342,7 +6726,7 @@ test "a deterministic run waits for bytes on their way on a socket before its cl
             for (0..200) |_| {
                 const fds = testTcpPair();
                 const r = register(fds[0]).?;
-                const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false).job;
+                const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false, false).job;
                 if (waitReady(r, Registration.readable, edges(r, Registration.readable), nowNs() + std.time.ns_per_ms, false) != .ready) timeouts += 1;
                 _ = j.join();
                 j.free();
@@ -6390,7 +6774,7 @@ test "a run-next fiber that wakes no worker is handed on at its maker's next rec
         fn first(_: *anyopaque) callconv(.c) void {
             _ = workersRunning();
             testNap(20 * std.time.ns_per_ms);
-            const j = spawn(u8, Unit, mark, .{}, .{}, false).job;
+            const j = spawn(u8, Unit, mark, .{}, .{}, false, false).job;
             // Computing in recursion: each call reads `waiting`, as
             // `rt.tickCall` does.
             const until = nowNs() + 2 * std.time.ns_per_s;
@@ -6433,14 +6817,14 @@ test "a run-next fiber made as the other worker goes to sleep is handed on at it
                 ran.store(false, .seq_cst);
                 // A task the other worker runs, which ends at once: that
                 // worker then looks for work, finds none, and sleeps.
-                const h = spawn(u8, Unit, helper, .{}, .{}, false).job;
+                const h = spawn(u8, Unit, helper, .{}, .{}, false, false).job;
                 yield();
                 while (!ended.load(.seq_cst)) std.atomic.spinLoopHint();
                 // Made a little later each round, so some round makes it
                 // as that worker goes to sleep.
                 const until = nowNs() + @as(i96, @intCast(round % 80)) * 100;
                 while (nowNs() < until) std.atomic.spinLoopHint();
-                const j = spawn(u8, Unit, mark, .{}, .{}, false).job;
+                const j = spawn(u8, Unit, mark, .{}, .{}, false, false).job;
                 // Computing in recursion: each call reads `waiting`, as
                 // `rt.tickCall` does.
                 const give_up = nowNs() + 50 * std.time.ns_per_ms;
@@ -6498,7 +6882,7 @@ test "a run-next fiber whose notice another worker's check took is handed on at 
         /// `waiting`; once the maker has filled its slot too, take the
         /// flag at a recursive check, which yields to its own task.
         fn other(_: *Unit) u8 {
-            const g = spawn(u8, Unit, tiny, .{}, .{}, false).job;
+            const g = spawn(u8, Unit, tiny, .{}, .{}, false, false).job;
             y_ready.store(true, .seq_cst);
             while (!m_filled.load(.seq_cst)) std.atomic.spinLoopHint();
             tickCall();
@@ -6511,13 +6895,13 @@ test "a run-next fiber whose notice another worker's check took is handed on at 
         fn first(_: *anyopaque) callconv(.c) void {
             _ = workersRunning();
             testNap(20 * std.time.ns_per_ms);
-            const y = spawn(u8, Unit, other, .{}, .{}, false).job;
+            const y = spawn(u8, Unit, other, .{}, .{}, false, false).job;
             // Off to the other worker: this one takes `other` from its
             // slot, and the woken one this fiber from the ring.
             yield();
             while (!y_ready.load(.seq_cst)) std.atomic.spinLoopHint();
             // The flag is set already, so filling the slot leaves it.
-            const j = spawn(u8, Unit, mark, .{}, .{}, false).job;
+            const j = spawn(u8, Unit, mark, .{}, .{}, false, false).job;
             m_filled.store(true, .seq_cst);
             while (!y_claimed.load(.seq_cst)) std.atomic.spinLoopHint();
             recurse();
@@ -6552,7 +6936,7 @@ test "an idle worker wakes for the descriptors of a busy one" {
             _ = pinHere();
             const fds = testPipe();
             const r = register(fds[0]).?;
-            const j = spawn(u8, Unit, reader, .{r}, .{}, false).job;
+            const j = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
             // The reader runs here and waits; the other worker goes to
             // sleep with nothing to do.
             yield();
@@ -6594,8 +6978,8 @@ test "the blocking pool runs calls at once, counting a thread busy as it hands i
         }
         fn pair() i96 {
             const start = nowNs();
-            const a = spawn(u64, Unit, caller, .{100}, .{}, false).job;
-            const b = spawn(u64, Unit, caller, .{100}, .{}, false).job;
+            const a = spawn(u64, Unit, caller, .{100}, .{}, false, false).job;
+            const b = spawn(u64, Unit, caller, .{100}, .{}, false, false).job;
             _ = a.join();
             _ = b.join();
             a.free();
@@ -6642,8 +7026,8 @@ test "past its soft bound, the blocking pool grows once a queued call has waited
             // starts a thread for it after `grow_after`, so the calls
             // overlap, as a call that blocks for good would need.
             const start = nowNs();
-            const a = spawn(u64, Unit, caller, .{200}, .{}, false).job;
-            const b = spawn(u64, Unit, caller, .{200}, .{}, false).job;
+            const a = spawn(u64, Unit, caller, .{200}, .{}, false, false).job;
+            const b = spawn(u64, Unit, caller, .{200}, .{}, false, false).job;
             _ = a.join();
             _ = b.join();
             a.free();
@@ -6697,7 +7081,7 @@ test "a cancel or a deadline ends a wait on the blocking pool, and the call runs
             f.state.deadline = null;
             @memset(&path_buf, 'z');
             // A cancel.
-            const j = spawn(u8, Unit, late, .{}, .{}, false).job;
+            const j = spawn(u8, Unit, late, .{}, .{}, false, false).job;
             testNap(20 * std.time.ns_per_ms);
             ctl.cancel();
             _ = j.join();
@@ -6752,7 +7136,7 @@ test "RIG_SCHED_STATS counts: what each worker ran, stole, and slept" {
         }
         fn first(_: *anyopaque) callconv(.c) void {
             for (0..100) |_| {
-                const j = spawn(u8, Unit, leaf, .{}, .{}, true).job;
+                const j = spawn(u8, Unit, leaf, .{}, .{}, true, false).job;
                 _ = j.join();
                 j.free();
             }
@@ -6837,7 +7221,7 @@ test "a deterministic run waits for bytes on their way on a socket, though every
                 const fds = testTcpPair();
                 const r = register(fds[0]).?;
                 const w = register(fds[1]).?;
-                const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false).job;
+                const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false, false).job;
                 var got: usize = 0;
                 var buf: [64 * 1024]u8 = undefined;
                 while (got < 256 * 1024) {
@@ -6916,7 +7300,7 @@ test "a blocking call fills a buffer its caller lends, and a stoppable one takes
             return 0;
         }
         fn first(_: *anyopaque) callconv(.c) void {
-            const j = spawn(u8, Unit, caller, .{}, .{}, false).job;
+            const j = spawn(u8, Unit, caller, .{}, .{}, false, false).job;
             _ = j.join();
             j.free();
         }
@@ -6977,7 +7361,7 @@ test "a fiber that allocates, moves to another worker, and allocates again uses 
         }
         fn first(_: *anyopaque) callconv(.c) void {
             var jobs: [16]*Job(u8) = undefined;
-            for (&jobs) |*j| j.* = spawn(u8, Unit, hop, .{}, .{}, false).job;
+            for (&jobs) |*j| j.* = spawn(u8, Unit, hop, .{}, .{}, false, false).job;
             for (jobs) |j| {
                 _ = j.join();
                 j.free();
@@ -6985,7 +7369,7 @@ test "a fiber that allocates, moves to another worker, and allocates again uses 
             hop_lost = lost.load(.monotonic);
             // A heap kept across a switch, used on another thread.
             var stales: [8]*Job(u8) = undefined;
-            for (&stales) |*j| j.* = spawn(u8, Unit, stale, .{}, .{}, false).job;
+            for (&stales) |*j| j.* = spawn(u8, Unit, stale, .{}, .{}, false, false).job;
             for (stales) |j| {
                 _ = j.join();
                 j.free();
