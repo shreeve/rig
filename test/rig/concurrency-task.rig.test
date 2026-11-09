@@ -1687,6 +1687,49 @@ test "task.workers takes effect only before the first task", seeds: 20, '''
   print(task.workers(0))
   print(>t)
 
+test "task.workers raises the workers a program runs on after its first task", "true 8 true false 8"
+  use std.task
+  fun one() -> Int
+    1
+  _ = task.workers(2)
+  t = one()&
+  _ = >t
+  up = task.workers(8)
+  now = task.worker_count()
+  same = task.workers(8)
+  down = task.workers(4)
+  print(up, now, same, down, task.worker_count())
+
+test "a task raises the workers, and every task runs once", "6400 true 16"
+  use std.task
+  fun one() -> Int
+    1
+  fun round(n: Int) -> Int
+    ts = Tasks[Int]()
+    for _ in 0..n
+      !ts.add(one()&)
+    xs = >ts
+    total = 0
+    for x in xs
+      total += x
+    total
+  fun rounds(k: Int, n: Int) -> Int
+    total = 0
+    for _ in 0..k
+      total += round(n)
+    total
+  fun raise(top: Int) -> Bool
+    all = true
+    for n in 3..top + 1
+      all = task.workers(n) and all
+    all
+  _ = task.workers(2)
+  a = rounds(20, 160)&
+  b = rounds(20, 160)&
+  r = raise(16)&
+  sum = >a + >b
+  print(sum, >r, task.worker_count())
+
 test "task.worker_count gives what task.workers set, before and after the first task", "3 3"
   use std.task
   fun one() -> Int

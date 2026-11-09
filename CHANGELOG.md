@@ -123,6 +123,7 @@ none of these ever built:
 
 ### Added
 
+- **`task.workers(n)` raises the workers after the first task.** A program that learns how much work it has only once running, as a checker does after parsing, can ask for more workers then. It only raises; it gives false for fewer than run, and a deterministic run keeps to one thread.
 - **`task.fast_cores()`** gives how many fast physical cores the
   program may run on, at least 1: on macOS the performance cores, on
   Linux the affinity mask's cores, the threads of one core counted once

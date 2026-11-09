@@ -27,7 +27,7 @@ const split = rt.split;
 // (`split.cell`).
 comptime {
     if (split.on and split.main) _ = .{
-        workers,
+        workers_len,
         workers_override,
         global,
         sleepers,
@@ -49,6 +49,7 @@ comptime {
         spare,
         home_lost,
         all_workers,
+        grow_lock,
         started,
         workers_asked,
         graph,
@@ -204,9 +205,18 @@ const Worker = struct {
     thread: ?std.Thread align(std.atomic.cache_line) = null,
 };
 
-/// The workers, worker 0 first; set by `runMain`.
-var workers_var: []Worker = &.{};
-const workers = split.cell(&workers_var, "sched.workers");
+/// How many of `all_workers` run tasks; set by `runMain`, and raised by
+/// `task.workers` (`growWorkers`).
+var workers_len_var: std.atomic.Value(usize) = .init(0);
+const workers_len = split.cell(&workers_len_var, "sched.workers_len");
+
+/// The workers, worker 0 first. Their number can grow under a reader, so
+/// a reader calls this once and keeps the slice for its whole walk. A
+/// worker in it may not have started: its ring and slots are empty, and
+/// its poller is open.
+inline fn workersNow() []Worker {
+    return all_workers.*[0..workers_len.load(.acquire)];
+}
 threadlocal var me_slot_var: ?*Worker = null;
 inline fn me_slot() *?*Worker {
     return split.local(&me_slot_var, "sched.me_slot");
@@ -568,8 +578,9 @@ fn claimWaiting(w: *Worker) void {
 /// "run next" slot; whether any was taken. A preempted fiber's
 /// (`afterPreempt`), which then holds the fiber rather than yield.
 fn stealWaiting(w: *Worker) bool {
-    if (workers.*.len < 2) return false;
-    for (workers.*) |*v| {
+    const ws = workersNow();
+    if (ws.len < 2) return false;
+    for (ws) |*v| {
         if (v == w) continue;
         if (w.ring.stealFrom(&v.ring)) |f| {
             w.stole += 1;
@@ -577,7 +588,7 @@ fn stealWaiting(w: *Worker) bool {
             return true;
         }
     }
-    for (workers.*) |*v| {
+    for (ws) |*v| {
         if (v == w) continue;
         if (takeNext(v)) |f| {
             _ = w.ring.push(f);
@@ -590,7 +601,7 @@ fn stealWaiting(w: *Worker) bool {
 /// Whether work waits in a busy worker's queues other than `w`'s: its
 /// "run next" slot or its ring.
 fn othersWait(w: *Worker) bool {
-    for (workers.*) |*v| {
+    for (workersNow()) |*v| {
         if (v != w and (nextHeld(v, .monotonic) or !v.ring.isEmpty())) return true;
     }
     return false;
@@ -1201,7 +1212,7 @@ fn watchSlices(slice: i96, wait: i96) void {
         const now = nowReal();
         var busy = false;
         var queued = false;
-        for (workers.*, 0..) |*w, i| {
+        for (workersNow(), 0..) |*w, i| {
             const runs = preOf(w).runs.load(.monotonic);
             const running = @atomicLoad(?*Fiber, &w.current, .monotonic) != null;
             const work = queuedHere(w);
@@ -1657,7 +1668,7 @@ const deadlock_message = "every task is waiting on another, and none can run: a 
 /// whatever time: the poller is looked at first, without waiting, and
 /// waited on when nothing else can end a wait.
 fn advanceClock() void {
-    const p = &workers.*[0].poller;
+    const p = &all_workers.*[0].poller;
     if (p.count.load(.monotonic) != 0 and p.poll(0)) return;
     const due = timers.due.load(.acquire);
     if (due == no_due) {
@@ -1854,7 +1865,7 @@ const awake = std.math.minInt(i64);
 /// about to sleep wakes up.
 fn earliestDue() i64 {
     var due: i64 = no_due;
-    for (workers.*) |*v| due = @min(due, v.timers.due.load(.seq_cst));
+    for (workersNow()) |*v| due = @min(due, v.timers.due.load(.seq_cst));
     return due;
 }
 
@@ -1867,7 +1878,7 @@ fn earliestDue() i64 {
 /// this sees the sleeper.
 fn kickForTimer(due: i64) void {
     var late: ?*Worker = null;
-    for (workers.*) |*v| {
+    for (workersNow()) |*v| {
         const until = v.sleep_due.load(.seq_cst);
         if (until == awake) continue;
         if (until <= due) return;
@@ -2095,7 +2106,7 @@ const watch_every: i96 = std.time.ns_per_ms;
 /// Whether a worker other than `w`, awake, holds descriptors: what the
 /// watcher looks at every poller for.
 fn busyDescriptors(w: ?*Worker) bool {
-    for (workers.*) |*v| {
+    for (workersNow()) |*v| {
         if (v == w) continue;
         if (v.poller.count.load(.monotonic) != 0 and v.idle.load(.seq_cst) == 0) return true;
     }
@@ -2107,7 +2118,7 @@ fn busyDescriptors(w: ?*Worker) bool {
 /// woke since.
 fn watchWanted(w: *Worker) bool {
     if (busyDescriptors(w)) return true;
-    for (workers.*) |*v| {
+    for (workersNow()) |*v| {
         if (v == w or v.poller.count.load(.monotonic) == 0) continue;
         if (v.slept.load(.monotonic) != v.watch_mark.load(.monotonic)) return true;
     }
@@ -2123,11 +2134,11 @@ fn watchWanted(w: *Worker) bool {
 /// it looks for a watcher, all sequentially consistent, so either it sees
 /// no watcher and kicks a sleeper, or this sees it awake.
 fn sleepIn(w: *Worker, timeout: ?i96) void {
-    if (workers.*.len >= 2) {
+    if (workersNow().len >= 2) {
         const held = watcher.load(.monotonic) == w;
         if (held) watcher.store(null, .seq_cst);
         if (watchWanted(w) and watcher.cmpxchgStrong(null, w, .seq_cst, .monotonic) == null) {
-            for (workers.*) |*v| v.watch_mark.store(v.slept.load(.monotonic), .monotonic);
+            for (workersNow()) |*v| v.watch_mark.store(v.slept.load(.monotonic), .monotonic);
             _ = w.poller.poll(if (timeout) |t| @min(t, watch_every) else watch_every);
             return serviceAll();
         }
@@ -2215,7 +2226,7 @@ noinline fn registerApart(fd: i32) ?*Registration {
 
 fn registerIn(fd: i32) ?*Registration {
     if (!started.*) startWorkers();
-    const w = me() orelse &workers.*[0];
+    const w = me() orelse &all_workers.*[0];
     const r = std.heap.smp_allocator.create(Registration) catch rt.oom();
     r.* = .{ .fd = fd, .poller = &w.poller };
     if (!w.poller.add(fd, r)) {
@@ -2352,7 +2363,7 @@ fn service(w: *Worker) void {
 fn serviceAll() void {
     deliverInterrupt();
     const now = nowNs();
-    for (workers.*) |*v| {
+    for (workersNow()) |*v| {
         _ = v.timers.fire(now);
         if (v.poller.count.load(.monotonic) != 0) _ = v.poller.poll(0);
     }
@@ -2378,7 +2389,7 @@ pub fn kickForInterrupt() void {
     _ = kicking.fetchAdd(1, .seq_cst);
     defer _ = kicking.fetchSub(1, .seq_cst);
     if (stopping.load(.seq_cst)) return;
-    for (workers.*) |*w| w.poller.kick();
+    for (workersNow()) |*w| w.poller.kick();
 }
 
 /// How many interrupt handlers are kicking the pollers.
@@ -3106,31 +3117,41 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
             const m: *@This() = @fieldParentPtr("fiber", f);
             m.ended.store(true, .seq_cst);
             stopping.store(true, .seq_cst);
-            for (workers.*) |*w| wakeWorker(w);
+            // A raise under way finishes first, and one after this makes
+            // no worker: every worker there will be is woken.
+            grow_lock.lock();
+            const ws = workersNow();
+            grow_lock.unlock();
+            for (ws) |*w| wakeWorker(w);
         }
     };
     // Worker 0 runs `main` alone until its first task (`startWorkers`).
     const cap = @max(max_workers, workers_override.* orelse 0);
     all_workers.* = std.heap.smp_allocator.alloc(Worker, cap) catch rt.oom();
     for (all_workers.*, 0..) |*w, i| w.* = .{ .rng = @intCast(i * 2654435761 % 4294967291 + 1) };
-    workers.* = all_workers.*[0..1];
-    workers.*[0].poller.open();
+    workers_len.store(1, .release);
+    const first = &all_workers.*[0];
+    first.poller.open();
     started.* = false;
     stopping.store(false, .seq_cst);
     var m: Main = .{ .fiber = .{ .run = Main.start, .done = Main.end }, .arg = arg, .run = run };
     m.fiber.state.stack_guard = guard;
     m.fiber.sp = initialFrame(&m.fiber, top);
-    me_slot().* = &workers.*[0];
-    if (preempt) preOf(&workers.*[0]).tid = rt.threadId();
-    if (deterministic.*) wake(&m.fiber) else _ = workers.*[0].ring.push(&m.fiber);
-    loop(&workers.*[0]);
+    me_slot().* = first;
+    if (preempt) preOf(first).tid = rt.threadId();
+    if (deterministic.*) wake(&m.fiber) else _ = first.ring.push(&m.fiber);
+    loop(first);
+    // `stopping` is set, so past a raise under way the workers are final.
+    grow_lock.lock();
+    const ws = workersNow();
+    grow_lock.unlock();
     stopMonitor();
     while (kicking.load(.seq_cst) != 0) std.atomic.spinLoopHint();
     pool.stop();
     printStats();
-    for (workers.*[1..]) |*w| w.thread.?.join();
+    for (ws[1..]) |*w| w.thread.?.join();
     timers.clear();
-    for (workers.*) |*w| {
+    for (ws) |*w| {
         freeStacks(w);
         freeBlocks(w);
         w.timers.clear();
@@ -3138,7 +3159,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     }
     freeSpare();
     std.heap.smp_allocator.free(all_workers.*);
-    workers.* = &.{};
+    workers_len.store(0, .release);
     all_workers.* = &.{};
     me_slot().* = null;
     // Workers stopped asleep are still listed; the next run, in a test,
@@ -3189,7 +3210,7 @@ fn printStats() void {
     const v = p.environ.getPosix("RIG_SCHED_STATS") orelse return;
     if (!std.mem.eql(u8, v, "1")) return;
     var buf: [320]u8 = undefined;
-    for (workers.*, 0..) |*w, i| {
+    for (workersNow(), 0..) |*w, i| {
         if (preempt) printDeclined(w, i);
         const line = (if (preempt)
             std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room), deepest stop {d} of {d} bytes\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped, preOf(w).deepest, preempt_room })
@@ -3222,9 +3243,10 @@ const started = split.cell(&started_var, "sched.started");
 fn startWorkers() void {
     started.* = true;
     const n = if (deterministic.*) 1 else @min(workerCount(), all_workers.*.len);
-    workers.* = all_workers.*[0..n];
-    for (workers.*[1..]) |*w| w.poller.open();
-    for (workers.*[1..]) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
+    const ws = all_workers.*[0..n];
+    for (ws[1..]) |*w| w.poller.open();
+    workers_len.store(n, .release);
+    for (ws[1..]) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
     if (preempt and !deterministic.*) startMonitor();
 }
 
@@ -3234,11 +3256,40 @@ var workers_asked_var: ?usize = null;
 const workers_asked = split.cell(&workers_asked_var, "sched.workers_asked");
 
 /// `task.workers(n)`: run tasks on `n` workers, at most `max_workers`,
-/// once they start, as the program makes its first task; whether that is
-/// still to come. A deterministic run keeps to one thread.
-pub fn askWorkers(n: usize) bool {
-    if (started.*) return false;
-    workers_asked.* = @max(1, @min(n, max_workers));
+/// from when they start, as the program makes its first task, or from
+/// now if they have started and `n` is no fewer than run; whether it took
+/// effect. A deterministic run keeps to one thread. Never inlined into
+/// the program's own code (`mustNotBeInCode`, through `onWorkerStack`).
+pub noinline fn askWorkers(n: usize) bool {
+    const want = @max(1, @min(n, max_workers));
+    if (!started.*) {
+        workers_asked.* = want;
+        return true;
+    }
+    if (deterministic.*) return false;
+    return onWorkerStack(growWorkers, .{want});
+}
+
+/// Held across a raise, and as a program's end reads the final workers,
+/// so a raise finishes before the end looks, or makes no worker after it.
+var grow_lock_var: SpinLock = .{};
+const grow_lock = split.cell(&grow_lock_var, "sched.grow_lock");
+
+/// Run `n` workers, if that is no fewer than run and the program is not
+/// ending; whether it now runs `n`. The new workers' pollers open before
+/// the length is published, for the walks that touch every published
+/// poller (`kickForInterrupt`, `wakeWorker`); their threads start after
+/// it, so each finds itself among the workers.
+fn growWorkers(n: usize) bool {
+    grow_lock.lock();
+    defer grow_lock.unlock();
+    const have = workers_len.load(.monotonic);
+    if (n <= have) return n == have;
+    if (stopping.load(.seq_cst) or (tears_down and exit_state.phase.load(.seq_cst) != .idle)) return false;
+    const fresh = all_workers.*[have..n];
+    for (fresh) |*w| w.poller.open();
+    workers_len.store(n, .release);
+    for (fresh) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
     return true;
 }
 
@@ -3246,7 +3297,7 @@ pub fn askWorkers(n: usize) bool {
 /// task, without starting them (`startWorkers`): one in a deterministic
 /// run.
 pub fn workerTotal() usize {
-    if (started.*) return workers.*.len;
+    if (started.*) return workersNow().len;
     if (deterministic.*) return 1;
     return @min(workerCount(), all_workers.*.len);
 }
@@ -3254,7 +3305,7 @@ pub fn workerTotal() usize {
 /// How many workers run tasks, starting them first if they have not.
 pub fn workersRunning() usize {
     if (!started.*) startWorkers();
-    return workers.*.len;
+    return workersNow().len;
 }
 
 fn workerCount() usize {
@@ -3409,19 +3460,20 @@ fn next(w: *Worker) ?*Fiber {
 /// most half the workers search at once; a worker that finds work, and
 /// was the last searching, wakes another to look for more.
 fn search(w: *Worker) ?*Fiber {
-    if (workers.*.len < 2) return null;
+    const ws = workersNow();
+    if (ws.len < 2) return null;
     // A worker woken to look for work is counted as searching already.
     if (!w.searching) {
-        if (2 * searching.load(.acquire) >= workers.*.len) return null;
+        if (2 * searching.load(.acquire) >= ws.len) return null;
         _ = searching.fetchAdd(1, .seq_cst);
         w.searching = true;
     }
     w.rng ^= w.rng << 13;
     w.rng ^= w.rng >> 17;
     w.rng ^= w.rng << 5;
-    const start = w.rng % workers.*.len;
-    for (0..workers.*.len) |k| {
-        const v = &workers.*[(start + k) % workers.*.len];
+    const start = w.rng % ws.len;
+    for (0..ws.len) |k| {
+        const v = &ws[(start + k) % ws.len];
         if (v == w) continue;
         if (w.ring.stealFrom(&v.ring)) |f| {
             w.stole += 1;
@@ -3431,8 +3483,8 @@ fn search(w: *Worker) ?*Fiber {
     if (global.pop()) |f| return f;
     // No ring had any: take a fiber another worker has kept in its "run
     // next" slot a while.
-    for (0..workers.*.len) |k| {
-        const v = &workers.*[(start + k) % workers.*.len];
+    for (0..ws.len) |k| {
+        const v = &ws[(start + k) % ws.len];
         if (v == w) continue;
         if (stealNext(v)) |f| {
             w.stole += 1;
@@ -3593,7 +3645,7 @@ fn sleep(w: *Worker) void {
 fn takeWaiting(w: *Worker) bool {
     if (waiting.load(.monotonic) == 0) return false;
     if (waiting.swap(0, .seq_cst) == 0) return false;
-    for (workers.*) |*v| {
+    for (workersNow()) |*v| {
         if (v != w and nextHeld(v, .seq_cst)) {
             waiting.store(1, .monotonic);
             break;
@@ -3608,7 +3660,7 @@ fn waitWoken(w: *Worker) void {
 
 fn hasWork() bool {
     if (global.count.load(.seq_cst) != 0) return true;
-    for (workers.*) |*v| if (!v.ring.isEmpty()) return true;
+    for (workersNow()) |*v| if (!v.ring.isEmpty()) return true;
     return false;
 }
 
@@ -3720,7 +3772,7 @@ pub noinline fn tearDown() void {
     const line = (if (why) |reason|
         std.fmt.bufPrint(&buf, "rig: exit: plain, {s}\n", .{reason})
     else
-        std.fmt.bufPrint(&buf, "rig: exit: torn down on {d} of {d} workers, {d} pieces, in {d} us ({d} us to stop them)\n", .{ exit_state.helpers, workers.*.len, exit_state.total, @divTrunc(nowReal() - began, std.time.ns_per_us), @divTrunc(exit_state.stopped_at - began, std.time.ns_per_us) })) catch return;
+        std.fmt.bufPrint(&buf, "rig: exit: torn down on {d} of {d} workers, {d} pieces, in {d} us ({d} us to stop them)\n", .{ exit_state.helpers, workersNow().len, exit_state.total, @divTrunc(nowReal() - began, std.time.ns_per_us), @divTrunc(exit_state.stopped_at - began, std.time.ns_per_us) })) catch return;
     _ = std.posix.system.write(2, line.ptr, line.len);
 }
 
@@ -3736,7 +3788,7 @@ fn statsWanted() bool {
 /// again.
 fn tearDownAll() ?[]const u8 {
     if (!started.* or deterministic.*) return "no workers";
-    const ws = workers.*;
+    var ws = workersNow();
     if (ws.len < 2) return "one worker";
     if (stopping.load(.seq_cst)) return "main has returned";
     const w = me() orelse return "not on a worker";
@@ -3751,7 +3803,13 @@ fn tearDownAll() ?[]const u8 {
     const ex = exit_state;
     // No signal switches this fiber away from here on.
     holdOff();
-    if (ex.phase.cmpxchgStrong(.idle, .gathering, .seq_cst, .seq_cst) != null) return "another exit";
+    // Under a raise's lock: a raise under way finishes first, and its
+    // workers are waited for as the others, and one after this makes none.
+    grow_lock.lock();
+    const lost = ex.phase.cmpxchgStrong(.idle, .gathering, .seq_cst, .seq_cst) != null;
+    ws = workersNow();
+    grow_lock.unlock();
+    if (lost) return "another exit";
     // A worker waiting in its poller is claimed there and stops as it
     // wakes; one awake stops at the top of its loop. Each is kicked, so
     // it wakes to help.
@@ -5039,7 +5097,7 @@ fn giveSpare(w: *Worker) void {
 
 /// How many free stacks the spare list keeps.
 fn spareKept() u32 {
-    return @intCast(spare_per_worker * workers.*.len);
+    return @intCast(spare_per_worker * workersNow().len);
 }
 
 /// Return the spare list's stacks past `spareKept` to the system, in
@@ -6756,7 +6814,7 @@ test "RIG_SCHED_STATS counts: what each worker ran, stole, and slept" {
                 _ = j.join();
                 j.free();
             }
-            for (workers.*) |*w| {
+            for (workersNow()) |*w| {
                 ran += w.ran;
                 pinned += w.ran_pinned;
             }

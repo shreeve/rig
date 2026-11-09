@@ -835,7 +835,7 @@ same waiting points fail with `Stop.timeout`.
 |---|---|
 | `error Stop` | `canceled`, the request to stop, `timeout`, and `panicked` |
 | `check()!Stop` | a waiting point that waits for nothing: fail with `Stop.canceled` when this task is canceled, or `Stop.timeout` past its deadline, and otherwise give other tasks a turn |
-| `workers(n: Int) -> Bool` | run tasks on `n` workers, at most 64, in place of one per core or `RIG_WORKERS`: a program sets it from its own arguments, say. It takes effect only before the program makes its first task, which starts the workers, and gives whether it did; a deterministic run (`rig test`) runs on one thread whatever it asks |
+| `workers(n: Int) -> Bool` | run tasks on `n` workers, at most 64, in place of one per core or `RIG_WORKERS`: a program sets it from its own arguments, say. Before the program makes its first task, which starts the workers, it sets how many start; after, it can only raise the number, and gives false for fewer than run. It gives whether it took effect; a deterministic run (`rig test`) runs on one thread whatever it asks |
 | `worker_count() -> Int` | the number of workers tasks run on: one per core, `RIG_WORKERS`, or what `workers(n)` set, before the first task starts them or after; 1 in a deterministic run and in a program that makes no task. A program sizes its own work by it, as one task per worker |
 | `fast_cores() -> Int` | how many fast physical cores the program may run on, at least 1 ([below](#the-fast-cores)) |
 | `all(a, b, ...)` | wait for two tasks or more, of any types, and give each one's value as several results; it can fail when any task can, and then the first to fail cancels the others |
