@@ -2666,34 +2666,6 @@ test "on Linux Tables start at different page offsets of their first 2 MiB, whol
     for (got, 0..) |g, i| try std.testing.expect(unreserveTable(g, sizes[i % sizes.len]));
 }
 
-test "threads reserving Tables at once past the end of a region install one region between them, and their Tables never overlap" {
-    if (!tables_here) return error.SkipZigTest;
-    const threads = 8;
-    const each = 8;
-    const size = table_region_size / 8;
-    const T = struct {
-        fn run(out: *[each][*]u8) void {
-            for (out) |*g| g.* = reserveTable(size).?;
-        }
-    };
-    const before = table_region_count.*;
-    var got: [threads][each][*]u8 = undefined;
-    var ts: [threads]std.Thread = undefined;
-    for (&ts, &got) |*t, *o| t.* = try std.Thread.spawn(.{}, T.run, .{o});
-    for (ts) |t| t.join();
-    // A region holds at most 8 such Tables, less the stagger's 2 MiB
-    // each: never one region for each thread that mapped one together.
-    const tables = threads * each;
-    try std.testing.expect(table_region_count.* <= before + tables / 7 + 2);
-    var all: [tables]usize = undefined;
-    for (got, 0..) |o, i| for (o, 0..) |g, j| {
-        all[i * each + j] = @intFromPtr(g);
-    };
-    std.mem.sort(usize, &all, {}, std.sort.asc(usize));
-    for (all[1..], all[0 .. all.len - 1]) |next, this| try std.testing.expect(this + size <= next);
-    for (got) |o| for (o) |g| try std.testing.expect(unreserveTable(g, size));
-}
-
 test "on Linux a Table of 2 MiB or less stays small past a block it staggers into, and a larger one's bytes past the first block ask for huge pages" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     useBuddyinfoForTest(buddyinfo_plenty);
@@ -2918,7 +2890,7 @@ test "on Linux under `madvise` with `defrag` `defer`, where no fault compacts, s
     freeLarge(&h, big, 16 * mib);
     trimAllForTest(&h);
     const t = reserveTable(24 * mib).?;
-    try std.testing.expect(try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
+    try std.testing.expect(try advisedHugeForTest(std.mem.alignForward(usize, @intFromPtr(t) + 2 * mib, huge_page)));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t)));
     try std.testing.expect(unreserveTable(t, 24 * mib));
     try std.testing.expectEqual(before, buddyinfo_reads.*);
@@ -3068,6 +3040,35 @@ test "on the Mac Tables take ranges of one region, and a range given back reads 
     try std.testing.expectEqual(live, table_live.load(.monotonic));
     var own: [4096]u8 align(4096) = undefined;
     try std.testing.expect(!unreserveTable(&own, own.len));
+}
+
+// Last of the Tables' tests: a region's rest stays among the free ranges, which those before it count.
+test "threads reserving Tables at once past the end of a region install one region between them, and their Tables never overlap" {
+    if (!tables_here) return error.SkipZigTest;
+    const threads = 8;
+    const each = 8;
+    const size = table_region_size / 8;
+    const T = struct {
+        fn run(out: *[each][*]u8) void {
+            for (out) |*g| g.* = reserveTable(size).?;
+        }
+    };
+    const before = table_region_count.*;
+    var got: [threads][each][*]u8 = undefined;
+    var ts: [threads]std.Thread = undefined;
+    for (&ts, &got) |*t, *o| t.* = try std.Thread.spawn(.{}, T.run, .{o});
+    for (ts) |t| t.join();
+    // A region holds at most 8 such Tables, less the stagger's 2 MiB
+    // each: never one region for each thread that mapped one together.
+    const tables = threads * each;
+    try std.testing.expect(table_region_count.* <= before + tables / 7 + 2);
+    var all: [tables]usize = undefined;
+    for (got, 0..) |o, i| for (o, 0..) |g, j| {
+        all[i * each + j] = @intFromPtr(g);
+    };
+    std.mem.sort(usize, &all, {}, std.sort.asc(usize));
+    for (all[1..], all[0 .. all.len - 1]) |next, this| try std.testing.expect(this + size <= next);
+    for (got) |o| for (o) |g| try std.testing.expect(unreserveTable(g, size));
 }
 
 /// The bytes of the `len` at `p` resident in memory (`mincore`).
