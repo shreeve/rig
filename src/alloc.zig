@@ -1300,13 +1300,8 @@ pub fn reserveTable(bytes: usize) ?[*]align(std.heap.page_size_min) u8 {
     if (!tables_here) return null;
     const len = tableRangeLen(bytes);
     if (len > table_region_size) return null;
-    // Read before `tables_lock`, which a new region's advice is under.
-    if (builtin.os.tag == .linux) _ = thpMode();
     const huge = builtin.os.tag == .linux and bytes > huge_page and hugeFree();
-    tables_lock.lock();
-    const p = takeTableRange(len);
-    tables_lock.unlock();
-    const at = p orelse return null;
+    const at = takeOrMapTableRange(len) orelse return null;
     _ = table_live.fetchAdd(1, .monotonic);
     const stagger = tableStagger();
     if (huge) {
@@ -1397,9 +1392,38 @@ fn plugTableRange(range: [*]align(huge_page) u8, len: usize) bool {
     return false;
 }
 
+/// `len` bytes of the Tables' address space, from a new region if none
+/// has room. The region is mapped with `tables_lock` free: a mapping
+/// waits for the process's memory map, which every thread faulting in
+/// holds, and all a program's checkers reserve their Tables at once. Of
+/// threads that map one together, the first to come back installs its
+/// region and the others unmap theirs, untouched.
+fn takeOrMapTableRange(len: usize) ?usize {
+    tables_lock.lock();
+    const got = takeTableRange(len);
+    const may_map = got == null and !tables_unmapped.* and table_region_count.* < table_regions_max;
+    tables_lock.unlock();
+    if (!may_map) return got;
+    const raw = mapTableRegion();
+    tables_lock.lock();
+    var at = takeTableRange(len);
+    var spare = raw;
+    if (at == null) {
+        if (raw == null) {
+            tables_unmapped.* = true;
+        } else if (table_region_count.* < table_regions_max) {
+            installTableRegion(raw.?);
+            spare = null;
+            at = takeTableRange(len);
+        }
+    }
+    tables_lock.unlock();
+    if (spare) |r| std.posix.munmap(r);
+    return at;
+}
+
 /// `len` bytes of the Tables' address space: the smallest free range
-/// that holds them, else the newest region's rest, else a new region.
-/// Under `tables_lock`.
+/// that holds them, else the newest region's rest. Under `tables_lock`.
 fn takeTableRange(len: usize) ?usize {
     var best: ?usize = null;
     for (table_free[0..table_free_count.*], 0..) |r, i| {
@@ -1416,34 +1440,35 @@ fn takeTableRange(len: usize) ?usize {
         }
         return p;
     }
-    if (table_end.* - table_next.* < len and !newTableRegion()) return null;
+    if (table_end.* - table_next.* < len) return null;
     const p = table_next.*;
     table_next.* += len;
     return p;
 }
 
-/// Map a new region, on Linux advised for small pages under `madvise`
-/// (`Thp`),
-/// and give the newest one's rest to the free ranges. Under
-/// `tables_lock`.
-fn newTableRegion() bool {
+/// A new region's mapping, a little longer than a region so that it
+/// holds one from a 2 MiB boundary, on Linux advised for small pages
+/// under `madvise` (`Thp`), or null if the system refuses. With
+/// `tables_lock` free.
+fn mapTableRegion() ?[]align(std.heap.page_size_min) u8 {
     @branchHint(.cold);
-    if (tables_unmapped.* or table_region_count.* == table_regions_max) return false;
-    const raw = std.posix.mmap(null, table_region_size + huge_page, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch {
-        tables_unmapped.* = true;
-        return false;
-    };
+    const raw = std.posix.mmap(null, table_region_size + huge_page, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch return null;
     if (builtin.os.tag == .linux) {
         const mode = thpMode();
         if (!mode.off and !mode.by_default) std.posix.madvise(raw.ptr, raw.len, std.os.linux.MADV.NOHUGEPAGE) catch {};
     }
+    return raw;
+}
+
+/// Make the mapping `raw` the newest region, and give the last one's
+/// rest to the free ranges. Under `tables_lock`.
+fn installTableRegion(raw: []align(std.heap.page_size_min) u8) void {
     const start = std.mem.alignForward(usize, @intFromPtr(raw.ptr), huge_page);
     if (table_end.* > table_next.*) giveTableRange(table_next.*, table_end.* - table_next.*);
     table_regions[table_region_count.*] = .{ .start = start, .len = table_region_size };
     table_region_count.* += 1;
     table_next.* = start;
     table_end.* = start + table_region_size;
-    return true;
 }
 
 /// Put `len` bytes at `p` back: onto the newest region's rest when they
@@ -2633,6 +2658,34 @@ test "on Linux Tables start at different page offsets of their first 2 MiB, whol
         if (got.len <= n) try std.testing.expect(offsets[i] != offsets[j]);
     };
     for (got, 0..) |g, i| try std.testing.expect(unreserveTable(g, sizes[i % sizes.len]));
+}
+
+test "threads reserving Tables at once past the end of a region install one region between them, and their Tables never overlap" {
+    if (!tables_here) return error.SkipZigTest;
+    const threads = 8;
+    const each = 8;
+    const size = table_region_size / 8;
+    const T = struct {
+        fn run(out: *[each][*]u8) void {
+            for (out) |*g| g.* = reserveTable(size).?;
+        }
+    };
+    const before = table_region_count.*;
+    var got: [threads][each][*]u8 = undefined;
+    var ts: [threads]std.Thread = undefined;
+    for (&ts, &got) |*t, *o| t.* = try std.Thread.spawn(.{}, T.run, .{o});
+    for (ts) |t| t.join();
+    // A region holds at most 8 such Tables, less the stagger's 2 MiB
+    // each: never one region for each thread that mapped one together.
+    const tables = threads * each;
+    try std.testing.expect(table_region_count.* <= before + tables / 7 + 2);
+    var all: [tables]usize = undefined;
+    for (got, 0..) |o, i| for (o, 0..) |g, j| {
+        all[i * each + j] = @intFromPtr(g);
+    };
+    std.mem.sort(usize, &all, {}, std.sort.asc(usize));
+    for (all[1..], all[0 .. all.len - 1]) |next, this| try std.testing.expect(this + size <= next);
+    for (got) |o| for (o) |g| try std.testing.expect(unreserveTable(g, size));
 }
 
 test "on Linux a Table of 2 MiB or less stays small past a block it staggers into, and a larger one's bytes past the first block ask for huge pages" {
