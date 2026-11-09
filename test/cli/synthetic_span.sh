@@ -25,7 +25,7 @@ EOF2
 for mode in "check" "check --facts" "check --facts=sema" "check --facts=storage" tokens parse normalize emit; do
     # shellcheck disable=SC2086
     rig $mode padded.rig >out.txt 2>err.txt || fail "rig $mode: $(head -5 err.txt)"
-    grep -q panic err.txt && fail "rig $mode panicked: $(head -5 err.txt)"
+    grep -q "panic:" err.txt && fail "rig $mode panicked: $(head -5 err.txt)"
 done
 out=$(rig run padded.rig 2>&1) || fail "rig run: $out"
 expect_has "$out" "g 2" "the run"

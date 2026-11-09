@@ -90,7 +90,7 @@ expect_eq "$out" "$want" "long tokens (--release)"
 for mode in "check" "check --facts" "check --facts=sema" "check --facts=storage" tokens parse normalize emit; do
     # shellcheck disable=SC2086
     "$RIG" $mode long.rig >out.txt 2>err.txt || fail "rig $mode: $(head -c 2000 err.txt)"
-    grep -q panic err.txt && fail "rig $mode panicked: $(head -c 2000 err.txt)"
+    grep -q "panic:" err.txt && fail "rig $mode panicked: $(head -c 2000 err.txt)"
 done
 # The emitted Zig holds the 1 MB literal on one line, and parses.
 "$RIG" emit long.rig >long.zig 2>emit.txt || fail "rig emit: $(head -c 2000 emit.txt)"
@@ -109,7 +109,7 @@ check() {
     local out rc
     out=$("$RIG" check "$1" 2>&1); rc=$?
     [[ $rc -eq 1 ]] || fail "$1: exit status $rc, expected 1: $(head -c 2000 <<<"$out")"
-    grep -q panic <<<"$out" && fail "$1 panicked: $(head -c 2000 <<<"$out")"
+    grep -q "panic:" <<<"$out" && fail "$1 panicked: $(head -c 2000 <<<"$out")"
     expect_has "$(head -c 300 <<<"$out")" "$1:$2: error: $3" "$1"
 }
 check after_same_line.rig 2:70013 "use of unbound name"

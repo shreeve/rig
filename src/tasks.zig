@@ -1179,9 +1179,17 @@ pub const Isolate = struct {
     home: usize = 0,
     /// The isolate this one is inside, on the same fiber.
     outer: ?*Isolate,
+    /// The fiber's latest hold on an actor when it began: a panic that
+    /// stops here ends only the actors held since (`actorsDie`).
+    held: ?*rt.sched.Held = null,
+    /// The record of an actor's runner (`Actor.runner`), which lists what
+    /// the runner's methods start: a panic on the runner stops at the
+    /// runner, and one in such a task passes to the method that waits.
+    runner: bool = false,
     /// Set once a panic reached it.
     panicked: std.atomic.Value(bool) = .init(false),
-    /// Its id, for the leak checker's count of what a panic leaves.
+    /// Its id, for the leak checker's count of what a panic leaves; 0
+    /// for a runner's, whose frames `rt.leaveFrames` accounts for.
     id: u32,
     lock: rt.sched.SpinLock = .{},
     first: ?*Control = null,
@@ -1238,6 +1246,21 @@ pub const Isolate = struct {
         while (c) |x| : (c = x.next) x.cancel();
         while (wait and (self.first != null or self.leaving != 0)) _ = rt.sched.sleepOn(&self.stopper, &self.lock, null, false);
     }
+
+    /// Give back the stacks tasks that panicked left it: every task under
+    /// it has ended, so nothing reads the frames on them.
+    fn giveBack(self: *Isolate) void {
+        for (self.kept.items) |s| rt.sched.giveStack(s);
+        self.kept.deinit(std.heap.smp_allocator);
+    }
+
+    /// Whether `from`, the nearest isolate of a task, is `self` or inside
+    /// it.
+    fn holds(self: *const Isolate, from: ?*Isolate) bool {
+        var at = from;
+        while (at) |x| : (at = x.outer) if (x == self) return true;
+        return false;
+    }
 };
 
 /// `task.isolate(f)`: run `f` (a `rig.FnRef` that takes nothing) apart,
@@ -1258,7 +1281,8 @@ fn isolateWith(f: anytype, slot: rt.ErrSlot) IsolateOut(@TypeOf(f)) {
     const F = @TypeOf(f);
     const R = ReturnOf(F);
     const state = task();
-    var rec: Isolate = .{ .fiber = rt.sched.current(), .outer = state.isolate, .id = rt.isolateBegins(state.isolate) };
+    const fiber = rt.sched.current();
+    var rec: Isolate = .{ .fiber = fiber, .held = if (fiber) |x| x.held else null, .outer = state.isolate, .id = rt.isolateBegins(state.isolate) };
     const Run = struct {
         f: F,
         rec: *Isolate,
@@ -1275,8 +1299,7 @@ fn isolateWith(f: anytype, slot: rt.ErrSlot) IsolateOut(@TypeOf(f)) {
     state.isolate = &rec;
     rt.sched.runApart(&rec.home, &run, Run.entry);
     task().isolate = rec.outer;
-    for (rec.kept.items) |s| rt.sched.giveStack(s);
-    rec.kept.deinit(std.heap.smp_allocator);
+    rec.giveBack();
     if (rec.panicked.load(.seq_cst)) return panicked_error;
     return run.result;
 }
@@ -2025,6 +2048,9 @@ pub fn Actor(comptime T: type) type {
         /// the next method runs (`remake`), and whether it is making it.
         stale: bool = false,
         remaking: bool = false,
+        /// While a supervised actor's runner stops the tasks its method
+        /// started: their record, under the actor's lock (`kill`).
+        stopping: ?*Isolate = null,
         /// The calls made with `&` waiting for a slot (`takeSlot`), under
         /// `lock`, and how many are about to wait or wait.
         slot_waiting: std.atomic.Value(u32) = .init(0),
@@ -2075,44 +2101,85 @@ pub fn Actor(comptime T: type) type {
         /// allow: the call it ran then panics in its caller, the calls
         /// queued stay, and the value is made again before the next
         /// method runs. A panic in making it ends the actor for good.
-        fn kill(self: *Self, in: *const rt.sched.Label) void {
+        ///
+        /// Gives the call the runner ran, which `dieRunner` answers once
+        /// the tasks its method started, listed under `stops`, have ended,
+        /// since they may view its frames or its caller's. `stops` is null
+        /// on a fiber that ran the method inline. Until then a supervised
+        /// actor stays busy, and a call from one of those tasks fails as
+        /// one to a dead actor, since waiting for it would never end.
+        fn kill(self: *Self, in: *const rt.sched.Label, stops: ?*Isolate) ?*Message {
             self.lock.lock();
             if (self.state.load(.acquire) & dead != 0) {
                 self.lock.unlock();
-                return;
+                return null;
             }
+            const running = self.running;
+            self.running = null;
             if (self.make != null and !self.remaking and self.mayRestart()) {
                 rt.abandonValue(T, &self.value);
                 self.stale = true;
-                const running = self.running;
-                self.running = null;
-                // The fiber that ran it stops here: the calls queued go
-                // to a runner of their own, or the actor is idle.
-                const more = self.first != null;
-                if (!more) self.state.store(0, .release);
+                self.died_in = in;
+                const iso = stops orelse {
+                    self.reopen();
+                    return running;
+                };
+                self.stopping = iso;
+                var refused = self.withdrawFrom(iso);
                 self.lock.unlock();
-                if (running) |m| self.answer(m, Message.panicked);
-                if (more) {
-                    const box: *rt.Shared(Self) = @fieldParentPtr("value", self);
-                    rt.sched.spawnDetached(runner, .{box.cloneStrong()});
+                while (refused) |m| {
+                    refused = m.next;
+                    self.answer(m, Message.died);
                 }
-                return;
+                return running;
             }
             self.died_in = in;
             _ = self.state.fetchOr(dead, .acq_rel);
             var queued = self.first;
             self.first = null;
             self.last = null;
-            const running = self.running;
-            self.running = null;
             self.lock.unlock();
-            if (running) |m| self.answer(m, Message.panicked);
             while (queued) |m| {
                 queued = m.next;
                 m.started = true;
                 self.answer(m, Message.died);
             }
             rt.abandonValue(T, &self.value);
+            return running;
+        }
+
+        /// A supervised actor may run again, with the lock held, which
+        /// this gives up: the calls queued go to a runner of their own,
+        /// or the actor is idle.
+        fn reopen(self: *Self) void {
+            self.stopping = null;
+            const more = self.first != null;
+            if (!more) self.state.store(0, .release);
+            self.lock.unlock();
+            if (more) {
+                const box: *rt.Shared(Self) = @fieldParentPtr("value", self);
+                rt.sched.spawnDetached(runner, .{box.cloneStrong()});
+            }
+        }
+
+        /// Take out of the mailbox, with the lock held, the calls made by
+        /// tasks under `iso`, marked started and linked through `next`.
+        fn withdrawFrom(self: *Self, iso: *const Isolate) ?*Message {
+            var out: ?*Message = null;
+            var prev: ?*Message = null;
+            var at = self.first;
+            while (at) |x| {
+                const next = x.next;
+                if (iso.holds(x.from)) {
+                    if (prev) |p| p.next = next else self.first = next;
+                    if (self.last == x) self.last = prev;
+                    x.started = true;
+                    x.next = out;
+                    out = x;
+                } else prev = x;
+                at = next;
+            }
+            return out;
         }
 
         /// Answer `m` as `outcome`, which wakes its caller, and give back
@@ -2208,17 +2275,28 @@ pub fn Actor(comptime T: type) type {
             return struct {
                 fn die(h: *rt.sched.Held) void {
                     const self = heldBy(h);
-                    self.kill(h.doing);
+                    if (self.kill(h.doing, null)) |m| self.answer(m, Message.panicked);
                     if (slotted) self.freeSlot();
                 }
             }.die;
         }
 
-        /// A panic in the runner: the actor dies, the runner's handle
-        /// goes, and the panic stops here (`TaskState.runner`).
+        /// A panic in the runner: the actor dies, the tasks its method
+        /// started are canceled and waited for, its caller is answered,
+        /// the runner's handle goes, and the panic stops here
+        /// (`TaskState.runner`).
         fn dieRunner(h: *rt.sched.Held) void {
             const self = heldBy(h);
-            self.kill(h.doing);
+            const t = task();
+            const stops = t.isolate.?;
+            const running = self.kill(h.doing, stops);
+            t.unwinding = true;
+            stops.stop(true);
+            t.unwinding = false;
+            stops.giveBack();
+            self.lock.lock();
+            if (self.stopping != null) self.reopen() else self.lock.unlock();
+            if (running) |m| self.answer(m, Message.panicked);
             const box: *rt.Shared(Self) = @fieldParentPtr("value", self);
             box.dropStrong();
         }
@@ -2296,7 +2374,7 @@ pub fn Actor(comptime T: type) type {
                     c.result = c.actor.invoke(name, c.args);
                 }
             };
-            var c: Call = .{ .msg = .{ .run = Call.run, .label = label(name), .slotted = slotted }, .actor = self, .args = args };
+            var c: Call = .{ .msg = .{ .run = Call.run, .label = label(name), .slotted = slotted, .from = t.isolate }, .actor = self, .args = args };
             if (!self.send(box, &c.msg)) {
                 if (slotted) self.freeSlot();
                 self.calledDead(name);
@@ -2330,7 +2408,8 @@ pub fn Actor(comptime T: type) type {
 
         fn sendIn(self: *Self, box: *rt.Shared(Self), m: *Message) bool {
             self.lock.lockApart();
-            if (self.state.load(.acquire) & dead != 0) {
+            const stopping = if (self.stopping) |iso| iso.holds(m.from) else false;
+            if (stopping or self.state.load(.acquire) & dead != 0) {
                 self.lock.unlockApart();
                 return false;
             }
@@ -2415,16 +2494,22 @@ pub fn Actor(comptime T: type) type {
         /// The runner: each message in turn, until the mailbox is empty;
         /// then its handle goes, which may be the last. A panic in a
         /// method stops here (`dieRunner`): the actor dies, and the
-        /// runner ends where it stands.
+        /// runner ends where it stands. A task a method starts ends
+        /// before the method does: no value that could hold one leaves
+        /// it, so `stops` is empty between messages.
         fn runner(box: *rt.Shared(Self)) void {
             const self = &box.value;
             const f = rt.sched.current().?;
             var held: rt.sched.Held = .{ .held_by = &self.held_by, .doing = undefined, .die = dieRunner, .next = f.held };
+            var stops: Isolate = .{ .fiber = f, .outer = null, .id = 0, .runner = true };
             f.held = &held;
             f.state.runner = true;
+            f.state.isolate = &stops;
             defer {
                 f.held = held.next;
                 f.state.runner = false;
+                f.state.isolate = null;
+                std.debug.assert(stops.first == null);
             }
             while (self.take()) |m| {
                 held.doing = m.label;
@@ -2484,19 +2569,25 @@ pub fn actorsDie() bool {
     if (!rt.scheduled) return false;
     const f = rt.sched.current() orelse return false;
     const stop = panicStops();
+    const iso = f.state.isolate;
+    const kept = if (iso != null and iso.?.fiber == f) iso.?.held else null;
     var at = f.held;
-    f.held = null;
-    while (at) |h| : (at = h.next) h.die(h);
+    f.held = kept;
+    while (at != kept) : (at = at.?.next) at.?.die(at.?);
     return stop;
 }
 
 /// Whether a panic on the running fiber stops at an actor's runner the
-/// fiber is, before any actor dies (`actorsDie`). A runner marks its
-/// task once as it starts, so a call made inline pays nothing for this.
+/// fiber is, before any actor dies (`actorsDie`): not when a
+/// `task.isolate` inside the runner's method is nearer. A runner marks
+/// its task once as it starts, so a call made inline pays nothing for
+/// this.
 pub fn panicStops() bool {
     if (!rt.scheduled) return false;
     const f = rt.sched.current() orelse return false;
-    return f.state.runner;
+    if (!f.state.runner) return false;
+    const iso = f.state.isolate orelse return true;
+    return iso.runner or iso.fiber != f;
 }
 
 /// Whether the running task's stack has room for an actor's method run
@@ -2526,6 +2617,8 @@ const Message = struct {
     /// A call made with `&`, whose slot of the mailbox its answer gives
     /// back (`Actor.answer`).
     slotted: bool = false,
+    /// The nearest isolate of the task that called (`Actor.withdrawFrom`).
+    from: ?*Isolate = null,
     /// How it was answered: `done`, or, when the actor died, `panicked`
     /// for the call it ran then and `died` for one queued (`Actor.kill`).
     outcome: u8 = done,
