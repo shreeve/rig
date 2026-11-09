@@ -1256,8 +1256,9 @@ const table_live = split.cell(&table_live_var, "alloc.table_live");
 const tables_here = builtin.os.tag == .linux or builtin.os.tag.isDarwin();
 
 /// Whether a Table starts part-way into its first 2 MiB (`tableStagger`):
-/// on Linux, not the Mac, where a core holds one checker's heads and
-/// heads at the same offset of their blocks cost nothing to speak of.
+/// on Linux, not the Mac, where heads at the same offset of their blocks did not cost Trig: staggered
+/// there, superstruct at 7 checkers ran 4.2% slower and no project faster
+/// beyond noise.
 const table_stagger = builtin.os.tag == .linux;
 
 /// How many Tables have been handed out, for `tableStagger`.
@@ -1288,12 +1289,15 @@ fn tableStagger() usize {
 /// A range of at least `bytes` for a reserved Table: zeros, none
 /// committed. The range starts on a 2 MiB boundary and the Table inside
 /// it (`tableStagger`, on Linux), so a Table's start is a whole page but
-/// not a whole 2 MiB. The range's first 2 MiB keep small pages, and what
-/// follows of the Table asks for huge pages while the system has free 2
-/// MiB blocks to spare (`hugeFree`), as `table.zig`'s `reserve` describes
-/// (on Linux; the Mac has no huge pages to ask for). Under `always`, the
-/// rest has huge pages unasked and asks for nothing, and the first 2 MiB
-/// ask for small pages (`adviceFor`). Null where Tables are not taken
+/// not a whole 2 MiB. The Table's first 2 MiB keep small pages, as a
+/// huge page would commit 2 MiB at a small Table's first touch, up to
+/// the next 2 MiB boundary, and what follows asks for huge pages while
+/// the system has free 2 MiB blocks to spare (`hugeFree`), as
+/// `table.zig`'s `reserve` describes (on Linux; the Mac has no huge pages
+/// to ask for). Starting huge pages at the range's second block instead
+/// raised Trig's peak memory by 5 to 13%. Under `always`, the rest has
+/// huge pages unasked and asks for nothing, and the part kept small asks
+/// for small pages (`adviceFor`). Null where Tables are not taken
 /// from here: off Linux and the Mac, a Table larger than a region, or no
 /// region to be had.
 pub fn reserveTable(bytes: usize) ?[*]align(std.heap.page_size_min) u8 {
@@ -1303,14 +1307,17 @@ pub fn reserveTable(bytes: usize) ?[*]align(std.heap.page_size_min) u8 {
     const huge = builtin.os.tag == .linux and bytes > huge_page and hugeFree();
     const at = takeOrMapTableRange(len) orelse return null;
     _ = table_live.fetchAdd(1, .monotonic);
-    const stagger = tableStagger();
-    if (huge) {
+    const start = at + tableStagger();
+    // The first boundary past the Table's own first 2 MiB.
+    const huge_from = std.mem.alignForward(usize, start + huge_page, huge_page);
+    const end = start + bytes;
+    if (huge and end > huge_from) {
         tables_asked_huge.store(true, .monotonic);
-        std.posix.madvise(@ptrFromInt(at + huge_page), stagger + bytes - huge_page, std.os.linux.MADV.HUGEPAGE) catch {};
+        std.posix.madvise(@ptrFromInt(huge_from), end - huge_from, std.os.linux.MADV.HUGEPAGE) catch {};
     }
     // A Table of at most 2 MiB may run into the block after its first.
-    ask(at, if (bytes > huge_page) huge_page else len, .small);
-    return @ptrFromInt(at + stagger);
+    ask(at, if (bytes > huge_page) huge_from - at else len, .small);
+    return @ptrFromInt(start);
 }
 
 /// Give back the range of a Table of `bytes` at `p`, if it is one
@@ -2699,11 +2706,13 @@ test "on Linux a Table of 2 MiB or less stays small past a block it staggers int
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(s)));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(s) + 2 * mib - 1));
     try std.testing.expect(unreserveTable(s, 2 * mib));
-    // A larger one's huge pages begin at the second block of its range,
-    // and reach the last block it can be written in.
+    // A larger one keeps its own first 2 MiB small, and its huge pages
+    // begin at the next 2 MiB boundary and reach its last block.
     const t = reserveTable(24 * mib).?;
-    try std.testing.expect(!try advisedHugeForTest(std.mem.alignBackward(usize, @intFromPtr(t), huge_page)));
-    try std.testing.expect(try advisedHugeForTest(std.mem.alignBackward(usize, @intFromPtr(t), huge_page) + huge_page));
+    const huge_from = std.mem.alignForward(usize, @intFromPtr(t) + 2 * mib, huge_page);
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t)));
+    try std.testing.expect(!try advisedHugeForTest(huge_from - 1));
+    try std.testing.expect(try advisedHugeForTest(huge_from));
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(t) + 24 * mib - 1));
     try std.testing.expect(unreserveTable(t, 24 * mib));
 }
@@ -2714,12 +2723,13 @@ test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 
     defer useBuddyinfoForTest(null);
     const mib: usize = 1 << 20;
     const t = reserveTable(24 * mib).?;
+    const t_huge = std.mem.alignForward(usize, @intFromPtr(t) + 2 * mib, huge_page);
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t)));
-    try std.testing.expect(try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
+    try std.testing.expect(try advisedHugeForTest(t_huge));
     const small = reserveTable(2 * mib).?;
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(small)));
     try std.testing.expect(unreserveTable(t, 24 * mib));
-    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
+    try std.testing.expect(!try advisedHugeForTest(t_huge));
     useBuddyinfoForTest(buddyinfo_partly);
     const u = reserveTable(24 * mib).?;
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(u) + 2 * mib));
