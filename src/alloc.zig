@@ -86,6 +86,7 @@ comptime {
         table_hole_count,
         table_remap_fails_for_test,
         table_live,
+        table_stagger_next,
         total_live,
         total_peak,
         total_allocs,
@@ -1172,7 +1173,8 @@ fn mapOwnSegment() ?*Segment {
 /// and the Mac: regions of `table_region_size`, each mapped once, with no
 /// memory committed (`MAP_NORESERVE`), and on Linux advised for small
 /// pages once, under `madvise` for huge pages (`adviceFor`). A Table
-/// takes a range of whole 2 MiB blocks from one (`reserveTable`), which
+/// takes a range of whole 2 MiB blocks from one (`reserveTable`) and
+/// starts part-way into its first on Linux (`tableStagger`), which
 /// makes no system call while memory has no free 2 MiB blocks to spare,
 /// and on Linux one `madvise` while it does; a Table dropped gives its
 /// pages back to the system, with `MADV_DONTNEED` on Linux and by
@@ -1253,33 +1255,67 @@ const table_live = split.cell(&table_live_var, "alloc.table_live");
 /// the Mac.
 const tables_here = builtin.os.tag == .linux or builtin.os.tag.isDarwin();
 
-/// A range of at least `bytes`, from a 2 MiB boundary, for a reserved
-/// Table: zeros, none committed. Its first 2 MiB keep small pages, and
-/// the rest asks for huge pages while the system has free 2 MiB blocks
-/// to spare (`hugeFree`), as `table.zig`'s `reserve` describes (on
-/// Linux; the Mac has no huge pages to ask for). Under `always`, the
+/// Whether a Table starts part-way into its first 2 MiB (`tableStagger`):
+/// on Linux, not the Mac, where a core holds one checker's heads and
+/// heads at the same offset of their blocks cost nothing to speak of.
+const table_stagger = builtin.os.tag == .linux;
+
+/// How many Tables have been handed out, for `tableStagger`.
+var table_stagger_next_var: std.atomic.Value(usize) = .init(0);
+const table_stagger_next = split.cell(&table_stagger_next_var, "alloc.table_stagger_next");
+
+/// The address space a Table of `bytes` takes: whole 2 MiB blocks, and
+/// on Linux one more to stagger its start in.
+fn tableRangeLen(bytes: usize) usize {
+    return std.mem.alignForward(usize, bytes + (if (table_stagger) huge_page else 0), huge_page);
+}
+
+/// How far into its range the next Table starts: a different multiple of
+/// the page size for each, below 2 MiB. Were every Table to start on a
+/// 2 MiB boundary, every Table's first page would have the same low
+/// page-number bits and index one set of the second-level TLB, so a
+/// program of many Tables would evict their heads from one another (75
+/// to 91% of Trig's anonymous TLB-miss loads on pup; 62 such heads took
+/// 12.4M page walks and 592 Mcycles against 442 Mcycles and none,
+/// staggered). 197 is coprime with every number of pages in 2 MiB, so
+/// the sequence visits each offset before it repeats one.
+fn tableStagger() usize {
+    if (!table_stagger) return 0;
+    const page = std.heap.pageSize();
+    return (table_stagger_next.fetchAdd(1, .monotonic) *% 197) % (huge_page / page) * page;
+}
+
+/// A range of at least `bytes` for a reserved Table: zeros, none
+/// committed. The range starts on a 2 MiB boundary and the Table inside
+/// it (`tableStagger`, on Linux), so a Table's start is a whole page but
+/// not a whole 2 MiB. The range's first 2 MiB keep small pages, and what
+/// follows of the Table asks for huge pages while the system has free 2
+/// MiB blocks to spare (`hugeFree`), as `table.zig`'s `reserve` describes
+/// (on Linux; the Mac has no huge pages to ask for). Under `always`, the
 /// rest has huge pages unasked and asks for nothing, and the first 2 MiB
 /// ask for small pages (`adviceFor`). Null where Tables are not taken
 /// from here: off Linux and the Mac, a Table larger than a region, or no
 /// region to be had.
-pub fn reserveTable(bytes: usize) ?[*]align(huge_page) u8 {
+pub fn reserveTable(bytes: usize) ?[*]align(std.heap.page_size_min) u8 {
     if (!tables_here) return null;
-    const len = std.mem.alignForward(usize, bytes, huge_page);
+    const len = tableRangeLen(bytes);
     if (len > table_region_size) return null;
     // Read before `tables_lock`, which a new region's advice is under.
     if (builtin.os.tag == .linux) _ = thpMode();
-    const huge = builtin.os.tag == .linux and len > huge_page and hugeFree();
+    const huge = builtin.os.tag == .linux and bytes > huge_page and hugeFree();
     tables_lock.lock();
     const p = takeTableRange(len);
     tables_lock.unlock();
     const at = p orelse return null;
     _ = table_live.fetchAdd(1, .monotonic);
+    const stagger = tableStagger();
     if (huge) {
         tables_asked_huge.store(true, .monotonic);
-        std.posix.madvise(@ptrFromInt(at + huge_page), bytes - huge_page, std.os.linux.MADV.HUGEPAGE) catch {};
+        std.posix.madvise(@ptrFromInt(at + huge_page), stagger + bytes - huge_page, std.os.linux.MADV.HUGEPAGE) catch {};
     }
-    ask(at, huge_page, .small);
-    return @ptrFromInt(at);
+    // A Table of at most 2 MiB may run into the block after its first.
+    ask(at, if (bytes > huge_page) huge_page else len, .small);
+    return @ptrFromInt(at + stagger);
 }
 
 /// Give back the range of a Table of `bytes` at `p`, if it is one
@@ -1293,7 +1329,7 @@ pub fn reserveTable(bytes: usize) ?[*]align(huge_page) u8 {
 pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
     if (!tables_here) return false;
     const at = @intFromPtr(p);
-    const len = std.mem.alignForward(usize, bytes, huge_page);
+    const len = tableRangeLen(bytes);
     tables_lock.lock();
     var mine = false;
     for (table_regions[0..table_region_count.*]) |r| mine = mine or (r.start <= at and at < r.start + r.len);
@@ -1301,16 +1337,17 @@ pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
     tables_lock.unlock();
     if (!mine) return false;
     _ = table_live.fetchSub(1, .monotonic);
-    const range: [*]align(huge_page) u8 = @alignCast(p);
+    const start = std.mem.alignBackward(usize, at, huge_page);
+    const range: [*]align(huge_page) u8 = @ptrFromInt(start);
     if (builtin.os.tag == .linux and adviceFor(thpMode(), .small) != .small) {
         std.posix.madvise(range, len, std.os.linux.MADV.DONTNEED) catch {};
-        if (len > huge_page and tables_asked_huge.load(.monotonic)) std.posix.madvise(range, len, std.os.linux.MADV.NOHUGEPAGE) catch {};
+        if (bytes > huge_page and tables_asked_huge.load(.monotonic)) std.posix.madvise(range, len, std.os.linux.MADV.NOHUGEPAGE) catch {};
     } else if (!mapTableRangeAfresh(range, len)) {
         if (builtin.os.tag == .linux) loseTableRange(range, len);
         return true;
     }
     tables_lock.lock();
-    giveTableRange(at, len);
+    giveTableRange(start, len);
     tables_lock.unlock();
     return true;
 }
@@ -2522,7 +2559,7 @@ test "on Linux, with memory fragmented, no block, segment, or growth asks for hu
     try std.testing.expect(!try advisedHugeForTest(p));
 }
 
-test "on Linux a burst of Tables takes ranges of one region, 2 MiB aligned, with one reading of /proc/buddyinfo, and gives them back to the region's rest" {
+test "on Linux a burst of Tables takes ranges of one region, each from a 2 MiB boundary, with one reading of /proc/buddyinfo, and gives them back to the region's rest" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     useBuddyinfoForTest(buddyinfo_fragmented);
     defer useBuddyinfoForTest(null);
@@ -2533,7 +2570,7 @@ test "on Linux a burst of Tables takes ranges of one region, 2 MiB aligned, with
     var got: [43][*]u8 = undefined;
     for (&got, 0..) |*g, i| {
         g.* = reserveTable((i + 1) * (3 << 20) + 4096).?;
-        try std.testing.expectEqual(@as(usize, 0), @intFromPtr(g.*) % huge_page);
+        try std.testing.expectEqual(@as(usize, 0), @intFromPtr(g.*) % std.heap.pageSize());
     }
     try std.testing.expectEqual(reads + 1, buddyinfo_reads.*);
     try std.testing.expect(table_region_count.* >= 1);
@@ -2559,7 +2596,7 @@ test "on Linux a Table's range given back has its pages back with the system, an
     try std.testing.expect(unreserveTable(a, 6 * mib));
     try std.testing.expectEqual(@as(usize, 0), try residentForTest(a, 6 * mib));
     const c = reserveTable(5 * mib + 4096).?;
-    try std.testing.expectEqual(a, c);
+    try std.testing.expectEqual(std.mem.alignBackward(usize, @intFromPtr(a), huge_page), std.mem.alignBackward(usize, @intFromPtr(c), huge_page));
     for (c[0 .. 6 * mib]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
     try std.testing.expect(unreserveTable(c, 5 * mib + 4096));
     try std.testing.expect(unreserveTable(b, 4 * mib));
@@ -2567,6 +2604,55 @@ test "on Linux a Table's range given back has its pages back with the system, an
     // A mapping of its own is not the Tables'.
     var own: [4096]u8 align(4096) = undefined;
     try std.testing.expect(!unreserveTable(&own, own.len));
+}
+
+test "on Linux Tables start at different page offsets of their first 2 MiB, whole pages, and their bytes never overlap another Table's" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    useBuddyinfoForTest(buddyinfo_fragmented);
+    defer useBuddyinfoForTest(null);
+    const page = std.heap.pageSize();
+    const n = huge_page / page;
+    const mib: usize = 1 << 20;
+    var got: [64][*]u8 = undefined;
+    const sizes = [_]usize{ page, huge_page, 3 * mib };
+    var offsets: [64]usize = undefined;
+    for (&got, 0..) |*g, i| {
+        const size = sizes[i % sizes.len];
+        g.* = reserveTable(size).?;
+        try std.testing.expectEqual(@as(usize, 0), @intFromPtr(g.*) % page);
+        offsets[i] = @intFromPtr(g.*) % huge_page;
+        // A Table's first and last bytes are its own to write.
+        g.*[0] = 1;
+        g.*[size - 1] = 1;
+    }
+    for (0..got.len) |i| for (0..i) |j| {
+        const si = sizes[i % sizes.len];
+        const sj = sizes[j % sizes.len];
+        const a, const b = .{ @intFromPtr(got[i]), @intFromPtr(got[j]) };
+        try std.testing.expect(a + si <= b or b + sj <= a);
+        if (got.len <= n) try std.testing.expect(offsets[i] != offsets[j]);
+    };
+    for (got, 0..) |g, i| try std.testing.expect(unreserveTable(g, sizes[i % sizes.len]));
+}
+
+test "on Linux a Table of 2 MiB or less stays small past a block it staggers into, and a larger one's bytes past the first block ask for huge pages" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    useBuddyinfoForTest(buddyinfo_plenty);
+    defer useBuddyinfoForTest(null);
+    const mib: usize = 1 << 20;
+    // A Table of 2 MiB ends in the block after its first when staggered,
+    // and asks for huge pages for neither.
+    const s = reserveTable(2 * mib).?;
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(s)));
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(s) + 2 * mib - 1));
+    try std.testing.expect(unreserveTable(s, 2 * mib));
+    // A larger one's huge pages begin at the second block of its range,
+    // and reach the last block it can be written in.
+    const t = reserveTable(24 * mib).?;
+    try std.testing.expect(!try advisedHugeForTest(std.mem.alignBackward(usize, @intFromPtr(t), huge_page)));
+    try std.testing.expect(try advisedHugeForTest(std.mem.alignBackward(usize, @intFromPtr(t), huge_page) + huge_page));
+    try std.testing.expect(try advisedHugeForTest(@intFromPtr(t) + 24 * mib - 1));
+    try std.testing.expect(unreserveTable(t, 24 * mib));
 }
 
 test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 MiB blocks are free to spare, and keeps small pages once given back" {

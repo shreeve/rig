@@ -103,8 +103,8 @@ const huge: usize = 2 << 20;
 
 /// `bytes` of address space, zero pages, none committed. On Linux the
 /// first 2 MiB keep small pages, since a huge page would commit 2 MiB at
-/// a small table's first touch, and the rest, from a 2 MiB boundary, asks
-/// for huge pages: a table that grows past 2 MiB is faulted in 2 MiB at a
+/// a small table's first touch, and what follows them, from a 2 MiB
+/// boundary, asks for huge pages: a table that grows past 2 MiB is faulted in 2 MiB at a
 /// time, one fault and one TLB entry where 512 small pages each take
 /// their own, at the cost of the part of its last huge page not yet
 /// written (docs/history/records/2026-10/perf-stage/fault-ahead/). It
@@ -113,8 +113,9 @@ const huge: usize = 2 << 20;
 /// memory fragments faults in through the compactor, as every range that
 /// asks does (docs/history/records/2026-10/perf-stage/thp-fragmented.md).
 /// A release build on Linux and the Mac takes the range from
-/// `reserveTable`, which asks the same way on Linux; a debug build, and
-/// any table it cannot place, maps its own.
+/// `reserveTable`, which asks the same way on Linux and starts each table
+/// part-way into its first 2 MiB there; a debug build, and any table it
+/// cannot place, maps its own, which starts where its mapping does.
 fn reserve(bytes: usize) [*]align(page) u8 {
     if (comptime !leak_checked) if (rt.fast_alloc.reserveTable(bytes)) |p| return p;
     const prot: std.posix.PROT = .{ .READ = true, .WRITE = true };
