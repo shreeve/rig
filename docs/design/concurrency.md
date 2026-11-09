@@ -190,9 +190,7 @@ loans goes. Five rules make that so:
 4. **A panic stops at a boundary** (see "Failure"), which cancels and
    waits for every task started under it before it gives back the
    stacks those tasks may point into: its own, and that of each task
-   under it that panicked. So no task outlives a frame it views. A
-   panic in an actor's method on the actor's own task does not yet wait
-   for the tasks the method started *(planned)*.
+   under it that panicked. So no task outlives a frame it views.
 5. **The program's end waits for its tasks.** `main` returns only after
    every task it still holds is canceled and waited for, before the leak
    check runs. An interrupt (SIGINT) or SIGTERM cancels a `main` that
@@ -525,7 +523,9 @@ boundary. Three things are boundaries:
   own request rather than handing it an error it cannot reason about.
   A method run on the actor's own task stops the panic there; one run
   inline panics in the caller as it stands, ending every actor the
-  caller runs a method of. A queued or later call to an actor that has
+  caller runs a method of. The tasks a method on the actor's own task
+  started are canceled and waited for before its caller goes on, since
+  they may view the method's frames or its caller's. A queued or later call to an actor that has
   died panics in its caller, naming the method that ended it. A panic
   that ends the program is the one it reports: it takes the report
   before the actors it ends answer their callers, whose own panics wait

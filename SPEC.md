@@ -13782,7 +13782,8 @@ thread idle 10 seconds ends. With
 `RIG_SCHED_STATS=1` set, the program prints what each worker did as it
 ends.
 Output from several tasks is written a whole `print` at a time. A panic in a task ends the program, as one in
-`main` does, unless an isolate stops it ([below](#isolating-a-panic)). If no stack can be had for a task, the program
+`main` does, unless an isolate ([below](#isolating-a-panic)) or an
+actor's own task stops it. If no stack can be had for a task, the program
 panics, as it does when memory runs out. A program that makes no task
 runs on one thread, with no locks.
 
@@ -14022,11 +14023,16 @@ build reports what it owns apart from leaks, as left by a panic. The
 caller waiting on that method panics too: a method run on the actor's
 own task stops the panic there, and it passes to the caller, while one
 run inline panics in the caller as it stands, ending every actor the
-caller runs a method of. The calls queued then, and every later call,
+caller runs a method of. On the actor's own task, the tasks the method
+started are canceled and waited for before its caller goes on, since
+they may view the method's frames or its caller's; a panic in one of
+those tasks passes to the method at its wait or drop, as any task's
+does, and so ends the actor. The calls queued then, and every later call,
 panic, naming the method that ended the actor: `Rooms.count: the actor
 died from a panic in Rooms.pick`. An isolate around a call stops its
 caller's panic as any other ([Isolating a panic](#isolating-a-panic)),
-a deadlock's too.
+a deadlock's too. An isolate inside a method stops a panic in it there,
+and the actor goes on.
 
 A supervised actor starts again instead. `*Actor.supervised(make)`
 takes `make`, an owned closure written in the call that takes nothing
@@ -14035,7 +14041,9 @@ for its first value, and calls it again for a new value each time a
 panic ends the old one, which is abandoned as a dead actor's is. The
 call that panicked still panics in its caller; the calls queued, and
 those after, run against the new value, which `make` makes just before
-the next method runs. `restarts: n, per: s` allows at most `n` restarts
+the next method runs. On the actor's own task it starts again only once
+the tasks the method started have ended, and a call one of them makes
+to it until then panics as a call to a dead actor does. `restarts: n, per: s` allows at most `n` restarts
 within `s` seconds ([Durations](#durations)), or `n` in all without `per:`; past that, or at
 a panic in `make` itself, the actor dies for good. What `make` captures
 moves to the tasks that run the actor. `mailbox:` is as `*Actor(x)`

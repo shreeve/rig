@@ -400,6 +400,12 @@ none of these ever built:
 
 ### Runtime
 
+- A panic in a method on an actor's own task now cancels and waits for
+  the tasks that method started before the stack goes and the caller
+  goes on, where a task could read freed stack. A panic in such a task
+  ends the actor instead of the program, a supervised actor starts
+  again only once they have ended, and an isolate inside a method stops
+  a panic there and leaves the actor running.
 - The scheduler's shared counters and queues each fill whole cache lines,
   so what the linker places beside them cannot slow them.
 - On x86-64 Linux and arm64 macOS, a program that makes tasks and no

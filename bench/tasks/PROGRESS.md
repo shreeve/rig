@@ -140,3 +140,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-11-07 | main bdfc70ed9 before #1001, alternated (Mac) | rig-fast | 180 ns | 44 ns | 88.9 ms | 5 ns | 73.44 us | 16.6 KiB | 6.7 ms |
 | 2026-11-07 | #1001: four run-next slots in a circle (Mac) | rig-fast | 163 ns | 47 ns | 89.0 ms | 5 ns | 157 ns | 16.6 KiB | 6.6 ms |
 | 2026-11-08 | main 0d1c64647: preemption by signal by default (#1007), switch-first (#1020), shared free stacks (#1021) (Mac) | rig-fast | 151 ns | 42 ns | 81.1 ms | 4 ns | 162 ns | 16.6 KiB | 6.7 ms |
+| 2026-11-09 | main 347f0de35 before #1044, alternated (pup cores 0-11) | rig-fast | 122 ns | 92 ns | 70.9 ms | 5 ns | 242 ns | 4.6 KiB | 6.1 ms |
+| 2026-11-09 | #1044: an actor's runner waits for what its methods started (pup cores 0-11) | rig-fast | 120 ns | 88 ns | 71 ms | 5 ns | 267 ns | 4.6 KiB | 6.2 ms |

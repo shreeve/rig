@@ -137,3 +137,143 @@ fail "supervise option given twice", "7:52: parameter `restarts` of `task.superv
 
   sub main()
     task.supervise(work, restarts: 2, per: 0.000001, restarts: 3) catch |e| print(e)
+
+test "a supervised actor starts again once what its method started has ended", seeds: 20, '''
+  made
+  read 5
+  made
+  -1 5
+'''
+  # The task views the value the panic abandoned, in the place the new
+  # value is made, so the value is made again only once the task has
+  # ended.
+  use std.task
+  use std.time
+
+  sub nap(ms: Int)
+    time.sleep(ms: ms) catch |_|
+      return
+
+  sub reader(s: ?Int)
+    nap(20)
+    print("read", s)
+
+  obj S
+    n: Int
+
+    sub slow(!@)
+      nap(20)
+
+    fun work(?@) -> Int
+      t = reader(?@n)&
+      panic("mid") if @n > 0
+      >t
+      1
+
+    fun get(?@) -> Int
+      @n
+
+  fun mk() -> S
+    print("made")
+    S(n: 5)
+
+  sub first(a: *Actor[S])
+    !a.slow()
+
+  fun later(a: *Actor[S]) -> Int
+    nap(5)
+    a.get()
+
+  a = *Actor.supervised(*|| mk())
+  t = first(+a)&
+  time.sleep(ms: 5)!
+  v = later(+a)&
+  time.sleep(ms: 2)!
+  u = task.isolate(|+a| a.work()) catch -1
+  >t
+  print(u, >v)
+
+test "a task queued on the supervised actor that started it cannot hold up its restart", seeds: 20, timeout: 20, '''
+  -1
+  5
+'''
+  # The task's call waits behind the method that panics, and the restart
+  # waits for the task, so its call fails as one to a dead actor.
+  use std.task
+  use std.time
+
+  sub nap(ms: Int)
+    time.sleep(ms: ms) catch |_|
+      return
+
+  sub ring(a: *Actor[S])
+    print(a.get())
+
+  obj S
+    n: Int
+
+    sub slow(!@)
+      nap(20)
+
+    fun work(?@, a: *Actor[S]) -> Int
+      t = ring(+a)&
+      nap(10)
+      panic("mid") if @n > 0
+      >t
+      1
+
+    fun get(?@) -> Int
+      @n
+
+  sub first(a: *Actor[S])
+    !a.slow()
+
+  a = *Actor.supervised(*|| S(n: 5))
+  t = first(+a)&
+  time.sleep(ms: 5)!
+  u = task.isolate(|+a| a.work(+a)) catch -1
+  print(u)
+  >t
+  print(a.get())
+
+test "a task that calls the supervised actor during its restart cannot hold it up", seeds: 20, timeout: 20, '''
+  -1
+  5
+'''
+  # As above, with the call made after the panic has begun to stop it.
+  use std.task
+  use std.time
+
+  sub nap(ms: Int)
+    time.sleep(ms: ms) catch |_|
+      return
+
+  sub ring(a: *Actor[S])
+    nap(30)
+    print(a.get())
+
+  obj S
+    n: Int
+
+    sub slow(!@)
+      nap(20)
+
+    fun work(?@, a: *Actor[S]) -> Int
+      t = ring(+a)&
+      panic("mid") if @n > 0
+      >t
+      1
+
+    fun get(?@) -> Int
+      @n
+
+  sub first(a: *Actor[S])
+    !a.slow()
+
+  a = *Actor.supervised(*|| S(n: 5))
+  t = first(+a)&
+  time.sleep(ms: 5)!
+  u = task.isolate(|+a| a.work(+a)) catch -1
+  print(u)
+  >t
+  print(a.get())
