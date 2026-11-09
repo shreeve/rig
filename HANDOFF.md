@@ -186,8 +186,7 @@ A new session, human or agent, takes these steps in order:
   - one UTF-8 owner in std, and std.terminal's memory bounded;
   - "self" for "receiver" in the compiler.
 
-  Open: an actor's runner that panics does not wait for the tasks its
-  method started (concurrency.md, *planned*). The owner decided the
+  The owner decided the
   twelve std questions on 2026-11-04
   ([owner-decisions.md](docs/history/records/2026-11/revamp-runtime/owner-decisions.md)):
   the renames and behaviors of items 1-6, 8, 9, and 10's labels are

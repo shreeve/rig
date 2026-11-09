@@ -1000,3 +1000,205 @@ fail "actor slice argument shares its elements", "an actor runs its methods on a
   xs = List[Holder]()
   !xs.push(Holder(j: ^Sum(xs: List([1]))))
   print(c.sl(xs))
+
+test "a panic on an actor's task stops what its method started", seeds: 20, '''
+  42 42
+  caught Stop.panicked
+  -1
+'''
+  # The method's stack goes when the panic ends the runner, so the task
+  # lent a local on it must have ended first: it reads the local after
+  # its sleep is canceled, and before the caller learns of the panic.
+  use std.task
+  use std.time
+
+  sub nap(ms: Int)
+    time.sleep(ms: ms) catch |_|
+      return
+
+  sub reader(s: ?[8]Int)
+    nap(20)
+    print(s[0], s[7])
+
+  obj S
+    n: Int
+
+    sub slow(!@)
+      nap(20)
+
+    fun work(!@) -> Int
+      local = [8 of @n + 41]
+      t = reader(?local)&
+      panic("mid") if @n > 0
+      >t
+      1
+
+  sub first(a: *Actor[S])
+    !a.slow()
+
+  fun second(a: *Actor[S]) -> Int
+    !a.work()
+
+  a = *Actor(S(n: 1))
+  t = first(+a)&
+  time.sleep(ms: 5)!
+  u = task.isolate(|+a| second(+a)) catch |e|
+    print("caught", e)
+    -1
+  >t
+  print(u)
+
+test "a panic on an actor's task answers its caller after what it started", seeds: 20, '''
+  7 7
+  caught Stop.panicked
+  -1
+'''
+  # A task the method started may view its caller's frames too, so the
+  # caller goes on only once the task has ended.
+  use std.task
+  use std.time
+
+  sub nap(ms: Int)
+    time.sleep(ms: ms) catch |_|
+      return
+
+  sub reader(s: ?[8]Int)
+    nap(20)
+    print(s[0], s[7])
+
+  obj S
+    n: Int
+
+    sub slow(!@)
+      nap(20)
+
+    fun work(?@, v: ?[8]Int) -> Int
+      t = reader(v)&
+      panic("mid") if @n > 0
+      >t
+      1
+
+  sub first(a: *Actor[S])
+    !a.slow()
+
+  fun second(a: *Actor[S]) -> Int
+    local = [8 of 7]
+    a.work(?local)
+
+  a = *Actor(S(n: 1))
+  t = first(+a)&
+  time.sleep(ms: 5)!
+  u = task.isolate(|+a| second(+a)) catch |e|
+    print("caught", e)
+    -1
+  >t
+  print(u)
+
+test "a panic in a task an actor's method started ends the actor", seeds: 20, '''
+  caught Stop.panicked
+  -1
+  caught again Stop.panicked
+  -2
+'''
+  # The task's panic passes to the method that waits for it, and the
+  # actor's own task is the boundary it stops at.
+  use std.task
+  use std.time
+
+  sub nap(ms: Int)
+    time.sleep(ms: ms) catch |_|
+      return
+
+  sub boom()
+    panic("in the task")
+
+  obj S
+    n: Int
+
+    sub slow(!@)
+      nap(20)
+
+    fun work(?@) -> Int
+      t = boom()&
+      >t
+      @n
+
+    fun get(?@) -> Int
+      @n
+
+  sub first(a: *Actor[S])
+    !a.slow()
+
+  a = *Actor(S(n: 1))
+  t = first(+a)&
+  time.sleep(ms: 5)!
+  u = task.isolate(|+a| a.work()) catch |e|
+    print("caught", e)
+    -1
+  print(u)
+  >t
+  v = task.isolate(|+a| a.get()) catch |e|
+    print("caught again", e)
+    -2
+  print(v)
+
+test "an isolate inside a method on the actor's task keeps the actor", seeds: 20, '''
+  -5
+  1
+'''
+  # The panic stops at the nearer boundary, so the actor lives.
+  use std.task
+  use std.time
+
+  sub nap(ms: Int)
+    time.sleep(ms: ms) catch |_|
+      return
+
+  fun risky(x: Int) -> Int
+    panic("no") if x > 0
+    x
+
+  obj S
+    n: Int
+
+    sub slow(!@)
+      nap(20)
+
+    fun safe(?@) -> Int
+      task.isolate(|| risky(1)) catch -5
+
+    fun get(?@) -> Int
+      @n
+
+  sub first(a: *Actor[S])
+    !a.slow()
+
+  a = *Actor(S(n: 1))
+  t = first(+a)&
+  time.sleep(ms: 5)!
+  print(a.safe())
+  >t
+  print(a.get())
+
+test "an isolate inside a method run inline keeps the actor", seeds: 20, '''
+  -5
+  1
+'''
+  use std.task
+
+  fun risky(x: Int) -> Int
+    panic("no") if x > 0
+    x
+
+  obj S
+    n: Int
+
+    fun safe(?@) -> Int
+      task.isolate(|| risky(1)) catch -5
+
+    fun get(?@) -> Int
+      @n
+
+  a = *Actor(S(n: 1))
+  print(a.safe())
+  print(a.get())
