@@ -2602,11 +2602,7 @@ fn poolBounds(p: *Pool) void {
 /// The cores a thread runs fastest on: on macOS the performance cores
 /// (`hw.perflevel0.physicalcpu`), elsewhere every core, at most 8.
 fn performanceCores() u32 {
-    if (builtin.os.tag == .macos) {
-        var n: c_int = 0;
-        var len: usize = @sizeOf(c_int);
-        if (std.c.sysctlbyname("hw.perflevel0.physicalcpu", &n, &len, null, 0) == 0 and n > 0) return @intCast(n);
-    }
+    if (rt.macPerformanceCores()) |n| return n;
     return @intCast(@min(8, std.Thread.getCpuCount() catch 4));
 }
 

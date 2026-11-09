@@ -123,6 +123,12 @@ none of these ever built:
 
 ### Added
 
+- **`task.fast_cores()`** gives how many fast physical cores the
+  program may run on, at least 1: on macOS the performance cores, on
+  Linux the affinity mask's cores, the threads of one core counted once
+  and slower cores left out while a fast one is allowed. The number of
+  workers does not follow it: tasks still run on one worker per logical
+  CPU.
 - **Text over several lines** (T1c): `"""` (with escapes) and `'''`
   (raw) open fixed text over several lines, a `Static`, when the opener
   ends its line, and a backtick that ends its line opens a template over
