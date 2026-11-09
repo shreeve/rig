@@ -1708,6 +1708,21 @@ test "task.worker_count is at least one, deterministic runs among them", seeds: 
   _ = >t
   print(before >= 1, task.worker_count() >= 1)
 
+test "task.fast_cores is at least one and at most one per logical core", "true true"
+  # A program with a task has one worker per logical core.
+  use std.task
+  fun one() -> Int
+    1
+  t = one()&
+  _ = >t
+  n = task.fast_cores()
+  print(n >= 1, n <= task.worker_count())
+
+test "task.fast_cores needs no task and gives one answer", seeds: 20, "true true"
+  use std.task
+  n = task.fast_cores()
+  print(n >= 1, n == task.fast_cores())
+
 test "task function value given", seeds: 20, "42 9 4"
   # A function value is a named function's address and holds nothing, so
   # it goes to a task on any core, alone or inside what is given or lent.

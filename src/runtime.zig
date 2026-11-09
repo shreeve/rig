@@ -36,6 +36,7 @@ comptime {
         sched,
         net,
         fast_alloc,
+        fast_cores_known,
         only_task,
         output_lock,
         alloc_lock,
@@ -10649,4 +10650,243 @@ test "a failure leaving main is shown through the glue, and its fields dropped" 
     dropErrorData(error.WithData, &data);
     dropErrorData(error.Plain, &data);
     try std.testing.expectEqual(@as(usize, 1), TestErrorGlue.drops.load(.seq_cst));
+}
+
+// -----------------------------------------------------------------
+// the fast physical cores
+// -----------------------------------------------------------------
+
+var fast_cores_known_var: usize = 0;
+const fast_cores_known = split.cell(&fast_cores_known_var, "runtime.fast_cores_known");
+
+/// `task.fast_cores()`: how many fast physical cores this process may
+/// run on, at least 1. The threads of one core count once, and a slower
+/// core counts only when the process may run on no fast one. Worked out
+/// at the first call and kept, so a program that never calls it pays
+/// nothing; first calls that race each work it out and agree.
+pub fn fastCores() Int {
+    var n = @atomicLoad(usize, fast_cores_known, .monotonic);
+    if (n == 0) {
+        n = detectFastCores();
+        @atomicStore(usize, fast_cores_known, n, .monotonic);
+    }
+    return @intCast(n);
+}
+
+/// The fast cores by the system's own account, within the logical CPUs
+/// this process may use; those logical CPUs when the system does not say.
+fn detectFastCores() usize {
+    if (builtin.os.tag == .linux) return linuxFastCores();
+    const logical = @max(1, std.Thread.getCpuCount() catch 1);
+    if (builtin.os.tag != .macos) return logical;
+    const found = macPerformanceCores() orelse sysctlCount("hw.physicalcpu") orelse return logical;
+    return @max(1, @min(logical, found));
+}
+
+/// macOS's performance cores, when the machine has performance levels.
+pub fn macPerformanceCores() ?u32 {
+    if (builtin.os.tag != .macos) return null;
+    return sysctlCount("hw.perflevel0.physicalcpu");
+}
+
+fn sysctlCount(name: [*:0]const u8) ?u32 {
+    if (builtin.os.tag != .macos) return null;
+    var n: c_int = 0;
+    var size: usize = @sizeOf(c_int);
+    if (std.c.sysctlbyname(name, &n, &size, null, 0) != 0 or n <= 0) return null;
+    return @intCast(n);
+}
+
+/// Linux's CPUs by number, as wide as its affinity mask.
+const CpuSet = std.bit_set.Static(1024);
+
+/// The mask's own count stands in for `getCpuCount`, which a mask wider
+/// than `CpuSet` would crash; such a mask gives 1.
+fn linuxFastCores() usize {
+    const linux = std.os.linux;
+    var allowed: CpuSet = .empty;
+    if (linux.errno(linux.sched_getaffinity(0, @sizeOf(@TypeOf(allowed.masks)), &allowed.masks)) != .SUCCESS) return 1;
+    const logical = @max(1, allowed.count());
+    const found = countFastCores(&allowed, LinuxCpuFiles{}) catch return logical;
+    return @max(1, @min(logical, found));
+}
+
+/// The physical cores among `allowed`: the fast ones, when `files` names
+/// a fast set and `allowed` holds one of them, or else all of them. A
+/// machine with no fast set, ARM's big.LITTLE among them, has every core
+/// counted, since Linux names none there. A core counts when any of its
+/// threads is allowed. Fails if a file that should be read cannot be.
+fn countFastCores(allowed: *const CpuSet, files: anytype) error{Unreadable}!usize {
+    var buffer: [512]u8 = undefined;
+    var wanted = allowed.*;
+    if (files.fast(&buffer)) |text| {
+        var fast = parseCpuList(text) orelse return error.Unreadable;
+        fast.setIntersection(allowed.*);
+        if (fast.count() > 0) wanted = fast;
+    } else |err| switch (err) {
+        error.Absent => {},
+        error.Unreadable => return error.Unreadable,
+    }
+    var counted: CpuSet = .empty;
+    var cores: usize = 0;
+    var cpus = wanted.iterator(.{});
+    while (cpus.next()) |cpu| {
+        if (counted.isSet(cpu)) continue;
+        const text = files.siblings(cpu, &buffer) catch return error.Unreadable;
+        counted.setUnion(parseCpuList(text) orelse return error.Unreadable);
+        cores += 1;
+    }
+    return cores;
+}
+
+/// A list as Linux writes one, `0-3,8-11\n`, or null for anything else.
+fn parseCpuList(text: []const u8) ?CpuSet {
+    var set: CpuSet = .empty;
+    const list = std.mem.trim(u8, text, " \t\r\n");
+    if (list.len == 0) return set;
+    var parts = std.mem.splitScalar(u8, list, ',');
+    while (parts.next()) |part| {
+        const dash = std.mem.indexOfScalar(u8, part, '-');
+        const first = std.fmt.parseInt(usize, part[0 .. dash orelse part.len], 10) catch return null;
+        const last = if (dash) |d| std.fmt.parseInt(usize, part[d + 1 ..], 10) catch return null else first;
+        if (first > last or last >= CpuSet.bit_length) return null;
+        set.setRangeValue(.{ .start = first, .end = last + 1 }, true);
+    }
+    return set;
+}
+
+const CpuFileError = error{ Absent, Unreadable };
+
+/// Where Linux says which CPUs are fast, on Intel's hybrid chips, and
+/// which CPUs are one core's threads.
+const LinuxCpuFiles = struct {
+    fn fast(_: LinuxCpuFiles, buffer: []u8) CpuFileError![]const u8 {
+        return readCpuFile("/sys/devices/cpu_core/cpus", buffer);
+    }
+
+    fn siblings(_: LinuxCpuFiles, cpu: usize, buffer: []u8) CpuFileError![]const u8 {
+        var path: [80]u8 = undefined;
+        const name = std.fmt.bufPrintSentinel(&path, "/sys/devices/system/cpu/cpu{d}/topology/thread_siblings_list", .{cpu}, 0) catch return error.Unreadable;
+        return readCpuFile(name, buffer);
+    }
+};
+
+/// A short file's text, read whole. A file that fills `buffer` may go on
+/// past it, so it counts as unreadable.
+fn readCpuFile(path: [*:0]const u8, buffer: []u8) CpuFileError![]const u8 {
+    const linux = std.os.linux;
+    const fd: i32 = while (true) {
+        const rc = linux.openat(linux.AT.FDCWD, path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+        switch (linux.errno(rc)) {
+            .SUCCESS => break @intCast(rc),
+            .INTR => {},
+            .NOENT => return error.Absent,
+            else => return error.Unreadable,
+        }
+    };
+    defer _ = linux.close(fd);
+    var filled: usize = 0;
+    while (filled < buffer.len) {
+        const rc = linux.read(fd, buffer[filled..].ptr, buffer.len - filled);
+        switch (linux.errno(rc)) {
+            .SUCCESS => {},
+            .INTR => continue,
+            else => return error.Unreadable,
+        }
+        if (rc == 0) return buffer[0..filled];
+        filled += rc;
+    }
+    return error.Unreadable;
+}
+
+/// Linux's files as text: `fast` as `/sys/devices/cpu_core/cpus` holds
+/// it, and each CPU's siblings by `cpu_siblings[cpu]`. A null is a file
+/// that is not there; `unreadable` is one that cannot be read.
+const TestCpuFiles = struct {
+    fast_text: ?[]const u8 = null,
+    fast_unreadable: bool = false,
+    cpu_siblings: []const ?[]const u8,
+
+    fn fast(self: TestCpuFiles, buffer: []u8) CpuFileError![]const u8 {
+        _ = buffer;
+        if (self.fast_unreadable) return error.Unreadable;
+        return self.fast_text orelse error.Absent;
+    }
+
+    fn siblings(self: TestCpuFiles, cpu: usize, buffer: []u8) CpuFileError![]const u8 {
+        _ = buffer;
+        if (cpu >= self.cpu_siblings.len) return error.Absent;
+        return self.cpu_siblings[cpu] orelse error.Absent;
+    }
+};
+
+fn testCpuSet(text: []const u8) CpuSet {
+    return parseCpuList(text).?;
+}
+
+test "a CPU list is read as Linux writes it" {
+    const set = testCpuSet("0-3,8-11\n");
+    try std.testing.expectEqual(@as(usize, 8), set.count());
+    try std.testing.expect(set.isSet(0) and set.isSet(3) and set.isSet(8) and set.isSet(11));
+    try std.testing.expect(!set.isSet(4) and !set.isSet(7) and !set.isSet(12));
+    try std.testing.expectEqual(@as(usize, 2), testCpuSet("0,5").count());
+    try std.testing.expectEqual(@as(usize, 1), testCpuSet("7\n").count());
+    try std.testing.expectEqual(@as(usize, 0), testCpuSet("\n").count());
+    for ([_][]const u8{ "x", "1-", "-1", "3-1", "1,,2", "1:2", "0-1024", "2000" }) |bad|
+        try std.testing.expect(parseCpuList(bad) == null);
+}
+
+/// A Core Ultra 9 185H: six cores of two threads, 0 and 5 one of them;
+/// ten single-thread slower cores, `cpu_core` naming none of those.
+const test_hybrid_siblings = [_]?[]const u8{ "0,5", "1-2", "1-2", "3-4", "3-4", "0,5", "6-7", "6-7", "8-9", "8-9", "10-11", "10-11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21" };
+const test_hybrid: TestCpuFiles = .{ .fast_text = "0-11\n", .cpu_siblings = &test_hybrid_siblings };
+
+test "a hybrid machine counts its fast physical cores, each once" {
+    try std.testing.expectEqual(6, try countFastCores(&testCpuSet("0-21"), test_hybrid));
+    try std.testing.expectEqual(6, try countFastCores(&testCpuSet("0-11"), test_hybrid));
+    try std.testing.expectEqual(1, try countFastCores(&testCpuSet("3"), test_hybrid));
+}
+
+test "a core counts when any of its threads is allowed" {
+    // 0 and 5 are one core; so are 3 and 4.
+    try std.testing.expectEqual(1, try countFastCores(&testCpuSet("0,5"), test_hybrid));
+    try std.testing.expectEqual(2, try countFastCores(&testCpuSet("5,3"), test_hybrid));
+    try std.testing.expectEqual(3, try countFastCores(&testCpuSet("0,3,5,8"), test_hybrid));
+}
+
+test "a fast core allowed leaves the slower ones uncounted; none allowed counts them" {
+    try std.testing.expectEqual(1, try countFastCores(&testCpuSet("0,12-19"), test_hybrid));
+    try std.testing.expectEqual(8, try countFastCores(&testCpuSet("12-19"), test_hybrid));
+    try std.testing.expectEqual(1, try countFastCores(&testCpuSet("20"), test_hybrid));
+}
+
+test "a machine with no fast set counts every physical core" {
+    const siblings = [_]?[]const u8{ "0,4", "1,5", "2,6", "3,7", "0,4", "1,5", "2,6", "3,7" };
+    const files: TestCpuFiles = .{ .cpu_siblings = &siblings };
+    try std.testing.expectEqual(4, try countFastCores(&testCpuSet("0-7"), files));
+    try std.testing.expectEqual(2, try countFastCores(&testCpuSet("0,4,1"), files));
+}
+
+test "a fast set that names nothing allowed, or nothing at all, counts what is allowed" {
+    const siblings = [_]?[]const u8{ "0", "1", "2", "3" };
+    try std.testing.expectEqual(4, try countFastCores(&testCpuSet("0-3"), TestCpuFiles{ .fast_text = "\n", .cpu_siblings = &siblings }));
+    try std.testing.expectEqual(2, try countFastCores(&testCpuSet("0,1"), TestCpuFiles{ .fast_text = "2-3", .cpu_siblings = &siblings }));
+}
+
+test "a file that cannot be read gives up, and a failure is never zero" {
+    const missing = [_]?[]const u8{ "0", null };
+    const files: TestCpuFiles = .{ .cpu_siblings = &missing };
+    try std.testing.expectError(error.Unreadable, countFastCores(&testCpuSet("0,1"), files));
+    try std.testing.expectEqual(1, try countFastCores(&testCpuSet("0"), files));
+    const bad = [_]?[]const u8{"zero"};
+    try std.testing.expectError(error.Unreadable, countFastCores(&testCpuSet("0"), TestCpuFiles{ .cpu_siblings = &bad }));
+    try std.testing.expectError(error.Unreadable, countFastCores(&testCpuSet("0"), TestCpuFiles{ .fast_unreadable = true, .cpu_siblings = &missing }));
+    try std.testing.expectError(error.Unreadable, countFastCores(&testCpuSet("0"), TestCpuFiles{ .fast_text = "junk", .cpu_siblings = &missing }));
+}
+
+test "this machine's fast cores are at least one, at most its logical CPUs, and kept" {
+    const logical = @max(1, std.Thread.getCpuCount() catch 1);
+    const n = fastCores();
+    try std.testing.expect(n >= 1 and n <= logical);
+    try std.testing.expectEqual(n, fastCores());
 }
