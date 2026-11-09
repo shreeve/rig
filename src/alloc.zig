@@ -1256,9 +1256,9 @@ const table_live = split.cell(&table_live_var, "alloc.table_live");
 const tables_here = builtin.os.tag == .linux or builtin.os.tag.isDarwin();
 
 /// Whether a Table starts part-way into its first 2 MiB (`tableStagger`):
-/// on Linux, not the Mac, where heads at the same offset of their blocks did not cost Trig: staggered
-/// there, superstruct at 7 checkers ran 4.2% slower and no project faster
-/// beyond noise.
+/// on Linux, not the Mac, where heads at the same offset of their blocks
+/// did not cost Trig: staggered there, superstruct at 7 checkers ran 4.2%
+/// slower and no project faster beyond noise.
 const table_stagger = builtin.os.tag == .linux;
 
 /// How many Tables have been handed out, for `tableStagger`.
@@ -1294,10 +1294,9 @@ fn tableStagger() usize {
 /// the next 2 MiB boundary, and what follows asks for huge pages while
 /// the system has free 2 MiB blocks to spare (`hugeFree`), as
 /// `table.zig`'s `reserve` describes (on Linux; the Mac has no huge pages
-/// to ask for). Starting huge pages at the range's second block instead
-/// raised Trig's peak memory by 5 to 13%. Under `always`, the rest has
-/// huge pages unasked and asks for nothing, and the part kept small asks
-/// for small pages (`adviceFor`). Null where Tables are not taken
+/// to ask for). Under `always`, the rest has huge pages unasked and asks
+/// for nothing, and the part kept small asks for small pages
+/// (`adviceFor`). Null where Tables are not taken
 /// from here: off Linux and the Mac, a Table larger than a region, or no
 /// region to be had.
 pub fn reserveTable(bytes: usize) ?[*]align(std.heap.page_size_min) u8 {
