@@ -155,7 +155,7 @@ ARM_STOP = {"ret", "retaa", "retab", "brk", "udf", "hlt", "eret"}
 def arm_effect(i, st):
     """How `i` moves sp, as (kind, value): ('add', n) moves the depth by n;
     ('set', n) sets it; ('bad', why); None leaves it."""
-    op, a = i.op, i.args
+    op, a = i.op, i.args.split(";")[0].strip()
     regs = st["regs"]
     parts = [p.strip() for p in re.split(r",(?![^\[]*\])", a)] if a else []
     dest = parts[0] if parts else ""
@@ -171,7 +171,9 @@ def arm_effect(i, st):
         if not imm.startswith("#"):
             return ("bad", "%s %s" % (op, a))
         n = num(imm)
-        if len(parts) >= 4 and parts[3].replace(" ", "") == "lsl#12":
+        if len(parts) >= 4:
+            if parts[3].replace(" ", "") != "lsl#12":
+                return ("bad", "%s %s" % (op, a))
             n <<= 12
         if src == "sp":
             return ("add", n if op == "sub" else -n)
@@ -198,7 +200,7 @@ def arm_effect(i, st):
 def arm_track(i, st, depth):
     """Registers that hold sp plus a known offset, as depths: `mov x29, sp`,
     `add x29, sp, #n`, `sub x9, sp, #n`."""
-    op, a = i.op, i.args
+    op, a = i.op, i.args.split(";")[0].strip()
     parts = [p.strip() for p in re.split(r",(?![^\[]*\])", a)] if a else []
     if not parts:
         return
@@ -211,7 +213,10 @@ def arm_track(i, st, depth):
         regs[dest] = depth
     elif op in ("add", "sub") and len(parts) >= 3 and parts[1] == "sp" and parts[2].startswith("#"):
         n = num(parts[2])
-        if len(parts) >= 4 and parts[3].replace(" ", "") == "lsl#12":
+        if len(parts) >= 4:
+            if parts[3].replace(" ", "") != "lsl#12":
+                regs.pop(dest, None)
+                return
             n <<= 12
         regs[dest] = depth - n if op == "add" else depth + n
     elif op.startswith(("st", "cmp", "cmn", "tst", "b", "cb", "tb", "prfm")) and not op.startswith(("bic", "bfi", "bfxil")):
