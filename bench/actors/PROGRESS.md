@@ -113,3 +113,7 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-11-07 | #1001: four run-next slots in a circle (pup core 3) | rig-fast | 11 ns | 11 ns | 11 ns |
 | 2026-11-07 | main bdfc70ed9 before #1001, alternated (Mac) | rig-fast | 5.2 ns | 28 ns | 0.9 ns |
 | 2026-11-07 | #1001: four run-next slots in a circle (Mac) | rig-fast | 5.2 ns | 16 ns | 0.9 ns |
+| 2026-11-09 | main 347f0de35 before #1044, alternated (pup cores 0-11) | rig-fast | 12 ns | 20 ns | 1.8 ns |
+| 2026-11-09 | #1044: an actor's runner waits for what its methods started (pup cores 0-11) | rig-fast | 12 ns | 21 ns | 1.8 ns |
+| 2026-11-09 | main 347f0de35 before #1044, alternated (Mac) | rig-fast | 5.1 ns | 13 ns | 0.8 ns |
+| 2026-11-09 | #1044: an actor's runner waits for what its methods started (Mac) | rig-fast | 4.9 ns | 13 ns | 0.8 ns |
