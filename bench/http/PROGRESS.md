@@ -108,3 +108,5 @@ which is why that row reads faster.
 | 2026-11-07 | #1001: four run-next slots in a circle (pup core 3) | rig-fast | 155873 | 345 us | 2761 us | 8.7 KiB |
 | 2026-11-07 | main bdfc70ed9 before #1001, alternated (Mac) | rig-fast | 164277 | 376 us | 795 us | 16.8 KiB |
 | 2026-11-07 | #1001: four run-next slots in a circle (Mac) | rig-fast | 163212 | 378 us | 786 us | 16.8 KiB |
+| 2026-11-09 | main 347f0de35 before #1044, alternated (pup cores 0-11) | rig-fast | 757227 | 72 us | 243 us | - |
+| 2026-11-09 | #1044: an actor's runner waits for what its methods started (pup cores 0-11) | rig-fast | 820683 | 65 us | 239 us | - |

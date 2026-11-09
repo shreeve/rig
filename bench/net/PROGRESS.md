@@ -104,3 +104,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-11-07 | #1001: four run-next slots in a circle (pup core 3) | rig-fast | 4.69 us | 4.47 us | 28.21 us |
 | 2026-11-07 | main bdfc70ed9 before #1001, alternated (Mac) | rig-fast | 15.40 us | 6.22 us | 58.48 us |
 | 2026-11-07 | #1001: four run-next slots in a circle (Mac) | rig-fast | 15.12 us | 6.21 us | 56.12 us |
+| 2026-11-09 | main 347f0de35 before #1044, alternated (pup cores 0-11) | rig-fast | 5.21 us | 1.07 us | 25.62 us |
+| 2026-11-09 | #1044: an actor's runner waits for what its methods started (pup cores 0-11) | rig-fast | 5.15 us | 1.05 us | 26.41 us |
