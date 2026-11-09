@@ -38,6 +38,16 @@ expect_has "$(cat err.txt)" "more than a page (4096 bytes), though its own value
 expect_has "$(cat err.txt)" "mark it \`called\`: \`report\`" "the warning names the callee to mark"
 [[ $(./warn) == 55 ]] || fail "the warned program runs"
 
+# A program that makes tasks keeps its functions in a section of their
+# own where it is preempted by signal: the warning reads that one too.
+{
+    echo "use std.task"
+    awk '/t \+= step/ { print "    s = step(i * os.args().len)&"; print "    t += >s"; next } { print }' warn.rig
+} >tasks.rig
+rig build --release -o tasks tasks.rig >out.txt 2>err.txt || fail "rig build --release of tasks.rig: $(cat err.txt)"
+expect_has "$(cat err.txt)" "\`step\` reserves" "the warning reads a preempted program's own section"
+[[ $(./tasks) == 55 ]] || fail "the warned program that makes tasks runs"
+
 program called.rig "called " called
 rig build --release -o called called.rig >out.txt 2>err.txt || fail "rig build --release of called.rig: $(cat err.txt)"
 [[ ! -s err.txt ]] || fail "a callee marked \`called\` leaves a warning: $(cat err.txt)"
