@@ -35,6 +35,8 @@ moves up into its table).
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-safe | 14.52 us | 5.93 us | 51.79 us |
 | 2026-10-30 | main a8acfdc5c before #780, alternated | rig-fast | 14.72 us | 5.90 us | 48.37 us |
 | 2026-10-30 | #780: String and List appends grow by value | rig-fast | 14.22 us | 5.91 us | 49.06 us |
+| 2026-11-09 | main efa08ecf0 before #1045, shuffled (Mac) | rig-fast | 13.84 us | 6.14 us | 49.14 us |
+| 2026-11-09 | #1045: dense stacks (Mac) | rig-fast | 14.68 us | 6.19 us | 48.20 us |
 
 ## x86-64 (pup)
 
@@ -106,3 +108,5 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-11-07 | #1001: four run-next slots in a circle (Mac) | rig-fast | 15.12 us | 6.21 us | 56.12 us |
 | 2026-11-09 | main 347f0de35 before #1044, alternated (pup cores 0-11) | rig-fast | 5.21 us | 1.07 us | 25.62 us |
 | 2026-11-09 | #1044: an actor's runner waits for what its methods started (pup cores 0-11) | rig-fast | 5.15 us | 1.05 us | 26.41 us |
+| 2026-11-09 | main efa08ecf0 before #1045, shuffled (pup cores 0-11) | rig-fast | 5.14 us | 1.05 us | 26.57 us |
+| 2026-11-09 | #1045: dense stacks (pup cores 0-11) | rig-fast | 5.12 us | 1.06 us | 26.38 us |

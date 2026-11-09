@@ -200,6 +200,27 @@ worker after.
 
 ## Stacks
 
+A task that the compiler finds cannot need much stack takes a **dense
+stack** (`sched.takeDense`), in a release build made by `rig build`.
+Dense stacks lie 1 MiB apart on the Mac and 256 KiB apart on Linux
+(`sema.denseStride`) in one 64 GiB reservation, so they share page
+tables, and each is made writable as it is first handed out. A sleeping
+task then holds 17.6 KB on the Mac where a large stack holds 33.5 KB. A
+task may take one when the compiler can see every function it reaches,
+none is recursive and none is called through a pointer, and their frames
+add up to less than `sema.dense_depth_limit`
+(`inlining.Pass.denseDepths`), so the limit is the same on every target
+and a program that might not fit takes a large stack instead of
+panicking. Each dense stack sits over a guard twice the largest frame
+the executable reserves, a power of two: those frames exist only after
+the link, so `bin/rig` reads them (`frames.largestReach`, which reads each
+function's whole body and overestimates on purpose) and writes the guard
+into the executable. An executable with no guard written, a debug build,
+`rig run`, or a guard too large for the stride, keeps every task on a
+large stack. A dense stack's pages go back to the system past what the
+workers keep, and its address stays reserved (`sched.trimDense`); a build
+that sanitizes makes a finished one inaccessible for good.
+
 A task's stack is 64 MiB of address space, as `main`'s is, since a
 frame may keep up to 13 MiB of values, committed only as the task
 touches it. Stacks never move, since loans point into them. They are

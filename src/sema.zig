@@ -297,6 +297,20 @@ pub const max_frame_reach: u64 = 512 << 20;
 /// such frames merge into one.
 pub const noinline_reach: u64 = 1 << 20;
 
+/// How far apart a task's dense stacks lie on target `os`, guard included
+/// (`sched.takeDense`): the one place the choice is made. `bin/rig` writes
+/// it into the root for the runtime (`__rig_dense_stride`).
+pub fn denseStride(os: std.Target.Os.Tag) u64 {
+    return if (os == .macos) 1 << 20 else 256 << 10;
+}
+
+/// The most stack a task on a dense stack may be estimated to need:
+/// under half the stack of the smallest stride on any target, so which
+/// task is dense does not depend on the target. The guard takes at most
+/// a quarter of a stride (`rt.denseGuard`) and a page lies above the
+/// stack.
+pub const dense_depth_limit: u64 = ((256 << 10) - (64 << 10) - (16 << 10)) / 2;
+
 /// The smallest guard below a task's stack (`task_guard` in
 /// `rig/runtime.zig`): 16 MiB. A frame larger than the guard could skip
 /// past it into memory that is not the task's, so a program's tasks take
@@ -934,6 +948,18 @@ pub const TypeStore = struct {
     /// this one is a compiler bug, which a safe build stops at.
     pub fn get(self: *const TypeStore, id: TypeId) Type {
         return self.items.items[id];
+    }
+
+    /// Whether a value of type `id` is a function to call: a function
+    /// value or closure, directly or through a view, a handle, or an
+    /// optional.
+    pub fn isCallableValue(self: *const TypeStore, id: TypeId) bool {
+        var t = id;
+        while (true) switch (self.get(t)) {
+            .function, .callable => return true,
+            .read_view, .write_view, .shared, .weak, .optional => |inner| t = inner,
+            else => return false,
+        };
     }
 
     /// The id of `ty` if it is interned.
@@ -4488,6 +4514,10 @@ pub const SemContext = struct {
     foreign_text_tables: std.ArrayList(ForeignRef) = .empty,
     /// The calls that may reach one of them, by node (`inlining.decide`).
     inlined_calls: FastMap(NodeKey, void) = .empty,
+    /// The calls whose callee a task may run on a dense stack: every
+    /// function it can reach is known, none is recursive, and the frames
+    /// add up to less than `dense_depth_limit` (`inlining.decide`).
+    dense_calls: FastMap(NodeKey, void) = .empty,
     /// The node `Question`s decided so far, each once.
     decided: *Decided,
     /// Facts of types worked out on their first ask (`TypeMemo`).
@@ -4686,6 +4716,7 @@ pub const SemContext = struct {
         self.text_tables.deinit(self.allocator);
         self.foreign_text_tables.deinit(self.allocator);
         self.inlined_calls.deinit(self.allocator);
+        self.dense_calls.deinit(self.allocator);
         self.write_sites.deinit(self.allocator);
         self.proven.deinit(self.allocator);
         self.proven_if.deinit(self.allocator);

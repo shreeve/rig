@@ -56,7 +56,13 @@ pub fn Task(comptime T: type) type {
         /// `f(args...)&`: start the call as a task, which keeps the
         /// deadline of the task starting it.
         pub fn spawn(comptime f: anytype, args: anytype) Self {
-            return start(false, f, args);
+            return start(false, false, f, args);
+        }
+
+        /// `f(args...)&` for a task the compiler found fits a dense stack
+        /// (`sched.takeDense`): no recursion and no call through a pointer.
+        pub fn spawnDense(comptime f: anytype, args: anytype) Self {
+            return start(false, true, f, args);
         }
 
         /// `f(args...)&` for a local task: one given or lent a value that
@@ -64,10 +70,10 @@ pub fn Task(comptime T: type) type {
         /// Cell of more than one word, a Signal, a function). It and the
         /// task starting it run on this thread from now on.
         pub fn spawnLocal(comptime f: anytype, args: anytype) Self {
-            return start(true, f, args);
+            return start(true, false, f, args);
         }
 
-        fn start(comptime local: bool, comptime f: anytype, args: anytype) Self {
+        fn start(comptime local: bool, comptime dense: bool, comptime f: anytype, args: anytype) Self {
             const Args = @TypeOf(args);
             // A fiber is on a stack of its own already, and the runtime
             // keeps its state per fiber. `run` gives `T` even where `f` is
@@ -90,7 +96,7 @@ pub fn Task(comptime T: type) type {
             // both. It keeps the isolate of the task starting it, which
             // records it before it can run (`Control.made`).
             const state = task();
-            const made = rt.sched.spawn(T, Control, Fiber.run, .{ state.deadline, args }, .{ .isolate = state.isolate }, local);
+            const made = rt.sched.spawn(T, Control, Fiber.run, .{ state.deadline, args }, .{ .isolate = state.isolate }, local, dense);
             return .{ .job = made.job, .control = made.extra };
         }
 
@@ -111,12 +117,12 @@ pub fn Task(comptime T: type) type {
         /// Stage 3): `x` is the address of its self, or of a view of it,
         /// as for `spawnMethod`.
         pub fn spawnWitness(comptime f: anytype, x: anytype, args: anytype) Self {
-            return start(false, f, .{rt.selfArg(f, x)} ++ args);
+            return start(false, false, f, .{rt.selfArg(f, x)} ++ args);
         }
 
         /// `spawnWitness` for a local task (`spawnLocal`).
         pub fn spawnWitnessLocal(comptime f: anytype, x: anytype, args: anytype) Self {
-            return start(true, f, .{rt.selfArg(f, x)} ++ args);
+            return start(true, false, f, .{rt.selfArg(f, x)} ++ args);
         }
 
         /// `s.area()&` through an API object (docs/design/apis.md, Stage
@@ -153,7 +159,7 @@ pub fn Task(comptime T: type) type {
                     return @call(.auto, @field(o.vt.*, name), .{o.ptr} ++ a);
                 }
             };
-            return start(local, Call.run, .{ obj, args });
+            return start(local, false, Call.run, .{ obj, args });
         }
 
         fn startMethod(comptime local: bool, x: anytype, comptime name: []const u8, args: anytype) Self {
@@ -162,8 +168,8 @@ pub fn Task(comptime T: type) type {
             const ptr: Ptr = if (Ptr == P) x else x.*;
             const method = @field(@typeInfo(Ptr).pointer.child, name);
             const SelfParam = @typeInfo(@TypeOf(method)).@"fn".param_types[0].?;
-            if (@typeInfo(SelfParam) == .pointer) return start(local, method, .{ptr} ++ args);
-            return start(local, method, .{ptr.*} ++ args);
+            if (@typeInfo(SelfParam) == .pointer) return start(local, false, method, .{ptr} ++ args);
+            return start(local, false, method, .{ptr.*} ++ args);
         }
 
         /// `>t`: wait for the task to end and take its result. A
@@ -2585,20 +2591,16 @@ pub fn panicStops() bool {
 }
 
 /// Whether the running task's stack has room for an actor's method run
-/// inline (`Actor.claim`): `inline_reserve` bytes or more above its
-/// guard. A stack the runtime did not map, or one it cannot place the
-/// frame in, has none.
+/// inline (`Actor.claim`): a quarter of its length or more above its
+/// guard, or the caller sends a message, which the actor's own task runs
+/// on a stack of its own. A stack the runtime did not map, or one it
+/// cannot place the frame in, has none.
 fn roomInline(t: *rt.TaskState) bool {
     const g = t.stack_guard;
     const at = @frameAddress();
-    if (g.hi == 0 or at < g.hi or at - g.hi > rt.task_stack_size) return false;
-    return at - g.hi >= inline_reserve;
+    if (g.hi == 0 or at < g.hi or at - g.hi > g.len) return false;
+    return at - g.hi >= g.len / 4;
 }
-
-/// The stack a method run inline leaves its caller at least: a quarter
-/// of a task's stack. A deeper caller sends a message, which the actor's
-/// own task runs on a stack of its own.
-const inline_reserve = rt.task_stack_size / 4;
 
 /// A call of an actor's method, in its caller's frame: the actor runs
 /// it (`run`) and answers (`answer`), which wakes the caller, as a task's
