@@ -60,6 +60,28 @@ expect_eq "$(./prog)" "$want" "the optimized program"
 readelf -S prog | grep -q __llvm_prf && fail "the optimized program still counts: $(readelf -S prog | grep __llvm_prf)"
 left=$(find "$RIG_OUT_DIR/programs" -mindepth 2 -maxdepth 2 -type d -name pgo)
 [[ -z $left ]] || fail "--pgo left its working files: $left"
+# The build that trains has its dense guard sealed, or its dense paths
+# train as cold: the workload reads the guard from the executable it runs.
+cat >dense.rig <<'EOF2'
+fun one() -> Int
+  1
+
+sub main()
+  t = one()&
+  print(>t)
+EOF2
+cat >train.sh <<'EOF2'
+python3 - <<'PY' || exit 7
+import sys
+d = open("dense", "rb").read()
+i = d.find(b"rig-dense-guard!")
+sys.exit(0 if i >= 0 and int.from_bytes(d[i + 16:i + 24], "little") > 0 else 1)
+PY
+exec ./dense
+EOF2
+"$RIG" emit dense.rig 2>&1 | grep -q 'spawnDense(one' || fail "dense.rig: one is not on a dense stack"
+out=$(rig build --release --pgo -o dense dense.rig -- sh train.sh 2>&1); expect_rc $? 0 "build with a sealed trained program: $out"
+expect_eq "$(./dense)" "1" "the program trained on a dense stack"
 # The saved profile, with no workload: it fits, so nothing is said.
 out=$(rig build --release --pgo --pgo-profile=p.profdata -o prog2 p.rig 2>&1); expect_rc $? 0 "build by a saved profile: $out"
 expect_eq "$(./prog2)" "$want" "the program built by a saved profile"

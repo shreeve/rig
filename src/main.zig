@@ -609,6 +609,11 @@ fn warnFrames(allocator: std.mem.Allocator, io: std.Io, graph: *modules.ModuleGr
     sealDenseGuard(allocator, io, exe) catch {};
 }
 
+/// `sealDenseGuard` for the build `--pgo` trains on.
+fn sealTrained(allocator: std.mem.Allocator, io: std.Io, exe: []const u8) void {
+    sealDenseGuard(allocator, io, exe) catch {};
+}
+
 /// Write into the release executable `exe` the guard below its dense
 /// stacks (`rt.denseGuard`): twice the most stack any of its functions may
 /// reserve (`frames.largestReach`), a power of two and at least a page. The
@@ -1031,6 +1036,7 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
             .out = out,
             .link = relocs,
             .work = try std.fs.path.join(allocator, &.{ dir, "pgo" }),
+            .seal = sealTrained,
         }, opts.program_args, opts.pgo_profile);
         if (home) |h| recordSize(allocator, io, h, dir);
         warnFrames(allocator, io, &graph, out);

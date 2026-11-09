@@ -80,6 +80,10 @@ pub const Build = struct {
     /// A directory of the package's, for the bitcode, the objects, and
     /// the raw profiles; removed after.
     work: []const u8,
+    /// Finish an executable as `rig build` does, so the build that trains
+    /// runs what the program will: dense stacks are off until it is done,
+    /// and their paths would train as cold.
+    seal: *const fn (std.mem.Allocator, std.Io, []const u8) void,
 };
 
 /// Build `b.out` by profile: trained by `workload` (kept in `profile`
@@ -109,6 +113,7 @@ pub fn build(allocator: std.mem.Allocator, io: std.Io, tools: Tools, b: Build, w
         try clang(allocator, io, &.{ &.{ b.zig, "cc", "-target", target, "-c", "-O2", "-ffreestanding", "-fno-stack-protector", "-fno-PIC", "-fno-PIE", try allocPrint(allocator, "-DRIG_PGO_DIR=\"{s}\"", .{raw}), dump_c, "-o", dump_o } });
         try clang(allocator, io, &.{ cc, &.{ "-fprofile-generate", bitcode, "-o", counted } });
         try runZig(allocator, io, &.{ &.{ b.zig, "build-exe" }, b.flags, &.{ "--cache-dir", b.cache, counted, dump_o, tools.runtime, try allocPrint(allocator, "-femit-bin={s}", .{b.out}) } });
+        b.seal(allocator, io, b.out);
         _ = try run(allocator, io, workload, false);
         var raws: std.ArrayList([]const u8) = .empty;
         var dir = cwd.openDir(io, raw, .{ .iterate = true }) catch |err| fail("cannot read `{s}`: {s}", .{ raw, @errorName(err) });
