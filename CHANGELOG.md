@@ -400,6 +400,8 @@ none of these ever built:
 
 ### Runtime
 
+- The scheduler's shared counters and queues each fill whole cache lines,
+  so what the linker places beside them cannot slow them.
 - On x86-64 Linux and arm64 macOS, a program that makes tasks and no
   local task is preempted by signal: a monitor thread stops a task that
   has run 10 ms while other work waits, in the program's own code, and

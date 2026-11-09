@@ -170,7 +170,12 @@ a program that makes none starts no workers.
   outside the workers.
 - **Cache lines.** Each worker begins a cache line and fills whole
   lines, so no line holds two workers' fields, and the fields each
-  writes at every switch never slow another's (`sched.Worker`).
+  writes at every switch never slow another's (`sched.Worker`). The
+  scheduler's shared counters and queues each fill whole lines too
+  (`sched.OnLine`, `Global`, `Sleepers`, `Spare`), so what the linker
+  places beside them cannot slow them: on Apple's cores, whose lines are
+  128 bytes, adding unrelated globals near them cost `spawn` a third of
+  its speed.
 - **Cheap until it runs.** A task gets its stack when it first runs,
   from the worker that runs it. A waiter whose task has not started and
   is still in one of its worker's slots hands the worker straight to it, on the task's
