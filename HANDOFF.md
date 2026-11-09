@@ -106,6 +106,12 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **Dense stacks** (draft PR #1045, branch `dense-stacks`): a direct
+  `f()&` whose target cannot need much stack takes a stack from one
+  shared reservation, under a guard sealed after the link. Memory per
+  task falls from 33.5 to 17.6 KB on the Mac and 9.1 to 5.2 KB on pup;
+  `chain` and `spawn` cost a little. Packed slots build on it. The owner
+  merges.
 - **`task.fast_cores()`** (draft PR, branch `fast-cores`): the fast
   physical cores within the affinity mask, on macOS and Linux. The name
   is provisional, the owner's to settle; the worker count is unchanged.
