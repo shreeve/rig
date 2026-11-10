@@ -378,11 +378,19 @@ none of these ever built:
   PID and resuming the same PIDs. A board slot pauses every build and
   opens only with no build over 2 GB resident and 64 free 2 MiB blocks
   after compacting; an ab slot lets builds pinned to E-cores 12-19 run.
-  Neither pauses a running test suite; a board run past 45 minutes
-  leaves a 15-minute window when a correctness build waits; every wait
+  Neither pauses a running test suite; a board slot never pauses a
+  running correctness build, and a board run past 45 minutes leaves a
+  15-minute window when one waits (release-slot's
+  `TRIG_RELEASE_CLASS=correctness` files); every wait
   gives up after 45 minutes (exit 75); each open and close is a line in
   `/zfs/trig-pup/slot-tools/slots.log` (`test/cli/pup_slot.sh`, which
   runs on Linux).
+- `tools/heavy --class correctness CMD` puts a gate a merge waits on
+  ahead of every other waiter. A waiter names each holder (PID, minutes
+  held, command) after a minute and every ten minutes, and gives up
+  after `RIG_HEAVY_WAIT` seconds (45 minutes) with exit status 75;
+  `tools/heavy --status` shows the holders and the queue and takes no
+  slot (`test/cli/heavy_class.sh`).
 - `test/cli/agree.sh` fails on macOS when `lake` is missing, and says
   it skipped on stderr elsewhere; it fails, too, when fewer programs
   than its floor (22) are in λRig's scope, or when lrig writes a line it
