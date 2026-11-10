@@ -137,6 +137,48 @@ test "list filled", release: true, '''
     total += x + 1
   print(big.len, total)
 
+test "list filled with zero, in blocks another List wrote and gave back", '''
+  0 40
+  0 300000
+  0 40
+'''
+  # A List of zeros takes memory the heap knows is zero, never handed out
+  # before, without writing it; a block that held another List's values,
+  # freed and taken again, is zeroed. Small, large, and small again.
+  fun refill(n: Int) -> Int
+    used = List[Int].filled(n, 7)
+    <used
+    zeros = List[Int].filled(n, 0)
+    total = 0
+    for x in zeros
+      total += x
+    print(total, zeros.len)
+    0
+  _ = refill(40)
+  _ = refill(300_000)
+  _ = refill(40)
+
+test "list filled with zero, in blocks another List wrote and gave back, release", release: true, '''
+  0 40
+  0 300000
+  0 40
+'''
+  # A List of zeros takes memory the heap knows is zero, never handed out
+  # before, without writing it; a block that held another List's values,
+  # freed and taken again, is zeroed. Small, large, and small again.
+  fun refill(n: Int) -> Int
+    used = List[Int].filled(n, 7)
+    <used
+    zeros = List[Int].filled(n, 0)
+    total = 0
+    for x in zeros
+      total += x
+    print(total, zeros.len)
+    0
+  _ = refill(40)
+  _ = refill(300_000)
+  _ = refill(40)
+
 bomb "list filled negative", "negative size"
   # A negative count panics.
 

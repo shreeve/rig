@@ -402,6 +402,10 @@ none of these ever built:
 
 ### Runtime
 
+- `List.filled(n, x)` with `x` all zero takes memory the heap knows is
+  zero, a block never handed out before, without writing it, as `calloc`
+  does; a block taken again is zeroed. The array of workers is written
+  one worker at a time as each starts, not all 64 when the program does.
 - On the Mac a program built to be preempted finds its code section as
   `main` starts, before any worker thread. A worker that read the
   bounds while they were being written could take the scheduler's code

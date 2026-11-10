@@ -311,6 +311,13 @@ pub const Heap = struct {
     }
 
     fn alloc(h: *Heap, c: usize) ?[*]u8 {
+        return h.allocFrom(c, null);
+    }
+
+    /// `alloc`, and whether the block was carved: never handed out
+    /// before, in a segment mapped afresh and never given back, so all
+    /// zero (`allocZeroed`). One from a free list holds its old bytes.
+    inline fn allocFrom(h: *Heap, c: usize, carved: ?*bool) ?[*]u8 {
         mustOwn(h);
         if (h.free[c]) |b| {
             h.free[c] = b.next;
@@ -322,6 +329,7 @@ pub const Heap = struct {
                 return @ptrCast(list);
             }
         }
+        if (carved) |f| f.* = true;
         const size = classSize(c);
         if (h.carve[c] + size > h.carve_end[c]) {
             // A class on its second page or later fills its pages, so the
@@ -515,6 +523,12 @@ fn keepBound(h: *const Heap) usize {
 }
 
 fn allocLarge(h: *Heap, len: usize) ?[*]u8 {
+    return allocLargeFrom(h, len, null);
+}
+
+/// `allocLarge`, and whether the block was mapped afresh, so all zero.
+/// One kept, or kept cold, holds old bytes in at least its first page.
+inline fn allocLargeFrom(h: *Heap, len: usize, mapped: ?*bool) ?[*]u8 {
     mustOwn(h);
     const size = largeSize(len);
     if (takeKept(&h.kept, size)) |p| {
@@ -527,6 +541,7 @@ fn allocLarge(h: *Heap, len: usize) ?[*]u8 {
         return p;
     }
     const got = mapLarge(size) orelse return null;
+    if (mapped) |f| f.* = true;
     if (size >= huge_large) ask(got, size, .huge) else if (size >= huge_page) ask(got, size, .small);
     h.took(size);
     lent(h, size);
@@ -1870,6 +1885,30 @@ noinline fn allocSlow(len: usize, alignment: std.mem.Alignment) ?[*]u8 {
     return p;
 }
 
+/// A block of `len` bytes, all zero, as `alloc` gives one, or null: a
+/// block carved afresh or mapped afresh is zero already and is not
+/// written, so its pages stay untouched until the program writes them,
+/// as `calloc`'s do; one reused is zeroed (`List.filled` of a zero).
+pub noinline fn allocZeroed(len: usize, alignment: std.mem.Alignment) ?[*]u8 {
+    const h = heap() orelse return null;
+    var fresh = false;
+    const p = if (classOf(len, alignment)) |c| blk: {
+        const q = h.allocFrom(c, &fresh) orelse return null;
+        if (counts) h.count(@intCast(classSize(c)), 1);
+        break :blk q;
+    } else blk: {
+        if (alignment.toByteUnits() > std.heap.pageSize()) return null;
+        const q = allocLargeFrom(h, len, &fresh) orelse return null;
+        if (counts) h.count(@intCast(largeSize(len)), 1);
+        break :blk q;
+    };
+    if (!fresh) @memset(p[0..len], 0);
+    // Its heap's state is whole again: a caller in the program's code
+    // may yield here (`sched.settleAt`).
+    if (sched.preempting) sched.settleAt(@returnAddress());
+    return p;
+}
+
 fn resize(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, _: usize) bool {
     const old = classOf(memory.len, alignment);
     const new = classOf(new_len, alignment);
@@ -2232,6 +2271,28 @@ test "the heap that does the work faults in ahead, beside a thread that takes li
     try std.testing.expect(!led);
     try std.testing.expect(!led_first);
     try std.testing.expect(!leads(me));
+}
+
+test "a zeroed block reads zero whether carved afresh, reused from a free list, or reused large" {
+    const a = allocator;
+    // A small block written and freed comes back zeroed.
+    const x = try a.alloc(u8, 48);
+    @memset(x, 0x5a);
+    a.free(x);
+    const y = allocZeroed(48, .@"1").?;
+    for (y[0..48]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
+    a.free(y[0..48]);
+    // A class never used before: carved afresh, zero untouched.
+    const z = allocZeroed(24 << 10, .@"8").?;
+    for (z[0 .. 24 << 10]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
+    a.free(z[0 .. 24 << 10]);
+    // A large block written and freed is kept, and comes back zeroed.
+    const big = try a.alloc(u8, 1 << 20);
+    @memset(big, 0x5a);
+    a.free(big);
+    const again = allocZeroed(1 << 20, .@"8").?;
+    for (again[0 .. 1 << 20]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
+    a.free(again[0 .. 1 << 20]);
 }
 
 test "on Linux a class's first page faults in only its first block, and its next pages whole" {

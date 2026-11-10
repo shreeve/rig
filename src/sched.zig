@@ -3133,8 +3133,11 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     };
     // Worker 0 runs `main` alone until its first task (`startWorkers`).
     const cap = @max(max_workers, workers_override.* orelse 0);
-    all_workers.* = std.heap.smp_allocator.alloc(Worker, cap) catch rt.oom();
-    for (all_workers.*, 0..) |*w, i| w.* = .{ .rng = @intCast(i * 2654435761 % 4294967291 + 1) };
+    // Each worker is written as it starts (`initWorker`), so the pages of
+    // those a program never starts are never touched: taken raw, as a
+    // safe build's `alloc` would fill the whole array with `undefined`.
+    all_workers.* = rawWorkers(cap);
+    initWorker(0);
     workers_len.store(1, .release);
     const first = &all_workers.*[0];
     first.poller.open();
@@ -3166,7 +3169,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
         w.poller.close();
     }
     freeSpare();
-    std.heap.smp_allocator.free(all_workers.*);
+    freeWorkers(all_workers.*);
     workers_len.store(0, .release);
     all_workers.* = &.{};
     me_slot().* = null;
@@ -3245,6 +3248,24 @@ const all_workers = split.cell(&all_workers_var, "sched.all_workers");
 var started_var = false;
 const started = split.cell(&started_var, "sched.started");
 
+/// Room for `n` workers, untouched: no `undefined` fill, which a safe
+/// build's `alloc` writes over every page.
+fn rawWorkers(n: usize) []Worker {
+    const bytes = std.math.mul(usize, n, @sizeOf(Worker)) catch rt.oom();
+    const p = std.heap.smp_allocator.rawAlloc(bytes, .of(Worker), @returnAddress()) orelse rt.oom();
+    return @as([*]Worker, @ptrCast(@alignCast(p)))[0..n];
+}
+
+/// Give back what `rawWorkers` took, untouched past the workers that ran.
+fn freeWorkers(all: []Worker) void {
+    std.heap.smp_allocator.rawFree(std.mem.sliceAsBytes(all), .of(Worker), @returnAddress());
+}
+
+/// Write the `i`th worker's fields, before it is published or starts.
+fn initWorker(i: usize) void {
+    all_workers.*[i] = .{ .rng = @intCast(i * 2654435761 % 4294967291 + 1) };
+}
+
 /// Start the other workers, when `main` makes its first task: by then
 /// the runtime has the program's environment, for `RIG_WORKERS`, and a
 /// program that makes none starts none.
@@ -3252,6 +3273,7 @@ fn startWorkers() void {
     started.* = true;
     const n = if (deterministic.*) 1 else @min(workerCount(), all_workers.*.len);
     const ws = all_workers.*[0..n];
+    for (1..n) |i| initWorker(i);
     for (ws[1..]) |*w| w.poller.open();
     workers_len.store(n, .release);
     for (ws[1..]) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
@@ -3295,6 +3317,7 @@ fn growWorkers(n: usize) bool {
     if (n <= have) return n == have;
     if (stopping.load(.seq_cst) or (tears_down and exit_state.phase.load(.seq_cst) != .idle)) return false;
     const fresh = all_workers.*[have..n];
+    for (have..n) |i| initWorker(i);
     for (fresh) |*w| w.poller.open();
     workers_len.store(n, .release);
     for (fresh) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
@@ -5994,6 +6017,30 @@ test "a worker whose alternate signal stack cannot be set stops the program" {
     try std.testing.expect(!r.signaled);
     try std.testing.expectEqual(@as(u8, 1), r.code);
     try std.testing.expect(std.mem.indexOf(u8, r.stderr, "alternate signal stack") != null);
+}
+
+test "the workers a program does not start leave their memory untouched" {
+    const Run = struct {
+        var resident: usize = 0;
+        var span: usize = 0;
+        fn main(_: *anyopaque) callconv(.c) void {
+            _ = workersRunning();
+            const all = all_workers.*;
+            const pg = std.heap.pageSize();
+            const lo = std.mem.alignForward(usize, @intFromPtr(&all[3]), pg);
+            const hi = std.mem.alignBackward(usize, @intFromPtr(all.ptr + all.len), pg);
+            if (hi <= lo) return;
+            span = hi - lo;
+            var vec: [512]u8 = undefined;
+            const pages = @min(span / pg, vec.len);
+            std.posix.mincore(@ptrFromInt(lo), pages * pg, &vec) catch return;
+            for (vec[0..pages]) |v| resident += v & 1;
+        }
+    };
+    runForTest(Run.main, 2);
+    // Room for more than three workers past a page, all untouched.
+    try std.testing.expect(Run.span >= std.heap.pageSize());
+    try std.testing.expectEqual(@as(usize, 0), Run.resident);
 }
 
 test "a dense stack's guard faults" {

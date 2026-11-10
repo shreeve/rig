@@ -3579,6 +3579,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
                 @memset(v.inline_buf[0..count], value);
                 return v;
             }
+            if (allZero(T, &value)) return .{ .buf = allocSliceZeroed(T, count), .len = count };
             const buf = allocSlice(T, count);
             @memset(buf, value);
             return .{ .buf = buf, .len = count };
@@ -6177,6 +6178,33 @@ pub fn allocSlice(comptime T: type, n: usize) []T {
     const bytes = std.math.mul(usize, @sizeOf(T), n) catch oom();
     const p = defaultAllocator().rawAlloc(bytes, .fromByteUnits(@alignOf(T)), @returnAddress()) orelse oom();
     return @as([*]T, @ptrCast(@alignCast(p)))[0..n];
+}
+
+/// `allocSlice` of `n` `T`s, every byte zero: memory the allocator knows
+/// is zero already, never written before, is not written now
+/// (`fast_alloc.allocZeroed`).
+pub fn allocSliceZeroed(comptime T: type, n: usize) []T {
+    if (fills or leak_checked or heap_profile or @sizeOf(T) == 0) {
+        const buf = allocSlice(T, n);
+        @memset(std.mem.sliceAsBytes(buf), 0);
+        return buf;
+    }
+    if (@as(u64, n) > max_len) lenPanic();
+    const bytes = std.math.mul(usize, @sizeOf(T), n) catch oom();
+    // A block `allocZeroed` does not give is taken as `allocSlice` takes
+    // it, and zeroed, so the two fail alike.
+    const p = fast_alloc.allocZeroed(bytes, .fromByteUnits(@alignOf(T))) orelse {
+        const buf = allocSlice(T, n);
+        @memset(std.mem.sliceAsBytes(buf), 0);
+        return buf;
+    };
+    return @as([*]T, @ptrCast(@alignCast(p)))[0..n];
+}
+
+/// Whether every byte of `value` is zero, padding among them: a value
+/// whose padding is not reads as not zero and is filled as before.
+inline fn allZero(comptime T: type, value: *const T) bool {
+    return std.mem.allEqual(u8, std.mem.asBytes(value), 0);
 }
 
 /// `old`'s `T`s in a buffer of `n`: grown or shrunk in place when the
