@@ -83,6 +83,14 @@ func main() {
 		}
 		fmt.Println("ready")
 		io.Copy(io.Discard, os.Stdin)
+		// Closed by a reset, not a FIN, the connections leave no
+		// client port in TIME_WAIT (30 s on macOS), so the next run
+		// finds the ports free: 10,000 held twice would not fit
+		// macOS's 16,384.
+		for _, c := range held {
+			c.(*net.TCPConn).SetLinger(0)
+			c.Close()
+		}
 		return
 	}
 	var mu sync.Mutex
