@@ -313,10 +313,14 @@ Machine-specific practice (the owner's machines):
   Mac and x86 on pup, never on burst, a shared VM.
 - **Sharing pup:** start a timing run or a gate only when `ssh pup cpuq
   status` shows no holder, never by an estimated end time. One timing
-  job runs at a time, on P-cores (6, or 0, 6, 8, 10), in a slot opened by
-  `/tmp/open-slot.sh NN MINUTES` (it drops caches and compacts memory so
-  huge pages are available, then pauses new builds until its deadline);
-  everything else runs on E-cores 12-19. `/tmp` is a 16 GB tmpfs shared
+  job runs at a time, on P-cores (6, or 0, 6, 8, 10), in a slot that
+  only Rig opens: `tools/pup-slot open NN MINUTES board|ab LABEL`
+  (installed as `/zfs/trig-pup/bin/pup-slot`). A board slot, a race
+  against tsrs, pauses every build and opens only with no build over
+  2 GB resident and 64 free 2 MiB blocks after compacting; an ab slot
+  lets builds pinned to E-cores 12-19 run on. Neither pauses a running
+  test suite, and every open and close is logged with the machine's
+  state; everything else runs on E-cores 12-19. `/tmp` is a 16 GB tmpfs shared
   with other projects' gates: binaries and outputs go on `/zfs`.
   `tools/pup-rig COMMIT` builds the Rig under test in its own folder.
 - **Timing on the Mac** runs as `tools/mac-claim LABEL CMD`: one board or
