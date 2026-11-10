@@ -4958,8 +4958,9 @@ const chunk = 16;
 
 /// A stack to run a fiber on: one a fiber that ended on this worker
 /// left, or the next of its last reservation, or the first of a new
-/// one. The stacks of a reservation stay untouched until a fiber runs on
-/// each, so they hold no page, nor the table that would map it.
+/// one. The stacks of a reservation stay inaccessible until each is
+/// handed out (`openStack`), so they hold no page, nor the table that
+/// would map it.
 fn takeStack() Stack {
     const w = me();
     const guard = rt.task_guard;
@@ -4976,21 +4977,27 @@ fn takeStack() Stack {
             const b = x.fresh_next;
             x.fresh_next += span;
             x.fresh_left -= 1;
-            return .{ .base = b, .guard = guard, .len = len };
+            return openStack(b, guard, len);
         }
     }
     const count: usize = if (w != null) chunk else 1;
     const got = std.posix.mmap(null, span * count, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch rt.oom();
     const base = @intFromPtr(got.ptr);
     rt.fast_alloc.keepSmall(base, span * count);
-    for (0..count) |i| {
-        const b = base + i * span;
-        if (std.posix.errno(std.posix.system.mprotect(@ptrFromInt(b + guard), len, .{ .READ = true, .WRITE = true })) != .SUCCESS) rt.oom();
-    }
     if (w) |x| {
         x.fresh_next = base + span;
         x.fresh_left = @intCast(count - 1);
     }
+    return openStack(base, guard, len);
+}
+
+/// Make the stack at `base` of a reservation writable, as it is first
+/// handed out: every `mprotect` takes the process's lock on its mappings
+/// for writing, one at a time, so a worker making a chunk's worth at the
+/// first burst of tasks kept the others waiting for stacks no task used.
+/// A stack taken from a free list was opened when it was first handed out.
+fn openStack(base: usize, guard: usize, len: usize) Stack {
+    if (std.posix.errno(std.posix.system.mprotect(@ptrFromInt(base + guard), len, .{ .READ = true, .WRITE = true })) != .SUCCESS) rt.oom();
     return .{ .base = base, .guard = guard, .len = len };
 }
 
@@ -5469,6 +5476,47 @@ test "fibers switch, yield to each other in turn, and finish" {
     try std.testing.expect(at(log, 'a') < at(log, 'c') and at(log, 'b') < at(log, 'd'));
     try std.testing.expect(at(log, 'c') > at(log, 'b') and at(log, 'd') > at(log, 'a'));
     try std.testing.expectEqual(@as(u8, 'e'), log[4]);
+}
+
+test "a reservation's stacks become writable only as each is handed out, and stay so when reused" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var first_stack: Stack = undefined;
+        var reused_same = false;
+        var wrote = false;
+        fn first(_: *anyopaque) callconv(.c) void {
+            const w = me().?;
+            // Start a fresh reservation.
+            while (w.free) |n| {
+                w.free = n.next;
+                w.free_count -= 1;
+            }
+            w.fresh_left = 0;
+            first_stack = takeStack();
+            const top: *volatile usize = @ptrFromInt(first_stack.base + first_stack.guard + first_stack.len - @sizeOf(usize) * 8);
+            top.* = 7;
+            wrote = top.* == 7;
+            // Handed back and taken again: writable, with no second
+            // reservation of the address.
+            releaseStack(w, first_stack);
+            const again = takeStack();
+            reused_same = again.base == first_stack.base;
+            const top2: *volatile usize = @ptrFromInt(again.base + again.guard + again.len - @sizeOf(usize) * 8);
+            top2.* = 8;
+        }
+        fn touchNext() void {
+            const span = first_stack.guard + first_stack.len + std.heap.pageSize();
+            const beyond: *volatile usize = @ptrFromInt(first_stack.base + span + first_stack.guard + first_stack.len - @sizeOf(usize) * 8);
+            beyond.* = 7;
+        }
+    };
+    runForTest(Run.first, 1);
+    try std.testing.expect(Run.wrote);
+    try std.testing.expect(Run.reused_same);
+    // The next stack of the reservation, not yet handed out, faults.
+    var err: [1024]u8 = undefined;
+    const r = try inChild(Run.touchNext, &err);
+    try std.testing.expect(r.signaled);
 }
 
 test "the other stacks of a new reservation stay untouched until a fiber runs on each" {
