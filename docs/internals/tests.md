@@ -351,9 +351,12 @@ A change that may move speed is judged by time, not by a count:
   index count the load with its bounds test, so they overstate what the
   test costs. Remove the check and count
   (`bench/json/checks/sizing.py`).
-- **macOS instruction counts need a median.** One binary's count from
-  `/usr/bin/time -l` varies by several percent from run to run; take
-  the median of 5.
+- **macOS instruction counts need the fewest of several.** One binary's
+  count from `/usr/bin/time -l` includes the kernel's work for the
+  process, which grows with the machine's load, so it varies by
+  several percent from run to run. Take the fewest of several runs,
+  as `bench/check/guard.py` does (7), not the median, which drifts
+  with the load.
 
 The measurements behind these rules are records:
 [rig-notes.md](../history/records/2026-10/json/rig-notes.md) and
