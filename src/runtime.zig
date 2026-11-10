@@ -7312,7 +7312,7 @@ pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn
     // set here (`AltStack`); a child process forked on macOS has none
     // until it is set again.
     if (builtin.link_libc) _ = std.c.pthread_atfork(null, null, attachSignalStack);
-    _ = AltStack.attach();
+    _ = AltStack.attachOrStop();
     installOverflowHandler();
     const Call = struct {
         args: @TypeOf(args),
@@ -7363,6 +7363,8 @@ pub fn denseGuard() usize {
     return g;
 }
 
+/// A forked child's alternate signal stack. Unchecked: a child runs
+/// only until it calls `exec`, and runs no task in between.
 fn attachSignalStack() callconv(.c) void {
     _ = AltStack.attach();
 }
@@ -7383,16 +7385,33 @@ pub const AltStack = struct {
 
     const size = 256 << 10;
 
+    /// Test only: `attach` fails, as when the system has no room.
+    pub var fails_for_test = false;
+
     /// Map an alternate signal stack and set it as this thread's: none
     /// when the system has no room for one, and the thread's handlers
     /// run on its own stack.
     pub fn attach() AltStack {
+        if (builtin.is_test and fails_for_test) return .{ .mem = null };
         const got = std.posix.mmap(null, size, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch return .{ .mem = null };
         std.posix.sigaltstack(&.{ .sp = got.ptr, .flags = 0, .size = size }, null) catch {
             std.posix.munmap(got);
             return .{ .mem = null };
         };
         return .{ .mem = got };
+    }
+
+    /// `attach`, for a thread that runs the program's tasks or its
+    /// blocking calls: without an alternate stack, a signal's frame goes
+    /// on a task's stack and a stack overflow cannot be reported, so the
+    /// program stops before the thread runs anything.
+    pub fn attachOrStop() AltStack {
+        const s = attach();
+        if (s.mem == null) {
+            std.debug.print("rig: cannot set a thread's alternate signal stack\n", .{});
+            std.process.exit(1);
+        }
+        return s;
     }
 
     /// Unset this thread's alternate signal stack, as it ends, and unmap it.
