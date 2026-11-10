@@ -130,4 +130,21 @@ for round in 1 2 3; do
         expect_has "$(grep '^rig: exit:' err.txt)" "rig: exit: torn down on 4 of 4 workers" "preempted parked tears down"
     fi
 done
+
+# Optimized by profile (`--pgo`, src/pgo.zig), a program tears down as
+# any release build does: the build that trains, whose `os.exit` writes
+# its profile first, and the build it optimizes. Both links share one
+# bitcode, so the build's flag cannot tell them apart.
+if [[ $mac == 1 ]] && xcrun --find llvm-profdata >/dev/null 2>&1; then
+    cat >train.sh <<'EOF2'
+RIG_SCHED_STATS=1 RIG_WORKERS=4 ./parked_pgo >train.out 2>train.err
+exit 0
+EOF2
+    rig build --release --pgo --pgo-profile=p.profdata -o parked_pgo parked.rig -- sh train.sh >build.log 2>&1 || fail "build parked --pgo: $(cat build.log)"
+    [[ -s p.profdata ]] || fail "the build that trains wrote no profile"
+    expect_has "$(grep '^rig: exit:' train.err)" "rig: exit: torn down on 4 of 4 workers" "the build that trains tears down"
+    RIG_SCHED_STATS=1 RIG_WORKERS=4 ./parked_pgo >out.txt 2>err.txt; expect_rc $? 4 "parked --pgo"
+    expect_eq "$(cat out.txt)" "exiting 64" "parked's output --pgo"
+    expect_has "$(grep '^rig: exit:' err.txt)" "rig: exit: torn down on 4 of 4 workers" "parked --pgo tears down"
+fi
 exit 0

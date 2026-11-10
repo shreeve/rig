@@ -7993,7 +7993,12 @@ pub fn exitNow(code: Int) noreturn {
     const status = exitStatus(code);
     lockOutput();
     flush();
-    if (scheduled and !pgo) sched.tearDown();
+    // A `--pgo` build's two links share one bitcode, so `pgo` cannot tell
+    // the build that trains from the optimized one: both write the
+    // profile here, where the optimized one's writer does nothing, before
+    // the teardown unmaps what the program holds, and both tear down.
+    if (pgo) writeProfile();
+    if (scheduled) sched.tearDown();
     endProcess(status);
 }
 
