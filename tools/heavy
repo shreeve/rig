@@ -146,6 +146,7 @@ while :; do
 done
 echo $$ >"$S/pid"
 date +%s >"$S/since"
+echo "$C" >"$S/class"
 printf '%s\n' "$*" | cut -c1-200 >"$S/cmd"
 rm -f "$T"
 trap '[[ "$(cat "$S/pid" 2>/dev/null)" == "$$" ]] && rm -rf "$S"' EXIT

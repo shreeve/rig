@@ -323,6 +323,10 @@ Machine-specific practice (the owner's machines):
   state; everything else runs on E-cores 12-19. `/tmp` is a 16 GB tmpfs shared
   with other projects' gates: binaries and outputs go on `/zfs`.
   `tools/pup-rig COMMIT` builds the Rig under test in its own folder.
+- **Timing on the Mac** runs as `tools/mac-claim LABEL CMD`: one board or
+  A/B a claim, at most 20 minutes, never while a correctness job waits
+  in `tools/heavy`; every build, test and profile waits while a claim
+  holds the Mac.
 - **The Mac:** suites run as `tools/heavy swarm test/rig.rip -w 4`, and
   `tools/heavy` takes a second slot only while the load is under the core
   count, so the load stays near it when several sessions work.

@@ -373,6 +373,12 @@ none of these ever built:
 
 ### Tests
 
+- `tools/mac-claim LABEL CMD` runs one timing job holding the Mac's
+  claim line: it waits while another claim holds the Mac or a
+  correctness job holds or waits for a heavy slot, gives up after 45
+  minutes (exit 75), stops the job at its limit (19 minutes, at most 20;
+  exit 124), and clears the line however the job ends
+  (`test/cli/mac_claim.sh`).
 - `tools/pup-slot` opens and closes pup's timing slots (`open NN
   MINUTES board|ab LABEL`, `close`, `status`, `state`), pausing builds by
   PID and resuming the same PIDs. A board slot pauses every build and
