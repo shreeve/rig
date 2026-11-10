@@ -95,29 +95,34 @@ fn absent(err: anyerror) Error!void {
 /// reports no size (a pipe, a device, a Linux `/proc` file) is read to
 /// its end and the buffer trimmed.
 ///
-/// A regular file is read in the task (`readInline`); anything else, a
-/// FIFO, a device, or a failure to report, on the pool (`readHere`).
+/// A regular file is read in the task (`readInline`); a FIFO on Linux
+/// on the pool from the descriptor the task opened (`readFifo`); anything
+/// else, a device, a FIFO elsewhere, or a failure to report, on the pool
+/// from the path (`readHere`).
 pub fn read(path: []const u8) Error!?rig.String {
     return switch (try readInline(path)) {
         .got => |s| s,
+        .fifo => |fd| pool(?rig.String, readFifo, .{Fd{ .fd = fd }}),
         .pool => pool(?rig.String, readHere, .{path}),
     };
 }
 
 /// What `readInline` did: read the file, or found nothing at the path;
-/// or left the read to the pool.
-const Inline = union(enum) { got: ?rig.String, pool };
+/// opened a FIFO, whose descriptor the pool reads; or left the read to
+/// the pool.
+const Inline = union(enum) { got: ?rig.String, fifo: i32, pool };
 
-/// `read` in the task, for a regular file. The path is looked at first,
-/// so that nothing but a regular file is opened here: an open of a FIFO
-/// would let a writer waiting for its reader go on, and the pool's open
-/// after it would not see that writer. The open takes O_NONBLOCK, so it
-/// never waits, even for what is put at the path after the look; and
-/// the descriptor's own stat decides, so only what was opened as a
-/// regular file is read here. Nothing at the path is null, as on the
-/// pool; any other failure, and a read that would wait (a regular file
-/// a lock holds), is left to the pool, which reports or waits as it
-/// would.
+/// `read` in the task, for a regular file. The open takes O_NONBLOCK,
+/// so it never waits, and the descriptor's own stat decides, so only
+/// what was opened as a regular file is read here. A FIFO is opened
+/// too, which lets a writer waiting for its reader go on, so its
+/// descriptor goes to the pool (`readFifo`), which reads what that
+/// writer writes; except on macOS, where the path is looked at first,
+/// so that nothing but a regular file is opened here, since its poll of
+/// a FIFO never reports the writers gone. Nothing at the path is null, as
+/// on the pool; any other failure, and a read that would wait (a
+/// regular file a lock holds), is left to the pool, which reports or
+/// waits as it would.
 fn readInline(path: []const u8) Error!Inline {
     try rig.checkStop();
     var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
@@ -126,25 +131,90 @@ fn readInline(path: []const u8) Error!Inline {
         return .{ .got = null };
     };
     const io = rig.io();
-    const named = std.Io.Dir.cwd().statFile(io, path, .{}) catch |err| {
+    if (comptime !fifo_by_descriptor) {
+        const named = std.Io.Dir.cwd().statFile(io, path, .{}) catch |err| {
+            const e = failure(err);
+            if (e == not_found or e == error.@"std.file.FileError.not_directory") return .{ .got = null };
+            return .pool;
+        };
+        if (named.kind != .file) return .pool;
+    }
+    const fd = openAt(z, .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NONBLOCK = true }) catch |err| {
+        if (std.mem.startsWith(u8, @errorName(err), "std.task.Stop.")) return err;
         const e = failure(err);
         if (e == not_found or e == error.@"std.file.FileError.not_directory") return .{ .got = null };
         return .pool;
     };
-    if (named.kind != .file) return .pool;
-    const fd = openAt(z, .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NONBLOCK = true }) catch |err| {
-        if (std.mem.startsWith(u8, @errorName(err), "std.task.Stop.")) return err;
-        return .pool;
+    var kept = false;
+    defer if (!kept) {
+        _ = sys.close(fd);
     };
-    defer _ = sys.close(fd);
     const file: std.Io.File = .{ .handle = fd, .flags = .{ .nonblocking = true } };
     const st = file.stat(io) catch return .pool;
+    if (fifo_by_descriptor and st.kind == .named_pipe) {
+        kept = true;
+        return .{ .fifo = fd };
+    }
     if (st.kind != .file) return .pool;
     const s = readOpen(fd, st) catch |err| switch (err) {
         error.WouldBlock => return .pool,
         else => |e| return e,
     };
     return .{ .got = s };
+}
+
+/// Whether `readInline` opens a FIFO and hands its descriptor to the
+/// pool (`readFifo`): on Linux, whose poll of a FIFO waits for a writer
+/// when none has come since the open, and reports POLLHUP once the
+/// writers are gone. macOS's reports nothing either way, so a read of
+/// nothing there could not tell the end from a writer yet to come.
+const fifo_by_descriptor = builtin.os.tag == .linux;
+
+/// The bytes of the FIFO `readInline` opened, nonblocking, at `fd`, as a
+/// blocking read gives them: up to the end its last writer leaves. A
+/// read of nothing (0) is the end once a poll has reported the writers
+/// gone (POLLHUP), and otherwise means no writer has come yet, or one
+/// left between the poll and the read: the next poll waits for a writer
+/// or reports the one that left. Each read takes what the FIFO holds,
+/// up to a full pipe's 64 KiB.
+fn readFifo(fd: Fd) Error!?rig.String {
+    var own = fd;
+    defer own.__rig_drop();
+    var s: rig.String = .empty;
+    errdefer rig.dropElement(rig.String, &s);
+    var gone = false;
+    while (true) {
+        const n = readSome(own.fd, s.roomFor(64 * 1024)) catch |err| switch (err) {
+            error.WouldBlock => {
+                gone = try waitReadable(own.fd);
+                continue;
+            },
+            else => |e| return e,
+        };
+        if (n > 0) {
+            s.list.items.len += n;
+            continue;
+        }
+        if (gone) break;
+        gone = try waitReadable(own.fd);
+    }
+    s.fit();
+    return s;
+}
+
+/// Wait until the FIFO at `fd` has bytes to read or its writers are
+/// gone; whether the poll reported them gone (POLLHUP).
+fn waitReadable(fd: i32) Error!bool {
+    var fds = [1]posix.pollfd{.{ .fd = fd, .events = posix.POLL.IN, .revents = 0 }};
+    while (true) {
+        try rig.checkStop();
+        const rc = sys.poll(&fds, fds.len, -1);
+        switch (posix.errno(rc)) {
+            .SUCCESS => if (rc > 0) return fds[0].revents & posix.POLL.HUP != 0,
+            .INTR => {},
+            else => |e| return errnoFailure(e),
+        }
+    }
 }
 
 fn readHere(path: []const u8) Error!?rig.String {
