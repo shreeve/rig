@@ -248,12 +248,14 @@ fn readOpen(fd: i32, st: std.Io.File.Stat) (Error || error{WouldBlock})!rig.Stri
     var s: rig.String = .empty;
     errdefer rig.dropElement(rig.String, &s);
     _ = s.roomFor(size);
-    // Read into the spare capacity; once it is full, a sized file is done,
-    // and any other goes on into `probe`, which finds its end without
-    // growing the buffer.
+    // Read into the spare capacity, a sized file only up to its size (the
+    // buffer may hold more), so it is done once that is read; any other
+    // goes on, once the buffer is full, into `probe`, which finds its end
+    // without growing the buffer.
     var probe: [4096]u8 = undefined;
     while (true) {
-        const spare = s.list.unusedCapacitySlice();
+        const room = s.list.unusedCapacitySlice();
+        const spare = if (sized) room[0..@min(room.len, size -| s.list.items.len)] else room;
         if (spare.len == 0 and sized) break;
         const into = if (spare.len > 0) spare else &probe;
         const n = try readSome(fd, into);
