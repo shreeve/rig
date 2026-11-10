@@ -402,6 +402,10 @@ none of these ever built:
 
 ### Runtime
 
+- `List.filled(n, x)` with `x` all zero takes memory the heap knows is
+  zero, a block never handed out before, without writing it, as `calloc`
+  does; a block taken again is zeroed. The array of workers is written
+  one worker at a time as each starts, not all 64 when the program does.
 - A thread whose alternate signal stack cannot be set stops the program
   with a message, where it ran on with signals taken on a task's stack
   and no report of a stack overflow.
