@@ -117,11 +117,10 @@ sleeping task at 32.7 KiB on the Mac and 8.9 KiB on Linux, about half
 of it page tables, against about 300 bytes for a Tokio task, whose state
 machine is sized by the compiler, and 2.9 KiB for a goroutine. For a
 server, the number that matters is an idle connection: Rig holds no
-buffers while a connection waits, so it is 17.0 KiB of resident memory on
-the Mac and 9.2 KiB on Linux, against hyper's 18.6 and 10.8 KiB; with
-its page table it is more than hyper's on both, and more than Go's on
-the Mac
-([benchmarks.md](benchmarks.md)). Stacks placed closer together, then
+buffers while a connection waits, and its stack shares page tables
+with its neighbours, so it is 17.2 KiB on the Mac and 9.2 KiB on Linux,
+page tables included, against hyper's 18.6 and 10.8 KiB of resident
+memory ([benchmarks.md](benchmarks.md)). Stacks placed closer together, then
 small stacks packed into shared pages, are how Rig is closing the gap
 ([ROADMAP](../ROADMAP.md), "Concurrency").
 
