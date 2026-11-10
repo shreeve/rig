@@ -350,7 +350,13 @@ pub const Heap = struct {
         // so it asks for huge pages for them; a heap that keeps to one
         // segment, as a server's worker's or a blocking-pool thread's,
         // keeps small pages, as a huge page would commit 2 MiB of it.
-        if (builtin.os.tag == .linux) ask(@intFromPtr(s), segment_size, if (faultsAhead(h)) .huge else .small);
+        // Experiment: the leading heap's segments get huge pages whatever the free-block gate says.
+        if (builtin.os.tag == .linux) {
+            if (leads(h)) {
+                const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(@intFromPtr(s));
+                std.posix.madvise(at, segment_size, std.os.linux.MADV.HUGEPAGE) catch {};
+            } else ask(@intFromPtr(s), segment_size, if (faultsAhead(h)) .huge else .small);
+        }
         // The header's page, and the first stretch the heap carves from.
         prefault(h, @intFromPtr(s), prefault_size);
         s.* = .{ .heap = h, .used = 2 };
@@ -525,7 +531,7 @@ fn allocLarge(h: *Heap, len: usize) ?[*]u8 {
         return p;
     }
     const got = mapLarge(size) orelse return null;
-    if (size >= huge_large) ask(got, size, .huge) else if (size >= huge_page) ask(got, size, .small);
+    if (size >= huge_page) ask(got, size, .huge); // experiment: 2 MiB and up ask for huge pages
     h.took(size);
     lent(h, size);
     trimKept(h);
@@ -551,7 +557,7 @@ const huge_page: usize = 2 << 20;
 /// aligned to `huge_page` (as the system often maps them already).
 fn mapLarge(size: usize) ?usize {
     const got = mapPages(size) orelse return null;
-    if (builtin.os.tag != .linux or size < huge_large or got % huge_page == 0) return got;
+    if (builtin.os.tag != .linux or size < huge_page or got % huge_page == 0) return got; // experiment
     unmapLarge(got, size);
     const raw = mapPages(size + huge_page) orelse return null;
     const p = std.mem.alignForward(usize, raw, huge_page);
@@ -2108,7 +2114,7 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
     if (to != 0) {
         ask(rc, new_size, if (old_size >= huge_page and old_size < huge_large) .huge_again else .huge);
     } else if (new_size >= huge_page and old_size < huge_page) {
-        ask(rc, new_size, .small);
+        ask(rc, new_size, .huge); // experiment: grown to 2 MiB, ask for huge pages
     }
     // The pages moved stay; of the new ones, those a List is likely to
     // fill are faulted in at once.
