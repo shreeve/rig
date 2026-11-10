@@ -406,6 +406,11 @@ none of these ever built:
   zero, a block never handed out before, without writing it, as `calloc`
   does; a block taken again is zeroed. The array of workers is written
   one worker at a time as each starts, not all 64 when the program does.
+- On the Mac a program built to be preempted finds its code section as
+  `main` starts, before any worker thread. A worker that read the
+  bounds while they were being written could take the scheduler's code
+  for the program's, and panic with "the scheduler's code was inlined
+  into the program's" (2 runs in 20,000 of a doc example).
 - A thread whose alternate signal stack cannot be set stops the program
   with a message, where it ran on with signals taken on a task's stack
   and no report of a stack overflow.
