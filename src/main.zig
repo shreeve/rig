@@ -123,9 +123,10 @@ const usage =
     \\  --pgo                  Optimize the release build by LLVM's
     \\                         profile-guided optimization, trained on
     \\                         where <workload> (after `--`) runs it
-    \\                         (build; Linux, a program that links no C
-    \\                         library, with llvm-profdata and the
-    \\                         profile runtime of Zig's LLVM)
+    \\                         (build; on Linux, a program that links no
+    \\                         C library, with llvm-profdata and the
+    \\                         profile runtime of Zig's LLVM; on the Mac,
+    \\                         with Apple's command-line tools)
     \\  --pgo-profile=<file>   Keep the profile in <file>; with no
     \\                         workload, optimize the build by <file>
     \\  -h, --help             Show this help
@@ -1010,6 +1011,24 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     const program_args: []const []const u8 = if (opts.command == .run) opts.program_args else &.{};
     const dashes: []const []const u8 = if (program_args.len > 0) &.{"--"} else &.{};
     const relocs: []const []const u8 = if (opts.bolt) bolt.zig_args else &.{};
+    if (pgo_tools) |tools| {
+        if (builtin.os.tag == .linux and pkg.links_libc) fatal("error: `--pgo` builds a program that links no C library, and Zig links this one with libc (-lc)", .{});
+        try pgo.build(allocator, io, tools, .{
+            .zig = zig,
+            .flags = try std.mem.concat(allocator, []const u8, &.{ &.{flag}, release }),
+            .cache = zig_cache,
+            .root = root_zig,
+            .out = out,
+            .link = relocs,
+            .work = try std.fs.path.join(allocator, &.{ dir, "pgo" }),
+            .seal = sealTrained,
+            .apart = if (pkg.keepsCodeApart()) keepCodeApart else null,
+        }, opts.program_args, opts.pgo_profile);
+        if (pkg.keepsCodeApart()) writeDsym(allocator, io, out);
+        if (home) |h| recordSize(allocator, io, h, dir);
+        warnFrames(allocator, io, &graph, out);
+        return;
+    }
     // A split build is linked from its units' objects, and `rig run`
     // runs the executable it writes beside the package.
     var run_argv: ?[]const []const u8 = null;
@@ -1025,22 +1044,6 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
             return;
         }
         run_argv = try std.mem.concat(allocator, []const u8, &.{ &.{exe}, program_args });
-    }
-    if (pgo_tools) |tools| {
-        if (pkg.links_libc) fatal("error: `--pgo` builds a program that links no C library, and Zig links this one with libc (-lc)", .{});
-        try pgo.build(allocator, io, tools, .{
-            .zig = zig,
-            .flags = try std.mem.concat(allocator, []const u8, &.{ &.{flag}, release }),
-            .cache = zig_cache,
-            .root = root_zig,
-            .out = out,
-            .link = relocs,
-            .work = try std.fs.path.join(allocator, &.{ dir, "pgo" }),
-            .seal = sealTrained,
-        }, opts.program_args, opts.pgo_profile);
-        if (home) |h| recordSize(allocator, io, h, dir);
-        warnFrames(allocator, io, &graph, out);
-        return;
     }
     const argv = run_argv orelse try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag }, release, &.{ "--cache-dir", zig_cache, root_zig }, emit_bin, libc, relocs, dashes, program_args });
     if (opts.command == .build) {

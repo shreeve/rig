@@ -401,6 +401,9 @@ none of these ever built:
 
 ### Runtime
 
+- `rig build --release --pgo -- WORKLOAD` works on the Mac, with Apple's
+  command-line tools: Trig 5 to 15% faster on projects it was not
+  trained on.
 - A panic in a method on an actor's own task now cancels and waits for
   the tasks that method started before the stack goes and the caller
   goes on, where a task could read freed stack. A panic in such a task

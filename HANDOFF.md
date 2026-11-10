@@ -383,7 +383,9 @@ Trig projects it was not trained on. They can also be optimized by
 LLVM's profile-guided optimization, `rig build --release --pgo --
 WORKLOAD`: Trig 10% faster with 14% fewer instructions on a project it
 was not trained on, and 5-9% faster than BOLT alone
-([record](docs/history/records/2026-10/perf-stage/pgo.md)). Release
+([record](docs/history/records/2026-10/perf-stage/pgo.md)). The same
+flag works on the Mac: Trig 5 to 15% faster on projects it was not
+trained on ([record](docs/history/records/2026-11/mac-pgo/README.md)). Release
 builds omit frame pointers and stack canaries; `RIG_FRAME_POINTERS=1`
 keeps the first for a profiler, `RIG_STACK_PROTECTOR=1` the second.
 

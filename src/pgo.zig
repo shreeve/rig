@@ -1,8 +1,8 @@
 //! `rig build --release --pgo -- WORKLOAD`: optimize the executable by
 //! LLVM's profile-guided optimization, trained on where a workload runs
-//! it (Linux, a program that links no C library). Zig has no flag for
-//! it, so the build takes Zig's LLVM bitcode of the program and
-//! finishes it with Zig's clang (`zig cc`) and Zig's linker:
+//! it (on Linux, a program that links no C library; on the Mac, any).
+//! Zig has no flag for it, so the build takes Zig's LLVM bitcode of the
+//! program and finishes it with Zig's clang (`zig cc`) and Zig's linker:
 //!
 //! 1. Zig writes the program's bitcode (`-femit-llvm-bc`), once.
 //! 2. `zig cc -fprofile-generate` compiles it with LLVM's counters, and
@@ -14,6 +14,15 @@
 //!    raw profile, and `llvm-profdata merge` makes them one.
 //! 4. `zig cc -fprofile-use` compiles the same bitcode by the profile,
 //!    and Zig links the executable.
+//!
+//! On the Mac the tools are Apple's (`xcrun`), whose LLVM need not be
+//! Zig's: the formats of a raw and a merged profile have changed rarely,
+//! and a change would fail loudly at the merge. Zig's Mach-O linker
+//! writes the counters' records so no llvm-profdata can read them, so
+//! the instrumented build is linked by Apple's `ld`; the optimized one,
+//! which has no counters, by Zig's, as every Mac build is. Both objects
+//! keep the program's section apart as `rig build` does there
+//! (`Build.apart`).
 //!
 //! The two compiles read one bitcode, so every function of the profile
 //! has its name in the optimized build. `--pgo-profile=FILE` keeps the
@@ -37,12 +46,21 @@ const builtin = @import("builtin");
 /// the directory its profiles go in.
 const dump_source = @embedFile("pgo_dump.c");
 
+/// Whether this `rig` builds for the Mac, whose tools and instrumented
+/// link are Apple's.
+const mac = builtin.os.tag == .macos;
+
+/// The target and position flags of every C compile: a static
+/// executable on Linux, position-independent code on the Mac, which
+/// requires it.
+const target = @tagName(builtin.cpu.arch) ++ if (mac) "-macos" else "-linux-none";
+const position: []const []const u8 = if (mac) &.{} else &.{ "-fno-PIC", "-fno-PIE" };
+
 /// The tools `--pgo` runs, found before the build so a missing one fails
-/// at once: llvm-profdata and the profile runtime of the LLVM Zig is
-/// built on, whose formats change with LLVM's major version.
+/// at once: llvm-profdata and the profile runtime, on Linux of the LLVM
+/// Zig is built on, whose formats change with LLVM's major version, and
+/// on the Mac Apple's.
 pub const Tools = struct {
-    /// LLVM's major version in Zig (`zig cc --version`).
-    llvm: u32,
     profdata: []const u8,
     /// `libclang_rt.profile` for this machine's processor, which the
     /// instrumented build links; empty when the build trains nothing.
@@ -54,16 +72,38 @@ pub const Tools = struct {
     /// installation's `lib/clang/NN/lib/`. An error names what is
     /// missing.
     pub fn find(allocator: std.mem.Allocator, io: std.Io, path: []const u8, zig: []const u8, train: bool) !Tools {
-        if (builtin.os.tag != .linux) fail("`--pgo` needs Linux: it builds an executable that links no C library, as Rig's Linux builds do", .{});
+        if (mac) return findApple(allocator, io, train);
+        if (builtin.os.tag != .linux) fail("`--pgo` needs Linux or the Mac", .{});
         const version = try run(allocator, io, &.{ zig, "cc", "--version" }, true);
         const llvm = majorAfter(version.out, "clang version ") orelse fail("cannot read the LLVM version of Zig's clang (`{s} cc --version`):\n{s}", .{ zig, version.out });
         const install = "`--pgo` needs LLVM {d}'s llvm-profdata and profile runtime, the LLVM Zig is built on: install Ubuntu's `llvm-{d}` and `libclang-rt-{d}-dev`";
         const profdata = (try findProfdata(allocator, io, path, llvm)) orelse fail(install, .{ llvm, llvm, llvm });
         const runtime = if (!train) "" else (try findRuntime(allocator, io, profdata, llvm)) orelse
             fail(install ++ " (found {s}, but no libclang_rt.profile beside it)", .{ llvm, llvm, llvm, profdata });
-        return .{ .llvm = llvm, .profdata = profdata, .runtime = runtime };
+        return .{ .profdata = profdata, .runtime = runtime };
+    }
+
+    /// The Mac's tools, by `xcrun`, which also tells clang where the
+    /// system's libraries are: llvm-profdata, and the profile runtime in
+    /// clang's resource directory.
+    fn findApple(allocator: std.mem.Allocator, io: std.Io, train: bool) !Tools {
+        const install = "`--pgo` needs Apple's command-line tools (`xcode-select --install`), whose llvm-profdata, clang, and profile runtime it runs";
+        const profdata = try xcrun(allocator, io, "llvm-profdata") orelse fail(install, .{});
+        if (!train) return .{ .profdata = profdata, .runtime = "" };
+        const resource = try run(allocator, io, &.{ "xcrun", "clang", "-print-resource-dir" }, true);
+        const dir = std.mem.trim(u8, resource.out, " \n");
+        const runtime = try allocPrint(allocator, "{s}/lib/darwin/libclang_rt.profile_osx.a", .{dir});
+        if (resource.code != 0 or !exists(io, runtime)) fail(install ++ " (no `{s}`)", .{runtime});
+        return .{ .profdata = profdata, .runtime = runtime };
     }
 };
+
+/// The path `xcrun` finds for `tool`, or null.
+fn xcrun(allocator: std.mem.Allocator, io: std.Io, tool: []const u8) !?[]const u8 {
+    const r = std.process.run(allocator, io, .{ .argv = &.{ "xcrun", "--find", tool }, .stdout_limit = .limited(1 << 16), .stderr_limit = .limited(1 << 16) }) catch return null;
+    if (!r.term.success()) return null;
+    return std.mem.trim(u8, r.stdout, " \n");
+}
 
 /// How the program is built: what `rig build` hands Zig.
 pub const Build = struct {
@@ -84,7 +124,20 @@ pub const Build = struct {
     /// runs what the program will: dense stacks are off until it is done,
     /// and their paths would train as cold.
     seal: *const fn (std.mem.Allocator, std.Io, []const u8) void,
+    /// On the Mac, in a program built to be preempted: write the object
+    /// (first path) to the second with its program section kept apart,
+    /// as `rig build` does before it links. The processor reserves x15
+    /// for such a program.
+    apart: ?*const fn (std.mem.Allocator, std.Io, []const u8, []const u8) anyerror!void = null,
 };
+
+/// `object`, or its copy with the program section kept apart.
+fn apartFrom(allocator: std.mem.Allocator, io: std.Io, b: Build, object: []const u8) ![]const u8 {
+    const keep = b.apart orelse return object;
+    const out = try allocPrint(allocator, "{s}-apart.o", .{object});
+    try keep(allocator, io, object, out);
+    return out;
+}
 
 /// Build `b.out` by profile: trained by `workload` (kept in `profile`
 /// when given), or, with no workload, by `profile`. A failure of Zig or
@@ -96,10 +149,10 @@ pub fn build(allocator: std.mem.Allocator, io: std.Io, tools: Tools, b: Build, w
     const work = cwd.realPathFileAlloc(io, b.work, allocator) catch |err| fail("cannot find `{s}`: {s}", .{ b.work, @errorName(err) });
     defer cwd.deleteTree(io, work) catch {};
     const bitcode = try std.fs.path.join(allocator, &.{ work, "program.bc" });
-    const target = @tagName(builtin.cpu.arch) ++ "-linux-none";
-    // Zig's native processor, no PIC (a static executable), clang's -O3
+    // Zig's native processor, the target's position flags, clang's -O3
     // with merged functions, as Zig's own pipeline has.
-    const cc: []const []const u8 = &.{ b.zig, "cc", "-target", target, "-mcpu=native", "-c", "-O3", "-fno-PIC", "-fno-PIE", "-Xclang", "-fmerge-functions", "-Wno-override-module" };
+    const cpu: []const u8 = if (b.apart != null) "-mcpu=native+reserve_x15" else "-mcpu=native";
+    const cc: []const []const u8 = try std.mem.concat(allocator, []const u8, &.{ &.{ b.zig, "cc", "-target", target, cpu, "-c", "-O3" }, position, &.{ "-Xclang", "-fmerge-functions", "-Wno-override-module" } });
 
     try runZig(allocator, io, &.{ &.{ b.zig, "build-exe" }, b.flags, &.{ "--cache-dir", b.cache, b.root, try allocPrint(allocator, "-femit-llvm-bc={s}", .{bitcode}), "-fno-emit-bin" } });
     const merged = profile orelse try std.fs.path.join(allocator, &.{ work, "program.profdata" });
@@ -110,9 +163,13 @@ pub fn build(allocator: std.mem.Allocator, io: std.Io, tools: Tools, b: Build, w
         const dump_o = try std.fs.path.join(allocator, &.{ work, "pgo_dump.o" });
         const counted = try std.fs.path.join(allocator, &.{ work, "counted.o" });
         cwd.writeFile(io, .{ .sub_path = dump_c, .data = dump_source }) catch |err| fail("cannot write `{s}`: {s}", .{ dump_c, @errorName(err) });
-        try clang(allocator, io, &.{ &.{ b.zig, "cc", "-target", target, "-c", "-O2", "-ffreestanding", "-fno-stack-protector", "-fno-PIC", "-fno-PIE", try allocPrint(allocator, "-DRIG_PGO_DIR=\"{s}\"", .{raw}), dump_c, "-o", dump_o } });
+        try clang(allocator, io, &.{ &.{ b.zig, "cc", "-target", target, "-c", "-O2", "-ffreestanding", "-fno-stack-protector" }, position, &.{ try allocPrint(allocator, "-DRIG_PGO_DIR=\"{s}\"", .{raw}), dump_c, "-o", dump_o } });
         try clang(allocator, io, &.{ cc, &.{ "-fprofile-generate", bitcode, "-o", counted } });
-        try runZig(allocator, io, &.{ &.{ b.zig, "build-exe" }, b.flags, &.{ "--cache-dir", b.cache, counted, dump_o, tools.runtime, try allocPrint(allocator, "-femit-bin={s}", .{b.out}) } });
+        const counted_apart = try apartFrom(allocator, io, b, counted);
+        if (mac)
+            try clang(allocator, io, &.{&.{ "xcrun", "clang", counted_apart, dump_o, tools.runtime, "-o", b.out }})
+        else
+            try runZig(allocator, io, &.{ &.{ b.zig, "build-exe" }, b.flags, &.{ "--cache-dir", b.cache, counted_apart, dump_o, tools.runtime, try allocPrint(allocator, "-femit-bin={s}", .{b.out}) } });
         b.seal(allocator, io, b.out);
         _ = try run(allocator, io, workload, false);
         var raws: std.ArrayList([]const u8) = .empty;
@@ -129,7 +186,7 @@ pub fn build(allocator: std.mem.Allocator, io: std.Io, tools: Tools, b: Build, w
     const none_c = try std.fs.path.join(allocator, &.{ work, "pgo_none.c" });
     const none_o = try std.fs.path.join(allocator, &.{ work, "pgo_none.o" });
     cwd.writeFile(io, .{ .sub_path = none_c, .data = "void __rig_pgo_dump(void) {}\n" }) catch |err| fail("cannot write `{s}`: {s}", .{ none_c, @errorName(err) });
-    try clang(allocator, io, &.{ &.{ b.zig, "cc", "-target", target, "-c", "-O2", "-fno-PIC", "-fno-PIE", none_c, "-o", none_o } });
+    try clang(allocator, io, &.{ &.{ b.zig, "cc", "-target", target, "-c", "-O2" }, position, &.{ none_c, "-o", none_o } });
     const optimized = try std.fs.path.join(allocator, &.{ work, "optimized.o" });
     const r = try run(allocator, io, try std.mem.concat(allocator, []const u8, &.{ cc, &.{ try allocPrint(allocator, "-fprofile-use={s}", .{merged}), bitcode, "-o", optimized } }), true);
     if (r.code != 0) {
@@ -137,7 +194,9 @@ pub fn build(allocator: std.mem.Allocator, io: std.Io, tools: Tools, b: Build, w
         std.process.exit(r.code);
     }
     stale(r.out, merged);
-    try runZig(allocator, io, &.{ &.{ b.zig, "build-exe" }, b.flags, &.{ "--cache-dir", b.cache, optimized, none_o }, b.link, &.{try allocPrint(allocator, "-femit-bin={s}", .{b.out})} });
+    const optimized_apart = try apartFrom(allocator, io, b, optimized);
+    const libc: []const []const u8 = if (mac) &.{"-lc"} else &.{};
+    try runZig(allocator, io, &.{ &.{ b.zig, "build-exe" }, b.flags, &.{ "--cache-dir", b.cache, optimized_apart, none_o }, libc, b.link, &.{try allocPrint(allocator, "-femit-bin={s}", .{b.out})} });
 }
 
 /// What clang says of a profile that does not fit the build, said as a

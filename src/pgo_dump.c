@@ -1,6 +1,29 @@
 /* The profile writer of `rig build --pgo`'s instrumented build
    (src/pgo.zig), linked with LLVM's profile runtime
-   (libclang_rt.profile) into a program that links no C library.
+   (libclang_rt.profile).
+
+   On the Mac a program links libSystem, but ends by `_exit`, which runs
+   no `atexit` handler: the runtime calls `__rig_pgo_dump` as on Linux,
+   and it asks LLVM's runtime for the profile, in RIG_PGO_DIR under the
+   process's id. */
+
+#ifdef __APPLE__
+
+#ifndef RIG_PGO_DIR
+#error "RIG_PGO_DIR names the directory the profiles go in"
+#endif
+
+void __llvm_profile_set_filename(const char *);
+int __llvm_profile_dump(void);
+
+void __rig_pgo_dump(void) {
+  __llvm_profile_set_filename(RIG_PGO_DIR "/raw-%p.profraw");
+  __llvm_profile_dump();
+}
+
+#else
+
+/* On Linux, in a program that links no C library.
 
    LLVM's runtime writes its profile from an `atexit` handler, which a
    program without libc never runs: Zig's start code and Rig's runtime
@@ -130,3 +153,5 @@ void __rig_pgo_dump(void) {
     return;
   }
 }
+
+#endif
