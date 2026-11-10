@@ -190,10 +190,14 @@ until its rule is built. docs/internals/tests.md has the rest.
    light gate before it merges: from a Trig checkout, `tools/pup-rig
    COMMIT` builds the Rig under test on pup in its own folder,
    `/zfs/trig-pup/rig-<sha>` (reused when already built), and prints
-   the `PUP_RIG=` to use; then `PUP_RIG=/zfs/trig-pup/rig-<sha>/bin/rig
-   tools/light` runs a debug trig on Trig's six cli projects four ways
+   the `PUP_RIG=` to use; then `TRIG_RIG_OVERRIDE=1
+   PUP_RIG=/zfs/trig-pup/rig-<sha>/bin/rig tools/light` runs a debug
+   trig on Trig's six cli projects four ways
    each (own config, Trig's, `--pretty`, `--checkers 4`),
    byte-identical to tsc, in about a minute, and ends GREEN or RED.
+   Trig's tools refuse a Rig other than the one in its `tools/rig-pin`
+   unless `TRIG_RIG_OVERRIDE=1` says the Rig under test is meant (with
+   `PUP_RIG` on pup, or `RIG` on the Mac).
    It also passes loco's light gate:
    from a loc checkout (`~/Data/Code/loc`, pulled),
    `rig/tools/light RIG=/path/to/bin/rig` builds loco with that Rig,
