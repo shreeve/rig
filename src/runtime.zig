@@ -6191,8 +6191,22 @@ pub fn allocSliceZeroed(comptime T: type, n: usize) []T {
     }
     if (@as(u64, n) > max_len) lenPanic();
     const bytes = std.math.mul(usize, @sizeOf(T), n) catch oom();
-    const p = fast_alloc.allocZeroed(bytes, .fromByteUnits(@alignOf(T))) orelse oom();
+    // A block the heap does not serve, as one aligned past a page, is
+    // taken as `allocSlice` takes it, and zeroed.
+    const p = fast_alloc.allocZeroed(bytes, .fromByteUnits(@alignOf(T))) orelse {
+        const buf = allocSlice(T, n);
+        @memset(std.mem.sliceAsBytes(buf), 0);
+        return buf;
+    };
     return @as([*]T, @ptrCast(@alignCast(p)))[0..n];
+}
+
+test "a zeroed slice of a type aligned past a page is served, zeroed, as allocSlice serves it" {
+    const Wide = struct { x: u64 align(1 << 16) };
+    const buf = allocSliceZeroed(Wide, 3);
+    defer defaultAllocator().free(buf);
+    try std.testing.expect(@intFromPtr(buf.ptr) % (1 << 16) == 0);
+    for (buf) |w| try std.testing.expectEqual(@as(u64, 0), w.x);
 }
 
 /// Whether every byte of `value` is zero, padding among them: a value
