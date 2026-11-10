@@ -113,8 +113,10 @@ const huge: usize = 2 << 20;
 /// memory fragments faults in through the compactor, as every range that
 /// asks does (docs/history/records/2026-10/perf-stage/thp-fragmented.md).
 /// A release build on Linux and the Mac takes the range from
-/// `reserveTable`, which asks the same way on Linux; a debug build, and
-/// any table it cannot place, maps its own.
+/// `reserveTable`, which on Linux asks as this does, and waits to until
+/// the heap that reserved it does much of the program's work
+/// (`tableWaits`); a debug build, and any table it cannot place, maps its
+/// own.
 fn reserve(bytes: usize) [*]align(page) u8 {
     if (comptime !leak_checked) if (rt.fast_alloc.reserveTable(bytes)) |p| return p;
     const prot: std.posix.PROT = .{ .READ = true, .WRITE = true };

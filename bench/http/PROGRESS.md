@@ -114,3 +114,7 @@ which is why that row reads faster.
 | 2026-11-09 | #1044: an actor's runner waits for what its methods started (pup cores 0-11) | rig-fast | 820683 | 65 us | 239 us | - |
 | 2026-11-09 | main efa08ecf0 before #1045, shuffled (pup cores 0-11) | rig-fast | 757389 | 68 us | 237 us | - |
 | 2026-11-09 | #1045: dense stacks (pup cores 0-11) | rig-fast | 699070 | 66 us | 238 us | - |
+| 2026-11-09 | main ec0a2a743 before #1048, alternated (pup cores 0-11) | rig-fast | 755727 | 73 us | 234 us | - |
+| 2026-11-09 | #1048: a Table of a heap that does little waits to ask for huge pages (pup cores 0-11) | rig-fast | 833107 | 64 us | 245 us | - |
+| 2026-11-09 | main ec0a2a743 before #1048, alternated (Mac) | rig-fast | 168798 | 371 us | 591 us | - |
+| 2026-11-09 | #1048: a Table of a heap that does little waits to ask for huge pages (Mac) | rig-fast | 170727 | 367 us | 571 us | - |

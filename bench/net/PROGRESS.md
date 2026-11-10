@@ -110,3 +110,7 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-11-09 | #1044: an actor's runner waits for what its methods started (pup cores 0-11) | rig-fast | 5.15 us | 1.05 us | 26.41 us |
 | 2026-11-09 | main efa08ecf0 before #1045, shuffled (pup cores 0-11) | rig-fast | 5.14 us | 1.05 us | 26.57 us |
 | 2026-11-09 | #1045: dense stacks (pup cores 0-11) | rig-fast | 5.12 us | 1.06 us | 26.38 us |
+| 2026-11-09 | main ec0a2a743 before #1048, alternated (pup cores 0-11) | rig-fast | 5.35 us | 1.04 us | 26.81 us |
+| 2026-11-09 | #1048: a Table of a heap that does little waits to ask for huge pages (pup cores 0-11) | rig-fast | 5.14 us | 1.07 us | 26.75 us |
+| 2026-11-09 | main ec0a2a743 before #1048, alternated (Mac) | rig-fast | 15.72 us | 6.15 us | 52.58 us |
+| 2026-11-09 | #1048: a Table of a heap that does little waits to ask for huge pages (Mac) | rig-fast | 16.46 us | 6.16 us | 51.14 us |

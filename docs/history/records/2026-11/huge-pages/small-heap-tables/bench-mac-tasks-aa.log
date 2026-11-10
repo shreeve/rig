@@ -1,0 +1,163 @@
+=== round 1 a tasks
+        rig-fast          vs rig-fast
+spawn   164 ns/task       
+chain   45 ns/task        
+fanout  79.7 ms/run       
+yield   5 ns/yield        
+hog     187 ns/step       
+produce 6.6 ms/run        
+memory  16.7 KiB/task     
+=== round 1 aa tasks
+        rig-fast          vs rig-fast
+spawn   190 ns/task       
+chain   44 ns/task        
+fanout  80.2 ms/run       
+yield   5 ns/yield        
+hog     165 ns/step       
+produce 7.2 ms/run        
+memory  16.7 KiB/task     
+=== round 1 b tasks
+        rig-fast          vs rig-fast
+spawn   155 ns/task       
+chain   45 ns/task        
+fanout  80.0 ms/run       
+yield   5 ns/yield        
+hog     201 ns/step       
+produce 7.2 ms/run        
+memory  16.7 KiB/task     
+=== round 2 b tasks
+        rig-fast          vs rig-fast
+spawn   171 ns/task       
+chain   44 ns/task        
+fanout  89.7 ms/run       
+yield   5 ns/yield        
+hog     193 ns/step       
+produce 6.2 ms/run        
+memory  16.7 KiB/task     
+=== round 2 a tasks
+        rig-fast          vs rig-fast
+spawn   167 ns/task       
+chain   47 ns/task        
+fanout  81.6 ms/run       
+yield   5 ns/yield        
+hog     203 ns/step       
+produce 6.2 ms/run        
+memory  16.7 KiB/task     
+=== round 2 aa tasks
+        rig-fast          vs rig-fast
+spawn   168 ns/task       
+chain   44 ns/task        
+fanout  78.4 ms/run       
+yield   5 ns/yield        
+hog     191 ns/step       
+produce 7.2 ms/run        
+memory  16.7 KiB/task     
+=== round 3 aa tasks
+        rig-fast          vs rig-fast
+spawn   169 ns/task       
+chain   44 ns/task        
+fanout  82.4 ms/run       
+yield   5 ns/yield        
+hog     151 ns/step       
+produce 7.2 ms/run        
+memory  16.7 KiB/task     
+=== round 3 b tasks
+        rig-fast          vs rig-fast
+spawn   176 ns/task       
+chain   50 ns/task        
+fanout  82.2 ms/run       
+yield   5 ns/yield        
+hog     202 ns/step       
+produce 6.2 ms/run        
+memory  16.7 KiB/task     
+=== round 3 a tasks
+        rig-fast          vs rig-fast
+spawn   171 ns/task       
+chain   44 ns/task        
+fanout  79.1 ms/run       
+yield   5 ns/yield        
+hog     155 ns/step       
+produce 7.1 ms/run        
+memory  16.7 KiB/task     
+=== round 4 a tasks
+        rig-fast          vs rig-fast
+spawn   174 ns/task       
+chain   44 ns/task        
+fanout  79.8 ms/run       
+yield   5 ns/yield        
+hog     172 ns/step       
+produce 7.0 ms/run        
+memory  16.7 KiB/task     
+=== round 4 aa tasks
+        rig-fast          vs rig-fast
+spawn   172 ns/task       
+chain   44 ns/task        
+fanout  78.5 ms/run       
+yield   5 ns/yield        
+hog     159 ns/step       
+produce 6.1 ms/run        
+memory  16.7 KiB/task     
+=== round 4 b tasks
+        rig-fast          vs rig-fast
+spawn   160 ns/task       
+chain   45 ns/task        
+fanout  80.2 ms/run       
+yield   5 ns/yield        
+hog     153 ns/step       
+produce 7.2 ms/run        
+memory  16.7 KiB/task     
+=== round 5 b tasks
+        rig-fast          vs rig-fast
+spawn   164 ns/task       
+chain   45 ns/task        
+fanout  77.7 ms/run       
+yield   5 ns/yield        
+hog     214 ns/step       
+produce 7.1 ms/run        
+memory  16.7 KiB/task     
+=== round 5 a tasks
+        rig-fast          vs rig-fast
+spawn   160 ns/task       
+chain   46 ns/task        
+fanout  80.0 ms/run       
+yield   5 ns/yield        
+hog     186 ns/step       
+produce 7.2 ms/run        
+memory  16.7 KiB/task     
+=== round 5 aa tasks
+        rig-fast          vs rig-fast
+spawn   164 ns/task       
+chain   44 ns/task        
+fanout  81.9 ms/run       
+yield   5 ns/yield        
+hog     172 ns/step       
+produce 7.2 ms/run        
+memory  16.7 KiB/task     
+=== round 6 aa tasks
+        rig-fast          vs rig-fast
+spawn   167 ns/task       
+chain   44 ns/task        
+fanout  80.7 ms/run       
+yield   5 ns/yield        
+hog     212 ns/step       
+produce 6.2 ms/run        
+memory  16.7 KiB/task     
+=== round 6 b tasks
+        rig-fast          vs rig-fast
+spawn   159 ns/task       
+chain   45 ns/task        
+fanout  82.0 ms/run       
+yield   5 ns/yield        
+hog     166 ns/step       
+produce 6.2 ms/run        
+memory  16.7 KiB/task     
+=== round 6 a tasks
+        rig-fast          vs rig-fast
+spawn   164 ns/task       
+chain   45 ns/task        
+fanout  78.1 ms/run       
+yield   5 ns/yield        
+hog     175 ns/step       
+produce 7.2 ms/run        
+memory  16.7 KiB/task     
+finished

@@ -117,3 +117,7 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-11-09 | #1044: an actor's runner waits for what its methods started (pup cores 0-11) | rig-fast | 12 ns | 21 ns | 1.8 ns |
 | 2026-11-09 | main 347f0de35 before #1044, alternated (Mac) | rig-fast | 5.1 ns | 13 ns | 0.8 ns |
 | 2026-11-09 | #1044: an actor's runner waits for what its methods started (Mac) | rig-fast | 4.9 ns | 13 ns | 0.8 ns |
+| 2026-11-09 | main ec0a2a743 before #1048, alternated (pup cores 0-11) | rig-fast | 12 ns | 20 ns | 1.8 ns |
+| 2026-11-09 | #1048: a Table of a heap that does little waits to ask for huge pages (pup cores 0-11) | rig-fast | 12 ns | 20 ns | 1.8 ns |
+| 2026-11-09 | main ec0a2a743 before #1048, alternated (Mac) | rig-fast | 5 ns | 13 ns | 0.9 ns |
+| 2026-11-09 | #1048: a Table of a heap that does little waits to ask for huge pages (Mac) | rig-fast | 5 ns | 14 ns | 0.9 ns |
