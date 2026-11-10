@@ -373,6 +373,12 @@ none of these ever built:
 
 ### Tests
 
+- `tools/heavy --class correctness CMD` puts a gate a merge waits on
+  ahead of every other waiter. A waiter names each holder (PID, minutes
+  held, command) after a minute and every ten minutes, and gives up
+  after `RIG_HEAVY_WAIT` seconds (45 minutes) with exit status 75;
+  `tools/heavy --status` shows the holders and the queue and takes no
+  slot (`test/cli/heavy_class.sh`).
 - `test/cli/agree.sh` fails on macOS when `lake` is missing, and says
   it skipped on stderr elsewhere; it fails, too, when fewer programs
   than its floor (22) are in λRig's scope, or when lrig writes a line it

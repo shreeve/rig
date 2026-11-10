@@ -1,24 +1,95 @@
 #!/bin/bash
-# tools/heavy CMD...: run CMD holding one of the repository's heavy slots,
-# so builds and Swarm runs from several worktrees or agents on one machine
-# go at most RIG_HEAVY_SLOTS at a time (default 2), in the order they
-# asked. A slot past the first is taken only while the machine's load is
-# under its CPU count, so a second job never piles onto a full machine. Each slot is a directory in the repository's shared git
-# directory, which every worktree sees: slot 0 is the lock a single-slot
-# copy of this script takes, so old and new copies share it. A holder
-# that died leaves its slot, and the next waiter clears it. The
-# repository is the one this script is in, found by tools/gitdir: from a
-# plain copy of Rig, set GIT_DIR, or the runs would not queue with the
-# worktrees'.
+# tools/heavy [--class correctness] CMD...: run CMD holding one of the
+# repository's heavy slots, so builds and Swarm runs from several
+# worktrees or agents on one machine go at most RIG_HEAVY_SLOTS at a time
+# (default 2), in the order they asked. A correctness job
+# (`--class correctness`, or RIG_HEAVY_CLASS=correctness: a gate a merge
+# waits on) goes ahead of every other waiter, in the order correctness
+# jobs asked. A slot past the first is taken only while the machine's
+# load is under its CPU count, so a second job never piles onto a full
+# machine.
+#
+# A waiter says what it waits on (each holder's PID, how long it has
+# held, and its command) after a minute and every ten minutes after, and
+# gives up after RIG_HEAVY_WAIT seconds (default 2700, 45 minutes) with
+# that message and exit status 75.
+#
+# tools/heavy --status prints the holders and the queue and takes no slot.
+#
+# Each slot is a directory in the repository's shared git directory,
+# which every worktree sees: slot 0 is the lock a single-slot copy of
+# this script takes, so old and new copies share it. A holder that died
+# leaves its slot, and the next waiter clears it. A ticket's name is its
+# class (0 correctness, 1 other), the time it asked, and its PID; an
+# older copy of this script, whose tickets are the time and the PID,
+# queues behind both. The repository is the one this script is in, found
+# by tools/gitdir: from a plain copy of Rig, set GIT_DIR, or the runs
+# would not queue with the worktrees'.
 G=$("$(dirname "${BASH_SOURCE[0]}")/gitdir" tools/heavy) || exit 2
 L=$G/rig-heavy.lock
 N=${RIG_HEAVY_SLOTS:-2}
+Q=$L.q
+CLASS=${RIG_HEAVY_CLASS:-}
+STATUS=
+while [[ ${1:-} == --* ]]; do
+    case $1 in
+    --class) CLASS=${2:-}; shift 2 ;;
+    --class=*) CLASS=${1#--class=}; shift ;;
+    --status) STATUS=1; shift ;;
+    --) shift; break ;;
+    *) echo "tools/heavy: unknown option $1 (--class correctness, --status)" >&2; exit 2 ;;
+    esac
+done
+case $CLASS in
+correctness) C=0 ;;
+"" | other) C=1 ;;
+*) echo "tools/heavy: unknown class '$CLASS' (correctness, or none)" >&2; exit 2 ;;
+esac
+
+slot() {
+    if (($1 == 0)); then echo "$L"; else echo "$L.$1"; fi
+}
+# One line for each holder: its slot, PID, minutes held, and command.
+holders() {
+    local i s pid since cmd now
+    now=$(date +%s)
+    for ((i = 0; i < N; i++)); do
+        s=$(slot $i)
+        pid=$(cat "$s/pid" 2>/dev/null) || continue
+        kill -0 "$pid" 2>/dev/null || continue
+        since=$(cat "$s/since" 2>/dev/null || stat -c %Y "$s" 2>/dev/null || stat -f %m "$s")
+        cmd=$(cat "$s/cmd" 2>/dev/null || ps -o args= -p "$pid" | cut -c1-120)
+        echo "  slot $i: PID $pid, $(((now - since) / 60)) min, $cmd"
+    done
+}
+# The live tickets, first in line first.
+tickets() {
+    local f
+    ls "$Q" 2>/dev/null | sort -n | while read -r f; do
+        kill -0 "${f##*-}" 2>/dev/null && echo "$f"
+    done
+}
+
+if [[ -n $STATUS ]]; then
+    echo "tools/heavy: $N slots in $G"
+    h=$(holders)
+    if [[ -n $h ]]; then echo "$h"; else echo "  no holder"; fi
+    n=0
+    for f in $(tickets); do
+        n=$((n + 1))
+        case $f in 0-*) k=correctness ;; *) k=other ;; esac
+        echo "  waiting $n: PID ${f##*-} ($k)"
+    done
+    ((n == 0)) && echo "  no waiter"
+    exit 0
+fi
+(($# > 0)) || { echo "usage: tools/heavy [--class correctness] CMD..." >&2; exit 2; }
+
 # Under a holder of a slot (tools/heavy tools/baseline, whose build asks
 # for it again), the command runs at once: waiting would wait on itself.
 if [[ -n ${RIG_HEAVY_HELD:-} && ${RIG_HEAVY_HELD} == "$L"* ]]; then exec "$@"; fi
-Q=$L.q
 mkdir -p "$Q"
-T="$Q/$(perl -MTime::HiRes=time -e 'printf "%d", time*1e9')-$$"
+T="$Q/$C-$(perl -MTime::HiRes=time -e 'printf "%020d", time*1e9')-$$"
 : >"$T" || { echo "tools/heavy: cannot write a ticket in $Q; is the disk full?" >&2; exit 2; }
 trap 'rm -f "$T"' EXIT
 first() {
@@ -28,9 +99,6 @@ first() {
         if kill -0 "$p" 2>/dev/null; then echo "$Q/$f"; return; fi
         rm -f "$Q/$f"
     done
-}
-slot() {
-    if (($1 == 0)); then echo "$L"; else echo "$L.$1"; fi
 }
 # Whether the one-minute load is under the CPU count.
 loadRoom() {
@@ -44,6 +112,9 @@ loadRoom() {
     fi
     awk -v l="$load" -v c="$cpus" 'BEGIN { exit !(l < c) }'
 }
+WAIT=${RIG_HEAVY_WAIT:-2700}
+START=$(date +%s)
+TOLD=$((START + 60))
 S=
 while :; do
     for ((i = 0; i < N; i++)); do
@@ -59,9 +130,23 @@ while :; do
         done
         [[ -n $S ]] && break
     fi
+    now=$(date +%s)
+    if ((now - START >= WAIT)); then
+        echo "tools/heavy: gave up after $((WAIT / 60)) minutes waiting for a slot ($(tickets | grep -c .) in line); held by:" >&2
+        holders >&2
+        exit 75
+    fi
+    if ((now >= TOLD)); then
+        ahead=$(tickets | sed "/$(basename "$T")/q" | grep -c .)
+        echo "tools/heavy: waiting $(((now - START) / 60)) min for a slot, $((ahead - 1)) ahead of this job; held by:" >&2
+        holders >&2
+        TOLD=$((now + 600))
+    fi
     sleep 2
 done
 echo $$ >"$S/pid"
+date +%s >"$S/since"
+printf '%s\n' "$*" | cut -c1-200 >"$S/cmd"
 rm -f "$T"
 trap '[[ "$(cat "$S/pid" 2>/dev/null)" == "$$" ]] && rm -rf "$S"' EXIT
 RIG_HEAVY_HELD=$S "$@"
