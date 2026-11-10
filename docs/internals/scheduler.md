@@ -5,7 +5,14 @@ How Rig runs tasks fast: the engine under `f(x)&` (docs/design/concurrency.md,
 `PROGRESS.md` records each step. Every program that makes tasks runs on it, with one worker
 per core, or as many as the program asks for with `task.workers(n)`
 before its first task, or else `RIG_WORKERS` of them when that is set;
-a program that makes none starts no workers.
+a program that makes none starts no workers. A later `task.workers(n)`
+raises the number and never lowers it (`growWorkers`): the array of
+workers is fixed and only its length grows, so a reader takes the
+length once for a walk and a worker it finds may not have started.
+Under one lock, a raise opens the new pollers, publishes the length, and
+starts the threads; `main`'s end and an `os.exit` read the final workers
+under that lock, so a raise finishes before they look or makes no
+worker after.
 
 ## Shape
 
