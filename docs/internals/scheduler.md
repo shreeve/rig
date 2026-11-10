@@ -269,7 +269,9 @@ handler the runtime installs runs there, not on a task's stack, where
 the frame the kernel writes for a signal, up to several KiB, would take
 room the task's frames were given; a program that makes tasks installs
 again so any handler other code installed before it started
-(`rt.handlersOnAltStack`), as Go's runtime does.
+(`rt.handlersOnAltStack`), as Go's runtime does. A thread that cannot set its own stops the program before it runs
+anything (`AltStack.attachOrStop`): the main thread, each worker, and
+the blocking pool's threads.
 
 Below each stack is a guard that a frame overflowing the stack faults
 in. A frame that skipped past its guard would land in another's memory,
