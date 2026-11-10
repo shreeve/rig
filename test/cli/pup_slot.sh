@@ -53,5 +53,25 @@ out=$("$S" open 9 5 board 2>&1); rc=$?
 expect_rc $rc 75 "a slot while a suite runs"
 expect_has "$out" "test suites running (PIDs $s)" "the reason"
 expect_eq "$(pstate $b)" S "nothing paused while a suite runs"
-kill $s $b
+kill $s
+
+# A running correctness build: a board slot waits for it; a file whose
+# start time is not its PID's (a reused PID) counts for nothing.
+mkdir -p corr
+bash -c 'exec -a pupslottest-corr sleep 60' &
+c=$!
+sleep 0.3
+start=$(sed 's/^.*) //' /proc/$c/stat | awk '{ print $20 }')
+echo "run $start" >corr/$c
+export PUP_SLOT_TMP=$PWD/t4; mkdir -p "$PUP_SLOT_TMP"
+out=$("$S" open 10 5 board 2>&1); rc=$?
+expect_rc $rc 75 "a board slot while a correctness build runs"
+expect_has "$out" "correctness builds running (PIDs $c)" "the reason"
+echo "run 1" >corr/$c
+export PUP_SLOT_TMP=$PWD/t5; mkdir -p "$PUP_SLOT_TMP"
+out=$("$S" open 11 5 board); rc=$?
+expect_rc $rc 0 "a stale correctness file is ignored"
+"$S" close 11 >/dev/null
+[[ -e corr/$c ]] || fail "pup-slot removed a file it does not own"
+kill $c $b
 exit 0

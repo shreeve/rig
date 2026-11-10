@@ -20,11 +20,13 @@
 # - ab: an A/B between Trig arms. Builds pinned to E-cores 12-19 run on.
 #
 # Either kind waits, rather than pausing, while a test suite runs (a
-# paused suite fails its timed cases); 35 seconds after the last slot
-# closed; and, once back-to-back board slots have run 45 minutes, while a
-# correctness build waits (a live PID in PUP_SLOT_CORRECTNESS, default
-# ~/.cache/trig-release-correctness/, which release-slot writes for
-# TRIG_RELEASE_CLASS=correctness), for at most a 15-minute window. Every
+# paused suite fails its timed cases), and 35 seconds after the last
+# slot closed. A board slot also waits while a correctness build runs,
+# and, once back-to-back board slots have run 45 minutes, while one
+# waits, for at most a 15-minute window. Correctness builds are the files
+# in PUP_SLOT_CORRECTNESS (default ~/.cache/trig-release-correctness/)
+# that release-slot writes for TRIG_RELEASE_CLASS=correctness; one that
+# starts during an open board slot is paused for that slot only. Every
 # wait says what it waits on each ten minutes and gives up after 45
 # minutes, exit status 75.
 #
@@ -56,12 +58,19 @@ builds() {
 }
 # PIDs of running test suites.
 suites() { ps -eo pid=,args= | grep -E "$SUITE_RE" | awk '{ print $1 }'; }
-# Live correctness PIDs.
+# Live correctness jobs, as "PID STATE": a file named by its PID holds
+# `STATE STARTTIME` (wait, then run once it holds its reservation;
+# STARTTIME is field 22 of /proc/PID/stat). It is live only while that
+# PID runs with that start time, so a reused PID is not mistaken for it;
+# a file that is not live is left for its writer's trap.
+starttime() { sed 's/^.*) //' "/proc/$1/stat" 2>/dev/null | awk '{ print $20 }'; }
 correctness() {
-    local f
+    local f p state start
     for f in "$CORR"/*; do
         [[ -e $f ]] || continue
-        kill -0 "$(basename "$f")" 2>/dev/null && basename "$f"
+        p=$(basename "$f")
+        read -r state start <"$f" 2>/dev/null || continue
+        kill -0 "$p" 2>/dev/null && [[ -n $start && $(starttime "$p") == "$start" ]] && echo "$p $state"
     done
 }
 rssmb() { ps -o rss= -p "$1" 2>/dev/null | awk '{ print int($1 / 1024) }'; }
@@ -95,8 +104,13 @@ open)
         run=$(cat "$ST/board-since" 2>/dev/null || echo 0)
         ((now - closed >= 900)) && run=0
         c=$(correctness)
-        if [[ $KIND == board && -n $c ]] && ((run > 0 && now - run >= 2700 && now - closed < 900)); then
-            why="${why:+$why; }the correctness window (PIDs $(echo $c))"
+        running=$(awk '$2 == "run" { print $1 }' <<<"$c")
+        waiting=$(awk '$2 == "wait" { print $1 }' <<<"$c")
+        if [[ $KIND == board && -n $running ]]; then
+            why="${why:+$why; }correctness builds running (PIDs $(echo $running))"
+        fi
+        if [[ $KIND == board && -n $waiting ]] && ((run > 0 && now - run >= 2700 && now - closed < 900)); then
+            why="${why:+$why; }the correctness window (PIDs $(echo $waiting) waiting)"
         fi
         if [[ $KIND == board && -z $why ]]; then
             for p in $(builds); do
@@ -158,7 +172,7 @@ status)
     if [[ -e $FLAG ]]; then echo "slot $(cat "$ST/open") ($(cat "$ST/kind")) open; paused: $(echo $(cat "$ST/paused" 2>/dev/null))"; else echo "no slot open"; fi
     echo "machine: $(state)"
     s=$(suites); echo "suites: ${s:+$(echo $s)}${s:-none}"
-    c=$(correctness); echo "correctness builds: ${c:+$(echo $c)}${c:-none}"
+    c=$(correctness); echo "correctness builds: ${c:+$(echo $c | tr '\n' ' ')}${c:-none}"
     for p in $(builds); do echo "build $p: $(rssmb "$p") MB, $(ps -o args= -p "$p" | cut -c1-80)"; done
     ;;
 state) state ;;
