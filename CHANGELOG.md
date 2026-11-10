@@ -419,15 +419,17 @@ none of these ever built:
 
 ### Runtime
 
-- `file.read` of a regular file on Linux makes four system calls, as
-  tsc's read does: an open, a stat of the descriptor, one read, and a
-  close. It no longer stats the path before opening it: the open is
-  nonblocking, and a FIFO it opens goes to the pool as its descriptor,
-  which is polled and read to the end its last writer leaves. macOS keeps
-  the stat of the path first, five calls, since its poll of a FIFO never
+- `file.read` of a regular file on Linux makes four system calls: an
+  open, a stat of the descriptor, one read, and a close (tsc's makes
+  five, reading once more to find the end). It no longer stats the path
+  before opening it: the open is nonblocking, and a FIFO it opens goes
+  to the pool as its descriptor, which is polled and read to the end its
+  last writer leaves. Trig checking Material UI's docs makes 17,690
+  fewer of these calls (149,710 to 132,020; tsc makes 149,233). macOS
+  keeps the stat of the path first, since its poll of a FIFO never
   reports the writers gone. On every system a file whose size is known
-  is read only up to that size, with no last read of nothing to find its
-  end.
+  is read only up to that size: a small file, whose buffer the heap
+  rounds up, no longer gets a last read of nothing.
 - `List.filled(n, x)` with `x` all zero takes memory the heap knows is
   zero, a block never handed out before, without writing it, as `calloc`
   does; a block taken again is zeroed. The array of workers is written
