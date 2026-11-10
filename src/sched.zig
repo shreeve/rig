@@ -669,7 +669,7 @@ pub const preempting = preempt;
 /// defines, weak, since a program all of whose code the optimizer inlined
 /// into the runtime's has no such section, and is never stopped; on
 /// Mach-O, whose linker defines none, the section's place in the loaded
-/// image, which `findCode` reads before any fiber runs.
+/// image, which `findCode` reads before any other thread starts.
 const code_start = if (preempt and !macho) @extern(?*const u8, .{ .name = "__start_rig_text", .linkage = .weak }) else {};
 const code_end = if (preempt and !macho) @extern(?*const u8, .{ .name = "__stop_rig_text", .linkage = .weak }) else {};
 const macho = builtin.object_format == .macho;
@@ -685,8 +685,13 @@ extern "c" fn getsectiondata(header: *const anyopaque, segment: [*:0]const u8, s
 extern "c" fn _dyld_get_image_header(image: u32) ?*const anyopaque;
 
 /// Read where the loaded image holds `preempt_section`, on Mach-O: in
-/// the executable, dyld's first image.
+/// the executable, dyld's first image. It runs as `main` starts
+/// (`runMain`), before any other thread: the bounds are two words, and
+/// a worker that read them as they were written could see the old low
+/// bound of 0 with the new high one, and take every address below the
+/// section, the scheduler's own, for the program's (`mustNotBeInCode`).
 fn findCode() void {
+    if (std.debug.runtime_safety and started.*) @panic("rig: the program's code section was looked for after the workers started");
     if (!macho) return;
     const header = _dyld_get_image_header(0) orelse return;
     var size: c_ulong = 0;
@@ -801,7 +806,6 @@ const trampoline_room: usize = switch (builtin.cpu.arch) {
 const preempt_room: usize = if (builtin.mode == .debug) 32 << 10 else trampoline_room + (2 << 10);
 
 fn installPreempt() void {
-    findCode();
     const act: std.posix.Sigaction = .{
         .handler = .{ .sigaction = onPreempt },
         .mask = std.posix.sigemptyset(),
@@ -3136,6 +3140,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     first.poller.open();
     openDense();
     started.* = false;
+    if (preempt) findCode();
     stopping.store(false, .seq_cst);
     var m: Main = .{ .fiber = .{ .run = Main.start, .done = Main.end }, .arg = arg, .run = run };
     m.fiber.state.stack_guard = guard;
