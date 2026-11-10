@@ -142,3 +142,7 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-11-08 | main 0d1c64647: preemption by signal by default (#1007), switch-first (#1020), shared free stacks (#1021) (Mac) | rig-fast | 151 ns | 42 ns | 81.1 ms | 4 ns | 162 ns | 16.6 KiB | 6.7 ms |
 | 2026-11-09 | main 347f0de35 before #1044, alternated (pup cores 0-11) | rig-fast | 122 ns | 92 ns | 70.9 ms | 5 ns | 242 ns | 4.6 KiB | 6.1 ms |
 | 2026-11-09 | #1044: an actor's runner waits for what its methods started (pup cores 0-11) | rig-fast | 120 ns | 88 ns | 71 ms | 5 ns | 267 ns | 4.6 KiB | 6.2 ms |
+| 2026-11-09 | main ec0a2a743 before #1048, alternated (pup cores 0-11) | rig-fast | 118 ns | 98 ns | 71 ms | 5 ns | 273 ns | 4.6 KiB | 6.5 ms |
+| 2026-11-09 | #1048: a Table of a heap that does little waits to ask for huge pages (pup cores 0-11) | rig-fast | 122 ns | 93 ns | 70.9 ms | 5 ns | 275 ns | 4.6 KiB | 6.5 ms |
+| 2026-11-09 | main ec0a2a743 before #1048, alternated (Mac) | rig-fast | 165.5 ns | 45 ns | 79.75 ms | 5 ns | 180.5 ns | 16.7 KiB | 7.05 ms |
+| 2026-11-09 | #1048: a Table of a heap that does little waits to ask for huge pages (Mac) | rig-fast | 162 ns | 45 ns | 81.1 ms | 5 ns | 197 ns | 16.7 KiB | 6.65 ms |

@@ -405,6 +405,10 @@ none of these ever built:
 - `rig build --release --pgo -- WORKLOAD` works on the Mac, with Apple's
   command-line tools: Trig 5 to 15% faster on projects it was not
   trained on.
+- On Linux a `Table` of a heap that does little waits to ask for huge
+  pages until its heap faults in ahead, instead of each asking as it is
+  made: Trig's smallest projects 2 to 3% faster at 8 checkers, and large
+  heaps keep their huge pages.
 - A panic in a method on an actor's own task now cancels and waits for
   the tasks that method started before the stack goes and the caller
   goes on, where a task could read freed stack. A panic in such a task
