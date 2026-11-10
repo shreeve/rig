@@ -402,6 +402,9 @@ none of these ever built:
 
 ### Runtime
 
+- On the Mac a program built by `--pgo` tears down at `os.exit`, as
+  every other release build there does: Trig 1.3 to 15.2% faster at 4
+  and 8 checkers on its small projects.
 - `rig build --release --pgo -- WORKLOAD` works on the Mac, with Apple's
   command-line tools: Trig 5 to 15% faster on projects it was not
   trained on.
