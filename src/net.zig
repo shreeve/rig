@@ -793,6 +793,14 @@ const accept_pause_max_ns: i64 = std.time.ns_per_s;
 /// returns, and the listener closes then. `f` is a `rig.FnRef` taking a
 /// `?http.Request` and giving an `http.Response`, whose fields the
 /// runtime fills and reads by name.
+///
+/// Each connection's task takes a dense stack (`sched.takeDense`), as a
+/// task the compiler finds small does, so an idle connection shares page
+/// tables with its neighbours. Its own code is this file's and std's
+/// HTTP server, with no recursion and no call of the program's, since
+/// `f` runs on a stack apart (`tasks.isolate`); its frames reach a few
+/// KiB, far below a dense stack's 88 KiB (`sema.dense_depth_limit`), and
+/// a deeper one faults in the stack's guard (test/cli/http_idle_footprint.sh).
 pub fn serve(listener: anytype, f: anytype) anyerror!void {
     var l = listener;
     defer rig.drop(&l);
@@ -814,7 +822,7 @@ pub fn serve(listener: anytype, f: anytype) anyerror!void {
             continue;
         };
         pause = accept_pause_ns;
-        conns.add(tasks.Task(void).spawn(connection(F), .{ @as(i32, @intCast(c)), watch(c), f, settings }));
+        conns.add(tasks.Task(void).spawnDense(connection(F), .{ @as(i32, @intCast(c)), watch(c), f, settings }));
     }
 }
 
