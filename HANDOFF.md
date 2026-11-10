@@ -106,6 +106,10 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **A thread with no alternate signal stack stops the program** (PR
+  #1050, branch `runtime-hardening`): the main thread, workers and the
+  blocking pool's threads exit with a message where they ran on. Level
+  with main on both machines.
 - **Dense stacks** (draft PR #1045, branch `dense-stacks`): a direct
   `f()&` whose target cannot need much stack takes a stack from one
   shared reservation, under a guard sealed after the link. Memory per
