@@ -116,10 +116,6 @@ const segment_size: usize = 4 << 20;
 const page_size: usize = 64 << 10;
 const pages_per_segment = segment_size / page_size;
 
-/// How much of a segment a heap faults in at once, as it reaches it.
-const prefault_size: usize = 1 << 20;
-const pages_per_prefault = prefault_size / page_size;
-
 /// Linux's `MADV_POPULATE_WRITE` (5.14 and later), which Zig's
 /// `std.os.linux.MADV` does not name.
 const madv_populate_write: u32 = 23;
@@ -151,8 +147,8 @@ const prefault_large: usize = 8 << 20;
 
 /// Faults in the `len` bytes at `p` in one call, on Linux, while `h`
 /// does much of the program's work (`faultsAhead`), as writing them
-/// would, page by page, with one trap each: a stretch of a segment the heap is about to carve
-/// blocks from, or the part of a large block a List growing into it is
+/// would, page by page, with one trap each: a page a class carves blocks
+/// from (`alloc`), or the part of a large block a List growing into it is
 /// likely to fill (`likelyFilled`). It saves a trap per page, and the
 /// cycles a program stalls after each, and commits little a program
 /// never writes. Elsewhere, or where the system cannot (an older kernel),
@@ -336,7 +332,13 @@ pub const Heap = struct {
         if (carved) |f| f.* = true;
         const size = classSize(c);
         if (h.carve[c] + size > h.carve_end[c]) {
+            // A class on its second page or later fills its pages, so the
+            // new one is faulted in whole; of a class's first page, only
+            // the first block's system pages, as most classes of a small
+            // program write a few of its 4 KiB pages and never the rest.
+            const again = h.carve_end[c] != 0;
             const page = h.newPage() orelse return null;
+            prefault(h, page, if (again) page_size else std.mem.alignForward(usize, size, std.heap.pageSize()));
             h.carve[c] = page;
             h.carve_end[c] = page + page_size - page_size % size;
         }
@@ -348,7 +350,6 @@ pub const Heap = struct {
     fn newPage(h: *Heap) ?usize {
         if (h.segment) |s| if (s.used < pages_per_segment) {
             const p = @intFromPtr(s) + s.used * page_size;
-            if (s.used % pages_per_prefault == 0) prefault(h, p, prefault_size);
             s.used += 1;
             return p;
         };
@@ -359,8 +360,9 @@ pub const Heap = struct {
         // segment, as a server's worker's or a blocking-pool thread's,
         // keeps small pages, as a huge page would commit 2 MiB of it.
         if (builtin.os.tag == .linux) ask(@intFromPtr(s), segment_size, if (faultsAhead(h)) .huge else .small);
-        // The header's page, and the first stretch the heap carves from.
-        prefault(h, @intFromPtr(s), prefault_size);
+        // The header's page; each page carved from faults in as its
+        // class takes it (`alloc`).
+        prefault(h, @intFromPtr(s), std.heap.pageSize());
         s.* = .{ .heap = h, .used = 2 };
         h.segment = s;
         return @intFromPtr(s) + page_size;
@@ -2291,6 +2293,38 @@ test "a zeroed block reads zero whether carved afresh, reused from a free list, 
     const again = allocZeroed(1 << 20, .@"8").?;
     for (again[0 .. 1 << 20]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
     a.free(again[0 .. 1 << 20]);
+}
+
+test "on Linux a class's first page faults in only its first block, and its next pages whole" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    // A heap of its own, with a segment of its own, that faults in ahead,
+    // as one that has done much work does, on a host whose memory is too
+    // fragmented for huge pages, as a busy one's often is: on a huge page
+    // the first write commits 2 MiB whatever is faulted in ahead.
+    useBuddyinfoForTest(buddyinfo_fragmented);
+    defer useBuddyinfoForTest(null);
+    var h = testHeap();
+    h.taken = prefault_big;
+    const pg = std.heap.pageSize();
+    // One block in each of twenty classes, as a small program's first
+    // allocations are: most of their pages are never written.
+    var first: usize = 0;
+    for (0..20) |c| {
+        const p = h.alloc(c) orelse return error.OutOfMemory;
+        if (c == 0) first = @intFromPtr(p);
+    }
+    const seg = first & ~(segment_size - 1);
+    try std.testing.expect(!try advisedHugeForTest(seg));
+    // The header's page and a page or two a class, not a stretch of 1 MiB.
+    const resident = try residentForTest(@ptrFromInt(seg), segment_size);
+    if (resident > 48 * pg) std.debug.print("resident {d} bytes of the segment\n", .{resident});
+    try std.testing.expect(resident <= 48 * pg);
+    // A class past its first page faults in the next ones whole.
+    const c = 25;
+    const per = page_size / classSize(c);
+    var last: usize = 0;
+    for (0..2 * per + 1) |_| last = @intFromPtr(h.alloc(c) orelse return error.OutOfMemory);
+    try std.testing.expectEqual(page_size, try residentForTest(@ptrFromInt(last & ~(page_size - 1)), page_size));
 }
 
 test "heaps that have each taken more than a segment fault in ahead, though neither leads, and one of a segment that does not lead faults lazily" {
