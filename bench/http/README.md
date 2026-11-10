@@ -26,10 +26,12 @@ Each server takes the address to listen on and answers `GET /` with
   counts.
 - **Idle connections.** It then opens N connections, each making one
   request and holding open, and the server's resident memory after,
-  less before, over N, is what one idle connection costs. One address
-  gives a client about 28,000 ports on Linux, so the connections spread
-  over 127.0.0.1, .2, ...; macOS has only 127.0.0.1, about 16,000 ports,
-  so 5,000 there.
+  less before, over N, is what one idle connection costs: 10,000 unless
+  `--idle` says otherwise. One address gives a client about 28,000 ports
+  on Linux, so the connections spread over 127.0.0.1, .2, ...; macOS has
+  only 127.0.0.1, about 16,000 ports. The load generator closes them with
+  a reset, which leaves no port waiting out TIME_WAIT (30 s on macOS), so
+  the next run, or the next variant's, finds the ports free.
 
 The servers and the load generator share the machine, as in a loopback
 benchmark they must; a server that spends less CPU leaves more to the
@@ -46,8 +48,9 @@ are a block of its worker's while it reads and answers a request, given
 back while it waits for the next (`net.Conn.fill`, `sched.takeBlock`),
 and a worker keeps 64 blocks, so a burst leaves no memory behind. So an
 idle connection holds its task's stack page (16 KiB on Apple Silicon)
-and a few small records, which is below hyper's and Go's per connection
-on both machines. A million idle connections do not fit on pup, whose
+and a few small records. Its task waits on a dense stack, which shares
+page tables with its neighbours, so counted with them it holds 17.2 KiB
+on the Mac and 9.2 KiB on Linux (test/cli/http_idle_footprint.sh). A million idle connections do not fit on pup, whose
 processes may hold 524,288 descriptors and whose 19 GB free would not
 hold a million of any server's plus the load generator's; 100,000 give
 the figure per connection.

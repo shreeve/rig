@@ -123,6 +123,7 @@ none of these ever built:
 
 ### Added
 
+- **`task.workers(n)` raises the workers after the first task.** A program that learns how much work it has only once running, as a checker does after parsing, can ask for more workers then. It only raises; it gives false for fewer than run, and a deterministic run keeps to one thread.
 - **Dense stacks.** `rig build --release` gives a task that cannot need much stack a dense stack, which holds 17.6 KB on the Mac where a large one holds 33.5 KB. A task with recursion, or a call through a pointer, keeps a large stack, as does every task of a debug build or `rig run`.
 - **`task.fast_cores()`** gives how many fast physical cores the
   program may run on, at least 1: on macOS the performance cores, on
@@ -404,6 +405,9 @@ none of these ever built:
 - A thread whose alternate signal stack cannot be set stops the program
   with a message, where it ran on with signals taken on a task's stack
   and no report of a stack overflow.
+- An idle connection of `http.serve` waits on a dense stack, which shares
+  page tables with its neighbours: 17.2 KiB on the Mac and 9.2 KiB on
+  Linux, page tables included, where it held 32.8 and 13.0 KiB.
 - `rig build --release --pgo -- WORKLOAD` works on the Mac, with Apple's
   command-line tools: Trig 5 to 15% faster on projects it was not
   trained on.

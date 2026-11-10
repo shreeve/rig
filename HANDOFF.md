@@ -110,6 +110,10 @@ A new session, human or agent, takes these steps in order:
   #1050, branch `runtime-hardening`): the main thread, workers and the
   blocking pool's threads exit with a message where they ran on. Level
   with main on both machines.
+- **Raising the workers** (PR #1046, branch `raise-workers`):
+  `task.workers(n)` after the first task raises the number of workers,
+  never lowers it, for Trig, which learns its checker count once it has
+  parsed. Level with main on both machines. The owner merges.
 - **Dense stacks** (draft PR #1045, branch `dense-stacks`): a direct
   `f()&` whose target cannot need much stack takes a stack from one
   shared reservation, under a guard sealed after the link. Memory per

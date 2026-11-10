@@ -108,10 +108,10 @@ hyper; Go's is `net/http`.
 | Linux, hyper | 296,728 | 163 µs | 763 µs | 10.8 KiB |
 | Linux, Go | 235,075 | 153 µs | 1,492 µs | 18.7 KiB |
 
-The memory of an idle connection is resident memory, which leaves out
-the page table of each connection's stack (16 KiB on the Mac, about
-4 KiB on Linux). Counted with it, Rig's idle connection holds more than
-hyper's on both machines and more than Go's on the Mac.
+The memory of an idle connection is resident memory. A Rig connection
+waits on a dense stack, which shares page tables with its neighbours,
+so counted as the kernel counts a process, page tables included, it
+holds 17.2 KiB on the Mac and 9.2 KiB on Linux.
 
 The load generator and the server share the machine, as in any loopback
 benchmark, so a server that spends less CPU leaves more to the load.

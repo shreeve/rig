@@ -116,5 +116,7 @@ which is why that row reads faster.
 | 2026-11-09 | #1045: dense stacks (pup cores 0-11) | rig-fast | 699070 | 66 us | 238 us | - |
 | 2026-11-09 | main ec0a2a743 before #1048, alternated (pup cores 0-11) | rig-fast | 755727 | 73 us | 234 us | - |
 | 2026-11-09 | #1048: a Table of a heap that does little waits to ask for huge pages (pup cores 0-11) | rig-fast | 833107 | 64 us | 245 us | - |
+| 2026-11-09 | main 3e947f79b before #1051, rotated with a copy of main (pup cores 0-11) | rig-fast | 765155 | 72 us | 239 us | - |
+| 2026-11-09 | #1051: a connection's task takes a dense stack (pup cores 0-11) | rig-fast | 749003 | 73 us | 253 us | - |
 | 2026-11-09 | main ec0a2a743 before #1048, alternated (Mac) | rig-fast | 168798 | 371 us | 591 us | - |
 | 2026-11-09 | #1048: a Table of a heap that does little waits to ask for huge pages (Mac) | rig-fast | 170727 | 367 us | 571 us | - |
