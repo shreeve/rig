@@ -1844,6 +1844,96 @@ fail "object names its own optional through an alias of a generic of another mod
     pub obj W[T]
       pub kids: List[T?]
 
+test "payload enum holds a map of itself whose entries name its optional", "1"
+  # A map's entries live in a List, and the `V?` of each entry is laid
+  # out when the entry is, after `Value` (Trig's `CompilerOptionsValue`
+  # holds a `collections.OrderedMap[String, CompilerOptionsValue]`).
+  use m
+
+  enum Value
+    leaf(n: Int)
+    table(t: m.Map[Value])
+
+  sub main()
+    v = Value.table(t: m.Map[Value](items: List[m.Slot[Value]]()))
+    print(1)
+
+  file "m.rig"
+    pub obj Slot[V]
+      pub key: Int
+      pub value: V?
+
+    pub obj Map[V]
+      pub items: List[Slot[V]]
+
+fail "object holds a map of itself whose entries name its optional", "`Node?` in `kids` is laid out from `Node`'s layout, which needs `kids` first"
+  # An entry is laid out after `Node`, but an object's optional needs the
+  # object's layout for its niche, so `Node?` there still needs `Node`.
+  obj Slot[V]
+    key: Int
+    value: V?
+
+  obj Map[V]
+    items: List[Slot[V]]
+
+  obj Node
+    v: Int
+    kids: Map[Node]
+
+  sub main()
+    n = Node(v: 1, kids: Map[Node](items: List[Slot[Node]]()))
+    print(n.v)
+
+fail "object holds a map of itself of another module whose entries name its optional", "`Node?` in `kids` is laid out from `Node`'s layout, which needs `kids` first"
+  use m
+
+  obj Node
+    v: Int
+    kids: m.Map[Node]
+
+  sub main()
+    n = Node(v: 1, kids: m.Map[Node](items: List[m.Slot[Node]]()))
+    print(n.v)
+
+  file "m.rig"
+    pub obj Slot[V]
+      pub key: Int
+      pub value: V?
+
+    pub obj Map[V]
+      pub items: List[Slot[V]]
+
+fail "object holds a List of entries of itself that name its optional", "`Node?` in `kids` is laid out from `Node`'s layout, which needs `kids` first"
+  use m
+
+  obj Node
+    v: Int
+    kids: List[m.Slot[Node]]
+
+  sub main()
+    n = Node(v: 1, kids: List[m.Slot[Node]]())
+    print(n.v)
+
+  file "m.rig"
+    pub obj Slot[V]
+      pub key: Int
+      pub value: V?
+
+test "payload enum holds a List of entries of itself that name its optional", "1"
+  obj Slot[V]
+    key: Int
+    value: V?
+
+  enum Value
+    leaf(n: Int)
+    table(t: List[Slot[Value]])
+
+  sub main()
+    items = List[Slot[Value]]()
+    !items.push(Slot[Value](key: 1, value: Value.leaf(n: 2)))
+    v = Value.table(t: <items)
+    print(1)
+
 test "object holds a box's optional through a generic of this module", "1"
   # A box keeps its value in heap memory, so `W[T]` with `up: ^T?` holds
   # no `T` inline, and `Node` holding `W[Node]` has a finite size.
