@@ -202,6 +202,29 @@ sub main()!
   print(>l!, looks()!)
 EOF2
 
+# FIFOs read whole, each as a blocking read would, whoever comes first:
+# a reader before its writer (`late`); a writer that opens and writes
+# nothing (`empty`); more than a full pipe's 64 KiB, its writer first
+# (`big`) and, from a task, its reader first (`big2`); and a writer that
+# writes twice, a while apart, and leaves (`pieces`).
+cat >fifomore.rig <<'EOF2'
+use std.file
+
+fun got(path: ?String) -> String!
+  file.read(path)! ?? String("none")
+
+sub main()!
+  print(got("r/late")!)
+  empty = got("r/empty")!
+  print(empty.len)
+  big = got("r/big")!
+  print(big.len)
+  t = got("r/big2")&
+  big2 = >t!
+  print(big2.len)
+  print(got("r/pieces")!)
+EOF2
+
 # In a directory the program may not write; root may, so it is left out
 # then.
 cat >denied.rig <<'EOF2'
@@ -365,6 +388,16 @@ for mode in debug release; do
     out=$(RIG_SANITIZE=1 "$TIMEOUT_CMD" -s KILL 10 ./fiforead 2>&1); expect_rc $? 0 "$mode fiforead: $out"
     wait $w1 $w2
     expect_eq "$out" $'hi\nyo\ntrue true' "$mode: FIFOs read with their writers waiting, and one looked at"
+    rig build $flag -o fifomore fifomore.rig >build.log 2>&1 || fail "$mode build fifomore: $(cat build.log)"
+    rm -rf r; mkdir r; mkfifo r/late r/empty r/big r/big2 r/pieces
+    "$TIMEOUT_CMD" 10 sh -c 'sleep 0.3; printf late >r/late' & w1=$!
+    "$TIMEOUT_CMD" 10 sh -c 'sleep 0.6; : >r/empty' & w2=$!
+    "$TIMEOUT_CMD" 10 sh -c 'head -c 200000 /dev/zero | tr "\0" a >r/big' & w3=$!
+    "$TIMEOUT_CMD" 10 sh -c 'sleep 0.9; head -c 150000 /dev/zero | tr "\0" b >r/big2' & w4=$!
+    "$TIMEOUT_CMD" 10 sh -c 'sleep 1.2; { printf a; sleep 0.2; printf b; } >r/pieces' & w5=$!
+    out=$(RIG_SANITIZE=1 "$TIMEOUT_CMD" -s KILL 20 ./fifomore 2>&1); expect_rc $? 0 "$mode fifomore: $out"
+    wait $w1 $w2 $w3 $w4 $w5
+    expect_eq "$out" $'late\n0\n200000\n150000\nab' "$mode: FIFOs read whole, reader or writer first"
     if [[ $(id -u) -ne 0 ]]; then
         rm -rf ro shut; mkdir ro ro/sub shut; printf 'f' >ro/f.txt; chmod 400 ro/f.txt; chmod 500 ro; chmod 000 shut
         out=$(RIG_SANITIZE=1 rig run $flag denied.rig 2>&1); rc=$?

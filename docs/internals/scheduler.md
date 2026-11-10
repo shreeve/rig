@@ -31,10 +31,14 @@ worker after.
   does so. A read of a regular file and the calls that only look at a
   path (`exists`, `stat`, `realpath`, `read_dir`) run in the task, on
   its worker: on a local disk each takes less than the pool's two
-  wakes, and none can wait on a writer or a device. The read looks at
-  the path, opens a regular file with O_NONBLOCK, and reads it only if
-  the descriptor's own stat says regular; anything else is opened on the
-  pool, so no FIFO is opened twice. `rig.blockingStop` makes
+  wakes, and none can wait on a writer or a device. On Linux the read
+  opens the path with O_NONBLOCK and decides by the descriptor's own
+  stat: a regular file is read there, a FIFO's descriptor goes to the
+  pool, which polls and reads it (`readFifo`), and anything else is
+  opened again on the pool. On macOS, whose poll of a FIFO never reports
+  its writers gone, the read looks at the path first and opens nothing
+  but a regular file in the task. Either way no FIFO is opened twice, so
+  a writer waiting in its open is the one the read reads. `rig.blockingStop` makes
   such a call a fallible waiting point: a cancel or the task's deadline
   ends the wait, and the call runs on to its end on its thread, which
   drops its result, unless it waits in a system call that its waiter's
