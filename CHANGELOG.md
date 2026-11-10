@@ -373,6 +373,12 @@ none of these ever built:
 
 ### Tests
 
+- `tools/mac-claim LABEL CMD` runs one timing job holding the Mac's
+  claim line: it waits while another claim holds the Mac or a
+  correctness job holds or waits for a heavy slot, gives up after 45
+  minutes (exit 75), stops the job at its limit (19 minutes, at most 20;
+  exit 124), and clears the line however the job ends
+  (`test/cli/mac_claim.sh`).
 - `tools/heavy --class correctness CMD` puts a gate a merge waits on
   ahead of every other waiter. A waiter names each holder (PID, minutes
   held, command) after a minute and every ten minutes, and gives up

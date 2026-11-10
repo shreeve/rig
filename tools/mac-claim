@@ -1,0 +1,115 @@
+#!/bin/bash
+# tools/mac-claim [--minutes N] LABEL CMD...: run one timing job, CMD, holding
+# the Mac's timing claim, the one line in RIG_MAC_CLAIM (default
+# ~/Data/Code/Claude/rig/rig/mac-timing.txt) that every build, test and
+# profile on the Mac waits on while it is there (slot-guard.sh). One
+# claim is one board or one A/B: a run that needs more takes another.
+#
+# It waits while another claim holds the Mac, and while a correctness job
+# (`tools/heavy --class correctness`) holds or waits for a heavy slot, so
+# a gate is never held behind timing; it says what it waits on after a
+# minute and every ten minutes, and gives up after RIG_HEAVY_WAIT seconds
+# (45 minutes) with exit status 75. Then it writes the claim line (the
+# label, its limit, the start time, its PID), runs CMD, and clears the
+# line when CMD ends, fails or is killed. CMD runs at most N minutes
+# (default 19, at most 20): at the limit its process group is stopped
+# with SIGTERM, and SIGKILL ten seconds later, and mac-claim exits 124.
+#
+# tools/mac-claim --status prints the claim line and the correctness jobs
+# in heavy's queue, and claims nothing.
+CLAIM=${RIG_MAC_CLAIM:-$HOME/Data/Code/Claude/rig/rig/mac-timing.txt}
+LOCK=$CLAIM.lock
+G=$("$(dirname "${BASH_SOURCE[0]}")/gitdir" tools/mac-claim) || exit 2
+HL=$G/rig-heavy.lock
+M=19
+STATUS=
+while [[ ${1:-} == --* ]]; do
+    case $1 in
+    --minutes) M=${2:-}; shift 2 ;;
+    --minutes=*) M=${1#--minutes=}; shift ;;
+    --status) STATUS=1; shift ;;
+    --) shift; break ;;
+    *) echo "tools/mac-claim: unknown option $1 (--minutes N, --status)" >&2; exit 2 ;;
+    esac
+done
+[[ $M =~ ^[0-9]+$ ]] && ((M >= 1 && M <= 20)) || { echo "tools/mac-claim: --minutes takes 1 to 20, not '$M'" >&2; exit 2; }
+
+# The PIDs of correctness jobs holding or waiting for a heavy slot.
+correctness() {
+    local f s p
+    for f in $(ls "$HL.q" 2>/dev/null); do
+        [[ $f == 0-* ]] && kill -0 "${f##*-}" 2>/dev/null && echo "${f##*-} (waiting)"
+    done
+    for s in "$HL" "$HL".[0-9]*; do
+        [[ $(cat "$s/class" 2>/dev/null) == 0 ]] || continue
+        p=$(cat "$s/pid" 2>/dev/null) && kill -0 "$p" 2>/dev/null && echo "$p (running)"
+    done
+}
+held() { [[ -s $CLAIM ]]; }
+
+if [[ -n $STATUS ]]; then
+    if held; then echo "claim: $(cat "$CLAIM")"; else echo "claim: none"; fi
+    c=$(correctness)
+    if [[ -n $c ]]; then echo "correctness jobs in tools/heavy: $(echo $c)"; else echo "correctness jobs in tools/heavy: none"; fi
+    exit 0
+fi
+(($# >= 2)) || { echo "usage: tools/mac-claim [--minutes N] LABEL CMD..." >&2; exit 2; }
+LABEL=$1; shift
+
+mkdir -p "$(dirname "$CLAIM")"
+WAIT=${RIG_HEAVY_WAIT:-2700}
+START=$(date +%s)
+TOLD=$((START + 60))
+GOT=
+while :; do
+    # A lock left by a mac-claim that died is cleared by the next waiter.
+    p=$(cat "$LOCK/pid" 2>/dev/null)
+    if [[ -n $p ]] && ! kill -0 "$p" 2>/dev/null; then rm -rf "$LOCK"; : >"$CLAIM"; fi
+    c=$(correctness)
+    if [[ -z $c ]] && ! held && mkdir "$LOCK" 2>/dev/null; then
+        echo $$ >"$LOCK/pid"
+        if held || [[ -n $(correctness) ]]; then rm -rf "$LOCK"; else GOT=1; break; fi
+    fi
+    now=$(date +%s)
+    why=
+    held && why="the claim: $(cat "$CLAIM")"
+    [[ -n $c ]] && why="${why:+$why; }correctness jobs in tools/heavy: $(echo $c)"
+    if ((now - START >= WAIT)); then
+        echo "tools/mac-claim: gave up after $((WAIT / 60)) minutes waiting for $why" >&2
+        exit 75
+    fi
+    if ((now >= TOLD)); then
+        echo "tools/mac-claim: waiting $(((now - START) / 60)) min for $why" >&2
+        TOLD=$((now + 600))
+    fi
+    sleep 2
+done
+LINE="$LABEL, at most $M min, started $(date +%H:%M), pid $$"
+echo "$LINE" >"$CLAIM"
+release() {
+    [[ $(cat "$LOCK/pid" 2>/dev/null) == "$$" ]] || return
+    [[ $(cat "$CLAIM" 2>/dev/null) == "$LINE" ]] && : >"$CLAIM"
+    rm -rf "$LOCK"
+}
+trap release EXIT
+trap 'exit 130' INT TERM HUP
+
+# The limit in seconds; RIG_MAC_CLAIM_LIMIT_S sets it directly, for the
+# tests.
+LIMIT=${RIG_MAC_CLAIM_LIMIT_S:-$((M * 60))}
+OVER=$LOCK/over
+set -m
+"$@" &
+job=$!
+set +m
+( sleep "$LIMIT"; : >"$OVER"; kill -TERM -"$job" 2>/dev/null; sleep 10; kill -KILL -"$job" 2>/dev/null ) >/dev/null 2>&1 </dev/null &
+dog=$!
+wait "$job"
+rc=$?
+if [[ -e $OVER ]]; then
+    echo "tools/mac-claim: '$LABEL' passed its $M minutes and was stopped" >&2
+    rc=124
+fi
+pkill -P "$dog" 2>/dev/null
+kill "$dog" 2>/dev/null
+exit $rc
