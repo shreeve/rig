@@ -401,6 +401,9 @@ none of these ever built:
 
 ### Runtime
 
+- A thread whose alternate signal stack cannot be set stops the program
+  with a message, where it ran on with signals taken on a task's stack
+  and no report of a stack overflow.
 - `rig build --release --pgo -- WORKLOAD` works on the Mac, with Apple's
   command-line tools: Trig 5 to 15% faster on projects it was not
   trained on.
