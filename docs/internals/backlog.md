@@ -123,6 +123,20 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   `rig.lend(&rig.elemPtr(xs, j).*)` and `rig.eql((&p).*, (&q).*)`, and a
   generic `for x in xs` copies each element it only lends. Release
   builds optimize these away.
+- **A statement under `if target.debug` leaves a trace in a release
+  build** (Trig's NEEDS 77). `target.debug` is known at compile time,
+  so `@check_node(n) if target.debug` should vanish before emit in a
+  release build. Trig put that line in about 450 of its AST readers
+  (trig#338): on contracts at one checker on pup, the release build ran
+  0.26% more instructions and its binary was 1.56 MB larger, though Zig
+  prunes the call's body. The likely cause is before Zig: the call still
+  reaches `src/inlining.zig`, which counts it in its caller's size, and
+  `@check_node`'s body is emitted. The fix drops a statement whose
+  compile-time condition is false, and the false branch of such an
+  `if`, before inlining's budget and emit see it, with no change to the
+  language. The case: a function whose only statement is `f(x) if
+  target.debug` emits no call and no `f` in a release build (a `code`
+  case), and Trig's 450 readers retire level instructions.
 - **Nexus's `Span.text`** in place of slicing the source by position.
 - **Runtime tests outside the runtime**: `src/runtime.zig` carries its
   unit tests into every emitted package; they could move to their own
