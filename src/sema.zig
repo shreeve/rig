@@ -7507,9 +7507,13 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
         .parameterized_nominal => |pn| blk: {
             const c = contentsOf(ctx, pn.sym);
             var h: Holds = .{ .glue = c.glue, .plain = c.plain, .vector = c.vector, .any_error = c.any_error };
+            // A List, a box, or a table keeps its elements in heap memory,
+            // so a parameter it holds is not held by value here: `W[T]`
+            // with `up: ^T?` holds no `T` inline (`byValueTargets`).
+            const marks = if (isHeapBuiltin(ctx, pn.sym)) try ctx.arena.allocator().alloc(bool, held.len) else held;
             for (pn.args, 0..) |a, i| {
                 if (i >= c.held.len or !c.held[i]) continue;
-                const arg = try holdsIn(ctx, a, params, held);
+                const arg = try holdsIn(ctx, a, params, marks);
                 h.glue = h.glue or arg.glue;
                 h.plain = h.plain and arg.plain;
                 h.type_var = h.type_var or arg.type_var;
@@ -7791,8 +7795,9 @@ fn checkOptionalLoops(ctx: *SemContext) std.mem.Allocator.Error!void {
 
 /// The walk `checkOptionalLoops` makes from each field's type, with a
 /// stack of its own: through views, handles, type arguments, and the
-/// fields of a generic instance declared here (`W[Node]` names `Node?`
-/// where `W[T]`'s fields name `T?`), but not an instance whose arguments
+/// fields of a generic instance, declared here or in another module
+/// (`W[Node]` names `Node?` where `W[T]`'s fields name `T?`), but not an
+/// instance whose arguments
 /// nest past `max_instance_depth`, which expanding the instances
 /// rejects. A chain of generics, each naming the next, is walked in time
 /// linear in its length: an instance whose arguments are all type
@@ -7800,16 +7805,36 @@ fn checkOptionalLoops(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// walk enters a type from which one met no object's or payload enum's
 /// optional at all (`clean`).
 const OptionalWalk = struct {
-    clean: FastMap(TypeId, void) = .empty,
-    visited: FastMap(TypeId, void) = .empty,
-    stack: std.ArrayList(TypeId) = .empty,
-    parts: std.ArrayList(TypeId) = .empty,
+    /// Types from which a walk met no object's or payload enum's optional
+    /// at all, one map for each way a type is reached (`Step.key`).
+    clean: [3]FastMap(TypeId, void) = .{ .empty, .empty, .empty },
+    visited: [3]FastMap(TypeId, void) = .{ .empty, .empty, .empty },
+    stack: std.ArrayList(Step) = .empty,
+    parts: std.ArrayList(Step) = .empty,
     own: std.ArrayList(TypeId) = .empty,
     by_value: ByValueSearch = .{},
 
+    /// A type the walk is to read; whether the holder's layout holds it
+    /// inline (`inl`): as a field's own type, an optional's or an
+    /// array's element, or a parameter a generic held inline holds by
+    /// value (`Contents.held`), and not behind a view, a handle, a box, a
+    /// List or a table; and whether Zig works it out only after the
+    /// holder's layout (`late`): in the fields of a generic instance the
+    /// holder does not hold inline (a `List[Slot[K, V]]`'s `Slot`), and
+    /// in their parts. A late type is never inline.
+    const Step = struct {
+        ty: TypeId,
+        inl: bool,
+        late: bool,
+
+        fn key(s: Step) usize {
+            return if (s.late) 2 else @intFromBool(s.inl);
+        }
+    };
+
     fn deinit(w: *OptionalWalk, a: std.mem.Allocator) void {
-        w.clean.deinit(a);
-        w.visited.deinit(a);
+        for (&w.clean) |*m| m.deinit(a);
+        for (&w.visited) |*m| m.deinit(a);
         w.stack.deinit(a);
         w.parts.deinit(a);
         w.own.deinit(a);
@@ -7832,24 +7857,32 @@ const OptionalWalk = struct {
     /// The object or payload enum `X` of the first `X?` the walk from
     /// `ty` meets whose layout needs `holder`'s: `X` is `holder`, or holds
     /// it by value (`byValueTargets`). Its optional is emit's `rig.Opt`
-    /// (`optionalRouted`), laid out from `X`'s own.
+    /// (`optionalRouted`), laid out from `X`'s own. Zig works out the
+    /// type of every field `holder` lays out, type arguments and all, as
+    /// it lays `holder` out, so each `X?` named anywhere in one counts.
+    /// The fields of a generic instance `holder` does not hold inline are
+    /// worked out later (`Step.late`), where an object's optional still
+    /// needs the object's layout, for its niche (`nicheOf`), and a
+    /// payload enum's does not: a payload enum `Value` holding a
+    /// `List[Slot[Value]]` whose `Slot[V]` holds `value: V?` is laid out.
     fn find(w: *OptionalWalk, ctx: *SemContext, ty: TypeId, holder: SymbolId) std.mem.Allocator.Error!?TypeId {
         const a = ctx.allocator;
-        w.visited.clearRetainingCapacity();
+        for (&w.visited) |*m| m.clearRetainingCapacity();
         w.stack.clearRetainingCapacity();
-        try w.stack.append(a, ty);
+        try w.stack.append(a, .{ .ty = ty, .inl = true, .late = false });
         var met = false;
-        while (w.stack.pop()) |popped| {
-            const t = switch (ctx.types.get(popped)) {
-                .parameterized_nominal => |pn| if (localGeneric(ctx.symbols.items[pn.sym])) (try w.ownInstance(ctx, pn)) orelse popped else popped,
-                else => popped,
+        while (w.stack.pop()) |step| {
+            const t = switch (ctx.types.get(step.ty)) {
+                .parameterized_nominal => |pn| if (genericDecl(ctx.symbols.items[pn.sym])) (try w.ownInstance(ctx, pn)) orelse step.ty else step.ty,
+                else => step.ty,
             };
-            if (w.clean.contains(t) or (try w.visited.getOrPut(a, t)).found_existing) continue;
+            const k = step.key();
+            if (w.clean[k].contains(t) or (try w.visited[k].getOrPut(a, t)).found_existing) continue;
             const here = ctx.types.get(t);
             switch (here) {
                 .optional => |inner| if (declaredSym(ctx, inner)) |x| if (isCompound(ctx, inner)) {
                     met = true;
-                    if (try holdsByValue(ctx, x, holder, &w.by_value)) return inner;
+                    if ((!step.late or declaredKind(ctx, x) == .object) and try holdsByValue(ctx, x, holder, &w.by_value)) return inner;
                 },
                 else => {},
             }
@@ -7859,30 +7892,52 @@ const OptionalWalk = struct {
             switch (here) {
                 .parameterized_nominal => |pn| {
                     const decl = ctx.symbols.items[pn.sym];
-                    if (localGeneric(decl) and instanceNests(ctx, pn)) {
+                    if (genericDecl(decl) and instanceNests(ctx, pn)) {
                         const subst: TypeSubst = .{ .params = decl.type_params.?, .args = pn.args };
-                        for (decl.fields orelse &.{}) |*f| for (dataFields(f)) |*d| try w.parts.append(a, try substituteType(ctx, d.ty, subst));
+                        for (decl.fields orelse &.{}) |*f| for (dataFields(f)) |*d| try w.parts.append(a, .{ .ty = try substituteType(ctx, d.ty, subst), .inl = step.inl, .late = !step.inl });
                     }
                 },
                 else => {},
             }
             var it: TypeChildren = .{ .ty = here };
-            while (it.next()) |c| try w.parts.append(a, c);
+            var n_child: usize = 0;
+            while (it.next()) |c| : (n_child += 1) try w.parts.append(a, .{ .ty = c, .inl = step.inl and childInline(ctx, here, n_child), .late = step.late });
             var n = w.parts.items.len;
             while (n > 0) : (n -= 1) try w.stack.append(a, w.parts.items[n - 1]);
         }
-        if (!met) {
-            var it = w.visited.keyIterator();
-            while (it.next()) |t| try w.clean.put(a, t.*, {});
-        }
+        if (!met) for (&w.visited, &w.clean) |*v, *c| {
+            var it = v.keyIterator();
+            while (it.next()) |t| try c.put(a, t.*, {});
+        };
         return null;
+    }
+
+    /// Whether child `i` of `ty` (`TypeChildren`) is held inline where
+    /// `ty` is: an optional's or an array's element, a fallible's value,
+    /// or an argument a generic other than a List, a box, or a table
+    /// holds by value. A view's, a handle's, a slice's, or a function's
+    /// parts are not.
+    fn childInline(ctx: *SemContext, ty: Type, i: usize) bool {
+        return switch (ty) {
+            .optional => true,
+            .array => i == 0,
+            .fallible => i == 0,
+            .parameterized_nominal => |pn| blk: {
+                if (isHeapBuiltin(ctx, pn.sym)) break :blk false;
+                const held = contentsOf(ctx, pn.sym).held;
+                break :blk i < held.len and held[i];
+            },
+            else => false,
+        };
     }
 };
 
-/// Whether `decl` is a generic type this module declares, whose
-/// instances `OptionalWalk` reads through its fields.
-fn localGeneric(decl: Symbol) bool {
-    return decl.decl_pos < imported_decl_pos and decl.type_params != null;
+/// Whether `decl` is a generic type, whose instances `OptionalWalk` reads
+/// through its fields: one this module declares, or the proxy of one
+/// another module declares (`importSymbol`), whose parameters and fields
+/// it carries, filled in before any pass reads it.
+fn genericDecl(decl: Symbol) bool {
+    return decl.type_params != null and decl.kind == .generic_type;
 }
 
 /// Whether no argument of instance `pn` nests past `max_instance_depth`,

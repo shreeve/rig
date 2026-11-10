@@ -10027,9 +10027,15 @@ layout (it holds `none` in bytes no `Node` holds), as is an enum's
 with a payload, so a field that
 `Node`'s layout needs may not name `Node?` anywhere in its type: not
 in `^(Node?)`, `List[Node?]`, `*(Node?)`, a view `?Node?`, or a
-generic instance whose fields name it. The field holds an optional
+generic instance whose fields name it, declared in this module or
+another. The field holds an optional
 box (`^Node?`) or an optional view (`(?Node)?`), which are laid out
-without `Node`'s layout, whatever its type arguments.
+without `Node`'s layout, whatever its type arguments. The fields of a
+generic instance held behind a List, a box, or a table, such as a
+map's entries in `List[Slot[K, V]]`, are laid out after `Node`, so an
+enum with a payload may name its optional there (a `Value` holding a
+map of `Value`s); an object may not, since its optional's layout still
+needs the object's.
 
 ```rig reject
 obj Node
