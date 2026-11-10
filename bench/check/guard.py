@@ -4,7 +4,7 @@ of the compiler, against bench/check/guard.txt. Three gates:
 
   - instructions: the instructions retired by `rig check` of the
     workload (bench/check/gen.py, `workload`: every generator in one
-    program, about the size of Trig's parser), the median of 5, more
+    program, about the size of Trig's parser), the fewest of 7, more
     than 2% above the baseline fails;
   - passes: each pass's time (`rig check --time`), the best of 7, more
     than 20% and 0.25 ms above its baseline fails. Times move with the
@@ -17,7 +17,14 @@ of the compiler, against bench/check/guard.txt. Three gates:
     time grows with the square of something shows here at once.
 
 Instruction counts come from `/usr/bin/time -l`, so the guard runs on
-macOS only. After a change meant to move the baseline (a faster pass, a
+macOS only. That count includes the kernel's work for the process,
+which grows with the machine's load: on a loaded Mac one binary's count
+moved 1.8% from run to run, where on Linux its user instructions alone
+hold within 0.003%. So the guard takes the fewest of several runs,
+the run the load added least to, not the median, and prints the load
+beside it: a sustained load still lifts every run a little (at a load
+of 4, about 0.6% over a quiet machine's), so a regression found above
+a load of 5 says to confirm it on a quieter one. After a change meant to move the baseline (a faster pass, a
 new Zig), `--update` writes it, and it is committed.
 
 usage: bench/check/guard.py [--update] [--rig PATH]
@@ -59,9 +66,8 @@ def instructions(rig, d):
     return int(m.group(1))
 
 
-def median_instructions(rig, d, n):
-    runs = sorted(instructions(rig, d) for _ in range(n))
-    return runs[n // 2]
+def fewest_instructions(rig, d, n):
+    return min(instructions(rig, d) for _ in range(n))
 
 
 def pass_times(rig, d, n):
@@ -103,7 +109,7 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         rig = os.path.abspath(rig) if rig else build()
         work = write(os.path.join(tmp, "workload"), gen.workload())
-        now = {"instructions": median_instructions(rig, work, 5)}
+        now = {"instructions": fewest_instructions(rig, work, 7)}
         load = os.getloadavg()[0]
         timed = update or load < LOAD_LIMIT
         if timed:
@@ -111,9 +117,9 @@ def main():
                 now["ms." + k] = v
         exps = {}
         for name, n in SCALING.items():
-            fixed = median_instructions(rig, write(os.path.join(tmp, "%s_1" % name), gen.program(name, 1)), 3)
-            small = median_instructions(rig, write(os.path.join(tmp, "%s_%d" % (name, n)), gen.program(name, n)), 3) - fixed
-            large = median_instructions(rig, write(os.path.join(tmp, "%s_%d" % (name, 8 * n)), gen.program(name, 8 * n)), 3) - fixed
+            fixed = fewest_instructions(rig, write(os.path.join(tmp, "%s_1" % name), gen.program(name, 1)), 3)
+            small = fewest_instructions(rig, write(os.path.join(tmp, "%s_%d" % (name, n)), gen.program(name, n)), 3) - fixed
+            large = fewest_instructions(rig, write(os.path.join(tmp, "%s_%d" % (name, 8 * n)), gen.program(name, 8 * n)), 3) - fixed
             exps[name] = math.log(max(large, 1) / max(small, 1)) / math.log(8)
 
     bad = 0
@@ -126,7 +132,7 @@ def main():
             sys.exit("guard: not updating the baseline while a scaling pair fails")
         with open(BASE, "w") as w:
             w.write("# rig check of bench/check/gen.py's workload, ReleaseSafe; bench/check/guard.py --update writes it\n")
-            w.write("# instructions: median of 5; ms.PASS: best of 7 of `rig check --time`, on the Mac\n")
+            w.write("# instructions: fewest of 7; ms.PASS: best of 7 of `rig check --time`, on the Mac\n")
             for k, v in now.items():
                 w.write("%s %s\n" % (k, int(v) if k == "instructions" else "%.3f" % v))
         print("guard: wrote %s" % os.path.relpath(BASE, ROOT))
@@ -134,8 +140,10 @@ def main():
     base = read_base()
     ratio = now["instructions"] / base["instructions"]
     flag = "  REGRESSION" if ratio > INSTR_LIMIT else ""
+    if flag and load >= LOAD_LIMIT:
+        flag += ", at a load of %.1f: confirm it under %.0f, where the count reads lowest" % (load, LOAD_LIMIT)
     bad += bool(flag)
-    print("instructions %d (baseline %d, %.1f%% %s)%s" % (now["instructions"], base["instructions"], abs(ratio - 1) * 100, "more" if ratio >= 1 else "fewer", flag))
+    print("instructions %d (baseline %d, %.1f%% %s; load %.1f)%s" % (now["instructions"], base["instructions"], abs(ratio - 1) * 100, "more" if ratio >= 1 else "fewer", load, flag))
     if not timed:
         print("passes: skipped, load %.1f is %.0f or more" % (load, LOAD_LIMIT))
     else:
