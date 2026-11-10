@@ -800,7 +800,8 @@ const accept_pause_max_ns: i64 = std.time.ns_per_s;
 /// HTTP server, with no recursion and no call of the program's, since
 /// `f` runs on a stack apart (`tasks.isolate`); its frames reach a few
 /// KiB, far below a dense stack's 88 KiB (`sema.dense_depth_limit`), and
-/// a deeper one faults in the stack's guard (test/cli/http_idle_footprint.sh).
+/// one deeper would fault in the stack's guard, as any dense stack's
+/// does (test/cli/http_idle_footprint.sh measures the saving).
 pub fn serve(listener: anytype, f: anytype) anyerror!void {
     var l = listener;
     defer rig.drop(&l);

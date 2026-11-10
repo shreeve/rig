@@ -204,7 +204,13 @@ none is recursive and none is called through a pointer, and their frames
 add up to less than `sema.dense_depth_limit`
 (`inlining.Pass.denseDepths`), so the limit is the same on every target
 and a program that might not fit takes a large stack instead of
-panicking. Each dense stack sits over a guard twice the largest frame
+panicking. The connections of `http.serve` take one too
+(`net.serve`): a connection's own code is the runtime's and std's HTTP
+server, with no recursion and no call of the program's, since the
+handler runs on a stack apart (`tasks.isolate`). An idle connection
+then holds 17.2 KiB on the Mac and 9.2 KiB on pup, page tables
+included, where a large stack held 32.8 and 13.0
+(test/cli/http_idle_footprint.sh). Each dense stack sits over a guard twice the largest frame
 the executable reserves, a power of two: those frames exist only after
 the link, so `bin/rig` reads them (`frames.largestReach`, which reads each
 function's whole body and overestimates on purpose) and writes the guard

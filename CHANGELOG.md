@@ -401,6 +401,9 @@ none of these ever built:
 
 ### Runtime
 
+- An idle connection of `http.serve` waits on a dense stack, which shares
+  page tables with its neighbours: 17.2 KiB on the Mac and 9.2 KiB on
+  Linux, page tables included, where it held 32.8 and 13.0 KiB.
 - `rig build --release --pgo -- WORKLOAD` works on the Mac, with Apple's
   command-line tools: Trig 5 to 15% faster on projects it was not
   trained on.
