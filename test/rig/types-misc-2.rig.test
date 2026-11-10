@@ -1782,6 +1782,98 @@ fail "enum names its own optional in a payload", "`Expr?` in `args` is laid out 
     .one(n) => print(n)
     .two => print(0)
 
+fail "object names its own optional through a generic of another module", "`Node?` in `w` is laid out from `Node`'s layout, which needs `w` first"
+  # A generic declared in another module is looked into as one declared
+  # here: `W[Node]` names `Node?` where `W[T]`'s fields name `T?`.
+  use w
+
+  obj Node
+    v: Int
+    w: w.W[Node]
+
+  sub main()
+    print(1)
+
+  file "w.rig"
+    pub obj W[T]
+      pub kids: List[T?]
+
+fail "enum names its own optional in a payload through a generic of another module", "`Expr?` in `args` is laid out from `Expr`'s layout, which needs `args` first"
+  use w
+
+  enum Expr
+    leaf(n: Int)
+    call(args: w.W[Expr])
+
+  sub main()
+    print(1)
+
+  file "w.rig"
+    pub obj W[T]
+      pub items: List[T?]
+
+fail "object names its own optional behind a box through a generic of another module", "`Node?` in `w` is laid out from `Node`'s layout, which needs `w` first"
+  use w
+
+  obj Node
+    v: Int
+    w: w.W[Node]
+
+  sub main()
+    print(1)
+
+  file "w.rig"
+    pub obj W[T]
+      pub up: ^(T?)
+
+fail "object names its own optional through an alias of a generic of another module", "`Node?` in `w` is laid out from `Node`'s layout, which needs `w` first"
+  # An alias is the type it names, walked as that type.
+  use w
+
+  type WN = w.W[Node]
+
+  obj Node
+    v: Int
+    w: WN
+
+  sub main()
+    n = Node(v: 1, w: WN(kids: List[Node?]()))
+    print(n.v)
+
+  file "w.rig"
+    pub obj W[T]
+      pub kids: List[T?]
+
+test "object holds a box's optional through a generic of this module", "1"
+  # A box keeps its value in heap memory, so `W[T]` with `up: ^T?` holds
+  # no `T` inline, and `Node` holding `W[Node]` has a finite size.
+  obj W[T]
+    up: ^T?
+
+  obj Node
+    v: Int
+    w: W[Node]
+
+  sub main()
+    n = Node(v: 1, w: W[Node](up: none))
+    print(n.v)
+
+test "object holds a box's optional through a generic of another module", "1"
+  # `^T?`, an optional box, is laid out without `T`'s layout.
+  use w
+
+  obj Node
+    v: Int
+    w: w.W[Node]
+
+  sub main()
+    n = Node(v: 1, w: w.W[Node](up: none))
+    print(n.v)
+
+  file "w.rig"
+    pub obj W[T]
+      pub up: ^T?
+
 fail "object names its own optional through many instances", "`Node?` in `g` is laid out from `Node`'s layout, which needs `g` first"
   # Each instance a field reaches is looked into, however many there
   # are: here 78, each holding two more, the last naming `Node?`.

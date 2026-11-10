@@ -7507,9 +7507,13 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
         .parameterized_nominal => |pn| blk: {
             const c = contentsOf(ctx, pn.sym);
             var h: Holds = .{ .glue = c.glue, .plain = c.plain, .vector = c.vector, .any_error = c.any_error };
+            // A List, a box, or a table keeps its elements in heap memory,
+            // so a parameter it holds is not held by value here: `W[T]`
+            // with `up: ^T?` holds no `T` inline (`byValueTargets`).
+            const marks = if (isHeapBuiltin(ctx, pn.sym)) try ctx.arena.allocator().alloc(bool, held.len) else held;
             for (pn.args, 0..) |a, i| {
                 if (i >= c.held.len or !c.held[i]) continue;
-                const arg = try holdsIn(ctx, a, params, held);
+                const arg = try holdsIn(ctx, a, params, marks);
                 h.glue = h.glue or arg.glue;
                 h.plain = h.plain and arg.plain;
                 h.type_var = h.type_var or arg.type_var;
@@ -7791,8 +7795,9 @@ fn checkOptionalLoops(ctx: *SemContext) std.mem.Allocator.Error!void {
 
 /// The walk `checkOptionalLoops` makes from each field's type, with a
 /// stack of its own: through views, handles, type arguments, and the
-/// fields of a generic instance declared here (`W[Node]` names `Node?`
-/// where `W[T]`'s fields name `T?`), but not an instance whose arguments
+/// fields of a generic instance, declared here or in another module
+/// (`W[Node]` names `Node?` where `W[T]`'s fields name `T?`), but not an
+/// instance whose arguments
 /// nest past `max_instance_depth`, which expanding the instances
 /// rejects. A chain of generics, each naming the next, is walked in time
 /// linear in its length: an instance whose arguments are all type
@@ -7841,7 +7846,7 @@ const OptionalWalk = struct {
         var met = false;
         while (w.stack.pop()) |popped| {
             const t = switch (ctx.types.get(popped)) {
-                .parameterized_nominal => |pn| if (localGeneric(ctx.symbols.items[pn.sym])) (try w.ownInstance(ctx, pn)) orelse popped else popped,
+                .parameterized_nominal => |pn| if (genericDecl(ctx.symbols.items[pn.sym])) (try w.ownInstance(ctx, pn)) orelse popped else popped,
                 else => popped,
             };
             if (w.clean.contains(t) or (try w.visited.getOrPut(a, t)).found_existing) continue;
@@ -7859,7 +7864,7 @@ const OptionalWalk = struct {
             switch (here) {
                 .parameterized_nominal => |pn| {
                     const decl = ctx.symbols.items[pn.sym];
-                    if (localGeneric(decl) and instanceNests(ctx, pn)) {
+                    if (genericDecl(decl) and instanceNests(ctx, pn)) {
                         const subst: TypeSubst = .{ .params = decl.type_params.?, .args = pn.args };
                         for (decl.fields orelse &.{}) |*f| for (dataFields(f)) |*d| try w.parts.append(a, try substituteType(ctx, d.ty, subst));
                     }
@@ -7879,10 +7884,12 @@ const OptionalWalk = struct {
     }
 };
 
-/// Whether `decl` is a generic type this module declares, whose
-/// instances `OptionalWalk` reads through its fields.
-fn localGeneric(decl: Symbol) bool {
-    return decl.decl_pos < imported_decl_pos and decl.type_params != null;
+/// Whether `decl` is a generic type, whose instances `OptionalWalk` reads
+/// through its fields: one this module declares, or the proxy of one
+/// another module declares (`importSymbol`), whose parameters and fields
+/// it carries, filled in before any pass reads it.
+fn genericDecl(decl: Symbol) bool {
+    return decl.type_params != null and decl.kind == .generic_type;
 }
 
 /// Whether no argument of instance `pn` nests past `max_instance_depth`,

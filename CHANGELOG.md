@@ -249,6 +249,18 @@ none of these ever built:
 
 ### Compiler
 
+- An object or payload enum that holds a generic of another module
+  whose fields name the generic's parameter as an optional (`kids:
+  List[T?]` in `W[T]`, held as `w.W[Node]` in `Node`) is rejected with
+  the message a generic of its own module gets, where `rig check`
+  accepted it and Zig then failed with a dependency loop. An alias of
+  such an instance is rejected the same way. A program that declared
+  such a type and never made one compiled before, and is rejected now.
+- A generic whose field is a box of its parameter's optional (`up: ^T?`)
+  holds no `T` inline, so an object holding the generic of itself
+  (`w: W[Node]` in `Node`) is accepted, where it was rejected as
+  containing itself by value. A List, a box, or a table keeps its
+  elements in heap memory, inside a generic as outside one.
 - `rig build --release`'s warning about a frame larger than a page reads
   a program's own code section too, where a program that makes tasks
   keeps its functions when it is preempted by signal, and where the

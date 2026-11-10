@@ -305,10 +305,8 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   refused (sema `checkOptionalLoops`), since `rig.Opt(Node)` asks Zig
   for `Node`'s layout while `Node` is laid out. A layout chosen lazily,
   inside a struct whose fields Zig resolves later, would let them
-  compile; measure what it costs every object's optional first. A
-  generic declared in another module whose fields name `T?`, given the
-  type that holds it (`W[Node]` of an imported `W`), is not walked and
-  still fails in Zig. Found with the port bugs (2026-10-29).
+  compile; measure what it costs every object's optional first. Found
+  with the port bugs (2026-10-29).
 - **A write view of an array is no read slice.** A `![4]U8` passed
   bare where a `[]U8` goes is rejected ("type mismatch: expected `[]U8`,
   got `![4]U8`"), though a `![]U8` reads as the `[]U8` it views and a
