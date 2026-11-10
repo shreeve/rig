@@ -87,7 +87,10 @@ pause() {
 }
 resume() { local p; for p in $(cat "$1" 2>/dev/null); do kill -CONT "$p" 2>/dev/null; done; }
 note() { echo "$(date '+%F %T') $*" >>"$LOG" 2>/dev/null; }
-state() { echo "blocks=$(blocks) swap_mb=$(swapmb) slot=$(cat "$ST/open" 2>/dev/null || echo none) paused=$(sort -u "$ST/paused" 2>/dev/null | grep -c .)"; }
+# `running` counts the builds not paused: in an ab slot, those pinned to
+# E-cores; in a board slot, any that started past the guard's last turn,
+# which voids a board race (decision 14).
+state() { echo "blocks=$(blocks) swap_mb=$(swapmb) slot=$(cat "$ST/open" 2>/dev/null || echo none) paused=$(sort -u "$ST/paused" 2>/dev/null | grep -c .) running=$(builds | grep -c .)"; }
 
 case ${1:-} in
 open)

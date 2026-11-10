@@ -379,6 +379,8 @@ none of these ever built:
   minutes (exit 75), stops the job at its limit (19 minutes, at most 20;
   exit 124), and clears the line however the job ends
   (`test/cli/mac_claim.sh`).
+- `pup-slot state` prints `running=R`, the builds not paused, beside
+  `paused=K`; a board race with any running is void (decision 14).
 - `tools/pup-slot` opens and closes pup's timing slots (`open NN
   MINUTES board|ab LABEL`, `close`, `status`, `state`), pausing builds by
   PID and resuming the same PIDs. A board slot pauses every build and
