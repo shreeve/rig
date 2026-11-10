@@ -373,6 +373,16 @@ none of these ever built:
 
 ### Tests
 
+- `tools/pup-slot` opens and closes pup's timing slots (`open NN
+  MINUTES board|ab LABEL`, `close`, `status`, `state`), pausing builds by
+  PID and resuming the same PIDs. A board slot pauses every build and
+  opens only with no build over 2 GB resident and 64 free 2 MiB blocks
+  after compacting; an ab slot lets builds pinned to E-cores 12-19 run.
+  Neither pauses a running test suite; a board run past 45 minutes
+  leaves a 15-minute window when a correctness build waits; every wait
+  gives up after 45 minutes (exit 75); each open and close is a line in
+  `/zfs/trig-pup/slot-tools/slots.log` (`test/cli/pup_slot.sh`, which
+  runs on Linux).
 - `test/cli/agree.sh` fails on macOS when `lake` is missing, and says
   it skipped on stderr elsewhere; it fails, too, when fewer programs
   than its floor (22) are in λRig's scope, or when lrig writes a line it

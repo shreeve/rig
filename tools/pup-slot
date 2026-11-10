@@ -1,0 +1,172 @@
+#!/bin/bash
+# tools/pup-slot: pup's timing slots (Linux). A slot keeps the machine
+# quiet for one timing job: builds are paused (SIGSTOP) while it is open
+# and resumed when it closes, by the PIDs it paused, never by pattern.
+#
+#   pup-slot open NN MINUTES board|ab [LABEL]   open slot NN
+#   pup-slot close NN                           close it early
+#   pup-slot status                             the slot, the machine, the queue
+#   pup-slot state                              one line of machine state for a race row
+#   pup-slot watch NN DEADLINE                  (internal) the slot's guard
+#   pup-slot install                            copy this script to /zfs/trig-pup/bin
+#
+# Two kinds of slot:
+# - board: a race against tsrs. Every build is paused, E-cores included:
+#   builds beside a race slowed tsrs 4-130% while Trig held (2026-11-10).
+#   It opens only once no build holds more than 2 GB resident (a paused
+#   build keeps its memory, and free 2 MiB blocks with it), and, after
+#   caches are dropped and memory compacted, only with at least 64 free
+#   2 MiB blocks; otherwise it resumes what it paused and waits.
+# - ab: an A/B between Trig arms. Builds pinned to E-cores 12-19 run on.
+#
+# Either kind waits, rather than pausing, while a test suite runs (a
+# paused suite fails its timed cases); 35 seconds after the last slot
+# closed; and, once back-to-back board slots have run 45 minutes, while a
+# correctness build waits (a live PID in PUP_SLOT_CORRECTNESS, default
+# ~/.cache/trig-release-correctness/, which release-slot writes for
+# TRIG_RELEASE_CLASS=correctness), for at most a 15-minute window. Every
+# wait says what it waits on each ten minutes and gives up after 45
+# minutes, exit status 75.
+#
+# Every open and close is a line in PUP_SLOT_LOG (default
+# /zfs/trig-pup/slot-tools/slots.log): the slot, its kind, minutes and
+# label, the free 2 MiB blocks, swap in use, and the builds it paused.
+# A race row records `pup-slot state`. A board race is void when tsrs
+# runs slow against its standing median (REVAMP.md section 10): the
+# scorer applies that rule, and this script records what explains it.
+set -u
+TMPD=${PUP_SLOT_TMP:-/tmp}
+FLAG=$TMPD/slot-active
+ST=$TMPD/pup-slot
+LOG=${PUP_SLOT_LOG:-/zfs/trig-pup/slot-tools/slots.log}
+CORR=${PUP_SLOT_CORRECTNESS:-$HOME/.cache/trig-release-correctness}
+BUDDY=${PUP_SLOT_BUDDYINFO:-/proc/buddyinfo}
+WAIT=${PUP_SLOT_WAIT:-2700}
+mkdir -p "$ST"
+
+blocks() { awk '/Normal/ { print $14 }' "$BUDDY"; }
+swapmb() { free -m | awk '/Swap/ { print $3 }'; }
+# PIDs of builds: Zig compiles, Rig builds, release-slot wrappers.
+# PUP_SLOT_BUILD_RE and PUP_SLOT_SUITE_RE replace the patterns, for the
+# tests, which must touch no real build.
+BUILD_RE=${PUP_SLOT_BUILD_RE:-" (([^ ]*/)?zig (build-exe|build-obj|build|clang|cc|test)|[^ ]*/rig build|(/bin/)?sh [^ ]*release-slot)( |$)"}
+SUITE_RE=${PUP_SLOT_SUITE_RE:-"[s]warm(\.rip)? "}
+builds() {
+    ps -eo pid=,stat=,args= | awk '$2 !~ /^T/' | grep -E "$BUILD_RE" | awk '{ print $1 }'
+}
+# PIDs of running test suites.
+suites() { ps -eo pid=,args= | grep -E "$SUITE_RE" | awk '{ print $1 }'; }
+# Live correctness PIDs.
+correctness() {
+    local f
+    for f in "$CORR"/*; do
+        [[ -e $f ]] || continue
+        kill -0 "$(basename "$f")" 2>/dev/null && basename "$f"
+    done
+}
+rssmb() { ps -o rss= -p "$1" 2>/dev/null | awk '{ print int($1 / 1024) }'; }
+# Pause the builds this kind of slot pauses; print the PIDs paused.
+pause() {
+    local kind=$1 p aff
+    for p in $(builds); do
+        if [[ $kind == ab ]]; then
+            aff=$(taskset -pc "$p" 2>/dev/null | awk -F': ' '{ print $2 }')
+            [[ $aff == 12-19 ]] && continue
+        fi
+        kill -STOP "$p" 2>/dev/null && echo "$p"
+    done
+}
+resume() { local p; for p in $(cat "$1" 2>/dev/null); do kill -CONT "$p" 2>/dev/null; done; }
+note() { echo "$(date '+%F %T') $*" >>"$LOG" 2>/dev/null; }
+state() { echo "blocks=$(blocks) swap_mb=$(swapmb) slot=$(cat "$ST/open" 2>/dev/null || echo none) paused=$(sort -u "$ST/paused" 2>/dev/null | grep -c .)"; }
+
+case ${1:-} in
+open)
+    N=${2:?slot number} M=${3:?minutes} KIND=${4:?board or ab} LABEL=${5:-}
+    [[ $KIND == board || $KIND == ab ]] || { echo "pup-slot: kind is board or ab, not '$KIND'" >&2; exit 2; }
+    [[ $M =~ ^[0-9]+$ ]] && ((M >= 1 && M <= 60)) || { echo "pup-slot: minutes take 1 to 60" >&2; exit 2; }
+    start=$(date +%s); told=$((start + 60))
+    while :; do
+        now=$(date +%s); why=
+        [[ -e $FLAG ]] && why="slot $(cat "$ST/open" 2>/dev/null) is open"
+        closed=$(cat "$ST/closed" 2>/dev/null || echo 0)
+        ((now - closed < 35)) && why="${why:+$why; }35 s since the last close"
+        s=$(suites); [[ -n $s ]] && why="${why:+$why; }test suites running (PIDs $(echo $s))"
+        run=$(cat "$ST/board-since" 2>/dev/null || echo 0)
+        ((now - closed >= 900)) && run=0
+        c=$(correctness)
+        if [[ $KIND == board && -n $c ]] && ((run > 0 && now - run >= 2700 && now - closed < 900)); then
+            why="${why:+$why; }the correctness window (PIDs $(echo $c))"
+        fi
+        if [[ $KIND == board && -z $why ]]; then
+            for p in $(builds); do
+                r=$(rssmb "$p"); [[ -n $r ]] && ((r > 2048)) && why="${why:+$why; }build $p holds $r MB"
+            done
+        fi
+        if [[ -z $why ]]; then
+            : >"$ST/paused"
+            pause "$KIND" >>"$ST/paused"
+            sync
+            if [[ -z ${PUP_SLOT_NOSUDO:-} ]]; then
+                echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null
+                echo 1 | sudo -n tee /proc/sys/vm/compact_memory >/dev/null
+                sleep 5
+            fi
+            b=$(blocks)
+            if [[ $KIND == ab ]] || ((b >= 64)); then break; fi
+            resume "$ST/paused"; : >"$ST/paused"
+            why="only $b free 2 MiB blocks after compacting (64 needed)"
+        fi
+        if ((now - start >= WAIT)); then echo "pup-slot: gave up after $((WAIT / 60)) min waiting for: $why" >&2; exit 75; fi
+        if ((now >= told)); then echo "pup-slot: waiting $(((now - start) / 60)) min for: $why" >&2; told=$((now + 600)); fi
+        sleep 10
+    done
+    deadline=$((now + M * 60))
+    echo "$N" >"$ST/open"; echo "$KIND" >"$ST/kind"
+    if [[ $KIND == board ]]; then
+        (( $(cat "$ST/board-since" 2>/dev/null || echo 0) > 0 && now - $(cat "$ST/closed" 2>/dev/null || echo 0) < 900 )) || echo "$now" >"$ST/board-since"
+    else
+        rm -f "$ST/board-since"
+    fi
+    cp "$ST/paused" "$TMPD/quiet-pids$N"
+    touch "$FLAG"
+    nohup "$0" watch "$N" "$deadline" >/dev/null 2>&1 </dev/null &
+    note "open $N $KIND ${M}min ${LABEL:+label=\"$LABEL\" }blocks=$b swap_mb=$(swapmb) paused=$(grep -c . "$ST/paused")"
+    echo "slot $N ($KIND) open until $(date -d "@$deadline" +%T); free 2 MiB blocks: $b; paused: $(echo $(cat "$ST/paused"))"
+    ;;
+watch)
+    N=$2 END=$3
+    while [[ -e $FLAG && $(cat "$ST/open" 2>/dev/null) == "$N" ]]; do
+        if (($(date +%s) >= END)); then
+            rm -f "$FLAG"; resume "$ST/paused"; date +%s >"$ST/closed"
+            note "close $N deadline"
+            exit 0
+        fi
+        pause "$(cat "$ST/kind")" >>"$ST/paused"
+        sort -u "$ST/paused" -o "$ST/paused"; cp "$ST/paused" "$TMPD/quiet-pids$N"
+        sleep "${PUP_SLOT_TICK:-30}"
+    done
+    ;;
+close)
+    N=${2:?slot number}
+    [[ $(cat "$ST/open" 2>/dev/null) == "$N" && -e $FLAG ]] || { echo "pup-slot: slot $N is not open" >&2; exit 1; }
+    rm -f "$FLAG"; resume "$ST/paused"; date +%s >"$ST/closed"
+    note "close $N early blocks=$(blocks) swap_mb=$(swapmb)"
+    echo "slot $N closed; resumed: $(echo $(cat "$ST/paused"))"
+    ;;
+status)
+    if [[ -e $FLAG ]]; then echo "slot $(cat "$ST/open") ($(cat "$ST/kind")) open; paused: $(echo $(cat "$ST/paused" 2>/dev/null))"; else echo "no slot open"; fi
+    echo "machine: $(state)"
+    s=$(suites); echo "suites: ${s:+$(echo $s)}${s:-none}"
+    c=$(correctness); echo "correctness builds: ${c:+$(echo $c)}${c:-none}"
+    for p in $(builds); do echo "build $p: $(rssmb "$p") MB, $(ps -o args= -p "$p" | cut -c1-80)"; done
+    ;;
+state) state ;;
+install)
+    mkdir -p /zfs/trig-pup/bin && cp "$0" /zfs/trig-pup/bin/pup-slot && chmod +x /zfs/trig-pup/bin/pup-slot && echo "installed /zfs/trig-pup/bin/pup-slot"
+    ;;
+*)
+    sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//' >&2
+    exit 2
+    ;;
+esac
