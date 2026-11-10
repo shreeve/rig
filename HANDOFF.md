@@ -106,6 +106,10 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **A thread with no alternate signal stack stops the program** (PR
+  #1050, branch `runtime-hardening`): the main thread, workers and the
+  blocking pool's threads exit with a message where they ran on. Level
+  with main on both machines.
 - **Raising the workers** (PR #1046, branch `raise-workers`):
   `task.workers(n)` after the first task raises the number of workers,
   never lowers it, for Trig, which learns its checker count once it has

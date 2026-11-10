@@ -2626,7 +2626,7 @@ fn performanceCores() u32 {
 /// as `main` ends (`stop`).
 fn monitor(p: *Pool) void {
     defer rt.fast_alloc.threadExit();
-    const alt = rt.AltStack.attach();
+    const alt = rt.AltStack.attachOrStop();
     defer alt.detach();
     while (true) {
         const seen = p.monitor_word.load(.seq_cst);
@@ -2674,7 +2674,7 @@ const pool = split.cell(&pool_var, "sched.pool");
 fn poolMain(p: *Pool) void {
     // The thread's heap goes to the next thread as it ends (`alloc.zig`).
     defer rt.fast_alloc.threadExit();
-    const alt = rt.AltStack.attach();
+    const alt = rt.AltStack.attachOrStop();
     defer alt.detach();
     waker().thread = rt.threadId();
     rt.task().control = &waker().control;
@@ -3323,7 +3323,7 @@ fn workerCount() usize {
 
 fn workerMain(w: *Worker) void {
     defer rt.fast_alloc.threadExit();
-    const alt = rt.AltStack.attach();
+    const alt = rt.AltStack.attachOrStop();
     defer alt.detach();
     me_slot().* = w;
     if (preempt) preOf(w).tid = rt.threadId();
@@ -5971,6 +5971,24 @@ test "a dense stack a sanitizing build retires faults at a late write" {
     var err: [1024]u8 = undefined;
     const r = try inChild(Run.touch, &err);
     try std.testing.expect(r.signaled);
+}
+
+test "a worker whose alternate signal stack cannot be set stops the program" {
+    if (builtin.target.os.tag != .linux and builtin.target.os.tag != .macos) return error.SkipZigTest;
+    const Run = struct {
+        fn main(_: *anyopaque) callconv(.c) void {
+            _ = workersRunning();
+        }
+        fn child() void {
+            rt.AltStack.fails_for_test = true;
+            runForTest(main, 2);
+        }
+    };
+    var buf: [512]u8 = undefined;
+    const r = try inChild(Run.child, &buf);
+    try std.testing.expect(!r.signaled);
+    try std.testing.expectEqual(@as(u8, 1), r.code);
+    try std.testing.expect(std.mem.indexOf(u8, r.stderr, "alternate signal stack") != null);
 }
 
 test "a dense stack's guard faults" {

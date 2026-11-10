@@ -48,8 +48,9 @@ are a block of its worker's while it reads and answers a request, given
 back while it waits for the next (`net.Conn.fill`, `sched.takeBlock`),
 and a worker keeps 64 blocks, so a burst leaves no memory behind. So an
 idle connection holds its task's stack page (16 KiB on Apple Silicon)
-and a few small records, which is below hyper's and Go's per connection
-on both machines. A million idle connections do not fit on pup, whose
+and a few small records. Its task waits on a dense stack, which shares
+page tables with its neighbours, so counted with them it holds 17.2 KiB
+on the Mac and 9.2 KiB on Linux (test/cli/http_idle_footprint.sh). A million idle connections do not fit on pup, whose
 processes may hold 524,288 descriptors and whose 19 GB free would not
 hold a million of any server's plus the load generator's; 100,000 give
 the figure per connection.

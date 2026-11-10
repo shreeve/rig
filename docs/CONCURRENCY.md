@@ -475,9 +475,9 @@ Tokio actor; `bench/http/PROGRESS.md` has `http.serve` at 163,212
 requests a second (p99 786 µs), 9.5% fewer than hyper's 180,339 (p99
 614 µs) and about Go's 163,675 (p99 1,071 µs), and 16.8 KiB per idle
 connection against hyper's 18.6 KiB and Go's 18.5 KiB, in resident
-memory; the page table of each connection's stack is not counted, and
-with it Rig's idle connection holds more than hyper's and Go's on the
-Mac. Its load
+memory. Counted with its page tables, as the kernel counts a process,
+Rig's idle connection holds 17.2 KiB on the Mac, since it waits on a
+dense stack. Its load
 generator is closed-loop, which understates p99, so no claim against
 Tokio or Go rests on these before the mixed-workload benchmark.
 
