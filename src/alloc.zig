@@ -841,10 +841,11 @@ fn mapPages(size: usize) ?usize {
 /// wants huge pages asks for them (`MADV_HUGEPAGE`) while the system has
 /// free 2 MiB blocks for them and `huge_floor` more (`hugeFreeFor`); a
 /// new segment and a new large block ask just before their first pages
-/// fault, so the count is current when they need the blocks. Under `always`, a range that wants small
-/// pages says so (`MADV_NOHUGEPAGE`). A system that cannot leaves them
-/// as they are. It gives whether the range gets huge pages: it asked for
-/// them, or wants them where every range gets them unasked.
+/// fault, so the count is current when they need the blocks. Under
+/// `always`, a range that wants small pages says so (`MADV_NOHUGEPAGE`).
+/// A system that cannot leaves them as they are. It gives whether the
+/// range gets huge pages: it asked for them, or wants them where every
+/// range gets them unasked.
 fn ask(p: usize, len: usize, want: Want) bool {
     if (builtin.os.tag != .linux) return false;
     const linux = std.os.linux;
