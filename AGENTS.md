@@ -330,8 +330,8 @@ Machine-specific practice (the owner's machines):
 - **Timing on the Mac** runs as `tools/mac-claim LABEL CMD`: one board or
   A/B a claim, at most 20 minutes, never while a correctness job waits
   in `tools/heavy`. While a claim holds, heavy and the test runners start
-  no new job, and the claim's command starts once heavy's jobs have gone
-  quiet. Never pause a running job (SIGSTOP) that has a timeout: it is
+  no new job, and the claim's command starts once the whole machine has
+  gone quiet: a build run outside heavy holds every claim back. Never pause a running job (SIGSTOP) that has a timeout: it is
   killed the moment it resumes.
 - **The Mac:** suites run as `tools/heavy swarm test/rig.rip -w 4`, and
   `tools/heavy` takes a second slot only while the load is under the core
