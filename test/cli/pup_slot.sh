@@ -40,6 +40,7 @@ out=$("$S" close 7); rc=$?
 expect_rc $rc 0 "close"
 expect_eq "$(pstate $b)" S "the build is resumed"
 expect_eq "$(pstate $l)" S "the late build is resumed"
+expect_has "$("$S" state)" "slot=none paused=0" "a closed slot's state names no slot"
 kill $l
 expect_has "$("$S" state)" "running=1" "a resumed build counts as running"
 expect_has "$(cat slots.log)" 'open 7 board 5min label="a test" blocks=100' "the log"
