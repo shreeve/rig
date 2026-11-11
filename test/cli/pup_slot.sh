@@ -29,10 +29,18 @@ expect_rc $rc 0 "a board slot opens"
 expect_has "$out" "slot 7 (board) open" "the open line"
 expect_eq "$(pstate $b)" T "the build is paused"
 expect_has "$("$S" state)" "blocks=100" "state"
-expect_has "$("$S" state)" "paused=1 running=0" "state counts the paused and the running"
+expect_has "$("$S" state)" "paused=1 running=0 late=0" "state counts the paused, the running and the late"
+# A build that starts in the slot: the guard pauses it and counts it late.
+bash -c 'exec -a pupslottest-build sleep 60' &
+l=$!
+for _ in $(seq 30); do [[ $(pstate $l) == T ]] && break; sleep 0.2; done
+expect_eq "$(pstate $l)" T "a build started in the slot is paused"
+expect_has "$("$S" state)" "late=1" "and counted late"
 out=$("$S" close 7); rc=$?
 expect_rc $rc 0 "close"
 expect_eq "$(pstate $b)" S "the build is resumed"
+expect_eq "$(pstate $l)" S "the late build is resumed"
+kill $l
 expect_has "$("$S" state)" "running=1" "a resumed build counts as running"
 expect_has "$(cat slots.log)" 'open 7 board 5min label="a test" blocks=100' "the log"
 
