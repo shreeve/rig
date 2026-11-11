@@ -92,25 +92,23 @@ fn slotOf(comptime name: []const u8) usize {
 
 // ---- Calls between units ------------------------------------------------
 //
-// A function a split build cuts (`units.decide`) starts, in every unit
-// but its owner, with a call of the owner's (`away`, `call`); the owner
-// exports it (`exportFn`). A function whose parameters and result the C
-// calling convention takes (integers to 64 bits, floats, bools, pointers
-// that are not slices, optional pointers, small packed objects) is
-// exported as itself and called directly; any other through a thunk
-// taking its arguments, as a tuple, and the place for its result, by
-// pointer. Every unit is compiled by the same Zig from the same package,
-// so the tuple and the result have one layout in all of them.
-
-/// Whether a call of `f` in this unit goes to unit `owner`, which owns
-/// it: in a split build, from every other unit, when every unit can call
-/// it (`crosses`). Every unit decides alike.
-pub fn away(comptime f: anytype, comptime owner: u32) bool {
-    return on and unit != owner and crosses(f);
-}
+// A function a split build cuts (`units.decide`) has its body in the
+// one unit that owns it, which exports it (`exportFn`); every other unit
+// compiles a call of the owner's in its place (`call`). Which file a
+// unit compiles a module from says which it is: the unit's root names,
+// for each module, the declarations every unit shares or the unit's own
+// copy with the bodies it owns (`main.splitFiles`). A function whose
+// parameters and result the C calling convention takes (integers to 64
+// bits, floats, bools, pointers that are not slices, optional pointers,
+// small packed objects) is exported as itself and called directly; any
+// other through a thunk taking its arguments, as a tuple, and the place
+// for its result, by pointer. Every unit is compiled by the same Zig
+// from the same declarations, so the tuple and the result have one
+// layout in all of them.
 
 /// Whether every unit can call `f` through one signature: it takes no
-/// compile-time parameter and returns.
+/// compile-time parameter and returns. `units.decide` cuts only such
+/// functions.
 fn crosses(comptime f: anytype) bool {
     const info = @typeInfo(@TypeOf(f)).@"fn";
     if (info.is_generic or info.attrs.varargs) return false;
@@ -163,8 +161,9 @@ fn CFn(comptime f: anytype) type {
     return @Fn(ps, &attrs, Ret(f), .{ .@"callconv" = .c });
 }
 
-/// Call `f`, which unit `owner` exports as `sym` (`exportFn`).
+/// Call `f`, which the unit that owns it exports as `sym` (`exportFn`).
 pub inline fn call(comptime f: anytype, comptime sym: []const u8, args: std.meta.ArgsTuple(@TypeOf(f))) Ret(f) {
+    comptime if (!crosses(f)) @compileError("rig: internal error: the cut function `" ++ sym ++ "` cannot be called from another unit");
     if (comptime direct(f)) return @call(.auto, @extern(*const CFn(f), .{ .name = sym }), args);
     const thunk = @extern(Thunk, .{ .name = sym });
     var ret: Ret(f) = undefined;
@@ -172,9 +171,9 @@ pub inline fn call(comptime f: anytype, comptime sym: []const u8, args: std.meta
     return ret;
 }
 
-/// Export `f` as `sym` from unit `owner`, which owns it (`call`).
-pub fn exportFn(comptime f: anytype, comptime sym: []const u8, comptime owner: u32) void {
-    if (unit != owner or !crosses(f)) return;
+/// Export `f` as `sym` from this unit, which owns it (`call`).
+pub fn exportFn(comptime f: anytype, comptime sym: []const u8) void {
+    if (!crosses(f)) @compileError("rig: internal error: the cut function `" ++ sym ++ "` cannot be called from another unit");
     if (comptime direct(f)) {
         const P = Params(f);
         const R = Ret(f);

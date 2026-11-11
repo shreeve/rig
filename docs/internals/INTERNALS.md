@@ -5463,7 +5463,9 @@ One `zig build-exe` compiles a program as one LLVM module, on one
 core, and LLVM's cost grows faster than the module. A split build
 compiles it as N units instead, each a `zig build-obj` on its own core
 with a Zig cache of its own, and links their objects with the entry
-(`main.buildSplit`). Two builds of one package write the same objects,
+(`main.buildSplit`). It keeps each unit's object, and the next build
+compiles only the units whose input changed: one, after a change
+inside one function's body (Reuse, below). Two builds of one package write the same objects,
 which Zig on Linux replaces by deleting the old one first, so a split
 build holds `rig-objects.lock` in its Zig cache, exclusively, from its
 check for a kept executable to its link (`main.lockObjects`); the build
@@ -5475,7 +5477,8 @@ to the cores at hand (`units.count`). `--units=N` sets the count, and
 `--units=1` never splits. A release build is one unit unless `--units`
 says otherwise: a call between units is a call LLVM cannot inline.
 
-Every unit compiles the whole package; what differs is its root:
+Every unit compiles every module's declarations; a cut function's body
+is compiled by the one unit that owns it:
 
 - **Which unit owns a function.** `units.decide` walks the program in
   order, modules then declarations, and cuts it into N runs of about
@@ -5485,21 +5488,65 @@ Every unit compiles the whole package; what differs is its root:
   no type parameters of its own, every parameter named, and not the
   root's `main`; the rest compile in every unit that uses them, as the
   runtime and std's Zig do.
-- **A cut function** (`emit.emitCut`) starts, after a cold hint, with
-  `if (!@inComptime() and comptime rig.split.away(@This().f, K)) return
-  rig.split.call(@This().f, "rigx_...", .{args});`. In every unit but K
-  the condition is known at compile time, and Zig analyzes none of the
-  rest of the body: the unit compiles a call. At compile time the body
-  runs, as it does whole. Unit K exports the function (the module's
-  last `comptime` block, `rig.split.exportFn`): as itself, in the C
+- **A cut function** is emitted as it is for one unit, and emit records
+  where its body lies in the module's file (`emit.Cut`,
+  `emit.emitCut`). From that, `main.splitFiles` writes the module once
+  as its **declarations**, under its own name, where the body of every
+  cut function is `{ return rig.split.call(@This().f, "rigx_...",
+  .{args}); }` (after a cold hint, for a cold function): a call of the
+  owner, which names no unit. It writes the module again as
+  `__rig_uK_<module>` for each unit K that owns one of its functions:
+  the declarations with K's bodies in place, and a last `comptime`
+  block that exports each (`rig.split.exportFn`): as itself, in the C
   calling convention, when C takes its parameters and result, else as a
   thunk taking its arguments as a tuple and the place for its result.
-  Every unit is compiled by one Zig from one package, so the tuple has
-  one layout in all of them. Whether Zig can pass the call at all
-  (`rig.split.crosses`: no compile-time parameter, and it returns) is
-  decided alike in every unit, from the lowered signature only Zig
-  knows. A cut function reads every parameter in its call, so emit
-  discards none of them unused.
+  Every unit is compiled by one Zig from the same declarations, so the
+  tuple has one layout in all of them. A cut function lowers to a Zig
+  function with no compile-time parameter that returns, which
+  `rig.split.call` and `exportFn` check where they are compiled.
+- **Modules through the root.** In a split build a module imports
+  another as `@import("root").__rig_modules.@"<module>.zig"`
+  (`emit.writeModuleImport`), and each unit's root declares
+  `__rig_modules`: for every module, the unit's own copy when it owns
+  part of it, else the declarations. So one unit holds one copy of a
+  module, and reads its root, the files every unit shares (the runtime,
+  the declarations, the error seed, the glue), and its own copies. No
+  import leads it to another unit's bodies.
+- **Reuse.** A unit's object is kept in the package's Zig cache as
+  `rig-units/MODE/uK-KEY.o` (`main.buildSplit`). KEY (`main.unitKey`)
+  is a hash of Zig itself (as for a kept executable), the unit's Zig
+  command but its output, and the path and contents of every file the
+  unit can read: all the shared ones, read or not, and its own. A
+  marker `uK-KEY.ok` beside the object is removed before Zig runs and
+  written after it succeeds. The next build compiles only the units
+  whose object or marker is not there, links, and removes the objects
+  of other keys. An object is therefore linked only under the name of
+  everything it could have been compiled from; nothing rests on a
+  file's time or on what Zig happened to read. A change inside a cut
+  function's body changes one unit's copy of its module, so one unit
+  compiles; a change to a type, a constant, a signature, a new
+  function, or the body of a function that is not cut (an inline or
+  generic one, a method of a generic type) changes the declarations,
+  and every unit compiles, as each may use it. A body that makes a new
+  error name or `:symbol` changes the error seed or the symbols, which
+  all share. With `RIG_BUILD_STORE` each package has a Zig cache of its
+  own by content, so a changed package finds no objects there.
+- **Owners that stay.** A body that grows shifts `units.decide`'s cut,
+  which could move a function at a boundary to the next unit and make
+  two more units compile. The call of a cut function names no unit, so
+  which unit owns it is in no shared file, and the build keeps the last
+  assignment in `rig-units/owners` with a hash of the shared files
+  (`units.keep`). When that hash is the same, only bodies changed: the
+  two builds cut the same functions, and each keeps its owner. When it
+  differs every unit compiles whatever the owners are, and the cut is
+  taken afresh, so the units never drift far from equal. Any owners
+  build the same program; the table only spares compiles.
+- **Hidden names.** Emit numbers the temporaries, labels, and renamed
+  locals of a function from one (`Emitter.counter` starts again at each
+  module-level declaration and each method), so a change inside one
+  function renames nothing in another, in its unit's copy or in the
+  declarations. The hidden names declared at module level count apart
+  (`module_counter`).
 - **The runtime's state** is one per process: each module-level
   variable of the runtime is a cell (`rig.split.cell`), which unit 0
   defines and exports as its bytes and every other unit reaches by its
@@ -5516,10 +5563,10 @@ Every unit compiles the whole package; what differs is its root:
   `main.splitFiles`), and the program checks as it starts that every
   unit numbered them alike (`rig.split.exportUnit`).
 - **The roots.** `__rig_unit_K.zig` names the seed, declares
-  `__rig_unit` (its id and the count), re-exports what the runtime and
-  std read from the root (`panic`, `std_options`, the `__rig_` settings)
-  from the program's root or `rig test`'s driver, imports every module,
-  and exports its error numbering and a way to take std's process state
+  `__rig_unit` (its id and the count) and `__rig_modules`, re-exports
+  what the runtime and std read from the root (`panic`, `std_options`,
+  the `__rig_` settings) from the program's root or `rig test`'s driver,
+  refers to every module, and exports its error numbering and a way to take std's process state
   (`rig.split.exportUnit`). The executable's root, `__rig_entry.zig`,
   declares itself unit N, so its runtime's cells are unit 0's, and its
   `main` (`rig.split.start`) hands each unit what Zig's start code set

@@ -403,6 +403,10 @@ builds omit frame pointers and stack canaries; `RIG_FRAME_POINTERS=1`
 keeps the first for a profiler, `RIG_STACK_PROTECTOR=1` the second.
 `rig build --strip` leaves out debug information, most of a large
 release build's time ([INTERNALS, "Stripped builds"](docs/internals/INTERNALS.md#stripped-builds)).
+A split build (`--units=N`) keeps each unit's object and compiles
+again only the units an edit changed: one, after a change inside one
+function's body, which rebuilds Trig at 32 units, stripped, in 17 s
+where every edit took 27 s ([INTERNALS, "Split builds"](docs/internals/INTERNALS.md#split-builds)).
 
 `std.terminal`, a terminal emulator library, matches Ghostty (pinned
 at `31bdcd5a7963`) on 416 recorded cases and its fuzzer, scrollback

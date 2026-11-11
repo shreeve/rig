@@ -276,8 +276,10 @@ pub const Facts = struct {
     pub fn isInlined(f: Facts, name: Sexp) bool {
         return f.c().inlined.contains(f.c().startOf(name));
     }
-    /// In a split build, the unit that owns the function or method whose
-    /// name leaf is `name`, when it is cut (`units.decide`).
+    /// In a split build, whether the function or method whose name leaf
+    /// is `name` is cut, and the unit `units.decide`'s cut gives it; a
+    /// build that changed only bodies keeps the last one's owners instead
+    /// (`units.keep`).
     pub fn splitUnitOf(f: Facts, name: Sexp) ?u16 {
         return f.c().split_units.get(f.c().startOf(name));
     }

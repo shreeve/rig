@@ -262,6 +262,18 @@ none of these ever built:
 
 ### Compiler
 
+- A split build (`--units=N`) compiles again only the units an edit
+  changed. Each unit's object is kept under a hash of everything the
+  unit can read, so after a change inside one function's body one unit
+  compiles and the rest are linked as they were; a change to a type, a
+  constant, a signature, or an inline or generic function compiles
+  every unit, as before. Trig at 32 units, stripped, rebuilds in 17 s
+  after a one-line change to a body where it took 27 s, on an x86-64
+  Linux machine. A unit compiles each module from the declarations
+  every unit shares or from its own copy with the bodies it owns, a
+  function's hidden names are numbered from one, and the owners of the
+  last build are kept while only bodies change, so one function's
+  change reaches no other unit.
 - `rig build --release --pgo` builds faster: Zig writes the program's
   bitcode without running LLVM's passes, whose work it dropped, since
   clang runs them on that bitcode. The bitcode and the executable's
