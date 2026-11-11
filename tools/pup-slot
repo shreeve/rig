@@ -88,9 +88,11 @@ pause() {
 resume() { local p; for p in $(cat "$1" 2>/dev/null); do kill -CONT "$p" 2>/dev/null; done; }
 note() { echo "$(date '+%F %T') $*" >>"$LOG" 2>/dev/null; }
 # `running` counts the builds not paused: in an ab slot, those pinned to
-# E-cores; in a board slot, any that started past the guard's last turn,
-# which voids a board race (decision 14).
-state() { echo "blocks=$(blocks) swap_mb=$(swapmb) slot=$(cat "$ST/open" 2>/dev/null || echo none) paused=$(sort -u "$ST/paused" 2>/dev/null | grep -c .) running=$(builds | grep -c .)"; }
+# E-cores; in a board slot, any that started since the guard's last look
+# (2 s), which voids a board race (decision 14). `late` counts the
+# builds the guard paused after the slot opened: each ran beside the race
+# until it was paused.
+state() { echo "blocks=$(blocks) swap_mb=$(swapmb) slot=$(cat "$ST/open" 2>/dev/null || echo none) paused=$(sort -u "$ST/paused" 2>/dev/null | grep -c .) running=$(builds | grep -c .) late=$(sort -u "$ST/late" 2>/dev/null | grep -c .)"; }
 
 case ${1:-} in
 open)
@@ -139,7 +141,7 @@ open)
         sleep 10
     done
     deadline=$((now + M * 60))
-    echo "$N" >"$ST/open"; echo "$KIND" >"$ST/kind"
+    echo "$N" >"$ST/open"; echo "$KIND" >"$ST/kind"; : >"$ST/late"
     if [[ $KIND == board ]]; then
         (( $(cat "$ST/board-since" 2>/dev/null || echo 0) > 0 && now - $(cat "$ST/closed" 2>/dev/null || echo 0) < 900 )) || echo "$now" >"$ST/board-since"
     else
@@ -159,9 +161,14 @@ watch)
             note "close $N deadline"
             exit 0
         fi
-        pause "$(cat "$ST/kind")" >>"$ST/paused"
+        kind=$(cat "$ST/kind")
+        # A build that started after the slot opened: paused, and counted
+        # in `late`, which a board race's row reads.
+        pause "$kind" | tee -a "$ST/late" >>"$ST/paused"
         sort -u "$ST/paused" -o "$ST/paused"; cp "$ST/paused" "$TMPD/quiet-pids$N"
-        sleep "${PUP_SLOT_TICK:-30}"
+        # A board slot looks every 2 s, so a build that starts in it runs
+        # at most that long; an ab slot every 10.
+        if [[ $kind == board ]]; then sleep "${PUP_SLOT_TICK:-2}"; else sleep "${PUP_SLOT_TICK:-10}"; fi
     done
     ;;
 close)
