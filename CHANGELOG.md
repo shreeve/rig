@@ -374,7 +374,8 @@ none of these ever built:
 ### Tests
 
 - `tools/mac-claim LABEL CMD` runs one timing job holding the Mac's
-  claim line: it waits while another claim holds the Mac or a
+  claim line, with `TRIG_MAC_CLAIMED=1` and `RIG_MAC_CLAIMED=1` set for
+  it, so a tool that waits on the claim does not wait on its own: it waits while another claim holds the Mac or a
   correctness job holds or waits for a heavy slot, gives up after 45
   minutes (exit 75), stops the job at its limit (19 minutes, at most 20;
   exit 124), and clears the line however the job ends

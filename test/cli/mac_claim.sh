@@ -14,6 +14,8 @@ C=$ROOT/tools/mac-claim
 out=$("$C" "test run" cat "$RIG_MAC_CLAIM"); rc=$?
 expect_rc $rc 0 "a claim"
 expect_has "$out" "test run, at most 19 min" "the claim line while it runs"
+out=$("$C" "env run" sh -c 'echo $TRIG_MAC_CLAIMED$RIG_MAC_CLAIMED'); rc=$?
+expect_eq "$out" "11" "the job knows it holds the claim"
 [[ ! -s $RIG_MAC_CLAIM ]] || fail "the claim outlived its job: $(cat "$RIG_MAC_CLAIM")"
 
 # Another claim holds the Mac: wait for it.
