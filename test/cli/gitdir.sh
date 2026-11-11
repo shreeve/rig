@@ -21,7 +21,7 @@ hint="run from a worktree, or set GIT_DIR=~/Data/Code/rig/.git"
 copy() {
   mkdir -p "$1/tools" "$1/test" "$1/src"
   cp "$ROOT/tools/gitdir" "$ROOT/tools/heavy" "$1/tools/"
-  cp "$ROOT/test/rig.rip" "$ROOT/test/matrix.py" "$1/test/"
+  cp "$ROOT/test/rig.rip" "$ROOT/test/claim.rip" "$ROOT/test/matrix.py" "$1/test/"
   : >"$1/rig.grammar"; : >"$1/src/rig.zig"
 }
 
