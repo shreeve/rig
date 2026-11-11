@@ -198,12 +198,27 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         /// `!t.push(x)`: writes slot `len` and gives it; panics when all
         /// `n` are pushed. The slot is dropped first, as any store into a
         /// place drops what was there. A table that asks for huge pages
-        /// at its first push tests for that and for a full table at once:
-        /// `len - 1`, wrapping at 0, is `n - 1` or more only then.
-        pub fn push(self: *Self, value: T) Index {
-            if (comptime asks_at_push) {
-                if (self.len -% 1 >= n - 1) self.firstPush();
-            } else if (self.len == n) fullPanic(n);
+        /// at its first push (`pushFolded`) tests for that and for a full
+        /// table at once, and its `push` is always inlined, its cold path
+        /// never: a slow path that returns would otherwise lead the
+        /// compiler to outline `push` (docs/history/records/2026-10/
+        /// perf-stage/table-huge.md, "jit").
+        pub const push = if (asks_at_push) pushFolded else pushPlain;
+
+        fn pushPlain(self: *Self, value: T) Index {
+            if (self.len == n) fullPanic(n);
+            return self.put(value);
+        }
+
+        /// `len - 1`, wrapping at 0, is `n - 1` or more only at the first
+        /// push and when the table is full.
+        inline fn pushFolded(self: *Self, value: T) Index {
+            if (self.len -% 1 >= n - 1) self.firstPush();
+            return self.put(value);
+        }
+
+        /// Write slot `len`, below `n`, and give it.
+        inline fn put(self: *Self, value: T) Index {
             // `len < n` here, as only `push` raises `len`, and `n - 1`
             // fits `Index`: the cast is exact.
             rt.invariant(self.len < n);
@@ -230,7 +245,7 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         /// table grown after memory fragments faults in through the
         /// compactor, as every range that asks does
         /// (docs/history/records/2026-10/perf-stage/thp-fragmented.md).
-        fn firstPush(self: *const Self) void {
+        noinline fn firstPush(self: *const Self) void {
             @branchHint(.cold);
             if (self.len == n) fullPanic(n);
             rt.fast_alloc.tablePushed(@intFromPtr(self.slots), bytes);
