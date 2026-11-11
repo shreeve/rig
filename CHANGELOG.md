@@ -459,6 +459,16 @@ none of these ever built:
 
 ### Runtime
 
+- The preemption monitor parks while no signal could help: no work waits
+  in any queue, and no worker holds a timer or a descriptor. It sleeps
+  2 to 10 ms at a time then, not 1 ms, and a task made to wait for a
+  busy worker, a timer set, or a descriptor watched wakes it at once.
+  Its 1 ms wake was most of a program's context switches and all of its
+  futex calls: Trig checking supabase-studio with 4 checkers made about
+  5,400 of each in 5.3 s, and its wakes took a checker's core about
+  3,400 times more, against 727 switches in all for tsrs.
+  `RIG_SCHED_STATS=1` prints the monitor's looks, parks, and wakes
+  (`test/cli/monitor_park.sh`).
 - A channel's receive gives Rig's `T?` as the program holds it: for a
   `T` that holds `none` in a spare value of its own (an object with an
   optional field, a `String` or a `List`, an object that names its none,

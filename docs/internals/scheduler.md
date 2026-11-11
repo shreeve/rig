@@ -141,7 +141,10 @@ worker after.
 
   the fibers it ran (by handoff too), of them pinned ones, the fibers it
   stole, and the times it slept, so a test can check where work ran
-  without timing it (`test/cli/sched_stats.sh`).
+  without timing it (`test/cli/sched_stats.sh`). A program preempted by
+  signal also prints how many times the monitor looked, parked, and was
+  woken from a parked sleep (`rig: monitor: looked 41, parked 9, woken
+  1`; `test/cli/monitor_park.sh`).
 
 ## Speed
 
@@ -462,6 +465,21 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
   worker whose fiber has run a slice, 10 ms, while other work waits, or
   whose own queue held work at two looks in a row, or whose timer or
   poller is due, gets SIGURG, and again at each look until it stops.
+  While no work waits in any queue and no worker holds a timer or a
+  descriptor, no signal could help, and after two such looks in a row
+  the monitor parks (`monitorIdle`): it sleeps 2 ms, then twice as long
+  each time, up to 10 ms. Whatever makes work wait for a busy worker (a task made or
+  woken into a busy worker's queues, or into the global queue while
+  every worker is busy), sets a timer, or watches a descriptor wakes it
+  (`wantMonitor`), and it looks at once, then looks again at least once
+  before it parks, so tasks made and taken one after another wake it at
+  most once a period, not once a task. The waker reads a flag on a line
+  of its own, after it has made its work visible, and the monitor looks
+  once more after setting the flag, so one of them sees the other. A
+  computation nothing waits for is then not interrupted every
+  millisecond by the monitor's wake, which on cores all busy takes one
+  from a worker: Trig checking with 4 checkers on 4 cores made about
+  9,000 such switches in 5 s, where tsrs made 727 switches in all.
   After four in a row that it declined, each signal waits twice as long
   as the one before, up to 1 ms (`resignalAfter`): a worker blocked in a
   system call, as a write to a full pipe blocks, took one every 50 µs,
