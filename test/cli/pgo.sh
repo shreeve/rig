@@ -7,7 +7,8 @@
 # Where they are there, the optimized program prints what the plain one
 # does, a program that ends by `os.exit` writes its profile too, a saved
 # profile (`--pgo-profile`) builds with no workload, and a profile of an
-# older program is reported out of date, not refused.
+# older program is reported out of date, not refused. With `--strip` the
+# optimized program has no debug information.
 # timeout: 900
 source "$ROOT/test/cli/_lib.sh"
 
@@ -139,6 +140,16 @@ want=$(rig run --release q.rig 2>&1); expect_rc $? 3 "rig run q"
 out=$(rig build --release --pgo -o qprog q.rig -- ./qprog 2>&1); expect_rc $? 0 "build --pgo by a workload that exits by os.exit: $out"
 out=$(./qprog); expect_rc $? 3 "the optimized program's os.exit"
 expect_eq "$out" "$want" "the optimized program that exits by os.exit"
+
+# Without debug information: the same program, and none in it.
+out=$(rig build --release --pgo --strip -o lean p.rig -- ./lean 2>&1); expect_rc $? 0 "build --pgo --strip: $out"
+expect_eq "$(./lean)" "$(./prog)" "the optimized program without debug information"
+case $(uname -s) in
+Linux) debug_info() { readelf -S "$1" | grep -c '\.debug_info'; } ;;
+Darwin) debug_info() { nm -ap "$1" | grep -c ' OSO '; } ;;
+esac
+[[ $(debug_info prog) -gt 0 ]] || fail "the optimized program has no debug information to tell a stripped one by"
+expect_eq "$(debug_info lean)" 0 "debug information in the optimized program built with --strip"
 
 # On the Mac a program of tasks keeps its section apart, x15 is its own,
 # and the profile holds what the workload ran.

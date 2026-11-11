@@ -124,6 +124,19 @@ none of these ever built:
 ### Added
 
 - **`task.workers(n)` raises the workers after the first task.** A program that learns how much work it has only once running, as a checker does after parsing, can ask for more workers then. It only raises; it gives false for fewer than run, and a deterministic run keeps to one thread.
+- **`rig build --strip`** builds without debug information (Zig's
+  `-fstrip` on every compile and the link), which is most of what Zig
+  writes for a large release build: Trig as one unit builds in 224 s
+  where it took 687 s, on an x86-64 Linux machine. It goes with
+  `--release`, `--units`, and `--pgo`; `--bolt`, which needs the names
+  of the program's functions, refuses it. A stripped executable has no
+  names or lines for a profiler or a debugger, a stripped debug build's
+  panic prints its message and no trace, and a stripped release build
+  warns of no frame larger than a page, which a note says. The program
+  keeps its dense stacks: the guard below them is read from the unwind
+  tables where no symbol names a function. Its code is nearly the plain
+  build's, not byte for byte, so compare a stripped build with a
+  stripped build.
 - **Dense stacks.** `rig build --release` gives a task that cannot need much stack a dense stack, which holds 17.6 KB on the Mac where a large one holds 33.5 KB. A task with recursion, or a call through a pointer, keeps a large stack, as does every task of a debug build or `rig run`.
 - **`task.fast_cores()`** gives how many fast physical cores the
   program may run on, at least 1: on macOS the performance cores, on

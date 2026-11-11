@@ -1,7 +1,15 @@
 //! The stack each function of a built program reserves, read from the
 //! executable itself: its symbols, and the prologue of each function,
 //! which reserves the function's frame. `rig build` reads it to warn
-//! about frames larger than a page (`main.warnFrames`).
+//! about frames larger than a page (`main.warnFrames`), and to size the
+//! guard below a dense stack (`largestReach`).
+//!
+//! A function begins at each symbol of the code, at each function the
+//! unwind tables describe (`unwindStarts`), and where a section of code
+//! begins. A stripped build (`rig build --strip`) names none of the
+//! program's functions, and its unwind tables still tell them apart; a
+//! function neither names is read as part of the one before it, which
+//! only raises that one's bound.
 //!
 //! The prologues read, by machine:
 //!
@@ -16,7 +24,8 @@
 
 const std = @import("std");
 
-/// A function of the executable and the bytes its prologue reserves.
+/// A function of the executable and the bytes its prologue reserves;
+/// `name` is empty for one the symbol table does not name.
 /// `reach` bounds what its whole body may reserve (`armReach`, `x86Reach`),
 /// an overestimate on purpose; null when a stack adjustment in it cannot
 /// be read.
@@ -74,9 +83,11 @@ pub fn read(allocator: std.mem.Allocator, bytes: []const u8) ![]Frame {
         texts = (try elf(allocator, bytes, &symbols, &probe)) orelse return &.{};
     } else return &.{};
 
+    for (texts.items[0..texts.len]) |t| try symbols.append(allocator, .{ .name = "", .addr = t.addr });
+    // Of several at one address the last is read, a named one.
     std.mem.sort(Symbol, symbols.items, {}, struct {
         fn lessThan(_: void, a: Symbol, b: Symbol) bool {
-            return a.addr < b.addr;
+            return a.addr < b.addr or (a.addr == b.addr and a.name.len == 0 and b.name.len != 0);
         }
     }.lessThan);
     var out: std.ArrayList(Frame) = .empty;
@@ -174,14 +185,24 @@ fn x86Reach(code: []const u8, addr: u64, probe: ?u64) u64 {
         if (i < 96 and rest.len >= 7 and rest[0] == 0x49 and rest[1] == 0x81 and rest[2] == 0xeb) total += u32At(rest, 3);
         // `sub rsp, imm8`
         if (rest.len >= 4 and rest[0] == 0x48 and rest[1] == 0x83 and rest[2] == 0xec) total += rest[3];
-        // `mov eax, imm32` then `call probe`
-        if (probe) |p| if (rest.len >= 10 and rest[0] == 0xb8 and rest[5] == 0xe8) {
-            const rel: i32 = @bitCast(u32At(rest, 6));
-            const next: i64 = @intCast(addr + i + 10);
-            if (next + rel == @as(i64, @intCast(p))) total += u32At(rest, 1);
-        };
+        if (probed(rest, addr + i, probe)) |n| total += n;
     }
     return total;
+}
+
+/// The bytes a probed x86_64 frame reserves, when `rest`, at `addr`,
+/// begins one: `mov eax, imm32` and then the call of the stack probe,
+/// which is at `probe`. An executable that does not name the probe (a
+/// stripped one) is read by what follows the call, `sub rsp, rax`, which
+/// nothing but a probed frame has.
+fn probed(rest: []const u8, addr: u64, probe: ?u64) ?u32 {
+    if (rest.len < 10 or rest[0] != 0xb8 or rest[5] != 0xe8) return null;
+    if (probe) |p| {
+        const rel: i32 = @bitCast(u32At(rest, 6));
+        const next: i64 = @intCast(addr + 10);
+        if (next + rel != @as(i64, @intCast(p))) return null;
+    } else if (rest.len < 13 or rest[10] != 0x48 or rest[11] != 0x29 or rest[12] != 0xc4) return null;
+    return u32At(rest, 1);
 }
 
 /// What an aarch64 prologue reserves.
@@ -218,12 +239,7 @@ fn x86Frame(code: []const u8, addr: u64, probe: ?u64) u64 {
         }
         // `sub rsp, imm8`
         if (rest.len >= 4 and rest[0] == 0x48 and rest[1] == 0x83 and rest[2] == 0xec) most = @max(most, rest[3]);
-        // `mov eax, imm32` then `call probe`
-        if (probe) |p| if (rest.len >= 10 and rest[0] == 0xb8 and rest[5] == 0xe8) {
-            const rel: i32 = @bitCast(u32At(rest, 6));
-            const next: i64 = @intCast(addr + i + 10);
-            if (next + rel == @as(i64, @intCast(p))) most = @max(most, u32At(rest, 1));
-        };
+        if (probed(rest, addr + i, probe)) |n| most = @max(most, n);
     }
     return most;
 }
@@ -239,6 +255,7 @@ fn machO(allocator: std.mem.Allocator, bytes: []const u8, symbols: *std.ArrayLis
     var nsyms: usize = 0;
     var stroff: usize = 0;
     var strsize: usize = 0;
+    var unwind: ?Text = null;
     var c: u32 = 0;
     while (c < ncmds) : (c += 1) {
         if (off + 8 > bytes.len) return null;
@@ -254,6 +271,9 @@ fn machO(allocator: std.mem.Allocator, bytes: []const u8, symbols: *std.ArrayLis
                 if (s + 80 > bytes.len) return null;
                 sect_count += 1;
                 const sect = name16(bytes[s..][0..16]);
+                if (std.mem.eql(u8, name16(bytes[s + 16 ..][0..16]), "__TEXT") and std.mem.eql(u8, sect, "__eh_frame")) {
+                    unwind = .{ .addr = u64At(bytes, s + 32), .size = u64At(bytes, s + 40), .offset = u32At(bytes, s + 48) };
+                }
                 if (std.mem.eql(u8, name16(bytes[s + 16 ..][0..16]), "__TEXT") and (std.mem.eql(u8, sect, "__text") or std.mem.eql(u8, sect, "__rig_text"))) {
                     if (texts.len < text_index.len) text_index[texts.len] = sect_count;
                     texts.add(.{ .addr = u64At(bytes, s + 32), .size = u64At(bytes, s + 40), .offset = u32At(bytes, s + 48) });
@@ -283,6 +303,8 @@ fn machO(allocator: std.mem.Allocator, bytes: []const u8, symbols: *std.ArrayLis
         if (std.mem.eql(u8, shown, "__zig_probe_stack")) probe.* = addr;
         try symbols.append(allocator, .{ .name = shown, .addr = addr });
     }
+    if (unwind) |u| if (u.offset <= bytes.len and u.size <= bytes.len - u.offset)
+        try unwindStarts(allocator, bytes[@intCast(u.offset)..][0..@intCast(u.size)], u.addr, symbols);
     return texts;
 }
 
@@ -301,10 +323,12 @@ fn elf(allocator: std.mem.Allocator, bytes: []const u8, symbols: *std.ArrayList(
         const h = shoff + k * shentsize;
         const name = cString(names, u32At(bytes, h)) orelse continue;
         if (std.mem.eql(u8, name, ".text") or std.mem.eql(u8, name, "rig_text")) texts.add(.{ .addr = u64At(bytes, h + 16), .offset = u64At(bytes, h + 24), .size = u64At(bytes, h + 32) });
+        if (std.mem.eql(u8, name, ".eh_frame")) if (section(bytes, h)) |frame| try unwindStarts(allocator, frame, u64At(bytes, h + 16), symbols);
         if (u32At(bytes, h + 4) == 2) symtab = h;
     }
-    const st = symtab orelse return null;
     if (texts.len == 0) return null;
+    // A stripped executable has no symbol table.
+    const st = symtab orelse return texts;
     const syms = section(bytes, st) orelse return null;
     const link: usize = u32At(bytes, st + 40);
     if (link >= shnum) return null;
@@ -318,6 +342,104 @@ fn elf(allocator: std.mem.Allocator, bytes: []const u8, symbols: *std.ArrayList(
         try symbols.append(allocator, .{ .name = name, .addr = addr });
     }
     return texts;
+}
+
+/// The first address of each function the unwind tables describe, added
+/// to `symbols` with no name: the start of every FDE of `frame`, an
+/// `.eh_frame` section (`__TEXT,__eh_frame` on macOS) that is at `addr`
+/// in memory. A record this cannot read is passed over, so its function
+/// is read as part of the one before it.
+fn unwindStarts(allocator: std.mem.Allocator, frame: []const u8, addr: u64, symbols: *std.ArrayList(Symbol)) !void {
+    var at: usize = 0;
+    while (at + 8 <= frame.len) {
+        const len: usize = u32At(frame, at);
+        // The end of the records, or a 64-bit one, which no linker here
+        // writes.
+        if (len == 0 or len == 0xffffffff or len > frame.len - at - 4) return;
+        const next = at + 4 + len;
+        // An FDE names its CIE by how far back it is; a CIE has 0 there.
+        const back: usize = u32At(frame, at + 4);
+        if (back != 0 and back <= at + 4) {
+            if (pointerEncoding(frame, at + 4 - back)) |enc| {
+                if (encodedPointer(frame[0..next], at + 8, enc, addr)) |start| try symbols.append(allocator, .{ .name = "", .addr = start });
+            }
+        }
+        at = next;
+    }
+}
+
+/// How the FDEs of the CIE at `cie` in `frame` write a function's first
+/// address (DWARF's `DW_EH_PE` byte, after `R` in the augmentation), or
+/// null for a CIE this cannot read.
+fn pointerEncoding(frame: []const u8, cie: usize) ?u8 {
+    if (cie + 9 > frame.len or u32At(frame, cie + 4) != 0) return null;
+    const len: usize = u32At(frame, cie);
+    if (len > frame.len - cie - 4) return null;
+    const end = cie + 4 + len;
+    var p = cie + 8;
+    const version = frame[p];
+    p += 1;
+    const aug_at = p;
+    while (p < end and frame[p] != 0) p += 1;
+    if (p >= end) return null;
+    const aug = frame[aug_at..p];
+    p += 1;
+    // No augmentation: a whole address.
+    if (aug.len == 0) return 0x00;
+    if (aug[0] != 'z') return null;
+    // The code and data alignment factors, the return address register
+    // (a byte in version 1), and the augmentation's length.
+    p = afterLeb(frame, p, end);
+    p = afterLeb(frame, p, end);
+    p = if (version == 1) p + 1 else afterLeb(frame, p, end);
+    p = afterLeb(frame, p, end);
+    for (aug[1..]) |c| switch (c) {
+        'R' => return if (p < end) frame[p] else null,
+        'L' => p += 1,
+        'P' => {
+            if (p >= end) return null;
+            p += 1 + (encodedSize(frame[p]) orelse return null);
+        },
+        'S', 'B', 'G' => {},
+        else => return null,
+    };
+    return 0x00;
+}
+
+/// The index after the LEB128 number at `p`, at most `end`.
+fn afterLeb(frame: []const u8, at: usize, end: usize) usize {
+    var p = at;
+    while (p < end and frame[p] & 0x80 != 0) p += 1;
+    return @min(p + 1, end);
+}
+
+/// The bytes a pointer of encoding `enc` takes, or null for one of no
+/// fixed size.
+fn encodedSize(enc: u8) ?usize {
+    return switch (enc & 0x0f) {
+        0x00, 0x04, 0x0c => 8,
+        0x03, 0x0b => 4,
+        0x02, 0x0a => 2,
+        else => null,
+    };
+}
+
+/// The address the pointer at `p` of `frame` holds by encoding `enc`:
+/// whole, or relative to where it is, `frame` being at `addr` in memory.
+/// Null for an encoding no linker here writes for a function's start.
+fn encodedPointer(frame: []const u8, p: usize, enc: u8, addr: u64) ?u64 {
+    const size = encodedSize(enc) orelse return null;
+    if (size < 4 or p + size > frame.len) return null;
+    const value: u64 = switch (enc & 0x0f) {
+        0x03 => u32At(frame, p),
+        0x0b => @bitCast(@as(i64, @as(i32, @bitCast(u32At(frame, p))))),
+        else => u64At(frame, p),
+    };
+    return switch (enc & 0xf0) {
+        0x00 => value,
+        0x10 => addr +% p +% value,
+        else => null,
+    };
 }
 
 /// The bytes of the ELF section whose header is at `h`.
@@ -361,6 +483,34 @@ test "an x86_64 prologue's frame" {
     const code = [_]u8{ 0x55, 0x48, 0x89, 0xe5, 0x48, 0x81, 0xec, 0xd8, 0x01, 0x00, 0x00 };
     try std.testing.expectEqual(@as(u64, 0x1d8), x86Frame(&code, 0, null));
     // mov eax, 6000; call the probe, at 0x100 + 10 + 0x20
-    const probed = [_]u8{ 0xb8, 0x70, 0x17, 0x00, 0x00, 0xe8, 0x20, 0x00, 0x00, 0x00 };
-    try std.testing.expectEqual(@as(u64, 6000), x86Frame(&probed, 0x100, 0x100 + 10 + 0x20));
+    const call = [_]u8{ 0xb8, 0x70, 0x17, 0x00, 0x00, 0xe8, 0x20, 0x00, 0x00, 0x00 };
+    try std.testing.expectEqual(@as(u64, 6000), x86Frame(&call, 0x100, 0x100 + 10 + 0x20));
+    // With no probe named, the same call counts when `sub rsp, rax`
+    // follows it, and any other call does not.
+    try std.testing.expectEqual(@as(u64, 0), x86Frame(&call, 0x100, null));
+    try std.testing.expectEqual(@as(u64, 6000), x86Reach(&(call ++ [_]u8{ 0x48, 0x29, 0xc4 }), 0x100, null));
+}
+
+test "the functions an unwind table describes" {
+    // A CIE with augmentation "zR" (pointers relative, 4 bytes signed),
+    // then two FDEs, of functions at 0x1000 and 0x1040, in a section at
+    // 0x2000.
+    var frame: [64]u8 = @splat(0);
+    std.mem.writeInt(u32, frame[0..4], 16, .little);
+    @memcpy(frame[8..20], &[_]u8{ 1, 'z', 'R', 0, 1, 0x78, 16, 1, 0x1b, 0, 0, 0 });
+    for ([_]usize{ 20, 40 }, [_]u64{ 0x1000, 0x1040 }) |at, start| {
+        std.mem.writeInt(u32, frame[at..][0..4], 16, .little);
+        std.mem.writeInt(u32, frame[at + 4 ..][0..4], @intCast(at + 4), .little);
+        std.mem.writeInt(i32, frame[at + 8 ..][0..4], @intCast(@as(i64, @intCast(start)) - @as(i64, @intCast(0x2000 + at + 8))), .little);
+    }
+    var symbols: std.ArrayList(Symbol) = .empty;
+    defer symbols.deinit(std.testing.allocator);
+    try unwindStarts(std.testing.allocator, &frame, 0x2000, &symbols);
+    try std.testing.expectEqual(@as(usize, 2), symbols.items.len);
+    try std.testing.expectEqual(@as(u64, 0x1000), symbols.items[0].addr);
+    try std.testing.expectEqual(@as(u64, 0x1040), symbols.items[1].addr);
+    // A record cut short ends the reading with what came before it.
+    symbols.clearRetainingCapacity();
+    try unwindStarts(std.testing.allocator, frame[0..50], 0x2000, &symbols);
+    try std.testing.expectEqual(@as(usize, 1), symbols.items.len);
 }
