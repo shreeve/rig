@@ -3652,8 +3652,10 @@ fn sleep(w: *Worker) void {
         }
     }
     // Once asleep `trim_wait`, it gives back what its heap holds free
-    // (`trimIdle`), once a sleep.
-    const since = nowReal();
+    // (`trimIdle`), once a sleep, if its heap has grown since its last
+    // trim (`trimWorth`); otherwise it sleeps with no timeout of its own.
+    var trim_due = rt.fast_alloc.trimWorth();
+    const since = if (trim_due) nowReal() else 0;
     var trimmed = false;
     defer if (trimmed) rt.fast_alloc.wakeIdle();
     while (w.woken.load(.seq_cst) == 0) {
@@ -3663,13 +3665,14 @@ fn sleep(w: *Worker) void {
             const due = earliestDue();
             w.sleep_due.store(due, .seq_cst);
             var timeout: ?i96 = if (due == no_due) null else @max(@as(i96, due) - nowNs(), 0);
-            if (!trimmed) {
+            if (trim_due) {
                 const left = @max(since + w.trim_wait - nowReal(), 0);
                 timeout = if (timeout) |t| @min(t, left) else left;
             }
             sleepIn(w, timeout);
             w.sleep_due.store(awake, .seq_cst);
-            if (!trimmed and w.woken.load(.seq_cst) == 0 and nowReal() - since >= w.trim_wait) {
+            if (trim_due and w.woken.load(.seq_cst) == 0 and nowReal() - since >= w.trim_wait) {
+                trim_due = false;
                 trimmed = true;
                 trimIdle(w);
             }

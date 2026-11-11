@@ -325,6 +325,9 @@ pub const Heap = struct {
     released: ?*Segment = null,
     /// How many times `trimIdle` has counted its free blocks.
     trims: u32 = 0,
+    /// What it had taken from the system (`taken`) at its last trim
+    /// (`trimWorth`).
+    taken_at_trim: usize = 0,
     /// Whether its thread sleeps and has given its free blocks away
     /// (`trimIdle`), for other heaps to take (`takeDonated`).
     donor: std.atomic.Value(bool) = .init(false),
@@ -466,8 +469,29 @@ pub fn trimIdle() usize {
     return trimHeap(my_heap().* orelse return 0);
 }
 
+/// Whether the running thread's heap is worth trimming as its worker
+/// sleeps (`sched.sleep`): it has taken `trim_new` bytes or more from the
+/// system since its last trim (`trimIdle`), or since it was made. A heap
+/// that has not grown since has given back or lent what it held then, so
+/// a worker that pauses again and again, as one between the short tasks
+/// of a server or of bench/tasks does, sleeps as it would with no trim,
+/// with no timeout to wake it, and trims again only once its heap grows.
+pub fn trimWorth() bool {
+    return worthTrimming(my_heap().* orelse return false);
+}
+
+fn worthTrimming(h: *const Heap) bool {
+    return h.taken -| h.taken_at_trim >= trim_new;
+}
+
+/// What a heap takes from the system before its worker's next sleep
+/// trims it (`trimWorth`): a segment, so a worker that has carved its
+/// first segment, or mapped as much in large blocks, trims once.
+const trim_new: usize = segment_size;
+
 fn trimHeap(h: *Heap) usize {
     mustOwn(h);
+    h.taken_at_trim = h.taken;
     var given: usize = 0;
     for (0..class_count) |c| {
         if (h.remote[c].load(.monotonic) == null) continue;
@@ -3490,6 +3514,21 @@ test "an idle heap gives back its kept large blocks' pages and, on Linux, its wh
     h.donor.store(false, .monotonic);
     _ = donors.fetchSub(1, .monotonic);
     trimAllForTest(&h);
+}
+
+test "a heap is worth trimming once it has taken a segment since its last trim, or since it was made" {
+    var h = testHeap();
+    try std.testing.expect(!worthTrimming(&h));
+    h.taken = segment_size;
+    try std.testing.expect(worthTrimming(&h));
+    _ = trimHeap(&h);
+    try std.testing.expect(!worthTrimming(&h));
+    h.taken += segment_size - 1;
+    try std.testing.expect(!worthTrimming(&h));
+    h.taken += 1;
+    try std.testing.expect(worthTrimming(&h));
+    h.donor.store(false, .monotonic);
+    _ = donors.fetchSub(1, .monotonic);
 }
 
 /// Give back every block `h` keeps.

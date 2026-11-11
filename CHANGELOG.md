@@ -459,7 +459,8 @@ none of these ever built:
 
 ### Runtime
 
-- A worker that has slept 10 ms gives back what its heap holds free:
+- A worker that has slept 10 ms gives back what its heap holds free,
+  once its heap has taken 4 MiB from the system since it last did:
   the pages of its kept large blocks, and on Linux each 64 KiB class
   page whose blocks are all free (`MADV_DONTNEED`); what stays free goes
   on its remote lists, where any heap that would take a new page takes
