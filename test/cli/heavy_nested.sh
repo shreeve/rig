@@ -4,6 +4,8 @@
 # lock other runs hold.
 # timeout: 60
 source "$ROOT/test/cli/_lib.sh"
+# A claim file of its own: a real timing claim would hold its heavy jobs.
+export RIG_MAC_CLAIM=$PWD/mac-timing.txt
 
 git init -q repo || fail "git init"
 export GIT_DIR=$PWD/repo/.git

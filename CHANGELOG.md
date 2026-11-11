@@ -380,6 +380,14 @@ none of these ever built:
   minutes (exit 75), stops the job at its limit (19 minutes, at most 20;
   exit 124), and clears the line however the job ends
   (`test/cli/mac_claim.sh`).
+- A timing claim pauses work between jobs, never during one: a job
+  stopped mid-run is killed by its own timeout the moment it resumes.
+  While a live claim holds, `tools/heavy` starts no job but a correctness
+  one, `test/rig.rip` starts no new job (`test/claim.rip`), and
+  `tools/mac-claim` starts its command once heavy's jobs together use
+  under one core for 30 seconds, giving the claim up after 10 minutes if
+  they never do (exit 75). A claim line whose mac-claim has died holds
+  no one (`test/cli/claim_gate.sh`, `heavy_class.sh`, `mac_claim.sh`).
 - `pup-slot state` prints `running=R`, the builds not paused, and
   `late=L`, the builds its guard paused after the slot opened, beside
   `paused=K`; a board race with any running is void (decision 14). A

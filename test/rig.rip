@@ -35,6 +35,7 @@
 import { swarm, init, todo, args } from 'rip/swarm'
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, readdirSync, rmSync, renameSync, statSync } from 'fs'
 import { join, resolve, basename, dirname, relative } from 'path'
+import { claimWait } from './claim.rip'
 
 root = resolve(import.meta.dir, '..')
 rig  = join(root, 'bin', 'rig')
@@ -1089,6 +1090,8 @@ checkUnit = (c) ->
 
 perform = (task, ctx) ->
   c = JSON.parse(readFileSync(task, 'utf8'))
+  # A job starts no process while the Mac is held for timing (test/claim.rip).
+  claimWait()
   # Each job's time goes to .swarm/times, `MS<TAB>JOB` a line, so the
   # slowest are easy to find: `sort -rn .swarm/times | head`.
   started = Date.now()

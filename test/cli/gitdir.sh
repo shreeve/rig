@@ -9,6 +9,8 @@
 # naming the fix. GIT_CEILING_DIRECTORIES keeps git from looking above
 # this test's own directory.
 source "$ROOT/test/cli/_lib.sh"
+# A claim file of its own: a real timing claim would hold its heavy jobs.
+export RIG_MAC_CLAIM=$PWD/mac-timing.txt
 
 export GIT_CEILING_DIRECTORIES=$(pwd -P)
 unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR RIG_BUILD_STORE RIG_RESULTS_CACHE
