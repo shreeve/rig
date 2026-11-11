@@ -29,9 +29,11 @@ expect_rc $rc 0 "a board slot opens"
 expect_has "$out" "slot 7 (board) open" "the open line"
 expect_eq "$(pstate $b)" T "the build is paused"
 expect_has "$("$S" state)" "blocks=100" "state"
+expect_has "$("$S" state)" "paused=1 running=0" "state counts the paused and the running"
 out=$("$S" close 7); rc=$?
 expect_rc $rc 0 "close"
 expect_eq "$(pstate $b)" S "the build is resumed"
+expect_has "$("$S" state)" "running=1" "a resumed build counts as running"
 expect_has "$(cat slots.log)" 'open 7 board 5min label="a test" blocks=100' "the log"
 
 # Too few free blocks: it gives up with 75 and leaves the build running.
