@@ -9,6 +9,8 @@
 # naming the fix. GIT_CEILING_DIRECTORIES keeps git from looking above
 # this test's own directory.
 source "$ROOT/test/cli/_lib.sh"
+# A claim file of its own: a real timing claim would hold its heavy jobs.
+export RIG_MAC_CLAIM=$PWD/mac-timing.txt
 
 export GIT_CEILING_DIRECTORIES=$(pwd -P)
 unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR RIG_BUILD_STORE RIG_RESULTS_CACHE
@@ -19,7 +21,7 @@ hint="run from a worktree, or set GIT_DIR=~/Data/Code/rig/.git"
 copy() {
   mkdir -p "$1/tools" "$1/test" "$1/src"
   cp "$ROOT/tools/gitdir" "$ROOT/tools/heavy" "$1/tools/"
-  cp "$ROOT/test/rig.rip" "$ROOT/test/matrix.py" "$1/test/"
+  cp "$ROOT/test/rig.rip" "$ROOT/test/claim.rip" "$ROOT/test/matrix.py" "$1/test/"
   : >"$1/rig.grammar"; : >"$1/src/rig.zig"
 }
 
