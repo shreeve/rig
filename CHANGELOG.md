@@ -262,6 +262,12 @@ none of these ever built:
 
 ### Compiler
 
+- `rig build --release --pgo` builds faster: Zig writes the program's
+  bitcode without running LLVM's passes, whose work it dropped, since
+  clang runs them on that bitcode. The bitcode and the executable's
+  code are the same byte for byte. Trig's `--pgo` build takes 1253 s
+  where it took 1351 s, and 524 s with `--strip`, which also
+  leaves debug information out of the bitcode.
 - An object or payload enum that holds a generic of another module
   whose fields name the generic's parameter as an optional (`kids:
   List[T?]` in `W[T]`, held as `w.W[Node]` in `Node`) is rejected with

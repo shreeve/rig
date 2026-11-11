@@ -248,7 +248,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/frames.zig` | the frame each function of a built executable reserves, read from its Mach-O or ELF symbols, the functions its unwind tables describe, and their prologues, for `rig build`'s warning of a frame larger than a page (`main.warnFrames`) and the guard below a dense stack (`largestReach`) |
 | `src/map_trace.zig` | `RIG_MAP_TRACE=1`: the built-in Map and Set, as emitted, made to record each operation ([The Map trace](#the-map-trace)) |
 | `src/bolt.zig` | `rig build --release --bolt`: lays the executable out again with LLVM's BOLT by where a workload runs it (Linux); deleting it and its flags removes the feature |
-| `src/pgo.zig`, `src/pgo_dump.c` | `rig build --release --pgo`: Zig's bitcode of the program compiled by `zig cc` with LLVM's counters, trained by a workload, and compiled again by the profile (on Linux a program with no libc; on the Mac with Apple's tools, its instrumented build linked by Apple's `ld`, as Zig's writes counters no `llvm-profdata` can read); `pgo_dump.c` writes the profile as the program ends, called by the runtime's `writeProfile` in a `--pgo` package only; deleting them, `writeProfile`, and the flags removes the feature |
+| `src/pgo.zig`, `src/pgo_dump.c` | `rig build --release --pgo`: Zig's bitcode of the program, written with none of LLVM's passes run (`-fopt-bisect-limit=0`: clang runs them, and Zig would only drop what they made) and with `--strip` no debug information, compiled by `zig cc` with LLVM's counters, trained by a workload, and compiled again by the profile (on Linux a program with no libc; on the Mac with Apple's tools, its instrumented build linked by Apple's `ld`, as Zig's writes counters no `llvm-profdata` can read); `pgo_dump.c` writes the profile as the program ends, called by the runtime's `writeProfile` in a `--pgo` package only; deleting them, `writeProfile`, and the flags removes the feature |
 | `src/lsp.zig` | `rig lsp`, the language server: JSON-RPC on stdin and stdout, positions, and the diagnostics `rig check` gives, read through the same `ModuleGraph` |
 | `src/editor.zig` | what an editor shows of one file: the parse errors, the tokens the lexer wrapper classifies with the tree's declared names and sigils, the outline, and the folds, from the tolerant parse (`parseTolerant`, rig.grammar's `@repair`) |
 
@@ -5435,6 +5435,14 @@ What a stripped executable lacks:
   page, and says so in a note as it starts.
 - **Zig's reader of debug information.** Zig compiles the code that
   reads it out of a stripped program, which is 150 KB smaller for it.
+
+`--pgo` takes Zig's bitcode from before LLVM's passes, so its bitcode
+step runs none (`-fopt-bisect-limit=0`): the bitcode is the same byte
+for byte, and so is the executable's code. LLVM prints the name of each
+pass it leaves out, for every function, so `rig` reads nothing that
+step says unless it fails, and then shows Zig's own lines. Trig's
+`--pgo` build takes 1253 s where it took 1351 s, and with `--strip`
+524 s, on an x86-64 Linux machine.
 
 The program's own code is nearly the plain build's and not byte for
 byte: private linkage changes a few of LLVM's choices, such as which
