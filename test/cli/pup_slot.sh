@@ -54,6 +54,11 @@ expect_has "$out" "only 10 free 2 MiB blocks" "the reason"
 expect_eq "$(pstate $b)" S "nothing left paused"
 [[ ! -e $PUP_SLOT_TMP/slot-active ]] || fail "a slot opened without room"
 
+# Room held at order 10 (4 MiB blocks, two 2 MiB blocks each) and in every
+# zone counts: 10 + 2*25 in Normal and 4 in DMA32 make 64.
+printf 'Node 0, zone    DMA32 1 1 1 1 1 1 1 1 1 4 0\nNode 0, zone   Normal 1 1 1 1 1 1 1 1 1 10 25\n' >"$PWD/buddy"
+expect_has "$("$S" state)" "blocks=64" "order 10 and every zone count"
+
 # A test suite running: it waits rather than pausing the suite's builds.
 buddy 100
 bash -c 'exec -a pupslottest-suite sleep 60' &
