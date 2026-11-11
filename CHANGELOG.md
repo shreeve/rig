@@ -467,6 +467,13 @@ none of these ever built:
   works on: Trig's parallel loader, checking Material UI's docs at one
   checker with 8 cores, peaked 74 MiB over loading on one thread, and
   peaks 14 MiB over it.
+- On Linux a `Table` asks for huge pages at its first push, no longer as
+  it is made, so a Table written only by slot keeps small pages, where a
+  huge page committed 2 MiB at each sparse slot's first touch. A pushed
+  Table larger than 2 MiB asks past its first 2 MiB, behind the same
+  test of free 2 MiB blocks; its `push` tests for the first push and for
+  a full table in one comparison. Under `enabled=always` a Table's whole
+  range asks for small pages until its first push.
 - A channel's receive gives Rig's `T?` as the program holds it: for a
   `T` that holds `none` in a spare value of its own (an object with an
   optional field, a `String` or a `List`, an object that names its none,

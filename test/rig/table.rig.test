@@ -207,6 +207,32 @@ bomb "table push into a full table", "a table of 2 slots is full"
   _ = (!t).push(2)
   _ = (!t).push(3)
 
+test "table larger than 2 MiB pushed to full, beside one written only by slot", release: true, '''
+  524288 524287 1048574
+  9 0
+'''
+  N = 1 << 19
+
+  sub main()
+    t: Table[Int, N] = Table()
+    last: Slot[N] = 0
+    for i in 0..N
+      last = (!t).push(i * 2)
+    print(t.len, Int(last), t[last])
+    u: Table[Int, N] = Table()
+    far: Slot[N] = 400000
+    u[far] = 9
+    print(u[far], u.len)
+
+bomb "table push into a full table larger than 2 MiB", "a table of 524288 slots is full"
+  N = 1 << 19
+
+  sub main()
+    t: Table[Int, N] = Table()
+    for i in 0..N
+      _ = (!t).push(i)
+    _ = (!t).push(0)
+
 bomb "table index by Int past n", "index out of bounds"
   t: Table[Int, 4] = Table()
   i = 4

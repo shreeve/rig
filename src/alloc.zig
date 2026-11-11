@@ -41,10 +41,12 @@
 //! compacts there; under `always`, where every range gets huge pages
 //! unasked and asking would make its faults compact, nothing asks for
 //! huge pages, and what should keep small pages (a segment of a heap
-//! that does not fault in ahead, a large block under 16 MiB, a Table's
-//! first 2 MiB) asks for them; under `never` nothing asks, and
-//! /proc/buddyinfo is never read. A reserved Table asks only for a heap
-//! that faults in ahead, waiting for the one that reserved it to come to
+//! that does not fault in ahead, a large block under 16 MiB, a reserved
+//! Table) asks for them; under `never` nothing asks, and
+//! /proc/buddyinfo is never read. A reserved Table asks for huge pages
+//! at its first push (`tablePushed`), never as it is reserved, so one
+//! written only by slot keeps small pages; and it asks only for a heap
+//! that faults in ahead, waiting for the one that pushed it to come to
 //! (`tableWaits`).
 //! Reserved Tables (`table.zig`) take ranges of an address space of
 //! their own, which none of this touches (`reserveTable`). On the Mac,
@@ -947,8 +949,8 @@ const huge_spare: usize = 64;
 const huge_floor: usize = 8;
 
 /// Whether Linux has more than `huge_spare` free blocks of 2 MiB or more
-/// (`/proc/buddyinfo`), the test a Table's `reserve` in `table.zig` makes
-/// before it asks for huge pages. Under the
+/// (`/proc/buddyinfo`), the test a reserved Table makes at its first
+/// push before it asks for huge pages (`tablePushed`). Under the
 /// default `defrag` setting, `madvise`, a fault in a range that asked for
 /// huge pages finds a free 2 MiB block or compacts memory to make one, in
 /// the fault; with none free the compaction mostly fails, a fault costs
@@ -964,11 +966,13 @@ const huge_floor: usize = 8;
 /// up meanwhile; a reading a few milliseconds older adds nothing to that.
 ///
 /// Where no fault compacts (`defrag` `defer` or `never`) it holds with no
-/// reading, and where asking is not how a range gets huge pages
-/// (`enabled` `always` or `never`) it does not hold (`adviceFor`).
-pub fn hugeFree() bool {
+/// reading, and under `enabled=never` it does not hold. A Table's range
+/// asked for small pages as it was reserved, which only asking for huge
+/// ones undoes, so under `always` it is tested as under `madvise`
+/// (`huge_again`, `adviceFor`).
+fn hugeFree() bool {
     if (builtin.os.tag != .linux) return false;
-    return switch (adviceFor(thpMode(), .huge)) {
+    return switch (adviceFor(thpMode(), .huge_again)) {
         .huge => true,
         .huge_if_free => (keptReading() orelse readNow()) > huge_spare,
         .nothing, .small => false,
@@ -1371,13 +1375,14 @@ fn mapOwnSegment() ?*Segment {
 /// memory committed (`MAP_NORESERVE`), and on Linux advised for small
 /// pages once, under `madvise` for huge pages (`adviceFor`). A Table
 /// takes a range of whole 2 MiB blocks from one (`reserveTable`), which
-/// makes no system call while memory has no free 2 MiB blocks to spare,
-/// and on Linux one `madvise` while it does; a Table dropped gives its
+/// makes no system call, and on Linux one `madvise` at its first push
+/// while memory has free 2 MiB blocks to spare (`tablePushed`); a Table
+/// dropped gives its
 /// pages back to the system, with `MADV_DONTNEED` on Linux and by
 /// mapping its range again in place on the Mac (`MAP_FIXED`), which
 /// leaves the range reading as zeros, and its range to the next Table
 /// (`unreserveTable`). Under Linux's `always`, a region asks for nothing,
-/// and each Table's first 2 MiB ask for small pages; a Table dropped is
+/// and each Table's range asks for small pages; a Table dropped is
 /// mapped afresh, as on the Mac, which gives its pages back and leaves
 /// the range asking for nothing again, as no advice does. A region is
 /// never unmapped while the program runs, so its addresses are never
@@ -1462,49 +1467,77 @@ const table_live = split.cell(&table_live_var, "alloc.table_live");
 const tables_here = builtin.os.tag == .linux or builtin.os.tag.isDarwin();
 
 /// A range of at least `bytes`, from a 2 MiB boundary, for a reserved
-/// Table: zeros, none committed. Its first 2 MiB keep small pages, and
-/// the rest asks for huge pages while the system has free 2 MiB blocks
-/// to spare (`hugeFree`), as `table.zig`'s `reserve` describes (on
-/// Linux; the Mac has no huge pages to ask for), at once for a heap that
-/// does much of the program's work and later for one that does not yet
-/// (`tableWaits`). Under `always`, the rest has huge pages unasked and
-/// asks for nothing, and the first 2 MiB ask for small pages
-/// (`adviceFor`). Null where Tables are not taken from here: off Linux
-/// and the Mac, a Table larger than a region, or no region to be had.
+/// Table: zeros, none committed, with small pages (the Mac has no huge
+/// pages to ask for). It asks for huge pages only at its first push
+/// (`tablePushed`): a Table written by slot, not pushed, touches its
+/// range sparsely, and a huge page would commit 2 MiB at each slot's
+/// first touch. Under `always`, where the range would have huge pages
+/// unasked, it asks for small ones, all of it (`adviceFor`). Null where
+/// Tables are not taken from here: off Linux and the Mac, a Table larger
+/// than a region, or no region to be had.
 pub fn reserveTable(bytes: usize) ?[*]align(huge_page) u8 {
     if (!tables_here) return null;
     const len = std.mem.alignForward(usize, bytes, huge_page);
     if (len > table_region_size) return null;
     // Read before `tables_lock`, which a new region's advice is under.
     if (builtin.os.tag == .linux) _ = thpMode();
-    const wants = builtin.os.tag == .linux and len > huge_page;
-    const waits_on = if (wants) tableWaits() else null;
     tables_lock.lock();
     const p = takeTableRange(len);
-    const waiting = p != null and waits_on != null and addWaitingTable(waits_on.?, p.?, bytes);
     tables_lock.unlock();
     const at = p orelse return null;
     _ = table_live.fetchAdd(1, .monotonic);
-    if (wants and !waiting and hugeFree()) askTableHuge(at, bytes);
-    ask(at, huge_page, .small);
+    ask(at, len, .small);
     return @ptrFromInt(at);
 }
 
-/// The heap a Table reserved now waits on before it asks for huge pages,
+/// The reserved Table of `bytes` at `at`, larger than 2 MiB, is pushed
+/// for the first time (`table.zig`'s `push`): past its first 2 MiB it
+/// asks for huge pages, while the system has free 2 MiB blocks to spare
+/// (`hugeFree`), at once for a heap that does much of the program's work
+/// and later for one that does not yet (`tableWaits`). A pushed Table is
+/// written densely from its start, so a huge page costs at most the part
+/// of its last one not yet written; a Table written only by slot never
+/// asks. A Table mapped on its own (`table.zig`'s `reserve`) asks at
+/// once, as nothing tells this file when it is unmapped. Linux only.
+pub fn tablePushed(at: usize, bytes: usize) void {
+    @branchHint(.cold);
+    if (builtin.os.tag != .linux or bytes <= huge_page) return;
+    tables_lock.lock();
+    const mine = isTableRange(at);
+    tables_lock.unlock();
+    if (mine) if (tableWaits()) |h| {
+        tables_lock.lock();
+        const waiting = addWaitingTable(h, at, bytes);
+        tables_lock.unlock();
+        if (waiting) return;
+    };
+    if (hugeFree()) askTableHuge(at, bytes);
+}
+
+/// Whether `at` lies in a range `reserveTable` hands out: in a region,
+/// and not in a hole. Under `tables_lock`.
+fn isTableRange(at: usize) bool {
+    var mine = false;
+    for (table_regions[0..table_region_count.*]) |r| mine = mine or (r.start <= at and at < r.start + r.len);
+    for (table_holes[0..table_hole_count.*]) |r| mine = mine and !(r.start <= at and at < r.start + r.len);
+    return mine;
+}
+
+/// The heap a Table pushed now waits on before it asks for huge pages,
 /// or null if it asks at once: the running thread's heap, while that
 /// heap does not fault in ahead (`faultsAhead`) and asking is how a range
 /// gets huge pages (`adviceFor`). Asking is a system call that splits a
-/// mapping, and a program's Tables are reserved in a burst, one per
-/// Table on every worker at once. A Table most often stays inside the
-/// first 2 MiB, which never ask, on a worker with little to do: Trig on
-/// its smallest projects at 8 checkers asked 306 times for 2 huge pages,
+/// mapping, and a program's Tables are made and first pushed in a burst,
+/// one per Table on every worker at once. A Table most often stays
+/// inside the first 2 MiB on a worker with little to do: Trig on its
+/// smallest projects at 8 checkers asked 306 times for 2 huge pages,
 /// and ran 4 to 5% slower for it. A worker with much to do comes to
 /// fault in ahead, as its first segment fills, and its Tables ask then
 /// (`askWaitingTables`), before most of them have left their first 2 MiB.
 fn tableWaits() ?*Heap {
     const h = heap() orelse return null;
     if (faultsAhead(h)) return null;
-    return switch (adviceFor(thpMode(), .huge)) {
+    return switch (adviceFor(thpMode(), .huge_again)) {
         .huge, .huge_if_free => h,
         .nothing, .small => null,
     };
@@ -1523,8 +1556,8 @@ fn addWaitingTable(h: *Heap, at: usize, bytes: usize) bool {
 /// The Tables waiting on `h` now ask for huge pages, while the system
 /// has free 2 MiB blocks to spare, tested once for them all. A Table
 /// dropped on another thread as this runs may have its range advised
-/// after it was given back, which costs its next Table's first 2 MiB
-/// their small pages and no more.
+/// after it was given back, which costs the next Table there the small
+/// pages it would have kept, and no more.
 fn askWaitingTables(h: *Heap) void {
     @branchHint(.cold);
     h.tables_wait = false;
@@ -1573,7 +1606,7 @@ fn askTableHuge(at: usize, bytes: usize) void {
 /// Give back the range of a Table of `bytes` at `p`, if it is one
 /// `reserveTable` handed out: its pages to the system, and the range,
 /// advised for small pages again on Linux, to the next Table. Under
-/// Linux's `always`, where its first 2 MiB asked for small pages, and on
+/// Linux's `always`, where its range asked for small pages, and on
 /// the Mac, it is mapped afresh, which asks for nothing. A range that
 /// cannot be is not used again: on Linux it is set aside
 /// (`loseTableRange`); on the Mac, where its old mapping stays, it keeps
@@ -1583,9 +1616,7 @@ pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
     const at = @intFromPtr(p);
     const len = std.mem.alignForward(usize, bytes, huge_page);
     tables_lock.lock();
-    var mine = false;
-    for (table_regions[0..table_region_count.*]) |r| mine = mine or (r.start <= at and at < r.start + r.len);
-    for (table_holes[0..table_hole_count.*]) |r| mine = mine and !(r.start <= at and at < r.start + r.len);
+    const mine = isTableRange(at);
     if (mine) stopWaitingTable(at);
     tables_lock.unlock();
     if (!mine) return false;
@@ -2924,7 +2955,7 @@ test "on Linux, with memory fragmented, no block, segment, or growth asks for hu
     try std.testing.expect(!try advisedHugeForTest(p));
 }
 
-test "on Linux a burst of Tables takes ranges of one region, 2 MiB aligned, with one reading of /proc/buddyinfo, and gives them back to the region's rest" {
+test "on Linux a burst of Tables takes ranges of one region, 2 MiB aligned, with no reading of /proc/buddyinfo, their first pushes read it once, and they go back to the region's rest" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     useBuddyinfoForTest(buddyinfo_fragmented);
     defer useBuddyinfoForTest(null);
@@ -2939,6 +2970,8 @@ test "on Linux a burst of Tables takes ranges of one region, 2 MiB aligned, with
         g.* = reserveTable((i + 1) * (3 << 20) + 4096).?;
         try std.testing.expectEqual(@as(usize, 0), @intFromPtr(g.*) % huge_page);
     }
+    try std.testing.expectEqual(reads, buddyinfo_reads.*);
+    for (got, 0..) |g, i| tablePushed(@intFromPtr(g), (i + 1) * (3 << 20) + 4096);
     try std.testing.expectEqual(reads + 1, buddyinfo_reads.*);
     try std.testing.expect(table_region_count.* >= 1);
     // Given back in another order than taken, they join one another and
@@ -2973,7 +3006,7 @@ test "on Linux a Table's range given back has its pages back with the system, an
     try std.testing.expect(!unreserveTable(&own, own.len));
 }
 
-test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 MiB blocks are free to spare, and keeps small pages once given back" {
+test "on Linux a Table's range past its first 2 MiB asks for huge pages at its first push while 2 MiB blocks are free to spare, and keeps small pages once given back" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     useBuddyinfoForTest(buddyinfo_plenty);
     defer useBuddyinfoForTest(null);
@@ -2981,21 +3014,25 @@ test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 
     defer allocator.free(mine);
     const mib: usize = 1 << 20;
     const t = reserveTable(24 * mib).?;
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
+    tablePushed(@intFromPtr(t), 24 * mib);
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t)));
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
     const small = reserveTable(2 * mib).?;
+    tablePushed(@intFromPtr(small), 2 * mib);
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(small)));
     try std.testing.expect(unreserveTable(t, 24 * mib));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
     useBuddyinfoForTest(buddyinfo_partly);
     const u = reserveTable(24 * mib).?;
+    tablePushed(@intFromPtr(u), 24 * mib);
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(u) + 2 * mib));
     try std.testing.expect(unreserveTable(u, 24 * mib));
     try std.testing.expect(unreserveTable(small, 2 * mib));
     try std.testing.expectEqual(@as(usize, 0), table_free_count.*);
 }
 
-test "on Linux a Table of a heap that does little waits to ask for huge pages until its heap does much; one given back waits no more, and one too many asks at once" {
+test "on Linux a Table pushed by a heap that does little waits to ask for huge pages until its heap does much; one given back waits no more, and one too many asks at once" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     useBuddyinfoForTest(buddyinfo_plenty);
     defer useBuddyinfoForTest(null);
@@ -3014,6 +3051,9 @@ test "on Linux a Table of a heap that does little waits to ask for huge pages un
 
     const t = reserveTable(24 * mib).?;
     const gone = reserveTable(24 * mib).?;
+    try std.testing.expect(!me.tables_wait);
+    tablePushed(@intFromPtr(t), 24 * mib);
+    tablePushed(@intFromPtr(gone), 24 * mib);
     try std.testing.expect(me.tables_wait);
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
     try std.testing.expect(unreserveTable(gone, 24 * mib));
@@ -3022,8 +3062,9 @@ test "on Linux a Table of a heap that does little waits to ask for huge pages un
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t)));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(gone) + 2 * mib));
-    // The heap now does much, so a new Table asks as it is reserved.
+    // The heap now does much, so a new Table asks at its first push.
     const now = reserveTable(24 * mib).?;
+    tablePushed(@intFromPtr(now), 24 * mib);
     try std.testing.expect(!me.tables_wait);
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(now) + 2 * mib));
     try std.testing.expect(unreserveTable(now, 24 * mib));
@@ -3033,6 +3074,7 @@ test "on Linux a Table of a heap that does little waits to ask for huge pages un
     me.taken = 0;
     useBuddyinfoForTest(buddyinfo_partly);
     const late = reserveTable(24 * mib).?;
+    tablePushed(@intFromPtr(late), 24 * mib);
     try std.testing.expect(me.tables_wait);
     me.took(prefault_big);
     try std.testing.expect(!me.tables_wait);
@@ -3043,9 +3085,13 @@ test "on Linux a Table of a heap that does little waits to ask for huge pages un
     me.taken = 0;
     useBuddyinfoForTest(buddyinfo_plenty);
     var waiting: [table_waiting_max]([*]u8) = undefined;
-    for (&waiting) |*w| w.* = reserveTable(3 * mib).?;
+    for (&waiting) |*w| {
+        w.* = reserveTable(3 * mib).?;
+        tablePushed(@intFromPtr(w.*), 3 * mib);
+    }
     try std.testing.expectEqual(table_waiting_max, table_waiting_count.*);
     const over = reserveTable(3 * mib).?;
+    tablePushed(@intFromPtr(over), 3 * mib);
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(over) + 2 * mib));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(waiting[0]) + 2 * mib));
     me.took(prefault_big);
@@ -3212,6 +3258,7 @@ test "on Linux under `never` nothing asks for huge pages and /proc/buddyinfo is 
     freeLarge(&h, big, 16 * mib);
     trimAllForTest(&h);
     const t = reserveTable(24 * mib).?;
+    tablePushed(@intFromPtr(t), 24 * mib);
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
     try std.testing.expect(unreserveTable(t, 24 * mib));
     try std.testing.expectEqual(before, buddyinfo_reads.*);
@@ -3237,19 +3284,19 @@ test "on Linux under `madvise` with `defrag` `defer`, where no fault compacts, s
     freeLarge(&h, big, 16 * mib);
     trimAllForTest(&h);
     const t = reserveTable(24 * mib).?;
+    tablePushed(@intFromPtr(t), 24 * mib);
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t)));
     try std.testing.expect(unreserveTable(t, 24 * mib));
     try std.testing.expectEqual(before, buddyinfo_reads.*);
 }
 
-test "on Linux under `always` nothing asks for huge pages, what should keep small pages asks for them, and a Table given back asks for nothing again" {
+test "on Linux under `always` nothing asks for huge pages, what should keep small pages asks for them, a pushed Table asks again behind the test, and a Table given back asks for nothing again" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     useBuddyinfoForTest(buddyinfo_plenty);
     defer useBuddyinfoForTest(null);
     useThpForTest(thp_enabled_always, thpDefragForTest("madvise"));
     const before = buddyinfo_reads.*;
-    try std.testing.expect(!hugeFree());
     // A segment of a heap that faults in ahead asks for nothing; one of a
     // heap that does not asks for small pages.
     const mine = try allocator.alloc(u8, prefault_big);
@@ -3275,11 +3322,12 @@ test "on Linux under `always` nothing asks for huge pages, what should keep smal
     freeLarge(&h, small, 8 * mib);
     trimAllForTest(&h);
     try std.testing.expectEqual(before, buddyinfo_reads.*);
-    // A Table's first 2 MiB ask for small pages. Given back, its range is
-    // mapped afresh: it asks for nothing, and its pages are back with
-    // the system, so it reads zeros.
+    // A Table's range asks for small pages, all of it. Given back, its
+    // range is mapped afresh: it asks for nothing, and its pages are back
+    // with the system, so it reads zeros.
     const t = reserveTable(24 * mib).?;
     try std.testing.expect(try advisedSmallForTest(@intFromPtr(t)));
+    try std.testing.expect(try advisedSmallForTest(@intFromPtr(t) + 2 * mib));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
     @memset(t[0 .. 24 * mib], 7);
     try std.testing.expect(unreserveTable(t, 24 * mib));
@@ -3289,12 +3337,18 @@ test "on Linux under `always` nothing asks for huge pages, what should keep smal
         try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t) + off));
     }
     for (t[0 .. 24 * mib]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
-    // The next Table, wherever it is placed, asks the same.
+    // The next Table, wherever it is placed, asks the same. At its first
+    // push it asks for huge pages past its first 2 MiB behind the test,
+    // as under `madvise`, as only asking undoes its advice.
     const v = reserveTable(24 * mib).?;
     try std.testing.expect(try advisedSmallForTest(@intFromPtr(v)));
-    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(v) + 2 * mib));
-    try std.testing.expect(unreserveTable(v, 24 * mib));
+    try std.testing.expect(try advisedSmallForTest(@intFromPtr(v) + 2 * mib));
     try std.testing.expectEqual(before, buddyinfo_reads.*);
+    tablePushed(@intFromPtr(v), 24 * mib);
+    try std.testing.expect(try advisedSmallForTest(@intFromPtr(v)));
+    try std.testing.expect(try advisedHugeForTest(@intFromPtr(v) + 2 * mib));
+    try std.testing.expectEqual(before + 1, buddyinfo_reads.*);
+    try std.testing.expect(unreserveTable(v, 24 * mib));
     // A block of 8 MiB grown to 32 MiB asks again for huge pages, while
     // free blocks are there for them, as only asking undoes its advice.
     trimAllForTest(heap().?);
@@ -3302,7 +3356,7 @@ test "on Linux under `always` nothing asks for huge pages, what should keep smal
     try std.testing.expect(try advisedSmallForTest(@intFromPtr(m.ptr)));
     const g = allocator.remap(m, 32 * mib).?;
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(g.ptr)));
-    try std.testing.expectEqual(before + 1, buddyinfo_reads.*);
+    try std.testing.expectEqual(before + 2, buddyinfo_reads.*);
     allocator.free(g);
 }
 
@@ -3354,6 +3408,38 @@ test "on Linux under `always` a Table's range that cannot be mapped afresh is fi
     }
     for (got) |g| try std.testing.expect(unreserveTable(g, 4 * mib));
     try std.testing.expectEqual(live, table_live.load(.monotonic));
+}
+
+test "on Linux a pushed Table gets huge pages past its first 2 MiB, and one written only by slot keeps small pages" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    // The system's own mode, with no huge pages to give where it is
+    // `never`, and too few free 2 MiB blocks for a fault to find one.
+    useBuddyinfoForTest(null);
+    defer useBuddyinfoForTest(null);
+    if (thpMode().off) return error.SkipZigTest;
+    if (readNow() < 16) return error.SkipZigTest;
+    // The gate held open, in the system's mode, for a heap that faults
+    // in ahead, so the push asks at once.
+    buddyinfo_for_test.* = buddyinfo_plenty;
+    kept_reading.store(0, .monotonic);
+    const mine = try allocator.alloc(u8, prefault_big);
+    defer allocator.free(mine);
+    const mib: usize = 1 << 20;
+    const T = @import("table.zig").Table(u64, 4 << 20);
+    var by_slot = T.init();
+    defer by_slot.__rig_drop();
+    var pushed = T.init();
+    defer pushed.__rig_drop();
+    // One slot in every 64 KiB of the first 8 MiB, and 8 MiB pushed.
+    var s: u32 = 0;
+    while (s < 1 << 20) : (s += 8 << 10) by_slot.slot(s).* = s + 1;
+    for (0..1 << 20) |k| _ = pushed.push(k);
+    try std.testing.expectEqual(@as(usize, 0), try anonHugeForTest(@intFromPtr(by_slot.slots) + 4 * mib));
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(pushed.slots)));
+    try std.testing.expectEqual(@as(usize, 0), try anonHugeForTest(@intFromPtr(pushed.slots)));
+    try std.testing.expect(try anonHugeForTest(@intFromPtr(pushed.slots) + 4 * mib) >= 2 * mib);
+    try std.testing.expectEqual(@as(u64, (8 << 10) + 1), by_slot.at(8 << 10));
+    try std.testing.expectEqual(@as(u64, 12345), pushed.at(12345));
 }
 
 test "on the Mac Tables take ranges of one region, and a range given back reads zeros for the next Table" {
@@ -3416,6 +3502,23 @@ fn advisedSmallForTest(p: usize) !bool {
 /// Whether the `VmFlags` of the mapping that holds `p`, in
 /// /proc/self/smaps, name `flag`.
 fn vmFlagForTest(p: usize, flag: []const u8) !bool {
+    var buf: [256]u8 = undefined;
+    var flags = std.mem.tokenizeScalar(u8, try smapsLineForTest(p, "VmFlags:", &buf), ' ');
+    while (flags.next()) |f| if (std.mem.eql(u8, f, flag)) return true;
+    return false;
+}
+
+/// The bytes of the mapping that holds `p` held in huge pages: its
+/// `AnonHugePages` in /proc/self/smaps.
+fn anonHugeForTest(p: usize) !usize {
+    var buf: [256]u8 = undefined;
+    var words = std.mem.tokenizeScalar(u8, try smapsLineForTest(p, "AnonHugePages:", &buf), ' ');
+    return (try std.fmt.parseInt(usize, words.next() orelse return error.NoField, 10)) << 10;
+}
+
+/// The rest of the line that starts with `key` among those of the
+/// mapping that holds `p` in /proc/self/smaps, copied into `out`.
+fn smapsLineForTest(p: usize, key: []const u8, out: *[256]u8) ![]const u8 {
     // A file of /proc reads as empty to a reader that trusts its size,
     // so it is read to its end here.
     const linux = std.os.linux;
@@ -3441,10 +3544,11 @@ fn vmFlagForTest(p: usize, flag: []const u8) !bool {
             inside = lo <= p and p < hi;
             continue;
         };
-        if (inside and std.mem.startsWith(u8, line, "VmFlags:")) {
-            var flags = std.mem.tokenizeScalar(u8, line["VmFlags:".len..], ' ');
-            while (flags.next()) |f| if (std.mem.eql(u8, f, flag)) return true;
-            return false;
+        if (inside and std.mem.startsWith(u8, line, key)) {
+            const rest = line[key.len..];
+            const n = @min(rest.len, out.len);
+            @memcpy(out[0..n], rest[0..n]);
+            return out[0..n];
         }
     }
     return error.NoMapping;

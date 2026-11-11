@@ -10,9 +10,11 @@
 //!   `n * @sizeOf(T)` bytes of private anonymous address space, mapped
 //!   with `MAP_NORESERVE`: in a release build on Linux and the Mac a
 //!   range of the allocator's address space for tables (`alloc.zig`,
-//!   `reserveTable`), elsewhere a mapping of its own. On Linux its first 2 MiB keep small
-//!   pages and the rest asks for huge ones while the system has free
-//!   2 MiB blocks to spare (`reserve`). The system gives each page as
+//!   `reserveTable`), elsewhere a mapping of its own. On Linux it keeps
+//!   small pages until its first push; a table larger than 2 MiB then
+//!   asks for huge ones past its first 2 MiB while the system has free
+//!   2 MiB blocks to spare (`push`), so a table written only by slot
+//!   keeps small pages. The system gives each page as
 //!   zeros when it is first touched, so a slot never written costs no
 //!   memory. It is never one of `alloc.zig`'s blocks, which are reused
 //!   unzeroed and faulted in ahead.
@@ -101,27 +103,17 @@ const page = std.heap.page_size_min;
 /// A huge page's bytes on Linux.
 const huge: usize = 2 << 20;
 
-/// `bytes` of address space, zero pages, none committed. On Linux the
-/// first 2 MiB keep small pages, since a huge page would commit 2 MiB at
-/// a small table's first touch, and the rest, from a 2 MiB boundary, asks
-/// for huge pages: a table that grows past 2 MiB is faulted in 2 MiB at a
-/// time, one fault and one TLB entry where 512 small pages each take
-/// their own, at the cost of the part of its last huge page not yet
-/// written (docs/history/records/2026-10/perf-stage/fault-ahead/). It
-/// asks only while the system has free 2 MiB blocks to spare
-/// (`alloc.zig`'s `hugeFree`), tested once, here: a table grown after
-/// memory fragments faults in through the compactor, as every range that
-/// asks does (docs/history/records/2026-10/perf-stage/thp-fragmented.md).
-/// A release build on Linux and the Mac takes the range from
-/// `reserveTable`, which on Linux asks as this does, and waits to until
-/// the heap that reserved it does much of the program's work
-/// (`tableWaits`); a debug build, and any table it cannot place, maps its
-/// own.
+/// `bytes` of address space, zero pages, none committed, with small
+/// pages on Linux until the table's first push (`push`). A release build
+/// on Linux and the Mac takes the range from `reserveTable`; a debug
+/// build, and any table it cannot place, maps its own, on Linux from a
+/// 2 MiB boundary when it is larger than 2 MiB, for the huge pages it
+/// may ask for at its first push.
 fn reserve(bytes: usize) [*]align(page) u8 {
     if (comptime !leak_checked) if (rt.fast_alloc.reserveTable(bytes)) |p| return p;
     const prot: std.posix.PROT = .{ .READ = true, .WRITE = true };
     const flags: std.posix.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true };
-    if (builtin.os.tag != .linux or bytes <= huge or !rt.fast_alloc.hugeFree()) {
+    if (builtin.os.tag != .linux or bytes <= huge) {
         const m = std.posix.mmap(null, bytes, prot, flags, -1, 0) catch reservePanic(bytes);
         if (builtin.os.tag == .linux) std.posix.madvise(m.ptr, m.len, std.posix.MADV.NOHUGEPAGE) catch {};
         return m.ptr;
@@ -135,8 +127,7 @@ fn reserve(bytes: usize) [*]align(page) u8 {
     const end = lo + m.len;
     if (end > stop) std.posix.munmap(@as([*]align(page) u8, @ptrFromInt(stop))[0 .. end - stop]);
     const p: [*]align(page) u8 = @ptrFromInt(start);
-    std.posix.madvise(p, huge, std.posix.MADV.NOHUGEPAGE) catch {};
-    std.posix.madvise(@ptrFromInt(start + huge), bytes - huge, std.posix.MADV.HUGEPAGE) catch {};
+    std.posix.madvise(p, bytes, std.posix.MADV.NOHUGEPAGE) catch {};
     return p;
 }
 
@@ -200,11 +191,19 @@ pub fn Table(comptime T: type, comptime n: u64) type {
             }
         }
 
+        /// Whether the table's first push asks for huge pages
+        /// (`firstPush`): a reserved table larger than 2 MiB, on Linux.
+        const asks_at_push = how == .reserved and builtin.os.tag == .linux and bytes > huge;
+
         /// `!t.push(x)`: writes slot `len` and gives it; panics when all
         /// `n` are pushed. The slot is dropped first, as any store into a
-        /// place drops what was there.
+        /// place drops what was there. A table that asks for huge pages
+        /// at its first push tests for that and for a full table at once:
+        /// `len - 1`, wrapping at 0, is `n - 1` or more only then.
         pub fn push(self: *Self, value: T) Index {
-            if (self.len == n) fullPanic(n);
+            if (comptime asks_at_push) {
+                if (self.len -% 1 >= n - 1) self.firstPush();
+            } else if (self.len == n) fullPanic(n);
             // `len < n` here, as only `push` raises `len`, and `n - 1`
             // fits `Index`: the cast is exact.
             rt.invariant(self.len < n);
@@ -214,6 +213,27 @@ pub fn Table(comptime T: type, comptime n: u64) type {
             p.* = value;
             self.len += 1;
             return s;
+        }
+
+        /// A push at `len` 0 or `n`: a full table panics, and the first
+        /// push asks for huge pages past the first 2 MiB (`alloc.zig`,
+        /// `tablePushed`). A pushed table is written densely from its
+        /// start, so as it grows past 2 MiB it is faulted in 2 MiB at a
+        /// time, one fault and one TLB entry where 512 small pages each
+        /// take their own, at the cost of the part of its last huge page
+        /// not yet written (docs/history/records/2026-10/perf-stage/
+        /// fault-ahead/). Its first 2 MiB keep small pages, as a huge
+        /// page would commit 2 MiB at a small table's first touch, and a
+        /// table written only by slot keeps them all, as one would at
+        /// each slot's first touch. It asks only while the system has
+        /// free 2 MiB blocks to spare (`hugeFree`), tested once, here: a
+        /// table grown after memory fragments faults in through the
+        /// compactor, as every range that asks does
+        /// (docs/history/records/2026-10/perf-stage/thp-fragmented.md).
+        fn firstPush(self: *const Self) void {
+            @branchHint(.cold);
+            if (self.len == n) fullPanic(n);
+            rt.fast_alloc.tablePushed(@intFromPtr(self.slots), bytes);
         }
 
         /// A slot's offset: below `n` by its type, which a debug build
