@@ -60,6 +60,8 @@ comptime {
         owing,
         watch_thread,
         watch_word,
+        monitor_parked,
+        monitor_stats,
         exit_state,
     };
 }
@@ -345,7 +347,10 @@ fn wakeIn(f: *Fiber) void {
             return notifyNew();
         }
     }
-    if (f.home != null or w.current == null or w.servicing) return;
+    if (w.current == null or w.servicing) return;
+    // It waits for this busy worker: a parked monitor looks again.
+    wantMonitor();
+    if (f.home != null) return;
     // After the slot is filled, so a worker that cleared `waiting` either
     // sees the slot full or sees the flag clear here (`takeWaiting`).
     if (waiting.load(.seq_cst) == 0) waiting.store(1, .monotonic);
@@ -373,6 +378,7 @@ fn wakeLastIn(f: *Fiber) void {
     // Only these could another worker take: pinned fibers stay, and the
     // global queue's push wakes one itself.
     if (w.ring.push(f) or nextHeld(w, .monotonic)) notify();
+    wantMonitor();
 }
 
 /// Queue the pinned fiber `f` on its worker, and wake that worker if it
@@ -380,7 +386,8 @@ fn wakeLastIn(f: *Fiber) void {
 /// it sleeps in its poller (`sleep`).
 fn wakeHome(f: *Fiber, home: *Worker) void {
     home.pinned.push(f);
-    if (home != me() and home.idle.load(.seq_cst) != 0) home.poller.kick();
+    if (home.idle.load(.seq_cst) == 0) return wantMonitor();
+    if (home != me()) home.poller.kick();
 }
 
 /// Pin the running fiber to its worker, and give the worker to pin a
@@ -1175,9 +1182,64 @@ const watch_thread = split.cell(&watch_thread_var, "sched.watch_thread");
 var watch_word_var: std.atomic.Value(u32) = .init(0);
 const watch_word = split.cell(&watch_word_var, "sched.watch_word");
 
+/// Set while the monitor sleeps past its period because no signal could
+/// help: no work waits in any queue, and no worker holds a timer or a
+/// descriptor (`watchSlices`). What makes work wait for a busy worker,
+/// sets a timer, or watches a descriptor wakes it (`wantMonitor`). On a
+/// line of its own: every task made reads it, and only the monitor, as
+/// it parks, and its waker write it.
+var monitor_parked_var: Flag = .{};
+const monitor_parked = split.cell(&monitor_parked_var, "sched.monitor_parked");
+
+/// What the monitor did, for `RIG_SCHED_STATS=1`: its looks, the sleeps
+/// it parked for, and the wakes that ended one early.
+const MonitorStats = struct {
+    looks: std.atomic.Value(u64) = .init(0),
+    parks: std.atomic.Value(u64) = .init(0),
+    wakes: std.atomic.Value(u64) = .init(0),
+};
+var monitor_stats_var: MonitorStats = .{};
+const monitor_stats = split.cell(&monitor_stats_var, "sched.monitor_stats");
+
+/// Work now waits for a busy worker, or a timer or a descriptor is held:
+/// wake the monitor if it is parked (`monitor_parked`), so it looks at
+/// once. The caller has made what it made visible first: either this
+/// reads the flag set, or the monitor, which looks once more after it
+/// sets the flag, sees the work. A wake lost to a race costs at most one
+/// parked sleep, 10 ms, the longest the monitor sleeps while no worker
+/// runs a fiber.
+inline fn wantMonitor() void {
+    if (!preempt) return;
+    if (monitor_parked.load(.seq_cst) == 0) return;
+    wakeMonitor();
+}
+
+noinline fn wakeMonitor() void {
+    if (monitor_parked.swap(0, .seq_cst) == 0) return;
+    _ = monitor_stats.wakes.fetchAdd(1, .monotonic);
+    _ = watch_word.fetchAdd(1, .seq_cst);
+    rt.io().futexWake(u32, &watch_word.raw, 1);
+}
+
+/// Whether the monitor may park: no work waits in any worker's queues or
+/// the global queue, and no worker holds a timer or descriptors, which
+/// come due or ready by themselves (`serviceDue`). Each read is
+/// sequentially consistent, after `monitor_parked` is set, against the
+/// writes of `wantMonitor`'s callers.
+fn monitorIdle() bool {
+    if (global.count.load(.seq_cst) != 0) return false;
+    for (workersNow()) |*w| {
+        if (nextHeld(w, .seq_cst) or !w.ring.isEmpty() or w.pinned.count.load(.seq_cst) != 0) return false;
+        if (w.timers.due.load(.seq_cst) != no_due or w.poller.count.load(.seq_cst) != 0) return false;
+    }
+    return true;
+}
+
 fn startMonitor() void {
     if (rt.process.*) |p| preempt_trace = if (p.environ.getPosix("RIG_PREEMPT_TRACE")) |v| std.mem.eql(u8, v, "1") else false;
     installPreempt();
+    monitor_stats.* = .{};
+    monitor_parked.store(0, .seq_cst);
     watch_thread.* = std.Thread.spawn(.{ .stack_size = 64 << 10 }, watchSlices, .{ sliceNs(), envUs("RIG_PREEMPT_WAIT_US", 50) }) catch return;
 }
 
@@ -1198,9 +1260,17 @@ fn stopMonitor() void {
 /// than about two periods, as a yield check's turns let it); or that has
 /// run one for a slice while any work waits (`workWaits`); or whose
 /// timers are due or whose poller holds events. The period is the wait
-/// (`RIG_PREEMPT_WAIT_US`, 50 µs) while any worker has work waiting, 1
-/// ms while any runs a fiber, and twice as long each period every worker
-/// spends without, up to 10 ms. It ends as `main` ends (`stopMonitor`).
+/// (`RIG_PREEMPT_WAIT_US`, 50 µs) while any worker has work waiting, and
+/// 1 ms while any runs a fiber and a worker holds a timer or descriptors,
+/// or the global queue holds fibers. Otherwise no signal could help, and
+/// after two such looks in a row the monitor parks (`monitorIdle`): it
+/// sleeps twice as long each period, from 2 ms up to 10 ms, until work
+/// made to wait for a busy worker, or a timer or descriptor held, wakes
+/// it (`wantMonitor`).
+/// So a computation that no other work waits for is not interrupted
+/// every millisecond by the monitor's own wake. While no worker runs a
+/// fiber and a worker holds a timer or descriptors, the period doubles
+/// up to 10 ms, unparked. It ends as `main` ends (`stopMonitor`).
 fn watchSlices(slice: i96, wait: i96) void {
     var seen: [max_workers]u32 = @splat(0);
     var since: [max_workers]i96 = @splat(0);
@@ -1210,19 +1280,38 @@ fn watchSlices(slice: i96, wait: i96) void {
     var tries: [max_workers]u32 = @splat(0);
     var next_at: [max_workers]i96 = @splat(0);
     var period: i96 = std.time.ns_per_ms;
+    var parking = false;
+    // Looks in a row that found nothing a signal could help: the monitor
+    // parks after two, so a wake is followed by a look of 1 ms or less
+    // before it parks again, and a stream of tasks each taken at once
+    // wakes it at most once a period, not once a task.
+    var idle_looks: u32 = 0;
     while (true) {
         const word = watch_word.load(.seq_cst);
         if (stopping.load(.seq_cst)) return;
+        if (parking) {
+            monitor_parked.store(1, .seq_cst);
+            // Work made before the flag was set woke no one: look again.
+            if (!monitorIdle()) {
+                monitor_parked.store(0, .seq_cst);
+                period = wait;
+            } else _ = monitor_stats.parks.fetchAdd(1, .monotonic);
+        }
         rt.io().futexWaitTimeout(u32, &watch_word.raw, word, .{ .duration = .{ .raw = .{ .nanoseconds = period }, .clock = .awake } }) catch {};
+        // Woken, or found work as it parked: unparked for a look first.
+        if (parking and monitor_parked.swap(0, .seq_cst) == 0) idle_looks = 0;
         if (stopping.load(.seq_cst)) return;
+        _ = monitor_stats.looks.fetchAdd(1, .monotonic);
         const now = nowReal();
         var busy = false;
         var queued = false;
+        var held = global.count.load(.monotonic) != 0;
         for (workersNow(), 0..) |*w, i| {
             const runs = preOf(w).runs.load(.monotonic);
             const running = @atomicLoad(?*Fiber, &w.current, .monotonic) != null;
             const work = queuedHere(w);
             queued = queued or work;
+            held = held or w.timers.due.load(.monotonic) != no_due or w.poller.count.load(.monotonic) != 0;
             defer had[i] = work;
             if (!running or runs != seen[i]) {
                 seen[i] = runs;
@@ -1248,7 +1337,16 @@ fn watchSlices(slice: i96, wait: i96) void {
             signalThread(pre.tid);
             pre.signaling.unlockApart();
         }
-        period = if (queued) wait else if (busy) std.time.ns_per_ms else @min(2 * period, 10 * std.time.ns_per_ms);
+        idle_looks = if (queued or held) 0 else idle_looks + 1;
+        parking = idle_looks >= 2;
+        period = if (queued)
+            wait
+        else if (parking)
+            @min(@max(2 * period, 2 * std.time.ns_per_ms), 10 * std.time.ns_per_ms)
+        else if (busy)
+            std.time.ns_per_ms
+        else
+            @min(2 * period, 10 * std.time.ns_per_ms);
     }
 }
 
@@ -1762,15 +1860,20 @@ const Timers = struct {
     due: std.atomic.Value(i64) = .init(no_due),
 
     fn add(t: *Timers, f: *Fiber) void {
-        t.lock.lockApart();
-        defer t.lock.unlockApart();
-        t.heap.append(std.heap.smp_allocator, f) catch rt.oom();
-        f.wait.heap_index = t.heap.items.len - 1;
-        f.wait.timers = t;
-        t.up(f.wait.heap_index);
-        t.publish();
-        // The earliest it holds: a worker asleep until later wakes for it.
-        if (f.wait.heap_index == 0 and !deterministic.*) kickForTimer(t.due.load(.monotonic));
+        {
+            t.lock.lockApart();
+            defer t.lock.unlockApart();
+            t.heap.append(std.heap.smp_allocator, f) catch rt.oom();
+            f.wait.heap_index = t.heap.items.len - 1;
+            f.wait.timers = t;
+            t.up(f.wait.heap_index);
+            t.publish();
+            // The earliest it holds: a worker asleep until later wakes for it.
+            if (f.wait.heap_index == 0 and !deterministic.*) kickForTimer(t.due.load(.monotonic));
+        }
+        // A busy worker's timer comes due with no one to service it but
+        // the monitor's signal: a parked monitor looks again.
+        wantMonitor();
     }
 
     fn cancel(t: *Timers, f: *Fiber) void {
@@ -2239,6 +2342,9 @@ fn registerIn(fd: i32) ?*Registration {
         std.heap.smp_allocator.destroy(r);
         return null;
     }
+    // Its events reach a busy worker by the monitor's signal: a parked
+    // monitor looks again.
+    wantMonitor();
     if (deterministic.*) {
         r.next = registered.*;
         if (registered.*) |n| n.prev = r;
@@ -3229,6 +3335,10 @@ fn printStats() void {
             std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw })) catch continue;
         _ = std.posix.system.write(2, line.ptr, line.len);
     }
+    if (!preempt or deterministic.*) return;
+    const m = monitor_stats;
+    const line = std.fmt.bufPrint(&buf, "rig: monitor: looked {d}, parked {d}, woken {d}\n", .{ m.looks.load(.monotonic), m.parks.load(.monotonic), m.wakes.load(.monotonic) }) catch return;
+    _ = std.posix.system.write(2, line.ptr, line.len);
 }
 
 /// Test only: run `run` as `main`, on a stack of its own, with `n`
@@ -3584,7 +3694,7 @@ fn notifyNew() void {
     if (deterministic.*) return;
     if (searching.load(.seq_cst) == 0 and sleepers.count.load(.seq_cst) == 0) {
         if (waiting.load(.monotonic) == 0) waiting.store(1, .monotonic);
-        return;
+        return wantMonitor();
     }
     notify();
 }
