@@ -10,8 +10,9 @@
 # a gate is never held behind timing; it says what it waits on after a
 # minute and every ten minutes, and gives up after RIG_HEAVY_WAIT seconds
 # (45 minutes) with exit status 75. Then it writes the claim line (the
-# label, its limit, the start time, its PID), runs CMD, and clears the
-# line when CMD ends, fails or is killed. CMD runs at most N minutes
+# label, its limit, the start time, its PID), runs CMD with
+# TRIG_MAC_CLAIMED=1 and RIG_MAC_CLAIMED=1 set, and clears the line when
+# CMD ends, fails or is killed. CMD runs at most N minutes
 # (default 19, at most 20): at the limit its process group is stopped
 # with SIGTERM, and SIGKILL ten seconds later, and mac-claim exits 124.
 #
@@ -98,6 +99,9 @@ trap 'exit 130' INT TERM HUP
 # tests.
 LIMIT=${RIG_MAC_CLAIM_LIMIT_S:-$((M * 60))}
 OVER=$LOCK/over
+# The job and what it runs know they hold the claim, so a tool that waits
+# on mac-timing.txt (Trig's tools/mac-wait) does not wait on its own.
+export TRIG_MAC_CLAIMED=1 RIG_MAC_CLAIMED=1
 set -m
 "$@" &
 job=$!
