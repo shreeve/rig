@@ -459,6 +459,14 @@ none of these ever built:
 
 ### Runtime
 
+- A channel's receive gives Rig's `T?` as the program holds it: for a
+  `T` that holds `none` in a spare value of its own (an object with an
+  optional field, a `String` or a `List`, an object that names its none,
+  a box), `(!ch).recv()`, an `on_recv` arm's function, and a named
+  select's `got(v?)` variant took a Zig `?T` the emitted program could
+  not use where it bound, returned, or passed the value, and `rig check`
+  accepted programs whose Zig did not compile. `Chan.recv` and the
+  receiving arm now hold the value as `rig.Opt(T)`, as `List.pop` does.
 - `file.read` of a regular file on Linux makes four system calls: an
   open, a stat of the descriptor, one read, and a close (tsc's makes
   five, reading once more to find the end). It no longer stats the path
