@@ -10,7 +10,8 @@
 # a gate is never held behind timing; it says what it waits on after a
 # minute and every ten minutes, and gives up after RIG_HEAVY_WAIT seconds
 # (45 minutes) with exit status 75. Then it writes the claim line (the
-# label, its limit, the start time, its PID), runs CMD with
+# label, its limit, the start time, its PID), waits for the Mac to go
+# quiet (below), runs CMD with
 # TRIG_MAC_CLAIMED=1 and RIG_MAC_CLAIMED=1 set, and clears the line when
 # CMD ends, fails or is killed. CMD runs at most N minutes
 # (default 19, at most 20): at the limit its process group is stopped
@@ -94,6 +95,47 @@ release() {
 }
 trap release EXIT
 trap 'exit 130' INT TERM HUP
+
+# Before CMD starts, the Mac drains: with the line written, heavy and the
+# test runners start no new job (Rig's test/claim.rip, Trig's
+# tests/trig.rip), and what runs finishes. CMD waits until every process
+# on the machine but this one together uses under RIG_MAC_QUIET_CPU
+# percent of a core (default 150: the desktop's own load fits under it, a
+# build does not) at every look for RIG_MAC_QUIET_S seconds (default 30),
+# at most RIG_MAC_QUIET_WAIT seconds (default 600); past that it gives the
+# claim up with exit status 75 and names the busiest processes. The whole
+# machine, not only heavy's jobs: a build started outside heavy loads it
+# just the same. The limit below starts with CMD.
+busy() {
+    ps -A -o pid=,%cpu= | awk -v me=$$ '$1 != me { t += $2 } END { printf "%d", t }'
+}
+busiest() {
+    ps -A -o pid=,%cpu=,args= | awk -v me=$$ '$1 != me' | sort -k2 -rn | head -n 8 |
+        awk '{ pid = $1; cpu = $2; $1 = ""; $2 = ""; sub(/^  /, ""); printf "  PID %s at %s%%: %s\n", pid, cpu, substr($0, 1, 110) }'
+}
+QS=${RIG_MAC_QUIET_S:-30}
+QW=${RIG_MAC_QUIET_WAIT:-600}
+QC=${RIG_MAC_QUIET_CPU:-150}
+qstart=$(date +%s)
+calm=$qstart
+qtold=$((qstart + 60))
+while :; do
+    b=$(busy)
+    now=$(date +%s)
+    ((b >= QC)) && calm=$now
+    ((now - calm >= QS)) && break
+    if ((now - qstart >= QW)); then
+        echo "tools/mac-claim: the Mac did not go quiet in $((QW / 60)) minutes (${b}% of a core in use, under ${QC}% wanted); giving up the claim. Busiest:" >&2
+        busiest >&2
+        exit 75
+    fi
+    if ((now >= qtold)); then
+        echo "tools/mac-claim: waiting $(((now - qstart) / 60)) min for the Mac to go quiet (${b}% of a core in use, under ${QC}% wanted). Busiest:" >&2
+        busiest | head -n 3 >&2
+        qtold=$((now + 120))
+    fi
+    sleep 3
+done
 
 # The limit in seconds; RIG_MAC_CLAIM_LIMIT_S sets it directly, for the
 # tests.

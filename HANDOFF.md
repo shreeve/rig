@@ -106,6 +106,11 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **A channel's receive of a niche-held `T?`** (branch
+  `chan-niche-recv`): `Chan.recv` and a select's receiving arm give
+  `rig.Opt(T)`, so a `Chan` of an object with a niche, a box, or an
+  object that names its none compiles wherever its receive's value
+  goes. Rig merges.
 - **A thread with no alternate signal stack stops the program** (PR
   #1050, branch `runtime-hardening`): the main thread, workers and the
   blocking pool's threads exit with a message where they ran on. Level

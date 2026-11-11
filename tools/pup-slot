@@ -46,7 +46,10 @@ BUDDY=${PUP_SLOT_BUDDYINFO:-/proc/buddyinfo}
 WAIT=${PUP_SLOT_WAIT:-2700}
 mkdir -p "$ST"
 
-blocks() { awk '/Normal/ { print $14 }' "$BUDDY"; }
+# Free 2 MiB blocks, every zone: each order-9 block is one, each order-10
+# block (4 MiB) two. A fresh boot holds nearly all its free memory at
+# order 10, so counting order 9 alone read a few dozen on an empty pup.
+blocks() { awk '{ o9 += $(NF-1); o10 += $NF } END { print o9 + 2 * o10 }' "$BUDDY"; }
 swapmb() { free -m | awk '/Swap/ { print $3 }'; }
 # PIDs of builds: Zig compiles, Rig builds, release-slot wrappers.
 # PUP_SLOT_BUILD_RE and PUP_SLOT_SUITE_RE replace the patterns, for the
@@ -92,7 +95,15 @@ note() { echo "$(date '+%F %T') $*" >>"$LOG" 2>/dev/null; }
 # (2 s), which voids a board race (decision 14). `late` counts the
 # builds the guard paused after the slot opened: each ran beside the race
 # until it was paused.
-state() { echo "blocks=$(blocks) swap_mb=$(swapmb) slot=$(cat "$ST/open" 2>/dev/null || echo none) paused=$(sort -u "$ST/paused" 2>/dev/null | grep -c .) running=$(builds | grep -c .) late=$(sort -u "$ST/late" 2>/dev/null | grep -c .)"; }
+state() {
+    local slot=none paused=0 late=0
+    if [[ -e $FLAG ]]; then
+        slot=$(cat "$ST/open" 2>/dev/null || echo none)
+        paused=$(sort -u "$ST/paused" 2>/dev/null | grep -c .)
+        late=$(sort -u "$ST/late" 2>/dev/null | grep -c .)
+    fi
+    echo "blocks=$(blocks) swap_mb=$(swapmb) slot=$slot paused=$paused running=$(builds | grep -c .) late=$late"
+}
 
 case ${1:-} in
 open)

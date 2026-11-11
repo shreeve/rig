@@ -40,6 +40,7 @@ out=$("$S" close 7); rc=$?
 expect_rc $rc 0 "close"
 expect_eq "$(pstate $b)" S "the build is resumed"
 expect_eq "$(pstate $l)" S "the late build is resumed"
+expect_has "$("$S" state)" "slot=none paused=0" "a closed slot's state names no slot"
 kill $l
 expect_has "$("$S" state)" "running=1" "a resumed build counts as running"
 expect_has "$(cat slots.log)" 'open 7 board 5min label="a test" blocks=100' "the log"
@@ -52,6 +53,11 @@ expect_rc $rc 75 "a board slot without room"
 expect_has "$out" "only 10 free 2 MiB blocks" "the reason"
 expect_eq "$(pstate $b)" S "nothing left paused"
 [[ ! -e $PUP_SLOT_TMP/slot-active ]] || fail "a slot opened without room"
+
+# Room held at order 10 (4 MiB blocks, two 2 MiB blocks each) and in every
+# zone counts: 10 + 2*25 in Normal and 4 in DMA32 make 64.
+printf 'Node 0, zone    DMA32 1 1 1 1 1 1 1 1 1 4 0\nNode 0, zone   Normal 1 1 1 1 1 1 1 1 1 10 25\n' >"$PWD/buddy"
+expect_has "$("$S" state)" "blocks=64" "order 10 and every zone count"
 
 # A test suite running: it waits rather than pausing the suite's builds.
 buddy 100

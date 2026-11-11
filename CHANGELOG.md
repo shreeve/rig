@@ -380,6 +380,16 @@ none of these ever built:
   minutes (exit 75), stops the job at its limit (19 minutes, at most 20;
   exit 124), and clears the line however the job ends
   (`test/cli/mac_claim.sh`).
+- A timing claim pauses work between jobs, never during one: a job
+  stopped mid-run is killed by its own timeout the moment it resumes.
+  While a live claim holds, `tools/heavy` starts no job but a correctness
+  one, `test/rig.rip` starts no new job (`test/claim.rip`), and
+  `tools/mac-claim` starts its command once every process on the
+  machine together uses under one and a half cores for 30 seconds (a
+  build started outside heavy loads the Mac just the same), giving the
+  claim up after 10 minutes if it never does (exit 75) and naming the
+  busiest processes. A claim line whose mac-claim has died holds
+  no one (`test/cli/claim_gate.sh`, `heavy_class.sh`, `mac_claim.sh`).
 - `pup-slot state` prints `running=R`, the builds not paused, and
   `late=L`, the builds its guard paused after the slot opened, beside
   `paused=K`; a board race with any running is void (decision 14). A
@@ -457,6 +467,14 @@ none of these ever built:
   works on: Trig's parallel loader, checking Material UI's docs at one
   checker with 8 cores, peaked 74 MiB over loading on one thread, and
   peaks 14 MiB over it.
+- A channel's receive gives Rig's `T?` as the program holds it: for a
+  `T` that holds `none` in a spare value of its own (an object with an
+  optional field, a `String` or a `List`, an object that names its none,
+  a box), `(!ch).recv()`, an `on_recv` arm's function, and a named
+  select's `got(v?)` variant took a Zig `?T` the emitted program could
+  not use where it bound, returned, or passed the value, and `rig check`
+  accepted programs whose Zig did not compile. `Chan.recv` and the
+  receiving arm now hold the value as `rig.Opt(T)`, as `List.pop` does.
 - `file.read` of a regular file on Linux makes four system calls: an
   open, a stat of the descriptor, one read, and a close (tsc's makes
   five, reading once more to find the end). It no longer stats the path

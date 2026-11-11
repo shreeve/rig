@@ -460,6 +460,175 @@ test "chan select named value", seeds: 20, timeout: 10, '''
     .late => print("late")
   print(kept[0], kept.len)
 
+test "chan of an object with a niche", seeds: 20, "1 2 3 4 done"
+  # An object with an optional field holds `none` in a spare value of
+  # that field (`rig.Opt`), and a receive gives its optional so held:
+  # bound, given back through `catch none`, or out of a fallible function.
+  obj Inner
+    a: String = String()
+    k: Int? = none
+
+  obj Res
+    slot: Int
+    inner: Inner? = none
+    more: List[Inner] = List()
+
+  sub work(out: *Chan[Res], n: Int)!
+    for i in 1..=n
+      !out.send(Res(slot: i, inner: Inner(a: String("x"))))!
+    !out.close()
+
+  fun next(o: !*Chan[Res]) -> Res?!
+    got = (!o).recv()!
+    got
+
+  fun next_or_none(o: !*Chan[Res]) -> Res?
+    next(!o) catch none
+
+  out = *Chan[Res](1)
+  t = work(+out, 4)&
+  new o = <out
+  slots = String()
+  loop
+    got = next_or_none(!o)
+    r = <got ?? break
+    !slots.add(`{r.slot} `)
+  >t!
+  print(`{slots}done`)
+
+test "chan of a box", seeds: 20, "1 2 3 done"
+  # A box's optional holds `none` as the null address; a receive gives
+  # it so, wherever it goes.
+  obj Res
+    slot: Int
+    inner: Int? = none
+
+  sub work(out: *Chan[^Res], n: Int)!
+    for i in 1..=n
+      !out.send(^<Res(slot: i))!
+    !out.close()
+
+  out = *Chan[^Res](1)
+  t = work(+out, 3)&
+  new o = <out
+  slots = String()
+  loop
+    got = (!o).recv() catch none
+    b = <got ?? break
+    r = <b
+    !slots.add(`{r.slot} `)
+  >t!
+  print(`{slots}done`)
+
+test "chan of optionals held in a niche", seeds: 20, '''
+  5
+  circle 2
+  1 -1 -2
+'''
+  # An object that names its none, an enum with a payload, and an
+  # optional of an object with a niche: each receive's optional is the
+  # one the program's type holds.
+  obj Id
+    id: Int
+    none id == 0
+
+  enum Shape
+    circle(r: Int)
+    square(s: Int)
+
+  obj Res
+    slot: Int
+    k: Int? = none
+
+  fun slot(r: ?Res?) -> Int
+    if r as x
+      return x.slot
+    -1
+
+  fun received(r: ?(Res?)?) -> Int
+    if r as x
+      return slot(?x)
+    -2
+
+  fun id(x: ?Id?) -> Int
+    if x as v
+      return v.id
+    -1
+
+  c = *Chan[Id](2)
+  !c.send(Id(id: 5))!
+  !c.close()
+  x = (!c).recv() catch none
+  print(id(?x))
+  d = *Chan[Shape](2)
+  !d.send(.circle(r: 2))!
+  s = (!d).recv() catch none
+  match s ?? Shape.square(s: 0)
+    .circle(r) => print("circle", r)
+    .square(q) => print("square", q)
+  e = *Chan[Res?](4)
+  !e.send(Res(slot: 1))!
+  !e.send(none)!
+  !e.close()
+  a = (!e).recv() catch none
+  b = (!e).recv() catch none
+  z = (!e).recv() catch none
+  print(received(?a), received(?b), received(?z))
+
+test "chan select of an object with a niche", seeds: 20, '''
+  7
+  got 3
+  8
+  sent
+  closed
+  boxed 4
+'''
+  # A select's arm takes the receive's optional, and its named variant
+  # carries it, held as the program's type holds it.
+  obj Res
+    slot: Int
+    tag: Int? = none
+    name: String = String()
+
+  fun slot(r: ?Res?) -> Int
+    if r as x
+      return x.slot
+    -2
+
+  a = *Chan[Res](1)
+  b = *Chan[Res](1)
+  !b.send(Res(slot: 7, name: String("b")))!
+  got = task.select(
+    (!a).on_recv(|v| -1 if v == none else 1),
+    (!b).on_recv(|v| slot(?v)),
+  )!
+  print(got)
+  !a.send(Res(slot: 3))!
+  !b.send(Res(slot: 8))!
+  r = task.select(got: !a.on_recv(), put: !b.on_send(Res(slot: 9)))!
+  match <r
+    .got(s?) => print("got", s.slot)
+    .got(none) => print("closed")
+    .put => print("sent")
+  held = (!b).recv() catch none
+  print(slot(?held))
+  r2 = task.select(got: !a.on_recv(), put: !b.on_send(Res(slot: 9)))!
+  match <r2
+    .got(s?) => print("got", s.slot)
+    .got(none) => print("closed")
+    .put => print("sent")
+  !a.close()
+  r3 = task.select(got: !a.on_recv())!
+  match <r3
+    .got(s?) => print("got", s.slot)
+    .got(none) => print("closed")
+  c = *Chan[^Res](1)
+  !c.send(^<Res(slot: 4))!
+  r4 = task.select(got: !c.on_recv())!
+  match <r4
+    .got(bx?) => print("boxed", bx.slot)
+    .got(none) => print("closed")
+
 test "chan select named fails at a deadline", seeds: 20, timeout: 10, "Stop.timeout"
   # The select is a fallible waiting point: a task's deadline fails it.
   use std.task
