@@ -839,6 +839,7 @@ inline fn allocLargeFrom(h: *Heap, len: usize, mapped: ?*bool) ?[*]u8 {
         if (mapped) |f| f.* = true;
         h.took(n * span_unit);
         _ = coolSpans(h, false);
+        askSpanHuge(h, p, 0, n * span_unit);
         prefault(h, p, likelyFilled(size - size / 4));
         return @ptrFromInt(p);
     };
@@ -1781,6 +1782,7 @@ fn growSpan(h: *Heap, p: usize, old_size: usize, new_size: usize, fresh: bool) b
     sp.live += extra * span_unit;
     sp.lock.unlock();
     if (cold) recommit(spanAt(seg, next), @min(after, extra) * span_unit);
+    askSpanHuge(h, p, n * span_unit, (n + extra) * span_unit);
     if (carved != 0) {
         // Of the new pages, those a List is likely to fill are faulted
         // in at once.
@@ -1791,6 +1793,23 @@ fn growSpan(h: *Heap, p: usize, old_size: usize, new_size: usize, fresh: bool) b
         prefault(h, spanAt(seg, next + after), likelyFilled(bytes / 2));
     }
     return true;
+}
+
+/// Ask for huge pages, on Linux, for the whole 2 MiB blocks of the span
+/// at `p` that it has at `new` bytes and had not at `old` (0 for a new
+/// span), for a heap that faults in ahead: a span of 2 MiB or more then
+/// faults in 2 MiB at a time, and its pages go back to the system at
+/// exit 2 MiB at a time, while smaller spans, and the ends of this one
+/// that share a 2 MiB block with others, keep small pages, so a huge
+/// page commits only room of the span that asked. The range keeps the
+/// advice when the span is freed. A span segment asked for small pages
+/// where every range gets huge ones unasked, which only asking undoes
+/// (`huge_again`).
+fn askSpanHuge(h: *const Heap, p: usize, old: usize, new: usize) void {
+    if (builtin.os.tag != .linux or new < huge_page or !faultsAhead(h)) return;
+    const from = @max(std.mem.alignForward(usize, p, huge_page), std.mem.alignBackward(usize, p + old, huge_page));
+    const to = std.mem.alignBackward(usize, p + new, huge_page);
+    if (to > from) _ = ask(from, to - from, .huge_again);
 }
 
 /// Give back to the system the pages of `o`'s warm free spans, all of
@@ -3573,6 +3592,30 @@ test "four threads take, write, grow, and free spans, many of them one another's
         allocator.free(b);
     };
     try std.testing.expectEqual(@as(usize, 0), sh.bad.load(.monotonic));
+}
+
+test "on Linux a span of 2 MiB or more of a heap that faults in ahead asks for huge pages for its whole 2 MiB blocks, as it is carved and as it grows, and a smaller one does not" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    useBuddyinfoForTest(buddyinfo_plenty);
+    defer useBuddyinfoForTest(null);
+    var h = testHeap();
+    h.taken = prefault_big;
+    const mib: usize = 1 << 20;
+    const small = allocLarge(&h, mib).?;
+    const big = @intFromPtr(allocLarge(&h, 5 * mib).?);
+    const first = std.mem.alignForward(usize, big, huge_page);
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(small)));
+    try std.testing.expect(!try advisedHugeForTest(big));
+    try std.testing.expect(try advisedHugeForTest(first));
+    try std.testing.expect(try advisedHugeForTest(first + 2 * mib));
+    try std.testing.expect(!try advisedHugeForTest(first + 4 * mib));
+    // Grown at its segment's end to 10 MiB: its new whole blocks ask.
+    try std.testing.expect(growSpan(&h, big, 5 * mib, 10 * mib, true));
+    try std.testing.expect(try advisedHugeForTest(first + 6 * mib));
+    try std.testing.expect(!try advisedHugeForTest(first + 8 * mib));
+    freeLarge(&h, @ptrFromInt(big), 10 * mib);
+    freeLarge(&h, small, mib);
+    trimAllForTest(&h);
 }
 
 test "on Linux a free span whose pages went back to the system holds one page, and is written whole when taken again" {
