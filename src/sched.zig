@@ -204,6 +204,9 @@ const Worker = struct {
     slept: std.atomic.Value(u64) = .init(0),
     /// Its `slept` as the watcher began its last watch.
     watch_mark: std.atomic.Value(u64) = .init(0),
+    /// How long it sleeps before it gives back what its heap holds free
+    /// (`trimIdle`).
+    trim_wait: i96 = trim_first,
     thread: ?std.Thread align(std.atomic.cache_line) = null,
 };
 
@@ -3648,14 +3651,28 @@ fn sleep(w: *Worker) void {
             if (held or watcher.load(.seq_cst) == null) passWatch();
         }
     }
+    // Once asleep `trim_wait`, it gives back what its heap holds free
+    // (`trimIdle`), once a sleep.
+    const since = nowReal();
+    var trimmed = false;
+    defer if (trimmed) rt.fast_alloc.wakeIdle();
     while (w.woken.load(.seq_cst) == 0) {
         serviceAll();
         if (!hasOwnWork(w)) {
             w.sleep_due.store(no_due, .seq_cst);
             const due = earliestDue();
             w.sleep_due.store(due, .seq_cst);
-            sleepIn(w, if (due == no_due) null else @max(@as(i96, due) - nowNs(), 0));
+            var timeout: ?i96 = if (due == no_due) null else @max(@as(i96, due) - nowNs(), 0);
+            if (!trimmed) {
+                const left = @max(since + w.trim_wait - nowReal(), 0);
+                timeout = if (timeout) |t| @min(t, left) else left;
+            }
+            sleepIn(w, timeout);
             w.sleep_due.store(awake, .seq_cst);
+            if (!trimmed and w.woken.load(.seq_cst) == 0 and nowReal() - since >= w.trim_wait) {
+                trimmed = true;
+                trimIdle(w);
+            }
             if (!hasOwnWork(w)) continue;
         }
         // Fibers made ready here: run them, unless a waker took this
@@ -3684,6 +3701,22 @@ fn takeWaiting(w: *Worker) bool {
         }
     }
     return true;
+}
+
+/// How long a worker sleeps before it first gives back what its heap
+/// holds free (`sleep`), and the longest it waits after trims that gave
+/// back little.
+const trim_first: i96 = 10 * std.time.ns_per_ms;
+const trim_most: i96 = 1 * std.time.ns_per_s;
+
+/// A trim that gives back less than this doubles the worker's wait
+/// before the next (`Worker.trim_wait`), so a server's worker whose heap
+/// keeps busy pages does not walk its free lists at every pause.
+const trim_worth: usize = 1 << 20;
+
+fn trimIdle(w: *Worker) void {
+    const given = rt.fast_alloc.trimIdle();
+    w.trim_wait = if (given >= trim_worth) trim_first else @min(w.trim_wait * 2, trim_most);
 }
 
 fn waitWoken(w: *Worker) void {
