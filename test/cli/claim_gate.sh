@@ -1,7 +1,8 @@
 # test/claim.rip, the gate test/rig.rip passes before each job: a live
 # claim holds a job until its line clears, a line whose mac-claim has died
-# holds no one, and a job run inside the claim (RIG_MAC_CLAIMED) goes
-# ahead. A claim file of its own keeps the test off the real one.
+# holds no one, a line naming no PID holds only while under 20 minutes
+# old, a job run inside the claim (RIG_MAC_CLAIMED) goes ahead, and a wait
+# past its bound fails naming the claim. A claim file of its own keeps the test off the real one.
 # timeout: 60
 source "$ROOT/test/cli/_lib.sh"
 command -v rip >/dev/null || { echo "no rip on PATH: skipped"; exit 0; }
@@ -29,7 +30,12 @@ sh -c 'exit 0' & dead=$!; wait $dead
 echo "board, at most 19 min, started 20:00, pid $dead" >"$RIG_MAC_CLAIM"
 expect_eq "$(rip held.rip)" false "a claim whose mac-claim died"
 echo "an older line with no pid" >"$RIG_MAC_CLAIM"
-expect_eq "$(rip held.rip)" true "a line naming no PID"
+expect_eq "$(rip held.rip)" true "a fresh line naming no PID"
+touch -t "$(date -v-30M +%Y%m%d%H%M 2>/dev/null || date -d '-30 min' +%Y%m%d%H%M)" "$RIG_MAC_CLAIM"
+expect_eq "$(rip held.rip)" false "a line naming no PID, 30 minutes old"
+echo "board, at most 19 min, started 20:00, pid $live" >"$RIG_MAC_CLAIM"
+out=$(RIG_HEAVY_WAIT=1 rip wait.rip 2>&1) && fail "a wait past its bound went ahead: $out"
+expect_has "$out" "held for timing past" "the bound's message"
 
 # A job waits while the live claim holds, and goes once it clears.
 echo "board, at most 19 min, started 20:00, pid $live" >"$RIG_MAC_CLAIM"

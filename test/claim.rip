@@ -7,21 +7,28 @@
 #
 # The claim is the one line in RIG_MAC_CLAIM (default
 # ~/Data/Code/Claude/rig/rig/mac-timing.txt), ending `pid N`. A job run
-# inside the claim (RIG_MAC_CLAIMED, which mac-claim sets) goes ahead, and
-# a line whose mac-claim has died holds no one.
+# inside the claim (RIG_MAC_CLAIMED, which mac-claim sets) goes ahead, a
+# line whose mac-claim has died holds no one, and a line naming no PID (by
+# hand, or an older format) holds only while its file is under 20 minutes
+# old, a claim's longest. A job waits at most RIG_HEAVY_WAIT seconds
+# (2700, 45 minutes), then dies naming the claim. Swarm times no job
+# itself: each limit is a process's own, which starts after this wait, and
+# test/rig.rip's wait for a pack does not count the time a claim holds.
 
-import { readFileSync } from 'fs'
+import { readFileSync, statSync } from 'fs'
 import { join } from 'path'
 
 claimFile = -> process.env.RIG_MAC_CLAIM ?? join(process.env.HOME ?? '', 'Data', 'Code', 'Claude', 'rig', 'rig', 'mac-timing.txt')
 
 # Whether a live claim holds the Mac for someone else.
+claimLine = -> (try readFileSync(claimFile(), 'utf8') catch then '').trim()
 export claimHeld = ->
   return false if process.env.RIG_MAC_CLAIMED
-  line = (try readFileSync(claimFile(), 'utf8') catch then '').trim()
+  line = claimLine()
   return false unless line
   m = line.match(/pid (\d+)$/)
-  return true unless m
+  unless m
+    return Date.now() - (try statSync(claimFile()).mtimeMs catch then 0) < 20 * 60 * 1000
   try
     process.kill(Number(m[1]), 0)
     true
@@ -31,5 +38,8 @@ export claimHeld = ->
 # Wait, two seconds a look, while a claim holds. A claim lasts at most 20
 # minutes and clears its line when it ends.
 export claimWait = ->
+  bound = Number(process.env.RIG_HEAVY_WAIT ?? 2700) * 1000
+  started = Date.now()
   while claimHeld()
+    throw new Error("the Mac stayed held for timing past #{bound / 60000} minutes: #{claimLine().slice(0, 120)}") if Date.now() - started >= bound
     Bun.sleepSync(Number(process.env.RIG_MAC_CLAIM_POLL_MS ?? 2000))

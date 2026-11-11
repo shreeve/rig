@@ -65,5 +65,12 @@ sh -c 'exit 0' & dead=$!; wait $dead
 echo "board, at most 19 min, started 20:00, pid $dead" >"$RIG_MAC_CLAIM"
 "$H" true
 expect_rc $? 0 "a plain job beside a dead claim"
+# A line naming no PID holds only while under 20 minutes old.
+echo "by hand" >"$RIG_MAC_CLAIM"
+out=$(RIG_HEAVY_WAIT=2 "$H" true 2>&1); rc=$?
+expect_rc $rc 75 "a plain job beside a fresh line naming no PID"
+touch -t "$(date -v-30M +%Y%m%d%H%M 2>/dev/null || date -d '-30 min' +%Y%m%d%H%M)" "$RIG_MAC_CLAIM"
+"$H" true
+expect_rc $? 0 "a plain job beside a 30-minute-old line naming no PID"
 kill $live; wait $live 2>/dev/null
 exit 0

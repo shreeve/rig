@@ -35,7 +35,7 @@
 import { swarm, init, todo, args } from 'rip/swarm'
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, readdirSync, rmSync, renameSync, statSync } from 'fs'
 import { join, resolve, basename, dirname, relative } from 'path'
-import { claimWait } from './claim.rip'
+import { claimWait, claimHeld } from './claim.rip'
 
 root = resolve(import.meta.dir, '..')
 rig  = join(root, 'bin', 'rig')
@@ -862,6 +862,9 @@ packed = (c) ->
     if existsSync(join(c.pack, 'key')) and readFileSync(join(c.pack, 'key'), 'utf8') is c.packKey and existsSync(join(c.pack, 'bin'))
       return numbers()
     throw new Error('its pack was never built') if Date.now() - waited > 1800 * 1000
+    # A claim holds the pack's build job before it starts: that time is
+    # not the build's.
+    waited += 100 if claimHeld()
     await Bun.sleep(100)
 
 # A case with `seeds: K` runs again deterministically with each seed

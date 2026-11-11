@@ -113,14 +113,20 @@ first() {
 }
 CLAIM=${RIG_MAC_CLAIM:-$HOME/Data/Code/Claude/rig/rig/mac-timing.txt}
 # Whether a live timing claim holds the Mac for someone else: its line,
-# unless the mac-claim it names (`pid N` at the end) has died.
+# unless the mac-claim it names (`pid N` at the end) has died; a line
+# naming no PID holds only while its file is under 20 minutes old, a
+# claim's longest.
 claimed() {
-    local line p
+    local line p m
     [[ $C == 1 && -z ${RIG_MAC_CLAIMED:-} ]] || return 1
     line=$(head -n 1 "$CLAIM" 2>/dev/null)
     [[ -n $line ]] || return 1
     p=${line##*pid }
-    [[ $p =~ ^[0-9]+$ ]] || return 0
+    if [[ ! $p =~ ^[0-9]+$ ]]; then
+        m=$(stat -c %Y "$CLAIM" 2>/dev/null || stat -f %m "$CLAIM")
+        (($(date +%s) - m < 1200))
+        return
+    fi
     kill -0 "$p" 2>/dev/null
 }
 # Whether the one-minute load is under the CPU count.
