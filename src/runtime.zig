@@ -3790,14 +3790,17 @@ pub const String = struct {
     /// The value a table's slot starts as (`table.defaultOf`).
     pub const __rig_default: String = .{};
 
-    /// `String(a, b, ...)`: each piece written once (`Spill`), on the
+    /// `String(a, b, ...)`: one block the size of its bytes. When every
+    /// piece is text (a literal, a `?String`, a String), the lengths are
+    /// added, the block allocated, and each piece copied into it once
+    /// (`ofText`). Otherwise each piece is written once (`Spill`), on the
     /// stack while the text fits `of_stack` bytes, then allocated once at
-    /// its length, one block the size of its bytes; longer text moves
-    /// into a heap block that grows as `add` grows one.
+    /// its length; longer text moves into a heap block that grows as
+    /// `add` grows one.
     /// The call is out of line, one function for each tuple of pieces, so
     /// its buffer stays out of the caller's frame.
     pub inline fn of(pieces: anytype) String {
-        return ofPieces(pieces);
+        return if (comptime allText(@TypeOf(pieces))) ofText(pieces) else ofPieces(pieces);
     }
 
     const of_stack = 256;
@@ -3807,6 +3810,51 @@ pub const String = struct {
         var out: Spill = .init(&stack);
         writeArgs(&out.writer, pieces) catch unreachable;
         return out.string();
+    }
+
+    /// Whether every piece of the tuple `P` is text: bytes `writeValue`
+    /// writes as they are, whose length is known before any is written.
+    fn allText(comptime P: type) bool {
+        comptime {
+            const types = @typeInfo(P).@"struct".field_types;
+            for (piecesOf(P)) |p| switch (p) {
+                .text => {},
+                .value => |f| if (!isText(types[f])) return false,
+            };
+            return true;
+        }
+    }
+
+    fn isText(comptime T: type) bool {
+        return isStringView(T) or T == String or isStringPlace(T);
+    }
+
+    /// The bytes of a text piece.
+    inline fn textOf(value: anytype) []const u8 {
+        return if (comptime isStringView(@TypeOf(value))) value else value.list.items;
+    }
+
+    noinline fn ofText(pieces: anytype) String {
+        const plan = comptime piecesOf(@TypeOf(pieces));
+        var n: usize = 0;
+        inline for (plan) |p| n += switch (p) {
+            .text => |t| t.len,
+            .value => |f| textOf(pieces[f]).len,
+        };
+        if (n == 0) return .empty;
+        var t: String = .empty;
+        t.list.items = allocSlice(u8, n);
+        t.list.capacity = n;
+        var end: usize = 0;
+        inline for (plan) |p| {
+            const piece: []const u8 = switch (p) {
+                .text => |x| x,
+                .value => |f| textOf(pieces[f]),
+            };
+            copyFresh(t.list.items[end..][0..piece.len], piece);
+            end += piece.len;
+        }
+        return t;
     }
 
     /// `!t.add(a, b, ...)`: the pieces as `print` takes them (`piecesOf`),
@@ -10490,6 +10538,40 @@ test "String writes values as print does, and compares and frees its bytes" {
     drop(&h);
     u.__rig_drop();
     t.__rig_drop();
+    try expectNoLeaks(before);
+}
+
+test "String of text pieces is one block of their summed length" {
+    const before = usage();
+    var a = String.of(.{ "dir", "/" });
+    const view: []const u8 = "file.ts";
+    // A literal, a view, a String by address and by value, and the same piece twice.
+    var t = String.of(.{ &a, view, ".", a, view });
+    try testing.expectEqualStrings("dir/file.ts.dir/file.ts", t.bytes());
+    try testing.expectEqual(t.list.items.len, t.list.capacity);
+    // Longer than the stack buffer of the other path.
+    const xs: [700]u8 = @splat('x');
+    const long: []const u8 = &xs;
+    var l = String.of(.{ long, &t, long });
+    try testing.expectEqual(@as(Int, 1423), l.length());
+    try testing.expectEqual(l.list.items.len, l.list.capacity);
+    try testing.expect(std.mem.eql(u8, l.bytes()[700..723], t.bytes()));
+    // No bytes: no block.
+    const none: []const u8 = "";
+    var e = String.of(.{ none, none });
+    try testing.expectEqual(@as(usize, 0), e.list.capacity);
+    comptime std.debug.assert(String.allText(@TypeOf(.{ &a, view, "." })));
+    // A number known at compile time is text; one known only at run time is not.
+    var n: i64 = 1;
+    n += 0;
+    const maybe: ?[]const u8 = if (n == 1) view else null;
+    comptime std.debug.assert(String.allText(@TypeOf(.{ view, @as(i64, 1) })));
+    comptime std.debug.assert(!String.allText(@TypeOf(.{ view, n })));
+    comptime std.debug.assert(!String.allText(@TypeOf(.{ view, maybe })));
+    e.__rig_drop();
+    l.__rig_drop();
+    t.__rig_drop();
+    a.__rig_drop();
     try expectNoLeaks(before);
 }
 
