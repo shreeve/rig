@@ -46,7 +46,10 @@ BUDDY=${PUP_SLOT_BUDDYINFO:-/proc/buddyinfo}
 WAIT=${PUP_SLOT_WAIT:-2700}
 mkdir -p "$ST"
 
-blocks() { awk '/Normal/ { print $14 }' "$BUDDY"; }
+# Free 2 MiB blocks, every zone: each order-9 block is one, each order-10
+# block (4 MiB) two. A fresh boot holds nearly all its free memory at
+# order 10, so counting order 9 alone read a few dozen on an empty pup.
+blocks() { awk '{ o9 += $(NF-1); o10 += $NF } END { print o9 + 2 * o10 }' "$BUDDY"; }
 swapmb() { free -m | awk '/Swap/ { print $3 }'; }
 # PIDs of builds: Zig compiles, Rig builds, release-slot wrappers.
 # PUP_SLOT_BUILD_RE and PUP_SLOT_SUITE_RE replace the patterns, for the
