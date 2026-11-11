@@ -474,6 +474,20 @@ none of these ever built:
   makes 3,241 to 3,586 `madvise` calls where it made 12,975 to 13,135,
   968 to 971 `mmap` where it made 1,872 to 1,897, and 1,011 to 1,027
   `munmap` where it made 1,812 to 1,819.
+- A large block under 16 MiB is a span of a 32 MiB segment of its
+  heap, carved from the reservation the small blocks' segments come
+  from, where it was a mapping of its own: taking one, growing one,
+  and freeing one make no `mmap`, `munmap`, or `mremap`. A span freed
+  joins the free spans beside it; one that grows takes the free span
+  after it, or the room after it at its segment's end, and else is
+  copied, where on Linux `mremap` moved its pages; a span freed on
+  another thread goes back to its heap, and a heap with no free span
+  that fits takes one of another heap's whose pages are resident
+  before it takes new pages. A block of 16 MiB or more is a mapping of
+  its own, as before. Forty-eight Lists of 40 to 88 KiB, each grown
+  five times to twice its length and freed, three times over, made 117
+  `mmap`, 182 `munmap`, and 269 `mremap` calls on Linux and 283 `mmap`
+  and 274 `munmap` on the Mac, and make none.
 - A worker that has slept 10 ms gives back what its heap holds free,
   once its heap has taken 4 MiB from the system since it last did:
   the pages of its kept large blocks, and on Linux each 64 KiB class

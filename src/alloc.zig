@@ -1,31 +1,46 @@
-//! Rig's allocator for release builds: a heap per thread, with no lock,
-//! as mimalloc keeps one. A heap hands out small blocks (up to
+//! Rig's allocator for release builds: a heap per thread, as mimalloc
+//! keeps one, whose small blocks take no lock. A heap hands out small
+//! blocks (up to
 //! `max_small` bytes) from free lists, one per size class, which it fills
 //! from pages of its own segments; a block freed on the thread whose heap
 //! made it goes back on that heap's list with no atomic operation, and
 //! one freed on another thread (a task's value that moved to another
 //! core) goes on the owning heap's remote list, with one
 //! compare-and-swap, for the owner to take back when its own list runs
-//! out. Large blocks come from the system, and a heap keeps those freed
-//! for the next request any of them fits, the smallest that does, and
-//! keeps the rest of it apart (`takeKept`), so a list that grows, a
-//! buffer used again, and tables built and dropped again and again do
-//! not map and unmap memory each time; a large block that grows moves
-//! into a kept block that fits, whose pages are resident, before it
-//! takes new ones (`remap`). It keeps them while what it holds
-//! in large blocks, handed out and kept, is no more than its settled
-//! peak, the most it has had handed out just after a free, and
-//! `keep_large` more (`keepBound`). So a growth's moment, the old block
-//! and the new one handed out together, does not raise what it may keep,
-//! and a table that grows does not leave the block it grew from
-//! resident. A heap that does not fault in ahead (`faultsAhead`), as a
-//! server's worker's, keeps only `keep_resident` bytes of them resident
-//! and gives the pages of the rest back to the system, keeping their
-//! addresses for its next (`cold`). Segments are never unmapped:
-//! memory freed stays for reuse. A worker that has slept a while trims
-//! its heap (`trimIdle`): it gives back the pages of its kept large
-//! blocks and, on Linux, each class page whose blocks are all free, and
-//! puts what stays free on its remote lists, where any heap that would
+//! out. A large block under 16 MiB (`span_max`) is a span: a run of
+//! 16 KiB units of one of its heap's span segments, 32 MiB of the
+//! segments' region each, so taking one, growing one, and freeing one
+//! map and unmap nothing. A span freed, on any thread, goes back to its
+//! segment's heap and joins the free spans beside it (`freeSpan`); a
+//! request takes the first units of a free span that fits, the smallest
+//! by bin: one of its own heap's whose pages are resident, else such a
+//! one of another heap's, else one whose pages fault in again, else
+//! units never handed out at the end of its segment (`allocLargeFrom`).
+//! A span that grows takes the free span after it, or is copied into a
+//! free span whose pages are resident, or takes the units after it at
+//! its segment's end, as a List that is its segment's last span does;
+//! else it is copied into a new block (`remap`). Any thread may free,
+//! grow, or take a heap's spans, so they are under the one lock a heap
+//! has (`Spans`), which no system call is made under. A heap keeps its
+//! free spans' pages resident while those spans are no more than its
+//! settled peak, the most it has had handed out in spans just after a
+//! free, less what is handed out now, and `keep_large` more
+//! (`spanBound`): so a growth's moment, the old span and the new one
+//! handed out together, does not raise what it may keep, and tables
+//! built and dropped again and again take their pages from its own.
+//! Past that it gives a free span's pages back to the system and keeps
+//! the span cold, by address (`coolSpans`), and a span freed by a heap
+//! that does not fault in ahead (`faultsAhead`), as a server's
+//! worker's, stays resident only within `keep_resident` bytes. A block
+//! of 16 MiB or more is a mapping of its own: the heap that frees it
+//! keeps it for the next request it fits, and keeps the rest of it
+//! apart (`takeKept`), within the same bound of its own
+//! (`keepBound`), resident or cold as a span is (`cold`), and on Linux
+//! one that grows moves its pages (`mremap`) when no kept block fits.
+//! Segments are never unmapped: memory freed stays for reuse. A worker that has slept a while trims
+//! its heap (`trimIdle`): it gives back the pages of its free spans and
+//! kept large blocks and, on Linux, each class page whose blocks are all
+//! free, and puts what stays free on its remote lists, where any heap that would
 //! otherwise take a new page may take it (`takeDonated`), so the memory
 //! a burst of tasks freed serves the thread that works on. On Linux,
 //! a heap that does much of the program's work, one that has taken from
@@ -45,8 +60,8 @@
 //! compacts there; under `always`, where every range gets huge pages
 //! unasked and asking would make its faults compact, nothing asks for
 //! huge pages, and what should keep small pages (a segment of a heap
-//! that does not fault in ahead, a large block under 16 MiB, a Table's
-//! first 2 MiB) asks for them; under `never` nothing asks, and
+//! that does not fault in ahead, a span segment, a Table's first 2 MiB)
+//! asks for them; under `never` nothing asks, and
 //! /proc/buddyinfo is never read. A reserved Table asks only for a heap
 //! that faults in ahead, waiting for the one that reserved it to come to
 //! (`tableWaits`).
@@ -114,6 +129,7 @@ comptime {
         mapped_spans,
         mapped_count,
         exe_file,
+        span_spare,
     };
 }
 
@@ -191,6 +207,10 @@ fn prefault(h: *const Heap, p: usize, len: usize) void {
 
 /// Test only: the calls `prefault` has made on this thread.
 threadlocal var prefaults_for_test: usize = 0;
+
+/// Test only: the calls this thread has made to map a large block, to
+/// unmap one or a piece of one, and to move one as it grows.
+threadlocal var calls_for_test: struct { mmap: usize = 0, munmap: usize = 0, mremap: usize = 0 } = .{};
 
 /// Whether `h` faults in ahead: it leads the heaps (`leads`), or it has
 /// taken from the system `prefault_big` bytes or more, more than its
@@ -326,15 +346,16 @@ pub const Heap = struct {
     carve_end: [class_count]usize = @splat(0),
     /// The segment pages come from.
     segment: ?*Segment = null,
-    /// Large blocks freed and kept for the next, their pages resident.
+    /// Large blocks that are mappings of their own (`span_max`), freed
+    /// and kept for the next, their pages resident.
     kept: Kept = .{},
     /// Large blocks freed and kept whose pages past the first were given
     /// back to the system (`decommit`): a heap that does not fault in
     /// ahead keeps only `keep_resident` bytes resident.
     cold: Kept = .{},
-    /// The bytes of the large blocks this heap has handed out and not
-    /// had back, and the most they have been just after a free, its
-    /// settled peak (`keepBound`).
+    /// The bytes of the large blocks this heap has handed out as
+    /// mappings of their own and not had back, and the most they have
+    /// been just after a free, its settled peak (`keepBound`).
     large_live: usize = 0,
     large_peak: usize = 0,
     /// What this thread counted and has not yet added to the program's
@@ -344,9 +365,10 @@ pub const Heap = struct {
     next_free: ?*Heap = null,
     /// In a safe build, the thread that owns it (`threadToken`).
     owner: usize = 0,
-    /// The bytes this heap has taken from the system: its segments, and
-    /// the large blocks it mapped and the growth it moved them by, never
-    /// less for those given back (`leads`).
+    /// The bytes this heap has taken from the system: its segments, the
+    /// spans it carved and the units they grew by at a segment's end,
+    /// and the large blocks it mapped and the growth it moved them by,
+    /// never less for those given back (`leads`).
     taken: usize = 0,
     /// Whether Tables this heap reserved wait for it to fault in ahead
     /// before they ask for huge pages (`tableWaits`).
@@ -363,6 +385,9 @@ pub const Heap = struct {
     donor: std.atomic.Value(bool) = .init(false),
     /// The heap made before it (`all_heaps`).
     all_next: ?*Heap = null,
+    /// Its large blocks under `span_max` bytes: its span segments' free
+    /// spans, which other threads free into and take from (`Spans`).
+    spans: Spans = .{},
 
     /// `n` more bytes taken from the system.
     fn took(h: *Heap, n: usize) void {
@@ -518,7 +543,8 @@ pub const Heap = struct {
 /// tasks and then sleeps, while another thread does the program's work,
 /// would stay resident for nothing. It takes back the blocks other
 /// threads freed into it (`Heap.remote`), gives back the pages of its
-/// kept large blocks (`decommit`), keeping them cold, by address, and on
+/// free spans and kept large blocks (`decommit`), keeping them cold, by
+/// address, and on
 /// Linux gives back each 64 KiB page of a class whose every block is on
 /// its free list (`MADV_DONTNEED`), for `newPage` to hand out again,
 /// zeroed, to any class. Gives the bytes given back.
@@ -565,6 +591,7 @@ fn trimHeap(h: *Heap) usize {
         keepPiece(&h.cold, p, len);
         given += len - std.heap.pageSize();
     }
+    given += coolSpans(h, true);
     // A big heap's free lists hold millions of blocks, cold, and its
     // worker comes back to work only once the trim is done: it walks
     // each list once, to count its blocks per page on Linux and to find
@@ -811,20 +838,41 @@ fn allocLarge(h: *Heap, len: usize) ?[*]u8 {
     return allocLargeFrom(h, len, null);
 }
 
-/// `allocLarge`, and whether the block was mapped afresh, so all zero.
-/// One kept, or kept cold, holds old bytes in at least its first page.
+/// `allocLarge`, and whether the block was mapped afresh, or is a span
+/// of units never handed out, so all zero. A free span taken again, or
+/// a block kept, resident or cold, holds old bytes in at least its
+/// first page.
 inline fn allocLargeFrom(h: *Heap, len: usize, mapped: ?*bool) ?[*]u8 {
     mustOwn(h);
     const size = largeSize(len);
+    // A block under `span_max` is a span: a free one of this heap's whose
+    // pages are resident, else such a one of another heap's, else one of
+    // this heap's whose pages fault in again, else a new one.
+    const n = if (size < span_max) spanUnits(size) else 0;
+    if (n != 0) if (takeSpan(h, false, n)) |p| return @ptrFromInt(p);
     if (takeKept(&h.kept, size)) |p| {
         lent(h, size);
         return p;
+    }
+    if (n != 0) {
+        if (stealSpan(h, n)) |p| return @ptrFromInt(p);
+        if (takeSpan(h, true, n)) |p| {
+            recommit(p, n * span_unit);
+            return @ptrFromInt(p);
+        }
     }
     if (takeKept(&h.cold, size)) |p| {
         recommit(@intFromPtr(p), size);
         lent(h, size);
         return p;
     }
+    if (n != 0) if (carveSpan(h, n)) |p| {
+        if (mapped) |f| f.* = true;
+        h.took(n * span_unit);
+        _ = coolSpans(h, false);
+        prefault(h, p, likelyFilled(size - size / 4));
+        return @ptrFromInt(p);
+    };
     const got = mapLarge(size) orelse return null;
     if (mapped) |f| f.* = true;
     if (size >= huge_large) _ = ask(got, size, .huge) else if (size >= huge_page) _ = ask(got, size, .small);
@@ -863,6 +911,7 @@ fn mapLarge(size: usize) ?usize {
 }
 
 fn mapPages(size: usize) ?usize {
+    if (builtin.is_test) calls_for_test.mmap += 1;
     const got = std.posix.mmap(null, size, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0) catch return null;
     return @intFromPtr(got.ptr);
 }
@@ -1386,12 +1435,14 @@ fn trimFrom(h: *Heap, k: *Kept) void {
 }
 
 fn unmapLarge(p: usize, len: usize) void {
+    if (builtin.is_test) calls_for_test.munmap += 1;
     std.posix.munmap(@as([*]align(std.heap.page_size_min) u8, @ptrFromInt(p))[0..len]);
 }
 
 fn freeLarge(h: *Heap, p: [*]u8, len: usize) void {
     mustOwn(h);
     const size = largeSize(len);
+    if (isSpan(@intFromPtr(p))) return freeSpan(h, @intFromPtr(p), size);
     // A block another heap handed out, freed here, counts against this
     // heap's bound as a new one would. What stays handed out after the
     // free is the settled peak's measure.
@@ -1403,6 +1454,407 @@ fn freeLarge(h: *Heap, p: [*]u8, len: usize) void {
     if (faultsAhead(h) or h.kept.bytes + size <= keep_resident) return keepPiece(&h.kept, @intFromPtr(p), size);
     decommit(@intFromPtr(p), size);
     keepPiece(&h.cold, @intFromPtr(p), size);
+}
+
+// -----------------------------------------------------------------------------
+// Spans
+// -----------------------------------------------------------------------------
+
+/// A large block under this many bytes is a span of its heap's span
+/// segment, wherever the segments' region has room; one of this many or
+/// more is a mapping of its own (`mapLarge`).
+const span_max: usize = huge_large;
+
+/// A span segment: `span_segment_size` bytes of the segments' region,
+/// aligned to their size, so a span's segment is its address rounded
+/// down. Its first `page_size` bytes hold its header, and the rest is
+/// handed out in runs of `span_unit` bytes, which every large size from
+/// 64 KiB is a multiple of; the two below it, 40 and 56 KiB where a
+/// system page is 4 KiB, take 48 and 64.
+const span_segment_size: usize = 32 << 20;
+const span_unit: usize = 16 << 10;
+const span_units = span_segment_size / span_unit;
+/// The units of a segment's header.
+const span_first = page_size / span_unit;
+
+/// A span segment's header. Every field is read and written under its
+/// heap's `Spans.lock`, but `heap`, which never changes.
+const SpanSegment = struct {
+    /// The heap that made the segment, which keeps its free spans.
+    heap: *Heap,
+    /// The units handed out so far, the header's among them: those past
+    /// them were never written, so they read zero.
+    used: usize,
+    /// For each span below `used`, handed out or free, at its first unit
+    /// and at its last: how many units it is long, and for a free one
+    /// `tag_free`, with `tag_cold` when its pages are with the system.
+    /// So a span freed finds the spans beside it, and joins those free
+    /// as it is.
+    tags: [span_units]u16,
+};
+
+const tag_free: u16 = 1 << 15;
+const tag_cold: u16 = 1 << 14;
+const tag_len: u16 = tag_cold - 1;
+
+comptime {
+    std.debug.assert(@sizeOf(SpanSegment) <= page_size);
+    std.debug.assert(span_units <= tag_len);
+    std.debug.assert(page_size % span_unit == 0);
+}
+
+/// A free span, in a list of its bin: its links at its start.
+const SpanFree = struct { next: ?*SpanFree, prev: ?*SpanFree };
+
+/// Free spans by length: a bin for each of 1 to 7 units, then four per
+/// doubling, each span at least its bin's length; which bins hold any, a
+/// bit each, which a heap that looks for a span to take reads before it
+/// takes the lock; and how many bytes they hold.
+const SpanBins = struct {
+    list: [span_bins]?*SpanFree = @splat(null),
+    held: std.atomic.Value(u64) = .init(0),
+    bytes: usize = 0,
+};
+const span_bins = 40;
+
+/// A heap's spans. A span may be freed, grown, or taken by a thread
+/// other than its heap's, so all of this is read and written under
+/// `lock`, which no system call is made under.
+const Spans = struct {
+    lock: SpinLock = .{},
+    /// The segment new spans are carved from.
+    segment: ?*SpanSegment = null,
+    /// Its free spans whose pages are resident, and those whose pages
+    /// were given back to the system (`decommit`) or never touched.
+    warm: SpanBins = .{},
+    cold: SpanBins = .{},
+    /// The bytes of its spans handed out, and the most they have been
+    /// just after a free (`spanBound`).
+    live: usize = 0,
+    peak: usize = 0,
+};
+
+/// The bin of a span of `n` units: the highest whose length is `n` or
+/// less.
+fn spanBin(n: usize) usize {
+    if (n < 8) return n - 1;
+    const log: usize = std.math.log2_int(usize, n);
+    return 7 + (log - 3) * 4 + ((n - (@as(usize, 1) << @intCast(log))) >> @intCast(log - 2));
+}
+
+comptime {
+    std.debug.assert(spanBin(span_units) < span_bins);
+}
+
+/// The units a large block of `size` bytes takes.
+inline fn spanUnits(size: usize) usize {
+    return (size + span_unit - 1) / span_unit;
+}
+
+/// Whether `p`, a large block, is a span: it lies in the segments'
+/// region, where no mapping of its own does.
+inline fn isSpan(p: usize) bool {
+    const end = region_end.*;
+    return p < end and p >= end - region_size;
+}
+
+inline fn spanSegmentOf(p: usize) *SpanSegment {
+    return @ptrFromInt(p & ~(span_segment_size - 1));
+}
+
+inline fn spanIndex(seg: *const SpanSegment, p: usize) usize {
+    return (p - @intFromPtr(seg)) / span_unit;
+}
+
+inline fn spanAt(seg: *const SpanSegment, s: usize) usize {
+    return @intFromPtr(seg) + s * span_unit;
+}
+
+/// The most bytes of free spans a heap keeps warm: as `keepBound`, of
+/// its spans.
+fn spanBound(sp: *const Spans) usize {
+    return (sp.peak -| sp.live) + keep_large;
+}
+
+/// Put the free span of `n` units at `s` of `seg` in its bin, warm or
+/// cold. Under the lock.
+fn linkSpan(sp: *Spans, seg: *SpanSegment, s: usize, n: usize, cold: bool) void {
+    const tag = @as(u16, @intCast(n)) | tag_free | (if (cold) tag_cold else 0);
+    seg.tags[s] = tag;
+    seg.tags[s + n - 1] = tag;
+    const bins = if (cold) &sp.cold else &sp.warm;
+    const b = spanBin(n);
+    const f: *SpanFree = @ptrFromInt(spanAt(seg, s));
+    f.* = .{ .next = bins.list[b], .prev = null };
+    if (bins.list[b]) |head| head.prev = f;
+    bins.list[b] = f;
+    bins.held.store(bins.held.raw | @as(u64, 1) << @intCast(b), .monotonic);
+    bins.bytes += n * span_unit;
+}
+
+/// Take the free span at `s` of `seg` out of its bin, and give its
+/// length; its tags are the caller's to write. Under the lock.
+fn unlinkSpan(sp: *Spans, seg: *SpanSegment, s: usize) usize {
+    const tag = seg.tags[s];
+    const n: usize = tag & tag_len;
+    const bins = if (tag & tag_cold != 0) &sp.cold else &sp.warm;
+    const b = spanBin(n);
+    const f: *SpanFree = @ptrFromInt(spanAt(seg, s));
+    if (f.prev) |p| p.next = f.next else bins.list[b] = f.next;
+    if (f.next) |x| x.prev = f.prev;
+    if (bins.list[b] == null) bins.held.store(bins.held.raw & ~(@as(u64, 1) << @intCast(b)), .monotonic);
+    bins.bytes -= n * span_unit;
+    return n;
+}
+
+/// The span of `n` units at `s` of `seg` is free, warm or cold: joined
+/// with the free span on each side that is as it is, and put in its bin.
+/// Warm and cold spans stay apart, so the bytes each bin holds are all
+/// resident or all given back. Under the lock.
+fn putSpan(sp: *Spans, seg: *SpanSegment, at: usize, len: usize, cold: bool) void {
+    var s = at;
+    var n = len;
+    const mark = tag_free | (if (cold) tag_cold else 0);
+    if (s + n < seg.used and seg.tags[s + n] & ~tag_len == mark) n += unlinkSpan(sp, seg, s + n);
+    if (s > span_first and seg.tags[s - 1] & ~tag_len == mark) {
+        const m: usize = seg.tags[s - 1] & tag_len;
+        _ = unlinkSpan(sp, seg, s - m);
+        s -= m;
+        n += m;
+    }
+    linkSpan(sp, seg, s, n, cold);
+}
+
+/// The span of `n` units at `s` of `seg` is handed out. Under the lock.
+fn lendSpan(seg: *SpanSegment, s: usize, n: usize) void {
+    seg.tags[s] = @intCast(n);
+    seg.tags[s + n - 1] = @intCast(n);
+}
+
+/// The first free span of `bins` at least `n` units long, from the
+/// lowest bin that holds one: best fit by bin. Under the lock.
+fn findSpan(bins: *const SpanBins, n: usize) ?usize {
+    var bits = bins.held.raw & (~@as(u64, 0) << @intCast(spanBin(n)));
+    while (bits != 0) : (bits &= bits - 1) {
+        var it = bins.list[@ctz(bits)];
+        while (it) |f| : (it = f.next) {
+            const p = @intFromPtr(f);
+            const seg = spanSegmentOf(p);
+            if (seg.tags[spanIndex(seg, p)] & tag_len >= n) return p;
+        }
+    }
+    return null;
+}
+
+/// A span of `n` units from `o`'s free ones, warm or cold, for the
+/// running thread, which need not be `o`'s: its first units, and the
+/// rest stays free. Null when `o` has none that long.
+fn takeSpan(o: *Heap, cold: bool, n: usize) ?usize {
+    const sp = &o.spans;
+    const bins = if (cold) &sp.cold else &sp.warm;
+    if (bins.held.load(.monotonic) >> @intCast(spanBin(n)) == 0) return null;
+    sp.lock.lock();
+    defer sp.lock.unlock();
+    const p = findSpan(bins, n) orelse return null;
+    const seg = spanSegmentOf(p);
+    const s = spanIndex(seg, p);
+    const len = unlinkSpan(sp, seg, s);
+    if (len > n) linkSpan(sp, seg, s + n, len - n, cold);
+    lendSpan(seg, s, n);
+    sp.live += n * span_unit;
+    return p;
+}
+
+/// A warm span of `n` units from another heap, one its thread freed or
+/// was given back and has not taken again: its pages are resident, where
+/// a cold span's or a new one's would fault in. It stays its heap's,
+/// which takes it back when it is freed.
+fn stealSpan(h: *Heap, n: usize) ?usize {
+    if (builtin.is_test and !steals_for_test) return null;
+    var it = all_heaps.load(.acquire);
+    while (it) |d| : (it = d.all_next) {
+        if (d == h) continue;
+        if (takeSpan(d, false, n)) |p| return p;
+    }
+    return null;
+}
+
+/// Test only: whether this thread's heap takes other heaps' spans, which
+/// a test of what one heap does leaves off.
+threadlocal var steals_for_test: bool = false;
+
+/// A span of `n` units never handed out before, so all zero, from the
+/// end of `h`'s span segment or, when that has no room, of a new one,
+/// the old one's rest then a free span. Null when the region has no
+/// room for a segment.
+fn carveSpan(h: *Heap, n: usize) ?usize {
+    mustOwn(h);
+    const sp = &h.spans;
+    sp.lock.lock();
+    if (sp.segment) |seg| if (seg.used + n <= span_units) {
+        const s = seg.used;
+        seg.used += n;
+        lendSpan(seg, s, n);
+        sp.live += n * span_unit;
+        sp.lock.unlock();
+        _ = span_spare.fetchSub(n * span_unit, .monotonic);
+        return spanAt(seg, s);
+    };
+    sp.lock.unlock();
+    const seg = mapSpanSegment() orelse return null;
+    // Small pages, as a large block under `huge_large` keeps: a huge
+    // page would commit 2 MiB of a List's room it has not filled.
+    _ = ask(@intFromPtr(seg), span_segment_size, .small);
+    seg.heap = h;
+    seg.used = span_first + n;
+    lendSpan(seg, span_first, n);
+    _ = span_spare.fetchSub(page_size + n * span_unit, .monotonic);
+    sp.lock.lock();
+    if (sp.segment) |old| if (old.used < span_units) {
+        const s = old.used;
+        old.used = span_units;
+        putSpan(sp, old, s, span_units - s, true);
+    };
+    sp.segment = seg;
+    sp.live += n * span_unit;
+    sp.lock.unlock();
+    return spanAt(seg, span_first);
+}
+
+/// A span segment from the region, or null when it has no room for one
+/// (`mapSegment`): what lies before it, up to its alignment, is left.
+fn mapSpanSegment() ?*SpanSegment {
+    if (region_next.load(.acquire) == 0) reserveRegion();
+    var at = region_next.load(.monotonic);
+    while (at > 1) {
+        const start = std.mem.alignForward(usize, at, span_segment_size);
+        if (start + span_segment_size > region_end.*) return null;
+        at = region_next.cmpxchgWeak(at, start + span_segment_size, .monotonic, .monotonic) orelse {
+            _ = span_spare.fetchAdd(start + span_segment_size - at, .monotonic);
+            return @ptrFromInt(start);
+        };
+    }
+    return null;
+}
+
+/// The bytes of the region below its next segment that span segments
+/// took and no span has been carved from (`exitWork`).
+var span_spare_var: std.atomic.Value(usize) = .init(0);
+const span_spare = split.cell(&span_spare_var, "alloc.span_spare");
+
+/// Give back the span of `size` bytes at `p`, on any thread, to the heap
+/// whose segment holds it: warm while that heap's warm spans stay within
+/// its bound (`spanBound`) and, when the running thread's heap `h` does
+/// not fault in ahead, within `keep_resident`; else cold, its pages given
+/// back to the system first (`decommit`), while it still reads as handed
+/// out, so no thread takes it meanwhile.
+fn freeSpan(h: *const Heap, p: usize, size: usize) void {
+    const seg = spanSegmentOf(p);
+    const sp = &seg.heap.spans;
+    const s = spanIndex(seg, p);
+    const n = spanUnits(size);
+    const bytes = n * span_unit;
+    const busy = faultsAhead(h);
+    sp.lock.lock();
+    if (check_owner and seg.tags[s] != n) {
+        sp.lock.unlock();
+        spanLost();
+    }
+    sp.live -|= bytes;
+    sp.peak = @max(sp.peak, sp.live);
+    const after = sp.warm.bytes + bytes;
+    if (after <= spanBound(sp) and (busy or after <= keep_resident)) {
+        putSpan(sp, seg, s, n, false);
+        sp.lock.unlock();
+        return;
+    }
+    sp.lock.unlock();
+    decommit(p, bytes);
+    sp.lock.lock();
+    putSpan(sp, seg, s, n, true);
+    sp.lock.unlock();
+}
+
+fn spanLost() void {
+    @branchHint(.cold);
+    @panic("rig: a large block freed twice, or with another length");
+}
+
+/// Grow the span of `old_size` bytes at `p` to `new_size` where it lies:
+/// into the free span after it, and with `fresh` into one whose pages
+/// are not resident and then into the end of its segment that no span
+/// has been carved from, as a List that is its segment's last span
+/// finds. False when they are too short.
+fn growSpan(h: *Heap, p: usize, old_size: usize, new_size: usize, fresh: bool) bool {
+    const seg = spanSegmentOf(p);
+    const sp = &seg.heap.spans;
+    const s = spanIndex(seg, p);
+    const n = spanUnits(old_size);
+    const extra = spanUnits(new_size) - n;
+    if (extra == 0) return true;
+    const next = s + n;
+    sp.lock.lock();
+    const tag = if (next < seg.used) seg.tags[next] else 0;
+    const after: usize = if (tag & tag_free != 0) tag & tag_len else 0;
+    const rest = if (next + after == seg.used) span_units - seg.used else 0;
+    const cold = tag & tag_cold != 0;
+    if (if (fresh) after + rest < extra else cold or after < extra) {
+        sp.lock.unlock();
+        return false;
+    }
+    if (after != 0) {
+        _ = unlinkSpan(sp, seg, next);
+        if (after > extra) linkSpan(sp, seg, next + extra, after - extra, cold);
+    }
+    const carved = extra -| after;
+    seg.used += carved;
+    lendSpan(seg, s, n + extra);
+    sp.live += extra * span_unit;
+    sp.lock.unlock();
+    if (cold) recommit(spanAt(seg, next), @min(after, extra) * span_unit);
+    if (carved != 0) {
+        // Of the new pages, those a List is likely to fill are faulted
+        // in at once.
+        const bytes = carved * span_unit;
+        _ = span_spare.fetchSub(bytes, .monotonic);
+        h.took(bytes);
+        _ = coolSpans(seg.heap, false);
+        prefault(h, spanAt(seg, next + after), likelyFilled(bytes / 2));
+    }
+    return true;
+}
+
+/// Give back to the system the pages of `o`'s warm free spans, all of
+/// them or those past its bound (`spanBound`), which new pages taken for
+/// a span no free one fitted may leave it past: of those past the bound,
+/// the smallest span that alone brings it within, or else the largest,
+/// and again, so it keeps its largest warm. Each is taken from its bin
+/// and reads as handed out while its pages are given back, then is put
+/// back cold. Gives the bytes given back.
+fn coolSpans(o: *Heap, all: bool) usize {
+    const sp = &o.spans;
+    var given: usize = 0;
+    while (true) {
+        if (sp.warm.held.load(.monotonic) == 0) return given;
+        sp.lock.lock();
+        const bound = if (all) 0 else spanBound(sp);
+        const p = if (sp.warm.bytes <= bound) null else findSpan(&sp.warm, @min(spanUnits(sp.warm.bytes - bound), span_units)) orelse
+            @intFromPtr(sp.warm.list[63 - @clz(sp.warm.held.raw)].?);
+        const at = p orelse {
+            sp.lock.unlock();
+            return given;
+        };
+        const seg = spanSegmentOf(at);
+        const s = spanIndex(seg, at);
+        const n = unlinkSpan(sp, seg, s);
+        lendSpan(seg, s, n);
+        sp.lock.unlock();
+        decommit(at, n * span_unit);
+        sp.lock.lock();
+        putSpan(sp, seg, s, n, true);
+        sp.lock.unlock();
+        given += n * span_unit - @min(n * span_unit, std.heap.pageSize());
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -1911,7 +2363,7 @@ pub fn exitRanges(out: *[exit_ranges_max]Range) struct { ranges: []Range, dense:
 pub fn exitWork(span: usize) struct { page_tables: usize, segment_mib: usize } {
     const next = region_next.load(.monotonic);
     const end = @atomicLoad(usize, region_end, .monotonic);
-    const used = if (end != 0 and next > end - region_size) next - (end - region_size) else 0;
+    const used = if (end != 0 and next > end - region_size) next - (end - region_size) -| span_spare.load(.monotonic) else 0;
     return .{ .page_tables = table_live.load(.monotonic) + used / span, .segment_mib = used >> 20 };
 }
 
@@ -2459,12 +2911,13 @@ fn releaseMapped(memory: []u8) bool {
     return false;
 }
 
-/// A large block grown to `new_len`: copied into a kept block that fits,
-/// which then keeps the old one in turn, since a kept block's pages are
-/// resident and copying into them costs less than faulting in fresh
-/// ones; else, on Linux and from `move_large`, grown by moving its pages
-/// (`mremap`). Anything else, or a block that shrinks, is left to the
-/// caller, which copies it into a new block.
+/// A large block grown to `new_len`. A span grows where it lies or is
+/// copied (below). A mapping of its own is copied into a kept block
+/// that fits, which then keeps the old one in turn, since a kept
+/// block's pages are resident and copying into them costs less than
+/// faulting in fresh ones; else, on Linux and from `move_large`, it
+/// grows by moving its pages (`mremap`). Anything else, or a block that
+/// shrinks, is left to the caller, which copies it into a new block.
 fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize) ?[*]u8 {
     // A mapped run is not this heap's: the caller copies it into a new
     // block and frees it (`mapRun`).
@@ -2475,6 +2928,28 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
     const h = heap() orelse return null;
     const old_size = largeSize(memory.len);
     const new_size = largeSize(new_len);
+    if (isSpan(@intFromPtr(memory.ptr))) {
+        // A span grows where it lies into a free span whose pages are
+        // resident; else it is copied into such a span of its heap's,
+        // which costs less than faulting in new pages; else it grows
+        // where it lies into pages that fault in; else it is copied
+        // into a new block.
+        const at = @intFromPtr(memory.ptr);
+        const p: [*]u8 = blk: {
+            if (new_size < span_max) {
+                if (growSpan(h, at, old_size, new_size, false)) break :blk memory.ptr;
+                if (takeSpan(h, false, spanUnits(new_size))) |q| break :blk @ptrFromInt(q);
+                if (growSpan(h, at, old_size, new_size, true)) break :blk memory.ptr;
+            }
+            break :blk allocLarge(h, new_len) orelse return null;
+        };
+        if (p != memory.ptr) {
+            @memcpy(p[0..memory.len], memory);
+            freeSpan(h, at, old_size);
+        }
+        if (counts) h.count(@intCast(new_size - old_size), 0);
+        return p;
+    }
     if (takeKept(&h.kept, new_size)) |p| {
         lent(h, new_size);
         @memcpy(p[0..memory.len], memory);
@@ -2486,6 +2961,7 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
     const linux = std.os.linux;
     // A block grown to `huge_large` moves to pages aligned for huge ones.
     const to = if (new_size >= huge_large) mapLarge(new_size) orelse return null else 0;
+    if (builtin.is_test) calls_for_test.mremap += 1;
     const rc = linux.mremap(@alignCast(memory.ptr), old_size, new_size, .{ .MAYMOVE = true, .FIXED = to != 0 }, if (to != 0) @ptrFromInt(to) else null);
     if (@as(isize, @bitCast(rc)) < 0 and @as(isize, @bitCast(rc)) > -4096) {
         if (to != 0) unmapLarge(to, new_size);
@@ -2766,6 +3242,7 @@ fn testHeap() Heap {
 
 test "a freed large block serves a smaller request and keeps the rest, and a table dropped and built again takes no new pages" {
     var h = testHeap();
+    h.taken = prefault_big;
     const mib: usize = 1 << 20;
     // A 4 MiB block freed serves two of 2 MiB, head then rest.
     const big = allocLarge(&h, 4 * mib).?;
@@ -2774,8 +3251,6 @@ test "a freed large block serves a smaller request and keeps the rest, and a tab
     const b = allocLarge(&h, 2 * mib).?;
     try std.testing.expectEqual(big, a);
     try std.testing.expectEqual(@intFromPtr(big) + 2 * mib, @intFromPtr(b));
-    freeLarge(&h, a, 2 * mib);
-    freeLarge(&h, b, 2 * mib);
     // 64 blocks of 512 KiB, 32 MiB, more than `keep_large`: built a
     // second time, they take no new pages.
     var blocks: [64][*]u8 = undefined;
@@ -2785,16 +3260,32 @@ test "a freed large block serves a smaller request and keeps the rest, and a tab
     for (&blocks) |*p| p.* = allocLarge(&h, 512 << 10).?;
     try std.testing.expectEqual(taken, h.taken);
     for (blocks) |p| freeLarge(&h, p, 512 << 10);
-    // What it holds stays within the most it handed out, and
+    // What it keeps warm stays within the most it handed out, and
     // `keep_large`.
-    try std.testing.expect(heldLarge(&h) + h.large_live <= h.large_peak + keep_large);
-    // A block larger than any kept takes new pages, past the settled
-    // peak, and gives back kept ones past the bound: no more than
-    // `keep_large` stay.
+    try std.testing.expect(h.spans.warm.bytes + h.spans.live <= h.spans.peak + keep_large);
+    // Taken again, and three of each four freed: 24 MiB of free spans
+    // of 1.5 MiB. Twenty blocks of 1.75 MiB, which none of them fits,
+    // take new pages, past the settled peak, and the pages of warm spans
+    // past the bound go back to the system: no more than `keep_large`
+    // stay warm.
+    for (&blocks) |*p| p.* = allocLarge(&h, 512 << 10).?;
+    for (blocks, 0..) |p, i| if (i % 4 != 0) freeLarge(&h, p, 512 << 10);
+    try std.testing.expectEqual(24 * mib, h.spans.warm.bytes);
+    var more: [20][*]u8 = undefined;
+    for (&more) |*p| p.* = allocLarge(&h, 7 * mib / 4).?;
+    try std.testing.expect(h.taken > taken + 30 * mib);
+    try std.testing.expect(h.spans.warm.bytes <= spanBound(&h.spans));
+    try std.testing.expect(h.spans.warm.bytes <= keep_large);
+    for (more) |p| freeLarge(&h, p, 7 * mib / 4);
+    for (blocks, 0..) |p, i| if (i % 4 == 0) freeLarge(&h, p, 512 << 10);
+    freeLarge(&h, a, 2 * mib);
+    freeLarge(&h, b, 2 * mib);
+    // A block of `span_max` or more is a mapping of its own, kept
+    // within its own bound.
     const huge = allocLarge(&h, 64 * mib).?;
-    try std.testing.expect(heldLarge(&h) <= keepBound(&h));
-    try std.testing.expect(heldLarge(&h) <= keep_large);
+    try std.testing.expect(!isSpan(@intFromPtr(huge)));
     freeLarge(&h, huge, 64 * mib);
+    try std.testing.expect(heldLarge(&h) <= keepBound(&h));
     trimAllForTest(&h);
 }
 
@@ -2811,6 +3302,7 @@ test "a block grown as a List grows it, to past `keep_large`, keeps no more than
         freeLarge(&h, p, len);
         p = q;
         try std.testing.expect(heldLarge(&h) <= keep_large);
+        try std.testing.expect(h.spans.warm.bytes <= keep_large);
     }
     // Dropped, the last block is kept: it is what the heap held at its
     // settled peak.
@@ -2857,8 +3349,9 @@ test "a heap that does not fault in ahead keeps `keep_resident` bytes of the lar
     }
     const taken = h.taken;
     for (blocks) |p| freeLarge(&h, p, 64 << 10);
-    try std.testing.expect(h.kept.bytes <= keep_resident);
-    try std.testing.expectEqual(@as(usize, 2 << 20), h.kept.bytes + h.cold.bytes);
+    try std.testing.expect(h.spans.warm.bytes <= keep_resident);
+    try std.testing.expect(h.spans.warm.bytes > 0);
+    try std.testing.expectEqual(@as(usize, 2 << 20), h.spans.warm.bytes + h.spans.cold.bytes);
     // Taken again, the cold blocks serve them: no new pages, and each
     // block can be written whole.
     for (&blocks) |*p| {
@@ -2866,7 +3359,7 @@ test "a heap that does not fault in ahead keeps `keep_resident` bytes of the lar
         @memset(p.*[0 .. 64 << 10], 2);
     }
     try std.testing.expectEqual(taken, h.taken);
-    try std.testing.expectEqual(@as(usize, 0), heldLarge(&h));
+    try std.testing.expectEqual(@as(usize, 0), h.spans.warm.bytes + h.spans.cold.bytes);
     for (blocks) |p| freeLarge(&h, p, 64 << 10);
     trimAllForTest(&h);
     // A heap that faults in ahead keeps every block resident.
@@ -2874,8 +3367,8 @@ test "a heap that does not fault in ahead keeps `keep_resident` bytes of the lar
     busy.taken = prefault_big;
     for (&blocks) |*p| p.* = allocLarge(&busy, 64 << 10).?;
     for (blocks) |p| freeLarge(&busy, p, 64 << 10);
-    try std.testing.expectEqual(@as(usize, 2 << 20), busy.kept.bytes);
-    try std.testing.expectEqual(@as(usize, 0), busy.cold.bytes);
+    try std.testing.expectEqual(@as(usize, 2 << 20), busy.spans.warm.bytes);
+    try std.testing.expectEqual(@as(usize, 0), busy.spans.cold.bytes);
     trimAllForTest(&busy);
 }
 
@@ -2929,21 +3422,205 @@ test "a large block grows into a kept block that fits, which keeps the old one, 
     trimAllForTest(h);
 }
 
-test "on Linux a large block from 64 KiB that no kept block fits grows by moving its pages" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+test "a span grows where it lies: into the free span after it, at its segment's end into pages never handed out, and else by a copy" {
     const a = allocator;
     const h = heap().?;
     trimAllForTest(h);
-    const m = try a.alloc(u8, 64 << 10);
-    @memset(m, 9);
-    const taken = h.taken;
-    const g = a.remap(m, 128 << 10).?;
-    try std.testing.expectEqual(@as(u8, 9), g[(64 << 10) - 1]);
-    // Only the growth is new; the block it grew from is not kept.
-    try std.testing.expectEqual(taken + largeSize(128 << 10) - largeSize(64 << 10), h.taken);
-    try std.testing.expectEqual(@as(usize, 0), heldLarge(h));
-    a.free(g);
+    const kib: usize = 1 << 10;
+    // Three spans, the segment's first: the second freed, the first
+    // grows into it and takes no new pages.
+    const x = try a.alloc(u8, 64 * kib);
+    const y = try a.alloc(u8, 128 * kib);
+    const z = try a.alloc(u8, 64 * kib);
+    @memset(x, 9);
+    @memset(z, 5);
+    a.free(y);
+    var taken = h.taken;
+    const x2 = a.remap(x, 128 * kib).?;
+    try std.testing.expectEqual(x.ptr, x2.ptr);
+    try std.testing.expectEqual(taken, h.taken);
+    // What it left of the free span serves the next.
+    const w = try a.alloc(u8, 64 * kib);
+    try std.testing.expectEqual(@intFromPtr(x.ptr) + 128 * kib, @intFromPtr(w.ptr));
+    // The last span grows at the segment's end: only the growth is new.
+    taken = h.taken;
+    const z2 = a.remap(z, 512 * kib).?;
+    try std.testing.expectEqual(z.ptr, z2.ptr);
+    try std.testing.expectEqual(taken + 448 * kib, h.taken);
+    try std.testing.expectEqual(@as(u8, 5), z2[64 * kib - 1]);
+    // A span with one handed out after it is copied, and stays free for
+    // the next that fits.
+    const x3 = a.remap(x2, 256 * kib).?;
+    try std.testing.expect(x3.ptr != x2.ptr);
+    try std.testing.expectEqual(@as(u8, 9), x3[0]);
+    try std.testing.expectEqual(@as(u8, 9), x3[64 * kib - 1]);
+    // A span grown to `span_max` is copied into a mapping of its own.
+    @memset(x3, 3);
+    const big = a.remap(x3, span_max).?;
+    try std.testing.expect(!isSpan(@intFromPtr(big.ptr)));
+    try std.testing.expectEqual(@as(u8, 3), big[256 * kib - 1]);
+    a.free(big);
+    a.free(w);
+    a.free(z2);
     trimAllForTest(h);
+}
+
+test "spans freed join the free spans beside them, in any order, and one freed on another thread goes back to its heap" {
+    var h = testHeap();
+    h.taken = prefault_big;
+    const kib: usize = 1 << 10;
+    var b: [4][*]u8 = undefined;
+    for (&b) |*p| p.* = allocLarge(&h, 256 * kib).?;
+    const taken = h.taken;
+    // The first and the third, then the second between them, freed by a
+    // thread with a heap of its own.
+    freeLarge(&h, b[0], 256 * kib);
+    freeLarge(&h, b[2], 256 * kib);
+    const T = struct {
+        fn run(p: [*]u8) void {
+            freeLarge(heap().?, p, 256 << 10);
+            threadExit();
+        }
+    };
+    (try std.Thread.spawn(.{}, T.run, .{b[1]})).join();
+    try std.testing.expectEqual(768 * kib, h.spans.warm.bytes);
+    try std.testing.expectEqual(256 * kib, h.spans.live);
+    // One span of all three serves a block of their length.
+    const all = allocLarge(&h, 768 * kib).?;
+    try std.testing.expectEqual(b[0], all);
+    try std.testing.expectEqual(taken, h.taken);
+    try std.testing.expectEqual(@as(usize, 0), h.spans.warm.bytes);
+    freeLarge(&h, all, 768 * kib);
+    freeLarge(&h, b[3], 256 * kib);
+    try std.testing.expectEqual(@as(usize, 1 << 20), h.spans.warm.bytes);
+    trimAllForTest(&h);
+}
+
+test "a heap with no free span that fits takes a warm one of another heap's, which stays that heap's" {
+    const a = allocator;
+    const h = heap().?;
+    trimAllForTest(h);
+    // A thread takes a span, writes it, and frees it: its heap keeps it
+    // warm.
+    const T = struct {
+        fn run(at: *[*]u8) void {
+            const p = allocator.alloc(u8, 1 << 20) catch unreachable;
+            @memset(p, 1);
+            at.* = p.ptr;
+            allocator.free(p);
+            threadExit();
+        }
+    };
+    var theirs: [*]u8 = undefined;
+    (try std.Thread.spawn(.{}, T.run, .{&theirs})).join();
+    const owner = spanSegmentOf(@intFromPtr(theirs)).heap;
+    try std.testing.expect(owner != h);
+    const warm = owner.spans.warm.bytes;
+    try std.testing.expect(warm >= 1 << 20);
+    steals_for_test = true;
+    defer steals_for_test = false;
+    const taken = h.taken;
+    const p = try a.alloc(u8, 1 << 20);
+    try std.testing.expectEqual(taken, h.taken);
+    const from = spanSegmentOf(@intFromPtr(p.ptr)).heap;
+    try std.testing.expect(from != h);
+    const lent_out = from.spans.live;
+    // Freed, it is its own heap's again, zeroed for the next that asks.
+    a.free(p);
+    try std.testing.expectEqual(lent_out - (1 << 20), from.spans.live);
+    const again = allocZeroed(1 << 20, .@"8").?;
+    for (again[0 .. 1 << 20]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
+    a.free(again[0 .. 1 << 20]);
+}
+
+test "four threads take, write, grow, and free spans, many of them one another's, and every block holds what was written" {
+    const Shared = struct {
+        // Blocks one thread made for another to check, grow, or free:
+        // an address and a length, taken with a swap.
+        slots: [64]std.atomic.Value(usize) = @splat(.init(0)),
+        lens: [64]std.atomic.Value(usize) = @splat(.init(0)),
+        bad: std.atomic.Value(usize) = .init(0),
+
+        fn check(sh: *@This(), b: []u8) void {
+            const want: u8 = @truncate(@intFromPtr(b.ptr) >> 14);
+            if (b[0] != want or b[b.len / 2] != want or b[b.len - 1] != want) _ = sh.bad.fetchAdd(1, .monotonic);
+        }
+
+        fn fill(b: []u8) void {
+            const v: u8 = @truncate(@intFromPtr(b.ptr) >> 14);
+            b[0] = v;
+            b[b.len / 2] = v;
+            b[b.len - 1] = v;
+        }
+
+        fn run(sh: *@This(), seed: u64) void {
+            steals_for_test = true;
+            var rng = std.Random.DefaultPrng.init(seed);
+            const r = rng.random();
+            const a = allocator;
+            for (0..4000) |_| {
+                const i = r.uintLessThan(usize, sh.slots.len);
+                // The block in a slot, whoever made it: grown, or freed.
+                const len = sh.lens[i].swap(0, .acquire);
+                const at = if (len != 0) sh.slots[i].swap(0, .acquire) else 0;
+                var mine: ?[]u8 = null;
+                if (at != 0) {
+                    const b = @as([*]u8, @ptrFromInt(at))[0..len];
+                    sh.check(b);
+                    if (r.boolean() and len < 4 << 20) {
+                        const g = a.remap(b, len * 2) orelse blk: {
+                            const q = a.alloc(u8, len * 2) catch unreachable;
+                            @memcpy(q[0..len], b);
+                            a.free(b);
+                            break :blk q;
+                        };
+                        // What it held came with it.
+                        const want: u8 = @truncate(at >> 14);
+                        if (g[0] != want or g[len - 1] != want) _ = sh.bad.fetchAdd(1, .monotonic);
+                        mine = g;
+                    } else a.free(b);
+                }
+                const b = mine orelse a.alloc(u8, (40 << 10) + r.uintLessThan(usize, 1 << 20)) catch unreachable;
+                fill(b);
+                // Into a slot, if it is empty; else freed here.
+                if (sh.slots[i].cmpxchgStrong(0, @intFromPtr(b.ptr), .release, .monotonic) == null) {
+                    sh.lens[i].store(b.len, .release);
+                } else {
+                    sh.check(b);
+                    a.free(b);
+                }
+            }
+            threadExit();
+        }
+    };
+    var sh: Shared = .{};
+    var threads: [4]std.Thread = undefined;
+    for (&threads, 0..) |*t, k| t.* = try std.Thread.spawn(.{}, Shared.run, .{ &sh, @as(u64, k + 1) });
+    for (threads) |t| t.join();
+    try std.testing.expectEqual(@as(usize, 0), sh.bad.load(.monotonic));
+    for (&sh.slots, &sh.lens) |*slot, *len| if (len.load(.monotonic) != 0) {
+        const b = @as([*]u8, @ptrFromInt(slot.load(.monotonic)))[0..len.load(.monotonic)];
+        sh.check(b);
+        allocator.free(b);
+    };
+    try std.testing.expectEqual(@as(usize, 0), sh.bad.load(.monotonic));
+}
+
+test "on Linux a free span whose pages went back to the system holds one page, and is written whole when taken again" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    var h = testHeap();
+    h.taken = prefault_big;
+    const p = allocLarge(&h, 1 << 20).?;
+    @memset(p[0 .. 1 << 20], 7);
+    freeLarge(&h, p, 1 << 20);
+    try std.testing.expectEqual(@as(usize, 1 << 20), try residentForTest(p, 1 << 20));
+    try std.testing.expectEqual((1 << 20) - std.heap.pageSize(), coolSpans(&h, true));
+    try std.testing.expectEqual(std.heap.pageSize(), try residentForTest(p, 1 << 20));
+    const q = allocLarge(&h, 1 << 20).?;
+    try std.testing.expectEqual(p, q);
+    @memset(q[0 .. 1 << 20], 8);
+    freeLarge(&h, q, 1 << 20);
+    trimAllForTest(&h);
 }
 
 test "on Linux a new segment of a heap that faults in ahead is aligned for huge pages and asks for them while 2 MiB blocks are free, and one of a heap that does not keeps small pages" {
@@ -2965,6 +3642,49 @@ test "on Linux a new segment of a heap that faults in ahead is aligned for huge 
     const q = small.newPage(0).?;
     try std.testing.expect(!faultsAhead(&small));
     try std.testing.expect(!try advisedHugeForTest(q));
+}
+
+test "Lists of large blocks under 16 MiB, taken, grown by doubling, and freed, three times over, make no mmap, munmap, or mremap" {
+    const a = allocator;
+    trimAllForTest(heap().?);
+    const before = calls_for_test;
+    var lists: [48][]u8 = undefined;
+    for (0..3) |round| {
+        // 48 Lists of 40 to 88 KiB, each grown five times to twice its
+        // length, in turn, as a program that fills them together does;
+        // a third of them stop a doubling early.
+        for (&lists, 0..) |*l, i| {
+            l.* = try a.alloc(u8, (40 + 8 * (i % 7)) << 10);
+            @memset(l.*, @truncate(i + 1));
+        }
+        for (0..5) |step| for (&lists, 0..) |*l, i| {
+            if (step == 4 and i % 3 == round) continue;
+            const old = l.len;
+            l.* = a.remap(l.*, 2 * old) orelse blk: {
+                const q = try a.alloc(u8, 2 * old);
+                @memcpy(q[0..old], l.*);
+                a.free(l.*);
+                break :blk q;
+            };
+            @memset(l.*[old..], @truncate(i + 1));
+        };
+        for (lists, 0..) |l, i| {
+            try std.testing.expectEqual(@as(u8, @truncate(i + 1)), l[0]);
+            try std.testing.expectEqual(@as(u8, @truncate(i + 1)), l[l.len - 1]);
+        }
+        // Every other one is freed, and a block 24 KiB shorter taken in
+        // its place, which leaves a piece too small for any large block.
+        for (&lists, 0..) |*l, i| if (i % 2 == 0) {
+            const n = l.len - (24 << 10);
+            a.free(l.*);
+            l.* = try a.alloc(u8, n);
+        };
+        for (lists) |l| a.free(l);
+    }
+    const made = calls_for_test;
+    try std.testing.expectEqual(before.mmap, made.mmap);
+    try std.testing.expectEqual(before.munmap, made.munmap);
+    try std.testing.expectEqual(before.mremap, made.mremap);
 }
 
 /// Readings of /proc/buddyinfo for the tests: memory with free 2 MiB
@@ -3460,7 +4180,8 @@ test "on Linux under `always` nothing asks for huge pages, what should keep smal
     const q = lone.newPage(0).?;
     try std.testing.expect(!faultsAhead(&lone));
     try std.testing.expect(try advisedSmallForTest(q));
-    // A block of 16 MiB asks for nothing, one of 8 MiB for small pages.
+    // A block of 16 MiB asks for nothing, and the span segment of one of
+    // 8 MiB for small pages.
     var h = testHeap();
     const mib: usize = 1 << 20;
     const big = allocLarge(&h, 16 * mib).?;
@@ -3492,14 +4213,15 @@ test "on Linux under `always` nothing asks for huge pages, what should keep smal
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(v) + 2 * mib));
     try std.testing.expect(unreserveTable(v, 24 * mib));
     try std.testing.expectEqual(before, buddyinfo_reads.*);
-    // A block of 8 MiB grown to 32 MiB asks again for huge pages, while
-    // free blocks are there for them, as only asking undoes its advice.
+    // A span of 8 MiB grown to 32 MiB is copied into a mapping of its
+    // own, which asks for nothing, as a new one does.
     trimAllForTest(heap().?);
     const m = try allocator.alloc(u8, 8 * mib);
     try std.testing.expect(try advisedSmallForTest(@intFromPtr(m.ptr)));
     const g = allocator.remap(m, 32 * mib).?;
-    try std.testing.expect(try advisedHugeForTest(@intFromPtr(g.ptr)));
-    try std.testing.expectEqual(before + 1, buddyinfo_reads.*);
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(g.ptr)));
+    try std.testing.expect(!try advisedSmallForTest(@intFromPtr(g.ptr)));
+    try std.testing.expectEqual(before, buddyinfo_reads.*);
     allocator.free(g);
 }
 
@@ -3655,7 +4377,7 @@ test "an idle heap gives back its kept large blocks' pages and, on Linux, its wh
     h.taken = prefault_big;
     const big = allocLarge(&h, 1 << 20).?;
     freeLarge(&h, big, 1 << 20);
-    try std.testing.expectEqual(@as(usize, 1 << 20), h.kept.bytes);
+    try std.testing.expectEqual(@as(usize, 1 << 20), h.spans.warm.bytes);
     // Three pages' worth of 1 KiB blocks, written: all of the first two
     // freed, one of them by another thread, and one of the third kept.
     const c = classOf(1024, .@"8").?;
@@ -3671,8 +4393,8 @@ test "an idle heap gives back its kept large blocks' pages and, on Linux, its wh
     other.freeSmall(blocks[2 * per - 1], c);
     for (blocks[2 * per + 1 ..]) |p| h.freeSmall(p, c);
     const given = trimHeap(&h);
-    try std.testing.expectEqual(@as(usize, 0), h.kept.bytes);
-    try std.testing.expectEqual(@as(usize, 1 << 20), h.cold.bytes);
+    try std.testing.expectEqual(@as(usize, 0), h.spans.warm.bytes);
+    try std.testing.expectEqual(@as(usize, 1 << 20), h.spans.cold.bytes);
     if (builtin.os.tag == .linux) {
         try std.testing.expectEqual((1 << 20) - std.heap.pageSize() + 2 * page_size, given);
         // A class never used takes a page given back, which reads zero.
@@ -3745,12 +4467,22 @@ test "a heap is worth trimming once it has grown by half since its last trim, an
     _ = donors.fetchSub(1, .monotonic);
 }
 
-/// Give back every block `h` keeps.
+/// Give back every block `h` keeps, and forget its free spans and its
+/// span segment, which stay as if handed out, so its next span is the
+/// first of a new segment.
 fn trimAllForTest(h: *Heap) void {
     for ([_]*Kept{ &h.kept, &h.cold }) |k| while (lastHeld(k)) |j| {
         const f = unkeep(k, j, 0).?;
         unmapLarge(@intFromPtr(f), f.len);
     };
+    const sp = &h.spans;
+    for ([_]*SpanBins{ &sp.warm, &sp.cold }) |bins| while (findSpan(bins, 1)) |p| {
+        const seg = spanSegmentOf(p);
+        const s = spanIndex(seg, p);
+        lendSpan(seg, s, unlinkSpan(sp, seg, s));
+    };
+    if (sp.segment) |seg| seg.used = span_units;
+    sp.segment = null;
 }
 
 /// A run of 80,000 bytes in the test binary's read-only image, each its
