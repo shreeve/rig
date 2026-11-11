@@ -69,7 +69,7 @@ build_in one run main.rig >one.txt 2>&1; rc1=$?
 [[ -e $RIG_OUT_DIR/programs/units-one/__rig_unit_0.zig ]] && fail "a small program's debug build was split"
 build_in three run --units=3 main.rig >three.txt 2>&1; rc3=$?
 [[ -e $RIG_OUT_DIR/programs/units-three/__rig_unit_2.zig ]] || fail "--units=3 wrote no third unit"
-grep -q "rig.split.away" "$RIG_OUT_DIR"/programs/units-three/*.zig || fail "--units=3 cut no function"
+grep -q "rig.split.call" "$RIG_OUT_DIR"/programs/units-three/*.zig || fail "--units=3 cut no function"
 expect_eq "$(cat three.txt)" "$(cat one.txt)" "rig run, three units against one"
 expect_rc $rc3 $rc1 "rig run, three units against one"
 expect_has "$(cat three.txt)" "2250" "rig run --units=3"

@@ -93,12 +93,33 @@ pub const errors_filename = "__rig_errors.zig";
 /// the glue imports it by.
 pub const GlueModule = struct { facts: Facts, path: []const u8 };
 
+/// A function a split build cuts (`units.decide`), as the module's file
+/// holds it: its body is the bytes `start` to `end` of the file, a block.
+/// The file as emitted is what a build of one unit compiles. A unit that
+/// does not own the function compiles `stub` in the body's place, a call
+/// of the unit that does (`rig.split.call`), and the owner also compiles
+/// `exported`, which exports the function as `rigx_...`
+/// (`rig.split.exportFn`). `unit` is the owner `units.decide` chose.
+pub const Cut = struct { start: usize, end: usize, stub: []const u8, exported: []const u8, name: []const u8, unit: u16 };
+
+/// What a unit of a split build names the root's table of modules, each
+/// the file the unit compiles the module from (`writeModuleImport`).
+pub const split_modules = "__rig_modules";
+
+/// The module emitted as `zig_file`: the file itself, or in a split
+/// build (`split`) the one the unit's root names for it, which holds the
+/// bodies the unit owns.
+pub fn writeModuleImport(w: *Writer, zig_file: []const u8, split: bool) Writer.Error!void {
+    if (split) return w.print("@import(\"root\")." ++ split_modules ++ ".@\"{s}\"", .{zig_file});
+    try w.print("@import(\"{s}\")", .{zig_file});
+}
+
 /// `__rig_errors.zig`: one `Glue` for the whole program, which every
 /// error with fields is read through (`rig.error_glue`): the size and
 /// alignment of the largest member's fields, and drop, clone, `==`, and
 /// print of member `code`'s fields, each a switch on the code. The root
 /// module re-exports it as `__rig_error_glue`.
-pub fn writeErrorGlue(a: std.mem.Allocator, w: *Writer, mods: []const GlueModule, runtime_path: []const u8) !void {
+pub fn writeErrorGlue(a: std.mem.Allocator, w: *Writer, mods: []const GlueModule, runtime_path: []const u8, split: bool) !void {
     try w.print("const std = @import(\"std\");\nconst rig = @import(\"{s}\");\n", .{runtime_path});
     const Member = struct { module: usize, set: []const u8, name: []const u8, facts: Facts, compares: facts.MemberCompares };
     var members: std.ArrayList(Member) = .empty;
@@ -112,7 +133,11 @@ pub fn writeErrorGlue(a: std.mem.Allocator, w: *Writer, mods: []const GlueModule
                 used = true;
             }
         }
-        if (used) try w.print("const m{d} = @import(\"{s}\");\n", .{ i, m.path });
+        if (used) {
+            try w.print("const m{d} = ", .{i});
+            try writeModuleImport(w, m.path, split);
+            try w.writeAll(";\n");
+        }
     }
     try w.writeAll("\npub const Glue = struct {\n    const Ops = rig.ErrorGlueOps;\n");
     // The size and alignment of the largest member's fields.
@@ -345,12 +370,6 @@ const FunState = struct {
     /// The body's first statement is still to come: it raises Zig's
     /// compile-time evaluation budget (`rig.eval_quota`).
     quota: bool = true,
-    /// In a split build, the call of the unit that owns the function,
-    /// which every other unit's copy makes first (`emitCut`).
-    cut: []const u8 = "",
-    /// The function is cut: its call of the owner reads every parameter,
-    /// so none is discarded unused.
-    cut_reads: bool = false,
     /// The function is one every cycle of calls passes through some
     /// one of: its body starts with a yield check
     /// (`Emitter.yield_checks`, `Facts.hasEntryCheck`).
@@ -389,8 +408,13 @@ pub const Emitter = struct {
     local_by_sym: std.AutoHashMapUnmanaged(SymbolId, LocalRef) = .empty,
     /// The Zig names of the locals in `scopes`, with how many locals use each.
     local_names: std.StringHashMapUnmanaged(u32) = .empty,
-    /// Suffix source for generated labels, temporaries, and renames.
+    /// Suffix source for generated labels, temporaries, and renames. It
+    /// starts again at each module-level declaration and at each function
+    /// that is not inside another (`emitFun`), so a change to one
+    /// function renames nothing in the rest of the file.
     counter: u32 = 0,
+    /// Suffix source for the hidden names declared at module level.
+    module_counter: u32 = 0,
     /// Every module-level Zig name, which locals must not shadow.
     module_names: std.StringHashMapUnmanaged(void) = .empty,
     /// The modules whose `@import` is emitted so far: in a directory
@@ -544,9 +568,12 @@ pub const Emitter = struct {
     /// In a split build, what the module's emitted file is named, without
     /// `.zig`, which starts the symbol of each function it cuts.
     split_stem: []const u8 = "",
-    /// The functions the module cuts, each exported by the unit that owns
-    /// it (`emitCut`).
-    cut_exports: std.ArrayList([]const u8) = .empty,
+    /// The functions the module cuts, in the order they are written
+    /// (`emitCut`).
+    cuts: std.ArrayList(Cut) = .empty,
+    /// The writer of the module's file: a cut function's body is found
+    /// by where it lies in what this has written.
+    top: *Writer,
     /// The value being written inside the `rig.pack` of the optional it
     /// becomes (`emitLift`), or written where it is held as itself.
     lifting: Sexp = .nil,
@@ -556,6 +583,7 @@ pub const Emitter = struct {
             .allocator = allocator,
             .source = source,
             .w = w,
+            .top = w,
             .arena = std.heap.ArenaAllocator.init(allocator),
             .facts = ctx,
         };
@@ -575,7 +603,7 @@ pub const Emitter = struct {
         self.additions.deinit(self.allocator);
         self.targets.deinit(self.allocator);
         self.units.deinit(self.allocator);
-        self.cut_exports.deinit(self.allocator);
+        self.cuts.deinit(self.allocator);
         self.flag_names.deinit(self.allocator);
         self.paused.deinit(self.allocator);
         self.arena.deinit();
@@ -594,6 +622,7 @@ pub const Emitter = struct {
             self.module_errors = if (std.mem.eql(u8, self.module_errors, "error{}")) set else try self.fmt("{s} || {s}", .{ self.module_errors, set });
         }
         for (decls) |decl| {
+            self.counter = 0;
             // A compile-time function runs in the checker; its calls are
             // the values it computed. An addition's methods are written in
             // its witnesses (`emitWitnesses`).
@@ -605,6 +634,7 @@ pub const Emitter = struct {
             try self.w.writeAll("\n");
             try self.emitDecl(decl);
         }
+        self.counter = 0;
         try self.emitWitnesses();
         try self.emitCtHidden();
         try self.emitTestTable();
@@ -612,11 +642,6 @@ pub const Emitter = struct {
         if (self.uses_names) try self.emitNamesTable();
         for ([_]SymbolId{ self.facts.endian_sym_id, self.facts.arch_sym_id, self.facts.os_sym_id, self.facts.feature_sym_id, self.facts.order_sym_id }) |sym| if (self.facts.hasTextTable(sym)) try self.emitTextTable(sym);
         if (self.uses_symbols) try self.w.print("\nconst __rig_sym = @import(\"{s}\");\n", .{symbols_filename});
-        if (self.cut_exports.items.len > 0) {
-            try self.w.writeAll("\ncomptime {\n    if (rig.split.on) {\n        @setEvalBranchQuota(rig.eval_quota);\n");
-            for (self.cut_exports.items) |e| try self.w.print("        {s}\n", .{e});
-            try self.w.writeAll("    }\n}\n");
-        }
     }
 
     // =========================================================================
@@ -754,7 +779,9 @@ pub const Emitter = struct {
         const foreign = self.facts.foreign(module) orelse return self.unsupported(node, "an unloaded module");
         try self.w.writeAll("const ");
         try self.writeModuleZig(module);
-        try self.w.print(" = @import(\"{s}\");\n", .{foreign.zig_file});
+        try self.w.writeAll(" = ");
+        try self.writeImport(foreign.zig_file);
+        try self.w.writeAll(";\n");
     }
 
     /// The Zig name of an imported module: `__rig_m<id>_<name>`.
@@ -790,7 +817,8 @@ pub const Emitter = struct {
     /// function of the Rig type that calls it.
     fn emitZigExtern(self: *Emitter, node: Sexp) Error!void {
         const file = self.srcText(ir.ZigExtern.file(node));
-        const shim = try self.fmt("__rig_shim_{d}", .{self.nextId()});
+        self.module_counter += 1;
+        const shim = try self.fmt("__rig_shim_{d}", .{self.module_counter});
         try self.w.print("const {s} = @import(\"rig/std/{s}\");\n", .{ shim, file[1 .. file.len - 1] });
         for (ir.ZigExtern.decls(node)) |d0| {
             const d = if (d0.isKind(.@"pub")) ir.Pub.decl(d0) else d0;
@@ -1847,6 +1875,7 @@ pub const Emitter = struct {
         for (members) |m| {
             const head = m.kind() orelse continue;
             if (head != .fun and head != .sub and head != .drop_decl) continue;
+            if (self.scopes.items.len == 0) self.counter = 0;
             try self.w.writeAll("\n");
             try self.writeIndent(depth);
             const prev_indent = self.indent;
@@ -1989,7 +2018,7 @@ pub const Emitter = struct {
             try self.w.writeAll(if (n > 0) ", __out: rig.ErrSlot" else "__out: rig.ErrSlot");
             try args.writer.print("{s}__out", .{if (args.written().len > 0) ", " else ""});
         }
-        if (!is_main) if (self.facts.splitUnitOf(name_node)) |unit| try self.emitCut(name, unit, args.written());
+        const cut: ?u16 = if (is_main) null else self.facts.splitUnitOf(name_node);
         try self.w.writeAll(") ");
         if (self.code_section and !inlined) try self.w.writeAll("linksection(rig.preempt_section) ");
         if (main_fails) {
@@ -1999,17 +2028,20 @@ pub const Emitter = struct {
         } else if (return_ty) |r| try self.emitTypeTy(r) else try self.w.writeAll("void");
         try self.w.writeAll(" ");
         // A `sub` yields no value, even one that may fail (`Void!`).
+        const start = self.w.end;
         if (return_ty != null and !f.is_sub) try self.emitValueBody(body) else try self.emitBlock(body);
+        if (cut) |unit| try self.emitCut(name_node, name, unit, cold, args.written(), start);
         try self.w.writeAll("\n");
     }
 
-    /// A function a split build cuts (`units.decide`): in every unit but
-    /// the one that owns it, its body is a call of that unit's, which
-    /// Zig analyzes in place of the rest (`rig.split.call`); at compile
-    /// time, its body runs. The owner exports it at the end of the module
-    /// (`cut_exports`). Whether Zig can pass its arguments and result
-    /// between units is `rig.split.away`'s to say, alike in every unit.
-    fn emitCut(self: *Emitter, name: []const u8, unit: u16, args: []const u8) Error!void {
+    /// A function a split build cuts (`units.decide`), whose body, just
+    /// written, starts at `start`: where it lies in the file, the call
+    /// of its owner that stands for it in every other unit, which Zig
+    /// compiles in place of the body, and the line that exports it from
+    /// its owner (`Cut`). The call names no unit, so which unit owns a
+    /// function changes nothing every unit reads.
+    fn emitCut(self: *Emitter, name_node: Sexp, name: []const u8, unit: u16, cold: bool, args: []const u8, start: usize) Error!void {
+        if (self.w != self.top) return self.unsupported(name_node, "a cut function written outside the module's file");
         var sym: std.Io.Writer.Allocating = .init(self.arena.allocator());
         try sym.writer.print("rigx_{s}", .{self.split_stem});
         const owner = if (self.nominal) |nom| nom.name else "";
@@ -2020,10 +2052,15 @@ pub const Emitter = struct {
             }
         };
         const zig_name = try self.fmt("{f}", .{ident(name)});
-        self.fun.cut_reads = true;
-        self.fun.cut = try self.fmt("if (!@inComptime() and comptime rig.split.away(@This().{s}, {d})) return rig.split.call(@This().{s}, \"{s}\", .{{{s}}});", .{ zig_name, unit, zig_name, sym.written(), args });
         const path = if (owner.len > 0) try self.fmt("{s}.{s}", .{ owner, zig_name }) else zig_name;
-        try self.cut_exports.append(self.allocator, try self.fmt("rig.split.exportFn({s}, \"{s}\", {d});", .{ path, sym.written(), unit }));
+        try self.cuts.append(self.allocator, .{
+            .start = start,
+            .end = self.w.end,
+            .stub = try self.fmt("{{ {s}return rig.split.call(@This().{s}, \"{s}\", .{{{s}}}); }}", .{ if (cold) "@branchHint(.cold); " else "", zig_name, sym.written(), args }),
+            .exported = try self.fmt("rig.split.exportFn({s}, \"{s}\");", .{ path, sym.written() }),
+            .name = sym.written(),
+            .unit = unit,
+        });
     }
 
     /// Bind each parameter in the current scope. An owned value (or one
@@ -2104,10 +2141,6 @@ pub const Emitter = struct {
         if (self.fun.quota) {
             self.fun.quota = false;
             if (self.fun.cold) try self.line("@branchHint(.cold);", .{});
-            if (self.fun.cut.len > 0) {
-                try self.line("{s}", .{self.fun.cut});
-                self.fun.cut = "";
-            }
             if (!self.fun.inlined) try self.line("@setEvalBranchQuota(rig.eval_quota);", .{});
             if (self.fun.entry_check) try self.line("rig.tickCall();", .{});
         }
@@ -2177,7 +2210,7 @@ pub const Emitter = struct {
             try self.writeIndent(self.indent);
             try self.emitGuard(local);
             try self.w.writeAll("\n");
-        } else if (!self.facts.isUsed(local.sym) and !std.mem.eql(u8, local.zig_name, "_") and !(self.fun.cut_reads and local.param_name.len == 0)) {
+        } else if (!self.facts.isUsed(local.sym) and !std.mem.eql(u8, local.zig_name, "_")) {
             // Zig discards no error by value, so an error, or a value
             // whose type an instance gives (which may be one), is
             // discarded by address.
@@ -9919,7 +9952,10 @@ pub const Emitter = struct {
                 const name = rig.leafText(decl.source, ir.Member.name(e).src);
                 for (0..decl.importCount()) |i| {
                     const imp = decl.importAt(i);
-                    if (std.mem.eql(u8, imp.local_name, local)) return self.w.print("@import(\"{s}\").__rig_init_{s}", .{ imp.facts.zig_file, name });
+                    if (std.mem.eql(u8, imp.local_name, local)) {
+                        try self.writeImport(imp.facts.zig_file);
+                        return self.w.print(".__rig_init_{s}", .{name});
+                    }
                 }
             }
             return self.unsupported(e, "this vector default");
@@ -9965,11 +10001,15 @@ pub const Emitter = struct {
             const local = rig.leafText(decl.source, obj.src);
             for (0..decl.importCount()) |i| {
                 const imp = decl.importAt(i);
-                if (std.mem.eql(u8, imp.local_name, local)) return self.w.print("@import(\"{s}\").{f}", .{ imp.facts.zig_file, ident(name) });
+                if (std.mem.eql(u8, imp.local_name, local)) {
+                    try self.writeImport(imp.facts.zig_file);
+                    return self.w.print(".{f}", .{ident(name)});
+                }
             }
             return self.unsupported(e, "a default from an unresolved module");
         }
-        return self.w.print("@import(\"{s}\").{f}", .{ decl.zig_file, ident(rig.leafText(decl.source, e.src)) });
+        try self.writeImport(decl.zig_file);
+        return self.w.print(".{f}", .{ident(rig.leafText(decl.source, e.src))});
     }
 
     /// The checked module whose source is `source`: this one, or one it
@@ -11285,7 +11325,14 @@ pub const Emitter = struct {
             if (imp.module_id == module_id) return self.writeModuleZig(module_id);
         }
         const foreign = self.facts.foreign(module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
-        try self.w.print("@import(\"{s}\")", .{foreign.zig_file});
+        try self.writeImport(foreign.zig_file);
+    }
+
+    /// The module emitted as `zig_file`. A unit of a split build reaches
+    /// a module through its root, which names the file that holds the
+    /// bodies the unit owns (`writeModuleImport`).
+    fn writeImport(self: *Emitter, zig_file: []const u8) Error!void {
+        try writeModuleImport(self.w, zig_file, self.split_stem.len > 0);
     }
 
     /// The generic type being emitted, applied to its own parameters:

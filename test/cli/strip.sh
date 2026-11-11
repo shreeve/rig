@@ -87,7 +87,9 @@ esac
 [[ $(guard plain) -gt 0 ]] || fail "the plain program has no dense guard: $(guard plain)"
 [[ $(guard lean) -gt 0 && $(guard lean) -le $(guard plain) ]] || fail "the stripped program's dense guard is $(guard lean), the plain one's $(guard plain)"
 
-# Several units: each unit's compile and the entry's.
+# Several units: each unit's compile and the entry's. The units' objects
+# an earlier run kept are removed, so each is compiled.
+rm -rf "$RIG_OUT_DIR/programs/p/.zig-cache/rig-units"
 : >zig.log
 out=$(rig build --release --strip --units=2 -o lean2 p.rig 2>&1); expect_rc $? 0 "build --release --strip --units=2: $out"
 expect_eq "$(compiles)" 3 "Zig commands of a build of two units"

@@ -113,7 +113,9 @@ const usage =
     \\                         default a large program's debug build is
     \\                         split when Zig compiles it with LLVM (every
     \\                         target but x86-64); `--units=1` never
-    \\                         splits. A split release build runs slower
+    \\                         splits. A split release build runs slower.
+    \\                         The next build compiles again only the
+    \\                         units an edit changed
     \\  --strip                Build without debug information (build),
     \\                         which Zig spends most of a large release
     \\                         build writing. The executable has no
@@ -985,7 +987,9 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     if (opts.command != .@"test" and !declaresMain(graph.root())) fatal("{s}:1:1: error: no `sub main()` to run", .{graph.root().display});
     program_pending = opts.command != .build;
     const split = splitCount(opts, &graph);
-    if (split > 1) try units.decide(allocator, &graph, split);
+    // The built-in Map and Set are traced in the text of their module
+    // (`map_trace.instrument`), which a cut would move.
+    if (split > 1) try units.decide(allocator, &graph, split, env.mapTrace());
     // A program `rig run` builds starts by creating the file
     // RIG_PROGRAM_STARTED names; `rig test`'s driver is its root instead.
     var pkg = try emitPackage(allocator, env, &graph, .{ .hook = opts.command == .run, .pgo = opts.pgo, .units = split });
@@ -995,7 +999,11 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     if (opts.strip and opts.mode != .debug) std.debug.print("note: `--strip` leaves out the names of the program's functions, so this build warns of no frame larger than a page: build without it to see those warnings\n", .{});
     const root = if (opts.command == .@"test") test_driver else graph.root().out_basename;
     if (opts.command == .@"test") try pkg.files.append(allocator, .{ .path = test_driver, .contents = try testDriver(allocator, env, &graph) });
-    if (split > 1) try splitFiles(allocator, env, &graph, &pkg.files, root, if (opts.command == .@"test") pkg.files.getLast().contents else pkg.root_source, split);
+    // The units' last assignment is kept in the package's Zig cache; a
+    // package in the build store has a cache of its own for each
+    // content, so none to keep one in.
+    const owners_path = if (env.get("RIG_BUILD_STORE") == null) try std.fs.path.join(allocator, &.{ try outputDir(allocator, env, graph.root()), ".zig-cache", unit_objects, "owners" }) else null;
+    if (split > 1) try splitFiles(allocator, env, &graph, &pkg, root, if (opts.command == .@"test") pkg.files.getLast().contents else pkg.root_source, split, owners_path);
 
     const zig = env.zig();
     const verb = if (opts.command == .build) "build-exe" else "run";
@@ -1125,24 +1133,47 @@ fn splitCount(opts: Options, graph: *const modules.ModuleGraph) u16 {
     return units.count(graph, std.Thread.getCpuCount() catch 1);
 }
 
-/// Build a split package (`splitFiles`) into the executable `exe`: every
-/// unit at once, each a `zig build-obj` with a Zig cache of its own, then
+/// Build a split package (`splitFiles`) into the executable `exe`: each
+/// unit a `zig build-obj` with a Zig cache of its own, all at once, then
 /// the entry linked with their objects. An executable kept from the same
-/// package is copied instead (`keptBuild`). A unit Zig fails shows its
-/// errors, the first that failed; each unit's are in the package.
+/// package is copied instead (`keptBuild`), and a unit whose object the
+/// last build left is not compiled again (`unitKey`): after a change to
+/// one function's body, one unit is. A unit Zig fails shows its errors,
+/// the first that failed; each unit's are in the package.
+///
+/// A unit's object is `ZIG_CACHE/rig-units/MODE/uK-KEY.o`, KEY its key,
+/// and `uK-KEY.ok` beside it says Zig finished writing it: the marker is
+/// removed before Zig runs and written after it succeeds (and after the
+/// object's program section is kept apart, where it is). So an object
+/// is linked only under the name of what it was compiled from. The
+/// objects of other keys are removed once this build's are all there.
+/// When Zig cannot say what it is there is no key, and every unit is
+/// compiled, into the package's directory.
 fn buildSplit(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, dir: []const u8, zig_cache: []const u8, pkg: *const Package, exe: []const u8) !void {
     const zig = env.zig();
     const flag = mode.zigFlag();
     const release = try pkg.zigFlags(allocator, mode, env);
     const libc: []const []const u8 = if (pkg.links_libc) &.{"-lc"} else &.{};
+    const identity = zigIdentity(allocator, io, env);
+    const kept_dir = try std.fs.path.join(allocator, &.{ zig_cache, unit_objects, @tagName(mode) });
     const objects = try allocator.alloc([]const u8, pkg.units);
-    for (objects, 0..) |*o, k| o.* = try std.fs.path.join(allocator, &.{ dir, try allocator.print("__rig_unit_{d}.o", .{k}) });
+    const compiles = try allocator.alloc([]const []const u8, pkg.units);
+    // The marker of each unit's object, when it has a key.
+    const markers = try allocator.alloc(?[]const u8, pkg.units);
     // A program built to be preempted on arm64 macOS links its objects
     // with their program sections kept apart (`keepCodeApart`).
     const linked = if (!pkg.keepsCodeApart()) objects else try allocator.alloc([]const u8, pkg.units);
-    if (pkg.keepsCodeApart()) for (linked, 0..) |*o, k| {
-        o.* = try std.fs.path.join(allocator, &.{ dir, try allocator.print("__rig_unit_{d}-apart.o", .{k}) });
-    };
+    for (objects, compiles, markers, 0..) |*object, *compile, *marker, k| {
+        const unit_cache = try std.fs.path.join(allocator, &.{ zig_cache, try allocator.print("u{d}", .{k}) });
+        compile.* = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-obj", flag }, release, &.{ "--cache-dir", unit_cache, try std.fs.path.join(allocator, &.{ dir, try allocator.print("__rig_unit_{d}.zig", .{k}) }) }, libc });
+        const stem = if (identity) |id|
+            try std.fs.path.join(allocator, &.{ kept_dir, try allocator.print("u{d}-{s}", .{ k, unitKey(id, compile.*, pkg, @intCast(k)) }) })
+        else
+            try std.fs.path.join(allocator, &.{ dir, try allocator.print("__rig_unit_{d}", .{k}) });
+        object.* = try allocator.print("{s}.o", .{stem});
+        marker.* = if (identity != null) try allocator.print("{s}.ok", .{stem}) else null;
+        if (pkg.keepsCodeApart()) linked[k] = try allocator.print("{s}-apart.o", .{stem});
+    }
     const link = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-exe", flag }, release, &.{ "--cache-dir", zig_cache, try std.fs.path.join(allocator, &.{ dir, "__rig_entry.zig" }) }, linked, libc });
     const lock = lockObjects(allocator, io, zig_cache);
     defer if (lock) |f| f.close(io);
@@ -1150,33 +1181,45 @@ fn buildSplit(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
     if (kept) |k| if (reuseBuild(allocator, io, k, exe)) return if (pkg.writesDsym()) keepDsym(allocator, io, exe);
 
     Ending.watch();
-    const children = try allocator.alloc(std.process.Child, pkg.units);
+    if (identity != null) std.Io.Dir.cwd().createDirPath(io, kept_dir) catch |err| fatal("error: cannot create `{s}`: {s}", .{ kept_dir, @errorName(err) });
+    const children = try allocator.alloc(?std.process.Child, pkg.units);
     const logs = try allocator.alloc([]const u8, pkg.units);
-    for (children, logs, objects, 0..) |*child, *log, object, k| {
+    for (children, logs, objects, linked, compiles, markers, 0..) |*child, *log, object, apart, compile, marker, k| {
         log.* = try std.fs.path.join(allocator, &.{ dir, try allocator.print("__rig_unit_{d}.log", .{k}) });
+        child.* = null;
+        if (marker) |ok| {
+            if (isFile(io, ok) and isFile(io, object) and isFile(io, apart)) continue;
+            std.Io.Dir.cwd().deleteFile(io, ok) catch |err| switch (err) {
+                error.FileNotFound => {},
+                else => fatal("error: cannot remove `{s}`: {s}", .{ ok, @errorName(err) }),
+            };
+        }
         const file = try std.Io.Dir.cwd().createFile(io, log.*, .{});
         defer file.close(io);
-        const unit_cache = try std.fs.path.join(allocator, &.{ zig_cache, try allocator.print("u{d}", .{k}) });
-        const argv = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-obj", flag }, release, &.{ "--cache-dir", unit_cache, try std.fs.path.join(allocator, &.{ dir, try allocator.print("__rig_unit_{d}.zig", .{k}) }), try allocator.print("-femit-bin={s}", .{object}) }, libc });
+        const argv = try std.mem.concat(allocator, []const u8, &.{ compile, &.{try allocator.print("-femit-bin={s}", .{object})} });
         child.* = std.process.spawn(io, .{ .argv = argv, .stdin = .ignore, .stdout = .{ .file = file }, .stderr = .{ .file = file } }) catch |err| switch (err) {
             error.FileNotFound => fatal("error: cannot run `{s}`: install Zig 0.17 and put it on PATH, or set ZIG", .{zig}),
             else => return err,
         };
     }
     var failed: ?usize = null;
-    for (children, 0..) |*child, k| {
-        const ok = switch (try child.wait(io)) {
+    for (children, 0..) |*child, k| if (child.*) |*c| {
+        const ok = switch (try c.wait(io)) {
             .exited => |code| code == 0,
             else => false,
         };
         if (!ok and failed == null) failed = k;
-    }
+    };
     if (failed) |k| {
         const text = std.Io.Dir.cwd().readFileAlloc(io, logs[k], allocator, .limited(1 << 24)) catch "";
         std.debug.print("{s}note: unit {d} of a split build failed; the emitted Zig is in {s}\n", .{ text, k, dir });
         std.process.exit(1);
     }
-    if (pkg.keepsCodeApart()) for (objects, linked) |object, apart| try keepCodeApart(allocator, io, object, apart);
+    for (children, objects, linked, markers) |child, object, apart, marker| if (child != null) {
+        if (pkg.keepsCodeApart()) try keepCodeApart(allocator, io, object, apart);
+        if (marker) |ok| try writeFile(io, ok, "");
+    };
+    if (identity != null) trimUnitObjects(allocator, io, kept_dir, objects);
     const code = try runZig(io, try std.mem.concat(allocator, []const u8, &.{ link, &.{try allocator.print("-femit-bin={s}", .{exe})} }));
     if (code != 0) {
         std.debug.print("note: emitted Zig is in {s}\n", .{dir});
@@ -1184,6 +1227,51 @@ fn buildSplit(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
     }
     if (pkg.writesDsym()) writeDsym(allocator, io, exe);
     if (kept) |k| keepBuild(allocator, io, k, exe, zig_cache, &.{});
+}
+
+/// The key of unit `unit`'s object in a split build: a hash of Zig
+/// itself (`zigIdentity`), the unit's Zig command but its output, and
+/// every file Zig can reach from the unit's root, by path and contents:
+/// the files all the units share (`Package.shared`), and the unit's own,
+/// its root and its copies of the modules it owns part of
+/// (`splitFiles`). A unit's root imports no other unit's files and no
+/// shared file does, so nothing else in the package can change what Zig
+/// compiles: two builds with one key compile the same object. A file
+/// the program embeds by an absolute path lies in the package's
+/// directory, which the command names.
+fn unitKey(identity: []const u8, compile: []const []const u8, pkg: *const Package, unit: u16) [32]u8 {
+    var h = std.crypto.hash.sha2.Sha256.init(.{});
+    hashPart(&h, "rig split unit 1");
+    hashPart(&h, identity);
+    for (compile) |arg| hashPart(&h, arg);
+    hashPart(&h, "files");
+    hashPart(&h, &pkg.shared);
+    for (pkg.files.items) |f| if (f.unit != null and f.unit.? == unit) {
+        hashPart(&h, f.path);
+        hashPart(&h, f.contents);
+    };
+    var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
+    h.final(&digest);
+    return std.fmt.bytesToHex(digest[0..16], .lower);
+}
+
+/// Remove from `dir`, where a split build keeps its units' objects
+/// (`buildSplit`), every file that is not one of `objects`, its marker,
+/// or its copy with the program section kept apart. A failure leaves
+/// a file no build links.
+fn trimUnitObjects(allocator: std.mem.Allocator, io: std.Io, dir: []const u8, objects: []const []const u8) void {
+    var d = std.Io.Dir.cwd().openDir(io, dir, .{ .iterate = true }) catch return;
+    defer d.close(io);
+    var old: std.ArrayList([]const u8) = .empty;
+    var it = d.iterate();
+    next: while (it.next(io) catch null) |e| {
+        for (objects) |object| {
+            const name = std.fs.path.basename(object);
+            if (std.mem.startsWith(u8, e.name, name[0 .. name.len - ".o".len])) continue :next;
+        }
+        old.append(allocator, allocator.dupe(u8, e.name) catch return) catch return;
+    }
+    for (old.items) |name| d.deleteFile(io, name) catch {};
 }
 
 /// The lock a split or kept-apart build (`buildSplit`, `buildApart`)
@@ -1783,6 +1871,11 @@ fn isDirectory(io: std.Io, path: []const u8) bool {
     return st.kind == .directory;
 }
 
+fn isFile(io: std.Io, path: []const u8) bool {
+    const st = std.Io.Dir.cwd().statFile(io, path, .{}) catch return false;
+    return st.kind == .file;
+}
+
 fn exists(io: std.Io, dir: []const u8, name: []const u8) bool {
     var buffer: [std.fs.max_path_bytes]u8 = undefined;
     const path = std.fmt.bufPrint(&buffer, "{s}/{s}", .{ dir, name }) catch return false;
@@ -2000,6 +2093,12 @@ const Package = struct {
     /// `rig build --strip`: Zig leaves debug information out of every
     /// compile and of the link (`-fstrip`).
     strip: bool = false,
+    /// In a split build, the functions each module cuts
+    /// (`splitFiles` writes the files each unit compiles from them).
+    cuts: std.ArrayList(ModuleCuts) = .empty,
+    /// In a split build, a hash of every file all the units share
+    /// (`splitFiles`), part of each unit's key (`unitKey`).
+    shared: [32]u8 = @splat('0'),
 
     /// The flags after the mode's for this package (`Mode.releaseFlags`);
     /// on arm64 macOS, for a package built to be preempted, x15
@@ -2028,7 +2127,19 @@ const Package = struct {
     }
 };
 
-const PackageFile = struct { path: []const u8, contents: []const u8 };
+/// A file of a package. In a split build `unit` is the one unit that
+/// compiles it: the unit's root, or a module with the bodies the unit
+/// owns; null for a file every unit may read.
+const PackageFile = struct { path: []const u8, contents: []const u8, unit: ?u16 = null };
+
+/// A module of a split build that cuts functions: `file` is its place in
+/// the package's files, `full` its Zig as emitted, every body in place,
+/// and `cuts` where each cut function's body lies in it, in order.
+const ModuleCuts = struct { file: usize, full: []const u8, cuts: []const emit.Cut };
+
+/// Where a split build keeps its units' objects and their last
+/// assignment, in the package's Zig cache (`buildSplit`, `splitFiles`).
+const unit_objects = "rig-units";
 
 /// Whether a program built here may be preempted by signal: on x86-64
 /// Linux and arm64 macOS (`sched.preempt_built` decides for the build
@@ -2168,6 +2279,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
     var root_source: []const u8 = "";
     var links_libc = false;
     var uses_symbols = false;
+    var cuts: std.ArrayList(ModuleCuts) = .empty;
     const tasks = makesTasks(graph);
     const task_guard = taskGuardOf(graph);
     const reads = readsOf(graph);
@@ -2213,6 +2325,15 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         if (i == 0 and glue) try file_buffer.writer.print("\npub const __rig_error_glue = @import(\"{s}\").Glue;\n", .{emit.errors_filename});
         // Zig addresses a file with u32 offsets (`std.zig.Ast.ByteOffset`).
         if (file_buffer.written().len > std.math.maxInt(u32)) fatal("error: cannot emit `{s}`: its Zig is 4 GiB or larger, more than Zig reads in one file; split it into modules", .{m.display});
+        if (em.cuts.items.len > 0) {
+            const kept = try allocator.dupe(emit.Cut, em.cuts.items);
+            for (kept) |*c| {
+                c.stub = try allocator.dupe(u8, c.stub);
+                c.exported = try allocator.dupe(u8, c.exported);
+                c.name = try allocator.dupe(u8, c.name);
+            }
+            try cuts.append(allocator, .{ .file = files.items.len, .full = file_buffer.written(), .cuts = kept });
+        }
         try files.append(allocator, .{ .path = m.out_basename, .contents = file_buffer.written() });
         for (m.shims.items) |shim| {
             // A shim beside the runtime imports it by its path; in a batch
@@ -2249,7 +2370,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         const mods = try allocator.alloc(emit.GlueModule, graph.modules.items.len);
         for (graph.modules.items, mods) |*m, *g| g.* = .{ .facts = emit_facts.Facts.of(m.sema), .path = m.out_basename };
         var out: std.Io.Writer.Allocating = .init(allocator);
-        try emit.writeErrorGlue(allocator, &out.writer, mods, runtime_import);
+        try emit.writeErrorGlue(allocator, &out.writer, mods, runtime_import, kind.units > 1);
         try files.append(allocator, .{ .path = emit.errors_filename, .contents = out.written() });
     }
     // Every symbol of every module, numbered once (`src/symbols.zig`).
@@ -2260,16 +2381,36 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         try symbols.write(allocator, &out.writer, try symbols.collect(allocator, sources), runtime_import);
         try files.append(allocator, .{ .path = emit.symbols_filename, .contents = out.written() });
     }
-    return .{ .files = files, .root_source = root_source, .links_libc = links_libc, .units = kind.units, .preempting = preempting };
+    return .{ .files = files, .root_source = root_source, .links_libc = links_libc, .units = kind.units, .preempting = preempting, .cuts = cuts };
 }
 
-/// The root of each unit of a split build, `__rig_unit_K.zig`, the
-/// executable's root, `__rig_entry.zig`, and the error seed every root
-/// names first, `__rig_errseed.zig` (`rig.split`). Each root declares
-/// what the runtime and Zig's std read from the root: the `panic`,
-/// `std_options`, and `__rig_` settings of `root`, the program's root
-/// or `rig test`'s driver, whose `main` unit 0 runs.
-fn splitFiles(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGraph, files: *std.ArrayList(PackageFile), root: []const u8, root_source: []const u8, n: u16) !void {
+/// The files of a split build, added to the package's: the root of each
+/// unit, `__rig_unit_K.zig`, the executable's root, `__rig_entry.zig`,
+/// the error seed every root names first, `__rig_errseed.zig`
+/// (`rig.split`), and each module's Zig as each unit compiles it.
+///
+/// A module that cuts functions is written once as its declarations,
+/// under its own name: every cut function's body a call of its owner
+/// (`emit.Cut.stub`), which names no unit. It is written again as
+/// `__rig_uK_<module>` for each unit K that owns one of its functions:
+/// the declarations with K's bodies in place, as a build of one unit
+/// compiles them, and K's exports. Each root's `__rig_modules` names, for
+/// every module, the file its unit compiles, and the modules import each
+/// other through it (`emit.writeModuleImport`), so a unit reads its
+/// root, the files every unit shares, and its own modules, and nothing
+/// leads it to another unit's bodies: a change to a body changes what
+/// one unit reads.
+///
+/// Which unit owns a function is `units.decide`'s cut, unless only
+/// bodies changed since the last build here, which `owners_path` keeps
+/// (`units.keep`): then it is as it was, so a body that grew moves no
+/// function between units.
+///
+/// Each root declares what the runtime and Zig's std read from the
+/// root: the `panic`, `std_options`, and `__rig_` settings of `root`,
+/// the program's root or `rig test`'s driver, whose `main` unit 0 runs.
+fn splitFiles(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGraph, pkg: *Package, root: []const u8, root_source: []const u8, n: u16, owners_path: ?[]const u8) !void {
+    const files = &pkg.files;
     var names: std.StringArrayHashMapUnmanaged(void) = .empty;
     for (files.items) |f| try errorNames(allocator, &names, f.contents);
     try zigErrorNames(allocator, graph.io, env, &names);
@@ -2285,8 +2426,49 @@ fn splitFiles(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGrap
     try seed.writer.writeAll("};\n");
     try files.append(allocator, .{ .path = "__rig_errseed.zig", .contents = seed.written() });
 
+    // Each cutting module's declarations, in its place; then every file
+    // so far is one all the units share.
+    for (pkg.cuts.items) |m| files.items[m.file].contents = try spliceCuts(allocator, m, &.{}, null);
+    var shared = std.crypto.hash.sha2.Sha256.init(.{});
+    hashPart(&shared, "rig split shared 1");
+    for (files.items) |f| {
+        hashPart(&shared, f.path);
+        hashPart(&shared, f.contents);
+    }
+    var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
+    shared.final(&digest);
+    pkg.shared = std.fmt.bytesToHex(digest[0..16], .lower);
+
+    // The owner of each cut function, by its symbol.
+    var cut_names: std.ArrayList([]const u8) = .empty;
+    var owners: std.ArrayList(u16) = .empty;
+    for (pkg.cuts.items) |m| for (m.cuts) |c| {
+        try cut_names.append(allocator, c.name);
+        try owners.append(allocator, c.unit);
+    };
+    if (owners_path) |path| {
+        const old = std.Io.Dir.cwd().readFileAlloc(graph.io, path, allocator, .limited(1 << 28)) catch "";
+        const table = try units.keep(allocator, old, n, &pkg.shared, cut_names.items, owners.items);
+        // A table that cannot be written only means the next build cuts afresh.
+        if (!eql(old, table)) keepOwners(graph.io, path, table);
+    }
+
+    // Each unit's own copy of each module it owns part of.
+    const own = try allocator.alloc(?[]const u8, @as(usize, n) * pkg.cuts.items.len);
+    @memset(own, null);
+    var first: usize = 0;
+    for (pkg.cuts.items, 0..) |m, mi| {
+        const of = owners.items[first..][0..m.cuts.len];
+        first += m.cuts.len;
+        for (0..n) |k| {
+            if (std.mem.indexOfScalar(u16, of, @intCast(k)) == null) continue;
+            const path = try allocator.print("__rig_u{d}_{s}", .{ k, files.items[m.file].path });
+            own[k * pkg.cuts.items.len + mi] = path;
+            try files.append(allocator, .{ .path = path, .contents = try spliceCuts(allocator, m, of, @intCast(k)), .unit = @intCast(k) });
+        }
+    }
+
     var decls: std.Io.Writer.Allocating = .init(allocator);
-    try decls.writer.print("const std = @import(\"std\");\nconst rig = @import(\"{s}\");\npub const __rig_program = @import(\"{s}\");\n", .{ emit.runtime_filename, root });
     var lines = std.mem.splitScalar(u8, root_source, '\n');
     while (lines.next()) |line| {
         if (!std.mem.startsWith(u8, line, "pub const ")) continue;
@@ -2297,16 +2479,67 @@ fn splitFiles(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGrap
     }
     for (0..n + 1) |k| {
         var unit_root: std.Io.Writer.Allocating = .init(allocator);
-        if (k < n) try unit_root.writer.print("//! Unit {d} of {d} of a split build (`rig.split`).\ncomptime {{\n    _ = @import(\"__rig_errseed.zig\").All;\n}}\n", .{ k, n }) else try unit_root.writer.print("//! The root of a split build's executable, linked with its {d} units (`rig.split`).\n", .{n});
-        try unit_root.writer.writeAll(decls.written());
-        try unit_root.writer.print("pub const __rig_unit = struct {{\n    pub const id: u32 = {d};\n    pub const count: u32 = {d};\n}};\n", .{ k, n });
+        const w = &unit_root.writer;
+        if (k < n) try w.print("//! Unit {d} of {d} of a split build (`rig.split`).\ncomptime {{\n    _ = @import(\"__rig_errseed.zig\").All;\n}}\n", .{ k, n }) else try w.print("//! The root of a split build's executable, linked with its {d} units (`rig.split`).\n", .{n});
+        try w.print("const std = @import(\"std\");\nconst rig = @import(\"{s}\");\n", .{emit.runtime_filename});
+        // The file this unit compiles each module from.
+        try w.writeAll("pub const " ++ emit.split_modules ++ " = struct {\n");
+        var root_is_module = false;
+        for (graph.modules.items) |*m| {
+            var file: []const u8 = m.out_basename;
+            if (k < n) for (pkg.cuts.items, 0..) |c, mi| {
+                if (eql(files.items[c.file].path, m.out_basename)) file = own[k * pkg.cuts.items.len + mi] orelse file;
+            };
+            try w.print("    pub const @\"{s}\" = @import(\"{s}\");\n", .{ m.out_basename, file });
+            root_is_module = root_is_module or eql(m.out_basename, root);
+        }
+        try w.writeAll("};\n");
+        if (root_is_module) try w.print("pub const __rig_program = " ++ emit.split_modules ++ ".@\"{s}\";\n", .{root}) else try w.print("pub const __rig_program = @import(\"{s}\");\n", .{root});
+        try w.writeAll(decls.written());
+        try w.print("pub const __rig_unit = struct {{\n    pub const id: u32 = {d};\n    pub const count: u32 = {d};\n}};\n", .{ k, n });
         if (k < n) {
-            try unit_root.writer.writeAll("comptime {\n");
-            for (graph.modules.items) |*m| try unit_root.writer.print("    _ = @import(\"{s}\");\n", .{m.out_basename});
-            try unit_root.writer.writeAll("    rig.split.exportUnit(@import(\"__rig_errseed.zig\").All);\n}\n");
-        } else try unit_root.writer.writeAll("pub fn main(init: std.process.Init.Minimal) u8 {\n    return rig.split.start(init);\n}\n");
-        try files.append(allocator, .{ .path = if (k < n) try allocator.print("__rig_unit_{d}.zig", .{k}) else "__rig_entry.zig", .contents = unit_root.written() });
+            try w.writeAll("comptime {\n");
+            for (graph.modules.items) |*m| try w.print("    _ = " ++ emit.split_modules ++ ".@\"{s}\";\n", .{m.out_basename});
+            try w.writeAll("    rig.split.exportUnit(@import(\"__rig_errseed.zig\").All);\n}\n");
+        } else try w.writeAll("pub fn main(init: std.process.Init.Minimal) u8 {\n    return rig.split.start(init);\n}\n");
+        try files.append(allocator, .{ .path = if (k < n) try allocator.print("__rig_unit_{d}.zig", .{k}) else "__rig_entry.zig", .contents = unit_root.written(), .unit = @intCast(k) });
     }
+}
+
+/// The Zig of module `m` as unit `unit` compiles it: each cut function
+/// that unit owns (`owners`, one for each of the module's cuts) with its
+/// body, every other with the call of its owner in the body's place,
+/// and then the unit's exports of the ones it owns. With no unit, the
+/// module's declarations: every cut function a call.
+fn spliceCuts(allocator: std.mem.Allocator, m: ModuleCuts, owners: []const u16, unit: ?u16) ![]const u8 {
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    var at: usize = 0;
+    var owned = false;
+    for (m.cuts, 0..) |c, i| {
+        if (c.start < at or c.end > m.full.len or c.end < c.start + 2 or m.full[c.start] != '{' or m.full[c.end - 1] != '}')
+            fatal("internal error: the cut function `{s}` is not where its module's Zig holds its body", .{c.name});
+        const here = unit != null and owners[i] == unit.?;
+        owned = owned or here;
+        try out.writer.writeAll(m.full[at..c.start]);
+        try out.writer.writeAll(if (here) m.full[c.start..c.end] else c.stub);
+        at = c.end;
+    }
+    try out.writer.writeAll(m.full[at..]);
+    if (owned) {
+        try out.writer.writeAll("\ncomptime {\n    @setEvalBranchQuota(rig.eval_quota);\n");
+        for (m.cuts, 0..) |c, i| if (owners[i] == unit.?) try out.writer.print("    {s}\n", .{c.exported});
+        try out.writer.writeAll("}\n");
+    }
+    return out.written();
+}
+
+/// Keep a split build's assignment of functions to units (`units.keep`)
+/// at `path`. A failure leaves none, and the next build cuts afresh.
+fn keepOwners(io: std.Io, path: []const u8, table: []const u8) void {
+    var file = std.Io.Dir.cwd().createFileAtomic(io, path, .{ .make_path = true, .replace = true }) catch return;
+    defer file.deinit(io);
+    file.file.writeStreamingAll(io, table) catch return;
+    file.replace(io) catch return;
 }
 
 /// Add each error name `source` writes, `error.Name` or in an
@@ -3170,6 +3403,7 @@ test {
     _ = frames;
     _ = pgo;
     _ = map_trace;
+    _ = units;
     _ = @import("ownership.zig");
     _ = @import("runtime.zig");
     _ = @import("nametable.zig");
