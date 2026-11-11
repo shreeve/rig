@@ -1480,13 +1480,13 @@ pub fn Chan(comptime T: type) type {
             return v;
         }
 
-        /// Receive at once, under the lock, into `out`: a value buffered
-        /// (moving a waiting sender's into its place), or one a waiting
-        /// sender hands over, or none when closed; false when it would
-        /// wait.
-        fn recvNow(self: *Self, out: *?T) bool {
+        /// Receive at once, under the lock, into `out`, Rig's `T?`
+        /// (`rt.Opt`): a value buffered (moving a waiting sender's into
+        /// its place), or one a waiting sender hands over, or none when
+        /// closed; false when it would wait.
+        fn recvNow(self: *Self, out: *rt.Opt(T)) bool {
             if (self.len > 0) {
-                out.* = self.take();
+                out.* = rt.pack(rt.Opt(T), self.take());
                 if (self.senders.claim()) |n| {
                     self.put(n.value);
                     n.sel.wake();
@@ -1494,12 +1494,12 @@ pub fn Chan(comptime T: type) type {
                 return true;
             }
             if (self.senders.claim()) |n| {
-                out.* = n.value;
+                out.* = rt.pack(rt.Opt(T), n.value);
                 n.sel.wake();
                 return true;
             }
             if (self.closed) {
-                out.* = null;
+                out.* = rt.pack(rt.Opt(T), null);
                 return true;
             }
             return false;
@@ -1527,8 +1527,9 @@ pub fn Chan(comptime T: type) type {
         }
 
         /// `(!ch).recv()!`: wait for a value, or none once the channel is
-        /// closed and empty.
-        pub fn recv(self: *Self) anyerror!?T {
+        /// closed and empty, as Rig's `T?` (`rt.Opt`), which holds `none`
+        /// in a niche of `T` where it has one.
+        pub fn recv(self: *Self) anyerror!rt.Opt(T) {
             var arms = .{RecvArm(T, void){ .chan = self, .f = {} }};
             _ = try selectArms(&arms);
             return arms[0].got;
@@ -1584,9 +1585,11 @@ pub fn RecvArm(comptime T: type, comptime F: type) type {
         chan: *Chan(T),
         f: F,
         node: Chan(T).Node = undefined,
-        got: ?T = null,
+        /// What it received, as Rig's `T?` (`rt.Opt`), the type the
+        /// arm's function takes and the select's variant carries.
+        got: rt.Opt(T) = rt.pack(rt.Opt(T), null),
 
-        pub const Value = ?T;
+        pub const Value = rt.Opt(T);
 
         fn key(a: *@This()) usize {
             return @intFromPtr(a.chan);
@@ -1607,7 +1610,7 @@ pub fn RecvArm(comptime T: type, comptime F: type) type {
 
         /// It won while waiting: what the sender or the close left.
         fn won(a: *@This()) void {
-            a.got = if (a.node.closed) null else a.node.value;
+            a.got = rt.pack(rt.Opt(T), if (a.node.closed) null else a.node.value);
         }
 
         /// It lost: nothing of it to drop.
