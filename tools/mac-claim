@@ -96,31 +96,26 @@ release() {
 trap release EXIT
 trap 'exit 130' INT TERM HUP
 
-# Before CMD starts, the Mac drains: with the line written, the test
-# runners start no new job (Rig's test/claim.rip, Trig's tests/trig.rip),
-# and what heavy runs finishes or goes idle. CMD waits until the process
-# trees of heavy's holders together use under RIG_MAC_QUIET_CPU percent
-# of a core (default 100) at every look for RIG_MAC_QUIET_S seconds
-# (default 30), at most RIG_MAC_QUIET_WAIT seconds (default 600); past
-# that it gives the claim up with exit status 75 and names the busy
-# holders. The limit below starts with CMD.
-tree() { local c; echo "$1"; for c in $(pgrep -P "$1"); do tree "$c"; done; }
-holderPids() {
-    local s p
-    for s in "$HL" "$HL".[0-9]*; do
-        p=$(cat "$s/pid" 2>/dev/null) && kill -0 "$p" 2>/dev/null && echo "$p"
-    done
-}
-# The summed CPU percent of heavy's holders and everything under them.
+# Before CMD starts, the Mac drains: with the line written, heavy and the
+# test runners start no new job (Rig's test/claim.rip, Trig's
+# tests/trig.rip), and what runs finishes. CMD waits until every process
+# on the machine but this one together uses under RIG_MAC_QUIET_CPU
+# percent of a core (default 150: the desktop's own load fits under it, a
+# build does not) at every look for RIG_MAC_QUIET_S seconds (default 30),
+# at most RIG_MAC_QUIET_WAIT seconds (default 600); past that it gives the
+# claim up with exit status 75 and names the busiest processes. The whole
+# machine, not only heavy's jobs: a build started outside heavy loads it
+# just the same. The limit below starts with CMD.
 busy() {
-    local p pids=()
-    for p in $(holderPids); do pids+=($(tree "$p")); done
-    ((${#pids[@]})) || { echo 0; return; }
-    ps -o %cpu= -p "$(IFS=,; echo "${pids[*]}")" 2>/dev/null | awk '{ t += $1 } END { printf "%d", t }'
+    ps -A -o pid=,%cpu= | awk -v me=$$ '$1 != me { t += $2 } END { printf "%d", t }'
+}
+busiest() {
+    ps -A -o pid=,%cpu=,args= | awk -v me=$$ '$1 != me' | sort -k2 -rn | head -n 8 |
+        awk '{ pid = $1; cpu = $2; $1 = ""; $2 = ""; sub(/^  /, ""); printf "  PID %s at %s%%: %s\n", pid, cpu, substr($0, 1, 110) }'
 }
 QS=${RIG_MAC_QUIET_S:-30}
 QW=${RIG_MAC_QUIET_WAIT:-600}
-QC=${RIG_MAC_QUIET_CPU:-100}
+QC=${RIG_MAC_QUIET_CPU:-150}
 qstart=$(date +%s)
 calm=$qstart
 qtold=$((qstart + 60))
@@ -130,12 +125,13 @@ while :; do
     ((b >= QC)) && calm=$now
     ((now - calm >= QS)) && break
     if ((now - qstart >= QW)); then
-        echo "tools/mac-claim: the Mac did not go quiet in $((QW / 60)) minutes (heavy's jobs at ${b}% of a core); giving up the claim. Busy:" >&2
-        for p in $(holderPids); do echo "  PID $p: $(ps -o args= -p "$p" | cut -c1-120)" >&2; done
+        echo "tools/mac-claim: the Mac did not go quiet in $((QW / 60)) minutes (${b}% of a core in use, under ${QC}% wanted); giving up the claim. Busiest:" >&2
+        busiest >&2
         exit 75
     fi
     if ((now >= qtold)); then
-        echo "tools/mac-claim: waiting $(((now - qstart) / 60)) min for the Mac to go quiet (heavy's jobs at ${b}% of a core)" >&2
+        echo "tools/mac-claim: waiting $(((now - qstart) / 60)) min for the Mac to go quiet (${b}% of a core in use, under ${QC}% wanted). Busiest:" >&2
+        busiest | head -n 3 >&2
         qtold=$((now + 120))
     fi
     sleep 3
