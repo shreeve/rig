@@ -1,0 +1,69 @@
+# A serial loop that makes CPU-bound tasks, doing its own work between
+# them, as Trig's file loader starts a parse for each file it reads:
+# how long the loop itself takes, against its own work alone. Run as
+# `spawner MODE`: `spin` computes between spawns, `check` also calls
+# `task.check()`, `read` also reads a file. Prints the loop's time, the
+# whole run's, the longest gap between two of its steps, and a check.
+
+use std.file
+use std.os
+use std.task
+use std.time
+
+STEPS = 400
+OWN = 20000
+CHILD = 100000
+
+fun spin(n: Int) -> Int
+  total = 0
+  for i in 0..n
+    total = (total + i * 7) % 1000003
+  total
+
+fun own(mode: Int) -> Int!
+  if mode == 1
+    task.check()!
+  if mode == 2
+    s = file.read("bench/tasks/spawner.rig")! ?? String()
+    return (spin(OWN) + s.len) % 1000003
+  spin(OWN)
+
+fun loader(mode: Int, steps: Int) -> Int!
+  t = time.now()
+  ts = Tasks[Int]()
+  mine = 0
+  worst = 0
+  last = 0
+  for i in 0..steps
+    !ts.add(spin(CHILD + i)&)
+    mine = (mine + own(mode)!) % 1000003
+    now = t.elapsed()
+    if now - last > worst
+      worst = now - last
+    last = now
+  ns = t.elapsed()
+  xs = >ts
+  total = t.elapsed()
+  sum = mine
+  for x in xs
+    sum = (sum + x) % 1000003
+  print(ns / 1000, total / 1000, worst / 1000, sum)
+  sum
+
+fun alone(mode: Int) -> Int!
+  t = time.now()
+  mine = 0
+  for 0..STEPS
+    mine = (mine + own(mode)!) % 1000003
+  print("alone", t.elapsed() / 1000, mine)
+  mine
+
+sub main()
+  args = os.args()
+  mode = 0
+  if args.len > 1 and args[1] == "check"
+    mode = 1
+  if args.len > 1 and args[1] == "read"
+    mode = 2
+  _ = alone(mode) catch 0
+  _ = loader(mode, STEPS) catch 0

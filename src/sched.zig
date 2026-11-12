@@ -55,6 +55,8 @@ comptime {
         grow_lock,
         started,
         workers_asked,
+        spawn_ring,
+        spawn_ring_forced,
         graph,
         preempt_states,
         code_ranges,
@@ -160,6 +162,11 @@ const Worker = struct {
     /// compare-and-swap on the slot then confirms.
     lifo_head: std.atomic.Value(u8) = .init(0),
     lifo_streak: u8 = 0,
+    /// Under `RIG_SPAWN=ring`, in a build with yield checks: the fiber's
+    /// switch (`ran`) its checks are counted for, and how many it has
+    /// passed while only the ring held work (`keepsTurn`).
+    turn_ran: u64 = 0,
+    turn_checks: u32 = 0,
     /// The large stacks it keeps free and has yet to run a fiber on.
     stacks: StackList = .{},
     /// Blocks to reuse (`takeBlock`).
@@ -442,6 +449,7 @@ pub noinline fn tick() void {
     // `poll_interval`.
     if (serviceNow(w)) return stopIn(.{ .run = afterTick });
     if (hasOwnWork(w)) {
+        if (spawn_ring.* and onlyRingWaits(w) and keepsTurn(w)) return;
         if (leftToIdle(w)) return;
         return yield();
     }
@@ -475,7 +483,10 @@ fn serviceNow(w: *Worker) bool {
 /// taken into this worker's ring (`stealWaiting`), as `tick` and
 /// `claimWaiting` decide on the fiber's stack.
 fn yieldsAfterService(w: *Worker) bool {
-    if (hasOwnWork(w)) return !leftToIdle(w);
+    if (hasOwnWork(w)) {
+        if (spawn_ring.* and onlyRingWaits(w) and keepsTurn(w)) return false;
+        return !leftToIdle(w);
+    }
     if (waiting.load(.monotonic) == 0 or !takeWaiting(w) or !othersWait(w)) return false;
     if (leftToIdle(w)) {
         waiting.store(1, .monotonic);
@@ -575,6 +586,9 @@ fn claimWaiting(w: *Worker) void {
     // gone, as a task made and handed its worker at once leaves, ends
     // here.
     if (!hasOwnWork(w) and !othersWait(w)) return;
+    // Only this worker's ring waits, and the fiber's slice has not run
+    // out: it runs on, and the notice stands for the other workers.
+    if (spawn_ring.* and hasOwnWork(w) and onlyRingWaits(w) and keepsTurn(w)) return waiting.store(1, .monotonic);
     if (leftToIdle(w)) return waiting.store(1, .monotonic);
     if (hasOwnWork(w) or stealWaiting(w)) yield();
 }
@@ -787,6 +801,9 @@ const Preempt = struct {
     /// How many fibers it has started running: the monitor sees it run
     /// one fiber for as long as this stays the same.
     runs: std.atomic.Value(u32) = .init(0),
+    /// Under `RIG_SPAWN=ring`: set by the monitor as it signals for a
+    /// slice run out, which `keepsTurn` takes.
+    slice_up: std.atomic.Value(bool) = .init(false),
     /// Fibers it preempted, and the signals the monitor sent it.
     preempts: u64 = 0,
     signals: std.atomic.Value(u64) = .init(0),
@@ -1278,7 +1295,7 @@ fn watchSlices(slice: i96, wait: i96) void {
         for (workersNow(), 0..) |*w, i| {
             const runs = preOf(w).runs.load(.monotonic);
             const running = @atomicLoad(?*Fiber, &w.current, .monotonic) != null;
-            const work = queuedHere(w);
+            const work = if (spawn_ring.*) urgentHere(w) else queuedHere(w);
             queued = queued or work;
             defer had[i] = work;
             if (!running or runs != seen[i]) {
@@ -1291,6 +1308,7 @@ fn watchSlices(slice: i96, wait: i96) void {
             busy = true;
             const waited = work and had[i];
             if (!waited and !serviceDue(w, now) and (now - since[i] < slice or !workWaits(w))) continue;
+            if (spawn_ring.* and now - since[i] >= slice) preOf(w).slice_up.store(true, .monotonic);
             // Again until it stops: a signal that finds the fiber outside
             // the program's code does nothing. After `resignal_free` in a
             // row, each waits twice as long as the one before, up to
@@ -1332,6 +1350,13 @@ fn resignalAfter(tries: u32, wait: i96) i96 {
 /// hurries (`afterPreempt`).
 fn queuedHere(w: *Worker) bool {
     return nextHeld(w, .monotonic) or !w.ring.isEmpty() or w.pinned.count.load(.monotonic) != 0;
+}
+
+/// Under `RIG_SPAWN=ring`: whether fibers woken, or pinned, wait in
+/// `w`'s own queues, which the monitor stops its fiber for after two
+/// looks; work only in the ring waits for an idle worker or the slice.
+fn urgentHere(w: *Worker) bool {
+    return nextHeld(w, .monotonic) or w.pinned.count.load(.monotonic) != 0;
 }
 
 /// Whether work waits that a preempted fiber of the busy worker `w` would
@@ -3328,6 +3353,7 @@ fn initWorker(i: usize) void {
 /// program that makes none starts none.
 fn startWorkers() void {
     started.* = true;
+    spawn_ring.* = spawnRingAsked();
     const n = if (deterministic.*) 1 else @min(workerCount(), all_workers.*.len);
     const ws = all_workers.*[0..n];
     for (1..n) |i| initWorker(i);
@@ -3335,6 +3361,76 @@ fn startWorkers() void {
     workers_len.store(n, .release);
     for (ws[1..]) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
     if (preempt and !deterministic.*) startMonitor();
+}
+
+/// `RIG_SPAWN=ring` (a prototype, read once as the workers start): a
+/// task made by `spawn` goes to the tail of its maker's ring, where an
+/// idle worker steals it at once, rather than into the maker's "run
+/// next" slots; and fibers that wait only in the ring do not displace
+/// the running fiber before its slice (`keepsTurn`). Fibers woken from a
+/// wait still go to the "run next" slots and are run as soon as now.
+/// So a task that makes tasks keeps its worker, as Go's `go` leaves its
+/// maker running, while the tasks it makes wait for a worker that is
+/// free. `RIG_SPAWN=next`, or no setting, is the default.
+var spawn_ring_var = false;
+const spawn_ring = split.cell(&spawn_ring_var, "sched.spawn_ring");
+
+/// Test only: `RIG_SPAWN=ring` without the environment.
+var spawn_ring_forced_var = false;
+const spawn_ring_forced = split.cell(&spawn_ring_forced_var, "sched.spawn_ring_forced");
+
+fn spawnRingAsked() bool {
+    if (deterministic.*) return false;
+    if (spawn_ring_forced.*) return true;
+    const p = rt.process.* orelse return false;
+    const v = p.environ.getPosix("RIG_SPAWN") orelse return false;
+    return std.mem.eql(u8, v, "ring");
+}
+
+/// How many yield checks a fiber passes, in a build with them, while
+/// only its worker's ring holds work, before it yields to that work
+/// (`keepsTurn`): a check comes every 1,024 turns of a loop, so a few
+/// milliseconds of computing, as the 10 ms slice of a build preempted
+/// by signal.
+const ring_turn_checks = 4096;
+
+/// Under `RIG_SPAWN=ring`: whether the work that waits on `w` is only in
+/// its ring, made or yielded there, with nothing woken in its "run next"
+/// slots, no pinned fiber, and nothing in the global queue.
+fn onlyRingWaits(w: *Worker) bool {
+    return !nextHeld(w, .monotonic) and w.pinned.count.load(.seq_cst) == 0 and global.count.load(.monotonic) == 0;
+}
+
+/// Under `RIG_SPAWN=ring`, with only `w`'s ring holding work: whether
+/// the running fiber keeps its worker for now, as its slice has not run
+/// out. A worker asleep is woken for the ring's work meanwhile.
+fn keepsTurn(w: *Worker) bool {
+    const keeps = if (preempt)
+        !preOf(w).slice_up.swap(false, .monotonic)
+    else blk: {
+        if (w.turn_ran != w.ran) {
+            w.turn_ran = w.ran;
+            w.turn_checks = 0;
+        }
+        w.turn_checks += 1;
+        break :blk w.turn_checks <= ring_turn_checks;
+    };
+    if (keeps) notify();
+    return keeps;
+}
+
+/// Under `RIG_SPAWN=ring`, make the task just made, `f`, ready: at the
+/// tail of this worker's ring, behind its maker, and wake a sleeping
+/// worker for it when none is looking. A local task stays next on its
+/// worker, as `wake` puts it.
+fn spawnReady(f: *Fiber) void {
+    if (deterministic.* or f.home != null) return wakeIn(f);
+    const w = me() orelse {
+        global.push(f);
+        return notifyNew();
+    };
+    _ = w.ring.push(f);
+    notify();
 }
 
 /// How many workers the program asked for (`task.workers`), in place of
@@ -3451,7 +3547,10 @@ fn loop(w: *Worker) void {
 
 fn runFiber(w: *Worker, f: *Fiber) void {
     w.ran += 1;
-    if (preempt) preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
+    if (preempt) {
+        preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
+        if (spawn_ring.*) preOf(w).slice_up.store(false, .monotonic);
+    }
     if (f.home != null) w.ran_pinned += 1;
     prepare(w, f);
     spread(w);
@@ -4984,7 +5083,7 @@ fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: an
     if (@hasField(Extra, "fiber")) full.extra.fiber = &full.job.header.fiber;
     if (@hasDecl(Extra, "made")) full.extra.made();
     if (local) full.job.header.fiber.home = pinHereIn();
-    wakeIn(&full.job.header.fiber);
+    if (spawn_ring.*) spawnReady(&full.job.header.fiber) else wakeIn(&full.job.header.fiber);
     return .{ .job = &full.job, .extra = &full.extra };
 }
 
@@ -6840,6 +6939,58 @@ test "a task's maker that computes yields to what it made when every other worke
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.ok);
+}
+
+test "under RIG_SPAWN=ring, a task's maker that computes keeps its worker while every other is busy, until its turn runs out" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var holding = std.atomic.Value(bool).init(false);
+        var release = std.atomic.Value(bool).init(false);
+        var child_on = std.atomic.Value(?*Worker).init(null);
+        var kept = false;
+        var ok = false;
+        const Unit = struct {};
+        /// Holds the other worker, with no yield check.
+        fn hold(_: *Unit) u8 {
+            holding.store(true, .seq_cst);
+            const until = nowNs() + 2 * std.time.ns_per_s;
+            while (!release.load(.seq_cst) and nowNs() < until) std.atomic.spinLoopHint();
+            return 0;
+        }
+        fn child(_: *Unit) u8 {
+            child_on.store(me(), .seq_cst);
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = workersRunning();
+            const h = spawn(u8, Unit, hold, .{}, .{}, false, false).job;
+            // The holder waits in the ring: yield until the other worker
+            // takes it.
+            const until = nowNs() + 2 * std.time.ns_per_s;
+            while (!holding.load(.seq_cst) and nowNs() < until) yield();
+            const home = me();
+            const j = spawn(u8, Unit, child, .{}, .{}, false, false).job;
+            // A turn's checks pass with the task made still waiting.
+            for (0..ring_turn_checks - 1) |_| tick();
+            kept = child_on.load(.seq_cst) == null;
+            while (child_on.load(.seq_cst) == null and nowNs() < until) tick();
+            ok = child_on.load(.seq_cst) == home;
+            release.store(true, .seq_cst);
+            _ = j.join();
+            j.free();
+            _ = h.join();
+            h.free();
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    spawn_ring_forced.* = true;
+    defer spawn_ring_forced.* = false;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.kept);
     try std.testing.expect(Run.ok);
 }
 
