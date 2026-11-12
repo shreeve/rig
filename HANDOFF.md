@@ -106,6 +106,14 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **Spans and huge pages for every segment** (draft PR, branch
+  `heap-huge`, on `alloc-calls`): a large block under 16 MiB is a span
+  of a 32 MiB segment, with no `mmap`, `munmap` or `mremap`; every
+  segment, span segment and mapping of 2 MiB or more asks for huge
+  pages. Trig on supabase-studio 3.3% faster at one checker and 4.9% at
+  four, peak RSS 2.5 to 3.4% higher on large projects and 6 to 8% on
+  tiny ones. Waits on the owner's confirmation of that trade and on pin
+  bump 1 (#1073, #1075).
 - **A channel's receive of a niche-held `T?`** (branch
   `chan-niche-recv`): `Chan.recv` and a select's receiving arm give
   `rig.Opt(T)`, so a `Chan` of an object with a niche, a box, or an
