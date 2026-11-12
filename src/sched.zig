@@ -3763,7 +3763,7 @@ fn takeWaiting(w: *Worker) bool {
 /// How long a worker sleeps before it first gives back what its heap
 /// holds free (`sleep`), and the longest it waits after trims that gave
 /// back little.
-const trim_first: i96 = 10 * std.time.ns_per_ms;
+const trim_first: i96 = 3600 * std.time.ns_per_s;
 const trim_most: i96 = 1 * std.time.ns_per_s;
 
 /// A trim that gives back less than this doubles the worker's wait
