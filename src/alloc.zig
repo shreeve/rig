@@ -463,7 +463,7 @@ pub const Heap = struct {
         // so it asks for huge pages for them; a heap that keeps to one
         // segment, as a server's worker's or a blocking-pool thread's,
         // keeps small pages, as a huge page would commit 2 MiB of it.
-        const huge = builtin.os.tag == .linux and ask(@intFromPtr(s), segment_size, if (faultsAhead(h)) .huge else .small);
+        const huge = builtin.os.tag == .linux and ask(@intFromPtr(s), segment_size, .huge); // arm: every segment asks huge pages
         // The header's page, of a segment of small pages: with the
         // segment's first window, or alone, each page then faulting in
         // as its class takes it (`faultFresh`).
@@ -845,7 +845,7 @@ inline fn allocLargeFrom(h: *Heap, len: usize, mapped: ?*bool) ?[*]u8 {
     };
     const got = mapLarge(size) orelse return null;
     if (mapped) |f| f.* = true;
-    if (size >= huge_large) _ = ask(got, size, .huge) else if (size >= huge_page) _ = ask(got, size, .small);
+    if (size >= huge_page) _ = ask(got, size, .huge); // arm
     h.took(size);
     lent(h, size);
     trimKept(h);
@@ -1674,7 +1674,7 @@ fn carveSpan(h: *Heap, n: usize) ?usize {
     const seg = mapSpanSegment() orelse return null;
     // Small pages, as a large block under `huge_large` keeps: a huge
     // page would commit 2 MiB of a List's room it has not filled.
-    _ = ask(@intFromPtr(seg), span_segment_size, .small);
+    _ = ask(@intFromPtr(seg), span_segment_size, .huge); // arm: span segments ask huge pages
     seg.heap = h;
     seg.used = span_first + n;
     lendSpan(seg, span_first, n);
