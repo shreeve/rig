@@ -459,6 +459,15 @@ none of these ever built:
 
 ### Runtime
 
+- A `rig build --bolt` executable built to be preempted is preempted:
+  BOLT moved the program's functions out of `rig_text` and rewrote the
+  section's bounds so that no address lay between them, so no signal
+  stopped a task, and a task that spun on a worker kept it. BOLT now
+  lays out only the program's own functions, those its profile names,
+  leaving the runtime's where the linker put them; `bin/rig` writes
+  where the program's code then lies into the executable, which the
+  runtime reads as it starts, and fails the build if a section holds
+  functions of both.
 - A channel's receive gives Rig's `T?` as the program holds it: for a
   `T` that holds `none` in a spare value of its own (an object with an
   optional field, a `String` or a `List`, an object that names its none,

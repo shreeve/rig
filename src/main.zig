@@ -3136,6 +3136,7 @@ test {
     _ = lsp;
     _ = frames;
     _ = pgo;
+    _ = bolt;
     _ = map_trace;
     _ = @import("ownership.zig");
     _ = @import("runtime.zig");

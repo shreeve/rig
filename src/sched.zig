@@ -57,6 +57,7 @@ comptime {
         workers_asked,
         graph,
         preempt_states,
+        code_ranges,
         owing,
         watch_thread,
         watch_word,
@@ -665,39 +666,92 @@ const preempt = rt.preempt;
 /// Whether the program is built to be preempted, for alloc.zig's locks.
 pub const preempting = preempt;
 
-/// The bounds of `preempt_section`: on ELF, the symbols the linker
-/// defines, weak, since a program all of whose code the optimizer inlined
-/// into the runtime's has no such section, and is never stopped; on
-/// Mach-O, whose linker defines none, the section's place in the loaded
-/// image, which `findCode` reads before any other thread starts.
+/// The bounds of `preempt_section` as the linker left it, on ELF: the
+/// symbols it defines, weak, since a program all of whose code the
+/// optimizer inlined into the runtime's has no such section, and is
+/// never stopped. Mach-O's linker defines none.
 const code_start = if (preempt and !macho) @extern(?*const u8, .{ .name = "__start_rig_text", .linkage = .weak }) else {};
 const code_end = if (preempt and !macho) @extern(?*const u8, .{ .name = "__stop_rig_text", .linkage = .weak }) else {};
 const macho = builtin.object_format == .macho;
-var code_lo: usize = 0;
-var code_hi: usize = 0;
+
+/// Where the program's own code lies in the loaded image, which
+/// `findCode` reads before any other thread starts: one range, the
+/// section, unless BOLT laid the executable out again, which moves the
+/// program's functions into sections of its own (`CodeWord`).
+const CodeRanges = struct { n: usize = 0, at: [max_code_ranges][2]usize = @splat(.{ 0, 0 }) };
+const max_code_ranges = 8;
+var code_ranges_var: CodeRanges = .{};
+const code_ranges = split.cell(&code_ranges_var, "sched.code_ranges");
 
 inline fn inCode(pc: usize) bool {
-    if (macho) return pc >= code_lo and pc < code_hi;
-    return pc >= @intFromPtr(code_start) and pc < @intFromPtr(code_end);
+    const c = code_ranges;
+    for (c.at[0..@min(c.n, max_code_ranges)]) |r| {
+        if (pc >= r[0] and pc < r[1]) return true;
+    }
+    return false;
 }
+
+/// The ranges of the program's own code in an executable BOLT laid out
+/// again, which `bin/rig` writes after BOLT (src/bolt.zig, `seal`): BOLT
+/// moves the functions it lays out into new sections, `.text` and
+/// `.text.cold`, leaves the rest where they were, and rewrites the
+/// linker's bounds of `preempt_section` as if they named functions. It
+/// lays out only the program's functions, so the new sections hold
+/// nothing else. `bin/rig` finds the word by `magic`; `n` of zero, as it
+/// is built, means the linker's bounds stand. The ranges are addresses
+/// as linked, and `self` the word's own: where a position-independent
+/// executable is loaded, each moves by as much as the word did.
+const CodeWord = extern struct { magic: [16]u8, n: u64, self: u64, at: [max_code_ranges][2]u64 };
+var code_word: if (preempt and !macho) CodeWord else void = if (preempt and !macho) .{ .magic = "rig-code-ranges!".*, .n = 0, .self = 0, .at = @splat(.{ 0, 0 }) } else {};
 
 extern "c" fn getsectiondata(header: *const anyopaque, segment: [*:0]const u8, section: [*:0]const u8, size: *c_ulong) ?[*]const u8;
 extern "c" fn _dyld_get_image_header(image: u32) ?*const anyopaque;
 
-/// Read where the loaded image holds `preempt_section`, on Mach-O: in
-/// the executable, dyld's first image. It runs as `main` starts
-/// (`runMain`), before any other thread: the bounds are two words, and
-/// a worker that read them as they were written could see the old low
-/// bound of 0 with the new high one, and take every address below the
-/// section, the scheduler's own, for the program's (`mustNotBeInCode`).
+/// Read where the loaded image holds the program's own code: on ELF, the
+/// ranges `bin/rig` wrote after BOLT, else the linker's bounds of
+/// `preempt_section`; on Mach-O, where the executable, dyld's first
+/// image, holds the section. It runs as `main` starts (`runMain`),
+/// before any other thread: the bounds are words, and a worker that read
+/// them as they were written could see an old low bound of 0 with a new
+/// high one, and take every address below the section, the scheduler's
+/// own, for the program's (`mustNotBeInCode`).
 fn findCode() void {
     if (std.debug.runtime_safety and started.*) @panic("rig: the program's code section was looked for after the workers started");
-    if (!macho) return;
+    if (macho) findSection() else findRanges();
+}
+
+fn findSection() void {
+    const c = code_ranges;
+    c.n = 0;
     const header = _dyld_get_image_header(0) orelse return;
     var size: c_ulong = 0;
     const at = getsectiondata(header, "__TEXT", "__rig_text", &size) orelse return;
-    code_lo = @intFromPtr(at);
-    code_hi = code_lo + size;
+    c.at[0] = .{ @intFromPtr(at), @intFromPtr(at) + size };
+    c.n = 1;
+}
+
+fn findRanges() void {
+    const c = code_ranges;
+    c.n = 0;
+    // Read through a volatile pointer: the word is written after the link.
+    const word: *volatile CodeWord = &code_word;
+    const n: usize = @intCast(@min(word.n, max_code_ranges + 1));
+    if (n == 0) {
+        if (@intFromPtr(code_start) >= @intFromPtr(code_end)) return;
+        c.at[0] = .{ @intFromPtr(code_start), @intFromPtr(code_end) };
+        c.n = 1;
+        return;
+    }
+    // A word no `bin/rig` wrote, from any other tool's hands, stops nothing.
+    if (n > max_code_ranges or word.self == 0) return;
+    const moved = @intFromPtr(word) -% @as(usize, @intCast(word.self));
+    for (0..n) |i| {
+        const lo: usize = @intCast(word.at[i][0]);
+        const hi: usize = @intCast(word.at[i][1]);
+        if (lo >= hi) return;
+        c.at[i] = .{ lo +% moved, hi +% moved };
+    }
+    c.n = n;
 }
 
 /// What preemption keeps for each worker, beside its `Worker`, which

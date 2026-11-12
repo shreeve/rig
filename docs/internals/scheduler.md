@@ -475,6 +475,12 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
   the yield check owed, which the fiber's next waiting point pays
   (`atWaitingPoint`), as do the allocator's slow path and the growth of
   a List, a Map, or a HashMap as they return (`settleAt`).
+  The runtime reads where that code lies as `main` starts
+  (`findCode`): the section's bounds, or, in an executable BOLT laid
+  out again (`rig build --bolt`), the ranges `bin/rig` wrote into it
+  (`CodeWord`): BOLT lays out only the program's functions, moving
+  those its profile names into sections of its own, and `bin/rig`
+  fails the build if a section of code holds functions of both.
 - **The emitted code** carries the yield checks of the next section, but
   `rig.turn` and `rig.tickCall` compile to nothing, so loops run with no
   check, and the program's functions are placed in `rig_text`.
