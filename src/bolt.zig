@@ -19,6 +19,11 @@
 //! reads as it starts (`sched.CodeWord`), and fails the build if any
 //! section holds functions of both.
 //!
+//! `rig build --bolt` of an executable such a build wrote lays a copy
+//! of it out the same way, compiling nothing (`layOut`): BOLT's profile
+//! needs a processor that records branches, which a build machine may
+//! not have.
+//!
 //! Everything BOLT needs is in this file. The feature is removed by
 //! deleting it, the `--bolt` and `--bolt-profile` flags in main.zig, and
 //! test/cli/bolt.sh.
@@ -54,6 +59,20 @@ pub const Tools = struct {
 /// passes on as a warning: a short workload gives too few for a layout
 /// as good as BOLT could make.
 const more_samples = "optimize better with ";
+
+/// `rig build --bolt` of an executable a `--bolt` build wrote
+/// (relocations kept): lay a copy of `input` out into `out`, as `optimize`
+/// lays out a build, compiling nothing. A build machine whose processor
+/// records no branches makes `input`; one whose processor does records
+/// the workload, or is given the profile, and lays it out.
+pub fn layOut(allocator: std.mem.Allocator, io: std.Io, tools: Tools, input: []const u8, out: []const u8, workload: []const []const u8, profile: ?[]const u8) !void {
+    const cwd = std.Io.Dir.cwd();
+    const bytes = cwd.readFileAlloc(io, input, allocator, .limited(1 << 32)) catch |err| fail("cannot read `{s}`: {s}", .{ input, @errorName(err) });
+    const e = Elf.read(bytes) orelse fail("`{s}` is not an ELF executable", .{input});
+    if (e.find(".rela.text") == null and e.find(".rela" ++ code_section) == null) fail("`{s}` keeps no relocations, which BOLT needs to move code: build it with `rig build --release --bolt`", .{input});
+    cwd.copyFile(input, cwd, out, io, .{}) catch |err| fail("cannot copy `{s}` to `{s}`: {s}", .{ input, out, @errorName(err) });
+    try optimize(allocator, io, tools, out, workload, profile);
+}
 
 /// Lay `exe` out again: record `workload` under perf into BOLT's profile
 /// (kept at `profile` when given), or, with no workload, read `profile`.

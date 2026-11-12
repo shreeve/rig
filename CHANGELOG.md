@@ -467,7 +467,11 @@ none of these ever built:
   leaving the runtime's where the linker put them; `bin/rig` writes
   where the program's code then lies into the executable, which the
   runtime reads as it starts, and fails the build if a section holds
-  functions of both.
+  functions of both. `rig build --bolt` also takes an executable such a
+  build wrote, in place of the .rig file, and lays a copy of it out into
+  `-o`'s file by a workload or a saved `--bolt-profile`, compiling
+  nothing: one machine builds, and another, whose processor records
+  branches, lays the build out the same way.
 - A channel's receive gives Rig's `T?` as the program holds it: for a
   `T` that holds `none` in a spare value of its own (an object with an
   optional field, a `String` or a `List`, an object that names its none,

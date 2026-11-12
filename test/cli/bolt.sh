@@ -31,10 +31,19 @@ out=$("$RIG" build --bolt -o prog p.rig -- ./prog 2>&1); expect_rc $? 2 "--bolt 
 expect_has "$out" "add \`--release\`" "--bolt on a debug build"
 out=$("$RIG" run --release --bolt p.rig 2>&1); expect_rc $? 2 "--bolt on run"
 out=$("$RIG" build --release --bolt-profile=p.fdata -o prog p.rig 2>&1); expect_rc $? 2 "--bolt-profile alone"
+# An executable in place of the .rig file is laid out with no compile,
+# into a copy `-o` names.
+printf '\177ELF' >fake.exe
+out=$("$RIG" build --bolt --bolt-profile=p.fdata fake.exe 2>&1); expect_rc $? 2 "--bolt of an executable without -o"
+expect_has "$out" "needs \`-o\`" "--bolt of an executable without -o"
+out=$("$RIG" build --bolt --bolt-profile=p.fdata -o fake.exe fake.exe 2>&1); expect_rc $? 2 "--bolt of an executable over itself"
+out=$("$RIG" build --release --bolt --pgo --bolt-profile=p.fdata --pgo-profile=p.prof -o out fake.exe 2>&1); expect_rc $? 2 "--pgo of an executable"
 
 if [[ $(uname -s) != Linux ]]; then
     out=$("$RIG" build --release --bolt -o prog p.rig -- ./prog 2>&1); expect_rc $? 1 "--bolt off Linux"
     expect_has "$out" "needs Linux" "--bolt off Linux"
+    out=$("$RIG" build --bolt --bolt-profile=p.fdata -o out fake.exe 2>&1); expect_rc $? 1 "--bolt of an executable off Linux"
+    expect_has "$out" "needs Linux" "--bolt of an executable off Linux"
     exit 0
 fi
 
@@ -99,5 +108,15 @@ if [[ $(uname -m) == x86_64 ]]; then
         expect_eq "$on" $'true\n0 1' "spin-$mode laid out"
         grep -q 'preempted [1-9]' err-spin-$mode.txt || fail "spin-$mode laid out: no task preempted: $(cat err-spin-$mode.txt)"
     done
+    # Built on one machine, laid out on another: an empty profile leaves
+    # the build as linked, relocations kept; `--bolt` of that executable
+    # lays a copy out with no compile, and it is preempted too.
+    : >empty.fdata
+    out=$("$RIG" build --release=fast --bolt --bolt-profile=empty.fdata -o spin-relocs spin.rig 2>&1); expect_rc $? 0 "build spin.rig with relocations: $out"
+    readelf -S spin-relocs | grep -q '\.rela' || fail "spin-relocs keeps no relocations"
+    out=$(PATH=$PWD/empty:/usr/bin:/bin ZIG=/nonexistent "$RIG" build --bolt -o spin-split spin-relocs -- ./spin-split 2>&1); expect_rc $? 0 "--bolt of spin-relocs: $out"
+    on=$(RIG_SCHED_STATS=1 "$TIMEOUT_CMD" 60 ./spin-split 2>err-spin-split.txt) || fail "spin-split (timeout 60 s): $on $(cat err-spin-split.txt)"
+    expect_eq "$on" $'true\n0 1' "spin-split"
+    grep -q 'preempted [1-9]' err-spin-split.txt || fail "spin-split: no task preempted: $(cat err-spin-split.txt)"
 fi
 exit 0
