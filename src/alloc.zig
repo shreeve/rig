@@ -308,6 +308,13 @@ comptime {
 
 const Block = struct { next: ?*Block };
 
+/// Start loading the block after `b` on its free list, which the next
+/// allocation of its class pops: a list taken back from another core, or
+/// freed long ago, is cold, and its `next` would miss the cache then.
+inline fn prefetchNext(b: *Block) void {
+    if (b.next) |n| @prefetch(n, .{ .rw = .write, .locality = 3, .cache = .data });
+}
+
 /// A segment's header, at its start.
 const Segment = struct {
     /// The heap that made the segment, which owns its blocks.
@@ -409,6 +416,7 @@ pub const Heap = struct {
         mustOwn(h);
         if (h.free[c]) |b| {
             h.free[c] = b.next;
+            prefetchNext(b);
             return @ptrCast(b);
         }
         if (h.remote[c].load(.monotonic) != null) {
@@ -2583,6 +2591,7 @@ noinline fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, _: us
     if (fastClass(len, alignment)) |c| if (my_heap().*) |h| if (h.free[c]) |b| {
         if (builtin.is_test) mustOwn(h);
         h.free[c] = b.next;
+        prefetchNext(b);
         if (counts) h.count(@intCast(classSize(c)), 1);
         return @ptrCast(b);
     };
