@@ -144,11 +144,15 @@ const Names = struct {
     /// Whose function a symbol of the laid-out executable names: BOLT
     /// keeps each function's name, and names the parts it makes after
     /// it (`f.cold.0`, `f.warm`, a folded copy's `f.icf.0`, and a local
-    /// function's `f/1`). A name the linked executable never had is
-    /// counted as another's: nothing vouches for it.
+    /// function's `f/1`). The linker's bounds of the program's section
+    /// (`__start_rig_text`), which BOLT takes for the first function's
+    /// name and splits like one, are the program's. A name the linked
+    /// executable never had is counted as another's: nothing vouches for
+    /// it.
     fn kind(n: *const Names, symbol: []const u8) Kind {
         var name = symbol;
         while (true) {
+            if (std.mem.eql(u8, name, "__start_" ++ code_section) or std.mem.eql(u8, name, "__stop_" ++ code_section)) return .program;
             const p = n.program.contains(name);
             const o = n.other.contains(name);
             if (p and o) return .neither;
@@ -596,6 +600,8 @@ test "the linked executable's functions: the program's are those of its section"
     try std.testing.expectEqual(Names.Kind.program, names.kind("main.step.cold.0"));
     try std.testing.expectEqual(Names.Kind.program, names.kind("main.step/1.cold.0"));
     try std.testing.expectEqual(Names.Kind.program, names.kind("main.run.icf.0"));
+    try std.testing.expectEqual(Names.Kind.program, names.kind("__start_rig_text.cold.0"));
+    try std.testing.expectEqual(Names.Kind.other, names.kind("__start_text.cold.0"));
     try std.testing.expectEqual(Names.Kind.other, names.kind("sched.wake.cold.1"));
     try std.testing.expectEqual(Names.Kind.other, names.kind("bolt.made"));
 
