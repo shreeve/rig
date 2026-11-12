@@ -106,14 +106,14 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
-- **Spans and huge pages for every segment** (draft PR, branch
-  `heap-huge`, on `alloc-calls`): a large block under 16 MiB is a span
-  of a 32 MiB segment, with no `mmap`, `munmap` or `mremap`; every
-  segment, span segment and mapping of 2 MiB or more asks for huge
-  pages. Trig on supabase-studio 3.3% faster at one checker and 4.9% at
-  four, peak RSS 2.5 to 3.4% higher on large projects and 6 to 8% on
-  tiny ones. Waits on the owner's confirmation of that trade and on pin
-  bump 1 (#1073, #1075).
+- **`shared.Map`** (branch `concurrent-map`, draft PR): a map
+  several tasks fill and read, insert-only, lookups that take no lock
+  and write nothing shared, values viewed in place. It rests on one
+  clause added to Core sentence 9 (a word-Cell object's handles cross
+  tasks); the owner approved the clause, after a review of four
+  experts, and the name. Waits on pup's `zig build test` and the Trig
+  and loco light gates. Design:
+  `~/Data/Code/Claude/rig/rig/proposals/std-concurrent-map.md`.
 - **A channel's receive of a niche-held `T?`** (branch
   `chan-niche-recv`): `Chan.recv` and a select's receiving arm give
   `rig.Opt(T)`, so a `Chan` of an object with a niche, a box, or an
