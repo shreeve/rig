@@ -459,6 +459,21 @@ none of these ever built:
 
 ### Runtime
 
+- **Release allocator:** on Linux, a segment that gets huge pages is
+  not faulted in ahead: its first write to each 2 MiB faults all of it
+  in, so the call made for each 64 KiB page a class took
+  (`MADV_POPULATE_WRITE`) found all but the first of 32 mapped. A
+  segment of small pages is faulted in a page at a time as before,
+  and 1 MiB at a time once its heap has taken 64 MiB from the system.
+- A task's record is a block of Rig's allocator in a release build,
+  taken from the heap of the thread that makes the task and given back
+  to it by the thread that frees it, where it was a block of Zig's
+  `smp_allocator`, which maps and unmaps memory for records as tasks
+  are made and freed. A debug build keeps Zig's allocator.
+  Together, on pup, Trig checking supabase-studio at four checkers
+  makes 3,241 to 3,586 `madvise` calls where it made 12,975 to 13,135,
+  968 to 971 `mmap` where it made 1,872 to 1,897, and 1,011 to 1,027
+  `munmap` where it made 1,812 to 1,819.
 - A worker that has slept 10 ms gives back what its heap holds free,
   once its heap has taken 4 MiB from the system since it last did:
   the pages of its kept large blocks, and on Linux each 64 KiB class
