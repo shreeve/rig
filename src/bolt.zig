@@ -143,8 +143,8 @@ const Names = struct {
 
     /// Whose function a symbol of the laid-out executable names: BOLT
     /// keeps each function's name, and names the parts it makes after
-    /// it (`f.cold.0`, `f.warm`, a folded copy's `f.icf.0`, and a local
-    /// function's `f/1`). The linker's bounds of the program's section
+    /// it (`f.cold.0`, `f.warm`, a folded copy's `f.icf.0`, the body left
+    /// where it was `f.org.0`, and a local function's `f/1`). The linker's bounds of the program's section
     /// (`__start_rig_text`), which BOLT takes for the first function's
     /// name and splits like one, are the program's. A name the linked
     /// executable never had is counted as another's: nothing vouches for
@@ -168,12 +168,17 @@ fn boltBase(name: []const u8) ?[]const u8 {
     for ([_][]const u8{ ".icf.0", ".warm", ".cold" }) |suffix| {
         if (std.mem.endsWith(u8, name, suffix)) return name[0 .. name.len - suffix.len];
     }
-    // `.cold.N`
+    // `.cold.N`, and `.org.N`: the body a moved function had, which BOLT
+    // leaves where the linker put it.
     if (std.mem.lastIndexOfScalar(u8, name, '.')) |dot| {
         const digits = name[dot + 1 ..];
-        if (digits.len > 0 and std.mem.endsWith(u8, name[0..dot], ".cold") and for (digits) |c| {
+        if (digits.len > 0 and for (digits) |c| {
             if (!std.ascii.isDigit(c)) break false;
-        } else true) return name[0 .. dot - ".cold".len];
+        } else true) {
+            for ([_][]const u8{ ".cold", ".org" }) |part| {
+                if (std.mem.endsWith(u8, name[0..dot], part)) return name[0 .. dot - part.len];
+            }
+        }
     }
     if (std.mem.indexOfScalar(u8, name, '/')) |slash| return name[0..slash];
     return null;
@@ -601,6 +606,9 @@ test "the linked executable's functions: the program's are those of its section"
     try std.testing.expectEqual(Names.Kind.program, names.kind("main.step/1.cold.0"));
     try std.testing.expectEqual(Names.Kind.program, names.kind("main.run.icf.0"));
     try std.testing.expectEqual(Names.Kind.program, names.kind("__start_rig_text.cold.0"));
+    try std.testing.expectEqual(Names.Kind.program, names.kind("main.step.org.0"));
+    try std.testing.expectEqual(Names.Kind.program, names.kind("main.step/1.org.0"));
+    try std.testing.expectEqual(Names.Kind.other, names.kind("sched.wake.org.0"));
     try std.testing.expectEqual(Names.Kind.other, names.kind("__start_text.cold.0"));
     try std.testing.expectEqual(Names.Kind.other, names.kind("sched.wake.cold.1"));
     try std.testing.expectEqual(Names.Kind.other, names.kind("bolt.made"));
