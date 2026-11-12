@@ -231,10 +231,18 @@ stack, as the actor, with no message and no switch. So an idle actor
 costs about what a lock does, and Rig has no `Mutex`.
 
 Every call takes the actor, a read as much as a write, so a table many
-tasks read is no actor's: std.shared's `SharedMap`
+tasks read is no actor's: `shared.Map`
 ([STD](STD.md#stdshared)) keeps the first value put under each key, so
 a lookup takes nothing and writes nothing, and only a put of a new key
 locks, one shard of 64.
+
+An object that holds a Cell, and whose every field is plain data, a
+Cell of one word, or another such object, is shared the same way, with no actor: its handles go to other tasks,
+and each Cell operation lands at once in one order every task sees
+(SPEC, "Cell"). Each operation is one change, so a `get` then a `set`
+are two, and a change another task makes between them is lost: count
+with `!c.add(n)`, and replace a value with `(!c).compare_swap(old,
+new)` or `!c.swap(v)`.
 
 **It guarantees** that an actor runs one method at a time, each to its
 end, so no one sees its state half-changed. A call that would close a

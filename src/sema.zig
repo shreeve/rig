@@ -4393,6 +4393,11 @@ pub const SemContext = struct {
     /// a Zig `packed struct`, decided for the whole program after every
     /// module is checked (`storage.decideWords`).
     word_held: FastMap(SymbolId, void) = .empty,
+    /// Each object declared here that holds a Cell, and whether it is a
+    /// word-Cell object or which field keeps it from being one
+    /// (`recordCellObjects`): read by the crossing walk (`cellObject`),
+    /// its messages, and emit (`facts.isCellObject`).
+    cell_objects: FastMap(SymbolId, CellVerdict) = .empty,
     /// The plain enums declared here that an `exact` object holds, with
     /// their tag's bytes (`enumBytes`): emit gives each its tag type,
     /// `enum(u8)`, which a Zig `extern struct` needs where it takes no
@@ -4664,6 +4669,7 @@ pub const SemContext = struct {
         self.ct_locals.deinit(self.allocator);
         self.named_nones.deinit(self.allocator);
         self.word_held.deinit(self.allocator);
+        self.cell_objects.deinit(self.allocator);
         self.exact_enums.deinit(self.allocator);
         self.generic_arrays.deinit(self.allocator);
         self.generic_frames.deinit(self.allocator);
@@ -6474,6 +6480,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try checkTypeSizes(&ctx, order);
     try computeOrigins(&ctx);
     try resolve.checkDeclarations(&ctx);
+    try recordCellObjects(&ctx);
     timing.stop(opts.timing, .resolve, t0);
     t0 = timing.start(opts.timing);
     try typecheck.checkModule(&ctx, tree, module_scope);
@@ -11588,73 +11595,181 @@ pub fn atomicHandle(ctx: *const SemContext, inner: TypeId) bool {
     return isWordCell(ctx, inner) or actorValue(ctx, inner) != null or chanValue(ctx, inner) != null or frozenValue(ctx, inner) != null or frozenObject(ctx, inner) or cellObject(ctx, inner);
 }
 
-/// Whether `inner` is a word-Cell object: an object that holds a Cell,
-/// each of whose parts is plain data, a Cell of one word, or another such
-/// object (Core sentence 9). Through a handle only its Cells change, each
-/// change one atomic instruction, so its handles count atomically and go
-/// to other tasks, as a word Cell's do. A part that names a type
-/// parameter is none of these, so a generic object is decided by its
-/// declaration alone, the same for every instance, as the runtime's
-/// `synchronized` reads it (`__rig_synced`, which emit writes from
-/// `cellObjectSym`).
+/// Whether `inner` is a word-Cell object (Core sentence 9): an object
+/// that holds a Cell and whose every field, as declared, is plain data,
+/// a Cell of one word, or another word-Cell object. Through a handle
+/// only its Cells change, each change one atomic instruction, so its
+/// handles count atomically and go to other tasks, as a word Cell's do.
+/// Read from what sema recorded for the declaring module
+/// (`SemContext.cell_objects`), as emit reads it for the runtime's
+/// `synchronized` (`__rig_synced`).
 pub fn cellObject(ctx: *const SemContext, inner: TypeId) bool {
-    const decl: CloneSeen = switch (ctx.types.get(inner)) {
-        .nominal => |sym| .{ .ctx = ctx, .sym = sym },
-        .imported_nominal => blk: {
-            const d = nominalDecl(ctx, inner) orelse return false;
-            break :blk .{ .ctx = d.ctx, .sym = d.sym };
-        },
-        .parameterized_nominal => |pn| if (isBuiltinGeneric(ctx, pn.sym) or isHashTable(ctx, pn.sym)) return false else declaredAt(ctx, pn.sym) orelse return false,
-        else => return false,
-    };
+    const decl = cellDecl(ctx, inner) orelse return false;
     return cellObjectSym(decl.ctx, decl.sym);
 }
 
 /// `cellObject` of the object `sym` declares in `ctx`.
 pub fn cellObjectSym(ctx: *const SemContext, sym: SymbolId) bool {
-    return cellFields(ctx, sym, 0) == .cells;
+    const v = ctx.cell_objects.get(sym) orelse return false;
+    return v == .cells;
 }
 
-const CellParts = enum { none, cells, other };
+/// The declaration of the object `ty` names, the one a word-Cell object
+/// is decided by: a generic object's, the same for every instance; null
+/// for a built-in type or one that names no object.
+fn cellDecl(ctx: *const SemContext, ty: TypeId) ?CloneSeen {
+    return switch (ctx.types.get(ty)) {
+        .nominal => |sym| declaredAt(ctx, sym),
+        .imported_nominal => blk: {
+            const d = nominalDecl(ctx, ty) orelse break :blk null;
+            break :blk .{ .ctx = d.ctx, .sym = d.sym };
+        },
+        .parameterized_nominal => |pn| if (isBuiltinGeneric(ctx, pn.sym) or isHashTable(ctx, pn.sym)) null else declaredAt(ctx, pn.sym),
+        else => null,
+    };
+}
 
-/// What the parts of the object `sym` declares in `ctx` are, for
-/// `cellObject`: all plain data (`none`), plain data and at least one
-/// word Cell or word-Cell object (`cells`), or anything else (`other`).
-fn cellFields(ctx: *const SemContext, sym: SymbolId, depth: u32) CellParts {
-    if (depth > max_alias_height) return .other;
+/// What sema decided of an object that holds a Cell
+/// (`SemContext.cell_objects`): a word-Cell object, or the first field
+/// that keeps it from being one, and why.
+pub const CellVerdict = union(enum) {
+    cells,
+    refused: CellRefusal,
+};
+
+pub const CellRefusal = struct {
+    /// The field's index in the declaration's `fields`.
+    field: u32,
+    why: Why,
+
+    pub const Why = enum {
+        /// The declaration is an enum: the field is a variant.
+        variant,
+        /// The field's type names a type parameter: decided by the
+        /// declaration, the same for every instance.
+        generic,
+        /// A Cell of more than one word.
+        wide_cell,
+        /// An object that holds a Cell and is no word-Cell object: its
+        /// own verdict says which of its fields.
+        nested,
+        /// Neither plain data, a Cell of one word, nor such an object.
+        other,
+    };
+};
+
+/// Decide, for each object this module declares that holds a Cell,
+/// whether it is a word-Cell object (`cellObject`), by one positive list
+/// over its fields: plain data (Core §1, `isPlain`) that names no type
+/// parameter, a Cell of one word, or another word-Cell object. Recorded
+/// once, after the declarations resolve and before any body is checked,
+/// so the crossing walk, its messages, and emit read one decision.
+fn recordCellObjects(ctx: *SemContext) std.mem.Allocator.Error!void {
+    ctx.cell_objects.clearRetainingCapacity();
+    for (ctx.symbols.items, 0..) |s, i| {
+        if (isProxy(s) or (s.kind != .nominal_type and s.kind != .generic_type)) continue;
+        _ = try cellVerdict(ctx, @intCast(i), 0);
+    }
+}
+
+/// The verdict of the object `sym` declares here (`recordCellObjects`),
+/// recorded; null when it holds no Cell.
+fn cellVerdict(ctx: *SemContext, sym: SymbolId, depth: u32) std.mem.Allocator.Error!?CellVerdict {
+    if (ctx.cell_objects.get(sym)) |v| return v;
     const s = ctx.symbols.items[sym];
-    if (s.kind != .nominal_type and s.kind != .generic_type) return .other;
-    var out: CellParts = .none;
-    for (s.fields orelse &.{}) |f| {
+    if (s.kind != .nominal_type and s.kind != .generic_type) return null;
+    var cells = false;
+    var refused: ?CellRefusal = null;
+    for (s.fields orelse &.{}, 0..) |f, i| {
         if (f.is_method or f.is_drop_method) continue;
-        if (f.is_variant) return .other;
-        switch (cellPart(ctx, f.ty, depth + 1)) {
-            .none => {},
-            .cells => out = .cells,
-            .other => return .other,
+        const at: u32 = @intCast(i);
+        if (f.is_variant) {
+            if (refused == null) refused = .{ .field = at, .why = .variant };
+            for (f.payload orelse &.{}) |pf| {
+                if (holdsCellByValue(ctx, pf.ty)) cells = true;
+            }
+            continue;
+        }
+        switch (try cellPart(ctx, f.ty, depth + 1)) {
+            .plain => {},
+            .cells => cells = true,
+            .holds_cell => |why| {
+                cells = true;
+                if (refused == null) refused = .{ .field = at, .why = why };
+            },
+            .refused => |why| if (refused == null) {
+                refused = .{ .field = at, .why = why };
+            },
         }
     }
-    return out;
+    if (!cells) return null;
+    const v: CellVerdict = if (refused) |r| .{ .refused = r } else .cells;
+    try ctx.cell_objects.put(ctx.allocator, sym, v);
+    return v;
 }
 
-fn cellPart(ctx: *const SemContext, ty: TypeId, depth: u32) CellParts {
+const CellPart = union(enum) {
+    plain,
+    cells,
+    /// It holds a Cell, and is refused.
+    holds_cell: CellRefusal.Why,
+    refused: CellRefusal.Why,
+};
+
+/// What a field of type `ty` is to a word-Cell object (`cellVerdict`).
+fn cellPart(ctx: *SemContext, ty: TypeId, depth: u32) std.mem.Allocator.Error!CellPart {
     if (isWordCell(ctx, ty)) return .cells;
     const info = ctx.typeInfo(ty);
-    if (info.has_type_var or info.views.string_view or info.views.marked) return .other;
-    if (!info.cell) return if (info.plain) .none else .other;
-    return switch (ctx.types.get(ty)) {
-        .nominal => |s| cellFields(ctx, s, depth),
-        .imported_nominal => blk: {
-            const d = nominalDecl(ctx, ty) orelse break :blk .other;
-            break :blk cellFields(d.ctx, d.sym, depth);
-        },
-        .parameterized_nominal => |pn| blk: {
-            if (isBuiltinGeneric(ctx, pn.sym) or isHashTable(ctx, pn.sym)) break :blk .other;
-            const d = declaredAt(ctx, pn.sym) orelse break :blk .other;
-            break :blk cellFields(d.ctx, d.sym, depth);
-        },
-        else => .other,
+    const holds = info.cell;
+    if (info.has_type_var) return if (holds) .{ .holds_cell = .generic } else .{ .refused = .generic };
+    if (!holds) return if (try isPlain(ctx, ty)) .plain else .{ .refused = .other };
+    if (isCell(ctx, ty)) return .{ .holds_cell = .wide_cell };
+    if (depth > max_alias_height) return .{ .holds_cell = .other };
+    const d = cellDecl(ctx, ty) orelse return .{ .holds_cell = .other };
+    const v = if (d.ctx == ctx) try cellVerdict(ctx, d.sym, depth) else d.ctx.cell_objects.get(d.sym);
+    const got = v orelse return .{ .holds_cell = .other };
+    return switch (got) {
+        .cells => .cells,
+        .refused => .{ .holds_cell = .nested },
     };
+}
+
+/// Why a `*` handle to `inner`, which holds a Cell, stays with one task,
+/// from sema's verdict (`cellObject`): the field that keeps it from being
+/// a word-Cell object, through the objects it is held in
+/// (`` `a.s: String` ``), and what that field is. Null when `inner` is a
+/// word-Cell object or holds no Cell an object declares.
+pub fn cellRefusalReason(ctx: *SemContext, inner: TypeId) std.mem.Allocator.Error!?[]const u8 {
+    const a = ctx.arena.allocator();
+    var decl = cellDecl(ctx, inner) orelse return null;
+    var path: std.ArrayList(u8) = .empty;
+    var depth: u32 = 0;
+    while (depth <= max_alias_height) : (depth += 1) {
+        const v = decl.ctx.cell_objects.get(decl.sym) orelse return null;
+        const r = switch (v) {
+            .cells => return null,
+            .refused => |r| r,
+        };
+        const f = (decl.ctx.symbols.items[decl.sym].fields orelse return null)[r.field];
+        if (r.why == .variant) {
+            if (depth == 0) return "a `*` handle to an enum that holds a Cell, which stays with one task; of the values that hold a Cell, only a word-Cell object goes to other tasks";
+            return try a.print("a `*` handle to an object that holds a Cell and `{s}`, an enum that holds one, which stays with one task", .{path.items});
+        }
+        if (path.items.len > 0) try path.append(a, '.');
+        try path.appendSlice(a, f.name);
+        if (r.why == .nested) {
+            decl = cellDecl(decl.ctx, f.ty) orelse return null;
+            continue;
+        }
+        const shown = try formatTypeIn(decl.ctx, a, f.ty);
+        const what: []const u8 = switch (r.why) {
+            .generic => ": a generic part is decided by the declaration, the same for every instance",
+            .wide_cell => ", a Cell of more than one word",
+            else => ", which is neither plain data, a Cell of one word, nor a word-Cell object",
+        };
+        return try a.print("a `*` handle to an object that holds a Cell and `{s}: {s}`{s}, so it stays with one task", .{ path.items, shown, what });
+    }
+    return null;
 }
 
 /// Whether `ty` is a `Cell[T]`.

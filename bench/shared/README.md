@@ -1,6 +1,6 @@
 # Shared map benchmarks
 
-`shared.rig` times std.shared's `SharedMap` ([STD](../../docs/STD.md#stdshared))
+`shared.rig` times `shared.Map` ([STD](../../docs/STD.md#stdshared))
 against the shapes that held a map several tasks write before it: a
 `Map` in each of 64 actors, a key's hash picking one, and one `Map`
 behind one actor; and, for lookups alone, one `Map` lent to every task
@@ -38,7 +38,7 @@ the checks of the shapes must agree.
 later ask for the key a hit. It is the measurement of
 frontend-answers' Question 2, whose `shards` row it repeats. A put
 clones the key in every shape. A lookup through an actor copies the
-value out; one through a `SharedMap` views it in place.
+value out; one through a `shared.Map` views it in place.
 
 The driver runs every shape, phase, and count once a round, in an order
 shuffled for the round, and reports the median of the rounds: the wall
@@ -52,7 +52,7 @@ Mac (M5, 4 fast and 6 slow cores), 2026-11-11, branch `concurrent-map`,
 parentheses nanoseconds of CPU an operation. 12 tasks is more than the
 cores.
 
-| Phase | Tasks | SharedMap | 64 actor shards | one actor | Map lent to read |
+| Phase | Tasks | shared.Map | 64 actor shards | one actor | Map lent to read |
 |---|---|---|---|---|---|
 | insert | 1 | 5.3 (53) | 4.9 (49) | 3.1 (31) | |
 | insert | 6 | 3.8 (230) | 4.2 (250) | 9.0 (542) | |
@@ -64,7 +64,7 @@ cores.
 | mixed | 6 | 15.3 (46) | 39.5 (118) | 118.7 (356) | |
 | mixed | 12 | 13.1 (79) | 37.9 (227) | 325.5 (1,953) | |
 
-A lookup in a `SharedMap` costs within 14% of a plain `Map`'s on one
+A lookup in a `shared.Map` costs within 14% of a plain `Map`'s on one
 task and within 20% on six, and 2.6 to 3 times less wall time than the
 actor shards on six; a put costs what a shard's does. One actor gets
 slower with each task added, since every call takes it.

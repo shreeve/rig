@@ -1,6 +1,6 @@
 # std.shared: a map several tasks fill and read at once.
 #
-# A `SharedMap[K, V]` lives behind a handle, `*SharedMap[K, V]`, which
+# A `Map[K, V]` lives behind a handle, `*Map[K, V]`, which
 # `+m` copies for each task. A key keeps the first value put under it:
 # nothing is replaced or taken, so a value stays where it was put, and a
 # lookup reads it in place, as a view tied to the handle it was looked
@@ -25,13 +25,13 @@ obj Table
   drop(!@)
     free(@addr.get())
 
-pub obj SharedMap[K: Hash + Owned + Sends + Syncs, V: Owned + Sends + Syncs]
+pub obj Map[K: Hash + Owned + Sends + Syncs, V: Owned + Sends + Syncs]
   t: Table
 
   # An empty map, behind a new handle, with room for `capacity` entries
   # before any shard grows.
-  pub fun new(capacity: Int = 0) -> *SharedMap[K, V]
-    *SharedMap[K, V](t: Table(addr: Cell(make[K, V](capacity))))
+  pub fun new(capacity: Int = 0) -> *Map[K, V]
+    *Map[K, V](t: Table(addr: Cell(make[K, V](capacity))))
 
   # The value of the key `k`, viewed where the map holds it, or `none`.
   pub fun get(?@, k: ?K) -> (?V)? from @
@@ -58,9 +58,9 @@ pub obj SharedMap[K: Hash + Owned + Sends + Syncs, V: Owned + Sends + Syncs]
 
 extern zig "shared.zig"
   fun make[K, V](capacity: Int) -> Int
-  fun find[K, V](m: ?SharedMap[K, V], k: ?K) -> (?V)? from m
-  fun holds[K, V](m: ?SharedMap[K, V], k: ?K) -> Bool
-  fun insert[K, V](m: ?SharedMap[K, V], k: K, v: V) -> Bool
-  fun settle[K, V](m: ?SharedMap[K, V], k: K, v: V) -> ?V from m, k, v
-  fun count[K, V](m: ?SharedMap[K, V]) -> Int
+  fun find[K, V](m: ?Map[K, V], k: ?K) -> (?V)? from m
+  fun holds[K, V](m: ?Map[K, V], k: ?K) -> Bool
+  fun insert[K, V](m: ?Map[K, V], k: K, v: V) -> Bool
+  fun settle[K, V](m: ?Map[K, V], k: K, v: V) -> ?V from m, k, v
+  fun count[K, V](m: ?Map[K, V]) -> Int
   sub free(t: Int)

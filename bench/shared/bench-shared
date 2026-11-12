@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Time std.shared's SharedMap against Maps behind actors (bench/shared/README.md).
+"""Time std.shared's shared.Map against Maps behind actors (bench/shared/README.md).
 
 usage: bench/shared/bench-shared [options]
 

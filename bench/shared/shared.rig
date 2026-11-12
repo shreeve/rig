@@ -1,4 +1,4 @@
-# What a map several tasks share costs: std.shared's SharedMap against
+# What a map several tasks share costs: std.shared's shared.Map against
 # a Map in each of 64 actors (a key's hash picks one) and one Map behind
 # one actor, on KEYS text keys like file paths (bench/shared/README.md).
 #
@@ -44,7 +44,7 @@ fun pick(x: Int) -> Int
 fun shard(s: ?List[*Actor[Ints]], k: ?String) -> *Actor[Ints]
   +s[Int(k.hash() % U64(s.len))]
 
-fun insert_shared(keys: ?List[String], m: *shared.SharedMap[String, Int], w: Int, tasks: Int) -> Int
+fun insert_shared(keys: ?List[String], m: *shared.Map[String, Int], w: Int, tasks: Int) -> Int
   n = 0
   i = w
   while i < KEYS
@@ -61,7 +61,7 @@ fun insert_actors(keys: ?List[String], s: ?List[*Actor[Ints]], w: Int, tasks: In
     i += tasks
   n
 
-fun hit_shared(keys: ?List[String], m: *shared.SharedMap[String, Int], w: Int, n: Int) -> Int
+fun hit_shared(keys: ?List[String], m: *shared.Map[String, Int], w: Int, n: Int) -> Int
   x = w + 1
   sum = 0
   for _ in 0..n
@@ -86,7 +86,7 @@ fun hit_map(keys: ?List[String], m: ?Map[String, Int], w: Int, n: Int) -> Int
     sum += m.get(keys[pick(x)]) ?? 0
   sum
 
-fun mixed_shared(keys: ?List[String], m: *shared.SharedMap[String, Int], w: Int, n: Int) -> Int
+fun mixed_shared(keys: ?List[String], m: *shared.Map[String, Int], w: Int, n: Int) -> Int
   x = w + 1
   sum = 0
   for _ in 0..n
@@ -137,7 +137,7 @@ sub main()
       sum += v
     ns = start.elapsed()
   else if shape == "shared"
-    m = shared.SharedMap[String, Int].new()
+    m = shared.Map[String, Int].new()
     if phase == "hit"
       for i in 0..KEYS
         _ = !m.ensure(String(keys[i]), i)

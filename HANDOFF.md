@@ -106,12 +106,14 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
-- **std.shared's `SharedMap`** (branch `concurrent-map`, not pushed): a
-  map several tasks fill and read, insert-only, lookups that take no
-  lock and write nothing shared, values viewed in place. It rests on
-  one clause added to Core sentence 9 (a word-Cell object's handles
-  cross tasks), which waits on the owner, as does the name.
-  Design: `~/Data/Code/Claude/rig/rig/proposals/std-concurrent-map.md`.
+- **`shared.Map`** (branch `concurrent-map`, draft PR): a map
+  several tasks fill and read, insert-only, lookups that take no lock
+  and write nothing shared, values viewed in place. It rests on one
+  clause added to Core sentence 9 (a word-Cell object's handles cross
+  tasks); the owner approved the clause, after a review of four
+  experts, and the name. Waits on pup's `zig build test` and the Trig
+  and loco light gates. Design:
+  `~/Data/Code/Claude/rig/rig/proposals/std-concurrent-map.md`.
 - **A channel's receive of a niche-held `T?`** (branch
   `chan-niche-recv`): `Chan.recv` and a select's receiving arm give
   `rig.Opt(T)`, so a `Chan` of an object with a niche, a box, or an

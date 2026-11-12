@@ -41,7 +41,7 @@ never read as the library's.
 | [`std.time`](#stdtime) | clocks and sleeping |
 | [`std.task`](#stdtask) | stopping a task, waiting for several, and isolating a panic: `Stop`, `check`, `all`, `isolate`, `workers` |
 | [`std.par`](#stdpar) | calling a function on each element on several tasks: `map`, `each`, `workers` |
-| [`std.shared`](#stdshared) | a map several tasks fill and read at once: `SharedMap` |
+| [`std.shared`](#stdshared) | a map several tasks fill and read at once: `shared.Map` |
 | [`std.net`](#stdnet) | TCP connections: listening, accepting, connecting, reading, and writing; IP addresses and ports as data |
 | [`std.http`](#stdhttp) | an HTTP/1.1 server: `serve`, requests, and responses |
 | [`std.target`](#stdtarget) | the target the program is compiled for: its architecture, system, and CPU features, and whether the build is a debug build |
@@ -1004,16 +1004,18 @@ locks one of the map's 64 shards, chosen by the key's hash, so tasks
 putting keys of different shards never wait for one another. It is
 timed against actors holding Maps in [bench/shared](../bench/shared/README.md).
 
-A `SharedMap` lives behind a handle, `*shared.SharedMap[K, V]`, and each
-task holds one of its own, `+m`, as with a Cell of one word (Core
-sentence 9). Its keys are what a Map's are (`K: Hash`); its keys and
+A `shared.Map` lives behind a handle, `*shared.Map[K, V]`, and each
+task holds one of its own, `+m`. It is a word-Cell object (Core
+sentence 9) whatever its keys and values: its only field is a Cell of
+one word that holds its table's address, so its handles are counted
+atomically and go to other tasks, as a `*Cell[Int]`'s do. Its keys are what a Map's are (`K: Hash`); its keys and
 values hold no loan and go to any task (`Owned + Sends + Syncs`): text,
 numbers, Lists and objects of such, and frozen values, but no `*T` whose
 count is not atomic.
 
 | Member | Signature | Ownership |
 |---|---|---|
-| `shared.SharedMap[K, V].new(capacity: n)` | `pub fun new(capacity: Int = 0) -> *SharedMap[K, V]` | an empty map behind a new handle, with room for `n` entries before a shard grows |
+| `shared.Map[K, V].new(capacity: n)` | `pub fun new(capacity: Int = 0) -> *Map[K, V]` | an empty map behind a new handle, with room for `n` entries before a shard grows |
 | `m.get(k)` | `pub fun get(?@, k: ?K) -> (?V)? from @` | the value of `k`, viewed where the map holds it, or `none` |
 | `m.has(k)` | `pub fun has(?@, k: ?K) -> Bool` | whether the map holds `k` |
 | `(!m).put_new(k, v)` | `pub fun put_new(!@, k: K, v: V) -> Bool` | put `v` under `k` only when `k` is new: true if it did; otherwise `k` and `v` are dropped |
@@ -1029,17 +1031,17 @@ takes no lock:
 ```rig
 use std.shared
 
-fun id_of(ids: *shared.SharedMap[String, Int], path: ?String, next: Int) -> Int
+fun id_of(ids: *shared.Map[String, Int], path: ?String, next: Int) -> Int
   if ids.get(path) as id
     return id
   !ids.ensure(String(path), next)
 
-sub load(ids: *shared.SharedMap[String, Int], w: Int)
+sub load(ids: *shared.Map[String, Int], w: Int)
   for i in 0..100
     _ = id_of(+ids, String("/src/file", i % 50, ".ts"), w * 1000 + i)
 
 sub main()
-  ids = shared.SharedMap[String, Int].new(capacity: 1000)
+  ids = shared.Map[String, Int].new(capacity: 1000)
   ts = Tasks[Void]()
   for w in 0..4
     !ts.add(load(+ids, w)&)
@@ -1063,7 +1065,7 @@ obj Package
   main: String
 
 sub main()
-  pkgs = shared.SharedMap[String, Package].new()
+  pkgs = shared.Map[String, Package].new()
   h = +pkgs
   p = !h.ensure(String("/a/package.json"), Package(name: String("a"), main: String("index.js")))
   q = !pkgs.ensure(String("/a/package.json"), Package(name: String("b"), main: String("b.js")))

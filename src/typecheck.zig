@@ -17496,6 +17496,13 @@ const Checker = struct {
         if (frozen == null and syncs) {
             const by_api = !into.object.builtins.contains(.Syncs);
             const why = if (by_api) try std.fmt.allocPrint(self.ctx.arena.allocator(), " (`{s}` builds on `Syncs`)", .{try sema.apiName(self.ctx, into.object.api)}) else "";
+            // A word-Cell object's count is atomic: what keeps it out is
+            // that its Cells change, where `Syncs` erases only what never
+            // does.
+            if (sema.cellObject(self.ctx, inner)) {
+                try self.errAt(e, "`{s}` is erased to `{s}`, which holds only a frozen value{s}, and `{s}` changes through its Cells", .{ shown, shown_view, why, try self.tyName(inner) });
+                return true;
+            }
             try self.errAt(e, "`{s}` is erased to `{s}`, which several tasks read{s}, but its count is not atomic: freeze the value, `*Frozen(...)`", .{ shown, shown_view, why });
             return true;
         }
@@ -22161,12 +22168,14 @@ fn crossingReason(ctx: *SemContext, blocker: TypeId, shared: bool, verb: ?[]cons
     const why: []const u8 = switch (ctx.types.get(blocker)) {
         .shared, .weak => |inner| if (ctx.types.get(inner) == .function)
             "an owned closure, whose captures its type does not show"
+        else if (blocker_is_weak and (sema.isWordCell(ctx, inner) or sema.cellObject(ctx, inner)))
+            "a `~` handle, which stays with one task; a `*` handle to the same value goes to other tasks"
         else if (blocker_is_weak)
             "a `~` handle whose count is not atomic, so two cores could change it at once"
         else if (sema.isCell(ctx, inner))
             "a `*` handle to a Cell of more than one word, which stays with one task; a Cell of an `Int`, `Bool`, `Float`, or plain enum goes to other tasks"
-        else if (!blocker_is_weak and sema.holdsCellByValue(ctx, inner))
-            "a `*` handle to an object that holds a Cell and a part that is neither plain data nor a Cell of one word, which stays with one task; an object of plain data and such Cells goes to other tasks"
+        else if (try sema.cellRefusalReason(ctx, inner)) |reason|
+            reason
         else
             "a `*` handle whose count is not atomic, so two cores could change it at once",
         .callable => "a closure or function lent for a call, whose captures its type does not show",

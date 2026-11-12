@@ -93,6 +93,34 @@ RIG
 out=$("$RIG" check --tasks object.rig 2>&1) || fail "rig check --tasks object.rig: $out"
 expect_eq "$out" "" "rig check --tasks of a task over a crossing API object"
 
+# A task over a word-Cell object's handle is not local; one over a
+# generic object's stays, decided by its declaration, whose part `v: T`
+# is no plain data, as the line names.
+cat >cells.rig <<'RIG'
+obj Hits
+  n: Cell[Int]
+  step: Int
+
+obj Box[T]
+  n: Cell[Int]
+  v: T
+
+fun hit(h: *Hits) -> Int
+  h.step
+
+fun get(b: *Box[Int]) -> Int
+  b.v
+
+sub main()
+  h = *Hits(n: Cell(0), step: 2)
+  b = *Box[Int](n: Cell(0), v: 3)
+  t = hit(+h)&
+  u = get(+b)&
+  print(>t + >u)
+RIG
+out=$("$RIG" check --tasks cells.rig 2>&1) || fail "rig check --tasks cells.rig: $out"
+expect_eq "$out" 'cells.rig:19:7: `get(+b)&` is local, pinned to its maker'"'"'s thread by `+b`: `*Box[Int]` is a `*` handle to an object that holds a Cell and `v: T`: a generic part is decided by the declaration, the same for every instance, so it stays with one task' "rig check --tasks of tasks over Cell objects"
+
 out=$("$RIG" emit --tasks main.rig 2>&1)
 expect_rc $? 2 "rig emit --tasks"
 expect_has "$out" '`--tasks` applies to check' "rig emit --tasks"

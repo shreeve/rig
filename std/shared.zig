@@ -1,4 +1,4 @@
-//! `std.shared`: the table behind `SharedMap[K, V]`, a map several tasks
+//! `std.shared`: the table behind `Map[K, V]`, a map several tasks
 //! fill and read at once. A key keeps the first value put under it, and
 //! nothing is replaced or taken, so an entry, once published, is never
 //! changed, moved, or freed until the map is dropped. That is what lets a
@@ -22,6 +22,9 @@
 //! An insert first looks the key up as a lookup does, and only when it is
 //! missing takes the shard's lock (the scheduler's spin lock, never held
 //! across a wait), looks again, writes the entry, and publishes its slot.
+//! A new block of entries and a larger index are allocated under the
+//! lock, so the insert that takes one holds the lock that long, as
+//! seldom as a block fills or the shard's index doubles.
 //! When the shard's index passes 70% full, the insert builds an index of
 //! twice the slots, publishes it, and keeps the old one, linked from the
 //! new, for lookups still reading it; they find every entry it held,
@@ -130,10 +133,9 @@ fn Table(comptime K: type, comptime V: type) type {
             return (h >> 40) & 0xffff;
         }
 
+        /// The slot of `e`, whose address fits in 48 bits (`put` checks).
         inline fn slotOf(e: *const Entry) u64 {
-            const a: u64 = @intFromPtr(e);
-            if (a >> addr_bits != 0) @panic("std.shared: an address above 48 bits");
-            return a | tagOf(e.hash) << addr_bits;
+            return @as(u64, @intFromPtr(e)) | tagOf(e.hash) << addr_bits;
         }
 
         inline fn entryOf(w: u64) *Entry {
@@ -228,6 +230,12 @@ fn Table(comptime K: type, comptime V: type) type {
             }
             if ((sh.count + 1) * load_den > (ix.mask + 1) * load_num) ix = grow(t, s, ix);
             const e = newEntry(sh);
+            // A panic under the lock would leave every other task that
+            // puts in this shard spinning: the lock is let go first.
+            if (@as(u64, @intFromPtr(e)) >> addr_bits != 0) {
+                sh.lock.unlock();
+                @panic("std.shared: an address above 48 bits");
+            }
             e.* = .{ .hash = h, .key = key, .value = value };
             place(ix, slotOf(e), h, true);
             @atomicStore(usize, &sh.count, sh.count + 1, .monotonic);
