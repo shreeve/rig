@@ -1,0 +1,178 @@
+# std: tests of std.shared, the map several tasks fill and read at once.
+
+use std.par
+use std.shared
+
+test "shared map puts and gets", '''
+  true false true 1
+  false 1
+  true 2
+  one none
+  true false
+'''
+  m = shared.SharedMap[String, String].new()
+  print((!m).put_new(String("a"), String("one")), m.has("b"), m.has("a"), m.len())
+  # A key keeps the first value put under it.
+  print((!m).put_new(String("a"), String("uno")), m.len())
+  print((!m).put_new(String("b"), String("two")), m.len())
+  k = String("a")
+  print(m.get(?k), m.get("c"))
+  print(m.has("b"), m.has("c"))
+
+test "shared map ensure views the first value", "uno uno uno 1"
+  m = shared.SharedMap[String, String].new()
+  # A view keeps the handle it came through lent to read, so a put while
+  # it lives goes through another handle; the value it views never
+  # changes.
+  h = +m
+  a = !h.ensure(String("one"), String("uno"))
+  b = !m.ensure(String("one"), String("eins"))
+  print(a, b, m.get("one"), m.len())
+
+test "shared map views outlive growth", "/p/0 /p/9999 10000 true"
+  # A view taken while the map is small still reads its value after every
+  # shard has grown many times: values never move.
+  m = shared.SharedMap[Int, String].new()
+  !m.put_new(0, String("/p/0"))
+  first = ?m.get(0) ?? ""
+  h = +m
+  for i in 1..10000
+    !h.put_new(i, String("/p/", i))
+  last = ?m.get(9999) ?? ""
+  all = true
+  for i in 0..10000
+    all = all and (m.get(i) ?? "") == String("/p/", i)
+  print(first, last, m.len(), all)
+
+test "shared map lookup or insert", "3 3 5 2"
+  fun size(m: *shared.SharedMap[String, Int], k: ?String) -> Int
+    if m.get(k) as v
+      return v
+    !m.ensure(String(k), k.len)
+
+  m = shared.SharedMap[String, Int].new(capacity: 1000)
+  print(size(+m, "abc"), size(+m, "abc"), size(+m, "hello"), m.len())
+
+test "shared map first writer wins across tasks", seeds: 20, "450 true true"
+  # Eight tasks each put 100 keys, 50 of them shared by all (50 + 8 x 50
+  # keys): every shared key keeps one task's value, which every task then
+  # reads.
+  fun work(m: *shared.SharedMap[String, Int], w: Int) -> Int
+    for i in 0..100
+      k = String("k", i if i < 50 else w * 1000 + i)
+      _ = !m.put_new(<k, w)
+    sum = 0
+    for i in 0..50
+      sum += m.get(String("k", i)) ?? -1
+    sum
+
+  m = shared.SharedMap[String, Int].new()
+  ts = Tasks[Int]()
+  for w in 0..8
+    !ts.add(work(+m, w)&)
+  sums = List[Int]()
+  for s in >ts
+    !sums.push(s)
+  mine = 0
+  for i in 0..50
+    mine += m.get(String("k", i)) ?? -1
+  same = true
+  for s in sums
+    same = same and s == mine
+  print(m.len(), same, mine >= 0)
+
+test "shared map views across tasks while it grows", seeds: 20, "true 4000"
+  # Readers hold views of the values they find while writers grow every
+  # shard; each view still reads what was put.
+  fun read(m: *shared.SharedMap[Int, String], n: Int) -> Bool
+    ok = true
+    for i in 0..n
+      if ?m.get(i) as v
+        ok = ok and v == String("v", i)
+    ok
+
+  sub write(m: *shared.SharedMap[Int, String], from: Int, n: Int)
+    for i in from..from + n
+      _ = !m.put_new(i, String("v", i))
+
+  m = shared.SharedMap[Int, String].new()
+  ws = Tasks[Void]()
+  rs = Tasks[Bool]()
+  for w in 0..4
+    !ws.add(write(+m, w * 1000, 1000)&)
+    !rs.add(read(+m, 4000)&)
+  >ws
+  ok = true
+  for r in >rs
+    ok = ok and r
+  print(ok, m.len())
+
+test "shared map in par workers", seeds: 20, "500 124750 true"
+  # A handle to a map is captured by the closure of `par.map`, which every
+  # task reads: its count is atomic, so it goes to any core.
+  fun put(m: *shared.SharedMap[Int, Int], x: Int) -> Int
+    !m.ensure(x % 500, x)
+
+  xs = List[Int]()
+  for i in 0..1000
+    !xs.push(i)
+  m = shared.SharedMap[Int, Int].new()
+  ys = par.map(?xs, |?m, x| put(+m, x))
+  sum = 0
+  for i in 0..500
+    sum += i if m.get(i) ?? -1 == i or m.get(i) ?? -1 == i + 500 else 0
+  same = true
+  for y in ys
+    same = same and m.get(y % 500) ?? -1 == y
+  print(m.len(), sum, same)
+
+test "shared map keys of every kind", '''
+  2 a
+  2 [1, 2]
+'''
+  obj Point: Hash
+    x: Int
+    y: Int
+
+  p = shared.SharedMap[Point, *Frozen[String]].new()
+  !p.put_new(Point(x: 1, y: 2), *Frozen(String("a")))
+  !p.put_new(Point(x: 2, y: 1), *Frozen(String("b")))
+  if p.get(Point(x: 1, y: 2)) as a
+    print(p.len(), a)
+  b = shared.SharedMap[Bool, List[Int]].new()
+  !b.put_new(true, List([1, 2]))
+  !b.put_new(false, List([3]))
+  if b.get(true) as xs
+    print(b.len(), xs)
+
+fail "shared map value that stays on one thread", "`shared.SharedMap[String, *Node]` cannot use `V = *Node`: `*Node` cannot be sent to another task"
+  obj Node
+    v: Int
+
+  m = shared.SharedMap[String, *Node].new()
+  print(m.len())
+
+fail "shared map value that holds a loan", "`shared.SharedMap[String, ?String]` cannot use `V = ?String`: `?String` may hold a loan"
+  m = shared.SharedMap[String, ?String].new()
+  print(m.len())
+
+fail "shared map put while a view lives", "cannot lend `m` to write while a read loan is live", errors: 1
+  m = shared.SharedMap[String, Int].new()
+  v = ?m.get("a")
+  !m.put_new(String("a"), 1)
+  print(v)
+
+fail "shared map dropped while a view lives", "cannot drop `m` while it is lent", errors: 1
+  m = shared.SharedMap[String, Int].new()
+  v = ?m.get("a")
+  <m
+  print(v)
+
+fail "shared map only behind a handle", "a value of `shared.SharedMap[String, Int]` holds a Cell, so it lives only behind a shared handle: write `*shared.SharedMap[String, Int]`", whole: true
+  use std.shared
+
+  sub keep(m: shared.SharedMap[String, Int])
+    print(1)
+
+  sub main()
+    print(2)

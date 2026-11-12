@@ -123,6 +123,8 @@ none of these ever built:
 
 ### Added
 
+- **std.shared** (a working name, the owner's to settle): `SharedMap[K, V]`, a map several tasks fill and read at once. A key keeps the first value put under it, and nothing is replaced or taken, so `get` gives a view of the value where it lies with no lock and no write to memory another task reads; `put_new` and `ensure` lock one of 64 shards. It lives behind `*shared.SharedMap[K, V]`, whose handles go to any task. bench/shared times it against Maps behind actors.
+- **A word-Cell object goes to other tasks.** An object held behind `*` whose every part is plain data, a Cell of one word, or another such object changes through a handle only by its Cells, so its handles are counted atomically and cross cores, as a `*Cell[Int]`'s do (Core sentence 9). A program whose tasks were local only because they took such a handle now runs them on any core.
 - **`task.workers(n)` raises the workers after the first task.** A program that learns how much work it has only once running, as a checker does after parsing, can ask for more workers then. It only raises; it gives false for fewer than run, and a deterministic run keeps to one thread.
 - **Dense stacks.** `rig build --release` gives a task that cannot need much stack a dense stack, which holds 17.6 KB on the Mac where a large one holds 33.5 KB. A task with recursion, or a call through a pointer, keeps a large stack, as does every task of a debug build or `rig run`.
 - **`task.fast_cores()`** gives how many fast physical cores the

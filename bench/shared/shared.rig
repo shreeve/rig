@@ -1,0 +1,174 @@
+# What a map several tasks share costs: std.shared's SharedMap against
+# a Map in each of 64 actors (a key's hash picks one) and one Map behind
+# one actor, on KEYS text keys like file paths (bench/shared/README.md).
+#
+#   shared SHAPE PHASE TASKS   prints  SHAPE PHASE TASKS NS CHECK
+#
+# SHAPE is `shared`, `shards`, or `actor`, or for `hit` alone `map`, one
+# Map filled first and lent to every task to read, the floor; PHASE is
+# - `insert`: an empty map takes the KEYS keys, each task putting its
+#   share (the keys `i` with `i % TASKS == w`);
+# - `hit`: a full map is asked for keys LOOKUPS times, every one there;
+# - `mixed`: an empty map is asked LOOKUPS times for a key drawn
+#   uniformly from the KEYS, put on its first ask: 95% of the asks hit.
+# NS is the wall time of the phase, without making the keys or filling
+# the map for `hit`.
+use std.os
+use std.shared
+use std.task
+use std.text
+use std.time
+
+KEYS = 100_000
+LOOKUPS = 2_000_000
+SHARDS = 64
+
+# One Map behind an actor: a lookup gives a copy of the value.
+obj Ints
+  m: Map[String, Int] = Map()
+
+  fun get(?@, k: ?String) -> Int?
+    if @m.get(k) as v
+      return v
+    none
+
+  fun put(!@, k: String, v: Int) -> Int
+    (!@m).ensure(<k, v)
+
+fun next(x: Int) -> Int
+  Int((U64(x) *% 6364136223846793005 +% 1442695040888963407) >> 1)
+
+fun pick(x: Int) -> Int
+  (x >> 20) % KEYS
+
+fun shard(s: ?List[*Actor[Ints]], k: ?String) -> *Actor[Ints]
+  +s[Int(k.hash() % U64(s.len))]
+
+fun insert_shared(keys: ?List[String], m: *shared.SharedMap[String, Int], w: Int, tasks: Int) -> Int
+  n = 0
+  i = w
+  while i < KEYS
+    n += !m.ensure(String(keys[i]), i)
+    i += tasks
+  n
+
+fun insert_actors(keys: ?List[String], s: ?List[*Actor[Ints]], w: Int, tasks: Int) -> Int
+  n = 0
+  i = w
+  while i < KEYS
+    c = shard(s, keys[i])
+    n += (!c).put(String(keys[i]), i)
+    i += tasks
+  n
+
+fun hit_shared(keys: ?List[String], m: *shared.SharedMap[String, Int], w: Int, n: Int) -> Int
+  x = w + 1
+  sum = 0
+  for _ in 0..n
+    x = next(x)
+    sum += m.get(keys[pick(x)]) ?? 0
+  sum
+
+fun hit_actors(keys: ?List[String], s: ?List[*Actor[Ints]], w: Int, n: Int) -> Int
+  x = w + 1
+  sum = 0
+  for _ in 0..n
+    x = next(x)
+    k = ?keys[pick(x)]
+    sum += s[Int(k.hash() % U64(s.len))].get(k) ?? 0
+  sum
+
+fun hit_map(keys: ?List[String], m: ?Map[String, Int], w: Int, n: Int) -> Int
+  x = w + 1
+  sum = 0
+  for _ in 0..n
+    x = next(x)
+    sum += m.get(keys[pick(x)]) ?? 0
+  sum
+
+fun mixed_shared(keys: ?List[String], m: *shared.SharedMap[String, Int], w: Int, n: Int) -> Int
+  x = w + 1
+  sum = 0
+  for _ in 0..n
+    x = next(x)
+    i = pick(x)
+    # The value of the key, put as `i` on its first ask.
+    if m.get(keys[i]) as v
+      sum += v
+    else
+      sum += !m.ensure(String(keys[i]), i)
+  sum
+
+fun mixed_actors(keys: ?List[String], s: ?List[*Actor[Ints]], w: Int, n: Int) -> Int
+  x = w + 1
+  sum = 0
+  for _ in 0..n
+    x = next(x)
+    i = pick(x)
+    k = ?keys[i]
+    c = ?s[Int(k.hash() % U64(s.len))]
+    if c.get(k) as v
+      sum += v
+    else
+      h = +c
+      sum += (!h).put(String(k), i)
+  sum
+
+sub main()
+  shape = os.args()[1]
+  phase = os.args()[2]
+  tasks = text.parse_int(os.args()[3]) catch 1
+  _ = task.workers(tasks)
+  keys: List[String] = List(capacity: KEYS)
+  for i in 0..KEYS
+    !keys.push(String("/repo/node_modules/pkg", i, "/package.json"))
+  n = LOOKUPS / tasks
+  ts = Tasks[Int]()
+  sum = 0
+  ns = 0
+  if shape == "map"
+    m: Map[String, Int] = Map()
+    for i in 0..KEYS
+      !m.put(String(keys[i]), i)
+    start = time.now()
+    for w in 0..tasks
+      !ts.add(hit_map(?keys, ?m, w, n)&)
+    for v in >ts
+      sum += v
+    ns = start.elapsed()
+  else if shape == "shared"
+    m = shared.SharedMap[String, Int].new()
+    if phase == "hit"
+      for i in 0..KEYS
+        _ = !m.ensure(String(keys[i]), i)
+    start = time.now()
+    for w in 0..tasks
+      if phase == "insert"
+        !ts.add(insert_shared(?keys, +m, w, tasks)&)
+      else if phase == "hit"
+        !ts.add(hit_shared(?keys, +m, w, n)&)
+      else
+        !ts.add(mixed_shared(?keys, +m, w, n)&)
+    for v in >ts
+      sum += v
+    ns = start.elapsed()
+  else
+    s: List[*Actor[Ints]] = List()
+    for _ in 0..(1 if shape == "actor" else SHARDS)
+      !s.push(*Actor(Ints()))
+    if phase == "hit"
+      for i in 0..KEYS
+        c = shard(?s, keys[i])
+        _ = (!c).put(String(keys[i]), i)
+    start = time.now()
+    for w in 0..tasks
+      if phase == "insert"
+        !ts.add(insert_actors(?keys, ?s, w, tasks)&)
+      else if phase == "hit"
+        !ts.add(hit_actors(?keys, ?s, w, n)&)
+      else
+        !ts.add(mixed_actors(?keys, ?s, w, n)&)
+    for v in >ts
+      sum += v
+    ns = start.elapsed()
+  print(shape, phase, tasks, ns, sum)

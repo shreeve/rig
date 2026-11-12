@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+"""Time std.shared's SharedMap against Maps behind actors (bench/shared/README.md).
+
+usage: bench/shared/bench-shared [options]
+
+  --exe PATH      a build of bench/shared/shared.rig to time; without it,
+                  bin/rig builds one (--release=fast) into --out
+  --out DIR       where to build (default: a new temporary directory)
+  --shapes a,b    shared, shards, actor, map (default: all four; map,
+                  one Map lent to read, runs `hit` alone)
+  --phases a,b    insert, hit, mixed (default: all three)
+  --tasks a,b     task counts (default: 1,6,12)
+  --rounds N      rounds; each runs every shape, phase, and task count
+                  once, in an order shuffled for the round (default 7)
+  --pin CMD       a prefix for each run, such as "taskset -c 6-17"
+
+Each run prints `SHAPE PHASE TASKS NS CHECK`; the checks of the shapes
+must agree for each phase and task count. The report gives the median
+of the rounds: the wall time, and the CPU time of one operation, wall
+times tasks over the operations (100,000 puts for `insert`, 2,000,000
+lookups for `hit` and `mixed`).
+"""
+import argparse, os, random, shlex, statistics, subprocess, sys, tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(HERE))
+RIG = os.environ.get("RIG", os.path.join(ROOT, "bin", "rig"))
+OPS = {"insert": 100_000, "hit": 2_000_000, "mixed": 2_000_000}
+
+
+def main():
+    ap = argparse.ArgumentParser(usage=__doc__)
+    ap.add_argument("--exe")
+    ap.add_argument("--out")
+    ap.add_argument("--shapes", default="shared,shards,actor,map")
+    ap.add_argument("--phases", default="insert,hit,mixed")
+    ap.add_argument("--tasks", default="1,6,12")
+    ap.add_argument("--rounds", type=int, default=7)
+    ap.add_argument("--pin", default="")
+    a = ap.parse_args()
+    exe = a.exe
+    if not exe:
+        out = a.out or tempfile.mkdtemp(prefix="bench-shared-")
+        exe = os.path.join(out, "shared")
+        env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, "rig-out"))
+        subprocess.run([RIG, "build", "--release=fast", os.path.join(HERE, "shared.rig"), "-o", exe], check=True, env=env)
+    shapes = a.shapes.split(",")
+    phases = a.phases.split(",")
+    counts = [int(t) for t in a.tasks.split(",")]
+    runs = [(s, p, t) for s in shapes for p in phases for t in counts if s != "map" or p == "hit"]
+    times = {r: [] for r in runs}
+    checks = {}
+    pin = shlex.split(a.pin)
+    for k in range(a.rounds):
+        order = runs[:]
+        random.Random(k).shuffle(order)
+        for s, p, t in order:
+            line = subprocess.run(pin + [exe, s, p, str(t)], check=True, capture_output=True, text=True, timeout=600).stdout.split()
+            ns, check = int(line[3]), line[4]
+            times[(s, p, t)].append(ns)
+            seen = checks.setdefault((p, t), check)
+            if seen != check:
+                sys.exit(f"bench-shared: {s} {p} {t} gave {check}, another shape {seen}")
+        print(f"round {k + 1} of {a.rounds} done", file=sys.stderr)
+    print(f"{'phase':7} {'tasks':>5} " + " ".join(f"{s + ' ms':>11} {s + ' ns/op':>13}" for s in shapes))
+    for p in phases:
+        for t in counts:
+            cells = []
+            for s in shapes:
+                if (s, p, t) not in times:
+                    cells.append(f"{'':11} {'':13}")
+                    continue
+                med = statistics.median(times[(s, p, t)])
+                cells.append(f"{med / 1e6:11.1f} {med * t / OPS[p]:13.1f}")
+            print(f"{p:7} {t:5} " + " ".join(cells))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,66 @@
+# std.shared: a map several tasks fill and read at once.
+#
+# A `SharedMap[K, V]` lives behind a handle, `*SharedMap[K, V]`, which
+# `+m` copies for each task. A key keeps the first value put under it:
+# nothing is replaced or taken, so a value stays where it was put, and a
+# lookup reads it in place, as a view tied to the handle it was looked
+# up through, with no lock and no write to memory another task reads.
+# Putting a new key takes a lock on one of the map's 64 shards, chosen
+# by the key's hash, so tasks putting keys of different shards never
+# wait for each other.
+#
+# Its only part is a Cell of one word, the address of the table, which
+# never changes, so its handles count atomically and go to any task, as
+# a word Cell's do (docs/CORE.md, sentence 9). The table is the
+# runtime's (shared.zig): each shard an index of entry addresses, grown
+# by publishing a larger index while readers finish with the old one,
+# which is kept until the map is dropped, and entries in blocks that
+# never move.
+
+# The runtime's table: its address, which never changes, and the drop
+# that frees it with every key and value it holds.
+obj Table
+  addr: Cell[Int]
+
+  drop(!@)
+    free(@addr.get())
+
+pub obj SharedMap[K: Hash + Owned + Sends + Syncs, V: Owned + Sends + Syncs]
+  t: Table
+
+  # An empty map, behind a new handle, with room for `capacity` entries
+  # before any shard grows.
+  pub fun new(capacity: Int = 0) -> *SharedMap[K, V]
+    *SharedMap[K, V](t: Table(addr: Cell(make[K, V](capacity))))
+
+  # The value of the key `k`, viewed where the map holds it, or `none`.
+  pub fun get(?@, k: ?K) -> (?V)? from @
+    find[K, V](@, k)
+
+  # Whether the map holds the key `k`.
+  pub fun has(?@, k: ?K) -> Bool
+    holds[K, V](@, k)
+
+  # Put `v` under `k` only when `k` is new: true if it did; otherwise
+  # `k` and `v` are dropped.
+  pub fun put_new(!@, k: K, v: V) -> Bool
+    insert[K, V](?@, <k, <v)
+
+  # Put `v` under `k` when `k` is new, and view the value under `k`: `v`,
+  # or the value another task put first, when `k` and `v` are dropped.
+  pub fun ensure(!@, k: K, v: V) -> ?V from @, k, v
+    settle[K, V](?@, <k, <v)
+
+  # How many entries it holds: exact when no task is putting one, and
+  # otherwise a count it held at some moment during the call.
+  pub fun len(?@) -> Int
+    count[K, V](@)
+
+extern zig "shared.zig"
+  fun make[K, V](capacity: Int) -> Int
+  fun find[K, V](m: ?SharedMap[K, V], k: ?K) -> (?V)? from m
+  fun holds[K, V](m: ?SharedMap[K, V], k: ?K) -> Bool
+  fun insert[K, V](m: ?SharedMap[K, V], k: K, v: V) -> Bool
+  fun settle[K, V](m: ?SharedMap[K, V], k: K, v: V) -> ?V from m, k, v
+  fun count[K, V](m: ?SharedMap[K, V]) -> Int
+  sub free(t: Int)

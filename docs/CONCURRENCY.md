@@ -230,6 +230,12 @@ caller takes it with one atomic step and runs the method on its own
 stack, as the actor, with no message and no switch. So an idle actor
 costs about what a lock does, and Rig has no `Mutex`.
 
+Every call takes the actor, a read as much as a write, so a table many
+tasks read is no actor's: std.shared's `SharedMap`
+([STD](STD.md#stdshared)) keeps the first value put under each key, so
+a lookup takes nothing and writes nothing, and only a put of a new key
+locks, one shard of 64.
+
 **It guarantees** that an actor runs one method at a time, each to its
 end, so no one sees its state half-changed. A call that would close a
 cycle of waiting calls panics, naming it (`Bank.pay -> Ledger.post ->
