@@ -461,6 +461,22 @@ none of these ever built:
 
 ### Runtime
 
+- **`std.file` writes no fill over its buffers:** Zig's safe builds
+  write 0xAA over every `undefined` local at each call, and `std.file`
+  kept large ones on the stack. `read_dir` takes its 32 KiB buffer from
+  the runtime's allocator, which writes nothing over it, and sorts a
+  directory of up to 24 entries as Zig's sort does, without its 2 KiB
+  stack of ranges. A path goes to the system through a 512-byte
+  buffer on the stack, or a block of the allocator for a longer one,
+  where each call kept one for the longest path (4 KiB on Linux, 1 KiB
+  on macOS). `exists`, `stat`, `read_dir`, and the whole read of a file
+  make their own stat and open of a directory from that path, the
+  system calls of Zig's `statFile` and `openDir` with the same errors,
+  since Zig's copy each path into a buffer for the longest one; a name
+  in a path longer than the system takes is `name_too_long` on Linux,
+  where Zig's took ENAMETOOLONG from statx for its own bug. A whole
+  read of a file that reports its size has no 4 KiB probe on its stack,
+  and `realpath` writes into the String it gives.
 - **Release allocator:** on Linux, a segment that gets huge pages is
   not faulted in ahead: its first write to each 2 MiB faults all of it
   in, so the call made for each 64 KiB page a class took
