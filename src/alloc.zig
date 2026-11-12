@@ -470,8 +470,9 @@ pub fn trimIdle() usize {
 }
 
 /// Whether the running thread's heap is worth trimming as its worker
-/// sleeps (`sched.sleep`): it has taken `trim_new` bytes or more from the
-/// system since its last trim (`trimIdle`), or since it was made. A heap
+/// sleeps (`sched.sleep`): it has grown by half since its last trim
+/// (`trimIdle`), and by a segment at least, or taken a segment since it
+/// was made (`trimGrowth`). A heap
 /// that has not grown since has given back or lent what it held then, so
 /// a worker that pauses again and again, as one between the short tasks
 /// of a server or of bench/tasks does, sleeps as it would with no trim,
@@ -481,13 +482,19 @@ pub fn trimWorth() bool {
 }
 
 fn worthTrimming(h: *const Heap) bool {
-    return h.taken -| h.taken_at_trim >= trim_new;
+    return h.taken -| h.taken_at_trim >= trimGrowth(h.taken_at_trim);
 }
 
-/// What a heap takes from the system before its worker's next sleep
-/// trims it (`trimWorth`): a segment, so a worker that has carved its
-/// first segment, or mapped as much in large blocks, trims once.
-const trim_new: usize = segment_size;
+/// How much a heap that held `at_trim` bytes at its last trim grows
+/// before its worker's next sleep trims it again (`trimWorth`): half of
+/// that, and a segment at least, so a worker that has carved its first
+/// segment, or mapped as much in large blocks, trims once. A trim walks
+/// every free block of its heap, so trims spaced by a fraction of the
+/// heap walk, over a whole run, at most three times what the heap ends
+/// with, and a heap that grows to 1 GiB trims about 14 times, not 256.
+fn trimGrowth(at_trim: usize) usize {
+    return @max(segment_size, at_trim / 2);
+}
 
 fn trimHeap(h: *Heap) usize {
     mustOwn(h);
@@ -3574,7 +3581,7 @@ fn expectRemote(h: *Heap, c: usize, blocks: []const [*]u8, want: []const usize) 
     try std.testing.expectEqual(@as(?*Block, null), b);
 }
 
-test "a heap is worth trimming once it has taken a segment since its last trim, or since it was made" {
+test "a heap is worth trimming once it has grown by half since its last trim, and a segment at least, or taken a segment since it was made" {
     var h = testHeap();
     try std.testing.expect(!worthTrimming(&h));
     h.taken = segment_size;
@@ -3582,6 +3589,13 @@ test "a heap is worth trimming once it has taken a segment since its last trim, 
     _ = trimHeap(&h);
     try std.testing.expect(!worthTrimming(&h));
     h.taken += segment_size - 1;
+    try std.testing.expect(!worthTrimming(&h));
+    h.taken += 1;
+    try std.testing.expect(worthTrimming(&h));
+    // A big heap grows by half of what it held at its last trim.
+    h.taken = 64 * segment_size;
+    _ = trimHeap(&h);
+    h.taken += 32 * segment_size - 1;
     try std.testing.expect(!worthTrimming(&h));
     h.taken += 1;
     try std.testing.expect(worthTrimming(&h));
