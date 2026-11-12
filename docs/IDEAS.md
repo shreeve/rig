@@ -84,9 +84,6 @@ The concurrency plan the owner approved from that review is on the ROADMAP, unde
 
 ## Concurrency, beyond the approved plan
 
-- **`MADV_NOHUGEPAGE` on task stacks.** Rig sets it on Tables and large heap blocks, but not on stacks (`sched.takeStack`). Under transparent huge pages set to `always`, the RHEL and Fedora default, a sleeping task might hold 2 MiB.
-  - Source: the Crystal review (Zig), unverified.
-  - Needs: one pup run with that setting, in the plan's first step.
 - **A protocol for leaving a slow system call.** A fast call costs two atomic operations; only a slow one moves the stuck worker to a fresh thread, as Crystal's `Fiber.syscall` and its monitor do. Tasks pinned to their thread stay on it. This is the design for the plan's handoff of a stuck worker.
   - Source: the Crystal review (Go).
 - **Freeing idle stacks gradually:** halve each worker's pool of free stacks every 5 s, and clear it when the program is idle.
