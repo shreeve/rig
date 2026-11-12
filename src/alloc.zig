@@ -493,15 +493,6 @@ fn trimHeap(h: *Heap) usize {
     mustOwn(h);
     h.taken_at_trim = h.taken;
     var given: usize = 0;
-    for (0..class_count) |c| {
-        if (h.remote[c].load(.monotonic) == null) continue;
-        var list = h.remote[c].swap(null, .acquire);
-        while (list) |b| {
-            list = b.next;
-            b.next = h.free[c];
-            h.free[c] = b;
-        }
-    }
     while (lastHeld(&h.kept)) |j| {
         const f = unkeep(&h.kept, j, 0).?;
         const p = @intFromPtr(f);
@@ -510,14 +501,32 @@ fn trimHeap(h: *Heap) usize {
         keepPiece(&h.cold, p, len);
         given += len - std.heap.pageSize();
     }
-    if (builtin.os.tag == .linux) given += trimPages(h);
+    // A big heap's free lists hold millions of blocks, cold, and its
+    // worker comes back to work only once the trim is done: it walks
+    // each list once, to count its blocks per page on Linux and to find
+    // its last block, and again only a list with a page to give back.
+    // The blocks other threads freed into it (`Heap.remote`) join the
+    // list it walks.
+    if (builtin.os.tag == .linux) {
+        h.trims +%= 1;
+        if (h.trims == 0) h.trims = 1;
+    }
+    var touched: ?*Segment = null;
+    var tails: [class_count]?*Block = @splat(null);
+    for (0..class_count) |c| {
+        const late = if (h.remote[c].load(.monotonic) != null) h.remote[c].swap(null, .acquire) else null;
+        const own_tail = walkFree(h, h.free[c], c, &touched);
+        const late_tail = walkFree(h, late, c, &touched);
+        if (own_tail) |t| t.next = late else h.free[c] = late;
+        tails[c] = late_tail orelse own_tail;
+    }
+    if (builtin.os.tag == .linux) given += trimPages(h, touched, &tails);
     // What stays free goes on its remote lists, where its own next
     // allocation takes it back, and meanwhile another heap may.
     for (0..class_count) |c| {
         const list = h.free[c] orelse continue;
         h.free[c] = null;
-        var tail = list;
-        while (tail.next) |n| tail = n;
+        const tail = tails[c].?;
         var top = h.remote[c].load(.monotonic);
         while (true) {
             tail.next = top;
@@ -531,52 +540,67 @@ fn trimHeap(h: *Heap) usize {
     return given;
 }
 
-/// The pages of `h`'s classes whose every block is on its free list:
-/// counted per page in each segment's header, taken off the lists, and
-/// given back to the system, a run of neighbors at a time. A block on
-/// the list is free, and those other threads free meanwhile go to
-/// `Heap.remote`, which this leaves alone, so no page given back holds a
-/// block anyone uses or will free.
-fn trimPages(h: *Heap) usize {
-    h.trims +%= 1;
-    if (h.trims == 0) h.trims = 1;
-    var touched: ?*Segment = null;
-    for (0..class_count) |c| {
-        var b = h.free[c];
-        while (b) |x| : (b = x.next) {
-            const s = segmentOf(@ptrCast(x));
-            // A block another heap gave away stays on the list.
-            if (s.heap != h) continue;
-            if (s.trim != h.trims) {
-                s.trim = h.trims;
-                s.free_count = @splat(0);
-                s.next_trimmed = touched;
-                touched = s;
-            }
-            const k = (@intFromPtr(x) - @intFromPtr(s)) / page_size;
-            s.free_count[k] += 1;
-            s.class[k] = @intCast(c);
+/// Walk a free list of `h`'s class `c` (`trimHeap`): on Linux, count each
+/// of its blocks on its page in its segment's header, listing in
+/// `touched` each segment first counted in this trim, for `trimPages`.
+/// Gives its last block.
+fn walkFree(h: *Heap, list: ?*Block, c: usize, touched: *?*Segment) ?*Block {
+    var last: ?*Block = null;
+    var b = list;
+    while (b) |x| : (b = x.next) {
+        last = x;
+        if (builtin.os.tag != .linux) continue;
+        const s = segmentOf(@ptrCast(x));
+        // A block another heap gave away stays on the list.
+        if (s.heap != h) continue;
+        if (s.trim != h.trims) {
+            s.trim = h.trims;
+            s.free_count = @splat(0);
+            s.next_trimmed = touched.*;
+            touched.* = s;
         }
+        const k = (@intFromPtr(x) - @intFromPtr(s)) / page_size;
+        s.free_count[k] += 1;
+        s.class[k] = @intCast(c);
     }
+    return last;
+}
+
+/// The pages of `h`'s classes whose every block is on its free list, as
+/// `walkFree` counted them in the `touched` segments: taken off the
+/// lists, whose last blocks `tails` keeps, and given back to the system,
+/// a run of neighbors at a time. A block on the list is free, and those
+/// other threads free meanwhile go to `Heap.remote`, which this leaves
+/// alone, so no page given back holds a block anyone uses or will free.
+fn trimPages(h: *Heap, touched: ?*Segment, tails: *[class_count]?*Block) usize {
     // A page is wholly free when its count is every block it was carved
     // into: a page still being carved holds fewer on the list than that.
-    var any = false;
+    // Only the lists of the classes with such a page are walked again.
+    var whole_classes: u64 = 0;
     var it = touched;
     while (it) |s| : (it = s.next_trimmed) {
         for (1..s.used) |k| {
             const n = s.free_count[k];
             if (n == 0 or n != page_size / classSize(s.class[k])) {
                 s.free_count[k] = 0;
-            } else any = true;
+            } else whole_classes |= @as(u64, 1) << s.class[k];
         }
     }
-    if (!any) return 0;
+    if (whole_classes == 0) return 0;
     for (0..class_count) |c| {
+        if (whole_classes >> @intCast(c) & 1 == 0) continue;
         var at = &h.free[c];
+        var last: ?*Block = null;
         while (at.*) |x| {
             const s = segmentOf(@ptrCast(x));
-            if (s.heap == h and s.free_count[(@intFromPtr(x) - @intFromPtr(s)) / page_size] != 0) at.* = x.next else at = &x.next;
+            if (s.heap == h and s.free_count[(@intFromPtr(x) - @intFromPtr(s)) / page_size] != 0) {
+                at.* = x.next;
+            } else {
+                last = x;
+                at = &x.next;
+            }
         }
+        tails[c] = last;
     }
     var given: usize = 0;
     it = touched;
@@ -3514,6 +3538,40 @@ test "an idle heap gives back its kept large blocks' pages and, on Linux, its wh
     h.donor.store(false, .monotonic);
     _ = donors.fetchSub(1, .monotonic);
     trimAllForTest(&h);
+}
+
+test "a trim gives away a free list whole, in its order, with the blocks other threads freed into the heap after it" {
+    var h = testHeap();
+    var other = testHeap();
+    const c = classOf(64, .@"8").?;
+    var blocks: [9][*]u8 = undefined;
+    for (&blocks) |*p| p.* = h.alloc(c).?;
+    for (blocks[0..6]) |p| h.freeSmall(p, c);
+    _ = trimHeap(&h);
+    other.freeSmall(blocks[6], c);
+    // Its list as the first trim gave it away, with the block another
+    // thread freed since on top: the second trim keeps its order, as it
+    // rewrites no block's link but a list's last.
+    _ = trimHeap(&h);
+    try expectRemote(&h, c, &blocks, &.{ 6, 5, 4, 3, 2, 1, 0 });
+    // Taken back by an allocation, then trimmed with a block another
+    // thread freed meanwhile: that block follows the list.
+    try std.testing.expectEqual(@intFromPtr(blocks[6]), @intFromPtr(h.alloc(c).?));
+    other.freeSmall(blocks[7], c);
+    _ = trimHeap(&h);
+    try expectRemote(&h, c, &blocks, &.{ 5, 4, 3, 2, 1, 0, 7 });
+    h.donor.store(false, .monotonic);
+    _ = donors.fetchSub(1, .monotonic);
+}
+
+/// `h`'s remote list of class `c` is `blocks` in the order `want` gives.
+fn expectRemote(h: *Heap, c: usize, blocks: []const [*]u8, want: []const usize) !void {
+    var b = h.remote[c].load(.monotonic);
+    for (want) |i| {
+        try std.testing.expectEqual(@intFromPtr(blocks[i]), @intFromPtr(b.?));
+        b = b.?.next;
+    }
+    try std.testing.expectEqual(@as(?*Block, null), b);
 }
 
 test "a heap is worth trimming once it has taken a segment since its last trim, or since it was made" {
