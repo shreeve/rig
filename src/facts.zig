@@ -1158,6 +1158,12 @@ pub const Facts = struct {
         if (!f.c().word_held.contains(sym)) return null;
         return sema.wordBitsOfSym(f.c(), sym);
     }
+    /// Whether the object `sym` declares here is a word-Cell object
+    /// (`sema.cellObject`), whose handles count atomically: emit marks it
+    /// `__rig_synced` for the runtime's `synchronized`.
+    pub fn isCellObject(f: Facts, sym: SymbolId) bool {
+        return sema.cellObjectSym(f.c(), sym);
+    }
     /// Whether the object `sym` declares here is `exact`, laid out in
     /// declaration order: a Zig `extern struct`.
     pub fn isExact(f: Facts, sym: SymbolId) bool {

@@ -22165,6 +22165,8 @@ fn crossingReason(ctx: *SemContext, blocker: TypeId, shared: bool, verb: ?[]cons
             "a `~` handle whose count is not atomic, so two cores could change it at once"
         else if (sema.isCell(ctx, inner))
             "a `*` handle to a Cell of more than one word, which stays with one task; a Cell of an `Int`, `Bool`, `Float`, or plain enum goes to other tasks"
+        else if (!blocker_is_weak and sema.holdsCellByValue(ctx, inner))
+            "a `*` handle to an object that holds a Cell and a part that is neither plain data nor a Cell of one word, which stays with one task; an object of plain data and such Cells goes to other tasks"
         else
             "a `*` handle whose count is not atomic, so two cores could change it at once",
         .callable => "a closure or function lent for a call, whose captures its type does not show",

@@ -11585,7 +11585,76 @@ pub fn frozenOfHandle(ctx: *const SemContext, ty: TypeId) ?TypeId {
 /// (`frozenObject`). The one test of whether a count is atomic; the
 /// runtime's `synchronized` makes the same choice.
 pub fn atomicHandle(ctx: *const SemContext, inner: TypeId) bool {
-    return isWordCell(ctx, inner) or actorValue(ctx, inner) != null or chanValue(ctx, inner) != null or frozenValue(ctx, inner) != null or frozenObject(ctx, inner);
+    return isWordCell(ctx, inner) or actorValue(ctx, inner) != null or chanValue(ctx, inner) != null or frozenValue(ctx, inner) != null or frozenObject(ctx, inner) or cellObject(ctx, inner);
+}
+
+/// Whether `inner` is a word-Cell object: an object that holds a Cell,
+/// each of whose parts is plain data, a Cell of one word, or another such
+/// object (Core sentence 9). Through a handle only its Cells change, each
+/// change one atomic instruction, so its handles count atomically and go
+/// to other tasks, as a word Cell's do. A part that names a type
+/// parameter is none of these, so a generic object is decided by its
+/// declaration alone, the same for every instance, as the runtime's
+/// `synchronized` reads it (`__rig_synced`, which emit writes from
+/// `cellObjectSym`).
+pub fn cellObject(ctx: *const SemContext, inner: TypeId) bool {
+    const decl: CloneSeen = switch (ctx.types.get(inner)) {
+        .nominal => |sym| .{ .ctx = ctx, .sym = sym },
+        .imported_nominal => blk: {
+            const d = nominalDecl(ctx, inner) orelse return false;
+            break :blk .{ .ctx = d.ctx, .sym = d.sym };
+        },
+        .parameterized_nominal => |pn| if (isBuiltinGeneric(ctx, pn.sym) or isHashTable(ctx, pn.sym)) return false else declaredAt(ctx, pn.sym) orelse return false,
+        else => return false,
+    };
+    return cellObjectSym(decl.ctx, decl.sym);
+}
+
+/// `cellObject` of the object `sym` declares in `ctx`.
+pub fn cellObjectSym(ctx: *const SemContext, sym: SymbolId) bool {
+    return cellFields(ctx, sym, 0) == .cells;
+}
+
+const CellParts = enum { none, cells, other };
+
+/// What the parts of the object `sym` declares in `ctx` are, for
+/// `cellObject`: all plain data (`none`), plain data and at least one
+/// word Cell or word-Cell object (`cells`), or anything else (`other`).
+fn cellFields(ctx: *const SemContext, sym: SymbolId, depth: u32) CellParts {
+    if (depth > max_alias_height) return .other;
+    const s = ctx.symbols.items[sym];
+    if (s.kind != .nominal_type and s.kind != .generic_type) return .other;
+    var out: CellParts = .none;
+    for (s.fields orelse &.{}) |f| {
+        if (f.is_method or f.is_drop_method) continue;
+        if (f.is_variant) return .other;
+        switch (cellPart(ctx, f.ty, depth + 1)) {
+            .none => {},
+            .cells => out = .cells,
+            .other => return .other,
+        }
+    }
+    return out;
+}
+
+fn cellPart(ctx: *const SemContext, ty: TypeId, depth: u32) CellParts {
+    if (isWordCell(ctx, ty)) return .cells;
+    const info = ctx.typeInfo(ty);
+    if (info.has_type_var or info.views.string_view or info.views.marked) return .other;
+    if (!info.cell) return if (info.plain) .none else .other;
+    return switch (ctx.types.get(ty)) {
+        .nominal => |s| cellFields(ctx, s, depth),
+        .imported_nominal => blk: {
+            const d = nominalDecl(ctx, ty) orelse break :blk .other;
+            break :blk cellFields(d.ctx, d.sym, depth);
+        },
+        .parameterized_nominal => |pn| blk: {
+            if (isBuiltinGeneric(ctx, pn.sym) or isHashTable(ctx, pn.sym)) break :blk .other;
+            const d = declaredAt(ctx, pn.sym) orelse break :blk .other;
+            break :blk cellFields(d.ctx, d.sym, depth);
+        },
+        else => .other,
+    };
 }
 
 /// Whether `ty` is a `Cell[T]`.

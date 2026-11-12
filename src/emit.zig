@@ -928,6 +928,7 @@ pub const Emitter = struct {
             try self.w.print("pub const {f} = extern struct {{\n", .{ident(name)});
         } else try self.w.print("pub const {f} = struct {{\n", .{ident(name)});
         if (self.facts.wordBitsOfSym(sym) != null) try self.w.writeAll("    pub const __rig_word_sized = {};\n");
+        if (self.facts.isCellObject(sym)) try self.w.writeAll("    pub const __rig_synced = {};\n");
         try self.emitFields(1);
         try self.emitRigName(1);
         try self.emitOwnApis(1);
@@ -975,6 +976,7 @@ pub const Emitter = struct {
         const prev = try self.enterNominal(ir.GenericStruct.name(node), true, members);
         defer self.nominal = prev;
         try self.emitGenericHead(ir.GenericStruct.tparams(node), "struct");
+        if (self.facts.isCellObject(self.nominal.?.sym)) try self.w.writeAll("        pub const __rig_synced = {};\n");
         try self.emitFields(2);
         try self.emitRigName(2);
         try self.emitOwnApis(2);

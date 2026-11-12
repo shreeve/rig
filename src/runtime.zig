@@ -677,6 +677,10 @@ pub const OrderedSet = ordered_zig.OrderedSet;
 const unordered_zig = @import("unordered.zig");
 pub const UnorderedMap = unordered_zig.UnorderedMap;
 pub const UnorderedSet = unordered_zig.UnorderedSet;
+/// Its hashes, which std.shared's table (std/shared.zig) takes too: the
+/// text hash, and the multiplier of the integer hash.
+pub const textHash = unordered_zig.textHash;
+pub const int_hash_mul = unordered_zig.int_mul;
 
 test {
     _ = sched;
@@ -2395,10 +2399,13 @@ fn orderElements(a: anytype, b: @TypeOf(a)) std.math.Order {
 // -----------------------------------------------------------------------------
 
 /// Whether `T` is a Cell many tasks change at once: one of one word in a
-/// program that makes tasks (`Cell.__rig_word`). The allocation behind
-/// a `*` of it counts its handles atomically, so they cross cores.
+/// program that makes tasks (`Cell.__rig_word`), or an object whose only
+/// changing parts are such Cells (`__rig_synced`, `sema.cellObject`).
+/// The allocation behind a `*` of it counts its handles atomically, so
+/// they cross cores.
 fn synchronized(comptime T: type) bool {
     if (@typeInfo(T) != .@"struct") return false;
+    if (@hasDecl(T, "__rig_synced")) return true;
     // An actor's handles go to other tasks (`tasks.Actor`).
     if (@hasDecl(T, "__rig_actor")) return true;
     // So do a channel's (`tasks.Chan`).
@@ -2429,7 +2436,7 @@ pub fn Frozen(comptime T: type) type {
 /// no two such Cells share a line and cores changing each its own do not
 /// take the line from one another. Every other `*T` keeps a word's.
 fn countedAlign(comptime T: type, comptime is_frozen: bool) usize {
-    if (!is_frozen and @typeInfo(T) == .@"struct" and @hasDecl(T, "__rig_word") and T.__rig_word) return std.atomic.cache_line;
+    if (!is_frozen and @typeInfo(T) == .@"struct" and ((@hasDecl(T, "__rig_word") and T.__rig_word) or @hasDecl(T, "__rig_synced"))) return std.atomic.cache_line;
     return @alignOf(usize);
 }
 
@@ -9196,6 +9203,8 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
                     // hold, as a function shows no code.
                     if (comptime @hasDecl(@FieldType(p.child, "value"), "__rig_chan")) return w.writeAll("<chan>");
                     if (comptime @hasDecl(@FieldType(p.child, "value"), "__rig_actor")) return w.writeAll("<actor>");
+                    // An object of word Cells prints as any object does.
+                    if (comptime @hasDecl(@FieldType(p.child, "value"), "__rig_synced")) return writeValue(w, value.value, top);
                     try w.writeAll("Cell(value: ");
                     try writeValue(w, value.value.get(), false);
                     return w.writeAll(")");
