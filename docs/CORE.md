@@ -842,7 +842,13 @@ you share is a `Cell`, and it changes only by a marked call: `!c.set(5)`.
 A value that holds a `Cell` lives only behind `*` (`*Cell(0)`, or a
 field of a value made with `*`); it is never a local, parameter,
 element, or type argument by value. A `Cell` of one word may go to
-other tasks, each change landing at once. A frozen value, `*Frozen(x)`,
+other tasks, each change landing at once in one order every task sees,
+and so may a *word-Cell object*: an object that holds a `Cell` and
+whose every field, as declared, is plain data (§1), a `Cell` of one
+word, or another word-Cell object. Through a handle only its Cells
+change; its handles, weak ones too, count atomically, and its `drop`
+runs in whichever task drops the last. A `get` then a `set` are two
+changes, not one. A frozen value, `*Frozen(x)`,
 lives only behind `*`: never a local, parameter, element, or type
 argument by value. It holds only data that never changes: no `Cell`,
 `Signal`, task, closure, view, or handle but another frozen value's.

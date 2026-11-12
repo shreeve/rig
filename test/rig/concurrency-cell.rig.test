@@ -170,3 +170,191 @@ test "cell add that overflows stores nothing", seeds: 20, '''
   low = *Cell(Int.min)
   task.isolate(|+low| lower(+low, 1)) catch |e| print("caught", e)
   print(low.get())
+
+test "cell object across tasks", seeds: 20, '''
+  [8001, 8002, 8003] 16000
+  Pair(a: Hits(n: Cell(value: 8000), step: 1), b: Hits(n: Cell(value: 16000), step: 2))
+'''
+  # An object whose every part is plain data, a Cell of one word, or
+  # another such object changes through a handle only by its Cells, so
+  # its handles count atomically and go to other cores, as a word Cell's
+  # do: `+p` given to tasks, and `p` read by the tasks of `par.map`.
+  use std.par
+
+  obj Hits
+    n: Cell[Int]
+    step: Int
+
+    sub bump(!@)
+      _ = !@n.add(@step)
+
+  obj Pair
+    a: Hits
+    b: Hits
+
+  sub work(p: *Pair)
+    for 0..1000
+      !p.a.bump()
+      !p.b.bump()
+
+  p = *Pair(a: Hits(n: Cell(0), step: 1), b: Hits(n: Cell(0), step: 2))
+  ts = Tasks[Void]()
+  for 0..8
+    !ts.add(work(+p)&)
+  >ts
+  print(par.map(?[1, 2, 3], |?p, x| x + p.a.n.get()), p.b.n.get())
+  print(p)
+
+fail "cell object with an owner stays", "`par.map` calls the closure on several tasks at once, which all read what it captures, and `c` views a `*` handle to an object that holds a Cell and `name: String`, which is neither plain data, a Cell of one word, nor a word-Cell object, so it stays with one task", errors: 1
+  use std.par
+
+  obj Named
+    n: Cell[Int]
+    name: String
+
+  c = *Named(n: Cell(1), name: String("x"))
+  print(par.map(?[1, 2, 3], |?c, x| x + c.n.get()))
+
+fail "cell object two-word cell stays", "`c` views a `*` handle to an object that holds a Cell and `n: Cell[String]`, a Cell of more than one word, so it stays with one task", errors: 1
+  use std.par
+
+  obj H
+    n: Cell[String]
+    k: Int
+
+  c = *H(n: Cell(String("a")), k: 1)
+  print(par.map(?[1, 2], |?c, x| x + c.k))
+
+fail "cell object nested owner stays", "`c` views a `*` handle to an object that holds a Cell and `a.s: String`, which is neither plain data, a Cell of one word, nor a word-Cell object, so it stays with one task", errors: 1
+  use std.par
+
+  obj In
+    n: Cell[Int]
+    s: String
+
+  obj H
+    a: In
+
+  c = *H(a: In(n: Cell(1), s: String("x")))
+  print(par.map(?[1, 2], |?c, x| x + c.a.n.get()))
+
+fail "cell object handle part stays", "`c` views a `*` handle to an object that holds a Cell and `o: *Cell[Int]`, which is neither plain data, a Cell of one word, nor a word-Cell object, so it stays with one task", errors: 1
+  use std.par
+
+  obj H
+    n: Cell[Int]
+    o: *Cell[Int]
+
+  c = *H(n: Cell(1), o: *Cell(2))
+  print(par.map(?[1, 2], |?c, x| x + c.n.get()))
+
+fail "cell object drop part stays", "`c` views a `*` handle to an object that holds a Cell and `f: Fd`, which is neither plain data, a Cell of one word, nor a word-Cell object, so it stays with one task", errors: 1
+  # A part with a `drop` body has no copy, so it is not plain data.
+  use std.par
+
+  obj Fd
+    k: Int
+
+    drop(!@)
+      print("closed")
+
+  obj H
+    n: Cell[Int]
+    f: Fd
+
+  c = *H(n: Cell(1), f: Fd(k: 3))
+  print(par.map(?[1, 2], |?c, x| x + c.n.get()))
+
+fail "plain object without cell stays", "`c` views a `*` handle whose count is not atomic, so two cores could change it at once", errors: 1
+  use std.par
+
+  obj Sq
+    k: Int
+
+  c = *Sq(k: 1)
+  print(par.map(?[1, 2], |?c, x| x + c.k))
+
+fail "cell object generic part stays", "`c` views a `*` handle to an object that holds a Cell and `v: T`: a generic part is decided by the declaration, the same for every instance, so it stays with one task", errors: 1
+  # `Box[Int]` stays too: a generic object is decided by its declaration.
+  use std.par
+
+  obj Box[T]
+    n: Cell[Int]
+    v: T
+
+  c = *Box[Int](n: Cell(1), v: 2)
+  print(par.map(?[1, 2], |?c, x| x + c.n.get()))
+
+fail "enum of cell object stays", "`c` views a `*` handle to an enum that holds a Cell, which stays with one task; of the values that hold a Cell, only a word-Cell object goes to other tasks", errors: 1
+  use std.par
+
+  obj Hits
+    n: Cell[Int]
+
+  enum E
+    a(h: Hits)
+    b
+
+  c = *E.a(h: Hits(n: Cell(1)))
+  print(par.map(?[1, 2], |?c, x| x))
+
+fail "cell object owner fails Sends", "`f[*H]` cannot use `T = *H`: `*H` cannot be sent to another task", errors: 1
+  obj H
+    n: Cell[Int]
+    s: String
+
+  fun f[T: Sends](x: T) -> Int
+    1
+
+  c = *H(n: Cell(1), s: String("x"))
+  print(f(+c))
+
+fail "cell object part changes only by its cells", "cannot assign through a shared handle (`*T`)", errors: 1
+  # A write view of a word-Cell object, handed on, changes only its Cells.
+  obj Hits
+    n: Cell[Int]
+    step: Int
+
+  sub poke(h: !Hits)
+    h.step = 3
+
+  c = *Hits(n: Cell(1), step: 1)
+  poke(!c)
+  print(c.step)
+
+fail "cell object erased to syncs", "`*Hits` is erased to `*{Count + Syncs}`, which holds only a frozen value, and `Hits` changes through its Cells", errors: 1
+  api Count
+    fun total(?@) -> Int
+
+  obj Hits: Count
+    n: Cell[Int]
+
+    fun total(?@) -> Int
+      @n.get()
+
+  c = *Hits(n: Cell(1))
+  o: *{Count + Syncs} = c
+  print(o.total())
+
+test "cell object function part across tasks", seeds: 20, "[3, 5]"
+  # A function value is plain data (Core §1): an object of one and a
+  # word Cell goes to other tasks.
+  use std.par
+
+  fun twice(x: Int) -> Int
+    x * 2
+
+  obj H
+    n: Cell[Int]
+    f: fun(Int) -> Int
+
+  c = *H(n: Cell(1), f: twice)
+  par.map(?[1, 2], |?c, x| c.f(x) + c.n.get())
+
+code "cell object synced", "pub const __rig_synced = {};"
+  obj Hits
+    n: Cell[Int]
+    step: Int
+
+  h = *Hits(n: Cell(0), step: 2)
+  print(h.step)

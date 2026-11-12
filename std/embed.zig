@@ -32,6 +32,8 @@ pub const files = [_]struct { []const u8, []const u8 }{
     .{ "par.rig", @embedFile("par.rig") },
     .{ "random.rig", @embedFile("random.rig") },
     .{ "random.zig", @embedFile("random.zig") },
+    .{ "shared.rig", @embedFile("shared.rig") },
+    .{ "shared.zig", @embedFile("shared.zig") },
     .{ "slices.rig", @embedFile("slices.rig") },
     .{ "sort.rig", @embedFile("sort.rig") },
     .{ "target.rig", @embedFile("target.rig") },

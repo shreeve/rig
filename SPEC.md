@@ -9428,6 +9428,50 @@ a cache line of its own, so tasks changing Cells made one after another
 do not slow one another. A Cell of more than one word stays with one
 task.
 
+So does a *word-Cell object*: an object that holds a Cell and whose
+every field, as declared, is plain data ([§2](#kinds-of-value)), a
+Cell of one word, or another word-Cell object. Through a handle only
+its Cells change, each change one such instruction, so its handles,
+weak ones too, are counted atomically and its strong ones go to other
+tasks, as a word Cell's do, each allocation has a cache line of its
+own, and its `drop` runs in whichever task drops the last handle. An
+object that holds a Cell and any other field (a `String`, a `List`, a
+handle, a value with a `drop` body) stays with one task, and the
+crossing error names that field. A generic object is decided by its
+declaration, the same for every instance: a field `v: T` keeps
+`Box[Int]` with one task too. `shared.Map` is one
+([STD, std.shared](docs/STD.md#stdshared)).
+
+Each Cell operation is one change; a `get` then a `set` are two, and a
+change another task makes between them is lost. Count with `add` or
+`sub`, and replace a value with `compare_swap` or `swap`, not by
+reading and storing it.
+
+```rig
+obj Hits
+  n: Cell[Int]
+  step: Int
+
+  sub bump(!@)
+    _ = !@n.add(@step)
+
+sub work(h: *Hits)
+  for 0..1000
+    !h.bump()
+
+sub main()
+  h = *Hits(n: Cell(0), step: 2)
+  ts = Tasks[Void]()
+  for 0..8
+    !ts.add(work(+h)&)
+  >ts
+  print(h.n.get())
+```
+
+```output
+16000
+```
+
 ```rig
 sub work(hits: *Cell[Int])
   for 0..1000
@@ -13650,6 +13694,7 @@ thread.
 | `!T`, `![]T` | when `T` sends | never |
 | `Task[T]` | when `T` sends | never |
 | `*Cell[T]` of one word: an `Int`, `Bool`, `Float`, or plain enum | yes | yes |
+| `*T` of a word-Cell object: it holds a Cell, and every field, as declared, is plain data, a Cell of one word, or another word-Cell object ([Cell](#cell)) | yes | yes |
 | `*Frozen[T]` ([Frozen values](#frozen-values)) | yes | yes |
 | a function value, `fun(A) -> R` or `sub(A)` | yes | yes |
 | any other `*T`, `~T`, `Cell`, `Signal`, `Tasks[T]`; a callable view `?fun`; an owned closure `*fun` or `~fun` | never | never |
@@ -13660,9 +13705,9 @@ thread.
 | a frozen value's shared API object, `*{A + Syncs}` | yes | yes |
 
 So a task may be handed to another task, which waits for it, and keeps
-its loans for that task's whole life. A `*T` or `~T` handle never
-crosses, by value, through a view, or in a field, an element, or an
-optional, since its count is not atomic. An API object crosses only
+its loans for that task's whole life. Any other `*T` or `~T` handle
+never crosses, by value, through a view, or in a field, an element, or
+an optional, since its count is not atomic. An API object crosses only
 by a bound it names ([API objects](#api-objects)), and without it goes
 to no task, a local one included.
 
