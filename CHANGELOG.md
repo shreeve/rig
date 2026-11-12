@@ -459,6 +459,15 @@ none of these ever built:
 
 ### Runtime
 
+- A worker that has slept 10 ms gives back what its heap holds free,
+  once its heap has taken 4 MiB from the system since it last did:
+  the pages of its kept large blocks, and on Linux each 64 KiB class
+  page whose blocks are all free (`MADV_DONTNEED`); what stays free goes
+  on its remote lists, where any heap that would take a new page takes
+  it first. So memory a burst of tasks freed serves the thread that
+  works on: Trig's parallel loader, checking Material UI's docs at one
+  checker with 8 cores, peaked 74 MiB over loading on one thread, and
+  peaks 14 MiB over it.
 - A channel's receive gives Rig's `T?` as the program holds it: for a
   `T` that holds `none` in a spare value of its own (an object with an
   optional field, a `String` or a `List`, an object that names its none,

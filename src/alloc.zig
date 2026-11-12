@@ -21,8 +21,13 @@
 //! resident. A heap that does not fault in ahead (`faultsAhead`), as a
 //! server's worker's, keeps only `keep_resident` bytes of them resident
 //! and gives the pages of the rest back to the system, keeping their
-//! addresses for its next (`cold`). Segments are never returned to the
-//! system: memory freed stays for reuse. On Linux,
+//! addresses for its next (`cold`). Segments are never unmapped:
+//! memory freed stays for reuse. A worker that has slept a while trims
+//! its heap (`trimIdle`): it gives back the pages of its kept large
+//! blocks and, on Linux, each class page whose blocks are all free, and
+//! puts what stays free on its remote lists, where any heap that would
+//! otherwise take a new page may take it (`takeDonated`), so the memory
+//! a burst of tasks freed serves the thread that works on. On Linux,
 //! a heap that does much of the program's work, one that has taken from
 //! the system most of what every heap has or more than one segment's
 //! worth, faults in at once the memory it is about to fill (`prefault`)
@@ -96,6 +101,8 @@ comptime {
         owner_lost,
         spare_heaps,
         spare_lock,
+        all_heaps,
+        donors,
         mapped_lock,
         mapped_spans,
         mapped_count,
@@ -262,6 +269,18 @@ const Segment = struct {
     heap: *Heap,
     /// Pages handed out so far; the first is the header's.
     used: usize,
+    /// Its pages given back to the system by `trimIdle`, a bit each, for
+    /// `newPage` to hand out again, and the heap's next segment that has
+    /// any (`Heap.released`).
+    released: u64 = 0,
+    next_released: ?*Segment = null,
+    /// `trimIdle`'s count of each page's blocks on its heap's free
+    /// lists, and their class, valid while `trim` is the heap's `trims`;
+    /// and the next segment that count has reached.
+    trim: u32 = 0,
+    free_count: [pages_per_segment]u16 = undefined,
+    class: [pages_per_segment]Class = undefined,
+    next_trimmed: ?*Segment = null,
 };
 
 /// What a thread allocates from.
@@ -302,6 +321,18 @@ pub const Heap = struct {
     /// Whether Tables this heap reserved wait for it to fault in ahead
     /// before they ask for huge pages (`tableWaits`).
     tables_wait: bool = false,
+    /// Its first segment with pages `trimIdle` gave back.
+    released: ?*Segment = null,
+    /// How many times `trimIdle` has counted its free blocks.
+    trims: u32 = 0,
+    /// What it had taken from the system (`taken`) at its last trim
+    /// (`trimWorth`).
+    taken_at_trim: usize = 0,
+    /// Whether its thread sleeps and has given its free blocks away
+    /// (`trimIdle`), for other heaps to take (`takeDonated`).
+    donor: std.atomic.Value(bool) = .init(false),
+    /// The heap made before it (`all_heaps`).
+    all_next: ?*Heap = null,
 
     /// `n` more bytes taken from the system.
     fn took(h: *Heap, n: usize) void {
@@ -329,9 +360,13 @@ pub const Heap = struct {
                 return @ptrCast(list);
             }
         }
-        if (carved) |f| f.* = true;
         const size = classSize(c);
         if (h.carve[c] + size > h.carve_end[c]) {
+            // Before a new page, blocks an idle heap gave away.
+            if (donors.load(.monotonic) != 0) if (takeDonated(h, c)) |list| {
+                h.free[c] = list.next;
+                return @ptrCast(list);
+            };
             // A class on its second page or later fills its pages, so the
             // new one is faulted in whole; of a class's first page, only
             // the first block's system pages, as most classes of a small
@@ -342,12 +377,21 @@ pub const Heap = struct {
             h.carve[c] = page;
             h.carve_end[c] = page + page_size - page_size % size;
         }
+        if (carved) |f| f.* = true;
         const p = h.carve[c];
         h.carve[c] += size;
         return @ptrFromInt(p);
     }
 
     fn newPage(h: *Heap) ?usize {
+        // A page `trimIdle` gave back first: its system pages fault in
+        // again, zeroed, as it is carved.
+        if (h.released) |s| {
+            const k = @ctz(s.released);
+            s.released &= s.released - 1;
+            if (s.released == 0) h.released = s.next_released;
+            return @intFromPtr(s) + k * page_size;
+        }
         if (h.segment) |s| if (s.used < pages_per_segment) {
             const p = @intFromPtr(s) + s.used * page_size;
             s.used += 1;
@@ -406,6 +450,190 @@ pub const Heap = struct {
         }
     }
 };
+
+// -----------------------------------------------------------------------------
+// An idle heap
+// -----------------------------------------------------------------------------
+
+/// Give back to the system what the running thread's heap holds free, as
+/// its worker has slept a while (`sched.sleep`): a heap's free blocks
+/// serve only its own thread, so those of a worker that ran a burst of
+/// tasks and then sleeps, while another thread does the program's work,
+/// would stay resident for nothing. It takes back the blocks other
+/// threads freed into it (`Heap.remote`), gives back the pages of its
+/// kept large blocks (`decommit`), keeping them cold, by address, and on
+/// Linux gives back each 64 KiB page of a class whose every block is on
+/// its free list (`MADV_DONTNEED`), for `newPage` to hand out again,
+/// zeroed, to any class. Gives the bytes given back.
+pub fn trimIdle() usize {
+    return trimHeap(my_heap().* orelse return 0);
+}
+
+/// Whether the running thread's heap is worth trimming as its worker
+/// sleeps (`sched.sleep`): it has grown by half since its last trim
+/// (`trimIdle`), and by a segment at least, or taken a segment since it
+/// was made (`trimGrowth`). A heap
+/// that has not grown since has given back or lent what it held then, so
+/// a worker that pauses again and again, as one between the short tasks
+/// of a server or of bench/tasks does, sleeps as it would with no trim,
+/// with no timeout to wake it, and trims again only once its heap grows.
+pub fn trimWorth() bool {
+    return worthTrimming(my_heap().* orelse return false);
+}
+
+fn worthTrimming(h: *const Heap) bool {
+    return h.taken -| h.taken_at_trim >= trimGrowth(h.taken_at_trim);
+}
+
+/// How much a heap that held `at_trim` bytes at its last trim grows
+/// before its worker's next sleep trims it again (`trimWorth`): half of
+/// that, and a segment at least, so a worker that has carved its first
+/// segment, or mapped as much in large blocks, trims once. A trim walks
+/// every free block of its heap, so trims spaced by a fraction of the
+/// heap walk, over a whole run, at most three times what the heap ends
+/// with, and a heap that grows to 1 GiB trims about 14 times, not 256.
+fn trimGrowth(at_trim: usize) usize {
+    return @max(segment_size, at_trim / 2);
+}
+
+fn trimHeap(h: *Heap) usize {
+    mustOwn(h);
+    h.taken_at_trim = h.taken;
+    var given: usize = 0;
+    while (lastHeld(&h.kept)) |j| {
+        const f = unkeep(&h.kept, j, 0).?;
+        const p = @intFromPtr(f);
+        const len = f.len;
+        decommit(p, len);
+        keepPiece(&h.cold, p, len);
+        given += len - std.heap.pageSize();
+    }
+    // A big heap's free lists hold millions of blocks, cold, and its
+    // worker comes back to work only once the trim is done: it walks
+    // each list once, to count its blocks per page on Linux and to find
+    // its last block, and again only a list with a page to give back.
+    // The blocks other threads freed into it (`Heap.remote`) join the
+    // list it walks.
+    if (builtin.os.tag == .linux) {
+        h.trims +%= 1;
+        if (h.trims == 0) h.trims = 1;
+    }
+    var touched: ?*Segment = null;
+    var tails: [class_count]?*Block = @splat(null);
+    for (0..class_count) |c| {
+        const late = if (h.remote[c].load(.monotonic) != null) h.remote[c].swap(null, .acquire) else null;
+        const own_tail = walkFree(h, h.free[c], c, &touched);
+        const late_tail = walkFree(h, late, c, &touched);
+        if (own_tail) |t| t.next = late else h.free[c] = late;
+        tails[c] = late_tail orelse own_tail;
+    }
+    if (builtin.os.tag == .linux) given += trimPages(h, touched, &tails);
+    // What stays free goes on its remote lists, where its own next
+    // allocation takes it back, and meanwhile another heap may.
+    for (0..class_count) |c| {
+        const list = h.free[c] orelse continue;
+        h.free[c] = null;
+        const tail = tails[c].?;
+        var top = h.remote[c].load(.monotonic);
+        while (true) {
+            tail.next = top;
+            top = h.remote[c].cmpxchgWeak(top, list, .release, .monotonic) orelse break;
+        }
+    }
+    if (!h.donor.load(.monotonic)) {
+        h.donor.store(true, .monotonic);
+        _ = donors.fetchAdd(1, .monotonic);
+    }
+    return given;
+}
+
+/// Walk a free list of `h`'s class `c` (`trimHeap`): on Linux, count each
+/// of its blocks on its page in its segment's header, listing in
+/// `touched` each segment first counted in this trim, for `trimPages`.
+/// Gives its last block.
+fn walkFree(h: *Heap, list: ?*Block, c: usize, touched: *?*Segment) ?*Block {
+    var last: ?*Block = null;
+    var b = list;
+    while (b) |x| : (b = x.next) {
+        last = x;
+        if (builtin.os.tag != .linux) continue;
+        const s = segmentOf(@ptrCast(x));
+        // A block another heap gave away stays on the list.
+        if (s.heap != h) continue;
+        if (s.trim != h.trims) {
+            s.trim = h.trims;
+            s.free_count = @splat(0);
+            s.next_trimmed = touched.*;
+            touched.* = s;
+        }
+        const k = (@intFromPtr(x) - @intFromPtr(s)) / page_size;
+        s.free_count[k] += 1;
+        s.class[k] = @intCast(c);
+    }
+    return last;
+}
+
+/// The pages of `h`'s classes whose every block is on its free list, as
+/// `walkFree` counted them in the `touched` segments: taken off the
+/// lists, whose last blocks `tails` keeps, and given back to the system,
+/// a run of neighbors at a time. A block on the list is free, and those
+/// other threads free meanwhile go to `Heap.remote`, which this leaves
+/// alone, so no page given back holds a block anyone uses or will free.
+fn trimPages(h: *Heap, touched: ?*Segment, tails: *[class_count]?*Block) usize {
+    // A page is wholly free when its count is every block it was carved
+    // into: a page still being carved holds fewer on the list than that.
+    // Only the lists of the classes with such a page are walked again.
+    var whole_classes: u64 = 0;
+    var it = touched;
+    while (it) |s| : (it = s.next_trimmed) {
+        for (1..s.used) |k| {
+            const n = s.free_count[k];
+            if (n == 0 or n != page_size / classSize(s.class[k])) {
+                s.free_count[k] = 0;
+            } else whole_classes |= @as(u64, 1) << s.class[k];
+        }
+    }
+    if (whole_classes == 0) return 0;
+    for (0..class_count) |c| {
+        if (whole_classes >> @intCast(c) & 1 == 0) continue;
+        var at = &h.free[c];
+        var last: ?*Block = null;
+        while (at.*) |x| {
+            const s = segmentOf(@ptrCast(x));
+            if (s.heap == h and s.free_count[(@intFromPtr(x) - @intFromPtr(s)) / page_size] != 0) {
+                at.* = x.next;
+            } else {
+                last = x;
+                at = &x.next;
+            }
+        }
+        tails[c] = last;
+    }
+    var given: usize = 0;
+    it = touched;
+    while (it) |s| : (it = s.next_trimmed) {
+        var whole: u64 = 0;
+        for (1..s.used) |k| if (s.free_count[k] != 0) {
+            whole |= @as(u64, 1) << @intCast(k);
+        };
+        if (whole == 0) continue;
+        var bits = whole;
+        while (bits != 0) {
+            const first = @ctz(bits);
+            const run = @ctz(~(bits >> @intCast(first)));
+            const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(@intFromPtr(s) + first * page_size);
+            std.posix.madvise(at, run * page_size, std.os.linux.MADV.DONTNEED) catch {};
+            bits &= ~(((@as(u64, 1) << @intCast(run)) - 1) << @intCast(first));
+        }
+        given += @popCount(whole) * page_size;
+        if (s.released == 0) {
+            s.next_released = h.released;
+            h.released = s;
+        }
+        s.released |= whole;
+    }
+    return given;
+}
 
 // -----------------------------------------------------------------------------
 // Large blocks
@@ -1756,7 +1984,42 @@ fn newHeap() ?*Heap {
     h.* = .{};
     if (check_owner) h.owner = threadToken();
     my_heap().* = h;
+    spare_lock.lock();
+    h.all_next = all_heaps.load(.monotonic);
+    all_heaps.store(h, .release);
+    spare_lock.unlock();
     return h;
+}
+
+/// Every heap made, newest first: heaps are never unmapped.
+var all_heaps_var: std.atomic.Value(?*Heap) = .init(null);
+const all_heaps = split.cell(&all_heaps_var, "alloc.all_heaps");
+/// How many heaps are donors (`Heap.donor`).
+var donors_var: std.atomic.Value(usize) align(128) = .init(0);
+const donors = split.cell(&donors_var, "alloc.donors");
+
+/// A donor's blocks of class `c`, for `h`, whose list ran out and whose
+/// page is full: the whole list of the first donor that has any, taken
+/// as its own thread would take it (`Heap.remote`). They stay the
+/// donor's: freed, each goes back on its list.
+fn takeDonated(h: *Heap, c: usize) ?*Block {
+    @branchHint(.unlikely);
+    var it = all_heaps.load(.acquire);
+    while (it) |d| : (it = d.all_next) {
+        if (d == h or !d.donor.load(.monotonic) or d.remote[c].load(.monotonic) == null) continue;
+        if (d.remote[c].swap(null, .acquire)) |list| return list;
+    }
+    return null;
+}
+
+/// The running thread wakes from the sleep it trimmed its heap in
+/// (`trimIdle`): its heap is no longer a donor.
+pub fn wakeIdle() void {
+    const h = my_heap().* orelse return;
+    if (h.donor.load(.monotonic)) {
+        h.donor.store(false, .monotonic);
+        _ = donors.fetchSub(1, .monotonic);
+    }
 }
 
 /// The running thread ends: give its heap back for the next thread, so
@@ -3240,6 +3503,104 @@ fn vmFlagForTest(p: usize, flag: []const u8) !bool {
         }
     }
     return error.NoMapping;
+}
+
+test "an idle heap gives back its kept large blocks' pages and, on Linux, its wholly free pages, which serve any class again, zeroed" {
+    var h = testHeap();
+    var other = testHeap();
+    // A heap that faults in ahead keeps a large block resident; trimmed,
+    // it keeps it cold.
+    h.taken = prefault_big;
+    const big = allocLarge(&h, 1 << 20).?;
+    freeLarge(&h, big, 1 << 20);
+    try std.testing.expectEqual(@as(usize, 1 << 20), h.kept.bytes);
+    // Three pages' worth of 1 KiB blocks, written: all of the first two
+    // freed, one of them by another thread, and one of the third kept.
+    const c = classOf(1024, .@"8").?;
+    const per = page_size / classSize(c);
+    var blocks: [3 * 64][*]u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 64), per);
+    for (&blocks) |*p| {
+        p.* = h.alloc(c).?;
+        @memset(p.*[0..1024], 0x5a);
+    }
+    const first = @intFromPtr(blocks[0]);
+    for (blocks[0 .. 2 * per - 1]) |p| h.freeSmall(p, c);
+    other.freeSmall(blocks[2 * per - 1], c);
+    for (blocks[2 * per + 1 ..]) |p| h.freeSmall(p, c);
+    const given = trimHeap(&h);
+    try std.testing.expectEqual(@as(usize, 0), h.kept.bytes);
+    try std.testing.expectEqual(@as(usize, 1 << 20), h.cold.bytes);
+    if (builtin.os.tag == .linux) {
+        try std.testing.expectEqual((1 << 20) - std.heap.pageSize() + 2 * page_size, given);
+        // A class never used takes a page given back, which reads zero.
+        const d = classOf(8 << 10, .@"8").?;
+        const q = @intFromPtr(h.alloc(d).?);
+        try std.testing.expect(q >= first and q < first + 2 * page_size);
+        for (@as([*]const u8, @ptrFromInt(q))[0 .. 8 << 10]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
+        // The third page's free blocks are still on the list.
+        try std.testing.expectEqual(@intFromPtr(blocks[3 * per - 1]), @intFromPtr(h.alloc(c).?));
+    }
+    try std.testing.expect(h.donor.load(.monotonic));
+    h.donor.store(false, .monotonic);
+    _ = donors.fetchSub(1, .monotonic);
+    trimAllForTest(&h);
+}
+
+test "a trim gives away a free list whole, in its order, with the blocks other threads freed into the heap after it" {
+    var h = testHeap();
+    var other = testHeap();
+    const c = classOf(64, .@"8").?;
+    var blocks: [9][*]u8 = undefined;
+    for (&blocks) |*p| p.* = h.alloc(c).?;
+    for (blocks[0..6]) |p| h.freeSmall(p, c);
+    _ = trimHeap(&h);
+    other.freeSmall(blocks[6], c);
+    // Its list as the first trim gave it away, with the block another
+    // thread freed since on top: the second trim keeps its order, as it
+    // rewrites no block's link but a list's last.
+    _ = trimHeap(&h);
+    try expectRemote(&h, c, &blocks, &.{ 6, 5, 4, 3, 2, 1, 0 });
+    // Taken back by an allocation, then trimmed with a block another
+    // thread freed meanwhile: that block follows the list.
+    try std.testing.expectEqual(@intFromPtr(blocks[6]), @intFromPtr(h.alloc(c).?));
+    other.freeSmall(blocks[7], c);
+    _ = trimHeap(&h);
+    try expectRemote(&h, c, &blocks, &.{ 5, 4, 3, 2, 1, 0, 7 });
+    h.donor.store(false, .monotonic);
+    _ = donors.fetchSub(1, .monotonic);
+}
+
+/// `h`'s remote list of class `c` is `blocks` in the order `want` gives.
+fn expectRemote(h: *Heap, c: usize, blocks: []const [*]u8, want: []const usize) !void {
+    var b = h.remote[c].load(.monotonic);
+    for (want) |i| {
+        try std.testing.expectEqual(@intFromPtr(blocks[i]), @intFromPtr(b.?));
+        b = b.?.next;
+    }
+    try std.testing.expectEqual(@as(?*Block, null), b);
+}
+
+test "a heap is worth trimming once it has grown by half since its last trim, and a segment at least, or taken a segment since it was made" {
+    var h = testHeap();
+    try std.testing.expect(!worthTrimming(&h));
+    h.taken = segment_size;
+    try std.testing.expect(worthTrimming(&h));
+    _ = trimHeap(&h);
+    try std.testing.expect(!worthTrimming(&h));
+    h.taken += segment_size - 1;
+    try std.testing.expect(!worthTrimming(&h));
+    h.taken += 1;
+    try std.testing.expect(worthTrimming(&h));
+    // A big heap grows by half of what it held at its last trim.
+    h.taken = 64 * segment_size;
+    _ = trimHeap(&h);
+    h.taken += 32 * segment_size - 1;
+    try std.testing.expect(!worthTrimming(&h));
+    h.taken += 1;
+    try std.testing.expect(worthTrimming(&h));
+    h.donor.store(false, .monotonic);
+    _ = donors.fetchSub(1, .monotonic);
 }
 
 /// Give back every block `h` keeps.
