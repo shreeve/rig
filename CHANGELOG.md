@@ -488,6 +488,19 @@ none of these ever built:
   five times to twice its length and freed, three times over, made 117
   `mmap`, 182 `munmap`, and 269 `mremap` calls on Linux and 283 `mmap`
   and 274 `munmap` on the Mac, and make none.
+- On Linux, every segment of small blocks, every span segment, and
+  every large block of 2 MiB or more mapped on its own asks for huge
+  pages (`MADV_HUGEPAGE`) while the system has free 2 MiB blocks for it
+  and 8 more, where span segments, mappings of 2 to 16 MiB, and the
+  segments of a heap that does not fault in ahead (a server's worker's,
+  a blocking-pool thread's) kept small pages, and under
+  `enabled=always` asked for them. Trig checking supabase-studio on pup
+  runs 3.3% faster at one checker, 4.9% at four, and 3.5% balanced,
+  with 41 to 67% fewer cycles walking page tables and 36 to 58% fewer
+  page faults. The cost is memory: peak RSS is 2.5 to 3.4% higher on
+  large projects and 6 to 8% higher on tiny ones, as a huge page
+  commits 2 MiB of a List's room not yet filled, and a heap that keeps
+  to one segment commits its segment 2 MiB at a time.
 - A worker that has slept 10 ms gives back what its heap holds free,
   once its heap has taken 4 MiB from the system since it last did:
   the pages of its kept large blocks, and on Linux each 64 KiB class

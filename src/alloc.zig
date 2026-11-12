@@ -45,11 +45,14 @@
 //! a burst of tasks freed serves the thread that works on. On Linux,
 //! a heap that does much of the program's work, one that has taken from
 //! the system most of what every heap has or more than one segment's
-//! worth, faults in at once the memory it is about to fill (`prefault`)
-//! and asks for huge pages for each new segment, and a new large block
-//! of 16 MiB or more asks for huge pages (`huge_large`), each while the
+//! worth, faults in at once the memory it is about to fill (`prefault`).
+//! Every new segment, every span segment, and every new large block of
+//! 2 MiB or more mapped on its own asks for huge pages, each while the
 //! system has free 2 MiB blocks for it and a few more (`hugeFreeFor`),
-//! counted on the node of the thread that asks (`freeHugeBlocks`). A
+//! counted on the node of the thread that asks (`freeHugeBlocks`): on
+//! Trig they take 41 to 67% fewer cycles walking page tables, for 2.5
+//! to 3.4% more peak memory on a large project and 6 to 8% on a tiny
+//! one (`huge_large`). A
 //! segment that gets huge pages is never faulted in ahead, as its first
 //! write to each 2 MiB faults all of it in; one of small pages is, a
 //! class's page at a time, and 1 MiB at a time once its heap has taken
@@ -59,9 +62,8 @@
 //! with no test where `defrag` is `defer` or `never`, as no fault
 //! compacts there; under `always`, where every range gets huge pages
 //! unasked and asking would make its faults compact, nothing asks for
-//! huge pages, and what should keep small pages (a segment of a heap
-//! that does not fault in ahead, a span segment, a Table's first 2 MiB)
-//! asks for them; under `never` nothing asks, and
+//! huge pages, and what should keep small pages (a Table's first
+//! 2 MiB, a task's stack) asks for them; under `never` nothing asks, and
 //! /proc/buddyinfo is never read. A reserved Table asks only for a heap
 //! that faults in ahead, waiting for the one that reserved it to come to
 //! (`tableWaits`).
@@ -459,11 +461,12 @@ pub const Heap = struct {
         };
         const s = mapSegment() orelse return null;
         h.took(segment_size);
-        // A heap that does much of the work fills its segments densely,
-        // so it asks for huge pages for them; a heap that keeps to one
-        // segment, as a server's worker's or a blocking-pool thread's,
-        // keeps small pages, as a huge page would commit 2 MiB of it.
-        const huge = builtin.os.tag == .linux and ask(@intFromPtr(s), segment_size, if (faultsAhead(h)) .huge else .small);
+        // Every segment asks for huge pages, a heap's first as its
+        // later ones: a TLB entry then covers 2 MiB of its blocks, and a
+        // fault fills 2 MiB, which costs a heap that keeps to one
+        // segment, as a server's worker's, up to 2 MiB it has not
+        // written.
+        const huge = builtin.os.tag == .linux and ask(@intFromPtr(s), segment_size, .huge);
         // The header's page, of a segment of small pages: with the
         // segment's first window, or alone, each page then faulting in
         // as its class takes it (`faultFresh`).
@@ -875,7 +878,7 @@ inline fn allocLargeFrom(h: *Heap, len: usize, mapped: ?*bool) ?[*]u8 {
     };
     const got = mapLarge(size) orelse return null;
     if (mapped) |f| f.* = true;
-    if (size >= huge_large) _ = ask(got, size, .huge) else if (size >= huge_page) _ = ask(got, size, .small);
+    if (size >= huge_page) _ = ask(got, size, .huge);
     h.took(size);
     lent(h, size);
     trimKept(h);
@@ -883,15 +886,17 @@ inline fn allocLargeFrom(h: *Heap, len: usize, mapped: ?*bool) ?[*]u8 {
     return @ptrFromInt(got);
 }
 
-/// A new large block of at least this many bytes is mapped, on Linux,
-/// aligned to `huge_page` and advised for transparent huge pages
-/// (`ask`), and so is a block grown to it by `mremap`: its pages
-/// fault in 2 MiB at a time, a trap and a TLB entry each. Smaller blocks,
-/// and blocks taken from those kept, stay as they are: huge pages for
-/// every new block of 2 MiB or more raise Trig's peak memory, and from
-/// 16 MiB they do not (docs/history/records/2026-10/alloc-thp16/). Where
-/// every range gets huge pages unasked (`enabled=always`), a new block
-/// of `huge_page` or more and less than this asks for small pages.
+/// A large block of at least this many bytes is a mapping of its own,
+/// not a span (`span_max`), mapped on Linux aligned to `huge_page`, and
+/// so is a block grown to it by `mremap`, so all of it is whole huge
+/// pages. Every new segment, span segment, and mapping of `huge_page`
+/// or more asks for huge pages (`ask`): its pages fault in 2 MiB at a
+/// time, a trap and a TLB entry each. On Trig (supabase-studio, pup)
+/// that is 3.3% faster with one checker and 4.9% with four, with 41 to
+/// 67% fewer cycles walking page tables and 36 to 58% fewer faults, and
+/// peak memory 2.5 to 3.4% higher on a large project and 6 to 8% on a
+/// tiny one, as a huge page commits 2 MiB of a List's room or of a
+/// segment's pages not yet written.
 const huge_large: usize = 16 << 20;
 
 /// A transparent huge page on Linux.
@@ -920,8 +925,8 @@ fn mapPages(size: usize) ?usize {
 /// as the system's mode asks (`adviceFor`). Under `madvise`, a range that
 /// wants huge pages asks for them (`MADV_HUGEPAGE`) while the system has
 /// free 2 MiB blocks for them and `huge_floor` more (`hugeFreeFor`); a
-/// new segment and a new large block ask just before their first pages
-/// fault, so the count is current when they need the blocks. Under
+/// new segment, span segment, or large block asks just before its first
+/// pages fault, so the count is current when it needs the blocks. Under
 /// `always`, a range that wants small pages says so (`MADV_NOHUGEPAGE`).
 /// A system that cannot leaves them as they are. It gives whether the
 /// range gets huge pages: it asked for them, or wants them where every
@@ -949,12 +954,11 @@ pub fn keepSmall(p: usize, len: usize) void {
     _ = ask(p, len, .small);
 }
 
-/// What Rig wants of a range: huge pages for one that has asked for
-/// nothing (`huge`); huge pages for one that may have asked for small
-/// ones, which only asking for huge pages undoes (`huge_again`, a large
-/// block grown by `mremap`, which keeps its range's advice); or small
-/// pages (`small`).
-const Want = enum { huge, huge_again, small };
+/// What Rig wants of a range: huge pages (`huge`), as a segment, a span
+/// segment, a large block of 2 MiB or more, and a Table past its first
+/// 2 MiB want, or small pages (`small`), as a Table's first 2 MiB and a
+/// task's stack want.
+const Want = enum { huge, small };
 
 /// What a range asks of Linux: nothing, huge pages, huge pages only
 /// while free 2 MiB blocks are there for them (`hugeFreeFor`,
@@ -994,15 +998,13 @@ const Thp = packed struct(u8) {
 ///   a range that wants huge pages asks for nothing, as it gets them
 ///   unasked, and asking would only make its faults compact (`defrag`
 ///   `madvise` or `defer+madvise`) or compact harder (`always`); one that
-///   wants small pages says so. A range that may have said so asks for
-///   huge pages as under `madvise`, as asking is the only way to undo it.
+///   wants small pages says so.
 /// - A mode that cannot be read is taken for `madvise`, with `defrag`
 ///   `madvise`, as the test is then what keeps a fault from compacting.
 fn adviceFor(mode: Thp, want: Want) Advice {
     if (mode.off) return .nothing;
     return switch (want) {
         .huge => if (mode.by_default) .nothing else if (mode.advice_stalls) .huge_if_free else .huge,
-        .huge_again => if (mode.advice_stalls) .huge_if_free else .huge,
         .small => if (mode.by_default) .small else .nothing,
     };
 }
@@ -1702,9 +1704,9 @@ fn carveSpan(h: *Heap, n: usize) ?usize {
     };
     sp.lock.unlock();
     const seg = mapSpanSegment() orelse return null;
-    // Small pages, as a large block under `huge_large` keeps: a huge
-    // page would commit 2 MiB of a List's room it has not filled.
-    _ = ask(@intFromPtr(seg), span_segment_size, .small);
+    // Huge pages, for all of it, as a segment of small blocks asks: a
+    // span's room it has not filled commits up to 2 MiB with them.
+    _ = ask(@intFromPtr(seg), span_segment_size, .huge);
     seg.heap = h;
     seg.used = span_first + n;
     lendSpan(seg, span_first, n);
@@ -2967,16 +2969,12 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
         if (to != 0) unmapLarge(to, new_size);
         return null;
     }
-    // A block that grows to `huge_large` asks for huge pages, as one
-    // taken afresh does, and one that grows to `huge_page` for small ones.
-    // The range keeps the advice of the block it grew from, so one that
-    // grows from a block that asked for small pages asks again
-    // (`huge_again`).
-    if (to != 0) {
-        _ = ask(rc, new_size, if (old_size >= huge_page and old_size < huge_large) .huge_again else .huge);
-    } else if (new_size >= huge_page and old_size < huge_page) {
-        _ = ask(rc, new_size, .small);
-    }
+    // A block that grows to `huge_page` or more asks for huge pages, as
+    // one taken afresh does. The range keeps the advice of the block it
+    // grew from, so a block that had asked asks again only as it moves
+    // to pages aligned for huge ones, as the system may have had no free
+    // 2 MiB blocks for it when it asked.
+    if (new_size >= huge_page and (to != 0 or old_size < huge_page)) _ = ask(rc, new_size, .huge);
     // The pages moved stay; of the new ones, those a List is likely to
     // fill are faulted in at once.
     h.took(new_size - old_size);
@@ -3372,7 +3370,7 @@ test "a heap that does not fault in ahead keeps `keep_resident` bytes of the lar
     trimAllForTest(&busy);
 }
 
-test "on Linux a new block of 16 MiB or more, and one grown to it, is aligned for huge pages and asks for them while 2 MiB blocks are free, and a smaller one does not" {
+test "on Linux a new block of 16 MiB or more, and one grown to it, is aligned for huge pages and asks for them while 2 MiB blocks are free, and a smaller one lies in a span segment that asks" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     useBuddyinfoForTest(buddyinfo_plenty);
     defer useBuddyinfoForTest(null);
@@ -3382,16 +3380,17 @@ test "on Linux a new block of 16 MiB or more, and one grown to it, is aligned fo
     try std.testing.expectEqual(@as(usize, 0), @intFromPtr(big) % huge_page);
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(big)));
     const small = allocLarge(&h, 8 * mib).?;
-    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(small)));
+    try std.testing.expect(isSpan(@intFromPtr(small)));
+    try std.testing.expect(try advisedHugeForTest(@intFromPtr(small)));
     freeLarge(&h, big, 16 * mib);
     freeLarge(&h, small, 8 * mib);
     trimAllForTest(&h);
-    // A block of 8 MiB, new, grown by `mremap` to 32 MiB.
+    // A span of 8 MiB grown to 32 MiB: copied into a mapping of its own.
     trimAllForTest(heap().?);
     const a = allocator;
     const m = try a.alloc(u8, 8 * mib);
     @memset(m, 7);
-    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(m.ptr)));
+    try std.testing.expect(try advisedHugeForTest(@intFromPtr(m.ptr)));
     const g = a.remap(m, 32 * mib).?;
     try std.testing.expectEqual(@as(usize, 0), @intFromPtr(g.ptr) % huge_page);
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(g.ptr)));
@@ -3606,6 +3605,23 @@ test "four threads take, write, grow, and free spans, many of them one another's
     try std.testing.expectEqual(@as(usize, 0), sh.bad.load(.monotonic));
 }
 
+test "on Linux a span segment asks for huge pages for all of it while 2 MiB blocks are free for it and 8 more" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    defer useBuddyinfoForTest(null);
+    // 17 free blocks: too few for a span segment's 16 and 8 more.
+    for ([_]bool{ true, false }) |plenty| {
+        useBuddyinfoForTest(if (plenty) buddyinfo_plenty else buddyinfo_low);
+        var h = testHeap();
+        const p = allocLarge(&h, 64 << 10).?;
+        try std.testing.expect(isSpan(@intFromPtr(p)));
+        const seg = @intFromPtr(spanSegmentOf(@intFromPtr(p)));
+        try std.testing.expectEqual(plenty, try advisedHugeForTest(seg));
+        try std.testing.expectEqual(plenty, try advisedHugeForTest(seg + span_segment_size - 1));
+        freeLarge(&h, p, 64 << 10);
+        trimAllForTest(&h);
+    }
+}
+
 test "on Linux a free span whose pages went back to the system holds one page, and is written whole when taken again" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     var h = testHeap();
@@ -3623,7 +3639,7 @@ test "on Linux a free span whose pages went back to the system holds one page, a
     trimAllForTest(&h);
 }
 
-test "on Linux a new segment of a heap that faults in ahead is aligned for huge pages and asks for them while 2 MiB blocks are free, and one of a heap that does not keeps small pages" {
+test "on Linux a new segment is aligned for huge pages and asks for them while 2 MiB blocks are free, of a heap that faults in ahead or not" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     useBuddyinfoForTest(buddyinfo_plenty);
     defer useBuddyinfoForTest(null);
@@ -3641,7 +3657,7 @@ test "on Linux a new segment of a heap that faults in ahead is aligned for huge 
     var small = testHeap();
     const q = small.newPage(0).?;
     try std.testing.expect(!faultsAhead(&small));
-    try std.testing.expect(!try advisedHugeForTest(q));
+    try std.testing.expect(try advisedHugeForTest(q));
 }
 
 test "Lists of large blocks under 16 MiB, taken, grown by doubling, and freed, three times over, make no mmap, munmap, or mremap" {
@@ -3767,7 +3783,12 @@ test "on Linux a new segment or large block asks for huge pages while free 2 MiB
     const mib: usize = 1 << 20;
     const big = allocLarge(&h, 16 * mib).?;
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(big)));
+    // A span segment needs 16, and 8 more: the 9 left are too few.
+    const span = allocLarge(&h, 8 * mib).?;
+    try std.testing.expect(isSpan(@intFromPtr(span)));
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(span)));
     freeLarge(&h, big, 16 * mib);
+    freeLarge(&h, span, 8 * mib);
     trimAllForTest(&h);
 }
 
@@ -3816,7 +3837,7 @@ test "on Linux a kept reading may tell a new segment no, but a yes is read again
     try std.testing.expectEqual(before + 3, buddyinfo_reads.*);
 }
 
-test "on Linux, with memory fragmented, no block, segment, or growth asks for huge pages" {
+test "on Linux, with memory fragmented, no block, segment, span segment, or growth asks for huge pages" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     useBuddyinfoForTest(buddyinfo_fragmented);
     defer useBuddyinfoForTest(null);
@@ -3825,6 +3846,9 @@ test "on Linux, with memory fragmented, no block, segment, or growth asks for hu
     const mib: usize = 1 << 20;
     const big = allocLarge(&h, 16 * mib).?;
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(big)));
+    const span = allocLarge(&h, 8 * mib).?;
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(span)));
+    freeLarge(&h, span, 8 * mib);
     freeLarge(&h, big, 16 * mib);
     trimAllForTest(&h);
     trimAllForTest(heap().?);
@@ -4013,35 +4037,31 @@ test "the mode for huge pages is the word in brackets of `enabled` and `defrag`,
 }
 
 test "a range asks for huge pages under `madvise`, with the test only where a fault would compact; asks for small ones only under `always`; and asks for nothing under `never`" {
-    const huge, const again, const small = .{ Want.huge, Want.huge_again, Want.small };
+    const huge, const small = .{ Want.huge, Want.small };
     // pup's mode: as before the mode was read.
     inline for ([_][]const u8{ "madvise", "defer+madvise", "always" }) |d| {
         const m = thpModeOf(thp_enabled_madvise, "", thpDefragForTest(d));
         try std.testing.expectEqual(Advice.huge_if_free, adviceFor(m, huge));
-        try std.testing.expectEqual(Advice.huge_if_free, adviceFor(m, again));
         try std.testing.expectEqual(Advice.nothing, adviceFor(m, small));
     }
     inline for ([_][]const u8{ "defer", "never" }) |d| {
         const m = thpModeOf(thp_enabled_madvise, "", thpDefragForTest(d));
         try std.testing.expectEqual(Advice.huge, adviceFor(m, huge));
-        try std.testing.expectEqual(Advice.huge, adviceFor(m, again));
         try std.testing.expectEqual(Advice.nothing, adviceFor(m, small));
     }
     inline for ([_][]const u8{ "madvise", "defer+madvise", "always" }) |d| {
         const m = thpModeOf(thp_enabled_always, "", thpDefragForTest(d));
         try std.testing.expectEqual(Advice.nothing, adviceFor(m, huge));
-        try std.testing.expectEqual(Advice.huge_if_free, adviceFor(m, again));
         try std.testing.expectEqual(Advice.small, adviceFor(m, small));
     }
     inline for ([_][]const u8{ "defer", "never" }) |d| {
         const m = thpModeOf(thp_enabled_always, "", thpDefragForTest(d));
         try std.testing.expectEqual(Advice.nothing, adviceFor(m, huge));
-        try std.testing.expectEqual(Advice.huge, adviceFor(m, again));
         try std.testing.expectEqual(Advice.small, adviceFor(m, small));
     }
     inline for ([_][]const u8{ "always", "defer", "defer+madvise", "madvise", "never" }) |d| {
         const m = thpModeOf(thp_enabled_never, "", thpDefragForTest(d));
-        for ([_]Want{ huge, again, small }) |w| try std.testing.expectEqual(Advice.nothing, adviceFor(m, w));
+        for ([_]Want{ huge, small }) |w| try std.testing.expectEqual(Advice.nothing, adviceFor(m, w));
     }
 }
 
@@ -4126,6 +4146,10 @@ test "on Linux under `never` nothing asks for huge pages and /proc/buddyinfo is 
     const big = allocLarge(&h, 16 * mib).?;
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(big)));
     try std.testing.expect(!try advisedSmallForTest(@intFromPtr(big)));
+    const span = allocLarge(&h, 8 * mib).?;
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(span)));
+    try std.testing.expect(!try advisedSmallForTest(@intFromPtr(span)));
+    freeLarge(&h, span, 8 * mib);
     freeLarge(&h, big, 16 * mib);
     trimAllForTest(&h);
     const t = reserveTable(24 * mib).?;
@@ -4134,7 +4158,7 @@ test "on Linux under `never` nothing asks for huge pages and /proc/buddyinfo is 
     try std.testing.expectEqual(before, buddyinfo_reads.*);
 }
 
-test "on Linux under `madvise` with `defrag` `defer`, where no fault compacts, segments, large blocks, and Tables ask for huge pages with memory fragmented and no reading" {
+test "on Linux under `madvise` with `defrag` `defer`, where no fault compacts, segments, span segments, large blocks, and Tables ask for huge pages with memory fragmented and no reading" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     useBuddyinfoForTest(buddyinfo_fragmented);
     defer useBuddyinfoForTest(null);
@@ -4151,6 +4175,9 @@ test "on Linux under `madvise` with `defrag` `defer`, where no fault compacts, s
     const mib: usize = 1 << 20;
     const big = allocLarge(&h, 16 * mib).?;
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(big)));
+    const span = allocLarge(&h, 8 * mib).?;
+    try std.testing.expect(try advisedHugeForTest(@intFromPtr(span)));
+    freeLarge(&h, span, 8 * mib);
     freeLarge(&h, big, 16 * mib);
     trimAllForTest(&h);
     const t = reserveTable(24 * mib).?;
@@ -4167,8 +4194,7 @@ test "on Linux under `always` nothing asks for huge pages, what should keep smal
     useThpForTest(thp_enabled_always, thpDefragForTest("madvise"));
     const before = buddyinfo_reads.*;
     try std.testing.expect(!hugeFree());
-    // A segment of a heap that faults in ahead asks for nothing; one of a
-    // heap that does not asks for small pages.
+    // A segment asks for nothing, of a heap that faults in ahead or not.
     const mine = try allocator.alloc(u8, prefault_big);
     defer allocator.free(mine);
     var busy = testHeap();
@@ -4179,16 +4205,18 @@ test "on Linux under `always` nothing asks for huge pages, what should keep smal
     var lone = testHeap();
     const q = lone.newPage(0).?;
     try std.testing.expect(!faultsAhead(&lone));
-    try std.testing.expect(try advisedSmallForTest(q));
-    // A block of 16 MiB asks for nothing, and the span segment of one of
-    // 8 MiB for small pages.
+    try std.testing.expect(!try advisedHugeForTest(q));
+    try std.testing.expect(!try advisedSmallForTest(q));
+    // A block of 16 MiB asks for nothing, and so does the span segment
+    // of one of 8 MiB.
     var h = testHeap();
     const mib: usize = 1 << 20;
     const big = allocLarge(&h, 16 * mib).?;
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(big)));
     try std.testing.expect(!try advisedSmallForTest(@intFromPtr(big)));
     const small = allocLarge(&h, 8 * mib).?;
-    try std.testing.expect(try advisedSmallForTest(@intFromPtr(small)));
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(small)));
+    try std.testing.expect(!try advisedSmallForTest(@intFromPtr(small)));
     freeLarge(&h, big, 16 * mib);
     freeLarge(&h, small, 8 * mib);
     trimAllForTest(&h);
@@ -4217,7 +4245,7 @@ test "on Linux under `always` nothing asks for huge pages, what should keep smal
     // own, which asks for nothing, as a new one does.
     trimAllForTest(heap().?);
     const m = try allocator.alloc(u8, 8 * mib);
-    try std.testing.expect(try advisedSmallForTest(@intFromPtr(m.ptr)));
+    try std.testing.expect(!try advisedSmallForTest(@intFromPtr(m.ptr)));
     const g = allocator.remap(m, 32 * mib).?;
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(g.ptr)));
     try std.testing.expect(!try advisedSmallForTest(@intFromPtr(g.ptr)));
