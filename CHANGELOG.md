@@ -459,6 +459,12 @@ none of these ever built:
 
 ### Runtime
 
+- `String(a, b, ...)` whose pieces are all text (a literal, a `?String`,
+  a String) adds their lengths, allocates one block of the sum, and
+  copies each piece into it once. It wrote them through a writer into a
+  buffer on the stack and copied them again. Trig's load at one checker
+  runs 2.9% fewer instructions on supabase-studio and 4.6% fewer on
+  Material UI's docs. A `String(...)` with any other piece is unchanged.
 - A channel's receive gives Rig's `T?` as the program holds it: for a
   `T` that holds `none` in a spare value of its own (an object with an
   optional field, a `String` or a `List`, an object that names its none,
