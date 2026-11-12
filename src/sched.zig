@@ -4910,18 +4910,19 @@ fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: an
         fn destroy(h: *Header) void {
             const j: *Job(T) = @fieldParentPtr("header", h);
             const full: *@This() = @fieldParentPtr("job", j);
-            std.heap.smp_allocator.destroy(full);
+            destroyRecord(@This(), full);
         }
 
         /// `destroy` in a program built to be preempted: never inlined
         /// into a task's waiter (`Job.free`), in the program's own code,
-        /// since Zig's allocator takes a lock of its own, uncounted.
+        /// since Zig's allocator, a leak-checked build's, takes a lock
+        /// of its own, uncounted.
         noinline fn destroyApart(h: *Header) void {
             destroy(h);
         }
     };
     if (!started.*) startWorkers();
-    const full = std.heap.smp_allocator.create(Full) catch rt.oom();
+    const full = createRecord(Full);
     full.* = .{ .job = .{ .header = .{ .fiber = .{ .run = Full.start, .done = Header.end, .dense = dense_stack }, .destroy = if (preempt) Full.destroyApart else Full.destroy } }, .extra = extra, .args = args };
     // An `Extra` that names its task's fiber is given it, for a cancel to
     // reach the fiber's wait (`interruptForCancel`), and one that records
@@ -4956,13 +4957,35 @@ fn spawnDetachedIn(comptime f: anytype, args: anytype) void {
 
         fn end(fiber: *Fiber) void {
             const full: *@This() = @fieldParentPtr("fiber", fiber);
-            std.heap.smp_allocator.destroy(full);
+            destroyRecord(@This(), full);
         }
     };
     if (!started.*) startWorkers();
-    const full = std.heap.smp_allocator.create(Full) catch rt.oom();
+    const full = createRecord(Full);
     full.* = .{ .fiber = .{ .run = Full.start, .done = Full.end }, .args = args };
     wakeIn(&full.fiber);
+}
+
+/// Whether a task's record is a block of Rig's own allocator
+/// (`alloc.zig`), as the program's values are in a build that is not
+/// leak-checked: the heap of the thread that makes the task hands it
+/// out with no lock and no system call, and the thread that frees it,
+/// often another, gives it back to that heap. A leak-checked build, a
+/// debug one, takes it from Zig's allocator, outside the checker's
+/// count.
+const own_records = builtin.optimize != .debug;
+
+/// A new record of a task, an `R`, its bytes unwritten.
+inline fn createRecord(comptime R: type) *R {
+    if (!own_records) return std.heap.smp_allocator.create(R) catch rt.oom();
+    const p = rt.fast_alloc.allocRecord(@sizeOf(R), .of(R)) orelse rt.oom();
+    return @ptrCast(@alignCast(p));
+}
+
+/// Free `r`, a record `createRecord` made, on any thread.
+inline fn destroyRecord(comptime R: type, r: *R) void {
+    if (!own_records) return std.heap.smp_allocator.destroy(r);
+    rt.fast_alloc.freeRecord(std.mem.asBytes(r), .of(R));
 }
 
 /// What `spawn` gives: the task's record, and the `Extra` in it.
@@ -7475,6 +7498,73 @@ test "a blocking call fills a buffer its caller lends, and a stoppable one takes
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expect(Run.filled);
+}
+
+test "a task's record is a block of its maker's heap, in a build that is not leak-checked, and one freed on another worker goes back to it" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    if (!own_records) return error.SkipZigTest;
+    const Run = struct {
+        const Unit = struct {};
+        var own: usize = 0;
+        var grew: usize = 0;
+        fn one(_: *Unit, n: u8) u8 {
+            return n;
+        }
+        /// Frees a record its maker's worker made, on whichever worker
+        /// runs this.
+        fn freer(_: *Unit, j: *Job(u8)) u8 {
+            const n = j.join();
+            j.free();
+            return n;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            const a = rt.fast_alloc;
+            // A first task, so the record's class has its page.
+            const warm = spawn(u8, Unit, one, .{0}, .{}, false, false).job;
+            _ = warm.join();
+            const home = me();
+            const taken = a.heapForTest().taken;
+            var rounds: usize = 0;
+            for (0..1000) |i| {
+                const j = spawn(u8, Unit, one, .{@as(u8, @truncate(i))}, .{}, false, false).job;
+                // Counted only while this fiber stays on its worker,
+                // whose heap is the one read.
+                if (me() != home) break;
+                rounds += 1;
+                if (a.ownSmallForTest(@ptrCast(j))) own += 1;
+                _ = j.join();
+                j.free();
+                if (me() != home) break;
+            }
+            if (me() == home) grew = a.heapForTest().taken - taken;
+            made = rounds;
+            // Records freed by other tasks, on any worker.
+            var sum: usize = 0;
+            var freers: [64]*Job(u8) = undefined;
+            for (&freers, 0..) |*f, i| {
+                const j = spawn(u8, Unit, one, .{@as(u8, @truncate(i))}, .{}, false, false).job;
+                f.* = spawn(u8, Unit, freer, .{j}, .{}, false, false).job;
+            }
+            for (freers) |f| {
+                sum += f.join();
+                f.free();
+            }
+            total = sum;
+        }
+        var made: usize = 0;
+        var total: usize = 0;
+    };
+    workers_override.* = 4;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    // Every record was a block of the heap of the thread that made it,
+    // and the heap took nothing from the system for them.
+    try std.testing.expect(Run.made > 0);
+    try std.testing.expectEqual(Run.made, Run.own);
+    try std.testing.expectEqual(@as(usize, 0), Run.grew);
+    try std.testing.expectEqual(@as(usize, 64 * 63 / 2), Run.total);
 }
 
 test "a fiber that allocates, moves to another worker, and allocates again uses its new thread's heap" {

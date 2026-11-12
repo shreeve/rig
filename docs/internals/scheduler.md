@@ -19,7 +19,12 @@ worker after.
 - **Workers.** One thread per core runs tasks. `main`'s thread is worker
   0, and `main` runs as the first task (`sched.runMain`), so a wait in
   `main` is a task's wait.
-- **Fibers.** A task is a fiber: a record and a stack of its own. A
+- **Fibers.** A task is a fiber: a record and a stack of its own. The
+  record is a block of Rig's allocator, from the heap of the thread
+  that makes the task, with no lock and no system call, and the thread
+  that frees it gives it back to that heap (`sched.createRecord`,
+  `alloc.allocRecord`); a debug build, which checks for leaks, takes it
+  from Zig's allocator. A
   switch saves the registers a call keeps on the stack being left and
   restores those of the stack resumed (`sched.switchTo`, written for
   aarch64 and x86_64).
