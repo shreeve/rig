@@ -1202,8 +1202,8 @@ var monitor_stats_var: MonitorStats = .{};
 const monitor_stats = split.cell(&monitor_stats_var, "sched.monitor_stats");
 
 /// Work now waits for a busy worker, or a timer or a descriptor is held:
-/// wake the monitor if it is parked (`monitor_parked`), so it looks at
-/// once. The caller has made what it made visible first: either this
+/// wake the monitor if it is parked (`monitor_parked`), so it looks a
+/// millisecond from now (`woken_look`). The caller has made what it made visible first: either this
 /// reads the flag set, or the monitor, which looks once more after it
 /// sets the flag, sees the work. A wake lost to a race costs at most one
 /// parked sleep, 10 ms, the longest the monitor sleeps while no worker
@@ -1234,6 +1234,13 @@ fn monitorIdle() bool {
     }
     return true;
 }
+
+/// How long after a wake from its park the monitor first looks: the
+/// period of a monitor that does not park, so work made behind a busy
+/// worker waits for its first look no longer than it would for that
+/// one's, and a fiber that makes a task and waits for it within the
+/// millisecond is not stopped to hand it on.
+const woken_look: i96 = std.time.ns_per_ms;
 
 fn startMonitor() void {
     if (rt.process.*) |p| preempt_trace = if (p.environ.getPosix("RIG_PREEMPT_TRACE")) |v| std.mem.eql(u8, v, "1") else false;
@@ -1266,7 +1273,10 @@ fn stopMonitor() void {
 /// after two such looks in a row the monitor parks (`monitorIdle`): it
 /// sleeps twice as long each period, from 2 ms up to 10 ms, until work
 /// made to wait for a busy worker, or a timer or descriptor held, wakes
-/// it (`wantMonitor`).
+/// it (`wantMonitor`). Woken, it looks a millisecond later
+/// (`woken_look`), not at once: the latest a monitor looking every
+/// millisecond would have, so no fiber is stopped sooner for work made
+/// behind it than it would be by a monitor that never parks.
 /// So a computation that no other work waits for is not interrupted
 /// every millisecond by the monitor's own wake. While no worker runs a
 /// fiber and a worker holds a timer or descriptors, the period doubles
@@ -1289,17 +1299,33 @@ fn watchSlices(slice: i96, wait: i96) void {
     while (true) {
         const word = watch_word.load(.seq_cst);
         if (stopping.load(.seq_cst)) return;
+        var parked = false;
         if (parking) {
             monitor_parked.store(1, .seq_cst);
             // Work made before the flag was set woke no one: look again.
             if (!monitorIdle()) {
                 monitor_parked.store(0, .seq_cst);
                 period = wait;
-            } else _ = monitor_stats.parks.fetchAdd(1, .monotonic);
+            } else {
+                parked = true;
+                _ = monitor_stats.parks.fetchAdd(1, .monotonic);
+            }
         }
         rt.io().futexWaitTimeout(u32, &watch_word.raw, word, .{ .duration = .{ .raw = .{ .nanoseconds = period }, .clock = .awake } }) catch {};
         // Woken, or found work as it parked: unparked for a look first.
-        if (parking and monitor_parked.swap(0, .seq_cst) == 0) idle_looks = 0;
+        if (parking and monitor_parked.swap(0, .seq_cst) == 0) {
+            idle_looks = 0;
+            if (parked) {
+                // Woken from its park: its first look comes a millisecond
+                // later, when a monitor that never parks would have
+                // looked at the latest. A task its maker waits for, or
+                // an idle worker takes, within that millisecond is gone
+                // by then, and its maker is not stopped for it.
+                parking = false;
+                period = woken_look;
+                continue;
+            }
+        }
         if (stopping.load(.seq_cst)) return;
         _ = monitor_stats.looks.fetchAdd(1, .monotonic);
         const now = nowReal();

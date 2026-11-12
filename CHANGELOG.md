@@ -462,7 +462,8 @@ none of these ever built:
 - The preemption monitor parks while no signal could help: no work waits
   in any queue, and no worker holds a timer or a descriptor. It sleeps
   2 to 10 ms at a time then, not 1 ms, and a task made to wait for a
-  busy worker, a timer set, or a descriptor watched wakes it at once.
+  busy worker, a timer set, or a descriptor watched wakes it, to look a
+  millisecond later, as a monitor that never parks would at the latest.
   Its 1 ms wake was most of a program's context switches and all of its
   futex calls: Trig checking supabase-studio with 4 checkers made about
   5,400 of each in 5.3 s, and its wakes took a checker's core about

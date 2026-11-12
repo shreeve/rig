@@ -471,8 +471,11 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
   each time, up to 10 ms. Whatever makes work wait for a busy worker (a task made or
   woken into a busy worker's queues, or into the global queue while
   every worker is busy), sets a timer, or watches a descriptor wakes it
-  (`wantMonitor`), and it looks at once, then looks again at least once
-  before it parks, so tasks made and taken one after another wake it at
+  (`wantMonitor`), and it looks a millisecond later, when a monitor
+  that never parks would have looked at the latest: a task its maker
+  waits for within that millisecond, as a fork and its join mostly are,
+  is gone by then, so its maker is not stopped and no idle worker is
+  woken for it. It then looks again at least once before it parks, so tasks made and taken one after another wake it at
   most once a period, not once a task. The waker reads a flag on a line
   of its own, after it has made its work visible, and the monitor looks
   once more after setting the flag, so one of them sees the other. A
