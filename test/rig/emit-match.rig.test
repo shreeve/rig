@@ -529,3 +529,85 @@ bomb "match an element past the end whose arms read no subject", "index out of b
   m = match v[3]
     _ => 1
   print(m)
+
+test "match over every variant of an enum read from a List in a release build", "11 23 37 41 59 171", release: true, whole: true
+  # Safe Rig holds only named tags, so the switch states the range
+  # rather than testing it (`rig.namedTag`); every arm still runs.
+
+  enum Kind
+    red
+    green
+    blue
+    cyan
+    magenta
+
+  called fun score(ks: ?List[Kind], i: Int) -> Int
+    match ks[i]
+      .red
+        11
+      .green
+        23
+      .blue
+        37
+      .cyan
+        41
+      .magenta
+        59
+
+  sub main()
+    ks = List[Kind]()
+    for n in 0..5
+      !ks.push(Kind.from_int(n) ?? .red)
+    total = 0
+    for i in 0..5
+      total += score(?ks, i)
+    print(score(?ks, 0), score(?ks, 1), score(?ks, 2), score(?ks, 3), score(?ks, 4), total)
+
+test "match over every variant of an enum with values in a release build", "1 2 3 20", release: true
+  # Values that are not one run keep Zig's test; so does a match inside
+  # `raw`.
+
+  enum Status
+    ok = 200
+    moved = 301
+    missing = 404
+
+  enum Step
+    one = 5
+    two = 6
+    three = 7
+
+  fun code(s: Status) -> Int
+    match s
+      .ok
+        1
+      .moved
+        2
+      .missing
+        3
+
+  fun step(s: Step) -> Int
+    raw
+      match s
+        .one
+          10
+        .two
+          20
+        .three
+          30
+
+  print(code(Status.from_int(200) ?? .missing), code(Status.from_int(301) ?? .ok), code(Status.from_int(404) ?? .ok), step(Step.from_int(6) ?? .one))
+
+code "a match on a plain enum states its tag is named", "switch (rig.namedTag(k))"
+  enum Kind
+    red
+    green
+
+  fun f(k: Kind) -> Int
+    match k
+      .red
+        1
+      .green
+        2
+
+  print(f(.green))

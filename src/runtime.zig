@@ -4365,6 +4365,36 @@ pub inline fn offsetBelow(i: anytype, comptime n: u64) ?u64 {
     return if (v < n) v else null;
 }
 
+/// A Rig enum's value, stated to the optimizer as one of its named
+/// tags: `switch (rig.namedTag(k))` in an optimized build makes no test
+/// that `k` holds a named tag, which Zig's safe mode makes before each
+/// switch on an enum. Safe Rig makes an enum's value only by naming a
+/// variant or by a checked conversion (`E.from_int`, `E.from_text`), so
+/// it always holds one. A debug build keeps Zig's test, which checks the
+/// fact, as `proven_checks` does. An enum whose tags are not one run of
+/// integers keeps it too: a range is what the optimizer folds.
+pub inline fn namedTag(e: anytype) @TypeOf(e) {
+    const E = @TypeOf(e);
+    if (comptime proven_checks or @typeInfo(E) != .@"enum") return e;
+    const info = @typeInfo(E).@"enum";
+    const values = info.field_values;
+    if (comptime info.mode != .exhaustive or values.len < 2) return e;
+    comptime var lo = values[0];
+    comptime var hi = values[0];
+    inline for (values) |x| {
+        lo = @min(lo, x);
+        hi = @max(hi, x);
+    }
+    // A run of integers, and not every value of the tag type, which Zig
+    // has no test for.
+    if (comptime hi - lo + 1 != values.len or values.len == 1 << @bitSizeOf(info.tag_type)) return e;
+    // `lo <= tag <= hi` by how safe Rig makes an enum (above).
+    @setRuntimeSafety(false);
+    const v = @intFromEnum(e);
+    if (v < lo or v > hi) unreachable;
+    return e;
+}
+
 /// A duration of `n` units of `unit` nanoseconds (`sema.Duration`):
 /// `time.sleep(2)`, `time.sleep(ms: 40)`. Checked, as a conversion is:
 /// more nanoseconds than an `Int` holds panics.

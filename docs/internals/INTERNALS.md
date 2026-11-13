@@ -4803,7 +4803,13 @@ and a query that decides more than that is a recorded fact.
   items. A Zig `switch` has no guards, so a match with a guarded arm
   first picks its arm in a labeled block (one `if` per arm, testing the
   pattern with `==` or a range comparison, then the guard over the
-  bindings it names), then switches on the arm's index. A `loop` used
+  bindings it names), then switches on the arm's index. A switch on a
+  plain enum outside `raw` switches on `rig.namedTag(subject)`, which
+  states to the optimizer that the value is one of the enum's tags: safe
+  Rig makes an enum only by naming a variant or by a checked conversion,
+  so the test Zig's safe mode makes before such a switch never fails, and
+  an optimized build drops it (a debug build keeps it, and so does an
+  enum whose values are not one run of integers). A `loop` used
   as a value (one a `break` leaves with a value) is its block `L_res`
   in an `@as(T, ...)`: each `break v` leaves the block.
 - **Loops** follow one desugaring ([Loops](#loops)): a `while` is a
