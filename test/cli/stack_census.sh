@@ -65,10 +65,30 @@ expect_eq "$out" "496491 64 64 5" "the program's output"
 row() { grep -F "| rig.sched.spawn" <<<"$1" | grep -F -- "$2"; }
 out=$(python3 -I "$census" tasks 2>&1) || fail "the census: $out"
 expect_has "$out" "3 task types" "the census's task types"
+# A known gap (docs/internals/backlog.md, "The stack census of a safe
+# build"): in Zig's safe mode a system call's wrapper (`posix.mmap`)
+# reports an unexpected errno with a stack trace, written through a
+# pointer, so the census leaves the task unknown. Such a row passes with
+# a note; any other unknown fails, and so does the day the gap closes,
+# when this note goes.
+known_gap="unknown: posix.mmap calls through a pointer"
+bounded() {
+    if [[ $2 =~ \|\ [0-9,]+\ B\ \|\ [0-9,]+\ B\ \| ]]; then
+        fail "$1: bounded, so the known gap is closed: drop known_gap from test/cli/stack_census.sh: $2"
+    elif [[ $2 == *"$known_gap"* ]]; then
+        echo "note: $1: the known gap, $known_gap"
+    else
+        fail "$1: $2"
+    fi
+}
 spin_row=$(row "$out" "| __rig_main.spin |")
-[[ $spin_row =~ \|\ [0-9,]+\ B\ \|\ [0-9,]+\ B\ \| ]] || fail "a task of direct calls is bounded: $spin_row"
-map_row=$(row "$out" "__rig_main.shifted")
-[[ $map_row =~ \|\ [0-9,]+\ B\ \|\ [0-9,]+\ B\ \| ]] || fail "a par.map task, through its FnRef's thunks, is bounded: $map_row"
+bounded "a task of direct calls is bounded" "$spin_row"
+# The par.map task: the one task type that is neither spin nor deep (its
+# runs column names a closure's function, or `?` where the debug
+# information inlines it away).
+map_row=$(grep -F "| rig.sched.spawn" <<<"$out" | grep -v -F -e "| __rig_main.spin |" -e "| __rig_main.deep |" | head -1)
+[[ -n $map_row ]] || fail "no par.map task in the census: $out"
+bounded "a par.map task, through its FnRef's thunks, is bounded" "$map_row"
 map_entry=$(awk -F' [|] ' '{print $1}' <<<"$map_row" | tr -d '| ')
 deep_row=$(row "$out" "__rig_main.deep")
 expect_has "$deep_row" "| unknown: " "a recursive task stays unknown"

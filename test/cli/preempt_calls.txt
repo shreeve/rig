@@ -23,6 +23,7 @@ rig.ordered.*.insertSmallSlow  may grow the table: allocates
 rig.ordered.*.addNew        may grow the table: allocates
 rig.ordered.*.rebuild       rebuilds the table in new memory: allocates
 rig.unordered.*.claimGrown  grows the table: allocates
+rig.unordered.*.blockLen    a table block's length: a few multiplications, a call where Zig's safe mode keeps its overflow checks
 rig.runtime.out*            output: takes the output lock
 rig.runtime.stdoutFailed    output failed: ends the program
 rig.runtime.*Panic*         a panic ends the task
@@ -48,6 +49,7 @@ sched_yield                 a system call
 sysctlbyname                a system call, once at start
 __rig_std_time.sleep        a wait: enters the scheduler (a std function written in Zig)
 mem.eql                     the runtime's start, once (an environment variable's value); the program's comparisons are inline (rig.eql)
+mem.eqlBytes                as mem.eql, where Zig's safe mode leaves its body a call
 compiler_rt.*memcpy*        copies bytes, in Zig's compiler-rt where no C library is linked: as memcpy
 compiler_rt.*Memset*        fills bytes, in compiler-rt: as memset
 compiler_rt.*memset*        fills bytes, in compiler-rt: as memset
@@ -58,3 +60,7 @@ rig.ordered.*.probePastHome a Map's probe past its home group: a few groups at m
 rig.ordered.*.placePast     a Map's placing past its home group: as probePastHome
 rig.ordered.*.live_from     a Map's iteration step to its next entry: a short scan, kept beside the table's code
 rig.ordered.*.gone_from     as live_from, for removed entries
+debug.FullPanic(*           Zig's panic of a failed safety check: a panic ends the task
+Io.Threaded.Thread.futex*   a contended lock's wait and wake, inlined into the program's code (the output lock, which `lockOutput` takes counted, after `sched.holdOff`)
+process.Environ.getPosix    the runtime's start, once (an environment variable's value)
+rig.runtime.onAltStack      the runtime's start, once: installs a signal handler again
