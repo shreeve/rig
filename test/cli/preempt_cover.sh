@@ -217,7 +217,7 @@ where() {
 # its declined signals were. PREEMPT_COVER_STRICT=1, the quiet gate
 # before a release, takes no second run.
 kinds="closure sort map iter actor par raw zig divrem strcmp hash slice"
-"$RIG" build --release=fast -o cover cover.rig >build.txt 2>&1 || fail "build cover.rig: $(cat build.txt)"
+"$RIG" build --release -o cover cover.rig >build.txt 2>&1 || fail "build cover.rig: $(cat build.txt)"
 for k in $kinds; do
     for i in $(seq 1 20); do
         out=$("$TIMEOUT_CMD" 60 ./cover "$k" 2>&1) || fail "$k, run $i (timeout 60 s): $out"

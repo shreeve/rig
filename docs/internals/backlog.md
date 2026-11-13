@@ -176,7 +176,7 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   declared after the first section's `repeat` neither main nor the
   branch folds them (6.89 and 6.86G instructions). Keeping the tables
   in registers without the fold would need them proven uncaptured
-  across the String's calls; `--release=fast` is unaffected.
+  across the String's calls; Zig's fast mode is unaffected.
 - Remote frees batched per owning heap, as Linux 7.4's slab sheaves
   and snmalloc do. Today each free of a block another heap owns
   (`src/alloc.zig`) is one compare-and-swap onto that heap's remote
@@ -283,6 +283,15 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   Decide whether the test measures a property load may break (and
   should allow a share of crossings, or run pinned), or the scheduler
   lets a woken pair drift apart under load.
+- **The stack census of a safe build.** `tools/stack-census.py` leaves
+  every task of a `--release` build unknown: Zig's safe mode keeps the
+  stack trace a system call's wrapper writes for an unexpected errno
+  (`posix.mmap`, inlined from `posix.unexpectedErrno`), a write through
+  a pointer the census cannot follow. Counted as cold (`--cold
+  '^posix\.mmap$'`), the task of test/cli/stack_census.sh's `spin` is
+  688 bytes. The census should count that path as cold where it is
+  inlined, as it counts the panic path; test/cli/stack_census.sh holds
+  the gap as a known one, and fails the day it closes.
 - **A result that views a `for` element cannot outlive the turn.**
   `for b in balls` (or `for b in ?balls`) over a `List[Ball]` whose
   `Ball` copies, then `best = ?b.hit()` with `fun hit(?@) -> Hit from @`,

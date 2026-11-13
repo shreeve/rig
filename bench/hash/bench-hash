@@ -9,10 +9,8 @@ usage: bench/hash/bench-hash [options]
 
   --variants a,b  what to build and time (default: rig-safe,zig-safe):
                     rig-safe   bench/hash/map.rig, rig build --release (Zig's safe mode)
-                    rig-fast   the same, rig build --release=fast
                     rig-hash   map.rig with its Map aliases made `HashMap`, the
-                               unordered built-in, rig build --release=fast
-                    rig-hash-safe the same, rig build --release
+                               unordered built-in, rig build --release
                     zig-safe   bench/hash/map.zig, -OReleaseSafe
                     zig-fast   the same, -OReleaseFast
                     zig-foa    map.zig on bench/hash/foa.zig, a port of boost's
@@ -98,7 +96,7 @@ ARM = platform.machine() in ("arm64", "aarch64")
 CXX_NATIVE = ["-mcpu=native"] if ARM else ["-march=native"]
 RUST_NATIVE = ["-C", "target-cpu=native"]
 GO_NATIVE = {"GOARM64": "v8.5"} if ARM else {"GOAMD64": "v3"}
-ALL = ["rig-fast", "rig-hash", "zig-fast", "rust", "rust-mix", "hashbrown", "hashbrown-mix",
+ALL = ["rig-safe", "rig-hash", "zig-fast", "rust", "rust-mix", "hashbrown", "hashbrown-mix",
        "indexmap", "indexmap-mix", "absl", "absl-mix", "boost", "boost-mix", "dense", "dense-mix", "go"]
 # The Zig ports race once their sources are there.
 ALL += [v for v, f in (("zig-foa", "foa.zig"), ("zig-dense", "dense.zig"), ("zig-hash", "hash.zig"),
@@ -145,7 +143,6 @@ def build(v, out):
     v = base
     if v.startswith("rig-"):
         env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, "rig-out-" + v))
-        flag = "--release" if v.endswith("-safe") else "--release=fast"
         src = os.path.join(HERE, "map.rig")
         if v.startswith("rig-hash"):
             # The same program with each `type X = Map[...]` alias made
@@ -154,7 +151,7 @@ def build(v, out):
             src = os.path.join(out, "map-hash.rig")
             with open(src, "w") as f:
                 f.write(text)
-        subprocess.run([RIG, "build", flag, "-o", tmp, src], check=True, env=env)
+        subprocess.run([RIG, "build", "--release", "-o", tmp, src], check=True, env=env)
     elif v in ("rust", "rust-mix"):
         cfg = ["--cfg", "mix"] if v == "rust-mix" else []
         subprocess.run([RUSTC, "-C", "opt-level=3", *RUST_NATIVE, *cfg, "-o", tmp, os.path.join(HERE, "map.rs")], check=True)

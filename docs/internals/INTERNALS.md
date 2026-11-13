@@ -157,8 +157,8 @@ object directory the build left in the cache's `tmp/` is still there
 (on macOS an executable's stack traces read their debug information
 from those objects); each mode keeps its last build, and a Zig that
 cannot say what it is builds every time. The toolchain is `$ZIG`,
-else `zig` on `PATH`, run with `-Odebug`, `-Osafe` (`--release`),
-or `-Ofast` (`--release=fast`), and with `-lc` when a module
+else `zig` on `PATH`, run with `-Odebug` or `-Osafe` (`--release`),
+and with `-lc` when a module
 declares an `extern`. A release build adds `-fomit-frame-pointer`
 and `-fno-stack-protector` (`Mode.releaseFlags`). Without frame
 pointers every function gets a register back and loses
@@ -2113,6 +2113,16 @@ s[i]   ==>  test 0 <= i unless lower is proven; test i < s.len unless upper is p
 i + c  ==>  test that i + c fits unless no_overflow is proven; i + c
 ```
 
+Where neither test of `s[i]` is proven and the length is held (a
+List's, or a slice's of elements of at least a byte: `rig.lenHeld`, at
+most `max_len`), one compare makes both: a signed `i` read as unsigned
+is below the length exactly when `0 <= i < len`, since a negative one
+reads as at least `2^63` (`rig.indexHeld`, as `rig.indexBelow` does for
+a length known at compile time). The panic is the same either way. An
+optimized build states a held length's bound to the optimizer
+(`rig.heldLen`), so past a test `i < n` of a length `n`, the compare
+folds to the sign test alone, as the two tests did.
+
 An omitted test is one the program already made, so the program means
 what it meant. A debug build still makes it, as an assertion ("rig: a
 proven check failed (compiler bug)"), so every test that runs checks the
@@ -2812,7 +2822,7 @@ runtime function with value arguments, or the existing `read` and
 | `Simd[T, n].splat(x)` | `rig.rt(@as(@Vector(n, T), @splat(x)))`; a mask's `rig.rt(rig.maskOf(rig.Mask(n), @splat(x)))` |
 | `Simd[T, n](a)` | `rig.rt(@as(@Vector(n, T), a))`; a mask's `rig.rt(rig.maskOf(rig.Mask(n), a))` |
 | `v +% w`, `v & w`, `v == w`, `v < w`; `+`, `-`, `*`, `-v` of float lanes | the Zig operator, lane by lane; a comparison's lanes become a mask through `rig.mask(v == w)` |
-| `v + w`, `v - w`, `v * w`, `-v` of integer lanes, and `+=`, `-=`, `*=` | `rig.vecAdd(v, w)`, `rig.vecSub(v, w)`, `rig.vecMul(v, w)`, `rig.vecNeg(v)` (`storage.laneChecked`): the wrapped lanes, and a panic when any lane overflows, found by lane comparisons (`r < v` unsigned, sign tests signed, the product in lanes twice as wide) with no overflow intrinsic, whose flags LLVM computes wrong on aarch64 for 32 and 64 byte lanes; with runtime safety off (`--release=fast`) each is the plain Zig operator, unchecked as a scalar is |
+| `v + w`, `v - w`, `v * w`, `-v` of integer lanes, and `+=`, `-=`, `*=` | `rig.vecAdd(v, w)`, `rig.vecSub(v, w)`, `rig.vecMul(v, w)`, `rig.vecNeg(v)` (`storage.laneChecked`): the wrapped lanes, and a panic when any lane overflows, found by lane comparisons (`r < v` unsigned, sign tests signed, the product in lanes twice as wide) with no overflow intrinsic, whose flags LLVM computes wrong on aarch64 for 32 and 64 byte lanes. Every Rig build keeps runtime safety on; the runtime's Zig built with it off (its own unit tests, in Zig's fast mode) takes the plain Zig operator, as it does for a scalar |
 | `m & k`, `m \| k`, `m ^ k`, `m == k`, `m != k` of masks, and their compound forms | `rig.maskAnd(m, k)`, `rig.maskOr`, `rig.maskXor`, `rig.maskEq`, `rig.maskNe` |
 | `v +\| w`, `v -\| w` | `rig.vecAddSat(v, w)`, `rig.vecSubSat(v, w)`: Zig's `+\|` and `-\|` where LLVM builds the code; elsewhere the wrapped lanes, corrected where one overflowed (Zig's own x86 backend saturates `I32` lanes wrong without AVX) |
 | `v << c`, `v <<% c`, `v >> c` | `rig.vecShl(v, c)`, `rig.vecShlWrap(v, c)`, `rig.vecShr(v, c)`: `c` cast to the lane's shift width (a panic at or over it), and `<<` checked by shifting back, `(r >> c) != v`, with no overflow intrinsic (with runtime safety off, `vecShl` is `vecShlWrap`) |
@@ -4796,7 +4806,13 @@ and a query that decides more than that is a recorded fact.
   items. A Zig `switch` has no guards, so a match with a guarded arm
   first picks its arm in a labeled block (one `if` per arm, testing the
   pattern with `==` or a range comparison, then the guard over the
-  bindings it names), then switches on the arm's index. A `loop` used
+  bindings it names), then switches on the arm's index. A switch on a
+  plain enum outside `raw` switches on `rig.namedTag(subject)`, which
+  states to the optimizer that the value is one of the enum's tags: safe
+  Rig makes an enum only by naming a variant or by a checked conversion,
+  so the test Zig's safe mode makes before such a switch never fails, and
+  an optimized build drops it (a debug build keeps it, and so does an
+  enum whose values are not one run of integers). A `loop` used
   as a value (one a `break` leaves with a value) is its block `L_res`
   in an `@as(T, ...)`: each `break v` leaves the block.
 - **Loops** follow one desugaring ([Loops](#loops)): a `while` is a
@@ -5526,7 +5542,7 @@ context, `freeSlice`, and the allocator's `free` paths
 | `Closure(params, R)` | a type-erased closure: context pointer, invoke and drop functions |
 | `FnRef(params, R)` | a callable view: context pointer and call function, built from a stack closure's environment, a function, or an owned closure |
 | `Signal(T)` | a value and a `List` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
-| `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer, written under `output_lock` in a program that makes tasks; flushed by `finish`, before a panic message, before a thread blocks on I/O or time (`flushBeforeWait`, from the scheduler's poller, a socket's wait outside it, and a sleep outside it), and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...`. `print` takes a tuple of pieces in order, the spaces between the arguments and the final newline included (`print(n, s)` is `rig.print(.{ n, " ", &s, "\n" })`), so every argument has run before a byte is written. It is `inline`, and `piecesOf` reads the tuple's type at compile time: a field known then whose bytes are too (a string literal, an Int, a Bool) is text, each run of text is joined and copied into the buffer by the one `noinline` writer of its length (`outFixed`), a `?String` or a String among the values is written as its bytes, and each other value goes to the one `noinline` writer of its type (`outValueOf`). A print with a value whose printing may run the program's own code (`printRunsCode`: a `print` method of the value or of anything it holds, or one behind an API object, a function or an erased pointer, or an error's fields) is rendered first instead (`printRendered`): its line is written into a `Spill`, a writer over a 4 KiB stack buffer that spills into a heap block, with no lock held, then copied into the buffer under `output_lock`. What that code prints comes before the line, whole, and no task holds the lock while program code runs or yields. A print site is a straight line of calls, about 60 bytes of code in `--release=fast` (`bench/print/guard.py`). `String.of` and `add` append the same way (`appendFixed`, `addValueOf`). Text inside another value is quoted and escaped (`writeQuoted`), and a float is written as its shortest digits (`writeFloat`, on `std.fmt.float.binaryToDecimal`), with an exponent from `1e21` up and below `1e-6`. A failed write lands in `stdoutFailed`: a closed pipe (`BrokenPipe`) exits 0 at once, or, once `os.on_broken_pipe(.die)` has set `broken_pipe_dies`, ends the process by SIGPIPE (`dieOfBrokenPipe`, then `endBy`: the default disposition, then `raise`; status 141 if that does not end it). `dieOfBrokenPipe` is the one place that reads the setting, for both ways of writing stdout: `print` (`stdoutFailed`) and a write or flush of `io.stdout()` (`writeStandard`, `flushStandard`), which with `.exit` return EPIPE for `FileError.broken_pipe`. `start` installs a SIGPIPE handler that does nothing, so a write to any closed pipe or socket fails with EPIPE rather than killing the program: sockets get `net.NetError.closed` whatever the setting, and a process the program starts gets the default back, as a handler (unlike an ignored signal) is reset by `exec`. The disposition that handler replaces says whether the program started with SIGPIPE ignored (`broken_pipe_ignored`), and `os.on_broken_pipe(.inherit)` sets `broken_pipe_dies` to its opposite. A panic, or a `rig test` run, exits 1 on a closed pipe either way, since its report or verdict is lost; and any other error writes `error: stdout: <reason>` and exits 1, running no drop. A failed write to stderr in `warn` is dropped, and the program goes on |
+| `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer, written under `output_lock` in a program that makes tasks; flushed by `finish`, before a panic message, before a thread blocks on I/O or time (`flushBeforeWait`, from the scheduler's poller, a socket's wait outside it, and a sleep outside it), and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...`. `print` takes a tuple of pieces in order, the spaces between the arguments and the final newline included (`print(n, s)` is `rig.print(.{ n, " ", &s, "\n" })`), so every argument has run before a byte is written. It is `inline`, and `piecesOf` reads the tuple's type at compile time: a field known then whose bytes are too (a string literal, an Int, a Bool) is text, each run of text is joined and copied into the buffer by the one `noinline` writer of its length (`outFixed`), a `?String` or a String among the values is written as its bytes, and each other value goes to the one `noinline` writer of its type (`outValueOf`). A print with a value whose printing may run the program's own code (`printRunsCode`: a `print` method of the value or of anything it holds, or one behind an API object, a function or an erased pointer, or an error's fields) is rendered first instead (`printRendered`): its line is written into a `Spill`, a writer over a 4 KiB stack buffer that spills into a heap block, with no lock held, then copied into the buffer under `output_lock`. What that code prints comes before the line, whole, and no task holds the lock while program code runs or yields. A print site is a straight line of calls, about 60 bytes of code in `--release` (`bench/print/guard.py`). `String.of` and `add` append the same way (`appendFixed`, `addValueOf`). Text inside another value is quoted and escaped (`writeQuoted`), and a float is written as its shortest digits (`writeFloat`, on `std.fmt.float.binaryToDecimal`), with an exponent from `1e21` up and below `1e-6`. A failed write lands in `stdoutFailed`: a closed pipe (`BrokenPipe`) exits 0 at once, or, once `os.on_broken_pipe(.die)` has set `broken_pipe_dies`, ends the process by SIGPIPE (`dieOfBrokenPipe`, then `endBy`: the default disposition, then `raise`; status 141 if that does not end it). `dieOfBrokenPipe` is the one place that reads the setting, for both ways of writing stdout: `print` (`stdoutFailed`) and a write or flush of `io.stdout()` (`writeStandard`, `flushStandard`), which with `.exit` return EPIPE for `FileError.broken_pipe`. `start` installs a SIGPIPE handler that does nothing, so a write to any closed pipe or socket fails with EPIPE rather than killing the program: sockets get `net.NetError.closed` whatever the setting, and a process the program starts gets the default back, as a handler (unlike an ignored signal) is reset by `exec`. The disposition that handler replaces says whether the program started with SIGPIPE ignored (`broken_pipe_ignored`), and `os.on_broken_pipe(.inherit)` sets `broken_pipe_dies` to its opposite. A panic, or a `rig test` run, exits 1 on a closed pipe either way, since its report or verdict is lost; and any other error writes `error: stdout: <reason>` and exits 1, running no drop. A failed write to stderr in `warn` is dropped, and the program goes on |
 | `warn`, `fail` | `warn(a, b)` and `panic(a, b)`: `flush`, then the pieces `print` takes written to stderr under `std.debug.lockStderr`; `warn` renders its line into a `Spill` with no lock held, as a rendered `print` does, so the line is one write. An error's report as it leaves `main` (`reportFailure`) is rendered the same way, since the glue prints its fields. `fail` reports the test it ended (`beginPanic`) and ends the program by `std.process.abort`, status 134, after the line |
 | `concurrent`, `TaskState`, `task` | in a program that makes tasks (its root module declares `__rig_tasks`) and in the runtime's unit tests, each task is a fiber on the scheduler (`sched.zig`, [docs/internals/scheduler.md](scheduler.md)), run by one of its worker threads, so `TaskState`, what the runtime keeps for one task (the depth and queue of nested `*T` releases, the nesting of `print`, the guard below the task's stack, the deadline of `time.within`), is the fiber's (`Fiber.state`), and output and the debug leak checker take a lock (`output_lock`, `alloc_lock`); any other program compiles as if there were one thread, at no cost |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
@@ -5538,7 +5554,7 @@ context, `freeSlice`, and the allocator's `free` paths
 | `Arch` | Rig's built-in enum `Arch`: Zig's `std.Target.Cpu.Arch`, so `std.target`'s `arch`, `builtin.cpu.arch`, needs no mapping; every module's `Arch` symbol names it (`importType`) |
 | `Proven`, `atProven`, `elemPtrProven`, `readIntProven`, `writeIntProven`, `simdReadProven`, `simdWriteProven`, `addProven`, `swapProven` | the operations with the tests the compiler proved omitted ([Proven checks](#proven-checks)): `Proven` names which (`lower`, `upper`, `both`), an index is read through the slice's pointer, which carries no test of its own, and an add is one LLVM may assume does not wrap. The other test is made as `index`, `readInt`, and `simdRead` make it, with the same panic; a vector is loaded and stored as `simdRead` and `simdWrite` do. A debug build, or one whose root declares `__rig_verify_proofs`, makes the proven ones too, as assertions |
 | `atIf`, `elemPtrIf`, `addIf`, `okNonneg`, `okBelow`, and a List's `atProven`, `slotProven`, `constSlotProven`, `atIf`, `slotIf`, `constSlotIf` | the same for a List, and with a flag ([Flags](#flags)): `okNonneg` and `okBelow` are a flag's tests, and an `If` operation omits the tests its `q` names too while the flag it is given is true, and otherwise makes them where it is, as the plain operation does |
-| `lenOf`, `heldLen`, `len`, `max_len` | a length as an `Int`, at most `max_len`, `2^62 - 1`, so `i + c` is known to fit where `i` is below a length. `lenOf(x)` is every `x.len` of a List, slice, or array emit writes. A List's and a slice's length is at most `max_len` by construction, and `heldLen` converts it with no test (a debug build asserts it): a buffer of elements of a byte or more lies in memory, which no target has `2^62` bytes of, and `allocSlice` and `reallocSlice` refuse a longer one all the same; a List of zero-bit elements, which takes no memory, panics where it would grow past `max_len` (`ListOf.grow`, "length out of range"). `String.length` is `heldLen` too. `len` tests the margin and panics above it, for an array, whose length is a constant that folds, and a slice of zero-bit elements, which nothing in memory bounds |
+| `lenOf`, `heldLen`, `len`, `max_len` | a length as an `Int`, at most `max_len`, `2^62 - 1`, so `i + c` is known to fit where `i` is below a length. `lenOf(x)` is every `x.len` of a List, slice, or array emit writes. A List's and a slice's length is at most `max_len` by construction, and `heldLen` converts it with no test (a debug build asserts it, and an optimized one states it to the optimizer): a buffer of elements of a byte or more lies in memory, which no target has `2^62` bytes of, and `allocSlice` and `reallocSlice` refuse a longer one all the same; a List of zero-bit elements, which takes no memory, panics where it would grow past `max_len` (`ListOf.grow`, "length out of range"). `String.length` is `heldLen` too. `len` tests the margin and panics above it, for an array, whose length is a constant that folds, and a slice of zero-bit elements, which nothing in memory bounds |
 | `copy`, `fill`, `swap` | the element methods: `copy` panics in every build mode unless the lengths are equal, then is `@memcpy` (the checker keeps the two slices from overlapping); `fill` is `@memset`; `swap` checks both indexes |
 | `index`, `at`, `elemPtr`, `slice`, `sliceMut`, `div` | bounds-checked indexing and slicing, which panic in every build mode: `index` converts an index of any integer type, 128-bit ones included, to `usize`, `elemPtr` is the slot a `![]T` element is assigned through, `sliceMut` a `![]T` (a Zig `[]T`), and an open end is `null`; `div` divides a type parameter's values (exact for floats, truncating for integers) |
 | `notNan` | wraps a float converted to an integer type: where safety checks run (debug and safe), a NaN panics as an out-of-range value does, which `@trunc`'s own check misses |
@@ -5975,8 +5991,7 @@ is linked. For a fault in the
 guard it flushes `print`'s output and writes `error: rig: stack
 overflow`. An optimized build then aborts with the message alone, as a
 runtime panic does: there Zig's handler walks the trace by frame
-pointers, which can fault again at the top of the program's stack, and
-`--release=fast` installs no handler. A debug build calls the handler
+pointers, which can fault again at the top of the program's stack. A debug build calls the handler
 it replaced (Zig's, which prints the stack trace and aborts) and stays
 installed. A fault taken while that handler walks the stack (on x86_64
 Linux the walk from inside Zig's stack-probe routine, whose stack
@@ -6009,12 +6024,12 @@ as a real access of address 0 does. On x86-64 macOS every such signal
 still counts as a fault.
 
 A SIGILL or SIGFPE has no handler of the runtime's to lose it, but Zig's
-handler of a fault, which a debug or `--release` build has, reported a
+handler of a fault, which every build has, reported a
 sent one as an illegal instruction or an arithmetic exception, with a
 trace, and aborted (134). `start` installs a handler in front of it on
 Linux and macOS in those builds (`installTrapHandler`, `onTrap`): a sent
-signal ends the program by it (132 or 136), as the default action does
-in `--release=fast`, which has no handler; a real one puts Zig's handler
+signal ends the program by it (132 or 136), as the default action
+would; a real one puts Zig's handler
 back and returns, so the instruction faults again into it. `sentSignal`
 decides it as for SIGSEGV: by `si_code` on Linux, and on arm64 macOS by
 the syndrome's exception class, an undefined instruction or an illegal
@@ -6165,7 +6180,7 @@ to Rig.
 
 | Place | Zig it depends on |
 |---|---|
-| `src/main.zig` (the CLI) | `pub fn main(init: std.process.Init)`, the process arena, `init.environ_map`, `std.Io.Dir.cwd().readFileAlloc`, `createFileAtomic`, buffered `std.Io.File.stdout()` writers, `Allocator.print`, `std.process.spawn` to run `zig` (`-Odebug`, `-Osafe`, `-Ofast`, and a `--cache-dir` per package) |
+| `src/main.zig` (the CLI) | `pub fn main(init: std.process.Init)`, the process arena, `init.environ_map`, `std.Io.Dir.cwd().readFileAlloc`, `createFileAtomic`, buffered `std.Io.File.stdout()` writers, `Allocator.print`, `std.process.spawn` to run `zig` (`-Odebug`, `-Osafe`, and a `--cache-dir` per package) |
 | `src/modules.zig` | `readFileAlloc`, `realPathFileAlloc`, `std.fs.path`, `Allocator.print` |
 | `src/rig.zig` | `std.StaticStringMap` keyword tables |
 | `src/sema.zig`, `resolve.zig`, `typecheck.zig`, `ownership.zig` | unmanaged `ArrayList` / `HashMap` with `.empty`, `ArenaAllocator`, `@backingInt` / `@fromBackingInt` |

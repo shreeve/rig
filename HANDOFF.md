@@ -56,6 +56,11 @@ A new session, human or agent, takes these steps in order:
   line, `v0.3.x`; an earlier line gets no further releases. Rounds land
   on `main` untagged until the next tag; its release notes include a
   migration guide for the renames (`tools/migrate-0.3.py`).
+- **Build modes:** debug (the default, leak-checked) and `--release`
+  (Zig's safe mode). No mode drops a check; a program opts out only in
+  its source, with `+%`, `-%`, `*%`, or a `raw` block. `--release=fast`
+  is a usage error naming those opt-outs, and the benchmarks' Rig rows
+  measured in the fast mode wait to be measured again with `--release`.
 - **Branches:** `main` is the one long-lived branch. Work lands through
   short-lived branches and pull requests: plain git, with no CI,
   gates, or required checks.

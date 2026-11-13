@@ -14,8 +14,8 @@ bench/net/bench-net --out $D --time-only --reps 9
 ```
 
 It needs `bin/rig` built first, Cargo, and Go. `bench/net/bench-net
---help` lists the variants (`rig-fast`, `tokio` and `go` by default;
-`rig-safe` on request) and the options. `--record "#PR: what changed"`
+--help` lists the variants (`rig-safe`, `tokio` and `go` by default)
+and the options. `--record "#PR: what changed"`
 adds the Rig rows to [PROGRESS.md](PROGRESS.md).
 
 ## The benchmarks

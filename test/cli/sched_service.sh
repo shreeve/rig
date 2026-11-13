@@ -4,7 +4,7 @@
 # that sleeps (`sched.kickForTimer`). Each program below sleeps or makes
 # a round trip on a socket while `main` spins on the worker holding the
 # timer or the socket, and must be done long before the spin is.
-# Built with --release=fast, as the timings mean nothing otherwise.
+# Built with --release, as the timings mean nothing otherwise.
 # timeout: 300
 # builds: shared
 source "$ROOT/test/cli/_lib.sh"
@@ -99,8 +99,8 @@ sub main()!
   _ = >e!
 EOF
 
-rig build --release=fast -o timers timers.rig >build.log 2>&1 || fail "build timers: $(cat build.log)"
-rig build --release=fast -o sockets sockets.rig >build.log 2>&1 || fail "build sockets: $(cat build.log)"
+rig build --release -o timers timers.rig >build.log 2>&1 || fail "build timers: $(cat build.log)"
+rig build --release -o sockets sockets.rig >build.log 2>&1 || fail "build sockets: $(cat build.log)"
 
 # done_before <what> <spin> <took>: what took `took` was done in under
 # half the time the spin took.

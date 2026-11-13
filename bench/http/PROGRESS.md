@@ -4,6 +4,8 @@ Each row is one measurement of `bench/http/bench-http` (README.md):
 requests per second and latency, best of 3, and memory per idle
 connection. The reference rows are hyper's and Go's when the benchmark
 began; Rig's are added as the runtime grows.
+Rows marked `rig-fast` were built in Zig's fast mode, which Rig no
+longer builds; new Rig rows are `rig-safe` (`--release`).
 
 ## arm64 (Mac, 10 cores, 5,000 idle connections)
 

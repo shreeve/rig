@@ -18,7 +18,6 @@ usage: bench/terminal/bench-terminal [options]
                       rig-safe        bench.rig, rig build --release (Zig's safe
                                       mode), with std.terminal's default
                                       scrollback, 10,000 rows
-                      rig-fast        the same, rig build --release=fast
                       ghostty         libghostty-vt (tools/terminal_ghostty.zig,
                                       ReleaseFast, without its C++ SIMD paths),
                                       no scrollback
@@ -33,10 +32,11 @@ usage: bench/terminal/bench-terminal [options]
                                       Ghostty's; only when $DISPATCH names a
                                       Dispatch checkout (bench/terminal/dispatch.swift)
                     and an experiment, only when named:
-                      rig-nocheck     rig-fast with Rig's index, slice, and read
-                                      bounds checks removed from its runtime (as
-                                      bench/json's): sizes what they cost
-                      rig-noscroll    rig-fast with no scrollback: sizes what
+                      rig-nocheck     rig-safe with Rig's index, slice, and read
+                                      bounds checks removed from its runtime,
+                                      built -OReleaseFast (as bench/json's):
+                                      sizes what the checks cost
+                      rig-noscroll    rig-safe with no scrollback: sizes what
                                       keeping history costs
   --size COLSxROWS  the terminal (default 120x40)
   --ms N            aim each timed run at about N ms (default 300)
@@ -57,7 +57,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 import terminal_ghostty  # noqa: E402
 
 FILES = ["text", "scroll", "sgr", "tui", "utf8", "utf8-2027", "rgb"]
-VARIANTS = (["rig-safe", "rig-fast", "ghostty", "ghostty-scroll"] + (["ghostty-simd"] if os.environ.get("GHOSTTY_SDK") else [])
+VARIANTS = (["rig-safe", "ghostty", "ghostty-scroll"] + (["ghostty-simd"] if os.environ.get("GHOSTTY_SDK") else [])
             + (["dispatch"] if os.environ.get("DISPATCH") else []))
 SIZE = 4_000_000
 
@@ -125,10 +125,9 @@ def build(variant, out):
     if variant == "dispatch":
         return [build_dispatch(out)]
     exe = os.path.join(out, variant)
-    flag = "--release" if variant == "rig-safe" else "--release=fast"
     emitted = os.path.join(out, variant + ".out")
     env = dict(os.environ, RIG_OUT_DIR=emitted)
-    r = subprocess.run([os.path.join(ROOT, "bin", "rig"), "build", flag, "-o", exe, os.path.join(ROOT, "bench", "terminal", "bench.rig")], capture_output=True, text=True, env=env)
+    r = subprocess.run([os.path.join(ROOT, "bin", "rig"), "build", "--release", "-o", exe, os.path.join(ROOT, "bench", "terminal", "bench.rig")], capture_output=True, text=True, env=env)
     if r.returncode != 0:
         sys.exit("bench-terminal: building %s failed:\n%s" % (variant, r.stderr))
     if variant == "rig-nocheck":

@@ -6,6 +6,8 @@ column to see how a benchmark moves. The reference rows are Tokio's and
 Go's when the benchmark began; the Rig rows below them are added as
 actors grow (`bench-actors --record "#PR: what changed"`, which appends
 to the end of the file, so a Mac row moves up into its table).
+Rows marked `rig-fast` were built in Zig's fast mode, which Rig no
+longer builds; `bench-actors --record` adds `rig-safe` rows (`--release`).
 
 | Date | Change | Variant | solo (per call) | contend (per call) | spread (per call) |
 |---|---|---|---|---|---|
