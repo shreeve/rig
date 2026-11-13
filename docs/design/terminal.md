@@ -139,7 +139,7 @@ which the tool exports.
 
 ## Speed
 
-`bench/terminal/bench-terminal` times rig-safe and rig-fast against
+`bench/terminal/bench-terminal` times rig-safe (`--release`) against
 Ghostty (with and without scrollback and SIMD) and Dispatch, on seven
 corpora of about 4 MB each. Every variant must end with the same screen
 hash, so the benchmark is a 16 MB conformance check too. The results
@@ -168,12 +168,13 @@ What speed taught:
   output crawl.
 - **History reserves its room up front.** Growing the cells one row at a
   time cost the text corpus a third of its speed in reallocations. Most
-  of what history still costs (rig-fast vs the `rig-noscroll` experiment,
+  of what history still costs (against the `rig-noscroll` experiment,
   about 20% on text) is the first touch of fresh memory in a new
   terminal; a terminal that runs on reuses its oldest rows.
-- **Rig's checks are kept.** rig-safe, with every check, runs 4 to 15%
-  behind rig-fast and still ahead of every Ghostty build; the
-  `rig-nocheck` experiment sizes what bounds checks cost.
+- **Rig's checks are kept,** in every build. rig-safe, with every
+  check, runs 4 to 15% behind the same code in Zig's fast mode, and
+  ahead of every Ghostty build but the SIMD one on the two UTF-8
+  corpora; the `rig-nocheck` experiment sizes what bounds checks cost.
 
 ## What is not built
 

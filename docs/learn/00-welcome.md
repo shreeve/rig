@@ -135,7 +135,7 @@ bin/rig run hello.rig                  # check, build, and run (debug, leak-chec
 bin/rig run hello.rig -- a b           # the same, passing the program `a` and `b`
 bin/rig run --release hello.rig        # the same, optimized (safe)
 bin/rig build -o hello hello.rig       # a native executable
-bin/rig build --release=fast hello.rig # fast: no overflow checks
+bin/rig build --release hello.rig      # the same, optimized (safe)
 bin/rig build --release --pgo -o app app.rig -- ./train.sh   # optimized by a profile (Linux)
 bin/rig test hello.rig                 # run the file's own `test` blocks
 bin/rig test --seeds=20 hello.rig      # the same, under 20 schedules
@@ -1133,10 +1133,11 @@ compiler bug, not a user error.
 | Tasks end in scope | No task outlives the scope that owns it, or the loans it keeps. |
 
 At run time, integer overflow, out-of-bounds indexing, and a numeric
-conversion that does not fit panic in debug and `--release` builds.
-`--release=fast` drops the overflow and conversion checks, which makes
-an overflow undefined behavior, and keeps the bounds checks. Running
-out of stack stops with `error: rig: stack overflow` in every mode.
+conversion that does not fit panic in every build, debug and
+`--release` alike; no flag turns a check off. A program opts out only
+in its source: `+%`, `-%`, and `*%` wrap, and a `raw` block reaches
+Zig's builtins. Running out of stack stops with `error: rig: stack
+overflow` in every mode.
 Debug builds check for leaks on exit.
 
 Some of this is machine-checked. Proofs in Lean

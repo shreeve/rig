@@ -176,7 +176,7 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   declared after the first section's `repeat` neither main nor the
   branch folds them (6.89 and 6.86G instructions). Keeping the tables
   in registers without the fold would need them proven uncaptured
-  across the String's calls; `--release=fast` is unaffected.
+  across the String's calls; Zig's fast mode is unaffected.
 - Remote frees batched per owning heap, as Linux 7.4's slab sheaves
   and snmalloc do. Today each free of a block another heap owns
   (`src/alloc.zig`) is one compare-and-swap onto that heap's remote
