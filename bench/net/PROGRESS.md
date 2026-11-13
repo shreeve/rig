@@ -6,6 +6,8 @@ The reference rows are Tokio's and Go's when the benchmark began; the
 Rig rows below them are added as the runtime grows (`bench-net --record
 "#PR: what changed"`, which appends to the end of the file, so a Mac row
 moves up into its table).
+Rows marked `rig-fast` were built in Zig's fast mode, which Rig no
+longer builds; `bench-net --record` adds `rig-safe` rows (`--release`).
 
 | Date | Change | Variant | pingpong (per trip) | echo (per trip) | connect (per conn) |
 |---|---|---|---|---|---|

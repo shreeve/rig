@@ -40,8 +40,8 @@ unordered and the boost libraries it includes, and ankerl's
 unordered_dense, each at a release tag, into `bench/hash/upstream/`
 (which git ignores), and builds abseil into `upstream/libabsl.a`. The
 Rust crates are pinned in `rust/Cargo.lock`. `bench/hash/bench-hash
---help` lists the variants and options; `--all` builds every fast
-variant. `rig-hash` builds map.rig with each `type X = Map[...]` alias
+--help` lists the variants and options; `--all` builds Rig's two
+(`--release`) and every other contestant's fast build. `rig-hash` builds map.rig with each `type X = Map[...]` alias
 rewritten to `HashMap[...]`, so the same program times the unordered
 built-in. A build kept in `--out` is reused, so variants built by different `rig`s
 (`RIG=... --build-only --variants rig-hash`) can be timed together.

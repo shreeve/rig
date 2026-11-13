@@ -15,7 +15,7 @@ are not in it. Its suite builds in the mirror's build-store/ unless
 RIG_BUILD_STORE names another. With the nightly first on PATH and in $ZIG, it builds rig
 (`zig build`), then runs the core suite (`swarm test/rig.rip -q`) unless
 the build failed, and reports the first errors, and the failed cases by
-test file. `--bench` also times bench/terminal's rig-fast built with each
+test file. `--bench` also times bench/terminal's rig-safe built with each
 Zig, the copy's with the nightly and this checkout's with 0.17, runs of
 the two interleaved and counted in CPU cycles on macOS, and checks that
 both end on the same screen.
@@ -190,17 +190,17 @@ def run_cost(exe, corpus, reps):
 
 
 def bench(path, env):
-    """bench/terminal's rig-fast built with each Zig (the copy's with the
+    """bench/terminal's rig-safe built with each Zig (the copy's with the
     nightly, this checkout's with its own), timed run against run, each
     corpus's runs interleaved, the least of seven counting; and whether
     both end on the same screen."""
-    print("== bench: bench/terminal rig-fast, interleaved", flush=True)
+    print("== bench: bench/terminal rig-safe, interleaved", flush=True)
     if not os.path.exists(os.path.join(ROOT, "bin", "rig")):
         # This checkout's own rig, with its own Zig, for the 0.17 side.
         subprocess.run(["zig", "build"], cwd=ROOT, check=True)
     sides = []
     for label, cwd, e in (("0.17", ROOT, dict(os.environ)), ("next", path, env)):
-        r = subprocess.run(["bench/terminal/bench-terminal", "--variants", "rig-fast", "--reps", "1", "--ms", "50"], cwd=cwd, env=e, capture_output=True, text=True)
+        r = subprocess.run(["bench/terminal/bench-terminal", "--variants", "rig-safe", "--reps", "1", "--ms", "50"], cwd=cwd, env=e, capture_output=True, text=True)
         if r.returncode != 0:
             print("bench/terminal failed with %s:\n%s" % (label, (r.stderr or r.stdout)[-1500:]))
             return
@@ -212,7 +212,7 @@ def bench(path, env):
         best, checks = {}, {}
         for _ in range(7):
             for label, home in sides:
-                cost, check = run_cost(os.path.join(home, "rig-fast"), corpus, 10)
+                cost, check = run_cost(os.path.join(home, "rig-safe"), corpus, 10)
                 best[label] = min(best.get(label, cost), cost)
                 checks[label] = check
         a, b = best["0.17"] / 1e6, best["next"] / 1e6
