@@ -3876,7 +3876,7 @@ fn tableSpan() usize {
 /// Unmap `len` bytes at `start`, a range Rig mapped and never gave back,
 /// ignoring the result: a call that fails leaves the kernel the work.
 fn unmapForExit(start: usize, len: usize) void {
-    _ = std.c.munmap(@ptrFromInt(start), len);
+    _ = std.posix.system.munmap(@ptrFromInt(start), len);
 }
 
 /// `os.exit`, after it has flushed the output: on the Mac in a release
