@@ -903,7 +903,8 @@ true
 
 Calling a function on each element of a List, an array, or a slice, on
 several tasks at once ([SPEC §18](../SPEC.md#each-element-on-several-tasks)).
-The tasks of `map` and `each` take chunks of the elements in turn. `f` is a closure written
+The tasks of `map` and `each` take chunks of the elements in turn, and
+those of `push` chunks of the runs. `f` is a closure written
 in the call, whose captures must sync, or a function's name.
 `workers` (below) is timed against hand-built forms in
 [bench/par](../bench/par/README.md).
@@ -913,9 +914,11 @@ in the call, whose captures must sync, or a function's name.
 | `map(?xs, f, limit: n)` | a `List` of `f(x)` for each element, in the order of `xs`; `f` takes each as `?T` |
 | `each(!xs, f, limit: n)` | call `f` on each element, as `!T`, which it may write |
 | `workers(!states, ?items, f)` | one task for each state; each calls `f(!s, x)` with its own state on the next item it takes, in the order of `items`, until none is left: a `List` of the values in the order of the items, or nothing when `f` gives nothing |
+| `push(!t, ?sizes, f, limit: n)` | push `sizes.sum()` slots onto the Table `t` at once, then call `f(!run, k)` for each run `k`, the next `sizes[k]` of those slots in order, as a `![]T` it writes |
 
-`limit` is how many tasks run at once, by default one per worker; it
-comes after `f`, or before a closure written last. When
+`limit`, of `map`, `each`, and `push`, is how many tasks run at once,
+by default one per worker; it comes after `f`, or before a closure
+written last. When
 `f` can fail, so can the call: the first failure cancels the rest, and
 the call fails with its error.
 
@@ -992,6 +995,31 @@ sub main()
 ```output
 [5, 5, 1, 5]
 4
+```
+
+`push` fills a Table whose records come in runs of uneven sizes, a run
+for each file, say, on several tasks. Run `k` is always the same slots,
+so the table ends as a serial loop of `!t.push(x)` leaves it, whichever
+task wrote each run. The sizes and the room are tested before any task
+starts; the slots of a reserved table are first touched by the task
+that writes them. It is timed against a serial loop of pushes in
+[bench/par-push](../bench/par-push/README.md).
+
+```rig
+use std.par
+
+sub main()
+  t: Table[Int, 1024] = Table()
+  sizes = List([2, 0, 3, 1])
+  par.push(!t, ?sizes, limit: 2, |run, k|
+    for x, i in !run
+      x = k * 10 + i
+  )
+  print(t)
+```
+
+```output
+[0, 1, 20, 21, 22, 30]
 ```
 
 ## std.shared

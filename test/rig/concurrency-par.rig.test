@@ -637,3 +637,260 @@ fail "par closure in error reported once", "7:30: use of unbound name `nope`", "
     print(par.map(?xs, |x| x + nope)!)
     states = [0, 0]
     print(par.workers(!states, ?xs, |s, x| x + nope2)!)
+
+test "par push", seeds: 20, '''
+  6 2 1
+  true 3289
+'''
+  # `par.push` pushes the runs' slots at once and writes run `k`, the
+  # next `sizes[k]` slots in order, on several tasks: the table ends as a
+  # serial loop of pushes leaves it.
+  use std.par
+
+  obj Rec
+    file: U32 = 0
+    local: U32 = 0
+
+  t: Table[Rec, 1024] = Table()
+  !t.push(Rec())
+  sizes = List([3, 0, 2])
+  par.push(!t, ?sizes, |run, k|
+    for r, l in !run
+      r = Rec(file: U32(k), local: U32(l))
+  )
+  print(t.len, t[4].file, t[5].local)
+  big = List[Int]()
+  for k in 0..300
+    !big.push((k * 7) % 23)
+  a: Table[Rec, 65536] = Table()
+  b: Table[Rec, 65536] = Table()
+  for n, k in big
+    for l in 0..n
+      !a.push(Rec(file: U32(k), local: U32(l)))
+  par.push(!b, ?big, |run, k|
+    for r, l in !run
+      r = Rec(file: U32(k), local: U32(l))
+  )
+  same = a.len == b.len
+  for i in 0..a.len
+    same = same and a[i].file == b[i].file and a[i].local == b[i].local
+  print(same, b.len)
+
+test "par push empty runs", seeds: 20, '''
+  0 2
+  [0, 0, 7]
+'''
+  # No sizes start no task; a run of no slots is still called; one run
+  # runs on the calling task.
+  use std.par
+
+  t: Table[Int, 8] = Table()
+  calls = *Cell(0)
+  empty = List[Int]()
+  par.push(!t, ?empty, |+calls, run, k| _ = (!calls).add(1))
+  zeros = [0, 0]
+  par.push(!t, ?zeros, |+calls, run, k| _ = (!calls).add(run.len + 1))
+  print(t.len, calls.get())
+  one = [3]
+  par.push(!t, ?one, |run, k|
+    run[2] = 7 + k
+  )
+  print(t)
+
+test "par push one task", seeds: 20, "[0, 11, 22, 33]"
+  # With `limit: 1`, the runs are written in order on the calling task.
+  use std.par
+
+  t: Table[Int, 8] = Table()
+  c = *Cell(0)
+  ones = List([1, 1, 1, 1, 1])
+  par.push(!t, ?ones[..4], limit: 1, |+c, run, k|
+    run[0] = c.get() * 10 + k
+    _ = (!c).add(1)
+  )
+  print(t)
+
+bomb "par push full", seeds: 20, "a table of 8 slots is full"
+  # The room is tested before any task starts.
+  use std.par
+
+  t: Table[Int, 8] = Table()
+  !t.push(1)
+  sizes = [3, 5]
+  par.push(!t, ?sizes, |run, k| print("ran"))
+
+bomb "par push negative size", seeds: 20, "par.push takes no negative size, and run 1's is -2"
+  use std.par
+
+  t: Table[Int, 8] = Table()
+  sizes = [3, -2, 1]
+  par.push(!t, ?sizes, |run, k| print("ran"))
+
+test "par push fails", seeds: 20, '''
+  Bad.odd
+  200 0 0 true
+'''
+  # A failure in `f` cancels the other tasks and the call fails with it;
+  # the slots stay pushed, and those not written hold `T()`.
+  use std.par
+  use std.task
+
+  error Bad
+    odd
+
+  fun check(k: Int) -> Int!
+    return Bad.odd if k == 77
+    task.check()!
+    k
+
+  t: Table[Int, 1024] = Table()
+  sizes = List[Int]()
+  for _ in 0..100
+    !sizes.push(2)
+  par.push(!t, ?sizes, |run, k|
+    for x in !run
+      x = check(k)! + 1
+  ) catch |e| print(e)
+  zero = 0
+  for x in t
+    zero += 1 if x == 0
+  print(t.len, t[154], t[155], zero >= 2)
+
+test "par push made table", seeds: 20, '''
+  ["a", "r0.0", "r0.1", "r2.0", "r2.1", "r2.2"]
+'''
+  # A table of an owning `T`: each slot's old value is dropped as `f`
+  # writes it.
+  use std.par
+
+  t: Table[String, 64] = Table()
+  !t.push(String("a"))
+  sizes = List([2, 0, 3])
+  par.push(!t, ?sizes, |run, k|
+    for s, l in !run
+      s = `r{k}.{l}`
+  )
+  print(t)
+
+fail "par push reads the table", "cannot lend `t` to read while a write loan is live", errors: 1
+  use std.par
+
+  t: Table[Int, 64] = Table()
+  sizes = List([2, 2])
+  par.push(!t, ?sizes, |?t, run, k| run[0] = t.len)
+
+fail "par push write capture", "`par.push` calls the closure on several tasks at once, and `|!n|` lends `n` to write, which no two tasks may hold at once: gather what each call gives with `par.map`, or count with a `*Cell[Int]`, captured `|+n|`", errors: 1
+  use std.par
+
+  t: Table[Int, 64] = Table()
+  sizes = List([2, 2])
+  n = 0
+  par.push(!t, ?sizes, |!n, run, k| n += 1)
+
+fail "par push takes a table", "`par.push` pushes the next slots of a Table; `!xs` is a `!List[Int]`", errors: 1
+  use std.par
+
+  xs = List([1, 2])
+  sizes = List([2, 2])
+  par.push(!xs, ?sizes, |run, k| run[0] = k)
+
+fail "par push writes", "`par.push` pushes slots onto the table and writes them: lend it so, `par.push(!t, ...)`", errors: 1
+  use std.par
+
+  t: Table[Int, 64] = Table()
+  sizes = List([2, 2])
+  par.push(?t, ?sizes, |run, k| run[0] = k)
+
+fail "par push sizes", "`par.push` takes the size of each run as an `Int`, from a List, an array, or a slice; `?fs` is a `?List[Float]`", errors: 1
+  use std.par
+
+  t: Table[Int, 64] = Table()
+  fs = List([1.5])
+  par.push(!t, ?fs, |run, k| run[0] = k)
+
+fail "par push slots move", "`par.push` hands the runs of `!h` to tasks that may run on other cores, to write each, and `*Thing?` holds `*Thing`, a `*` handle whose count is not atomic, so two cores could change it at once", errors: 1
+  use std.par
+
+  obj Thing
+    n: Int = 0
+
+  h: Table[*Thing?, 8] = Table()
+  sizes = List([2, 2])
+  par.push(!h, ?sizes, |run, k| print(k))
+
+fail "par push closure takes two", "this closure takes 3 parameters, but its type `sub(![]Int, Int)` passes 2; a closure may take fewer, never more", errors: 1
+  use std.par
+
+  t: Table[Int, 64] = Table()
+  sizes = List([2, 2])
+  par.push(!t, ?sizes, |run, k, x| run[0] = k)
+
+fail "par push function takes the run", "`par.push` calls `two` with each run as `![]Int` and its index as `Int`, and `two` takes `?[]Int` and `Int`", errors: 1
+  use std.par
+
+  fun two(run: ?[]Int, k: Int) -> Int
+    k
+
+  t: Table[Int, 64] = Table()
+  sizes = List([2, 2])
+  par.push(!t, ?sizes, two)
+
+fail "par push function takes two", "`par.push` calls `one` with one run and its index at a time, and it takes 1 parameters", errors: 1
+  use std.par
+
+  sub one(run: ![]Int)
+    run[0] = 1
+
+  t: Table[Int, 64] = Table()
+  sizes = List([2, 2])
+  par.push(!t, ?sizes, one)
+
+fail "par push gives the run back", "this expression does nothing as a statement; use its value, or discard it with `_ = ...`", errors: 1
+  # The closure gives nothing, so no run outlives its call.
+  use std.par
+
+  t: Table[Int, 64] = Table()
+  sizes = List([2, 2])
+  par.push(!t, ?sizes, |run, k| run)
+
+fail "par push function gives a value", "`par.push` keeps nothing its function gives, and `gives` gives a `![]Int`: call it in a closure that discards the value, `_ = ...`, or give nothing", errors: 1
+  use std.par
+
+  fun gives(run: ![]Int, k: Int) -> ![]Int
+    run
+
+  t: Table[Int, 64] = Table()
+  sizes = List([2, 2])
+  par.push(!t, ?sizes, gives)
+
+fail "par each function gives a value", "`par.each` keeps nothing its function gives, and `gives` gives a `Int`: call it in a closure that discards the value, `_ = ...`, or give nothing", errors: 1
+  use std.par
+
+  fun gives(x: !Int) -> Int
+    x
+
+  xs = List([1, 2])
+  par.each(!xs, gives)
+
+test "par push path capture", seeds: 20, "[10, 11, 20] [10, 20]"
+  # A sibling field of the table is captured to read, `|?ids.base|`.
+  use std.par
+
+  obj Ids
+    binder: Table[Int, 64]
+    base: List[Int]
+
+  ids = Ids(binder: Table(), base: List([10, 20]))
+  sizes = [2, 1]
+  par.push(!ids.binder, ?sizes, |?ids.base, run, k|
+    for r, l in !run
+      r = ids.base[k] + l
+  )
+  print(ids.binder, ids.base)
+
+code "par push emits", "rig.parPushInto("
+  use std.par
+
+  t: Table[Int, 64] = Table()
+  sizes = List([2, 2])
+  par.push(!t, ?sizes, |run, k| run[0] = k)

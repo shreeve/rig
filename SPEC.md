@@ -14440,6 +14440,62 @@ sub main()
 26
 ```
 
+`par.push(!t, ?sizes, f)` pushes `sizes.sum()` slots onto a
+[Table](#table) at once and writes them on several tasks, a run at a
+time: run `k` is the next `sizes[k]` slots, in order from the table's
+`len` before the call, and `f(!run, k)` takes it as a `![]T`.
+
+- `sizes` is a List, an array, or a slice of `Int`. The call panics
+  before any task starts when a size is negative, and with `push`'s
+  message, "a table of `n` slots is full", when the slots do not fit.
+- Run `k` is the same slots whichever task takes it, so the table ends
+  as a loop of `!t.push(x)` in the order of the runs leaves it. Until
+  `f` writes a slot, it holds what it held, `T()` unless written by
+  slot.
+- `limit:`, the chunks the tasks take, and failure are as for
+  `par.each`, over the runs: with one task, or one run, the calling
+  task writes the runs in order. A failure leaves the slots pushed.
+
+`t` is lent to write for the call, as any `!` argument is, and the
+runs are disjoint slices of its slots, each lent to one task, as
+`par.each` lends each element. `f` is as for `par.each`, and takes the
+run and its index; `T` must be sendable.
+
+```rig
+use std.par
+
+obj Rec
+  file: U32 = 0
+  local: U32 = 0
+
+sub main()
+  t: Table[Rec, 1024] = Table()
+  !t.push(Rec())
+  sizes = List([3, 0, 2])
+  par.push(!t, ?sizes, |run, k|
+    for r, l in !run
+      r = Rec(file: U32(k), local: U32(l))
+  )
+  print(t.len, t[4].file, t[5].local)
+```
+
+```output
+6 2 1
+```
+
+```rig reject
+use std.par
+
+sub main()
+  t: Table[Int, 64] = Table()
+  sizes = List([2, 2])
+  par.push(!t, ?sizes, |?t, run, k| run[0] = t.len)
+```
+
+```error
+cannot lend `t` to read while a write loan is live
+```
+
 ---
 
 ## 19. Reserved and unsupported forms
