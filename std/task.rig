@@ -21,8 +21,12 @@ extern zig "task.zig"
   # Run tasks on `n` workers (at most 64), in place of one per core or
   # `RIG_WORKERS`: a program sets it from its own arguments, say. Before
   # the program makes its first task, which starts the workers, it sets
-  # how many start; after, it can only raise the number, and gives
-  # false for fewer than run. It gives whether it took effect. A
+  # how many start; after, the program runs on `n` from then on: more
+  # start, or the workers past `n` stop taking tasks and park, without
+  # spinning, until a later call raises the number again, and each gives
+  # back the free memory of its own heap as it parks. The tasks waiting
+  # on a parked worker move to the others. It gives whether it took
+  # effect: false for `n` under 1, and as the program ends. A
   # deterministic run (`rig test`) runs on one thread whatever it asks.
   pub fun workers(n: Int) -> Bool
 

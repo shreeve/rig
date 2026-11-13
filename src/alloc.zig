@@ -37,8 +37,8 @@
 //! apart (`takeKept`), within the same bound of its own
 //! (`keepBound`), resident or cold as a span is (`cold`), and on Linux
 //! one that grows moves its pages (`mremap`) when no kept block fits.
-//! Segments are never unmapped: memory freed stays for reuse. A worker that has slept a while trims
-//! its heap (`trimIdle`): it gives back the pages of its free spans and
+//! Segments are never unmapped: memory freed stays for reuse. A worker that has slept a while, or
+//! parks (`sched.parkWorker`), trims its heap (`trimIdle`): it gives back the pages of its free spans and
 //! kept large blocks and, on Linux, each class page whose blocks are all
 //! free, and puts what stays free on its remote lists, where any heap that would
 //! otherwise take a new page may take it (`takeDonated`), so the memory
@@ -541,7 +541,8 @@ pub const Heap = struct {
 // -----------------------------------------------------------------------------
 
 /// Give back to the system what the running thread's heap holds free, as
-/// its worker has slept a while (`sched.sleep`): a heap's free blocks
+/// its worker has slept a while (`sched.sleep`) or parks, left out by a
+/// smaller `task.workers(n)` (`sched.parkWorker`): a heap's free blocks
 /// serve only its own thread, so those of a worker that ran a burst of
 /// tasks and then sleeps, while another thread does the program's work,
 /// would stay resident for nothing. It takes back the blocks other

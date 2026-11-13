@@ -6,13 +6,14 @@ How Rig runs tasks fast: the engine under `f(x)&` (docs/design/concurrency.md,
 per core, or as many as the program asks for with `task.workers(n)`
 before its first task, or else `RIG_WORKERS` of them when that is set;
 a program that makes none starts no workers. A later `task.workers(n)`
-raises the number and never lowers it (`growWorkers`): the array of
-workers is fixed and only its length grows, so a reader takes the
-length once for a walk and a worker it finds may not have started.
-Under one lock, a raise opens the new pollers, publishes the length, and
-starts the threads; `main`'s end and an `os.exit` read the final workers
-under that lock, so a raise finishes before they look or makes no
-worker after.
+raises or lowers the number (`sched.setWorkers`): the array of workers
+is fixed and the length of those started only grows, so a reader takes
+the length once for a walk and a worker it finds may not have started;
+a lower leaves the workers past `n` listed and parks them ("Fewer
+workers", below). Under one lock, a raise unparks the parked workers
+below `n`, opens the new pollers, publishes the length, and starts the
+threads; `main`'s end and an `os.exit` read the final workers under that
+lock, so a change finishes before they look or makes no worker after.
 
 ## Shape
 
@@ -146,7 +147,57 @@ worker after.
 
   the fibers it ran (by handoff too), of them pinned ones, the fibers it
   stole, and the times it slept, so a test can check where work ran
-  without timing it (`test/cli/sched_stats.sh`).
+  without timing it (`test/cli/sched_stats.sh`). A worker that parked
+  adds how often, the fibers it ran since it last did, and what its
+  heap gave back as it parked (`, parked 1, ran 0 since, gave back
+  16992 KiB`, `test/cli/lower_workers.sh`).
+
+## Fewer workers
+
+A `task.workers(n)` with fewer than run marks the workers past `n` off
+(`Worker.off`), takes each asleep off the sleepers and wakes it, and
+sets `waiting`. A worker reads its mark at the top of its loop, before
+it takes a fiber, and in its yield checks, and a worker going to sleep
+reads it after it lists itself: marked off before the sleepers are
+looked at, sequentially consistent, so either the sleeper sees the mark
+or the lower finds it listed. A fiber running on a worker marked off
+runs on until its next stop: a loop's or recursion's check, or, in a
+build preempted by signal, the monitor's signal, which it sends such a
+worker at once; the stopped fiber goes to the global queue or the
+worker's ring. The fiber that lowered the workers moves at once when its
+own worker is among those marked off (`yield`).
+
+A worker marked off parks (`sched.parkWorker`):
+
+- **Its queues move.** The fibers in its "run next" slots and ring go
+  to the global queue, and a worker on is woken for them
+  (`forwardQueued`). Only a worker pushes to its own slots and ring, and
+  a parked one runs no fiber, so nothing new waits there but what its
+  own timers and poller wake, which go the same way. A fiber is never
+  lost: it is in a slot, the ring, or the global queue at every step,
+  each taken by one atomic step, and a thief may take one meanwhile as
+  from any worker.
+- **Its heap trims.** It gives back what its own heap holds free
+  (`alloc.trimIdle`): its free spans' and kept large blocks' pages and,
+  on Linux, each class page wholly free, and puts the blocks left free
+  where other heaps may take them. A heap is its thread's alone, so no
+  other worker's heap, and no block in use, is touched; the workers that
+  go on keep the pages they will fault in again.
+- **It waits.** In its own poller, with no timeout but its own timers'
+  earliest deadline, never spinning. A raise kicks
+  it, as `main`'s end and `os.exit` do (`os.exit` claims it there as any
+  waiting worker). It keeps serving the timers and descriptors it held
+  as it parked, to which no fiber running there adds more: the fibers
+  they wake go to the global queue. It is marked idle, so no watcher
+  counts its descriptors as a busy worker's.
+- **It runs nothing.** A parked worker runs no fiber but those pinned
+  to it, a local task and its maker, which can run on no other thread:
+  a program preempted by signal has none, so its parked workers run
+  nothing at all.
+
+A raise marks the parked workers below `n` on and kicks each, which
+goes back to its loop and looks for work. `task.worker_count()` and
+`par`'s splits count the workers on.
 
 ## Speed
 

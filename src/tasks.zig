@@ -2752,8 +2752,8 @@ pub fn checkStop() Stop!void {
 
 /// `task.workers(n)`: run tasks on `n` workers (1 to 64), in place of
 /// one per core or `RIG_WORKERS`; whether it took effect: before the
-/// program's first task starts the workers, or after, to raise their
-/// number, and in a program that makes tasks.
+/// program's first task starts the workers, or after, to raise or lower
+/// their number (`sched.setWorkers`), and in a program that makes tasks.
 pub fn setWorkers(n: Int) bool {
     if (!rt.scheduled or n < 1) return false;
     return rt.sched.askWorkers(@intCast(n));

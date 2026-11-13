@@ -40,7 +40,8 @@ Rig gives each through the same `&` and `>t`, on one scheduler.
 
 **Underneath,** a program that makes tasks starts one worker thread per
 core (or `task.workers(n)`, or `RIG_WORKERS`); one that makes none
-starts no workers. `main`'s thread is worker 0, and `main` runs as the
+starts no workers. A later `task.workers(n)` raises or lowers the
+number: the workers past `n` park until it rises again. `main`'s thread is worker 0, and `main` runs as the
 first task. Each worker keeps its ready tasks in a ring and a few "run
 next" slots, and an idle worker steals from a busy one.
 

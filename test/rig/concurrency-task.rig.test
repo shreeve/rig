@@ -1672,9 +1672,8 @@ code "task local spawns local", ".spawnLocal(peek, "
   t = peek(?n)&
   print(>t)
 
-test "task.workers takes effect only before the first task", seeds: 20, '''
+test "task.workers sets the workers before the first task, and never to none", seeds: 20, '''
   true
-  false
   false
   1
 '''
@@ -1683,11 +1682,10 @@ test "task.workers takes effect only before the first task", seeds: 20, '''
     1
   print(task.workers(3))
   t = one()&
-  print(task.workers(2))
   print(task.workers(0))
   print(>t)
 
-test "task.workers raises the workers a program runs on after its first task", "true 8 true false 8"
+test "task.workers raises and lowers the workers a program runs on after its first task", "true 8 true true 4"
   use std.task
   fun one() -> Int
     1
@@ -1699,6 +1697,110 @@ test "task.workers raises the workers a program runs on after its first task", "
   same = task.workers(8)
   down = task.workers(4)
   print(up, now, same, down, task.worker_count())
+
+test "task.workers lowers the workers and raises them again, and every task runs once", seeds: 20, "64 64 64 64 true true"
+  # A deterministic run keeps to one thread, so the counts are compared,
+  # not printed; the release case below prints them.
+  use std.task
+  fun work(k: Int) -> Int
+    total = 0
+    for i in 0..k
+      total = (total + i * 3) % 1000003
+    1 if total >= 0 else 0
+  fun round(n: Int) -> Int
+    ts = Tasks[Int]()
+    for _ in 0..n
+      !ts.add(work(20000)&)
+    xs = >ts
+    total = 0
+    for x in xs
+      total += x
+    total
+  _ = task.workers(8)
+  a = round(64)
+  _ = task.workers(2)
+  low = task.worker_count()
+  b = round(64)
+  _ = task.workers(8)
+  c = round(64)
+  _ = task.workers(2)
+  d = round(64)
+  print(a, b, c, d, low <= 2, task.worker_count() == low)
+
+test "task.workers lowers and raises the workers on real threads", release: true, '''
+  64 8
+  true 2 64
+  true 8 64
+  true 2 64
+'''
+  use std.task
+  fun work(k: Int) -> Int
+    total = 0
+    for i in 0..k
+      total = (total + i * 3) % 1000003
+    1 if total >= 0 else 0
+  fun round(n: Int) -> Int
+    ts = Tasks[Int]()
+    for _ in 0..n
+      !ts.add(work(20000)&)
+    xs = >ts
+    total = 0
+    for x in xs
+      total += x
+    total
+  _ = task.workers(8)
+  print(round(64), task.worker_count())
+  print(task.workers(2), task.worker_count(), round(64))
+  print(task.workers(8), task.worker_count(), round(64))
+  print(task.workers(2), task.worker_count(), round(64))
+
+test "tasks asleep on workers that are lowered still wake, and every one runs once", seeds: 20, "200 true"
+  use std.task
+  use std.time
+  fun nap(ms: Int) -> Int
+    time.sleep(ms: ms) catch return 0
+    1
+  _ = task.workers(8)
+  ts = Tasks[Int]()
+  for i in 0..200
+    !ts.add(nap(5 + i % 20)&)
+  _ = task.workers(2)
+  xs = >ts
+  total = 0
+  for x in xs
+    total += x
+  print(total, task.worker_count() <= 2)
+
+test "a task lowers and raises the workers while others make tasks, and every task runs once", release: true, "6400 true 3"
+  use std.task
+  fun one() -> Int
+    1
+  fun round(n: Int) -> Int
+    ts = Tasks[Int]()
+    for _ in 0..n
+      !ts.add(one()&)
+    xs = >ts
+    total = 0
+    for x in xs
+      total += x
+    total
+  fun rounds(k: Int, n: Int) -> Int
+    total = 0
+    for _ in 0..k
+      total += round(n)
+    total
+  fun swing(times: Int) -> Bool
+    all = true
+    for i in 0..times
+      all = task.workers(8 if i % 2 == 0 else 2) and all
+    all = task.workers(3) and all
+    all
+  _ = task.workers(4)
+  a = rounds(20, 160)&
+  b = rounds(20, 160)&
+  s = swing(40)&
+  sum = >a + >b
+  print(sum, >s, task.worker_count())
 
 test "a task raises the workers, and every task runs once", "6400 true 16"
   use std.task
