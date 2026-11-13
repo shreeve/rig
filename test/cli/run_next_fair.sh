@@ -44,7 +44,7 @@ sub main()!
   print("marker ran", ran)
 RIG
 
-"$RIG" build --release=fast -o fair-plain fair.rig >build.txt 2>&1 || fail "build fair.rig: $(cat build.txt)"
+"$RIG" build --release -o fair-plain fair.rig >build.txt 2>&1 || fail "build fair.rig: $(cat build.txt)"
 builds="plain"
 for b in $builds; do
     for w in 1 2; do

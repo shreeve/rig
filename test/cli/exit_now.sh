@@ -27,7 +27,7 @@ sub main()
   os.exit(5)
 EOF
 
-for mode in "" --release --release=fast; do
+for mode in "" --release; do
     rig build $mode -o ends ends.rig >build.log 2>&1 || fail "build $mode: $(cat build.log)"
     ./ends >out.txt 2>err.txt; expect_rc $? 5 "exit status $mode"
     expect_eq "$(cat out.txt)" "lines 1000" "stdout to a file $mode"
@@ -59,7 +59,7 @@ out=$(./early 2>err.txt); expect_rc $? 0 "early: debug status"
 expect_eq "$out" "done true
 dropped and checked" "early: a debug build goes on"
 expect_eq "$(grep -c 'memory leak' err.txt)" "0" "early: debug, no leak"
-for mode in --release --release=fast; do
+for mode in --release; do
     rig build $mode -o early early.rig >build.log 2>&1 || fail "build early $mode: $(cat build.log)"
     out=$(./early); expect_rc $? 0 "early: status $mode"
     expect_eq "$out" "done false" "early: a release build ends after its output $mode"

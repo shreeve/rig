@@ -58,7 +58,7 @@ sub main()
   zs = par.map(?xs, |+w, i| shifted(i, w))
   print(>t, ys.len, zs.len, deep(5))
 EOF
-rig build --release=fast tasks.rig >build.out 2>&1 || fail "rig build: $(cat build.out)"
+rig build --release tasks.rig >build.out 2>&1 || fail "rig build: $(cat build.out)"
 out=$(./tasks) || fail "the program: $out"
 expect_eq "$out" "496491 64 64 5" "the program's output"
 

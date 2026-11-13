@@ -26,7 +26,7 @@
 # Preemption is built for Linux x86-64 and arm64 macOS. On Linux x86-64
 # the benches are built as `rig build` builds them; elsewhere `rig emit`
 # writes their package and Zig compiles it for x86-64 Linux, with `rig
-# build --release=fast`'s flags. On arm64 macOS they are also built
+# build --release`'s flags. On arm64 macOS they are also built
 # natively, and the object `bin/rig` links (`__rig_program-apart.o`,
 # whose `__TEXT,__rig_text` is the section, with its debug lines) is
 # read: there no instruction in the section may use x15, the register
@@ -162,7 +162,7 @@ src() { if [[ $1 == calls ]]; then echo "$PWD/calls.rig"; else echo "$ROOT/bench
 
 for p in tasks actors calls; do
     if [[ $(uname -s) == Darwin && $(uname -m) == arm64 ]]; then
-        RIG_OUT_DIR="$PWD/mac-$p" "$RIG" build --release=fast -o "mac-$p.bin" "$(src $p)" >/dev/null 2>build.err ||
+        RIG_OUT_DIR="$PWD/mac-$p" "$RIG" build --release -o "mac-$p.bin" "$(src $p)" >/dev/null 2>build.err ||
             fail "build bench/$p: $(cat build.err)"
         obj="mac-$p/__rig_program-apart.o"
         [[ -f $obj ]] || fail "bench/$p: no object $obj"
@@ -175,12 +175,12 @@ for p in tasks actors calls; do
         ! grep -q TLVP "$p.relocs" || fail "bench/$p: the program's section reads a thread-local: $(grep -m1 TLVP "$p.relocs")"
     fi
     if [[ $(uname -s) == Linux && $(uname -m) == x86_64 ]]; then
-        "$RIG" build --release=fast -o "$p" "$(src $p)" >/dev/null 2>build.err ||
+        "$RIG" build --release -o "$p" "$(src $p)" >/dev/null 2>build.err ||
             fail "build bench/$p: $(cat build.err)"
     else
         RIG_OUT_DIR="$PWD/pkg-$p" "$RIG" emit "$(src $p)" >/dev/null 2>build.err ||
             fail "emit bench/$p: $(cat build.err)"
-        (cd "pkg-$p" && "$ZIG" build-exe -OReleaseFast -fomit-frame-pointer -fno-stack-protector -target x86_64-linux \
+        (cd "pkg-$p" && "$ZIG" build-exe -OReleaseSafe -fomit-frame-pointer -fno-stack-protector -target x86_64-linux \
             --cache-dir "$RIG_OUT_DIR/preempt-section-cache" __rig_main.zig -femit-bin="../$p") >build.err 2>&1 ||
             fail "build bench/$p for x86-64 Linux: $(cat build.err)"
     fi

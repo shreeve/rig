@@ -41,7 +41,7 @@ const usage =
     \\       rig build --release --bolt [options] <file.rig> -- <workload>
     \\       rig build --bolt --bolt-profile=<file> -o <out> <executable>
     \\       rig build --release --pgo [options] <file.rig> -- <workload>
-    \\       rig batch build [--release[=safe|fast]] [--preempt] <dir> <file.rig>...
+    \\       rig batch build [--release] [--preempt] <dir> <file.rig>...
     \\       rig batch run <dir> <n>
     \\       rig clean
     \\       rig lsp
@@ -95,11 +95,11 @@ const usage =
     \\                         cannot go to another core
     \\  --time                 Print the time each pass of the compiler
     \\                         takes, summed over the modules (check)
-    \\  --release[=safe|fast]  Optimize (run, build, test): `--release` and
-    \\                         `--release=safe` are Zig's safe mode, which
-    \\                         keeps overflow and bounds checks;
-    \\                         `--release=fast` is its fast mode. Default:
-    \\                         debug, leak-checked.
+    \\  --release              Optimize (run, build, test) in Zig's safe
+    \\                         mode, which keeps every check Rig adds:
+    \\                         overflow, conversions, bounds. Default:
+    \\                         debug, leak-checked. `--release=safe` is
+    \\                         the same
     \\  --seed=<n>             Run deterministically with seed n (run, test):
     \\                         on one thread, with a virtual clock that
     \\                         sleeps take no time on, the seed choosing
@@ -219,13 +219,11 @@ const Command = enum { tokens, parse, normalize, check, run, build, @"test", emi
 const Mode = enum {
     debug,
     safe,
-    fast,
 
     fn zigFlag(mode: Mode) []const u8 {
         return switch (mode) {
             .debug => "-Odebug",
             .safe => "-Osafe",
-            .fast => "-Ofast",
         };
     }
 
@@ -483,8 +481,8 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
             std.process.exit(0);
         } else if (eql(arg, "--release") or eql(arg, "--release=safe")) {
             mode = .safe;
-        } else if (eql(arg, "--release=fast")) {
-            mode = .fast;
+        } else if (std.mem.startsWith(u8, arg, "--release=")) {
+            releaseError(arg);
         } else if (eql(arg, "--tests")) {
             tests = true;
         } else if (std.mem.startsWith(u8, arg, "--seed=")) {
@@ -769,6 +767,13 @@ fn instanceBase(allocator: std.mem.Allocator, name: []const u8) ![]const u8 {
 
 fn eql(a: []const u8, b: []const u8) bool {
     return std.mem.eql(u8, a, b);
+}
+
+/// A `--release=MODE` other than `safe`: every build keeps Rig's checks,
+/// and a program leaves them only where its source says so.
+fn releaseError(arg: []const u8) noreturn {
+    if (eql(arg, "--release=fast")) usageError("`--release=fast` is gone: every build keeps Rig's checks; write `+%`, `-%` or `*%` for wrapping arithmetic, or `raw` for Zig builtins", .{});
+    usageError("unknown option `{s}`: `--release` builds in Zig's safe mode, which keeps Rig's checks", .{arg});
 }
 
 fn usageError(comptime fmt: []const u8, args: anytype) noreturn {
@@ -1356,7 +1361,7 @@ fn runStarted(allocator: std.mem.Allocator, io: std.Io, env: Env, environ: *std.
     }
 }
 
-/// `rig batch build [--release[=safe|fast]] DIR FILE...` builds every
+/// `rig batch build [--release] DIR FILE...` builds every
 /// program into one executable, `DIR/bin`, with one Zig compile and one
 /// copy of the runtime: each program's root module goes to `DIR/pN` (`N`
 /// its place among the files), every other file of its package to
@@ -1392,8 +1397,8 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
     while (i < args.len and args[i].len > 1 and args[i][0] == '-') : (i += 1) {
         if (eql(args[i], "--release") or eql(args[i], "--release=safe")) {
             mode = .safe;
-        } else if (eql(args[i], "--release=fast")) {
-            mode = .fast;
+        } else if (std.mem.startsWith(u8, args[i], "--release=")) {
+            releaseError(args[i]);
         } else if (eql(args[i], "--preempt")) {
             preempt = preempt_host;
         } else usageError("unknown option `{s}`", .{args[i]});

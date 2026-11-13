@@ -28,7 +28,7 @@ RIG
 # with no local task: where preemption is built (Linux x86-64, arm64
 # macOS), a signal stops it and the other runs, and the scheduler's
 # counts show a task preempted; elsewhere the yield checks hand over.
-on=$(RIG_SCHED_STATS=1 "$TIMEOUT_CMD" 60 "$RIG" run --release=fast spin.rig 2>err-spin.txt) || fail "spin.rig (timeout 60 s): $on $(cat err-spin.txt)"
+on=$(RIG_SCHED_STATS=1 "$TIMEOUT_CMD" 60 "$RIG" run --release spin.rig 2>err-spin.txt) || fail "spin.rig (timeout 60 s): $on $(cat err-spin.txt)"
 expect_eq "$on" "0 1" "spin.rig"
 case "$(uname -s)/$(uname -m)" in
     Linux/x86_64 | Darwin/arm64)
@@ -38,7 +38,7 @@ esac
 # Each stop takes, from the stopped stack pointer to its switch to the
 # worker's stack, no more of the fiber's stack than `sched.preempt_room`
 # leaves above the guard: the trampoline's saves and the Zig frames
-# before the switch fit, in fast and safe builds.
+# before the switch fit.
 room() {
     awk -v what="$2" '/deepest stop/ { for (i = 1; i <= NF; i++) if ($i == "preempted") p = $(i + 1) + 0
         n = $(NF - 3) + 0; r = $(NF - 1) + 0
@@ -48,7 +48,5 @@ room() {
 }
 case "$(uname -s)/$(uname -m)" in
     Linux/x86_64 | Darwin/arm64)
-        msg=$(room err-spin.txt "spin.rig, fast") || fail "$msg"
-        on=$(RIG_SCHED_STATS=1 "$TIMEOUT_CMD" 60 "$RIG" run --release=safe spin.rig 2>err-spin-safe.txt) || fail "spin.rig, safe (timeout 60 s): $on $(cat err-spin-safe.txt)"
-        msg=$(room err-spin-safe.txt "spin.rig, safe") || fail "$msg" ;;
+        msg=$(room err-spin.txt "spin.rig") || fail "$msg" ;;
 esac

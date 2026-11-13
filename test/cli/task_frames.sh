@@ -53,20 +53,20 @@ EOF2
 if [[ $how == asm ]]; then
     rig emit tasks.rig >/dev/null 2>&1 || fail "emit tasks.rig"
     pkg=$RIG_OUT_DIR/programs/tasks
-    for mode in Debug ReleaseSafe ReleaseFast; do
+    for mode in Debug ReleaseSafe; do
         (cd "$pkg" && zig_once "$PWD/../tasks-$mode.s" -- . -- "${ZIG:-zig}" build-obj -O $mode -femit-asm="$PWD/../tasks-$mode.s" -fno-emit-bin __rig_main.zig) >build.log 2>&1 || fail "$mode assembly: $(cat build.log)"
         python3 "$ROOT/test/cli/_frames.py" --all "$RIG_OUT_DIR/programs/tasks-$mode.s" >"real-$mode.txt"
     done
 else
-    for mode in Debug ReleaseSafe ReleaseFast; do
-        flag=; [[ $mode == ReleaseSafe ]] && flag=--release; [[ $mode == ReleaseFast ]] && flag=--release=fast
+    for mode in Debug ReleaseSafe; do
+        flag=; [[ $mode == ReleaseSafe ]] && flag=--release
         rig build $flag -o "tasks-$mode" tasks.rig >build.log 2>&1 || fail "build $mode: $(cat build.log)"
         objdump -d -M intel --no-show-raw-insn "tasks-$mode" >"tasks-$mode.dis"
         python3 "$ROOT/test/cli/_frames.py" --all "tasks-$mode.dis" >"real-$mode.txt"
     done
 fi
 
-python3 - "$half" real-Debug.txt real-ReleaseSafe.txt real-ReleaseFast.txt <<'PY' || exit 1
+python3 - "$half" real-Debug.txt real-ReleaseSafe.txt <<'PY' || exit 1
 import sys
 half = int(sys.argv[1])
 bad = []

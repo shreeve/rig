@@ -7,8 +7,7 @@
 # `rig build` and its executable run, so the status is the program's own.
 # test/rig/runtime-panic-status.rig.test holds every program as a case,
 # which checks the status, the output, and the message in debug and
-# with --release; this script checks what a case cannot see: the trace,
-# and --release=fast.
+# with --release; this script checks what a case cannot see: the trace.
 #
 # The program runs on the stack the runtime maps (docs/internals/INTERNALS.md,
 # "The program's stack"), and the trace's walk must not fault at its
@@ -18,8 +17,7 @@
 # saves all five register pairs, the most the walk reads above it. Each
 # is a program of its own, built in debug; the List index is also built
 # in each optimized mode. One program then runs every panic, chosen by
-# its argument, in each mode; checks that `--release=fast` drops
-# (overflow, conversion, division) are run in the modes that keep them.
+# its argument, in each mode.
 # PANIC_STATUS_FULL=1 also builds each of the three in every mode.
 # builds: shared
 source "$ROOT/test/cli/_lib.sh"
@@ -84,7 +82,7 @@ sub main()
   print(a[os.args().len + 2])
 EOF2
 
-all="debug release release=fast"
+all="debug release"
 for name in list_index live_values array_index; do
     modes=debug
     [[ $name == list_index || -n "${PANIC_STATUS_FULL:-}" ]] && modes=$all
@@ -164,7 +162,6 @@ for mode in $all; do
     expect_panic "$exe" status "$mode" "panic: exit status 301 is not in 0..255" before status
     expect_panic "$exe" oom "$mode" "panic: out of memory" before oom
     expect_panic "$exe" recurse "$mode" "error: rig: stack overflow" before recurse
-    [[ $mode == release=fast ]] && continue
     expect_panic "$exe" overflow "$mode" "panic: integer overflow" before overflow
     expect_panic "$exe" convert "$mode" "panic: integer does not fit in destination type" before convert
     expect_panic "$exe" divide "$mode" "panic: division by zero" before divide

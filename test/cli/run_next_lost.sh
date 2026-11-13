@@ -40,7 +40,7 @@ sub main()
   print(tree(5), reversed(2000))
 RIG
 
-"$RIG" build --release=fast -o lost-plain lost.rig >build.txt 2>&1 || fail "build lost.rig: $(cat build.txt)"
+"$RIG" build --release -o lost-plain lost.rig >build.txt 2>&1 || fail "build lost.rig: $(cat build.txt)"
 builds="plain"
 for b in $builds; do
     for w in 1 2 4 8; do
