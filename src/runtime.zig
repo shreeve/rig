@@ -6160,6 +6160,13 @@ fn ownAllocator() std.mem.Allocator {
 /// The allocator of release builds (`alloc.zig`).
 pub const fast_alloc = @import("alloc.zig");
 
+/// With `RIG_ALLOC_STATS=1` set, as the program ends: the calls its heaps
+/// made to give pages back to the system, and to advise it otherwise, by
+/// why (`alloc.printAdvised`).
+fn printAdvised() void {
+    if (process.*) |p| fast_alloc.printAdvised(p.environ);
+}
+
 /// Whether `extend_from_bytes` maps a large run of the program's own
 /// bytes rather than copying it (`alloc.mapRun`): in a Linux or macOS
 /// build that takes `fast_alloc`, a release build with no heap profile.
@@ -8033,6 +8040,7 @@ pub fn exitNow(code: Int) noreturn {
     // profile here, where the optimized one's writer does nothing, before
     // the teardown unmaps what the program holds, and both tear down.
     if (pgo) writeProfile();
+    printAdvised();
     if (scheduled) sched.tearDown();
     endProcess(status);
 }
@@ -8053,6 +8061,7 @@ pub fn finish() void {
     if (scheduled) sched.settleLeftCalls();
     if (pgo) writeProfile();
     if (map_trace) map_tracer.close();
+    printAdvised();
     releaseProcess();
     lockOutput();
     flush();

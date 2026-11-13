@@ -42,7 +42,11 @@
 //! kept large blocks and, on Linux, each class page whose blocks are all
 //! free, and puts what stays free on its remote lists, where any heap that would
 //! otherwise take a new page may take it (`takeDonated`), so the memory
-//! a burst of tasks freed serves the thread that works on. On Linux,
+//! a burst of tasks freed serves the thread that works on. A trim
+//! gives back what it gives back together, on Linux in one call that
+//! flushes the TLB of the program's cores once (`Batch`), and Tables
+//! dropped while the workers run go back together so too
+//! (`flushTableDrops`). On Linux,
 //! a heap that does much of the program's work, one that has taken from
 //! the system most of what every heap has or more than one segment's
 //! worth, faults in at once the memory it is about to fill (`prefault`).
@@ -132,6 +136,10 @@ comptime {
         mapped_count,
         exe_file,
         span_spare,
+        advised,
+        vector_off,
+        table_drops,
+        table_drop_count,
     };
 }
 
@@ -151,6 +159,81 @@ const pages_per_segment = segment_size / page_size;
 /// Linux's `MADV_POPULATE_WRITE` (5.14 and later), which Zig's
 /// `std.os.linux.MADV` does not name.
 const madv_populate_write: u32 = 23;
+
+/// Why a heap advises the system about a range of its pages: to give
+/// them back (`MADV_DONTNEED`, or `MADV_FREE_REUSABLE` on the Mac) as its
+/// idle trim gives back whole class pages (`trim_pages`), kept large
+/// blocks (`trim_kept`), and free spans (`trim_spans`); as warm spans past
+/// their bound cool (`cool_spans`); as a large block or a span is freed
+/// past what stays resident (`free_large`, `free_span`); and as a Table is
+/// dropped (`table_drop`, its pages, and `table_small`, its advice); or
+/// to fault them in (`populate`), to claim them again on the Mac
+/// (`reuse`), or to ask for huge or small pages (`thp`); and as a worker
+/// gives back the pages of task stacks it holds free (`stacks`,
+/// `sched.zig`). Each giving back on Linux flushes the TLB of every core
+/// that runs one of the program's threads, once a system call
+/// (`adviseAll`).
+pub const Why = enum { trim_pages, trim_kept, trim_spans, cool_spans, free_large, free_span, table_drop, table_small, populate, reuse, thp, stacks };
+
+const why_count = @typeInfo(Why).@"enum".field_names.len;
+
+/// The ranges each `Why` has advised and the bytes they covered, and the
+/// system calls that did it, for `RIG_ALLOC_STATS=1` (`printAdvised`).
+const Advised = struct {
+    ranges: [why_count]std.atomic.Value(u64) = @splat(.init(0)),
+    bytes: [why_count]std.atomic.Value(u64) = @splat(.init(0)),
+    /// Calls to `madvise`, one range each, and to `process_madvise`,
+    /// several (`adviseAll`).
+    madvise: std.atomic.Value(u64) = .init(0),
+    vector: std.atomic.Value(u64) = .init(0),
+    /// The calls Linux makes for what `adviseAll` advises, counted on
+    /// every system: a range alone, and batches of several ranges, with
+    /// the ranges in them.
+    alone: std.atomic.Value(u64) = .init(0),
+    batches: std.atomic.Value(u64) = .init(0),
+    batched: std.atomic.Value(u64) = .init(0),
+};
+var advised_var: Advised = .{};
+const advised = split.cell(&advised_var, "alloc.advised");
+
+/// Advise the system about the `len` bytes at `p` for `why`, counted.
+/// False if the system could not.
+pub fn advise(why: Why, p: usize, len: usize, advice: u32) bool {
+    countAdvice(why, len);
+    return madviseOne(p, len, advice);
+}
+
+fn madviseOne(p: usize, len: usize, advice: u32) bool {
+    _ = advised.madvise.fetchAdd(1, .monotonic);
+    const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p);
+    return std.posix.errno(std.posix.system.madvise(at, len, advice)) == .SUCCESS;
+}
+
+/// Count a range of `len` bytes advised for `why` (`advise`); a Table
+/// dropped where its range is mapped afresh counts so too
+/// (`giveBackTables`).
+pub fn countAdvice(why: Why, len: usize) void {
+    _ = advised.ranges[@intFromEnum(why)].fetchAdd(1, .monotonic);
+    _ = advised.bytes[@intFromEnum(why)].fetchAdd(len, .monotonic);
+}
+
+/// With `RIG_ALLOC_STATS=1` set in `environ`, as the program ends: each
+/// `Why`'s ranges and the bytes they covered, and the system calls they
+/// took, to stderr. Never inlined, so none of it lies in a program's own
+/// code section (test/cli/preempt_section.sh).
+pub noinline fn printAdvised(environ: std.process.Environ) void {
+    const v = environ.getPosix("RIG_ALLOC_STATS") orelse return;
+    if (!std.mem.eql(u8, v, "1")) return;
+    var buf: [160]u8 = undefined;
+    for (0..why_count) |i| {
+        const n = advised.ranges[i].load(.monotonic);
+        if (n == 0) continue;
+        const line = std.fmt.bufPrint(&buf, "rig: alloc: {s}: {d} ranges, {d} KiB\n", .{ @tagName(@as(Why, @enumFromInt(i))), n, advised.bytes[i].load(.monotonic) >> 10 }) catch continue;
+        _ = std.posix.system.write(2, line.ptr, line.len);
+    }
+    const line = std.fmt.bufPrint(&buf, "rig: alloc: system calls: {d} madvise, {d} process_madvise; batched as on Linux: {d} alone, {d} batches of {d} ranges\n", .{ advised.madvise.load(.monotonic), advised.vector.load(.monotonic), advised.alone.load(.monotonic), advised.batches.load(.monotonic), advised.batched.load(.monotonic) }) catch return;
+    _ = std.posix.system.write(2, line.ptr, line.len);
+}
 
 /// What every heap has taken from the system together (`Heap.taken`).
 var taken_all_var: std.atomic.Value(usize) = .init(0);
@@ -202,8 +285,7 @@ fn prefault(h: *const Heap, p: usize, len: usize) void {
     if (!faultsAhead(h)) return;
     if (builtin.os.tag == .linux) {
         if (builtin.is_test) prefaults_for_test += 1;
-        const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p);
-        std.posix.madvise(at, len, madv_populate_write) catch {};
+        _ = advise(.populate, p, len, madv_populate_write);
     }
 }
 
@@ -396,6 +478,8 @@ pub const Heap = struct {
         h.taken += n;
         _ = taken_all.fetchAdd(n, .monotonic);
         if (h.tables_wait and faultsAhead(h)) askWaitingTables(h);
+        // Before the program holds more, the Tables it dropped go back.
+        if (tableDropsWait()) flushTableDrops();
     }
 
     fn alloc(h: *Heap, c: usize) ?[*]u8 {
@@ -586,15 +670,6 @@ fn trimHeap(h: *Heap) usize {
     mustOwn(h);
     h.taken_at_trim = h.taken;
     var given: usize = 0;
-    while (lastHeld(&h.kept)) |j| {
-        const f = unkeep(&h.kept, j, 0).?;
-        const p = @intFromPtr(f);
-        const len = f.len;
-        decommit(p, len);
-        keepPiece(&h.cold, p, len);
-        given += len - std.heap.pageSize();
-    }
-    given += coolSpans(h, true);
     // A big heap's free lists hold millions of blocks, cold, and its
     // worker comes back to work only once the trim is done: it walks
     // each list once, to count its blocks per page on Linux and to find
@@ -614,7 +689,22 @@ fn trimHeap(h: *Heap) usize {
         if (own_tail) |t| t.next = late else h.free[c] = late;
         tails[c] = late_tail orelse own_tail;
     }
-    if (builtin.os.tag == .linux) given += trimPages(h, touched, &tails);
+    // Its kept blocks, free spans, and wholly free pages go back together,
+    // in as few calls as the system allows (`Batch`), once the walk is
+    // done, so none waits on it.
+    var b: Batch(batch_max) = .{ .heap = h };
+    while (lastHeld(&h.kept)) |j| {
+        const f = unkeep(&h.kept, j, 0).?;
+        const p = @intFromPtr(f);
+        const len = f.len;
+        b.addBlock(.trim_kept, p, len, .{ .cold = .{ .p = p, .len = len } });
+        given += len - std.heap.pageSize();
+    }
+    given += coolSpans(h, true, &b);
+    if (builtin.os.tag == .linux) given += trimPages(h, touched, &tails, &b);
+    b.flush();
+    // Tables dropped meanwhile go back with it.
+    flushTableDrops();
     // What stays free goes on its remote lists, where its own next
     // allocation takes it back, and meanwhile another heap may.
     for (0..class_count) |c| {
@@ -666,7 +756,8 @@ fn walkFree(h: *Heap, list: ?*Block, c: usize, touched: *?*Segment) ?*Block {
 /// a run of neighbors at a time. A block on the list is free, and those
 /// other threads free meanwhile go to `Heap.remote`, which this leaves
 /// alone, so no page given back holds a block anyone uses or will free.
-fn trimPages(h: *Heap, touched: ?*Segment, tails: *[class_count]?*Block) usize {
+/// The pages go into `b`, which the trim gives back before it returns.
+fn trimPages(h: *Heap, touched: ?*Segment, tails: *[class_count]?*Block, b: *Batch(batch_max)) usize {
     // A page is wholly free when its count is every block it was carved
     // into: a page still being carved holds fewer on the list than that.
     // Only the lists of the classes with such a page are walked again.
@@ -708,8 +799,7 @@ fn trimPages(h: *Heap, touched: ?*Segment, tails: *[class_count]?*Block) usize {
         while (bits != 0) {
             const first = @ctz(bits);
             const run = @ctz(~(bits >> @intCast(first)));
-            const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(@intFromPtr(s) + first * page_size);
-            std.posix.madvise(at, run * page_size, std.os.linux.MADV.DONTNEED) catch {};
+            b.add(.trim_pages, @intFromPtr(s) + first * page_size, run * page_size, .nothing);
             bits &= ~(((@as(u64, 1) << @intCast(run)) - 1) << @intCast(first));
         }
         given += @popCount(whole) * page_size;
@@ -762,12 +852,10 @@ const keep_resident: usize = 1 << 20;
 /// 289 MB with `MADV_FREE` and 93 MB with this, on pup), and on macOS with
 /// `MADV_FREE_REUSABLE`. Its addresses stay the heap's, and its pages
 /// fault in again, zeroed, as the block is used.
-fn decommit(p: usize, len: usize) void {
+fn decommit(why: Why, p: usize, len: usize) void {
     const pg = std.heap.pageSize();
     if (len <= pg) return;
-    const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p + pg);
-    const advice: u32 = if (builtin.os.tag == .linux) std.os.linux.MADV.DONTNEED else if (builtin.os.tag.isDarwin()) madv_free_reusable else return;
-    std.posix.madvise(at, len - pg, advice) catch {};
+    _ = advise(why, p + pg, len - pg, give_back orelse return);
 }
 
 /// The `len` bytes at `p`, taken from the heap's cold blocks, used
@@ -778,8 +866,191 @@ fn recommit(p: usize, len: usize) void {
     if (!builtin.os.tag.isDarwin()) return;
     const pg = std.heap.pageSize();
     if (len <= pg) return;
-    const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p + pg);
-    std.posix.madvise(at, len - pg, madv_free_reuse) catch {};
+    _ = advise(.reuse, p + pg, len - pg, madv_free_reuse);
+}
+
+/// The advice that gives pages back (`decommit`), or null on a system
+/// Rig gives none back on.
+const give_back: ?u32 = if (builtin.os.tag == .linux) std.os.linux.MADV.DONTNEED else if (builtin.os.tag.isDarwin()) madv_free_reusable else null;
+
+/// The most ranges a trim gives back in one call (`trimHeap`).
+const batch_max = 32;
+
+/// Ranges of up to `max` whose pages go back to the system together
+/// (`adviseAll`), and what each becomes once they have: a free span put
+/// back cold, or a kept large block of `heap` kept cold. A trim gives back
+/// its kept blocks, free spans, and class pages so (`trimHeap`), on Linux
+/// in one call for them all, which flushes the TLB of every core that
+/// runs one of the program's threads once, where a call a range flushed
+/// them once a range. A range reads as handed out until it is back.
+fn Batch(comptime max: usize) type {
+    return struct {
+        heap: ?*Heap = null,
+        iov: [max]std.posix.iovec_const = undefined,
+        then: [max]Then = undefined,
+        n: usize = 0,
+
+        const Self = @This();
+
+        /// The `len` bytes at `p`, given back for `why`; then `then`.
+        /// A full batch is given back first.
+        fn add(b: *Self, why: Why, p: usize, len: usize, then: Then) void {
+            if (b.n == max) b.flush();
+            if (len != 0 and give_back != null) countAdvice(why, len);
+            b.iov[b.n] = .{ .base = @ptrFromInt(p), .len = if (give_back != null) len else 0 };
+            b.then[b.n] = then;
+            b.n += 1;
+        }
+
+        /// The pages of the block of `len` bytes at `p` but its first,
+        /// which holds its header, as `decommit` gives them back.
+        fn addBlock(b: *Self, why: Why, p: usize, len: usize, then: Then) void {
+            const pg = std.heap.pageSize();
+            b.add(why, p + pg, len -| pg, then);
+        }
+
+        /// Give back every range, then do what each becomes.
+        fn flush(b: *Self) void {
+            if (b.n == 0) return;
+            if (give_back != null) adviseAll(b.iov[0..b.n], give_back, true);
+            for (b.then[0..b.n]) |t| switch (t) {
+                .nothing => {},
+                .span => |x| {
+                    const sp = &x.seg.heap.spans;
+                    sp.lock.lock();
+                    putSpan(sp, x.seg, x.s, x.n, true);
+                    sp.lock.unlock();
+                },
+                .cold => |x| keepPiece(&b.heap.?.cold, x.p, x.len),
+            };
+            b.n = 0;
+        }
+    };
+}
+
+/// What a range given back in a `Batch` becomes: nothing more (a class
+/// page), the free span of `n` units at `s` of `seg`, put back cold, or
+/// a kept large block of `len` bytes at `p`, kept cold.
+const Then = union(enum) {
+    nothing,
+    span: struct { seg: *SpanSegment, s: u32, n: u32 },
+    cold: struct { p: usize, len: usize },
+};
+
+/// Linux's `PIDFD_SELF_THREAD_GROUP` (6.14): the running process, to
+/// `process_madvise`, with no descriptor to open.
+const pidfd_self: isize = -10001;
+
+/// Whether `process_madvise` cannot advise the process's own pages, as
+/// on a Linux before 6.14, found at the first call that fails so: from
+/// then on each range takes a `madvise` of its own.
+var vector_off_var: std.atomic.Value(bool) = .init(false);
+const vector_off = split.cell(&vector_off_var, "alloc.vector_off");
+
+/// The most bytes one `process_madvise` call advises: Linux reads its
+/// vector as it reads a `writev`'s, and cuts its total to `MAX_RW_COUNT`,
+/// `INT_MAX` rounded down to a page.
+const vector_most: usize = 0x7fff_f000;
+
+/// Advise the system about every range of `iov` but the empty ones, with
+/// `advice`, or with null only count the calls Linux would make. The
+/// ranges, none overlapping another, are put in order and those that
+/// touch are joined (`joinRanges`), so the Tables a program reserved
+/// together and drops together take one range. On Linux a run of ranges
+/// of at most `vector_most` bytes in all takes one `process_madvise`
+/// call, which flushes the TLBs once for the pages it gives back (6.16
+/// and later), and a longer range a `madvise` of its own, as does each
+/// range Linux could not advise so; elsewhere each range takes a
+/// `madvise`. Where ranges to give back (`gives_back`) are longer than
+/// that in all, as a checker's Tables are (Trig's 53 hold 39 GiB of
+/// addresses, of which it wrote 20 MiB), each range's first bytes, where
+/// a Table holds what it wrote, go in the one call, and the rest of each
+/// takes a `madvise` of its own, which flushes nothing where nothing was
+/// written. Reorders `iov`, and cuts each range to what went in a call
+/// with others.
+fn adviseAll(iov: []std.posix.iovec_const, advice: ?u32, gives_back: bool) void {
+    const n = joinRanges(iov);
+    var total: usize = 0;
+    for (iov[0..n]) |v| total +|= v.len;
+    if (gives_back and n > 1 and total > vector_most) {
+        // A head for each, whole 2 MiB blocks so no huge page is split,
+        // all of them within one call.
+        const head = @max(vector_most / n & ~(huge_page - 1), huge_page);
+        for (iov[0..n]) |*v| if (v.len > head) {
+            _ = advised.alone.fetchAdd(1, .monotonic);
+            if (advice) |a| _ = madviseOne(@intFromPtr(v.base) + head, v.len - head, a);
+            v.len = head;
+        };
+    }
+    var i: usize = 0;
+    while (i < n) {
+        var k = i;
+        var sum: usize = 0;
+        while (k < n and iov[k].len <= vector_most - sum) : (k += 1) sum += iov[k].len;
+        if (k <= i + 1) {
+            k = i + 1;
+            _ = advised.alone.fetchAdd(1, .monotonic);
+            if (advice) |a| _ = madviseOne(@intFromPtr(iov[i].base), iov[i].len, a);
+        } else {
+            _ = advised.batches.fetchAdd(1, .monotonic);
+            _ = advised.batched.fetchAdd(k - i, .monotonic);
+            if (advice) |a| adviseVector(iov[i..k], a);
+        }
+        i = k;
+    }
+}
+
+/// Advise the system about the ranges of `iov`, several and at most
+/// `vector_most` bytes in all, with `advice`: on Linux in one
+/// `process_madvise` call where it can, and each range it could not, or
+/// elsewhere each range, with a `madvise` of its own.
+fn adviseVector(iov: []const std.posix.iovec_const, advice: u32) void {
+    // The first range not wholly advised, and how much of it was.
+    var first: usize = 0;
+    var done: usize = 0;
+    if (builtin.os.tag == .linux and !vector_off.load(.monotonic)) {
+        const linux = std.os.linux;
+        _ = advised.vector.fetchAdd(1, .monotonic);
+        const rc = linux.syscall5(.process_madvise, @bitCast(pidfd_self), @intFromPtr(iov.ptr), iov.len, advice, 0);
+        switch (linux.errno(rc)) {
+            .SUCCESS => {
+                done = rc;
+                while (first < iov.len and done >= iov[first].len) : (first += 1) done -= iov[first].len;
+            },
+            .NOSYS, .BADF, .INVAL, .PERM => vector_off.store(true, .monotonic),
+            else => {},
+        }
+    }
+    for (iov[first..], first..) |v, i| {
+        const skip = if (i == first) done else 0;
+        _ = madviseOne(@intFromPtr(v.base) + skip, v.len - skip, advice);
+    }
+}
+
+/// Drop the empty ranges of `iov`, put the rest in order of address, and
+/// join each range to the next where they touch. Gives how many ranges
+/// are left, first in `iov`.
+fn joinRanges(iov: []std.posix.iovec_const) usize {
+    var n: usize = 0;
+    for (iov) |v| if (v.len != 0) {
+        // Insertion, into the ranges kept so far: a batch holds a few
+        // dozen.
+        var j = n;
+        while (j > 0 and @intFromPtr(iov[j - 1].base) > @intFromPtr(v.base)) : (j -= 1) iov[j] = iov[j - 1];
+        iov[j] = v;
+        n += 1;
+    };
+    if (n == 0) return 0;
+    var m: usize = 0;
+    for (iov[1..n]) |v| {
+        if (@intFromPtr(iov[m].base) + iov[m].len == @intFromPtr(v.base)) {
+            iov[m].len += v.len;
+        } else {
+            m += 1;
+            iov[m] = v;
+        }
+    }
+    return m + 1;
 }
 
 /// macOS's `MADV_FREE_REUSABLE` and `MADV_FREE_REUSE`.
@@ -872,7 +1143,7 @@ inline fn allocLargeFrom(h: *Heap, len: usize, mapped: ?*bool) ?[*]u8 {
     if (n != 0) if (carveSpan(h, n)) |p| {
         if (mapped) |f| f.* = true;
         h.took(n * span_unit);
-        _ = coolSpans(h, false);
+        coolOver(h);
         prefault(h, p, likelyFilled(size - size / 4));
         return @ptrFromInt(p);
     };
@@ -941,8 +1212,7 @@ fn ask(p: usize, len: usize, want: Want) bool {
         .huge_if_free => if (hugeFreeFor((len + huge_page - 1) / huge_page)) linux.MADV.HUGEPAGE else return false,
         .small => linux.MADV.NOHUGEPAGE,
     };
-    const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p);
-    std.posix.madvise(at, len, advice) catch return false;
+    if (!advise(.thp, p, len, advice)) return false;
     return advice == linux.MADV.HUGEPAGE;
 }
 
@@ -1454,7 +1724,7 @@ fn freeLarge(h: *Heap, p: [*]u8, len: usize) void {
     // A heap that does not do much of the work keeps `keep_resident`
     // bytes resident, and the rest by address only.
     if (faultsAhead(h) or h.kept.bytes + size <= keep_resident) return keepPiece(&h.kept, @intFromPtr(p), size);
-    decommit(@intFromPtr(p), size);
+    decommit(.free_large, @intFromPtr(p), size);
     keepPiece(&h.cold, @intFromPtr(p), size);
 }
 
@@ -1771,7 +2041,7 @@ fn freeSpan(h: *const Heap, p: usize, size: usize) void {
         return;
     }
     sp.lock.unlock();
-    decommit(p, bytes);
+    decommit(.free_span, p, bytes);
     sp.lock.lock();
     putSpan(sp, seg, s, n, true);
     sp.lock.unlock();
@@ -1820,7 +2090,7 @@ fn growSpan(h: *Heap, p: usize, old_size: usize, new_size: usize, fresh: bool) b
         const bytes = carved * span_unit;
         _ = span_spare.fetchSub(bytes, .monotonic);
         h.took(bytes);
-        _ = coolSpans(seg.heap, false);
+        coolOver(seg.heap);
         prefault(h, spanAt(seg, next + after), likelyFilled(bytes / 2));
     }
     return true;
@@ -1832,8 +2102,8 @@ fn growSpan(h: *Heap, p: usize, old_size: usize, new_size: usize, fresh: bool) b
 /// the smallest span that alone brings it within, or else the largest,
 /// and again, so it keeps its largest warm. Each is taken from its bin
 /// and reads as handed out while its pages are given back, then is put
-/// back cold. Gives the bytes given back.
-fn coolSpans(o: *Heap, all: bool) usize {
+/// back cold once `b` gives its pages back. Gives the bytes given back.
+fn coolSpans(o: *Heap, all: bool, b: anytype) usize {
     const sp = &o.spans;
     var given: usize = 0;
     while (true) {
@@ -1851,12 +2121,18 @@ fn coolSpans(o: *Heap, all: bool) usize {
         const n = unlinkSpan(sp, seg, s);
         lendSpan(seg, s, n);
         sp.lock.unlock();
-        decommit(at, n * span_unit);
-        sp.lock.lock();
-        putSpan(sp, seg, s, n, true);
-        sp.lock.unlock();
+        b.addBlock(if (all) .trim_spans else .cool_spans, at, n * span_unit, .{ .span = .{ .seg = seg, .s = @intCast(s), .n = @intCast(n) } });
         given += n * span_unit - @min(n * span_unit, std.heap.pageSize());
     }
+}
+
+/// Cool `o`'s warm spans past its bound (`coolSpans`), as new pages a
+/// span took may leave it: one span at a time, as this runs on a task's
+/// stack.
+fn coolOver(o: *Heap) void {
+    var b: Batch(1) = .{};
+    _ = coolSpans(o, false, &b);
+    b.flush();
 }
 
 // -----------------------------------------------------------------------------
@@ -1971,7 +2247,18 @@ const table_regions_max = if (builtin.os.tag.isDarwin()) 64 else 32;
 /// addresses go unused.
 const table_free_max = 128;
 
-const Range = struct { start: usize, len: usize };
+/// A range of addresses, laid out as the system's `iovec`, so a list of
+/// them is a vector `process_madvise` takes (`asIovecs`).
+const Range = extern struct { start: usize, len: usize };
+
+comptime {
+    std.debug.assert(@sizeOf(Range) == @sizeOf(std.posix.iovec_const));
+    std.debug.assert(@offsetOf(Range, "len") == @offsetOf(std.posix.iovec_const, "len"));
+}
+
+fn asIovecs(ranges: []Range) []std.posix.iovec_const {
+    return @as([*]std.posix.iovec_const, @ptrCast(ranges.ptr))[0..ranges.len];
+}
 
 var tables_lock_var: SpinLock = .{};
 const tables_lock = split.cell(&tables_lock_var, "alloc.tables_lock");
@@ -2020,6 +2307,16 @@ var table_waiting_var: [table_waiting_max]WaitingTable = undefined;
 const table_waiting = split.cell(&table_waiting_var, "alloc.table_waiting");
 var table_waiting_count_var: usize = 0;
 const table_waiting_count = split.cell(&table_waiting_count_var, "alloc.table_waiting_count");
+/// The Tables dropped while the workers run whose ranges wait to go back
+/// together (`flushTableDrops`): at most `table_drops_max`, under
+/// `tables_lock`, and how many, read without it.
+const table_drops_max = 64;
+var table_drops_var: [table_drops_max]Range = undefined;
+const table_drops = split.cell(&table_drops_var, "alloc.table_drops");
+var table_drop_count_var: std.atomic.Value(usize) = .init(0);
+const table_drop_count = split.cell(&table_drop_count_var, "alloc.table_drop_count");
+/// Test only: a Table dropped waits as it does while the workers run.
+var drops_wait_for_test: bool = false;
 /// The Tables handed out and not given back: each holds at least one
 /// page-table page once written, which the exit's teardown counts
 /// (`exitWork`).
@@ -2042,6 +2339,8 @@ const tables_here = builtin.os.tag == .linux or builtin.os.tag.isDarwin();
 /// and the Mac, a Table larger than a region, or no region to be had.
 pub fn reserveTable(bytes: usize) ?[*]align(huge_page) u8 {
     if (!tables_here) return null;
+    // The ranges of Tables dropped are the first a new one may take.
+    flushTableDrops();
     const len = std.mem.alignForward(usize, bytes, huge_page);
     if (len > table_region_size) return null;
     // Read before `tables_lock`, which a new region's advice is under.
@@ -2136,41 +2435,113 @@ fn stopWaitingTable(at: usize) void {
 /// The Table of `bytes` at `at` asks for huge pages past its first 2 MiB.
 fn askTableHuge(at: usize, bytes: usize) void {
     tables_asked_huge.store(true, .monotonic);
-    std.posix.madvise(@ptrFromInt(at + huge_page), bytes - huge_page, std.os.linux.MADV.HUGEPAGE) catch {};
+    _ = advise(.thp, at + huge_page, bytes - huge_page, std.os.linux.MADV.HUGEPAGE);
 }
 
 /// Give back the range of a Table of `bytes` at `p`, if it is one
-/// `reserveTable` handed out: its pages to the system, and the range,
-/// advised for small pages again on Linux, to the next Table. Under
-/// Linux's `always`, where its first 2 MiB asked for small pages, and on
-/// the Mac, it is mapped afresh, which asks for nothing. A range that
-/// cannot be is not used again: on Linux it is set aside
-/// (`loseTableRange`); on the Mac, where its old mapping stays, it keeps
-/// its pages and stays the region's.
+/// `reserveTable` handed out: its pages to the system, and the range to
+/// the next Table (`giveBackTables`). While the workers run, its pages go
+/// back with those of the other Tables dropped as the fiber runs, which
+/// a program drops together, as each of Trig's checkers drops its 43
+/// (`flushTableDrops`): on Linux in one call that flushes the TLBs of the
+/// program's cores once, where a call each flushed them once each.
 pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
     if (!tables_here) return false;
     const at = @intFromPtr(p);
     const len = std.mem.alignForward(usize, bytes, huge_page);
+    const waits = sched.threaded() or (builtin.is_test and drops_wait_for_test);
     tables_lock.lock();
     var mine = false;
     for (table_regions[0..table_region_count.*]) |r| mine = mine or (r.start <= at and at < r.start + r.len);
     for (table_holes[0..table_hole_count.*]) |r| mine = mine and !(r.start <= at and at < r.start + r.len);
-    if (mine) stopWaitingTable(at);
-    tables_lock.unlock();
-    if (!mine) return false;
-    _ = table_live.fetchSub(1, .monotonic);
-    const range: [*]align(huge_page) u8 = @alignCast(p);
-    if (builtin.os.tag == .linux and adviceFor(thpMode(), .small) != .small) {
-        std.posix.madvise(range, len, std.os.linux.MADV.DONTNEED) catch {};
-        if (len > huge_page and tables_asked_huge.load(.monotonic)) std.posix.madvise(range, len, std.os.linux.MADV.NOHUGEPAGE) catch {};
-    } else if (!mapTableRangeAfresh(range, len)) {
-        if (builtin.os.tag == .linux) loseTableRange(range, len);
-        return true;
+    if (!mine) {
+        tables_lock.unlock();
+        return false;
     }
-    tables_lock.lock();
-    giveTableRange(at, len);
+    stopWaitingTable(at);
+    while (waits and table_drop_count.raw == table_drops_max) {
+        tables_lock.unlock();
+        flushTableDrops();
+        tables_lock.lock();
+    }
+    if (waits) {
+        table_drops[table_drop_count.raw] = .{ .start = at, .len = len };
+        table_drop_count.store(table_drop_count.raw + 1, .monotonic);
+    }
     tables_lock.unlock();
+    _ = table_live.fetchSub(1, .monotonic);
+    if (!waits) {
+        var one = [_]Range{.{ .start = at, .len = len }};
+        giveBackTables(&one);
+    }
     return true;
+}
+
+/// Whether Tables dropped wait to go back (`flushTableDrops`).
+pub inline fn tableDropsWait() bool {
+    return table_drop_count.load(.monotonic) != 0;
+}
+
+/// Give back together the ranges of the Tables whose drops wait
+/// (`unreserveTable`): as a fiber switches away (`sched.runFiber`), as a
+/// heap takes pages from the system (`Heap.took`) or trims (`trimHeap`),
+/// before a Table is reserved, and once `table_drops_max` wait. So the
+/// pages of a Table dropped stay with the program only while the fiber
+/// that dropped it runs on and takes nothing new from the system.
+pub fn flushTableDrops() void {
+    if (!tableDropsWait()) return;
+    var got: [table_drops_max]Range = undefined;
+    tables_lock.lock();
+    const n = table_drop_count.raw;
+    @memcpy(got[0..n], table_drops[0..n]);
+    table_drop_count.store(0, .monotonic);
+    tables_lock.unlock();
+    giveBackTables(got[0..n]);
+}
+
+/// Give back the pages of the Table ranges of `ranges`, and the ranges
+/// to the next Tables, joined where they touch (`joinRanges`), as Tables
+/// reserved together and dropped together do: on Linux with
+/// `MADV_DONTNEED`, in as few calls as it allows (`adviseAll`), then
+/// advised for small pages again, as their region was before any Table
+/// took them (`newTableRegion`). Under Linux's `always`, where a Table's
+/// first 2 MiB asked for small pages, and on the Mac, each run is mapped
+/// afresh, which asks for nothing. A run that cannot be is not used
+/// again: on Linux it is set aside (`loseTableRange`); on the Mac, where
+/// its old mapping stays, it keeps its pages and stays the region's.
+/// Reorders `ranges`.
+fn giveBackTables(ranges: []Range) void {
+    for (ranges) |r| countAdvice(.table_drop, r.len);
+    const runs = ranges[0..joinRanges(asIovecs(ranges))];
+    // `adviseAll` cuts the ranges it is given to what it advised at once.
+    var scratch: [table_drops_max]Range = undefined;
+    const each = scratch[0..runs.len];
+    if (builtin.os.tag == .linux and adviceFor(thpMode(), .small) != .small) {
+        @memcpy(each, runs);
+        adviseAll(asIovecs(each), std.os.linux.MADV.DONTNEED, true);
+        if (tables_asked_huge.load(.monotonic)) {
+            for (runs) |r| countAdvice(.table_small, r.len);
+            @memcpy(each, runs);
+            adviseAll(asIovecs(each), std.os.linux.MADV.NOHUGEPAGE, false);
+        }
+        tables_lock.lock();
+        for (runs) |r| giveTableRange(r.start, r.len);
+        tables_lock.unlock();
+        return;
+    }
+    // Counted as Linux would advise them, though each is mapped afresh.
+    @memcpy(each, runs);
+    adviseAll(asIovecs(each), null, true);
+    for (runs) |r| {
+        const range: [*]align(huge_page) u8 = @ptrFromInt(r.start);
+        if (!mapTableRangeAfresh(range, r.len)) {
+            if (builtin.os.tag == .linux) loseTableRange(range, r.len);
+            continue;
+        }
+        tables_lock.lock();
+        giveTableRange(r.start, r.len);
+        tables_lock.unlock();
+    }
 }
 
 /// Map the `len` bytes at `range` afresh (`MAP_FIXED`), which gives its
@@ -2198,7 +2569,7 @@ fn mapTableRangeAfresh(range: [*]align(huge_page) u8, len: usize) bool {
 /// `table_holes_max` of them the program panics rather than risk it.
 fn loseTableRange(range: [*]align(huge_page) u8, len: usize) void {
     @branchHint(.cold);
-    std.posix.madvise(range, len, std.os.linux.MADV.DONTNEED) catch {};
+    _ = advise(.table_drop, @intFromPtr(range), len, std.os.linux.MADV.DONTNEED);
     if (plugTableRange(range, len)) return;
     tables_lock.lock();
     defer tables_lock.unlock();
@@ -2256,7 +2627,7 @@ fn newTableRegion() bool {
     };
     if (builtin.os.tag == .linux) {
         const mode = thpMode();
-        if (!mode.off and !mode.by_default) std.posix.madvise(raw.ptr, raw.len, std.os.linux.MADV.NOHUGEPAGE) catch {};
+        if (!mode.off and !mode.by_default) _ = advise(.thp, @intFromPtr(raw.ptr), raw.len, std.os.linux.MADV.NOHUGEPAGE);
     }
     const start = std.mem.alignForward(usize, @intFromPtr(raw.ptr), huge_page);
     if (table_end.* > table_next.*) giveTableRange(table_next.*, table_end.* - table_next.*);
@@ -3630,7 +4001,9 @@ test "on Linux a free span whose pages went back to the system holds one page, a
     @memset(p[0 .. 1 << 20], 7);
     freeLarge(&h, p, 1 << 20);
     try std.testing.expectEqual(@as(usize, 1 << 20), try residentForTest(p, 1 << 20));
-    try std.testing.expectEqual((1 << 20) - std.heap.pageSize(), coolSpans(&h, true));
+    var b: Batch(batch_max) = .{ .heap = &h };
+    try std.testing.expectEqual((1 << 20) - std.heap.pageSize(), coolSpans(&h, true, &b));
+    b.flush();
     try std.testing.expectEqual(std.heap.pageSize(), try residentForTest(p, 1 << 20));
     const q = allocLarge(&h, 1 << 20).?;
     try std.testing.expectEqual(p, q);
@@ -4336,6 +4709,136 @@ test "on the Mac Tables take ranges of one region, and a range given back reads 
     try std.testing.expect(!unreserveTable(&own, own.len));
 }
 
+test "while the workers run, Tables dropped wait to go back together, until a Table is reserved, a heap takes new pages, or 64 wait, and each range then reads zeros for the next Table" {
+    if (!tables_here) return error.SkipZigTest;
+    drops_wait_for_test = true;
+    defer drops_wait_for_test = false;
+    const mib: usize = 1 << 20;
+    const live = table_live.load(.monotonic);
+    var got: [8][*]u8 = undefined;
+    for (&got) |*g| {
+        g.* = reserveTable(4 * mib).?;
+        @memset(g.*[0 .. 4 * mib], 7);
+    }
+    const singles = advised.madvise.load(.monotonic);
+    const vectors = advised.vector.load(.monotonic);
+    for (got) |g| try std.testing.expect(unreserveTable(g, 4 * mib));
+    try std.testing.expectEqual(live, table_live.load(.monotonic));
+    try std.testing.expect(tableDropsWait());
+    try std.testing.expectEqual(@as(usize, 8), table_drop_count.load(.monotonic));
+    // Not given back yet: the pages stay, and no range is free.
+    if (builtin.os.tag == .linux) try std.testing.expectEqual(@as(usize, 4 * mib), try residentForTest(got[0], 4 * mib));
+    // A heap that takes new pages from the system gives them back first.
+    var h = testHeap();
+    h.took(0);
+    try std.testing.expect(!tableDropsWait());
+    if (builtin.os.tag == .linux and adviceFor(thpMode(), .small) != .small) {
+        for (got) |g| try std.testing.expectEqual(@as(usize, 0), try residentForTest(g, 4 * mib));
+        // One call for the eight ranges' pages, and one for their advice
+        // for small pages if any asked for huge ones, where Linux can.
+        if (!vector_off.load(.monotonic)) {
+            const calls = advised.madvise.load(.monotonic) - singles + advised.vector.load(.monotonic) - vectors;
+            try std.testing.expect(calls >= 1 and calls <= 2);
+        }
+    }
+    // The next Table takes a range of one of them, as zeros.
+    const c = reserveTable(4 * mib).?;
+    var was_dropped = false;
+    for (got) |g| was_dropped = was_dropped or g == c;
+    try std.testing.expect(was_dropped);
+    for (c[0 .. 4 * mib]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
+    // A drop waits until a Table is reserved.
+    try std.testing.expect(unreserveTable(c, 4 * mib));
+    try std.testing.expect(tableDropsWait());
+    const d = reserveTable(4 * mib).?;
+    try std.testing.expect(!tableDropsWait());
+    try std.testing.expectEqual(c, d);
+    try std.testing.expect(unreserveTable(d, 4 * mib));
+    flushTableDrops();
+    // The 65th drop gives the 64 waiting back first, and waits itself.
+    var many: [table_drops_max + 1][*]u8 = undefined;
+    for (&many) |*m| m.* = reserveTable(2 * mib).?;
+    for (many) |m| try std.testing.expect(unreserveTable(m, 2 * mib));
+    try std.testing.expectEqual(@as(usize, 1), table_drop_count.load(.monotonic));
+    flushTableDrops();
+    try std.testing.expectEqual(live, table_live.load(.monotonic));
+    // More than one call holds, 3 GiB: each Table is given back whole,
+    // its last page too, and its whole range to the next Table.
+    const free_before = table_free_count.*;
+    const next_before = table_next.*;
+    var big: [3][*]u8 = undefined;
+    for (&big) |*t| {
+        t.* = reserveTable(1 << 30).?;
+        t.*[0] = 1;
+        t.*[(1 << 30) - 1] = 1;
+    }
+    for (big) |t| try std.testing.expect(unreserveTable(t, 1 << 30));
+    flushTableDrops();
+    try std.testing.expectEqual(free_before, table_free_count.*);
+    try std.testing.expectEqual(next_before, table_next.*);
+    for (&big) |*t| t.* = reserveTable(1 << 30).?;
+    for (big) |t| {
+        try std.testing.expectEqual(@as(u8, 0), t[0]);
+        try std.testing.expectEqual(@as(u8, 0), t[(1 << 30) - 1]);
+    }
+    for (big) |t| try std.testing.expect(unreserveTable(t, 1 << 30));
+    flushTableDrops();
+    try std.testing.expectEqual(live, table_live.load(.monotonic));
+}
+
+test "ranges to advise are put in order, joined where they touch, and batched at most `vector_most` bytes a call, a longer one alone" {
+    const g: usize = 1 << 30;
+    const base: usize = 64 * g;
+    var iov = [_]std.posix.iovec_const{
+        .{ .base = @ptrFromInt(base + 4 * g), .len = g / 2 },
+        .{ .base = @ptrFromInt(base), .len = 0 },
+        .{ .base = @ptrFromInt(base + g), .len = g / 4 },
+        .{ .base = @ptrFromInt(base + g + g / 4), .len = g / 4 },
+        .{ .base = @ptrFromInt(base + 2 * g), .len = g / 2 },
+        .{ .base = @ptrFromInt(base + 3 * g), .len = g / 2 },
+        .{ .base = @ptrFromInt(base + 5 * g), .len = g / 2 },
+        .{ .base = @ptrFromInt(base + 8 * g), .len = 3 * g },
+    };
+    var copy = iov;
+    try std.testing.expectEqual(@as(usize, 6), joinRanges(&copy));
+    try std.testing.expectEqual(@as(usize, base + g), @intFromPtr(copy[0].base));
+    try std.testing.expectEqual(g / 2, copy[0].len);
+    for (copy[1..6], [_]usize{ 2, 3, 4, 5, 8 }) |v, at| try std.testing.expectEqual(base + at * g, @intFromPtr(v.base));
+    // Five of half a GiB: three to a call, then two; and 3 GiB alone.
+    const alone = advised.alone.load(.monotonic);
+    const batches = advised.batches.load(.monotonic);
+    const batched = advised.batched.load(.monotonic);
+    adviseAll(&iov, null, false);
+    try std.testing.expectEqual(alone + 1, advised.alone.load(.monotonic));
+    try std.testing.expectEqual(batches + 2, advised.batches.load(.monotonic));
+    try std.testing.expectEqual(batched + 5, advised.batched.load(.monotonic));
+}
+
+test "ranges to give back longer than `vector_most` in all give their first bytes in one call and the rest of each alone" {
+    const g: usize = 1 << 30;
+    const base: usize = 64 * g;
+    // Four Tables of 1, 4, 16 MiB and 3 GiB, apart: 3 GiB and more.
+    var iov = [_]std.posix.iovec_const{
+        .{ .base = @ptrFromInt(base), .len = g },
+        .{ .base = @ptrFromInt(base + 2 * g), .len = 4 << 20 },
+        .{ .base = @ptrFromInt(base + 3 * g), .len = 16 << 20 },
+        .{ .base = @ptrFromInt(base + 4 * g), .len = 3 * g },
+    };
+    const alone = advised.alone.load(.monotonic);
+    const batches = advised.batches.load(.monotonic);
+    const batched = advised.batched.load(.monotonic);
+    adviseAll(&iov, null, true);
+    // Heads of 510 MiB: the first and last Tables' rest alone, and the
+    // four heads in one call.
+    const head = vector_most / 4 & ~(huge_page - 1);
+    try std.testing.expectEqual(head, iov[0].len);
+    try std.testing.expectEqual(@as(usize, 4 << 20), iov[1].len);
+    try std.testing.expectEqual(head, iov[3].len);
+    try std.testing.expectEqual(alone + 2, advised.alone.load(.monotonic));
+    try std.testing.expectEqual(batches + 1, advised.batches.load(.monotonic));
+    try std.testing.expectEqual(batched + 4, advised.batched.load(.monotonic));
+}
+
 /// The bytes of the `len` at `p` resident in memory (`mincore`).
 fn residentForTest(p: [*]u8, len: usize) !usize {
     const pages = len / std.heap.pageSize();
@@ -4397,7 +4900,7 @@ fn vmFlagForTest(p: usize, flag: []const u8) !bool {
     return error.NoMapping;
 }
 
-test "an idle heap gives back its kept large blocks' pages and, on Linux, its wholly free pages, which serve any class again, zeroed" {
+test "an idle heap gives back its kept large blocks' pages and, on Linux, its wholly free pages, which serve any class again, zeroed, in one call where Linux can" {
     var h = testHeap();
     var other = testHeap();
     // A heap that faults in ahead keeps a large block resident; trimmed,
@@ -4420,7 +4923,19 @@ test "an idle heap gives back its kept large blocks' pages and, on Linux, its wh
     for (blocks[0 .. 2 * per - 1]) |p| h.freeSmall(p, c);
     other.freeSmall(blocks[2 * per - 1], c);
     for (blocks[2 * per + 1 ..]) |p| h.freeSmall(p, c);
+    const singles = advised.madvise.load(.monotonic);
+    const vectors = advised.vector.load(.monotonic);
     const given = trimHeap(&h);
+    // The span's pages and, on Linux, the two class pages beside each
+    // other: one range each, given back in one call where Linux can
+    // (`adviseAll`), else in a call each.
+    if (builtin.os.tag == .linux and !vector_off.load(.monotonic)) {
+        try std.testing.expectEqual(vectors + 1, advised.vector.load(.monotonic));
+        try std.testing.expectEqual(singles, advised.madvise.load(.monotonic));
+    } else {
+        const ranges: usize = if (builtin.os.tag == .linux) 2 else 1;
+        try std.testing.expectEqual(singles + ranges, advised.madvise.load(.monotonic));
+    }
     try std.testing.expectEqual(@as(usize, 0), h.spans.warm.bytes);
     try std.testing.expectEqual(@as(usize, 1 << 20), h.spans.cold.bytes);
     if (builtin.os.tag == .linux) {

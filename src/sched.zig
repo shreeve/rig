@@ -3390,6 +3390,12 @@ pub fn workerTotal() usize {
     return @min(workerCount(), all_workers.*.len);
 }
 
+/// Whether more than one worker runs tasks: the program's threads may
+/// run on several cores at once.
+pub fn threaded() bool {
+    return started.* and workers_len.load(.monotonic) > 1;
+}
+
 /// How many workers run tasks, starting them first if they have not.
 pub fn workersRunning() usize {
     if (!started.*) startWorkers();
@@ -3467,6 +3473,9 @@ fn runFiber(w: *Worker, f: *Fiber) void {
         endStack(w, gone);
         if (gone.done) |d| d(gone);
     }
+    // The Tables the fiber dropped as it ran go back to the system
+    // together (`alloc.flushTableDrops`).
+    if (rt.fast_alloc.tableDropsWait()) rt.fast_alloc.flushTableDrops();
 }
 
 /// As `w` switches to a fiber, at its loop or by a handoff: when other
@@ -5592,7 +5601,7 @@ fn trimDenseList(sp: *Spare, first: ?*FreeStack, n: u32, kept: u32) void {
 /// addresses.
 fn adviseFree(at: usize, len: usize) void {
     const advice: u32 = if (builtin.os.tag == .macos) 7 else std.posix.MADV.DONTNEED; // MADV_FREE_REUSABLE
-    _ = std.posix.system.madvise(@ptrFromInt(at), len, advice);
+    _ = rt.fast_alloc.advise(.stacks, at, len, advice);
 }
 
 fn unmapStack(s: Stack) void {

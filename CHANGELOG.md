@@ -476,6 +476,18 @@ none of these ever built:
 
 ### Runtime
 
+- **Pages go back to the system in fewer calls:** an idle worker's trim
+  gives back its kept blocks', free spans', and free pages' memory
+  together, and the Tables a fiber drops while more than one worker
+  runs go back together when it switches away (or a heap takes new
+  pages, a Table is reserved, or 64 wait). On Linux each batch is one
+  `process_madvise` call (6.14 and later; one `madvise` a range on an
+  older kernel), which flushes the TLB of every core running one of the
+  program's threads once, where a call a range flushed them once a
+  range: each of Trig's checkers drops 43 Tables as its check ends.
+  `RIG_ALLOC_STATS=1` prints, as a release build ends, the ranges each
+  path gave back and the calls they took.
+
 - **`std.file` writes no fill over its buffers:** Zig's safe builds
   write 0xAA over every `undefined` local at each call, and `std.file`
   kept large ones on the stack. `read_dir` takes its 32 KiB buffer from
