@@ -2113,6 +2113,16 @@ s[i]   ==>  test 0 <= i unless lower is proven; test i < s.len unless upper is p
 i + c  ==>  test that i + c fits unless no_overflow is proven; i + c
 ```
 
+Where neither test of `s[i]` is proven and the length is held (a
+List's, or a slice's of elements of at least a byte: `rig.lenHeld`, at
+most `max_len`), one compare makes both: a signed `i` read as unsigned
+is below the length exactly when `0 <= i < len`, since a negative one
+reads as at least `2^63` (`rig.indexHeld`, as `rig.indexBelow` does for
+a length known at compile time). The panic is the same either way. An
+optimized build states a held length's bound to the optimizer
+(`rig.heldLen`), so past a test `i < n` of a length `n`, the compare
+folds to the sign test alone, as the two tests did.
+
 An omitted test is one the program already made, so the program means
 what it meant. A debug build still makes it, as an assertion ("rig: a
 proven check failed (compiler bug)"), so every test that runs checks the
@@ -4796,7 +4806,13 @@ and a query that decides more than that is a recorded fact.
   items. A Zig `switch` has no guards, so a match with a guarded arm
   first picks its arm in a labeled block (one `if` per arm, testing the
   pattern with `==` or a range comparison, then the guard over the
-  bindings it names), then switches on the arm's index. A `loop` used
+  bindings it names), then switches on the arm's index. A switch on a
+  plain enum outside `raw` switches on `rig.namedTag(subject)`, which
+  states to the optimizer that the value is one of the enum's tags: safe
+  Rig makes an enum only by naming a variant or by a checked conversion,
+  so the test Zig's safe mode makes before such a switch never fails, and
+  an optimized build drops it (a debug build keeps it, and so does an
+  enum whose values are not one run of integers). A `loop` used
   as a value (one a `break` leaves with a value) is its block `L_res`
   in an `@as(T, ...)`: each `break v` leaves the block.
 - **Loops** follow one desugaring ([Loops](#loops)): a `while` is a
@@ -5538,7 +5554,7 @@ context, `freeSlice`, and the allocator's `free` paths
 | `Arch` | Rig's built-in enum `Arch`: Zig's `std.Target.Cpu.Arch`, so `std.target`'s `arch`, `builtin.cpu.arch`, needs no mapping; every module's `Arch` symbol names it (`importType`) |
 | `Proven`, `atProven`, `elemPtrProven`, `readIntProven`, `writeIntProven`, `simdReadProven`, `simdWriteProven`, `addProven`, `swapProven` | the operations with the tests the compiler proved omitted ([Proven checks](#proven-checks)): `Proven` names which (`lower`, `upper`, `both`), an index is read through the slice's pointer, which carries no test of its own, and an add is one LLVM may assume does not wrap. The other test is made as `index`, `readInt`, and `simdRead` make it, with the same panic; a vector is loaded and stored as `simdRead` and `simdWrite` do. A debug build, or one whose root declares `__rig_verify_proofs`, makes the proven ones too, as assertions |
 | `atIf`, `elemPtrIf`, `addIf`, `okNonneg`, `okBelow`, and a List's `atProven`, `slotProven`, `constSlotProven`, `atIf`, `slotIf`, `constSlotIf` | the same for a List, and with a flag ([Flags](#flags)): `okNonneg` and `okBelow` are a flag's tests, and an `If` operation omits the tests its `q` names too while the flag it is given is true, and otherwise makes them where it is, as the plain operation does |
-| `lenOf`, `heldLen`, `len`, `max_len` | a length as an `Int`, at most `max_len`, `2^62 - 1`, so `i + c` is known to fit where `i` is below a length. `lenOf(x)` is every `x.len` of a List, slice, or array emit writes. A List's and a slice's length is at most `max_len` by construction, and `heldLen` converts it with no test (a debug build asserts it): a buffer of elements of a byte or more lies in memory, which no target has `2^62` bytes of, and `allocSlice` and `reallocSlice` refuse a longer one all the same; a List of zero-bit elements, which takes no memory, panics where it would grow past `max_len` (`ListOf.grow`, "length out of range"). `String.length` is `heldLen` too. `len` tests the margin and panics above it, for an array, whose length is a constant that folds, and a slice of zero-bit elements, which nothing in memory bounds |
+| `lenOf`, `heldLen`, `len`, `max_len` | a length as an `Int`, at most `max_len`, `2^62 - 1`, so `i + c` is known to fit where `i` is below a length. `lenOf(x)` is every `x.len` of a List, slice, or array emit writes. A List's and a slice's length is at most `max_len` by construction, and `heldLen` converts it with no test (a debug build asserts it, and an optimized one states it to the optimizer): a buffer of elements of a byte or more lies in memory, which no target has `2^62` bytes of, and `allocSlice` and `reallocSlice` refuse a longer one all the same; a List of zero-bit elements, which takes no memory, panics where it would grow past `max_len` (`ListOf.grow`, "length out of range"). `String.length` is `heldLen` too. `len` tests the margin and panics above it, for an array, whose length is a constant that folds, and a slice of zero-bit elements, which nothing in memory bounds |
 | `copy`, `fill`, `swap` | the element methods: `copy` panics in every build mode unless the lengths are equal, then is `@memcpy` (the checker keeps the two slices from overlapping); `fill` is `@memset`; `swap` checks both indexes |
 | `index`, `at`, `elemPtr`, `slice`, `sliceMut`, `div` | bounds-checked indexing and slicing, which panic in every build mode: `index` converts an index of any integer type, 128-bit ones included, to `usize`, `elemPtr` is the slot a `![]T` element is assigned through, `sliceMut` a `![]T` (a Zig `[]T`), and an open end is `null`; `div` divides a type parameter's values (exact for floats, truncating for integers) |
 | `notNan` | wraps a float converted to an integer type: where safety checks run (debug and safe), a NaN panics as an out-of-range value does, which `@trunc`'s own check misses |

@@ -476,6 +476,21 @@ none of these ever built:
 
 ### Runtime
 
+- **An index tests both ends with one compare:** `xs[i]`, `xs[i] = v`,
+  `get`, `insert`, `remove`, `swap_remove`, `keep`, and `swap` on a
+  List or a slice of elements of at least a byte read a signed index as
+  unsigned and compare it once with the length, where a sign test and a
+  bound test made two. A negative index still panics with "index out of
+  bounds". A length read as an `Int` is known non-negative to the
+  optimizer, so past a test `i < n` of that length the compare folds to
+  the sign test alone: std.json's six guard files retire 0.5 to 2.5%
+  fewer instructions than before.
+- **A match on a plain enum makes no test of its tag:** Zig's safe mode
+  tests that a switched enum holds one of its tags; safe Rig never holds
+  another, so emit switches on `rig.namedTag(x)`, which states the range
+  to the optimizer, and an optimized build drops the test. A match inside
+  `raw`, a debug build, and an enum whose values are not one run of
+  integers keep it.
 - **`std.file` writes no fill over its buffers:** Zig's safe builds
   write 0xAA over every `undefined` local at each call, and `std.file`
   kept large ones on the stack. `read_dir` takes its 32 KiB buffer from
