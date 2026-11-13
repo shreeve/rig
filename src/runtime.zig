@@ -5969,9 +5969,11 @@ noinline fn lenPanic() noreturn {
     @panic("length out of range");
 }
 
-fn indexPanic() noreturn {
-    @branchHint(.cold);
-    @panic("index out of bounds");
+// MEASUREMENT ARM ONLY, never merged: every index test is stated to the
+// optimizer as never failing, so the tests compile away.
+inline fn indexPanic() noreturn {
+    @setRuntimeSafety(false);
+    unreachable;
 }
 
 pub fn oom() noreturn {
