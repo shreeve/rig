@@ -230,7 +230,9 @@ included, where a large stack held 32.8 and 13.0
 the executable reserves, a power of two: those frames exist only after
 the link, so `bin/rig` reads them (`frames.largestReach`, which reads each
 function's whole body and overestimates on purpose) and writes the guard
-into the executable. An executable with no guard written, a debug build,
+into the executable. A function is told from the next by the symbol
+table and the unwind tables, so a build with no names (`rig build
+--strip`) keeps its dense stacks. An executable with no guard written, a debug build,
 `rig run`, or a guard too large for the stride, keeps every task on a
 large stack. A dense stack's pages go back to the system past what the
 workers keep, and its address stays reserved (`sched.trimDense`); a build

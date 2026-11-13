@@ -115,6 +115,14 @@ const usage =
     \\                         split when Zig compiles it with LLVM (every
     \\                         target but x86-64); `--units=1` never
     \\                         splits. A split release build runs slower
+    \\  --strip                Build without debug information (build),
+    \\                         which Zig spends most of a large release
+    \\                         build writing. The executable has no
+    \\                         names or lines for a profiler or a
+    \\                         debugger, a debug build's panic prints
+    \\                         its message and no trace, and a release
+    \\                         build warns of no frame larger than a
+    \\                         page, which a note says. Not with `--bolt`
     \\  --bolt                 Lay the release build out again with LLVM's
     \\                         BOLT, by where <workload> (after `--`) runs
     \\                         it under perf (build; Linux, with perf,
@@ -286,6 +294,8 @@ const Options = struct {
     /// `rig test std.NAME`: `path` names a module of the standard
     /// library, not a file.
     std_module: bool = false,
+    /// `build --strip`: every Zig compile leaves out debug information.
+    strip: bool = false,
     /// `--units=N` (build, run): build the program as `N` units
     /// (`units.count` decides otherwise).
     units: ?u16 = null,
@@ -454,6 +464,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     var time = false;
     var tasks = false;
     var split_units: ?u16 = null;
+    var strip = false;
     var lay_out = false;
     var bolt_profile: ?[]const u8 = null;
     var profiled = false;
@@ -512,6 +523,8 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
             pgo_profile = arg["--pgo-profile=".len..];
         } else if (eql(arg, "--tasks")) {
             tasks = true;
+        } else if (eql(arg, "--strip")) {
+            strip = true;
         } else if (std.mem.startsWith(u8, arg, "--units=")) {
             split_units = std.fmt.parseInt(u16, arg["--units=".len..], 10) catch usageError("`--units` takes a count of units: `--units=8`", .{});
             if (split_units.? == 0) usageError("`--units` takes a count of units, at least 1: `--units=8`", .{});
@@ -541,6 +554,8 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     if (tasks and cmd != .check) usageError("`--tasks` applies to check", .{});
     if (split_units != null and cmd != .build and cmd != .run and cmd != .@"test") usageError("`--units` applies to build, run, and test", .{});
     if (split_units != null and split_units.? > 1 and (lay_out or profiled)) usageError("`--bolt` and `--pgo` build one unit: leave out `--units`", .{});
+    if (strip and cmd != .build) usageError("`--strip` applies to build", .{});
+    if (strip and lay_out) usageError("`--bolt` lays a build out by the names of its functions, which `--strip` leaves out: give one or the other", .{});
     if (lay_out and cmd != .build) usageError("`--bolt` applies to build", .{});
     // `rig build --bolt` of an executable a `--bolt` build wrote lays it
     // out with no compile: a machine whose processor records no branches
@@ -582,7 +597,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     // Every source file ends in `.rig`, so an executable never replaces
     // one, even where file names ignore case.
     if (out_path) |o| if (std.ascii.endsWithIgnoreCase(o, ".rig")) usageError("`-o {s}` would write the executable over a .rig file", .{o});
-    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .time = time, .tasks = tasks, .bolt = lay_out, .bolt_profile = bolt_profile, .pgo = profiled, .pgo_profile = pgo_profile, .tests = tests, .program_args = program_args, .seed = seed, .seeds = seeds, .std_module = std_module, .units = split_units };
+    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts, .time = time, .tasks = tasks, .bolt = lay_out, .bolt_profile = bolt_profile, .pgo = profiled, .pgo_profile = pgo_profile, .tests = tests, .program_args = program_args, .seed = seed, .seeds = seeds, .std_module = std_module, .units = split_units, .strip = strip };
 }
 
 /// `rig check --tasks`: each local task of the program's own modules,
@@ -669,6 +684,7 @@ fn warnFramesIn(allocator: std.mem.Allocator, io: std.Io, graph: *modules.Module
     // the largest of its instances.
     var by_name: std.StringHashMapUnmanaged(u64) = .empty;
     for (try frames.read(allocator, bytes)) |f| {
+        if (f.name.len == 0) continue;
         const gop = try by_name.getOrPut(allocator, try instanceBase(allocator, f.name));
         gop.value_ptr.* = if (gop.found_existing) @max(gop.value_ptr.*, f.bytes) else f.bytes;
     }
@@ -998,6 +1014,10 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     // A program `rig run` builds starts by creating the file
     // RIG_PROGRAM_STARTED names; `rig test`'s driver is its root instead.
     var pkg = try emitPackage(allocator, env, &graph, .{ .hook = opts.command == .run, .pgo = opts.pgo, .units = split });
+    pkg.strip = opts.strip;
+    // The frame warning reads each function's frame by its name
+    // (`warnFrames`), and a stripped executable names none.
+    if (opts.strip and opts.mode != .debug) std.debug.print("note: `--strip` leaves out the names of the program's functions, so this build warns of no frame larger than a page: build without it to see those warnings\n", .{});
     const root = if (opts.command == .@"test") test_driver else graph.root().out_basename;
     if (opts.command == .@"test") try pkg.files.append(allocator, .{ .path = test_driver, .contents = try testDriver(allocator, env, &graph) });
     if (split > 1) try splitFiles(allocator, env, &graph, &pkg.files, root, if (opts.command == .@"test") pkg.files.getLast().contents else pkg.root_source, split);
@@ -1049,7 +1069,7 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
             .seal = sealTrained,
             .apart = if (pkg.keepsCodeApart()) keepCodeApart else null,
         }, opts.program_args, opts.pgo_profile);
-        if (pkg.keepsCodeApart()) writeDsym(allocator, io, out);
+        if (pkg.writesDsym()) writeDsym(allocator, io, out);
         if (home) |h| recordSize(allocator, io, h, dir);
         warnFrames(allocator, io, &graph, out);
         return;
@@ -1152,7 +1172,7 @@ fn buildSplit(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
     const lock = lockObjects(allocator, io, zig_cache);
     defer if (lock) |f| f.close(io);
     const kept = try keptBuild(allocator, io, env, zig_cache, mode, exe, link, pkg.files.items);
-    if (kept) |k| if (reuseBuild(allocator, io, k, exe)) return if (pkg.keepsCodeApart()) keepDsym(allocator, io, exe);
+    if (kept) |k| if (reuseBuild(allocator, io, k, exe)) return if (pkg.writesDsym()) keepDsym(allocator, io, exe);
 
     Ending.watch();
     const children = try allocator.alloc(std.process.Child, pkg.units);
@@ -1187,7 +1207,7 @@ fn buildSplit(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
         std.debug.print("note: emitted Zig is in {s}\n", .{dir});
         std.process.exit(code);
     }
-    if (pkg.keepsCodeApart()) writeDsym(allocator, io, exe);
+    if (pkg.writesDsym()) writeDsym(allocator, io, exe);
     if (kept) |k| keepBuild(allocator, io, k, exe, zig_cache, &.{});
 }
 
@@ -1227,7 +1247,7 @@ fn buildApart(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
     const lock = lockObjects(allocator, io, zig_cache);
     defer if (lock) |f| f.close(io);
     const kept = try keptBuild(allocator, io, env, zig_cache, mode, exe, try std.mem.concat(allocator, []const u8, &.{ compile, link }), pkg.files.items);
-    if (kept) |k| if (reuseBuild(allocator, io, k, exe)) return keepDsym(allocator, io, exe);
+    if (kept) |k| if (reuseBuild(allocator, io, k, exe)) return if (pkg.writesDsym()) keepDsym(allocator, io, exe);
     for ([_][]const []const u8{ compile, link }, 0..) |argv, step| {
         if (step == 1) try keepCodeApart(allocator, io, object, apart);
         const code = try runZig(io, if (step == 0) argv else try std.mem.concat(allocator, []const u8, &.{ argv, &.{try allocator.print("-femit-bin={s}", .{exe})} }));
@@ -1236,7 +1256,7 @@ fn buildApart(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
             std.process.exit(code);
         }
     }
-    writeDsym(allocator, io, exe);
+    if (pkg.writesDsym()) writeDsym(allocator, io, exe);
     if (kept) |k| keepBuild(allocator, io, k, exe, zig_cache, &.{});
 }
 
@@ -2011,14 +2031,27 @@ const Package = struct {
     /// It is built to be preempted by signal: it makes tasks and no local
     /// task, for a target with the preemption (`sched.preempt_built`).
     preempting: bool = false,
+    /// `rig build --strip`: Zig leaves debug information out of every
+    /// compile and of the link (`-fstrip`).
+    strip: bool = false,
 
-    /// The flags after the mode's for this package (`Mode.releaseFlags`),
-    /// and on arm64 macOS, for a package built to be preempted, x15
+    /// The flags after the mode's for this package (`Mode.releaseFlags`);
+    /// on arm64 macOS, for a package built to be preempted, x15
     /// reserved: the register the preemption trampoline returns by
-    /// (`sched.preempt_built`).
+    /// (`sched.preempt_built`); and `-fstrip` for a stripped build. Every
+    /// Zig command of a build takes them, so each is in the name its
+    /// executable is kept by (`keptBuild`).
     fn zigFlags(pkg: *const Package, allocator: std.mem.Allocator, mode: Mode, env: Env) ![]const []const u8 {
-        if (!pkg.keepsCodeApart()) return mode.releaseFlags(env);
-        return std.mem.concat(allocator, []const u8, &.{ mode.releaseFlags(env), &.{"-mcpu=native+reserve_x15"} });
+        const apart: []const []const u8 = if (pkg.keepsCodeApart()) &.{"-mcpu=native+reserve_x15"} else &.{};
+        const strip: []const []const u8 = if (pkg.strip) &.{"-fstrip"} else &.{};
+        return std.mem.concat(allocator, []const u8, &.{ mode.releaseFlags(env), apart, strip });
+    }
+
+    /// Whether `rig build` writes a `.dSYM` beside the executable
+    /// (`writeDsym`): its program section is kept apart, and it has debug
+    /// information to hold.
+    fn writesDsym(pkg: *const Package) bool {
+        return pkg.keepsCodeApart() and !pkg.strip;
     }
 
     /// Whether it is built to be preempted on arm64 macOS: compiled to

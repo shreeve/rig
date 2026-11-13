@@ -414,6 +414,8 @@ flag works on the Mac: Trig 5 to 15% faster on projects it was not
 trained on ([record](docs/history/records/2026-11/mac-pgo/README.md)). Release
 builds omit frame pointers and stack canaries; `RIG_FRAME_POINTERS=1`
 keeps the first for a profiler, `RIG_STACK_PROTECTOR=1` the second.
+`rig build --strip` leaves out debug information, most of a large
+release build's time ([INTERNALS, "Stripped builds"](docs/internals/INTERNALS.md#stripped-builds)).
 
 `std.terminal`, a terminal emulator library, matches Ghostty (pinned
 at `31bdcd5a7963`) on 416 recorded cases and its fuzzer, scrollback

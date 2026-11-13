@@ -245,10 +245,10 @@ failed; after a panic it is non-zero, with no count.
 | `src/timing.zig` | the pass times `rig check --time` reports |
 | `src/lib.zig` | the compiler as a library for `bin/rig-oracle`; `bin/rig` never imports it |
 | `src/main.zig` | the CLI |
-| `src/frames.zig` | the frame each function of a built executable reserves, read from its Mach-O or ELF symbols and prologues, for `rig build`'s warning of a frame larger than a page (`main.warnFrames`) |
+| `src/frames.zig` | the frame each function of a built executable reserves, read from its Mach-O or ELF symbols, the functions its unwind tables describe, and their prologues, for `rig build`'s warning of a frame larger than a page (`main.warnFrames`) and the guard below a dense stack (`largestReach`) |
 | `src/map_trace.zig` | `RIG_MAP_TRACE=1`: the built-in Map and Set, as emitted, made to record each operation ([The Map trace](#the-map-trace)) |
 | `src/bolt.zig` | `rig build --release --bolt`: lays the executable out again with LLVM's BOLT by where a workload runs it (Linux); deleting it and its flags removes the feature |
-| `src/pgo.zig`, `src/pgo_dump.c` | `rig build --release --pgo`: Zig's bitcode of the program compiled by `zig cc` with LLVM's counters, trained by a workload, and compiled again by the profile (on Linux a program with no libc; on the Mac with Apple's tools, its instrumented build linked by Apple's `ld`, as Zig's writes counters no `llvm-profdata` can read); `pgo_dump.c` writes the profile as the program ends, called by the runtime's `writeProfile` in a `--pgo` package only; deleting them, `writeProfile`, and the flags removes the feature |
+| `src/pgo.zig`, `src/pgo_dump.c` | `rig build --release --pgo`: Zig's bitcode of the program, written with none of LLVM's passes run (`-fopt-bisect-limit=0`: clang runs them, and Zig would only drop what they made) and with `--strip` no debug information, compiled by `zig cc` with LLVM's counters, trained by a workload, and compiled again by the profile (on Linux a program with no libc; on the Mac with Apple's tools, its instrumented build linked by Apple's `ld`, as Zig's writes counters no `llvm-profdata` can read); `pgo_dump.c` writes the profile as the program ends, called by the runtime's `writeProfile` in a `--pgo` package only; deleting them, `writeProfile`, and the flags removes the feature |
 | `src/lsp.zig` | `rig lsp`, the language server: JSON-RPC on stdin and stdout, positions, and the diagnostics `rig check` gives, read through the same `ModuleGraph` |
 | `src/editor.zig` | what an editor shows of one file: the parse errors, the tokens the lexer wrapper classifies with the tree's declared names and sigils, the outline, and the folds, from the tolerant parse (`parseTolerant`, rig.grammar's `@repair`) |
 
@@ -5407,6 +5407,56 @@ no tags whose `text` is `unreachable`. The runtime knows a symbol type
 by its `__rig_symbol` declaration: `print` writes `:` and its text,
 `rig.nameOf` gives `Symbol`, and `rig.enumText` reads `text`.
 
+### Stripped builds
+
+`rig build --strip` adds `-fstrip` to every Zig command of the build
+(`Package.zigFlags`): the one `build-exe`, each unit's `build-obj` and
+the entry's link, the object and link of a program kept apart, and
+`--pgo`'s bitcode step and links. Zig then writes no debug
+information, which is most of what it does for a large release build
+as one unit: of the 503 s Trig (201,000 lines) takes on the Mac, about
+280 s. On an x86-64 Linux machine the same build takes 687 s plain and
+224 s stripped. The flag is in the name a kept executable has,
+so a stripped build never copies a plain one.
+
+What a stripped executable lacks:
+
+- **Lines and names.** Zig gives each function of a stripped module
+  private linkage, so the executable names none of the program's
+  functions: a profiler shows addresses, and a debugger has nothing.
+  `--bolt`, which lays a build out by its functions' names, is refused
+  with `--strip`.
+- **A debug panic's trace.** The runtime prints a panic's message, the
+  same in every build, and in a stripped debug build no trace
+  (`panicWith`); a release build prints none anyway. The status is 134
+  as ever.
+- **The frame warning.** `main.warnFrames` finds a function's frame by
+  its name, so a stripped release build warns of no frame larger than a
+  page, and says so in a note as it starts.
+- **Zig's reader of debug information.** Zig compiles the code that
+  reads it out of a stripped program, which is 150 KB smaller for it.
+
+`--pgo` takes Zig's bitcode from before LLVM's passes, so its bitcode
+step runs none (`-fopt-bisect-limit=0`): the bitcode is the same byte
+for byte, and so is the executable's code. LLVM prints the name of each
+pass it leaves out, for every function, so `rig` reads nothing that
+step says unless it fails, and then shows Zig's own lines. Trig's
+`--pgo` build takes 1253 s where it took 1351 s, and with `--strip`
+524 s, on an x86-64 Linux machine.
+
+The program's own code is nearly the plain build's and not byte for
+byte: private linkage changes a few of LLVM's choices, such as which
+register holds a value, so a stripped build is compared with a stripped
+build. Its dense stacks stay: the guard below them is sized from every
+function's frame, and `src/frames.zig` tells a stripped executable's
+functions apart by its unwind tables (the first address of each FDE of
+`.eh_frame`, or `__TEXT,__eh_frame`), which a stripped build keeps, and
+finds a probed frame on x86-64 by the `sub rsp, rax` after the probe's
+call, since nothing names the probe. A function no table describes is
+read as part of the one before it, which only raises the bound. The
+guard may be smaller than the plain build's, whose largest frames are
+in the reader Zig left out.
+
 ### Split builds
 
 One `zig build-exe` compiles a program as one LLVM module, on one
@@ -5845,7 +5895,8 @@ holds each owner's account to the frame Zig's prologue reserves.
 
 **The frame warning.** After `rig build --release` writes the executable,
 `main.warnFrames` reads the frame each function's prologue reserves from
-the executable itself (`src/frames.zig`: the Mach-O or ELF symbol table,
+the executable itself (`src/frames.zig`: the Mach-O or ELF symbol table
+and the functions the unwind tables describe,
 then on aarch64 each `sub sp, sp, #N` and the pair `stp ..., [sp, #-N]!`
 pushes, on x86_64 `sub rsp, N`, the size the stack probe is called
 with, and a probe loop's step). A function of the program's own modules

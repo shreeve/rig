@@ -8960,7 +8960,8 @@ fn panicWith(what: anytype, comptime write: anytype, trace: ?usize) noreturn {
     // The trace names emitted Zig lines. Only the unwinder that cannot
     // fault walks it: the program runs on a stack the runtime maps
     // (`onOwnStack`), which the other one faults on.
-    if (trace) |t| if (builtin.mode == .debug and (!ends or panic_stage.load(.seq_cst) == 1)) {
+    // A stripped build (`rig build --strip`) has no lines to name.
+    if (trace) |t| if (builtin.mode == .debug and !builtin.strip_debug_info and (!ends or panic_stage.load(.seq_cst) == 1)) {
         std.debug.dumpCurrentStackTrace(.{ .first_address = t });
     };
     stopPanic();

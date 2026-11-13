@@ -141,6 +141,19 @@ none of these ever built:
 - **std.shared**: `shared.Map[K, V]`, a map several tasks fill and read at once. A key keeps the first value put under it, and nothing is replaced or taken, so `get` gives a view of the value where it lies with no lock and no write to memory another task reads; `put_new` and `ensure` lock one of 64 shards. It lives behind `*shared.Map[K, V]`, whose handles go to any task. bench/shared times it against Maps behind actors.
 - **A word-Cell object goes to other tasks.** An object that holds a Cell and whose every field, as declared, is plain data, a Cell of one word, or another such object changes through a handle only by its Cells, so its handles are counted atomically and cross cores, as a `*Cell[Int]`'s do (Core sentence 9). The error for one that stays with one task names the field that keeps it. A program whose tasks were local only because they took such a handle now runs them on any core, so a race already in it, such as a `get` then a `set` of one of its Cells, becomes live.
 - **`task.workers(n)` raises the workers after the first task.** A program that learns how much work it has only once running, as a checker does after parsing, can ask for more workers then. It only raises; it gives false for fewer than run, and a deterministic run keeps to one thread.
+- **`rig build --strip`** builds without debug information (Zig's
+  `-fstrip` on every compile and the link), which is most of what Zig
+  writes for a large release build: Trig as one unit builds in 224 s
+  where it took 687 s, on an x86-64 Linux machine. It goes with
+  `--release`, `--units`, and `--pgo`; `--bolt`, which needs the names
+  of the program's functions, refuses it. A stripped executable has no
+  names or lines for a profiler or a debugger, a stripped debug build's
+  panic prints its message and no trace, and a stripped release build
+  warns of no frame larger than a page, which a note says. The program
+  keeps its dense stacks: the guard below them is read from the unwind
+  tables where no symbol names a function. Its code is nearly the plain
+  build's, not byte for byte, so compare a stripped build with a
+  stripped build.
 - **Dense stacks.** `rig build --release` gives a task that cannot need much stack a dense stack, which holds 17.6 KB on the Mac where a large one holds 33.5 KB. A task with recursion, or a call through a pointer, keeps a large stack, as does every task of a debug build or `rig run`.
 - **`task.fast_cores()`** gives how many fast physical cores the
   program may run on, at least 1: on macOS the performance cores, on
@@ -266,6 +279,12 @@ none of these ever built:
 
 ### Compiler
 
+- `rig build --release --pgo` builds faster: Zig writes the program's
+  bitcode without running LLVM's passes, whose work it dropped, since
+  clang runs them on that bitcode. The bitcode and the executable's
+  code are the same byte for byte. Trig's `--pgo` build takes 1253 s
+  where it took 1351 s, and 524 s with `--strip`, which also
+  leaves debug information out of the bitcode.
 - An object or payload enum that holds a generic of another module
   whose fields name the generic's parameter as an optional (`kids:
   List[T?]` in `W[T]`, held as `w.W[Node]` in `Node`) is rejected with
