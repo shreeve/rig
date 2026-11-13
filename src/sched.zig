@@ -3813,9 +3813,9 @@ fn freeStacks(w: *Worker) void {
 // are counted as before. The design and why it is sound:
 // docs/history/records/2026-11/exit/parallel-teardown.md.
 
-/// Whether `os.exit` tears down in parallel: release builds on the Mac.
-/// Linux's parallel unmapping is unmeasured, so it ends as before.
-const tears_down = builtin.os.tag.isDarwin() and builtin.optimize != .debug;
+/// Whether `os.exit` tears down in parallel: release builds on the Mac
+/// and Linux.
+const tears_down = (builtin.os.tag.isDarwin() or builtin.os.tag == .linux) and builtin.optimize != .debug;
 
 const ExitPhase = enum(u32) { idle, gathering, go, plain };
 
