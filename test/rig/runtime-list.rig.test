@@ -949,3 +949,69 @@ test "index_of takes a name, an owner, and an element as they stand", "1 0 1 1 1
   k = xs.index_of(xs[1]) ?? -1
   !xs.push(9)
   print(xs.index_of(n) ?? -1, ss.index_of(s) ?? -1, k, ss.len, s.len / 2)
+
+bomb "list index negative", "index out of bounds"
+  # A negative index panics, as one past the end does.
+
+  fun rt(n: Int) -> Int
+    n
+
+  xs = List[Int]([1, 2, 3])
+  print(xs[rt(-1)])
+
+bomb "list index negative in a release build", "index out of bounds", release: true
+  # A negative index read as unsigned is past every length: one compare
+  # makes both tests, with the same panic.
+
+  fun rt(n: Int) -> Int
+    n
+
+  xs = List[Int]([1, 2, 3])
+  print(xs[rt(-1)])
+
+bomb "list index past the end", "index out of bounds"
+  fun rt(n: Int) -> Int
+    n
+
+  xs = List[Int]([1, 2, 3])
+  print(xs[rt(3)])
+
+bomb "list index past the end in a release build", "index out of bounds", release: true
+  fun rt(n: Int) -> Int
+    n
+
+  xs = List[Int]([1, 2, 3])
+  print(xs[rt(3)])
+
+bomb "list slot negative in a release build", "index out of bounds", release: true
+  fun rt(n: Int) -> Int
+    n
+
+  xs = List[Int]([1, 2, 3])
+  xs[rt(-1)] = 9
+  print(xs)
+
+bomb "slice index negative in a release build", "index out of bounds", release: true
+  fun rt(n: Int) -> Int
+    n
+
+  a = [1, 2, 3]
+  s = ?a[rt(0)..]
+  print(s[rt(-1)])
+
+bomb "slice index past the end in a release build", "index out of bounds", release: true
+  fun rt(n: Int) -> Int
+    n
+
+  a = [1, 2, 3]
+  s = ?a[rt(1)..]
+  print(s[rt(2)])
+
+test "list get out of range is null", "-9 -9 3 -9 -9", release: true
+  fun rt(n: Int) -> Int
+    n
+
+  xs = List[Int]([1, 2, 3])
+  a = [1, 2, 3]
+  s = ?a[rt(0)..]
+  print(xs.get(rt(-1)) ?? -9, xs.get(rt(3)) ?? -9, xs.get(rt(2)) ?? -9, s.get(rt(-1)) ?? -9, s.get(rt(3)) ?? -9)

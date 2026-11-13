@@ -2113,6 +2113,13 @@ s[i]   ==>  test 0 <= i unless lower is proven; test i < s.len unless upper is p
 i + c  ==>  test that i + c fits unless no_overflow is proven; i + c
 ```
 
+Where neither test of `s[i]` is proven and the length is held (a
+List's, or a slice's of elements of at least a byte: `rig.lenHeld`, at
+most `max_len`), one compare makes both: a signed `i` read as unsigned
+is below the length exactly when `0 <= i < len`, since a negative one
+reads as at least `2^63` (`rig.indexHeld`, as `rig.indexBelow` does for
+a length known at compile time). The panic is the same either way.
+
 An omitted test is one the program already made, so the program means
 what it meant. A debug build still makes it, as an assertion ("rig: a
 proven check failed (compiler bug)"), so every test that runs checks the

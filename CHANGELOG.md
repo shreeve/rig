@@ -461,6 +461,12 @@ none of these ever built:
 
 ### Runtime
 
+- **An index tests both ends with one compare:** `xs[i]`, `xs[i] = v`,
+  `get`, `insert`, `remove`, `swap_remove`, `keep`, and `swap` on a
+  List or a slice of elements of at least a byte read a signed index as
+  unsigned and compare it once with the length, where a sign test and a
+  bound test made two. A negative index still panics with "index out of
+  bounds".
 - **`std.file` writes no fill over its buffers:** Zig's safe builds
   write 0xAA over every `undefined` local at each call, and `std.file`
   kept large ones on the stack. `read_dir` takes its 32 KiB buffer from

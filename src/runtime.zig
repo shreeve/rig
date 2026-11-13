@@ -2710,7 +2710,9 @@ pub fn isNone(value: anytype) bool {
 /// the element at `i`, or null when out of range.
 pub fn elementAt(items: anytype, i: Int) Opt(ElementOf(@TypeOf(items))) {
     const O = Opt(ElementOf(@TypeOf(items)));
-    const idx = std.math.cast(usize, i) orelse return pack(O, null);
+    const idx = offsetIn(items, i) orelse return pack(O, null);
+    // `idx < items.len` by `offsetIn`; tested again so an empty array's
+    // read is never compiled, and folded where it is.
     return pack(O, if (idx < items.len) items[idx] else null);
 }
 
@@ -2950,7 +2952,7 @@ pub fn Cell(comptime T: type) type {
         /// reaches back into the cell finds the elements not yet dropped;
         /// what it pushes past the first `n` is dropped in turn.
         pub fn listKeep(self: *Self, n: Int) void {
-            const rest = index(n, self.value.len + 1);
+            const rest = indexHeld(n, self.value.len + 1);
             if (comptime !needsDrop(E)) {
                 self.value.len = rest;
                 return;
@@ -3396,8 +3398,8 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
 
         /// The element at `i`, or null when out of range. Plain-data `T` only.
         pub fn get(self: *const Self, i: Int) Opt(T) {
-            const idx = std.math.cast(usize, i) orelse return pack(Opt(T), null);
-            return pack(Opt(T), if (idx < self.len) self.memConst()[idx] else null);
+            const idx = heldOffset(i, self.len) orelse return pack(Opt(T), null);
+            return pack(Opt(T), self.memConst()[idx]);
         }
 
         /// `v.index_of(x)`: the index of the first element equal to `x`
@@ -3429,7 +3431,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         /// `i` as a slot of the live elements, panicking unless `0 <= i <
         /// len`; inside the buffer by `len <= buf.len`.
         inline fn indexOf(self: *const Self, i: anytype) usize {
-            const idx = index(i, self.len);
+            const idx = indexHeld(i, self.len);
             invariant(idx < self.memConst().len);
             return idx;
         }
@@ -3447,13 +3449,13 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
             return &self.memConst().ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
         }
         pub inline fn atIf(self: *const Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) T {
-            return self.memConst().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
+            return self.memConst().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok, true))];
         }
         pub inline fn slotIf(self: *Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) *T {
-            return &self.mem().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
+            return &self.mem().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok, true))];
         }
         pub inline fn constSlotIf(self: *const Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) *const T {
-            return &self.memConst().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
+            return &self.memConst().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok, true))];
         }
 
         inline fn provenSlot(self: *const Self, idx: ?usize) usize {
@@ -3475,7 +3477,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         /// Insert `value` at `i`, moving the elements from `i` on up by
         /// one; `i` may be `len`. Panics unless `0 <= i <= len`.
         pub fn insert(self: *Self, i: Int, value: T) void {
-            const idx = index(i, self.len + 1);
+            const idx = indexHeld(i, self.len + 1);
             self.reserveTotal(self.len + 1);
             const m = self.mem();
             std.mem.copyBackwards(T, m[idx + 1 .. self.len + 1], m[idx..self.len]);
@@ -3487,7 +3489,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         /// it down by one; the caller owns it. Panics unless
         /// `0 <= i < len`.
         pub fn remove(self: *Self, i: Int) T {
-            const idx = index(i, self.len);
+            const idx = indexHeld(i, self.len);
             const m = self.mem();
             const value = m[idx];
             std.mem.copyForwards(T, m[idx .. self.len - 1], m[idx + 1 .. self.len]);
@@ -3498,7 +3500,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         /// `(!v).swap_remove(i)`: hand over the element at `i` and move the
         /// last element into its place, so one element moves, not the rest.
         pub fn swap_remove(self: *Self, i: Int) T {
-            const idx = index(i, self.len);
+            const idx = indexHeld(i, self.len);
             const m = self.mem();
             const value = m[idx];
             self.len -= 1;
@@ -3562,7 +3564,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         /// last first as `clear` does, keeping the buffer. Panics unless
         /// `0 <= n <= len`.
         pub fn keep(self: *Self, n: Int) void {
-            const rest = index(n, self.len + 1);
+            const rest = indexHeld(n, self.len + 1);
             if (comptime !needsDrop(T)) {
                 self.len = rest;
                 return;
@@ -4277,11 +4279,53 @@ fn moduleOf(comptime name: []const u8) []const u8 {
 // -----------------------------------------------------------------------------
 
 /// Convert a Rig index of any integer type to `usize`, panicking unless
-/// `0 <= i < count`.
+/// `0 <= i < count`, for a `count` of any size: a signed `i` takes a
+/// sign test and a bound test. A held count takes one (`indexHeld`).
 pub fn index(i: anytype, count: usize) usize {
     const idx = std.math.cast(usize, i) orelse indexPanic();
     if (idx >= count) indexPanic();
     return idx;
+}
+
+/// `index` against a `count` of at most `2^63`, as a held length is
+/// (`heldLen`), and one past it: one compare (`heldOffset`). A plain
+/// function, as `index` is, so a debug build's trace names the caller.
+pub fn indexHeld(i: anytype, count: usize) usize {
+    return heldOffset(i, count) orelse indexPanic();
+}
+
+/// `i` as a `usize` when `0 <= i < count`, else null, for a `count` of at
+/// most `2^63`. A signed `i` read as unsigned is below `count` exactly
+/// when `0 <= i < count`, since a negative one reads as at least `2^63`:
+/// one compare where a sign test and a bound test make two, as
+/// `offsetBelow` makes it for a compile-time count.
+inline fn heldOffset(i: anytype, count: usize) ?usize {
+    invariant(@as(u64, count) <= 1 << 63);
+    const info = @typeInfo(@TypeOf(i));
+    if (comptime info == .int and info.int.signedness == .signed and info.int.bits <= 64) {
+        const u: u64 = @bitCast(@as(i64, i));
+        if (u >= count) return null;
+        // Exact: below `count`, which a `usize` holds.
+        return @truncate(u);
+    }
+    const idx = std.math.cast(usize, i) orelse return null;
+    return if (idx < count) idx else null;
+}
+
+/// `index` against `items.len`: one compare when that length is held
+/// (`lenHeld`), two for a slice of zero-bit elements, whose length no
+/// memory bounds.
+inline fn indexIn(items: anytype, i: anytype) usize {
+    if (comptime lenHeld(@TypeOf(items))) return indexHeld(i, items.len);
+    return index(i, items.len);
+}
+
+/// `i` as a slot of `items`, or null when out of range: `indexIn`'s
+/// tests, for a read that gives null.
+inline fn offsetIn(items: anytype, i: anytype) ?usize {
+    if (comptime lenHeld(@TypeOf(items))) return heldOffset(i, items.len);
+    const idx = std.math.cast(usize, i) orelse return null;
+    return if (idx < items.len) idx else null;
 }
 
 /// `index` against a compile-time `n`, as an array's length or a
@@ -4516,7 +4560,7 @@ fn Elems(comptime P: type) type {
 /// `s[i]` for a string or slice: the element at `i`, with `s` evaluated
 /// once; panics when out of range.
 pub fn at(items: anytype, i: anytype) std.meta.Elem(@TypeOf(items)) {
-    const idx = index(i, items.len);
+    const idx = indexIn(items, i);
     // `idx < items.len` by `index`.
     @setRuntimeSafety(proven_checks);
     return items[idx];
@@ -4525,7 +4569,7 @@ pub fn at(items: anytype, i: anytype) std.meta.Elem(@TypeOf(items)) {
 /// `s[i] = x` through a `![]T`: the slot at `i`, with `s` evaluated
 /// once; panics when out of range. Read-only for a read-only slice.
 pub fn elemPtr(items: anytype, i: anytype) @TypeOf(&items[0]) {
-    const idx = index(i, items.len);
+    const idx = indexIn(items, i);
     // `idx < items.len` by `index`.
     @setRuntimeSafety(proven_checks);
     return &items[idx];
@@ -4595,11 +4639,13 @@ pub inline fn okBelow(i: Int, comptime k: u64, n: usize) bool {
 
 /// `i` as the start of `width` elements within `count`: the tests `p`
 /// proves (or none) are omitted, and while `ok`, those `q` proves too; a
-/// test that is made fails as `index` fails.
-inline fn offsetIf(i: Int, count: usize, width: usize, comptime p: ?Proven, comptime q: Proven, ok: bool) ?usize {
+/// test that is made fails as `index` fails. A `held` count, at most
+/// `2^63`, takes both tests of one element in one compare (`heldOffset`).
+inline fn offsetIf(i: Int, count: usize, width: usize, comptime p: ?Proven, comptime q: Proven, ok: bool, comptime held: bool) ?usize {
     const both: Proven = comptime if (p) |pp| (if (pp == q) q else .both) else q;
     if (ok) return provenOffset(i, count, width, both);
     if (p) |pp| return provenOffset(i, count, width, pp);
+    if (held and width == 1) return heldOffset(i, count);
     const u = std.math.cast(usize, i) orelse return null;
     if (u > count or count - u < width) return null;
     return u;
@@ -4608,11 +4654,11 @@ inline fn offsetIf(i: Int, count: usize, width: usize, comptime p: ?Proven, comp
 /// `atProven` and `elemPtrProven` with the tests `q` omitted too while
 /// `ok` (`offsetIf`).
 pub inline fn atIf(items: anytype, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) std.meta.Elem(@TypeOf(items)) {
-    return items.ptr[offsetIf(i, items.len, 1, p, q, ok) orelse indexPanic()];
+    return items.ptr[offsetIf(i, items.len, 1, p, q, ok, comptime lenHeld(@TypeOf(items))) orelse indexPanic()];
 }
 
 pub inline fn elemPtrIf(items: anytype, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) @TypeOf(&items[0]) {
-    return &items.ptr[offsetIf(i, items.len, 1, p, q, ok) orelse indexPanic()];
+    return &items.ptr[offsetIf(i, items.len, 1, p, q, ok, comptime lenHeld(@TypeOf(items))) orelse indexPanic()];
 }
 
 /// `a + b`, which cannot overflow while `ok`; else the add tests it, and
@@ -4839,8 +4885,8 @@ pub inline fn reduceInto(items: anytype, first: anytype, f: anytype, out: anytyp
 /// swapped with itself stays, as `std.mem.swap` may not be given one
 /// place twice.
 pub fn swap(items: anytype, i: anytype, j: anytype) linksection(program_section) void {
-    const a = index(i, items.len);
-    const b = index(j, items.len);
+    const a = indexIn(items, i);
+    const b = indexIn(items, j);
     if (a == b) return;
     // `a, b < items.len` by `index`.
     @setRuntimeSafety(proven_checks);
@@ -10693,6 +10739,14 @@ test "index bounds and division" {
     try testing.expectEqual(2, index(@as(i32, 2), 3));
     try testing.expectEqual(0, index(0, 1));
     try testing.expectEqual(2, index(@as(u8, 2), 3));
+    try testing.expectEqual(2, indexHeld(@as(i64, 2), 3));
+    try testing.expectEqual(0, indexHeld(@as(i32, 0), 1));
+    try testing.expectEqual(2, indexHeld(@as(u8, 2), 3));
+    try testing.expectEqual(@as(?usize, null), heldOffset(@as(i64, -1), 3));
+    try testing.expectEqual(@as(?usize, null), heldOffset(@as(i64, std.math.minInt(i64)), 1 << 63));
+    try testing.expectEqual(@as(?usize, null), heldOffset(@as(i64, 3), 3));
+    try testing.expectEqual(@as(?usize, null), heldOffset(@as(i8, -1), 200));
+    try testing.expectEqual(@as(?usize, (1 << 63) - 1), heldOffset(@as(i64, std.math.maxInt(i64)), 1 << 63));
     try testing.expectEqual('b', at(@as([]const u8, "abc"), @as(i64, 1)));
     try testing.expectEqual(2.5, div(@as(f64, 5), 2));
     try testing.expectEqual(-2, div(@as(i64, -5), 2));
