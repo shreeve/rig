@@ -4638,10 +4638,10 @@ pub inline fn addProven(a: Int, b: Int) Int {
 // lane reports one (`@reduce(.Or, flags)` is true), so a correct program
 // panics. The helpers below never ask for the intrinsic: they compute the
 // wrapped result and find an overflowing lane with lane comparisons, then
-// panic as a scalar overflow does. Lanes follow the scalar rule in every
-// mode: the checks are there in debug and safe builds, and `--release=fast`
-// (no runtime safety) drops them, so each helper is the plain operator
-// and an overflowing lane is undefined behavior, as a scalar's is.
+// panic as a scalar overflow does. Lanes follow the scalar rule: every
+// Rig build keeps runtime safety, so the checks are always there; the
+// runtime's Zig built with safety off (its own unit tests in Zig's fast
+// mode) takes the plain operator, as a scalar does.
 
 /// Whether lane arithmetic checks for overflow: when runtime safety is on.
 const lane_checks = builtin.optimize.runtimeSafety();
@@ -5248,8 +5248,8 @@ inline fn laneSplat(comptime V: type, x: laneChild(V)) V {
 /// loses bits or its sign, found by shifting back (`(r >> c) != v`): no
 /// overflow intrinsic, and a vector known at compile time still panics
 /// when the program runs rather than stopping the build. With runtime
-/// safety off (`--release=fast`) it is `<<%`, as a scalar `<<` is the plain
-/// shift there.
+/// safety off (Zig's fast mode, which no Rig build uses) it is `<<%`, as
+/// a scalar `<<` is the plain shift there.
 pub inline fn vecShl(v: anytype, amount: anytype) @TypeOf(v) {
     return laneShift(if (lane_checks) .left_checked else .left, v, amount);
 }
@@ -5295,8 +5295,8 @@ inline fn laneAmount(comptime V: type, amount: anytype) @Vector(@typeInfo(V).vec
 /// The amount `n` of a shift of a `T` (`x << n`, `x <<% n`, `x >> n`),
 /// in the width Zig shifts a `T` by. One that is negative or not below
 /// `T`'s bit count panics with the text of the constant check; with
-/// runtime safety off (`--release=fast`) it is unchecked, as a
-/// conversion is. A constant amount is checked when it compiles. Not
+/// runtime safety off (Zig's fast mode, which no Rig build uses) it is
+/// unchecked, as a conversion is. A constant amount is checked when it compiles. Not
 /// `inline`: its result type is worked out once per type, not at every
 /// shift of a function, which Zig's branch quota would count.
 pub fn shiftAmount(comptime T: type, n: anytype) std.math.Log2Int(T) {
@@ -7600,7 +7600,7 @@ fn onOverflow(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx: ?*anyop
     // Only a debug build calls Zig's handler, for its trace. An optimized
     // build aborts with the message alone: Zig's handler there walks the
     // trace by a frame-pointer unwinder, which can fault again at the top
-    // of the program's stack; and in `--release=fast` there is no handler.
+    // of the program's stack.
     if (builtin.mode != .debug or !std.options.enable_segfault_handler) std.process.abort();
     for (Sanitizer.signals, overflow_previous) |s, *old| {
         if (s != sig) continue;
@@ -7611,11 +7611,11 @@ fn onOverflow(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx: ?*anyop
 }
 
 // The handler of a SIGILL or SIGFPE, in a build whose root has Zig's
-// handler of a fault (debug and `--release`), which reports either as
+// handler of a fault (every Rig build), which reports either as
 // an illegal instruction or an arithmetic exception, with a trace, and
 // aborts. It runs in front of Zig's: a signal that was sent ends the
-// program by that signal (`sentSignal`), as in `--release=fast`, which
-// has no handler; a real one puts Zig's handler back and returns, so the
+// program by that signal (`sentSignal`), as the default action would;
+// a real one puts Zig's handler back and returns, so the
 // instruction runs again and faults into it.
 
 var trap_previous_var: [2]std.posix.Sigaction = undefined;
@@ -9619,7 +9619,7 @@ test "lag: every amount and lane count" {
 }
 
 test "lane arithmetic: the unchecked form is the plain operator" {
-    // `--release=fast` runs the unchecked form; an overflowing lane is
+    // Zig's fast mode runs the unchecked form; an overflowing lane is
     // undefined there, so only lanes that do not overflow are run, and the
     // two forms must agree on them.
     inline for (.{ u8, i8, u16, i16, u32, i32, u64, i64 }) |T| {

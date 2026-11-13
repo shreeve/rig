@@ -73,7 +73,7 @@ EOF2
 # its default, whatever this script started with (a shell cannot reset
 # a signal it started with ignored).
 with_pipe() { perl -e '$SIG{PIPE} = shift; exec @ARGV or die "exec: $!"' "$@"; }
-for mode in "" "--release" "--release=fast"; do
+for mode in "" "--release"; do
   how=${mode:-debug}
   rig build $mode -o pipe pipe.rig >build.log 2>&1 || fail "build pipe.rig $how: $(cat build.log)"
   for what in plain back die inherit; do

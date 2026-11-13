@@ -11,6 +11,8 @@ that leaves a task's maker running while idle workers take what it
 makes: the rows before them have none, and Tokio's and Go's are from then. Until #356 the scheduler was
 the `rig-sched` variant, and `rig-fast` ran on Zig's `Threaded`
 backend; from #356 on, `rig-fast` runs on the scheduler.
+Rows marked `rig-fast` were built in Zig's fast mode, which Rig no
+longer builds; `bench-tasks --record` adds `rig-safe` rows (`--release`).
 
 | Date | Change | Variant | spawn (per task) | chain (per task) | fanout (per run) | yield (per yield) | hog (per step) | memory (per task) | produce (per run) |
 |---|---|---|---|---|---|---|---|---|---|

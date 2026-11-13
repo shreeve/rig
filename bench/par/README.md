@@ -5,7 +5,7 @@ tasks") against two hand-built forms of the same work: uneven items,
 each checked by one of four states, as Trig's checkers check files.
 
 ```sh
-tools/low bin/rig build --release=fast bench/par/workers.rig -o /tmp/workers
+tools/low bin/rig build --release bench/par/workers.rig -o /tmp/workers
 tools/low /tmp/workers
 ```
 

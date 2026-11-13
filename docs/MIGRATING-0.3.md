@@ -661,7 +661,7 @@ slept
 
 A NaN is neither below nor above a number, so a float provides no
 `Ord` (SPEC "Floats in order"), and what 0.2.9 ordered by it panicked
-on a NaN or, under `--release=fast`, did anything. `<` on two floats
+on a NaN. `<` on two floats
 stays. `tools/migrate-float-min.py RIG main.rig` (or `RIG --tests
 src/pkg` for a directory module) rewrites each `math.min`, `math.max`,
 and `math.clamp` of floats the compiler rejects as the float's own

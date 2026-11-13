@@ -37,7 +37,7 @@ sub main()
   d = >t
   print(c == d)
 EOF
-rig build --release=fast -o forkjoin forkjoin.rig >build.log 2>&1 || fail "build forkjoin: $(cat build.log)"
+rig build --release -o forkjoin forkjoin.rig >build.log 2>&1 || fail "build forkjoin: $(cat build.log)"
 # Wall time against the same run on one worker, which holds while other
 # work keeps the cores busy, as the suite does: the two halves run at
 # once in about half the time, and in turn in about the same. The best

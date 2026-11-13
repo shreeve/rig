@@ -51,7 +51,7 @@ sub main()
   print(>r)
 RIG
 
-for mode in fast safe; do
+for mode in safe; do
     out=$("$TIMEOUT_CMD" 60 "$RIG" run --release=$mode wake.rig 2>err-$mode.txt) || fail "wake.rig, $mode (timeout 60 s): $out $(cat err-$mode.txt)"
     [[ "$out" =~ ^[0-9]+$ ]] || fail "wake.rig, $mode: not a count of rounds: $out $(cat err-$mode.txt)"
     (( out >= 5 )) || fail "wake.rig, $mode: in $out of 8 rounds, four tasks made and waited for in order all started within 300 µs (5 or more expected)"

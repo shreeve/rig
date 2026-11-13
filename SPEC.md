@@ -105,18 +105,15 @@ in it.
 `rig run` builds in Zig's debug mode with a leak-checking allocator: a program
 that leaks memory reports it and exits with an error. Built with
 `RIG_SANITIZE=1`, it also crashes at any use of freed memory. `--release` builds
-in Zig's safe mode, and `--release=fast` in its fast mode. Integer
-overflow, out-of-bounds indexing and slicing, and a numeric conversion
-whose value does not fit panic in debug and safe builds; a panic exits
-with status 134 in every mode ([§17](#panic)).
-The fast mode is the one outside that guarantee: it drops the
-overflow and conversion checks, so there an overflow or an out-of-range
-conversion is undefined behavior. That holds for the lanes of a vector
-as for a scalar: `+ - * -v` and `<<` on vectors are checked in debug and
-safe builds and unchecked in fast. Indexing and slicing stay checked in
-every mode; a test the compiler proves already passed (a guard or an
-earlier check made it on every path, and nothing it tested changed
-since) is not repeated.
+in Zig's safe mode. Both modes keep every check: integer overflow,
+out-of-bounds indexing and slicing, a shift by too much, and a numeric
+conversion whose value does not fit panic, for the lanes of a vector
+as for a scalar, and a panic exits with status 134 ([§17](#panic)). No
+build mode turns a check off. A program leaves them only where its
+source says so: `+%`, `-%`, and `*%` wrap, and a `raw` block reaches
+Zig's builtins and extern functions ([§15](#15-raw-code-and-ffi)). A test the compiler
+proves already passed (a guard or an earlier check made it on every
+path, and nothing it tested changed since) is not repeated.
 
 ---
 
@@ -1301,9 +1298,7 @@ its lanes.
 `+%`, `-%`, `*%`, their saturating forms `+|`, `-|`, `&`, `|`, `^`, and
 `-v` give a vector of the same type, and `==`, `!=`, `<`, `<=`, `>`, and
 `>=` give a mask. Each lane follows the scalar rule for its type: `+`,
-`-`, `*`, and `-v` panic when any lane overflows in debug and safe
-builds, and in `--release=fast` are unchecked (an overflowing lane is
-undefined behavior, as a scalar's is), the wrapping forms wrap, and the saturating forms stop at the lane
+`-`, `*`, and `-v` panic when any lane overflows, the wrapping forms wrap, and the saturating forms stop at the lane
 type's limits; the integer operators take integer lanes, `&`, `|`, and
 `^` also a mask's, the orderings number lanes, and `-v` signed or float
 lanes. A scalar of the lane type, or a literal that fits it, stands for
@@ -1311,8 +1306,8 @@ every lane, on either side: `v < 0x20`, `v == quote`, `1 + v`. The
 shifts `v << c`, `v <<% c`, and `v >> c` move every integer lane by one
 amount `c`, an integer, below the lane's bit count, with the scalar rules: a
 constant `c` at or over it is rejected and a run-time one
-panics, `<<` panics where a lane loses bits (or its sign) under the same rule
-(fast does not check), `<<%` drops them, and `>>` is arithmetic on signed lanes. The compound forms
+panics, `<<` panics where a lane loses bits (or its sign) under the same rule,
+`<<%` drops them, and `>>` is arithmetic on signed lanes. The compound forms
 (`v += 1`, `m |= v == q`, `v >>= 4`) assign the result. `/` and `%`
 take no vector. A vector's lanes are computed only when the program
 runs, even from constants: where a constant scalar that overflows is

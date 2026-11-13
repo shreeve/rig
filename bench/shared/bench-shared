@@ -4,7 +4,7 @@
 usage: bench/shared/bench-shared [options]
 
   --exe PATH      a build of bench/shared/shared.rig to time; without it,
-                  bin/rig builds one (--release=fast) into --out
+                  bin/rig builds one (--release) into --out
   --out DIR       where to build (default: a new temporary directory)
   --shapes a,b    shared, shards, actor, map (default: all four; map,
                   one Map lent to read, runs `hit` alone)
@@ -43,7 +43,7 @@ def main():
         out = a.out or tempfile.mkdtemp(prefix="bench-shared-")
         exe = os.path.join(out, "shared")
         env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, "rig-out"))
-        subprocess.run([RIG, "build", "--release=fast", os.path.join(HERE, "shared.rig"), "-o", exe], check=True, env=env)
+        subprocess.run([RIG, "build", "--release", os.path.join(HERE, "shared.rig"), "-o", exe], check=True, env=env)
     shapes = a.shapes.split(",")
     phases = a.phases.split(",")
     counts = [int(t) for t in a.tasks.split(",")]
