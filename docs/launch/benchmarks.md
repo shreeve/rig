@@ -4,11 +4,12 @@ Every number here comes from the repository's benchmark scripts, run on
 2026-10-20 at Rig's main branch, on two machines: an Apple M5 with 10
 cores (macOS, arm64), and a 22-core Linux machine (x86-64). Each table
 is one run of its script, which builds and times all three runtimes in
-turn, so they compare like with like. Rig builds with `--release=fast`,
+turn, so they compare like with like. Rig builds with `--release`,
 Tokio with `cargo build --release` (LTO, one codegen unit) on its
 multi-threaded runtime, and Go with `go build`. Each benchmark is the
 best of interleaved runs: 7 for tasks and actors, 3 for networking and
-HTTP.
+HTTP. The Rig rows below were measured in Zig's fast mode, which Rig
+no longer builds; they wait to be measured again with `--release`.
 
 ## Tasks (`bench/tasks`)
 

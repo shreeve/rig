@@ -6,8 +6,7 @@
 # and the program writes nothing more. The handlers that catch a real
 # fault, the stack guard's in every build mode, the sanitizer's under
 # RIG_SANITIZE=1, and the one in front of Zig's report of an illegal
-# instruction or an arithmetic exception in a debug or `--release`
-# build, tell such a signal from a fault (docs/internals/INTERNALS.md,
+# instruction or an arithmetic exception in every build, tell such a signal from a fault (docs/internals/INTERNALS.md,
 # "The message"). A real fault is unchanged: a stack overflow still says
 # `error: rig: stack overflow`, a use of freed memory `error: rig: use
 # of freed memory`, and an illegal instruction Zig's `Illegal
@@ -111,11 +110,10 @@ send() {
     expect_eq "$(cat err.txt)" "$pid" "stderr of $prog sent SIG$sig, $what"
 }
 
-for how in debug release fast sanitized; do
+for how in debug release sanitized; do
     mode=""; san=0
     case $how in
         release) mode=--release ;;
-        fast) mode=--release=fast ;;
         sanitized) san=1 ;;
     esac
     for prog in sleeps touches raises-SEGV raises-ILL raises-FPE dives; do
@@ -130,12 +128,9 @@ for how in debug release fast sanitized; do
         expect_eq "$out" "" "stdout of a program that sends itself SIG$sig, $how"
         expect_eq "$(cat err.txt)" "" "stderr of a program that sends itself SIG$sig, $how"
     done
-    # `--release=fast` folds the recursion into a loop that never ends.
-    if [[ $how != fast ]]; then
-        out=$(run ./dives-$how 2>/dev/null); expect_rc $? 134 "a stack overflow, $how ($(head -c 300 err.txt))"
-        expect_eq "$out" "before" "stdout of a stack overflow, $how"
-        expect_has "$(cat err.txt)" "error: rig: stack overflow" "a stack overflow, $how"
-    fi
+    out=$(run ./dives-$how 2>/dev/null); expect_rc $? 134 "a stack overflow, $how ($(head -c 300 err.txt))"
+    expect_eq "$out" "before" "stdout of a stack overflow, $how"
+    expect_has "$(cat err.txt)" "error: rig: stack overflow" "a stack overflow, $how"
 done
 
 # A use of freed memory in a sanitized build, written by hand into the

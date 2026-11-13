@@ -43,7 +43,7 @@ needs one rig for both, with `RIG_STD` set to each side's `std/`.
 ## Against memchr and Go
 
 `bench-text --rivals RIG FILE ROUNDS` times std.text, built with
-`--release` and with `--release=fast`, against the memchr crate
+`--release`, against the memchr crate
 (`rust/`: memchr 2.8.3, pinned by `Cargo.lock` and built offline from
 the cargo cache) and Go's `bytes.Index` (`find.go`), on the same cases,
 each program in turn, each case's fastest time kept. memchr runs twice:
@@ -56,8 +56,10 @@ where it found each needle, and the run stops if two disagree.
 tools/low bench/text/bench-text --rivals bin/rig lib.dom.d.ts 20
 ```
 
-Apple M5, lib.dom.d.ts (2,349,483 bytes), 20 rounds, std.text built
-with `--release=fast`; nanoseconds per search:
+The std.text column was measured in Zig's fast mode, which Rig no
+longer builds; the rows wait to be measured again with `--release`.
+Apple M5, lib.dom.d.ts (2,349,483 bytes), 20 rounds; nanoseconds per
+search:
 
 | text | needle | case | std.text | memchr | memchr Finder | Go |
 |---|---:|---|---:|---:|---:|---:|
@@ -81,7 +83,7 @@ of 3 to 40 bytes, and 1.3 to 17 times faster than Go; in texts of
 the Finder's work on the needle, done once, pays for itself (12 and 40
 bytes in 1 to 4 KiB), and for one byte in 16 B to 4 KiB, where Zig's
 `findScalar` searches and memchr is about twice as fast. Built with
-`--release`, std.text is as fast as with `--release=fast`: its search
+`--release`, std.text was as fast as in Zig's fast mode: its search
 functions leave out the checks their own tests prove
 (`rig.proven_checks`), which cost it 12-44% in Zig's safe mode.
 

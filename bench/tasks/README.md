@@ -13,8 +13,8 @@ bench/tasks/bench-tasks --out $D --time-only --reps 9
 ```
 
 It needs `bin/rig` built first, Cargo, and Go. `bench/tasks/bench-tasks
---help` lists the variants (`rig-fast`, `tokio` and `go` by default;
-`rig-safe` and `rayon` on request; Rayon, which tsrs runs on, has only
+--help` lists the variants (`rig-safe`, `tokio` and `go` by default;
+`rayon` on request; Rayon, which tsrs runs on, has only
 `produce`) and the options. The Rig programs run on the
 scheduler with one worker per core, or `RIG_WORKERS` when set.
 `--record "#PR: what changed"` adds the Rig rows to
@@ -22,8 +22,8 @@ scheduler with one worker per core, or `RIG_WORKERS` when set.
 scheduler grows ([docs/internals/scheduler.md](../../docs/internals/scheduler.md)).
 
 Before a change to the scheduler or to tasks lands, run
-`bench/tasks/bench-tasks --variants rig-fast --gate` on a quiet machine:
-it fails when any benchmark takes more than 1.5 times the last `rig-fast`
+`bench/tasks/bench-tasks --variants rig-safe --gate` on a quiet machine:
+it fails when any benchmark takes more than 1.5 times the last `rig-safe`
 row PROGRESS.md holds for the machine's architecture. The suite checks
 results, not speed; `test/cli/task_spread.sh` checks that tasks spread
 over the workers.
@@ -69,7 +69,7 @@ So the numbers compare like with like:
   thing at each step; a task returns its value to its waiter in each.
   Rig waits through a task or a set (`Tasks`), Tokio through
   `JoinHandle`s, and Go through a `WaitGroup` or a channel.
-- **Each runtime as it is used.** Rig builds with `--release=fast`,
+- **Each runtime as it is used.** Rig builds with `--release`,
   Tokio with `cargo build --release` (LTO, one codegen unit) on its
   multi-threaded runtime with its default worker count, and Go with
   `go build` and its default `GOMAXPROCS`. The benchmarks run inside a

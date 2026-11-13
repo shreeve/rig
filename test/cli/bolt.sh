@@ -101,7 +101,7 @@ sub main()
   print(>q, >p)
 EOF2
 if [[ $(uname -m) == x86_64 ]]; then
-    for mode in fast safe; do
+    for mode in safe; do
         out=$("$RIG" build --release=$mode --bolt -o spin-$mode spin.rig -- ./spin-$mode 2>&1); expect_rc $? 0 "build --bolt spin.rig, $mode: $out"
         readelf -S spin-$mode | grep -q '\.text\.cold\|\.bolt\.org\.text' || fail "spin-$mode: BOLT moved nothing: $(readelf -S spin-$mode | grep -c .)"
         on=$(RIG_SCHED_STATS=1 "$TIMEOUT_CMD" 60 ./spin-$mode 2>err-spin-$mode.txt) || fail "spin-$mode laid out (timeout 60 s): $on $(cat err-spin-$mode.txt)"
@@ -112,7 +112,7 @@ if [[ $(uname -m) == x86_64 ]]; then
     # the build as linked, relocations kept; `--bolt` of that executable
     # lays a copy out with no compile, and it is preempted too.
     : >empty.fdata
-    out=$("$RIG" build --release=fast --bolt --bolt-profile=empty.fdata -o spin-relocs spin.rig 2>&1); expect_rc $? 0 "build spin.rig with relocations: $out"
+    out=$("$RIG" build --release --bolt --bolt-profile=empty.fdata -o spin-relocs spin.rig 2>&1); expect_rc $? 0 "build spin.rig with relocations: $out"
     readelf -S spin-relocs | grep -q '\.rela' || fail "spin-relocs keeps no relocations"
     out=$(PATH=$PWD/empty:/usr/bin:/bin ZIG=/nonexistent "$RIG" build --bolt -o spin-split spin-relocs -- ./spin-split 2>&1); expect_rc $? 0 "--bolt of spin-relocs: $out"
     on=$(RIG_SCHED_STATS=1 "$TIMEOUT_CMD" 60 ./spin-split 2>err-spin-split.txt) || fail "spin-split (timeout 60 s): $on $(cat err-spin-split.txt)"

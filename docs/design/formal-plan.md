@@ -302,8 +302,9 @@ What a proof of λRig does not cover is trusted:
 Stage 4 covers the last three. The rest gets narrower in two ways. First,
 the Zig subset `emit` uses is written down, and the emitted code is
 linted against it. Second, compiled programs' output is compared with
-the interpreter's. `--release=fast` turns checks off by request, so it
-lies outside the claim.
+the interpreter's. Every build mode keeps the checks, so the claim
+covers each; only a `raw` block, and the wrapping operators by what
+they mean, step outside it.
 
 ## Open decisions
 

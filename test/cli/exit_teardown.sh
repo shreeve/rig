@@ -84,7 +84,7 @@ sub main()!
 EOF
 
 mac=0; [[ $(uname) == Darwin ]] && mac=1
-for mode in "" --release --release=fast; do
+for mode in "" --release; do
     for prog in parked running small; do
         rig build $mode -o $prog $prog.rig >build.log 2>&1 || fail "build $prog $mode: $(cat build.log)"
     done

@@ -32,7 +32,7 @@ sub main()
   warn(>t + >u)
 RIG
 
-"$RIG" build --release=fast -o pipe pipe.rig > build.txt 2>&1 || fail "build pipe.rig: $(cat build.txt)"
+"$RIG" build --release -o pipe pipe.rig > build.txt 2>&1 || fail "build pipe.rig: $(cat build.txt)"
 RIG_SCHED_STATS=1 "$TIMEOUT_CMD" 60 ./pipe 2>err.txt | (sleep 1; cat > /dev/null)
 grep -q '^1$' err.txt || fail "pipe.rig did not end with 1: $(cat err.txt)"
 n=$(grep -o 'signaled [0-9]*' err.txt | head -1 | grep -o '[0-9]*')

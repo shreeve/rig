@@ -46,7 +46,7 @@ sub main()!
   total = >r0! + >r1! + >r2! + >r3! + >r4! + >r5! + >r6! + >r7!
   print("woke", ms < 2000, total > 0)
 RIG
-"$RIG" build --release=fast -o reads reads.rig >build-reads.txt 2>&1 || fail "build reads.rig: $(cat build-reads.txt)"
+"$RIG" build --release -o reads reads.rig >build-reads.txt 2>&1 || fail "build reads.rig: $(cat build-reads.txt)"
 for i in 1 2 3 4 5; do
     out=$("$TIMEOUT_CMD" 60 ./reads 2>&1) || fail "reads.rig run $i (timeout 60 s): $out"
     expect_eq "$out" "woke true true" "reads.rig run $i: the sleeper woke within 2 s"
@@ -90,7 +90,7 @@ sub main()!
   total = >s0! + >s1!
   print(ms, total > 0)
 RIG
-        "$RIG" build --release=fast -o finds finds.rig >build-finds.txt 2>&1 || fail "build finds.rig: $(cat build-finds.txt)"
+        "$RIG" build --release -o finds finds.rig >build-finds.txt 2>&1 || fail "build finds.rig: $(cat build-finds.txt)"
         for i in 1 2 3 4 5; do
             out=$("$TIMEOUT_CMD" 60 ./finds 2>&1) || fail "finds.rig run $i (timeout 60 s): $out"
             [[ ${out#* } == true ]] || fail "finds.rig run $i: $out"

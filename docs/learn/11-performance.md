@@ -186,18 +186,17 @@ reading past the end. The guard has to be the condition of an `if` or a
 `while` on the path to the index. The proof does not follow an early
 `return`.
 
-## Three builds
+## Two builds
 
-A Rig program builds in one of three modes. `rig run` and `rig test`
+A Rig program builds in one of two modes. `rig run` and `rig test`
 use the first unless told otherwise.
 
 | Mode | Flag | Checks |
 |---|---|---|
 | Debug | none | overflow, conversions, bounds; leaks at exit; proven tests as assertions |
 | ReleaseSafe | `--release` | overflow, conversions, bounds |
-| ReleaseFast | `--release=fast` | bounds and slicing only |
 
-An overflow is a panic with status 134 in the first two. When the
+An overflow is a panic with status 134 in both. When the
 compiler can see the values, it refuses the program:
 
 ```rig reject
@@ -226,20 +225,17 @@ $ bin/rig run overflow.rig
 panic: integer overflow
 $ bin/rig run --release overflow.rig
 panic: integer overflow
-$ bin/rig run --release=fast overflow.rig
-4
 ```
 
-The fast build drops the overflow and conversion checks, and an
-overflow there is undefined behavior. The `4` is what one build
-printed, and nothing promises it. Indexing out of range still panics in
-every mode. Debug alone checks for leaks, as [Ownership without a
-collector](02-ownership.md) shows; the release builds take memory from
-a faster allocator and do not look.
+No flag turns the checks off. A counter meant to wrap says so with
+`+%`, `-%`, or `*%`, and gives the same answer in every build. Debug
+alone checks for leaks, as [Ownership without a
+collector](02-ownership.md) shows; the release build takes memory from
+a faster allocator and does not look.
 
-So develop in Debug, and build a program you ship with `--release`
-unless a measurement says the checks cost too much. The terminal
-benchmark below times both release modes, and the gap is small.
+So develop in Debug, and build a program you ship with `--release`.
+The terminal benchmark below shows what the checks cost against Zig's
+unchecked fast mode, and the gap is small.
 
 On Linux, a release build can also be laid out again by where it runs,
 with LLVM's BOLT. `--bolt` runs the workload after `--` under `perf`,
@@ -421,7 +417,7 @@ The repository times itself in `bench/`. Each directory holds a driver
 that builds Rig, Tokio, and Go versions of the same work, runs them
 interleaved, keeps the fastest run of each, and compares a checksum so
 that no program does less work. Each README states its rules: Rig
-builds with `--release=fast`, Tokio with `cargo build --release`, and
+builds with `--release`, Tokio with `cargo build --release`, and
 Go with `go build`. Time on a quiet machine, since other work skews
 every number.
 
@@ -448,19 +444,20 @@ zig build                              # bin/rig
 bench/tasks/bench-tasks --reps 7
 ```
 
-The cost of a mode shows in `bench/terminal`, a terminal emulator
-written in Rig. The README gives megabytes a second on an Apple M5,
-with a load average of 8 to 28, so every number is low:
+What the checks cost shows in `bench/terminal`, a terminal emulator
+written in Rig, built with `--release` and, as a measuring stick, the
+same code in Zig's fast mode, which drops them. Megabytes a second on
+an Apple M5, with a load average of 8 to 28, so every number is low:
 
-| Corpus | ReleaseSafe | ReleaseFast |
+| Corpus | `--release` | Zig's fast mode |
 |---|---|---|
 | text | 1496.2 | 1489.1 |
 | scroll | 247.8 | 262.7 |
 | sgr | 279.8 | 310.9 |
 | tui | 455.1 | 478.0 |
 
-Over its seven corpora the fast build is at most 13 percent ahead, so
-the checks cost little here.
+Over its seven corpora the unchecked build is at most 13 percent ahead,
+so the checks cost little here.
 
 A smaller benchmark measures one design choice. `from_text` finds an
 enum by its name, and `bench/names` times comparing the names one by
@@ -505,7 +502,7 @@ $D/lookup
 | What allocates? | `^`, `*`, `List`, `String`; nothing else |
 | What counts? | `*x` allocates, `+h` bumps, and views are never counted |
 | What does a view cost? | a pointer, or a copy for a number |
-| What does each build check? | Debug everything and leaks; `--release` all but leaks; `--release=fast` bounds only |
+| What does each build check? | Debug everything and leaks; `--release` all but leaks |
 | How is C called? | `extern fun`, inside `raw`, with integers, floats, and `Bool` |
 | How are benchmarks run? | `bench/*/`, same work, best of interleaved runs, on a quiet machine |
 

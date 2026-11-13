@@ -121,6 +121,21 @@ none of these ever built:
   "closure parameter `x` needs a type", or "cannot infer `T`", where
   `rig build` reported an internal error.
 
+### Removed
+
+- **`--release=fast`**, Zig's fast mode, from `rig run`, `rig build`,
+  `rig test`, and `rig batch build`. Every build keeps Rig's checks
+  (overflow, conversions, shifts, bounds, vector lanes), so "accept
+  means correct" holds in every mode. The flag is a usage error that
+  names the opt-outs: "`--release=fast` is gone: every build keeps
+  Rig's checks; write `+%`, `-%` or `*%` for wrapping arithmetic, or
+  `raw` for Zig builtins". To migrate, drop the flag (`--release` is
+  Zig's safe mode, and `--release=safe` stays its synonym), and write
+  `+%`, `-%`, `*%`, or a `raw` block where unchecked code is meant. No
+  program is rejected. The benchmarks build Rig with `--release`
+  alone; their `rig-fast` variants are gone, and tables measured with
+  them say so.
+
 ### Added
 
 - **std.shared**: `shared.Map[K, V]`, a map several tasks fill and read at once. A key keeps the first value put under it, and nothing is replaced or taken, so `get` gives a view of the value where it lies with no lock and no write to memory another task reads; `put_new` and `ensure` lock one of 64 shards. It lives behind `*shared.Map[K, V]`, whose handles go to any task. bench/shared times it against Maps behind actors.

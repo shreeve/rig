@@ -1369,8 +1369,7 @@ bomb "task stack overflow frame", "rig: stack overflow", prints: "before"
 bomb "task stack overflow deep frames", "rig: stack overflow", prints: "before", release: true
   # Recursion in a task whose frames are large runs out of stack in the
   # guard below it, sized from those frames, and stops the program with a
-  # stack-overflow error. `--release=fast` folds the levels into a loop
-  # that never ends, so the test does not build it.
+  # stack-overflow error.
 
   fun dive(depth: Int, prev: ?[300000]Int) -> Int
     a = [300000 of depth]

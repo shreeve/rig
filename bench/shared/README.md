@@ -10,14 +10,14 @@ suite or CI.
 ```sh
 bench/shared/bench-shared                       # builds with bin/rig, 7 rounds
 D=$(mktemp -d)
-bin/rig build --release=fast bench/shared/shared.rig -o $D/shared
+bin/rig build --release bench/shared/shared.rig -o $D/shared
 tools/mac-claim shared-map bench/shared/bench-shared --exe $D/shared --rounds 9
 ```
 
 On pup, in a quiet slot, the build on E-cores and the runs on P-cores:
 
 ```sh
-taskset -c 12-19 bin/rig build --release=fast bench/shared/shared.rig -o /zfs/trig-pup/tmp/shared
+taskset -c 12-19 bin/rig build --release bench/shared/shared.rig -o /zfs/trig-pup/tmp/shared
 bench/shared/bench-shared --exe /zfs/trig-pup/tmp/shared --rounds 9 --pin "taskset -c 0-11"
 ```
 
