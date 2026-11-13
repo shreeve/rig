@@ -477,6 +477,13 @@ none of these ever built:
   where Zig's took ENAMETOOLONG from statx for its own bug. A whole
   read of a file that reports its size has no 4 KiB probe on its stack,
   and `realpath` writes into the String it gives.
+- **A Table pushed past its first 2 MiB makes them a huge page:** on
+  Linux, the push that takes a reserved Table past its first 2 MiB,
+  which keep small pages so a small Table commits no huge page, has
+  them ask for huge pages too and collapses them into one at once
+  (`MADV_COLLAPSE`, Linux 6.1 and later), while the system has free
+  2 MiB blocks to spare. They are the lowest slots, the most read, and
+  all written by then, so the huge page commits nothing more.
 - **Release allocator:** on Linux, a segment that gets huge pages is
   not faulted in ahead: its first write to each 2 MiB faults all of it
   in, so the call made for each 64 KiB page a class took

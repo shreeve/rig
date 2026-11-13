@@ -686,6 +686,7 @@ test {
     _ = sched;
     _ = split;
     _ = fast_alloc;
+    _ = table_zig;
     _ = ordered_zig;
     _ = unordered_zig;
 }

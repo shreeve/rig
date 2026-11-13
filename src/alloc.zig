@@ -2139,6 +2139,37 @@ fn askTableHuge(at: usize, bytes: usize) void {
     std.posix.madvise(@ptrFromInt(at + huge_page), bytes - huge_page, std.os.linux.MADV.HUGEPAGE) catch {};
 }
 
+/// `MADV_COLLAPSE` (Linux 6.1 and later), which Zig's `std` does not name.
+const madv_collapse: u32 = 25;
+
+/// A reserved Table at `at` has been pushed past its first 2 MiB
+/// (`table.zig`'s `push`): those 2 MiB, the lowest slots and the most
+/// read, ask for huge pages as the rest does, while the system has free
+/// 2 MiB blocks to spare (`hugeFree`), and are collapsed into one huge
+/// page now (`MADV_COLLAPSE`), not whenever khugepaged comes to them.
+/// Pushed slot by slot, they are all written by then, so the huge page
+/// commits nothing they did not; a Table also written by `t[s] = x` past
+/// what it pushed holds no more than its first 2 MiB less what it wrote.
+/// A collapse finds its block or compacts memory for one, whatever
+/// `defrag` says, so where `hugeFree` takes no reading (`defrag` `defer`
+/// or `never`) it takes one first. A range not on a 2 MiB boundary, a
+/// debug build's own mapping made while blocks were short, has no huge
+/// page to collapse into and asks for nothing. A system that cannot ask
+/// or collapse (before 6.1, `EINVAL`) leaves the range as it was. It
+/// gives whether the range was collapsed.
+pub noinline fn askTableFirstHuge(at: usize) bool {
+    @branchHint(.cold);
+    if (builtin.os.tag != .linux) return false;
+    if (at % huge_page != 0 or !hugeFree()) return false;
+    tables_asked_huge.store(true, .monotonic);
+    const p: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(at);
+    std.posix.madvise(p, huge_page, std.os.linux.MADV.HUGEPAGE) catch return false;
+    if (!thpMode().advice_stalls and (keptReading() orelse readNow()) <= huge_spare) return false;
+    if (std.os.linux.errno(std.os.linux.madvise(p, huge_page, madv_collapse)) != .SUCCESS) return false;
+    spendReading(1);
+    return true;
+}
+
 /// Give back the range of a Table of `bytes` at `p`, if it is one
 /// `reserveTable` handed out: its pages to the system, and the range,
 /// advised for small pages again on Linux, to the next Table. Under
@@ -3936,6 +3967,49 @@ test "on Linux a Table's range past its first 2 MiB asks for huge pages while 2 
     try std.testing.expectEqual(@as(usize, 0), table_free_count.*);
 }
 
+test "on Linux a Table pushed past its first 2 MiB has them ask for a huge page and collapse while 2 MiB blocks are free to spare, never off a 2 MiB boundary, and keeps small pages once given back" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    useBuddyinfoForTest(buddyinfo_plenty);
+    defer useBuddyinfoForTest(null);
+    const mine = try allocator.alloc(u8, prefault_big);
+    defer allocator.free(mine);
+    const mib: usize = 1 << 20;
+    const t = reserveTable(24 * mib).?;
+    @memset(t[0 .. 2 * mib], 7);
+    try std.testing.expect(try advisedSmallForTest(@intFromPtr(t)));
+    // The collapse is the system's to give: a host short of free blocks,
+    // or a Linux before 6.1, may not.
+    const collapsed = askTableFirstHuge(@intFromPtr(t));
+    try std.testing.expect(try advisedHugeForTest(@intFromPtr(t)));
+    if (collapsed) try std.testing.expect(try anonHugeKibForTest(@intFromPtr(t)) >= 2048);
+    for (t[0 .. 2 * mib]) |b| try std.testing.expectEqual(@as(u8, 7), b);
+    try std.testing.expect(unreserveTable(t, 24 * mib));
+    try std.testing.expect(try advisedSmallForTest(@intFromPtr(t)));
+    // Off a 2 MiB boundary, and on a range no longer mapped, it asks for
+    // nothing and fails quietly.
+    try std.testing.expect(!askTableFirstHuge(@intFromPtr(t) + std.heap.page_size_min));
+    const gone = try std.posix.mmap(null, 4 * mib, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0);
+    std.posix.munmap(gone);
+    try std.testing.expect(!askTableFirstHuge(std.mem.alignForward(usize, @intFromPtr(gone.ptr), huge_page)));
+    // With memory partly fragmented it asks for nothing.
+    useBuddyinfoForTest(buddyinfo_partly);
+    const u = reserveTable(24 * mib).?;
+    try std.testing.expect(!askTableFirstHuge(@intFromPtr(u)));
+    try std.testing.expect(!try advisedHugeForTest(@intFromPtr(u)));
+    // Where no fault compacts (`defrag` `defer`), it asks with no
+    // reading, as the rest does, but a collapse, which compacts, reads
+    // first and, with memory fragmented, is not tried.
+    useBuddyinfoForTest(buddyinfo_fragmented);
+    useThpForTest(thp_enabled_madvise, thpDefragForTest("defer"));
+    const before = buddyinfo_reads.*;
+    try std.testing.expect(!askTableFirstHuge(@intFromPtr(u)));
+    try std.testing.expect(try advisedHugeForTest(@intFromPtr(u)));
+    try std.testing.expectEqual(before + 1, buddyinfo_reads.*);
+    try std.testing.expect(unreserveTable(u, 24 * mib));
+    try std.testing.expect(try advisedSmallForTest(@intFromPtr(u)));
+    try std.testing.expectEqual(@as(usize, 0), table_free_count.*);
+}
+
 test "on Linux a Table of a heap that does little waits to ask for huge pages until its heap does much; one given back waits no more, and one too many asks at once" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     useBuddyinfoForTest(buddyinfo_plenty);
@@ -4363,6 +4437,23 @@ fn advisedSmallForTest(p: usize) !bool {
 /// Whether the `VmFlags` of the mapping that holds `p`, in
 /// /proc/self/smaps, name `flag`.
 fn vmFlagForTest(p: usize, flag: []const u8) !bool {
+    var buf: [512]u8 = undefined;
+    var flags = std.mem.tokenizeScalar(u8, try smapsFieldForTest(p, "VmFlags:", &buf), ' ');
+    while (flags.next()) |f| if (std.mem.eql(u8, f, flag)) return true;
+    return false;
+}
+
+/// The KiB of huge pages the mapping that holds `p` has, by its
+/// `AnonHugePages` in /proc/self/smaps.
+fn anonHugeKibForTest(p: usize) !usize {
+    var buf: [512]u8 = undefined;
+    var words = std.mem.tokenizeScalar(u8, try smapsFieldForTest(p, "AnonHugePages:", &buf), ' ');
+    return std.fmt.parseInt(usize, words.next() orelse return error.NoField, 10);
+}
+
+/// The rest of the line that starts with `key` among the lines of the
+/// mapping that holds `p` in /proc/self/smaps, copied into `out`.
+fn smapsFieldForTest(p: usize, key: []const u8, out: []u8) ![]const u8 {
     // A file of /proc reads as empty to a reader that trusts its size,
     // so it is read to its end here.
     const linux = std.os.linux;
@@ -4388,10 +4479,11 @@ fn vmFlagForTest(p: usize, flag: []const u8) !bool {
             inside = lo <= p and p < hi;
             continue;
         };
-        if (inside and std.mem.startsWith(u8, line, "VmFlags:")) {
-            var flags = std.mem.tokenizeScalar(u8, line["VmFlags:".len..], ' ');
-            while (flags.next()) |f| if (std.mem.eql(u8, f, flag)) return true;
-            return false;
+        if (inside and std.mem.startsWith(u8, line, key)) {
+            const rest = line[key.len..];
+            if (rest.len > out.len) return error.NoField;
+            @memcpy(out[0..rest.len], rest);
+            return out[0..rest.len];
         }
     }
     return error.NoMapping;

@@ -12,7 +12,8 @@
 //!   range of the allocator's address space for tables (`alloc.zig`,
 //!   `reserveTable`), elsewhere a mapping of its own. On Linux its first 2 MiB keep small
 //!   pages and the rest asks for huge ones while the system has free
-//!   2 MiB blocks to spare (`reserve`). The system gives each page as
+//!   2 MiB blocks to spare (`reserve`); a table pushed past its first
+//!   2 MiB asks for them huge too (`push`). The system gives each page as
 //!   zeros when it is first touched, so a slot never written costs no
 //!   memory. It is never one of `alloc.zig`'s blocks, which are reused
 //!   unzeroed and faulted in ahead.
@@ -107,7 +108,9 @@ const huge: usize = 2 << 20;
 /// for huge pages: a table that grows past 2 MiB is faulted in 2 MiB at a
 /// time, one fault and one TLB entry where 512 small pages each take
 /// their own, at the cost of the part of its last huge page not yet
-/// written (docs/history/records/2026-10/perf-stage/fault-ahead/). It
+/// written (docs/history/records/2026-10/perf-stage/fault-ahead/). A
+/// table pushed past its first 2 MiB has shown it is large, and those
+/// 2 MiB, written whole, ask for a huge page too (`push`). It
 /// asks only while the system has free 2 MiB blocks to spare
 /// (`alloc.zig`'s `hugeFree`), tested once, here: a table grown after
 /// memory fragments faults in through the compactor, as every range that
@@ -200,9 +203,18 @@ pub fn Table(comptime T: type, comptime n: u64) type {
             }
         }
 
+        /// The slot whose push takes a reserved table on Linux past its
+        /// first 2 MiB, which then ask for a huge page (`push`); null
+        /// for a table no larger than them, or held otherwise.
+        const first_past: ?usize = if (how == .reserved and builtin.os.tag == .linux and @sizeOf(T) > 0 and bytes > huge) huge / @sizeOf(T) else null;
+
         /// `!t.push(x)`: writes slot `len` and gives it; panics when all
         /// `n` are pushed. The slot is dropped first, as any store into a
-        /// place drops what was there.
+        /// place drops what was there. The push that takes a reserved
+        /// table past its first 2 MiB, once in its life as `len` only
+        /// rises, has them ask for a huge page and collapse into one
+        /// (`alloc.zig`'s `askTableFirstHuge`): the slots below it are
+        /// all written, so it commits no more than they hold.
         pub fn push(self: *Self, value: T) Index {
             if (self.len == n) fullPanic(n);
             // `len < n` here, as only `push` raises `len`, and `n - 1`
@@ -213,6 +225,9 @@ pub fn Table(comptime T: type, comptime n: u64) type {
             if (comptime rt.needsDrop(T)) rt.dropElement(T, p);
             p.* = value;
             self.len += 1;
+            if (comptime first_past) |k| if (s == k) {
+                _ = rt.fast_alloc.askTableFirstHuge(@intFromPtr(self.slots));
+            };
             return s;
         }
 
@@ -309,4 +324,18 @@ pub fn Table(comptime T: type, comptime n: u64) type {
             }
         }
     };
+}
+
+test "a table pushed past its first 2 MiB keeps every slot it was given, whether or not the system makes them a huge page" {
+    const n = 1 << 20;
+    const T = Table(u64, n);
+    const past = 2 * ((2 << 20) / @sizeOf(u64)) + 5;
+    var t = T.init();
+    defer t.__rig_drop();
+    var i: u64 = 0;
+    while (i < past) : (i += 1) try std.testing.expectEqual(@as(T.Index, @intCast(i)), t.push(i *% 0x9e3779b97f4a7c15));
+    try std.testing.expectEqual(@as(u64, past), t.len);
+    i = 0;
+    while (i < past) : (i += 1) try std.testing.expectEqual(i *% 0x9e3779b97f4a7c15, t.at(@intCast(i)));
+    try std.testing.expectEqual(@as(u64, 0), t.at(@intCast(past)));
 }
