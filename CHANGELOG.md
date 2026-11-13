@@ -466,7 +466,10 @@ none of these ever built:
   List or a slice of elements of at least a byte read a signed index as
   unsigned and compare it once with the length, where a sign test and a
   bound test made two. A negative index still panics with "index out of
-  bounds".
+  bounds". A length read as an `Int` is known non-negative to the
+  optimizer, so past a test `i < n` of that length the compare folds to
+  the sign test alone: std.json's six guard files retire 0.5 to 2.5%
+  fewer instructions than before.
 - **A match on a plain enum makes no test of its tag:** Zig's safe mode
   tests that a switched enum holds one of its tags; safe Rig never holds
   another, so emit switches on `rig.namedTag(x)`, which states the range

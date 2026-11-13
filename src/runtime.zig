@@ -6032,9 +6032,16 @@ fn lenHeld(comptime P: type) bool {
 /// bytes (a 64-bit one at most `2^57`); `allocSlice` and `reallocSlice`
 /// refuse a longer one all the same. A List of zero-bit elements, which
 /// takes no memory, stops at `max_len` where it grows (`ListOf.growBy`).
-/// Debug builds verify it.
+/// Debug builds verify it; an optimized build states it to the
+/// optimizer, so the length read as an `Int` is known non-negative: past
+/// a test `i < n` of that length, `heldOffset`'s one unsigned compare
+/// folds to the sign test, where without the fact it stays whole.
 pub inline fn heldLen(n: usize) Int {
-    invariant(@as(u64, n) <= max_len);
+    {
+        // A length's bound by construction (above), asserted in debug.
+        @setRuntimeSafety(proven_checks);
+        if (@as(u64, n) > max_len) unreachable;
+    }
     return @bitCast(@as(u64, n));
 }
 
