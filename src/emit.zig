@@ -406,6 +406,9 @@ pub const Emitter = struct {
     /// its environment `__rig_self`, `__rig_self1`, ... so a closure
     /// inside another does not shadow the outer one's.
     closure_depth: u32 = 0,
+    /// `raw` blocks around the current point. A `match` inside one keeps
+    /// Zig's test that its enum holds a named tag (`rig.namedTag`).
+    raw_depth: u32 = 0,
     nominal: ?Nominal = null,
     /// The module's additions (`add Int: Shape`), whose methods its
     /// witnesses hold (`emitWitnesses`).
@@ -2800,7 +2803,11 @@ pub const Emitter = struct {
             .match => try self.emitMatch(sexp, false, null),
             .block => try self.emitBlock(sexp),
             // `raw` marks an audit boundary for sema; it lowers to a block.
-            .raw_block => try self.emitBlock(ir.RawBlock.body(sexp)),
+            .raw_block => {
+                self.raw_depth += 1;
+                defer self.raw_depth -= 1;
+                try self.emitBlock(ir.RawBlock.body(sexp));
+            },
             .@"defer", .@"errdefer" => {
                 try self.w.print("{s} ", .{@tagName(head)});
                 const body = ir.get(sexp, .body);
@@ -4572,6 +4579,11 @@ pub const Emitter = struct {
         const place = info.reread;
         const subject = info.subject;
         try self.w.writeAll("switch (");
+        // A plain enum holds a named tag in safe code, which the switch
+        // states rather than tests (`rig.namedTag`); inside `raw`, Zig
+        // tests it.
+        const named_tag = !info.error_set and info.ty != null and self.raw_depth == 0 and self.facts.isPlainEnum(self.peelViews(info.ty.?));
+        if (named_tag) try self.w.writeAll("rig.namedTag(");
         if (err_value and info.mode == .consume and !info.temp) {
             // `match <e` takes the error as it tests its code; each arm
             // then owns what it reads again through the place.
@@ -4628,6 +4640,7 @@ pub const Emitter = struct {
             }
             if (by_ptr and h.label.len > 0 and info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
         }
+        if (named_tag) try self.w.writeAll(")");
         try self.w.writeAll(") ");
         try self.openBrace();
 
@@ -7184,7 +7197,11 @@ pub const Emitter = struct {
                 if (num != null) try self.w.writeAll(")") else if (!bare and head == .@"if") try self.w.writeAll(")");
             },
             .block => try self.emitValueBlock(sexp, .{}, self.typeOf(sexp)),
-            .raw_block => try self.emitValueBlock(ir.RawBlock.body(sexp), .{}, self.typeOf(sexp)),
+            .raw_block => {
+                self.raw_depth += 1;
+                defer self.raw_depth -= 1;
+                try self.emitValueBlock(ir.RawBlock.body(sexp), .{}, self.typeOf(sexp));
+            },
             .@"while", .@"for", .labeled => if (facts.syntax.hasValueBreaks(self.source, sexp)) try self.emitLoopValue(sexp) else return self.unsupported(sexp, "a loop without a value in value position"),
             .array => if (try self.hoistsArgs(sexp)) try self.emitHoistedArray(sexp) else try self.emitArray(sexp),
             .array_fill => try self.emitArrayFill(sexp),
