@@ -266,6 +266,14 @@ none of these ever built:
 
 ### Compiler
 
+- An exit inside a call's arguments runs its defers with self lent to
+  no one, since the call never starts: `!nums.push(text.parse_int(w)!)`
+  under `errdefer !nums.resize(n, 0)` is accepted, where it was rejected
+  with "cannot lend `nums` to write while a read loan is live", and so
+  are the same shape under a `defer`, a `?`, a `return` or `continue`
+  in the argument, two write calls pending at once, and an index the
+  failure is in (`!g[text.parse_int(w)!].push(1)`). A lend an earlier
+  argument made, `keep(!nums, text.parse_int(w)!)`, stays rejected.
 - An object or payload enum that holds a generic of another module
   whose fields name the generic's parameter as an optional (`kids:
   List[T?]` in `W[T]`, held as `w.W[Node]` in `Node`) is rejected with

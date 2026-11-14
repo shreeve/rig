@@ -111,6 +111,10 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **Defers at an exit inside a call's arguments** (branch
+  `errdefer-loan`): `!nums.push(text.parse_int(w)!)` under an
+  `errdefer` that writes `nums` is accepted, since the call never
+  starts; the oracle agrees. The owner merges.
 - **`shared.Map`** (branch `concurrent-map`, draft PR): a map
   several tasks fill and read, insert-only, lookups that take no lock
   and write nothing shared, values viewed in place. It rests on one

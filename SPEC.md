@@ -7322,7 +7322,11 @@ a `fun f() -> T!`, a `sub f()!`, `sub main()`, a closure whose type can
 fail, or a test. In a function, closure, or `drop` body that cannot
 fail, or inside deferred code, it is rejected: write `defer`. A deferred body may not move or drop
 outer bindings, even one it assigns again (`defer x = f(<x)`), or propagate with `!`. It runs after the values declared
-after it are dropped, so it may not read one through a view. A
+after it are dropped, so it may not read one through a view. An exit
+inside a call's arguments, `!v.push(parse(w)!)`, leaves before the call
+starts, so a deferred body it runs may write `v`, the call's self: the
+call never takes it. A lend an earlier argument already made,
+`keep(!v, parse(w)!)`, stays in force while it runs. A
 one-line `defer` or `errdefer` cannot declare a name, nor several
 results' names (`defer q, r = f()`); a deferred block can. Nor is its
 statement a `defer` or an `errdefer` itself: it runs at the exit already.
