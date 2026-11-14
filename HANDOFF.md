@@ -111,6 +111,15 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **Allocator rounding** (branch `alloc-rounding`): a span takes its
+  4 KiB units and no more, where its length was rounded to four buckets
+  a doubling and 16 KiB units; Trig's peak memory on the Mac is 15 MiB
+  lower on supabase-studio and 6 MiB on webpack, at the same speed.
+  Small blocks to 8 KiB fall in eight classes a doubling, where there
+  were four: 12 MiB lower again on supabase-studio, 2 MiB on webpack.
+  Waits on pup's `zig build test`, the Trig and loco light gates, and
+  pup timing. Design: lever 1 of
+  `~/Data/Code/Claude/rig/rig/proposals/mem-census.md`.
 - **`par.push`** (branch `par-push`): `par.push(!t, ?sizes, f)` of
   std.par pushes a Table's next slots at once and writes them on
   several tasks, a run each, for Trig's Ids.of (Trig branch `par-ids`).
