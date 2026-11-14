@@ -9514,18 +9514,26 @@ pub const Emitter = struct {
             try self.emitArgs(sexp);
             return self.w.print(", {s})", .{out});
         }
-        // `par.map(?xs, f, limit: n)`, `par.each(!xs, f, limit: n)`: run
-        // by the runtime, with no limit but the workers' count when none
-        // is given; `par.workers(!states, ?items, f)`, one task a state.
+        // `par.map(?xs, f, limit: n)`, `par.each(!xs, f, limit: n)`, and
+        // `par.push(!t, ?sizes, f, limit: n)`: run by the runtime, with no
+        // limit but the workers' count when none is given;
+        // `par.workers(!states, ?items, f)`, one task a state.
         if (self.facts.parCallOf(sexp)) |kind| {
             const out = self.slotOf(sexp);
             try self.w.writeAll(switch (kind) {
                 .map => "rig.parMapInto(",
                 .each => "rig.parEachInto(",
                 .workers => "rig.parWorkersInto(",
+                .push => "rig.parPushInto(",
             });
             try self.emitArgs(sexp);
-            if (kind != .workers and args.len == 2) try self.w.writeAll(", 0");
+            // With no `limit:`, one task per worker.
+            const no_limit = switch (kind) {
+                .map, .each => args.len == 2,
+                .push => args.len == 3,
+                .workers => false,
+            };
+            if (no_limit) try self.w.writeAll(", 0");
             return self.w.print(", {s})", .{out});
         }
         // A set's waits, `>ts` and `<ts.wait_first()`, with no deadline
@@ -12070,6 +12078,7 @@ test "every runtime call of a function value passes the slot it takes" {
         .{ .file = "runtime.zig", .call = "} else acc = f.call(.{ acc, lend(x) })", .why = no_fail },
         .{ .file = "tasks.zig", .call = "} else c.out[i] = c.f.call(.{rt.lend(&c.xs[i])})", .why = no_fail },
         .{ .file = "tasks.zig", .call = "else c.f.call(.{&c.xs[i]})", .why = no_fail },
+        .{ .file = "tasks.zig", .call = "else c.f.call(.{ run, i })", .why = no_fail },
         .{ .file = "tasks.zig", .call = "c.out[i] = c.f.call(.{ s, x })", .why = no_fail },
         .{ .file = "tasks.zig", .call = "} else c.f.call(.{ s, x })", .why = no_fail },
         .{ .file = "tasks.zig", .call = "self.value = self.make.?.value.invoke(.{})", .why = "the function that makes a supervised actor's value cannot fail (`Actor.supervised`)" },

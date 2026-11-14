@@ -5094,3 +5094,5 @@ test/reject/templates/template_view_in_a_header_binding.rig main
 test/reject/templates/template_slot_read_and_lent_to_write_later.rig main
 test/reject/templates/template_argument_read_and_lent_to_write_later.rig main
 test/reject/templates/template_slot_of_the_String_it_adds_to.rig main
+doc/SPEC/6b7baa342ab6 main
+test/reject/concurrency/par_push_reads_the_table.rig main

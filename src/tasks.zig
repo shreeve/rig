@@ -1064,6 +1064,55 @@ pub fn parEachInto(xs: anytype, f: anytype, limit: Int, out: anytype) EachOut(@T
     return parRun(true, xs.len, limit, &ctx, Ctx.chunk, out) catch |err| @errorCast(err);
 }
 
+/// `par.push(!t, ?sizes, f, limit: n)`: push `sizes.sum()` slots onto
+/// the table `t` at once (`pushRuns`), then `f(!run, k)` for each run
+/// `k`, the next `sizes[k]` of those slots in order, each call on one of
+/// up to `limit` tasks (`parRun`, over the runs). Run `k` is the same
+/// slots whichever task takes it. The sizes and the room are tested
+/// before any task starts; a failure leaves the slots pushed, each
+/// holding what it held unless `f` wrote it. A failure's fields go into
+/// the caller's slot `out`, as `parMapInto`'s do.
+pub fn parPushInto(t: anytype, sizes: anytype, f: anytype, limit: Int, out: anytype) EachOut(@TypeOf(f)) {
+    const F = @TypeOf(f);
+    const fallible = @typeInfo(ReturnOf(F)) == .error_union;
+    const T = @typeInfo(@TypeOf(t.slots)).pointer.child;
+    // `starts[k]` is run `k`'s first slot past `first`, and
+    // `starts[sizes.len]` the slots of every run.
+    const starts = defaultAllocator().alloc(u64, sizes.len + 1) catch oom();
+    defer defaultAllocator().free(starts);
+    var total: u64 = 0;
+    for (sizes, 0..) |size, k| {
+        if (size < 0) negativeRun(k, size);
+        starts[k] = total;
+        total +|= @intCast(size);
+    }
+    starts[sizes.len] = total;
+    const first = t.pushRuns(total);
+    const Ctx = struct {
+        slots: [*]T,
+        starts: []const u64,
+        f: F,
+
+        fn chunk(c: *const @This(), lo: usize, hi: usize, slot: rt.ErrSlot) if (fallible) anyerror!void else void {
+            for (lo..hi) |k| {
+                const run = c.slots[@intCast(c.starts[k])..@intCast(c.starts[k + 1])];
+                const i: Int = @intCast(k);
+                if (comptime fallible) try c.f.call(rt.argsWithSlot(F, .{ run, i }, slot)) else c.f.call(.{ run, i });
+            }
+        }
+    };
+    const ctx: Ctx = .{ .slots = t.slots + @as(usize, @intCast(first)), .starts = starts, .f = f };
+    if (comptime !fallible) return parRun(false, sizes.len, limit, &ctx, Ctx.chunk, out);
+    // Every failure is `f`'s, or a wait's `task.Stop` in it.
+    return parRun(true, sizes.len, limit, &ctx, Ctx.chunk, out) catch |err| @errorCast(err);
+}
+
+fn negativeRun(k: usize, size: Int) noreturn {
+    @branchHint(.cold);
+    var buf: [128]u8 = undefined;
+    @panic(std.fmt.bufPrint(&buf, "par.push takes no negative size, and run {d}'s is {d}", .{ k, size }) catch "par.push takes no negative size");
+}
+
 /// What `par.workers` gives for `f`: a List of each call's value, or
 /// nothing when `f` gives nothing, failing when `f` can.
 fn WorkersOut(comptime F: type) type {
