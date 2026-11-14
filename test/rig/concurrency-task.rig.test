@@ -1801,6 +1801,52 @@ test "a task lowers and raises the workers while others make tasks, and every ta
   sum = >a + >b
   print(sum, >s, task.worker_count())
 
+test "task.workers lowered after tasks allocate much, which then allocate again on fewer and on more, and every value holds what was written", seeds: 20, release: true, "32 32 32 32 true"
+  # Small blocks, Lists that grow through spans, and in one task a List
+  # of 16 MiB or more, a mapping of its own: a release build's workers
+  # that park hand their heaps' free memory to the workers that go on.
+  use std.task
+  fun churn(k: Int) -> Int
+    rows: List[List[Int]] = List()
+    want = 0
+    for r in 0..200
+      row: List[Int] = List()
+      for i in 0..(20 + r % 50)
+        !row.push(i * k + r)
+        want += i * k + r
+      !rows.push(<row)
+    m = Map[Int, Int]()
+    for i in 0..500
+      !m.put(i * 7 + k, i)
+    n = 2100000 if k == 0 else 40000 + k * 100
+    big: List[Int] = List()
+    for i in 0..n
+      !big.push(i * 3 + k)
+    got = 0
+    for row in rows
+      for x in row
+        got += x
+    ok = got == want and m.len == 500 and big[n - 1] == (n - 1) * 3 + k and big[n / 2] == (n / 2) * 3 + k
+    1 if ok else 0
+  fun round() -> Int
+    ts = Tasks[Int]()
+    for k in 0..32
+      !ts.add(churn(k)&)
+    xs = >ts
+    total = 0
+    for x in xs
+      total += x
+    total
+  _ = task.workers(8)
+  a = round()
+  _ = task.workers(2)
+  low = task.worker_count()
+  b = round()
+  c = round()
+  _ = task.workers(8)
+  d = round()
+  print(a, b, c, d, low <= 2)
+
 test "a task raises the workers, and every task runs once", "6400 true 16"
   use std.task
   fun one() -> Int

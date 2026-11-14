@@ -214,10 +214,11 @@ const Worker = struct {
     /// takes no task and waits parked (`parkWorker`).
     off: std.atomic.Value(bool) = .init(false),
     /// The times it parked, its `ran` when it last did, and the bytes its
-    /// heap gave back as it parked, which `RIG_SCHED_STATS=1` prints.
+    /// heap handed over as it parked (`alloc.handIdle`), which
+    /// `RIG_SCHED_STATS=1` prints.
     parks: u32 = 0,
     ran_at_park: u64 = 0,
-    park_gave: usize = 0,
+    park_handed: usize = 0,
     thread: ?std.Thread align(std.atomic.cache_line) = null,
 };
 
@@ -3310,9 +3311,9 @@ fn printStats() void {
             std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw })) catch continue;
         // A worker that parked (`parkWorker`): how often, the fibers it ran
         // since it last did, none while it stays parked but those pinned
-        // to it, and what its heap gave back as it parked.
+        // to it, and what its heap handed over as it parked.
         const tail = (if (w.parks > 0)
-            std.fmt.bufPrint(buf[head.len..], ", parked {d}, ran {d} since, gave back {d} KiB\n", .{ w.parks, w.ran - w.ran_at_park, w.park_gave / 1024 })
+            std.fmt.bufPrint(buf[head.len..], ", parked {d}, ran {d} since, handed over {d} KiB\n", .{ w.parks, w.ran - w.ran_at_park, w.park_handed / 1024 })
         else
             std.fmt.bufPrint(buf[head.len..], "\n", .{})) catch continue;
         const len = head.len + tail.len;
@@ -3537,9 +3538,10 @@ fn runFiber(w: *Worker, f: *Fiber) void {
 
 /// Park the worker `w`, off since a `task.workers(n)` left it out, until
 /// it is on again or `main` ends: the fibers in its queues go to the
-/// global queue, for the workers still on (`forwardQueued`), and its heap gives
-/// back the pages it holds free (`alloc.trimIdle`), its own heap's only,
-/// so the workers that go on keep theirs. Then it waits in its poller,
+/// global queue, for the workers still on (`forwardQueued`), and its heap
+/// hands what it holds free over to the heaps of the workers that go on,
+/// its pages resident (`alloc.handIdle`), where a trim would give them
+/// back for those workers to fault in afresh. Then it waits in its poller,
 /// which no other worker sleeps in, with no timeout but its own timers'
 /// earliest deadline: a raise kicks it (`setWorkers`), as `main`'s end
 /// and `os.exit` do. It runs no fiber but those pinned to it (a local
@@ -3558,7 +3560,7 @@ fn parkWorker(w: *Worker) void {
     forwardQueued(w);
     w.parks += 1;
     w.ran_at_park = w.ran;
-    w.park_gave += rt.fast_alloc.trimIdle();
+    w.park_handed += rt.fast_alloc.handIdle();
     defer rt.fast_alloc.wakeIdle();
     w.idle.store(1, .seq_cst);
     defer w.idle.store(0, .seq_cst);

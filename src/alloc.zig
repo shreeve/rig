@@ -37,12 +37,18 @@
 //! apart (`takeKept`), within the same bound of its own
 //! (`keepBound`), resident or cold as a span is (`cold`), and on Linux
 //! one that grows moves its pages (`mremap`) when no kept block fits.
-//! Segments are never unmapped: memory freed stays for reuse. A worker that has slept a while, or
-//! parks (`sched.parkWorker`), trims its heap (`trimIdle`): it gives back the pages of its free spans and
+//! Segments are never unmapped: memory freed stays for reuse. A worker that has slept a while
+//! trims its heap (`trimIdle`): it gives back the pages of its free spans and
 //! kept large blocks and, on Linux, each class page whose blocks are all
 //! free, and puts what stays free on its remote lists, where any heap that would
 //! otherwise take a new page may take it (`takeDonated`), so the memory
-//! a burst of tasks freed serves the thread that works on. On Linux,
+//! a burst of tasks freed serves the thread that works on. A worker that
+//! parks, left out by a smaller `task.workers(n)` (`sched.parkWorker`),
+//! hands its heap's free memory over instead, its pages resident
+//! (`handIdle`): its free blocks to its remote lists, as a trim leaves
+//! them, its warm free spans left warm for other heaps to take
+//! (`stealSpan`), and its kept large blocks to a store any heap takes
+//! from before it maps a new one (`handed`). On Linux,
 //! a heap that does much of the program's work, one that has taken from
 //! the system most of what every heap has or more than one segment's
 //! worth, faults in at once the memory it is about to fill (`prefault`).
@@ -132,6 +138,9 @@ comptime {
         mapped_count,
         exe_file,
         span_spare,
+        handed,
+        handed_lock,
+        handed_bytes,
     };
 }
 
@@ -541,8 +550,7 @@ pub const Heap = struct {
 // -----------------------------------------------------------------------------
 
 /// Give back to the system what the running thread's heap holds free, as
-/// its worker has slept a while (`sched.sleep`) or parks, left out by a
-/// smaller `task.workers(n)` (`sched.parkWorker`): a heap's free blocks
+/// its worker has slept a while (`sched.sleep`): a heap's free blocks
 /// serve only its own thread, so those of a worker that ran a burst of
 /// tasks and then sleeps, while another thread does the program's work,
 /// would stay resident for nothing. It takes back the blocks other
@@ -616,8 +624,15 @@ fn trimHeap(h: *Heap) usize {
         tails[c] = late_tail orelse own_tail;
     }
     if (builtin.os.tag == .linux) given += trimPages(h, touched, &tails);
-    // What stays free goes on its remote lists, where its own next
-    // allocation takes it back, and meanwhile another heap may.
+    donate(h, &tails);
+    return given;
+}
+
+/// Put `h`'s free lists, whose last blocks `tails` holds, on its remote
+/// lists, where its own next allocation takes them back, and meanwhile
+/// another heap may: `h` becomes a donor (`takeDonated`), until its
+/// thread wakes (`wakeIdle`).
+fn donate(h: *Heap, tails: *const [class_count]?*Block) void {
     for (0..class_count) |c| {
         const list = h.free[c] orelse continue;
         h.free[c] = null;
@@ -632,7 +647,69 @@ fn trimHeap(h: *Heap) usize {
         h.donor.store(true, .monotonic);
         _ = donors.fetchAdd(1, .monotonic);
     }
-    return given;
+}
+
+/// Hand what the running thread's heap holds free to the heaps that go
+/// on, as its worker parks, left out by a smaller `task.workers(n)`
+/// (`sched.parkWorker`), with its pages resident, where a trim
+/// (`trimIdle`) would give them back to the system for the workers that
+/// go on to fault in and zero afresh. Its free blocks, with those other
+/// threads freed into it, go on its remote lists, and the heap becomes a
+/// donor (`takeDonated`), as a trim leaves it, but no page is given
+/// back. Its warm free spans stay warm, so another heap takes them
+/// before it carves a new span (`stealSpan`). Its kept large blocks go
+/// to the store of blocks handed over (`handed`), which any heap takes
+/// from before it maps a new block. Nothing handed over is in use: a
+/// free block stays its heap's, so a block another heap takes and frees
+/// goes back on this heap's remote list, and a kept block, a mapping no
+/// heap owns, leaves this heap's keeping before the store's lock is
+/// released. Gives the bytes handed over.
+pub fn handIdle() usize {
+    return handHeap(my_heap().* orelse return 0);
+}
+
+fn handHeap(h: *Heap) usize {
+    mustOwn(h);
+    var bytes: usize = 0;
+    if (h.kept.bytes != 0) {
+        // Every kept block is at least `minLarge` long, so the store keeps
+        // it whole, and no system call is made under the lock.
+        handed_lock.lock();
+        while (lastHeld(&h.kept)) |j| {
+            const f = unkeep(&h.kept, j, 0).?;
+            const len = f.len;
+            keepPiece(handed, @intFromPtr(f), len);
+            bytes += len;
+        }
+        handed_bytes.store(handed.bytes, .release);
+        handed_lock.unlock();
+    }
+    h.spans.lock.lock();
+    bytes += h.spans.warm.bytes;
+    h.spans.lock.unlock();
+    var tails: [class_count]?*Block = @splat(null);
+    for (0..class_count) |c| {
+        const late = if (h.remote[c].load(.monotonic) != null) h.remote[c].swap(null, .acquire) else null;
+        const own = listEnd(h.free[c]);
+        const more = listEnd(late);
+        if (own.last) |t| t.next = late else h.free[c] = late;
+        tails[c] = more.last orelse own.last;
+        bytes += (own.len + more.len) * classSize(c);
+    }
+    donate(h, &tails);
+    return bytes;
+}
+
+/// The last block of a free list, and how many it holds.
+fn listEnd(list: ?*Block) struct { last: ?*Block, len: usize } {
+    var last: ?*Block = null;
+    var len: usize = 0;
+    var b = list;
+    while (b) |x| : (b = x.next) {
+        last = x;
+        len += 1;
+    }
+    return .{ .last = last, .len = len };
 }
 
 /// Walk a free list of `h`'s class `c` (`trimHeap`): on Linux, count each
@@ -851,15 +928,23 @@ inline fn allocLargeFrom(h: *Heap, len: usize, mapped: ?*bool) ?[*]u8 {
     const size = largeSize(len);
     // A block under `span_max` is a span: a free one of this heap's whose
     // pages are resident, else such a one of another heap's, else one of
-    // this heap's whose pages fault in again, else a new one.
+    // this heap's whose pages fault in again, else a new one. A kept
+    // block of its own comes after its own warm spans, and one a heap
+    // handed over as its worker parked (`takeHanded`), resident, after
+    // the warm spans of other heaps, so a span leaves it whole for a
+    // larger request.
     const n = if (size < span_max) spanUnits(size) else 0;
     if (n != 0) if (takeSpan(h, false, n)) |p| return @ptrFromInt(p);
     if (takeKept(&h.kept, size)) |p| {
         lent(h, size);
         return p;
     }
+    if (n != 0) if (stealSpan(h, n)) |p| return @ptrFromInt(p);
+    if (takeHanded(h, size)) |p| {
+        lent(h, size);
+        return p;
+    }
     if (n != 0) {
-        if (stealSpan(h, n)) |p| return @ptrFromInt(p);
         if (takeSpan(h, true, n)) |p| {
             recommit(p, n * span_unit);
             return @ptrFromInt(p);
@@ -1349,15 +1434,47 @@ fn lent(h: *Heap, size: usize) void {
 /// of the lowest bucket from `size`'s that holds one at least `size`
 /// long. What it holds past `size` is kept on its own, in `k`.
 fn takeKept(k: *Kept, size: usize) ?[*]u8 {
+    const f = fitKept(k, size) orelse return null;
+    const p = @intFromPtr(f);
+    const len = f.len;
+    if (len > size) keepPiece(k, p + size, len - size);
+    return @ptrFromInt(p);
+}
+
+/// Take from `k` its kept block that best fits `size` bytes, by bucket,
+/// whole (`takeKept`).
+fn fitKept(k: *Kept, size: usize) ?*LargeFree {
     var j = nextHeld(k, largeBucket(size));
     while (j) |b| : (j = nextHeld(k, b + 1)) {
-        const f = unkeep(k, b, size) orelse continue;
-        const p = @intFromPtr(f);
-        const len = f.len;
-        if (len > size) keepPiece(k, p + size, len - size);
-        return @ptrFromInt(p);
+        if (unkeep(k, b, size)) |f| return f;
     }
     return null;
+}
+
+/// Kept large blocks that heaps handed over as their workers parked
+/// (`handIdle`), their pages resident, for any heap to take before it
+/// maps a new block (`takeHanded`); under `handed_lock`, which no system
+/// call is made under, with the bytes they hold in `handed_bytes`, which
+/// a heap reads before it takes the lock.
+var handed_var: Kept = .{};
+const handed = split.cell(&handed_var, "alloc.handed");
+var handed_lock_var: SpinLock = .{};
+const handed_lock = split.cell(&handed_lock_var, "alloc.handed_lock");
+var handed_bytes_var: std.atomic.Value(usize) = .init(0);
+const handed_bytes = split.cell(&handed_bytes_var, "alloc.handed_bytes");
+
+/// A block handed over (`handed`) for `size` bytes, best fit, now `h`'s
+/// to hand out: what it holds past `size` `h` keeps (`Heap.kept`).
+fn takeHanded(h: *Heap, size: usize) ?[*]u8 {
+    if (handed_bytes.load(.monotonic) < size) return null;
+    handed_lock.lock();
+    const f = fitKept(handed, size);
+    handed_bytes.store(handed.bytes, .release);
+    handed_lock.unlock();
+    const p = @intFromPtr(f orelse return null);
+    const len = f.?.len;
+    if (len > size) keepPiece(&h.kept, p + size, len - size);
+    return @ptrFromInt(p);
 }
 
 /// Take from bucket `j` of `k` its first kept block at least `len` long.
@@ -2953,7 +3070,7 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
         if (counts) h.count(@intCast(new_size - old_size), 0);
         return p;
     }
-    if (takeKept(&h.kept, new_size)) |p| {
+    if (takeKept(&h.kept, new_size) orelse takeHanded(h, new_size)) |p| {
         lent(h, new_size);
         @memcpy(p[0..memory.len], memory);
         freeLarge(h, memory.ptr, memory.len);
@@ -4494,6 +4611,194 @@ test "a heap is worth trimming once it has grown by half since its last trim, an
     try std.testing.expect(worthTrimming(&h));
     h.donor.store(false, .monotonic);
     _ = donors.fetchSub(1, .monotonic);
+}
+
+/// The pattern a test writes in a block: its address, folded to a byte.
+fn markOf(p: [*]const u8) u8 {
+    return @truncate(@intFromPtr(p) >> 4);
+}
+
+/// Whether the block `b` holds its mark (`markOf`): every byte of a
+/// block of up to 4 KiB, and of a larger one every 512th and its last.
+fn holdsMark(b: []const u8) bool {
+    const want = markOf(b.ptr);
+    const step: usize = if (b.len <= 4096) 1 else 512;
+    var i: usize = 0;
+    while (i < b.len) : (i += step) if (b[i] != want) return false;
+    return b[b.len - 1] == want;
+}
+
+/// The blocks of a test of a heap handed over: small ones of two
+/// classes, spans, and a mapping of its own as large as its heap keeps
+/// (`keep_large`), each written in full (`markOf`).
+const HandBlocks = struct {
+    small: [12000][]u8 = undefined,
+    spans: [16][]u8 = undefined,
+    big: []u8 = undefined,
+
+    fn take(hb: *HandBlocks) void {
+        for (&hb.small, 0..) |*b, i| b.* = allocator.alloc(u8, if (i % 3 == 0) 1024 else 48) catch unreachable;
+        for (&hb.spans) |*b| b.* = allocator.alloc(u8, 512 << 10) catch unreachable;
+        hb.big = allocator.alloc(u8, 16 << 20) catch unreachable;
+        for (hb.small) |b| @memset(b, markOf(b.ptr));
+        for (hb.spans) |b| @memset(b, markOf(b.ptr));
+        @memset(hb.big, markOf(hb.big.ptr));
+    }
+
+    /// Blocks that do not hold what was written.
+    fn bad(hb: *const HandBlocks) usize {
+        var n: usize = 0;
+        for (hb.small) |b| n += @intFromBool(!holdsMark(b));
+        for (hb.spans) |b| n += @intFromBool(!holdsMark(b));
+        return n + @intFromBool(!holdsMark(hb.big));
+    }
+
+    fn give(hb: *HandBlocks) void {
+        for (hb.small) |b| allocator.free(b);
+        for (hb.spans) |b| allocator.free(b);
+        allocator.free(hb.big);
+    }
+};
+
+/// Give back to the system every block handed over (`handed`).
+fn dropHandedForTest() void {
+    handed_lock.lock();
+    defer handed_lock.unlock();
+    while (lastHeld(handed)) |j| {
+        const f = unkeep(handed, j, 0).?;
+        unmapLarge(@intFromPtr(f), f.len);
+    }
+    handed_bytes.store(0, .release);
+}
+
+test "a heap handed over as its worker parks serves another thread's blocks, spans, and mapping from its resident pages, which take nothing new, and serves its own thread again" {
+    const Run = struct {
+        phase: std.atomic.Value(u32) = .init(0),
+        handed: usize = 0,
+        big: usize = 0,
+        bad: std.atomic.Value(usize) = .init(0),
+        taken_by_other: usize = 0,
+        big_by_other: usize = 0,
+        donor_after: bool = true,
+
+        fn wait(r: *@This(), phase: u32) void {
+            while (r.phase.load(.acquire) != phase) std.Thread.yield() catch {};
+        }
+
+        // The worker that parks: it allocates and writes, frees, hands
+        // its heap over, waits while another thread allocates, then wakes
+        // and allocates again.
+        fn parks(r: *@This()) void {
+            const hb = std.heap.page_allocator.create(HandBlocks) catch unreachable;
+            defer std.heap.page_allocator.destroy(hb);
+            hb.take();
+            r.big = @intFromPtr(hb.big.ptr);
+            hb.give();
+            r.handed = handIdle();
+            r.phase.store(1, .release);
+            r.wait(2);
+            wakeIdle();
+            r.donor_after = heap().?.donor.load(.monotonic);
+            hb.take();
+            _ = r.bad.fetchAdd(hb.bad(), .monotonic);
+            hb.give();
+            threadExit();
+        }
+
+        // A worker that goes on: what it allocates comes from the heap
+        // handed over, and takes nothing new from the system.
+        fn goesOn(r: *@This()) void {
+            steals_for_test = true;
+            const hb = std.heap.page_allocator.create(HandBlocks) catch unreachable;
+            defer std.heap.page_allocator.destroy(hb);
+            _ = heap();
+            const before = taken_all.load(.monotonic);
+            hb.take();
+            r.taken_by_other = taken_all.load(.monotonic) - before;
+            r.big_by_other = @intFromPtr(hb.big.ptr);
+            _ = r.bad.fetchAdd(hb.bad(), .monotonic);
+            hb.give();
+            threadExit();
+        }
+    };
+    var r: Run = .{};
+    const parked = try std.Thread.spawn(.{}, Run.parks, .{&r});
+    r.wait(1);
+    // Its free blocks, its warm spans, and its mapping, all resident.
+    try std.testing.expect(r.handed >= (16 << 20) + 16 * (512 << 10) + 8000 * 48 + 4000 * 1024);
+    try std.testing.expect(handed_bytes.load(.monotonic) >= 16 << 20);
+    (try std.Thread.spawn(.{}, Run.goesOn, .{&r})).join();
+    try std.testing.expectEqual(@as(usize, 0), r.taken_by_other);
+    try std.testing.expectEqual(r.big, r.big_by_other);
+    r.phase.store(2, .release);
+    parked.join();
+    try std.testing.expectEqual(@as(usize, 0), r.bad.load(.monotonic));
+    try std.testing.expect(!r.donor_after);
+    dropHandedForTest();
+}
+
+test "a heap handed over while its thread and another allocate, write, and free one another's blocks: every block holds what was written" {
+    const Shared = struct {
+        slots: [256]std.atomic.Value(usize) = @splat(.init(0)),
+        lens: [256]std.atomic.Value(usize) = @splat(.init(0)),
+        bad: std.atomic.Value(usize) = .init(0),
+        handed: std.atomic.Value(bool) = .init(false),
+
+        fn check(sh: *@This(), b: []u8) void {
+            if (!holdsMark(b)) _ = sh.bad.fetchAdd(1, .monotonic);
+        }
+
+        fn run(sh: *@This(), seed: u64, hands: bool) void {
+            steals_for_test = true;
+            var rng = std.Random.DefaultPrng.init(seed);
+            const rand = rng.random();
+            const sizes = [_]usize{ 16, 48, 200, 1024, 4000, 30000, 100 << 10, 600 << 10 };
+            for (0..8000) |k| {
+                // Halfway, the first thread hands its heap over, and then
+                // goes on allocating, as a worker raised again does.
+                if (hands and k == 4000) {
+                    _ = handIdle();
+                    sh.handed.store(true, .release);
+                    wakeIdle();
+                }
+                const i = rand.uintLessThan(usize, sh.slots.len);
+                const len = sh.lens[i].swap(0, .acquire);
+                if (len != 0) {
+                    const at = sh.slots[i].swap(0, .acquire);
+                    const b = @as([*]u8, @ptrFromInt(at))[0..len];
+                    sh.check(b);
+                    allocator.free(b);
+                }
+                const n = sizes[rand.uintLessThan(usize, sizes.len)];
+                const b = allocator.alloc(u8, n) catch unreachable;
+                @memset(b, markOf(b.ptr));
+                if (sh.slots[i].cmpxchgStrong(0, @intFromPtr(b.ptr), .release, .monotonic) == null) {
+                    sh.lens[i].store(n, .release);
+                } else {
+                    sh.check(b);
+                    allocator.free(b);
+                }
+            }
+            threadExit();
+        }
+    };
+    const sh = try std.heap.page_allocator.create(Shared);
+    defer std.heap.page_allocator.destroy(sh);
+    sh.* = .{};
+    const a = try std.Thread.spawn(.{}, Shared.run, .{ sh, 1, true });
+    const b = try std.Thread.spawn(.{}, Shared.run, .{ sh, 2, false });
+    a.join();
+    b.join();
+    for (&sh.slots, &sh.lens) |*slot, *len| {
+        const n = len.swap(0, .acquire);
+        if (n == 0) continue;
+        const blk = @as([*]u8, @ptrFromInt(slot.swap(0, .acquire)))[0..n];
+        sh.check(blk);
+        allocator.free(blk);
+    }
+    try std.testing.expect(sh.handed.load(.monotonic));
+    try std.testing.expectEqual(@as(usize, 0), sh.bad.load(.monotonic));
+    dropHandedForTest();
 }
 
 /// Give back every block `h` keeps, and forget its free spans and its

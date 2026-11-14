@@ -149,7 +149,7 @@ lock, so a change finishes before they look or makes no worker after.
   stole, and the times it slept, so a test can check where work ran
   without timing it (`test/cli/sched_stats.sh`). A worker that parked
   adds how often, the fibers it ran since it last did, and what its
-  heap gave back as it parked (`, parked 1, ran 0 since, gave back
+  heap handed over as it parked (`, parked 1, ran 0 since, handed over
   16992 KiB`, `test/cli/lower_workers.sh`).
 
 ## Fewer workers
@@ -177,12 +177,21 @@ A worker marked off parks (`sched.parkWorker`):
   lost: it is in a slot, the ring, or the global queue at every step,
   each taken by one atomic step, and a thief may take one meanwhile as
   from any worker.
-- **Its heap trims.** It gives back what its own heap holds free
-  (`alloc.trimIdle`): its free spans' and kept large blocks' pages and,
-  on Linux, each class page wholly free, and puts the blocks left free
-  where other heaps may take them. A heap is its thread's alone, so no
-  other worker's heap, and no block in use, is touched; the workers that
-  go on keep the pages they will fault in again.
+- **Its heap is handed over.** What its heap holds free goes to the
+  workers that go on, its pages resident (`alloc.handIdle`), where a
+  trim would give them back to the system for those workers to fault in
+  and zero afresh: its free blocks, with those other threads freed into
+  it, go on its remote lists, which a heap whose list and page run out
+  takes before a new page (`takeDonated`); its warm free spans stay
+  warm, which a heap takes before it carves a span (`stealSpan`); and
+  its kept large blocks go to a store any heap takes from before it
+  maps one (`takeHanded`). Nothing handed over is in use: a block or
+  span stays its heap's, so one another heap takes and frees goes back
+  to it, by its remote list or under its spans' lock, and a kept block,
+  a mapping no heap owns, leaves the heap's keeping under the store's
+  lock. The fast paths are as they were: a heap takes from the others
+  only where it would take a new page, span, or mapping. Raised again,
+  the worker takes back what is left on its remote lists (`wakeIdle`).
 - **It waits.** In its own poller, with no timeout but its own timers'
   earliest deadline, never spinning. A raise kicks
   it, as `main`'s end and `os.exit` do (`os.exit` claims it there as any
