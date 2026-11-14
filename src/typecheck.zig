@@ -2818,13 +2818,6 @@ const Checker = struct {
         return self.isBoolResult(returns) and self.usesValue(recv, returns);
     }
 
-    /// The result a method of `apiMethodCall` declares, before `Self` is
-    /// applied (`checkSelfSigil`); `applied` where it declares none.
-    fn apiDeclaredResult(self: *Checker, m: ApiMethod, applied: TypeId) Error!TypeId {
-        const local_ty = if (m.home == @as(*const SemContext, self.ctx)) m.field.ty else try sema.importType(self.ctx, m.home, m.field.ty, m.api.module_id);
-        return declaredResult(self.ctx, local_ty, applied);
-    }
-
     /// The whole write call a hint writes for `method` on `recv`, as
     /// written but for its self: `!v.push(1)`, or `(!s).add(k)` where
     /// its `Bool` value is used (`parenthesized`).
@@ -10695,7 +10688,7 @@ const Checker = struct {
         if (ct != null and op != .push) return try self.badCall(args, ct.?, "`{s}` takes no compile-time arguments", .{method});
         const recv = try self.ctx.intern(.{ .write_view = self.t().string_id });
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{recv}), .returns = self.t().void_id, .is_sub = true });
-        if (!try self.checkSelfSigil(obj, .write, self.t().void_id, self.t().void_id, method)) {
+        if (!try self.checkSelfSigil(obj, .write, self.t().void_id, method)) {
             const kind: SelfTypeKind = switch (self.ctx.types.get(obj_ty)) {
                 .read_view => .read_view,
                 .write_view => .write_view,
@@ -13950,7 +13943,7 @@ const Checker = struct {
         };
         if (resolved_method == null and std.mem.eql(u8, method, "get")) if (try self.sequenceGet(obj_ty, pos, args)) |ty| {
             try self.ctx.recordBuiltinCall(callee, .element_get);
-            _ = try self.checkSelfSigil(obj, .read, ty, ty, method);
+            _ = try self.checkSelfSigil(obj, .read, ty, method);
             return self.noteMethod(callee, .read, ty);
         };
 
@@ -13963,7 +13956,7 @@ const Checker = struct {
             try self.noteCallee(f);
             try self.ctx.recordBuiltinCall(callee, .is_empty);
             try self.checkArgs(args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = false }, .{}, "is_empty", pos, .{ .has_self = true });
-            _ = try self.checkSelfSigil(obj, .read, f.returns, f.returns, method);
+            _ = try self.checkSelfSigil(obj, .read, f.returns, method);
             return self.noteMethod(callee, .read, f.returns);
         }
 
@@ -14033,7 +14026,7 @@ const Checker = struct {
         }
         _ = try self.noteMethod(callee, self_mode, resolved.fn_ty.returns);
         try self.noteCallee(resolved.fn_ty);
-        const misplaced_sigil = self_mode != .none and try self.checkSelfSigil(obj, self_mode, resolved.fn_ty.returns, if (resolved.module == null) declaredResult(self.ctx, resolved.field.ty, resolved.fn_ty.returns) else resolved.fn_ty.returns, method);
+        const misplaced_sigil = self_mode != .none and try self.checkSelfSigil(obj, self_mode, resolved.fn_ty.returns, method);
         switch (self_mode) {
             .value => try self.recordUse(obj, .take),
             .write => try self.recordUse(stripSigil(obj), .lend),
@@ -14230,7 +14223,7 @@ const Checker = struct {
         if (self.isPoison(returns)) return self.skipCall(args);
         const mark = self.ctx.diagnostics.items.len;
         _ = try self.noteMethod(callee, mode, returns);
-        const misplaced_sigil = try self.checkSelfSigil(obj, mode, returns, returns, method);
+        const misplaced_sigil = try self.checkSelfSigil(obj, mode, returns, method);
         switch (mode) {
             .value => try self.recordUse(obj, .take),
             .write => try self.recordUse(stripSigil(obj), .lend),
@@ -14370,7 +14363,7 @@ const Checker = struct {
         const item = try self.ctx.intern(.{ .type_var = try sema.assocParam(self.ctx, param, .iter, "Item") });
         const returns = try self.ctx.intern(.{ .optional = item });
         _ = try self.noteMethod(callee, .write, returns);
-        const misplaced_sigil = try self.checkSelfSigil(obj, .write, returns, returns, "next");
+        const misplaced_sigil = try self.checkSelfSigil(obj, .write, returns, "next");
         if (!misplaced_sigil) {
             const kind: SelfTypeKind = switch (self.ctx.types.get(obj_ty)) {
                 .read_view => .read_view,
@@ -14405,7 +14398,7 @@ const Checker = struct {
         const self_mode = m.field.self_mode;
         _ = try self.noteMethod(callee, self_mode, fn_ty.returns);
         try self.noteCallee(fn_ty);
-        const misplaced_sigil = try self.checkSelfSigil(obj, self_mode, fn_ty.returns, if (obj.isKind(.write)) try self.apiDeclaredResult(m, fn_ty.returns) else fn_ty.returns, method);
+        const misplaced_sigil = try self.checkSelfSigil(obj, self_mode, fn_ty.returns, method);
         switch (self_mode) {
             .value => try self.recordUse(obj, .take),
             .write => try self.recordUse(stripSigil(obj), .lend),
@@ -16487,7 +16480,7 @@ const Checker = struct {
         const f: FunctionType = .{ .params = try self.ctx.dupeIds(&.{set}), .returns = result, .is_sub = result == self.t().void_id };
         try self.noteCallee(f);
         _ = try self.noteMethod(callee, .value, result);
-        const misplaced_sigil = try self.checkSelfSigil(obj, .value, result, result, method);
+        const misplaced_sigil = try self.checkSelfSigil(obj, .value, result, method);
         try self.recordUse(obj, .take);
         if (!misplaced_sigil) {
             const saved_of = self.self_of;
@@ -16578,7 +16571,7 @@ const Checker = struct {
             // A write method of the Cell's List, marked as any is
             // (`checkSelfMode`); the Cell is the handle's own, so
             // the handle is lent, not the Cell exclusively.
-            const misplaced_sigil = try self.checkSelfSigil(obj, .write, f.returns, f.returns, method);
+            const misplaced_sigil = try self.checkSelfSigil(obj, .write, f.returns, method);
             try self.recordUse(stripSigil(obj), .lend);
             if (!misplaced_sigil and self.hands(obj).kind != .made) try self.rejectResourceTemporary(obj, obj_ty);
             if (!misplaced_sigil) {
@@ -16870,12 +16863,13 @@ const Checker = struct {
     /// `Parser.selfSigil`): the sigil is the self mode of `m`, so
     /// a `!` before a method that only reads is the habit of `!` as
     /// negation, and a `!` call whose `Bool` value is used is written
-    /// `(!p).m(...)` so it never reads as one. `declared` is the result
-    /// the method declares, before its type's arguments are applied, so
-    /// a call returning a `T` that is a `Bool` keeps the short form. A
-    /// `?` spells out the read self a call takes anyway. Returns
-    /// whether it reported an error.
-    fn checkSelfSigil(self: *Checker, recv: Sexp, mode: SelfMode, returns: TypeId, declared: TypeId, method: []const u8) Error!bool {
+    /// `(!p).m(...)` so it never reads as one: a `!` is rejected wherever
+    /// reading it as `not` would also type-check. `returns` is the result
+    /// with self's type arguments applied, so `!flags.remove(0)` on a
+    /// `List[Bool]` is a `Bool`, while inside a generic body, where they
+    /// are parameters, a `T` stays a `T`. A `?` spells out the read self
+    /// a call takes anyway. Returns whether it reported an error.
+    fn checkSelfSigil(self: *Checker, recv: Sexp, mode: SelfMode, returns: TypeId, method: []const u8) Error!bool {
         if (!self.isSelfSigil(recv)) return false;
         const place = ir.get(recv, .operand);
         const at = self.ctx.span(place);
@@ -16898,10 +16892,15 @@ const Checker = struct {
                     try self.errAt(recv, "`(!{s})` already lends `{s}` to write: remove the outer `!` and write `{s}`", .{ lent, lent, call });
                     return true;
                 }
-                if (!self.isBoolResult(declared)) return false;
+                if (!self.isBoolResult(returns)) return false;
                 const long = try self.ctx.arena.allocator().print("({s})", .{self.sourceText(recv)});
                 const call = if (self.current_call) |c| try self.spliced(c, &.{recv}, &.{long}) else try self.ctx.arena.allocator().print("{s}.{s}(...)", .{ long, method });
-                try self.errAt(recv, "write `{s}`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", .{call});
+                // Under `not` the negation is meant: only its long form.
+                if (self.current_call) |c| if (sameSite(c, self.not_operand)) {
+                    try self.errAt(recv, "`!` lends `{s}` to write and never negates: write `not {s}`", .{ name, call });
+                    return true;
+                };
+                try self.errAt(recv, "`!` lends `{s}` to write and never negates: write `{s}` for what `{s}` returns, or `not {s}` for its opposite", .{ name, call, method, call });
             },
             else => if (returns == self.t().bool_id) {
                 try self.errAt(recv, "`{s}` does not write `self`; for negation use `not`", .{method});
@@ -22926,16 +22925,6 @@ fn recordObjectTable(ctx: *SemContext, id: SymbolId) Error!void {
 /// An API method a conformance must provide: its field, and the API of
 /// the closure that declares it.
 const ApiMethod = struct { api: sema.ApiRef, home: *const SemContext, field: Field };
-
-/// The result the method of type `fn_ty`, a type of `ctx`, declares,
-/// before any type's arguments are applied: `T`, not the `Bool` a
-/// `List[Bool]` gives it. `applied` where `fn_ty` is no function.
-fn declaredResult(ctx: *const SemContext, fn_ty: TypeId, applied: TypeId) TypeId {
-    return switch (ctx.types.get(fn_ty)) {
-        .function => |f| f.returns,
-        else => applied,
-    };
-}
 
 fn checkConformance(ctx: *SemContext, index: usize) Error!void {
     const a = ctx.arena.allocator();
