@@ -517,6 +517,15 @@ it where the negation was meant. Trig has no such site.
   speed. A unit is a quarter of the Mac's page, so there a block aligned
   past 4 KiB is a mapping of its own, and a span gives back to the
   system only the pages wholly inside it.
+- **Eight small classes a doubling to 8 KiB:** small blocks from 64
+  bytes to 8 KiB fall in eight size classes a doubling, where there were
+  four, so a block wastes at most a ninth of itself where it wasted a
+  fifth; from 8 KiB to 32 KiB they stay four a doubling, as a class's
+  64 KiB page holds only two or three such blocks and the room it leaves
+  past them outweighs a finer class. On the Mac, Trig's peak memory is
+  12 MiB lower on supabase-studio at one checker and 10 MiB at four, and
+  2 MiB lower on webpack at one checker and level at four, at the same
+  speed. The fast path is unchanged.
 - **An index tests both ends with one compare:** `xs[i]`, `xs[i] = v`,
   `get`, `insert`, `remove`, `swap_remove`, `keep`, and `swap` on a
   List or a slice of elements of at least a byte read a signed index as

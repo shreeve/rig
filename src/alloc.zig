@@ -242,14 +242,30 @@ fn leads(h: *const Heap) bool {
 /// The largest small block.
 pub const max_small: usize = 32 << 10;
 
-/// Size classes: 8 to 64 bytes in steps of 8, then four per doubling up to
-/// `max_small`, so a block wastes at most a fifth of itself.
-const class_count = 8 + 4 * 9;
+/// Size classes: 8 to 64 bytes in steps of 8, then eight per doubling to
+/// `eighths_max`, so a block wastes at most a ninth of itself, and four
+/// per doubling from there to `max_small`. With four a doubling
+/// throughout, Trig's peak memory on supabase-studio was 12 MiB higher
+/// on the Mac. Past 8 KiB, eight a doubling save little: a class's 64 KiB
+/// page holds two or three such blocks, and the room it has left past
+/// them, which is all a smaller class would save, is often more
+/// (a 22 KiB class leaves 20), and with more classes each heap keeps
+/// more pages partly carved, so webpack at four checkers held 2 MiB more.
+const class_count = quarter_class + 4 * 2;
+
+/// The first class past `eighths_max`.
+const quarter_class = 8 + 8 * 7;
+const eighths_max: usize = 8 << 10;
 
 fn classSize(c: usize) usize {
     if (c < 8) return (c + 1) * 8;
-    const k = c - 8;
-    const base: usize = @as(usize, 64) << @intCast(k / 4);
+    if (c < quarter_class) {
+        const k = c - 8;
+        const base: usize = @as(usize, 64) << @intCast(k / 8);
+        return base + (base / 8) * (k % 8 + 1);
+    }
+    const k = c - quarter_class;
+    const base: usize = eighths_max << @intCast(k / 4);
     return base + (base / 4) * (k % 4 + 1);
 }
 
@@ -265,12 +281,17 @@ inline fn classOf(len: usize, alignment: std.mem.Alignment) ?usize {
     return classAligned(len, a);
 }
 
-/// The class of `n` bytes, 64 < n <= `max_small`: four per doubling.
+/// The class of `n` bytes, 64 < n <= `max_small`: eight per doubling to
+/// `eighths_max`, four past it.
 inline fn classAbove(n: usize) usize {
     const log: usize = std.math.log2_int(usize, n - 1); // base < n <= 2 * base
-    const shift: u6 = @intCast(log - 2); // a quarter of base
-    const step = (n - 1 - (@as(usize, 1) << @intCast(log))) >> shift; // 0..3
-    return 8 + (log - 6) * 4 + step;
+    if (n > eighths_max) {
+        const step = (n - 1 - (@as(usize, 1) << @intCast(log))) >> @intCast(log - 2); // 0..3
+        return quarter_class + (log - 13) * 4 + step;
+    }
+    const shift: u6 = @intCast(log - 3); // an eighth of base
+    const step = (n - 1 - (@as(usize, 1) << @intCast(log))) >> shift; // 0..7
+    return 8 + (log - 6) * 8 + step;
 }
 
 fn classAligned(len: usize, a: usize) ?usize {
@@ -298,7 +319,7 @@ const small_table: [small_table_max / 8 + 1]Class = blk: {
 
 /// A class, as the fast paths carry it: its type bounds it below
 /// `free_slots`.
-const Class = u6;
+const Class = u7;
 const free_slots = 1 << @bitSizeOf(Class);
 
 comptime {
@@ -669,14 +690,14 @@ fn trimPages(h: *Heap, touched: ?*Segment, tails: *[class_count]?*Block) usize {
     // A page is wholly free when its count is every block it was carved
     // into: a page still being carved holds fewer on the list than that.
     // Only the lists of the classes with such a page are walked again.
-    var whole_classes: u64 = 0;
+    var whole_classes: u128 = 0;
     var it = touched;
     while (it) |s| : (it = s.next_trimmed) {
         for (1..s.used) |k| {
             const n = s.free_count[k];
             if (n == 0 or n != page_size / classSize(s.class[k])) {
                 s.free_count[k] = 0;
-            } else whole_classes |= @as(u64, 1) << s.class[k];
+            } else whole_classes |= @as(u128, 1) << s.class[k];
         }
     }
     if (whole_classes == 0) return 0;
@@ -3035,8 +3056,9 @@ test "size classes cover every small size, each a fit for what it holds" {
         const c = classOf(len, .@"8").?;
         try std.testing.expect(classSize(c) >= len);
         if (c > 0) try std.testing.expect(classSize(c - 1) < @max(len, 8));
-        // At most a fifth wasted past 64 bytes.
-        if (len > 64) try std.testing.expect(classSize(c) * 4 <= len * 5 + 4 * 8);
+        // At most a ninth wasted past 64 bytes, and a fifth past 8 KiB.
+        if (len > 64 and len <= eighths_max) try std.testing.expect(classSize(c) * 8 <= len * 9 + 8 * 8);
+        if (len > eighths_max) try std.testing.expect(classSize(c) * 4 <= len * 5 + 4 * 8);
     }
     try std.testing.expect(classOf(max_small + 1, .@"8") == null);
     // An alignment the class does not keep moves to one that does.
