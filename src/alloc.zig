@@ -884,12 +884,14 @@ fn allocLarge(h: *Heap, len: usize) ?[*]u8 {
     return allocLargeFrom(h, len, 8, null);
 }
 
-/// `allocLarge`, of a block aligned to `alignment`, and whether the
-/// block was mapped afresh, or is a span of units never handed out, so
+/// `allocLarge`, of a block aligned to `alignment`, at most a system
+/// page (every caller refuses more), and whether the block was mapped
+/// afresh, or is a span of units never handed out, so
 /// all zero. A free span taken again, or a block kept, resident or cold,
 /// holds old bytes in at least its first page.
 inline fn allocLargeFrom(h: *Heap, len: usize, alignment: usize, mapped: ?*bool) ?[*]u8 {
     mustOwn(h);
+    invariant(alignment <= std.heap.pageSize());
     const units = largeSize(len);
     // A block under `span_max` is a span: a free one of this heap's whose
     // pages are resident, else such a one of another heap's, else one of
@@ -3517,7 +3519,7 @@ test "a span grows where it lies: into the free span after it, at its segment's 
     trimAllForTest(h);
 }
 
-test "a span takes its units and no more, and a block aligned past a unit is a mapping aligned as asked" {
+test "a span takes its units and no more, a block aligned to a page is aligned as asked, and one aligned past a page is refused" {
     var h = testHeap();
     h.taken = prefault_big;
     // Blocks of 34.5 KB, Trig's `ast.NodeRec`, lie 36 KiB apart.
@@ -3528,12 +3530,19 @@ test "a span takes its units and no more, and a block aligned past a unit is a m
     try std.testing.expectEqual(3 * (36 << 10), h.spans.live);
     for (b) |p| freeLarge(&h, p, 34_500);
     try std.testing.expectEqual(@as(usize, 0), h.spans.live);
-    // Aligned to 16 KiB, the Mac's page, it is no span.
-    const al = allocLargeFrom(&h, 34_500, 16 << 10, null).?;
-    try std.testing.expect(!isSpan(@intFromPtr(al)));
-    try std.testing.expectEqual(@as(usize, 0), @intFromPtr(al) % (16 << 10));
+    // Aligned to a system page: on Linux, 4 KiB, a unit, so a span; on
+    // the Mac, 16 KiB, past a unit, so a mapping, whose pages are whole.
+    const pg = std.heap.pageSize();
+    const al = allocLargeFrom(&h, 34_500, pg, null).?;
+    try std.testing.expectEqual(pg <= span_unit, isSpan(@intFromPtr(al)));
+    try std.testing.expectEqual(@as(usize, 0), @intFromPtr(al) % pg);
     freeLarge(&h, al, 34_500);
     trimAllForTest(&h);
+    // Past a page, no block is handed out, on either system, as before
+    // spans: every entry refuses it before `allocLargeFrom`.
+    const past = std.mem.Alignment.fromByteUnits(2 * pg);
+    try std.testing.expect(allocSlow(34_500, past) == null);
+    try std.testing.expect(allocZeroed(34_500, past) == null);
 }
 
 test "a span's pages given back are those wholly inside it past the one that holds its start" {
