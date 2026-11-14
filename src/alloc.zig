@@ -8,7 +8,7 @@
 //! core) goes on the owning heap's remote list, with one
 //! compare-and-swap, for the owner to take back when its own list runs
 //! out. A large block under 16 MiB (`span_max`) is a span: a run of
-//! 16 KiB units of one of its heap's span segments, 32 MiB of the
+//! 4 KiB units of one of its heap's span segments, 32 MiB of the
 //! segments' region each, so taking one, growing one, and freeing one
 //! map and unmap nothing. A span freed, on any thread, goes back to its
 //! segment's heap and joins the free spans beside it (`freeSpan`); a
@@ -590,9 +590,8 @@ fn trimHeap(h: *Heap) usize {
         const f = unkeep(&h.kept, j, 0).?;
         const p = @intFromPtr(f);
         const len = f.len;
-        decommit(p, len);
+        given += decommit(p, len);
         keepPiece(&h.cold, p, len);
-        given += len - std.heap.pageSize();
     }
     given += coolSpans(h, true);
     // A big heap's free lists hold millions of blocks, cold, and its
@@ -756,18 +755,20 @@ const Kept = struct {
 const keep_resident: usize = 1 << 20;
 
 /// Give the pages of the kept block of `len` bytes at `p` back to the
-/// system, all but its first, which holds its header: on Linux with
-/// `MADV_DONTNEED`, which lowers what the program holds at once, as
-/// `MADV_FREE` does only when the system runs short (xmalloc-test held
-/// 289 MB with `MADV_FREE` and 93 MB with this, on pup), and on macOS with
-/// `MADV_FREE_REUSABLE`. Its addresses stay the heap's, and its pages
-/// fault in again, zeroed, as the block is used.
-fn decommit(p: usize, len: usize) void {
-    const pg = std.heap.pageSize();
-    if (len <= pg) return;
-    const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p + pg);
-    const advice: u32 = if (builtin.os.tag == .linux) std.os.linux.MADV.DONTNEED else if (builtin.os.tag.isDarwin()) madv_free_reusable else return;
-    std.posix.madvise(at, len - pg, advice) catch {};
+/// system, those wholly inside it but its first, which holds its header:
+/// on Linux with `MADV_DONTNEED`, which lowers what the program holds at
+/// once, as `MADV_FREE` does only when the system runs short
+/// (xmalloc-test held 289 MB with `MADV_FREE` and 93 MB with this, on
+/// pup), and on macOS with `MADV_FREE_REUSABLE`. A span need not begin or
+/// end on a system page (`span_unit`), and the pages it shares with the
+/// spans beside it stay. Its addresses stay the heap's, and its pages
+/// fault in again, zeroed, as the block is used. Gives the bytes given
+/// back.
+fn decommit(p: usize, len: usize) usize {
+    const r = innerPages(p, len) orelse return 0;
+    const advice: u32 = if (builtin.os.tag == .linux) std.os.linux.MADV.DONTNEED else if (builtin.os.tag.isDarwin()) madv_free_reusable else return 0;
+    std.posix.madvise(r.at, r.len, advice) catch return 0;
+    return r.len;
 }
 
 /// The `len` bytes at `p`, taken from the heap's cold blocks, used
@@ -776,25 +777,46 @@ fn decommit(p: usize, len: usize) void {
 /// as the program's again; elsewhere nothing is needed.
 fn recommit(p: usize, len: usize) void {
     if (!builtin.os.tag.isDarwin()) return;
+    const r = innerPages(p, len) orelse return;
+    std.posix.madvise(r.at, r.len, madv_free_reuse) catch {};
+}
+
+/// The system pages of the `len` bytes at `p` that lie wholly inside
+/// them, past the page that holds `p`, or null if there are none.
+fn innerPages(p: usize, len: usize) ?struct { at: [*]align(std.heap.page_size_min) u8, len: usize } {
     const pg = std.heap.pageSize();
-    if (len <= pg) return;
-    const at: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(p + pg);
-    std.posix.madvise(at, len - pg, madv_free_reuse) catch {};
+    const start = std.mem.alignForward(usize, p + 1, pg);
+    const end = std.mem.alignBackward(usize, p + len, pg);
+    if (end <= start) return null;
+    return .{ .at = @ptrFromInt(start), .len = end - start };
 }
 
 /// macOS's `MADV_FREE_REUSABLE` and `MADV_FREE_REUSE`.
 const madv_free_reusable: u32 = 7;
 const madv_free_reuse: u32 = 8;
 
-/// The bytes a large block takes: its length rounded up to its bucket's
-/// size, so a kept block of that bucket, at least its size, fits it.
+/// The bytes a large block takes: under `span_max`, its length rounded
+/// up to whole `span_unit`s, a span's; from it, its length rounded up to
+/// its bucket's size, so a kept mapping of that bucket, at least its
+/// size, fits it. A span takes its units and no more: rounded to its
+/// bucket as well, an `ast.NodeRec` block of Trig's, 34.5 KB, took
+/// 48 KiB, where it takes 36.
 fn largeSize(len: usize) usize {
+    const units = std.mem.alignForward(usize, len, span_unit);
+    if (units < span_max) return units;
     const pages = std.mem.alignForward(usize, len, std.heap.pageSize());
-    if (pages <= 4 * std.heap.pageSize()) return pages;
     const log: usize = std.math.log2_int(usize, pages - 1);
     const base: usize = @as(usize, 1) << @intCast(log);
     const quarter = base / 4;
     return base + quarter * ((pages - base + quarter - 1) / quarter);
+}
+
+/// The bytes a large block of `len` takes as a mapping of its own: its
+/// `largeSize` in whole system pages. A block under `span_max` is a
+/// mapping only when it is aligned past `span_unit` or the segments'
+/// region has no room for a span (`allocLargeFrom`).
+fn mappedSize(len: usize) usize {
+    return std.mem.alignForward(usize, largeSize(len), std.heap.pageSize());
 }
 
 /// The bucket of `size` bytes: the largest whose size is `size` or less.
@@ -838,20 +860,23 @@ fn keepBound(h: *const Heap) usize {
 }
 
 fn allocLarge(h: *Heap, len: usize) ?[*]u8 {
-    return allocLargeFrom(h, len, null);
+    return allocLargeFrom(h, len, 8, null);
 }
 
-/// `allocLarge`, and whether the block was mapped afresh, or is a span
-/// of units never handed out, so all zero. A free span taken again, or
-/// a block kept, resident or cold, holds old bytes in at least its
-/// first page.
-inline fn allocLargeFrom(h: *Heap, len: usize, mapped: ?*bool) ?[*]u8 {
+/// `allocLarge`, of a block aligned to `alignment`, and whether the
+/// block was mapped afresh, or is a span of units never handed out, so
+/// all zero. A free span taken again, or a block kept, resident or cold,
+/// holds old bytes in at least its first page.
+inline fn allocLargeFrom(h: *Heap, len: usize, alignment: usize, mapped: ?*bool) ?[*]u8 {
     mustOwn(h);
-    const size = largeSize(len);
+    const units = largeSize(len);
     // A block under `span_max` is a span: a free one of this heap's whose
     // pages are resident, else such a one of another heap's, else one of
-    // this heap's whose pages fault in again, else a new one.
-    const n = if (size < span_max) spanUnits(size) else 0;
+    // this heap's whose pages fault in again, else a new one. A span is
+    // aligned to `span_unit`, so a block aligned past it, as to the Mac's
+    // 16 KiB page, is a mapping, as is one the region has no room for.
+    const n = if (units < span_max and alignment <= span_unit) spanUnits(units) else 0;
+    const size = mappedSize(len);
     if (n != 0) if (takeSpan(h, false, n)) |p| return @ptrFromInt(p);
     if (takeKept(&h.kept, size)) |p| {
         lent(h, size);
@@ -873,7 +898,7 @@ inline fn allocLargeFrom(h: *Heap, len: usize, mapped: ?*bool) ?[*]u8 {
         if (mapped) |f| f.* = true;
         h.took(n * span_unit);
         _ = coolSpans(h, false);
-        prefault(h, p, likelyFilled(size - size / 4));
+        prefault(h, p, likelyFilled(units - units / 4));
         return @ptrFromInt(p);
     };
     const got = mapLarge(size) orelse return null;
@@ -1443,8 +1468,8 @@ fn unmapLarge(p: usize, len: usize) void {
 
 fn freeLarge(h: *Heap, p: [*]u8, len: usize) void {
     mustOwn(h);
-    const size = largeSize(len);
-    if (isSpan(@intFromPtr(p))) return freeSpan(h, @intFromPtr(p), size);
+    if (isSpan(@intFromPtr(p))) return freeSpan(h, @intFromPtr(p), largeSize(len));
+    const size = mappedSize(len);
     // A block another heap handed out, freed here, counts against this
     // heap's bound as a new one would. What stays handed out after the
     // free is the settled peak's measure.
@@ -1454,7 +1479,7 @@ fn freeLarge(h: *Heap, p: [*]u8, len: usize) void {
     // A heap that does not do much of the work keeps `keep_resident`
     // bytes resident, and the rest by address only.
     if (faultsAhead(h) or h.kept.bytes + size <= keep_resident) return keepPiece(&h.kept, @intFromPtr(p), size);
-    decommit(@intFromPtr(p), size);
+    _ = decommit(@intFromPtr(p), size);
     keepPiece(&h.cold, @intFromPtr(p), size);
 }
 
@@ -1470,11 +1495,15 @@ const span_max: usize = huge_large;
 /// A span segment: `span_segment_size` bytes of the segments' region,
 /// aligned to their size, so a span's segment is its address rounded
 /// down. Its first `page_size` bytes hold its header, and the rest is
-/// handed out in runs of `span_unit` bytes, which every large size from
-/// 64 KiB is a multiple of; the two below it, 40 and 56 KiB where a
-/// system page is 4 KiB, take 48 and 64.
+/// handed out in runs of `span_unit` bytes, a large block's length
+/// rounded up to them (`largeSize`): a system page on Linux, and a
+/// quarter of one on the Mac, where spans beside each other share a
+/// page. In units of 16 KiB, with lengths rounded to four buckets a
+/// doubling, Trig held 63 MiB of rounding in small and large blocks on
+/// supabase-studio; in units of 4 KiB it holds 24 MiB less, and its peak
+/// memory on the Mac is 15 MiB lower.
 const span_segment_size: usize = 32 << 20;
-const span_unit: usize = 16 << 10;
+const span_unit: usize = 4 << 10;
 const span_units = span_segment_size / span_unit;
 /// The units of a segment's header.
 const span_first = page_size / span_unit;
@@ -1517,7 +1546,7 @@ const SpanBins = struct {
     held: std.atomic.Value(u64) = .init(0),
     bytes: usize = 0,
 };
-const span_bins = 40;
+const span_bins = 48;
 
 /// A heap's spans. A span may be freed, grown, or taken by a thread
 /// other than its heap's, so all of this is read and written under
@@ -1771,7 +1800,7 @@ fn freeSpan(h: *const Heap, p: usize, size: usize) void {
         return;
     }
     sp.lock.unlock();
-    decommit(p, bytes);
+    _ = decommit(p, bytes);
     sp.lock.lock();
     putSpan(sp, seg, s, n, true);
     sp.lock.unlock();
@@ -1851,11 +1880,10 @@ fn coolSpans(o: *Heap, all: bool) usize {
         const n = unlinkSpan(sp, seg, s);
         lendSpan(seg, s, n);
         sp.lock.unlock();
-        decommit(at, n * span_unit);
+        given += decommit(at, n * span_unit);
         sp.lock.lock();
         putSpan(sp, seg, s, n, true);
         sp.lock.unlock();
-        given += n * span_unit - @min(n * span_unit, std.heap.pageSize());
     }
 }
 
@@ -2657,7 +2685,7 @@ noinline fn allocSlow(len: usize, alignment: std.mem.Alignment) ?[*]u8 {
         return p;
     }
     if (alignment.toByteUnits() > std.heap.pageSize()) return null;
-    const p = allocLarge(h, len);
+    const p = allocLargeFrom(h, len, alignment.toByteUnits(), null);
     if (counts) if (p != null) h.count(@intCast(largeSize(len)), 1);
     return p;
 }
@@ -2670,7 +2698,7 @@ pub noinline fn allocRecord(len: usize, alignment: std.mem.Alignment) ?[*]u8 {
     const h = heap() orelse return null;
     if (classOf(len, alignment)) |c| return h.alloc(c);
     if (alignment.toByteUnits() > std.heap.pageSize()) return null;
-    return allocLarge(h, len);
+    return allocLargeFrom(h, len, alignment.toByteUnits(), null);
 }
 
 /// Give back `memory`, a block `allocRecord` made with `alignment`, on
@@ -2702,7 +2730,7 @@ pub noinline fn allocZeroed(len: usize, alignment: std.mem.Alignment) ?[*]u8 {
         break :blk q;
     } else blk: {
         if (alignment.toByteUnits() > std.heap.pageSize()) return null;
-        const q = allocLargeFrom(h, len, &fresh) orelse return null;
+        const q = allocLargeFrom(h, len, alignment.toByteUnits(), &fresh) orelse return null;
         if (counts) h.count(@intCast(largeSize(len)), 1);
         break :blk q;
     };
@@ -2943,7 +2971,7 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
                 if (takeSpan(h, false, spanUnits(new_size))) |q| break :blk @ptrFromInt(q);
                 if (growSpan(h, at, old_size, new_size, true)) break :blk memory.ptr;
             }
-            break :blk allocLarge(h, new_len) orelse return null;
+            break :blk allocLargeFrom(h, new_len, alignment.toByteUnits(), null) orelse return null;
         };
         if (p != memory.ptr) {
             @memcpy(p[0..memory.len], memory);
@@ -2952,8 +2980,11 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
         if (counts) h.count(@intCast(new_size - old_size), 0);
         return p;
     }
-    if (takeKept(&h.kept, new_size)) |p| {
-        lent(h, new_size);
+    // A mapping of its own, in whole system pages.
+    const old_pages = mappedSize(memory.len);
+    const new_pages = mappedSize(new_len);
+    if (takeKept(&h.kept, new_pages)) |p| {
+        lent(h, new_pages);
         @memcpy(p[0..memory.len], memory);
         freeLarge(h, memory.ptr, memory.len);
         if (counts) h.count(@intCast(new_size - old_size), 0);
@@ -2962,11 +2993,11 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
     if (builtin.os.tag != .linux or memory.len < move_large) return null;
     const linux = std.os.linux;
     // A block grown to `huge_large` moves to pages aligned for huge ones.
-    const to = if (new_size >= huge_large) mapLarge(new_size) orelse return null else 0;
+    const to = if (new_pages >= huge_large) mapLarge(new_pages) orelse return null else 0;
     if (builtin.is_test) calls_for_test.mremap += 1;
-    const rc = linux.mremap(@alignCast(memory.ptr), old_size, new_size, .{ .MAYMOVE = true, .FIXED = to != 0 }, if (to != 0) @ptrFromInt(to) else null);
+    const rc = linux.mremap(@alignCast(memory.ptr), old_pages, new_pages, .{ .MAYMOVE = true, .FIXED = to != 0 }, if (to != 0) @ptrFromInt(to) else null);
     if (@as(isize, @bitCast(rc)) < 0 and @as(isize, @bitCast(rc)) > -4096) {
-        if (to != 0) unmapLarge(to, new_size);
+        if (to != 0) unmapLarge(to, new_pages);
         return null;
     }
     // A block that grows to `huge_page` or more asks for huge pages, as
@@ -2974,13 +3005,13 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
     // grew from, so a block that had asked asks again only as it moves
     // to pages aligned for huge ones, as the system may have had no free
     // 2 MiB blocks for it when it asked.
-    if (new_size >= huge_page and (to != 0 or old_size < huge_page)) _ = ask(rc, new_size, .huge);
+    if (new_pages >= huge_page and (to != 0 or old_pages < huge_page)) _ = ask(rc, new_pages, .huge);
     // The pages moved stay; of the new ones, those a List is likely to
     // fill are faulted in at once.
-    h.took(new_size - old_size);
-    lent(h, new_size - old_size);
+    h.took(new_pages - old_pages);
+    lent(h, new_pages - old_pages);
     trimKept(h);
-    prefault(h, rc + old_size, likelyFilled((new_size - old_size) / 2));
+    prefault(h, rc + old_pages, likelyFilled((new_pages - old_pages) / 2));
     if (counts) h.count(@intCast(new_size - old_size), 0);
     return @ptrFromInt(rc);
 }
@@ -3462,6 +3493,38 @@ test "a span grows where it lies: into the free span after it, at its segment's 
     a.free(w);
     a.free(z2);
     trimAllForTest(h);
+}
+
+test "a span takes its units and no more, and a block aligned past a unit is a mapping aligned as asked" {
+    var h = testHeap();
+    h.taken = prefault_big;
+    // Blocks of 34.5 KB, Trig's `ast.NodeRec`, lie 36 KiB apart.
+    var b: [3][*]u8 = undefined;
+    for (&b) |*p| p.* = allocLarge(&h, 34_500).?;
+    try std.testing.expectEqual(@intFromPtr(b[0]) + (36 << 10), @intFromPtr(b[1]));
+    try std.testing.expectEqual(@intFromPtr(b[1]) + (36 << 10), @intFromPtr(b[2]));
+    try std.testing.expectEqual(3 * (36 << 10), h.spans.live);
+    for (b) |p| freeLarge(&h, p, 34_500);
+    try std.testing.expectEqual(@as(usize, 0), h.spans.live);
+    // Aligned to 16 KiB, the Mac's page, it is no span.
+    const al = allocLargeFrom(&h, 34_500, 16 << 10, null).?;
+    try std.testing.expect(!isSpan(@intFromPtr(al)));
+    try std.testing.expectEqual(@as(usize, 0), @intFromPtr(al) % (16 << 10));
+    freeLarge(&h, al, 34_500);
+    trimAllForTest(&h);
+}
+
+test "a span's pages given back are those wholly inside it past the one that holds its start" {
+    const pg = std.heap.pageSize();
+    const base: usize = 1 << 30;
+    try std.testing.expect(innerPages(base, pg) == null);
+    const whole = innerPages(base, 4 * pg).?;
+    try std.testing.expectEqual(base + pg, @intFromPtr(whole.at));
+    try std.testing.expectEqual(3 * pg, whole.len);
+    // A span that begins and ends inside pages keeps both.
+    const part = innerPages(base + 4096, 3 * pg).?;
+    try std.testing.expectEqual(base + (if (pg == 4096) 2 * pg else pg), @intFromPtr(part.at));
+    try std.testing.expectEqual(2 * pg, part.len);
 }
 
 test "spans freed join the free spans beside them, in any order, and one freed on another thread goes back to its heap" {
@@ -4550,16 +4613,26 @@ test "on Linux and macOS a run of the executable maps privately: it reads the ru
     try std.testing.expect(mapRun(mapped_blob[0 .. map_min - 1]) == null);
 }
 
-test "every large size is its bucket's size" {
-    var pages: usize = 1;
-    while (pages < 1 << 16) : (pages += 1) {
-        const len = pages * std.heap.pageSize();
+test "a large size under 16 MiB is its whole units, and every larger one its bucket's size" {
+    var units: usize = 1;
+    while (units < 1 << 18) : (units += 1) {
+        const len = units * span_unit;
         if (len <= max_small) continue;
+        // A span takes its length's units and no more.
+        if (len < span_max) {
+            try std.testing.expectEqual(len, largeSize(len));
+            try std.testing.expectEqual(len, largeSize(len - span_unit + 1));
+            try std.testing.expectEqual(0, mappedSize(len) % std.heap.pageSize());
+            continue;
+        }
         const size = largeSize(len);
         try std.testing.expect(size >= len);
+        try std.testing.expectEqual(size, mappedSize(len));
         // The bucket a block of `size` falls in holds only blocks of
         // `size` or more, so a request takes any block of it.
         const k = largeBucket(size);
         try std.testing.expect(k == 0 or largeBucket(size - 1) < k);
     }
+    // Trig's `ast.NodeRec` blocks, 34.5 KB, take 36 KiB, not 48.
+    try std.testing.expectEqual(36 << 10, largeSize(34_500));
 }

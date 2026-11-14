@@ -507,6 +507,16 @@ it where the negation was meant. Trig has no such site.
 
 ### Runtime
 
+- **A span takes its 4 KiB units and no more:** a large block under
+  16 MiB is a run of 4 KiB units of a span segment, its length rounded
+  up to whole units, where it was rounded to four buckets a doubling
+  and then to 16 KiB units. Trig's `ast.NodeRec` blocks of 34.5 KB take
+  36 KiB, where they took 48. On the Mac, Trig's peak memory is 15 MiB
+  lower on supabase-studio at one checker (1280 to 1265 MiB) and 14 MiB
+  at four, and 6 MiB lower on webpack at one and at four, at the same
+  speed. A unit is a quarter of the Mac's page, so there a block aligned
+  past 4 KiB is a mapping of its own, and a span gives back to the
+  system only the pages wholly inside it.
 - **An index tests both ends with one compare:** `xs[i]`, `xs[i] = v`,
   `get`, `insert`, `remove`, `swap_remove`, `keep`, and `swap` on a
   List or a slice of elements of at least a byte read a signed index as
