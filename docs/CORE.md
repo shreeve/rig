@@ -2163,12 +2163,14 @@ rule in SYNTAX is syntax too.
   `(!a if c else !b).x`, and a slice lend, `(?t[..])[0]`, are values,
   not lends of a place. *(built)*
 - **A write call whose `Bool` value is used** is written
-  `(!s).insert(k)`, everywhere: a condition, an `as` header, an operand,
-  a binding, an argument, a result, so its `!` never reads as `not`.
-  Any other write call is written short wherever its value goes,
-  `x = !v.pop()`; the result its method declares decides, so a call
-  returning a `T` that is a `Bool` is short too. The long form
-  `(!v).pop()` is valid everywhere. *(built)*
+  `(!s).insert(k)`, or `not (!s).insert(k)` for its opposite,
+  everywhere: a condition, an `as` header, an operand, a binding, an
+  argument, a result. A `!` is rejected wherever reading it as `not`
+  would also type-check. Any other write call is written short wherever
+  its value goes, `x = !v.pop()`; the result is judged with self's type
+  arguments applied where the call knows them, so `!flags.remove(0)`
+  on a `List[Bool]` is a `Bool`, and a `T` in a generic body is short.
+  The long form `(!v).pop()` is valid everywhere. *(built)*
 - **Labels**, the `catch` forms, `pass`, and `??`.
 - **Habits from other languages that keep Rig's meaning,** documented
   rather than changed: integer `/` and `%` truncate as in C; `u?.n`
@@ -2206,7 +2208,7 @@ sub main()
 ```
 
 ```error
-write `(!s).insert(1)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`
+`!` lends `s` to write and never negates: write `(!s).insert(1)` for what `insert` returns, or `not (!s).insert(1)` for its opposite
 ```
 
 ## 9. Inside the compiler

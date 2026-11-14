@@ -2247,26 +2247,33 @@ A `?`, `!`, or `<` before a place and a method call marks self:
 `!v.push(x)` is `(!v).push(x)` ([SYNTAX §5](docs/SYNTAX.md#self-sigils)).
 Writing `?` is optional, since a read self is lent without it. The
 short form is checked against the method: `!` before a method that
-does not take `!@` is rejected (it reads as negation, which is
-`not`), `<` before one that does not take `<@`, `?` before one that
-takes `!@` or `<@`, and any of them before a function with no
-self (`Point.origin()`). A
-write call whose value is used and whose method declares a `Bool`
-result (or a `Bool` that may fail, `Bool!`) is written in the long
-form, `(!set).insert(k)`, wherever the value goes (a condition, an
-`as` header, an operand, a binding, an argument, a return value, a
-function's or a closure's last line, a `match` subject, `??`), so its
-`!` never reads as negation: `if !seen.insert(k)` would read as "if
-not inserted". Any other write call is written short wherever its
-value goes, `x = !v.pop()`, `while !it.next() as x`, `t =
-!@new_node(k)`. The result the method declares decides, before its
-type's arguments apply: `!flags.remove(0)` on a `List[Bool]` returns
-`T`, and is short. A `for` source is no exception: `for x in
-!b.drain()` is `for x in (!b).drain()` ([for](#for)). A `Bool`
-call whose value is discarded is short
-too: a statement `!set.insert(k)`, alone or under `!`, `?`, or `catch`,
-and `_ = !set.insert(k)`, since `_ =` discards. The long form
-`(!v).pop()` is valid everywhere.
+does not take `!@` is rejected, `<` before one that does not take
+`<@`, `?` before one that takes `!@` or `<@`, and any of them before a
+function with no self (`Point.origin()`).
+
+`!` never negates, and one principle says where it cannot stand: **a
+`!` is rejected wherever reading it as `not` would also type-check.**
+That is `!done` where a `Bool` is read ([Operators](#operators)), `!`
+before a method that only reads and returns a `Bool` (`if
+!q.is_empty()`), and a write call whose value is used and is a `Bool`
+(or a `Bool` that may fail, `Bool!`), wherever the value goes (a
+condition, an `as` header, an operand, a binding, an argument, a
+return value, a function's or a closure's last line, a `match`
+subject, `??`): `if !seen.insert(k)` would read as "if not inserted".
+Such a call is written in the long form, `(!set).insert(k)` for what
+it returns, or `not (!set).insert(k)` for its opposite. Its result is
+judged with self's type arguments applied where the call knows them:
+`!flags.remove(0)` on a `List[Bool]` returns a `Bool`, and is written
+`(!flags).remove(0)`, while inside a generic body, where a `List[T]`'s
+`T` is a parameter, `!xs.remove(0)` returns a `T`, and is short. Any
+other write call is written short wherever its value goes, `x =
+!v.pop()`, `while !it.next() as x`, `t = !@new_node(k)`. A `for`
+source is no exception: `for x in !b.drain()` is `for x in
+(!b).drain()` ([for](#for)). A `Bool` call whose value is discarded is
+short too, since a discarded `not` means nothing: a statement
+`!set.insert(k)`, alone or under `!`, `?`, or `catch`, and `_ =
+!set.insert(k)`, since `_ =` discards. The long form `(!v).pop()` is
+valid everywhere.
 
 ```rig
 obj Tally
@@ -2346,7 +2353,7 @@ sub main()
 ```
 
 ```error
-write `(!t).insert(1)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`
+`!` lends `t` to write and never negates: write `(!t).insert(1)` for what `insert` returns, or `not (!t).insert(1)` for its opposite
 ```
 
 ```rig
@@ -5763,8 +5770,9 @@ sub main()
 `and`, `or`, and `not` take `Bool`s, and `and` and `or` short-circuit:
 the right side runs only when the left does not decide. The spellings
 `&&` and `||` are rejected with a hint. Prefix `!` always lends to write, never
-negation: a `!x` whose `Bool` value would be read (a condition, an
-operand, a binding, an argument) is rejected. It is valid only where a
+negation, and is rejected wherever reading it as `not` would also
+type-check ([§3](#objects)): a `!x` whose `Bool` value would be read (a
+condition, an operand, a binding, an argument) is rejected. It is valid only where a
 `!Bool` is expected, as for an argument to a `flag: !Bool` parameter.
 
 `not` binds looser than a comparison and tighter than `and` and `or`:
@@ -7322,7 +7330,11 @@ a `fun f() -> T!`, a `sub f()!`, `sub main()`, a closure whose type can
 fail, or a test. In a function, closure, or `drop` body that cannot
 fail, or inside deferred code, it is rejected: write `defer`. A deferred body may not move or drop
 outer bindings, even one it assigns again (`defer x = f(<x)`), or propagate with `!`. It runs after the values declared
-after it are dropped, so it may not read one through a view. A
+after it are dropped, so it may not read one through a view. An exit
+inside a call's arguments, `!v.push(parse(w)!)`, leaves before the call
+starts, so a deferred body it runs may write `v`, the call's self: the
+call never takes it. A lend an earlier argument already made,
+`keep(!v, parse(w)!)`, stays in force while it runs. A
 one-line `defer` or `errdefer` cannot declare a name, nor several
 results' names (`defer q, r = f()`); a deferred block can. Nor is its
 statement a `defer` or an `errdefer` itself: it runs at the exit already.
@@ -14439,6 +14451,62 @@ sub main()
 ```output
 [90, 70, 40, 30, 20, 10]
 26
+```
+
+`par.push(!t, ?sizes, f)` pushes `sizes.sum()` slots onto a
+[Table](#table) at once and writes them on several tasks, a run at a
+time: run `k` is the next `sizes[k]` slots, in order from the table's
+`len` before the call, and `f(!run, k)` takes it as a `![]T`.
+
+- `sizes` is a List, an array, or a slice of `Int`. The call panics
+  before any task starts when a size is negative, and with `push`'s
+  message, "a table of `n` slots is full", when the slots do not fit.
+- Run `k` is the same slots whichever task takes it, so the table ends
+  as a loop of `!t.push(x)` in the order of the runs leaves it. Until
+  `f` writes a slot, it holds what it held, `T()` unless written by
+  slot.
+- `limit:`, the chunks the tasks take, and failure are as for
+  `par.each`, over the runs: with one task, or one run, the calling
+  task writes the runs in order. A failure leaves the slots pushed.
+
+`t` is lent to write for the call, as any `!` argument is, and the
+runs are disjoint slices of its slots, each lent to one task, as
+`par.each` lends each element. `f` is as for `par.each`, and takes the
+run and its index; `T` must be sendable.
+
+```rig
+use std.par
+
+obj Rec
+  file: U32 = 0
+  local: U32 = 0
+
+sub main()
+  t: Table[Rec, 1024] = Table()
+  !t.push(Rec())
+  sizes = List([3, 0, 2])
+  par.push(!t, ?sizes, |run, k|
+    for r, l in !run
+      r = Rec(file: U32(k), local: U32(l))
+  )
+  print(t.len, t[4].file, t[5].local)
+```
+
+```output
+6 2 1
+```
+
+```rig reject
+use std.par
+
+sub main()
+  t: Table[Int, 64] = Table()
+  sizes = List([2, 2])
+  par.push(!t, ?sizes, |?t, run, k| run[0] = t.len)
+```
+
+```error
+cannot lend `t` to read while a write loan is live
 ```
 
 ---

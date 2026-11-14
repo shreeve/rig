@@ -28,7 +28,7 @@ Rig gives each through the same `&` and `>t`, on one scheduler.
 |---|---|---|
 | Threads and preemption | OS threads, Go | nothing: the runtime runs a worker per core |
 | Async I/O | Tokio | an ordinary call that reads a socket |
-| Compute | Rayon | `t = f()&`, `g()`, `>t`; `par.map`, `par.each` |
+| Compute | Rayon | `t = f()&`, `g()`, `>t`; `par.map`, `par.each`, `par.push` |
 | Tasks | Go | `f()&`, `Tasks[T]`, `<t.cancel()`, `time.within` |
 | Actors | Erlang | `*Actor(x)`, and its methods called through the handle |
 | Structured concurrency | Swift | nothing more: a task belongs to its scope |
@@ -143,7 +143,9 @@ spread with no such delay. If no worker took the task, `>t` runs it at
 once by handoff (below).
 `par.map(?xs, f)` and `par.each(!xs, f)` run a function over a list on
 one task per worker, or `limit:` of them, and
-`par.workers(!states, ?items, f)` gives each task a state of its own.
+`par.workers(!states, ?items, f)` gives each task a state of its own;
+`par.push(!t, ?sizes, f)` pushes a Table's next slots at once and has
+the tasks write them, a run each.
 Results come in the order of the input, and every task calls the one
 closure, so it may capture nothing lent to write.
 

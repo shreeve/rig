@@ -216,6 +216,19 @@ pub fn Table(comptime T: type, comptime n: u64) type {
             return s;
         }
 
+        /// `par.push`'s push of `total` slots at once (`tasks.parPushInto`):
+        /// panics as `push` does unless they fit, and gives the first. Each
+        /// slot keeps what it holds, `T()` unless written by slot, for the
+        /// tasks to write in place; a committed table holds them all
+        /// first, since the tasks write past `cap` at once.
+        pub fn pushRuns(self: *Self, total: u64) u64 {
+            if (total > n - self.len) fullPanic(n);
+            const first = self.len;
+            if (comptime how == .committed) if (total > 0 and first + total > self.cap) self.grow(@intCast(first + total - 1));
+            self.len += total;
+            return first;
+        }
+
         /// A slot's offset: below `n` by its type, which a debug build
         /// asserts, as a proven test is (`verify_proofs`).
         inline fn offset(s: Index) usize {

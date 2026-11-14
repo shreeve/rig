@@ -131,7 +131,10 @@
 //!   effects are undone after the check. A `defer` runs after the value
 //!   the exit leaves with is formed (a result, a `break` value, a
 //!   block's value), so that value's loans are in force while it is
-//!   checked (`ExitTo.result`); a returned write view has moved.
+//!   checked (`ExitTo.result`); a returned write view has moved. An exit
+//!   that leaves a statement before a call in it starts ends the holds
+//!   that wait for that call (`dropPendingHolds`): `!v.push(f()!)` under
+//!   `errdefer !v.clear()` is accepted, as `x = f()!` then `!v.push(x)`.
 
 const std = @import("std");
 const parser = @import("parser.zig");
@@ -2010,10 +2013,15 @@ pub const Checker = struct {
             // The defers that `e` runs, re-checked against the state here.
             const back: ?Point = if (e.goesOn()) try self.here() else null;
             const top = self.scopes.items.len - 1;
+            const held = if (e == .scope_end) null else try self.dropPendingHolds(x.to);
             switch (e) {
                 .scope_end => try self.runDefers(top, false, x.result),
                 .jump => |depth| try self.runDefersTo(depth, false, x.result),
                 .@"return", .propagate => |fails| try self.runDefersTo(0, fails, x.result),
+            }
+            if (held) |h| {
+                self.temps.clearRetainingCapacity();
+                try self.temps.appendSlice(self.gpa, h);
             }
             if (back) |p| try self.rewind(p);
         }
@@ -2027,6 +2035,36 @@ pub const Checker = struct {
             s.temps = to.temps;
         };
         return s;
+    }
+
+    /// Before the defers of an exit that leaves the statement it is in
+    /// run (a `return`, `e!`, `e?`, a jump), drop from the temporaries
+    /// the read loans that hold a place only until an operation the
+    /// exit abandons runs: a write self's reservation, which is read
+    /// until its call starts (`reserved`), a place found up to an index
+    /// (`place_hold`), and a value read in place for a consumer that
+    /// runs after the later operands (`held_read`). The exit leaves
+    /// before that operation, so it never runs: no call starts, nothing
+    /// reads the value, and none of them holds a value to drop. Each
+    /// other loan stays, a write lend already made among them (`f(!v,
+    /// g()!)`), and so does every hold the point a jump goes to keeps
+    /// (`to`). Returns the temporaries to restore after.
+    fn dropPendingHolds(self: *Checker, to: ?Point) Error!?[]const Loan {
+        var any = false;
+        for (self.temps.items) |l| if (pendingHold(l) and !(if (to) |p| containsLoan(p.temps, l) else false)) {
+            any = true;
+            break;
+        };
+        if (!any) return null;
+        const held = try self.arena().dupe(Loan, self.temps.items);
+        var n: usize = 0;
+        for (held) |l| {
+            if (pendingHold(l) and !(if (to) |p| containsLoan(p.temps, l) else false)) continue;
+            self.temps.items[n] = l;
+            n += 1;
+        }
+        self.temps.shrinkRetainingCapacity(n);
+        return held;
     }
 
     /// Report each var below `depth` that keeps a loan on a var at
@@ -8800,6 +8838,12 @@ fn isIdentStart(c: u8) bool {
 fn isLendOf(lends: []const Loan, l: Loan) bool {
     for (lends) |x| if (x.root == l.root and x.path == l.path and !x.ext) return true;
     return false;
+}
+
+/// Whether `l` holds a place only until a pending operation runs
+/// (`Checker.dropPendingHolds`).
+fn pendingHold(l: Loan) bool {
+    return l.kind == .read and (l.reserved or l.place_hold or l.held_read != .none);
 }
 
 fn containsLoan(set: []const Loan, l: Loan) bool {

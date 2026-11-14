@@ -121,6 +121,18 @@ none of these ever built:
   "closure parameter `x` needs a type", or "cannot infer `T`", where
   `rig build` reported an internal error.
 
+**A write call whose `Bool` value is used is judged with self's type
+arguments applied:** `!flags.remove(0)` on a `List[Bool]`, or `!b.take()`
+on a `Box[Bool]` whose `take` returns `T`, is a `Bool`, so where its
+value is used (`if !flags.remove(0)`, `x = !b.take()`) it is rejected
+now, as `if !seen.add(k)` is: "`!` lends `flags` to write and never
+negates: write `(!flags).remove(0)` for what `remove` returns, or `not
+(!flags).remove(0)` for its opposite". 0.3.0 judged the result the
+method declares, `T`, and accepted the short form, which a reader of
+C, Rust, or Go takes for `not`. Inside a generic body, where `T` is a
+parameter, the short form stays. Write the long form, or `not` before
+it where the negation was meant. Trig has no such site.
+
 ### Removed
 
 - **`--release=fast`**, Zig's fast mode, from `rig run`, `rig build`,
@@ -138,6 +150,8 @@ none of these ever built:
 
 ### Added
 
+- **`par.push(!t, ?sizes, f, limit: n)`** of std.par pushes `sizes.sum()` slots onto a Table at once and writes them on several tasks, a run at a time: run `k` is the next `sizes[k]` slots, in order, and `f(!run, k)` takes it as a `![]T`. The table ends as a serial loop of pushes leaves it, at any worker count and seed. The sizes and the room are tested before any task starts, a full table panicking with `push`'s message. bench/par-push times it against a serial loop.
+- **`par.each` with a function that gives a value** is rejected, with "`par.each` keeps nothing its function gives", where Zig rejected the program it emitted.
 - **std.shared**: `shared.Map[K, V]`, a map several tasks fill and read at once. A key keeps the first value put under it, and nothing is replaced or taken, so `get` gives a view of the value where it lies with no lock and no write to memory another task reads; `put_new` and `ensure` lock one of 64 shards. It lives behind `*shared.Map[K, V]`, whose handles go to any task. bench/shared times it against Maps behind actors.
 - **A word-Cell object goes to other tasks.** An object that holds a Cell and whose every field, as declared, is plain data, a Cell of one word, or another such object changes through a handle only by its Cells, so its handles are counted atomically and cross cores, as a `*Cell[Int]`'s do (Core sentence 9). The error for one that stays with one task names the field that keeps it. A program whose tasks were local only because they took such a handle now runs them on any core, so a race already in it, such as a `get` then a `set` of one of its Cells, becomes live.
 - **`task.workers(n)` raises the workers after the first task.** A program that learns how much work it has only once running, as a checker does after parsing, can ask for more workers then. A deterministic run keeps to one thread.
@@ -267,6 +281,23 @@ none of these ever built:
 
 ### Compiler
 
+- An exit inside a call's arguments runs its defers with self lent to
+  no one, since the call never starts: `!nums.push(text.parse_int(w)!)`
+  under `errdefer !nums.resize(n, 0)` is accepted, where it was rejected
+  with "cannot lend `nums` to write while a read loan is live", and so
+  are the same shape under a `defer`, a `?`, a `return` or `continue`
+  in the argument, two write calls pending at once, and an index the
+  failure is in (`!g[text.parse_int(w)!].push(1)`). A lend an earlier
+  argument made, `keep(!nums, text.parse_int(w)!)`, stays rejected.
+- One principle decides where a `!` cannot stand: a `!` is rejected
+  wherever reading it as `not` would also type-check. A write call
+  whose `Bool` value is used says so: "`!` lends `seen` to write and
+  never negates: write `(!seen).add(3)` for what `add` returns, or
+  `not (!seen).add(3)` for its opposite", and under `not`, where the
+  negation is plain, offers only `not (!seen).add(3)`. The result is
+  judged with self's type arguments applied where the call knows them,
+  so `!flags.remove(0)` on a `List[Bool]` is a `Bool`; inside a generic
+  body a `T` stays a `T`.
 - An object or payload enum that holds a generic of another module
   whose fields name the generic's parameter as an optional (`kids:
   List[T?]` in `W[T]`, held as `w.W[Node]` in `Node`) is rejected with

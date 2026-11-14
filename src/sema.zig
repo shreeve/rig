@@ -5864,8 +5864,8 @@ pub const SemContext = struct {
         try self.facts.par_calls.put(self.allocator, recordExprKey(call) orelse return, kind);
     }
 
-    /// Which of `par.map` and `par.each` `call` is, or null for any
-    /// other call (`recordParCall`).
+    /// Which of `par.map`, `par.each`, `par.workers`, and `par.push`
+    /// `call` is, or null for any other call (`recordParCall`).
     pub fn parCallOf(self: *const SemContext, call: Sexp) ?ParCall {
         return self.facts.par_calls.get(exprKey(call) orelse return null);
     }
@@ -12086,9 +12086,11 @@ pub fn taskResult(ctx: *const SemContext, ty: TypeId) ?TypeId {
 pub const Crossing = enum { moves, shares };
 
 /// `par.map(?xs, f)`, which gives each call's value, `par.each(!xs, f)`,
-/// which writes each element, or `par.workers(!states, ?items, f)`,
-/// which gives each call's value, each task with a state of its own.
-pub const ParCall = enum { map, each, workers };
+/// which writes each element, `par.workers(!states, ?items, f)`, which
+/// gives each call's value, each task with a state of its own, or
+/// `par.push(!t, ?sizes, f)`, which pushes a table's next slots and
+/// writes them a run at a time.
+pub const ParCall = enum { map, each, workers, push };
 
 /// Whether a value of `ty` meets `how` (`Crossing`): nothing it reaches
 /// is a `*T` or `~T`, whose counts are not atomic, a `Cell` or a

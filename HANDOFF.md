@@ -111,6 +111,12 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **`par.push`** (branch `par-push`): `par.push(!t, ?sizes, f)` of
+  std.par pushes a Table's next slots at once and writes them on
+  several tasks, a run each, for Trig's Ids.of (Trig branch `par-ids`).
+  The owner approved the name and the build; it lands after the core
+  suite, the Trig and loco light gates, and pup timing. Design:
+  `~/Data/Code/Claude/rig/rig/proposals/table-par-fill.md`.
 - **`shared.Map`** (branch `concurrent-map`, draft PR): a map
   several tasks fill and read, insert-only, lookups that take no lock
   and write nothing shared, values viewed in place. It rests on one

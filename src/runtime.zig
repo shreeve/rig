@@ -105,6 +105,7 @@ pub const actorSpawn = tasks.actorSpawn;
 pub const isolateInto = tasks.isolateInto;
 pub const monotonicNs = tasks.monotonicNs;
 pub const parEachInto = tasks.parEachInto;
+pub const parPushInto = tasks.parPushInto;
 pub const parWorkersInto = tasks.parWorkersInto;
 pub const enterDeadline = tasks.enterDeadline;
 pub const restoreDeadline = tasks.restoreDeadline;
