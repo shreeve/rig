@@ -278,6 +278,14 @@ it where the negation was meant. Trig has no such site.
 
 ### Compiler
 
+- An exit inside a call's arguments runs its defers with self lent to
+  no one, since the call never starts: `!nums.push(text.parse_int(w)!)`
+  under `errdefer !nums.resize(n, 0)` is accepted, where it was rejected
+  with "cannot lend `nums` to write while a read loan is live", and so
+  are the same shape under a `defer`, a `?`, a `return` or `continue`
+  in the argument, two write calls pending at once, and an index the
+  failure is in (`!g[text.parse_int(w)!].push(1)`). A lend an earlier
+  argument made, `keep(!nums, text.parse_int(w)!)`, stays rejected.
 - One principle decides where a `!` cannot stand: a `!` is rejected
   wherever reading it as `not` would also type-check. A write call
   whose `Bool` value is used says so: "`!` lends `seen` to write and
