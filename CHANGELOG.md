@@ -516,12 +516,16 @@ it where the negation was meant. Trig has no such site.
   optimizer, so past a test `i < n` of that length the compare folds to
   the sign test alone: std.json's six guard files retire 0.5 to 2.5%
   fewer instructions than before.
-- **A match on a plain enum makes no test of its tag:** Zig's safe mode
-  tests that a switched enum holds one of its tags; safe Rig never holds
-  another, so emit switches on `rig.namedTag(x)`, which states the range
-  to the optimizer, and an optimized build drops the test. A match inside
-  `raw`, a debug build, and an enum whose values are not one run of
-  integers keep it.
+- **A match on an enum makes no test of its tag:** Zig's safe mode
+  tests that a switched enum or payload enum holds one of its tags,
+  before every switch on it, one with an `else` prong too; safe Rig never
+  holds another, so emit switches on `rig.namedTag(x)`, which states the
+  range to the optimizer, and an optimized build drops the test. A
+  payload enum held in a place, and any subject a payload or the whole
+  value is captured from by pointer, is switched on where it is,
+  `rig.namedTagAt(&x).*`, so each pointer is into the place's own value.
+  A match inside `raw`, a debug build, and an enum whose values are not
+  one run of integers keep it.
 - **`std.file` writes no fill over its buffers:** Zig's safe builds
   write 0xAA over every `undefined` local at each call, and `std.file`
   kept large ones on the stack. `read_dir` takes its 32 KiB buffer from

@@ -4369,31 +4369,64 @@ pub inline fn offsetBelow(i: anytype, comptime n: u64) ?u64 {
 /// A Rig enum's value, stated to the optimizer as one of its named
 /// tags: `switch (rig.namedTag(k))` in an optimized build makes no test
 /// that `k` holds a named tag, which Zig's safe mode makes before each
-/// switch on an enum. Safe Rig makes an enum's value only by naming a
+/// switch on an enum or a payload enum (a tagged union), one with an
+/// `else` prong too. Safe Rig makes an enum's value only by naming a
 /// variant or by a checked conversion (`E.from_int`, `E.from_text`), so
 /// it always holds one. A debug build keeps Zig's test, which checks the
 /// fact, as `proven_checks` does. An enum whose tags are not one run of
 /// integers keeps it too: a range is what the optimizer folds.
 pub inline fn namedTag(e: anytype) @TypeOf(e) {
-    const E = @TypeOf(e);
-    if (comptime proven_checks or @typeInfo(E) != .@"enum") return e;
+    const T = @TypeOf(e);
+    if (comptime namedTagRun(T) != null) holdsNamedTag(T, namedTagOf(T, e));
+    return e;
+}
+
+/// `namedTag` of the enum or payload enum `p` points to, which a switch
+/// reaches in place: `switch (rig.namedTagAt(&s).*)` captures payloads
+/// by pointer where `s` holds them and copies nothing.
+pub inline fn namedTagAt(p: anytype) @TypeOf(p) {
+    const T = @typeInfo(@TypeOf(p)).pointer.child;
+    if (comptime namedTagRun(T) != null) holdsNamedTag(T, namedTagOf(T, p.*));
+    return p;
+}
+
+/// The tag of `v`, a `T` that is an enum or a tagged union.
+inline fn namedTagOf(comptime T: type, v: T) if (@typeInfo(T) == .@"union") @typeInfo(T).@"union".tag_type.? else T {
+    return v;
+}
+
+/// `lo <= tag <= hi`, the run `namedTagRun(T)`, by how safe Rig makes
+/// an enum (`namedTag`).
+inline fn holdsNamedTag(comptime T: type, tag: anytype) void {
+    const run = comptime namedTagRun(T).?;
+    @setRuntimeSafety(false);
+    const v = @intFromEnum(tag);
+    if (v < run[0] or v > run[1]) unreachable;
+}
+
+/// The run of integers `.{lo, hi}` that the named tags of `T`, an enum
+/// or a tagged union, fill, when Zig tests a switch's value of `T`
+/// against them in this build: null in a debug build, for any other
+/// type, for tags that are no one run, and for tags that are every
+/// value of their integer type, which Zig has no test for.
+fn namedTagRun(comptime T: type) ?[2]comptime_int {
+    if (proven_checks) return null;
+    const E = switch (@typeInfo(T)) {
+        .@"enum" => T,
+        .@"union" => |u| u.tag_type orelse return null,
+        else => return null,
+    };
     const info = @typeInfo(E).@"enum";
     const values = info.field_values;
-    if (comptime info.mode != .exhaustive or values.len < 2) return e;
-    comptime var lo = values[0];
-    comptime var hi = values[0];
-    inline for (values) |x| {
+    if (info.mode != .exhaustive or values.len < 2) return null;
+    var lo = values[0];
+    var hi = values[0];
+    for (values) |x| {
         lo = @min(lo, x);
         hi = @max(hi, x);
     }
-    // A run of integers, and not every value of the tag type, which Zig
-    // has no test for.
-    if (comptime hi - lo + 1 != values.len or values.len == 1 << @bitSizeOf(info.tag_type)) return e;
-    // `lo <= tag <= hi` by how safe Rig makes an enum (above).
-    @setRuntimeSafety(false);
-    const v = @intFromEnum(e);
-    if (v < lo or v > hi) unreachable;
-    return e;
+    if (hi - lo + 1 != values.len or values.len == 1 << @bitSizeOf(info.tag_type)) return null;
+    return .{ lo, hi };
 }
 
 /// A duration of `n` units of `unit` nanoseconds (`sema.Duration`):

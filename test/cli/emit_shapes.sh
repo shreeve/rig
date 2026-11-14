@@ -151,7 +151,7 @@ sub main()
   print(a.all())
 EOF2
 out=$("$RIG" emit generic.rig 2>/dev/null) || fail "rig emit generic.rig"
-expect_has "$out" 'switch (self.*)' "generic subject switched in place"
+expect_has "$out" 'switch (rig.namedTagAt(&self.*).*)' "generic subject switched in place"
 
 # So does one on a generic read view a field or an element holds (`w.r`,
 # `arr[1]`), guarded or not: emit never takes the address of a field of
@@ -194,7 +194,8 @@ sub main()
   print(f(?w), g(?w), h(?o, ?o))
 EOF2
 out=$("$RIG" emit viewfield.rig 2>/dev/null) || fail "rig emit viewfield.rig"
-expect_has "$out" 'switch (w.r.*)' "generic view in a field switched in place"
+expect_has "$out" 'switch (rig.namedTagAt(&w.r.*).*)' "generic view in a field switched in place"
+expect_has "$out" 'switch (rig.namedTagAt(&arr[0].*).*)' "an element whose payload is captured by pointer switched in place"
 expect_has "$out" '&w.r.*.some.v' "guarded payload of a generic view in a field"
 grep -qF '&rig.viewed(' <<<"$out" && fail "the address of a field of a rig.viewed copy: $out"
 grep -qE 'switch \(rig\.viewed\(' <<<"$out" && fail "a switch on a rig.viewed copy: $out"

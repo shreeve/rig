@@ -611,3 +611,135 @@ code "a match on a plain enum states its tag is named", "switch (rig.namedTag(k)
         2
 
   print(f(.green))
+
+test "match over every variant of a payload enum in a release build", "245", release: true, whole: true
+  # A payload enum holds a named tag too: each switch states it, on a
+  # place where it is (`rig.namedTagAt`) and on a value as a value, and
+  # every arm still runs, reading, writing, and taking its payload.
+
+  enum Shape
+    circle(radius: Int)
+    rect(w: Int, h: Int)
+    tri(a: Int, b: Int, c: Int)
+    point
+    line(n: Int)
+
+  called fun area(ss: ?List[Shape], i: Int) -> Int
+    match ss[i]
+      .circle(r) => 3 * r * r
+      .rect(:w, :h) => w * h
+      .tri(:a, :b, :c) => a + b + c
+      .point => 0
+      .line(n) => n
+
+  called sub grow(ss: !List[Shape], i: Int)
+    match !ss[i]
+      .circle(r) => r += 1
+      .rect(:w) => w += 1
+      .tri(:a) => a += 2
+      .point => pass
+      .line(n) => n += 5
+
+  called fun take(s: Shape) -> Int
+    match <s
+      .circle(r) => r
+      .rect(:w, :h) => w - h
+      .tri(:a, :b) => a * b
+      .point => 0
+      .line(n) => n * 7
+
+  called fun mk(n: Int) -> Shape
+    match n % 5
+      0 => .circle(n)
+      1 => .rect(w: n, h: 1)
+      2 => .tri(a: n, b: 2, c: 3)
+      3 => .point
+      _ => .line(n)
+
+  called fun made(n: Int) -> Int
+    match mk(n)
+      .circle(r) => r
+      .rect(:w) => w
+      .tri(:c) => c
+      .point => 9
+      .line(m) => m + 1
+
+  sub main()
+    ss = List[Shape]()
+    for n in 0..10
+      !ss.push(mk(n))
+    total = 0
+    for i in 0..10
+      grow(!ss, i)
+      total += area(?ss, i) + made(i)
+    total += take(mk(3)) + take(mk(4))
+    print(total)
+
+code "a match on a payload enum states its tag is named where it is", "switch (rig.namedTagAt(&s.*).*)", "switch (rig.namedTagAt(&t.*).*)"
+  enum Shape
+    circle(radius: Int)
+    rect(w: Int, h: Int)
+    point
+
+  fun area(s: ?Shape) -> Int
+    match s
+      .circle(r) => 3 * r * r
+      .rect(:w, :h) => w * h
+      .point => 0
+
+  sub grow(t: !Shape)
+    match !t
+      .circle(r) => r += 1
+      .rect(:w) => w += 1
+      .point => pass
+
+  sub main()
+    s: Shape = .rect(w: 2, h: 5)
+    grow(!s)
+    print(area(?s))
+
+code "a match on a payload enum a call makes states its tag as a value", "switch (rig.namedTag(rig.rt(mk(n))))"
+  enum Shape
+    circle(radius: Int)
+    rect(w: Int, h: Int)
+    point
+
+  fun mk(n: Int) -> Shape
+    if n > 3
+      return .circle(n)
+    .point
+
+  fun f(n: Int) -> Int
+    match mk(n)
+      .circle(r) => r
+      .rect(:w) => w
+      .point => 0
+
+  print(f(5))
+
+code "a match inside raw keeps Zig's switch and its test", "switch (s.*) {", "switch (k) {"
+  enum Shape
+    circle(radius: Int)
+    rect(w: Int, h: Int)
+    point
+
+  enum Kind
+    red
+    green
+
+  fun round(s: ?Shape) -> Bool
+    raw
+      match s
+        .circle => true
+        _ => false
+
+  fun f(k: Kind) -> Int
+    raw
+      match k
+        .red
+          1
+        .green
+          2
+
+  s: Shape = .point
+  print(round(?s), f(.green))

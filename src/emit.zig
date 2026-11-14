@@ -409,6 +409,10 @@ pub const Emitter = struct {
     /// `raw` blocks around the current point. A `match` inside one keeps
     /// Zig's test that its enum holds a named tag (`rig.namedTag`).
     raw_depth: u32 = 0,
+    /// Set where a match arm captures a payload or the whole value by
+    /// pointer, which `emitMatch` reads after each arm's head: such a
+    /// switch reaches its value where it is (`rig.namedTagAt`).
+    ptr_capture: bool = false,
     nominal: ?Nominal = null,
     /// The module's additions (`add Int: Shape`), whose methods its
     /// witnesses hold (`emitWitnesses`).
@@ -4579,73 +4583,92 @@ pub const Emitter = struct {
         const place = info.reread;
         const subject = info.subject;
         try self.w.writeAll("switch (");
-        // A plain enum holds a named tag in safe code, which the switch
-        // states rather than tests (`rig.namedTag`); inside `raw`, Zig
-        // tests it.
-        const named_tag = !info.error_set and info.ty != null and self.raw_depth == 0 and self.facts.isPlainEnum(self.peelViews(info.ty.?));
-        if (named_tag) try self.w.writeAll("rig.namedTag(");
-        if (err_value and info.mode == .consume and !info.temp) {
-            // `match <e` takes the error as it tests its code; each arm
-            // then owns what it reads again through the place.
-            var buf: Writer.Allocating = .init(self.arena.allocator());
-            {
-                const saved_w = self.w;
-                self.w = &buf.writer;
-                defer self.w = saved_w;
-                try self.emitBare(subject);
-            }
-            try self.writeErrorCode(info.ty.?, buf.written());
-        } else if (err_value) {
-            try self.writeErrorCode(info.ty.?, place);
-        } else if (info.temp or (info.reread.len > 0 and info.mode != .consume)) {
-            try self.w.writeAll(info.reread);
-        } else if (try self.headerPoints(subject)) {
-            // A place reached through temporaries is switched on where it
-            // is, so each payload captured by pointer is the place's own.
-            try self.emitSubjectPtr(subject, info.mode == .write);
-            try self.w.writeAll(".*");
-            if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
-        } else if (info.mode == .write and try self.need(self.facts.handsOver(subject), subject) == .place and throughElement(subject)) {
-            // A place through an element that a write match writes is
-            // switched on where it is (a List's element reads as a
-            // value): `(&v.slot(i).*).*`.
-            try self.w.writeAll("(");
-            try self.emitSubjectPtr(subject, true);
-            try self.w.writeAll(").*");
-            if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
-        } else {
-            // A match on a call returning a view held by pointer
-            // switches on the value it points to, where it is: a header
-            // with temporaries yields the pointer, never the value.
-            const by_ptr = !(try self.hasStorage(subject)) and self.isPtrViewExpr(subject);
-            const h = try self.openHeader(subject);
-            if (by_ptr and h.label.len > 0) {
-                try self.emitWriteViewPtr(subject);
-                try self.closeHeader(h);
-                try self.w.writeAll(".*");
-            } else {
-                if (by_ptr or self.switchesThroughName(subject)) try self.emitSwitchDeref(subject) else {
-                    const saved_path = self.subject_path;
-                    defer self.subject_path = saved_path;
-                    self.subject_path = subject;
-                    // A value built of constants is switched on at run
-                    // time: its payloads are not constants.
-                    const fixed = info.mode == .read and !info.boxed and isZigComptimeIn(self, subject, 0);
-                    try self.openFixed(fixed, subject);
+        // The switch's value, written to `operand`, and how Zig reaches
+        // it: as a place, or as a value made for the switch.
+        var operand: Writer.Allocating = .init(self.arena.allocator());
+        var reach: enum { place, made } = .place;
+        {
+            const saved_operand_w = self.w;
+            self.w = &operand.writer;
+            defer self.w = saved_operand_w;
+            if (err_value and info.mode == .consume and !info.temp) {
+                // `match <e` takes the error as it tests its code; each arm
+                // then owns what it reads again through the place.
+                var buf: Writer.Allocating = .init(self.arena.allocator());
+                {
+                    const saved_w = self.w;
+                    self.w = &buf.writer;
+                    defer self.w = saved_w;
                     try self.emitBare(subject);
-                    try self.closeFixed(fixed, subject);
                 }
+                try self.writeErrorCode(info.ty.?, buf.written());
+            } else if (err_value) {
+                try self.writeErrorCode(info.ty.?, place);
+            } else if (info.temp or (info.reread.len > 0 and info.mode != .consume)) {
+                try self.w.writeAll(info.reread);
+            } else if (try self.headerPoints(subject)) {
+                // A place reached through temporaries is switched on where it
+                // is, so each payload captured by pointer is the place's own.
+                try self.emitSubjectPtr(subject, info.mode == .write);
+                try self.w.writeAll(".*");
                 if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
-                try self.closeHeader(h);
+            } else if (info.mode == .write and try self.need(self.facts.handsOver(subject), subject) == .place and throughElement(subject)) {
+                // A place through an element that a write match writes is
+                // switched on where it is (a List's element reads as a
+                // value): `(&v.slot(i).*).*`.
+                try self.w.writeAll("(");
+                try self.emitSubjectPtr(subject, true);
+                try self.w.writeAll(").*");
+                if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
+            } else {
+                // A match on a call returning a view held by pointer
+                // switches on the value it points to, where it is: a header
+                // with temporaries yields the pointer, never the value.
+                const by_ptr = !(try self.hasStorage(subject)) and self.isPtrViewExpr(subject);
+                const h = try self.openHeader(subject);
+                if (by_ptr and h.label.len > 0) {
+                    try self.emitWriteViewPtr(subject);
+                    try self.closeHeader(h);
+                    try self.w.writeAll(".*");
+                } else {
+                    if (by_ptr or self.switchesThroughName(subject)) try self.emitSwitchDeref(subject) else {
+                        const saved_path = self.subject_path;
+                        defer self.subject_path = saved_path;
+                        self.subject_path = subject;
+                        // A value built of constants is switched on at run
+                        // time: its payloads are not constants.
+                        const fixed = info.mode == .read and !info.boxed and isZigComptimeIn(self, subject, 0);
+                        try self.openFixed(fixed, subject);
+                        try self.emitBare(subject);
+                        try self.closeFixed(fixed, subject);
+                        // A place is switched on where it is, but for an
+                        // element, which may read as a value (`v.at(i)`);
+                        // `rig.rt(...)` and a call's or an operator's
+                        // result are values.
+                        const hands = try self.need(self.facts.handsOver(subject), subject);
+                        if (fixed or hands != .place or throughElement(subject)) reach = .made;
+                    }
+                    if (info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
+                    // A header's block yields a value.
+                    if (h.label.len > 0) reach = .made;
+                    try self.closeHeader(h);
+                }
+                if (by_ptr and h.label.len > 0 and info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
             }
-            if (by_ptr and h.label.len > 0 and info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
         }
-        if (named_tag) try self.w.writeAll(")");
+        // The arms, written before the switch's value is: whether one
+        // captures by pointer decides how the value is reached.
+        var arms_text: Writer.Allocating = .init(self.arena.allocator());
+        var ptr_captures = false;
+        const saved_arms_w = self.w;
+        self.w = &arms_text.writer;
+        errdefer self.w = saved_arms_w;
         try self.w.writeAll(") ");
         try self.openBrace();
 
         var has_default = false;
         for (ir.Match.arms(sexp), 0..) |arm, arm_i| {
+            self.ptr_capture = false;
             const pattern = ir.Arm.pattern(arm);
             const body = ir.Arm.body(arm);
             try self.writeIndent(self.indent);
@@ -4765,8 +4788,10 @@ pub const Emitter = struct {
                         if (a.addr) break true;
                     } else false;
                     if (prelude.aliases.len > 0) try self.w.print("|{s}{s}| ", .{ if (by_ptr) "*" else "", prelude.aliases[0].payload });
+                    if (prelude.aliases.len > 0 and by_ptr) self.ptr_capture = true;
                 }
             }
+            ptr_captures = ptr_captures or self.ptr_capture;
             // An arm runs after the selection.
             // A hook's arms end the selection themselves (`ChainArms`).
             const paused = if (@TypeOf(hook) != @TypeOf(null)) false else try self.pauseUnit(sexp);
@@ -4777,6 +4802,24 @@ pub const Emitter = struct {
             try self.w.writeAll(",\n");
         }
         try self.closeBrace();
+        self.w = saved_arms_w;
+        // An enum holds a named tag in safe code, which the switch states
+        // rather than tests, as Zig's safe mode does before each switch
+        // on an enum, a catch-all arm or not (`rig.namedTag`). A switch
+        // an arm of which captures by pointer, and one on a payload enum
+        // in a place, reach the value where it is (`rig.namedTagAt`), so
+        // each pointer is into the place's own value; a plain enum is
+        // otherwise a value, and so is a payload enum every arm copies
+        // from. A switch inside `raw` keeps the test.
+        const named_tag = !info.error_set and info.ty != null and self.raw_depth == 0 and
+            self.facts.variantCount(self.peelViews(info.ty.?)) != null;
+        const plain = named_tag and self.facts.isPlainEnum(self.peelViews(info.ty.?));
+        if (named_tag and (ptr_captures or (!plain and reach == .place))) {
+            try self.w.print("rig.namedTagAt(&{s}).*", .{operand.written()});
+        } else if (named_tag) {
+            try self.w.print("rig.namedTag({s})", .{operand.written()});
+        } else try self.w.writeAll(operand.written());
+        try self.w.writeAll(arms_text.written());
         if (block.len > 0) {
             if (value_pos) try self.w.writeAll(";");
             try self.w.writeAll("\n");
@@ -5076,6 +5119,7 @@ pub const Emitter = struct {
             if (al.addr) break true;
         } else false;
         try self.w.print("|{s}{s}, {s}| ", .{ if (by_ptr) "*" else "", aliases[0].payload, tag });
+        if (by_ptr) self.ptr_capture = true;
         return .{ .aliases = aliases };
     }
 
@@ -5582,6 +5626,7 @@ pub const Emitter = struct {
         // held as a pointer is that pointer.
         const stored = try self.declare(payloadPointee(local, by_addr and !self.isPtrViewTy(t)), self.srcText(name_node));
         try self.w.print("|{s}{s}| ", .{ if (by_addr) "*" else "", stored.zig_name });
+        if (by_addr) self.ptr_capture = true;
     }
 
     /// Where payload bindings read their fields: an expression, or a
