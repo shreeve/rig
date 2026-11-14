@@ -204,10 +204,10 @@ pub fn Table(comptime T: type, comptime n: u64) type {
         /// `n` are pushed. The slot is dropped first, as any store into a
         /// place drops what was there.
         pub fn push(self: *Self, value: T) Index {
-            if (self.len == n) fullPanic(n);
-            // `len < n` here, as only `push` raises `len`, and `n - 1`
-            // fits `Index`: the cast is exact.
-            rt.invariant(self.len < n);
+            // `len <= n` always, as only `push` raises `len`; tested as
+            // `>=`, so the compiler sees `len < n` after it: `n - 1` fits
+            // `Index` (the cast is exact) and `len + 1` cannot overflow.
+            if (self.len >= n) fullPanic(n);
             const s: Index = @truncate(self.len);
             const p = self.slot(s);
             if (comptime rt.needsDrop(T)) rt.dropElement(T, p);

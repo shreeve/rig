@@ -3,7 +3,8 @@
 //!
 //! A check is the test an operation makes before it acts: `s[i]` tests
 //! `0 <= i` and `i < s.len`, `s.read[T, e](i)` tests `0 <= i` and
-//! `i + @size(T) <= s.len`, and `i + c` tests that the sum fits. This pass
+//! `i + @size(T) <= s.len`, `a + b` and `a - b` test that the result
+//! fits, and a conversion `U32(e)` of an `Int` that `e` fits. This pass
 //! runs on a module the ownership checker accepted and records on each
 //! such node the tests that a guard or a check already made, on every
 //! path to it, about values nothing has written since
@@ -34,6 +35,14 @@
 //! `i + x` is proven when `x` is such a field or result and `i` has room
 //! below a bound.
 //!
+//! The range of an `Int` expression (`Pass.rangeOf`: whether it is
+//! nonnegative, and an upper bound) is read from its shape and these
+//! facts: a literal, a length, `Int(u)` of an unsigned `u`, a binding, a
+//! bounded field or result, and `&`, `+`, `-` of those. An add fits when
+//! one operand is nonnegative and their bounds sum within `Int`; a
+//! subtraction of two nonnegative values fits; a conversion's sign test
+//! passes for a nonnegative value, and its range test under a bound.
+//!
 //! A body is cut into units (`rig.eachUnit`): a statement, a guard part,
 //! a `while` step, a `for` source, a `match`'s selection, a `raw` block.
 //! Inside a unit nothing is ordered: every check in unit `u` is proved
@@ -63,6 +72,7 @@ const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const sema = @import("sema.zig");
 const storage = @import("storage.zig");
+const resolve = @import("resolve.zig");
 const diag = @import("diag.zig");
 
 const Sexp = parser.Sexp;
@@ -405,6 +415,28 @@ const Use = union(enum) {
 /// A mirror index `b - c - i` (`Pass.mirrorOf`).
 const Mirror = struct { i: SymbolId, c: u64, b: Bound };
 
+/// The greatest `Int`.
+const int_max: u64 = std.math.maxInt(i64);
+
+/// How deep `Pass.rangeOf` walks into an expression.
+const range_depth: u8 = 6;
+
+/// What an `Int` value is known to lie in (`Pass.rangeOf`): `0 <= e`
+/// when `nonneg`, and `e <= hi`, always.
+const Range = struct {
+    nonneg: bool = false,
+    hi: u64 = int_max,
+
+    /// `a + b <= hi`, of two values that fit, saturated at `Int.max`.
+    fn sumHi(a: Range, b: Range) u64 {
+        return @min(a.hi +| b.hi, int_max);
+    }
+};
+
+/// A conversion `T(e)` of an `Int` `e` to a narrower integer type `T`
+/// (`Pass.conversionOf`): the value converted, and the greatest `T`.
+const Narrowing = struct { arg: Sexp, max: u64 };
+
 /// A test of a flag: `nonneg(i)`, or `below(i, k, len(s))`.
 const FlagFact = Fact;
 
@@ -589,6 +621,121 @@ const Pass = struct {
         }
         if (e.isKind(.call)) if (resultBoundOf(p.ctx, e)) |b| return b.whole;
         return null;
+    }
+
+    /// What the `Int` value `e` lies in where its unit runs (a positive
+    /// list): a literal; `x.len` of a List, a String, or a slice, which
+    /// every length read gives in `0..max_len` (`rig.lenOf`); `Int(u)` of
+    /// an unsigned `u`, which fits the width of `u`; a binding, from its
+    /// facts (`bindingRange`); an addend `addendBound` bounds; `a & b`,
+    /// which has no bit a nonnegative operand lacks; and `a + b` and
+    /// `a - b`, whose tests passed (or are proven), so the value is the
+    /// exact sum: `a + b <= hi(a) + hi(b)`, and `a - b <= hi(a)` for
+    /// `0 <= b`. `s.len - 1` under `nonempty(s)` is nonnegative too.
+    /// `depth` bounds the walk into an expression.
+    fn rangeOf(p: *Pass, e: Sexp, st: *const State, depth: u8) Error!Range {
+        if (p.intLiteral(e)) |c| return if (c <= int_max) .{ .nonneg = true, .hi = c } else .{};
+        if (depth == 0 or p.ctx.typeOf(e) != p.ctx.types.int_id) return .{};
+        if (p.builtinLen(e)) return .{ .nonneg = true, .hi = max_len };
+        if (p.unsignedWidth(e)) |w| return .{ .nonneg = true, .hi = if (w < 64) (@as(u64, 1) << @intCast(w)) - 1 else int_max };
+        if (p.intLocal(e)) |i| return bindingRange(st, i);
+        if (p.addendBound(e, st)) |h| return .{ .nonneg = true, .hi = h };
+        const kind = e.kind() orelse return .{};
+        if (kind != .@"&" and kind != .@"+" and kind != .@"-") return .{};
+        const a = try p.rangeOf(ir.get(e, .left), st, depth - 1);
+        const b = try p.rangeOf(ir.get(e, .right), st, depth - 1);
+        switch (kind) {
+            .@"&" => {
+                if (a.nonneg and b.nonneg) return .{ .nonneg = true, .hi = @min(a.hi, b.hi) };
+                if (a.nonneg) return a;
+                if (b.nonneg) return b;
+                return .{};
+            },
+            .@"+" => return .{ .nonneg = a.nonneg and b.nonneg, .hi = Range.sumHi(a, b) },
+            else => {
+                if (try p.maskOperand(e)) |m| if (m == .len_less_one and st.has(.{ .nonempty = m.len_less_one })) return .{ .nonneg = true, .hi = max_len - 1 };
+                return .{ .hi = if (b.nonneg) a.hi else int_max };
+            },
+        }
+    }
+
+    /// What a binding `i` lies in, from the facts of every path: `0 <=
+    /// i` under `nonneg(i)`; `i <= max_len - k` under `below(i, k,
+    /// len(s))` and `fits(s)`; `i <= max_len` under `eq(i, s)`.
+    fn bindingRange(st: *const State, i: SymbolId) Range {
+        var r: Range = .{ .nonneg = st.hasNonneg(i, 0) };
+        for (st.facts.items) |e| if (e.flag == 0) switch (e.fact) {
+            .below => |f| if (f.i == i and f.b == .len and st.has(.{ .fits = f.b.len })) {
+                r.hi = @min(r.hi, max_len -| f.k);
+            },
+            .eq => |f| if (f.n == i) {
+                r.hi = @min(r.hi, max_len);
+            },
+            else => {},
+        };
+        return r;
+    }
+
+    /// `x.len` of a List, a String, or a slice (or a view of one): the
+    /// length `rig.lenOf` reads, which is at most `max_len`.
+    fn builtinLen(p: *const Pass, e: Sexp) bool {
+        if (!e.isKind(.member)) return false;
+        const name = sema.identAt(p.source(), ir.Member.name(e)) orelse return false;
+        if (!std.mem.eql(u8, name, "len")) return false;
+        const ty = p.peelView(p.ctx.typeOf(ir.Member.object(e)) orelse return false);
+        if (p.isSliceView(ty) or p.isList(ty)) return true;
+        const types = &p.ctx.types;
+        return ty != sema.type_invalid and (ty == types.string_id or ty == types.string_view_id);
+    }
+
+    /// The width of `u` in `Int(u)` of an unsigned `u` (`fromUnsigned`).
+    fn unsignedWidth(p: *const Pass, e: Sexp) ?u8 {
+        if (!p.fromUnsigned(e)) return null;
+        const arg = ir.Call.args(e)[0];
+        return p.ctx.types.get(p.ctx.typeOf(arg).?).int.width();
+    }
+
+    /// `a + b` fits: one of them is nonnegative, so the sum is at least
+    /// the other, and `hi(a) + hi(b) <= Int.max`.
+    fn sumFits(p: *Pass, a: Sexp, b: Sexp, st: *const State) Error!bool {
+        // Two literals: a constant, which has no test to omit.
+        if (p.intLiteral(a) != null and p.intLiteral(b) != null) return false;
+        const ra = try p.rangeOf(a, st, range_depth);
+        if (ra.hi == int_max and !ra.nonneg) return false;
+        const rb = try p.rangeOf(b, st, range_depth);
+        return (ra.nonneg or rb.nonneg) and @as(u128, ra.hi) + rb.hi <= int_max;
+    }
+
+    /// `a - b` fits: both are nonnegative, so `-Int.max <= a - b <=
+    /// Int.max`.
+    fn differenceFits(p: *Pass, a: Sexp, b: Sexp, st: *const State) Error!bool {
+        if (p.intLiteral(a) != null and p.intLiteral(b) != null) return false;
+        if (!(try p.rangeOf(a, st, range_depth)).nonneg) return false;
+        return (try p.rangeOf(b, st, range_depth)).nonneg;
+    }
+
+    /// `T(e)` of an `Int` `e`, `T` an integer type of at most 64 bits
+    /// other than `Int` and `I64`, written with the name of `T`: the
+    /// conversions `emitConversion` tests.
+    fn conversionOf(p: *const Pass, call: Sexp) ?Narrowing {
+        if (!call.isKind(.call)) return null;
+        const callee = ir.Call.callee(call);
+        if (callee != .src or p.ctx.symbolOf(callee) != null) return null;
+        if (!resolve.isNumericTypeName(sema.identAt(p.source(), callee) orelse return null)) return null;
+        const args = ir.Call.args(call);
+        if (args.len != 1) return null;
+        const arg = storage.argValue(args[0]);
+        if (p.ctx.typeOf(arg) != p.ctx.types.int_id) return null;
+        const to = p.ctx.typeOf(call) orelse return null;
+        if (to == p.ctx.types.int_id) return null;
+        const info = switch (p.ctx.types.get(to)) {
+            .int => |info| info,
+            else => return null,
+        };
+        const w = info.width();
+        if (w > 64 or (w == 64 and info.signed)) return null;
+        const max: u64 = if (info.signed) (@as(u64, 1) << @intCast(w - 1)) - 1 else if (w == 64) std.math.maxInt(u64) else (@as(u64, 1) << @intCast(w)) - 1;
+        return .{ .arg = arg, .max = max };
     }
 
     /// `s.len` of a place (`lenPlace`).
@@ -939,6 +1086,14 @@ const Pass = struct {
                 }
             },
             .call => {
+                // `T(e)`: `0 <= e` proves the lower test, `e <= T.max` the
+                // upper.
+                if (p.conversionOf(node)) |n| {
+                    const r = try p.rangeOf(n.arg, st, range_depth);
+                    const t: Proven = .{ .lower = r.nonneg, .upper = r.hi <= n.max };
+                    if (t.any()) try p.record(node, t, null);
+                    return;
+                }
                 if (try p.byteAccess(node)) |b| return p.recordProof(b.callee, st, .{ .range = .{ .i = b.i, .c = 0, .s = b.s, .width = b.width } }, false);
                 // `!s.swap(i, j)`: the tests both indexes pass, on the
                 // callee.
@@ -948,17 +1103,31 @@ const Pass = struct {
                 try p.record(sw.callee, .{ .lower = x.lower and y.lower, .upper = x.upper and y.upper }, null);
             },
             .@"+" => {
+                if (p.ctx.typeOf(node) != p.ctx.types.int_id) return;
+                // `a + b` within `Int` by the operands' ranges.
+                if (try p.sumFits(ir.get(node, .left), ir.get(node, .right), st)) return p.record(node, .{ .no_overflow = true }, null);
                 if (p.plusConst(node, false)) |pc| return p.recordProof(node, st, .{ .add = .{ .i = pc.i, .c = pc.c } }, true);
                 // `i + x` with `0 <= x <= hi`: as `i + max(hi, 1)`.
-                if (p.ctx.typeOf(node) != p.ctx.types.int_id) return;
                 const i = p.intLocal(ir.get(node, .left)) orelse return;
                 const hi = p.addendBound(ir.get(node, .right), st) orelse return;
                 try p.recordProof(node, st, .{ .add = .{ .i = i, .c = @max(hi, 1) } }, true);
             },
-            // `i += c`, and `i += x` with `0 <= x <= hi`: the add's own test.
-            .set => if (rig.bindingKindOf(ir.Set.op(node)) == .@"+=") {
+            // `a - b` of two nonnegative values.
+            .@"-" => {
+                if (p.ctx.typeOf(node) != p.ctx.types.int_id) return;
+                if (try p.differenceFits(ir.get(node, .left), ir.get(node, .right), st)) try p.record(node, .{ .no_overflow = true }, null);
+            },
+            // `i -= x`, both nonnegative.
+            .set => if (rig.bindingKindOf(ir.Set.op(node)) == .@"-=") {
+                const target = ir.Set.target(node);
+                if (p.intLocal(target) == null) return;
+                if (try p.differenceFits(target, ir.Set.value(node), st)) try p.record(node, .{ .no_overflow = true }, null);
+            } else if (rig.bindingKindOf(ir.Set.op(node)) == .@"+=") {
+                // `i += c`, and `i += x` with `0 <= x <= hi`: the add's own
+                // test; or `i + x` within `Int` by their ranges.
                 const i = p.intLocal(ir.Set.target(node)) orelse return;
                 const value = ir.Set.value(node);
+                if (try p.sumFits(ir.Set.target(node), value, st)) return p.record(node, .{ .no_overflow = true }, null);
                 const c = p.intLiteral(value) orelse @max(p.addendBound(value, st) orelse return, 1);
                 try p.recordProof(node, st, .{ .add = .{ .i = i, .c = c } }, true);
             },
@@ -2116,8 +2285,8 @@ fn findNode(e: Sexp, key: NodeKey) ?Sexp {
 
 /// `rig check --facts=proofs`: each node with a test known to pass, one
 /// per line in source order, as `L:C KIND TESTS`: `index`, `read`,
-/// `write`, `+`, or `+=`, then which of `lower`, `upper`, and
-/// `no_overflow` are proven.
+/// `write`, `+`, `+=`, `-`, `-=`, or `convert`, then which of `lower`,
+/// `upper`, and `no_overflow` are proven.
 pub fn writeDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, w: *std.Io.Writer) !void {
     const Line = struct {
         start: u32,
@@ -2141,7 +2310,9 @@ pub fn writeDump(ctx: *const SemContext, a: std.mem.Allocator, root: Sexp, w: *s
         const kind: []const u8 = switch (n.kind() orelse continue) {
             .index => "index",
             .@"+" => "+",
-            .set => "+=",
+            .@"-" => "-",
+            .set => @tagName(rig.bindingKindOf(ir.Set.op(n))),
+            .call => "convert",
             .member => sema.identAt(ctx.source, ir.Member.name(n)) orelse "member",
             else => @tagName(n.kind().?),
         };
@@ -2286,6 +2457,8 @@ test "G1: each guard shape, either way round, on its true edge" {
 }
 
 test "G1: a near miss proves nothing" {
+    // (`s.len + 0` is an add of two nonnegative values, proven by their
+    // ranges.)
     try expectDump(
         \\obj C
         \\  i: Int
@@ -2312,6 +2485,7 @@ test "G1: a near miss proves nothing" {
         \\  0
         \\
     ,
+        \\7:10 + no_overflow
         \\
     );
 }
@@ -2407,6 +2581,7 @@ test "kills: each write site ends what it names" {
         \\8:11 index lower
         \\10:5 += no_overflow
         \\11:11 index lower
+        \\13:5 -= no_overflow
         \\
     );
     // Re-pointing `s` ends what its length bounded; writing through it
@@ -2544,6 +2719,38 @@ test "units: a guard in a value proves nothing" {
     );
 }
 
+test "ranges: adds, subtractions, and conversions within their types" {
+    try expectDump(
+        \\fun f(s: ?String, t: []Int, at: Int, u: U16) -> Int
+        \\  i = at
+        \\  a = s.len - 1
+        \\  b = s.len + t.len
+        \\  c = Int(u) + s.len
+        \\  d = U32(s.len)
+        \\  e = U8(Int(u) & 7)
+        \\  g = s.len - i
+        \\  h = i + 1
+        \\  if 0 <= i
+        \\    print(s.len - i)
+        \\    print(U32(i))
+        \\  if s.len > 0
+        \\    print(U32(s.len - 1))
+        \\  a + b + c + Int(d) + Int(e) + g + h
+        \\
+    ,
+        \\3:7 - no_overflow
+        \\4:7 + no_overflow
+        \\5:7 + no_overflow
+        \\6:7 convert lower
+        \\7:7 convert lower upper
+        \\11:11 - no_overflow
+        \\12:11 convert lower
+        \\14:11 convert lower
+        \\14:15 - no_overflow
+        \\
+    );
+}
+
 test "E1: after `n = s.len`, a guard on `n` bounds `s`" {
     // A guard on `n` once `n = s.len` holds.
     try expectDump(
@@ -2575,6 +2782,7 @@ test "E1: after `n = s.len`, a guard on `n` bounds `s`" {
         \\  0
         \\
     ,
+        \\9:5 -= no_overflow
         \\10:12 index upper
         \\
     );
@@ -2805,7 +3013,9 @@ test "E2: a near miss bounds nothing" {
     // 2^62, one through a cycle of calls, a store into the field, a
     // reassignment from an unbounded call, a write view, a parameter
     // object, the bound on the left of `+`, a loop that writes the
-    // object, and a `raw` block: only the loop's own `j += 1` is proven.
+    // object, and a `raw` block: none bounds an add by its result; the
+    // loop's own `j += 1` is proven, and so, by their ranges, are `k - 1`
+    // under `k > 0` and `n.size + i` (`0 <= n.size <= 4`, `i < s.len`).
     try expectDump(
         \\obj D
         \\  rune: Int
@@ -2864,6 +3074,8 @@ test "E2: a near miss bounds nothing" {
         \\  0
         \\
     ,
+        \\21:14 - no_overflow
+        \\41:119 + no_overflow
         \\50:5 += no_overflow
         \\
     );

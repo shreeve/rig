@@ -2875,6 +2875,15 @@ pub const Emitter = struct {
                 if (!self.provenOf(sexp).no_overflow) try self.w.print(", {s}", .{cond.?.flag});
                 return self.w.writeAll(");");
             }
+            // `i -= x` known not to overflow.
+            if (op == .@"-" and target == .src and self.provenOf(sexp).no_overflow) {
+                try self.emitPlace(target);
+                try self.w.writeAll(" = rig.subProven(");
+                try self.emitPlace(target);
+                try self.w.writeAll(", ");
+                try self.emitBare(expr);
+                return self.w.writeAll(");");
+            }
             return self.emitCompound(sexp, op);
         }
         if (target != .src) {
@@ -7425,8 +7434,9 @@ pub const Emitter = struct {
             try self.emitExpr(operands[1]);
             return self.w.writeAll(")");
         };
-        // An add known not to overflow (`provenOf`).
+        // An add or a subtraction known not to overflow (`provenOf`).
         if (kind == .@"+" and self.provenOf(sexp).no_overflow) return self.emitCall2("rig.addProven(", operands, ")");
+        if (kind == .@"-" and self.provenOf(sexp).no_overflow) return self.emitCall2("rig.subProven(", operands, ")");
         // An add known not to overflow while a flag holds (`provenIf`).
         if (kind == .@"+") if (self.provenIf(sexp)) |c| if (c.tests.no_overflow) return self.emitCall2("rig.addIf(", operands, try self.fmt(", {s})", .{c.flag}));
         if (self.laneHelper(sexp, kind)) |helper| {
@@ -9701,6 +9711,19 @@ pub const Emitter = struct {
             return self.w.print("{d})", .{v});
         };
         const from_int = self.facts.types.get(from) == .int;
+        // From an `Int`, with the tests known to pass omitted (`provenOf`).
+        if (to_int and from == self.facts.types.int_id) if (provenTests(self.provenOf(call))) |proven| {
+            try self.writeAsOpen(target);
+            try self.w.writeAll("rig.narrowProven(");
+            try self.emitTypeTy(target);
+            try self.w.writeAll(", ");
+            try self.writeAsOpen(from);
+            const saved_rt = self.rt_names;
+            defer self.rt_names = saved_rt;
+            self.rt_names = true;
+            try self.emitBare(arg);
+            return self.w.print("), .{s}))", .{proven});
+        };
         // To an unsigned type, through `openUnsignedCast`.
         const unsigned = to_int and from_int and !self.facts.types.get(target).int.signed;
         const builtin = if (to_int) (if (from_int) "@intCast" else "@trunc") else (if (from_int) "@floatFromInt" else "@floatCast");

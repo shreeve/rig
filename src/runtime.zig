@@ -4708,6 +4708,35 @@ pub inline fn addProven(a: Int, b: Int) Int {
     return a + b;
 }
 
+/// `a - b` that the compiler proved cannot overflow.
+pub inline fn subProven(a: Int, b: Int) Int {
+    if (verify_proofs) _ = std.math.sub(Int, a, b) catch proofPanic();
+    // The compiler's proof, asserted under `verify_proofs`.
+    @setRuntimeSafety(proven_checks);
+    return a - b;
+}
+
+/// `T(x)` of an `Int` `x`, `T` an integer type of at most 64 bits, with
+/// the tests `p` proves omitted: `lower`, `0 <= x`, and `upper`, `x <=
+/// T.max`. A test that is made is the conversion's own, and fails as it
+/// does.
+pub inline fn narrowProven(comptime T: type, x: Int, comptime p: Proven) T {
+    const nonneg = p != .upper;
+    const fits = p != .lower;
+    if (verify_proofs) {
+        if (nonneg and x < 0) proofPanic();
+        if (fits and x > std.math.maxInt(T)) proofPanic();
+    }
+    if (nonneg) {
+        // `0 <= x`, so its bits as a `u64` are its value.
+        const u: u64 = @bitCast(x);
+        return if (fits) @truncate(u) else @intCast(u);
+    }
+    // `x <= T.max`: an unsigned `T` tests only the sign.
+    if (@typeInfo(T).int.signedness == .unsigned) return @truncate(@as(u64, @intCast(x)));
+    return @intCast(x);
+}
+
 // Checked lane arithmetic. Zig's own `a + b` on an integer vector tests
 // the overflow bits of `@addWithOverflow(a, b)`, and LLVM miscompiles
 // those bits on aarch64 when the vector is 32 or 64 lanes of bytes and

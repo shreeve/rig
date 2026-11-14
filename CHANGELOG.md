@@ -280,6 +280,15 @@ it where the negation was meant. Trig has no such site.
 
 ### Compiler
 
+- **Overflow and conversion tests are proven by range:** the proof pass
+  bounds an `Int` expression from its shape (a literal, a length,
+  `Int(u)` of an unsigned `u`, a binding's facts, and `&`, `+`, `-` of
+  those), and omits an add's test when one operand is nonnegative and
+  their bounds sum within `Int` (`s.len + t.len`), a subtraction's when
+  both are nonnegative (`s.len - 1`, `n - i`), and a conversion's sign
+  test when its value is nonnegative and its range test under a bound
+  (`U32(s.len)`, `U8(Int(u) & 7)`). Each is asserted in a debug or
+  `RIG_VERIFY_PROOFS=1` build.
 - An exit inside a call's arguments runs its defers with self lent to
   no one, since the call never starts: `!nums.push(text.parse_int(w)!)`
   under `errdefer !nums.resize(n, 0)` is accepted, where it was rejected
@@ -507,6 +516,9 @@ it where the negation was meant. Trig has no such site.
 
 ### Runtime
 
+- A `Table`'s `push` tests that it is full as `len >= n`, so the
+  compiler sees `len < n` after the test and drops the overflow test of
+  `len + 1`: 0.07-0.09% fewer instructions on Trig at one checker.
 - **A span takes its 4 KiB units and no more:** a large block under
   16 MiB is a run of 4 KiB units of a span segment, its length rounded
   up to whole units, where it was rounded to four buckets a doubling

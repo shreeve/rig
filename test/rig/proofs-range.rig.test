@@ -1,0 +1,165 @@
+test "range len minus", "200", release: true
+  # A length and a literal are nonnegative: their difference fits.
+
+  fun ends(s: ?String, t: []Int) -> Int
+    a = s.len - 1 # proves: - no_overflow
+    b = t.len - 3 # proves: - no_overflow
+    c = s.len - t.len # proves: - no_overflow
+    a * 100 + b * 10 + c
+
+  print(ends("abc", [1, 2, 3][..]))
+
+code "range len minus emit", "rig.subProven(rig.lenOf(t), 1)"
+  fun last(t: []Int) -> Int
+    t.len - 1
+
+  print(last([1, 2][..]))
+
+test "range counter minus", "4", release: true
+  # Two counters with `0 <= i`: `n - i` and `n -= i` fit.
+
+  fun rest(s: ?String, at: Int) -> Int
+    n = s.len
+    i = at
+    if 0 <= i
+      m = n - i # proves: - no_overflow
+      n -= i # proves: -= no_overflow
+      return m + n
+    0
+
+  print(rest("abcd", 2))
+
+bomb "range minus mut", "integer overflow", release: true
+  # `0 - i` of an `i` not known nonnegative keeps its test: `Int.min`
+  # overflows.
+
+  fun neg(s: ?String, at: Int) -> Int
+    i = at
+    s.len - i # keeps: - no_overflow
+
+  print(neg("", Int.min))
+
+bomb "range minus assign mut", "integer overflow", release: true
+  # `n -= i` with `i` not known nonnegative keeps its test.
+
+  fun less(at: Int) -> Int
+    n = 5
+    n -= at # keeps: -= no_overflow
+    n
+
+  print(less(Int.min))
+
+test "range len plus", "8", release: true
+  # Two lengths, or a length and a value below one, sum within `Int`.
+
+  fun both(s: ?String, t: []Int, at: Int) -> Int
+    i = at
+    if 0 <= i and i < t.len
+      return s.len + t.len + i # proves: + no_overflow
+    0
+
+  print(both("abc", [1, 2, 3][..], 2))
+
+code "range len plus emit", "rig.addProven(rig.lenOf(s), rig.lenOf(t))"
+  fun both(s: ?String, t: []Int) -> Int
+    s.len + t.len
+
+  print(both("ab", [1][..]))
+
+test "range widened plus", "66000", release: true
+  # `Int(u)` of a `U16` is at most 65535: it and a length sum within
+  # `Int`.
+
+  fun widened(s: ?String, u: U16) -> Int
+    Int(u) + s.len + 1 # proves: + no_overflow
+
+  print(widened("abcd", 65000) + 995)
+
+bomb "range plus mut", "integer overflow", release: true
+  # A length plus a value with no upper bound keeps its test.
+
+  fun past(s: ?String, at: Int) -> Int
+    i = at
+    if 0 <= i
+      return s.len + i # keeps: + no_overflow
+    0
+
+  print(past("ab", Int.max))
+
+bomb "range plus assign mut", "integer overflow", release: true
+  # `n += i` with `i` unbounded above keeps its test.
+
+  fun grow(s: ?String, at: Int) -> Int
+    n = s.len
+    n += at # keeps: += no_overflow
+    n
+
+  print(grow("ab", Int.max))
+
+test "range convert", "327", release: true
+  # `U32(e)` of a nonnegative `e` omits its sign test; of an `e` known
+  # below 2^8 its range test too.
+
+  fun narrow(s: ?String, u: U16, at: Int) -> Int
+    i = at
+    if 0 <= i
+      a = U32(s.len) # proves: convert lower
+      b = U32(i) # proves: convert lower
+      c = U8(Int(u) & 7) # proves: convert lower upper
+      return Int(a) * 100 + Int(b) * 10 + Int(c)
+    0
+
+  print(narrow("abc", 15, 2))
+
+code "range convert emit", "rig.narrowProven(u32, @as(i64, rig.lenOf(s)), .lower)"
+  fun narrow(s: ?String) -> U32
+    U32(s.len)
+
+  print(narrow("abc"))
+
+code "range convert both emit", "rig.narrowProven(u8, @as(i64, @as(i64, @intCast(@as(u16, u))) & 7), .both)"
+  fun low(u: U16) -> U8
+    U8(Int(u) & 7)
+
+  print(low(15))
+
+test "range convert last", "2", release: true
+  # `U32(s.len - 1)` under `nonempty(s)`: the sign test is proven.
+
+  fun last(s: ?String) -> U32
+    if s.len > 0
+      return U32(s.len - 1) # proves: convert lower
+    0
+
+  print(last("abc"))
+
+bomb "range convert mut", "integer does not fit", release: true
+  # `U32(s.len - 1)` of an empty `s` keeps its sign test, and fails it.
+
+  fun last(s: ?String) -> U32
+    U32(s.len - 1) # keeps: convert lower
+
+  print(last(""))
+
+bomb "range convert high mut", "integer does not fit", release: true
+  # `U8(i)` of a nonnegative `i` keeps its range test, and fails it.
+
+  fun low(at: Int) -> U8
+    i = at
+    if 0 <= i
+      return U8(i) # keeps: convert upper
+    0
+
+  print(low(300))
+
+bomb "range convert written mut", "integer does not fit", release: true
+  # A write of `i` after the guard ends `nonneg(i)`: the sign test is made.
+
+  fun f(at: Int) -> U32
+    i = at
+    if 0 <= i
+      i -= 5
+      return U32(i) # keeps: convert lower
+    0
+
+  print(f(2))

@@ -8158,18 +8158,19 @@ test "review-std-mp-a14", '''
   print(x)
 
 test "review-std-o1"
-  # It prints its own path, which differs from build to build: the case
-  # checks only that it runs cleanly.
+  # Its arguments start with its own path, which differs from build to
+  # build: it prints only whether each is empty, and the case checks only
+  # that it runs cleanly.
   obj Keep
     a: []?String
 
     drop(!@)
-      print("drop sees", @a.len, @a[@a.len - 1])
+      print("drop sees", @a.len, @a[@a.len - 1].len > 0)
 
   sub main()
     k = Keep(a: os.args())
     for a, i in os.args()
-      print(i, a)
+      print(i, a.len > 0)
     print(os.env("HOME") != none, os.env("NOPE_NOT_SET_XYZ"))
     s = os.args()[0]
     print(s.len > 0)

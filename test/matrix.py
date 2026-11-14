@@ -3399,7 +3399,7 @@ PROOF_MUTATIONS = {
     "none": ([], {}, None),
     "add": (["i += 1"], _moved, "+1"),
     "add_assign": (["i = i + 1"], _moved, "+1"),
-    "len": (["i = s.len"], dict(below=None, nonneg=True, fits=True), "len"),
+    "len": (["i = s.len"], dict(below=None, nonneg=True, fits=True, eq=True), "len"),
     "bump": (["bump(!i)"], dict(below=None, nonneg=False), "+1"),
     "closure": (["f = |!i| i += 1", "f()"], dict(below=None, nonneg=False), "+1"),
     "defer": (["if flag", "  defer i += 1"], _moved, "+1"),
@@ -3439,7 +3439,8 @@ def proof_tests(facts, uname):
     """The tests the use's node has proven under `facts` (docs/internals/INTERNALS.md,
     "Proven checks"): an index or a byte access, `0 <= i` and room for its
     width; an add of `c`, room for `c`, or any room below a length that
-    fits; an add of a field its function bounds by 4, as an add of 4."""
+    fits, or any add of a binding equal to a length; an add of a field its
+    function bounds by 4, as an add of 4."""
     _, kind, _, width, _, _, _ = PROOF_USES[uname]
     below = facts["below"]
     if width is not None:
@@ -3450,6 +3451,9 @@ def proof_tests(facts, uname):
             tests.append("upper")
         return tests
     c = {"add8": 8, "add_field": 4, "add_field_set": 4}.get(uname, 1)
+    # After `i = s.len`, `i <= max_len`: `i + c` fits (`eq(i, s)`).
+    if facts.get("eq"):
+        return ["no_overflow"]
     return ["no_overflow"] if below is not None and (below >= c or facts["fits"]) else []
 
 

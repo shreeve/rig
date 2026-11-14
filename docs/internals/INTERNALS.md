@@ -2099,8 +2099,9 @@ handler's binding takes as it starts: the checker walks the binding.
 
 A check is the test an operation makes before it acts: `s[i]` tests
 `0 <= i` and `i < s.len`; `s.read[T, e](i)` and `!s.write[T, e](i, v)`
-test `0 <= i` and `i + $size(T) <= s.len`; `i + c` and `i += c` test that
-the sum fits. The proof pass (`src/proofs.zig`), on a module the
+test `0 <= i` and `i + $size(T) <= s.len`; `a + b`, `a - b`, `i += b`,
+and `i -= b` test that the result fits; a conversion `U32(e)` of an `Int`
+tests that `e` fits a `U32`. The proof pass (`src/proofs.zig`), on a module the
 ownership checker accepted (`ModuleGraph.check` runs it only on a
 `.checked` module), records which of a node's tests already passed
 (`SemContext.provenOf`, a `sema.Proven`): a guard or a check that ran made
@@ -2111,6 +2112,8 @@ operation without those tests:
 ```text
 s[i]   ==>  test 0 <= i unless lower is proven; test i < s.len unless upper is proven; s.ptr[i]
 i + c  ==>  test that i + c fits unless no_overflow is proven; i + c
+a - b  ==>  test that a - b fits unless no_overflow is proven; a - b
+T(e)   ==>  test 0 <= e unless lower is proven; test e <= T.max unless upper is proven; e as a T
 ```
 
 Where neither test of `s[i]` is proven and the length is held (a
@@ -2212,6 +2215,27 @@ is part of its unit, and makes nothing.
 | `s.read[T, e](i)`, `!s.write[T, e](i, v)`, on the callee | the same, with `k >= $size(T)`: the width of a number `T`, or `n` times the width of `E` for a `Simd[E, n]` of numbers with a known `n` (a vector's bytes are tested as an integer's of that size) |
 | `i + c`, and the `set` of `i += c`, `0 < c <= 2^62` a literal | `no_overflow` under `below(i, k, b)` with `k >= c` (`i + c <= b`), or under `below(i, k, len(s))` and `fits(s)` (`i + c <= 2^62 - 1 + c`) |
 | `i + x`, and the `set` of `i += x`, `x` an `Int` with `0 <= x <= h`: `d.f` under `upto(d, f, h)`, or `g(...).f` or `g(...)` where `g` bounds that field or its result by `h` | as `i + max(h, 1)`: `i + x <= i + max(h, 1)` |
+| `a + b`, and the `set` of `i += b`, of type `Int` | `no_overflow` when one operand is nonnegative and `hi(a) + hi(b) <= Int.max` (its range, below): the sum is at least the other operand and at most `hi(a) + hi(b)` |
+| `a - b`, and the `set` of `i -= b`, of type `Int` | `no_overflow` when both are nonnegative: `-Int.max <= a - b <= Int.max` |
+| `T(e)`, a conversion of an `Int` `e` to an integer type `T` of at most 64 bits (not `Int` or `I64`) | `lower` (the sign test) when `e` is nonnegative; `upper` when `hi(e) <= T.max` |
+
+The *range* of an `Int` expression (`Pass.rangeOf`), at the facts of its
+unit, is whether `0 <= e` and an `hi` with `e <= hi`, from a positive
+list of shapes: a literal `c` (`0..c`); `x.len` of a List, a String, or a
+slice (`0..max_len`: every length read is at most `max_len`, held by
+construction or tested, `rig.lenOf`); `Int(u)` of an unsigned `u` of
+width `w` (`0..2^w - 1`); a binding, nonnegative under `nonneg(i)`, with
+`hi = max_len - k` under `below(i, k, len(s))` and `fits(s)`, or
+`max_len` under `eq(i, s)`; an addend bounded by `h` as in the row above
+(`0..h`); `a & b`, nonnegative with the smaller `hi` of a nonnegative
+operand (no bit of it the operand lacks); `a + b`, nonnegative when both
+are, with `hi(a) + hi(b)`; and `a - b`, with `hi(a)` when `b` is
+nonnegative, and nonnegative for `s.len - 1` under `nonempty(s)`. A `+`
+or `-` inside is tested or proven, so where it ran its value is the exact
+result. Emit writes a proven difference as `rig.subProven` and a
+conversion with a proven test as `rig.narrowProven(T, e, which)`, which
+reads a nonnegative `e` as its bits and makes `@intCast`'s own test for
+what is not proven.
 
 **Results.** Before it walks a module's bodies, the pass finds what each
 of its functions bounds of its result (`SemContext.result_bounds`, a
@@ -2344,8 +2368,8 @@ fail a run rather than a proof:
   check may fail. `proofs-all` runs every program.
 
 `rig check --facts=proofs` prints each node with a test known to pass,
-`L:C KIND TESTS` (`index`, `read`, `write`, `+`, or `+=`, then `lower`,
-`upper`, `no_overflow`), in source order; in a directory module each
+`L:C KIND TESTS` (`index`, `read`, `write`, `+`, `+=`, `-`, `-=`, or
+`convert`, then `lower`, `upper`, `no_overflow`), in source order; in a directory module each
 line names its file first, `FILE:L:C KIND TESTS`, the line and column
 in that file. `test/cli/facts_proofs.sh`
 compares it on `test/cli/fixtures/swar.rig` line by line and checks
