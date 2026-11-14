@@ -725,3 +725,156 @@ fail "defer uses returned tail", "use of `v` after move"
 
   w = mk()
   print(w.len)
+
+test "defer at a failure in a write call's argument", '''
+  failed
+  [7, 1, 2]
+'''
+  # A `!` failure inside the argument of a write call leaves before the
+  # call starts, so the `errdefer` it runs finds self lent to no one:
+  # the reservation that holds self to read until the call starts ends
+  # with the statement the exit leaves. The same as hoisting the argument
+  # first, `v = text.parse_int(w)!` then `!nums.push(v)`.
+  use std.text
+
+  sub parse_all(nums: !List[Int], words: ?List[String])!
+    n = nums.len
+    errdefer !nums.resize(n, 0)
+    for w in words
+      !nums.push(text.parse_int(w)!)
+
+  nums: List[Int] = List()
+  !nums.push(7)
+  good: List[String] = List()
+  !good.push(String("1"))
+  !good.push(String("2"))
+  parse_all(!nums, good) catch print("failed")
+  bad: List[String] = List()
+  !bad.push(String("3"))
+  !bad.push(String("x"))
+  parse_all(!nums, bad) catch print("failed")
+  print(nums)
+
+test "defer at an exit in a pending call", '''
+  1 -1 [1, 0, 2, 0]
+  failed
+  [4] [4]
+  failed
+  0
+'''
+  # Every exit that leaves a statement before a call in it starts runs
+  # its defers with no hold that waits for that call: a `?` exit under a
+  # `defer`, two write calls pending at once (`!a.push(!b.put(...))`),
+  # and a place found up to an index the failure is in (`!g[i].push`).
+  use std.text
+
+  obj Bag
+    items: List[Int]
+
+    fun put(!@, k: Int) -> Int
+      !@items.push(k)
+      k
+
+  fun firsts(nums: !List[Int], xs: ?List[Int?]) -> Int?
+    defer !nums.push(0)
+    for x in xs
+      !nums.push(x?)
+    nums.len
+
+  sub nested(a: !List[Int], b: !Bag, words: ?List[String])!
+    na = a.len
+    nb = b.items.len
+    errdefer !a.resize(na, 0)
+    errdefer !b.items.resize(nb, 0)
+    for w in words
+      !a.push(!b.put(text.parse_int(w)!))
+
+  sub grid(g: !List[List[Int]], words: ?List[String])!
+    errdefer !g.clear()
+    for w in words
+      !g[text.parse_int(w)!].push(1)
+
+  nums: List[Int] = List()
+  ok: List[Int?] = List()
+  !ok.push(1)
+  bad: List[Int?] = List()
+  !bad.push(2)
+  !bad.push(none)
+  print(firsts(!nums, ok) ?? -1, firsts(!nums, bad) ?? -1, nums)
+  a: List[Int] = List()
+  b = Bag(items: List())
+  good: List[String] = List()
+  !good.push(String("4"))
+  nested(!a, !b, good) catch print("failed")
+  bw: List[String] = List()
+  !bw.push(String("5"))
+  !bw.push(String("y"))
+  nested(!a, !b, bw) catch print("failed")
+  print(a, b.items)
+  g: List[List[Int]] = List()
+  !g.push(List())
+  zero: List[String] = List()
+  !zero.push(String("0"))
+  !zero.push(String("z"))
+  grid(!g, zero) catch print("failed")
+  print(g.len)
+
+test "defer at a return or jump in a pending call", '''
+  [1, 0]
+  [1, 0, 0, 2, 0]
+'''
+  # A `return` or a `continue` in a write call's argument leaves before
+  # the call starts, as a failure does: the `defer`s it runs find self
+  # lent to no one.
+  sub early(nums: !List[Int], xs: ?List[Int?])
+    defer !nums.push(0)
+    for x in xs
+      !nums.push(x ?? return)
+
+  sub skip(nums: !List[Int], xs: ?List[Int?])
+    for x in xs
+      defer !nums.push(0)
+      !nums.push(x ?? continue)
+
+  nums: List[Int] = List()
+  xs: List[Int?] = List()
+  !xs.push(1)
+  !xs.push(none)
+  !xs.push(2)
+  early(!nums, xs)
+  print(nums)
+  m: List[Int] = List()
+  skip(!m, xs)
+  print(m)
+
+fail "defer at a failure after a lend in the call", "use of `nums` while a write loan is live", "use of `b.v` while a write loan on `b` is live", errors: 2
+  # A lend an argument has already made stays in force while the defers
+  # of a failure in a later argument run: `!nums` given to `keep`, and the
+  # write view `slot` returned once its call had started and run. Only a
+  # hold that waits for the call to start ends at the exit.
+  use std.text
+
+  sub keep(v: !List[Int], k: Int)
+    !v.push(k)
+
+  obj Box
+    v: List[Int]
+
+    fun slot(!@) -> !List[Int] from @
+      !@v
+
+  sub lent(nums: !List[Int], words: ?List[String])!
+    errdefer !nums.clear()
+    for w in words
+      keep(!nums, text.parse_int(w)!)
+
+  sub started(b: !Box, words: ?List[String])!
+    errdefer !b.v.clear()
+    for w in words
+      keep(!b.slot(), text.parse_int(w)!)
+
+  ws: List[String] = List()
+  nums: List[Int] = List()
+  lent(!nums, ws) catch print("x")
+  b = Box(v: List())
+  started(!b, ws) catch print("x")

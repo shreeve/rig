@@ -61,8 +61,10 @@ read where its parameter is a read view: `size(v)` is `size(?v)` for
 is rejected: write `<v` to move it or `+v` to pass a clone (plain data
 such as an `Int` just copies). A write is always written: `grow(!v)`, or
 `!v.push(3)` for a method that changes `v`, `x = !v.pop()` where its
-result is used. A write call whose `Bool` result is used puts its `!` in
-parentheses, `if (!seen).add(k)`, so it never reads as `not`. A value
+result is used. `!` never negates: a `!` is rejected wherever reading it
+as `not` would also type-check, so a write call whose `Bool` result is
+used puts its `!` in parentheses, `if (!seen).add(k)`, or `if not
+(!seen).add(k)` for the opposite. A value
 has any number of read views or one write view, never both.
 
 **A lend in a binding lasts.** `r = ?v[0]` keeps a view of `v[0]`;

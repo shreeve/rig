@@ -121,6 +121,18 @@ none of these ever built:
   "closure parameter `x` needs a type", or "cannot infer `T`", where
   `rig build` reported an internal error.
 
+**A write call whose `Bool` value is used is judged with self's type
+arguments applied:** `!flags.remove(0)` on a `List[Bool]`, or `!b.take()`
+on a `Box[Bool]` whose `take` returns `T`, is a `Bool`, so where its
+value is used (`if !flags.remove(0)`, `x = !b.take()`) it is rejected
+now, as `if !seen.add(k)` is: "`!` lends `flags` to write and never
+negates: write `(!flags).remove(0)` for what `remove` returns, or `not
+(!flags).remove(0)` for its opposite". 0.3.0 judged the result the
+method declares, `T`, and accepted the short form, which a reader of
+C, Rust, or Go takes for `not`. Inside a generic body, where `T` is a
+parameter, the short form stays. Write the long form, or `not` before
+it where the negation was meant. Trig has no such site.
+
 ### Removed
 
 - **`--release=fast`**, Zig's fast mode, from `rig run`, `rig build`,
@@ -268,6 +280,23 @@ none of these ever built:
 
 ### Compiler
 
+- An exit inside a call's arguments runs its defers with self lent to
+  no one, since the call never starts: `!nums.push(text.parse_int(w)!)`
+  under `errdefer !nums.resize(n, 0)` is accepted, where it was rejected
+  with "cannot lend `nums` to write while a read loan is live", and so
+  are the same shape under a `defer`, a `?`, a `return` or `continue`
+  in the argument, two write calls pending at once, and an index the
+  failure is in (`!g[text.parse_int(w)!].push(1)`). A lend an earlier
+  argument made, `keep(!nums, text.parse_int(w)!)`, stays rejected.
+- One principle decides where a `!` cannot stand: a `!` is rejected
+  wherever reading it as `not` would also type-check. A write call
+  whose `Bool` value is used says so: "`!` lends `seen` to write and
+  never negates: write `(!seen).add(3)` for what `add` returns, or
+  `not (!seen).add(3)` for its opposite", and under `not`, where the
+  negation is plain, offers only `not (!seen).add(3)`. The result is
+  judged with self's type arguments applied where the call knows them,
+  so `!flags.remove(0)` on a `List[Bool]` is a `Bool`; inside a generic
+  body a `T` stays a `T`.
 - An object or payload enum that holds a generic of another module
   whose fields name the generic's parameter as an optional (`kids:
   List[T?]` in `W[T]`, held as `w.W[Node]` in `Node`) is rejected with

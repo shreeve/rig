@@ -139,10 +139,12 @@ Each of the three lines in `main` that changes `orders` says so.
 `for x in !xs` walks the list with a write view of each element. A
 method that changes its value takes the same mark, `!orders.push(7)`,
 even though `main` owns the list, and so does one whose result is used,
-`!orders.pop()`. When that result is a `Bool`, the `!` goes in
-parentheses with its value, `if (!seen).add(k)`, so it never reads as
-`not`: `if !seen.add(k)` would read as "if not added". The long form
-`(!orders).pop()` is valid everywhere.
+`!orders.pop()`. A `!` never negates, and the compiler rejects one
+wherever reading it as `not` would also type-check: `if !seen.add(k)`
+would read as "if not added". So when that result is a `Bool`, the `!`
+goes in parentheses with its value, `if (!seen).add(k)`, or `if not
+(!seen).add(k)` for the opposite. The long form `(!orders).pop()` is
+valid everywhere.
 
 Leave the mark off and the program does not compile. The error says
 what to write:

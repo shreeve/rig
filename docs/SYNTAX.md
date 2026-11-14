@@ -545,12 +545,14 @@ field, and `?xs[0]` lends the element. A `?` or `<` before a value a call
 makes applies to the whole expression too: `?f(x).g()` lends what `g`
 returns, since a made self is read or taken without a sigil. With
 parentheses around the call, `?(p.m())` and `!(p.m())` lend its
-result. The long form is valid everywhere; it is
-required for a write call whose `Bool` value is used, `if
-(!set).insert(k)`, `ok = (!set).insert(k)`, so that its `!` never
-reads as negation. The method's declared result decides: a call
-returning a `T` is short even where `T` is a `Bool`. Every other write
-call is short wherever its value goes, `x = !v.pop()`, `while
+result. The long form is valid everywhere. `!` never negates: a `!`
+is rejected wherever reading it as `not` would also type-check. So the
+long form is required for a write call whose `Bool` value is used, `if
+(!set).insert(k)`, `ok = (!set).insert(k)`, or `not (!set).insert(k)`
+for its opposite. The result is judged with self's type arguments
+applied where the call knows them: `!flags.remove(0)` on a
+`List[Bool]` is a `Bool`, while in a generic body a `T` stays short.
+Every other write call is short wherever its value goes, `x = !v.pop()`, `while
 !it.next() as x`, `t = !@new_node(k)` ([SPEC §3](../SPEC.md#objects) has
 the checks), a `for` source among them: `for x in !b.drain()` is
 `for x in (!b).drain()`. An assignment's target keeps the long form
