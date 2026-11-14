@@ -111,6 +111,13 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **The `Bool` write-call guard as one principle** (branch
+  `bool-guard`): a `!` is rejected wherever reading it as `not` would
+  also type-check; the error offers both `(!seen).add(3)` and `not
+  (!seen).add(3)`, and a write call's result is judged with self's
+  type arguments applied (`if !flags.remove(0)` on a `List[Bool]` is
+  rejected now). Approved by the owner on 2026-11-13; Trig has no
+  site. The owner merges.
 - **`shared.Map`** (branch `concurrent-map`, draft PR): a map
   several tasks fill and read, insert-only, lookups that take no lock
   and write nothing shared, values viewed in place. It rests on one

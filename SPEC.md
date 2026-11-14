@@ -2247,26 +2247,33 @@ A `?`, `!`, or `<` before a place and a method call marks self:
 `!v.push(x)` is `(!v).push(x)` ([SYNTAX §5](docs/SYNTAX.md#self-sigils)).
 Writing `?` is optional, since a read self is lent without it. The
 short form is checked against the method: `!` before a method that
-does not take `!@` is rejected (it reads as negation, which is
-`not`), `<` before one that does not take `<@`, `?` before one that
-takes `!@` or `<@`, and any of them before a function with no
-self (`Point.origin()`). A
-write call whose value is used and whose method declares a `Bool`
-result (or a `Bool` that may fail, `Bool!`) is written in the long
-form, `(!set).insert(k)`, wherever the value goes (a condition, an
-`as` header, an operand, a binding, an argument, a return value, a
-function's or a closure's last line, a `match` subject, `??`), so its
-`!` never reads as negation: `if !seen.insert(k)` would read as "if
-not inserted". Any other write call is written short wherever its
-value goes, `x = !v.pop()`, `while !it.next() as x`, `t =
-!@new_node(k)`. The result the method declares decides, before its
-type's arguments apply: `!flags.remove(0)` on a `List[Bool]` returns
-`T`, and is short. A `for` source is no exception: `for x in
-!b.drain()` is `for x in (!b).drain()` ([for](#for)). A `Bool`
-call whose value is discarded is short
-too: a statement `!set.insert(k)`, alone or under `!`, `?`, or `catch`,
-and `_ = !set.insert(k)`, since `_ =` discards. The long form
-`(!v).pop()` is valid everywhere.
+does not take `!@` is rejected, `<` before one that does not take
+`<@`, `?` before one that takes `!@` or `<@`, and any of them before a
+function with no self (`Point.origin()`).
+
+`!` never negates, and one principle says where it cannot stand: **a
+`!` is rejected wherever reading it as `not` would also type-check.**
+That is `!done` where a `Bool` is read ([Operators](#operators)), `!`
+before a method that only reads and returns a `Bool` (`if
+!q.is_empty()`), and a write call whose value is used and is a `Bool`
+(or a `Bool` that may fail, `Bool!`), wherever the value goes (a
+condition, an `as` header, an operand, a binding, an argument, a
+return value, a function's or a closure's last line, a `match`
+subject, `??`): `if !seen.insert(k)` would read as "if not inserted".
+Such a call is written in the long form, `(!set).insert(k)` for what
+it returns, or `not (!set).insert(k)` for its opposite. Its result is
+judged with self's type arguments applied where the call knows them:
+`!flags.remove(0)` on a `List[Bool]` returns a `Bool`, and is written
+`(!flags).remove(0)`, while inside a generic body, where a `List[T]`'s
+`T` is a parameter, `!xs.remove(0)` returns a `T`, and is short. Any
+other write call is written short wherever its value goes, `x =
+!v.pop()`, `while !it.next() as x`, `t = !@new_node(k)`. A `for`
+source is no exception: `for x in !b.drain()` is `for x in
+(!b).drain()` ([for](#for)). A `Bool` call whose value is discarded is
+short too, since a discarded `not` means nothing: a statement
+`!set.insert(k)`, alone or under `!`, `?`, or `catch`, and `_ =
+!set.insert(k)`, since `_ =` discards. The long form `(!v).pop()` is
+valid everywhere.
 
 ```rig
 obj Tally
@@ -2346,7 +2353,7 @@ sub main()
 ```
 
 ```error
-write `(!t).insert(1)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`
+`!` lends `t` to write and never negates: write `(!t).insert(1)` for what `insert` returns, or `not (!t).insert(1)` for its opposite
 ```
 
 ```rig
@@ -5763,8 +5770,9 @@ sub main()
 `and`, `or`, and `not` take `Bool`s, and `and` and `or` short-circuit:
 the right side runs only when the left does not decide. The spellings
 `&&` and `||` are rejected with a hint. Prefix `!` always lends to write, never
-negation: a `!x` whose `Bool` value would be read (a condition, an
-operand, a binding, an argument) is rejected. It is valid only where a
+negation, and is rejected wherever reading it as `not` would also
+type-check ([§3](#objects)): a `!x` whose `Bool` value would be read (a
+condition, an operand, a binding, an argument) is rejected. It is valid only where a
 `!Bool` is expected, as for an argument to a `flag: !Bool` parameter.
 
 `not` binds looser than a comparison and tighter than `and` and `or`:
