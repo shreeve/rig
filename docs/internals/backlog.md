@@ -68,10 +68,16 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   draws Zig's warning, and one that large fails to build).
   With it, build debug programs for x86_64 with `-fllvm`, as aarch64's
   are.
-- The reference checker (`bin/rig-oracle`) models no tasks: a wait's
-  failure (`>t!`, `>t catch`) and the loans a task keeps while it runs
-  have no second opinion beside the compiler's. Teach it CORE's rules
-  for them, as it learned "A failure moves its error" (#601).
+- The reference checker (`bin/rig-oracle`) leaves one task rule to the
+  compiler: a fallible task the normal path drops without waiting is
+  rejected (SPEC §18, "Drop"), a rule that its error is not lost, which
+  Core §2 does not make (a dropped task drops its error), so the
+  checker accepts the two tests of it (`task fallible lost`, `sets
+  lost`). And CORE §4 says `!h` lends a handle itself, but not how long
+  an arm of `task.select` holds that lend: the compiler and the checker
+  read `!ch.on_recv()` as a read lend of the place holding `ch`, held
+  until the select returns, so two arms may name one channel. The
+  owner decides whether the Core says so.
 - The reference checker (`bin/rig-oracle`) takes memory quadratic in
   the exits of one `match` arm. For an arm `.one(:n)` of `match <e`
   with that many `return ... if ...` lines, its peak resident memory:

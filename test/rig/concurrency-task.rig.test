@@ -163,6 +163,7 @@ fail "task print", "`t` is a task, which `print` cannot show: wait for what it g
   print(<t)
 
 test "task defer before", seeds: 20, "0"
+  # oracle: main accept
   # A defer declared before the task runs after the task is dropped.
   fun total(xs: ?List[Int]) -> Int
     xs.len
@@ -507,6 +508,7 @@ fail "task write loan bound", "this task is lent to write, and keeps its write l
   !ts.push(fill(!xs, 3)&)
 
 fail "task write loan moved", "`t` is a task lent to write, which keeps its write loan while it runs, so it is only waited for or canceled where it is bound: `>t`", errors: 1
+  # oracle: main reject T2
   fun fill(xs: !List[Int], n: Int) -> Int
     !xs.push(n)
     n
@@ -515,6 +517,29 @@ fail "task write loan moved", "`t` is a task lent to write, which keeps its writ
   ts: List[Task[Int]] = List()
   t = fill(!xs, 4)&
   !ts.push(<t)
+
+fail "task write loan moved to a local", "`t` is a task lent to write, which keeps its write loan while it runs, so it is only waited for or canceled where it is bound: `>t`", errors: 1
+  # oracle: main reject T2
+  sub fill(xs: !List[Int], n: Int)
+    for i in 0..n
+      !xs.push(i)
+
+  xs: List[Int] = List()
+  t = fill(!xs, 3)&
+  u = <t
+  >u
+
+fail "task write loan read", "use of `xs` while a write loan is live", errors: 1
+  # A task keeps what its call was lent to write as a write loan.
+  # oracle: main reject C4
+  sub fill(xs: !List[Int], n: Int)
+    for i in 0..n
+      !xs.push(i)
+
+  xs: List[Int] = List()
+  t = fill(!xs, 3)&
+  print(xs.len)
+  >t
 
 test "task returned with from", seeds: 20, "2 3"
   # A task with read loans only is returned as any result is: `from v`
@@ -1173,6 +1198,7 @@ fail "task returned out of a deadline's closure keeps its loan", "cannot lend `x
   print(>t)
 
 fail "task in a Cell", "a Cell holds no task, and `Task[Int]` is one: a cycle through a Cell could keep the task from ever being waited for; wait for it first and keep what it gives", errors: 1
+  # oracle: main reject C8
   # A Cell is a shared home, which holds no task, even one with no loan.
   fun sq(x: Int) -> Int
     x * x
@@ -1182,6 +1208,7 @@ fail "task in a Cell", "a Cell holds no task, and `Task[Int]` is one: a cycle th
   print(1)
 
 fail "task in an object in a Cell", "a Cell holds no task, and `H` holds one", errors: 1
+  # oracle: main reject C8
   obj H
     t: Task[Int]
 
@@ -1192,6 +1219,7 @@ fail "task in an object in a Cell", "a Cell holds no task, and `H` holds one", e
   print(1)
 
 fail "task set in a Cell", "a Cell holds no task, and `Tasks[Int]` is one", errors: 1
+  # oracle: main reject C8
   c = *Cell(Tasks[Int]())
   print(1)
 
@@ -1206,6 +1234,7 @@ fail "task read loan live", "cannot lend `xs` to write while a read loan is live
   print(>u)
 
 fail "task defer after", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # oracle: main reject C4
   # A defer declared after the task runs before the task is dropped,
   # while it still reads `xs`.
   fun total(xs: ?List[Int]) -> Int
@@ -1218,6 +1247,107 @@ fail "task defer after", "cannot lend `xs` to write while a read loan is live", 
   u = total(?xs)&
   defer clear(!xs)
   print(xs.len)
+
+fail "task dropped where its scope ends keeps its loans", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # A task's drop waits for it, so it uses what the task was lent.
+  # oracle: main reject C4
+  fun total(xs: ?List[Int]) -> Int
+    xs.len
+
+  xs: List[Int] = List()
+  u = total(?xs)&
+  !xs.push(1)
+
+fail "task in a channel", "a channel's values hold no loan, and a `Task[Int]` may hold a view", errors: 1
+  # A channel is a shared home, which holds no task.
+  fun sq(x: Int) -> Int
+    x * x
+
+  ch = *Chan[Task[Int]](1)
+  !ch.send(sq(3)&)!
+
+fail "task in an actor's value", "an actor's value holds no loan, and a `H` may hold a view", errors: 1
+  # An actor's value is a shared home, which holds no task.
+  obj H
+    t: Task[Int]
+
+    fun get(?@) -> Int
+      1
+
+  fun sq(x: Int) -> Int
+    x * x
+
+  a = *Actor(H(t: sq(3)&))
+  print(a.get())
+
+fail "task in an owned closure", "an owned closure holds no task: `t` is a `Task[Int]`, which only the scope that waits for it may hold; wait for it first and capture its value", errors: 1
+  # oracle: main reject C8
+  fun sq(x: Int) -> Int
+    x * x
+
+  t = sq(3)&
+  f = *|<t| >t
+  print(f())
+
+test "task canceled ends its loans", seeds: 20, "0"
+  # oracle: main accept
+  use std.time
+
+  fun total(xs: ?List[Int]) -> Int!
+    time.sleep(1)!
+    xs.len
+
+  xs: List[Int] = List()
+  t = total(?xs)&
+  n = <t.cancel() catch 0
+  !xs.push(1)
+  print(n)
+
+test "task errors waited, canceled, and dropped", seeds: 20, '''
+  E.bad(msg: "no")
+  -1
+  0 -2
+'''
+  # `>t!` passes the task's error on, `>t catch |err|` binds it,
+  # `<u.cancel()` gives what the task gave, and dropping a task drops
+  # its error (Core §2, "A failure moves its error").
+  # oracle: g accept
+  # oracle: main accept
+  error E
+    bad(msg: String)
+
+  fun f() -> Int!
+    return E.bad(msg: String("no"))
+
+  fun g() -> Int!
+    t = f()&
+    >t! + 1
+
+  t = f()&
+  n = >t catch |err|
+    print(err)
+    0
+  u = f()&
+  print(<u.cancel() catch -1)
+  w = f()&
+  <w
+  print(n, g() catch -2)
+
+fail "task error moved out of its catch", "use of `err` after move", errors: 1
+  # oracle: main reject C1
+  error E
+    bad(msg: String)
+
+  fun f() -> Int!
+    return E.bad(msg: String("no"))
+
+  t = f()&
+  n = >t catch |err|
+    keep = <err
+    print(keep)
+    print(err)
+    0
+  print(n)
 
 fail "task fallible lost", "the task `u` can fail, and it is dropped where its scope ends without being waited for, so its error would be lost", errors: 1
   error Parity

@@ -730,6 +730,8 @@ const Lowerer = struct {
             .holds_writes = info.holds_writes,
             .drop_reads = info.drop_reads,
             .hidden = hidden,
+            .task = sema.isTask(self.ctx, ty),
+            .holds_task = info.holds_task,
             .pos = pos,
         });
         return @intCast(self.f.vars.items.len - 1);
@@ -999,7 +1001,7 @@ const Lowerer = struct {
                     // The binding holds the environment, and drops it.
                     self.f.vars.items[x].drop_reads = self.f.vars.items[v.?].drop_reads;
                 }
-                try self.store(x, v, pos);
+                try self.emit(.{ .pos = pos, .what = .move, .moves = try self.list(v), .def = x, .binds_task = madeTask(rhs) });
                 return;
             }
             const x = self.vars.get(sym_id).?;
@@ -1032,7 +1034,7 @@ const Lowerer = struct {
             const v = try self.eval(rhs, .take, xv.ty);
             // Reassigning a name drops its old value: no loan of it may
             // be live (Core s5, s6).
-            try self.emit(.{ .pos = pos, .what = .assign, .moves = try self.list(v), .def = x, .access = .{ .root = x, .kind = .whole } });
+            try self.emit(.{ .pos = pos, .what = .assign, .moves = try self.list(v), .def = x, .access = .{ .root = x, .kind = .whole }, .binds_task = madeTask(rhs) });
             return;
         }
         // A field or element: the value first, then the indexes, then
@@ -3114,6 +3116,11 @@ const Lowerer = struct {
             if (self.f.vars.items[v].drop_reads) drops = true;
             try parts.append(self.a, v);
         }
+        // No owned closure holds a task, which may always carry a loan
+        // (docs/design/concurrency.md, rule 3).
+        if (owned) for (parts.items) |pv| if (self.f.vars.items[pv].holds_task) {
+            return self.found(.C8, pos, "an owned closure holds no task, which may carry a loan", .{});
+        };
         var inner: Lowerer = .{
             .a = self.a,
             .ctx = self.ctx,
@@ -3646,6 +3653,11 @@ const Lowerer = struct {
         var recv_place: ?Place = null;
         var recv_lent: ?VarId = null;
         var recv_deref = false;
+        // A method called through an actor's handle (SPEC "Actors").
+        var actor_call = false;
+        // An arm of `task.select` (`selectArm`), and how its mark takes
+        // its self.
+        var arm_call: ?sema.SelfMode = null;
 
         if (callee == .src) {
             const name = leafText(callee, self.src);
@@ -3680,7 +3692,8 @@ const Lowerer = struct {
                 },
                 .nominal_type, .generic_type, .type_alias => {
                     is_ctor = true;
-                    cell_store = sym_id.? == self.ctx.cell_sym_id or sym_id.? == self.ctx.signal_sym_id;
+                    // An actor's value is a shared home too (SPEC "Actors").
+                    cell_store = sym_id.? == self.ctx.cell_sym_id or sym_id.? == self.ctx.signal_sym_id or sym_id.? == self.ctx.actor_sym_id;
                 },
                 // A closure, a function value, or a view of one: the
                 // callee value first; the result carries its loans, the
@@ -3737,9 +3750,25 @@ const Lowerer = struct {
                 const recv_obj = if (obj.isKind(.read) or obj.isKind(.write) or obj.isKind(.move)) ir.get(obj, .operand) else obj;
                 const recv_ty = try self.typeOf(recv_obj);
                 cell_store = self.isCell(recv_ty);
+                // A method called through an actor's handle is a message
+                // (SPEC "Actors"): the call reads the handle, and its `!`
+                // lends nothing, since the actor changes its own value.
+                actor_call = sema.actorOfHandle(self.ctx, recv_ty) != null;
+                // What a channel is sent, it holds until a task takes it:
+                // a channel is a shared home (SPEC "Channels").
+                if (sema.chanOfHandle(self.ctx, recv_ty) != null) cell_store = true;
                 if (fn_params) |fp| {
                     try self.entryViews(callee, recv_ty, fp);
                     shapes = try self.shapesOf(fp.ctx, if (fp.ctx == self.ctx) try self.instParams(recv_ty, fp.params) else fp.params);
+                    // An arm's function is lent to the select, which calls
+                    // it (SPEC "Channels").
+                    if (fp.arm) {
+                        const lent = try self.a.dupe(Shape, shapes);
+                        for (fp.params, lent) |pt, *sh| if (self.fnTypeOf(pt) != null) {
+                            sh.* = .view;
+                        };
+                        shapes = lent;
+                    }
                     // A call on a type parameter's value is a call of a
                     // function value: what its type could hold, it may
                     // keep (Core s7).
@@ -3774,7 +3803,10 @@ const Lowerer = struct {
                 const elem_method = self.isList(recv_ty) and for ([_][]const u8{ "get", "pop", "remove", "swap_remove" }) |m| {
                     if (std.mem.eql(u8, m, leafText(ir.Member.name(callee), self.src))) break true;
                 } else false;
-                switch (recv_mode) {
+                const arm = if (fn_params) |fp| fp.arm else false;
+                if (arm) arm_call = recv_mode;
+                const robj = if (actor_call or arm) recv_obj else obj;
+                switch (if (actor_call or arm) .read else recv_mode) {
                     .none => return abstain("a function of a type called on a value"),
                     .write => {
                         // A write receiver with no `!` is a write view
@@ -3814,8 +3846,8 @@ const Lowerer = struct {
                         // A method lends its receiver for the whole call
                         // (SPEC §7), plain data included.
                         var r: ?VarId = null;
-                        if (try self.place(obj)) |p| {
-                            r = try self.lend(p, .read, obj, p.ty);
+                        if (try self.place(robj)) |p| {
+                            r = try self.lend(p, .read, robj, p.ty);
                             if (elem_method) elem_from = p.root;
                             recv_held = p.root;
                             // Through a read view, a lend copies the view.
@@ -3824,11 +3856,11 @@ const Lowerer = struct {
                                 recv_deref = p.via == .write or (!p.slice and self.isWriteRef(p.ty));
                             }
                         } else {
-                            r = try self.eval(obj, .read, null);
+                            r = try self.eval(robj, .read, null);
                             recv_held = r;
                             // `(?p).m()`: the lend is of place `p`, whose
                             // fields alone a path of self names.
-                            if (obj.isKind(.read) and fieldsOnly(recv_obj)) if (try self.place(recv_obj)) |p| {
+                            if (robj.isKind(.read) and fieldsOnly(recv_obj)) if (try self.place(recv_obj)) |p| {
                                 recv_held = p.root;
                                 if (p.via != .read and (try self.kinds.of(p.ty)).kind != .read_view) {
                                     recv_place = p;
@@ -3857,6 +3889,9 @@ const Lowerer = struct {
                         if (r) |rv| {
                             try moves.append(self.a, rv);
                             try recv_vars.append(self.a, rv);
+                            // A wait or cancel takes the task it ends (T2).
+                            const mn = leafText(ir.Member.name(callee), self.src);
+                            if (self.f.vars.items[rv].hidden and sema.isTask(self.ctx, recv_ty) and (std.mem.eql(u8, mn, "wait") or std.mem.eql(u8, mn, "cancel"))) self.f.vars.items[rv].waits = true;
                         }
                     },
                 }
@@ -3960,7 +3995,8 @@ const Lowerer = struct {
             }
             // A callable whose result holds no view hands the call none
             // of its captures' views: the call only calls it (Core s7).
-            if (try self.callsOnly(v, try self.typeOf(e))) {
+            // An arm keeps its function lent until the select returns.
+            if (arm_call == null and try self.callsOnly(v, try self.typeOf(e))) {
                 try uses.append(self.a, v);
                 continue;
             }
@@ -3984,14 +4020,19 @@ const Lowerer = struct {
         };
         const rt = try self.typeOf(e);
         const rinfo = self.ctx.types.get(rt);
-        const result: ?VarId = if (parts.len > 0) null else switch (rinfo) {
+        // An arm is a value the select reads, which holds what the arm was
+        // lent and given until the select returns (SPEC "Channels"): a
+        // function's write capture stays a write loan.
+        const result: ?VarId = if (parts.len > 0) null else if (arm_call != null) try self.viewTemp(rt, .write_view, pos) else switch (rinfo) {
             .void, .noreturn => null,
             else => try self.temp(rt, pos),
         };
         // What the result carries, or each of several results (Core s7,
         // per result). A task keeps every loan its call was given, until
         // it is waited for, which its drop does.
-        const whole: Carry = if (ir.Call.task(e) != .nil) .{ .no_result = &.{}, .result_loan = true } else try self.resultCarry(&reach, sig, if (sig) |sg| sg.f.returns else rt, recv_vars.items, spans.items, reads.items, moves.items);
+        // A task of an actor's method keeps none of the handle, which may
+        // be used again while it runs (SPEC "Actors").
+        const whole: Carry = if (ir.Call.task(e) != .nil) .{ .no_result = if (actor_call) recv_vars.items else &.{}, .result_loan = true } else try self.resultCarry(&reach, sig, if (sig) |sg| sg.f.returns else rt, recv_vars.items, spans.items, reads.items, moves.items);
         const narrowed = whole.by_paths and recv_held != null;
         const part_carry = try self.a.alloc(core.Part, parts.len);
         if (narrowed and parts.len > 0) return abstain("several results through a path of self");
@@ -4049,6 +4090,7 @@ const Lowerer = struct {
             .recv_view = recv_view,
             .recv_root = recv_root,
             .paths = swapped.items,
+            .task_writes = ir.Call.task(e) != .nil,
         });
         if (elem_from) |from| if (result) |r| {
             try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(from), .def = r });
@@ -4607,6 +4649,9 @@ const Lowerer = struct {
         /// instance gives: its signature is the call's, with no `from` or
         /// `keeps` (SPEC "Generic bodies").
         type_param: bool = false,
+        /// An arm of `task.select` (`selectArm`), whose sigil sema reads
+        /// as the arm's own: its self is lent as its mode says.
+        arm: bool = false,
     };
 
     /// A Map's or HashMap's `update` and `retain` call their function
@@ -4682,8 +4727,13 @@ const Lowerer = struct {
             return .{ am.field.self_mode, .{ .ctx = am.ctx, .params = ft.function.params[1..], .full = ft.function, .builtin = false, .decl_pos = am.field.decl_pos } };
         }
         if (self.ctx.elemCallOf(callee)) |ec| {
-            // An integer's bits and a vector's methods read it as a value.
-            return .{ if (ec.op == .read or ec.op.isBits() or ec.op.isSimd()) .read else .write, null };
+            // `copy`, `fill`, `swap`, and a byte `write` change the elements
+            // of their self; every other such method reads it as a value,
+            // `sum` and `prefetch` reading its elements.
+            return .{ switch (ec.op) {
+                .copy, .fill, .swap, .write => .write,
+                .read, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .lanes, .any, .all, .array, .with, .select, .lookup, .lag, .hash, .order, .min, .max, .clamp, .total_order, .sum, .prefetch => .read,
+            }, null };
         }
         if (self.ctx.stringCallOf(callee)) |tc| {
             _ = tc;
@@ -4700,6 +4750,7 @@ const Lowerer = struct {
             return .{ mode, .{ .ctx = self.ctx, .params = ft.function.params[1..], .full = ft.function, .builtin = false, .type_param = true } };
         }
         try self.plainInstance(recv_ty);
+        if (try self.selectArm(call_node, recv_ty, mname)) |arm| return arm;
         // `>ts` takes a set of tasks, as `>t` takes a task, and gives what
         // its tasks gave (SPEC "Sets of tasks"): a built-in's result,
         // carrying what the set held that its type could hold.
@@ -4710,7 +4761,17 @@ const Lowerer = struct {
         // A method of what a handle holds reads it through the handle
         // (Core s8).
         switch (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty))) {
-            .shared => |inner| recv_ty = inner,
+            .shared => |inner| {
+                recv_ty = inner;
+                // A method of an actor's value, called through its handle,
+                // is a message (SPEC "Actors"): the method `T` declares.
+                if (sema.actorValue(self.ctx, inner)) |held| {
+                    const d = sema.nominalDecl(self.ctx, held) orelse return abstain("an actor of an unusual type");
+                    const m = try self.methodOf(d, mname) orelse return abstain("an actor's method not found");
+                    if (m[0] == .value) return abstain("a method that takes its self, through an actor's handle");
+                    return m;
+                }
+            },
             // A weak handle has no methods: `*w` upgrades it (Core s8).
             .weak => return abstain("a method of a weak handle"),
             else => {},
@@ -4743,6 +4804,30 @@ const Lowerer = struct {
         return abstain("a method reached through a handle");
     }
 
+    /// An arm of `task.select` (SPEC "Channels"), which the select makes
+    /// before it waits: `!ch.on_recv()`, `!ch.on_send(<v)`, which takes
+    /// `v`, and `?t.on_end()`. The select commits one arm alone, which
+    /// changes its channel there, so until then each arm only holds the
+    /// handle or task it names: it lends that place to read. The arm
+    /// carries what it was lent and given, so each stays lent and taken
+    /// until the select, which reads its arms, returns. An arm of the
+    /// older spelling also takes the function the select calls with what
+    /// it received, lent to it. Null for any other method.
+    fn selectArm(self: *Lowerer, call_node: Sexp, recv_ty: TypeId, mname: []const u8) Error!?struct { sema.SelfMode, ?MethodParams } {
+        const held = sema.unwrapViews(self.ctx, recv_ty);
+        const mode: sema.SelfMode = if (std.mem.eql(u8, mname, "on_end") and sema.isTask(self.ctx, held))
+            .read
+        else if ((std.mem.eql(u8, mname, "on_recv") or std.mem.eql(u8, mname, "on_send")) and sema.chanOfHandle(self.ctx, recv_ty) != null)
+            .write
+        else
+            return null;
+        const args = ir.Call.args(call_node);
+        const params = try self.a.alloc(TypeId, args.len);
+        for (args, params) |arg, *p| p.* = try self.typeOf(if (arg.isKind(.kwarg)) ir.Kwarg.value(arg) else arg);
+        const full: sema.FunctionType = .{ .params = try std.mem.concat(self.a, TypeId, &.{ &.{recv_ty}, params }), .returns = try self.typeOf(call_node), .is_sub = false };
+        return .{ mode, .{ .ctx = self.ctx, .params = params, .full = full, .arm = true } };
+    }
+
     /// The API method a call through an API reaches (the call's
     /// `sema.Dispatch`), with the context of the module that declares it;
     /// null for any other call.
@@ -4770,6 +4855,12 @@ const Lowerer = struct {
         return null;
     }
 };
+
+/// Whether `e` is a task's call, `f(x)&`, whose task a binding of it
+/// keeps where it is made (T2).
+fn madeTask(e: Sexp) bool {
+    return e.isKind(.call) and ir.Call.task(e) != .nil;
+}
 
 /// Whether `a` and `b` are one node: a leaf at one place, or one list.
 fn sameErased(a: Sexp, b: Sexp) bool {

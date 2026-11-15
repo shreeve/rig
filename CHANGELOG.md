@@ -473,6 +473,18 @@ it where the negation was meant. Trig has no such site.
   it skipped on stderr elsewhere; it fails, too, when fewer programs
   than its floor (22) are in λRig's scope, or when lrig writes a line it
   does not know.
+- The reference ownership checker (`bin/rig-oracle`) checks the task
+  rules of its own: a task keeps what its call lent to write as a write
+  loan, and a task carrying one moves only into the binding that names
+  it and into its wait or cancel (its new rule T2); no Cell, Signal,
+  owned closure, actor's value, or channel holds a task. It decides a
+  method of an actor's value called through its handle, which reads
+  the handle (its `!` lends nothing, and its task keeps none of the
+  handle), and the arms of `task.select`, which stay lent and taken
+  until the select returns, and reads an element method such as
+  `xs.sum()` as reading its self. Verdict tests state each task rule.
+  Its floors rise by what it now decides (159 functions of the
+  tests, 40 of the docs).
 - The reference ownership checker (`bin/rig-oracle`) agrees with the
   compiler on a closure literal lent to a call, whose result carries the
   loans of what the closure captured, and decides the flow of sets of
