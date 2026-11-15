@@ -5068,7 +5068,7 @@ The forms are in [SYNTAX §9](docs/SYNTAX.md#9-bindings-and-assignment). `x =
 e` binds a new local `x` when no `x` is visible, and otherwise assigns
 the visible one: through it, when `x` holds a write view
 ([View places](#view-places)). `x =! e` binds a fixed local, which
-cannot be reassigned. `_ = e` evaluates `e` and discards it, and an
+cannot be reassigned or lent to write. `_ = e` evaluates `e` and discards it, and an
 owning value discarded so is dropped at once. A binding's type comes
 from its annotation or its value.
 

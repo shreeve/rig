@@ -43,9 +43,9 @@ sub main()
 30 100
 ```
 
-`limit =! 100` binds `limit` for good: a fixed local, like `const` in
-JavaScript or `let` in Rust. Read the `!` as "for real": the name never
-changes, and the compiler holds you to it.
+`limit =! 100` binds `limit` for good: a fixed local, never reassigned
+or lent to write, like Rust's `let` without `mut`. Read the `!` as "for
+real": the name never changes, and the compiler holds you to it.
 
 ```rig reject
 sub main()

@@ -14,7 +14,7 @@ which of its uses it is.
 
 | Sigil | Meaning | Example |
 |---|---|---|
-| `=!` | binds a fixed local, which cannot be reassigned, like `const` in JavaScript or `let` in Rust; `x = e` binds or assigns | `limit =! 100` |
+| `=!` | binds a fixed local, which is never reassigned or lent to write, like Rust's `let` without `mut`; `x = e` binds or assigns | `limit =! 100` |
 
 **Taking and copying.**
 
@@ -28,7 +28,7 @@ which of its uses it is.
 | Sigil | Before a value | Before a type |
 |---|---|---|
 | `?` | `?x` lends `x` to read; a bare argument is lent so where its parameter is a read view | `?T`, a read view |
-| `!` | `!x` lends `x` to write, and is always written | `!T`, a write view |
+| `!` | `!x` lends `x` to write; this mark is never implied | `!T`, a write view |
 
 **Holding.**
 
