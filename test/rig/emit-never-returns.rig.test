@@ -229,3 +229,47 @@ bomb "never returns an actor's method", seeds: 20, "stopped", prints: "before"
   print("before")
   b.stop()
   print("after")
+
+code "never returns not past a labelled break, a returning arm, a cycle, or a generic's call by name", /fn outer_break\([^\n]*\) void \{/, /fn one_arm_returns\([^\n]*\) void \{/, /fn ping\([^\n]*\) void \{/, /fn pong\([^\n]*\) void \{/, /fn halt_any\([^\n]*\) void \{/, /fn halt\(self: Hard\) noreturn \{/
+  # A labelled `break` leaves the loop; one arm of the `match` returns;
+  # `ping` and `pong` only call each other; `halt_any` calls a method by
+  # name that returns for one type and panics for another.
+  sub stop()
+    panic("stop")
+
+  sub outer_break(n: Int)
+    $outer: loop
+      loop
+        break $outer if n > 0
+        stop()
+
+  sub one_arm_returns(n: Int)
+    match n
+      0 => return
+      _ => stop()
+
+  sub ping(n: Int)
+    pong(n - 1)
+
+  sub pong(n: Int)
+    ping(n)
+
+  obj Soft
+    n: Int
+
+    sub halt(?@)
+      print("soft", @n)
+
+  obj Hard
+    n: Int
+
+    sub halt(?@)
+      panic("hard")
+
+  sub halt_any[T](x: ?T)
+    x.halt()
+
+  outer_break(1)
+  one_arm_returns(0)
+  halt_any(Soft(n: 1))
+  print("ok")

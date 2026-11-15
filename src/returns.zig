@@ -28,6 +28,11 @@
 //! The root module's `main`, which the runtime calls, a closure, a
 //! `test` block, a `drop` body, and a compile-time function are never
 //! candidates.
+//!
+//! Zig checks the result: it rejects a `noreturn` function whose end
+//! control can reach. So a function marked here by mistake fails the
+//! build; it never becomes a program that returns where Zig assumed it
+//! could not.
 
 const std = @import("std");
 const parser = @import("parser.zig");
