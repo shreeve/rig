@@ -96,9 +96,6 @@ comptime {
     if (split.on and split.main) _ = .{
         taken_all,
         kept_reading,
-        buddyinfo_for_test,
-        buddyinfo_reads,
-        clock_for_test,
         region_next,
         region_end,
         region_lock,
@@ -114,10 +111,8 @@ comptime {
         table_waiting,
         table_waiting_count,
         thp_mode,
-        node_for_test,
         table_holes,
         table_hole_count,
-        table_remap_fails_for_test,
         table_live,
         total_live,
         total_peak,
@@ -1231,7 +1226,7 @@ const every_node: u64 = node_mask;
 /// The monotonic clock in units of 2^16 ns, through the vDSO: tens of
 /// nanoseconds, where a reading costs microseconds. 0 if it fails.
 fn clockUnits() u64 {
-    if (comptime builtin.is_test) if (clock_for_test.*) |ns| return ns >> 16;
+    if (comptime builtin.is_test) if (clock_for_test) |ns| return ns >> 16;
     var ts: std.os.linux.timespec = undefined;
     if (std.os.linux.clock_gettime(.MONOTONIC, &ts) != 0) return 0;
     const ns = @as(u64, @intCast(ts.sec)) *% std.time.ns_per_s +% @as(u64, @intCast(ts.nsec));
@@ -1288,8 +1283,8 @@ noinline fn freeHugeNow() Reading {
     var buf: [4096]u8 = undefined;
     const text = text: {
         if (comptime builtin.is_test) {
-            buddyinfo_reads.* += 1;
-            if (buddyinfo_for_test.*) |text| break :text text;
+            buddyinfo_reads += 1;
+            if (buddyinfo_for_test) |text| break :text text;
         }
         break :text readSmallFile("/proc/buddyinfo", &buf);
     };
@@ -1301,7 +1296,7 @@ noinline fn freeHugeNow() Reading {
 /// The NUMA node of the CPU the thread runs on (`getcpu`), or null if
 /// Linux does not say.
 fn thisNode() ?usize {
-    if (comptime builtin.is_test) if (node_for_test.*) |n| return n;
+    if (comptime builtin.is_test) if (node_for_test) |n| return n;
     if (builtin.os.tag != .linux) return null;
     // Linux writes an `unsigned int` for each, where Zig's `getcpu`
     // names a `usize`.
@@ -1314,23 +1309,21 @@ fn thisNode() ?usize {
 
 /// What a test reads in place of /proc/buddyinfo, the readings it has
 /// made, the clock it sees, in nanoseconds, and the node it runs on.
-var buddyinfo_for_test_var: ?[]const u8 = null;
-const buddyinfo_for_test = split.cell(&buddyinfo_for_test_var, "alloc.buddyinfo_for_test");
-var buddyinfo_reads_var: usize = 0;
-const buddyinfo_reads = split.cell(&buddyinfo_reads_var, "alloc.buddyinfo_reads");
-var clock_for_test_var: ?u64 = null;
-const clock_for_test = split.cell(&clock_for_test_var, "alloc.clock_for_test");
-var node_for_test_var: ?usize = null;
-const node_for_test = split.cell(&node_for_test_var, "alloc.node_for_test");
+/// Test only, so never in a split build, and plain variables rather than
+/// cells.
+var buddyinfo_for_test: ?[]const u8 = null;
+var buddyinfo_reads: usize = 0;
+var clock_for_test: ?u64 = null;
+var node_for_test: ?usize = null;
 
 /// Read `text` in place of /proc/buddyinfo from now, with no reading
 /// kept, under `madvise` for huge pages with `defrag` `madvise`, pup's
 /// mode, where the reading is what each request asks; and with null,
 /// read the files again, the system's own.
 fn useBuddyinfoForTest(text: ?[]const u8) void {
-    buddyinfo_for_test.* = text;
+    buddyinfo_for_test = text;
     kept_reading.store(0, .monotonic);
-    node_for_test.* = null;
+    node_for_test = null;
     if (text != null) useThpForTest("always [madvise] never", "always defer defer+madvise [madvise] never") else thp_mode.store(0, .monotonic);
 }
 
@@ -2054,9 +2047,9 @@ const table_holes = split.cell(&table_holes_var, "alloc.table_holes");
 var table_hole_count_var: usize = 0;
 const table_hole_count = split.cell(&table_hole_count_var, "alloc.table_hole_count");
 /// How a test makes mapping a range afresh fail: not, leaving a hole
-/// that can be filled, or leaving one that cannot.
-var table_remap_fails_for_test_var: enum { no, remap, and_plug } = .no;
-const table_remap_fails_for_test = split.cell(&table_remap_fails_for_test_var, "alloc.table_remap_fails_for_test");
+/// that can be filled, or leaving one that cannot. Test only, so never
+/// in a split build, and a plain variable rather than a cell.
+var table_remap_fails_for_test: enum { no, remap, and_plug } = .no;
 /// Whether any range has asked for huge pages, so a range given back is
 /// advised for small pages again before the next Table takes it.
 var tables_asked_huge_var: std.atomic.Value(bool) = .init(false);
@@ -2229,7 +2222,7 @@ pub fn unreserveTable(p: [*]u8, bytes: usize) bool {
 /// could not: a Linux before 6.12 may then have unmapped the range and
 /// mapped nothing in its place, and the Mac keeps the old mapping.
 fn mapTableRangeAfresh(range: [*]align(huge_page) u8, len: usize) bool {
-    if (comptime builtin.is_test) if (table_remap_fails_for_test.* != .no) {
+    if (comptime builtin.is_test) if (table_remap_fails_for_test != .no) {
         // As such a Linux may fail: the old mapping gone, no new one.
         std.posix.munmap(range[0..len]);
         return false;
@@ -2261,7 +2254,7 @@ fn loseTableRange(range: [*]align(huge_page) u8, len: usize) void {
 /// Fill the `len` bytes at `range` with a mapping no access may touch.
 /// False if any of it is mapped already, or Linux could not.
 fn plugTableRange(range: [*]align(huge_page) u8, len: usize) bool {
-    if (comptime builtin.is_test) if (table_remap_fails_for_test.* == .and_plug) return false;
+    if (comptime builtin.is_test) if (table_remap_fails_for_test == .and_plug) return false;
     const got = std.posix.mmap(range, len, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true, .FIXED_NOREPLACE = true }, -1, 0) catch return false;
     if (@intFromPtr(got.ptr) == @intFromPtr(range)) return true;
     // A Linux before 4.17 takes the address as a hint and maps elsewhere.
@@ -3889,22 +3882,22 @@ test "on Linux a new segment or large block asks for huge pages while free 2 MiB
 test "on Linux a burst of Tables reads /proc/buddyinfo once, and a reading older than a few milliseconds is read again" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     defer useBuddyinfoForTest(null);
-    defer clock_for_test.* = null;
+    defer clock_for_test = null;
     // The clock's time kept in a reading wraps past 2^56 ns of uptime.
     for ([_]u64{ 1 << 40, (1 << 57) + (1 << 40) }) |start| {
         useBuddyinfoForTest(buddyinfo_idle);
-        clock_for_test.* = start;
-        const before = buddyinfo_reads.*;
+        clock_for_test = start;
+        const before = buddyinfo_reads;
         for (0..43) |_| try std.testing.expect(hugeFree());
-        try std.testing.expectEqual(before + 1, buddyinfo_reads.*);
+        try std.testing.expectEqual(before + 1, buddyinfo_reads);
         // Memory fragments: the reading kept answers until its life is over.
-        buddyinfo_for_test.* = buddyinfo_partly;
-        clock_for_test.*.? += reading_life_ns - (1 << 17);
+        buddyinfo_for_test = buddyinfo_partly;
+        clock_for_test.? += reading_life_ns - (1 << 17);
         try std.testing.expect(hugeFree());
-        try std.testing.expectEqual(before + 1, buddyinfo_reads.*);
-        clock_for_test.*.? += 1 << 17;
+        try std.testing.expectEqual(before + 1, buddyinfo_reads);
+        clock_for_test.? += 1 << 17;
         try std.testing.expect(!hugeFree());
-        try std.testing.expectEqual(before + 2, buddyinfo_reads.*);
+        try std.testing.expectEqual(before + 2, buddyinfo_reads);
     }
 }
 
@@ -3912,23 +3905,23 @@ test "on Linux a kept reading may tell a new segment no, but a yes is read again
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     useBuddyinfoForTest(buddyinfo_low);
     defer useBuddyinfoForTest(null);
-    clock_for_test.* = 1 << 40;
-    defer clock_for_test.* = null;
-    const before = buddyinfo_reads.*;
+    clock_for_test = 1 << 40;
+    defer clock_for_test = null;
+    const before = buddyinfo_reads;
     // 17 free: a Table's reading is kept, then too few for 10 blocks and
     // 8 more answers with no new reading.
     try std.testing.expect(!hugeFree());
     try std.testing.expect(!hugeFreeFor(10));
-    try std.testing.expectEqual(before + 1, buddyinfo_reads.*);
+    try std.testing.expectEqual(before + 1, buddyinfo_reads);
     // Enough for 2 and 8 more: read again, and the 2 are taken from it.
     try std.testing.expect(hugeFreeFor(2));
-    try std.testing.expectEqual(before + 2, buddyinfo_reads.*);
+    try std.testing.expectEqual(before + 2, buddyinfo_reads);
     try std.testing.expectEqual(@as(?usize, 15), keptReading());
     try std.testing.expect(hugeFreeFor(7));
     try std.testing.expectEqual(@as(?usize, 10), keptReading());
     // The reading kept now says 10: too few for 3 and 8 more.
     try std.testing.expect(!hugeFreeFor(3));
-    try std.testing.expectEqual(before + 3, buddyinfo_reads.*);
+    try std.testing.expectEqual(before + 3, buddyinfo_reads);
 }
 
 test "on Linux, with memory fragmented, no block, segment, span segment, or growth asks for huge pages" {
@@ -3965,16 +3958,16 @@ test "on Linux a burst of Tables takes ranges of one region, 2 MiB aligned, with
     defer useBuddyinfoForTest(null);
     const mine = try allocator.alloc(u8, prefault_big);
     defer allocator.free(mine);
-    clock_for_test.* = 1 << 40;
-    defer clock_for_test.* = null;
-    const reads = buddyinfo_reads.*;
+    clock_for_test = 1 << 40;
+    defer clock_for_test = null;
+    const reads = buddyinfo_reads;
     const next = table_next.*;
     var got: [43][*]u8 = undefined;
     for (&got, 0..) |*g, i| {
         g.* = reserveTable((i + 1) * (3 << 20) + 4096).?;
         try std.testing.expectEqual(@as(usize, 0), @intFromPtr(g.*) % huge_page);
     }
-    try std.testing.expectEqual(reads + 1, buddyinfo_reads.*);
+    try std.testing.expectEqual(reads + 1, buddyinfo_reads);
     try std.testing.expect(table_region_count.* >= 1);
     // Given back in another order than taken, they join one another and
     // then the region's rest.
@@ -4195,31 +4188,31 @@ test "on Linux a kept reading of a host of two nodes answers only a thread on th
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     useBuddyinfoForTest(buddyinfo_two_nodes);
     defer useBuddyinfoForTest(null);
-    clock_for_test.* = 1 << 40;
-    defer clock_for_test.* = null;
-    const before = buddyinfo_reads.*;
+    clock_for_test = 1 << 40;
+    defer clock_for_test = null;
+    const before = buddyinfo_reads;
     // Node 0 has 10 free, too few for a Table; node 1 has 300.
-    node_for_test.* = 0;
+    node_for_test = 0;
     try std.testing.expect(!hugeFree());
     try std.testing.expect(!hugeFree());
-    try std.testing.expectEqual(before + 1, buddyinfo_reads.*);
-    node_for_test.* = 1;
+    try std.testing.expectEqual(before + 1, buddyinfo_reads);
+    node_for_test = 1;
     try std.testing.expect(hugeFree());
     try std.testing.expect(hugeFree());
-    try std.testing.expectEqual(before + 2, buddyinfo_reads.*);
+    try std.testing.expectEqual(before + 2, buddyinfo_reads);
     // A segment on node 0 needs 2 and 8 more: node 1's reading does not
     // answer it.
-    node_for_test.* = 0;
+    node_for_test = 0;
     try std.testing.expect(hugeFreeFor(2));
     try std.testing.expectEqual(@as(?usize, 8), keptReading());
-    try std.testing.expectEqual(before + 3, buddyinfo_reads.*);
+    try std.testing.expectEqual(before + 3, buddyinfo_reads);
     useBuddyinfoForTest(buddyinfo_idle);
-    node_for_test.* = 0;
-    const one = buddyinfo_reads.*;
+    node_for_test = 0;
+    const one = buddyinfo_reads;
     try std.testing.expect(hugeFree());
-    node_for_test.* = 1;
+    node_for_test = 1;
     try std.testing.expect(hugeFree());
-    try std.testing.expectEqual(one + 1, buddyinfo_reads.*);
+    try std.testing.expectEqual(one + 1, buddyinfo_reads);
 }
 
 test "on Linux under `never` nothing asks for huge pages and /proc/buddyinfo is not read" {
@@ -4227,7 +4220,7 @@ test "on Linux under `never` nothing asks for huge pages and /proc/buddyinfo is 
     useBuddyinfoForTest(buddyinfo_plenty);
     defer useBuddyinfoForTest(null);
     useThpForTest(thp_enabled_never, thpDefragForTest("madvise"));
-    const before = buddyinfo_reads.*;
+    const before = buddyinfo_reads;
     try std.testing.expect(!hugeFree());
     const mine = try allocator.alloc(u8, prefault_big);
     defer allocator.free(mine);
@@ -4249,7 +4242,7 @@ test "on Linux under `never` nothing asks for huge pages and /proc/buddyinfo is 
     const t = reserveTable(24 * mib).?;
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
     try std.testing.expect(unreserveTable(t, 24 * mib));
-    try std.testing.expectEqual(before, buddyinfo_reads.*);
+    try std.testing.expectEqual(before, buddyinfo_reads);
 }
 
 test "on Linux under `madvise` with `defrag` `defer`, where no fault compacts, segments, span segments, large blocks, and Tables ask for huge pages with memory fragmented and no reading" {
@@ -4257,7 +4250,7 @@ test "on Linux under `madvise` with `defrag` `defer`, where no fault compacts, s
     useBuddyinfoForTest(buddyinfo_fragmented);
     defer useBuddyinfoForTest(null);
     useThpForTest(thp_enabled_madvise, thpDefragForTest("defer"));
-    const before = buddyinfo_reads.*;
+    const before = buddyinfo_reads;
     try std.testing.expect(hugeFree());
     const mine = try allocator.alloc(u8, prefault_big);
     defer allocator.free(mine);
@@ -4278,7 +4271,7 @@ test "on Linux under `madvise` with `defrag` `defer`, where no fault compacts, s
     try std.testing.expect(try advisedHugeForTest(@intFromPtr(t) + 2 * mib));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(t)));
     try std.testing.expect(unreserveTable(t, 24 * mib));
-    try std.testing.expectEqual(before, buddyinfo_reads.*);
+    try std.testing.expectEqual(before, buddyinfo_reads);
 }
 
 test "on Linux under `always` nothing asks for huge pages, what should keep small pages asks for them, and a Table given back asks for nothing again" {
@@ -4286,7 +4279,7 @@ test "on Linux under `always` nothing asks for huge pages, what should keep smal
     useBuddyinfoForTest(buddyinfo_plenty);
     defer useBuddyinfoForTest(null);
     useThpForTest(thp_enabled_always, thpDefragForTest("madvise"));
-    const before = buddyinfo_reads.*;
+    const before = buddyinfo_reads;
     try std.testing.expect(!hugeFree());
     // A segment asks for nothing, of a heap that faults in ahead or not.
     const mine = try allocator.alloc(u8, prefault_big);
@@ -4314,7 +4307,7 @@ test "on Linux under `always` nothing asks for huge pages, what should keep smal
     freeLarge(&h, big, 16 * mib);
     freeLarge(&h, small, 8 * mib);
     trimAllForTest(&h);
-    try std.testing.expectEqual(before, buddyinfo_reads.*);
+    try std.testing.expectEqual(before, buddyinfo_reads);
     // A Table's first 2 MiB ask for small pages. Given back, its range is
     // mapped afresh: it asks for nothing, and its pages are back with
     // the system, so it reads zeros.
@@ -4334,7 +4327,7 @@ test "on Linux under `always` nothing asks for huge pages, what should keep smal
     try std.testing.expect(try advisedSmallForTest(@intFromPtr(v)));
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(v) + 2 * mib));
     try std.testing.expect(unreserveTable(v, 24 * mib));
-    try std.testing.expectEqual(before, buddyinfo_reads.*);
+    try std.testing.expectEqual(before, buddyinfo_reads);
     // A span of 8 MiB grown to 32 MiB is copied into a mapping of its
     // own, which asks for nothing, as a new one does.
     trimAllForTest(heap().?);
@@ -4343,7 +4336,7 @@ test "on Linux under `always` nothing asks for huge pages, what should keep smal
     const g = allocator.remap(m, 32 * mib).?;
     try std.testing.expect(!try advisedHugeForTest(@intFromPtr(g.ptr)));
     try std.testing.expect(!try advisedSmallForTest(@intFromPtr(g.ptr)));
-    try std.testing.expectEqual(before, buddyinfo_reads.*);
+    try std.testing.expectEqual(before, buddyinfo_reads);
     allocator.free(g);
 }
 
@@ -4352,11 +4345,11 @@ test "on Linux under `always` a Table's range that cannot be mapped afresh is fi
     useBuddyinfoForTest(buddyinfo_plenty);
     defer useBuddyinfoForTest(null);
     useThpForTest(thp_enabled_always, thpDefragForTest("madvise"));
-    defer table_remap_fails_for_test.* = .no;
+    defer table_remap_fails_for_test = .no;
     const mib: usize = 1 << 20;
     const live = table_live.load(.monotonic);
     // The mapping afresh fails and leaves a hole, which is filled.
-    table_remap_fails_for_test.* = .remap;
+    table_remap_fails_for_test = .remap;
     const t = reserveTable(4 * mib).?;
     @memset(t[0 .. 4 * mib], 7);
     const holes = table_hole_count.*;
@@ -4366,7 +4359,7 @@ test "on Linux under `always` a Table's range that cannot be mapped afresh is fi
     try std.testing.expectEqual(holes, table_hole_count.*);
     // Neither filling it can: the hole is kept, and a mapping the system
     // later puts there is not taken for a Table's.
-    table_remap_fails_for_test.* = .and_plug;
+    table_remap_fails_for_test = .and_plug;
     const u = reserveTable(4 * mib).?;
     try std.testing.expect(u != t);
     try std.testing.expect(unreserveTable(u, 4 * mib));
@@ -4376,7 +4369,7 @@ test "on Linux under `always` a Table's range that cannot be mapped afresh is fi
     defer std.posix.munmap(other);
     try std.testing.expect(!unreserveTable(other.ptr, other.len));
     // Neither range is handed out again.
-    table_remap_fails_for_test.* = .no;
+    table_remap_fails_for_test = .no;
     var got: [4][*]u8 = undefined;
     for (&got) |*g| {
         g.* = reserveTable(4 * mib).?;
