@@ -3796,9 +3796,12 @@ const Lowerer = struct {
                         sig = .{ .ctx = fp.ctx, .f = fp.full, .receiver = true };
                     } else if (!fp.builtin) sig = .{ .ctx = fp.ctx, .f = fp.full, .receiver = true, .from = declaredFrom(fp.home orelse fp.ctx, fp.decl_pos), .keeps = declaredKeeps(fp.home orelse fp.ctx, fp.decl_pos) orelse 0, .paths = try declaredPaths(self.a, fp.home orelse fp.ctx, fp.decl_pos) };
                     // A built-in generic's `T` parameter stores what it is
-                    // given (`push`, `insert`, a Cell's `set`).
+                    // given (`push`, `insert`, a Cell's `set`), and a send
+                    // arm's value goes into its channel as `send`'s does
+                    // (SPEC "Channels"): the arm's first argument.
                     const st = try self.a.alloc(bool, fp.params.len);
-                    for (fp.params, st) |pt, *x| x.* = fp.builtin and fp.ctx.types.get(pt) == .type_var;
+                    const send_arm = fp.arm and std.mem.eql(u8, leafText(ir.Member.name(callee), self.src), "on_send");
+                    for (fp.params, st, 0..) |pt, *x, i| x.* = (fp.builtin and fp.ctx.types.get(pt) == .type_var) or (send_arm and i == 0);
                     stored = st;
                 } else if (self.ctx.elemCallOf(callee)) |ec| switch (ec.op) {
                     // `fill` stores a copy of its value in every element,

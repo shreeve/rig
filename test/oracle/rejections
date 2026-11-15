@@ -5102,6 +5102,8 @@ test/reject/concurrency/chan_select_arms_lend_to_write.rig main
 test/reject/concurrency/chan_select_named_sends_what_it_moves.rig main
 test/reject/concurrency/chan_select_named_in_a_block_a_view_escapes.rig main
 test/reject/concurrency/chan_select_end_lends_the_task.rig main
+test/reject/concurrency/chan_send_arm_stores_no_view.rig stash
+test/reject/concurrency/chan_send_arm_stores_no_view.rig old
 test/reject/concurrency/task_write_loan_read.rig main
 test/reject/concurrency/task_dropped_where_its_scope_ends_keeps_its_loans.rig main
 test/reject/concurrency/task_error_moved_out_of_its_catch.rig main

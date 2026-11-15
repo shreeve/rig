@@ -400,9 +400,11 @@ fail "chan select arm through a read view however reached", "15:25: cannot lend 
 
   print(1)
 
-fail "chan send arm stores no view", "7:36: cannot store a view of `s` in a `Chan`", "11:33: cannot store a view of `s` in a `Chan`", errors: 2
+fail "chan send arm stores no view", "9:36: cannot store a view of `s` in a `Chan`", "13:33: cannot store a view of `s` in a `Chan`", errors: 2
   # A send arm's value goes into its channel as `send`'s does, so it is
   # checked the same way, in both spellings.
+  # oracle: stash reject C8
+  # oracle: old reject C8
   use std.task
 
   sub stash(ch: *Chan[?String])!
