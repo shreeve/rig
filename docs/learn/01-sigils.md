@@ -43,8 +43,9 @@ sub main()
 30 100
 ```
 
-`limit =! 100` binds `limit` for good. Read the `!` as "for real": the
-name never changes, and the compiler holds you to it.
+`limit =! 100` binds `limit` for good: a fixed local, never reassigned
+or lent to write, like Rust's `let` without `mut`. Read the `!` as "for
+real": the name never changes, and the compiler holds you to it.
 
 ```rig reject
 sub main()
@@ -602,7 +603,7 @@ Here are all of them, grouped by what they do:
 
 | Mechanic | Sigils |
 |---|---|
-| Binding | `x = e` binds, `x =! e` binds for good |
+| Binding | `x = e` binds, `x =! e` binds a fixed local |
 | Taking and copying | `<x` moves (alone on a line, drops), `+x` copies or makes another handle |
 | Lending | `?x` lends to read, `!x` to write; as types, `?T` and `!T` |
 | Holding | `*x` shared (`*w` upgrades a weak handle), `^x` boxed, `~x` weak, `@` self |
