@@ -429,6 +429,17 @@ it where the negation was meant. Trig has no such site.
 
 ### Tests
 
+- The scheduler's unit tests assert what holds however late the system
+  runs a thread, not how soon. Two tasks that answer each other over a
+  socket each wake the other into their own worker's run-next slot,
+  waking no worker (`sched.WakeCount`); which worker runs a woken side
+  is a race between pollers, which a debug build or a loaded machine
+  tips toward two workers. A test that leaves work to an idle worker
+  waits until that worker sleeps; the blocking pool's tests count the
+  calls inside at once rather than time them; the moves a heap test
+  needs are made, not hoped for (`testMove`); and a wait on a full
+  socket buffer tells room that late bytes made from readiness with
+  none.
 - `tools/mac-claim LABEL CMD` runs one timing job holding the Mac's
   claim line, with `TRIG_MAC_CLAIMED=1` and `RIG_MAC_CLAIMED=1` set for
   it, so a tool that waits on the claim does not wait on its own: it waits while another claim holds the Mac or a
