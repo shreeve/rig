@@ -1311,8 +1311,8 @@ test "cell view places", release: true, '''
 '''
   # A Cell changed through a marked call on each kind of place that reaches
   # it: a field of a shared value, a List element, an array element, and a
-  # slice element that hold a shared handle, a closure's `|+x|` capture, and
-  # a shared handle's value, each in a loop that leaves early.
+  # write slice's element that hold a shared handle, a closure's `|+x|`
+  # capture, and a shared handle's value, each in a loop that leaves early.
 
   obj C
     c: Cell[Int]
@@ -1331,7 +1331,7 @@ test "cell view places", release: true, '''
   fun mk() -> *C
     *C(c: Cell(0), log: Cell(List()))
 
-  fun hits(s: []*C, k: Int) -> Int
+  fun hits(s: ![]*C, k: Int) -> Int
     !s[k].hit()
     s[k].c.get()
 
@@ -1350,7 +1350,7 @@ test "cell view places", release: true, '''
     !v[1].hit()
     !a[0].hit()
     !shared.hit()
-    print(hits(?a[..], 1) + (maybe(i) ?? continue))
+    print(hits(!a[..], 1) + (maybe(i) ?? continue))
   print(w.inner.score(), v[0].score(), v[1].score(), a[0].score(), a[1].score(), shared.score())
   m = mk()
   f = |+m| !m.hit()

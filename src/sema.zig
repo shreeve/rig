@@ -4037,9 +4037,11 @@ pub const PlainRequirement = struct {
     /// a read view reaches, taken out rather than copied.
     as_view: bool = false,
     /// Not a copy: the value is stored where no loan is tracked (a Cell,
-    /// a Signal, an owned closure), so each instance's argument must
-    /// hold no `?String`, which may view a String.
+    /// a Signal, an owned closure, a channel, an actor's value), so each
+    /// instance's argument must hold no `?String`, which may view a
+    /// String. `home` says which, for the message.
     view: bool = false,
+    home: NoLoanHome = .cell,
     /// Not a copy: the body holds a value of `param`'s associated type of
     /// this name (`S.Item`) past a write, move, or drop of the `S` it came
     /// from, which views it in an instance whose associated type may view
@@ -4061,6 +4063,54 @@ pub const PlainRequirement = struct {
     method: ?u32 = null,
     /// The module whose source `pos` is in; 0 for this one.
     module_id: u32 = 0,
+};
+
+/// Where a generic body keeps a value of a type parameter that no loan
+/// is tracked in (`PlainRequirement.view`), as its message names it.
+pub const NoLoanHome = enum {
+    cell,
+    signal,
+    closure,
+    /// A value sent into a channel (`send`, a send arm).
+    channel,
+    /// A channel made, `*Chan[T](n)`, whose values are `T`s.
+    channel_made,
+    /// An actor made, `*Actor(x)` or `*Actor.supervised(f)`, whose value
+    /// holds a `T`.
+    actor_made,
+
+    /// What the body does with a value of parameter `pname`, after
+    /// "the generic body".
+    pub fn doing(h: NoLoanHome, a: std.mem.Allocator, pname: []const u8) ![]const u8 {
+        return switch (h) {
+            .cell => std.fmt.allocPrint(a, "stores a `{s}` in a Cell", .{pname}),
+            .signal => std.fmt.allocPrint(a, "stores a `{s}` in a Signal", .{pname}),
+            .closure => std.fmt.allocPrint(a, "stores a `{s}` in an owned closure", .{pname}),
+            .channel => std.fmt.allocPrint(a, "sends a `{s}` into a channel", .{pname}),
+            .channel_made => std.fmt.allocPrint(a, "makes a channel of `{s}`", .{pname}),
+            .actor_made => std.fmt.allocPrint(a, "makes an actor whose value holds a `{s}`", .{pname}),
+        };
+    }
+
+    /// The note at the body's site: "`T` stored here", or "made here".
+    pub fn site(h: NoLoanHome) []const u8 {
+        return switch (h) {
+            .channel_made, .actor_made => "made here",
+            else => "stored here",
+        };
+    }
+
+    /// What keeps the value, for "a value that holds no loan, which ...
+    /// keeps".
+    pub fn keeper(h: NoLoanHome) []const u8 {
+        return switch (h) {
+            .cell => "a Cell",
+            .signal => "a Signal",
+            .closure => "an owned closure",
+            .channel, .channel_made => "a channel",
+            .actor_made => "an actor's value",
+        };
+    }
 };
 
 /// An associated type (`I.Item`, an `AssocOf` symbol) at an instance

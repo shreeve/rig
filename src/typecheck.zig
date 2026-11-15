@@ -2245,6 +2245,13 @@ const Checker = struct {
                 if (is_text or (obj == .slice and sema.writeSliceElem(self.ctx, ty) == null)) {
                     place.block(if (is_text) .string else .slice, self.startOf(p));
                     if (!crossed) place.leaf_blocked = true;
+                    // A `[]T` is a read view of its elements: nothing
+                    // changes through it, a handle it holds included, nor
+                    // a Cell behind one (Core sentence 4).
+                    if (!is_text) {
+                        place.view_blocked = true;
+                        if (place.view == null) place.view = .{ .ty = ty, .pos = self.startOf(p) };
+                    }
                 }
             } else if (if (sema.namedNoneOf(self.ctx, inner)) |n| std.mem.eql(u8, n.field, self.text(ir.Member.name(step))) else false) {
                 place.block(.none_field, self.startOf(ir.Member.name(step)));
@@ -16129,9 +16136,9 @@ const Checker = struct {
             const obj = ir.Member.object(callee);
             if (!obj.isKind(.write)) return try self.badCall(args, obj, "an arm receives or sends, which changes the channel: mark it, `(!{s}).{s}(...)`", .{ self.sourceText(obj), method });
             const handle = ir.get(obj, .operand);
-            const handle_ty = try self.synthExpr(handle);
+            const handle_ty = try self.armHandle(obj);
             if (self.isPoison(handle_ty)) return try self.skipCall(args);
-            const elem = sema.chanOfHandle(self.ctx, handle_ty) orelse return try self.badCall(args, handle, "`{s}` is a `{s}`, not a channel; {s}", .{ self.sourceText(handle), try self.tyName(handle_ty), shape });
+            const elem = sema.chanOfHandle(self.ctx, handle_ty) orelse return try self.badArms(args, handle, "`{s}` is a `{s}`, not a channel; {s}", .{ self.sourceText(handle), try self.tyName(handle_ty), shape });
             const arm_args = ir.Call.args(arm);
             if (arm_args.len != @as(usize, if (recv) 1 else 2)) return try self.badCall(args, arm, "{s}", .{shape});
             const given: []const TypeId = if (recv) try self.ctx.dupeIds(&.{try self.ctx.intern(.{ .optional = elem })}) else &.{};
@@ -16241,7 +16248,7 @@ const Checker = struct {
             if (!recv and !std.mem.eql(u8, method, "on_send")) return try self.badArms(args, arm, "{s}", .{shape});
             if (!obj.isKind(.write)) return try self.badArms(args, obj, "an arm receives or sends, which changes the channel: mark it, `!{s}.{s}(...)`", .{ self.sourceText(obj), method });
             const handle = ir.get(obj, .operand);
-            const handle_ty = try self.synthExpr(handle);
+            const handle_ty = try self.armHandle(obj);
             if (self.isPoison(handle_ty)) return try self.skipArms(args);
             const elem = sema.chanOfHandle(self.ctx, handle_ty) orelse return try self.badArms(args, handle, "`{s}` is a `{s}`, not a channel; {s}", .{ self.sourceText(handle), try self.tyName(handle_ty), shape });
             if (arm_args.len != @as(usize, if (recv) 0 else 1)) {
@@ -16258,6 +16265,28 @@ const Checker = struct {
         if (saved_call) |c| try self.ctx.recordSelect(c);
         self.ctx.makes_tasks = true;
         return try self.ctx.intern(.{ .fallible = .{ .ok = try sema.selectType(self.ctx, names, payloads, pos) } });
+    }
+
+    /// The handle of a receive or send arm, `ch` of `!ch.on_recv()`, whose
+    /// `!` is checked as a marked method's self is (`synthLend`): the arm
+    /// changes its channel, so it needs a handle the task holds, and a
+    /// read view of one, however it is reached, is rejected there. The
+    /// handle's type, or poison once that is reported. What is no
+    /// channel gives its type alone, with no lend's diagnostic, so the
+    /// caller says it is no channel.
+    fn armHandle(self: *Checker, obj: Sexp) Error!TypeId {
+        const saved = self.self_obj;
+        defer self.self_obj = saved;
+        self.self_obj = obj;
+        const mark = self.ctx.diagnostics.items.len;
+        const lent = try self.synthExpr(obj);
+        const handle_ty = self.ctx.typeOf(ir.get(obj, .operand)) orelse return self.t().invalid_id;
+        if (self.isPoison(handle_ty)) return handle_ty;
+        if (sema.chanOfHandle(self.ctx, handle_ty) == null) {
+            self.ctx.diagnostics.shrinkRetainingCapacity(mark);
+            return handle_ty;
+        }
+        return if (self.isPoison(lent)) self.t().invalid_id else handle_ty;
     }
 
     /// `badCall` of `task.select`: the arms' channels and values are

@@ -3351,8 +3351,11 @@ holds the value. A type argument may be a read view, of an owner too
 (`same(?v)` is `same[?List[Int]]`): the result holds what `?v` lent, so
 `v` stays lent while the result is used. It cannot be a write view,
 which is never stored in a value ([Write views](#write-views)), and a
-body that stores its `T` in a Cell, a Signal, or an owned closure cannot
-be instantiated with a view, since those carry no loan; write `?T`
+body that stores its `T` in a Cell, a Signal, an owned closure, or a
+channel, or that makes a channel of `T` or an actor whose value holds
+a `T` (even one it puts nothing in), cannot be instantiated with a
+view, since those carry no loan; a body checked by its bounds needs
+`T: Owned` for each ([Bounds](#bounds)); write `?T`
 in the signature to take a view that is only read. In an instance a `T`
 may hold a view, so the check of a body against its signature counts a
 parameter whose loans reach a value of a type that holds a type
@@ -3607,7 +3610,10 @@ payload's fields, each of which must be ordered. A type's header names
 A body may do with a bounded `T` what its bounds name and no more: copy
 a `T: Copy`, clone a `T: Clone` (`+x` of a `T`, a `?T`, or a `T?`, as
 each instance clones it), compare a `T: Ord` or a `T: Num`, hash a `T: Hash`, and
-call no method on it. Whether a literal fits a `T` is still checked at each instance.
+call no method on it, and keep it where no loan is tracked (store it in
+a Cell, a Signal, an owned closure, or a channel, or make a channel of
+`T` or an actor whose value holds one) only with `T: Owned`: `pub fun
+mk[T: Owned]() -> *Chan[T]`. Whether a literal fits a `T` is still checked at each instance.
 A bounded `T` passed to another generic provides only what its bounds
 name, and one without `Sends` or `Syncs` does not cross to another
 task. A `T` checked by its bounds (a bounded `T`, or a `pub`
@@ -9542,9 +9548,11 @@ lends what it holds, a `!C`, and a `!*C` parameter is a type mismatch whose
 hint is to pass `+h` for a handle of your own. A read view of a handle, or
 of a value that holds one, is not lent to write at all: `?` changes nothing.
 That holds however the view is reached: a `?*C` parameter, a field
-handle of a `?W`, a binding of a read `if … as`, `while … as`, `match`,
-or `for` (`if @head as n` in a `?@` method), or a closure's `|?h|`. A
-handle of your own changes the Cell: `mine = +n`, then `!mine.c.set(5)`.
+handle of a `?W`, an element of a `[]*C`, which is a read view of its
+elements (`?xs[..]` of a `?List` too), a binding of a read `if … as`,
+`while … as`, `match`, or `for` (`if @head as n` in a `?@` method), or
+a closure's `|?h|`. A handle of your own changes the Cell: `mine = +n`,
+then `!mine.c.set(5)`.
 
 ```rig reject
 obj Node
@@ -14020,8 +14028,9 @@ An actor holds a value that many tasks change, one method at a time.
 `*Actor(x)` moves `x` into it and gives a `*Actor[T]`, a shared handle
 to it; `*Actor(x, mailbox: n)` sets how many calls made with `&` it
 holds at once, 64 by default. `x` is an object or enum, whose fields
-move and hold no view: nothing in its declaration changes. `Actor(x)`
-stands only as the operand of `*`.
+move and hold no view: nothing in its declaration changes, and at each
+instance of a generic body that makes one, `x` holds none either.
+`Actor(x)` stands only as the operand of `*`.
 
 The handle is counted atomically, so it crosses to other tasks: `+a`
 makes another, for a holder of its own; a read view `?a` lends one; and
@@ -14034,7 +14043,8 @@ answer.
 - A `?@` method is called bare, `a.count()`, through a handle or a read
   view of one.
 - A `!@` method is marked, `!a.add(x)`, or `(!a).add(x)` where its `Bool` value
-  is used, and needs a handle you hold: through `?a` it is rejected. The
+  is used, and needs a handle you hold: through `?a`, or an element of
+  a `[]*Actor[T]`, it is rejected. The
   `!` marks the call, and lends nothing: the actor changes its own value.
 - A `<@` method, or one whose signature has `keeps` or `from`, cannot be
   called through a handle, and an actor's fields are reached only by its
@@ -14145,7 +14155,8 @@ sub main()
 `*Chan[T](n)` is a bounded channel of `n` slots (at least one), behind
 a shared handle counted atomically, as a Cell of one word is: its
 handles go to other tasks when `T` moves, and what it carries holds no
-view. `Chan[T](n)` stands only as the operand of `*`.
+view, at each instance of a generic body that makes one too.
+`Chan[T](n)` stands only as the operand of `*`.
 
 - `!ch.send(<v)!` waits for room and sends `v`.
 - `!ch.recv()!` waits for a value and gives it as `T?`; once the
@@ -14185,6 +14196,25 @@ a `match` on the value runs the winner's body:
   first task to end wins, and the others run on, held as before.
   `!t.on_end()` and `<t.on_end()` are rejected, since the arm changes
   and takes nothing.
+
+A receive or send arm changes its channel, so its `!` needs a handle
+the task holds, as `!ch.recv()` does: a read view of one changes
+nothing, however it is reached (a `?*Chan` parameter, a field of a
+`?W`, an element of a `[]*Chan`, a read binding, a closure's `|?h|`).
+What a send arm sends goes into the channel as `send`'s value does.
+
+```rig reject
+use std.task
+
+sub take(ch: ?*Chan[Int])!
+  match task.select(got: !ch.on_recv())!
+    .got(v?) => print(v)
+    .got(none) => print("closed")
+```
+
+```error
+cannot lend to write through a read view `?*Chan[Int]`; take a write view, or share a handle of your own with `+h`
+```
 
 Messages name the type by its arms, `select(got, quit, late)`; a
 program never writes it. The value is an ordinary value: it is bound

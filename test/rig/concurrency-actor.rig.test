@@ -405,6 +405,46 @@ fail "actor read view changes", "cannot lend to write through a read view `?*Act
   r = ?c
   !r.bump()
 
+fail "actor made in a generic holds no view", "16:5: `mk[?String]` cannot use `T = ?String`: the generic body makes an actor whose value holds a `T`, which carries no loan", "17:5: `again[?String]` cannot use `T = ?String`", errors: 2
+  # An actor's value holds no view, wherever the actor is made: in a
+  # generic body, each instance's `T` holds none.
+  obj Box[T]
+    v: T
+
+    fun get(?@) -> Int
+      1
+
+  fun mk[T](v: T) -> *Actor[Box[T]]
+    *Actor(Box(v: v))
+
+  fun again[T]() -> *Actor[Box[T?]]
+    *Actor.supervised(*|| Box[T?](v: none))
+
+  s = String("text on the heap")
+  a = mk[?String](?s)
+  b = again[?String]()
+  print(a.get(), b.get())
+
+fail "actor through a read slice", "12:4: cannot lend to write through a slice; a `[]T` is read-only", "16:4: cannot lend to write through a slice; a `[]T` is read-only", errors: 2
+  # A `[]T` is a read view of its elements: an actor's handle in one calls
+  # no `!@` method through it.
+  # oracle: f reject C10
+  # oracle: g reject C10
+  obj Box
+    n: Int
+
+    sub add(!@, k: Int)
+      @n += k
+
+  sub f(s: []*Actor[Box])
+    !s[0].add(1)
+
+  sub g(xs: ?List[*Actor[Box]])
+    s = ?xs[..]
+    !s[0].add(1)
+
+  print(1)
+
 fail "actor fields", "an actor's fields are its own: reach `n` through a method of `C`"
   obj C
     n: Int

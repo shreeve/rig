@@ -348,6 +348,38 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   it, or reject it with a message, and then let such tests cover a
   member as they cover an enum's variant (SPEC "Testing a pattern").
   Found reviewing #923 (2026-11-04).
+- **`par.map`'s closure loses its own errors.** A closure literal in
+  `par.map` is typed in a quiet pass (`closureType`, `parCall`) that
+  drops its diagnostics, and `skipCall` then runs on a poison value, so
+  `rig check` stops with "internal error: `ys` is typed `invalid`, and
+  no error says why" (it accepted the program, and emit failed, before
+  the select-arm change of 2026-11-15). The named-function form,
+  `par.map(?xs, sw)`, gets the right message, "cannot lend to write
+  through a read view `?*Cell[Int]`". The same pass swallows unrelated
+  errors: an `Int` has no `abs`, and the second program is accepted by
+  `rig check` and fails in emit. Report the closure's own errors
+  wherever the quiet pass found them. Found by review of the
+  select-arm change (2026-11-15):
+
+  ```text
+  use std.par
+
+  sub main()!
+    xs = List[*Cell[Int]]()
+    !xs.push(*Cell(1))
+    ys = par.map(?xs, |c| (!c).swap(5))
+    print(ys[0], xs[0].get())
+  ```
+
+  ```text
+  use std.par
+
+  sub main()!
+    xs = List[Int]()
+    !xs.push(1)
+    ys = par.map(?xs, |x| x.abs())
+    print(ys[0])
+  ```
 
 Found while writing the Learn Rig journeys. Check each before fixing.
 

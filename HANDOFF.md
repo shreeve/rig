@@ -290,6 +290,9 @@ A new session, human or agent, takes these steps in order:
   release (`tools/migrate-select.py`). A task's end is an arm too,
   built: `done: ?t.on_end()` lends `t`, its variant carries nothing,
   and the body takes the result with `>t`; two task arms are a race.
+  A receive or send arm's `!` is checked as a marked method's self
+  is, so a read view of a handle, however reached, is rejected there
+  as `!ch.recv()` is (records/2026-11/concurrency-lend-doctrine/select-read-view.md).
 - **Durations** (owner, 2026-11-04; branch `durations`), built: a bare
   number is seconds, an `Int` or a `Float`, and `ms:`, `us:`, `ns:`
   name the other units, in `time.sleep`, `time.after`, `time.within`,

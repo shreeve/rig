@@ -6399,7 +6399,10 @@ its `!` lends nothing, and as a task it keeps none of the handle (SPEC
 its channel or task, what it sends, and its function's captures, read
 by the select, so each stays lent and taken until the select returns
 (SPEC "Channels"); the select commits one arm alone, which changes its
-channel there. Where a `$plain(T)` operand of a
+channel there. A marked change through a handle that the place as
+written sees through a read view (a `?T` or a `[]T` on its path) is
+C10 (Core s4: `?` changes nothing): a receive or send arm, a Cell's or
+Signal's change, and an actor's `!@` method. Where a `$plain(T)` operand of a
 condition's `and` chain has held, in the operands after it, the code
 the condition guards, and the closures made there, `T` is plain data
 (`Kinds.narrowed`), so a copy there asks nothing of an owner's instance
