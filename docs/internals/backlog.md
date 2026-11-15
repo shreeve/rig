@@ -279,16 +279,13 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   seed picks which worker runs and when one steals, so a fiber lost or
   left waiting fails under the same seed every time. Source: Rig,
   reviewing #1001.
-- **A scheduler unit test fails under load** in a debug build.
-  `src/sched.zig`'s "two tasks that answer each other over a socket stay
-  on one worker" counts the answers a side reads on a worker other than
-  the one that wrote them, and expects few. On pup, with another release
-  build's load (1.2 to 5.4), `zig build test -Doptimize=debug` failed it
-  in 3 of 4 runs, on main as on a branch that left the scheduler alone
-  (2026-10-27); safe and fast passed.
-  Decide whether the test measures a property load may break (and
-  should allow a share of crossings, or run pinned), or the scheduler
-  lets a woken pair drift apart under load.
+- **A unit test needs more than 8 MB of main-thread stack.** Run
+  directly, outside `zig build`, the debug unit-test binary overflows
+  the default 8 MB stack at `src/sema.zig`'s "check: a long chain of
+  types each holding the next by value" and dies with a segfault; with
+  `ulimit -s 65536` it passes. A test that needs more than the default
+  stack fails wherever the binary runs without a raised limit. Source:
+  Rig, running #1092's tests on x86-64 Linux.
 - **The stack census of a safe build.** `tools/stack-census.py` leaves
   every task of a `--release` build unknown: Zig's safe mode keeps the
   stack trace a system call's wrapper writes for an unexpected errno

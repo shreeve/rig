@@ -393,9 +393,9 @@ worker's heap, which bounds the worker's sleep in its poller.
 its one recorded waiter, and only then marks it ended, so the waiter may
 free the record at once. The wake is one compare-and-swap for that
 wait's number, so a stale wake does nothing, and puts the waiter in the
-waking worker's run-next slot, so two tasks that answer each other stay
-on one worker. `>t` takes the result and ends the task's loans; a
-task's panic passes on to its waiter there.
+waking worker's run-next slot, so two tasks that answer each other, each
+waiting as soon as it sends, stay on one worker. `>t` takes the result
+and ends the task's loans; a task's panic passes on to its waiter there.
 
 **What crosses cores.** Any worker may run a task, so the checker
 derives two facts for every type: whether its value *sends* (may be
