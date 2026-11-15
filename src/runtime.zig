@@ -6053,7 +6053,7 @@ noinline fn lenPanic() noreturn {
     @panic("length out of range");
 }
 
-fn indexPanic() noreturn {
+noinline fn indexPanic() noreturn {
     @branchHint(.cold);
     @panic("index out of bounds");
 }
@@ -8898,7 +8898,121 @@ const Spill = struct {
 /// stderr after everything `print` has buffered, with Zig's stack trace
 /// in a debug build, then the end of the program by `abort` (status
 /// 134). It is the same event as a `panic(...)` (`fail`).
-pub const panic = std.debug.FullPanic(panicAfterFlush);
+const full_panic = std.debug.FullPanic(panicAfterFlush);
+
+/// Zig's safety panics, each out of line and cold, so a failed check costs
+/// its caller one compare and a call, with no formatting inlined.
+pub const panic = struct {
+    pub const call = full_panic.call;
+    pub noinline fn sentinelMismatch(p_expected: anytype, p_found: @TypeOf(p_expected)) noreturn {
+        @branchHint(.cold);
+        full_panic.sentinelMismatch(p_expected, p_found);
+    }
+    pub noinline fn unwrapError(p_err: anyerror) noreturn {
+        @branchHint(.cold);
+        full_panic.unwrapError(p_err);
+    }
+    pub noinline fn outOfBounds(p_index: usize, p_len: usize) noreturn {
+        @branchHint(.cold);
+        full_panic.outOfBounds(p_index, p_len);
+    }
+    pub noinline fn startGreaterThanEnd(p_start: usize, p_end: usize) noreturn {
+        @branchHint(.cold);
+        full_panic.startGreaterThanEnd(p_start, p_end);
+    }
+    pub noinline fn inactiveUnionField(p_active: anytype, p_accessed: @TypeOf(p_active)) noreturn {
+        @branchHint(.cold);
+        full_panic.inactiveUnionField(p_active, p_accessed);
+    }
+    pub noinline fn sliceCastLenRemainder(p_src_len: usize) noreturn {
+        @branchHint(.cold);
+        full_panic.sliceCastLenRemainder(p_src_len);
+    }
+    pub noinline fn reachedUnreachable() noreturn {
+        @branchHint(.cold);
+        full_panic.reachedUnreachable();
+    }
+    pub noinline fn unwrapNull() noreturn {
+        @branchHint(.cold);
+        full_panic.unwrapNull();
+    }
+    pub noinline fn castToNull() noreturn {
+        @branchHint(.cold);
+        full_panic.castToNull();
+    }
+    pub noinline fn incorrectAlignment() noreturn {
+        @branchHint(.cold);
+        full_panic.incorrectAlignment();
+    }
+    pub noinline fn invalidErrorCode() noreturn {
+        @branchHint(.cold);
+        full_panic.invalidErrorCode();
+    }
+    pub noinline fn unexpectedErrorCode(p_err: anyerror) noreturn {
+        @branchHint(.cold);
+        full_panic.unexpectedErrorCode(p_err);
+    }
+    pub noinline fn integerOutOfBounds() noreturn {
+        @branchHint(.cold);
+        full_panic.integerOutOfBounds();
+    }
+    pub noinline fn integerOverflow() noreturn {
+        @branchHint(.cold);
+        full_panic.integerOverflow();
+    }
+    pub noinline fn shlOverflow() noreturn {
+        @branchHint(.cold);
+        full_panic.shlOverflow();
+    }
+    pub noinline fn shrOverflow() noreturn {
+        @branchHint(.cold);
+        full_panic.shrOverflow();
+    }
+    pub noinline fn divideByZero() noreturn {
+        @branchHint(.cold);
+        full_panic.divideByZero();
+    }
+    pub noinline fn exactDivisionRemainder() noreturn {
+        @branchHint(.cold);
+        full_panic.exactDivisionRemainder();
+    }
+    pub noinline fn integerPartOutOfBounds() noreturn {
+        @branchHint(.cold);
+        full_panic.integerPartOutOfBounds();
+    }
+    pub noinline fn corruptSwitch() noreturn {
+        @branchHint(.cold);
+        full_panic.corruptSwitch();
+    }
+    pub noinline fn shiftRhsTooBig() noreturn {
+        @branchHint(.cold);
+        full_panic.shiftRhsTooBig();
+    }
+    pub noinline fn invalidEnumValue() noreturn {
+        @branchHint(.cold);
+        full_panic.invalidEnumValue();
+    }
+    pub noinline fn forLenMismatch() noreturn {
+        @branchHint(.cold);
+        full_panic.forLenMismatch();
+    }
+    pub noinline fn copyLenMismatch() noreturn {
+        @branchHint(.cold);
+        full_panic.copyLenMismatch();
+    }
+    pub noinline fn memcpyAlias() noreturn {
+        @branchHint(.cold);
+        full_panic.memcpyAlias();
+    }
+    pub noinline fn noreturnReturned() noreturn {
+        @branchHint(.cold);
+        full_panic.noreturnReturned();
+    }
+    pub noinline fn loadUninstantiableType() noreturn {
+        @branchHint(.cold);
+        full_panic.loadUninstantiableType();
+    }
+};
 
 /// How far into a panic the program is: 0 before one, 1 while it is
 /// reported, 2 once a panic came while reporting it.
