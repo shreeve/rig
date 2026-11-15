@@ -1,14 +1,15 @@
 # The six-row table of sigils, by mechanic, reads the same wherever it
 # appears. README.md holds the reference copy, and it also appears in
-# docs/learn/00-welcome.md, docs/QUICK.md, and docs/learn/01-sigils.md,
-# the places a reader meets it.
+# docs/learn/00-welcome.md and docs/learn/01-sigils.md, the places a
+# reader meets it. docs/QUICK.md lists each sigil's uses in a table per
+# mechanic instead, and holds no copy.
 source "$ROOT/test/cli/_lib.sh"
 
 table() { awk '/^\| Mechanic \| Sigils \|$/ { on = 1 } on && /^\|/ { print; next } on { exit }' "$1"; }
 
 want=$(table "$ROOT/README.md")
 [[ -n "$want" ]] || fail "README.md: no table of sigils by mechanic"
-for f in docs/learn/00-welcome.md docs/QUICK.md docs/learn/01-sigils.md; do
+for f in docs/learn/00-welcome.md docs/learn/01-sigils.md; do
   got=$(table "$ROOT/$f")
   [[ -n "$got" ]] || fail "$f: no table of sigils by mechanic"
 done

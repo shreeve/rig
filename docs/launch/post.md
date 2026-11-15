@@ -39,7 +39,7 @@ one-character mark that means the same thing wherever it appears.
 
 | Mechanic | Sigils |
 |---|---|
-| Binding | `x = e` binds, `x =! e` binds for good |
+| Binding | `x = e` binds, `x =! e` binds a fixed local |
 | Taking and copying | `<x` moves (alone on a line, drops), `+x` copies or makes another handle |
 | Lending | `?x` lends to read, `!x` to write; as types, `?T` and `!T` |
 | Holding | `*x` shared (`*w` upgrades a weak handle), `^x` boxed, `~x` weak, `@` self |
