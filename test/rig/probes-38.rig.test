@@ -579,7 +579,7 @@ test "seam3-review1-c07 closure lend ok", '''
   !v.push(2)
   print(v.len)
 
-fail "seam3-review1-d02 gen closure box", "`mk[?List[Int]]` cannot use `T = ?List[Int]`: the generic body stores a `T` in a Cell, a Signal, a channel, an actor's value, or an owned closure, which carries no loan, and a view keeps what it views lent"
+fail "seam3-review1-d02 gen closure box", "`mk[?List[Int]]` cannot use `T = ?List[Int]`: the generic body stores a `T` in an owned closure, which carries no loan, and a view keeps what it views lent"
   fun mk[T](x: T) -> *fun() -> Int
     b = ^x
     *|<b| 1
@@ -589,7 +589,7 @@ fail "seam3-review1-d02 gen closure box", "`mk[?List[Int]]` cannot use `T = ?Lis
   <v
   print(f())
 
-fail "seam3-review1-d04 gen struct closure", "`mk[?List[Int]]` cannot use `T = ?List[Int]`: the generic body stores a `T` in a Cell, a Signal, a channel, an actor's value, or an owned closure, which carries no loan, and a view keeps what it views lent"
+fail "seam3-review1-d04 gen struct closure", "`mk[?List[Int]]` cannot use `T = ?List[Int]`: the generic body stores a `T` in an owned closure, which carries no loan, and a view keeps what it views lent"
   obj Hold[T]
     v: T
 
@@ -602,7 +602,7 @@ fail "seam3-review1-d04 gen struct closure", "`mk[?List[Int]]` cannot use `T = ?
   <v
   print(f())
 
-fail "seam3-review1-d08 gen opt closure", "`mk[?List[Int]]` cannot use `T = ?List[Int]`: the generic body stores a `T` in a Cell, a Signal, a channel, an actor's value, or an owned closure, which carries no loan, and a view keeps what it views lent"
+fail "seam3-review1-d08 gen opt closure", "`mk[?List[Int]]` cannot use `T = ?List[Int]`: the generic body stores a `T` in an owned closure, which carries no loan, and a view keeps what it views lent"
   fun mk[T](x: T) -> *fun() -> Int
     o: T? = x
     *|<o| 1
@@ -612,7 +612,7 @@ fail "seam3-review1-d08 gen opt closure", "`mk[?List[Int]]` cannot use `T = ?Lis
   <v
   print(f())
 
-fail "seam3-review1-e12 gen vec cell string base", "`keep[?String]` cannot use `T = ?String`: the generic body stores a `T` in a Cell, a Signal, a channel, an actor's value, or an owned closure, which carries no loan, and a `?String` may view a String (a `Static` carries no loan)"
+fail "seam3-review1-e12 gen vec cell string base", "`keep[?String]` cannot use `T = ?String`: the generic body stores a `T` in a Cell, which carries no loan, and a `?String` may view a String (a `Static` carries no loan)"
   fun keep[T](x: T) -> *Cell[List[T]]
     xs: List[T] = List()
     !xs.push(x)
@@ -625,7 +625,7 @@ fail "seam3-review1-e12 gen vec cell string base", "`keep[?String]` cannot use `
   old = (!c).swap(List())
   print(old[0])
 
-fail "seam3-review1-e13 gen vec closure string base", "`mk[?String]` cannot use `T = ?String`: the generic body stores a `T` in a Cell, a Signal, a channel, an actor's value, or an owned closure, which carries no loan, and a `?String` may view a String (a `Static` carries no loan)"
+fail "seam3-review1-e13 gen vec closure string base", "`mk[?String]` cannot use `T = ?String`: the generic body stores a `T` in an owned closure, which carries no loan, and a `?String` may view a String (a `Static` carries no loan)"
   fun mk[T](x: T) -> *sub()
     xs: List[T] = List()
     !xs.push(x)
@@ -637,7 +637,7 @@ fail "seam3-review1-e13 gen vec closure string base", "`mk[?String]` cannot use 
   <t
   f()
 
-fail "seam3-review1-e15 gen shared closure box owner", "`mk[?^String]` cannot use `T = ?^String`: the generic body stores a `T` in a Cell, a Signal, a channel, an actor's value, or an owned closure, which carries no loan, and a view keeps what it views lent"
+fail "seam3-review1-e15 gen shared closure box owner", "`mk[?^String]` cannot use `T = ?^String`: the generic body stores a `T` in an owned closure, which carries no loan, and a view keeps what it views lent"
   obj Hold[T]
     v: T
 
@@ -650,7 +650,7 @@ fail "seam3-review1-e15 gen shared closure box owner", "`mk[?^String]` cannot us
   <b
   f()
 
-fail "seam3-review1-e16 gen weak closure", "`mk[?^String]` cannot use `T = ?^String`: the generic body stores a `T` in a Cell, a Signal, a channel, an actor's value, or an owned closure, which carries no loan, and a view keeps what it views lent"
+fail "seam3-review1-e16 gen weak closure", "`mk[?^String]` cannot use `T = ?^String`: the generic body stores a `T` in an owned closure, which carries no loan, and a view keeps what it views lent"
   obj Hold[T]
     v: T
 
@@ -808,7 +808,7 @@ fail "seam3-review1-i08 holder in tuple array", "cannot drop `v` while it is len
   <v
   print(a[0].len)
 
-fail "seam3-review1-j02 gen cell set vec", "`stash[?^String]` cannot use `T = ?^String`: the generic body stores a `T` in a Cell, a Signal, a channel, an actor's value, or an owned closure, which carries no loan, and a view keeps what it views lent"
+fail "seam3-review1-j02 gen cell set vec", "`stash[?^String]` cannot use `T = ?^String`: the generic body stores a `T` in a Cell, which carries no loan, and a view keeps what it views lent"
   sub stash[T](c: *Cell[List[T]], x: T)
     xs: List[T] = List()
     !xs.push(x)

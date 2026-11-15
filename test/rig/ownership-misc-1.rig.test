@@ -10744,7 +10744,7 @@ fail "string view stores", "18:2: cannot drop `t` while it is lent", errors: 1
   <t
   print(a, c, d, n)
 
-fail "string view untracked", "14:1: `put[?String]` cannot use `T = ?String`: the generic body stores a `T` in a Cell, a Signal, a channel, an actor's value, or an owned closure, which carries no loan, and a `?String` may view a String", "15:5: `later[?String]` cannot use `T = ?String`", "18:15: `s` does not live long enough", "21:10: cannot store a view of `t` in a `Signal`"
+fail "string view untracked", "14:1: `put[?String]` cannot use `T = ?String`: the generic body stores a `T` in a Cell, which carries no loan, and a `?String` may view a String", "15:5: `later[?String]` cannot use `T = ?String`", "18:15: `s` does not live long enough", "21:10: cannot store a view of `t` in a `Signal`"
   # Loans are not followed into a Cell's or Signal's contents or an owned
   # closure's captures, so a String that may view a Text cannot go there:
   # not a view, not a String parameter, not a closure's String parameter

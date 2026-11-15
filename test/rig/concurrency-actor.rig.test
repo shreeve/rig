@@ -405,7 +405,7 @@ fail "actor read view changes", "cannot lend to write through a read view `?*Act
   r = ?c
   !r.bump()
 
-fail "actor made in a generic holds no view", "16:5: `mk[?String]` cannot use `T = ?String`: the generic body stores a `T` in a Cell, a Signal, a channel, an actor's value, or an owned closure", "17:5: `again[?String]` cannot use `T = ?String`", errors: 2
+fail "actor made in a generic holds no view", "16:5: `mk[?String]` cannot use `T = ?String`: the generic body makes an actor whose value holds a `T`, which carries no loan", "17:5: `again[?String]` cannot use `T = ?String`", errors: 2
   # An actor's value holds no view, wherever the actor is made: in a
   # generic body, each instance's `T` holds none.
   obj Box[T]

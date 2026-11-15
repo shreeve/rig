@@ -972,7 +972,7 @@ pub const Checker = struct {
                 try self.note(r.pos, "here", .{});
                 continue;
             }
-            const what = if (r.view) "a value that holds no loan, which a Cell, a Signal, a channel, an actor's value, or an owned closure keeps" else if (r.element) "taking an element its collection still owns" else "a copy";
+            const what = if (r.view) try std.fmt.allocPrint(a, "a value that holds no loan, which {s} keeps", .{r.home.keeper()}) else if (r.element) "taking an element its collection still owns" else "a copy";
             try self.err(r.pos, "{s}", .{try sema.unboundedMessage(ctx, a, sym, api, what)});
         }
     }
@@ -1074,8 +1074,8 @@ pub const Checker = struct {
             if (r.param != param or !r.view) continue;
             if (!try sema.liveAt(ctx, r.module_id, r.pos, subst.params, subst.args)) continue;
             const why = (try sema.objectLoanReason(ctx, self.arena(), arg)) orelse if (sema.holdsMarkedView(ctx, arg)) "a view keeps what it views lent" else "a `?String` may view a String (a `Static` carries no loan)";
-            try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body stores a `{s}` in a Cell, a Signal, a channel, an actor's value, or an owned closure, which carries no loan, and {s}", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, why });
-            try self.noteIn(r.module_id, r.pos, "`{s}` stored here", .{pname});
+            try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body {s}, which carries no loan, and {s}", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), try r.home.doing(self.arena(), pname), why });
+            try self.noteIn(r.module_id, r.pos, "`{s}` {s}", .{ pname, r.home.site() });
             return;
         }
     }
@@ -4857,8 +4857,8 @@ pub const Checker = struct {
     /// instance, because the value is stored where no loan is tracked:
     /// in a Cell, a Signal, a channel, an actor's value, or an owned
     /// closure.
-    fn requireNoView(self: *Checker, pos: u32, ty: ?TypeId) Error!void {
-        return self.addRequirement(pos, ty orelse return, .{ .param = 0, .pos = pos, .view = true });
+    fn requireNoView(self: *Checker, pos: u32, ty: ?TypeId, home: sema.NoLoanHome) Error!void {
+        return self.addRequirement(pos, ty orelse return, .{ .param = 0, .pos = pos, .view = true, .home = home });
     }
 
     fn addRequirement(self: *Checker, pos: u32, ty: TypeId, req: PlainRequirement) Error!void {
@@ -5438,7 +5438,7 @@ pub const Checker = struct {
     /// view.
     fn storeInCellList(self: *Checker, target: Sexp, value: Value) Error!void {
         const pos = self.startOf(target);
-        try self.requireNoView(pos, self.exprType(target));
+        try self.requireNoView(pos, self.exprType(target), .cell);
         const loans = (try self.carry(self.exprType(target), value)).loans;
         if (loans.len > 0) try self.err(pos, "cannot store a view of `{s}` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one{s}", .{ self.vars.items[loans[0].root].name, staticParamHint(loans[0]) });
     }
@@ -5756,7 +5756,8 @@ pub const Checker = struct {
         // A channel's values and an actor's value hold no view (SPEC
         // "Channels", "Actors"): one made in a generic body asks each
         // instance for a type that holds none.
-        if (self.sema.isChanMake(node) or self.sema.isActorMake(node) or self.sema.isActorSupervised(node)) try self.requireNoView(self.startOf(node), self.exprType(node));
+        if (self.sema.isChanMake(node)) try self.requireNoView(self.startOf(node), self.exprType(node), .channel_made);
+        if (self.sema.isActorMake(node) or self.sema.isActorSupervised(node)) try self.requireNoView(self.startOf(node), self.exprType(node), .actor_made);
         // A consuming self is passed like an argument.
         const consumed_recv = if (recv_mode == .value and callee.isKind(.member)) recv_value else Value{};
         // Which arguments the call passes loans on from (Core sentence
@@ -5814,7 +5815,7 @@ pub const Checker = struct {
             // may be a `?String` viewing a String.
             // A send arm stores its value, its first argument, alone.
             const stores_arg = cell != null and (arm == null or i == 0);
-            if (stores_arg) try self.requireNoView(self.startOf(a), self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a));
+            if (stores_arg) try self.requireNoView(self.startOf(a), self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a), if (std.mem.eql(u8, cell.?, "Chan")) .channel else if (std.mem.eql(u8, cell.?, "Signal")) .signal else .cell);
             if (stores_arg and v.loans.len > 0 and !self.rejected(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a)) {
                 const held = v.*;
                 v.* = .{};
@@ -6613,7 +6614,7 @@ pub const Checker = struct {
         for (caps) |cap| {
             const cv = try self.applyCapture(cap);
             try cap_values.append(self.arena(), cv);
-            if (owned) try self.requireNoView(sema.captureNameNode(cap).?.src.pos, self.symType(sema.captureNameNode(cap).?.src.pos));
+            if (owned) try self.requireNoView(sema.captureNameNode(cap).?.src.pos, self.symType(sema.captureNameNode(cap).?.src.pos), .closure);
             // An API object may hold a loan its type does not show: an
             // owned closure keeps one only where its braces name `Owned`.
             const ctx = self.sema;

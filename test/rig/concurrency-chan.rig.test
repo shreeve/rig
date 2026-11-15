@@ -417,7 +417,7 @@ fail "chan send arm stores no view", "9:36: cannot store a view of `s` in a `Cha
 
   print(1)
 
-fail "chan send arm of a generic stores no view at an instance", "8:3: `stash[?String]` cannot use `T = ?String`: the generic body stores a `T` in a Cell, a Signal, a channel, an actor's value, or an owned closure", errors: 1
+fail "chan send arm of a generic stores no view at an instance", "8:3: `stash[?String]` cannot use `T = ?String`: the generic body sends a `T` into a channel, which carries no loan", errors: 1
   use std.task
 
   sub stash[T](ch: *Chan[T], v: T)!
@@ -429,7 +429,7 @@ fail "chan send arm of a generic stores no view at an instance", "8:3: `stash[?S
 
   print(1)
 
-fail "chan made in a generic holds no view", "11:5: `mk[?String]` cannot use `T = ?String`: the generic body stores a `T` in a Cell, a Signal, a channel, an actor's value, or an owned closure", "12:5: `pool[?String]` cannot use `T = ?String`", errors: 2
+fail "chan made in a generic holds no view", "11:5: `mk[?String]` cannot use `T = ?String`: the generic body makes a channel of `T`, which carries no loan", "12:5: `pool[?String]` cannot use `T = ?String`", errors: 2
   # A channel's values hold no view, wherever the channel is made: in a
   # generic body, each instance's `T` holds none.
   fun mk[T]() -> *Chan[T]
