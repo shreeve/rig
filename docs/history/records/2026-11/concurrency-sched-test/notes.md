@@ -119,3 +119,60 @@ worker, 2 s guards), the watcher's 1 ms look against 2 s, the poller
 kick, the seeded socket tests, and the stats test's lower bounds.
 src/tasks.zig, src/runtime.zig, and src/alloc.zig assert nothing timed;
 src/net.zig has no tests.
+
+## Eight binaries at once
+
+Rig ran the debug test binary of the change above on x86-64 Linux,
+oversubscribed (8 at once, pinned to 8 cores, 16 runs each way,
+interleaved with main): the pair test passed 48 of 48 (main failed it 1
+in 32), but "an idle worker wakes for the descriptors of a busy one"
+failed 3 of 48 at its 2 s limit, where main never failed it in 32. That
+test registered the pipe, made the reader, and then napped until the
+other worker slept, where it had napped 20 ms; with the other worker
+listed asleep already it does not nap at all, so whether that worker
+watches the busy one's poller came down to timing. Not reproduced on
+the Mac: 8 copies of the change's binary at once, 6 rounds, failed none
+of 48 there. They failed "a task's maker that computes keeps its worker
+while an idle worker runs what it made" once instead.
+
+What changed, in src/sched.zig:
+
+- "an idle worker wakes for the descriptors of a busy one" naps after
+  registering until the reader waits (`Registration.waiting`, which the
+  reader counts under the lock before it parks, and which the poller
+  reads before it wakes one), always at least once: the busy worker
+  sleeps holding the descriptor and wakes, which hands a sleeper the
+  watch (`passWatch`). It asserts that the other worker was listed
+  asleep as the byte was written, and that the reader ran on it; 10 s
+  only ends a broken run. The reader does not inherit the pin of the
+  fiber that made it: only `spawn`'s `local` sets a fiber's home.
+- "a timer set earlier than a sleeping worker's wakes it" asserts the
+  same: the other worker asleep once the timer was set, and the napper
+  run on it.
+- "keeps its worker" and "runs beside it": a check leaves the task to an
+  idle worker only while one is asleep or searching (`leftToIdle`); one
+  between the end of its search and its sleep is neither, so the check
+  yields, and the task runs on its maker's worker or the maker moves.
+  Each test now repeats, up to ten rounds, until a round finds the
+  other worker asleep and shows the task beside its maker.
+
+Each test fails when the mechanism it names is broken, in a copy of
+src/sched.zig built with `zig test src/sched.zig --test-filter NAME`:
+
+| Broken | Test | Result |
+|---|---|---|
+| `passWatch` returns at once | descriptors | fails, 11 s |
+| `sleepIn` never watches | descriptors | fails, 10 s |
+| `serviceAll` looks only at its own poller | descriptors | fails, 10 s |
+| `kickForTimer` kicks no one | timer | fails, 10 s |
+| `leftToIdle` always false | keeps its worker, runs beside it | both fail |
+
+An event log of a variant meant to put the other worker to sleep before
+the register found it first sleeping only after: the workers start at
+the first `register`, so `testNapUntilOthersSleep` before it returns at
+once. From its first sleep it watched every 1.3 ms, and woke for the
+byte 0.9 ms after the write.
+
+Runs of the change's whole sched test binary (debug) on the Mac, through
+`tools/heavy`: 8 copies at once, 6 rounds, 48 of 48; 20 in a row with 8
+CPU hogs at nice 5, 20 of 20. `zig build test -Doptimize=Debug` passes.

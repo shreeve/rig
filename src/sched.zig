@@ -6707,25 +6707,32 @@ fn testSpinUntil(flag: *const std.atomic.Value(bool), ticks: bool) bool {
 test "a timer set earlier than a sleeping worker's wakes it, though the timer's own worker computes" {
     if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
     const Run = struct {
-        var done = std.atomic.Value(bool).init(false);
-        var in_time = false;
+        var home: ?*Worker = null;
+        /// Whether the other worker slept once the timer was set.
+        var asleep = false;
+        /// The worker the napper ran on once its timer fired.
+        var woke_on = std.atomic.Value(?*Worker).init(null);
         const Unit = struct {};
         fn napper(_: *Unit) u8 {
             testNap(10 * std.time.ns_per_ms);
-            done.store(true, .seq_cst);
+            woke_on.store(me(), .seq_cst);
             return 0;
         }
         fn first(_: *anyopaque) callconv(.c) void {
             // Pinned, so the other worker cannot take it, and asleep
             // until that worker sleeps with no deadline to wake for.
-            _ = pinHere();
+            home = pinHere();
             _ = workersRunning();
             testNapUntilOthersSleep();
             const j = spawn(u8, Unit, napper, .{}, .{}, false, false).job;
             // The napper runs here, sets its timer on this worker, and
-            // this fiber computes without a yield check.
+            // this fiber computes without a yield check: only the other
+            // worker, woken for the timer, fires it and runs the napper.
+            // The limit only ends a run whose kick is broken.
             yield();
-            in_time = testSpinUntil(&done, false);
+            asleep = sleepers.count.load(.seq_cst) + 1 == workersNow().len;
+            const give_up = nowNs() + 10 * std.time.ns_per_s;
+            while (woke_on.load(.seq_cst) == null and nowNs() < give_up) std.atomic.spinLoopHint();
             _ = j.join();
             j.free();
         }
@@ -6735,7 +6742,10 @@ test "a timer set earlier than a sleeping worker's wakes it, though the timer's 
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
-    try std.testing.expect(Run.in_time);
+    const on = Run.woke_on.load(.seq_cst);
+    try std.testing.expect(Run.asleep);
+    try std.testing.expect(on != null);
+    try std.testing.expect(on != Run.home);
 }
 
 test "a lone worker's yield checks wake the fibers its timers and its poller make ready" {
@@ -6786,13 +6796,16 @@ test "a lone worker's yield checks wake the fibers its timers and its poller mak
 test "a task made while its maker computes runs beside it, from the maker's next yield check" {
     if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
     const Run = struct {
+        var maker_on: ?*Worker = null;
         var ran = std.atomic.Value(bool).init(false);
         var turns = std.atomic.Value(u64).init(0);
-        var in_time = false;
+        var rounds: u32 = 0;
         const Unit = struct {};
-        /// Done only once its maker has turned meanwhile, which it can
-        /// only while the two run at once: this one makes no yield check.
+        /// Beside its maker only once the maker has turned meanwhile,
+        /// which it can only while the two run at once: this one makes
+        /// no yield check.
         fn beside(_: *Unit) u8 {
+            if (me() == maker_on) return 0;
             const from = turns.load(.seq_cst);
             const until = nowNs() + 2 * std.time.ns_per_s;
             while (turns.load(.seq_cst) < from + 1000 and nowNs() < until) std.atomic.spinLoopHint();
@@ -6801,18 +6814,24 @@ test "a task made while its maker computes runs beside it, from the maker's next
         }
         fn first(_: *anyopaque) callconv(.c) void {
             _ = workersRunning();
-            testNapUntilOthersSleep();
-            const j = spawn(u8, Unit, beside, .{}, .{}, false, false).job;
-            // The task is in this worker's run-next slot, and this one
-            // computes, with a yield check each turn.
-            const until = nowNs() + 2 * std.time.ns_per_s;
-            while (!j.header.done.over() and nowNs() < until) {
-                _ = turns.fetchAdd(1, .seq_cst);
-                tick();
+            // A check may find no worker idle: the other one, between its
+            // search and its sleep, counts as busy, so the check yields
+            // to the task, which runs here. Rounds go on until one runs
+            // beside its maker, or ten have not.
+            while (rounds < 10 and !ran.load(.seq_cst)) : (rounds += 1) {
+                testNapUntilOthersSleep();
+                maker_on = me();
+                const j = spawn(u8, Unit, beside, .{}, .{}, false, false).job;
+                // The task is in this worker's run-next slot, and this one
+                // computes, with a yield check each turn.
+                const until = nowNs() + 2 * std.time.ns_per_s;
+                while (!j.header.done.over() and nowNs() < until) {
+                    _ = turns.fetchAdd(1, .seq_cst);
+                    tick();
+                }
+                _ = j.join();
+                j.free();
             }
-            _ = j.join();
-            in_time = ran.load(.seq_cst);
-            j.free();
         }
     };
     workers_override.* = 2;
@@ -6820,14 +6839,13 @@ test "a task made while its maker computes runs beside it, from the maker's next
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
-    try std.testing.expect(Run.in_time);
+    try std.testing.expect(Run.ran.load(.seq_cst));
 }
 
 test "a task's maker that computes keeps its worker while an idle worker runs what it made" {
     if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
     const Run = struct {
         var child_on = std.atomic.Value(?*Worker).init(null);
-        var moved = false;
         var ok = false;
         const Unit = struct {};
         fn child(_: *Unit) u8 {
@@ -6836,20 +6854,31 @@ test "a task's maker that computes keeps its worker while an idle worker runs wh
         }
         fn first(_: *anyopaque) callconv(.c) void {
             _ = workersRunning();
-            testNapUntilOthersSleep();
-            const home = me();
-            const j = spawn(u8, Unit, child, .{}, .{}, false, false).job;
-            // The child waits in this worker's run-next slot while this
-            // one computes, checking each turn: the check leaves it to the
-            // idle worker, which it wakes, and never yields.
-            const until = nowNs() + 2 * std.time.ns_per_s;
-            while (child_on.load(.seq_cst) == null and nowNs() < until) {
-                tick();
-                if (me() != home) moved = true;
+            // A check may find no worker idle: the other one, between its
+            // search and its sleep, counts as busy, so the check yields,
+            // and the child runs here or the maker moves. Rounds go on
+            // until one keeps the maker on its worker while the other
+            // runs the child, or ten have not.
+            var rounds: u32 = 0;
+            while (rounds < 10 and !ok) : (rounds += 1) {
+                testNapUntilOthersSleep();
+                const home = me();
+                var moved = false;
+                child_on.store(null, .seq_cst);
+                const j = spawn(u8, Unit, child, .{}, .{}, false, false).job;
+                // The child waits in this worker's run-next slot while
+                // this one computes, checking each turn: the check leaves
+                // it to the idle worker, which it wakes, and never yields.
+                const until = nowNs() + 2 * std.time.ns_per_s;
+                while (child_on.load(.seq_cst) == null and nowNs() < until) {
+                    tick();
+                    if (me() != home) moved = true;
+                }
+                const on = child_on.load(.seq_cst);
+                ok = on != null and on != home and !moved;
+                _ = j.join();
+                j.free();
             }
-            ok = child_on.load(.seq_cst) != null and child_on.load(.seq_cst) != home;
-            _ = j.join();
-            j.free();
         }
     };
     workers_override.* = 2;
@@ -6858,7 +6887,6 @@ test "a task's maker that computes keeps its worker while an idle worker runs wh
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expect(Run.ok);
-    try std.testing.expect(!Run.moved);
 }
 
 test "a task's maker that computes yields to what it made when every other worker is busy" {
@@ -7237,30 +7265,42 @@ test "a run-next fiber whose notice another worker's check took is handed on at 
 test "an idle worker wakes for the descriptors of a busy one" {
     if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
     const Run = struct {
-        var read = std.atomic.Value(bool).init(false);
-        var in_time = false;
+        var home: ?*Worker = null;
+        /// Whether the other worker slept as the byte was written.
+        var asleep = false;
+        /// The worker the reader ran on once the byte came.
+        var read_on = std.atomic.Value(?*Worker).init(null);
         const Unit = struct {};
         fn reader(_: *Unit, r: *Registration) u8 {
-            if (waitReady(r, Registration.readable, edges(r, Registration.readable), null, false) == .ready) read.store(true, .seq_cst);
+            if (waitReady(r, Registration.readable, edges(r, Registration.readable), null, false) == .ready) read_on.store(me(), .seq_cst);
             return 0;
         }
         fn first(_: *anyopaque) callconv(.c) void {
             // Pinned, so this worker stays busy with it, and holds the
             // descriptor, registered here.
-            _ = pinHere();
+            home = pinHere();
             const fds = testPipe();
             const r = register(fds[0]).?;
             const j = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
-            // The reader runs here and waits; the other worker goes to
-            // sleep with nothing to do.
-            yield();
+            // Nap until the reader waits: this worker runs it, then sleeps
+            // holding the descriptor, and wakes, which has a sleeping
+            // worker watch (`passWatch`).
+            const ready_by = nowNs() + 2 * std.time.ns_per_s;
+            testNap(std.time.ns_per_ms);
+            while (r.waiting.load(.seq_cst) == 0 and nowNs() < ready_by) testNap(std.time.ns_per_ms);
             testNapUntilOthersSleep();
             // Busy a while, so the other worker, woken for this one's
             // timer, has gone back to sleep with nothing to wake it for.
             const until = nowNs() + 30 * std.time.ns_per_ms;
             while (nowNs() < until) std.atomic.spinLoopHint();
+            asleep = sleepers.count.load(.seq_cst) + 1 == workersNow().len;
             _ = std.posix.system.write(fds[1], "x", 1);
-            in_time = testSpinUntil(&read, false);
+            // This worker makes no check from here, so only the other
+            // worker's look at its poller sees the byte, and that worker
+            // runs the reader it wakes. The limit only ends a run whose
+            // watch is broken.
+            const give_up = nowNs() + 10 * std.time.ns_per_s;
+            while (read_on.load(.seq_cst) == null and nowNs() < give_up) std.atomic.spinLoopHint();
             _ = j.join();
             j.free();
             deregister(r);
@@ -7273,7 +7313,10 @@ test "an idle worker wakes for the descriptors of a busy one" {
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
-    try std.testing.expect(Run.in_time);
+    const on = Run.read_on.load(.seq_cst);
+    try std.testing.expect(Run.asleep);
+    try std.testing.expect(on != null);
+    try std.testing.expect(on != Run.home);
 }
 
 fn testSleepReal(ms: u64) u64 {
