@@ -102,11 +102,15 @@ accepted:
   slice of handles;
 - a channel or an actor made in a generic body, `*Chan[T](n)`, or
   `*Actor(Box(v: v))` and `*Actor.supervised(...)` of a value holding a
-  `T`, at an instance whose `T` may hold a view (`mk[?String]()`), is
-  rejected at the instance, as a `T` stored in a Cell is: "`mk[?String]`
-  cannot use `T = ?String`: the generic body stores a `T` in a Cell, a
-  Signal, a channel, an actor's value, or an owned closure, which
-  carries no loan". Such a channel held a view of text that could be
+  `T`, is checked when it is made, whether or not the body puts a `T`
+  in it, as a `T` stored in a Cell is. At an instance whose `T` may
+  hold a view (`mk[?String]()`) it is rejected: "`mk[?String]` cannot
+  use `T = ?String`: the generic body makes a channel of `T`, which
+  carries no loan". A generic checked by its bounds, a `pub` one or one
+  with bounds (`[T: Sends]`), that makes such a channel or actor is
+  rejected where it is declared, even with no instance: "`pub fun
+  mk[T]` keeps a `T` where no loan is tracked: write `[T: Owned]`".
+  Add `Owned` to its bounds. Such a channel held a view of text that could be
   freed while the channel held it (a use of freed memory under
   `RIG_SANITIZE=1`), which a send arm, `put: !ch.on_send(?s)`, put in
   unchecked; a send arm's value is now checked as `send`'s is, "cannot

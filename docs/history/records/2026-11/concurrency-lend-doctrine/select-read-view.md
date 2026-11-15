@@ -139,6 +139,28 @@ leaves the select untyped, so there it abstains.
 | `got: !(a if k else b).on_recv()`, both spellings | (3a3ba5038: internal error) runs | runs, tested |
 | `!n.on_recv()`, `!flag.on_recv()`, `!ch.on_recv()` of a `T` or `?T` | lend error first, wrong advice | "not a channel" alone |
 
+## Second review (2026-11-15)
+
+A second review of c2d65f917 (313 programs) found no way left to break
+either rule, and the two checkers agreeing on every accepted program.
+It found four things, fixed after it:
+
+1. The requirement a channel or actor made in a generic body asks of
+   `T` is the one a `T` stored in a Cell asks, so a body checked by its
+   bounds (a `pub` one, or one with bounds such as `[T: Sends]`) that
+   makes a channel of `T`, or an actor whose value holds one, needs
+   `T: Owned` where it is declared, even if it puts nothing in. The
+   CHANGELOG and SPEC's generics and bounds passages say so. Trig, std,
+   examples, and bench make no channel or actor of a type parameter.
+2. The reference checker did not store a send arm's value in its
+   channel, so it accepted under C8 what it rejects for `send`. It now
+   does.
+3. The requirement's message named every home that carries no loan; it
+   now names what the body does.
+4. `par.map`'s closure loses its own errors in a quiet pass (an
+   internal error, or an accepted program that fails in emit): a
+   backlog entry, not this change.
+
 ## Not done here
 
 The actor call through a read view of its handle has a check of its own

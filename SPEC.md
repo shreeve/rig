@@ -3351,9 +3351,11 @@ holds the value. A type argument may be a read view, of an owner too
 (`same(?v)` is `same[?List[Int]]`): the result holds what `?v` lent, so
 `v` stays lent while the result is used. It cannot be a write view,
 which is never stored in a value ([Write views](#write-views)), and a
-body that stores its `T` in a Cell, a Signal, a channel, an actor's
-value, or an owned closure cannot be instantiated with a view, since
-those carry no loan; write `?T`
+body that stores its `T` in a Cell, a Signal, an owned closure, or a
+channel, or that makes a channel of `T` or an actor whose value holds
+a `T` (even one it puts nothing in), cannot be instantiated with a
+view, since those carry no loan; a body checked by its bounds needs
+`T: Owned` for each ([Bounds](#bounds)); write `?T`
 in the signature to take a view that is only read. In an instance a `T`
 may hold a view, so the check of a body against its signature counts a
 parameter whose loans reach a value of a type that holds a type
@@ -3608,7 +3610,10 @@ payload's fields, each of which must be ordered. A type's header names
 A body may do with a bounded `T` what its bounds name and no more: copy
 a `T: Copy`, clone a `T: Clone` (`+x` of a `T`, a `?T`, or a `T?`, as
 each instance clones it), compare a `T: Ord` or a `T: Num`, hash a `T: Hash`, and
-call no method on it. Whether a literal fits a `T` is still checked at each instance.
+call no method on it, and keep it where no loan is tracked (store it in
+a Cell, a Signal, an owned closure, or a channel, or make a channel of
+`T` or an actor whose value holds one) only with `T: Owned`: `pub fun
+mk[T: Owned]() -> *Chan[T]`. Whether a literal fits a `T` is still checked at each instance.
 A bounded `T` passed to another generic provides only what its bounds
 name, and one without `Sends` or `Syncs` does not cross to another
 task. A `T` checked by its bounds (a bounded `T`, or a `pub`

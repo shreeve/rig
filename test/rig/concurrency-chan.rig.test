@@ -429,6 +429,24 @@ fail "chan send arm of a generic stores no view at an instance", "8:3: `stash[?S
 
   print(1)
 
+fail "chan made in a bounded generic needs Owned", "8:4: `T` is bounded by `Sends`, which does not give a value that holds no loan, which a channel keeps; add `Owned` to its bounds: `[T: Owned + Sends]`", "11:4: `T` is bounded by `Sends`, which does not give a value that holds no loan, which an actor's value keeps; add `Owned`", errors: 2
+  # A generic checked by its bounds says what it does with `T`: making a
+  # channel of `T`, or an actor whose value holds one, keeps a `T` where
+  # no loan is tracked, which needs `Owned`, though nothing is put in.
+  obj Box[T]
+    v: T
+
+  fun mk[T: Sends]() -> *Chan[T]
+    *Chan[T](1)
+
+  fun mka[T: Sends](v: T) -> *Actor[Box[T]]
+    *Actor(Box(v: <v))
+
+  fun fine[T: Sends + Owned]() -> *Chan[T]
+    *Chan[T](1)
+
+  print(1)
+
 fail "chan made in a generic holds no view", "11:5: `mk[?String]` cannot use `T = ?String`: the generic body makes a channel of `T`, which carries no loan", "12:5: `pool[?String]` cannot use `T = ?String`", errors: 2
   # A channel's values hold no view, wherever the channel is made: in a
   # generic body, each instance's `T` holds none.
