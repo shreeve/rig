@@ -39,6 +39,7 @@ modules          src/modules.zig   load `use`d files, check in dependency order
   │  proofs      src/proofs.zig    the tests known to pass
   ▼
 inlining         src/inlining.zig  which small functions Zig inlines, program-wide
+returns          src/returns.zig   which functions never return, program-wide
 units            src/units.zig     in a split build, which unit owns each function
 symbols          src/symbols.zig   the program's symbols, numbered
 emit             src/emit.zig      one Zig file per module
@@ -226,6 +227,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/storage.zig` | the storage facts: where emit makes hidden storage, decided once for emit and the ownership checker |
 | `src/ownership.zig` | the ownership checker |
 | `src/inlining.zig` | which functions are emitted `inline`, decided once for the whole program after every module is checked |
+| `src/returns.zig` | which functions never return, emitted with the Zig result `noreturn`, decided once for the whole program after every module is checked (Emit, "Functions that never return") |
 | `src/units.zig` | a split build: how many units a program is built as, and which unit owns each function it cuts, decided once for the whole program ([Split builds](#split-builds)) |
 | `src/symbols.zig` | the program's symbols: every `:name` of every module, numbered once for the whole program, and `__rig_symbols.zig`, which holds them ([Symbols](#symbols)) |
 | `src/proofs.zig` | the proven checks: which index, byte-access, and add tests a guard or a check already made |
@@ -5110,6 +5112,40 @@ and a query that decides more than that is a recorded fact.
   The `const table` cases and `constructed field overflow` of
   `test/rig/emit-misc-1.rig.test` run the forms, and `test/matrix.py -k fold.` every constant against every
   way of reading it and every operator that can fail, in debug and `--release`.
+
+- **Functions that never return.** A function that gives no value and
+  cannot fail (its Zig result is `void`) is emitted with the result
+  `noreturn` when nothing reaches its end: nothing in it returns or
+  passes a failure or a `none` on outside its closures
+  (`rig.holdsExit`), and its body diverges. A statement diverges when
+  it is a `panic`, a call of a function already known never to return,
+  an `if` with an `else` whose branches both diverge, a `match` whose
+  arms all do, a `loop` no `break` leaves (`sema.isLoop`,
+  `sema.breaksOut`), or a block one of whose statements diverges. A
+  `break` or `continue` out of a diverging statement can only go to a
+  loop inside the function, and a loop counts only when no `break`
+  leaves it, so Zig's own analysis agrees that the end is never reached.
+  `returns.decide` decides it once for the whole program, after every
+  module is checked, by the least fixed point (a function that only
+  calls itself, or a cycle of them, is not marked), and records it in the
+  declaring module's `never_returns`, keyed as `inlined` is; emit reads it
+  as `Facts.neverReturns`. A call counts by the target typecheck recorded
+  (`callTargetOf`), never through an actor's handle, a witness, or an API
+  object, where the Zig callee is the runtime's or a type parameter's; a
+  generic function is decided once, as its body is checked once. The
+  root module's `main`, which `rig.onOwnStack` calls, is never marked,
+  nor is a function that gives a value: the runtime reads some
+  functions' Zig results by reflection, and an actor's method maps
+  `noreturn` back to `void` (`Result` in `tasks.zig`), which it could not
+  do for a value type. No checker reads the fact, so nothing a program
+  means changes: a call is still typed `Void`, and code after it is
+  still accepted, which Zig 0.17 compiles after a call of a `noreturn`
+  function, coercing a pointer to one to a pointer to a function
+  returning `void` as well. LLVM then drops each caller's path past the
+  call, which a `void` result kept in a split build. `rig.split.crosses`
+  refuses a `noreturn` function, so no unit cuts it: each compiles it,
+  and every call is direct. `test/rig/emit-never-returns.rig.test` holds
+  the cases.
 
 - **Evaluation order of arguments.** A call's arguments are evaluated
   in the order they are written and passed in the order the parameters

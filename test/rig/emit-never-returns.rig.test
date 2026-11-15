@@ -1,0 +1,231 @@
+# A `sub` that never returns: its every path ends in a `panic`, a call of
+# a function known never to return, or a `loop` no `break` leaves, and
+# nothing in it returns or passes a failure or a `none` on. Emit writes
+# its Zig result `noreturn` (`returns.decide`, `Facts.neverReturns`),
+# so LLVM drops each caller's path past the call; nothing a program
+# means or whether it is accepted changes.
+
+code "never returns a panic, a call of one, a loop", /fn fail\(msg: \[\]const u8\) noreturn \{/, /fn die\([^\n]*\) noreturn \{/, /fn count_down\([^\n]*\) noreturn \{/, /fn pick\([^\n]*\) noreturn \{/, /fn check\([^\n]*\) void \{/
+  # `check` calls `fail` on one path only, so it returns.
+  sub fail(msg: ?String)
+    rarely
+    print("!! stop", msg)
+    panic(msg)
+
+  sub die(code: Int)
+    print(code)
+    fail("died")
+
+  sub count_down(n: Int)
+    i = n
+    loop
+      i -= 1
+      if i == 0
+        panic("done")
+
+  enum Color
+    red
+    green
+
+  sub pick(c: Color)
+    match c
+      .red => panic("red")
+      .green => die(2)
+
+  sub check(ok: Bool, msg: ?String)
+    fail(msg) if not ok
+
+  check(true, "fine")
+  print("ok")
+
+code "never returns not on some paths", /fn maybe\([^\n]*\) void \{/, /fn early\([^\n]*\) void \{/, /fn leaves\([^\n]*\) void \{/, /fn forever\([^\n]*\) void \{/, /fn half\([^\n]*\) void \{/, /fn value\([^\n]*\) i64 \{/
+  # A panic on one path, a `return`, a `loop` a `break` leaves, a
+  # function that only calls itself (the least fixed point), an `if`
+  # with no `else`, and a function that gives a value all return or
+  # keep their Zig result.
+  sub maybe(n: Int)
+    if n > 0
+      panic("positive")
+    print(n)
+
+  sub early(n: Int)
+    if n == 0
+      return
+    panic("nonzero")
+
+  sub leaves(n: Int)
+    loop
+      break if n > 0
+      panic("left")
+
+  sub forever(n: Int)
+    forever(n + 1)
+
+  sub half(n: Int)
+    if n > 0
+      panic("one branch")
+
+  fun value(n: Int) -> Int
+    panic("no value {n}")
+
+  maybe(0)
+  early(0)
+  half(0)
+  print("ok")
+
+test "never returns a guard that holds", "ok 3"
+  sub fail(msg: ?String)
+    rarely
+    print("!! stop", msg)
+    panic(msg)
+
+  sub check(ok: Bool, msg: ?String)
+    fail(msg) if not ok
+
+  n = 3
+  check(n > 0, "n must be positive")
+  print("ok", n)
+
+bomb "never returns a guard that fails", "bad input", prints: "!! stop bad input"
+  sub fail(msg: ?String)
+    rarely
+    print("!! stop", msg)
+    panic(msg)
+
+  sub check(ok: Bool, msg: ?String)
+    fail(msg) if not ok
+
+  check(false, "bad input")
+  print("after")
+
+bomb "never returns a loop that ends in a panic", "done", prints: "3"
+  sub count_down(n: Int)
+    i = n
+    loop
+      print(i)
+      i -= 1
+      if i == 2
+        panic("done")
+
+  count_down(3)
+
+bomb "never returns a method and a generic", "too long", prints: "refused 4"
+  obj Limit
+    most: Int
+
+    sub refuse(?@, n: Int)
+      print("refused", n)
+      panic("too long")
+
+    sub hold(?@, n: Int)
+      @refuse(n) if n > @most
+
+  sub reject[T](xs: ?List[T], lim: ?Limit)
+    lim.refuse(xs.len)
+
+  lim = Limit(most: 3)
+  xs = [1, 2]
+  lim.hold(xs.len)
+  ys: List[Int] = List()
+  !ys.push(1)
+  !ys.push(2)
+  !ys.push(3)
+  !ys.push(4)
+  reject(ys, lim) if ys.len > lim.most
+  print("after")
+
+code "never returns a method and a generic, emitted", /fn refuse\([^\n]*\) noreturn \{/, /fn reject\([^\n]*\) noreturn \{/, /fn hold\([^\n]*\) void \{/
+  obj Limit
+    most: Int
+
+    sub refuse(?@, n: Int)
+      print("refused", n)
+      panic("too long")
+
+    sub hold(?@, n: Int)
+      @refuse(n) if n > @most
+
+  sub reject[T](xs: ?List[T], lim: ?Limit)
+    lim.refuse(xs.len)
+
+  lim = Limit(most: 3)
+  lim.hold(2)
+  ys: List[Int] = List()
+  reject(ys, lim) if ys.len > lim.most
+  print("ok")
+
+bomb "never returns statements after a call still compile", "first"
+  sub fail(msg: ?String)
+    panic(msg)
+
+  fail("first")
+  print("never printed")
+
+bomb "never returns from another module", "from lib", prints: "lib: from lib"
+  use lib
+
+  sub die()
+    lib.fail("from lib")
+
+  die()
+
+  file "lib.rig"
+    pub sub fail(msg: ?String)
+      rarely
+      print("lib:", msg)
+      panic(msg)
+
+code "never returns from another module, emitted", /fn die\(\) noreturn \{/
+  use lib
+
+  sub die()
+    lib.fail("from lib")
+
+  die() if lib.ready()
+  print("ok")
+
+  file "lib.rig"
+    pub sub fail(msg: ?String)
+      rarely
+      print("lib:", msg)
+      panic(msg)
+
+    pub fun ready() -> Bool
+      false
+
+bomb "never returns lent as a callable", "through a value"
+  sub fail(msg: ?String)
+    panic(msg)
+
+  sub apply(f: ?sub(?String), msg: ?String)
+    f(msg)
+
+  apply(fail, "through a value")
+  print("after")
+
+bomb "never returns run as a task", seeds: 20, "in a task"
+  sub fail(msg: ?String)
+    panic(msg)
+
+  t = fail("in a task")&
+  >t
+  print("after")
+
+bomb "never returns deferred", "deferred", prints: "body"
+  sub fail(msg: ?String)
+    panic(msg)
+
+  defer fail("deferred")
+  print("body")
+
+bomb "never returns an actor's method", seeds: 20, "stopped", prints: "before"
+  obj Box
+    hits: Int
+
+    sub stop(?@)
+      panic("stopped")
+
+  b = *Actor(Box(hits: 0))
+  print("before")
+  b.stop()
+  print("after")

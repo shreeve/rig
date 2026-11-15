@@ -2362,9 +2362,12 @@ pub fn Actor(comptime T: type) type {
             @panic(text);
         }
 
-        /// What method `name` of `T` gives.
+        /// What method `name` of `T` gives: nothing, for one that never
+        /// returns (`noreturn`, a `sub`'s), whose call the caller waits
+        /// for like any other's.
         fn Result(comptime name: []const u8) type {
-            return @typeInfo(@TypeOf(@field(T, name))).@"fn".return_type.?;
+            const R = @typeInfo(@TypeOf(@field(T, name))).@"fn".return_type.?;
+            return if (R == noreturn) void else R;
         }
 
         /// Run method `name` on the value with `args`: through its

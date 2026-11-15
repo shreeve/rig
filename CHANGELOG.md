@@ -280,6 +280,14 @@ it where the negation was meant. Trig has no such site.
 
 ### Compiler
 
+- A function other than `main` that gives no value and cannot fail, and
+  whose every path ends in a `panic`, in a call of such a function, or
+  in a `loop` no `break` leaves, is emitted with Zig's result
+  `noreturn` (`src/returns.zig`, decided once for the whole program), so
+  LLVM drops each caller's path past a call of it, which a `void`
+  result kept in a split build: Trig's shared `debug.fail` helper, a
+  `sub` ending in `panic`, cost its parse phase 1.2% at one checker
+  that way. Nothing a program means or whether it is accepted changes.
 - An exit inside a call's arguments runs its defers with self lent to
   no one, since the call never starts: `!nums.push(text.parse_int(w)!)`
   under `errdefer !nums.resize(n, 0)` is accepted, where it was rejected

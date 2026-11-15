@@ -1957,7 +1957,12 @@ Without a marker the compiler decides which small functions to inline
 ([INTERNALS](docs/internals/INTERNALS.md), "Inlining"), and LLVM may
 inline larger ones. A function whose every path ends in a `panic` is
 taken as `rarely`: the branch to a panic, and to the runtime's own
-failure reports, is laid out as the path that is not taken.
+failure reports, is laid out as the path that is not taken. A function other than `main`
+that gives no value and cannot fail, and whose every path ends in a
+`panic`, in a call of such a function, or in a `loop` no `break`
+leaves, with no `return` and no `!` or `?` that passes a failure or a
+`none` on, is compiled as one that never returns, so what follows a call
+of it is known never to run. Neither rule changes what a program means.
 `rig build --release` warns about a function whose frame, as the
 executable reserves it, passes a page though its own values fit in one,
 and names the functions it calls to mark `called`; a `rarely` function,
