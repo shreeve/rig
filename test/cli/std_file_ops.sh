@@ -143,8 +143,9 @@ EOF2
 
 # A FIFO opened with `wait: false`, which no writer has opened: the open
 # returns at once and reads its end. Then a writer opens it and waits
-# before writing: a read waits for the bytes, since the File is not left
-# nonblocking (a nonblocking read would fail). An open that waits for a
+# before writing: a read waits for the bytes, in the read, since the
+# File is not left nonblocking, or, on macOS, where a FIFO's is, in a
+# poll. An open that waits for a
 # writer that never comes is stopped by its deadline, and the writer the
 # program opens then lets the abandoned open end.
 cat >fifo.rig <<'EOF2'
@@ -223,6 +224,39 @@ sub main()!
   big2 = >t!
   print(big2.len)
   print(got("r/pieces")!)
+EOF2
+
+# FIFOs whose writers open them and leave, writing nothing, as their
+# readers wait: each read comes to the end. Eight readers at once, 500
+# reads each, each read's writer a task that opens a moment after the
+# read may have begun to wait. On macOS a read parked in the kernel can
+# miss such a writer's leaving and wait for good.
+cat >fifoleave.rig <<'EOF2'
+use std.file
+use std.time
+
+# Opens the FIFO `e/f{k}` to write, and closes it having written nothing.
+sub leave(k: Int, i: Int)!
+  time.sleep(us: i % 4 * 100)!
+  file.write(`e/f{k}`, "")!
+
+# Reads the FIFO `e/f{k}` `rounds` times: how many reads came to the end.
+fun ends(k: Int, rounds: Int) -> Int!
+  n = 0
+  for i in 0..rounds
+    t = leave(k, i)&
+    n += 1 if (file.read(`e/f{k}`)! ?? String("none")).len == 0
+    >t!
+  n
+
+sub main()!
+  ts = List[Task[Int!]]()
+  for k in 0..8
+    !ts.push(ends(k, 500)&)
+  total = 0
+  while !ts.pop() as t
+    total += >t!
+  print(total)
 EOF2
 
 # In a directory the program may not write; root may, so it is left out
@@ -398,6 +432,10 @@ for mode in debug release; do
     out=$(RIG_SANITIZE=1 "$TIMEOUT_CMD" -s KILL 20 ./fifomore 2>&1); expect_rc $? 0 "$mode fifomore: $out"
     wait $w1 $w2 $w3 $w4 $w5
     expect_eq "$out" $'late\n0\n200000\n150000\nab' "$mode: FIFOs read whole, reader or writer first"
+    rig build $flag -o fifoleave fifoleave.rig >build.log 2>&1 || fail "$mode build fifoleave: $(cat build.log)"
+    rm -rf e; mkdir e; mkfifo e/f0 e/f1 e/f2 e/f3 e/f4 e/f5 e/f6 e/f7
+    out=$(RIG_SANITIZE=1 "$TIMEOUT_CMD" -s KILL 20 ./fifoleave 2>&1); expect_rc $? 0 "$mode fifoleave: $out"
+    expect_eq "$out" 4000 "$mode: FIFOs read to the end their writers leave, writing nothing"
     if [[ $(id -u) -ne 0 ]]; then
         rm -rf ro shut; mkdir ro ro/sub shut; printf 'f' >ro/f.txt; chmod 400 ro/f.txt; chmod 500 ro; chmod 000 shut
         out=$(RIG_SANITIZE=1 rig run $flag denied.rig 2>&1); rc=$?

@@ -42,8 +42,12 @@ worker after.
   pool, which polls and reads it (`readFifo`), and anything else is
   opened again on the pool. On macOS, whose poll of a FIFO never reports
   its writers gone, the read looks at the path first and opens nothing
-  but a regular file in the task. Either way no FIFO is opened twice, so
-  a writer waiting in its open is the one the read reads. `rig.blockingStop` makes
+  but a regular file in the task; the pool opens a FIFO, waiting for its
+  writer, and reads it without blocking, each wait for bytes a poll of
+  at most 64 ms (`rig.net.FifoWait`), since a read parked in the kernel
+  there can miss a writer that opens and closes, writing nothing, as
+  the read begins, and wait for good. Either way no FIFO is opened
+  twice, so a writer waiting in its open is the one the read reads. `rig.blockingStop` makes
   such a call a fallible waiting point: a cancel or the task's deadline
   ends the wait, and the call runs on to its end on its thread, which
   drops its result, unless it waits in a system call that its waiter's

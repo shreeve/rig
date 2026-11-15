@@ -98,7 +98,8 @@ fn absent(err: anyerror) Error!void {
 /// A regular file is read in the task (`readInline`); a FIFO on Linux
 /// on the pool from the descriptor the task opened (`readFifo`); anything
 /// else, a device, a FIFO elsewhere, or a failure to report, on the pool
-/// from the path (`readHere`).
+/// from the path (`readHere`), a FIFO among them read as `fifoBytes`
+/// reads.
 pub fn read(path: []const u8) Error!?rig.String {
     return switch (try readInline(path)) {
         .got => |s| s,
@@ -170,23 +171,33 @@ fn readInline(path: []const u8) Error!Inline {
 /// nothing there could not tell the end from a writer yet to come.
 const fifo_by_descriptor = builtin.os.tag == .linux;
 
-/// The bytes of the FIFO `readInline` opened, nonblocking, at `fd`, as a
-/// blocking read gives them: up to the end its last writer leaves. A
-/// read of nothing (0) is the end once a poll has reported the writers
-/// gone (POLLHUP), and otherwise means no writer has come yet, or one
-/// left between the poll and the read: the next poll waits for a writer
-/// or reports the one that left. Each read takes what the FIFO holds,
-/// up to a full pipe's 64 KiB.
+/// The bytes of the FIFO `readInline` opened, nonblocking, at `fd`
+/// (`fifoBytes`).
 fn readFifo(fd: Fd) Error!?rig.String {
     var own = fd;
     defer own.__rig_drop();
+    return try fifoBytes(own.fd, false);
+}
+
+/// The bytes of the FIFO open at `fd`, which does not block, as a
+/// blocking read gives them: up to the end its last writer leaves.
+/// Opened once a writer came (`paired`), a read of nothing (0) is that
+/// end. Opened without waiting, as `readInline` opens, it is the end
+/// once a poll has reported the writers gone (POLLHUP), and otherwise
+/// means no writer has come yet, or one left between the poll and the
+/// read: the next poll waits for a writer or reports the one that left.
+/// Each read takes what the FIFO holds, up to a full pipe's 64 KiB; each
+/// wait is a `rig.net.FifoWait`'s, bounded on macOS, whose poll never
+/// reports the end.
+fn fifoBytes(fd: i32, paired: bool) Error!rig.String {
     var s: rig.String = .empty;
     errdefer rig.dropElement(rig.String, &s);
+    var w: rig.net.FifoWait = .{};
     var gone = false;
     while (true) {
-        const n = readSome(own.fd, s.roomFor(64 * 1024)) catch |err| switch (err) {
+        const n = readSome(fd, s.roomFor(64 * 1024)) catch |err| switch (err) {
             error.WouldBlock => {
-                gone = try waitReadable(own.fd);
+                gone = try w.wait(fd);
                 continue;
             },
             else => |e| return e,
@@ -195,26 +206,11 @@ fn readFifo(fd: Fd) Error!?rig.String {
             s.list.items.len += n;
             continue;
         }
-        if (gone) break;
-        gone = try waitReadable(own.fd);
+        if (paired or gone) break;
+        gone = try w.wait(fd);
     }
     s.fit();
     return s;
-}
-
-/// Wait until the FIFO at `fd` has bytes to read or its writers are
-/// gone; whether the poll reported them gone (POLLHUP).
-fn waitReadable(fd: i32) Error!bool {
-    var fds = [1]posix.pollfd{.{ .fd = fd, .events = posix.POLL.IN, .revents = 0 }};
-    while (true) {
-        try rig.checkStop();
-        const rc = sys.poll(&fds, fds.len, -1);
-        switch (posix.errno(rc)) {
-            .SUCCESS => if (rc > 0) return fds[0].revents & posix.POLL.HUP != 0,
-            .INTR => {},
-            else => |e| return errnoFailure(e),
-        }
-    }
 }
 
 fn readHere(path: []const u8) Error!?rig.String {
@@ -225,7 +221,8 @@ fn readHere(path: []const u8) Error!?rig.String {
         return null;
     };
     // Opened as a directory may be, so that one stat gives both what it is
-    // and its size.
+    // and its size. A FIFO's open waits for a writer; then its reads do
+    // not block (`fifoBytes`).
     const fd = openAt(z, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }) catch |err| {
         try absent(err);
         return null;
@@ -234,6 +231,10 @@ fn readHere(path: []const u8) Error!?rig.String {
     const file: std.Io.File = .{ .handle = fd, .flags = .{ .nonblocking = false } };
     const st = file.stat(rig.io()) catch |err| return failure(err);
     if (st.kind == .directory) return error.@"std.file.FileError.is_directory";
+    if (st.kind == .named_pipe) {
+        try setNonblocking(fd, true);
+        return try fifoBytes(fd, true);
+    }
     return readOpen(fd, st) catch |err| switch (err) {
         error.WouldBlock => error.@"std.file.FileError.failed",
         else => |e| e,
@@ -608,7 +609,10 @@ fn openDirAt(path: []const u8) Error!?posix.fd_t {
 /// A descriptor of the file at `path` open to read, or null when nothing
 /// is there. Without `wait`, the open does not wait for a FIFO's writer
 /// or a device to be ready: it opens with O_NONBLOCK, then clears it, so
-/// the reads after it wait as any read does.
+/// the reads after it wait as any read does. On macOS a FIFO's is left
+/// not blocking, either way, and its reads wait in `poll`
+/// (`rig.net.FifoWait`): a read parked in the kernel there can miss the
+/// end its writers leave.
 pub fn open_fd(path: []const u8, wait: bool) Error!?i64 {
     const got = (try pool(?Fd, openHere, .{ path, wait })) orelse return null;
     return got.fd;
@@ -622,18 +626,26 @@ fn openHere(path: []const u8, wait: bool) Error!?Fd {
         return null;
     };
     var got: Fd = .{ .fd = fd };
-    if (!wait) blocking(fd) catch |err| {
-        got.__rig_drop();
-        return err;
-    };
+    errdefer got.__rig_drop();
+    const fifo = darwin and (try statFd(fd)).kind == .named_pipe;
+    if (fifo) try setNonblocking(fd, true) else if (!wait) try setNonblocking(fd, false);
     return got;
 }
 
-/// Clear O_NONBLOCK on `fd`, so its reads wait.
-fn blocking(fd: i32) FileError!void {
+/// Whether a FIFO's descriptor is left not blocking (`open_fd`).
+const darwin = builtin.os.tag.isDarwin();
+
+/// What is open at `fd`.
+fn statFd(fd: i32) FileError!std.Io.File.Stat {
+    const file: std.Io.File = .{ .handle = fd, .flags = .{ .nonblocking = false } };
+    return file.stat(rig.io()) catch |err| failure(err);
+}
+
+/// Set or clear O_NONBLOCK on `fd`: cleared, its reads wait.
+fn setNonblocking(fd: i32, on: bool) FileError!void {
     const flags = try fcntl(fd, posix.F.GETFL, 0);
     const nonblock: usize = @as(u32, @bitCast(posix.O{ .NONBLOCK = true }));
-    _ = try fcntl(fd, posix.F.SETFL, flags & ~nonblock);
+    _ = try fcntl(fd, posix.F.SETFL, if (on) flags | nonblock else flags & ~nonblock);
 }
 
 fn fcntl(fd: i32, cmd: i32, arg: usize) FileError!usize {

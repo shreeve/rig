@@ -111,6 +111,13 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **FIFO reads on macOS** (branch `fifo-pool`): `file.read` of a FIFO,
+  and a `File`'s reads of one, read without blocking and wait in a
+  poll of at most 64 ms, since a read parked in the macOS kernel can
+  miss a writer that opens and closes, writing nothing, and hang (the
+  core suite's `cli.std_file_ops` died so under load). Waits on pup's
+  `zig build test`, the Trig and loco light gates, and the owner.
+  Records: `docs/history/records/2026-11/concurrency-fifo/notes.md`.
 - **Functions that never return** (branch `noreturn-subs`): a `sub`
   whose every path ends in a `panic`, a call of such a function, or a
   `loop` no `break` leaves is emitted with Zig's result `noreturn`
