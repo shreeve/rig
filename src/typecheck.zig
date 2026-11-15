@@ -16129,7 +16129,7 @@ const Checker = struct {
             const obj = ir.Member.object(callee);
             if (!obj.isKind(.write)) return try self.badCall(args, obj, "an arm receives or sends, which changes the channel: mark it, `(!{s}).{s}(...)`", .{ self.sourceText(obj), method });
             const handle = ir.get(obj, .operand);
-            const handle_ty = try self.synthExpr(handle);
+            const handle_ty = try self.armHandle(obj);
             if (self.isPoison(handle_ty)) return try self.skipCall(args);
             const elem = sema.chanOfHandle(self.ctx, handle_ty) orelse return try self.badCall(args, handle, "`{s}` is a `{s}`, not a channel; {s}", .{ self.sourceText(handle), try self.tyName(handle_ty), shape });
             const arm_args = ir.Call.args(arm);
@@ -16241,7 +16241,7 @@ const Checker = struct {
             if (!recv and !std.mem.eql(u8, method, "on_send")) return try self.badArms(args, arm, "{s}", .{shape});
             if (!obj.isKind(.write)) return try self.badArms(args, obj, "an arm receives or sends, which changes the channel: mark it, `!{s}.{s}(...)`", .{ self.sourceText(obj), method });
             const handle = ir.get(obj, .operand);
-            const handle_ty = try self.synthExpr(handle);
+            const handle_ty = try self.armHandle(obj);
             if (self.isPoison(handle_ty)) return try self.skipArms(args);
             const elem = sema.chanOfHandle(self.ctx, handle_ty) orelse return try self.badArms(args, handle, "`{s}` is a `{s}`, not a channel; {s}", .{ self.sourceText(handle), try self.tyName(handle_ty), shape });
             if (arm_args.len != @as(usize, if (recv) 0 else 1)) {
@@ -16258,6 +16258,19 @@ const Checker = struct {
         if (saved_call) |c| try self.ctx.recordSelect(c);
         self.ctx.makes_tasks = true;
         return try self.ctx.intern(.{ .fallible = .{ .ok = try sema.selectType(self.ctx, names, payloads, pos) } });
+    }
+
+    /// The handle of a receive or send arm, `ch` of `!ch.on_recv()`, whose
+    /// `!` is checked as a marked method's self is (`synthLend`): the arm
+    /// changes its channel, so it needs a handle the task holds, and a
+    /// read view of one, however it is reached, is rejected there. The
+    /// handle's type, or poison once that is reported.
+    fn armHandle(self: *Checker, obj: Sexp) Error!TypeId {
+        const saved = self.self_obj;
+        defer self.self_obj = saved;
+        self.self_obj = obj;
+        if (self.isPoison(try self.synthExpr(obj))) return self.t().invalid_id;
+        return self.ctx.typeOf(ir.get(obj, .operand)) orelse self.t().invalid_id;
     }
 
     /// `badCall` of `task.select`: the arms' channels and values are

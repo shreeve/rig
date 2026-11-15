@@ -14186,6 +14186,24 @@ a `match` on the value runs the winner's body:
   `!t.on_end()` and `<t.on_end()` are rejected, since the arm changes
   and takes nothing.
 
+A receive or send arm changes its channel, so its `!` needs a handle
+the task holds, as `!ch.recv()` does: a read view of one changes
+nothing, however it is reached (a `?*Chan` parameter, a field of a
+`?W`, a read binding, a closure's `|?h|`).
+
+```rig reject
+use std.task
+
+sub take(ch: ?*Chan[Int])!
+  match task.select(got: !ch.on_recv())!
+    .got(v?) => print(v)
+    .got(none) => print("closed")
+```
+
+```error
+cannot lend to write through a read view `?*Chan[Int]`; take a write view, or share a handle of your own with `+h`
+```
+
 Messages name the type by its arms, `select(got, quit, late)`; a
 program never writes it. The value is an ordinary value: it is bound
 and matched later, tested with `matches`, or matched at once, and the

@@ -331,6 +331,94 @@ fail "chan select arm marked", "an arm receives or sends, which changes the chan
 
   _ = pick(*Chan[Int](1))
 
+fail "chan select receive through a read view", "6:27: cannot lend to write through a read view `?*Chan[Int]`; take a write view, or share a handle of your own with `+h`", errors: 1
+  # The compiler's types stop at the arm's `!` (the select is left
+  # untyped), so the oracle gives no verdict; its C10 is the same rule.
+  use std.task
+
+  sub take(ch: ?*Chan[Int])!
+    match task.select(got: !ch.on_recv())!
+      .got(v?) => print(v)
+      .got(none) => print("closed")
+
+  ch = *Chan[Int](1)
+  !ch.send(7)!
+  take(?ch)!
+
+fail "chan select send through a read view", "6:27: cannot lend to write through a read view `?*Chan[Int]`; take a write view, or share a handle of your own with `+h`", errors: 1
+  # The compiler's types stop at the arm's `!` (the select is left
+  # untyped), so the oracle gives no verdict; its C10 is the same rule.
+  use std.task
+
+  sub give(ch: ?*Chan[Int])!
+    match task.select(put: !ch.on_send(3))!
+      .put => print("put")
+
+  ch = *Chan[Int](1)
+  give(?ch)!
+
+fail "chan select arm through a read view however reached", "15:25: cannot lend to write through a read view", "18:25: cannot lend to write through a read view", "22:27: cannot lend to write through a read view", "26:38: cannot lend to write through a read view", "31:27: cannot lend to write through a read view", "35:27: cannot lend to write through a read view", "39:23: cannot lend to write through a read view", errors: 7
+  # A receive or send arm changes its channel, as `!ch.recv()` does: a
+  # read view of a handle changes nothing, whatever path reaches it.
+  # The compiler's types stop at the arm's `!` (the select is left
+  # untyped), so the oracle gives no verdict; its C10 is the same rule.
+  use std.task
+
+  obj W
+    ch: *Chan[Int]
+
+  enum Link
+    ch(c: *Chan[Int])
+    null
+
+  sub field(w: ?W)!
+    _ = task.select(got: !w.ch.on_recv())!
+
+  sub element(xs: ?List[*Chan[Int]])!
+    _ = task.select(put: !xs[0].on_send(1))!
+
+  sub bound(o: *Chan[Int]?)!
+    if o as c
+      _ = task.select(got: !c.on_recv())!
+
+  sub matched(l: ?Link)!
+    match l
+      .ch(:c) => _ = task.select(got: !c.on_recv())!
+      .null => pass
+
+  sub walked(chs: ?List[*Chan[Int]])!
+    for c in chs
+      _ = task.select(got: !c.on_recv())!
+
+  sub captured(ch: *Chan[Int])
+    g = |?ch|
+      _ = task.select(got: !ch.on_recv()) catch return
+    g()
+
+  sub spelled(ch: ?*Chan[Int])!
+    print(task.select((!ch).on_recv(|v| v ?? 0))!)
+
+  print(1)
+
+test "chan select end through a read view of the task", seeds: 20, '''
+  done
+  9
+'''
+  # A task arm lends its task to read, so a read view of the task serves.
+  # oracle: watch accept
+  use std.task
+
+  fun sq(x: Int) -> Int
+    x * x
+
+  sub watch(t: ?Task[Int])!
+    match task.select(done: ?t.on_end())!
+      .done => print("done")
+
+  t = sq(3)&
+  watch(?t)!
+  print(>t)
+
 test "chan made in a variant payload", seeds: 20, "7"
   # `*Chan[T](n)` made in the call that builds a variant is the
   # payload's value.

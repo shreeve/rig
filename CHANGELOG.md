@@ -76,8 +76,18 @@ a bare number, and of `per:` of `task.supervise` and
   `while`, and a ternary (`x = a + b if pair() as a, b else a` gave
   `a` two meanings). Rename the binding.
 
-**Four ownership holes are closed**, each rejecting programs 0.3.0
+**Five ownership holes are closed**, each rejecting programs 0.3.0
 accepted:
+
+- a receive or send arm of `task.select` through a read view of a
+  channel's handle, `got: !ch.on_recv()` or `put: !ch.on_send(3)` of a
+  `ch: ?*Chan[Int]` (and the older `(!ch).on_recv(f)`), which received
+  or sent through a view that promised nothing changes, is rejected, as
+  `!ch.recv()` there was: "cannot lend to write through a read view
+  `?*Chan[Int]`; take a write view, or share a handle of your own with
+  `+h`". So is one through a field of a `?W`, an element of a
+  `?List[*Chan[T]]`, a read binding, or a `|?h|` capture. Pass a
+  handle of your own, `+ch`. Neither Trig nor std has a select arm;
 
 - a write view of a read view, `x` of `for x in !vv` over a
   `List[?T]`, reaches its value only to read it: `for n in !x.ns`,

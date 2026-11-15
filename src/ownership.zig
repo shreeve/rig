@@ -5742,8 +5742,12 @@ pub const Checker = struct {
         }
         // Every handle to a Cell or Signal reaches what it holds, so what
         // goes in (`Cell(v)`, `set`, `swap`, `subscribe`) may
-        // not hold a view.
-        const into = if (callee.isKind(.member) and !self.namesType(callee))
+        // not hold a view. An arm of `task.select` hands its function to
+        // the select, and what a send arm sends is of the channel's type,
+        // which holds no view.
+        const into = if (self.sema.selectArmOf(node) != null)
+            null
+        else if (callee.isKind(.member) and !self.namesType(callee))
             self.builtinName(self.exprType(ir.Member.object(callee)))
         else if (self.namesType(callee)) self.builtinName(self.exprType(node)) else null;
         const cell: ?[]const u8 = if (into != null and !std.mem.eql(u8, into.?, "List")) into else null;

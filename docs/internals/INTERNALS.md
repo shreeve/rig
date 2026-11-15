@@ -6399,7 +6399,8 @@ its `!` lends nothing, and as a task it keeps none of the handle (SPEC
 its channel or task, what it sends, and its function's captures, read
 by the select, so each stays lent and taken until the select returns
 (SPEC "Channels"); the select commits one arm alone, which changes its
-channel there. Where a `$plain(T)` operand of a
+channel there, so a receive or send arm whose channel is seen through
+a read view is C10 (Core s4: `?` changes nothing). Where a `$plain(T)` operand of a
 condition's `and` chain has held, in the operands after it, the code
 the condition guards, and the closures made there, `T` is plain data
 (`Kinds.narrowed`), so a copy there asks nothing of an owner's instance

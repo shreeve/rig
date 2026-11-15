@@ -410,7 +410,7 @@ decides (also where the compiler's semantic checks stop first):
 ```
 
 The word after the function is `accept`, or `reject` with the rule
-the oracle names (C1–C9, B1–B4, T1, an API object given to a task
+the oracle names (C1–C10, B1–B4, T1, an API object given to a task
 without the crossing bound its form needs, and T2, a task lent to write
 moved from where it is bound). A different verdict, or none, fails
 the set. These lines are

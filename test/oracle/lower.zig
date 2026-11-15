@@ -3847,6 +3847,11 @@ const Lowerer = struct {
                         // (SPEC §7), plain data included.
                         var r: ?VarId = null;
                         if (try self.place(robj)) |p| {
+                            // An arm that receives or sends changes its
+                            // channel: one seen through a read view
+                            // changes nothing (Core s4).
+                            if (arm_call == .write and (p.via == .read or (try self.kinds.of(p.ty)).kind == .read_view))
+                                return self.found(.C10, self.posOf(robj), "`{s}` changes its channel, and `{s}` is seen through a read view, which changes nothing: an arm that receives or sends needs a handle the task holds", .{ leafText(ir.Member.name(callee), self.src), self.textOf(robj) });
                             r = try self.lend(p, .read, robj, p.ty);
                             if (elem_method) elem_from = p.root;
                             recv_held = p.root;
@@ -4810,7 +4815,10 @@ const Lowerer = struct {
     /// changes its channel there, so until then each arm only holds the
     /// handle or task it names: it lends that place to read. The arm
     /// carries what it was lent and given, so each stays lent and taken
-    /// until the select, which reads its arms, returns. An arm of the
+    /// until the select, which reads its arms, returns. A receive or send
+    /// arm's mode is `.write`: the change it commits needs a handle the
+    /// task holds, so one seen through a read view is C10 where the call
+    /// lowers its self. An arm of the
     /// older spelling also takes the function the select calls with what
     /// it received, lent to it. Null for any other method.
     fn selectArm(self: *Lowerer, call_node: Sexp, recv_ty: TypeId, mname: []const u8) Error!?struct { sema.SelfMode, ?MethodParams } {
