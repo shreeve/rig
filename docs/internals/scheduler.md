@@ -168,9 +168,15 @@ worker after.
   another and goes on running either stops soon, as one that sends and
   waits for the answer does, or reaches a yield check, loop or
   recursive, which hands the woken task on (`sched.waiting`). So two
-  tasks that answer each other, over a socket or a channel, stay on one
-  worker with no system call to wake another; a chain of tasks each made
-  and waited for at once runs by handoff on its maker's worker; and
+  tasks that answer each other, over a socket or a channel, and wait as
+  soon as they send, stay on one worker with no system call to wake
+  another. Over a socket the worker that sees the answer runs the side
+  it wakes, and another worker's look at the poller, the watcher's or
+  one going to sleep, may see it first and take that side; two tasks
+  that compute after they send can stay on two workers, each finding
+  its answer on its own, as a slow debug build's do. A chain of tasks
+  each made and waited for at once runs by handoff on its maker's
+  worker; and
   fork-join (`t = f()&; g(); >t`) spreads at `g`'s first yield check,
   which wakes an idle worker for `f` and lets `g` run on, as Go's `go`
   leaves its maker running. A build preempted by signal has no yield
