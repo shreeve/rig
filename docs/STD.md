@@ -536,8 +536,13 @@ when `io.stdout().is_terminal()`.
 read waits until something opens it to write; with `wait: false` it
 returns at once, as `sync` and `tail --pid` need, and a read with no
 writer gives the end of the file, 0 bytes. The File waits on its reads
-as any File does: std never leaves one nonblocking, since its reads run
-on the blocking pool and concurrency comes from tasks.
+as any File does, on the blocking pool, since concurrency comes from
+tasks. On macOS a FIFO's descriptor is left nonblocking, whether the
+open waited or not, and a read that finds no bytes waits in a poll of
+at most 64 ms and reads again: a read parked in the kernel there can
+miss a writer that opens the FIFO and closes it, writing nothing, and
+wait for good, and its poll never reports the writers gone. A whole
+read (`file.read`) of a FIFO waits the same way.
 
 ```rig
 use std.file

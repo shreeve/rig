@@ -590,6 +590,21 @@ it where the negation was meant. Trig has no such site.
 
 ### Runtime
 
+- **A FIFO's reader on macOS sees its writer leave:** `file.read` of a
+  FIFO, and a `File`'s reads of one, read without blocking and wait for
+  bytes in a poll of at most 64 ms (`rig.net.FifoWait`). A read parked
+  in the macOS kernel can miss a writer that opens the FIFO and closes
+  it, writing nothing, as the read begins, and wait for good, and
+  macOS's poll and kqueue never report the writers gone: plain `cat`
+  hangs so in 1 of 300 such rounds on a loaded Mac, and eight readers
+  of 500 rounds each hung in 7 of 8 runs, where none now does. The end
+  such a writer leaves comes at the next poll, so a FIFO's reader waits
+  up to 64 ms longer for it.
+- **A `File`'s read of a nonblocking descriptor waits:** on every
+  system, a read that finds no bytes on a descriptor that does not
+  block, such as a stdin a parent left O_NONBLOCK, waits for them in a
+  poll (bounded on macOS, as above) and reads again, as a blocking read
+  would, where it failed with `FileError.failed`.
 - **A span takes its 4 KiB units and no more:** a large block under
   16 MiB is a run of 4 KiB units of a span segment, its length rounded
   up to whole units, where it was rounded to four buckets a doubling

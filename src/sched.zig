@@ -42,8 +42,6 @@ comptime {
         timers,
         watcher,
         registered,
-        test_pause,
-        test_wakes,
         kicking,
         retire_after,
         pool,
@@ -2386,9 +2384,9 @@ pub const Pause = struct {
     go: std.atomic.Value(bool) = .init(false),
 };
 
-/// The pause the next `pausePoint` holds, set by a test.
-var test_pause_var: std.atomic.Value(?*Pause) = .init(null);
-pub const test_pause = split.cell(&test_pause_var, "sched.test_pause");
+/// The pause the next `pausePoint` holds, set by a test. Test only, so
+/// never in a split build, and a plain variable rather than a cell.
+var test_pause: std.atomic.Value(?*Pause) = .init(null);
 
 /// In a test that set `test_pause`, hold here until it lets go: between
 /// a waiting point's last look at its cancel flag and the wait it begins.
@@ -2411,9 +2409,9 @@ pub const WakeCount = struct {
     quiet: std.atomic.Value(u32) = .init(0),
 };
 
-/// The count the wakes of its fibers go to, set by a test.
-var test_wakes_var: std.atomic.Value(?*WakeCount) = .init(null);
-pub const test_wakes = split.cell(&test_wakes_var, "sched.test_wakes");
+/// The count the wakes of its fibers go to, set by a test. Test only, so
+/// never in a split build, and a plain variable rather than a cell.
+var test_wakes: std.atomic.Value(?*WakeCount) = .init(null);
 
 /// Test only: whether this thread is in a wake `test_wakes` counts, and
 /// whether it has kicked a poller in it (`Poller.kick`). Never compiled

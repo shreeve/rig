@@ -561,10 +561,13 @@ pub fn fileReadInto(fd: i64, into: *rig.String, want: usize) (rig.Stop || FileEr
 }
 
 /// Read up to `want` bytes of `fd` onto the end of `buf`, into the room
-/// it has for them: once any come, or none at the end of the file.
+/// it has for them: once any come, or none at the end of the file. A
+/// descriptor that does not block, as a FIFO's does on macOS
+/// (`FifoWait`), waits for them in `poll`.
 fn readOnto(fd: i32, buf: *rig.String, want: usize) (rig.Stop || FileError)!void {
     try rig.checkStop();
     const l = &buf.list;
+    var w: FifoWait = .{};
     while (true) {
         const rc = sys.read(fd, l.items.ptr + l.items.len, want);
         switch (posix.errno(rc)) {
@@ -573,10 +576,50 @@ fn readOnto(fd: i32, buf: *rig.String, want: usize) (rig.Stop || FileError)!void
                 return;
             },
             .INTR => try rig.checkStop(),
+            .AGAIN => _ = try w.wait(fd),
             else => |e| return fileFailure(e),
         }
     }
 }
+
+/// A wait on the blocking pool for a FIFO's bytes, or for the end its
+/// writers leave. Linux's `poll` reports both (POLLIN, POLLHUP).
+/// macOS's reports the bytes but never the writers' leaving, and a read
+/// parked in the kernel can miss it too: a writer that opens the FIFO
+/// and closes it, writing nothing, as its reader enters the read leaves
+/// that read waiting for good, though the next read gives the end. So
+/// on macOS a FIFO's descriptor does not block (`file.open`, and
+/// std.file's whole reads), and each wait polls for at most `ms`, from
+/// 1 ms, doubling to 64 ms while nothing comes, before the read is made
+/// again.
+pub const FifoWait = struct {
+    ms: i32 = first,
+
+    const first: i32 = if (darwin) 1 else -1;
+    const most: i32 = 64;
+
+    /// Wait until `fd` has bytes to read, its writers are gone, or `ms`
+    /// has passed; whether the poll reported the writers gone (POLLHUP).
+    pub fn wait(w: *FifoWait, fd: i32) (rig.Stop || FileError)!bool {
+        var fds = [1]posix.pollfd{.{ .fd = fd, .events = posix.POLL.IN, .revents = 0 }};
+        while (true) {
+            try rig.checkStop();
+            const rc = sys.poll(&fds, fds.len, w.ms);
+            switch (posix.errno(rc)) {
+                .SUCCESS => {
+                    if (rc > 0) {
+                        w.ms = first;
+                        return fds[0].revents & posix.POLL.HUP != 0;
+                    }
+                    w.ms = @min(w.ms * 2, most);
+                    return false;
+                },
+                .INTR => {},
+                else => |e| return fileFailure(e),
+            }
+        }
+    }
+};
 
 /// A write to stdout through `print`'s buffer, or to stderr after it
 /// (`rig.writeStandard`): on the task's own thread, as `print` writes,
