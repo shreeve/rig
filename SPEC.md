@@ -3351,8 +3351,9 @@ holds the value. A type argument may be a read view, of an owner too
 (`same(?v)` is `same[?List[Int]]`): the result holds what `?v` lent, so
 `v` stays lent while the result is used. It cannot be a write view,
 which is never stored in a value ([Write views](#write-views)), and a
-body that stores its `T` in a Cell, a Signal, or an owned closure cannot
-be instantiated with a view, since those carry no loan; write `?T`
+body that stores its `T` in a Cell, a Signal, a channel, an actor's
+value, or an owned closure cannot be instantiated with a view, since
+those carry no loan; write `?T`
 in the signature to take a view that is only read. In an instance a `T`
 may hold a view, so the check of a body against its signature counts a
 parameter whose loans reach a value of a type that holds a type
@@ -14020,8 +14021,9 @@ An actor holds a value that many tasks change, one method at a time.
 `*Actor(x)` moves `x` into it and gives a `*Actor[T]`, a shared handle
 to it; `*Actor(x, mailbox: n)` sets how many calls made with `&` it
 holds at once, 64 by default. `x` is an object or enum, whose fields
-move and hold no view: nothing in its declaration changes. `Actor(x)`
-stands only as the operand of `*`.
+move and hold no view: nothing in its declaration changes, and at each
+instance of a generic body that makes one, `x` holds none either.
+`Actor(x)` stands only as the operand of `*`.
 
 The handle is counted atomically, so it crosses to other tasks: `+a`
 makes another, for a holder of its own; a read view `?a` lends one; and
@@ -14145,7 +14147,8 @@ sub main()
 `*Chan[T](n)` is a bounded channel of `n` slots (at least one), behind
 a shared handle counted atomically, as a Cell of one word is: its
 handles go to other tasks when `T` moves, and what it carries holds no
-view. `Chan[T](n)` stands only as the operand of `*`.
+view, at each instance of a generic body that makes one too.
+`Chan[T](n)` stands only as the operand of `*`.
 
 - `!ch.send(<v)!` waits for room and sends `v`.
 - `!ch.recv()!` waits for a value and gives it as `T?`; once the

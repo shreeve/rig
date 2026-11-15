@@ -482,7 +482,7 @@ fail "apis object shared an owned closure's capture", "an owned closure holds no
   f = *|<s| s.size()
   print(f())
 
-fail "apis object a generic body's owned closure names the object", "`stash[^{Shape}]` cannot use `T = ^{Shape}`: the generic body stores a `T` in a Cell, a Signal, or an owned closure, which carries no loan, and a `^{Shape}` may hold one: write `^{Shape + Owned}`", errors: 1
+fail "apis object a generic body's owned closure names the object", "`stash[^{Shape}]` cannot use `T = ^{Shape}`: the generic body stores a `T` in a Cell, a Signal, a channel, an actor's value, or an owned closure, which carries no loan, and a `^{Shape}` may hold one: write `^{Shape + Owned}`", errors: 1
   # Why an object may hold a loan is one reason with its fix
   # (`sema.objectLoanReason`): an instance gives it as an owned closure's
   # capture does.

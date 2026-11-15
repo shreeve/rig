@@ -405,6 +405,26 @@ fail "actor read view changes", "cannot lend to write through a read view `?*Act
   r = ?c
   !r.bump()
 
+fail "actor made in a generic holds no view", "16:5: `mk[?String]` cannot use `T = ?String`: the generic body stores a `T` in a Cell, a Signal, a channel, an actor's value, or an owned closure", "17:5: `again[?String]` cannot use `T = ?String`", errors: 2
+  # An actor's value holds no view, wherever the actor is made: in a
+  # generic body, each instance's `T` holds none.
+  obj Box[T]
+    v: T
+
+    fun get(?@) -> Int
+      1
+
+  fun mk[T](v: T) -> *Actor[Box[T]]
+    *Actor(Box(v: v))
+
+  fun again[T]() -> *Actor[Box[T?]]
+    *Actor.supervised(*|| Box[T?](v: none))
+
+  s = String("text on the heap")
+  a = mk[?String](?s)
+  b = again[?String]()
+  print(a.get(), b.get())
+
 fail "actor fields", "an actor's fields are its own: reach `n` through a method of `C`"
   obj C
     n: Int
