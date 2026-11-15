@@ -4768,7 +4768,7 @@ const Lowerer = struct {
                 if (sema.actorValue(self.ctx, inner)) |held| {
                     const d = sema.nominalDecl(self.ctx, held) orelse return abstain("an actor of an unusual type");
                     const m = try self.methodOf(d, mname) orelse return abstain("an actor's method not found");
-                    if (m[0] == .value) return abstain("a method that takes its self, through an actor's handle");
+                    if (m[0] == .value) return abstain("a method that consumes its self, through an actor's handle");
                     return m;
                 }
             },
