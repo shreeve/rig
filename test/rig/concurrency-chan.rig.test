@@ -460,6 +460,47 @@ fail "chan through a read slice", "6:25: cannot lend to write through a slice; a
 
   print(1)
 
+test "chan select arm on a temporary handle", seeds: 20, '''
+  put
+  4
+  5
+'''
+  # An arm's handle made in the arm is a temporary its statement drops:
+  # the channel goes with it, and nothing leaks.
+  use std.task
+
+  fun make() -> *Chan[Int]
+    *Chan[Int](1)
+
+  fun full() -> *Chan[Int]!
+    ch = *Chan[Int](1)
+    !ch.send(5)!
+    ch
+
+  ch = *Chan[Int](1)
+  match task.select(got: !make().on_recv(), put: !(+ch).on_send(4))!
+    .got => print("got")
+    .put => print("put")
+  print((!ch).recv()! ?? -1)
+  print(task.select((!full()!).on_recv(|v| v ?? 0))!)
+
+test "chan select arm on a branch", seeds: 20, '''
+  7
+  2
+'''
+  # An arm's handle may be a branch of handles, in both spellings.
+  use std.task
+
+  a = *Chan[Int](1)
+  b = *Chan[Int](1)
+  !b.send(7)!
+  k = true
+  match task.select(got: !(a if not k else b).on_recv())!
+    .got(v?) => print(v)
+    .got(none) => print("closed")
+  !b.send(2)!
+  print(task.select((!(a if not k else b)).on_recv(|v| v ?? 0))!)
+
 test "chan select end through a read view of the task", seeds: 20, '''
   done
   9
