@@ -16,6 +16,7 @@ const diag = @import("diag.zig");
 const emit = @import("emit.zig");
 const symbols = @import("symbols.zig");
 const inlining = @import("inlining.zig");
+const returns = @import("returns.zig");
 const units = @import("units.zig");
 const bolt = @import("bolt.zig");
 const pgo = @import("pgo.zig");
@@ -942,6 +943,7 @@ fn loadChecked(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
             try storage.decideExactEnums(ctxs);
         }
         try inlining.decide(allocator, &graph, inlining.max_size);
+        try returns.decide(allocator, &graph);
         timing.stop(times, .inlining, t1);
         try graph.markTextTables();
     }

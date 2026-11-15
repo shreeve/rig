@@ -4470,6 +4470,10 @@ pub const SemContext = struct {
     /// The functions and methods Zig inlines at every call, by where
     /// their names are declared (`inlining.decide`).
     inlined: FastMap(u32, void) = .empty,
+    /// The functions and methods that never return, by where their names
+    /// are declared: Zig's result for each is `noreturn`
+    /// (`returns.decide`).
+    never_returns: FastMap(u32, void) = .empty,
     /// In a split build, the unit that owns each function and method it
     /// cuts, by where their names are declared (`units.decide`).
     split_units: FastMap(u32, u16) = .empty,
@@ -4706,6 +4710,7 @@ pub const SemContext = struct {
         self.used.deinit(self.allocator);
         self.discards.deinit(self.allocator);
         self.inlined.deinit(self.allocator);
+        self.never_returns.deinit(self.allocator);
         self.split_units.deinit(self.allocator);
         self.entry_checks.deinit(self.allocator);
         self.frame_sizes.deinit(self.allocator);

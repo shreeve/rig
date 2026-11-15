@@ -85,6 +85,34 @@ build_in b build --units=2 -o prog main.rig || fail "rig build --units=2"
 out=$(./prog 2>&1)
 expect_eq "$out" "$(cat one.txt)" "rig build --units=2"
 
+# A function that never returns (Zig's `noreturn`) is cut by no unit: each
+# compiles it, and a call of it from another module's unit is direct.
+mkdir -p never && cat >never/stop.rig <<'EOF'
+pub called sub fail(msg: ?String)
+  print("!! stop", msg)
+  panic(msg)
+
+pub called sub check(ok: Bool, msg: ?String)
+  fail(msg) if not ok
+EOF
+cat >never/main.rig <<'EOF'
+use stop
+
+called sub die(n: Int)
+  print("dying", n)
+  stop.fail("died")
+
+sub main()
+  n = 2
+  stop.check(true, "fine")
+  die(n) if n > 5
+  stop.check(false, "stopped")
+EOF
+build_in never run --units=2 never/main.rig >never.txt 2>&1 && fail "rig run --units=2 of a program that stops ended clean"
+grep -q "fn fail(msg: \[\]const u8) noreturn" "$RIG_OUT_DIR"/programs/units-never/stop.zig || fail "--units=2: fail is not noreturn"
+expect_has "$(cat never.txt)" "!! stop stopped" "a call of a function that never returns, across units"
+expect_has "$(cat never.txt)" "panic: stopped" "a call of a function that never returns, across units"
+
 rig check --units=2 main.rig 2>err.txt && fail "rig check --units=2 succeeded"
 expect_has "$(cat err.txt)" "\`--units\` applies to build, run, and test" "rig check --units"
 rig run --units=0 main.rig 2>err.txt && fail "--units=0 succeeded"

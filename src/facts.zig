@@ -276,6 +276,11 @@ pub const Facts = struct {
     pub fn isInlined(f: Facts, name: Sexp) bool {
         return f.c().inlined.contains(f.c().startOf(name));
     }
+    /// Whether the function or method whose name leaf is `name` never
+    /// returns, which Zig's result `noreturn` says (`returns.decide`).
+    pub fn neverReturns(f: Facts, name: Sexp) bool {
+        return f.c().never_returns.contains(f.c().startOf(name));
+    }
     /// In a split build, the unit that owns the function or method whose
     /// name leaf is `name`, when it is cut (`units.decide`).
     pub fn splitUnitOf(f: Facts, name: Sexp) ?u16 {

@@ -2001,7 +2001,7 @@ pub const Emitter = struct {
             // `anyerror!void`, `anyerror!i64`: whether or not `-> Int!` says so.
             try self.w.writeAll("anyerror!");
             try self.emitTypeTy(if (main_status) self.facts.types.int_id else self.facts.types.void_id);
-        } else if (return_ty) |r| try self.emitTypeTy(r) else try self.w.writeAll("void");
+        } else if (return_ty) |r| try self.emitTypeTy(r) else try self.w.writeAll(if (self.facts.neverReturns(name_node)) "noreturn" else "void");
         try self.w.writeAll(" ");
         // A `sub` yields no value, even one that may fail (`Void!`).
         if (return_ty != null and !f.is_sub) try self.emitValueBody(body) else try self.emitBlock(body);

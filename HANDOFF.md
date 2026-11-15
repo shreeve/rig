@@ -111,6 +111,13 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **Functions that never return** (branch `noreturn-subs`): a `sub`
+  whose every path ends in a `panic`, a call of such a function, or a
+  `loop` no `break` leaves is emitted with Zig's result `noreturn`
+  (`src/returns.zig`), for Trig's shared `debug.fail`, whose `void`
+  result cost its parse phase 1.2%. No program's meaning changes. Waits
+  on the Trig and loco light gates and the owner. Design:
+  `docs/history/records/2026-11/never-returns/design.md`.
 - **Allocator rounding** (branch `alloc-rounding`): a span takes its
   4 KiB units and no more, where its length was rounded to four buckets
   a doubling and 16 KiB units; Trig's peak memory on the Mac is 15 MiB

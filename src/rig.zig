@@ -79,8 +79,9 @@ fn endsInPanic(s: Sexp) bool {
 }
 
 /// Whether `e` holds a `return`, or a `!` or `?` that passes a failure
-/// or a `none` on, outside the closures in it.
-fn holdsExit(e: Sexp) bool {
+/// or a `none` on, outside the closures in it (`alwaysPanics`,
+/// `returns.decide`).
+pub fn holdsExit(e: Sexp) bool {
     if (e != .list) return false;
     if (e.kind()) |h| switch (h) {
         .lambda => return false,
