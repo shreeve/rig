@@ -48,7 +48,8 @@
 //! a heap that does much of the program's work, one that has taken from
 //! the system most of what every heap has or more than one segment's
 //! worth, faults in at once the memory it is about to fill (`prefault`).
-//! Every new segment, every span segment, and every new large block of
+//! Every new segment past a heap's first (`segmentAsks`), every
+//! span segment, and every new large block of
 //! 2 MiB or more mapped on its own asks for huge pages, each while the
 //! system has free 2 MiB blocks for it and a few more (`hugeFreeFor`),
 //! counted on the node of the thread that asks (`freeHugeBlocks`): on
@@ -215,6 +216,33 @@ threadlocal var prefaults_for_test: usize = 0;
 /// Test only: the calls this thread has made to map a large block, to
 /// unmap one or a piece of one, and to move one as it grows.
 threadlocal var calls_for_test: struct { mmap: usize = 0, munmap: usize = 0, mremap: usize = 0 } = .{};
+
+/// What a heap takes from the system before its segments ask for huge
+/// pages (`segmentAsks`): its first segment.
+const huge_segments_from: usize = segment_size;
+
+/// Whether the next segment of `h` asks for huge pages: its heap has
+/// taken `huge_segments_from` bytes or more, so it is its second segment
+/// or later, or the heap has mapped as much in spans and large blocks.
+/// A TLB entry then covers 2 MiB of its blocks, and a fault fills 2 MiB.
+/// A heap's first segment keeps small pages: it holds the first page of
+/// most of its classes, 64 KiB each, of which a small program writes a
+/// block or two, so a huge page there zeroes 2 MiB for a few KiB used.
+/// With 72 classes, the first pages reach past the first segment's two
+/// huge pages into a third, and Trig's checkers on its small projects
+/// (pup, 4 checkers, 10 to 14 ms runs) held about 11 MB more and spent
+/// a fifth more kernel cycles than with 44. On a program of five
+/// threads that take a block or two of every class and 0 to 8 MiB of
+/// one (pup, `madvise`), a first segment of small pages holds 16 MB
+/// less and takes 13 to 26% fewer kernel cycles than one of huge pages;
+/// keeping the first two small holds no less once a heap writes 2 MiB,
+/// and takes up to 15% more kernel cycles, its pages faulting one by
+/// one (docs/history/records/2026-11/alloc-keep/). A server's worker,
+/// which keeps to one segment, no longer pays 2 MiB it never wrote.
+/// Under `always` every segment gets huge pages unasked (`adviceFor`).
+fn segmentAsks(h: *const Heap) bool {
+    return h.taken >= huge_segments_from;
+}
 
 /// Whether `h` faults in ahead: it leads the heaps (`leads`), or it has
 /// taken from the system `prefault_big` bytes or more, more than its
@@ -486,13 +514,11 @@ pub const Heap = struct {
             return p;
         };
         const s = mapSegment() orelse return null;
+        // A segment asks for huge pages once its heap has filled
+        // `huge_segments_from` (`segmentAsks`).
+        const asks = segmentAsks(h);
         h.took(segment_size);
-        // Every segment asks for huge pages, a heap's first as its
-        // later ones: a TLB entry then covers 2 MiB of its blocks, and a
-        // fault fills 2 MiB, which costs a heap that keeps to one
-        // segment, as a server's worker's, up to 2 MiB it has not
-        // written.
-        const huge = builtin.os.tag == .linux and ask(@intFromPtr(s), segment_size, .huge);
+        const huge = builtin.os.tag == .linux and (asks or thpMode().by_default) and ask(@intFromPtr(s), segment_size, .huge);
         // The header's page, of a segment of small pages: with the
         // segment's first window, or alone, each page then faulting in
         // as its class takes it (`faultFresh`).
@@ -3437,6 +3463,30 @@ test "tables grown past `keep_large` in all, dropped, and built again take no ne
     trimAllForTest(&h);
 }
 
+test "a heap's first segment keeps small pages, and those it takes after ask for huge ones" {
+    var h = testHeap();
+    try std.testing.expect(!segmentAsks(&h));
+    h.took(segment_size - 1);
+    try std.testing.expect(!segmentAsks(&h));
+    h.took(1);
+    try std.testing.expect(segmentAsks(&h));
+    _ = taken_all.fetchSub(segment_size, .monotonic);
+    // On Linux, under `madvise`, a fresh heap's first segment asks for
+    // nothing, and its second asks while 2 MiB blocks are free for it.
+    if (builtin.os.tag != .linux) return;
+    useBuddyinfoForTest(buddyinfo_plenty);
+    defer useBuddyinfoForTest(null);
+    var fresh = testHeap();
+    const p = fresh.newPage(0).?;
+    try std.testing.expect(!try advisedHugeForTest(p));
+    try std.testing.expect(!segmentOf(@ptrFromInt(p)).huge);
+    var busy = testHeap();
+    busy.taken = huge_segments_from;
+    const q = busy.newPage(0).?;
+    try std.testing.expect(try advisedHugeForTest(q));
+    try std.testing.expect(segmentOf(@ptrFromInt(q)).huge);
+}
+
 test "a kept large block stays resident while it is used again, and cools once its heap has taken as many new bytes as it holds" {
     var h = testHeap();
     h.taken = prefault_big;
@@ -3815,7 +3865,7 @@ test "on Linux a free span whose pages went back to the system holds one page, a
     trimAllForTest(&h);
 }
 
-test "on Linux a new segment is aligned for huge pages and asks for them while 2 MiB blocks are free, of a heap that faults in ahead or not" {
+test "on Linux a new segment past its heap's first is aligned for huge pages and asks for them while 2 MiB blocks are free, of a heap that faults in ahead or not" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     useBuddyinfoForTest(buddyinfo_plenty);
     defer useBuddyinfoForTest(null);
@@ -3830,10 +3880,16 @@ test "on Linux a new segment is aligned for huge pages and asks for them while 2
     try std.testing.expectEqual(@as(usize, 0), s % huge_page);
     try std.testing.expect(try advisedHugeForTest(s));
     try std.testing.expect(try advisedHugeForTest(s + segment_size - 1));
+    // A heap that does not fault in ahead: its first segment asks for
+    // nothing, and its second asks.
     var small = testHeap();
     const q = small.newPage(0).?;
     try std.testing.expect(!faultsAhead(&small));
-    try std.testing.expect(try advisedHugeForTest(q));
+    try std.testing.expect(!try advisedHugeForTest(q));
+    small.segment.?.used = pages_per_segment;
+    small.taken = huge_segments_from;
+    const r = small.newPage(0).?;
+    try std.testing.expect(try advisedHugeForTest(r));
 }
 
 test "Lists of large blocks under 16 MiB, taken, grown by doubling, and freed, three times over, make no mmap, munmap, or mremap" {
