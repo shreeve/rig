@@ -5096,3 +5096,12 @@ test/reject/templates/template_argument_read_and_lent_to_write_later.rig main
 test/reject/templates/template_slot_of_the_String_it_adds_to.rig main
 doc/SPEC/6b7baa342ab6 main
 test/reject/concurrency/par_push_reads_the_table.rig main
+test/reject/concurrency/actor_task_keeps_argument_loans.rig main
+test/reject/concurrency/chan_select_arm_views_what_another_arm_moves.rig main
+test/reject/concurrency/chan_select_arms_lend_to_write.rig main
+test/reject/concurrency/chan_select_named_sends_what_it_moves.rig main
+test/reject/concurrency/chan_select_named_in_a_block_a_view_escapes.rig main
+test/reject/concurrency/chan_select_end_lends_the_task.rig main
+test/reject/concurrency/task_write_loan_read.rig main
+test/reject/concurrency/task_dropped_where_its_scope_ends_keeps_its_loans.rig main
+test/reject/concurrency/task_error_moved_out_of_its_catch.rig main

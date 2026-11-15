@@ -433,7 +433,30 @@ fail "actor write view argument", "a method an actor runs takes no write view: `
   zs = List[Int]()
   c.fill(!zs)
 
+test "actor marked call while a task reads the handle", seeds: 20, "true 1"
+  # A method called through a handle is a message: its `!` lends
+  # nothing, so a task may read the handle meanwhile (SPEC "Actors").
+  # oracle: reader accept
+  # oracle: main accept
+  obj Log
+    lines: List[String]
+
+    sub add(!@, s: String)
+      !@lines.push(<s)
+
+    fun count(?@) -> Int
+      @lines.len
+
+  fun reader(h: ?*Actor[Log]) -> Int
+    h.count()
+
+  a = *Actor(Log(lines: List[String]()))
+  t = reader(?a)&
+  !a.add(String("one"))
+  print(>t <= 1, a.count())
+
 fail "actor task keeps argument loans", "cannot lend `ys` to write while a read loan is live"
+  # oracle: main reject C4
   obj C
     n: Int
 

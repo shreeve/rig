@@ -44,7 +44,9 @@ pub const Rule = enum {
     /// function that writes it.
     B4,
     /// s9: an owned closure, a Cell, or a Signal holds no value that
-    /// carries a loan.
+    /// carries a loan; nor does an actor's value or a channel, and none
+    /// of them holds a task, which may always carry one
+    /// (docs/design/concurrency.md, "Loans and structure", rule 3).
     C8,
     /// §5: a value never holds a view of itself: what is stored in a
     /// var carries no loan on that var, but the lends it goes in by.
@@ -52,6 +54,10 @@ pub const Rule = enum {
     /// §4: an API object goes to a task only by the crossing bound its
     /// braces or API name, as its form's row says (`kinds.objectCrosses`).
     T1,
+    /// SPEC §18, "Loans": a task lent to write keeps its write loan while
+    /// it runs, and no value holds a write view (§5), so it is bound to a
+    /// local where it is made and waited for there: nothing else moves it.
+    T2,
 };
 
 pub const Finding = struct {
@@ -84,6 +90,15 @@ pub const Var = struct {
     /// A binding that sees an owner's payload through a view (`match s`,
     /// `if ?o as x`): it reads and lends what it sees, never moves it.
     alias: bool = false,
+    /// A task (`Task[T]`), whose write loans keep it where it is bound
+    /// (T2).
+    task: bool = false,
+    /// Values hold a task or a set of tasks, which may always carry a
+    /// loan, so no shared home takes one (C8).
+    holds_task: bool = false,
+    /// A temporary that holds a task only for its wait or cancel, which
+    /// takes it (`>t`, `<t.cancel()`).
+    waits: bool = false,
     pos: u32,
 };
 
@@ -245,6 +260,12 @@ pub const Op = struct {
     /// its root, which the call's own lend of it is not stored in.
     recv_view: ?VarId = null,
     recv_root: ?VarId = null,
+    /// A task's call (`f(!x)&`): the task keeps what its call was lent
+    /// to write as a write loan until it is waited for (SPEC §18).
+    task_writes: bool = false,
+    /// Binds the task a task's call made, where it is made (`t = f(!x)&`):
+    /// the one move a task lent to write takes but its wait (T2).
+    binds_task: bool = false,
 
     pub const What = enum { copy, move, take, lend, make, call, assign, use, kill, ret };
 };
