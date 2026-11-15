@@ -13739,7 +13739,8 @@ stays on that thread from then on, so no count they share changes on two
 cores at once. Such tasks take turns on one core, at their waits and
 yield checks; the code reads the same as for any task, and the compiler
 picks which a task is. So a GUI program's `*T`, `Cell`, and `Signal`
-code can use `&`. `rig check --tasks` lists each local task, with the
+code can use `&`. A method task through such a handle, `(!h).bump()&`
+of a `*Hits`, is local the same way, and keeps `h` lent until it ends. `rig check --tasks` lists each local task, with the
 argument that pins it and the type in that argument that stays on one
 thread:
 

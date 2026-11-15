@@ -84,6 +84,223 @@ test "task methods", seeds: 20, '''
   v = (<c).into()&
   print(>v)
 
+test "task methods through a handle", seeds: 20, '''
+  1
+  1
+  2
+  2
+  5
+'''
+  # A method task through a shared handle reaches the method through the
+  # handle as a plain call does: `(!h).bump()&` lends the shared value to
+  # write, `?h.peek()&` to read. An actor's method task is the contrast:
+  # the call goes to the actor's own task.
+  obj Hits
+    n: Cell[Int]
+
+    fun bump(!@) -> Int
+      !@n.add(1)
+
+    fun peek(?@) -> Int
+      @n.get()
+
+  obj Ctr
+    n: Int
+
+    fun add(!@, k: Int) -> Int
+      @n += k
+      @n
+
+  h = *Hits(n: Cell(0))
+  t = (!h).bump()&
+  print(>t)
+  u = ?h.peek()&
+  print(>u)
+  print((!h).bump())
+  print(?h.peek())
+  c = *Actor(Ctr(n: 0))
+  a = (!c).add(5)&
+  print(>a)
+
+test "task methods through a handle in a field, an element, and a view", seeds: 20, '''
+  1
+  1
+  2
+  4
+  5
+  5
+'''
+  # The handle is reached where it is: in an object's field, in an
+  # element, or through a view of it, a parameter's or a local's.
+  obj Hits
+    n: Cell[Int]
+
+    fun bump(!@) -> Int
+      !@n.add(1)
+
+    fun add(!@, k: Int) -> Int
+      !@n.add(k)
+
+    fun peek(?@) -> Int
+      @n.get()
+
+  obj Holder
+    hits: *Hits
+
+  fun twice(h: !*Hits) -> Int
+    t = (!h).bump()&
+    _ = >t
+    u = ?h.peek()&
+    >u
+
+  o = Holder(hits: *Hits(n: Cell(0)))
+  t = (!o.hits).bump()&
+  print(>t)
+  u = ?o.hits.peek()&
+  print(>u)
+  print(twice(!o.hits))
+  hs = [+o.hits, +o.hits]
+  v = (!hs[1]).add(2)&
+  print(>v)
+  w = !o.hits
+  x = (!w).bump()&
+  print(>x)
+  print(o.hits.n.get())
+
+test "task methods through a handle another handle shares", seeds: 20, '''
+  1
+  200
+  true
+  40
+'''
+  # A task given `*T` is local, pinned with its maker to one thread, so
+  # the maker changes the Cell through a second handle between the task's
+  # turns, and may drop that handle while the task runs.
+  obj Hits
+    n: Cell[Int]
+
+    fun bump(!@) -> Int
+      !@n.add(1)
+
+    fun many(!@) -> Int
+      for _ in 0..100
+        _ = !@n.add(1)
+      @n.get()
+
+  obj Bag
+    xs: Cell[List[Int]]
+
+    fun fill(!@) -> Int
+      for i in 0..20
+        !@xs.push(i)
+      @xs.len
+
+  h = *Hits(n: Cell(0))
+  h2 = +h
+  t = (!h2).bump()&
+  <h
+  print(>t)
+  g = *Hits(n: Cell(0))
+  g2 = +g
+  u = (!g).many()&
+  for _ in 0..100
+    _ = !g2.n.add(1)
+  _ = >u
+  print(g2.n.get())
+  b = *Bag(xs: Cell(List[Int]()))
+  b2 = +b
+  v = (!b).fill()&
+  for i in 0..20
+    !b2.xs.push(i)
+  print(>v > 0)
+  print(b2.xs.len)
+
+test "task methods through a box and a frozen handle", seeds: 20, '''
+  1
+  1
+  x0
+  3
+'''
+  # A box's value is reached in the box, and a method that consumes it
+  # takes it out of the box; a frozen value is reached behind its handle.
+  obj Plain
+    n: Int
+
+    fun inc(!@) -> Int
+      @n += 1
+      @n
+
+    fun peek(?@) -> Int
+      @n
+
+  obj Named
+    n: Int
+    s: String
+
+    fun into(<@) -> String
+      String(@s, @n)
+
+  b = ^Plain(n: 0)
+  t = (!b).inc()&
+  print(>t)
+  u = ?b.peek()&
+  print(>u)
+  c = ^Named(n: 0, s: String("x"))
+  v = (<c).into()&
+  print(>v)
+  f = *Frozen(Plain(n: 3))
+  w = ?f.peek()&
+  print(>w)
+
+test "task methods through a handle give views", seeds: 20, '''
+  t
+  one
+'''
+  # A method task through a handle may give a view of the shared value,
+  # which keeps the handle lent while it lives.
+  use std.shared
+
+  obj Hits
+    n: Cell[Int]
+    title: String
+
+    fun hit(!@) -> ?String
+      _ = !@n.add(1)
+      ?@title
+
+  h = *Hits(n: Cell(0), title: String("t"))
+  t = (!h).hit()&
+  print(>t)
+  m = shared.Map[Int, String].new()
+  u = (!m).ensure(1, String("one"))&
+  print(>u)
+
+fail "task methods through a handle keep it lent", "cannot drop `h` while it is lent", "cannot reassign `g` while it is lent", "cannot drop `k` while it is lent", errors: 3
+  obj Hits
+    n: Cell[Int]
+    title: String
+
+    fun bump(!@) -> Int
+      !@n.add(1)
+
+    fun hit(!@) -> ?String
+      _ = !@n.add(1)
+      ?@title
+
+  h = *Hits(n: Cell(0), title: String("h"))
+  t = (!h).bump()&
+  <h
+  print(>t)
+  g = *Hits(n: Cell(0), title: String("g"))
+  u = (!g).bump()&
+  g = *Hits(n: Cell(5), title: String("g"))
+  print(>u)
+  k = *Hits(n: Cell(0), title: String("k"))
+  v = (!k).hit()&
+  r = >v
+  <k
+  print(r)
+
 test "task generic", seeds: 20, "[7, 7]"
   fun twice[T](x: T) -> List[T]
     out: List[T] = List()

@@ -7876,17 +7876,27 @@ pub const Emitter = struct {
         const fixed = obj_ty != null and !self.place_chain and !self.keep_comptime and !self.isModuleValue(obj, sexp) and
             self.isScalarPart(sexp) and isZigComptimeIn(self, obj, 0);
         if (fixed) try self.w.writeAll("rig.rt(");
-        try self.emitMemberBase(obj, obj_ty);
-        if (obj_ty) |t| if (!self.isBoxMethod(sexp, t, field)) {
-            // A consuming method of an owned box's value takes the value
-            // out of each box, which is freed.
-            if (self.facts.boxedType(t) != null and self.facts.boxedNominal(t) != null and self.facts.methodSelfMode(t, field) == .value) {
-                var b = t;
-                while (self.facts.boxedType(b)) |inner| : (b = inner) try self.w.writeAll(".unbox()");
-            } else try self.writeReach(t);
-        };
+        try self.emitReached(sexp, field);
         try self.w.print(".{f}", .{ident(field)});
         if (fixed) try self.w.writeAll(")");
+    }
+
+    /// The value member `sexp`, read as `field`, is a member of: its
+    /// object reached through each view, shared handle, and box its type
+    /// holds (`writeReach`), as a field or method is reached through
+    /// it, or taken out of each box for a method that consumes it.
+    fn emitReached(self: *Emitter, sexp: Sexp, field: []const u8) Error!void {
+        const obj = ir.Member.object(sexp);
+        const obj_ty = self.typeOf(obj);
+        try self.emitMemberBase(obj, obj_ty);
+        const t = obj_ty orelse return;
+        if (self.isBoxMethod(sexp, t, field)) return;
+        // A consuming method of an owned box's value takes the value
+        // out of each box, which is freed.
+        if (self.facts.boxedType(t) != null and self.facts.boxedNominal(t) != null and self.facts.methodSelfMode(t, field) == .value) {
+            var b = t;
+            while (self.facts.boxedType(b)) |inner| : (b = inner) try self.w.writeAll(".unbox()");
+        } else try self.writeReach(t);
     }
 
     /// `.value` for each shared handle and box that member access on a
@@ -9297,8 +9307,16 @@ pub const Emitter = struct {
             defer self.read_place = saved;
             self.read_place = !self.selfWrites(sexp);
             try self.w.writeAll(if (self.facts.isLocalTask(sexp)) ".spawnMethodLocal(" else ".spawnMethod(");
-            try self.emitAddressOf(lentPlace(recv));
-            try self.w.print(", \"{s}\", .{{ ", .{self.srcText(ir.Member.name(callee))});
+            // A self behind a shared handle or in a box is reached as a
+            // plain call reaches it, and the method is given the value's
+            // address there, never the handle's or the box's.
+            const name = self.srcText(ir.Member.name(callee));
+            const reached = if (self.typeOf(recv)) |t| self.facts.unwrapAccess(t) != self.facts.unwrapViews(t) else false;
+            if (reached) {
+                try self.w.writeAll("&");
+                try self.emitReached(callee, name);
+            } else try self.emitAddressOf(lentPlace(recv));
+            try self.w.print(", \"{s}\", .{{ ", .{name});
         } else {
             try self.w.writeAll(if (self.facts.isLocalTask(sexp)) ".spawnLocal(" else if (self.facts.isDenseCall(sexp)) ".spawnDense(" else ".spawn(");
             try self.emitExpr(callee);

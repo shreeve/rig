@@ -318,6 +318,13 @@ it where the negation was meant. Trig has no such site.
 
 ### Compiler
 
+- A method task through a shared handle or a box, `(!h).bump()&` or
+  `?h.peek()&` of a `*T`, a `*Frozen[T]`, or a `^T`, in a local, a
+  field, an element, or through a view, builds and runs, where `rig
+  check` accepted it and Zig rejected the emitted call: the method is
+  given the value's address behind the handle or in the box, reached
+  as a plain call reaches it. `std.shared.Map`'s method tasks build
+  for the same reason.
 - An arm of `task.select` on a handle made in the arm,
   `got: !make().on_recv()` or `(!make()!).on_recv(f)`, drops the
   channel with its statement, where the channel leaked; one on a branch

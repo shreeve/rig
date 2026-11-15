@@ -5048,6 +5048,7 @@ test/reject/ownership/a_padded_closure_in_a_block_keeps_its_scope's_end_in_the_s
 test/reject/ownership/a_bare_for_in_a_block_keeps_its_scope's_end_in_the_source.rig main
 test/reject/concurrency/frozen_lent_to_a_task.rig main
 test/reject/concurrency/task_moved_keeps_its_loans.rig main
+test/reject/concurrency/task_methods_through_a_handle_keep_it_lent.rig main
 test/reject/concurrency/task_returned_keeps_its_loan.rig main
 test/reject/concurrency/task_returned_keeps_its_owner.rig main
 test/reject/concurrency/task_returned_in_a_set_keeps_its_loans.rig main
