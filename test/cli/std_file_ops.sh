@@ -259,6 +259,21 @@ sub main()!
   print(total)
 EOF2
 
+# A stdin the program inherits not blocking, as a parent may leave it:
+# a read waits for the bytes in a poll, as a blocking read would, and
+# reads the end once the writer leaves.
+cat >nbstdin.rig <<'EOF2'
+use std.io
+
+sub main()!
+  f = io.stdin()
+  got = String()
+  n = (!f).read(!got, 10)!
+  while n > 0
+    n = (!f).read(!got, 10)!
+  print(got)
+EOF2
+
 # In a directory the program may not write; root may, so it is left out
 # then.
 cat >denied.rig <<'EOF2'
@@ -436,6 +451,21 @@ for mode in debug release; do
     rm -rf e; mkdir e; mkfifo e/f0 e/f1 e/f2 e/f3 e/f4 e/f5 e/f6 e/f7
     out=$(RIG_SANITIZE=1 "$TIMEOUT_CMD" -s KILL 20 ./fifoleave 2>&1); expect_rc $? 0 "$mode fifoleave: $out"
     expect_eq "$out" 4000 "$mode: FIFOs read to the end their writers leave, writing nothing"
+    rig build $flag -o nbstdin nbstdin.rig >build.log 2>&1 || fail "$mode build nbstdin: $(cat build.log)"
+    out=$(RIG_SANITIZE=1 "$TIMEOUT_CMD" -s KILL 20 python3 -I -c '
+import fcntl, os, subprocess, sys, time
+r, w = os.pipe()
+fcntl.fcntl(r, fcntl.F_SETFL, fcntl.fcntl(r, fcntl.F_GETFL) | os.O_NONBLOCK)
+p = subprocess.Popen([sys.argv[1]], stdin=r)
+os.close(r)
+time.sleep(0.2)
+os.write(w, b"hi")
+time.sleep(0.2)
+os.write(w, b" yo")
+os.close(w)
+sys.exit(p.wait())
+' ./nbstdin 2>&1); expect_rc $? 0 "$mode nbstdin: $out"
+    expect_eq "$out" "hi yo" "$mode: a stdin inherited not blocking, read waiting"
     if [[ $(id -u) -ne 0 ]]; then
         rm -rf ro shut; mkdir ro ro/sub shut; printf 'f' >ro/f.txt; chmod 400 ro/f.txt; chmod 500 ro; chmod 000 shut
         out=$(RIG_SANITIZE=1 rig run $flag denied.rig 2>&1); rc=$?

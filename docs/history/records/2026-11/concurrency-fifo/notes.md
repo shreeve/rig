@@ -72,10 +72,14 @@ A FIFO read on macOS never parks in read(2). `std.file.read` of a FIFO
 a writer, then makes the descriptor nonblocking and reads it as
 `fifoBytes`: a read of 0 is the end, since a writer came; a read that
 would wait polls for at most 1 ms, doubling to 64 ms while nothing comes,
-and reads again (`rig.net.FifoWait`). Linux keeps its `poll` with no
-limit, which reports POLLHUP. `file.open` leaves a FIFO's descriptor
+and reads again (`rig.net.FifoWait`). Linux's whole read of a FIFO
+keeps its `poll` with no limit, which reports POLLHUP. `file.open` leaves a FIFO's descriptor
 nonblocking on macOS, whether it waited or not, and a File's read
 (`net.readOnto`, which `io.copy` uses too) waits the same way on EAGAIN.
+That changes Linux too: a File read of any nonblocking descriptor, a
+stdin a parent left O_NONBLOCK among them, waits in an unbounded poll
+where it failed with `FileError.failed`; the `nbstdin` case shows it
+(the base commit fails it, this one prints both writes).
 The end a writer leaves while its reader waits comes at the next poll:
 up to 64 ms later, about 5 ms over the fifomore case (p50 1.452 s
 before, 1.457 s after).
@@ -86,6 +90,44 @@ that opens the FIFO a moment later and closes it having written
 nothing. Before the fix, unloaded, it hung in 7 of 8 runs (killed at
 15 s; the run that passed took 0.24 s); after, it passed 10 of 10 at
 0.19-0.32 s unloaded and 30 of 30 under the 20 busy loops.
+
+## Why polling
+
+An independent review (2026-11-15) asked whether a readiness API could
+see the end instead of a bounded poll, each wait with a 1 s limit, a
+fresh FIFO a round, the reader opening first and the writer 200 us
+later. With the writer still there when the wait begins, leaving after
+2 ms (or 50 ms) without writing:
+
+| reader waits in | lost |
+|---|---|
+| kqueue EVFILT_READ (EV_CLEAR, as the poller registers) | 30 of 30, and 5 of 5 at 50 ms |
+| kqueue, the reader opened O_NONBLOCK (`wait: false`) | 20 of 20 |
+| kqueue EVFILT_READ and EVFILT_VNODE (every NOTE_) | 5 of 5 |
+| poll(POLLIN) | 30 of 30 |
+| select() | 0 of 2000 |
+| the bounded poll, 1 to 64 ms | 0 of 2000 (the end at worst 8.3 ms late; 72.5 ms with a 50 ms writer, against 61.7 ms for a blocking read) |
+
+With the writer opening and closing at once, the race:
+
+| reader | idle (load about 6) | 20 busy loops at nice 10 |
+|---|---|---|
+| blocking read (before) | 15 of 3000 | 35 of 2000 |
+| select() | 4 of 3000 | 2 of 2000 |
+| kqueue | 4 of 300 | 0 of 2000 |
+| the bounded poll | 0 of 3000 | 0 of 2000 |
+
+kqueue and poll never report a FIFO's writers leaving on macOS, race or
+not. select() sees the ordinary end, but in a lost round never reports
+the FIFO readable while a read gives 0: the kernel has lost the
+socket's mark that nothing more comes, and only the writer count that
+read(2) looks at is right. No readiness call (poll, kqueue, select,
+EVFILT_VNODE) sees the end then, and macOS gives no writer count
+(no F_GETPIPE_SZ; fstat has none; an O_RDWR open would count itself),
+so a read made again, a poll with a limit, is what remains. The review
+suggested waiting in select() on macOS, which sees the ordinary end at
+once, with a backstop of about 1 s for the race; that is left for the
+owner (descriptors past FD_SETSIZE, 1024, need `select$DARWIN_EXTSN`).
 
 ## Siblings
 
