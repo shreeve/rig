@@ -3177,6 +3177,26 @@ const Lowerer = struct {
         return .{ .root = p.root, .path = p.path[0..at.len], .ty = at.ty, .via = via, .carry = p.carry, .under_write = p.under_write };
     }
 
+    /// Whether `e`, a handle's place as written, is seen through a read
+    /// view: it is one (a `?T`, or a `[]T`, a read view of its elements),
+    /// or a field or element of one, however deep.
+    fn seenThroughView(self: *Lowerer, e: Sexp) Error!bool {
+        var x = e;
+        while (true) {
+            if (self.ctx.typeOf(x)) |t| if ((try self.kinds.of(t)).kind == .read_view) return true;
+            if (!x.isKind(.member) and !x.isKind(.index)) return false;
+            x = ir.get(x, .object);
+        }
+    }
+
+    /// C10 (Core s4: `?` promises that nothing changes): a marked call
+    /// that changes what a handle reaches, its channel by an arm of
+    /// `task.select`, a Cell or Signal, or an actor's value by a `!@`
+    /// method, made through a handle seen through a read view.
+    fn changeThroughView(self: *Lowerer, callee: Sexp, handle: Sexp) Error {
+        return self.found(.C10, self.posOf(handle), "`{s}` changes what `{s}` reaches, and `{s}` is seen through a read view, which changes nothing: a change through a handle needs a handle the task holds", .{ leafText(ir.Member.name(callee), self.src), self.textOf(handle), self.textOf(handle) });
+    }
+
     /// Whether a value of `ty` changes through a handle by a marked call:
     /// a Cell, a Signal, or a value that holds a Cell by value.
     fn changesByMark(self: *Lowerer, ty: TypeId) bool {
@@ -3820,6 +3840,9 @@ const Lowerer = struct {
                         const slot = self.handleSlot(p0, recv_ty);
                         if (slot == null and (p0.handle or self.isHandle(p0.ty))) return abstain("a write receiver through a handle");
                         const p = slot orelse p0;
+                        // A Cell or Signal changes through a handle by a
+                        // marked call: never one seen through a read view.
+                        if (slot != null and obj.isKind(.write) and try self.seenThroughView(ir.Write.operand(obj))) return self.changeThroughView(callee, ir.Write.operand(obj));
                         // A write receiver is lent when the call runs; its
                         // arguments may still read it (SPEC §7).
                         if (p.via == .read) return abstain("a write receiver through a read view");
@@ -3848,10 +3871,10 @@ const Lowerer = struct {
                         var r: ?VarId = null;
                         if (try self.place(robj)) |p| {
                             // An arm that receives or sends changes its
-                            // channel: one seen through a read view
-                            // changes nothing (Core s4).
-                            if (arm_call == .write and (p.via == .read or (try self.kinds.of(p.ty)).kind == .read_view))
-                                return self.found(.C10, self.posOf(robj), "`{s}` changes its channel, and `{s}` is seen through a read view, which changes nothing: an arm that receives or sends needs a handle the task holds", .{ leafText(ir.Member.name(callee), self.src), self.textOf(robj) });
+                            // channel, and an actor's `!@` method its
+                            // value: neither through a handle seen
+                            // through a read view.
+                            if ((arm_call == .write or (actor_call and recv_mode == .write)) and try self.seenThroughView(robj)) return self.changeThroughView(callee, robj);
                             r = try self.lend(p, .read, robj, p.ty);
                             if (elem_method) elem_from = p.root;
                             recv_held = p.root;

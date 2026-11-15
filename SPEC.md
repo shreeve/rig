@@ -9543,9 +9543,11 @@ lends what it holds, a `!C`, and a `!*C` parameter is a type mismatch whose
 hint is to pass `+h` for a handle of your own. A read view of a handle, or
 of a value that holds one, is not lent to write at all: `?` changes nothing.
 That holds however the view is reached: a `?*C` parameter, a field
-handle of a `?W`, a binding of a read `if … as`, `while … as`, `match`,
-or `for` (`if @head as n` in a `?@` method), or a closure's `|?h|`. A
-handle of your own changes the Cell: `mine = +n`, then `!mine.c.set(5)`.
+handle of a `?W`, an element of a `[]*C`, which is a read view of its
+elements (`?xs[..]` of a `?List` too), a binding of a read `if … as`,
+`while … as`, `match`, or `for` (`if @head as n` in a `?@` method), or
+a closure's `|?h|`. A handle of your own changes the Cell: `mine = +n`,
+then `!mine.c.set(5)`.
 
 ```rig reject
 obj Node
@@ -14036,7 +14038,8 @@ answer.
 - A `?@` method is called bare, `a.count()`, through a handle or a read
   view of one.
 - A `!@` method is marked, `!a.add(x)`, or `(!a).add(x)` where its `Bool` value
-  is used, and needs a handle you hold: through `?a` it is rejected. The
+  is used, and needs a handle you hold: through `?a`, or an element of
+  a `[]*Actor[T]`, it is rejected. The
   `!` marks the call, and lends nothing: the actor changes its own value.
 - A `<@` method, or one whose signature has `keeps` or `from`, cannot be
   called through a handle, and an actor's fields are reached only by its
@@ -14192,7 +14195,8 @@ a `match` on the value runs the winner's body:
 A receive or send arm changes its channel, so its `!` needs a handle
 the task holds, as `!ch.recv()` does: a read view of one changes
 nothing, however it is reached (a `?*Chan` parameter, a field of a
-`?W`, a read binding, a closure's `|?h|`).
+`?W`, an element of a `[]*Chan`, a read binding, a closure's `|?h|`).
+What a send arm sends goes into the channel as `send`'s value does.
 
 ```rig reject
 use std.task

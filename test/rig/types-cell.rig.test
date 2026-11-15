@@ -329,6 +329,31 @@ test "cell signal plain data", '''
   !mode.set(Color.red)
   print(mode.get() == Color.red)
 
+fail "cell through a read slice", "11:4: cannot lend to write through a read view `[]*C`", "14:4: cannot lend to write through a slice; a `[]T` is read-only", "17:4: cannot lend to write through a slice; a `[]T` is read-only", "21:4: cannot lend to write through a slice; a `[]T` is read-only", errors: 4
+  # A `[]T` is a read view of its elements: a Cell or Signal behind a
+  # handle in one changes through none of them, as through a `?List[T]`.
+  # oracle: field reject C10
+  # oracle: cell reject C10
+  # oracle: signal reject C10
+  # oracle: launder reject C10
+  obj C
+    c: Cell[Int]
+
+  sub field(s: []*C)
+    !s[0].c.set(5)
+
+  sub cell(s: []*Cell[Int])
+    !s[0].set(5)
+
+  sub signal(s: []*Signal[Int])
+    !s[0].set(5)
+
+  sub launder(xs: ?List[*Cell[Int]])
+    s = ?xs[..]
+    !s[0].set(5)
+
+  print(1)
+
 test "cell through read viewed elements", "10 20 30 40 50 60", release: true
   # A shared Cell changes by a marked call through any path to it, a handle
   # in an element of a write-viewed List, array, or slice included: through a field of the

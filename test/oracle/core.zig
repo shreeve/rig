@@ -51,9 +51,11 @@ pub const Rule = enum {
     /// §5: a value never holds a view of itself: what is stored in a
     /// var carries no loan on that var, but the lends it goes in by.
     C9,
-    /// s4: `?` promises that nothing changes, so nothing seen through a
-    /// read view is changed: a select arm that receives or sends changes
-    /// its channel, and needs a handle the task holds (SPEC "Channels").
+    /// s4: `?` promises that nothing changes, so no marked call changes
+    /// what a handle seen through a read view (a `?T`, or a `[]T` of its
+    /// elements) reaches: a Cell's or Signal's change, an actor's `!@`
+    /// method, and a select arm that receives or sends each need a
+    /// handle the task holds (SPEC "Cell", "Actors", "Channels").
     C10,
     /// §4: an API object goes to a task only by the crossing bound its
     /// braces or API name, as its form's row says (`kinds.objectCrosses`).

@@ -2245,6 +2245,13 @@ const Checker = struct {
                 if (is_text or (obj == .slice and sema.writeSliceElem(self.ctx, ty) == null)) {
                     place.block(if (is_text) .string else .slice, self.startOf(p));
                     if (!crossed) place.leaf_blocked = true;
+                    // A `[]T` is a read view of its elements: nothing
+                    // changes through it, a handle it holds included, nor
+                    // a Cell behind one (Core sentence 4).
+                    if (!is_text) {
+                        place.view_blocked = true;
+                        if (place.view == null) place.view = .{ .ty = ty, .pos = self.startOf(p) };
+                    }
                 }
             } else if (if (sema.namedNoneOf(self.ctx, inner)) |n| std.mem.eql(u8, n.field, self.text(ir.Member.name(step))) else false) {
                 place.block(.none_field, self.startOf(ir.Member.name(step)));

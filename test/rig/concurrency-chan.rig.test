@@ -443,6 +443,23 @@ fail "chan made in a generic holds no view", "11:5: `mk[?String]` cannot use `T 
   c = mk[String]()
   print(b.len)
 
+fail "chan through a read slice", "6:25: cannot lend to write through a slice; a `[]T` is read-only", "10:25: cannot lend to write through a slice; a `[]T` is read-only", "13:11: cannot lend to write through a slice; a `[]T` is read-only", errors: 3
+  # A `[]T` is a read view of its elements, so a handle in one changes
+  # nothing through it, as through a `?List[T]`: `?xs[..]` launders none.
+  use std.task
+
+  sub take(s: []*Chan[Int])!
+    _ = task.select(got: !s[0].on_recv())!
+
+  sub launder(xs: ?List[*Chan[Int]])!
+    s = ?xs[..]
+    _ = task.select(got: !s[0].on_recv())!
+
+  sub call(s: []*Chan[Int])!
+    print((!s[0]).recv()! ?? -1)
+
+  print(1)
+
 test "chan select end through a read view of the task", seeds: 20, '''
   done
   9
