@@ -16138,7 +16138,7 @@ const Checker = struct {
             const handle = ir.get(obj, .operand);
             const handle_ty = try self.armHandle(obj);
             if (self.isPoison(handle_ty)) return try self.skipCall(args);
-            const elem = sema.chanOfHandle(self.ctx, handle_ty) orelse return try self.badCall(args, handle, "`{s}` is a `{s}`, not a channel; {s}", .{ self.sourceText(handle), try self.tyName(handle_ty), shape });
+            const elem = sema.chanOfHandle(self.ctx, handle_ty) orelse return try self.badArms(args, handle, "`{s}` is a `{s}`, not a channel; {s}", .{ self.sourceText(handle), try self.tyName(handle_ty), shape });
             const arm_args = ir.Call.args(arm);
             if (arm_args.len != @as(usize, if (recv) 1 else 2)) return try self.badCall(args, arm, "{s}", .{shape});
             const given: []const TypeId = if (recv) try self.ctx.dupeIds(&.{try self.ctx.intern(.{ .optional = elem })}) else &.{};
@@ -16271,13 +16271,22 @@ const Checker = struct {
     /// `!` is checked as a marked method's self is (`synthLend`): the arm
     /// changes its channel, so it needs a handle the task holds, and a
     /// read view of one, however it is reached, is rejected there. The
-    /// handle's type, or poison once that is reported.
+    /// handle's type, or poison once that is reported. What is no
+    /// channel gives its type alone, with no lend's diagnostic, so the
+    /// caller says it is no channel.
     fn armHandle(self: *Checker, obj: Sexp) Error!TypeId {
         const saved = self.self_obj;
         defer self.self_obj = saved;
         self.self_obj = obj;
-        if (self.isPoison(try self.synthExpr(obj))) return self.t().invalid_id;
-        return self.ctx.typeOf(ir.get(obj, .operand)) orelse self.t().invalid_id;
+        const mark = self.ctx.diagnostics.items.len;
+        const lent = try self.synthExpr(obj);
+        const handle_ty = self.ctx.typeOf(ir.get(obj, .operand)) orelse return self.t().invalid_id;
+        if (self.isPoison(handle_ty)) return handle_ty;
+        if (sema.chanOfHandle(self.ctx, handle_ty) == null) {
+            self.ctx.diagnostics.shrinkRetainingCapacity(mark);
+            return handle_ty;
+        }
+        return if (self.isPoison(lent)) self.t().invalid_id else handle_ty;
     }
 
     /// `badCall` of `task.select`: the arms' channels and values are
