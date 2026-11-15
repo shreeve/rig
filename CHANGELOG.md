@@ -76,7 +76,7 @@ a bare number, and of `per:` of `task.supervise` and
   `while`, and a ternary (`x = a + b if pair() as a, b else a` gave
   `a` two meanings). Rename the binding.
 
-**Five ownership holes are closed**, each rejecting programs 0.3.0
+**Seven ownership holes are closed**, each rejecting programs 0.3.0
 accepted:
 
 - a receive or send arm of `task.select` through a read view of a
@@ -86,8 +86,32 @@ accepted:
   `!ch.recv()` there was: "cannot lend to write through a read view
   `?*Chan[Int]`; take a write view, or share a handle of your own with
   `+h`". So is one through a field of a `?W`, an element of a
-  `?List[*Chan[T]]`, a read binding, or a `|?h|` capture. Pass a
-  handle of your own, `+ch`. Neither Trig nor std has a select arm;
+  `?List[*Chan[T]]` or of a `[]*Chan[T]`, a read binding, or a `|?h|`
+  capture. Pass a handle of your own, `+ch`. Neither Trig nor std has a
+  select arm;
+- a `[]T` is a read view of its elements, so a handle in one changes
+  nothing through it, as through a `?List[T]`: `!s[0].set(5)` on a
+  `[]*Cell[Int]`, `!s[0].c.set(5)` on a `[]*Node`, a `Signal`'s `set`,
+  an actor's `!@` method `!s[0].add(1)` on a `[]*Actor[Box]`,
+  `(!s[0]).recv()`, and a select arm, each also through `s = ?xs[..]`
+  of a `?List`, which laundered the read view away, are rejected:
+  "cannot lend to write through a slice; a `[]T` is read-only", or,
+  for a Cell behind a handle the element holds, "cannot lend to write
+  through a read view `[]*Node`". Take a write slice, `![]*Cell[Int]`,
+  or a handle of your own. Trig, std, examples, and bench have no
+  slice of handles;
+- a channel or an actor made in a generic body, `*Chan[T](n)`, or
+  `*Actor(Box(v: v))` and `*Actor.supervised(...)` of a value holding a
+  `T`, at an instance whose `T` may hold a view (`mk[?String]()`), is
+  rejected at the instance, as a `T` stored in a Cell is: "`mk[?String]`
+  cannot use `T = ?String`: the generic body stores a `T` in a Cell, a
+  Signal, a channel, an actor's value, or an owned closure, which
+  carries no loan". Such a channel held a view of text that could be
+  freed while the channel held it (a use of freed memory under
+  `RIG_SANITIZE=1`), which a send arm, `put: !ch.on_send(?s)`, put in
+  unchecked; a send arm's value is now checked as `send`'s is, "cannot
+  store a view of `s` in a `Chan`". Use an owning type, `String`. Trig
+  makes channels and actors only of concrete types that hold no view;
 
 - a write view of a read view, `x` of `for x in !vv` over a
   `List[?T]`, reaches its value only to read it: `for n in !x.ns`,
@@ -290,6 +314,16 @@ it where the negation was meant. Trig has no such site.
 
 ### Compiler
 
+- An arm of `task.select` on a handle made in the arm,
+  `got: !make().on_recv()` or `(!make()!).on_recv(f)`, drops the
+  channel with its statement, where the channel leaked; one on a branch
+  of handles, `got: !(a if k else b).on_recv()`, in either spelling,
+  builds and runs, where `rig check` accepted it and `rig run` stopped
+  with an internal error in emit. The arm's `!` is a lend checked as a
+  marked method's self is, so its temporary and its branch are held
+  as a self's are.
+- An arm whose handle is no channel says so first, "`n` is a `Int`,
+  not a channel", with no advice on lending it before that.
 - A function other than `main` that gives no value and cannot fail, and
   whose every path ends in a `panic`, in a call of such a function, or
   in a `loop` no `break` leaves, is emitted with Zig's result
