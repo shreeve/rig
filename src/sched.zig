@@ -6681,6 +6681,18 @@ fn testNapUntilOthersSleep() void {
     while (sleepers.count.load(.seq_cst) + 1 < workersNow().len and nowNs() < until) testNap(std.time.ns_per_ms);
 }
 
+/// Spin, making no check, until every worker but this one sleeps, or
+/// 2 s pass: whether they all sleep. What a test that computes waits for
+/// before it gives a sleeping worker something to wake for.
+fn testSpinUntilOthersSleep() bool {
+    const until = nowNs() + 2 * std.time.ns_per_s;
+    while (sleepers.count.load(.seq_cst) + 1 < workersNow().len) {
+        if (nowNs() >= until) return false;
+        std.atomic.spinLoopHint();
+    }
+    return true;
+}
+
 /// Resume the running fiber on the next worker after its own: pinned
 /// there for one yield (`wakeHome`), a move that needs no worker to steal.
 fn testMove() void {
@@ -6708,7 +6720,7 @@ test "a timer set earlier than a sleeping worker's wakes it, though the timer's 
     if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
     const Run = struct {
         var home: ?*Worker = null;
-        /// Whether the other worker slept once the timer was set.
+        /// Whether the other worker slept before the timer was set.
         var asleep = false;
         /// The worker the napper ran on once its timer fired.
         var woke_on = std.atomic.Value(?*Worker).init(null);
@@ -6723,14 +6735,20 @@ test "a timer set earlier than a sleeping worker's wakes it, though the timer's 
             // until that worker sleeps with no deadline to wake for.
             home = pinHere();
             _ = workersRunning();
-            testNapUntilOthersSleep();
+            // Up to ten tries for the other worker to sleep, with no
+            // check here from its sleep to the timer's.
+            var rounds: u32 = 0;
+            while (rounds < 10 and !asleep) : (rounds += 1) {
+                testNapUntilOthersSleep();
+                asleep = testSpinUntilOthersSleep();
+            }
+            if (!asleep) return;
             const j = spawn(u8, Unit, napper, .{}, .{}, false, false).job;
             // The napper runs here, sets its timer on this worker, and
             // this fiber computes without a yield check: only the other
             // worker, woken for the timer, fires it and runs the napper.
             // The limit only ends a run whose kick is broken.
             yield();
-            asleep = sleepers.count.load(.seq_cst) + 1 == workersNow().len;
             const give_up = nowNs() + 10 * std.time.ns_per_s;
             while (woke_on.load(.seq_cst) == null and nowNs() < give_up) std.atomic.spinLoopHint();
             _ = j.join();
@@ -7279,8 +7297,15 @@ test "an idle worker wakes for the descriptors of a busy one" {
             // Pinned, so this worker stays busy with it, and holds the
             // descriptor, registered here.
             home = pinHere();
+            // A round whose other worker is not asleep within 2 s of
+            // this one's computing is tried again, up to ten.
+            var rounds: u32 = 0;
+            while (rounds < 10 and !asleep) : (rounds += 1) round();
+        }
+        fn round() void {
             const fds = testPipe();
             const r = register(fds[0]).?;
+            read_on.store(null, .seq_cst);
             const j = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
             // Nap until the reader waits: this worker runs it, then sleeps
             // holding the descriptor, and wakes, which has a sleeping
@@ -7293,14 +7318,16 @@ test "an idle worker wakes for the descriptors of a busy one" {
             // timer, has gone back to sleep with nothing to wake it for.
             const until = nowNs() + 30 * std.time.ns_per_ms;
             while (nowNs() < until) std.atomic.spinLoopHint();
-            asleep = sleepers.count.load(.seq_cst) + 1 == workersNow().len;
+            asleep = testSpinUntilOthersSleep();
             _ = std.posix.system.write(fds[1], "x", 1);
             // This worker makes no check from here, so only the other
             // worker's look at its poller sees the byte, and that worker
             // runs the reader it wakes. The limit only ends a run whose
             // watch is broken.
-            const give_up = nowNs() + 10 * std.time.ns_per_s;
-            while (read_on.load(.seq_cst) == null and nowNs() < give_up) std.atomic.spinLoopHint();
+            if (asleep) {
+                const give_up = nowNs() + 10 * std.time.ns_per_s;
+                while (read_on.load(.seq_cst) == null and nowNs() < give_up) std.atomic.spinLoopHint();
+            }
             _ = j.join();
             j.free();
             deregister(r);

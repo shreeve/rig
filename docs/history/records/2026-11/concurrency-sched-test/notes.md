@@ -142,13 +142,17 @@ What changed, in src/sched.zig:
   reader counts under the lock before it parks, and which the poller
   reads before it wakes one), always at least once: the busy worker
   sleeps holding the descriptor and wakes, which hands a sleeper the
-  watch (`passWatch`). It asserts that the other worker was listed
-  asleep as the byte was written, and that the reader ran on it; 10 s
-  only ends a broken run. The reader does not inherit the pin of the
+  watch (`passWatch`). Before it writes the byte it spins, making no
+  check, until the other worker is listed asleep
+  (`testSpinUntilOthersSleep`, at most 2 s), and tries the round again,
+  up to ten, when it is not; it asserts that the other worker slept
+  before the write and that the reader ran on it. 10 s only ends a
+  broken run. The reader does not inherit the pin of the
   fiber that made it: only `spawn`'s `local` sets a fiber's home.
-- "a timer set earlier than a sleeping worker's wakes it" asserts the
-  same: the other worker asleep once the timer was set, and the napper
-  run on it.
+- "a timer set earlier than a sleeping worker's wakes it" waits the
+  same way before it makes the napper that sets the timer, and asserts
+  the same: the other worker asleep before the timer was set, and the
+  napper run on it.
 - "keeps its worker" and "runs beside it": a check leaves the task to an
   idle worker only while one is asleep or searching (`leftToIdle`); one
   between the end of its search and its sleep is neither, so the check
@@ -164,7 +168,7 @@ src/sched.zig built with `zig test src/sched.zig --test-filter NAME`:
 | `passWatch` returns at once | descriptors | fails, 11 s |
 | `sleepIn` never watches | descriptors | fails, 10 s |
 | `serviceAll` looks only at its own poller | descriptors | fails, 10 s |
-| `kickForTimer` kicks no one | timer | fails, 10 s |
+| `kickForTimer` kicks no one | timer | fails 8 of 9 runs, 10 s; a pass is the sleeper woken for something else first |
 | `leftToIdle` always false | keeps its worker, runs beside it | both fail |
 
 An event log of a variant meant to put the other worker to sleep before
@@ -176,3 +180,6 @@ byte 0.9 ms after the write.
 Runs of the change's whole sched test binary (debug) on the Mac, through
 `tools/heavy`: 8 copies at once, 6 rounds, 48 of 48; 20 in a row with 8
 CPU hogs at nice 5, 20 of 20. `zig build test -Doptimize=Debug` passes.
+With the waits for the other worker's sleep in place of a sample of it,
+the mutations above fail as before, and 8 copies at once, 6 rounds, pass
+48 of 48.
