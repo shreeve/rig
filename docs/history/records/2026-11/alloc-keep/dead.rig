@@ -1,0 +1,29 @@
+use std.time as t
+
+obj Rec
+  a: Int
+  b: Int
+  c: Int
+  name: String
+
+# Builds a List of records by doubling, moves each out into another
+# List, drops the first (its block is freed, 16 MiB or more), then works
+# on with small blocks and sleeps, so its resident pages can be read.
+sub main()!
+  n = 600000
+  first: List[Rec] = List()
+  for i in 0..n
+    !first.push(Rec(a: i, b: i * 2, c: i * 3, name: `r{i}`))
+  second: List[Rec] = List()
+  !second.reserve(n)
+  loop
+    r = !first.pop() ?? break
+    !second.push(<r)
+  <first
+  # Later work: small blocks, enough to take new segments.
+  more: List[String] = List()
+  for i in 0..1500000
+    !more.push(`work item number {i}`)
+  print(second.len, more.len)
+  t.sleep(4)!
+  print(second[7].a, more[9])

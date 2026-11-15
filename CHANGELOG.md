@@ -515,6 +515,19 @@ it where the negation was meant. Trig has no such site.
 
 ### Runtime
 
+- **A kept large block that idles gives its pages back:** a block of
+  16 MiB or more that a heap keeps for reuse gives its pages back to the
+  system, and stays kept by address, once the heap has taken as many new
+  bytes as it holds and not taken it again. A block used again soon
+  stays resident; nothing is added to a free or a reuse. Trig on mui at
+  one checker peaks 14.2 MB lower in physical footprint on the Mac
+  (919.6 to 905.4 MB).
+- **A heap's first segment keeps small pages:** on Linux a segment asks
+  for huge pages only once its heap has taken a segment's worth, as a
+  heap's first segment holds the first page of most of its 72 classes,
+  mostly unwritten. A program of five threads that each take a few
+  blocks of every class holds 16 MB less and takes 10 to 26% fewer
+  kernel cycles on pup.
 - **A span takes its 4 KiB units and no more:** a large block under
   16 MiB is a run of 4 KiB units of a span segment, its length rounded
   up to whole units, where it was rounded to four buckets a doubling
