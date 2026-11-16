@@ -25,6 +25,46 @@ arm below (`f3` no look at its own poller, `f4` that and the look gap).
 `f6` is the dropped EVFILT_EXCEPT try at urgent data, `f7` the kept fix
 (raw/board9.txt to board11.txt).
 
+## The outcome: two changes, not three (2026-11-16)
+
+Measured on Linux (pup), the third change, a worker going to sleep
+leaving recently taken pollers to their own worker (00d2fb066), made
+connect 9-11% slower and served 15% fewer HTTP requests on 12 P-cores.
+A split board, main against each change alone (raw/linux/split/,
+pup 2026-11-16, medians of 20 net rounds and 7 HTTP rounds, A/A beside),
+put the whole cost on it:
+
+| row (pup) | main | A/A | short read | kick | skip | all three |
+|---|---:|---:|---:|---:|---:|---:|
+| connect, cores 6,7 (µs) | 29.05 | 28.89 | 28.95 | 28.37 | **31.56** | **31.20** |
+| connect, cores 0-11 | 26.57 | 26.47 | 26.40 | 26.27 | **29.41** | **28.76** |
+| echo, cores 6,7 | 3.75 | 3.75 | **3.50** | 3.77 | 3.76 | 3.52 |
+| ping-pong, cores 6,7 | 5.17 | 5.15 | **4.83** | 5.22 | 5.14 | 4.91 |
+| ping-pong, cores 0-11 | 5.50 | 5.44 | **5.11** | 5.50 | 5.41 | 5.14 |
+| HTTP req/s, cores 0-11 | 621k | 690k | 713k | 683k | **551k** | **572k** |
+
+It is reverted (a0375e5fa); the short read and the kick stay. The short
+read alone gives Linux its gains (echo 6.7% and ping-pong 6.6% faster
+pinned, ping-pong 7.1% on 12 cores) and 40% fewer system calls in
+bench/net (raw/linux/, strace); the kick is level everywhere.
+
+The Mac again, at a0375e5fa against main ea3704772 and an A/A copy of
+main, under `tools/mac-claim`, medians of 20 net rounds and 7 HTTP
+rounds (raw/mac-final/):
+
+| row (Mac) | main | A/A | branch | branch against main |
+|---|---:|---:|---:|---|
+| echo (µs) | 8.75 | 8.73 | 8.28 | 5.4% faster (A/A 0.2% faster) |
+| ping-pong | 16.60 | 16.45 | 16.25 | 2.1% faster (A/A 0.9% faster) |
+| connect | 54.27 | 54.78 | 54.79 | level (A/A 0.9% slower) |
+| HTTP req/s | 128,308 | 126,996 | 129,693 | level (1.1% more; A/A 1.0% fewer) |
+
+So the Mac keeps a smaller gain than the three changes gave (echo 22%
+faster with the skip, most of it the skip's): the skip's gain on the
+Mac, where looks at other workers' pollers were most of echo's extra
+calls, was a loss on Linux. The sections below describe all three
+changes as first built and measured.
+
 ## How it was counted
 
 `count.c` is a library loaded with `DYLD_INSERT_LIBRARIES` that wraps

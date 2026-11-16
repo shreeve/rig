@@ -672,11 +672,11 @@ arms.
   poller for an edge before it calls, rather than being told EAGAIN (an
   end that came with the last bytes still lets it return at once); a
   kick a look finds stays standing in a flag, so a kick costs one
-  system call however many workers look; and a worker going to sleep
-  leaves another's poller whose events were taken in the last 50 µs to
-  that worker. On the Mac bench/net's echo runs 22% faster (11.6 calls
-  a round trip to 6.7) and bench/http serves 5% more requests, with
-  ping-pong, connect, bench/tasks and bench/actors level
+  system call however many workers look. Urgent data ends the wait, as
+  the end of reading does. On Linux bench/net's echo and ping-pong run
+  6-7% faster with 40% fewer system calls; on the Mac echo runs 5% faster
+  and ping-pong 2%; connect, HTTP, bench/tasks and bench/actors are
+  level on both
   (docs/history/records/2026-11/concurrency-loopback/profile.md).
 - **A connection reset before it is accepted no longer stops the
   server:** on macOS every socket option on a reset connection fails
