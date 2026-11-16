@@ -534,6 +534,12 @@ it where the negation was meant. Trig has no such site.
   only ends a broken run. The tests of a maker that leaves its task to
   an idle worker repeat until a round finds that worker asleep, as one
   between its search and its sleep counts as busy.
+- Tasks made in turn and waited for in order start on the idle workers
+  because the switch to the first wakes one for the others
+  (`sched.spread`): a unit test counts that wake and asserts the others
+  start while the first, which makes no yield check, still runs. It
+  replaces `test/cli/spawn_wake.sh`, which required them to start
+  within 300 µs, a bound a loaded machine's late threads miss.
 - `tools/mac-claim LABEL CMD` runs one timing job holding the Mac's
   claim line, with `TRIG_MAC_CLAIMED=1` and `RIG_MAC_CLAIMED=1` set for
   it, so a tool that waits on the claim does not wait on its own: it waits while another claim holds the Mac or a
