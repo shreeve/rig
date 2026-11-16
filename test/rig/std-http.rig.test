@@ -198,6 +198,67 @@ test "http pipelined", seeds: 20, "/a: /b:hello /c:"
   print("/a:" if a >= 0 else "?", "/b:hello" if b > a else "?", "/c:" if d > b else "?")
   _ = <t.cancel() catch -1
 
+test "http request fields", seeds: 20, '''
+  GET /one a=1&b=2 1 tag-1 true true - 0
+  POST /two   long:6000 true true GET 20000:b
+  POST /four   long:6000 true true GET 20000:c
+  GET /three a=3 3 - true true GET 0
+  /one GET
+'''
+  # A handler reads a request's fields: it copies them, compares them,
+  # slices and hashes them, reads headers and arguments, and keeps
+  # copies across requests. Requests come pipelined on one connection,
+  # two with a large head and a body longer than the read buffer, one
+  # of them chunked.
+  use std.shared
+  use std.text
+
+  fun route(req: ?http.Request, seen: *shared.Map[String, String]) -> http.Response
+    _ = (!seen).put_new(+req.path, String(req.method))
+    p = +req.path
+    tag = req.header("x-tag") ?? String("-")
+    t = String(tag)
+    if req.header("X-Big") as b
+      t = String("long:", b.len)
+    keys: Set[String] = Set()
+    !keys.add(String(req.path))
+    first = String(seen.get("/one") ?? "-") if req.path != "/one" else String("-")
+    last = String(":", ?req.body[req.body.len - 1..]) if req.body.len > 0 else String()
+    http.text(String(req.method, " ", p, " ", req.query, " ", req.arg("a") ?? String(""), " ", t, " ", p == req.path and ?p[1..] == ?req.path[1..], " ", keys.has(?req.path), " ", first, " ", req.body.len, last, "\n"))
+
+  fun run(l: net.Listener, seen: *shared.Map[String, String]) -> Int!
+    http.serve(<l, |+seen, req| route(req, +seen))!
+    0
+
+  seen = shared.Map[String, String].new()
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l, +seen)&
+  c = net.connect(String("127.0.0.1:", port))!
+  big = String()
+  for 0..6000
+    !big.push(120)
+  body = String()
+  for 0..20000
+    !body.push(98)
+  chunks = String()
+  for 0..20
+    !chunks.add("3e8\r\n")
+    for 0..1000
+      !chunks.push(99)
+    !chunks.add("\r\n")
+  (!c).write(String("GET /one?a=1&b=2 HTTP/1.1\r\nHost: x\r\nX-Tag:  tag-1 \r\n\r\nPOST /two HTTP/1.1\r\nHost: x\r\nX-Big: ", big, "\r\nContent-Length: 20000\r\n\r\n", body))!
+  (!c).write(String("POST /four HTTP/1.1\r\nHost: x\r\nX-Big: ", big, "\r\nTransfer-Encoding: chunked\r\n\r\n", chunks, "0\r\n\r\n"))!
+  (!c).write("GET /three?a=3 HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")!
+  got = String()
+  while (!c).read(!got, 4096)! > 0
+    pass
+  for line in text.lines(?got)
+    if text.starts_with(line, "GET ") or text.starts_with(line, "POST ")
+      print(line)
+  print("/one", seen.get("/one") ?? "-")
+  _ = <t.cancel() catch -1
+
 test "http expect continue", seeds: 20, '''
   100 then /e:hello
   417
