@@ -313,3 +313,172 @@ test "sort orders an enum whose variants carry fields", "true"
   for i in 0..xs.len
     ok = ok and xs[i] == ys[i]
   print(ok)
+
+test "sort keeps equal keys in order through the merge at every size and pattern", "true"
+  # Records of equal keys keep the order they had at the sizes around
+  # the runs of 32 and the room's first merge, on random, sorted,
+  # reversed, 16-valued, sawtooth, and organ-pipe keys; `sort_by` with
+  # a reversed order too, which keeps equal keys in order all the same.
+  obj Rec
+    key: Int
+    id: Int
+
+  fun stable(ps: []Rec, down: Bool) -> Bool
+    for p, i in ps
+      if p.id < 0
+        return false
+      if i > 0
+        q = ?ps[i - 1]
+        if (q.key > p.key if not down else q.key < p.key) or (q.key == p.key and q.id > p.id)
+          return false
+    true
+
+  r = random.Random.seeded(21)
+  ok = true
+  for n in [0, 1, 2, 20, 21, 31, 32, 33, 63, 64, 65, 100, 1000, 4096]
+    for pattern in 0..6
+      for down in [false, true]
+        ps: List[Rec] = List()
+        for i in 0..n
+          k = (!r).int(0, 1 << 40)
+          if pattern == 1
+            k = i
+          else if pattern == 2
+            k = n - i
+          else if pattern == 3
+            k = (!r).int(0, 16)
+          else if pattern == 4
+            k = i % 37
+          else if pattern == 5
+            k = i if i < n / 2 else n - i
+          !ps.push(Rec(key: k, id: i))
+        if down
+          sort.sort_by(!ps[..], |x, y| x.key > y.key)
+        else
+          sort.sort_by(!ps[..], |x, y| x.key < y.key)
+        ok = ok and ps.len == n and stable(?ps[..], down)
+  print(ok)
+
+test "sort moves owned elements through the room and drops each once", '''
+  true
+  true
+  true
+'''
+  # Strings, and objects holding Strings, are moved out to the room and
+  # back by their bits: each ends in the slice once, as the sanitizer
+  # and the leak check see; `sort_by_key` and `sort` by an own `order`
+  # take the same merge.
+  obj Tagged
+    name: String
+    id: Int
+
+  obj Keyed: Ord
+    tag: String
+    id: Int
+
+    fun order(?@, other: ?Keyed) -> Order
+      @tag.order(?other.tag)
+
+  r = random.Random.seeded(22)
+  ok = true
+  for n in [33, 100, 4096]
+    texts: List[String] = List()
+    for _ in 0..n
+      t: String = `{(!r).int(0, 1000000) + 1000000}`
+      !texts.push(<t)
+    sort.sort_by(!texts[..], |a, b| a < b)
+    for i in 1..texts.len
+      ok = ok and texts[i - 1] <= texts[i]
+  print(ok)
+
+  ok2 = true
+  for n in [33, 100, 4096]
+    ts: List[Tagged] = List()
+    for i in 0..n
+      name: String = `t{(!r).int(0, 20)}`
+      !ts.push(Tagged(name: <name, id: i))
+    sort.sort_by_key(!ts[..], |t| +t.name)
+    for i in 1..ts.len
+      ok2 = ok2 and (ts[i - 1].name < ts[i].name or (ts[i - 1].name == ts[i].name and ts[i - 1].id < ts[i].id))
+  print(ok2)
+
+  ok3 = true
+  for n in [33, 100, 4096]
+    ks: List[Keyed] = List()
+    for i in 0..n
+      tag: String = `k{(!r).int(0, 16)}`
+      !ks.push(Keyed(tag: <tag, id: i))
+    sort.sort(!ks[..])
+    for i in 1..ks.len
+      ok3 = ok3 and (ks[i - 1].tag < ks[i].tag or (ks[i - 1].tag == ks[i].tag and ks[i - 1].id < ks[i].id))
+  print(ok3)
+
+test "sort keeps every element under a comparator that is no order", "true"
+  # A `less` that contradicts itself orders nothing, but the merge still
+  # moves each element exactly once: the slice holds what it held.
+  obj Tagged
+    name: String
+    id: Int
+
+  ok = true
+  for n in [21, 33, 100, 4096]
+    ts: List[Tagged] = List()
+    for i in 0..n
+      name: String = `t{i}`
+      !ts.push(Tagged(name: <name, id: i))
+    sort.sort_by(!ts[..], |a, b| (a.id * 7 + b.id * 3) % 5 < 2)
+    seen: List[Bool] = List.filled(n, false)
+    for t in ?ts
+      want: String = `t{t.id}`
+      ok = ok and t.name == want and not seen[t.id]
+      seen[t.id] = true
+  print(ok)
+
+bomb "sort stops at a comparator's panic mid-merge with nothing dropped twice", "panic: compared too far", prints: "sorting"
+  # The sort makes 61,699 comparisons, the last 4,095 of them in its last
+  # merge, so the panic comes in that merge with the run moved out to
+  # the room partly merged back: some of its Strings are in the room and
+  # in the slice at once. A panic runs no drop, so neither copy is freed.
+  xs: List[String] = List()
+  for i in 0..4096
+    t: String = `{(i * 7919) % 4096 + 10000}`
+    !xs.push(<t)
+  print("sorting")
+  calls = *Cell(0)
+  sort.sort_by(!xs[..], |+calls, a, b|
+    !calls.set(calls.get() + 1)
+    if calls.get() > 60000
+      panic("compared too far")
+    a < b
+  )
+  print("not reached")
+
+test "sort stops at a comparator's panic in an isolate and the program goes on", '''
+  Stop.panicked
+  [1, 2, 3]
+'''
+  # The panic comes in the last merge, as in the case above; the list,
+  # the room, and the Strings in both are left by the panic, not leaked
+  # and not freed.
+  use std.task
+
+  fun sorted_texts() -> Int
+    xs: List[String] = List()
+    for i in 0..4096
+      t: String = `{(i * 7919) % 4096 + 10000}`
+      !xs.push(<t)
+    calls = *Cell(0)
+    sort.sort_by(!xs[..], |+calls, a, b|
+      !calls.set(calls.get() + 1)
+      if calls.get() > 60000
+        panic("compared too far")
+      a < b
+    )
+    xs.len
+
+  task.isolate(|| sorted_texts()) catch |e|
+    print(e)
+    -1
+  ys = [3, 1, 2]
+  sort.sort_by(!ys, |a, b| a < b)
+  print(ys)

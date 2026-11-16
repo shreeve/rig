@@ -8,7 +8,8 @@
 use std.math
 
 # Sort `xs` in place, in the order of `<`, keeping equal elements that
-# can be told apart in the order they had. Allocates nothing.
+# can be told apart in the order they had. Allocates as `sort_by` does
+# when equal elements can be told apart, and otherwise nothing.
 pub sub sort[T: Ord](xs: ![]T)
   # Where elements `<` finds equal are the same value, their order cannot
   # be seen, and pattern-defeating quicksort, which does not keep it,
@@ -20,24 +21,53 @@ pub sub sort[T: Ord](xs: ![]T)
 
 # Sort `xs` in place in the order `less` gives: `less(a, b)` says
 # whether `a` belongs before `b`. Keeps elements neither of which is
-# less than the other in the order they had, and allocates nothing.
-pub sub sort_by[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
-  # Insertion-sort runs of 20, then merge runs of doubling width in
-  # place, by rotations (SymMerge).
+# less than the other in the order they had. Allocates room for
+# `xs.len / 2` elements, freed before it returns, unless `xs` holds at
+# most 32 or is in order already (or strictly in reverse order); when
+# memory runs out, the program panics, as at any allocation.
+pub inline sub sort_by[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
+  # A stable merge sort: natural runs, a strictly falling one reversed,
+  # each sorted on to 32 elements by insertion, merged in powersort's
+  # order (Munro and Wild), each merge moving the shorter of its two runs
+  # out to the room. O(n log n) comparisons, O(n) on input in order or
+  # in reverse. Everything this calls with `less` is inline, with no
+  # recursion, so the whole sort compiles into its caller, where `less`
+  # is inlined too.
   n = xs.len
-  width = 20
   a = 0
-  while a < n : a += width
-    insertion(!xs[a..math.min(a + width, n)], less)
-  while width < n : width *= 2
-    a = 0
-    while a + width < n : a += 2 * width
-      sym_merge(!xs, less, a, a + width, math.min(a + 2 * width, n))
+  m = next_run(!xs, 0, less)
+  if m >= n
+    return
+  room = Room(addr: 0, cap: 0, bytes: 0)
+  # The runs not yet merged, each with the depth in powersort's tree of
+  # the boundary after it, deeper up the stack: at most 64.
+  starts: [64]Int = [64 of 0]
+  depths: [64]Int = [64 of 0]
+  top = 0
+  scale = ((U64(1) << 62) + U64(n) - 1) / U64(n)
+  while m < n
+    b = next_run(!xs, m, less)
+    # The boundary's depth: the bits `(a + m) / 2n` and `(m + b) / 2n`
+    # share, as fractions, the midpoints of the two runs.
+    depth = ((U64(a + m) * scale) ^ (U64(m + b) * scale)).leading_zeros()
+    while top > 0 and depths[top - 1] >= depth
+      top -= 1
+      merge_by(!xs, !room, starts[top], a, m, less)
+      a = starts[top]
+    starts[top] = a
+    depths[top] = depth
+    top += 1
+    a = m
+    m = b
+  while top > 0
+    top -= 1
+    merge_by(!xs, !room, starts[top], a, n, less)
+    a = starts[top]
 
 # Sort `xs` in place in the order of the key `key` gives each element,
-# by `<`, keeping elements of equal keys in the order they had. Allocates
-# nothing; `key` is called twice for each comparison.
-pub sub sort_by_key[T, K: Ord](xs: ![]T, key: ?fun(?T) -> K)
+# by `<`, keeping elements of equal keys in the order they had.
+# Allocates as `sort_by` does; `key` is called twice for each comparison.
+pub inline sub sort_by_key[T, K: Ord](xs: ![]T, key: ?fun(?T) -> K)
   # Each key is bound to a name, which drops a key that owns a resource.
   sort_by(!xs, |?key, a, b|
     ka = key(a)
@@ -45,79 +75,123 @@ pub sub sort_by_key[T, K: Ord](xs: ![]T, key: ?fun(?T) -> K)
     ka < kb
   )
 
-sub insertion[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
-  i = 1
-  while i < xs.len : i += 1
+# Memory for `cap` elements that a merge moves out of the slice it sorts,
+# none of which the room owns: its drop frees the memory and drops no
+# element. Empty until the first merge that moves any.
+obj Room
+  addr: Int
+  cap: Int
+  bytes: Int
+
+  drop(!@)
+    room_free(@addr, @bytes)
+
+# Sort xs[s..b] by insertion, xs[s..i] sorted already.
+inline sub insert_by[T](xs: ![]T, s: Int, i: Int, b: Int, less: ?fun(?T, ?T) -> Bool)
+  new i = i
+  while i < b : i += 1
     j = i
-    while j > 0 and less(?xs[j], ?xs[j - 1]) : j -= 1
+    while j > s and less(?xs[j], ?xs[j - 1]) : j -= 1
       !xs.swap(j, j - 1)
 
-# Merge the sorted runs xs[a..m] and xs[m..b] in place.
-sub sym_merge[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool, a: Int, m: Int, b: Int)
-  if m - a == 1
-    # Insert xs[a] into xs[m..b] after the elements not above it.
-    i = m
-    j = b
-    while i < j
-      h = (i + j) / 2
-      if less(?xs[h], ?xs[a])
-        i = h + 1
-      else
-        j = h
-    k = a
-    while k < i - 1 : k += 1
-      !xs.swap(k, k + 1)
-    return
-  if b - m == 1
-    # Insert xs[m] into xs[a..m] after the elements not above it.
+# The end of the run of xs starting at `a`: the longest rising one, or a
+# strictly falling one reversed, sorted on to 32 elements by insertion.
+inline fun next_run[T](xs: ![]T, a: Int, less: ?fun(?T, ?T) -> Bool) -> Int
+  n = xs.len
+  e = a + 1
+  if e >= n
+    return n
+  if less(?xs[e], ?xs[a])
+    while e + 1 < n and less(?xs[e + 1], ?xs[e])
+      e += 1
     i = a
-    j = m
+    j = e
     while i < j
-      h = (i + j) / 2
-      if not less(?xs[m], ?xs[h])
-        i = h + 1
-      else
-        j = h
-    k = m
-    while k > i : k -= 1
-      !xs.swap(k, k - 1)
+      !xs.swap(i, j)
+      i += 1
+      j -= 1
+  else
+    while e + 1 < n and not less(?xs[e + 1], ?xs[e])
+      e += 1
+  e += 1
+  if e - a >= 32
+    return e
+  end = math.min(a + 32, n)
+  insert_by(!xs, a, e, end, less)
+  end
+
+# Merge the sorted runs xs[a..m] and xs[m..b]: move the shorter one out
+# to `room`, then merge it back, front first when it is the left one and
+# back first when the right.
+#
+# A step either branches on `less` or selects with it. A branch costs
+# nothing while one run's elements come in streaks, which the processor
+# predicts, and a miss when the runs interleave, where a select costs a
+# little on every step: so each 32 steps branch or select as the last 32
+# went, by how often the run taken from changed, selecting first.
+inline sub merge_by[T](xs: ![]T, room: !Room, a: Int, m: Int, b: Int, less: ?fun(?T, ?T) -> Bool)
+  if not less(?xs[m], ?xs[m - 1])
     return
-  mid = (a + b) / 2
-  n = mid + m
-  start = n - b if m > mid else a
-  r = mid if m > mid else m
-  p = n - 1
-  while start < r
-    c = (start + r) / 2
-    if not less(?xs[p - c], ?xs[c])
-      start = c + 1
-    else
-      r = c
-  end = n - start
-  if start < m and m < end
-    rotate(!xs, start, m, end)
-  if a < start and start < mid
-    sym_merge(!xs, less, a, start, mid)
-  if mid < end and end < b
-    sym_merge(!xs, less, mid, end, b)
-
-# Exchange xs[a..m] and xs[m..b], keeping the order within each.
-sub rotate[T](xs: ![]T, a: Int, m: Int, b: Int)
-  i = m - a
-  j = b - m
-  while i != j
-    if i > j
-      swap_range(!xs, m - i, m, j)
-      i -= j
-    else
-      swap_range(!xs, m - i, m + j - i, i)
-      j -= i
-  swap_range(!xs, m - i, m, i)
-
-sub swap_range[T](xs: ![]T, a: Int, b: Int, n: Int)
-  i = 0
-  while i < n : i += 1
-    !xs.swap(a + i, b + i)
+  if room.cap == 0
+    room.cap = xs.len / 2
+    room.addr = room_alloc[T](room.cap)
+    room.bytes = room_bytes[T](room.cap)
+  buf = room_slots[T](!room)
+  flips = 8
+  if m - a <= b - m
+    len = m - a
+    move_to(!buf, 0, ?xs, a, len)
+    i = 0
+    j = m
+    k = a
+    while i < len and j < b
+      select = flips >= 8
+      flips = 0
+      last = false
+      steps = 0
+      while steps < 32 and i < len and j < b : steps +%= 1
+        right = less(?xs[j], ?buf[i])
+        if select
+          pick_one(!xs, k, j, ?buf, i, right)
+          j += 1 if right else 0
+          i += 0 if right else 1
+        else if right
+          shift_one(!xs, k, j)
+          j += 1
+        else
+          move_one(!xs, k, ?buf, i)
+          i += 1
+        flips +%= 1 if right != last else 0
+        last = right
+        k += 1
+    move_to(!xs, k, ?buf, i, len - i)
+  else
+    len = b - m
+    move_to(!buf, 0, ?xs, m, len)
+    i = m
+    j = len
+    k = b
+    while i > a and j > 0
+      select = flips >= 8
+      flips = 0
+      last = false
+      steps = 0
+      while steps < 32 and i > a and j > 0 : steps +%= 1
+        k -= 1
+        left = less(?buf[j - 1], ?xs[i - 1])
+        if select
+          pick_one(!xs, k, i - 1, ?buf, j - 1, left)
+          i -= 1 if left else 0
+          j -= 0 if left else 1
+        else if left
+          shift_one(!xs, k, i - 1)
+          i -= 1
+        else
+          move_one(!xs, k, ?buf, j - 1)
+          j -= 1
+        flips +%= 1 if left != last else 0
+        last = left
+    move_to(!xs, a, ?buf, 0, j)
 
 # Pattern-defeating quicksort (Orson Peters' pdqsort, as Rust's
 # `sort_unstable` and Zig's `std.sort.pdq`): quicksort on a median of
@@ -444,3 +518,20 @@ extern zig "sort.zig"
   # order as `Ord` derives it; false for a type with an `order` of its
   # own, and for a handle.
   fun equal_is_same[T]() -> Bool
+
+  # A `Room`'s memory for `n` elements, none written; the bytes they
+  # take; and its free, which drops no element.
+  fun room_alloc[T](n: Int) -> Int
+  fun room_bytes[T](n: Int) -> Int
+  sub room_free(addr: Int, bytes: Int)
+  # The slots of `r`'s memory, as elements of type `T`.
+  fun room_slots[T](r: !Room) -> ![]T from r
+  # Move `n` elements from `from[i..]` to `to[at..]`, one from `from[i]`
+  # to `to[at]`, one from `xs[i]` to `xs[at]`, or, choosing by `take`
+  # with no branch, one from `xs[j]` or else `from[i]` to `xs[at]`: as
+  # bits, dropping nothing. The slots moved to hold no element before;
+  # the ones moved from hold none after, until a move fills them again.
+  sub move_to[T](to: ![]T, at: Int, from: ?[]T, i: Int, n: Int)
+  sub move_one[T](to: ![]T, at: Int, from: ?[]T, i: Int)
+  sub shift_one[T](xs: ![]T, at: Int, i: Int)
+  sub pick_one[T](xs: ![]T, at: Int, j: Int, from: ?[]T, i: Int, take: Bool)

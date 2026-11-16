@@ -113,6 +113,15 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **The stable sort** (branch `sort-stable`; owner, 2026-11-16, the
+  buffered merge as the faster candidate): `sort_by`, `sort_by_key`,
+  and `sort` of a type with its own `order` sort by a buffered stable
+  merge (powersort order, room for n/2), inline so the comparator is
+  inlined; with it, an integer's `order` folds into one compare. Waits
+  on the core suite, the Trig and loco light gates, and the owner.
+  Rust's driftsort is still 3.3 times as fast on random records (a
+  stable quicksort for input without runs is the next step).
+  Records: `docs/history/records/2026-11/std-sort/built.md`.
 - **`task.all` of tasks that give no value** (branch `task-all-subs`;
   owner, 2026-11-03): `task.all(f()&, g()&)!` waits for several `sub`s
   and gives nothing; a mix of tasks that give values and tasks that

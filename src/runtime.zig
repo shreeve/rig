@@ -2408,9 +2408,10 @@ pub fn order(a: anytype, b: @TypeOf(a)) std.math.Order {
         return order(x, y);
     }
     switch (@typeInfo(T)) {
-        .int, .float, .comptime_int, .comptime_float => return std.math.order(a, b),
-        .bool => return std.math.order(@intFromBool(a), @intFromBool(b)),
-        .@"enum" => return std.math.order(@intFromEnum(a), @intFromEnum(b)),
+        .int, .comptime_int => return intOrder(a, b),
+        .float, .comptime_float => return std.math.order(a, b),
+        .bool => return intOrder(@intFromBool(a), @intFromBool(b)),
+        .@"enum" => return intOrder(@intFromEnum(a), @intFromEnum(b)),
         .optional => {
             const x = a orelse return if (b == null) .eq else .lt;
             const y = b orelse return .gt;
@@ -2430,7 +2431,7 @@ pub fn order(a: anytype, b: @TypeOf(a)) std.math.Order {
         },
         .@"union" => |u| {
             const Tag = u.tag_type orelse @compileError("rig.order: no order of " ++ @typeName(T));
-            const o = std.math.order(@intFromEnum(@as(Tag, a)), @intFromEnum(@as(Tag, b)));
+            const o = intOrder(@intFromEnum(@as(Tag, a)), @intFromEnum(@as(Tag, b)));
             if (o != .eq) return o;
             switch (a) {
                 inline else => |x, tag| return order(x, @field(b, @tagName(tag))),
@@ -2493,7 +2494,14 @@ fn orderElements(a: anytype, b: @TypeOf(a)) std.math.Order {
         const o = order(x, y);
         if (o != .eq) return o;
     }
-    return std.math.order(a.len, b.len);
+    return intOrder(a.len, b.len);
+}
+
+/// How integers `a` and `b` order. `std.math.order` ends in a checked
+/// `unreachable`, for a NaN, which keeps LLVM from folding a test of its
+/// result, as `x.order(?y) == .less`, back into one compare.
+inline fn intOrder(a: anytype, b: anytype) std.math.Order {
+    return if (a < b) .lt else if (a > b) .gt else .eq;
 }
 
 // -----------------------------------------------------------------------------
@@ -5106,7 +5114,7 @@ pub fn totalOrder(a: anytype, b: anytype) Order {
     var y: S = @bitCast(@as(T, b));
     x ^= @bitCast(@as(U, @bitCast(x >> (bits - 1))) >> 1);
     y ^= @bitCast(@as(U, @bitCast(y >> (bits - 1))) >> 1);
-    return fromMath(std.math.order(x, y));
+    return fromMath(intOrder(x, y));
 }
 
 /// `x.min(y)` of floats: the smaller, a NaN losing to a number (IEEE 754
