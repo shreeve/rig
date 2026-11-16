@@ -6,7 +6,12 @@ cores (macOS, arm64). Each script builds and times all three runtimes
 in turn, so they compare like with like. Rig builds with `--release`
 (Zig's safe mode, every check kept), Tokio with `cargo build --release`
 (LTO, one codegen unit) on its multi-threaded runtime, and Go with
-`go build`. Each number is the fastest of interleaved runs: 14 for
+`go build`. Rig has no faster mode with its checks off, and the
+comparison wants none: Rust's `--release` keeps its bounds checks, and
+Rig's keeps its bounds and overflow checks, so each side is measured as
+it ships, and a check that costs time is answered by the compiler
+proving it away, never by turning it off. Each number is the fastest
+of interleaved runs: 14 for
 tasks, over two runs of the script, 7 for actors, 10 for networking,
 and 6 for HTTP. The raw runs are in
 [records/2026-11/concurrency-bench-remeasure/](../history/records/2026-11/concurrency-bench-remeasure/README.md).
