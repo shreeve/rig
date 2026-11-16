@@ -391,7 +391,10 @@ numbered wait, tells its waker the number, looks once more, and switches
 away; only then is it marked asleep. On a socket it sleeps until the
 descriptor's count of ready edges, read before its call, changes, so no
 waiter consumes another's readiness. A timer's deadline goes into its
-worker's heap, which bounds the worker's sleep in its poller.
+worker's heap, which bounds the worker's sleep in its poller. A
+connection of `http.serve` holds one deadline that each wait moves
+without touching the heap, whose timer moves to it only when it comes
+due, so a request costs no heap work.
 
 **The waiter woken.** A task that ends marks its record ending, wakes
 its one recorded waiter, and only then marks it ended, so the waiter may
