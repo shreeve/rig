@@ -108,4 +108,8 @@ format the date once a second. On the Mac the same setup leaves Rig
 hyper there. The
 setup is fair as written. The gap's source, CPU per request against
 contention with the load generator for cores, is what pup's
-measurement must show (pup-requests.md, row H2).
+measurement must show (pup-requests.md, row H2). It showed neither
+(README.md, "Results, x86-64 Linux"): hyper spends the least CPU on a
+request, and its workers sit mostly idle at its default count; at 6
+workers it serves a third more, and Rig's lead over that is 1.2 to 1.7
+times across 18 runs, not 2.8.

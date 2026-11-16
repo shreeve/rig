@@ -61,8 +61,9 @@ A new session, human or agent, takes these steps in order:
   its source, with `+%`, `-%`, `*%`, or a `raw` block. `--release=fast`
   is a usage error naming those opt-outs, and the benchmarks' Rig rows
   measured in the fast mode wait to be measured again with `--release`.
-  The concurrency benchmarks are, on the Mac; their x86-64 Linux runs
-  wait on pup (docs/history/records/2026-11/concurrency-bench-remeasure/pup-requests.md).
+  The concurrency benchmarks are, on the Mac and on pup, but for Linux
+  fork-join, whose first run was not pinned to cores
+  (docs/history/records/2026-11/concurrency-bench-remeasure/README.md).
 - **Branches:** `main` is the one long-lived branch. Work lands through
   short-lived branches and pull requests: plain git, with no CI,
   gates, or required checks.

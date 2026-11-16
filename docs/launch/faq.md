@@ -117,7 +117,8 @@ compiler can bound close together, so they share page tables. That puts
 a sleeping task at 17.1 KiB on the Mac, page tables included, against
 about 300 bytes for a Tokio task, whose state machine is sized by the
 compiler, and 2.9 KiB for a goroutine; a task with recursion keeps a
-large stack with a page table of its own, about twice that. For a
+large stack with a page table of its own, about twice that. On x86-64
+Linux, whose pages are 4 KiB, a sleeping task holds 5.1 KiB. For a
 server, the number that matters is an idle connection: Rig holds no
 buffers while a connection waits, so on the Mac it is 17.3 KiB, page
 tables included, against hyper's 18.7 KiB and Go's 20.2 KiB
@@ -131,8 +132,12 @@ On the Mac, Rig answers 7.8% fewer requests a second than hyper, and
 6.5% more than Go ([benchmarks.md](benchmarks.md)). The benchmark is a
 loopback one: the load generator, written in Go and the same for every
 server, shares the machine with the server, so a server that uses less
-CPU leaves more for the load. The Linux figures wait to be measured
-with `--release`. The method and the scripts are in `bench/http`.
+CPU leaves more for the load. On a 22-core x86-64 Linux machine, on
+its P-cores, Rig answers 592,000 to 846,000 requests a second, hyper
+473,000 to 486,000 at its best worker count and Go 444,000 to 451,000.
+Rig spends more CPU on a request than hyper, 14-27% more, and serves
+more because it keeps more cores busy. The method and the scripts are
+in `bench/http`.
 
 ## Are there channels?
 

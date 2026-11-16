@@ -9,8 +9,8 @@ Zig's fast mode and an unverified "2.8×".
 - [inventory.md](inventory.md): every claim in the concurrency docs,
   its source, date, commit, build mode, and machine; where "2.8×" came
   from; hyper's setup, audited.
-- [pup-requests.md](pup-requests.md): the x86-64 Linux runs the docs
-  wait on.
+- [pup-requests.md](pup-requests.md): the x86-64 Linux runs, as asked
+  of pup.
 - `raw/`: every board's output as the scripts printed it, with the date,
   the load, and the commit.
 - `idle_footprint.py`: an idle HTTP connection's footprint, page tables
@@ -103,9 +103,63 @@ machine (macOS), not with a Rig change, and it costs Rig more than
 Tokio (Tokio's echo was 5.68 µs on 2026-10-20). Why is open: a
 system-call profile of echo in both runtimes is the next step.
 
+## Results, x86-64 Linux (pup)
+
+Intel Core Ultra 9 185H, 22 cores, at bfd872b6d (rows T, M, A, N, F,
+H1, H2) and 1f35fc1da (D, H3, H4), whose compiler and runtime are
+7a2efd0f3's; each row in a slot of its own with no other holder, its
+file in `raw/` (`<row>-pup.txt`) headed by the slot's line (free 2 MiB
+blocks, load). Every timed row ran on cores 0-11 unless it says not.
+
+| Benchmark | Rig | Tokio | Go | Rows |
+|---|---|---|---|---|
+| spawn | 168 ns | 236 ns | 210 ns | T, fastest of 7 |
+| chain | 100 ns | 213 ns | 234 ns | T |
+| fanout | 59.6 ms | 65.4 ms | 55.1 ms | T |
+| yield | 6 ns | 32 ns | 244 ns | T |
+| hog | 316 ns | 3.2 ms | 3.0 ms | T |
+| produce | 6.0 ms | 5.5 ms | 4.9 ms | T |
+| memory, resident | 4.7 KiB | 373 B | 2.8 KiB | T |
+| sleeping task, footprint | 5.1 KiB, 515 B page tables | 380 B | 2.8 KiB | M |
+| actor solo | 11 ns | 241 ns | 11 ns | A, fastest of 7 |
+| actor contend | 24 ns | 232 ns | 52 ns | A |
+| actor spread | 2.0 ns | 25 ns | 1.8 ns | A |
+| ping-pong | 5.30 µs | 4.90 µs | 5.53 µs | N, fastest of 7 |
+| echo | 1.10 µs | 1.29 µs | 0.96 µs | N |
+| connect | 25.2 µs | 31.3 µs | 43.1 µs | N |
+| HTTP req/s | 592,080-845,543 | 352,122-365,783 | 444,064-450,728 | H1, H2a-c, H2t, H3a: 18 runs |
+| HTTP, hyper at 6 workers | | 473,053-485,942 | | H3b |
+| HTTP p50 / p99, fastest run | 59 / 284 µs | 165 / 340 µs | 98 / 737 µs | |
+| HTTP server CPU per request | 5.86-6.50 µs | 5.07-5.21 µs (5.37-5.39 at 6) | 15.16-15.36 µs | H2t, H3a, H3b |
+| HTTP server cores used | 4.9-5.2 | 1.8 (2.5-2.6 at 6) | 6.7-6.8 | H3a, H3b |
+| idle connection, resident | 8.8 KiB | 10.8 KiB | 18.9 KiB | H1, H2, 10,000 idle |
+| idle connection, footprint | 10.7 KiB, 0.51 page tables | 10.8 KiB | 19.8 KiB | D, 2,000 idle |
+| HTTP, 12 workers each, cores 0-19 | 675,746-865,439 | 441,917-446,793 | 539,544-549,245 | H4c |
+
+What holds hyper (H3): not its CPU per request, which is the lowest of
+the three, nor Nagle's algorithm (H3c, `HYPER_NODELAY=1`: 354k-364k, as
+without). At its default of a worker per core its busiest worker is busy
+a sixth of the time and the server uses 1.8 cores; at 6 workers it
+serves a third more (473k-486k), its best on these cores; at 24 it
+serves the same as at 12. The docs compare Rig with hyper at 6 workers
+as well as at its default.
+
+### Rows that measured the slot, not the runtimes
+
+H2u, H4a and H4b ran without `taskset` and every server fell under
+90,000 requests a second. The thread counts H4a adds show why: each
+runtime started as for about two CPUs (Rig and Tokio 3 threads, Go 7-9,
+against 13, 13 and 20 on cores 0-11), and H4b, with 12 workers forced,
+still used under 1.2 cores. The process could run on about two CPUs
+only, and an explicit `taskset -c 0-19` (H4c) gave all three their
+throughput back. Those rows measure how the slot's affinity was set,
+not the servers, and no doc cites them. F, the fork-join row, also ran
+without `taskset`: its 23.4 ms sum (2.83 on the Mac) and 709 ms
+quicksort (80.2) put it with them, so it runs again pinned before any
+Linux fork-join figure is given.
+
 ## Not measured
 
-- x86-64 Linux: every Linux number, routed to pup ([pup-requests.md](pup-requests.md)).
-  The docs give no Linux figure until then.
+- x86-64 Linux fork-join, pinned (row F again, as `F2`).
 - Swift's memory row and Rayon's `produce` (not in the docs).
 - No toolchain was missing on the Mac.

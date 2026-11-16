@@ -16,8 +16,11 @@ tasks, over two runs of the script, 7 for actors, 10 for networking,
 and 6 for HTTP. The raw runs are in
 [records/2026-11/concurrency-bench-remeasure/](../history/records/2026-11/concurrency-bench-remeasure/README.md).
 
-The x86-64 Linux numbers wait to be measured with `--release` on the
-22-core Linux machine; until then this page gives none.
+The Linux numbers come from a 22-core Intel Core Ultra 9 185H (x86-64,
+6 P-cores with two threads each, 8 E-cores and 2 low-power cores), at
+bfd872b6d and 1f35fc1da, whose compiler and runtime are 7a2efd0f3's.
+Every runtime runs on the same cores, the P-cores 0-11 (`taskset`), the
+fastest of 7 interleaved runs for tasks, actors and networking.
 
 ## Tasks (`bench/tasks`)
 
@@ -52,6 +55,21 @@ task with recursion or a call through a pointer keeps a large
 stack with a page table of its own, about twice that
 ([the scheduler](../internals/scheduler.md), "Stacks").
 
+On Linux:
+
+| | spawn | chain | fanout | yield | hog | produce | memory |
+|---|---|---|---|---|---|---|---|
+| Rig | 168 ns | 100 ns | 59.6 ms | 6 ns | 316 ns | 6.0 ms | 4.7 KiB |
+| Tokio | 236 ns | 213 ns | 65.4 ms | 32 ns | 3.2 ms | 5.5 ms | 373 B |
+| Go | 210 ns | 234 ns | 55.1 ms | 244 ns | 3.0 ms | 4.9 ms | 2.8 KiB |
+
+There Rig leads in `spawn`, `chain`, `yield` and `hog`, and is behind
+in `produce`, 9% slower than Tokio and 22% slower than Go; Go leads
+`fanout`, where Rig is 10% ahead of Tokio. A sleeping task, counted
+with its page tables, holds 5.1 KiB, 515 B of it page tables, against
+Tokio's 380 B and Go's 2.8 KiB: a page is 4 KiB there, against the
+Mac's 16 KiB.
+
 ## Actor calls (`bench/actors`)
 
 A counter, called to add one and give the new count: Rig's actor
@@ -73,6 +91,14 @@ Time per call:
 | contend | 15 ns | 77 ns | 267 ns |
 | spread | 0.9 ns | 0.5 ns | 30 ns |
 
+On Linux:
+
+| | Rig | Go mutex | Tokio actor |
+|---|---|---|---|
+| solo | 11 ns | 11 ns | 241 ns |
+| contend | 24 ns | 52 ns | 232 ns |
+| spread | 2.0 ns | 1.8 ns | 25 ns |
+
 The contended numbers swing from run to run in every runtime, since
 they depend on whether the counter stays on one core.
 
@@ -91,6 +117,17 @@ A loopback round trip costs mostly the system calls. Rig opens a
 connection faster than Tokio and Go, and its round trips are slower
 than Tokio's: 20% in ping-pong and 47% in echo, where 100 connections
 are ready at once.
+
+On Linux:
+
+| | Rig | Tokio | Go |
+|---|---|---|---|
+| ping-pong round trip | 5.30 µs | 4.90 µs | 5.53 µs |
+| echo round trip | 1.10 µs | 1.29 µs | 0.96 µs |
+| connect | 25.2 µs | 31.3 µs | 43.1 µs |
+
+There Rig's ping-pong is 8% slower than Tokio's, its echo 15% shorter,
+and it opens a connection fastest of the three.
 
 ## HTTP (`bench/http`)
 
@@ -115,6 +152,29 @@ buffer, which come from its worker while it answers a request.
 The load generator and the server share the machine, as in any loopback
 benchmark, so a server that spends less CPU leaves more to the load.
 The load generator is closed-loop, which understates p99.
+
+On Linux, on the P-cores 0-11, with 10,000 idle connections, the fastest
+of 18 runs over six slots, and hyper also at 6 workers, its best on
+those cores (its default is one a core, 12):
+
+| | req/s | p50 | p99 | per idle connection | CPU per request |
+|---|---|---|---|---|---|
+| Rig | 845,543 | 59 µs | 284 µs | 8.8 KiB | 5.9-6.5 µs |
+| hyper, 12 workers | 365,783 | 165 µs | 340 µs | 10.8 KiB | 5.1-5.2 µs |
+| hyper, 6 workers | 485,942 | 101 µs | 325 µs | | 5.4 µs |
+| Go | 450,728 | 98 µs | 737 µs | 18.9 KiB | 15.2-15.4 µs |
+
+Rig's throughput swings from run to run more than the others': 592,000
+to 846,000 requests a second over the 18 runs, where hyper held 352,000
+to 366,000 at 12 workers and 473,000 to 486,000 at 6, and Go 444,000 to
+451,000. Rig spends 14-27% more CPU on a request than hyper, and serves
+more because it keeps more cores busy: its server used 4.9 to 5.2 cores,
+hyper's 1.8 at 12 workers and 2.6 at 6, whose busiest worker was busy a
+sixth of the time at 12 and under half at 6. With 12 workers each on
+cores 0-19, E-cores included, Rig served 676,000 to 865,000, hyper
+442,000 to 447,000 and Go 540,000 to 549,000. Counted with page tables,
+over 2,000 idle connections, Rig's holds 10.7 KiB, hyper's 10.8 KiB and
+Go's 19.8 KiB.
 
 ## Fork-join
 

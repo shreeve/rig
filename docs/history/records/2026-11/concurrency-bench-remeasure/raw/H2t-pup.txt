@@ -1,0 +1,23 @@
+# blocks=4831 swap_mb=1360 slot=301 paused=0 running=0 late=0 load 0.47 0.79 1.20
+bfd872b6d 2026-11-15 21:50:13 -0700
+cpu rig-safe server 5.86 load 8.90 rps 607518
+cpu tokio server 5.13 load 8.38 rps 358176
+cpu go server 15.33 load 8.04 rps 445505
+                 req/s       p50       p99 per idle conn
+rig-safe        607518      95 us     274 us       9.0 KiB
+tokio           358176     179 us     347 us      10.8 KiB
+go              445505     100 us     741 us      19.1 KiB
+cpu rig-safe server 6.12 load 7.83 rps 735320
+cpu tokio server 5.18 load 8.38 rps 359330
+cpu go server 15.28 load 8.08 rps 446113
+                 req/s       p50       p99 per idle conn
+rig-safe        735320      75 us     247 us       9.0 KiB
+tokio           359330     171 us     348 us      10.8 KiB
+go              446113     100 us     740 us      19.4 KiB
+cpu rig-safe server 5.96 load 9.10 rps 592080
+cpu tokio server 5.21 load 8.33 rps 360662
+cpu go server 15.26 load 8.09 rps 446479
+                 req/s       p50       p99 per idle conn
+rig-safe        592080      98 us     295 us       8.8 KiB
+tokio           360662     168 us     349 us      10.8 KiB
+go              446479     100 us     740 us      19.4 KiB

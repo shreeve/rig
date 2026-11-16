@@ -479,8 +479,9 @@ Tokio's 264 B and Go's 2.9 KiB. That task sits on a dense stack, which
 a release build gives every task whose stack the compiler can bound,
 packed beside its neighbours under shared page tables; a task with
 recursion or a call through a pointer keeps a large stack, with a page
-table of its own, about twice that. The x86-64 Linux numbers wait to be
-measured with `--release`.
+table of its own, about twice that. On x86-64 Linux, where a page is
+4 KiB, a sleeping task holds 5.1 KiB, against Tokio's 380 B and Go's
+2.8 KiB.
 
 Divide and conquer with `f()&` and `>t`, fastest of 20 interleaved runs
 on the Mac: a parallel sum takes 2.83 ms, against Rayon's 2.39 ms, and

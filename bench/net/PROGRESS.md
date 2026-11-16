@@ -122,3 +122,6 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-11-09 | #1051: a connection's task takes a dense stack (pup cores 0-11) | rig-fast | 5.21 us | 1.08 us | 27.07 us |
 | 2026-11-09 | main ec0a2a743 before #1048, alternated (Mac) | rig-fast | 15.72 us | 6.15 us | 52.58 us |
 | 2026-11-09 | #1048: a Table of a heap that does little waits to ask for huge pages (Mac) | rig-fast | 16.46 us | 6.16 us | 51.14 us |
+| 2026-11-15 | main bfd872b6d (7a2efd0f3's compiler and runtime), --release (records/2026-11/concurrency-bench-remeasure), fastest of 7 (pup cores 0-11) | rig-safe | 5.30 us | 1.10 us | 25.17 us |
+| 2026-11-15 | the same board | tokio | 4.90 us | 1.29 us | 31.28 us |
+| 2026-11-15 | the same board | go | 5.53 us | 957 ns | 43.08 us |

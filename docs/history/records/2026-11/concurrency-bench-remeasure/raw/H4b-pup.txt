@@ -1,0 +1,24 @@
+# blocks=4848 swap_mb=1360 slot=296 paused=0 running=0 late=0 load 1.02 1.80 2.57
+1f35fc1da 2026-11-15 22:34:11 -0700
+cpu rig-safe server 11.46 load 11.96 rps 80017
+threads rig-safe busy 5 of 13, busiest 0.17 cores, cores used 0.88
+cpu tokio server 11.82 load 13.94 rps 67970
+threads tokio busy 3 of 13, busiest 0.11 cores, cores used 0.76
+cpu go server 37.47 load 19.68 rps 31049
+threads go busy 0 of 16, busiest 0.10 cores, cores used 1.12
+cpu rig-safe server 11.51 load 12.49 rps 74149
+threads rig-safe busy 1 of 13, busiest 0.31 cores, cores used 0.82
+cpu tokio server 11.24 load 13.27 rps 71484
+threads tokio busy 1 of 13, busiest 0.12 cores, cores used 0.77
+cpu go server 37.18 load 19.71 rps 31915
+threads go busy 0 of 18, busiest 0.10 cores, cores used 1.13
+cpu rig-safe server 11.13 load 12.14 rps 79339
+threads rig-safe busy 4 of 13, busiest 0.21 cores, cores used 0.85
+cpu tokio server 11.65 load 13.64 rps 68376
+threads tokio busy 0 of 13, busiest 0.10 cores, cores used 0.76
+cpu go server 37.75 load 20.17 rps 30551
+threads go busy 0 of 17, busiest 0.09 cores, cores used 1.10
+                 req/s       p50       p99 per idle conn
+rig-safe         80017     281 us    9349 us             -
+tokio            71484     669 us    5725 us             -
+go               31915    1642 us    8143 us             -

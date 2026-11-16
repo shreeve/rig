@@ -125,3 +125,6 @@ which is why that row reads faster.
 | 2026-11-09 | #1051: a connection's task takes a dense stack (pup cores 0-11) | rig-fast | 749003 | 73 us | 253 us | - |
 | 2026-11-09 | main ec0a2a743 before #1048, alternated (Mac) | rig-fast | 168798 | 371 us | 591 us | - |
 | 2026-11-09 | #1048: a Table of a heap that does little waits to ask for huge pages (Mac) | rig-fast | 170727 | 367 us | 571 us | - |
+| 2026-11-15 | main bfd872b6d and 1f35fc1da (7a2efd0f3's compiler and runtime), --release (records/2026-11/concurrency-bench-remeasure), best of 18 over six boards, 10,000 idle (pup cores 0-11) | rig-safe | 845543 | 59 us | 284 us | 8.8 KiB |
+| 2026-11-15 | the same boards (12 workers, its default; 473k-486k at HYPER_WORKERS=6) | tokio | 365783 | 165 us | 340 us | 10.8 KiB |
+| 2026-11-15 | the same boards | go | 450728 | 98 us | 737 us | 18.9 KiB |

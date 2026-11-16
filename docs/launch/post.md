@@ -235,8 +235,11 @@ with Rig built `--release` ([benchmarks.md](benchmarks.md)):
   Tokio and 2.9 KiB in Go. An idle HTTP connection holds no buffers, so
   it costs 17.3 KiB, under hyper's 18.7 KiB and Go's 20.2 KiB.
 
-The same benchmarks on x86-64 Linux wait to be measured with
-`--release`.
+On a 22-core x86-64 Linux machine the picture holds, with two changes:
+a sleeping task costs 5.1 KiB, since a page is 4 KiB there, and the
+HTTP server answers 592,000 to 846,000 requests a second on the P-cores,
+against hyper's 486,000 at its best and Go's 451,000, spending more CPU
+on each request than hyper but keeping more cores busy.
 
 ## What is new, and what is not
 
