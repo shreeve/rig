@@ -91,6 +91,25 @@ def limits():
         t = time.monotonic()
         got = read_all(s)
         out.append('kept %s %s' % (status(got), 0.2 < time.monotonic() - t < 3))
+        # Many requests, each sooner than the idle timeout after the last,
+        # for longer than it, then none: closed after the idle timeout.
+        s = conn(port)
+        t = time.monotonic()
+        answered = 0
+        while time.monotonic() - t < 1.0:
+            s.sendall(b'GET /q HTTP/1.1\r\nHost: x\r\n\r\n')
+            got = b''
+            while not got.endswith(b'/q 0'):
+                b = s.recv(4096)
+                if not b:
+                    break
+                got += b
+            if not got.endswith(b'/q 0'):
+                break
+            answered += 1
+            time.sleep(0.02)
+        t = closed_after(s)
+        out.append('moved %s %s' % (answered > 20, 0.2 < t < 3))
         # A head sent a byte every 100 ms, each wait shorter than the idle
         # timeout, is cut off by the head timeout.
         s = conn(port)
@@ -167,7 +186,9 @@ EOF2
 
 # The default timeouts on a deterministic run's virtual clock: an idle
 # connection closes after 60 s, one kept alive after a request 60 s
-# after it, and a head that stops partway 10 s after its first byte.
+# after it, a head that stops partway 10 s after its first byte, and a
+# connection that asks every 5 s for 100 s, past its first 60 s, 60 s
+# after its last request: its deadline moved with each.
 cat >virtual.rig <<'EOF2'
 use std.http
 use std.net
@@ -188,16 +209,32 @@ fun closes(port: Int, first: ?String) -> Int!
     pass
   t0.elapsed() / time.SECOND
 
+# Seconds until the server closes `c` after the last of 21 requests,
+# each answered, and 5 s apart.
+fun kept(port: Int) -> Int!
+  c = net.connect(String("127.0.0.1:", port))!
+  got = String()
+  for 0..20
+    (!c).write("GET /k HTTP/1.1\r\nHost: x\r\n\r\n")!
+    _ = (!c).read(!got, 4096)!
+    time.sleep(5)!
+  t0 = time.now()
+  (!c).write("GET /k HTTP/1.1\r\nHost: x\r\n\r\n")!
+  while (!c).read(!got, 4096)! > 0
+    pass
+  t0.elapsed() / time.SECOND
+
 sub main()!
   l = net.listen("127.0.0.1:0")!
   port = l.port()
   t = run(<l)&
-  print(closes(port, "")!, closes(port, "GET /k HTTP/1.1\r\nHost: x\r\n\r\n")!, closes(port, "GET / HTTP/1.1\r\nHo")!)
+  print(closes(port, "")!, closes(port, "GET /k HTTP/1.1\r\nHost: x\r\n\r\n")!, closes(port, "GET / HTTP/1.1\r\nHo")!, kept(port)!)
   _ = <t.cancel() catch -1
 EOF2
 
 want_limits='idle True
 kept 200 True
+moved True True
 head True
 stalled True
 200 /p 1000
@@ -221,7 +258,7 @@ for mode in debug release; do
     done
     wait
     for seed in $(seq 1 20); do
-        expect_eq "$(cat virtual-$seed.out)" $'60 60 10\nrc 0' "$mode: the default timeouts, seed $seed"
+        expect_eq "$(cat virtual-$seed.out)" $'60 60 10 60\nrc 0' "$mode: the default timeouts, seed $seed"
     done
 done
 exit 0
