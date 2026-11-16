@@ -7926,21 +7926,17 @@ test "a turn of a sleep enters the kernel once, its wait, while the other worker
     // Every other worker looked at its poller just now, as busy ones do
     // at their turns and yield checks: the wait alone, in each round that
     // looks within `look_after` of the first of those looks.
-    var within: u32 = 0;
-    var rounds: u32 = 0;
-    while (rounds < 1000 and within < 10) : (rounds += 1) {
-        for (t.ws[1..]) |*v| _ = v.poller.poll(0);
-        const first = t.ws[1].poller.looked_at.load(.monotonic);
-        const entries = TestLookers.sleepTurn(w);
-        if (look_after == 0) {
-            try std.testing.expectEqual(n, entries);
-            within += 1;
-        } else if (nowNs() - first < look_after) {
-            try std.testing.expectEqual(1, entries);
-            within += 1;
+    // The stamps are set ahead of the clock, so a loaded machine, slow
+    // between the looks and the sleep, cannot carry them past
+    // `look_after`.
+    for (0..10) |_| {
+        for (t.ws[1..]) |*v| {
+            _ = v.poller.poll(0);
+            if (look_after != 0) v.poller.looked_at.store(@intCast(nowNs() + std.time.ns_per_s), .monotonic);
         }
+        try std.testing.expectEqual(if (look_after == 0) n else 1, TestLookers.sleepTurn(w));
     }
-    try std.testing.expectEqual(10, within);
+    for (t.ws[1..]) |*v| v.poller.looked_at.store(@intCast(nowNs()), .monotonic);
     // Once `look_after` has passed since the last look, a sleep looks again.
     if (look_after != 0) {
         const last = t.ws[n - 1].poller.looked_at.load(.monotonic);
@@ -7963,6 +7959,10 @@ test "readiness on a busy worker's poller that a sleeping worker leaves alone re
         // `v` looks, as at one of its turns; a byte lands on its poller;
         // a worker goes to sleep.
         _ = v.poller.poll(0);
+        // Most rounds stamp `v`'s look ahead of the clock, so the sleep
+        // skips its poller however slow the machine; every fourth leaves
+        // it as it was, so a sleep may look.
+        if (look_after != 0 and rounds % 4 != 3) v.poller.looked_at.store(@intCast(nowNs() + std.time.ns_per_s), .monotonic);
         const looked = v.poller.looked_at.load(.monotonic);
         const before = edges(r, Registration.readable);
         _ = std.posix.system.write(t.pipes[1][1], "x", 1);
@@ -7981,7 +7981,7 @@ test "readiness on a busy worker's poller that a sleeping worker leaves alone re
             } else {
                 // The next worker to sleep once `look_after` has passed,
                 // or the watcher's next look, sees it.
-                while (nowNs() - looked < look_after) std.atomic.spinLoopHint();
+                v.poller.looked_at.store(@intCast(nowNs() - look_after), .monotonic);
                 serviceAll(sleeper);
             }
             try std.testing.expect(edges(r, Registration.readable) != before);
