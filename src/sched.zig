@@ -202,8 +202,7 @@ const Worker = struct {
     /// What it did, which `RIG_SCHED_STATS=1` prints as `main` ends
     /// (`printStats`): fibers it ran, of them pinned ones, fibers it
     /// stole, and times it slept. The watcher reads `slept` too
-    /// (`watchWanted`), and a searching worker `ran`, to see whether the
-    /// worker switched while a fiber waited in its slot (`stealNext`).
+    /// (`watchWanted`).
     ran: std.atomic.Value(u64) = .init(0),
     ran_pinned: u64 = 0,
     stole: u64 = 0,
@@ -3687,7 +3686,6 @@ const Note = struct {
     victim: ?*Worker = null,
     slot: ?*std.atomic.Value(?*Fiber) = null,
     f: ?*Fiber = null,
-    ran: u64 = 0,
     until: i96 = 0,
     /// How many notes this search has made.
     made: u8 = 0,
@@ -3785,22 +3783,21 @@ fn search(w: *Worker, note: *Note) Found {
 const steal_next_after: i96 = 3 * std.time.ns_per_us;
 
 /// Take the fiber in `v`'s oldest "run next" slot once it has waited
-/// there `steal_next_after` from when this search first saw it (`Note`)
-/// while `v` ran one fiber throughout, stuck in it, as Go takes a
-/// `runnext`: `.none` when no slot of `v`'s holds one, and `.again`,
-/// for the searcher to look again, its own queues and the rings first,
-/// after it waits for that time to pass, or when the fiber left the
-/// slot meanwhile. A fiber that stays while `v` switches is noted
-/// afresh. The searcher waits in its own poller (`waitBriefly`), giving
+/// there `steal_next_after` from when this search first saw it (`Note`),
+/// as Go takes a `runnext`: `.none` when no slot of `v`'s holds one, and
+/// `.again`, for the searcher to look again, its own queues and the rings
+/// first, after it waits for that time to pass, or when the fiber left
+/// the slot meanwhile. Whether `v` switched meanwhile does not matter: a
+/// worker that keeps refilling a newer slot never runs an older one, so
+/// the fiber waits on all the same. The searcher waits in its own poller (`waitBriefly`), giving
 /// its core up, rather than spinning; where no poller waits so briefly,
 /// it spins. A pinned fiber taken so goes back to its home's queue.
 fn stealNext(w: *Worker, v: *Worker, note: *Note) Found {
     const slot = oldestNext(v) orelse return .none;
     const f = slot.load(.seq_cst) orelse return .none;
-    const ran = v.ran.load(.monotonic);
-    if (note.slot != slot or note.f != f or note.ran != ran) {
+    if (note.slot != slot or note.f != f) {
         if (note.made == notes_most) return .none;
-        note.* = .{ .victim = v, .slot = slot, .f = f, .ran = ran, .until = nowNs() + steal_next_after, .made = note.made + 1 };
+        note.* = .{ .victim = v, .slot = slot, .f = f, .until = nowNs() + steal_next_after, .made = note.made + 1 };
     }
     // Wait without reading the slot, whose line its owner writes.
     if (nowNs() < note.until) {
@@ -3809,7 +3806,6 @@ fn stealNext(w: *Worker, v: *Worker, note: *Note) Found {
             return .again;
         }
         while (nowNs() < note.until) std.atomic.spinLoopHint();
-        if (v.ran.load(.monotonic) != ran) return .again;
     }
     if (slot.cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) return .again;
     return if (unlessPinned(f)) |g| .{ .fiber = g } else .again;

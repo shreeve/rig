@@ -203,9 +203,9 @@ worker after.
   once on the idle workers, where they waited about 1 ms for the
   monitor's stop; a maker that makes one task and goes on computing
   hands it on at that stop. A worker with nothing else to steal
-  also takes the oldest task left in another's slots 3 µs while that
-  worker ran one task throughout, stuck in it (its `ran` unchanged), as
-  Go takes a `runnext` (`sched.stealNext`). It waits those 3 µs in its
+  also takes the oldest task left in another's slots 3 µs, as Go takes a
+  `runnext` (`sched.stealNext`), whether or not that worker switched
+  meanwhile: one that keeps refilling a newer slot never runs the older. It waits those 3 µs in its
   own poller, still counted as searching, rather than spinning, so its
   core goes to whatever else the machine runs: by kevent's timeout on
   the Mac, and on Linux by `epoll_pwait2`, whose timeout counts

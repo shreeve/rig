@@ -670,9 +670,8 @@ arms.
 - A worker with nothing to do waits for a task in a busy worker's "run
   next" slot in its own poller, 3 µs, rather than spinning on the
   clock, so its core goes to whatever else the machine runs (`epoll_pwait2`
-  on Linux, kevent on the Mac). It takes the task only if that worker
-  ran one task throughout the wait; work made meanwhile
-  kicks it (`sched.stealNext`).
+  on Linux, kevent on the Mac), then takes it if it is still there;
+  work made meanwhile kicks it (`sched.stealNext`).
 - **Loopback round trips make fewer system calls:** a socket read that
   comes back short took all there was, so the next read waits on the
   poller for an edge before it calls, rather than being told EAGAIN (an
