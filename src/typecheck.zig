@@ -10486,6 +10486,10 @@ const Checker = struct {
                 try self.errAt(arg, "`{s}` moves values whole, and a `{s}` changes only by its marked calls, which every handle shares: exchange its value with the Cell's own `old = (!c).swap(v)`", .{ what, try self.tyName(place) });
             } else if (sym == self.ctx.signal_sym_id) {
                 try self.errAt(arg, "`{s}` moves values whole, and a `{s}` changes only by its marked calls (`!s.set(v)`), which may be running its subscribers", .{ what, try self.tyName(place) });
+            } else if (sym == self.ctx.chan_sym_id) {
+                try self.errAt(arg, "`{s}` moves values whole, and a `{s}` changes only by its sends and receives, marked calls every handle shares", .{ what, try self.tyName(place) });
+            } else if (sym == self.ctx.actor_sym_id) {
+                try self.errAt(arg, "`{s}` moves values whole, and an `{s}` changes only by its own methods, called through its handles", .{ what, try self.tyName(place) });
             } else try self.errAt(arg, "`{s}` moves values whole, and `{s}` holds a Cell, so it lives only behind a shared handle, whose other fields only read", .{ what, try self.tyName(place) });
             return null;
         }
