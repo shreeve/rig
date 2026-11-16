@@ -1985,10 +1985,6 @@ const Poller = struct {
     /// event leaves this set, and the worker's next wait sees it and only
     /// looks (`poll`); a kick while it is set makes no system call.
     kicked: std.atomic.Value(bool) = .init(false),
-    /// When its events were last taken, by its worker or a look (`poll`):
-    /// a worker going to sleep leaves a poller taken from lately to its
-    /// own worker (`serviceAll`).
-    taken_at: std.atomic.Value(i64) = .init(0),
     /// On the Mac in a release build: whether its worker waits in it,
     /// and whether `os.exit` claimed it there (`ExitClaim`), so the worker
     /// stops as it wakes, before it reads a single event (`tearDown`).
@@ -2134,7 +2130,6 @@ const Poller = struct {
             if (tears_down and !look) p.parked.store(.waiting, .seq_cst);
             const n = std.c.kevent(p.fd, &evs, 0, &evs, max_events, tp);
             if (tears_down and !look and p.parked.swap(.awake, .seq_cst) == .claimed) stopForExit(me().?, true);
-            p.taken_at.store(@truncate(nowNs()), .monotonic);
             if (n <= 0) return false;
             for (evs[0..@intCast(n)]) |ev| {
                 if (ev.udata == 0) {
@@ -2157,7 +2152,6 @@ const Poller = struct {
             var evs: [max_events]linux_.epoll_event = undefined;
             const ms: i32 = if (wait) |t| @intCast(@min(@divTrunc(t + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32))) else -1;
             const rc: isize = @bitCast(linux_.epoll_wait(p.fd, &evs, max_events, ms));
-            p.taken_at.store(@truncate(nowNs()), .monotonic);
             if (rc <= 0) return false;
             for (evs[0..@intCast(rc)]) |ev| {
                 if (ev.data.ptr == 0) {
@@ -2231,7 +2225,7 @@ fn sleepIn(w: *Worker, timeout: ?i96) void {
         if (watchWanted(w) and watcher.cmpxchgStrong(null, w, .seq_cst, .monotonic) == null) {
             for (workersNow()) |*v| v.watch_mark.store(v.slept.load(.monotonic), .monotonic);
             _ = w.poller.poll(if (timeout) |t| @min(t, watch_every) else watch_every);
-            return serviceAll(w);
+            return serviceAll();
         }
     }
     _ = w.poller.poll(timeout);
@@ -2522,31 +2516,17 @@ fn service(w: *Worker) void {
     if (w.poller.count.load(.monotonic) != 0) _ = w.poller.poll(0);
 }
 
-/// Before `w` sleeps, or as it wakes from a watch: wake the fibers whose
-/// timers are due on any worker, and those the events of its own poller
-/// and of any other no worker sleeps in make ready. Another worker's
-/// poller whose events were taken less than `look_gap` ago (`taken_at`)
-/// it leaves to that worker: workers that sleep many times a millisecond,
-/// as those answering sockets do, would each look at every busy worker's
-/// poller, a system call that mostly finds nothing, while its own worker
-/// takes its events as it sleeps, or every 61 turns, or at its yield
-/// checks, and the watcher every `watch_every`. Its own it looks at
-/// before it waits: on loopback an answer often lands within the look,
-/// and a look costs less than a wait the answer ends a moment later.
-fn serviceAll(w: *Worker) void {
+/// Before a worker sleeps: wake the fibers whose timers are due on any
+/// worker, and those the events of any poller no worker sleeps in make
+/// ready.
+fn serviceAll() void {
     deliverInterrupt();
     const now = nowNs();
     for (workersNow()) |*v| {
         _ = v.timers.fire(now);
-        if (v.poller.count.load(.monotonic) == 0) continue;
-        if (v != w and now - v.poller.taken_at.load(.monotonic) < look_gap) continue;
-        _ = v.poller.poll(0);
+        if (v.poller.count.load(.monotonic) != 0) _ = v.poller.poll(0);
     }
 }
-
-/// How lately a poller's events may have been taken for a worker going to
-/// sleep to leave it to its own (`serviceAll`).
-const look_gap: i96 = 50 * std.time.ns_per_us;
 
 /// An interrupt canceled `main` (`rt.onInterrupt`): end its wait, here
 /// on a worker, as the handler may not. What a worker looks at as it
@@ -3835,7 +3815,7 @@ fn sleep(w: *Worker) void {
     var trimmed = false;
     defer if (trimmed) rt.fast_alloc.wakeIdle();
     while (w.woken.load(.seq_cst) == 0) {
-        serviceAll(w);
+        serviceAll();
         if (!hasOwnWork(w)) {
             w.sleep_due.store(no_due, .seq_cst);
             const due = earliestDue();

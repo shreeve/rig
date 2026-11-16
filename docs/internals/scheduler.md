@@ -80,13 +80,9 @@ worker after.
   kqueue on macOS and epoll on Linux, which a waker kicks, and keeps a
   heap of the deadlines its fibers set, as Go keeps one per processor.
   A worker that runs fibers looks at both every 61 turns; one about to
-  sleep wakes the fibers whose timers are due on any worker, polls its
-  own poller and those no worker sleeps in, and sleeps until the earliest
-  deadline any worker holds. Another worker's poller whose events were
-  taken in the last 50 µs (`Poller.taken_at`) it leaves to that worker:
-  ten workers answering sockets go to sleep many times a millisecond, and
-  each looking at every busy poller cost bench/net's echo a fifth of its
-  speed in system calls that mostly found nothing. A file descriptor registered with a poller
+  sleep wakes the fibers whose timers are due on any worker, polls the
+  pollers no worker sleeps in, and sleeps until the earliest deadline any
+  worker holds. A file descriptor registered with a poller
   (`sched.Registration`) counts each edge, ready to read or to write,
   and a fiber that reads the count before its call (`sched.edges`) waits
   for it to change (`sched.waitReady`). A read that comes back short
