@@ -245,7 +245,12 @@ and a program that might not fit takes a large stack instead of
 panicking. The connections of `http.serve` take one too
 (`net.serve`): a connection's own code is the runtime's and std's HTTP
 server, with no recursion and no call of the program's, since the
-handler runs on a stack apart (`tasks.isolate`). An idle connection
+handler runs on a stack apart (`tasks.isolate`). Each worker keeps the
+stack its last isolate ran apart on, after its work or a panic, and the
+next isolate on that worker runs on it at once, its top pages still in
+cache (`sched.runApart`, `Worker.apart`); an isolate inside another
+takes one from the free list, and a build that sanitizes returns each,
+so a late write into it faults. An idle connection
 then holds 17.2 KiB on the Mac and 9.2 KiB on pup, page tables
 included, where a large stack held 32.8 and 13.0
 (test/cli/http_idle_footprint.sh). Each dense stack sits over a guard twice the largest frame

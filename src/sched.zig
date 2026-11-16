@@ -161,6 +161,10 @@ const Worker = struct {
     lifo_streak: u8 = 0,
     /// The large stacks it keeps free and has yet to run a fiber on.
     stacks: StackList = .{},
+    /// The stack the last `task.isolate` on this worker ran apart on,
+    /// kept for the next (`runApart`), which runs on it at once, its top
+    /// pages still in cache, past the free list.
+    apart: ?Stack = null,
     /// Blocks to reuse (`takeBlock`).
     blocks: ?*FreeBlock = null,
     block_count: u32 = 0,
@@ -3889,6 +3893,8 @@ fn hasWork() bool {
 }
 
 fn freeStacks(w: *Worker) void {
+    if (w.apart) |s| unmapStack(s);
+    w.apart = null;
     while (w.stacks.free) |n| {
         w.stacks.free = n.next;
         unmapStack(n.stack);
@@ -5894,14 +5900,36 @@ noinline fn runApartApart(home: *usize, arg: *anyopaque, entry: *const fn (*anyo
 }
 
 fn runApartIn(home: *usize, arg: *anyopaque, entry: *const fn (*anyopaque) callconv(.c) noreturn) void {
-    if (me()) |w| checkOffOwnStack(w);
-    const s = takeStack();
+    const w = me();
+    if (w) |x| checkOffOwnStack(x);
+    const s = keptApart(w) orelse takeStack();
     const state = rt.task();
     const guard = state.stack_guard;
     state.stack_guard = .{ .lo = s.base, .hi = s.base + s.guard, .len = s.len };
     switchTo(home, frameCalling(@intFromPtr(arg), @intFromPtr(entry), s.top()));
     rt.task().stack_guard = guard;
-    releaseStack(me().?, s);
+    keepApart(me().?, s);
+}
+
+/// The stack `w` kept from its last `runApart`, taken, or null: none
+/// kept, or an isolate inside another on this worker runs apart.
+inline fn keptApart(w: ?*Worker) ?Stack {
+    const x = w orelse return null;
+    const s = x.apart orelse return null;
+    x.apart = null;
+    return s;
+}
+
+/// A stack a `runApart` has left for good, back on its fiber's own
+/// stack: what ran on it has ended, after its work or a panic, and any
+/// task under the isolate that could read its frames has ended too
+/// (`tasks.Isolate`), so the next runs on it. `w`, the worker the fiber
+/// is on now, keeps it for its next unless it keeps one already; a build
+/// that sanitizes (`RIG_SANITIZE=1`) returns it, so a late write into it
+/// faults (`releaseStack`).
+fn keepApart(w: *Worker, s: Stack) void {
+    if (rt.sanitize or w.apart != null) return releaseStack(w, s);
+    w.apart = s;
 }
 
 /// Leave the stack `runApart` made for good, back to the fiber's own

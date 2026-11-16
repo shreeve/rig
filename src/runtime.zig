@@ -7284,8 +7284,11 @@ var isolates_begun_var: std.atomic.Value(u32) = .init(0);
 const isolates_begun = split.cell(&isolates_begun_var, "runtime.isolates_begun");
 
 /// A `task.isolate` begins inside `outer`: its id, which the leak
-/// checker tags what is allocated under it with.
+/// checker tags what is allocated under it with; 0 in a build that
+/// checks no leaks, which reads no id, so isolates begun on many workers
+/// at once share no counter.
 pub fn isolateBegins(outer: ?*tasks.Isolate) u32 {
+    if (!leak_checked) return 0;
     const id = isolates_begun.fetchAdd(1, .monotonic) + 1;
     if (leak_checked) {
         LeakChecker.lock();

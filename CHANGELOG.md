@@ -667,6 +667,12 @@ arms.
 
 ### Runtime
 
+- `task.isolate` runs on the stack its worker's last isolate ran apart
+  on, kept for it, after its work or a panic, rather than one popped
+  from the worker's free list and pushed back, and a build that checks
+  no leaks no longer counts isolates in a counter every worker writes:
+  each request of `http.serve` makes one fewer atomic write to a line
+  the workers share.
 - **Loopback round trips make fewer system calls:** a socket read that
   comes back short took all there was, so the next read waits on the
   poller for an edge before it calls, rather than being told EAGAIN (an

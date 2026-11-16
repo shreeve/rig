@@ -50,6 +50,98 @@ test "http serve", seeds: 20, '''
     print(get(port, p)!)
   print(<t.cancel() catch -1)
 
+test "http panic, then the next request", seeds: 20, '''
+  500 internal server error
+  200 ok:2
+  500 internal server error
+  200 ok:4
+  500 internal server error
+  200 ok:6
+  -1
+'''
+  # A handler that panics deep in a recursion answers 500, and the next
+  # request on the same connection runs isolated again, on the stack
+  # apart the panic left, kept for its worker's next isolate, and
+  # answers.
+  use std.text
+
+  fun deep(n: Int, hits: *Cell[Int]) -> Int
+    if n == 0
+      return [1, 2][hits.get() + 5]
+    deep(n - 1, +hits) + 1
+
+  fun route(req: ?http.Request, hits: *Cell[Int]) -> http.Response
+    !hits.add(1)
+    match req.path
+      "/boom" => http.text(String(deep(300, +hits)))
+      _ => http.text(String("ok:", hits.get()))
+
+  fun run(l: net.Listener, hits: *Cell[Int]) -> Int!
+    http.serve(<l, |+hits, req| route(req, +hits))!
+    0
+
+  hits = *Cell(0)
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l, +hits)&
+  c = net.connect(String("127.0.0.1:", port))!
+  for i in 0..6
+    path = "/boom" if i % 2 == 0 else "/ok"
+    (!c).write(String("GET ", path, " HTTP/1.1\r\nHost: x\r\n\r\n"))!
+    want = "internal server error" if i % 2 == 0 else "ok:"
+    got = String()
+    while text.find(?got, want) == none
+      _ = (!c).read(!got, 4096)!
+    at = text.find(?got, "\r\n\r\n") ?? 0
+    print(?got[9..12], text.trim(?got[at..]))
+  print(<t.cancel() catch -1)
+
+test "http panic, then the next request, released", release: true, '''
+  500 internal server error
+  200 ok:2
+  500 internal server error
+  200 ok:4
+  500 internal server error
+  200 ok:6
+  -1
+'''
+  # A handler that panics deep in a recursion answers 500, and the next
+  # request on the same connection runs isolated again, on the stack
+  # apart the panic left, kept for its worker's next isolate, and
+  # answers.
+  use std.text
+
+  fun deep(n: Int, hits: *Cell[Int]) -> Int
+    if n == 0
+      return [1, 2][hits.get() + 5]
+    deep(n - 1, +hits) + 1
+
+  fun route(req: ?http.Request, hits: *Cell[Int]) -> http.Response
+    !hits.add(1)
+    match req.path
+      "/boom" => http.text(String(deep(300, +hits)))
+      _ => http.text(String("ok:", hits.get()))
+
+  fun run(l: net.Listener, hits: *Cell[Int]) -> Int!
+    http.serve(<l, |+hits, req| route(req, +hits))!
+    0
+
+  hits = *Cell(0)
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l, +hits)&
+  c = net.connect(String("127.0.0.1:", port))!
+  for i in 0..6
+    path = "/boom" if i % 2 == 0 else "/ok"
+    (!c).write(String("GET ", path, " HTTP/1.1\r\nHost: x\r\n\r\n"))!
+    want = "internal server error" if i % 2 == 0 else "ok:"
+    got = String()
+    while text.find(?got, want) == none
+      _ = (!c).read(!got, 4096)!
+    at = text.find(?got, "\r\n\r\n") ?? 0
+    print(?got[9..12], text.trim(?got[at..]))
+  print(<t.cancel() catch -1)
+
 test "http keep alive", seeds: 20, "500 500"
   # Many clients, each sending its requests on one connection.
   use std.text
