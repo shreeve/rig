@@ -85,7 +85,12 @@ worker after.
   worker holds. A file descriptor registered with a poller
   (`sched.Registration`) counts each edge, ready to read or to write,
   and a fiber that reads the count before its call (`sched.edges`) waits
-  for it to change (`sched.waitReady`). An end
+  for it to change (`sched.waitReady`). A read that comes back short
+  took all there was, so the next read waits for an edge past the count
+  read before it, making no call only to be told to wait, unless the
+  poller has seen the end of reading, which it marks before it counts
+  that edge (`sched.drained`), as Tokio clears a socket's readiness
+  after a short read. An end
   is readiness only for the waits it ends: the end of reading (the other
   end's half-close, EOF on kqueue's read filter or RDHUP) wakes the
   reader, the end of writing (this side's half-close, EOF on the write

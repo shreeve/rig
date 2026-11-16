@@ -145,6 +145,21 @@ fn edges(reg: i64, interest: u32) u32 {
     return rig.sched.edges(@ptrFromInt(@as(usize, @intCast(reg))), interest);
 }
 
+/// Whether a read on `reg` would find nothing, by the edges `seen`
+/// before it (`sched.drained`): it waits first. Only on the scheduler,
+/// whose poller counts the edges.
+fn drained(reg: i64, seen: u32) bool {
+    if (reg == 0 or rig.sched.current() == null) return false;
+    return rig.sched.drained(@ptrFromInt(@as(usize, @intCast(reg))), seen);
+}
+
+/// A read on `reg` took `n` bytes of the `asked`, with the edges `seen`
+/// before it: fewer is all there were (`sched.readCame`).
+fn readCame(reg: i64, seen: u32, n: usize, asked: usize) void {
+    if (reg == 0 or n == 0) return;
+    rig.sched.readCame(@ptrFromInt(@as(usize, @intCast(reg))), seen, n < asked);
+}
+
 /// Wait for `fd` to be ready for `interest`, after a call that would have
 /// blocked: on its poller, for an edge past `seen`, read before the call
 /// (`edges`), or, outside the scheduler, in `poll`; no longer than
@@ -287,9 +302,13 @@ pub fn read_from(fd: i64, reg: i64, into: *rig.String, max: i64) Error!i64 {
 fn readKept(s: i32, reg: i64, into: *rig.String, want: usize) Error!usize {
     try rig.checkStop();
     while (true) {
+        const seen = edges(reg, rig.sched.Registration.readable);
+        if (drained(reg, seen)) {
+            try waitFor(s, reg, rig.sched.Registration.readable, seen, .{});
+            continue;
+        }
         const b = rig.sched.takeBlock();
         const asked = @min(want, b.len);
-        const seen = edges(reg, rig.sched.Registration.readable);
         const rc = sys.read(s, b, asked);
         const e = posix.errno(rc);
         if (e == .SUCCESS) {
@@ -302,8 +321,13 @@ fn readKept(s: i32, reg: i64, into: *rig.String, want: usize) Error!usize {
             if (into.list.unusedCapacitySlice().len < n) _ = into.roomFor(std.ArrayList(u8).growCapacity(used + n) - used);
             into.appendBytes(b[0..n]);
             rig.sched.giveBlock(b);
-            if (n < asked or n == want) return n;
-            return n + readMore(s, into, want - n);
+            if (n < asked or n == want) {
+                readCame(reg, seen, n, asked);
+                return n;
+            }
+            const more = readMore(s, into, want - n);
+            readCame(reg, seen, more, want - n);
+            return n + more;
         }
         rig.sched.giveBlock(b);
         switch (e) {
@@ -339,9 +363,17 @@ fn readSome(s: i32, reg: i64, dest: []u8, limit: Limit) Error!usize {
     try rig.checkStop();
     while (true) {
         const seen = edges(reg, rig.sched.Registration.readable);
+        if (drained(reg, seen)) {
+            try waitFor(s, reg, rig.sched.Registration.readable, seen, limit);
+            continue;
+        }
         const rc = sys.read(s, dest.ptr, dest.len);
         switch (posix.errno(rc)) {
-            .SUCCESS => return @intCast(rc),
+            .SUCCESS => {
+                const n: usize = @intCast(rc);
+                readCame(reg, seen, n, dest.len);
+                return n;
+            },
             .AGAIN => try waitFor(s, reg, rig.sched.Registration.readable, seen, limit),
             .INTR => try rig.checkStop(),
             else => |e| return failure(e),
@@ -1042,23 +1074,28 @@ const Conn = struct {
         c.limit = c.settings.limit(false);
         c.writer.flush() catch return false;
         const limit: Limit = .{ .at = if (c.limit.idle) |i| rig.sched.nowNs() + i else null };
-        c.hold();
         c.reader.seek = 0;
         c.reader.end = 0;
         while (true) {
             rig.checkStop() catch return false;
             const seen = edges(c.reg, rig.sched.Registration.readable);
+            if (drained(c.reg, seen)) {
+                c.release();
+                waitFor(c.fd, c.reg, rig.sched.Registration.readable, seen, limit) catch return false;
+                continue;
+            }
+            c.hold();
             const rc = sys.read(c.fd, c.reader.buffer.ptr, c.reader.buffer.len);
             switch (posix.errno(rc)) {
                 .SUCCESS => {
                     if (rc == 0) return false;
+                    readCame(c.reg, seen, @intCast(rc), c.reader.buffer.len);
                     c.reader.end = @intCast(rc);
                     return true;
                 },
                 .AGAIN => {
                     c.release();
                     waitFor(c.fd, c.reg, rig.sched.Registration.readable, seen, limit) catch return false;
-                    c.hold();
                 },
                 .INTR => {},
                 else => return false,

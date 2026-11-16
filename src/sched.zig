@@ -2128,8 +2128,9 @@ const Poller = struct {
                 // An end (EV_EOF) is its own filter's readiness: the end
                 // of reading wakes the reader, the end of writing (this
                 // side's shutdown, or the other end's reset) the writer.
-                const bits: u32 = if (ev.filter == std.c.EVFILT.READ) Registration.readable else Registration.writable;
-                if (r.ready(bits)) any = true;
+                const reads = ev.filter == std.c.EVFILT.READ;
+                const bits: u32 = if (reads) Registration.readable else Registration.writable;
+                if (r.ready(bits, reads and ev.flags & (std.c.EV.EOF | std.c.EV.ERROR) != 0)) any = true;
             }
         } else if (linux) {
             const linux_ = std.os.linux;
@@ -2151,7 +2152,7 @@ const Poller = struct {
                 var bits: u32 = 0;
                 if (ev.events & (linux_.EPOLL.IN | linux_.EPOLL.RDHUP | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0) bits |= Registration.readable;
                 if (ev.events & (linux_.EPOLL.OUT | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0) bits |= Registration.writable;
-                if (r.ready(bits)) any = true;
+                if (r.ready(bits, ev.events & (linux_.EPOLL.RDHUP | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0)) any = true;
             }
         }
         return any;
@@ -2250,6 +2251,16 @@ pub const Registration = struct {
     waiting: std.atomic.Value(u32) = .init(0),
     readers: Waiters = .{},
     writers: Waiters = .{},
+    /// The read edges counted before the last read that came back
+    /// short, with bit 32 set, or 0: a short read left nothing to read,
+    /// so the next read waits for an edge past those before it calls
+    /// (`drained`), and makes no call only to be told to wait. Only the
+    /// fibers reading touch it.
+    drained_at: std.atomic.Value(u64) = .init(0),
+    /// Set once the poller sees the end of reading (the other end's
+    /// half-close, a hang-up, a failure), before it counts that edge: a
+    /// read then returns at once, so none waits for an edge past it.
+    read_ended: std.atomic.Value(bool) = .init(false),
     /// Its neighbors in the list of every registration, kept in a
     /// deterministic run, which looks at what each still has to send
     /// before its clock jumps (`unsent`).
@@ -2271,9 +2282,12 @@ pub const Registration = struct {
         return @truncate(if (interest == readable) v else v >> 32);
     }
 
-    /// The poller saw `bits`: count an edge each way, then wake who waits
-    /// on them.
-    fn ready(r: *Registration, bits: u32) bool {
+    /// The poller saw `bits`, and the end of reading when `ended`: count
+    /// an edge each way, then wake who waits on them. The end is marked
+    /// before the edge is counted, so a reader that reads the count sees
+    /// the mark (`drained`).
+    fn ready(r: *Registration, bits: u32, ended: bool) bool {
+        if (ended) r.read_ended.store(true, .monotonic);
         _ = r.seen.fetchAdd(@as(u64, bits & readable) | @as(u64, bits & writable) << 31, .seq_cst);
         if (r.waiting.load(.seq_cst) == 0) return false;
         r.lock.lock();
@@ -2334,6 +2348,23 @@ pub fn deregister(r: *Registration) void {
 /// (`waitReady`).
 pub fn edges(r: *Registration, interest: u32) u32 {
     return Registration.edgesOf(r.seen.load(.acquire), interest);
+}
+
+/// Whether a read on `r` would find nothing: its last read came back
+/// short, leaving nothing behind it, and the poller has seen no edge to
+/// read since (`seen`, read before the call) nor the end of reading. A
+/// stream's read returns less than it asked only when it took all there
+/// was (or stopped at urgent data, which waits for the next edge), and
+/// bytes that come after it make an edge, so the read would only be told
+/// to wait: the caller waits for an edge past `seen` (`waitReady`) first.
+pub fn drained(r: *Registration, seen: u32) bool {
+    return r.drained_at.load(.monotonic) == (@as(u64, seen) | 1 << 32) and !r.read_ended.load(.monotonic);
+}
+
+/// A read on `r` took bytes, all there were when `short`: the read
+/// edges counted before it were `seen` (`drained`).
+pub fn readCame(r: *Registration, seen: u32, short: bool) void {
+    r.drained_at.store(if (short) @as(u64, seen) | 1 << 32 else 0, .monotonic);
 }
 
 /// How a wait on a descriptor ended (`waitReady`).
