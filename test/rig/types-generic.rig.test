@@ -228,6 +228,82 @@ fail "a bracketed generic call is named as written where it fails", "11:7: `id[I
 
   run(3) catch |e| print(e)
 
+test "generic owned closure literal", "4 13 6 13 5 4"
+  # An owned closure literal, `*|x| ...`, takes its parameter types from
+  # what the other arguments bind and binds what its result gives, as a
+  # closure literal lent to the call does: with captures, nested in
+  # another closure, or holding one.
+  fun apply[T, R](x: T, f: *fun(T) -> R) -> R
+    f(x)
+
+  fun lend[T, R](x: T, f: ?fun(T) -> R) -> R
+    f(x)
+
+  fun maker[T](x: T) -> *fun(T) -> T
+    *|y| y
+
+  sub main()!
+    k = 10
+    m = maker(4)
+    print(apply(3, *|x| x + 1), apply(3, *|+k, x| x + k), lend(3, |x| apply(x, *|y| y * 2)), lend(3, |+k, x| x + k), m(5), apply(3, *|x| lend(x, |y| y + 1)))
+
+fail "generic closure that propagates reports its own error alone", "10:24: type `Int` has no method `abs`", "11:39: type `Int` has no method `abs`", errors: 2
+  # A closure whose errors leave a type parameter unbound is checked
+  # once, as the call's parameter says it fails: not again as one that
+  # cannot.
+  use std.time
+
+  fun apply[T, R](x: T, f: ?fun(T) -> R!) -> R!
+    f(x)!
+
+  sub main()!
+    print(apply(3, |x| x.abs()!)!)
+    r = time.within(time.SECOND, || (3).abs()!)!
+    print(r)
+
+fail "generic closure in error infers nothing more", "11:19: type `Int` has no method `nope`", "12:17: use of unbound name `nope`", "13:22: use of unbound type `Nope`", errors: 3
+  # A closure whose result or written parameter type is in error leaves
+  # what it would bind unbound, and another closure waiting on it
+  # untyped: the error about it says why, with no "cannot infer".
+  fun pair[A, B](f: ?fun() -> A, g: ?fun(A) -> B) -> B
+    g(f())
+
+  fun apply[T, R](x: T, f: ?fun(T) -> R) -> R
+    f(x)
+
+  sub main()!
+    print(pair(|| 3.nope(), |a| a + 1))
+    print(pair(|| nope, |a| a + 1))
+    print(apply(3, |x: Nope| x))
+
+fail "generic owned closure literal checked", "8:17: `?fun(Int) -> Int` views a closure for the call; write the closure without `*` (remove the `*`)", "9:25: type `Int` has no method `abs`", errors: 2
+  fun apply[T, R](x: T, f: *fun(T) -> R) -> R
+    f(x)
+
+  fun lend[T, R](x: T, f: ?fun(T) -> R) -> R
+    f(x)
+
+  sub main()!
+    print(lend(3, *|x| x + 1))
+    print(apply(3, *|x| x.abs()))
+
+fail "generic closure's errors leave a parameter unbound", "12:30: type `?Int` has no method `nope`", "13:35: type `?Int` has no method `abs`", "14:39: type `Int` has no method `abs`", errors: 3
+  # A closure whose result would bind a type parameter, and whose body is
+  # in error, says why the parameter is unbound: its errors are reported,
+  # checked with the parameter types the call gives it.
+  use std.sort
+  use std.time
+
+  fun keyed[T, K](xs: ?[]T, key: ?fun(?T) -> K) -> List[K]
+    List[K]()
+
+  sub main()!
+    xs = List([1, 2])
+    print(keyed(?xs[..], |x| x.nope()))
+    sort.sort_by_key(!xs[..], |a| a.abs())
+    r = time.within(time.SECOND, || (3).abs())!
+    print(r)
+
 fail "generic closure arg inference", "15:7: cannot infer `T` for `g` from its arguments or the type expected of its result", "16:7: conflicting types for `T` in the call to `h`: `Int` (argument 1) and `Bool` (argument 2)", "17:7: conflicting types for `T` in the call to `both`: `Int` (argument 1) and `Bool` (argument 2)"
   # A closure literal passed to a generic function takes its parameter
   # types from what the other arguments bind, so a type parameter nothing

@@ -335,9 +335,10 @@ it where the negation was meant. Trig has no such site.
 **`!` of a value that changes by a marked call lends to read.** `!x`
 puts only a read loan on `x` when it lends a write view of a Cell, a
 Signal, a channel, an actor, or a value that holds a Cell, judged by the
-type where it is lent (Core §4); `!h` lending the handle itself,
-assigning `h`, and dropping it stay writes. The rule accepts more
-programs and rejects none: `!c.add((!c).swap(4))`,
+concrete type of the value lent from (Core §4); `!h` lending the handle
+itself, assigning `h`, and dropping it stay writes. The rule itself
+accepts more programs and rejects none (the `swap` change above is the
+one that rejects): `!c.add((!c).swap(4))`,
 `!ch.send((!ch.recv()! ?? 0) + 5)!`, a view `r = ?c` kept across
 `!c.set(5)`, `hit2(!h, !h)` for two `!Hits`, `(!@).bump((!@).bump(1))`,
 a put into std.shared's map while a view it gave lives, and a task of
@@ -346,6 +347,37 @@ read loan while it runs. One fact, `loanOf`, recorded by typecheck,
 replaces the ownership checker's exceptions for actor calls and select
 arms.
 
+- An owned closure literal passed to a generic function,
+  `apply(3, *|x| x + 1)` with `f: *fun(T) -> R`, takes its parameter
+  types from the other arguments and binds the result's type, as a
+  closure lent to the call does, and builds and runs, where `rig check`
+  accepted it and emit failed ("cannot emit an untyped parameter").
+- A closure written in `par.map` or `par.workers` whose body is in
+  error, `par.map(?xs, |x| x.abs())` on `Int`s or `|c| (!c).swap(5)`
+  on a read view of a `*Cell`, is rejected with its own error, checked
+  given the element it is lent, where `rig check` accepted it and emit
+  stopped with an internal error. This rejects programs `rig check`
+  accepted, none of which built. A closure that propagates, or gives
+  nothing to `par.map`, reports its own errors too, with no stray
+  "use of `!` propagation requires a fallible enclosing function". A
+  closure passed to a generic function whose result would bind a type
+  parameter, `sort.sort_by_key(!xs[..], |a| a.abs())`, reports its
+  errors in place of "cannot infer `K`".
+- A closure in `par.map` or `par.workers` that takes more parameters
+  than the call passes, `par.map(?xs, |x, y| x + y)`, is rejected with
+  "this closure takes 2 parameters, but `par.map` passes 1", where
+  `rig check` accepted it and emit failed.
+- A generic call reports no "cannot infer" for a type parameter left
+  unbound by a closure in error: one whose result is in error, one
+  waiting on its result, or one with a parameter of an unknown type,
+  `apply(3, |x: Nope| x)`; the closure's error says why.
+- A closure in error that propagates, written in `par.map`,
+  `task.isolate`, `task.supervise`, a select arm, `reduce`, or a generic
+  call whose function can fail, is checked as one that can fail, the
+  reading with fewer errors: its own errors are reported once, with no
+  "use of `!` propagation requires a fallible enclosing function" and
+  no "`!` needs a fallible operand" or "fallible call ... must be
+  wrapped" about the call, which gives no type of its own.
 - A method task through a shared handle or a box, `(!h).bump()&` or
   `?h.peek()&` of a `*T`, a `*Frozen[T]`, or a `^T`, in a local, a
   field, an element, or through a view, builds and runs, where `rig
