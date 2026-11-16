@@ -42,3 +42,14 @@ The owner approved the design ([design.md](design.md)) in his words
   `seeds: 20`, concurrency-chan "chan lend ...".
 - The docs' examples the rule makes legal turned from `rig pending` to
   `rig`.
+
+## Gates
+
+- `tools/emit-diff origin/main` with the branch's `bin/rig`: identical,
+  36 programs, 533 files.
+- The core suite: green but for the reference checker, which still
+  holds the old rule until its own change teaches it CORE's text: it
+  rejects `doc/SPEC/5cf88226f148 main` and
+  `test/behavior/concurrency/cell_lend_a_task_through_a_handle.rig main`,
+  the first it meets of the programs the rule newly accepts. Those wait
+  for the merge with that change.
