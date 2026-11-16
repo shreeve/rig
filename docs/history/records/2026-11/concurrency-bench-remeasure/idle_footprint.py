@@ -8,7 +8,7 @@ Each SERVER prints its port on stdout and answers `GET /`. 50 connections
 warm it, then N more each make one request and stay open; the growth over
 them, per connection, is printed with the page tables' share:
 `NAME KIB_PER_CONN PAGE_TABLE_KIB_PER_CONN`."""
-import os, platform, re, socket, subprocess, sys, time
+import os, platform, re, resource, socket, subprocess, sys, time
 
 MAC = platform.system() == "Darwin"
 
@@ -66,6 +66,13 @@ def measure(exe, n):
 
 def main():
     n = int(sys.argv[1])
+    # This process holds the N connections' client ends, and each server
+    # it starts inherits room for their server ends, as bench-http gives.
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    want = 4 * n + 1024
+    if hard != resource.RLIM_INFINITY:
+        want = min(hard, want)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (max(soft, want), hard))
     for exe in sys.argv[2:]:
         per, tables = measure(exe, n)
         print("%s %.1f %.2f" % (os.path.basename(exe), per, tables), flush=True)
