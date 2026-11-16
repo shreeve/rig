@@ -135,11 +135,18 @@ worker after.
 - **Looks batched.** A look at a poller is a system call, and at
   saturation every worker goes to sleep many times a millisecond. A
   worker about to sleep looks at another's poller only when that poller
-  holds descriptors, no worker sleeps in it (`Worker.sleep_due`: from
-  before it reckons its timeout to after its wait, which sees what lands
-  there), and no look or wait in it, its owner's or any other worker's,
-  has ended within `look_after`, 20 µs (`Poller.looked_at`,
-  `sched.lookWorth`). Each poller is then looked at by the sleeping
+  holds descriptors, and skips it for one of two reasons alone. Its
+  worker is inside the kernel's wait in it right now (`Poller.in_wait`,
+  set under the poller's lock just before the blocking call and cleared
+  as it returns): the wait returns what lands there at once, and the
+  lock it holds would fail the look anyway. Or a look or a wait in it,
+  its owner's or any other worker's, ended within `look_after`, 20 µs,
+  of the clock read for that poller (`Poller.looked_at`,
+  `sched.lookWorth`). A worker that has gone to sleep but is not inside
+  its wait, as it flushes stdout before it, scans the other pollers, or
+  is descheduled, is looked at as a busy one is: were it skipped, a
+  flush blocked on a full pipe whose reader waits for an answer on a
+  socket in that poller would never end. Each poller is then looked at by the sleeping
   workers about once in that time, rather than once by each, and a
   sleep enters the kernel once, for its wait, where it entered once for
   every worker's poller and once more to wait. Events that land on a
@@ -151,7 +158,8 @@ worker after.
   1 ms and `look_after`, and while the busy worker makes yield checks,
   no longer than 250 µs, as without the rule. A worker that finds work
   as it looks at the others goes back to it, and looks at its own
-  poller first, which it left to the wait. A deterministic run sleeps
+  poller first, which it left to the wait, and so does a watcher that
+  finds work in its scan after its wait. A deterministic run sleeps
   in no poller and is unchanged.
 - **Every poller watched.** While a worker that does not sleep holds
   descriptors, one sleeping worker at a time watches every poller
