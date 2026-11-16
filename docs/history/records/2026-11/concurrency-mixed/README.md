@@ -123,6 +123,11 @@ and a server's lead or lag shows above it.
 
 ## Possible scheduler problems
 
+Both were followed up in [stalls.md](stalls.md): the stalls are the
+Mac's, every process's threads unrun at once, in hyper and Go as often
+as in Rig; the overload drop did not reproduce under a fixed background
+load.
+
 - **Two stalls of 54-63 ms in Rig.** Of 56 Rig runs at or below
   120,000 a second, two had one stall each, both at 60,000 and both in
   the idle board (max 62.9 ms with idle connections, 54.2 ms with

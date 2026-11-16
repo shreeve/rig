@@ -1,0 +1,25 @@
+# bench-mixed 2026-11-16 04:50 load 3.45 4.69 5.39 commit 91b2ee3ef+dirty Darwin arm64 10 cores; rates 120000,160000, 5000 idle, 128 conns, 1 in 4 computes
+rig-safe  round 0  120000 offered  119992 done  p50 190 us  p99 1812 us  p99.9 4429 us  max 7895 us  srv 3.4 cores  idle 99/99
+rig-safe  round 0  160000 offered  121019 done  p50 720 ms  p99 1209 ms  p99.9 1221 ms  max 1231 ms  srv 3.6 cores  idle 99/99
+tokio     round 0  120000 offered  119997 done  p50 178 us  p99 1837 us  p99.9 3138 us  max 3932 us  srv 3.2 cores  idle 99/99
+tokio     round 0  160000 offered  121502 done  p50 718 ms  p99 1193 ms  p99.9 1204 ms  max 1215 ms  srv 3.5 cores  idle 99/99
+go        round 0  120000 offered  118273 done  p50 42.8 ms  p99 82.7 ms  p99.9 96.5 ms  max 104 ms  srv 4.6 cores  idle 99/99
+go        round 0  160000 offered  110072 done  p50 922 ms  p99 1547 ms  p99.9 1564 ms  max 1582 ms  srv 4.6 cores  idle 99/99
+tokio     round 1  120000 offered  119996 done  p50 174 us  p99 1401 us  p99.9 2271 us  max 3082 us  srv 3.2 cores  idle 99/99
+tokio     round 1  160000 offered  121430 done  p50 716 ms  p99 1195 ms  p99.9 1207 ms  max 1217 ms  srv 3.5 cores  idle 99/99
+go        round 1  120000 offered  119311 done  p50 19.1 ms  p99 44.7 ms  p99.9 52.1 ms  max 55.1 ms  srv 4.6 cores  idle 99/99
+go        round 1  160000 offered  110748 done  p50 908 ms  p99 1527 ms  p99.9 1543 ms  max 1557 ms  srv 4.6 cores  idle 99/99
+rig-safe  round 1  120000 offered  119996 done  p50 191 us  p99 1623 us  p99.9 2378 us  max 4585 us  srv 3.4 cores  idle 99/99
+rig-safe  round 1  160000 offered  113545 done  p50 870 ms  p99 1441 ms  p99.9 1458 ms  max 1472 ms  srv 3.4 cores  idle 99/99
+
+120000 req/s offered
+          runs                req/s                  p50                  p99                p99.9                  max                / p99            /hash p99            srv cores
+rig-safe     2      119992 (119996)      190 us (190 us)    1623 us (1623 us)    2378 us (2378 us)    4585 us (4585 us)    1615 us (1615 us)    1639 us (1639 us)            3.4 (3.4)
+tokio        2      119996 (119997)      174 us (174 us)    1401 us (1401 us)    2271 us (2271 us)    3082 us (3082 us)    1394 us (1394 us)    1420 us (1420 us)            3.2 (3.2)
+go           2      118273 (119311)    19.1 ms (19.1 ms)    44.7 ms (44.7 ms)    52.1 ms (52.1 ms)    55.1 ms (55.1 ms)    44.7 ms (44.7 ms)    44.8 ms (44.8 ms)            4.6 (4.6)
+
+160000 req/s offered
+          runs                req/s                  p50                  p99                p99.9                  max                / p99            /hash p99            srv cores
+rig-safe     2      113545 (121019)      720 ms (720 ms)    1209 ms (1209 ms)    1221 ms (1221 ms)    1231 ms (1231 ms)    1209 ms (1209 ms)    1209 ms (1209 ms)            3.4 (3.4)
+tokio        2      121430 (121502)      716 ms (716 ms)    1193 ms (1193 ms)    1204 ms (1204 ms)    1215 ms (1215 ms)    1193 ms (1193 ms)    1193 ms (1193 ms)            3.5 (3.5)
+go           2      110072 (110748)      908 ms (908 ms)    1527 ms (1527 ms)    1543 ms (1543 ms)    1557 ms (1557 ms)    1527 ms (1527 ms)    1527 ms (1527 ms)            4.6 (4.6)
