@@ -8106,6 +8106,14 @@ const Checker = struct {
         const param = args[0];
         switch (needs.t) {
             .copies => if (!try self.cannotCopy(param, pos, needs.op)) return true,
+            // A copy kept where no loan is tracked holds no view; one in a
+            // generic body asks each instance for none (`Checker.requireNoView`
+            // in the ownership checker).
+            .plain => if (sema.mayHoldView(self.ctx, param)) {
+                const shown = try self.tyName(param);
+                try self.err(pos, "{s}, and {s} `{s}` holds a view, whose loan the List would not carry: push each element, `!xs.push(y)`", .{ needs.says.into_elements.what, article(shown), shown });
+                return false;
+            } else if (!try self.cannotCopy(param, pos, needs.op)) return true,
             .records => return self.readsRecords(m.name, param, pos, if (values.len > 0 and !values[0].isKind(.kwarg)) values[0] else null),
             .equatable => {
                 var params: std.ArrayList(SymbolId) = .empty;

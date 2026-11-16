@@ -3711,6 +3711,21 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
             self.len = want;
         }
 
+        /// `!v.extend(?s)`: append a copy of each element of `s`, growing
+        /// once and copying them in with one `@memcpy`. Sema admits only
+        /// a `T` that copies and holds no view, and the ownership checker
+        /// keeps `s` from viewing this List, which is lent to write.
+        pub fn extend(self: *Self, src: []const T) void {
+            if (src.len == 0) return;
+            self.reserveTotal(self.len + src.len);
+            if (comptime @sizeOf(T) != 0) {
+                const m = self.mem();
+                invariant(self.len + src.len <= m.len);
+                @memcpy(m.ptr[self.len..][0..src.len], src);
+            }
+            self.len += src.len;
+        }
+
         /// `!v.extend_from_bytes(s)`: append the records the bytes of `s`
         /// hold, each its fields' bytes in declaration order, in the
         /// machine's byte order (`recordFromBytes`), growing once. Sema

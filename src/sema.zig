@@ -1156,10 +1156,12 @@ pub const SelfMode = enum { none, read, write, value };
 /// requirement one on each instance, as a Rig-written generic's use does
 /// (`Requirement.copies`).
 pub const Needs = struct {
-    /// A `T` that copies, a `T` whose every bit pattern is a value
+    /// A `T` that copies, a `T` that copies and holds no view
+    /// (`plain`), whose copies the method keeps where no loan is
+    /// tracked, a `T` whose every bit pattern is a value
     /// (`bytesRecord`), which the method makes from bytes, or a `T`
     /// that `==` compares.
-    t: enum { copies, records, equatable },
+    t: enum { copies, plain, records, equatable },
     /// What the method does with a `T`, as the note of a generic body
     /// whose instance fails says it.
     op: []const u8,
@@ -4082,6 +4084,8 @@ pub const NoLoanHome = enum {
     /// An actor made, `*Actor(x)` or `*Actor.supervised(f)`, whose value
     /// holds a `T`.
     actor_made,
+    /// The elements of a slice copied into a List, `!xs.extend(?s)`.
+    list_extend,
 
     /// What the body does with a value of parameter `pname`, after
     /// "the generic body".
@@ -4093,6 +4097,7 @@ pub const NoLoanHome = enum {
             .channel => std.fmt.allocPrint(a, "sends a `{s}` into a channel", .{pname}),
             .channel_made => std.fmt.allocPrint(a, "makes a channel of `{s}`", .{pname}),
             .actor_made => std.fmt.allocPrint(a, "makes an actor whose value holds a `{s}`", .{pname}),
+            .list_extend => std.fmt.allocPrint(a, "copies `{s}`s into a List with `extend`", .{pname}),
         };
     }
 
@@ -4100,6 +4105,7 @@ pub const NoLoanHome = enum {
     pub fn site(h: NoLoanHome) []const u8 {
         return switch (h) {
             .channel_made, .actor_made => "made here",
+            .list_extend => "copied here",
             else => "stored here",
         };
     }
@@ -4113,6 +4119,7 @@ pub const NoLoanHome = enum {
             .closure => "an owned closure",
             .channel, .channel_made => "a channel",
             .actor_made => "an actor's value",
+            .list_extend => "a List's `extend`",
         };
     }
 };
