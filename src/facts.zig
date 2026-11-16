@@ -428,8 +428,8 @@ pub const Facts = struct {
     pub fn readsInPlace(f: Facts, node: Sexp) bool {
         return f.c().readsInPlace(node);
     }
-    pub fn isTaskJoin(f: Facts, call: Sexp) bool {
-        return f.c().isTaskJoin(call);
+    pub fn taskJoinOf(f: Facts, call: Sexp) ?bool {
+        return f.c().taskJoinOf(call);
     }
     pub fn isActorMake(f: Facts, call: Sexp) bool {
         return f.c().isActorMake(call);

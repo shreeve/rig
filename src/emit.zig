@@ -9427,12 +9427,13 @@ pub const Emitter = struct {
         };
 
         if (self.facts.builtinCallOf(callee)) |b| return self.emitBuiltinCall(sexp, callee, b);
-        // `task.all(a, b, ...)`: the tasks, waited for together.
-        if (self.facts.isTaskJoin(sexp)) {
+        // `task.all(a, b, ...)`: the tasks, waited for together, giving
+        // their values or nothing, as the checker decided.
+        if (self.facts.taskJoinOf(sexp)) |values| {
             const out = self.slotOf(sexp);
             try self.w.writeAll("rig.waitTasksInto(.{ ");
             try self.emitArgs(sexp);
-            return self.w.print(" }}, {s})", .{out});
+            return self.w.print(" }}, {s}, {})", .{ out, values });
         }
         // `c.m(args)` through an actor's handle: a message the runtime
         // sends, which waits for the answer.

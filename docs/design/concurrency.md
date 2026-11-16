@@ -105,7 +105,10 @@ place a fallible type stands as a type argument.
 - `<t.cancel()` cancels a fallible task, waits for it, and gives what it
   returned, usually `Stop.canceled`.
 - `task.all(a, b, c)` waits for several tasks of different types at
-  once. The first error cancels the others.
+  once, and gives each one's value, or nothing when none gives one
+  (`task.all(save(?a)&, save(?b)&)!`). The first error cancels the
+  others, those that cannot fail among them: their waits that can fail
+  fail with `Stop.canceled`, and they run on to their end.
 - `time.within(d, |<t| >t!)` waits with a deadline: `within` calls its
   closure once (`f: once ?fun() -> R!`), so the closure may move the
   task in.

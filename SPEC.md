@@ -14517,9 +14517,67 @@ sub main()
 `task.all(a, b, ...)` of `std.task`
 ([std.task](docs/STD.md#stdtask)) waits for two tasks or more, of
 different types, and gives each one's value as several results:
-`u, o = task.all(user(id)&, orders(id)&)!`. The call takes its tasks,
-and can fail when any of them can; then the first to fail cancels the
-others.
+`u, o = task.all(user(id)&, orders(id)&)!`. When no task gives a
+value, as a `sub`'s gives none, the call gives nothing and stands as a
+statement: `task.all(save(?a)&, save(?b)&)!`. One call does not mix
+the two; tasks that give no value wait in a `task.all` of their own.
+In a generic body, a task whose type is a type parameter's, `Task[T]`,
+gives a value, a `T`, even in an instance that binds `T` to `Void`: the
+body is checked once, for every instance, so `x, y = task.all(<a, <b)`
+binds two `Void`s there, and `task.all(<a, <b)` of a `Task[T]` and a
+`Task[U]` waits for a `Void` task and an `Int` task together.
+The call takes its tasks, and can fail when any of them can; then the
+first to fail cancels the others, those that cannot fail among them.
+A task that cannot fail meets that cancel as any task does: each of
+its waits that can fail fails with `Stop.canceled`, which it catches
+as its code says, and it runs on to its end. Only a cancel it is
+handed by name, `<t.cancel()`, is rejected for it. The loans of its
+tasks end where it returns.
+
+```rig
+use std.task
+use std.time
+
+error Bad
+  no
+
+sub slow()
+  time.sleep(2) catch |e| print("slow saw", e)
+  print("slow ends")
+
+sub bad()!
+  return Bad.no
+
+sub main()
+  task.all(slow()&, bad()&) catch |e| print("all:", e)
+```
+
+```output
+slow saw Stop.canceled
+slow ends
+all: Bad.no
+```
+
+```rig
+use std.task
+
+error Name
+  empty
+
+sub check(name: ?String)!
+  return Name.empty if name.len == 0
+
+sub main()
+  a = String("ann")
+  b = String("")
+  task.all(check(?a)&, check(?b)&) catch |e| print(e)
+  print(a, b.len)
+```
+
+```output
+Name.empty
+ann 0
+```
 
 A wait fails with the set its work declares: `task.all` with the one of
 its tasks' sets that holds the others, `par.map` and `par.each` with
