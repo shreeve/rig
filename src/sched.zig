@@ -2861,7 +2861,7 @@ fn lookWorth(v: *Worker) bool {
 /// scan does not stretch this. A busy worker's descriptors, with a worker asleep,
 /// wait no longer than `watch_every` plus this time, and while it makes
 /// yield checks no longer than `poll_interval`.
-const look_after: i96 = 20 * std.time.ns_per_us;
+const look_after: i96 = 250 * std.time.ns_per_us;
 
 /// An interrupt canceled `main` (`rt.onInterrupt`): end its wait, here
 /// on a worker, as the handler may not. What a worker looks at as it
