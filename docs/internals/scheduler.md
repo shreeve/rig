@@ -230,16 +230,24 @@ worker after.
   the Mac, and on Linux by `epoll_pwait2`, whose timeout counts
   nanoseconds (the thread's timer slack, 50 µs unless set, stretches it,
   as it stretches Go's `usleep(3)`; a kernel without the call keeps the
-  spin). Work made while it waits kicks it (`sched.kickWaiting`), and
-  every wait ends in a fresh look, its own queues and the rings first,
-  then the task it noted. A look that finds the task's worker has
+  spin). Work made while it waits kicks it (`sched.kickWaiting`), but
+  for work that only waits in its maker's slots, which the waiter
+  watches already: a kick there would cost the busy worker a system
+  call at each switch only to have the waiter look early
+  (`sched.notifyNext`). Every wait ends in a fresh look, its own queues and
+  the rings first, then the task it noted. A look that finds the task's worker has
   switched (its `ran` moved) before the 3 µs pass notes it again, and a
   search makes at most three notes before its worker sleeps: a worker
   that switches may run the task itself. The time the searcher first saw
   the task in that slot is kept across its notes, its waits, and its
   sleeps (`sched.Note`, kept by the worker's loop until it sees another
   task there or runs one), so neither a kick nor the worker's switches
-  nor a sleep start the 3 µs again, and once they have passed the task
+  nor a sleep start the 3 µs again. A task put back in that slot, woken
+  again or new at the address of one that ended, is seen afresh, by the
+  slot's fill count (`sched.Worker.lifo_fills`): taken as one that
+  stayed, it would go cold to the searcher as its worker was about to
+  run it, as each connection's task does that a server's accept loop
+  makes. Once the 3 µs have passed the task
   is taken however often its worker switched: two tasks that wake each
   other into a worker's newer slots, which it runs first, cannot keep an
   older one there. A global queue takes overflow and work from outside

@@ -685,7 +685,10 @@ arms.
   3 µs by its own clock, across its own sleeps and however often that
   worker switched; work made meanwhile kicks it (`sched.stealNext`).
   A look that finds the worker has switched before then counts toward
-  the three notes after which the searcher sleeps.
+  the three notes after which the searcher sleeps. A task put back in
+  the slot, woken again or new at a freed one's address, is seen
+  afresh, by the slot's fill count, and work that only waits in its
+  maker's slots kicks no waiting searcher.
 - **`http.serve` copies no request's text for its handler:** a
   request's `method`, `path`, `query`, and `head` view the bytes read,
   which the handler only reads (`?http.Request`), and only its `body`
