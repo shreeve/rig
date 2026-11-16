@@ -3818,9 +3818,10 @@ fn runFiber(w: *Worker, f: *Fiber) void {
 /// would hand them on, and without this they waited for the monitor's
 /// stop, about 1 ms. A switch with nothing else waiting costs two loads.
 inline fn spread(w: *Worker) void {
-    if (!nextHeld(w, .monotonic) and w.ring.isEmpty()) return;
+    const ring_work = !w.ring.isEmpty();
+    if (!ring_work and !nextHeld(w, .monotonic)) return;
     if (builtin.is_test) _ = test_spreads.fetchAdd(1, .monotonic);
-    notify();
+    if (ring_work) notify() else notifyNext();
 }
 
 /// Test only: how many switches found other work waiting and woke a
@@ -4123,6 +4124,23 @@ fn notifyNew() void {
 fn notify() void {
     if (deterministic.*) return;
     if (searching.load(.seq_cst) != 0) return kickWaiting();
+    if (sleepers.count.load(.seq_cst) == 0) return;
+    if (sleepers.pop()) |w| {
+        _ = searching.fetchAdd(1, .seq_cst);
+        w.searching = true;
+        wakeWorker(w);
+    }
+}
+
+/// `notify` for work only in this worker's "run next" slots, which no
+/// searcher may take before it has seen it there `steal_next_after`
+/// (`stealNext`): a searcher waiting for one wakes at that time anyway
+/// (`waitBriefly`), and a kick would only have it look early and wait
+/// again, so none is sent. With no worker searching, a sleeper is woken,
+/// as `notify` wakes one, to take the fiber should its owner keep it.
+fn notifyNext() void {
+    if (deterministic.*) return;
+    if (searching.load(.seq_cst) != 0) return;
     if (sleepers.count.load(.seq_cst) == 0) return;
     if (sleepers.pop()) |w| {
         _ = searching.fetchAdd(1, .seq_cst);
