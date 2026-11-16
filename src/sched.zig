@@ -4041,7 +4041,11 @@ fn stealNext(w: *Worker, v: *Worker, note: *Note) Found {
     const until = note.first + steal_next_after;
     if (now < until) {
         if (Poller.waitsFine()) {
-            waitBriefly(w, until);
+            // An owner that has not switched since the note is stuck in
+            // one fiber, and the fiber is taken at `until`: the wait keeps
+            // to its time. One that switched will likely run the fiber
+            // itself, and the wait may run long.
+            waitBriefly(w, until, note.ran == ran);
             return .again;
         }
         while (nowNs() < until) std.atomic.spinLoopHint();
@@ -4065,7 +4069,7 @@ const steal_waits = split.cell(&steal_waits_var, "sched.steal_waits");
 /// its next look, or by the last look of its sleep, so no wake is lost
 /// (formal/Models/Sleep.lean, where a wait is a step that changes
 /// nothing); the kick only makes the wait shorter.
-fn waitBriefly(w: *Worker, until: i96) void {
+fn waitBriefly(w: *Worker, until: i96, precise: bool) void {
     const left = until - nowNs();
     if (left <= 0) return;
     w.steal_wait.store(true, .seq_cst);
@@ -4075,6 +4079,14 @@ fn waitBriefly(w: *Worker, until: i96) void {
         w.steal_wait.store(false, .monotonic);
     }
     if (builtin.is_test) _ = test_brief_waits.fetchAdd(1, .monotonic);
+    // On Linux the thread's timer slack, 50 µs unless set, stretches a
+    // wait of a few microseconds many times over: a precise wait sets it
+    // to 1 ns for itself alone, and gives the default back after.
+    const tight = precise and builtin.os.tag == .linux;
+    if (tight) _ = std.os.linux.prctl(@intFromEnum(std.os.linux.PR.SET_TIMERSLACK), 1, 0, 0, 0);
+    defer if (tight) {
+        _ = std.os.linux.prctl(@intFromEnum(std.os.linux.PR.SET_TIMERSLACK), 0, 0, 0, 0);
+    };
     _ = w.poller.pollAs(left, false);
 }
 

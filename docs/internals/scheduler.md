@@ -228,9 +228,13 @@ worker after.
   own poller, still counted as searching, rather than spinning, so its
   core goes to whatever else the machine runs: by kevent's timeout on
   the Mac, and on Linux by `epoll_pwait2`, whose timeout counts
-  nanoseconds (the thread's timer slack, 50 µs unless set, stretches it,
-  as it stretches Go's `usleep(3)`; a kernel without the call keeps the
-  spin). Work made while it waits kicks it (`sched.kickWaiting`), but
+  nanoseconds. The thread's timer slack, 50 µs unless set, would
+  stretch that wait, as it stretches Go's `usleep(3)`: where the task's
+  worker has not switched since the note, stuck in one fiber, the wait
+  sets the slack to 1 ns for itself and gives the default back after, so
+  the task is taken on time; where it switched, and will likely run the
+  task itself, the wait keeps the default. A kernel without the call
+  keeps the spin. Work made while it waits kicks it (`sched.kickWaiting`), but
   for work that only waits in its maker's slots, which the waiter
   watches already: a kick there would cost the busy worker a system
   call at each switch only to have the waiter look early
