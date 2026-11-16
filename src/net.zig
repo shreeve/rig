@@ -1012,7 +1012,7 @@ fn answer(comptime F: type, f: F, request: *std.http.Server.Request, max_body: u
     };
     defer rig.drop(&resp);
     const status: u10 = @intCast(rig.unsigned(std.math.clamp(@field(resp, "status"), 100, 999)));
-    const kind = @field(resp, "type").list.items;
+    const kind = contentType(@field(resp, "type"));
     const headers = [_]std.http.Header{.{ .name = "content-type", .value = kind }};
     request.respond(@field(resp, "body").list.items, .{
         .status = @enumFromInt(status),
@@ -1021,6 +1021,35 @@ fn answer(comptime F: type, f: F, request: *std.http.Server.Request, max_body: u
     }) catch return .close;
     return if (head.keep_alive) .next else .close;
 }
+
+/// The content type a response's `type` (std.http's `Type`) names: a
+/// named one's text, from `content_types`, made when the program is
+/// compiled, or `other`'s text as written.
+fn contentType(t: anytype) []const u8 {
+    return switch (t) {
+        .other => |o| o.text,
+        inline else => |_, tag| @field(content_types, @tagName(tag)),
+    };
+}
+
+/// The text of each content type std.http's `Type` names.
+const content_types = .{
+    .text = "text/plain; charset=utf-8",
+    .html = "text/html; charset=utf-8",
+    .json = "application/json",
+    .css = "text/css; charset=utf-8",
+    .js = "text/javascript; charset=utf-8",
+    .csv = "text/csv; charset=utf-8",
+    .xml = "application/xml",
+    .svg = "image/svg+xml",
+    .png = "image/png",
+    .jpeg = "image/jpeg",
+    .gif = "image/gif",
+    .webp = "image/webp",
+    .pdf = "application/pdf",
+    .wasm = "application/wasm",
+    .bytes = "application/octet-stream",
+};
 
 /// Answer `request` with `status` and the text `body`, and close the
 /// connection once the client has read it: what remains of its body is

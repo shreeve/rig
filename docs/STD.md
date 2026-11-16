@@ -1298,8 +1298,10 @@ the server goes on.
 | `Request` | `method`, `path` (the target before any `?`), `query` (after it), `head` (the request line and headers as they came), and `body` |
 | `req.arg(name)` | the value of query parameter `name`, as written, or `none` |
 | `req.header(name)` | the value of header `name`, any case, or `none` |
-| `Response` | `status`, `type` (its content type), and `body` |
+| `Response` | `status`, `type` (its content type, an `http.Type`), and `body` |
+| `Type` | `.text`, `.html`, `.json`, `.css`, `.js`, `.csv`, `.xml`, `.svg`, `.png`, `.jpeg`, `.gif`, `.webp`, `.pdf`, `.wasm`, `.bytes`, or `.other(text)`, a `Static` written as given (none when empty) |
 | `text(body)`, `json(body)`, `html(body)` | a 200 response of plain text, JSON written already, or HTML |
+| `ok(<body)` | a 200 response of plain text that takes the String `body`, copying nothing |
 | `status(code, body)` | a response of status `code` and plain text `body` |
 | `not_found()` | 404 |
 
@@ -1332,6 +1334,35 @@ sub main()!
 
 ```output
 HTTP/1.1 200 OK
+```
+
+A response's type is an `http.Type`, `.json`, which the server writes
+as its full content type; `.other(text)` writes any other. `text`,
+`json`, `html`, and `status` copy the body they read; `ok` takes a
+String built for the answer, so it is never copied.
+
+```rig
+use std.http
+
+fun count(n: Int) -> http.Response
+  http.ok(String("count: ", n))
+
+fun image(png: ?String) -> http.Response
+  http.Response(status: 200, type: .png, body: String(png))
+
+fun icon(ico: ?String) -> http.Response
+  http.Response(status: 200, type: .other("image/x-icon"), body: String(ico))
+
+sub main()
+  r = count(3)
+  i = image("PNG")
+  print(r.status, r.type, r.body)
+  print(i.type, i.body.len, icon("ICO").type)
+```
+
+```output
+200 .text count: 3
+.png 3 .other(text: "image/x-icon")
 ```
 
 The server guards itself against clients that send too much, too
