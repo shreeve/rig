@@ -685,6 +685,7 @@ pub const int_hash_mul = unordered_zig.int_mul;
 
 test {
     _ = sched;
+    _ = net;
     _ = split;
     _ = fast_alloc;
     _ = ordered_zig;
