@@ -552,9 +552,47 @@ const Checker = struct {
             .use, .type, .@"extern", .extern_fun, .extern_sub, .zig_const => {},
             .api => try self.checkApiDefaults(sexp),
             .api_add => try self.checkAddMethods(sexp),
-            .zig_extern => for (ir.ZigExtern.decls(sexp)) |d| try self.checkDecl(d),
+            .zig_extern => for (ir.ZigExtern.decls(sexp)) |d| {
+                try self.checkMarkedView(d);
+                try self.checkDecl(d);
+            },
             else => try self.errAt(sexp, not_at_module_level, .{}),
         }
+    }
+
+    /// The standard library's `extern zig` functions that give a view of a
+    /// value that changes by a marked call, each read to view only what
+    /// that value never replaces or frees while a handle to it lives: the
+    /// premise of Core §4, which the checkers see in Rig code but not in
+    /// Zig. `shared.Map`'s entries never move, and are freed when the map
+    /// drops.
+    const marked_views = [_][]const u8{ "std.shared.find", "std.shared.settle" };
+
+    /// An `extern zig` function `d` whose result may hold a view and that
+    /// takes a value that changes by a marked call (`sema.changesByMark`),
+    /// or a view of one, must be one of `marked_views`.
+    fn checkMarkedView(self: *Checker, d: Sexp) Error!void {
+        const f = if (d.isKind(.@"pub")) ir.Pub.decl(d) else d;
+        if (!f.isKind(.fun)) return;
+        const name_node = ir.get(f, .name);
+        const id = self.ctx.symbolOf(name_node) orelse return;
+        const fn_ty = switch (self.ctx.types.get(self.ctx.symbols.items[id].ty)) {
+            .function => |ft| ft,
+            else => return,
+        };
+        const result = switch (self.ctx.types.get(fn_ty.returns)) {
+            .fallible => |fl| fl.ok,
+            else => fn_ty.returns,
+        };
+        if (!sema.mayHoldView(self.ctx, result)) return;
+        const marked = for (fn_ty.params) |param| {
+            const value = sema.unwrapViews(self.ctx, param);
+            if (self.ctx.types.get(value) != .shared and sema.changesByMark(self.ctx, value)) break value;
+        } else return;
+        const name = identAt(self.ctx.source, name_node) orelse return;
+        const full = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ self.ctx.name, name });
+        for (marked_views) |listed| if (std.mem.eql(u8, listed, full)) return;
+        try self.errAt(name_node, "`{s}` gives a view of a `{s}`, which changes by marked calls, and its Zig is unchecked: it may view only what the value never replaces or frees while a handle lives (Core §4); read its Zig, then list `{s}` in `Checker.marked_views`", .{ name, try self.tyName(marked), full });
     }
 
     /// A module-level binding is a constant, `name = value`: its value
