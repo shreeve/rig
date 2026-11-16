@@ -474,21 +474,32 @@ const Wakeup = struct {
 };
 
 /// What `task.all` gives for the tasks `Tup` (a tuple of
-/// `Task`s): each one's value, in order, failing when any can fail.
+/// `Task`s): each one's value, in order, or nothing when none gives a
+/// value; failing when any can fail.
 fn TaskValues(comptime Tup: type) type {
     const tasks = @typeInfo(Tup).@"struct".field_types;
-    var values: [tasks.len]type = undefined;
     var results: [tasks.len]type = undefined;
     var fallible = false;
-    for (tasks, &values, &results) |Tk, *V, *R| {
+    for (tasks, &results) |Tk, *R| {
         R.* = Tk.__rig_args[0];
-        if (@typeInfo(R.*) == .error_union) {
-            fallible = true;
-            V.* = @typeInfo(R.*).error_union.payload;
-        } else V.* = R.*;
+        if (@typeInfo(R.*) == .error_union) fallible = true;
     }
-    const Values = @Tuple(&values);
+    const Values = if (TaskTuple(Tup) == void) void else TaskTuple(Tup);
     return if (fallible) WaitErr(&results)!Values else Values;
+}
+
+/// The tasks `Tup`'s values, as `task.all` collects them; `void` when
+/// no task gives one (the checker allows no mix).
+fn TaskTuple(comptime Tup: type) type {
+    const tasks = @typeInfo(Tup).@"struct".field_types;
+    var values: [tasks.len]type = undefined;
+    var any = false;
+    for (tasks, &values) |Tk, *V| {
+        const R = Tk.__rig_args[0];
+        V.* = if (@typeInfo(R) == .error_union) @typeInfo(R).error_union.payload else R;
+        any = any or V.* != void;
+    }
+    return if (any) @Tuple(&values) else void;
 }
 
 /// The error set a wait for work whose results are `Rs` fails with:
@@ -517,11 +528,12 @@ pub fn waitTasksInto(tasks: anytype, out: anytype) TaskValues(@TypeOf(tasks)) {
     const n = @typeInfo(Tup).@"struct".field_types.len;
     const Out = TaskValues(Tup);
     const fallible = @typeInfo(Out) == .error_union;
-    const Values = if (fallible) @typeInfo(Out).error_union.payload else Out;
+    // Tasks that give nothing are waited for as tasks that give `void`.
+    const Values = if (TaskTuple(Tup) == void) [n]void else TaskTuple(Tup);
     var values: Values = undefined;
     if (comptime !fallible) {
         inline for (0..n) |i| values[i] = tasks[i].waitInto(rt.no_slot);
-        return values;
+        return if (comptime TaskTuple(Tup) == void) {} else values;
     }
     var ts = tasks;
     // On the heap: a panic passed on from a task waited for leaves this
@@ -577,7 +589,7 @@ pub fn waitTasksInto(tasks: anytype, out: anytype) TaskValues(@TypeOf(tasks)) {
             };
         }
     }
-    const err = failure orelse return values;
+    const err = failure orelse return if (comptime TaskTuple(Tup) == void) {} else values;
     inline for (0..n) |i| if (!taken[i]) ts[i].control.cancel();
     inline for (0..n) |i| if (!taken[i]) {
         var result = ts[i].job.join();

@@ -29,7 +29,7 @@ Rig gives each through the same `&` and `>t`, on one scheduler.
 | Threads and preemption | OS threads, Go | nothing: the runtime runs a worker per core |
 | Async I/O | Tokio | an ordinary call that reads a socket |
 | Compute | Rayon | `t = f()&`, `g()`, `>t`; `par.map`, `par.each`, `par.push` |
-| Tasks | Go | `f()&`, `Tasks[T]`, `<t.cancel()`, `time.within` |
+| Tasks | Go | `f()&`, `Tasks[T]`, `task.all`, `<t.cancel()`, `time.within` |
 | Actors | Erlang | `*Actor(x)`, and its methods called through the handle |
 | Structured concurrency | Swift | nothing more: a task belongs to its scope |
 | Channels and select | Go's CSP | `*Chan[T](n)`, `task.select(...)` |
@@ -178,6 +178,10 @@ sub main()
 
 `<ts.wait_first()` gives the first success and cancels the rest, so
 mirror 3's minute of sleep ends at once; `>ts` waits for them all.
+`task.all(a&, b&)` waits for a few tasks of different types at once,
+giving each one's value, or nothing when they give none, as `sub`s do:
+`task.all(save(?x)&, save(?y)&)!` is one visible wait, where the first
+to fail cancels the others.
 
 **Underneath,** a task is a fiber: a record and a stack of its own,
 switched by saving and restoring the few registers a call keeps. It is

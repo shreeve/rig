@@ -111,6 +111,11 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **`task.all` of tasks that give no value** (branch `task-all-subs`;
+  owner, 2026-11-03): `task.all(f()&, g()&)!` waits for several `sub`s
+  and gives nothing; a mix of tasks that give values and tasks that
+  give none stays rejected. Accepts more programs and rejects none.
+  Records: `docs/history/records/2026-11/concurrency-task-all/notes.md`.
 - **FIFO reads on macOS** (branch `fifo-pool`): `file.read` of a FIFO,
   and a `File`'s reads of one, read without blocking and wait in a
   poll of at most 64 ms, since a read parked in the macOS kernel can

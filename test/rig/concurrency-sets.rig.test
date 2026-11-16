@@ -231,6 +231,114 @@ test "sets all", seeds: 20, "4 9 16 25"
   a, b, c, d = task.all(sq(2)&, sq(3)&, sq(4)&, <t)
   print(a, b, c, d)
 
+test "sets all subs", seeds: 20, '''
+  0 1
+  0 30
+  1
+'''
+  # `task.all` of tasks that give nothing gives nothing, a statement;
+  # their loans end where it returns.
+  use std.task
+  use std.time
+
+  sub say(xs: ?List[Int], ms: Int)
+    time.sleep(ms: ms) catch print("woken")
+    print(xs.len, ms)
+
+  xs: List[Int] = List()
+  task.all(say(?xs, 30)&, say(?xs, 1)&)
+  !xs.push(4)
+  print(xs.len)
+
+fail "sets all subs write", "this task is lent to write, and keeps its write loan while it runs, so it stays where it is bound", errors: 2
+  # A task lent to write is bound and waited for where it is bound, as a
+  # task that gives a value is.
+  use std.task
+
+  sub fill(xs: !List[Int])
+    !xs.push(1)
+
+  a: List[Int] = List()
+  b: List[Int] = List()
+  task.all(fill(!a)&, fill(!b)&)
+
+test "sets all subs fail", seeds: 20, '''
+  slow stops
+  Fetch.missing
+  done
+'''
+  # The first to fail cancels the others, and the wait passes its
+  # error on with `!`.
+  use std.task
+  use std.time
+
+  error Fetch
+    missing
+
+  sub slow()!
+    defer print("slow stops")
+    time.sleep(10)!
+
+  sub missing()!
+    return Fetch.missing
+
+  sub quick()!
+    task.check()!
+
+  sub run()!
+    task.all(slow()&, missing()&, quick()&)!
+    print("not reached")
+
+  run() catch |e| print(e)
+  print("done")
+
+test "sets all subs catch", seeds: 20, '''
+  ok
+  Fetch.missing
+'''
+  # A `catch` handles the wait's failure where it stands.
+  use std.task
+
+  error Fetch
+    missing
+
+  sub fine(n: Int)!
+    task.check()!
+
+  sub missing()!
+    return Fetch.missing
+
+  task.all(fine(1)&, fine(2)&) catch |e| print(e)
+  print("ok")
+  task.all(fine(3)&, missing()&) catch |e| print(e)
+
+test "sets all subs fail fields", seeds: 20, "E.bad(msg: \"big\")"
+  # The first failure's fields pass on, as a valued wait's do.
+  use std.task
+
+  error E
+    bad(msg: String)
+
+  sub check(x: Int)!
+    return E.bad(msg: String("big")) if x > 5
+
+  sub both()!
+    task.all(check(1)&, check(8)&)!
+
+  both() catch |e| print(e)
+
+fail "sets all mixed", "`task.all` gives each task's value, or nothing when none gives one, and `say(1)&` gives none while `sq(2)&` gives one: wait for the tasks that give none in a `task.all` of their own, or each on its own, `>t`", errors: 1
+  use std.task
+
+  fun sq(x: Int) -> Int
+    x * x
+
+  sub say(n: Int)
+    print(n)
+
+  a = task.all(sq(2)&, say(1)&)
+  print(a)
+
 fail "sets wait first infallible", "`wait_first` takes the first task to succeed and cancels the rest, and the tasks of `Tasks[Int]` cannot fail, so they cannot be canceled: wait for all of them, `>ts`", errors: 1
   fun sq(x: Int) -> Int
     x * x

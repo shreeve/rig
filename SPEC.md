@@ -14515,9 +14515,34 @@ sub main()
 `task.all(a, b, ...)` of `std.task`
 ([std.task](docs/STD.md#stdtask)) waits for two tasks or more, of
 different types, and gives each one's value as several results:
-`u, o = task.all(user(id)&, orders(id)&)!`. The call takes its tasks,
-and can fail when any of them can; then the first to fail cancels the
-others.
+`u, o = task.all(user(id)&, orders(id)&)!`. When no task gives a
+value, as a `sub`'s gives none, the call gives nothing and stands as a
+statement: `task.all(save(?a)&, save(?b)&)!`. One call does not mix
+the two; tasks that give no value wait in a `task.all` of their own.
+The call takes its tasks, and can fail when any of them can; then the
+first to fail cancels the others. The loans of its tasks end where it
+returns.
+
+```rig
+use std.task
+
+error Name
+  empty
+
+sub check(name: ?String)!
+  return Name.empty if name.len == 0
+
+sub main()
+  a = String("ann")
+  b = String("")
+  task.all(check(?a)&, check(?b)&) catch |e| print(e)
+  print(a, b.len)
+```
+
+```output
+Name.empty
+ann 0
+```
 
 A wait fails with the set its work declares: `task.all` with the one of
 its tasks' sets that holds the others, `par.map` and `par.each` with
