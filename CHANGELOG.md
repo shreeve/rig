@@ -190,7 +190,9 @@ another type's text, `http.Response(status: 200, type: String(t),
 body: b)` or `type: t` of a `?String`, is rejected, with "type
 mismatch: expected `Static`, got `String`". Give a literal, or a
 choice among literals (`"image/png" if png else "text/plain"`).
-`text`, `json`, `html`, `status`, and `not_found` are unchanged. Trig
+`text`, `json`, `html`, `status`, and `not_found` are unchanged. An
+`http.Request` is made only by the server: it holds a private field, so
+another module's `http.Request(method: ..., ...)` is rejected. Trig
 and loco have no such site.
 
 ### Removed
@@ -689,6 +691,13 @@ arms.
   which the handler only reads (`?http.Request`), and only its `body`
   is allocated. A request with a body has its head copied once, into
   one block, before the body is read.
+- **`http.serve` parses a request's head once, and writes its answer's
+  head from text made once:** each header's place in the head is kept
+  as the head is parsed, and `req.header(name)` reads those places
+  rather than the head; the status line comes from a table made when
+  the program is compiled, and the length is written digit by digit.
+  The bytes sent are those Zig's `respond` wrote. A response whose type
+  holds a CR or LF is answered 500, where a safe build panicked.
 - **Loopback round trips make fewer system calls:** a socket read that
   comes back short took all there was, so the next read waits on the
   poller for an edge before it calls, rather than being told EAGAIN (an
