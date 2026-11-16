@@ -5055,6 +5055,7 @@ test/reject/ownership/cell_lend_a_result_view,_then_rebind_or_drop.rig main
 test/reject/ownership/cell_lend_an_erased_value_twice.rig twice
 test/reject/ownership/cell_lend_an_erased_value_twice.rig main
 test/reject/ownership/cell_lend_a_type_parameter_twice.rig twice
+test/reject/ownership/cell_move_out_of_a_Cell_field.rig f
 test/reject/concurrency/task_returned_keeps_its_loan.rig main
 test/reject/concurrency/task_returned_keeps_its_owner.rig main
 test/reject/concurrency/task_returned_in_a_set_keeps_its_loans.rig main
