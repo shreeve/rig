@@ -953,21 +953,31 @@ fn answer(comptime F: type, f: F, request: *std.http.Server.Request, max_body: u
     const Resp = @typeInfo(@TypeOf(F.call)).@"fn".return_type.?;
     const gpa = rig.defaultAllocator();
     const head = request.head;
-    const target = head.target;
-    const q = std.mem.findScalar(u8, target, '?');
-    var req: Req = undefined;
-    @field(req, "method") = fresh(@tagName(head.method));
-    @field(req, "path") = fresh(if (q) |i| target[0..i] else target);
-    @field(req, "query") = fresh(if (q) |i| target[i + 1 ..] else "");
-    @field(req, "head") = fresh(request.head_buffer);
-    @field(req, "body") = .empty;
-    defer rig.drop(&req);
     // An expectation other than `100-continue` fails (417), and a body
     // over the limit is refused (413) before any of it is read, and
     // before `100 Continue` asks the client for it.
     if (head.expect) |e| if (!std.ascii.eqlIgnoreCase(e, "100-continue")) return refuse(request, .expectation_failed, "expectation failed\n");
     if (head.content_length) |n| if (n > max_body) return refuse(request, .payload_too_large, "content too large\n");
-    if (head.content_length != null or head.transfer_encoding == .chunked) {
+    const has_body = head.content_length != null or head.transfer_encoding == .chunked;
+    // The fields view the head's bytes (`view`): in the read buffer,
+    // which nothing changes until the handler returns; or, when a body
+    // is read, whose reads may move what the buffer holds, in one block
+    // the head is copied into first.
+    const bytes: []u8 = if (has_body) rig.allocSlice(u8, request.head_buffer.len) else @constCast(request.head_buffer);
+    defer if (has_body) rig.freeSlice(u8, bytes);
+    if (has_body) @memcpy(bytes, request.head_buffer);
+    const at = @intFromPtr(head.target.ptr) - @intFromPtr(request.head_buffer.ptr);
+    const target = bytes[at..][0..head.target.len];
+    const q = std.mem.findScalar(u8, target, '?');
+    var req: Req = undefined;
+    @field(req, "method") = view(@constCast(@tagName(head.method)));
+    @field(req, "path") = view(if (q) |i| target[0..i] else target);
+    @field(req, "query") = view(if (q) |i| target[i + 1 ..] else target[target.len..]);
+    @field(req, "head") = view(bytes);
+    @field(req, "body") = .empty;
+    // The request owns only its body.
+    defer rig.drop(&@field(req, "body"));
+    if (has_body) {
         // Ask for the body, if the client waits to be asked, then read it.
         if (head.expect != null) request.head.expect = "100-continue";
         var buf: [4096]u8 = undefined;
@@ -1013,9 +1023,16 @@ fn refuse(request: *std.http.Server.Request, status: std.http.Status, body: []co
     return .linger;
 }
 
-/// A fresh String of `bytes`.
-fn fresh(bytes: []const u8) rig.String {
-    return .ofBytes(bytes);
+/// A String whose bytes are `bytes`, which it does not own: a
+/// request's field, which the handler only reads (`?http.Request`), so
+/// it never grows, moves, or drops one, and keeps no view of one past
+/// its return. Its capacity is its length, so no String operation reads
+/// past `bytes`; `answer` drops none of them.
+fn view(bytes: []u8) rig.String {
+    var t: rig.String = .empty;
+    t.list.items = bytes;
+    t.list.capacity = bytes.len;
+    return t;
 }
 
 /// A connection's socket, as the reader and writer Zig's HTTP server
