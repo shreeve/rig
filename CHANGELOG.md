@@ -334,6 +334,10 @@ it where the negation was meant. Trig has no such site.
   closure passed to a generic function whose result would bind a type
   parameter, `sort.sort_by_key(!xs[..], |a| a.abs())`, reports its
   errors in place of "cannot infer `K`".
+- A closure in `par.map` or `par.workers` that takes more parameters
+  than the call passes, `par.map(?xs, |x, y| x + y)`, is rejected with
+  "this closure takes 2 parameters, but `par.map` passes 1", where
+  `rig check` accepted it and emit failed.
 - A closure in error that propagates, written in `par.map`,
   `task.isolate`, `task.supervise`, a select arm, `reduce`, or a generic
   call whose function can fail, is checked as one that can fail, the

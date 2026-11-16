@@ -16554,7 +16554,20 @@ const Checker = struct {
     /// call, which fails when its body propagates a failure, or a
     /// function's name. Null after a diagnostic.
     fn parFunction(self: *Checker, kind: sema.ParCall, f: Sexp, params: []const TypeId, shown: []const u8) Error!?TypeId {
-        if (f.isKind(.lambda)) return try self.closureType(f, params, kind == .each or kind == .push);
+        if (f.isKind(.lambda)) {
+            const sub = kind == .each or kind == .push;
+            // A closure that gives a value has no type to check its
+            // parameters against until its body is typed: its count is
+            // checked first. (One that gives nothing is checked against
+            // the `sub` type the call lends, which says so.)
+            const takes = ir.Lambda.params(f).items().len;
+            if (!sub and takes > params.len) {
+                try self.errAt(f, "this closure takes {d} parameters, but `{s}` passes {d}; a closure may take fewer, never more", .{ takes, shown, params.len });
+                try self.closures_reported.put(self.ctx.allocator, nodeId(f), {});
+                return null;
+            }
+            return try self.closureType(f, params, sub);
+        }
         const ty = try self.argType(f);
         if (self.isPoison(ty)) return null;
         switch (self.fnArg(f, ty)) {

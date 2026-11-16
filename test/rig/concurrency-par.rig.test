@@ -682,6 +682,17 @@ fail "par closure that propagates reports its own error alone", "16:33: type `?I
     ys = par.map(?xs, |x| risky(x.nope())!)!
     print(ys)
 
+fail "par closure takes too many", "6:21: this closure takes 2 parameters, but `par.map` passes 1; a closure may take fewer, never more", "8:34: this closure takes 3 parameters, but `par.workers` passes 2; a closure may take fewer, never more", errors: 2
+  use std.par
+
+  sub main()!
+    xs = List([1, 2])
+    states = [0, 0]
+    ys = par.map(?xs, |x, y| x + y)
+    print(ys)
+    zs = par.workers(!states, ?xs, |s, x, z| x)
+    print(zs)
+
 test "par push", seeds: 20, '''
   6 2 1
   true 3289
