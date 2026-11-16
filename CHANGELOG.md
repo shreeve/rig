@@ -185,6 +185,20 @@ C, Rust, or Go takes for `not`. Inside a generic body, where `T` is a
 parameter, the short form stays. Write the long form, or `not` before
 it where the negation was meant. Trig has no such site.
 
+**A fallible `sub` returns no value**: `return say(1)!`, `return ok()`,
+and `return f() catch ...` in a `sub` marked `!`, whose value is
+nothing, are rejected, as in a `sub` that cannot fail: "a `sub`
+returns no value, and fails only by returning an error: write
+`say(1)!` on its own line, then `return`". `return E.bad` and
+`return e` stay. Neither Trig nor the repository has such a `return`.
+
+**A generic body that discards several results holding a `T`**
+(`task.all(<a, <b)` as a statement, a call of `-> (T, T)` alone) makes
+`T` plain data, as discarding one `T` does: an instance whose `T` owns,
+`both[String](...)`, is rejected with "the generic body discards a
+value that holds a `T`", where it leaked. Bind the results and drop
+them, or give the body plain data.
+
 ### Removed
 
 - **`--release=fast`**, Zig's fast mode, from `rig run`, `rig build`,
@@ -332,6 +346,9 @@ it where the negation was meant. Trig has no such site.
   no stale waiter (SPEC "Channels").
 
 ### Compiler
+
+**The hint for a task lent to write keeps self's `!`**: `t =
+!b.bump()&`, where it wrote `t = b.bump()&`, which is rejected.
 
 **`!` of a value that changes by a marked call lends to read.** `!x`
 puts only a read loan on `x` when it lends a write view of a Cell, a

@@ -14026,7 +14026,8 @@ pub fn readsAsValue(ctx: *const SemContext, ty: TypeId) bool {
     return isScalar(ctx, ty) or isPlainEnum(ctx, ty);
 }
 
-/// The type parameters `ty` holds by value, appended to `out`.
+/// The type parameters `ty` holds by value, appended to `out`: every
+/// one `holdsIn` finds, so the two agree on what a value holds.
 pub fn heldTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(SymbolId), a: std.mem.Allocator) std.mem.Allocator.Error!void {
     if (!ctx.holds(ty).holds_type_var) return;
     switch (ctx.types.get(ty)) {
@@ -14034,6 +14035,7 @@ pub fn heldTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(Symb
         .optional => |inner| try heldTypeVars(ctx, inner, out, a),
         .fallible => |inner| try heldTypeVars(ctx, inner.ok, out, a),
         .array => |arr| try heldTypeVars(ctx, arr.elem, out, a),
+        .results => |parts| for (parts) |part| try heldTypeVars(ctx, part, out, a),
         .parameterized_nominal => |pn| {
             const held = ctx.symbols.items[pn.sym].contents.held;
             for (pn.args, 0..) |arg, i| {
