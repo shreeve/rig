@@ -1,0 +1,4 @@
+thread  0: read=39997 read-EAGAIN=19997 write=20000 kevent-change=1 kevent-wait=19997 kevent-wait-woke=19997 events=19997
+thread  1: read=39998 read-EAGAIN=19997 write=20000 kevent-change=1 kevent-wait=19997 kevent-wait-woke=19997 events=19997
+total: read=79995 read-EAGAIN=39994 write=40000 (recv)=0 (recvfrom)=0 (send)=0 (sendto)=0 kevent-change=2 kevent-look=0 kevent-look-hit=0 kevent-wait=39994 kevent-wait-woke=39994 events=39994 user-kicks-seen=0
+csw voluntary=1 involuntary=57464

@@ -1,0 +1,12 @@
+thread  0: read=18915 read-EAGAIN=6 write=18894 kevent-change=1549 kevent-look=33206 kevent-look-hit=17087 kevent-wait=1944 kevent-wait-woke=1944 events=39965 user-kicks-seen=1517 cond-signal=30
+thread  1: read=16779 read-EAGAIN=19 write=16765 kevent-change=1287 kevent-look=27938 kevent-look-hit=14008 kevent-wait=1853 kevent-wait-woke=1852 events=33518 user-kicks-seen=1317
+thread  2: read=21337 read-EAGAIN=19 write=21322 kevent-change=1634 kevent-look=33902 kevent-look-hit=17896 kevent-wait=2045 kevent-wait-woke=2045 events=42395 user-kicks-seen=1593
+thread  3: read=20628 read-EAGAIN=8 write=20607 kevent-change=1645 kevent-look=33899 kevent-look-hit=17697 kevent-wait=2070 kevent-wait-woke=2070 events=41848 user-kicks-seen=1591
+thread  4: read=21047 read-EAGAIN=11 write=21028 kevent-change=1743 kevent-look=34359 kevent-look-hit=18083 kevent-wait=2146 kevent-wait-woke=2146 events=43257 user-kicks-seen=1650
+thread  5: read=19372 read-EAGAIN=11 write=19346 kevent-change=1585 kevent-look=33272 kevent-look-hit=17135 kevent-wait=2045 kevent-wait-woke=2045 events=40846 user-kicks-seen=1667
+thread  6: read=20239 read-EAGAIN=14 write=20201 kevent-change=1656 kevent-look=34603 kevent-look-hit=17980 kevent-wait=2132 kevent-wait-woke=2132 events=42797 user-kicks-seen=1612
+thread  7: read=19498 read-EAGAIN=14 write=19485 kevent-change=1544 kevent-look=33359 kevent-look-hit=17210 kevent-wait=2027 kevent-wait-woke=2027 events=40736 user-kicks-seen=1589
+thread  8: read=18713 read-EAGAIN=9 write=18687 kevent-change=1555 kevent-look=33444 kevent-look-hit=17264 kevent-wait=1994 kevent-wait-woke=1994 events=40057 user-kicks-seen=1559
+thread  9: read=23696 read-EAGAIN=13 write=23665 kevent-change=1979 kevent-look=36297 kevent-look-hit=19852 kevent-wait=2028 kevent-wait-woke=2028 events=50690 user-kicks-seen=1668
+total: read=200224 read-EAGAIN=124 write=200000 (recv)=0 (recvfrom)=0 (send)=0 (sendto)=0 kevent-change=16177 kevent-look=334279 kevent-look-hit=174212 kevent-wait=20284 kevent-wait-woke=20283 events=416109 user-kicks-seen=15763 cond-signal=30 cond-wait=0
+csw voluntary=0 involuntary=260228

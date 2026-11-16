@@ -1,0 +1,12 @@
+thread  0: read=41093 read-EAGAIN=20543 write=20540 kevent-change=22345 kevent-look=32660 kevent-look-hit=25980 kevent-wait=2068 kevent-wait-woke=2068 events=61800 user-kicks-seen=20929
+thread  1: read=37649 read-EAGAIN=18816 write=18816 kevent-change=22243 kevent-look=30949 kevent-look-hit=25381 kevent-wait=1931 kevent-wait-woke=1927 events=59005 user-kicks-seen=20920
+thread  2: read=38706 read-EAGAIN=19350 write=19350 kevent-change=22194 kevent-look=30747 kevent-look-hit=25109 kevent-wait=2031 kevent-wait-woke=2031 events=58342 user-kicks-seen=20945
+thread  3: read=47082 read-EAGAIN=23535 write=23535 kevent-change=24218 kevent-look=33340 kevent-look-hit=27079 kevent-wait=2178 kevent-wait-woke=2178 events=73567 user-kicks-seen=22443
+thread  4: read=40591 read-EAGAIN=20296 write=20294 kevent-change=22935 kevent-look=32303 kevent-look-hit=26151 kevent-wait=2061 kevent-wait-woke=2061 events=60524 user-kicks-seen=21489
+thread  5: read=39236 read-EAGAIN=19616 write=19617 kevent-change=22224 kevent-look=31350 kevent-look-hit=25316 kevent-wait=2061 kevent-wait-woke=2061 events=59601 user-kicks-seen=20903
+thread  6: read=40347 read-EAGAIN=20165 write=20165 kevent-change=23033 kevent-look=32804 kevent-look-hit=26501 kevent-wait=2145 kevent-wait-woke=2145 events=62694 user-kicks-seen=21749
+thread  7: read=36711 read-EAGAIN=18351 write=18353 kevent-change=21310 kevent-look=30354 kevent-look-hit=24291 kevent-wait=1996 kevent-wait-woke=1996 events=56609 user-kicks-seen=20031
+thread  8: read=39325 read-EAGAIN=19651 write=19649 kevent-change=21766 kevent-look=31054 kevent-look-hit=25022 kevent-wait=2017 kevent-wait-woke=2017 events=59570 user-kicks-seen=20478
+thread  9: read=39363 read-EAGAIN=19680 write=19681 kevent-change=21995 kevent-look=31779 kevent-look-hit=25288 kevent-wait=2077 kevent-wait-woke=2077 events=59168 user-kicks-seen=20673
+total: read=400103 read-EAGAIN=200003 write=200000 (recv)=0 (recvfrom)=0 (send)=0 (sendto)=0 kevent-change=224263 kevent-look=317340 kevent-look-hit=256118 kevent-wait=20565 kevent-wait-woke=20561 events=610880 user-kicks-seen=210560
+csw voluntary=11 involuntary=99151
