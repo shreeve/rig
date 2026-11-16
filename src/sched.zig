@@ -3524,8 +3524,14 @@ fn runFiber(w: *Worker, f: *Fiber) void {
 /// stop, about 1 ms. A switch with nothing else waiting costs two loads.
 inline fn spread(w: *Worker) void {
     if (!nextHeld(w, .monotonic) and w.ring.isEmpty()) return;
+    if (builtin.is_test) _ = test_spreads.fetchAdd(1, .monotonic);
     notify();
 }
+
+/// Test only: how many switches found other work waiting and woke a
+/// worker for it (`spread`). Never compiled outside a test, so never in
+/// a split build, and a plain variable rather than a cell.
+var test_spreads: std.atomic.Value(u32) = .init(0);
 
 /// The fiber `f` has switched away for good: its stack, unless a panic
 /// left it elsewhere (`abandon`), goes back to `w`.
@@ -7276,6 +7282,73 @@ test "a run-next fiber whose notice another worker's check took is handed on at 
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expect(Run.in_time);
+}
+
+test "tasks made in turn and waited for in order start on the idle workers, woken as their maker's worker switches to the first" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var begun = std.atomic.Value(u32).init(0);
+        var beside = false;
+        var spreads: u32 = 0;
+        var slept = false;
+        const Unit = struct {};
+        /// The first, run by handoff on its maker's worker: it makes no
+        /// yield check, as a task in a build preempted by signal makes
+        /// none, so the others start only on other workers, and only
+        /// once one is woken for them. It computes until they all have,
+        /// or 2 s pass.
+        fn lead(_: *Unit) u8 {
+            const until = nowNs() + 2 * std.time.ns_per_s;
+            while (begun.load(.seq_cst) < 3 and nowNs() < until) std.atomic.spinLoopHint();
+            beside = begun.load(.seq_cst) == 3;
+            return 0;
+        }
+        fn rest(_: *Unit) u8 {
+            _ = begun.fetchAdd(1, .seq_cst);
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = workersRunning();
+            // Rounds go on only until one finds every other worker asleep
+            // before the tasks are made, or ten have not.
+            var rounds: u32 = 0;
+            while (rounds < 10 and !slept) : (rounds += 1) {
+                testNapUntilOthersSleep();
+                if (!testSpinUntilOthersSleep()) continue;
+                slept = true;
+                begun.store(0, .seq_cst);
+                test_spreads.store(0, .seq_cst);
+                // All four wait in this worker's "run next" slots, which
+                // no sleeper looks in, and filling them wakes no worker
+                // (`wakeIn`).
+                const j1 = spawn(u8, Unit, lead, .{}, .{}, false, false).job;
+                const j2 = spawn(u8, Unit, rest, .{}, .{}, false, false).job;
+                const j3 = spawn(u8, Unit, rest, .{}, .{}, false, false).job;
+                const j4 = spawn(u8, Unit, rest, .{}, .{}, false, false).job;
+                // The wait hands this worker to the first while the
+                // others wait in its slots: the switch wakes a worker for
+                // them (`spread`), which takes the oldest (`stealNext`)
+                // and, the last searching, wakes the next.
+                _ = j1.join();
+                spreads = test_spreads.load(.seq_cst);
+                _ = j2.join();
+                _ = j3.join();
+                _ = j4.join();
+                j1.free();
+                j2.free();
+                j3.free();
+                j4.free();
+            }
+        }
+    };
+    workers_override.* = 4;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.slept);
+    try std.testing.expect(Run.spreads >= 1);
+    try std.testing.expect(Run.beside);
 }
 
 test "an idle worker wakes for the descriptors of a busy one" {
