@@ -9291,9 +9291,10 @@ cannot assign through a shared handle
 `!x` puts a write loan on `x`, and only a read loan when what it lends
 is a write view of a value that changes by a marked call: a `Cell`, a
 `Signal`, a channel, an actor, or a value that holds a Cell
-([Core §4](docs/CORE.md#4-one-lend-table)). That is judged by the type
-of what `!` lends where it is lent; an API object `{A}` or a type
-parameter is no such value. `!h` lending the handle itself, a `!*T`
+([Core §4](docs/CORE.md#4-one-lend-table)). That is judged by the
+concrete type of the value lent from, not by the view it becomes; a
+value whose type is an API object `{A}` or a type parameter is no such
+value, so `!s` of a `*{A}` lends only the handle. `!h` lending the handle itself, a `!*T`
 the callee may point elsewhere, still lends `h` to write, as assigning
 and dropping `h` do, and a marked call through a read view is rejected.
 The loan begins before the call's arguments are evaluated and lasts as

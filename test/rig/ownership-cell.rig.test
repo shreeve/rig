@@ -830,3 +830,26 @@ test "cell lend breaker swap of an owned value", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
   c = *Cell(String("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
   x = !c.swap((!c).swap(String("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")))
   print(x)
+
+fail "cell lend an API object's handle", "expected `!{Grow}`, got `!*{Grow}`", errors: 2
+  # A `*{A}` only reads, as any handle: `!s` lends the handle itself,
+  # never an `!{A}` of the value it holds, whatever that value is.
+
+  api Grow
+    sub grow(!@)
+
+  obj Bag: Grow
+    xs: List[Int]
+
+    sub grow(!@)
+      !@xs.push(1)
+
+  sub one(a: !{Grow})
+    !a.grow()
+
+  b = *Bag(xs: List[Int]())
+  s: *{Grow} = +b
+  one(!s)
+  w: !{Grow} = !s
+  !w.grow()
+  print(b.xs.len)

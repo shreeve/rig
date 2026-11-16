@@ -11577,15 +11577,30 @@ pub fn holdsCellByValue(ctx: *const SemContext, ty: TypeId) bool {
 }
 
 /// Whether a value of `ty` changes through a shared handle, by a marked
-/// call (`!c.set(5)`): a `Cell`, a `Signal`, or a value that holds a
-/// Cell by value. The one list of what a write lend may reach through a
-/// `*`; a write view of such a value changes only its Cells and
-/// Signals, never its other fields (`Checker.placeOf`).
+/// call (`!c.set(5)`): a `Cell`, a `Signal`, a channel, an actor, or a
+/// value that holds a Cell by value, judged by its concrete type. The
+/// one list of what a write lend may reach through a `*`; a write view
+/// of such a value changes only its Cells and Signals, never its other
+/// fields (`Checker.placeOf`). An API object, which may hold anything,
+/// and a type parameter are no such value, so a `*{A}` lends only its
+/// handle (Core §4).
 pub fn changesByMark(ctx: *const SemContext, ty: TypeId) bool {
     const t = unwrapAccess(ctx, ty);
     return switch (ctx.types.get(t)) {
         .parameterized_nominal => |pn| pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or holdsCellByValue(ctx, t),
+        .api_object, .type_var => false,
         else => holdsCellByValue(ctx, t),
+    };
+}
+
+/// Whether a place of type `viewed` holds a value that changes only by a
+/// marked call (`changesByMark`), rather than a handle or a view of one,
+/// which is a place of its own: what `!` lends to read (`loanOfView`),
+/// and what `swap` never exchanges.
+pub fn holdsMarkedValue(ctx: *const SemContext, viewed: TypeId) bool {
+    return switch (ctx.types.get(viewed)) {
+        .shared, .weak, .read_view, .write_view => false,
+        else => changesByMark(ctx, viewed),
     };
 }
 
@@ -11598,10 +11613,7 @@ pub fn changesByMark(ctx: *const SemContext, ty: TypeId) bool {
 /// hold anything, and a type parameter are no such value; a handle lent
 /// itself (`!*T`) is written.
 pub fn loanOfView(ctx: *const SemContext, viewed: TypeId) LendKind {
-    return switch (ctx.types.get(viewed)) {
-        .api_object, .type_var, .shared, .weak, .read_view, .write_view => .write,
-        else => if (changesByMark(ctx, viewed)) .read else .write,
-    };
+    return if (holdsMarkedValue(ctx, viewed)) .read else .write;
 }
 
 /// One machine word, which every change to it replaces at once: an

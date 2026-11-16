@@ -1246,10 +1246,13 @@ view it gives out lasts while it lives, which each such type, std's
 live at once, each changing only what every handle shares, while `x`
 stays put and keeps the value alive. So `!c.add((!c).swap(4))` is
 accepted, and so is a view `r = ?c` kept across `!c.set(5)`, whether
-`c` is a `*Cell[Int]`, a `!*Cell[Int]`, or a `!Cell[Int]`. What it
-lends is judged by its type where it is lent: an API object `{A}` or a
-type parameter is no such value, so two `!{A}` lends of one owned value
-are two write loans. `!h` that lends the handle itself, a `!*T` the
+`c` is a `*Cell[Int]`, a `!*Cell[Int]`, or a `!Cell[Int]`. The loan is
+judged by the concrete type of the value lent from, not by the view it
+becomes: `!h` of a `*Hits` lent where a `!{A}` goes lends `h` to read.
+A value whose type is an API object `{A}` or a type parameter is no
+such value, so two `!{A}` lends of one owned value, or of a `!{A}`
+parameter, are two write loans, and `!s` of a `*{A}` lends only the
+handle. `!h` that lends the handle itself, a `!*T` the
 callee may point elsewhere, puts a write loan on `h`, and so do
 assigning `h` and dropping it. A marked call through a read view is
 rejected (sentence 4). The loan begins before the call's arguments are
