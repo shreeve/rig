@@ -53,6 +53,7 @@ comptime {
         all_workers,
         grow_lock,
         started,
+        starting,
         workers_asked,
         graph,
         preempt_states,
@@ -3253,6 +3254,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     if (preempt) preOf(first).tid = rt.threadId();
     if (deterministic.*) wake(&m.fiber) else _ = first.ring.push(&m.fiber);
     loop(first);
+    waitStarting();
     // `stopping` is set, so past a raise under way the workers are final.
     grow_lock.lock();
     const ws = workersNow();
@@ -3369,7 +3371,13 @@ fn initWorker(i: usize) void {
 
 /// Start the other workers, when `main` makes its first task: by then
 /// the runtime has the program's environment, for `RIG_WORKERS`, and a
-/// program that makes none starts none.
+/// program that makes none starts none. `main` starts worker 1 alone,
+/// which maps the other workers' first stacks and then starts them and
+/// the monitor (`startRest`), so `main` waits on one thread's start, not
+/// nine, and the stacks are mapped before the work spreads: macOS
+/// serializes every mapping on the process's one map of its memory, and
+/// made as ten threads start and run, each took about 160 µs, not 7
+/// (docs/history/records/2026-11/concurrency-startup).
 fn startWorkers() void {
     started.* = true;
     const n = if (deterministic.*) 1 else @min(workerCount(), all_workers.*.len);
@@ -3377,8 +3385,42 @@ fn startWorkers() void {
     for (1..n) |i| initWorker(i);
     for (ws[1..]) |*w| w.poller.open();
     workers_len.store(n, .release);
-    for (ws[1..]) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
-    if (preempt and !deterministic.*) startMonitor();
+    if (n == 1) {
+        if (preempt and !deterministic.*) startMonitor();
+        return;
+    }
+    starting.store(1, .monotonic);
+    ws[1].thread = std.Thread.spawn(.{}, workerMain, .{ &ws[1], n }) catch rt.oom();
+}
+
+/// Worker 1, before it looks for work: give workers 1 to `n - 1` their
+/// first stacks, mapped and untouched, so they hold address space and no
+/// memory, then start workers 2 to `n - 1` and the monitor, and tell
+/// `main` it is done (`waitStarting`). A worker's fields are written
+/// before its thread starts, and no other thread takes its stacks.
+/// Worker 0's are left to `main`, which maps them as it needs them: a
+/// mapping here would put `posix.mmap` on every task's path to its
+/// first spawn, and only `main` may write its stacks.
+fn startRest(n: usize) void {
+    const ws = all_workers.*[0..n];
+    for (ws[1..]) |*v| mapFirstStacks(v);
+    for (ws[2..]) |*v| v.thread = std.Thread.spawn(.{}, workerMain, .{ v, 0 }) catch rt.oom();
+    // A deterministic run starts no worker 1.
+    if (preempt) startMonitor();
+    starting.store(0, .release);
+    rt.io().futexWake(u32, &starting.raw, 1);
+}
+
+/// Whether worker 1 is still starting the others and the monitor
+/// (`startRest`): set as `main` starts it, cleared once it has.
+var starting_var: std.atomic.Value(u32) = .init(0);
+const starting = split.cell(&starting_var, "sched.starting");
+
+/// Wait until worker 1 has started the others and the monitor, as
+/// `main` ends, so it stops a monitor that has started and joins threads
+/// that have.
+fn waitStarting() void {
+    while (starting.load(.acquire) != 0) rt.io().futexWait(u32, &starting.raw, 1) catch {};
 }
 
 /// How many workers the program asked for (`task.workers`), in place of
@@ -3421,7 +3463,7 @@ fn growWorkers(n: usize) bool {
     for (have..n) |i| initWorker(i);
     for (fresh) |*w| w.poller.open();
     workers_len.store(n, .release);
-    for (fresh) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
+    for (fresh) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{ w, 0 }) catch rt.oom();
     return true;
 }
 
@@ -3450,13 +3492,16 @@ fn workerCount() usize {
     return @max(1, std.Thread.getCpuCount() catch 1);
 }
 
-fn workerMain(w: *Worker) void {
+/// A worker's thread; worker 1's starts the rest of `n` first, and
+/// every other worker's has `n` 0.
+fn workerMain(w: *Worker, n: usize) void {
     defer rt.fast_alloc.threadExit();
     const alt = rt.AltStack.attachOrStop();
     defer alt.detach();
     me_slot().* = w;
     if (preempt) preOf(w).tid = rt.threadId();
     defer leavePreempt(w);
+    if (n > 0) startRest(n);
     loop(w);
 }
 
@@ -5264,19 +5309,45 @@ fn takeStack() Stack {
         }
     }
     const count: usize = if (w != null) chunk else 1;
-    const got = std.posix.mmap(null, span * count, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch rt.oom();
-    const base = @intFromPtr(got.ptr);
-    rt.fast_alloc.keepSmall(base, span * count);
-    for (0..count) |i| {
-        const b = base + i * span;
-        if (std.posix.errno(std.posix.system.mprotect(@ptrFromInt(b + guard), len, .{ .READ = true, .WRITE = true })) != .SUCCESS) rt.oom();
-    }
+    const base = mapStacks(count) orelse rt.oom();
     if (w) |x| {
         x.stacks.fresh_next = base + span;
         x.stacks.fresh_left = @intCast(count - 1);
     }
     return .{ .base = base, .guard = guard, .len = len };
 }
+
+/// Reserve `count` stacks side by side, each with its guard below it,
+/// untouched; the first one's base, or null when the system refuses.
+fn mapStacks(count: usize) ?usize {
+    const guard = rt.task_guard;
+    const len = rt.task_stack_size;
+    const span = guard + len + std.heap.pageSize();
+    const got = std.posix.mmap(null, span * count, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch return null;
+    const base = @intFromPtr(got.ptr);
+    rt.fast_alloc.keepSmall(base, span * count);
+    for (0..count) |i| {
+        const b = base + i * span;
+        if (std.posix.errno(std.posix.system.mprotect(@ptrFromInt(b + guard), len, .{ .READ = true, .WRITE = true })) != .SUCCESS) {
+            std.posix.munmap(got);
+            return null;
+        }
+    }
+    return base;
+}
+
+/// Give `v` a first reservation of `chunk` stacks (`mapStacks`) before
+/// its first fiber needs one, unless it holds some already. One the
+/// system refuses is left for `takeStack` to map as the worker needs it.
+fn mapFirstStacks(v: *Worker) void {
+    if (v.stacks.free != null or v.stacks.fresh_left != 0) return;
+    if (builtin.is_test and map_fails_for_test) return;
+    v.stacks.fresh_next = mapStacks(chunk) orelse return;
+    v.stacks.fresh_left = chunk;
+}
+
+/// Test only: every first reservation (`mapFirstStacks`) fails.
+var map_fails_for_test = false;
 
 /// Keep a stack a fiber has finished with, for the next on `w`, or
 /// return it to the system when `w` keeps enough, or always in a build
@@ -6204,6 +6275,56 @@ test "the workers a program does not start leave their memory untouched" {
     // Room for more than three workers past a page, all untouched.
     try std.testing.expect(Run.span >= std.heap.pageSize());
     try std.testing.expectEqual(@as(usize, 0), Run.resident);
+}
+
+test "worker 1 maps each worker's first stacks and starts the others" {
+    const Run = struct {
+        const n = 4;
+        var mapped: [n]u32 = @splat(0);
+        var threads: usize = 0;
+        var len: usize = 0;
+        fn main(_: *anyopaque) callconv(.c) void {
+            _ = workersRunning();
+            waitStarting();
+            // Idle with no task made, no worker takes a stack.
+            const ws = workersNow();
+            len = ws.len;
+            for (ws[1..], 1..) |*w, i| mapped[i] = w.stacks.fresh_left;
+            for (ws[1..]) |*w| threads += @intFromBool(w.thread != null);
+        }
+    };
+    runForTest(Run.main, Run.n);
+    try std.testing.expectEqual(@as(usize, Run.n), Run.len);
+    try std.testing.expectEqual(@as(usize, Run.n - 1), Run.threads);
+    for (Run.mapped[1..]) |m| try std.testing.expectEqual(@as(u32, chunk), m);
+}
+
+test "a worker whose first stacks cannot be mapped maps them as it needs them" {
+    const Run = struct {
+        const n = 4;
+        const Unit = struct {};
+        var mapped: u32 = 0;
+        var total: u64 = 0;
+        fn one(_: *Unit) u64 {
+            return 1;
+        }
+        fn main(_: *anyopaque) callconv(.c) void {
+            map_fails_for_test = true;
+            _ = workersRunning();
+            waitStarting();
+            map_fails_for_test = false;
+            for (workersNow()[1..]) |*w| mapped += w.stacks.fresh_left;
+            var jobs: [64]*Job(u64) = undefined;
+            for (&jobs) |*j| j.* = spawn(u64, Unit, one, .{}, .{}, false, false).job;
+            for (jobs) |j| {
+                total += j.join();
+                j.free();
+            }
+        }
+    };
+    runForTest(Run.main, Run.n);
+    try std.testing.expectEqual(@as(u32, 0), Run.mapped);
+    try std.testing.expectEqual(@as(u64, 64), Run.total);
 }
 
 test "a dense stack's guard faults" {

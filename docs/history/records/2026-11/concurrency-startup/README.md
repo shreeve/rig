@@ -171,6 +171,94 @@ per-VMA locks since 6.4) behaves differently, so the shares may move.
 4. One traced run set (`traces.sh 25`) for the fault counts and the
    reservation times per call.
 
+## Fix 2, built
+
+`startup-tree`: at the first task `main` starts worker 1 alone, which maps
+a first reservation of 16 stacks (untouched) for itself and each worker
+after it, then starts them and the monitor (`sched.startRest`); `main`'s
+end waits for that before it stops the monitor and joins the threads
+(`waitStarting`). Worker 0's stacks are left to `main`, as before: a
+mapping in `startWorkers` put `posix.mmap`, whose safe-mode errno path
+writes a stack trace through a pointer, on every task's path to its first
+spawn, and the stack census (test/cli/stack_census.sh) then gave a
+recursive task that reason in place of its cycle of calls. A reservation
+the system refuses is left for `takeStack`, as a unit test checks.
+
+Mac M5, `--release`, against main at ea3704772 built the same way, with an
+A/A arm (a copy of main's binary), every arm a fresh process, arms rotated,
+20 rounds each, one `tools/mac-claim` a board (`board6.py`, binaries by
+`build6.sh`). Fastest / median, ms:
+
+| arm | psum1 | psum3 | psum1 against main's, by medians |
+|---|---|---|---|
+| main cold | 2.438 / 2.486 | 1.987 / 2.016 | |
+| A/A cold | 2.433 / 2.464 | 1.978 / 2.011 | 0.9% faster |
+| fix cold | **2.205 / 2.230** | 1.983 / 2.007 | **10.3% faster** |
+| main pre | 2.341 / 2.387 | 1.990 / 2.014 | |
+| A/A pre | 2.354 / 2.379 | 1.986 / 2.002 | 0.3% faster |
+| fix pre | 2.064 / 2.098 | 1.978 / 2.007 | 12.1% faster |
+| main gap | 2.414 / 2.479 | 2.288 / 2.858 | |
+| A/A gap | 2.432 / 2.457 | 2.367 / 2.865 | 0.9% faster (psum3 0.3% slower) |
+| fix gap | 2.203 / 2.234 | 2.309 / 2.853 | 9.9% faster (psum3 0.2% faster) |
+| main, 1 worker, cold / pre | 5.523 / 5.654, 5.562 / 5.711 | | |
+| A/A, 1 worker | 5.562 / 5.668, 5.551 / 5.684 | | 0.2% slower, 0.5% faster |
+| fix, 1 worker | 5.540 / 5.679, 5.576 / 5.661 | | 0.4% slower, 0.9% faster |
+| Rayon cold / pre / gap | 2.056 / 2.136, 1.995 / 2.039, 2.074 / 2.139 | 1.936 / 2.024 | |
+
+The first call gains 0.233 ms fastest and 0.256 median (the prototype,
+`TREE` + `MAPALL`, 0.21 and 0.25), and its excess over a warm call falls
+from 0.451 to 0.222 ms, where Rayon's is 0.120: about half of psum's gap
+to Rayon closes. psum2, psum3, the gap's psum3 and one worker are within
+the A/A's spread (full rows in `board6-startup.txt`).
+
+The benchmarks, medians of 20 against main's, with the A/A beside:
+
+| row | fix | A/A |
+|---|---|---|
+| tasks spawn (the first row, so it pays the start; it swings on the Mac, so medians) | 10.8% faster | 2.1% faster |
+| tasks chain | 3.7% faster | 8.6% faster |
+| tasks fanout | 0.3% slower | 0.9% slower |
+| tasks yield | 0.9% faster | 1.3% slower |
+| tasks hog | 1.8% faster | 2.8% faster |
+| tasks produce | 0.3% faster | 0.0% |
+| tasks memory (bytes a live task) | the same (17,010 against 17,014) | the same |
+| actors solo | 0.7% slower | 0.5% slower |
+| actors contend | 5.9% faster | 1.8% slower |
+| actors spread | 1.0% slower | 0.5% faster |
+| net pingpong | 0.8% faster | 0.1% slower |
+| net echo | 0.6% faster | 0.2% slower |
+| net connect | 0.7% slower | 3.5% slower |
+
+No row is slower beyond the A/A's spread. Raw rows: `board6-tasks.txt`,
+`board6-actors.txt`, `board6-net.txt`, and the `.json` beside each.
+
+### Linux runs wanted (pup)
+
+Not run: nothing here ran on pup or burst. On pup, in a slot
+(`tools/pup-slot open NN 20 ab startup-tree`), from a Rig checkout at the
+fix, binaries on /zfs, every timed command pinned:
+
+```sh
+# The two compilers, each in its own folder (from a Trig checkout).
+tools/pup-rig ea3704772          # main: PUP_RIG=/zfs/trig-pup/rig-ea37047.../bin/rig
+tools/pup-rig FIX_SHA            # the fix
+M=docs/history/records/2026-11/concurrency-startup/measurement
+O=/zfs/trig-pup/startup6
+(cd $M/rayon && cargo build --release --target-dir $O/cargo)
+$M/build6.sh /zfs/trig-pup/rig-MAIN/bin/rig /zfs/trig-pup/rig-FIX/bin/rig $O/cargo/release/startup $O
+# One board a slot.
+BIN=$O taskset -c 0-11 python3 $M/board6.py startup 20 $O/board6-startup-pup.json
+BIN=$O taskset -c 0-11 python3 $M/board6.py tasks 20 $O/board6-tasks-pup.json
+BIN=$O taskset -c 0-11 python3 $M/board6.py actors 20 $O/board6-actors-pup.json
+BIN=$O taskset -c 0-11 python3 $M/board6.py net 20 $O/board6-net-pup.json
+```
+
+`taskset -c 0-11` is pup's six P-cores with their SMT siblings, so each
+runtime sizes its pool to the 12 CPUs the mask allows (`RIG_WORKERS` and
+`RAYON_NUM_THREADS` unset). Linux maps under
+`mmap_lock` (per-VMA locks since 6.4), so the gain there may differ; the
+change is still behavior-neutral.
+
 ## Files
 
 In `measurement/`: `startup.rig` (psum by mode: cold, pre, tiny, gap,
@@ -184,4 +272,6 @@ the `.json` files), the trace summaries
 scratch runtime's changes to `src/sched.zig` and `src/alloc.zig`: a
 per-worker event buffer, timestamps by `clock_gettime_nsec_np`, fault counts
 by `getrusage`, and the `RIG_X_*` knobs (`EAGER`, `PREFAULT=K`, `NOTOUCH`,
-`TREE`, `MAPALL`).
+`TREE`, `MAPALL`); and for the built fix, `board6.py` (SET startup,
+tasks, actors or net, against main with an A/A arm), `build6.sh`, and
+their output, `board6-*.txt` and `board6-*.json`.

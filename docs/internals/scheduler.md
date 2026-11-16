@@ -5,7 +5,17 @@ How Rig runs tasks fast: the engine under `f(x)&` (docs/design/concurrency.md,
 `PROGRESS.md` records each step. Every program that makes tasks runs on it, with one worker
 per core, or as many as the program asks for with `task.workers(n)`
 before its first task, or else `RIG_WORKERS` of them when that is set;
-a program that makes none starts no workers. A later `task.workers(n)`
+a program that makes none starts no workers. At that first task `main`
+starts worker 1 alone (`startWorkers`), which maps a first reservation
+of 16 stacks, untouched, for itself and each worker after it, and then
+starts them and the monitor (`startRest`): `main` waits on one thread's start rather than
+nine, and the mappings land before the work spreads, where macOS
+serializes each on the process's one map of its memory, about 7 µs
+alone and 160 in the ramp of ten threads
+(docs/history/records/2026-11/concurrency-startup). A reservation the
+system refuses is left for the worker to map as it needs one, and
+`main`'s end waits for worker 1 to finish starting the rest before it
+stops the monitor and joins the threads (`waitStarting`). A later `task.workers(n)`
 raises the number and never lowers it (`growWorkers`): the array of
 workers is fixed and only its length grows, so a reader takes the
 length once for a walk and a worker it finds may not have started.
