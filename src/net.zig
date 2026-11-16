@@ -976,7 +976,7 @@ fn answer(comptime F: type, f: F, request: *std.http.Server.Request, max_body: u
     if (has_body) @memcpy(bytes, request.head_buffer);
     const at = @intFromPtr(head.target.ptr) - @intFromPtr(request.head_buffer.ptr);
     const target = bytes[at..][0..head.target.len];
-    const q = std.mem.findScalar(u8, target, '?');
+    const q = Server.of(request).question;
     var req: Req = undefined;
     @field(req, "method") = view(@constCast(@tagName(head.method)));
     @field(req, "path") = view(if (q) |i| target[0..i] else target);
@@ -1112,12 +1112,15 @@ fn writeLength(out: *std.Io.Writer, n: usize) std.Io.Writer.Error!void {
     try out.writeAll(buf[at..]);
 }
 
-/// Zig's HTTP server, and the offsets of the headers of the request it
-/// last received, which `req.header` reads (`index` of std.http's
-/// `Request`), so the head is parsed once.
+/// Zig's HTTP server, and what its last head held beyond Zig's `Head`:
+/// where each header lies (`index`, which `req.header` reads, `index` of
+/// std.http's `Request`) and where the target's `?` is, all found in the
+/// one pass that reads the head (`HeadScan`).
 const Server = struct {
     http: std.http.Server,
     index: Index = .{},
+    /// The target's first `?`, from the target's first byte.
+    question: ?usize = null,
 
     fn init(in: *std.Io.Reader, out: *std.Io.Writer) Server {
         return .{ .http = .init(in, out) };
@@ -1128,14 +1131,260 @@ const Server = struct {
         return @alignCast(@fieldParentPtr("http", request.server));
     }
 
-    /// Zig's `receiveHead`, the head parsed by `parseHead`.
-    fn receiveHead(s: *Server) std.http.Server.ReceiveHeadError!std.http.Server.Request {
-        const head_buffer = try s.http.reader.receiveHead();
-        return .{
-            .server = &s.http,
-            .head_buffer = head_buffer,
-            .head = parseHead(head_buffer, &s.index) catch return error.HttpHeadersInvalid,
+    /// Zig's `receiveHead` and `Head.parse`, in one pass over the head as
+    /// it arrives: the request, or the error those give.
+    fn receiveHead(s: *Server) (std.http.Reader.HeadError || Head.ParseError)!std.http.Server.Request {
+        const r = &s.http.reader;
+        r.trailers = &.{};
+        const in = r.in;
+        s.index.len = 0;
+        var scan: HeadScan = .{ .index = &s.index };
+        while (true) {
+            const bytes = in.buffered();
+            if (scan.feed(bytes)) |len| {
+                r.state = .received_head;
+                in.toss(len);
+                if (scan.err) |err| return err;
+                s.question = scan.question;
+                return .{ .server = &s.http, .head_buffer = bytes[0..len], .head = scan.made(bytes) };
+            }
+            if (bytes.len >= r.max_head_len) return error.HttpHeadersOversize;
+            in.fillMore() catch |err| switch (err) {
+                error.EndOfStream => return if (bytes.len == 0) error.HttpConnectionClosing else error.HttpRequestTruncated,
+                error.ReadFailed => return error.ReadFailed,
+            };
+        }
+    }
+};
+
+const Head = std.http.Server.Request.Head;
+
+/// One pass over a request's head as it arrives. It finds where the head
+/// ends as Zig's `HeadParser` means to, at the first empty line or bare
+/// `\n\n`, and reads each line, once its `\r\n` is in, as Zig's
+/// `Head.parse` does: the same `Head`, or the same first error, once the
+/// head ends. It finds line ends and colons together, a vector of bytes
+/// at a time, and keeps what it found as offsets from the head's first
+/// byte, which the reader may move between feeds.
+const HeadScan = struct {
+    index: *Index,
+    /// How many bytes are scanned.
+    at: usize = 0,
+    /// Where the line being scanned starts.
+    line: usize = 0,
+    /// Its first colon, in a header's line.
+    colon: ?usize = null,
+    /// Whether the line being scanned is the request line.
+    first: bool = true,
+    /// The request line's first `?`, then the target's, from the
+    /// target's first byte.
+    question: ?usize = null,
+    /// The first line's error, given once the head ends: Zig's
+    /// `Head.parse` reads no line past its first error.
+    err: ?Head.ParseError = null,
+    /// The head, but for its text, which is held as offsets.
+    head: Head = .{
+        .method = .GET,
+        .target = "",
+        .version = .@"HTTP/1.1",
+        .expect = null,
+        .content_type = null,
+        .content_length = null,
+        .transfer_encoding = .none,
+        .transfer_compression = .identity,
+        .keep_alive = true,
+    },
+    target: Span = .{ .at = 0, .len = 0 },
+    expect: ?Span = null,
+    content_type: ?Span = null,
+
+    const Span = struct { at: usize, len: usize };
+
+    const vector_len = @max(std.simd.suggestVectorLength(u8) orelse 8, 8);
+    const Bits = @Int(.unsigned, vector_len);
+    const Vector = @Vector(vector_len, u8);
+
+    /// Scan `bytes`, the head so far, from where the last feed stopped:
+    /// the head's length, once it ends in them, or null.
+    fn feed(s: *HeadScan, bytes: []const u8) ?usize {
+        var at = s.at;
+        while (at + vector_len <= bytes.len) : (at += vector_len) {
+            const v: Vector = bytes[at..][0..vector_len].*;
+            var bits: Bits = @bitCast(v == @as(Vector, @splat('\n')));
+            bits |= @bitCast(v == @as(Vector, @splat(':')));
+            if (s.first) bits |= @bitCast(v == @as(Vector, @splat('?')));
+            while (bits != 0) : (bits &= bits - 1) {
+                if (s.mark(bytes, at + @ctz(bits))) |len| return len;
+            }
+        }
+        while (at < bytes.len) : (at += 1) switch (bytes[at]) {
+            '\n', ':', '?' => if (s.mark(bytes, at)) |len| return len,
+            else => {},
         };
+        s.at = at;
+        return null;
+    }
+
+    /// Note the `\n`, `:`, or `?` at `i`: the head's length, if it ends
+    /// there.
+    fn mark(s: *HeadScan, bytes: []const u8, i: usize) ?usize {
+        switch (bytes[i]) {
+            ':' => if (!s.first and s.colon == null) {
+                s.colon = i;
+            },
+            '?' => if (s.first and s.question == null) {
+                s.question = i;
+            },
+            else => return s.newline(bytes, i),
+        }
+        return null;
+    }
+
+    fn newline(s: *HeadScan, bytes: []const u8, i: usize) ?usize {
+        if (i == 0) return null;
+        switch (bytes[i - 1]) {
+            // A bare `\n\n` ends the head with no empty line: what
+            // follows the last `\r\n` is `Head.parse`'s last line, after
+            // which it finds no empty line.
+            '\n' => {
+                s.read(bytes, i + 1);
+                if (s.err == null) s.err = error.MissingFinalNewline;
+                return i + 1;
+            },
+            '\r' => {
+                // A line starts after a `\n`, so this `\r` is in it.
+                const end = i - 1;
+                if (end == s.line and !s.first) return i + 1;
+                s.read(bytes, end);
+                s.line = i + 1;
+                s.colon = null;
+                return null;
+            },
+            // A bare `\n` is in its line.
+            else => return null,
+        }
+    }
+
+    /// Read the line from `s.line` to `end`, as `Head.parse` does.
+    fn read(s: *HeadScan, bytes: []const u8, end: usize) void {
+        if (s.err != null) return;
+        if (s.first) {
+            s.first = false;
+            s.requestLine(bytes[0..end]) catch |err| {
+                s.err = err;
+            };
+        } else s.header(bytes, end) catch |err| {
+            s.err = err;
+        };
+    }
+
+    fn requestLine(s: *HeadScan, line: []const u8) Head.ParseError!void {
+        if (line.len < 10) return error.HttpHeadersInvalid;
+        const method_end = std.mem.findScalar(u8, line, ' ') orelse return error.HttpHeadersInvalid;
+        s.head.method = methodOf(line[0..method_end]) orelse return error.UnknownHttpMethod;
+        // The version is the last 8 bytes, after the last space: when the
+        // ninth from the end is no space, `Head.parse`'s version is not
+        // 8 bytes long, or holds a space.
+        const version_start = line.len - 9;
+        if (line[version_start] != ' ' or version_start == method_end) return error.HttpHeadersInvalid;
+        const version = std.mem.readInt(u64, line[version_start + 1 ..][0..8], .little);
+        s.head.version = if (version == comptime word("HTTP/1.0"))
+            .@"HTTP/1.0"
+        else if (version == comptime word("HTTP/1.1"))
+            .@"HTTP/1.1"
+        else
+            return error.HttpHeadersInvalid;
+        s.head.keep_alive = s.head.version == .@"HTTP/1.1";
+        s.target = .{ .at = method_end + 1, .len = version_start - method_end - 1 };
+        // A method holds no `?`, nor does a version.
+        if (s.question) |q| s.question = q - s.target.at;
+    }
+
+    fn header(s: *HeadScan, bytes: []const u8, end: usize) Head.ParseError!void {
+        const start = s.line;
+        if (bytes[start] == ' ' or bytes[start] == '\t') return error.HttpHeaderContinuationsUnsupported;
+        const name = bytes[start .. s.colon orelse end];
+        const value = if (s.colon) |c| std.mem.trim(u8, bytes[c + 1 .. end], " \t") else bytes[end..end];
+        if (name.len == 0) return error.HttpHeadersInvalid;
+        const value_at = @intFromPtr(value.ptr) - @intFromPtr(bytes.ptr);
+        if (s.colon != null) s.index.add(start, std.mem.trimEnd(u8, name, " \t").len, value_at, value.len);
+        const eql = std.ascii.eqlIgnoreCase;
+        // A known name by its length and first byte, then the whole name.
+        const first = name[0] | 0x20;
+        switch (name.len) {
+            "connection".len => if (first == 'c' and eql(name, "connection")) {
+                s.head.keep_alive = !eql(value, "close");
+            },
+            "expect".len => if (first == 'e' and eql(name, "expect")) {
+                s.expect = .{ .at = value_at, .len = value.len };
+            },
+            "content-type".len => if (first == 'c' and eql(name, "content-type")) {
+                s.content_type = .{ .at = value_at, .len = value.len };
+            },
+            "content-length".len => if (first == 'c' and eql(name, "content-length")) {
+                if (s.head.content_length != null) return error.HttpHeadersInvalid;
+                s.head.content_length = std.fmt.parseInt(u64, value, 10) catch return error.InvalidContentLength;
+            },
+            "content-encoding".len => if (first == 'c' and eql(name, "content-encoding")) {
+                if (s.head.transfer_compression != .identity) return error.HttpHeadersInvalid;
+                const trimmed = std.mem.trim(u8, value, " ");
+                s.head.transfer_compression = std.http.ContentEncoding.fromString(trimmed) orelse return error.HttpTransferEncodingUnsupported;
+            },
+            "transfer-encoding".len => if (first == 't' and eql(name, "transfer-encoding")) {
+                // `Transfer-Encoding: second, first`, as
+                // `Transfer-Encoding: deflate, chunked`.
+                var iter = std.mem.splitBackwardsScalar(u8, value, ',');
+                const first_coding = iter.first();
+                const trimmed_first = std.mem.trim(u8, first_coding, " ");
+                var next: ?[]const u8 = first_coding;
+                if (std.meta.stringToEnum(std.http.TransferEncoding, trimmed_first)) |transfer| {
+                    if (s.head.transfer_encoding != .none) return error.HttpHeadersInvalid;
+                    s.head.transfer_encoding = transfer;
+                    next = iter.next();
+                }
+                if (next) |second| {
+                    const trimmed_second = std.mem.trim(u8, second, " ");
+                    const transfer = std.http.ContentEncoding.fromString(trimmed_second) orelse return error.HttpTransferEncodingUnsupported;
+                    if (s.head.transfer_compression != .identity) return error.HttpHeadersInvalid;
+                    s.head.transfer_compression = transfer;
+                }
+                if (iter.next()) |_| return error.HttpTransferEncodingUnsupported;
+            },
+            else => {},
+        }
+    }
+
+    /// The head, its text in `bytes`.
+    fn made(s: *const HeadScan, bytes: []const u8) Head {
+        var head = s.head;
+        head.target = bytes[s.target.at..][0..s.target.len];
+        head.expect = if (s.expect) |e| bytes[e.at..][0..e.len] else null;
+        head.content_type = if (s.content_type) |t| bytes[t.at..][0..t.len] else null;
+        return head;
+    }
+
+    /// The method `text` names, exactly, or null.
+    fn methodOf(text: []const u8) ?std.http.Method {
+        if (text.len > 7) return null;
+        var bytes: [8]u8 = @splat(0);
+        @memcpy(bytes[0..text.len], text);
+        bytes[7] = @intCast(text.len);
+        const w = std.mem.readInt(u64, &bytes, .little);
+        inline for (@typeInfo(std.http.Method).@"enum".field_names) |name| {
+            if (w == comptime methodWord(name)) return @field(std.http.Method, name);
+        }
+        return null;
+    }
+
+    fn methodWord(comptime name: []const u8) u64 {
+        var bytes: [8]u8 = @splat(0);
+        @memcpy(bytes[0..name.len], name);
+        bytes[7] = name.len;
+        return std.mem.readInt(u64, &bytes, .little);
+    }
+
+    fn word(comptime text: *const [8]u8) u64 {
+        return std.mem.readInt(u64, text, .little);
     }
 };
 
@@ -1157,67 +1406,198 @@ const Index = struct {
         return std.mem.sliceAsBytes(ix.entries[0..ix.len]);
     }
 
-    fn add(ix: *Index, head: []const u8, name: []const u8, value: []const u8) void {
-        if (ix.len >= max_headers or head.len > std.math.maxInt(u16)) {
+    /// Add the header whose name and value lie at these offsets, the
+    /// name first.
+    fn add(ix: *Index, name_at: usize, name_len: usize, value_at: usize, value_len: usize) void {
+        if (ix.len >= max_headers or value_at + value_len > std.math.maxInt(u16)) {
             ix.len = max_headers + 1;
             return;
         }
-        const base = @intFromPtr(head.ptr);
-        ix.entries[ix.len] = .{
-            @intCast(@intFromPtr(name.ptr) - base), @intCast(name.len),
-            @intCast(@intFromPtr(value.ptr) - base), @intCast(value.len),
-        };
+        ix.entries[ix.len] = .{ @intCast(name_at), @intCast(name_len), @intCast(value_at), @intCast(value_len) };
         ix.len += 1;
     }
 };
 
-test "parseHead gives what Zig's Head.parse gives, and indexes each header" {
-    const heads = [_][]const u8{
-        "GET / HTTP/1.1\r\n\r\n",
-        "GET /a?b=c HTTP/1.0\r\nHost: x\r\nConnection: keep-alive\r\n\r\n",
-        "POST /p HTTP/1.1\r\ncontent-tYpe: text/plain\r\ncontent-Length:10\r\nexpeCt:   100-continue \r\nTRansfer-encoding:\tdeflate, chunked \r\nconnectioN:\t close \r\n\r\n",
-        "PUT /p HTTP/1.1\r\nContent-Encoding: gzip\r\nNoColon\r\nSpaced \t: v : w\r\n\r\n",
-        "GET / HTTP/1.2\r\n\r\n",
-        "GET /HTTP/1.1\r\n\r\n",
-        "BREW / HTTP/1.1\r\n\r\n",
-        "GET / HTTP/1.1\r\n folded\r\n\r\n",
-        "GET / HTTP/1.1\r\n: empty\r\n\r\n",
-        "GET / HTTP/1.1\r\nContent-Length: 1\r\nContent-Length: 1\r\n\r\n",
-        "GET / HTTP/1.1\r\nContent-Length: x\r\n\r\n",
-        "GET / HTTP/1.1\r\nTransfer-Encoding: chunked, chunked\r\n\r\n",
-        "GET / HTTP/1.1\r\nTransfer-Encoding: br\r\n\r\n",
-        "GET / HTTP/1.1\r\nTransfer-Encoding: a, b, chunked\r\n\r\n",
-        "GET / HTTP/1.1\r\nContent-Encoding: zstd\r\nTransfer-Encoding: gzip\r\n\r\n",
-        "GET / HTTP/1.1\r\nHost: x\r\n",
-    };
-    for (heads) |bytes| {
-        var index: Index = .{};
-        const want = std.http.Server.Request.Head.parse(bytes);
-        const got = parseHead(bytes, &index);
-        if (want) |w| {
-            const g = try got;
-            try std.testing.expectEqual(w.method, g.method);
-            try std.testing.expectEqualStrings(w.target, g.target);
-            try std.testing.expectEqual(w.version, g.version);
-            try std.testing.expectEqualDeep(w.expect, g.expect);
-            try std.testing.expectEqualDeep(w.content_type, g.content_type);
-            try std.testing.expectEqual(w.content_length, g.content_length);
-            try std.testing.expectEqual(w.transfer_encoding, g.transfer_encoding);
-            try std.testing.expectEqual(w.transfer_compression, g.transfer_compression);
-            try std.testing.expectEqual(w.keep_alive, g.keep_alive);
-            // Each entry is a line with a colon: its name and value, trimmed.
-            var lines = std.mem.splitSequence(u8, bytes, "\r\n");
-            _ = lines.next();
-            var n: usize = 0;
-            while (lines.next()) |line| {
-                const colon = std.mem.findScalar(u8, line, ':') orelse continue;
-                const e = index.entries[n];
-                try std.testing.expectEqualStrings(std.mem.trim(u8, line[0..colon], " \t"), bytes[e[0]..][0..e[1]]);
-                try std.testing.expectEqualStrings(std.mem.trim(u8, line[colon + 1 ..], " \t"), bytes[e[2]..][0..e[3]]);
-                n += 1;
-            }
-            try std.testing.expectEqual(n, index.len);
-        } else |err| try std.testing.expectError(err, got);
+/// What Zig's server and ours give for the head `bytes`, sent `step`
+/// bytes at a time into a buffer of `buffer_len` (no limit when 0): the
+/// same request, or the same error. The index holds each line with a
+/// colon, and `question` is the target's first `?`.
+fn expectSameHead(bytes: []const u8, step: usize, buffer_len: usize) !void {
+    const gpa = std.testing.allocator;
+    const len = if (buffer_len == 0) bytes.len + 1 else buffer_len;
+    var out: [0]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&out);
+    // Zig's, which reads the whole head before it parses it.
+    const zig_buf = try gpa.alloc(u8, len);
+    defer gpa.free(zig_buf);
+    var zig_in: std.testing.Reader = .init(zig_buf, &.{.{ .buffer = bytes }});
+    var zig_server: std.http.Server = .init(&zig_in.interface, &w);
+    zig_server.reader.max_head_len = len;
+    const want: (std.http.Reader.HeadError || Head.ParseError)!Head = if (zig_server.reader.receiveHead()) |hb| Head.parse(hb) else |err| err;
+    // Ours, sent `step` bytes at a time.
+    const buf = try gpa.alloc(u8, len);
+    defer gpa.free(buf);
+    var in: std.testing.Reader = .init(buf, &.{.{ .buffer = bytes }});
+    in.artificial_limit = .limited(step);
+    var server: Server = .init(&in.interface, &w);
+    server.http.reader.max_head_len = len;
+    const got = server.receiveHead();
+    const g = (got catch |err| return std.testing.expectError(err, want)).head;
+    const hb = (try got).head_buffer;
+    const h = try want;
+    try std.testing.expectEqual(h.method, g.method);
+    try std.testing.expectEqualStrings(h.target, g.target);
+    try std.testing.expectEqual(h.version, g.version);
+    try std.testing.expectEqualDeep(h.expect, g.expect);
+    try std.testing.expectEqualDeep(h.content_type, g.content_type);
+    try std.testing.expectEqual(h.content_length, g.content_length);
+    try std.testing.expectEqual(h.transfer_encoding, g.transfer_encoding);
+    try std.testing.expectEqual(h.transfer_compression, g.transfer_compression);
+    try std.testing.expectEqual(h.keep_alive, g.keep_alive);
+    try std.testing.expectEqual(std.mem.findScalar(u8, h.target, '?'), server.question);
+    // Each entry is a line with a colon: its name and value, trimmed.
+    var lines = std.mem.splitSequence(u8, hb, "\r\n");
+    _ = lines.next();
+    var n: usize = 0;
+    while (lines.next()) |line| {
+        const colon = std.mem.findScalar(u8, line, ':') orelse continue;
+        if (n == Index.max_headers) {
+            n += 1;
+            break;
+        }
+        const e = server.index.entries[n];
+        try std.testing.expectEqualStrings(std.mem.trim(u8, line[0..colon], " \t"), hb[e[0]..][0..e[1]]);
+        try std.testing.expectEqualStrings(std.mem.trim(u8, line[colon + 1 ..], " \t"), hb[e[2]..][0..e[3]]);
+        n += 1;
+    }
+    try std.testing.expectEqual(n, server.index.len);
+}
+
+/// Heads our server and Zig's read alike, valid and not.
+const test_heads = [_][]const u8{
+    "GET / HTTP/1.1\r\n\r\n",
+    "GET /a?b=c HTTP/1.0\r\nHost: x\r\nConnection: keep-alive\r\n\r\n",
+    "POST /p HTTP/1.1\r\ncontent-tYpe: text/plain\r\ncontent-Length:10\r\nexpeCt:   100-continue \r\nTRansfer-encoding:\tdeflate, chunked \r\nconnectioN:\t close \r\n\r\n",
+    "PUT /p HTTP/1.1\r\nContent-Encoding: gzip\r\nNoColon\r\nSpaced \t: v : w\r\n\r\n",
+    "GET http://x.y:80/a?b=c:d?e HTTP/1.1\r\nHost: x.y:80\r\nReferer: http://z/?q=1\r\n\r\n",
+    "GET /?? HTTP/1.1\r\nA: b\nc\r\nD:\r\nE:\t \r\nF: g\rh\r\n\r\n",
+    "OPTIONS * HTTP/1.1\r\nexpect\r\nconnection\r\ncontent-type\r\n\r\n",
+    "QUERY /q HTTP/1.1\r\nUser-Agent: z\r\nconnectioN: Close\r\nContent-Length: +5\r\n\r\nbody",
+    "GET / HTTP/1.1\r\n\r\nGET /next HTTP/1.1\r\n\r\n",
+    // The request line.
+    "GET / HTTP/1.2\r\n\r\n",
+    "GET / HTTP/2.0\r\n\r\n",
+    "GET / http/1.1\r\n\r\n",
+    "GET / HTTP/1.1x\r\n\r\n",
+    "GET / HTTP/1.1 \r\n\r\n",
+    "GET /HTTP/1.1\r\n\r\n",
+    "GET  HTTP/1.1\r\n\r\n",
+    "GET /\tHTTP/1.1\r\n\r\n",
+    "GET/ HTTP/1.1\r\n\r\n",
+    "BREW / HTTP/1.1\r\n\r\n",
+    "get / HTTP/1.1\r\n\r\n",
+    "GET\x00 / HTTP/1.1\r\n\r\n",
+    "CONNECTX / HTTP/1.1\r\n\r\n",
+    " GET / HTTP/1.1\r\n\r\n",
+    "GET / H\r\n\r\n",
+    "\r\n\r\n",
+    "\r\nGET / HTTP/1.1\r\n\r\n",
+    // Bare line feeds.
+    "GET / HTTP/1.1\n\n",
+    "GET / HTTP/1.1\nHost: x\n\n",
+    "GET / HTTP/1.1\r\nHost: x\n\n",
+    "GET / HTTP/1.1\r\nHost: x\r\n\n",
+    "\n\n",
+    "GET / HTTP/1.1\r\nA: b\n\r\nC: d\r\n\r\n",
+    // Headers.
+    "GET / HTTP/1.1\r\n folded\r\n\r\n",
+    "GET / HTTP/1.1\r\nA: b\r\n\tfolded\r\n\r\n",
+    "GET / HTTP/1.1\r\n: empty\r\n\r\n",
+    "GET / HTTP/1.1\r\nContent-Length: 1\r\nContent-Length: 1\r\n\r\n",
+    "GET / HTTP/1.1\r\nContent-Length: 1\r\ncontent-length: 2\r\n\r\n",
+    "GET / HTTP/1.1\r\nContent-Length: x\r\n\r\n",
+    "GET / HTTP/1.1\r\nContent-Length: -1\r\n\r\n",
+    "GET / HTTP/1.1\r\nContent-Length: 99999999999999999999\r\n\r\n",
+    "GET / HTTP/1.1\r\nContent-Length\r\n\r\n",
+    "GET / HTTP/1.1\r\nTransfer-Encoding: chunked, chunked\r\n\r\n",
+    "GET / HTTP/1.1\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n\r\n",
+    "GET / HTTP/1.1\r\nTransfer-Encoding: br\r\n\r\n",
+    "GET / HTTP/1.1\r\nTransfer-Encoding: a, b, chunked\r\n\r\n",
+    "GET / HTTP/1.1\r\nContent-Encoding: zstd\r\nTransfer-Encoding: gzip\r\n\r\n",
+    "GET / HTTP/1.1\r\nContent-Encoding: gzip\r\nContent-Encoding: gzip\r\n\r\n",
+    // The first error, of several.
+    "BREW / HTTP/1.1\r\n folded\r\n\r\n",
+    "GET / HTTP/1.1\r\nContent-Length: x\r\n folded\r\n\r\n",
+    // No end.
+    "GET / HTTP/1.1\r\nHost: x\r\n",
+    "GET / HTTP/1.1\r\nHost: x\r\n\r",
+    "BREW / HTTP/1.1\r\nHost: x\r\n",
+    "",
+};
+
+test "receiveHead gives what Zig's receiveHead and Head.parse give, and indexes each header" {
+    for (test_heads) |bytes| {
+        // Whole, then a few bytes at a time, as bytes arrive.
+        for ([_]usize{ bytes.len + 1, 1, 3, 17 }) |step| {
+            expectSameHead(bytes, step, 0) catch |err| {
+                std.debug.print("head {f}, {d} at a time\n", .{ std.zig.fmtString(bytes), step });
+                return err;
+            };
+        }
+    }
+}
+
+test "a bare \\n\\n ends a head, which is refused, however its bytes arrive" {
+    // Zig's `HeadParser` misses this one when it reads the bytes whole,
+    // and `Head.parse` then takes `X`'s value as `vvvv\n\nzzzzzzzz`.
+    const bytes = "GET /p HTTP/1.1\r\nX: vvvv\n\nzzzzzzzz\r\n\r\n";
+    var out: [0]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&out);
+    for ([_]usize{ 1, 3, 17, bytes.len }) |step| {
+        var buf: [bytes.len + 1]u8 = undefined;
+        var in: std.testing.Reader = .init(&buf, &.{.{ .buffer = bytes }});
+        in.artificial_limit = .limited(step);
+        var server: Server = .init(&in.interface, &w);
+        server.http.reader.max_head_len = buf.len;
+        try std.testing.expectError(error.MissingFinalNewline, server.receiveHead());
+        if (step == bytes.len) try std.testing.expectEqualStrings("zzzzzzzz\r\n\r\n", in.interface.buffered());
+    }
+}
+
+test "receiveHead refuses a head longer than its limit" {
+    // No end within the limit, then the end just past it.
+    try expectSameHead("GET / HTTP/1.1\r\nHost: x\r\nA: b\r\n\r\n", 5, 24);
+    try expectSameHead("GET / HTTP/1.1\r\nHost: x\r\nA: b\r\n\r\n", 5, 31);
+    try expectSameHead("GET / HTTP/1.1\r\nHost: x\r\nA: b\r\n\r\n", 5, 32);
+}
+
+test "receiveHead reads heads one after another, as the reader moves them" {
+    const bytes = "GET /a?x HTTP/1.1\r\nA: 1\r\n\r\nPOST /b HTTP/1.0\r\nB: 22\r\nContent-Length: 0\r\n\r\nGET /c HTTP/1.1\r\n\r\n";
+    var out: [0]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&out);
+    for ([_]usize{ 1, 7, bytes.len }) |step| {
+        // A buffer only a little longer than the longest head, which the
+        // reader rebases.
+        var buf: [52]u8 = undefined;
+        var in: std.testing.Reader = .init(&buf, &.{.{ .buffer = bytes }});
+        in.artificial_limit = .limited(step);
+        var server: Server = .init(&in.interface, &w);
+        server.http.reader.max_head_len = buf.len;
+        const a = try server.receiveHead();
+        try std.testing.expectEqualStrings("/a?x", a.head.target);
+        try std.testing.expectEqual(2, server.question);
+        try std.testing.expectEqualStrings("1", a.head_buffer[server.index.entries[0][2]..][0..1]);
+        const b = try server.receiveHead();
+        try std.testing.expectEqualStrings("/b", b.head.target);
+        try std.testing.expectEqual(null, server.question);
+        try std.testing.expectEqual(.@"HTTP/1.0", b.head.version);
+        try std.testing.expectEqual(0, b.head.content_length);
+        try std.testing.expectEqual(2, server.index.len);
+        try std.testing.expectEqualStrings("22", b.head_buffer[server.index.entries[0][2]..][0..2]);
+        const c = try server.receiveHead();
+        try std.testing.expectEqualStrings("/c", c.head.target);
+        try std.testing.expectEqual(0, server.index.len);
+        try std.testing.expectError(error.HttpConnectionClosing, server.receiveHead());
     }
 }
 
@@ -1227,9 +1607,14 @@ test "an index past its headers is none" {
     try w.writeAll("GET / HTTP/1.1\r\n");
     for (0..Index.max_headers + 1) |i| try w.print("H{d}: {d}\r\n", .{ i, i });
     try w.writeAll("\r\n");
-    var index: Index = .{};
-    _ = try parseHead(w.buffered(), &index);
-    try std.testing.expectEqual(0, index.bytes().len);
+    try expectSameHead(w.buffered(), 1000, 0);
+    var out: [0]u8 = undefined;
+    var o: std.Io.Writer = .fixed(&out);
+    var in: std.Io.Reader = .fixed(w.buffered());
+    var server: Server = .init(&in, &o);
+    server.http.reader.max_head_len = 4096;
+    _ = try server.receiveHead();
+    try std.testing.expectEqual(0, server.index.bytes().len);
 }
 
 test "statusLine and writeLength write what Zig's respond writes" {
@@ -1246,92 +1631,6 @@ test "statusLine and writeLength write what Zig's respond writes" {
         try wb.print("content-length: {d}\r\n", .{n});
         try std.testing.expectEqualStrings(wb.buffered(), wa.buffered());
     }
-}
-
-/// Zig's `Request.Head.parse`, which also records each header in `index`.
-/// It accepts and rejects what Zig's does and gives the same `Head`; it
-/// finds the header a name means by its length first.
-fn parseHead(bytes: []const u8, index: *Index) std.http.Server.Request.Head.ParseError!std.http.Server.Request.Head {
-    const mem = std.mem;
-    index.len = 0;
-    var it = mem.splitSequence(u8, bytes, "\r\n");
-    const first_line = it.next().?;
-    if (first_line.len < 10) return error.HttpHeadersInvalid;
-    const method_end = mem.findScalar(u8, first_line, ' ') orelse return error.HttpHeadersInvalid;
-    const method = std.meta.stringToEnum(std.http.Method, first_line[0..method_end]) orelse return error.UnknownHttpMethod;
-    const version_start = mem.findScalarLast(u8, first_line, ' ') orelse return error.HttpHeadersInvalid;
-    if (version_start == method_end) return error.HttpHeadersInvalid;
-    const version_str = first_line[version_start + 1 ..];
-    if (version_str.len != 8) return error.HttpHeadersInvalid;
-    const version: std.http.Version = if (mem.eql(u8, version_str, "HTTP/1.0"))
-        .@"HTTP/1.0"
-    else if (mem.eql(u8, version_str, "HTTP/1.1"))
-        .@"HTTP/1.1"
-    else
-        return error.HttpHeadersInvalid;
-    var head: std.http.Server.Request.Head = .{
-        .method = method,
-        .target = first_line[method_end + 1 .. version_start],
-        .version = version,
-        .expect = null,
-        .content_type = null,
-        .content_length = null,
-        .transfer_encoding = .none,
-        .transfer_compression = .identity,
-        .keep_alive = version == .@"HTTP/1.1",
-    };
-    while (it.next()) |line| {
-        if (line.len == 0) return head;
-        if (line[0] == ' ' or line[0] == '\t') return error.HttpHeaderContinuationsUnsupported;
-        const colon = mem.findScalar(u8, line, ':');
-        const name = line[0 .. colon orelse line.len];
-        const value = mem.trim(u8, if (colon) |c| line[c + 1 ..] else "", " \t");
-        if (name.len == 0) return error.HttpHeadersInvalid;
-        if (colon != null) index.add(bytes, mem.trim(u8, name, " \t"), value);
-        const eql = std.ascii.eqlIgnoreCase;
-        switch (name.len) {
-            "connection".len => if (eql(name, "connection")) {
-                head.keep_alive = !eql(value, "close");
-            },
-            "expect".len => if (eql(name, "expect")) {
-                head.expect = value;
-            },
-            "content-type".len => if (eql(name, "content-type")) {
-                head.content_type = value;
-            },
-            "content-length".len => if (eql(name, "content-length")) {
-                if (head.content_length != null) return error.HttpHeadersInvalid;
-                head.content_length = std.fmt.parseInt(u64, value, 10) catch return error.InvalidContentLength;
-            },
-            "content-encoding".len => if (eql(name, "content-encoding")) {
-                if (head.transfer_compression != .identity) return error.HttpHeadersInvalid;
-                const trimmed = mem.trim(u8, value, " ");
-                head.transfer_compression = std.http.ContentEncoding.fromString(trimmed) orelse return error.HttpTransferEncodingUnsupported;
-            },
-            "transfer-encoding".len => if (eql(name, "transfer-encoding")) {
-                // `Transfer-Encoding: second, first`, as
-                // `Transfer-Encoding: deflate, chunked`.
-                var iter = mem.splitBackwardsScalar(u8, value, ',');
-                const first = iter.first();
-                const trimmed_first = mem.trim(u8, first, " ");
-                var next: ?[]const u8 = first;
-                if (std.meta.stringToEnum(std.http.TransferEncoding, trimmed_first)) |transfer| {
-                    if (head.transfer_encoding != .none) return error.HttpHeadersInvalid;
-                    head.transfer_encoding = transfer;
-                    next = iter.next();
-                }
-                if (next) |second| {
-                    const trimmed_second = mem.trim(u8, second, " ");
-                    const transfer = std.http.ContentEncoding.fromString(trimmed_second) orelse return error.HttpTransferEncodingUnsupported;
-                    if (head.transfer_compression != .identity) return error.HttpHeadersInvalid;
-                    head.transfer_compression = transfer;
-                }
-                if (iter.next()) |_| return error.HttpTransferEncodingUnsupported;
-            },
-            else => {},
-        }
-    }
-    return error.MissingFinalNewline;
 }
 
 /// A String whose bytes are `bytes`, which it does not own: a
