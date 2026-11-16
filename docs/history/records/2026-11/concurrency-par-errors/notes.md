@@ -73,7 +73,7 @@ their results would bind is explained by checking that closure aloud
 | Map and Set `update`, `retain`, `ensure_with`, `ensure_by` | prelude methods, parameters from self | `checkArgs` reports | right |
 | `chainFnResult`, chains (`map`, `filter`, `any`, `all`, `find`, `min_by`, `max_by`) | `chainTypes` | null on errors; the loop the chain becomes checks the closure | right |
 | `lambdaChecksQuietly`, `reduce` | `reduceFunction` | `checkArgs` reports | right |
-| `argType` (`synthQuiet`) of any argument | every call | the call's own check reports | right |
+| `argType` (`synthQuiet`) of any argument | every call | the call's own check reports, but an owned closure literal, `*|x| x + 1` where a generic's `*fun(T) -> R` or `?fun(T) -> R` goes, was typed here with its parameter poison, binding nothing; `rig check` accepted the valid `apply(3, *|x| x + 1)` and emit failed | fixed after review: `inferBindings` matches an owned closure literal where a function goes as it matches a lent one (`lambdaPattern` reads `*fun(...)`) |
 | `*Actor.supervised(*|| ...)`, a task `(|...| ...)()&` | | checked aloud | right |
 
 Probes, each run on the base (3cfdde207) and the branch: the two

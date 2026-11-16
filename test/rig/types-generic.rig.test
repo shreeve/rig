@@ -228,6 +228,36 @@ fail "a bracketed generic call is named as written where it fails", "11:7: `id[I
 
   run(3) catch |e| print(e)
 
+test "generic owned closure literal", "4 13 6 13 5 4"
+  # An owned closure literal, `*|x| ...`, takes its parameter types from
+  # what the other arguments bind and binds what its result gives, as a
+  # closure literal lent to the call does: with captures, nested in
+  # another closure, or holding one.
+  fun apply[T, R](x: T, f: *fun(T) -> R) -> R
+    f(x)
+
+  fun lend[T, R](x: T, f: ?fun(T) -> R) -> R
+    f(x)
+
+  fun maker[T](x: T) -> *fun(T) -> T
+    *|y| y
+
+  sub main()!
+    k = 10
+    m = maker(4)
+    print(apply(3, *|x| x + 1), apply(3, *|+k, x| x + k), lend(3, |x| apply(x, *|y| y * 2)), lend(3, |+k, x| x + k), m(5), apply(3, *|x| lend(x, |y| y + 1)))
+
+fail "generic owned closure literal checked", "8:17: `?fun(Int) -> Int` views a closure for the call; write the closure without `*` (remove the `*`)", "9:25: type `Int` has no method `abs`", errors: 2
+  fun apply[T, R](x: T, f: *fun(T) -> R) -> R
+    f(x)
+
+  fun lend[T, R](x: T, f: ?fun(T) -> R) -> R
+    f(x)
+
+  sub main()!
+    print(lend(3, *|x| x + 1))
+    print(apply(3, *|x| x.abs()))
+
 fail "generic closure's errors leave a parameter unbound", "12:30: type `?Int` has no method `nope`", "13:35: type `?Int` has no method `abs`", "14:39: type `Int` has no method `abs`", errors: 3
   # A closure whose result would bind a type parameter, and whose body is
   # in error, says why the parameter is unbound: its errors are reported,

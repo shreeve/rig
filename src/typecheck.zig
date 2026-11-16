@@ -12648,6 +12648,14 @@ const Checker = struct {
                 try lambdas.append(self.ctx.arena.allocator(), .{ .pattern = fn_pat, .lambda = value, .arg = @intCast(number) });
                 continue;
             }
+            // An owned closure literal (`*|x| ...`) where a function goes
+            // is matched by its parameters and result as a lent one is:
+            // whether its `*` fits is checked with the call's arguments.
+            // Where a `T` goes, it is a value of its own type.
+            if (value.isKind(.share) and ir.Share.operand(value).isKind(.lambda)) if (lambdaPattern(self.ctx, pat)) |fn_pat| {
+                try lambdas.append(self.ctx.arena.allocator(), .{ .pattern = fn_pat, .lambda = ir.Share.operand(value), .arg = @intCast(number) });
+                continue;
+            };
             const actual = try self.argType(value);
             if (sema.containsPoison(self.ctx, actual)) inf.poisoned = true;
             try self.bindArg(&inf, pat, actual, @intCast(number), 0);
@@ -12730,11 +12738,16 @@ const Checker = struct {
     const LambdaArg = struct { pattern: TypeId, lambda: Sexp, arg: u32 };
 
     /// The function type a closure literal passed where parameter type
-    /// `pat` goes is checked against: `pat` itself, or the callable a
-    /// `?fun(...)` lends.
+    /// `pat` goes is checked against: `pat` itself, the callable a
+    /// `?fun(...)` lends, or the function of an owned closure
+    /// `*fun(...)`.
     fn lambdaPattern(ctx: *const SemContext, pat: TypeId) ?TypeId {
         if (sema.callableFnTy(ctx, pat)) |f| return f;
-        return if (ctx.types.get(pat) == .function) pat else null;
+        return switch (ctx.types.get(pat)) {
+            .function => pat,
+            .shared => |inner| if (ctx.types.get(inner) == .function) inner else null,
+            else => null,
+        };
     }
 
     /// The type of closure literal `lambda` where function type `pattern`

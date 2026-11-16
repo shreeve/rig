@@ -318,6 +318,11 @@ it where the negation was meant. Trig has no such site.
 
 ### Compiler
 
+- An owned closure literal passed to a generic function,
+  `apply(3, *|x| x + 1)` with `f: *fun(T) -> R`, takes its parameter
+  types from the other arguments and binds the result's type, as a
+  closure lent to the call does, and builds and runs, where `rig check`
+  accepted it and emit failed ("cannot emit an untyped parameter").
 - A closure written in `par.map` or `par.workers` whose body is in
   error, `par.map(?xs, |x| x.abs())` on `Int`s or `|c| (!c).swap(5)`
   on a read view of a `*Cell`, is rejected with its own error, checked
