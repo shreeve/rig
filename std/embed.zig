@@ -36,6 +36,7 @@ pub const files = [_]struct { []const u8, []const u8 }{
     .{ "shared.zig", @embedFile("shared.zig") },
     .{ "slices.rig", @embedFile("slices.rig") },
     .{ "sort.rig", @embedFile("sort.rig") },
+    .{ "sort.zig", @embedFile("sort.zig") },
     .{ "target.rig", @embedFile("target.rig") },
     .{ "target.zig", @embedFile("target.zig") },
     .{ "task.rig", @embedFile("task.rig") },

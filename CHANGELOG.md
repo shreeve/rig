@@ -332,6 +332,12 @@ it where the negation was meant. Trig has no such site.
 
 ### Compiler
 
+**A generic call whose bounds fail reports once.** An instance made by
+one whose type arguments break its bounds is no longer checked, so the
+generic helpers that instance would reach do not repeat its error:
+`sort.sort` of `F32`s gives the one bound error at the call, not one
+more for each of std.sort's helpers.
+
 **`!` of a value that changes by a marked call lends to read.** `!x`
 puts only a read loan on `x` when it lends a write view of a Cell, a
 Signal, a channel, an actor, or a value that holds a Cell, judged by the
@@ -667,6 +673,34 @@ arms.
 
 ### Runtime
 
+- **`sort.sort` sorts by pattern-defeating quicksort where equal
+  elements are the same value**: numbers, `Bool`, text, plain enums,
+  and the optionals, arrays, objects, and enums made only of these whose
+  header derives `Ord`. There no program can tell equal elements apart,
+  so the order quicksort leaves them in is unseen, and `sort` stays
+  stable in meaning. It compares with `<` inline, allocates nothing, and
+  takes O(n log n) comparisons at worst and O(n) on sorted or reversed
+  input. On the Mac, against the merge sort `sort` used before, every
+  row of 16 to 4,194,304 elements is faster: random Ints 2.1 times as
+  fast at 16 elements, 6.0 times at 4,096, and 10.3 times at 4,194,304;
+  random text 1.3 to 2.6 times; random objects 1.1 to 8.2 times; and
+  sorted, reversed, and 16-valued input from 7% faster (16 reversed
+  Strings) to 24 times as fast (a million Ints of 16 values). Against
+  Zig's `std.sort.pdq` given whole-value swaps and built the same way,
+  it is level or faster on 65 of the 72 rows and at most 10% slower
+  (reversed Ints). A type
+  with an `order` of its own, whose equal values may differ, one holding
+  a handle, and `sort_by` and `sort_by_key` keep the stable merge
+  (docs/history/records/2026-11/std-sort/).
+- **`!xs.swap(i, j)` of an element up to 64 bytes swaps whole values**,
+  where `std.mem.swap` moved one byte at a time, which LLVM turned into
+  byte shuffles of the two elements: an insertion sort of 16 Ints ran
+  two to three times as slow so. A larger element is still swapped in pieces.
+- **`<` on an object ordered by its fields** compares field by field,
+  the first that differs deciding, a number, `Bool`, or plain enum field
+  by `!=` and `<`, without making an `Order` first, which made Zig's
+  pattern-defeating quicksort of objects of two Ints 1.8 to 3.2 times as
+  slow when tried there.
 - **A FIFO's reader on macOS sees its writer leave:** `file.read` of a
   FIFO, and a `File`'s reads of one, read without blocking and wait for
   bytes in a poll of at most 64 ms (`rig.net.FifoWait`). A read parked
