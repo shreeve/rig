@@ -1577,3 +1577,45 @@ fail "defer of a defer", "1:7: a deferred statement cannot itself be a `defer` o
   defer defer print(1)
   errdefer defer print(2)
   print(0)
+
+fail "fallible sub returns no value", "10:10: a `sub` returns no value, and fails only by returning an error: write `say(1)!` on its own line, then `return`", "11:10: a `sub` returns no value, and fails only by returning an error: write `ok()` on its own line, then `return`", errors: 2
+  # A fallible `sub` returns an error or nothing, as one that cannot fail
+  # returns nothing.
+  error E
+    bad
+
+  sub say(n: Int)!
+    return E.bad if n > 5
+
+  sub run(n: Int)!
+    return say(1)! if n > 1
+    return ok() if n > 0
+    return E.bad
+
+  sub ok()
+    print("ok")
+
+  run(2) catch |e| print(e)
+
+test "fallible sub returns an error", '''
+  E.bad
+  E.bad
+'''
+  # The errors a fallible `sub` may return: a value of its set, a caught
+  # error, and an error a branch picks.
+  error E
+    bad
+    worse
+
+  sub run(n: Int)!
+    return E.bad if n > 1
+    return E.worse
+
+  sub forward(n: Int)!
+    run(n) catch |e| return e
+
+  sub pick(n: Int)!
+    return E.bad if n > 0 else E.worse
+
+  forward(2) catch |e| print(e)
+  pick(1) catch |e| print(e)
