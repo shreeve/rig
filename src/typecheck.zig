@@ -574,23 +574,27 @@ const Checker = struct {
         }
     }
 
-    /// The standard library's `extern zig` functions that give a view of a
-    /// value that changes by a marked call, each read to view only what
-    /// that value never replaces or frees while a handle to it lives: the
-    /// premise of Core §4, which the checkers see in Rig code but not in
-    /// Zig. `shared.Map`'s entries never move, and are freed when the map
-    /// drops.
-    const marked_views = [_][]const u8{ "std.shared.find", "std.shared.settle" };
+    /// The standard library's `extern zig` functions that take a value
+    /// that changes by a marked call, each read to keep the premise of
+    /// Core §4 in Zig the checkers do not see: the value is never replaced
+    /// whole, and every view it gave out lasts while a handle to it lives,
+    /// so the function moves and frees nothing a view may see, and any
+    /// view it gives is of such memory. `shared.Map`'s entries never move,
+    /// and are freed only when the map drops (std/shared.zig).
+    const marked_externs = [_][]const u8{ "std.shared.find", "std.shared.holds", "std.shared.insert", "std.shared.settle", "std.shared.count" };
 
-    /// An `extern zig` function `d` whose result may hold a view and that
-    /// takes a value that changes by a marked call (`sema.changesByMark`),
-    /// or a view of one, must be one of `marked_views`.
+    /// An `extern zig` function `d` that takes a value that changes by a
+    /// marked call (`sema.changesByMark`), through a view, a handle, or a
+    /// box (`sema.unwrapAccess`), or whose result may view a parameter of
+    /// a type parameter's or an API object's type, which may be one, must
+    /// be one of `marked_externs`.
     fn checkMarkedView(self: *Checker, d: Sexp) Error!void {
         const f = if (d.isKind(.@"pub")) ir.Pub.decl(d) else d;
-        if (!f.isKind(.fun)) return;
+        if (!f.isKind(.fun) and !f.isKind(.sub)) return;
         const name_node = ir.get(f, .name);
         const id = self.ctx.symbolOf(name_node) orelse return;
-        const fn_ty = switch (self.ctx.types.get(self.ctx.symbols.items[id].ty)) {
+        const sym = self.ctx.symbols.items[id];
+        const fn_ty = switch (self.ctx.types.get(sym.ty)) {
             .function => |ft| ft,
             else => return,
         };
@@ -598,15 +602,20 @@ const Checker = struct {
             .fallible => |fl| fl.ok,
             else => fn_ty.returns,
         };
-        if (!sema.mayHoldView(self.ctx, result)) return;
-        const marked = for (fn_ty.params) |param| {
-            const value = sema.unwrapViews(self.ctx, param);
-            if (self.ctx.types.get(value) != .shared and sema.changesByMark(self.ctx, value)) break value;
+        const gives_view = sema.mayHoldView(self.ctx, result);
+        const marked = for (fn_ty.params, 0..) |param, i| {
+            const value = sema.unwrapAccess(self.ctx, param);
+            if (sema.changesByMark(self.ctx, value)) break value;
+            const viewed = i < 64 and (sym.origins.result >> @intCast(i)) & 1 != 0;
+            switch (self.ctx.types.get(value)) {
+                .type_var, .api_object => if (gives_view and viewed) break value,
+                else => {},
+            }
         } else return;
         const name = identAt(self.ctx.source, name_node) orelse return;
         const full = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ self.ctx.name, name });
-        for (marked_views) |listed| if (std.mem.eql(u8, listed, full)) return;
-        try self.errAt(name_node, "`{s}` gives a view of a `{s}`, which changes by marked calls, and its Zig is unchecked: it may view only what the value never replaces or frees while a handle lives (Core §4); read its Zig, then list `{s}` in `Checker.marked_views`", .{ name, try self.tyName(marked), full });
+        for (marked_externs) |listed| if (std.mem.eql(u8, listed, full)) return;
+        try self.errAt(name_node, "`{s}` takes a `{s}`, which may change by marked calls, in Zig the checkers do not see: it must move and free nothing a view of it may see, and give only views of such memory (Core §4); read its Zig, then list `{s}` in `Checker.marked_externs`", .{ name, try self.tyName(marked), full });
     }
 
     /// A module-level binding is a constant, `name = value`: its value

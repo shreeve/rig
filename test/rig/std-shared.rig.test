@@ -178,3 +178,35 @@ fail "shared map only behind a handle", "a value of `shared.Map[String, Int]` ho
 
   sub main()
     print(2)
+
+test "shared map views survive every change", seeds: 20, '''
+  first-value-long-enough-for-heap second-value-long-enough-for-heap
+  first-value-long-enough-for-heap second-value-long-enough-for-heap
+  40002 true
+'''
+  # Every change the map has, made while views it gave live, through the
+  # same handle and from another task: puts of new keys that grow every
+  # shard, puts and ensures of keys it holds (whose values are dropped),
+  # and an ensure that puts. Under the sanitizer, a change that moved or
+  # freed an entry a view sees would fail here (Core §4; the invariant at
+  # `shared.Map`).
+  use std.shared
+
+  sub fill(m: *shared.Map[Int, String], from: Int)
+    for i in from..from + 20000
+      _ = !m.put_new(i, String("t"))
+      _ = !m.ensure(i, String("u"))
+
+  m = shared.Map[Int, String].new()
+  a = !m.ensure(1, String("first-value-long-enough-for-heap"))
+  _ = !m.put_new(2, String("second-value-long-enough-for-heap"))
+  b = ?m.get(2) ?? "none"
+  print(a, b)
+  t = fill(+m, 100)&
+  for i in 30000..50000
+    _ = !m.put_new(i, String("v"))
+  _ = !m.put_new(1, String("dropped"))
+  _ = !m.ensure(2, String("dropped too"))
+  >t
+  print(a, b)
+  print(m.len(), m.has(49999))
