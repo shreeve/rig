@@ -2055,15 +2055,17 @@ const Poller = struct {
     fn add(p: *Poller, fd: i32, r: *Registration) bool {
         if (darwin) {
             const flags = std.c.EV.ADD | std.c.EV.CLEAR;
+            // NOTE_OOB: a socket's read event says urgent data waits
+            // (`Registration.short_not_empty`).
             const evs = [2]std.c.Kevent{
-                .{ .ident = @intCast(fd), .filter = std.c.EVFILT.READ, .flags = flags, .fflags = 0, .data = 0, .udata = @intFromPtr(r) },
+                .{ .ident = @intCast(fd), .filter = std.c.EVFILT.READ, .flags = flags, .fflags = std.c.NOTE.OOB, .data = 0, .udata = @intFromPtr(r) },
                 .{ .ident = @intCast(fd), .filter = std.c.EVFILT.WRITE, .flags = flags, .fflags = 0, .data = 0, .udata = @intFromPtr(r) },
             };
             var none: [1]std.c.Kevent = undefined;
             if (std.c.kevent(p.fd, &evs, 2, &none, 0, null) < 0) return false;
         } else if (linux) {
             const linux_ = std.os.linux;
-            var ev: linux_.epoll_event = .{ .events = linux_.EPOLL.IN | linux_.EPOLL.OUT | linux_.EPOLL.RDHUP | linux_.EPOLL.ET, .data = .{ .ptr = @intFromPtr(r) } };
+            var ev: linux_.epoll_event = .{ .events = linux_.EPOLL.IN | linux_.EPOLL.OUT | linux_.EPOLL.RDHUP | linux_.EPOLL.PRI | linux_.EPOLL.ET, .data = .{ .ptr = @intFromPtr(r) } };
             if (@as(isize, @bitCast(linux_.epoll_ctl(p.fd, linux_.EPOLL.CTL_ADD, fd, &ev))) < 0) return false;
         } else return false;
         _ = p.count.fetchAdd(1, .monotonic);
@@ -2143,9 +2145,12 @@ const Poller = struct {
                 // An end (EV_EOF) is its own filter's readiness: the end
                 // of reading wakes the reader, the end of writing (this
                 // side's shutdown, or the other end's reset) the writer.
+                // A read event registered with NOTE_OOB carries it while
+                // urgent data waits.
                 const reads = ev.filter == std.c.EVFILT.READ;
                 const bits: u32 = if (reads) Registration.readable else Registration.writable;
-                if (r.ready(bits, reads and ev.flags & (std.c.EV.EOF | std.c.EV.ERROR) != 0)) any = true;
+                const unsure = ev.flags & (std.c.EV.EOF | std.c.EV.ERROR) != 0 or ev.fflags & std.c.NOTE.OOB != 0;
+                if (r.ready(bits, reads and unsure)) any = true;
             }
         } else if (linux) {
             const linux_ = std.os.linux;
@@ -2164,9 +2169,9 @@ const Poller = struct {
                 }
                 const r: *Registration = @ptrFromInt(ev.data.ptr);
                 var bits: u32 = 0;
-                if (ev.events & (linux_.EPOLL.IN | linux_.EPOLL.RDHUP | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0) bits |= Registration.readable;
+                if (ev.events & (linux_.EPOLL.IN | linux_.EPOLL.PRI | linux_.EPOLL.RDHUP | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0) bits |= Registration.readable;
                 if (ev.events & (linux_.EPOLL.OUT | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0) bits |= Registration.writable;
-                if (r.ready(bits, ev.events & (linux_.EPOLL.RDHUP | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0)) any = true;
+                if (r.ready(bits, ev.events & (linux_.EPOLL.PRI | linux_.EPOLL.RDHUP | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0)) any = true;
             }
         }
         return any;
@@ -2272,9 +2277,11 @@ pub const Registration = struct {
     /// fibers reading touch it.
     drained_at: std.atomic.Value(u64) = .init(0),
     /// Set once the poller sees the end of reading (the other end's
-    /// half-close, a hang-up, a failure), before it counts that edge: a
-    /// read then returns at once, so none waits for an edge past it.
-    read_ended: std.atomic.Value(bool) = .init(false),
+    /// half-close, a hang-up, a failure) or urgent data, before it counts
+    /// that edge: after the end a read returns at once, and a read stops
+    /// at urgent data's mark, short with bytes behind it that make no
+    /// edge, so from then on a short read is not taken to leave nothing.
+    short_not_empty: std.atomic.Value(bool) = .init(false),
     /// Its neighbors in the list of every registration, kept in a
     /// deterministic run, which looks at what each still has to send
     /// before its clock jumps (`unsent`).
@@ -2296,12 +2303,12 @@ pub const Registration = struct {
         return @truncate(if (interest == readable) v else v >> 32);
     }
 
-    /// The poller saw `bits`, and the end of reading when `ended`: count
-    /// an edge each way, then wake who waits on them. The end is marked
-    /// before the edge is counted, so a reader that reads the count sees
-    /// the mark (`drained`).
-    fn ready(r: *Registration, bits: u32, ended: bool) bool {
-        if (ended) r.read_ended.store(true, .monotonic);
+    /// The poller saw `bits`, and the end of reading or urgent data when
+    /// `unsure`: count an edge each way, then wake who waits on them. The
+    /// mark is set before the edge is counted, so a reader that reads the
+    /// count sees it (`drained`).
+    fn ready(r: *Registration, bits: u32, unsure: bool) bool {
+        if (unsure) r.short_not_empty.store(true, .monotonic);
         _ = r.seen.fetchAdd(@as(u64, bits & readable) | @as(u64, bits & writable) << 31, .seq_cst);
         if (r.waiting.load(.seq_cst) == 0) return false;
         r.lock.lock();
@@ -2366,13 +2373,19 @@ pub fn edges(r: *Registration, interest: u32) u32 {
 
 /// Whether a read on `r` would find nothing: its last read came back
 /// short, leaving nothing behind it, and the poller has seen no edge to
-/// read since (`seen`, read before the call) nor the end of reading. A
-/// stream's read returns less than it asked only when it took all there
-/// was (or stopped at urgent data, which waits for the next edge), and
-/// bytes that come after it make an edge, so the read would only be told
-/// to wait: the caller waits for an edge past `seen` (`waitReady`) first.
+/// read since (`seen`, read before the call). A stream's read returns
+/// less than it asked when it took all there was, and bytes that come
+/// after it make an edge, so the read would only be told to wait: the
+/// caller waits for an edge past `seen` (`waitReady`) first. Once the
+/// poller has seen the end of reading or urgent data, at whose mark a
+/// read stops short with bytes behind it, no read waits first
+/// (`Registration.short_not_empty`): the poller sees urgent data on the
+/// read event that reports its bytes (kqueue's NOTE_OOB, asked for as
+/// the read filter is added) or as EPOLLPRI, neither a call of its own,
+/// and marks it before it counts that edge, which wakes a read already
+/// waiting.
 pub fn drained(r: *Registration, seen: u32) bool {
-    return r.drained_at.load(.monotonic) == (@as(u64, seen) | 1 << 32) and !r.read_ended.load(.monotonic);
+    return r.drained_at.load(.monotonic) == (@as(u64, seen) | 1 << 32) and !r.short_not_empty.load(.monotonic);
 }
 
 /// A read on `r` took bytes, all there were when `short`: the read
@@ -8007,6 +8020,44 @@ test "a wait to read sleeps after its own side of the socket shuts down writing"
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expectEqual(Readiness.timeout, Run.got);
+}
+
+test "a read after a short one that stopped at urgent data does not wait for an edge" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var got: Readiness = .timeout;
+        var bytes: [2]isize = .{ 0, 0 };
+        fn first(_: *anyopaque) callconv(.c) void {
+            const posix = std.posix;
+            const sys = posix.system;
+            const fds = testTcpPair();
+            const r = register(fds[0]).?;
+            // A read stops at the urgent byte's mark: the first comes back
+            // short with bytes still behind it, and no edge comes for them.
+            _ = sys.write(fds[1], "hello", 5);
+            _ = sys.sendto(fds[1], "X", 1, posix.MSG.OOB, null, 0);
+            _ = sys.write(fds[1], "world", 5);
+            testNap(20 * std.time.ns_per_ms);
+            var buf: [64]u8 = undefined;
+            const seen = edges(r, Registration.readable);
+            bytes[0] = @bitCast(sys.read(fds[0], &buf, buf.len));
+            if (bytes[0] > 0) readCame(r, seen, @as(usize, @intCast(bytes[0])) < buf.len);
+            const now_seen = edges(r, Registration.readable);
+            got = if (drained(r, now_seen)) waitReady(r, Registration.readable, now_seen, nowNs() + 200 * std.time.ns_per_ms, false) else .ready;
+            bytes[1] = @bitCast(sys.read(fds[0], &buf, buf.len));
+            deregister(r);
+            _ = sys.close(fds[0]);
+            _ = sys.close(fds[1]);
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(@as(isize, 5), Run.bytes[0]);
+    try std.testing.expectEqual(Readiness.ready, Run.got);
+    try std.testing.expectEqual(@as(isize, 5), Run.bytes[1]);
 }
 
 test "a wait to write on a full buffer sleeps after the other end shuts down writing" {

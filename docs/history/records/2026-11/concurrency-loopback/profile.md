@@ -22,6 +22,8 @@ count. In `raw/`, `main` is 7a2efd0f3, `f1` the first change, `f2` the
 first two, `f5` all three (the branch); `f3` and `f4` are the dropped
 arm below (`f3` no look at its own poller, `f4` that and the look gap).
 `*.count` are count.c's output, one benchmark a run; `h-*.count` HTTP.
+`f6` is the dropped EVFILT_EXCEPT try at urgent data, `f7` the kept fix
+(raw/board9.txt to board11.txt).
 
 ## How it was counted
 
@@ -124,10 +126,35 @@ commit:
 1. **net: a read after a short one waits for the next edge before it
    calls** (e2d4b866a). A short read took all there was, so the next read
    waits on the poller for an edge past the count read before it, unless
-   the poller has seen the end of reading, which it now marks before it
-   counts that edge (`sched.drained`, `Registration.read_ended`). The
-   HTTP server's wait between requests does the same. Reads a trip: 4
-   to 2; EAGAIN reads: 2 to 0.
+   the poller has seen the end of reading or urgent data, either of which
+   it marks before it counts that edge (`sched.drained`,
+   `Registration.short_not_empty`). The HTTP server's wait between
+   requests does the same. Reads a trip: 4 to 2; EAGAIN reads: 2 to 0.
+
+   An independent review found that, as first committed, it stalled a
+   connection whose peer sent urgent data: a read stops at the urgent
+   mark, short with bytes behind it, and no edge comes for them, so the
+   next read waited until the peer sent more or closed (20 of 20
+   connections timed out at 10 s, where main echoed them in 0.10 s;
+   Tokio clears readiness the same way and shares it). The fix keeps
+   the short-read wait and makes urgent data end it the way the end of
+   reading does, at no cost per connection or per trip: on macOS the
+   read filter is added with NOTE_OOB, and its event then carries
+   NOTE_OOB in its fflags while urgent data waits; on Linux the
+   registration's mask has EPOLLPRI, which TCP raises only for urgent
+   data. Either marks `short_not_empty` before the edge is counted, so
+   a read already waiting wakes, and from then on no read on that
+   socket waits first. A case in src/sched.zig ("a read after a short
+   one that stopped at urgent data does not wait for an edge") failed
+   before and passes; the review's repro echoes 100 of 100 connections
+   in 0.11 s. A first try, a third filter (EVFILT_EXCEPT with NOTE_OOB),
+   does not work on macOS: that filter fires on every arrival of data,
+   urgent or not ([oob.c](oob.c) shows both), so it turned the
+   short-read wait off for every socket and cost echo 4.8% against the
+   branch (raw/board10.txt). Against the branch before the fix, 20
+   rounds (raw/board11.txt, `f7` the fix): echo 6.97 against 6.91 µs,
+   connect 50.92 against 50.04, pingpong 15.73 against 15.65, all
+   within 2%; echo 17% faster than main (8.44 µs).
 2. **sched: a kick that stands makes no system call, and a look leaves
    it standing** (9017a3932). `Poller.kicked` holds a kick not yet taken;
    a look leaves it set, a kick while it is set makes no call, and the
