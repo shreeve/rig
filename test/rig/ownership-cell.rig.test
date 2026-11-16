@@ -894,3 +894,17 @@ fail "cell swap of Cells in other forms", "`swap` moves values whole, and a `Cel
   y: *Cell[Int] = *Cell(2)
   swap(!x, !y)
   print(x.get(), y.get())
+
+fail "cell move out of a Cell field", "exchange its value with the Cell's own swap instead: `old = (!h.n).swap(v)`", errors: 1
+  # A Cell is never exchanged by `swap`, so the hint to a move out of one
+  # names the Cell's own swap.
+
+  obj H
+    n: Cell[Int]
+
+  fun f(h: !H) -> Int
+    c = <h.n
+    c.get()
+
+  h = *H(n: Cell(1))
+  print(f(!h))
