@@ -111,3 +111,52 @@ mention `task.all`.
 - The Trig and loco light gates are not run here (nothing on pup); the
   change touches the compiler and the runtime, so they remain before
   merge.
+
+## The review's older findings (branch `task-all-fixes`, merged here)
+
+Found by the independent review of d0f6177a9, on main before this
+change; each a commit with its failing case first.
+
+1. **A leak in a generic body.** `heldTypeVars`, which finds the type
+   parameters a value holds, did not walk several results, though
+   `holdsIn` does, so a generic body that discarded `(T, T)` (a
+   statement `task.all(<a, <b)`, or a call of `-> (T, T)` alone) put no
+   requirement on `T`, and `both[String](...)` leaked both values. Now
+   it is rejected as discarding one `T` is ("the generic body discards
+   a value that holds a `T`"). Case: types-generic, "generic body
+   discards results".
+2. **A task that cannot fail, canceled by `task.all`.** SPEC §18 and
+   design/concurrency.md say a task that cannot fail cannot be canceled
+   and runs to its end; the audit (revamp-runtime/audit-concurrency.md)
+   kept "Only a fallible task can be canceled". Yet when one task of a
+   `task.all` fails, the wait cancels every other, and an infallible
+   sibling's `time.sleep(...) catch` sees `Stop.canceled`; the sibling
+   still runs to its end and gives its value, which is dropped. A
+   task's drop does the same only when the dropper is itself canceled
+   (`__rig_drop`). Whether the docs or the behavior is meant is not
+   settled by the record, so neither changed: an owner question.
+3. **The hint for a task lent to write** dropped self's `!` (`t =
+   b.bump()&`, itself rejected); it writes `t = !b.bump()&`. Case:
+   concurrency-task, "task write loan bound self".
+4. **A fallible `sub` returned a value that gives nothing**:
+   `return say(1)!`, `return ok()`, `return f() catch ...` were
+   accepted in a `sub` marked `!`, rejected in one that cannot fail.
+   Now rejected alike. A scan found no such `return` in the repository,
+   std, examples, Trig (its src modules checked with the fixed Rig), or
+   loco, so the rejection is listed in CHANGELOG's "Upgrading" with no
+   migration script. Cases: effects-misc, "fallible sub returns no
+   value", and concurrency-sets, "sets all subs return".
+
+## Gates after the review (Mac, 2026-11-16)
+
+- `task-all-fixes`: core suite 12,067 jobs, none died; emit-diff
+  identical in all 36 programs; guards: json 0.0% on all six files,
+  hash 0.0% to 0.1% but `map int-churn` (0.6% fewer instructions) and
+  `map text-churn` (1.2% fewer), text within 0.1%, check 0.4% fewer
+  instructions.
+- `task-all-subs` with it merged: core suite 12,079 jobs, none died;
+  emit-diff: the programs' own Zig identical in all 36, the runtime's
+  `rig/tasks.zig` beside 34 differs (+27 -17); guards: json 0.0%, hash
+  0.0% to 0.1% but `map int-churn` (0.7% fewer) and `map text-churn`
+  (1.2% fewer), text within 0.1%, check 0.4% fewer instructions.
+- The Trig and loco light gates remain before merge (nothing on pup).

@@ -414,6 +414,18 @@ test "sets all generic fun", seeds: 20, '''
 
   print(both[Void](say(1)&, say(2)&))
 
+fail "sets all subs return", "a `sub` returns no value, and fails only by returning an error: write `task.all(say(1)&, say(2)&)!` on its own line, then `return`", errors: 1
+  # A wait that gives nothing is a statement, never a `sub`'s value.
+  use std.task
+
+  sub say(n: Int)!
+    print(n)
+
+  sub run()!
+    return task.all(say(1)&, say(2)&)!
+
+  run() catch |e| print(e)
+
 fail "sets all mixed", "`task.all` gives each task's value, or nothing when none gives one, and `say(1)&` gives none while `sq(2)&` gives one: wait for the tasks that give none in a `task.all` of their own, or each on its own, `>t`", errors: 1
   use std.task
 
