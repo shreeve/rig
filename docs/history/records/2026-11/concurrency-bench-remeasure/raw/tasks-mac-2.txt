@@ -1,0 +1,16 @@
+
+Sun Nov 15 20:42:01 MST 2026
+{ 3.03 4.78 5.53 }
+7a2efd0f3
+tools/mac-claim: waiting 1 min for the Mac to go quiet (211% of a core in use, under 150% wanted). Busiest:
+  PID 50083 at 100.0%: /Users/shreeve/.local/share/mise/installs/zig/0.17.0/zig build-exe -Osafe --dep rig_lib -Mroot=test/oracle/mai
+  PID 50082 at 100.0%: /Users/shreeve/.local/share/mise/installs/zig/0.17.0/zig build-exe -Osafe --dep build_options --dep rig_std -M
+  PID 426 at 2.5%: /System/Library/CoreServices/loginwindow.app/Contents/MacOS/loginwindow console
+        rig-safe          tokio             go                vs tokio
+spawn   161 ns/task       175 ns/task       228 ns/task       rig-safe 1.1x faster, go 1.3x slower
+chain   53 ns/task        165 ns/task       203 ns/task       rig-safe 3.1x faster, go 1.2x slower
+fanout  67.0 ms/run       66.1 ms/run       67.6 ms/run       rig-safe 1.0x slower, go 1.0x slower
+yield   6 ns/yield        39 ns/yield       226 ns/yield      rig-safe 6.5x faster, go 5.8x slower
+hog     153 ns/step       3.9 ms/step       3.4 ms/step       rig-safe 25696.8x faster, go 1.2x faster
+produce 5.9 ms/run        6.0 ms/run        5.8 ms/run        rig-safe 1.0x faster, go 1.0x faster
+memory  16.6 KiB/task     264 B/task        2.9 KiB/task      rig-safe 64.5x more, go 11.2x more

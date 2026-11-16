@@ -620,6 +620,15 @@ it where the negation was meant. Trig has no such site.
 
 ### Docs
 
+- The concurrency docs' benchmarks are measured with `--release` on the
+  Mac (docs/launch/benchmarks.md, docs/CONCURRENCY.md, the launch post
+  and FAQ): `fanout` is level with Tokio and Go, a sleeping task holds
+  17.1 KiB on a dense stack, an idle HTTP connection less than hyper's
+  and Go's with page tables counted for all three, and loopback round
+  trips and fork-join trail Tokio and Rayon. The Linux figures, among
+  them the HTTP rate against hyper, wait for a release measurement on
+  x86-64 and are no longer given.
+
 - The docs, std, the examples, and the benchmarks write a self sigil
   short wherever it applies, `!c.read(!buf, 4096)!`, `?p.dist(q)`,
   `<conn.close()`; the long form stays only for a write call whose

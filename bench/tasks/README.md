@@ -124,6 +124,5 @@ numbers against Tokio and Go are in
 
 Rig is ahead of Tokio wherever the scheduler is what is measured:
 starting, waiting for, and switching tasks, and keeping a task that
-waits behind a long computation from waiting for all of it. It is
-behind in memory, where a task holds a page of stack, and in `fanout`,
-whose gap is the compiled loop's, not the scheduler's.
+waits behind a long computation from waiting for all of it. It is level
+in `fanout`, and behind in memory, where a task holds a page of stack.

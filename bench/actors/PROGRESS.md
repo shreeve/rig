@@ -42,6 +42,9 @@ longer builds; `bench-actors --record` adds `rig-safe` rows (`--release`).
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-safe | 5.2 ns | 30 ns | 1.0 ns |
 | 2026-10-30 | main a8acfdc5c before #780, alternated | rig-fast | 5.1 ns | 29 ns | 0.9 ns |
 | 2026-10-30 | #780: String and List appends grow by value | rig-fast | 5.0 ns | 30 ns | 0.9 ns |
+| 2026-11-15 | main 7a2efd0f3, re-measured with --release (records/2026-11/concurrency-bench-remeasure), fastest of 7 | rig-safe | 5.0 ns | 15 ns | 0.9 ns |
+| 2026-11-15 | the same board | tokio | 138 ns | 267 ns | 30 ns |
+| 2026-11-15 | the same board | go | 3.4 ns | 77 ns | 0.5 ns |
 
 ## x86-64 (pup)
 

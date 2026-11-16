@@ -41,6 +41,9 @@ longer builds; new Rig rows are `rig-safe` (`--release`).
 | 2026-10-30 | #780: String and List appends grow by value | rig-fast | 175955 | 330 us | 1300 us | 16.6 KiB |
 | 2026-11-09 | main efa08ecf0 before #1045, shuffled (Mac) | rig-fast | 172856 | 362 us | 599 us | - |
 | 2026-11-09 | #1045: dense stacks (Mac) | rig-fast | 171992 | 360 us | 608 us | - |
+| 2026-11-15 | main 7a2efd0f3, re-measured with --release (records/2026-11/concurrency-bench-remeasure), best of 6 over two boards | rig-safe | 128402 | 492 us | 690 us | 16.7 KiB |
+| 2026-11-15 | the same boards | tokio | 139202 | 453 us | 617 us | 18.6 KiB |
+| 2026-11-15 | the same boards | go | 120522 | 521 us | 1014 us | 18.5 KiB |
 
 ## x86-64 (pup, 22 cores, 10,000 idle connections)
 

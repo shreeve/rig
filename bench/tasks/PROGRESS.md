@@ -58,6 +58,9 @@ longer builds; `bench-tasks --record` adds `rig-safe` rows (`--release`).
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-safe | 90 ns | 54 ns | 71.6 ms | 5 ns | 117.56 us | 17.1 KiB |
 | 2026-10-30 | main a8acfdc5c before #780, alternated | rig-fast | 110 ns | 45 ns | 88.0 ms | 5 ns | 79.97 us | 17.1 KiB |
 | 2026-10-30 | #780: String and List appends grow by value | rig-fast | 92 ns | 45 ns | 88.5 ms | 5 ns | 95.72 us | 17.1 KiB |
+| 2026-11-15 | main 7a2efd0f3, re-measured with --release (records/2026-11/concurrency-bench-remeasure), fastest of 14 over two boards | rig-safe | 133 ns | 51 ns | 65.8 ms | 6 ns | 153 ns | 16.6 KiB | 5.3 ms |
+| 2026-11-15 | the same boards | tokio | 175 ns | 165 ns | 66.1 ms | 39 ns | 3.3 ms | 262 B | 6.0 ms |
+| 2026-11-15 | the same boards | go | 228 ns | 199 ns | 67.2 ms | 226 ns | 3.4 ms | 2.9 KiB | 5.8 ms |
 
 ## x86-64 (pup)
 
