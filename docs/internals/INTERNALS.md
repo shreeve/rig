@@ -6400,14 +6400,25 @@ type could hold. A task keeps what its call was lent to
 write as a write loan, and a task carrying one moves only into the
 binding that names it where it is made and into its wait or cancel
 (T2, SPEC §18 "Loans"): no other move, store, `return`, or `break`
-takes it. A method of an actor's value called through its handle is
-the method `T` declares, called on the handle, which the call reads:
-its `!` lends nothing, and as a task it keeps none of the handle (SPEC
-"Actors"). An arm of `task.select` (`!ch.on_recv()`, `!ch.on_send(<v)`,
-`?t.on_end()`) is a value holding a read lend of the place that holds
-its channel or task, what it sends, and its function's captures, read
-by the select, so each stays lent and taken until the select returns
-(SPEC "Channels"); the select commits one arm alone, which changes its
+takes it. `!x` that lends a write view of a value that changes by a
+marked call, reached through `x`'s views and its handle (a Cell, a
+Signal, a channel, an actor, or a value that holds a Cell; an API
+object or a type parameter is none), puts only a read loan on `x`,
+through a handle on the handle's slot, from before the call's
+arguments for as long as the view lives: the call's result and its
+task carry it (Core §4, `lendsToRead`). One derivation from the type
+where it is lent serves a Cell's or Signal's change, a channel's send
+and receive, an actor's `!@` method, a `!@` method of a value that
+holds a Cell, and `!h` handed on as a `!T` or `!{A}`, while `!h` that a
+call's parameter takes as a `!*T`, the handle itself, stays a write
+loan. A method of an actor's value called through its handle is the
+method `T` declares, and as a task it keeps none of the handle: the
+call gives the actor a count of its own (SPEC "Actors"). An arm of
+`task.select` (`!ch.on_recv()`, `!ch.on_send(<v)`, `?t.on_end()`) is a
+value holding the read lend of the place that holds its channel or
+task, what it sends, and its function's captures, read by the select,
+so each stays lent and taken until the select returns (SPEC
+"Channels"); the select commits one arm alone, which changes its
 channel there. A marked change through a handle that the place as
 written sees through a read view (a `?T` or a `[]T` on its path) is
 C10 (Core s4: `?` changes nothing): a receive or send arm, a Cell's or
