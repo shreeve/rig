@@ -118,7 +118,7 @@ a sleeping task at 17.1 KiB on the Mac, page tables included, against
 about 300 bytes for a Tokio task, whose state machine is sized by the
 compiler, and 2.9 KiB for a goroutine; a task with recursion keeps a
 large stack with a page table of its own, about twice that. On x86-64
-Linux, whose pages are 4 KiB, a sleeping task holds 5.1 KiB. For a
+Linux, whose pages are 4 KiB, a sleeping task holds 5.2 KiB. For a
 server, the number that matters is an idle connection: Rig holds no
 buffers while a connection waits, so on the Mac it is 17.3 KiB, page
 tables included, against hyper's 18.7 KiB and Go's 20.2 KiB

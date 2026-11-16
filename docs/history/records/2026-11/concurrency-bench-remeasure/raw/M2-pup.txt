@@ -1,0 +1,12 @@
+# blocks=4841 swap_mb=1360 slot=290 paused=0 running=0 late=0 load 0.96 3.55 3.55
+1f35fc1da 2026-11-15 22:34:11 -0700
+nproc 2
+pid 2900477's current affinity mask: 300000
+
+### memory per sleeping task
+
+| runtime | total | of it, page tables |
+|---|---|---|
+| rig-safe | 5.2 KiB | 521 B |
+| tokio | 391 B | 1 B |
+| go | 2.8 KiB | 7 B |

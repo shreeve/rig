@@ -320,7 +320,7 @@ pages are 16 KiB, and 4.7 KiB on pup's Linux (`bench/tasks`, `memory`).
 Each large stack's range of address space is far enough from the next
 that it also has a page table of its own, so counted as the kernel
 counts it a sleeping task on a large stack holds 32.7 KiB on the Mac and
-8.9 KiB on pup, and on a dense stack 17.1 KiB on the Mac and 5.1 KiB
+8.9 KiB on pup, and on a dense stack 17.1 KiB on the Mac and 5.2 KiB
 on pup, where
 Tokio's task holds about 300 bytes and Go's about 3 KiB
 ([SCALING.md](../../bench/tasks/SCALING.md)).

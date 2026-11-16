@@ -66,8 +66,8 @@ On Linux:
 There Rig leads in `spawn`, `chain`, `yield` and `hog`, and is behind
 in `produce`, 9% slower than Tokio and 22% slower than Go; Go leads
 `fanout`, where Rig is 10% ahead of Tokio. A sleeping task, counted
-with its page tables, holds 5.1 KiB, 515 B of it page tables, against
-Tokio's 380 B and Go's 2.8 KiB: a page is 4 KiB there, against the
+with its page tables, holds 5.2 KiB, 521 B of it page tables, against
+Tokio's 391 B and Go's 2.8 KiB: a page is 4 KiB there, against the
 Mac's 16 KiB.
 
 ## Actor calls (`bench/actors`)
@@ -173,8 +173,8 @@ hyper's 1.8 at 12 workers and 2.6 at 6, whose busiest worker was busy a
 sixth of the time at 12 and under half at 6. With 12 workers each on
 cores 0-19, E-cores included, Rig served 676,000 to 865,000, hyper
 442,000 to 447,000 and Go 540,000 to 549,000. Counted with page tables,
-over 2,000 idle connections, Rig's holds 10.7 KiB, hyper's 10.8 KiB and
-Go's 19.8 KiB.
+over 2,000 idle connections, Rig's holds 9.7 KiB, hyper's 10.9 KiB and
+Go's 20.1 KiB.
 
 ## Fork-join
 
@@ -187,6 +187,18 @@ Lists, each half a task down to 8,192. The programs are in the record.
 |---|---|---|
 | parallel sum | 2.83 ms | 2.39 ms |
 | quicksort | 80.2 ms | 52.5 ms |
+
+On Linux, on cores 0-11:
+
+| | Rig | Rayon |
+|---|---|---|
+| parallel sum | 6.66 ms | 4.48 ms |
+| quicksort | 120.6 ms | 117.3 ms |
+
+The sum trails Rayon on both machines; on the Mac most of its gap is
+the first parallel call's start-up, the workers' threads and their first
+stacks ([records/2026-11/concurrency-fork-join](../history/records/2026-11/concurrency-fork-join/SYNTHESIS.md)).
+The quicksort is 3% behind Rayon on Linux and 53% on the Mac.
 
 ## Reproducing them
 

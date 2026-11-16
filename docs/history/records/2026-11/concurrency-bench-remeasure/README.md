@@ -106,7 +106,7 @@ system-call profile of echo in both runtimes is the next step.
 ## Results, x86-64 Linux (pup)
 
 Intel Core Ultra 9 185H, 22 cores, at bfd872b6d (rows T, M, A, N, F,
-H1, H2) and 1f35fc1da (D, H3, H4), whose compiler and runtime are
+H1, H2) and 1f35fc1da (D, H3, H4, F2, M2, D2), whose compiler and runtime are
 7a2efd0f3's; each row in a slot of its own with no other holder, its
 file in `raw/` (`<row>-pup.txt`) headed by the slot's line (free 2 MiB
 blocks, load). Every timed row ran on cores 0-11 unless it says not.
@@ -120,7 +120,7 @@ blocks, load). Every timed row ran on cores 0-11 unless it says not.
 | hog | 316 ns | 3.2 ms | 3.0 ms | T |
 | produce | 6.0 ms | 5.5 ms | 4.9 ms | T |
 | memory, resident | 4.7 KiB | 373 B | 2.8 KiB | T |
-| sleeping task, footprint | 5.1 KiB, 515 B page tables | 380 B | 2.8 KiB | M |
+| sleeping task, footprint | 5.2 KiB, 521 B page tables | 391 B | 2.8 KiB | M2 |
 | actor solo | 11 ns | 241 ns | 11 ns | A, fastest of 7 |
 | actor contend | 24 ns | 232 ns | 52 ns | A |
 | actor spread | 2.0 ns | 25 ns | 1.8 ns | A |
@@ -133,7 +133,9 @@ blocks, load). Every timed row ran on cores 0-11 unless it says not.
 | HTTP server CPU per request | 5.86-6.50 µs | 5.07-5.21 µs (5.37-5.39 at 6) | 15.16-15.36 µs | H2t, H3a, H3b |
 | HTTP server cores used | 4.9-5.2 | 1.8 (2.5-2.6 at 6) | 6.7-6.8 | H3a, H3b |
 | idle connection, resident | 8.8 KiB | 10.8 KiB | 18.9 KiB | H1, H2, 10,000 idle |
-| idle connection, footprint | 10.7 KiB, 0.51 page tables | 10.8 KiB | 19.8 KiB | D, 2,000 idle |
+| idle connection, footprint | 9.7 KiB, 0.50 page tables | 10.9 KiB | 20.1 KiB | D2, 2,000 idle |
+| psum | 6.66 ms | Rayon 4.48 ms | | F2, fastest of 20 |
+| qsort | 120.55 ms | Rayon 117.25 ms | | F2 |
 | HTTP, 12 workers each, cores 0-19 | 675,746-865,439 | 441,917-446,793 | 539,544-549,245 | H4c |
 
 What holds hyper (H3): not its CPU per request, which is the lowest of
@@ -153,13 +155,16 @@ against 13, 13 and 20 on cores 0-11), and H4b, with 12 workers forced,
 still used under 1.2 cores. The process could run on about two CPUs
 only, and an explicit `taskset -c 0-19` (H4c) gave all three their
 throughput back. Those rows measure how the slot's affinity was set,
-not the servers, and no doc cites them. F, the fork-join row, also ran
-without `taskset`: its 23.4 ms sum (2.83 on the Mac) and 709 ms
-quicksort (80.2) put it with them, so it runs again pinned before any
-Linux fork-join figure is given.
+not the servers, and no doc cites them. F, M and D ran without
+`taskset` too, and ran again pinned as F2, M2 and D2, which print the
+slot shell's own affinity first: `nproc` 2, mask 0x300000, the two
+low-power cores 20 and 21. Every command without its own `taskset` ran
+there. F's 23.4 ms sum and 709 ms quicksort were those two cores; pinned,
+they are 6.66 and 120.55 ms. M's footprint, memory rather than time,
+moved little (5.1 KiB unpinned, 5.2 pinned), and D's more (10.7 KiB
+unpinned, 9.7 pinned); the docs give the pinned figures.
 
 ## Not measured
 
-- x86-64 Linux fork-join, pinned (row F again, as `F2`).
 - Swift's memory row and Rayon's `produce` (not in the docs).
 - No toolchain was missing on the Mac.

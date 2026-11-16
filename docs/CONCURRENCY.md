@@ -480,12 +480,13 @@ a release build gives every task whose stack the compiler can bound,
 packed beside its neighbours under shared page tables; a task with
 recursion or a call through a pointer keeps a large stack, with a page
 table of its own, about twice that. On x86-64 Linux, where a page is
-4 KiB, a sleeping task holds 5.1 KiB, against Tokio's 380 B and Go's
+4 KiB, a sleeping task holds 5.2 KiB, against Tokio's 391 B and Go's
 2.8 KiB.
 
 Divide and conquer with `f()&` and `>t`, fastest of 20 interleaved runs
 on the Mac: a parallel sum takes 2.83 ms, against Rayon's 2.39 ms, and
-a quicksort 80.2 ms, against Rayon's 52.5 ms
+a quicksort 80.2 ms, against Rayon's 52.5 ms; on x86-64 Linux 6.66 ms
+against 4.48, and 120.6 ms against 117.3
 ([launch/benchmarks.md](launch/benchmarks.md), "Fork-join").
 
 `bench/actors` has a counter called from one task at 5.0 ns a call,
