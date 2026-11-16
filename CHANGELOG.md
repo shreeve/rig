@@ -43,6 +43,20 @@ comprehension, `x => ...`, `lambda`, `if let`, `o or 0` for an
 optional, `range(3)`, and `enumerate(xs)` are rejected with the Rig
 spelling, where each got a parse error or an unbound name.
 
+**`swap` exchanges no Cell, and `!s` of a `*{A}` lends only the
+handle** (both accepted by 0.3.0). `swap(!a, !b)` of two `Cell`s, a
+`Cell` reached through a `!Cell[T]`, a `*Cell[T]` that may not be
+written, a field, a branch, or a `=!` binding, or a `Cell` with itself,
+is rejected: "`swap` moves values whole, and a `Cell[Int]` changes only
+by its marked calls, which every handle shares: exchange its value with
+the Cell's own `old = (!c).swap(v)`". It read and wrote the Cell as
+plain memory, so a change another task made between was lost. Handles
+themselves still swap (`swap(!x, !y)` of two `*Cell[Int]` locals). And
+`!s` of a `*{A}` where a `!{A}` goes, which `rig check` accepted and Zig
+rejected, is a type mismatch: a `*{A}` only reads, as any handle. Trig,
+loco's sources, std, examples, and bench swap no Cell and lend no
+`*{A}` so; no migration is needed.
+
 **`extend_from_bytes` and `$embed` records read only `exact` objects**
 (a change to main since 0.3.0, which had neither): an object made from
 bytes, a literal's, a `?String`'s, or an embedded file's, is declared

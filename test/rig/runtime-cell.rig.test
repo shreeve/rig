@@ -376,7 +376,7 @@ test "cell through handle param", '''
 '''
   # `!c` of a shared handle that may not be written, such as a parameter,
   # lends the Cell the handle holds, not the handle: an element assigned
-  # through it, a List member called on it, and `swap` of two such lends
+  # through it, a List member called on it, and a Cell's own `swap`
   # all reach the Cell on the heap, with a concrete or a generic element.
 
   obj P
@@ -405,7 +405,8 @@ test "cell through handle param", '''
     (!c).push(String("q"))
 
   sub trade(a: *Cell[Int], b: *Cell[Int])
-    swap(!a, !b)
+    old = (!a).swap(b.get())
+    (!b).set(old)
 
   sub viaField(o: !H)
     (!o.h)[0] = 41

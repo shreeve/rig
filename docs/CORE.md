@@ -1240,7 +1240,8 @@ takes none of the views in `!x`'s column, `!x` is rejected (sentence 4):
 is a write view of a value that changes by a marked call (sentence 9),
 by a marked call or alone: `!c.set(5)`, `!h.bump()`, `!ch.send(<v)!`,
 `!a.add(x)`, a select's `!ch.on_recv()`, `hit(!h)` for a `!Hits`. Such
-a value lives only behind `*`. It is never replaced whole, and every
+a value lives only behind `*`. It is never replaced whole (`swap`
+exchanges none: a Cell's own `!c.swap(v)` does, in one step), and every
 view it gives out lasts while it lives, which each such type, std's
 `shared.Map` among them, meets by its declaration. So many write views of it may
 live at once, each changing only what every handle shares, while `x`

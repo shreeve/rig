@@ -9294,7 +9294,9 @@ is a write view of a value that changes by a marked call: a `Cell`, a
 ([Core §4](docs/CORE.md#4-one-lend-table)). That is judged by the
 concrete type of the value lent from, not by the view it becomes; a
 value whose type is an API object `{A}` or a type parameter is no such
-value, so `!s` of a `*{A}` lends only the handle. `!h` lending the handle itself, a `!*T`
+value, so `!s` of a `*{A}` lends only the handle. `swap` exchanges no
+such value whole: a Cell's value is exchanged by its own `!c.swap(v)`,
+one step every handle sees. `!h` lending the handle itself, a `!*T`
 the callee may point elsewhere, still lends `h` to write, as assigning
 and dropping `h` do, and a marked call through a read view is rejected.
 The loan begins before the call's arguments are evaluated and lasts as
@@ -9329,6 +9331,18 @@ sub main()
 
 ```error
 cannot lend `cs` to write while a read loan is live
+```
+
+`swap` does not exchange two Cells: each changes only by its marked
+calls, which another task's may race.
+
+```rig reject
+sub trade(a: !Cell[Int], b: !Cell[Int])
+  swap(!a, !b)
+```
+
+```error
+`swap` moves values whole, and a `Cell[Int]` changes only by its marked calls, which every handle shares: exchange its value with the Cell's own `old = (!c).swap(v)`
 ```
 
 **`*Cell[List[T]]`.** Its List's members lend as `set` does; an

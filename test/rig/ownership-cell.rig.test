@@ -831,6 +831,29 @@ test "cell lend breaker swap of an owned value", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
   x = !c.swap((!c).swap(String("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")))
   print(x)
 
+fail "cell swap of Cells", "`swap` moves values whole, and a `Cell[Int]` changes only by its marked calls, which every handle shares: exchange its value with the Cell's own `old = (!c).swap(v)`", "`swap` moves values whole, and a `Cell[String]` changes only by its marked calls", "`swap` moves values whole, and a `Cell[List[Int]]` changes only by its marked calls", errors: 3
+  # A Cell changes only by its marked calls, each one change every
+  # handle sees in one order: `swap` would read and write it as plain
+  # memory, losing a change another task makes between, so it is
+  # rejected, a Cell with itself too. Handles themselves still swap.
+
+  obj H
+    log: Cell[List[Int]]
+
+  sub trade(a: !Cell[Int], b: !Cell[Int])
+    swap(!a, !b)
+
+  sub same(a: !Cell[String], b: !Cell[String])
+    swap(!a, !b)
+
+  x = *H(log: Cell(List()))
+  y = *H(log: Cell(List()))
+  swap(!x.log, !y.log)
+  c = *Cell(1)
+  d = *Cell(2)
+  swap(!c, !d)
+  print(c.get(), d.get())
+
 fail "cell lend an API object's handle", "expected `!{Grow}`, got `!*{Grow}`", errors: 2
   # A `*{A}` only reads, as any handle: `!s` lends the handle itself,
   # never an `!{A}` of the value it holds, whatever that value is.
@@ -853,3 +876,21 @@ fail "cell lend an API object's handle", "expected `!{Grow}`, got `!*{Grow}`", e
   w: !{Grow} = !s
   !w.grow()
   print(b.xs.len)
+
+fail "cell swap of Cells in other forms", "`swap` moves values whole, and a `Cell[T]` changes only by its marked calls", "`swap` moves values whole, and a `Cell[Int]` changes only by its marked calls", "`swap` moves values whole, and a `Cell[Int]` changes only by its marked calls", errors: 3
+  # A Cell of a type parameter, a branch of two Cells, and a fixed
+  # binding's Cell are Cells too; their handles still swap.
+
+  sub generic[T](c: *Cell[T], d: *Cell[T])
+    swap(!c, !d)
+
+  sub ternary(a: *Cell[Int], b: *Cell[Int], c: *Cell[Int], k: Bool)
+    swap(!a if k else !b, !c)
+
+  a =! *Cell(5)
+  b =! *Cell(6)
+  swap(!a, !b)
+  x: *Cell[Int] = *Cell(1)
+  y: *Cell[Int] = *Cell(2)
+  swap(!x, !y)
+  print(x.get(), y.get())

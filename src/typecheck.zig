@@ -10388,21 +10388,21 @@ const Checker = struct {
             try self.errAt(arg, "`{s}` moves values that hold no `?T`, `!T`, or slice; `{s}` may hold one", .{ what, try self.tyName(place) });
             return null;
         }
-        // A value that holds a Cell lives only behind a shared handle, whose
-        // plain data handles only read: exchanging it as a whole would write
-        // that data. (A Cell itself is exchanged by a marked call.)
-        if (sema.holdsCellByValue(self.ctx, place) and !sema.isCell(self.ctx, place)) {
-            try self.errAt(arg, "`{s}` moves values whole, and `{s}` holds a Cell, so it lives only behind a shared handle, whose other fields only read", .{ what, try self.tyName(place) });
-            return null;
-        }
-        // A Signal changes only by its marked calls: exchanged whole, its
-        // subscribers would move with it, while `set` may be running them.
-        const signal = switch (self.ctx.types.get(place)) {
-            .parameterized_nominal => |pn| pn.sym == self.ctx.signal_sym_id,
-            else => false,
-        };
-        if (signal) {
-            try self.errAt(arg, "`{s}` moves values whole, and a `{s}` changes only by its marked calls (`!s.set(v)`), which may be running its subscribers", .{ what, try self.tyName(place) });
+        // A value that changes by a marked call is never replaced whole
+        // (Core §4): a Cell's change is one indivisible step every handle
+        // sees, which a plain exchange would race; a value that holds one
+        // keeps plain data its handles only read; a Signal's set may be
+        // running its subscribers. A handle is exchanged as itself.
+        if (sema.holdsMarkedValue(self.ctx, place)) {
+            const sym: ?SymbolId = switch (self.ctx.types.get(place)) {
+                .parameterized_nominal => |pn| pn.sym,
+                else => null,
+            };
+            if (sym == self.ctx.cell_sym_id) {
+                try self.errAt(arg, "`{s}` moves values whole, and a `{s}` changes only by its marked calls, which every handle shares: exchange its value with the Cell's own `old = (!c).swap(v)`", .{ what, try self.tyName(place) });
+            } else if (sym == self.ctx.signal_sym_id) {
+                try self.errAt(arg, "`{s}` moves values whole, and a `{s}` changes only by its marked calls (`!s.set(v)`), which may be running its subscribers", .{ what, try self.tyName(place) });
+            } else try self.errAt(arg, "`{s}` moves values whole, and `{s}` holds a Cell, so it lives only behind a shared handle, whose other fields only read", .{ what, try self.tyName(place) });
             return null;
         }
         if (!arg.isKind(.write)) try self.checkLendsVisibly(arg, ty, "the call writes through");
