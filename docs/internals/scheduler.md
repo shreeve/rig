@@ -13,9 +13,13 @@ nine, and the mappings land before the work spreads, where macOS
 serializes each on the process's one map of its memory, about 7 µs
 alone and 160 in the ramp of ten threads
 (docs/history/records/2026-11/concurrency-startup). A reservation the
-system refuses is left for the worker to map as it needs one, and
-`main`'s end waits for worker 1 to finish starting the rest before it
-stops the monitor and joins the threads (`waitStarting`). A later `task.workers(n)`
+system refuses is left for the worker to map as it needs one. Once the
+program is ending, as `main` returns or `os.exit` tears down, worker 1
+maps and starts no more (`programEnding`): a teardown counts the workers
+it never starts as stopped, so its wait is for the workers that run, and
+`main`'s end, which waits for worker 1 to finish before it stops the
+monitor and joins the threads (`waitStarting`), waits on no thread
+start. A later `task.workers(n)`
 raises the number and never lowers it (`growWorkers`): the array of
 workers is fixed and only its length grows, so a reader takes the
 length once for a walk and a worker it finds may not have started.

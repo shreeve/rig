@@ -5,7 +5,8 @@ copy of main's binary), each run a fresh process, arms rotated each round.
 Prints each row's fastest and median, and each arm's median against main's.
 
 SET is startup (startup.rig by mode, and Rayon), tasks (bench/tasks: every
-row and memory), actors (bench/actors) or net (bench/net). The binaries
+row and memory), spawn (bench/tasks's spawn row alone, which is bimodal on
+the Mac, so for many rounds), actors (bench/actors) or net (bench/net). The binaries
 are read from BIN (default prog/): startup-{main,aa,tree}, rayon,
 tasks-{main,aa,tree}, actors-{...}, net-{...}."""
 import subprocess, sys, os, statistics, json, time
@@ -82,6 +83,8 @@ def run(set_, exe, args, env):
     for line in o.splitlines():
         name, ns, chk = line.split()
         rows[name] = int(ns) / 1e6
+    if set_ == "spawn":
+        rows = {"spawn": rows["spawn"]}
     if set_ == "tasks":
         exe = os.path.join(B, exe)
         rows["memory"] = max(1, peak(exe, "many") - peak(exe, "idle")) / MANY / 1e6
@@ -89,7 +92,7 @@ def run(set_, exe, args, env):
 
 
 set_, rounds, out = sys.argv[1], int(sys.argv[2]), sys.argv[3]
-arms = startup_arms() if set_ == "startup" else bench_arms(set_)
+arms = startup_arms() if set_ == "startup" else bench_arms("tasks" if set_ == "spawn" else set_)
 names = list(arms)
 data = {}
 for k in range(rounds):

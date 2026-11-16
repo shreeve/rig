@@ -232,6 +232,49 @@ The benchmarks, medians of 20 against main's, with the A/A beside:
 No row is slower beyond the A/A's spread. Raw rows: `board6-tasks.txt`,
 `board6-actors.txt`, `board6-net.txt`, and the `.json` beside each.
 
+### An exit while worker 1 starts the rest
+
+A review found that `os.exit` right after the first task lost the
+parallel teardown in Mac release builds: `tearDownAll` gives the other
+workers 2 ms (`exit_stop_wait`) to stop, and worker 1 reached its loop only
+after mapping and starting every worker, one thread at a time, while the
+workers already stopped and `main` spun on the cores. Now worker 1 maps and
+starts no more once the program is ending (`programEnding`: `stopping`, or
+an exit's phase past idle), counts the workers it will never start as
+stopped for the teardown, and starts no monitor. `main`'s end, which waits
+for worker 1 (`waitStarting`), then waits on no thread start either. A
+panic in `main` aborts, and an `os.exit` from a task takes the same
+teardown, so no other wait stretches an exit. Two cases cover it: the unit
+test "a program that ends while worker 1 starts the rest starts no more",
+and `sudden` in test/cli/exit_teardown.sh (`parked` with no sleep before
+`os.exit`, 5 runs each at 8 and 10 workers, never "the workers did not
+stop").
+
+`exit-sudden.sh`, 20 runs at each count under a load of about 6 (T torn
+down, STUCK the workers did not stop, task a task ran):
+
+| build | 8 workers | 10 workers |
+|---|---|---|
+| main (ea3704772) | 1 STUCK, 19 task | 1 T, 19 task |
+| 1130d2e06 | 17 STUCK, 3 T | 20 STUCK |
+| the fix | 20 T | 20 T |
+
+The workers stopped in 8 to 19 µs at 4, 6 and 10 workers, and in 27 to
+69 at 2, where worker 1's thread is still to start; main ended plainly
+("a task runs") on every run at those counts.
+
+The first-call board again (`board7-startup.txt`, 20 rounds): psum1 cold
+2.206 / 2.238 against main's 2.397 / 2.461, 9.0% faster at the median (A/A
+0.1% slower), and with a task made first 12.4% faster (A/A 1.1% faster);
+the excess over a warm call 0.224 ms against main's 0.410 and Rayon's
+0.146. psum2, psum3, the gap and one worker stay within the A/A's spread.
+bench/tasks's spawn row is bimodal on the Mac (9 ms or 14 to 25), so its
+median over 20 rounds swings with how many runs land fast: 10.8% faster in
+board 6, 20.6% slower in `board7-tasks.txt` (A/A 2.1% faster and 0.6%
+slower). Over 60 rounds (`board7-spawn.txt`) it is 18.799 ms against
+main's 18.511, 1.6% slower, where the A/A is 1.0% slower: the same.
+The other rows of `board7-tasks.txt` are within the A/A's spread or faster.
+
 ### Linux runs wanted (pup)
 
 Not run: nothing here ran on pup or burst. On pup, in a slot
@@ -274,4 +317,5 @@ per-worker event buffer, timestamps by `clock_gettime_nsec_np`, fault counts
 by `getrusage`, and the `RIG_X_*` knobs (`EAGER`, `PREFAULT=K`, `NOTOUCH`,
 `TREE`, `MAPALL`); and for the built fix, `board6.py` (SET startup,
 tasks, actors or net, against main with an A/A arm), `build6.sh`, and
-their output, `board6-*.txt` and `board6-*.json`.
+their output, `board6-*.txt` and `board6-*.json`; after the exit fix,
+`board7-*` (SET spawn among them) and `exit-sudden.sh`.

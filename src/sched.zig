@@ -3263,7 +3263,8 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     while (kicking.load(.seq_cst) != 0) std.atomic.spinLoopHint();
     pool.stop();
     printStats();
-    for (ws[1..]) |*w| w.thread.?.join();
+    // A worker never started, as the program ended, has no thread.
+    for (ws[1..]) |*w| if (w.thread) |t| t.join();
     timers.clear();
     for (ws) |*w| {
         freeStacks(w);
@@ -3401,15 +3402,48 @@ fn startWorkers() void {
 /// Worker 0's are left to `main`, which maps them as it needs them: a
 /// mapping here would put `posix.mmap` on every task's path to its
 /// first spawn, and only `main` may write its stacks.
+///
+/// Once the program is ending (`programEnding`) it maps and starts no
+/// more, and no monitor: `main`'s end then waits on no thread start, and an
+/// `os.exit` that tears down counts the workers it never starts as
+/// stopped, so its wait (`exit_stop_wait`) is for the workers that run,
+/// not for threads still to start while the stopped ones spin.
 fn startRest(n: usize) void {
+    defer {
+        starting.store(0, .release);
+        rt.io().futexWake(u32, &starting.raw, 1);
+    }
+    if (builtin.is_test and hold_start_for_test) while (!stopping.load(.seq_cst)) std.atomic.spinLoopHint();
     const ws = all_workers.*[0..n];
-    for (ws[1..]) |*v| mapFirstStacks(v);
-    for (ws[2..]) |*v| v.thread = std.Thread.spawn(.{}, workerMain, .{ v, 0 }) catch rt.oom();
+    for (ws[1..]) |*v| {
+        if (programEnding()) break;
+        mapFirstStacks(v);
+    }
+    for (ws[2..], 2..) |*v, i| {
+        if (programEnding()) {
+            // Never to run a fiber: stopped, for a teardown that waits.
+            // An exit under way counts them; past it none is counted.
+            if (tears_down and exit_state.phase.load(.seq_cst) != .idle)
+                _ = exit_state.stopped.fetchAdd(@intCast(n - i), .seq_cst);
+            return;
+        }
+        v.thread = std.Thread.spawn(.{}, workerMain, .{ v, 0 }) catch rt.oom();
+        if (builtin.is_test) test_started += 1;
+    }
     // A deterministic run starts no worker 1.
     if (preempt) startMonitor();
-    starting.store(0, .release);
-    rt.io().futexWake(u32, &starting.raw, 1);
 }
+
+/// Whether the program is ending: `main` has returned, or `os.exit`
+/// tears down.
+fn programEnding() bool {
+    return stopping.load(.seq_cst) or (tears_down and exit_state.phase.load(.seq_cst) != .idle);
+}
+
+/// Test only: worker 1 waits for `main` to end before it starts the
+/// rest, and counts the workers it starts.
+var hold_start_for_test = false;
+var test_started: u32 = 0;
 
 /// Whether worker 1 is still starting the others and the monitor
 /// (`startRest`): set as `main` starts it, cleared once it has.
@@ -6325,6 +6359,21 @@ test "a worker whose first stacks cannot be mapped maps them as it needs them" {
     runForTest(Run.main, Run.n);
     try std.testing.expectEqual(@as(u32, 0), Run.mapped);
     try std.testing.expectEqual(@as(u64, 64), Run.total);
+}
+
+test "a program that ends while worker 1 starts the rest starts no more" {
+    const Run = struct {
+        const n = 6;
+        fn main(_: *anyopaque) callconv(.c) void {
+            hold_start_for_test = true;
+            test_started = 0;
+            _ = workersRunning();
+        }
+    };
+    runForTest(Run.main, Run.n);
+    hold_start_for_test = false;
+    // Worker 1 alone ran; the others were never started, nor joined.
+    try std.testing.expectEqual(@as(u32, 0), test_started);
 }
 
 test "a dense stack's guard faults" {
