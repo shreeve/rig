@@ -7086,8 +7086,33 @@ const Checker = struct {
     const LendKind = enum { read, write };
 
     /// `?x` / `!x`. Lending a view lends it on rather than
-    /// nesting (`?b` with `b: ?B` is `?B`).
+    /// nesting (`?b` with `b: ?B` is `?B`). What `!x` puts on `x` is
+    /// recorded where its view is chosen (`recordLoan`).
     fn synthLend(self: *Checker, e: Sexp, kind: LendKind) Error!TypeId {
+        const view = try self.lendViewOf(e, kind);
+        if (kind == .write and !self.isPoison(view)) try self.recordLoan(e, view);
+        return view;
+    }
+
+    /// What `!x`, `e`, puts on `x`, given the view it lends (Core §4): a
+    /// read loan when that is a write view of a value that changes by a
+    /// marked call (`sema.loanOfView`), a write loan otherwise. A
+    /// method's self reached through a handle is the value the handle
+    /// holds, which the method is called on; a handle lent where a view
+    /// of its value goes is decided again there (`lendView`).
+    fn recordLoan(self: *Checker, e: Sexp, view: TypeId) Error!void {
+        var viewed = switch (self.ctx.types.get(view)) {
+            .write_view => |base| base,
+            else => return self.ctx.recordLoan(e, .write),
+        };
+        if (sameNode(e, self.self_obj)) switch (self.ctx.types.get(viewed)) {
+            .shared => |inner| viewed = inner,
+            else => {},
+        };
+        try self.ctx.recordLoan(e, sema.loanOfView(self.ctx, viewed));
+    }
+
+    fn lendViewOf(self: *Checker, e: Sexp, kind: LendKind) Error!TypeId {
         const operand = ir.get(e, .operand);
         try self.recordUse(operand, .lend);
         const saved_in_place = self.in_place;
@@ -9711,9 +9736,13 @@ const Checker = struct {
         for (ir.Call.args(node)) |arg| try parts.append(self.ctx.arena.allocator(), if (arg.isKind(.kwarg)) ir.get(arg, .value) else arg);
         // A task lent to write keeps its write loan while it runs, and no
         // value holds a write view: it stays where it is bound, and is
-        // only waited for there.
+        // only waited for there. A `!x` that puts only a read loan on `x`
+        // (`recordLoan`) lends nothing to write, as `?x` does not.
         const lends_write = for (parts.items) |part| {
-            if (part.isKind(.write)) break true;
+            if (part.isKind(.write)) {
+                if (self.ctx.loanOf(part) == .write) break true;
+                continue;
+            }
             if (self.ctx.typeOf(part)) |pt| if (self.ctx.types.get(pt) == .write_view) break true;
         } else false;
         if (lends_write) {
@@ -17410,6 +17439,13 @@ const Checker = struct {
         const sliced = self.slicedArg(e);
         var lend = (if (sliced) sliceArgLend(self.ctx, actual, expected) else sema.lendsAs(self.ctx, from, kind, expected)) orelse
             return sliced and try self.sliceArgRejected(e, actual, expected);
+        // `!h` of a handle lends the handle itself where a `!*T` goes, and
+        // a write view of the value it holds where the lend goes through
+        // the handle (`recordLoan`).
+        if (e.isKind(.write) and !sliced) switch (self.ctx.types.get(from)) {
+            .shared => |inner| try self.ctx.recordLoan(e, if (lend.has(.handle)) sema.loanOfView(self.ctx, inner) else .write),
+            else => {},
+        };
         const view = sema.isReadOrWriteView(self.ctx, actual);
         // A bare value where a view argument goes is lent to read where it
         // is, as `?e` would lend it (Core sentence 1): a place, or a value
@@ -23916,7 +23952,7 @@ test "check: where a Cell and a write view stand, and a branch lent in place, ar
     // a context takes in place.
     const call = "self." ++ "lendsBranch(";
     var from: usize = 0;
-    for ([_][]const u8{ "headerLendsBranch", "synthLend", "lendsToWrite", "lendSlice", "weakUpgrade", "lendTempIn", "checkExpr" }) |want| {
+    for ([_][]const u8{ "headerLendsBranch", "lendViewOf", "lendsToWrite", "lendSlice", "weakUpgrade", "lendTempIn", "checkExpr" }) |want| {
         from = std.mem.findPos(u8, tc, from, call).?;
         const fn_at = std.mem.findLast(u8, tc[0..from], "    fn ").?;
         const got = tc[fn_at + "    fn ".len .. fn_at + std.mem.findScalar(u8, tc[fn_at..], '(').?];
@@ -23936,6 +23972,25 @@ test "check: where a Cell and a write view stand, and a branch lent in place, ar
     // that holds a Cell differently from any other.
     for ([_][]const u8{ @embedFile("ownership.zig"), @embedFile("emit.zig"), @embedFile("facts.zig") }) |src| {
         try std.testing.expectEqual(0, std.mem.count(u8, src, "holdsCell" ++ "ByValue"));
+    }
+}
+
+test "check: what `!x` puts on `x` is decided once, by loanOfView" {
+    // A read or a write loan (Core §4) is one fact: `sema.loanOfView`
+    // decides it, typecheck records it where `!x`'s view is chosen
+    // (`recordLoan`) and where a handle becomes a view of its value
+    // (`lendView`), and the ownership checker reads it (`loanOf`). Emit
+    // never asks.
+    const tc = @embedFile("typecheck.zig");
+    try std.testing.expectEqual(1, std.mem.count(u8, @embedFile("sema.zig"), "pub fn " ++ "loanOfView("));
+    try std.testing.expectEqual(2, std.mem.count(u8, tc, "sema." ++ "loanOfView("));
+    try std.testing.expectEqual(2, std.mem.count(u8, @embedFile("ownership.zig"), "self.loan" ++ "Of("));
+    for ([_][]const u8{ @embedFile("ownership.zig"), @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig") }) |other| {
+        try std.testing.expectEqual(0, std.mem.count(u8, other, "loanOf" ++ "View("));
+        try std.testing.expectEqual(0, std.mem.count(u8, other, "record" ++ "Loan("));
+    }
+    for ([_][]const u8{ @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig") }) |other| {
+        try std.testing.expectEqual(0, std.mem.count(u8, other, "loan" ++ "Of("));
     }
 }
 

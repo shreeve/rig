@@ -9304,7 +9304,7 @@ Each kind of handle, accepted and rejected:
 **`*Cell[T]`.** Two marked calls of one Cell may nest; a write to the
 place that holds the handle, while a call through it is made, may not.
 
-```rig pending
+```rig
 sub main()
   c = *Cell(1)
   !c.add((!c).swap(4))
@@ -9333,7 +9333,7 @@ cannot lend `cs` to write while a read loan is live
 **`*Cell[List[T]]`.** Its List's members lend as `set` does; an
 element is never lent.
 
-```rig pending
+```rig
 sub main()
   c = *Cell(List[Int]())
   !c.push(1)
@@ -9386,7 +9386,7 @@ cannot lend to write through a read view `?*Cell[Int]`
 
 **`*Signal[T]`.** A read view of the signal lives across a `set`.
 
-```rig pending
+```rig
 sub main()
   sig: *Signal[Int] = *Signal(0)
   r = ?sig
@@ -9410,7 +9410,7 @@ cannot lend to write through a read view `?*Signal[Int]`
 **`*Chan[T]`, sending and receiving.** A receive may feed a send on the
 same channel.
 
-```rig pending
+```rig
 sub main()!
   ch = *Chan[Int](2)
   !ch.send(1)!
@@ -9689,7 +9689,7 @@ expected `!User`, got `!*User`
 **A `*T` whose `T` holds a Cell: calls.** Calls through one handle may
 nest, and a read view may live across one.
 
-```rig pending
+```rig
 obj Hits
   n: Cell[Int]
   step: Int
@@ -9730,7 +9730,7 @@ cannot lend to write through a read view `?*Hits`
 the handle may be read, and the task may go into a set, but the handle
 is not reassigned.
 
-```rig pending
+```rig
 obj Hits
   n: Cell[Int]
   step: Int
@@ -9778,7 +9778,7 @@ cannot reassign `h` while it is lent
 **... a result that views self.** It keeps the read loan while it
 lives.
 
-```rig pending
+```rig
 obj Hits
   n: Cell[Int]
 
@@ -9819,7 +9819,7 @@ cannot reassign `h` while it is lent
 **... `!h` alone.** `!h` lending a `!Hits` lends `h` to read; lending
 the handle itself, a `!*Hits`, lends it to write.
 
-```rig pending
+```rig
 obj Hits
   n: Cell[Int]
 
@@ -9856,7 +9856,7 @@ cannot lend `h` to write while a write loan is live
 **A `!*Cell[T]` parameter.** Marked calls through it lend it to read;
 assigning it is a write.
 
-```rig pending
+```rig
 fun bump(c: !*Cell[Int]) -> Int
   !c.add((!c).swap(4))
 
@@ -9883,7 +9883,7 @@ cannot reassign `c` while it is lent
 **A `!Cell[T]`, or `!@` of a value that holds a Cell.** A write view of
 such a value lends as its handle does.
 
-```rig pending
+```rig
 obj Hits
   n: Cell[Int]
 
@@ -9919,7 +9919,7 @@ only a value that copies is copied out of a view
 `!{Bump}` lends `h` to read, while two `!{Grow}` of one owned value are
 two write loans.
 
-```rig pending
+```rig
 api Bump
   sub bump(!@)
   fun count(?@) -> Int
@@ -10059,7 +10059,7 @@ cannot lend `ts` to write while a read loan is live
 **std.shared's `*Map`.** A view `ensure` gives keeps a read loan, so
 the map takes more keys while it lives, but is not reassigned.
 
-```rig pending
+```rig
 use std.shared
 
 sub main()
@@ -14230,7 +14230,11 @@ After `>u`, `xs` can be lent to write again. A task lent to write
 keeps its write loan while it runs, and no value holds a write view
 ([Write views](#write-views)), so it is bound to a local where it is
 made, `t = fill(!xs, 3)&`, and waited for there, `>t`; it is not
-moved, held in a list, or returned. A task with read loans only goes
+moved, held in a list, or returned. A `!x` that lends `x` only to read,
+the write view of a value that changes by a marked call
+([Lending a shared value to write](#lending-a-shared-value-to-write)),
+gives its task a read loan: `(!h).bump()&` of a `*Hits` that holds a
+Cell. A task with read loans only goes
 where a value holding those views goes: held in a list, a set, or an
 object, and returned, `-> Task[Int] from xs`, as any result is
 ([Core sentence 7](docs/CORE.md#2-the-core-in-ten-sentences)): a

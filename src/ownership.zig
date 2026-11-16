@@ -3077,7 +3077,7 @@ pub const Checker = struct {
                     // String as `?t[..]`.
                     self.walkElems(sexp, ir.get(sexp, .operand), if (sexp.isKind(.read)) .read else .write)
                 else
-                    self.walkLend(ir.get(sexp, .operand), if (sexp.isKind(.read)) .read else .write),
+                    self.walkLend(ir.get(sexp, .operand), self.loanOf(sexp)),
                 .clone, .weak => self.walkCloneWeak(sexp),
                 .share => self.walkShare(sexp),
                 .box => self.walkConsumed(ir.Box.operand(sexp), .box),
@@ -3780,6 +3780,15 @@ pub const Checker = struct {
     // -------------------------------------------------------------------------
     // View, move, clone, drop
     // -------------------------------------------------------------------------
+
+    /// What lend `e` (`?x` or `!x`) puts on `x` (`SemContext.loanOf`).
+    fn loanOf(self: *const Checker, e: Sexp) LoanKind {
+        if (e.isKind(.read)) return .read;
+        return switch (self.sema.loanOf(e)) {
+            .read => .read,
+            .write => .write,
+        };
+    }
 
     /// How `e` is lent where a view of another type is expected
     /// (`SemContext.lendOf`).
@@ -5643,9 +5652,12 @@ pub const Checker = struct {
         // it calls, or a self that is no place) is copied there, so it
         // is held until the call runs (`holdRead`).
         const callee_found = self.errors_found;
-        // An actor call's `!` marks the call, not a lend: the call reads
-        // the handle, and the actor changes its own value.
+        // An actor's call and a select's arm keep no loan in their result:
+        // the actor holds a count of its own, and a select ends its arms.
         const actor_call = self.sema.isActorCall(node) or self.sema.selectArmOf(node) != null;
+        // What the call puts on the place self is: a read loan, a write
+        // loan where `!` lends to write (`loanOf`).
+        var recv_loan: LoanKind = .read;
         if (callee.isKind(.member) and !actor_call and self.callsFunctionField(node, callee)) {
             // A function held in a field is called with the arguments
             // alone; it reaches nothing of the value holding it.
@@ -5660,7 +5672,7 @@ pub const Checker = struct {
                 obj = ir.get(obj, .operand);
             }
             recv_mode = if (explicit_write) .write else self.selfMode(obj, callee);
-            if (actor_call) recv_mode = .read;
+            recv_loan = if (explicit_write) self.loanOf(ir.Member.object(callee)) else if (recv_mode == .write) .write else .read;
             const place = if (recv_mode == .value) null else self.resolvePlace(obj);
             if (place) |p| {
                 const found = self.errors_found;
@@ -5676,12 +5688,12 @@ pub const Checker = struct {
                 if (self.flowLive(id) and !self.isScalar(self.vars.items[id].ty) and self.errors_found == found) {
                     const pos = self.startOf(obj);
                     reservation = self.temps.items.len;
-                    try self.addTemp(.{ .root = id, .path = p.path, .kind = .read, .pos = pos, .reserved = recv_mode == .write });
+                    try self.addTemp(.{ .root = id, .path = p.path, .kind = .read, .pos = pos, .reserved = recv_loan == .write });
                     recv_root = id;
                     recv_path = p.path;
                     // A built-in's methods hand out values, never views
                     // of self.
-                    const kind: LoanKind = if (recv_mode == .write) .write else .read;
+                    const kind = recv_loan;
                     recv_held = recv_val;
                     recv_value = if (actor_call or self.builtinName(self.exprType(obj)) != null) recv_val else try self.valueUnion(recv_val, try self.lendOn(id, .{ .root = id, .path = p.path, .kind = kind, .pos = pos }));
                 }
@@ -5696,7 +5708,7 @@ pub const Checker = struct {
                 // A built-in's methods hand out values, never views of
                 // self.
                 if ((recv_mode == .read or recv_mode == .write) and !actor_call and !self.namesType(callee) and self.builtinName(self.exprType(obj)) == null) {
-                    const kind: LoanKind = if (recv_mode == .write) .write else .read;
+                    const kind = recv_loan;
                     // A self the call holds in storage of its own is
                     // lent from there; any other is lent where its leaves
                     // are.
@@ -5732,7 +5744,7 @@ pub const Checker = struct {
         const text_op = self.sema.stringCallOf(node) orelse self.sema.stringCallOf(callee);
         if (self.isPrint(callee) or text_op != null) {
             try self.walkReadArgs(args);
-            if (recv_root) |id| if (recv_mode == .write) {
+            if (recv_root) |id| if (recv_loan == .write) {
                 const reserved = self.temps.orderedRemove(reservation);
                 const at = self.startOf(ir.Member.object(callee));
                 if (try self.conflictingLoan(id, recv_path, .write, at)) |l| try self.noteWholeSelf(id, recv_path, l, callee, at);
@@ -5775,7 +5787,7 @@ pub const Checker = struct {
             // carries of self (Core sentence 7).
             const paths = if (params) |p| p.origins.self_paths else &.{};
             const recv_part = if (paths.len > 0 and callee.isKind(.member) and recv_mode != .value and !actor_call and !field_call)
-                try self.selfPathsResult(paths, recv_root, recv_path, if (recv_mode == .write) .write else .read, self.startOf(ir.Member.object(callee)), recv_held, recv_value)
+                try self.selfPathsResult(paths, recv_root, recv_path, recv_loan, self.startOf(ir.Member.object(callee)), recv_held, recv_value)
             else
                 recv_value;
             result = try self.valueUnion(result, recv_part);
@@ -5849,14 +5861,14 @@ pub const Checker = struct {
         };
         // What the call keeps by its callee's `keeps`, for a conflict's note.
         if (params) |p| if (p.origins.stores & p.origins.lent != 0) {
-            const write_recv = if (recv_mode == .write) recv_root else null;
+            const write_recv = if (recv_loan == .write) recv_root else null;
             if (p.keepsLentSelf()) try self.noteKept(callee, recv_value, "@", write_recv, arg_values);
             for (arg_values, 0..) |v, i| if (p.keepsLent(i)) try self.noteKept(callee, v, p.paramName(i) orelse "?", write_recv, arg_values);
         };
 
         // A write self is lent when the call starts, before the
         // callee stores anything.
-        if (recv_root) |id| if (recv_mode == .write) {
+        if (recv_root) |id| if (recv_loan == .write) {
             // The reservation itself is no conflict.
             const reserved = self.temps.orderedRemove(reservation);
             const at = self.startOf(ir.Member.object(callee));

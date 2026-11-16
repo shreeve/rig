@@ -156,11 +156,13 @@ fail "shared map value that holds a loan", "`shared.Map[String, ?String]` cannot
   m = shared.Map[String, ?String].new()
   print(m.len())
 
-fail "shared map put while a view lives", "cannot lend `m` to write while a read loan is live", errors: 1
+test "shared map put while a view lives", "none 1"
+  # A put lends the map to read (Core §4): it never moves a value, so a
+  # view of one lives across it.
   m = shared.Map[String, Int].new()
   v = ?m.get("a")
   !m.put_new(String("a"), 1)
-  print(v)
+  print(v, m.len())
 
 fail "shared map dropped while a view lives", "cannot drop `m` while it is lent", errors: 1
   m = shared.Map[String, Int].new()

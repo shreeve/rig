@@ -1332,7 +1332,9 @@ test "review-cell-mark-1-p20 two writeviews alias", "0"
   g = +h
   f(!h, !g)
 
-fail "review-cell-mark-1-p21 same handle twice", "cannot lend `h` to read while a write loan is live"
+test "review-cell-mark-1-p21 same handle twice", "1"
+  # `!h` lending a `!H` of a value that holds a Cell lends `h` to read
+  # (Core §4), so `?h` goes beside it.
   obj H
     log: Cell[List[Int]]
 

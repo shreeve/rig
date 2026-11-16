@@ -155,11 +155,13 @@ fail "cell holder whole value", "30:6: `swap` moves values whole, and `S` holds 
   bump(!w.h)
   print(o.a.n, w.h.n.get())
 
-fail "cell mark lends the handle", "9:1: cannot lend `c` to write while a read loan is live", errors: 1
-  # `!c.set(5)` lends the handle `c`, as `!v.push(x)` lends `v`: it is not
-  # exclusive over the Cell, since another handle is another name. A view
-  # of `c` held across the mark conflicts with it; a view of another
-  # handle does not (test/behavior/runtime/cell_marked_calls.rig).
+test "cell mark lends the place to read", '''
+  2
+  3
+'''
+  # `!c.set(5)` lends `c` to read (Core §4): the Cell is never replaced
+  # whole and every handle reaches it, so a view of `c` held across the
+  # mark sees the change, as a view of another handle does.
 
   c: *Cell[Int] = *Cell(1)
   d = +c

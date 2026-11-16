@@ -1969,6 +1969,9 @@ pub const Facts = struct {
     /// `*Actor.supervised(f)` calls (`Checker.actorSupervised`).
     actor_supervised: FastMap(u64, void) = .empty,
     actor_calls: FastMap(u64, void) = .empty,
+    /// What each `!x` puts on `x`, a read loan or a write loan
+    /// (`Checker.recordLoan`).
+    loans: FastMap(u64, LendKind) = .empty,
     /// The method calls made on a value of a type parameter
     /// (`Checker.typeParamCall`), whose method each instance gives.
     type_param_calls: FastMap(u64, void) = .empty,
@@ -3346,7 +3349,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         return w.print(" {s}", .{try formatTypeIn(ctx, a, v)});
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     switch (V) {
-        StringCall, Use, Upgrade, ParCall, SelectArm, BuiltinCall, SwapCall => try w.print(" {s}", .{@tagName(v)}),
+        StringCall, Use, Upgrade, ParCall, SelectArm, BuiltinCall, SwapCall, LendKind => try w.print(" {s}", .{@tagName(v)}),
         Duration => try w.print(" {d}ns {s}", .{ v.unit_ns, if (v.float) "Float" else "Int" }),
         []const u8 => try w.print(" \"{f}\"", .{std.zig.fmtString(v)}),
         Lift => try w.print(" {s} from {s}", .{ try formatTypeIn(ctx, a, v.into), try formatTypeIn(ctx, a, v.from) }),
@@ -5821,6 +5824,17 @@ pub const SemContext = struct {
     /// (`recordActorCall`).
     pub fn isActorCall(self: *const SemContext, call: Sexp) bool {
         return self.facts.actor_calls.contains(exprKey(call) orelse return false);
+    }
+
+    pub fn recordLoan(self: *SemContext, lend: Sexp, kind: LendKind) !void {
+        try self.facts.loans.put(self.allocator, recordExprKey(lend) orelse return, kind);
+    }
+
+    /// What `!x`, `lend`, puts on `x` (Core §4): a read loan where it
+    /// lends a write view of a value that changes by a marked call
+    /// (`loanOfView`), a write loan anywhere else (`recordLoan`).
+    pub fn loanOf(self: *const SemContext, lend: Sexp) LendKind {
+        return self.facts.loans.get(exprKey(lend) orelse return .write) orelse .write;
     }
 
     pub fn recordTypeParamCall(self: *SemContext, call: Sexp) !void {
@@ -11572,6 +11586,21 @@ pub fn changesByMark(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(t)) {
         .parameterized_nominal => |pn| pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or holdsCellByValue(ctx, t),
         else => holdsCellByValue(ctx, t),
+    };
+}
+
+/// What a write view of a value of `viewed` puts on the place it is lent
+/// from (Core §4): a read loan where the value changes by a marked call
+/// (`changesByMark`), judged by its type where it is lent, and a write
+/// loan for any other. Such a value lives only behind `*`, is never
+/// replaced whole, and keeps every view it gives out while it lives, so
+/// many write views of it may live at once. An API object, which may
+/// hold anything, and a type parameter are no such value; a handle lent
+/// itself (`!*T`) is written.
+pub fn loanOfView(ctx: *const SemContext, viewed: TypeId) LendKind {
+    return switch (ctx.types.get(viewed)) {
+        .api_object, .type_var, .shared, .weak, .read_view, .write_view => .write,
+        else => if (changesByMark(ctx, viewed)) .read else .write,
     };
 }
 

@@ -1256,9 +1256,9 @@ rejected (sentence 4). The loan begins before the call's arguments are
 evaluated, and lasts as long as the view it carries (sentence 6): for
 the call, for the life of a task that holds self, or until a select
 returns. An actor's call gives the actor a count of its own, not a
-view, so `!a.add(x)&` keeps no loan once made. *(planned)*
+view, so `!a.add(x)&` keeps no loan once made. *(built)*
 
-```rig pending
+```rig
 sub main()
   c = *Cell(1)
   !c.add((!c).swap(4))
