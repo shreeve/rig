@@ -203,9 +203,9 @@ worker after.
   once on the idle workers, where they waited about 1 ms for the
   monitor's stop; a maker that makes one task and goes on computing
   hands it on at that stop. A worker with nothing else to steal
-  also takes the oldest task left in another's slots 3 µs while that
-  worker ran one task throughout, stuck in it (its `ran` unchanged), as
-  Go takes a `runnext` (`sched.stealNext`). It waits those 3 µs in its
+  also takes the oldest task left in another's slots once it has seen
+  it there 3 µs by its own clock, as Go takes a `runnext`
+  (`sched.stealNext`). It waits those 3 µs in its
   own poller, still counted as searching, rather than spinning, so its
   core goes to whatever else the machine runs: by kevent's timeout on
   the Mac, and on Linux by `epoll_pwait2`, whose timeout counts
@@ -213,11 +213,18 @@ worker after.
   as it stretches Go's `usleep(3)`; a kernel without the call keeps the
   spin). Work made while it waits kicks it (`sched.kickWaiting`), and
   every wait ends in a fresh look, its own queues and the rings first,
-  then the task it noted, whose 3 µs a kick does not start again. A task
-  that stays while its worker switches is noted afresh, and a search
-  notes at most three before its worker sleeps (`sched.Note`): a worker
-  that keeps switching hands its slots on itself. A global queue takes
-  overflow and work from outside the workers.
+  then the task it noted. A look that finds the task's worker has
+  switched (its `ran` moved) before the 3 µs pass notes it again, and a
+  search makes at most three notes before its worker sleeps: a worker
+  that switches may run the task itself. The time the searcher first saw
+  the task in that slot is kept across its notes, its waits, and its
+  sleeps (`sched.Note`, kept by the worker's loop until it sees another
+  task there or runs one), so neither a kick nor the worker's switches
+  nor a sleep start the 3 µs again, and once they have passed the task
+  is taken however often its worker switched: two tasks that wake each
+  other into a worker's newer slots, which it runs first, cannot keep an
+  older one there. A global queue takes overflow and work from outside
+  the workers.
 - **Cache lines.** Each worker begins a cache line and fills whole
   lines, so no line holds two workers' fields, and the fields each
   writes at every switch never slow another's (`sched.Worker`). The
