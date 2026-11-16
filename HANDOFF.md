@@ -310,6 +310,15 @@ A new session, human or agent, takes these steps in order:
   A receive or send arm's `!` is checked as a marked method's self
   is, so a read view of a handle, however reached, is rejected there
   as `!ch.recv()` is (records/2026-11/concurrency-lend-doctrine/select-read-view.md).
+- **What `!` lends to a shared value** (owner, 2026-11-15, "Approve the
+  defaults"; branch `lend-doctrine`), built: `!x` puts only a read loan
+  on `x` when it lends a write view of a Cell, a Signal, a channel, an
+  actor, or a value that holds a Cell, judged by the type where it is
+  lent (Core §4). One fact, `loanOf`, recorded by typecheck, replaces
+  the ownership checker's actor and select-arm exceptions; it accepts
+  more programs and rejects none. The reference checker learns the rule
+  from CORE's text in a change of its own
+  (records/2026-11/concurrency-lend-doctrine/build.md).
 - **Durations** (owner, 2026-11-04; branch `durations`), built: a bare
   number is seconds, an `Int` or a `Float`, and `ms:`, `us:`, `ns:`
   name the other units, in `time.sleep`, `time.after`, `time.within`,

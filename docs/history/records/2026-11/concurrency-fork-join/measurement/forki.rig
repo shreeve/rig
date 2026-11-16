@@ -1,0 +1,151 @@
+# bench/fork: fork-join with `&` tasks, as rayon::join runs it.
+# psum: the sum of 2^25 Ints, split in halves down to 8,192, the left half
+# on a task; qsort: 2^22 Ints sorted by a quicksort that partitions into
+# two owned Lists (safe Rig cannot yet give two tasks write views of one
+# List's halves), each half on a task down to 8,192, then std.sort.
+use std.math
+use std.sort
+use std.task
+use std.time
+
+GRAIN = 8192
+
+sub ins(xs: ![]Int)
+  i = 1
+  while i < xs.len : i += 1
+    j = i
+    while j > 0 and xs[j] < xs[j - 1] : j -= 1
+      !xs.swap(j, j - 1)
+
+sub swap_range(xs: ![]Int, a: Int, b: Int, n: Int)
+  i = 0
+  while i < n : i += 1
+    !xs.swap(a + i, b + i)
+
+sub rotate(xs: ![]Int, a: Int, m: Int, b: Int)
+  i = m - a
+  j = b - m
+  while i != j
+    if i > j
+      swap_range(!xs, m - i, m, j)
+      i -= j
+    else
+      swap_range(!xs, m - i, m + j - i, i)
+      j -= i
+  swap_range(!xs, m - i, m, i)
+
+sub sym_merge(xs: ![]Int, a: Int, m: Int, b: Int)
+  if m - a == 1
+    i = m
+    j = b
+    while i < j
+      h = (i + j) / 2
+      if xs[h] < xs[a]
+        i = h + 1
+      else
+        j = h
+    k = a
+    while k < i - 1 : k += 1
+      !xs.swap(k, k + 1)
+    return
+  if b - m == 1
+    i = a
+    j = m
+    while i < j
+      h = (i + j) / 2
+      if not (xs[m] < xs[h])
+        i = h + 1
+      else
+        j = h
+    k = m
+    while k > i : k -= 1
+      !xs.swap(k, k - 1)
+    return
+  mid = (a + b) / 2
+  n = mid + m
+  start = n - b if m > mid else a
+  r = mid if m > mid else m
+  p = n - 1
+  while start < r
+    c = (start + r) / 2
+    if not (xs[p - c] < xs[c])
+      start = c + 1
+    else
+      r = c
+  end = n - start
+  if start < m and m < end
+    rotate(!xs, start, m, end)
+  if a < start and start < mid
+    sym_merge(!xs, a, start, mid)
+  if mid < end and end < b
+    sym_merge(!xs, mid, end, b)
+
+sub isort(xs: ![]Int)
+  n = xs.len
+  width = 20
+  a = 0
+  while a < n : a += width
+    ins(!xs[a..math.min(a + width, n)])
+  while width < n : width *= 2
+    a = 0
+    while a + width < n : a += 2 * width
+      sym_merge(!xs, a, a + width, math.min(a + 2 * width, n))
+
+fun seq_sum(xs: ?[]Int) -> Int
+  s = 0
+  for x in xs
+    s +%= x
+  s
+
+fun psum(xs: ?[]Int) -> Int
+  return seq_sum(xs) if xs.len <= GRAIN
+  mid = xs.len / 2
+  left = xs[..mid]
+  a = psum(?left)&
+  b = psum(xs[mid..])
+  >a +% b
+
+fun qsort(xs: List[Int]) -> List[Int]
+  if xs.len <= GRAIN
+    new ys = <xs
+    isort(!ys[..])
+    return ys
+  pivot = xs[xs.len / 2]
+  lo: List[Int] = List(capacity: xs.len / 2)
+  mid: List[Int] = List()
+  hi: List[Int] = List(capacity: xs.len / 2)
+  for x in xs
+    if x < pivot
+      !lo.push(x)
+    else if x > pivot
+      !hi.push(x)
+    else
+      !mid.push(x)
+  a = qsort(<lo)&
+  b = qsort(<hi)
+  out = >a
+  for x in mid
+    !out.push(x)
+  for x in b
+    !out.push(x)
+  out
+
+sub main()
+  n = 1 << 25
+  xs: List[Int] = List(capacity: n)
+  for i in 0..n
+    !xs.push(i *% 2654435761 % 1000)
+  t = time.now()
+  whole = ?xs[..]
+  s = psum(whole)
+  print("psum", t.elapsed(), s)
+  m = 1 << 22
+  ys: List[Int] = List(capacity: m)
+  for i in 0..m
+    !ys.push((i *% 6364136223846793005 +% 1442695040888963407) >> 20)
+  t2 = time.now()
+  zs = qsort(<ys)
+  ok = 1
+  for i in 1..zs.len
+    ok = 0 if zs[i - 1] > zs[i]
+  print("qsort", t2.elapsed(), ok * zs.len)

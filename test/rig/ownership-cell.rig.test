@@ -155,11 +155,13 @@ fail "cell holder whole value", "30:6: `swap` moves values whole, and `S` holds 
   bump(!w.h)
   print(o.a.n, w.h.n.get())
 
-fail "cell mark lends the handle", "9:1: cannot lend `c` to write while a read loan is live", errors: 1
-  # `!c.set(5)` lends the handle `c`, as `!v.push(x)` lends `v`: it is not
-  # exclusive over the Cell, since another handle is another name. A view
-  # of `c` held across the mark conflicts with it; a view of another
-  # handle does not (test/behavior/runtime/cell_marked_calls.rig).
+test "cell mark lends the place to read", '''
+  2
+  3
+'''
+  # `!c.set(5)` lends `c` to read (Core §4): the Cell is never replaced
+  # whole and every handle reaches it, so a view of `c` held across the
+  # mark sees the change, as a view of another handle does.
 
   c: *Cell[Int] = *Cell(1)
   d = +c
@@ -405,3 +407,551 @@ fail "cell vec push bare handle", "9:10: `a` is a `*N` handle, which can't be co
   a = *N(id: 1)
   !hs.push(a)
   print(hs.len, a.id)
+
+test "cell lend nested marked calls", "5 5 5 1 1"
+  # A marked call lends the place that holds the handle to read (Core
+  # §4), so a second marked call through it may run in the first's
+  # arguments, whether `c` is a `*Cell`, a `!*Cell`, or a `!Cell`, and a
+  # Cell's List answers its members the same way.
+
+  fun through_handle(c: !*Cell[Int]) -> Int
+    !c.add((!c).swap(4))
+
+  fun through_view(c: !Cell[Int]) -> Int
+    !c.add((!c).swap(4))
+
+  a = *Cell(1)
+  b = *Cell(1)
+  c = *Cell(1)
+  !a.add((!a).swap(4))
+  l = *Cell(List[Int]())
+  !l.push(1)
+  !l.push((!l).pop() ?? 0)
+  print(a.get(), through_handle(!b), through_view(!c), l.len, l[0])
+
+test "cell lend view across marked calls", '''
+  5 7 2
+  4 2
+'''
+  # A read view of a Cell, a Signal, or a value that holds a Cell lives
+  # across a marked call through the same place, and is passed beside
+  # one.
+
+  obj Hits
+    n: Cell[Int]
+    step: Int
+
+    fun bump(!@) -> Int
+      !@n.add(@step)
+
+  sub show(r: ?Hits, k: Int)
+    print(r.n.get(), k)
+
+  c = *Cell(1)
+  r = ?c
+  !c.set(5)
+  sig: *Signal[Int] = *Signal(0)
+  s = ?sig
+  !sig.set(7)
+  h = *Hits(n: Cell(0), step: 2)
+  v = ?h
+  _ = !h.bump()
+  print(r.get(), s.get(), v.n.get())
+  show(?h, !h.bump() - 2)
+
+test "cell lend a handle field of an owned object", "7 2"
+  # A handle a field of an owned object holds is lent to read by a
+  # marked call through it, so the object may be read meanwhile.
+
+  obj Box
+    c: *Cell[Int]
+    tag: Int
+
+  sub show(o: ?Box, k: Int)
+    print(o.tag, k)
+
+  o = Box(c: *Cell(1), tag: 7)
+  show(?o, !o.c.add(1))
+
+test "cell lend self nested", "2 6"
+  # Through a handle, or as `!@` inside a method, a value that holds a
+  # Cell is lent to read by each call.
+
+  obj Hits
+    n: Cell[Int]
+
+    fun bump(!@, k: Int) -> Int
+      !@n.add(k)
+
+    fun twice(!@) -> Int
+      (!@).bump((!@).bump(1))
+
+  h = *Hits(n: Cell(0))
+  a = (!h).bump((!h).bump(1))
+  print(a, (!h).twice())
+
+test "cell lend a write view twice", "2 2 2"
+  # `!h` lending a `!Hits` or a `!Cell[Int]` lends `h` to read, so two
+  # of them may go to one call; so may two `!{Bump}` of one `*Hits`.
+
+  api Bump
+    sub bump(!@)
+
+  obj Hits: Bump
+    n: Cell[Int]
+
+    sub bump(!@)
+      _ = !@n.add(1)
+
+  sub hit2(a: !Hits, b: !Hits)
+    _ = !a.n.add(1)
+    _ = !b.n.add(1)
+
+  sub two(a: !Cell[Int], b: !Cell[Int])
+    _ = !a.add(1)
+    _ = !b.add(1)
+
+  sub both(a: !{Bump}, b: !{Bump})
+    !a.bump()
+    !b.bump()
+
+  h = *Hits(n: Cell(0))
+  hit2(!h, !h)
+  c = *Cell(0)
+  two(!c, !c)
+  g = *Hits(n: Cell(0))
+  both(!g, !g)
+  print(h.n.get(), c.get(), g.n.get())
+
+test "cell lend a result that views self", '''
+  0
+  1 home
+'''
+  # A result that views self keeps the read loan its call put on the
+  # place, so the handle may be read while it lives.
+
+  obj Page
+    hits: Cell[Int]
+    title: String
+
+    fun cell(!@) -> !Cell[Int]
+      !@hits
+
+    fun name(?@) -> ?String
+      ?@title
+
+    sub hit(!@)
+      _ = !@hits.add(1)
+
+  p = *Page(hits: Cell(0), title: String("home"))
+  w = !p.cell()
+  print(p.hits.get())
+  _ = !w.add(1)
+  t = ?p.name()
+  !p.hit()
+  print(p.hits.get() - 1, t)
+
+test "cell lend shared map ensure", "2 ten"
+  # std.shared's `ensure` views a value the map never moves, and keeps a
+  # read loan, so the map takes more keys while the view lives.
+  use std.shared
+
+  m = shared.Map[Int, String].new()
+  r = !m.ensure(1, String("ten"))
+  _ = !m.put_new(2, String("twenty"))
+  print(m.len(), r)
+
+fail "cell lend the handle itself twice", "cannot lend `h` to write while a write loan is live", errors: 1
+  # `!h` lending the handle itself, a `!*Hits` the callee may point
+  # elsewhere, is a write loan.
+
+  obj Hits
+    n: Cell[Int]
+
+  sub both(a: !*Hits, b: !*Hits)
+    a = *Hits(n: Cell(1))
+
+  h = *Hits(n: Cell(0))
+  both(!h, !h)
+
+fail "cell lend a write to the place in the arguments", "cannot lend `c` to write while a read loan is live", "cannot lend `cs` to write while a read loan is live", "cannot move `c` while a read loan is live", errors: 3
+  # The read loan begins before the call's arguments are evaluated, so
+  # they may not point the handle elsewhere, grow what holds it, or move
+  # it.
+
+  fun repoint(c: !*Cell[Int]) -> Int
+    c = *Cell(9)
+    1
+
+  fun grow(cs: !List[*Cell[Int]]) -> Int
+    !cs.push(*Cell(0))
+    1
+
+  fun gone(c: *Cell[Int]) -> Int
+    1
+
+  c = *Cell(0)
+  _ = !c.add(repoint(!c))
+  cs = List[*Cell[Int]]()
+  !cs.push(*Cell(1))
+  _ = !cs[0].add(grow(!cs))
+  _ = !c.add(gone(<c))
+
+fail "cell lend a result view, then rebind or drop", "cannot reassign `h` while it is lent", "cannot drop `g` while it is lent", errors: 2
+  # A read loan still keeps the place from being reassigned or dropped
+  # while the view it carries lives.
+
+  obj Hits
+    n: Cell[Int]
+
+    fun cell(!@) -> !Cell[Int]
+      !@n
+
+  h = *Hits(n: Cell(0))
+  w = !h.cell()
+  h = *Hits(n: Cell(5))
+  _ = !w.add(1)
+  g = *Hits(n: Cell(0))
+  v = !g.cell()
+  <g
+  _ = !v.add(1)
+
+fail "cell lend an erased value twice", "cannot lend `b` to write while a write loan is live", "cannot lend `s` to write while a write loan is live", errors: 2
+  # Only the type where it is lent decides: an owned value lent as an
+  # API object, or an API object itself, is lent to write, whatever the
+  # value may hold.
+
+  api Grow
+    sub grow(!@)
+
+  obj Bag: Grow
+    xs: List[Int]
+
+    sub grow(!@)
+      !@xs.push(1)
+
+  sub both(a: !{Grow}, b: !{Grow})
+    !a.grow()
+    !b.grow()
+
+  b = Bag(xs: List[Int]())
+  both(!b, !b)
+
+  sub twice(s: !{Grow})
+    both(!s, !s)
+
+fail "cell lend a type parameter twice", "cannot lend `x` to write while a write loan is live", errors: 1
+  # A value of a type parameter is lent to write, whatever an instance's
+  # type is.
+
+  sub both[T](a: !T, b: !T)
+    print(0)
+
+  sub twice[T](x: !T)
+    both(!x, !x)
+
+  c = *Cell(0)
+  twice(!c)
+
+test "cell lend breaker ensure view across puts", "first-value-long-enough-for-heap 19999"
+  # A view `ensure` gives lives across 20,000 puts through the same
+  # handle, which grow the map: the map never moves a value (attack 1).
+  use std.shared
+
+  m = shared.Map[Int, String].new()
+  r = !m.ensure(1, String("first-value-long-enough-for-heap"))
+  for i in 2..20000
+    _ = !m.put_new(i, String("v"))
+  _ = !m.ensure(1, String("second"))
+  print(r, m.len())
+
+test "cell lend breaker nested write views", "8 8"
+  # Two `!Hits` views of one object a handle holds, one passed into a
+  # call through the other (attack 6).
+  obj Hits
+    n: Cell[Int]
+    step: Int
+
+    fun bump(!@, k: Int) -> Int
+      !@n.add(@step + k)
+
+  obj Outer
+    h: Hits
+    m: Cell[Int]
+
+    fun inner(!@) -> !Hits
+      !@h
+
+  o = *Outer(h: Hits(n: Cell(0), step: 2), m: Cell(0))
+  x = !o.inner()
+  y = !o.inner()
+  print(!x.bump((!y).bump(1)), o.h.n.get())
+
+test "cell lend breaker handle field", "8 t 8"
+  # Calls through a handle field nest while views of the owner and of
+  # the field live (attack 7).
+  obj Hits
+    n: Cell[Int]
+    step: Int
+
+    fun bump(!@, k: Int) -> Int
+      !@n.add(@step + k)
+
+  obj Owner
+    h: *Hits
+    title: String
+
+  o = Owner(h: *Hits(n: Cell(0), step: 2), title: String("t"))
+  t = ?o.title
+  v = ?o.h
+  print(!o.h.bump((!o.h).bump(1)), t, v.n.get())
+
+test "cell lend breaker channel of handles", "2"
+  # A view of a channel of handles lives across a send and a receive
+  # (attack 9).
+  ch = *Chan[*Cell[Int]](2)
+  c = *Cell(1)
+  r = ?ch
+  !ch.send(+c)!
+  if !ch.recv()! as got
+    _ = !got.add(1)
+  !ch.close()
+  _ = ?r
+  print(c.get())
+
+test "cell lend breaker signal set from a subscriber", '''
+  now 1
+  now 2
+  now 3
+  3
+'''
+  # A subscriber sets its own signal while a view of it lives
+  # (attack 10).
+  sig: *Signal[Int] = *Signal(0)
+  !sig.subscribe(*|~sig|
+    if *sig as s
+      if s.get() < 3
+        !s.set(s.get() + 1)
+      print("now", s.get())
+  )
+  r = ?sig
+  !sig.set(1)
+  print(r.get())
+
+test "cell lend breaker reentrant call through a weak handle", "9"
+  # A call that reenters through an upgraded weak handle, nested in a
+  # call through the same place (attack 13).
+  obj Node
+    n: Cell[Int]
+    me: Cell[List[~Node]]
+    kids: Cell[List[*Node]]
+    name: String
+
+    fun poke(!@, depth: Int) -> Int
+      _ = !@n.add(1)
+      if depth > 0
+        if (!@me).pop() as w
+          if *w as other
+            !@me.push(~other)
+            return !other.poke(depth - 1)
+      @n.get()
+
+    fun release(!@) -> Int
+      while (!@kids).pop() as k
+        print("released a handle, name still", k.name)
+      @n.get()
+
+    fun title(?@) -> ?String from @
+      ?@name
+
+  h = *Node(n: Cell(0), me: Cell(List[~Node]()), kids: Cell(List[*Node]()), name: String("node-name-long-enough-heap"))
+  !h.me.push(~h)
+  print(!h.poke((!h).poke(3)))
+
+test "cell lend breaker a call drops another handle", '''
+  released a handle, name still node-name-long-enough-heap
+  node-name-long-enough-heap
+'''
+  # A call drops the last other handle while a view of a plain field
+  # lives: the place keeps the value alive (attack 14).
+  obj Node
+    n: Cell[Int]
+    me: Cell[List[~Node]]
+    kids: Cell[List[*Node]]
+    name: String
+
+    fun poke(!@, depth: Int) -> Int
+      _ = !@n.add(1)
+      if depth > 0
+        if (!@me).pop() as w
+          if *w as other
+            !@me.push(~other)
+            return !other.poke(depth - 1)
+      @n.get()
+
+    fun release(!@) -> Int
+      while (!@kids).pop() as k
+        print("released a handle, name still", k.name)
+      @n.get()
+
+    fun title(?@) -> ?String from @
+      ?@name
+
+  h = *Node(n: Cell(0), me: Cell(List[~Node]()), kids: Cell(List[*Node]()), name: String("node-name-long-enough-heap"))
+  !h.kids.push(+h)
+  t = ?h.title()
+  _ = !h.release()
+  print(t)
+
+test "cell lend breaker compare and swap", "false 7 7"
+  # `compare_swap` and `swap` nest while a view of the Cell lives
+  # (attack 12).
+  c = *Cell(1)
+  r = ?c
+  ok = (!c).compare_swap(r.get(), (!c).swap(7) + 1)
+  print(ok, r.get(), c.get())
+
+test "cell lend breaker generic object of a Cell", "b"
+  # A generic object whose field is a `Cell[T]` lends as any value that
+  # holds a Cell (attack 16).
+  obj Box2[T: Owned]
+    c: Cell[T]
+
+    fun put(!@, v: T) -> T
+      !@c.swap(<v)
+
+  b = *Box2[String](c: Cell(String("a")))
+  x = !b.put((!b).put(String("b")))
+  print(x)
+
+test "cell lend breaker swap of an owned value", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  # Two `swap`s of a `Cell[String]` nest, each moving a String whole
+  # (attack 12).
+  c = *Cell(String("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+  x = !c.swap((!c).swap(String("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")))
+  print(x)
+
+fail "cell swap of Cells", "`swap` moves values whole, and a `Cell[Int]` changes only by its marked calls, which every handle shares: exchange its value with the Cell's own `old = (!c).swap(v)`", "`swap` moves values whole, and a `Cell[String]` changes only by its marked calls", "`swap` moves values whole, and a `Cell[List[Int]]` changes only by its marked calls", errors: 3
+  # A Cell changes only by its marked calls, each one change every
+  # handle sees in one order: `swap` would read and write it as plain
+  # memory, losing a change another task makes between, so it is
+  # rejected, a Cell with itself too. Handles themselves still swap.
+
+  obj H
+    log: Cell[List[Int]]
+
+  sub trade(a: !Cell[Int], b: !Cell[Int])
+    swap(!a, !b)
+
+  sub same(a: !Cell[String], b: !Cell[String])
+    swap(!a, !b)
+
+  x = *H(log: Cell(List()))
+  y = *H(log: Cell(List()))
+  swap(!x.log, !y.log)
+  c = *Cell(1)
+  d = *Cell(2)
+  swap(!c, !d)
+  print(c.get(), d.get())
+
+fail "cell lend an API object's handle", "expected `!{Grow}`, got `!*{Grow}`", errors: 2
+  # A `*{A}` only reads, as any handle: `!s` lends the handle itself,
+  # never an `!{A}` of the value it holds, whatever that value is.
+
+  api Grow
+    sub grow(!@)
+
+  obj Bag: Grow
+    xs: List[Int]
+
+    sub grow(!@)
+      !@xs.push(1)
+
+  sub one(a: !{Grow})
+    !a.grow()
+
+  b = *Bag(xs: List[Int]())
+  s: *{Grow} = +b
+  one(!s)
+  w: !{Grow} = !s
+  !w.grow()
+  print(b.xs.len)
+
+fail "cell swap of Cells in other forms", "`swap` moves values whole, and a `Cell[T]` changes only by its marked calls", "`swap` moves values whole, and a `Cell[Int]` changes only by its marked calls", "`swap` moves values whole, and a `Cell[Int]` changes only by its marked calls", errors: 3
+  # A Cell of a type parameter, a branch of two Cells, and a fixed
+  # binding's Cell are Cells too; their handles still swap.
+
+  sub generic[T](c: *Cell[T], d: *Cell[T])
+    swap(!c, !d)
+
+  sub ternary(a: *Cell[Int], b: *Cell[Int], c: *Cell[Int], k: Bool)
+    swap(!a if k else !b, !c)
+
+  a =! *Cell(5)
+  b =! *Cell(6)
+  swap(!a, !b)
+  x: *Cell[Int] = *Cell(1)
+  y: *Cell[Int] = *Cell(2)
+  swap(!x, !y)
+  print(x.get(), y.get())
+
+fail "cell move out of a Cell field", "exchange its value with the Cell's own swap instead: `old = (!h.n).swap(v)`", errors: 1
+  # A Cell is never exchanged by `swap`, so the hint to a move out of one
+  # names the Cell's own swap.
+
+  obj H
+    n: Cell[Int]
+
+  fun f(h: !H) -> Int
+    c = <h.n
+    c.get()
+
+  h = *H(n: Cell(1))
+  print(f(!h))
+
+fail "cell swap of a channel or an actor", "a `Chan[Int]` changes only by its sends and receives", "an `Actor[Counter]` changes only by its own methods", errors: 2
+  # `swap` names what each kind that changes by a marked call is.
+
+  obj Counter
+    n: Int
+
+    fun add(!@, k: Int) -> Int
+      @n += k
+      @n
+
+  sub chans(a: !Chan[Int], b: !Chan[Int])
+    swap(!a, !b)
+
+  sub actors(a: !Actor[Counter], b: !Actor[Counter])
+    swap(!a, !b)
+
+test "cell write views of an API object and a Signal", "2 7"
+  # A write view of an API object may be of a value of any type, and one
+  # of a Signal changes only by its marked calls: each is called through
+  # as the one classifier says (`changesByMark`).
+
+  api Grow
+    sub grow(!@)
+    fun size(?@) -> Int
+
+  obj Bag: Grow
+    xs: List[Int]
+
+    sub grow(!@)
+      !@xs.push(1)
+
+    fun size(?@) -> Int
+      @xs.len
+
+  sub twice(a: !{Grow})
+    !a.grow()
+    !a.grow()
+
+  sub poke(s: !Signal[Int])
+    !s.set(7)
+
+  b = Bag(xs: List[Int]())
+  twice(!b)
+  sig: *Signal[Int] = *Signal(0)
+  poke(!sig)
+  print(b.size(), sig.get())

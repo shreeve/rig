@@ -1,0 +1,13 @@
+tools/mac-claim: waiting 1 min for correctness jobs in tools/heavy: 4350 (running)
+tools/mac-claim: waiting 11 min for correctness jobs in tools/heavy: 4350 (running)
+arm              psum1 min/med   psum2 min/med   psum3 min/med
+i-cold            2.433/ 2.462    2.003/ 2.017    1.977/ 2.004
+i-eager           2.326/ 2.356    1.999/ 2.016    1.979/ 2.002
+i-eager-pf4       2.041/ 2.074    2.008/ 2.031    1.983/ 2.008
+i-eager-pf8       2.028/ 2.051    2.011/ 2.024    1.989/ 2.019
+i-eager-pf16      2.015/ 2.037    1.997/ 2.012    1.988/ 1.998
+i-eager-map16     2.020/ 2.039    2.000/ 2.023    1.984/ 1.996
+i-tree            2.276/ 2.341    1.990/ 2.027    1.983/ 2.008
+i-tree-pf4        2.296/ 2.329    2.010/ 2.028    1.988/ 2.008
+rayon-cold        2.054/ 2.081    1.938/ 1.967    1.928/ 1.951
+exit 0

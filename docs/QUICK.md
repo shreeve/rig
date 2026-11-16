@@ -131,7 +131,7 @@ the same: `?@` reads (`a.balance()`), `!@` changes
 (`!a.pay(30)`), and `<@` consumes (`<a.close()`).
 
 **Shared state.** What handles share is a `Cell`, and it changes only by
-a marked call: `!c.set(5)`, which lends the handle `c`. Reading,
+a marked call: `!c.set(5)`, which lends `c` to read. Reading,
 `c.get()`, is unmarked, and a read view never changes a `Cell`. A value
 no one changes again is frozen, `*Frozen(x)`, and any task reads it
 through its handles.

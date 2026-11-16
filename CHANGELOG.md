@@ -43,6 +43,20 @@ comprehension, `x => ...`, `lambda`, `if let`, `o or 0` for an
 optional, `range(3)`, and `enumerate(xs)` are rejected with the Rig
 spelling, where each got a parse error or an unbound name.
 
+**`swap` exchanges no Cell, and `!s` of a `*{A}` lends only the
+handle** (both accepted by 0.3.0). `swap(!a, !b)` of two `Cell`s, a
+`Cell` reached through a `!Cell[T]`, a `*Cell[T]` that may not be
+written, a field, a branch, or a `=!` binding, or a `Cell` with itself,
+is rejected: "`swap` moves values whole, and a `Cell[Int]` changes only
+by its marked calls, which every handle shares: exchange its value with
+the Cell's own `old = (!c).swap(v)`". It read and wrote the Cell as
+plain memory, so a change another task made between was lost. Handles
+themselves still swap (`swap(!x, !y)` of two `*Cell[Int]` locals). And
+`!s` of a `*{A}` where a `!{A}` goes, which `rig check` accepted and Zig
+rejected, is a type mismatch: a `*{A}` only reads, as any handle. Trig,
+loco's sources, std, examples, and bench swap no Cell and lend no
+`*{A}` so; no migration is needed.
+
 **`extend_from_bytes` and `$embed` records read only `exact` objects**
 (a change to main since 0.3.0, which had neither): an object made from
 bytes, a literal's, a `?String`'s, or an embedded file's, is declared
@@ -318,6 +332,21 @@ it where the negation was meant. Trig has no such site.
 
 ### Compiler
 
+**`!` of a value that changes by a marked call lends to read.** `!x`
+puts only a read loan on `x` when it lends a write view of a Cell, a
+Signal, a channel, an actor, or a value that holds a Cell, judged by the
+concrete type of the value lent from (Core §4); `!h` lending the handle
+itself, assigning `h`, and dropping it stay writes. The rule itself
+accepts more programs and rejects none (the `swap` change above is the
+one that rejects): `!c.add((!c).swap(4))`,
+`!ch.send((!ch.recv()! ?? 0) + 5)!`, a view `r = ?c` kept across
+`!c.set(5)`, `hit2(!h, !h)` for two `!Hits`, `(!@).bump((!@).bump(1))`,
+a put into std.shared's map while a view it gave lives, and a task of
+`(!h).bump()&`, which now goes into a set or is returned, keeping its
+read loan while it runs. One fact, `loanOf`, recorded by typecheck,
+replaces the ownership checker's exceptions for actor calls and select
+arms.
+
 - An owned closure literal passed to a generic function,
   `apply(3, *|x| x + 1)` with `f: *fun(T) -> R`, takes its parameter
   types from the other arguments and binds the result's type, as a
@@ -534,6 +563,12 @@ it where the negation was meant. Trig has no such site.
   only ends a broken run. The tests of a maker that leaves its task to
   an idle worker repeat until a round finds that worker asleep, as one
   between its search and its sleep counts as busy.
+- Tasks made in turn and waited for in order start on the idle workers
+  because the switch to the first wakes one for the others
+  (`sched.spread`): a unit test counts that wake and asserts the others
+  start while the first, which makes no yield check, still runs. It
+  replaces `test/cli/spawn_wake.sh`, which required them to start
+  within 300 µs, a bound a loaded machine's late threads miss.
 - `tools/mac-claim LABEL CMD` runs one timing job holding the Mac's
   claim line, with `TRIG_MAC_CLAIMED=1` and `RIG_MAC_CLAIMED=1` set for
   it, so a tool that waits on the claim does not wait on its own: it waits while another claim holds the Mac or a

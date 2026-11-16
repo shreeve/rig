@@ -25,6 +25,13 @@ obj Table
   drop(!@)
     free(@addr.get())
 
+# Its invariant, which every operation keeps and a new one must: an
+# entry, once put, is never changed, moved, or freed until the map drops,
+# so every view `get` or `ensure` gave lasts while a handle lives (Core
+# §4). The compiler cannot see shared.zig keep it: each extern here that
+# takes the map is listed, read, in the checker's `marked_externs`, and
+# std-shared's "shared map views survive every change" runs them all
+# under the sanitizer while views live.
 pub obj Map[K: Hash + Owned + Sends + Syncs, V: Owned + Sends + Syncs]
   t: Table
 

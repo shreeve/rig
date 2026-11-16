@@ -1,0 +1,111 @@
+# bench/fork: fork-join with `&` tasks, as rayon::join runs it.
+# psum: the sum of 2^25 Ints, split in halves down to 8,192, the left half
+# on a task; qsort: 2^22 Ints sorted by a quicksort that partitions into
+# two owned Lists (safe Rig cannot yet give two tasks write views of one
+# List's halves), each half on a task down to 8,192, then std.sort.
+use std.sort
+use std.task
+use std.time
+
+GRAIN = 8192
+
+fun seq_sum(xs: ?[]Int) -> Int
+  s = 0
+  for x in xs
+    s +%= x
+  s
+
+fun psum(xs: ?[]Int) -> Int
+  return seq_sum(xs) if xs.len <= GRAIN
+  mid = xs.len / 2
+  left = xs[..mid]
+  a = psum(?left)&
+  b = psum(xs[mid..])
+  >a +% b
+
+fun qsort(xs: List[Int]) -> List[Int]
+  if xs.len <= GRAIN
+    new ys = <xs
+    sort.sort(!ys[..])
+    return ys
+  pivot = xs[xs.len / 2]
+  lo: List[Int] = List(capacity: xs.len / 2)
+  mid: List[Int] = List()
+  hi: List[Int] = List(capacity: xs.len / 2)
+  for x in xs
+    if x < pivot
+      !lo.push(x)
+    else if x > pivot
+      !hi.push(x)
+    else
+      !mid.push(x)
+  a = qsort(<lo)&
+  b = qsort(<hi)
+  out = >a
+  for x in mid
+    !out.push(x)
+  for x in b
+    !out.push(x)
+  out
+
+sub main()
+  n = 1 << 25
+  xs: List[Int] = List(capacity: n)
+  for i in 0..n
+    !xs.push(i *% 2654435761 % 1000)
+  whole = ?xs[..]
+  t0 = time.now()
+  s0 = seq_sum(whole)
+  print("seqsum", t0.elapsed(), s0)
+  t = time.now()
+  s = psum(whole)
+  print("psum1", t.elapsed(), s)
+  t1 = time.now()
+  s1 = psum(whole)
+  print("psum2", t1.elapsed(), s1)
+  t3 = time.now()
+  s3 = psum(whole)
+  print("psum3", t3.elapsed(), s3)
+  m = 1 << 22
+  ys: List[Int] = List(capacity: m)
+  for i in 0..m
+    !ys.push((i *% 6364136223846793005 +% 1442695040888963407) >> 20)
+  t2 = time.now()
+  pivot = ys[ys.len / 2]
+  lo: List[Int] = List(capacity: ys.len / 2)
+  mid: List[Int] = List()
+  hi: List[Int] = List(capacity: ys.len / 2)
+  for x in ys
+    if x < pivot
+      !lo.push(x)
+    else if x > pivot
+      !hi.push(x)
+    else
+      !mid.push(x)
+  part = t2.elapsed()
+  t4 = time.now()
+  a = qsort(<lo)&
+  b = qsort(<hi)
+  out = >a
+  rec = t4.elapsed()
+  t5 = time.now()
+  for x in mid
+    !out.push(x)
+  for x in b
+    !out.push(x)
+  cat = t5.elapsed()
+  ok = 1
+  for i in 1..out.len
+    ok = 0 if out[i - 1] > out[i]
+  print("qsort", part + rec + cat, ok * out.len)
+  print("q_part", part, 0)
+  print("q_rec", rec, 0)
+  print("q_cat", cat, 0)
+  zs: List[Int] = List(capacity: m)
+  for i in 0..m
+    !zs.push((i *% 6364136223846793005 +% 1442695040888963407) >> 20)
+  t6 = time.now()
+  k = 0
+  while k < m : k += GRAIN
+    sort.sort(!zs[k..k + GRAIN])
+  print("leaves", t6.elapsed(), zs[0])

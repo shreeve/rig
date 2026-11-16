@@ -1,0 +1,22 @@
+Sun Nov 15 22:24:30 MST 2026
+22:24  up 2 days,  2:25, 3 users, load averages: 2.03 3.29 4.55
+round 1: rig psum 2.59, rig qsort 74.25, rig-direct psum 2.61, rig-direct qsort 64.54, rayon-symmerge qsort 59.96, rayon-symmerge qsort_dyn 58.27, rayon-symmerge leaves 155.21, rayon-symmerge leaves_dyn 208.08
+round 2: rig-direct psum 2.56, rig-direct qsort 63.70, rayon-symmerge qsort 58.04, rayon-symmerge qsort_dyn 58.61, rayon-symmerge leaves 155.57, rayon-symmerge leaves_dyn 201.26, rig psum 2.57, rig qsort 72.58
+round 3: rayon-symmerge qsort 59.15, rayon-symmerge qsort_dyn 57.94, rayon-symmerge leaves 154.68, rayon-symmerge leaves_dyn 200.98, rig psum 2.53, rig qsort 73.57, rig-direct psum 2.58, rig-direct qsort 64.28
+round 4: rig psum 2.55, rig qsort 81.03, rig-direct psum 2.59, rig-direct qsort 66.38, rayon-symmerge qsort 59.80, rayon-symmerge qsort_dyn 58.83, rayon-symmerge leaves 157.64, rayon-symmerge leaves_dyn 205.78
+round 5: rig-direct psum 2.57, rig-direct qsort 65.27, rayon-symmerge qsort 60.89, rayon-symmerge qsort_dyn 56.83, rayon-symmerge leaves 156.91, rayon-symmerge leaves_dyn 202.38, rig psum 2.73, rig qsort 73.40
+round 6: rayon-symmerge qsort 58.63, rayon-symmerge qsort_dyn 59.13, rayon-symmerge leaves 154.99, rayon-symmerge leaves_dyn 201.17, rig psum 2.57, rig qsort 73.41, rig-direct psum 2.58, rig-direct qsort 76.68
+round 7: rig psum 2.66, rig qsort 76.25, rig-direct psum 2.57, rig-direct qsort 65.99, rayon-symmerge qsort 59.18, rayon-symmerge qsort_dyn 57.96, rayon-symmerge leaves 156.81, rayon-symmerge leaves_dyn 201.19
+round 8: rig-direct psum 2.57, rig-direct qsort 65.40, rayon-symmerge qsort 59.01, rayon-symmerge qsort_dyn 60.22, rayon-symmerge leaves 155.42, rayon-symmerge leaves_dyn 200.63, rig psum 2.48, rig qsort 72.66
+round 9: rayon-symmerge qsort 60.04, rayon-symmerge qsort_dyn 57.81, rayon-symmerge leaves 156.23, rayon-symmerge leaves_dyn 201.63, rig psum 2.58, rig qsort 72.48, rig-direct psum 2.57, rig-direct qsort 65.91
+round 10: rig psum 2.51, rig qsort 73.23, rig-direct psum 2.53, rig-direct qsort 68.69, rayon-symmerge qsort 59.77, rayon-symmerge qsort_dyn 58.22, rayon-symmerge leaves 156.26, rayon-symmerge leaves_dyn 201.73
+round 11: rig-direct psum 2.57, rig-direct qsort 64.76, rayon-symmerge qsort 60.11, rayon-symmerge qsort_dyn 59.07, rayon-symmerge leaves 155.40, rayon-symmerge leaves_dyn 202.44, rig psum 2.55, rig qsort 73.13
+round 12: rayon-symmerge qsort 59.49, rayon-symmerge qsort_dyn 60.41, rayon-symmerge leaves 155.21, rayon-symmerge leaves_dyn 204.07, rig psum 2.58, rig qsort 72.89, rig-direct psum 2.58, rig-direct qsort 65.64
+rayon-symmerge   leaves        154.680
+rayon-symmerge   leaves_dyn    200.629
+rayon-symmerge   qsort          58.037
+rayon-symmerge   qsort_dyn      56.826
+rig              psum            2.483
+rig              qsort          72.480
+rig-direct       psum            2.531
+rig-direct       qsort          63.698
