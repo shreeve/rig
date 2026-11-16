@@ -3086,6 +3086,15 @@ and makes no task local; both first read the part through
 literal written there is lent as a callable view, as `?f` of a closure
 is, so it goes to no task.
 
+A method task's self behind a shared handle or in a box is reached as
+a plain call reaches it (`emitReached`, through each handle and box
+`sema.unwrapAccess` reaches), so the runtime is given the address of
+the value the method takes, never the handle's or the box's. A method
+that takes its self by value (`<@`) is given it as a value, moved or
+copied into the task's arguments (`spawnMethodValue`), out of each box
+for one that consumes a box's value, never by the address of a Zig
+temporary.
+
 A type parameter in a part goes as each instance's type does. Every
 site that hands a value to a task (a task's parts and result, an
 actor's value, arguments, and result, `par`'s elements, values, and

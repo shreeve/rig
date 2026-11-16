@@ -102,8 +102,8 @@ pub fn Task(comptime T: type) type {
 
         /// `x.name(args...)&`: start a method's call as a task. `x` is
         /// the address of the method's self, or of a view of it. A method
-        /// that takes its self by value is given it here, before the task
-        /// starts.
+        /// that takes its view by value, as a small value read is, is
+        /// given it here, before the task starts.
         pub fn spawnMethod(x: anytype, comptime name: []const u8, args: anytype) Self {
             return startMethod(false, x, name, args);
         }
@@ -111,6 +111,18 @@ pub fn Task(comptime T: type) type {
         /// `x.name(args...)&` for a local task (`spawnLocal`).
         pub fn spawnMethodLocal(x: anytype, comptime name: []const u8, args: anytype) Self {
             return startMethod(true, x, name, args);
+        }
+
+        /// `(<x).name(args...)&` of a method that takes its self by
+        /// value (`<@`): `x` is the self, moved or copied into the task's
+        /// arguments.
+        pub fn spawnMethodValue(x: anytype, comptime name: []const u8, args: anytype) Self {
+            return start(false, false, @field(@TypeOf(x), name), .{x} ++ args);
+        }
+
+        /// `spawnMethodValue` for a local task (`spawnLocal`).
+        pub fn spawnMethodValueLocal(x: anytype, comptime name: []const u8, args: anytype) Self {
+            return start(true, false, @field(@TypeOf(x), name), .{x} ++ args);
         }
 
         /// `x.area()&` through a witness (`W.area`, docs/design/apis.md,
