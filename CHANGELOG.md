@@ -702,6 +702,19 @@ arms.
 
 ### Runtime
 
+- **A program's first parallel call starts faster:** at the first task
+  `main` starts worker 1 alone, which maps 16 stacks (address space,
+  untouched) for itself and each worker after it, and then starts them
+  and the monitor. `main` waited on nine thread starts, and the stacks
+  were mapped as the work spread, where macOS serializes each mapping
+  among the threads starting and running. psum's first call on the Mac
+  is 10% faster (2.230 ms at the median, from 2.486), 0.22 ms over a
+  warm call where it was 0.45, against Rayon's 0.12
+  (docs/history/records/2026-11/concurrency-startup). Workers still
+  start at the first task, and a program that makes none starts none.
+  A program that ends while worker 1 is still starting the others
+  starts no more, so an `os.exit` right after the first task tears down
+  as one later does.
 - **`sort.sort` sorts by pattern-defeating quicksort where equal
   elements are the same value**: numbers, `Bool`, text, plain enums,
   and the optionals, arrays, objects, and enums made only of these whose

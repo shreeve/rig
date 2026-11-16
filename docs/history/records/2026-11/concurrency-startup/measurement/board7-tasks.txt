@@ -1,0 +1,9 @@
+rounds 20; fastest / median, ms (memory: bytes a live task)
+arm                            spawn                 chain                fanout                 yield                   hog               produce                memory
+main                  8.431 / 12.541         0.584 / 1.042       67.495 / 77.549         6.024 / 6.135         0.008 / 0.011         5.240 / 5.967         17003 / 17010
+aa                    8.332 / 12.612         0.584 / 1.061       68.565 / 74.761         5.908 / 6.123         0.008 / 0.010         5.784 / 5.990         17003 / 17013
+tree                  8.509 / 15.129         0.533 / 0.852       69.632 / 73.234         5.934 / 6.081         0.009 / 0.011         5.259 / 5.957         17000 / 17012
+
+medians against main's
+aa:                      0.6% slower           1.8% slower           3.6% faster           0.2% faster           9.1% faster           0.4% slower           0.0% slower
+tree:                   20.6% slower          18.3% faster           5.6% faster           0.9% faster           3.1% faster           0.2% faster           0.0% slower

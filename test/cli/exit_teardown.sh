@@ -120,6 +120,24 @@ if [[ $mac == 1 ]]; then
     expect_eq "$(grep '^rig: exit:' err.txt)" "rig: exit: plain, one worker" "one worker ends plainly"
 fi
 
+# `os.exit` at once after the first task, while worker 1 may still be
+# starting the others (`sched.startRest`): the workers it has not started
+# count as stopped, so the teardown never waits out its 2 ms for threads
+# yet to start. It may still end plainly while a task runs.
+sed -e '/time.sleep(ms: 5)!/d' parked.rig >sudden.rig
+rig build --release -o sudden sudden.rig >build.log 2>&1 || fail "build sudden: $(cat build.log)"
+for workers in 8 10; do
+    for round in 1 2 3 4 5; do
+        RIG_SCHED_STATS=1 RIG_WORKERS=$workers ./sudden >out.txt 2>err.txt; expect_rc $? 4 "sudden on $workers"
+        expect_eq "$(cat out.txt)" "exiting 64" "sudden's output on $workers"
+        if [[ $mac == 1 ]]; then
+            exits=$(grep '^rig: exit:' err.txt)
+            [[ $exits == "rig: exit: torn down on "* || $exits == "rig: exit: plain, a task runs" ]] ||
+                fail "sudden on $workers workers: $exits"
+        fi
+    done
+done
+
 # Preempted by signal, the stopped workers and the exiting task are never
 # stopped by one mid-teardown.
 rig build --release -o parked_pre parked.rig >build.log 2>&1 || fail "build parked_pre: $(cat build.log)"
