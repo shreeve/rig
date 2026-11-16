@@ -1,0 +1,64 @@
+# bench-mixed 2026-11-16 06:22 load 5.74 8.14 9.09 commit b0198c3fd Darwin arm64 10 cores; rates 100000,120000, 5000 idle, 128 conns, 1 in 4 computes
+base      round 0  100000 offered   99998 done  p50 97 us  p99 5103 us  p99.9 8190 us  max 13.2 ms  srv 1.9 cores  idle 99/99
+base      round 0  120000 offered  119898 done  p50 299 us  p99 90.9 ms  p99.9 98.2 ms  max 114 ms  srv 2.8 cores  idle 99/99
+w6        round 0  100000 offered   99998 done  p50 100 us  p99 1646 us  p99.9 3279 us  max 9123 us  srv 1.9 cores  idle 99/99
+w6        round 0  120000 offered  119995 done  p50 217 us  p99 18.9 ms  p99.9 55.7 ms  max 106 ms  srv 2.6 cores  idle 99/99
+w4        round 0  100000 offered   99998 done  p50 112 us  p99 37.8 ms  p99.9 44.0 ms  max 60.4 ms  srv 1.9 cores  idle 99/99
+w4        round 0  120000 offered  119997 done  p50 627 us  p99 108 ms  p99.9 116 ms  max 128 ms  srv 2.4 cores  idle 99/99
+tokio     round 0  100000 offered   99999 done  p50 67 us  p99 28.4 ms  p99.9 37.3 ms  max 56.8 ms  srv 1.9 cores  idle 99/99
+tokio     round 0  120000 offered  119991 done  p50 128 us  p99 3434 us  p99.9 5867 us  max 9600 us  srv 2.4 cores  idle 99/99
+w6        round 1  100000 offered   99997 done  p50 115 us  p99 30.1 ms  p99.9 39.2 ms  max 45.9 ms  srv 2.0 cores  idle 99/99
+w6        round 1  120000 offered  119995 done  p50 294 us  p99 55.4 ms  p99.9 57.9 ms  max 69.8 ms  srv 2.6 cores  idle 99/99
+w4        round 1  100000 offered   99998 done  p50 108 us  p99 908 us  p99.9 1673 us  max 4289 us  srv 1.9 cores  idle 99/99
+w4        round 1  120000 offered  119995 done  p50 705 us  p99 40.2 ms  p99.9 48.2 ms  max 101 ms  srv 2.4 cores  idle 99/99
+tokio     round 1  100000 offered   99998 done  p50 66 us  p99 31.8 ms  p99.9 40.7 ms  max 51.8 ms  srv 1.9 cores  idle 99/99
+tokio     round 1  120000 offered  119997 done  p50 123 us  p99 50.9 ms  p99.9 57.5 ms  max 63.1 ms  srv 2.4 cores  idle 99/99
+base      round 1  100000 offered   99998 done  p50 118 us  p99 35.4 ms  p99.9 45.5 ms  max 126 ms  srv 2.1 cores  idle 99/99
+base      round 1  120000 offered  119997 done  p50 201 us  p99 7225 us  p99.9 10.7 ms  max 23.6 ms  srv 2.7 cores  idle 99/99
+w4        round 2  100000 offered   99998 done  p50 114 us  p99 36.3 ms  p99.9 44.2 ms  max 80.5 ms  srv 1.9 cores  idle 99/99
+w4        round 2  120000 offered  119916 done  p50 165 us  p99 5887 us  p99.9 9333 us  max 83.5 ms  srv 2.3 cores  idle 99/99
+tokio     round 2  100000 offered   99998 done  p50 67 us  p99 31.5 ms  p99.9 39.4 ms  max 47.0 ms  srv 1.9 cores  idle 99/99
+tokio     round 2  120000 offered  119994 done  p50 114 us  p99 2770 us  p99.9 5284 us  max 12.0 ms  srv 2.3 cores  idle 99/99
+base      round 2  100000 offered   99885 done  p50 106 us  p99 11.0 ms  p99.9 18.5 ms  max 22.8 ms  srv 2.0 cores  idle 99/99
+base      round 2  120000 offered  119980 done  p50 161 us  p99 5392 us  p99.9 7084 us  max 28.4 ms  srv 2.5 cores  idle 99/99
+w6        round 2  100000 offered   99998 done  p50 109 us  p99 28.0 ms  p99.9 36.9 ms  max 46.0 ms  srv 2.0 cores  idle 99/99
+w6        round 2  120000 offered  119995 done  p50 333 us  p99 35.3 ms  p99.9 51.8 ms  max 83.8 ms  srv 2.6 cores  idle 99/99
+tokio     round 3  100000 offered   99249 done  p50 72 us  p99 32.4 ms  p99.9 40.7 ms  max 60.5 ms  srv 1.9 cores  idle 99/99
+tokio     round 3  120000 offered  119997 done  p50 116 us  p99 43.9 ms  p99.9 50.8 ms  max 56.4 ms  srv 2.3 cores  idle 99/99
+base      round 3  100000 offered   99978 done  p50 105 us  p99 27.0 ms  p99.9 36.0 ms  max 48.5 ms  srv 2.0 cores  idle 99/99
+base      round 3  120000 offered  119995 done  p50 166 us  p99 6132 us  p99.9 7727 us  max 14.2 ms  srv 2.6 cores  idle 99/99
+w6        round 3  100000 offered   99710 done  p50 112 us  p99 45.2 ms  p99.9 53.0 ms  max 124 ms  srv 2.0 cores  idle 99/99
+w6        round 3  120000 offered  118630 done  p50 38.6 ms  p99 132 ms  p99.9 262 ms  max 276 ms  srv 2.6 cores  idle 99/99
+w4        round 3  100000 offered   99998 done  p50 488 us  p99 71.3 ms  p99.9 80.2 ms  max 90.1 ms  srv 1.9 cores  idle 99/99
+w4        round 3  120000 offered  104053 done  p50 411 ms  p99 670 ms  p99.9 695 ms  max 713 ms  srv 2.2 cores  idle 99/99
+base      round 4  100000 offered   99995 done  p50 300 us  p99 40.4 ms  p99.9 49.6 ms  max 61.0 ms  srv 2.5 cores  idle 99/99
+base      round 4  120000 offered  119547 done  p50 1590 us  p99 57.3 ms  p99.9 124 ms  max 154 ms  srv 2.9 cores  idle 99/99
+w6        round 4  100000 offered   99997 done  p50 200 us  p99 58.2 ms  p99.9 64.3 ms  max 75.4 ms  srv 2.1 cores  idle 99/99
+w6        round 4  120000 offered  117081 done  p50 37.2 ms  p99 158 ms  p99.9 194 ms  max 206 ms  srv 2.7 cores  idle 99/99
+w4        round 4  100000 offered   99996 done  p50 465 us  p99 18.2 ms  p99.9 27.0 ms  max 100 ms  srv 2.1 cores  idle 99/99
+w4        round 4  120000 offered  116088 done  p50 233 ms  p99 353 ms  p99.9 407 ms  max 446 ms  srv 2.4 cores  idle 99/99
+tokio     round 4  100000 offered   99873 done  p50 64 us  p99 10.6 ms  p99.9 17.7 ms  max 25.9 ms  srv 1.8 cores  idle 99/99
+tokio     round 4  120000 offered  119998 done  p50 105 us  p99 1671 us  p99.9 3533 us  max 9428 us  srv 2.3 cores  idle 99/99
+w6        round 5  100000 offered   99996 done  p50 104 us  p99 31.6 ms  p99.9 38.8 ms  max 51.8 ms  srv 1.9 cores  idle 99/99
+w6        round 5  120000 offered  119995 done  p50 188 us  p99 26.7 ms  p99.9 36.4 ms  max 112 ms  srv 2.6 cores  idle 99/99
+w4        round 5  100000 offered   99998 done  p50 110 us  p99 49.6 ms  p99.9 60.2 ms  max 71.9 ms  srv 1.9 cores  idle 99/99
+w4        round 5  120000 offered  119996 done  p50 233 us  p99 28.8 ms  p99.9 35.7 ms  max 47.1 ms  srv 2.3 cores  idle 99/99
+tokio     round 5  100000 offered   99998 done  p50 63 us  p99 27.2 ms  p99.9 40.4 ms  max 57.6 ms  srv 1.8 cores  idle 99/99
+tokio     round 5  120000 offered  119991 done  p50 128 us  p99 53.9 ms  p99.9 60.1 ms  max 103 ms  srv 2.4 cores  idle 99/99
+base      round 5  100000 offered   99997 done  p50 116 us  p99 31.7 ms  p99.9 39.0 ms  max 86.2 ms  srv 2.0 cores  idle 99/99
+base      round 5  120000 offered  119997 done  p50 207 us  p99 47.2 ms  p99.9 64.8 ms  max 89.6 ms  srv 2.7 cores  idle 99/99
+
+100000 req/s offered
+          runs                req/s                  p50                  p99                p99.9                  max                / p99            /hash p99            srv cores
+base         6        99995 (99998)       106 us (97 us)    27.0 ms (5103 us)    36.0 ms (8190 us)    48.5 ms (13.2 ms)    27.0 ms (5090 us)    27.1 ms (5160 us)            2.0 (1.9)
+w6           6        99997 (99998)      109 us (100 us)    30.1 ms (1646 us)    38.8 ms (3279 us)    46.0 ms (9123 us)    30.0 ms (1627 us)    30.1 ms (1688 us)            2.0 (1.9)
+w4           6        99998 (99998)      112 us (108 us)     36.3 ms (908 us)    44.0 ms (1673 us)    71.9 ms (4289 us)     36.3 ms (893 us)     36.3 ms (945 us)            1.9 (1.9)
+tokio        6        99998 (99999)        66 us (63 us)    28.4 ms (10.6 ms)    39.4 ms (17.7 ms)    51.8 ms (25.9 ms)    28.4 ms (10.6 ms)    28.4 ms (10.6 ms)            1.9 (1.8)
+
+120000 req/s offered
+          runs                req/s                  p50                  p99                p99.9                  max                / p99            /hash p99            srv cores
+base         6      119980 (119997)      201 us (161 us)    7225 us (5392 us)    10.7 ms (7084 us)    28.4 ms (14.2 ms)    7219 us (5378 us)    7239 us (5429 us)            2.7 (2.5)
+w6           6      119995 (119995)      294 us (188 us)    35.3 ms (18.9 ms)    55.7 ms (36.4 ms)     106 ms (69.8 ms)    35.3 ms (18.8 ms)    35.3 ms (18.9 ms)            2.6 (2.6)
+w4           6      119916 (119997)      627 us (165 us)    40.2 ms (5887 us)    48.2 ms (9333 us)     101 ms (47.1 ms)    40.2 ms (5875 us)    40.2 ms (5933 us)            2.3 (2.2)
+tokio        6      119994 (119998)      116 us (105 us)    3434 us (1671 us)    5867 us (3533 us)    12.0 ms (9428 us)    3423 us (1634 us)    3478 us (1758 us)            2.3 (2.3)
+board-done
