@@ -302,6 +302,30 @@ runtime sizes its pool to the 12 CPUs the mask allows (`RIG_WORKERS` and
 `mmap_lock` (per-VMA locks since 6.4), so the gain there may differ; the
 change is still behavior-neutral.
 
+## Fix 2 on Linux
+
+pup (Core Ultra 9 185H), 2026-11-16 06:35, a board slot with the machine
+quiet: `board6.py` with main ea3704772, an A/A copy, the fix at
+03bf20979 and the Rayon twin, binaries by `build6.sh`, every run on
+cores 0-11; startup, tasks and actors 20 rounds, net 10. Medians against
+main's (files in `measurement/pup/`):
+
+| row | fix | A/A |
+|---|---|---|
+| psum1 cold | **8.8% faster** (7.257 → 6.619 ms) | 0.7% faster |
+| psum1 pre | **9.5% faster** | 0.2% slower |
+| psum1 gap | 4.5% faster | 1.0% slower |
+| psum1 at 1 worker, cold / pre | 1.9% / 0.9% slower | 1.3% slower / 0.1% faster |
+| tasks: spawn, chain, fanout, yield, produce, memory | 1.7% slower, level, 0.8% slower, 4.4% faster, 0.6% faster, level | 0.7% faster, 0.2% slower, 1.3% slower, 0.6% faster, 0.9% faster, level |
+| tasks: hog (18 µs) | 5.2% slower | 1.5% slower |
+| actors: solo, contend, spread | level, 2.0% faster, 1.9% faster | level |
+| net: pingpong, echo, connect | 0.9% slower, level, 0.9% faster | 1.9% slower, 0.5% faster, 1.7% slower |
+
+The first-call gain holds on Linux (9.0% on the Mac), cold and pre.
+Nothing is slower beyond the A/A's spread but `hog`, whose median moved
+by 1 µs of 18 and whose fastest of 20 is faster (0.014 against 0.016
+ms). Rayon's first call is still faster: 4.57 ms against the fix's 6.62.
+
 ## Files
 
 In `measurement/`: `startup.rig` (psum by mode: cold, pre, tiny, gap,

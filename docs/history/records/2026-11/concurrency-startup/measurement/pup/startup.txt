@@ -1,0 +1,33 @@
+rounds 20; fastest / median, ms (memory: bytes a live task)
+arm                           seqsum                 psum1                 psum2                 psum3
+main-cold            10.192 / 10.853         6.482 / 7.257         3.509 / 4.016         3.488 / 3.893
+main-pre             10.377 / 10.577         6.057 / 6.745         3.561 / 3.964         3.479 / 3.850
+main-gap              9.991 / 10.878         6.009 / 6.926         3.602 / 3.902         4.616 / 4.905
+main1-cold           10.583 / 10.777       14.330 / 14.639       13.592 / 14.084       13.639 / 14.121
+main1-pre            10.387 / 10.812       14.351 / 14.839       13.702 / 14.118       13.589 / 14.217
+aa-cold              10.352 / 10.870         6.335 / 7.207         3.553 / 3.743         3.462 / 3.798
+aa-pre               10.156 / 10.792         5.929 / 6.761         3.532 / 3.725         3.471 / 3.759
+aa-gap               10.064 / 10.805         6.414 / 6.993         3.553 / 4.051         4.714 / 4.988
+aa1-cold             10.332 / 10.699       14.343 / 14.831       13.851 / 14.078       13.864 / 14.098
+aa1-pre              10.325 / 10.825       14.305 / 14.818       13.631 / 14.106       13.609 / 14.134
+tree-cold            10.294 / 10.810         5.941 / 6.619         3.545 / 3.693         3.487 / 3.602
+tree-pre             10.159 / 10.744         5.312 / 6.107         3.537 / 3.628         3.504 / 3.640
+tree-gap             10.242 / 11.112         5.932 / 6.618         3.537 / 3.699         4.477 / 4.924
+tree1-cold           10.168 / 10.745       14.490 / 14.920       13.858 / 14.028       13.896 / 14.062
+tree1-pre            10.325 / 10.859       14.357 / 14.974       13.793 / 14.149       13.596 / 14.206
+rayon-cold           11.085 / 11.223         3.972 / 4.572         3.206 / 3.272         3.026 / 3.093
+rayon-pre            10.991 / 11.191         3.700 / 4.102         3.234 / 3.281         3.044 / 3.088
+rayon-gap            10.998 / 11.232         4.071 / 4.473         3.190 / 3.256         4.088 / 4.829
+rayon1-cold          10.892 / 11.178       12.306 / 13.370       11.593 / 12.456       11.865 / 12.252
+
+medians against main's
+aa-cold:                 0.2% slower           0.7% faster           6.8% faster           2.5% faster
+aa-pre:                  2.0% slower           0.2% slower           6.0% faster           2.4% faster
+aa-gap:                  0.7% faster           1.0% slower           3.8% slower           1.7% slower
+aa1-cold:                0.7% faster           1.3% slower           0.0% faster           0.2% faster
+aa1-pre:                 0.1% slower           0.1% faster           0.1% faster           0.6% faster
+tree-cold:               0.4% faster           8.8% faster           8.1% faster           7.5% faster
+tree-pre:                1.6% slower           9.5% faster           8.5% faster           5.5% faster
+tree-gap:                2.1% slower           4.5% faster           5.2% faster           0.4% slower
+tree1-cold:              0.3% faster           1.9% slower           0.4% faster           0.4% faster
+tree1-pre:               0.4% slower           0.9% slower           0.2% slower           0.1% faster

@@ -1,0 +1,9 @@
+rounds 10; fastest / median, ms (memory: bytes a live task)
+arm                         pingpong                  echo               connect
+main               106.243 / 107.227     107.614 / 112.309       12.608 / 12.988
+aa                 105.595 / 109.272     106.057 / 111.710       12.942 / 13.208
+tree               105.771 / 108.172     106.893 / 112.068       12.459 / 12.866
+
+medians against main's
+aa:                      1.9% slower           0.5% faster           1.7% slower
+tree:                    0.9% slower           0.2% faster           0.9% faster
