@@ -3689,7 +3689,7 @@ fn search(w: *Worker) ?*Fiber {
 /// worker with nothing to do takes it: long enough that a fiber made and
 /// waited for at once runs on its maker's worker (`handoff`), as Go waits
 /// 3 µs before it takes a `runnext`.
-const steal_next_after: i96 = 3 * std.time.ns_per_us;
+const steal_next_after: i96 = 2 * std.time.ns_per_us;
 
 /// Take the fiber in `v`'s "run next" slot, if it is still there after
 /// `steal_next_after`. A pinned one taken so goes back to its home's
