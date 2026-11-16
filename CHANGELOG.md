@@ -318,6 +318,17 @@ it where the negation was meant. Trig has no such site.
 
 ### Compiler
 
+- A closure written in `par.map` or `par.workers` whose body is in
+  error, `par.map(?xs, |x| x.abs())` on `Int`s or `|c| (!c).swap(5)`
+  on a read view of a `*Cell`, is rejected with its own error, checked
+  given the element it is lent, where `rig check` accepted it and emit
+  stopped with an internal error. This rejects programs `rig check`
+  accepted, none of which built. A closure that propagates, or gives
+  nothing to `par.map`, reports its own errors too, with no stray
+  "use of `!` propagation requires a fallible enclosing function". A
+  closure passed to a generic function whose result would bind a type
+  parameter, `sort.sort_by_key(!xs[..], |a| a.abs())`, reports its
+  errors in place of "cannot infer `K`".
 - A method task through a shared handle or a box, `(!h).bump()&` or
   `?h.peek()&` of a `*T`, a `*Frozen[T]`, or a `^T`, in a local, a
   field, an element, or through a view, builds and runs, where `rig

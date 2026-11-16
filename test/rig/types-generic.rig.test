@@ -228,6 +228,23 @@ fail "a bracketed generic call is named as written where it fails", "11:7: `id[I
 
   run(3) catch |e| print(e)
 
+fail "generic closure's errors leave a parameter unbound", "12:30: type `?Int` has no method `nope`", "13:35: type `?Int` has no method `abs`", "14:39: type `Int` has no method `abs`", errors: 3
+  # A closure whose result would bind a type parameter, and whose body is
+  # in error, says why the parameter is unbound: its errors are reported,
+  # checked with the parameter types the call gives it.
+  use std.sort
+  use std.time
+
+  fun keyed[T, K](xs: ?[]T, key: ?fun(?T) -> K) -> List[K]
+    List[K]()
+
+  sub main()!
+    xs = List([1, 2])
+    print(keyed(?xs[..], |x| x.nope()))
+    sort.sort_by_key(!xs[..], |a| a.abs())
+    r = time.within(time.SECOND, || (3).abs())!
+    print(r)
+
 fail "generic closure arg inference", "15:7: cannot infer `T` for `g` from its arguments or the type expected of its result", "16:7: conflicting types for `T` in the call to `h`: `Int` (argument 1) and `Bool` (argument 2)", "17:7: conflicting types for `T` in the call to `both`: `Int` (argument 1) and `Bool` (argument 2)"
   # A closure literal passed to a generic function takes its parameter
   # types from what the other arguments bind, so a type parameter nothing

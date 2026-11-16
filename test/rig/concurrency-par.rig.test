@@ -638,6 +638,31 @@ fail "par closure in error reported once", "7:30: use of unbound name `nope`", "
     states = [0, 0]
     print(par.workers(!states, ?xs, |s, x| x + nope2)!)
 
+fail "par map closure's own error", "8:27: cannot lend to write through a read view `?*Cell[Int]`; take a write view, or share a handle of your own with `+h`", errors: 1
+  # A closure whose body is in error and gives no value is reported
+  # given the element it is lent, as a function's name is.
+  use std.par
+
+  sub main()!
+    xs = List[*Cell[Int]]()
+    !xs.push(*Cell(1))
+    ys = par.map(?xs, |c| (!c).swap(5))
+    print(ys[0], xs[0].get())
+
+fail "par closures' errors of every kind", "8:28: type `?Int` has no method `abs`", "9:28: type `?Int` has no method `abs`", "11:44: type `?Int` has no method `abs`", "12:22: `par.map` gives each call's value", "12:34: type `?Int` has no method `abs`", errors: 5
+  # Each closure is checked given what the call lends it, whatever its
+  # error: one that propagates is checked as one that can fail, and one
+  # that gives nothing still reports what is wrong in it.
+  use std.par
+
+  sub main()!
+    xs = List([1, 2])
+    print(par.map(?xs, |x| x.abs()))
+    print(par.map(?xs, |x| x.abs()!))
+    states = [0, 0]
+    print(par.workers(!states, ?xs, |s, x| x.abs()))
+    print(par.map(?xs, |x| print(x.abs())))
+
 test "par push", seeds: 20, '''
   6 2 1
   true 3289

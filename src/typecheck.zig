@@ -10141,6 +10141,19 @@ const Checker = struct {
         return self.t().invalid_id;
     }
 
+    /// `skipCall` for a call that passes `f`, the function it calls,
+    /// lent `params` (a `sub` when `sub`), and cannot build on what `f`
+    /// gives: a closure literal there is checked aloud given `params`
+    /// (`closureErrors`), so its own errors are reported, and not again
+    /// with no parameter types, where its body is checked as one that
+    /// cannot fail and its parameters' types are unknown.
+    fn skipClosureCall(self: *Checker, args: []const Sexp, f: Sexp, params: []const TypeId, sub: bool) Error!TypeId {
+        if (!f.isKind(.lambda)) return try self.skipCall(args);
+        try self.closureErrors(f, params, sub);
+        try self.synthArgsBut(args, f);
+        return self.t().invalid_id;
+    }
+
     /// Report why a call cannot be checked, at `at` (a node or a
     /// position), then `skipCall`.
     fn badCall(self: *Checker, args: []const Sexp, at: anytype, comptime fmt: []const u8, fmt_args: anytype) Error!TypeId {
@@ -10152,6 +10165,12 @@ const Checker = struct {
     /// on its own, and nothing that needs a parameter's type (`[]` has
     /// none, and whether a slice is lent depends on it) is reported.
     fn synthArgs(self: *Checker, args: []const Sexp) Error!void {
+        return self.synthArgsBut(args, .nil);
+    }
+
+    /// `synthArgs` but for `checked`, when not nil, an argument already
+    /// checked aloud.
+    fn synthArgsBut(self: *Checker, args: []const Sexp, checked: Sexp) Error!void {
         const saved = self.under_poison;
         const saved_view = self.view_arg;
         defer {
@@ -10162,6 +10181,7 @@ const Checker = struct {
         for (args) |a| {
             const e = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
             if (e.isKind(.array) and ir.Array.elems(e).len == 0) continue;
+            if (checked != .nil and sameNode(e, checked)) continue;
             self.view_arg = e;
             _ = try self.synthExpr(e);
         }
@@ -12562,7 +12582,15 @@ const Checker = struct {
         /// goes; with nothing else to bind it, it is `error`.
         lambda_sets: u64 = 0,
         lambda_arg: u32 = 0,
+        /// The closure literals whose parameters were all known and whose
+        /// quiet check found errors (`lentLambdaType`).
+        failed: std.ArrayList(FailedLambda) = .empty,
     };
+
+    /// A closure literal argument of a generic call that does not check
+    /// clean though its parameters' types are known: `given` them, as
+    /// one that can fail when `fails`, where function type `pattern` goes.
+    const FailedLambda = struct { lambda: Sexp, given: []const TypeId, fails: bool, pattern: TypeId };
 
     /// Match each argument's type against the field or parameter it
     /// fills (by position, or by keyword), binding the type parameters in
@@ -12713,7 +12741,7 @@ const Checker = struct {
     /// goes, checked quietly: its parameters take the types the call's
     /// other arguments bound in `pattern` (or their annotations), and its
     /// result is its body's. Null when a parameter has no type yet.
-    fn lentLambdaType(self: *Checker, inf: *const Inference, pattern: TypeId, lambda: Sexp) Error!?TypeId {
+    fn lentLambdaType(self: *Checker, inf: *Inference, pattern: TypeId, lambda: Sexp) Error!?TypeId {
         const a = self.ctx.arena.allocator();
         var params: std.ArrayList(SymbolId) = .empty;
         var types: std.ArrayList(TypeId) = .empty;
@@ -12744,7 +12772,28 @@ const Checker = struct {
         const got = self.ctx.types.get(ty).function;
         for (got.params) |p| if (self.isPoison(p)) return null;
         if (got.params.len != f.params.len) return null;
+        if (self.ctx.diagnostics.items.len != mark) try inf.failed.append(a, .{ .lambda = lambda, .given = given, .fails = fails, .pattern = pattern });
         return ty;
+    }
+
+    /// Reports the errors of a closure literal argument whose result
+    /// would bind type parameter `param` of a generic call, which nothing
+    /// bound, and whose quiet check found errors (`Inference.failed`):
+    /// checked aloud, with the parameter types the call gave it, they say
+    /// why `param` is unbound. Each closure is checked aloud once (bit
+    /// `i` of `reported`, for `inf.failed[i]`). Whether one was found.
+    fn lambdaLeftUnbound(self: *Checker, inf: *const Inference, param: SymbolId, reported: *u64) Error!bool {
+        var found = false;
+        for (inf.failed.items, 0..) |l, i| {
+            const returns = self.ctx.types.get(l.pattern).function.returns;
+            if (!sema.usesParams(self.ctx, returns, &.{param})) continue;
+            found = true;
+            const bit = @as(u64, 1) << @intCast(@min(i, 63));
+            if (reported.* & bit != 0) continue;
+            reported.* |= bit;
+            _ = try self.checkLambdaGiven(l.lambda, null, l.given, l.fails);
+        }
+        return found;
     }
 
     /// A generic call's declared result, and the type expected of it.
@@ -12920,10 +12969,12 @@ const Checker = struct {
         if (call == .list and call.list.id != 0) try self.noteResultBinding(call.list.id, f, own, inf, callee);
         const parens = if (f.params.len > skip) "(...)" else "()";
         var ok = true;
+        var lambdas_reported: u64 = 0;
         for (inf.bound, own, 0..) |b, param, i| {
             const pname = self.ctx.symbols.items[param].name;
             if (b.ty == sema.type_invalid) {
                 ok = false;
+                if (try self.lambdaLeftUnbound(&inf, param, &lambdas_reported)) continue;
                 if (inf.poisoned) continue;
                 // An argument of another shape says why, as for any call.
                 if (inf.mismatch) |m| if (m.arg <= args.len) {
@@ -15801,15 +15852,18 @@ const Checker = struct {
         // A closure that gives a view of a value that copies gives the
         // value, as a generic call's result binds it (`readValue`).
         const value = readValue(self.ctx, if (fails) self.ctx.types.get(returns).fallible.ok else returns);
-        if (self.isPoison(value)) return try self.skipCall(args);
-        if (kind == .map and sema.holdsWriteView(self.ctx, value)) return try self.givesWriteView(args, f, shown, value, "x");
+        if (self.isPoison(value)) return try self.skipClosureCall(args, f, &.{each_param}, kind == .each);
+        if (kind == .map and sema.holdsWriteView(self.ctx, value)) return try self.givesWriteView(args, f, &.{each_param}, shown, value, "x");
         if (kind == .map and f.isKind(.lambda)) {
             const gives = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = value } }) else value;
             fn_ty = try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{each_param}), .returns = gives, .is_sub = false } });
         }
         const result = switch (kind) {
             .map => blk: {
-                if (value == self.t().void_id) return try self.badCall(args, f, "`par.map` gives each call's value, and `{s}` gives none: to call it on each element, `par.each(!xs, ...)`", .{self.sourceText(f)});
+                if (value == self.t().void_id) {
+                    try self.errAt(f, "`par.map` gives each call's value, and `{s}` gives none: to call it on each element, `par.each(!xs, ...)`", .{self.sourceText(f)});
+                    return try self.skipClosureCall(args, f, &.{each_param}, false);
+                }
                 const list = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.list_sym_id, .args = try self.ctx.dupeIds(&.{value}) } });
                 break :blk if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = list, .set = try self.waitSet(&.{self.ctx.types.get(returns).fallible.set}) } }) else list;
             },
@@ -15849,10 +15903,12 @@ const Checker = struct {
     /// calls, whose value `value` holds a write view, which nothing the
     /// call gives back may hold: it would reach what a task was lent to
     /// write after the task, beside the owner's own view. `copied` is
-    /// how the closure's parameter is spelled in the hint.
-    fn givesWriteView(self: *Checker, args: []const Sexp, f: Sexp, shown: []const u8, value: TypeId, copied: []const u8) Error!TypeId {
+    /// how the closure's parameter is spelled in the hint, and `params`
+    /// what `f` takes (`skipClosureCall`).
+    fn givesWriteView(self: *Checker, args: []const Sexp, f: Sexp, params: []const TypeId, shown: []const u8, value: TypeId, copied: []const u8) Error!TypeId {
         const how = if (self.ctx.types.get(value) == .write_view) "is" else "holds";
-        return try self.badCall(args, f, "`{s}` gives back each call's value, and `{s}` {s} a write view, which no value it gives back may hold: give a copy, `+{s}`, or a value made from it", .{ shown, try self.tyName(value), how, copied });
+        try self.errAt(f, "`{s}` gives back each call's value, and `{s}` {s} a write view, which no value it gives back may hold: give a copy, `+{s}`, or a value made from it", .{ shown, try self.tyName(value), how, copied });
+        return try self.skipClosureCall(args, f, params, false);
     }
 
     /// `par.workers(!states, ?items, f)` of `std.par`: one task for each
@@ -15899,11 +15955,11 @@ const Checker = struct {
         // A closure that gives a view of a value that copies gives the
         // value, as a generic call's result binds it (`readValue`).
         const value = readValue(self.ctx, if (fails) self.ctx.types.get(returns).fallible.ok else returns);
-        if (self.isPoison(value)) return try self.skipCall(args);
+        if (self.isPoison(value)) return try self.skipClosureCall(args, f, &.{ state_param, item_param }, false);
         const none = value == self.t().void_id;
         // A write view given back would reach a task's state, or what it
         // holds, after the task, beside the state's own.
-        if (sema.holdsWriteView(self.ctx, value)) return try self.givesWriteView(args, f, shown, value, "s");
+        if (sema.holdsWriteView(self.ctx, value)) return try self.givesWriteView(args, f, &.{ state_param, item_param }, shown, value, "s");
         if (f.isKind(.lambda)) {
             const gives = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = value } }) else value;
             fn_ty = try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{ state_param, item_param }), .returns = gives, .is_sub = none } });
@@ -16527,27 +16583,52 @@ const Checker = struct {
     /// lent `params`, which fails when its body propagates a failure:
     /// checked quietly as one that cannot fail, then as one that can, and,
     /// when neither checks clean, as one that cannot, whose errors the
-    /// call's own check of `f` reports. A `sub` gives nothing, as
+    /// call's own check of `f` reports, or `closureErrors` where the call
+    /// cannot build on what it gives. A `sub` gives nothing, as
     /// `par.each`'s closure.
     fn closureType(self: *Checker, f: Sexp, params: []const TypeId, sub: bool) Error!TypeId {
         var quiet: TypeId = undefined;
         for ([_]bool{ false, true }) |fails| {
-            const mark = self.ctx.diagnostics.items.len;
-            self.ctx.quiet += 1;
-            self.tentative += 1;
-            defer {
-                self.ctx.quiet -= 1;
-                self.tentative -= 1;
-                self.ctx.diagnostics.shrinkRetainingCapacity(mark);
-            }
-            const ty = if (sub) blk: {
-                const returns = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = self.t().void_id } }) else self.t().void_id;
-                break :blk try self.checkLambda(f, try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(params), .returns = returns, .is_sub = true } }));
-            } else try self.checkLambdaGiven(f, null, params, fails);
-            if (self.ctx.diagnostics.items.len == mark) return ty;
+            const ty, const errors = try self.closureQuietly(f, params, sub, fails);
+            if (errors == 0) return ty;
             if (!fails) quiet = ty;
         }
         return quiet;
+    }
+
+    /// Reports the errors of closure literal `f`, which `closureType`
+    /// typed and which checks clean neither way, where the call that
+    /// passes it cannot build on what it gives and stops (`skipCall`
+    /// checks it again with no parameter types, which hides them): it is
+    /// checked aloud, given `params`, as the one of the two with fewer
+    /// errors.
+    fn closureErrors(self: *Checker, f: Sexp, params: []const TypeId, sub: bool) Error!void {
+        _, const plain = try self.closureQuietly(f, params, sub, false);
+        _, const failing = try self.closureQuietly(f, params, sub, true);
+        _ = try self.closureAs(f, params, sub, failing < plain);
+    }
+
+    /// Closure literal `f` checked quietly as `closureType` checks it, as
+    /// one that can fail when `fails`: its type, and how many errors it has.
+    fn closureQuietly(self: *Checker, f: Sexp, params: []const TypeId, sub: bool, fails: bool) Error!struct { TypeId, usize } {
+        const mark = self.ctx.diagnostics.items.len;
+        self.ctx.quiet += 1;
+        self.tentative += 1;
+        defer {
+            self.ctx.quiet -= 1;
+            self.tentative -= 1;
+            self.ctx.diagnostics.shrinkRetainingCapacity(mark);
+        }
+        const ty = try self.closureAs(f, params, sub, fails);
+        return .{ ty, self.ctx.diagnostics.items.len - mark };
+    }
+
+    /// Closure literal `f` checked as `closureType` checks it, as one that
+    /// can fail when `fails`.
+    fn closureAs(self: *Checker, f: Sexp, params: []const TypeId, sub: bool, fails: bool) Error!TypeId {
+        if (!sub) return try self.checkLambdaGiven(f, null, params, fails);
+        const returns = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = self.t().void_id } }) else self.t().void_id;
+        return try self.checkLambda(f, try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(params), .returns = returns, .is_sub = true } }));
     }
 
     /// Whether capture `cap` of the closure `par.map`, `par.each`,
