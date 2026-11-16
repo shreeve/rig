@@ -1298,8 +1298,9 @@ the server goes on.
 | `Request` | `method`, `path` (the target before any `?`), `query` (after it), `head` (the request line and headers as they came), and `body` |
 | `req.arg(name)` | the value of query parameter `name`, as written, or `none` |
 | `req.header(name)` | the value of header `name`, any case, or `none` |
-| `Response` | `status`, `type` (its content type), and `body` |
+| `Response` | `status`, `type` (its content type, a `Static`), and `body` |
 | `text(body)`, `json(body)`, `html(body)` | a 200 response of plain text, JSON written already, or HTML |
+| `ok(<body)` | a 200 response of plain text that takes the String `body`, copying nothing |
 | `status(code, body)` | a response of status `code` and plain text `body` |
 | `not_found()` | 404 |
 
@@ -1332,6 +1333,32 @@ sub main()!
 
 ```output
 HTTP/1.1 200 OK
+```
+
+A response's content type is fixed text, a `Static` ([SPEC](../SPEC.md#static)),
+so a response holds it with no copy: a literal, or a choice among
+literals. `text`, `json`, `html`, and `status` copy the body they read;
+`ok` takes a String built for the answer, so it is never copied.
+
+```rig
+use std.http
+
+fun count(n: Int) -> http.Response
+  http.ok(String("count: ", n))
+
+fun image(png: ?String) -> http.Response
+  http.Response(status: 200, type: "image/png", body: String(png))
+
+sub main()
+  r = count(3)
+  i = image("PNG")
+  print(r.status, r.type, r.body)
+  print(i.type, i.body.len)
+```
+
+```output
+200 text/plain; charset=utf-8 count: 3
+image/png 3
 ```
 
 The server guards itself against clients that send too much, too
