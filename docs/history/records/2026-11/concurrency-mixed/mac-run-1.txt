@@ -1,0 +1,153 @@
+tools/mac-claim: waiting 1 min for correctness jobs in tools/heavy: 29906 (running) 33444 (running)
+tools/mac-claim: waiting 1 min for the Mac to go quiet (116% of a core in use, under 150% wanted). Busiest:
+  PID 85231 at 99.9%: /System/Library/Frameworks/CoreSpotlight.framework/spotlightknowledged
+  PID 1133 at 3.3%: /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Render
+  PID 82929 at 2.3%: /Applications/VMware Fusion.app/Contents/Library/vmware-vmx -E en -s vmx.stdio.keep=TRUE -# product=64;name=VM
+# bench-mixed 2026-11-16 02:20 load 4.12 9.25 9.59 commit ea3704772 Darwin arm64 10 cores; rates 20000,40000,60000,80000,100000,120000,140000, 5000 idle, 128 conns, 1 in 4 computes
+rig-safe  round 0   20000 offered   19999 done  p50 34 us  p99 198 us  p99.9 904 us  max 1154 us  srv 0.4 cores  idle 99/99
+rig-safe  round 0   40000 offered   39999 done  p50 43 us  p99 302 us  p99.9 934 us  max 1237 us  srv 0.7 cores  idle 99/99
+rig-safe  round 0   60000 offered   59999 done  p50 54 us  p99 517 us  p99.9 1171 us  max 4825 us  srv 1.2 cores  idle 99/99
+rig-safe  round 0   80000 offered   79999 done  p50 66 us  p99 694 us  p99.9 1321 us  max 1732 us  srv 1.8 cores  idle 99/99
+rig-safe  round 0  100000 offered   99998 done  p50 92 us  p99 3239 us  p99.9 5289 us  max 7195 us  srv 2.7 cores  idle 99/99
+rig-safe  round 0  120000 offered  119996 done  p50 325 us  p99 3436 us  p99.9 5228 us  max 6791 us  srv 3.5 cores  idle 99/99
+rig-safe  round 0  140000 offered  121771 done  p50 364 ms  p99 647 ms  p99.9 657 ms  max 664 ms  srv 3.6 cores  idle 99/99
+tokio     round 0   20000 offered   19999 done  p50 33 us  p99 324 us  p99.9 931 us  max 2659 us  srv 0.4 cores  idle 99/99
+tokio     round 0   40000 offered   39999 done  p50 41 us  p99 284 us  p99.9 941 us  max 1258 us  srv 0.7 cores  idle 99/99
+tokio     round 0   60000 offered   59999 done  p50 53 us  p99 465 us  p99.9 1099 us  max 1407 us  srv 1.1 cores  idle 99/99
+tokio     round 0   80000 offered   79999 done  p50 62 us  p99 694 us  p99.9 1323 us  max 1744 us  srv 1.7 cores  idle 99/99
+tokio     round 0  100000 offered   99998 done  p50 89 us  p99 996 us  p99.9 1523 us  max 1926 us  srv 2.5 cores  idle 99/99
+tokio     round 0  120000 offered  119977 done  p50 230 us  p99 1674 us  p99.9 2073 us  max 2785 us  srv 3.3 cores  idle 99/99
+tokio     round 0  140000 offered  123273 done  p50 327 ms  p99 596 ms  p99.9 605 ms  max 620 ms  srv 3.5 cores  idle 99/99
+go        round 0   20000 offered   19999 done  p50 40 us  p99 435 us  p99.9 1038 us  max 1895 us  srv 0.8 cores  idle 99/99
+go        round 0   40000 offered   39999 done  p50 47 us  p99 480 us  p99.9 1076 us  max 1346 us  srv 1.4 cores  idle 99/99
+go        round 0   60000 offered   59999 done  p50 62 us  p99 580 us  p99.9 1196 us  max 1611 us  srv 2.1 cores  idle 99/99
+go        round 0   80000 offered   79998 done  p50 82 us  p99 878 us  p99.9 1449 us  max 2288 us  srv 3.4 cores  idle 99/99
+go        round 0  100000 offered   99998 done  p50 120 us  p99 12.7 ms  p99.9 16.0 ms  max 20.2 ms  srv 4.2 cores  idle 99/99
+go        round 0  120000 offered  119996 done  p50 1092 us  p99 8045 us  p99.9 17.0 ms  max 24.2 ms  srv 4.4 cores  idle 99/99
+go        round 0  140000 offered  121391 done  p50 362 ms  p99 669 ms  p99.9 688 ms  max 707 ms  srv 4.1 cores  idle 99/99
+tokio     round 1   20000 offered   19999 done  p50 32 us  p99 353 us  p99.9 955 us  max 1516 us  srv 0.4 cores  idle 99/99
+tokio     round 1   40000 offered   39996 done  p50 42 us  p99 540 us  p99.9 1043 us  max 2032 us  srv 0.7 cores  idle 99/99
+tokio     round 1   60000 offered   59999 done  p50 56 us  p99 649 us  p99.9 1144 us  max 1449 us  srv 1.2 cores  idle 99/99
+tokio     round 1   80000 offered   79999 done  p50 66 us  p99 869 us  p99.9 1394 us  max 2841 us  srv 1.8 cores  idle 99/99
+tokio     round 1  100000 offered   99998 done  p50 95 us  p99 2767 us  p99.9 4324 us  max 5793 us  srv 2.7 cores  idle 99/99
+tokio     round 1  120000 offered  119972 done  p50 433 us  p99 1963 us  p99.9 3084 us  max 6036 us  srv 3.4 cores  idle 99/99
+tokio     round 1  140000 offered  122473 done  p50 326 ms  p99 623 ms  p99.9 635 ms  max 647 ms  srv 3.4 cores  idle 99/99
+go        round 1   20000 offered   19999 done  p50 39 us  p99 321 us  p99.9 998 us  max 1216 us  srv 0.7 cores  idle 99/99
+go        round 1   40000 offered   39999 done  p50 47 us  p99 461 us  p99.9 1091 us  max 1389 us  srv 1.3 cores  idle 99/99
+go        round 1   60000 offered   59999 done  p50 65 us  p99 599 us  p99.9 1223 us  max 1734 us  srv 2.2 cores  idle 99/99
+go        round 1   80000 offered   79998 done  p50 84 us  p99 976 us  p99.9 2172 us  max 4976 us  srv 3.5 cores  idle 99/99
+go        round 1  100000 offered   99982 done  p50 123 us  p99 5359 us  p99.9 8320 us  max 11.7 ms  srv 4.0 cores  idle 99/99
+go        round 1  120000 offered  119974 done  p50 365 us  p99 3514 us  p99.9 5581 us  max 9751 us  srv 4.0 cores  idle 99/99
+go        round 1  140000 offered  116321 done  p50 475 ms  p99 842 ms  p99.9 857 ms  max 868 ms  srv 4.4 cores  idle 99/99
+rig-safe  round 1   20000 offered   19999 done  p50 32 us  p99 303 us  p99.9 939 us  max 1127 us  srv 0.4 cores  idle 99/99
+rig-safe  round 1   40000 offered   39999 done  p50 41 us  p99 400 us  p99.9 1000 us  max 1302 us  srv 0.7 cores  idle 99/99
+rig-safe  round 1   60000 offered   59999 done  p50 54 us  p99 489 us  p99.9 1118 us  max 1420 us  srv 1.2 cores  idle 99/99
+rig-safe  round 1   80000 offered   79998 done  p50 63 us  p99 723 us  p99.9 1321 us  max 1973 us  srv 1.8 cores  idle 99/99
+rig-safe  round 1  100000 offered   99998 done  p50 90 us  p99 1094 us  p99.9 1669 us  max 2599 us  srv 2.6 cores  idle 99/99
+rig-safe  round 1  120000 offered  119974 done  p50 230 us  p99 6836 us  p99.9 10.2 ms  max 18.7 ms  srv 3.5 cores  idle 99/99
+rig-safe  round 1  140000 offered  124084 done  p50 305 ms  p99 566 ms  p99.9 576 ms  max 583 ms  srv 3.6 cores  idle 99/99
+go        round 2   20000 offered   19999 done  p50 41 us  p99 14.5 ms  p99.9 33.8 ms  max 38.1 ms  srv 0.8 cores  idle 99/99
+go        round 2   40000 offered   39999 done  p50 48 us  p99 500 us  p99.9 1108 us  max 1679 us  srv 1.4 cores  idle 99/99
+go        round 2   60000 offered   59998 done  p50 66 us  p99 634 us  p99.9 1252 us  max 2130 us  srv 2.2 cores  idle 99/99
+go        round 2   80000 offered   79998 done  p50 85 us  p99 903 us  p99.9 1514 us  max 3711 us  srv 3.5 cores  idle 99/99
+go        round 2  100000 offered   99998 done  p50 120 us  p99 11.3 ms  p99.9 16.1 ms  max 19.9 ms  srv 4.2 cores  idle 99/99
+go        round 2  120000 offered  119850 done  p50 1151 us  p99 19.5 ms  p99.9 27.4 ms  max 32.0 ms  srv 4.5 cores  idle 99/99
+go        round 2  140000 offered  115354 done  p50 478 ms  p99 877 ms  p99.9 894 ms  max 910 ms  srv 4.4 cores  idle 99/99
+rig-safe  round 2   20000 offered   19999 done  p50 32 us  p99 205 us  p99.9 923 us  max 1146 us  srv 0.4 cores  idle 99/99
+rig-safe  round 2   40000 offered   39999 done  p50 41 us  p99 367 us  p99.9 980 us  max 1278 us  srv 0.7 cores  idle 99/99
+rig-safe  round 2   60000 offered   59999 done  p50 53 us  p99 500 us  p99.9 1118 us  max 1478 us  srv 1.2 cores  idle 99/99
+rig-safe  round 2   80000 offered   79999 done  p50 64 us  p99 734 us  p99.9 1372 us  max 2731 us  srv 1.8 cores  idle 99/99
+rig-safe  round 2  100000 offered   99998 done  p50 89 us  p99 1027 us  p99.9 1535 us  max 2166 us  srv 2.5 cores  idle 99/99
+rig-safe  round 2  120000 offered  119996 done  p50 195 us  p99 1741 us  p99.9 2347 us  max 3204 us  srv 3.4 cores  idle 99/99
+rig-safe  round 2  140000 offered  124950 done  p50 304 ms  p99 535 ms  p99.9 546 ms  max 559 ms  srv 3.5 cores  idle 99/99
+tokio     round 2   20000 offered   19999 done  p50 32 us  p99 163 us  p99.9 906 us  max 1129 us  srv 0.3 cores  idle 99/99
+tokio     round 2   40000 offered   39999 done  p50 41 us  p99 327 us  p99.9 967 us  max 1271 us  srv 0.7 cores  idle 99/99
+tokio     round 2   60000 offered   59999 done  p50 54 us  p99 502 us  p99.9 1101 us  max 1355 us  srv 1.1 cores  idle 99/99
+tokio     round 2   80000 offered   79999 done  p50 64 us  p99 700 us  p99.9 1327 us  max 1798 us  srv 1.7 cores  idle 99/99
+tokio     round 2  100000 offered   99986 done  p50 95 us  p99 1186 us  p99.9 1621 us  max 2120 us  srv 2.7 cores  idle 99/99
+tokio     round 2  120000 offered  119997 done  p50 221 us  p99 2696 us  p99.9 4804 us  max 6291 us  srv 3.2 cores  idle 99/99
+tokio     round 2  140000 offered  125121 done  p50 286 ms  p99 529 ms  p99.9 538 ms  max 549 ms  srv 3.4 cores  idle 99/99
+rig-safe  round 3   20000 offered   19997 done  p50 32 us  p99 186 us  p99.9 931 us  max 1105 us  srv 0.4 cores  idle 99/99
+rig-safe  round 3   40000 offered   39999 done  p50 41 us  p99 393 us  p99.9 998 us  max 1264 us  srv 0.7 cores  idle 99/99
+rig-safe  round 3   60000 offered   59999 done  p50 57 us  p99 592 us  p99.9 1175 us  max 1430 us  srv 1.3 cores  idle 99/99
+rig-safe  round 3   80000 offered   79999 done  p50 64 us  p99 742 us  p99.9 1373 us  max 1943 us  srv 1.8 cores  idle 99/99
+rig-safe  round 3  100000 offered   99998 done  p50 90 us  p99 1122 us  p99.9 1722 us  max 3019 us  srv 2.6 cores  idle 99/99
+rig-safe  round 3  120000 offered  119995 done  p50 214 us  p99 2538 us  p99.9 4322 us  max 5465 us  srv 3.4 cores  idle 99/99
+rig-safe  round 3  140000 offered  124741 done  p50 301 ms  p99 542 ms  p99.9 553 ms  max 574 ms  srv 3.5 cores  idle 99/99
+tokio     round 3   20000 offered   19999 done  p50 32 us  p99 305 us  p99.9 950 us  max 1197 us  srv 0.3 cores  idle 99/99
+tokio     round 3   40000 offered   39999 done  p50 41 us  p99 431 us  p99.9 1006 us  max 1222 us  srv 0.7 cores  idle 99/99
+tokio     round 3   60000 offered   59999 done  p50 53 us  p99 459 us  p99.9 1113 us  max 1965 us  srv 1.1 cores  idle 99/99
+tokio     round 3   80000 offered   79999 done  p50 61 us  p99 743 us  p99.9 1341 us  max 2483 us  srv 1.6 cores  idle 99/99
+tokio     round 3  100000 offered   99997 done  p50 86 us  p99 1163 us  p99.9 1747 us  max 2848 us  srv 2.5 cores  idle 99/99
+tokio     round 3  120000 offered  119996 done  p50 249 us  p99 2344 us  p99.9 4501 us  max 8604 us  srv 3.3 cores  idle 99/99
+tokio     round 3  140000 offered  125866 done  p50 301 ms  p99 501 ms  p99.9 516 ms  max 529 ms  srv 3.4 cores  idle 99/99
+go        round 3   20000 offered   19999 done  p50 41 us  p99 402 us  p99.9 1030 us  max 1269 us  srv 0.8 cores  idle 99/99
+go        round 3   40000 offered   39999 done  p50 46 us  p99 486 us  p99.9 1079 us  max 1369 us  srv 1.3 cores  idle 99/99
+go        round 3   60000 offered   59999 done  p50 63 us  p99 634 us  p99.9 1255 us  max 1855 us  srv 2.1 cores  idle 99/99
+go        round 3   80000 offered   79998 done  p50 84 us  p99 902 us  p99.9 1470 us  max 2194 us  srv 3.5 cores  idle 99/99
+go        round 3  100000 offered   99997 done  p50 123 us  p99 18.0 ms  p99.9 23.3 ms  max 28.8 ms  srv 4.2 cores  idle 99/99
+go        round 3  120000 offered  119950 done  p50 1684 us  p99 20.4 ms  p99.9 25.4 ms  max 30.4 ms  srv 4.4 cores  idle 99/99
+go        round 3  140000 offered  115891 done  p50 470 ms  p99 857 ms  p99.9 873 ms  max 886 ms  srv 4.4 cores  idle 99/99
+tokio     round 4   20000 offered   19999 done  p50 32 us  p99 314 us  p99.9 3940 us  max 8243 us  srv 0.4 cores  idle 99/99
+tokio     round 4   40000 offered   39999 done  p50 42 us  p99 501 us  p99.9 1044 us  max 1569 us  srv 0.7 cores  idle 99/99
+tokio     round 4   60000 offered   59999 done  p50 55 us  p99 601 us  p99.9 1174 us  max 1496 us  srv 1.1 cores  idle 99/99
+tokio     round 4   80000 offered   79998 done  p50 65 us  p99 774 us  p99.9 1389 us  max 1885 us  srv 1.7 cores  idle 99/99
+tokio     round 4  100000 offered   99998 done  p50 92 us  p99 1918 us  p99.9 3217 us  max 4824 us  srv 2.6 cores  idle 99/99
+tokio     round 4  120000 offered  119970 done  p50 194 us  p99 1981 us  p99.9 4410 us  max 6985 us  srv 3.3 cores  idle 99/99
+tokio     round 4  140000 offered  126349 done  p50 305 ms  p99 502 ms  p99.9 535 ms  max 571 ms  srv 3.2 cores  idle 99/99
+go        round 4   20000 offered   19999 done  p50 39 us  p99 328 us  p99.9 1009 us  max 1247 us  srv 0.7 cores  idle 99/99
+go        round 4   40000 offered   39999 done  p50 47 us  p99 481 us  p99.9 1084 us  max 1366 us  srv 1.3 cores  idle 99/99
+go        round 4   60000 offered   59999 done  p50 62 us  p99 602 us  p99.9 1257 us  max 2091 us  srv 2.1 cores  idle 99/99
+go        round 4   80000 offered   79999 done  p50 83 us  p99 893 us  p99.9 1487 us  max 2759 us  srv 3.4 cores  idle 99/99
+go        round 4  100000 offered   99998 done  p50 119 us  p99 13.1 ms  p99.9 18.0 ms  max 21.4 ms  srv 4.2 cores  idle 99/99
+go        round 4  120000 offered  115392 done  p50 53.4 ms  p99 216 ms  p99.9 230 ms  max 233 ms  srv 4.5 cores  idle 99/99
+go        round 4  140000 offered  112210 done  p50 549 ms  p99 987 ms  p99.9 1013 ms  max 1033 ms  srv 4.5 cores  idle 99/99
+rig-safe  round 4   20000 offered   19999 done  p50 32 us  p99 104 us  p99.9 882 us  max 1152 us  srv 0.4 cores  idle 99/99
+rig-safe  round 4   40000 offered   39999 done  p50 43 us  p99 144 us  p99.9 933 us  max 1179 us  srv 0.7 cores  idle 99/99
+rig-safe  round 4   60000 offered   59999 done  p50 55 us  p99 389 us  p99.9 1032 us  max 1420 us  srv 1.2 cores  idle 99/99
+rig-safe  round 4   80000 offered   79999 done  p50 65 us  p99 504 us  p99.9 1295 us  max 1859 us  srv 1.8 cores  idle 99/99
+rig-safe  round 4  100000 offered   99998 done  p50 88 us  p99 1023 us  p99.9 1490 us  max 2220 us  srv 2.6 cores  idle 99/99
+rig-safe  round 4  120000 offered  119990 done  p50 216 us  p99 1668 us  p99.9 2541 us  max 4270 us  srv 3.4 cores  idle 99/99
+rig-safe  round 4  140000 offered  122573 done  p50 354 ms  p99 618 ms  p99.9 628 ms  max 634 ms  srv 3.6 cores  idle 99/99
+
+20000 req/s offered
+          runs                req/s                  p50                  p99                p99.9                  max                / p99            /hash p99            srv cores
+rig-safe     5        19999 (19999)        32 us (32 us)      198 us (104 us)      923 us (882 us)    1146 us (1105 us)       176 us (92 us)      216 us (128 us)            0.4 (0.4)
+tokio        5        19999 (19999)        32 us (32 us)      314 us (163 us)      950 us (906 us)    1516 us (1129 us)      306 us (155 us)      348 us (196 us)            0.4 (0.3)
+go           5        19999 (19999)        40 us (39 us)      402 us (321 us)     1030 us (998 us)    1269 us (1216 us)      393 us (313 us)      451 us (342 us)            0.8 (0.7)
+
+40000 req/s offered
+          runs                req/s                  p50                  p99                p99.9                  max                / p99            /hash p99            srv cores
+rig-safe     5        39999 (39999)        41 us (41 us)      367 us (144 us)      980 us (933 us)    1264 us (1179 us)      349 us (131 us)      408 us (175 us)            0.7 (0.7)
+tokio        5        39999 (39999)        41 us (41 us)      431 us (284 us)     1006 us (941 us)    1271 us (1222 us)      417 us (268 us)      470 us (318 us)            0.7 (0.7)
+go           5        39999 (39999)        47 us (46 us)      481 us (461 us)    1084 us (1076 us)    1369 us (1346 us)      470 us (451 us)      522 us (505 us)            1.3 (1.3)
+
+60000 req/s offered
+          runs                req/s                  p50                  p99                p99.9                  max                / p99            /hash p99            srv cores
+rig-safe     5        59999 (59999)        54 us (53 us)      500 us (389 us)    1118 us (1032 us)    1430 us (1420 us)      485 us (383 us)      526 us (407 us)            1.2 (1.2)
+tokio        5        59999 (59999)        54 us (53 us)      502 us (459 us)    1113 us (1099 us)    1449 us (1355 us)      490 us (448 us)      547 us (496 us)            1.1 (1.1)
+go           5        59999 (59999)        63 us (62 us)      602 us (580 us)    1252 us (1196 us)    1855 us (1611 us)      584 us (569 us)      645 us (611 us)            2.1 (2.1)
+
+80000 req/s offered
+          runs                req/s                  p50                  p99                p99.9                  max                / p99            /hash p99            srv cores
+rig-safe     5        79999 (79999)        64 us (63 us)      723 us (504 us)    1321 us (1295 us)    1943 us (1732 us)      710 us (492 us)      766 us (537 us)            1.8 (1.8)
+tokio        5        79999 (79999)        64 us (61 us)      743 us (694 us)    1341 us (1323 us)    1885 us (1744 us)      729 us (681 us)      790 us (741 us)            1.7 (1.6)
+go           5        79998 (79999)        84 us (82 us)      902 us (878 us)    1487 us (1449 us)    2759 us (2194 us)      883 us (861 us)      946 us (931 us)            3.5 (3.4)
+
+100000 req/s offered
+          runs                req/s                  p50                  p99                p99.9                  max                / p99            /hash p99            srv cores
+rig-safe     5        99998 (99998)        90 us (88 us)    1094 us (1023 us)    1669 us (1490 us)    2599 us (2166 us)    1083 us (1014 us)    1129 us (1051 us)            2.6 (2.5)
+tokio        5        99998 (99998)        92 us (86 us)     1186 us (996 us)    1747 us (1523 us)    2848 us (1926 us)     1173 us (985 us)    1216 us (1025 us)            2.6 (2.5)
+go           5        99998 (99998)      120 us (119 us)    12.7 ms (5359 us)    16.1 ms (8320 us)    20.2 ms (11.7 ms)    12.7 ms (5360 us)    12.7 ms (5353 us)            4.2 (4.0)
+
+120000 req/s offered
+          runs                req/s                  p50                  p99                p99.9                  max                / p99            /hash p99            srv cores
+rig-safe     5      119995 (119996)      216 us (195 us)    2538 us (1668 us)    4322 us (2347 us)    5465 us (3204 us)    2533 us (1664 us)    2550 us (1682 us)            3.4 (3.4)
+tokio        5      119977 (119997)      230 us (194 us)    1981 us (1674 us)    4410 us (2073 us)    6291 us (2785 us)    1977 us (1667 us)    1997 us (1695 us)            3.3 (3.2)
+go           5      119950 (119996)     1151 us (365 us)    19.5 ms (3514 us)    25.4 ms (5581 us)    30.4 ms (9751 us)    19.4 ms (3507 us)    19.5 ms (3539 us)            4.4 (4.0)
+
+140000 req/s offered
+          runs                req/s                  p50                  p99                p99.9                  max                / p99            /hash p99            srv cores
+rig-safe     5      124084 (124950)      305 ms (301 ms)      566 ms (535 ms)      576 ms (546 ms)      583 ms (559 ms)      566 ms (535 ms)      566 ms (535 ms)            3.6 (3.5)
+tokio        5      125121 (126349)      305 ms (286 ms)      529 ms (501 ms)      538 ms (516 ms)      571 ms (529 ms)      529 ms (501 ms)      529 ms (501 ms)            3.4 (3.2)
+go           5      115891 (121391)      475 ms (362 ms)      857 ms (669 ms)      873 ms (688 ms)      886 ms (707 ms)      857 ms (669 ms)      857 ms (669 ms)            4.4 (4.1)

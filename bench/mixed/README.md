@@ -45,6 +45,9 @@ server:
   checks that 100 of them still answer (`idle 100/100` in the output).
   Rig's server closes a connection idle for 60 s and hyper's and Go's
   never do, so Rig's runs with `RIG_HTTP_IDLE_MS=600000`.
+  `--idle-apart` holds them from a process of their own instead, to
+  tell their cost to the generator from their cost to the server and
+  the kernel.
 - **Open-loop load, wrk2's method.** For each rate R it opens C more
   connections (`--conns`, 128) and connection c sends its i-th request
   at start + (c + i·C)/R, a schedule fixed in advance. A connection has
@@ -89,6 +92,10 @@ the machine first (`# bench-mixed ...`).
   not the server's alone.
 - **Rates are uniform,** as in wrk2, not Poisson; real arrivals are
   burstier.
+- **Idle connections cost every server alike.** On the Mac the 5,000
+  idle connections raise p99.9 at 20,000 a second from about 150 µs to
+  about 900 µs in all three servers, wherever the client ends are held:
+  a floor of the machine's, under which no server's lead shows.
 - **128 load connections.** A schedule's slots per connection are C/R
   apart (1.3 ms at 100,000 a second), so a connection rarely has a
   request in flight when its next is due, until the server falls behind.
@@ -114,12 +121,16 @@ runs on two low-power cores), with more rates, since the machine has
 more cores:
 
 ```sh
-O=/zfs/bench-mixed; R=$O/raw.jsonl
+O=/zfs/trig-pup/bench-mixed; R=$O/raw.jsonl
 taskset -c 12-19 bench/mixed/bench-mixed --out $O --build-only
 taskset -c 0-11 bench/mixed/bench-mixed --out $O --time-only --rounds 5 --idle 10000 \
   --rates 50000,100000,150000,200000,250000,300000,350000 --raw $R
 bench/mixed/bench-mixed --summary $R
 ```
+
+The build runs on the E-cores, the timing in a pup timing slot
+(AGENTS.md, "Sharing pup"), and outputs go on `/zfs`, never the shared
+`/tmp`. The rates are a first guess; a first round finds saturation.
 
 ## Where it stands
 
