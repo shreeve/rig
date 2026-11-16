@@ -358,3 +358,192 @@ code "cell object synced", "pub const __rig_synced = {};"
 
   h = *Hits(n: Cell(0), step: 2)
   print(h.step)
+
+test "cell lend a task through a handle", seeds: 20, "2 true 4000 200000"
+  # A task of a call through a value that holds a Cell keeps a read loan
+  # on the place for its life (Core §4), so the place is read, and
+  # called through again, while the task runs; a Cell of a List keeps
+  # its task on this thread.
+
+  obj Hits
+    n: Cell[Int]
+    step: Int
+
+    fun bump(!@) -> Int
+      for 0..1000
+        _ = !@n.add(@step)
+      @n.get()
+
+  obj Bag
+    items: Cell[List[Int]]
+
+    fun add(!@, n: Int) -> Int
+      for i in 0..n
+        !@items.push(i)
+      @items.len
+
+  h = *Hits(n: Cell(0), step: 2)
+  t = (!h).bump()&
+  step = h.step
+  _ = !h.bump()
+  b = *Bag(items: Cell(List[Int]()))
+  u = (!b).add(100000)&
+  _ = !b.add(100000)
+  done = >t >= 2000
+  _ = >u
+  print(step, done, h.n.get(), b.items.len)
+
+test "cell lend tasks that hold read loans move", seeds: 20, "true true 4000"
+  # A task that holds only read loans may go into a set, or be returned,
+  # as `work(+h)&` may.
+
+  obj Hits
+    n: Cell[Int]
+    step: Int
+
+    fun bump(!@) -> Int
+      for 0..1000
+        _ = !@n.add(@step)
+      @n.get()
+
+  fun start(h: !Hits) -> Task[Int]
+    (!h).bump()&
+
+  h = *Hits(n: Cell(0), step: 2)
+  ts = Tasks[Int]()
+  !ts.add((!h).bump()&)
+  t = start(!h)
+  all = true
+  for r in >ts
+    all = all and r >= 2000
+  done = >t >= 2000
+  print(all, done, h.n.get())
+
+fail "cell lend a task keeps its loan", "cannot reassign `h` while it is lent", "cannot reassign `g` while it is lent", errors: 2
+  # The read loan a task keeps lasts while it runs: the place is not
+  # reassigned under it, in a set too.
+
+  obj Hits
+    n: Cell[Int]
+
+    fun bump(!@) -> Int
+      !@n.add(1)
+
+  h = *Hits(n: Cell(0))
+  t = (!h).bump()&
+  h = *Hits(n: Cell(5))
+  g = *Hits(n: Cell(0))
+  ts = Tasks[Int]()
+  !ts.add((!g).bump()&)
+  g = *Hits(n: Cell(5))
+  print(>t)
+  for r in >ts
+    print(r)
+
+test "cell lend breaker ensure view across a task", seeds: 20, "first-value-long-enough-for-heap 20002"
+  # A view `ensure` gives lives while a task fills the map through a
+  # handle of its own and main puts through the same place (attack 1).
+  use std.shared
+
+  sub fill(m: *shared.Map[Int, String], from: Int)
+    for i in from..from + 20000
+      _ = !m.put_new(i, String("v"))
+
+  m = shared.Map[Int, String].new()
+  r = !m.ensure(1, String("first-value-long-enough-for-heap"))
+  t = fill(+m, 2)&
+  _ = !m.put_new(30000, String("w"))
+  >t
+  print(r, m.len())
+
+test "cell lend breaker a Cell view in a task", seeds: 20, "3000"
+  # A task holds a `!Cell` view from `!h.cell()` while main calls
+  # through `h` (attack 2).
+  obj Hits
+    n: Cell[Int]
+    step: Int
+
+    fun bump(!@) -> Int
+      for 0..1000
+        _ = !@n.add(@step)
+      @n.get()
+
+    fun cell(!@) -> !Cell[Int]
+      !@n
+
+  fun peek(h: ?Hits) -> Int
+    a = h.n.get()
+    for 0..1000
+      _ = h.n.get()
+    h.n.get() - a
+
+  sub poke(c: !Cell[Int])
+    for 0..1000
+      _ = !c.add(1)
+
+  h = *Hits(n: Cell(0), step: 2)
+  t = poke(!h.cell())&
+  _ = !h.bump()
+  >t
+  print(h.n.get())
+
+test "cell lend breaker a task beside a call", seeds: 20, "true 4000"
+  # A task of `(!h).bump()` runs beside `!h.bump()` (attack 3).
+  obj Hits
+    n: Cell[Int]
+    step: Int
+
+    fun bump(!@) -> Int
+      for 0..1000
+        _ = !@n.add(@step)
+      @n.get()
+
+    fun cell(!@) -> !Cell[Int]
+      !@n
+
+  fun peek(h: ?Hits) -> Int
+    a = h.n.get()
+    for 0..1000
+      _ = h.n.get()
+    h.n.get() - a
+
+  sub poke(c: !Cell[Int])
+    for 0..1000
+      _ = !c.add(1)
+
+  h = *Hits(n: Cell(0), step: 2)
+  t = (!h).bump()&
+  _ = !h.bump()
+  print(>t >= 2000, h.n.get())
+
+test "cell lend breaker a task in a set", seeds: 20, "true"
+  # A task of `(!h).bump()` goes into a set while main calls through
+  # `h` (attack 5).
+  obj Hits
+    n: Cell[Int]
+    step: Int
+
+    fun bump(!@) -> Int
+      for 0..1000
+        _ = !@n.add(@step)
+      @n.get()
+
+    fun cell(!@) -> !Cell[Int]
+      !@n
+
+  fun peek(h: ?Hits) -> Int
+    a = h.n.get()
+    for 0..1000
+      _ = h.n.get()
+    h.n.get() - a
+
+  sub poke(c: !Cell[Int])
+    for 0..1000
+      _ = !c.add(1)
+
+  h = *Hits(n: Cell(0), step: 2)
+  ts = Tasks[Int]()
+  !ts.add((!h).bump()&)
+  _ = !h.bump()
+  for r in >ts
+    print(r >= 2000)
