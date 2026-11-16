@@ -318,6 +318,20 @@ it where the negation was meant. Trig has no such site.
 
 ### Compiler
 
+**`!` of a value that changes by a marked call lends to read.** `!x`
+puts only a read loan on `x` when it lends a write view of a Cell, a
+Signal, a channel, an actor, or a value that holds a Cell, judged by the
+type where it is lent (Core §4); `!h` lending the handle itself,
+assigning `h`, and dropping it stay writes. The rule accepts more
+programs and rejects none: `!c.add((!c).swap(4))`,
+`!ch.send((!ch.recv()! ?? 0) + 5)!`, a view `r = ?c` kept across
+`!c.set(5)`, `hit2(!h, !h)` for two `!Hits`, `(!@).bump((!@).bump(1))`,
+a put into std.shared's map while a view it gave lives, and a task of
+`(!h).bump()&`, which now goes into a set or is returned, keeping its
+read loan while it runs. One fact, `loanOf`, recorded by typecheck,
+replaces the ownership checker's exceptions for actor calls and select
+arms.
+
 - A method task through a shared handle or a box, `(!h).bump()&` or
   `?h.peek()&` of a `*T`, a `*Frozen[T]`, or a `^T`, in a local, a
   field, an element, or through a view, builds and runs, where `rig

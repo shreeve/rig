@@ -1649,6 +1649,7 @@ instead of re-deriving it by name:
 | `readsThrough(node)` | whether the node yields a view (`!x`, a call returning `!Int`, a `!Int` name) whose value its context reads: a value that copies where it is expected (`copiedThrough`), an operator's operand, the optional of `??`, `?`, or `as`, an indexed or sliced `?String` or slice, or a clone. Typecheck records it wherever it admits the view as its value (`recordAdapted`, `readThrough`); emit dereferences such a node in one place (`emitValue`), and the ownership checker ends the loans taken to reach a value that carries no loan |
 | `copiesPayload(node)` | whether an `a ?? b` or `a catch b` gives the value its payload's view reaches, copied out, because its fallback is that value, not a view ([Copies](#copies)): emit wraps `a` in `rig.copiedOut(T, a)`, the ownership checker reads `a`'s payload through (`walkPayloadHolder`), and the storage plan reaches the form as a value made there, not as the payload where it is (`leafStep`) |
 | `lendOf(node)` | for a node lent where a view of another type is expected, or a slice argument lent as the view it is (below): the rows of the lend table that make the view (`sema.Lend`, from `sema.lendsAs`, below). The ownership checker walks a lend of an array's elements or a String's bytes as `?a[..]`, lends a `![]T` lent on to read only to read, and lets a closure literal lent as a callable be an argument; emit writes each in one place (`emitLend`): an array's address, a String's `.bytes()`, a box's value, or a `rig.FnRef` (hoisting a literal's environment before the call) |
+| `loanOf(lend)` | for a `!x`, what it puts on `x`: a read loan where the view it lends is a write view of a value that changes by a marked call (`sema.loanOfView`: a Cell, a Signal, a channel, an actor, or a value that holds a Cell, judged by the concrete type, an API object or a type parameter never), a write loan anywhere else. Typecheck records it where `!x`'s view is chosen (`synthLend`, which a method's self, an actor's call, and a select arm's channel all go through), and again where a handle lent where a view of its value goes becomes that view (`lendView`). The ownership checker lends `x` by it, a call's self and a task's parts too; emit never reads it (Core §4) |
 | `lendsTempArray(node)` | whether the node is a temporary array passed as a `[]T` argument to a call that keeps no view of it: emit writes `&` before it, which Zig keeps alive through the call |
 | `scopeOf(node)` | the scope a function, lambda, block, loop, arm, or catch opens |
 | `isExhaustive(match)` | whether the arms cover every value without a default |
@@ -1943,11 +1944,13 @@ and `clear` and element assignment are marked the same way, so the
 self-sigil rule is the whole enforcement: `!c.set(v)` is `set` of the
 write view `!Cell[T]` that the lend table gives a handle, a `*T` lending
 its `T` to write when `T` changes by a mark (`sema.lendsAs`,
-`sema.changesByMark`). The lend is of the handle `c`: it records a write
-loan on the binding `c`, as `!v.push(x)` does on `v`, and no loan on the
-shared Cell, since another handle to it is another name. So no loan rule
-has a case for a Cell: a view of `c` held across the mark conflicts, and a
-view of another handle does not. A write view of a value that holds a Cell
+`sema.changesByMark`). The lend records a read loan on the binding `c`
+(`loanOf`, Core §4), and no loan on the shared Cell, since another
+handle to it is another name: the Cell is never replaced whole, and
+every view it gives lasts while it lives, so a view of `c` held across
+the mark, or a second mark in the first's arguments, conflicts with
+nothing, while a write of `c` itself (assigning it, dropping it, `!c`
+lent as the handle) conflicts as with any read loan. A write view of a value that holds a Cell
 reaches shared storage, so `placeOf` blocks every write through it but a
 lend of a Cell or Signal (`requireAccess`), and `swap` refuses
 a place that holds a Cell whole. `!c` of a handle lends the handle itself, `!*C`, only where
@@ -6397,12 +6400,14 @@ loans the signature's types carry as a type parameter may hold anything.
 A set of tasks keeps its tasks' loans: `!ts.add(t)` stores the task's,
 and `>ts` takes the set and gives what its tasks gave, carrying those its
 type could hold. A task keeps what its call was lent to
-write as a write loan, and a task carrying one moves only into the
+write as a write loan (a `!x` whose `loanOf` is a read loan lends
+nothing to write: `Checker.taskOf`), and a task carrying one moves only into the
 binding that names it where it is made and into its wait or cancel
 (T2, SPEC §18 "Loans"): no other move, store, `return`, or `break`
 takes it. A method of an actor's value called through its handle is
-the method `T` declares, called on the handle, which the call reads:
-its `!` lends nothing, and as a task it keeps none of the handle (SPEC
+the method `T` declares, called on the handle: its `!` lends the place
+that holds the handle to read (`loanOf`), and the result, a task's too,
+keeps none of it, since the actor holds a count of its own (SPEC
 "Actors"). An arm of `task.select` (`!ch.on_recv()`, `!ch.on_send(<v)`,
 `?t.on_end()`) is a value holding a read lend of the place that holds
 its channel or task, what it sends, and its function's captures, read
