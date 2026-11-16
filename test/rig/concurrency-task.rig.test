@@ -796,6 +796,34 @@ fail "task write loan bound", "this task is lent to write, and keeps its write l
   ts: List[Task[Int]] = List()
   !ts.push(fill(!xs, 3)&)
 
+fail "task write loan bound self", "this task is lent to write, and keeps its write loan while it runs, so it stays where it is bound: `t = !b.bump()&`, then `>t`", errors: 2
+  # The hint keeps the `!` that lends self to write.
+  use std.task
+
+  obj Box
+    n: Int
+
+    fun bump(!@) -> Int
+      @n += 1
+      @n
+
+  b = Box(n: 10)
+  c = Box(n: 1)
+  x, y = task.all(!b.bump()&, !c.bump()&)
+
+test "task write loan bound self hint", "11"
+  # What the hint writes is accepted.
+  obj Box
+    n: Int
+
+    fun bump(!@) -> Int
+      @n += 1
+      @n
+
+  b = Box(n: 10)
+  t = !b.bump()&
+  >t
+
 fail "task write loan moved", "`t` is a task lent to write, which keeps its write loan while it runs, so it is only waited for or canceled where it is bound: `>t`", errors: 1
   # oracle: main reject T2
   fun fill(xs: !List[Int], n: Int) -> Int

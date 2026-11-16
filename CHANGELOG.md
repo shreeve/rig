@@ -339,6 +339,9 @@ them, or give the body plain data.
 
 ### Compiler
 
+**The hint for a task lent to write keeps self's `!`**: `t =
+!b.bump()&`, where it wrote `t = b.bump()&`, which is rejected.
+
 **`!` of a value that changes by a marked call lends to read.** `!x`
 puts only a read loan on `x` when it lends a write view of a Cell, a
 Signal, a channel, an actor, or a value that holds a Cell, judged by the

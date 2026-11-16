@@ -9810,7 +9810,11 @@ const Checker = struct {
         } else false;
         if (lends_write) {
             if (!sameNode(node, self.local_value)) {
-                try self.errAt(callee, "this task is lent to write, and keeps its write loan while it runs, so it stays where it is bound: `t = {s}`, then `>t`", .{self.sourceText(node)});
+                // A method's self lent to write shows its `!`, which the
+                // call's own text, from its self on, leaves out.
+                const shown = self.sourceText(node);
+                const bang = has_self and ir.Member.object(callee).isKind(.write) and !std.mem.startsWith(u8, shown, "!");
+                try self.errAt(callee, "this task is lent to write, and keeps its write loan while it runs, so it stays where it is bound: `t = {s}{s}`, then `>t`", .{ if (bang) "!" else "", shown });
                 return self.t().invalid_id;
             }
             if (self.ctx.symbolOf(self.local_target)) |id| try self.write_tasks.put(self.ctx.arena.allocator(), id, {});
