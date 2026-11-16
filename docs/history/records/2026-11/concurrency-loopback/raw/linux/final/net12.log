@@ -1,0 +1,11 @@
+ of 20
+aa           connect      25.10 us
+final        connect      24.54 us
+main         connect      25.52 us
+aa           echo          1.07 us
+final        echo          1.01 us
+main         echo          1.08 us
+aa           pingpong      5.23 us
+final        pingpong      4.97 us
+main         pingpong      5.21 us
+

@@ -59,6 +59,14 @@ rounds (raw/mac-final/):
 | connect | 54.27 | 54.78 | 54.79 | level (A/A 0.9% slower) |
 | HTTP req/s | 128,308 | 126,996 | 129,693 | level (1.1% more; A/A 1.0% fewer) |
 
+The confirm board on pup at a0375e5fa, against main ea3704772 and an
+A/A copy, the machine quiet (raw/linux/final/; medians, 20 net rounds,
+9 HTTP rounds): echo 5.9% faster pinned to cores 6,7 (3.76 to 3.54 µs)
+and 4.4% faster on 0-11; ping-pong 4.7% and 4.6% faster; connect level
+(28.88 to 28.42, 26.31 to 26.18); bench/tasks level (spawn 1.1% slower
+against the A/A's 0.9% faster, inside its spread); HTTP 1.0% more
+requests (695.8k to 702.7k, A/A 696.5k), p99 276 to 261 µs.
+
 So the Mac keeps a smaller gain than the three changes gave (echo 22%
 faster with the skip, most of it the skip's): the skip's gain on the
 Mac, where looks at other workers' pollers were most of echo's extra

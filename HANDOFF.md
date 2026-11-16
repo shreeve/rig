@@ -115,11 +115,11 @@ A new session, human or agent, takes these steps in order:
   after a short one waits on the poller for the next edge, unless the
   poller has seen the end of reading or urgent data (macOS NOTE_OOB on
   the read filter, EPOLLPRI on Linux); a kick a look finds stands in a
-  flag and costs one system call. Linux: echo and ping-pong 6-7%
+  flag and costs one system call. Linux: echo and ping-pong 4-6%
   faster, 40% fewer system calls; Mac: echo 5% and ping-pong 2% faster;
   other rows level. A third change, leaving recently taken pollers to
   their own worker, was reverted after pup measured it slowing connect
-  and HTTP. Waits on the confirm board on pup and the owner. Record:
+  and HTTP. Gated and confirmed on pup; ready to merge. Record:
   `docs/history/records/2026-11/concurrency-loopback/profile.md`.
 - **FIFO reads on macOS** (branch `fifo-pool`): `file.read` of a FIFO,
   and a `File`'s reads of one, read without blocking and wait in a
