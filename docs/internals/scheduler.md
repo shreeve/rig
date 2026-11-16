@@ -82,7 +82,26 @@ worker after.
   A worker that runs fibers looks at both every 61 turns; one about to
   sleep wakes the fibers whose timers are due on any worker, polls the
   pollers no worker sleeps in, and sleeps until the earliest deadline any
-  worker holds. A file descriptor registered with a poller
+  worker holds. A wait with a deadline puts its timer in the heap and
+  takes it out as it wakes; a fiber that waits again and again, each
+  time with a later deadline, as `http.serve`'s connection waits for
+  each request, no longer than its idle time, holds one deadline that
+  moves instead (`sched.Deadline`, `sched.waitReadyBy`). Each wait stores its
+  deadline and sets no timer. The deadline's one timer, set at the first
+  wait, stays in the heap of the worker that set it, wherever the fiber
+  runs since; due, it moves to the latest deadline when that is later,
+  ends the latest wait when it is due and the fiber is in it, and is
+  otherwise taken out, until the next wait sets it again. So the heap is
+  walked once in each idle time rather than twice in each request, and
+  the wait reads the clock only once something other than its descriptor
+  woke it. A wait and the timer each store, then read what the other
+  stored (the deadline and the wait's number; whether the timer is set
+  and when it is due), all sequentially consistent, so no wait misses its
+  deadline: either the wait finds the timer not set, or due later, and
+  sets it, under its timers' lock, or the timer, due, sees the wait.
+  The timer may end a wait whose deadline is still ahead; the wait looks
+  at the clock and waits on. The connection takes the timer back before
+  it closes (`Deadline.stop`). A file descriptor registered with a poller
   (`sched.Registration`) counts each edge, ready to read or to write,
   and a fiber that reads the count before its call (`sched.edges`) waits
   for it to change (`sched.waitReady`). A read that comes back short
