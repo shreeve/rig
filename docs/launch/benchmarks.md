@@ -197,7 +197,7 @@ On Linux, on cores 0-11:
 
 The sum trails Rayon on both machines; on the Mac most of its gap is
 the first parallel call's start-up, the workers' threads and their first
-stacks ([records/2026-11/concurrency-fork-join](../history/records/2026-11/concurrency-fork-join/SYNTHESIS.md)).
+stacks ([records/2026-11/concurrency-startup](../history/records/2026-11/concurrency-startup/README.md)).
 The quicksort is 3% behind Rayon on Linux and 53% on the Mac.
 
 ## Reproducing them
