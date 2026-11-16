@@ -348,6 +348,11 @@ them, or give the body plain data.
 
 **The hint for a task lent to write keeps self's `!`**: `t =
 !b.bump()&`, where it wrote `t = b.bump()&`, which is rejected.
+**A generic call whose bounds fail reports once.** An instance made by
+one whose type arguments break its bounds is no longer checked, so the
+generic helpers that instance would reach do not repeat its error:
+`sort.sort` of `F32`s gives the one bound error at the call, not one
+more for each of std.sort's helpers.
 
 **`!` of a value that changes by a marked call lends to read.** `!x`
 puts only a read loan on `x` when it lends a write view of a Cell, a
@@ -672,6 +677,18 @@ arms.
 
 ### Docs
 
+- The concurrency docs' benchmarks are measured with `--release` on the
+  Mac (docs/launch/benchmarks.md, docs/CONCURRENCY.md, the launch post
+  and FAQ): `fanout` is level with Tokio and Go, a sleeping task holds
+  17.1 KiB on a dense stack, an idle HTTP connection less than hyper's
+  and Go's with page tables counted for all three, and loopback round
+  trips and fork-join trail Tokio and Rayon. The x86-64 Linux figures
+  are measured with `--release` too, all three runtimes on the same
+  cores: a sleeping task holds 5.2 KiB, and the HTTP server answers
+  592,000 to 846,000 requests a second against hyper's 473,000 to
+  486,000 at its best worker count, spending more CPU on a request but
+  keeping more cores busy.
+
 - The docs, std, the examples, and the benchmarks write a self sigil
   short wherever it applies, `!c.read(!buf, 4096)!`, `?p.dist(q)`,
   `<conn.close()`; the long form stays only for a write call whose
@@ -684,6 +701,34 @@ arms.
 
 ### Runtime
 
+- **`sort.sort` sorts by pattern-defeating quicksort where equal
+  elements are the same value**: numbers, `Bool`, text, plain enums,
+  and the optionals, arrays, objects, and enums made only of these whose
+  header derives `Ord`. There no program can tell equal elements apart,
+  so the order quicksort leaves them in is unseen, and `sort` stays
+  stable in meaning. It compares with `<` inline, allocates nothing, and
+  takes O(n log n) comparisons at worst and O(n) on sorted or reversed
+  input. On the Mac, against the merge sort `sort` used before, every
+  row of 16 to 4,194,304 elements is faster: random Ints 2.1 times as
+  fast at 16 elements, 6.0 times at 4,096, and 10.3 times at 4,194,304;
+  random text 1.3 to 2.6 times; random objects 1.1 to 8.2 times; and
+  sorted, reversed, and 16-valued input from 7% faster (16 reversed
+  Strings) to 24 times as fast (a million Ints of 16 values). Against
+  Zig's `std.sort.pdq` given whole-value swaps and built the same way,
+  it is level or faster on 65 of the 72 rows and at most 10% slower
+  (reversed Ints). A type
+  with an `order` of its own, whose equal values may differ, one holding
+  a handle, and `sort_by` and `sort_by_key` keep the stable merge
+  (docs/history/records/2026-11/std-sort/).
+- **`!xs.swap(i, j)` of an element up to 64 bytes swaps whole values**,
+  where `std.mem.swap` moved one byte at a time, which LLVM turned into
+  byte shuffles of the two elements: an insertion sort of 16 Ints ran
+  two to three times as slow so. A larger element is still swapped in pieces.
+- **`<` on an object ordered by its fields** compares field by field,
+  the first that differs deciding, a number, `Bool`, or plain enum field
+  by `!=` and `<`, without making an `Order` first, which made Zig's
+  pattern-defeating quicksort of objects of two Ints 1.8 to 3.2 times as
+  slow when tried there.
 - **Loopback round trips make fewer system calls:** a socket read that
   comes back short took all there was, so the next read waits on the
   poller for an edge before it calls, rather than being told EAGAIN (an

@@ -1,0 +1,7 @@
+Sun Nov 15 20:52:12 MST 2026
+A/B: rig-safe = main 7a2efd0f3 --release; go column = main a8acfdc5c (2026-10-30) --release, its own net.rig (syntax only differs); tokio as before
+7a2efd0f3
+         rig-safe      tokio         go            vs tokio
+pingpong 16.01 us/trip 14.15 us/trip 16.23 us/trip rig-safe 1.1x slower, go 1.1x slower
+echo     8.58 us/trip  6.18 us/trip  8.55 us/trip  rig-safe 1.4x slower, go 1.4x slower
+connect  50.70 us/conn 61.97 us/conn 49.71 us/conn rig-safe 1.2x faster, go 1.2x faster

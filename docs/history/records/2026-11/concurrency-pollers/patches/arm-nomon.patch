@@ -1,0 +1,17 @@
+diff --git i/src/sched.zig w/src/sched.zig
+index 3fa69557c..a0a330ec6 100644
+--- i/src/sched.zig
++++ w/src/sched.zig
+@@ -1239,9 +1239,12 @@ const watch_thread = split.cell(&watch_thread_var, "sched.watch_thread");
+ var watch_word_var: std.atomic.Value(u32) = .init(0);
+ const watch_word = split.cell(&watch_word_var, "sched.watch_word");
+ 
++var no_monitor: bool = true;
+ fn startMonitor() void {
+     if (rt.process.*) |p| preempt_trace = if (p.environ.getPosix("RIG_PREEMPT_TRACE")) |v| std.mem.eql(u8, v, "1") else false;
+     installPreempt();
++    // ARM NOMON (scratch): no monitor, so no worker is ever signaled.
++    if (no_monitor) return;
+     watch_thread.* = std.Thread.spawn(.{ .stack_size = 64 << 10 }, watchSlices, .{ sliceNs(), envUs("RIG_PREEMPT_WAIT_US", 50) }) catch return;
+ }
+ 

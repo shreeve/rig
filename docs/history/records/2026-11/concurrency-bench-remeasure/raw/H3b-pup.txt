@@ -1,0 +1,18 @@
+# blocks=4846 swap_mb=1360 slot=299 paused=0 running=0 late=0 load 1.89 2.42 2.96
+1f35fc1da 2026-11-15 22:34:11 -0700
+cpu tokio server 5.39 load 8.25 rps 485248
+threads tokio busy 6 of 7, busiest 0.44 cores, cores used 2.59
+cpu tokio server 5.37 load 8.32 rps 473053
+threads tokio busy 6 of 7, busiest 0.44 cores, cores used 2.52
+cpu tokio server 5.39 load 8.24 rps 485942
+threads tokio busy 6 of 7, busiest 0.44 cores, cores used 2.61
+                 req/s       p50       p99 per idle conn
+tokio           485942     101 us     325 us             -
+cpu tokio server 5.09 load 8.37 rps 354089
+threads tokio busy 9 of 25, busiest 0.14 cores, cores used 1.75
+cpu tokio server 5.16 load 8.39 rps 358581
+threads tokio busy 12 of 25, busiest 0.14 cores, cores used 1.78
+cpu tokio server 5.15 load 8.36 rps 359529
+threads tokio busy 9 of 25, busiest 0.13 cores, cores used 1.78
+                 req/s       p50       p99 per idle conn
+tokio           359529     176 us     346 us             -

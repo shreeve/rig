@@ -1,0 +1,14 @@
+diff --git i/src/sched.zig w/src/sched.zig
+index 3fa69557c..65e2f67ef 100644
+--- i/src/sched.zig
++++ w/src/sched.zig
+@@ -1996,7 +1996,8 @@ const Poller = struct {
+ 
+     const darwin = builtin.os.tag.isDarwin();
+     const linux = builtin.os.tag == .linux;
+-    const max_events = 64;
++    // ARM EV256 (scratch): a wait takes up to 256 events.
++    const max_events = 256;
+ 
+     fn open(p: *Poller) void {
+         if (darwin) {

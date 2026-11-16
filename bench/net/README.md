@@ -56,4 +56,6 @@ writes, and the headline numbers against Tokio and Go are in
 [docs/launch/benchmarks.md](../../docs/launch/benchmarks.md).
 
 On loopback, a round trip costs what the system calls and one wake each
-way cost, so the three runtimes stay close.
+way cost. Rig opens a connection faster than Tokio and Go; its round
+trips are slower than Tokio's, most in `echo`, where many connections
+are ready at once.

@@ -112,26 +112,32 @@ of data-race freedom for the full model is still to come.
 A task is a fiber with a stack of its own. Its stack reserves a large
 range of address space, but only the pages it touches are real memory,
 and it touches at least one: 16 KiB on Apple Silicon, 4 KiB on x86-64
-Linux. Each stack also has a page table of its own. That puts a
-sleeping task at 32.7 KiB on the Mac and 8.9 KiB on Linux, about half
-of it page tables, against about 300 bytes for a Tokio task, whose state
-machine is sized by the compiler, and 2.9 KiB for a goroutine. For a
+Linux. A release build packs the stacks of tasks whose depth the
+compiler can bound close together, so they share page tables. That puts
+a sleeping task at 17.1 KiB on the Mac, page tables included, against
+about 300 bytes for a Tokio task, whose state machine is sized by the
+compiler, and 2.9 KiB for a goroutine; a task with recursion keeps a
+large stack with a page table of its own, about twice that. On x86-64
+Linux, whose pages are 4 KiB, a sleeping task holds 5.2 KiB. For a
 server, the number that matters is an idle connection: Rig holds no
-buffers while a connection waits, and its stack shares page tables
-with its neighbours, so it is 17.2 KiB on the Mac and 9.2 KiB on Linux,
-page tables included, against hyper's 18.6 and 10.8 KiB of resident
-memory ([benchmarks.md](benchmarks.md)). Stacks placed closer together, then
-small stacks packed into shared pages, are how Rig is closing the gap
-([ROADMAP](../ROADMAP.md), "Concurrency").
+buffers while a connection waits, so on the Mac it is 17.3 KiB, page
+tables included, against hyper's 18.7 KiB and Go's 20.2 KiB
+([benchmarks.md](benchmarks.md)). Small stacks packed into shared
+pages are how Rig is closing the gap ([ROADMAP](../ROADMAP.md),
+"Concurrency").
 
-## Why is the HTTP number on Linux so much higher than hyper's?
+## How does the HTTP server compare with hyper?
 
-We are not sure yet, which is why the post asks for it to be
-reproduced. The benchmark is a loopback one: the load generator, written
-in Go and the same for every server, shares the machine with the server,
-so a server that uses less CPU leaves more for the load. On the Mac,
-hyper is a little ahead of Rig, and Go a little behind both. The method and
-the scripts are in `bench/http`.
+On the Mac, Rig answers 7.8% fewer requests a second than hyper, and
+6.5% more than Go ([benchmarks.md](benchmarks.md)). The benchmark is a
+loopback one: the load generator, written in Go and the same for every
+server, shares the machine with the server, so a server that uses less
+CPU leaves more for the load. On a 22-core x86-64 Linux machine, on
+its P-cores, Rig answers 592,000 to 846,000 requests a second, hyper
+473,000 to 486,000 at its best worker count and Go 444,000 to 451,000.
+Rig spends more CPU on a request than hyper, 14-27% more, and serves
+more because it keeps more cores busy. The method and the scripts are
+in `bench/http`.
 
 ## Are there channels?
 

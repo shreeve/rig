@@ -1,0 +1,7 @@
+# blocks=4843 swap_mb=1360 slot=289 paused=0 running=0 late=0 load 0.23 2.66 3.23
+1f35fc1da 2026-11-15 22:34:11 -0700
+nproc 2
+pid 2902470's current affinity mask: 300000
+rig-safe 9.7 0.50
+tokio 10.9 0.04
+go 20.1 0.08
