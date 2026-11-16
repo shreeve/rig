@@ -14527,8 +14527,36 @@ body is checked once, for every instance, so `x, y = task.all(<a, <b)`
 binds two `Void`s there, and `task.all(<a, <b)` of a `Task[T]` and a
 `Task[U]` waits for a `Void` task and an `Int` task together.
 The call takes its tasks, and can fail when any of them can; then the
-first to fail cancels the others. The loans of its tasks end where it
-returns.
+first to fail cancels the others, those that cannot fail among them.
+A task that cannot fail meets that cancel as any task does: each of
+its waits that can fail fails with `Stop.canceled`, which it catches
+as its code says, and it runs on to its end. Only a cancel it is
+handed by name, `<t.cancel()`, is rejected for it. The loans of its
+tasks end where it returns.
+
+```rig
+use std.task
+use std.time
+
+error Bad
+  no
+
+sub slow()
+  time.sleep(2) catch |e| print("slow saw", e)
+  print("slow ends")
+
+sub bad()!
+  return Bad.no
+
+sub main()
+  task.all(slow()&, bad()&) catch |e| print("all:", e)
+```
+
+```output
+slow saw Stop.canceled
+slow ends
+all: Bad.no
+```
 
 ```rig
 use std.task
