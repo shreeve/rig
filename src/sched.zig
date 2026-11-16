@@ -3695,6 +3695,11 @@ const Note = struct {
     slot: ?*std.atomic.Value(?*Fiber) = null,
     f: ?*Fiber = null,
     stamp: u64 = 0,
+    /// When this searcher made the note, by its own clock: a fiber noted
+    /// `steal_next_after` ago and still in its slot under the same stamp
+    /// is taken whatever the stamp says, so a counter on another core
+    /// that runs ahead of this one's cannot keep the slot young.
+    seen: i96 = 0,
     /// How many notes this search has made.
     made: u8 = 0,
 };
@@ -3788,7 +3793,16 @@ fn search(w: *Worker, note: *Note) Found {
     const y = young orelse return .none;
     if (note.slot != y.slot or note.f != y.f or note.stamp != y.stamp) {
         if (note.made == notes_most) return .none;
-        note.* = .{ .slot = y.slot, .f = y.f, .stamp = y.stamp, .made = note.made + 1 };
+        note.* = .{ .slot = y.slot, .f = y.f, .stamp = y.stamp, .seen = nowNs(), .made = note.made + 1 };
+    } else if (nowNs() - note.seen >= steal_next_after) {
+        // Old enough by this searcher's own clock, though the stamp, read
+        // against this core's counter, says not.
+        if (y.slot.cmpxchgStrong(y.f, null, .seq_cst, .monotonic) != null) return .again;
+        if (unlessPinned(y.f)) |g| {
+            w.stole += 1;
+            return .{ .fiber = g };
+        }
+        return .again;
     }
     const until = nowNs() + @divTrunc(@as(i96, @intCast(y.left)) * steal_next_after, @as(i96, @intCast(need))) + 1;
     if (Poller.waitsFine()) waitBriefly(w, until) else while (nowNs() < until) std.atomic.spinLoopHint();
