@@ -7873,7 +7873,7 @@ are rejected. A local binding is no constant, whatever it holds:
 | `![]T` | `[]T` | `![]T` (lent on) |
 | `String` | `?String` (also `(?String)?`) | `!String` |
 | `^T` | the views of `T`, through any number of boxes | the write views of `T` |
-| `*T` | the read views of `T` | `!*T`, the handle itself, never a view of the value |
+| `*T` | the read views of `T` | `!*T`, the handle itself; of a `T` that changes by a marked call, also a `!T` ([§9](#lending-a-shared-value-to-write)) |
 | `X?` | `View?` for each view of `X` | `!(X?)`, by the first row |
 | a function or closure | `?fun` | |
 
@@ -9261,12 +9261,17 @@ handle automatically, including through fields and loop elements. `?h`
 lends the value's read views ([§7](#lending)), a `?Shape` of a `*Shape`
 and a `?String` of a `*String`, and a `for` walks the List or array it
 lends in place ([§6](#for)), with the loan on `h`, so `h` may not be
-dropped, moved, or reassigned while the view is used. `!h` lends only
-the handle itself (a `!*T`), never a write view of the value. Writing a
-field, calling a `!@` method, or consuming the value through a handle
-is rejected, because other handles share it, so `!h.push(x)` through a
-`*List[T]` is rejected too. Shared state that changes goes in a `Cell`
-([§10](#cell)): a shared List is a `*Cell[List[T]]`.
+dropped, moved, or reassigned while the view is used. `!h` lends the
+handle itself, a `!*T` the callee may point elsewhere, and so lends `h`
+to write. Writing a field, calling a `!@` method, or consuming the value
+through a handle is rejected, because other handles share it, so
+`!h.push(x)` through a `*List[T]` is rejected too. Only a value that
+changes by a marked call (Core sentence 9: a `Cell` or a value that
+holds one, a `Signal`, a channel, an actor) changes through a handle.
+Such a call, or `!h` lending its `!T`, lends `h` only to read
+([Cell](#cell), [below](#lending-a-shared-value-to-write)). Shared state
+that changes goes in a `Cell` ([§10](#cell)): a shared List is a
+`*Cell[List[T]]`.
 
 ```rig reject
 obj User
@@ -9279,6 +9284,807 @@ sub main()
 
 ```error
 cannot assign through a shared handle
+```
+
+### Lending a shared value to write
+
+`!x` puts a write loan on `x`, and only a read loan when what it lends
+is a write view of a value that changes by a marked call: a `Cell`, a
+`Signal`, a channel, an actor, or a value that holds a Cell
+([Core §4](docs/CORE.md#4-one-lend-table)). That is judged by the type
+of what `!` lends where it is lent; an API object `{A}` or a type
+parameter is no such value. `!h` lending the handle itself, a `!*T`
+the callee may point elsewhere, still lends `h` to write, as assigning
+and dropping `h` do, and a marked call through a read view is rejected.
+The loan begins before the call's arguments are evaluated and lasts as
+long as the view it carries: for the call, for the life of a task that
+holds self, or until a select returns; an actor's call keeps none.
+Each kind of handle, accepted and rejected:
+
+**`*Cell[T]`.** Two marked calls of one Cell may nest; a write to the
+place that holds the handle, while a call through it is made, may not.
+
+```rig pending
+sub main()
+  c = *Cell(1)
+  !c.add((!c).swap(4))
+  print(c.get())
+```
+
+```output
+5
+```
+
+```rig reject
+fun grow(cs: !List[*Cell[Int]]) -> Int
+  !cs.push(*Cell(0))
+  1
+
+sub main()
+  cs = List[*Cell[Int]]()
+  !cs.push(*Cell(1))
+  _ = !cs[0].add(grow(!cs))
+```
+
+```error
+cannot lend `cs` to write while a read loan is live
+```
+
+**`*Cell[List[T]]`.** Its List's members lend as `set` does; an
+element is never lent.
+
+```rig pending
+sub main()
+  c = *Cell(List[Int]())
+  !c.push(1)
+  !c.push((!c).pop() ?? 0)
+  print(c.len, c[0])
+```
+
+```output
+1 1
+```
+
+```rig reject
+sub bump(x: !Int)
+  x += 1
+
+sub main()
+  c = *Cell(List[Int]())
+  !c.push(1)
+  bump(!c[0])
+```
+
+```error
+cannot lend an element of a Cell's List
+```
+
+**`?*Cell[T]`.** A read view of a handle reads the Cell and changes
+nothing.
+
+```rig
+fun peek(c: ?*Cell[Int]) -> Int
+  c.get()
+
+sub main()
+  c = *Cell(3)
+  print(peek(?c))
+```
+
+```output
+3
+```
+
+```rig reject
+sub bump(c: ?*Cell[Int])
+  !c.set(5)
+```
+
+```error
+cannot lend to write through a read view `?*Cell[Int]`
+```
+
+**`*Signal[T]`.** A read view of the signal lives across a `set`.
+
+```rig pending
+sub main()
+  sig: *Signal[Int] = *Signal(0)
+  r = ?sig
+  !sig.set(7)
+  print(r.get())
+```
+
+```output
+7
+```
+
+```rig reject
+sub poke(s: ?*Signal[Int])
+  !s.set(1)
+```
+
+```error
+cannot lend to write through a read view `?*Signal[Int]`
+```
+
+**`*Chan[T]`, sending and receiving.** A receive may feed a send on the
+same channel.
+
+```rig pending
+sub main()!
+  ch = *Chan[Int](2)
+  !ch.send(1)!
+  !ch.send((!ch.recv()! ?? 0) + 5)!
+  print(!ch.recv()! ?? -1)
+```
+
+```output
+6
+```
+
+```rig reject
+fun grow(xs: !List[*Chan[Int]]) -> Int
+  !xs.push(*Chan[Int](1))
+  8
+
+sub main()!
+  xs = List[*Chan[Int]]()
+  !xs.push(*Chan[Int](1))
+  !xs[0].send(grow(!xs))!
+```
+
+```error
+cannot lend `xs` to write while a read loan is live
+```
+
+**`*Chan[T]`, a select's arms.** Two arms may name one channel; an arm
+through a read view is rejected.
+
+```rig
+use std.task
+
+sub main()!
+  ch = *Chan[Int](1)
+  !ch.send(7)!
+  match task.select(got: !ch.on_recv(), put: !ch.on_send(8))!
+    .got(v?) => print("got", v)
+    .got(none) => print("closed")
+    .put => print("put")
+```
+
+```output
+got 7
+```
+
+```rig reject
+use std.task
+
+sub take(r: ?*Chan[Int])!
+  match task.select(got: !r.on_recv())!
+    .got(v?) => print("got", v)
+    .got(none) => print("closed")
+```
+
+```error
+cannot lend to write through a read view `?*Chan[Int]`
+```
+
+**`Task[T]`, a select's arm.** An arm on a task's end lends the task to
+read.
+
+```rig
+use std.task
+
+fun nine() -> Int
+  9
+
+sub main()!
+  t = nine()&
+  match task.select(done: ?t.on_end())!
+    .done => print(>t)
+```
+
+```output
+9
+```
+
+```rig reject
+use std.task
+
+fun nine() -> Int
+  9
+
+sub main()!
+  t = nine()&
+  match task.select(done: !t.on_end())!
+    .done => print(>t)
+```
+
+```error
+an arm on a task's end lends the task to read
+```
+
+**`*Actor[T]`, a `!@` method.** Two calls through one handle may nest.
+
+```rig
+obj Counter
+  n: Int
+
+  fun add(!@, k: Int) -> Int
+    @n += k
+    @n
+
+sub main()
+  a = *Actor(Counter(n: 0))
+  print((!a).add((!a).add(1)))
+```
+
+```output
+2
+```
+
+```rig reject
+obj Counter
+  n: Int
+
+  fun add(!@, k: Int) -> Int
+    @n += k
+    @n
+
+fun grow(xs: !List[*Actor[Counter]]) -> Int
+  !xs.push(*Actor(Counter(n: 0)))
+  8
+
+sub main()
+  xs = List[*Actor[Counter]]()
+  !xs.push(*Actor(Counter(n: 0)))
+  print(!xs[0].add(grow(!xs)))
+```
+
+```error
+cannot lend `xs` to write while a read loan is live
+```
+
+**`*Actor[T]`, a `?@` method.** It is called bare.
+
+```rig
+obj Counter
+  n: Int
+
+  fun count(?@) -> Int
+    @n
+
+sub main()
+  a = *Actor(Counter(n: 4))
+  print(a.count())
+```
+
+```output
+4
+```
+
+```rig reject
+obj Counter
+  n: Int
+
+  fun count(?@) -> Int
+    @n
+
+sub main()
+  a = *Actor(Counter(n: 0))
+  print((!a).count())
+```
+
+```error
+`count` only reads the actor: call it bare
+```
+
+**`*Actor[T]`, a call made a task.** It keeps no loan, so the handle
+may be reassigned while the task runs.
+
+```rig
+obj Counter
+  n: Int
+
+  fun add(!@, k: Int) -> Int
+    @n += k
+    @n
+
+sub main()
+  a = *Actor(Counter(n: 0))
+  t = !a.add(1)&
+  a = *Actor(Counter(n: 5))
+  print(>t, (!a).add(0))
+```
+
+```output
+1 5
+```
+
+```rig reject
+obj Counter
+  n: Int
+
+  sub add(!@, k: Int)
+    @n += k
+
+sub poke(a: ?*Actor[Counter])
+  !a.add(1)
+```
+
+```error
+cannot lend to write through a read view `?*Actor[Counter]`
+```
+
+**`*Frozen[T]`.** Nothing changes through it.
+
+```rig
+obj Page
+  n: Int
+
+fun size(p: ?Page) -> Int
+  p.n
+
+sub main()
+  p = *Frozen(Page(n: 1))
+  print(size(?p), p.n)
+```
+
+```output
+1 1
+```
+
+```rig reject
+obj Page
+  n: Int
+
+  sub bump(!@)
+    @n += 1
+
+sub main()
+  p = *Frozen(Page(n: 1))
+  !p.bump()
+```
+
+```error
+cannot call method `bump`, which writes `self`, through a shared handle
+```
+
+**A plain `*T`.** `!h` lends the handle itself, which the callee may
+point elsewhere; the value does not change through it.
+
+```rig
+obj User
+  age: Int
+
+sub reset(h: !*User)
+  h = *User(age: 0)
+
+sub main()
+  h = *User(age: 7)
+  reset(!h)
+  print(h.age)
+```
+
+```output
+0
+```
+
+```rig reject
+obj User
+  age: Int
+
+sub older(u: !User)
+  u.age += 1
+
+sub main()
+  h = *User(age: 7)
+  older(!h)
+```
+
+```error
+expected `!User`, got `!*User`
+```
+
+**A `*T` whose `T` holds a Cell: calls.** Calls through one handle may
+nest, and a read view may live across one.
+
+```rig pending
+obj Hits
+  n: Cell[Int]
+  step: Int
+
+  fun bump(!@, k: Int) -> Int
+    !@n.add(k)
+
+sub show(r: ?Hits, k: Int)
+  print(r.n.get(), k)
+
+sub main()
+  h = *Hits(n: Cell(0), step: 2)
+  print((!h).bump((!h).bump(1)))
+  show(?h, !h.bump(3))
+```
+
+```output
+2
+5 5
+```
+
+```rig reject
+obj Hits
+  n: Cell[Int]
+
+  sub bump(!@)
+    _ = !@n.add(1)
+
+sub poke(h: ?*Hits)
+  !h.bump()
+```
+
+```error
+cannot lend to write through a read view `?*Hits`
+```
+
+**... tasks.** A task of such a call keeps its read loan while it runs:
+the handle may be read, and the task may go into a set, but the handle
+is not reassigned.
+
+```rig pending
+obj Hits
+  n: Cell[Int]
+  step: Int
+
+  fun bump(!@) -> Int
+    !@n.add(@step)
+
+sub main()
+  h = *Hits(n: Cell(0), step: 2)
+  t = (!h).bump()&
+  print(h.step)
+  ts = Tasks[Int]()
+  !ts.add((!h).bump()&)
+  for r in >ts
+    print(r > 0)
+  a = >t
+  print(a > 0, h.n.get())
+```
+
+```output
+2
+true
+true 4
+```
+
+```rig reject
+obj Hits
+  n: Cell[Int]
+  step: Int
+
+  fun bump(!@) -> Int
+    !@n.add(@step)
+
+sub main()
+  h = *Hits(n: Cell(0), step: 2)
+  t = (!h).bump()&
+  h = *Hits(n: Cell(5), step: 1)
+  print(>t)
+```
+
+```error
+cannot reassign `h` while it is lent
+```
+
+**... a result that views self.** It keeps the read loan while it
+lives.
+
+```rig pending
+obj Hits
+  n: Cell[Int]
+
+  fun cell(!@) -> !Cell[Int]
+    !@n
+
+sub main()
+  h = *Hits(n: Cell(0))
+  w = !h.cell()
+  print(h.n.get())
+  _ = !w.add(1)
+  print(h.n.get())
+```
+
+```output
+0
+1
+```
+
+```rig reject
+obj Hits
+  n: Cell[Int]
+
+  fun cell(!@) -> !Cell[Int]
+    !@n
+
+sub main()
+  h = *Hits(n: Cell(0))
+  w = !h.cell()
+  h = *Hits(n: Cell(5))
+  _ = !w.add(1)
+```
+
+```error
+cannot reassign `h` while it is lent
+```
+
+**... `!h` alone.** `!h` lending a `!Hits` lends `h` to read; lending
+the handle itself, a `!*Hits`, lends it to write.
+
+```rig pending
+obj Hits
+  n: Cell[Int]
+
+sub hit2(a: !Hits, b: !Hits)
+  _ = !a.n.add(1)
+  _ = !b.n.add(1)
+
+sub main()
+  h = *Hits(n: Cell(0))
+  hit2(!h, !h)
+  print(h.n.get())
+```
+
+```output
+2
+```
+
+```rig reject
+obj Hits
+  n: Cell[Int]
+
+sub both(a: !*Hits, b: !*Hits)
+  a = *Hits(n: Cell(1))
+
+sub main()
+  h = *Hits(n: Cell(0))
+  both(!h, !h)
+```
+
+```error
+cannot lend `h` to write while a write loan is live
+```
+
+**A `!*Cell[T]` parameter.** Marked calls through it lend it to read;
+assigning it is a write.
+
+```rig pending
+fun bump(c: !*Cell[Int]) -> Int
+  !c.add((!c).swap(4))
+
+sub main()
+  c = *Cell(1)
+  print(bump(!c))
+```
+
+```output
+5
+```
+
+```rig reject
+sub f(c: !*Cell[Int])
+  r = ?c
+  c = *Cell(9)
+  print(r.get())
+```
+
+```error
+cannot reassign `c` while it is lent
+```
+
+**A `!Cell[T]`, or `!@` of a value that holds a Cell.** A write view of
+such a value lends as its handle does.
+
+```rig pending
+obj Hits
+  n: Cell[Int]
+
+  fun bump(!@, k: Int) -> Int
+    !@n.add(k)
+
+  fun twice(!@) -> Int
+    (!@).bump((!@).bump(1))
+
+fun swapped(c: !Cell[Int]) -> Int
+  !c.add((!c).swap(4))
+
+sub main()
+  h = *Hits(n: Cell(0))
+  c = *Cell(1)
+  print((!h).twice(), swapped(!c))
+```
+
+```output
+2 5
+```
+
+```rig reject
+sub put(c: !Cell[Int], d: ?Cell[Int])
+  c = d
+```
+
+```error
+only a value that copies is copied out of a view
+```
+
+**`*{A}`.** The handle only reads; `!h` of a `*Hits` lent as two
+`!{Bump}` lends `h` to read, while two `!{Grow}` of one owned value are
+two write loans.
+
+```rig pending
+api Bump
+  sub bump(!@)
+  fun count(?@) -> Int
+
+obj Hits: Bump
+  n: Cell[Int]
+
+  sub bump(!@)
+    _ = !@n.add(1)
+
+  fun count(?@) -> Int
+    @n.get()
+
+sub both(a: !{Bump}, b: !{Bump})
+  !a.bump()
+  !b.bump()
+
+sub main()
+  h = *Hits(n: Cell(0))
+  both(!h, !h)
+  s: *{Bump} = +h
+  print(s.count())
+```
+
+```output
+2
+```
+
+```rig reject
+api Grow
+  sub grow(!@)
+
+obj Bag: Grow
+  xs: List[Int]
+
+  sub grow(!@)
+    !@xs.push(1)
+
+sub both(a: !{Grow}, b: !{Grow})
+  !a.grow()
+  !b.grow()
+
+sub main()
+  b = Bag(xs: List[Int]())
+  both(!b, !b)
+```
+
+```error
+cannot lend `b` to write while a write loan is live
+```
+
+```rig reject
+api Bump
+  sub bump(!@)
+
+obj Hits: Bump
+  n: Cell[Int]
+
+  sub bump(!@)
+    _ = !@n.add(1)
+
+sub main()
+  s: *{Bump} = *Hits(n: Cell(0))
+  !s.bump()
+```
+
+```error
+`*{Bump}` only reads, as any handle
+```
+
+**`~T`.** A weak handle reaches its value once upgraded, and the new
+handle lends as any.
+
+```rig
+sub main()
+  c = *Cell(1)
+  w = ~c
+  if *w as h
+    !h.set(2)
+  print(c.get())
+```
+
+```output
+2
+```
+
+```rig reject
+sub main()
+  c = *Cell(1)
+  w = ~c
+  !w.set(2)
+```
+
+```error
+reaches its value only once upgraded
+```
+
+**`Tasks[T]`.** A set of tasks is an owned value, and `!ts.add(...)`
+lends it to write.
+
+```rig
+obj Hits
+  n: Cell[Int]
+
+sub work(h: *Hits)
+  _ = !h.n.add(1)
+
+sub main()
+  h = *Hits(n: Cell(0))
+  ts = Tasks[Void]()
+  !ts.add(work(+h)&)
+  >ts
+  print(h.n.get())
+```
+
+```output
+1
+```
+
+```rig reject
+sub work(n: Int)
+  print(n)
+
+sub main()
+  ts = Tasks[Void]()
+  !ts.add(work(1)&)
+  r = ?ts
+  !ts.add(work(2)&)
+  print(r.len)
+  >ts
+```
+
+```error
+cannot lend `ts` to write while a read loan is live
+```
+
+**std.shared's `*Map`.** A view `ensure` gives keeps a read loan, so
+the map takes more keys while it lives, but is not reassigned.
+
+```rig pending
+use std.shared
+
+sub main()
+  m = shared.Map[Int, String].new()
+  r = !m.ensure(1, String("ten"))
+  _ = !m.put_new(2, String("twenty"))
+  print(m.len(), r)
+```
+
+```output
+2 ten
+```
+
+```rig reject
+use std.shared
+
+sub main()
+  m = shared.Map[Int, String].new()
+  r = !m.ensure(1, String("ten"))
+  m = shared.Map[Int, String].new()
+  print(r)
+```
+
+```error
+cannot reassign `m` while it is lent
 ```
 
 ### Weak handles
@@ -9512,9 +10318,17 @@ Every call that changes a Cell is marked: `set`, `swap`, `push`,
 `pop`, `keep`, `clear`, `c[i] = x` (written `(!c)[i] = x`), and a `Signal`'s `set`
 and `subscribe`. They take `!@`, so the self-sigil rule enforces
 the mark, and a read view (`?Cell[T]`, a `?@` method of an object
-holding one) cannot change a Cell. `!c` where `c` is a handle lends the
-handle: `bump(!local)` with `local: *Cell[Int]`, and `bump(!k.hits)` with
-`k: *Counter`. A closure or a `Signal` subscriber marks the handle it
+holding one) cannot change a Cell. A marked call lends the place it
+names to read, not to write. So does `!h` handing over a `!Cell[T]`, or
+a `!S` of a value that holds a Cell. The place keeps the value alive,
+and what changes is only what every handle shares. So two such lends of
+one place may live at once, `!c.add((!c).swap(4))`, and a read view may
+live across one, `r = ?c`, `!c.set(5)`, `r.get()`. This holds whether
+`c` is a `*Cell[Int]`, a `!*Cell[Int]`, or a `!Cell[Int]`. A task made
+by a call through a value that holds a Cell, `(!h).bump()&`, keeps that
+read loan for its life. `!c` lending the handle itself, a `!*Cell[T]`,
+lends `c` to write ([Lending a shared value to
+write](#lending-a-shared-value-to-write)). A closure or a `Signal` subscriber marks the handle it
 captured, `|+c| !c.set(1)`. Reading (`c.get()`, `c.len`, `c[i]`) is
 unmarked.
 
@@ -10513,7 +11327,7 @@ closures of type `*sub()`. It lives behind a shared handle: a stack
 | `!s.set(v)` | store `v`, then call every subscriber in subscription order |
 | `!s.subscribe(cb)` | take ownership of the handle `cb` (pass `+cb` to keep yours) |
 
-Both are marked calls, as a Cell's are. A `set` from inside a subscriber is queued and delivered after the
+Both are marked calls, and lend as a Cell's do. A `set` from inside a subscriber is queued and delivered after the
 current round, with the latest value winning. Subscribing from inside a
 subscriber panics. A subscriber that reads its own signal must capture
 it weakly, or the signal and its subscriber keep each other alive.
@@ -14046,8 +14860,11 @@ answer.
   view of one.
 - A `!@` method is marked, `!a.add(x)`, or `(!a).add(x)` where its `Bool` value
   is used, and needs a handle you hold: through `?a`, or an element of
-  a `[]*Actor[T]`, it is rejected. The
-  `!` marks the call, and lends nothing: the actor changes its own value.
+  a `[]*Actor[T]`, it is rejected. The `!` marks the call, and lends
+  the handle's place to read for it, as a Cell's marked call does. The
+  actor changes its own value, one method at a time, so
+  `(!a).add((!a).add(1))` runs, and `!xs[0].add(grow(!xs))` is
+  rejected.
 - A `<@` method, or one whose signature has `keeps` or `from`, cannot be
   called through a handle, and an actor's fields are reached only by its
   methods.
@@ -14056,8 +14873,9 @@ answer.
   actor's state.
 
 With `&`, the call is a task that the actor runs in its turn. As any
-task, it keeps the loans of its arguments, but it keeps none of the
-handle, which may be used again while it runs. It takes a slot of
+task, it keeps the loans of its arguments, but none of the handle: the
+call gives the actor a count of its own, so the handle may be used,
+reassigned, or dropped while the task runs. It takes a slot of
 the actor's mailbox while it runs, and waits for one when every slot is
 taken.
 
@@ -14168,7 +14986,10 @@ view, at each instance of a generic body that makes one too.
   waiting for room, in its own task.
 
 Sending and receiving change the channel, so each is marked with `!`
-through a handle the task holds, and each is a fallible waiting point,
+through a handle the task holds, never a read view. The mark lends
+the handle's place to read, as a Cell's does, so
+`!ch.send((!ch.recv()! ?? 0) + 5)!` passes on what it receives. Each
+is a fallible waiting point,
 as `time.sleep` is: a canceled task fails there with
 `task.Stop.canceled`, and past its deadline with `task.Stop.timeout`.
 
@@ -14200,8 +15021,10 @@ a `match` on the value runs the winner's body:
   and takes nothing.
 
 A receive or send arm changes its channel, so its `!` needs a handle
-the task holds, as `!ch.recv()` does: a read view of one changes
-nothing, however it is reached (a `?*Chan` parameter, a field of a
+the task holds, as `!ch.recv()` does, and lends the handle's place to
+read until the select returns: two arms may name one channel, and a
+write to that place before the select returns (`grow(!chs)` in an arm)
+is rejected. A read view of one changes nothing, however it is reached (a `?*Chan` parameter, a field of a
 `?W`, an element of a `[]*Chan`, a read binding, a closure's `|?h|`).
 What a send arm sends goes into the channel as `send`'s value does.
 
