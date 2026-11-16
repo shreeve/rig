@@ -42,6 +42,9 @@ longer builds; `bench-actors --record` adds `rig-safe` rows (`--release`).
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-safe | 5.2 ns | 30 ns | 1.0 ns |
 | 2026-10-30 | main a8acfdc5c before #780, alternated | rig-fast | 5.1 ns | 29 ns | 0.9 ns |
 | 2026-10-30 | #780: String and List appends grow by value | rig-fast | 5.0 ns | 30 ns | 0.9 ns |
+| 2026-11-15 | main 7a2efd0f3, re-measured with --release (records/2026-11/concurrency-bench-remeasure), fastest of 7 | rig-safe | 5.0 ns | 15 ns | 0.9 ns |
+| 2026-11-15 | the same board | tokio | 138 ns | 267 ns | 30 ns |
+| 2026-11-15 | the same board | go | 3.4 ns | 77 ns | 0.5 ns |
 
 ## x86-64 (pup)
 
@@ -123,3 +126,6 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-11-09 | #1048: a Table of a heap that does little waits to ask for huge pages (pup cores 0-11) | rig-fast | 12 ns | 20 ns | 1.8 ns |
 | 2026-11-09 | main ec0a2a743 before #1048, alternated (Mac) | rig-fast | 5 ns | 13 ns | 0.9 ns |
 | 2026-11-09 | #1048: a Table of a heap that does little waits to ask for huge pages (Mac) | rig-fast | 5 ns | 14 ns | 0.9 ns |
+| 2026-11-15 | main bfd872b6d (7a2efd0f3's compiler and runtime), --release (records/2026-11/concurrency-bench-remeasure), fastest of 7 (pup cores 0-11) | rig-safe | 11 ns | 24 ns | 2.0 ns |
+| 2026-11-15 | the same board | tokio | 241 ns | 232 ns | 25 ns |
+| 2026-11-15 | the same board | go | 11 ns | 52 ns | 1.8 ns |

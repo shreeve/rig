@@ -21882,9 +21882,16 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
     }
     // A method's instance checks only its own parameters; its type's
     // are checked with self's instance.
+    // An instance made by one whose bounds failed is not checked: the
+    // failure written at the call is the error, and the generics that
+    // instance calls would only repeat it (`sort.sort[F32]` and each of
+    // the bounded helpers it reaches).
+    var failed: std.HashMapUnmanaged(sema.FnInstance, void, sema.FnInstance.Context, 80) = .empty;
+    defer failed.deinit(ctx.allocator);
     var i: usize = 0;
     while (i < ctx.fn_instances.items.len) : (i += 1) {
         const f = ctx.fn_instances.items[i];
+        if (f.via) |via| if (via == .func and failed.contains(via.func)) continue;
         // An implementation's method reached through an API has the
         // arguments the call's instance of the API's method checks and
         // reports.
@@ -21893,6 +21900,7 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
         // So are its bounds, which are the API's method's.
         const bounded = if (f.through_api) try sema.boundsMet(ctx, f.inst.ownParams(), f.inst.ownArgs()) else try sema.checkBounds(ctx, f.inst.ownParams(), f.inst.ownArgs(), f.site, of);
         if (!bounded) {
+            try failed.put(ctx.allocator, f.inst, {});
             if (!f.through_api) if (f.via) |via| try ctx.note(f.site, "`{s}` is made by `{s}`", .{ try sema.rootName(ctx, of), try sema.rootName(ctx, via) });
         } else if (try checkRequirements(ctx, &reqs, f.inst.ownParams(), f.inst.ownArgs(), f.site, of) and
             try checkMethodCalls(ctx, f.inst.subst(), f.inst.ownParams(), f.site, of))

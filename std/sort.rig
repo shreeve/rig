@@ -7,10 +7,16 @@
 
 use std.math
 
-# Sort `xs` in place, in the order of `<`, keeping equal elements in the
-# order they had. Allocates nothing.
+# Sort `xs` in place, in the order of `<`, keeping equal elements that
+# can be told apart in the order they had. Allocates nothing.
 pub sub sort[T: Ord](xs: ![]T)
-  sort_by(!xs, |a, b| a < b)
+  # Where elements `<` finds equal are the same value, their order cannot
+  # be seen, and pattern-defeating quicksort, which does not keep it,
+  # sorts them; the stable merge sorts the rest.
+  if equal_is_same[T]()
+    unstable(!xs)
+  else
+    sort_by(!xs, |a, b| a < b)
 
 # Sort `xs` in place in the order `less` gives: `less(a, b)` says
 # whether `a` belongs before `b`. Keeps elements neither of which is
@@ -113,6 +119,294 @@ sub swap_range[T](xs: ![]T, a: Int, b: Int, n: Int)
   while i < n : i += 1
     !xs.swap(a + i, b + i)
 
+# Pattern-defeating quicksort (Orson Peters' pdqsort, as Rust's
+# `sort_unstable` and Zig's `std.sort.pdq`): quicksort on a median of
+# three or of nine, partitioned in blocks; insertion sort below 25
+# elements; a run of equal elements split off in one pass; a sorted or
+# reversed slice found in O(n); and heapsort after too many unbalanced
+# partitions, so O(n log n) at worst. O(log n) stack, no other memory.
+sub unstable[T: Ord](xs: ![]T)
+  n = xs.len
+  if n < 2
+    return
+  limit = 0
+  m = n
+  while m > 1 : m /= 2
+    limit += 1
+  pdq(!xs, 0, n, limit + 1, true, true, true)
+
+# Sort xs[a..b]. `leftmost` is false when xs[a - 1] exists and is not
+# above any element of xs[a..b]; `balanced` and `partitioned` say how the
+# last partition went; `limit` counts the unbalanced partitions left.
+sub pdq[T: Ord](xs: ![]T, a: Int, b: Int, limit: Int, leftmost: Bool, balanced: Bool, partitioned: Bool)
+  new a = a
+  new b = b
+  new limit = limit
+  new leftmost = leftmost
+  new balanced = balanced
+  new partitioned = partitioned
+  loop
+    len = b - a
+    if len <= 24
+      if leftmost
+        insert_ord(!xs[a..b])
+      else
+        insert_unguarded(!xs, a, b)
+      return
+    if limit == 0
+      heapsort(!xs, a, b)
+      return
+    if not balanced
+      break_patterns(!xs, a, b)
+      limit -= 1
+    pivot = a + len / 4 * 2
+    swaps = choose_pivot(!xs, a, b)
+    likely_sorted = swaps == 0
+    if swaps == 12
+      # Every comparison swapped: likely reversed, so reverse it.
+      k = 0
+      while k < len / 2 : k += 1
+        !xs.swap(a + k, b - 1 - k)
+      pivot = b - 1 - (pivot - a)
+      likely_sorted = true
+    if balanced and partitioned and likely_sorted
+      if partial_insertion(!xs, a, b)
+        return
+    # A pivot not above the element before the slice is the slice's
+    # least: split off the elements equal to it, then sort the rest.
+    if not leftmost and not (xs[a - 1] < xs[pivot])
+      a = partition_equal(!xs, a, b, pivot)
+      continue
+    p = partition(!xs, a, b, pivot)
+    mid = p.mid
+    left = mid - a
+    right = b - (mid + 1)
+    partitioned = p.partitioned
+    balanced = math.min(left, right) >= len / 8
+    # Recurse into the smaller side, loop on the larger, so the stack
+    # holds at most log2(n) frames.
+    if left < right
+      pdq(!xs, a, mid, limit, leftmost, true, partitioned)
+      a = mid + 1
+      leftmost = false
+    else
+      pdq(!xs, mid + 1, b, limit, false, true, partitioned)
+      b = mid
+
+sub insert_ord[T: Ord](xs: ![]T)
+  i = 1
+  while i < xs.len : i += 1
+    j = i
+    while j > 0 and xs[j] < xs[j - 1] : j -= 1
+      !xs.swap(j, j - 1)
+
+# Insertion sort of xs[a..b], where xs[a - 1] is not above any of them,
+# so no element moves before `a`.
+sub insert_unguarded[T: Ord](xs: ![]T, a: Int, b: Int)
+  i = a + 1
+  while i < b : i += 1
+    j = i
+    while xs[j] < xs[j - 1] : j -= 1
+      !xs.swap(j, j - 1)
+
+sub heapsort[T: Ord](xs: ![]T, a: Int, b: Int)
+  i = a + (b - a) / 2
+  while i > a
+    i -= 1
+    sift_down(!xs, a, i, b)
+  i = b
+  while i > a
+    i -= 1
+    !xs.swap(a, i)
+    sift_down(!xs, a, a, i)
+
+sub sift_down[T: Ord](xs: ![]T, a: Int, at: Int, b: Int)
+  cur = at
+  loop
+    child = 2 * (cur - a) + a + 1
+    if child >= b
+      return
+    if child + 1 < b and xs[child] < xs[child + 1]
+      child += 1
+    if not (xs[cur] < xs[child])
+      return
+    !xs.swap(cur, child)
+    cur = child
+
+# Swap three elements near the middle of xs[a..b] with others chosen by
+# a fixed xorshift, to break a pattern that unbalanced the partitions.
+sub break_patterns[T](xs: ![]T, a: Int, b: Int)
+  len = b - a
+  if len < 8
+    return
+  r = U64(len)
+  modulus = 1
+  while modulus < len
+    modulus *= 2
+  i = a + len / 4 * 2 - 1
+  while i <= a + len / 4 * 2 + 1 : i += 1
+    r ^= r <<% 13
+    r ^= r >> 7
+    r ^= r <<% 17
+    other = Int(r & U64(modulus - 1))
+    if other >= len
+      other -= len
+    !xs.swap(i, a + other)
+
+# Order the elements at a quarter, a half, and three quarters of xs[a..b]
+# (each first the median of its neighbourhood, from 50 elements), leaving
+# their median in the middle. The number of swaps: 0 when the slice looks
+# sorted, 12 when it looks reversed.
+fun choose_pivot[T: Ord](xs: ![]T, a: Int, b: Int) -> Int
+  len = b - a
+  i = a + len / 4
+  j = a + len / 4 * 2
+  k = a + len / 4 * 3
+  swaps = 0
+  if len >= 8
+    if len >= 50
+      swaps += sort3(!xs, i - 1, i, i + 1)
+      swaps += sort3(!xs, j - 1, j, j + 1)
+      swaps += sort3(!xs, k - 1, k, k + 1)
+    swaps += sort3(!xs, i, j, k)
+  swaps
+
+fun sort3[T: Ord](xs: ![]T, a: Int, b: Int, c: Int) -> Int
+  swaps = 0
+  if xs[b] < xs[a]
+    swaps += 1
+    !xs.swap(b, a)
+  if xs[c] < xs[b]
+    swaps += 1
+    !xs.swap(c, b)
+    if xs[b] < xs[a]
+      swaps += 1
+      !xs.swap(b, a)
+  swaps
+
+# Shift a few out-of-order elements of xs[a..b] into place; whether the
+# slice is sorted after. O(n).
+fun partial_insertion[T: Ord](xs: ![]T, a: Int, b: Int) -> Bool
+  i = a + 1
+  step = 0
+  while step < 5 : step += 1
+    while i < b and not (xs[i] < xs[i - 1])
+      i += 1
+    if i == b
+      return true
+    if b - a < 50
+      return false
+    !xs.swap(i, i - 1)
+    if i - a >= 2
+      j = i - 1
+      while j > a and xs[j] < xs[j - 1] : j -= 1
+        !xs.swap(j, j - 1)
+    if b - i >= 2
+      j = i + 1
+      while j < b and xs[j] < xs[j - 1] : j += 1
+        !xs.swap(j, j - 1)
+  false
+
+obj Split
+  mid: Int
+  partitioned: Bool
+
+# Partition xs[a..b] around xs[pivot]: the elements below it, then it,
+# then the rest. Where it lands, and whether no element had to move.
+# Elements are classified 64 at a time from each end, and the misplaced
+# ones of both blocks then swapped in pairs (BlockQuicksort), so the
+# comparisons do not branch.
+fun partition[T: Ord](xs: ![]T, a: Int, b: Int, pivot: Int) -> Split
+  !xs.swap(a, pivot)
+  i = a + 1
+  j = b - 1
+  while i <= j and xs[i] < xs[a]
+    i += 1
+  while i <= j and not (xs[j] < xs[a])
+    j -= 1
+  if i > j
+    !xs.swap(j, a)
+    return Split(mid: j, partitioned: true)
+  !xs.swap(i, j)
+  i += 1
+  j -= 1
+  # Offsets within a block, below 64, as bytes, so the arrays cost
+  # little to clear.
+  offsets_l: [64]U8 = [64 of 0]
+  offsets_r: [64]U8 = [64 of 0]
+  base_l = i
+  base_r = j
+  num_l = 0
+  num_r = 0
+  start_l = 0
+  start_r = 0
+  while i <= j
+    unknown = j + 1 - i
+    split_l = 0
+    if num_l == 0
+      split_l = math.min(64, unknown / 2 if num_r == 0 else unknown)
+    split_r = 0
+    if num_r == 0
+      split_r = math.min(64, unknown - split_l)
+    k = 0
+    while k < split_l : k += 1
+      offsets_l[num_l] = U8(k)
+      if not (xs[i + k] < xs[a])
+        num_l += 1
+    i += split_l
+    k = 0
+    while k < split_r : k += 1
+      offsets_r[num_r] = U8(k)
+      if xs[j - k] < xs[a]
+        num_r += 1
+    j -= split_r
+    num = math.min(num_l, num_r)
+    k = 0
+    while k < num : k += 1
+      !xs.swap(base_l + Int(offsets_l[start_l + k]), base_r - Int(offsets_r[start_r + k]))
+    num_l -= num
+    num_r -= num
+    start_l += num
+    start_r += num
+    if num_l == 0
+      start_l = 0
+      base_l = i
+    if num_r == 0
+      start_r = 0
+      base_r = j
+  if num_l > 0
+    while num_l > 0
+      num_l -= 1
+      !xs.swap(base_l + Int(offsets_l[start_l + num_l]), j)
+      j -= 1
+    i = j + 1
+  if num_r > 0
+    while num_r > 0
+      num_r -= 1
+      !xs.swap(base_r - Int(offsets_r[start_r + num_r]), i)
+      i += 1
+    j = i - 1
+  !xs.swap(j, a)
+  Split(mid: j, partitioned: false)
+
+# Move the elements of xs[a..b] equal to xs[pivot], the least, to its
+# front; the index after them.
+fun partition_equal[T: Ord](xs: ![]T, a: Int, b: Int, pivot: Int) -> Int
+  !xs.swap(a, pivot)
+  i = a + 1
+  j = b - 1
+  loop
+    while i <= j and not (xs[a] < xs[i])
+      i += 1
+    while i <= j and xs[a] < xs[j]
+      j -= 1
+    if i > j
+      return i
+    !xs.swap(i, j)
+    i += 1
+    j -= 1
+  i
+
 # The index where `x` belongs in `xs`, which is sorted in the order of
 # `<`: the first element not less than `x`, or `xs.len` when there is
 # none. Inserting `x` there keeps `xs` sorted.
@@ -142,3 +436,11 @@ pub fun search[T: Ord](xs: []T, x: ?T) -> Int?
   if lo < xs.len and xs[lo] == x
     return lo
   none
+
+extern zig "sort.zig"
+  # Whether two `T`s that `<` finds equal are the same value, so their
+  # order cannot be seen: true for numbers, `Bool`, text, plain enums,
+  # and the optionals, arrays, objects, and enums made only of these that
+  # order as `Ord` derives it; false for a type with an `order` of its
+  # own, and for a handle.
+  fun equal_is_same[T]() -> Bool

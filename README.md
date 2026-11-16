@@ -43,9 +43,9 @@ applies to every view, not a special rule for tasks.
   panics with the calls that formed it, and a test replays the same
   schedule from a seed.
 - **Zig's cost model.** The output is plain Zig. Starting and switching
-  tasks costs less than in Tokio or Go, and the HTTP server answers
-  about as many requests as hyper on a Mac, and more on Linux
-  ([benchmarks](docs/launch/benchmarks.md)).
+  tasks costs less than in Tokio or Go, and on a Mac the HTTP server
+  answers 8% fewer requests than hyper and 7% more than Go, and on
+  x86-64 Linux more than either ([benchmarks](docs/launch/benchmarks.md)).
 
 Every `rig` example in this README is checked by the test suite.
 

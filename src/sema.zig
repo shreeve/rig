@@ -2966,7 +2966,7 @@ pub const FnInstance = struct {
         return .{ .params = self.params, .args = self.args };
     }
 
-    const Context = struct {
+    pub const Context = struct {
         pub fn hash(_: Context, k: FnInstance) u64 {
             var h = std.hash.Wyhash.init(0);
             h.update(std.mem.sliceAsBytes(k.params));

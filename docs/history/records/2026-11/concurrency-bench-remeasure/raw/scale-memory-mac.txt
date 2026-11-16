@@ -1,0 +1,10 @@
+Sun Nov 15 20:47:02 MST 2026
+7a2efd0f3
+
+### memory per sleeping task
+
+| runtime | total | of it, page tables |
+|---|---|---|
+| rig-safe | 17.1 KiB | 537 B |
+| tokio | 264 B | 0 B |
+| go | 2.9 KiB | 3 B |

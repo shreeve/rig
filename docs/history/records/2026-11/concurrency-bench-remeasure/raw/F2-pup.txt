@@ -1,0 +1,28 @@
+# blocks=4844 swap_mb=1360 slot=291 paused=0 running=0 late=0 load 2.23 4.34 3.78
+1f35fc1da 2026-11-15 22:34:11 -0700
+nproc 2
+pid 2898435's current affinity mask: 300000
+round 1: rig psum 7.34, rig qsort 123.81, rayon psum 5.45, rayon qsort 129.16
+round 2: rayon psum 4.60, rayon qsort 134.20, rig psum 6.70, rig qsort 126.12
+round 3: rig psum 8.11, rig qsort 126.56, rayon psum 4.60, rayon qsort 125.24
+round 4: rayon psum 4.48, rayon qsort 127.98, rig psum 6.74, rig qsort 128.88
+round 5: rig psum 6.74, rig qsort 128.69, rayon psum 4.65, rayon qsort 123.15
+round 6: rayon psum 4.53, rayon qsort 122.93, rig psum 7.25, rig qsort 139.07
+round 7: rig psum 7.77, rig qsort 139.64, rayon psum 5.06, rayon qsort 120.83
+round 8: rayon psum 4.95, rayon qsort 127.24, rig psum 7.02, rig qsort 131.31
+round 9: rig psum 7.00, rig qsort 129.86, rayon psum 4.90, rayon qsort 121.84
+round 10: rayon psum 4.97, rayon qsort 120.96, rig psum 6.96, rig qsort 129.39
+round 11: rig psum 6.71, rig qsort 132.31, rayon psum 5.11, rayon qsort 119.09
+round 12: rayon psum 4.82, rayon qsort 120.82, rig psum 6.86, rig qsort 134.67
+round 13: rig psum 7.39, rig qsort 133.14, rayon psum 5.09, rayon qsort 123.40
+round 14: rayon psum 4.48, rayon qsort 122.17, rig psum 7.59, rig qsort 134.64
+round 15: rig psum 6.66, rig qsort 130.37, rayon psum 4.76, rayon qsort 120.41
+round 16: rayon psum 4.88, rayon qsort 117.25, rig psum 6.76, rig qsort 120.55
+round 17: rig psum 7.66, rig qsort 135.71, rayon psum 5.05, rayon qsort 121.04
+round 18: rayon psum 4.78, rayon qsort 132.17, rig psum 8.83, rig qsort 129.83
+round 19: rig psum 7.15, rig qsort 123.84, rayon psum 4.76, rayon qsort 132.62
+round 20: rayon psum 4.64, rayon qsort 125.01, rig psum 7.62, rig qsort 124.47
+checks: {'psum': ['16760439056'], 'qsort': ['4194304']}
+row        rig ms   rayon ms
+psum         6.66       4.48
+qsort      120.55     117.25
