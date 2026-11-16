@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+"""bench/http/bench-http with each run's CPU time: the server's, and the
+load generator's, for each request served.
+
+Same options as bench-http (it loads that script and runs its `main`).
+For each timed run it also prints, to standard error, a line
+
+    cpu <variant> server <us/req> load <us/req> rps <n>
+
+where the server's CPU time is its user and system time over the run
+(`ps -o time=`, read before and after the load), and the load
+generator's is the time its process used (the children's rusage), each
+divided by the requests the run served. It says whether a server's lead
+is CPU spent per request or the load generator's share of the cores.
+"""
+import importlib.machinery, importlib.util, os, resource, subprocess, sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+loader = importlib.machinery.SourceFileLoader("bench_http", os.path.join(HERE, "bench-http"))
+spec = importlib.util.spec_from_loader("bench_http", loader)
+bh = importlib.util.module_from_spec(spec)
+loader.exec_module(bh)
+
+started = {}
+original_start = bh.start
+original_load = bh.load
+
+
+def cpu_seconds(pid):
+    """The process's user and system time in seconds: from
+    /proc/PID/stat on Linux (clock ticks), else from `ps -o time=`
+    ([[dd-]hh:]mm:ss[.ff]), which macOS gives to the hundredth."""
+    stat = "/proc/%d/stat" % pid
+    if os.path.exists(stat):
+        with open(stat) as f:
+            fields = f.read().rsplit(")", 1)[1].split()
+        # utime and stime are fields 14 and 15; the split starts at field 3.
+        return (int(fields[11]) + int(fields[12])) / os.sysconf("SC_CLK_TCK")
+    t = subprocess.check_output(["ps", "-o", "time=", "-p", str(pid)], text=True).strip()
+    days = 0
+    if "-" in t:
+        d, t = t.split("-", 1)
+        days = int(d)
+    parts = [float(x) for x in t.split(":")]
+    secs = 0.0
+    for x in parts:
+        secs = secs * 60 + x
+    return days * 86400 + secs
+
+
+def start(exe, everywhere=False):
+    p, addr = original_start(exe, everywhere)
+    started[addr] = (os.path.basename(exe), p.pid)
+    return p, addr
+
+
+def load(loader_exe, addr, conns, duration):
+    variant, pid = started.get(addr, ("?", None))
+    before = cpu_seconds(pid) if pid else 0.0
+    kids = resource.getrusage(resource.RUSAGE_CHILDREN)
+    r = original_load(loader_exe, addr, conns, duration)
+    after = cpu_seconds(pid) if pid else 0.0
+    kids2 = resource.getrusage(resource.RUSAGE_CHILDREN)
+    served = max(1, r["rps"] * duration)
+    server_us = (after - before) * 1e6 / served
+    load_us = ((kids2.ru_utime - kids.ru_utime) + (kids2.ru_stime - kids.ru_stime)) * 1e6 / served
+    print("cpu %s server %.2f load %.2f rps %d" % (variant, server_us, load_us, r["rps"]), file=sys.stderr, flush=True)
+    return r
+
+
+bh.start = start
+bh.load = load
+
+if __name__ == "__main__":
+    bh.main()
