@@ -732,8 +732,32 @@ arms.
   it is level or faster on 65 of the 72 rows and at most 10% slower
   (reversed Ints). A type
   with an `order` of its own, whose equal values may differ, one holding
-  a handle, and `sort_by` and `sort_by_key` keep the stable merge
-  (docs/history/records/2026-11/std-sort/).
+  a handle, and `sort_by` and `sort_by_key` sort by the stable merge
+  below (docs/history/records/2026-11/std-sort/).
+- **`sort.sort_by`, `sort.sort_by_key`, and `sort.sort` of a type with
+  an `order` of its own sort by a buffered stable merge**: natural runs,
+  a strictly falling one reversed, each sorted on to 32 elements by
+  insertion, merged in powersort's order, each merge moving the shorter
+  run out to a room of `xs.len / 2` elements, one allocation freed
+  before the sort returns (none for 32 elements or fewer, or input in
+  order or strictly in reverse; out of memory panics, as at any
+  allocation). A merge step branches while one run's elements come in
+  streaks and selects without a branch while they interleave. The sort
+  is inline throughout, so the comparator is inlined into it at each
+  call. It replaces insertion runs of 20 merged in place by rotations.
+  On the Mac every row of the stable board is faster: random records
+  3.8 times as fast at a million (196.77 to 51.39 ns per element),
+  random Ints 4.4 times, random text 2.2 times, reversed input 11 to
+  45 times, 16-valued input 1.8 to 2.3 times; Rust's `sort_by` (driftsort,
+  which adds a stable quicksort for input without runs) is still 3.3
+  times as fast on random records and 10 times on 16 values, and level
+  on sorted and reversed input
+  (docs/history/records/2026-11/std-sort/built.md).
+- **An integer's `order` folds into one compare where its result is
+  tested**: `rig.order` no longer goes through `std.math.order`, whose
+  checked `unreachable` kept `x.order(?y) == .less` from becoming
+  `x < y`; a stable sort of records by an own `order` on an Int key is
+  46% faster on a million random keys.
 - **`!xs.swap(i, j)` of an element up to 64 bytes swaps whole values**,
   where `std.mem.swap` moved one byte at a time, which LLVM turned into
   byte shuffles of the two elements: an insertion sort of 16 Ints ran
