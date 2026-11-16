@@ -27,10 +27,21 @@ def start(exe):
     sys.exit("never took connections: " + exe)
 
 
+def ports():
+    """Local ports for outgoing connections, and TCP sockets held now
+    (bench/net/bench-net's count), on macOS or Linux."""
+    if sys.platform == "darwin":
+        get = lambda k: int(subprocess.run(["sysctl", "-n", k], capture_output=True, text=True).stdout)
+        return get("net.inet.ip.portrange.last") - get("net.inet.ip.portrange.first") + 1, get("net.inet.tcp.pcbcount")
+    with open("/proc/sys/net/ipv4/ip_local_port_range") as f:
+        lo, hi = map(int, f.read().split())
+    with open("/proc/net/sockstat") as f:
+        tcp = next(l.split() for l in f if l.startswith("TCP:"))
+    return hi - lo + 1, int(tcp[tcp.index("inuse") + 1]) + int(tcp[tcp.index("tw") + 1])
+
+
 def settle():
-    get = lambda k: int(subprocess.run(["sysctl", "-n", k], capture_output=True, text=True).stdout)
-    room = get("net.inet.ip.portrange.last") - get("net.inet.ip.portrange.first") + 1
-    while get("net.inet.tcp.pcbcount") + 2000 > room:
+    while (p := ports())[1] + 2000 > p[0]:
         time.sleep(1)
 
 
