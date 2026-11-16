@@ -80,9 +80,11 @@ worker after.
   kqueue on macOS and epoll on Linux, which a waker kicks, and keeps a
   heap of the deadlines its fibers set, as Go keeps one per processor.
   A worker that runs fibers looks at both every 61 turns; one about to
-  sleep wakes the fibers whose timers are due on any worker, polls the
-  pollers no worker sleeps in, and sleeps until the earliest deadline any
-  worker holds. A wait with a deadline puts its timer in the heap and
+  sleep wakes the fibers whose timers are due on any worker, looks at
+  the other workers' pollers that are worth a look (below), and sleeps
+  until the earliest deadline any worker holds, in its own poller, whose
+  wait returns the events there at once, so it does not look there
+  first. A wait with a deadline puts its timer in the heap and
   takes it out as it wakes; a fiber that waits again and again, each
   time with a later deadline, as `http.serve`'s connection waits for
   each request, no longer than its idle time, holds one deadline that
@@ -130,12 +132,38 @@ worker after.
   A safe or debug build panics when a pinned fiber resumes on a worker
   other than its home (`sched.checkHome`), a load and a branch per
   switch.
+- **Looks batched.** A look at a poller is a system call, and at
+  saturation every worker goes to sleep many times a millisecond. A
+  worker about to sleep looks at another's poller only when that poller
+  holds descriptors, no worker sleeps in it (`Worker.sleep_due`: from
+  before it reckons its timeout to after its wait, which sees what lands
+  there), and no look or wait in it, its owner's or any other worker's,
+  has ended within `look_after`, 20 µs (`Poller.looked_at`,
+  `sched.lookWorth`). Each poller is then looked at by the sleeping
+  workers about once in that time, rather than once by each, and a
+  sleep enters the kernel once, for its wait, where it entered once for
+  every worker's poller and once more to wait. Events that land on a
+  busy worker's poller just after a look wait for whichever comes first
+  of its own looks (its yield checks every 250 µs, every 61 turns, the
+  monitor's stop in a build preempted by signal, its own wait once it
+  sleeps), the next worker to sleep once `look_after` has passed, and
+  the watcher's next look (below): with a worker asleep, no longer than
+  1 ms and `look_after`, and while the busy worker makes yield checks,
+  no longer than 250 µs, as without the rule. A worker that finds work
+  as it looks at the others goes back to it, and looks at its own
+  poller first, which it left to the wait. A deterministic run sleeps
+  in no poller and is unchanged.
 - **Every poller watched.** While a worker that does not sleep holds
   descriptors, one sleeping worker at a time watches every poller
   (`sched.sleepIn`): it sleeps at most 1 ms, and as it wakes looks at
-  every worker's poller, so a busy worker's sockets wait no longer than
-  that even when its own yield checks do not come (in recursion, say),
-  and it passes the watch on as it goes back to work. It keeps the watch
+  every other worker's poller that is worth a look, which is the next
+  turn of its sleep's look, so a busy worker's sockets wait no longer
+  than that, and `look_after` more, even when its own yield checks do
+  not come (in recursion, say): a look it skips comes within
+  `look_after` of the end of another, which either began after the
+  events landed, and saw them, or was under way as they landed, so its
+  next look is past that. It passes the watch on as it goes back to
+  work. It keeps the watch
   from one look to the next while such a worker is awake or has slept
   since the watch began, and lets it go only once every one has slept
   through a whole watch, so a worker that sleeps and wakes many times a

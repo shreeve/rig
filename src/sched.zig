@@ -192,7 +192,9 @@ const Worker = struct {
     idle: std.atomic.Value(u32) = .init(0),
     /// When its sleep in its poller ends: the earliest deadline any
     /// worker held as it went to sleep, `no_due` for none, or `awake`.
-    /// A timer set earlier kicks it (`kickForTimer`).
+    /// A timer set earlier kicks it (`kickForTimer`), and while it is not
+    /// `awake` a worker about to sleep leaves its poller to its own wait
+    /// (`lookWorth`).
     sleep_due: std.atomic.Value(i64) = .init(awake),
     /// When its yield checks last looked at its poller (`serviceBusy`).
     polled_at: i96 = 0,
@@ -2146,8 +2148,9 @@ fn kickForTimer(due: i64) void {
 /// registration is never freed while its events are handled (`close`);
 /// a worker that runs fibers polls it every 61 turns, and its yield
 /// checks every `poll_interval` (`serviceBusy`), and a worker about to
-/// sleep polls the others' (`serviceAll`), so a busy worker's
-/// descriptors wait no longer than its next turns.
+/// sleep polls the others' no worker sleeps in and none looked at within
+/// `look_after` (`serviceAll`), so a busy worker's descriptors wait no
+/// longer than its next turns.
 const Poller = struct {
     fd: i32 = -1,
     /// Linux: the eventfd that wakes it (`kick`).
@@ -2167,6 +2170,11 @@ const Poller = struct {
     /// and whether `os.exit` claimed it there (`ExitClaim`), so the worker
     /// stops as it wakes, before it reads a single event (`tearDown`).
     parked: std.atomic.Value(ExitClaim) = .init(.awake),
+    /// When a look or a wait in it last ended, its own worker's or
+    /// another's (`pollAs`): a worker about to sleep leaves it alone
+    /// within `look_after` of then (`lookWorth`). Written only while
+    /// `look_after` is not 0.
+    looked_at: std.atomic.Value(i64) = .init(0),
 
     const darwin = builtin.os.tag.isDarwin();
     const linux = builtin.os.tag == .linux;
@@ -2275,11 +2283,12 @@ const Poller = struct {
     /// ready; whether any. One who cannot take the lock does nothing,
     /// unless it means to wait. A look that takes the poller's kick
     /// leaves it standing (`kicked`): a worker looks at the pollers of
-    /// others as it goes to sleep (`serviceAll`), and at its own, and one
-    /// of them, or itself, may be between its last look for work and its
-    /// sleep, when a kick taken from under it would leave it asleep with
-    /// work queued for it. A wait takes a standing kick under the lock,
-    /// which no look holds while it waits, and then only looks.
+    /// others as it goes to sleep (`serviceAll`), and one of them may be
+    /// between its last look for work and its sleep, when a kick taken
+    /// from under it would leave it asleep with work queued for it. A
+    /// wait takes a standing kick under the lock, which no look holds
+    /// while it waits, and then only looks. Each look and wait that
+    /// reaches the kernel stamps the poller as it ends (`looked_at`).
     fn poll(p: *Poller, timeout: ?i96) bool {
         return p.pollAs(timeout, true);
     }
@@ -2315,6 +2324,7 @@ const Poller = struct {
             if (tears_down and !look) p.parked.store(.waiting, .seq_cst);
             const n = std.c.kevent(p.fd, &evs, 0, &evs, max_events, tp);
             if (tears_down and !look and p.parked.swap(.awake, .seq_cst) == .claimed) stopForExit(me().?, true);
+            p.stamp();
             if (n <= 0) return false;
             for (evs[0..@intCast(n)]) |ev| {
                 if (ev.udata == 0) {
@@ -2340,6 +2350,7 @@ const Poller = struct {
                 const ms: i32 = if (wait) |t| @intCast(@min(@divTrunc(t + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32))) else -1;
                 break :rc @bitCast(linux_.epoll_wait(p.fd, &evs, max_events, ms));
             };
+            p.stamp();
             if (rc <= 0) return false;
             for (evs[0..@intCast(rc)]) |ev| {
                 if (ev.data.ptr == 0) {
@@ -2357,6 +2368,14 @@ const Poller = struct {
             }
         }
         return any;
+    }
+
+    /// A look or a wait in it reached the kernel and came back: when
+    /// (`looked_at`), and, in a test, one more entry on this thread
+    /// (`test_entries`).
+    fn stamp(p: *Poller) void {
+        if (builtin.is_test) test_entries += 1;
+        if (look_after != 0) p.looked_at.store(@intCast(nowNs()), .monotonic);
     }
 
     /// Whether a wait in a poller ends near its timeout of a few
@@ -2391,9 +2410,10 @@ const fine_missing = split.cell(&fine_missing_var, "sched.fine_missing");
 
 /// The sleeping worker that watches every poller, or none: while a
 /// worker that does not sleep holds descriptors, it sleeps no longer than
-/// `watch_every`, and as it wakes looks at every poller (`serviceAll`),
-/// so a busy worker's descriptors wait no longer than that for a look,
-/// even while its own yield checks do not come (`sleepIn`). It keeps the
+/// `watch_every`, and as it wakes looks at every other poller
+/// (`serviceAll`), so a busy worker's descriptors wait no longer than
+/// that, and `look_after` more, for a look, even while its own yield
+/// checks do not come (`sleepIn`). It keeps the
 /// watch from one look to the next while such a worker is awake or has
 /// slept since the watch began, so one that sleeps and wakes many times
 /// a millisecond, as one answering a socket does, finds the watch held
@@ -2429,23 +2449,27 @@ fn watchWanted(w: *Worker) bool {
 
 /// Sleep in `w`'s poller up to `timeout`; when a worker that does not
 /// sleep holds descriptors and no other worker watches, watch: sleep at
-/// most `watch_every`, and look at every poller on waking. A watcher
+/// most `watch_every`, and look at every other poller on waking
+/// (`serviceAll`), which is then the look the next turn of `w`'s sleep
+/// makes: whether it watched. A watcher
 /// holds the watch until it sleeps without one, or goes back to work
 /// (`sleep`). It lets go of the watch before it looks at the other
 /// workers: a worker that wakes to run fibers marks itself awake before
 /// it looks for a watcher, all sequentially consistent, so either it sees
 /// no watcher and kicks a sleeper, or this sees it awake.
-fn sleepIn(w: *Worker, timeout: ?i96) void {
+fn sleepIn(w: *Worker, timeout: ?i96) bool {
     if (workersNow().len >= 2) {
         const held = watcher.load(.monotonic) == w;
         if (held) watcher.store(null, .seq_cst);
         if (watchWanted(w) and watcher.cmpxchgStrong(null, w, .seq_cst, .monotonic) == null) {
             for (workersNow()) |*v| v.watch_mark.store(v.slept.load(.monotonic), .monotonic);
             _ = w.poller.poll(if (timeout) |t| @min(t, watch_every) else watch_every);
-            return serviceAll();
+            serviceAll(w);
+            return true;
         }
     }
     _ = w.poller.poll(timeout);
+    return false;
 }
 
 /// A watcher, or a worker holding descriptors while none watches, woke
@@ -2761,17 +2785,53 @@ fn service(w: *Worker) void {
     if (w.poller.count.load(.monotonic) != 0) _ = w.poller.poll(0);
 }
 
-/// Before a worker sleeps: wake the fibers whose timers are due on any
-/// worker, and those the events of any poller no worker sleeps in make
-/// ready.
-fn serviceAll() void {
+/// Before the worker `w` waits in its own poller (`sleep`, and the
+/// watcher as it wakes, `sleepIn`): wake the fibers whose timers are due
+/// on any worker, and those the events of the other workers' pollers make
+/// ready, each that is worth a look (`lookWorth`). Its own poller it
+/// leaves to the wait, which returns the events there at once.
+fn serviceAll(w: *Worker) void {
     deliverInterrupt();
     const now = nowNs();
     for (workersNow()) |*v| {
         _ = v.timers.fire(now);
-        if (v.poller.count.load(.monotonic) != 0) _ = v.poller.poll(0);
+        if (v != w and lookWorth(v, now)) _ = v.poller.poll(0);
     }
 }
+
+/// Whether a worker about to sleep looks at `v`'s poller (`serviceAll`):
+/// it holds descriptors, no worker sleeps in it, and no look or wait in
+/// it has ended within `look_after` before `now` (`Poller.looked_at`).
+/// A worker sleeps in its poller from before it reckons its timeout until
+/// after its wait (`Worker.sleep_due`), and that wait, or one after it,
+/// returns the events there at once. With `look_after` 0 it is looked at
+/// whenever it holds descriptors.
+fn lookWorth(v: *Worker, now: i96) bool {
+    if (v.poller.count.load(.monotonic) == 0) return false;
+    if (look_after == 0) return true;
+    if (v.sleep_due.load(.monotonic) != awake) return false;
+    return now - v.poller.looked_at.load(.monotonic) >= look_after;
+}
+
+/// How long after a look at a worker's poller ends a worker about to
+/// sleep leaves that poller alone (`lookWorth`): a look is a system call,
+/// and at saturation every worker goes to sleep many times a millisecond,
+/// so each poller is looked at by the others no more than once in this
+/// time, rather than by each of them. Events that land on a busy worker
+/// `V`'s poller just after a look are then left, for at most this time
+/// past it, to whichever comes first: `V`'s own looks (its yield checks
+/// every `poll_interval`, its turns every 61 fibers, the monitor's stop
+/// of a fiber in a build preempted by signal, its own wait once it goes
+/// to sleep, which returns them at once); the next worker to go to sleep
+/// once this time has passed; and the watcher's look, every
+/// `watch_every`. A look that skips `V` comes within this time of the end
+/// of another, which either began after the events landed, and saw them,
+/// or was under way as they landed, a few microseconds at most, so the
+/// skip came less than this time after they landed and the watcher's next
+/// look is past it. A busy worker's descriptors, with a worker asleep,
+/// wait no longer than `watch_every` plus this time, and while it makes
+/// yield checks no longer than `poll_interval`.
+const look_after: i96 = 20 * std.time.ns_per_us;
 
 /// An interrupt canceled `main` (`rt.onInterrupt`): end its wait, here
 /// on a worker, as the handler may not. What a worker looks at as it
@@ -4083,6 +4143,10 @@ fn waitBriefly(w: *Worker, until: i96) void {
 /// never in a split build, and a plain variable rather than a cell.
 var test_brief_waits: std.atomic.Value(u32) = .init(0);
 
+/// Test only: how many looks and waits in a poller this thread made that
+/// reached the kernel (`Poller.stamp`). Never compiled outside a test.
+threadlocal var test_entries: u32 = 0;
+
 /// Work was made while a worker searches: kick one that waits in its
 /// poller for a fiber in another's slot (`waitBriefly`), so it looks
 /// again at once. Its poller's standing kick makes a second kick, as it
@@ -4225,9 +4289,17 @@ fn sleep(w: *Worker) void {
     const since = if (trim_due) nowReal() else 0;
     var trimmed = false;
     defer if (trimmed) rt.fast_alloc.wakeIdle();
+    // Whether the watcher's look at the other pollers as it woke is this
+    // turn's (`sleepIn`).
+    var looked = false;
     while (w.woken.load(.seq_cst) == 0) {
-        serviceAll();
-        if (!hasOwnWork(w)) {
+        if (!looked) serviceAll(w);
+        looked = false;
+        if (hasOwnWork(w)) {
+            // Back to work with no wait in its own poller: look at it,
+            // which `serviceAll` leaves to the wait.
+            if (w.poller.count.load(.monotonic) != 0) _ = w.poller.poll(0);
+        } else {
             w.sleep_due.store(no_due, .seq_cst);
             const due = earliestDue();
             w.sleep_due.store(due, .seq_cst);
@@ -4236,11 +4308,12 @@ fn sleep(w: *Worker) void {
                 const left = @max(since + w.trim_wait - nowReal(), 0);
                 timeout = if (timeout) |t| @min(t, left) else left;
             }
-            sleepIn(w, timeout);
+            looked = sleepIn(w, timeout);
             w.sleep_due.store(awake, .seq_cst);
             if (trim_due and w.woken.load(.seq_cst) == 0 and nowReal() - since >= w.trim_wait) {
                 trim_due = false;
                 trimmed = true;
+                looked = false;
                 trimIdle(w);
             }
             if (!hasOwnWork(w)) continue;
@@ -7720,6 +7793,151 @@ test "a look at a poller leaves its kick for the worker that sleeps in it" {
     const start = nowNs();
     _ = p.poll(2 * std.time.ns_per_s);
     try std.testing.expect(nowNs() - start < std.time.ns_per_s);
+}
+
+/// For the tests of the looks at pollers: `n` workers that run nothing,
+/// each poller open and watching the reading end of a pipe of its own,
+/// published as the program's workers until `deinit`.
+const TestLookers = struct {
+    ws: []Worker,
+    pipes: [][2]i32,
+    regs: []Registration,
+    saved: []Worker,
+    saved_len: usize,
+
+    fn init(n: usize) TestLookers {
+        const a = std.heap.smp_allocator;
+        const t: TestLookers = .{
+            .ws = a.alloc(Worker, n) catch rt.oom(),
+            .pipes = a.alloc([2]i32, n) catch rt.oom(),
+            .regs = a.alloc(Registration, n) catch rt.oom(),
+            .saved = all_workers.*,
+            .saved_len = workers_len.load(.acquire),
+        };
+        for (t.ws, t.pipes, t.regs) |*w, *fds, *r| {
+            w.* = .{};
+            w.poller.open();
+            fds.* = testPipe();
+            r.* = .{ .fd = fds[0], .poller = &w.poller };
+            std.debug.assert(w.poller.add(fds[0], r));
+        }
+        all_workers.* = t.ws;
+        workers_len.store(n, .release);
+        return t;
+    }
+
+    fn deinit(t: *TestLookers) void {
+        all_workers.* = t.saved;
+        workers_len.store(t.saved_len, .release);
+        const a = std.heap.smp_allocator;
+        for (t.ws, t.pipes) |*w, fds| {
+            w.poller.remove(fds[0]);
+            w.poller.close();
+            for (fds) |fd| _ = std.posix.system.close(fd);
+        }
+        a.free(t.ws);
+        a.free(t.pipes);
+        a.free(t.regs);
+    }
+
+    /// Take what the `i`th pipe holds.
+    fn drain(t: *TestLookers, i: usize) void {
+        var buf: [64]u8 = undefined;
+        while (@as(isize, @bitCast(std.posix.system.read(t.pipes[i][0], &buf, buf.len))) > 0) {}
+    }
+
+    /// One turn of a sleep of `w`: its look at the others' pollers
+    /// (`serviceAll`), then a wait of 1 µs in its own; the entries into
+    /// the kernel it made.
+    fn sleepTurn(w: *Worker) u32 {
+        test_entries = 0;
+        serviceAll(w);
+        _ = w.poller.poll(std.time.ns_per_us);
+        return test_entries;
+    }
+};
+
+test "a turn of a sleep enters the kernel once, its wait, while the other workers sleep or have looked at their pollers within look_after" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const n = 4;
+    var t = TestLookers.init(n);
+    defer t.deinit();
+    const w = &t.ws[0];
+    // Every other worker busy, its poller unlooked at for long: a look at
+    // each of the three, and the wait. A look at its own poller as well,
+    // n + 1 in all, is left to the wait.
+    try std.testing.expectEqual(n, TestLookers.sleepTurn(w));
+    // Every other worker asleep in its poller, whose own wait sees what
+    // lands there: the wait alone.
+    for (t.ws[1..]) |*v| v.sleep_due.store(no_due, .seq_cst);
+    try std.testing.expectEqual(if (look_after == 0) n else 1, TestLookers.sleepTurn(w));
+    for (t.ws[1..]) |*v| v.sleep_due.store(awake, .seq_cst);
+    // Every other worker looked at its poller just now, as busy ones do
+    // at their turns and yield checks: the wait alone, in each round that
+    // looks within `look_after` of the first of those looks.
+    var within: u32 = 0;
+    var rounds: u32 = 0;
+    while (rounds < 1000 and within < 10) : (rounds += 1) {
+        for (t.ws[1..]) |*v| _ = v.poller.poll(0);
+        const first = t.ws[1].poller.looked_at.load(.monotonic);
+        const entries = TestLookers.sleepTurn(w);
+        if (look_after == 0) {
+            try std.testing.expectEqual(n, entries);
+            within += 1;
+        } else if (nowNs() - first < look_after) {
+            try std.testing.expectEqual(1, entries);
+            within += 1;
+        }
+    }
+    try std.testing.expectEqual(10, within);
+    // Once `look_after` has passed since the last look, a sleep looks again.
+    if (look_after != 0) {
+        const last = t.ws[n - 1].poller.looked_at.load(.monotonic);
+        while (nowNs() - last < look_after) std.atomic.spinLoopHint();
+        try std.testing.expectEqual(n, TestLookers.sleepTurn(w));
+    }
+}
+
+test "readiness on a busy worker's poller that a sleeping worker leaves alone reaches the worker's own yield check, and the next sleep once look_after has passed" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    var t = TestLookers.init(2);
+    defer t.deinit();
+    const sleeper = &t.ws[0];
+    const v = &t.ws[1];
+    const r = &t.regs[1];
+    var skipped: u32 = 0;
+    var rounds: u32 = 0;
+    const most: u32 = if (look_after == 0) 10 else 1000;
+    while (rounds < most and skipped < 4) : (rounds += 1) {
+        // `v` looks, as at one of its turns; a byte lands on its poller;
+        // a worker goes to sleep.
+        _ = v.poller.poll(0);
+        const looked = v.poller.looked_at.load(.monotonic);
+        const before = edges(r, Registration.readable);
+        _ = std.posix.system.write(t.pipes[1][1], "x", 1);
+        serviceAll(sleeper);
+        if (edges(r, Registration.readable) != before) {
+            // Looked at: only once `look_after` had passed.
+            if (look_after != 0) try std.testing.expect(nowNs() - looked >= look_after);
+        } else {
+            try std.testing.expect(look_after != 0);
+            skipped += 1;
+            if (skipped % 2 == 1) {
+                // `v`'s next yield check, `poll_interval` after its last
+                // look of its own, sees the byte.
+                v.polled_at = nowNs() - poll_interval;
+                serviceBusy(v);
+            } else {
+                // The next worker to sleep once `look_after` has passed,
+                // or the watcher's next look, sees it.
+                while (nowNs() - looked < look_after) std.atomic.spinLoopHint();
+                serviceAll(sleeper);
+            }
+            try std.testing.expect(edges(r, Registration.readable) != before);
+        }
+        t.drain(1);
+    }
+    if (look_after != 0) try std.testing.expectEqual(4, skipped);
 }
 
 test "a run-next fiber that wakes no worker is handed on at its maker's next recursive check" {
