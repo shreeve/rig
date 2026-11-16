@@ -3558,19 +3558,22 @@ fn workerMain(w: *Worker) void {
 }
 
 /// A worker's life: run what is ready, look for more, sleep when there
-/// is none, until `main` ends.
+/// is none, until `main` ends. What its searches saw in a busy worker's
+/// "run next" slot is kept from one search to the next, across its
+/// sleeps, until it runs a fiber (`Note`).
 fn loop(w: *Worker) void {
+    var note: Note = .{};
     while (!stopping.load(.acquire)) {
         if (tears_down and exit_state.phase.load(.acquire) != .idle) stopForExit(w, false);
         if (deterministic.*) {
-            const f = next(w) orelse {
+            const f = next(w, &note) orelse {
                 advanceClock();
                 continue;
             };
             runFiber(w, f);
             continue;
         }
-        const f = next(w) orelse {
+        const f = next(w, &note) orelse {
             if (w.searching) {
                 w.searching = false;
                 _ = searching.fetchSub(1, .seq_cst);
@@ -3581,7 +3584,9 @@ fn loop(w: *Worker) void {
             continue;
         };
         // Work found: stop searching, and if this worker was the last
-        // searching, wake another to look for more.
+        // searching, wake another to look for more. While it runs, it
+        // watches no slot, so its next search sees afresh.
+        if (note.f != null) note = .{};
         if (w.searching) {
             w.searching = false;
             if (searching.fetchSub(1, .seq_cst) == 1) notify();
@@ -3651,7 +3656,7 @@ fn prepare(w: *Worker, f: *Fiber) void {
 /// The next fiber to run: the global queue's (first, one turn in 61, so
 /// it is never starved), this worker's "run next" fiber, its pinned
 /// fibers' and its ring's, the global queue's, or one stolen.
-fn next(w: *Worker) ?*Fiber {
+fn next(w: *Worker, note: *Note) ?*Fiber {
     // Deterministic: any ready fiber, as the seed picks, once the timers
     // the clock has reached have woken theirs.
     if (deterministic.*) {
@@ -3668,10 +3673,10 @@ fn next(w: *Worker) ?*Fiber {
     // A search that waited for a fiber in another's slot and did not take
     // it looks again, at its own queues first, where its poller's events
     // may have put fibers as it waited, and then at the fiber it noted.
-    var note: Note = .{};
+    note.made = 0;
     while (true) {
         if (nextOwn(w)) |f| return f;
-        switch (search(w, &note)) {
+        switch (search(w, note)) {
             .fiber => |f| return f,
             .none => return null,
             .again => if (stopping.load(.acquire) or (tears_down and exit_state.phase.load(.acquire) != .idle)) return null,
@@ -3679,25 +3684,33 @@ fn next(w: *Worker) ?*Fiber {
     }
 }
 
-/// A fiber a searcher saw in a busy worker's "run next" slot, which it
-/// takes once `until` passes while it stays there and that worker runs
-/// one fiber throughout (`stealNext`); kept from one look to the next, so
-/// a wait cut short does not start the fiber's 3 µs again.
+/// A fiber a searcher saw in a busy worker's "run next" slot, and when
+/// it first saw it there, by its own clock: it takes the fiber once
+/// `steal_next_after` has passed from then while it stays (`stealNext`).
+/// Kept by the worker's `loop` from one look to the next and across its
+/// sleeps, so neither a wait cut short, nor the owner's switches, nor a
+/// sleep start the fiber's 3 µs again; forgotten when the slot holds
+/// another fiber, or the worker runs one.
 const Note = struct {
     victim: ?*Worker = null,
     slot: ?*std.atomic.Value(?*Fiber) = null,
     f: ?*Fiber = null,
+    /// When this worker first saw `f` in `slot`.
+    first: i96 = 0,
+    /// The owner's switch count (`Worker.ran`) at the latest note.
     ran: u64 = 0,
-    until: i96 = 0,
-    /// How many notes this search has made.
+    /// How many notes this search has made: a fiber seen afresh, or seen
+    /// again after its owner switched, before its 3 µs passed.
     made: u8 = 0,
 };
 
-/// How many fibers in slots one search waits for, a note each, before it
-/// stops and its worker sleeps: a worker that keeps switching, and keeps
-/// its slots full, is not stuck, and its own switches and yield checks
-/// hand the work on (`spread`, `claimWaiting`), as when a search finds
-/// nothing.
+/// How many notes one search makes before it stops and its worker
+/// sleeps: a worker that keeps switching, and keeps its slots full, may
+/// run the fiber itself, and its own switches and yield checks hand the
+/// work on (`spread`, `claimWaiting`), as when a search finds nothing.
+/// A switch of its that leaves work in its slots wakes the sleeper again
+/// (`spread`), which takes the fiber still there once 3 µs have passed
+/// from its first note.
 const notes_most = 3;
 
 /// The next fiber of `w`'s own: its "run next" fiber, its pinned fibers'
@@ -3784,32 +3797,43 @@ fn search(w: *Worker, note: *Note) Found {
 /// 3 µs before it takes a `runnext`.
 const steal_next_after: i96 = 3 * std.time.ns_per_us;
 
-/// Take the fiber in `v`'s oldest "run next" slot once it has waited
-/// there `steal_next_after` from when this search first saw it (`Note`)
-/// while `v` ran one fiber throughout, stuck in it, as Go takes a
-/// `runnext`: `.none` when no slot of `v`'s holds one, and `.again`,
-/// for the searcher to look again, its own queues and the rings first,
-/// after it waits for that time to pass, or when the fiber left the
-/// slot meanwhile. A fiber that stays while `v` switches is noted
-/// afresh. The searcher waits in its own poller (`waitBriefly`), giving
-/// its core up, rather than spinning; where no poller waits so briefly,
-/// it spins. A pinned fiber taken so goes back to its home's queue.
+/// Take the fiber in `v`'s oldest "run next" slot once this worker has
+/// seen it there `steal_next_after`, by its own clock, from its first
+/// note (`Note`), as Go takes a `runnext`: `.none` when no slot of `v`'s
+/// holds one, and `.again`, for the searcher to look again, its own
+/// queues and the rings first, after it waits for that time to pass, or
+/// when the fiber left the slot meanwhile. A look before then that finds
+/// `v` has switched (`Worker.ran`) notes the fiber again and counts the
+/// note toward the search's `notes_most`, keeping its first time: a
+/// worker that switches may run the fiber itself, so a searcher kicked at
+/// each of its switches goes to sleep rather than watch on. Once the time
+/// has passed, it takes the fiber however often `v` switched: two fibers
+/// that wake each other into `v`'s newer slots, which `v` runs first,
+/// cannot keep an older one there. The searcher waits in its own poller
+/// (`waitBriefly`), giving its core up, rather than spinning; where no
+/// poller waits so briefly, it spins. A pinned fiber taken so goes back
+/// to its home's queue.
 fn stealNext(w: *Worker, v: *Worker, note: *Note) Found {
     const slot = oldestNext(v) orelse return .none;
     const f = slot.load(.seq_cst) orelse return .none;
     const ran = v.ran.load(.monotonic);
-    if (note.slot != slot or note.f != f or note.ran != ran) {
+    const now = nowNs();
+    if (note.slot != slot or note.f != f) {
         if (note.made == notes_most) return .none;
-        note.* = .{ .victim = v, .slot = slot, .f = f, .ran = ran, .until = nowNs() + steal_next_after, .made = note.made + 1 };
+        note.* = .{ .victim = v, .slot = slot, .f = f, .first = now, .ran = ran, .made = note.made + 1 };
+    } else if (note.ran != ran and now < note.first + steal_next_after) {
+        if (note.made == notes_most) return .none;
+        note.ran = ran;
+        note.made += 1;
     }
     // Wait without reading the slot, whose line its owner writes.
-    if (nowNs() < note.until) {
+    const until = note.first + steal_next_after;
+    if (now < until) {
         if (Poller.waitsFine()) {
-            waitBriefly(w, note.until);
+            waitBriefly(w, until);
             return .again;
         }
-        while (nowNs() < note.until) std.atomic.spinLoopHint();
-        if (v.ran.load(.monotonic) != ran) return .again;
+        while (nowNs() < until) std.atomic.spinLoopHint();
     }
     if (slot.cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) return .again;
     return if (unlessPinned(f)) |g| .{ .fiber = g } else .again;
@@ -7534,6 +7558,74 @@ test "a worker stuck in one fiber has the fibers in its run-next slots taken by 
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expect(Run.ok);
     if (Poller.waitsFine()) try std.testing.expect(test_brief_waits.load(.seq_cst) > 0);
+}
+
+test "a fiber left in a run-next slot while two fibers on its worker wake each other is taken by an idle worker" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var home: ?*Worker = null;
+        var made: i96 = 0;
+        var waited: i96 = 0;
+        var away = false;
+        var began = std.atomic.Value(bool).init(false);
+        var done = std.atomic.Value(bool).init(false);
+        var main_fiber: ?*Fiber = null;
+        var taken: u32 = 0;
+        const Unit = struct {};
+        fn left(_: *Unit) u8 {
+            waited = nowNs() - made;
+            away = me() != home;
+            began.store(true, .seq_cst);
+            return 0;
+        }
+        fn nothing(_: *Fiber, _: ?*anyopaque) void {}
+        fn wakeOther(_: *Fiber, ctx: ?*anyopaque) void {
+            wakeIn(@ptrCast(@alignCast(ctx.?)));
+        }
+        /// Wake `main` as this fiber stops, and wait to be woken back.
+        fn partner(_: *Unit) u8 {
+            while (!done.load(.seq_cst)) park(.{ .run = wakeOther, .ctx = main_fiber });
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = workersRunning();
+            // Five rounds, each counted when `left` runs on the other
+            // worker within 1 ms of its making, the other's wake from its
+            // sleep included. A searcher that gave up on a fiber whenever
+            // its worker switched left it there for the whole round, 5 ms,
+            // unless the system stopped this thread for 3 µs.
+            for (0..5) |_| {
+                testNapUntilOthersSleep();
+                home = me();
+                main_fiber = current();
+                began.store(false, .seq_cst);
+                done.store(false, .seq_cst);
+                made = nowNs();
+                // `left` takes a slot, the partner the next. Each fiber
+                // that stops wakes the other into the slot after the
+                // newest, which this worker runs next, so `left`, in the
+                // oldest, stays there, and every switch moves `ran`.
+                const j = spawn(u8, Unit, left, .{}, .{}, false, false).job;
+                const p = spawn(u8, Unit, partner, .{}, .{}, false, false).job;
+                park(.{ .run = nothing });
+                const until = nowNs() + 5 * std.time.ns_per_ms;
+                while (!began.load(.seq_cst) and nowNs() < until) park(.{ .run = wakeOther, .ctx = &p.header.fiber });
+                if (began.load(.seq_cst) and away and waited < std.time.ns_per_ms) taken += 1;
+                done.store(true, .seq_cst);
+                wake(&p.header.fiber);
+                _ = p.join();
+                p.free();
+                _ = j.join();
+                j.free();
+            }
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.taken >= 3);
 }
 
 test "tasks made in turn and waited for in order start on the idle workers, woken as their maker's worker switches to the first" {
