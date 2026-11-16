@@ -16638,7 +16638,17 @@ const Checker = struct {
     fn spelledWait(self: *Checker, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
         const held = sema.unwrapViews(self.ctx, obj_ty);
         if (!sema.isTask(self.ctx, held) or !std.mem.eql(u8, method, "wait")) return null;
-        const shown = try self.plainText(stripSigil(obj));
+        const task = stripSigil(obj);
+        const shown = try self.plainText(task);
+        // `>` takes a name alone: a task made where it is waited for is
+        // the call itself, and any other is bound to a name first.
+        if (task != .src) {
+            if (task.isKind(.call) and ir.Call.task(task) != .nil) {
+                const call = std.mem.trimEnd(u8, shown, "&");
+                return try self.badCall(args, pos, "a task waited for as soon as it starts is the call itself: write `{s}`", .{call});
+            }
+            return try self.badCall(args, pos, "a task is waited for with `>` on a name: take it out to one first, `t = <{s}`, then wait for that, `>t`", .{shown});
+        }
         if (args.len > 0) return try self.badCall(args, pos, "a task is waited for with `>`, which takes nothing; to give the wait a deadline, write it in `time.within`: `time.within(2 * time.SECOND, |<{s}| >{s}!)`", .{ shown, shown });
         return try self.badCall(args, pos, "a task is waited for with `>`: write `>{s}`", .{shown});
     }
