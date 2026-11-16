@@ -16,7 +16,11 @@ tools/pup-rig $COMMIT                # prints PUP_RIG=/zfs/trig-pup/rig-<sha>/bi
 export COMMIT=<sha>                  # the commit under test
 SHA=$(git rev-parse --short=9 $COMMIT)
 W=/zfs/trig-pup/bench-remeasure-$SHA
-git -C /zfs/worktrees/rig fetch -q origin && git -C /zfs/worktrees/rig worktree add --detach $W/rig $COMMIT
+# pup's Rig clones reach no GitHub remote, and /zfs/worktrees/rig is no
+# git repository: from the Mac, push the harness branch into the private
+# clone, `git push ssh://pup/zfs/trig-pup/rig-$SHA bench-remeasure`, then
+# clone it locally on pup:
+git clone -q --branch bench-remeasure /zfs/trig-pup/rig-$SHA $W/rig
 cd $W/rig
 export RIG=/zfs/trig-pup/rig-$SHA/bin/rig PYTHONUNBUFFERED=1
 D=$W/build; mkdir -p $D/{tasks,actors,net,http,scale,fork}
