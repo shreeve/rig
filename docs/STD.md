@@ -1673,27 +1673,36 @@ literal or a bare name is lent as it is passed.
 
 | Function | Result |
 |---|---|
-| `sort[T: Ord](xs: ![]T)` | sort `xs` in place, in the order of `<`, keeping equal elements that can be told apart in the order they had; allocates nothing |
+| `sort[T: Ord](xs: ![]T)` | sort `xs` in place, in the order of `<`, keeping equal elements that can be told apart in the order they had |
 | `sort_by[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)` | the same, in the order `less` gives: `less(a, b)` says whether `a` belongs before `b` |
 | `sort_by_key[T, K: Ord](xs: ![]T, key: ?fun(?T) -> K)` | the same, in the order of the keys `key` gives, by `<`; `key` is called twice for each comparison |
 | `lower_bound[T: Ord](xs: []T, x: ?T) -> Int` | in `xs` sorted by `<`, the index where `x` belongs: the first element not less than `x`, or `xs.len` |
 | `search[T: Ord](xs: []T, x: ?T) -> Int?` | in `xs` sorted by `<`, the index of the first element equal to `x`, by binary search; `none` when there is none |
 
 Every sort is stable in meaning: elements the order finds equal keep
-the order they had wherever a program could tell them apart. None
-allocates. Where equal elements are the same value, nothing can tell
-them apart, and `sort` uses pattern-defeating quicksort (as Rust's
-`sort_unstable` and Zig's `std.sort.pdq`), which does not keep their
-order: for numbers, `Bool`, text, plain enums, and the optionals,
-arrays, objects, and enums made only of these whose header derives
-`Ord` (`obj Point: Ord` with no `order` of its own). It compares with
-`<` inline and takes O(n log n) comparisons at worst, O(n) on sorted or
-reversed input, and O(log n) stack. Otherwise, for a type with an
-`order` of its own (two keys it calls equal may still differ) or one
-holding a handle, and for `sort_by` and `sort_by_key` always, it sorts
-runs of 20 elements by insertion, then merges them in place by
-rotations: O(n log n) comparisons, O(n log² n) swaps, and O(log n)
-stack.
+the order they had wherever a program could tell them apart. Where
+equal elements are the same value, nothing can tell them apart, and
+`sort` uses pattern-defeating quicksort (as Rust's `sort_unstable` and
+Zig's `std.sort.pdq`), which does not keep their order: for numbers,
+`Bool`, text, plain enums, and the optionals, arrays, objects, and
+enums made only of these whose header derives `Ord` (`obj Point: Ord`
+with no `order` of its own). It compares with `<` inline, takes
+O(n log n) comparisons at worst, O(n) on sorted or reversed input, and
+O(log n) stack, and allocates nothing.
+
+Otherwise, for a type with an `order` of its own (two keys it calls
+equal may still differ) or one holding a handle, and for `sort_by` and
+`sort_by_key` always, it sorts by a stable merge: natural runs, a
+strictly falling one reversed, each sorted on to 32 elements by
+insertion, then merged in powersort's order, each merge moving the
+shorter of its two runs out to a room and merging it back. That is
+O(n log n) comparisons, O(n) on input in order or in reverse, and one
+allocation, of room for `xs.len / 2` elements, freed before the sort
+returns. It allocates nothing for 32 elements or fewer, or for input
+already in order or strictly in reverse; when memory runs out, the
+program panics, as at any allocation. `sort_by` and `sort_by_key` are
+compiled into each call, where the comparator is known, so it can be
+inlined into the sort.
 
 ```rig
 use std.sort
