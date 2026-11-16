@@ -683,6 +683,13 @@ arms.
   which the handler only reads (`?http.Request`), and only its `body`
   is allocated. A request with a body has its head copied once, into
   one block, before the body is read.
+- **`http.serve` writes its answer's head from text made once:** the
+  status line comes from a table made when the program is compiled,
+  and the length is written digit by digit. The bytes sent are those
+  Zig's `respond` wrote. A response whose type holds a CR or LF is
+  answered 500, where a safe build panicked. The server parses a
+  request's head as Zig's `Head.parse` does, finding the header a name
+  means by its length first.
 - **Loopback round trips make fewer system calls:** a socket read that
   comes back short took all there was, so the next read waits on the
   poller for an edge before it calls, rather than being told EAGAIN (an
