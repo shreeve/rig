@@ -3468,6 +3468,7 @@ fn initWorker(i: usize) void {
 /// program that makes none starts none.
 fn startWorkers() void {
     started.* = true;
+    tightSlack();
     const n = if (deterministic.*) 1 else @min(workerCount(), all_workers.*.len);
     const ws = all_workers.*[0..n];
     for (1..n) |i| initWorker(i);
@@ -3551,9 +3552,19 @@ fn workerMain(w: *Worker) void {
     const alt = rt.AltStack.attachOrStop();
     defer alt.detach();
     me_slot().* = w;
+    tightSlack();
     if (preempt) preOf(w).tid = rt.threadId();
     defer leavePreempt(w);
     loop(w);
+}
+
+/// On Linux, let the kernel end this thread's timed waits within 1 ns of
+/// their time rather than its default 50 µs slack, so a searcher's 3 µs
+/// wait for a run-next fiber (`stealNext`) lasts about 3 µs. Called on
+/// each worker's thread, `main`'s among them as it starts the others.
+fn tightSlack() void {
+    if (builtin.os.tag != .linux) return;
+    _ = std.os.linux.prctl(@intFromEnum(std.os.linux.PR.SET_TIMERSLACK), 1, 0, 0, 0);
 }
 
 /// A worker's life: run what is ready, look for more, sleep when there
