@@ -673,10 +673,10 @@ arms.
   end that came with the last bytes still lets it return at once); a
   kick a look finds stays standing in a flag, so a kick costs one
   system call however many workers look. Urgent data ends the wait, as
-  the end of reading does. On Linux bench/net's echo and ping-pong run
-  4-6% faster with 40% fewer system calls; on the Mac echo runs 5% faster
-  and ping-pong 2%; connect, HTTP, bench/tasks and bench/actors are
-  level on both
+  the end of reading does. On Linux bench/net's echo runs 4-6% faster
+  and ping-pong 5%, with 40% fewer system calls; on the Mac echo runs 5%
+  faster and ping-pong 2%; connect, HTTP, bench/tasks and bench/actors
+  are level on both
   (docs/history/records/2026-11/concurrency-loopback/profile.md).
 - **A connection reset before it is accepted no longer stops the
   server:** on macOS every socket option on a reset connection fails
