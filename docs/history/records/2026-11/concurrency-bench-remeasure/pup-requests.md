@@ -65,3 +65,19 @@ never under 5 minutes.
 
 Report each file with the slot's line (cores, free 2 MiB blocks, load)
 and the Tokio version Cargo resolved (`misc/tokio` is a Mac clone).
+
+## What holds hyper at about 360,000 requests a second (H3)
+
+H2t found hyper's server at 5.1-5.2 µs of CPU per request, against
+Rig's 5.9-6.1, yet flat at about 360k req/s on cores 0-11 where Rig
+served 600k-846k: hyper keeps fewer cores busy. These rows say why
+before any ratio is published. Rebuild `bench/http/tokio` at this
+commit first (it reads `HYPER_WORKERS` and `HYPER_NODELAY`), on E-cores
+outside a slot; `bench-http-cputime` now also prints, per run, how many
+of the server's threads were busy and how many cores it used in all.
+
+| Row | Command | Asks | Minutes |
+|---|---|---|---|
+| H3a | `(git log -1 --format='%h %ci'; taskset -c 0-11 bench/http/bench-http-cputime --out $D/http --time-only --reps 3 --idle 0) 2>&1 \| tee -a $O/H3a-pup.txt` | each server's busy threads and cores used, as it runs | 6 |
+| H3b | H3a with `--variants tokio` and `HYPER_WORKERS=6` in the environment, then again with `HYPER_WORKERS=24`, appending to `$O/H3b-pup.txt` | whether hyper's worker count, 12 on cores 0-11, is its limit | 6 |
+| H3c | H3a with `--variants tokio` and `HYPER_NODELAY=1`, appending to `$O/H3c-pup.txt` | whether Nagle's algorithm holds hyper back, as Rig's server sets TCP_NODELAY | 4 |

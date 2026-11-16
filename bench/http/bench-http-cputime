@@ -48,6 +48,24 @@ def cpu_seconds(pid):
     return days * 86400 + secs
 
 
+def thread_cpu(pid):
+    """Each thread's user and system time in seconds, by thread id, from
+    /proc/PID/task on Linux; empty elsewhere."""
+    out = {}
+    base = "/proc/%d/task" % pid
+    if not os.path.isdir(base):
+        return out
+    tick = os.sysconf("SC_CLK_TCK")
+    for tid in os.listdir(base):
+        try:
+            with open("%s/%s/stat" % (base, tid)) as f:
+                fields = f.read().rsplit(")", 1)[1].split()
+            out[tid] = (int(fields[11]) + int(fields[12])) / tick
+        except OSError:
+            pass
+    return out
+
+
 def start(exe, everywhere=False):
     p, addr = original_start(exe, everywhere)
     started[addr] = (os.path.basename(exe), p.pid)
@@ -57,6 +75,7 @@ def start(exe, everywhere=False):
 def load(loader_exe, addr, conns, duration):
     variant, pid = started.get(addr, ("?", None))
     before = cpu_seconds(pid) if pid else 0.0
+    threads_before = thread_cpu(pid) if pid else {}
     kids = resource.getrusage(resource.RUSAGE_CHILDREN)
     r = original_load(loader_exe, addr, conns, duration)
     after = cpu_seconds(pid) if pid else 0.0
@@ -65,6 +84,13 @@ def load(loader_exe, addr, conns, duration):
     server_us = (after - before) * 1e6 / served
     load_us = ((kids2.ru_utime - kids.ru_utime) + (kids2.ru_stime - kids.ru_stime)) * 1e6 / served
     print("cpu %s server %.2f load %.2f rps %d" % (variant, server_us, load_us, r["rps"]), file=sys.stderr, flush=True)
+    # On Linux, how the server's CPU spread over its threads: how many did
+    # a tenth of a core or more over the run, and the busiest's share.
+    threads_after = thread_cpu(pid) if pid else {}
+    used = sorted((threads_after[t] - threads_before.get(t, 0.0) for t in threads_after), reverse=True)
+    if used:
+        busy = sum(1 for u in used if u >= 0.1 * duration)
+        print("threads %s busy %d of %d, busiest %.2f cores, cores used %.2f" % (variant, busy, len(used), used[0] / duration, sum(used) / duration), file=sys.stderr, flush=True)
     return r
 
 
