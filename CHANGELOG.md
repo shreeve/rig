@@ -678,6 +678,13 @@ arms.
 
 ### Runtime
 
+- A worker going to sleep looks at another worker's poller only when no
+  worker sleeps in it and no look at it has ended within 20 µs, and
+  leaves its own to its wait, which returns the events there at once:
+  a sleep enters the kernel about once, where it entered once for every
+  worker's poller and once more to wait. A busy worker's descriptors,
+  with a worker asleep, wait no longer than 1 ms and 20 µs for a look
+  (`sched.lookWorth`).
 - A worker with nothing to do waits for a task in a busy worker's "run
   next" slot in its own poller, 3 µs, rather than spinning on the
   clock, so its core goes to whatever else the machine runs (`epoll_pwait2`
