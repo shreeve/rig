@@ -32,6 +32,10 @@ comptime {
         global,
         sleepers,
         searching,
+        steal_waits,
+        fine_missing,
+        tick_start,
+        tick_wait,
         stopping,
         waiting,
         deterministic,
@@ -158,6 +162,11 @@ const Worker = struct {
     /// it; another reads it only to find the oldest, which its
     /// compare-and-swap on the slot then confirms.
     lifo_head: std.atomic.Value(u8) = .init(0),
+    /// When each slot of `lifo` was last filled, in ticks (`ticksNow`):
+    /// a worker with nothing else to steal takes a slot's fiber once it
+    /// is `steal_next_after` old (`stealNext`). Only this worker writes
+    /// them, each before it fills its slot.
+    lifo_stamp: [run_next_slots]std.atomic.Value(u64) = @splat(.init(0)),
     lifo_streak: u8 = 0,
     /// The large stacks it keeps free and has yet to run a fiber on.
     stacks: StackList = .{},
@@ -194,6 +203,9 @@ const Worker = struct {
     next_sleeper: ?*Worker = null,
     searching: bool = false,
     rng: u32 = 1,
+    /// Set while it waits, searching, for a fiber in a busy worker's "run
+    /// next" slot (`waitBriefly`): work made meanwhile kicks it (`notify`).
+    steal_wait: std.atomic.Value(bool) = .init(false),
     /// What it did, which `RIG_SCHED_STATS=1` prints as `main` ends
     /// (`printStats`): fibers it ran, of them pinned ones, fibers it
     /// stole, and times it slept. The watcher reads `slept` too
@@ -350,6 +362,7 @@ fn wakeIn(f: *Fiber) void {
     // the oldest goes to the ring.
     const i = (w.lifo_head.raw +% 1) % run_next_slots;
     w.lifo_head.store(i, .monotonic);
+    w.lifo_stamp[i].store(ticksNow(), .monotonic);
     if (w.lifo[i].swap(f, .seq_cst)) |b| {
         if (b.home != null) w.pinned.push(b) else {
             _ = w.ring.push(b);
@@ -2103,12 +2116,19 @@ const Poller = struct {
     /// work queued for it. A wait takes a standing kick under the lock,
     /// which no look holds while it waits, and then only looks.
     fn poll(p: *Poller, timeout: ?i96) bool {
+        return p.pollAs(timeout, true);
+    }
+
+    /// `poll`, and before a wait, whether to write out what `print` has
+    /// buffered (`rt.flushBeforeWait`): a wait of a few microseconds, a
+    /// searcher's (`waitBriefly`), leaves it.
+    fn pollAs(p: *Poller, timeout: ?i96, flush: bool) bool {
         // A look, which leaves a kick it takes; but a deterministic run,
         // on one thread, has no worker to leave it for, and waits a
         // moment in its poller after a look (`advanceClock`), which a
         // kick left there would end.
         const look = timeout != null and timeout.? == 0 and !deterministic.*;
-        if (timeout == null or timeout.? > 0) rt.flushBeforeWait();
+        if (flush and (timeout == null or timeout.? > 0)) rt.flushBeforeWait();
         if (look) {
             if (!p.lock.tryLock()) return false;
         } else {
@@ -2150,8 +2170,11 @@ const Poller = struct {
         } else if (linux) {
             const linux_ = std.os.linux;
             var evs: [max_events]linux_.epoll_event = undefined;
-            const ms: i32 = if (wait) |t| @intCast(@min(@divTrunc(t + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32))) else -1;
-            const rc: isize = @bitCast(linux_.epoll_wait(p.fd, &evs, max_events, ms));
+            const rc: isize = rc: {
+                if (wait) |t| if (t > 0 and t < std.time.ns_per_ms) if (waitFine(p.fd, &evs, t)) |rc| break :rc rc;
+                const ms: i32 = if (wait) |t| @intCast(@min(@divTrunc(t + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32))) else -1;
+                break :rc @bitCast(linux_.epoll_wait(p.fd, &evs, max_events, ms));
+            };
             if (rc <= 0) return false;
             for (evs[0..@intCast(rc)]) |ev| {
                 if (ev.data.ptr == 0) {
@@ -2170,7 +2193,36 @@ const Poller = struct {
         }
         return any;
     }
+
+    /// Whether a wait in a poller ends near its timeout of a few
+    /// microseconds: on the Mac (kevent's timeout counts nanoseconds), and
+    /// on Linux unless its kernel lacks `epoll_pwait2` (`waitFine`).
+    /// Linux stretches such a wait by the thread's timer slack, 50 µs
+    /// unless set, as it stretches Go's `usleep(3)`; a kick ends it.
+    fn waitsFine() bool {
+        return darwin or (linux and !fine_missing.load(.monotonic));
+    }
+
+    /// Linux: wait up to `ns`, under a millisecond, by `epoll_pwait2`,
+    /// whose timeout counts nanoseconds where `epoll_wait`'s counts
+    /// milliseconds; null on a kernel before 5.11, or a sandbox, that
+    /// refuses the call, which no worker then makes again.
+    fn waitFine(fd: i32, evs: *[max_events]std.os.linux.epoll_event, ns: i96) ?isize {
+        const linux_ = std.os.linux;
+        if (fine_missing.load(.monotonic)) return null;
+        const ts: linux_.kernel_timespec = .{ .sec = 0, .nsec = @intCast(ns) };
+        const rc: isize = @bitCast(linux_.syscall6(.epoll_pwait2, @as(u32, @bitCast(fd)), @intFromPtr(evs), max_events, @intFromPtr(&ts), 0, linux_.NSIG / 8));
+        if (rc == -@as(isize, @intFromEnum(linux_.E.NOSYS)) or rc == -@as(isize, @intFromEnum(linux_.E.PERM))) {
+            fine_missing.store(true, .monotonic);
+            return null;
+        }
+        return rc;
+    }
 };
+
+/// Linux: set once `epoll_pwait2` is refused (`Poller.waitFine`).
+var fine_missing_var: std.atomic.Value(bool) = .init(false);
+const fine_missing = split.cell(&fine_missing_var, "sched.fine_missing");
 
 /// The sleeping worker that watches every poller, or none: while a
 /// worker that does not sleep holds descriptors, it sleeps no longer than
@@ -3428,6 +3480,7 @@ fn startWorkers() void {
     const ws = all_workers.*[0..n];
     for (1..n) |i| initWorker(i);
     for (ws[1..]) |*w| w.poller.open();
+    if (!deterministic.*) tick_start.* = .{ .ticks = ticksNow(), .ns = @intCast(nowNs()) };
     workers_len.store(n, .release);
     for (ws[1..]) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
     if (preempt and !deterministic.*) startMonitor();
@@ -3620,6 +3673,42 @@ fn next(w: *Worker) ?*Fiber {
         service(w);
         if (global.pop()) |f| return f;
     }
+    // A search that waited for a fiber in another's slot to be there long
+    // enough looks again, at its own queues first, where its poller's
+    // events may have put fibers as it waited.
+    var note: Note = .{};
+    while (true) {
+        if (nextOwn(w)) |f| return f;
+        switch (search(w, &note)) {
+            .fiber => |f| return f,
+            .none => return null,
+            .again => if (stopping.load(.acquire) or (tears_down and exit_state.phase.load(.acquire) != .idle)) return null,
+        }
+    }
+}
+
+/// The fiber in a busy worker's "run next" slot that a search last
+/// waited for, too young to take (`search`): the slot, the fiber, and
+/// the slot's stamp. A look that finds the same is past the wait, and
+/// finds it old enough.
+const Note = struct {
+    slot: ?*std.atomic.Value(?*Fiber) = null,
+    f: ?*Fiber = null,
+    stamp: u64 = 0,
+    /// How many notes this search has made.
+    made: u8 = 0,
+};
+
+/// How many fibers in slots one search waits for, a note each, before it
+/// stops and its worker sleeps: a worker whose slots fill again and again
+/// faster than they age is not stuck, and its own switches and yield
+/// checks hand the work on (`spread`, `claimWaiting`), as when a search
+/// finds nothing.
+const notes_most = 3;
+
+/// The next fiber of `w`'s own: its "run next" fiber, its pinned fibers'
+/// and its ring's, or the global queue's.
+inline fn nextOwn(w: *Worker) ?*Fiber {
     // The newest first; the next made takes the slot it leaves.
     var k: u8 = if (nextHeld(w, .monotonic)) 0 else run_next_slots;
     while (k < run_next_slots) : (k += 1) {
@@ -3644,18 +3733,23 @@ fn next(w: *Worker) ?*Fiber {
     if (w.ring.pop()) |f| return f;
     if (w.pinned.pop()) |f| return f;
     if (global.pop()) |f| return f;
-    return search(w);
+    return null;
 }
+
+/// What a search found: a fiber; none, when the worker stops searching;
+/// or none yet, after a wait for a fiber in a busy worker's "run next"
+/// slot to be there long enough, when it looks again, still searching.
+const Found = union(enum) { fiber: *Fiber, none, again };
 
 /// Steal half of another worker's ring, starting from a random one. At
 /// most half the workers search at once; a worker that finds work, and
 /// was the last searching, wakes another to look for more.
-fn search(w: *Worker) ?*Fiber {
+fn search(w: *Worker, note: *Note) Found {
     const ws = workersNow();
-    if (ws.len < 2) return null;
+    if (ws.len < 2) return .none;
     // A worker woken to look for work is counted as searching already.
     if (!w.searching) {
-        if (2 * searching.load(.acquire) >= ws.len) return null;
+        if (2 * searching.load(.acquire) >= ws.len) return .none;
         _ = searching.fetchAdd(1, .seq_cst);
         w.searching = true;
     }
@@ -3668,22 +3762,47 @@ fn search(w: *Worker) ?*Fiber {
         if (v == w) continue;
         if (w.ring.stealFrom(&v.ring)) |f| {
             w.stole += 1;
-            return f;
+            return .{ .fiber = f };
         }
     }
-    if (global.pop()) |f| return f;
+    if (global.pop()) |f| return .{ .fiber = f };
     // No ring had any: take a fiber another worker has kept in its "run
-    // next" slot a while.
+    // next" slot `steal_next_after`, or else wait for the first to be
+    // there so long, and look again.
+    const need = ticksToWait();
+    var young: ?Young = null;
     for (0..ws.len) |k| {
         const v = &ws[(start + k) % ws.len];
         if (v == w) continue;
-        if (stealNext(v)) |f| {
-            w.stole += 1;
-            return f;
+        switch (stealNext(v, need)) {
+            .fiber => |f| {
+                w.stole += 1;
+                return .{ .fiber = f };
+            },
+            .none => {},
+            .young => |y| if (young == null or y.left < young.?.left) {
+                young = y;
+            },
         }
     }
-    return null;
+    const y = young orelse return .none;
+    if (note.slot != y.slot or note.f != y.f or note.stamp != y.stamp) {
+        if (note.made == notes_most) return .none;
+        note.* = .{ .slot = y.slot, .f = y.f, .stamp = y.stamp, .made = note.made + 1 };
+    }
+    const until = nowNs() + @divTrunc(@as(i96, @intCast(y.left)) * steal_next_after, @as(i96, @intCast(need))) + 1;
+    if (Poller.waitsFine()) waitBriefly(w, until) else while (nowNs() < until) std.atomic.spinLoopHint();
+    return .again;
 }
+
+/// A fiber in a "run next" slot too young to take: its slot, the fiber,
+/// the slot's stamp, and the ticks left until it is old enough.
+const Young = struct {
+    slot: *std.atomic.Value(?*Fiber),
+    f: *Fiber,
+    stamp: u64,
+    left: u64,
+};
 
 /// How long a fiber waits in a busy worker's "run next" slot before a
 /// worker with nothing to do takes it: long enough that a fiber made and
@@ -3691,17 +3810,124 @@ fn search(w: *Worker) ?*Fiber {
 /// 3 µs before it takes a `runnext`.
 const steal_next_after: i96 = 3 * std.time.ns_per_us;
 
-/// Take the fiber in `v`'s "run next" slot, if it is still there after
-/// `steal_next_after`. A pinned one taken so goes back to its home's
-/// queue.
-fn stealNext(v: *Worker) ?*Fiber {
-    const slot = oldestNext(v) orelse return null;
-    const f = slot.load(.seq_cst) orelse return null;
-    // Wait without reading the slot, whose line its owner writes.
-    const until = nowNs() + steal_next_after;
-    while (nowNs() < until) std.atomic.spinLoopHint();
-    if (slot.cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) return null;
-    return unlessPinned(f);
+/// What a look at a busy worker's oldest "run next" slot found.
+const Slotted = union(enum) { fiber: *Fiber, none, young: Young };
+
+/// Take the fiber in `v`'s oldest "run next" slot if the slot has held
+/// it `steal_next_after`, `need` ticks, by its stamp, as Go takes a
+/// `runnext`; or give how long it has left, never waiting. `.none` when
+/// no slot of `v`'s holds one, or another took it first. A pinned fiber
+/// taken so goes back to its home's queue.
+fn stealNext(v: *Worker, need: u64) Slotted {
+    const slot = oldestNext(v) orelse return .none;
+    const f = slot.load(.seq_cst) orelse return .none;
+    // The owner stamps a slot before it fills it, so this stamp is the
+    // fill's that put `f` there, or a later one's: never older.
+    const stamp = v.lifo_stamp[slotIndex(v, slot)].load(.monotonic);
+    const age: i64 = @bitCast(ticksNow() -% stamp);
+    if (age < 0 or @as(u64, @intCast(age)) < need) {
+        return .{ .young = .{ .slot = slot, .f = f, .stamp = stamp, .left = need - @as(u64, @intCast(@max(age, 0))) } };
+    }
+    if (slot.cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) return .none;
+    return if (unlessPinned(f)) |g| .{ .fiber = g } else .none;
+}
+
+/// Which of `v`'s "run next" slots `slot` is.
+fn slotIndex(v: *Worker, slot: *std.atomic.Value(?*Fiber)) usize {
+    return (@intFromPtr(slot) - @intFromPtr(&v.lifo[0])) / @sizeOf(std.atomic.Value(?*Fiber));
+}
+
+/// A count that rises steadily with time and is cheap to read, what a
+/// worker stamps a "run next" slot with as it fills it (`wakeIn`): the
+/// CPU's counter, `cntvct_el0` on arm64 and the time-stamp counter on
+/// x86-64, about a tenth of a read of the clock (`nowNs`), which goes
+/// through the vDSO or libc; elsewhere the clock.
+inline fn ticksNow() u64 {
+    switch (builtin.cpu.arch) {
+        .aarch64 => return asm volatile ("mrs %[r], cntvct_el0"
+            : [r] "=r" (-> u64),
+        ),
+        .x86_64 => {
+            var lo: u32 = undefined;
+            var hi: u32 = undefined;
+            asm volatile ("rdtsc"
+                : [lo] "={eax}" (lo),
+                  [hi] "={edx}" (hi),
+            );
+            return (@as(u64, hi) << 32) | lo;
+        },
+        else => return @intCast(nowNs()),
+    }
+}
+
+/// The ticks and the clock as the workers started (`startWorkers`), from
+/// which x86-64 learns its counter's rate (`ticksToWait`).
+const TickStart = struct { ticks: u64 = 0, ns: i64 = 0 };
+var tick_start_var: TickStart = .{};
+const tick_start = split.cell(&tick_start_var, "sched.tick_start");
+/// x86-64: the ticks in `steal_next_after`, once learned.
+var tick_wait_var: std.atomic.Value(u64) = .init(0);
+const tick_wait = split.cell(&tick_wait_var, "sched.tick_wait");
+
+/// How many ticks (`ticksNow`) make `steal_next_after`: on arm64 from the
+/// counter's frequency, which the CPU gives (`cntfrq_el0`); on x86-64
+/// from the ticks and the time since the workers started, learned once
+/// 10 ms have passed, and until then as at 6 GHz, which waits no less.
+fn ticksToWait() u64 {
+    const after: u64 = @intCast(steal_next_after);
+    switch (builtin.cpu.arch) {
+        .aarch64 => {
+            const hz = asm volatile ("mrs %[r], cntfrq_el0"
+                : [r] "=r" (-> u64),
+            );
+            return @max(1, hz * after / std.time.ns_per_s);
+        },
+        .x86_64 => {
+            const known = tick_wait.load(.monotonic);
+            if (known != 0) return known;
+            const ticks = ticksNow() -% tick_start.ticks;
+            const ns: u64 = @intCast(@max(@as(i64, @intCast(nowNs())) - tick_start.ns, 0));
+            if (ns < 10 * std.time.ns_per_ms) return after * 6;
+            const n: u64 = @max(1, @as(u64, @intCast(@as(u128, ticks) * after / ns)));
+            tick_wait.store(n, .monotonic);
+            return n;
+        },
+        else => return after,
+    }
+}
+
+/// How many workers wait for a fiber in another's "run next" slot
+/// (`waitBriefly`): while any does, work made kicks one (`notify`).
+var steal_waits_var: Flag = .{};
+const steal_waits = split.cell(&steal_waits_var, "sched.steal_waits");
+
+/// Wait in `w`'s poller until `until`, still counted as searching, waking
+/// the fibers its events make ready. Work made meanwhile wakes no sleeper,
+/// as a worker searches (`notify`), but kicks a worker waiting so, which
+/// then looks again. Counted as searching, it looks again before it can
+/// stop searching, as one that searches does: work it misses as it waits
+/// is still found by its next look, or by the last look of its sleep, so
+/// no wake is lost (formal/Models/Sleep.lean, where a wait is a step that
+/// changes nothing); the kick only makes the wait shorter.
+fn waitBriefly(w: *Worker, until: i96) void {
+    const left = until - nowNs();
+    if (left <= 0) return;
+    w.steal_wait.store(true, .seq_cst);
+    _ = steal_waits.fetchAdd(1, .seq_cst);
+    defer {
+        _ = steal_waits.fetchSub(1, .seq_cst);
+        w.steal_wait.store(false, .monotonic);
+    }
+    _ = w.poller.pollAs(left, false);
+}
+
+/// Work was made while a worker searches: kick one that waits in its
+/// poller for a fiber in another's slot (`waitBriefly`), so it looks
+/// again at once. Its poller's standing kick makes a second kick, as it
+/// waits on, free (`Poller.kick`).
+fn kickWaiting() void {
+    if (steal_waits.load(.seq_cst) == 0) return;
+    for (workersNow()) |*v| if (v.steal_wait.load(.seq_cst)) return v.poller.kick();
 }
 
 /// The oldest of `v`'s "run next" slots that holds a fiber, which a
@@ -3750,10 +3976,11 @@ fn notifyNew() void {
 
 /// Wake a sleeping worker when work was made and no worker is looking,
 /// counting it as searching from now, so the next work made does not
-/// wake another before this one has looked.
+/// wake another before this one has looked. While one looks, kick one
+/// waiting for a fiber in another's slot, if any does (`kickWaiting`).
 fn notify() void {
     if (deterministic.*) return;
-    if (searching.load(.seq_cst) != 0) return;
+    if (searching.load(.seq_cst) != 0) return kickWaiting();
     if (sleepers.count.load(.seq_cst) == 0) return;
     if (sleepers.pop()) |w| {
         _ = searching.fetchAdd(1, .seq_cst);
@@ -7334,6 +7561,53 @@ test "a run-next fiber whose notice another worker's check took is handed on at 
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expect(Run.in_time);
+}
+
+test "a worker stuck in one fiber has the fibers in its run-next slots taken by an idle worker once each is old enough" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var home: ?*Worker = null;
+        var elsewhere = std.atomic.Value(u32).init(0);
+        var ok = false;
+        const Unit = struct {};
+        fn child(_: *Unit) u8 {
+            if (me() != home) _ = elsewhere.fetchAdd(1, .seq_cst);
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = workersRunning();
+            // Rounds go on until one has every child run on the other
+            // worker while this one runs on, or ten have not.
+            var rounds: u32 = 0;
+            while (rounds < 10 and !ok) : (rounds += 1) {
+                testNapUntilOthersSleep();
+                home = me();
+                elsewhere.store(0, .seq_cst);
+                const ran = home.?.ran;
+                // Four fill this worker's "run next" slots and wake no
+                // worker; the fifth pushes the oldest to the ring, which
+                // wakes the other. It takes that one from the ring, then
+                // each left in a slot once its stamp is old enough,
+                // waiting in its poller for one too young, while this
+                // worker, making no check, switches to no other fiber.
+                var jobs: [5]*Job(u8) = undefined;
+                for (&jobs) |*j| j.* = spawn(u8, Unit, child, .{}, .{}, false, false).job;
+                const until = nowNs() + 2 * std.time.ns_per_s;
+                while (elsewhere.load(.seq_cst) < jobs.len and nowNs() < until) std.atomic.spinLoopHint();
+                ok = elsewhere.load(.seq_cst) == jobs.len and me() == home and home.?.ran == ran;
+                for (jobs) |j| {
+                    _ = j.join();
+                    j.free();
+                }
+            }
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.ok);
 }
 
 test "tasks made in turn and waited for in order start on the idle workers, woken as their maker's worker switches to the first" {

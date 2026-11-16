@@ -667,6 +667,13 @@ arms.
 
 ### Runtime
 
+- A worker with nothing to do takes a task from a busy worker's "run
+  next" slot once the slot has held it 3 µs, read from a stamp the
+  filling worker writes from the CPU's counter, rather than spinning 3
+  µs on the clock first; for a slot too young it waits in its own
+  poller until the slot comes of age (`epoll_pwait2` on Linux, kevent on
+  the Mac), so its core goes to whatever else the machine runs. Work made
+  meanwhile kicks it (`sched.stealNext`).
 - **Loopback round trips make fewer system calls:** a socket read that
   comes back short took all there was, so the next read waits on the
   poller for an edge before it calls, rather than being told EAGAIN (an

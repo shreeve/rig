@@ -203,9 +203,27 @@ worker after.
   once on the idle workers, where they waited about 1 ms for the
   monitor's stop; a maker that makes one task and goes on computing
   hands it on at that stop. A worker with nothing else to steal
-  also takes the oldest task left in another's slots 3 µs
-  (`sched.stealNext`), as Go takes a `runnext`. A global queue takes overflow and work from
-  outside the workers.
+  also takes the oldest task left in another's slots once the slot has
+  held it 3 µs, as Go takes a `runnext` (`sched.stealNext`). The worker
+  that fills a slot stamps it with the CPU's counter (`cntvct_el0` on
+  arm64, the time-stamp counter on x86-64, whose rate it learns from the
+  clock in the first 10 ms; `sched.ticksNow`), so the searcher reads a
+  slot's age at a glance and never waits for an old one. For a young one,
+  when it finds nothing else, it waits in its own poller until the
+  first to come of age, still counted as searching,
+  rather than spinning, so its core goes to whatever else the machine
+  runs: by kevent's timeout on the Mac, and on Linux by `epoll_pwait2`,
+  whose timeout counts nanoseconds (the thread's timer slack, 50 µs
+  unless set, stretches it, as it stretches Go's `usleep(3)`; a kernel
+  without the call keeps the spin). Work made while it waits kicks it
+  (`sched.kickWaiting`), and every wait ends in a fresh look, its own
+  queues and the rings first. A task whose worker is stuck keeps its
+  slot and its stamp, so the look after the wait takes it, 3 µs after
+  it was made ready, however many kicks came between; a search waits
+  for at most three slots filled anew before its worker sleeps
+  (`sched.Note`): a worker whose slots keep filling again hands them on
+  itself. A global queue takes overflow and work from outside the
+  workers.
 - **Cache lines.** Each worker begins a cache line and fills whole
   lines, so no line holds two workers' fields, and the fields each
   writes at every switch never slow another's (`sched.Worker`). The
