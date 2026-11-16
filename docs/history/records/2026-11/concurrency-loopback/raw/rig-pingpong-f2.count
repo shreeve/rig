@@ -1,0 +1,12 @@
+thread  0: read=19867 read-EAGAIN=1 write=19866 kevent-change=780 kevent-look=22163 kevent-look-hit=16385 kevent-wait=4749 kevent-wait-woke=4749 events=40291 user-kicks-seen=767 cond-signal=30
+thread  1: read=20088 write=20087 kevent-change=821 kevent-look=22642 kevent-look-hit=16334 kevent-wait=5322 kevent-wait-woke=5322 events=41171 user-kicks-seen=777
+thread  2: read=47 write=47 kevent-change=8 kevent-look=181 kevent-look-hit=51 kevent-wait=299 kevent-wait-woke=38 events=126 user-kicks-seen=40
+thread  3: kevent-look=1 kevent-wait=2 kevent-wait-woke=2 events=2 user-kicks-seen=2
+thread  4: kevent-wait=1 kevent-wait-woke=1 events=1 user-kicks-seen=1
+thread  5: kevent-wait=1 kevent-wait-woke=1 events=1 user-kicks-seen=1
+thread  6: kevent-wait=1 kevent-wait-woke=1 events=1 user-kicks-seen=1
+thread  7: kevent-wait=1 kevent-wait-woke=1 events=1 user-kicks-seen=1
+thread  8: kevent-wait=1 kevent-wait-woke=1 events=1 user-kicks-seen=1
+thread  9: kevent-wait=1 kevent-wait-woke=1 events=1 user-kicks-seen=1
+total: read=40002 read-EAGAIN=1 write=40000 (recv)=0 (recvfrom)=0 (send)=0 (sendto)=0 kevent-change=1609 kevent-look=44987 kevent-look-hit=32770 kevent-wait=10378 kevent-wait-woke=10117 events=81596 user-kicks-seen=1592 cond-signal=30 cond-wait=0
+csw voluntary=0 involuntary=49727

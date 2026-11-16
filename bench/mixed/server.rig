@@ -1,0 +1,48 @@
+# A Rig HTTP server for bench/mixed/bench-mixed: `Hello, world!` at
+# `/`, and at `/hash?seed=N` the FNV-1a hash of 4 KiB of data, 8 times
+# over, starting from N, as decimal text; 404 elsewhere. It prints the
+# port it listens on, then serves until it is killed.
+
+use std.http
+use std.net
+use std.os
+use std.text
+
+# 4 KiB of bytes from a xorshift generator, the same in every server.
+fun make_data() -> List[U8]
+  data: List[U8] = List()
+  x: U64 = 0x9E3779B97F4A7C15
+  for 0..4096
+    x ^= x <<% 13
+    x ^= x >> 7
+    x ^= x <<% 17
+    !data.push(U8.wrap(x))
+  data
+
+# FNV-1a, 64 bits, over `data` `rounds` times, starting from `seed`.
+fun fnv1a(data: ?List[U8], seed: U64, rounds: Int) -> U64
+  h: U64 = 14695981039346656037 ^ seed
+  for 0..rounds
+    for b in data
+      h ^= U64(b)
+      h *%= 1099511628211
+  h
+
+# The answer to `/hash?seed=N`.
+fun hash(data: ?List[U8], req: ?http.Request) -> http.Response
+  s = req.arg("seed") ?? String("0")
+  seed = text.parse_int(s) catch 0
+  http.text(String(fnv1a(data, U64.wrap(seed), 8)))
+
+sub main()!
+  args = os.args()
+  addr = String(args[1]) if args.len > 1 else String("127.0.0.1:0")
+  data = *Frozen(make_data())
+  l = net.listen(?addr)!
+  print(l.port())
+  http.serve(<l, |+data, req|
+    match req.path
+      "/" => http.text("Hello, world!")
+      "/hash" => hash(?data, req)
+      _ => http.not_found()
+  )!
