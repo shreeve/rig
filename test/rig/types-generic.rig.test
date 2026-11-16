@@ -261,6 +261,21 @@ fail "generic closure that propagates reports its own error alone", "10:24: type
     r = time.within(time.SECOND, || (3).abs()!)!
     print(r)
 
+fail "generic closure in error infers nothing more", "11:19: type `Int` has no method `nope`", "12:17: use of unbound name `nope`", "13:22: use of unbound type `Nope`", errors: 3
+  # A closure whose result or written parameter type is in error leaves
+  # what it would bind unbound, and another closure waiting on it
+  # untyped: the error about it says why, with no "cannot infer".
+  fun pair[A, B](f: ?fun() -> A, g: ?fun(A) -> B) -> B
+    g(f())
+
+  fun apply[T, R](x: T, f: ?fun(T) -> R) -> R
+    f(x)
+
+  sub main()!
+    print(pair(|| 3.nope(), |a| a + 1))
+    print(pair(|| nope, |a| a + 1))
+    print(apply(3, |x: Nope| x))
+
 fail "generic owned closure literal checked", "8:17: `?fun(Int) -> Int` views a closure for the call; write the closure without `*` (remove the `*`)", "9:25: type `Int` has no method `abs`", errors: 2
   fun apply[T, R](x: T, f: *fun(T) -> R) -> R
     f(x)

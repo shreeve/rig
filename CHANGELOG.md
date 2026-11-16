@@ -338,6 +338,10 @@ it where the negation was meant. Trig has no such site.
   than the call passes, `par.map(?xs, |x, y| x + y)`, is rejected with
   "this closure takes 2 parameters, but `par.map` passes 1", where
   `rig check` accepted it and emit failed.
+- A generic call reports no "cannot infer" for a type parameter left
+  unbound by a closure in error: one whose result is in error, one
+  waiting on its result, or one with a parameter of an unknown type,
+  `apply(3, |x: Nope| x)`; the closure's error says why.
 - A closure in error that propagates, written in `par.map`,
   `task.isolate`, `task.supervise`, a select arm, `reduce`, or a generic
   call whose function can fail, is checked as one that can fail, the

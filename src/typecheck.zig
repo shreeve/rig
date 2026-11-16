@@ -12714,6 +12714,10 @@ const Checker = struct {
             for (lambdas.items, done) |l, *d| {
                 if (d.*) continue;
                 const actual = (try self.lentLambdaType(&inf, l.pattern, l.lambda)) orelse continue;
+                // A closure whose result is poison binds nothing; the
+                // diagnostic about it explains a parameter left unbound,
+                // its own or another closure's that waits on it.
+                if (sema.containsPoison(self.ctx, actual)) inf.poisoned = true;
                 inf.lambda = true;
                 defer inf.lambda = false;
                 try self.bindArg(&inf, l.pattern, actual, l.arg, 1);
@@ -12800,6 +12804,12 @@ const Checker = struct {
         const fails = self.ctx.types.get(f.returns) == .fallible;
         const ty = try self.checkLambdaGiven(lambda, null, given, fails);
         const got = self.ctx.types.get(ty).function;
+        // A parameter whose written type is in error never gets one: the
+        // diagnostic about it explains what it leaves unbound.
+        const nodes = ir.Lambda.params(lambda).items();
+        for (got.params[0..@min(got.params.len, nodes.len)], nodes[0..@min(got.params.len, nodes.len)]) |p, node| {
+            if (self.isPoison(p) and node.isKind(.@":")) inf.poisoned = true;
+        }
         for (got.params) |p| if (self.isPoison(p)) return null;
         if (got.params.len != f.params.len) return null;
         if (self.ctx.diagnostics.items.len != mark) try inf.failed.append(a, .{ .lambda = lambda, .given = given, .fails = fails, .pattern = pattern });
