@@ -5048,6 +5048,13 @@ test/reject/concurrency/frozen_lent_to_a_task.rig main
 test/reject/concurrency/task_moved_keeps_its_loans.rig main
 test/reject/concurrency/task_methods_through_a_handle_keep_it_lent.rig main
 test/reject/concurrency/cell_lend_a_task_keeps_its_loan.rig main
+test/reject/concurrency/chan_lend_a_write_in_the_arguments.rig main
+test/reject/ownership/cell_lend_the_handle_itself_twice.rig main
+test/reject/ownership/cell_lend_a_write_to_the_place_in_the_arguments.rig main
+test/reject/ownership/cell_lend_a_result_view,_then_rebind_or_drop.rig main
+test/reject/ownership/cell_lend_an_erased_value_twice.rig twice
+test/reject/ownership/cell_lend_an_erased_value_twice.rig main
+test/reject/ownership/cell_lend_a_type_parameter_twice.rig twice
 test/reject/concurrency/task_returned_keeps_its_loan.rig main
 test/reject/concurrency/task_returned_keeps_its_owner.rig main
 test/reject/concurrency/task_returned_in_a_set_keeps_its_loans.rig main
