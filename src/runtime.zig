@@ -2327,8 +2327,63 @@ pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bo
     switch (@typeInfo(T)) {
         // A float compares as `<` does, NaN beside anything false.
         .int, .float, .comptime_int, .comptime_float => return std.math.compare(a, op, b),
+        // An object ordered by its fields answers `<` by the fields,
+        // the first that differs deciding, without making an `Order`.
+        .@"struct" => if (comptime derivedFields(T) and op != .eq and op != .neq) return switch (op) {
+            .lt => fieldsLess(T, a, b),
+            .gt => fieldsLess(T, b, a),
+            .lte => !fieldsLess(T, b, a),
+            .gte => !fieldsLess(T, a, b),
+            else => unreachable,
+        } else return order(@as(T, a), @as(T, b)).compare(op),
         else => return order(@as(T, a), @as(T, b)).compare(op),
     }
+}
+
+/// Whether `T` is an object `order` orders by its fields: no order of
+/// its own, and none of the runtime's types that `order` reads apart.
+fn derivedFields(comptime T: type) bool {
+    return @typeInfo(T) == .@"struct" and !ownsApi(T, "__rig_own_order") and @hasDecl(T, "__rig_name") and
+        !isString(T) and !isOptStruct(T) and !@hasDecl(T, "__rig_box");
+}
+
+/// `order(a, b) == .lt` for an object ordered by its fields: a field
+/// that is a number, `Bool`, or a plain enum by `!=` and `<`, any other
+/// by `order`.
+fn fieldsLess(comptime T: type, a: T, b: T) bool {
+    const names = @typeInfo(T).@"struct".field_names;
+    inline for (names, 0..) |name, i| {
+        const x = @field(a, name);
+        const y = @field(b, name);
+        const F = @TypeOf(x);
+        const scalar = switch (@typeInfo(F)) {
+            .int, .bool => true,
+            .@"enum" => !ownsApi(F, "__rig_own_order"),
+            else => false,
+        };
+        if (scalar) {
+            const xi = scalarRank(x);
+            const yi = scalarRank(y);
+            if (i + 1 == names.len) return xi < yi;
+            if (xi != yi) return xi < yi;
+        } else {
+            const o = order(x, y);
+            if (o != .eq) return o == .lt;
+        }
+    }
+    return false;
+}
+
+inline fn scalarRank(x: anytype) switch (@typeInfo(@TypeOf(x))) {
+    .bool => u1,
+    .@"enum" => |e| e.tag_type,
+    else => @TypeOf(x),
+} {
+    return switch (@typeInfo(@TypeOf(x))) {
+        .bool => @intFromBool(x),
+        .@"enum" => @intFromEnum(x),
+        else => x,
+    };
 }
 
 /// How `a` and `b` of one type that provides `Ord` order
@@ -2384,6 +2439,52 @@ pub fn order(a: anytype, b: @TypeOf(a)) std.math.Order {
         .void => return .eq,
         else => @compileError("rig.order: no order of " ++ @typeName(T)),
     }
+}
+
+/// Whether two values of `T` that `order` finds equal are the same value,
+/// which nothing in safe Rig can tell apart: numbers, `Bool`, plain enums,
+/// text (equal bytes), and optionals, arrays, boxes, objects, and enums'
+/// payloads made only of these and ordered as `order` derives it. A type
+/// with an order of its own, a handle (whose identity a Cell or a weak
+/// handle shows), a view held by address, and any value the runtime
+/// holds (a List, a Map) are not. It follows `order` case by case, so a
+/// sort may reorder equal elements of such a `T` unseen (`std.sort`).
+pub fn orderIsIdentity(comptime T: type) bool {
+    if (ownsApi(T, "__rig_own_order")) return false;
+    if (isStringView(T)) return true;
+    if (isOptStruct(T)) return orderIsIdentity(Payload(T));
+    return switch (@typeInfo(T)) {
+        .int, .bool, .void => true,
+        .@"enum" => true,
+        .optional => |o| orderIsIdentity(o.child),
+        .array => |a| orderIsIdentity(a.child),
+        .@"struct" => |st| blk: {
+            if (@hasDecl(T, "__rig_string")) break :blk true;
+            if (@hasDecl(T, "__rig_box")) break :blk orderIsIdentity(@typeInfo(@FieldType(T, "value")).pointer.child);
+            // A Rig object or tuple; the runtime's own types are none.
+            if (!@hasDecl(T, "__rig_name")) break :blk false;
+            inline for (st.field_types) |F| if (!orderIsIdentity(F)) break :blk false;
+            break :blk true;
+        },
+        .@"union" => |u| blk: {
+            if (u.tag_type == null or !@hasDecl(T, "__rig_name")) break :blk false;
+            inline for (u.field_types) |F| if (!payloadIsIdentity(F)) break :blk false;
+            break :blk true;
+        },
+        else => false,
+    };
+}
+
+/// `orderIsIdentity` of one variant's payload in a Rig enum: a variant
+/// with named fields, `circle(r: Int)`, is emitted as a struct with those
+/// fields and no declarations, which `order` orders by its fields; any
+/// other payload is a type of its own.
+fn payloadIsIdentity(comptime F: type) bool {
+    if (@typeInfo(F) == .@"struct" and @typeInfo(F).@"struct".decl_names.len == 0 and !@typeInfo(F).@"struct".is_tuple) {
+        inline for (@typeInfo(F).@"struct".field_types) |G| if (!orderIsIdentity(G)) return false;
+        return true;
+    }
+    return orderIsIdentity(F);
 }
 
 fn orderElements(a: anytype, b: @TypeOf(a)) std.math.Order {
@@ -4913,15 +5014,25 @@ pub inline fn reduceInto(items: anytype, first: anytype, f: anytype, out: anytyp
 }
 
 /// `!s.swap(i, j)`: panics unless both indexes are in range. An element
-/// swapped with itself stays, as `std.mem.swap` may not be given one
-/// place twice.
+/// of up to 64 bytes goes through a copy, as whole values: `std.mem.swap`
+/// moves bytes one at a time, which LLVM turns into byte shuffles of two
+/// neighbours (a sort's insertion ran twice as slow so). A larger one is
+/// swapped by `std.mem.swap`, in pieces, never itself, as it may not be
+/// given one place twice.
 pub fn swap(items: anytype, i: anytype, j: anytype) linksection(program_section) void {
     const a = indexIn(items, i);
     const b = indexIn(items, j);
-    if (a == b) return;
+    const T = std.meta.Elem(@TypeOf(items));
     // `a, b < items.len` by `index`.
     @setRuntimeSafety(proven_checks);
-    std.mem.swap(std.meta.Elem(@TypeOf(items)), &items[a], &items[b]);
+    if (comptime @sizeOf(T) <= 64) {
+        const t = items[a];
+        items[a] = items[b];
+        items[b] = t;
+        return;
+    }
+    if (a == b) return;
+    std.mem.swap(T, &items[a], &items[b]);
 }
 
 /// `swap` with the tests `p` proves of both indexes omitted. The swap
@@ -11042,4 +11153,21 @@ test "this machine's fast cores are at least one, at most its logical CPUs, and 
     const n = fastCores();
     try std.testing.expect(n >= 1 and n <= logical);
     try std.testing.expectEqual(n, fastCores());
+}
+
+test "orderIsIdentity: an enum's variant with fields counts its fields" {
+    const name = .{ .module = "", .name = .{"Shape"} };
+    const Shape = union(enum) {
+        dot: void,
+        circle: struct { r: i64 },
+        pub const __rig_name = name;
+    };
+    const Holds = union(enum) {
+        dot: void,
+        at: struct { p: *i64 },
+        pub const __rig_name = name;
+    };
+    try std.testing.expect(comptime orderIsIdentity(Shape));
+    try std.testing.expect(!comptime orderIsIdentity(Holds));
+    try std.testing.expect(!comptime orderIsIdentity(struct { r: i64 }));
 }

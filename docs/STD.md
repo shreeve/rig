@@ -1673,15 +1673,27 @@ literal or a bare name is lent as it is passed.
 
 | Function | Result |
 |---|---|
-| `sort[T: Ord](xs: ![]T)` | sort `xs` in place, in the order of `<`, keeping equal elements in the order they had; allocates nothing |
+| `sort[T: Ord](xs: ![]T)` | sort `xs` in place, in the order of `<`, keeping equal elements that can be told apart in the order they had; allocates nothing |
 | `sort_by[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)` | the same, in the order `less` gives: `less(a, b)` says whether `a` belongs before `b` |
 | `sort_by_key[T, K: Ord](xs: ![]T, key: ?fun(?T) -> K)` | the same, in the order of the keys `key` gives, by `<`; `key` is called twice for each comparison |
 | `lower_bound[T: Ord](xs: []T, x: ?T) -> Int` | in `xs` sorted by `<`, the index where `x` belongs: the first element not less than `x`, or `xs.len` |
 | `search[T: Ord](xs: []T, x: ?T) -> Int?` | in `xs` sorted by `<`, the index of the first element equal to `x`, by binary search; `none` when there is none |
 
-`sort` sorts runs of 20 elements by insertion, then merges them in
-place by rotations: O(n log n) comparisons, O(n log² n) swaps, and
-O(log n) stack, with no other memory.
+Every sort is stable in meaning: elements the order finds equal keep
+the order they had wherever a program could tell them apart. None
+allocates. Where equal elements are the same value, nothing can tell
+them apart, and `sort` uses pattern-defeating quicksort (as Rust's
+`sort_unstable` and Zig's `std.sort.pdq`), which does not keep their
+order: for numbers, `Bool`, text, plain enums, and the optionals,
+arrays, objects, and enums made only of these whose header derives
+`Ord` (`obj Point: Ord` with no `order` of its own). It compares with
+`<` inline and takes O(n log n) comparisons at worst, O(n) on sorted or
+reversed input, and O(log n) stack. Otherwise, for a type with an
+`order` of its own (two keys it calls equal may still differ) or one
+holding a handle, and for `sort_by` and `sort_by_key` always, it sorts
+runs of 20 elements by insertion, then merges them in place by
+rotations: O(n log n) comparisons, O(n log² n) swaps, and O(log n)
+stack.
 
 ```rig
 use std.sort
@@ -1714,6 +1726,33 @@ bob 9
 ann 7
 cy 7
 ann
+```
+
+An `order` of its own may call two different values equal, and `sort`
+keeps those in the order they had:
+
+```rig
+use std.sort
+
+obj Chore: Ord
+  priority: Int
+  name: ?String
+
+  fun order(?@, other: ?Chore) -> Order
+    @priority.order(?other.priority)
+
+sub main()
+  chores = [Chore(priority: 2, name: "mail"), Chore(priority: 1, name: "fix"), Chore(priority: 2, name: "lunch"), Chore(priority: 1, name: "ship")]
+  sort.sort(!chores)
+  for t in ?chores
+    print(t.priority, t.name)
+```
+
+```output
+1 fix
+1 ship
+2 mail
+2 lunch
 ```
 
 A float provides no `Ord`: a NaN is neither below nor above a number,

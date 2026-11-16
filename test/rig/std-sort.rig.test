@@ -1,0 +1,315 @@
+# std.sort: tests whose names start `sort`.
+use std.random
+use std.sort
+
+test "sort keeps equal keys in order through sort_by", "true"
+  # Records of equal keys keep the order they had, at every size around
+  # the merge's runs of 20, on random keys from few to many values.
+  obj Rec
+    key: Int
+    id: Int
+
+  fun stable(ps: []Rec) -> Bool
+    for p, i in ps
+      if i > 0
+        q = ?ps[i - 1]
+        if q.key > p.key or (q.key == p.key and q.id > p.id)
+          return false
+    true
+
+  r = random.Random.seeded(11)
+  ok = true
+  for n in [0, 1, 2, 3, 19, 20, 21, 40, 41, 64, 100, 257, 1000, 3000]
+    for spread in [1, 2, 8, 1000]
+      ps: List[Rec] = List()
+      for i in 0..n
+        !ps.push(Rec(key: (!r).int(0, spread), id: i))
+      sort.sort_by(!ps[..], |x, y| x.key < y.key)
+      ok = ok and stable(?ps[..]) and ps.len == n
+  print(ok)
+
+test "sort keeps equal keys in order through sort_by_key", "true"
+  obj Rec
+    name: String
+    id: Int
+
+  fun stable(ps: []Rec) -> Bool
+    for p, i in ps
+      if i > 0
+        q = ?ps[i - 1]
+        if q.name > p.name or (q.name == p.name and q.id > p.id)
+          return false
+    true
+
+  r = random.Random.seeded(12)
+  ok = true
+  for n in [0, 1, 2, 21, 100, 500]
+    ps: List[Rec] = List()
+    for i in 0..n
+      k = (!r).int(0, 6)
+      name: String = `k{k}`
+      !ps.push(Rec(name: <name, id: i))
+    sort.sort_by_key(!ps[..], |p| +p.name)
+    ok = ok and stable(?ps[..]) and ps.len == n
+  print(ok)
+
+test "sort keeps equal elements of an own order in order", '''
+  [1, 1, 1, 2, 2, 3]
+  ["c", "a", "e", "b", "f", "d"]
+  true
+'''
+  # `Key` orders by `n` alone, so two keys `<` finds equal can differ in
+  # `tag`: `sort` keeps them in the order they had, as it does an object
+  # whose derived order reaches such a key.
+  obj Key: Ord
+    n: Int
+    tag: String
+    id: Int
+
+    fun order(?@, other: ?Key) -> Order
+      @n.order(?other.n)
+
+  obj Outer: Ord
+    k: Key
+
+  ks = [Key(n: 2, tag: String("b"), id: 0), Key(n: 1, tag: String("c"), id: 0), Key(n: 3, tag: String("d"), id: 0), Key(n: 1, tag: String("a"), id: 0), Key(n: 2, tag: String("f"), id: 0), Key(n: 1, tag: String("e"), id: 0)]
+  sort.sort(!ks)
+  print([ks[0].n, ks[1].n, ks[2].n, ks[3].n, ks[4].n, ks[5].n])
+  print([+ks[0].tag, +ks[1].tag, +ks[2].tag, +ks[3].tag, +ks[4].tag, +ks[5].tag])
+
+  r = random.Random.seeded(13)
+  os: List[Outer] = List()
+  for i in 0..300
+    !os.push(Outer(k: Key(n: (!r).int(0, 5), tag: String("t"), id: i)))
+  sort.sort(!os[..])
+  ok = true
+  for o, i in ?os[..]
+    if i > 0
+      p = ?os[i - 1]
+      if p.k.n > o.k.n or (p.k.n == o.k.n and p.k.id > o.k.id)
+        ok = false
+  print(ok)
+
+test "sort orders plain values at every size and pattern", "true"
+  # Ints, text, plain enums, and objects ordered by their fields (all of
+  # which `sort` sorts without keeping equal ones' order, since it cannot
+  # be seen) against an insertion sort, on random, sorted, reversed,
+  # sawtooth, organ-pipe, all-equal, and few-valued input.
+  enum Size: Ord
+    small
+    medium
+    large
+
+  obj Pt: Ord
+    x: Int
+    name: ?String
+
+  sub reference(xs: ![]Int)
+    i = 1
+    while i < xs.len : i += 1
+      j = i
+      while j > 0 and xs[j] < xs[j - 1] : j -= 1
+        !xs.swap(j, j - 1)
+
+  fun same(a: []Int, b: []Int) -> Bool
+    if a.len != b.len
+      return false
+    for x, i in a
+      if x != b[i]
+        return false
+    true
+
+  fun make(n: Int, pattern: Int, r: !random.Random) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..n
+      x = 0
+      if pattern == 0
+        x = !r.int(-1000000, 1000000)
+      else if pattern == 1
+        x = i
+      else if pattern == 2
+        x = n - i
+      else if pattern == 3
+        x = i % 17
+      else if pattern == 4
+        x = i if i < n / 2 else n - i
+      else if pattern == 5
+        x = 7
+      else if pattern == 6
+        x = !r.int(0, 4)
+      else
+        x = i if i % 64 != 0 else !r.int(0, n + 1)
+      !v.push(x)
+    v
+
+  names = ["a", "b", "c", "d"]
+  r = random.Random.seeded(14)
+  ok = true
+  for n in [0, 1, 2, 3, 7, 8, 24, 25, 49, 50, 51, 64, 65, 100, 129, 1000, 4000]
+    for pattern in 0..8
+      v = make(n, pattern, !r)
+      want = make(0, 0, !r)
+      for x in ?v
+        !want.push(x)
+      reference(!want[..])
+      sort.sort(!v[..])
+      ok = ok and same(?v[..], ?want[..])
+
+      texts: List[String] = List()
+      for x in ?want
+        t: String = `{x + 2000000}`
+        !texts.push(<t)
+      (!r).shuffle(!texts[..])
+      sort.sort(!texts[..])
+      for i in 1..texts.len
+        if texts[i - 1] > texts[i]
+          ok = false
+
+      sizes: List[Size] = List()
+      pts: List[Pt] = List()
+      for x in ?v
+        !sizes.push(Size.large if x % 3 == 0 else Size.small if x % 3 == 1 else Size.medium)
+        !pts.push(Pt(x: x % 5, name: names[((x / 5) % 4 + 4) % 4]))
+      (!r).shuffle(!sizes[..])
+      (!r).shuffle(!pts[..])
+      sort.sort(!sizes[..])
+      sort.sort(!pts[..])
+      for i in 1..sizes.len
+        if sizes[i - 1] > sizes[i] or pts[i - 1] > pts[i]
+          ok = false
+  print(ok)
+
+test "sort matches a reference on random input", "true", seeds: 4
+  # Many sizes and value ranges, against an insertion sort, for `sort`
+  # and for `sort_by` with a reversed order.
+  sub reference(xs: ![]Int)
+    i = 1
+    while i < xs.len : i += 1
+      j = i
+      while j > 0 and xs[j] < xs[j - 1] : j -= 1
+        !xs.swap(j, j - 1)
+
+  r = random.Random.new()
+  ok = true
+  for _ in 0..40
+    n = (!r).int(0, 600)
+    spread = (!r).int(1, 2000)
+    v: List[Int] = List()
+    want: List[Int] = List()
+    down: List[Int] = List()
+    for _ in 0..n
+      x = (!r).int(0, spread)
+      !v.push(x)
+      !want.push(x)
+      !down.push(x)
+    reference(!want[..])
+    sort.sort(!v[..])
+    sort.sort_by(!down[..], |a, b| a > b)
+    for x, i in ?v[..]
+      ok = ok and x == want[i] and down[n - 1 - i] == x
+  print(ok)
+
+test "sort of owned text drops nothing twice", '''
+  ["", "a", "a", "ab", "b", "ba"]
+  ["ba", "b", "ab", "a", "a", ""]
+'''
+  # Owned Strings are swapped, never copied: the run is clean under the
+  # sanitizer and the leak check.
+  xs = [String("b"), String("a"), String(""), String("ba"), String("a"), String("ab")]
+  sort.sort(!xs)
+  print(xs)
+  sort.sort_by(!xs, |a, b| a > b)
+  print(xs)
+
+test "sort of many Ints", "true", release: true
+  # Large enough for the quicksort's every path: block partitions, the
+  # split of equal elements, sorted and reversed runs found in one pass.
+  r = random.Random.seeded(15)
+  ok = true
+  for pattern in 0..4
+    v: List[Int] = List()
+    for i in 0..200000
+      x = (!r).int(0, 1 << 40)
+      if pattern == 1
+        x = i
+      else if pattern == 2
+        x = -i
+      else if pattern == 3
+        x = (!r).int(0, 10)
+      !v.push(x)
+    sort.sort(!v[..])
+    for x, i in ?v[..]
+      if i > 0 and v[i - 1] > x
+        ok = false
+  print(ok)
+
+test "sort compares objects by their fields as order does", "true"
+  # `<` and its kin on an object ordered by its fields agree with
+  # `order` on every field kind: numbers, Bool, plain enums, text, an
+  # optional, and a nested object with an order of its own.
+  enum Tone: Ord
+    low
+    high
+
+  obj Inner: Ord
+    n: Int
+
+    fun order(?@, other: ?Inner) -> Order
+      other.n.order(?@n)
+
+  obj Mix: Ord
+    a: Int
+    b: Bool
+    t: Tone
+    s: ?String
+    o: Int?
+    i: Inner
+    u: U8
+
+  r = random.Random.seeded(16)
+  words = ["", "a", "b"]
+  ms: List[Mix] = List()
+  for _ in 0..200
+    o: Int? = none
+    if (!r).int(0, 2) == 1
+      o = (!r).int(0, 2)
+    !ms.push(Mix(a: (!r).int(0, 2), b: (!r).int(0, 2) == 1, t: Tone.low if (!r).int(0, 2) == 0 else Tone.high, s: words[(!r).int(0, 3)], o: o, i: Inner(n: (!r).int(0, 2)), u: U8((!r).int(0, 2))))
+  ok = true
+  for x in ?ms
+    for y in ?ms
+      ord = x.order(?y)
+      ok = ok and (x < y) == (ord == .less) and (x > y) == (ord == .greater)
+      ok = ok and (x <= y) == (ord != .greater) and (x >= y) == (ord != .less)
+  sort.sort(!ms[..])
+  for i in 1..ms.len
+    ok = ok and not (ms[i] < ms[i - 1])
+  print(ok)
+
+test "sort orders an enum whose variants carry fields", "true"
+  # Its payloads are numbers and text, so equal values are the same and
+  # `sort` takes the quicksort; the stable merge of `sort_by` agrees.
+  enum Shape: Ord
+    dot
+    circle(r: Int)
+    label(text: ?String, size: Int)
+
+  r = random.Random.seeded(7)
+  words = ["", "a", "b"]
+  xs: List[Shape] = List()
+  for _ in 0..3000
+    k = (!r).int(0, 3)
+    if k == 0
+      !xs.push(Shape.dot)
+    else if k == 1
+      !xs.push(Shape.circle(r: (!r).int(0, 4)))
+    else
+      !xs.push(Shape.label(text: words[(!r).int(0, 3)], size: (!r).int(0, 3)))
+  ys: List[Shape] = List()
+  for x in ?xs
+    !ys.push(x)
+  sort.sort(!xs[..])
+  sort.sort_by(!ys[..], |a, b| a < b)
+  ok = xs.len == ys.len
+  for i in 0..xs.len
+    ok = ok and xs[i] == ys[i]
+  print(ok)
