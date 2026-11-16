@@ -632,6 +632,17 @@ it where the negation was meant. Trig has no such site.
 
 ### Runtime
 
+- **Loopback round trips make fewer system calls:** a socket read that
+  comes back short took all there was, so the next read waits on the
+  poller for an edge before it calls, rather than being told EAGAIN (an
+  end that came with the last bytes still lets it return at once); a
+  kick a look finds stays standing in a flag, so a kick costs one
+  system call however many workers look; and a worker going to sleep
+  leaves another's poller whose events were taken in the last 50 µs to
+  that worker. On the Mac bench/net's echo runs 22% faster (11.6 calls
+  a round trip to 6.7) and bench/http serves 5% more requests, with
+  ping-pong, connect, bench/tasks and bench/actors level
+  (docs/history/records/2026-11/concurrency-loopback/profile.md).
 - **A FIFO's reader on macOS sees its writer leave:** `file.read` of a
   FIFO, and a `File`'s reads of one, read without blocking and wait for
   bytes in a poll of at most 64 ms (`rig.net.FifoWait`). A read parked

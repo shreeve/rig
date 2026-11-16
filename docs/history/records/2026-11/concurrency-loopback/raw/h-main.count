@@ -1,0 +1,16 @@
+thread  0: read=1 kevent-change=14 kevent-look=3 kevent-wait=2 kevent-wait-woke=1 events=1 cond-signal=30 ev-read=1
+thread  1: kevent-look=1 kevent-look-hit=1 kevent-wait=3 kevent-wait-woke=1 events=3 user-kicks-seen=1 ev-read=1 ev-write=1
+total: read=1 read-EAGAIN=0 write=0 (recv)=0 (recvfrom)=0 (send)=0 (sendto)=0 kevent-change=14 kevent-look=4 kevent-look-hit=1 kevent-wait=5 kevent-wait-woke=2 events=4 user-kicks-seen=1 cond-signal=30 cond-wait=0 ev-read=2 ev-write=1
+csw voluntary=0 involuntary=48
+thread  0: read=112531 read-EAGAIN=56183 write=56283 kevent-change=5376 kevent-look=11588 kevent-look-hit=10608 kevent-wait=5626 kevent-wait-woke=5624 events=146685 user-kicks-seen=1942 cond-signal=30 ev-read=72130 ev-write=72613
+thread  1: read=44922 read-EAGAIN=22443 write=22484 kevent-change=2861 kevent-look=2587 kevent-look-hit=2367 kevent-wait=2847 kevent-wait-woke=2714 events=43994 user-kicks-seen=3049 ev-read=20502 ev-write=20443
+thread  2: read=48886 read-EAGAIN=24375 write=24509 kevent-change=3405 kevent-look=2913 kevent-look-hit=2691 kevent-wait=3308 kevent-wait-woke=3130 events=49408 user-kicks-seen=3503 ev-read=22907 ev-write=22998
+thread  3: read=45435 read-EAGAIN=22650 write=22789 kevent-change=2921 kevent-look=2451 kevent-look-hit=2284 kevent-wait=2787 kevent-wait-woke=2687 events=47545 user-kicks-seen=3101 ev-read=22283 ev-write=22161
+thread  4: read=41270 read-EAGAIN=20604 write=20657 kevent-change=2902 kevent-look=2434 kevent-look-hit=2240 kevent-wait=2739 kevent-wait-woke=2627 events=40433 user-kicks-seen=3017 ev-read=18756 ev-write=18660
+thread  5: read=43975 read-EAGAIN=21893 write=22084 kevent-change=3071 kevent-look=2506 kevent-look-hit=2280 kevent-wait=3028 kevent-wait-woke=2884 events=42987 user-kicks-seen=3223 ev-read=19939 ev-write=19825
+thread  6: read=49438 read-EAGAIN=24675 write=24762 kevent-change=3051 kevent-look=2509 kevent-look-hit=2329 kevent-wait=2906 kevent-wait-woke=2790 events=48643 user-kicks-seen=3180 ev-read=22716 ev-write=22747
+thread  7: read=43735 read-EAGAIN=21851 write=21889 kevent-change=2817 kevent-look=2465 kevent-look-hit=2237 kevent-wait=2658 kevent-wait-woke=2511 events=41730 user-kicks-seen=2848 ev-read=19492 ev-write=19390
+thread  8: read=45610 read-EAGAIN=22742 write=22865 kevent-change=2840 kevent-look=2480 kevent-look-hit=2271 kevent-wait=2742 kevent-wait-woke=2629 events=44394 user-kicks-seen=2978 ev-read=20688 ev-write=20728
+thread  9: read=48773 read-EAGAIN=24319 write=24453 kevent-change=2704 kevent-look=2372 kevent-look-hit=2142 kevent-wait=2607 kevent-wait-woke=2461 events=47947 user-kicks-seen=2816 ev-read=22571 ev-write=22560
+total: read=524575 read-EAGAIN=261735 write=262775 (recv)=0 (recvfrom)=0 (send)=0 (sendto)=0 kevent-change=31948 kevent-look=34305 kevent-look-hit=31449 kevent-wait=31248 kevent-wait-woke=30057 events=553766 user-kicks-seen=29657 cond-signal=30 cond-wait=0 ev-read=261984 ev-write=262125
+csw voluntary=134 involuntary=60321
