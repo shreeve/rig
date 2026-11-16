@@ -81,3 +81,17 @@ of the server's threads were busy and how many cores it used in all.
 | H3a | `(git log -1 --format='%h %ci'; taskset -c 0-11 bench/http/bench-http-cputime --out $D/http --time-only --reps 3 --idle 0) 2>&1 \| tee -a $O/H3a-pup.txt` | each server's busy threads and cores used, as it runs | 6 |
 | H3b | H3a with `--variants tokio` and `HYPER_WORKERS=6` in the environment, then again with `HYPER_WORKERS=24`, appending to `$O/H3b-pup.txt` | whether hyper's worker count, 12 on cores 0-11, is its limit | 6 |
 | H3c | H3a with `--variants tokio` and `HYPER_NODELAY=1`, appending to `$O/H3c-pup.txt` | whether Nagle's algorithm holds hyper back, as Rig's server sets TCP_NODELAY | 4 |
+
+## Hybrid cores, unpinned (H4)
+
+H2u, unpinned on all 22 cores (6 P-core pairs 0-11, E-cores 12-19, two
+low-power cores 20-21) with nothing else running, dropped every server
+to 35k-89k req/s, Rig 8-25% behind Tokio. Each runtime starts a worker
+per core, so some work on E and LP cores, and the load generator does
+too. These rows tell the runtimes' worker counts from the machine's.
+
+| Row | Command | Asks | Minutes |
+|---|---|---|---|
+| H4a | `(git log -1 --format='%h %ci'; bench/http/bench-http-cputime --out $D/http --time-only --reps 3 --idle 0) 2>&1 \| tee -a $O/H4a-pup.txt` (unpinned, defaults: the control) | H2u again, with busy threads | 6 |
+| H4b | H4a with `RIG_WORKERS=12 TOKIO_WORKER_THREADS=12 GOMAXPROCS=12` in the environment, appending to `$O/H4b-pup.txt` | whether 12 workers on 22 cores recover the throughput, for each runtime alike | 6 |
+| H4c | H4b, run under `taskset -c 0-19` (no low-power cores), appending to `$O/H4c-pup.txt` | how much of the drop the two LP cores alone cause | 6 |
