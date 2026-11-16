@@ -1,0 +1,60 @@
+psum 2725709 16760439056
+qsort 83938459 4194304
+rig: worker 0: declined at libsystem_platform.dylib
+rig: worker 0: ran 1374, pinned 0, stole 57, slept 5, preempted 14, signaled 15 (1 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 1: declined at 0x10001f76c
+rig: worker 1: ran 920, pinned 0, stole 54, slept 7, preempted 14, signaled 15 (1 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 2: declined at 0x10001f76c 0x10001f76c 0x10004cdd4 libsystem_platform.dylib
+rig: worker 2: ran 1107, pinned 0, stole 73, slept 9, preempted 9, signaled 13 (4 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 3: ran 967, pinned 0, stole 37, slept 6, preempted 12, signaled 12 (0 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 4: declined at libsystem_platform.dylib 0x1000252b8
+rig: worker 4: ran 977, pinned 0, stole 25, slept 2, preempted 6, signaled 10 (2 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 5: declined at libsystem_platform.dylib libsystem_platform.dylib
+rig: worker 5: ran 1201, pinned 0, stole 43, slept 9, preempted 10, signaled 12 (2 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 6: declined at 0x10001f76c libsystem_platform.dylib libsystem_platform.dylib
+rig: worker 6: ran 1392, pinned 0, stole 29, slept 5, preempted 13, signaled 16 (3 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 7: declined at 0x10001f76c
+rig: worker 7: ran 1080, pinned 0, stole 62, slept 7, preempted 11, signaled 12 (1 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 8: declined at 0x10001f76c 0x10004cdd0
+rig: worker 8: ran 1282, pinned 0, stole 48, slept 7, preempted 9, signaled 11 (2 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 9: declined at 0x10001f76c 0x10001f76c libsystem_kernel.dylib libsystem_platform.dylib
+rig: worker 9: ran 967, pinned 0, stole 41, slept 7, preempted 8, signaled 13 (4 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+psum 2669917 16760439056
+qsort 82993583 4194304
+rig: worker 0: declined at libsystem_platform.dylib 0x10001f76c
+rig: worker 0: ran 1090, pinned 0, stole 56, slept 6, preempted 4, signaled 6 (2 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 1: ran 989, pinned 0, stole 58, slept 6, preempted 4, signaled 4 (0 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 2: declined at 0x10001f76c
+rig: worker 2: ran 1190, pinned 0, stole 77, slept 6, preempted 5, signaled 6 (1 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 3: declined at libsystem_platform.dylib libsystem_platform.dylib
+rig: worker 3: ran 972, pinned 0, stole 54, slept 8, preempted 5, signaled 7 (2 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 4: declined at libsystem_platform.dylib 0x10001f76c
+rig: worker 4: ran 1343, pinned 0, stole 87, slept 9, preempted 6, signaled 8 (2 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 5: declined at libsystem_kernel.dylib 0x10001f76c libsystem_platform.dylib
+rig: worker 5: ran 807, pinned 0, stole 16, slept 2, preempted 3, signaled 7 (3 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 6: ran 1363, pinned 0, stole 81, slept 8, preempted 6, signaled 6 (0 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 7: ran 1384, pinned 0, stole 84, slept 6, preempted 6, signaled 6 (0 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 8: ran 1156, pinned 0, stole 43, slept 6, preempted 4, signaled 4 (0 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 9: declined at libsystem_kernel.dylib 0x10001f76c
+rig: worker 9: ran 904, pinned 0, stole 54, slept 11, preempted 3, signaled 5 (2 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+psum 2745250 16760439056
+qsort 77892459 4194304
+rig: worker 0: declined at 0x10001d2e8 libsystem_platform.dylib
+rig: worker 0: ran 1488, pinned 0, stole 87, slept 5, preempted 9, signaled 11 (2 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 1: declined at libsystem_platform.dylib 0x10001f76c
+rig: worker 1: ran 775, pinned 0, stole 40, slept 5, preempted 9, signaled 11 (2 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 2: declined at 0x10001d39c libsystem_platform.dylib
+rig: worker 2: ran 928, pinned 0, stole 78, slept 7, preempted 8, signaled 10 (2 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 3: declined at libsystem_platform.dylib
+rig: worker 3: ran 993, pinned 0, stole 42, slept 7, preempted 5, signaled 6 (1 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 4: declined at 0x10001f76c libsystem_platform.dylib
+rig: worker 4: ran 946, pinned 0, stole 31, slept 9, preempted 8, signaled 10 (2 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 5: declined at libsystem_platform.dylib libsystem_platform.dylib 0x10001f76c libsystem_platform.dylib
+rig: worker 5: ran 933, pinned 0, stole 37, slept 2, preempted 5, signaled 10 (4 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 6: declined at 0x10001f76c 0x10001f76c
+rig: worker 6: ran 1155, pinned 0, stole 95, slept 4, preempted 5, signaled 7 (2 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 7: ran 1031, pinned 0, stole 38, slept 7, preempted 3, signaled 4 (0 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 8: declined at 0x10001f76c 0x10001f76c
+rig: worker 8: ran 1431, pinned 0, stole 58, slept 5, preempted 7, signaled 9 (2 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes
+rig: worker 9: declined at 0x10001f76c 0x10001d2f4
+rig: worker 9: ran 1544, pinned 0, stole 98, slept 9, preempted 7, signaled 9 (2 outside the program's code, 0 under a lock, 0 without room), deepest stop 1056 of 2912 bytes

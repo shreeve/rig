@@ -524,7 +524,7 @@ reaches `lib`: the checker says so, and the call in parentheses,
 |---|---|---|
 | `(!v).push(x)` | `!v.push(x)` | lend `v` to write, then push |
 | `(!@items).push(k)` | `!@items.push(k)` | a field of `@` in a `!@` method |
-| `(!c).set(5)` | `!c.set(5)` | a shared `Cell` changes only by a marked call; the mark lends the handle `c` |
+| `(!c).set(5)` | `!c.set(5)` | a shared `Cell` changes only by a marked call; the mark lends `c` to read |
 | `(!grid[r]).bump()` | `!grid[r].bump()` | an element, changed in place |
 | `(!v).put[2](x)` | `!v.put[2](x)` | a method with compile-time arguments |
 | `(!mk()).pop()` | `!mk().pop()` | lend the value `mk()` makes to write, a temporary |

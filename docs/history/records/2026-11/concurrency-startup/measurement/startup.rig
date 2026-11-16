@@ -1,0 +1,62 @@
+# psum's first parallel call, by mode (STARTUP_MODE):
+# cold: as bench/fork; pre: a task made and waited for at main's start;
+# gap: psum3 runs after 100 ms asleep; tiny: a psum of 2^16 (7 forks) before the timing; mark: trace marks (instrumented runtime only).
+use std.os
+use std.task
+use std.time
+
+GRAIN = 8192
+
+fun nop(x: Int) -> Int
+  x + 1
+
+fun seq_sum(xs: ?[]Int) -> Int
+  s = 0
+  for x in xs
+    s +%= x
+  s
+
+fun psum(xs: ?[]Int) -> Int
+  return seq_sum(xs) if xs.len <= GRAIN
+  mid = xs.len / 2
+  left = xs[..mid]
+  a = psum(?left)&
+  b = psum(xs[mid..])
+  >a +% b
+
+sub mark(on: Bool)
+  task.workers(63) if on
+
+sub main()
+  mode = os.env("STARTUP_MODE") ?? "cold"
+  marks = mode == "mark" or mode == "markgap"
+  if mode == "pre"
+    t0 = nop(1)&
+    print("pre", 0, >t0)
+  n = 1 << 25
+  xs: List[Int] = List(capacity: n)
+  for i in 0..n
+    !xs.push(i *% 2654435761 % 1000)
+  whole = ?xs[..]
+  if mode == "tiny"
+    print("tiny", 0, psum(whole[..1 << 16]))
+  t0 = time.now()
+  s0 = seq_sum(whole)
+  print("seqsum", t0.elapsed(), s0)
+  t = time.now()
+  s = psum(whole)
+  e1 = t.elapsed()
+  mark(marks)
+  print("psum1", e1, s)
+  t1 = time.now()
+  s1 = psum(whole)
+  e2 = t1.elapsed()
+  mark(marks)
+  print("psum2", e2, s1)
+  time.sleep(ms: 100)! if mode == "gap" or mode == "markgap"
+  mark(marks)
+  t3 = time.now()
+  s3 = psum(whole)
+  e3 = t3.elapsed()
+  mark(marks)
+  print("psum3", e3, s3)

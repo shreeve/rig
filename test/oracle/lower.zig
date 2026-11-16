@@ -3162,15 +3162,13 @@ const Lowerer = struct {
         return t;
     }
 
-    /// The place a marked call on a Cell or Signal (or a value holding a
-    /// Cell) reached through a handle lends: the handle's own slot, not
-    /// what the handle reaches (Core s9: the lend is of the handle, the
-    /// call changes what handles share). Null where `p` crosses no
-    /// handle, or `ty`, the type of what is changed, is not one that
-    /// changes by a marked call.
-    fn handleSlot(self: *Lowerer, p: Place, ty: TypeId) ?Place {
-        if (!self.changesByMark(ty)) return null;
-        const at = p.handle_at orelse return if (self.isHandle(p.ty) and !p.handle) p else null;
+    /// The place a lend of a value that changes by a marked call
+    /// (`lendsToRead`), reached through a handle, is a loan on: the
+    /// handle's own slot, not what the handle reaches (Core s9: the lend
+    /// is of the handle, the call changes what handles share). Null where
+    /// `p` crosses no handle.
+    fn handleSlot(p: Place) ?Place {
+        const at = p.handle_at orelse return null;
         // A handle a read view holds is lent as the view's own: the lend
         // writes the view's binding, never the place it views.
         const via: Place.Via = if (at.via == .read and at.len == 0) .own else at.via;
@@ -3197,10 +3195,52 @@ const Lowerer = struct {
         return self.found(.C10, self.posOf(handle), "`{s}` changes what `{s}` reaches, and `{s}` is seen through a read view, which changes nothing: a change through a handle needs a handle the task holds", .{ leafText(ir.Member.name(callee), self.src), self.textOf(handle), self.textOf(handle) });
     }
 
-    /// Whether a value of `ty` changes through a handle by a marked call:
-    /// a Cell, a Signal, or a value that holds a Cell by value.
-    fn changesByMark(self: *Lowerer, ty: TypeId) bool {
-        return sema.changesByMark(self.ctx, ty);
+    /// `lendsToRead` for `!x` handed to a call: the parameter's declared
+    /// type says what is lent, since a call's argument is typed as the
+    /// write view of `x` itself. A `!*T` lends the handle, and a `!T` of a
+    /// type parameter is no value that changes by a marked call; a `!T`
+    /// of any other type, an API object's `!{A}` among them, lends the
+    /// value `x` reaches, judged by its type at the lend.
+    fn argLendsToRead(self: *Lowerer, place_ty: TypeId, arg_ty: TypeId, sig: ?Sig, param_at: ?usize) bool {
+        const sg = sig orelse return self.lendsToRead(place_ty, arg_ty);
+        const i = param_at orelse return self.lendsToRead(place_ty, arg_ty);
+        return switch (sg.ctx.types.get(sema.unwrapViews(sg.ctx, sg.f.params[i]))) {
+            .shared, .weak, .type_var => false,
+            else => self.lendsToRead(place_ty, null),
+        };
+    }
+
+    /// Whether `!` of a place of type `place_ty` puts only a read loan on
+    /// it (Core §4, the handle rows, and the paragraph after the table;
+    /// SPEC "Lending a shared value to write"): what it lends is a write
+    /// view of a value that changes by a marked call (Core s9), a `Cell`,
+    /// a `Signal`, a channel, an actor, or a value that holds a Cell,
+    /// reached through the place's views and its handle. Such a value is
+    /// never replaced whole and every view it gives out lasts while it
+    /// lives, so many write views of it may live at once while the place
+    /// stays put. It is judged by the type where it is lent: an API
+    /// object `{A}` or a type parameter is no such value. `lent`, the type
+    /// of the view the lend makes, says when `!h` lends the handle itself,
+    /// a `!*T` the callee may point elsewhere: a write loan. Null, as for
+    /// a method's self, is the value the place reaches, never its handle.
+    fn lendsToRead(self: *Lowerer, place_ty: TypeId, lent: ?TypeId) bool {
+        if (lent) |l| if (self.isHandle(l)) return false;
+        var t = place_ty;
+        while (true) switch (self.ctx.types.get(t)) {
+            .read_view, .write_view => |inner| t = inner,
+            else => break,
+        };
+        switch (self.ctx.types.get(t)) {
+            .shared => |inner| t = inner,
+            else => {},
+        }
+        // What a box holds is the box's value (`^{A}` holds an `{A}`).
+        while (sema.boxedType(self.ctx, t)) |inner| t = inner;
+        switch (self.ctx.types.get(t)) {
+            .type_var, .api_object => return false,
+            else => {},
+        }
+        return sema.changesByMark(self.ctx, t) or sema.chanValue(self.ctx, t) != null or sema.actorValue(self.ctx, t) != null;
     }
 
     /// Whether a method `mname` that takes its self, called on a value
@@ -3288,9 +3328,14 @@ const Lowerer = struct {
     /// `?p` or `!p` (Core s4, §4): a new loan on the place, carrying what
     /// the root views; through a read view, a copy of that view.
     fn lend(self: *Lowerer, at: Place, mode: core.Mode, e: Sexp, ty: TypeId) Error!VarId {
-        // A lend to write of a Cell, a Signal, or a value holding one
-        // through a handle lends the handle (Core s9).
-        const p = if (mode != .read and at.handle) self.handleSlot(at, at.ty) orelse at else at;
+        return self.lendAs(at, mode, e, ty, mode == .write and self.lendsToRead(at.ty, ty));
+    }
+
+    /// `lend`, told whether a write lend lends to read (`lendsToRead`):
+    /// a write view of a value that changes by a marked call puts a read
+    /// loan on its place, through a handle on the handle's slot (Core §4).
+    fn lendAs(self: *Lowerer, at: Place, mode: core.Mode, e: Sexp, ty: TypeId, shared: bool) Error!VarId {
+        const p = if (shared) handleSlot(at) orelse at else at;
         const pos = self.posOf(e);
         const kind: kinds.Kind = if (mode == .read) .read_view else .write_view;
         if (mode != .read and self.isFinding(p.root)) return abstain("an index that lends its place's root to write");
@@ -3319,7 +3364,8 @@ const Lowerer = struct {
             return t;
         }
         const deref = p.via == .write or (!p.slice and self.isWriteRef(p.ty));
-        const loan = try self.lentLoan(p, mode, deref, pos);
+        const loan_mode: core.Mode = if (shared) .read else mode;
+        const loan = try self.lentLoan(p, loan_mode, deref, pos);
         // A slice or a `?String` views the place's bytes, and copies of it
         // carry the loan; a `?T` or `!T` points at the place.
         self.f.loans.items[loan].pointer = switch (self.ctx.types.get(ty)) {
@@ -3331,7 +3377,7 @@ const Lowerer = struct {
             .root = p.root,
             .path = p.loanPath(),
             .deref = deref,
-            .kind = switch (mode) {
+            .kind = switch (loan_mode) {
                 .read => .read,
                 .write => .write,
                 .reserved => .reserve,
@@ -3771,8 +3817,9 @@ const Lowerer = struct {
                 const recv_ty = try self.typeOf(recv_obj);
                 cell_store = self.isCell(recv_ty);
                 // A method called through an actor's handle is a message
-                // (SPEC "Actors"): the call reads the handle, and its `!`
-                // lends nothing, since the actor changes its own value.
+                // (SPEC "Actors"): its `!` lends the actor to read, as any
+                // value that changes by a marked call (`lendsToRead`), and
+                // as a task it keeps none of the handle.
                 actor_call = sema.actorOfHandle(self.ctx, recv_ty) != null;
                 // What a channel is sent, it holds until a task takes it:
                 // a channel is a shared home (SPEC "Channels").
@@ -3828,8 +3875,17 @@ const Lowerer = struct {
                 } else false;
                 const arm = if (fn_params) |fp| fp.arm else false;
                 if (arm) arm_call = recv_mode;
-                const robj = if (actor_call or arm) recv_obj else obj;
-                switch (if (actor_call or arm) .read else recv_mode) {
+                // `!x.m()` whose self is a write view of a value that
+                // changes by a marked call (a Cell's `set`, a channel's
+                // `send` or a select's `on_recv`, an actor's `!@` method, a
+                // `!@` method of a value holding a Cell) lends `x` to read,
+                // from before the arguments for as long as the view lives
+                // (Core §4, `lendsToRead`): the call is lowered as a read
+                // receiver's, whose loan its result and its task carry.
+                const shared = recv_mode == .write and obj.isKind(.write) and self.lendsToRead(recv_ty, null);
+                // An arm's sigil is the arm's own, read by sema as such.
+                const robj = if (shared or arm) recv_obj else obj;
+                switch (if (shared) .read else recv_mode) {
                     .none => return abstain("a function of a type called on a value"),
                     .write => {
                         // A write receiver with no `!` is a write view
@@ -3840,12 +3896,8 @@ const Lowerer = struct {
                             if (self.f.vars.items[t].kind != .write_view) return abstain("a write receiver without `!`");
                             break :blk Place{ .root = t, .path = &.{}, .ty = self.f.vars.items[t].ty };
                         };
-                        const slot = self.handleSlot(p0, recv_ty);
-                        if (slot == null and (p0.handle or self.isHandle(p0.ty))) return abstain("a write receiver through a handle");
-                        const p = slot orelse p0;
-                        // A Cell or Signal changes through a handle by a
-                        // marked call: never one seen through a read view.
-                        if (slot != null and obj.isKind(.write) and try self.seenThroughView(ir.Write.operand(obj))) return self.changeThroughView(callee, ir.Write.operand(obj));
+                        if (p0.handle or self.isHandle(p0.ty)) return abstain("a write receiver through a handle");
+                        const p = p0;
                         // A write receiver is lent when the call runs; its
                         // arguments may still read it (SPEC §7).
                         if (p.via == .read) return abstain("a write receiver through a read view");
@@ -3873,11 +3925,11 @@ const Lowerer = struct {
                         // (SPEC §7), plain data included.
                         var r: ?VarId = null;
                         if (try self.place(robj)) |p| {
-                            // An arm that receives or sends changes its
-                            // channel, and an actor's `!@` method its
-                            // value: neither through a handle seen
-                            // through a read view.
-                            if ((arm_call == .write or (actor_call and recv_mode == .write)) and try self.seenThroughView(robj)) return self.changeThroughView(callee, robj);
+                            // A marked call changes what it lends to
+                            // write, which a read view never does (Core
+                            // s4): a receive or send arm, a Cell's or
+                            // Signal's change, an actor's `!@` method.
+                            if (shared and try self.seenThroughView(robj)) return self.changeThroughView(callee, robj);
                             r = try self.lend(p, .read, robj, p.ty);
                             if (elem_method) elem_from = p.root;
                             recv_held = p.root;
@@ -3982,7 +4034,8 @@ const Lowerer = struct {
             }
             if (val.isKind(.write)) {
                 const p = try self.writePlace(ir.Write.operand(val));
-                try reads.append(self.a, try self.lend(p, .write, val, try self.typeOf(val)));
+                const vt = try self.typeOf(val);
+                try reads.append(self.a, try self.lendAs(p, .write, val, vt, self.argLendsToRead(p.ty, vt, sig, param_at)));
                 // The call may store a view in what it was lent to write (s6).
                 if (try self.storesViews(p)) try gains.append(self.a, p.root);
                 continue;
@@ -4062,7 +4115,8 @@ const Lowerer = struct {
         // per result). A task keeps every loan its call was given, until
         // it is waited for, which its drop does.
         // A task of an actor's method keeps none of the handle, which may
-        // be used again while it runs (SPEC "Actors").
+        // be used again while it runs: the call gives the actor a count of
+        // its own, not a view (Core §4; SPEC "Actors").
         const whole: Carry = if (ir.Call.task(e) != .nil) .{ .no_result = if (actor_call) recv_vars.items else &.{}, .result_loan = true } else try self.resultCarry(&reach, sig, if (sig) |sg| sg.f.returns else rt, recv_vars.items, spans.items, reads.items, moves.items);
         const narrowed = whole.by_paths and recv_held != null;
         const part_carry = try self.a.alloc(core.Part, parts.len);

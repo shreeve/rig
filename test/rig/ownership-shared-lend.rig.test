@@ -1,0 +1,424 @@
+# ownership: tests whose names start `shared lend`: `!x` of a value that
+# changes by a marked call (a Cell, a Signal, a channel, an actor, or a
+# value that holds a Cell) puts only a read loan on `x`, while `!h`
+# lending the handle itself, assigning, and dropping stay writes (Core
+# §4, SPEC "Lending a shared value to write"). Each case states the
+# reference checker's verdict, one for each kind of handle SPEC names.
+
+test "shared lend cell calls nest", "5 7"
+  # oracle: main accept
+  c = *Cell(1)
+  !c.add((!c).swap(4))
+  five = c.get()
+  r = ?c
+  !c.set(7)
+  print(five, r.get())
+
+fail "shared lend cell holder written during call", "cannot lend `cs` to write while a read loan is live"
+  # oracle: main reject C4
+  fun grow(cs: !List[*Cell[Int]]) -> Int
+    !cs.push(*Cell(0))
+    1
+
+  cs = List[*Cell[Int]]()
+  !cs.push(*Cell(1))
+  _ = !cs[0].add(grow(!cs))
+
+fail "shared lend cell reassigned while viewed", "cannot reassign `c` while it is lent"
+  # oracle: main reject C4
+  c = *Cell(1)
+  r = ?c
+  c = *Cell(2)
+  print(r.get())
+
+test "shared lend cell list members", "1 1"
+  # oracle: main accept
+  c = *Cell(List[Int]())
+  !c.push(1)
+  !c.push((!c).pop() ?? 0)
+  print(c.len, c[0])
+
+fail "shared lend cell through read view", "cannot lend to write through a read view `?*Cell[Int]`"
+  # oracle: peek accept
+  # oracle: bump reject C10
+  fun peek(c: ?*Cell[Int]) -> Int
+    c.get()
+
+  sub bump(c: ?*Cell[Int])
+    !c.set(5)
+
+  c = *Cell(3)
+  print(peek(?c))
+
+test "shared lend signal viewed across set", "7"
+  # oracle: main accept
+  sig: *Signal[Int] = *Signal(0)
+  r = ?sig
+  !sig.set(7)
+  print(r.get())
+
+fail "shared lend signal through read view", "cannot lend to write through a read view `?*Signal[Int]`"
+  # oracle: poke reject C10
+  sub poke(s: ?*Signal[Int])
+    !s.set(1)
+
+  print(0)
+
+test "shared lend chan receive feeds send", "6"
+  # oracle: main accept
+  ch = *Chan[Int](2)
+  !ch.send(1)!
+  !ch.send((!ch.recv()! ?? 0) + 5)!
+  print(!ch.recv()! ?? -1)
+
+fail "shared lend chan holder written during send", "cannot lend `xs` to write while a read loan is live"
+  # oracle: main reject C4
+  fun grow(xs: !List[*Chan[Int]]) -> Int
+    !xs.push(*Chan[Int](1))
+    8
+
+  xs = List[*Chan[Int]]()
+  !xs.push(*Chan[Int](1))
+  !xs[0].send(grow(!xs))!
+
+test "shared lend select arms of one channel", "got 7"
+  # oracle: main accept
+  use std.task
+
+  ch = *Chan[Int](1)
+  !ch.send(7)!
+  match task.select(got: !ch.on_recv(), put: !ch.on_send(8))!
+    .got(v?) => print("got", v)
+    .got(none) => print("closed")
+    .put => print("put")
+
+test "shared lend select arm on a task", "9"
+  # oracle: main accept
+  use std.task
+
+  fun nine() -> Int
+    9
+
+  t = nine()&
+  match task.select(done: ?t.on_end())!
+    .done => print(>t)
+
+test "shared lend actor calls nest", "2"
+  # oracle: main accept
+  obj Counter
+    n: Int
+
+    fun add(!@, k: Int) -> Int
+      @n += k
+      @n
+
+  a = *Actor(Counter(n: 0))
+  print((!a).add((!a).add(1)))
+
+fail "shared lend actor holder written during call", "cannot lend `xs` to write while a read loan is live"
+  # oracle: main reject C4
+  obj Counter
+    n: Int
+
+    fun add(!@, k: Int) -> Int
+      @n += k
+      @n
+
+  fun grow(xs: !List[*Actor[Counter]]) -> Int
+    !xs.push(*Actor(Counter(n: 0)))
+    8
+
+  xs = List[*Actor[Counter]]()
+  !xs.push(*Actor(Counter(n: 0)))
+  print(!xs[0].add(grow(!xs)))
+
+test "shared lend actor task keeps no loan", "1 5"
+  # oracle: main accept
+  obj Counter
+    n: Int
+
+    fun add(!@, k: Int) -> Int
+      @n += k
+      @n
+
+  a = *Actor(Counter(n: 0))
+  t = !a.add(1)&
+  a = *Actor(Counter(n: 5))
+  print(>t, (!a).add(0))
+
+fail "shared lend actor through read view", "cannot lend to write through a read view `?*Actor[Counter]`"
+  # oracle: poke reject C10
+  obj Counter
+    n: Int
+
+    sub add(!@, k: Int)
+      @n += k
+
+  sub poke(a: ?*Actor[Counter])
+    !a.add(1)
+
+  print(0)
+
+test "shared lend frozen value only read", "1 1"
+  # oracle: size accept
+  # oracle: main accept
+  obj Page
+    n: Int
+
+  fun size(p: ?Page) -> Int
+    p.n
+
+  p = *Frozen(Page(n: 1))
+  print(size(?p), p.n)
+
+test "shared lend plain handle lends itself", "0"
+  # oracle: reset accept
+  # oracle: main accept
+  obj User
+    age: Int
+
+  sub reset(h: !*User)
+    h = *User(age: 0)
+
+  h = *User(age: 7)
+  reset(!h)
+  print(h.age)
+
+test "shared lend cell holder calls nest", '''
+  2
+  5 5
+'''
+  # oracle: main accept
+  obj Hits
+    n: Cell[Int]
+    step: Int
+
+    fun bump(!@, k: Int) -> Int
+      !@n.add(k)
+
+  sub show(r: ?Hits, k: Int)
+    print(r.n.get(), k)
+
+  h = *Hits(n: Cell(0), step: 2)
+  print((!h).bump((!h).bump(1)))
+  show(?h, !h.bump(3))
+
+fail "shared lend cell holder through read view", "cannot lend to write through a read view `?*Hits`"
+  # oracle: poke reject C10
+  obj Hits
+    n: Cell[Int]
+
+    sub bump(!@)
+      _ = !@n.add(1)
+
+  sub poke(h: ?*Hits)
+    !h.bump()
+
+  print(0)
+
+test "shared lend cell holder tasks read", '''
+  2
+  true true 4
+'''
+  # oracle: main accept
+  obj Hits
+    n: Cell[Int]
+    step: Int
+
+    fun bump(!@) -> Int
+      !@n.add(@step)
+
+  h = *Hits(n: Cell(0), step: 2)
+  t = (!h).bump()&
+  print(h.step)
+  u = (!h).bump()&
+  a = >t
+  b = >u
+  print(a > 0, b > 0, h.n.get())
+
+fail "shared lend cell holder reassigned while a task runs", "cannot reassign `h` while it is lent"
+  # oracle: main reject C4
+  obj Hits
+    n: Cell[Int]
+    step: Int
+
+    fun bump(!@) -> Int
+      !@n.add(@step)
+
+  h = *Hits(n: Cell(0), step: 2)
+  t = (!h).bump()&
+  h = *Hits(n: Cell(5), step: 1)
+  print(>t)
+
+test "shared lend result viewing self keeps a read loan", '''
+  0
+  1
+'''
+  # oracle: main accept
+  obj Hits
+    n: Cell[Int]
+
+    fun cell(!@) -> !Cell[Int]
+      !@n
+
+  h = *Hits(n: Cell(0))
+  w = !h.cell()
+  print(h.n.get())
+  _ = !w.add(1)
+  print(h.n.get())
+
+fail "shared lend result viewing self forbids reassigning", "cannot reassign `h` while it is lent"
+  # oracle: main reject C4
+  obj Hits
+    n: Cell[Int]
+
+    fun cell(!@) -> !Cell[Int]
+      !@n
+
+  h = *Hits(n: Cell(0))
+  w = !h.cell()
+  h = *Hits(n: Cell(5))
+  _ = !w.add(1)
+
+test "shared lend value through handle twice", "2"
+  # oracle: hit2 accept
+  # oracle: main accept
+  obj Hits
+    n: Cell[Int]
+
+  sub hit2(a: !Hits, b: !Hits)
+    _ = !a.n.add(1)
+    _ = !b.n.add(1)
+
+  h = *Hits(n: Cell(0))
+  hit2(!h, !h)
+  print(h.n.get())
+
+fail "shared lend handle itself twice", "cannot lend `h` to write while a write loan is live"
+  # oracle: main reject C4
+  obj Hits
+    n: Cell[Int]
+
+  sub both(a: !*Hits, b: !*Hits)
+    a = *Hits(n: Cell(1))
+
+  h = *Hits(n: Cell(0))
+  both(!h, !h)
+
+test "shared lend handle parameter calls nest", "5"
+  # oracle: bump accept
+  # oracle: main accept
+  fun bump(c: !*Cell[Int]) -> Int
+    !c.add((!c).swap(4))
+
+  c = *Cell(1)
+  print(bump(!c))
+
+fail "shared lend handle parameter reassigned while viewed", "cannot reassign `c` while it is lent"
+  # oracle: f reject C4
+  sub f(c: !*Cell[Int])
+    r = ?c
+    c = *Cell(9)
+    print(r.get())
+
+  c = *Cell(1)
+  f(!c)
+
+test "shared lend write view of a cell", "2 5"
+  # oracle: Hits.twice accept
+  # oracle: swapped accept
+  # oracle: main accept
+  obj Hits
+    n: Cell[Int]
+
+    fun bump(!@, k: Int) -> Int
+      !@n.add(k)
+
+    fun twice(!@) -> Int
+      (!@).bump((!@).bump(1))
+
+  fun swapped(c: !Cell[Int]) -> Int
+    !c.add((!c).swap(4))
+
+  h = *Hits(n: Cell(0))
+  c = *Cell(1)
+  print((!h).twice(), swapped(!c))
+
+test "shared lend api object of a cell holder", "2"
+  # oracle: both accept
+  # oracle: main accept
+  api Bump
+    sub bump(!@)
+    fun count(?@) -> Int
+
+  obj Hits: Bump
+    n: Cell[Int]
+
+    sub bump(!@)
+      _ = !@n.add(1)
+
+    fun count(?@) -> Int
+      @n.get()
+
+  sub both(a: !{Bump}, b: !{Bump})
+    !a.bump()
+    !b.bump()
+
+  h = *Hits(n: Cell(0))
+  both(!h, !h)
+  s: *{Bump} = +h
+  print(s.count())
+
+fail "shared lend api object of an owned value twice", "cannot lend `b` to write while a write loan is live"
+  # oracle: both accept
+  # oracle: main reject C4
+  api Grow
+    sub grow(!@)
+
+  obj Bag: Grow
+    xs: List[Int]
+
+    sub grow(!@)
+      !@xs.push(1)
+
+  sub both(a: !{Grow}, b: !{Grow})
+    !a.grow()
+    !b.grow()
+
+  b = Bag(xs: List[Int]())
+  both(!b, !b)
+
+test "shared lend weak handle upgraded", "2"
+  # oracle: main accept
+  c = *Cell(1)
+  w = ~c
+  if *w as h
+    !h.set(2)
+  print(c.get())
+
+test "shared lend set of tasks takes a task", "1"
+  # oracle: work accept
+  # oracle: main accept
+  obj Hits
+    n: Cell[Int]
+
+  sub work(h: *Hits)
+    _ = !h.n.add(1)
+
+  h = *Hits(n: Cell(0))
+  ts = Tasks[Void]()
+  !ts.add(work(+h)&)
+  >ts
+  print(h.n.get())
+
+fail "shared lend set of tasks lent to write", "cannot lend `ts` to write while a read loan is live"
+  # oracle: main reject C4
+  sub work(n: Int)
+    print(n)
+
+  ts = Tasks[Void]()
+  !ts.add(work(1)&)
+  r = ?ts
+  !ts.add(work(2)&)
+  print(r.len)
+  >ts
