@@ -678,8 +678,9 @@ arms.
 
 ### Runtime
 
-- A worker going to sleep looks at another worker's poller only when no
-  worker sleeps in it and no look at it has ended within 20 µs, and
+- A worker going to sleep looks at another worker's poller only when its
+  worker is not inside the kernel's wait in it and no look at it has
+  ended within 20 µs, and
   leaves its own to its wait, which returns the events there at once:
   a sleep enters the kernel about once, where it entered once for every
   worker's poller and once more to wait. A busy worker's descriptors,
