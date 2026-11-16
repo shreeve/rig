@@ -9306,12 +9306,24 @@ pub const Emitter = struct {
             const saved = self.read_place;
             defer self.read_place = saved;
             self.read_place = !self.selfWrites(sexp);
+            const name = self.srcText(ir.Member.name(callee));
+            const recv_ty = self.typeOf(recv);
+            // A self the method takes by value goes to the task as a
+            // value, moved or copied, as a plain call passes it: out of
+            // each box for a consuming method, and never by the address
+            // of a Zig temporary.
+            if (recv_ty) |t| if (self.facts.methodSelfMode(t, name) == .value) {
+                try self.w.writeAll(if (self.facts.isLocalTask(sexp)) ".spawnMethodValueLocal(" else ".spawnMethodValue(");
+                try self.emitReached(callee, name);
+                try self.w.print(", \"{s}\", .{{ ", .{name});
+                try self.emitArgs(sexp);
+                return self.w.writeAll(" })");
+            };
             try self.w.writeAll(if (self.facts.isLocalTask(sexp)) ".spawnMethodLocal(" else ".spawnMethod(");
             // A self behind a shared handle or in a box is reached as a
             // plain call reaches it, and the method is given the value's
             // address there, never the handle's or the box's.
-            const name = self.srcText(ir.Member.name(callee));
-            const reached = if (self.typeOf(recv)) |t| self.facts.unwrapAccess(t) != self.facts.unwrapViews(t) else false;
+            const reached = if (recv_ty) |t| self.facts.unwrapAccess(t) != self.facts.unwrapViews(t) else false;
             if (reached) {
                 try self.w.writeAll("&");
                 try self.emitReached(callee, name);

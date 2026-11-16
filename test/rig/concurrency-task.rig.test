@@ -173,9 +173,11 @@ test "task methods through a handle another handle shares", seeds: 20, '''
   true
   40
 '''
-  # A task given `*T` is local, pinned with its maker to one thread, so
-  # the maker changes the Cell through a second handle between the task's
-  # turns, and may drop that handle while the task runs.
+  # The maker changes the Cell through a second handle while the task
+  # runs, and may drop that handle. A one-word Cell is counted
+  # atomically, so `Hits`'s tasks go to any core; `Bag`'s
+  # `Cell[List[Int]]` is not, so its task is local, pinned with its
+  # maker to one thread, where the two take turns.
   obj Hits
     n: Cell[Int]
 
@@ -219,10 +221,12 @@ test "task methods through a box and a frozen handle", seeds: 20, '''
   1
   1
   x0
+  y2
   3
 '''
   # A box's value is reached in the box, and a method that consumes it
-  # takes it out of the box; a frozen value is reached behind its handle.
+  # takes it out of the box, a local's or a field's, and goes to the task
+  # as a value; a frozen value is reached behind its handle.
   obj Plain
     n: Int
 
@@ -240,6 +244,9 @@ test "task methods through a box and a frozen handle", seeds: 20, '''
     fun into(<@) -> String
       String(@s, @n)
 
+  obj Holder
+    b: ^Named
+
   b = ^Plain(n: 0)
   t = (!b).inc()&
   print(>t)
@@ -248,9 +255,74 @@ test "task methods through a box and a frozen handle", seeds: 20, '''
   c = ^Named(n: 0, s: String("x"))
   v = (<c).into()&
   print(>v)
+  o = Holder(b: ^Named(n: 2, s: String("y")))
+  x = (<o.b).into()&
+  print(>x)
   f = *Frozen(Plain(n: 3))
   w = ?f.peek()&
   print(>w)
+
+test "task methods through a box holding a handle that stays on one thread", seeds: 20, '''
+  true
+  101
+  101
+'''
+  # A box holding a `*Hits` whose Cell is more than a word makes its
+  # method tasks local: they run on the maker's thread, which changes the
+  # Cell and copies the handle between their turns.
+  obj Hits
+    xs: Cell[List[Int]]
+
+  obj Q
+    h: *Hits
+
+    fun peek(?@) -> Int
+      @h.xs.len
+
+    fun push(!@) -> Int
+      !@h.xs.push(1)
+      @h.xs.len
+
+    fun keep(?@) -> Int
+      k = +@h
+      k.xs.len
+
+  hh = *Hits(xs: Cell(List[Int]()))
+  b = ^Q(h: +hh)
+  t = ?b.peek()&
+  for _ in 0..100
+    !hh.xs.push(1)
+  print(>t >= 0)
+  u = (!b).push()&
+  print(>u)
+  w = ?b.keep()&
+  for _ in 0..100
+    c = +hh
+    <c
+  print(>w)
+
+code "task methods through a box holding a handle that stays on one thread are local", "spawnMethodLocal(&b.value", "spawnMethodValue(rig.take(&__rig_alive_c, c).unbox(), \"into\""
+  obj Hits
+    xs: Cell[List[Int]]
+
+  obj Q
+    h: *Hits
+
+    fun push(!@) -> Int
+      !@h.xs.push(1)
+      @h.xs.len
+
+  obj Named
+    n: Int
+
+    fun into(<@) -> Int
+      @n
+
+  b = ^Q(h: *Hits(xs: Cell(List[Int]())))
+  u = (!b).push()&
+  c = ^Named(n: 2)
+  v = (<c).into()&
+  print(>u, >v)
 
 test "task methods through a handle give views", seeds: 20, '''
   t

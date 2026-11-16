@@ -13739,10 +13739,11 @@ stays on that thread from then on, so no count they share changes on two
 cores at once. Such tasks take turns on one core, at their waits and
 yield checks; the code reads the same as for any task, and the compiler
 picks which a task is. So a GUI program's `*T`, `Cell`, and `Signal`
-code can use `&`. A method task through such a handle, `(!h).bump()&`
-of a `*Hits`, is local the same way, and keeps `h` lent until it ends. `rig check --tasks` lists each local task, with the
-argument that pins it and the type in that argument that stays on one
-thread:
+code can use `&`. A method task through such a handle is local the
+same way: `(!b).fill()&` of a `*Bag` holding a `Cell[List[Int]]`, and
+it keeps `b` lent until it ends. `rig check --tasks` lists each local
+task, with the argument that pins it and the type in that argument that
+stays on one thread:
 
 ```text
 main.rig:8:7: `val(?n)&` is local, pinned to its maker's thread by `?n`: `?*Node` views a `*` handle whose count is not atomic, so two cores could change it at once
