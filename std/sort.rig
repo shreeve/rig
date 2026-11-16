@@ -34,8 +34,9 @@ pub inline sub sort_by[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
   # recursion, so the whole sort compiles into its caller, where `less`
   # is inlined too.
   n = xs.len
-  if n <= 20
-    insert_by(!xs, 0, 1, n, less)
+  a = 0
+  m = next_run(!xs, 0, less)
+  if m >= n
     return
   room = Room(addr: 0, cap: 0, bytes: 0)
   # The runs not yet merged, each with the depth in powersort's tree of
@@ -44,8 +45,6 @@ pub inline sub sort_by[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
   depths: [64]Int = [64 of 0]
   top = 0
   scale = ((U64(1) << 62) + U64(n) - 1) / U64(n)
-  a = 0
-  m = next_run(!xs, 0, less)
   while m < n
     b = next_run(!xs, m, less)
     # The boundary's depth: the bits `(a + m) / 2n` and `(m + b) / 2n`
