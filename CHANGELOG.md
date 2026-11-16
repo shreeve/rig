@@ -185,6 +185,13 @@ C, Rust, or Go takes for `not`. Inside a generic body, where `T` is a
 parameter, the short form stays. Write the long form, or `not` before
 it where the negation was meant. Trig has no such site.
 
+**A generic body that discards several results holding a `T`**
+(`task.all(<a, <b)` as a statement, a call of `-> (T, T)` alone) makes
+`T` plain data, as discarding one `T` does: an instance whose `T` owns,
+`both[String](...)`, is rejected with "the generic body discards a
+value that holds a `T`", where it leaked. Bind the results and drop
+them, or give the body plain data.
+
 ### Removed
 
 - **`--release=fast`**, Zig's fast mode, from `rig run`, `rig build`,
