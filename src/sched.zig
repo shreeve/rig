@@ -3834,6 +3834,14 @@ fn waitBriefly(w: *Worker, until: i96) void {
         w.steal_wait.store(false, .monotonic);
     }
     if (builtin.is_test) _ = test_brief_waits.fetchAdd(1, .monotonic);
+    // On Linux the thread's timer slack, 50 µs unless set, would stretch
+    // a wait of 3 µs many times over: this wait alone keeps to its time,
+    // and the worker's other timed waits keep the default.
+    const linux = builtin.os.tag == .linux;
+    if (linux) _ = std.os.linux.prctl(@intFromEnum(std.os.linux.PR.SET_TIMERSLACK), 1, 0, 0, 0);
+    defer if (linux) {
+        _ = std.os.linux.prctl(@intFromEnum(std.os.linux.PR.SET_TIMERSLACK), 0, 0, 0, 0);
+    };
     _ = w.poller.pollAs(left, false);
 }
 
