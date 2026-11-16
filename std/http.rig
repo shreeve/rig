@@ -27,27 +27,34 @@ pub obj Request
   pub fun header(?@, name: ?String) -> String?
     header_of(?@head, name)
 
-# A response: its status, its content type, and its body.
+# A response: its status, its content type, and its body. The type is
+# fixed text, a `Static`, so a response holds it with no copy.
 pub obj Response
   pub status: Int
-  pub type: String
+  pub type: Static
   pub body: String
+
+plain = "text/plain; charset=utf-8"
 
 # A 200 response of plain text.
 pub fun text(body: ?String) -> Response
-  Response(status: 200, type: String("text/plain; charset=utf-8"), body: String(body))
+  Response(status: 200, type: plain, body: String(body))
+
+# A 200 response of plain text that takes `body`, copying nothing.
+pub fun ok(body: String) -> Response
+  Response(status: 200, type: plain, body: <body)
 
 # A 200 response of JSON, `body` written as JSON already.
 pub fun json(body: ?String) -> Response
-  Response(status: 200, type: String("application/json"), body: String(body))
+  Response(status: 200, type: "application/json", body: String(body))
 
 # A 200 response of HTML.
 pub fun html(body: ?String) -> Response
-  Response(status: 200, type: String("text/html; charset=utf-8"), body: String(body))
+  Response(status: 200, type: "text/html; charset=utf-8", body: String(body))
 
 # A response of status `code` and plain text `body`.
 pub fun status(code: Int, body: ?String) -> Response
-  Response(status: code, type: String("text/plain; charset=utf-8"), body: String(body))
+  Response(status: code, type: plain, body: String(body))
 
 # 404, not found.
 pub fun not_found() -> Response

@@ -1004,7 +1004,7 @@ fn answer(comptime F: type, f: F, request: *std.http.Server.Request, max_body: u
     };
     defer rig.drop(&resp);
     const status: u10 = @intCast(rig.unsigned(std.math.clamp(@field(resp, "status"), 100, 999)));
-    const kind = @field(resp, "type").list.items;
+    const kind: []const u8 = @field(resp, "type");
     const headers = [_]std.http.Header{.{ .name = "content-type", .value = kind }};
     request.respond(@field(resp, "body").list.items, .{
         .status = @enumFromInt(status),

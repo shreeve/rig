@@ -185,6 +185,14 @@ C, Rust, or Go takes for `not`. Inside a generic body, where `T` is a
 parameter, the short form stays. Write the long form, or `not` before
 it where the negation was meant. Trig has no such site.
 
+**`http.Response`'s `type` is a `Static`:** a response built with
+another type's text, `http.Response(status: 200, type: String(t),
+body: b)` or `type: t` of a `?String`, is rejected, with "type
+mismatch: expected `Static`, got `String`". Give a literal, or a
+choice among literals (`"image/png" if png else "text/plain"`).
+`text`, `json`, `html`, `status`, and `not_found` are unchanged. Trig
+and loco have no such site.
+
 ### Removed
 
 - **`--release=fast`**, Zig's fast mode, from `rig run`, `rig build`,
@@ -202,6 +210,7 @@ it where the negation was meant. Trig has no such site.
 
 ### Added
 
+- **`http.ok(<body)`** of std.http is a 200 response of plain text that takes the String `body`, where `http.text(body)` copies the text it reads. A `Response`'s `type` is a `Static`, fixed text the response holds with no copy, where it was a `String` each response allocated; `text`, `json`, `html`, `status`, and `not_found` are as before, and a `Response` built with a literal type is too.
 - **`par.push(!t, ?sizes, f, limit: n)`** of std.par pushes `sizes.sum()` slots onto a Table at once and writes them on several tasks, a run at a time: run `k` is the next `sizes[k]` slots, in order, and `f(!run, k)` takes it as a `![]T`. The table ends as a serial loop of pushes leaves it, at any worker count and seed. The sizes and the room are tested before any task starts, a full table panicking with `push`'s message. bench/par-push times it against a serial loop.
 - **`par.each` with a function that gives a value** is rejected, with "`par.each` keeps nothing its function gives", where Zig rejected the program it emitted.
 - **std.shared**: `shared.Map[K, V]`, a map several tasks fill and read at once. A key keeps the first value put under it, and nothing is replaced or taken, so `get` gives a view of the value where it lies with no lock and no write to memory another task reads; `put_new` and `ensure` lock one of 64 shards. It lives behind `*shared.Map[K, V]`, whose handles go to any task. bench/shared times it against Maps behind actors.

@@ -171,6 +171,51 @@ test "http request fields", seeds: 20, '''
   print("/one", seen.get("/one") ?? "-")
   _ = <t.cancel() catch -1
 
+test "http responses", seeds: 20, '''
+  200 text/plain; charset=utf-8 moved /ok
+  201 image/png png
+  204 - 
+  200 application/json {"a":1}
+'''
+  # `ok` takes the body it is given; a response's type is fixed text,
+  # a literal or a choice among literals, and an empty one sends none.
+  use std.text
+
+  fun kind_of(path: ?String) -> Static
+    "image/png" if text.ends_with(path, ".png") else "text/plain"
+
+  fun run(l: net.Listener) -> Int!
+    http.serve(<l, |req|
+      match req.path
+        "/ok" => http.ok(String("moved ", req.path))
+        "/png" => http.Response(status: 201, type: kind_of("a.png"), body: String("png"))
+        "/none" => http.Response(status: 204, type: "", body: String())
+        _ => http.json("{\"a\":1}")
+    )!
+    0
+
+  # The status, content type, and body of the answer for `path`.
+  fun get(port: Int, path: ?String) -> String!
+    c = net.connect(String("127.0.0.1:", port))!
+    (!c).write(String("GET ", path, " HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))!
+    got = String()
+    loop
+      if (!c).read(!got, 4096)! == 0
+        break
+    kind = String("-")
+    if text.find(?got, "content-type: ") as at
+      rest = ?got[at + 14..]
+      kind = String(?rest[..text.find(rest, "\r\n") ?? 0])
+    at = (text.find(?got, "\r\n\r\n") ?? 0) + 4
+    String(?got[9..12], " ", kind, " ", ?got[at..])
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l)&
+  for p in ["/ok", "/png", "/none", "/j"]
+    print(get(port, p)!)
+  _ = <t.cancel() catch -1
+
 test "http expect continue", seeds: 20, '''
   100 then /e:hello
   417
