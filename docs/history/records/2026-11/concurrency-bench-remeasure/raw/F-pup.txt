@@ -1,0 +1,26 @@
+# blocks=4832 swap_mb=1360 slot=302 paused=0 running=0 late=0 load 1.23 0.89 1.28
+bfd872b6d 2026-11-15 21:50:13 -0700
+round 1: rig psum 23.54, rig qsort 807.90, rayon psum 18.07, rayon qsort 452.30
+round 2: rayon psum 33.27, rayon qsort 474.65, rig psum 25.09, rig qsort 820.53
+round 3: rig psum 24.18, rig qsort 788.21, rayon psum 32.08, rayon qsort 422.48
+round 4: rayon psum 33.91, rayon qsort 481.46, rig psum 24.01, rig qsort 748.28
+round 5: rig psum 24.55, rig qsort 807.26, rayon psum 31.92, rayon qsort 485.93
+round 6: rayon psum 32.04, rayon qsort 456.35, rig psum 24.50, rig qsort 805.31
+round 7: rig psum 25.55, rig qsort 810.37, rayon psum 24.38, rayon qsort 449.22
+round 8: rayon psum 25.07, rayon qsort 535.90, rig psum 23.90, rig qsort 709.21
+round 9: rig psum 24.91, rig qsort 756.17, rayon psum 32.00, rayon qsort 465.25
+round 10: rayon psum 17.73, rayon qsort 436.89, rig psum 24.53, rig qsort 799.53
+round 11: rig psum 46.16, rig qsort 744.55, rayon psum 21.11, rayon qsort 448.02
+round 12: rayon psum 25.18, rayon qsort 551.60, rig psum 23.44, rig qsort 713.86
+round 13: rig psum 26.40, rig qsort 715.73, rayon psum 36.57, rayon qsort 547.06
+round 14: rayon psum 32.66, rayon qsort 430.76, rig psum 24.69, rig qsort 723.87
+round 15: rig psum 55.31, rig qsort 759.48, rayon psum 27.19, rayon qsort 449.13
+round 16: rayon psum 24.52, rayon qsort 489.73, rig psum 24.96, rig qsort 726.66
+round 17: rig psum 24.47, rig qsort 737.01, rayon psum 32.02, rayon qsort 550.41
+round 18: rayon psum 32.27, rayon qsort 462.65, rig psum 23.65, rig qsort 762.53
+round 19: rig psum 24.09, rig qsort 795.23, rayon psum 32.13, rayon qsort 451.91
+round 20: rayon psum 36.97, rayon qsort 465.14, rig psum 24.65, rig qsort 824.14
+checks: {'psum': ['16760439056'], 'qsort': ['4194304']}
+row        rig ms   rayon ms
+psum        23.44      17.73
+qsort      709.21     422.48

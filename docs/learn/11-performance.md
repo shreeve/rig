@@ -426,14 +426,14 @@ Apple M5 with 10 cores, what a task costs:
 
 | | spawn | chain | yield |
 |---|---|---|---|
-| Rig | 105 ns | 44 ns | 10 ns |
-| Tokio | 172 ns | 118 ns | 42 ns |
-| Go | 232 ns | 188 ns | 245 ns |
+| Rig | 133 ns | 51 ns | 6 ns |
+| Tokio | 175 ns | 165 ns | 39 ns |
+| Go | 228 ns | 199 ns | 226 ns |
 
-It also states where Rig is behind: `fanout`, ten tasks of CPU work,
-takes 78.2 ms in Rig and 71.6 ms in Tokio, and a sleeping task holds
-17.0 KiB of resident memory, and 32.7 KiB with its page table
-([SCALING.md](../../bench/tasks/SCALING.md)), against Tokio's 264 B.
+It also states where Rig is behind: a sleeping task holds 17.1 KiB,
+page tables included, against Tokio's 264 B and Go's 2.9 KiB; a
+loopback round trip is 20 to 47% slower than Tokio's; and divide and
+conquer trails Rayon's.
 
 To reproduce one, build the compiler, then run a driver on a quiet
 machine. Each driver prints a table and takes `--help`. The task
