@@ -661,6 +661,18 @@ arms.
 
 ### Docs
 
+- The concurrency docs' benchmarks are measured with `--release` on the
+  Mac (docs/launch/benchmarks.md, docs/CONCURRENCY.md, the launch post
+  and FAQ): `fanout` is level with Tokio and Go, a sleeping task holds
+  17.1 KiB on a dense stack, an idle HTTP connection less than hyper's
+  and Go's with page tables counted for all three, and loopback round
+  trips and fork-join trail Tokio and Rayon. The x86-64 Linux figures
+  are measured with `--release` too, all three runtimes on the same
+  cores: a sleeping task holds 5.2 KiB, and the HTTP server answers
+  592,000 to 846,000 requests a second against hyper's 473,000 to
+  486,000 at its best worker count, spending more CPU on a request but
+  keeping more cores busy.
+
 - The docs, std, the examples, and the benchmarks write a self sigil
   short wherever it applies, `!c.read(!buf, 4096)!`, `?p.dist(q)`,
   `<conn.close()`; the long form stays only for a write call whose

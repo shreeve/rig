@@ -1,0 +1,30 @@
+# blocks=4820 swap_mb=1360 slot=310 paused=0 running=0 late=0 load 0.08 0.53 1.35
+bfd872b6d 2026-11-15 21:50:13 -0700
+         rig-safe    tokio       go          vs tokio
+solo     11 ns/call  247 ns/call 11 ns/call  rig-safe 21.9x faster, go 22.6x faster
+contend  26 ns/call  234 ns/call 54 ns/call  rig-safe 9.0x faster, go 4.3x faster
+spread   2.1 ns/call 26 ns/call  1.8 ns/call rig-safe 12.6x faster, go 14.4x faster
+         rig-safe    tokio       go          vs tokio
+solo     13 ns/call  244 ns/call 11 ns/call  rig-safe 19.0x faster, go 21.2x faster
+contend  24 ns/call  236 ns/call 55 ns/call  rig-safe 9.6x faster, go 4.3x faster
+spread   2.0 ns/call 26 ns/call  1.8 ns/call rig-safe 12.7x faster, go 14.5x faster
+         rig-safe    tokio       go          vs tokio
+solo     13 ns/call  253 ns/call 11 ns/call  rig-safe 20.0x faster, go 22.0x faster
+contend  26 ns/call  238 ns/call 54 ns/call  rig-safe 9.3x faster, go 4.4x faster
+spread   2.0 ns/call 26 ns/call  1.9 ns/call rig-safe 12.5x faster, go 13.8x faster
+         rig-safe    tokio       go          vs tokio
+solo     12 ns/call  246 ns/call 12 ns/call  rig-safe 20.0x faster, go 21.1x faster
+contend  24 ns/call  234 ns/call 55 ns/call  rig-safe 9.8x faster, go 4.3x faster
+spread   2.0 ns/call 26 ns/call  1.9 ns/call rig-safe 12.7x faster, go 13.7x faster
+         rig-safe    tokio       go          vs tokio
+solo     13 ns/call  244 ns/call 12 ns/call  rig-safe 18.4x faster, go 21.2x faster
+contend  26 ns/call  232 ns/call 52 ns/call  rig-safe 9.0x faster, go 4.5x faster
+spread   2.0 ns/call 25 ns/call  1.8 ns/call rig-safe 12.7x faster, go 13.8x faster
+         rig-safe    tokio       go          vs tokio
+solo     13 ns/call  253 ns/call 12 ns/call  rig-safe 18.8x faster, go 21.9x faster
+contend  25 ns/call  243 ns/call 54 ns/call  rig-safe 9.6x faster, go 4.5x faster
+spread   2.2 ns/call 26 ns/call  1.8 ns/call rig-safe 11.9x faster, go 14.1x faster
+         rig-safe    tokio       go          vs tokio
+solo     14 ns/call  241 ns/call 11 ns/call  rig-safe 17.3x faster, go 22.3x faster
+contend  25 ns/call  237 ns/call 57 ns/call  rig-safe 9.4x faster, go 4.1x faster
+spread   2.3 ns/call 25 ns/call  1.8 ns/call rig-safe 11.0x faster, go 13.8x faster

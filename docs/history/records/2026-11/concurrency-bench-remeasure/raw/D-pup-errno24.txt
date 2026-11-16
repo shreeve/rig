@@ -1,0 +1,22 @@
+# blocks=4832 swap_mb=1360 slot=303 paused=0 running=0 late=0 load 0.12 0.51 1.25
+bfd872b6d 2026-11-15 21:50:13 -0700
+Traceback (most recent call last):
+  File "/zfs/trig-pup/bench-remeasure-3f4564a4b/rig/docs/history/records/2026-11/concurrency-bench-remeasure/idle_footprint.py", line 75, in <module>
+    main()
+    ~~~~^^
+  File "/zfs/trig-pup/bench-remeasure-3f4564a4b/rig/docs/history/records/2026-11/concurrency-bench-remeasure/idle_footprint.py", line 70, in main
+    per, tables = measure(exe, n)
+                  ~~~~~~~^^^^^^^^
+  File "/zfs/trig-pup/bench-remeasure-3f4564a4b/rig/docs/history/records/2026-11/concurrency-bench-remeasure/idle_footprint.py", line 55, in measure
+    held = [request(port) for _ in range(n)]
+            ~~~~~~~^^^^^^
+  File "/zfs/trig-pup/bench-remeasure-3f4564a4b/rig/docs/history/records/2026-11/concurrency-bench-remeasure/idle_footprint.py", line 37, in request
+    s = socket.create_connection(("127.0.0.1", port))
+  File "/usr/lib/python3.14/socket.py", line 870, in create_connection
+    raise exceptions[0]
+  File "/usr/lib/python3.14/socket.py", line 850, in create_connection
+    sock = socket(af, socktype, proto)
+  File "/usr/lib/python3.14/socket.py", line 236, in __init__
+    _socket.socket.__init__(self, family, type, proto, fileno)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+OSError: [Errno 24] Too many open files
