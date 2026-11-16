@@ -1,0 +1,529 @@
+diff --git i/bench/mixed/bench-mixed w/bench/mixed/bench-mixed
+index e0c2b76c9..38c4f1b67 100755
+--- i/bench/mixed/bench-mixed
++++ w/bench/mixed/bench-mixed
+@@ -80,6 +80,8 @@ def start(exe, everywhere):
+     port = free_port()
+     addr = "127.0.0.1:%d" % port
+     env = dict(os.environ, RIG_HTTP_IDLE_MS="600000")
++    if os.environ.get("STALL_DIR") and os.environ.get("STALL_TRACE") == "1":
++        env["RIG_STALL_TRACE"] = os.environ["STALL_DIR"]
+     p = subprocess.Popen([exe, ("0.0.0.0:%d" % port) if everywhere else addr], stdout=subprocess.DEVNULL, env=env)
+     for _ in range(500):
+         try:
+@@ -132,7 +134,14 @@ def run(loader, exe, a):
+         cmd = [loader, "-addr", addr, "-rates", a.rates, "-conns", str(a.conns), "-duration", "%gs" % a.duration,
+                "-warmup", "%gs" % a.warmup, "-mix", str(a.mix), "-idle", str(idle)]
+         limit = 60 + len(a.rates.split(",")) * (a.duration + a.warmup + 15)
+-        g = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
++        sd = os.environ.get("STALL_DIR")
++        errf = None
++        if sd:
++            cmd += ["-stall", "20ms"]
++            if os.path.basename(exe).startswith("rig") and os.environ.get("STALL_TRACE") == "1":
++                cmd += ["-serverpid", str(p.pid)]
++            errf = open(os.path.join(sd, "%s-%d.log" % (os.path.basename(exe), p.pid)), "w")
++        g = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, stderr=errf)
+         timer = threading.Timer(limit, g.kill)
+         timer.start()
+         try:
+@@ -143,6 +152,8 @@ def run(loader, exe, a):
+                     lines.append(line)
+         finally:
+             timer.cancel()
++        if errf:
++            errf.close()
+         if g.wait() != 0:
+             sys.exit("bench-mixed: the load generator failed against `%s`" % exe)
+         if holder:
+diff --git i/bench/mixed/load/main.go w/bench/mixed/load/main.go
+index 579fd6ade..b74e63d0e 100644
+--- i/bench/mixed/load/main.go
++++ w/bench/mixed/load/main.go
+@@ -49,10 +49,52 @@ import (
+ 	"strconv"
+ 	"strings"
+ 	"sync"
++	"sync/atomic"
+ 	"syscall"
+ 	"time"
+ )
+ 
++// SCRATCH: stall tracing.
++var (
++	serverPid  int
++	stallAt    time.Duration
++	lastSignal atomic.Int64
++	stallMu    sync.Mutex
++)
++
++func stallLog(format string, args ...any) {
++	stallMu.Lock()
++	fmt.Fprintf(os.Stderr, format, args...)
++	stallMu.Unlock()
++}
++
++// The generator's own health: a goroutine that sleeps 1 ms and notes how
++// late it wakes, and every 200 us a busy check of the wall clock's gaps.
++func ticker() {
++	for {
++		want := time.Now().Add(time.Millisecond)
++		time.Sleep(time.Millisecond)
++		got := time.Now()
++		if late := got.Sub(want); late > 5*time.Millisecond {
++			stallLog("T %d %d\n", got.UnixNano(), late.Microseconds())
++		}
++	}
++}
++
++var lastGC uint32
++
++func gcPauses() {
++	var ms runtime.MemStats
++	runtime.ReadMemStats(&ms)
++	for n := lastGC; n < ms.NumGC; n++ {
++		i := n % 256
++		if ms.PauseNs[i] > 500000 {
++			stallLog("G %d %d\n", ms.PauseEnd[i], ms.PauseNs[i]/1000)
++		}
++	}
++	lastGC = ms.NumGC
++}
++
+ // The data and the hash every server computes for `/hash`.
+ func makeData() []byte {
+ 	data := make([]byte, 4096)
+@@ -88,6 +130,11 @@ var (
+ 
+ // Send req on c and read its answer whole; fail unless its body is want.
+ func roundTrip(c net.Conn, r *bufio.Reader, req, want []byte, body []byte) ([]byte, error) {
++	var fb time.Time
++	return roundTripAt(c, r, req, want, body, &fb)
++}
++
++func roundTripAt(c net.Conn, r *bufio.Reader, req, want []byte, body []byte, fb *time.Time) ([]byte, error) {
+ 	if _, err := c.Write(req); err != nil {
+ 		return body, err
+ 	}
+@@ -99,6 +146,7 @@ func roundTrip(c net.Conn, r *bufio.Reader, req, want []byte, body []byte) ([]by
+ 			return body, err
+ 		}
+ 		if status == "" {
++			*fb = time.Now()
+ 			status = string(line)
+ 			continue
+ 		}
+@@ -159,6 +207,8 @@ func reset(c net.Conn) {
+ func drive(c net.Conn, idx int, start, counted, end time.Time, interval time.Duration, mix int, res *connResult) {
+ 	r := bufio.NewReaderSize(c, 4096)
+ 	var body []byte
++	port := c.LocalAddr().(*net.TCPAddr).Port
++	var prevGot time.Time
+ 	for i := 0; ; i++ {
+ 		intended := start.Add(time.Duration(i) * interval)
+ 		if !intended.Before(end) {
+@@ -190,8 +240,20 @@ func drive(c net.Conn, idx int, start, counted, end time.Time, interval time.Dur
+ 			req, want = computeReq[s], computeAns[s]
+ 		}
+ 		var err error
+-		body, err = roundTrip(c, r, req, want, body)
++		var firstByte time.Time
++		body, err = roundTripAt(c, r, req, want, body, &firstByte)
+ 		got := time.Now()
++		if stallAt > 0 && got.Sub(intended) > stallAt {
++			if serverPid > 0 {
++				last := lastSignal.Load()
++				if got.UnixNano()-last > int64(time.Second) && lastSignal.CompareAndSwap(last, got.UnixNano()) {
++					syscall.Kill(serverPid, syscall.SIGUSR1)
++					stallLog("F %d\n", time.Now().UnixNano())
++				}
++			}
++			stallLog("S %d %d %d %d %d %d %d\n", idx, port, intended.UnixNano(), sent.UnixNano(), firstByte.UnixNano(), got.UnixNano(), prevGot.UnixNano())
++		}
++		prevGot = got
+ 		if err != nil {
+ 			res.errors++
+ 			res.err = err
+@@ -308,8 +370,13 @@ func main() {
+ 	warmup := flag.Duration("warmup", time.Second, "how long each rate runs before it is counted")
+ 	mix := flag.Int("mix", 4, "every K-th request computes")
+ 	idle := flag.Int("idle", 0, "connections to open and hold idle throughout")
++	flag.IntVar(&serverPid, "serverpid", 0, "SCRATCH: SIGUSR1 this pid on a stall")
++	flag.DurationVar(&stallAt, "stall", 0, "SCRATCH: log requests slower than this")
+ 	pause := flag.Duration("pause", 500*time.Millisecond, "the pause between rates")
+ 	flag.Parse()
++	if stallAt > 0 {
++		go ticker()
++	}
+ 	data := makeData()
+ 	for s := 0; s < seeds; s++ {
+ 		computeReq[s] = []byte(fmt.Sprintf("GET /hash?seed=%d HTTP/1.1\r\nHost: bench\r\n\r\n", s))
+@@ -346,7 +413,14 @@ func main() {
+ 			fmt.Fprintln(os.Stderr, "load: bad rate", f)
+ 			os.Exit(2)
+ 		}
++		if stallAt > 0 {
++			stallLog("R %d %d\n", time.Now().UnixNano(), int(rate))
++		}
+ 		runRate(*addr, rate, *conns, *warmup, *duration, *mix)
++		if stallAt > 0 {
++			gcPauses()
++			stallLog("E %d %d\n", time.Now().UnixNano(), int(rate))
++		}
+ 		time.Sleep(*pause)
+ 	}
+ 	// The idle connections are still open and answer.
+diff --git i/src/net.zig w/src/net.zig
+index f8426f478..e1b9882e8 100644
+--- i/src/net.zig
++++ w/src/net.zig
+@@ -251,6 +251,13 @@ fn acceptOne(s: i32, reg: i64) Error!?i32 {
+                 const c: i32 = @intCast(rc);
+                 nonblocking(c);
+                 noDelay(c);
++                if (rig.sched.ST.on) {
++                    var sa: sys.sockaddr.in6 = undefined;
++                    var sl: posix.socklen_t = @sizeOf(sys.sockaddr.in6);
++                    _ = sys.getpeername(c, @ptrCast(&sa), &sl);
++                    rig.sched.ST.add(17, std.mem.bigToNative(u16, sa.port), @intCast(c));
++                    if (c < 65536) rig.sched.ST.ports[@intCast(c)] = std.mem.bigToNative(u16, sa.port);
++                }
+                 return c;
+             },
+             .AGAIN => try waitFor(s, reg, rig.sched.Registration.readable, seen, .{}),
+@@ -368,7 +375,10 @@ fn writeAll(s: i32, reg: i64, bytes: []const u8, limit: Limit) Error!void {
+         const seen = edges(reg, rig.sched.Registration.writable);
+         const rc = sys.write(s, bytes[at..].ptr, bytes.len - at);
+         switch (posix.errno(rc)) {
+-            .SUCCESS => at += @intCast(rc),
++            .SUCCESS => {
++                rig.sched.ST.add(20, @truncate(@as(usize, @intCast(rc))), @intCast(s));
++                at += @intCast(rc);
++            },
+             .AGAIN => try waitFor(s, reg, rig.sched.Registration.writable, seen, limit),
+             .INTR => try rig.checkStop(),
+             else => |e| return failure(e),
+@@ -1058,10 +1068,12 @@ const Conn = struct {
+             switch (posix.errno(rc)) {
+                 .SUCCESS => {
+                     if (rc == 0) return false;
++                    rig.sched.ST.add(18, @truncate(@as(usize, @intCast(rc))), @intCast(c.fd));
+                     c.reader.end = @intCast(rc);
+                     return true;
+                 },
+                 .AGAIN => {
++                    rig.sched.ST.add(19, 0, @intCast(c.fd));
+                     c.release();
+                     waitFor(c.fd, c.reg, rig.sched.Registration.readable, seen, limit) catch return false;
+                     c.hold();
+diff --git i/src/sched.zig w/src/sched.zig
+index b93e42070..6f01871a6 100644
+--- i/src/sched.zig
++++ w/src/sched.zig
+@@ -222,6 +222,119 @@ const workers_len = split.cell(&workers_len_var, "sched.workers_len");
+ inline fn workersNow() []Worker {
+     return all_workers.*[0..workers_len.load(.acquire)];
+ }
++/// SCRATCH: stall trace (never committed). Per-thread rings of events,
++/// frozen and written out on SIGUSR1 (`RIG_STALL_TRACE=DIR`).
++pub const ST = struct {
++    pub const Ev = extern struct { t: u64, k: u8, pad: u8 = 0, w: u16, a: u32 };
++    pub const per: usize = 1 << 19;
++    pub const slots = 66;
++    pub var bufs: [slots][]Ev = undefined;
++    pub var lens: [slots]u64 = @splat(0);
++    pub var shared_len: std.atomic.Value(u64) = .init(0);
++    pub var ports: [65536]u16 = @splat(0);
++    pub var on: bool = false;
++    pub var frozen: std.atomic.Value(bool) = .init(false);
++    pub var freeze_req: std.atomic.Value(u32) = .init(0);
++    pub var dir: [256]u8 = undefined;
++    pub var dir_len: usize = 0;
++    threadlocal var is_monitor: bool = false;
++    extern "c" fn clock_gettime_nsec_np(clock: u32) u64;
++    pub inline fn now() u64 {
++        return clock_gettime_nsec_np(0);
++    }
++    fn idx() usize {
++        if (is_monitor) return 64;
++        const w = me_slot_var orelse return 65;
++        const base = @intFromPtr(all_workers.*.ptr);
++        const i = (@intFromPtr(w) - base) / @sizeOf(Worker);
++        return if (i < 64) i else 65;
++    }
++    pub noinline fn add(k: u8, w: u16, a: u32) void {
++        if (!on or frozen.load(.monotonic)) return;
++        const i = idx();
++        const n = if (i == 65) shared_len.fetchAdd(1, .monotonic) else blk: {
++            const v = lens[i];
++            lens[i] = v + 1;
++            break :blk v;
++        };
++        bufs[i][n & (per - 1)] = .{ .t = now(), .k = k, .w = w, .a = a };
++    }
++    pub fn widx(w: *const Worker) u16 {
++        return @intCast((@intFromPtr(w) - @intFromPtr(all_workers.*.ptr)) / @sizeOf(Worker));
++    }
++    pub fn pidx(p: *const Poller) u16 {
++        const w: *const Worker = @alignCast(@fieldParentPtr("poller", p));
++        return widx(w);
++    }
++    fn onUsr1(_: std.posix.SIG, _: *const std.posix.siginfo_t, _: ?*anyopaque) callconv(.c) void {
++        _ = freeze_req.fetchAdd(1, .monotonic);
++    }
++    pub fn start() void {
++        const p = rt.process.* orelse return;
++        const d = p.environ.getPosix("RIG_STALL_TRACE") orelse return;
++        if (d.len == 0 or d.len >= dir.len) return;
++        @memcpy(dir[0..d.len], d);
++        dir_len = d.len;
++        for (0..slots) |i| {
++            const m = std.posix.mmap(null, per * @sizeOf(Ev), .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0) catch return;
++            bufs[i] = @as([*]Ev, @ptrCast(@alignCast(m.ptr)))[0..per];
++            const bytes = std.mem.sliceAsBytes(bufs[i]);
++            var j: usize = 0;
++            while (j < bytes.len) : (j += 4096) @as(*volatile u8, &bytes[j]).* = 0;
++        }
++        const act: std.posix.Sigaction = .{ .handler = .{ .sigaction = onUsr1 }, .mask = std.posix.sigemptyset(), .flags = std.posix.SA.SIGINFO | std.posix.SA.RESTART };
++        std.posix.sigaction(.USR1, &act, null);
++        on = true;
++        _ = std.Thread.spawn(.{ .stack_size = 256 << 10 }, dumper, .{}) catch {};
++    }
++    fn dumper() void {
++        var seq: u32 = 0;
++        while (true) {
++            sleepNs(2 * std.time.ns_per_ms);
++            if (freeze_req.load(.monotonic) == 0) continue;
++            // Record on past the stall the signal reports, then freeze.
++            const t_sig = now();
++            sleepNs(300 * std.time.ns_per_ms);
++            frozen.store(true, .seq_cst);
++            sleepNs(1 * std.time.ns_per_ms);
++            dumpOne(seq, t_sig);
++            seq += 1;
++            for (0..slots) |i| lens[i] = 0;
++            shared_len.store(0, .monotonic);
++            freeze_req.store(0, .monotonic);
++            frozen.store(false, .seq_cst);
++        }
++    }
++    fn dumpOne(seq: u32, t_freeze: u64) void {
++        var path: [400]u8 = undefined;
++        const name = std.mem.printSentinel(&path, "{s}/dump-{d}-{d}.bin", .{ dir[0..dir_len], std.c.getpid(), seq }, 0) catch return;
++        const fd = std.c.open(name.ptr, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, @as(std.c.mode_t, 0o644));
++        if (fd < 0) return;
++        defer _ = std.c.close(fd);
++        const from = t_freeze -| 2 * std.time.ns_per_s;
++        const hdr = [4]u64{ 0x5354414c4c, t_freeze, slots, per };
++        _ = std.c.write(fd, @ptrCast(&hdr), @sizeOf(@TypeOf(hdr)));
++        for (0..slots) |i| {
++            const n: u64 = if (i == 65) shared_len.load(.monotonic) else lens[i];
++            const have = @min(n, per);
++            const first = n - have;
++            // Skip events older than `from`.
++            var s = first;
++            while (s < n and bufs[i][s & (per - 1)].t < from) s += 1;
++            const h2 = [2]u64{ i, n - s };
++            _ = std.c.write(fd, @ptrCast(&h2), 16);
++            var k = s;
++            while (k < n) {
++                const at = k & (per - 1);
++                const run = @min(n - k, per - at);
++                _ = std.c.write(fd, @ptrCast(bufs[i][at..].ptr), run * @sizeOf(Ev));
++                k += run;
++            }
++        }
++        _ = std.c.write(fd, @ptrCast(&ports), @sizeOf(@TypeOf(ports)));
++    }
++};
++
+ threadlocal var me_slot_var: ?*Worker = null;
+ inline fn me_slot() *?*Worker {
+     return split.local(&me_slot_var, "sched.me_slot");
+@@ -912,12 +1025,14 @@ fn onPreempt(_: std.posix.SIG, _: *const std.posix.siginfo_t, ctx: ?*anyopaque)
+     const pc = pc_at.*;
+     const sp = sp_at.*;
+     if (!inCode(pc)) {
++        ST.add(12, 1, @truncate(pc));
+         preOf(w).outside += 1;
+         declined(w, pc);
+         owe(w);
+         return;
+     }
+     if (preOf(w).no_preempt != 0) {
++        ST.add(12, 2, @truncate(pc));
+         preOf(w).held_off += 1;
+         declined(w, pc);
+         owe(w);
+@@ -1182,7 +1297,11 @@ fn afterPreempt(f: *Fiber, _: ?*anyopaque) void {
+     serviceBusy(w);
+     // Nothing to yield to: the fiber runs again next, from the newest of
+     // the worker's "run next" slots, as one just woken would.
+-    if (!yieldsAfterService(w)) return wakeIn(f);
++    if (!yieldsAfterService(w)) {
++        ST.add(11, 0, 0);
++        return wakeIn(f);
++    }
++    ST.add(11, 1, 0);
+     preOf(w).preempts += 1;
+     behind(f, null);
+ }
+@@ -1192,6 +1311,7 @@ fn afterPreempt(f: *Fiber, _: ?*anyopaque) void {
+ /// first, and the other preempted ones; a worker looks there every 61
+ /// turns and when its own queues are empty.
+ fn behind(f: *Fiber, _: ?*anyopaque) void {
++    ST.add(21, 0, 0);
+     global.push(f);
+     notify();
+ }
+@@ -1274,7 +1394,9 @@ fn watchSlices(slice: i96, wait: i96) void {
+     var tries: [max_workers]u32 = @splat(0);
+     var next_at: [max_workers]i96 = @splat(0);
+     var period: i96 = std.time.ns_per_ms;
++    ST.is_monitor = true;
+     while (true) {
++        ST.add(14, 0, @intCast(@divTrunc(period, 1000)));
+         const word = watch_word.load(.seq_cst);
+         if (stopping.load(.seq_cst)) return;
+         rt.io().futexWaitTimeout(u32, &watch_word.raw, word, .{ .duration = .{ .raw = .{ .nanoseconds = period }, .clock = .awake } }) catch {};
+@@ -1307,6 +1429,7 @@ fn watchSlices(slice: i96, wait: i96) void {
+             tries[i] += 1;
+             if (tries[i] >= resignal_free) next_at[i] = now + resignalAfter(tries[i], wait);
+             _ = preOf(w).signals.fetchAdd(1, .monotonic);
++            ST.add(13, @intCast(i), tries[i]);
+             const pre = preOf(w);
+             pre.signaling.lockApart();
+             signalThread(pre.tid);
+@@ -2026,6 +2149,7 @@ const Poller = struct {
+     /// Wake the worker sleeping in it, or make its next sleep end at once.
+     fn kick(p: *Poller) void {
+         if (builtin.is_test and test_waking == .counted) test_waking = .kicked;
++        ST.add(10, ST.pidx(p), 0);
+         if (darwin) {
+             const ev: std.c.Kevent = .{ .ident = 0, .filter = std.c.EVFILT.USER, .flags = 0, .fflags = std.c.NOTE.TRIGGER, .data = 0, .udata = 0 };
+             var none: [1]std.c.Kevent = undefined;
+@@ -2099,7 +2223,10 @@ const Poller = struct {
+         var kicked = false;
+         defer if (kicked) p.kick();
+         if (look) {
+-            if (!p.lock.tryLock()) return false;
++            if (!p.lock.tryLock()) {
++                ST.add(5, ST.pidx(p), 0);
++                return false;
++            }
+         } else {
+             while (p.removers.load(.seq_cst) != 0) std.atomic.spinLoopHint();
+             p.lock.lock();
+@@ -2116,7 +2243,9 @@ const Poller = struct {
+             // A wait, not a look: `os.exit` may claim this worker while it
+             // waits, and it then stops before it reads what woke it.
+             if (tears_down and !look) p.parked.store(.waiting, .seq_cst);
++            if (!look) ST.add(3, ST.pidx(p), if (timeout) |t| @intCast(@min(@divTrunc(t, 1000), 0xffff_fffe)) else 0xffff_ffff);
+             const n = std.c.kevent(p.fd, &evs, 0, &evs, max_events, tp);
++            ST.add(4, ST.pidx(p) | (if (look) @as(u16, 0x8000) else 0), @bitCast(@as(i32, n)));
+             if (tears_down and !look and p.parked.swap(.awake, .seq_cst) == .claimed) stopForExit(me().?, true);
+             if (n <= 0) return false;
+             for (evs[0..@intCast(n)]) |ev| {
+@@ -2125,6 +2254,7 @@ const Poller = struct {
+                     continue;
+                 }
+                 const r: *Registration = @ptrFromInt(ev.udata);
++                ST.add(6, if (ev.filter == std.c.EVFILT.READ) 1 else 2, @intCast(r.fd));
+                 // An end (EV_EOF) is its own filter's readiness: the end
+                 // of reading wakes the reader, the end of writing (this
+                 // side's shutdown, or the other end's reset) the writer.
+@@ -2210,11 +2340,15 @@ fn sleepIn(w: *Worker, timeout: ?i96) void {
+         if (held) watcher.store(null, .seq_cst);
+         if (watchWanted(w) and watcher.cmpxchgStrong(null, w, .seq_cst, .monotonic) == null) {
+             for (workersNow()) |*v| v.watch_mark.store(v.slept.load(.monotonic), .monotonic);
++            ST.add(1, 1, 0);
+             _ = w.poller.poll(if (timeout) |t| @min(t, watch_every) else watch_every);
++            ST.add(2, 1, 0);
+             return serviceAll();
+         }
+     }
++    ST.add(1, 0, 0);
+     _ = w.poller.poll(timeout);
++    ST.add(2, 0, 0);
+ }
+ 
+ /// A watcher, or a worker holding descriptors while none watches, woke
+@@ -2468,6 +2602,8 @@ fn service(w: *Worker) void {
+ /// worker, and those the events of any poller no worker sleeps in make
+ /// ready.
+ fn serviceAll() void {
++    ST.add(22, 0, 0);
++    defer ST.add(23, 0, 0);
+     deliverInterrupt();
+     const now = nowNs();
+     for (workersNow()) |*v| {
+@@ -3377,6 +3513,7 @@ fn startWorkers() void {
+     for (1..n) |i| initWorker(i);
+     for (ws[1..]) |*w| w.poller.open();
+     workers_len.store(n, .release);
++    ST.start();
+     for (ws[1..]) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
+     if (preempt and !deterministic.*) startMonitor();
+ }
+@@ -3478,8 +3615,16 @@ fn loop(w: *Worker) void {
+                 w.searching = false;
+                 _ = searching.fetchSub(1, .seq_cst);
+             }
+-            if (spare.count.load(.monotonic) > spareKept()) trimSpare();
+-            if (dense_spare.count.load(.monotonic) > spareKept()) trimDense();
++            if (spare.count.load(.monotonic) > spareKept()) {
++                ST.add(15, 1, 0);
++                trimSpare();
++                ST.add(16, 1, 0);
++            }
++            if (dense_spare.count.load(.monotonic) > spareKept()) {
++                ST.add(15, 2, 0);
++                trimDense();
++                ST.add(16, 2, 0);
++            }
+             sleep(w);
+             continue;
+         };
+@@ -3495,6 +3640,7 @@ fn loop(w: *Worker) void {
+ 
+ fn runFiber(w: *Worker, f: *Fiber) void {
+     w.ran += 1;
++    ST.add(7, 0, @truncate(@intFromPtr(f)));
+     if (preempt) preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
+     if (f.home != null) w.ran_pinned += 1;
+     prepare(w, f);
+@@ -3616,6 +3762,7 @@ fn search(w: *Worker) ?*Fiber {
+         if (v == w) continue;
+         if (w.ring.stealFrom(&v.ring)) |f| {
+             w.stole += 1;
++            ST.add(8, ST.widx(v), 0);
+             return f;
+         }
+     }
+@@ -3711,6 +3858,7 @@ fn notify() void {
+ }
+ 
+ fn wakeWorker(w: *Worker) void {
++    ST.add(9, ST.widx(w), 0);
+     w.woken.store(1, .seq_cst);
+     w.poller.kick();
+ }
+@@ -3723,6 +3871,8 @@ fn wakeWorker(w: *Worker) void {
+ /// the fibers whose timers come due on any worker, and those its
+ /// poller's events make ready, and goes back to running them.
+ fn sleep(w: *Worker) void {
++    ST.add(24, 0, 0);
++    defer ST.add(25, 0, 0);
+     w.slept.store(w.slept.raw + 1, .monotonic);
+     _ = takeWaiting(w);
+     w.woken.store(0, .seq_cst);
+@@ -3822,7 +3972,9 @@ const trim_most: i96 = 1 * std.time.ns_per_s;
+ const trim_worth: usize = 1 << 20;
+ 
+ fn trimIdle(w: *Worker) void {
++    ST.add(15, 3, 0);
+     const given = rt.fast_alloc.trimIdle();
++    ST.add(16, 3, @truncate(given >> 10));
+     w.trim_wait = if (given >= trim_worth) trim_first else @min(w.trim_wait * 2, trim_most);
+ }
+ 

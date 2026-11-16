@@ -1,0 +1,7 @@
+canary hiccups (>2 ms): 289
+go        pid 13875 rate 60000: stall of 12420 requests, worst 99.7 ms, span 246.7 ms; worst send lateness 98.2 ms, worst sent-to-first-byte 25.7 ms; canary ['late 22.0ms@+22ms', 'rtt 3.5ms@+22ms', 'late 5.3ms@+32ms', 'rtt 3.1ms@+32ms', 'late 8.9ms@+45ms', 'rtt 22.5ms@+45ms', 'late 5.6ms@+74ms', 'rtt 14.8ms@+74ms', 'late 8.8ms@+99ms', 'rtt 2.8ms@+101ms', 'rtt 4.3ms@+120ms', 'rtt 3.8ms@+126ms', 'late 3.4ms@+134ms', 'late 5.9ms@+142ms']; generator ['T 1794829735991094000 18604', 'T 1794829735997691000 5542', 'T 1794829736005397000 6648', 'T 1794829736017332000 5712', 'T 1794829736029080000 8126', 'T 1794829736041446000 11347', 'T 1794829736055978000 6618', 'G 1794829736122070000 1157']
+tokio     pid 9745 rate 40000: stall of 3498 requests, worst 44.2 ms, span 139.0 ms; worst send lateness 41.1 ms, worst sent-to-first-byte 26.4 ms; canary ['late 25.8ms@+26ms', 'rtt 6.7ms@+26ms', 'late 6.6ms@+41ms', 'rtt 5.8ms@+41ms', 'rtt 8.2ms@+48ms', 'rtt 4.2ms@+59ms', 'rtt 9.4ms@+65ms', 'late 3.2ms@+79ms', 'rtt 7.3ms@+79ms', 'rtt 3.3ms@+88ms', 'rtt 3.7ms@+109ms', 'late 3.2ms@+117ms', 'rtt 4.6ms@+117ms', 'late 4.3ms@+127ms', 'rtt 3.9ms@+127ms', 'late 3.0ms@+135ms', 'late 2.8ms@+140ms']; generator ['T 1794829312156729000 26335']
+
+top at each stall (processes over 20% of a core, the second after):
+  go-13875.log           04:48:56  ['go 212.7', 'load 141.9', 'Claude Helper (R 110.3', 'kernel_task 60.2', 'duetexpertd 37.9', 'Claude 35.2']
+  tokio-9745.log         04:41:53  ['load 75.5', 'tokio 68.5', 'kernel_task 41.1']

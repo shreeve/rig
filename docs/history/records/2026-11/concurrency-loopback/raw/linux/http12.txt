@@ -1,0 +1,19 @@
+0 main 773262 72 229
+0 branch 631742 90 240
+0 hyper 351918 204 344
+1 branch 551301 105 267
+1 hyper 363188 171 344
+1 main 731346 75 254
+2 hyper 353078 201 343
+2 main 808510 66 276
+2 branch 563374 103 267
+3 main 616685 91 269
+3 branch 632323 91 250
+3 hyper 353862 190 347
+4 branch 625281 91 263
+4 hyper 356338 183 344
+4 main 739798 74 252
+# best of 5: req/s p50 p99
+main         808510    66 us   276 us
+branch       632323    91 us   250 us
+hyper        363188   171 us   344 us
