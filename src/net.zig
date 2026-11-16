@@ -126,11 +126,14 @@ fn nonblocking(fd: i32) void {
 
 /// How long a wait may last besides the task's own deadline: until an
 /// instant (`at`), and no longer than `idle` from when it begins. The
-/// HTTP server sets these for its connections (`Conn`); a call from
-/// Rig sets neither.
+/// HTTP server sets these for its connections (`Conn`), with the
+/// connection's deadline (`timer`), which carries each wait's deadline
+/// to its worker's timers without setting a timer for each wait
+/// (`sched.Deadline`); a call from Rig sets none.
 const Limit = struct {
     at: ?i96 = null,
     idle: ?i96 = null,
+    timer: ?*rig.sched.Deadline = null,
 
     /// The deadline of a wait that begins now: the earliest of the
     /// limit's and the task's.
@@ -178,7 +181,12 @@ fn waitFor(fd: i32, reg: i64, interest: u32, seen: u32, limit: Limit) Error!void
     const deadline = limit.deadline(t.deadline);
     if (rig.sched.current() != null) {
         if (reg == 0) return error.@"std.net.NetError.failed";
-        return switch (rig.sched.waitReady(@ptrFromInt(@as(usize, @intCast(reg))), interest, seen, deadline, true)) {
+        const r: *rig.sched.Registration = @ptrFromInt(@as(usize, @intCast(reg)));
+        const readiness = if (limit.timer != null and deadline != null)
+            rig.sched.waitReadyBy(r, interest, seen, limit.timer.?, deadline.?, true)
+        else
+            rig.sched.waitReady(r, interest, seen, deadline, true);
+        return switch (readiness) {
             .ready => {},
             .canceled => canceled,
             .timeout => timeout,
@@ -1032,6 +1040,9 @@ const Conn = struct {
     settings: Settings,
     /// How long each read and write may wait (`connection`).
     limit: Limit,
+    /// The deadline of every wait, which moves from wait to wait without
+    /// a timer set for each (`sched.Deadline`).
+    timer: rig.sched.Deadline,
     reader: std.Io.Reader,
     writer: std.Io.Writer,
 
@@ -1043,12 +1054,14 @@ const Conn = struct {
             .reg = reg,
             .settings = settings,
             .limit = settings.limit(false),
+            .timer = .{},
             .reader = .{ .vtable = &.{ .stream = stream }, .buffer = &.{}, .seek = 0, .end = 0 },
             .writer = .{ .vtable = &.{ .drain = drain }, .buffer = &.{}, .end = 0 },
         };
     }
 
     fn close(c: *Conn) void {
+        c.timer.stop();
         c.release();
         net_close(c.fd, c.reg);
     }
@@ -1079,7 +1092,7 @@ const Conn = struct {
     fn fill(c: *Conn) bool {
         c.limit = c.settings.limit(false);
         c.writer.flush() catch return false;
-        const limit: Limit = .{ .at = if (c.limit.idle) |i| rig.sched.nowNs() + i else null };
+        const limit: Limit = .{ .at = if (c.limit.idle) |i| rig.sched.nowNs() + i else null, .timer = &c.timer };
         c.reader.seek = 0;
         c.reader.end = 0;
         while (true) {
@@ -1142,10 +1155,18 @@ const Conn = struct {
         }
     }
 
+    /// What each read and write waits for: `limit`, by the connection's
+    /// deadline.
+    fn waits(c: *Conn) Limit {
+        var l = c.limit;
+        l.timer = &c.timer;
+        return l;
+    }
+
     fn stream(r: *std.Io.Reader, w: *std.Io.Writer, limit: std.Io.Limit) std.Io.Reader.StreamError!usize {
         const c: *Conn = @alignCast(@fieldParentPtr("reader", r));
         const dest = limit.slice(try w.writableSliceGreedy(1));
-        const n = readSome(c.fd, c.reg, dest, c.limit) catch return error.ReadFailed;
+        const n = readSome(c.fd, c.reg, dest, c.waits()) catch return error.ReadFailed;
         if (n == 0) return error.EndOfStream;
         w.advance(n);
         return n;
@@ -1153,16 +1174,16 @@ const Conn = struct {
 
     fn drain(w: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
         const c: *Conn = @alignCast(@fieldParentPtr("writer", w));
-        writeAll(c.fd, c.reg, w.buffer[0..w.end], c.limit) catch return error.WriteFailed;
+        writeAll(c.fd, c.reg, w.buffer[0..w.end], c.waits()) catch return error.WriteFailed;
         w.end = 0;
         var n: usize = 0;
         for (data[0 .. data.len - 1]) |d| {
-            writeAll(c.fd, c.reg, d, c.limit) catch return error.WriteFailed;
+            writeAll(c.fd, c.reg, d, c.waits()) catch return error.WriteFailed;
             n += d.len;
         }
         const last = data[data.len - 1];
         for (0..splat) |_| {
-            writeAll(c.fd, c.reg, last, c.limit) catch return error.WriteFailed;
+            writeAll(c.fd, c.reg, last, c.waits()) catch return error.WriteFailed;
             n += last.len;
         }
         return n;
