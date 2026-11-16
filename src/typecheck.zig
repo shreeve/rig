@@ -1450,6 +1450,11 @@ const Checker = struct {
         defer self.return_operand = saved;
         self.return_operand = value;
         try self.checkExpr(value, ret);
+        // A fallible `sub` returns an error or nothing: a value that gives
+        // nothing (`return say(1)!`) is no error, and runs as a statement.
+        if (self.body.is_sub) if (self.ctx.typeOf(value)) |ty| if (self.canonical(ty) == self.t().void_id) {
+            try self.errAt(value, "a `sub` returns no value, and fails only by returning an error: write `{s}` on its own line, then `return`", .{self.sourceText(value)});
+        };
     }
 
     /// What `rig test` reports when the `Bool` that `node`, a test's last

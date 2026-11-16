@@ -1592,7 +1592,9 @@ sub main()
 does not ([SYNTAX §8](docs/SYNTAX.md#functions)). A `fun` always has a
 return type: a `fun` without `->`, or returning `Void`, is rejected in
 favor of a `sub`. A `sub` marked `!`, `sub save(n: Int)!`, may fail,
-and its type is `sub(Int)!` ([§13](#13-errors)). A function's value is
+and its type is `sub(Int)!` ([§13](#13-errors)); its `return` takes no
+value or an error, `return E.bad`, never a call that gives nothing
+(`return save(1)!`), which stands on its own line. A function's value is
 its last expression, or the value of a `return`. A call always has its
 parentheses, `greet()`: the name alone is the function as a value.
 
