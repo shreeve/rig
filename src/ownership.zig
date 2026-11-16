@@ -4318,7 +4318,7 @@ pub const Checker = struct {
                 try self.errAt(place, "`<` here would leave `{s}` as it was: it copies; remove the `<` to copy it", .{shown});
             } else if (leaf.source == .branch_part) {
                 try self.errAt(place, "`<` here would copy `{s}` out without moving it, and the binding its branch reads would still drop it; exchange the part where it is owned, with `swap`", .{shown});
-            } else try self.errAt(place, "`<` here would copy `{s}` out without moving it, and a field that is not optional cannot be moved out; {s}", .{ shown, try self.exchangeHint(ty, shown) }),
+            } else try self.errAt(place, "`<` here would copy `{s}` out without moving it, and a field that is not optional cannot be moved out; {s}", .{ shown, try self.exchangeHint(ty, shown, "exchange it") }),
         }
     }
 
@@ -4402,13 +4402,13 @@ pub const Checker = struct {
     /// with `swap`, or, for a Cell, which `swap` never exchanges, with the
     /// Cell's own swap; a value that holds a Cell is never exchanged
     /// (`sema.holdsMarkedValue`, the one classifier).
-    fn exchangeHint(self: *Checker, ty: ?TypeId, path: []const u8) Error![]const u8 {
+    fn exchangeHint(self: *Checker, ty: ?TypeId, path: []const u8, lead: []const u8) Error![]const u8 {
         const ctx = self.sema;
         if (ty) |t| if (sema.holdsMarkedValue(ctx, t)) {
             if (sema.isCell(ctx, t)) return std.fmt.allocPrint(self.arena(), "exchange its value with the Cell's own swap instead: `old = (!{s}).swap(v)`", .{path});
             return std.fmt.allocPrint(self.arena(), "it changes only by its marked calls, and is never exchanged whole", .{});
         };
-        return std.fmt.allocPrint(self.arena(), "exchange it instead: `old = swap(!{s}, v)`", .{path});
+        return std.fmt.allocPrint(self.arena(), "{s}: `old = swap(!{s}, v)`", .{ lead, path });
     }
 
     /// `<p.f` or `<v[i]` of a part that can be neither ended nor emptied
@@ -4448,13 +4448,13 @@ pub const Checker = struct {
                 try self.err(pos, "cannot move out of `{s}`: `{s}` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `swap`", .{ shown, self.spanText(l) });
             } else if ((l.isKind(.read) or l.isKind(.write)) and self.resolvePlace(ir.get(l, .operand)) != null) {
                 // A lend of a place: the place's own path names the part.
-                try self.err(pos, "cannot move out of `{s}`: it is reached through `{s}`, a view; {s}", .{ shown, self.spanText(l), try self.exchangeHint(ty, path) });
+                try self.err(pos, "cannot move out of `{s}`: it is reached through `{s}`, a view; {s}", .{ shown, self.spanText(l), try self.exchangeHint(ty, path, "exchange it instead") });
             } else try self.err(pos, "cannot move out of `{s}`: it is reached through `{s}`, a view, which gives up nothing of what it views; exchange the part where it is owned, with `swap`", .{ shown, self.spanText(l) });
             return .{};
         }
         const root = self.vars.items[place.root].name;
         if (place.through_view) {
-            try self.err(pos, "cannot move out of `{s}`: `{s}` is a view; {s}", .{ path, root, try self.exchangeHint(self.exprType(inner), path) });
+            try self.err(pos, "cannot move out of `{s}`: `{s}` is a view; {s}", .{ path, root, try self.exchangeHint(self.exprType(inner), path, "exchange it instead") });
         } else if (place.through_shared) {
             try self.err(pos, "cannot move out of `{s}`: it is reached through a shared handle and other handles may still use it; clone it with `+{s}`", .{ path, path });
         } else if (place.indexed) {
@@ -4485,7 +4485,7 @@ pub const Checker = struct {
             return .{};
         }
         if (v.loop_view or v.elem_view or v.as_view or v.ref != .none) {
-            try self.err(pos, "cannot move out of `{s}`: `{s}` is a view; {s}", .{ path, root, try self.exchangeHint(self.exprType(inner), path) });
+            try self.err(pos, "cannot move out of `{s}`: `{s}` is a view; {s}", .{ path, root, try self.exchangeHint(self.exprType(inner), path, "exchange it instead") });
             return .{};
         }
         if (try self.rejectConsumedView(id, pos, "move a field out of")) return .{};
@@ -4508,7 +4508,7 @@ pub const Checker = struct {
             e = object;
         }
         if (place.path_ended or place.path == whole_path) {
-            try self.err(pos, "cannot move out of `{s}`: only a field reached through fields `{s}` owns moves out; {s}", .{ path, root, try self.exchangeHint(self.exprType(inner), path) });
+            try self.err(pos, "cannot move out of `{s}`: only a field reached through fields `{s}` owns moves out; {s}", .{ path, root, try self.exchangeHint(self.exprType(inner), path, "exchange it instead") });
             return .{};
         }
         if (!try self.checkLivePath(id, place.path, pos)) return .{};
