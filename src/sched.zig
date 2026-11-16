@@ -3689,7 +3689,7 @@ fn search(w: *Worker) ?*Fiber {
 /// worker with nothing to do takes it: long enough that a fiber made and
 /// waited for at once runs on its maker's worker (`handoff`), as Go waits
 /// 3 µs before it takes a `runnext`.
-const steal_next_after: i96 = 3 * std.time.ns_per_us;
+const steal_next_after: i96 = 0;
 
 /// Take the fiber in `v`'s "run next" slot, if it is still there after
 /// `steal_next_after`. A pinned one taken so goes back to its home's
@@ -3698,8 +3698,10 @@ fn stealNext(v: *Worker) ?*Fiber {
     const slot = oldestNext(v) orelse return null;
     const f = slot.load(.seq_cst) orelse return null;
     // Wait without reading the slot, whose line its owner writes.
-    const until = nowNs() + steal_next_after;
-    while (nowNs() < until) std.atomic.spinLoopHint();
+    if (steal_next_after > 0) {
+        const until = nowNs() + steal_next_after;
+        while (nowNs() < until) std.atomic.spinLoopHint();
+    }
     if (slot.cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) return null;
     return unlessPinned(f);
 }
