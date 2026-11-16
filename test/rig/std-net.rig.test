@@ -172,6 +172,35 @@ test "net read of more than a block", seeds: 20, "100000 true"
       ok = false
   print(got.len, ok)
 
+test "net a read after a short one waits for more, and sees an end that came with the last bytes", seeds: 20, timeout: 10, '''
+  abc
+  abcdef
+  3 0
+'''
+  # A read that took all there was leaves the next to wait for more
+  # without asking; bytes that come later wake it, and so does an end
+  # that came with the last bytes, before any read looked.
+  use std.time
+
+  l = net.listen("127.0.0.1:0")!
+  c = net.connect(String("127.0.0.1:", l.port()))!
+  s = l.accept()!
+  (!c).write("abc")!
+  got = String()
+  while got.len < 3
+    _ = (!s).read(!got, 4096)!
+  print(got)
+  (!c).write("def")!
+  while got.len < 6
+    _ = (!s).read(!got, 4096)!
+  print(got)
+  (!c).write("ghi")!
+  _ = <c
+  time.sleep(ms: 20)!
+  last = String()
+  n = (!s).read(!last, 4096)!
+  print(n, (!s).read(!last, 4096)!)
+
 test "net small writes go at once", "true"
   # A stream sends each write at once (TCP_NODELAY): a request written
   # in two pieces is not held back for the acknowledgment of the first,
