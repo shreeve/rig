@@ -1,0 +1,30 @@
+# blocks=4822 swap_mb=1360 slot=309 paused=0 running=0 late=0 load 0.12 0.45 1.26
+bfd872b6d 2026-11-15 21:50:13 -0700
+         rig-safe      tokio         go            vs tokio
+pingpong 5.35 us/trip  4.95 us/trip  5.53 us/trip  rig-safe 1.1x slower, go 1.1x slower
+echo     1.21 us/trip  1.29 us/trip  1.04 us/trip  rig-safe 1.1x faster, go 1.2x faster
+connect  25.17 us/conn 31.83 us/conn 44.84 us/conn rig-safe 1.3x faster, go 1.4x slower
+         rig-safe      tokio         go            vs tokio
+pingpong 5.43 us/trip  4.91 us/trip  5.79 us/trip  rig-safe 1.1x slower, go 1.2x slower
+echo     1.11 us/trip  1.31 us/trip  1.13 us/trip  rig-safe 1.2x faster, go 1.2x faster
+connect  25.71 us/conn 33.42 us/conn 45.12 us/conn rig-safe 1.3x faster, go 1.4x slower
+         rig-safe      tokio         go            vs tokio
+pingpong 5.41 us/trip  4.97 us/trip  5.78 us/trip  rig-safe 1.1x slower, go 1.2x slower
+echo     1.21 us/trip  1.35 us/trip  957 ns/trip   rig-safe 1.1x faster, go 1.4x faster
+connect  26.10 us/conn 32.42 us/conn 43.88 us/conn rig-safe 1.2x faster, go 1.4x slower
+         rig-safe      tokio         go            vs tokio
+pingpong 5.36 us/trip  4.99 us/trip  5.86 us/trip  rig-safe 1.1x slower, go 1.2x slower
+echo     1.21 us/trip  1.29 us/trip  1.06 us/trip  rig-safe 1.1x faster, go 1.2x faster
+connect  25.62 us/conn 32.01 us/conn 43.08 us/conn rig-safe 1.2x faster, go 1.3x slower
+         rig-safe      tokio         go            vs tokio
+pingpong 5.46 us/trip  4.96 us/trip  5.63 us/trip  rig-safe 1.1x slower, go 1.1x slower
+echo     1.12 us/trip  1.34 us/trip  1.06 us/trip  rig-safe 1.2x faster, go 1.3x faster
+connect  25.84 us/conn 32.55 us/conn 44.22 us/conn rig-safe 1.3x faster, go 1.4x slower
+         rig-safe      tokio         go            vs tokio
+pingpong 5.42 us/trip  4.91 us/trip  5.62 us/trip  rig-safe 1.1x slower, go 1.1x slower
+echo     1.11 us/trip  1.34 us/trip  1.21 us/trip  rig-safe 1.2x faster, go 1.1x faster
+connect  27.69 us/conn 33.11 us/conn 44.52 us/conn rig-safe 1.2x faster, go 1.3x slower
+         rig-safe      tokio         go            vs tokio
+pingpong 5.30 us/trip  4.90 us/trip  5.65 us/trip  rig-safe 1.1x slower, go 1.2x slower
+echo     1.10 us/trip  1.29 us/trip  1.03 us/trip  rig-safe 1.2x faster, go 1.3x faster
+connect  26.70 us/conn 31.28 us/conn 46.20 us/conn rig-safe 1.2x faster, go 1.5x slower

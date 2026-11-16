@@ -1,0 +1,6 @@
+Sun Nov 15 20:39:29 MST 2026
+7a2efd0f3
+                 req/s       p50       p99 per idle conn
+rig-safe        127797     495 us     684 us      16.7 KiB
+tokio           139202     453 us     617 us      18.6 KiB
+go              120497     520 us    1023 us      18.5 KiB

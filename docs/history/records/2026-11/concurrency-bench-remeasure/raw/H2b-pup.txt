@@ -1,0 +1,14 @@
+# blocks=4825 swap_mb=1360 slot=306 paused=0 running=0 late=0 load 1.76 2.23 1.85
+bfd872b6d 2026-11-15 21:50:13 -0700
+                 req/s       p50       p99 per idle conn
+rig-safe        611652      94 us     271 us       8.8 KiB
+tokio           361375     174 us     343 us      10.8 KiB
+go              444559     100 us     743 us      19.4 KiB
+                 req/s       p50       p99 per idle conn
+rig-safe        604714      94 us     270 us       9.0 KiB
+tokio           355762     194 us     344 us      10.8 KiB
+go              447415      99 us     746 us      19.2 KiB
+                 req/s       p50       p99 per idle conn
+rig-safe        726303      76 us     257 us       8.8 KiB
+tokio           359766     178 us     345 us      10.8 KiB
+go              444445     100 us     744 us      19.2 KiB

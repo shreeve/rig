@@ -1450,6 +1450,11 @@ const Checker = struct {
         defer self.return_operand = saved;
         self.return_operand = value;
         try self.checkExpr(value, ret);
+        // A fallible `sub` returns an error or nothing: a value that gives
+        // nothing (`return say(1)!`) is no error, and runs as a statement.
+        if (self.body.is_sub) if (self.ctx.typeOf(value)) |ty| if (self.canonical(ty) == self.t().void_id) {
+            try self.errAt(value, "a `sub` returns no value, and fails only by returning an error: write `{s}` on its own line, then `return`", .{self.sourceText(value)});
+        };
     }
 
     /// What `rig test` reports when the `Bool` that `node`, a test's last
@@ -9810,7 +9815,11 @@ const Checker = struct {
         } else false;
         if (lends_write) {
             if (!sameNode(node, self.local_value)) {
-                try self.errAt(callee, "this task is lent to write, and keeps its write loan while it runs, so it stays where it is bound: `t = {s}`, then `>t`", .{self.sourceText(node)});
+                // A method's self lent to write shows its `!`, which the
+                // call's own text, from its self on, leaves out.
+                const shown = self.sourceText(node);
+                const bang = has_self and ir.Member.object(callee).isKind(.write) and !std.mem.startsWith(u8, shown, "!");
+                try self.errAt(callee, "this task is lent to write, and keeps its write loan while it runs, so it stays where it is bound: `t = {s}{s}`, then `>t`", .{ if (bang) "!" else "", shown });
                 return self.t().invalid_id;
             }
             if (self.ctx.symbolOf(self.local_target)) |id| try self.write_tasks.put(self.ctx.arena.allocator(), id, {});
@@ -15900,9 +15909,15 @@ const Checker = struct {
 
     /// `task.all(a, b, ...)` of `std.task`: wait for tasks of any types,
     /// which the call takes, and give each one's value as several
-    /// results, failing when any task can. Rig declares no function of
-    /// any number of arguments, so the call is typed here, its
-    /// parameters the tasks' own types (`argType`).
+    /// results, or nothing when no task gives a value, as a `sub` does;
+    /// either way failing when any task can. A task of a type parameter's
+    /// type gives a value, `T`, whatever an instance binds it to, so a
+    /// generic body is typed, and emitted, once for every instance.
+    /// Tasks that give values and tasks that give none do not mix:
+    /// several results with holes would be a shape of its own. Which the
+    /// call gives is recorded (`recordTaskJoin`) for emit and the runtime.
+    /// Rig declares no function of any number of arguments, so the call
+    /// is typed here, its parameters the tasks' own types (`argType`).
     fn taskJoin(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
         const name = "all";
         if (args.len < 2) return try self.badCall(args, pos, "`task.all` waits for two tasks or more, `task.all(f(x)&, g(y)&, h(z)&)`; for one, `>t`", .{});
@@ -15911,6 +15926,9 @@ const Checker = struct {
         const parts = try a.alloc(TypeId, args.len);
         var sets: std.ArrayList(TypeId) = .empty;
         var fails = false;
+        // The first task that gives a value, and the first that gives none.
+        var valued: ?Sexp = null;
+        var valueless: ?Sexp = null;
         for (args, params, parts) |arg, *p, *part| {
             if (arg.isKind(.kwarg)) return try self.badCall(args, arg, "`task.{s}` takes its tasks in order, with no names", .{name});
             const ty = try self.argType(arg);
@@ -15919,18 +15937,21 @@ const Checker = struct {
             const gives = sema.taskResult(self.ctx, ty).?;
             const can_fail = self.ctx.types.get(gives) == .fallible;
             const value = if (can_fail) self.ctx.types.get(gives).fallible.ok else gives;
-            if (value == self.t().void_id) return try self.badCall(args, arg, "`task.{s}` gives each task's value, and `{s}` gives none: wait for it on its own, `>t`", .{ name, self.sourceText(arg) });
+            if (value == self.t().void_id) {
+                if (valueless == null) valueless = arg;
+            } else if (valued == null) valued = arg;
+            if (valued != null and valueless != null) return try self.badCall(args, arg, "`task.{s}` gives each task's value, or nothing when none gives one, and `{s}` gives none while `{s}` gives one: wait for the tasks that give none in a `task.{s}` of their own, or each on its own, `>t`", .{ name, self.sourceText(valueless.?), self.sourceText(valued.?), name });
             fails = fails or can_fail;
             if (can_fail) try sets.append(a, self.ctx.types.get(gives).fallible.set);
             p.* = ty;
             part.* = value;
         }
-        const results = try self.ctx.intern(.{ .results = try self.ctx.dupeIds(parts) });
-        const result = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = results, .set = try self.waitSet(sets.items) } }) else results;
-        const f: FunctionType = .{ .params = try self.ctx.dupeIds(params), .returns = result, .is_sub = false };
+        const gives = if (valued == null) self.t().void_id else try self.ctx.intern(.{ .results = try self.ctx.dupeIds(parts) });
+        const result = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = gives, .set = try self.waitSet(sets.items) } }) else gives;
+        const f: FunctionType = .{ .params = try self.ctx.dupeIds(params), .returns = result, .is_sub = valued == null };
         try self.noteCallee(f);
         try self.checkArgs(args, f, .{}, try a.print("task.{s}", .{name}), pos, .{ .declared = f.params });
-        if (self.current_call) |call| try self.ctx.recordTaskJoin(call);
+        if (self.current_call) |call| try self.ctx.recordTaskJoin(call, valued != null);
         return result;
     }
 
@@ -21861,9 +21882,16 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
     }
     // A method's instance checks only its own parameters; its type's
     // are checked with self's instance.
+    // An instance made by one whose bounds failed is not checked: the
+    // failure written at the call is the error, and the generics that
+    // instance calls would only repeat it (`sort.sort[F32]` and each of
+    // the bounded helpers it reaches).
+    var failed: std.HashMapUnmanaged(sema.FnInstance, void, sema.FnInstance.Context, 80) = .empty;
+    defer failed.deinit(ctx.allocator);
     var i: usize = 0;
     while (i < ctx.fn_instances.items.len) : (i += 1) {
         const f = ctx.fn_instances.items[i];
+        if (f.via) |via| if (via == .func and failed.contains(via.func)) continue;
         // An implementation's method reached through an API has the
         // arguments the call's instance of the API's method checks and
         // reports.
@@ -21872,6 +21900,7 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
         // So are its bounds, which are the API's method's.
         const bounded = if (f.through_api) try sema.boundsMet(ctx, f.inst.ownParams(), f.inst.ownArgs()) else try sema.checkBounds(ctx, f.inst.ownParams(), f.inst.ownArgs(), f.site, of);
         if (!bounded) {
+            try failed.put(ctx.allocator, f.inst, {});
             if (!f.through_api) if (f.via) |via| try ctx.note(f.site, "`{s}` is made by `{s}`", .{ try sema.rootName(ctx, of), try sema.rootName(ctx, via) });
         } else if (try checkRequirements(ctx, &reqs, f.inst.ownParams(), f.inst.ownArgs(), f.site, of) and
             try checkMethodCalls(ctx, f.inst.subst(), f.inst.ownParams(), f.site, of))

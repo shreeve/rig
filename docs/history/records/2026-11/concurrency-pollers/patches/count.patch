@@ -1,0 +1,115 @@
+diff --git i/src/sched.zig w/src/sched.zig
+index 3fa69557c..e83f147a7 100644
+--- i/src/sched.zig
++++ w/src/sched.zig
+@@ -1993,6 +1993,16 @@ const Poller = struct {
+     /// and whether `os.exit` claimed it there (`ExitClaim`), so the worker
+     /// stops as it wakes, before it reads a single event (`tearDown`).
+     parked: std.atomic.Value(ExitClaim) = .init(.awake),
++    // COUNT (scratch): events read from it, each way; by its own worker
++    // or another's look; returns full; looks that found it locked;
++    // registrations ever made with it.
++    c_rd: std.atomic.Value(u64) = .init(0),
++    c_wr: std.atomic.Value(u64) = .init(0),
++    c_own: std.atomic.Value(u64) = .init(0),
++    c_other: std.atomic.Value(u64) = .init(0),
++    c_full: std.atomic.Value(u64) = .init(0),
++    c_miss: std.atomic.Value(u64) = .init(0),
++    c_regs: std.atomic.Value(u64) = .init(0),
+ 
+     const darwin = builtin.os.tag.isDarwin();
+     const linux = builtin.os.tag == .linux;
+@@ -2069,6 +2079,7 @@ const Poller = struct {
+             if (@as(isize, @bitCast(linux_.epoll_ctl(p.fd, linux_.EPOLL.CTL_ADD, fd, &ev))) < 0) return false;
+         } else return false;
+         _ = p.count.fetchAdd(1, .monotonic);
++        _ = p.c_regs.fetchAdd(1, .monotonic);
+         return true;
+     }
+ 
+@@ -2114,7 +2125,10 @@ const Poller = struct {
+         const look = timeout != null and timeout.? == 0 and !deterministic.*;
+         if (timeout == null or timeout.? > 0) rt.flushBeforeWait();
+         if (look) {
+-            if (!p.lock.tryLock()) return false;
++            if (!p.lock.tryLock()) {
++                _ = p.c_miss.fetchAdd(1, .monotonic);
++                return false;
++            }
+         } else {
+             while (p.removers.load(.seq_cst) != 0) std.atomic.spinLoopHint();
+             p.lock.lock();
+@@ -2136,6 +2150,7 @@ const Poller = struct {
+             if (tears_down and !look and p.parked.swap(.awake, .seq_cst) == .claimed) stopForExit(me().?, true);
+             p.taken_at.store(@truncate(nowNs()), .monotonic);
+             if (n <= 0) return false;
++            countEvents(p, evs[0..@intCast(n)]);
+             for (evs[0..@intCast(n)]) |ev| {
+                 if (ev.udata == 0) {
+                     if (!look) p.kicked.store(false, .seq_cst);
+@@ -2178,6 +2193,65 @@ const Poller = struct {
+     }
+ };
+ 
++// COUNT (scratch): tally a kqueue return, and append every worker's
++// counts to RIG_POLL_COUNT's file at most once a second.
++var count_path: ?[*:0]const u8 = null;
++var count_read: std.atomic.Value(u8) = .init(0);
++var count_last: std.atomic.Value(i64) = .init(0);
++var count_took: [64]std.atomic.Value(u64) = @splat(.init(0));
++fn countEvents(p: *Poller, evs: []const std.c.Kevent) void {
++    var rd: u64 = 0;
++    var wr: u64 = 0;
++    for (evs) |ev| {
++        if (ev.udata == 0) continue;
++        if (ev.filter == std.c.EVFILT.READ) rd += 1 else wr += 1;
++    }
++    if (evs.len == Poller.max_events) _ = p.c_full.fetchAdd(1, .monotonic);
++    if (rd + wr == 0) return;
++    _ = p.c_rd.fetchAdd(rd, .monotonic);
++    _ = p.c_wr.fetchAdd(wr, .monotonic);
++    const owner: *Worker = @alignCast(@fieldParentPtr("poller", p));
++    const m = me();
++    if (m == owner) _ = p.c_own.fetchAdd(rd + wr, .monotonic) else _ = p.c_other.fetchAdd(rd + wr, .monotonic);
++    if (m) |w| {
++        const i = (@intFromPtr(w) - @intFromPtr(all_workers.*.ptr)) / @sizeOf(Worker);
++        if (i < 64) _ = count_took[i].fetchAdd(rd + wr, .monotonic);
++    }
++    countDump();
++}
++fn countDump() void {
++    if (count_read.load(.acquire) == 0) {
++        if (count_read.cmpxchgStrong(0, 1, .seq_cst, .monotonic) == null) {
++            if (rt.process.*) |pr| if (pr.environ.getPosix("RIG_POLL_COUNT")) |v| {
++                const buf = std.heap.smp_allocator.allocSentinel(u8, v.len, 0) catch return;
++                @memcpy(buf, v);
++                count_path = buf.ptr;
++            };
++            count_read.store(2, .release);
++        }
++        return;
++    }
++    if (count_read.load(.acquire) != 2) return;
++    const path = count_path orelse return;
++    const now: i64 = @truncate(nowNs());
++    const last = count_last.load(.monotonic);
++    if (now - last < std.time.ns_per_s) return;
++    if (count_last.cmpxchgStrong(last, now, .monotonic, .monotonic) != null) return;
++    const fd = std.c.open(path, .{ .ACCMODE = .WRONLY, .CREAT = true, .APPEND = true }, @as(std.c.mode_t, 0o644));
++    if (fd < 0) return;
++    defer _ = std.c.close(fd);
++    var buf: [256]u8 = undefined;
++    for (workersNow(), 0..) |*w, i| {
++        const q = &w.poller;
++        const line = std.fmt.bufPrint(&buf, "t {d} w {d} cur {d} regs {d} rd {d} wr {d} own {d} other {d} full {d} miss {d} took {d}\n", .{
++            now, i, q.count.load(.monotonic), q.c_regs.load(.monotonic), q.c_rd.load(.monotonic), q.c_wr.load(.monotonic),
++            q.c_own.load(.monotonic), q.c_other.load(.monotonic), q.c_full.load(.monotonic), q.c_miss.load(.monotonic),
++            count_took[i].load(.monotonic),
++        }) catch continue;
++        _ = std.c.write(fd, line.ptr, line.len);
++    }
++}
++
+ /// The sleeping worker that watches every poller, or none: while a
+ /// worker that does not sleep holds descriptors, it sleeps no longer than
+ /// `watch_every`, and as it wakes looks at every poller (`serviceAll`),

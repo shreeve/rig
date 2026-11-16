@@ -1952,8 +1952,8 @@ pub const Facts = struct {
     /// with a value in it -> what a failing one reports.
     test_checks: FastMap(u64, []const u8) = .empty,
     /// The calls of `task.all`, which wait for the tasks they take
-    /// (`Checker.taskJoin`).
-    task_joins: FastMap(u64, void) = .empty,
+    /// (`Checker.taskJoin`) -> whether the call gives their values.
+    task_joins: FastMap(u64, bool) = .empty,
     /// The calls of `par.map`, `par.each`, and `par.workers`, which run a
     /// function on several tasks (`Checker.parCall`).
     par_calls: FastMap(u64, ParCall) = .empty,
@@ -2966,7 +2966,7 @@ pub const FnInstance = struct {
         return .{ .params = self.params, .args = self.args };
     }
 
-    const Context = struct {
+    pub const Context = struct {
         pub fn hash(_: Context, k: FnInstance) u64 {
             var h = std.hash.Wyhash.init(0);
             h.update(std.mem.sliceAsBytes(k.params));
@@ -3348,6 +3348,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
     if (comptime std.mem.eql(u8, name, "types") or std.mem.eql(u8, name, "payload_fields") or std.mem.eql(u8, name, "string_nums") or std.mem.eql(u8, name, "splats"))
         return w.print(" {s}", .{try formatTypeIn(ctx, a, v)});
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
+    if (comptime std.mem.eql(u8, name, "task_joins")) return w.writeAll(if (v) " values" else " nothing");
     switch (V) {
         StringCall, Use, Upgrade, ParCall, SelectArm, BuiltinCall, SwapCall, LendKind => try w.print(" {s}", .{@tagName(v)}),
         Duration => try w.print(" {d}ns {s}", .{ v.unit_ns, if (v.float) "Float" else "Int" }),
@@ -5751,13 +5752,16 @@ pub const SemContext = struct {
         return self.facts.temp_drops.contains(nodeKey(node) orelse return false);
     }
 
-    pub fn recordTaskJoin(self: *SemContext, call: Sexp) !void {
-        try self.facts.task_joins.put(self.allocator, recordExprKey(call) orelse return, {});
+    /// `call` is a `task.all`; `values`, whether it gives its tasks'
+    /// values or nothing.
+    pub fn recordTaskJoin(self: *SemContext, call: Sexp, values: bool) !void {
+        try self.facts.task_joins.put(self.allocator, recordExprKey(call) orelse return, values);
     }
 
-    /// Whether `call` is a `task.all` (`recordTaskJoin`).
-    pub fn isTaskJoin(self: *const SemContext, call: Sexp) bool {
-        return self.facts.task_joins.contains(exprKey(call) orelse return false);
+    /// Of a `task.all`, whether it gives its tasks' values; null for any
+    /// other call (`recordTaskJoin`).
+    pub fn taskJoinOf(self: *const SemContext, call: Sexp) ?bool {
+        return self.facts.task_joins.get(exprKey(call) orelse return null);
     }
 
     pub fn recordActorMake(self: *SemContext, call: Sexp) !void {
@@ -14022,7 +14026,8 @@ pub fn readsAsValue(ctx: *const SemContext, ty: TypeId) bool {
     return isScalar(ctx, ty) or isPlainEnum(ctx, ty);
 }
 
-/// The type parameters `ty` holds by value, appended to `out`.
+/// The type parameters `ty` holds by value, appended to `out`: every
+/// one `holdsIn` finds, so the two agree on what a value holds.
 pub fn heldTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(SymbolId), a: std.mem.Allocator) std.mem.Allocator.Error!void {
     if (!ctx.holds(ty).holds_type_var) return;
     switch (ctx.types.get(ty)) {
@@ -14030,6 +14035,7 @@ pub fn heldTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(Symb
         .optional => |inner| try heldTypeVars(ctx, inner, out, a),
         .fallible => |inner| try heldTypeVars(ctx, inner.ok, out, a),
         .array => |arr| try heldTypeVars(ctx, arr.elem, out, a),
+        .results => |parts| for (parts) |part| try heldTypeVars(ctx, part, out, a),
         .parameterized_nominal => |pn| {
             const held = ctx.symbols.items[pn.sym].contents.held;
             for (pn.args, 0..) |arg, i| {

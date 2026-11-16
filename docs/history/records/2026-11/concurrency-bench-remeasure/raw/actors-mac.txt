@@ -1,0 +1,8 @@
+Sun Nov 15 20:34:29 MST 2026
+{ 7.71 10.81 7.41 }
+7a2efd0f3
+tools/mac-claim: waiting 1 min for the claim: lend-hash, at most 19 min, started 20:35, pid 33952
+         rig-safe    tokio       go          vs tokio
+solo     5.0 ns/call 138 ns/call 3.4 ns/call rig-safe 27.4x faster, go 40.1x faster
+contend  15 ns/call  267 ns/call 77 ns/call  rig-safe 17.9x faster, go 3.5x faster
+spread   0.9 ns/call 30 ns/call  0.5 ns/call rig-safe 35.4x faster, go 57.3x faster

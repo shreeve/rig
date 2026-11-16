@@ -1,0 +1,26 @@
+Sun Nov 15 20:40:46 MST 2026
+7a2efd0f3
+round 1: rig psum 4.22, rig qsort 84.71, rayon psum 2.53, rayon qsort 59.29
+round 2: rayon psum 2.45, rayon qsort 53.83, rig psum 2.86, rig qsort 83.26
+round 3: rig psum 2.89, rig qsort 82.40, rayon psum 2.46, rayon qsort 52.75
+round 4: rayon psum 2.55, rayon qsort 53.31, rig psum 2.96, rig qsort 81.12
+round 5: rig psum 2.85, rig qsort 82.84, rayon psum 2.48, rayon qsort 54.82
+round 6: rayon psum 2.47, rayon qsort 53.73, rig psum 3.30, rig qsort 83.10
+round 7: rig psum 2.90, rig qsort 87.46, rayon psum 2.46, rayon qsort 53.31
+round 8: rayon psum 2.56, rayon qsort 52.80, rig psum 2.86, rig qsort 80.77
+round 9: rig psum 2.85, rig qsort 80.31, rayon psum 2.44, rayon qsort 53.15
+round 10: rayon psum 2.44, rayon qsort 54.57, rig psum 2.85, rig qsort 84.57
+round 11: rig psum 2.92, rig qsort 98.51, rayon psum 2.40, rayon qsort 52.62
+round 12: rayon psum 2.43, rayon qsort 53.75, rig psum 2.89, rig qsort 83.82
+round 13: rig psum 2.84, rig qsort 80.91, rayon psum 2.46, rayon qsort 55.70
+round 14: rayon psum 2.72, rayon qsort 55.63, rig psum 2.87, rig qsort 85.81
+round 15: rig psum 2.86, rig qsort 80.21, rayon psum 2.43, rayon qsort 53.38
+round 16: rayon psum 2.42, rayon qsort 53.89, rig psum 2.89, rig qsort 81.48
+round 17: rig psum 2.84, rig qsort 83.62, rayon psum 2.41, rayon qsort 52.90
+round 18: rayon psum 2.39, rayon qsort 52.48, rig psum 2.84, rig qsort 81.21
+round 19: rig psum 2.85, rig qsort 81.52, rayon psum 2.39, rayon qsort 64.21
+round 20: rayon psum 2.74, rayon qsort 53.85, rig psum 2.83, rig qsort 91.95
+checks: {'psum': ['16760439056'], 'qsort': ['4194304']}
+row        rig ms   rayon ms
+psum         2.83       2.39
+qsort       80.21      52.48

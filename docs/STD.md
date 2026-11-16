@@ -844,7 +844,7 @@ same waiting points fail with `Stop.timeout`.
 | `workers(n: Int) -> Bool` | run tasks on `n` workers, at most 64, in place of one per core or `RIG_WORKERS`: a program sets it from its own arguments, say. Before the program makes its first task, which starts the workers, it sets how many start; after, it can only raise the number, and gives false for fewer than run. It gives whether it took effect; a deterministic run (`rig test`) runs on one thread whatever it asks |
 | `worker_count() -> Int` | the number of workers tasks run on: one per core, `RIG_WORKERS`, or what `workers(n)` set, before the first task starts them or after; 1 in a deterministic run and in a program that makes no task. A program sizes its own work by it, as one task per worker |
 | `fast_cores() -> Int` | how many fast physical cores the program may run on, at least 1 ([below](#the-fast-cores)) |
-| `all(a, b, ...)` | wait for two tasks or more, of any types, and give each one's value as several results; it can fail when any task can, and then the first to fail cancels the others |
+| `all(a, b, ...)` | wait for two tasks or more, of any types, and give each one's value as several results, or nothing when no task gives a value (a `sub`'s); one call does not mix the two. It can fail when any task can, and then the first to fail cancels the others |
 | `isolate(f)` | run `f`, which takes nothing, and give what it gives; a panic in it, or in a task it started, stops here: its tasks are canceled, and it fails with `Stop.panicked` ([SPEC §18](../SPEC.md#isolating-a-panic)) |
 | `supervise(f, restarts: n, per: s)` | run `f` isolated, and again each time it fails or panics, at most `n` times within `s` seconds, an `Int` or a `Float` (`per: 0.5`); past that, fail as its last run failed ([SPEC §18](../SPEC.md#isolating-a-panic)) |
 | `select(name: arm, ...)` | wait until one arm, `name: !ch.on_recv()`, `name: !ch.on_send(<v)`, `name: ?t.on_end()`, or `name: time.after(ms: 50)`, can complete, commit it alone, and give a value whose variant is the winner's name, matched by `match`: a receive's carries the value as `T?`, none once the channel is closed and empty; a task's end carries nothing, and the body takes the task's result with `>t`, at once ([SPEC §18](../SPEC.md#channels)) |
@@ -1673,15 +1673,27 @@ literal or a bare name is lent as it is passed.
 
 | Function | Result |
 |---|---|
-| `sort[T: Ord](xs: ![]T)` | sort `xs` in place, in the order of `<`, keeping equal elements in the order they had; allocates nothing |
+| `sort[T: Ord](xs: ![]T)` | sort `xs` in place, in the order of `<`, keeping equal elements that can be told apart in the order they had; allocates nothing |
 | `sort_by[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)` | the same, in the order `less` gives: `less(a, b)` says whether `a` belongs before `b` |
 | `sort_by_key[T, K: Ord](xs: ![]T, key: ?fun(?T) -> K)` | the same, in the order of the keys `key` gives, by `<`; `key` is called twice for each comparison |
 | `lower_bound[T: Ord](xs: []T, x: ?T) -> Int` | in `xs` sorted by `<`, the index where `x` belongs: the first element not less than `x`, or `xs.len` |
 | `search[T: Ord](xs: []T, x: ?T) -> Int?` | in `xs` sorted by `<`, the index of the first element equal to `x`, by binary search; `none` when there is none |
 
-`sort` sorts runs of 20 elements by insertion, then merges them in
-place by rotations: O(n log n) comparisons, O(n log² n) swaps, and
-O(log n) stack, with no other memory.
+Every sort is stable in meaning: elements the order finds equal keep
+the order they had wherever a program could tell them apart. None
+allocates. Where equal elements are the same value, nothing can tell
+them apart, and `sort` uses pattern-defeating quicksort (as Rust's
+`sort_unstable` and Zig's `std.sort.pdq`), which does not keep their
+order: for numbers, `Bool`, text, plain enums, and the optionals,
+arrays, objects, and enums made only of these whose header derives
+`Ord` (`obj Point: Ord` with no `order` of its own). It compares with
+`<` inline and takes O(n log n) comparisons at worst, O(n) on sorted or
+reversed input, and O(log n) stack. Otherwise, for a type with an
+`order` of its own (two keys it calls equal may still differ) or one
+holding a handle, and for `sort_by` and `sort_by_key` always, it sorts
+runs of 20 elements by insertion, then merges them in place by
+rotations: O(n log n) comparisons, O(n log² n) swaps, and O(log n)
+stack.
 
 ```rig
 use std.sort
@@ -1714,6 +1726,33 @@ bob 9
 ann 7
 cy 7
 ann
+```
+
+An `order` of its own may call two different values equal, and `sort`
+keeps those in the order they had:
+
+```rig
+use std.sort
+
+obj Chore: Ord
+  priority: Int
+  name: ?String
+
+  fun order(?@, other: ?Chore) -> Order
+    @priority.order(?other.priority)
+
+sub main()
+  chores = [Chore(priority: 2, name: "mail"), Chore(priority: 1, name: "fix"), Chore(priority: 2, name: "lunch"), Chore(priority: 1, name: "ship")]
+  sort.sort(!chores)
+  for t in ?chores
+    print(t.priority, t.name)
+```
+
+```output
+1 fix
+1 ship
+2 mail
+2 lunch
 ```
 
 A float provides no `Ord`: a NaN is neither below nor above a number,

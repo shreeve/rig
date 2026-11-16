@@ -1,0 +1,5 @@
+# blocks=4841 swap_mb=1360 slot=303 paused=0 running=0 late=0 load 1.05 2.22 3.01
+1f35fc1da 2026-11-15 22:34:11 -0700
+rig-safe 10.7 0.51
+tokio 10.8 0.03
+go 19.8 0.05
