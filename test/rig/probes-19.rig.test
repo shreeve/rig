@@ -1332,7 +1332,9 @@ test "review-cell-mark-1-p20 two writeviews alias", "0"
   g = +h
   f(!h, !g)
 
-fail "review-cell-mark-1-p21 same handle twice", "cannot lend `h` to read while a write loan is live"
+test "review-cell-mark-1-p21 same handle twice", "1"
+  # `!h` lending a `!H` of a value that holds a Cell lends `h` to read
+  # (Core §4), so `?h` goes beside it.
   obj H
     log: Cell[List[Int]]
 
@@ -1390,7 +1392,7 @@ test "review-cell-mark-1-p29 push arg realloc", "201"
   !c.push(grow(!d))
   print(c.len)
 
-test "review-cell-mark-1-p32 swap cells holder", "0"
+fail "review-cell-mark-1-p32 swap cells holder", "`swap` moves values whole, and a `Cell", errors: 1
   obj H
     log: Cell[List[Int]]
 
@@ -1404,7 +1406,7 @@ test "review-cell-mark-1-p33 replace cell", "0"
   old = swap(!a, *Cell(List()))
   print(old.len)
 
-test "review-cell-mark-1-p34 swap cell through view", "2"
+fail "review-cell-mark-1-p34 swap cell through view", "`swap` moves values whole, and a `Cell", errors: 1
   sub f(a: !Cell[Int], b: !Cell[Int])
     swap(!a, !b)
 
@@ -1413,7 +1415,7 @@ test "review-cell-mark-1-p34 swap cell through view", "2"
   f(!a, !b)
   print(a.get())
 
-test "review-cell-mark-1-p35 swap cell same", "1"
+fail "review-cell-mark-1-p35 swap cell same", "`swap` moves values whole, and a `Cell", errors: 1
   sub f(a: !Cell[List[Int]], b: !Cell[List[Int]])
     swap(!a, !b)
 

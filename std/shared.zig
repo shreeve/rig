@@ -31,6 +31,14 @@
 //! since entries do not move, and a key put since then is found by the
 //! insert's second look under the lock. The old indexes are freed with
 //! the map: they add up to less than the index in use.
+//!
+//! The invariant every operation here keeps, and a new one must: an
+//! entry, once published, is never changed, moved, or freed until the
+//! map drops, so a view `find` or `settle` gave stays valid while a
+//! handle lives (docs/CORE.md §4). Rig's checkers do not read this file:
+//! each function shared.rig declares on the map is listed in
+//! `Checker.marked_externs`, and test/rig/std-shared.rig.test runs every
+//! change under the sanitizer while views live.
 
 const std = @import("std");
 const rig = @import("../runtime.zig");

@@ -1205,3 +1205,32 @@ fail "chan select end spelled", "9:23: an arm on a task's end lends the task to 
   _ = task.select(?t.on_end())!
   match task.select(done: ?t.on_end())!
     .done(r) => print(r)
+
+test "chan lend send of what it receives", seeds: 20, '''
+  6
+  put
+'''
+  # A send or a receive lends the place that holds the handle to read
+  # (Core §4): a receive may feed a send on the same channel, and a send
+  # arm's value may receive from the channel its select names.
+  ch = *Chan[Int](2)
+  !ch.send(1)!
+  !ch.send((!ch.recv()! ?? 0) + 5)!
+  print(!ch.recv()! ?? -1)
+  d = *Chan[Int](2)
+  !d.send(7)!
+  match task.select(got: !d.on_recv(), put: !d.on_send((!d.recv()! ?? 0) + 1))!
+    .got(v?) => print("got", v)
+    .got(none) => print("closed")
+    .put => print("put")
+
+fail "chan lend a write in the arguments", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # The read loan begins before the arguments are evaluated: they may
+  # not grow what holds the handle.
+  fun grow(xs: !List[*Chan[Int]]) -> Int
+    !xs.push(*Chan[Int](1))
+    8
+
+  xs = List[*Chan[Int]]()
+  !xs.push(*Chan[Int](1))
+  !xs[0].send(grow(!xs))!
