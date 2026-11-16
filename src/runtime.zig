@@ -2468,11 +2468,23 @@ pub fn orderIsIdentity(comptime T: type) bool {
         },
         .@"union" => |u| blk: {
             if (u.tag_type == null or !@hasDecl(T, "__rig_name")) break :blk false;
-            inline for (u.field_types) |F| if (!orderIsIdentity(F)) break :blk false;
+            inline for (u.field_types) |F| if (!payloadIsIdentity(F)) break :blk false;
             break :blk true;
         },
         else => false,
     };
+}
+
+/// `orderIsIdentity` of one variant's payload in a Rig enum: a variant
+/// with named fields, `circle(r: Int)`, is emitted as a struct with those
+/// fields and no declarations, which `order` orders by its fields; any
+/// other payload is a type of its own.
+fn payloadIsIdentity(comptime F: type) bool {
+    if (@typeInfo(F) == .@"struct" and @typeInfo(F).@"struct".decl_names.len == 0 and !@typeInfo(F).@"struct".is_tuple) {
+        inline for (@typeInfo(F).@"struct".field_types) |G| if (!orderIsIdentity(G)) return false;
+        return true;
+    }
+    return orderIsIdentity(F);
 }
 
 fn orderElements(a: anytype, b: @TypeOf(a)) std.math.Order {
@@ -11141,4 +11153,21 @@ test "this machine's fast cores are at least one, at most its logical CPUs, and 
     const n = fastCores();
     try std.testing.expect(n >= 1 and n <= logical);
     try std.testing.expectEqual(n, fastCores());
+}
+
+test "orderIsIdentity: an enum's variant with fields counts its fields" {
+    const name = .{ .module = "", .name = .{"Shape"} };
+    const Shape = union(enum) {
+        dot: void,
+        circle: struct { r: i64 },
+        pub const __rig_name = name;
+    };
+    const Holds = union(enum) {
+        dot: void,
+        at: struct { p: *i64 },
+        pub const __rig_name = name;
+    };
+    try std.testing.expect(comptime orderIsIdentity(Shape));
+    try std.testing.expect(!comptime orderIsIdentity(Holds));
+    try std.testing.expect(!comptime orderIsIdentity(struct { r: i64 }));
 }

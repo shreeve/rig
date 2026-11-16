@@ -284,3 +284,32 @@ test "sort compares objects by their fields as order does", "true"
   for i in 1..ms.len
     ok = ok and not (ms[i] < ms[i - 1])
   print(ok)
+
+test "sort orders an enum whose variants carry fields", "true"
+  # Its payloads are numbers and text, so equal values are the same and
+  # `sort` takes the quicksort; the stable merge of `sort_by` agrees.
+  enum Shape: Ord
+    dot
+    circle(r: Int)
+    label(text: ?String, size: Int)
+
+  r = random.Random.seeded(7)
+  words = ["", "a", "b"]
+  xs: List[Shape] = List()
+  for _ in 0..3000
+    k = (!r).int(0, 3)
+    if k == 0
+      !xs.push(Shape.dot)
+    else if k == 1
+      !xs.push(Shape.circle(r: (!r).int(0, 4)))
+    else
+      !xs.push(Shape.label(text: words[(!r).int(0, 3)], size: (!r).int(0, 3)))
+  ys: List[Shape] = List()
+  for x in ?xs
+    !ys.push(x)
+  sort.sort(!xs[..])
+  sort.sort_by(!ys[..], |a, b| a < b)
+  ok = xs.len == ys.len
+  for i in 0..xs.len
+    ok = ok and xs[i] == ys[i]
+  print(ok)
