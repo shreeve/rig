@@ -149,11 +149,39 @@ load.
   workers that spin or sleep badly when the cores are shared: worth one
   board under a fixed, controlled background load.
 
-## Linux (not run)
+## Linux
 
-Nothing ran on pup or burst. On pup, every timed command pinned to
-cores 0-11 (a slot's shell otherwise runs on its two low-power cores),
-built on the E-cores, in a pup timing slot:
+pup (Core Ultra 9 185H, 22 cores), 2026-11-16 06:20-06:34, a board slot
+with the machine quiet, at cc3374990 with main's Rig ea3704772, every run
+on cores 0-11: 5 rounds at 7 rates with 10,000 idle connections, then 2
+rounds at 3 rates with none. Medians of the rounds (rows in
+bench/mixed/PROGRESS.md; raw runs in `linux/`):
+
+| offered req/s | p99 Rig | p99 hyper | p99 Go | server cores Rig / hyper / Go |
+|---:|---:|---:|---:|---|
+| 50,000 | 1,252 µs | 1,279 µs | 1,220 µs | 0.9 / 0.9 / 1.4 |
+| 100,000 | 97 µs | 102 µs | 1,111 µs | 1.6 / 1.5 / 2.5 |
+| 150,000 | 267 µs | 608 µs | 3,071 µs | 2.4 / 2.3 / 4.6 |
+| 200,000 | 829 µs | 2,109 µs | 4,304 µs | 3.4 / 3.1 / 6.0 |
+| 250,000 | 2,908 µs | 3,885 µs | 6,539 µs | 4.0 / 3.7 / 6.9 |
+| 300,000 | 4,122 µs | 7,815 µs | 11.3 ms | 4.6 / 4.3 / 7.7 |
+| 350,000 (all saturate) | 312k done, p50 257 ms | 328k done, p50 123 ms | 326k done, p50 146 ms | 4.6 / 4.7 / 8.2 |
+
+Every server keeps up to 300,000 a second with 10,000 idle connections
+held. From 100,000 to 300,000 Rig has the lowest p99 (hyper's is 2.3
+times Rig's at 150,000, 2.5 times at 200,000, 1.9 times at 300,000),
+with 5-10% more server CPU than hyper and about 40% less than Go. At
+350,000 all three saturate: Rig completes 5% fewer requests than hyper
+and its queue grows faster (p50 257 against 123 ms), so its saturation
+point is a little lower. Without idle connections the shape is the same
+(at 150,000, p99 Rig 121-150 µs, hyper 374-760, Go 629-636). No run had
+a stall like the Mac's. At 50,000 every server's p99 sits near 1.25 ms,
+above its p99 at 100,000; the board does not say why (cores asleep
+between requests at the lower rate is one guess, untested).
+
+The commands, as run (every timed command pinned to
+cores 0-11, since a slot's shell otherwise runs on its two low-power
+cores; built on the E-cores):
 
 ```sh
 cd /zfs/worktrees/rig/bench-mixed && O=/zfs/trig-pup/bench-mixed && R=$O/raw.jsonl
@@ -165,9 +193,8 @@ taskset -c 0-11 bench/mixed/bench-mixed --out $O --time-only --rounds 2 --idle 0
 bench/mixed/bench-mixed --summary $R
 ```
 
-The rates are a guess from bench/http (pup took 830,000 trivial requests
-a second closed-loop from Rig): a first round should find saturation
-and set the list. 10,000 idle connections fit one loopback address; the
+The rates were a guess from bench/http (pup took 830,000 trivial
+requests a second closed-loop from Rig); 350,000 found saturation. 10,000 idle connections fit one loopback address; the
 generator spreads them over 127.0.0.x past 20,000.
 
 ## Files
