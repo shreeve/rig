@@ -14519,6 +14519,11 @@ different types, and gives each one's value as several results:
 value, as a `sub`'s gives none, the call gives nothing and stands as a
 statement: `task.all(save(?a)&, save(?b)&)!`. One call does not mix
 the two; tasks that give no value wait in a `task.all` of their own.
+In a generic body, a task whose type is a type parameter's, `Task[T]`,
+gives a value, a `T`, even in an instance that binds `T` to `Void`: the
+body is checked once, for every instance, so `x, y = task.all(<a, <b)`
+binds two `Void`s there, and `task.all(<a, <b)` of a `Task[T]` and a
+`Task[U]` waits for a `Void` task and an `Int` task together.
 The call takes its tasks, and can fail when any of them can; then the
 first to fail cancels the others. The loans of its tasks end where it
 returns.

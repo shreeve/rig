@@ -1952,8 +1952,8 @@ pub const Facts = struct {
     /// with a value in it -> what a failing one reports.
     test_checks: FastMap(u64, []const u8) = .empty,
     /// The calls of `task.all`, which wait for the tasks they take
-    /// (`Checker.taskJoin`).
-    task_joins: FastMap(u64, void) = .empty,
+    /// (`Checker.taskJoin`) -> whether the call gives their values.
+    task_joins: FastMap(u64, bool) = .empty,
     /// The calls of `par.map`, `par.each`, and `par.workers`, which run a
     /// function on several tasks (`Checker.parCall`).
     par_calls: FastMap(u64, ParCall) = .empty,
@@ -3348,6 +3348,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
     if (comptime std.mem.eql(u8, name, "types") or std.mem.eql(u8, name, "payload_fields") or std.mem.eql(u8, name, "string_nums") or std.mem.eql(u8, name, "splats"))
         return w.print(" {s}", .{try formatTypeIn(ctx, a, v)});
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
+    if (comptime std.mem.eql(u8, name, "task_joins")) return w.writeAll(if (v) " values" else " nothing");
     switch (V) {
         StringCall, Use, Upgrade, ParCall, SelectArm, BuiltinCall, SwapCall, LendKind => try w.print(" {s}", .{@tagName(v)}),
         Duration => try w.print(" {d}ns {s}", .{ v.unit_ns, if (v.float) "Float" else "Int" }),
@@ -5751,13 +5752,16 @@ pub const SemContext = struct {
         return self.facts.temp_drops.contains(nodeKey(node) orelse return false);
     }
 
-    pub fn recordTaskJoin(self: *SemContext, call: Sexp) !void {
-        try self.facts.task_joins.put(self.allocator, recordExprKey(call) orelse return, {});
+    /// `call` is a `task.all`; `values`, whether it gives its tasks'
+    /// values or nothing.
+    pub fn recordTaskJoin(self: *SemContext, call: Sexp, values: bool) !void {
+        try self.facts.task_joins.put(self.allocator, recordExprKey(call) orelse return, values);
     }
 
-    /// Whether `call` is a `task.all` (`recordTaskJoin`).
-    pub fn isTaskJoin(self: *const SemContext, call: Sexp) bool {
-        return self.facts.task_joins.contains(exprKey(call) orelse return false);
+    /// Of a `task.all`, whether it gives its tasks' values; null for any
+    /// other call (`recordTaskJoin`).
+    pub fn taskJoinOf(self: *const SemContext, call: Sexp) ?bool {
+        return self.facts.task_joins.get(exprKey(call) orelse return null);
     }
 
     pub fn recordActorMake(self: *SemContext, call: Sexp) !void {

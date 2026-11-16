@@ -327,6 +327,93 @@ test "sets all subs fail fields", seeds: 20, "E.bad(msg: \"big\")"
 
   both() catch |e| print(e)
 
+test "sets all generic bound", seeds: 20, '''
+  bound
+  1
+  2
+  bound
+'''
+  # Tasks of a type parameter give a value, `T`, even where an instance
+  # gives `Void`, so the generic body binds them alike for every `T`.
+  use std.task
+  use std.time
+
+  sub say(n: Int)
+    time.sleep(ms: n) catch print("woken")
+    print(n)
+
+  fun sq(n: Int) -> Int
+    n * n
+
+  sub both[T](a: Task[T], b: Task[T])
+    x, y = task.all(<a, <b)
+    print("bound")
+
+  both(sq(2)&, sq(3)&)
+  both[Void](say(1)&, say(2)&)
+
+test "sets all generic statement", seeds: 20, '''
+  1
+  2
+  waited
+  waited
+'''
+  use std.task
+  use std.time
+
+  sub say(n: Int)
+    time.sleep(ms: n) catch print("woken")
+    print(n)
+
+  fun sq(n: Int) -> Int
+    n * n
+
+  sub both[T](a: Task[T], b: Task[T])
+    task.all(<a, <b)
+    print("waited")
+
+  both[Void](say(1)&, say(2)&)
+  both(sq(2)&, sq(3)&)
+
+test "sets all generic mixed", seeds: 20, '''
+  1
+  waited
+'''
+  # Two type parameters give values, whatever their instances: `Void`
+  # and `Int` wait together here, where `say(1)&` and `sq(3)&` written
+  # out would be rejected as a mix.
+  use std.task
+
+  sub say(n: Int)
+    print(n)
+
+  fun sq(n: Int) -> Int
+    n * n
+
+  sub both[T, U](a: Task[T], b: Task[U])
+    task.all(<a, <b)
+    print("waited")
+
+  both[Void, Int](say(1)&, sq(3)&)
+
+test "sets all generic fun", seeds: 20, '''
+  1
+  2
+  1
+'''
+  use std.task
+  use std.time
+
+  sub say(n: Int)
+    time.sleep(ms: n) catch print("woken")
+    print(n)
+
+  fun both[T](a: Task[T], b: Task[T]) -> Int
+    x, y = task.all(<a, <b)
+    1
+
+  print(both[Void](say(1)&, say(2)&))
+
 fail "sets all mixed", "`task.all` gives each task's value, or nothing when none gives one, and `say(1)&` gives none while `sq(2)&` gives one: wait for the tasks that give none in a `task.all` of their own, or each on its own, `>t`", errors: 1
   use std.task
 

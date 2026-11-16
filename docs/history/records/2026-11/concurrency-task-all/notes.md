@@ -3,8 +3,9 @@
 The owner, 2026-11-03, for v0.3.1: "let task.all accept tasks that give
 no value, so `task.all(f()&, g()&)!` waits for subs". It is the visible
 alternative to an implicit wait at a scope's end, which was set aside
-because it would hide a failure point at a dedent (North Star 3). It
-accepts more programs and rejects none.
+because it would hide a failure point at a dedent (North Star 3). The
+feature accepts more programs; the review's fixes merged into it
+(below) reject two kinds that compiled before.
 
 ## What the call gives
 
@@ -17,15 +18,33 @@ paths every fallible `sub` call already takes. Binding it is rejected
 as binding any `Void` ("`x` would be bound to a value of type `Void`"),
 and `!` on an infallible one as on any value that cannot fail.
 
-The runtime's `waitTasksInto` was already generic over its tasks'
-types: a task giving nothing gives Zig's `void`, which it stores in a
-tuple slot and drops as nothing. `TaskValues`, its result type, now
-gives `void` (or `E!void`) when no task gives a value, and the wait
-collects into a `[n]void` that it does not return. Cancel on the first
-failure, the failure's fields passing to the waiter's slot, and the
-drops of the others' results are the same code as before. Emit is
-unchanged: it reads the `task_joins` fact as before and writes the same
-`rig.waitTasksInto(...)` call.
+Which of the two the call gives is a fact the checker records once
+(`recordTaskJoin(call, values)`, shown by `rig check --facts=sema`),
+and emit passes it to `rig.waitTasksInto` as a compile-time flag. The
+runtime collects the tasks' values in a tuple (a task that gives
+nothing holds a `void`) and returns it when the flag says so, nothing
+otherwise; it does not work out from an instance's types which to give.
+Cancel on the first failure, the failure's fields passing to the
+waiter's slot, and the drops of the others' results are the same code
+as before.
+
+## Generic bodies: the review's regression
+
+The first build (d0f6177a9) let the runtime decide from the instance's
+types: `TaskValues` gave `void` when no task of the instance gave a
+value. A generic body is checked and emitted once, so
+`sub both[T](a: Task[T], b: Task[T])` with `x, y = task.all(<a, <b)`
+was typed as giving two `T`s, and `both[Void](say(1)&, say(2)&)` then
+failed in Zig ("type 'void' does not support indexing"), where main
+built and ran it. The fix is the recorded fact above. In a generic body
+a task of a type parameter's type counts as giving a value, a `T`,
+whatever an instance binds it to, as on main; SPEC §18 says so. So
+`both[Void, Int](say(1)&, sq(3)&)` through `task.all(<a, <b)` of a
+`Task[T]` and a `Task[U]` waits for both, where the same tasks written
+out are rejected as a mix: the body cannot know, and the rule is the
+body's. The review's probes are cases ("sets all generic bound",
+"sets all generic statement", "sets all generic mixed", "sets all
+generic fun").
 
 ## Why a mix stays rejected
 

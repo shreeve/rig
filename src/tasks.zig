@@ -473,10 +473,11 @@ const Wakeup = struct {
     }
 };
 
-/// What `task.all` gives for the tasks `Tup` (a tuple of
-/// `Task`s): each one's value, in order, or nothing when none gives a
-/// value; failing when any can fail.
-fn TaskValues(comptime Tup: type) type {
+/// What `task.all` gives for the tasks `Tup` (a tuple of `Task`s):
+/// each one's value, in order, when `values`, which the checker decided
+/// (`SemContext.recordTaskJoin`), and nothing otherwise; failing when
+/// any can fail.
+fn TaskValues(comptime Tup: type, comptime values: bool) type {
     const tasks = @typeInfo(Tup).@"struct".field_types;
     var results: [tasks.len]type = undefined;
     var fallible = false;
@@ -484,22 +485,20 @@ fn TaskValues(comptime Tup: type) type {
         R.* = Tk.__rig_args[0];
         if (@typeInfo(R.*) == .error_union) fallible = true;
     }
-    const Values = if (TaskTuple(Tup) == void) void else TaskTuple(Tup);
+    const Values = if (values) TaskTuple(Tup) else void;
     return if (fallible) WaitErr(&results)!Values else Values;
 }
 
-/// The tasks `Tup`'s values, as `task.all` collects them; `void` when
-/// no task gives one (the checker allows no mix).
+/// The tasks `Tup`'s values, in order, as `task.all` collects them: a
+/// task that gives nothing holds a `void`.
 fn TaskTuple(comptime Tup: type) type {
     const tasks = @typeInfo(Tup).@"struct".field_types;
     var values: [tasks.len]type = undefined;
-    var any = false;
     for (tasks, &values) |Tk, *V| {
         const R = Tk.__rig_args[0];
         V.* = if (@typeInfo(R) == .error_union) @typeInfo(R).error_union.payload else R;
-        any = any or V.* != void;
     }
-    return if (any) @Tuple(&values) else void;
+    return @Tuple(&values);
 }
 
 /// The error set a wait for work whose results are `Rs` fails with:
@@ -518,22 +517,21 @@ fn WaitErr(comptime Rs: []const type) type {
 }
 
 /// `task.all(a, b, ...)`: wait for tasks of any
-/// types, and give each one's value. When some can fail, waiting is a
+/// types, and give each one's value when `gives`, as the checker
+/// recorded, or nothing (`TaskValues`). When some can fail, waiting is a
 /// waiting point, and the first task to fail, in the order they end,
 /// cancels the others: the call waits for them, drops what they gave,
 /// and fails with its error, whose fields go into the waiter's slot
 /// `out`, as `Task.waitInto`'s do.
-pub fn waitTasksInto(tasks: anytype, out: anytype) TaskValues(@TypeOf(tasks)) {
+pub fn waitTasksInto(tasks: anytype, out: anytype, comptime gives: bool) TaskValues(@TypeOf(tasks), gives) {
     const Tup = @TypeOf(tasks);
     const n = @typeInfo(Tup).@"struct".field_types.len;
-    const Out = TaskValues(Tup);
+    const Out = TaskValues(Tup, gives);
     const fallible = @typeInfo(Out) == .error_union;
-    // Tasks that give nothing are waited for as tasks that give `void`.
-    const Values = if (TaskTuple(Tup) == void) [n]void else TaskTuple(Tup);
-    var values: Values = undefined;
+    var values: TaskTuple(Tup) = undefined;
     if (comptime !fallible) {
         inline for (0..n) |i| values[i] = tasks[i].waitInto(rt.no_slot);
-        return if (comptime TaskTuple(Tup) == void) {} else values;
+        return if (gives) values else {};
     }
     var ts = tasks;
     // On the heap: a panic passed on from a task waited for leaves this
@@ -589,7 +587,7 @@ pub fn waitTasksInto(tasks: anytype, out: anytype) TaskValues(@TypeOf(tasks)) {
             };
         }
     }
-    const err = failure orelse return if (comptime TaskTuple(Tup) == void) {} else values;
+    const err = failure orelse return if (gives) values else {};
     inline for (0..n) |i| if (!taken[i]) ts[i].control.cancel();
     inline for (0..n) |i| if (!taken[i]) {
         var result = ts[i].job.join();

@@ -15901,11 +15901,14 @@ const Checker = struct {
     /// `task.all(a, b, ...)` of `std.task`: wait for tasks of any types,
     /// which the call takes, and give each one's value as several
     /// results, or nothing when no task gives a value, as a `sub` does;
-    /// either way failing when any task can. Tasks that give values and
-    /// tasks that give none do not mix: several results with holes would
-    /// be a shape of its own. Rig declares no function of any number of
-    /// arguments, so the call is typed here, its parameters the tasks'
-    /// own types (`argType`).
+    /// either way failing when any task can. A task of a type parameter's
+    /// type gives a value, `T`, whatever an instance binds it to, so a
+    /// generic body is typed, and emitted, once for every instance.
+    /// Tasks that give values and tasks that give none do not mix:
+    /// several results with holes would be a shape of its own. Which the
+    /// call gives is recorded (`recordTaskJoin`) for emit and the runtime.
+    /// Rig declares no function of any number of arguments, so the call
+    /// is typed here, its parameters the tasks' own types (`argType`).
     fn taskJoin(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
         const name = "all";
         if (args.len < 2) return try self.badCall(args, pos, "`task.all` waits for two tasks or more, `task.all(f(x)&, g(y)&, h(z)&)`; for one, `>t`", .{});
@@ -15939,7 +15942,7 @@ const Checker = struct {
         const f: FunctionType = .{ .params = try self.ctx.dupeIds(params), .returns = result, .is_sub = valued == null };
         try self.noteCallee(f);
         try self.checkArgs(args, f, .{}, try a.print("task.{s}", .{name}), pos, .{ .declared = f.params });
-        if (self.current_call) |call| try self.ctx.recordTaskJoin(call);
+        if (self.current_call) |call| try self.ctx.recordTaskJoin(call, valued != null);
         return result;
     }
 
