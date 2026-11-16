@@ -678,6 +678,11 @@ arms.
   the slot, woken again or new at a freed one's address, is seen
   afresh, by the slot's fill count, and work that only waits in its
   maker's slots kicks no waiting searcher.
+- **`http.serve` copies no request's text for its handler:** a
+  request's `method`, `path`, `query`, and `head` view the bytes read,
+  which the handler only reads (`?http.Request`), and only its `body`
+  is allocated. A request with a body has its head copied once, into
+  one block, before the body is read.
 - **Loopback round trips make fewer system calls:** a socket read that
   comes back short took all there was, so the next read waits on the
   poller for an edge before it calls, rather than being told EAGAIN (an
