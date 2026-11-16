@@ -1,0 +1,26 @@
+Sun Nov 15 22:12:08 MST 2026
+22:12  up 2 days,  2:13, 3 users, load averages: 6.19 7.75 6.61
+round 1: rig psum 2.93, rig qsort 78.21, rayon psum 2.55, rayon qsort 53.74, rayon-symmerge qsort 61.58, rayon-symmerge qsort_dyn 62.51, rayon-symmerge leaves 156.33, rayon-symmerge leaves_dyn 202.28
+round 2: rayon psum 2.49, rayon qsort 52.85, rayon-symmerge qsort 66.65, rayon-symmerge qsort_dyn 66.06, rayon-symmerge leaves 160.49, rayon-symmerge leaves_dyn 203.13, rig psum 2.78, rig qsort 86.67
+round 3: rayon-symmerge qsort 64.84, rayon-symmerge qsort_dyn 61.13, rayon-symmerge leaves 155.25, rayon-symmerge leaves_dyn 202.10, rig psum 2.75, rig qsort 80.75, rayon psum 2.47, rayon qsort 52.17
+round 4: rig psum 2.81, rig qsort 83.80, rayon psum 2.44, rayon qsort 53.72, rayon-symmerge qsort 67.57, rayon-symmerge qsort_dyn 59.07, rayon-symmerge leaves 155.76, rayon-symmerge leaves_dyn 201.30
+round 5: rayon psum 2.45, rayon qsort 51.79, rayon-symmerge qsort 61.84, rayon-symmerge qsort_dyn 60.02, rayon-symmerge leaves 156.10, rayon-symmerge leaves_dyn 201.47, rig psum 2.75, rig qsort 84.49
+round 6: rayon-symmerge qsort 63.45, rayon-symmerge qsort_dyn 60.53, rayon-symmerge leaves 155.29, rayon-symmerge leaves_dyn 203.36, rig psum 2.74, rig qsort 79.88, rayon psum 2.39, rayon qsort 52.74
+round 7: rig psum 2.72, rig qsort 81.06, rayon psum 2.41, rayon qsort 57.23, rayon-symmerge qsort 63.06, rayon-symmerge qsort_dyn 59.43, rayon-symmerge leaves 155.46, rayon-symmerge leaves_dyn 201.96
+round 8: rayon psum 2.49, rayon qsort 52.53, rayon-symmerge qsort 61.71, rayon-symmerge qsort_dyn 59.90, rayon-symmerge leaves 155.74, rayon-symmerge leaves_dyn 201.15, rig psum 2.72, rig qsort 80.76
+round 9: rayon-symmerge qsort 62.07, rayon-symmerge qsort_dyn 59.81, rayon-symmerge leaves 155.75, rayon-symmerge leaves_dyn 200.90, rig psum 2.75, rig qsort 82.68, rayon psum 2.36, rayon qsort 54.58
+round 10: rig psum 2.74, rig qsort 93.00, rayon psum 2.83, rayon qsort 58.65, rayon-symmerge qsort 66.29, rayon-symmerge qsort_dyn 59.85, rayon-symmerge leaves 155.96, rayon-symmerge leaves_dyn 202.71
+round 11: rayon psum 2.50, rayon qsort 51.91, rayon-symmerge qsort 62.76, rayon-symmerge qsort_dyn 61.01, rayon-symmerge leaves 155.50, rayon-symmerge leaves_dyn 205.10, rig psum 2.75, rig qsort 78.98
+round 12: rayon-symmerge qsort 60.26, rayon-symmerge qsort_dyn 58.48, rayon-symmerge leaves 155.71, rayon-symmerge leaves_dyn 203.24, rig psum 2.71, rig qsort 81.38, rayon psum 2.35, rayon qsort 53.55
+round 13: rig psum 3.21, rig qsort 85.82, rayon psum 2.34, rayon qsort 52.44, rayon-symmerge qsort 61.68, rayon-symmerge qsort_dyn 59.41, rayon-symmerge leaves 155.54, rayon-symmerge leaves_dyn 201.57
+round 14: rayon psum 2.39, rayon qsort 54.11, rayon-symmerge qsort 58.75, rayon-symmerge qsort_dyn 60.45, rayon-symmerge leaves 156.71, rayon-symmerge leaves_dyn 203.87, rig psum 2.66, rig qsort 82.75
+round 15: rayon-symmerge qsort 67.57, rayon-symmerge qsort_dyn 58.83, rayon-symmerge leaves 155.20, rayon-symmerge leaves_dyn 203.70, rig psum 2.78, rig qsort 79.40, rayon psum 2.49, rayon qsort 53.32
+round 16: rig psum 2.73, rig qsort 82.33, rayon psum 2.32, rayon qsort 52.35, rayon-symmerge qsort 61.43, rayon-symmerge qsort_dyn 59.88, rayon-symmerge leaves 155.31, rayon-symmerge leaves_dyn 203.84
+rayon            psum            2.317
+rayon            qsort          51.793
+rayon-symmerge   leaves        155.201
+rayon-symmerge   leaves_dyn    200.903
+rayon-symmerge   qsort          58.755
+rayon-symmerge   qsort_dyn      58.484
+rig              psum            2.661
+rig              qsort          78.209

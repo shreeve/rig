@@ -1,0 +1,12 @@
+tools/mac-claim: waiting 1 min for the claim: loopback-net-f5b, at most 18 min, started 23:17, pid 68359
+spawn 9 threads (caller) 63000 ns
+first thread runs after 13500 ns
+last of 9 runs after 69792 ns
+9 kqueues 1709 ns
+reserve 16 stacks (mmap+16 mprotect) 7542 ns
+first touch, first stack 2250 ns
+first touch, next stacks 2033 ns each
+alt stack mmap+sigaltstack 500 ns
+mmap none + 16 mprotect rw (Rig): alone 7.0 us, 9 others spinning 17.4 us, 10 at once (median thread, with touch) 395.3 us
+mmap rw + 16 mprotect guard none: alone 7.0 us, 9 others spinning 14.1 us, 10 at once (median thread, with touch) 338.4 us
+mmap none + 16 mmap FIXED rw: alone 10.2 us, 9 others spinning 20.3 us, 10 at once (median thread, with touch) 408.8 us

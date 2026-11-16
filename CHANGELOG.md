@@ -701,6 +701,23 @@ arms.
   by `!=` and `<`, without making an `Order` first, which made Zig's
   pattern-defeating quicksort of objects of two Ints 1.8 to 3.2 times as
   slow when tried there.
+- **Loopback round trips make fewer system calls:** a socket read that
+  comes back short took all there was, so the next read waits on the
+  poller for an edge before it calls, rather than being told EAGAIN (an
+  end that came with the last bytes still lets it return at once); a
+  kick a look finds stays standing in a flag, so a kick costs one
+  system call however many workers look. Urgent data ends the wait, as
+  the end of reading does. On Linux bench/net's echo runs 4-6% faster
+  and ping-pong 5%, with 40% fewer system calls; on the Mac echo runs 5%
+  faster and ping-pong 2%; connect, HTTP, bench/tasks and bench/actors
+  are level on both
+  (docs/history/records/2026-11/concurrency-loopback/profile.md).
+- **A connection reset before it is accepted no longer stops the
+  server:** on macOS every socket option on a reset connection fails
+  with EINVAL, which Zig's `posix.setsockopt` took for a bug, so an
+  accept, a listen, or `batch` on such a connection reached
+  unreachable code. std.net sets its options with the system call and
+  lets the connection's next read or write meet the reset.
 - **A FIFO's reader on macOS sees its writer leave:** `file.read` of a
   FIFO, and a `File`'s reads of one, read without blocking and wait for
   bytes in a poll of at most 64 ms (`rig.net.FifoWait`). A read parked

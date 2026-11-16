@@ -172,6 +172,35 @@ test "net read of more than a block", seeds: 20, "100000 true"
       ok = false
   print(got.len, ok)
 
+test "net a read after a short one waits for more, and sees an end that came with the last bytes", seeds: 20, timeout: 10, '''
+  abc
+  abcdef
+  3 0
+'''
+  # A read that took all there was leaves the next to wait for more
+  # without asking; bytes that come later wake it, and so does an end
+  # that came with the last bytes, before any read looked.
+  use std.time
+
+  l = net.listen("127.0.0.1:0")!
+  c = net.connect(String("127.0.0.1:", l.port()))!
+  s = l.accept()!
+  (!c).write("abc")!
+  got = String()
+  while got.len < 3
+    _ = (!s).read(!got, 4096)!
+  print(got)
+  (!c).write("def")!
+  while got.len < 6
+    _ = (!s).read(!got, 4096)!
+  print(got)
+  (!c).write("ghi")!
+  _ = <c
+  time.sleep(ms: 20)!
+  last = String()
+  n = (!s).read(!last, 4096)!
+  print(n, (!s).read(!last, 4096)!)
+
 test "net small writes go at once", "true"
   # A stream sends each write at once (TCP_NODELAY): a request written
   # in two pieces is not held back for the acknowledgment of the first,
@@ -425,6 +454,27 @@ test "net a write to a closed peer fails when a broken pipe dies", seeds: 20, "f
   (!c).write(?text) catch |e|
     print("failed")
   _ = >t!
+
+test "net batch on a connection the other end reset", seeds: 20, "true"
+  # A connection the other end reset takes `batch` and changes nothing:
+  # macOS refuses a socket option on one reset, as on one reset before it
+  # was accepted, which the accept sets to send each write at once.
+  use std.time
+
+  l = net.listen("127.0.0.1:0")!
+  c = net.connect(String("127.0.0.1:", l.port()))!
+  s = l.accept()!
+  _ = <c
+  failed = false
+  for 0..400
+    (!s).write("x") catch |e|
+      failed = true
+    if failed
+      break
+    time.sleep(ms: 5)!
+  !s.batch(true)
+  !s.batch(false)
+  print(failed)
 
 fail "net split no write after the writer's close", "5:3: use of `w` after move"
   l = net.listen("127.0.0.1:0")!

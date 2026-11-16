@@ -1,0 +1,285 @@
+#!/usr/bin/env python3
+"""An open-loop, mixed-workload HTTP benchmark: Rig's server against
+hyper on Tokio and Go's net/http (bench/mixed/README.md).
+
+usage: bench/mixed/bench-mixed [options]
+
+  --variants a,b  what to build and time (default: rig-safe,tokio,go):
+                    rig-safe   bench/mixed/server.rig, rig build --release
+                               (Zig's safe mode, every check kept)
+                    tokio      bench/mixed/tokio, hyper on Tokio's
+                               multi-threaded runtime, cargo build --release
+                               (LTO, one codegen unit)
+                    go         bench/mixed/go, net/http, go build
+  --rates R,...   requests a second, one counted run each, in order
+                  (default 20000,40000,60000,80000,100000,120000)
+  --rounds N      rounds; each starts every variant once, in an order
+                  rotated by one each round (default 5)
+  --duration S    seconds each rate is counted (default 5)
+  --warmup S      seconds each rate runs before it is counted (default 1)
+  --conns C       connections that carry the load (default 128)
+  --mix K         every K-th request computes (default 4)
+  --idle N        idle keep-alive connections held open throughout
+                  (default 5000)
+  --idle-apart    hold them from a process of their own, not the load
+                  generator
+  --out DIR       keep the builds in DIR and reuse them; with
+  --build-only    build and stop, and later
+  --time-only     time what DIR holds
+  --raw FILE      append every run's rows to FILE, one JSON object a line
+  --summary FILE  print the table for the rows FILE holds, and time nothing
+
+Each server answers `GET /` with `Hello, world!` and `GET /hash?seed=N`
+with the FNV-1a hash of 4 KiB of data, 8 times over. The load generator
+(bench/mixed/load, in Go, the same for every server) holds N idle
+connections, then sends each rate open-loop over C more: requests go at
+fixed times whatever the answers, and latency counts from the time each
+was meant to start (wrk2's method). The table gives, per rate and
+server, the median over rounds of each figure and, in brackets, the best.
+"""
+import argparse, datetime, json, os, platform, resource, shutil, socket, statistics, subprocess, sys, tempfile, threading, time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(HERE))
+RIG = os.environ.get("RIG", os.path.join(ROOT, "bin", "rig"))
+FIELDS = ["rate", "achieved", "sent", "unsent", "errors", "p50", "p99", "p999", "max",
+          "trivial_p99", "compute_p99", "timer_p99", "load_cores"]
+
+
+def build(v, out):
+    exe = os.path.join(out, v)
+    if os.path.exists(exe):
+        return exe
+    tmp = exe + ".new"
+    if v == "rig-safe":
+        env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, "rig-out-" + v))
+        subprocess.run([RIG, "build", "--release", "-o", tmp, os.path.join(HERE, "server.rig")], check=True, env=env)
+    elif v == "tokio":
+        target = os.path.join(out, "cargo")
+        subprocess.run(["cargo", "build", "--release", "-q", "--target-dir", target], check=True, cwd=os.path.join(HERE, "tokio"))
+        shutil.copy(os.path.join(target, "release", "mixed-tokio"), tmp)
+    elif v in ("go", "load"):
+        subprocess.run(["go", "build", "-o", tmp, "."], check=True, cwd=os.path.join(HERE, v))
+    else:
+        sys.exit("bench-mixed: no variant `%s`" % v)
+    os.rename(tmp, exe)
+    return exe
+
+
+def free_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def start(exe, everywhere):
+    """Start the server on a free port and wait until it takes
+    connections. Rig's server closes a connection idle for 60 s; Go's
+    and hyper's never do, so Rig's is told to wait 10 minutes, and every
+    server holds the idle connections through the run."""
+    port = free_port()
+    addr = "127.0.0.1:%d" % port
+    env = dict(os.environ, RIG_HTTP_IDLE_MS="600000")
+    p = subprocess.Popen([exe, ("0.0.0.0:%d" % port) if everywhere else addr], stdout=subprocess.DEVNULL, env=env)
+    for _ in range(500):
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                return p, addr
+        except OSError:
+            time.sleep(0.02)
+    stop(p)
+    sys.exit("bench-mixed: `%s` never took connections" % exe)
+
+
+def stop(p):
+    p.kill()
+    p.wait()
+
+
+def rss(pid):
+    return int(subprocess.check_output(["ps", "-o", "rss=", "-p", str(pid)]).strip()) * 1024
+
+
+def cpu(pid):
+    """The CPU time, in seconds, process pid has spent so far."""
+    if sys.platform.startswith("linux"):
+        with open("/proc/%d/stat" % pid) as f:
+            st = f.read()
+        fs = st[st.rindex(")") + 2:].split()
+        return (int(fs[11]) + int(fs[12])) / os.sysconf("SC_CLK_TCK")
+    t = 0.0
+    for part in subprocess.check_output(["ps", "-o", "time=", "-p", str(pid)], text=True).strip().replace("-", ":").split(":"):
+        t = t * 60 + float(part)
+    return t
+
+
+def run(loader, exe, a):
+    """One server through every rate. The load generator prints `mark`
+    as each rate's counted window opens and closes, and the server's CPU
+    time is read here then, rather than by the generator, whose fork
+    would copy every connection it holds."""
+    p, addr = start(exe, everywhere=a.idle > 20000)
+    lines, marks = [], []
+    holder = None
+    try:
+        time.sleep(0.3)
+        idle = a.idle
+        if a.idle_apart and a.idle > 0:
+            holder = subprocess.Popen([loader, "-addr", addr, "-idle", str(a.idle)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+            if holder.stdout.readline().strip() != "ready":
+                sys.exit("bench-mixed: the idle connections did not open")
+            idle = 0
+        cmd = [loader, "-addr", addr, "-rates", a.rates, "-conns", str(a.conns), "-duration", "%gs" % a.duration,
+               "-warmup", "%gs" % a.warmup, "-mix", str(a.mix), "-idle", str(idle)]
+        limit = 60 + len(a.rates.split(",")) * (a.duration + a.warmup + 15)
+        g = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
+        timer = threading.Timer(limit, g.kill)
+        timer.start()
+        try:
+            for line in g.stdout:
+                if line.strip() == "mark":
+                    marks.append((time.monotonic(), cpu(p.pid)))
+                else:
+                    lines.append(line)
+        finally:
+            timer.cancel()
+        if g.wait() != 0:
+            sys.exit("bench-mixed: the load generator failed against `%s`" % exe)
+        if holder:
+            out, _ = holder.communicate(timeout=60)
+            lines += out.splitlines()
+            holder = None
+        if p.poll() is not None:
+            sys.exit("bench-mixed: `%s` ended during the run" % exe)
+        mem = rss(p.pid)
+    finally:
+        if holder:
+            holder.kill()
+            holder.wait()
+        stop(p)
+    rows = []
+    idle = ""
+    for line in lines:
+        f = line.split()
+        if not f:
+            continue
+        if f[0] == "idle":
+            idle = f[1] if f[1] != "0/0" or not idle else idle
+            continue
+        row = {k: (float(x) if "." in x else int(x)) for k, x in zip(FIELDS, f)}
+        (t0, c0), (t1, c1) = marks[2 * len(rows)], marks[2 * len(rows) + 1]
+        row["server_cores"] = round((c1 - c0) / (t1 - t0), 2)
+        rows.append(row)
+    for r in rows:
+        r["idle_ok"] = idle
+        r["rss"] = mem
+    return rows
+
+
+def stamp():
+    """The run's line: date, load, commit, machine."""
+    try:
+        commit = subprocess.check_output(["git", "-C", ROOT, "rev-parse", "--short", "HEAD"], text=True).strip()
+        if subprocess.run(["git", "-C", ROOT, "diff", "--quiet", "HEAD"]).returncode:
+            commit += "+dirty"
+    except (OSError, subprocess.CalledProcessError):
+        commit = "?"
+    load = " ".join("%.2f" % x for x in os.getloadavg())
+    return "%s load %s commit %s %s %s %d cores" % (
+        datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), load, commit, platform.system(), platform.machine(), os.cpu_count())
+
+
+def us(x):
+    if x >= 100000:
+        return "%.0f ms" % (x / 1000)
+    if x >= 10000:
+        return "%.1f ms" % (x / 1000)
+    return "%d us" % x
+
+
+def summary(rows):
+    """Per rate, per variant: the median over rounds, and the best in
+    brackets (highest throughput, lowest latency)."""
+    variants = []
+    for r in rows:
+        if r["variant"] not in variants:
+            variants.append(r["variant"])
+    rates = sorted({r["rate"] for r in rows})
+    cols = [("achieved", "req/s", max, str), ("p50", "p50", min, us), ("p99", "p99", min, us),
+            ("p999", "p99.9", min, us), ("max", "max", min, us), ("trivial_p99", "/ p99", min, us),
+            ("compute_p99", "/hash p99", min, us), ("server_cores", "srv cores", min, lambda x: "%.1f" % x)]
+    out = []
+    for rate in rates:
+        out.append("")
+        out.append("%d req/s offered" % rate)
+        out.append("%-9s %4s" % ("", "runs") + "".join("%21s" % c[1] for c in cols))
+        for v in variants:
+            rs = [r for r in rows if r["variant"] == v and r["rate"] == rate]
+            if not rs:
+                continue
+            cells = []
+            for key, _, best, fmt in cols:
+                xs = [r[key] for r in rs]
+                cells.append("%21s" % ("%s (%s)" % (fmt(statistics.median_low(xs)), fmt(best(xs)))))
+            bad = sum(r["errors"] for r in rs)
+            out.append("%-9s %4d" % (v, len(rs)) + "".join(cells) + ("  errors %d" % bad if bad else ""))
+    return "\n".join(out)
+
+
+def main():
+    ap = argparse.ArgumentParser(add_help=True)
+    ap.add_argument("--variants", default="rig-safe,tokio,go")
+    ap.add_argument("--rates", default="20000,40000,60000,80000,100000,120000")
+    ap.add_argument("--rounds", type=int, default=5)
+    ap.add_argument("--duration", type=float, default=5)
+    ap.add_argument("--warmup", type=float, default=1)
+    ap.add_argument("--conns", type=int, default=128)
+    ap.add_argument("--mix", type=int, default=4)
+    ap.add_argument("--idle", type=int, default=5000)
+    ap.add_argument("--idle-apart", action="store_true")
+    ap.add_argument("--out")
+    ap.add_argument("--build-only", action="store_true")
+    ap.add_argument("--time-only", action="store_true")
+    ap.add_argument("--raw")
+    ap.add_argument("--summary")
+    a = ap.parse_args()
+    if a.summary:
+        with open(a.summary) as f:
+            rows = [json.loads(l) for l in f if l.strip()]
+        print(summary(rows))
+        return
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    want = 2 * (a.idle + a.conns) + 1024
+    want = max(soft, want if hard == resource.RLIM_INFINITY else min(hard, want))
+    resource.setrlimit(resource.RLIMIT_NOFILE, (want, hard))
+    variants = a.variants.split(",")
+    out = a.out or tempfile.mkdtemp(prefix="bench-mixed-")
+    os.makedirs(out, exist_ok=True)
+    exes = {v: (os.path.join(out, v) if a.time_only else build(v, out)) for v in variants + ["load"]}
+    if a.build_only:
+        return
+    line = stamp()
+    print("# bench-mixed %s; rates %s, %d idle%s, %d conns, 1 in %d computes" % (
+        line, a.rates, a.idle, " (apart)" if a.idle_apart else "", a.conns, a.mix), flush=True)
+    rows = []
+    for rnd in range(a.rounds):
+        order = variants[rnd % len(variants):] + variants[:rnd % len(variants)]
+        for v in order:
+            got = run(exes["load"], exes[v], a)
+            for r in got:
+                r.update(variant=v, round=rnd, run=line, idle=a.idle, idle_apart=a.idle_apart, conns=a.conns, mix=a.mix)
+                print("%-9s round %d  %6d offered %7d done  p50 %s  p99 %s  p99.9 %s  max %s  srv %.1f cores  idle %s%s" % (
+                    v, rnd, r["rate"], r["achieved"], us(r["p50"]), us(r["p99"]), us(r["p999"]), us(r["max"]),
+                    r["server_cores"], r["idle_ok"], "  errors %d" % r["errors"] if r["errors"] else ""), flush=True)
+            rows += got
+            if a.raw:
+                with open(a.raw, "a") as f:
+                    for r in got:
+                        f.write(json.dumps(r) + "\n")
+    print(summary(rows))
+    if not a.out:
+        shutil.rmtree(out, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    main()
