@@ -1,0 +1,54 @@
+diff --git i/src/net.zig w/src/net.zig
+index 7442116c6..b2bc07abe 100644
+--- i/src/net.zig
++++ w/src/net.zig
+@@ -250,6 +250,13 @@ pub fn watch(fd: i64) i64 {
+     return @intCast(@intFromPtr(r));
+ }
+ 
++/// ARM B (scratch): register with the workers' pollers by turns.
++fn watchSpread(fd: i64) i64 {
++    if (!rig.scheduled) return 0;
++    const r = rig.sched.registerSpread(@intCast(fd)) orelse return 0;
++    return @intCast(@intFromPtr(r));
++}
++
+ pub fn accept_on(fd: i64, reg: i64) Error!i64 {
+     return try acceptOne(@intCast(fd), reg) orelse error.@"std.net.NetError.failed";
+ }
+@@ -904,7 +911,7 @@ pub fn serve(listener: anytype, f: anytype) anyerror!void {
+             continue;
+         };
+         pause = accept_pause_ns;
+-        conns.add(tasks.Task(void).spawnDense(connection(F), .{ @as(i32, @intCast(c)), watch(c), f, settings }));
++        conns.add(tasks.Task(void).spawnDense(connection(F), .{ @as(i32, @intCast(c)), watchSpread(c), f, settings }));
+     }
+ }
+ 
+diff --git i/src/sched.zig w/src/sched.zig
+index 3fa69557c..722896119 100644
+--- i/src/sched.zig
++++ w/src/sched.zig
+@@ -2347,6 +2347,22 @@ fn registerIn(fd: i32) ?*Registration {
+     return r;
+ }
+ 
++// ARM B (scratch): watch `fd` with the workers' pollers by turns.
++var spread_next: std.atomic.Value(usize) = .init(0);
++pub noinline fn registerSpread(fd: i32) ?*Registration {
++    if (!started.*) startWorkers();
++    if (deterministic.*) return registerIn(fd);
++    const ws = workersNow();
++    const w = &ws[spread_next.fetchAdd(1, .monotonic) % ws.len];
++    const r = std.heap.smp_allocator.create(Registration) catch rt.oom();
++    r.* = .{ .fd = fd, .poller = &w.poller };
++    if (!w.poller.add(fd, r)) {
++        std.heap.smp_allocator.destroy(r);
++        return null;
++    }
++    return r;
++}
++
+ /// Every registration, in a deterministic run, which runs on one thread.
+ var registered_var: ?*Registration = null;
+ const registered = split.cell(&registered_var, "sched.registered");

@@ -1,0 +1,25 @@
+diff --git i/src/net.zig w/src/net.zig
+index 7442116c6..4126c8142 100644
+--- i/src/net.zig
++++ w/src/net.zig
+@@ -904,7 +904,7 @@ pub fn serve(listener: anytype, f: anytype) anyerror!void {
+             continue;
+         };
+         pause = accept_pause_ns;
+-        conns.add(tasks.Task(void).spawnDense(connection(F), .{ @as(i32, @intCast(c)), watch(c), f, settings }));
++        conns.add(tasks.Task(void).spawnDense(connection(F), .{ @as(i32, @intCast(c)), 0, f, settings }));
+     }
+ }
+ 
+@@ -913,7 +913,10 @@ pub fn serve(listener: anytype, f: anytype) anyerror!void {
+ /// task is canceled.
+ fn connection(comptime F: type) fn (i32, i64, F, Settings) void {
+     return struct {
+-        fn run(fd: i32, reg: i64, f: F, settings: Settings) void {
++        fn run(fd: i32, reg0: i64, f: F, settings: Settings) void {
++            // ARM A (scratch): the connection registers from its own
++            // task, on the worker that first runs it.
++            const reg = if (reg0 != 0) reg0 else watch(fd);
+             var c: Conn = undefined;
+             c.init(fd, reg, settings);
+             defer c.close();
