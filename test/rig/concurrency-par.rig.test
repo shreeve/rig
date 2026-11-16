@@ -663,6 +663,25 @@ fail "par closures' errors of every kind", "8:28: type `?Int` has no method `abs
     print(par.workers(!states, ?xs, |s, x| x.abs()))
     print(par.map(?xs, |x| print(x.abs())))
 
+fail "par closure that propagates reports its own error alone", "16:33: type `?Int` has no method `nope`", errors: 1
+  # A closure in error that propagates is checked as one that can fail,
+  # its fewer errors, wherever the call goes on: no error that it
+  # propagates in a closure that cannot fail, and none that the call's
+  # `!` has nothing to propagate.
+  use std.par
+
+  error Bad
+    odd
+
+  fun risky(x: Int) -> Int!
+    return Bad.odd if x > 5
+    x
+
+  sub main()!
+    xs = List([1, 2])
+    ys = par.map(?xs, |x| risky(x.nope())!)!
+    print(ys)
+
 test "par push", seeds: 20, '''
   6 2 1
   true 3289

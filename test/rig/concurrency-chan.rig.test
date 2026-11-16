@@ -134,6 +134,12 @@ test "chan select arm typed by the join", seeds: 20, "true 0"
   xs = task.select((!a).on_recv(|v| List[Int]()), (!b).on_recv(|v| List()))!
   print(got == .red, xs.len)
 
+fail "chan select arm that propagates reports its own error alone", "3:45: type `Int` has no method `abs`", errors: 1
+  a = *Chan[Int](1)
+  !a.send(1)!
+  got = task.select((!a).on_recv(|v| (v ?? 0).abs()!))!
+  print(got)
+
 test "chan select arm fails after a send arm's value", seeds: 20, "2 -1"
   # A later arm that fails drops the value an earlier send arm holds.
   error Bad

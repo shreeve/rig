@@ -87,6 +87,25 @@ and a task of a closure. Only the par calls and the generic calls with
 an unbound parameter changed; every other verdict and message is the
 base's.
 
+## After review: the stray error and its cascades
+
+Review found that a closure in error that propagates, wherever the call
+went on (`task.isolate`, `task.supervise`, select arms, `reduce`, and
+`par.map` with a `!` after it), was still checked by the call as one
+that cannot fail, so it reported "use of `!` propagation requires a
+fallible enclosing function" beside its real error; and that a generic
+call stopped after `lambdaLeftUnbound` checked the closure again with
+no parameter types, which did the same. `closureType` and
+`reduceFunction` now take the reading with fewer errors (the one that
+cannot fail on a tie). A body whose value is poison gives no failure to
+its type, so the chosen reading's type is made to fail. A call whose
+closure checks clean neither way gives poison (`closures_in_error`,
+`closureResult`), so a fallible result the closure's errors leave open
+adds no "must be wrapped" and no "`!` needs a fallible operand". A
+closure whose errors a check aloud reported is left out of `synthArgs`
+(`closures_reported`). `skipClosureCall` synthesizes the arguments
+before the closure first, so the errors print in source order.
+
 ## Cases
 
 - concurrency-par: "par map closure's own error" (the first program),

@@ -247,6 +247,20 @@ test "generic owned closure literal", "4 13 6 13 5 4"
     m = maker(4)
     print(apply(3, *|x| x + 1), apply(3, *|+k, x| x + k), lend(3, |x| apply(x, *|y| y * 2)), lend(3, |+k, x| x + k), m(5), apply(3, *|x| lend(x, |y| y + 1)))
 
+fail "generic closure that propagates reports its own error alone", "10:24: type `Int` has no method `abs`", "11:39: type `Int` has no method `abs`", errors: 2
+  # A closure whose errors leave a type parameter unbound is checked
+  # once, as the call's parameter says it fails: not again as one that
+  # cannot.
+  use std.time
+
+  fun apply[T, R](x: T, f: ?fun(T) -> R!) -> R!
+    f(x)!
+
+  sub main()!
+    print(apply(3, |x| x.abs()!)!)
+    r = time.within(time.SECOND, || (3).abs()!)!
+    print(r)
+
 fail "generic owned closure literal checked", "8:17: `?fun(Int) -> Int` views a closure for the call; write the closure without `*` (remove the `*`)", "9:25: type `Int` has no method `abs`", errors: 2
   fun apply[T, R](x: T, f: *fun(T) -> R) -> R
     f(x)

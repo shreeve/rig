@@ -334,6 +334,13 @@ it where the negation was meant. Trig has no such site.
   closure passed to a generic function whose result would bind a type
   parameter, `sort.sort_by_key(!xs[..], |a| a.abs())`, reports its
   errors in place of "cannot infer `K`".
+- A closure in error that propagates, written in `par.map`,
+  `task.isolate`, `task.supervise`, a select arm, `reduce`, or a generic
+  call whose function can fail, is checked as one that can fail, the
+  reading with fewer errors: its own errors are reported once, with no
+  "use of `!` propagation requires a fallible enclosing function" and
+  no "`!` needs a fallible operand" or "fallible call ... must be
+  wrapped" about the call, which gives no type of its own.
 - A method task through a shared handle or a box, `(!h).bump()&` or
   `?h.peek()&` of a `*T`, a `*Frozen[T]`, or a `^T`, in a local, a
   field, an element, or through a view, builds and runs, where `rig
