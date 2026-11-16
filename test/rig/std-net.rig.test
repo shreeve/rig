@@ -455,6 +455,27 @@ test "net a write to a closed peer fails when a broken pipe dies", seeds: 20, "f
     print("failed")
   _ = >t!
 
+test "net batch on a connection the other end reset", seeds: 20, "true"
+  # A connection the other end reset takes `batch` and changes nothing:
+  # macOS refuses a socket option on one reset, as on one reset before it
+  # was accepted, which the accept sets to send each write at once.
+  use std.time
+
+  l = net.listen("127.0.0.1:0")!
+  c = net.connect(String("127.0.0.1:", l.port()))!
+  s = l.accept()!
+  _ = <c
+  failed = false
+  for 0..400
+    (!s).write("x") catch |e|
+      failed = true
+    if failed
+      break
+    time.sleep(ms: 5)!
+  !s.batch(true)
+  !s.batch(false)
+  print(failed)
+
 fail "net split no write after the writer's close", "5:3: use of `w` after move"
   l = net.listen("127.0.0.1:0")!
   c = net.connect(String("127.0.0.1:", l.port()))!
