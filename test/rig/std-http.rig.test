@@ -171,6 +171,117 @@ test "http request fields", seeds: 20, '''
   print("/one", seen.get("/one") ?? "-")
   _ = <t.cancel() catch -1
 
+test "http responses", seeds: 20, '''
+  200 text/plain; charset=utf-8 moved /ok
+  201 image/png png
+  200 image/x-icon ico
+  204 - 
+  200 application/json {"a":1}
+'''
+  # `ok` takes the body it is given; a response's type is an `http.Type`,
+  # a named one or `.other(text)`, written as given, and an empty one
+  # sends none.
+  use std.text
+
+  fun kind_of(path: ?String) -> http.Type
+    .png if text.ends_with(path, ".png") else .text
+
+  fun run(l: net.Listener) -> Int!
+    http.serve(<l, |req|
+      match req.path
+        "/ok" => http.ok(String("moved ", req.path))
+        "/png" => http.Response(status: 201, type: kind_of("a.png"), body: String("png"))
+        "/ico" => http.Response(status: 200, type: .other("image/x-icon"), body: String("ico"))
+        "/none" => http.Response(status: 204, type: .other(""), body: String())
+        _ => http.json("{\"a\":1}")
+    )!
+    0
+
+  # The status, content type, and body of the answer for `path`.
+  fun get(port: Int, path: ?String) -> String!
+    c = net.connect(String("127.0.0.1:", port))!
+    (!c).write(String("GET ", path, " HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))!
+    got = String()
+    loop
+      if (!c).read(!got, 4096)! == 0
+        break
+    kind = String("-")
+    if text.find(?got, "content-type: ") as at
+      rest = ?got[at + 14..]
+      kind = String(?rest[..text.find(rest, "\r\n") ?? 0])
+    at = (text.find(?got, "\r\n\r\n") ?? 0) + 4
+    String(?got[9..12], " ", kind, " ", ?got[at..])
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l)&
+  for p in ["/ok", "/png", "/ico", "/none", "/j"]
+    print(get(port, p)!)
+  _ = <t.cancel() catch -1
+
+test "http content types", seeds: 20, '''
+  text [content-type: text/plain; charset=utf-8]
+  html [content-type: text/html; charset=utf-8]
+  json [content-type: application/json]
+  css [content-type: text/css; charset=utf-8]
+  js [content-type: text/javascript; charset=utf-8]
+  csv [content-type: text/csv; charset=utf-8]
+  xml [content-type: application/xml]
+  svg [content-type: image/svg+xml]
+  png [content-type: image/png]
+  jpeg [content-type: image/jpeg]
+  gif [content-type: image/gif]
+  webp [content-type: image/webp]
+  pdf [content-type: application/pdf]
+  wasm [content-type: application/wasm]
+  bytes [content-type: application/octet-stream]
+  other [content-type: application/x-thing; v=1]
+'''
+  # The bytes of each type's header line, between its CRLFs.
+  use std.text
+
+  fun type_of(name: ?String) -> http.Type
+    match name
+      "text" => .text
+      "html" => .html
+      "json" => .json
+      "css" => .css
+      "js" => .js
+      "csv" => .csv
+      "xml" => .xml
+      "svg" => .svg
+      "png" => .png
+      "jpeg" => .jpeg
+      "gif" => .gif
+      "webp" => .webp
+      "pdf" => .pdf
+      "wasm" => .wasm
+      "bytes" => .bytes
+      _ => .other("application/x-thing; v=1")
+
+  fun run(l: net.Listener) -> Int!
+    http.serve(<l, |req| http.Response(status: 200, type: type_of(?req.path[1..]), body: String()))!
+    0
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l)&
+  for name in ["text", "html", "json", "css", "js", "csv", "xml", "svg", "png", "jpeg", "gif", "webp", "pdf", "wasm", "bytes", "other"]
+    c = net.connect(String("127.0.0.1:", port))!
+    (!c).write(String("GET /", name, " HTTP/1.1\r\nConnection: close\r\n\r\n"))!
+    got = String()
+    loop
+      if (!c).read(!got, 4096)! == 0
+        break
+    for piece in text.split(?got, "\r\n")
+      if text.starts_with(piece, "content-type")
+        print(`{name} [{piece}]`)
+  _ = <t.cancel() catch -1
+
+fail "http type misspelled", "no variant `jsno` on enum `http.Type`"
+  r = http.Response(status: 200, type: .jsno, body: String())
+  print(r.status)
+
 test "http expect continue", seeds: 20, '''
   100 then /e:hello
   417

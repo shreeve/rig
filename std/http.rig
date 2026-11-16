@@ -27,27 +27,52 @@ pub obj Request
   pub fun header(?@, name: ?String) -> String?
     header_of(?@head, name)
 
+# A response's content type: one the server writes from a table made
+# when the program is compiled, or `other`'s text, as written (none
+# when it is empty).
+pub enum Type
+  text            # text/plain; charset=utf-8
+  html            # text/html; charset=utf-8
+  json            # application/json
+  css             # text/css; charset=utf-8
+  js              # text/javascript; charset=utf-8
+  csv             # text/csv; charset=utf-8
+  xml             # application/xml
+  svg             # image/svg+xml
+  png             # image/png
+  jpeg            # image/jpeg
+  gif             # image/gif
+  webp            # image/webp
+  pdf             # application/pdf
+  wasm            # application/wasm
+  bytes           # application/octet-stream
+  other(text: Static)   # any other content type, as written
+
 # A response: its status, its content type, and its body.
 pub obj Response
   pub status: Int
-  pub type: String
+  pub type: Type
   pub body: String
 
 # A 200 response of plain text.
 pub fun text(body: ?String) -> Response
-  Response(status: 200, type: String("text/plain; charset=utf-8"), body: String(body))
+  Response(status: 200, type: .text, body: String(body))
+
+# A 200 response of plain text that takes `body`, copying nothing.
+pub fun ok(body: String) -> Response
+  Response(status: 200, type: .text, body: <body)
 
 # A 200 response of JSON, `body` written as JSON already.
 pub fun json(body: ?String) -> Response
-  Response(status: 200, type: String("application/json"), body: String(body))
+  Response(status: 200, type: .json, body: String(body))
 
 # A 200 response of HTML.
 pub fun html(body: ?String) -> Response
-  Response(status: 200, type: String("text/html; charset=utf-8"), body: String(body))
+  Response(status: 200, type: .html, body: String(body))
 
 # A response of status `code` and plain text `body`.
 pub fun status(code: Int, body: ?String) -> Response
-  Response(status: code, type: String("text/plain; charset=utf-8"), body: String(body))
+  Response(status: code, type: .text, body: String(body))
 
 # 404, not found.
 pub fun not_found() -> Response
