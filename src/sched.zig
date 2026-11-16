@@ -156,6 +156,12 @@ const Worker = struct {
     /// a fiber to null by one atomic step owns that fiber, as with one
     /// slot.
     lifo: [run_next_slots]std.atomic.Value(?*Fiber) = @splat(.init(null)),
+    /// How many times each slot of `lifo` was filled, counted before the
+    /// fill's swap: a searcher that sees the same fiber in a slot twice
+    /// tells by it whether the fiber stayed or was put back, as the
+    /// same fiber woken again or a new one at a freed one's address
+    /// (`stealNext`). Only this worker writes them.
+    lifo_fills: [run_next_slots]std.atomic.Value(u32) = @splat(.init(0)),
     /// The slot of the newest fiber in `lifo`. Only this worker writes
     /// it; another reads it only to find the oldest, which its
     /// compare-and-swap on the slot then confirms.
@@ -356,6 +362,7 @@ fn wakeIn(f: *Fiber) void {
     // the oldest goes to the ring.
     const i = (w.lifo_head.raw +% 1) % run_next_slots;
     w.lifo_head.store(i, .monotonic);
+    w.lifo_fills[i].store(w.lifo_fills[i].raw +% 1, .monotonic);
     if (w.lifo[i].swap(f, .seq_cst)) |b| {
         if (b.home != null) w.pinned.push(b) else {
             _ = w.ring.push(b);
@@ -3691,11 +3698,13 @@ fn next(w: *Worker, note: *Note) ?*Fiber {
 /// Kept by the worker's `loop` from one look to the next and across its
 /// sleeps, so neither a wait cut short, nor the owner's switches, nor a
 /// sleep start the fiber's 3 µs again; forgotten when the slot holds
-/// another fiber, or the worker runs one.
+/// another fiber, or the same one put there again, or the worker runs one.
 const Note = struct {
     victim: ?*Worker = null,
     slot: ?*std.atomic.Value(?*Fiber) = null,
     f: ?*Fiber = null,
+    /// The slot's fill count (`Worker.lifo_fills`) when `f` was seen.
+    fills: u32 = 0,
     /// When this worker first saw `f` in `slot`.
     first: i96 = 0,
     /// The owner's switch count (`Worker.ran`) at the latest note.
@@ -3803,25 +3812,33 @@ const steal_next_after: i96 = 3 * std.time.ns_per_us;
 /// note (`Note`), as Go takes a `runnext`: `.none` when no slot of `v`'s
 /// holds one, and `.again`, for the searcher to look again, its own
 /// queues and the rings first, after it waits for that time to pass, or
-/// when the fiber left the slot meanwhile. A look before then that finds
-/// `v` has switched (`Worker.ran`) notes the fiber again and counts the
-/// note toward the search's `notes_most`, keeping its first time: a
-/// worker that switches may run the fiber itself, so a searcher kicked at
-/// each of its switches goes to sleep rather than watch on. Once the time
-/// has passed, it takes the fiber however often `v` switched: two fibers
-/// that wake each other into `v`'s newer slots, which `v` runs first,
-/// cannot keep an older one there. The searcher waits in its own poller
-/// (`waitBriefly`), giving its core up, rather than spinning; where no
-/// poller waits so briefly, it spins. A pinned fiber taken so goes back
-/// to its home's queue.
+/// when the fiber left the slot meanwhile. A fiber that left and was put
+/// back, or a new one at the address of one that ended, is seen afresh,
+/// by the slot's fill count (`Worker.lifo_fills`): taken as one that
+/// stayed, it would go cold to this worker as its owner was about to run
+/// it, as a server's task made at each accept would. A look before then
+/// that finds `v` has switched (`Worker.ran`) notes the fiber again and
+/// counts the note toward the search's `notes_most`, keeping its first
+/// time: a worker that switches may run the fiber itself, so a searcher
+/// that keeps finding it switched goes to sleep rather than watch on.
+/// Once the time has passed, it takes the fiber however often `v`
+/// switched: two fibers that wake each other into `v`'s newer slots,
+/// which `v` runs first, cannot keep an older one there. The searcher
+/// waits in its own poller (`waitBriefly`), giving its core up, rather
+/// than spinning; where no poller waits so briefly, it spins. A pinned
+/// fiber taken so goes back to its home's queue.
 fn stealNext(w: *Worker, v: *Worker, note: *Note) Found {
-    const slot = oldestNext(v) orelse return .none;
+    const i = oldestNextAt(v) orelse return .none;
+    const slot = &v.lifo[i];
     const f = slot.load(.seq_cst) orelse return .none;
+    // After the slot: the count of the fill that put `f` there, or of a
+    // later one.
+    const fills = v.lifo_fills[i].load(.monotonic);
     const ran = v.ran.load(.monotonic);
     const now = nowNs();
-    if (note.slot != slot or note.f != f) {
+    if (note.slot != slot or note.f != f or note.fills != fills) {
         if (note.made == notes_most) return .none;
-        note.* = .{ .victim = v, .slot = slot, .f = f, .first = now, .ran = ran, .made = note.made + 1 };
+        note.* = .{ .victim = v, .slot = slot, .f = f, .fills = fills, .first = now, .ran = ran, .made = note.made + 1 };
     } else if (note.ran != ran and now < note.first + steal_next_after) {
         if (note.made == notes_most) return .none;
         note.ran = ran;
@@ -3848,11 +3865,13 @@ const steal_waits = split.cell(&steal_waits_var, "sched.steal_waits");
 /// Wait in `w`'s poller until `until`, still counted as searching, waking
 /// the fibers its events make ready. Work made meanwhile wakes no sleeper,
 /// as a worker searches (`notify`), but kicks a worker waiting so, which
-/// then looks again. Counted as searching, it looks again before it can
-/// stop searching, as one that searches does: work it misses as it waits
-/// is still found by its next look, or by the last look of its sleep, so
-/// no wake is lost (formal/Models/Sleep.lean, where a wait is a step that
-/// changes nothing); the kick only makes the wait shorter.
+/// then looks again; work that only waits in its maker's "run next"
+/// slots, which the waiter watches already, kicks no one (`notifyNext`).
+/// Counted as searching, it looks again before it can stop searching, as
+/// one that searches does: work it misses as it waits is still found by
+/// its next look, or by the last look of its sleep, so no wake is lost
+/// (formal/Models/Sleep.lean, where a wait is a step that changes
+/// nothing); the kick only makes the wait shorter.
 fn waitBriefly(w: *Worker, until: i96) void {
     const left = until - nowNs();
     if (left <= 0) return;
@@ -3883,11 +3902,16 @@ fn kickWaiting() void {
 /// The oldest of `v`'s "run next" slots that holds a fiber, which a
 /// worker from outside takes: the first after the newest, going round.
 fn oldestNext(v: *Worker) ?*std.atomic.Value(?*Fiber) {
+    return &v.lifo[oldestNextAt(v) orelse return null];
+}
+
+/// `oldestNext`, by its place in `v.lifo`.
+fn oldestNextAt(v: *Worker) ?u8 {
     const head = v.lifo_head.load(.monotonic);
     var k: u8 = 1;
     while (k <= run_next_slots) : (k += 1) {
         const i = (head +% k) % run_next_slots;
-        if (v.lifo[i].load(.seq_cst) != null) return &v.lifo[i];
+        if (v.lifo[i].load(.seq_cst) != null) return i;
     }
     return null;
 }
@@ -7576,6 +7600,48 @@ test "a worker stuck in one fiber has the fibers in its run-next slots taken by 
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expect(Run.ok);
     if (Poller.waitsFine()) try std.testing.expect(test_brief_waits.load(.seq_cst) > 0);
+}
+
+test "a searcher takes a run-next fiber that stayed its 3 µs, and sees one put back in its slot afresh" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var owner: Worker = .{};
+        var searcher: Worker = .{};
+        fn nothing(_: *Fiber) void {}
+    };
+    const v = &Run.owner;
+    const w = &Run.searcher;
+    w.poller.open();
+    defer w.poller.close();
+    var f: Fiber = .{ .run = Run.nothing };
+    // `f` fills the slot after the newest, as `wakeIn` does, and the
+    // searcher noted it there 3 µs ago and more.
+    const fill = struct {
+        fn into(o: *Worker, g: *Fiber) void {
+            const i = (o.lifo_head.raw +% 1) % run_next_slots;
+            o.lifo_fills[i].store(o.lifo_fills[i].raw +% 1, .monotonic);
+            o.lifo[i].store(g, .seq_cst);
+        }
+    }.into;
+    fill(v, &f);
+    const slot = oldestNext(v).?;
+    const long_ago = nowNs() - 10 * steal_next_after;
+    var note: Note = .{ .victim = v, .slot = slot, .f = &f, .fills = v.lifo_fills[oldestNextAt(v).?].raw, .first = long_ago };
+    // It stayed: taken.
+    try std.testing.expect(stealNext(w, v, &note) == .fiber);
+    try std.testing.expect(slot.load(.seq_cst) == null);
+    // Its owner ran it, and it came back to the same slot, as a fiber
+    // woken again or a new one at its address does: the searcher's old
+    // note does not make it ripe. It notes it now, waits, and leaves it.
+    note.made = 0;
+    fill(v, &f);
+    try std.testing.expect(oldestNext(v).? == slot);
+    try std.testing.expect(stealNext(w, v, &note) == .again);
+    try std.testing.expect(slot.load(.seq_cst) == &f);
+    try std.testing.expect(note.first > long_ago);
+    // Once it has stayed 3 µs from that note, it is taken.
+    note.first = long_ago;
+    try std.testing.expect(stealNext(w, v, &note) == .fiber);
 }
 
 test "a fiber left in a run-next slot while two fibers on its worker wake each other is taken by an idle worker" {
