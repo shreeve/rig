@@ -2342,8 +2342,10 @@ const Checker = struct {
                 // A write view of a read view (`!?T`, an element of
                 // `for x in !vs` over a `List[?T]`) reaches its value
                 // through the read view. A write view of a value that
-                // holds a Cell views shared storage, which only its Cells
-                // and Signals change in (`sema.changesByMark`).
+                // changes by a marked call views shared storage, which
+                // only its Cells and Signals change in, asked of the one
+                // classifier (`sema.changesByMark`): an API object's view
+                // may be of any value, and is written through its methods.
                 .write_view => |viewed| {
                     place.indirect = true;
                     if (sema.viewedReadView(self.ctx, viewed)) |view| {
@@ -2351,7 +2353,7 @@ const Checker = struct {
                         place.leaf_blocked = true;
                         place.view_blocked = true;
                         place.view = .{ .ty = view, .pos = self.startOf(p) };
-                    } else if (sema.holdsCellByValue(self.ctx, viewed)) place.block(.shared, 0);
+                    } else if (sema.changesByMark(self.ctx, viewed)) place.block(.shared, 0);
                 },
                 // A slice views elements held elsewhere.
                 .shared, .slice => place.indirect = true,

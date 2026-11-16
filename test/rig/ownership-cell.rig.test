@@ -924,3 +924,34 @@ fail "cell swap of a channel or an actor", "a `Chan[Int]` changes only by its se
 
   sub actors(a: !Actor[Counter], b: !Actor[Counter])
     swap(!a, !b)
+
+test "cell write views of an API object and a Signal", "2 7"
+  # A write view of an API object may be of a value of any type, and one
+  # of a Signal changes only by its marked calls: each is called through
+  # as the one classifier says (`changesByMark`).
+
+  api Grow
+    sub grow(!@)
+    fun size(?@) -> Int
+
+  obj Bag: Grow
+    xs: List[Int]
+
+    sub grow(!@)
+      !@xs.push(1)
+
+    fun size(?@) -> Int
+      @xs.len
+
+  sub twice(a: !{Grow})
+    !a.grow()
+    !a.grow()
+
+  sub poke(s: !Signal[Int])
+    !s.set(7)
+
+  b = Bag(xs: List[Int]())
+  twice(!b)
+  sig: *Signal[Int] = *Signal(0)
+  poke(!sig)
+  print(b.size(), sig.get())
