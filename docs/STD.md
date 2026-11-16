@@ -2228,6 +2228,32 @@ pushes allocate nothing; a negative `n` panics. `!v.keep(n)` keeps the
 first `n` elements and drops the rest, so a List can be rewound to a
 length saved earlier.
 
+`!v.extend(?ys[a..b])` appends a copy of each element of a slice, an
+array, or a List, growing once and copying them with one `@memcpy`: the
+fast way to append a run, where a loop of `push` tests the room for
+each. `T` is plain data, a type that copies and holds no view, as for
+`List(a)`; an owning `T` is cloned element by element with
+`!xs.push(+y)`, which shows each clone ([SPEC, List](../SPEC.md#list)).
+
+```rig
+obj P
+  x: Int
+  y: Float
+
+sub main()
+  xs: List[Int] = List(capacity: 2)
+  ys = List([1, 2, 3, 4])
+  !xs.extend(?ys[1..3])
+  !xs.extend(ys)
+  ps: List[P] = List()
+  !ps.extend([P(x: 1, y: 0.5), P(x: 2, y: 1.5)])
+  print(xs, ps.len, ps[1].y)
+```
+
+```output
+[2, 3, 1, 2, 3, 4] 2 1.5
+```
+
 `!v.extend_from_bytes(s)` appends the records the bytes of `s` hold, a
 `?String` or a `Static` such as an embedded file
 ([SPEC, Builtins](../SPEC.md#builtins)), with one copy, the List growing

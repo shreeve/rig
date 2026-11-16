@@ -10518,6 +10518,7 @@ owns one), and read views.
 | `!v.remove(i)` | remove the element at `i` and hand it over, moving the rest down by one; panics out of range |
 | `!v.swap_remove(i)` | remove the element at `i` and hand it over, moving the last element into its place: one element moves, not the rest, and the order of what is left changes; panics out of range |
 | `!v.clear()` | drop every element |
+| `!v.extend(s)` | append a copy of each element of `s`, a `[]T` (`?ys[a..b]`, an array, or a List), in one copy, growing once; `T` copies and holds no view (below), and `s` may not view `v`, which is lent to write |
 | `!v.extend_from_bytes(s)` | append the records the bytes of `s`, a `?String` (or a `Static`), hold, in one copy, growing once; `T` is a type whose every bit pattern is a value, or with `Bool`s and enums when `s` is written `$embed(path)` (below); panics unless `s.len` is a whole number of `$size(T)` |
 
 **Inline room.** `List[T, inline: n]` keeps its first `n` elements
@@ -10594,6 +10595,43 @@ undo read
 1 open
 [1, 2]
 undo open
+```
+
+**`extend` copies plain data,** as `List(a)` does: each element of the
+source is copied in, so `T` is a type that copies and holds no view,
+whose copies the List owns with no loan of the source. An owning `T`,
+such as a `String`, would need a clone of each element, which Rig
+writes where it happens: `for y in ys` with `!xs.push(+y)`. A `T` that
+holds a view, such as a `?String`, is pushed one element at a time,
+`!xs.push(y)`, where the List takes each view's loan. A source that
+views the List itself, `!xs.extend(?xs[..2])`, is rejected: the List is
+lent to write while the source keeps it lent to read.
+
+```rig
+sub main()
+  xs = List([1, 2])
+  ys = List([3, 4, 5])
+  a = [6, 7]
+  !xs.extend(?ys[1..])
+  !xs.extend(?a)
+  !ys.push(8)
+  print(xs, ys)
+```
+
+```output
+[1, 2, 4, 5, 6, 7] [3, 4, 5, 8]
+```
+
+```rig reject
+sub main()
+  xs: List[String] = List()
+  ys = [String("a"), String("b")]
+  !xs.extend(?ys)
+  print(xs.len)
+```
+
+```error
+`extend` copies every element of its source, and a `String` owns a resource, so it cannot be copied: write a loop that makes each element with `+x` (`for y in ys` with `!xs.push(+y)`)
 ```
 
 **`extend_from_bytes` makes elements from bytes,** so every bit pattern

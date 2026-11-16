@@ -5026,6 +5026,12 @@ const list_resize: sema.Needs = .{ .t = .copies, .op = "copies into every elemen
     .into_elements = .{ .what = "`resize` copies its value into every element it adds", .loop = "`for xs.len..n` with `!xs.push(+x)`", .tail = "; `!xs.keep(n)` shrinks any List" },
 } };
 
+/// `!xs.extend(?s)` copies each element of `s` into the List, which
+/// keeps no loan of `s`: a `T` that copies and holds no view.
+const list_extend: sema.Needs = .{ .t = .plain, .op = "copies into a List with `extend` a value", .says = .{
+    .into_elements = .{ .what = "`extend` copies every element of its source", .loop = "`for y in ys` with `!xs.push(+y)`" },
+} };
+
 /// `!xs.extend_from_bytes(s)` makes each element it adds from bytes.
 const list_bytes: sema.Needs = .{ .t = .records, .op = "makes a `T` from bytes", .says = .from_bytes };
 
@@ -5114,6 +5120,9 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             try method(ctx, "remove", .write, &.{ write_self, ctx.types.int_id }, t, null),
             try method(ctx, "swap_remove", .write, &.{ write_self, ctx.types.int_id }, t, null),
             try method(ctx, "resize", .write, &.{ write_self, ctx.types.int_id, t }, ctx.types.void_id, &list_resize),
+            // It copies the elements, plain data, so the List keeps no
+            // view of its source.
+            copiesArgs(try method(ctx, "extend", .write, &.{ write_self, try ctx.intern(.{ .slice = .{ .elem = t } }) }, ctx.types.void_id, &list_extend)),
             // It copies the bytes, so the List keeps no view of them.
             copiesArgs(try method(ctx, "extend_from_bytes", .write, &.{ write_self, ctx.types.string_view_id }, ctx.types.void_id, &list_bytes)),
             // `List.filled(n, x)`: called through the type.
@@ -5662,7 +5671,7 @@ test "builtins: registered with methods" {
     try registerBuiltins(&ctx, scope);
     const list = ctx.lookup(scope, "List").?;
     try std.testing.expectEqual(ctx.list_sym_id, list);
-    try std.testing.expectEqual(@as(usize, 13), ctx.symbols.items[list].fields.?.len);
+    try std.testing.expectEqual(@as(usize, 14), ctx.symbols.items[list].fields.?.len);
     try std.testing.expect(ctx.lookup(scope, "T") == null);
 }
 
@@ -5680,8 +5689,9 @@ test "builtins: a method that declares needs is a generic type's, with a T" {
         declared += 1;
     };
     // `Cell.get`, `List.get`, `List.index_of`, `List.filled`,
-    // `List.resize`, `List.extend_from_bytes`, `Signal.get`.
-    try std.testing.expectEqual(@as(usize, 7), declared);
+    // `List.resize`, `List.extend`, `List.extend_from_bytes`,
+    // `Signal.get`.
+    try std.testing.expectEqual(@as(usize, 8), declared);
 }
 
 /// A type a compile-time argument can have: one written as a literal,
