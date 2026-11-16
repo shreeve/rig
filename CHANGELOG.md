@@ -667,6 +667,12 @@ arms.
 
 ### Runtime
 
+- **A connection reset before it is accepted no longer stops the
+  server:** on macOS every socket option on a reset connection fails
+  with EINVAL, which Zig's `posix.setsockopt` took for a bug, so an
+  accept, a listen, or `batch` on such a connection reached
+  unreachable code. std.net sets its options with the system call and
+  lets the connection's next read or write meet the reset.
 - **A FIFO's reader on macOS sees its writer leave:** `file.read` of a
   FIFO, and a `File`'s reads of one, read without blocking and wait for
   bytes in a poll of at most 64 ms (`rig.net.FifoWait`). A read parked

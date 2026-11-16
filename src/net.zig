@@ -104,8 +104,16 @@ fn socket(family: u32) NetError!i32 {
 /// still unanswered by the other end's delayed acknowledgment: every
 /// accepted and connected stream does.
 fn noDelay(fd: i32) void {
-    const one: c_int = 1;
-    posix.setsockopt(fd, posix.IPPROTO.TCP, posix.TCP.NODELAY, std.mem.asBytes(&one)) catch {};
+    setOption(fd, posix.IPPROTO.TCP, posix.TCP.NODELAY, 1);
+}
+
+/// Set a socket option to `value`, whatever the system answers: on a
+/// connection the other end has reset, even one reset before it was
+/// accepted, macOS refuses every option (EINVAL), which Zig's
+/// `posix.setsockopt` takes for a bug and stops on; the connection's
+/// next read or write meets the reset as its failure.
+fn setOption(fd: i32, level: i32, name: u32, value: c_int) void {
+    _ = sys.setsockopt(fd, level, name, std.mem.asBytes(&value), @sizeOf(c_int));
 }
 
 /// macOS sets a socket not to block after it is made.
@@ -186,8 +194,7 @@ pub fn listen_on(addr: []const u8) Error!i64 {
     const sa = SockAddr.of(try parse(addr));
     const fd = try socket(sa.family);
     errdefer _ = sys.close(fd);
-    const one: c_int = 1;
-    posix.setsockopt(fd, posix.SOL.SOCKET, posix.SO.REUSEADDR, std.mem.asBytes(&one)) catch {};
+    setOption(fd, posix.SOL.SOCKET, posix.SO.REUSEADDR, 1);
     var rc = sys.bind(fd, sa.ptr(), sa.len);
     if (posix.errno(rc) != .SUCCESS) return failure(posix.errno(rc));
     rc = sys.listen(fd, 1024);
@@ -379,8 +386,7 @@ pub fn close(fd: i64, reg: i64) void {
 /// (TCP_NODELAY off); otherwise send each at once, as every stream
 /// begins (`noDelay`).
 pub fn batch_on(fd: i64, on: bool) void {
-    const v: c_int = if (on) 0 else 1;
-    posix.setsockopt(@intCast(fd), posix.IPPROTO.TCP, posix.TCP.NODELAY, std.mem.asBytes(&v)) catch {};
+    setOption(@intCast(fd), posix.IPPROTO.TCP, posix.TCP.NODELAY, if (on) 0 else 1);
 }
 
 /// The count of a split stream's halves, a `Reader` and a `Writer`,
