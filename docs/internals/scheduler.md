@@ -99,7 +99,16 @@ worker after.
   worker holds. A file descriptor registered with a poller
   (`sched.Registration`) counts each edge, ready to read or to write,
   and a fiber that reads the count before its call (`sched.edges`) waits
-  for it to change (`sched.waitReady`). An end
+  for it to change (`sched.waitReady`). A read that comes back short
+  took all there was, so the next read waits for an edge past the count
+  read before it, making no call only to be told to wait, as Tokio
+  clears a socket's readiness after a short read (`sched.drained`). Once
+  the poller has seen the end of reading, or urgent data, at whose mark a
+  read stops short with bytes behind it that make no edge, no read on
+  that descriptor waits first: the poller sees urgent data on the read
+  event that reports its bytes (kqueue's NOTE_OOB, EPOLLPRI on Linux),
+  which costs no call of its own, and marks either before it counts that
+  edge, which wakes a read already waiting. An end
   is readiness only for the waits it ends: the end of reading (the other
   end's half-close, EOF on kqueue's read filter or RDHUP) wakes the
   reader, the end of writing (this side's half-close, EOF on the write
@@ -127,7 +136,10 @@ worker after.
   through a whole watch, so a worker that sleeps and wakes many times a
   millisecond, as one answering a socket does, finds the watch held and
   kicks no one. A look at another worker's poller leaves the kick it
-  finds there, which that worker, about to sleep, needs.
+  finds there standing (`Poller.kicked`), which that worker, about to
+  sleep, needs: its next wait sees the kick under the poller's lock and
+  only looks. A kick while one stands makes no system call, so a kick
+  taken by many looks costs one call, not one a look.
 - **The blocking pool** counts a thread busy as it hands it a call, and
   counts a thread on its way back from one (`finishing`), which takes the
   next call queued without sleeping. A call that finds neither starts a
