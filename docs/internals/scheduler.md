@@ -118,7 +118,10 @@ worker after.
   through a whole watch, so a worker that sleeps and wakes many times a
   millisecond, as one answering a socket does, finds the watch held and
   kicks no one. A look at another worker's poller leaves the kick it
-  finds there, which that worker, about to sleep, needs.
+  finds there standing (`Poller.kicked`), which that worker, about to
+  sleep, needs: its next wait sees the kick under the poller's lock and
+  only looks. A kick while one stands makes no system call, so a kick
+  taken by many looks costs one call, not one a look.
 - **The blocking pool** counts a thread busy as it hands it a call, and
   counts a thread on its way back from one (`finishing`), which takes the
   next call queued without sleeping. A call that finds neither starts a

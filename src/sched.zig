@@ -1981,6 +1981,10 @@ const Poller = struct {
     /// in the poller again while one waits, so the lock it lets go of
     /// when kicked goes to the remover.
     removers: std.atomic.Value(u32) = .init(0),
+    /// A kick its worker has not yet taken: a look that finds the kick's
+    /// event leaves this set, and the worker's next wait sees it and only
+    /// looks (`poll`); a kick while it is set makes no system call.
+    kicked: std.atomic.Value(bool) = .init(false),
     /// On the Mac in a release build: whether its worker waits in it,
     /// and whether `os.exit` claimed it there (`ExitClaim`), so the worker
     /// stops as it wakes, before it reads a single event (`tearDown`).
@@ -2024,8 +2028,14 @@ const Poller = struct {
     }
 
     /// Wake the worker sleeping in it, or make its next sleep end at once.
+    /// A kick still standing (`kicked`) is enough: while it stands, either
+    /// its event waits in the poller, or a look took the event and the
+    /// worker, which looks at `kicked` under the lock before it waits, has
+    /// not yet waited.
     fn kick(p: *Poller) void {
         if (builtin.is_test and test_waking == .counted) test_waking = .kicked;
+        // Not a lock, uncounted: nothing waits for the flag to clear.
+        if (p.kicked.swap(true, .seq_cst)) return;
         if (darwin) {
             const ev: std.c.Kevent = .{ .ident = 0, .filter = std.c.EVFILT.USER, .flags = 0, .fflags = std.c.NOTE.TRIGGER, .data = 0, .udata = 0 };
             var none: [1]std.c.Kevent = undefined;
@@ -2084,11 +2094,12 @@ const Poller = struct {
     /// event) for events, and wake the fibers waiting on what they make
     /// ready; whether any. One who cannot take the lock does nothing,
     /// unless it means to wait. A look that takes the poller's kick
-    /// leaves it there again: a worker looks at the pollers of others as
-    /// it goes to sleep (`serviceAll`), and at its own, and one of them,
-    /// or itself, may be between its last look for work and its sleep,
-    /// when a kick taken from under it would leave it asleep with work
-    /// queued for it.
+    /// leaves it standing (`kicked`): a worker looks at the pollers of
+    /// others as it goes to sleep (`serviceAll`), and at its own, and one
+    /// of them, or itself, may be between its last look for work and its
+    /// sleep, when a kick taken from under it would leave it asleep with
+    /// work queued for it. A wait takes a standing kick under the lock,
+    /// which no look holds while it waits, and then only looks.
     fn poll(p: *Poller, timeout: ?i96) bool {
         // A look, which leaves a kick it takes; but a deterministic run,
         // on one thread, has no worker to leave it for, and waits a
@@ -2096,8 +2107,6 @@ const Poller = struct {
         // kick left there would end.
         const look = timeout != null and timeout.? == 0 and !deterministic.*;
         if (timeout == null or timeout.? > 0) rt.flushBeforeWait();
-        var kicked = false;
-        defer if (kicked) p.kick();
         if (look) {
             if (!p.lock.tryLock()) return false;
         } else {
@@ -2105,11 +2114,12 @@ const Poller = struct {
             p.lock.lock();
         }
         defer p.lock.unlock();
+        const wait: ?i96 = if (!look and p.kicked.swap(false, .seq_cst)) 0 else timeout;
         var any = false;
         if (darwin) {
             var evs: [max_events]std.c.Kevent = undefined;
             var ts: std.c.timespec = undefined;
-            const tp: ?*const std.c.timespec = if (timeout) |t| blk: {
+            const tp: ?*const std.c.timespec = if (wait) |t| blk: {
                 ts = .{ .sec = @intCast(@divTrunc(t, std.time.ns_per_s)), .nsec = @intCast(@mod(t, std.time.ns_per_s)) };
                 break :blk &ts;
             } else null;
@@ -2121,7 +2131,7 @@ const Poller = struct {
             if (n <= 0) return false;
             for (evs[0..@intCast(n)]) |ev| {
                 if (ev.udata == 0) {
-                    if (look) kicked = true;
+                    if (!look) p.kicked.store(false, .seq_cst);
                     continue;
                 }
                 const r: *Registration = @ptrFromInt(ev.udata);
@@ -2135,15 +2145,13 @@ const Poller = struct {
         } else if (linux) {
             const linux_ = std.os.linux;
             var evs: [max_events]linux_.epoll_event = undefined;
-            const ms: i32 = if (timeout) |t| @intCast(@min(@divTrunc(t + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32))) else -1;
+            const ms: i32 = if (wait) |t| @intCast(@min(@divTrunc(t + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32))) else -1;
             const rc: isize = @bitCast(linux_.epoll_wait(p.fd, &evs, max_events, ms));
             if (rc <= 0) return false;
             for (evs[0..@intCast(rc)]) |ev| {
                 if (ev.data.ptr == 0) {
-                    if (look) {
-                        kicked = true;
-                        continue;
-                    }
+                    if (look) continue;
+                    p.kicked.store(false, .seq_cst);
                     var drain: u64 = 0;
                     _ = linux_.read(p.kick_fd, std.mem.asBytes(&drain), 8);
                     continue;
