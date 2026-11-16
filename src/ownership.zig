@@ -5778,6 +5778,9 @@ pub const Checker = struct {
             self.builtinName(self.exprType(ir.Member.object(callee)))
         else if (self.namesType(callee)) self.builtinName(self.exprType(node)) else null;
         const cell: ?[]const u8 = if (into != null and !std.mem.eql(u8, into.?, "List")) into else null;
+        // `!xs.extend(?s)` copies `s`'s elements and keeps no loan of
+        // them: in a generic body, each instance's hold no view.
+        const extends = into != null and std.mem.eql(u8, into.?, "List") and callee.isKind(.member) and std.mem.eql(u8, self.text(ir.Member.name(callee)), "extend");
         // A channel's values and an actor's value hold no view (SPEC
         // "Channels", "Actors"): one made in a generic body asks each
         // instance for a type that holds none.
@@ -5839,6 +5842,7 @@ pub const Checker = struct {
             // A generic body's `T` holds no loan here, but an instance's
             // may be a `?String` viewing a String.
             // A send arm stores its value, its first argument, alone.
+            if (extends and i == 0) try self.requireNoView(self.startOf(a), self.exprType(a), .list_extend);
             const stores_arg = cell != null and (arm == null or i == 0);
             if (stores_arg) try self.requireNoView(self.startOf(a), self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a), if (std.mem.eql(u8, cell.?, "Chan")) .channel else if (std.mem.eql(u8, cell.?, "Signal")) .signal else .cell);
             if (stores_arg and v.loans.len > 0 and !self.rejected(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a)) {
