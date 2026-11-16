@@ -180,7 +180,8 @@ const Worker = struct {
     /// 1 once woken from its sleep, in its poller (`sleep`).
     woken: std.atomic.Value(u32) = .init(0),
     /// The kernel's queue of events it sleeps in (`Poller`), and the
-    /// fibers whose waits have a deadline it set (`Timers`).
+    /// timers set on it: the deadlines of waits, and those that move
+    /// (`Timers`).
     poller: Poller = .{},
     timers: Timers = .{},
     /// Its pinned fibers that are ready (`Fiber.home`), which only it runs;
@@ -1465,20 +1466,16 @@ pub const Wait = struct {
     /// The epoch, whether a cancel may end the wait, and its state.
     word: std.atomic.Value(u64) = .init(0),
     epoch: u32 = 0,
-    /// When a timer may end the wait: its deadline, the epoch it was set
-    /// for, and its place in the timer heap.
-    deadline: i96 = 0,
+    /// The epoch its timer was set for, and the timer: when it may end
+    /// the wait, and its place in a worker's timers while it has one.
     timer_epoch: u32 = 0,
-    heap_index: usize = no_index,
-    /// The worker's timers that hold its deadline, while they do.
-    timers: ?*Timers = null,
+    timer: Timer = .{},
 
     const about = 0;
     const asleep = 1;
     const woken = 2;
     const cancelable_bit: u64 = 4;
     const states: u64 = 3;
-    const no_index = std.math.maxInt(usize);
 
     fn pack(epoch: u32, cancelable: bool, state: u64) u64 {
         return (@as(u64, epoch) << 3) | (if (cancelable) cancelable_bit else 0) | state;
@@ -1512,19 +1509,19 @@ noinline fn commitWaitApart(epoch: u32, deadline: ?i96) void {
 fn commitWaitIn(epoch: u32, deadline: ?i96) void {
     const f = current().?;
     if (deadline) |d| {
-        f.wait.deadline = d;
+        f.wait.timer.due = d;
         f.wait.timer_epoch = epoch;
     }
     parkIn(.{ .run = fallAsleep, .ctx = if (deadline != null) @ptrFromInt(1) else null });
     // Awake: a timer still set for this wait is taken back, so none
     // touches this fiber once it goes on.
-    if (deadline != null) if (f.wait.timers) |t| t.cancel(f);
+    if (deadline != null) if (f.wait.timer.timers) |t| t.cancel(&f.wait.timer);
 }
 
 /// Once the fiber has switched away: set its timer, then mark it asleep,
 /// unless a waker has come first, when it goes on.
 fn fallAsleep(f: *Fiber, timed: ?*anyopaque) void {
-    if (timed != null) (if (deterministic.*) timers else &me().?.timers).add(f);
+    if (timed != null) hereTimers().add(&f.wait.timer);
     const w = f.wait.word.load(.seq_cst);
     if (Wait.epochOf(w) == f.wait.epoch and w & Wait.states == Wait.about) {
         if (f.wait.word.cmpxchgStrong(w, (w & ~Wait.states) | Wait.asleep, .seq_cst, .seq_cst) == null) return;
@@ -1648,23 +1645,36 @@ pub const Waiters = struct {
 /// when this returns, until a waker takes the running fiber off the list,
 /// `deadline` passes, or, when `cancelable`, its task is canceled:
 /// whether a waker took it off.
-pub const sleepOn = if (preempt) sleepOnApart else sleepOnIn;
+pub const sleepOn = if (preempt) sleepOnApart else sleepOnPlain;
+
+fn sleepOnPlain(ws: *Waiters, lock: *SpinLock, deadline: ?i96, cancelable: bool) bool {
+    return sleepOnIn(ws, lock, deadline, cancelable, null);
+}
 
 /// `sleepOn` in a program built to be preempted: never inlined into the
 /// program's own code (`mustNotBeInCode`).
 noinline fn sleepOnApart(ws: *Waiters, lock: *SpinLock, deadline: ?i96, cancelable: bool) bool {
-    return sleepOnIn(ws, lock, deadline, cancelable);
+    return sleepOnIn(ws, lock, deadline, cancelable, null);
 }
 
-fn sleepOnIn(ws: *Waiters, lock: *SpinLock, deadline: ?i96, cancelable: bool) bool {
+/// `sleepOn`, or, with `moving`, a wait until the deadline `moving`
+/// carries, which is `deadline` (`Deadline`).
+fn sleepOnIn(ws: *Waiters, lock: *SpinLock, deadline: ?i96, cancelable: bool, moving: ?*Deadline) bool {
     const f = current().?;
     var n: Waiters.Node = .{ .fiber = f, .epoch = beginWait(cancelable), .prev = ws.last };
     if (ws.last) |l| l.next = &n else ws.first = &n;
     ws.last = &n;
     lock.unlock();
-    // A cancel that came before the wait began found no wait to end.
-    const over = (cancelable and isCanceled(f)) or (if (deadline) |d| nowNs() >= d else false);
-    if (!over) commitWaitIn(n.epoch, deadline);
+    if (moving) |m| {
+        // Its timer, set long before, ends the wait once it has passed:
+        // no clock is read here.
+        m.cover(f, n.epoch, deadline.?);
+        if (!(cancelable and isCanceled(f))) commitWaitIn(n.epoch, null);
+    } else {
+        // A cancel that came before the wait began found no wait to end.
+        const over = (cancelable and isCanceled(f)) or (if (deadline) |d| nowNs() >= d else false);
+        if (!over) commitWaitIn(n.epoch, deadline);
+    }
     lock.lock();
     defer ws.remove(&n);
     return !n.listed;
@@ -1822,52 +1832,76 @@ fn fireDue() void {
 // Timers
 // -----------------------------------------------------------------------------
 
-/// The fibers waiting with a deadline that one worker set, earliest
-/// first, as Go keeps one heap per processor: the worker wakes them when
-/// it looks (`service`, and its yield checks, `serviceBusy`), and a
-/// worker about to sleep wakes those due on any (`serviceAll`), and
-/// sleeps no longer than until the earliest (`earliestDue`); a deadline
-/// earlier than a sleeping worker's wakes it (`kickForTimer`). Its lock is held while it wakes one, so a fiber that
-/// takes its timer back (`cancel`) knows no worker is done with it. In a
-/// deterministic run one set serves the virtual clock (`timers`).
+/// The timers one worker holds, earliest first, as Go keeps one heap per
+/// processor: each the deadline of a fiber's wait (`Wait.timer`), or a
+/// deadline that moves (`Deadline`). The worker wakes the fibers whose
+/// timers are due when it looks (`service`, and its yield checks,
+/// `serviceBusy`), and a worker about to sleep wakes those due on any
+/// (`serviceAll`), and sleeps no longer than until the earliest
+/// (`earliestDue`); a deadline earlier than a sleeping worker's wakes it
+/// (`kickForTimer`). Its lock is held while it wakes one, so a fiber
+/// that takes its timer back (`cancel`) knows no worker is done with it.
+/// In a deterministic run one set serves the virtual clock (`timers`).
 const Timers = struct {
     /// Taken uncounted (`lockApart`), as `Global`'s.
     lock: SpinLock = .{},
-    heap: std.ArrayList(*Fiber) = .empty,
+    heap: std.ArrayList(*Timer) = .empty,
     /// Its earliest deadline, which workers read without the lock, or
     /// `no_due`.
     due: std.atomic.Value(i64) = .init(no_due),
 
-    fn add(t: *Timers, f: *Fiber) void {
+    /// Set the timer `x` of a fiber's wait.
+    fn add(t: *Timers, x: *Timer) void {
         t.lock.lockApart();
         defer t.lock.unlockApart();
-        t.heap.append(std.heap.smp_allocator, f) catch rt.oom();
-        f.wait.heap_index = t.heap.items.len - 1;
-        f.wait.timers = t;
-        t.up(f.wait.heap_index);
-        t.publish();
-        // The earliest it holds: a worker asleep until later wakes for it.
-        if (f.wait.heap_index == 0 and !deterministic.*) kickForTimer(t.due.load(.monotonic));
+        t.insert(x);
+        x.timers = t;
     }
 
-    fn cancel(t: *Timers, f: *Fiber) void {
+    /// Put `x` in the heap, under the lock.
+    fn insert(t: *Timers, x: *Timer) void {
+        t.heap.append(std.heap.smp_allocator, x) catch rt.oom();
+        x.index = @intCast(t.heap.items.len - 1);
+        if (builtin.is_test) _ = test_heap_work.fetchAdd(1, .monotonic);
+        t.up(x.index);
+        t.earlier(x);
+    }
+
+    /// `x` was set, or set earlier: publish the earliest, and when it is
+    /// `x`, a worker asleep until later wakes for it.
+    fn earlier(t: *Timers, x: *Timer) void {
+        t.publish();
+        if (x.index == 0 and !deterministic.*) kickForTimer(t.due.load(.monotonic));
+    }
+
+    /// Take back the timer `x` of a fiber's wait.
+    fn cancel(t: *Timers, x: *Timer) void {
         t.lock.lockApart();
         defer t.lock.unlockApart();
-        if (f.wait.heap_index != Wait.no_index) t.removeAt(f.wait.heap_index);
-        f.wait.timers = null;
+        if (x.index != Timer.no_index) t.removeAt(x.index);
+        x.timers = null;
         t.publish();
     }
 
-    /// Wake each fiber whose deadline `now` has reached; whether any.
+    /// Wake each fiber whose deadline `now` has reached; whether any. A
+    /// moving deadline due by its timer may have moved past `now`: its
+    /// timer moves to it, and wakes no one (`Deadline.come`).
     fn fire(t: *Timers, now: i96) bool {
         if (t.due.load(.acquire) > now) return false;
         t.lock.lockApart();
         defer t.lock.unlockApart();
         var any = false;
-        while (t.heap.items.len > 0 and t.heap.items[0].wait.deadline <= now) {
-            const f = t.heap.items[0];
+        while (t.heap.items.len > 0 and t.heap.items[0].due <= now) {
+            const x = t.heap.items[0];
+            if (x.moving) {
+                const d: *Deadline = @fieldParentPtr("timer", x);
+                if (d.come(t, now)) any = true;
+                continue;
+            }
             t.removeAt(0);
-            _ = interrupt(f, f.wait.timer_epoch, false);
+            const w: *Wait = @fieldParentPtr("timer", x);
+            const f: *Fiber = @fieldParentPtr("wait", w);
+            _ = interrupt(f, w.timer_epoch, false);
             any = true;
         }
         t.publish();
@@ -1875,19 +1909,19 @@ const Timers = struct {
     }
 
     fn publish(t: *Timers) void {
-        const d: i64 = if (t.heap.items.len > 0) @intCast(@min(t.heap.items[0].wait.deadline, no_due)) else no_due;
+        const d: i64 = if (t.heap.items.len > 0) @intCast(@min(t.heap.items[0].due, no_due)) else no_due;
         t.due.store(d, .seq_cst);
     }
 
     fn less(t: *Timers, i: usize, j: usize) bool {
-        return t.heap.items[i].wait.deadline < t.heap.items[j].wait.deadline;
+        return t.heap.items[i].due < t.heap.items[j].due;
     }
 
     fn swap(t: *Timers, i: usize, j: usize) void {
         const items = t.heap.items;
-        std.mem.swap(*Fiber, &items[i], &items[j]);
-        items[i].wait.heap_index = i;
-        items[j].wait.heap_index = j;
+        std.mem.swap(*Timer, &items[i], &items[j]);
+        items[i].index = @intCast(i);
+        items[j].index = @intCast(j);
     }
 
     fn up(t: *Timers, start: usize) void {
@@ -1916,11 +1950,12 @@ const Timers = struct {
     }
 
     fn removeAt(t: *Timers, i: usize) void {
-        const f = t.heap.items[i];
+        const x = t.heap.items[i];
         const last = t.heap.items.len - 1;
         if (i != last) t.swap(i, last);
         _ = t.heap.pop();
-        f.wait.heap_index = Wait.no_index;
+        x.index = Timer.no_index;
+        if (builtin.is_test) _ = test_heap_work.fetchAdd(1, .monotonic);
         if (i < t.heap.items.len) {
             t.down(i);
             t.up(i);
@@ -1931,6 +1966,136 @@ const Timers = struct {
         t.heap.deinit(std.heap.smp_allocator);
         t.heap = .empty;
         t.due.store(no_due, .release);
+    }
+};
+
+/// A place in a worker's timers (`Timers`): when it comes due, where it
+/// sits in their heap while it does, and which worker's they are.
+const Timer = struct {
+    due: i96 = 0,
+    timers: ?*Timers = null,
+    index: u32 = no_index,
+    /// A `Deadline`'s, which comes due by its own rule; else a wait's
+    /// (`Wait.timer`).
+    moving: bool = false,
+
+    const no_index = std.math.maxInt(u32);
+};
+
+/// The timers of the running worker, or of a deterministic run.
+fn hereTimers() *Timers {
+    return if (deterministic.*) timers else &me().?.timers;
+}
+
+/// Test only: how many timers have been put in a heap or taken out,
+/// each a walk of its height. Never compiled outside a test, so never
+/// in a split build.
+var test_heap_work: std.atomic.Value(u32) = .init(0);
+
+/// One deadline for many waits of one fiber, whose timer moves only
+/// when it comes due: an HTTP server's connection, which waits for each
+/// request in turn, and for each no longer than its idle time. Each wait stores
+/// its deadline (`at`), and sets no timer; the timer, set once, comes
+/// due at a deadline some wait stored before, and then moves to the
+/// latest, ends the wait it is due for, or, with no wait due, is taken
+/// out until the next wait sets it again (`come`). So the heap is
+/// walked once in each idle time, not twice in each wait. The fiber
+/// takes it back (`stop`) before the deadline goes.
+///
+/// Its waits and its timer meet in four places, all sequentially
+/// consistent. A wait stores its deadline and its epoch, then reads
+/// whether the timer is set (`armed`) and when it is due (`key`), and
+/// sets it, or sets it earlier, under its timers' lock, when it is not
+/// set or due later (`cover`). The timer, due, reads the latest
+/// deadline: one later than the clock moves it there, and stores when
+/// it is due before it reads the deadline once more, which a wait that
+/// stored an earlier one since may have changed; it takes one no later
+/// out, marks it not set, then reads the fiber's wait and the epoch
+/// the latest wait stored, and ends that wait if it is the latest's.
+/// So a wait either finds the timer not set, or due later, and sets it,
+/// or its stores are seen by the timer that comes due, which ends the
+/// wait or moves to its deadline: no wait misses its deadline. The
+/// timer may end a wait whose deadline is still ahead, with the fiber
+/// waiting again by then; that wait looks at the clock, and waits on.
+pub const Deadline = struct {
+    /// The deadline of the latest wait, on the monotonic clock.
+    at: std.atomic.Value(i64) = .init(no_due),
+    /// The epoch of the latest wait (`Wait`).
+    epoch: std.atomic.Value(u32) = .init(0),
+    /// Whether the timer is set, and when it is due while it is: written
+    /// under its timers' lock, read by a wait without it.
+    armed: std.atomic.Value(bool) = .init(false),
+    key: std.atomic.Value(i64) = .init(no_due),
+    /// The fiber that waits, once the timer is set.
+    fiber: ?*Fiber = null,
+    timer: Timer = .{ .moving = true },
+
+    /// A wait of `f`, its epoch `epoch`, until `deadline`: see it is
+    /// covered by the timer.
+    fn cover(d: *Deadline, f: *Fiber, epoch: u32, deadline: i96) void {
+        const at: i64 = @intCast(@min(deadline, no_due));
+        d.at.store(at, .seq_cst);
+        d.epoch.store(epoch, .seq_cst);
+        if (d.armed.load(.seq_cst) and d.key.load(.seq_cst) <= at) return;
+        // The timers it is first set in hold it until it is taken back,
+        // wherever the fiber runs since.
+        const t = d.timer.timers orelse hereTimers();
+        d.timer.timers = t;
+        t.lock.lockApart();
+        defer t.lock.unlockApart();
+        d.fiber = f;
+        const latest = d.at.load(.monotonic);
+        if (d.timer.index == Timer.no_index) {
+            d.timer.due = latest;
+            d.key.store(latest, .seq_cst);
+            d.armed.store(true, .seq_cst);
+            t.insert(&d.timer);
+        } else if (latest < d.timer.due) {
+            d.timer.due = latest;
+            d.key.store(latest, .seq_cst);
+            t.up(d.timer.index);
+            t.earlier(&d.timer);
+        }
+    }
+
+    /// The timer is due by `now`, first in `t`, whose lock is held: move
+    /// it to the latest deadline, if that is later, or take it out and
+    /// end the latest wait, if the fiber is in it; whether that woke it.
+    fn come(d: *Deadline, t: *Timers, now: i96) bool {
+        while (true) {
+            const at = d.at.load(.seq_cst);
+            if (at <= now) break;
+            d.timer.due = at;
+            d.key.store(at, .seq_cst);
+            if (d.at.load(.seq_cst) != at) continue;
+            t.down(d.timer.index);
+            return false;
+        }
+        t.removeAt(d.timer.index);
+        d.armed.store(false, .seq_cst);
+        const f = d.fiber.?;
+        const epoch = Wait.epochOf(f.wait.word.load(.seq_cst));
+        if (epoch != d.epoch.load(.seq_cst)) return false;
+        return interrupt(f, epoch, false);
+    }
+
+    /// Take the timer back, before the deadline goes: no worker touches
+    /// it, or its fiber, after.
+    pub const stop = if (preempt) takeBackApart else takeBack;
+
+    /// `stop` in a program built to be preempted: never inlined into the
+    /// program's own code (`mustNotBeInCode`).
+    noinline fn takeBackApart(d: *Deadline) void {
+        takeBack(d);
+    }
+
+    fn takeBack(d: *Deadline) void {
+        const t = d.timer.timers orelse return;
+        t.lock.lockApart();
+        defer t.lock.unlockApart();
+        if (d.timer.index != Timer.no_index) t.removeAt(d.timer.index);
+        d.armed.store(false, .seq_cst);
+        t.publish();
     }
 };
 
@@ -2450,25 +2615,53 @@ pub const Readiness = enum { ready, canceled, timeout };
 /// that came since is taken at once, which spends from the fiber's budget
 /// (`spendBudget`).
 pub fn waitReady(r: *Registration, interest: u32, seen: u32, deadline: ?i96, cancelable: bool) Readiness {
+    return waitReadyIn(r, interest, seen, deadline, cancelable, null);
+}
+
+/// `waitReady` until `deadline`, which the deadline `moving` carries to
+/// its timer (`Deadline`): a wait that sets no timer of its own, for a
+/// connection that waits again and again, each time with a later
+/// deadline. The clock is read only once a wake was not for an edge.
+pub fn waitReadyBy(r: *Registration, interest: u32, seen: u32, moving: *Deadline, deadline: i96, cancelable: bool) Readiness {
+    return waitReadyIn(r, interest, seen, deadline, cancelable, moving);
+}
+
+fn waitReadyIn(r: *Registration, interest: u32, seen: u32, deadline: ?i96, cancelable: bool, moving: ?*Deadline) Readiness {
     const f = current().?;
     const ws = if (interest == Registration.readable) &r.readers else &r.writers;
+    var looked = false;
     while (true) {
         if (edges(r, interest) != seen) {
             spendBudget();
             return .ready;
         }
         if (cancelable and isCanceled(f)) return .canceled;
-        if (deadline) |d| if (nowNs() >= d) return .timeout;
+        if (moving == null or looked) if (deadline) |d| if (nowNs() >= d) return .timeout;
+        looked = true;
         pausePoint();
         // An edge the poller saw before this fiber was listed, under the
         // lock, or one that woke it: it tries its call again.
         r.lock.lock();
         _ = r.waiting.fetchAdd(1, .seq_cst);
-        const woken = Registration.edgesOf(r.seen.load(.seq_cst), interest) != seen or sleepOn(ws, &r.lock, deadline, cancelable);
+        const woken = Registration.edgesOf(r.seen.load(.seq_cst), interest) != seen or
+            (if (moving) |m| sleepOnBy(ws, &r.lock, deadline.?, cancelable, m) else sleepOn(ws, &r.lock, deadline, cancelable));
         _ = r.waiting.fetchSub(1, .seq_cst);
         r.lock.unlock();
         if (woken) return .ready;
     }
+}
+
+/// `sleepOn` until the deadline `moving` carries (`Deadline`).
+const sleepOnBy = if (preempt) sleepOnByApart else sleepOnByIn;
+
+/// `sleepOnBy` in a program built to be preempted: never inlined into
+/// the program's own code (`mustNotBeInCode`).
+noinline fn sleepOnByApart(ws: *Waiters, lock: *SpinLock, deadline: i96, cancelable: bool, moving: *Deadline) bool {
+    return sleepOnIn(ws, lock, deadline, cancelable, moving);
+}
+
+fn sleepOnByIn(ws: *Waiters, lock: *SpinLock, deadline: i96, cancelable: bool, moving: *Deadline) bool {
+    return sleepOnIn(ws, lock, deadline, cancelable, moving);
 }
 
 /// Whether the task `f` runs is canceled: a sequentially consistent load,
@@ -6790,6 +6983,143 @@ fn testPipe() [2]i32 {
         for (fds) |fd| _ = std.c.fcntl(fd, std.c.F.SETFL, @as(c_int, @bitCast(std.c.O{ .NONBLOCK = true })));
     }
     return fds;
+}
+
+test "a moving deadline sets its timer once for many waits, moves it when it comes due, and ends the wait it is due for" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var asked = std.atomic.Value(u32).init(0);
+        var done = std.atomic.Value(bool).init(false);
+        var waits: u32 = 0;
+        var plain_work: u32 = 0;
+        var moving_work: u32 = 0;
+        var moved = false;
+        var all_work: u32 = 0;
+        var timed_out = false;
+        var late: i96 = -1;
+        const Unit = struct {};
+        const idle: i96 = 200 * std.time.ns_per_ms;
+
+        /// Writes a byte each time the reader asks for one, setting no
+        /// timer of its own.
+        fn writer(_: *Unit, fd: i32) u8 {
+            var wrote: u32 = 0;
+            while (!done.load(.seq_cst)) {
+                if (asked.load(.seq_cst) > wrote) {
+                    _ = std.posix.system.write(fd, "x", 1);
+                    wrote += 1;
+                } else yield();
+            }
+            return 0;
+        }
+
+        /// Read a byte, asking the writer for it and waiting once the
+        /// pipe is empty, each wait no longer than `idle`, by `moving`'s
+        /// timer or, without it, a timer of the wait's own.
+        fn request(r: *Registration, moving: ?*Deadline) bool {
+            while (true) {
+                const seen = edges(r, Registration.readable);
+                var b: [1]u8 = undefined;
+                if (@as(isize, @bitCast(std.posix.system.read(r.fd, &b, 1))) == 1) return true;
+                _ = asked.fetchAdd(1, .seq_cst);
+                waits += 1;
+                const got = if (moving) |m|
+                    waitReadyBy(r, Registration.readable, seen, m, nowNs() + idle, false)
+                else
+                    waitReady(r, Registration.readable, seen, nowNs() + idle, false);
+                if (got != .ready) return false;
+            }
+        }
+
+        fn first(_: *anyopaque) callconv(.c) void {
+            const fds = testPipe();
+            const r = register(fds[0]).?;
+            const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false, false).job;
+            // A timer of each wait's own: one put in and one taken out
+            // for each wait that sleeps.
+            var at = test_heap_work.load(.seq_cst);
+            for (0..50) |_| if (!request(r, null)) return;
+            plain_work = test_heap_work.load(.seq_cst) - at;
+            // The moving deadline, for three idle times of requests: its
+            // timer is put in once, and moves when it comes due.
+            var d: Deadline = .{};
+            waits = 0;
+            at = test_heap_work.load(.seq_cst);
+            const start = nowNs();
+            while (nowNs() - start < 3 * idle) if (!request(r, &d)) return;
+            moving_work = test_heap_work.load(.seq_cst) - at;
+            moved = d.key.load(.seq_cst) > start + idle;
+            // Then nothing comes: the wait, its deadline earlier than the
+            // timer's, ends at it, and the timer is taken out.
+            const until = nowNs() + 20 * std.time.ns_per_ms;
+            timed_out = waitReadyBy(r, Registration.readable, edges(r, Registration.readable), &d, until, false) == .timeout;
+            late = nowNs() - until;
+            d.stop();
+            all_work = test_heap_work.load(.seq_cst) - at;
+            done.store(true, .seq_cst);
+            _ = j.join();
+            j.free();
+            deregister(r);
+            _ = std.posix.system.close(fds[0]);
+            _ = std.posix.system.close(fds[1]);
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.plain_work > 0 and Run.plain_work % 2 == 0);
+    try std.testing.expect(Run.waits > 50);
+    try std.testing.expectEqual(@as(u32, 1), Run.moving_work);
+    try std.testing.expect(Run.moved);
+    try std.testing.expect(Run.timed_out);
+    try std.testing.expect(Run.late >= 0 and Run.late < std.time.ns_per_s);
+    try std.testing.expectEqual(@as(u32, 2), Run.all_work);
+}
+
+test "a cancel ends a wait by a moving deadline, which is taken back after" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var got: Readiness = .ready;
+        var took: i96 = 0;
+        var ctl: TestControl = .{};
+        var began = std.atomic.Value(bool).init(false);
+        const Unit = struct {};
+
+        fn reader(_: *Unit, r: *Registration) Readiness {
+            const f = current().?;
+            f.state.control = &ctl;
+            ctl.fiber = f;
+            var d: Deadline = .{};
+            defer d.stop();
+            began.store(true, .seq_cst);
+            return waitReadyBy(r, Registration.readable, edges(r, Registration.readable), &d, nowNs() + 2 * std.time.ns_per_s, true);
+        }
+
+        fn first(_: *anyopaque) callconv(.c) void {
+            const fds = testPipe();
+            const r = register(fds[0]).?;
+            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false, false).job;
+            while (!began.load(.seq_cst)) yield();
+            testNap(5 * std.time.ns_per_ms);
+            const start = nowNs();
+            ctl.cancel();
+            got = j.join();
+            took = nowNs() - start;
+            j.free();
+            deregister(r);
+            _ = std.posix.system.close(fds[0]);
+            _ = std.posix.system.close(fds[1]);
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(Readiness.canceled, Run.got);
+    try std.testing.expect(Run.took < std.time.ns_per_s);
 }
 
 test "a cancel that lands after a wait on a descriptor last looked, but before it began, still ends it" {
