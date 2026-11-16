@@ -690,6 +690,16 @@ arms.
   answered 500, where a safe build panicked. The server parses a
   request's head as Zig's `Head.parse` does, finding the header a name
   means by its length first.
+- **`http.serve` reads a request's head in one pass:** finding where
+  the head ends, each line's end and colon, and the target's `?`
+  together, a vector of bytes at a time, where Zig's `receiveHead`
+  found the end and `Head.parse` split the lines again. It accepts and
+  refuses what those did, with the same errors, but for a head holding
+  a bare `\n\n`: that ends the head, which is refused, however the
+  bytes arrive, where Zig's search missed some by where the bytes fell
+  and took a header's value holding one.
+  `req.arg(name)` compares each pair's start with the name, with no
+  split.
 - **Loopback round trips make fewer system calls:** a socket read that
   comes back short took all there was, so the next read waits on the
   poller for an edge before it calls, rather than being told EAGAIN (an
