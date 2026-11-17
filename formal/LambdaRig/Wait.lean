@@ -9,7 +9,10 @@ wait first, when the worker queues it at once. It may also give the
 wait up before committing, and begin another. A waker ends the wait of
 one epoch (`interrupt`): about to sleep or asleep becomes woken, and a
 waker that finds it asleep queues the fiber. A cancel is a waker that
-ends only a wait begun as one a cancel may end. A fiber handed its
+ends only a wait begun as one a cancel may end. A cancel
+(`interruptForCancel`) and a deadline's timer (`Deadline.come`) read the
+word for the present epoch, then end that wait: `interrupt` is a step
+for any epoch, so the read adds none. A fiber handed its
 worker takes back the wait of the one that handed it over (`claim`),
 running it at once, which counts as queueing it.
 
@@ -23,6 +26,8 @@ run of the real protocol. What is proved, of every state reached:
   away, has queued it: no wakeup is lost;
 - `cancel_delivered`: a cancel that comes while the fiber sleeps in a
   wait a cancel may end queues it;
+- `present_delivered`: a waker of the present wait, as a deadline's
+  timer is, that comes while the fiber sleeps queues it;
 - `late_waker`: a waker of an earlier wait changes nothing.
 
 The word itself is `pack` below: the epoch, the bit a cancel may end the
@@ -256,6 +261,18 @@ theorem cancel_delivered {w : W} (h : Reach w) (ha : w.phase = .away) (hq : w.qu
   · refine ⟨hs, ?_, ?_⟩ <;> simp [W.interrupt, hs, hc, hq0]
   · omega
 
+/-- A fiber switched away and not yet queued sleeps, and a waker of its
+present wait, read from the word, queues it: a deadline's timer that
+comes due while the fiber sleeps (`Deadline.come`). -/
+theorem present_delivered {w : W} (h : Reach w) (ha : w.phase = .away) (hq : w.queued = 0) :
+    w.st = .asleep ∧ (w.interrupt w.epoch false).queued = 1 ∧
+      (w.interrupt w.epoch false).st = .woken := by
+  have := inv_reach h
+  simp only [Inv, ha] at this
+  rcases this with ⟨hs, -, hq0⟩ | ⟨-, -, hq1⟩
+  · refine ⟨hs, ?_, ?_⟩ <;> simp [W.interrupt, hs, hq0]
+  · omega
+
 /-- A waker of an earlier wait changes nothing. -/
 theorem late_waker (w : W) (e : Nat) (c : Bool) (h : e ≠ w.epoch) : w.interrupt e c = w := by
   simp [W.interrupt, h]
@@ -280,5 +297,9 @@ example : Reach ⟨1, .woken, true, .away, 1, 1⟩ := by
 /-- info: 'LambdaRig.Wait.cancel_delivered' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms cancel_delivered
+
+/-- info: 'LambdaRig.Wait.present_delivered' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms present_delivered
 
 end LambdaRig.Wait
