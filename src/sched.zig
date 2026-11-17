@@ -2116,6 +2116,7 @@ pub const Deadline = struct {
         t.removeAt(d.timer.index);
         d.armed.store(false, .seq_cst);
         const f = d.fiber.?;
+        comePoint(d);
         const epoch = Wait.epochOf(f.wait.word.load(.seq_cst));
         if (epoch != d.epoch.load(.seq_cst)) return false;
         return interrupt(f, epoch, false);
@@ -2819,6 +2820,21 @@ inline fn pausePoint() void {
     const p = test_pause.swap(null, .seq_cst) orelse return;
     p.reached.store(true, .seq_cst);
     while (!p.go.load(.seq_cst)) std.atomic.spinLoopHint();
+}
+
+/// Test only: what the next moving deadline due for a wait calls, set
+/// by a test, between its read of the latest deadline and its read of the
+/// fiber's wait (`comePoint`), so the test can land a new wait there.
+/// Its own, so no other point takes it.
+var test_come: std.atomic.Value(?*const fn (*Deadline) void) = .init(null);
+
+/// In a test that set `test_come`, call it: in `Deadline.come`, once the
+/// deadline has passed and before the fiber's wait is read.
+inline fn comePoint(d: *Deadline) void {
+    if (!builtin.is_test) return;
+    if (test_come.load(.monotonic) == null) return;
+    const hold = test_come.swap(null, .seq_cst) orelse return;
+    hold(d);
 }
 
 /// Test only: what the wakes of two fibers a test names did (`wakeIn`):
@@ -7314,6 +7330,85 @@ test "a cancel ends a wait by a moving deadline, which is taken back after" {
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expectEqual(Readiness.canceled, Run.got);
     try std.testing.expect(Run.took < std.time.ns_per_s);
+}
+
+test "a wait begun after a moving deadline's timer read the deadline, which that timer ends, waits on to its own deadline" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var first_got: Readiness = .timeout;
+        var got: Readiness = .ready;
+        var early: i96 = 0;
+        var waits: u32 = 0;
+        var reached = std.atomic.Value(bool).init(false);
+        var landed = std.atomic.Value(bool).init(false);
+        const Unit = struct {};
+        const idle: i96 = 100 * std.time.ns_per_ms;
+
+        /// Writes once the reader's first wait has set the timer.
+        fn writer(_: *Unit, fd: i32, d: *Deadline) u8 {
+            const until = nowNs() + 2 * std.time.ns_per_s;
+            while (!d.armed.load(.seq_cst) and nowNs() < until) testNap(std.time.ns_per_ms / 10);
+            _ = std.posix.system.write(fd, "x", 1);
+            return 0;
+        }
+
+        /// The timer, due for the first wait, between its two reads
+        /// (`comePoint`): hold it until the reader's next wait has stored
+        /// its deadline and its epoch.
+        fn hold(d: *Deadline) void {
+            const before = d.epoch.load(.seq_cst);
+            reached.store(true, .seq_cst);
+            const until = nowNs() + 2 * std.time.ns_per_s;
+            while (d.epoch.load(.seq_cst) == before and nowNs() < until) std.atomic.spinLoopHint();
+            landed.store(d.epoch.load(.seq_cst) != before, .seq_cst);
+        }
+
+        fn first(_: *anyopaque) callconv(.c) void {
+            const fds = testPipe();
+            const r = register(fds[0]).?;
+            var d: Deadline = .{};
+            const j = spawn(u8, Unit, writer, .{ fds[1], &d }, .{}, false, false).job;
+            // The first wait sets the timer, 20 ms ahead, and an edge
+            // ends it well before.
+            first_got = waitReadyBy(r, Registration.readable, edges(r, Registration.readable), &d, nowNs() + 20 * std.time.ns_per_ms, false);
+            var b: [1]u8 = undefined;
+            _ = std.posix.system.read(fds[0], &b, 1);
+            // Then the reader computes, waiting for nothing, past that
+            // deadline, until the other worker's timer comes due and
+            // holds between its reads.
+            test_come.store(&hold, .seq_cst);
+            const until = nowNs() + 2 * std.time.ns_per_s;
+            while (!reached.load(.seq_cst) and nowNs() < until) std.atomic.spinLoopHint();
+            // The next wait lands there: the timer finds its epoch and
+            // ends it, 100 ms before its deadline.
+            const f = current().?;
+            const epoch = f.wait.epoch;
+            const deadline = nowNs() + idle;
+            got = waitReadyBy(r, Registration.readable, edges(r, Registration.readable), &d, deadline, false);
+            early = deadline - nowNs();
+            waits = f.wait.epoch -% epoch;
+            d.stop();
+            _ = j.join();
+            j.free();
+            deregister(r);
+            _ = std.posix.system.close(fds[0]);
+            _ = std.posix.system.close(fds[1]);
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    test_come.store(null, .seq_cst);
+    defer test_come.store(null, .seq_cst);
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(Readiness.ready, Run.first_got);
+    try std.testing.expect(Run.landed.load(.seq_cst));
+    // Ended by the timer at its own deadline, not before: woken early,
+    // the wait looked at the clock and waited again.
+    try std.testing.expectEqual(Readiness.timeout, Run.got);
+    try std.testing.expect(Run.early <= 0);
+    try std.testing.expectEqual(@as(u32, 2), Run.waits);
 }
 
 test "a cancel that lands after a wait on a descriptor last looked, but before it began, still ends it" {
