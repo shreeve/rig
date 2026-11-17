@@ -169,9 +169,19 @@ worker after.
   sleep or event. The 1 ms stays as the backstop: a kqueue gives no
   new edge while events wait in it, so an edge read while another
   holds that poller's lock, which lets it go with events left, waits
-  for the next look. A watched worker asleep in its own poller wakes
-  with its watcher, whose look finds the lock held or nothing left
-  (on macOS the kernel mostly wakes it to find nothing and waits on).
+  for the next look. One thread waits for each poller's events: a
+  worker whose poller is watched sleeps on its kick alone, a second
+  small poller holding only a kick of its own (`Poller.waitKick`,
+  `Poller.kick` choosing where to kick), and leaves its connections to
+  the watcher's wait; one whose poller is not watched sleeps in it as
+  before. A sleeper says it sleeps on its kick before it reads the
+  watch, and a watcher letting go clears its registrations' record
+  before it reads who says so, so the sleeper sees the watch gone or is
+  kicked. A watcher keeps the watch from one round to the next while it
+  is wanted, and lets it go as it wakes with work, before it runs the
+  fibers its look took, kicking every worker asleep on its kick alone
+  back to its own poller, so an event that lands while it computes is
+  waited for by its owner.
   A kernel refuses a poller that holds the watcher's (a cycle), as one
   that has just lost the watch may until it takes its own off; it is
   tried again next round. A look at another worker's poller leaves the kick it
@@ -257,15 +267,18 @@ worker after.
   the watches saw:
 
   ```
-  rig: watch: woke 812 by an edge (95 to no work, 3 of them a lock held), kicks 40, late 2, looks missed 310
+  rig: watch: woke 812 by an edge (95 to no work, 3 of them a lock held), ran others' events 640, kicks 40, late 2, looks missed 310; slept on the kick alone 900, let go 700 with work and 12 without, kicking 690
   ```
 
   the watcher's waits a watched poller's edge ended, of them those
   whose looks woke nothing, and of those the ones that found a poller's
-  lock held; the kicks its looks found on watched pollers; its waits
+  lock held; its rounds whose looks woke fibers from others' pollers,
+  run on the watcher cold; the kicks its looks found on watched pollers; its waits
   that lasted the whole 1 ms with no edge yet whose looks woke fibers
-  (what the backstop caught); and every worker's looks that found a
-  poller's lock held.
+  (what the backstop caught); every worker's looks that found a
+  poller's lock held; the sleeps on a kick alone; the watches let go of
+  as the watcher woke with work, and without; and the kicks those sent
+  to workers asleep on their kicks alone.
 
 ## Speed
 

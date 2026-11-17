@@ -56,4 +56,29 @@ EOF
 rig build -o asked asked.rig >build.log 2>&1 || fail "build asked: $(cat build.log)"
 RIG_SCHED_STATS=1 RIG_WORKERS=8 ./asked >out.txt 2>err.txt || fail "asked: exit $?"
 expect_eq "$(grep -c '^rig: worker' err.txt)" 3 "workers after task.workers(3)"
+expect_eq "$(grep -c '^rig: watch: woke [0-9]* by an edge' err.txt)" 1 "the watch's line"
+# A program that serves until a signal ends it prints them as it ends.
+cat >serve.rig <<'EOF'
+use std.task
+use std.time
+
+fun nap() -> Int!
+  time.sleep(ms: 60000)!
+  1
+
+sub main()
+  t = nap()&
+  warn("started")
+  _ = >t catch 0
+EOF
+rig build -o serve serve.rig >build.log 2>&1 || fail "build serve: $(cat build.log)"
+RIG_SCHED_STATS=1 RIG_WORKERS=2 ./serve >out.txt 2>err.txt &
+pid=$!
+for _ in $(seq 1 200); do grep -q started err.txt 2>/dev/null && break; sleep 0.05; done
+kill -TERM $pid
+for _ in $(seq 1 100); do kill -0 $pid 2>/dev/null || break; sleep 0.05; done
+kill -9 $pid 2>/dev/null
+wait $pid
+expect_eq "$(grep -c '^rig: worker [01]: ran' err.txt)" 2 "a line per worker at SIGTERM: $(cat err.txt)"
+expect_eq "$(grep -c '^rig: watch:' err.txt)" 1 "the watch's line at SIGTERM"
 exit 0
