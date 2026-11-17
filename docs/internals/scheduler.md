@@ -174,15 +174,20 @@ worker after.
   holding only a kick of its own (`Poller.waitKick`, `Poller.kick`
   choosing where to kick), and leaves its connections to the watcher's
   wait, so one thread wakes for an event; with every other worker
-  asleep it sleeps in its own poller and runs its events itself. A
-  watcher keeps the watch from one round to the next while it is
-  wanted, and lets it go as it wakes with work, before it runs the
-  fibers its look took, passing it to one sleeper, which registers the
-  pollers again as it takes it, while the others stay asleep on their
-  kicks. With no watch held, a worker going to sleep kicks those asleep
-  on their kicks alone back to their own pollers (`sched.kickOnly`); a
-  sleeper says it sleeps on its kick before it reads the watch, so it
-  sees no watch or is kicked. A choice made stale as a worker wakes or
+  asleep, or its watcher awake, it sleeps in its own poller and runs
+  its events itself. A watcher keeps the watch from one round to the
+  next while it is wanted, and as it wakes with work keeps it too,
+  registrations and all, unless another worker holding descriptors is
+  awake, kicking any worker asleep on its kick alone back to its own
+  poller (a watch held by an awake worker covers the others again as it
+  sleeps). With a busy owner it lets the watch go before it runs the
+  fibers its look took and passes it to one sleeper, which registers
+  the pollers again as it takes it, while the others stay asleep on
+  their kicks. With no watch held, a worker going to sleep kicks those
+  asleep on their kicks alone back to their own pollers
+  (`sched.kickOnly`); a sleeper says it sleeps on its kick before it
+  reads the watch and its watcher's state, so it sees no watch or an
+  awake watcher, or is kicked. A choice made stale as a worker wakes or
   sleeps leaves its events a waiter, the watcher or the owner, and is
   made again within 1 ms, the longest a sleep on a kick alone lasts.
   A kernel refuses a poller that holds the watcher's (a cycle), as one
@@ -270,7 +275,7 @@ worker after.
   the watches saw:
 
   ```
-  rig: watch: woke 812 by an edge (95 to no work, 3 of them a lock held), ran others' events 640, kicks 40, late 2, looks missed 310; slept on the kick alone 900, let go 700 with work (690 passed on) and 12 without, kicking 15
+  rig: watch: woke 812 by an edge (95 to no work, 3 of them a lock held), ran others' events 640, kicks 40, late 2, looks missed 310; slept on the kick alone 900, let go 70 with work (69 passed on) and 12 without, kept 630 awake, kicking 15
   ```
 
   the watcher's waits a watched poller's edge ended, of them those
@@ -281,8 +286,9 @@ worker after.
   (what the backstop caught); every worker's looks that found a
   poller's lock held; the sleeps on a kick alone; the watches let go of
   as the watcher woke with work, of them those passed to one sleeper,
-  and those let go of without work; and the kicks that sent workers
-  asleep on their kicks alone back to their pollers with no watch held.
+  and those let go of without work; the wakes with work that kept the
+  watch, no other owner being busy; and the kicks that sent workers
+  asleep on their kicks alone back to their pollers.
 
 ## Speed
 

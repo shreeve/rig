@@ -231,12 +231,14 @@ const Worker = struct {
     /// run here cold; its sleeps on its kick alone; watches it let go of
     /// as it woke with work, and without; of those with work, the ones
     /// passed to one sleeper; kicks it sent to sleepers on their kicks
-    /// alone with no watch held (`kickOnly`).
+    /// alone with no watch held (`kickOnly`); and the times it woke with
+    /// work keeping the watch, no other owner being busy.
     nest_cold: u64 = 0,
     kick_waits: u64 = 0,
     released_work: u64 = 0,
     released_idle: u64 = 0,
     release_passes: u64 = 0,
+    kept: u64 = 0,
     release_kicks: u64 = 0,
     /// How long it sleeps before it gives back what its heap holds free
     /// (`trimIdle`).
@@ -2677,19 +2679,20 @@ fn sleepIn(w: *Worker, timeout: ?i96) void {
         }
     }
     nestWatch(w, false, false);
-    // Watched by another while a worker is busy, it sleeps on its kick
-    // alone and leaves its connections to the watcher's wait, so one
+    // Watched by another, asleep, while a worker is busy, it sleeps on
+    // its kick alone and leaves its connections to the watcher's wait, so one
     // thread waits for each event; with every other worker asleep, it
     // waits in its own poller, and runs its events itself. It says so
     // before it reads the watch, and with no watcher held, any worker
     // going to sleep kicks those that say so back to their own pollers
-    // (`kickOnly`), sequentially consistent: it sees the watch gone, or
-    // is kicked. A choice gone stale as another worker wakes or sleeps
+    // (`kickOnly`), as does a watcher that wakes keeping the watch
+    // (`leaveWait`), sequentially consistent: it sees the watch gone or
+    // its watcher awake, or is kicked. A choice gone stale as another worker wakes or sleeps
     // leaves its events a waiter, the watcher or itself, and is made
     // again by `watch_every` at the latest.
     w.poller.only_waits.store(true, .seq_cst);
     const v = watcher.load(.seq_cst);
-    if (v != null and v != w and v.?.nested.load(.seq_cst) & workerBit(w) != 0 and othersAwake(w)) {
+    if (v != null and v != w and v.?.idle.load(.seq_cst) != 0 and v.?.nested.load(.seq_cst) & workerBit(w) != 0 and othersAwake(w)) {
         w.kick_waits += 1;
         w.poller.waitKick(if (timeout) |t| @min(t, watch_every) else watch_every);
         w.poller.only_waits.store(false, .seq_cst);
@@ -3991,16 +3994,16 @@ fn printStats() void {
         _ = std.posix.system.write(2, line.ptr, line.len);
     }
     const sum = watchCounts();
-    const line = std.fmt.bufPrint(&buf, "rig: watch: woke {d} by an edge ({d} to no work, {d} of them a lock held), ran others' events {d}, kicks {d}, late {d}, looks missed {d}; slept on the kick alone {d}, let go {d} with work ({d} passed on) and {d} without, kicking {d}\n", .{ sum[0], sum[1], sum[2], sum[6], sum[3], sum[4], sum[5], sum[7], sum[8], sum[11], sum[9], sum[10] }) catch return;
+    const line = std.fmt.bufPrint(&buf, "rig: watch: woke {d} by an edge ({d} to no work, {d} of them a lock held), ran others' events {d}, kicks {d}, late {d}, looks missed {d}; slept on the kick alone {d}, let go {d} with work ({d} passed on) and {d} without, kept {d} awake, kicking {d}\n", .{ sum[0], sum[1], sum[2], sum[6], sum[3], sum[4], sum[5], sum[7], sum[8], sum[11], sum[9], sum[12], sum[10] }) catch return;
     _ = std.posix.system.write(2, line.ptr, line.len);
 }
 
 /// What the watches saw (`Worker.nest_woke` to `release_kicks`), summed
 /// over the workers.
-fn watchCounts() [12]u64 {
-    var sum: [12]u64 = @splat(0);
+fn watchCounts() [13]u64 {
+    var sum: [13]u64 = @splat(0);
     for (workersNow()) |*w| {
-        for (&sum, [_]u64{ w.nest_woke, w.nest_empty, w.nest_locked, w.nest_kicks, w.nest_late, w.looks_missed, w.nest_cold, w.kick_waits, w.released_work, w.released_idle, w.release_kicks, w.release_passes }) |*s, n| s.* += n;
+        for (&sum, [_]u64{ w.nest_woke, w.nest_empty, w.nest_locked, w.nest_kicks, w.nest_late, w.looks_missed, w.nest_cold, w.kick_waits, w.released_work, w.released_idle, w.release_kicks, w.release_passes, w.kept }) |*s, n| s.* += n;
     }
     return sum;
 }
@@ -4494,7 +4497,7 @@ fn sleep(w: *Worker) void {
         } else waitWoken(w);
         return;
     }
-    defer leaveWait(w);
+    defer leaveWait(w, false);
     // Once asleep `trim_wait`, it gives back what its heap holds free
     // (`trimIdle`), once a sleep, if its heap has grown since its last
     // trim (`trimWorth`); otherwise it sleeps with no timeout of its own.
@@ -4526,7 +4529,7 @@ fn sleep(w: *Worker) void {
                 // worker is; asleep again before its last look for work,
                 // which a thread that adds to `pinned` and finds it awake
                 // does not kick it for.
-                leaveWait(w);
+                leaveWait(w, true);
                 trimIdle(w);
                 w.idle.store(1, .seq_cst);
             }
@@ -4540,12 +4543,28 @@ fn sleep(w: *Worker) void {
 }
 
 /// `w`, asleep, leaves its wait for work of its own: fibers to run, or
-/// a trim of its heap (`sleep`). One that holds the watch takes the
-/// pollers it watched off its own (`nestWatch`) and passes it on;
-/// one that holds descriptors marks itself awake, then has a sleeper
-/// watch if none does (`sleepIn`).
-fn leaveWait(w: *Worker) void {
+/// a trim of its heap (`trim`, `sleep`). One that holds the watch keeps
+/// it, its pollers registered, while no other worker holding
+/// descriptors is awake, so a watch changes hands only for a busy owner,
+/// and kicks any worker asleep on its kick alone back to its own poller,
+/// as such a sleeper waits so only while its watcher sleeps; the
+/// watch's next round begins as it sleeps again. With a busy owner, or
+/// to trim, it takes the pollers it watched off its own (`nestWatch`)
+/// and passes the watch on. One that holds descriptors marks itself
+/// awake, then has a sleeper watch if none does (`sleepIn`).
+fn leaveWait(w: *Worker, trim: bool) void {
     const held = watcher.load(.monotonic) == w;
+    if (held and !trim) {
+        // Awake first, then the look for a busy owner and for sleepers
+        // on their kicks alone, which read `idle` after they say so:
+        // sequentially consistent, so each sees the other.
+        w.idle.store(0, .seq_cst);
+        if (!busyDescriptors(w)) {
+            w.kept += 1;
+            kickOnly(w);
+            return;
+        }
+    }
     if (held) watcher.store(null, .seq_cst);
     nestWatch(w, false, true);
     if (held or w.poller.count.load(.monotonic) != 0) {
@@ -8648,7 +8667,7 @@ const TestWatched = struct {
     }
 
     /// The watch counters of every worker, summed (`watchCounts`).
-    fn counted() [12]u64 {
+    fn counted() [13]u64 {
         return watchCounts();
     }
 };
@@ -9116,7 +9135,7 @@ test "a watcher of nine pollers that wakes with work passes the watch to one sle
         var fds: [n][2]i32 = @splat(.{ -1, -1 });
         var regs: [n]?*Registration = @splat(null);
         var registered_n = std.atomic.Value(u32).init(0);
-        var counts: [12]u64 = @splat(0);
+        var counts: [13]u64 = @splat(0);
         var kick_waits: u64 = 0;
         var wrote: u32 = 0;
         const Unit = struct {};
