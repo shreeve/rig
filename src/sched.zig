@@ -2769,8 +2769,12 @@ fn service(w: *Worker) void {
 }
 
 /// Before a worker sleeps: wake the fibers whose timers are due on any
-/// worker, and those the events of any poller no worker sleeps in make
-/// ready.
+/// worker, and those its own poller's events make ready, and the events
+/// of the poller of any worker stuck awake (`stuckAwake`). A worker that
+/// sleeps in its poller, or has slept in it since the watch began, sees
+/// its own events: another that took them would run their fibers apart
+/// from the worker that holds their descriptors, which then hands work
+/// across cores at every event.
 fn serviceAll() void {
     deliverInterrupt();
     const by = me();
@@ -2779,8 +2783,15 @@ fn serviceAll() void {
     const now = nowNs();
     for (workersNow()) |*v| {
         _ = v.timers.fire(now);
-        if (v.poller.count.load(.monotonic) != 0) _ = v.poller.poll(0);
+        if (v.poller.count.load(.monotonic) != 0 and (by == v or stuckAwake(v))) _ = v.poller.poll(0);
     }
+}
+
+/// Whether `v` is awake and has not slept in its poller since the watch
+/// began (`sleepIn`): so its own looks have not come for as long, as
+/// while it runs one long fiber.
+fn stuckAwake(v: *Worker) bool {
+    return v.idle.load(.seq_cst) == 0 and v.slept.load(.monotonic) == v.watch_mark.load(.monotonic);
 }
 
 /// An interrupt canceled `main` (`rt.onInterrupt`): end its wait, here
@@ -3558,7 +3569,6 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     m.fiber.sp = initialFrame(&m.fiber, top);
     me_slot().* = first;
     if (preempt) preOf(first).tid = rt.threadId();
-    setWorkerQos();
     if (deterministic.*) wake(&m.fiber) else _ = first.ring.push(&m.fiber);
     loop(first);
     // `stopping` is set, so past a raise under way the workers are final.
@@ -3758,20 +3768,7 @@ fn workerCount() usize {
     return @max(1, std.Thread.getCpuCount() catch 1);
 }
 
-/// The quality of service a worker's thread asks of macOS, which places
-/// threads on its performance or efficiency cores by it: work the user
-/// interacts with, so the busy workers of a server are not left on the
-/// efficiency cores (`setWorkerQos`).
-const worker_qos: if (builtin.os.tag.isDarwin()) std.c.qos_class_t else void = if (builtin.os.tag.isDarwin()) .USER_INTERACTIVE else {};
-
-/// On macOS, this thread, a worker, asks for `worker_qos`; elsewhere
-/// nothing.
-fn setWorkerQos() void {
-    if (comptime builtin.os.tag.isDarwin()) _ = std.c.pthread_set_qos_class_self_np(worker_qos, 0);
-}
-
 fn workerMain(w: *Worker) void {
-    setWorkerQos();
     defer rt.fast_alloc.threadExit();
     const alt = rt.AltStack.attachOrStop();
     defer alt.detach();
