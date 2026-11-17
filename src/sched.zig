@@ -2770,8 +2770,12 @@ fn service(w: *Worker) void {
 }
 
 /// Before a worker sleeps: wake the fibers whose timers are due on any
-/// worker, and those the events of any poller no worker sleeps in make
-/// ready.
+/// worker, and those its own poller's events make ready, and the events
+/// of the poller of any worker stuck awake (`stuckAwake`). A worker that
+/// sleeps in its poller, or has slept in it since the watch began, sees
+/// its own events: another that took them would run their fibers apart
+/// from the worker that holds their descriptors, which then hands work
+/// across cores at every event.
 fn serviceAll() void {
     deliverInterrupt();
     const by = me();
@@ -2780,8 +2784,15 @@ fn serviceAll() void {
     const now = nowNs();
     for (workersNow()) |*v| {
         _ = v.timers.fire(now);
-        if (v.poller.count.load(.monotonic) != 0) _ = v.poller.poll(0);
+        if (v.poller.count.load(.monotonic) != 0 and (by == v or stuckAwake(v))) _ = v.poller.poll(0);
     }
+}
+
+/// Whether `v` is awake and has not slept in its poller since the watch
+/// began (`sleepIn`): so its own looks have not come for as long, as
+/// while it runs one long fiber.
+fn stuckAwake(v: *Worker) bool {
+    return v.idle.load(.seq_cst) == 0 and v.slept.load(.monotonic) == v.watch_mark.load(.monotonic);
 }
 
 /// An interrupt canceled `main` (`rt.onInterrupt`): end its wait, here
