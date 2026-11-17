@@ -208,6 +208,29 @@ def framing():
         send('tab before colon', b'POST /c HTTP/1.1\r\n' + h + b'Transfer-Encoding\t: chunked\r\n\r\n0\r\n\r\n' + nxt)
         send('name with a space', b'GET /c HTTP/1.1\r\n' + h + b'X Y: a\r\n\r\n' + nxt)
         send('no colon', b'GET /c HTTP/1.1\r\n' + h + b'Weird\r\n\r\n' + nxt)
+        # A body is read whatever the method.
+        send('get, length 0', b'GET /m HTTP/1.1\r\n' + h + b'Content-Length: 0\r\n\r\n' + nxt)
+        send('get, length 2', b'GET /m HTTP/1.1\r\n' + h + b'Content-Length: 2\r\n\r\nab' + nxt)
+        send('delete, length 2', b'DELETE /m HTTP/1.1\r\n' + h + b'Content-Length: 2\r\n\r\n{}' + nxt)
+        send('options, chunked', b'OPTIONS /m HTTP/1.1\r\n' + h + b'Transfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\n' + nxt)
+        # Chunks as RFC 9112 writes them; every other form is 400, and a
+        # size past the limit 413.
+        te = b'POST /k HTTP/1.1\r\n' + h + b'Transfer-Encoding: chunked\r\n\r\n'
+        send('chunk extension', te + b'3;x=y\r\nabc\r\n0\r\n\r\n' + nxt)
+        send('trailers', te + b'3\r\nabc\r\n0\r\nA: b\r\nC: d\r\n\r\n' + nxt)
+        send('chunk size 2^64-1', te + b'FFFFFFFFFFFFFFFF\r\nX')
+        send('chunk size 17 digits', te + b'00000000000000003\r\nabc\r\n0\r\n\r\n' + nxt)
+        send('chunk bare lf', te + b'3\nabc\r\n0\r\n\r\n' + nxt)
+        send('chunk no size', te + b'\r\n' + nxt)
+        send('chunk size g', te + b'1g\r\n' + nxt)
+        send('chunk size spaced', te + b' 3\r\nabc\r\n0\r\n\r\n' + nxt)
+        send('chunk data unended', te + b'3\r\nabcXX0\r\n\r\n' + nxt)
+        send('short trailer', te + b'0\r\na:b\r\nGET /smuggled HTTP/1.1\r\nX: y\r\n\r\n' + nxt)
+        # A body cut short is not whole: no answer.
+        send('length cut short', b'POST /k HTTP/1.1\r\n' + h + b'Content-Length: 10\r\n\r\nabc', half=True)
+        send('chunks cut short', te + b'3\r\nabc\r\n', half=True)
+        # HTTP/1.0 with chunks closes after its answer.
+        send('1.0 chunked', b'POST /k HTTP/1.0\r\nConnection: keep-alive\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\n' + nxt)
         send('bare lf line', b'GET /c HTTP/1.1\n' + h + b'\r\n' + nxt)
         send('unknown method', b'BREW /c HTTP/1.1\r\n' + h + b'\r\n' + nxt)
         # Up to two empty lines before a request line are skipped.
@@ -353,6 +376,23 @@ space before colon: 400 bad request close
 tab before colon: 400 bad request close
 name with a space: 400 bad request close
 no colon: 400 bad request close
+get, length 0: 200 /m 0, 200 /next 0 close
+get, length 2: 200 /m 2, 200 /next 0 close
+delete, length 2: 200 /m 2, 200 /next 0 close
+options, chunked: 200 /m 3, 200 /next 0 close
+chunk extension: 200 /k 3, 200 /next 0 close
+trailers: 200 /k 3, 200 /next 0 close
+chunk size 2^64-1: 413 content too large close
+chunk size 17 digits: 400 bad request close
+chunk bare lf: 400 bad request close
+chunk no size: 400 bad request close
+chunk size g: 400 bad request close
+chunk size spaced: 400 bad request close
+chunk data unended: 400 bad request close
+short trailer: 400 bad request close
+length cut short: none
+chunks cut short: none
+1.0 chunked: 200 /k 3 close
 bare lf line: 400 bad request close
 unknown method: 400 bad request close
 empty line: 200 /e 0, 200 /next 0 close

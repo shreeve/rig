@@ -229,6 +229,24 @@ frame otherwise is refused, where 0.3.0 read it. These are answered
 - every other head that does not parse, which 0.3.0 closed with no
   answer.
 
+A request's body is read by the headers that frame it, whatever its
+method (RFC 9112 §6.3): a GET, HEAD, DELETE, OPTIONS, TRACE, or CONNECT
+with a `Content-Length` or chunked on a connection kept alive ended the
+whole server, by a failed assertion, and so did a chunk size of
+2^64 - 1, by an overflow. The server reads chunks itself now, as strictly
+as it reads a head: a chunk's size is 1 to 16 hex digits, then nothing
+or `;` and its extensions; every line ends in CRLF; a chunk's data is
+followed by CRLF; and a trailer is a header line, up to the empty line
+that ends the body. Every other form is answered 400, where Zig's
+reader took a bare LF, no digits at all, letters past `f`, and a space
+before or after the size, and ended the trailers at a first line of two
+or three bytes, reading the rest as the next request. Extensions count
+against the body's limit as data does. A body that ends before its
+`Content-Length` says, the client having closed, is not whole and gets
+no answer: it was handed to the handler as complete. An HTTP/1.0
+request that is chunked closes after its answer, and an `Expect` on
+one is passed by.
+
 A request with neither a `Content-Length` nor chunked has no body,
 whatever its method: 0.3.0 panicked, ending the whole server, on a
 POST, PUT, PATCH, or QUERY with neither on a connection kept alive. A
