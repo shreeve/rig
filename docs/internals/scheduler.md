@@ -252,7 +252,14 @@ worker after.
   oldest or nothing, by one swap, and the oldest it displaces goes to
   the ring. The worker runs the newest,
   at most 3 in a row. Filling a slot wakes no worker (`sched.wake`); the
-  task pushed out to the ring does, when none is looking. A worker runs the task
+  task pushed out to the ring does, when none is looking. Of the tasks
+  one look at a poller, or one firing of timers, makes ready, only the
+  first takes a slot; the rest go to the ring, where a worker woken as
+  this one switches to the first (`sched.spread`) steals them at once,
+  where in a slot each would wait out the 3 µs below (`sched.Batch`), as
+  Tokio keeps only the first task its driver wakes for its LIFO slot. A
+  busy worker's yield check puts all it wakes in the ring, and wakes a
+  worker for them. A worker runs the task
   next when it woke the task itself: from its poller or a timer as it
   looks for work, at a task's end, or at a yield check, which yields
   to it when no other worker could take it (below). A task that wakes
@@ -297,12 +304,19 @@ worker after.
   would be faster still, but is safe only for a task whose stack use is
   proven to fit, which Rig does not prove.
 - **Idle workers** steal from a random victim, at most half of them
-  searching at once; one that finds work wakes one more; workers with no
+  searching at once; the last searching to find work wakes one more
+  when other work waits for it, as Tokio's `notify_if_work_pending`
+  does (`sched.workPending`), so a search that took the last fiber wakes
+  no one only to find nothing; workers with no
   work sleep in their poller (below). A worker about to sleep lists
   itself as asleep, then, when none searches, looks once more at the
   global queue and every ring; one that finds work there counts itself
   as searching again, so taking it wakes another for the rest
-  (`sched.sleep`, checked in formal/Models/Sleep.lean as `relook`).
+  (`sched.sleep`). formal/Models/Sleep.lean checks these handshakes
+  with `sched.spread` and the pollers' batches: no worker sleeps while
+  a ring, the global queue, or its pinned queue holds work, and only a
+  task left in a slot beside another, once the searcher that kept
+  `spread` from waking anyone has passed it, waits for the monitor.
 
 ## Stacks
 

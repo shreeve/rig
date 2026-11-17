@@ -13,10 +13,27 @@ def ring3 : Sleep.Config := { workers := 3, budget := 2, ring := true, asleep :=
 def every2 : Sleep.Config :=
   { workers := 2, budget := 2, ring := true, home := true, global := true, outsideHome := true, relook := true }
 
-/-- info: ok: 7734406 states, 23289050 steps, 401 with no step enabled -/
+-- The same with the pollers' batches too, and the monitor.
+def batches2 : Sleep.Config := { every2 with batch := true, monitor := true }
+
+-- Three workers, the others asleep, two pieces from pollers, with a
+-- last look that reads the slots (with the monitor instead, past 30
+-- million states).
+def batches3 : Sleep.Config :=
+  { workers := 3, budget := 2, batch := true, asleep := true, relook := true, lookSlots := true }
+
+/-- info: ok: 3593823 states, 10610794 steps, 375 with no step enabled -/
 #guard_msgs in
 #eval IO.println (explore (Sleep.system ring3) 30000000).summary
 
-/-- info: ok: 1301655 states, 3796476 steps, 119 with no step enabled -/
+/-- info: ok: 1919333 states, 5473026 steps, 217 with no step enabled -/
 #guard_msgs in
 #eval IO.println (explore (Sleep.system every2) 30000000).summary
+
+/-- info: ok: 3800847 states, 10728319 steps, 488 with no step enabled -/
+#guard_msgs in
+#eval IO.println (explore (Sleep.system batches2) 30000000).summary
+
+/-- info: ok: 5918074 states, 17691824 steps, 631 with no step enabled -/
+#guard_msgs in
+#eval IO.println (explore (Sleep.system batches3) 30000000).summary

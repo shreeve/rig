@@ -193,6 +193,9 @@ const Worker = struct {
     /// Set while a yield check wakes the fibers its timers and poller
     /// make ready, which it then yields to (`wake`).
     servicing: bool = false,
+    /// Where the fibers its poller's events and its timers make ready go
+    /// while it hands them out (`Batch`).
+    batch: Batch = .none,
     /// The next worker asleep (`Sleepers`).
     next_sleeper: ?*Worker = null,
     searching: bool = false,
@@ -328,7 +331,9 @@ fn currentOf() ?*Fiber {
 /// slots wakes one (`spread`), and a maker that goes on computing hands
 /// `f` on at the monitor's stop (`afterPreempt`). A worker that
 /// searches also takes a fiber left in a busy worker's slot a while
-/// (`stealNext`). Outside the workers, `f` goes to the global queue.
+/// (`stealNext`). Of the fibers one batch of a poller's events or of
+/// timers makes ready, only the first takes the slot; the others go to
+/// the ring (`Batch`). Outside the workers, `f` goes to the global queue.
 pub const wake = if (preempt) wakeApart else wakeIn;
 
 /// `wake` in a program built to be preempted: never inlined into
@@ -349,6 +354,14 @@ fn wakeIn(f: *Fiber) void {
         global.push(f);
         return notifyNew();
     };
+    if (w.batch != .none and f.home == null) {
+        if (w.batch == .rest) {
+            _ = w.ring.push(f);
+            if (w.servicing) return notifyNew();
+            return countQuiet();
+        }
+        w.batch = .rest;
+    }
     // Into the slot after the newest, which holds the oldest or nothing:
     // the oldest goes to the ring.
     const i = (w.lifo_head.raw +% 1) % run_next_slots;
@@ -363,6 +376,37 @@ fn wakeIn(f: *Fiber) void {
     // After the slot is filled, so a worker that cleared `waiting` either
     // sees the slot full or sees the flag clear here (`takeWaiting`).
     if (waiting.load(.seq_cst) == 0) waiting.store(1, .monotonic);
+}
+
+/// Where a worker puts the fibers one batch makes ready: the events of
+/// a look or a wait in a poller, or the timers it fires, as it looks for
+/// work or at a task's end. The first goes to its "run next" slot, which
+/// it runs next; the others go to its ring, which a worker woken for them
+/// steals from at once, where in a slot each would wait out
+/// `stealNext`'s 3 µs. They wake no worker as they are queued: the worker
+/// wakes one as it switches to the first (`spread`), once it is off the
+/// sleepers' list, so it does not wake itself, as Go readies a poll's
+/// list and starts idle processors for it, and Tokio keeps the first task
+/// its driver wakes for its LIFO slot. A busy worker's batch, at a yield
+/// check or a preemption stop (`serviceBusy`), goes to its ring whole,
+/// and wakes a worker for it at once (`notifyNew`), since the fiber it
+/// stopped may run on. A batch opened
+/// within another (`service`'s look within its timers', a look at each
+/// poller as a worker goes to sleep) is part of it. A fiber that another
+/// makes ready, or that a single event wakes, takes the slot as before.
+const Batch = enum(u8) { none, first, rest };
+
+/// Open a batch on `w`, unless one is open: whether this opened it, so
+/// that the call that opened it closes it (`endBatch`).
+inline fn beginBatch(w: ?*Worker) bool {
+    const v = w orelse return false;
+    if (v.batch != .none) return false;
+    v.batch = if (v.servicing) .rest else .first;
+    return true;
+}
+
+inline fn endBatch(w: ?*Worker, opened: bool) void {
+    if (opened) w.?.batch = .none;
 }
 
 /// Make `f` ready to run after the fibers already ready on this worker,
@@ -530,6 +574,8 @@ fn serviceBusy(w: *Worker) void {
     if (due == no_due and !polls) return;
     w.servicing = true;
     defer w.servicing = false;
+    const opened = beginBatch(w);
+    defer endBatch(w, opened);
     const now = nowNs();
     if (due <= now) _ = w.timers.fire(now);
     if (polls and now - w.polled_at >= poll_interval) {
@@ -1877,6 +1923,9 @@ const Timers = struct {
     /// timer moves to it, and wakes no one (`Deadline.come`).
     fn fire(t: *Timers, now: i96) bool {
         if (t.due.load(.acquire) > now) return false;
+        const by = me();
+        const opened = beginBatch(by);
+        defer endBatch(by, opened);
         t.lock.lockApart();
         defer t.lock.unlockApart();
         var any = false;
@@ -2156,10 +2205,15 @@ const Poller = struct {
     /// and whether `os.exit` claimed it there (`ExitClaim`), so the worker
     /// stops as it wakes, before it reads a single event (`tearDown`).
     parked: std.atomic.Value(ExitClaim) = .init(.awake),
+    /// The events a look or a wait reads, which only the holder of `lock`
+    /// touches: kept here, as nginx keeps its event list, and not on the
+    /// stack, where a safe build would fill them before every call.
+    evs: [max_events]Event = undefined,
 
     const darwin = builtin.os.tag.isDarwin();
     const linux = builtin.os.tag == .linux;
     const max_events = 64;
+    const Event = if (darwin) std.c.Kevent else if (linux) std.os.linux.epoll_event else void;
 
     fn open(p: *Poller) void {
         if (darwin) {
@@ -2336,9 +2390,12 @@ const Poller = struct {
         }
         defer p.lock.unlock();
         const wait: ?i96 = if (!look and p.kicked.swap(false, .seq_cst)) 0 else timeout;
+        const by = me();
+        const opened = beginBatch(by);
+        defer endBatch(by, opened);
         var any = false;
         if (darwin) {
-            var evs: [max_events]std.c.Kevent = undefined;
+            const evs = &p.evs;
             var ts: std.c.timespec = undefined;
             const tp: ?*const std.c.timespec = if (wait) |t| blk: {
                 ts = .{ .sec = @intCast(@divTrunc(t, std.time.ns_per_s)), .nsec = @intCast(@mod(t, std.time.ns_per_s)) };
@@ -2347,7 +2404,7 @@ const Poller = struct {
             // A wait, not a look: `os.exit` may claim this worker while it
             // waits, and it then stops before it reads what woke it.
             if (tears_down and !look) p.parked.store(.waiting, .seq_cst);
-            const n = std.c.kevent(p.fd, &evs, 0, &evs, max_events, tp);
+            const n = std.c.kevent(p.fd, evs, 0, evs, max_events, tp);
             if (tears_down and !look and p.parked.swap(.awake, .seq_cst) == .claimed) stopForExit(me().?, true);
             if (n <= 0) return false;
             for (evs[0..@intCast(n)]) |ev| {
@@ -2372,9 +2429,9 @@ const Poller = struct {
             }
         } else if (linux) {
             const linux_ = std.os.linux;
-            var evs: [max_events]linux_.epoll_event = undefined;
+            const evs = &p.evs;
             const ms: i32 = if (wait) |t| @intCast(@min(@divTrunc(t + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32))) else -1;
-            const rc: isize = @bitCast(linux_.epoll_wait(p.fd, &evs, max_events, ms));
+            const rc: isize = @bitCast(linux_.epoll_wait(p.fd, evs, max_events, ms));
             if (rc <= 0) return false;
             for (evs[0..@intCast(rc)]) |ev| {
                 if (ev.data.ptr == 0) {
@@ -2798,6 +2855,8 @@ fn spendBudgetIn() void {
 /// looks at every 61 turns.
 fn service(w: *Worker) void {
     deliverInterrupt();
+    const opened = beginBatch(w);
+    defer endBatch(w, opened);
     if (w.timers.due.load(.acquire) != no_due) _ = w.timers.fire(nowNs());
     if (w.poller.count.load(.monotonic) != 0) _ = w.poller.poll(0);
 }
@@ -2807,6 +2866,9 @@ fn service(w: *Worker) void {
 /// ready.
 fn serviceAll() void {
     deliverInterrupt();
+    const by = me();
+    const opened = beginBatch(by);
+    defer endBatch(by, opened);
     const now = nowNs();
     for (workersNow()) |*v| {
         _ = v.timers.fire(now);
@@ -3901,10 +3963,10 @@ fn loop(w: *Worker) void {
             continue;
         };
         // Work found: stop searching, and if this worker was the last
-        // searching, wake another to look for more.
+        // searching and more work waits, wake another to look for it.
         if (w.searching) {
             w.searching = false;
-            if (searching.fetchSub(1, .seq_cst) == 1) notify();
+            if (searching.fetchSub(1, .seq_cst) == 1 and workPending(w)) notify();
         }
         runFiber(w, f);
     }
@@ -4014,7 +4076,8 @@ fn next(w: *Worker) ?*Fiber {
 
 /// Steal half of another worker's ring, starting from a random one. At
 /// most half the workers search at once; a worker that finds work, and
-/// was the last searching, wakes another to look for more.
+/// was the last searching, wakes another to look for more while more
+/// waits (`workPending`).
 fn search(w: *Worker) ?*Fiber {
     const ws = workersNow();
     if (ws.len < 2) return null;
@@ -4169,6 +4232,10 @@ fn sleep(w: *Worker) void {
     const since = if (trim_due) nowReal() else 0;
     var trimmed = false;
     defer if (trimmed) rt.fast_alloc.wakeIdle();
+    // What its looks and waits make ready, and the timers it fires, until
+    // it leaves: one batch (`Batch`).
+    const opened = beginBatch(w);
+    defer endBatch(w, opened);
     while (w.woken.load(.seq_cst) == 0) {
         serviceAll();
         if (!hasOwnWork(w)) {
@@ -4264,6 +4331,23 @@ var trim_hook_for_test: ?*const fn () void = null;
 
 fn waitWoken(w: *Worker) void {
     while (w.woken.load(.seq_cst) == 0) _ = w.poller.poll(null);
+}
+
+/// Whether work waits that a worker woken now could take: in the global
+/// queue, or another worker's ring or "run next" slots. Read by the last
+/// searcher after it stops counting itself (`loop`), as Tokio's
+/// `notify_if_work_pending`: a maker that queued work while it searched
+/// woke no one, since one searched, and queued it before it read
+/// `searching`, all sequentially consistent, so either the maker sees no
+/// searcher and wakes a worker itself, or this sees its work. With none,
+/// a woken worker would find nothing and sleep again, a wake and a
+/// context switch spent each time a search ends.
+fn workPending(w: *Worker) bool {
+    if (global.count.load(.seq_cst) != 0) return true;
+    for (workersNow()) |*v| {
+        if (v != w and (!v.ring.isEmpty() or nextHeld(v, .seq_cst))) return true;
+    }
+    return false;
 }
 
 fn hasWork() bool {
@@ -4593,19 +4677,29 @@ const Ring = struct {
     }
 
     /// Take half of `victim`'s ring, rounded up, into this one (empty, its
-    /// owner's), and give the first to run.
+    /// owner's), and give the first to run. As Go's `runqsteal`: the
+    /// others are copied past this ring's tail, where no thief reads,
+    /// then claimed by moving `victim`'s head past them, then published
+    /// by moving this ring's tail. Nothing is written before the victim
+    /// is seen to hold any, so a look at an empty ring costs two loads.
     fn stealFrom(r: *Ring, victim: *Ring) ?*Fiber {
-        var buf: [size / 2 + 1]*Fiber = undefined;
+        const own = r.tail.load(.monotonic);
+        std.debug.assert(r.head.load(.monotonic) == own);
         while (true) {
             const h = victim.head.load(.acquire);
             const t = victim.tail.load(.acquire);
             const avail = t -% h;
             if (avail == 0 or avail > size) return null;
             const n = avail - avail / 2;
-            for (0..n) |i| buf[i] = victim.slots[(h +% @as(u32, @intCast(i))) % size].load(.monotonic) orelse return null;
+            const first = victim.slots[h % size].load(.monotonic) orelse return null;
+            var i: u32 = 1;
+            while (i < n) : (i += 1) {
+                const g = victim.slots[(h +% i) % size].load(.monotonic) orelse return null;
+                r.slots[(own +% i -% 1) % size].store(g, .monotonic);
+            }
             if (victim.head.cmpxchgWeak(h, h +% n, .acq_rel, .monotonic) != null) continue;
-            for (buf[1..n]) |g| _ = r.push(g);
-            return buf[0];
+            if (n > 1) r.tail.store(own +% n -% 1, .seq_cst);
+            return first;
         }
     }
 };
@@ -7477,6 +7571,89 @@ test "a lone worker's yield checks wake the fibers its timers and its poller mak
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expect(Run.napped_in_time);
     try std.testing.expect(Run.read_in_time);
+}
+
+test "of the fibers one look at a poller or one firing of timers makes ready, the first takes a run-next slot and the rest the ring" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        const k = 3;
+        var woke = std.atomic.Value(u32).init(0);
+        /// Fibers in the worker's slots and in its ring, after the look
+        /// and after the firing.
+        var after_look: [2]u32 = .{ 0, 0 };
+        var after_fire: [2]u32 = .{ 0, 0 };
+        const Unit = struct {};
+        fn reader(_: *Unit, r: *Registration) u8 {
+            if (waitReady(r, Registration.readable, edges(r, Registration.readable), null, false) == .ready) _ = woke.fetchAdd(1, .seq_cst);
+            return 0;
+        }
+        fn napper(_: *Unit, until: i96) u8 {
+            commitWait(beginWait(false), until);
+            _ = woke.fetchAdd(1, .seq_cst);
+            return 0;
+        }
+        fn count(w: *Worker) [2]u32 {
+            var held: u32 = 0;
+            for (&w.lifo) |*slot| held += @intFromBool(slot.load(.seq_cst) != null);
+            return .{ held, w.ring.tail.load(.seq_cst) -% w.ring.head.load(.seq_cst) };
+        }
+        /// Yield until the fibers made have begun their waits, or 2 s pass.
+        fn yieldUntil(done: *const fn () bool) void {
+            const until = nowNs() + 2 * std.time.ns_per_s;
+            while (!done() and nowNs() < until) yield();
+        }
+        var rs: [k]*Registration = undefined;
+        fn readersWait() bool {
+            for (rs) |r| if (r.waiting.load(.seq_cst) == 0) return false;
+            return true;
+        }
+        fn nappersWait() bool {
+            return me().?.timers.heap.items.len == k;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            const w = me().?;
+            var fds: [k][2]i32 = undefined;
+            var js: [k]*Job(u8) = undefined;
+            for (0..k) |i| {
+                fds[i] = testPipe();
+                rs[i] = register(fds[i][0]).?;
+                js[i] = spawn(u8, Unit, reader, .{rs[i]}, .{}, false, false).job;
+            }
+            yieldUntil(readersWait);
+            for (fds) |fd| _ = std.posix.system.write(fd[1], "x", 1);
+            // This worker is the only one, and makes no check here: the
+            // look sees every reader's event.
+            _ = w.poller.poll(0);
+            after_look = count(w);
+            for (js) |j| {
+                _ = j.join();
+                j.free();
+            }
+            for (rs, fds) |r, fd| {
+                deregister(r);
+                _ = std.posix.system.close(fd[0]);
+                _ = std.posix.system.close(fd[1]);
+            }
+            const due = nowNs() + 5 * std.time.ns_per_ms;
+            for (0..k) |i| js[i] = spawn(u8, Unit, napper, .{due}, .{}, false, false).job;
+            yieldUntil(nappersWait);
+            while (nowNs() < due) std.atomic.spinLoopHint();
+            _ = w.timers.fire(nowNs());
+            after_fire = count(w);
+            for (js) |j| {
+                _ = j.join();
+                j.free();
+            }
+        }
+    };
+    workers_override.* = 1;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(2 * Run.k, Run.woke.load(.seq_cst));
+    try std.testing.expectEqual([2]u32{ 1, Run.k - 1 }, Run.after_look);
+    try std.testing.expectEqual([2]u32{ 1, Run.k - 1 }, Run.after_fire);
 }
 
 test "a task made while its maker computes runs beside it, from the maker's next yield check" {

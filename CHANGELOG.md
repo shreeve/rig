@@ -742,6 +742,20 @@ arms.
 
 ### Runtime
 
+- **A batch of events wakes one fiber locally and leaves the rest to be
+  stolen:** of the fibers one look at a poller (or one firing of timers)
+  makes ready, the first takes the worker's run-next slot and the rest
+  go to its ring, where an idle worker takes them at once, where before
+  they waited in run-next slots that others reach only after 3 µs. A
+  steal copies straight into the thief's ring, and a look at a poller
+  fills no stack buffer first. The last searcher to find work wakes
+  another only while other work waits (`sched.workPending`), and
+  formal/Models/Sleep.lean models both (`workPending`, `spread`). On
+  pup, an HTTP request costs 4-5% fewer cycles (3-9% fewer than
+  hyper's), and ping-pong and echo run 2-7% faster; on the Mac a
+  request costs 8-9% fewer cycles. The trade: the one-core HTTP
+  ceiling at saturation is 0.05-0.3% lower, about twice the noise a
+  change of code layout makes.
 - **A sleeping worker that trims its heap has another watch its
   descriptors:** out of its wait while it gives its heap's free pages
   back, it counts as awake, and passes the watch on or has another
