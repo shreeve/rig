@@ -607,8 +607,10 @@ fn serviceBusy(w: *Worker) void {
     if (due <= now) _ = w.timers.fire(now);
     if (polls and now - w.polled_at >= poll_interval) {
         w.polled_at = now;
-        if (w.ring_bell.load(.monotonic) != 0) w.ring_bell.store(0, .seq_cst);
+        const rung_ = w.ring_bell.load(.monotonic) != 0;
+        if (rung_) w.ring_bell.store(0, .seq_cst);
         _ = w.poller.poll(0);
+        if (rung_) rearmAnswered(w);
     }
 }
 
@@ -2253,6 +2255,9 @@ const Poller = struct {
     /// the poller is covered (`holdCovers`).
     bell_at: std.atomic.Value(i64) = .init(0),
     bell_ran: std.atomic.Value(u64) = .init(0),
+    /// With `ring_delay`: when the holder read a report it has not yet
+    /// rung for, or 0.
+    ring_at: std.atomic.Value(i64) = .init(0),
     /// The events a look or a wait reads, which only the holder of `lock`
     /// touches: kept here, as nginx keeps its event list, and not on the
     /// stack, where a safe build would fill them before every call.
@@ -2631,11 +2636,17 @@ fn passWatch(from: *Worker) void {
 /// bell unanswered twice as long is taken whatever the worker runs.
 const stuck_after: i96 = 50 * std.time.ns_per_us;
 
-/// How soon after a ring the holder arms its watch again: a busy worker's
-/// poller is ready again almost at once, and each report wakes the
-/// holder, so it reports at most once in this long, and an event behind
-/// a busy worker waits about this long at most, not the watch's 1 ms.
+/// How soon after a ring its holder arms the watch again when the worker
+/// has not answered (`checkBell`); a worker that answers arms it itself,
+/// at once (`rearmAnswered`). A worker whose poller is ready again almost at
+/// once and that does not answer is reported at most once in this long.
 const rearm_after: i96 = 200 * std.time.ns_per_us;
+
+/// How long the holder waits after a report before it rings (0: at
+/// once): events its worker picks up meanwhile, by a look of its own or
+/// going to sleep, cost no ring and no answer. A board variant; while it
+/// waits the poller stays covered (`bell_at`).
+const ring_delay: i96 = 0 * std.time.ns_per_us;
 
 /// Whether a holder covers `v`'s poller: its watch is armed, or it rang
 /// and its holder will check (`checkBell`). Only then do the other
@@ -2707,6 +2718,7 @@ fn releaseHold(w: *Worker) void {
     _ = w.poller.holdChange(v, .delete);
     p.armed.store(false, .seq_cst);
     p.bell_at.store(0, .seq_cst);
+    p.ring_at.store(0, .seq_cst);
     p.holder.store(null, .seq_cst);
 }
 
@@ -2727,6 +2739,7 @@ fn ownerWaits(w: *Worker) void {
     if (p.armed.load(.monotonic)) _ = h.poller.holdChange(w, .disable);
     p.armed.store(false, .seq_cst);
     p.bell_at.store(0, .seq_cst);
+    p.ring_at.store(0, .seq_cst);
 }
 
 /// `w`, having waited in its poller, leaves its sleep to run fibers: its
@@ -2745,6 +2758,7 @@ fn ownerWakes(w: *Worker) void {
     if (!p.armed.load(.monotonic)) _ = h.poller.holdChange(w, .enable);
     p.armed.store(true, .seq_cst);
     p.bell_at.store(0, .seq_cst);
+    p.ring_at.store(0, .seq_cst);
 }
 
 /// A holder's watch reported events waiting in `v`'s poller, and is off
@@ -2763,11 +2777,15 @@ fn rung(v: *Worker) void {
     const by = me();
     if (by) |x| x.rang += 1;
     if (!p.owner_waits.load(.seq_cst)) {
+        const now: i64 = @intCast(nowNs());
         if (p.bell_at.load(.monotonic) == 0) {
             p.bell_ran.store(@atomicLoad(u64, &v.ran, .monotonic), .monotonic);
-            p.bell_at.store(@intCast(nowNs()), .seq_cst);
+            p.bell_at.store(now, .seq_cst);
         }
-        v.ring_bell.store(1, .seq_cst);
+        const holder_reads = by != null and p.holder.load(.monotonic) == by;
+        if (ring_delay != 0 and holder_reads) {
+            if (p.ring_at.load(.monotonic) == 0) p.ring_at.store(now, .seq_cst);
+        } else v.ring_bell.store(1, .seq_cst);
     }
     p.hold_lock.lock();
     p.armed.store(false, .seq_cst);
@@ -2791,6 +2809,10 @@ fn bellDue(w: *Worker) ?i96 {
     const v = w.holds orelse return null;
     const at: i96 = v.poller.bell_at.load(.seq_cst);
     if (at == 0) return null;
+    if (ring_delay != 0 and !v.poller.owner_waits.load(.monotonic)) {
+        const r: i96 = v.poller.ring_at.load(.seq_cst);
+        if (r != 0) return if (ownerQueued(v)) r else r + ring_delay;
+    }
     if (v.ring_bell.load(.monotonic) == 0 or v.poller.owner_waits.load(.monotonic)) return at + rearm_after;
     if (ownerQueued(v)) return at;
     const ran = @atomicLoad(u64, &v.ran, .monotonic);
@@ -2809,6 +2831,19 @@ fn checkBell(w: *Worker) void {
     const at: i96 = p.bell_at.load(.seq_cst);
     if (at == 0) return;
     const since = nowNs() - at;
+    if (ring_delay != 0) {
+        const r: i96 = p.ring_at.load(.seq_cst);
+        if (r != 0) {
+            if (p.owner_waits.load(.seq_cst)) {
+                p.ring_at.store(0, .seq_cst);
+            } else if (ownerQueued(v) or nowNs() - r >= ring_delay) {
+                // Ring now; with work queued the take below follows at once.
+                p.ring_at.store(0, .seq_cst);
+                v.ring_bell.store(1, .seq_cst);
+                if (!ownerQueued(v)) return;
+            } else return;
+        }
+    }
     const unanswered = !p.owner_waits.load(.seq_cst) and v.ring_bell.load(.seq_cst) != 0;
     // Work queued behind the worker's fiber: the events would wait behind
     // it, so this worker, idle, takes them now.
@@ -2855,6 +2890,25 @@ noinline fn answerBell(w: *Worker) void {
     const opened = beginBatch(w);
     defer endBatch(w, opened);
     _ = w.poller.poll(0);
+    rearmAnswered(w);
+}
+
+/// `w` has answered its bell with a look at its poller, which took what
+/// waited there: its holder's watch goes on again at once, so an event
+/// after the look is reported, with no window in which no one watches.
+/// An event that came between the look and this reports as the watch
+/// goes on, as a kqueue or epoll reports a descriptor already readable.
+fn rearmAnswered(w: *Worker) void {
+    const p = &w.poller;
+    if (p.holder.load(.seq_cst) == null) return;
+    p.hold_lock.lock();
+    defer p.hold_lock.unlock();
+    const h = p.holder.load(.monotonic) orelse return;
+    if (p.owner_waits.load(.seq_cst)) return;
+    if (!p.armed.load(.monotonic)) _ = h.poller.holdChange(w, .enable);
+    p.armed.store(true, .seq_cst);
+    p.bell_at.store(0, .seq_cst);
+    if (ring_delay != 0) p.ring_at.store(0, .seq_cst);
 }
 
 /// Test only: how many times a worker answered its bell.
@@ -3192,8 +3246,10 @@ fn service(w: *Worker) void {
     if (w.timers.due.load(.acquire) != no_due) _ = w.timers.fire(nowNs());
     if (w.poller.count.load(.monotonic) != 0) {
         // A look answers a bell rung before it.
-        if (w.ring_bell.load(.monotonic) != 0) w.ring_bell.store(0, .seq_cst);
+        const rung_ = w.ring_bell.load(.monotonic) != 0;
+        if (rung_) w.ring_bell.store(0, .seq_cst);
         _ = w.poller.poll(0);
+        if (rung_) rearmAnswered(w);
     }
 }
 
@@ -4607,7 +4663,9 @@ fn sleep(w: *Worker) void {
     const opened = beginBatch(w);
     defer endBatch(w, opened);
     while (w.woken.load(.seq_cst) == 0) {
-        if (w.holds == null and workersNow().len >= 2) holdPoller(w);
+        // Only a worker with nothing of its own to run holds: a busy one
+        // would only pay for the hold (`holdPoller`).
+        if (w.holds == null and workersNow().len >= 2 and !hasOwnWork(w)) holdPoller(w);
         serviceAll();
         if (!hasOwnWork(w)) {
             w.sleep_due.store(no_due, .seq_cst);
@@ -8875,6 +8933,92 @@ test "a holder takes at once the events of a busy worker that has work queued be
     // Before `stuck_after`: taken for the work queued, not for a stuck fiber.
     try std.testing.expect(Run.best < stuck_after);
     try std.testing.expect(Run.on != null and Run.on != Run.t.home);
+}
+
+test "a busy worker that switches answers each of a stream of events its holder rings for, with no window after an answer" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const n = 20;
+    const Run = struct {
+        var held = false;
+        var fds: [2]i32 = .{ -1, -1 };
+        var wrote: [n]std.atomic.Value(i64) = @splat(.init(0));
+        var lat: [n]i64 = @splat(0);
+        var got = std.atomic.Value(u32).init(0);
+        var best: i64 = std.math.maxInt(i64);
+        var r: ?*Registration = null;
+        const Unit = struct {};
+        /// Reads every byte, each its number, and notes how long after its
+        /// write it read it.
+        fn reader(_: *Unit) u8 {
+            var buf: [n]u8 = undefined;
+            while (got.load(.seq_cst) < n) {
+                const seen = edges(r.?, Registration.readable);
+                const k: isize = @bitCast(std.posix.system.read(fds[0], &buf, buf.len));
+                if (k <= 0) {
+                    if (waitReady(r.?, Registration.readable, seen, nowNs() + 2 * std.time.ns_per_s, false) != .ready) return 0;
+                    continue;
+                }
+                const now: i64 = @intCast(nowNs());
+                for (buf[0..@intCast(k)]) |b| lat[b] = now - wrote[b].load(.seq_cst);
+                _ = got.fetchAdd(@intCast(k), .seq_cst);
+            }
+            return 0;
+        }
+        /// A byte every 60 µs: within the 200 µs a holder waited before
+        /// it armed its watch again after a ring.
+        fn writer() void {
+            for (0..n) |i| {
+                const until = nowNs() + 60 * std.time.ns_per_us;
+                while (nowNs() < until) std.atomic.spinLoopHint();
+                wrote[i].store(@intCast(nowNs()), .seq_cst);
+                const b = [1]u8{@intCast(i)};
+                _ = std.posix.system.write(fds[1], &b, 1);
+            }
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            const home = pinHere().?;
+            var rounds: u32 = 0;
+            while (rounds < 5 and best >= 100 * std.time.ns_per_us) : (rounds += 1) {
+                fds = testPipe();
+                r = register(fds[0]).?;
+                got.store(0, .seq_cst);
+                const j = spawn(u8, Unit, reader, .{}, .{}, false, false).job;
+                const ready_by = nowNs() + 2 * std.time.ns_per_s;
+                testNap(std.time.ns_per_ms);
+                while (r.?.waiting.load(.seq_cst) == 0 and nowNs() < ready_by) testNap(std.time.ns_per_ms);
+                while (nowNs() < ready_by and (home.poller.holder.load(.seq_cst) == null or sleepers.count.load(.seq_cst) + 1 < workersNow().len)) std.atomic.spinLoopHint();
+                held = held or home.poller.holder.load(.seq_cst) != null;
+                const th = std.Thread.spawn(.{}, writer, .{}) catch unreachable;
+                // Switches every 10 µs, looking at its poller only when rung.
+                const give_up = nowNs() + 2 * std.time.ns_per_s;
+                while (got.load(.seq_cst) < n and nowNs() < give_up) {
+                    const until = nowNs() + 10 * std.time.ns_per_us;
+                    while (nowNs() < until) std.atomic.spinLoopHint();
+                    yield();
+                }
+                th.join();
+                if (got.load(.seq_cst) == n) {
+                    var most: i64 = 0;
+                    for (lat) |l| most = @max(most, l);
+                    best = @min(best, most);
+                }
+                _ = j.join();
+                j.free();
+                deregister(r.?);
+                _ = std.posix.system.close(fds[0]);
+                _ = std.posix.system.close(fds[1]);
+            }
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.held);
+    // Every byte of the stream within 100 µs: none waits out a window
+    // after an answer in which no one watches.
+    try std.testing.expect(Run.best < 100 * std.time.ns_per_us);
 }
 
 test "a busy worker that switches answers the bell its holder rings, and runs the event itself" {

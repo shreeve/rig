@@ -182,9 +182,12 @@ worker after.
   100 µs in all, or at once when the worker has work queued behind the
   fiber it runs (fibers in its slots or ring), which the events would
   wait behind, the holder takes the events and runs their fibers itself
-  (`sched.checkBell`). It arms its watch again no sooner than
-  200 µs after a ring: a busy worker's poller is ready again almost at
-  once, and each report wakes the holder. The watch is armed only while
+  (`sched.checkBell`). A worker that answers its bell arms the watch
+  again itself, at once, as its look has just taken what waited
+  (`sched.rearmAnswered`); one that does not answer is reported again no
+  sooner than 200 µs after the ring. Only a worker with nothing of its
+  own to run takes a hold, so at saturation, every worker busy, none is
+  held. The watch is armed only while
   the worker is out of its sleep: before its first wait it turns it
   off, since the wait sees the events itself, and on again as it
   leaves; each side stores its own flag, then reads the other's
