@@ -262,7 +262,10 @@ worker after.
   would be faster still, but is safe only for a task whose stack use is
   proven to fit, which Rig does not prove.
 - **Idle workers** steal from a random victim, at most half of them
-  searching at once; one that finds work wakes one more; workers with no
+  searching at once; the last searching to find work wakes one more
+  when other work waits for it, as Tokio's `notify_if_work_pending`
+  does (`sched.workPending`), so a search that took the last fiber wakes
+  no one only to find nothing; workers with no
   work sleep in their poller (below). A worker about to sleep lists
   itself as asleep, then, when none searches, looks once more at the
   global queue and every ring; one that finds work there counts itself
