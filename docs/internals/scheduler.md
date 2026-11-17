@@ -134,7 +134,20 @@ worker after.
   filter) the writer, and a hang-up or failure both, so a split stream's
   reader sleeps on after its writer closes. A wait spends from a budget
   of 128 when it need not wait, so a descriptor always ready cannot keep
-  it on its worker.
+  it on its worker. On macOS
+  every call on a poller is a `kevent64`, and a look passes
+  `KEVENT_FLAG_IMMEDIATE`: a `kevent` with a zero timeout that finds no
+  event gives up the thread, about 12 µs and a context switch a look
+  (macOS 27), where the immediate form takes about 0.16 µs; and a
+  kqueue answers only the form it was first called with, so none is
+  mixed. A look that returns at once leaves a worker going to sleep in
+  a wait with no deadline, which macOS wakes about 2 µs later than one
+  that ends within about 50 µs; so a worker that holds descriptors and
+  whose last wait ended with work within 50 µs, as one answering a
+  socket of its own program does, waits first for at most 20 µs, and
+  then as long as it must (`sched.settle_wait`). A worker whose waits
+  last, as a server's under load from outside, or that holds no
+  descriptors, waits with no deadline of its own.
 - **Pinned fibers.** A local task, and the task that makes it, are
   pinned to its worker (`Fiber.home`, `sched.pinHere`). A pinned fiber
   that is ready waits in its worker's pinned queue, never a ring or the
