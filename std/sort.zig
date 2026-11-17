@@ -145,9 +145,15 @@ pub inline fn natural_run(comptime T: type, xs: []T, a: i64, good: i64, less: an
     if (len < 2 or len < good) return 0;
     var n: usize = 2;
     const falling = lt(less, &v[1], &v[0]);
+    // Four steps a turn, the rest one at a time: on sorted and reversed
+    // records the scan of one step a turn ran half again as long.
     if (falling) {
+        while (n + 4 <= len and lt(less, &v[n], &v[n - 1]) and lt(less, &v[n + 1], &v[n]) and
+            lt(less, &v[n + 2], &v[n + 1]) and lt(less, &v[n + 3], &v[n + 2])) n += 4;
         while (n < len and lt(less, &v[n], &v[n - 1])) n += 1;
     } else {
+        while (n + 4 <= len and !lt(less, &v[n], &v[n - 1]) and !lt(less, &v[n + 1], &v[n]) and
+            !lt(less, &v[n + 2], &v[n + 1]) and !lt(less, &v[n + 3], &v[n + 2])) n += 4;
         while (n < len and !lt(less, &v[n], &v[n - 1])) n += 1;
     }
     if (n < good) return 0;

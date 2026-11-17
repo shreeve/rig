@@ -116,55 +116,62 @@ with no branch. Against `std.mem.order` (the port's first board,
 rounds, before the text compare and the helpers' checks), random text
 views sort 4.3 times as fast at 65,536 and sorted ones 6.3 times.
 
-[board-stable-drift.tsv](board-stable-drift.tsv), `new` against the
-buffered merge (`base`, #1114) and Rust's `sort_by` (Rust's two arms
-within 1.3% of each other on every row but text):
+[board-stable-drift.tsv](board-stable-drift.tsv), 20 rounds, `new`
+against the buffered merge (`base`, #1114) and Rust's `sort_by`
+(Rust's two arms within 2% of each other on every row but four of
+text and sorted records at 65,536, 4.7%):
 
 | row | n | base | new | Rust |
 |---|---|---|---|---|
-| rec rand | 1,024 | 29.30 | 8.26 | 8.30 |
-| rec rand | 2^20 | 52.04 | 15.28 | 15.38 |
-| int rand | 1,024 | 24.73 | 7.41 | 7.01 |
-| int rand | 2^20 | 43.85 | 12.49 | 12.25 |
-| str rand | 2^20 | 137.18 | 44.66 | 85.64 |
-| rec dups | 1,024 | 26.25 | 2.95 | 3.12 |
-| rec dups | 2^20 | 34.91 | 3.51 | 3.49 |
-| int dups | 1,024 | 22.68 | 2.55 | 2.32 |
-| int dups | 2^20 | 30.64 | 2.38 | 2.34 |
-| rec rev | 1,024 | 0.42 | 0.48 | 0.40 |
-| rec rev | 2^20 | 0.45 | 0.47 | 0.45 |
-| int rev | 1,024 | 0.40 | 0.34 | 0.33 |
-| rec sorted | 2^20 | 0.23 | 0.24 | 0.23 |
+| rec rand | 1,024 | 29.20 | 8.33 | 8.31 |
+| rec rand | 2^20 | 52.25 | 15.31 | 15.36 |
+| int rand | 1,024 | 24.81 | 7.44 | 7.00 |
+| int rand | 2^20 | 43.57 | 12.48 | 12.21 |
+| str rand | 2^20 | 137.86 | 45.07 | 85.43 |
+| rec dups | 1,024 | 26.27 | 2.95 | 3.12 |
+| int dups | 1,024 | 22.58 | 2.54 | 2.32 |
+| int dups | 2^20 | 30.53 | 2.38 | 2.35 |
+| rec rev | 1,024 | 0.42 | 0.34 | 0.40 |
+| rec rev | 2^20 | 0.45 | 0.37 | 0.45 |
+| int rev | 1,024 | 0.40 | 0.22 | 0.33 |
+| rec sorted | 2^20 | 0.23 | 0.16 | 0.23 |
+| int sorted | 2^20 | 0.23 | 0.12 | 0.23 |
 
-Against the buffered merge every random and 16-valued row is 3.3 to
-15 times as fast, text 2.2 to 6.6 times (it gains the compare too),
-reversed Ints 12 to 17% faster; reversed records are 15 to 28% slower
-at 1,024 and 4,096 (0.06 to 0.10 ns an element) and 5 to 7% from
-65,536, and sorted input is level within 0.01 ns.
+Every row is faster than the buffered merge, by 9% at the least:
+random and 16-valued input 3.3 to 15 times as fast, text 2.2 to 7.5
+times, sorted input 42% faster to 2.1 times as fast, reversed input
+10% faster to 1.8 times as fast.
 
-Against Rust, 49 of the 64 rows are within 2% or faster: text 1.4 to
-2.5 times as fast (random text 1.6 to 1.9 times), random and
-16-valued records within 1% or faster (16-valued records of 1,024
-and 4,096 4 to 6% faster), sorted input within 1.8%, 16-valued Ints
-from 65,536 within 1.6%. Slower: random Ints by 2.0 to 5.8%,
-reversed Ints by 0.6 to 5.6%, 16-valued Ints of 1,024 and 4,096 by
-6.3 to 9.9%, and reversed records by 21 to 25% at 1,024 and 4,096
-(6 to 8% from 65,536).
+Against Rust, 58 of the 64 rows are within 2% or faster: text 1.4 to
+2.6 times as fast (random text 1.6 to 1.9 times), sorted input 42%
+faster to twice as fast, reversed input 9 to 53% faster, random and
+16-valued records within 1.2% or faster, 16-valued Ints from 65,536
+within 1.6%. Slower: random Ints by 2.1 to 6.2%, 16-valued Ints of
+1,024 and 4,096 by 4.5 to 9.4%.
+
+**The run scan.** The scan of a natural run takes four steps a turn,
+then one at a time: `lt(v[n], v[n-1]) and lt(v[n+1], v[n]) and ...`.
+Taken one step a turn, as Rust's `find_existing_run` and the ceiling
+take it, the port read reversed records of 1,024 and 4,096 15 to 19%
+slower than the buffered merge, whose Rig loop is the same one step;
+none of seven other changes reached it (the reverse four, two, or one
+element at a time, as words or 32-byte vectors, the buffered merge's
+own scan and swaps placed first, the setup skipped for one run), and
+even the buffered merge's own code read 13 to 18% slower in this
+`sort_by`, so the loop's speed followed where it fell, not what it
+did. Four steps a turn made sorted and reversed input 15 to 50%
+faster than both, at 4 to 8 more comparisons at each run's end
+(44,169 for the panic test's sort, from 44,023).
 
 **Where the port trails.** The kernels compile to the ceiling's code
 (the partition, small-sort, and merge loops in the bench binary are
 the ceiling's instruction for instruction), and the driver is not the
-cost (the all-Zig variant). The rows left are small sorts and
-reversed input. Per call, Rig's sort costs about 600 instructions more
+cost (the all-Zig variant). The rows left are random and small
+16-valued Ints. Per call, Rig's sort costs about 600 instructions more
 than the ceiling's at 21 elements (its arrays zeroed, the room from
 Rig's allocator, where Rust and the ceiling use a 4 KB stack buffer
 below 4 KB of scratch): about 0.15 ns an element at 1,024, most of the
-16-valued Ints' gap there. Reversed records are the reverse of one
-run; the ceiling, with the same kernel, is 5 to 8% slower than Rust's
-vectorized slice reverse at 1,024 and 4,096, and the port reads 0.06
-ns an element more again, which this round did not place (a room from
-malloc changed nothing; a reverse one element at a time was slower).
-Shrinking the sort's frame (byte depths, 48 partitions) made the
+16-valued Ints' gap there. Shrinking the sort's frame (byte depths, 48 partitions) made the
 random and 16-valued rows 1 to 7% faster than the board before it
 ([board-stable-drift-first.tsv](board-stable-drift-first.tsv) is the
 port's first): a smaller frame for the `main` the sort is inlined
@@ -175,15 +182,13 @@ into, which suggests the Ints' remaining 2 to 6% is of the same kind.
 `sort` of identity types did not change in source, and its text rows
 gain the compare: random, sorted, and reversed text 1.3 to 4.4 times
 as fast, 16-valued text level
-([board-unstable-drift.tsv](board-unstable-drift.tsv), 8 rounds).
-Three rows read 2.4 to 4.6% slower there (Ints reversed at 4,096 and
-2^20, objects sorted at 2^22); over 20 rounds with an A/A arm
-([board-unstable-drift-ab.tsv](board-unstable-drift-ab.tsv)) every
-row of those patterns is within the A/A's spread (the A/A itself up
-to 4.2%, objects sorted at 2^22, where the new arm reads the same
-4.2%). An earlier build of this branch read objects sorted at 65,536
-and 2^20 4.1% slower in the bench binary and level in a program that
-sorts only with `sort` ([programs/rsortu.rig](programs/rsortu.rig),
-[board-unstable-drift-only.tsv](board-unstable-drift-only.tsv)):
-placement, from the stable sort inlined into the same `main`, as
-built.md found.
+([board-unstable-drift.tsv](board-unstable-drift.tsv), 10 rounds).
+Over 20 rounds with an A/A arm
+([board-unstable-drift-ab.tsv](board-unstable-drift-ab.tsv), the rows
+that read slower and their neighbours), the bench binary reads objects
+sorted 3.1 to 7.6% slower (the A/A up to 4.9%) and every other row
+within 2.3%; the same rows in a program that sorts only with `sort`
+([programs/rsortu.rig](programs/rsortu.rig), columns `only` and
+`onlybase`) are within 2% or faster on every row. Placement, from the
+stable sort inlined into the same `main`, as built.md found: `sort`'s
+code is the same.

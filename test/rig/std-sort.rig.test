@@ -541,7 +541,7 @@ test "sort keeps every element under a comparator that is no order", "true"
 
 bomb "sort stops at a comparator's panic mid-partition with nothing dropped twice", "panic: compared too far", prints: "sorting"
   # The 4,096 Strings fit in the room, so the sort is one quicksort of
-  # 44,023 comparisons, the first partition's 4,096 starting after some
+  # 44,169 comparisons, the first partition's 4,096 starting after some
   # 40 that choose its pivot: the panic comes midway through that
   # partition, with about half the Strings copied to the room and still
   # in the slice. A panic runs no drop, so neither copy is freed.

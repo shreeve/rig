@@ -752,15 +752,16 @@ arms.
   unchecked inside, each element moved exactly once whatever the
   comparator answers. The sort is inline throughout, so the comparator
   is inlined into it at each call. It replaces insertion runs of 20
-  merged in place by rotations. On the Mac, against that merge sort,
-  random records are 13 times as fast at a million (196.77 to 15.28 ns
-  per element), random Ints 15 times, random text 6.7 times, reversed
-  input 31 times, 16-valued input 19 to 29 times; against Rust's
-  `sort_by`, 49 of 64 rows are within 2% or faster: random text 1.6
-  to 1.9 times as fast, random and 16-valued records and sorted input
-  level, random Ints 2 to 6% slower, 16-valued Ints of 1,024 to 4,096
-  elements 6 to 10% slower, and reversed records 21 to 25% slower at
-  1,024 to 4,096 and 6 to 8% from 65,536
+  merged in place by rotations. A natural run is scanned four steps a
+  turn. On the Mac, against that merge sort, random records are 13
+  times as fast at a million (196.77 to 15.31 ns per element), random
+  Ints 15 times, random text 6.7 times, reversed input 39 times,
+  16-valued input 19 to 29 times; against the buffered merge before it
+  every row is faster, by 9% at the least. Against Rust's `sort_by`, 58
+  of 64 rows are within 2% or faster: random text 1.6 to 1.9 times as
+  fast, sorted input 42% faster to twice as fast, reversed input 9 to
+  53% faster, random and 16-valued records level; random Ints are 2 to
+  6% slower, and 16-valued Ints of 1,024 to 4,096 elements 5 to 9%
   (docs/history/records/2026-11/std-sort/drift.md).
 - **Text `<`, `<=`, `>`, and `>=` compare eight bytes at a time**:
   from 8 bytes in common as big-endian words, the last word overlapping

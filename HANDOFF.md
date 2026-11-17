@@ -122,10 +122,10 @@ A new session, human or agent, takes these steps in order:
   loops. Text `<` compares eight bytes at a time (`rig.textLess`). The
   Zig ceiling (record's `programs/drift.zig`) is within 2% of Rust or
   faster on 39 of 48 rows (reversed input of a few thousand 7 to 8%
-  slower); Rig's port is within 2% or faster on 49 of 64 rows (text
-  1.6 to 1.9 times as fast, records level), 2 to 10% slower on random
-  and small 16-valued Ints, 21 to 25% on reversed records of a few
-  thousand.
+  slower); Rig's port is faster than the buffered merge on every row,
+  and within 2% of Rust or faster on 58 of 64 (text 1.6 to 1.9 times
+  as fast, sorted and reversed input faster, records level), 2 to 9%
+  slower on random and small 16-valued Ints.
   Waits on the core suite, the Trig and loco light gates, and the
   owner. Records: `docs/history/records/2026-11/std-sort/drift.md`.
 - **`task.all` of tasks that give no value** (branch `task-all-subs`;
