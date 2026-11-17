@@ -39,15 +39,18 @@ sub main()!
   _ = >ts!
 EOF
 
-# A task that never waits keeps its worker from stopping.
+# Tasks that never wait keep their workers from stopping. Main exits once
+# each has said it started, not after a nap, which on a loaded machine
+# can end before any has run.
 cat >running.rig <<'EOF'
 use std.os
-use std.time
 
 obj Big
   t: Table[Int, 4000000]
 
-sub spin()
+# Says it has started, then never waits again.
+sub spin(started: *Chan[Int])!
+  !started.send(1)!
   n = 0
   while n >= 0
     n = (n + 1) % 1000
@@ -58,10 +61,15 @@ sub main()!
     b = Big(t: Table())
     !b.t.push(i)
     !keep.push(<b)
-  a = spin()&
-  time.sleep(ms: 5)!
+  started = *Chan[Int](3)
+  ts = Tasks[Void!]()
+  for _ in 0..3
+    !ts.add(spin(+started)&)
+  for _ in 0..3
+    _ = !started.recv()!
   print("exiting", keep.len)
   os.exit(6)
+  >ts!
 EOF
 
 # Little to free: waking the workers would cost more than it saves.
