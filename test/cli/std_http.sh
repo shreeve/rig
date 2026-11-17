@@ -1,9 +1,9 @@
 # std.http.serve's limits, with a client in Python: an idle connection
 # and a slow request head are closed after their timeouts, a stalled
 # body after the idle one; bodies up to the limit are read and larger
-# ones answered 413, chunked or not; a request with neither a length
-# nor chunked has no body; and running out of descriptors pauses
-# accepting rather than ending the server. The limits are set
+# ones answered 413, chunked or not; a request's body is framed as RFC
+# 9112 says, and a head it refuses is answered 400; and running out of
+# descriptors pauses accepting rather than ending the server. The limits are set
 # small through the environment (RIG_HTTP_IDLE_MS, RIG_HTTP_HEAD_MS,
 # RIG_HTTP_MAX_BODY); in debug and --release.
 # timeout: 300
@@ -183,6 +183,24 @@ def framing():
         send('no length', b'POST /p HTTP/1.1\r\n' + h + b'\r\n' + nxt)
         send('no length, put', b'PUT /p HTTP/1.1\r\n' + h + b'\r\n' + nxt)
         send('no length, half-closed', b'POST /p HTTP/1.1\r\n' + h + b'\r\n', half=True)
+        # A Transfer-Encoding that does not end in chunked: 400.
+        send('gzip', b'GET /g HTTP/1.1\r\n' + h + b'Transfer-Encoding: gzip\r\n\r\n' + nxt)
+        send('gzip, post', b'POST /g HTTP/1.1\r\n' + h + b'Transfer-Encoding: gzip\r\n\r\n' + nxt, half=True)
+        send('chunked, gzip', b'POST /g HTTP/1.1\r\n' + h + b'Transfer-Encoding: chunked, gzip\r\n\r\n0\r\n\r\n' + nxt)
+        send('none', b'GET /g HTTP/1.1\r\n' + h + b'Transfer-Encoding: none\r\n\r\n' + nxt)
+        send('gzip, chunked', b'POST /g HTTP/1.1\r\n' + h + b'Transfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n' + nxt)
+        # A length and chunked: read as chunked, then closed.
+        send('both', b'POST /b HTTP/1.1\r\n' + h + b'Content-Length: 4\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\nGET /smuggled HTTP/1.1\r\n' + h + b'\r\n')
+        # A length that is not digits: 400.
+        for v in [b'1_0', b'+3', b'-0', b'0x3', b' ']:
+            send('length %r' % v.decode(), b'POST /l HTTP/1.1\r\n' + h + b'Content-Length: ' + v + b'\r\n\r\nabcdefghij' + nxt)
+        send('length 007', b'POST /l HTTP/1.1\r\n' + h + b'Content-Length: 007\r\n\r\nabcdefg' + nxt)
+        # A CR, LF, or NUL that ends no line: 400.
+        send('bare lf', b'POST /c HTTP/1.1\r\n' + h + b'X: a\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n' + nxt)
+        send('bare cr', b'GET /c HTTP/1.1\r\n' + h + b'X: a\rb\r\n\r\n' + nxt)
+        send('nul', b'GET /c HTTP/1.1\r\n' + h + b'X: a\x00b\r\n\r\n' + nxt)
+        send('bare lf line', b'GET /c HTTP/1.1\n' + h + b'\r\n' + nxt)
+        send('unknown method', b'BREW /c HTTP/1.1\r\n' + h + b'\r\n' + nxt)
         send('after', nxt)
         out.append('alive %s' % (p.poll() is None))
         print('\n'.join(out))
@@ -294,6 +312,23 @@ stalled True
 want_framing="no length: 200 /p 0, 200 /next 0 close
 no length, put: 200 /p 0, 200 /next 0 close
 no length, half-closed: 200 /p 0
+gzip: 400 bad request close
+gzip, post: 400 bad request close
+chunked, gzip: 400 bad request close
+none: 400 bad request close
+gzip, chunked: 200 /g 0, 200 /next 0 close
+both: 200 /b 0 close
+length '1_0': 400 bad request close
+length '+3': 400 bad request close
+length '-0': 400 bad request close
+length '0x3': 400 bad request close
+length ' ': 400 bad request close
+length 007: 200 /l 7, 200 /next 0 close
+bare lf: 400 bad request close
+bare cr: 400 bad request close
+nul: 400 bad request close
+bare lf line: 400 bad request close
+unknown method: 400 bad request close
 after: 200 /next 0 close
 alive True"
 for mode in debug release; do
