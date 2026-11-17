@@ -1395,11 +1395,15 @@ any case, or by a
 whatever its method, and one with both is read as chunked and its
 connection closed after the answer, since a proxy in front may have
 framed it by its length. A head that does not parse, holds a CR, LF,
-or NUL that ends no line, or names a Transfer-Encoding not ending in
-`chunked` or a length not digits, is answered 400 and its connection
-closed; up to two empty lines before a request line are skipped. A handler's status below 200, which would be an interim answer
-or none, and an `.other` type holding a CR, LF, or NUL, are answered
-500.
+or NUL that ends no line, a header line with no colon or a name that
+is no token (as one with a space before its colon), or names a
+Transfer-Encoding not ending in `chunked` or a length not digits, is
+answered 400 and its connection closed; up to two empty lines before a
+request line are skipped. A handler's status below 200, which would be
+an interim answer or none, and an `.other` type holding a CR, LF, or
+NUL, are answered 500. A 204 or a 304 is sent as its status line
+alone, with no length, type, or body, whatever the handler gave: a
+client reads no body after either.
 
 ## std.target
 

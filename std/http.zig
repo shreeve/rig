@@ -38,7 +38,7 @@ pub fn header_of(head: []const u8, name: []const u8) ?rig.String {
     _ = it.next();
     while (it.next()) |line| {
         const colon = std.mem.findScalar(u8, line, ':') orelse continue;
-        if (!std.ascii.eqlIgnoreCase(std.mem.trim(u8, line[0..colon], " \t"), name)) continue;
+        if (!std.ascii.eqlIgnoreCase(line[0..colon], name)) continue;
         return fresh(std.mem.trim(u8, line[colon + 1 ..], " \t"));
     }
     return null;

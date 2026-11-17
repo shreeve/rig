@@ -202,6 +202,12 @@ def framing():
         send('bare lf', b'POST /c HTTP/1.1\r\n' + h + b'X: a\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n' + nxt)
         send('bare cr', b'GET /c HTTP/1.1\r\n' + h + b'X: a\rb\r\n\r\n' + nxt)
         send('nul', b'GET /c HTTP/1.1\r\n' + h + b'X: a\x00b\r\n\r\n' + nxt)
+        # A header name that is no token, as one with a space or a tab
+        # before its colon, or a line with no colon: 400.
+        send('space before colon', b'POST /c HTTP/1.1\r\n' + h + b'Content-Length : 3\r\n\r\nabc' + nxt)
+        send('tab before colon', b'POST /c HTTP/1.1\r\n' + h + b'Transfer-Encoding\t: chunked\r\n\r\n0\r\n\r\n' + nxt)
+        send('name with a space', b'GET /c HTTP/1.1\r\n' + h + b'X Y: a\r\n\r\n' + nxt)
+        send('no colon', b'GET /c HTTP/1.1\r\n' + h + b'Weird\r\n\r\n' + nxt)
         send('bare lf line', b'GET /c HTTP/1.1\n' + h + b'\r\n' + nxt)
         send('unknown method', b'BREW /c HTTP/1.1\r\n' + h + b'\r\n' + nxt)
         # Up to two empty lines before a request line are skipped.
@@ -343,6 +349,10 @@ length 007: 200 /l 7, 200 /next 0 close
 bare lf: 400 bad request close
 bare cr: 400 bad request close
 nul: 400 bad request close
+space before colon: 400 bad request close
+tab before colon: 400 bad request close
+name with a space: 400 bad request close
+no colon: 400 bad request close
 bare lf line: 400 bad request close
 unknown method: 400 bad request close
 empty line: 200 /e 0, 200 /next 0 close

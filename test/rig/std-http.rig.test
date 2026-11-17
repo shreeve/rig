@@ -427,10 +427,10 @@ test "http answers byte for byte", seeds: 20, '''
   [content-type: text/plain; charset=utf-8]
   []
   [s599HTTP/1.1 204 No Content]
-  [content-length: 4]
-  [content-type: text/plain; charset=utf-8]
   []
-  [s204HTTP/1.1 999 ]
+  [HTTP/1.1 304 Not Modified]
+  []
+  [HTTP/1.1 999 ]
   [content-length: 4]
   [content-type: text/plain; charset=utf-8]
   []
@@ -485,8 +485,9 @@ test "http answers byte for byte", seeds: 20, '''
   ]
 '''
   # Every byte of each answer, as Zig's `respond` wrote them: the status
-  # line of a named status and of one with no name, HEAD, an empty type,
-  # a 500, keep-alive and close on HTTP/1.1 and 1.0, 413, and 417.
+  # line of a named status and of one with no name, HEAD, a 204 and a
+  # 304, which carry no length and no body, an empty type, a 500,
+  # keep-alive and close on HTTP/1.1 and 1.0, 413, and 417.
   use std.text
 
   fun route(req: ?http.Request) -> http.Response
@@ -518,7 +519,7 @@ test "http answers byte for byte", seeds: 20, '''
   l = net.listen("127.0.0.1:0")!
   port = l.port()
   t = run(<l)&
-  show(port, "GET /s/200 HTTP/1.1\r\nHost: x\r\n\r\nHEAD /s/201 HTTP/1.1\r\nHost: x\r\n\r\nGET /s/599 HTTP/1.1\r\n\r\nGET /s/204 HTTP/1.1\r\n\r\nGET /s/999 HTTP/1.1\r\n\r\nGET /j HTTP/1.1\r\n\r\nGET /e HTTP/1.1\r\n\r\nPOST /p HTTP/1.1\r\nContent-Length: 2\r\n\r\nhiGET /boom HTTP/1.1\r\n\r\nGET /s/404 HTTP/1.1\r\nConnection: close\r\n\r\n")!
+  show(port, "GET /s/200 HTTP/1.1\r\nHost: x\r\n\r\nHEAD /s/201 HTTP/1.1\r\nHost: x\r\n\r\nGET /s/599 HTTP/1.1\r\n\r\nGET /s/204 HTTP/1.1\r\n\r\nGET /s/304 HTTP/1.1\r\n\r\nGET /s/999 HTTP/1.1\r\n\r\nGET /j HTTP/1.1\r\n\r\nGET /e HTTP/1.1\r\n\r\nPOST /p HTTP/1.1\r\nContent-Length: 2\r\n\r\nhiGET /boom HTTP/1.1\r\n\r\nGET /s/404 HTTP/1.1\r\nConnection: close\r\n\r\n")!
   show(port, "GET /old HTTP/1.0\r\n\r\n")!
   show(port, "GET /alive HTTP/1.0\r\nConnection: keep-alive\r\n\r\nGET /s/301 HTTP/1.0\r\n\r\n")!
   show(port, "POST /big HTTP/1.1\r\nContent-Length: 99999999\r\n\r\n")!
@@ -526,18 +527,17 @@ test "http answers byte for byte", seeds: 20, '''
   _ = <t.cancel() catch -1
 
 test "http headers", seeds: 20, '''
-  /a v1|b:c|-|first|spaced|-|h70 kept v1
-  /b -|-|-|-|-|-|- kept -
-  /c -|-|-|-|-|-|h70 kept -
+  /a v1|b:c|first|-|h70 kept v1
+  /b -|-|-|-|- kept -
+  /c -|-|-|-|h70 kept -
 '''
   # `header` finds a header by name in any case, its value trimmed: the
-  # first of two, one whose name has spaces before its colon, none for a
-  # line with no colon; past 64 headers, and in a copy of the request.
+  # first of two; past 64 headers, and in a copy of the request.
   use std.text
 
   fun answer(req: ?http.Request) -> http.Response
     copy = +req
-    each = ["x-one", "X-TWO", "weird", "Dup", "spaced", "missing", "H70"]
+    each = ["x-one", "X-TWO", "Dup", "missing", "H70"]
     got = String(req.path, " ")
     for name, i in each
       if i > 0
@@ -557,7 +557,7 @@ test "http headers", seeds: 20, '''
   many = String()
   for i in 0..80
     !many.add("H", i, ": h", i, "\r\n")
-  (!c).write(String("GET /a HTTP/1.1\r\nX-One:  v1 \r\nx-two:b:c\r\nWeird\r\nDUP: first\r\ndup: second\r\nSpaced \t: spaced\r\nH70: h70\r\n\r\n"))!
+  (!c).write(String("GET /a HTTP/1.1\r\nX-One:  v1 \r\nx-two:b:c\r\nDUP: first\r\ndup: second\r\nH70: h70\r\n\r\n"))!
   (!c).write("GET /b HTTP/1.1\r\n\r\n")!
   (!c).write(String("GET /c HTTP/1.1\r\n", many, "Connection: close\r\n\r\n"))!
   got = String()

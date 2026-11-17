@@ -1100,7 +1100,8 @@ fn refuse(request: *std.http.Server.Request, status: u10, body: []const u8) Next
 /// Answer `request` with `status`, the content type `kind` (no header
 /// when empty), and `body`, keeping the connection open when `keep_alive`
 /// and the client asked to: the bytes Zig's `Request.respond` writes,
-/// from text made once. The status line comes from a table
+/// from text made once; for a 204 or a 304, the status line alone, with
+/// no length, type, or body. The status line comes from a table
 /// (`statusLine`), and the length is written by `writeLength`.
 fn respond(request: *std.http.Server.Request, status: u10, kind: []const u8, body: []const u8, keep_alive: bool) std.http.Server.Request.ExpectContinueError!void {
     try request.writeExpectContinue();
@@ -1109,14 +1110,20 @@ fn respond(request: *std.http.Server.Request, status: u10, kind: []const u8, bod
     var line: [32]u8 = undefined;
     try out.writeAll(statusLine(status, &line));
     if (!keep) try out.writeAll("connection: close\r\n");
-    try writeLength(out, body.len);
-    if (kind.len > 0) {
-        try out.writeAll("content-type: ");
-        try out.writeAll(kind);
-        try out.writeAll("\r\n");
+    // A 204 and a 304 end at their headers (RFC 9112 §6.3): a client
+    // reads no body after one, so a body sent would be read as the start
+    // of the next answer, and a 204 carries no length (RFC 9110 §8.6).
+    const content = status != 204 and status != 304;
+    if (content) {
+        try writeLength(out, body.len);
+        if (kind.len > 0) {
+            try out.writeAll("content-type: ");
+            try out.writeAll(kind);
+            try out.writeAll("\r\n");
+        }
     }
     try out.writeAll("\r\n");
-    if (request.head.method != .HEAD and body.len > 0) try out.writeAll(body);
+    if (content and request.head.method != .HEAD and body.len > 0) try out.writeAll(body);
     try out.flush();
 }
 
@@ -1253,6 +1260,10 @@ const Refused = error{
     /// A Transfer-Encoding whose last coding is not `chunked`, which
     /// leaves the body's end unknown (RFC 9112 §6.3).
     HttpTransferEncodingNotChunked,
+    /// A header line with no colon, or whose name is no token, as one
+    /// with a space or a tab before its colon (RFC 9112 §5.1): a proxy
+    /// that drops the space reads `Content-Length : 5` as a length.
+    HttpHeaderNameInvalid,
 };
 
 /// One pass over a request's head as it arrives. It finds where the head
@@ -1260,8 +1271,9 @@ const Refused = error{
 /// `\n\n`, and reads each line, once its `\r\n` is in, as Zig's
 /// `Head.parse` does: the same `Head`, or the same first error, once the
 /// head ends. Beyond `Head.parse`, it refuses a CR, LF, or NUL that ends
-/// no line, a Content-Length that is not digits, and a Transfer-Encoding
-/// whose last coding is not `chunked` (`Refused`); and it reads a
+/// no line, a Content-Length that is not digits, a Transfer-Encoding
+/// whose last coding is not `chunked`, and a header line with no colon
+/// or a name that is no token (`Refused`); and it reads a
 /// Transfer-Encoding's codings named in any case, between spaces or tabs,
 /// as RFC 9112 §7 says, which `Head.parse` refuses. It finds line ends,
 /// CRs, NULs, and colons together, a vector of bytes at a time, and
@@ -1409,9 +1421,11 @@ const HeadScan = struct {
     fn header(s: *HeadScan, bytes: []const u8, end: usize) (Head.ParseError || Refused)!void {
         const start = s.line;
         if (bytes[start] == ' ' or bytes[start] == '\t') return error.HttpHeaderContinuationsUnsupported;
-        const name = bytes[start .. s.colon orelse end];
-        const value = if (s.colon) |c| std.mem.trim(u8, bytes[c + 1 .. end], " \t") else bytes[end..end];
+        const colon = s.colon orelse return error.HttpHeaderNameInvalid;
+        const name = bytes[start..colon];
+        const value = std.mem.trim(u8, bytes[colon + 1 .. end], " \t");
         if (name.len == 0) return error.HttpHeadersInvalid;
+        for (name) |b| if (!token[b]) return error.HttpHeaderNameInvalid;
         const value_at = @intFromPtr(value.ptr) - @intFromPtr(bytes.ptr);
         const eql = std.ascii.eqlIgnoreCase;
         // A known name by its length and first byte, then the whole name.
@@ -1456,6 +1470,13 @@ const HeadScan = struct {
             else => {},
         }
     }
+
+    /// The bytes a header's name may hold (RFC 9110 §5.6.2, a token).
+    const token: [256]bool = blk: {
+        var t: [256]bool = @splat(false);
+        for ("!#$%&'*+-.^_`|~0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") |b| t[b] = true;
+        break :blk t;
+    };
 
     /// The head, its text in `bytes`.
     fn made(s: *const HeadScan, bytes: []const u8) Head {
@@ -1532,7 +1553,7 @@ fn expectSameHead(bytes: []const u8, step: usize, buffer_len: usize) !void {
     const broken = breaksRule(head);
     const g = (got catch |err| {
         if (broken) switch (err) {
-            error.HttpHeaderByteInvalid, error.HttpTransferEncodingNotChunked, error.InvalidContentLength => return,
+            error.HttpHeaderByteInvalid, error.HttpTransferEncodingNotChunked, error.InvalidContentLength, error.HttpHeaderNameInvalid => return,
             else => {},
         };
         return std.testing.expectError(err, want);
@@ -1605,9 +1626,10 @@ fn zigReadable(bytes: []u8) []u8 {
 /// Whether the head in `bytes`, up to its first empty line or bare
 /// `\n\n`, breaks a rule that Zig's `Head.parse` does not keep and
 /// `HeadScan` does: a CR, LF, or NUL that ends no line (RFC 9110 §5.5), a
-/// Content-Length that is not digits (RFC 9110 §8.6), or a
-/// Transfer-Encoding whose last coding is not `chunked` (RFC 9112 §6.3).
-/// Written apart from `HeadScan`, plainly, to check it.
+/// Content-Length that is not digits (RFC 9110 §8.6), a
+/// Transfer-Encoding whose last coding is not `chunked` (RFC 9112 §6.3),
+/// or a header line with no colon or a name that is no token (RFC 9112
+/// §5.1). Written apart from `HeadScan`, plainly, to check it.
 fn breaksRule(bytes: []const u8) bool {
     const head = bytes[0 .. headEnd(bytes) orelse bytes.len];
     for (head, 0..) |b, i| switch (b) {
@@ -1619,11 +1641,18 @@ fn breaksRule(bytes: []const u8) bool {
     var lines = std.mem.splitSequence(u8, head, "\r\n");
     _ = lines.first();
     while (lines.next()) |line| {
-        // A line with no colon is a name with an empty value, as
-        // `Head.parse` reads it.
-        const colon = std.mem.findScalar(u8, line, ':');
-        const name = line[0 .. colon orelse line.len];
-        const value = if (colon) |c| std.mem.trim(u8, line[c + 1 ..], " \t") else "";
+        // The empty line that ends the head, or a last line not yet
+        // ended, which is not read.
+        if (line.len == 0 or lines.index == null) break;
+        // A folded line is `Head.parse`'s to refuse.
+        if (line[0] == ' ' or line[0] == '\t') continue;
+        const colon = std.mem.findScalar(u8, line, ':') orelse return true;
+        const name = line[0..colon];
+        for (name) |c| switch (c) {
+            '!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~', '0'...'9', 'a'...'z', 'A'...'Z' => {},
+            else => return true,
+        };
+        const value = std.mem.trim(u8, line[colon + 1 ..], " \t");
         if (std.ascii.eqlIgnoreCase(name, "content-length")) {
             if (value.len == 0) return true;
             for (value) |c| if (!std.ascii.isDigit(c)) return true;
@@ -1644,9 +1673,7 @@ const test_heads = [_][]const u8{
     "GET / HTTP/1.1\r\n\r\n",
     "GET /a?b=c HTTP/1.0\r\nHost: x\r\nConnection: keep-alive\r\n\r\n",
     "POST /p HTTP/1.1\r\ncontent-tYpe: text/plain\r\ncontent-Length:10\r\nexpeCt:   100-continue \r\nTRansfer-encoding:\tdeflate, chunked \r\nconnectioN:\t close \r\n\r\n",
-    "PUT /p HTTP/1.1\r\nContent-Encoding: gzip\r\nNoColon\r\nSpaced \t: v : w\r\n\r\n",
     "GET http://x.y:80/a?b=c:d?e HTTP/1.1\r\nHost: x.y:80\r\nReferer: http://z/?q=1\r\n\r\n",
-    "OPTIONS * HTTP/1.1\r\nexpect\r\nconnection\r\ncontent-type\r\n\r\n",
     "GET / HTTP/1.1\r\n\r\nGET /next HTTP/1.1\r\n\r\n",
     // The request line.
     "GET / HTTP/1.2\r\n\r\n",
@@ -1699,10 +1726,8 @@ const test_heads = [_][]const u8{
     "BREW / HTTP/1.1\r\nHost: x\r\n",
     "GET / HTTP/1.1\r\nA: b\r\n\r",
     "",
-    // Ends Zig's `HeadParser` finds where there are none.
-    "GET / HTTP/1.1\r\na\r\n\r\n",
+    // An end Zig's `HeadParser` finds where there is none.
     "PUT * HTTP/1.0\r\n:\r\n\r\n",
-    "GET / HTTP/1.1\r\na\r\nContent-Length: 2\r\n\r\nab",
     // Lengths of digits alone.
     "POST / HTTP/1.1\r\nContent-Length: 007\r\n\r\n",
     "POST / HTTP/1.1\r\nContent-Length: 18446744073709551615\r\n\r\n",
@@ -1738,10 +1763,22 @@ const refused_heads = [_]struct { []const u8, HeadError }{
     .{ "QUERY /q HTTP/1.1\r\nUser-Agent: z\r\nconnectioN: Close\r\nContent-Length: +5\r\n\r\nbody", error.InvalidContentLength },
     .{ "GET / HTTP/1.1\r\nContent-Length: x\r\n\r\n", error.InvalidContentLength },
     .{ "GET / HTTP/1.1\r\nContent-Length: -1\r\n\r\n", error.InvalidContentLength },
-    .{ "GET / HTTP/1.1\r\nContent-Length\r\n\r\n", error.InvalidContentLength },
     .{ "GET / HTTP/1.1\r\nContent-Length: x\r\n folded\r\n\r\n", error.InvalidContentLength },
     .{ "POST / HTTP/1.1\r\nContent-Length: 1_0\r\n\r\n", error.InvalidContentLength },
     .{ "POST / HTTP/1.1\r\nContent-Length: -0\r\n\r\n", error.InvalidContentLength },
+    // A header line with no colon, or whose name is no token.
+    .{ "GET / HTTP/1.1\r\nContent-Length\r\n\r\n", error.HttpHeaderNameInvalid },
+    .{ "PUT /p HTTP/1.1\r\nContent-Encoding: gzip\r\nNoColon\r\n\r\n", error.HttpHeaderNameInvalid },
+    .{ "OPTIONS * HTTP/1.1\r\nexpect\r\nconnection\r\ncontent-type\r\n\r\n", error.HttpHeaderNameInvalid },
+    .{ "POST /p HTTP/1.1\r\nContent-Length : 5\r\n\r\nhello", error.HttpHeaderNameInvalid },
+    .{ "POST /p HTTP/1.1\r\nTransfer-Encoding\t: chunked\r\n\r\n0\r\n\r\n", error.HttpHeaderNameInvalid },
+    .{ "GET / HTTP/1.1\r\nHost: x\r\nSpaced \t: v : w\r\n\r\n", error.HttpHeaderNameInvalid },
+    .{ "GET / HTTP/1.1\r\nX Y: a\r\n\r\n", error.HttpHeaderNameInvalid },
+    // These end where Zig's `HeadParser` finds an end before.
+    .{ "GET / HTTP/1.1\r\na\r\n\r\n", error.HttpHeaderNameInvalid },
+    .{ "GET / HTTP/1.1\r\na\r\nContent-Length: 2\r\n\r\nab", error.HttpHeaderNameInvalid },
+    .{ "GET / HTTP/1.1\r\nX(Y): a\r\n\r\n", error.HttpHeaderNameInvalid },
+    .{ "GET / HTTP/1.1\r\nX\x7f: a\r\n\r\n", error.HttpHeaderNameInvalid },
     // A Transfer-Encoding whose last coding is not `chunked`.
     .{ "GET / HTTP/1.1\r\nTransfer-Encoding: br\r\n\r\n", error.HttpTransferEncodingNotChunked },
     .{ "GET / HTTP/1.1\r\nContent-Encoding: zstd\r\nTransfer-Encoding: gzip\r\n\r\n", error.HttpTransferEncodingNotChunked },
@@ -1756,7 +1793,11 @@ const refused_heads = [_]struct { []const u8, HeadError }{
 
 test "receiveHead gives what Zig's Head.parse gives" {
     for (test_heads) |bytes| {
-        try std.testing.expect(!breaksRule(afterEmptyLines(bytes)));
+        // A head past its empty lines that starts with one more fails at
+        // its request line, as Zig's does, before the line after it is
+        // read as a header with no colon.
+        const head = afterEmptyLines(bytes);
+        if (!std.mem.startsWith(u8, head, "\r\n")) try std.testing.expect(!breaksRule(head));
         // Whole, then a few bytes at a time, as bytes arrive.
         for ([_]usize{ bytes.len + 1, 1, 3, 17 }) |step| {
             expectSameHead(bytes, step, 0) catch |err| {

@@ -48,7 +48,8 @@ pub enum Type
   bytes           # application/octet-stream
   other(text: Static)   # any other content type, as written
 
-# A response: its status, its content type, and its body.
+# A response: its status, its content type, and its body. A 204 or a
+# 304 is sent with no type and no body, whatever these hold.
 pub obj Response
   pub status: Int
   pub type: Type
