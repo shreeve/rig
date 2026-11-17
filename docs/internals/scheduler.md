@@ -149,9 +149,14 @@ worker after.
   (`sched.sleepIn`): it sleeps at most 1 ms, and as it wakes looks at
   every worker's poller, so a busy worker's sockets wait no longer than
   that even when its own yield checks do not come (in recursion, say),
-  and it passes the watch on as it goes back to work. It keeps the watch
-  from one look to the next while such a worker is awake or has slept
-  since the watch began, and lets it go only once every one has slept
+  and it passes the watch on as it goes back to work. A sleeping worker
+  that leaves its wait to trim its heap counts as awake meanwhile, and
+  passes the watch on or has another take it, as one going back to work
+  does (`sched.leaveWait`); with no other worker asleep to take it, an
+  event on its poller waits for the trim to end, since busy workers
+  look only at their own pollers. The watcher keeps the watch from one look
+  to the next while such a worker is awake or has slept since the
+  watch began, and lets it go only once every one has slept
   through a whole watch, so a worker that sleeps and wakes many times a
   millisecond, as one answering a socket does, finds the watch held and
   kicks no one. A look at another worker's poller leaves the kick it

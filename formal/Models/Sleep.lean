@@ -27,8 +27,10 @@ Checked:
   loops for ever looking at work it cannot take;
 - `searching` counts exactly the workers searching, and `sleepers`
   holds each worker at most once.
-Not modeled: the run-next slot, timers, the poller's events, `waiting`
-and the yield checks, and `stopping`.
+Not modeled: the run-next slot, timers, the poller's events and the
+watch over the pollers (`sleepIn`, `leaveWait`, `passWatch`, the trim of
+a sleeping worker's heap), `waiting` and the yield checks, and
+`stopping`.
 -/
 import Models.Explore
 
