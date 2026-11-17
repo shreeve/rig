@@ -742,6 +742,25 @@ arms.
 
 ### Runtime
 
+- **On Linux every worker sleeps in one epoll:** each worker's poller is
+  nested once, edge-triggered, in an epoll the program's workers share,
+  and a worker with nothing to do waits there. The kernel wakes one of
+  the threads waiting on an epoll per event, so an event on any poller,
+  a busy worker's among them, wakes one sleeper, which takes the events
+  of every poller reported, its own first, runs the first fiber they
+  make ready and leaves the rest to be stolen. A busy worker's sockets
+  no longer wait for a watcher's 1 ms look, and with every worker
+  asleep an event wakes one thread. A wake any sleeper may answer
+  (looking for work, an interrupt) writes one eventfd nested in the
+  same epoll; a wake for one worker (a pinned fiber's home, a timer set
+  earlier, every worker as `main` ends) is SIGIO to its thread, blocked
+  everywhere but in that wait, so it interrupts no other system call.
+  Linux has no watch over the pollers: the watcher, its hand-offs, and
+  the sleeping workers' looks at the others' pollers are the Mac's
+  alone. `RIG_SCHED_STATS=1` adds, on Linux, each worker's woken waits,
+  those that found nothing to do, its looks at another's poller that
+  made work, and the bells it rang and kicks it sent. The Mac is
+  unchanged: macOS wakes every thread waiting on a kqueue per event.
 - **On the Mac a look at a poller returns at once:** every kqueue call is
   `kevent64`, and a look passes `KEVENT_FLAG_IMMEDIATE`, where an empty
   zero-timeout `kevent` cost about 12 µs and a context switch; it now

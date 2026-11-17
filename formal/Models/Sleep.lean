@@ -46,8 +46,10 @@ no last look (`hasWork` reads no slot): only the monitor's stop
 its slot (covered by `waiting` and the yield checks), the slot's streak
 limit and its 3 µs wait, timers apart from the poller's batches, the
 watch over the pollers (`sleepIn`, `leaveWait`, `passWatch`, the trim of
-a sleeping worker's heap), and
-`stopping`.
+a sleeping worker's heap), Linux's shared sleep (one epoll for every
+sleeper, whose `notify` leaves a token for whichever sleeper wakes,
+`notifyShared`, `takeToken`), and
+`stopping`. This is the Mac's protocol.
 -/
 import Models.Explore
 

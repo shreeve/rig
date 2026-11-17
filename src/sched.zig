@@ -63,6 +63,7 @@ comptime {
         watch_thread,
         watch_word,
         exit_state,
+        shared,
     };
 }
 
@@ -173,6 +174,11 @@ const Worker = struct {
     tick: u32 = 0,
     /// 1 once woken from its sleep, in its poller (`sleep`).
     woken: std.atomic.Value(u32) = .init(0),
+    /// Linux: its thread's id, once it runs, for a kick meant for it
+    /// alone (`signalWorker`); and whether such a kick is on its way and
+    /// not yet taken, so another makes no system call.
+    tid: std.atomic.Value(i32) = .init(0),
+    signaled: std.atomic.Value(bool) = .init(false),
     /// The kernel's queue of events it sleeps in (`Poller`), and the
     /// timers set on it: the deadlines of waits, and those that move
     /// (`Timers`).
@@ -206,14 +212,26 @@ const Worker = struct {
     rng: u32 = 1,
     /// What it did, which `RIG_SCHED_STATS=1` prints as `main` ends
     /// (`printStats`): fibers it ran, of them pinned ones, fibers it
-    /// stole, and times it slept. The watcher reads `slept` too
-    /// (`watchWanted`).
+    /// stole, and times it slept. On the Mac the watcher reads `slept`
+    /// too (`watchWanted`).
     ran: u64 = 0,
     ran_pinned: u64 = 0,
     stole: u64 = 0,
     slept: std.atomic.Value(u64) = .init(0),
-    /// Its `slept` as the watcher began its last watch.
-    watch_mark: std.atomic.Value(u64) = .init(0),
+    /// On the Mac, its `slept` as the watcher began its last watch.
+    watch_mark: if (shared_sleep) void else std.atomic.Value(u64) = if (shared_sleep) {} else .init(0),
+    /// Linux, what its shared sleeps did, which `RIG_SCHED_STATS=1`
+    /// prints too: waits an event or a kick ended (`woke`), and of them
+    /// those after which it found nothing to do (`woke_idle`); looks at
+    /// another worker's poller that made fibers ready (`drained`); and
+    /// the shared bell rung and the kicks sent from it (`rang`,
+    /// `kicked`).
+    sleep_stats: if (shared_sleep) SleepStats else void = if (shared_sleep) .{} else {},
+    /// Linux: its thread's signal mask without the kick signal, which a
+    /// shared sleep waits under (`blockKicks`), and the events that sleep
+    /// reads, kept here as a poller keeps its own.
+    sleep_mask: if (shared_sleep) std.os.linux.sigset_t else void = undefined,
+    wake_evs: if (shared_sleep) [max_workers + 1]std.os.linux.epoll_event else void = undefined,
     /// How long it sleeps before it gives back what its heap holds free
     /// (`trimIdle`).
     trim_wait: i96 = trim_first,
@@ -295,6 +313,9 @@ fn OnLine(comptime T: type) type {
         }
         fn fetchSub(f: *Self, v: T, comptime order: std.builtin.AtomicOrder) T {
             return f.value.fetchSub(v, order);
+        }
+        fn cmpxchgStrong(f: *Self, expected: T, new: T, comptime success: std.builtin.AtomicOrder, comptime failure: std.builtin.AtomicOrder) ?T {
+            return f.value.cmpxchgStrong(expected, new, success, failure);
         }
     };
 }
@@ -442,7 +463,8 @@ fn wakeLastIn(f: *Fiber) void {
 /// it sleeps in its poller (`sleep`).
 fn wakeHome(f: *Fiber, home: *Worker) void {
     home.pinned.push(f);
-    if (home != me() and home.idle.load(.seq_cst) != 0) home.poller.kick();
+    const here = me();
+    if (home != here and home.idle.load(.seq_cst) != 0) kickWorker(home, here);
 }
 
 /// Pin the running fiber to its worker, and give the worker to pin a
@@ -2174,7 +2196,8 @@ fn kickForTimer(due: i64) void {
         if (until <= due) return;
         if (late == null) late = v;
     }
-    if (late) |v| v.poller.kick();
+    // Never the caller, which is awake.
+    if (late) |v| kickWorker(v, null);
 }
 
 // -----------------------------------------------------------------------------
@@ -2205,6 +2228,10 @@ const Poller = struct {
     /// event leaves this set, and the worker's next wait sees it and only
     /// looks (`poll`); a kick while it is set makes no system call.
     kicked: std.atomic.Value(bool) = .init(false),
+    /// Linux, shared sleep: a sleeper woken for this poller's events
+    /// found its lock held, and left them to the holder, which takes
+    /// them once it lets go (`drain`).
+    missed: std.atomic.Value(bool) = .init(false),
     /// On the Mac in a release build: whether its worker waits in it,
     /// and whether `os.exit` claimed it there (`ExitClaim`), so the worker
     /// stops as it wakes, before it reads a single event (`tearDown`).
@@ -2299,8 +2326,19 @@ const Poller = struct {
 
     /// Stop watching `fd`. Under the lock, so no event for it is being
     /// handled; a worker holding it, asleep in the poller, is woken to
-    /// let go.
+    /// let go. On Linux's shared sleep no worker waits in it, and a
+    /// sleeper that found the lock held meanwhile (`missed`) is answered
+    /// by the shared bell, whose sleeper looks for it (`drainMissed`):
+    /// this runs on a fiber's stack, too shallow for a look.
     fn remove(p: *Poller, fd: i32) void {
+        if (sharedNow()) {
+            p.lock.lock();
+            _ = std.os.linux.epoll_ctl(p.fd, std.os.linux.EPOLL.CTL_DEL, fd, null);
+            _ = p.count.fetchSub(1, .monotonic);
+            p.lock.unlockSeq();
+            if (p.missed.load(.seq_cst)) ring(null);
+            return;
+        }
         if (!p.lock.tryLock()) {
             _ = p.removers.fetchAdd(1, .seq_cst);
             p.kick();
@@ -2390,6 +2428,12 @@ const Poller = struct {
         // moment in its poller after a look (`advanceClock`), which a
         // kick left there would end.
         const look = timeout != null and timeout.? == 0 and !deterministic.*;
+        // Linux's shared sleep has no wait in a poller: every call is a
+        // look, which takes again for a sleeper that found it held.
+        if (shared_sleep and look) {
+            if (!p.lock.tryLockSeq()) return false;
+            return p.drainHeld(room);
+        }
         if (look) {
             if (!p.lock.tryLock()) return false;
         } else {
@@ -2438,35 +2482,80 @@ const Poller = struct {
                 if (r.ready(bits, reads and unsure)) any = true;
             }
         } else if (linux) {
-            const linux_ = std.os.linux;
-            const evs = &p.evs;
             const ms: i32 = if (wait) |t| @intCast(@min(@divTrunc(t + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32))) else -1;
-            const rc: isize = @bitCast(linux_.epoll_wait(p.fd, evs, max_events, ms));
-            if (rc <= 0) return false;
-            for (evs[0..@intCast(rc)]) |ev| {
-                if (ev.data.ptr == 0) {
-                    if (look) continue;
-                    p.kicked.store(false, .seq_cst);
-                    var drain: u64 = 0;
-                    _ = linux_.read(p.kick_fd, std.mem.asBytes(&drain), 8);
-                    continue;
-                }
-                if (ev.data.ptr == out_mark) {
-                    room.* = true;
-                    continue;
-                }
-                const r: *Registration = @ptrFromInt(ev.data.ptr);
-                var bits: u32 = 0;
-                if (ev.events & (linux_.EPOLL.IN | linux_.EPOLL.PRI | linux_.EPOLL.RDHUP | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0) bits |= Registration.readable;
-                if (ev.events & (linux_.EPOLL.OUT | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0) bits |= Registration.writable;
-                if (r.ready(bits, ev.events & (linux_.EPOLL.PRI | linux_.EPOLL.RDHUP | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0)) any = true;
-            }
+            _ = p.take(ms, look, room, &any);
         }
         return any;
     }
+
+    /// Linux: one `epoll_wait` of up to `ms` (-1: until an event), under
+    /// the lock, and wake the fibers its events make ready (`any`); how
+    /// many events it read. A look leaves the poller's kick standing.
+    fn take(p: *Poller, ms: i32, look: bool, room: *bool, any: *bool) usize {
+        const linux_ = std.os.linux;
+        const evs = &p.evs;
+        const rc: isize = @bitCast(linux_.epoll_wait(p.fd, evs, max_events, ms));
+        if (rc <= 0) return 0;
+        for (evs[0..@intCast(rc)]) |ev| {
+            if (ev.data.ptr == 0) {
+                if (look) continue;
+                p.kicked.store(false, .seq_cst);
+                var taken: u64 = 0;
+                _ = linux_.read(p.kick_fd, std.mem.asBytes(&taken), 8);
+                continue;
+            }
+            if (ev.data.ptr == out_mark) {
+                room.* = true;
+                continue;
+            }
+            const r: *Registration = @ptrFromInt(ev.data.ptr);
+            var bits: u32 = 0;
+            if (ev.events & (linux_.EPOLL.IN | linux_.EPOLL.PRI | linux_.EPOLL.RDHUP | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0) bits |= Registration.readable;
+            if (ev.events & (linux_.EPOLL.OUT | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0) bits |= Registration.writable;
+            if (r.ready(bits, ev.events & (linux_.EPOLL.PRI | linux_.EPOLL.RDHUP | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0)) any.* = true;
+        }
+        return @intCast(rc);
+    }
+
+    /// Linux, shared sleep: a sleeper the shared epoll woke for this
+    /// poller's events takes them, its fibers in its batch; whether any
+    /// fiber is made ready. It marks the poller `missed` before it tries
+    /// the lock, and every holder clears the mark before its look and
+    /// reads it after it lets go, all sequentially consistent: so either
+    /// this takes the lock, or the holder sees the mark and takes the
+    /// events itself (`drainHeld`), or rings the bell for a sleeper to
+    /// (`remove`). No edge the shared epoll reports is left untaken.
+    fn drain(p: *Poller) bool {
+        p.missed.store(true, .seq_cst);
+        if (!p.lock.tryLockSeq()) return false;
+        var room = false;
+        const any = p.drainHeld(&room);
+        if (room) rt.stdoutRoom();
+        return any;
+    }
+
+    /// Linux, shared sleep: with the lock held, take every event the
+    /// poller holds, let go, and take again while a sleeper that found
+    /// the lock held marked it `missed` meanwhile (`drain`). A look that
+    /// reads a full `evs` looks again: the shared epoll reports this
+    /// poller again only on its next event, not for events left in it.
+    fn drainHeld(p: *Poller, room: *bool) bool {
+        const by = me();
+        const opened = beginBatch(by);
+        defer endBatch(by, opened);
+        var any = false;
+        while (true) {
+            p.missed.store(false, .seq_cst);
+            while (p.take(0, true, room, &any) == max_events) {}
+            p.lock.unlockSeq();
+            if (!p.missed.load(.seq_cst)) return any;
+            if (!p.lock.tryLockSeq()) return any;
+        }
+    }
 };
 
-/// The sleeping worker that watches every poller, or none: while a
+/// On the Mac, the sleeping worker that watches every poller, or none
+/// (Linux's sleepers share one epoll instead, `shared_sleep`): while a
 /// worker that does not sleep holds descriptors, it sleeps no longer than
 /// `watch_every`, and as it wakes looks at every poller (`serviceAll`),
 /// so a busy worker's descriptors wait no longer than that for a look,
@@ -2530,17 +2619,19 @@ fn watchWanted(w: *Worker) bool {
 /// the other workers: a worker that wakes to run fibers marks itself
 /// awake before it looks for a watcher, all sequentially consistent, so
 /// either it sees no watcher and kicks a sleeper, or this sees it awake.
-fn sleepIn(w: *Worker, timeout: ?i96) void {
+fn sleepIn(w: *Worker, timeout: ?i96) bool {
     if (workersNow().len >= 2) {
         const held = watcher.load(.monotonic) == w;
         if (held) watcher.store(null, .seq_cst);
         if (watchWanted(w) and watcher.cmpxchgStrong(null, w, .seq_cst, .monotonic) == null) {
             for (workersNow()) |*v| v.watch_mark.store(v.slept.load(.monotonic), .monotonic);
             _ = w.poller.poll(if (timeout) |t| @min(t, watch_every) else watch_every);
-            return serviceAll();
+            serviceAll();
+            return false;
         }
     }
     _ = w.poller.poll(timeout);
+    return false;
 }
 
 /// A watcher, or a worker holding descriptors while none watches, `from`,
@@ -2554,6 +2645,255 @@ fn passWatch(from: *Worker) void {
     if (next_up == from) next_up = from.next_sleeper;
     sleepers.lock.unlock();
     if (next_up) |v| v.poller.kick();
+}
+
+// -----------------------------------------------------------------------------
+// The shared sleep (Linux)
+// -----------------------------------------------------------------------------
+//
+// On Linux every worker with nothing to do sleeps in one epoll, the
+// program's (`Shared.fd`), in which every worker's poller is nested once
+// as it opens, edge-triggered, never changed per sleep. The threads that
+// wait directly on one epoll are woken one at a time, so an event on any
+// poller wakes one sleeper, whichever: it takes the events of every
+// poller the epoll reports, its own first (`Poller.drain`), and runs the
+// fibers they make ready, the first in its "run next" slot and the rest
+// in its ring, from which the switch to the first wakes another
+// (`spread`). A busy worker's sockets so wait for no look: a sleeper
+// answers them at once, and with every worker asleep an event wakes one
+// thread, not its poller's worker and a watcher too. macOS wakes every
+// thread that waits on a kqueue for each event, so the Mac keeps its own
+// poller per worker and the watch (`sleepIn`).
+//
+// A wake that any sleeper may answer, to look for work (`notify`), for
+// the poller of a closing descriptor (`Poller.remove`), or for an
+// interrupt, writes one eventfd nested in the same epoll, the bell
+// (`ring`), so it too wakes one sleeper. A wake meant for one worker, a
+// pinned fiber's home (`wakeHome`), the sleeper due to fire a timer set
+// earlier (`kickForTimer`), and every worker as `main` ends
+// (`wakeWorker`), is a signal to its thread (`signalWorker`), which every
+// worker blocks but while it waits in the shared epoll, which unblocks
+// it for that call alone (`epoll_pwait`): a signal sent while the worker
+// is anywhere else waits, interrupts no other system call, and ends its
+// next shared wait at once.
+
+/// Whether workers share one sleep: Linux, whose epoll wakes one of the
+/// threads waiting on it per event. A deterministic run, on one thread,
+/// waits in its poller as before.
+const shared_sleep = builtin.os.tag == .linux;
+
+/// Whether this run's workers share one sleep (`shared_sleep`).
+inline fn sharedNow() bool {
+    return shared_sleep and !deterministic.*;
+}
+
+/// The signal a wake meant for one worker sends it (`signalWorker`):
+/// SIGIO, which the kernel sends only for a descriptor set to signal its
+/// readiness (`O_ASYNC`), which Rig never sets. Its handler does nothing.
+const kick_signal: std.posix.SIG = .IO;
+
+/// What every worker's shared sleep needs (`shared_sleep`).
+const Shared = struct {
+    /// The epoll the workers sleep in, and the eventfd nested in it that
+    /// wakes one of them (`ring`); -1 while none is open.
+    fd: i32 = -1,
+    bell: i32 = -1,
+    /// The process, for `tgkill`.
+    pid: i32 = 0,
+    /// A ring not yet taken: while it stands its event waits in the epoll,
+    /// or a sleeper has read the event and has not yet looked for what
+    /// the ring is for, so another ring makes no system call (`ring`).
+    rung: std.atomic.Value(bool) align(std.atomic.cache_line) = .init(false),
+    /// A wake for a searcher (`notify`): 1 from the notify that counted
+    /// one more worker searching to the sleeper that takes it and
+    /// searches (`takeToken`), else 0.
+    token: std.atomic.Value(u32) align(std.atomic.cache_line) = .init(0),
+    /// The bells rung and the kicks sent from outside the workers (from
+    /// the blocking pool, a signal handler), which `RIG_SCHED_STATS=1`
+    /// prints.
+    rang: std.atomic.Value(u64) align(std.atomic.cache_line) = .init(0),
+    kicked: std.atomic.Value(u64) = .init(0),
+};
+var shared_var: Shared = .{};
+const shared = split.cell(&shared_var, "sched.shared");
+
+/// A worker's counts of its shared sleeps (`Worker.sleep_stats`).
+const SleepStats = struct {
+    woke: u64 = 0,
+    woke_idle: u64 = 0,
+    drained: u64 = 0,
+    rang: u64 = 0,
+    kicked: u64 = 0,
+};
+
+/// Open the shared epoll and its bell, and install the kick signal's
+/// handler, as `main` starts on the scheduler.
+fn openShared() void {
+    const linux_ = std.os.linux;
+    const s = shared;
+    s.* = .{};
+    s.fd = @intCast(@as(isize, @bitCast(linux_.epoll_create1(linux_.EPOLL.CLOEXEC))));
+    if (s.fd < 0) Poller.failed("epoll_create1", s.fd);
+    s.bell = @intCast(@as(isize, @bitCast(linux_.eventfd(0, linux_.EFD.NONBLOCK | linux_.EFD.CLOEXEC))));
+    if (s.bell < 0) Poller.failed("eventfd", s.bell);
+    // The bell is never read: each write is one edge, and the count it
+    // keeps would take 2^64 writes to fill.
+    var ev: linux_.epoll_event = .{ .events = linux_.EPOLL.IN | linux_.EPOLL.ET, .data = .{ .ptr = 0 } };
+    const rc: isize = @bitCast(linux_.epoll_ctl(s.fd, linux_.EPOLL.CTL_ADD, s.bell, &ev));
+    if (rc < 0) Poller.failed("epoll_ctl", @intCast(rc));
+    s.pid = linux_.getpid();
+    const act: std.posix.Sigaction = .{ .handler = .{ .handler = onKick }, .mask = std.posix.sigemptyset(), .flags = std.posix.SA.ONSTACK | std.posix.SA.RESTART };
+    std.posix.sigaction(kick_signal, &act, null);
+}
+
+fn onKick(_: std.posix.SIG) callconv(.c) void {}
+
+fn closeShared() void {
+    const s = shared;
+    if (s.fd >= 0) _ = std.posix.system.close(s.fd);
+    if (s.bell >= 0) _ = std.posix.system.close(s.bell);
+    s.fd = -1;
+    s.bell = -1;
+}
+
+/// Nest `p`, a worker's poller just opened, in the shared epoll:
+/// readable, edge-triggered, so each event it gains wakes one sleeper.
+fn joinShared(p: *Poller) void {
+    const linux_ = std.os.linux;
+    var ev: linux_.epoll_event = .{ .events = linux_.EPOLL.IN | linux_.EPOLL.ET, .data = .{ .ptr = @intFromPtr(p) } };
+    const rc: isize = @bitCast(linux_.epoll_ctl(shared.fd, linux_.EPOLL.CTL_ADD, p.fd, &ev));
+    if (rc < 0) Poller.failed("epoll_ctl", @intCast(rc));
+}
+
+/// On `w`'s own thread: block the kick signal, keep the mask without it
+/// for the shared wait, and publish the thread's id; the mask it had.
+fn blockKicks(w: *Worker) std.os.linux.sigset_t {
+    const linux_ = std.os.linux;
+    var set = linux_.sigemptyset();
+    linux_.sigaddset(&set, kick_signal);
+    var old: linux_.sigset_t = undefined;
+    _ = linux_.sigprocmask(linux_.SIG.BLOCK, &set, &old);
+    w.sleep_mask = old;
+    if (linux_.sigismember(&w.sleep_mask, kick_signal)) linux_.sigdelset(&w.sleep_mask, kick_signal);
+    w.tid.store(linux_.gettid(), .seq_cst);
+    return old;
+}
+
+/// Wake one sleeping worker, whichever, by the shared bell: for work
+/// any worker may take, a poller's missed events, or an interrupt. A ring
+/// that stands makes no system call: its sleeper clears it as it wakes,
+/// before it looks for what woke it, so it sees what this ring was for.
+/// `by` is the worker ringing, for its count, or null.
+fn ring(by: ?*Worker) void {
+    // Not a lock, uncounted: nothing waits for the flag to clear.
+    if (shared.rung.swap(true, .seq_cst)) return;
+    const one: u64 = 1;
+    _ = std.os.linux.write(shared.bell, std.mem.asBytes(&one), 8);
+    if (by) |w| w.sleep_stats.rang += 1 else _ = shared.rang.fetchAdd(1, .monotonic);
+}
+
+/// Wake `v`, a sleeping worker, and no other: a signal to its thread
+/// (`kick_signal`), unless one is on its way. Its sleep clears
+/// `signaled` as each wait ends, before it looks for work, so a kick that
+/// finds the flag set has work the worker sees after; a worker whose
+/// thread has not started has never slept, and finds the work as it
+/// starts. `by` is the worker kicking, for its count, or null; a worker
+/// that would kick itself is awake, and looks for its work next.
+fn signalWorker(v: *Worker, by: ?*Worker) void {
+    const tid = v.tid.load(.seq_cst);
+    if (tid == 0 or v == by) return;
+    // Not a lock, uncounted: nothing waits for the flag to clear.
+    if (v.signaled.swap(true, .seq_cst)) return;
+    _ = std.os.linux.tgkill(shared.pid, tid, kick_signal);
+    if (by) |w| w.sleep_stats.kicked += 1 else _ = shared.kicked.fetchAdd(1, .monotonic);
+    if (builtin.is_test) _ = test_kicks.fetchAdd(1, .monotonic);
+}
+
+/// Test only: the kicks sent to one worker (`signalWorker`). Never
+/// compiled outside a test, so never in a split build.
+var test_kicks: std.atomic.Value(u64) = .init(0);
+
+/// Wake the sleeping worker `v`: its own poller's kick, or on Linux's
+/// shared sleep a signal to its thread (`signalWorker`, `by` the
+/// worker kicking or null).
+fn kickWorker(v: *Worker, by: ?*Worker) void {
+    if (sharedNow()) signalWorker(v, by) else v.poller.kick();
+}
+
+/// Take the wake a notify left for a searcher, if one waits, and search:
+/// what a sleeper does as it wakes, and as it leaves its sleep for work
+/// of its own (`sleep`).
+fn takeToken(w: *Worker) bool {
+    if (shared.token.load(.seq_cst) == 0) return false;
+    if (shared.token.cmpxchgStrong(1, 0, .seq_cst, .monotonic) != null) return false;
+    w.searching = true;
+    return true;
+}
+
+/// `notify` on Linux's shared sleep: count one more worker searching,
+/// leave a token for the sleeper that wakes to take, and ring the bell.
+/// The notify stores the token, then reads whether any worker sleeps; a
+/// sleeper leaving for work of its own takes itself off the list, then
+/// reads the token (`sleep`), all sequentially consistent: so either it
+/// takes the token, or this sees no sleeper and takes the token back, and
+/// tells the busy workers' checks that work waits (`waiting`).
+fn notifyShared() void {
+    // Not a lock, uncounted: a count of searchers, which nothing waits on.
+    if (searching.cmpxchgStrong(0, 1, .seq_cst, .monotonic) != null) return;
+    shared.token.store(1, .seq_cst);
+    if (sleepers.count.load(.seq_cst) == 0) {
+        if (shared.token.cmpxchgStrong(1, 0, .seq_cst, .monotonic) == null) {
+            _ = searching.fetchSub(1, .seq_cst);
+            if (waiting.load(.monotonic) == 0) waiting.store(1, .monotonic);
+        }
+        return;
+    }
+    ring(me());
+}
+
+/// Sleep in the shared epoll up to `timeout` (null: until woken), then
+/// take what woke it: the bell, and the events of each poller it reports,
+/// `w`'s own first, as one batch with the rest of its sleep. Whether an
+/// event or a signal ended the wait.
+fn sharedWait(w: *Worker, timeout: ?i96) bool {
+    if (timeout == null or timeout.? > 0) rt.flushBeforeWait();
+    const linux_ = std.os.linux;
+    const ms: i32 = if (timeout) |t| @intCast(@min(@divTrunc(t + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32))) else -1;
+    const evs = &w.wake_evs;
+    const rc: isize = @bitCast(linux_.epoll_pwait(shared.fd, evs, evs.len, ms, &w.sleep_mask));
+    // Before it looks for work: a kick that found the flag set has its
+    // work seen below.
+    if (w.signaled.load(.seq_cst)) w.signaled.store(false, .seq_cst);
+    if (rc == 0) return false;
+    w.sleep_stats.woke += 1;
+    if (rc < 0) return true;
+    const got = evs[0..@intCast(rc)];
+    var bell = false;
+    for (got) |ev| {
+        if (ev.data.ptr == 0) bell = true;
+    }
+    // Cleared before it looks for what a ring was for.
+    if (bell) shared.rung.store(false, .seq_cst);
+    deliverInterrupt();
+    for (got) |ev| {
+        if (ev.data.ptr == @intFromPtr(&w.poller)) _ = w.poller.drain();
+    }
+    for (got) |ev| {
+        if (ev.data.ptr == 0 or ev.data.ptr == @intFromPtr(&w.poller)) continue;
+        const p: *Poller = @ptrFromInt(ev.data.ptr);
+        if (p.drain()) w.sleep_stats.drained += 1;
+    }
+    if (bell) drainMissed();
+    return true;
+}
+
+/// Take the events of every poller a sleeper found held (`missed`):
+/// what a closing descriptor's ring is for (`Poller.remove`), and what
+/// every sleep turn looks at (`serviceAll`).
+fn drainMissed() void {
+    for (workersNow()) |*v| {
+        if (v.poller.missed.load(.seq_cst)) _ = v.poller.drain();
+    }
 }
 
 /// The poller that watches stdout for room to write, or none: read and
@@ -2891,7 +3231,9 @@ fn service(w: *Worker) void {
 
 /// Before a worker sleeps: wake the fibers whose timers are due on any
 /// worker, and those the events of any poller no worker sleeps in make
-/// ready.
+/// ready. On Linux's shared sleep the shared epoll reports every
+/// poller's events to a sleeper, so only the pollers a sleeper found
+/// held are looked at (`drainMissed`).
 fn serviceAll() void {
     deliverInterrupt();
     const by = me();
@@ -2900,7 +3242,9 @@ fn serviceAll() void {
     const now = nowNs();
     for (workersNow()) |*v| {
         _ = v.timers.fire(now);
-        if (v.poller.count.load(.monotonic) != 0) _ = v.poller.poll(0);
+        if (shared_sleep) {
+            if (v.poller.missed.load(.monotonic)) _ = v.poller.drain();
+        } else if (v.poller.count.load(.monotonic) != 0) _ = v.poller.poll(0);
     }
 }
 
@@ -2924,6 +3268,9 @@ pub fn kickForInterrupt() void {
     _ = kicking.fetchAdd(1, .seq_cst);
     defer _ = kicking.fetchSub(1, .seq_cst);
     if (stopping.load(.seq_cst)) return;
+    // On Linux's shared sleep one sleeper, woken by the bell, passes it
+    // on, and a busy worker's service does.
+    if (sharedNow()) return ring(null);
     for (workersNow()) |*w| w.poller.kick();
 }
 
@@ -3670,6 +4017,14 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     workers_len.store(1, .release);
     const first = &all_workers.*[0];
     first.poller.open();
+    // Worker 0's thread is the caller's, whose signal mask goes back as
+    // it was once the workers stop.
+    var mask_before: if (shared_sleep) std.os.linux.sigset_t else void = undefined;
+    if (sharedNow()) {
+        openShared();
+        joinShared(&first.poller);
+        mask_before = blockKicks(first);
+    }
     openDense();
     started.* = false;
     if (preempt) findCode();
@@ -3699,6 +4054,12 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
         w.timers.clear();
         w.poller.close();
     }
+    if (sharedNow()) {
+        closeShared();
+        // A kick still on its way is taken here, by a handler that does
+        // nothing.
+        _ = std.os.linux.sigprocmask(std.os.linux.SIG.SETMASK, &mask_before, null);
+    }
     stdout_poller.* = null;
     freeSpare();
     freeWorkers(all_workers.*);
@@ -3711,7 +4072,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     workers_asked.* = null;
     searching.store(0, .seq_cst);
     waiting.store(0, .monotonic);
-    watcher.store(null, .seq_cst);
+    if (!shared_sleep) watcher.store(null, .seq_cst);
     ready.clearAndFree(std.heap.smp_allocator);
     registered.* = null;
 }
@@ -3752,13 +4113,27 @@ fn printStats() void {
     const p = rt.process.* orelse return;
     const v = p.environ.getPosix("RIG_SCHED_STATS") orelse return;
     if (!std.mem.eql(u8, v, "1")) return;
-    var buf: [320]u8 = undefined;
+    var buf: [512]u8 = undefined;
     for (workersNow(), 0..) |*w, i| {
         if (preempt) printDeclined(w, i);
-        const line = (if (preempt)
-            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room), deepest stop {d} of {d} bytes\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped, preOf(w).deepest, preempt_room })
+        const head = (if (preempt)
+            std.fmt.bufPrint(buf[0 .. buf.len - 1], "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room), deepest stop {d} of {d} bytes", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped, preOf(w).deepest, preempt_room })
         else
-            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw })) catch continue;
+            std.fmt.bufPrint(buf[0 .. buf.len - 1], "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw })) catch continue;
+        var len = head.len;
+        // Linux: its shared sleeps, a wait an event or a kick ended, and
+        // of them those that found nothing to do; the looks at another
+        // worker's poller that made fibers ready; the bells it rang and
+        // the kicks it sent.
+        if (shared_sleep and !deterministic.*) {
+            const st = w.sleep_stats;
+            len += (std.fmt.bufPrint(buf[len .. buf.len - 1], ", woke {d} ({d} for nothing), drained {d}, rang {d}, kicked {d}", .{ st.woke, st.woke_idle, st.drained, st.rang, st.kicked }) catch continue).len;
+        }
+        buf[len] = '\n';
+        _ = std.posix.system.write(2, &buf, len + 1);
+    }
+    if (shared_sleep and !deterministic.*) {
+        const line = std.fmt.bufPrint(&buf, "rig: outside the workers: rang {d}, kicked {d}\n", .{ shared.rang.load(.monotonic), shared.kicked.load(.monotonic) }) catch return;
         _ = std.posix.system.write(2, line.ptr, line.len);
     }
 }
@@ -3812,7 +4187,7 @@ fn startWorkers() void {
     const n = if (deterministic.*) 1 else @min(workerCount(), all_workers.*.len);
     const ws = all_workers.*[0..n];
     for (1..n) |i| initWorker(i);
-    for (ws[1..]) |*w| w.poller.open();
+    for (ws[1..]) |*w| openPoller(w);
     workers_len.store(n, .release);
     if (n == 1) {
         if (preempt and !deterministic.*) startMonitor();
@@ -3923,7 +4298,7 @@ fn growWorkers(n: usize) bool {
     if (stopping.load(.seq_cst) or (tears_down and exit_state.phase.load(.seq_cst) != .idle)) return false;
     const fresh = all_workers.*[have..n];
     for (have..n) |i| initWorker(i);
-    for (fresh) |*w| w.poller.open();
+    for (fresh) |*w| openPoller(w);
     workers_len.store(n, .release);
     for (fresh) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{ w, 0 }) catch rt.oom();
     return true;
@@ -3954,12 +4329,20 @@ fn workerCount() usize {
     return @max(1, std.Thread.getCpuCount() catch 1);
 }
 
+/// Open the poller of a worker not yet published, nested in the shared
+/// epoll on Linux (`joinShared`).
+fn openPoller(w: *Worker) void {
+    w.poller.open();
+    if (sharedNow()) joinShared(&w.poller);
+}
+
 /// A worker's thread; worker 1's starts the rest of `n` first, and
 /// every other worker's has `n` 0.
 fn workerMain(w: *Worker, n: usize) void {
     defer rt.fast_alloc.threadExit();
     const alt = rt.AltStack.attachOrStop();
     defer alt.detach();
+    if (sharedNow()) _ = blockKicks(w);
     me_slot().* = w;
     if (preempt) preOf(w).tid = rt.threadId();
     defer leavePreempt(w);
@@ -4211,6 +4594,7 @@ fn notify() void {
     if (deterministic.*) return;
     if (searching.load(.seq_cst) != 0) return;
     if (sleepers.count.load(.seq_cst) == 0) return;
+    if (shared_sleep) return notifyShared();
     if (sleepers.pop()) |w| {
         _ = searching.fetchAdd(1, .seq_cst);
         w.searching = true;
@@ -4220,7 +4604,7 @@ fn notify() void {
 
 fn wakeWorker(w: *Worker) void {
     w.woken.store(1, .seq_cst);
-    w.poller.kick();
+    kickWorker(w, if (sharedNow()) me() else null);
 }
 
 /// Sleep until woken: listed as asleep first, then, after a last look
@@ -4229,7 +4613,10 @@ fn wakeWorker(w: *Worker) void {
 /// woke no one (`notify`), keeps this worker up. A worker with no work
 /// to find clears `waiting` (`takeWaiting`). While it sleeps, it wakes
 /// the fibers whose timers come due on any worker, and those its
-/// poller's events make ready, and goes back to running them.
+/// poller's events make ready, and goes back to running them. On Linux
+/// it sleeps in the shared epoll (`sharedWait`), and a sleeper that
+/// finds a notify's token takes it and searches (`takeToken`), as one
+/// that leaves for work of its own does once off the list.
 fn sleep(w: *Worker) void {
     w.slept.store(w.slept.raw + 1, .monotonic);
     _ = takeWaiting(w);
@@ -4247,8 +4634,11 @@ fn sleep(w: *Worker) void {
         // wakes another for the rest (`loop`), as Go's scheduler does
         // (formal/Models/Sleep.lean).
         if (sleepers.remove(w)) {
-            w.searching = true;
-            _ = searching.fetchAdd(1, .seq_cst);
+            // A token left meanwhile counted it searching already.
+            if (!shared_sleep or !takeToken(w)) {
+                w.searching = true;
+                _ = searching.fetchAdd(1, .seq_cst);
+            }
         } else waitWoken(w);
         return;
     }
@@ -4270,7 +4660,7 @@ fn sleep(w: *Worker) void {
     var settle = holds and w.woke_soon;
     while (w.woken.load(.seq_cst) == 0) {
         serviceAll();
-        if (!hasOwnWork(w)) {
+        if (!hasOwnWork(w) and !(shared_sleep and takeToken(w))) {
             w.sleep_due.store(no_due, .seq_cst);
             const due = earliestDue();
             w.sleep_due.store(due, .seq_cst);
@@ -4282,7 +4672,7 @@ fn sleep(w: *Worker) void {
                 timeout = if (timeout) |t| @min(t, left) else left;
             }
             const began = if (holds) nowNs() else 0;
-            sleepIn(w, timeout);
+            const roused = if (shared_sleep) sharedWait(w, timeout) else sleepIn(w, timeout);
             if (holds) w.woke_soon = hasOwnWork(w) and nowNs() - began < brief_wait;
             w.sleep_due.store(awake, .seq_cst);
             if (trim_due and w.woken.load(.seq_cst) == 0 and nowReal() - since >= w.trim_wait) {
@@ -4296,11 +4686,16 @@ fn sleep(w: *Worker) void {
                 trimIdle(w);
                 w.idle.store(1, .seq_cst);
             }
-            if (!hasOwnWork(w)) continue;
+            if (!hasOwnWork(w) and !(shared_sleep and takeToken(w))) {
+                if (shared_sleep and roused and w.woken.load(.monotonic) == 0) w.sleep_stats.woke_idle += 1;
+                continue;
+            }
         }
-        // Fibers made ready here: run them, unless a waker took this
-        // worker off the list meanwhile, when it waits for its kick.
-        if (!sleepers.remove(w)) waitWoken(w);
+        // Fibers made ready here, or a token to search: run them, unless
+        // a waker took this worker off the list meanwhile, when it waits
+        // for its kick. Off the list, it takes a token left meanwhile,
+        // which no sleeper may wake for now (`notifyShared`).
+        if (!sleepers.remove(w)) waitWoken(w) else if (shared_sleep and !w.searching) _ = takeToken(w);
         return;
     }
 }
@@ -4310,6 +4705,8 @@ fn sleep(w: *Worker) void {
 /// one that holds descriptors marks itself awake, then has a sleeper
 /// watch if none does (`sleepIn`).
 fn leaveWait(w: *Worker) void {
+    // Linux's shared sleep has no watch.
+    if (shared_sleep) return;
     const held = watcher.load(.monotonic) == w;
     if (held) watcher.store(null, .seq_cst);
     if (held or w.poller.count.load(.monotonic) != 0) {
@@ -4366,7 +4763,9 @@ var trim_worker_for_test: std.atomic.Value(?*Worker) = .init(null);
 var trim_hook_for_test: ?*const fn () void = null;
 
 fn waitWoken(w: *Worker) void {
-    while (w.woken.load(.seq_cst) == 0) _ = w.poller.poll(null);
+    while (w.woken.load(.seq_cst) == 0) {
+        if (shared_sleep) _ = sharedWait(w, null) else _ = w.poller.poll(null);
+    }
 }
 
 /// Whether work waits that a worker woken now could take: in the global
@@ -4847,6 +5246,22 @@ pub const SpinLock = struct {
         const took = l.held.cmpxchgStrong(false, true, .acquire, .monotonic) == null;
         if (preempt and !took) holdOn();
         return took;
+    }
+
+    /// `tryLock` and `unlock`, sequentially consistent, for a lock whose
+    /// loser marks what it leaves the holder before it tries, and whose
+    /// holder reads the mark after it lets go (`Poller.drain`): one of
+    /// the two sees the other.
+    fn tryLockSeq(l: *SpinLock) bool {
+        if (preempt) holdOff();
+        const took = l.held.cmpxchgStrong(false, true, .seq_cst, .seq_cst) == null;
+        if (preempt and !took) holdOn();
+        return took;
+    }
+
+    fn unlockSeq(l: *SpinLock) void {
+        l.held.store(false, .seq_cst);
+        if (preempt) holdOn();
     }
 
     /// Take the lock in code apart from the program's, uncounted: a
@@ -8291,8 +8706,9 @@ test "an idle worker wakes for the descriptors of a busy one" {
             read_on.store(null, .seq_cst);
             const j = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
             // Nap until the reader waits: this worker runs it, then sleeps
-            // holding the descriptor, and wakes, which has a sleeping
-            // worker watch (`passWatch`).
+            // holding the descriptor, and wakes, which on the Mac has a
+            // sleeping worker watch (`passWatch`); on Linux the sleeper
+            // waits in the shared epoll, which nests this poller.
             const ready_by = nowNs() + 2 * std.time.ns_per_s;
             testNap(std.time.ns_per_ms);
             while (r.waiting.load(.seq_cst) == 0 and nowNs() < ready_by) testNap(std.time.ns_per_ms);
@@ -8306,7 +8722,7 @@ test "an idle worker wakes for the descriptors of a busy one" {
             // This worker makes no check from here, so only the other
             // worker's look at its poller sees the byte, and that worker
             // runs the reader it wakes. The limit only ends a run whose
-            // watch is broken.
+            // watch, or shared sleep, is broken.
             if (asleep) {
                 const give_up = nowNs() + 10 * std.time.ns_per_s;
                 while (read_on.load(.seq_cst) == null and nowNs() < give_up) std.atomic.spinLoopHint();
@@ -8347,8 +8763,9 @@ test "a sleeping worker that leaves its wait to trim its heap has another watch 
         }
         /// The trim of the home worker, asleep holding the descriptor
         /// with no watch held: the byte comes, and the trim lasts until
-        /// another worker's look wakes the reader. The limit only ends a
-        /// run whose watch is broken.
+        /// another worker's look wakes the reader (on Linux, the other's
+        /// shared sleep, which the byte ends). The limit only ends a run
+        /// whose watch, or shared sleep, is broken.
         fn trim() void {
             asleep = testSpinUntilOthersSleep();
             _ = std.posix.system.write(fds[1], "x", 1);
@@ -8392,6 +8809,249 @@ test "a sleeping worker that leaves its wait to trim its heap has another watch 
     try std.testing.expect(Run.in_trim);
     try std.testing.expect(on != null);
     try std.testing.expect(on != Run.home);
+}
+
+/// Test only: the waits of each worker's shared sleep that an event or a
+/// kick ended, in all (`SleepStats.woke`), read while they sleep.
+fn testWokeAll() u64 {
+    var n: u64 = 0;
+    for (workersNow()) |*v| n += @atomicLoad(u64, &v.sleep_stats.woke, .monotonic);
+    return n;
+}
+
+/// Test only: spin `ns` making no check, so no worker but a sleeper's
+/// wake can change what a test counts meanwhile.
+fn testSpin(ns: i96) void {
+    const until = nowNs() + ns;
+    while (nowNs() < until) std.atomic.spinLoopHint();
+}
+
+test "on Linux an event while every worker sleeps wakes one thread, which runs the fiber it makes ready" {
+    if (!shared_sleep) return error.SkipZigTest;
+    const Run = struct {
+        var fds: [2]i32 = .{ -1, -1 };
+        var all_asleep = std.atomic.Value(bool).init(false);
+        var before = std.atomic.Value(u64).init(0);
+        var after: u64 = 0;
+        var read = std.atomic.Value(bool).init(false);
+        const Unit = struct {};
+        fn reader(_: *Unit, r: *Registration) u8 {
+            if (waitReady(r, Registration.readable, edges(r, Registration.readable), null, false) == .ready) read.store(true, .seq_cst);
+            return 0;
+        }
+        /// Outside the workers: once every worker has slept a while,
+        /// `main` waiting for the reader and the reader for the byte,
+        /// count their wakes and write the byte.
+        fn writer() void {
+            const until = nowReal() + 5 * std.time.ns_per_s;
+            while (sleepers.count.load(.seq_cst) < workersNow().len and nowReal() < until) _ = testSleepReal(1);
+            // Listed, then in the shared epoll a moment later.
+            _ = testSleepReal(20);
+            all_asleep.store(sleepers.count.load(.seq_cst) == workersNow().len, .seq_cst);
+            before.store(testWokeAll(), .seq_cst);
+            _ = std.posix.system.write(fds[1], "x", 1);
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = workersRunning();
+            fds = testPipe();
+            const r = register(fds[0]).?;
+            const j = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
+            const t = std.Thread.spawn(.{}, writer, .{}) catch unreachable;
+            _ = j.join();
+            // On the worker the byte woke, which ran the reader and then
+            // this: time for a second wake to show, were there one.
+            testSpin(20 * std.time.ns_per_ms);
+            after = testWokeAll();
+            t.join();
+            deregister(r);
+            _ = std.posix.system.close(fds[0]);
+            _ = std.posix.system.close(fds[1]);
+        }
+    };
+    workers_override.* = 4;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.all_asleep.load(.seq_cst));
+    try std.testing.expect(Run.read.load(.seq_cst));
+    try std.testing.expectEqual(@as(u64, 1), Run.after - Run.before.load(.seq_cst));
+}
+
+test "on Linux a busy worker's event runs on a sleeping one well within a millisecond" {
+    if (!shared_sleep) return error.SkipZigTest;
+    const Run = struct {
+        var home: ?*Worker = null;
+        var asleep = false;
+        var best: i96 = std.math.maxInt(i64);
+        var read_on = std.atomic.Value(?*Worker).init(null);
+        var read_at = std.atomic.Value(i64).init(0);
+        const Unit = struct {};
+        fn reader(_: *Unit, r: *Registration) u8 {
+            if (waitReady(r, Registration.readable, edges(r, Registration.readable), null, false) == .ready) {
+                read_at.store(@intCast(nowNs()), .seq_cst);
+                read_on.store(me(), .seq_cst);
+            }
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            // Pinned, so this worker stays busy with it, and holds the
+            // descriptor, registered here.
+            home = pinHere();
+            for (0..5) |_| round();
+        }
+        fn round() void {
+            const fds = testPipe();
+            const r = register(fds[0]).?;
+            read_on.store(null, .seq_cst);
+            const j = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
+            const ready_by = nowNs() + 2 * std.time.ns_per_s;
+            testNap(std.time.ns_per_ms);
+            while (r.waiting.load(.seq_cst) == 0 and nowNs() < ready_by) testNap(std.time.ns_per_ms);
+            testNapUntilOthersSleep();
+            if (testSpinUntilOthersSleep()) {
+                asleep = true;
+                // This worker makes no check from here: only a sleeper's
+                // drain of its poller wakes the reader.
+                const at = nowNs();
+                _ = std.posix.system.write(fds[1], "x", 1);
+                const give_up = at + 2 * std.time.ns_per_s;
+                while (read_on.load(.seq_cst) == null and nowNs() < give_up) std.atomic.spinLoopHint();
+                if (read_on.load(.seq_cst)) |on| {
+                    if (on != home) best = @min(best, read_at.load(.seq_cst) - at);
+                }
+            } else _ = std.posix.system.write(fds[1], "x", 1);
+            _ = j.join();
+            j.free();
+            deregister(r);
+            _ = std.posix.system.close(fds[0]);
+            _ = std.posix.system.close(fds[1]);
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.asleep);
+    // Hundreds of microseconds at worst on a loaded machine; tens on an
+    // idle one.
+    try std.testing.expect(Run.best < std.time.ns_per_ms);
+}
+
+test "on Linux a pinned fiber's home, asleep beside others, is woken by a kick to it alone" {
+    if (!shared_sleep) return error.SkipZigTest;
+    const Run = struct {
+        var home: ?*Worker = null;
+        var took: i96 = 0;
+        var kicks: u64 = 0;
+        var others_woke: u64 = 0;
+        var result: PoolResult(u64) = .canceled;
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = workersRunning();
+            home = pinHere();
+            testNapUntilOthersSleep();
+            const kicks_before = test_kicks.load(.seq_cst);
+            const woke_before = testWokeAll() - @atomicLoad(u64, &home.?.sleep_stats.woke, .monotonic);
+            // A pool thread ends the call and wakes this fiber, pinned:
+            // at home, which sleeps meanwhile as the others do, and is
+            // the one kicked.
+            const start = nowNs();
+            result = blockingStop(testSleepReal, .{20}, null);
+            took = nowNs() - start;
+            kicks = test_kicks.load(.seq_cst) - kicks_before;
+            others_woke = testWokeAll() - @atomicLoad(u64, &home.?.sleep_stats.woke, .monotonic) - woke_before;
+        }
+    };
+    workers_override.* = 3;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.result == .done);
+    try std.testing.expect(Run.took < std.time.ns_per_s);
+    try std.testing.expect(Run.kicks >= 1);
+    try std.testing.expectEqual(@as(u64, 0), Run.others_woke);
+}
+
+test "on Linux a kick that comes while its worker is awake interrupts no system call, and ends its next wait at once" {
+    if (!shared_sleep) return error.SkipZigTest;
+    const Run = struct {
+        var slept: i96 = 0;
+        var napped = false;
+        var idle_before: u64 = 0;
+        var idle_after: u64 = 0;
+        var other_idle: u64 = 0;
+        var cleared = false;
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = workersRunning();
+            // Pinned, so its naps end on this worker.
+            const w = pinHere().?;
+            testNapUntilOthersSleep();
+            // A kick to this worker, awake: as `signalWorker` sends one
+            // that comes late.
+            w.signaled.store(true, .seq_cst);
+            _ = std.os.linux.tgkill(shared.pid, w.tid.load(.seq_cst), kick_signal);
+            // A system call that a signal with a handler would end early
+            // (nanosleep ends with EINTR): it sleeps its whole time.
+            const start = nowNs();
+            sleepNs(20 * std.time.ns_per_ms);
+            slept = nowNs() - start;
+            // The kick waits, and ends this worker's next wait at once,
+            // which finds nothing and waits again, for the nap.
+            idle_before = w.sleep_stats.woke_idle;
+            testNap(5 * std.time.ns_per_ms);
+            napped = true;
+            idle_after = w.sleep_stats.woke_idle;
+            cleared = !w.signaled.load(.seq_cst);
+            // A kick to a sleeping worker with nothing to do: it wakes,
+            // and sleeps again.
+            const ws = workersNow();
+            const other = if (&ws[0] == w) &ws[1] else &ws[0];
+            const before = @atomicLoad(u64, &other.sleep_stats.woke_idle, .monotonic);
+            signalWorker(other, w);
+            const until = nowNs() + 2 * std.time.ns_per_s;
+            while (@atomicLoad(u64, &other.sleep_stats.woke_idle, .monotonic) == before and nowNs() < until) testNap(std.time.ns_per_ms);
+            other_idle = @atomicLoad(u64, &other.sleep_stats.woke_idle, .monotonic) - before;
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.slept >= 20 * std.time.ns_per_ms);
+    try std.testing.expect(Run.napped);
+    try std.testing.expect(Run.idle_after > Run.idle_before);
+    try std.testing.expect(Run.cleared);
+    try std.testing.expect(Run.other_idle >= 1);
+}
+
+test "on Linux the workers asleep in the shared epoll as main ends are each kicked, and stop" {
+    if (!shared_sleep) return error.SkipZigTest;
+    const Run = struct {
+        var all_asleep = false;
+        var kicks_before: u64 = 0;
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = workersRunning();
+            testNapUntilOthersSleep();
+            all_asleep = testSpinUntilOthersSleep();
+            // Listed, then in the shared epoll a moment later.
+            testSpin(10 * std.time.ns_per_ms);
+            kicks_before = test_kicks.load(.seq_cst);
+        }
+    };
+    workers_override.* = 4;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    const start = nowReal();
+    // Returns once every worker's thread has ended.
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(nowReal() - start < 5 * std.time.ns_per_s);
+    try std.testing.expect(Run.all_asleep);
+    try std.testing.expect(test_kicks.load(.seq_cst) - Run.kicks_before >= 3);
+    try std.testing.expectEqual(@as(i32, -1), shared.fd);
 }
 
 fn testSleepReal(ms: u64) u64 {

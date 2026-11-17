@@ -90,13 +90,15 @@ worker after.
   Other system calls go through a `Threaded` instance of Zig's `std.Io`
   (`rt.io`) on the calling thread, which runs no tasks; a write to a
   full pipe holds its worker until it returns.
-- **Pollers and timers.** Each worker sleeps in a poller of its own,
-  kqueue on macOS and epoll on Linux, which a waker kicks, and keeps a
-  heap of the deadlines its fibers set, as Go keeps one per processor.
-  A worker that runs fibers looks at both every 61 turns; one about to
-  sleep wakes the fibers whose timers are due on any worker, polls the
-  pollers no worker sleeps in, and sleeps until the earliest deadline any
-  worker holds. A wait with a deadline puts its timer in the heap and
+- **Pollers and timers.** Each worker has a poller of its own, kqueue
+  on macOS and epoll on Linux, and keeps a heap of the deadlines its
+  fibers set, as Go keeps one per processor. On the Mac a worker sleeps
+  in its own poller, which a waker kicks; on Linux every worker sleeps
+  in one epoll shared by all (below, "One sleep on Linux"). A worker
+  that runs fibers looks at both every 61 turns; one about to sleep
+  wakes the fibers whose timers are due on any worker, on the Mac polls
+  the pollers no worker sleeps in, and sleeps until the earliest
+  deadline any worker holds. A wait with a deadline puts its timer in the heap and
   takes it out as it wakes; a fiber that waits again and again, each
   time with a later deadline, as `http.serve`'s connection waits for
   each request, no longer than its idle time, holds one deadline that
@@ -153,11 +155,51 @@ worker after.
   that is ready waits in its worker's pinned queue, never a ring or the
   global queue, so no worker steals it; the worker takes its pinned
   fibers and its ring by turns. A wake from elsewhere queues it at home,
-  and kicks the home's poller while that worker sleeps (`Worker.idle`).
+  and kicks the home while that worker sleeps (`Worker.idle`): its
+  poller on the Mac, a signal to its thread on Linux.
   A safe or debug build panics when a pinned fiber resumes on a worker
   other than its home (`sched.checkHome`), a load and a branch per
   switch.
-- **Every poller watched.** While a worker that does not sleep holds
+- **One sleep on Linux.** Every worker with nothing to do sleeps in one
+  epoll, the program's (`sched.Shared`), in which each worker's poller is
+  nested once as it opens (readable, edge-triggered) and never changed
+  per sleep. The threads that wait directly on one epoll are woken one
+  at a time, so an event on any poller wakes one sleeper, whichever,
+  which takes the events of every poller the epoll reports, its own
+  first (`Poller.drain`), and runs what they make ready: the first fiber
+  in its "run next" slot, the rest in its ring, from which its switch to
+  the first wakes another (`spread`). So a busy worker's sockets wait
+  for no look, a sleeper answers them at once, and with every worker
+  asleep an event wakes one thread. A sleeper marks a poller `missed`
+  before it tries the poller's lock, and every holder clears the mark
+  before its look and reads it after it lets go, all sequentially
+  consistent: either the sleeper takes the lock, or the holder takes the
+  events itself, or, letting go as a descriptor closes on a fiber's
+  stack, rings the bell for a sleeper to (`Poller.remove`,
+  `sched.drainMissed`); and a look that fills its buffer looks again,
+  since the epoll reports a poller again only on its next event. No edge
+  is left untaken, so no sleep has a backstop timeout. A wake any
+  sleeper may answer writes an eventfd nested in the same epoll, the
+  bell (`sched.ring`), so it too wakes one: a `notify` counts one more
+  worker searching and leaves a token that whichever sleeper wakes takes
+  (`sched.notifyShared`, `sched.takeToken`), and a sleeper that leaves
+  for work of its own takes itself off the list and then takes a token
+  left meanwhile, while the notify stores its token and then reads
+  whether any worker sleeps, taking it back when none does, so no token
+  waits for a sleeper that never comes. A wake meant for one worker (a
+  pinned fiber's home, the sleeper a timer set earlier must reach, each
+  worker as `main` ends) is SIGIO to its thread (`sched.signalWorker`),
+  whose handler does nothing: every worker blocks SIGIO but in its
+  shared wait, which unblocks it for that call alone (`epoll_pwait`), so
+  a kick sent while its worker is anywhere else waits, interrupts no
+  other system call, and ends its next wait at once, which then finds
+  its work or sleeps again. `RIG_SCHED_STATS=1` adds each worker's
+  shared waits an event or a kick ended, those that found nothing to
+  do, its looks at another's poller that made fibers ready, and the
+  bells it rang and kicks it sent. macOS wakes every thread waiting on
+  a kqueue for each event, so the Mac keeps a poller per worker and the
+  watch below.
+- **Every poller watched (the Mac).** While a worker that does not sleep holds
   descriptors, one sleeping worker at a time watches every poller
   (`sched.sleepIn`): it sleeps at most 1 ms, and as it wakes looks at
   every worker's poller, so a busy worker's sockets wait no longer than
@@ -540,7 +582,8 @@ run between any two instructions of any thread and so may not wake a
 fiber. A `main` that can fail has a `Control` of its own
 (`rt.cancelOnInterrupt`); the handler sets its flag, which is the
 first half of the handshake, sets `rt.interrupt_pending`, and kicks
-every worker's poller, one system call each. The worker that next
+every worker's poller, one system call each (on Linux it rings the
+shared bell, which wakes one sleeper). The worker that next
 services its poller and timers, awake or woken by the kick, takes the
 pending flag and ends `main`'s wait (`sched.deliverInterrupt`), the
 second half. A program without the scheduler has one thread: its
@@ -736,7 +779,7 @@ spin, and a round trip on a socket registered with that worker about
 1 ms. A recursive call's check
 reads only its flag, so a worker deep in recursion leaves its timers to
 the workers that sleep. A timer set earlier than any sleeping worker
-wakes kicks one (`sched.kickForTimer`): the timer's worker publishes the
+wakes kicks one (`sched.kickForTimer`; on Linux a signal to it): the timer's worker publishes the
 deadline, then reads when each sleeper wakes, and a worker about to
 sleep notes that it may sleep for good, then reads the deadlines, all
 sequentially consistent, so one of the two sees the other.
