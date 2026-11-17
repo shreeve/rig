@@ -990,6 +990,8 @@ fn answer(comptime F: type, f: F, request: *std.http.Server.Request, max_body: u
     const target = bytes[at..][0..head.target.len];
     const q = Server.of(request).question;
     var req: Req = undefined;
+    // The method's name is the program's constant text, which `view`
+    // never writes: the handler only reads it.
     @field(req, "method") = view(@constCast(@tagName(head.method)));
     @field(req, "path") = view(if (q) |i| target[0..i] else target);
     @field(req, "query") = view(if (q) |i| target[i + 1 ..] else target[target.len..]);
@@ -1018,19 +1020,22 @@ fn answer(comptime F: type, f: F, request: *std.http.Server.Request, max_body: u
             return t.f.call(.{t.req});
         }
     };
-    var resp: Resp = tasks.isolateInto(Thunk{ .f = f, .req = &req }, rig.no_slot) catch {
-        respond(request, 500, "", "internal server error\n", keep_alive) catch return .close;
-        return after(request, keep_alive);
-    };
+    var resp: Resp = tasks.isolateInto(Thunk{ .f = f, .req = &req }, rig.no_slot) catch return failed(request, keep_alive);
     defer rig.drop(&resp);
-    const status: u10 = @intCast(rig.unsigned(std.math.clamp(@field(resp, "status"), 100, 999)));
-    const kind = contentType(@field(resp, "type"));
-    // An `.other` type that would end its header line is no header: 500.
-    if (std.mem.findAny(u8, kind, "\r\n") != null) {
-        respond(request, 500, "", "internal server error\n", keep_alive) catch return .close;
-        return after(request, keep_alive);
-    }
+    // A status below 200 is an interim answer, which has no body and
+    // comes before the final one, or none at all: 500.
+    const code = @field(resp, "status");
+    if (code < 200) return failed(request, keep_alive);
+    const status: u10 = @intCast(rig.unsigned(@min(code, 999)));
+    const kind = contentType(@field(resp, "type")) orelse return failed(request, keep_alive);
     respond(request, status, kind, @field(resp, "body").list.items, keep_alive) catch return .close;
+    return after(request, keep_alive);
+}
+
+/// Answer 500, for a handler that panicked or gave an answer that
+/// cannot be sent.
+fn failed(request: *std.http.Server.Request, keep_alive: bool) Next {
+    respond(request, 500, "", "internal server error\n", keep_alive) catch return .close;
     return after(request, keep_alive);
 }
 
@@ -1044,10 +1049,11 @@ fn after(request: *std.http.Server.Request, keep_alive: bool) Next {
 
 /// The content type a response's `type` (std.http's `Type`) names: a
 /// named one's text, from `content_types`, made when the program is
-/// compiled, or `other`'s text as written.
-fn contentType(t: anytype) []const u8 {
+/// compiled, or `other`'s text as written; null for an `other` holding
+/// a CR, LF, or NUL, which no header line may hold.
+fn contentType(t: anytype) ?[]const u8 {
     return switch (t) {
-        .other => |o| o.text,
+        .other => |o| if (std.mem.findAny(u8, o.text, "\r\n\x00") == null) o.text else null,
         inline else => |_, tag| @field(content_types, @tagName(tag)),
     };
 }
