@@ -21,48 +21,61 @@ pub sub sort[T: Ord](xs: ![]T)
 
 # Sort `xs` in place in the order `less` gives: `less(a, b)` says
 # whether `a` belongs before `b`. Keeps elements neither of which is
-# less than the other in the order they had. Allocates room for
-# `xs.len / 2` elements, freed before it returns, unless `xs` holds at
-# most 32 or is in order already (or strictly in reverse order); when
-# memory runs out, the program panics, as at any allocation.
+# less than the other in the order they had. Allocates room for half of
+# `xs`, or all of it while that takes at most 8 MB, freed before it
+# returns, unless `xs` holds at most 20 elements or is in order already
+# (or strictly in reverse order); when memory runs out, the program
+# panics, as at any allocation.
 pub inline sub sort_by[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
-  # A stable merge sort: natural runs, a strictly falling one reversed,
-  # each sorted on to 32 elements by insertion, merged in powersort's
-  # order (Munro and Wild), each merge moving the shorter of its two runs
-  # out to the room. O(n log n) comparisons, O(n) on input in order or
-  # in reverse. Everything this calls with `less` is inline, with no
-  # recursion, so the whole sort compiles into its caller, where `less`
-  # is inlined too.
+  # driftsort (Orson Peters and Lukas Bergdoll, as Rust's `sort`): runs
+  # found and merged in powersort's order (Munro and Wild), and input with
+  # no long runs sorted by a stable quicksort through the room, in pieces
+  # as large as the room, which the merges then join. O(n log n)
+  # comparisons; O(n) on input in order or in reverse, and O(n log k) on
+  # input of k distinct values. Everything this calls with `less` is
+  # inline, with no recursion, so the whole sort compiles into its
+  # caller, where `less` is inlined too.
   n = xs.len
-  a = 0
-  m = next_run(!xs, 0, less)
-  if m >= n
+  if n <= 20
+    insertion_by(!xs, 0, n, less)
     return
+  # A run is its length times 2, plus 1 when it is sorted. A run too
+  # short to keep is left unsorted, and two unsorted runs that fit in
+  # the room together become one: so a stretch with no runs is sorted
+  # by the quicksort once, as long as the room, and not merged up from
+  # small pieces.
   room = Room(addr: 0, cap: 0, bytes: 0)
-  # The runs not yet merged, each with the depth in powersort's tree of
-  # the boundary after it, deeper up the stack: at most 64.
-  starts: [64]Int = [64 of 0]
-  depths: [64]Int = [64 of 0]
-  top = 0
+  s_len = scratch_len[T](n)
+  eager = n <= 64
+  good = math.min(n - n / 2, 64) if n <= 4096 else sqrt_about(n)
   scale = ((U64(1) << 62) + U64(n) - 1) / U64(n)
-  while m < n
-    b = next_run(!xs, m, less)
-    # The boundary's depth: the bits `(a + m) / 2n` and `(m + b) / 2n`
-    # share, as fractions, the midpoints of the two runs.
-    depth = ((U64(a + m) * scale) ^ (U64(m + b) * scale)).leading_zeros()
-    while top > 0 and depths[top - 1] >= depth
+  # The runs not yet merged, each with the depth in powersort's tree of
+  # the boundary after it, deeper up the stack; the first an empty run.
+  runs: [66]Int = [66 of 0]
+  depths: [66]U8 = [66 of 0]
+  top = 0
+  scan = 0
+  prev = 1
+  loop
+    next = 1
+    depth: U8 = 0
+    if scan < n
+      next = create_run(!xs, scan, good, eager, !room, s_len, less)
+      depth = U8(((U64(scan - (prev >> 1) + scan) * scale) ^ (U64(scan + scan + (next >> 1)) * scale)).leading_zeros())
+    # At the end every run merges, into the empty one too, which sorts
+    # what is still unsorted.
+    while top > (1 if scan < n else 0) and depths[top - 1] >= depth
+      left = runs[top - 1]
+      merged = (left >> 1) + (prev >> 1)
+      prev = logical_merge(!xs, scan - merged, left, prev, !room, s_len, less)
       top -= 1
-      merge_by(!xs, !room, starts[top], a, m, less)
-      a = starts[top]
-    starts[top] = a
+    runs[top] = prev
     depths[top] = depth
     top += 1
-    a = m
-    m = b
-  while top > 0
-    top -= 1
-    merge_by(!xs, !room, starts[top], a, n, less)
-    a = starts[top]
+    if scan >= n
+      break
+    scan += next >> 1
+    prev = next
 
 # Sort `xs` in place in the order of the key `key` gives each element,
 # by `<`, keeping elements of equal keys in the order they had.
@@ -75,9 +88,11 @@ pub inline sub sort_by_key[T, K: Ord](xs: ![]T, key: ?fun(?T) -> K)
     ka < kb
   )
 
-# Memory for `cap` elements that a merge moves out of the slice it sorts,
+# Memory for the elements a stable sort moves out of the slice it sorts,
 # none of which the room owns: its drop frees the memory and drops no
-# element. Empty until the first merge that moves any.
+# element. Empty until the sort first needs it: `cap` slots, the
+# scratch the quicksort partitions through and the merges move runs to,
+# then 48 for the quicksort's pivots.
 obj Room
   addr: Int
   cap: Int
@@ -86,112 +101,114 @@ obj Room
   drop(!@)
     room_free(@addr, @bytes)
 
-# Sort xs[s..b] by insertion, xs[s..i] sorted already.
-inline sub insert_by[T](xs: ![]T, s: Int, i: Int, b: Int, less: ?fun(?T, ?T) -> Bool)
-  new i = i
-  while i < b : i += 1
-    j = i
-    while j > s and less(?xs[j], ?xs[j - 1]) : j -= 1
-      !xs.swap(j, j - 1)
-
-# The end of the run of xs starting at `a`: the longest rising one, or a
-# strictly falling one reversed, sorted on to 32 elements by insertion.
-inline fun next_run[T](xs: ![]T, a: Int, less: ?fun(?T, ?T) -> Bool) -> Int
-  n = xs.len
-  e = a + 1
-  if e >= n
-    return n
-  if less(?xs[e], ?xs[a])
-    while e + 1 < n and less(?xs[e + 1], ?xs[e])
-      e += 1
-    i = a
-    j = e
-    while i < j
-      !xs.swap(i, j)
-      i += 1
-      j -= 1
-  else
-    while e + 1 < n and not less(?xs[e + 1], ?xs[e])
-      e += 1
-  e += 1
-  if e - a >= 32
-    return e
-  end = math.min(a + 32, n)
-  insert_by(!xs, a, e, end, less)
-  end
-
-# Merge the sorted runs xs[a..m] and xs[m..b]: move the shorter one out
-# to `room`, then merge it back, front first when it is the left one and
-# back first when the right.
-#
-# A step either branches on `less` or selects with it. A branch costs
-# nothing while one run's elements come in streaks, which the processor
-# predicts, and a miss when the runs interleave, where a select costs a
-# little on every step: so each 32 steps branch or select as the last 32
-# went, by how often the run taken from changed, selecting first.
-inline sub merge_by[T](xs: ![]T, room: !Room, a: Int, m: Int, b: Int, less: ?fun(?T, ?T) -> Bool)
-  if not less(?xs[m], ?xs[m - 1])
-    return
+# Make `room` hold `s_len` slots of scratch and 48 for pivots.
+inline sub fill_room[T](room: !Room, s_len: Int)
   if room.cap == 0
-    room.cap = xs.len / 2
+    room.cap = s_len + 48
     room.addr = room_alloc[T](room.cap)
     room.bytes = room_bytes[T](room.cap)
+
+# About the square root of `n`: 2 to half its bits, one Newton step.
+fun sqrt_about(n: Int) -> Int
+  shift = (64 - U64(n | 1).leading_zeros()) / 2
+  ((1 << shift) + (n >> shift)) / 2
+
+# The run of `xs` from `a`: a natural one of at least `good` elements,
+# sorted (a strictly falling one reversed); else, when `eager`, the next
+# 32 elements sorted small; else the next `good`, unsorted.
+inline fun create_run[T](xs: ![]T, a: Int, good: Int, eager: Bool, room: !Room, s_len: Int, less: ?fun(?T, ?T) -> Bool) -> Int
+  len = xs.len - a
+  run = natural_run(!xs, a, good, less)
+  if run > 0
+    return run * 2 + 1
+  if eager
+    e = math.min(32, len)
+    fill_room[T](!room, s_len)
+    buf = room_slots[T](!room)
+    small_sort_by(!xs, a, a + e, !buf, less)
+    return e * 2 + 1
+  math.min(good, len) * 2
+
+# Merge the neighbouring runs `left` and `right` that start at `a`. Two
+# unsorted runs that fit in the room together become one unsorted run;
+# otherwise each unsorted one is quicksorted and the two merged.
+inline fun logical_merge[T](xs: ![]T, a: Int, left: Int, right: Int, room: !Room, s_len: Int, less: ?fun(?T, ?T) -> Bool) -> Int
+  m = a + (left >> 1)
+  b = m + (right >> 1)
+  if b - a <= s_len and left & 1 == 0 and right & 1 == 0
+    return (b - a) * 2
+  if left & 1 == 1 and right & 1 == 1 and (m == a or m == b)
+    return (b - a) * 2 + 1
+  fill_room[T](!room, s_len)
   buf = room_slots[T](!room)
-  flips = 8
-  if m - a <= b - m
-    len = m - a
-    move_to(!buf, 0, ?xs, a, len)
-    i = 0
-    j = m
-    k = a
-    while i < len and j < b
-      select = flips >= 8
-      flips = 0
-      last = false
-      steps = 0
-      while steps < 32 and i < len and j < b : steps +%= 1
-        right = less(?xs[j], ?buf[i])
-        if select
-          pick_one(!xs, k, j, ?buf, i, right)
-          j += 1 if right else 0
-          i += 0 if right else 1
-        else if right
-          shift_one(!xs, k, j)
-          j += 1
-        else
-          move_one(!xs, k, ?buf, i)
-          i += 1
-        flips +%= 1 if right != last else 0
-        last = right
-        k += 1
-    move_to(!xs, k, ?buf, i, len - i)
-  else
-    len = b - m
-    move_to(!buf, 0, ?xs, m, len)
-    i = m
-    j = len
-    k = b
-    while i > a and j > 0
-      select = flips >= 8
-      flips = 0
-      last = false
-      steps = 0
-      while steps < 32 and i > a and j > 0 : steps +%= 1
-        k -= 1
-        left = less(?buf[j - 1], ?xs[i - 1])
-        if select
-          pick_one(!xs, k, i - 1, ?buf, j - 1, left)
-          i -= 1 if left else 0
-          j -= 0 if left else 1
-        else if left
-          shift_one(!xs, k, i - 1)
-          i -= 1
-        else
-          move_one(!xs, k, ?buf, j - 1)
-          j -= 1
-        flips +%= 1 if left != last else 0
-        last = left
-    move_to(!xs, a, ?buf, 0, j)
+  part = 0
+  while part < 2 : part += 1
+    lo = a if part == 0 else m
+    hi = m if part == 0 else b
+    if (left if part == 0 else right) & 1 == 0
+      quicksort(!xs, lo, hi, !buf, s_len, less)
+  merge_by(!xs, a, m, b, !buf, less)
+  (b - a) * 2 + 1
+
+# Sort xs[lo..hi], at most `s_len` elements, by a stable quicksort
+# through `buf`. Each partition's pivot is a pseudomedian; one not above
+# the last pivot that the range lies right of, which every element of
+# it is at least, splits off the elements equal to it, which are then
+# done. The right part is sorted first and the left pushed, so the
+# stack holds at most one entry per partition on a path; after 2
+# log2(n) partitions on one path (48 at most), a merge sort finishes
+# the range. Pivots are kept, by their bits, in the slots of `buf`
+# after `s_len`.
+inline sub quicksort[T](xs: ![]T, lo: Int, hi: Int, buf: ![]T, s_len: Int, less: ?fun(?T, ?T) -> Bool)
+  new lo = lo
+  new hi = hi
+  # A pushed range: its start, its end, and its partitions left, the
+  # slot of the pivot it lies right of (plus one, 0 for none), and the
+  # first free pivot slot, packed in bytes. At most 48 partitions on a
+  # path (2 log2(n) up to 2^24 elements), which keeps these arrays, and
+  # the frame the sort is inlined into, small.
+  starts: [48]Int = [48 of 0]
+  ends: [48]Int = [48 of 0]
+  marks: [48]Int = [48 of 0]
+  top = 0
+  limit = math.min(2 * (63 - U64((hi - lo) | 1).leading_zeros()), 48)
+  pivot = -1
+  free = 0
+  loop
+    len = hi - lo
+    if len <= 32
+      small_sort_by(!xs, lo, hi, !buf, less)
+    else if limit == 0
+      merge_sort_by(!xs, lo, hi, !buf, less)
+    else
+      limit -= 1
+      p = pivot_by(?xs, lo, hi, less)
+      same = pivot >= 0 and not less(?buf[s_len + pivot], ?xs[p])
+      below = 0
+      if not same
+        move_one(!buf, s_len + free, ?xs, p)
+        below = partition_lt(!xs, lo, hi, p, !buf, less)
+        same = below == 0
+      if same
+        lo += partition_le(!xs, lo, hi, p, !buf, less)
+        pivot = -1
+        continue
+      starts[top] = lo
+      ends[top] = lo + below
+      marks[top] = limit | (pivot + 1) << 8 | free << 16
+      top += 1
+      lo += below
+      pivot = free
+      free += 1
+      continue
+    if top == 0
+      return
+    top -= 1
+    lo = starts[top]
+    hi = ends[top]
+    limit = marks[top] & 255
+    pivot = (marks[top] >> 8 & 255) - 1
+    free = marks[top] >> 16
 
 # Pattern-defeating quicksort (Orson Peters' pdqsort, as Rust's
 # `sort_unstable` and Zig's `std.sort.pdq`): quicksort on a median of
@@ -526,12 +543,32 @@ extern zig "sort.zig"
   sub room_free(addr: Int, bytes: Int)
   # The slots of `r`'s memory, as elements of type `T`.
   fun room_slots[T](r: !Room) -> ![]T from r
-  # Move `n` elements from `from[i..]` to `to[at..]`, one from `from[i]`
-  # to `to[at]`, one from `xs[i]` to `xs[at]`, or, choosing by `take`
-  # with no branch, one from `xs[j]` or else `from[i]` to `xs[at]`: as
-  # bits, dropping nothing. The slots moved to hold no element before;
-  # the ones moved from hold none after, until a move fills them again.
-  sub move_to[T](to: ![]T, at: Int, from: ?[]T, i: Int, n: Int)
+  # The scratch a stable sort of `n` elements takes: half of them, or
+  # all while they take at most 8 MB; at least 48.
+  fun scratch_len[T](n: Int) -> Int
+  # Move `from[i]` to `to[at]`, as bits, dropping nothing: `to[at]` held
+  # no element before.
   sub move_one[T](to: ![]T, at: Int, from: ?[]T, i: Int)
-  sub shift_one[T](xs: ![]T, at: Int, i: Int)
-  sub pick_one[T](xs: ![]T, at: Int, j: Int, from: ?[]T, i: Int, take: Bool)
+
+  # The stable sort's kernels (sort.zig): each moves the elements of the
+  # range it is given by their bits, every one of them exactly once
+  # whatever `less` answers, and `buf` holds none after.
+  #
+  # Sort xs[lo..hi] by insertion.
+  sub insertion_by[T](xs: ![]T, lo: Int, hi: Int, less: ?fun(?T, ?T) -> Bool)
+  # The run of xs from `a` if it is at least `good` long (a strictly
+  # falling one reversed), else 0.
+  fun natural_run[T](xs: ![]T, a: Int, good: Int, less: ?fun(?T, ?T) -> Bool) -> Int
+  # Sort xs[lo..hi], at most 32, through `buf`, 16 longer.
+  sub small_sort_by[T](xs: ![]T, lo: Int, hi: Int, buf: ![]T, less: ?fun(?T, ?T) -> Bool)
+  # The index of a pseudomedian of xs[lo..hi], at least 8 elements.
+  fun pivot_by[T](xs: ?[]T, lo: Int, hi: Int, less: ?fun(?T, ?T) -> Bool) -> Int
+  # Partition xs[lo..hi] around xs[p] through `buf`, each part in the
+  # order it had: those below it first (`_lt`), or those not above it
+  # (`_le`); the number of the first part.
+  fun partition_lt[T](xs: ![]T, lo: Int, hi: Int, p: Int, buf: ![]T, less: ?fun(?T, ?T) -> Bool) -> Int
+  fun partition_le[T](xs: ![]T, lo: Int, hi: Int, p: Int, buf: ![]T, less: ?fun(?T, ?T) -> Bool) -> Int
+  # Merge the sorted xs[lo..mid] and xs[mid..hi] through `buf`.
+  sub merge_by[T](xs: ![]T, lo: Int, mid: Int, hi: Int, buf: ![]T, less: ?fun(?T, ?T) -> Bool)
+  # Sort xs[lo..hi] by merges alone through `buf`.
+  sub merge_sort_by[T](xs: ![]T, lo: Int, hi: Int, buf: ![]T, less: ?fun(?T, ?T) -> Bool)

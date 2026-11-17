@@ -742,6 +742,34 @@ arms.
 
 ### Runtime
 
+- **A sleeping worker that trims its heap has another watch its
+  descriptors:** out of its wait while it gives its heap's free pages
+  back, it counts as awake, and passes the watch on or has another
+  sleeping worker take it (`sched.leaveWait`), so an event on its
+  poller meanwhile waits no longer than a watch's 1 ms while another
+  worker sleeps. With every other worker busy, it waits until the trim
+  ends, as before, since busy workers look only at their own pollers.
+- **A worker going to sleep never blocks writing stdout.** Before it
+  waits in its poller it writes only what stdout takes at once of what
+  `print` buffered, and what is left is written as stdout has room,
+  watched for writability on that worker's poller. A server whose
+  stdout was a full pipe, whose reader waited for its answer on a
+  socket before reading, could block in that write and never see the
+  connection; it answers now. A pipe takes `PIPE_BUF` bytes at a time
+  while it polls writable, a socket what fits (on macOS, which ignores
+  `MSG_DONTWAIT`, its low-water mark at a time), a regular file or
+  `/dev/null` everything; a terminal is still written a line at a time
+  by `print`, and a `print` that fills the buffer and the final flush
+  still write everything. A program that makes no task does the same
+  in its waits on a socket and its sleeps, which also poll for stdout's
+  room while bytes are left, so it too answers with stdout full.
+- **A program started with stdin, stdout, or stderr closed gets
+  `/dev/null` there**, opened the way it is not used (stdin for writing,
+  stdout and stderr for reading), as the C library does for a
+  set-user-ID program: no socket or file the program opens takes their
+  numbers, so a `print` can no longer write into a socket the program
+  opened, and a write of a closed stdout still fails with "stdout: not
+  open for writing".
 - **A program's first parallel call starts faster:** at the first task
   `main` starts worker 1 alone, which maps 16 stacks (address space,
   untouched) for itself and each worker after it, and then starts them
@@ -775,24 +803,40 @@ arms.
   a handle, and `sort_by` and `sort_by_key` sort by the stable merge
   below (docs/history/records/2026-11/std-sort/).
 - **`sort.sort_by`, `sort.sort_by_key`, and `sort.sort` of a type with
-  an `order` of its own sort by a buffered stable merge**: natural runs,
-  a strictly falling one reversed, each sorted on to 32 elements by
-  insertion, merged in powersort's order, each merge moving the shorter
-  run out to a room of `xs.len / 2` elements, one allocation freed
-  before the sort returns (none for 32 elements or fewer, or input in
-  order or strictly in reverse; out of memory panics, as at any
-  allocation). A merge step branches while one run's elements come in
-  streaks and selects without a branch while they interleave. The sort
-  is inline throughout, so the comparator is inlined into it at each
-  call. It replaces insertion runs of 20 merged in place by rotations.
-  On the Mac every row of the stable board is faster: random records
-  3.8 times as fast at a million (196.77 to 51.39 ns per element),
-  random Ints 4.4 times, random text 2.2 times, reversed input 11 to
-  45 times, 16-valued input 1.8 to 2.3 times; Rust's `sort_by` (driftsort,
-  which adds a stable quicksort for input without runs) is still 3.3
-  times as fast on random records and 10 times on 16 values, and level
-  on sorted and reversed input
-  (docs/history/records/2026-11/std-sort/built.md).
+  an `order` of its own sort as Rust's `sort` does** (driftsort, by
+  Orson Peters and Lukas Bergdoll): natural runs of sqrt(n) elements or
+  more kept, a strictly falling one reversed, and merged in powersort's
+  order; input without such runs sorted by a stable quicksort that
+  partitions through a room, in pieces as large as the room, and splits
+  off the elements equal to a pivot (O(n log k) for k distinct values);
+  32 elements or fewer by sorting networks and insertion, 20 or fewer
+  by insertion. The room holds half of the slice or, while it takes at
+  most 8 MB, all of it: one allocation, none for 20 elements or fewer
+  or for input in order or strictly in reverse; out of memory panics,
+  as at any allocation. The algorithm is in std/sort.rig; the loops
+  that move elements between the slice and the room while they compare
+  them are std/sort.zig's, which check the range they are given and run
+  unchecked inside, each element moved exactly once whatever the
+  comparator answers. The sort is inline throughout, so the comparator
+  is inlined into it at each call. It replaces insertion runs of 20
+  merged in place by rotations. A natural run is scanned four steps a
+  turn. On the Mac, against that merge sort, random records are 13
+  times as fast at a million (196.77 to 15.31 ns per element), random
+  Ints 15 times, random text 6.7 times, reversed input 39 times,
+  16-valued input 19 to 29 times; against the buffered merge before it
+  every row is faster, by 9% at the least. Against Rust's `sort_by`, 58
+  of 64 rows are within 2% or faster: random text 1.6 to 1.9 times as
+  fast, sorted input 42% faster to twice as fast, reversed input 9 to
+  53% faster, random and 16-valued records level; random Ints are 2 to
+  6% slower, and 16-valued Ints of 1,024 to 4,096 elements 5 to 9%
+  (docs/history/records/2026-11/std-sort/drift.md).
+- **Text `<`, `<=`, `>`, and `>=` compare eight bytes at a time**:
+  from 8 bytes in common as big-endian words, the last word overlapping
+  the bytes found equal (`rig.textLess`), where `std.mem.order` compared
+  and branched on every byte; a `Bool` from one compare, which a sort's
+  partition takes with no branch. A stable sort of 65,536 random text
+  views is 4.3 times as fast as with `std.mem.order`, sorted ones 6.3
+  times; `sort` of random, sorted, or reversed text 1.3 to 4.4 times.
 - **An integer's `order` folds into one compare where its result is
   tested**: `rig.order` no longer goes through `std.math.order`, whose
   checked `unreachable` kept `x.order(?y) == .less` from becoming

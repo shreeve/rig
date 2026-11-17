@@ -1,7 +1,8 @@
 # std.sort on the data zsort.zig and rust/ sort: Ints, text views, an
 # object ordered by its fields, and records ordered by one key through
-# `sort_by` (a closure) and through `sort` (an own `order`). Prints the
-# fastest round, ns per element.
+# `sort_by` (a closure) and through `sort` (an own `order`); `cstr` is
+# `sstr`'s texts held in one String. Prints the fastest round, ns per
+# element.
 # rsort KIND PATTERN N ROUNDS
 use std.hint
 use std.os
@@ -92,6 +93,27 @@ sub main()
           sort.sort(!work[r * n..(r + 1) * n])
         else
           sort.sort_by(!work[r * n..(r + 1) * n], |a, b| a < b)
+      dt = t0.elapsed()
+      hint.keep(?work)
+      if dt < best
+        best = dt
+  else if kind == "cstr"
+    # The texts of `sstr` laid out one after another in one String, as
+    # zsort.zig's arena lays them out: views sorted by `sort_by`.
+    sorted = pattern == "sorted" or pattern == "rev"
+    all: String = String()
+    offs: List[Int] = List(capacity: total + 1)
+    for k in ?keys
+      !offs.push(all.len)
+      !all.add(`{k + 1000000000000 if sorted else k}`)
+    !offs.push(all.len)
+    for _ in 0..rounds
+      work: List[?String] = List(capacity: total)
+      for i in 0..total
+        !work.push(?all[offs[i]..offs[i + 1]])
+      t0 = time.now()
+      for r in 0..reps
+        sort.sort_by(!work[r * n..(r + 1) * n], |a, b| a < b)
       dt = t0.elapsed()
       hint.keep(?work)
       if dt < best

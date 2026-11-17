@@ -36,6 +36,7 @@ debug.print                 a panic's report
 memcpy                      copies bytes: bounded by what it copies, and a C function, which no section holds
 memmove                     copies bytes: as memcpy
 memset                      fills bytes: as memcpy
+bzero                       fills bytes with zero, as LLVM writes a memset of zeros on macOS: as memcpy
 strlen                      a C string's length, of the program's arguments
 __error                     the C library's errno
 __ulock_wait2               a lock's wait (Darwin)
@@ -64,3 +65,4 @@ debug.FullPanic(*           Zig's panic of a failed safety check: a panic ends t
 Io.Threaded.Thread.futex*   a contended lock's wait and wake, inlined into the program's code (the output lock, which `lockOutput` takes counted, after `sched.holdOff`)
 process.Environ.getPosix    the runtime's start, once (an environment variable's value)
 rig.runtime.onAltStack      the runtime's start, once: installs a signal handler again
+rig.runtime.holdStandardDescriptors  the runtime's start, once: /dev/null on a closed stdin, stdout, or stderr

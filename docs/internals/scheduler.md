@@ -149,9 +149,14 @@ worker after.
   (`sched.sleepIn`): it sleeps at most 1 ms, and as it wakes looks at
   every worker's poller, so a busy worker's sockets wait no longer than
   that even when its own yield checks do not come (in recursion, say),
-  and it passes the watch on as it goes back to work. It keeps the watch
-  from one look to the next while such a worker is awake or has slept
-  since the watch began, and lets it go only once every one has slept
+  and it passes the watch on as it goes back to work. A sleeping worker
+  that leaves its wait to trim its heap counts as awake meanwhile, and
+  passes the watch on or has another take it, as one going back to work
+  does (`sched.leaveWait`); with no other worker asleep to take it, an
+  event on its poller waits for the trim to end, since busy workers
+  look only at their own pollers. The watcher keeps the watch from one look
+  to the next while such a worker is awake or has slept since the
+  watch began, and lets it go only once every one has slept
   through a whole watch, so a worker that sleeps and wakes many times a
   millisecond, as one answering a socket does, finds the watch held and
   kicks no one. A look at another worker's poller leaves the kick it
@@ -159,6 +164,43 @@ worker after.
   sleep, needs: its next wait sees the kick under the poller's lock and
   only looks. A kick while one stands makes no system call, so a kick
   taken by many looks costs one call, not one a look.
+- **No flush blocks the sleep path.** A worker about to wait writes what
+  stdout takes at once of what `print` has buffered (`rt.flushBeforeWait`,
+  from `Poller.poll`), and never waits for the output lock (a try) or
+  for stdout: a regular file or `/dev/null` is written in full (epoll
+  refuses to watch a regular file); a pipe takes `PIPE_BUF` bytes (512
+  on macOS, 4096 on Linux) at a time while it polls writable; a socket
+  on Linux takes what fits under `MSG_DONTWAIT`, and on macOS, which
+  ignores `MSG_DONTWAIT`, its send low-water mark at a time while it
+  polls writable; a terminal is written a line at a time by `print`
+  itself, so nothing is left for the sleep path. No flag is set on
+  stdout's descriptor, which the shell shares. What stdout does not
+  take stays buffered, in order, and stdout is registered once for its
+  writability with that worker's poller (`sched.watchStdout`), counted
+  with its descriptors, so its edge is seen by whichever worker looks
+  there, which writes more the same way; the registration is dropped
+  once the buffer is empty. An edge comes once: a worker that reads it
+  while another holds the output lock records it (`rt.stdoutRoom`)
+  before it tries the lock, and every holder, while bytes are left for
+  stdout's room, looks for the record after it lets go and writes for
+  it (`unlockOutput`), so an edge read while a worker on its way to
+  sleep holds the lock is never lost. A `print` that fills the buffer
+  still writes it out in its own call, waiting there, and the final
+  flush still writes everything. So a worker going to sleep always
+  reaches its wait, and a server whose stdout is a full pipe, whose
+  reader waits for its answer on a socket, answers
+  (`test/cli/stdout_room.sh`). A program that makes no task does the
+  same outside the scheduler (`rt.flushBeforePoll`): its wait on a
+  socket and its sleep write what stdout takes at once and also poll
+  for stdout's room while bytes are left. Workers stop for good only
+  once `main` has ended and the final flush has run, so a registration
+  on a stopped worker leaves no byte behind. "Never blocks" holds while
+  the program is stdout's only writer: another process writing the
+  same pipe or socket can fill it between the poll and the write, and
+  the write then waits for the reader. The runtime puts `/dev/null` on
+  any of descriptors 0 to 2 the program started without
+  (`rt.holdStandardDescriptors`), so no socket takes stdout's number and
+  its watch never touches one of `net`'s.
 - **The blocking pool** counts a thread busy as it hands it a call, and
   counts a thread on its way back from one (`finishing`), which takes the
   next call queued without sleeping. A call that finds neither starts a

@@ -1736,17 +1736,25 @@ O(log n) stack, and allocates nothing.
 
 Otherwise, for a type with an `order` of its own (two keys it calls
 equal may still differ) or one holding a handle, and for `sort_by` and
-`sort_by_key` always, it sorts by a stable merge: natural runs, a
-strictly falling one reversed, each sorted on to 32 elements by
-insertion, then merged in powersort's order, each merge moving the
-shorter of its two runs out to a room and merging it back. That is
-O(n log n) comparisons, O(n) on input in order or in reverse, and one
-allocation, of room for `xs.len / 2` elements, freed before the sort
-returns. It allocates nothing for 32 elements or fewer, or for input
-already in order or strictly in reverse; when memory runs out, the
-program panics, as at any allocation. `sort_by` and `sort_by_key` are
+`sort_by_key` always, it sorts stably, as Rust's `sort` does
+(driftsort, by Orson Peters and Lukas Bergdoll): natural runs of
+sqrt(n) elements or more (64 up to 4,096 elements) are kept, a
+strictly falling one reversed, and merged in powersort's order; input without such runs is
+sorted by a stable quicksort, which partitions through a room in
+pieces as large as the room and splits off the elements equal to a
+pivot, so input of few distinct values sorts in a few passes; 32
+elements or fewer are sorted by sorting networks and insertion, and
+20 or fewer by insertion alone. That is O(n log n) comparisons, O(n)
+on input in order or in reverse, O(n log k) on input of k distinct
+values, and one allocation, of room for half of `xs` or, while it
+takes at most 8 MB, all of it, freed before the sort returns. It
+allocates nothing for 20 elements or fewer, or for input already in
+order or strictly in reverse; when memory runs out, the program
+panics, as at any allocation. `sort_by` and `sort_by_key` are
 compiled into each call, where the comparator is known, so it can be
-inlined into the sort.
+inlined into the sort. A comparator that is no order (`less(a, b)`
+and `less(b, a)` both true, say) sorts nothing in particular, but the
+slice still holds each of its elements once.
 
 ```rig
 use std.sort
