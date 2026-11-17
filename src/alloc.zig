@@ -132,6 +132,17 @@ comptime {
         mapped_count,
         exe_file,
         span_spare,
+        census_segs,
+        census_seg_n,
+        census_spsegs,
+        census_spseg_n,
+        census_tables,
+        census_table_n,
+        census_large,
+        census_large_n,
+        census_large_lock,
+        census_dropped,
+        census_seq,
     };
 }
 
@@ -139,7 +150,7 @@ comptime {
 /// names `os.memory`, whose root declares `__rig_memory` (and in this
 /// file's tests). Any other program's allocator is the same code without
 /// the counting, so the counts cost it nothing.
-pub const counts = builtin.is_test or (@hasDecl(root, "__rig_memory") and root.__rig_memory);
+pub const counts = true;
 
 /// A segment: `segment_size` bytes, aligned to their size, so a block's
 /// segment is its address rounded down. Its first page holds its header.
@@ -460,6 +471,7 @@ pub const Heap = struct {
             return p;
         };
         const s = mapSegment() orelse return null;
+        censusSeg(@intFromPtr(s));
         h.took(segment_size);
         // Every segment asks for huge pages, a heap's first as its
         // later ones: a TLB entry then covers 2 MiB of its blocks, and a
@@ -877,6 +889,7 @@ inline fn allocLargeFrom(h: *Heap, len: usize, mapped: ?*bool) ?[*]u8 {
         return @ptrFromInt(p);
     };
     const got = mapLarge(size) orelse return null;
+    censusLargeAdd(got, size);
     if (mapped) |f| f.* = true;
     if (size >= huge_page) _ = ask(got, size, .huge);
     h.took(size);
@@ -1437,6 +1450,7 @@ fn trimFrom(h: *Heap, k: *Kept) void {
 }
 
 fn unmapLarge(p: usize, len: usize) void {
+    censusLargeDrop(p);
     if (builtin.is_test) calls_for_test.munmap += 1;
     std.posix.munmap(@as([*]align(std.heap.page_size_min) u8, @ptrFromInt(p))[0..len]);
 }
@@ -1704,6 +1718,7 @@ fn carveSpan(h: *Heap, n: usize) ?usize {
     };
     sp.lock.unlock();
     const seg = mapSpanSegment() orelse return null;
+    censusSpanSeg(@intFromPtr(seg));
     // Huge pages, for all of it, as a segment of small blocks asks: a
     // span's room it has not filled commits up to 2 MiB with them.
     _ = ask(@intFromPtr(seg), span_segment_size, .huge);
@@ -2974,6 +2989,8 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
     // grew from, so a block that had asked asks again only as it moves
     // to pages aligned for huge ones, as the system may have had no free
     // 2 MiB blocks for it when it asked.
+    censusLargeDrop(@intFromPtr(memory.ptr));
+    censusLargeAdd(rc, new_size);
     if (new_size >= huge_page and (to != 0 or old_size < huge_page)) _ = ask(rc, new_size, .huge);
     // The pages moved stay; of the new ones, those a List is likely to
     // fill are faulted in at once.
@@ -4563,3 +4580,403 @@ test "every large size is its bucket's size" {
         try std.testing.expect(k == 0 or largeBucket(size - 1) < k);
     }
 }
+
+// -----------------------------------------------------------------------------
+// Memory census (measurement only, never committed)
+// -----------------------------------------------------------------------------
+
+const census_segs_max = 1 << 15;
+var census_segs_var: [census_segs_max]usize = undefined;
+const census_segs = split.cell(&census_segs_var, "alloc.census_segs");
+var census_seg_n_var: std.atomic.Value(usize) = .init(0);
+const census_seg_n = split.cell(&census_seg_n_var, "alloc.census_seg_n");
+var census_spsegs_var: [4096]usize = undefined;
+const census_spsegs = split.cell(&census_spsegs_var, "alloc.census_spsegs");
+var census_spseg_n_var: std.atomic.Value(usize) = .init(0);
+const census_spseg_n = split.cell(&census_spseg_n_var, "alloc.census_spseg_n");
+pub const CensusTable = struct { at: usize, bytes: usize, name: []const u8, elem: usize, n: u64, made: u64 = 0, dropped: u64 = 0, r: Res = .{}, zero: usize = 0, hi: usize = 0 };
+var census_tables_var: [8192]CensusTable = undefined;
+const census_tables = split.cell(&census_tables_var, "alloc.census_tables");
+var census_table_n_var: std.atomic.Value(usize) = .init(0);
+const census_table_n = split.cell(&census_table_n_var, "alloc.census_table_n");
+var census_large_var: [8192]Range = undefined;
+const census_large = split.cell(&census_large_var, "alloc.census_large");
+var census_large_n_var: usize = 0;
+const census_large_n = split.cell(&census_large_n_var, "alloc.census_large_n");
+var census_large_lock_var: SpinLock = .{};
+const census_large_lock = split.cell(&census_large_lock_var, "alloc.census_large_lock");
+
+fn censusSeg(p: usize) void {
+    const i = census_seg_n.fetchAdd(1, .monotonic);
+    if (i < census_segs_max) census_segs[i] = p;
+}
+fn censusSpanSeg(p: usize) void {
+    const i = census_spseg_n.fetchAdd(1, .monotonic);
+    if (i < census_spsegs.len) census_spsegs[i] = p;
+}
+pub fn censusTable(p: usize, bytes: usize, name: []const u8, elem: usize, n: u64) void {
+    const i = census_table_n.fetchAdd(1, .monotonic);
+    if (i < census_tables.len) census_tables[i] = .{ .at = p, .bytes = bytes, .name = name, .elem = elem, .n = n, .made = census_seq.fetchAdd(1, .monotonic) + 1 };
+}
+var census_seq_var: std.atomic.Value(u64) = .init(0);
+const census_seq = split.cell(&census_seq_var, "alloc.census_seq");
+var census_dropped_var: std.atomic.Value(bool) = .init(false);
+const census_dropped = split.cell(&census_dropped_var, "alloc.census_dropped");
+pub fn censusUntable(p: usize) void {
+    _ = census_dropped;
+    const n = @min(census_table_n.load(.monotonic), census_tables.len);
+    for (census_tables[0..n]) |*t| if (t.at == p and t.dropped == 0) {
+        t.r = censusRes(t.at, t.bytes, huge_page);
+        const d = tableDensity(t.*);
+        t.zero = d.zero;
+        t.hi = d.hi;
+        t.dropped = census_seq.fetchAdd(1, .monotonic) + 1;
+    };
+}
+fn censusLargeAdd(p: usize, len: usize) void {
+    census_large_lock.lock();
+    defer census_large_lock.unlock();
+    if (census_large_n.* < census_large.len) {
+        census_large[census_large_n.*] = .{ .start = p, .len = len };
+        census_large_n.* += 1;
+    }
+}
+fn censusLargeDrop(p: usize) void {
+    census_large_lock.lock();
+    defer census_large_lock.unlock();
+    var i: usize = 0;
+    while (i < census_large_n.*) : (i += 1) if (census_large[i].start == p) {
+        census_large[i] = census_large[census_large_n.* - 1];
+        census_large_n.* -= 1;
+        return;
+    };
+}
+
+/// Census: what an alternative scheme would give. `which` 1: eight
+/// classes per doubling from 64 bytes to `max_small`; 2: large blocks
+/// under `span_max` in 4 KiB units, no bucket rounding.
+pub fn blockBytesAlt(len: usize, which: u8) usize {
+    if (len <= max_small) {
+        if (which != 1 or len <= 64) return blockBytes(len, .@"8");
+        const log: usize = std.math.log2_int(usize, len - 1);
+        const base: usize = @as(usize, 1) << @intCast(log);
+        const eighth = base / 8;
+        return base + eighth * ((len - base + eighth - 1) / eighth);
+    }
+    if (which == 2 and len < span_max) return std.mem.alignForward(usize, len, 4096);
+    return largeSize(len);
+}
+
+/// The bytes the allocator gives for a request of `len` aligned to `a`.
+pub fn blockBytes(len: usize, a: std.mem.Alignment) usize {
+    if (classOf(len, a)) |c| return classSize(c);
+    return largeSize(len);
+}
+
+const Res = struct {
+    /// bytes resident (small pages as the system reports)
+    res: usize = 0,
+    /// bytes Linux would hold if the whole range were huge pages: every
+    /// 2 MiB window with any resident page counts 2 MiB.
+    huge: usize = 0,
+};
+
+/// Residency of [p, p+len) by mincore; `small_head` bytes at the start keep small pages in the huge estimate.
+fn censusRes(p0: usize, len0: usize, small_head: usize) Res {
+    const pg = std.heap.pageSize();
+    var r: Res = .{};
+    if (len0 == 0) return r;
+    const p = std.mem.alignBackward(usize, p0, pg);
+    const end = std.mem.alignForward(usize, p0 + len0, pg);
+    var vbuf: [1024]u8 = undefined;
+    const vec = &vbuf;
+    var at = p;
+    var window_hit = false;
+    var window: usize = std.math.maxInt(usize);
+    while (at < end) {
+        const n = @min((end - at) / pg, vec.len);
+        std.posix.mincore(@ptrFromInt(at), n * pg, vec) catch {
+            at += n * pg;
+            continue;
+        };
+        for (vec[0..n], 0..) |v, i| {
+            const a = at + i * pg;
+            const w = a / huge_page;
+            if (w != window) {
+                if (window_hit) r.huge += huge_page;
+                window = w;
+                window_hit = false;
+            }
+            if (v & 1 != 0) {
+                r.res += pg;
+                if (a < p + small_head) r.huge += pg else window_hit = true;
+            }
+        }
+        at += n * pg;
+    }
+    if (window_hit) r.huge += huge_page;
+    return r;
+}
+
+fn cmib(x: usize) f64 {
+    return @as(f64, @floatFromInt(x)) / (1024.0 * 1024.0);
+}
+
+/// Print where the program's memory is, on stderr, at exit.
+pub fn census() void {
+    const p = std.debug.print;
+    p("rig: census: ---- allocator census at exit ----\n", .{});
+    // Heaps.
+    var heaps: usize = 0;
+    var free_small: usize = 0;
+    var remote_small: usize = 0;
+    var carve_tail: usize = 0;
+    var spans_live: usize = 0;
+    var spans_warm: usize = 0;
+    var spans_cold: usize = 0;
+    var kept: usize = 0;
+    var cold: usize = 0;
+    var large_live: usize = 0;
+    var taken: usize = 0;
+    var free_by_class: [class_count]usize = @splat(0);
+    var it = all_heaps.load(.acquire);
+    while (it) |h| : (it = h.all_next) {
+        heaps += 1;
+        for (0..class_count) |c| {
+            var b = h.free[c];
+            while (b) |x| : (b = x.next) {
+                free_small += classSize(c);
+                free_by_class[c] += classSize(c);
+            }
+            var r = h.remote[c].load(.acquire);
+            while (r) |x| : (r = x.next) {
+                remote_small += classSize(c);
+                free_by_class[c] += classSize(c);
+            }
+            if (h.carve_end[c] > h.carve[c]) carve_tail += h.carve_end[c] - h.carve[c];
+        }
+        spans_live += h.spans.live;
+        spans_warm += h.spans.warm.bytes;
+        spans_cold += h.spans.cold.bytes;
+        kept += h.kept.bytes;
+        cold += h.cold.bytes;
+        large_live += h.large_live;
+        taken += h.taken;
+        p("rig: census: heap {d}: taken {d:.1} MiB, leads {}, spans live {d:.1} warm {d:.1} cold {d:.1}, large live {d:.1} kept {d:.1} cold {d:.1} MiB\n", .{ heaps, cmib(h.taken), leads(h), cmib(h.spans.live), cmib(h.spans.warm.bytes), cmib(h.spans.cold.bytes), cmib(h.large_live), cmib(h.kept.bytes), cmib(h.cold.bytes) });
+    }
+    // Small-block segments.
+    const nseg = @min(census_seg_n.load(.monotonic), census_segs_max);
+    var seg_res: Res = .{};
+    var seg_used: usize = 0;
+    for (census_segs[0..nseg]) |s| {
+        const r = censusRes(s, segment_size, 0);
+        seg_res.res += r.res;
+        seg_res.huge += r.huge;
+        const seg: *Segment = @ptrFromInt(s);
+        seg_used += seg.used * page_size;
+    }
+    const nsp = @min(census_spseg_n.load(.monotonic), census_spsegs.len);
+    var sp_res: Res = .{};
+    var sp_used: usize = 0;
+    for (census_spsegs[0..nsp]) |s| {
+        const r = censusRes(s, span_segment_size, 0);
+        sp_res.res += r.res;
+        sp_res.huge += r.huge;
+        const seg: *SpanSegment = @ptrFromInt(s);
+        sp_used += seg.used * span_unit;
+    }
+    census_large_lock.lock();
+    var lg_res: Res = .{};
+    var lg_len: usize = 0;
+    for (census_large[0..census_large_n.*]) |l| {
+        const r = censusRes(l.start, l.len, 0);
+        lg_res.res += r.res;
+        lg_res.huge += r.huge;
+        lg_len += l.len;
+    }
+    const nlarge = census_large_n.*;
+    census_large_lock.unlock();
+    // Tables.
+    const nt = @min(census_table_n.load(.monotonic), census_tables.len);
+    var t_res: Res = .{};
+    var t_live: usize = 0;
+    var t_reserved: usize = 0;
+    const rows = &census_rows;
+    var nrows: usize = 0;
+    var dr_res: Res = .{};
+    var dr_n: usize = 0;
+    var dr_zero: usize = 0;
+    for (census_tables[0..nt]) |t| if (t.dropped != 0) {
+        dr_n += 1;
+        dr_res.res += t.r.res;
+        dr_res.huge += t.r.huge;
+        dr_zero += t.zero;
+    };
+    for (census_tables[0..nt], 0..) |t, i| {
+        if (t.bytes == 0 or t.dropped != 0) continue;
+        t_live += 1;
+        t_reserved += t.bytes;
+        const r = censusRes(t.at, t.bytes, huge_page);
+        t_res.res += r.res;
+        t_res.huge += r.huge;
+        const d = tableDensity(t);
+        census_tables[i].r = r;
+        census_tables[i].zero = d.zero;
+        census_tables[i].hi = d.hi;
+        rows[nrows] = .{ .i = i, .r = r, .zero = d.zero, .hi = d.hi };
+        nrows += 1;
+    }
+    const live_total: isize = if (counts) @intCast(total_live.load(.monotonic)) else -1;
+    p("rig: census: heaps {d}, taken {d:.1} MiB; counted live (class-rounded) {d:.1} MiB, peak {d:.1} MiB\n", .{ heaps, cmib(taken), if (live_total >= 0) cmib(@intCast(live_total)) else -1.0, if (counts) cmib(@intCast(total_peak.load(.monotonic))) else -1.0 });
+    p("rig: census: small segments {d} ({d:.1} MiB mapped, {d:.1} MiB pages handed to classes), resident {d:.1} MiB, as huge pages {d:.1} MiB\n", .{ nseg, cmib(nseg * segment_size), cmib(seg_used), cmib(seg_res.res), cmib(seg_res.huge) });
+    p("rig: census:   free small blocks {d:.1} MiB (remote {d:.1}), carve tails {d:.1} MiB\n", .{ cmib(free_small + remote_small), cmib(remote_small), cmib(carve_tail) });
+    p("rig: census: span segments {d} ({d:.1} MiB mapped, {d:.1} MiB carved), resident {d:.1} MiB, as huge pages {d:.1} MiB; spans live {d:.1}, free warm {d:.1}, cold {d:.1} MiB\n", .{ nsp, cmib(nsp * span_segment_size), cmib(sp_used), cmib(sp_res.res), cmib(sp_res.huge), cmib(spans_live), cmib(spans_warm), cmib(spans_cold) });
+    p("rig: census: large mappings {d} ({d:.1} MiB), resident {d:.1} MiB, as huge pages {d:.1} MiB; large live {d:.1}, kept {d:.1}, cold {d:.1} MiB\n", .{ nlarge, cmib(lg_len), cmib(lg_res.res), cmib(lg_res.huge), cmib(large_live), cmib(kept), cmib(cold) });
+    p("rig: census: tables live {d} (of {d} made), reserved {d:.1} GiB, resident {d:.1} MiB, as huge pages past 2 MiB {d:.1} MiB\n", .{ t_live, nt, cmib(t_reserved) / 1024.0, cmib(t_res.res), cmib(t_res.huge) });
+    // Dropped tables, and the most the tables held at once, each taken at
+    // its size when dropped (or now): an upper bound of their peak.
+    {
+        var peak_res: usize = 0;
+        var peak_huge: usize = 0;
+        var peak_n: usize = 0;
+        for (census_tables[0..nt]) |t| {
+            // At each table's making, the sum over tables live then.
+            var sr: usize = 0;
+            var sh: usize = 0;
+            var sn: usize = 0;
+            for (census_tables[0..nt]) |u| if (u.made <= t.made and (u.dropped == 0 or u.dropped > t.made)) {
+                sr += u.r.res;
+                sh += u.r.huge;
+                sn += 1;
+            };
+            if (sh > peak_huge) {
+                peak_huge = sh;
+                peak_res = sr;
+                peak_n = sn;
+            }
+            // And just before each drop.
+            if (t.dropped != 0) {
+                sr = 0;
+                sh = 0;
+                sn = 0;
+                for (census_tables[0..nt]) |u| if (u.made <= t.dropped and (u.dropped == 0 or u.dropped >= t.dropped)) {
+                    sr += u.r.res;
+                    sh += u.r.huge;
+                    sn += 1;
+                };
+                if (sh > peak_huge) {
+                    peak_huge = sh;
+                    peak_res = sr;
+                    peak_n = sn;
+                }
+            }
+        }
+        p("rig: census: tables dropped {d}: resident when dropped {d:.1} MiB, as huge {d:.1} MiB, zero elements {d:.1} MiB\n", .{ dr_n, cmib(dr_res.res), cmib(dr_res.huge), cmib(dr_zero) });
+        p("rig: census: tables at once, at most (each at its final size): {d} tables, resident {d:.1} MiB, as huge {d:.1} MiB\n", .{ peak_n, cmib(peak_res), cmib(peak_huge) });
+    }
+    // Largest tables by resident.
+    std.mem.sort(CRow, rows[0..nrows], {}, struct {
+        fn more(_: void, a: CRow, b: CRow) bool {
+            return a.r.res > b.r.res;
+        }
+    }.more);
+    // Sum by type name.
+    const names = &census_names;
+    var nn: usize = 0;
+    // Dropped tables join the rows (their sizes when dropped).
+    for (census_tables[0..nt], 0..) |t, i| if (t.dropped != 0 and nrows < rows.len) {
+        rows[nrows] = .{ .i = i, .r = t.r, .zero = t.zero, .hi = t.hi };
+        nrows += 1;
+    };
+    for (rows[0..nrows]) |row| {
+        const t = census_tables[row.i];
+        var found: ?usize = null;
+        for (names[0..nn], 0..) |e, j| if (std.mem.eql(u8, e.name, t.name) and e.n == t.n) {
+            found = j;
+            break;
+        };
+        if (found) |j| {
+            names[j].count += 1;
+            names[j].res += row.r.res;
+            names[j].huge += row.r.huge;
+            names[j].zero += row.zero;
+            names[j].hi += row.hi;
+        } else if (nn < names.len) {
+            names[nn] = .{ .name = t.name, .count = 1, .res = row.r.res, .huge = row.r.huge, .elem = t.elem, .n = t.n, .zero = row.zero, .hi = row.hi };
+            nn += 1;
+        }
+    }
+    std.mem.sort(CName, names[0..nn], {}, struct {
+        fn more(_: void, a: CName, b: CName) bool {
+            return a.huge > b.huge;
+        }
+    }.more);
+    p("rig: census: tables by type, live and dropped: count, resident MiB, as-huge MiB, zero-element MiB, high-water MiB, elem B, n\n", .{});
+    var z_all: usize = 0;
+    var hi_all: usize = 0;
+    for (names[0..nn]) |e| {
+        z_all += e.zero;
+        hi_all += e.hi;
+    }
+    for (names[0..@min(nn, 60)]) |e| {
+        if (e.res == 0) continue;
+        p("rig: census:   {d:>3} {d:>9.1} {d:>9.1} {d:>9.1} {d:>9.1} {d:>5} {d:>12}  {s}\n", .{ e.count, cmib(e.res), cmib(e.huge), cmib(e.zero), cmib(e.hi), e.elem, e.n, e.name });
+    }
+    p("rig: census: tables: zero elements in resident pages {d:.1} MiB; high-water marks {d:.1} MiB in all\n", .{ cmib(z_all), cmib(hi_all) });
+    p("rig: census: free small by class (MiB): ", .{});
+    for (free_by_class, 0..) |b, c| if (b >= 1 << 20) p("{d}:{d:.1} ", .{ classSize(c), cmib(b) });
+    p("\n", .{});
+    var ru: std.posix.rusage = undefined;
+    ru = std.posix.getrusage(0);
+    const maxrss: usize = @intCast(ru.maxrss);
+    const rss_mib = if (builtin.os.tag.isDarwin()) cmib(maxrss) else cmib(maxrss * 1024);
+    if (builtin.os.tag == .linux) {
+        var sbuf: [4096]u8 = undefined;
+        const text = readSmallFile("/proc/self/smaps_rollup", &sbuf);
+        var lines = std.mem.splitScalar(u8, text, '\n');
+        while (lines.next()) |line| {
+            if (std.mem.startsWith(u8, line, "Rss:") or std.mem.startsWith(u8, line, "Anonymous:") or std.mem.startsWith(u8, line, "AnonHugePages:") or std.mem.startsWith(u8, line, "Private_Dirty:") or std.mem.startsWith(u8, line, "Shared_Clean:") or std.mem.startsWith(u8, line, "Private_Clean:")) p("rig: census: smaps {s}\n", .{line});
+        }
+    }
+    p("rig: census: max RSS {d:.1} MiB; allocator resident {d:.1} MiB (segments + spans + large + tables), as huge {d:.1} MiB\n", .{ rss_mib, cmib(seg_res.res + sp_res.res + lg_res.res + t_res.res), cmib(seg_res.huge + sp_res.huge + lg_res.huge + t_res.huge) });
+}
+
+const CRow = struct { i: usize, r: Res, zero: usize = 0, hi: usize = 0 };
+
+/// Of a Table's resident pages: the bytes in elements that are all zero,
+/// and the end of its last element that is not.
+fn tableDensity(t: CensusTable) struct { zero: usize, hi: usize } {
+    const pg = std.heap.pageSize();
+    var zero: usize = 0;
+    var hi: usize = 0;
+    const end = t.at + t.bytes;
+    var at = t.at;
+    var vbuf: [1024]u8 = undefined;
+    const vec = &vbuf;
+    while (at < end) {
+        const n = @min((end - at) / pg, vec.len);
+        if (n == 0) break;
+        std.posix.mincore(@ptrFromInt(at), n * pg, vec) catch {
+            at += n * pg;
+            continue;
+        };
+        for (vec[0..n], 0..) |v, i| {
+            if (v & 1 == 0) continue;
+            const a = at + i * pg;
+            // The elements that start in this page and end in it.
+            var k = (a - t.at + t.elem - 1) / t.elem;
+            while (true) : (k += 1) {
+                const e = t.at + k * t.elem;
+                if (e + t.elem > a + pg or e + t.elem > end) break;
+                const bytes: [*]const u8 = @ptrFromInt(e);
+                if (std.mem.allEqual(u8, bytes[0..t.elem], 0)) zero += t.elem else hi = e + t.elem - t.at;
+            }
+        }
+        at += n * pg;
+    }
+    return .{ .zero = zero, .hi = hi };
+}
+const CName = struct { name: []const u8, count: usize, res: usize, huge: usize, elem: usize, n: u64, zero: usize = 0, hi: usize = 0 };
+var census_rows: [8192]CRow = undefined;
+var census_names: [512]CName = undefined;
+var census_vec: [8192]u8 = undefined;

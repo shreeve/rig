@@ -6367,6 +6367,11 @@ const HeapProfile = struct {
         at_peak: usize = 0,
         blocks_at_peak: usize = 0,
         made: usize = 0,
+        x_live: usize = 0,
+        x_tail: usize = 0,
+        x_any: usize = 0,
+        x_round: usize = 0,
+        x_blocks: usize = 0,
     };
     /// The calls a site keeps, innermost first.
     const depth = 24;
@@ -6506,6 +6511,7 @@ const HeapProfile = struct {
         const self: *HeapProfile = @ptrCast(@alignCast(ctx));
         const o = taken();
         const p = ownAllocator().rawAlloc(n, alignment, ret_addr) orelse return null;
+        @memset(p[0..n], 0xA5);
         lock();
         defer unlock();
         self.add(@intFromPtr(p), n, o, self.siteOf(o, @returnAddress()));
@@ -6516,6 +6522,7 @@ const HeapProfile = struct {
         const self: *HeapProfile = @ptrCast(@alignCast(ctx));
         // A resize that fails leaves the owner for the allocation after it.
         if (!ownAllocator().rawResize(memory, alignment, new_len, ret_addr)) return false;
+        if (new_len > memory.len) @memset(memory.ptr[memory.len..new_len], 0xA5);
         const o = taken();
         lock();
         defer unlock();
@@ -6529,6 +6536,7 @@ const HeapProfile = struct {
     fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
         const self: *HeapProfile = @ptrCast(@alignCast(ctx));
         const p = ownAllocator().rawRemap(memory, alignment, new_len, ret_addr) orelse return null;
+        if (new_len > memory.len) @memset(p[memory.len..new_len], 0xA5);
         const o = taken();
         lock();
         defer unlock();
@@ -6560,12 +6568,72 @@ const HeapProfile = struct {
         std.debug.print("{s:>10} {s:>6} {s:>10} {s:>8} {s:>11}  {s}\n", .{ "MiB", "share", "blocks", "avg B", "ever made", "owner: a List's or slice's element, a box's value; u8 is text" });
         var shown: usize = 0;
         for (items) |o| {
-            if (shown == 40 or o.at_peak == 0) break;
+            if (shown == 60 or o.at_peak == 0) break;
             shown += 1;
             const share = 100.0 * @as(f64, @floatFromInt(o.at_peak)) / @as(f64, @floatFromInt(@max(self.recorded, 1)));
             std.debug.print("{d:>10.2} {d:>5.1}% {d:>10} {d:>8} {d:>11}  {s}\n", .{ @as(f64, @floatFromInt(o.at_peak)) / mib, share, o.blocks_at_peak, o.at_peak / @max(o.blocks_at_peak, 1), o.made, o.name });
         }
         if (heap_sites) self.reportSites(mib);
+        self.reportSlack(mib);
+    }
+
+    /// At exit: each owner's live bytes, the bytes never written since
+    /// they were allocated (0xA5 words), at the block's end and anywhere,
+    /// and the allocator's rounding.
+    fn reportSlack(self: *HeapProfile, mib: f64) void {
+        var it = self.live.iterator();
+        const pword: u64 = 0xA5A5A5A5A5A5A5A5;
+        var tot_live: usize = 0;
+        var tot_tail: usize = 0;
+        var tot_any: usize = 0;
+        var tot_round: usize = 0;
+        var alt_small_now: usize = 0;
+        var alt_large_now: usize = 0;
+        var alt1: usize = 0;
+        var alt2: usize = 0;
+        while (it.next()) |e| {
+            const addr = e.key_ptr.*;
+            const b = e.value_ptr.*;
+            const o = b.owner;
+            o.x_live += b.size;
+            o.x_blocks += 1;
+            const r = fast_alloc.blockBytes(b.size, .@"8") -| b.size;
+            if (b.size <= fast_alloc.max_small) alt_small_now += r else alt_large_now += r;
+            alt1 += fast_alloc.blockBytesAlt(b.size, 1) -| b.size;
+            alt2 += fast_alloc.blockBytesAlt(b.size, 2) -| b.size;
+            o.x_round += r;
+            tot_live += b.size;
+            tot_round += r;
+            const first = std.mem.alignForward(usize, addr, 8);
+            const last = std.mem.alignBackward(usize, addr + b.size, 8);
+            if (last <= first) continue;
+            const words: [*]const u64 = @ptrFromInt(first);
+            const nw = (last - first) / 8;
+            var any: usize = 0;
+            for (words[0..nw]) |w| any += @intFromBool(w == pword);
+            var tail: usize = 0;
+            var i = nw;
+            while (i > 0 and words[i - 1] == pword) : (i -= 1) tail += 1;
+            o.x_tail += tail * 8;
+            o.x_any += any * 8;
+            tot_tail += tail * 8;
+            tot_any += any * 8;
+        }
+        std.debug.print("rig: slack: rounding now {d:.1} MiB small, {d:.1} MiB large; with 8 classes a doubling {d:.1} MiB; with 4 KiB span units {d:.1} MiB (each alone)\n", .{ @as(f64, @floatFromInt(alt_small_now)) / mib, @as(f64, @floatFromInt(alt_large_now)) / mib, @as(f64, @floatFromInt(alt1)) / mib, @as(f64, @floatFromInt(alt2)) / mib });
+        const items = self.owners.items;
+        std.mem.sort(*Owner, items, {}, struct {
+            fn more(_: void, a: *Owner, b: *Owner) bool {
+                return a.x_live > b.x_live;
+            }
+        }.more);
+        std.debug.print("rig: slack: at exit {d:.1} MiB live; never written {d:.1} MiB at blocks' ends, {d:.1} MiB in all; allocator rounding {d:.1} MiB\n", .{ @as(f64, @floatFromInt(tot_live)) / mib, @as(f64, @floatFromInt(tot_tail)) / mib, @as(f64, @floatFromInt(tot_any)) / mib, @as(f64, @floatFromInt(tot_round)) / mib });
+        std.debug.print("{s:>10} {s:>10} {s:>10} {s:>10} {s:>10}  {s}\n", .{ "live MiB", "tail MiB", "any MiB", "round MiB", "blocks", "owner" });
+        var shown: usize = 0;
+        for (items) |o| {
+            if (shown == 60 or o.x_live == 0) break;
+            shown += 1;
+            std.debug.print("{d:>10.2} {d:>10.2} {d:>10.2} {d:>10.2} {d:>10}  {s}\n", .{ @as(f64, @floatFromInt(o.x_live)) / mib, @as(f64, @floatFromInt(o.x_tail)) / mib, @as(f64, @floatFromInt(o.x_any)) / mib, @as(f64, @floatFromInt(o.x_round)) / mib, o.x_blocks, o.name });
+        }
     }
 
     /// The sites that held the most at the peak, each with the calls that
@@ -8116,6 +8184,8 @@ pub fn exitNow(code: Int) noreturn {
     // profile here, where the optimized one's writer does nothing, before
     // the teardown unmaps what the program holds, and both tear down.
     if (pgo) writeProfile();
+    if (heap_profile) heap_profiler.report();
+    if (!leak_checked and !heap_profile) fast_alloc.census();
     if (scheduled) sched.tearDown();
     endProcess(status);
 }

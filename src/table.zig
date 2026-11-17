@@ -186,6 +186,7 @@ pub fn Table(comptime T: type, comptime n: u64) type {
             switch (how) {
                 .reserved => {
                     const p = reserve(bytes);
+                    rt.fast_alloc.censusTable(@intFromPtr(p), bytes, @typeName(T), @sizeOf(T), n);
                     var t: Self = .{ .slots = @ptrCast(@alignCast(p)) };
                     if (comptime leak_checked) t.token = (rt.allocSlice(u8, 1)).ptr;
                     return t;
@@ -291,6 +292,7 @@ pub fn Table(comptime T: type, comptime n: u64) type {
             if (comptime @sizeOf(T) == 0) return;
             switch (how) {
                 .reserved => {
+                    rt.fast_alloc.censusUntable(@intFromPtr(self.slots));
                     unreserve(@ptrCast(@alignCast(self.slots)), bytes);
                     if (comptime leak_checked) rt.freeSlice(u8, self.token[0..1]);
                 },
