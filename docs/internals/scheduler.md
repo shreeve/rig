@@ -196,7 +196,14 @@ worker after.
   oldest or nothing, by one swap, and the oldest it displaces goes to
   the ring. The worker runs the newest,
   at most 3 in a row. Filling a slot wakes no worker (`sched.wake`); the
-  task pushed out to the ring does, when none is looking. A worker runs the task
+  task pushed out to the ring does, when none is looking. Of the tasks
+  one look at a poller, or one firing of timers, makes ready, only the
+  first takes a slot; the rest go to the ring, where a worker woken as
+  this one switches to the first (`sched.spread`) steals them at once,
+  where in a slot each would wait out the 3 µs below (`sched.Batch`), as
+  Tokio keeps only the first task its driver wakes for its LIFO slot. A
+  busy worker's yield check puts all it wakes in the ring, and wakes a
+  worker for them. A worker runs the task
   next when it woke the task itself: from its poller or a timer as it
   looks for work, at a task's end, or at a yield check, which yields
   to it when no other worker could take it (below). A task that wakes
