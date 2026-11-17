@@ -749,6 +749,18 @@ arms.
   poller meanwhile waits no longer than a watch's 1 ms while another
   worker sleeps. With every other worker busy, it waits until the trim
   ends, as before, since busy workers look only at their own pollers.
+- **A worker going to sleep never blocks writing stdout.** Before it
+  waits in its poller it writes only what stdout takes at once of what
+  `print` buffered, and what is left is written as stdout has room,
+  watched for writability on that worker's poller. A server whose
+  stdout was a full pipe, whose reader waited for its answer on a
+  socket before reading, could block in that write and never see the
+  connection; it answers now. A pipe takes `PIPE_BUF` bytes at a time
+  while it polls writable, a socket what fits (on macOS, which ignores
+  `MSG_DONTWAIT`, its low-water mark at a time), a regular file or
+  `/dev/null` everything; a terminal is still written a line at a time
+  by `print`, and a `print` that fills the buffer, the final flush, and
+  a wait outside the scheduler still write everything.
 - **A program's first parallel call starts faster:** at the first task
   `main` starts worker 1 alone, which maps 16 stacks (address space,
   untouched) for itself and each worker after it, and then starts them
