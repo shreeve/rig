@@ -3874,7 +3874,8 @@ fn next(w: *Worker, note: *Note) ?*Fiber {
     // A search that waited for a fiber in another's slot and did not take
     // it looks again, at its own queues first, where its poller's events
     // may have put fibers as it waited, and then at the fiber it noted.
-    note.made = 0;
+    // Each search waits so once at most (`stealNext`).
+    note.search_waited = false;
     while (true) {
         if (nextOwn(w)) |f| return f;
         switch (search(w, note)) {
@@ -3900,21 +3901,15 @@ const Note = struct {
     fills: u32 = 0,
     /// When this worker first saw `f` in `slot`.
     first: i96 = 0,
-    /// The owner's switch count (`Worker.ran`) at the latest note.
+    /// The owner's switch count (`Worker.ran`) when `f` was first seen.
     ran: u64 = 0,
-    /// How many notes this search has made: a fiber seen afresh, or seen
-    /// again after its owner switched, before its 3 µs passed.
-    made: u8 = 0,
+    /// Whether this worker has waited for `f` (`waitBriefly`): once a
+    /// note at most.
+    waited: bool = false,
+    /// Whether this search has waited, for this fiber or another: once a
+    /// search at most. Set back by each search (`next`).
+    search_waited: bool = false,
 };
-
-/// How many notes one search makes before it stops and its worker
-/// sleeps: a worker that keeps switching, and keeps its slots full, may
-/// run the fiber itself, and its own switches and yield checks hand the
-/// work on (`spread`, `claimWaiting`), as when a search finds nothing.
-/// A switch of its that leaves work in its slots wakes the sleeper again
-/// (`spread`), which takes the fiber still there once 3 µs have passed
-/// from its first note.
-const notes_most = 3;
 
 /// The next fiber of `w`'s own: its "run next" fiber, its pinned fibers'
 /// and its ring's, or the global queue's.
@@ -3989,6 +3984,7 @@ fn search(w: *Worker, note: *Note) Found {
             },
             .none => {},
             .again => return .again,
+            .stop => return .none,
         }
     }
     return .none;
@@ -4000,6 +3996,12 @@ fn search(w: *Worker, note: *Note) Found {
 /// 3 µs before it takes a `runnext`.
 const steal_next_after: i96 = 3 * std.time.ns_per_us;
 
+/// What a look at a busy worker's "run next" slots found (`stealNext`):
+/// a fiber; none there; none yet, after a wait or a missed take, when the
+/// searcher looks again; or a fiber it will not wait for, when it stops
+/// searching and its worker sleeps.
+const Steal = union(enum) { fiber: *Fiber, none, again, stop };
+
 /// Take the fiber in `v`'s oldest "run next" slot once this worker has
 /// seen it there `steal_next_after`, by its own clock, from its first
 /// note (`Note`), as Go takes a `runnext`: `.none` when no slot of `v`'s
@@ -4009,18 +4011,22 @@ const steal_next_after: i96 = 3 * std.time.ns_per_us;
 /// back, or a new one at the address of one that ended, is seen afresh,
 /// by the slot's fill count (`Worker.lifo_fills`): taken as one that
 /// stayed, it would go cold to this worker as its owner was about to run
-/// it, as a server's task made at each accept would. A look before then
-/// that finds `v` has switched (`Worker.ran`) notes the fiber again and
-/// counts the note toward the search's `notes_most`, keeping its first
-/// time: a worker that switches may run the fiber itself, so a searcher
-/// that keeps finding it switched goes to sleep rather than watch on.
-/// Once the time has passed, it takes the fiber however often `v`
+/// it, as a server's task made at each accept would. Before then the
+/// searcher waits once a note and once a search, and not at all once `v`
+/// has switched (`Worker.ran`) since the note: a worker that switches
+/// may run the fiber itself, and a wait that ends with nothing to take
+/// costs a sleep and a wake in the kernel. Otherwise it stops (`.stop`)
+/// and its worker sleeps, as one that finds nothing does, keeping the
+/// note: a switch of `v`'s that leaves work in its slots wakes it again
+/// (`spread`), as `v`'s yield checks (`claimWaiting`), a preemption stop,
+/// or any work made do, and it takes the fiber if still there once the
+/// time has passed. Once it has, it takes the fiber however often `v`
 /// switched: two fibers that wake each other into `v`'s newer slots,
 /// which `v` runs first, cannot keep an older one there. The searcher
 /// waits in its own poller (`waitBriefly`), giving its core up, rather
 /// than spinning; where no poller waits so briefly, it spins. A pinned
 /// fiber taken so goes back to its home's queue.
-fn stealNext(w: *Worker, v: *Worker, note: *Note) Found {
+fn stealNext(w: *Worker, v: *Worker, note: *Note) Steal {
     const i = oldestNextAt(v) orelse return .none;
     const slot = &v.lifo[i];
     const f = slot.load(.seq_cst) orelse return .none;
@@ -4030,16 +4036,14 @@ fn stealNext(w: *Worker, v: *Worker, note: *Note) Found {
     const ran = v.ran.load(.monotonic);
     const now = nowNs();
     if (note.slot != slot or note.f != f or note.fills != fills) {
-        if (note.made == notes_most) return .none;
-        note.* = .{ .victim = v, .slot = slot, .f = f, .fills = fills, .first = now, .ran = ran, .made = note.made + 1 };
-    } else if (note.ran != ran and now < note.first + steal_next_after) {
-        if (note.made == notes_most) return .none;
-        note.ran = ran;
-        note.made += 1;
+        note.* = .{ .victim = v, .slot = slot, .f = f, .fills = fills, .first = now, .ran = ran, .search_waited = note.search_waited };
     }
     // Wait without reading the slot, whose line its owner writes.
     const until = note.first + steal_next_after;
     if (now < until) {
+        if (note.waited or note.search_waited or note.ran != ran) return .stop;
+        note.waited = true;
+        note.search_waited = true;
         if (Poller.waitsFine()) {
             waitBriefly(w, until);
             return .again;
@@ -4060,13 +4064,17 @@ const steal_waits = split.cell(&steal_waits_var, "sched.steal_waits");
 /// as a worker searches (`notify`), but kicks a worker waiting so, which
 /// then looks again; work that only waits in its maker's "run next"
 /// slots, which the waiter watches already, kicks no one (`notifyNext`).
-/// Counted as searching, it looks again before it can stop searching, as
-/// one that searches does: work it misses as it waits is still found by
-/// its next look, or by the last look of its sleep, so no wake is lost
-/// (formal/Models/Sleep.lean, where a wait is a step that changes
-/// nothing); the kick only makes the wait shorter.
+/// A kick left in its poller from before the wait, which ends the wait
+/// at once, is taken and the wait goes on: the searcher waits once a
+/// note (`stealNext`), so that wait runs to its end unless events or a
+/// kick sent during it end it. Counted as searching, it looks again
+/// before it can stop searching, as one that searches does: work it
+/// misses as it waits is still found by its next look, or by the last
+/// look of its sleep, so no wake is lost (formal/Models/Sleep.lean, where
+/// a wait is a step that changes nothing); the kick only makes the wait
+/// shorter.
 fn waitBriefly(w: *Worker, until: i96) void {
-    const left = until - nowNs();
+    var left = until - nowNs();
     if (left <= 0) return;
     w.steal_wait.store(true, .seq_cst);
     _ = steal_waits.fetchAdd(1, .seq_cst);
@@ -4075,7 +4083,13 @@ fn waitBriefly(w: *Worker, until: i96) void {
         w.steal_wait.store(false, .monotonic);
     }
     if (builtin.is_test) _ = test_brief_waits.fetchAdd(1, .monotonic);
-    _ = w.poller.pollAs(left, false);
+    while (true) {
+        if (w.poller.pollAs(left, false)) return;
+        // Kicked during the wait (`kickWaiting`), which clears the flag.
+        if (!w.steal_wait.load(.seq_cst)) return;
+        left = until - nowNs();
+        if (left <= 0) return;
+    }
 }
 
 /// Test only: how many waits for a fiber in another's slot a searcher
@@ -4085,11 +4099,13 @@ var test_brief_waits: std.atomic.Value(u32) = .init(0);
 
 /// Work was made while a worker searches: kick one that waits in its
 /// poller for a fiber in another's slot (`waitBriefly`), so it looks
-/// again at once. Its poller's standing kick makes a second kick, as it
-/// waits on, free (`Poller.kick`).
+/// again at once, clearing its flag, which tells it the kick came during
+/// its wait. The next work made kicks another waiting so, if any does.
 fn kickWaiting() void {
     if (steal_waits.load(.seq_cst) == 0) return;
-    for (workersNow()) |*v| if (v.steal_wait.load(.seq_cst)) return v.poller.kick();
+    for (workersNow()) |*v| {
+        if (v.steal_wait.load(.seq_cst) and v.steal_wait.cmpxchgStrong(true, false, .seq_cst, .monotonic) == null) return v.poller.kick();
+    }
 }
 
 /// The oldest of `v`'s "run next" slots that holds a fiber, which a
@@ -7963,7 +7979,7 @@ test "a searcher takes a run-next fiber that stayed its 3 µs, and sees one put 
     // Its owner ran it, and it came back to the same slot, as a fiber
     // woken again or a new one at its address does: the searcher's old
     // note does not make it ripe. It notes it now, waits, and leaves it.
-    note.made = 0;
+    note.search_waited = false;
     fill(v, &f);
     try std.testing.expect(oldestNext(v).? == slot);
     try std.testing.expect(stealNext(w, v, &note) == .again);
@@ -7972,6 +7988,65 @@ test "a searcher takes a run-next fiber that stayed its 3 µs, and sees one put 
     // Once it has stayed 3 µs from that note, it is taken.
     note.first = long_ago;
     try std.testing.expect(stealNext(w, v, &note) == .fiber);
+}
+
+test "a searcher waits once a note for a run-next fiber, and not at all once its owner has switched, and takes it once it stayed its 3 µs" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var owner: Worker = .{};
+        var searcher: Worker = .{};
+        fn nothing(_: *Fiber) void {}
+    };
+    const v = &Run.owner;
+    const w = &Run.searcher;
+    w.poller.open();
+    defer w.poller.close();
+    var f: Fiber = .{ .run = Run.nothing };
+    var g: Fiber = .{ .run = Run.nothing };
+    const fill = struct {
+        fn into(o: *Worker, h: *Fiber) void {
+            const i = (o.lifo_head.raw +% 1) % run_next_slots;
+            o.lifo_fills[i].store(o.lifo_fills[i].raw +% 1, .monotonic);
+            o.lifo[i].store(h, .seq_cst);
+            o.lifo_head.store(i, .monotonic);
+        }
+    }.into;
+    fill(v, &f);
+    const slot = oldestNext(v).?;
+    test_brief_waits.store(0, .seq_cst);
+    var note: Note = .{};
+    // Seen afresh: one wait.
+    if (!Poller.waitsFine()) return error.SkipZigTest;
+    try std.testing.expect(stealNext(w, v, &note) == .again);
+    try std.testing.expectEqual(@as(u32, 1), test_brief_waits.load(.seq_cst));
+    // Its wait cut short, in this search and in the next: no second wait
+    // for the same note; the searcher stops and sleeps, keeping it.
+    const first = note.first;
+    note.first = nowNs() + std.time.ns_per_s;
+    try std.testing.expect(stealNext(w, v, &note) == .stop);
+    note.search_waited = false;
+    try std.testing.expect(stealNext(w, v, &note) == .stop);
+    try std.testing.expectEqual(@as(u32, 1), test_brief_waits.load(.seq_cst));
+    try std.testing.expect(note.f == &f and slot.load(.seq_cst) == &f);
+    // Once it has stayed 3 µs by the searcher's clock, it is taken.
+    note.first = first;
+    try std.testing.expect(stealNext(w, v, &note) == .fiber);
+    // A fiber seen afresh in a search that has waited: noted, no wait.
+    note.search_waited = true;
+    fill(v, &g);
+    try std.testing.expect(stealNext(w, v, &note) == .stop);
+    try std.testing.expect(note.f == &g and !note.waited);
+    try std.testing.expectEqual(@as(u32, 1), test_brief_waits.load(.seq_cst));
+    // Its owner switched since the note: no wait in the next search
+    // either, until its 3 µs pass, when it is taken all the same.
+    note.search_waited = false;
+    note.first = nowNs() + std.time.ns_per_s;
+    v.ran.store(v.ran.raw + 1, .monotonic);
+    try std.testing.expect(stealNext(w, v, &note) == .stop);
+    try std.testing.expectEqual(@as(u32, 1), test_brief_waits.load(.seq_cst));
+    note.first = nowNs() - 10 * steal_next_after;
+    try std.testing.expect(stealNext(w, v, &note) == .fiber);
+    try std.testing.expectEqual(@as(u32, 1), test_brief_waits.load(.seq_cst));
 }
 
 test "a fiber left in a run-next slot while two fibers on its worker wake each other is taken by an idle worker" {

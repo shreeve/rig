@@ -235,11 +235,16 @@ worker after.
   watches already: a kick there would cost the busy worker a system
   call at each switch only to have the waiter look early
   (`sched.notifyNext`). Every wait ends in a fresh look, its own queues and
-  the rings first, then the task it noted. A look that finds the task's worker has
-  switched (its `ran` moved) before the 3 µs pass notes it again, and a
-  search makes at most three notes before its worker sleeps: a worker
-  that switches may run the task itself. The time the searcher first saw
-  the task in that slot is kept across its notes, its waits, and its
+  the rings first, then the task it noted. It waits once for a task it
+  noted, and once a search, and not at all once the task's worker has
+  switched (its `ran` moved) since the note: a worker that switches may
+  run the task itself, and a wait that ends with nothing to take costs a
+  sleep and a wake in the kernel. Otherwise it sleeps as a worker with
+  nothing to do does, until the task's worker switches with work left
+  in its slots (`sched.spread`), its yield check or a preemption stop
+  finds that work waiting, or other work is made, and then takes the
+  task if it is still there and its 3 µs have passed. The time the
+  searcher first saw the task in that slot is kept across its notes, its waits, and its
   sleeps (`sched.Note`, kept by the worker's loop until it sees another
   task there or runs one), so neither a kick nor the worker's switches
   nor a sleep start the 3 µs again. A task put back in that slot, woken
