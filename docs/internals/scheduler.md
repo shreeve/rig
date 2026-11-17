@@ -95,7 +95,7 @@ worker after.
   heap of the deadlines its fibers set, as Go keeps one per processor.
   A worker that runs fibers looks at both every 61 turns; one about to
   sleep wakes the fibers whose timers are due on any worker, polls the
-  pollers no worker sleeps in, and sleeps until the earliest deadline any
+  pollers no worker sleeps in or holds (below), and sleeps until the earliest deadline any
   worker holds. A wait with a deadline puts its timer in the heap and
   takes it out as it wakes; a fiber that waits again and again, each
   time with a later deadline, as `http.serve`'s connection waits for
@@ -164,6 +164,36 @@ worker after.
   sleep, needs: its next wait sees the kick under the poller's lock and
   only looks. A kick while one stands makes no system call, so a kick
   taken by many looks costs one call, not one a look.
+- **A busy poller held.** A worker going to sleep holds the poller of
+  a worker that is awake with descriptors, if none holds it yet
+  (`sched.holdPoller`), once that worker has stayed awake from one of
+  its looks to the next, and lets go as it leaves its sleep: its own
+  poller watches that poller's descriptor, which a kqueue and an epoll
+  report readable while events wait in it, without taking them, once
+  until armed again (EV_DISPATCH, EPOLLONESHOT). Events there while
+  their worker runs fibers wake the holder at once, which rings that
+  worker's bell (`Worker.ring_bell`); the worker reads the bell as it
+  picks each fiber, one load, and looks at its poller when it is rung,
+  so the events run on their own worker, in cache, behind at most the
+  fiber it runs, where they waited for its 61st turn or the watch's
+  millisecond. When the bell goes unanswered 50 µs while the worker
+  runs one fiber (its count of switches, `ran`, unchanged, which the
+  holder reads against its own clock, so a switch reads no clock), or
+  100 µs in all, the holder takes the events and runs their fibers
+  itself (`sched.checkBell`). It arms its watch again no sooner than
+  200 µs after a ring: a busy worker's poller is ready again almost at
+  once, and each report wakes the holder. The watch is armed only while
+  the worker is out of its sleep: before its first wait it turns it
+  off, since the wait sees the events itself, and on again as it
+  leaves; each side stores its own flag, then reads the other's
+  (`owner_waits`, `holder`), all sequentially consistent, and every
+  change to the watch is made under one lock (`Poller.hold_lock`). A
+  ring never takes an event, so a ring the worker misses as it goes to
+  wait leaves the events to the wait. A held poller is the holder's to
+  watch while its watch is armed or a check is due (`sched.holdCovers`):
+  only then do the sleepers' looks and the watch pass it by. `notify`
+  wakes a sleeper that holds nothing first, so a hold seldom changes
+  hands.
 - **No flush blocks the sleep path.** A worker about to wait writes what
   stdout takes at once of what `print` has buffered (`rt.flushBeforeWait`,
   from `Poller.poll`), and never waits for the output lock (a try) or

@@ -46,8 +46,11 @@ no last look (`hasWork` reads no slot): only the monitor's stop
 its slot (covered by `waiting` and the yield checks), the slot's streak
 limit and its 3 µs wait, timers apart from the poller's batches, the
 watch over the pollers (`sleepIn`, `leaveWait`, `passWatch`, the trim of
-a sleeping worker's heap), and
-`stopping`.
+a sleeping worker's heap), `stopping`, and which poller a look reads: a
+holder that takes a stuck worker's events (`checkBell`) makes their
+fibers ready in its own batch, as `events` lets any look do, and a
+holder's bell takes no event, so whom it rings bounds latency, not a
+lost wake.
 -/
 import Models.Explore
 
