@@ -193,20 +193,31 @@ fn waitFor(fd: i32, reg: i64, interest: u32, seen: u32, limit: Limit) Error!void
         };
     }
     const events: i16 = if (interest == rig.sched.Registration.readable) posix.POLL.IN else posix.POLL.OUT;
-    var fds = [1]posix.pollfd{.{ .fd = fd, .events = events, .revents = 0 }};
-    var ms: i32 = -1;
-    if (deadline) |d| {
-        const left = d - rig.sched.nowNs();
-        if (left <= 0) return timeout;
-        ms = @intCast(@min(@divTrunc(left + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32)));
-    }
+    // The second waits for stdout's room while `print` has bytes left
+    // that it did not take at once (`rig.flushBeforePoll`), so a full
+    // stdout whose reader waits for this program's answer never stops
+    // the wait from seeing `fd`.
+    var fds = [2]posix.pollfd{
+        .{ .fd = fd, .events = events, .revents = 0 },
+        .{ .fd = 1, .events = posix.POLL.OUT, .revents = 0 },
+    };
+    var out_left = rig.flushBeforePoll();
     // An interrupt ends the poll (EINTR) to cancel `main`
     // (`rig.cancelOnInterrupt`), which Zig's `poll` would only restart.
-    rig.flushBeforeWait();
     while (true) {
-        const rc = sys.poll(&fds, fds.len, ms);
+        var ms: i32 = -1;
+        if (deadline) |d| {
+            const left = d - rig.sched.nowNs();
+            if (left <= 0) return timeout;
+            ms = @intCast(@min(@divTrunc(left + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32)));
+        }
+        const rc = sys.poll(&fds, @as(posix.nfds_t, if (out_left) 2 else 1), ms);
         switch (posix.errno(rc)) {
-            .SUCCESS => return if (rc == 0) timeout else {},
+            .SUCCESS => {
+                if (rc == 0) return timeout;
+                if (fds[0].revents != 0) return;
+                out_left = rig.flushBeforePoll();
+            },
             .INTR => try rig.checkStop(),
             else => return error.@"std.net.NetError.failed",
         }
