@@ -274,7 +274,9 @@ pub fn accept_on(fd: i64, reg: i64) Error!i64 {
 }
 
 /// The next connection on `s`, once one comes, or null when the process
-/// or the system has run out of descriptors or memory for one.
+/// or the system has run out of descriptors or memory for one. A
+/// connection that failed before it was accepted is passed by
+/// (`acceptAgain`).
 fn acceptOne(s: i32, reg: i64) Error!?i32 {
     try rig.checkStop();
     while (true) {
@@ -288,12 +290,29 @@ fn acceptOne(s: i32, reg: i64) Error!?i32 {
                 return c;
             },
             .AGAIN => try waitFor(s, reg, rig.sched.Registration.readable, seen, .{}),
-            .CONNABORTED => {},
             .INTR => try rig.checkStop(),
             .MFILE, .NFILE, .NOBUFS, .NOMEM => return null,
-            else => |e| return failure(e),
+            // One connection's failure: the next is accepted, unless
+            // the task is stopped.
+            else => |e| {
+                if (!acceptAgain(e)) return failure(e);
+                try rig.checkStop();
+            },
         }
     }
+}
+
+/// Whether `e`, from `accept`, is one connection's failure and not the
+/// listener's, so the next is accepted: a connection its client gave
+/// up before it was accepted, or a network error pending on one, which
+/// Linux hands back from `accept` and says to treat as "try again"
+/// (accept(2)). Each is named as the target's `posix.E` names it, and
+/// one the target lacks is passed by.
+fn acceptAgain(e: posix.E) bool {
+    inline for (.{ "CONNABORTED", "NETDOWN", "PROTO", "NOPROTOOPT", "HOSTDOWN", "NONET", "HOSTUNREACH", "OPNOTSUPP", "NETUNREACH" }) |name| {
+        if (@hasField(posix.E, name) and e == @field(posix.E, name)) return true;
+    }
+    return false;
 }
 
 pub fn local_port(fd: i64) i64 {
@@ -842,6 +861,10 @@ const Settings = struct {
     /// first byte, before the server closes the connection:
     /// `RIG_HTTP_HEAD_MS`, 10 seconds.
     head_ns: i96 = 10 * std.time.ns_per_s,
+    /// How long a request's body may take to arrive whole, from the end
+    /// of its head, before the server closes the connection, however
+    /// steadily its bytes come: `RIG_HTTP_BODY_MS`, 5 minutes.
+    body_ns: i96 = 5 * std.time.ns_per_min,
     /// The largest request body the server reads: `RIG_HTTP_MAX_BODY`
     /// bytes, 16 MiB. One larger is answered 413, and its connection
     /// closed.
@@ -851,6 +874,7 @@ const Settings = struct {
         var s: Settings = .{};
         if (setting("RIG_HTTP_IDLE_MS")) |ms| s.idle_ns = @as(i96, ms) * std.time.ns_per_ms;
         if (setting("RIG_HTTP_HEAD_MS")) |ms| s.head_ns = @as(i96, ms) * std.time.ns_per_ms;
+        if (setting("RIG_HTTP_BODY_MS")) |ms| s.body_ns = @as(i96, ms) * std.time.ns_per_ms;
         if (setting("RIG_HTTP_MAX_BODY")) |n| s.max_body = n;
         return s;
     }
@@ -951,7 +975,7 @@ fn connection(comptime F: type) fn (i32, i64, F, Settings) void {
                     else => return c.refuseHead(),
                 };
                 c.limit = settings.limit(false);
-                switch (answer(F, f, &request, settings.max_body)) {
+                switch (answer(F, f, &request, settings)) {
                     .next => {},
                     .close => return,
                     .linger => return c.linger(),
@@ -972,13 +996,25 @@ const Next = enum {
     linger,
 };
 
-/// Answer one request with what `f` gives.
-fn answer(comptime F: type, f: F, request: *std.http.Server.Request, max_body: u64) Next {
+/// Answer one request, on a `Conn`, with what `f` gives.
+fn answer(comptime F: type, f: F, request: *std.http.Server.Request, settings: Settings) Next {
     const Param = @typeInfo(F.Args).@"struct".field_types[0];
     const Req = @typeInfo(Param).pointer.child;
     const Resp = @typeInfo(@TypeOf(F.call)).@"fn".return_type.?;
     const gpa = rig.defaultAllocator();
     const head = request.head;
+    const max_body = settings.max_body;
+    // A request names its host once: an HTTP/1.1 request with no Host
+    // line, and any with more than one, is refused (400), since a proxy
+    // in front and the handler may each go by another (RFC 9112 §3.2).
+    // An HTTP/1.0 request needs none.
+    const hosts = Server.of(request).hosts;
+    if (hosts > 1 or (hosts == 0 and head.version == .@"HTTP/1.1")) return refuse(request, 400, "bad request\n");
+    // CONNECT asks for a tunnel, which this server is not: a handler's
+    // 2xx would tell the client, and a proxy in front, that every byte
+    // after it is the tunnel's (RFC 9110 §9.3.6). It is refused (405)
+    // before the handler runs.
+    if (head.method == .CONNECT) return refuse(request, 405, "method not allowed\n");
     // An expectation other than `100-continue` fails (417), and a body
     // over the limit is refused (413) before any of it is read, and
     // before `100 Continue` asks the client for it. An HTTP/1.0 client
@@ -1023,7 +1059,13 @@ fn answer(comptime F: type, f: F, request: *std.http.Server.Request, max_body: u
             out.writeAll("HTTP/1.1 100 Continue\r\n\r\n") catch return .close;
             out.flush() catch return .close;
         }
-        switch (readBody(request.server.reader.in, chunked, head.content_length, max_body, gpa, &@field(req, "body").list)) {
+        // The body is whole by its deadline, or the connection closes:
+        // each read waits no later than it (`Conn.waits`).
+        const c: *Conn = @alignCast(@fieldParentPtr("reader", request.server.reader.in));
+        c.limit.at = rig.sched.nowNs() + settings.body_ns;
+        const body = readBody(request.server.reader.in, chunked, head.content_length, max_body, gpa, &@field(req, "body").list);
+        c.limit.at = null;
+        switch (body) {
             .whole => {},
             .too_large => return refuse(request, 413, "content too large\n"),
             .bad => return refuse(request, 400, "bad request\n"),
@@ -1106,15 +1148,20 @@ fn refuse(request: *std.http.Server.Request, status: u10, body: []const u8) Next
 
 /// Answer `request` with `status`, the content type `kind` (no header
 /// when empty), and `body`, saying the connection closes unless
-/// `keep_alive`: the bytes Zig's `Request.respond` writes,
-/// from text made once; for a 204 or a 304, the status line alone, with
+/// `keep_alive`, and saying it is kept to an HTTP/1.0 request, whose
+/// client takes it to close otherwise (RFC 9112 §9.3): from text made
+/// once; for a 204 or a 304, the status line alone, with
 /// no length, type, or body. The status line comes from a table
 /// (`statusLine`), and the length is written by `writeLength`.
 fn respond(request: *std.http.Server.Request, status: u10, kind: []const u8, body: []const u8, keep_alive: bool) std.Io.Writer.Error!void {
     const out = request.server.out;
     var line: [32]u8 = undefined;
     try out.writeAll(statusLine(status, &line));
-    if (!keep_alive) try out.writeAll("connection: close\r\n");
+    if (!keep_alive) {
+        try out.writeAll("connection: close\r\n");
+    } else if (request.head.version == .@"HTTP/1.0") {
+        try out.writeAll("connection: keep-alive\r\n");
+    }
     // A 204 and a 304 end at their headers (RFC 9112 §6.3): a client
     // reads no body after one, so a body sent would be read as the start
     // of the next answer, and a 204 carries no length (RFC 9110 §8.6).
@@ -1269,12 +1316,15 @@ fn writeLength(out: *std.Io.Writer, n: usize) std.Io.Writer.Error!void {
 }
 
 /// Zig's HTTP server, and what its last head held beyond Zig's `Head`:
-/// where the target's `?` is, found in the one pass that reads the head
-/// (`HeadScan`).
+/// where the target's `?` is, and how many Host lines it has, found in
+/// the one pass that reads the head (`HeadScan`).
 const Server = struct {
     http: std.http.Server,
     /// The target's first `?`, from the target's first byte.
     question: ?usize = null,
+    /// How many Host lines the head holds, up to 3: a request must
+    /// hold no more than one, and an HTTP/1.1 request one (`answer`).
+    hosts: u2 = 0,
 
     fn init(in: *std.Io.Reader, out: *std.Io.Writer) Server {
         return .{ .http = .init(in, out) };
@@ -1309,6 +1359,7 @@ const Server = struct {
                 in.toss(len);
                 if (scan.err) |err| return err;
                 s.question = scan.question;
+                s.hosts = scan.hosts;
                 return .{ .server = &s.http, .head_buffer = bytes[0..len], .head = scan.made(bytes) };
             }
             if (in.bufferedLen() >= r.max_head_len) return error.HttpHeadersOversize;
@@ -1353,9 +1404,13 @@ const Refused = error{
 /// head ends. Beyond `Head.parse`, it refuses a CR, LF, or NUL that ends
 /// no line, a Content-Length that is not digits, a Transfer-Encoding
 /// whose last coding is not `chunked`, and a header line with no colon
-/// or a name that is no token (`Refused`); and it reads a
+/// or a name that is no token (`Refused`); it reads a
 /// Transfer-Encoding's codings named in any case, between spaces or tabs,
-/// as RFC 9112 §7 says, which `Head.parse` refuses. It finds line ends,
+/// as RFC 9112 §7 says, which `Head.parse` refuses; it reads
+/// `Connection` as a list of options, over every line of it (RFC 9110
+/// §7.6.1), where `Head.parse` compares the last line's whole value
+/// with `close`, and keeps an HTTP/1.0 connection only when asked (RFC
+/// 9112 §9.3); and it counts the Host lines. It finds line ends,
 /// CRs, NULs, and colons together, a vector of bytes at a time, and
 /// keeps what it found as offsets from the head's first byte, which the
 /// reader may move between feeds.
@@ -1373,6 +1428,12 @@ const HeadScan = struct {
     /// The request line's first `?`, then the target's, from the
     /// target's first byte.
     question: ?usize = null,
+    /// How many Host lines the head holds, up to 3.
+    hosts: u2 = 0,
+    /// Whether an option of a `Connection` line is `close`, and whether
+    /// one is `keep-alive`.
+    closing: bool = false,
+    keeping: bool = false,
     /// The first line's error, given once the head ends: Zig's
     /// `Head.parse` reads no line past its first error.
     err: ?(Head.ParseError || Refused) = null,
@@ -1492,7 +1553,6 @@ const HeadScan = struct {
             .@"HTTP/1.1"
         else
             return error.HttpHeadersInvalid;
-        s.head.keep_alive = s.head.version == .@"HTTP/1.1";
         s.target = .{ .at = method_end + 1, .len = version_start - method_end - 1 };
         // A method holds no `?`, nor does a version.
         if (s.question) |q| s.question = q - s.target.at;
@@ -1511,8 +1571,19 @@ const HeadScan = struct {
         // A known name by its length and first byte, then the whole name.
         const first = name[0] | 0x20;
         switch (name.len) {
+            "host".len => if (first == 'h' and eql(name, "host")) {
+                s.hosts +|= 1;
+            },
             "connection".len => if (first == 'c' and eql(name, "connection")) {
-                s.head.keep_alive = !eql(value, "close");
+                // A list of options between commas, each named in any
+                // case between spaces or tabs (RFC 9110 §7.6.1), on
+                // this line and every other.
+                var options = std.mem.splitScalar(u8, value, ',');
+                while (options.next()) |option| {
+                    const o = std.mem.trim(u8, option, " \t");
+                    if (eql(o, "close")) s.closing = true;
+                    if (eql(o, "keep-alive")) s.keeping = true;
+                }
             },
             "expect".len => if (first == 'e' and eql(name, "expect")) {
                 s.expect = .{ .at = value_at, .len = value.len };
@@ -1561,6 +1632,10 @@ const HeadScan = struct {
     /// The head, its text in `bytes`.
     fn made(s: *const HeadScan, bytes: []const u8) Head {
         var head = s.head;
+        // An HTTP/1.1 connection goes on unless the request says
+        // `close`, and an HTTP/1.0 one only when it says `keep-alive`
+        // and not `close` (RFC 9112 §9.3).
+        head.keep_alive = !s.closing and (s.keeping or head.version == .@"HTTP/1.1");
         head.target = bytes[s.target.at..][0..s.target.len];
         head.expect = if (s.expect) |e| bytes[e.at..][0..e.len] else null;
         head.content_type = if (s.content_type) |t| bytes[t.at..][0..t.len] else null;
@@ -1609,10 +1684,12 @@ const HeadScan = struct {
 /// What ours and Zig's `Head.parse` give for the head `bytes`, sent
 /// `step` bytes at a time into a buffer of `buffer_len` (no limit when
 /// 0), past the empty lines ours skips (`afterEmptyLines`): the same
-/// request, or the same error (`wantHead`), and `question` is the
-/// target's first `?`; or, where the head breaks a rule Zig does not
-/// keep (`breaksRule`), Zig's error or one ours alone gives (`Refused`,
-/// or a length not digits).
+/// request, or the same error (`wantHead`), but for whether the
+/// connection goes on, which ours reads from `Connection`'s options
+/// (`persists`); `question` is the target's first `?`, and `hosts` how
+/// many Host lines it holds (`hostLines`); or, where the head breaks a
+/// rule Zig does not keep (`breaksRule`), Zig's error or one ours alone
+/// gives (`Refused`, or a length not digits).
 fn expectSameHead(bytes: []const u8, step: usize, buffer_len: usize) !void {
     const gpa = std.testing.allocator;
     const len = if (buffer_len == 0) bytes.len + 1 else buffer_len;
@@ -1648,8 +1725,9 @@ fn expectSameHead(bytes: []const u8, step: usize, buffer_len: usize) !void {
     try std.testing.expectEqual(h.content_length, g.content_length);
     try std.testing.expectEqual(h.transfer_encoding, g.transfer_encoding);
     try std.testing.expectEqual(h.transfer_compression, g.transfer_compression);
-    try std.testing.expectEqual(h.keep_alive, g.keep_alive);
+    try std.testing.expectEqual(persists(head), g.keep_alive);
     try std.testing.expectEqual(std.mem.findScalar(u8, h.target, '?'), server.question);
+    try std.testing.expectEqual(hostLines(head), server.hosts);
 }
 
 /// `bytes` past the empty lines before a request line that ours skips,
@@ -1745,6 +1823,49 @@ fn breaksRule(bytes: []const u8) bool {
     return false;
 }
 
+/// Whether the connection of the request whose head is `bytes` goes on
+/// after it, by its version and its `Connection` lines, each a list of
+/// options between commas, named in any case (RFC 9110 §7.6.1): an
+/// HTTP/1.1 connection unless an option is `close`, and an HTTP/1.0
+/// one only when an option is `keep-alive` and none is `close` (RFC
+/// 9112 §9.3). Zig's `Head.parse` compares the last line's whole value
+/// with `close`. Written apart from `HeadScan`, plainly, to check it.
+fn persists(bytes: []const u8) bool {
+    const head = bytes[0 .. headEnd(bytes) orelse bytes.len];
+    var lines = std.mem.splitSequence(u8, head, "\r\n");
+    const old = std.mem.endsWith(u8, lines.first(), " HTTP/1.0");
+    var closes = false;
+    var keeps = false;
+    while (lines.next()) |line| {
+        if (line.len == 0) break;
+        const colon = std.mem.findScalar(u8, line, ':') orelse continue;
+        if (!std.ascii.eqlIgnoreCase(line[0..colon], "connection")) continue;
+        var options = std.mem.tokenizeScalar(u8, line[colon + 1 ..], ',');
+        while (options.next()) |option| {
+            const name = std.mem.trim(u8, option, " \t");
+            if (std.ascii.eqlIgnoreCase(name, "close")) closes = true;
+            if (std.ascii.eqlIgnoreCase(name, "keep-alive")) keeps = true;
+        }
+    }
+    return !closes and (keeps or !old);
+}
+
+/// How many Host lines the head in `bytes` holds, up to 3, as
+/// `Server.hosts` counts them. Written apart from `HeadScan`, plainly,
+/// to check it.
+fn hostLines(bytes: []const u8) u2 {
+    const head = bytes[0 .. headEnd(bytes) orelse bytes.len];
+    var lines = std.mem.splitSequence(u8, head, "\r\n");
+    _ = lines.first();
+    var n: u2 = 0;
+    while (lines.next()) |line| {
+        if (line.len == 0) break;
+        const colon = std.mem.findScalar(u8, line, ':') orelse continue;
+        if (std.ascii.eqlIgnoreCase(line[0..colon], "host")) n +|= 1;
+    }
+    return n;
+}
+
 /// Heads our server and Zig's read alike, valid and not, each past the
 /// empty lines ours skips before it (`afterEmptyLines`), and each read
 /// by Zig's `Head.parse` with a Transfer-Encoding's coding names in any
@@ -1814,6 +1935,62 @@ const test_heads = [_][]const u8{
     "POST / HTTP/1.1\r\nContent-Length: 18446744073709551616\r\n\r\n",
     "POST / HTTP/1.1\r\nTransfer-Encoding: gzip,chunked\r\n\r\n",
     "POST / HTTP/1.1\r\nContent-Length: 4\r\nTransfer-Encoding: chunked\r\n\r\n",
+    // Connection's options, and Host lines.
+    "GET / HTTP/1.1\r\nHost: x\r\nConnection: close, TE\r\n\r\n",
+    "GET / HTTP/1.1\r\nHost: x\r\nConnection: keep-alive, close\r\n\r\n",
+    "GET / HTTP/1.0\r\nConnection: Upgrade\r\n\r\n",
+    "GET / HTTP/1.0\r\nConnection: Keep-Alive\r\n\r\n",
+    "GET / HTTP/1.1\r\nConnection: close\r\nHost: x\r\nConnection: keep-alive\r\n\r\n",
+    "GET / HTTP/1.0\r\nConnection: Upgrade\r\nConnection: keep-alive\r\n\r\n",
+    "GET / HTTP/1.1\r\nHost: x\r\nhost: y\r\n\r\n",
+};
+
+/// Heads with whether the connection goes on after each: `Connection`
+/// is a list of options, over every line of it.
+const connection_heads = [_]struct { []const u8, bool }{
+    // HTTP/1.1 goes on unless an option is `close`.
+    .{ "GET / HTTP/1.1\r\n\r\n", true },
+    .{ "GET / HTTP/1.1\r\nConnection: close\r\n\r\n", false },
+    .{ "GET / HTTP/1.1\r\nconnection:Close\r\n\r\n", false },
+    .{ "GET / HTTP/1.1\r\nConnection: close, TE\r\n\r\n", false },
+    .{ "GET / HTTP/1.1\r\nConnection: TE,close\r\n\r\n", false },
+    .{ "GET / HTTP/1.1\r\nConnection: keep-alive, close\r\n\r\n", false },
+    .{ "GET / HTTP/1.1\r\nConnection:\tTE ,\t CLOSE\t, x\r\n\r\n", false },
+    .{ "GET / HTTP/1.1\r\nConnection: close\r\nConnection: keep-alive\r\n\r\n", false },
+    .{ "GET / HTTP/1.1\r\nConnection: keep-alive\r\nA: b\r\nCONNECTION: TE, close\r\n\r\n", false },
+    .{ "GET / HTTP/1.1\r\nConnection: keep-alive\r\n\r\n", true },
+    .{ "GET / HTTP/1.1\r\nConnection: Upgrade\r\n\r\n", true },
+    .{ "GET / HTTP/1.1\r\nConnection: closed, xclose, clos\r\n\r\n", true },
+    .{ "GET / HTTP/1.1\r\nConnection:\r\n\r\n", true },
+    .{ "GET / HTTP/1.1\r\nConnection: , ,\r\n\r\n", true },
+    .{ "GET / HTTP/1.1\r\nX-Connection: close\r\nClose: close\r\n\r\n", true },
+    // HTTP/1.0 goes on only when an option is `keep-alive` and none is
+    // `close`.
+    .{ "GET / HTTP/1.0\r\n\r\n", false },
+    .{ "GET / HTTP/1.0\r\nConnection: keep-alive\r\n\r\n", true },
+    .{ "GET / HTTP/1.0\r\nConnection: Keep-Alive\r\n\r\n", true },
+    .{ "GET / HTTP/1.0\r\nConnection: Upgrade\r\n\r\n", false },
+    .{ "GET / HTTP/1.0\r\nConnection: TE,\tKEEP-ALIVE\r\n\r\n", true },
+    .{ "GET / HTTP/1.0\r\nConnection: keep-alive, close\r\n\r\n", false },
+    .{ "GET / HTTP/1.0\r\nConnection: close\r\nConnection: keep-alive\r\n\r\n", false },
+    .{ "GET / HTTP/1.0\r\nConnection: Upgrade\r\nConnection: keep-alive\r\n\r\n", true },
+    .{ "GET / HTTP/1.0\r\nConnection: keep-alive\r\nConnection: Upgrade\r\n\r\n", true },
+    .{ "GET / HTTP/1.0\r\nConnection: close\r\n\r\n", false },
+    .{ "GET / HTTP/1.0\r\nConnection: keep-alives\r\n\r\n", false },
+    .{ "GET / HTTP/1.0\r\nKeep-Alive: timeout=5\r\n\r\n", false },
+};
+
+/// Heads with how many Host lines each holds, up to 3.
+const host_heads = [_]struct { []const u8, u2 }{
+    .{ "GET / HTTP/1.1\r\n\r\n", 0 },
+    .{ "GET / HTTP/1.1\r\nA: b\r\nX-Host: x\r\nHosts: x\r\nHos: x\r\n\r\n", 0 },
+    .{ "GET / HTTP/1.1\r\nHost: x\r\n\r\n", 1 },
+    .{ "GET / HTTP/1.1\r\nhOST:\r\n\r\n", 1 },
+    .{ "GET / HTTP/1.0\r\nA: b\r\nHOST: x:80\r\nC: d\r\n\r\n", 1 },
+    .{ "GET / HTTP/1.1\r\nHost: x\r\nHost: x\r\n\r\n", 2 },
+    .{ "GET / HTTP/1.1\r\nHost: x\r\nA: b\r\nhost: y\r\n\r\n", 2 },
+    .{ "GET / HTTP/1.1\r\nHost: a\r\nHost: b\r\nHost: c\r\n\r\n", 3 },
+    .{ "GET / HTTP/1.1\r\nHost: a\r\nHost: b\r\nHost: c\r\nHost: d\r\nHost: e\r\n\r\n", 3 },
 };
 
 /// Heads that break a rule ours keeps and Zig's `Head.parse` does not
@@ -1888,6 +2065,67 @@ test "receiveHead gives what Zig's Head.parse gives" {
     }
 }
 
+test "Connection is a list of options, and an HTTP/1.0 connection goes on only when asked" {
+    var out: [0]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&out);
+    for (connection_heads) |case| {
+        const bytes, const want = case;
+        try std.testing.expectEqual(want, persists(bytes));
+        for ([_]usize{ bytes.len, 1, 3, 17 }) |step| {
+            var buf: [128]u8 = undefined;
+            var in: std.testing.Reader = .init(&buf, &.{.{ .buffer = bytes }});
+            in.artificial_limit = .limited(step);
+            var server: Server = .init(&in.interface, &w);
+            server.http.reader.max_head_len = buf.len;
+            const request = try server.receiveHead();
+            std.testing.expectEqual(want, request.head.keep_alive) catch |err| {
+                std.debug.print("head {f}, {d} at a time\n", .{ std.zig.fmtString(bytes), step });
+                return err;
+            };
+        }
+    }
+}
+
+test "receiveHead counts a head's Host lines" {
+    var out: [0]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&out);
+    for (host_heads) |case| {
+        const bytes, const want = case;
+        try std.testing.expectEqual(want, hostLines(bytes));
+        for ([_]usize{ bytes.len, 1, 3, 17 }) |step| {
+            var buf: [128]u8 = undefined;
+            var in: std.testing.Reader = .init(&buf, &.{.{ .buffer = bytes }});
+            in.artificial_limit = .limited(step);
+            var server: Server = .init(&in.interface, &w);
+            server.http.reader.max_head_len = buf.len;
+            _ = try server.receiveHead();
+            std.testing.expectEqual(want, server.hosts) catch |err| {
+                std.debug.print("head {f}, {d} at a time\n", .{ std.zig.fmtString(bytes), step });
+                return err;
+            };
+        }
+    }
+}
+
+test "accept goes on after the errors that are one connection's" {
+    // A connection that failed before it was accepted, and the network
+    // errors pending on one, which Linux's accept(2) hands back.
+    try std.testing.expect(acceptAgain(.CONNABORTED));
+    try std.testing.expect(acceptAgain(.NETDOWN));
+    try std.testing.expect(acceptAgain(.PROTO));
+    try std.testing.expect(acceptAgain(.NOPROTOOPT));
+    try std.testing.expect(acceptAgain(.HOSTDOWN));
+    try std.testing.expect(acceptAgain(.HOSTUNREACH));
+    try std.testing.expect(acceptAgain(.OPNOTSUPP));
+    try std.testing.expect(acceptAgain(.NETUNREACH));
+    if (@hasField(posix.E, "NONET")) try std.testing.expect(acceptAgain(@field(posix.E, "NONET")));
+    // The listener's own failures, and those `acceptOne` answers
+    // another way.
+    for ([_]posix.E{ .SUCCESS, .AGAIN, .INTR, .BADF, .INVAL, .NOTSOCK, .FAULT, .MFILE, .NFILE, .NOBUFS, .NOMEM, .PERM }) |e| {
+        try std.testing.expect(!acceptAgain(e));
+    }
+}
+
 test "receiveHead refuses a head that breaks a rule Zig's Head.parse does not keep, with its error" {
     var out: [0]u8 = undefined;
     var w: std.Io.Writer = .fixed(&out);
@@ -1934,7 +2172,8 @@ test "receiveHead gives what Zig's Head.parse gives, or keeps a rule it does not
         "?",              "Host: x",            "content-length", "Content-Length: ", "transfer-encoding: ",
         "Transfer-Encoding", "connection: close", "Expect: 100-continue", "content-type: a/b", "chunked",
         "gzip, chunked", "gzip",               "none",           "10",       "+5",        "1_0",  "-0",
-        "007",            ", ",                 "x",
+        "007",            ", ",                 "x",              "Connection: keep-alive", "connection:",
+        "close",          "Keep-Alive",         "host:",
     };
     var prng: std.Random.DefaultPrng = .init(0x9112);
     const random = prng.random();
@@ -2071,13 +2310,13 @@ test "receiveHead refuses a head longer than its limit" {
 test "receiveHead reads heads one after another, as the reader moves them" {
     // With an empty line or two between them, as a client may send after
     // a body, and one at the end before the client closes.
-    const bytes = "GET /a?x HTTP/1.1\r\nA: 1\r\n\r\n\r\nPOST /b HTTP/1.0\r\nB: 22\r\nContent-Length: 0\r\n\r\n\r\n\r\nGET /c HTTP/1.1\r\n\r\n\r\n";
+    const bytes = "GET /a?x HTTP/1.1\r\nHost: h\r\nConnection: a, close\r\n\r\n\r\nPOST /b HTTP/1.0\r\nConnection: Keep-Alive\r\nContent-Length: 0\r\n\r\n\r\n\r\nGET /c HTTP/1.1\r\n\r\n\r\n";
     var out: [0]u8 = undefined;
     var w: std.Io.Writer = .fixed(&out);
     for ([_]usize{ 1, 7, bytes.len }) |step| {
         // A buffer only a little longer than the longest head, which the
         // reader rebases.
-        var buf: [52]u8 = undefined;
+        var buf: [68]u8 = undefined;
         var in: std.testing.Reader = .init(&buf, &.{.{ .buffer = bytes }});
         in.artificial_limit = .limited(step);
         var server: Server = .init(&in.interface, &w);
@@ -2085,13 +2324,19 @@ test "receiveHead reads heads one after another, as the reader moves them" {
         const a = try server.receiveHead();
         try std.testing.expectEqualStrings("/a?x", a.head.target);
         try std.testing.expectEqual(2, server.question);
+        try std.testing.expectEqual(1, server.hosts);
+        try std.testing.expectEqual(false, a.head.keep_alive);
         const b = try server.receiveHead();
         try std.testing.expectEqualStrings("/b", b.head.target);
         try std.testing.expectEqual(null, server.question);
+        try std.testing.expectEqual(0, server.hosts);
+        try std.testing.expectEqual(true, b.head.keep_alive);
         try std.testing.expectEqual(.@"HTTP/1.0", b.head.version);
         try std.testing.expectEqual(0, b.head.content_length);
         const c = try server.receiveHead();
         try std.testing.expectEqualStrings("/c", c.head.target);
+        try std.testing.expectEqual(0, server.hosts);
+        try std.testing.expectEqual(true, c.head.keep_alive);
         try std.testing.expectError(error.HttpConnectionClosing, server.receiveHead());
     }
 }
@@ -2145,7 +2390,8 @@ const Conn = struct {
     /// the worker's (`sched.takeBlock`).
     bufs: ?*[rig.sched.block_size]u8 = null,
     settings: Settings,
-    /// How long each read and write may wait (`connection`).
+    /// How long each read and write may wait (`connection`), and, while
+    /// a body is read, the instant it must be whole by (`answer`).
     limit: Limit,
     /// The deadline of every wait, which moves from wait to wait without
     /// a timer set for each (`sched.Deadline`).

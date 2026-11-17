@@ -356,7 +356,7 @@ test "http content types", seeds: 20, '''
   t = run(<l)&
   for name in ["text", "html", "json", "css", "js", "csv", "xml", "svg", "png", "jpeg", "gif", "webp", "pdf", "wasm", "bytes", "other"]
     c = net.connect(String("127.0.0.1:", port))!
-    (!c).write(String("GET /", name, " HTTP/1.1\r\nConnection: close\r\n\r\n"))!
+    (!c).write(String("GET /", name, " HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))!
     got = String()
     loop
       if (!c).read(!got, 4096)! == 0
@@ -400,7 +400,7 @@ test "http answers 500 for what it cannot send", seeds: 20, '''
   t = run(<l)&
   for path in ["/s/100", "/s/101", "/s/199", "/s/0", "/s/200", "/cr", "/lf", "/nul"]
     c = net.connect(String("127.0.0.1:", port))!
-    (!c).write(String("GET ", path, " HTTP/1.1\r\nConnection: close\r\n\r\n"))!
+    (!c).write(String("GET ", path, " HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))!
     got = String()
     loop
       if (!c).read(!got, 4096)! == 0
@@ -462,6 +462,7 @@ test "http answers byte for byte", seeds: 20, '''
   []
   [/old:]
   [HTTP/1.1 200 OK]
+  [connection: keep-alive]
   [content-length: 7]
   [content-type: text/plain; charset=utf-8]
   []
@@ -487,7 +488,8 @@ test "http answers byte for byte", seeds: 20, '''
   # Every byte of each answer, as Zig's `respond` wrote them: the status
   # line of a named status and of one with no name, HEAD, a 204 and a
   # 304, which carry no length and no body, an empty type, a 500,
-  # keep-alive and close on HTTP/1.1 and 1.0, 413, and 417.
+  # keep-alive and close on HTTP/1.1 and 1.0, where an HTTP/1.0 client
+  # that asked to keep the connection is told it is kept, 413, and 417.
   use std.text
 
   fun route(req: ?http.Request) -> http.Response
@@ -519,11 +521,74 @@ test "http answers byte for byte", seeds: 20, '''
   l = net.listen("127.0.0.1:0")!
   port = l.port()
   t = run(<l)&
-  show(port, "GET /s/200 HTTP/1.1\r\nHost: x\r\n\r\nHEAD /s/201 HTTP/1.1\r\nHost: x\r\n\r\nGET /s/599 HTTP/1.1\r\n\r\nGET /s/204 HTTP/1.1\r\n\r\nGET /s/304 HTTP/1.1\r\n\r\nGET /s/999 HTTP/1.1\r\n\r\nGET /j HTTP/1.1\r\n\r\nGET /e HTTP/1.1\r\n\r\nPOST /p HTTP/1.1\r\nContent-Length: 2\r\n\r\nhiGET /boom HTTP/1.1\r\n\r\nGET /s/404 HTTP/1.1\r\nConnection: close\r\n\r\n")!
+  show(port, "GET /s/200 HTTP/1.1\r\nHost: x\r\n\r\nHEAD /s/201 HTTP/1.1\r\nHost: x\r\n\r\nGET /s/599 HTTP/1.1\r\nHost: x\r\n\r\nGET /s/204 HTTP/1.1\r\nHost: x\r\n\r\nGET /s/304 HTTP/1.1\r\nHost: x\r\n\r\nGET /s/999 HTTP/1.1\r\nHost: x\r\n\r\nGET /j HTTP/1.1\r\nHost: x\r\n\r\nGET /e HTTP/1.1\r\nHost: x\r\n\r\nPOST /p HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\nhiGET /boom HTTP/1.1\r\nHost: x\r\n\r\nGET /s/404 HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")!
   show(port, "GET /old HTTP/1.0\r\n\r\n")!
   show(port, "GET /alive HTTP/1.0\r\nConnection: keep-alive\r\n\r\nGET /s/301 HTTP/1.0\r\n\r\n")!
-  show(port, "POST /big HTTP/1.1\r\nContent-Length: 99999999\r\n\r\n")!
-  show(port, "POST /x HTTP/1.1\r\nContent-Length: 1\r\nExpect: later\r\n\r\nx")!
+  show(port, "POST /big HTTP/1.1\r\nHost: x\r\nContent-Length: 99999999\r\n\r\n")!
+  show(port, "POST /x HTTP/1.1\r\nHost: x\r\nContent-Length: 1\r\nExpect: later\r\n\r\nx")!
+  _ = <t.cancel() catch -1
+
+test "http host and connect", seeds: 20, '''
+  [HTTP/1.1 400 Bad Request][connection: close][bad request]
+  [HTTP/1.1 400 Bad Request][connection: close][bad request]
+  [HTTP/1.1 400 Bad Request][connection: close][bad request]
+  [HTTP/1.1 400 Bad Request][connection: close][bad request]
+  [HTTP/1.1 400 Bad Request][connection: close][bad request]
+  [HTTP/1.1 200 OK][connection: close][/old]
+  [HTTP/1.1 200 OK][/emptyHTTP/1.1 200 OK][connection: close][/next]
+  [HTTP/1.1 405 Method Not Allowed][connection: close][method not allowed]
+  [HTTP/1.1 405 Method Not Allowed][connection: close][method not allowed]
+  [HTTP/1.1 405 Method Not Allowed][connection: close][method not allowed]
+  [HTTP/1.1 200 OK][connection: close][/next]
+  4
+'''
+  # An HTTP/1.1 request names its host once (RFC 9112 §3.2): one with no
+  # Host line, or with two, in any version, is answered 400. An HTTP/1.0
+  # request needs none, and a Host with no value is one. CONNECT asks
+  # for a tunnel, which this server is not (RFC 9110 §9.3.6): 405. Each
+  # refusal closes the connection, so the request after it gets no
+  # answer, and the handler runs for none of them.
+  use std.text
+
+  fun run(l: net.Listener, hits: *Cell[Int]) -> Int!
+    http.serve(<l, |+hits, req|
+      !hits.add(1)
+      http.text(req.path)
+    )!
+    0
+
+  # The answers to `ask`, sent on one connection: each line but a length
+  # or a type, between brackets.
+  fun answers(port: Int, ask: ?String) -> String!
+    c = net.connect(String("127.0.0.1:", port))!
+    (!c).write(ask)!
+    got = String()
+    loop
+      if (!c).read(!got, 4096)! == 0
+        break
+    out = String()
+    for piece in text.split(?got, "\r\n")
+      if piece.len > 0 and not text.starts_with(piece, "content-")
+        !out.add("[", text.trim(piece), "]")
+    out
+
+  hits = *Cell(0)
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l, +hits)&
+  next = "GET /next HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+  print(answers(port, String("GET /a HTTP/1.1\r\n\r\n", next))!)
+  print(answers(port, String("POST /a HTTP/1.1\r\nContent-Length: 3\r\n\r\nabc", next))!)
+  print(answers(port, String("GET /a HTTP/1.1\r\nHost: x\r\nHost: x\r\n\r\n", next))!)
+  print(answers(port, String("GET /a HTTP/1.1\r\nHost: x\r\nX: y\r\nhOST: z\r\n\r\n", next))!)
+  print(answers(port, String("GET /a HTTP/1.0\r\nHost: x\r\nHost: y\r\nConnection: keep-alive\r\n\r\n", next))!)
+  print(answers(port, String("GET /old HTTP/1.0\r\n\r\n", next))!)
+  print(answers(port, String("GET /empty HTTP/1.1\r\nHost:\r\n\r\n", next))!)
+  print(answers(port, String("CONNECT h:443 HTTP/1.1\r\nHost: h:443\r\n\r\n", next))!)
+  print(answers(port, String("CONNECT h:443 HTTP/1.0\r\nConnection: keep-alive\r\n\r\n", next))!)
+  print(answers(port, String("CONNECT h:443 HTTP/1.1\r\nHost: h:443\r\nContent-Length: 3\r\n\r\nabc", next))!)
+  print(answers(port, next)!)
+  print(hits.get())
   _ = <t.cancel() catch -1
 
 test "http headers", seeds: 20, '''
@@ -557,9 +622,9 @@ test "http headers", seeds: 20, '''
   many = String()
   for i in 0..80
     !many.add("H", i, ": h", i, "\r\n")
-  (!c).write(String("GET /a HTTP/1.1\r\nX-One:  v1 \r\nx-two:b:c\r\nDUP: first\r\ndup: second\r\nH70: h70\r\n\r\n"))!
-  (!c).write("GET /b HTTP/1.1\r\n\r\n")!
-  (!c).write(String("GET /c HTTP/1.1\r\n", many, "Connection: close\r\n\r\n"))!
+  (!c).write(String("GET /a HTTP/1.1\r\nHost: x\r\nX-One:  v1 \r\nx-two:b:c\r\nDUP: first\r\ndup: second\r\nH70: h70\r\n\r\n"))!
+  (!c).write("GET /b HTTP/1.1\r\nHost: x\r\n\r\n")!
+  (!c).write(String("GET /c HTTP/1.1\r\nHost: x\r\n", many, "Connection: close\r\n\r\n"))!
   got = String()
   loop
     if (!c).read(!got, 4096)! == 0

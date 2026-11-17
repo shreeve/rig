@@ -1,11 +1,14 @@
 # std.http.serve's limits, with a client in Python: an idle connection
 # and a slow request head are closed after their timeouts, a stalled
-# body after the idle one; bodies up to the limit are read and larger
+# body after the idle one, and a body that keeps coming but is not
+# whole by its deadline then; bodies up to the limit are read and larger
 # ones answered 413, chunked or not; a request's body is framed as RFC
-# 9112 says, and a head it refuses is answered 400; and running out of
+# 9112 says, and a head it refuses is answered 400, as is an HTTP/1.1
+# request that does not name its host once; CONNECT is answered 405;
+# `Connection` is read as a list of options; and running out of
 # descriptors pauses accepting rather than ending the server. The limits are set
 # small through the environment (RIG_HTTP_IDLE_MS, RIG_HTTP_HEAD_MS,
-# RIG_HTTP_MAX_BODY); in debug and --release.
+# RIG_HTTP_BODY_MS, RIG_HTTP_MAX_BODY); in debug and --release.
 # timeout: 300
 # builds: shared
 source "$ROOT/test/cli/_lib.sh"
@@ -143,9 +146,67 @@ def limits():
     finally:
         p.kill()
 
+def deadline():
+    # A body must be whole 1 s after its head; a wait may last 5 s.
+    p, port = start({'RIG_HTTP_IDLE_MS': '5000', 'RIG_HTTP_BODY_MS': '1000'})
+    try:
+        out = []
+        def trickle(name, head, body):
+            """Send `body` a byte every 50 ms, each wait far shorter than
+            the idle time, until the server closes: what it answered, and
+            whether it closed at about the body's deadline."""
+            s = conn(port)
+            s.sendall(head)
+            t = time.monotonic()
+            s.setblocking(False)
+            got = None
+            for b in body:
+                time.sleep(0.05)
+                try:
+                    got = s.recv(4096)
+                    break
+                except BlockingIOError:
+                    pass
+                except OSError:
+                    got = b''
+                    break
+                try:
+                    s.send(bytes([b]))
+                except OSError:
+                    got = b''
+                    break
+            elapsed = time.monotonic() - t
+            s.close()
+            out.append('%s %r %s' % (name, got, 0.9 < elapsed < 4))
+        post = b'POST /t HTTP/1.1\r\nHost: x\r\n'
+        trickle('chunks', post + b'Transfer-Encoding: chunked\r\n\r\n', b'1\r\nz\r\n' * 30)
+        trickle('extensions', post + b'Transfer-Encoding: chunked\r\n\r\n', b'1;' + b'x' * 180)
+        trickle('length', post + b'Content-Length: 500\r\n\r\n', b'z' * 180)
+        # A body that comes in pieces and is whole before its deadline
+        # is answered, and so is the next on its connection, past the
+        # first one's deadline: each body has its own.
+        s = conn(port)
+        for _ in range(2):
+            s.sendall(post + b'Transfer-Encoding: chunked\r\n\r\n')
+            for piece in [b'3\r\nab', b'c\r\n', b'0\r\n\r\n']:
+                time.sleep(0.05)
+                s.sendall(piece)
+            got = b''
+            while not got.endswith(b'/t 3'):
+                b = s.recv(4096)
+                if not b:
+                    break
+                got += b
+            out.append('whole %s %s' % (status(got), body(got)))
+            time.sleep(1.0)
+        s.close()
+        print('\n'.join(out))
+    finally:
+        p.kill()
+
 def answers(got):
-    """Each answer in `got`: its status, its body, and `close` when it
-    says the connection closes."""
+    """Each answer in `got`: its status, its body, and what it says of
+    the connection, `close` or `keep-alive`."""
     out = []
     while got.startswith(b'HTTP/1.1 '):
         head, _, rest = got.partition(b'\r\n\r\n')
@@ -157,7 +218,7 @@ def answers(got):
             if name == b'content-length':
                 n = int(value)
             if name == b'connection':
-                close = ' close'
+                close = ' ' + value.decode()
         out.append(lines[0].split(b' ', 2)[1].decode() + ' ' + rest[:n].decode().strip() + close)
         got = rest[n:]
     if got:
@@ -241,6 +302,34 @@ def framing():
         send('two after a body', b'POST /l HTTP/1.1\r\n' + h + b'Content-Length: 3\r\n\r\nabc\r\n\r\n' + nxt)
         send('empty line, then close', b'POST /l HTTP/1.1\r\n' + h + b'Content-Length: 3\r\n\r\nabc\r\n', half=True)
         send('bare lf line before', b'\nGET /e HTTP/1.1\r\n' + h + b'\r\n' + nxt)
+        # `Connection` is a list of options, over every line of it: an
+        # HTTP/1.1 connection closes when one is `close`; an HTTP/1.0
+        # connection goes on only when one is `keep-alive` and none is
+        # `close`, and its client is told so.
+        get = b'GET /o HTTP/1.1\r\n' + h
+        send('close, TE', get + b'Connection: close, TE\r\n\r\n' + nxt)
+        send('keep-alive, close', get + b'Connection: keep-alive, close\r\n\r\n' + nxt)
+        send('TE,CLOSE', get + b'Connection: TE,\tCLOSE\r\n\r\n' + nxt)
+        send('close, then keep-alive', get + b'Connection: close\r\nConnection: keep-alive\r\n\r\n' + nxt)
+        send('upgrade', get + b'Connection: Upgrade\r\n\r\n' + nxt)
+        old = b'GET /o HTTP/1.0\r\n'
+        send('1.0', old + b'\r\n' + nxt)
+        send('1.0 keep-alive', old + b'Connection: Keep-Alive\r\n\r\n' + nxt)
+        send('1.0 upgrade', old + b'Connection: Upgrade\r\n\r\n' + nxt)
+        send('1.0 upgrade, keep-alive', old + b'Connection: Upgrade, keep-alive\r\n\r\n' + nxt)
+        send('1.0 keep-alive, close', old + b'Connection: keep-alive, close\r\n\r\n' + nxt)
+        send('1.0 upgrade, then keep-alive', old + b'Connection: Upgrade\r\nConnection: keep-alive\r\n\r\n' + nxt)
+        # An HTTP/1.1 request names its host once: none, or two in any
+        # version, is 400. An HTTP/1.0 request needs none.
+        send('no host', b'GET /h HTTP/1.1\r\n\r\n' + nxt)
+        send('no host, post', b'POST /h HTTP/1.1\r\nContent-Length: 3\r\n\r\nabc' + nxt)
+        send('two hosts', b'GET /h HTTP/1.1\r\n' + h + b'A: b\r\nhost: y\r\n\r\n' + nxt)
+        send('1.0 two hosts', old + h + h + b'Connection: keep-alive\r\n\r\n' + nxt)
+        send('1.0 host', old + h + b'\r\n' + nxt)
+        send('empty host', b'GET /h HTTP/1.1\r\nHost:\r\n\r\n' + nxt)
+        # CONNECT asks for a tunnel: 405, before the handler.
+        send('connect', b'CONNECT h:443 HTTP/1.1\r\nHost: h:443\r\n\r\n' + nxt)
+        send('connect, a body', b'CONNECT h:443 HTTP/1.1\r\nHost: h:443\r\nContent-Length: 3\r\n\r\nabc' + nxt)
         send('after', nxt)
         out.append('alive %s' % (p.poll() is None))
         print('\n'.join(out))
@@ -286,14 +375,16 @@ def descriptors():
     finally:
         p.kill()
 
-{'limits': limits, 'framing': framing, 'descriptors': descriptors}[sys.argv[1]]()
+{'limits': limits, 'deadline': deadline, 'framing': framing, 'descriptors': descriptors}[sys.argv[1]]()
 EOF2
 
 # The default timeouts on a deterministic run's virtual clock: an idle
 # connection closes after 60 s, one kept alive after a request 60 s
 # after it, a head that stops partway 10 s after its first byte, and a
 # connection that asks every 5 s for 100 s, past its first 60 s, 60 s
-# after its last request: its deadline moved with each.
+# after its last request: its deadline moved with each; and one that
+# sends a body a byte every 30 s 300 s after the body's head, not 60 s
+# after its last byte.
 cat >virtual.rig <<'EOF2'
 use std.http
 use std.net
@@ -329,11 +420,25 @@ fun kept(port: Int) -> Int!
     pass
   t0.elapsed() / time.SECOND
 
+# Seconds until the server closes `c`, which sends the head of a
+# chunked body, then a byte of it every 30 s, nine of them.
+fun trickled(port: Int) -> Int!
+  c = net.connect(String("127.0.0.1:", port))!
+  t0 = time.now()
+  (!c).write("POST /t HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n")!
+  for 0..9
+    time.sleep(30)!
+    (!c).write("1")!
+  got = String()
+  while (!c).read(!got, 4096)! > 0
+    pass
+  t0.elapsed() / time.SECOND
+
 sub main()!
   l = net.listen("127.0.0.1:0")!
   port = l.port()
   t = run(<l)&
-  print(closes(port, "")!, closes(port, "GET /k HTTP/1.1\r\nHost: x\r\n\r\n")!, closes(port, "GET / HTTP/1.1\r\nHo")!, kept(port)!)
+  print(closes(port, "")!, closes(port, "GET /k HTTP/1.1\r\nHost: x\r\n\r\n")!, closes(port, "GET / HTTP/1.1\r\nHo")!, kept(port)!, trickled(port)!)
   _ = <t.cancel() catch -1
 EOF2
 
@@ -349,6 +454,11 @@ stalled True
 (100) 200 /p 1000
 413 content too large
 200 /after 0'
+want_deadline="chunks b'' True
+extensions b'' True
+length b'' True
+whole 200 /t 3
+whole 200 /t 3"
 want_framing="no length: 200 /p 0, 200 /next 0 close
 no length, put: 200 /p 0, 200 /next 0 close
 no length, half-closed: 200 /p 0
@@ -402,6 +512,25 @@ empty line after a body: 200 /l 3, 200 /next 0 close
 two after a body: 200 /l 3, 200 /next 0 close
 empty line, then close: 200 /l 3
 bare lf line before: 400 bad request close
+close, TE: 200 /o 0 close
+keep-alive, close: 200 /o 0 close
+TE,CLOSE: 200 /o 0 close
+close, then keep-alive: 200 /o 0 close
+upgrade: 200 /o 0, 200 /next 0 close
+1.0: 200 /o 0 close
+1.0 keep-alive: 200 /o 0 keep-alive, 200 /next 0 close
+1.0 upgrade: 200 /o 0 close
+1.0 upgrade, keep-alive: 200 /o 0 keep-alive, 200 /next 0 close
+1.0 keep-alive, close: 200 /o 0 close
+1.0 upgrade, then keep-alive: 200 /o 0 keep-alive, 200 /next 0 close
+no host: 400 bad request close
+no host, post: 400 bad request close
+two hosts: 400 bad request close
+1.0 two hosts: 400 bad request close
+1.0 host: 200 /o 0 close
+empty host: 200 /h 0, 200 /next 0 close
+connect: 405 method not allowed close
+connect, a body: 405 method not allowed close
 after: 200 /next 0 close
 alive True"
 for mode in debug release; do
@@ -409,6 +538,8 @@ for mode in debug release; do
     out=$(rig build $flag srv.rig 2>&1); expect_rc $? 0 "$mode build: $out"
     out=$(python3 client.py limits 2>&1); expect_rc $? 0 "$mode limits: $out"
     expect_eq "$out" "$want_limits" "$mode: timeouts and the body limit"
+    out=$(python3 client.py deadline 2>&1); expect_rc $? 0 "$mode deadline: $out"
+    expect_eq "$out" "$want_deadline" "$mode: a body's deadline"
     out=$(python3 client.py framing 2>&1); expect_rc $? 0 "$mode framing: $out"
     expect_eq "$out" "$want_framing" "$mode: request framing"
     out=$(python3 client.py descriptors 2>&1); expect_rc $? 0 "$mode descriptors: $out"
@@ -420,7 +551,7 @@ for mode in debug release; do
     done
     wait
     for seed in $(seq 1 20); do
-        expect_eq "$(cat virtual-$seed.out)" $'60 60 10 60\nrc 0' "$mode: the default timeouts, seed $seed"
+        expect_eq "$(cat virtual-$seed.out)" $'60 60 10 60 300\nrc 0' "$mode: the default timeouts, seed $seed"
     done
 done
 exit 0
