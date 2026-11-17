@@ -169,19 +169,22 @@ worker after.
   sleep or event. The 1 ms stays as the backstop: a kqueue gives no
   new edge while events wait in it, so an edge read while another
   holds that poller's lock, which lets it go with events left, waits
-  for the next look. One thread waits for each poller's events: a
-  worker whose poller is watched sleeps on its kick alone, a second
-  small poller holding only a kick of its own (`Poller.waitKick`,
-  `Poller.kick` choosing where to kick), and leaves its connections to
-  the watcher's wait; one whose poller is not watched sleeps in it as
-  before. A sleeper says it sleeps on its kick before it reads the
-  watch, and a watcher letting go clears its registrations' record
-  before it reads who says so, so the sleeper sees the watch gone or is
-  kicked. A watcher keeps the watch from one round to the next while it
-  is wanted, and lets it go as it wakes with work, before it runs the
-  fibers its look took, kicking every worker asleep on its kick alone
-  back to its own poller, so an event that lands while it computes is
-  waited for by its owner.
+  for the next look. While another worker is busy, a worker whose
+  poller is watched sleeps on its kick alone, a second small poller
+  holding only a kick of its own (`Poller.waitKick`, `Poller.kick`
+  choosing where to kick), and leaves its connections to the watcher's
+  wait, so one thread wakes for an event; with every other worker
+  asleep it sleeps in its own poller and runs its events itself. A
+  watcher keeps the watch from one round to the next while it is
+  wanted, and lets it go as it wakes with work, before it runs the
+  fibers its look took, passing it to one sleeper, which registers the
+  pollers again as it takes it, while the others stay asleep on their
+  kicks. With no watch held, a worker going to sleep kicks those asleep
+  on their kicks alone back to their own pollers (`sched.kickOnly`); a
+  sleeper says it sleeps on its kick before it reads the watch, so it
+  sees no watch or is kicked. A choice made stale as a worker wakes or
+  sleeps leaves its events a waiter, the watcher or the owner, and is
+  made again within 1 ms, the longest a sleep on a kick alone lasts.
   A kernel refuses a poller that holds the watcher's (a cycle), as one
   that has just lost the watch may until it takes its own off; it is
   tried again next round. A look at another worker's poller leaves the kick it
@@ -267,7 +270,7 @@ worker after.
   the watches saw:
 
   ```
-  rig: watch: woke 812 by an edge (95 to no work, 3 of them a lock held), ran others' events 640, kicks 40, late 2, looks missed 310; slept on the kick alone 900, let go 700 with work and 12 without, kicking 690
+  rig: watch: woke 812 by an edge (95 to no work, 3 of them a lock held), ran others' events 640, kicks 40, late 2, looks missed 310; slept on the kick alone 900, let go 700 with work (690 passed on) and 12 without, kicking 15
   ```
 
   the watcher's waits a watched poller's edge ended, of them those
@@ -277,8 +280,9 @@ worker after.
   that lasted the whole 1 ms with no edge yet whose looks woke fibers
   (what the backstop caught); every worker's looks that found a
   poller's lock held; the sleeps on a kick alone; the watches let go of
-  as the watcher woke with work, and without; and the kicks those sent
-  to workers asleep on their kicks alone.
+  as the watcher woke with work, of them those passed to one sleeper,
+  and those let go of without work; and the kicks that sent workers
+  asleep on their kicks alone back to their pollers with no watch held.
 
 ## Speed
 

@@ -749,10 +749,10 @@ arms.
   it lets it go, so an event on a busy worker's poller is run by the
   watcher as it lands, where before it waited for the watcher's next
   look, up to 1 ms; that 1 ms stays as the backstop
-  (`sched.nestWatch`). One thread waits for each poller: a worker
-  whose poller is watched sleeps on a second poller holding only its
-  kick, and the watcher lets the watch go as it wakes with work,
-  kicking those back to their own pollers. `RIG_SCHED_STATS=1` adds a
+  (`sched.nestWatch`). While another worker is busy, a worker whose
+  poller is watched sleeps on a second poller holding only its kick, so
+  one thread wakes for an event; the watcher lets the watch go as it
+  wakes with work and passes it to one sleeper. `RIG_SCHED_STATS=1` adds a
   line counting the watcher's wakes, and prints as SIGINT or SIGTERM
   ends the program too.
 - **A batch of events wakes one fiber locally and leaves the rest to be

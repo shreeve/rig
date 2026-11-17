@@ -229,12 +229,14 @@ const Worker = struct {
     looks_missed: u64 = 0,
     /// And: watch rounds whose looks woke fibers from others' pollers,
     /// run here cold; its sleeps on its kick alone; watches it let go of
-    /// as it woke with work, and without; kicks those sent to sleepers
-    /// on their kicks alone.
+    /// as it woke with work, and without; of those with work, the ones
+    /// passed to one sleeper; kicks it sent to sleepers on their kicks
+    /// alone with no watch held (`kickOnly`).
     nest_cold: u64 = 0,
     kick_waits: u64 = 0,
     released_work: u64 = 0,
     released_idle: u64 = 0,
+    release_passes: u64 = 0,
     release_kicks: u64 = 0,
     /// How long it sleeps before it gives back what its heap holds free
     /// (`trimIdle`).
@@ -2675,20 +2677,44 @@ fn sleepIn(w: *Worker, timeout: ?i96) void {
         }
     }
     nestWatch(w, false, false);
-    // Watched by another, it sleeps on its kick alone and leaves its
-    // connections to the watcher's wait, so one thread waits for each
-    // event. It says so before it reads the watch, and a watcher letting
-    // go clears the watch before it reads who says so (`nestWatch`),
-    // sequentially consistent: it sees the watch gone, or is kicked.
+    // Watched by another while a worker is busy, it sleeps on its kick
+    // alone and leaves its connections to the watcher's wait, so one
+    // thread waits for each event; with every other worker asleep, it
+    // waits in its own poller, and runs its events itself. It says so
+    // before it reads the watch, and with no watcher held, any worker
+    // going to sleep kicks those that say so back to their own pollers
+    // (`kickOnly`), sequentially consistent: it sees the watch gone, or
+    // is kicked. A choice gone stale as another worker wakes or sleeps
+    // leaves its events a waiter, the watcher or itself, and is made
+    // again by `watch_every` at the latest.
     w.poller.only_waits.store(true, .seq_cst);
-    if (watcher.load(.seq_cst)) |v| if (v != w and v.nested.load(.seq_cst) & workerBit(w) != 0) {
+    const v = watcher.load(.seq_cst);
+    if (v != null and v != w and v.?.nested.load(.seq_cst) & workerBit(w) != 0 and othersAwake(w)) {
         w.kick_waits += 1;
-        w.poller.waitKick(timeout);
+        w.poller.waitKick(if (timeout) |t| @min(t, watch_every) else watch_every);
         w.poller.only_waits.store(false, .seq_cst);
         return;
-    };
+    }
     w.poller.only_waits.store(false, .seq_cst);
+    if (v == null) kickOnly(w);
     _ = w.poller.poll(timeout);
+}
+
+/// Whether a worker other than `w` is awake.
+fn othersAwake(w: *Worker) bool {
+    for (workersNow()) |*v| {
+        if (v != w and v.idle.load(.seq_cst) == 0) return true;
+    }
+    return false;
+}
+
+/// With no watch held, kick every worker asleep on its kick alone back
+/// to its own poller, so no connection is left with no waiter.
+fn kickOnly(by: *Worker) void {
+    for (workersNow()) |*v| if (v != by and v.poller.only_waits.load(.seq_cst)) {
+        v.poller.kick();
+        by.release_kicks += 1;
+    };
 }
 
 /// `w`'s bit in a watcher's `nested`.
@@ -2706,22 +2732,17 @@ fn workerBit(w: *Worker) u64 {
 /// it takes the watch and each round after for a poller that gained its
 /// first descriptor; taken off once it sleeps without the watch or
 /// leaves its wait (`leaveWait`), so a watcher that sleeps round after
-/// round changes nothing; taking them off, it kicks every worker asleep
-/// on its kick alone (`Poller.waitKick`) back to its own poller, and
-/// counts the letting go with work (`work`) or without. The kernel refuses a poller that holds `w`'s
+/// round changes nothing; it counts the letting go with work (`work`)
+/// or without. The workers asleep on their kicks alone stay asleep for
+/// the next watcher, which registers their pollers as it takes the
+/// watch; with none to take it, they are kicked (`kickOnly`). The kernel refuses a poller that holds `w`'s
 /// still, as a watcher's that has just lost the watch to `w` may, until
 /// that one takes `w`'s off: tried again next round.
 fn nestWatch(w: *Worker, on: bool, work: bool) void {
     const had = w.nested.load(.monotonic);
     if (!on) {
         if (had == 0) return;
-        // Every worker asleep on its kick alone goes back to its own
-        // poller, so no connection is left with no waiter.
         w.nested.store(0, .seq_cst);
-        for (workersNow()) |*v| if (v.poller.only_waits.load(.seq_cst)) {
-            v.poller.kick();
-            w.release_kicks += 1;
-        };
         if (work) w.released_work += 1 else w.released_idle += 1;
         _ = w.poller.nest(workersNow(), had, false);
         w.poller.nest_edge.store(false, .monotonic);
@@ -2740,13 +2761,16 @@ fn nestWatch(w: *Worker, on: bool, work: bool) void {
 /// left its wait (`leaveWait`): while a worker that does not sleep holds
 /// descriptors, have a sleeping worker look again, and watch (`sleepIn`).
 /// Not `from` itself, still listed when it leaves its wait to trim.
-fn passWatch(from: *Worker) void {
-    if (!busyDescriptors(null)) return;
+/// Whether it kicked one.
+fn passWatch(from: *Worker) bool {
+    if (!busyDescriptors(null)) return false;
     sleepers.lock.lock();
     var next_up = sleepers.top;
     if (next_up == from) next_up = from.next_sleeper;
     sleepers.lock.unlock();
-    if (next_up) |v| v.poller.kick();
+    const v = next_up orelse return false;
+    v.poller.kick();
+    return true;
 }
 
 /// The poller that watches stdout for room to write, or none: read and
@@ -3967,16 +3991,16 @@ fn printStats() void {
         _ = std.posix.system.write(2, line.ptr, line.len);
     }
     const sum = watchCounts();
-    const line = std.fmt.bufPrint(&buf, "rig: watch: woke {d} by an edge ({d} to no work, {d} of them a lock held), ran others' events {d}, kicks {d}, late {d}, looks missed {d}; slept on the kick alone {d}, let go {d} with work and {d} without, kicking {d}\n", .{ sum[0], sum[1], sum[2], sum[6], sum[3], sum[4], sum[5], sum[7], sum[8], sum[9], sum[10] }) catch return;
+    const line = std.fmt.bufPrint(&buf, "rig: watch: woke {d} by an edge ({d} to no work, {d} of them a lock held), ran others' events {d}, kicks {d}, late {d}, looks missed {d}; slept on the kick alone {d}, let go {d} with work ({d} passed on) and {d} without, kicking {d}\n", .{ sum[0], sum[1], sum[2], sum[6], sum[3], sum[4], sum[5], sum[7], sum[8], sum[11], sum[9], sum[10] }) catch return;
     _ = std.posix.system.write(2, line.ptr, line.len);
 }
 
 /// What the watches saw (`Worker.nest_woke` to `release_kicks`), summed
 /// over the workers.
-fn watchCounts() [11]u64 {
-    var sum: [11]u64 = @splat(0);
+fn watchCounts() [12]u64 {
+    var sum: [12]u64 = @splat(0);
     for (workersNow()) |*w| {
-        for (&sum, [_]u64{ w.nest_woke, w.nest_empty, w.nest_locked, w.nest_kicks, w.nest_late, w.looks_missed, w.nest_cold, w.kick_waits, w.released_work, w.released_idle, w.release_kicks }) |*s, n| s.* += n;
+        for (&sum, [_]u64{ w.nest_woke, w.nest_empty, w.nest_locked, w.nest_kicks, w.nest_late, w.looks_missed, w.nest_cold, w.kick_waits, w.released_work, w.released_idle, w.release_kicks, w.release_passes }) |*s, n| s.* += n;
     }
     return sum;
 }
@@ -4526,7 +4550,11 @@ fn leaveWait(w: *Worker) void {
     nestWatch(w, false, true);
     if (held or w.poller.count.load(.monotonic) != 0) {
         w.idle.store(0, .seq_cst);
-        if (held or watcher.load(.seq_cst) == null) passWatch(w);
+        if (held or watcher.load(.seq_cst) == null) {
+            const passed = passWatch(w);
+            if (held and passed) w.release_passes += 1;
+            if (held and !passed) kickOnly(w);
+        }
     }
 }
 
@@ -8620,8 +8648,31 @@ const TestWatched = struct {
     }
 
     /// The watch counters of every worker, summed (`watchCounts`).
-    fn counted() [11]u64 {
+    fn counted() [12]u64 {
         return watchCounts();
+    }
+};
+
+/// A task that keeps a worker busy, making no check, until `stop` is
+/// set: a worker awake, so a watched sleeper sleeps on its kick alone.
+const TestBusy = struct {
+    var halt = std.atomic.Value(bool).init(false);
+    const Unit = struct {};
+    /// Moves off `away`, the worker of the fiber that made it, first.
+    fn spin(_: *Unit, away: *Worker) u8 {
+        while (me().? == away) testMove();
+        const give_up = nowNs() + 20 * std.time.ns_per_s;
+        while (!halt.load(.seq_cst) and nowNs() < give_up) std.atomic.spinLoopHint();
+        return 0;
+    }
+    fn start() *Job(u8) {
+        halt.store(false, .seq_cst);
+        return spawn(u8, Unit, spin, .{me().?}, .{}, false, false).job;
+    }
+    fn end(j: *Job(u8)) void {
+        halt.store(true, .seq_cst);
+        _ = j.join();
+        j.free();
     }
 };
 
@@ -8879,11 +8930,13 @@ test "a watcher that wakes with an owner's event lets the watch go first, and th
         }
         fn first(_: *anyopaque) callconv(.c) void {
             home = pinHere();
-            testNapUntilOthersSleep();
+            const busy = TestBusy.start();
+            testNap(5 * std.time.ns_per_ms);
             for (0..6) |_| round();
+            TestBusy.end(busy);
         }
     };
-    workers_override.* = 2;
+    workers_override.* = 3;
     defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
@@ -8906,7 +8959,8 @@ test "a worker asleep on its kick alone wakes at once for a fiber pinned to it" 
         }
         /// On the other worker: naps, so that worker watches this one's
         /// poller, then ends, which wakes `main`, pinned here, by a kick.
-        fn napper(_: *Unit) u8 {
+        fn napper(_: *Unit, away: *Worker) u8 {
+            while (me().? == away) testMove();
             testNap(3 * std.time.ns_per_ms);
             ended_at.store(@intCast(nowNs()), .seq_cst);
             return 0;
@@ -8916,15 +8970,20 @@ test "a worker asleep on its kick alone wakes at once for a fiber pinned to it" 
             fds = testPipe();
             const r = register(fds[0]).?;
             const jr = spawn(u8, Unit, reader, .{r}, .{}, true, false).job;
-            testNapUntilOthersSleep();
+            const busy = TestBusy.start();
+            testNap(5 * std.time.ns_per_ms);
             const before = TestWatched.counted()[7];
             for (&waits) |*w| {
-                const j = spawn(u8, Unit, napper, .{}, .{}, false, false).job;
+                const j = spawn(u8, Unit, napper, .{me().?}, .{}, false, false).job;
+                // The other worker takes the napper and, napping, the
+                // watch; this one then sleeps for the join, watched.
+                testNap(std.time.ns_per_ms);
                 _ = j.join();
                 w.* = nowNs() - ended_at.load(.seq_cst);
                 j.free();
             }
             kick_waits = TestWatched.counted()[7] - before;
+            TestBusy.end(busy);
             _ = std.posix.system.write(fds[1], "x", 1);
             _ = jr.join();
             jr.free();
@@ -8933,7 +8992,7 @@ test "a worker asleep on its kick alone wakes at once for a fiber pinned to it" 
             _ = std.posix.system.close(fds[1]);
         }
     };
-    workers_override.* = 2;
+    workers_override.* = 3;
     defer workers_override.* = null;
     const s = takeStack();
     var dummy: u8 = 0;
@@ -9012,6 +9071,125 @@ test "an owner on its kick alone, as the watch passes on and is let go of, misse
     try std.testing.expectEqual(@as(u32, Run.bytes), Run.got.load(.seq_cst));
     // The backstop's 1 ms and the system's wake, never a lost event.
     try std.testing.expect(Run.worst < 100 * std.time.ns_per_ms);
+}
+
+test "with every worker asleep, an event on a watched poller runs on its owner, which waits in it" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var home: ?*Worker = null;
+        var rounds: u32 = 0;
+        var hot: u32 = 0;
+        var fds: [2]i32 = .{ -1, -1 };
+        fn writer() void {
+            _ = testSleepReal(10);
+            _ = std.posix.system.write(fds[1], "x", 1);
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            home = pinHere();
+            for (0..10) |_| {
+                const t = TestWatched.open();
+                fds = t.fds;
+                const th = std.Thread.spawn(.{}, writer, .{}) catch return;
+                // Naps: this worker sleeps, as every other does.
+                const give_up = nowNs() + 5 * std.time.ns_per_s;
+                while (TestWatched.read_on.load(.seq_cst) == null and nowNs() < give_up) testNap(2 * std.time.ns_per_ms);
+                th.join();
+                rounds += 1;
+                if (TestWatched.read_on.load(.seq_cst) == home) hot += 1;
+                t.close();
+            }
+        }
+    };
+    workers_override.* = 3;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(@as(u32, 10), Run.rounds);
+    try std.testing.expect(Run.hot >= 7);
+}
+
+test "a watcher of nine pollers that wakes with work passes the watch to one sleeper, kicking no other" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const n = 10;
+    const Run = struct {
+        var fds: [n][2]i32 = @splat(.{ -1, -1 });
+        var regs: [n]?*Registration = @splat(null);
+        var registered_n = std.atomic.Value(u32).init(0);
+        var counts: [12]u64 = @splat(0);
+        var kick_waits: u64 = 0;
+        var wrote: u32 = 0;
+        const Unit = struct {};
+        /// Moves to worker `i`, registers a pipe there, and waits on it.
+        fn reader(_: *Unit, i: usize) u8 {
+            while (me().? != &workersNow()[i]) testMove();
+            fds[i] = testPipe();
+            const r = register(fds[i][0]).?;
+            regs[i] = r;
+            _ = registered_n.fetchAdd(1, .seq_cst);
+            _ = waitReady(r, Registration.readable, edges(r, Registration.readable), null, false);
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            const home = pinHere().?;
+            const ws = workersNow();
+            const hi = (@intFromPtr(home) - @intFromPtr(ws.ptr)) / @sizeOf(Worker);
+            fds[hi] = testPipe();
+            const own = register(fds[hi][0]).?;
+            var jobs: [n]?*Job(u8) = @splat(null);
+            for (0..n) |i| if (i != hi) {
+                jobs[i] = spawn(u8, Unit, reader, .{i}, .{}, false, false).job;
+            };
+            const ready_by = nowNs() + 5 * std.time.ns_per_s;
+            while (registered_n.load(.seq_cst) < n - 1 and nowNs() < ready_by) testNap(std.time.ns_per_ms);
+            testNapUntilOthersSleep();
+            // Busy from here, making no check: the others sleep, one
+            // watching and the rest on their kicks alone. Each round
+            // wakes the watcher with work by its own pipe.
+            _ = testSpinUntilOthersSleep();
+            testSpinFor(5 * std.time.ns_per_ms);
+            const before = TestWatched.counted();
+            for (0..4) |_| {
+                const w = watcher.load(.seq_cst) orelse {
+                    testSpinFor(2 * std.time.ns_per_ms);
+                    continue;
+                };
+                const i = (@intFromPtr(w) - @intFromPtr(ws.ptr)) / @sizeOf(Worker);
+                if (regs[i] == null or fds[i][1] < 0) continue;
+                _ = std.posix.system.write(fds[i][1], "x", 1);
+                wrote += 1;
+                testSpinFor(10 * std.time.ns_per_ms);
+            }
+            const after = TestWatched.counted();
+            for (&counts, before, after) |*c, b, a| c.* = a - b;
+            kick_waits = after[7];
+            // Let the rest go.
+            for (0..n) |i| if (i != hi) {
+                _ = std.posix.system.write(fds[i][1], "x", 1);
+            };
+            for (jobs) |j| if (j) |job| {
+                _ = job.join();
+                job.free();
+            };
+            for (0..n) |i| {
+                if (regs[i]) |r| deregister(r);
+                _ = std.posix.system.close(fds[i][0]);
+                _ = std.posix.system.close(fds[i][1]);
+            }
+            deregister(own);
+        }
+    };
+    workers_override.* = n;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    // Some slept on their kicks alone; each watch let go of with work was
+    // passed to one sleeper or kicked one at most.
+    try std.testing.expect(Run.wrote >= 2);
+    try std.testing.expect(Run.kick_waits >= 1);
+    try std.testing.expect(Run.counts[8] >= 1);
+    try std.testing.expect(Run.counts[11] + Run.counts[10] <= Run.counts[8] + 1);
 }
 
 fn testSleepReal(ms: u64) u64 {
