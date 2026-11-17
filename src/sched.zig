@@ -3760,9 +3760,9 @@ fn workerCount() usize {
 
 /// The quality of service a worker's thread asks of macOS, which places
 /// threads on its performance or efficiency cores by it: work the user
-/// waits on, so the busy workers of a server are not left on the
+/// interacts with, so the busy workers of a server are not left on the
 /// efficiency cores (`setWorkerQos`).
-const worker_qos: if (builtin.os.tag.isDarwin()) std.c.qos_class_t else void = if (builtin.os.tag.isDarwin()) .USER_INITIATED else {};
+const worker_qos: if (builtin.os.tag.isDarwin()) std.c.qos_class_t else void = if (builtin.os.tag.isDarwin()) .USER_INTERACTIVE else {};
 
 /// On macOS, this thread, a worker, asks for `worker_qos`; elsewhere
 /// nothing.
