@@ -4172,25 +4172,6 @@ fn oldestNext(v: *Worker) ?*std.atomic.Value(?*Fiber) {
     return null;
 }
 
-/// Take the fiber in `v`'s "run next" slot at once: for a yield check
-/// told work waits (`claimWaiting`), as filling a slot tells them
-/// (`wake`).
-fn takeNext(v: *Worker) ?*Fiber {
-    const slot = oldestNext(v) orelse return null;
-    const f = slot.load(.seq_cst) orelse return null;
-    if (slot.cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) return null;
-    return unlessPinned(f);
-}
-
-/// A fiber taken from another worker's slot: it, or, when it is pinned,
-/// none, as it goes back to its home's queue.
-fn unlessPinned(f: *Fiber) ?*Fiber {
-    if (f.home) |home| {
-        wakeHome(f, home);
-        return null;
-    }
-    return f;
-}
 
 /// `notify` for work woken or made, not a fiber that yielded: when no
 /// worker is looking or asleep, every one is busy, and their yield
@@ -9146,4 +9127,24 @@ test "every lock the runtime takes is counted for preemption" {
             }
         }
     }
+}
+
+/// Take the fiber in `v`'s "run next" slot at once: for a yield check
+/// told work waits (`claimWaiting`), as filling a slot tells them
+/// (`wake`).
+fn takeNext(v: *Worker) ?*Fiber {
+    const slot = oldestNext(v) orelse return null;
+    const f = slot.load(.seq_cst) orelse return null;
+    if (slot.cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) return null;
+    return unlessPinned(f);
+}
+
+/// A fiber taken from another worker's slot: it, or, when it is pinned,
+/// none, as it goes back to its home's queue.
+fn unlessPinned(f: *Fiber) ?*Fiber {
+    if (f.home) |home| {
+        wakeHome(f, home);
+        return null;
+    }
+    return f;
 }
