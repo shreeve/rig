@@ -62,14 +62,14 @@ cat >serve.rig <<'EOF'
 use std.task
 use std.time
 
-fun nap() -> Int!
-  time.sleep(ms: 60000)!
+fun one() -> Int
   1
 
-sub main()
-  t = nap()&
+sub main()!
+  t = one()&
+  _ = >t
   warn("started")
-  _ = >t catch 0
+  time.sleep(ms: 60000)!
 EOF
 rig build -o serve serve.rig >build.log 2>&1 || fail "build serve: $(cat build.log)"
 RIG_SCHED_STATS=1 RIG_WORKERS=2 ./serve >out.txt 2>err.txt &
@@ -79,6 +79,7 @@ kill -TERM $pid
 for _ in $(seq 1 100); do kill -0 $pid 2>/dev/null || break; sleep 0.05; done
 kill -9 $pid 2>/dev/null
 wait $pid
+expect_rc $? 143 "SIGTERM ends it"
 expect_eq "$(grep -c '^rig: worker [01]: ran' err.txt)" 2 "a line per worker at SIGTERM: $(cat err.txt)"
 expect_eq "$(grep -c '^rig: watch:' err.txt)" 1 "the watch's line at SIGTERM"
 exit 0
