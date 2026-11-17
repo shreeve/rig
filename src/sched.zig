@@ -201,10 +201,13 @@ const Worker = struct {
     /// What `RIG_SCHED_STATS=1` prints of the holds (`printStats`): the
     /// holds it took, those it did not take because their worker slept
     /// since its last look, the rings it read, the bells it answered, and
-    /// the events of a stuck worker it took. Plain counts of its own,
+    /// the events it took of a worker stuck in one fiber or with work
+    /// queued behind it (`took`), of them those queued (`took_queued`).
+    /// Plain counts of its own,
     /// each one add at an event that is itself a system call or a wake.
     held: u64 = 0,
     refused: u64 = 0,
+    took_queued: u64 = 0,
     rang: u64 = 0,
     answered: u64 = 0,
     took: u64 = 0,
@@ -2772,14 +2775,24 @@ fn rung(v: *Worker) void {
     if (p.holder.load(.seq_cst)) |h| if (h != by) h.poller.kick();
 }
 
+/// Whether the worker `v`, whose poller is held, has work queued behind
+/// the fiber it runs: fibers in its "run next" slots or its ring. Events
+/// it is rung for would wait behind them, so its holder, idle, takes them
+/// at once (`checkBell`).
+fn ownerQueued(v: *Worker) bool {
+    return nextHeld(v, .monotonic) or !v.ring.isEmpty();
+}
+
 /// When the holder `w` next checks the poller it holds (`checkBell`), or
-/// null for none: `stuck_after` after the ring while the bell is
-/// unanswered, twice that once it ran on, `rearm_after` once answered.
+/// null for none: at once while the bell is unanswered and its worker
+/// has work queued, `stuck_after` after the ring while it is unanswered,
+/// twice that once it ran on, `rearm_after` once answered.
 fn bellDue(w: *Worker) ?i96 {
     const v = w.holds orelse return null;
     const at: i96 = v.poller.bell_at.load(.seq_cst);
     if (at == 0) return null;
     if (v.ring_bell.load(.monotonic) == 0 or v.poller.owner_waits.load(.monotonic)) return at + rearm_after;
+    if (ownerQueued(v)) return at;
     const ran = @atomicLoad(u64, &v.ran, .monotonic);
     return if (ran == v.poller.bell_ran.load(.monotonic)) at + stuck_after else at + 2 * stuck_after;
 }
@@ -2796,14 +2809,21 @@ fn checkBell(w: *Worker) void {
     const at: i96 = p.bell_at.load(.seq_cst);
     if (at == 0) return;
     const since = nowNs() - at;
-    if (since < stuck_after) return;
-    if (!p.owner_waits.load(.seq_cst) and v.ring_bell.load(.seq_cst) != 0) {
-        const ran = @atomicLoad(u64, &v.ran, .monotonic);
-        const running = @atomicLoad(?*Fiber, &v.current, .monotonic) != null;
-        if (!(running and ran == p.bell_ran.load(.monotonic)) and since < 2 * stuck_after) return;
+    const unanswered = !p.owner_waits.load(.seq_cst) and v.ring_bell.load(.seq_cst) != 0;
+    // Work queued behind the worker's fiber: the events would wait behind
+    // it, so this worker, idle, takes them now.
+    const queued = unanswered and ownerQueued(v);
+    if (since < stuck_after and !queued) return;
+    if (unanswered) {
+        if (!queued) {
+            const ran = @atomicLoad(u64, &v.ran, .monotonic);
+            const running = @atomicLoad(?*Fiber, &v.current, .monotonic) != null;
+            if (!(running and ran == p.bell_ran.load(.monotonic)) and since < 2 * stuck_after) return;
+        }
         v.ring_bell.store(0, .seq_cst);
-        if (builtin.is_test) _ = test_harvests.fetchAdd(1, .monotonic);
+        if (builtin.is_test) _ = (if (queued) &test_queued_takes else &test_harvests).fetchAdd(1, .monotonic);
         w.took += 1;
+        if (queued) w.took_queued += 1;
         _ = p.poll(0);
     } else if (since < rearm_after) return;
     p.hold_lock.lock();
@@ -2819,8 +2839,10 @@ fn checkBell(w: *Worker) void {
 /// Test only: how many times a holder's watch reported (`rung`).
 var test_rings: std.atomic.Value(u32) = .init(0);
 
-/// Test only: how many times a holder took a stuck worker's events.
+/// Test only: how many times a holder took a stuck worker's events, and
+/// how many a busy worker's with work queued.
 var test_harvests: std.atomic.Value(u32) = .init(0);
+var test_queued_takes: std.atomic.Value(u32) = .init(0);
 
 /// `w`'s bell was rung (`rung`): look at its poller now, as it picks its
 /// next fiber, so the events its holder saw run here, next, in a batch
@@ -4062,7 +4084,7 @@ fn printStats() void {
             std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw })) catch continue;
         _ = std.posix.system.write(2, line.ptr, line.len);
         if (w.held + w.refused + w.rang + w.answered + w.took != 0) {
-            const hl = std.fmt.bufPrint(&buf, "rig: holds {d}: held {d}, refused {d}, rang {d}, answered {d}, took {d}\n", .{ i, w.held, w.refused, w.rang, w.answered, w.took }) catch continue;
+            const hl = std.fmt.bufPrint(&buf, "rig: holds {d}: held {d}, refused {d}, rang {d}, answered {d}, took {d} ({d} queued)\n", .{ i, w.held, w.refused, w.rang, w.answered, w.took, w.took_queued }) catch continue;
             _ = std.posix.system.write(2, hl.ptr, hl.len);
         }
     }
@@ -8807,6 +8829,51 @@ test "a sleeping worker holds a busy worker's poller, and takes an event there b
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expect(Run.held);
     try std.testing.expect(Run.best < 500 * std.time.ns_per_us);
+    try std.testing.expect(Run.on != null and Run.on != Run.t.home);
+}
+
+test "a holder takes at once the events of a busy worker that has work queued behind its fiber" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var t: HoldTest = .{};
+        var held = false;
+        var best: i96 = std.math.maxInt(i64);
+        var on: ?*Worker = null;
+        fn nothing(_: *HoldTest.Unit) u8 {
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = pinHere();
+            var rounds: u32 = 0;
+            while (rounds < 10 and best >= stuck_after) : (rounds += 1) {
+                held = t.begin();
+                if (held) {
+                    // A task made here waits in this worker's slot, which no
+                    // sleeper looks in, while this one computes on: work
+                    // queued behind its fiber.
+                    const d = spawn(u8, HoldTest.Unit, nothing, .{}, .{}, false, false).job;
+                    const takes = test_queued_takes.load(.seq_cst);
+                    t.write();
+                    t.spinUntilRead();
+                    if (t.latency() < best and test_queued_takes.load(.seq_cst) != takes) {
+                        best = t.latency();
+                        on = t.read_on.load(.seq_cst);
+                    }
+                    _ = d.join();
+                    d.free();
+                }
+                t.end();
+            }
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.held);
+    // Before `stuck_after`: taken for the work queued, not for a stuck fiber.
+    try std.testing.expect(Run.best < stuck_after);
     try std.testing.expect(Run.on != null and Run.on != Run.t.home);
 }
 

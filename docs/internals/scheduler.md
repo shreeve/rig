@@ -179,8 +179,10 @@ worker after.
   millisecond. When the bell goes unanswered 50 µs while the worker
   runs one fiber (its count of switches, `ran`, unchanged, which the
   holder reads against its own clock, so a switch reads no clock), or
-  100 µs in all, the holder takes the events and runs their fibers
-  itself (`sched.checkBell`). It arms its watch again no sooner than
+  100 µs in all, or at once when the worker has work queued behind the
+  fiber it runs (fibers in its slots or ring), which the events would
+  wait behind, the holder takes the events and runs their fibers itself
+  (`sched.checkBell`). It arms its watch again no sooner than
   200 µs after a ring: a busy worker's poller is ready again almost at
   once, and each report wakes the holder. The watch is armed only while
   the worker is out of its sleep: before its first wait it turns it
