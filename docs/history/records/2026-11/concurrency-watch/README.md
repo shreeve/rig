@@ -17,6 +17,32 @@ The line, three designs, archived as `archive/watch-d` (0683d21ac), `archive/wat
 - **D3**: kick-only sleeps only while another worker is busy, the watch passed to one
   sleeper rather than broadcast, and released only while a busy owner exists.
 
+## Correction (2026-11-17): the p99 rows measured the load generator
+
+Every p99 in this record came from bench/mixed's generator, which paced with Go's
+`time.Sleep`: with every generator thread idle, Go's timers wait in epoll with
+whole-millisecond timeouts, so the generator sent requests up to 1 ms late. Run by run,
+a server's p99 was the generator's own timer lateness plus a constant for that server,
+and the lateness depended on how the server's answers arrived — so the arms here
+"won" by changing that rhythm, not by serving faster. Board Z (pup, slot 541, the Rig
+session's `hyper-1116/REPORT.md`) reran one core at 80,000 a second, 10,000 idle, with
+a generator whose one pacing thread spins on the clock:
+
+| arm | p50 | p99 (runs) | p99.9 | generator lateness p99 |
+|---|---|---|---|---|
+| main, old generator | 43 µs | 920 (786-999) | 1,415 | 585 |
+| hyper, old generator | 44 | 650 (559-747) | 1,381 | 242 |
+| main, new generator | 30 | **50 (48-51)** | 67 | 5 |
+| hyper, new generator | 33 | **51 (51-53)** | 85 | 5 |
+| Pingora, new generator | 31 | 56 (55-398) | 87 | 5 |
+
+At 40,000: main 18 / 53 / 70 µs (p50 / p99 / p99.9), hyper 18 / 54 / 143; at 120,000:
+main 23 / 62 / 82, hyper 17 / 56 / 105. Main was level with hyper at p99 all along and
+ahead at p99.9; the costs this record measured (p50, cycles, the ceiling, ping-pong)
+were real, the tail gains were not. The line's last design, a shared sleep on Linux
+(every sleeper in one epoll nesting every poller), was built and stopped before any
+board, as `archive/shared-sleep` (6c0416f4f): there was no tail left to fix.
+
 ## Measured (pup board W, Y; the Mac's boards)
 
 | arm | p99 at 80k | p50 | cycles/req trivial / mix vs main | ping-pong |
