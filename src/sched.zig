@@ -2165,7 +2165,8 @@ fn earliestDue() i64 {
 /// for good before it reads the deadlines (`sleep`), and the timer's
 /// worker publishes the deadline before it reads those notes, all
 /// sequentially consistent: so either the sleeper sees the deadline, or
-/// this sees the sleeper.
+/// this sees the sleeper. The sleeper that wakes by then may leave its
+/// sleep first, and hands the timer on as it does (`passTimers`).
 fn kickForTimer(due: i64) void {
     var late: ?*Worker = null;
     for (workersNow()) |*v| {
@@ -4305,10 +4306,12 @@ fn sleep(w: *Worker) void {
     }
 }
 
-/// `w`, asleep, leaves its wait for work of its own: fibers to run, or
-/// a trim of its heap (`sleep`). One that holds the watch passes it on;
+/// `w`, asleep, leaves its wait, its `sleep_due` back to `awake`: for
+/// fibers to run, a waker that took it off the list (`notify`), or a
+/// trim of its heap (`sleep`). One that holds the watch passes it on;
 /// one that holds descriptors marks itself awake, then has a sleeper
-/// watch if none does (`sleepIn`).
+/// watch if none does (`sleepIn`). And it hands on the timers it may
+/// have covered (`passTimers`).
 fn leaveWait(w: *Worker) void {
     const held = watcher.load(.monotonic) == w;
     if (held) watcher.store(null, .seq_cst);
@@ -4316,6 +4319,26 @@ fn leaveWait(w: *Worker) void {
         w.idle.store(0, .seq_cst);
         if (held or watcher.load(.seq_cst) == null) passWatch(w);
     }
+    passTimers();
+}
+
+/// A worker left its wait, its `sleep_due` back to `awake`: unless a
+/// worker asleep wakes by the earliest deadline any worker holds, kick
+/// one (`kickForTimer`). A timer's worker that found this one asleep
+/// until the timer's deadline or sooner kicked no other, and a busy
+/// worker fires only its own timers, its recursive calls none, so
+/// without this the timer waited for the next worker to sleep, however
+/// long it computed. The timer's worker published the deadline before it
+/// read this one's `sleep_due`, which this stored `awake` before it reads
+/// the deadlines, all sequentially consistent: so either that worker saw
+/// this one awake, and kicked another or found one that wakes in time,
+/// or this sees the deadline. The worker kicked, or found, hands the
+/// timer on the same way when it leaves its own wait, and a timer set in
+/// another worker's heap (`Deadline.cover`) is covered as any other, as
+/// a sleeper's deadline and its firing (`serviceAll`) span every heap.
+fn passTimers() void {
+    const due = earliestDue();
+    if (due != no_due) kickForTimer(due);
 }
 
 /// Clear `waiting`, for `w`'s check that takes its notice (`claimWaiting`)
@@ -7562,6 +7585,96 @@ test "a timer set earlier than a sleeping worker's wakes it, though the timer's 
     try std.testing.expect(Run.asleep);
     try std.testing.expect(on != null);
     try std.testing.expect(on != Run.home);
+}
+
+test "a timer stays covered when the sleeper that woke for an earlier one leaves its sleep" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        /// Whether a round began with one other worker asleep until the
+        /// first timer and the other asleep with no deadline.
+        var set = false;
+        var second_woke = std.atomic.Value(bool).init(false);
+        /// How long after its deadline the second napper woke.
+        var late: i96 = -1;
+        const Unit = struct {};
+        fn firstNapper(_: *Unit, until: i96) u8 {
+            commitWait(beginWait(false), until);
+            // Computes without a check, as recursion does, until the
+            // second napper wakes, or half a second passes.
+            const give_up = nowNs() + 500 * std.time.ns_per_ms;
+            while (!second_woke.load(.seq_cst) and nowNs() < give_up) std.atomic.spinLoopHint();
+            return 0;
+        }
+        fn secondNapper(_: *Unit, until: i96) u8 {
+            commitWait(beginWait(false), until);
+            late = nowNs() - until;
+            second_woke.store(true, .seq_cst);
+            return 0;
+        }
+        /// Whether both other workers sleep, unwoken, one until `due` at
+        /// the latest and the other, with `due` null, with no deadline.
+        fn sleepUntil(w: *Worker, due: ?i64) bool {
+            if (sleepers.count.load(.seq_cst) + 1 != workersNow().len) return false;
+            var by: u32 = 0;
+            var none: u32 = 0;
+            for (workersNow()) |*v| {
+                if (v == w) continue;
+                if (v.woken.load(.seq_cst) != 0) return false;
+                const until = v.sleep_due.load(.seq_cst);
+                if (until == no_due) none += 1 else if (due != null and until != awake and until <= due.?) by += 1;
+            }
+            return if (due == null) none == 2 else by == 1 and none == 1;
+        }
+        fn spinFor(w: *Worker, due: ?i64, limit: i96) bool {
+            while (!sleepUntil(w, due)) {
+                if (nowNs() >= limit) return false;
+                std.atomic.spinLoopHint();
+            }
+            return true;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            const w = pinHere().?;
+            _ = workersRunning();
+            var rounds: u32 = 0;
+            while (rounds < 10 and !set) : (rounds += 1) {
+                second_woke.store(false, .seq_cst);
+                testNapUntilOthersSleep();
+                // Both others asleep with no deadline: this worker's naps
+                // left them none.
+                if (!spinFor(w, null, nowNs() + 100 * std.time.ns_per_ms)) continue;
+                // Each napper runs here and sets its timer in this
+                // worker's heap: the first kicks one sleeper, which sleeps
+                // again until it; the second, later, kicks no one.
+                const t0 = nowNs() + 20 * std.time.ns_per_ms;
+                const a = spawn(u8, Unit, firstNapper, .{t0}, .{}, false, false).job;
+                yield();
+                const b = spawn(u8, Unit, secondNapper, .{t0 + 20 * std.time.ns_per_ms}, .{}, false, false).job;
+                yield();
+                set = w.timers.heap.items.len == 2 and spinFor(w, @intCast(t0), t0 - 5 * std.time.ns_per_ms);
+                // This worker computes without a check: at the first
+                // timer its sleeper wakes and runs the first napper, which
+                // computes too, and only the other sleeper, covering the
+                // second timer once the first sleeper left, wakes it in
+                // time. The limit only ends a run whose cover is lost.
+                if (set) {
+                    const give_up = t0 + 2 * std.time.ns_per_s;
+                    while (!second_woke.load(.seq_cst) and nowNs() < give_up) std.atomic.spinLoopHint();
+                }
+                _ = a.join();
+                a.free();
+                _ = b.join();
+                b.free();
+            }
+        }
+    };
+    workers_override.* = 3;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.set);
+    try std.testing.expect(Run.late >= 0);
+    try std.testing.expect(Run.late < 100 * std.time.ns_per_ms);
 }
 
 test "a lone worker's yield checks wake the fibers its timers and its poller make ready" {
