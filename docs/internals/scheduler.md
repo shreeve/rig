@@ -94,10 +94,16 @@ worker after.
   kqueue on macOS and epoll on Linux, which a waker kicks, and keeps a
   heap of the deadlines its fibers set, as Go keeps one per processor.
   A worker that runs fibers looks at both every 61 turns; one about to
-  sleep wakes the fibers whose timers are due on any worker, polls the
-  pollers no worker sleeps in, and sleeps until the earliest deadline any
-  worker holds. A wait with a deadline puts its timer in the heap and
-  takes it out as it wakes; a fiber that waits again and again, each
+  sleep wakes the fibers whose timers are due on any worker, polls its
+  own poller, and another's only once that one's worker has gone
+  `unattended_after` (1 ms) without a look at it or a wait in it
+  (`sched.unattended`), and sleeps until the earliest deadline any
+  worker holds. A busy worker's own looks keep its events, and the
+  fibers they wake, on it: a server's acceptor worker holds every
+  connection, and leaving its events to it, rather than to every worker
+  going to sleep, saved 16% of the cycles a request on the Mac. A wait
+  with a deadline puts its timer in the heap and takes it out as it
+  wakes; a fiber that waits again and again, each
   time with a later deadline, as `http.serve`'s connection waits for
   each request, no longer than its idle time, holds one deadline that
   moves instead (`sched.Deadline`, `sched.waitReadyBy`). Each wait stores its
@@ -144,21 +150,33 @@ worker after.
   A safe or debug build panics when a pinned fiber resumes on a worker
   other than its home (`sched.checkHome`), a load and a branch per
   switch.
-- **Every poller watched.** While a worker that does not sleep holds
-  descriptors, one sleeping worker at a time watches every poller
-  (`sched.sleepIn`): it sleeps at most 1 ms, and as it wakes looks at
-  every worker's poller, so a busy worker's sockets wait no longer than
-  that even when its own yield checks do not come (in recursion, say),
-  and it passes the watch on as it goes back to work. It keeps the watch
-  from one look to the next while such a worker is awake or has slept
-  since the watch began, and lets it go only once every one has slept
-  through a whole watch, so a worker that sleeps and wakes many times a
-  millisecond, as one answering a socket does, finds the watch held and
-  kicks no one. A look at another worker's poller leaves the kick it
-  finds there standing (`Poller.kicked`), which that worker, about to
-  sleep, needs: its next wait sees the kick under the poller's lock and
-  only looks. A kick while one stands makes no system call, so a kick
-  taken by many looks costs one call, not one a look.
+- **Every poller watched.** While a poller that holds descriptors is
+  not waited in by its worker, one sleeping worker at a time watches
+  (`sched.sleepIn`): it sleeps at most 1 ms (`watch_every`), and as it
+  wakes looks at every poller whose worker is not inside its wait and
+  has not looked at it for 1 ms, and it passes the watch on as it goes
+  back to work. "Not waited in" is a flag set under the poller's lock
+  around the kernel's wait alone (`Poller.in_wait`), so a worker gone to
+  sleep but not yet in its wait (flushing stdout to a full pipe, trimming
+  its heap, or not yet run by the system) is watched as a busy one is;
+  stdout is flushed before the watch is taken, never while it is held.
+  It keeps the watch from one look to the next while such a poller is
+  out of its wait or its worker has slept since the watch began, and
+  lets it go only once every one has slept through a whole watch, so a
+  worker that sleeps and wakes many times a millisecond, as one
+  answering a socket does, finds the watch held and kicks no one. An
+  event on a busy worker's poller waits for its own next look (at most
+  `poll_interval`, 250 µs, while it makes yield checks), or else for
+  another's: under 1 ms plus the next sleep of another worker, and
+  under about 2 ms (1 ms and a watch) when only the watcher looks; that
+  holds whether the worker runs one long fiber, is blocked awake (a
+  write to a full pipe), or is idle but not yet inside its wait. A
+  watcher's own trim of its heap delays its next look by the trim. A
+  look at another worker's poller leaves the kick it finds there
+  standing (`Poller.kicked`), which that worker, about to sleep, needs:
+  its next wait sees the kick under the poller's lock and only looks. A
+  kick while one stands makes no system call, so a kick taken by many
+  looks costs one call, not one a look.
 - **The blocking pool** counts a thread busy as it hands it a call, and
   counts a thread on its way back from one (`finishing`), which takes the
   next call queued without sleeping. A call that finds neither starts a
@@ -228,7 +246,8 @@ worker after.
   soon as they send, stay on one worker with no system call to wake
   another. Over a socket the worker that sees the answer runs the side
   it wakes, and another worker's look at the poller, the watcher's or
-  one going to sleep, may see it first and take that side; two tasks
+  one going to sleep, may see it first and take that side once that
+  poller has gone 1 ms without its own worker's look; two tasks
   that compute after they send can stay on two workers, each finding
   its answer on its own, as a slow debug build's do. A chain of tasks
   each made and waited for at once runs by handoff on its maker's
@@ -680,7 +699,8 @@ spins in `main` takes 10 ms, with one worker or eight, not the whole
 spin, and a round trip on a socket registered with that worker about
 1 ms. A recursive call's check
 reads only its flag, so a worker deep in recursion leaves its timers to
-the workers that sleep. A timer set earlier than any sleeping worker
+the workers that sleep, and its descriptors to them once 1 ms has passed
+since its last look (`sched.unattended`). A timer set earlier than any sleeping worker
 wakes kicks one (`sched.kickForTimer`): the timer's worker publishes the
 deadline, then reads when each sleeper wakes, and a worker about to
 sleep notes that it may sleep for good, then reads the deadlines, all

@@ -44,8 +44,12 @@ searcher that suppressed `spread`'s wake already past it, is seen by
 no last look (`hasWork` reads no slot): only the monitor's stop
 (`Config.monitor`) takes it on. Not modeled: a running fiber's fill of
 its slot (covered by `waiting` and the yield checks), the slot's streak
-limit and its 3 µs wait, timers apart from the poller's batches, and
-`stopping`.
+limit and its 3 µs wait, timers apart from the poller's batches,
+`stopping`, and which poller a look reads: a worker's events are made
+ready only in its own batch, while `src/sched.zig` also has a sleeper
+and the watcher look at another's poller once it is unattended (out of
+its wait and unlooked at by its worker for 1 ms), a bound on descriptor
+latency and not a wake of work already queued, checked by unit tests.
 -/
 import Models.Explore
 
