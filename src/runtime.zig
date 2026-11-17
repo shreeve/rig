@@ -6698,6 +6698,16 @@ pub fn mapTraceKey(comptime K: type, k: anytype) MapTraceKey {
     return key;
 }
 
+/// Measurement only: the caller's return address in bytes 16-23 of a
+/// key of at most 16 bytes, so a trace names the call site.
+noinline fn __rig_map_trace_anchor() callconv(.c) void {
+    asm volatile ("");
+}
+
+pub fn mapTraceAt(key: *MapTraceKey, ret: usize) void {
+    if (key.width <= 16) std.mem.writeInt(u64, key.head[16..24], ret, .little);
+}
+
 /// Whether a lookup's result, a Bool or an optional, found its key.
 pub fn mapTraceFound(r: anytype) bool {
     if (comptime @TypeOf(r) == bool) return r;
@@ -6786,6 +6796,7 @@ const MapTracer = struct {
         const types = dir.createFile(io(), types_path, .{}) catch |err| return self.fail(types_path, err);
         self.records = records.writerStreaming(io(), records_buffer);
         self.types = types.writerStreaming(io(), types_buffer);
+        std.debug.print("rig-map-trace-anchor {x}\n", .{@intFromPtr(&__rig_map_trace_anchor)});
     }
 
     fn fail(self: *MapTracer, path: []const u8, err: anyerror) void {

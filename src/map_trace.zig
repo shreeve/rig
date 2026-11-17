@@ -118,12 +118,12 @@ fn drift(what: *[]const u8, missing: []const u8) error{MapTraceDrift} {
 /// during it (`traceRebuilds`), with the index's lanes. A `reserve` is
 /// recorded only by its `grow`.
 fn writeWrapper(w: *std.Io.Writer, m: Method, value: []const u8) std.Io.Writer.Error!void {
-    try w.print("\n        pub inline fn {s}(self: rig.MapTraceParam(__rig_untraced_{s}, 0)", .{ m.name, m.name });
+    try w.print("\n        pub noinline fn {s}(self: rig.MapTraceParam(__rig_untraced_{s}, 0)", .{ m.name, m.name });
     for (1..m.arity) |i| try w.print(", a{d}: rig.MapTraceParam(__rig_untraced_{s}, {d})", .{ i, m.name, i });
     try w.print(") rig.MapTraceResult(__rig_untraced_{s}) {{\n", .{m.name});
     try w.print("            rig.mapTraceSee(K, {s}, self);\n", .{value});
     if (std.mem.indexOf(u8, m.hit, "before") != null) try w.writeAll("            const before = self.len;\n");
-    if (m.key) try w.writeAll("            const key = rig.mapTraceKey(K, a1);\n");
+    if (m.key) try w.writeAll("            var key = rig.mapTraceKey(K, a1);\n            rig.mapTraceAt(&key, @returnAddress());\n");
     try w.writeAll("            const builds = self.t.traceRebuilds();\n");
     try w.print("            const r = self.__rig_untraced_{s}(", .{m.name});
     for (1..m.arity) |i| try w.print("{s}a{d}", .{ if (i > 1) ", " else "", i });
