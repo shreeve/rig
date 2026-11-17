@@ -2204,10 +2204,15 @@ const Poller = struct {
     /// and whether `os.exit` claimed it there (`ExitClaim`), so the worker
     /// stops as it wakes, before it reads a single event (`tearDown`).
     parked: std.atomic.Value(ExitClaim) = .init(.awake),
+    /// The events a look or a wait reads, which only the holder of `lock`
+    /// touches: kept here, as nginx keeps its event list, and not on the
+    /// stack, where a safe build would fill them before every call.
+    evs: [max_events]Event = undefined,
 
     const darwin = builtin.os.tag.isDarwin();
     const linux = builtin.os.tag == .linux;
     const max_events = 64;
+    const Event = if (darwin) std.c.Kevent else if (linux) std.os.linux.epoll_event else void;
 
     fn open(p: *Poller) void {
         if (darwin) {
@@ -2337,7 +2342,7 @@ const Poller = struct {
         defer endBatch(by, opened);
         var any = false;
         if (darwin) {
-            var evs: [max_events]std.c.Kevent = undefined;
+            const evs = &p.evs;
             var ts: std.c.timespec = undefined;
             const tp: ?*const std.c.timespec = if (wait) |t| blk: {
                 ts = .{ .sec = @intCast(@divTrunc(t, std.time.ns_per_s)), .nsec = @intCast(@mod(t, std.time.ns_per_s)) };
@@ -2346,7 +2351,7 @@ const Poller = struct {
             // A wait, not a look: `os.exit` may claim this worker while it
             // waits, and it then stops before it reads what woke it.
             if (tears_down and !look) p.parked.store(.waiting, .seq_cst);
-            const n = std.c.kevent(p.fd, &evs, 0, &evs, max_events, tp);
+            const n = std.c.kevent(p.fd, evs, 0, evs, max_events, tp);
             if (tears_down and !look and p.parked.swap(.awake, .seq_cst) == .claimed) stopForExit(me().?, true);
             if (n <= 0) return false;
             for (evs[0..@intCast(n)]) |ev| {
@@ -2367,9 +2372,9 @@ const Poller = struct {
             }
         } else if (linux) {
             const linux_ = std.os.linux;
-            var evs: [max_events]linux_.epoll_event = undefined;
+            const evs = &p.evs;
             const ms: i32 = if (wait) |t| @intCast(@min(@divTrunc(t + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32))) else -1;
-            const rc: isize = @bitCast(linux_.epoll_wait(p.fd, &evs, max_events, ms));
+            const rc: isize = @bitCast(linux_.epoll_wait(p.fd, evs, max_events, ms));
             if (rc <= 0) return false;
             for (evs[0..@intCast(rc)]) |ev| {
                 if (ev.data.ptr == 0) {
@@ -4542,19 +4547,29 @@ const Ring = struct {
     }
 
     /// Take half of `victim`'s ring, rounded up, into this one (empty, its
-    /// owner's), and give the first to run.
+    /// owner's), and give the first to run. As Go's `runqsteal`: the
+    /// others are copied past this ring's tail, where no thief reads,
+    /// then claimed by moving `victim`'s head past them, then published
+    /// by moving this ring's tail. Nothing is written before the victim
+    /// is seen to hold any, so a look at an empty ring costs two loads.
     fn stealFrom(r: *Ring, victim: *Ring) ?*Fiber {
-        var buf: [size / 2 + 1]*Fiber = undefined;
+        const own = r.tail.load(.monotonic);
+        std.debug.assert(r.head.load(.monotonic) == own);
         while (true) {
             const h = victim.head.load(.acquire);
             const t = victim.tail.load(.acquire);
             const avail = t -% h;
             if (avail == 0 or avail > size) return null;
             const n = avail - avail / 2;
-            for (0..n) |i| buf[i] = victim.slots[(h +% @as(u32, @intCast(i))) % size].load(.monotonic) orelse return null;
+            const first = victim.slots[h % size].load(.monotonic) orelse return null;
+            var i: u32 = 1;
+            while (i < n) : (i += 1) {
+                const g = victim.slots[(h +% i) % size].load(.monotonic) orelse return null;
+                r.slots[(own +% i -% 1) % size].store(g, .monotonic);
+            }
             if (victim.head.cmpxchgWeak(h, h +% n, .acq_rel, .monotonic) != null) continue;
-            for (buf[1..n]) |g| _ = r.push(g);
-            return buf[0];
+            if (n > 1) r.tail.store(own +% n -% 1, .seq_cst);
+            return first;
         }
     }
 };
