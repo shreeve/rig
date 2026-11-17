@@ -65,3 +65,4 @@ debug.FullPanic(*           Zig's panic of a failed safety check: a panic ends t
 Io.Threaded.Thread.futex*   a contended lock's wait and wake, inlined into the program's code (the output lock, which `lockOutput` takes counted, after `sched.holdOff`)
 process.Environ.getPosix    the runtime's start, once (an environment variable's value)
 rig.runtime.onAltStack      the runtime's start, once: installs a signal handler again
+rig.runtime.holdStandardDescriptors  the runtime's start, once: /dev/null on a closed stdin, stdout, or stderr

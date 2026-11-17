@@ -72,6 +72,8 @@ comptime {
         stdout_is_tty,
         stdout_kind,
         stdout_step,
+        stdout_room_missed,
+        stdout_left,
         panic_stage,
         current_test,
         test_false,
@@ -6403,8 +6405,15 @@ fn tryLockOutput() bool {
     return took;
 }
 
+/// Let go of the output lock. While bytes are left for stdout's room, an
+/// edge of room read while the lock was held is written for now
+/// (`stdoutRoom`).
 fn unlockOutput() void {
-    if (concurrent) output_lock.unlock(io());
+    if (concurrent) {
+        const left = stdout_left.*;
+        output_lock.unlock(io());
+        if (left) takeMissedRoomOff();
+    }
     if (preempt) sched.holdOn();
 }
 
@@ -7610,6 +7619,9 @@ fn mapStack(guards: []const usize) ?usize {
 /// `main` with the program's `main`, and by `runTests`. A program whose
 /// stack and guard cannot be mapped stops before it runs.
 pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
+    // Before the scheduler opens its pollers, which would otherwise take
+    // a closed stdout's number.
+    holdStandardDescriptors();
     if (!own_stack) return @call(.auto, f, args);
     const top = mapStack(&guard_sizes) orelse {
         std.debug.print("rig: cannot reserve the program's stack and the guard below it\n", .{});
@@ -8090,6 +8102,7 @@ const process_args = split.cell(&process_args_var, "runtime.process_args");
 /// gathered into `Static`s once, freed by `finish`.
 pub fn start(init: std.process.Init.Minimal) void {
     process.* = init;
+    holdStandardDescriptors();
     // A write to a closed pipe (`prog | head`) or socket fails with
     // BrokenPipe, instead of killing the program by SIGPIPE: a socket's
     // write gets an error, and `stdoutFailed` ends the program as
@@ -8154,6 +8167,36 @@ pub fn start(init: std.process.Init.Minimal) void {
 }
 
 fn onBrokenPipe(_: std.posix.SIG) callconv(.c) void {}
+
+/// Put `/dev/null` on each of descriptors 0, 1, and 2 the program started
+/// without, so that no descriptor it opens (a socket, a poller, a file)
+/// takes stdin's, stdout's, or stderr's number: `print` would write into
+/// it, and on macOS stdout's watch for room (`sched.watchStdout`) would
+/// take a socket's from `net`. Each is opened the way it is not used, as
+/// the C library opens them for a set-user-ID program: stdin for writing
+/// only, stdout and stderr for reading only, so a read of stdin or a
+/// write of stdout or stderr fails as it does on a closed descriptor
+/// (EBADF), and a closed stdout is reported as "stdout: not open for
+/// writing". An `open` takes the lowest free number, so in order each
+/// lands on the one it fills. Called first in `onOwnStack`, before the
+/// scheduler opens a poller, and again in `start`, for a program that
+/// does not run on its own stack, where it costs three `fcntl`s.
+fn holdStandardDescriptors() void {
+    if (builtin.os.tag != .linux and !builtin.os.tag.isDarwin()) return;
+    const sys = std.posix.system;
+    for (0..3) |n| {
+        const fd: i32 = @intCast(n);
+        if (std.posix.errno(sys.fcntl(fd, std.posix.F.GETFD, @as(usize, 0))) != .BADF) continue;
+        const mode: std.posix.ACCMODE = if (fd == 0) .WRONLY else .RDONLY;
+        const rc = sys.open("/dev/null", .{ .ACCMODE = mode }, @as(std.posix.mode_t, 0));
+        if (std.posix.errno(rc) != .SUCCESS) return;
+        const got: i32 = @intCast(rc);
+        if (got != fd) {
+            _ = sys.close(got);
+            return;
+        }
+    }
+}
 
 /// Every signal handler runs on its thread's alternate stack (`AltStack`),
 /// never on a task's, where the frame the kernel writes for it, up to
@@ -8638,13 +8681,9 @@ fn sendLowWater() usize {
 /// asked of the system directly, as a closed stdout is no error here (a
 /// write then reports it, `stdoutFailed`).
 fn stdoutKind() OutKind {
-    const mode: u32 = if (builtin.os.tag == .linux) blk: {
-        const linux = std.os.linux;
-        var sx: linux.Statx = undefined;
-        const at_empty_path: u32 = 0x1000;
-        if (linux.errno(linux.statx(1, "", at_empty_path, .{ .TYPE = true }, &sx)) != .SUCCESS) return .file;
-        break :blk sx.mode;
-    } else if (builtin.os.tag.isDarwin()) blk: {
+    const mode: u32 = if (builtin.os.tag == .linux)
+        linuxMode(1) orelse return .file
+    else if (builtin.os.tag.isDarwin()) blk: {
         var st: std.c.Stat = undefined;
         if (std.c.fstat(1, &st) != 0) return .file;
         break :blk st.mode;
@@ -8655,6 +8694,36 @@ fn stdoutKind() OutKind {
         S.IFSOCK => .socket,
         else => .file,
     };
+}
+
+/// The mode of Linux descriptor `fd` (its type and permissions), or null
+/// when it is closed or the kernel will not say: by `statx`, and, from a
+/// kernel older than `statx` (4.11) or a sandbox that refuses it, by
+/// `fstat` (`linuxFstatMode`).
+fn linuxMode(fd: i32) ?u32 {
+    const linux = std.os.linux;
+    var sx: linux.Statx = undefined;
+    const at_empty_path: u32 = 0x1000;
+    return switch (linux.errno(linux.statx(fd, "", at_empty_path, .{ .TYPE = true }, &sx))) {
+        .SUCCESS => sx.mode,
+        .BADF => null,
+        else => linuxFstatMode(fd),
+    };
+}
+
+/// The mode of Linux descriptor `fd` by `fstat`, whose result is laid out
+/// by the architecture (`st_mode` at byte 24 on x86-64, 16 on the others
+/// Rig builds for), or null.
+fn linuxFstatMode(fd: i32) ?u32 {
+    const linux = std.os.linux;
+    const mode_at: usize = switch (builtin.cpu.arch) {
+        .x86_64 => 24,
+        .aarch64, .riscv64, .loongarch64 => 16,
+        else => return null,
+    };
+    var st: [256]u8 align(16) = undefined;
+    if (linux.errno(linux.syscall2(.fstat, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(&st))) != .SUCCESS) return null;
+    return std.mem.readInt(u32, st[mode_at..][0..4], .little);
 }
 
 fn stdout() *std.Io.Writer {
@@ -8689,45 +8758,118 @@ fn flushWriter(w: *std.Io.Writer) std.Io.Writer.Error!void {
 }
 
 /// Write what stdout takes at once of what `print` has buffered, before
-/// a worker waits on I/O or time, and when stdout, watched, has room
-/// again: a server's first line, piped to another program, shows while
-/// it waits for a connection. It never blocks, so a worker on its way to
-/// its wait always reaches it, and sees the events of its poller, even
-/// when stdout is a full pipe whose reader waits for this program's
-/// answer on a socket. What stdout does not take stays buffered, in
-/// order, and stdout is registered once for its writability, with the
-/// poller of the worker that left it (`sched.watchStdout`): its edge, seen
-/// by whichever worker looks at that poller, writes more the same way,
-/// and the registration is dropped once the buffer is empty. A worker
-/// that cannot take the output lock leaves the bytes to its holder: a
-/// `print`, which writes them all if it fills the buffer, and otherwise
-/// reaches this before its own worker waits; or the final flush. How it
-/// writes depends on what stdout is (`OutKind`). A write that fails is
-/// left for the next flush that blocks, a full buffer's or the final
-/// one, which reports it.
+/// a worker waits on I/O or time: a server's first line, piped to
+/// another program, shows while it waits for a connection. It never
+/// blocks, so a worker on its way to its wait always reaches it, and sees
+/// the events of its poller, even when stdout is a full pipe whose reader
+/// waits for this program's answer on a socket. What stdout does not take
+/// stays buffered, in order, and stdout is registered once for its
+/// writability, with the poller of the worker that left it
+/// (`sched.watchStdout`): its edge, seen by whichever worker looks at that
+/// poller, writes more the same way (`stdoutRoom`), and the registration
+/// is dropped once the buffer is empty. A worker that cannot take the
+/// output lock leaves the bytes to its holder: a `print`, which writes
+/// them all if it fills the buffer, and otherwise reaches this before its
+/// own worker waits; or the final flush. How it writes depends on what
+/// stdout is (`OutKind`). A write that fails is left for the next flush
+/// that blocks, a full buffer's or the final one, which reports it.
+///
+/// "Never blocks" holds while this program is stdout's only writer. Room
+/// is read first and written into after, so another process writing the
+/// same pipe or socket (a child that inherited stdout, the other side of
+/// `a & b` into one pipe, a parent that shares the socket) can fill it in
+/// between, and the write then waits, as any write of a full pipe does,
+/// until the reader takes enough.
 pub fn flushBeforeWait() void {
     if (concurrent and !tryLockOutput()) return;
     defer unlockOutput();
+    writeLeft();
+}
+
+/// Under the output lock: write what stdout takes at once of what `print`
+/// has buffered (`writeWhatFits`), and keep stdout watched for its room
+/// while bytes are left (`sched.watchStdout`), or stop once none are or a
+/// write fails.
+fn writeLeft() void {
     const sw = if (stdout_writer.*) |*sw| sw else return;
     const w = &sw.interface;
     const kind = stdout_kind.*;
     if (w.end != 0) writeWhatFits(w, kind) catch {
+        stdout_left.* = false;
         if (kind.watched()) sched.watchStdout(false);
         return;
     };
-    if (kind.watched()) sched.watchStdout(w.end != 0);
+    stdout_left.* = kind.watched() and w.end != 0;
+    if (kind.watched()) sched.watchStdout(stdout_left.*);
 }
 
-/// Write out what `print` has buffered before a thread outside the
-/// scheduler blocks, in a program that makes no task, waiting on a
-/// socket or a sleep with no poller to come back to when stdout has
-/// room: all of it, as a full buffer's `print` would, so a server's
-/// first line, piped to another program, shows while it waits. A write
-/// that fails is left for the next flush, which reports it.
-pub fn flushBeforeBlocking() void {
-    if (concurrent and !tryLockOutput()) return;
+/// Whether the last write of what stdout takes at once (`writeLeft`) left
+/// bytes for stdout's room, which its edges then write (`stdoutRoom`);
+/// read and written under the output lock.
+var stdout_left_var = false;
+const stdout_left = split.cell(&stdout_left_var, "runtime.stdout_left");
+
+/// Set when a worker reads stdout's edge of room to write (`stdoutRoom`)
+/// and cannot take the output lock to write: the edge comes once, so the
+/// lock's holder writes for it after letting go (`unlockOutput`).
+var stdout_room_missed_var: std.atomic.Value(u32) = .init(0);
+const stdout_room_missed = split.cell(&stdout_room_missed_var, "runtime.stdout_room_missed");
+
+/// A poller read stdout's edge of room to write (`sched.watchStdout`):
+/// write what stdout takes at once, as a worker going to sleep does
+/// (`flushBeforeWait`). Its holder, when the output lock is taken, writes
+/// it instead: the edge is recorded (`stdout_room_missed`) before the lock
+/// is tried, and every holder while bytes are left for it looks for it after
+/// it lets go of the lock (`takeMissedRoom`), so an edge read while a
+/// worker on its way to sleep holds the lock is never lost, and the bytes
+/// left wait for no worker to sleep. Every step on the record is a
+/// read-modify-write, which orders it with the lock's own steps: a holder
+/// whose look comes before this record let go of the lock before this
+/// tries it, and one whose look comes after sees the record.
+pub fn stdoutRoom() void {
+    _ = stdout_room_missed.swap(1, .acq_rel);
+    takeMissedRoomOff();
+}
+
+/// `takeMissedRoom` on the worker's own stack (`sched.onWorkerStack`): a
+/// poller's look and a `print` may run on a task's stack, whose bound
+/// does not count these system calls.
+fn takeMissedRoomOff() void {
+    if (scheduled) sched.onWorkerStack(takeMissedRoom, .{}) else takeMissedRoom();
+}
+
+/// While an edge of room is recorded (`stdoutRoom`) and the output lock is
+/// free, take the lock and the record, and write for it; a holder of the
+/// lock looks again once it lets go.
+fn takeMissedRoom() void {
+    while (stdout_room_missed.fetchAdd(0, .acq_rel) != 0) {
+        if (!tryLockOutput()) return;
+        _ = stdout_room_missed.swap(0, .acq_rel);
+        writeLeft();
+        output_lock.unlock(io());
+        if (preempt) sched.holdOn();
+    }
+}
+
+/// Before a thread outside the scheduler waits, in a program that makes
+/// no task, on a socket (`net`'s `waitFor`) or a sleep (`sleepHere`):
+/// write what stdout takes at once of what `print` has buffered, as a
+/// worker going to sleep does (`flushBeforeWait`), so a server's first
+/// line, piped to another program, shows while it waits, and the wait
+/// never blocks on a full stdout whose reader waits for the program.
+/// True when bytes are left that stdout, a pipe or a socket, takes once
+/// it has room: the caller's wait then also waits for that (`poll`, fd 1,
+/// `POLLOUT`) and calls this again when it comes. A write that fails is
+/// left for the next flush that blocks, which reports it.
+pub fn flushBeforePoll() bool {
+    if (concurrent and !tryLockOutput()) return false;
     defer unlockOutput();
-    if (stdout_writer.*) |*w| if (w.interface.end != 0) flushOff(&w.interface) catch {};
+    const sw = if (stdout_writer.*) |*sw| sw else return false;
+    const w = &sw.interface;
+    if (w.end == 0) return false;
+    const kind = stdout_kind.*;
+    writeWhatFits(w, kind) catch return false;
+    return w.end != 0 and kind.watched();
 }
 
 /// Write the head of `w`'s buffer to stdout, of kind `kind`, as far as
@@ -11419,4 +11561,118 @@ test "orderIsIdentity: an enum's variant with fields counts its fields" {
     try std.testing.expect(comptime orderIsIdentity(Shape));
     try std.testing.expect(!comptime orderIsIdentity(Holds));
     try std.testing.expect(!comptime orderIsIdentity(struct { r: i64 }));
+}
+
+/// Run `child` in a child process; its exit status.
+fn statusOfChild(comptime child: fn () u8) !u8 {
+    const sys = std.posix.system;
+    const pid = sys.fork();
+    if (pid == 0) sys.exit(child());
+    var status: i32 = 0;
+    if (builtin.target.os.tag == .linux) {
+        if (std.posix.errno(sys.waitpid(@intCast(pid), &status, 0)) != .SUCCESS) return error.WaitFailed;
+    } else if (sys.waitpid(pid, &status, 0) != pid) return error.WaitFailed;
+    if (status & 0x7f != 0) return error.Signaled;
+    return @intCast((status >> 8) & 0xff);
+}
+
+/// Fill the pipe `fd` writes to, through a flag cleared again; how many
+/// bytes it took.
+fn fillPipe(fd: i32) usize {
+    const sys = std.posix.system;
+    const nonblock: u32 = @bitCast(std.posix.O{ .NONBLOCK = true });
+    _ = sys.fcntl(fd, std.posix.F.SETFL, @as(usize, nonblock));
+    const chunk: [512]u8 = @splat('f');
+    var filled: usize = 0;
+    for ([_]usize{ chunk.len, 1 }) |size| while (true) {
+        const rc = sys.write(fd, &chunk, size);
+        if (std.posix.errno(rc) != .SUCCESS) break;
+        filled += @intCast(rc);
+    };
+    _ = sys.fcntl(fd, std.posix.F.SETFL, @as(usize, 0));
+    return filled;
+}
+
+/// Read `n` bytes from `fd` into `buf`, or fewer at its end.
+fn readSome(fd: i32, buf: []u8) usize {
+    var got: usize = 0;
+    while (got < buf.len) {
+        const n = std.posix.read(fd, buf[got..]) catch break;
+        if (n == 0) break;
+        got += n;
+    }
+    return got;
+}
+
+test "an edge of stdout's room read while the output lock is held is written by its holder" {
+    if (builtin.os.tag != .linux and !builtin.os.tag.isDarwin()) return error.SkipZigTest;
+    const Child = struct {
+        fn run() u8 {
+            const sys = std.posix.system;
+            var fds: [2]i32 = undefined;
+            if (std.posix.errno(sys.pipe(&fds)) != .SUCCESS) return 1;
+            _ = sys.dup2(fds[1], 1);
+            const w = stdout();
+            if (stdout_kind.* != .pipe) return 2;
+            const filled = fillPipe(1);
+            w.writeAll("room\n") catch return 3;
+            // A worker on its way to sleep holds the lock: stdout is full,
+            // so nothing is written and the bytes are left for its room.
+            if (!tryLockOutput()) return 4;
+            writeLeft();
+            if (!stdout_left.* or w.end != 5) return 5;
+            // The reader drains the pipe, and another worker reads the
+            // edge while the lock is held.
+            var drain: [4096]u8 = undefined;
+            var drained: usize = 0;
+            while (drained < filled) drained += readSome(fds[0], drain[0..@min(drain.len, filled - drained)]);
+            stdoutRoom();
+            if (w.end != 5) return 6;
+            // Its holder writes for it as it lets go.
+            unlockOutput();
+            if (w.end != 0) return 7;
+            var got: [5]u8 = undefined;
+            if (readSome(fds[0], &got) != 5 or !std.mem.eql(u8, &got, "room\n")) return 8;
+            return 0;
+        }
+    };
+    try testing.expectEqual(0, try statusOfChild(Child.run));
+}
+
+test "a program started without stdin, stdout, or stderr gets /dev/null there, the other way" {
+    if (builtin.os.tag != .linux and !builtin.os.tag.isDarwin()) return error.SkipZigTest;
+    const Child = struct {
+        fn run() u8 {
+            const sys = std.posix.system;
+            for (0..3) |fd| _ = sys.close(@intCast(fd));
+            holdStandardDescriptors();
+            for (0..3) |fd| {
+                if (std.posix.errno(sys.fcntl(@intCast(fd), std.posix.F.GETFD, @as(usize, 0))) != .SUCCESS) return 1;
+            }
+            // A write of stdout or stderr fails as it does with them closed.
+            if (std.posix.errno(sys.write(1, "x", 1)) != .BADF) return 2;
+            if (std.posix.errno(sys.write(2, "x", 1)) != .BADF) return 3;
+            var b: [1]u8 = undefined;
+            if (std.posix.errno(sys.read(0, &b, 1)) != .BADF) return 4;
+            // What the program opens next lands past them.
+            var fds: [2]i32 = undefined;
+            if (std.posix.errno(sys.pipe(&fds)) != .SUCCESS) return 5;
+            if (fds[0] < 3 or fds[1] < 3) return 6;
+            return 0;
+        }
+    };
+    try testing.expectEqual(0, try statusOfChild(Child.run));
+}
+
+test "Linux's fstat gives a descriptor's type as statx does" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    var fds: [2]i32 = undefined;
+    try testing.expectEqual(.SUCCESS, std.posix.errno(std.os.linux.pipe(&fds)));
+    defer for (fds) |fd| {
+        _ = std.os.linux.close(fd);
+    };
+    const mode = linuxFstatMode(fds[0]) orelse return error.NoMode;
+    try testing.expectEqual(std.posix.S.IFIFO, mode & std.posix.S.IFMT);
+    try testing.expectEqual(linuxMode(fds[0]).?, mode);
+    try testing.expectEqual(null, linuxMode(-1));
 }

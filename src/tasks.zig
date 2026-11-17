@@ -2893,12 +2893,27 @@ pub fn sleep(ns: i64) Stop!void {
 /// interrupt that cancels `main` ends the sleep (its handler leaves
 /// system calls to fail with EINTR, `rt.cancelOnInterrupt`), and the
 /// sleep fails with `Stop.canceled` (`checkStop`); Zig's own sleep
-/// would go back to sleeping.
+/// would go back to sleeping. While `print` has bytes left that a full
+/// stdout did not take at once (`rt.flushBeforePoll`), the sleep waits
+/// in `poll` for stdout's room as well, writing more as it comes, to the
+/// millisecond; once none are left, it sleeps out the rest.
 fn sleepHere(ns: i64) Stop!void {
     const posix = std.posix;
     if (canceledHere()) return canceled_error;
-    var left: posix.timespec = .{ .sec = @intCast(@divTrunc(ns, std.time.ns_per_s)), .nsec = @intCast(@rem(ns, std.time.ns_per_s)) };
-    rt.flushBeforeBlocking();
+    const until = nowNs() + ns;
+    while (rt.flushBeforePoll()) {
+        const wait = until - nowNs();
+        if (wait <= 0) return;
+        var fds = [1]posix.pollfd{.{ .fd = 1, .events = posix.POLL.OUT, .revents = 0 }};
+        const ms: i32 = @intCast(@min(@divTrunc(wait + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32)));
+        switch (posix.errno(posix.system.poll(&fds, fds.len, ms))) {
+            .INTR => try checkStop(),
+            else => {},
+        }
+    }
+    const rest = until - nowNs();
+    if (rest <= 0) return;
+    var left: posix.timespec = .{ .sec = @intCast(@divTrunc(rest, std.time.ns_per_s)), .nsec = @intCast(@rem(rest, std.time.ns_per_s)) };
     while (true) {
         switch (posix.errno(posix.system.nanosleep(&left, &left))) {
             .INTR => try checkStop(),

@@ -759,8 +759,17 @@ arms.
   while it polls writable, a socket what fits (on macOS, which ignores
   `MSG_DONTWAIT`, its low-water mark at a time), a regular file or
   `/dev/null` everything; a terminal is still written a line at a time
-  by `print`, and a `print` that fills the buffer, the final flush, and
-  a wait outside the scheduler still write everything.
+  by `print`, and a `print` that fills the buffer and the final flush
+  still write everything. A program that makes no task does the same
+  in its waits on a socket and its sleeps, which also poll for stdout's
+  room while bytes are left, so it too answers with stdout full.
+- **A program started with stdin, stdout, or stderr closed gets
+  `/dev/null` there**, opened the way it is not used (stdin for writing,
+  stdout and stderr for reading), as the C library does for a
+  set-user-ID program: no socket or file the program opens takes their
+  numbers, so a `print` can no longer write into a socket the program
+  opened, and a write of a closed stdout still fails with "stdout: not
+  open for writing".
 - **A program's first parallel call starts faster:** at the first task
   `main` starts worker 1 alone, which maps 16 stacks (address space,
   untouched) for itself and each worker after it, and then starts them

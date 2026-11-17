@@ -2310,12 +2310,13 @@ const Poller = struct {
     /// has buffered (`rt.flushBeforeWait`), which never blocks, so a
     /// worker going to sleep always reaches its wait; and when the events
     /// read say stdout has room again (`watchStdout`), it writes more the
-    /// same way, after letting go of the poller's lock.
+    /// same way, after letting go of the poller's lock, or leaves it to
+    /// the output lock's holder (`rt.stdoutRoom`).
     fn poll(p: *Poller, timeout: ?i96) bool {
         if (timeout == null or timeout.? > 0) rt.flushBeforeWait();
         var room = false;
         const any = p.pollEvents(timeout, &room);
-        if (room) rt.flushBeforeWait();
+        if (room) rt.stdoutRoom();
         return any;
     }
 
