@@ -41,6 +41,7 @@ comptime {
         ready,
         timers,
         watcher,
+        stdout_poller,
         registered,
         kicking,
         retire_after,
@@ -2312,6 +2313,42 @@ const Poller = struct {
         _ = p.count.fetchSub(1, .monotonic);
     }
 
+    /// What an event for stdout carries in place of a `Registration`
+    /// (`watchOut`), which is never at address 1.
+    const out_mark = 1;
+
+    /// Watch stdout, a pipe or a socket, for room to write, reported once
+    /// each time it comes (edge-triggered); counted with the descriptors,
+    /// so a poller holding it is looked at as one holding sockets is.
+    /// False when the kernel refuses it.
+    fn watchOut(p: *Poller) bool {
+        if (darwin) {
+            const ev: std.c.Kevent = .{ .ident = 1, .filter = std.c.EVFILT.WRITE, .flags = std.c.EV.ADD | std.c.EV.CLEAR, .fflags = 0, .data = 0, .udata = out_mark };
+            var none: [1]std.c.Kevent = undefined;
+            if (std.c.kevent(p.fd, @ptrCast(&ev), 1, &none, 0, null) < 0) return false;
+        } else if (linux) {
+            const linux_ = std.os.linux;
+            var ev: linux_.epoll_event = .{ .events = linux_.EPOLL.OUT | linux_.EPOLL.ET, .data = .{ .ptr = out_mark } };
+            if (@as(isize, @bitCast(linux_.epoll_ctl(p.fd, linux_.EPOLL.CTL_ADD, 1, &ev))) < 0) return false;
+        } else return false;
+        _ = p.count.fetchAdd(1, .monotonic);
+        return true;
+    }
+
+    /// Stop watching stdout (`watchOut`). Without the poller's lock: no
+    /// registration is freed, and an event for stdout read after this
+    /// only has the next look write what fits again.
+    fn unwatchOut(p: *Poller) void {
+        if (darwin) {
+            const ev: std.c.Kevent = .{ .ident = 1, .filter = std.c.EVFILT.WRITE, .flags = std.c.EV.DELETE, .fflags = 0, .data = 0, .udata = 0 };
+            var none: [1]std.c.Kevent = undefined;
+            _ = std.c.kevent(p.fd, @ptrCast(&ev), 1, &none, 0, null);
+        } else if (linux) {
+            _ = std.os.linux.epoll_ctl(p.fd, std.os.linux.EPOLL.CTL_DEL, 1, null);
+        }
+        _ = p.count.fetchSub(1, .monotonic);
+    }
+
     /// Wait up to `timeout` nanoseconds (0: only look; null: until an
     /// event) for events, and wake the fibers waiting on what they make
     /// ready; whether any. One who cannot take the lock does nothing,
@@ -2322,13 +2359,28 @@ const Poller = struct {
     /// sleep, when a kick taken from under it would leave it asleep with
     /// work queued for it. A wait takes a standing kick under the lock,
     /// which no look holds while it waits, and then only looks.
+    ///
+    /// Before a wait it writes what stdout takes at once of what `print`
+    /// has buffered (`rt.flushBeforeWait`), which never blocks, so a
+    /// worker going to sleep always reaches its wait; and when the events
+    /// read say stdout has room again (`watchStdout`), it writes more the
+    /// same way, after letting go of the poller's lock.
     fn poll(p: *Poller, timeout: ?i96) bool {
+        if (timeout == null or timeout.? > 0) rt.flushBeforeWait();
+        var room = false;
+        const any = p.pollEvents(timeout, &room);
+        if (room) rt.flushBeforeWait();
+        return any;
+    }
+
+    /// `poll` but for stdout: `room` is set when an event says stdout,
+    /// watched here, has room to write.
+    fn pollEvents(p: *Poller, timeout: ?i96, room: *bool) bool {
         // A look, which leaves a kick it takes; but a deterministic run,
         // on one thread, has no worker to leave it for, and waits a
         // moment in its poller after a look (`advanceClock`), which a
         // kick left there would end.
         const look = timeout != null and timeout.? == 0 and !deterministic.*;
-        if (timeout == null or timeout.? > 0) rt.flushBeforeWait();
         if (look) {
             if (!p.lock.tryLock()) return false;
         } else {
@@ -2359,6 +2411,10 @@ const Poller = struct {
                     if (!look) p.kicked.store(false, .seq_cst);
                     continue;
                 }
+                if (ev.udata == out_mark) {
+                    room.* = true;
+                    continue;
+                }
                 const r: *Registration = @ptrFromInt(ev.udata);
                 // An end (EV_EOF) is its own filter's readiness: the end
                 // of reading wakes the reader, the end of writing (this
@@ -2382,6 +2438,10 @@ const Poller = struct {
                     p.kicked.store(false, .seq_cst);
                     var drain: u64 = 0;
                     _ = linux_.read(p.kick_fd, std.mem.asBytes(&drain), 8);
+                    continue;
+                }
+                if (ev.data.ptr == out_mark) {
+                    room.* = true;
                     continue;
                 }
                 const r: *Registration = @ptrFromInt(ev.data.ptr);
@@ -2463,6 +2523,35 @@ fn passWatch() void {
     const next_up = sleepers.top;
     sleepers.lock.unlock();
     if (next_up) |v| v.poller.kick();
+}
+
+/// The poller that watches stdout for room to write, or none: read and
+/// written only under the runtime's output lock (`watchStdout`), and
+/// forgotten as the workers stop (`runMain`).
+var stdout_poller_var: ?*Poller = null;
+const stdout_poller = split.cell(&stdout_poller_var, "sched.stdout_poller");
+
+/// Under the output lock, after a write of what stdout takes at once
+/// (`rt.flushBeforeWait`): keep stdout registered for its writability
+/// with one poller while bytes are left over (`want`), and drop it once
+/// none are. It goes to the poller of the worker that left the bytes,
+/// worker 0's from outside the workers, and stays there until the buffer
+/// is empty, whichever worker's look takes its edges: a busy worker's
+/// poller is looked at by the others as it is for its sockets. Workers
+/// stop for good only once `main` has ended, after the final flush has
+/// written the buffer out, blocking (`rt.finish`, `rt.exitNow`), so a
+/// registration on a stopped worker leaves no byte unwritten. When the
+/// kernel refuses it, the bytes wait for the next worker going to sleep,
+/// a full buffer, or the final flush.
+pub fn watchStdout(want: bool) void {
+    if (want == (stdout_poller.* != null)) return;
+    if (!want) {
+        stdout_poller.*.?.unwatchOut();
+        stdout_poller.* = null;
+        return;
+    }
+    const w = me() orelse if (workersNow().len != 0) &all_workers.*[0] else return;
+    if (w.poller.watchOut()) stdout_poller.* = &w.poller;
 }
 
 /// A file descriptor a poller watches: how many times the poller has
@@ -3579,6 +3668,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
         w.timers.clear();
         w.poller.close();
     }
+    stdout_poller.* = null;
     freeSpare();
     freeWorkers(all_workers.*);
     workers_len.store(0, .release);

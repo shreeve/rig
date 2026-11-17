@@ -159,6 +159,28 @@ worker after.
   sleep, needs: its next wait sees the kick under the poller's lock and
   only looks. A kick while one stands makes no system call, so a kick
   taken by many looks costs one call, not one a look.
+- **No flush blocks the sleep path.** A worker about to wait writes what
+  stdout takes at once of what `print` has buffered (`rt.flushBeforeWait`,
+  from `Poller.poll`), and never waits for the output lock (a try) or
+  for stdout: a regular file or `/dev/null` is written in full (epoll
+  refuses to watch a regular file); a pipe takes `PIPE_BUF` bytes (512
+  on macOS, 4096 on Linux) at a time while it polls writable; a socket
+  on Linux takes what fits under `MSG_DONTWAIT`, and on macOS, which
+  ignores `MSG_DONTWAIT`, its send low-water mark at a time while it
+  polls writable; a terminal is written a line at a time by `print`
+  itself, so nothing is left for the sleep path. No flag is set on
+  stdout's descriptor, which the shell shares. What stdout does not
+  take stays buffered, in order, and stdout is registered once for its
+  writability with that worker's poller (`sched.watchStdout`), counted
+  with its descriptors, so its edge is seen by whichever worker looks
+  there, which writes more the same way; the registration is dropped
+  once the buffer is empty. A `print` that fills the buffer still writes
+  it out in its own call, waiting there, and the final flush still
+  writes everything. So a worker going to sleep always reaches its
+  wait, and a server whose stdout is a full pipe, whose reader waits for
+  its answer on a socket, answers (`test/cli/stdout_room.sh`). Workers
+  stop for good only once `main` has ended and the final flush has run,
+  so a registration on a stopped worker leaves no byte behind.
 - **The blocking pool** counts a thread busy as it hands it a call, and
   counts a thread on its way back from one (`finishing`), which takes the
   next call queued without sleeping. A call that finds neither starts a

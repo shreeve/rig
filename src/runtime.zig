@@ -70,6 +70,8 @@ comptime {
         stdout_buffer,
         stdout_writer,
         stdout_is_tty,
+        stdout_kind,
+        stdout_step,
         panic_stage,
         current_test,
         test_false,
@@ -8511,9 +8513,11 @@ fn endBy(sig: std.posix.SIG) noreturn {
 
 // Output. `print` writes to one process-wide buffer. It is flushed
 // when the program finishes, before anything is written to stderr (a
-// `warn`, a panic, an error report), before a thread waits on I/O or
-// time (`flushBeforeWait`), and after every `print` when stdout is a
-// terminal.
+// `warn`, a panic, an error report), and after every `print` when stdout
+// is a terminal; a `print` that fills it writes it out there and then,
+// waiting in its call as long as stdout makes it. Before a worker waits
+// on I/O or time, and whenever stdout has room again, what stdout takes
+// at once is written (`flushBeforeWait`), and never more.
 
 var stdout_buffer_var: [8192]u8 = undefined;
 const stdout_buffer = split.cell(&stdout_buffer_var, "runtime.stdout_buffer");
@@ -8521,11 +8525,93 @@ var stdout_writer_var: ?std.Io.File.Writer = null;
 const stdout_writer = split.cell(&stdout_writer_var, "runtime.stdout_writer");
 var stdout_is_tty_var = false;
 const stdout_is_tty = split.cell(&stdout_is_tty_var, "runtime.stdout_is_tty");
+var stdout_kind_var: OutKind = .file;
+const stdout_kind = split.cell(&stdout_kind_var, "runtime.stdout_kind");
+
+/// What stdout is, which decides how a worker about to wait writes to it
+/// without blocking (`flushBeforeWait`).
+const OutKind = enum {
+    /// A regular file, `/dev/null`, or another device that is not a
+    /// terminal: a write never waits on a reader, so it is written in
+    /// full, and never watched (epoll refuses a regular file).
+    file,
+    /// A pipe: a pipe that polls writable has room for `pipe_buf` bytes,
+    /// so it takes that many at a time while it does, with no flag set on
+    /// its descriptor, which the shell and the other processes writing it
+    /// share.
+    pipe,
+    /// A socket, whose writability promises room for its send buffer's
+    /// low-water mark, not `pipe_buf`: on Linux sent with `MSG_DONTWAIT`,
+    /// which takes what fits and waits for none of it; on macOS, which
+    /// ignores `MSG_DONTWAIT` (a send blocks once the buffer is full),
+    /// written as a pipe is, at most `SO_SNDLOWAT` bytes at a time while
+    /// it polls writable (`stdout_step`).
+    socket,
+    /// A terminal: `print` writes it out a line at a time in its own call,
+    /// so whenever the output lock is free nothing is left to write, and
+    /// a worker about to wait writes nothing; were a byte ever left, the
+    /// next `print` or the final flush would write it. Its writability
+    /// promises less than a line, and making its shared descriptor
+    /// non-blocking would make the shell's too.
+    tty,
+
+    /// Whether bytes left over are written when stdout has room again,
+    /// registered with a poller for its writability (`sched.watchStdout`).
+    fn watched(k: OutKind) bool {
+        return k == .pipe or k == .socket;
+    }
+};
+
+/// What a write of a pipe that polls writable takes without blocking:
+/// `PIPE_BUF`, the platform's (512 bytes on macOS, 4096 on Linux).
+const pipe_buf: usize = if (builtin.os.tag == .linux) 4096 else 512;
+
+/// What one write of stdout takes without blocking once it polls
+/// writable (`writeWhatFits`): `pipe_buf` for a pipe, and for a socket
+/// outside Linux its send buffer's low-water mark (`SO_SNDLOWAT`, 2048
+/// bytes unless the program's parent set it).
+var stdout_step_var: usize = pipe_buf;
+const stdout_step = split.cell(&stdout_step_var, "runtime.stdout_step");
+
+/// Stdout's `SO_SNDLOWAT`, at least 1, or `pipe_buf` when the system does
+/// not say.
+fn sendLowWater() usize {
+    if (comptime !builtin.os.tag.isDarwin()) return pipe_buf;
+    var v: c_int = 0;
+    var size: std.c.socklen_t = @sizeOf(c_int);
+    if (std.c.getsockopt(1, std.c.SOL.SOCKET, std.c.SO.SNDLOWAT, &v, &size) != 0) return pipe_buf;
+    return @max(@as(usize, @intCast(@max(v, 0))), 1);
+}
+
+/// What stdout is, when it is not a terminal: by the type `fstat` gives,
+/// asked of the system directly, as a closed stdout is no error here (a
+/// write then reports it, `stdoutFailed`).
+fn stdoutKind() OutKind {
+    const mode: u32 = if (builtin.os.tag == .linux) blk: {
+        const linux = std.os.linux;
+        var sx: linux.Statx = undefined;
+        const at_empty_path: u32 = 0x1000;
+        if (linux.errno(linux.statx(1, "", at_empty_path, .{ .TYPE = true }, &sx)) != .SUCCESS) return .file;
+        break :blk sx.mode;
+    } else if (builtin.os.tag.isDarwin()) blk: {
+        var st: std.c.Stat = undefined;
+        if (std.c.fstat(1, &st) != 0) return .file;
+        break :blk st.mode;
+    } else return .file;
+    const S = std.posix.S;
+    return switch (mode & S.IFMT) {
+        S.IFIFO => .pipe,
+        S.IFSOCK => .socket,
+        else => .file,
+    };
+}
 
 fn stdout() *std.Io.Writer {
     if (stdout_writer.* == null) {
         const file = std.Io.File.stdout();
         stdout_is_tty.* = file.isTty(io()) catch false;
+        stdout_kind.* = if (stdout_is_tty.*) .tty else stdoutKind();
+        stdout_step.* = if (stdout_kind.* == .socket) sendLowWater() else pipe_buf;
         stdout_writer.* = file.writerStreaming(io(), stdout_buffer);
     }
     return &stdout_writer.*.?.interface;
@@ -8551,16 +8637,72 @@ fn flushWriter(w: *std.Io.Writer) std.Io.Writer.Error!void {
     return w.flush();
 }
 
-/// Write out what `print` has buffered before a thread blocks, waiting
-/// on I/O or time: a server's first line, piped to another program,
-/// shows while it waits for a connection. A thread that cannot take the
-/// output lock leaves it to the one printing, which flushes before it
-/// waits in turn. A write that fails is left for the next flush, which
-/// reports it.
+/// Write what stdout takes at once of what `print` has buffered, before
+/// a worker waits on I/O or time, and when stdout, watched, has room
+/// again: a server's first line, piped to another program, shows while
+/// it waits for a connection. It never blocks, so a worker on its way to
+/// its wait always reaches it, and sees the events of its poller, even
+/// when stdout is a full pipe whose reader waits for this program's
+/// answer on a socket. What stdout does not take stays buffered, in
+/// order, and stdout is registered once for its writability, with the
+/// poller of the worker that left it (`sched.watchStdout`): its edge, seen
+/// by whichever worker looks at that poller, writes more the same way,
+/// and the registration is dropped once the buffer is empty. A worker
+/// that cannot take the output lock leaves the bytes to its holder: a
+/// `print`, which writes them all if it fills the buffer, and otherwise
+/// reaches this before its own worker waits; or the final flush. How it
+/// writes depends on what stdout is (`OutKind`). A write that fails is
+/// left for the next flush that blocks, a full buffer's or the final
+/// one, which reports it.
 pub fn flushBeforeWait() void {
     if (concurrent and !tryLockOutput()) return;
     defer unlockOutput();
+    const sw = if (stdout_writer.*) |*sw| sw else return;
+    const w = &sw.interface;
+    const kind = stdout_kind.*;
+    if (w.end != 0) writeWhatFits(w, kind) catch {
+        if (kind.watched()) sched.watchStdout(false);
+        return;
+    };
+    if (kind.watched()) sched.watchStdout(w.end != 0);
+}
+
+/// Write out what `print` has buffered before a thread outside the
+/// scheduler blocks, in a program that makes no task, waiting on a
+/// socket or a sleep with no poller to come back to when stdout has
+/// room: all of it, as a full buffer's `print` would, so a server's
+/// first line, piped to another program, shows while it waits. A write
+/// that fails is left for the next flush, which reports it.
+pub fn flushBeforeBlocking() void {
+    if (concurrent and !tryLockOutput()) return;
+    defer unlockOutput();
     if (stdout_writer.*) |*w| if (w.interface.end != 0) flushOff(&w.interface) catch {};
+}
+
+/// Write the head of `w`'s buffer to stdout, of kind `kind`, as far as
+/// stdout takes it without blocking, and drop what was written from the
+/// buffer; `error.WriteFailed` when a write fails.
+fn writeWhatFits(w: *std.Io.Writer, kind: OutKind) error{WriteFailed}!void {
+    while (w.end != 0) {
+        const head = w.buffer[0..w.end];
+        const rc: WriteResult = switch (kind) {
+            .tty => return,
+            .file => std.posix.system.write(1, head.ptr, head.len),
+            .socket => if (builtin.os.tag == .linux)
+                std.posix.system.sendto(1, head.ptr, head.len, std.posix.MSG.DONTWAIT, null, 0)
+            else
+                try writePolled(head),
+            .pipe => try writePolled(head),
+        };
+        switch (std.posix.errno(rc)) {
+            .SUCCESS => if (rc == 0) return else {
+                _ = w.consume(@intCast(rc));
+            },
+            .INTR => {},
+            .AGAIN => return,
+            else => return error.WriteFailed,
+        }
+    }
 }
 
 /// Write out what `print` has buffered on the way out of a program that
@@ -8569,6 +8711,20 @@ pub fn flushBeforeWait() void {
 /// comes.
 fn flushQuietly() void {
     if (stdout_writer.*) |*w| flushOff(&w.interface) catch {};
+}
+
+/// What the system's `write` gives: `isize` from the C library, `usize`
+/// from Linux's system call.
+const WriteResult = @TypeOf(std.posix.system.write(1, "", 0));
+
+/// A write of at most `stdout_step` bytes of `head` to stdout once it
+/// polls writable, a system call's result; 0 when it does not.
+fn writePolled(head: []const u8) error{WriteFailed}!WriteResult {
+    var fds = [1]std.posix.pollfd{.{ .fd = 1, .events = std.posix.POLL.OUT, .revents = 0 }};
+    const n = std.posix.poll(&fds, 0) catch return error.WriteFailed;
+    if (n == 0) return 0;
+    if (fds[0].revents & std.posix.POLL.OUT == 0) return error.WriteFailed;
+    return std.posix.system.write(1, head.ptr, @min(head.len, stdout_step.*));
 }
 
 /// One `print`: its pieces in order, the spaces between its arguments and
