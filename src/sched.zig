@@ -199,9 +199,12 @@ const Worker = struct {
     hold_seen: ?*Worker = null,
     hold_seen_slept: u64 = 0,
     /// What `RIG_SCHED_STATS=1` prints of the holds (`printStats`): the
-    /// holds it took, the rings it read, the bells it answered, and the
-    /// events of a stuck worker it took.
+    /// holds it took, those it did not take because their worker slept
+    /// since its last look, the rings it read, the bells it answered, and
+    /// the events of a stuck worker it took. Plain counts of its own,
+    /// each one add at an event that is itself a system call or a wake.
     held: u64 = 0,
+    refused: u64 = 0,
     rang: u64 = 0,
     answered: u64 = 0,
     took: u64 = 0,
@@ -2664,6 +2667,7 @@ fn holdPoller(w: *Worker) void {
         // go at that rate costs more than it saves.
         const slept = v.slept.load(.monotonic);
         if (w.hold_seen != v or w.hold_seen_slept != slept) {
+            if (w.hold_seen == v) w.refused += 1;
             w.hold_seen = v;
             w.hold_seen_slept = slept;
             return;
@@ -4033,6 +4037,16 @@ fn printDeclined(w: *Worker, i: usize) void {
 
 extern "c" fn _dyld_get_image_vmaddr_slide(image_index: u32) isize;
 
+/// The program ends by a signal (`rt.endBy`): an interrupt or a request
+/// to end that canceled `main`, as a server that serves until it is told
+/// to stop ends. With `RIG_SCHED_STATS=1` set, what each worker did is
+/// printed first, as `main`'s end prints it. The workers may still run:
+/// each count is read once, a moment's value.
+pub fn statsAtSignal() void {
+    if (!started.*) return;
+    printStats();
+}
+
 /// With `RIG_SCHED_STATS=1` set, print what each worker did to stderr,
 /// as `main` ends: so a test can check where work ran without timing it.
 fn printStats() void {
@@ -4047,8 +4061,8 @@ fn printStats() void {
         else
             std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw })) catch continue;
         _ = std.posix.system.write(2, line.ptr, line.len);
-        if (w.held + w.rang + w.answered + w.took != 0) {
-            const hl = std.fmt.bufPrint(&buf, "rig: holds {d}: held {d}, rang {d}, answered {d}, took {d}\n", .{ i, w.held, w.rang, w.answered, w.took }) catch continue;
+        if (w.held + w.refused + w.rang + w.answered + w.took != 0) {
+            const hl = std.fmt.bufPrint(&buf, "rig: holds {d}: held {d}, refused {d}, rang {d}, answered {d}, took {d}\n", .{ i, w.held, w.refused, w.rang, w.answered, w.took }) catch continue;
             _ = std.posix.system.write(2, hl.ptr, hl.len);
         }
     }
