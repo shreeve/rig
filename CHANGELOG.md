@@ -746,8 +746,9 @@ arms.
   descriptors:** out of its wait while it gives its heap's free pages
   back, it counts as awake, and passes the watch on or has another
   sleeping worker take it (`sched.leaveWait`), so an event on its
-  poller meanwhile waits no longer than a watch's 1 ms. It was left
-  until the trim ended.
+  poller meanwhile waits no longer than a watch's 1 ms while another
+  worker sleeps. With every other worker busy, it waits until the trim
+  ends, as before, since busy workers look only at their own pollers.
 - **A program's first parallel call starts faster:** at the first task
   `main` starts worker 1 alone, which maps 16 stacks (address space,
   untouched) for itself and each worker after it, and then starts them
