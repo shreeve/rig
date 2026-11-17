@@ -198,6 +198,11 @@ const Worker = struct {
     /// The next worker asleep (`Sleepers`).
     next_sleeper: ?*Worker = null,
     searching: bool = false,
+    /// This worker was the last searching when it found work, and no
+    /// other work waited then, so it woke no one (`loop`): at its next
+    /// switch it looks once more (`spread`), so a burst made while its
+    /// fiber ran still wakes a worker.
+    recheck: bool = false,
     rng: u32 = 1,
     /// What it did, which `RIG_SCHED_STATS=1` prints as `main` ends
     /// (`printStats`): fibers it ran, of them pinned ones, fibers it
@@ -3873,7 +3878,9 @@ fn loop(w: *Worker) void {
         // searching and more work waits, wake another to look for it.
         if (w.searching) {
             w.searching = false;
-            if (searching.fetchSub(1, .seq_cst) == 1 and workPending(w)) notify();
+            if (searching.fetchSub(1, .seq_cst) == 1) {
+                if (workPending(w)) notify() else w.recheck = true;
+            }
         }
         runFiber(w, f);
     }
@@ -3909,6 +3916,11 @@ fn runFiber(w: *Worker, f: *Fiber) void {
 /// would hand them on, and without this they waited for the monitor's
 /// stop, about 1 ms. A switch with nothing else waiting costs two loads.
 inline fn spread(w: *Worker) void {
+    if (w.recheck) {
+        @branchHint(.unlikely);
+        w.recheck = false;
+        if (searching.load(.seq_cst) == 0 and workPending(w)) return notify();
+    }
     if (!nextHeld(w, .monotonic) and w.ring.isEmpty()) return;
     if (builtin.is_test) _ = test_spreads.fetchAdd(1, .monotonic);
     notify();
