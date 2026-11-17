@@ -1,8 +1,9 @@
 # std.http.serve's limits, with a client in Python: an idle connection
 # and a slow request head are closed after their timeouts, a stalled
 # body after the idle one; bodies up to the limit are read and larger
-# ones answered 413, chunked or not; and running out of descriptors
-# pauses accepting rather than ending the server. The limits are set
+# ones answered 413, chunked or not; a request's body is framed as RFC
+# 9112 says, and a head it refuses is answered 400; and running out of
+# descriptors pauses accepting rather than ending the server. The limits are set
 # small through the environment (RIG_HTTP_IDLE_MS, RIG_HTTP_HEAD_MS,
 # RIG_HTTP_MAX_BODY); in debug and --release.
 # timeout: 300
@@ -142,6 +143,81 @@ def limits():
     finally:
         p.kill()
 
+def answers(got):
+    """Each answer in `got`: its status, its body, and `close` when it
+    says the connection closes."""
+    out = []
+    while got.startswith(b'HTTP/1.1 '):
+        head, _, rest = got.partition(b'\r\n\r\n')
+        lines = head.split(b'\r\n')
+        n = 0
+        close = ''
+        for line in lines[1:]:
+            name, _, value = line.partition(b': ')
+            if name == b'content-length':
+                n = int(value)
+            if name == b'connection':
+                close = ' close'
+        out.append(lines[0].split(b' ', 2)[1].decode() + ' ' + rest[:n].decode().strip() + close)
+        got = rest[n:]
+    if got:
+        out.append(repr(got[:40]))
+    return ', '.join(out) or 'none'
+
+def framing():
+    p, port = start({'RIG_HTTP_IDLE_MS': '3000'})
+    try:
+        out = []
+        def send(name, req, half=False):
+            s = conn(port)
+            s.sendall(req)
+            if half:
+                s.shutdown(socket.SHUT_WR)
+            t = time.monotonic()
+            got = answers(read_all(s))
+            s.close()
+            out.append('%s: %s%s' % (name, got, '' if time.monotonic() - t < 2 else ' (slow)'))
+        h = b'Host: x\r\n'
+        nxt = b'GET /next HTTP/1.1\r\n' + h + b'Connection: close\r\n\r\n'
+        # Neither a length nor chunked: no body, whatever the method.
+        send('no length', b'POST /p HTTP/1.1\r\n' + h + b'\r\n' + nxt)
+        send('no length, put', b'PUT /p HTTP/1.1\r\n' + h + b'\r\n' + nxt)
+        send('no length, half-closed', b'POST /p HTTP/1.1\r\n' + h + b'\r\n', half=True)
+        # A Transfer-Encoding that does not end in chunked: 400.
+        send('gzip', b'GET /g HTTP/1.1\r\n' + h + b'Transfer-Encoding: gzip\r\n\r\n' + nxt)
+        send('gzip, post', b'POST /g HTTP/1.1\r\n' + h + b'Transfer-Encoding: gzip\r\n\r\n' + nxt, half=True)
+        send('chunked, gzip', b'POST /g HTTP/1.1\r\n' + h + b'Transfer-Encoding: chunked, gzip\r\n\r\n0\r\n\r\n' + nxt)
+        send('none', b'GET /g HTTP/1.1\r\n' + h + b'Transfer-Encoding: none\r\n\r\n' + nxt)
+        send('gzip, chunked', b'POST /g HTTP/1.1\r\n' + h + b'Transfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n' + nxt)
+        # Coding names in any case.
+        for v in [b'Chunked', b'CHUNKED', b'gzip, Chunked', b'gzip,\tchunked', b'Chunked, gzip']:
+            send(v.decode().replace('\t', ' '), b'POST /g HTTP/1.1\r\n' + h + b'Transfer-Encoding: ' + v + b'\r\n\r\n3\r\nabc\r\n0\r\n\r\n' + nxt)
+        # A length and chunked: read as chunked, then closed.
+        send('both', b'POST /b HTTP/1.1\r\n' + h + b'Content-Length: 4\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\nGET /smuggled HTTP/1.1\r\n' + h + b'\r\n')
+        # A length that is not digits: 400.
+        for v in [b'1_0', b'+3', b'-0', b'0x3', b' ']:
+            send('length %r' % v.decode(), b'POST /l HTTP/1.1\r\n' + h + b'Content-Length: ' + v + b'\r\n\r\nabcdefghij' + nxt)
+        send('length 007', b'POST /l HTTP/1.1\r\n' + h + b'Content-Length: 007\r\n\r\nabcdefg' + nxt)
+        # A CR, LF, or NUL that ends no line: 400.
+        send('bare lf', b'POST /c HTTP/1.1\r\n' + h + b'X: a\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n' + nxt)
+        send('bare cr', b'GET /c HTTP/1.1\r\n' + h + b'X: a\rb\r\n\r\n' + nxt)
+        send('nul', b'GET /c HTTP/1.1\r\n' + h + b'X: a\x00b\r\n\r\n' + nxt)
+        send('bare lf line', b'GET /c HTTP/1.1\n' + h + b'\r\n' + nxt)
+        send('unknown method', b'BREW /c HTTP/1.1\r\n' + h + b'\r\n' + nxt)
+        # Up to two empty lines before a request line are skipped.
+        send('empty line', b'\r\nGET /e HTTP/1.1\r\n' + h + b'\r\n' + nxt)
+        send('two empty lines', b'\r\n\r\nGET /e HTTP/1.1\r\n' + h + b'\r\n' + nxt)
+        send('three empty lines', b'\r\n\r\n\r\nGET /e HTTP/1.1\r\n' + h + b'\r\n' + nxt)
+        send('empty line after a body', b'POST /l HTTP/1.1\r\n' + h + b'Content-Length: 3\r\n\r\nabc\r\n' + nxt)
+        send('two after a body', b'POST /l HTTP/1.1\r\n' + h + b'Content-Length: 3\r\n\r\nabc\r\n\r\n' + nxt)
+        send('empty line, then close', b'POST /l HTTP/1.1\r\n' + h + b'Content-Length: 3\r\n\r\nabc\r\n', half=True)
+        send('bare lf line before', b'\nGET /e HTTP/1.1\r\n' + h + b'\r\n' + nxt)
+        send('after', nxt)
+        out.append('alive %s' % (p.poll() is None))
+        print('\n'.join(out))
+    finally:
+        p.kill()
+
 def descriptors():
     # The server may hold 512 descriptors (its workers' pollers take some
     # of them): the 700 connections held open take the rest, and it
@@ -181,7 +257,7 @@ def descriptors():
     finally:
         p.kill()
 
-{'limits': limits, 'descriptors': descriptors}[sys.argv[1]]()
+{'limits': limits, 'framing': framing, 'descriptors': descriptors}[sys.argv[1]]()
 EOF2
 
 # The default timeouts on a deterministic run's virtual clock: an idle
@@ -244,11 +320,47 @@ stalled True
 (100) 200 /p 1000
 413 content too large
 200 /after 0'
+want_framing="no length: 200 /p 0, 200 /next 0 close
+no length, put: 200 /p 0, 200 /next 0 close
+no length, half-closed: 200 /p 0
+gzip: 400 bad request close
+gzip, post: 400 bad request close
+chunked, gzip: 400 bad request close
+none: 400 bad request close
+gzip, chunked: 200 /g 0, 200 /next 0 close
+Chunked: 200 /g 3, 200 /next 0 close
+CHUNKED: 200 /g 3, 200 /next 0 close
+gzip, Chunked: 200 /g 3, 200 /next 0 close
+gzip, chunked: 200 /g 3, 200 /next 0 close
+Chunked, gzip: 400 bad request close
+both: 200 /b 0 close
+length '1_0': 400 bad request close
+length '+3': 400 bad request close
+length '-0': 400 bad request close
+length '0x3': 400 bad request close
+length ' ': 400 bad request close
+length 007: 200 /l 7, 200 /next 0 close
+bare lf: 400 bad request close
+bare cr: 400 bad request close
+nul: 400 bad request close
+bare lf line: 400 bad request close
+unknown method: 400 bad request close
+empty line: 200 /e 0, 200 /next 0 close
+two empty lines: 200 /e 0, 200 /next 0 close
+three empty lines: 400 bad request close
+empty line after a body: 200 /l 3, 200 /next 0 close
+two after a body: 200 /l 3, 200 /next 0 close
+empty line, then close: 200 /l 3
+bare lf line before: 400 bad request close
+after: 200 /next 0 close
+alive True"
 for mode in debug release; do
     flag=; [[ $mode == release ]] && flag=--release
     out=$(rig build $flag srv.rig 2>&1); expect_rc $? 0 "$mode build: $out"
     out=$(python3 client.py limits 2>&1); expect_rc $? 0 "$mode limits: $out"
     expect_eq "$out" "$want_limits" "$mode: timeouts and the body limit"
+    out=$(python3 client.py framing 2>&1); expect_rc $? 0 "$mode framing: $out"
+    expect_eq "$out" "$want_framing" "$mode: request framing"
     out=$(python3 client.py descriptors 2>&1); expect_rc $? 0 "$mode descriptors: $out"
     expect_eq "$out" $'held True\n200 /again 0\nalive True' "$mode: out of descriptors, it accepts again"
     # 20 seeds at once, so the machine is loaded while each clock jumps.

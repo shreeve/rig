@@ -208,6 +208,35 @@ with "type mismatch: expected `http.Type`, got `Static`"; write `type: .png`, or
 for none. `text`, `json`, `html`, `status`, and `not_found` are
 unchanged. Trig and loco have no such site.
 
+**`http.serve` frames a request's body as RFC 9112 says, and answers
+a head it refuses 400:** a request whose body a proxy in front could
+frame otherwise is refused, where 0.3.0 read it. These are answered
+400, `bad request`, and the connection closes:
+
+- a `Transfer-Encoding` whose last coding is not `chunked`
+  (`gzip`, `chunked, gzip`, `none`): 0.3.0 read no body, and on a GET
+  took the body's bytes for the next request;
+- a `Content-Length` that is not digits alone (`+3`, `1_0`, `-0`),
+  which 0.3.0 read as a number;
+- a CR, LF, or NUL that ends no line in the head, as
+  `X: a\nTransfer-Encoding: chunked`, which 0.3.0 kept in the header's
+  value, and a head ending in a bare `\n\n`;
+- every other head that does not parse, which 0.3.0 closed with no
+  answer.
+
+A request with neither a `Content-Length` nor chunked has no body,
+whatever its method: 0.3.0 panicked, ending the whole server, on a
+POST, PUT, PATCH, or QUERY with neither on a connection kept alive. A
+request with both is read as chunked and its connection closed after
+the answer, where 0.3.0 kept it open and read what followed as the
+next request. A handler's status below 200 is answered 500: 0.3.0
+panicked on 100 or less, and sent 101 to 199 as an interim answer
+followed by a body. A `.other` type holding a NUL is answered 500, as
+one holding a CR or LF is. Up to two empty lines before a request
+line, which some clients send after a body, are skipped (RFC 9112
+§2.2), where 0.3.0 closed the connection, and a coding is named in any
+case (`Chunked`). Trig and loco serve no HTTP; no migration is needed.
+
 ### Removed
 
 - **`--release=fast`**, Zig's fast mode, from `rig run`, `rig build`,
@@ -786,20 +815,27 @@ arms.
 - **`http.serve` writes its answer's head from text made once:** the
   status line comes from a table made when the program is compiled,
   and the length is written digit by digit. The bytes sent are those
-  Zig's `respond` wrote. A response whose type holds a CR or LF is
-  answered 500, where a safe build panicked. The server parses a
-  request's head as Zig's `Head.parse` does, finding the header a name
-  means by its length first.
+  Zig's `respond` wrote. A response whose type holds a CR, LF, or NUL
+  is answered 500, where a safe build panicked on a CR or LF. The
+  server parses a request's head as Zig's `Head.parse` does, finding
+  the header a name means by its length first.
 - **`http.serve` reads a request's head in one pass:** finding where
-  the head ends, each line's end and colon, and the target's `?`
-  together, a vector of bytes at a time, where Zig's `receiveHead`
-  found the end and `Head.parse` split the lines again. It accepts and
-  refuses what those did, with the same errors, but for a head holding
-  a bare `\n\n`: that ends the head, which is refused, however the
-  bytes arrive, where Zig's search missed some by where the bytes fell
-  and took a header's value holding one.
-  `req.arg(name)` compares each pair's start with the name, with no
-  split.
+  the head ends, each line's end and colon, CRs and NULs, and the
+  target's `?` together, a vector of bytes at a time, where Zig's
+  `receiveHead` found the end and `Head.parse` split the lines again.
+  The head ends at its first empty line or bare `\n\n`, wherever its
+  bytes fall: by where the bytes fell between reads and its vectors,
+  Zig's `HeadParser` missed some ends, a bare `\n\n` or one after a
+  bare `\n` (`\n\r\n\r\n`), and found some that are none, after a line
+  of one byte (`\r\na\r\n`), leaving the headers after it for the next
+  request.
+  Each line is read as `Head.parse` reads it, with its errors, and a
+  head is refused beyond those as Upgrading says (a stray CR, LF, or
+  NUL, a length not digits, a Transfer-Encoding not ending in
+  `chunked`). A Zig test compares the two on heads generated from
+  pieces, each read whole and a few bytes at a time.
+- **`req.arg(name)`** compares each pair's start with the name, with
+  no split.
 - **Loopback round trips make fewer system calls:** a socket read that
   comes back short took all there was, so the next read waits on the
   poller for an edge before it calls, rather than being told EAGAIN (an

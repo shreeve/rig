@@ -366,6 +366,49 @@ test "http content types", seeds: 20, '''
         print(`{name} [{piece}]`)
   _ = <t.cancel() catch -1
 
+test "http answers 500 for what it cannot send", seeds: 20, '''
+  /s/100 500 internal server error
+  /s/101 500 internal server error
+  /s/199 500 internal server error
+  /s/0 500 internal server error
+  /s/200 200 s200
+  /cr 500 internal server error
+  /lf 500 internal server error
+  /nul 500 internal server error
+'''
+  # A status from 100 to 199 is an interim answer, which carries no body
+  # and is followed by the final one, and a status below 100 is none: each
+  # is answered 500, as is a type whose text holds a CR, LF, or NUL, which
+  # no header line may hold.
+  use std.text
+
+  fun route(req: ?http.Request) -> http.Response
+    if text.starts_with(req.path, "/s/")
+      code = text.parse_int(?req.path[3..]) catch 0
+      return http.status(code, String("s", code))
+    match req.path
+      "/cr" => http.Response(status: 200, type: .other("text/html\rSet-Cookie: x=1"), body: String("cr"))
+      "/lf" => http.Response(status: 200, type: .other("text/html\nSet-Cookie: x=1"), body: String("lf"))
+      _ => http.Response(status: 200, type: .other("a\x00b"), body: String("nul"))
+
+  fun run(l: net.Listener) -> Int!
+    http.serve(<l, |req| route(req))!
+    0
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l)&
+  for path in ["/s/100", "/s/101", "/s/199", "/s/0", "/s/200", "/cr", "/lf", "/nul"]
+    c = net.connect(String("127.0.0.1:", port))!
+    (!c).write(String("GET ", path, " HTTP/1.1\r\nConnection: close\r\n\r\n"))!
+    got = String()
+    loop
+      if (!c).read(!got, 4096)! == 0
+        break
+    at = text.find(?got, "\r\n\r\n") ?? 0
+    print(path, ?got[9..12], text.trim(?got[at..]))
+  _ = <t.cancel() catch -1
+
 fail "http type misspelled", "no variant `jsno` on enum `http.Type`"
   r = http.Response(status: 200, type: .jsno, body: String())
   print(r.status)
