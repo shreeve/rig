@@ -45,7 +45,8 @@ no last look (`hasWork` reads no slot): only the monitor's stop
 (`Config.monitor`) takes it on. Not modeled: a running fiber's fill of
 its slot (covered by `waiting` and the yield checks), the slot's streak
 limit and its 3 µs wait, timers apart from the poller's batches, the
-watch over the pollers (`sleepIn`, `leaveWait`, `passWatch`, the trim of
+watch over the pollers (`sleepIn`, `leaveWait`, `passWatch`, the watched
+pollers registered in the watcher's own, `nestWatch`, the trim of
 a sleeping worker's heap), and
 `stopping`.
 -/

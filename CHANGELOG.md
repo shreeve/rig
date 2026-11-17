@@ -742,6 +742,15 @@ arms.
 
 ### Runtime
 
+- **The watcher wakes as a busy worker's poller gains events:** while
+  a sleeping worker watches, the other workers' pollers that hold
+  descriptors are registered in its own, edge-triggered (a kqueue in
+  a kqueue, an epoll in an epoll), from when it takes the watch until
+  it lets it go, so an event on a busy worker's poller is run by the
+  watcher as it lands, where before it waited for the watcher's next
+  look, up to 1 ms; that 1 ms stays as the backstop
+  (`sched.nestWatch`). `RIG_SCHED_STATS=1` adds a line counting the
+  watcher's wakes.
 - **A batch of events wakes one fiber locally and leaves the rest to be
   stolen:** of the fibers one look at a poller (or one firing of timers)
   makes ready, the first takes the worker's run-next slot and the rest

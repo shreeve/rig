@@ -159,7 +159,22 @@ worker after.
   watch began, and lets it go only once every one has slept
   through a whole watch, so a worker that sleeps and wakes many times a
   millisecond, as one answering a socket does, finds the watch held and
-  kicks no one. A look at another worker's poller leaves the kick it
+  kicks no one. While it watches, the pollers of the other workers
+  that hold descriptors are registered in its own for reading,
+  edge-triggered (`sched.nestWatch`: a kqueue in its kqueue, an epoll
+  in its epoll), so its wait ends as one of them gains events and it
+  looks at once; the registrations are made as it takes the watch and
+  for a poller that gains its first descriptor meanwhile, and taken off
+  as it sleeps without the watch or leaves its wait, never one per
+  sleep or event. The 1 ms stays as the backstop: a kqueue gives no
+  new edge while events wait in it, so an edge read while another
+  holds that poller's lock, which lets it go with events left, waits
+  for the next look. A watched worker asleep in its own poller wakes
+  with its watcher, whose look finds the lock held or nothing left
+  (on macOS the kernel mostly wakes it to find nothing and waits on).
+  A kernel refuses a poller that holds the watcher's (a cycle), as one
+  that has just lost the watch may until it takes its own off; it is
+  tried again next round. A look at another worker's poller leaves the kick it
   finds there standing (`Poller.kicked`), which that worker, about to
   sleep, needs: its next wait sees the kick under the poller's lock and
   only looks. A kick while one stands makes no system call, so a kick
@@ -237,7 +252,19 @@ worker after.
 
   the fibers it ran (by handoff too), of them pinned ones, the fibers it
   stole, and the times it slept, so a test can check where work ran
-  without timing it (`test/cli/sched_stats.sh`).
+  without timing it (`test/cli/sched_stats.sh`). A last line sums what
+  the watches saw:
+
+  ```
+  rig: watch: woke 812 by an edge (95 to no work, 3 of them a lock held), kicks 40, late 2, looks missed 310
+  ```
+
+  the watcher's waits a watched poller's edge ended, of them those
+  whose looks woke nothing, and of those the ones that found a poller's
+  lock held; the kicks its looks found on watched pollers; its waits
+  that ended with no edge yet whose looks woke fibers (what the 1 ms
+  backstop caught); and every worker's looks that found a poller's lock
+  held.
 
 ## Speed
 
