@@ -140,7 +140,13 @@ worker after.
   event gives up the thread, about 12 µs and a context switch a look
   (macOS 27), where the immediate form takes about 0.16 µs; and a
   kqueue answers only the form it was first called with, so none is
-  mixed.
+  mixed. A look that returns at once leaves a worker going to sleep in
+  a wait with no deadline, which macOS wakes about 2 µs later than one
+  that ends within about 50 µs; so a worker whose last wait ended with
+  work within 50 µs, as one answering a socket of its own program does,
+  waits first for at most 20 µs, and then as long as it must
+  (`sched.settle_wait`). A worker whose waits last, as a server's under
+  load from outside, waits with no deadline of its own.
 - **Pinned fibers.** A local task, and the task that makes it, are
   pinned to its worker (`Fiber.home`, `sched.pinHere`). A pinned fiber
   that is ready waits in its worker's pinned queue, never a ring or the
