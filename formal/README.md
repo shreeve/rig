@@ -510,7 +510,10 @@ thief's surplus or a batch's rest.
 
 Not modeled: a running fiber's fill of its slot, the slot's streak
 limit and its 3 µs wait, timers apart from the pollers' batches,
-`waiting` and the yield checks, `stopping`, and the blocking pool. A
+`waiting` and the yield checks, `stopping`, the blocking pool, and
+descriptor latency: which poller a look reads (a sleeper's or the
+watcher's look at a poller its worker has left unattended for 1 ms), a
+bound on how long an event waits and not a wake of work already queued. A
 fiber a running one puts in its run-next slot wakes no worker: its maker's next yield
 check hands it on, a recursive one only through `waiting`, so a check
 or a sleeper that clears `waiting` sets it again while another
