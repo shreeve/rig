@@ -2002,6 +2002,46 @@ pub inline fn bytesEql(a: []const u8, b: []const u8) bool {
 
 const V16 = @Vector(16, u8);
 
+/// How two byte slices order: by the first byte that differs, a prefix
+/// first. Text `order`, and a byte slice's.
+pub inline fn textOrder(a: []const u8, b: []const u8) std.math.Order {
+    if (textLess(a, b)) return .lt;
+    if (textLess(b, a)) return .gt;
+    return .eq;
+}
+
+/// Whether byte slice `a` orders before `b` (`textOrder`): text `<`. From
+/// 8 bytes in common, eight at a time as big-endian words, whose order is
+/// the bytes' order, the last word overlapping the bytes found equal;
+/// shorter, byte by byte. A `Bool` from one compare where the bytes
+/// differ, which a sort's partition and merge take with no branch: an
+/// `Order` returned instead, LLVM branches on in a safe build, a
+/// mispredicted branch per comparison of random text.
+pub inline fn textLess(a: []const u8, b: []const u8) bool {
+    const n = @min(a.len, b.len);
+    const p = a.ptr;
+    const q = b.ptr;
+    if (n >= 8) {
+        var i: usize = 0;
+        while (i < n - 8) : (i += 8) {
+            const x = std.mem.bigToNative(u64, loadUnaligned(u64, p + i));
+            const y = std.mem.bigToNative(u64, loadUnaligned(u64, q + i));
+            if (x != y) return x < y;
+        }
+        const x = std.mem.bigToNative(u64, loadUnaligned(u64, p + n - 8));
+        const y = std.mem.bigToNative(u64, loadUnaligned(u64, q + n - 8));
+        if (x != y) return x < y;
+    } else {
+        for (p[0..n], q[0..n]) |x, y| if (x != y) return x < y;
+    }
+    return a.len < b.len;
+}
+
+/// Whether byte slice `a` orders after `b`: text `>`.
+pub inline fn textGreater(a: []const u8, b: []const u8) bool {
+    return textLess(b, a);
+}
+
 /// `bytesEql` past 32 bytes: the first 16, apart, so a difference
 /// there ends the test at once; then to 64 bytes the next 16 and the
 /// last 32, which overlap; longer, 32 bytes a step, then the last 32.
@@ -2319,7 +2359,18 @@ pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bo
     const B = @TypeOf(b);
     // Text orders by its bytes, a String, a view of one, or a `?String`;
     // a view held as a pointer orders as the value it reaches.
-    if (comptime isString(A) or isString(B)) return std.mem.order(u8, stringBytes(a), stringBytes(b)).compare(op);
+    if (comptime isString(A) or isString(B)) {
+        const x = stringBytes(a);
+        const y = stringBytes(b);
+        return switch (op) {
+            .lt => textLess(x, y),
+            .gt => textLess(y, x),
+            .lte => !textLess(y, x),
+            .gte => !textLess(x, y),
+            .eq => bytesEql(x, y),
+            .neq => !bytesEql(x, y),
+        };
+    }
     // A frozen value's handles order by what they reach, as they compare.
     if (comptime isShared(A) and isShared(B)) return compare(a.value, op, b.value);
     if (comptime isValuePointer(A)) return compare(a.*, op, b);
@@ -2400,8 +2451,8 @@ pub fn order(a: anytype, b: @TypeOf(a)) std.math.Order {
         .equal => .eq,
         .greater => .gt,
     };
-    if (comptime isStringView(T)) return std.mem.order(u8, a, b);
-    if (comptime isString(T)) return std.mem.order(u8, stringBytes(a), stringBytes(b));
+    if (comptime isStringView(T)) return textOrder(a, b);
+    if (comptime isString(T)) return textOrder(stringBytes(a), stringBytes(b));
     if (comptime isShared(T)) return order(a.value, b.value);
     if (comptime isOptStruct(T)) {
         const x = some(a) orelse return if (some(b) == null) .eq else .lt;
@@ -5091,7 +5142,7 @@ pub const Order = enum {
 pub fn orderOf(a: anytype, b: anytype) Order {
     const A = @TypeOf(a);
     const B = @TypeOf(b);
-    if (comptime isString(A) or isString(B)) return fromMath(std.mem.order(u8, stringBytes(a), stringBytes(b)));
+    if (comptime isString(A) or isString(B)) return fromMath(textOrder(stringBytes(a), stringBytes(b)));
     if (comptime isValuePointer(A)) return orderOf(a.*, b);
     if (comptime isValuePointer(B)) return orderOf(a, b.*);
     const T = @TypeOf(a, b);
@@ -9689,6 +9740,24 @@ test "bytesEql: every length to 200, every alignment, a difference at every byte
             try testing.expect(!bytesEql(x, y));
             b[ob + k] ^= 0x40;
         }
+    };
+}
+
+test "textOrder: as std.mem.order at every length to 40, a difference at every byte" {
+    // textLess and textGreater through it.
+    var a: [48]u8 = undefined;
+    var b: [48]u8 = undefined;
+    for (&a, 0..) |*c, i| c.* = @truncate(i *% 37 +% 11);
+    for (0..41) |n| for (0..41) |m| {
+        @memcpy(b[0..m], a[0..m]);
+        const x = a[0..n];
+        try testing.expectEqual(std.mem.order(u8, x, b[0..m]), textOrder(x, b[0..m]));
+        for (0..@min(n, m)) |k| for ([_]u8{ 1, 0x80, 0xff }) |d| {
+            b[k] = a[k] +% d;
+            try testing.expectEqual(std.mem.order(u8, x, b[0..m]), textOrder(x, b[0..m]));
+            try testing.expectEqual(std.mem.order(u8, b[0..m], x), textOrder(b[0..m], x));
+            b[k] = a[k];
+        };
     };
 }
 

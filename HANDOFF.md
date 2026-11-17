@@ -113,15 +113,21 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
-- **The stable sort** (branch `sort-stable`; owner, 2026-11-16, the
-  buffered merge as the faster candidate): `sort_by`, `sort_by_key`,
-  and `sort` of a type with its own `order` sort by a buffered stable
-  merge (powersort order, room for n/2), inline so the comparator is
-  inlined; with it, an integer's `order` folds into one compare. Waits
-  on the core suite, the Trig and loco light gates, and the owner.
-  Rust's driftsort is still 3.3 times as fast on random records (a
-  stable quicksort for input without runs is the next step).
-  Records: `docs/history/records/2026-11/std-sort/built.md`.
+- **The stable sort** (branch `sort-stable`, then `sort-drift` on
+  it; owner, 2026-11-16, "fastest, within 2% of Rust's stable sort"):
+  `sort_by`, `sort_by_key`, and `sort` of a type with its own `order`
+  sort by driftsort (Rust's `sort`): powersort-merged runs, a stable
+  quicksort for input without runs, small sorts by networks, inline so
+  the comparator is inlined; std/sort.zig holds the element-moving
+  loops. Text `<` compares eight bytes at a time (`rig.textLess`). The
+  Zig ceiling (record's `programs/drift.zig`) is within 2% of Rust or
+  faster on 39 of 48 rows (reversed input of a few thousand 7 to 8%
+  slower); Rig's port is faster than the buffered merge on every row,
+  and within 2% of Rust or faster on 58 of 64 (text 1.6 to 1.9 times
+  as fast, sorted and reversed input faster, records level), 2 to 9%
+  slower on random and small 16-valued Ints.
+  Waits on the core suite, the Trig and loco light gates, and the
+  owner. Records: `docs/history/records/2026-11/std-sort/drift.md`.
 - **`task.all` of tasks that give no value** (branch `task-all-subs`;
   owner, 2026-11-03): `task.all(f()&, g()&)!` waits for several `sub`s
   and gives nothing; a mix of tasks that give values and tasks that
