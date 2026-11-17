@@ -1394,12 +1394,22 @@ any case, or by a
 `Content-Length` of digits alone; a request with neither has no body,
 whatever its method, and one with both is read as chunked and its
 connection closed after the answer, since a proxy in front may have
-framed it by its length. A head that does not parse, holds a CR, LF,
-or NUL that ends no line, or names a Transfer-Encoding not ending in
-`chunked` or a length not digits, is answered 400 and its connection
-closed; up to two empty lines before a request line are skipped. A handler's status below 200, which would be an interim answer
-or none, and an `.other` type holding a CR, LF, or NUL, are answered
-500.
+framed it by its length. A body is read whatever the request's method.
+Chunks are read as RFC 9112 §7.1 writes them, and no other way: a size
+of 1 to 16 hex digits, then nothing or `;` and extensions, each line
+ended by CRLF, the data followed by CRLF, and trailers that are header
+lines, read and dropped; any other form is answered 400, a size or
+extensions past the limit 413, and a body that ends before its length
+or its last chunk gets no answer. A head that does not parse, holds a CR, LF,
+or NUL that ends no line, a header line with no colon or a name that
+is no token (as one with a space before its colon), or names a
+Transfer-Encoding not ending in `chunked` or a length not digits, is
+answered 400 and its connection closed; up to two empty lines before a
+request line are skipped. A handler's status below 200, which would be
+an interim answer or none, and an `.other` type holding a CR, LF, or
+NUL, are answered 500. A 204 or a 304 is sent as its status line
+alone, with no length, type, or body, whatever the handler gave: a
+client reads no body after either.
 
 ## std.target
 

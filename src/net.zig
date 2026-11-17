@@ -981,15 +981,20 @@ fn answer(comptime F: type, f: F, request: *std.http.Server.Request, max_body: u
     const head = request.head;
     // An expectation other than `100-continue` fails (417), and a body
     // over the limit is refused (413) before any of it is read, and
-    // before `100 Continue` asks the client for it.
-    if (head.expect) |e| if (!std.ascii.eqlIgnoreCase(e, "100-continue")) return refuse(request, 417, "expectation failed\n");
+    // before `100 Continue` asks the client for it. An HTTP/1.0 client
+    // reads no interim answer, and its expectation is passed by (RFC
+    // 9110 §10.1.1).
+    const expect = if (head.version == .@"HTTP/1.1") head.expect else null;
+    if (expect) |e| if (!std.ascii.eqlIgnoreCase(e, "100-continue")) return refuse(request, 417, "expectation failed\n");
     if (head.content_length) |n| if (n > max_body) return refuse(request, 413, "content too large\n");
-    const has_body = head.content_length != null or head.transfer_encoding == .chunked;
+    const chunked = head.transfer_encoding == .chunked;
+    const has_body = head.content_length != null or chunked;
     // A request with both a length and chunked is read as chunked, and
     // the connection closes after it (RFC 9112 §6.1): a proxy in front
     // may have framed it by its length, and taken what follows the
-    // chunks for part of its body.
-    const keep_alive = head.keep_alive and !(head.content_length != null and head.transfer_encoding == .chunked);
+    // chunks for part of its body. So does an HTTP/1.0 request that is
+    // chunked, which a 1.0 proxy in front framed some other way.
+    const keep_alive = head.keep_alive and !(chunked and (head.content_length != null or head.version == .@"HTTP/1.0"));
     // The fields view the head's bytes (`view`): in the read buffer,
     // which nothing changes until the handler returns; or, when a body
     // is read, whose reads may move what the buffer holds, in one block
@@ -1011,19 +1016,22 @@ fn answer(comptime F: type, f: F, request: *std.http.Server.Request, max_body: u
     // The request owns only its body.
     defer rig.drop(&@field(req, "body"));
     if (has_body) {
-        // Ask for the body, if the client waits to be asked, then read it.
-        if (head.expect != null) request.head.expect = "100-continue";
-        var buf: [4096]u8 = undefined;
-        const r = request.readerExpectContinue(&buf) catch return .close;
-        r.appendRemaining(gpa, &@field(req, "body").list, .limited(@intCast(max_body + 1))) catch |err| switch (err) {
-            error.StreamTooLong => return refuse(request, 413, "content too large\n"),
-            // The client closed, or sent a body that does not parse, or
-            // took too long.
-            else => return .close,
-        };
+        // Ask for the body, if the client waits to be asked, then read
+        // it, whatever the method (RFC 9112 §6.3).
+        if (expect != null) {
+            const out = request.server.out;
+            out.writeAll("HTTP/1.1 100 Continue\r\n\r\n") catch return .close;
+            out.flush() catch return .close;
+        }
+        switch (readBody(request.server.reader.in, chunked, head.content_length, max_body, gpa, &@field(req, "body").list)) {
+            .whole => {},
+            .too_large => return refuse(request, 413, "content too large\n"),
+            .bad => return refuse(request, 400, "bad request\n"),
+            // The client closed before the body's end, or took too
+            // long: the request is not whole, and gets no answer.
+            .cut => return .close,
+        }
     }
-    // A request with no body to send never needs `100 Continue`.
-    request.head.expect = null;
     const Thunk = struct {
         f: F,
         req: *const Req,
@@ -1092,57 +1100,138 @@ const content_types = .{
 /// connection once the client has read it: what remains of its body is
 /// never read.
 fn refuse(request: *std.http.Server.Request, status: u10, body: []const u8) Next {
-    request.head.expect = null;
     respond(request, status, "", body, false) catch return .close;
     return .linger;
 }
 
 /// Answer `request` with `status`, the content type `kind` (no header
-/// when empty), and `body`, keeping the connection open when `keep_alive`
-/// and the client asked to: the bytes Zig's `Request.respond` writes,
-/// from text made once. The status line comes from a table
+/// when empty), and `body`, saying the connection closes unless
+/// `keep_alive`: the bytes Zig's `Request.respond` writes,
+/// from text made once; for a 204 or a 304, the status line alone, with
+/// no length, type, or body. The status line comes from a table
 /// (`statusLine`), and the length is written by `writeLength`.
-fn respond(request: *std.http.Server.Request, status: u10, kind: []const u8, body: []const u8, keep_alive: bool) std.http.Server.Request.ExpectContinueError!void {
-    try request.writeExpectContinue();
-    const keep = discardBody(request, keep_alive);
+fn respond(request: *std.http.Server.Request, status: u10, kind: []const u8, body: []const u8, keep_alive: bool) std.Io.Writer.Error!void {
     const out = request.server.out;
     var line: [32]u8 = undefined;
     try out.writeAll(statusLine(status, &line));
-    if (!keep) try out.writeAll("connection: close\r\n");
-    try writeLength(out, body.len);
-    if (kind.len > 0) {
-        try out.writeAll("content-type: ");
-        try out.writeAll(kind);
-        try out.writeAll("\r\n");
+    if (!keep_alive) try out.writeAll("connection: close\r\n");
+    // A 204 and a 304 end at their headers (RFC 9112 §6.3): a client
+    // reads no body after one, so a body sent would be read as the start
+    // of the next answer, and a 204 carries no length (RFC 9110 §8.6).
+    const content = status != 204 and status != 304;
+    if (content) {
+        try writeLength(out, body.len);
+        if (kind.len > 0) {
+            try out.writeAll("content-type: ");
+            try out.writeAll(kind);
+            try out.writeAll("\r\n");
+        }
     }
     try out.writeAll("\r\n");
-    if (request.head.method != .HEAD and body.len > 0) try out.writeAll(body);
+    if (content and request.head.method != .HEAD and body.len > 0) try out.writeAll(body);
     try out.flush();
 }
 
-/// Zig's `Request.discardBody`, with the body framed as RFC 9112 §6.3
-/// says: whether the connection stays open, once any body the client
-/// sent, unread, is read and dropped, so the next request can be read.
-fn discardBody(request: *std.http.Server.Request, keep_alive: bool) bool {
-    const r = &request.server.reader;
-    if (keep_alive and request.head.keep_alive) switch (r.state) {
-        .received_head => {
-            // A request with neither a length nor chunked has no body,
-            // whatever its method.
-            if (request.head.content_length != null or request.head.transfer_encoding == .chunked) {
-                const body = request.readerExpectContinue(&.{}) catch return false;
-                _ = body.discardRemaining() catch return false;
-                std.debug.assert(r.state == .ready);
-            } else {
-                r.state = .ready;
-            }
-            return true;
-        },
-        .body_remaining_content_length, .body_remaining_chunk_len, .body_none, .ready => return true,
-        else => unreachable,
-    };
-    if (r.state == .received_head) r.state = .closing;
-    return false;
+/// How reading a request's body ended (`readBody`).
+const Body = enum {
+    /// Whole, in the list.
+    whole,
+    /// Past the limit: 413.
+    too_large,
+    /// Chunks or trailers that do not parse: 400.
+    bad,
+    /// The client closed before its end, a read failed, or took too
+    /// long: no answer.
+    cut,
+};
+
+/// The longest line of chunk framing read: a chunk's size and its
+/// extensions, or a trailer.
+const framing_line_max = 4096;
+/// How many bytes of trailers a body may end with.
+const trailers_max = 8192;
+
+/// Read a request's body from `in` onto `list`: the `length` bytes its
+/// Content-Length says, which the caller has held to the limit, or,
+/// when `chunked`, its chunks, no more than `max` bytes of them.
+///
+/// The server reads the framing itself, as strictly as it reads a head
+/// (`HeadScan`), since a proxy in front that reads a looser form
+/// another way would put the body's end elsewhere (RFC 9112 §7.1): a
+/// chunk's size is 1 to 16 hex digits, then nothing or `;` and its
+/// extensions; every line ends in CRLF and holds no other CR, LF, or
+/// NUL; a chunk's data is followed by CRLF; and a trailer is a header
+/// line, its name a token, up to the empty line that ends the body.
+/// Extensions count against `max` as data does, so no byte a client
+/// sends is free, and trailers, which are read and dropped, against
+/// `trailers_max`. A body that ends before its length, or before its
+/// last chunk, is not whole (RFC 9112 §8).
+fn readBody(in: *std.Io.Reader, chunked: bool, length: ?u64, max: u64, gpa: std.mem.Allocator, list: *std.ArrayList(u8)) Body {
+    var a = std.Io.Writer.Allocating.fromArrayList(gpa, list);
+    defer list.* = a.toArrayList();
+    if (!chunked) return if (bodyBytes(in, &a.writer, length.?)) .whole else .cut;
+    var left = max;
+    while (true) {
+        const line = framingLine(in) catch |err| return if (err == error.Bad) .bad else .cut;
+        var size: u64 = 0;
+        var digits: usize = 0;
+        while (digits < line.len and digits < 16) : (digits += 1) {
+            const d = std.fmt.charToDigit(line[digits], 16) catch break;
+            size = size << 4 | d;
+        }
+        if (digits == 0 or (digits < line.len and line[digits] != ';')) return .bad;
+        const extensions = line.len - digits;
+        if (extensions > left) return .too_large;
+        left -= extensions;
+        if (size == 0) break;
+        if (size > left) return .too_large;
+        left -= size;
+        if (!bodyBytes(in, &a.writer, size)) return .cut;
+        const end = in.take(2) catch return .cut;
+        if (end[0] != '\r' or end[1] != '\n') return .bad;
+    }
+    var trailers: usize = 0;
+    while (true) {
+        const line = framingLine(in) catch |err| return if (err == error.Bad) .bad else .cut;
+        if (line.len == 0) return .whole;
+        trailers += line.len;
+        if (trailers > trailers_max) return .bad;
+        const colon = std.mem.findScalar(u8, line, ':') orelse return .bad;
+        if (colon == 0) return .bad;
+        for (line[0..colon]) |b| if (!HeadScan.token[b]) return .bad;
+    }
+}
+
+/// Read `n` bytes of a body from `in` to `w`; false when they end
+/// before, or a read or the list's growth fails.
+fn bodyBytes(in: *std.Io.Reader, w: *std.Io.Writer, n: u64) bool {
+    var left = n;
+    while (left > 0) {
+        const got = in.stream(w, .limited(@intCast(@min(left, std.math.maxInt(usize))))) catch return false;
+        left -= got;
+    }
+    return true;
+}
+
+/// The next line of a chunked body's framing, without its CRLF, which
+/// is taken with it: valid until the next read. `Bad` for one that is
+/// not ended by CRLF within `framing_line_max` bytes, or that holds
+/// another CR or a NUL; `Cut` when the bytes end before it does.
+fn framingLine(in: *std.Io.Reader) error{ Bad, Cut }![]const u8 {
+    var scanned: usize = 0;
+    while (true) {
+        const bytes = in.buffered();
+        if (std.mem.findScalarPos(u8, bytes, scanned, '\n')) |i| {
+            if (i >= framing_line_max or i == 0 or bytes[i - 1] != '\r') return error.Bad;
+            const line = bytes[0 .. i - 1];
+            if (std.mem.findAny(u8, line, "\r\x00") != null) return error.Bad;
+            in.toss(i + 1);
+            return line;
+        }
+        scanned = bytes.len;
+        if (bytes.len >= framing_line_max) return error.Bad;
+        in.fillMore() catch return error.Cut;
+    }
 }
 
 /// The status line of `code`, `HTTP/1.1 200 OK\r\n`: made when the
@@ -1201,7 +1290,6 @@ const Server = struct {
     /// (`empty_lines`): the request, or the error those give.
     fn receiveHead(s: *Server) HeadError!std.http.Server.Request {
         const r = &s.http.reader;
-        r.trailers = &.{};
         const in = r.in;
         var scan: HeadScan = .{};
         var empty: usize = 0;
@@ -1218,7 +1306,6 @@ const Server = struct {
                 if (empty < empty_lines and bytes.len == 1 and bytes[0] == '\r') bytes = bytes[0..0];
             }
             if (scan.feed(bytes)) |len| {
-                r.state = .received_head;
                 in.toss(len);
                 if (scan.err) |err| return err;
                 s.question = scan.question;
@@ -1253,6 +1340,10 @@ const Refused = error{
     /// A Transfer-Encoding whose last coding is not `chunked`, which
     /// leaves the body's end unknown (RFC 9112 §6.3).
     HttpTransferEncodingNotChunked,
+    /// A header line with no colon, or whose name is no token, as one
+    /// with a space or a tab before its colon (RFC 9112 §5.1): a proxy
+    /// that drops the space reads `Content-Length : 5` as a length.
+    HttpHeaderNameInvalid,
 };
 
 /// One pass over a request's head as it arrives. It finds where the head
@@ -1260,8 +1351,9 @@ const Refused = error{
 /// `\n\n`, and reads each line, once its `\r\n` is in, as Zig's
 /// `Head.parse` does: the same `Head`, or the same first error, once the
 /// head ends. Beyond `Head.parse`, it refuses a CR, LF, or NUL that ends
-/// no line, a Content-Length that is not digits, and a Transfer-Encoding
-/// whose last coding is not `chunked` (`Refused`); and it reads a
+/// no line, a Content-Length that is not digits, a Transfer-Encoding
+/// whose last coding is not `chunked`, and a header line with no colon
+/// or a name that is no token (`Refused`); and it reads a
 /// Transfer-Encoding's codings named in any case, between spaces or tabs,
 /// as RFC 9112 §7 says, which `Head.parse` refuses. It finds line ends,
 /// CRs, NULs, and colons together, a vector of bytes at a time, and
@@ -1409,9 +1501,11 @@ const HeadScan = struct {
     fn header(s: *HeadScan, bytes: []const u8, end: usize) (Head.ParseError || Refused)!void {
         const start = s.line;
         if (bytes[start] == ' ' or bytes[start] == '\t') return error.HttpHeaderContinuationsUnsupported;
-        const name = bytes[start .. s.colon orelse end];
-        const value = if (s.colon) |c| std.mem.trim(u8, bytes[c + 1 .. end], " \t") else bytes[end..end];
+        const colon = s.colon orelse return error.HttpHeaderNameInvalid;
+        const name = bytes[start..colon];
+        const value = std.mem.trim(u8, bytes[colon + 1 .. end], " \t");
         if (name.len == 0) return error.HttpHeadersInvalid;
+        for (name) |b| if (!token[b]) return error.HttpHeaderNameInvalid;
         const value_at = @intFromPtr(value.ptr) - @intFromPtr(bytes.ptr);
         const eql = std.ascii.eqlIgnoreCase;
         // A known name by its length and first byte, then the whole name.
@@ -1456,6 +1550,13 @@ const HeadScan = struct {
             else => {},
         }
     }
+
+    /// The bytes a header's name may hold (RFC 9110 §5.6.2, a token).
+    const token: [256]bool = blk: {
+        var t: [256]bool = @splat(false);
+        for ("!#$%&'*+-.^_`|~0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") |b| t[b] = true;
+        break :blk t;
+    };
 
     /// The head, its text in `bytes`.
     fn made(s: *const HeadScan, bytes: []const u8) Head {
@@ -1532,7 +1633,7 @@ fn expectSameHead(bytes: []const u8, step: usize, buffer_len: usize) !void {
     const broken = breaksRule(head);
     const g = (got catch |err| {
         if (broken) switch (err) {
-            error.HttpHeaderByteInvalid, error.HttpTransferEncodingNotChunked, error.InvalidContentLength => return,
+            error.HttpHeaderByteInvalid, error.HttpTransferEncodingNotChunked, error.InvalidContentLength, error.HttpHeaderNameInvalid => return,
             else => {},
         };
         return std.testing.expectError(err, want);
@@ -1605,9 +1706,10 @@ fn zigReadable(bytes: []u8) []u8 {
 /// Whether the head in `bytes`, up to its first empty line or bare
 /// `\n\n`, breaks a rule that Zig's `Head.parse` does not keep and
 /// `HeadScan` does: a CR, LF, or NUL that ends no line (RFC 9110 §5.5), a
-/// Content-Length that is not digits (RFC 9110 §8.6), or a
-/// Transfer-Encoding whose last coding is not `chunked` (RFC 9112 §6.3).
-/// Written apart from `HeadScan`, plainly, to check it.
+/// Content-Length that is not digits (RFC 9110 §8.6), a
+/// Transfer-Encoding whose last coding is not `chunked` (RFC 9112 §6.3),
+/// or a header line with no colon or a name that is no token (RFC 9112
+/// §5.1). Written apart from `HeadScan`, plainly, to check it.
 fn breaksRule(bytes: []const u8) bool {
     const head = bytes[0 .. headEnd(bytes) orelse bytes.len];
     for (head, 0..) |b, i| switch (b) {
@@ -1619,11 +1721,18 @@ fn breaksRule(bytes: []const u8) bool {
     var lines = std.mem.splitSequence(u8, head, "\r\n");
     _ = lines.first();
     while (lines.next()) |line| {
-        // A line with no colon is a name with an empty value, as
-        // `Head.parse` reads it.
-        const colon = std.mem.findScalar(u8, line, ':');
-        const name = line[0 .. colon orelse line.len];
-        const value = if (colon) |c| std.mem.trim(u8, line[c + 1 ..], " \t") else "";
+        // The empty line that ends the head, or a last line not yet
+        // ended, which is not read.
+        if (line.len == 0 or lines.index == null) break;
+        // A folded line is `Head.parse`'s to refuse.
+        if (line[0] == ' ' or line[0] == '\t') continue;
+        const colon = std.mem.findScalar(u8, line, ':') orelse return true;
+        const name = line[0..colon];
+        for (name) |c| switch (c) {
+            '!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~', '0'...'9', 'a'...'z', 'A'...'Z' => {},
+            else => return true,
+        };
+        const value = std.mem.trim(u8, line[colon + 1 ..], " \t");
         if (std.ascii.eqlIgnoreCase(name, "content-length")) {
             if (value.len == 0) return true;
             for (value) |c| if (!std.ascii.isDigit(c)) return true;
@@ -1644,9 +1753,7 @@ const test_heads = [_][]const u8{
     "GET / HTTP/1.1\r\n\r\n",
     "GET /a?b=c HTTP/1.0\r\nHost: x\r\nConnection: keep-alive\r\n\r\n",
     "POST /p HTTP/1.1\r\ncontent-tYpe: text/plain\r\ncontent-Length:10\r\nexpeCt:   100-continue \r\nTRansfer-encoding:\tdeflate, chunked \r\nconnectioN:\t close \r\n\r\n",
-    "PUT /p HTTP/1.1\r\nContent-Encoding: gzip\r\nNoColon\r\nSpaced \t: v : w\r\n\r\n",
     "GET http://x.y:80/a?b=c:d?e HTTP/1.1\r\nHost: x.y:80\r\nReferer: http://z/?q=1\r\n\r\n",
-    "OPTIONS * HTTP/1.1\r\nexpect\r\nconnection\r\ncontent-type\r\n\r\n",
     "GET / HTTP/1.1\r\n\r\nGET /next HTTP/1.1\r\n\r\n",
     // The request line.
     "GET / HTTP/1.2\r\n\r\n",
@@ -1699,10 +1806,8 @@ const test_heads = [_][]const u8{
     "BREW / HTTP/1.1\r\nHost: x\r\n",
     "GET / HTTP/1.1\r\nA: b\r\n\r",
     "",
-    // Ends Zig's `HeadParser` finds where there are none.
-    "GET / HTTP/1.1\r\na\r\n\r\n",
+    // An end Zig's `HeadParser` finds where there is none.
     "PUT * HTTP/1.0\r\n:\r\n\r\n",
-    "GET / HTTP/1.1\r\na\r\nContent-Length: 2\r\n\r\nab",
     // Lengths of digits alone.
     "POST / HTTP/1.1\r\nContent-Length: 007\r\n\r\n",
     "POST / HTTP/1.1\r\nContent-Length: 18446744073709551615\r\n\r\n",
@@ -1738,10 +1843,22 @@ const refused_heads = [_]struct { []const u8, HeadError }{
     .{ "QUERY /q HTTP/1.1\r\nUser-Agent: z\r\nconnectioN: Close\r\nContent-Length: +5\r\n\r\nbody", error.InvalidContentLength },
     .{ "GET / HTTP/1.1\r\nContent-Length: x\r\n\r\n", error.InvalidContentLength },
     .{ "GET / HTTP/1.1\r\nContent-Length: -1\r\n\r\n", error.InvalidContentLength },
-    .{ "GET / HTTP/1.1\r\nContent-Length\r\n\r\n", error.InvalidContentLength },
     .{ "GET / HTTP/1.1\r\nContent-Length: x\r\n folded\r\n\r\n", error.InvalidContentLength },
     .{ "POST / HTTP/1.1\r\nContent-Length: 1_0\r\n\r\n", error.InvalidContentLength },
     .{ "POST / HTTP/1.1\r\nContent-Length: -0\r\n\r\n", error.InvalidContentLength },
+    // A header line with no colon, or whose name is no token.
+    .{ "GET / HTTP/1.1\r\nContent-Length\r\n\r\n", error.HttpHeaderNameInvalid },
+    .{ "PUT /p HTTP/1.1\r\nContent-Encoding: gzip\r\nNoColon\r\n\r\n", error.HttpHeaderNameInvalid },
+    .{ "OPTIONS * HTTP/1.1\r\nexpect\r\nconnection\r\ncontent-type\r\n\r\n", error.HttpHeaderNameInvalid },
+    .{ "POST /p HTTP/1.1\r\nContent-Length : 5\r\n\r\nhello", error.HttpHeaderNameInvalid },
+    .{ "POST /p HTTP/1.1\r\nTransfer-Encoding\t: chunked\r\n\r\n0\r\n\r\n", error.HttpHeaderNameInvalid },
+    .{ "GET / HTTP/1.1\r\nHost: x\r\nSpaced \t: v : w\r\n\r\n", error.HttpHeaderNameInvalid },
+    .{ "GET / HTTP/1.1\r\nX Y: a\r\n\r\n", error.HttpHeaderNameInvalid },
+    // These end where Zig's `HeadParser` finds an end before.
+    .{ "GET / HTTP/1.1\r\na\r\n\r\n", error.HttpHeaderNameInvalid },
+    .{ "GET / HTTP/1.1\r\na\r\nContent-Length: 2\r\n\r\nab", error.HttpHeaderNameInvalid },
+    .{ "GET / HTTP/1.1\r\nX(Y): a\r\n\r\n", error.HttpHeaderNameInvalid },
+    .{ "GET / HTTP/1.1\r\nX\x7f: a\r\n\r\n", error.HttpHeaderNameInvalid },
     // A Transfer-Encoding whose last coding is not `chunked`.
     .{ "GET / HTTP/1.1\r\nTransfer-Encoding: br\r\n\r\n", error.HttpTransferEncodingNotChunked },
     .{ "GET / HTTP/1.1\r\nContent-Encoding: zstd\r\nTransfer-Encoding: gzip\r\n\r\n", error.HttpTransferEncodingNotChunked },
@@ -1756,7 +1873,11 @@ const refused_heads = [_]struct { []const u8, HeadError }{
 
 test "receiveHead gives what Zig's Head.parse gives" {
     for (test_heads) |bytes| {
-        try std.testing.expect(!breaksRule(afterEmptyLines(bytes)));
+        // A head past its empty lines that starts with one more fails at
+        // its request line, as Zig's does, before the line after it is
+        // read as a header with no colon.
+        const head = afterEmptyLines(bytes);
+        if (!std.mem.startsWith(u8, head, "\r\n")) try std.testing.expect(!breaksRule(head));
         // Whole, then a few bytes at a time, as bytes arrive.
         for ([_]usize{ bytes.len + 1, 1, 3, 17 }) |step| {
             expectSameHead(bytes, step, 0) catch |err| {
@@ -1833,6 +1954,110 @@ test "receiveHead gives what Zig's Head.parse gives, or keeps a rule it does not
                 };
             }
         }
+    }
+}
+
+/// `readBody`'s end, the body it read, and what it left in the reader,
+/// for the body's bytes on the wire `wire`, sent `step` bytes at a time.
+fn expectBody(wire: []const u8, chunked: bool, length: ?u64, max: u64, step: usize, want: Body, body: []const u8, rest: []const u8) !void {
+    const gpa = std.testing.allocator;
+    var buf: [framing_line_max * 2]u8 = undefined;
+    var in: std.testing.Reader = .init(&buf, &.{.{ .buffer = wire }});
+    in.artificial_limit = .limited(step);
+    var list: std.ArrayList(u8) = .empty;
+    defer list.deinit(gpa);
+    const got = readBody(&in.interface, chunked, length, max, gpa, &list);
+    try std.testing.expectEqual(want, got);
+    if (want != .whole) return;
+    try std.testing.expectEqualStrings(body, list.items);
+    // What follows the body is the next request's, and is left unread.
+    var left: std.ArrayList(u8) = .empty;
+    defer left.deinit(gpa);
+    try in.interface.appendRemainingUnlimited(gpa, &left);
+    try std.testing.expectEqualStrings(rest, left.items);
+}
+
+test "readBody reads chunks as RFC 9112 writes them, and refuses every other form" {
+    const long: [5000]u8 = @splat('x');
+    const cases = [_]struct { []const u8, Body, []const u8, []const u8 }{
+        // Chunks, extensions, and trailers.
+        .{ "0\r\n\r\n", .whole, "", "" },
+        .{ "3\r\nabc\r\n0\r\n\r\nNEXT", .whole, "abc", "NEXT" },
+        .{ "1\r\na\r\n2\r\nbc\r\n0\r\n\r\n", .whole, "abc", "" },
+        .{ "A\r\n0123456789\r\n0\r\n\r\n", .whole, "0123456789", "" },
+        .{ "a\r\n0123456789\r\n00\r\n\r\n", .whole, "0123456789", "" },
+        .{ "0000000000000003\r\nabc\r\n0\r\n\r\n", .whole, "abc", "" },
+        .{ "3;x=y\r\nabc\r\n0;z\r\n\r\n", .whole, "abc", "" },
+        .{ "3\r\nabc\r\n0\r\nA: b\r\nC:d\r\n\r\nNEXT", .whole, "abc", "NEXT" },
+        .{ "3\r\na\r\n\r\n0\r\n\r\n", .whole, "a\r\n", "" },
+        // A size that is not 1 to 16 hex digits, then nothing or `;`.
+        .{ "\r\n", .bad, "", "" },
+        .{ ";x\r\n", .bad, "", "" },
+        .{ " 3\r\nabc\r\n0\r\n\r\n", .bad, "", "" },
+        .{ "3 \r\nabc\r\n0\r\n\r\n", .bad, "", "" },
+        .{ "3 ;x\r\nabc\r\n0\r\n\r\n", .bad, "", "" },
+        .{ "1g\r\n", .bad, "", "" },
+        .{ "z\r\n", .bad, "", "" },
+        .{ "0x3\r\nabc\r\n", .bad, "", "" },
+        .{ "-1\r\n", .bad, "", "" },
+        .{ "+3\r\nabc\r\n", .bad, "", "" },
+        .{ "3,4\r\nabc\r\n", .bad, "", "" },
+        .{ "00000000000000003\r\nabc\r\n0\r\n\r\n", .bad, "", "" },
+        // A line not ended by CRLF, or holding another CR or a NUL.
+        .{ "3\nabc\r\n0\r\n\r\n", .bad, "", "" },
+        .{ "3;\nxx\r\n36\r\n0\r\n\r\n", .bad, "", "" },
+        .{ "3;a\rb\r\nabc\r\n0\r\n\r\n", .bad, "", "" },
+        .{ "3;a\x00\r\nabc\r\n0\r\n\r\n", .bad, "", "" },
+        .{ "3;" ++ long ++ "\r\nabc\r\n0\r\n\r\n", .bad, "", "" },
+        // Data not followed by CRLF.
+        .{ "3\r\nabcXX0\r\n\r\n", .bad, "", "" },
+        .{ "3\r\nabc\n0\r\n\r\n", .bad, "", "" },
+        .{ "3\r\nabcd\r\n0\r\n\r\n", .bad, "", "" },
+        // Trailers that are no header lines; a short first one does not
+        // end them.
+        .{ "0\r\nNoColon\r\n\r\n", .bad, "", "" },
+        .{ "0\r\nA : b\r\n\r\n", .bad, "", "" },
+        .{ "0\r\n A: b\r\n\r\n", .bad, "", "" },
+        .{ "0\r\n: b\r\n\r\n", .bad, "", "" },
+        .{ "0\r\nA: b\n\r\n", .bad, "", "" },
+        .{ "0\r\na:b\r\nGET /admin HTTP/1.1\r\nX: y\r\n\r\n", .bad, "", "" },
+        .{ "0\r\na:\r\nGET /admin HTTP/1.1\r\nX: y\r\n\r\n", .bad, "", "" },
+        .{ "0\r\nA: " ++ long ++ "\r\n\r\n", .bad, "", "" },
+        // Past the limit of 10: data, a size, or extensions.
+        .{ "B\r\n0123456789a\r\n0\r\n\r\n", .too_large, "", "" },
+        .{ "5\r\nabcde\r\n6\r\nabcdef\r\n0\r\n\r\n", .too_large, "", "" },
+        .{ "FFFFFFFFFFFFFFFF\r\nX", .too_large, "", "" },
+        .{ "FFFFFFFFFFFFFFFE\r\nX", .too_large, "", "" },
+        .{ "1;0123456789a\r\nX\r\n0\r\n\r\n", .too_large, "", "" },
+        // Cut short.
+        .{ "", .cut, "", "" },
+        .{ "3", .cut, "", "" },
+        .{ "3\r", .cut, "", "" },
+        .{ "3\r\nab", .cut, "", "" },
+        .{ "3\r\nabc", .cut, "", "" },
+        .{ "3\r\nabc\r", .cut, "", "" },
+        .{ "3\r\nabc\r\n", .cut, "", "" },
+        .{ "3\r\nabc\r\n0\r\n", .cut, "", "" },
+        .{ "3\r\nabc\r\n0\r\nA: b\r\n", .cut, "", "" },
+    };
+    for (cases) |case| {
+        const wire, const want, const body, const rest = case;
+        for ([_]usize{ wire.len + 1, 1, 3, 17 }) |step| {
+            expectBody(wire, true, null, 10, step, want, body, rest) catch |err| {
+                std.debug.print("chunks {f}, {d} at a time\n", .{ std.zig.fmtString(wire[0..@min(wire.len, 60)]), step });
+                return err;
+            };
+        }
+    }
+}
+
+test "readBody reads a length's bytes, and a body cut short is not whole" {
+    for ([_]usize{ 100, 1, 3 }) |step| {
+        try expectBody("", false, 0, 10, step, .whole, "", "");
+        try expectBody("abc", false, 3, 10, step, .whole, "abc", "");
+        try expectBody("abcNEXT", false, 3, 10, step, .whole, "abc", "NEXT");
+        try expectBody("ab", false, 3, 10, step, .cut, "", "");
+        try expectBody("", false, 3, 10, step, .cut, "", "");
     }
 }
 
