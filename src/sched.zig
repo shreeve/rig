@@ -189,8 +189,8 @@ const Worker = struct {
     /// A timer set earlier kicks it (`kickForTimer`).
     sleep_due: std.atomic.Value(i64) = .init(awake),
     /// Whether its last wait in its poller ended with fibers to run
-    /// within `brief_wait`, so its next sleep waits first with a near
-    /// deadline (`settle_wait`).
+    /// within `brief_wait`, so its next sleep, while its poller holds
+    /// descriptors, waits first with a near deadline (`settle_wait`).
     woke_soon: bool = true,
     /// When its yield checks last looked at its poller (`serviceBusy`).
     polled_at: i96 = 0,
@@ -2483,17 +2483,20 @@ const watcher = split.cell(&watcher_var, "sched.watcher");
 const watch_every: i96 = std.time.ns_per_ms;
 
 /// On the Mac, how long at most the first wait of a sleep lasts, for a
-/// worker whose last wait ended with fibers to run within `brief_wait`.
-/// macOS wakes a thread blocked in a kqueue about 2 µs sooner when its
-/// wait ends within about 50 µs than when it ends later or never (2.2 to
-/// 3.4 µs from the event against 4.5 to 5.3, macOS 27), and a worker whose
-/// waits end soon, as one that answers a socket of its own program,
-/// mostly has its next event within a few µs: bench/net's connections
-/// are made 12% faster so. A first wait that ends with nothing goes round
-/// the sleep again (`sleep`) and waits as long as it must. A worker whose
-/// waits last, as a server's under load from outside does, waits with no
-/// deadline of its own, and takes no timer interrupt for it. Linux's
-/// waits are in milliseconds, and wait so at once.
+/// worker whose poller holds descriptors and whose last wait ended with
+/// fibers to run within `brief_wait`. macOS wakes a thread blocked in a
+/// kqueue about 2 µs sooner when its wait ends within about 50 µs than
+/// when it ends later or never (2.2 to 3.4 µs from the event against 4.5
+/// to 5.3, macOS 27), and a worker whose waits end soon, as one that
+/// answers a socket of its own program, mostly has its next event within
+/// a few µs: bench/net's connections are made 12% faster so. A first wait
+/// that ends with nothing goes round the sleep again (`sleep`) and waits
+/// as long as it must. A worker whose waits last, as a server's under
+/// load from outside does, waits with no deadline of its own, and takes
+/// no timer interrupt for it; so does one that holds no descriptors,
+/// woken only by kicks and timers, whose sleeps a near deadline only
+/// breaks up (bench/tasks' spawn 10% slower). Linux's waits are in
+/// milliseconds, and wait so at once.
 const settle_wait: i96 = if (Poller.darwin) 20 * std.time.ns_per_us else 0;
 const brief_wait: i96 = 50 * std.time.ns_per_us;
 
@@ -4263,7 +4266,7 @@ fn sleep(w: *Worker) void {
     defer endBatch(w, opened);
     // Its first wait ends soon after the work it ran, when its waits
     // have (`settle_wait`).
-    var settle = settle_wait != 0 and w.woke_soon;
+    var settle = settle_wait != 0 and w.woke_soon and w.poller.count.load(.monotonic) != 0;
     while (w.woken.load(.seq_cst) == 0) {
         serviceAll();
         if (!hasOwnWork(w)) {
