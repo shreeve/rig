@@ -184,6 +184,27 @@ const Worker = struct {
     /// 1 while it sleeps, so a thread that adds to `pinned` kicks its
     /// poller.
     idle: std.atomic.Value(u32) = .init(0),
+    /// Set by the worker that holds its poller (`Poller.holder`) when
+    /// events wait there while this one runs fibers: it looks at its
+    /// poller as it next picks a fiber (`next`), one load a turn, so
+    /// they run here, at most one fiber's run late.
+    ring_bell: std.atomic.Value(u32) = .init(0),
+    /// The worker whose poller this one holds while it sleeps
+    /// (`holdPoller`): written only by this worker, read by `notify`,
+    /// which wakes a sleeper that holds none first.
+    holds: ?*Worker = null,
+    /// The worker it last found it could hold, and that worker's `slept`
+    /// then: it takes the hold only when that worker has stayed awake
+    /// since (`holdPoller`).
+    hold_seen: ?*Worker = null,
+    hold_seen_slept: u64 = 0,
+    /// What `RIG_SCHED_STATS=1` prints of the holds (`printStats`): the
+    /// holds it took, the rings it read, the bells it answered, and the
+    /// events of a stuck worker it took.
+    held: u64 = 0,
+    rang: u64 = 0,
+    answered: u64 = 0,
+    took: u64 = 0,
     /// When its sleep in its poller ends: the earliest deadline any
     /// worker held as it went to sleep, `no_due` for none, or `awake`.
     /// A timer set earlier kicks it (`kickForTimer`).
@@ -580,6 +601,7 @@ fn serviceBusy(w: *Worker) void {
     if (due <= now) _ = w.timers.fire(now);
     if (polls and now - w.polled_at >= poll_interval) {
         w.polled_at = now;
+        if (w.ring_bell.load(.monotonic) != 0) w.ring_bell.store(0, .seq_cst);
         _ = w.poller.poll(0);
     }
 }
@@ -2184,8 +2206,10 @@ fn kickForTimer(due: i64) void {
 /// registration is never freed while its events are handled (`close`);
 /// a worker that runs fibers polls it every 61 turns, and its yield
 /// checks every `poll_interval` (`serviceBusy`), and a worker about to
-/// sleep polls the others' (`serviceAll`), so a busy worker's
-/// descriptors wait no longer than its next turns.
+/// sleep polls the others' that no sleeping worker holds (`serviceAll`),
+/// so a busy worker's descriptors wait no longer than its next turns. A
+/// held one's events wake its holder, which rings the bell of the busy
+/// worker, or takes them once it is stuck (`holdPoller`).
 const Poller = struct {
     fd: i32 = -1,
     /// Linux: the eventfd that wakes it (`kick`).
@@ -2205,6 +2229,24 @@ const Poller = struct {
     /// and whether `os.exit` claimed it there (`ExitClaim`), so the worker
     /// stops as it wakes, before it reads a single event (`tearDown`).
     parked: std.atomic.Value(ExitClaim) = .init(.awake),
+    /// The sleeping worker that holds this poller (`holdPoller`): its own
+    /// poller watches this one's descriptor, readable while events wait
+    /// here, and rings this worker's bell when they come while this
+    /// worker runs fibers, or takes them when it is stuck in one
+    /// (`checkBell`). Its watch is armed (`armed`, under `hold_lock`,
+    /// which orders every change to it) only while this worker is out
+    /// of its sleep (`owner_waits`), whose wait sees the events itself.
+    holder: std.atomic.Value(?*Worker) = .init(null),
+    owner_waits: std.atomic.Value(bool) = .init(false),
+    hold_lock: SpinLock = .{},
+    armed: std.atomic.Value(bool) = .init(false),
+    /// Once the watch reported and rang this worker's bell: when, by the
+    /// clock of whichever worker read the report, and this worker's
+    /// `ran` then, which the holder checks (`checkBell`); 0 once the
+    /// watch is armed again. While the watch is armed or a check is due,
+    /// the poller is covered (`holdCovers`).
+    bell_at: std.atomic.Value(i64) = .init(0),
+    bell_ran: std.atomic.Value(u64) = .init(0),
     /// The events a look or a wait reads, which only the holder of `lock`
     /// touches: kept here, as nginx keeps its event list, and not on the
     /// stack, where a safe build would fill them before every call.
@@ -2349,6 +2391,46 @@ const Poller = struct {
         _ = p.count.fetchSub(1, .monotonic);
     }
 
+    /// What an event for another worker's poller watched here carries
+    /// (`holdPoller`): that worker's address, which is aligned, with this bit.
+    const hold_mark = 2;
+
+    const HoldOp = enum { add_off, add_on, enable, disable, delete };
+
+    /// Watch the poller of worker `v` from this one (`holdPoller`): its
+    /// descriptor, a kqueue's or an epoll's, polls readable while events
+    /// wait in it (epoll(7), Q3), and an event for it here takes none of
+    /// them. Reported once, then off until enabled again (kqueue's
+    /// EV_DISPATCH, epoll's EPOLLONESHOT). Without the poller's lock: it
+    /// changes only that watch, under `v`'s `hold_lock`. Whether the
+    /// kernel took it: both refuse a watch that would close a loop of
+    /// pollers watching each other.
+    fn holdChange(p: *Poller, v: *Worker, op: HoldOp) bool {
+        if (darwin) {
+            const flags: u16 = switch (op) {
+                .add_off => std.c.EV.ADD | std.c.EV.DISPATCH | std.c.EV.DISABLE,
+                .add_on => std.c.EV.ADD | std.c.EV.DISPATCH,
+                .enable => std.c.EV.ENABLE,
+                .disable => std.c.EV.DISABLE,
+                .delete => std.c.EV.DELETE,
+            };
+            const ev: std.c.Kevent = .{ .ident = @intCast(v.poller.fd), .filter = std.c.EVFILT.READ, .flags = flags, .fflags = 0, .data = 0, .udata = @intFromPtr(v) | hold_mark };
+            var none: [1]std.c.Kevent = undefined;
+            return std.c.kevent(p.fd, @ptrCast(&ev), 1, &none, 0, null) >= 0;
+        } else if (linux) {
+            const linux_ = std.os.linux;
+            const on = op == .add_on or op == .enable;
+            var ev: linux_.epoll_event = .{ .events = linux_.EPOLL.ONESHOT | @as(u32, if (on) linux_.EPOLL.IN else 0), .data = .{ .ptr = @intFromPtr(v) | hold_mark } };
+            const ctl: u32 = switch (op) {
+                .add_off, .add_on => linux_.EPOLL.CTL_ADD,
+                .delete => linux_.EPOLL.CTL_DEL,
+                else => linux_.EPOLL.CTL_MOD,
+            };
+            return @as(isize, @bitCast(linux_.epoll_ctl(p.fd, ctl, v.poller.fd, &ev))) >= 0;
+        }
+        return false;
+    }
+
     /// Wait up to `timeout` nanoseconds (0: only look; null: until an
     /// event) for events, and wake the fibers waiting on what they make
     /// ready; whether any. One who cannot take the lock does nothing,
@@ -2415,6 +2497,10 @@ const Poller = struct {
                     room.* = true;
                     continue;
                 }
+                if (ev.udata & hold_mark != 0) {
+                    rung(@ptrFromInt(ev.udata & ~@as(usize, hold_mark)));
+                    continue;
+                }
                 const r: *Registration = @ptrFromInt(ev.udata);
                 // An end (EV_EOF) is its own filter's readiness: the end
                 // of reading wakes the reader, the end of writing (this
@@ -2442,6 +2528,10 @@ const Poller = struct {
                 }
                 if (ev.data.ptr == out_mark) {
                     room.* = true;
+                    continue;
+                }
+                if (ev.data.ptr & hold_mark != 0) {
+                    rung(@ptrFromInt(ev.data.ptr & ~@as(usize, hold_mark)));
                     continue;
                 }
                 const r: *Registration = @ptrFromInt(ev.data.ptr);
@@ -2476,7 +2566,7 @@ const watch_every: i96 = std.time.ns_per_ms;
 fn busyDescriptors(w: ?*Worker) bool {
     for (workersNow()) |*v| {
         if (v == w) continue;
-        if (v.poller.count.load(.monotonic) != 0 and v.idle.load(.seq_cst) == 0) return true;
+        if (v.poller.count.load(.monotonic) != 0 and v.idle.load(.seq_cst) == 0 and !holdCovers(v)) return true;
     }
     return false;
 }
@@ -2487,7 +2577,7 @@ fn busyDescriptors(w: ?*Worker) bool {
 fn watchWanted(w: *Worker) bool {
     if (busyDescriptors(w)) return true;
     for (workersNow()) |*v| {
-        if (v == w or v.poller.count.load(.monotonic) == 0) continue;
+        if (v == w or v.poller.count.load(.monotonic) == 0 or holdCovers(v)) continue;
         if (v.slept.load(.monotonic) != v.watch_mark.load(.monotonic)) return true;
     }
     return false;
@@ -2524,6 +2614,222 @@ fn passWatch() void {
     sleepers.lock.unlock();
     if (next_up) |v| v.poller.kick();
 }
+
+/// How long the worker whose poller is held may run one fiber, with its
+/// bell rung, before its holder takes the events itself (`checkBell`):
+/// longer than a request's own work (bench/mixed hashes for about
+/// 30 µs), so a worker that switches runs its own events, in cache. A
+/// bell unanswered twice as long is taken whatever the worker runs.
+const stuck_after: i96 = 50 * std.time.ns_per_us;
+
+/// How soon after a ring the holder arms its watch again: a busy worker's
+/// poller is ready again almost at once, and each report wakes the
+/// holder, so it reports at most once in this long, and an event behind
+/// a busy worker waits about this long at most, not the watch's 1 ms.
+const rearm_after: i96 = 200 * std.time.ns_per_us;
+
+/// Whether a holder covers `v`'s poller: its watch is armed, or it rang
+/// and its holder will check (`checkBell`). Only then do the other
+/// sleepers and the watch pass it by (`serviceAll`, `busyDescriptors`);
+/// otherwise, as while its worker is in its sleep between waits, they
+/// look at it as at any other.
+fn holdCovers(v: *Worker) bool {
+    const p = &v.poller;
+    if (p.holder.load(.monotonic) == null) return false;
+    return p.armed.load(.monotonic) or p.bell_at.load(.monotonic) != 0;
+}
+
+/// `w`, going to sleep, holds the poller of a worker that is awake and
+/// holds descriptors, if one has no holder: its own poller watches that
+/// poller's descriptor (`Poller.holdChange`), so events there while that
+/// worker runs fibers wake `w` at once, and `w` rings its bell
+/// (`rung`), where they used to wait for that worker's next look, every
+/// 61 turns, or for the watcher, every millisecond. The watch is armed
+/// only while that worker is out of its sleep: `holder` is stored
+/// before `owner_waits` is read, and the worker stores `owner_waits`
+/// before it reads `holder` (`ownerWaits`), all sequentially consistent,
+/// so one of them sees the other, and every change to the watch is made
+/// under its `hold_lock`.
+fn holdPoller(w: *Worker) void {
+    for (workersNow()) |*v| {
+        if (v == w or v.poller.count.load(.monotonic) == 0 or v.idle.load(.monotonic) != 0) continue;
+        if (v.poller.holder.load(.monotonic) != null) continue;
+        // Only a worker that stays awake from one of this worker's looks
+        // to the next: one that sleeps and wakes many times a
+        // millisecond, as tasks answering each other over sockets do,
+        // waits in its own poller often enough, and a hold taken and let
+        // go at that rate costs more than it saves.
+        const slept = v.slept.load(.monotonic);
+        if (w.hold_seen != v or w.hold_seen_slept != slept) {
+            w.hold_seen = v;
+            w.hold_seen_slept = slept;
+            return;
+        }
+        if (v.poller.holder.cmpxchgStrong(null, w, .seq_cst, .monotonic) != null) continue;
+        const p = &v.poller;
+        p.hold_lock.lock();
+        defer p.hold_lock.unlock();
+        const on = !p.owner_waits.load(.seq_cst);
+        if (!w.poller.holdChange(v, if (on) .add_on else .add_off)) {
+            // Refused: let go, and the poller is the watch's and the
+            // sleepers' to look at again.
+            p.holder.store(null, .seq_cst);
+            continue;
+        }
+        p.bell_at.store(0, .seq_cst);
+        p.armed.store(on, .seq_cst);
+        @atomicStore(?*Worker, &w.holds, v, .monotonic);
+        w.held += 1;
+        return;
+    }
+}
+
+/// `w` leaves its sleep: it lets go of the poller it holds, its watch
+/// taken out, so no watch is left to close a loop of pollers watching
+/// each other. That poller's events are then the watch's and the
+/// sleepers' to look at (`serviceAll`), as any busy worker's are.
+fn releaseHold(w: *Worker) void {
+    const v = w.holds orelse return;
+    @atomicStore(?*Worker, &w.holds, null, .monotonic);
+    const p = &v.poller;
+    p.hold_lock.lock();
+    defer p.hold_lock.unlock();
+    _ = w.poller.holdChange(v, .delete);
+    p.armed.store(false, .seq_cst);
+    p.bell_at.store(0, .seq_cst);
+    p.holder.store(null, .seq_cst);
+}
+
+/// Before `w` first waits in its poller in a sleep: the wait sees the
+/// events there itself, so its holder's watch goes off, and stays off
+/// until `w` leaves its sleep (`ownerWakes`). A watch armed has the
+/// worker that armed it as `holder` still: one lets go of it, under the
+/// lock, only once it is off (`releaseHold`). Off, the poller is covered
+/// by no holder (`holdCovers`), so between its waits, while it trims its
+/// heap, say, the other sleepers look at it as before.
+fn ownerWaits(w: *Worker) void {
+    const p = &w.poller;
+    p.owner_waits.store(true, .seq_cst);
+    if (p.holder.load(.seq_cst) == null) return;
+    p.hold_lock.lock();
+    defer p.hold_lock.unlock();
+    const h = p.holder.load(.monotonic) orelse return;
+    if (p.armed.load(.monotonic)) _ = h.poller.holdChange(w, .disable);
+    p.armed.store(false, .seq_cst);
+    p.bell_at.store(0, .seq_cst);
+}
+
+/// `w`, having waited in its poller, leaves its sleep to run fibers: its
+/// bell, rung before it waited, was answered by the wait, and its
+/// holder's watch goes on again. An event since the wait reports at
+/// once as the watch goes on, as kqueue and epoll report a descriptor
+/// already readable.
+fn ownerWakes(w: *Worker) void {
+    const p = &w.poller;
+    w.ring_bell.store(0, .monotonic);
+    p.owner_waits.store(false, .seq_cst);
+    if (p.holder.load(.seq_cst) == null) return;
+    p.hold_lock.lock();
+    defer p.hold_lock.unlock();
+    const h = p.holder.load(.monotonic) orelse return;
+    if (!p.armed.load(.monotonic)) _ = h.poller.holdChange(w, .enable);
+    p.armed.store(true, .seq_cst);
+    p.bell_at.store(0, .seq_cst);
+}
+
+/// A holder's watch reported events waiting in `v`'s poller, and is off
+/// now. Unless `v` waits in its poller, whose wait takes them, ring its
+/// bell: `v` looks at its poller as it next picks a fiber
+/// (`answerBell`). The ring takes none of the events, so a ring `v`
+/// misses as it goes to sleep leaves them for its wait. The ring is noted
+/// on the poller, with the time by this worker's clock and `v`'s count of
+/// switches (`ran`), so that `v`'s switch costs it no clock, and the
+/// poller stays covered until its holder checks (`checkBell`); a report
+/// read by a worker other than the holder (a look at the holder's
+/// poller) kicks the holder, which checks.
+fn rung(v: *Worker) void {
+    if (builtin.is_test) _ = test_rings.fetchAdd(1, .monotonic);
+    const p = &v.poller;
+    const by = me();
+    if (by) |x| x.rang += 1;
+    if (!p.owner_waits.load(.seq_cst)) {
+        if (p.bell_at.load(.monotonic) == 0) {
+            p.bell_ran.store(@atomicLoad(u64, &v.ran, .monotonic), .monotonic);
+            p.bell_at.store(@intCast(nowNs()), .seq_cst);
+        }
+        v.ring_bell.store(1, .seq_cst);
+    }
+    p.hold_lock.lock();
+    p.armed.store(false, .seq_cst);
+    p.hold_lock.unlock();
+    if (p.holder.load(.seq_cst)) |h| if (h != by) h.poller.kick();
+}
+
+/// When the holder `w` next checks the poller it holds (`checkBell`), or
+/// null for none: `stuck_after` after the ring while the bell is
+/// unanswered, twice that once it ran on, `rearm_after` once answered.
+fn bellDue(w: *Worker) ?i96 {
+    const v = w.holds orelse return null;
+    const at: i96 = v.poller.bell_at.load(.seq_cst);
+    if (at == 0) return null;
+    if (v.ring_bell.load(.monotonic) == 0 or v.poller.owner_waits.load(.monotonic)) return at + rearm_after;
+    const ran = @atomicLoad(u64, &v.ran, .monotonic);
+    return if (ran == v.poller.bell_ran.load(.monotonic)) at + stuck_after else at + 2 * stuck_after;
+}
+
+/// A holder, after its wait: once the bell has gone unanswered
+/// `stuck_after` while the worker ran one fiber (its `ran` unchanged and
+/// a fiber current), or twice that in all, it takes the events itself, a
+/// look at that poller whose fibers it runs (its sleep's batch), and arms
+/// its watch again; once the bell was answered, or the worker went to
+/// sleep, it arms the watch again `rearm_after` after the ring.
+fn checkBell(w: *Worker) void {
+    const v = w.holds orelse return;
+    const p = &v.poller;
+    const at: i96 = p.bell_at.load(.seq_cst);
+    if (at == 0) return;
+    const since = nowNs() - at;
+    if (since < stuck_after) return;
+    if (!p.owner_waits.load(.seq_cst) and v.ring_bell.load(.seq_cst) != 0) {
+        const ran = @atomicLoad(u64, &v.ran, .monotonic);
+        const running = @atomicLoad(?*Fiber, &v.current, .monotonic) != null;
+        if (!(running and ran == p.bell_ran.load(.monotonic)) and since < 2 * stuck_after) return;
+        v.ring_bell.store(0, .seq_cst);
+        if (builtin.is_test) _ = test_harvests.fetchAdd(1, .monotonic);
+        w.took += 1;
+        _ = p.poll(0);
+    } else if (since < rearm_after) return;
+    p.hold_lock.lock();
+    defer p.hold_lock.unlock();
+    if (p.holder.load(.monotonic) != w) return;
+    if (!p.armed.load(.monotonic) and !p.owner_waits.load(.seq_cst)) {
+        _ = w.poller.holdChange(v, .enable);
+        p.armed.store(true, .seq_cst);
+    }
+    p.bell_at.store(0, .seq_cst);
+}
+
+/// Test only: how many times a holder's watch reported (`rung`).
+var test_rings: std.atomic.Value(u32) = .init(0);
+
+/// Test only: how many times a holder took a stuck worker's events.
+var test_harvests: std.atomic.Value(u32) = .init(0);
+
+/// `w`'s bell was rung (`rung`): look at its poller now, as it picks its
+/// next fiber, so the events its holder saw run here, next, in a batch
+/// (`Batch`). A ring after the bell is cleared sets it again for the
+/// next turn.
+noinline fn answerBell(w: *Worker) void {
+    w.ring_bell.store(0, .seq_cst);
+    w.answered += 1;
+    if (builtin.is_test) _ = test_answers.fetchAdd(1, .monotonic);
+    const opened = beginBatch(w);
+    defer endBatch(w, opened);
+    _ = w.poller.poll(0);
+}
+
+/// Test only: how many times a worker answered its bell.
+var test_answers: std.atomic.Value(u32) = .init(0);
 
 /// The poller that watches stdout for room to write, or none: read and
 /// written only under the runtime's output lock (`watchStdout`), and
@@ -2855,12 +3161,16 @@ fn service(w: *Worker) void {
     const opened = beginBatch(w);
     defer endBatch(w, opened);
     if (w.timers.due.load(.acquire) != no_due) _ = w.timers.fire(nowNs());
-    if (w.poller.count.load(.monotonic) != 0) _ = w.poller.poll(0);
+    if (w.poller.count.load(.monotonic) != 0) {
+        // A look answers a bell rung before it.
+        if (w.ring_bell.load(.monotonic) != 0) w.ring_bell.store(0, .seq_cst);
+        _ = w.poller.poll(0);
+    }
 }
 
 /// Before a worker sleeps: wake the fibers whose timers are due on any
-/// worker, and those the events of any poller no worker sleeps in make
-/// ready.
+/// worker, and those the events of its own poller, and of any other no
+/// worker sleeps in or holds, make ready.
 fn serviceAll() void {
     deliverInterrupt();
     const by = me();
@@ -2869,7 +3179,12 @@ fn serviceAll() void {
     const now = nowNs();
     for (workersNow()) |*v| {
         _ = v.timers.fire(now);
-        if (v.poller.count.load(.monotonic) != 0) _ = v.poller.poll(0);
+        if (v.poller.count.load(.monotonic) == 0) continue;
+        // A poller another worker holds and covers is that holder's to
+        // watch, which rings its worker's bell (`holdPoller`): a look here
+        // would run its events away from the worker whose fibers they wake.
+        if (v != by and holdCovers(v)) continue;
+        _ = v.poller.poll(0);
     }
 }
 
@@ -3729,6 +4044,10 @@ fn printStats() void {
         else
             std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw })) catch continue;
         _ = std.posix.system.write(2, line.ptr, line.len);
+        if (w.held + w.rang + w.answered + w.took != 0) {
+            const hl = std.fmt.bufPrint(&buf, "rig: holds {d}: held {d}, rang {d}, answered {d}, took {d}\n", .{ i, w.held, w.rang, w.answered, w.took }) catch continue;
+            _ = std.posix.system.write(2, hl.ptr, hl.len);
+        }
     }
 }
 
@@ -3970,7 +4289,8 @@ fn loop(w: *Worker) void {
 }
 
 fn runFiber(w: *Worker, f: *Fiber) void {
-    w.ran += 1;
+    // Read by the worker that holds this one's poller (`checkBell`).
+    @atomicStore(u64, &w.ran, w.ran + 1, .monotonic);
     if (preempt) preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
     if (f.home != null) w.ran_pinned += 1;
     prepare(w, f);
@@ -4039,6 +4359,9 @@ fn next(w: *Worker) ?*Fiber {
         if (ready.items.len == 0) return null;
         return ready.swapRemove(random(ready.items.len));
     }
+    // Rung by the worker holding its poller: what it saw there runs
+    // next, here (`answerBell`).
+    if (w.ring_bell.load(.monotonic) != 0) answerBell(w);
     w.tick +%= 1;
     if (w.tick % 61 == 0) {
         service(w);
@@ -4232,6 +4555,17 @@ fn sleep(w: *Worker) void {
             if (held or watcher.load(.seq_cst) == null) passWatch();
         }
     }
+    // A holder lets go of the poller it holds as it leaves; one that
+    // waited in its own poller arms its holder's watch again.
+    var waited = false;
+    defer {
+        // A holder that lets go of a busy worker's poller has a sleeper
+        // hold it, or watch, unless one watches (`passWatch`).
+        const released = w.holds != null;
+        releaseHold(w);
+        if (waited) ownerWakes(w);
+        if (released and watcher.load(.seq_cst) == null) passWatch();
+    }
     // Once asleep `trim_wait`, it gives back what its heap holds free
     // (`trimIdle`), once a sleep, if its heap has grown since its last
     // trim (`trimWorth`); otherwise it sleeps with no timeout of its own.
@@ -4244,6 +4578,7 @@ fn sleep(w: *Worker) void {
     const opened = beginBatch(w);
     defer endBatch(w, opened);
     while (w.woken.load(.seq_cst) == 0) {
+        if (w.holds == null and workersNow().len >= 2) holdPoller(w);
         serviceAll();
         if (!hasOwnWork(w)) {
             w.sleep_due.store(no_due, .seq_cst);
@@ -4254,8 +4589,18 @@ fn sleep(w: *Worker) void {
                 const left = @max(since + w.trim_wait - nowReal(), 0);
                 timeout = if (timeout) |t| @min(t, left) else left;
             }
+            // A holder that rang wakes to see whether it was answered.
+            if (bellDue(w)) |at| {
+                const left = @max(at - nowNs(), 0);
+                timeout = if (timeout) |t| @min(t, left) else left;
+            }
+            if (!waited) {
+                waited = true;
+                ownerWaits(w);
+            }
             sleepIn(w, timeout);
             w.sleep_due.store(awake, .seq_cst);
+            checkBell(w);
             if (trim_due and w.woken.load(.seq_cst) == 0 and nowReal() - since >= w.trim_wait) {
                 trim_due = false;
                 trimmed = true;
@@ -4738,10 +5083,18 @@ const Sleepers = struct {
         _ = s.count.fetchAdd(1, .seq_cst);
     }
 
+    /// The newest sleeper, or, when it holds a busy worker's poller
+    /// (`holdPoller`) and the next holds none, the next: woken, a holder
+    /// lets go, and another sleeper must take its hold.
     fn pop(s: *Sleepers) ?*Worker {
         s.lock.lockApart();
         defer s.lock.unlockApart();
         const w = s.top orelse return null;
+        if (w.next_sleeper) |n| if (@atomicLoad(?*Worker, &w.holds, .monotonic) != null and @atomicLoad(?*Worker, &n.holds, .monotonic) == null) {
+            w.next_sleeper = n.next_sleeper;
+            _ = s.count.fetchSub(1, .seq_cst);
+            return n;
+        };
         s.top = w.next_sleeper;
         _ = s.count.fetchSub(1, .seq_cst);
         return w;
@@ -5478,7 +5831,7 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool)) void 
     prepare(w, f);
     spread(w);
     w.current = f;
-    w.ran += 1;
+    @atomicStore(u64, &w.ran, w.ran + 1, .monotonic);
     if (f.home != null) w.ran_pinned += 1;
     checkOffOwnStack(w);
     switchTo(&waiter.sp, f.sp);
@@ -8234,6 +8587,389 @@ test "an idle worker wakes for the descriptors of a busy one" {
     try std.testing.expect(Run.asleep);
     try std.testing.expect(on != null);
     try std.testing.expect(on != Run.home);
+}
+
+/// For the holder's tests: worker 0 runs a pinned fiber, which registers
+/// a pipe with its poller and spawns a reader waiting on it, then naps
+/// until worker 1, going to sleep while worker 0 is awake, holds its
+/// poller (`holdPoller`). What a round then does with worker 0 is the
+/// test's own.
+const HoldTest = struct {
+    home: ?*Worker = null,
+    fds: [2]i32 = .{ -1, -1 },
+    r: ?*Registration = null,
+    job: ?*Job(u8) = null,
+    /// When the byte was written, and when and where the reader woke.
+    wrote_at: std.atomic.Value(i64) = .init(0),
+    read_at: std.atomic.Value(i64) = .init(0),
+    read_on: std.atomic.Value(?*Worker) = .init(null),
+    /// The second pipe the reader answers on, when set (`answer`).
+    answer: i32 = -1,
+    /// How many times a holder's watch had reported as the reader woke.
+    rings_at_read: u32 = 0,
+
+    const Unit = struct {};
+
+    fn reader(_: *Unit, t: *HoldTest) u8 {
+        const r = t.r.?;
+        if (waitReady(r, Registration.readable, edges(r, Registration.readable), null, false) == .ready) {
+            t.rings_at_read = test_rings.load(.seq_cst);
+            t.read_at.store(@intCast(nowNs()), .seq_cst);
+            t.read_on.store(me(), .seq_cst);
+            if (t.answer >= 0) _ = std.posix.system.write(t.answer, "y", 1);
+        }
+        return 0;
+    }
+
+    /// Set up a round; whether worker 1 came to hold this worker's poller
+    /// within 2 s.
+    fn begin(t: *HoldTest) bool {
+        t.home = me();
+        t.fds = testPipe();
+        t.r = register(t.fds[0]).?;
+        t.read_on.store(null, .seq_cst);
+        t.read_at.store(0, .seq_cst);
+        t.job = spawn(u8, Unit, reader, .{t}, .{}, false, false).job;
+        const ready_by = nowNs() + 2 * std.time.ns_per_s;
+        testNap(std.time.ns_per_ms);
+        while (t.r.?.waiting.load(.seq_cst) == 0 and nowNs() < ready_by) testNap(std.time.ns_per_ms);
+        // Awake from here, with the descriptor: the other worker, woken as
+        // this one wakes (`passWatch`) or by its watch, holds its poller as
+        // it goes back to sleep.
+        while (nowNs() < ready_by) {
+            if (t.home.?.poller.holder.load(.seq_cst) != null and sleepers.count.load(.seq_cst) + 1 == workersNow().len) return true;
+            std.atomic.spinLoopHint();
+        }
+        return false;
+    }
+
+    fn write(t: *HoldTest) void {
+        t.wrote_at.store(@intCast(nowNs()), .seq_cst);
+        _ = std.posix.system.write(t.fds[1], "x", 1);
+    }
+
+    /// Spin, making no check, until the reader woke, or 2 s pass.
+    fn spinUntilRead(t: *HoldTest) void {
+        const give_up = nowNs() + 2 * std.time.ns_per_s;
+        while (t.read_on.load(.seq_cst) == null and nowNs() < give_up) std.atomic.spinLoopHint();
+    }
+
+    fn latency(t: *HoldTest) i96 {
+        if (t.read_on.load(.seq_cst) == null) return std.math.maxInt(i64);
+        return t.read_at.load(.seq_cst) - t.wrote_at.load(.seq_cst);
+    }
+
+    fn end(t: *HoldTest) void {
+        if (t.read_on.load(.seq_cst) == null) t.write();
+        const j = t.job.?;
+        _ = j.join();
+        j.free();
+        deregister(t.r.?);
+        _ = std.posix.system.close(t.fds[0]);
+        _ = std.posix.system.close(t.fds[1]);
+    }
+};
+
+test "a sleeping worker holds a busy worker's poller, and takes an event there behind a fiber that runs on, well within a millisecond" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var t: HoldTest = .{};
+        var held = false;
+        var best: i96 = std.math.maxInt(i64);
+        var on: ?*Worker = null;
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = pinHere();
+            // Best of up to ten rounds, so a loaded machine's late thread
+            // wake-up does not fail it.
+            var rounds: u32 = 0;
+            while (rounds < 10 and best >= 500 * std.time.ns_per_us) : (rounds += 1) {
+                held = t.begin();
+                const harvests = test_harvests.load(.seq_cst);
+                if (held) {
+                    // Runs on, making no check and no switch: its bell
+                    // goes unanswered, so its holder takes the event.
+                    t.write();
+                    t.spinUntilRead();
+                    if (t.latency() < best and test_harvests.load(.seq_cst) != harvests) {
+                        best = t.latency();
+                        on = t.read_on.load(.seq_cst);
+                    }
+                }
+                t.end();
+            }
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.held);
+    try std.testing.expect(Run.best < 500 * std.time.ns_per_us);
+    try std.testing.expect(Run.on != null and Run.on != Run.t.home);
+}
+
+test "a busy worker that switches answers the bell its holder rings, and runs the event itself" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var t: HoldTest = .{};
+        var held = false;
+        var best: i96 = std.math.maxInt(i64);
+        var on: ?*Worker = null;
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = pinHere();
+            var rounds: u32 = 0;
+            while (rounds < 10 and best >= 500 * std.time.ns_per_us) : (rounds += 1) {
+                held = t.begin();
+                const answers = test_answers.load(.seq_cst);
+                if (held) {
+                    t.write();
+                    // Switches every 10 µs, as a worker running short
+                    // requests does, but looks at its poller only when
+                    // rung (`answerBell`), or every 61 turns.
+                    const give_up = nowNs() + 2 * std.time.ns_per_s;
+                    while (t.read_on.load(.seq_cst) == null and nowNs() < give_up) {
+                        const until = nowNs() + 10 * std.time.ns_per_us;
+                        while (nowNs() < until) std.atomic.spinLoopHint();
+                        yield();
+                    }
+                    if (t.latency() < best and test_answers.load(.seq_cst) != answers) {
+                        best = t.latency();
+                        on = t.read_on.load(.seq_cst);
+                    }
+                }
+                t.end();
+            }
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.held);
+    try std.testing.expect(Run.best < 500 * std.time.ns_per_us);
+    try std.testing.expect(Run.on == Run.t.home);
+}
+
+test "as the busy worker waits in its poller its holder's watch goes off, and it runs its own event" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var t: HoldTest = .{};
+        var held = false;
+        var rings: u32 = 0;
+        var on: ?*Worker = null;
+        var lat: i96 = 0;
+        fn writer(tt: *HoldTest) void {
+            // Once worker 0 waits in its poller, a moment more, then the byte.
+            const home = tt.home.?;
+            const until = nowReal() + 2 * std.time.ns_per_s;
+            while (!home.poller.owner_waits.load(.seq_cst) and nowReal() < until) std.atomic.spinLoopHint();
+            _ = testSleepReal(2);
+            rings = test_rings.load(.seq_cst);
+            tt.write();
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = pinHere();
+            held = t.begin();
+            if (held) {
+                const th = std.Thread.spawn(.{}, writer, .{&t}) catch unreachable;
+                // Sleeps: worker 0 goes to wait in its poller.
+                const until = nowNs() + 200 * std.time.ns_per_ms;
+                while (t.read_on.load(.seq_cst) == null and nowNs() < until) testNap(20 * std.time.ns_per_ms);
+                th.join();
+                rings = t.rings_at_read -% rings;
+                on = t.read_on.load(.seq_cst);
+                lat = t.latency();
+            }
+            t.end();
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.held);
+    try std.testing.expect(Run.on == Run.t.home);
+    try std.testing.expect(Run.lat < 100 * std.time.ns_per_ms);
+    try std.testing.expectEqual(@as(u32, 0), Run.rings);
+}
+
+test "a busy worker blocked in a system call, waiting for what an event on its poller answers, is answered by its holder" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var t: HoldTest = .{};
+        var held = false;
+        var answered = std.atomic.Value(bool).init(false);
+        var rescued = std.atomic.Value(bool).init(false);
+        var on: ?*Worker = null;
+        var back: [2]i32 = .{ -1, -1 };
+        fn writer(tt: *HoldTest) void {
+            _ = testSleepReal(5);
+            tt.write();
+            // Unblocks worker 0 if no one answers in 5 s.
+            const until = nowReal() + 5 * std.time.ns_per_s;
+            while (!answered.load(.seq_cst) and nowReal() < until) _ = testSleepReal(1);
+            if (!answered.load(.seq_cst)) {
+                rescued.store(true, .seq_cst);
+                _ = std.posix.system.write(back[1], "z", 1);
+            }
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = pinHere();
+            // A blocking pipe: worker 0's read below blocks its thread, as
+            // a write to a full pipe whose reader waits for this program's
+            // answer does, outside its wait in its poller.
+            if (builtin.os.tag == .linux) _ = std.os.linux.pipe2(&back, .{}) else _ = std.c.pipe(&back);
+            t.answer = back[1];
+            held = t.begin();
+            if (held) {
+                const th = std.Thread.spawn(.{}, writer, .{&t}) catch unreachable;
+                var buf: [1]u8 = undefined;
+                _ = std.posix.system.read(back[0], &buf, 1);
+                answered.store(true, .seq_cst);
+                th.join();
+                on = t.read_on.load(.seq_cst);
+            }
+            t.end();
+            _ = std.posix.system.close(back[0]);
+            _ = std.posix.system.close(back[1]);
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.held);
+    try std.testing.expect(!Run.rescued.load(.seq_cst));
+    try std.testing.expect(Run.on != null and Run.on != Run.t.home);
+}
+
+test "a bell rung just as its worker goes to wait leaves the events to the wait, and the watch is off until it leaves its sleep" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    var owner: Worker = .{};
+    var holder: Worker = .{};
+    owner.poller.open();
+    defer owner.poller.close();
+    holder.poller.open();
+    defer holder.poller.close();
+    const fds = testPipe();
+    defer for (fds) |fd| {
+        _ = std.posix.system.close(fd);
+    };
+    var r: Registration = .{ .fd = fds[0], .poller = &owner.poller };
+    try std.testing.expect(owner.poller.add(fds[0], &r));
+    defer owner.poller.remove(fds[0]);
+    // The holder holds the owner's poller, its watch armed (`holdPoller`).
+    owner.poller.holder.store(&holder, .seq_cst);
+    try std.testing.expect(holder.poller.holdChange(&owner, .add_on));
+    owner.poller.armed.store(true, .seq_cst);
+    for ([_]bool{ true, false }) |ring_first| {
+        _ = std.posix.system.write(fds[1], "x", 1);
+        if (ring_first) {
+            // The holder rings before the owner, which does not switch
+            // again, goes to wait.
+            _ = holder.poller.poll(0);
+            try std.testing.expectEqual(@as(u32, 1), owner.ring_bell.load(.seq_cst));
+            ownerWaits(&owner);
+            // Its holder's watch off, the poller is covered by no one, so
+            // the other sleepers look at it while the owner is in its
+            // sleep between waits.
+            try std.testing.expect(!holdCovers(&owner));
+        } else {
+            // The owner goes to wait first: the watch is off, and its
+            // report, if it came before, rings no bell.
+            ownerWaits(&owner);
+            _ = holder.poller.poll(0);
+            try std.testing.expectEqual(@as(u32, 0), owner.ring_bell.load(.seq_cst));
+        }
+        try std.testing.expect(!owner.poller.armed.load(.seq_cst));
+        // The wait sees the byte at once.
+        const before = r.seen.load(.seq_cst);
+        const start = nowNs();
+        _ = owner.poller.poll(std.time.ns_per_s);
+        try std.testing.expect(nowNs() - start < std.time.ns_per_s / 2);
+        try std.testing.expect(r.seen.load(.seq_cst) != before);
+        var buf: [8]u8 = undefined;
+        _ = std.posix.system.read(fds[0], &buf, buf.len);
+        // Leaving its sleep, the bell is clear and the watch armed, and
+        // with nothing waiting in the owner's poller it reports nothing.
+        ownerWakes(&owner);
+        try std.testing.expectEqual(@as(u32, 0), owner.ring_bell.load(.seq_cst));
+        try std.testing.expect(owner.poller.armed.load(.seq_cst));
+        try std.testing.expect(holdCovers(&owner));
+        const rings = test_rings.load(.seq_cst);
+        _ = holder.poller.poll(0);
+        try std.testing.expectEqual(rings, test_rings.load(.seq_cst));
+    }
+}
+
+test "a ring read by another worker kicks the holder, which takes a stuck worker's events, and arms its watch again no sooner than its period after an answered ring" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    var owner: Worker = .{};
+    var holder: Worker = .{};
+    owner.poller.open();
+    defer owner.poller.close();
+    holder.poller.open();
+    defer holder.poller.close();
+    const fds = testPipe();
+    defer for (fds) |fd| {
+        _ = std.posix.system.close(fd);
+    };
+    var r: Registration = .{ .fd = fds[0], .poller = &owner.poller };
+    try std.testing.expect(owner.poller.add(fds[0], &r));
+    defer owner.poller.remove(fds[0]);
+    owner.poller.holder.store(&holder, .seq_cst);
+    holder.holds = &owner;
+    try std.testing.expect(holder.poller.holdChange(&owner, .add_on));
+    owner.poller.armed.store(true, .seq_cst);
+    // A byte, and the owner "runs one fiber" (a current fiber, its count
+    // of switches unchanged).
+    var f: Fiber = undefined;
+    owner.current = &f;
+    defer owner.current = null;
+    _ = std.posix.system.write(fds[1], "x", 1);
+    // Another worker's look at the holder's poller reads the report (here
+    // the test's thread, no worker): the ring is noted on the owner's
+    // poller, which stays covered, and the holder is kicked to check.
+    _ = holder.poller.poll(0);
+    try std.testing.expectEqual(@as(u32, 1), owner.ring_bell.load(.seq_cst));
+    try std.testing.expect(owner.poller.bell_at.load(.seq_cst) != 0);
+    try std.testing.expect(holdCovers(&owner));
+    try std.testing.expect(holder.poller.kicked.load(.seq_cst));
+    try std.testing.expect(bellDue(&holder) != null);
+    // Before `stuck_after` the holder takes nothing; after, the owner
+    // still in one fiber, it takes the byte and arms its watch.
+    const before = r.seen.load(.seq_cst);
+    checkBell(&holder);
+    try std.testing.expectEqual(before, r.seen.load(.seq_cst));
+    while (nowNs() < owner.poller.bell_at.load(.seq_cst) + stuck_after) std.atomic.spinLoopHint();
+    checkBell(&holder);
+    try std.testing.expect(r.seen.load(.seq_cst) != before);
+    try std.testing.expectEqual(@as(u32, 0), owner.ring_bell.load(.seq_cst));
+    try std.testing.expect(owner.poller.armed.load(.seq_cst));
+    try std.testing.expectEqual(@as(i64, 0), owner.poller.bell_at.load(.seq_cst));
+    var buf: [8]u8 = undefined;
+    _ = std.posix.system.read(fds[0], &buf, buf.len);
+    // A ring the owner answers: the watch stays off past `stuck_after`,
+    // and goes on only `rearm_after` after the ring.
+    _ = std.posix.system.write(fds[1], "x", 1);
+    _ = holder.poller.poll(0);
+    const at: i96 = owner.poller.bell_at.load(.seq_cst);
+    try std.testing.expect(at != 0);
+    _ = owner.poller.poll(0);
+    owner.ring_bell.store(0, .seq_cst);
+    _ = std.posix.system.read(fds[0], &buf, buf.len);
+    while (nowNs() < at + stuck_after) std.atomic.spinLoopHint();
+    checkBell(&holder);
+    try std.testing.expect(!owner.poller.armed.load(.seq_cst) or nowNs() >= at + rearm_after);
+    try std.testing.expectEqual(at + rearm_after, bellDue(&holder).?);
+    while (nowNs() < at + rearm_after) std.atomic.spinLoopHint();
+    checkBell(&holder);
+    try std.testing.expect(owner.poller.armed.load(.seq_cst));
+    try std.testing.expectEqual(@as(i64, 0), owner.poller.bell_at.load(.seq_cst));
 }
 
 fn testSleepReal(ms: u64) u64 {
