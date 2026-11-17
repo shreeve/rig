@@ -2213,15 +2213,19 @@ const Poller = struct {
     const darwin = builtin.os.tag.isDarwin();
     const linux = builtin.os.tag == .linux;
     const max_events = 64;
-    const Event = if (darwin) std.c.Kevent else if (linux) std.os.linux.epoll_event else void;
+    /// On the Mac the events are read by `kevent64`, whose
+    /// `KEVENT_FLAG_IMMEDIATE` returns at once from a look that finds
+    /// none: `kevent` with a zero timeout, or any short one, blocks the
+    /// thread about 12 µs and switches it out (macOS 27).
+    const Event = if (darwin) std.c.kevent64_s else if (linux) std.os.linux.epoll_event else void;
 
     fn open(p: *Poller) void {
         if (darwin) {
             p.fd = std.c.kqueue();
             if (p.fd < 0) failed("kqueue", p.fd);
-            const ev: std.c.Kevent = .{ .ident = 0, .filter = std.c.EVFILT.USER, .flags = std.c.EV.ADD | std.c.EV.CLEAR, .fflags = 0, .data = 0, .udata = 0 };
-            var none: [1]std.c.Kevent = undefined;
-            _ = std.c.kevent(p.fd, @ptrCast(&ev), 1, &none, 0, null);
+            const ev: std.c.kevent64_s = .{ .ident = 0, .filter = std.c.EVFILT.USER, .flags = std.c.EV.ADD | std.c.EV.CLEAR, .fflags = 0, .data = 0, .udata = 0, .ext = .{ 0, 0 } };
+            var none: [1]std.c.kevent64_s = undefined;
+            _ = std.c.kevent64(p.fd, @ptrCast(&ev), 1, &none, 0, .{}, null);
         } else if (linux) {
             const linux_ = std.os.linux;
             p.fd = @intCast(@as(isize, @bitCast(linux_.epoll_create1(linux_.EPOLL.CLOEXEC))));
@@ -2258,9 +2262,9 @@ const Poller = struct {
         // Not a lock, uncounted: nothing waits for the flag to clear.
         if (p.kicked.swap(true, .seq_cst)) return;
         if (darwin) {
-            const ev: std.c.Kevent = .{ .ident = 0, .filter = std.c.EVFILT.USER, .flags = 0, .fflags = std.c.NOTE.TRIGGER, .data = 0, .udata = 0 };
-            var none: [1]std.c.Kevent = undefined;
-            _ = std.c.kevent(p.fd, @ptrCast(&ev), 1, &none, 0, null);
+            const ev: std.c.kevent64_s = .{ .ident = 0, .filter = std.c.EVFILT.USER, .flags = 0, .fflags = std.c.NOTE.TRIGGER, .data = 0, .udata = 0, .ext = .{ 0, 0 } };
+            var none: [1]std.c.kevent64_s = undefined;
+            _ = std.c.kevent64(p.fd, @ptrCast(&ev), 1, &none, 0, .{}, null);
         } else if (linux) {
             const one: u64 = 1;
             _ = std.os.linux.write(p.kick_fd, std.mem.asBytes(&one), 8);
@@ -2274,12 +2278,12 @@ const Poller = struct {
             const flags = std.c.EV.ADD | std.c.EV.CLEAR;
             // NOTE_OOB: a socket's read event says urgent data waits
             // (`Registration.short_not_empty`).
-            const evs = [2]std.c.Kevent{
-                .{ .ident = @intCast(fd), .filter = std.c.EVFILT.READ, .flags = flags, .fflags = std.c.NOTE.OOB, .data = 0, .udata = @intFromPtr(r) },
-                .{ .ident = @intCast(fd), .filter = std.c.EVFILT.WRITE, .flags = flags, .fflags = 0, .data = 0, .udata = @intFromPtr(r) },
+            const evs = [2]std.c.kevent64_s{
+                .{ .ident = @intCast(fd), .filter = std.c.EVFILT.READ, .flags = flags, .fflags = std.c.NOTE.OOB, .data = 0, .udata = @intFromPtr(r), .ext = .{ 0, 0 } },
+                .{ .ident = @intCast(fd), .filter = std.c.EVFILT.WRITE, .flags = flags, .fflags = 0, .data = 0, .udata = @intFromPtr(r), .ext = .{ 0, 0 } },
             };
-            var none: [1]std.c.Kevent = undefined;
-            if (std.c.kevent(p.fd, &evs, 2, &none, 0, null) < 0) return false;
+            var none: [1]std.c.kevent64_s = undefined;
+            if (std.c.kevent64(p.fd, &evs, 2, &none, 0, .{}, null) < 0) return false;
         } else if (linux) {
             const linux_ = std.os.linux;
             var ev: linux_.epoll_event = .{ .events = linux_.EPOLL.IN | linux_.EPOLL.OUT | linux_.EPOLL.RDHUP | linux_.EPOLL.PRI | linux_.EPOLL.ET, .data = .{ .ptr = @intFromPtr(r) } };
@@ -2301,12 +2305,12 @@ const Poller = struct {
         }
         defer p.lock.unlock();
         if (darwin) {
-            const evs = [2]std.c.Kevent{
-                .{ .ident = @intCast(fd), .filter = std.c.EVFILT.READ, .flags = std.c.EV.DELETE, .fflags = 0, .data = 0, .udata = 0 },
-                .{ .ident = @intCast(fd), .filter = std.c.EVFILT.WRITE, .flags = std.c.EV.DELETE, .fflags = 0, .data = 0, .udata = 0 },
+            const evs = [2]std.c.kevent64_s{
+                .{ .ident = @intCast(fd), .filter = std.c.EVFILT.READ, .flags = std.c.EV.DELETE, .fflags = 0, .data = 0, .udata = 0, .ext = .{ 0, 0 } },
+                .{ .ident = @intCast(fd), .filter = std.c.EVFILT.WRITE, .flags = std.c.EV.DELETE, .fflags = 0, .data = 0, .udata = 0, .ext = .{ 0, 0 } },
             };
-            var none: [1]std.c.Kevent = undefined;
-            _ = std.c.kevent(p.fd, &evs, 2, &none, 0, null);
+            var none: [1]std.c.kevent64_s = undefined;
+            _ = std.c.kevent64(p.fd, &evs, 2, &none, 0, .{}, null);
         } else if (linux) {
             _ = std.os.linux.epoll_ctl(p.fd, std.os.linux.EPOLL.CTL_DEL, fd, null);
         }
@@ -2323,9 +2327,9 @@ const Poller = struct {
     /// False when the kernel refuses it.
     fn watchOut(p: *Poller) bool {
         if (darwin) {
-            const ev: std.c.Kevent = .{ .ident = 1, .filter = std.c.EVFILT.WRITE, .flags = std.c.EV.ADD | std.c.EV.CLEAR, .fflags = 0, .data = 0, .udata = out_mark };
-            var none: [1]std.c.Kevent = undefined;
-            if (std.c.kevent(p.fd, @ptrCast(&ev), 1, &none, 0, null) < 0) return false;
+            const ev: std.c.kevent64_s = .{ .ident = 1, .filter = std.c.EVFILT.WRITE, .flags = std.c.EV.ADD | std.c.EV.CLEAR, .fflags = 0, .data = 0, .udata = out_mark, .ext = .{ 0, 0 } };
+            var none: [1]std.c.kevent64_s = undefined;
+            if (std.c.kevent64(p.fd, @ptrCast(&ev), 1, &none, 0, .{}, null) < 0) return false;
         } else if (linux) {
             const linux_ = std.os.linux;
             var ev: linux_.epoll_event = .{ .events = linux_.EPOLL.OUT | linux_.EPOLL.ET, .data = .{ .ptr = out_mark } };
@@ -2340,9 +2344,9 @@ const Poller = struct {
     /// only has the next look write what fits again.
     fn unwatchOut(p: *Poller) void {
         if (darwin) {
-            const ev: std.c.Kevent = .{ .ident = 1, .filter = std.c.EVFILT.WRITE, .flags = std.c.EV.DELETE, .fflags = 0, .data = 0, .udata = 0 };
-            var none: [1]std.c.Kevent = undefined;
-            _ = std.c.kevent(p.fd, @ptrCast(&ev), 1, &none, 0, null);
+            const ev: std.c.kevent64_s = .{ .ident = 1, .filter = std.c.EVFILT.WRITE, .flags = std.c.EV.DELETE, .fflags = 0, .data = 0, .udata = 0, .ext = .{ 0, 0 } };
+            var none: [1]std.c.kevent64_s = undefined;
+            _ = std.c.kevent64(p.fd, @ptrCast(&ev), 1, &none, 0, .{}, null);
         } else if (linux) {
             _ = std.os.linux.epoll_ctl(p.fd, std.os.linux.EPOLL.CTL_DEL, 1, null);
         }
@@ -2397,14 +2401,16 @@ const Poller = struct {
         if (darwin) {
             const evs = &p.evs;
             var ts: std.c.timespec = undefined;
+            const now = wait != null and wait.? == 0;
             const tp: ?*const std.c.timespec = if (wait) |t| blk: {
+                if (now) break :blk null;
                 ts = .{ .sec = @intCast(@divTrunc(t, std.time.ns_per_s)), .nsec = @intCast(@mod(t, std.time.ns_per_s)) };
                 break :blk &ts;
             } else null;
             // A wait, not a look: `os.exit` may claim this worker while it
             // waits, and it then stops before it reads what woke it.
             if (tears_down and !look) p.parked.store(.waiting, .seq_cst);
-            const n = std.c.kevent(p.fd, evs, 0, evs, max_events, tp);
+            const n = std.c.kevent64(p.fd, evs, 0, evs, max_events, .{ .IMMEDIATE = now }, tp);
             if (tears_down and !look and p.parked.swap(.awake, .seq_cst) == .claimed) stopForExit(me().?, true);
             if (n <= 0) return false;
             for (evs[0..@intCast(n)]) |ev| {
@@ -7946,6 +7952,41 @@ test "a deterministic run waits for bytes on their way on a socket before its cl
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expectEqual(@as(u32, 0), Run.timeouts);
+}
+
+test "a look at a poller that holds no event returns at once, without giving up its thread" {
+    if (!builtin.target.os.tag.isDarwin() and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    var p: Poller = .{};
+    p.open();
+    defer p.close();
+    const fds = testPipe();
+    defer for (fds) |fd| {
+        _ = std.posix.system.close(fd);
+    };
+    var r: Registration = .{ .fd = fds[0], .poller = &p };
+    try std.testing.expect(p.add(fds[0], &r));
+    defer p.remove(fds[0]);
+    // 2000 looks, as a busy worker makes every 61 turns and a sleeper at
+    // each turn: on the Mac a `kevent` with a zero timeout gave up the
+    // thread at each, about 12 µs (24 ms in all); the immediate form
+    // takes about 0.15 µs. Best of three, against a loaded machine.
+    var best: i96 = std.math.maxInt(i64);
+    var fewest: isize = std.math.maxInt(isize);
+    for (0..3) |_| {
+        const before = std.posix.getrusage(std.posix.rusage.SELF);
+        const start = nowNs();
+        for (0..2000) |_| try std.testing.expect(!p.poll(0));
+        best = @min(best, nowNs() - start);
+        const after = std.posix.getrusage(std.posix.rusage.SELF);
+        fewest = @min(fewest, (after.nvcsw - before.nvcsw) + (after.nivcsw - before.nivcsw));
+    }
+    try std.testing.expect(best < 4 * std.time.ns_per_ms);
+    try std.testing.expect(fewest < 200);
+    // And a look that holds one still reports it.
+    _ = std.posix.system.write(fds[1], "x", 1);
+    const seen = r.seen.load(.seq_cst);
+    _ = p.poll(0);
+    try std.testing.expect(r.seen.load(.seq_cst) != seen);
 }
 
 test "a look at a poller leaves its kick for the worker that sleeps in it" {

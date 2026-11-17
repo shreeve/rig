@@ -134,7 +134,13 @@ worker after.
   filter) the writer, and a hang-up or failure both, so a split stream's
   reader sleeps on after its writer closes. A wait spends from a budget
   of 128 when it need not wait, so a descriptor always ready cannot keep
-  it on its worker.
+  it on its worker. On macOS
+  every call on a poller is a `kevent64`, and a look passes
+  `KEVENT_FLAG_IMMEDIATE`: a `kevent` with a zero timeout that finds no
+  event gives up the thread, about 12 µs and a context switch a look
+  (macOS 27), where the immediate form takes about 0.16 µs; and a
+  kqueue answers only the form it was first called with, so none is
+  mixed.
 - **Pinned fibers.** A local task, and the task that makes it, are
   pinned to its worker (`Fiber.home`, `sched.pinHere`). A pinned fiber
   that is ready waits in its worker's pinned queue, never a ring or the
