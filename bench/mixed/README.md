@@ -88,7 +88,10 @@ the machine first (`# bench-mixed ...`).
   and writes each request at its time, and one goroutine per connection
   that reads the answers) takes cores the servers would otherwise have,
   one of them whole. Its lateness is reported so the floor is visible:
-  about 5 µs at the 99th percentile.
+  about 5 µs at the 99th percentile on Linux. On the Mac the one thread
+  that writes every request is later, about 100 µs at 55,000 a second
+  and 470 to 650 at 100,000, where the sleeping generator's was 45 and
+  280: read the lateness column before a Mac tail.
 - **A generator that sleeps is not on time.** Until 2026-11-17 each
   connection's goroutine slept until its next request (`-pace sleep`
   still does). Go's timers wait in epoll, whose timeouts are whole
