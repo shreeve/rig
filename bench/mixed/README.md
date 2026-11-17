@@ -65,8 +65,9 @@ server:
 - **The figures.** Achieved throughput (answers a second in the
   window), the 50th, 99th and 99.9th percentile and the largest
   latency, the 99th percentile of `/` and of `/hash` apart, the
-  generator's own timer lateness (how late it woke for a request it was
-  waiting to send: the floor under every latency), and the cores each
+  generator's own lateness (how late it sent a request whose
+  connection was free at its time: the floor under every latency), and
+  the cores each
   process used over the window: the server's from its CPU time, read by
   bench-mixed when the generator marks the window's ends, and the
   generator's own.
@@ -83,9 +84,25 @@ the machine first (`# bench-mixed ...`).
 
 - **The load generator shares the machine.** On a loopback benchmark it
   must: a server that spends less CPU leaves more to the generator, and
-  the generator's own work (one goroutine per connection, a timer per
-  request) takes cores the servers would otherwise have. Its timer
-  lateness is reported so the floor is visible.
+  the generator's own work (one thread that reads the clock in a loop
+  and writes each request at its time, and one goroutine per connection
+  that reads the answers) takes cores the servers would otherwise have,
+  one of them whole. Its lateness is reported so the floor is visible:
+  about 5 µs at the 99th percentile on Linux. On the Mac the one thread
+  that writes every request is later, about 100 µs at 55,000 a second
+  and 470 to 650 at 100,000, where the sleeping generator's was 45 and
+  280: read the lateness column before a Mac tail.
+- **A generator that sleeps is not on time.** Until 2026-11-17 each
+  connection's goroutine slept until its next request (`-pace sleep`
+  still does). Go's timers wait in epoll, whose timeouts are whole
+  milliseconds, so a sleeper woke up to a millisecond late whenever
+  every thread of the generator was idle, and how often that was
+  depended on how the server's answers arrived: on pup at 80,000 a
+  second on one core its lateness was 585 µs at the 99th percentile
+  against Rig and 242 against hyper, and each server's p99 was that
+  lateness plus a constant (920 and 650 µs). Sent on time, the two
+  are level (50 and 51 µs). PROGRESS.md's rows before that date carry
+  the sleeping generator's lateness in their p99 and p99.9.
 - **One machine's loopback** has no network delay or loss, and its
   system calls dominate a trivial request's cost.
 - **Saturation** here is the machine's, server and generator together,

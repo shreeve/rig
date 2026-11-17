@@ -22,6 +22,19 @@
 // the window but not sent by its end counts with the latency it had
 // reached then, a lower bound.
 //
+// The requests are sent by one pacing thread that never sleeps: it reads
+// the clock in a loop and writes each request at its time, so a request
+// leaves within a few microseconds of when it was meant to (`-pace
+// spin`, the default). A sleeping generator is not on time: Go's timers
+// wait in epoll, whose timeouts are whole milliseconds, so a goroutine
+// asleep until its next request wakes up to a millisecond late whenever
+// every thread of the generator is idle, and how often that is depends
+// on how the server's answers arrive. `-pace sleep` paces that way, one
+// sleeping goroutine a connection, as this generator did until
+// 2026-11-17: against servers on pup its timer woke 50 to 700 µs late
+// at the 99th percentile, by the server, and each server's p99 was that
+// lateness plus a constant.
+//
 // For each rate it prints `mark` as its counted window opens and again
 // as it closes, then one line, latencies in microseconds:
 //
@@ -29,7 +42,7 @@
 //	COMPUTE_P99 TIMER_P99 LOAD_CORES
 //
 // ACHIEVED is answers a second over the window; TIMER_P99 is how late
-// this generator's own timer woke for a request it was waiting to send,
+// this generator sent a request whose connection was free at its time,
 // the floor under every latency; LOAD_CORES is the CPU time this
 // generator spent over the window, in cores.
 // Last it checks 100 of the idle connections still answer, and prints
@@ -45,10 +58,12 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -91,6 +106,11 @@ func roundTrip(c net.Conn, r *bufio.Reader, req, want []byte, body []byte) ([]by
 	if _, err := c.Write(req); err != nil {
 		return body, err
 	}
+	return readAnswer(r, want, body)
+}
+
+// Read one answer whole; fail unless its body is want.
+func readAnswer(r *bufio.Reader, want []byte, body []byte) ([]byte, error) {
 	length := -1
 	status := ""
 	for {
@@ -138,6 +158,7 @@ type connResult struct {
 	done    int // answers that came within the window
 	errors  int
 	err     error
+	read    int // paced: answers read
 }
 
 func dial(addr string) net.Conn {
@@ -211,6 +232,127 @@ func drive(c net.Conn, idx int, start, counted, end time.Time, interval time.Dur
 	}
 }
 
+// A connection paced by the pacing thread (`-pace spin`). At most one
+// request is on it at a time: `inflight` is held by whoever sends, the
+// pacer at a request's time or the reader as an answer comes with
+// requests overdue, and let go by the reader once the answer is read.
+type paced struct {
+	c        net.Conn
+	idx      int
+	conns    int
+	t0       time.Time
+	step     float64 // nanoseconds between the rate's requests
+	mix      int
+	due      atomic.Int32 // requests whose time has come, not yet sent
+	inflight atomic.Int32
+	next     int // the next request to send; its sender's alone
+	res      *connResult
+}
+
+var closing atomic.Bool
+
+func (p *paced) intended(i int) time.Time {
+	return p.t0.Add(time.Duration(float64(p.idx+i*p.conns) * p.step))
+}
+
+func (p *paced) request(i int) (req, want []byte, compute bool) {
+	if (p.idx+i)%p.mix == 0 {
+		s := (p.idx*7 + i) % seeds
+		return computeReq[s], computeAns[s], true
+	}
+	return trivialReq, trivialAns, false
+}
+
+// Send the next request that is due, if the connection is free. From
+// the pacer (`onTime`), how late it goes is the generator's own
+// lateness (`timer`), which only the pacer appends to.
+func (p *paced) pump(onTime bool, counted time.Time) {
+	for {
+		if !p.inflight.CompareAndSwap(0, 1) {
+			return
+		}
+		if closing.Load() || p.due.Load() == 0 {
+			p.inflight.Store(0)
+			if closing.Load() || p.due.Load() == 0 {
+				return
+			}
+			continue
+		}
+		p.due.Add(-1)
+		i := p.next
+		p.next++
+		req, _, _ := p.request(i)
+		if _, err := p.c.Write(req); err != nil {
+			// The reader's read fails too, and counts it.
+			return
+		}
+		if onTime {
+			if at := p.intended(i); !at.Before(counted) {
+				p.res.timer = append(p.res.timer, time.Since(at))
+			}
+		}
+		return
+	}
+}
+
+// Read the answers of one paced connection, in order, until the run
+// closes it.
+func (p *paced) read(counted, end time.Time) {
+	r := bufio.NewReaderSize(p.c, 4096)
+	var body []byte
+	res := p.res
+	for i := 0; ; i++ {
+		_, want, compute := p.request(i)
+		var err error
+		body, err = readAnswer(r, want, body)
+		got := time.Now()
+		if err != nil {
+			if !closing.Load() {
+				res.errors++
+				res.err = err
+			}
+			return
+		}
+		if at := p.intended(i); !at.Before(counted) {
+			res.sent++
+			if !got.After(end) {
+				res.done++
+			}
+			res.samples = append(res.samples, sample{got.Sub(at), compute})
+		}
+		res.read = i + 1
+		p.inflight.Store(0)
+		p.pump(false, counted)
+	}
+}
+
+// `runRate`'s connections, paced by this thread: request k of the rate
+// goes at t0 + k/rate on connection k mod conns, which is each
+// connection's i-th at its start + i*interval.
+func pace(ps []*paced, t0, counted, end time.Time, rate float64) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	step := float64(time.Second) / rate
+	k := 0
+	at := t0
+	for {
+		now := time.Now()
+		if !now.Before(end) {
+			return
+		}
+		for !at.After(now) {
+			if !at.Before(end) {
+				return
+			}
+			p := ps[k%len(ps)]
+			p.due.Add(1)
+			p.pump(true, counted)
+			k++
+			at = t0.Add(time.Duration(float64(k) * step))
+		}
+	}
+}
+
 func selfCPU() time.Duration {
 	var ru syscall.Rusage
 	syscall.Getrusage(syscall.RUSAGE_SELF, &ru)
@@ -233,7 +375,7 @@ func sorted(xs []time.Duration) []time.Duration {
 	return xs
 }
 
-func runRate(addr string, rate float64, conns int, warmup, duration time.Duration, mix int) {
+func runRate(addr string, rate float64, conns int, warmup, duration time.Duration, mix int, spin bool) {
 	cs := make([]net.Conn, conns)
 	for i := range cs {
 		cs[i] = dial(addr)
@@ -244,7 +386,35 @@ func runRate(addr string, rate float64, conns int, warmup, duration time.Duratio
 	counted := t0.Add(warmup)
 	end := counted.Add(duration)
 	var wg sync.WaitGroup
+	var ps []*paced
+	var paced_done sync.WaitGroup
+	if spin {
+		// No collection while the pacer runs: a pause would hold a
+		// request back. The samples have their room already.
+		defer debug.SetGCPercent(debug.SetGCPercent(-1))
+		room := int(rate*(warmup+duration).Seconds())/conns + 16
+		closing.Store(false)
+		for i := range cs {
+			results[i].samples = make([]sample, 0, room)
+			results[i].timer = make([]time.Duration, 0, room)
+			p := &paced{c: cs[i], idx: i, conns: conns, t0: t0, step: float64(time.Second) / rate, mix: mix, res: &results[i]}
+			ps = append(ps, p)
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				p.read(counted, end)
+			}()
+		}
+		paced_done.Add(1)
+		go func() {
+			defer paced_done.Done()
+			pace(ps, t0, counted, end, rate)
+		}()
+	}
 	for i := range cs {
+		if spin {
+			break
+		}
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -262,6 +432,36 @@ func runRate(addr string, rate float64, conns int, warmup, duration time.Duratio
 	time.Sleep(time.Until(end))
 	fmt.Println("mark")
 	me1 := selfCPU()
+	if spin {
+		// The pacer has stopped at the end; no reader sends once
+		// `closing` is set. A connection with a request out is given
+		// 5 s for its answer; then every reader's read is ended.
+		paced_done.Wait()
+		closing.Store(true)
+		limit := time.Now().Add(5 * time.Second)
+		for _, p := range ps {
+			for p.inflight.Load() != 0 && time.Now().Before(limit) {
+				time.Sleep(100 * time.Microsecond)
+			}
+			p.c.SetReadDeadline(time.Now())
+		}
+		wg.Wait()
+		// Meant for the window and not answered: never sent, or sent
+		// and still out; counted at the latency reached by the end.
+		for _, p := range ps {
+			for i := p.res.read; ; i++ {
+				at := p.intended(i)
+				if !at.Before(end) {
+					break
+				}
+				if !at.Before(counted) {
+					_, _, compute := p.request(i)
+					p.res.unsent++
+					p.res.samples = append(p.res.samples, sample{end.Sub(at), compute})
+				}
+			}
+		}
+	}
 	wg.Wait()
 	for _, c := range cs {
 		reset(c)
@@ -309,7 +509,12 @@ func main() {
 	mix := flag.Int("mix", 4, "every K-th request computes")
 	idle := flag.Int("idle", 0, "connections to open and hold idle throughout")
 	pause := flag.Duration("pause", 500*time.Millisecond, "the pause between rates")
+	pacing := flag.String("pace", "spin", "how requests are timed: spin (one thread reading the clock) or sleep (a sleeping goroutine a connection)")
 	flag.Parse()
+	if *pacing != "spin" && *pacing != "sleep" {
+		fmt.Fprintln(os.Stderr, "load: -pace is spin or sleep")
+		os.Exit(2)
+	}
 	data := makeData()
 	for s := 0; s < seeds; s++ {
 		computeReq[s] = []byte(fmt.Sprintf("GET /hash?seed=%d HTTP/1.1\r\nHost: bench\r\n\r\n", s))
@@ -346,7 +551,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "load: bad rate", f)
 			os.Exit(2)
 		}
-		runRate(*addr, rate, *conns, *warmup, *duration, *mix)
+		runRate(*addr, rate, *conns, *warmup, *duration, *mix, *pacing == "spin")
 		time.Sleep(*pause)
 	}
 	// The idle connections are still open and answer.
