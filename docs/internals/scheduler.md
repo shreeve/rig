@@ -514,7 +514,10 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
 (`sched.preempt_built`, `rt.preempt`):
 
 - **The monitor**, a thread of its own, looks at each worker every
-  millisecond, or every 50 µs while work waits (`watchSlices`). A
+  millisecond, or every 50 µs while work waits that no idle worker was
+  woken for: a task a running one put in a "run next" slot
+  (`sched.waiting`), or any while no worker sleeps or searches
+  (`watchSlices`). A
   worker whose fiber has run a slice, 10 ms, while other work waits, or
   whose own queue held work at two looks in a row, or whose timer or
   poller is due, gets SIGURG, and again at each look until it stops.

@@ -1309,9 +1309,13 @@ fn stopMonitor() void {
 /// than about two periods, as a yield check's turns let it); or that has
 /// run one for a slice while any work waits (`workWaits`); or whose
 /// timers are due or whose poller holds events. The period is the wait
-/// (`RIG_PREEMPT_WAIT_US`, 50 µs) while any worker has work waiting, 1
-/// ms while any runs a fiber, and twice as long each period every worker
-/// spends without, up to 10 ms. It ends as `main` ends (`stopMonitor`).
+/// (`RIG_PREEMPT_WAIT_US`, 50 µs) while any worker has work waiting that
+/// no idle worker was told of, 1 ms while any runs a fiber, and twice as
+/// long each period every worker spends without, up to 10 ms. Work no
+/// idle worker was told of is a fiber a running one put in a "run next"
+/// slot (`waiting`), or any while no worker sleeps or searches; for other
+/// work a sleeper was woken (`notify`, `spread`), and the 1 ms look stays
+/// behind it. It ends as `main` ends (`stopMonitor`).
 fn watchSlices(slice: i96, wait: i96) void {
     var seen: [max_workers]u32 = @splat(0);
     var since: [max_workers]i96 = @splat(0);
@@ -1333,7 +1337,8 @@ fn watchSlices(slice: i96, wait: i96) void {
             const runs = preOf(w).runs.load(.monotonic);
             const running = @atomicLoad(?*Fiber, &w.current, .monotonic) != null;
             const work = queuedHere(w);
-            queued = queued or work;
+            queued = queued or (work and (waiting.load(.monotonic) != 0 or
+                (sleepers.count.load(.monotonic) == 0 and searching.load(.monotonic) == 0)));
             defer had[i] = work;
             if (!running or runs != seen[i]) {
                 seen[i] = runs;
