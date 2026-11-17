@@ -2646,7 +2646,7 @@ const rearm_after: i96 = 200 * std.time.ns_per_us;
 /// once): events its worker picks up meanwhile, by a look of its own or
 /// going to sleep, cost no ring and no answer. A board variant; while it
 /// waits the poller stays covered (`bell_at`).
-const ring_delay: i96 = 0 * std.time.ns_per_us;
+const ring_delay: i96 = 20 * std.time.ns_per_us;
 
 /// Whether a holder covers `v`'s poller: its watch is armed, or it rang
 /// and its holder will check (`checkBell`). Only then do the other
