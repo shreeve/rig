@@ -7413,7 +7413,7 @@ pub const Emitter = struct {
             // Strings and byte slices order by their bytes.
             if (order.bytes) {
                 if (!bare) try self.w.writeAll("(");
-                try self.emitCall2("std.mem.order(u8, ", operands, order.test_);
+                try self.emitCall2(order.test_, operands, ")");
                 if (!bare) try self.w.writeAll(")");
                 return;
             }
@@ -11592,7 +11592,8 @@ pub const Emitter = struct {
         bytes: bool,
         /// The `std.math.CompareOperator` name.
         op: []const u8,
-        /// What tests the `std.math.Order` of two byte strings.
+        /// The call that tests two byte strings, up to its operands
+        /// (`rig.textLess(`, `!rig.textGreater(`).
         test_: []const u8,
     };
 
@@ -11624,10 +11625,10 @@ pub const Emitter = struct {
         }
         if (!bytes and !values) return null;
         return switch (kind) {
-            .@"<" => .{ .bytes = bytes, .op = "lt", .test_ = ") == .lt" },
-            .@"<=" => .{ .bytes = bytes, .op = "lte", .test_ = ") != .gt" },
-            .@">" => .{ .bytes = bytes, .op = "gt", .test_ = ") == .gt" },
-            .@">=" => .{ .bytes = bytes, .op = "gte", .test_ = ") != .lt" },
+            .@"<" => .{ .bytes = bytes, .op = "lt", .test_ = "rig.textLess(" },
+            .@"<=" => .{ .bytes = bytes, .op = "lte", .test_ = "!rig.textGreater(" },
+            .@">" => .{ .bytes = bytes, .op = "gt", .test_ = "rig.textGreater(" },
+            .@">=" => .{ .bytes = bytes, .op = "gte", .test_ = "!rig.textLess(" },
             else => null,
         };
     }
