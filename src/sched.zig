@@ -3791,10 +3791,10 @@ fn loop(w: *Worker) void {
             continue;
         };
         // Work found: stop searching, and if this worker was the last
-        // searching, wake another to look for more.
+        // searching and more work waits, wake another to look for it.
         if (w.searching) {
             w.searching = false;
-            if (searching.fetchSub(1, .seq_cst) == 1) notify();
+            if (searching.fetchSub(1, .seq_cst) == 1 and workPending(w)) notify();
         }
         runFiber(w, f);
     }
@@ -3904,7 +3904,8 @@ fn next(w: *Worker) ?*Fiber {
 
 /// Steal half of another worker's ring, starting from a random one. At
 /// most half the workers search at once; a worker that finds work, and
-/// was the last searching, wakes another to look for more.
+/// was the last searching, wakes another to look for more while more
+/// waits (`workPending`).
 fn search(w: *Worker) ?*Fiber {
     const ws = workersNow();
     if (ws.len < 2) return null;
@@ -4139,6 +4140,23 @@ fn trimIdle(w: *Worker) void {
 
 fn waitWoken(w: *Worker) void {
     while (w.woken.load(.seq_cst) == 0) _ = w.poller.poll(null);
+}
+
+/// Whether work waits that a worker woken now could take: in the global
+/// queue, or another worker's ring or "run next" slots. Read by the last
+/// searcher after it stops counting itself (`loop`), as Tokio's
+/// `notify_if_work_pending`: a maker that queued work while it searched
+/// woke no one, since one searched, and queued it before it read
+/// `searching`, all sequentially consistent, so either the maker sees no
+/// searcher and wakes a worker itself, or this sees its work. With none,
+/// a woken worker would find nothing and sleep again, a wake and a
+/// context switch spent each time a search ends.
+fn workPending(w: *Worker) bool {
+    if (global.count.load(.seq_cst) != 0) return true;
+    for (workersNow()) |*v| {
+        if (v != w and (!v.ring.isEmpty() or nextHeld(v, .seq_cst))) return true;
+    }
+    return false;
 }
 
 fn hasWork() bool {
