@@ -2379,11 +2379,11 @@ fn watchWanted(w: *Worker) bool {
 /// Sleep in `w`'s poller up to `timeout`; when a worker that does not
 /// sleep holds descriptors and no other worker watches, watch: sleep at
 /// most `watch_every`, and look at every poller on waking. A watcher
-/// holds the watch until it sleeps without one, or goes back to work
-/// (`sleep`). It lets go of the watch before it looks at the other
-/// workers: a worker that wakes to run fibers marks itself awake before
-/// it looks for a watcher, all sequentially consistent, so either it sees
-/// no watcher and kicks a sleeper, or this sees it awake.
+/// holds the watch until it sleeps without one, goes back to work, or
+/// trims its heap (`sleep`). It lets go of the watch before it looks at
+/// the other workers: a worker that wakes to run fibers marks itself
+/// awake before it looks for a watcher, all sequentially consistent, so
+/// either it sees no watcher and kicks a sleeper, or this sees it awake.
 fn sleepIn(w: *Worker, timeout: ?i96) void {
     if (workersNow().len >= 2) {
         const held = watcher.load(.monotonic) == w;
@@ -2397,13 +2397,15 @@ fn sleepIn(w: *Worker, timeout: ?i96) void {
     _ = w.poller.poll(timeout);
 }
 
-/// A watcher, or a worker holding descriptors while none watches, woke
-/// to run fibers: while a worker that does not sleep holds descriptors,
-/// have a sleeping worker look again, and watch (`sleepIn`).
-fn passWatch() void {
+/// A watcher, or a worker holding descriptors while none watches, `from`,
+/// left its wait (`leaveWait`): while a worker that does not sleep holds
+/// descriptors, have a sleeping worker look again, and watch (`sleepIn`).
+/// Not `from` itself, still listed when it leaves its wait to trim.
+fn passWatch(from: *Worker) void {
     if (!busyDescriptors(null)) return;
     sleepers.lock.lock();
-    const next_up = sleepers.top;
+    var next_up = sleepers.top;
+    if (next_up == from) next_up = from.next_sleeper;
     sleepers.lock.unlock();
     if (next_up) |v| v.poller.kick();
 }
@@ -4068,21 +4070,11 @@ fn sleep(w: *Worker) void {
         } else waitWoken(w);
         return;
     }
-    // A worker that holds the watch and goes back to work passes it on;
-    // one that holds descriptors marks itself awake, then has a sleeper
-    // watch if none does (`sleepIn`).
-    defer {
-        const held = watcher.load(.monotonic) == w;
-        if (held) watcher.store(null, .seq_cst);
-        if (held or w.poller.count.load(.monotonic) != 0) {
-            w.idle.store(0, .seq_cst);
-            if (held or watcher.load(.seq_cst) == null) passWatch();
-        }
-    }
+    defer leaveWait(w);
     // Once asleep `trim_wait`, it gives back what its heap holds free
     // (`trimIdle`), once a sleep, if its heap has grown since its last
     // trim (`trimWorth`); otherwise it sleeps with no timeout of its own.
-    var trim_due = rt.fast_alloc.trimWorth();
+    var trim_due = rt.fast_alloc.trimWorth() or (builtin.is_test and trim_worker_for_test.load(.seq_cst) == w);
     const since = if (trim_due) nowReal() else 0;
     var trimmed = false;
     defer if (trimmed) rt.fast_alloc.wakeIdle();
@@ -4102,7 +4094,13 @@ fn sleep(w: *Worker) void {
             if (trim_due and w.woken.load(.seq_cst) == 0 and nowReal() - since >= w.trim_wait) {
                 trim_due = false;
                 trimmed = true;
+                // Out of its wait while it trims, so watched as an awake
+                // worker is; asleep again before its last look for work,
+                // which a thread that adds to `pinned` and finds it awake
+                // does not kick it for.
+                leaveWait(w);
                 trimIdle(w);
+                w.idle.store(1, .seq_cst);
             }
             if (!hasOwnWork(w)) continue;
         }
@@ -4110,6 +4108,19 @@ fn sleep(w: *Worker) void {
         // worker off the list meanwhile, when it waits for its kick.
         if (!sleepers.remove(w)) waitWoken(w);
         return;
+    }
+}
+
+/// `w`, asleep, leaves its wait for work of its own: fibers to run, or
+/// a trim of its heap (`sleep`). One that holds the watch passes it on;
+/// one that holds descriptors marks itself awake, then has a sleeper
+/// watch if none does (`sleepIn`).
+fn leaveWait(w: *Worker) void {
+    const held = watcher.load(.monotonic) == w;
+    if (held) watcher.store(null, .seq_cst);
+    if (held or w.poller.count.load(.monotonic) != 0) {
+        w.idle.store(0, .seq_cst);
+        if (held or watcher.load(.seq_cst) == null) passWatch(w);
     }
 }
 
@@ -4146,9 +4157,19 @@ const trim_most: i96 = 1 * std.time.ns_per_s;
 const trim_worth: usize = 1 << 20;
 
 fn trimIdle(w: *Worker) void {
+    if (builtin.is_test and trim_worker_for_test.load(.seq_cst) == w) {
+        trim_worker_for_test.store(null, .seq_cst);
+        return trim_hook_for_test.?();
+    }
     const given = rt.fast_alloc.trimIdle();
     w.trim_wait = if (given >= trim_worth) trim_first else @min(w.trim_wait * 2, trim_most);
 }
+
+/// Test only: the worker whose next sleep trims, as one whose heap has
+/// grown does (`sleep`), and what that trim does in place of trimming
+/// its heap. Never in a split build, so plain variables, not cells.
+var trim_worker_for_test: std.atomic.Value(?*Worker) = .init(null);
+var trim_hook_for_test: ?*const fn () void = null;
 
 fn waitWoken(w: *Worker) void {
     while (w.woken.load(.seq_cst) == 0) _ = w.poller.poll(null);
@@ -7965,6 +7986,71 @@ test "an idle worker wakes for the descriptors of a busy one" {
     runMain(&dummy, Run.first, s.top(), .{});
     const on = Run.read_on.load(.seq_cst);
     try std.testing.expect(Run.asleep);
+    try std.testing.expect(on != null);
+    try std.testing.expect(on != Run.home);
+}
+
+test "a sleeping worker that leaves its wait to trim its heap has another watch its descriptors" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var home: ?*Worker = null;
+        var fds: [2]i32 = .{ -1, -1 };
+        /// Whether the other worker slept as the trim began.
+        var asleep = false;
+        /// Whether the byte was read while the trim went on.
+        var in_trim = false;
+        /// The worker the reader ran on once the byte came.
+        var read_on = std.atomic.Value(?*Worker).init(null);
+        const Unit = struct {};
+        fn reader(_: *Unit, r: *Registration) u8 {
+            if (waitReady(r, Registration.readable, edges(r, Registration.readable), null, false) == .ready) read_on.store(me(), .seq_cst);
+            return 0;
+        }
+        /// The trim of the home worker, asleep holding the descriptor
+        /// with no watch held: the byte comes, and the trim lasts until
+        /// another worker's look wakes the reader. The limit only ends a
+        /// run whose watch is broken.
+        fn trim() void {
+            asleep = testSpinUntilOthersSleep();
+            _ = std.posix.system.write(fds[1], "x", 1);
+            const give_up = nowNs() + 10 * std.time.ns_per_s;
+            while (read_on.load(.seq_cst) == null and nowNs() < give_up) std.atomic.spinLoopHint();
+            in_trim = read_on.load(.seq_cst) != null;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            // Pinned, so the join below puts this worker to sleep holding
+            // the descriptor, registered here.
+            home = pinHere();
+            fds = testPipe();
+            const r = register(fds[0]).?;
+            const j = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
+            const ready_by = nowNs() + 2 * std.time.ns_per_s;
+            testNap(std.time.ns_per_ms);
+            while (r.waiting.load(.seq_cst) == 0 and nowNs() < ready_by) testNap(std.time.ns_per_ms);
+            testNapUntilOthersSleep();
+            // Its next sleep trims once asleep `trim_first`, by which time
+            // every worker has slept through a whole watch, so none holds
+            // it.
+            home.?.trim_wait = trim_first;
+            trim_worker_for_test.store(home, .seq_cst);
+            _ = j.join();
+            j.free();
+            deregister(r);
+            _ = std.posix.system.close(fds[0]);
+            _ = std.posix.system.close(fds[1]);
+        }
+    };
+    trim_hook_for_test = Run.trim;
+    defer trim_hook_for_test = null;
+    defer trim_worker_for_test.store(null, .seq_cst);
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    const on = Run.read_on.load(.seq_cst);
+    try std.testing.expect(Run.asleep);
+    try std.testing.expect(Run.in_trim);
     try std.testing.expect(on != null);
     try std.testing.expect(on != Run.home);
 }
