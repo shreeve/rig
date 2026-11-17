@@ -742,6 +742,17 @@ arms.
 
 ### Runtime
 
+- **On the Mac a look at a poller returns at once:** every kqueue call is
+  `kevent64`, and a look passes `KEVENT_FLAG_IMMEDIATE`, where an empty
+  zero-timeout `kevent` cost about 12 µs and a context switch; it now
+  costs 0.16 µs and none. A worker whose poller holds descriptors, and
+  whose last wait ended with work within 50 µs, first waits at most
+  20 µs with that near deadline, since macOS wakes such a wait about
+  2 µs sooner. On the Mac an HTTP request costs 12.5% fewer cycles
+  (8.4% under the mixed load), connect runs 5.3% faster and ping-pong
+  1%; the trade, accepted by the owner: bench/net's echo runs 3.8%
+  slower, the look's old short wait having picked up a busy worker's
+  events on the way to sleep. Linux is unchanged.
 - **A batch of events wakes one fiber locally and leaves the rest to be
   stolen:** of the fibers one look at a poller (or one firing of timers)
   makes ready, the first takes the worker's run-next slot and the rest
