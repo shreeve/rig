@@ -198,6 +198,15 @@ returns no value, and fails only by returning an error: write
 `both[String](...)`, is rejected with "the generic body discards a
 value that holds a `T`", where it leaked. Bind the results and drop
 them, or give the body plain data.
+**`http.Response`'s `type` is an `http.Type`:** `.text`, `.html`,
+`.json`, `.css`, `.js`, `.csv`, `.xml`, `.svg`, `.png`, `.jpeg`,
+`.gif`, `.webp`, `.pdf`, `.wasm`, `.bytes`, or `.other(text)` for any
+other content type, written as given. A response built with text,
+`http.Response(status: 200, type: "image/png", body: b)`, is rejected,
+with "type mismatch: expected `http.Type`, got `Static`"; write `type: .png`, or
+`type: .other("image/x-icon")` for a type not named, and `.other("")`
+for none. `text`, `json`, `html`, `status`, and `not_found` are
+unchanged. Trig and loco have no such site.
 
 ### Removed
 
@@ -218,6 +227,7 @@ them, or give the body plain data.
 
 - **`!xs.extend(?ys[a..b])`** appends to a `List[T]` a copy of each element of a slice, an array, or a List, growing once and copying them with one `@memcpy`, where a loop of `push` tested the room for each. `T` copies and holds no view, as for `List(a)`: an owning `T` is rejected with the loop that clones each element, `for y in ys` with `!xs.push(+y)`, and a `T` that holds a view with `!xs.push(y)`; a generic body's `T` is checked in each instance. A source that views the List, `!xs.extend(?xs[..2])`, is rejected by the ownership checker (SPEC "List").
 - **`task.all` of tasks that give no value**: `task.all(save(?a)&, save(?b)&)!` waits for several `sub`s at once and gives nothing, a statement; the first to fail cancels the others, and `!` or `catch` takes the wait's failure as for tasks that give values. One call does not mix tasks that give values with tasks that give none, which is rejected with "`task.all` gives each task's value, or nothing when none gives one". In a generic body a task of a type parameter's type gives a value, a `T`, even in an instance that binds `T` to `Void`, as before. The rejections that land beside it, a leak in a generic body and a fallible `sub`'s `return` of nothing, are listed under "Upgrading from v0.3.0".
+- **`http.ok(<body)`** of std.http is a 200 response of plain text that takes the String `body`, where `http.text(body)` copies the text it reads. A `Response`'s `type` is an `http.Type`, `.json`, which the server writes as its full content type from a table made when the program is compiled; `.other(text)` writes any other, a `Static` held with no copy. It was a `String` each response allocated. `text`, `json`, `html`, `status`, and `not_found` are as before.
 - **`par.push(!t, ?sizes, f, limit: n)`** of std.par pushes `sizes.sum()` slots onto a Table at once and writes them on several tasks, a run at a time: run `k` is the next `sizes[k]` slots, in order, and `f(!run, k)` takes it as a `![]T`. The table ends as a serial loop of pushes leaves it, at any worker count and seed. The sizes and the room are tested before any task starts, a full table panicking with `push`'s message. bench/par-push times it against a serial loop.
 - **`par.each` with a function that gives a value** is rejected, with "`par.each` keeps nothing its function gives", where Zig rejected the program it emitted.
 - **std.shared**: `shared.Map[K, V]`, a map several tasks fill and read at once. A key keeps the first value put under it, and nothing is replaced or taken, so `get` gives a view of the value where it lies with no lock and no write to memory another task reads; `put_new` and `ensure` lock one of 64 shards. It lives behind `*shared.Map[K, V]`, whose handles go to any task. bench/shared times it against Maps behind actors.
