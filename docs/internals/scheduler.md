@@ -739,7 +739,17 @@ the workers that sleep. A timer set earlier than any sleeping worker
 wakes kicks one (`sched.kickForTimer`): the timer's worker publishes the
 deadline, then reads when each sleeper wakes, and a worker about to
 sleep notes that it may sleep for good, then reads the deadlines, all
-sequentially consistent, so one of the two sees the other.
+sequentially consistent, so one of the two sees the other. The sleeper
+that wakes by the deadline may leave its sleep before it, popped for
+work or finding some, and the others may sleep with no deadline: so a
+worker that leaves its sleep marks itself awake, then reads the
+deadlines, and kicks a sleeper for the earliest unless one wakes by
+then (`sched.passTimers`), by the same pair. A timer a connection
+sets in another worker's heap (`sched.Deadline`) is covered the same
+way, as a sleeper's deadline and its firing span every heap. A 10 ms
+sleep while every other worker computes without a loop check, one
+running the fiber an earlier timer woke, takes 10 ms, not the
+computation.
 
 The loop check costs a decrement and a branch per turn of any loop
 after its first: within noise on `bench/tasks`. The recursion check is

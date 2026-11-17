@@ -768,6 +768,15 @@ arms.
 
 ### Runtime
 
+- **A timer stays covered when the sleeper woken for it leaves early:**
+  a timer earlier than every sleeper's wake kicks one sleeper, which
+  sleeps again until it, and the others may sleep with no deadline. When
+  that one left its sleep first, popped for work or finding some, the
+  timer waited for the next worker to sleep, however long the busy
+  workers computed without a loop check: a 10 ms sleep beside a fiber
+  that recursed for half a second took half a second. A worker leaving
+  its sleep now kicks a sleeper for the earliest deadline unless one
+  wakes by then (`sched.passTimers`), and the sleep takes 10 ms.
 - **On the Mac a look at a poller returns at once:** every kqueue call is
   `kevent64`, and a look passes `KEVENT_FLAG_IMMEDIATE`, where an empty
   zero-timeout `kevent` cost about 12 µs and a context switch; it now
