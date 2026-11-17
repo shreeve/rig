@@ -649,6 +649,82 @@ test "http body limit", seeds: 20, '''
   print(send(port, "GET /ok HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")!)
   _ = <t.cancel() catch -1
 
+test "http serve on four workers, many clients at once", "800 800"
+  # With several workers every worker accepts, each connection is served
+  # on the worker that took it, and a client's requests on one connection
+  # are answered in turn whichever worker runs its task.
+  use std.task
+  use std.text
+
+  fun run(l: net.Listener, hits: *Cell[Int]) -> Int!
+    http.serve(<l, |+hits, req|
+      !hits.add(1)
+      http.text(req.path)
+    )!
+    0
+
+  fun client(port: Int, n: Int) -> Int!
+    c = net.connect(String("127.0.0.1:", port))!
+    ok = 0
+    for i in 0..n
+      (!c).write(String("GET /p", i, " HTTP/1.1\r\nHost: x\r\n\r\n"))!
+      got = String()
+      want = String("/p", i)
+      while text.find(?got, ?want) == none
+        _ = (!c).read(!got, 4096)!
+      ok += 1
+    ok
+
+  _ = task.workers(4)
+  hits = *Cell(0)
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l, +hits)&
+  cs = Tasks[Int!]()
+  for 0..40
+    !cs.add(client(port, 20)&)
+  xs = >cs!
+  sum = 0
+  for x in xs
+    sum += x
+  print(sum, hits.get())
+  _ = <t.cancel() catch -1
+
+test "http serve on four workers, canceled with idle and active connections open", "-1 60"
+  # Canceling the server ends every acceptor and every connection: idle
+  # ones, ones partway through a request's head, and ones kept alive
+  # after a request. Each client then reads the end of its connection.
+  use std.task
+  use std.text
+
+  fun run(l: net.Listener) -> Int!
+    http.serve(<l, |req| http.text(req.path))!
+    0
+
+  _ = task.workers(4)
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l)&
+  cs = List[net.Stream]()
+  for i in 0..60
+    c = net.connect(String("127.0.0.1:", port))!
+    if i % 3 == 1
+      (!c).write("GET /half HTTP/1.1\r\nHo")!
+    if i % 3 == 2
+      (!c).write("GET /kept HTTP/1.1\r\nHost: x\r\n\r\n")!
+      got = String()
+      while text.find(?got, "/kept") == none
+        _ = (!c).read(!got, 4096)!
+    !cs.push(<c)
+  r = <t.cancel() catch -1
+  n = 0
+  for c in !cs
+    got = String()
+    while !c.read(!got, 4096)! > 0
+      pass
+    n += 1
+  print(r, n)
+
 fail "http serve captures share", "`http.serve` calls the closure on several tasks at once, and `|!count|` lends `count` to write"
   fun run(l: net.Listener) -> Int!
     count = 0

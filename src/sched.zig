@@ -2288,6 +2288,62 @@ const Poller = struct {
         return true;
     }
 
+    /// Watch `fd`, a listening socket every worker's poller watches, for
+    /// connections to accept, reported to `r` (`registerListener`). On
+    /// Linux with EPOLLEXCLUSIVE, so the kernel wakes one worker waiting
+    /// in its poller for each connection rather than all of them; a
+    /// kernel without it (before 4.5) refuses the flag, and the socket is
+    /// watched as any other. On the Mac with EV_DISPATCH: a report turns
+    /// the watch off until its worker turns it on again (`arm`). Either
+    /// way a worker holding more than its share of connections turns its
+    /// watch off (`disarm`), so it is not woken for the next.
+    fn addListener(p: *Poller, fd: i32, r: *Registration) bool {
+        if (!p.watchListener(fd, r, false)) return false;
+        _ = p.count.fetchAdd(1, .monotonic);
+        return true;
+    }
+
+    /// The kernel's side of `addListener` and `arm`: on the Mac, add or
+    /// turn on (`again`) the report; on Linux, add the socket, which
+    /// `disarm` took out.
+    fn watchListener(p: *Poller, fd: i32, r: *Registration, again: bool) bool {
+        if (darwin) {
+            const flags: u16 = std.c.EV.ADD | std.c.EV.DISPATCH | @as(u16, if (again) std.c.EV.ENABLE else 0);
+            const ev: std.c.Kevent = .{ .ident = @intCast(fd), .filter = std.c.EVFILT.READ, .flags = flags, .fflags = 0, .data = 0, .udata = @intFromPtr(r) };
+            var none: [1]std.c.Kevent = undefined;
+            return std.c.kevent(p.fd, @ptrCast(&ev), 1, &none, 0, null) >= 0;
+        } else if (linux) {
+            const linux_ = std.os.linux;
+            var ev: linux_.epoll_event = .{ .events = linux_.EPOLL.IN | linux_.EPOLL.EXCLUSIVE | linux_.EPOLL.ET, .data = .{ .ptr = @intFromPtr(r) } };
+            if (@as(isize, @bitCast(linux_.epoll_ctl(p.fd, linux_.EPOLL.CTL_ADD, fd, &ev))) >= 0) return true;
+            ev.events = linux_.EPOLL.IN | linux_.EPOLL.ET;
+            return @as(isize, @bitCast(linux_.epoll_ctl(p.fd, linux_.EPOLL.CTL_ADD, fd, &ev))) >= 0;
+        }
+        return false;
+    }
+
+    /// Turn the watch of the listening socket `fd` on again
+    /// (`addListener`), after a report (the Mac) or `disarm` turned it
+    /// off. The kernel reports a connection already waiting at once: the
+    /// Mac's readiness is level-triggered, and Linux looks as it adds.
+    fn arm(p: *Poller, fd: i32, r: *Registration) void {
+        _ = p.watchListener(fd, r, true);
+    }
+
+    /// Turn the watch of the listening socket `fd` off, until `arm`: on
+    /// Linux it is taken out, since EPOLLEXCLUSIVE allows no change.
+    /// Taken under no lock: the registration outlives it, so a look that
+    /// has read its event already may still count it.
+    fn disarm(p: *Poller, fd: i32) void {
+        if (darwin) {
+            const ev: std.c.Kevent = .{ .ident = @intCast(fd), .filter = std.c.EVFILT.READ, .flags = std.c.EV.DISABLE, .fflags = 0, .data = 0, .udata = 0 };
+            var none: [1]std.c.Kevent = undefined;
+            _ = std.c.kevent(p.fd, @ptrCast(&ev), 1, &none, 0, null);
+        } else if (linux) {
+            _ = std.os.linux.epoll_ctl(p.fd, std.os.linux.EPOLL.CTL_DEL, fd, null);
+        }
+    }
+
     /// Stop watching `fd`. Under the lock, so no event for it is being
     /// handled; a worker holding it, asleep in the poller, is woken to
     /// let go.
@@ -2562,6 +2618,80 @@ fn registerIn(fd: i32) ?*Registration {
         registered.* = r;
     }
     return r;
+}
+
+/// Watch `fd`, a listening socket every worker watches, with the running
+/// worker's poller, for connections to accept (`Poller.addListener`):
+/// `http.serve`'s acceptor on each worker (`net.serve`). Null when the
+/// kernel refuses it. Its waits are a registration's (`waitReady`), and
+/// it is let go as any registration is (`deregister`).
+pub const registerListener = if (preempt) registerListenerApart else registerListenerIn;
+
+/// `registerListener` in a program built to be preempted: never inlined
+/// into the program's own code (`mustNotBeInCode`).
+noinline fn registerListenerApart(fd: i32) ?*Registration {
+    return registerListenerIn(fd);
+}
+
+fn registerListenerIn(fd: i32) ?*Registration {
+    const w = me().?;
+    const r = std.heap.smp_allocator.create(Registration) catch rt.oom();
+    r.* = .{ .fd = fd, .poller = &w.poller };
+    if (!w.poller.addListener(fd, r)) {
+        std.heap.smp_allocator.destroy(r);
+        return null;
+    }
+    return r;
+}
+
+/// Let the listening socket `r` watches report the next connection to its
+/// poller again (`Poller.arm`): on the Mac each report turns its watch
+/// off, and `disarmListener` does on both.
+pub fn armListener(r: *Registration) void {
+    r.poller.arm(r.fd, r);
+}
+
+/// Report no connection on the listening socket `r` watches until
+/// `armListener` (`Poller.disarm`). On Linux it is out of the poller
+/// meanwhile, and its `deregister` removes nothing: a removal finds it
+/// gone, which costs one failed call.
+pub fn disarmListener(r: *Registration) void {
+    r.poller.disarm(r.fd);
+}
+
+/// Count an edge to read on `r` that its poller did not see, and wake the
+/// fibers waiting on it, which try their call again: an acceptor told it
+/// has room for connections again (`net.serve`). A fiber that was not
+/// waiting finds the edge and tries its call once more.
+pub const nudge = if (preempt) nudgeApart else nudgeIn;
+
+/// `nudge` in a program built to be preempted: never inlined into the
+/// program's own code (`mustNotBeInCode`).
+noinline fn nudgeApart(r: *Registration) void {
+    nudgeIn(r);
+}
+
+fn nudgeIn(r: *Registration) void {
+    _ = r.ready(Registration.readable, false);
+}
+
+/// Pin the running fiber to the `i`th worker, and go on there: it waits
+/// in that worker's pinned queue from now on (`Fiber.home`), as a local
+/// task does. `http.serve` starts an acceptor on each worker so.
+pub const pinTo = if (preempt) pinToApart else pinToIn;
+
+/// `pinTo` in a program built to be preempted: never inlined into the
+/// program's own code (`mustNotBeInCode`).
+noinline fn pinToApart(i: usize) void {
+    pinToIn(i);
+}
+
+fn pinToIn(i: usize) void {
+    if (deterministic.*) return;
+    const home = &workersNow()[i];
+    const w = me().?;
+    w.current.?.home = home;
+    if (w != home) stopIn(.{ .run = requeue });
 }
 
 /// Every registration, in a deterministic run, which runs on one thread.
@@ -7849,6 +7979,117 @@ test "a look at a poller leaves its kick for the worker that sleeps in it" {
     const start = nowNs();
     _ = p.poll(2 * std.time.ns_per_s);
     try std.testing.expect(nowNs() - start < std.time.ns_per_s);
+}
+
+/// A loopback listening socket that does not block, and its address.
+fn testListener() struct { fd: i32, sa: std.posix.system.sockaddr.in } {
+    const posix = std.posix;
+    const sys = posix.system;
+    const l: i32 = @intCast(sys.socket(posix.AF.INET, posix.SOCK.STREAM, 0));
+    var sa: sys.sockaddr.in = .{ .port = 0, .addr = @bitCast([4]u8{ 127, 0, 0, 1 }) };
+    var len: posix.socklen_t = @sizeOf(sys.sockaddr.in);
+    _ = sys.bind(l, @ptrCast(&sa), len);
+    _ = sys.listen(l, 16);
+    _ = sys.getsockname(l, @ptrCast(&sa), &len);
+    if (builtin.os.tag == .linux) {
+        _ = std.os.linux.fcntl(l, std.os.linux.F.SETFL, @as(u32, @bitCast(std.os.linux.O{ .NONBLOCK = true })));
+    } else {
+        _ = std.c.fcntl(l, std.c.F.SETFL, @as(c_int, @bitCast(std.c.O{ .NONBLOCK = true })));
+    }
+    return .{ .fd = l, .sa = sa };
+}
+
+/// A connection to `sa`, which the listener's backlog completes.
+fn testConnect(sa: *const std.posix.system.sockaddr.in) i32 {
+    const posix = std.posix;
+    const sys = posix.system;
+    const c: i32 = @intCast(sys.socket(posix.AF.INET, posix.SOCK.STREAM, 0));
+    _ = sys.connect(c, @ptrCast(sa), @sizeOf(sys.sockaddr.in));
+    return c;
+}
+
+test "a listener two pollers watch is reported to each, not again until armed, not while disarmed, and not once removed" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const sys = std.posix.system;
+    var ps: [2]Poller = .{ .{}, .{} };
+    for (&ps) |*p| p.open();
+    defer for (&ps) |*p| p.close();
+    const l = testListener();
+    defer _ = sys.close(l.fd);
+    var rs: [2]Registration = undefined;
+    for (&rs, &ps) |*r, *p| {
+        r.* = .{ .fd = l.fd, .poller = p };
+        try std.testing.expect(p.addListener(l.fd, r));
+        try std.testing.expectEqual(@as(u32, 1), p.count.load(.monotonic));
+    }
+    const seen = struct {
+        fn of(r: *Registration) u32 {
+            return edges(r, Registration.readable);
+        }
+    }.of;
+    // A connection while neither poller is waited in: each reports it.
+    const c1 = testConnect(&l.sa);
+    defer _ = sys.close(c1);
+    for (&ps) |*p| _ = p.poll(0);
+    try std.testing.expectEqual(@as(u32, 1), seen(&rs[0]));
+    try std.testing.expectEqual(@as(u32, 1), seen(&rs[1]));
+    // It waits still, unaccepted: no look reports it again, the Mac's
+    // watch being off after its report, Linux's edge-triggered.
+    _ = ps[0].poll(0);
+    try std.testing.expectEqual(@as(u32, 1), seen(&rs[0]));
+    // Off and on again: the connection waiting is reported at once.
+    ps[0].disarm(l.fd);
+    ps[0].arm(l.fd, &rs[0]);
+    _ = ps[0].poll(0);
+    try std.testing.expectEqual(@as(u32, 2), seen(&rs[0]));
+    // A poller whose watch is off reports no new connection.
+    ps[1].disarm(l.fd);
+    const c2 = testConnect(&l.sa);
+    defer _ = sys.close(c2);
+    _ = ps[1].poll(0);
+    try std.testing.expectEqual(@as(u32, 1), seen(&rs[1]));
+    // Removed, the disarmed one as well, neither reports a connection.
+    for (&ps) |*p| {
+        _ = p.poll(0);
+        p.remove(l.fd);
+        try std.testing.expectEqual(@as(u32, 0), p.count.load(.monotonic));
+    }
+    const before = seen(&rs[0]);
+    const c3 = testConnect(&l.sa);
+    defer _ = sys.close(c3);
+    for (&ps) |*p| _ = p.poll(0);
+    try std.testing.expectEqual(before, seen(&rs[0]));
+    try std.testing.expectEqual(@as(u32, 1), seen(&rs[1]));
+}
+
+test "Linux: of two workers waiting in their pollers, one is woken for a connection" {
+    if (builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const sys = std.posix.system;
+    var ps: [2]Poller = .{ .{}, .{} };
+    for (&ps) |*p| p.open();
+    defer for (&ps) |*p| p.close();
+    const l = testListener();
+    defer _ = sys.close(l.fd);
+    var rs: [2]Registration = undefined;
+    for (&rs, &ps) |*r, *p| {
+        r.* = .{ .fd = l.fd, .poller = p };
+        try std.testing.expect(p.addListener(l.fd, r));
+    }
+    // Each thread waits up to 300 ms in its poller.
+    var threads: [2]std.Thread = undefined;
+    for (&threads, &ps) |*t, *p| t.* = try std.Thread.spawn(.{}, struct {
+        fn run(q: *Poller) void {
+            _ = q.poll(300 * std.time.ns_per_ms);
+        }
+    }.run, .{p});
+    // Both are inside their waits once the lock is held a while.
+    const until = nowNs() + 50 * std.time.ns_per_ms;
+    while (nowNs() < until) std.atomic.spinLoopHint();
+    const c = testConnect(&l.sa);
+    defer _ = sys.close(c);
+    for (threads) |t| t.join();
+    try std.testing.expectEqual(@as(u32, 1), edges(&rs[0], Registration.readable) + edges(&rs[1], Registration.readable));
+    for (&ps) |*p| p.remove(l.fd);
 }
 
 test "a run-next fiber that wakes no worker is handed on at its maker's next recursive check" {

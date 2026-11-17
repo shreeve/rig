@@ -83,10 +83,26 @@ worker after.
   the file's own descriptor. `rig.blocking`'s waiter waits for the call, which
   takes its arguments as they are, a buffer to read into among them. A
   socket is registered with the poller of the worker that makes or
-  accepts it, and waits there (`net.zig`): `http.serve`'s connections,
-  like those of a server's own accept loop, share the acceptor's
-  poller, which it sleeps in while it waits to accept, so their events
-  wake it at once rather than wait for a busy worker's next look.
+  accepts it, and waits there (`net.zig`): a server's own accept loop
+  shares its poller with its connections, which it sleeps in while it
+  waits to accept, so their events wake it at once rather than wait for
+  a busy worker's next look. `http.serve` on two workers or more accepts
+  on every worker (`net.serveEvery`, a choice per target,
+  `accept_per_worker`): an acceptor task pinned to each (`sched.pinTo`)
+  watches the listener from its worker's poller
+  (`sched.registerListener`), and each connection it accepts is
+  registered there and its task started there, so the events of a
+  worker's connections come to its own poller. On Linux the kernel wakes
+  one worker waiting in its poller for each connection
+  (EPOLLEXCLUSIVE); on the Mac a report turns the watch off
+  (EV_DISPATCH) until the acceptor, out of connections to accept, turns
+  it on again. A worker holding more than an eighth over the average
+  and 2 turns its watch off (on Linux it leaves the poller, which
+  EPOLLEXCLUSIVE allows no change to, and nudges the acceptor holding
+  fewest to take what may still wait) and waits until an open or a close
+  gives it room (`sched.nudge`), so one worker idle as a burst comes does
+  not take it all. A connection's task is not pinned: another worker may
+  steal it, and its events still come to the poller that registered it.
   Other system calls go through a `Threaded` instance of Zig's `std.Io`
   (`rt.io`) on the calling thread, which runs no tasks; a write to a
   full pipe holds its worker until it returns.

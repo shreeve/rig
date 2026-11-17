@@ -5,7 +5,10 @@
 # 9112 says, and a head it refuses is answered 400; and running out of
 # descriptors pauses accepting rather than ending the server. The limits are set
 # small through the environment (RIG_HTTP_IDLE_MS, RIG_HTTP_HEAD_MS,
-# RIG_HTTP_MAX_BODY); in debug and --release.
+# RIG_HTTP_MAX_BODY); in debug and --release. On several workers, every
+# worker accepts, none takes more than its share, and a worker stuck in
+# one long call (a std module of the test's own, through RIG_STD) does
+# not hold up the connections it took.
 # timeout: 300
 # builds: shared
 source "$ROOT/test/cli/_lib.sh"
@@ -22,10 +25,10 @@ sub main()!
 EOF2
 
 cat >client.py <<'EOF2'
-import os, socket, subprocess, sys, time
+import os, re, socket, subprocess, sys, time
 
-def start(env, limit=None):
-    cmd = ['./srv'] if limit is None else ['bash', '-c', 'ulimit -n %d; exec ./srv' % limit]
+def start(env, limit=None, exe='./srv'):
+    cmd = [exe] if limit is None else ['bash', '-c', 'ulimit -n %d; exec %s' % (limit, exe)]
     p = subprocess.Popen(cmd, stderr=subprocess.PIPE, env={**os.environ, **env})
     return p, int(p.stderr.readline())
 
@@ -257,7 +260,93 @@ def descriptors():
     finally:
         p.kill()
 
-{'limits': limits, 'framing': framing, 'descriptors': descriptors}[sys.argv[1]]()
+def answered(s, path):
+    """Ask for `path` on `s`, kept open, and read its answer."""
+    s.sendall(b'GET %s HTTP/1.1\r\nHost: x\r\n\r\n' % path)
+    got = b''
+    while True:
+        head, sep, rest = got.partition(b'\r\n\r\n')
+        if sep:
+            m = re.search(rb'content-length: (\d+)', head, re.I)
+            if m and len(rest) >= int(m.group(1)):
+                return rest.decode()
+        b = s.recv(4096)
+        if not b:
+            return repr(got)
+        got += b
+
+def spread():
+    # Four workers, 64 connections at once: every worker takes some, and
+    # none more than an eighth over the average and 2 (20), as each
+    # acceptor writes with RIG_SCHED_STATS=1.
+    p, port = start({'RIG_WORKERS': '4', 'RIG_SCHED_STATS': '1'})
+    try:
+        socks = [conn(port) for _ in range(64)]
+        ok = sum(answered(s, b'/s') == '/s 0' for s in socks)
+        for s in socks:
+            s.close()
+        time.sleep(0.2)
+    finally:
+        p.kill()
+    took = {}
+    for m in re.finditer(r'rig: serve: worker (\d+): accepted (\d+), holds (\d+)', p.stderr.read().decode()):
+        took[int(m.group(1))] = int(m.group(2))
+    print('answered', ok)
+    print('owners', len(took), 'within', bool(took) and max(took.values()) <= 20)
+
+def stuck():
+    # Two workers, 40 connections; one request holds the worker running
+    # it for 1.5 s in a call that makes no yield check and that no signal
+    # stops. The connections the other worker took, and those the stuck
+    # one took, are answered meanwhile: a sleeping worker looks at the
+    # stuck one's poller.
+    p, port = start({'RIG_WORKERS': '2'}, exe='./stuck')
+    try:
+        socks = [conn(port) for _ in range(40)]
+        warm = all(answered(s, b'/w') == '/w 0' for s in socks)
+        t0 = time.monotonic()
+        socks[0].sendall(b'GET /stall HTTP/1.1\r\nHost: x\r\n\r\n')
+        time.sleep(0.2)
+        ok = all(answered(s, b'/q') == '/q 0' for s in socks[1:])
+        during = time.monotonic() - t0 < 1.2
+        socks[0].settimeout(10)
+        got = b''
+        while not got.endswith(b'/stall 1'):
+            b = socks[0].recv(4096)
+            if not b:
+                break
+            got += b
+        print('warm', warm, 'answered', ok, 'during', during, 'stalled', got.endswith(b'/stall 1') and time.monotonic() - t0 > 1.4)
+    finally:
+        p.kill()
+
+{'limits': limits, 'framing': framing, 'descriptors': descriptors, 'spread': spread, 'stuck': stuck}[sys.argv[1]]()
+EOF2
+
+# A server whose handler holds its worker for 1.5 s on /stall, spinning
+# in Zig code: no yield check, and a preemption signal declined.
+cp -R "$ROOT/std" lib
+printf 'extern zig "stall.zig"\n  pub fun hold(path: ?String) -> Int\n' >lib/stall.rig
+cat >lib/stall.zig <<'EOF2'
+const std = @import("std");
+const rig = @import("../runtime.zig");
+
+pub fn hold(path: []const u8) i64 {
+    if (!std.mem.eql(u8, path, "/stall")) return 0;
+    const end = rig.sched.nowNs() + 1500 * std.time.ns_per_ms;
+    while (rig.sched.nowNs() < end) std.atomic.spinLoopHint();
+    return 1;
+}
+EOF2
+cat >stuck.rig <<'EOF2'
+use std.http
+use std.net
+use std.stall
+
+sub main()!
+  l = net.listen("127.0.0.1:0")!
+  warn(l.port())
+  http.serve(<l, |req| http.text(String(req.path, " ", stall.hold(req.path))))!
 EOF2
 
 # The default timeouts on a deterministic run's virtual clock: an idle
@@ -363,6 +452,11 @@ for mode in debug release; do
     expect_eq "$out" "$want_framing" "$mode: request framing"
     out=$(python3 client.py descriptors 2>&1); expect_rc $? 0 "$mode descriptors: $out"
     expect_eq "$out" $'held True\n200 /again 0\nalive True' "$mode: out of descriptors, it accepts again"
+    out=$(python3 client.py spread 2>&1); expect_rc $? 0 "$mode spread: $out"
+    expect_eq "$out" $'answered 64\nowners 4 within True' "$mode: every worker accepts, none past its share"
+    out=$(RIG_STD="$PWD/lib" rig build $flag stuck.rig 2>&1); expect_rc $? 0 "$mode build stuck: $out"
+    out=$(python3 client.py stuck 2>&1); expect_rc $? 0 "$mode stuck: $out"
+    expect_eq "$out" "warm True answered True during True stalled True" "$mode: a stuck worker's connections are answered"
     # 20 seeds at once, so the machine is loaded while each clock jumps.
     out=$(rig build $flag virtual.rig 2>&1); expect_rc $? 0 "$mode build virtual: $out"
     for seed in $(seq 1 20); do

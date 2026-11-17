@@ -872,16 +872,19 @@ const accept_pause_max_ns: i64 = std.time.ns_per_s;
 /// each a task of its own, and answer each request on them with what
 /// `f` gives for it, until the call is canceled or the listener fails.
 /// Out of descriptors, it pauses and accepts again, as Go's server
-/// does, so the connections it holds can close. Each connection is
-/// registered as it is accepted, with this worker's poller, as a server's
-/// own accept loop registers what it accepts (`Listener.accept`): an
-/// acceptor waiting for connections sleeps in that poller, and wakes as
-/// soon as any of them has bytes to read. Each request runs
+/// does, so the connections it holds can close. Each request runs
 /// isolated (`tasks.isolate`): a panic in `f` answers 500, and the
 /// server goes on. The connections' tasks end before it
 /// returns, and the listener closes then. `f` is a `rig.FnRef` taking a
 /// `?http.Request` and giving an `http.Response`, whose fields the
 /// runtime fills and reads by name.
+///
+/// With two workers or more, every worker accepts (`serveEvery`), where
+/// the target allows it (`accept_per_worker`); otherwise one task does
+/// (`serveOne`). Either way each connection is registered with the
+/// poller of the worker that accepts it, as a server's own accept loop
+/// registers what it accepts (`Listener.accept`), and its task starts
+/// there.
 ///
 /// Each connection's task takes a dense stack (`sched.takeDense`), as a
 /// task the compiler finds small does, so an idle connection shares page
@@ -892,6 +895,26 @@ const accept_pause_max_ns: i64 = std.time.ns_per_s;
 /// one deeper would fault in the stack's guard, as any dense stack's
 /// does (test/cli/http_idle_footprint.sh measures the saving).
 pub fn serve(listener: anytype, f: anytype) anyerror!void {
+    if (comptime accept_per_worker) {
+        const n = rig.sched.workersRunning();
+        if (n >= 2) return serveEvery(listener, f, n);
+    }
+    return serveOne(listener, f);
+}
+
+/// Whether `http.serve` accepts on every worker (`serveEvery`), a choice
+/// made per target when the program is compiled; with it off, one task
+/// accepts every connection (`serveOne`), its worker's poller holds them
+/// all, and the others look at it as they go to sleep.
+const accept_per_worker = switch (builtin.os.tag) {
+    .macos, .linux => true,
+    else => false,
+};
+
+/// `serve` with one task accepting: it sleeps in its worker's poller
+/// while it waits for a connection, and wakes as soon as any of those it
+/// registered there has bytes to read.
+fn serveOne(listener: anytype, f: anytype) anyerror!void {
     var l = listener;
     defer rig.drop(&l);
     const F = @TypeOf(f);
@@ -914,6 +937,330 @@ pub fn serve(listener: anytype, f: anytype) anyerror!void {
         pause = accept_pause_ns;
         conns.add(tasks.Task(void).spawnDense(connection(F), .{ @as(i32, @intCast(c)), watch(c), f, settings }));
     }
+}
+
+/// `serve` with every worker accepting: an acceptor task pinned to each
+/// (`sched.pinTo`), which watches the listener from its worker's poller
+/// (`sched.registerListener`) and registers each connection it accepts
+/// there, so a connection's events come to the poller of the worker that
+/// took it, its task starts on that worker, and no worker's poller holds
+/// every connection for the others to read. On Linux the kernel wakes one
+/// worker waiting in its poller for each connection (EPOLLEXCLUSIVE), and
+/// on the Mac every one whose watch is on (EV_DISPATCH); a worker holding
+/// more than its share turns its watch off and takes no more until it
+/// has room again (`Hub.room`).
+/// The listener's own registration, made by `net.listen` on one worker's
+/// poller, would report every connection there too, and is let go first.
+/// Cancelling the call cancels the acceptors, each of which stops
+/// watching the listener and then cancels its connections and waits for
+/// them; the listener closes once the last has ended. A worker added
+/// later (`task.workers`) has no acceptor.
+fn serveEvery(listener: anytype, f: anytype, n: usize) anyerror!void {
+    var l = listener;
+    defer rig.drop(&l);
+    const F = @TypeOf(f);
+    const reg = @field(l, "reg");
+    if (reg != 0) {
+        rig.sched.deregister(@ptrFromInt(@as(usize, @intCast(reg))));
+        @field(l, "reg") = 0;
+    }
+    const slots = rig.defaultAllocator().alloc(Hub.Slot, n) catch rig.oom();
+    defer rig.defaultAllocator().free(slots);
+    @memset(slots, .{});
+    var hub: Hub = .{
+        .fd = @intCast(@field(l, "fd")),
+        .slots = slots,
+        .settings = .read(),
+        .stats = (Settings.setting("RIG_SCHED_STATS") orelse 0) == 1,
+    };
+    var acceptors: tasks.Tasks(anyerror!void) = .{};
+    for (0..n) |i| acceptors.add(tasks.Task(anyerror!void).spawn(acceptor(F), .{ &hub, i, f }));
+    // The first failure, or a cancel of this task, cancels every acceptor
+    // and waits for each.
+    return acceptors.wait_allInto(rig.no_slot);
+}
+
+/// How many connections an acceptor takes in a row before it lets the
+/// tasks it started run: it accepts until the listener has none left,
+/// and yields after this many, then accepts on, so a burst neither waits
+/// in the backlog for an edge nor holds its worker.
+const accept_burst = 16;
+
+/// What `serveEvery`'s acceptors share: the listener, and for each worker
+/// how many connections its poller holds.
+const Hub = struct {
+    fd: i32,
+    slots: []Slot,
+    settings: Settings,
+    /// Each acceptor writes to stderr what it has accepted and holds as
+    /// it runs out of connections to accept: `RIG_SCHED_STATS=1`.
+    stats: bool,
+    /// The connections open, all workers' together.
+    total: std.atomic.Value(u32) = .init(0),
+    /// How many acceptors wait for room (`Slot.State.waiting`), so an open
+    /// or a close looks at the slots only when one does.
+    waiting: std.atomic.Value(u32) = .init(0),
+
+    /// One worker's: its own cache line, written as its connections open
+    /// and close.
+    const Slot = struct {
+        /// Its connections still open, registered with its poller.
+        live: std.atomic.Value(u32) align(std.atomic.cache_line) = .init(0),
+        state: std.atomic.Value(State) = .init(.off),
+        /// Its acceptor's registration of the listener, while `state` is
+        /// not `off`.
+        reg: ?*rig.sched.Registration = null,
+        /// How many it has accepted, and how many as it last wrote them
+        /// (`stats`). Only its acceptor touches them.
+        accepted: u64 = 0,
+        told: u64 = 0,
+
+        const State = enum(u8) {
+            /// No acceptor runs: not yet, or no longer.
+            off,
+            /// Its acceptor takes connections.
+            armed,
+            /// Its acceptor waits for room (`room`): an open or close that
+            /// gives it room nudges it (`offer`).
+            waiting,
+            /// A nudge is under way, which its acceptor waits out before
+            /// it stops, so the registration outlives the nudge.
+            nudging,
+        };
+    };
+
+    /// Whether worker `i` takes another connection: it holds fewer than
+    /// the average and an eighth, and 2 more, so a worker idle as a burst
+    /// comes does not take it all, and the least loaded always has room.
+    fn room(hub: *Hub, i: usize) bool {
+        const n: u64 = hub.slots.len;
+        const live: u64 = hub.slots[i].live.load(.seq_cst);
+        const total: u64 = hub.total.load(.seq_cst);
+        return live * 8 * n < total * 9 + 16 * n;
+    }
+
+    /// Worker `i` accepted a connection: a rise of the average may give
+    /// a waiting acceptor room.
+    fn opened(hub: *Hub, i: usize) void {
+        hub.slots[i].accepted += 1;
+        _ = hub.slots[i].live.fetchAdd(1, .seq_cst);
+        _ = hub.total.fetchAdd(1, .seq_cst);
+        if (hub.waiting.load(.seq_cst) == 0) return;
+        for (0..hub.slots.len) |j| if (j != i and hub.slots[j].state.load(.seq_cst) == .waiting and hub.room(j)) hub.nudge(j, .waiting);
+    }
+
+    /// A connection of worker `i` closed, on whatever worker its task
+    /// ran: only `i` may gain room by it.
+    fn closed(hub: *Hub, i: usize) void {
+        _ = hub.slots[i].live.fetchSub(1, .seq_cst);
+        _ = hub.total.fetchSub(1, .seq_cst);
+        if (hub.waiting.load(.seq_cst) == 0) return;
+        if (hub.slots[i].state.load(.seq_cst) == .waiting and hub.room(i)) hub.nudge(i, .waiting);
+    }
+
+    /// Nudge acceptor `j`, in state `from`, to try to accept
+    /// (`sched.nudge`). The counts are stored before the states are read,
+    /// and an acceptor stores its state before it reads the counts, all
+    /// sequentially consistent, so either it sees room or it is nudged.
+    fn nudge(hub: *Hub, j: usize, from: Slot.State) void {
+        const s = &hub.slots[j];
+        if (s.state.cmpxchgStrong(from, .nudging, .seq_cst, .seq_cst) != null) return;
+        if (from == .waiting) _ = hub.waiting.fetchSub(1, .seq_cst);
+        rig.sched.nudge(s.reg.?);
+        s.state.store(.armed, .seq_cst);
+    }
+
+    /// Linux: worker `i` turned its watch off with connections perhaps
+    /// still waiting, whose edges the kernel gave it alone: nudge the
+    /// acceptor with the fewest connections to take them.
+    fn handOn(hub: *Hub, i: usize) void {
+        var best: ?usize = null;
+        var fewest: u32 = std.math.maxInt(u32);
+        for (hub.slots, 0..) |*s, j| {
+            if (j == i or s.state.load(.seq_cst) != .armed) continue;
+            const live = s.live.load(.monotonic);
+            if (live < fewest) {
+                fewest = live;
+                best = j;
+            }
+        }
+        if (best) |j| hub.nudge(j, .armed);
+    }
+
+    /// `RIG_SCHED_STATS=1`: write what acceptor `i` has accepted and holds,
+    /// when it has accepted more since it last did.
+    fn tell(hub: *Hub, i: usize) void {
+        const s = &hub.slots[i];
+        if (!hub.stats or s.accepted == s.told) return;
+        s.told = s.accepted;
+        var buf: [96]u8 = undefined;
+        const line = std.fmt.bufPrint(&buf, "rig: serve: worker {d}: accepted {d}, holds {d}\n", .{ i, s.accepted, s.live.load(.monotonic) }) catch return;
+        _ = sys.write(2, line.ptr, line.len);
+    }
+};
+
+/// An acceptor of `serveEvery`, pinned to worker `i`, and its watch of the
+/// listener from that worker's poller.
+const Acceptor = struct {
+    hub: *Hub,
+    i: usize,
+    r: *rig.sched.Registration,
+    /// Whether the kernel's watch is on: on the Mac, the edges counted as
+    /// it was last turned on, while none has come since (each report
+    /// turns it off); on Linux, whether it is in the poller.
+    on_at: ?u32,
+    on: bool = true,
+
+    const readable = rig.sched.Registration.readable;
+
+    fn reg(a: *const Acceptor) i64 {
+        return @intCast(@intFromPtr(a.r));
+    }
+
+    /// Turn the watch on, unless it is: `seen`, the edges read before the
+    /// accept that found none.
+    fn arm(a: *Acceptor, seen: u32) void {
+        if (comptime darwin) {
+            if (a.on_at == seen) return;
+            a.on_at = seen;
+        } else {
+            if (a.on) return;
+            a.on = true;
+        }
+        rig.sched.armListener(a.r);
+    }
+
+    /// Turn the watch off, while this worker has no room. On Linux the
+    /// kernel woke this worker alone for connections that may still wait:
+    /// another takes them (`Hub.handOn`).
+    fn disarm(a: *Acceptor) void {
+        if (comptime darwin) {
+            if (a.on_at != edges(a.reg(), readable)) return;
+            a.on_at = null;
+        } else {
+            if (!a.on) return;
+            a.on = false;
+        }
+        rig.sched.disarmListener(a.r);
+        if (comptime !darwin) a.hub.handOn(a.i);
+    }
+
+    /// Wait until this worker has room, its watch off meanwhile: a nudge
+    /// (`Hub.opened`, `Hub.closed`) ends the wait.
+    fn waitRoom(a: *Acceptor) Error!void {
+        const hub = a.hub;
+        const s = &hub.slots[a.i];
+        a.disarm();
+        while (true) {
+            while (s.state.load(.seq_cst) == .nudging) std.atomic.spinLoopHint();
+            const seen = edges(a.reg(), readable);
+            if (s.state.cmpxchgStrong(.armed, .waiting, .seq_cst, .seq_cst) == null) _ = hub.waiting.fetchAdd(1, .seq_cst);
+            if (hub.room(a.i) or s.state.load(.seq_cst) != .waiting) {
+                if (s.state.cmpxchgStrong(.waiting, .armed, .seq_cst, .seq_cst) == null) _ = hub.waiting.fetchSub(1, .seq_cst);
+                return;
+            }
+            try waitFor(hub.fd, a.reg(), readable, seen, .{});
+        }
+    }
+
+    /// No nudge reaches the registration from now on, once one under way
+    /// has ended; then it is let go.
+    fn stop(a: *Acceptor) void {
+        const hub = a.hub;
+        const s = &hub.slots[a.i];
+        while (true) {
+            const at = s.state.load(.seq_cst);
+            if (at == .nudging) {
+                std.atomic.spinLoopHint();
+                continue;
+            }
+            if (s.state.cmpxchgWeak(at, .off, .seq_cst, .seq_cst) == null) {
+                if (at == .waiting) _ = hub.waiting.fetchSub(1, .seq_cst);
+                break;
+            }
+        }
+        rig.sched.deregister(a.r);
+    }
+};
+
+/// An acceptor of `serveEvery`'s, pinned to worker `i`: it watches the
+/// listener from that worker's poller and accepts until the listener has
+/// none left, then turns the watch on again if a report turned it off
+/// and waits for the next. A worker holding more than its share
+/// (`Hub.room`) turns the watch off and waits for room. It ends at a
+/// cancel or a failure of the listener: it stops watching the listener,
+/// then cancels its connections and waits for them.
+fn acceptor(comptime F: type) fn (*Hub, usize, F) anyerror!void {
+    return struct {
+        fn run(hub: *Hub, i: usize, f: F) anyerror!void {
+            rig.sched.pinTo(i);
+            var conns: tasks.Tasks(void) = .{};
+            defer {
+                for (conns.items.items) |t| t.control.cancel();
+                conns.__rig_drop();
+            }
+            const r = rig.sched.registerListener(hub.fd) orelse return error.@"std.net.NetError.failed";
+            var a: Acceptor = .{ .hub = hub, .i = i, .r = r, .on_at = rig.sched.edges(r, Acceptor.readable) };
+            hub.slots[i].reg = r;
+            hub.slots[i].state.store(.armed, .seq_cst);
+            defer a.stop();
+            var pause: i64 = accept_pause_ns;
+            var burst: u32 = 0;
+            while (true) {
+                try rig.checkStop();
+                const seen = edges(a.reg(), Acceptor.readable);
+                const rc = if (darwin) sys.accept(hub.fd, null, null) else sys.accept4(hub.fd, null, null, posix.SOCK.NONBLOCK | posix.SOCK.CLOEXEC);
+                switch (posix.errno(rc)) {
+                    .SUCCESS => {
+                        const c: i32 = @intCast(rc);
+                        nonblocking(c);
+                        noDelay(c);
+                        pause = accept_pause_ns;
+                        hub.opened(i);
+                        conns.add(tasks.Task(void).spawnDense(counted(F), .{ c, watch(c), f, hub, i }));
+                        burst += 1;
+                        if (!hub.room(i)) {
+                            hub.tell(i);
+                            try a.waitRoom();
+                            burst = 0;
+                        } else if (burst >= accept_burst) {
+                            burst = 0;
+                            rig.sched.yield();
+                        }
+                    },
+                    .AGAIN => {
+                        burst = 0;
+                        hub.tell(i);
+                        if (!hub.room(i)) {
+                            try a.waitRoom();
+                            continue;
+                        }
+                        a.arm(seen);
+                        try waitFor(hub.fd, a.reg(), Acceptor.readable, seen, .{});
+                    },
+                    .CONNABORTED => {},
+                    .INTR => try rig.checkStop(),
+                    .MFILE, .NFILE, .NOBUFS, .NOMEM => {
+                        conns.dropEnded();
+                        try rig.taskSleep(pause);
+                        pause = @min(pause * 2, accept_pause_max_ns);
+                    },
+                    else => |e| return failure(e),
+                }
+            }
+        }
+    }.run;
+}
+
+/// A connection of `serveEvery`'s: `connection`, then its close counted
+/// against the worker that accepted it (`Hub.closed`).
+fn counted(comptime F: type) fn (i32, i64, F, *Hub, usize) void {
+    return struct {
+        fn run(fd: i32, reg: i64, f: F, hub: *Hub, i: usize) void {
+            defer hub.closed(i);
+            connection(F)(fd, reg, f, hub.settings);
+        }
+    }.run;
 }
 
 /// A connection's task: read its requests one after another, and answer
