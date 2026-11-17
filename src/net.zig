@@ -1186,14 +1186,26 @@ const Server = struct {
     }
 
     /// Zig's `receiveHead` and `Head.parse`, in one pass over the head as
-    /// it arrives: the request, or the error those give.
+    /// it arrives, once any empty lines before it are skipped
+    /// (`empty_lines`): the request, or the error those give.
     fn receiveHead(s: *Server) HeadError!std.http.Server.Request {
         const r = &s.http.reader;
         r.trailers = &.{};
         const in = r.in;
         var scan: HeadScan = .{};
+        var empty: usize = 0;
         while (true) {
-            const bytes = in.buffered();
+            var bytes = in.buffered();
+            if (scan.at == 0) {
+                // Before the request line, up to `empty_lines` empty
+                // lines are skipped, and a lone `\r` waits for the byte
+                // after it.
+                while (empty < empty_lines and std.mem.startsWith(u8, bytes, "\r\n")) : (empty += 1) {
+                    in.toss(2);
+                    bytes = in.buffered();
+                }
+                if (empty < empty_lines and bytes.len == 1 and bytes[0] == '\r') bytes = bytes[0..0];
+            }
             if (scan.feed(bytes)) |len| {
                 r.state = .received_head;
                 in.toss(len);
@@ -1201,9 +1213,9 @@ const Server = struct {
                 s.question = scan.question;
                 return .{ .server = &s.http, .head_buffer = bytes[0..len], .head = scan.made(bytes) };
             }
-            if (bytes.len >= r.max_head_len) return error.HttpHeadersOversize;
+            if (in.bufferedLen() >= r.max_head_len) return error.HttpHeadersOversize;
             in.fillMore() catch |err| switch (err) {
-                error.EndOfStream => return if (bytes.len == 0) error.HttpConnectionClosing else error.HttpRequestTruncated,
+                error.EndOfStream => return if (in.bufferedLen() == 0) error.HttpConnectionClosing else error.HttpRequestTruncated,
                 error.ReadFailed => return error.ReadFailed,
             };
         }
@@ -1211,6 +1223,12 @@ const Server = struct {
 };
 
 const Head = std.http.Server.Request.Head;
+
+/// How many empty lines before a request line `receiveHead` skips: a
+/// server should skip at least one (RFC 9112 §2.2), which some clients
+/// send after a body, and Go's skips four bytes of them after a POST.
+/// A bare `\n` is not skipped, but refused, as it is in a head.
+const empty_lines = 2;
 
 /// What reading a head gives up with: Zig's `receiveHead` and
 /// `Head.parse` errors, and what `HeadScan` refuses beyond them.
@@ -1232,7 +1250,9 @@ const Refused = error{
 /// `Head.parse` does: the same `Head`, or the same first error, once the
 /// head ends. Beyond `Head.parse`, it refuses a CR, LF, or NUL that ends
 /// no line, a Content-Length that is not digits, and a Transfer-Encoding
-/// whose last coding is not `chunked` (`Refused`). It finds line ends,
+/// whose last coding is not `chunked` (`Refused`); and it reads a
+/// Transfer-Encoding's codings named in any case, between spaces or tabs,
+/// as RFC 9112 §7 says, which `Head.parse` refuses. It finds line ends,
 /// CRs, NULs, and colons together, a vector of bytes at a time, and
 /// keeps what it found as offsets from the head's first byte, which the
 /// reader may move between feeds.
@@ -1406,14 +1426,16 @@ const HeadScan = struct {
             },
             "transfer-encoding".len => if (first == 't' and eql(name, "transfer-encoding")) {
                 // The codings in the order applied, as
-                // `Transfer-Encoding: deflate, chunked`: the last must
-                // be `chunked`, which alone says where the body ends.
+                // `Transfer-Encoding: deflate, chunked`, each named in
+                // any case between spaces or tabs (RFC 9112 §7): the
+                // last must be `chunked`, which alone says where the
+                // body ends.
                 var iter = std.mem.splitBackwardsScalar(u8, value, ',');
-                if (!std.mem.eql(u8, std.mem.trim(u8, iter.first(), " "), "chunked")) return error.HttpTransferEncodingNotChunked;
+                if (!eql(std.mem.trim(u8, iter.first(), " \t"), "chunked")) return error.HttpTransferEncodingNotChunked;
                 if (s.head.transfer_encoding != .none) return error.HttpHeadersInvalid;
                 s.head.transfer_encoding = .chunked;
                 if (iter.next()) |second| {
-                    const trimmed_second = std.mem.trim(u8, second, " ");
+                    const trimmed_second = std.mem.trim(u8, second, " \t");
                     const transfer = std.http.ContentEncoding.fromString(trimmed_second) orelse return error.HttpTransferEncodingUnsupported;
                     if (s.head.transfer_compression != .identity) return error.HttpHeadersInvalid;
                     s.head.transfer_compression = transfer;
@@ -1474,15 +1496,20 @@ const HeadScan = struct {
 
 /// What ours and Zig's `Head.parse` give for the head `bytes`, sent
 /// `step` bytes at a time into a buffer of `buffer_len` (no limit when
-/// 0): the same request, or the same error (`wantHead`), and `question`
-/// is the target's first `?`; or, where the head breaks a rule Zig does
-/// not keep (`breaksRule`), an error from ours, whatever Zig's.
+/// 0), past the empty lines ours skips (`afterEmptyLines`): the same
+/// request, or the same error (`wantHead`), and `question` is the
+/// target's first `?`; or, where the head breaks a rule Zig does not
+/// keep (`breaksRule`), Zig's error or one ours alone gives (`Refused`,
+/// or a length not digits).
 fn expectSameHead(bytes: []const u8, step: usize, buffer_len: usize) !void {
     const gpa = std.testing.allocator;
     const len = if (buffer_len == 0) bytes.len + 1 else buffer_len;
     var out: [0]u8 = undefined;
     var w: std.Io.Writer = .fixed(&out);
-    const want = wantHead(bytes, len);
+    const head = afterEmptyLines(bytes);
+    const readable = try gpa.dupe(u8, head);
+    defer gpa.free(readable);
+    const want = wantHead(readable, len);
     // Ours, sent `step` bytes at a time.
     const buf = try gpa.alloc(u8, len);
     defer gpa.free(buf);
@@ -1491,9 +1518,12 @@ fn expectSameHead(bytes: []const u8, step: usize, buffer_len: usize) !void {
     var server: Server = .init(&in.interface, &w);
     server.http.reader.max_head_len = len;
     const got = server.receiveHead();
-    const broken = breaksRule(bytes);
+    const broken = breaksRule(head);
     const g = (got catch |err| {
-        if (broken) return;
+        if (broken) switch (err) {
+            error.HttpHeaderByteInvalid, error.HttpTransferEncodingNotChunked, error.InvalidContentLength => return,
+            else => {},
+        };
         return std.testing.expectError(err, want);
     }).head;
     try std.testing.expect(!broken);
@@ -1508,6 +1538,16 @@ fn expectSameHead(bytes: []const u8, step: usize, buffer_len: usize) !void {
     try std.testing.expectEqual(h.transfer_compression, g.transfer_compression);
     try std.testing.expectEqual(h.keep_alive, g.keep_alive);
     try std.testing.expectEqual(std.mem.findScalar(u8, h.target, '?'), server.question);
+}
+
+/// `bytes` past the empty lines before a request line that ours skips,
+/// up to `empty_lines` of them.
+fn afterEmptyLines(bytes: []const u8) []const u8 {
+    var rest = bytes;
+    for (0..empty_lines) |_| {
+        if (std.mem.startsWith(u8, rest, "\r\n")) rest = rest[2..];
+    }
+    return rest;
 }
 
 /// Where the head in `bytes` ends: after its first empty line or bare
@@ -1527,10 +1567,28 @@ fn headEnd(bytes: []const u8) ?usize {
 /// between reads and its vectors, it misses some ends (a bare `\n\n`,
 /// `\n\r\n\r\n`) and finds some that are none (`\r\na\r\n`, a line of
 /// one byte after a vector's worth of bytes).
-fn wantHead(bytes: []const u8, len: usize) HeadError!Head {
-    if (headEnd(bytes)) |end| if (end <= len) return Head.parse(bytes[0..end]);
+fn wantHead(bytes: []u8, len: usize) HeadError!Head {
+    if (headEnd(bytes)) |end| if (end <= len) return Head.parse(zigReadable(bytes[0..end]));
     if (bytes.len >= len) return error.HttpHeadersOversize;
     return if (bytes.len == 0) error.HttpConnectionClosing else error.HttpRequestTruncated;
+}
+
+/// The head `bytes`, rewritten in place so that Zig's `Head.parse` reads
+/// it as ours does: in a Transfer-Encoding, a tab becomes a space, and a
+/// last coding of `chunked`, in any case, lower case. Ours takes both,
+/// as RFC 9112 §7 says; `Head.parse` refuses them.
+fn zigReadable(bytes: []u8) []u8 {
+    var at: usize = 0;
+    while (std.mem.findPos(u8, bytes, at, "\r\n")) |end| : (at = end + 2) {
+        const line = bytes[at..end];
+        const colon = std.mem.findScalar(u8, line, ':') orelse continue;
+        if (!std.ascii.eqlIgnoreCase(line[0..colon], "transfer-encoding")) continue;
+        const value = line[colon + 1 ..];
+        std.mem.replaceScalar(u8, value, '\t', ' ');
+        const last = std.mem.trim(u8, value[if (std.mem.findScalarLast(u8, value, ',')) |c| c + 1 else 0 ..], " ");
+        if (std.ascii.eqlIgnoreCase(last, "chunked")) @memcpy(@constCast(last), "chunked");
+    }
+    return bytes;
 }
 
 /// Whether the head in `bytes`, up to its first empty line or bare
@@ -1561,23 +1619,23 @@ fn breaksRule(bytes: []const u8) bool {
         }
         if (std.ascii.eqlIgnoreCase(name, "transfer-encoding")) {
             var codings = std.mem.splitBackwardsScalar(u8, value, ',');
-            if (!std.mem.eql(u8, std.mem.trim(u8, codings.first(), " "), "chunked")) return true;
+            if (!std.ascii.eqlIgnoreCase(std.mem.trim(u8, codings.first(), " \t"), "chunked")) return true;
         }
     }
     return false;
 }
 
-/// Heads our server and Zig's read alike, valid and not, and some that
-/// break a rule ours keeps (`breaksRule`).
+/// Heads our server and Zig's read alike, valid and not, each past the
+/// empty lines ours skips before it (`afterEmptyLines`), and each read
+/// by Zig's `Head.parse` with a Transfer-Encoding's coding names in any
+/// case (`zigReadable`).
 const test_heads = [_][]const u8{
     "GET / HTTP/1.1\r\n\r\n",
     "GET /a?b=c HTTP/1.0\r\nHost: x\r\nConnection: keep-alive\r\n\r\n",
     "POST /p HTTP/1.1\r\ncontent-tYpe: text/plain\r\ncontent-Length:10\r\nexpeCt:   100-continue \r\nTRansfer-encoding:\tdeflate, chunked \r\nconnectioN:\t close \r\n\r\n",
     "PUT /p HTTP/1.1\r\nContent-Encoding: gzip\r\nNoColon\r\nSpaced \t: v : w\r\n\r\n",
     "GET http://x.y:80/a?b=c:d?e HTTP/1.1\r\nHost: x.y:80\r\nReferer: http://z/?q=1\r\n\r\n",
-    "GET /?? HTTP/1.1\r\nA: b\nc\r\nD:\r\nE:\t \r\nF: g\rh\r\n\r\n",
     "OPTIONS * HTTP/1.1\r\nexpect\r\nconnection\r\ncontent-type\r\n\r\n",
-    "QUERY /q HTTP/1.1\r\nUser-Agent: z\r\nconnectioN: Close\r\nContent-Length: +5\r\n\r\nbody",
     "GET / HTTP/1.1\r\n\r\nGET /next HTTP/1.1\r\n\r\n",
     // The request line.
     "GET / HTTP/1.2\r\n\r\n",
@@ -1591,75 +1649,126 @@ const test_heads = [_][]const u8{
     "GET/ HTTP/1.1\r\n\r\n",
     "BREW / HTTP/1.1\r\n\r\n",
     "get / HTTP/1.1\r\n\r\n",
-    "GET\x00 / HTTP/1.1\r\n\r\n",
     "CONNECTX / HTTP/1.1\r\n\r\n",
     " GET / HTTP/1.1\r\n\r\n",
     "GET / H\r\n\r\n",
-    "\r\n\r\n",
+    // Empty lines before the request line: up to two are skipped.
     "\r\nGET / HTTP/1.1\r\n\r\n",
-    // Bare line feeds.
-    "GET / HTTP/1.1\n\n",
-    "GET / HTTP/1.1\nHost: x\n\n",
-    "GET / HTTP/1.1\r\nHost: x\n\n",
-    "GET / HTTP/1.1\r\nHost: x\r\n\n",
-    "\n\n",
-    "GET / HTTP/1.1\r\nA: b\n\r\nC: d\r\n\r\n",
+    "\r\n\r\nGET / HTTP/1.1\r\n\r\n",
+    "\r\n\r\n\r\nGET / HTTP/1.1\r\n\r\n",
+    "\r\n\r\n",
+    "\r\n\r\n\r\n",
+    "\r\n",
+    "\r\n\r",
+    "\r",
     // Headers.
     "GET / HTTP/1.1\r\n folded\r\n\r\n",
     "GET / HTTP/1.1\r\nA: b\r\n\tfolded\r\n\r\n",
     "GET / HTTP/1.1\r\n: empty\r\n\r\n",
     "GET / HTTP/1.1\r\nContent-Length: 1\r\nContent-Length: 1\r\n\r\n",
     "GET / HTTP/1.1\r\nContent-Length: 1\r\ncontent-length: 2\r\n\r\n",
-    "GET / HTTP/1.1\r\nContent-Length: x\r\n\r\n",
-    "GET / HTTP/1.1\r\nContent-Length: -1\r\n\r\n",
     "GET / HTTP/1.1\r\nContent-Length: 99999999999999999999\r\n\r\n",
-    "GET / HTTP/1.1\r\nContent-Length\r\n\r\n",
     "GET / HTTP/1.1\r\nTransfer-Encoding: chunked, chunked\r\n\r\n",
     "GET / HTTP/1.1\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n\r\n",
-    "GET / HTTP/1.1\r\nTransfer-Encoding: br\r\n\r\n",
     "GET / HTTP/1.1\r\nTransfer-Encoding: a, b, chunked\r\n\r\n",
-    "GET / HTTP/1.1\r\nContent-Encoding: zstd\r\nTransfer-Encoding: gzip\r\n\r\n",
     "GET / HTTP/1.1\r\nContent-Encoding: gzip\r\nContent-Encoding: gzip\r\n\r\n",
+    // Coding names in any case, between spaces or tabs.
+    "POST / HTTP/1.1\r\nTransfer-Encoding: Chunked\r\n\r\n",
+    "POST / HTTP/1.1\r\nTransfer-Encoding: CHUNKED\r\n\r\n",
+    "POST / HTTP/1.1\r\nTransfer-Encoding: gzip, Chunked\r\n\r\n",
+    "POST / HTTP/1.1\r\nTransfer-Encoding: gzip,\tchunked\r\n\r\n",
+    "POST / HTTP/1.1\r\nTransfer-Encoding: gzip\t,\tcHuNkEd\t\r\n\r\n",
+    "POST / HTTP/1.1\r\nTransfer-Encoding: Chunked\r\nTransfer-Encoding: chunked\r\n\r\n",
+    "POST / HTTP/1.1\r\nTransfer-Encoding: x, Chunked\r\n\r\n",
     // The first error, of several.
     "BREW / HTTP/1.1\r\n folded\r\n\r\n",
-    "GET / HTTP/1.1\r\nContent-Length: x\r\n folded\r\n\r\n",
     // No end.
     "GET / HTTP/1.1\r\nHost: x\r\n",
     "GET / HTTP/1.1\r\nHost: x\r\n\r",
     "BREW / HTTP/1.1\r\nHost: x\r\n",
+    "GET / HTTP/1.1\r\nA: b\r\n\r",
     "",
     // Ends Zig's `HeadParser` finds where there are none.
     "GET / HTTP/1.1\r\na\r\n\r\n",
     "PUT * HTTP/1.0\r\n:\r\n\r\n",
     "GET / HTTP/1.1\r\na\r\nContent-Length: 2\r\n\r\nab",
-    // Rules ours keeps.
-    "POST / HTTP/1.1\r\nContent-Length: 1_0\r\n\r\n",
-    "POST / HTTP/1.1\r\nContent-Length: -0\r\n\r\n",
+    // Lengths of digits alone.
     "POST / HTTP/1.1\r\nContent-Length: 007\r\n\r\n",
     "POST / HTTP/1.1\r\nContent-Length: 18446744073709551615\r\n\r\n",
     "POST / HTTP/1.1\r\nContent-Length: 18446744073709551616\r\n\r\n",
-    "POST / HTTP/1.1\r\nTransfer-Encoding: gzip\r\n\r\n",
-    "POST / HTTP/1.1\r\nTransfer-Encoding: none\r\n\r\n",
-    "POST / HTTP/1.1\r\nTransfer-Encoding: chunked, gzip\r\n\r\n",
-    "POST / HTTP/1.1\r\nTransfer-Encoding: Chunked\r\n\r\n",
     "POST / HTTP/1.1\r\nTransfer-Encoding: gzip,chunked\r\n\r\n",
     "POST / HTTP/1.1\r\nContent-Length: 4\r\nTransfer-Encoding: chunked\r\n\r\n",
-    "GET / HTTP/1.1\r\nX: a\nTransfer-Encoding: chunked\r\n\r\n",
-    "GET / HTTP/1.1\r\nX: a\rb\r\n\r\n",
-    "GET / HTTP/1.1\r\nX: a\r\r\n\r\n",
-    "GET / HTTP/1.1\r\nX: a\x00b\r\n\r\n",
-    "GET /\x00 HTTP/1.1\r\n\r\n",
-    "GET / HTTP/1.1\nHost: x\r\n\r\n",
-    "GET / HTTP/1.1\r\nA: b\n\r\n\r\n",
-    "POST\x00\n\r\n\r\n",
-    "GET / HTTP/1.1\r\nA: b\r\n\r",
+};
+
+/// Heads that break a rule ours keeps and Zig's `Head.parse` does not
+/// (`breaksRule`), each with the error ours gives.
+const refused_heads = [_]struct { []const u8, HeadError }{
+    // A CR, LF, or NUL that ends no line, and a bare `\n\n`.
+    .{ "GET / HTTP/1.1\n\n", error.HttpHeaderByteInvalid },
+    .{ "GET / HTTP/1.1\nHost: x\n\n", error.HttpHeaderByteInvalid },
+    .{ "GET / HTTP/1.1\r\nHost: x\n\n", error.HttpHeaderByteInvalid },
+    .{ "GET / HTTP/1.1\r\nHost: x\r\n\n", error.HttpHeaderByteInvalid },
+    .{ "\n\n", error.HttpHeaderByteInvalid },
+    .{ "\nGET / HTTP/1.1\r\n\r\n", error.HttpHeaderByteInvalid },
+    .{ "\r\n\nGET / HTTP/1.1\r\n\r\n", error.HttpHeaderByteInvalid },
+    .{ "\r\rGET / HTTP/1.1\r\n\r\n", error.HttpHeaderByteInvalid },
+    .{ "GET / HTTP/1.1\r\nA: b\n\r\nC: d\r\n\r\n", error.HttpHeaderByteInvalid },
+    .{ "GET /?? HTTP/1.1\r\nA: b\nc\r\nD:\r\nE:\t \r\nF: g\rh\r\n\r\n", error.HttpHeaderByteInvalid },
+    .{ "GET / HTTP/1.1\r\nX: a\nTransfer-Encoding: chunked\r\n\r\n", error.HttpHeaderByteInvalid },
+    .{ "GET / HTTP/1.1\r\nX: a\rb\r\n\r\n", error.HttpHeaderByteInvalid },
+    .{ "GET / HTTP/1.1\r\nX: a\r\r\n\r\n", error.HttpHeaderByteInvalid },
+    .{ "GET / HTTP/1.1\r\nX: a\x00b\r\n\r\n", error.HttpHeaderByteInvalid },
+    .{ "GET\x00 / HTTP/1.1\r\n\r\n", error.HttpHeaderByteInvalid },
+    .{ "GET /\x00 HTTP/1.1\r\n\r\n", error.HttpHeaderByteInvalid },
+    .{ "GET / HTTP/1.1\nHost: x\r\n\r\n", error.HttpHeaderByteInvalid },
+    .{ "GET / HTTP/1.1\r\nA: b\n\r\n\r\n", error.HttpHeaderByteInvalid },
+    .{ "POST\x00\n\r\n\r\n", error.HttpHeaderByteInvalid },
+    // A length not digits alone.
+    .{ "QUERY /q HTTP/1.1\r\nUser-Agent: z\r\nconnectioN: Close\r\nContent-Length: +5\r\n\r\nbody", error.InvalidContentLength },
+    .{ "GET / HTTP/1.1\r\nContent-Length: x\r\n\r\n", error.InvalidContentLength },
+    .{ "GET / HTTP/1.1\r\nContent-Length: -1\r\n\r\n", error.InvalidContentLength },
+    .{ "GET / HTTP/1.1\r\nContent-Length\r\n\r\n", error.InvalidContentLength },
+    .{ "GET / HTTP/1.1\r\nContent-Length: x\r\n folded\r\n\r\n", error.InvalidContentLength },
+    .{ "POST / HTTP/1.1\r\nContent-Length: 1_0\r\n\r\n", error.InvalidContentLength },
+    .{ "POST / HTTP/1.1\r\nContent-Length: -0\r\n\r\n", error.InvalidContentLength },
+    // A Transfer-Encoding whose last coding is not `chunked`.
+    .{ "GET / HTTP/1.1\r\nTransfer-Encoding: br\r\n\r\n", error.HttpTransferEncodingNotChunked },
+    .{ "GET / HTTP/1.1\r\nContent-Encoding: zstd\r\nTransfer-Encoding: gzip\r\n\r\n", error.HttpTransferEncodingNotChunked },
+    .{ "POST / HTTP/1.1\r\nTransfer-Encoding: gzip\r\n\r\n", error.HttpTransferEncodingNotChunked },
+    .{ "POST / HTTP/1.1\r\nTransfer-Encoding: none\r\n\r\n", error.HttpTransferEncodingNotChunked },
+    .{ "POST / HTTP/1.1\r\nTransfer-Encoding: chunked, gzip\r\n\r\n", error.HttpTransferEncodingNotChunked },
+    .{ "POST / HTTP/1.1\r\nTransfer-Encoding: Chunked, gzip\r\n\r\n", error.HttpTransferEncodingNotChunked },
+    .{ "POST / HTTP/1.1\r\nTransfer-Encoding: CHUNKED, GZIP\r\n\r\n", error.HttpTransferEncodingNotChunked },
+    .{ "POST / HTTP/1.1\r\nTransfer-Encoding: chunk\r\n\r\n", error.HttpTransferEncodingNotChunked },
+    .{ "POST / HTTP/1.1\r\nTransfer-Encoding: chunked;q=1\r\n\r\n", error.HttpTransferEncodingNotChunked },
 };
 
 test "receiveHead gives what Zig's Head.parse gives" {
     for (test_heads) |bytes| {
+        try std.testing.expect(!breaksRule(afterEmptyLines(bytes)));
         // Whole, then a few bytes at a time, as bytes arrive.
         for ([_]usize{ bytes.len + 1, 1, 3, 17 }) |step| {
             expectSameHead(bytes, step, 0) catch |err| {
+                std.debug.print("head {f}, {d} at a time\n", .{ std.zig.fmtString(bytes), step });
+                return err;
+            };
+        }
+    }
+}
+
+test "receiveHead refuses a head that breaks a rule Zig's Head.parse does not keep, with its error" {
+    var out: [0]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&out);
+    for (refused_heads) |case| {
+        const bytes, const want = case;
+        try std.testing.expect(breaksRule(afterEmptyLines(bytes)));
+        for ([_]usize{ bytes.len, 1, 3, 17 }) |step| {
+            var buf: [128]u8 = undefined;
+            var in: std.testing.Reader = .init(&buf, &.{.{ .buffer = bytes }});
+            in.artificial_limit = .limited(step);
+            var server: Server = .init(&in.interface, &w);
+            server.http.reader.max_head_len = buf.len;
+            std.testing.expectError(want, server.receiveHead()) catch |err| {
                 std.debug.print("head {f}, {d} at a time\n", .{ std.zig.fmtString(bytes), step });
                 return err;
             };
@@ -1724,7 +1833,9 @@ test "receiveHead refuses a head longer than its limit" {
 }
 
 test "receiveHead reads heads one after another, as the reader moves them" {
-    const bytes = "GET /a?x HTTP/1.1\r\nA: 1\r\n\r\nPOST /b HTTP/1.0\r\nB: 22\r\nContent-Length: 0\r\n\r\nGET /c HTTP/1.1\r\n\r\n";
+    // With an empty line or two between them, as a client may send after
+    // a body, and one at the end before the client closes.
+    const bytes = "GET /a?x HTTP/1.1\r\nA: 1\r\n\r\n\r\nPOST /b HTTP/1.0\r\nB: 22\r\nContent-Length: 0\r\n\r\n\r\n\r\nGET /c HTTP/1.1\r\n\r\n\r\n";
     var out: [0]u8 = undefined;
     var w: std.Io.Writer = .fixed(&out);
     for ([_]usize{ 1, 7, bytes.len }) |step| {
