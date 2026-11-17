@@ -216,9 +216,9 @@ const Worker = struct {
     /// What its watches saw, for `RIG_SCHED_STATS=1`: waits a watched
     /// poller's edge ended, of them those whose looks woke nothing, of
     /// those the ones that found a poller's lock held; kicks its looks
-    /// found on others' pollers while watching; waits that ended with no
-    /// edge whose looks woke fibers (the 1 ms backstop); and its looks
-    /// that found a poller's lock held.
+    /// found on others' pollers while watching; waits that lasted the
+    /// whole `watch_every` with no edge whose looks woke fibers (what the
+    /// backstop caught); and its looks that found a poller's lock held.
     nest_woke: u64 = 0,
     nest_empty: u64 = 0,
     nest_locked: u64 = 0,
@@ -2592,7 +2592,10 @@ fn sleepIn(w: *Worker, timeout: ?i96) void {
             nestWatch(w, true);
             // An edge a look read since the last round: only look.
             const edged = w.poller.nest_edge.swap(false, .monotonic);
-            const own = w.poller.poll(if (edged) 0 else if (timeout) |t| @min(t, watch_every) else watch_every);
+            const wait = if (edged) 0 else if (timeout) |t| @min(t, watch_every) else watch_every;
+            const began = nowNs();
+            const own = w.poller.poll(wait);
+            const backstop = wait == watch_every and nowNs() - began >= watch_every * 9 / 10;
             const nested = w.poller.nest_edge.swap(false, .monotonic) or edged;
             const missed = w.looks_missed;
             const any = serviceAll();
@@ -2600,7 +2603,7 @@ fn sleepIn(w: *Worker, timeout: ?i96) void {
                 w.nest_woke += 1;
                 if (!any) w.nest_empty += 1;
                 if (!any and w.looks_missed != missed) w.nest_locked += 1;
-            } else if (any and !own) w.nest_late += 1;
+            } else if (any and !own and backstop) w.nest_late += 1;
             return;
         }
     }
@@ -3841,6 +3844,16 @@ fn printDeclined(w: *Worker, i: usize) void {
 }
 
 extern "c" fn _dyld_get_image_vmaddr_slide(image_index: u32) isize;
+
+/// The program ends by a signal (`rt.endBy`): an interrupt or a request
+/// to end that canceled `main`, as a server that serves until it is told
+/// to stop ends. With `RIG_SCHED_STATS=1` set, what each worker did is
+/// printed first, as `main`'s end prints it. The workers may still run:
+/// each count is read once, a moment's value.
+pub fn statsAtSignal() void {
+    if (!started.*) return;
+    printStats();
+}
 
 /// With `RIG_SCHED_STATS=1` set, print what each worker did to stderr,
 /// as `main` ends: so a test can check where work ran without timing it.

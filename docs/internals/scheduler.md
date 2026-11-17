@@ -244,7 +244,8 @@ worker after.
   A program that wants a class or given cores sets them for the
   process: `taskpolicy` on macOS, `taskset` on Linux.
 - **Where work ran.** With `RIG_SCHED_STATS=1` set, a program prints, as
-  `main` ends, what each worker did, to stderr:
+  `main` ends or an interrupt or a request to end (SIGINT, SIGTERM) ends
+  it (`sched.statsAtSignal`), what each worker did, to stderr:
 
   ```
   rig: worker 0: ran 1203, pinned 1, stole 0, slept 4
@@ -262,9 +263,9 @@ worker after.
   the watcher's waits a watched poller's edge ended, of them those
   whose looks woke nothing, and of those the ones that found a poller's
   lock held; the kicks its looks found on watched pollers; its waits
-  that ended with no edge yet whose looks woke fibers (what the 1 ms
-  backstop caught); and every worker's looks that found a poller's lock
-  held.
+  that lasted the whole 1 ms with no edge yet whose looks woke fibers
+  (what the backstop caught); and every worker's looks that found a
+  poller's lock held.
 
 ## Speed
 

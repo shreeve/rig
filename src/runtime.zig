@@ -8600,6 +8600,7 @@ fn defaultFor(sig: std.posix.SIG) void {
 /// it sees it ended by the signal (and stops a loop it runs); status
 /// 128 + `sig` if the signal does not end it.
 fn endBy(sig: std.posix.SIG) noreturn {
+    if (scheduled) sched.statsAtSignal();
     defaultFor(sig);
     std.posix.raise(sig) catch {};
     std.process.exit(128 +| @as(u8, @intCast(@backingInt(sig))));
