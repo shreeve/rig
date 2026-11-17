@@ -270,7 +270,11 @@ worker after.
   itself as asleep, then, when none searches, looks once more at the
   global queue and every ring; one that finds work there counts itself
   as searching again, so taking it wakes another for the rest
-  (`sched.sleep`, checked in formal/Models/Sleep.lean as `relook`).
+  (`sched.sleep`). formal/Models/Sleep.lean checks these handshakes
+  with `sched.spread` and the pollers' batches: no worker sleeps while
+  a ring, the global queue, or its pinned queue holds work, and only a
+  task left in a slot beside another, once the searcher that kept
+  `spread` from waking anyone has passed it, waits for the monitor.
 
 ## Stacks
 
