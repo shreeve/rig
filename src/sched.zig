@@ -3558,6 +3558,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     m.fiber.sp = initialFrame(&m.fiber, top);
     me_slot().* = first;
     if (preempt) preOf(first).tid = rt.threadId();
+    setWorkerQos();
     if (deterministic.*) wake(&m.fiber) else _ = first.ring.push(&m.fiber);
     loop(first);
     // `stopping` is set, so past a raise under way the workers are final.
@@ -3757,7 +3758,20 @@ fn workerCount() usize {
     return @max(1, std.Thread.getCpuCount() catch 1);
 }
 
+/// The quality of service a worker's thread asks of macOS, which places
+/// threads on its performance or efficiency cores by it: work the user
+/// waits on, so the busy workers of a server are not left on the
+/// efficiency cores (`setWorkerQos`).
+const worker_qos: if (builtin.os.tag.isDarwin()) std.c.qos_class_t else void = if (builtin.os.tag.isDarwin()) .USER_INITIATED else {};
+
+/// On macOS, this thread, a worker, asks for `worker_qos`; elsewhere
+/// nothing.
+fn setWorkerQos() void {
+    if (comptime builtin.os.tag.isDarwin()) _ = std.c.pthread_set_qos_class_self_np(worker_qos, 0);
+}
+
 fn workerMain(w: *Worker) void {
+    setWorkerQos();
     defer rt.fast_alloc.threadExit();
     const alt = rt.AltStack.attachOrStop();
     defer alt.detach();
