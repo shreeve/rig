@@ -359,6 +359,111 @@ test "sort keeps equal keys in order through the merge at every size and pattern
         ok = ok and ps.len == n and stable(?ps[..], down)
   print(ok)
 
+test "sort keeps equal keys in order through the quicksort at every size to 33 and at 2^10 and 2^16", "true"
+  # Records with no long runs reach the stable quicksort (from 65
+  # elements; the small sort and its sorting networks below), whose
+  # partitions keep each side in order, and few-valued keys take its
+  # split of the elements equal to the last pivot. Sawtooth keys make
+  # short runs that merge lazily, and a sorted half beside a random
+  # half makes a sorted run merge with a quicksorted one.
+  obj Rec
+    key: Int
+    id: Int
+
+  fun stable(ps: []Rec) -> Bool
+    for p, i in ps
+      if i > 0
+        q = ?ps[i - 1]
+        if q.key > p.key or (q.key == p.key and q.id > p.id)
+          return false
+    true
+
+  r = random.Random.seeded(23)
+  ok = true
+  sizes: List[Int] = List()
+  for n in 0..34
+    !sizes.push(n)
+  !sizes.push(1 << 10)
+  !sizes.push(1 << 16)
+  for n in ?sizes
+    for pattern in 0..6
+      ps: List[Rec] = List()
+      for i in 0..n
+        k = (!r).int(0, 1 << 40)
+        if pattern == 1
+          k = (!r).int(0, 4)
+        else if pattern == 2
+          k = (!r).int(0, 16)
+        else if pattern == 3
+          k = i % 100
+        else if pattern == 4
+          k = i if i < n / 2 else (!r).int(0, n)
+        else if pattern == 5
+          k = 7
+        !ps.push(Rec(key: k, id: i))
+      sort.sort_by(!ps[..], |x, y| x.key < y.key)
+      ok = ok and ps.len == n and stable(?ps[..])
+  print(ok)
+
+test "sort keeps every element when the comparator always or never says less", "true"
+  # Always `true`: every partition puts all but its pivot below it, so
+  # the quicksort runs out of partitions and finishes by merges. Never:
+  # every element is equal to every pivot, and the order is kept. Each
+  # element ends in the slice once either way.
+  obj Tagged
+    name: String
+    id: Int
+
+  ok = true
+  for n in [21, 64, 65, 1000, 70000]
+    for always in [true, false]
+      ts: List[Tagged] = List()
+      for i in 0..n
+        name: String = `t{i}`
+        !ts.push(Tagged(name: <name, id: i))
+      sort.sort_by(!ts[..], |+always, a, b| always)
+      seen: List[Bool] = List.filled(n, false)
+      for t, i in ?ts
+        want: String = `t{t.id}`
+        ok = ok and t.name == want and not seen[t.id] and (always or t.id == i)
+        seen[t.id] = true
+  print(ok)
+
+test "sort orders text by its bytes at every length", "true"
+  # `<`, `<=`, `>`, and `>=` on text compare eight bytes at a time from
+  # 8 bytes in common: texts of 0 to 24 letters that differ at each
+  # letter, or one a prefix of the other, against the letters' codes
+  # compared one by one.
+  fun before(a: []Int, b: []Int) -> Bool
+    n = a.len if a.len < b.len else b.len
+    for i in 0..n
+      if a[i] != b[i]
+        return a[i] < b[i]
+    a.len < b.len
+
+  letters = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+  ok = true
+  for n in 0..25
+    ac: List[Int] = List()
+    at: String = String()
+    for i in 0..n
+      !ac.push(i)
+      !at.add(letters[i])
+    for m in 0..25
+      for d in 0..m + 1
+        bc: List[Int] = List()
+        bt: String = String()
+        for i in 0..m
+          c = i
+          if i == d
+            c = i + 1 if i % 2 == 0 else i + 2
+          !bc.push(c)
+          !bt.add(letters[c])
+        lt = before(?ac[..], ?bc[..])
+        gt = before(?bc[..], ?ac[..])
+        ok = ok and (at < bt) == lt and (at > bt) == gt and (at <= bt) == (not gt) and (at >= bt) == (not lt)
+  print(ok)
+
 test "sort moves owned elements through the room and drops each once", '''
   true
   true
@@ -434,11 +539,12 @@ test "sort keeps every element under a comparator that is no order", "true"
       seen[t.id] = true
   print(ok)
 
-bomb "sort stops at a comparator's panic mid-merge with nothing dropped twice", "panic: compared too far", prints: "sorting"
-  # The sort makes 61,699 comparisons, the last 4,095 of them in its last
-  # merge, so the panic comes in that merge with the run moved out to
-  # the room partly merged back: some of its Strings are in the room and
-  # in the slice at once. A panic runs no drop, so neither copy is freed.
+bomb "sort stops at a comparator's panic mid-partition with nothing dropped twice", "panic: compared too far", prints: "sorting"
+  # The 4,096 Strings fit in the room, so the sort is one quicksort of
+  # 44,023 comparisons, the first partition's 4,096 starting after some
+  # 40 that choose its pivot: the panic comes midway through that
+  # partition, with about half the Strings copied to the room and still
+  # in the slice. A panic runs no drop, so neither copy is freed.
   xs: List[String] = List()
   for i in 0..4096
     t: String = `{(i * 7919) % 4096 + 10000}`
@@ -447,7 +553,7 @@ bomb "sort stops at a comparator's panic mid-merge with nothing dropped twice", 
   calls = *Cell(0)
   sort.sort_by(!xs[..], |+calls, a, b|
     !calls.set(calls.get() + 1)
-    if calls.get() > 60000
+    if calls.get() > 2000
       panic("compared too far")
     a < b
   )
@@ -457,9 +563,9 @@ test "sort stops at a comparator's panic in an isolate and the program goes on",
   Stop.panicked
   [1, 2, 3]
 '''
-  # The panic comes in the last merge, as in the case above; the list,
-  # the room, and the Strings in both are left by the panic, not leaked
-  # and not freed.
+  # The panic comes in the first partition, as in the case above; the
+  # list, the room, and the Strings in both are left by the panic, not
+  # leaked and not freed.
   use std.task
 
   fun sorted_texts() -> Int
@@ -470,7 +576,7 @@ test "sort stops at a comparator's panic in an isolate and the program goes on",
     calls = *Cell(0)
     sort.sort_by(!xs[..], |+calls, a, b|
       !calls.set(calls.get() + 1)
-      if calls.get() > 60000
+      if calls.get() > 2000
         panic("compared too far")
       a < b
     )

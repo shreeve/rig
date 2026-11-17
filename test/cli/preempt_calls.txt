@@ -36,6 +36,7 @@ debug.print                 a panic's report
 memcpy                      copies bytes: bounded by what it copies, and a C function, which no section holds
 memmove                     copies bytes: as memcpy
 memset                      fills bytes: as memcpy
+bzero                       fills bytes with zero, as LLVM writes a memset of zeros on macOS: as memcpy
 strlen                      a C string's length, of the program's arguments
 __error                     the C library's errno
 __ulock_wait2               a lock's wait (Darwin)
