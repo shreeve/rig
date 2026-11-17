@@ -742,6 +742,14 @@ arms.
 
 ### Runtime
 
+- **A worker going to sleep leaves another's events to it** while that
+  worker waits in its poller or has looked at it within 1 ms
+  (`sched.unattended`): a server's acceptor worker holds every
+  connection, and every worker going to sleep took its events in turn
+  and ran their fibers apart from it. Past 1 ms out of its wait, a
+  sleeping worker or the watcher looks, so a busy worker's events wait
+  no longer than its yield checks' 250 µs, or about 2 ms when only the
+  watcher looks.
 - **A worker going to sleep never blocks writing stdout.** Before it
   waits in its poller it writes only what stdout takes at once of what
   `print` buffered, and what is left is written as stdout has room,
