@@ -8573,7 +8573,8 @@ test "an event on a watched worker asleep in its own poller runs once, and its w
         fn reader(_: *Unit, r: *Registration) u8 {
             while (got < bytes) {
                 var b: [bytes]u8 = undefined;
-                const k = std.posix.system.read(fds[0], &b, b.len);
+                // Linux gives the raw call's `usize`, an error a large one.
+                const k: isize = @bitCast(std.posix.system.read(fds[0], &b, b.len));
                 if (k > 0) {
                     got += @intCast(k);
                     continue;
