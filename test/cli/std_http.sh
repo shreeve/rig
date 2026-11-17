@@ -189,6 +189,9 @@ def framing():
         send('chunked, gzip', b'POST /g HTTP/1.1\r\n' + h + b'Transfer-Encoding: chunked, gzip\r\n\r\n0\r\n\r\n' + nxt)
         send('none', b'GET /g HTTP/1.1\r\n' + h + b'Transfer-Encoding: none\r\n\r\n' + nxt)
         send('gzip, chunked', b'POST /g HTTP/1.1\r\n' + h + b'Transfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n' + nxt)
+        # Coding names in any case.
+        for v in [b'Chunked', b'CHUNKED', b'gzip, Chunked', b'gzip,\tchunked', b'Chunked, gzip']:
+            send(v.decode().replace('\t', ' '), b'POST /g HTTP/1.1\r\n' + h + b'Transfer-Encoding: ' + v + b'\r\n\r\n3\r\nabc\r\n0\r\n\r\n' + nxt)
         # A length and chunked: read as chunked, then closed.
         send('both', b'POST /b HTTP/1.1\r\n' + h + b'Content-Length: 4\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\nGET /smuggled HTTP/1.1\r\n' + h + b'\r\n')
         # A length that is not digits: 400.
@@ -201,6 +204,14 @@ def framing():
         send('nul', b'GET /c HTTP/1.1\r\n' + h + b'X: a\x00b\r\n\r\n' + nxt)
         send('bare lf line', b'GET /c HTTP/1.1\n' + h + b'\r\n' + nxt)
         send('unknown method', b'BREW /c HTTP/1.1\r\n' + h + b'\r\n' + nxt)
+        # Up to two empty lines before a request line are skipped.
+        send('empty line', b'\r\nGET /e HTTP/1.1\r\n' + h + b'\r\n' + nxt)
+        send('two empty lines', b'\r\n\r\nGET /e HTTP/1.1\r\n' + h + b'\r\n' + nxt)
+        send('three empty lines', b'\r\n\r\n\r\nGET /e HTTP/1.1\r\n' + h + b'\r\n' + nxt)
+        send('empty line after a body', b'POST /l HTTP/1.1\r\n' + h + b'Content-Length: 3\r\n\r\nabc\r\n' + nxt)
+        send('two after a body', b'POST /l HTTP/1.1\r\n' + h + b'Content-Length: 3\r\n\r\nabc\r\n\r\n' + nxt)
+        send('empty line, then close', b'POST /l HTTP/1.1\r\n' + h + b'Content-Length: 3\r\n\r\nabc\r\n', half=True)
+        send('bare lf line before', b'\nGET /e HTTP/1.1\r\n' + h + b'\r\n' + nxt)
         send('after', nxt)
         out.append('alive %s' % (p.poll() is None))
         print('\n'.join(out))
@@ -317,6 +328,11 @@ gzip, post: 400 bad request close
 chunked, gzip: 400 bad request close
 none: 400 bad request close
 gzip, chunked: 200 /g 0, 200 /next 0 close
+Chunked: 200 /g 3, 200 /next 0 close
+CHUNKED: 200 /g 3, 200 /next 0 close
+gzip, Chunked: 200 /g 3, 200 /next 0 close
+gzip, chunked: 200 /g 3, 200 /next 0 close
+Chunked, gzip: 400 bad request close
 both: 200 /b 0 close
 length '1_0': 400 bad request close
 length '+3': 400 bad request close
@@ -329,6 +345,13 @@ bare cr: 400 bad request close
 nul: 400 bad request close
 bare lf line: 400 bad request close
 unknown method: 400 bad request close
+empty line: 200 /e 0, 200 /next 0 close
+two empty lines: 200 /e 0, 200 /next 0 close
+three empty lines: 400 bad request close
+empty line after a body: 200 /l 3, 200 /next 0 close
+two after a body: 200 /l 3, 200 /next 0 close
+empty line, then close: 200 /l 3
+bare lf line before: 400 bad request close
 after: 200 /next 0 close
 alive True"
 for mode in debug release; do

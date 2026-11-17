@@ -219,8 +219,10 @@ the answer, where 0.3.0 kept it open and read what followed as the
 next request. A handler's status below 200 is answered 500: 0.3.0
 panicked on 100 or less, and sent 101 to 199 as an interim answer
 followed by a body. A `.other` type holding a NUL is answered 500, as
-one holding a CR or LF is. Trig and loco serve no HTTP; no migration
-is needed.
+one holding a CR or LF is. Up to two empty lines before a request
+line, which some clients send after a body, are skipped (RFC 9112
+§2.2), where 0.3.0 closed the connection, and a coding is named in any
+case (`Chunked`). Trig and loco serve no HTTP; no migration is needed.
 
 ### Removed
 

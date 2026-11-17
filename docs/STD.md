@@ -1389,14 +1389,15 @@ these limits per server are *(planned)* ([ROADMAP](ROADMAP.md)); the environment
 whole process.
 
 A request's body is framed as RFC 9112 says: by
-`Transfer-Encoding: chunked`, which must be its last coding, or by a
+`Transfer-Encoding: chunked`, which must be its last coding, named in
+any case, or by a
 `Content-Length` of digits alone; a request with neither has no body,
 whatever its method, and one with both is read as chunked and its
 connection closed after the answer, since a proxy in front may have
 framed it by its length. A head that does not parse, holds a CR, LF,
 or NUL that ends no line, or names a Transfer-Encoding not ending in
 `chunked` or a length not digits, is answered 400 and its connection
-closed. A handler's status below 200, which would be an interim answer
+closed; up to two empty lines before a request line are skipped. A handler's status below 200, which would be an interim answer
 or none, and an `.other` type holding a CR, LF, or NUL, are answered
 500.
 
