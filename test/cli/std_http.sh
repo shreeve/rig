@@ -1,8 +1,9 @@
 # std.http.serve's limits, with a client in Python: an idle connection
 # and a slow request head are closed after their timeouts, a stalled
 # body after the idle one; bodies up to the limit are read and larger
-# ones answered 413, chunked or not; and running out of descriptors
-# pauses accepting rather than ending the server. The limits are set
+# ones answered 413, chunked or not; a request with neither a length
+# nor chunked has no body; and running out of descriptors pauses
+# accepting rather than ending the server. The limits are set
 # small through the environment (RIG_HTTP_IDLE_MS, RIG_HTTP_HEAD_MS,
 # RIG_HTTP_MAX_BODY); in debug and --release.
 # timeout: 300
@@ -142,6 +143,52 @@ def limits():
     finally:
         p.kill()
 
+def answers(got):
+    """Each answer in `got`: its status, its body, and `close` when it
+    says the connection closes."""
+    out = []
+    while got.startswith(b'HTTP/1.1 '):
+        head, _, rest = got.partition(b'\r\n\r\n')
+        lines = head.split(b'\r\n')
+        n = 0
+        close = ''
+        for line in lines[1:]:
+            name, _, value = line.partition(b': ')
+            if name == b'content-length':
+                n = int(value)
+            if name == b'connection':
+                close = ' close'
+        out.append(lines[0].split(b' ', 2)[1].decode() + ' ' + rest[:n].decode().strip() + close)
+        got = rest[n:]
+    if got:
+        out.append(repr(got[:40]))
+    return ', '.join(out) or 'none'
+
+def framing():
+    p, port = start({'RIG_HTTP_IDLE_MS': '3000'})
+    try:
+        out = []
+        def send(name, req, half=False):
+            s = conn(port)
+            s.sendall(req)
+            if half:
+                s.shutdown(socket.SHUT_WR)
+            t = time.monotonic()
+            got = answers(read_all(s))
+            s.close()
+            out.append('%s: %s%s' % (name, got, '' if time.monotonic() - t < 2 else ' (slow)'))
+        h = b'Host: x\r\n'
+        nxt = b'GET /next HTTP/1.1\r\n' + h + b'Connection: close\r\n\r\n'
+        # Neither a length nor chunked: no body, whatever the method.
+        send('no length', b'POST /p HTTP/1.1\r\n' + h + b'\r\n' + nxt)
+        send('no length, put', b'PUT /p HTTP/1.1\r\n' + h + b'\r\n' + nxt)
+        send('no length, half-closed', b'POST /p HTTP/1.1\r\n' + h + b'\r\n', half=True)
+        send('after', nxt)
+        out.append('alive %s' % (p.poll() is None))
+        print('\n'.join(out))
+    finally:
+        p.kill()
+
 def descriptors():
     # The server may hold 512 descriptors (its workers' pollers take some
     # of them): the 700 connections held open take the rest, and it
@@ -181,7 +228,7 @@ def descriptors():
     finally:
         p.kill()
 
-{'limits': limits, 'descriptors': descriptors}[sys.argv[1]]()
+{'limits': limits, 'framing': framing, 'descriptors': descriptors}[sys.argv[1]]()
 EOF2
 
 # The default timeouts on a deterministic run's virtual clock: an idle
@@ -244,11 +291,18 @@ stalled True
 (100) 200 /p 1000
 413 content too large
 200 /after 0'
+want_framing="no length: 200 /p 0, 200 /next 0 close
+no length, put: 200 /p 0, 200 /next 0 close
+no length, half-closed: 200 /p 0
+after: 200 /next 0 close
+alive True"
 for mode in debug release; do
     flag=; [[ $mode == release ]] && flag=--release
     out=$(rig build $flag srv.rig 2>&1); expect_rc $? 0 "$mode build: $out"
     out=$(python3 client.py limits 2>&1); expect_rc $? 0 "$mode limits: $out"
     expect_eq "$out" "$want_limits" "$mode: timeouts and the body limit"
+    out=$(python3 client.py framing 2>&1); expect_rc $? 0 "$mode framing: $out"
+    expect_eq "$out" "$want_framing" "$mode: request framing"
     out=$(python3 client.py descriptors 2>&1); expect_rc $? 0 "$mode descriptors: $out"
     expect_eq "$out" $'held True\n200 /again 0\nalive True' "$mode: out of descriptors, it accepts again"
     # 20 seeds at once, so the machine is loaded while each clock jumps.

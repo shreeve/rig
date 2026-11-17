@@ -1083,14 +1083,16 @@ fn respond(request: *std.http.Server.Request, status: u10, kind: []const u8, bod
     try out.flush();
 }
 
-/// Zig's `Request.discardBody`: whether the connection stays open, once
-/// any body the client sent, unread, is read and dropped, so the next
-/// request can be read.
+/// Zig's `Request.discardBody`, with the body framed as RFC 9112 §6.3
+/// says: whether the connection stays open, once any body the client
+/// sent, unread, is read and dropped, so the next request can be read.
 fn discardBody(request: *std.http.Server.Request, keep_alive: bool) bool {
     const r = &request.server.reader;
     if (keep_alive and request.head.keep_alive) switch (r.state) {
         .received_head => {
-            if (request.head.method.requestHasBody()) {
+            // A request with neither a length nor chunked has no body,
+            // whatever its method.
+            if (request.head.content_length != null or request.head.transfer_encoding == .chunked) {
                 const body = request.readerExpectContinue(&.{}) catch return false;
                 _ = body.discardRemaining() catch return false;
                 std.debug.assert(r.state == .ready);
