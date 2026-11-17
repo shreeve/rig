@@ -4266,7 +4266,8 @@ fn sleep(w: *Worker) void {
     defer endBatch(w, opened);
     // Its first wait ends soon after the work it ran, when its waits
     // have (`settle_wait`).
-    var settle = settle_wait != 0 and w.woke_soon and w.poller.count.load(.monotonic) != 0;
+    const holds = settle_wait != 0 and w.poller.count.load(.monotonic) != 0;
+    var settle = holds and w.woke_soon;
     while (w.woken.load(.seq_cst) == 0) {
         serviceAll();
         if (!hasOwnWork(w)) {
@@ -4280,9 +4281,9 @@ fn sleep(w: *Worker) void {
                 const left = @max(since + w.trim_wait - nowReal(), 0);
                 timeout = if (timeout) |t| @min(t, left) else left;
             }
-            const began = if (settle_wait != 0) nowNs() else 0;
+            const began = if (holds) nowNs() else 0;
             sleepIn(w, timeout);
-            if (settle_wait != 0) w.woke_soon = hasOwnWork(w) and nowNs() - began < brief_wait;
+            if (holds) w.woke_soon = hasOwnWork(w) and nowNs() - began < brief_wait;
             w.sleep_due.store(awake, .seq_cst);
             if (trim_due and w.woken.load(.seq_cst) == 0 and nowReal() - since >= w.trim_wait) {
                 trim_due = false;
