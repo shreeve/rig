@@ -17,6 +17,7 @@ rig.alloc.*                 the allocator: its locks; settleAt pays a check a si
 rig.runtime.*.growBy        a List's growth allocates
 rig.runtime.*.growInline    a List's growth allocates
 rig.runtime.String.ofPieces builds a String: allocates
+rig.runtime.String.ofText builds a String of text pieces: allocates
 rig.runtime.Counted(*).dropLast  the last handle of a shared value: frees it
 rig.ordered.*.reserveOne    a table's growth allocates
 rig.ordered.*.insertSmallSlow  may grow the table: allocates
