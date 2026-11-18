@@ -917,6 +917,24 @@ arms.
   A program that ends while worker 1 is still starting the others
   starts no more, so an `os.exit` right after the first task tears down
   as one later does.
+- **`sort.sort` of integers sorts by ipnsort** (Rust's
+  `sort_unstable`: a branchless cyclic Lomuto partition on a recursive
+  pseudomedian, the elements equal to an earlier pivot split off,
+  sorting networks of 9 and 13 with insertion and a bidirectional merge
+  for 32 elements or fewer, heapsort past 2 log2(n) unbalanced
+  partitions), in a kernel written in Zig (std/sort.zig). On the Mac
+  every Int row of std-sort's board is faster than pattern-defeating
+  quicksort, from 1.7 times as fast (sorted input) to 12 times
+  (reversed, 16 elements); random Ints of 256 to 2^20 elements are
+  within 3% of Rust's `sort_unstable`, and 16 random Ints sort 2.2
+  times as fast as Rust's. The kernel keeps the rules of the program's
+  loops: its code lies in the program's section, where a signal
+  preempts a task, and where yield checks run it checks every 16,384
+  elements it handles, so a long sort keeps no other task waiting. With
+  bench/fork's merge-back written with `extend`, as its Rayon twin
+  writes it, qsort of 2^22 Ints is 15% faster at one worker and 6 to 7%
+  faster at ten
+  (docs/history/records/2026-11/concurrency-bench-remeasure/).
 - **`sort.sort` sorts by pattern-defeating quicksort where equal
   elements are the same value**: numbers, `Bool`, text, plain enums,
   and the optionals, arrays, objects, and enums made only of these whose

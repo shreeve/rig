@@ -4,9 +4,10 @@
 # is stopped for a timer that comes due: on one worker, a task that
 # sleeps 20 ms beside a task that computes for 70 to 300 ms wakes
 # within 25 ms, in 20 runs of 20. The computation runs in a closure, a
-# sort's comparator, a Map's hashing (the runtime's Zig), an iterator's
-# `next`, an actor's method, a `par` element function, a `raw` block, a
-# std function written in Zig (`text.width`), and the runtime's helpers
+# sort's comparator, the integer sort's kernel (std/sort.zig), a Map's
+# hashing (the runtime's Zig), an iterator's `next`, an actor's method,
+# a `par` element function, a `raw` block, a std function written in
+# Zig (`text.width`), and the runtime's helpers
 # the program's code calls: `%` and `/`, a comparison of text, a
 # HashMap's hash of a long key, and a slice passed to a function. The
 # program's section, where a signal stops a task, holds them, or calls
@@ -53,6 +54,16 @@ fun cpu_sort() -> Int
     a % 1000 + x * 0 < b % 1000
   )
   xs[0] + 1
+
+fun cpu_intsort() -> Int
+  n = 0
+  for k in 0..3
+    xs: List[Int] = List(capacity: 1 << 22)
+    for i in 0..1 << 22
+      !xs.push((i *% 6364136223846793005 +% 1442695040888963407 + k) >> 20)
+    sort.sort(!xs[..])
+    n += xs.len
+  n
 
 fun cpu_map() -> Int
   m: Map[Int, Int] = Map()
@@ -168,6 +179,7 @@ fun cpu_slice() -> Int
 fun run(which: ?Static) -> Int
   return cpu_closure() if which == "closure"
   return cpu_sort() if which == "sort"
+  return cpu_intsort() if which == "intsort"
   return cpu_map() if which == "map"
   return cpu_iter() if which == "iter"
   return cpu_actor() if which == "actor"
@@ -216,7 +228,7 @@ where() {
 # the suite's load alone can delay a sleeper; the second run names where
 # its declined signals were. PREEMPT_COVER_STRICT=1, the quiet gate
 # before a release, takes no second run.
-kinds="closure sort map iter actor par raw zig divrem strcmp hash slice"
+kinds="closure sort intsort map iter actor par raw zig divrem strcmp hash slice"
 "$RIG" build --release -o cover cover.rig >build.txt 2>&1 || fail "build cover.rig: $(cat build.txt)"
 for k in $kinds; do
     for i in $(seq 1 20); do

@@ -552,3 +552,393 @@ pub inline fn merge_sort_by(comptime T: type, xs: []T, lo: i64, hi: i64, room: [
         while (a + w < len) : (a += 2 * w) merge(T, v + a, @min(2 * w, len - a), s, w, less);
     }
 }
+
+/// Whether `sort` of `T`s takes `unstable_int`: an integer type, which
+/// `<` orders by value.
+pub inline fn int_sort(comptime T: type) bool {
+    return comptime @typeInfo(T) == .int;
+}
+
+/// Sort `xs` of integers by ipnsort (Rust's `slice::sort_unstable`, Orson
+/// Peters and Lukas Bergdoll): a branchless cyclic Lomuto partition on a
+/// recursive pseudomedian, the elements equal to an ancestor pivot split
+/// off, sorting networks of 9 and 13 with insertion and a bidirectional
+/// merge to 32, heapsort past 2 log2(n) partitions on a path. Every index
+/// is bounded by the slice's length, so it runs without Zig's checks.
+///
+/// A sort of many integers computes long without waiting, so it keeps
+/// the rules of the program's own loops (docs/internals/scheduler.md,
+/// "Preemption" and "Yield checks"): its code lies in the program's
+/// section, where a signal stops a task, and in a build that keeps
+/// yield checks it makes one every `check_every` elements it handles
+/// (`Budget`).
+pub fn unstable_int(comptime T: type, xs: []T) linksection(int_section) void {
+    Ipn(T).sort(xs);
+}
+
+/// The section of the integer sort's code: the program's own in a build
+/// preempted by signal (`rig.program_section`).
+const int_section = rig.program_section;
+
+/// Whether the integer sort makes yield checks: where the program's
+/// loops do (`rig.turn`), in a program that makes tasks and is not
+/// preempted by signal.
+const int_checks = rig.scheduled and !rig.preempt;
+
+/// The elements the integer sort handles between two yield checks: tens
+/// of microseconds of partitioning, where a loop's 1,024 turns
+/// (`rig.tick_turns`) are microseconds.
+pub const check_every: usize = 1 << 14;
+
+/// The elements the integer sort may still handle before its next yield
+/// check. Each loop of the sort that runs over its input stops where the
+/// budget ends, checks, and goes on, so no stretch between two checks
+/// handles more than `check_every` elements, plus a sort of 32 or a
+/// heap's sift.
+const Left = struct { n: usize = check_every };
+
+/// What the sort's functions pass for the budget: a pointer to it, or
+/// nothing in a build without checks, so there it costs no argument.
+const Budget = if (int_checks) *Left else void;
+
+/// Where the next stretch of `[i, end)` ends, `i < end`: at `end`, or
+/// where the budget runs out, past `i`.
+inline fn stopAt(b: Budget, i: usize, end: usize) usize {
+    if (comptime !int_checks) return end;
+    return if (end - i > b.n) i + b.n else end;
+}
+
+/// `n` elements handled: once the budget is spent, a yield check and a
+/// new budget.
+inline fn spend(b: Budget, n: usize) void {
+    if (comptime !int_checks) return;
+    if (n < b.n) {
+        b.n -= n;
+        return;
+    }
+    b.n = check_every;
+    var one: u32 = 1;
+    rig.turn(&one);
+}
+
+fn Ipn(comptime T: type) type {
+    return struct {
+        const small = 32;
+
+        pub fn sort(v: []T) linksection(int_section) void {
+            @setRuntimeSafety(false);
+            const len = v.len;
+            if (len < 2) return;
+            var left: Left = .{};
+            _ = &left;
+            const b: Budget = if (int_checks) &left else {};
+            const desc = v[1] < v[0];
+            var run: usize = 2;
+            if (comptime int_checks) {
+                while (run < len) {
+                    const end = stopAt(b, run, len);
+                    const from = run;
+                    if (desc) {
+                        while (run < end and v[run] < v[run - 1]) run += 1;
+                    } else {
+                        while (run < end and !(v[run] < v[run - 1])) run += 1;
+                    }
+                    spend(b, run - from);
+                    if (run < end) break;
+                }
+            } else if (desc) {
+                while (run < len and v[run] < v[run - 1]) run += 1;
+            } else {
+                while (run < len and !(v[run] < v[run - 1])) run += 1;
+            }
+            if (run == len) {
+                if (desc) reverseAll(v.ptr, len, b);
+                return;
+            }
+            const lg: u32 = @intCast(@bitSizeOf(usize) - 1 - @as(usize, @clz(len)));
+            quicksort(v.ptr, len, false, undefined, 2 * lg, b);
+        }
+
+        /// Reverse v[0..len], a falling run, a stretch at a time.
+        inline fn reverseAll(v: [*]T, len: usize, b: Budget) void {
+            @setRuntimeSafety(false);
+            if (comptime !int_checks) return reverse(T, v, len);
+            const half = len / 2;
+            var i: usize = 0;
+            while (i < half) {
+                const end = stopAt(b, i, half);
+                const from = i;
+                while (i < end) : (i += 1) {
+                    const x = v[i];
+                    v[i] = v[len - 1 - i];
+                    v[len - 1 - i] = x;
+                }
+                spend(b, 2 * (i - from));
+            }
+        }
+
+        fn quicksort(base: [*]T, len_in: usize, has_anc: bool, anc: T, limit_in: u32, b: Budget) linksection(int_section) void {
+            @setRuntimeSafety(false);
+            var v = base;
+            var len = len_in;
+            var have = has_anc;
+            var ap = anc;
+            var limit = limit_in;
+            while (true) {
+                if (len <= small) {
+                    ipnSmallSort(v, len);
+                    spend(b, len);
+                    return;
+                }
+                if (limit == 0) {
+                    @branchHint(.cold);
+                    @call(.never_inline, heapsort, .{ v, len, b });
+                    return;
+                }
+                limit -= 1;
+                const p = choosePivot(v, len);
+                if (have and !(ap < v[p])) {
+                    const n = ipnPartition(v, len, p, true, b);
+                    v += n + 1;
+                    len -= n + 1;
+                    have = false;
+                    continue;
+                }
+                const n = ipnPartition(v, len, p, false, b);
+                quicksort(v, n, have, ap, limit, b);
+                have = true;
+                ap = v[n];
+                v += n + 1;
+                len -= n + 1;
+            }
+        }
+
+        inline fn ipnPartition(v: [*]T, len: usize, p: usize, comptime le: bool, b: Budget) usize {
+            @setRuntimeSafety(false);
+            const pivot = v[p];
+            v[p] = v[0];
+            v[0] = pivot;
+            const n = lomuto(v + 1, len - 1, pivot, le, b);
+            v[0] = v[n];
+            v[n] = pivot;
+            return n;
+        }
+
+        inline fn below(r: T, pivot: T, comptime le: bool) bool {
+            return if (le) !(pivot < r) else r < pivot;
+        }
+
+        /// The cyclic Lomuto partition's step for the element `x` at `at`:
+        /// the gap takes the first element not below the pivot, `x` takes
+        /// its place, and the gap moves to `at`.
+        inline fn place(base: [*]T, gap: *[*]T, nlt: *usize, at: [*]T, x: T, pivot: T, comptime le: bool) void {
+            @setRuntimeSafety(false);
+            const is = below(x, pivot, le);
+            gap.*[0] = base[nlt.*];
+            base[nlt.*] = x;
+            gap.* = at;
+            nlt.* += @intFromBool(is);
+        }
+
+        /// The cyclic Lomuto partition's pairs of elements from `r.*` up
+        /// to `stop`.
+        inline fn pairs(base: [*]T, gap: *[*]T, nlt: *usize, r: *[*]T, stop: [*]T, pivot: T, comptime le: bool) void {
+            @setRuntimeSafety(false);
+            while (@intFromPtr(r.*) < @intFromPtr(stop)) {
+                inline for (0..2) |k| place(base, gap, nlt, r.* + k, r.*[k], pivot, le);
+                r.* += 2;
+            }
+        }
+
+        fn lomuto(base: [*]T, len: usize, pivot: T, comptime le: bool, b: Budget) linksection(int_section) usize {
+            @setRuntimeSafety(false);
+            if (len == 0) return 0;
+            const tmp = base[0];
+            var gap: [*]T = base;
+            var nlt: usize = 0;
+            var r: [*]T = base + 1;
+            const end: [*]T = base + len;
+            const end2: [*]T = base + (len - 1);
+            if (comptime int_checks) {
+                while (@intFromPtr(r) < @intFromPtr(end2)) {
+                    const from = r;
+                    const left = (@intFromPtr(end2) - @intFromPtr(r)) / @sizeOf(T);
+                    pairs(base, &gap, &nlt, &r, r + stopAt(b, 0, left), pivot, le);
+                    spend(b, (@intFromPtr(r) - @intFromPtr(from)) / @sizeOf(T));
+                }
+            } else {
+                pairs(base, &gap, &nlt, &r, end2, pivot, le);
+            }
+            while (r != end) : (r += 1) place(base, &gap, &nlt, r, r[0], pivot, le);
+            const is = below(tmp, pivot, le);
+            gap[0] = base[nlt];
+            base[nlt] = tmp;
+            nlt += @intFromBool(is);
+            return nlt;
+        }
+
+        fn choosePivot(v: [*]T, len: usize) linksection(int_section) usize {
+            const n8 = len / 8;
+            const a: usize = 0;
+            const b = n8 * 4;
+            const c = n8 * 7;
+            if (len < 64) return ipnMedian3(v, a, b, c);
+            return median3rec(v, a, b, c, n8);
+        }
+
+        fn median3rec(v: [*]T, a_in: usize, b_in: usize, c_in: usize, n: usize) linksection(int_section) usize {
+            var a = a_in;
+            var b = b_in;
+            var c = c_in;
+            if (n * 8 >= 64) {
+                const n8 = n / 8;
+                a = median3rec(v, a, a + n8 * 4, a + n8 * 7, n8);
+                b = median3rec(v, b, b + n8 * 4, b + n8 * 7, n8);
+                c = median3rec(v, c, c + n8 * 4, c + n8 * 7, n8);
+            }
+            return ipnMedian3(v, a, b, c);
+        }
+
+        inline fn ipnMedian3(v: [*]T, a: usize, b: usize, c: usize) usize {
+            @setRuntimeSafety(false);
+            const x = v[a] < v[b];
+            const y = v[a] < v[c];
+            if (x == y) {
+                const z = v[b] < v[c];
+                return if (z != x) c else b;
+            }
+            return a;
+        }
+
+        inline fn swapIf(v: [*]T, a: usize, b: usize) void {
+            @setRuntimeSafety(false);
+            const x = v[a];
+            const y = v[b];
+            const s = y < x;
+            v[a] = if (s) y else x;
+            v[b] = if (s) x else y;
+        }
+
+        pub fn sort9(v: [*]T) linksection(int_section) void {
+            const n = [_][2]u8{ .{ 0, 3 }, .{ 1, 7 }, .{ 2, 5 }, .{ 4, 8 }, .{ 0, 7 }, .{ 2, 4 }, .{ 3, 8 }, .{ 5, 6 }, .{ 0, 2 }, .{ 1, 3 }, .{ 4, 5 }, .{ 7, 8 }, .{ 1, 4 }, .{ 3, 6 }, .{ 5, 7 }, .{ 0, 1 }, .{ 2, 4 }, .{ 3, 5 }, .{ 6, 8 }, .{ 2, 3 }, .{ 4, 5 }, .{ 6, 7 }, .{ 1, 2 }, .{ 3, 4 }, .{ 5, 6 } };
+            inline for (n) |p| swapIf(v, p[0], p[1]);
+        }
+
+        pub fn sort13(v: [*]T) linksection(int_section) void {
+            const n = [_][2]u8{ .{ 0, 12 }, .{ 1, 10 }, .{ 2, 9 }, .{ 3, 7 }, .{ 5, 11 }, .{ 6, 8 }, .{ 1, 6 }, .{ 2, 3 }, .{ 4, 11 }, .{ 7, 9 }, .{ 8, 10 }, .{ 0, 4 }, .{ 1, 2 }, .{ 3, 6 }, .{ 7, 8 }, .{ 9, 10 }, .{ 11, 12 }, .{ 4, 6 }, .{ 5, 9 }, .{ 8, 11 }, .{ 10, 12 }, .{ 0, 5 }, .{ 3, 8 }, .{ 4, 7 }, .{ 6, 11 }, .{ 9, 10 }, .{ 0, 1 }, .{ 2, 5 }, .{ 6, 9 }, .{ 7, 8 }, .{ 10, 11 }, .{ 1, 3 }, .{ 2, 4 }, .{ 5, 6 }, .{ 9, 10 }, .{ 1, 2 }, .{ 3, 4 }, .{ 5, 7 }, .{ 6, 8 }, .{ 2, 3 }, .{ 4, 5 }, .{ 6, 7 }, .{ 8, 9 }, .{ 3, 4 }, .{ 5, 6 } };
+            inline for (n) |p| swapIf(v, p[0], p[1]);
+        }
+
+        inline fn ipnInsertTail(v: [*]T, i: usize) void {
+            @setRuntimeSafety(false);
+            const tmp = v[i];
+            var j = i;
+            if (!(tmp < v[j - 1])) return;
+            while (true) {
+                v[j] = v[j - 1];
+                j -= 1;
+                if (j == 0 or !(tmp < v[j - 1])) break;
+            }
+            v[j] = tmp;
+        }
+
+        fn sortRegion(v: [*]T, len: usize) linksection(int_section) void {
+            var pre: usize = 1;
+            if (len >= 13) {
+                sort13(v);
+                pre = 13;
+            } else if (len >= 9) {
+                sort9(v);
+                pre = 9;
+            }
+            var i = pre;
+            while (i < len) : (i += 1) ipnInsertTail(v, i);
+        }
+
+        fn ipnSmallSort(v: [*]T, len: usize) linksection(int_section) void {
+            @setRuntimeSafety(false);
+            if (len < 2) return;
+            if (len < 18) {
+                sortRegion(v, len);
+                return;
+            }
+            const h = len / 2;
+            sortRegion(v, h);
+            sortRegion(v + h, len - h);
+            var buf: [small]T = undefined;
+            merge2(v, len, &buf);
+            @memcpy(v[0..len], buf[0..len]);
+        }
+
+        inline fn merge2(src: [*]const T, len: usize, dst0: [*]T) void {
+            @setRuntimeSafety(false);
+            const h = len / 2;
+            var l = src;
+            var r = src + h;
+            var d = dst0;
+            var lr = src + h - 1;
+            var rr = src + len - 1;
+            var dr = dst0 + len - 1;
+            var k: usize = 0;
+            while (k < h) : (k += 1) {
+                {
+                    const take_l = !(r[0] < l[0]);
+                    d[0] = if (take_l) l[0] else r[0];
+                    r += @intFromBool(!take_l);
+                    l += @intFromBool(take_l);
+                    d += 1;
+                }
+                {
+                    const take_l = !(rr[0] < lr[0]);
+                    dr[0] = if (take_l) rr[0] else lr[0];
+                    rr = @ptrFromInt(@intFromPtr(rr) -% @as(usize, @sizeOf(T)) * @intFromBool(take_l));
+                    lr = @ptrFromInt(@intFromPtr(lr) -% @as(usize, @sizeOf(T)) * @intFromBool(!take_l));
+                    dr = @ptrFromInt(@intFromPtr(dr) -% @sizeOf(T));
+                }
+            }
+            if (len % 2 != 0) {
+                const left_end = @intFromPtr(lr) +% @sizeOf(T);
+                const ln = @intFromPtr(l) < left_end;
+                d[0] = if (ln) l[0] else r[0];
+            }
+        }
+
+        /// Heapsort, past `limit` unbalanced partitions on a path. Each
+        /// level of a sift is a load from far away, so a sift spends the
+        /// budget of 8 elements a level.
+        pub fn heapsort(v: [*]T, len: usize, b: Budget) linksection(int_section) void {
+            @setRuntimeSafety(false);
+            const depth: usize = 8 * (@bitSizeOf(usize) - @as(usize, @clz(len)));
+            var i = len / 2;
+            while (i > 0) {
+                i -= 1;
+                siftDown(v, i, len);
+                spend(b, depth);
+            }
+            var end = len;
+            while (end > 1) {
+                end -= 1;
+                const x = v[0];
+                v[0] = v[end];
+                v[end] = x;
+                siftDown(v, 0, end);
+                spend(b, depth);
+            }
+        }
+
+        inline fn siftDown(v: [*]T, root_in: usize, n: usize) void {
+            @setRuntimeSafety(false);
+            var root = root_in;
+            while (true) {
+                var child = 2 * root + 1;
+                if (child >= n) break;
+                if (child + 1 < n and v[child] < v[child + 1]) child += 1;
+                if (!(v[root] < v[child])) break;
+                const x = v[root];
+                v[root] = v[child];
+                v[child] = x;
+                root = child;
+            }
+        }
+    };
+}

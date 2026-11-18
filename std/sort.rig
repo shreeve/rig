@@ -12,9 +12,12 @@ use std.math
 # when equal elements can be told apart, and otherwise nothing.
 pub sub sort[T: Ord](xs: ![]T)
   # Where elements `<` finds equal are the same value, their order cannot
-  # be seen, and pattern-defeating quicksort, which does not keep it,
-  # sorts them; the stable merge sorts the rest.
-  if equal_is_same[T]()
+  # be seen, and a quicksort, which does not keep it, sorts them:
+  # integers by ipnsort in sort.zig, the rest by pattern-defeating
+  # quicksort; the stable merge sorts the rest.
+  if int_sort[T]()
+    unstable_int(!xs)
+  else if equal_is_same[T]()
     unstable(!xs)
   else
     sort_by(!xs, |a, b| a < b)
@@ -535,6 +538,10 @@ extern zig "sort.zig"
   # order as `Ord` derives it; false for a type with an `order` of its
   # own, and for a handle.
   fun equal_is_same[T]() -> Bool
+  # Whether `T` is an integer type, which `unstable_int` sorts.
+  fun int_sort[T]() -> Bool
+  # Sort `xs` of an integer type by ipnsort, in place, allocating nothing.
+  sub unstable_int[T](xs: ![]T)
 
   # A `Room`'s memory for `n` elements, none written; the bytes they
   # take; and its free, which drops no element.
