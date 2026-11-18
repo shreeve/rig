@@ -818,8 +818,9 @@ arms.
   the socket of a worker that computed without a loop check waited for
   the computation to end. A worker leaving its sleep now kicks another
   sleeper while none watches and a busy worker holds descriptors
-  (`sched.leaveSleep`), and so does a worker's first registration: the
-  event is seen within the watch's millisecond.
+  (`sched.leaveSleep`), and so does a busy worker that took its first
+  descriptor, at its loop's next turn: the event is seen within the
+  watch's millisecond.
 - **On the Mac a look at a poller returns at once:** every kqueue call is
   `kevent64`, and a look passes `KEVENT_FLAG_IMMEDIATE`, where an empty
   zero-timeout `kevent` cost about 12 µs and a context switch; it now
