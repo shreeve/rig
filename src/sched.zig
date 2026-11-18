@@ -3285,15 +3285,15 @@ fn takeSlot() *Registration {
         return r;
     }
     s.slots_lock.unlock();
-    const block = std.heap.smp_allocator.alloc(Registration, 64) catch rt.oom();
-    for (block) |*r| r.* = .{ .fd = -1, .poller = &all_workers.*[0].poller };
+    const more = std.heap.smp_allocator.alloc(Registration, 64) catch rt.oom();
+    for (more) |*r| r.* = .{ .fd = -1, .poller = &all_workers.*[0].poller };
     s.slots_lock.lock();
-    for (block[1..]) |*r| {
+    for (more[1..]) |*r| {
         r.next = s.slots;
         s.slots = r;
     }
     s.slots_lock.unlock();
-    return &block[0];
+    return &more[0];
 }
 
 fn giveSlot(r: *Registration) void {
