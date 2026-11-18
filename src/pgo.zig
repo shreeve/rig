@@ -4,7 +4,12 @@
 //! Zig has no flag for it, so the build takes Zig's LLVM bitcode of the
 //! program and finishes it with Zig's clang (`zig cc`) and Zig's linker:
 //!
-//! 1. Zig writes the program's bitcode (`-femit-llvm-bc`), once.
+//! 1. Zig writes the program's bitcode (`-femit-llvm-bc`), once, as it
+//!    is before LLVM's passes, and runs none of them
+//!    (`-fopt-bisect-limit=0`): clang runs them in steps 2 and 4, and
+//!    Zig, asked for no executable, would run them only to drop what
+//!    they made. With `rig build --strip` the bitcode has no debug
+//!    information, which is most of what Zig writes for a large program.
 //! 2. `zig cc -fprofile-generate` compiles it with LLVM's counters, and
 //!    Zig links that with LLVM's profile runtime (`libclang_rt.profile`)
 //!    and the profile writer (`pgo_dump.c`), which the program's runtime
@@ -154,7 +159,7 @@ pub fn build(allocator: std.mem.Allocator, io: std.Io, tools: Tools, b: Build, w
     const cpu: []const u8 = if (b.apart != null) "-mcpu=native+reserve_x15" else "-mcpu=native";
     const cc: []const []const u8 = try std.mem.concat(allocator, []const u8, &.{ &.{ b.zig, "cc", "-target", target, cpu, "-c", "-O3" }, position, &.{ "-Xclang", "-fmerge-functions", "-Wno-override-module" } });
 
-    try runZig(allocator, io, &.{ &.{ b.zig, "build-exe" }, b.flags, &.{ "--cache-dir", b.cache, b.root, try allocPrint(allocator, "-femit-llvm-bc={s}", .{bitcode}), "-fno-emit-bin" } });
+    try writeBitcode(allocator, io, try std.mem.concat(allocator, []const u8, &.{ &.{ b.zig, "build-exe" }, b.flags, &.{ "--cache-dir", b.cache, b.root, try allocPrint(allocator, "-femit-llvm-bc={s}", .{bitcode}), "-fno-emit-bin", "-fopt-bisect-limit=0" } }), try std.fs.path.join(allocator, &.{ work, "bitcode.log" }));
     const merged = profile orelse try std.fs.path.join(allocator, &.{ work, "program.profdata" });
     if (workload.len > 0) {
         const raw = try std.fs.path.join(allocator, &.{ work, "raw" });
@@ -207,6 +212,34 @@ fn stale(out: []const u8, profile: []const u8) void {
     if (n > 0) std.debug.print("warning: the profile `{s}` is out of date for {d} function{s}, changed since it was trained, which {s} built without it: train it again with a workload\n", .{ profile, n, if (n == 1) "" else "s", if (n == 1) "is" else "are" });
     if (std.mem.indexOf(u8, out, "no profile data available") != null)
         std.debug.print("warning: the profile `{s}` has nothing of this program: train it with a workload that runs it\n", .{profile});
+}
+
+/// Run the Zig command `argv`, which writes the program's bitcode and
+/// runs no pass of LLVM's. LLVM names on stderr each pass it leaves out,
+/// a line for every function and pass (77 MB for a program of 200,000
+/// lines), so nothing Zig says is read while it succeeds. When it
+/// fails it runs again with what it says kept in `log`, and its own
+/// lines of that are shown before `rig` ends with its status.
+fn writeBitcode(allocator: std.mem.Allocator, io: std.Io, argv: []const []const u8, log: []const u8) !void {
+    for ([_]bool{ false, true }) |keep| {
+        const cwd = std.Io.Dir.cwd();
+        const file = if (keep) cwd.createFile(io, log, .{}) catch |err| fail("cannot write `{s}`: {s}", .{ log, @errorName(err) }) else null;
+        defer if (file) |f| f.close(io);
+        var child = std.process.spawn(io, .{ .argv = argv, .stdin = .ignore, .stdout = .inherit, .stderr = if (file) |f| .{ .file = f } else .ignore }) catch |err|
+            fail("cannot run `{s}`: {s}", .{ argv[0], @errorName(err) });
+        const code: u8 = switch (try child.wait(io)) {
+            .exited => |c| c,
+            else => 255,
+        };
+        if (code == 0) return;
+        if (!keep) continue;
+        const said = cwd.readFileAlloc(io, log, allocator, .unlimited) catch "";
+        var lines = std.mem.splitScalar(u8, said, '\n');
+        while (lines.next()) |line| {
+            if (line.len > 0 and !std.mem.startsWith(u8, line, "BISECT: ")) std.debug.print("{s}\n", .{line});
+        }
+        std.process.exit(code);
+    }
 }
 
 /// Run Zig; its failure, which it has reported, ends `rig` with its

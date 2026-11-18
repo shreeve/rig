@@ -7,7 +7,11 @@
 # Where they are there, the optimized program prints what the plain one
 # does, a program that ends by `os.exit` writes its profile too, a saved
 # profile (`--pgo-profile`) builds with no workload, and a profile of an
-# older program is reported out of date, not refused.
+# older program is reported out of date, not refused. With `--strip` the
+# optimized program has no debug information.
+# Zig writes the bitcode with none of LLVM's passes
+# (`-fopt-bisect-limit=0`), whose names LLVM prints as it leaves each
+# out: the build shows none of them, and when Zig fails, what Zig said.
 # timeout: 900
 source "$ROOT/test/cli/_lib.sh"
 
@@ -139,6 +143,44 @@ want=$(rig run --release q.rig 2>&1); expect_rc $? 3 "rig run q"
 out=$(rig build --release --pgo -o qprog q.rig -- ./qprog 2>&1); expect_rc $? 0 "build --pgo by a workload that exits by os.exit: $out"
 out=$(./qprog); expect_rc $? 3 "the optimized program's os.exit"
 expect_eq "$out" "$want" "the optimized program that exits by os.exit"
+
+# Without debug information: the same program, and none in it.
+out=$(rig build --release --pgo --strip -o lean p.rig -- ./lean 2>&1); expect_rc $? 0 "build --pgo --strip: $out"
+expect_eq "$(./lean)" "$(./prog)" "the optimized program without debug information"
+case $(uname -s) in
+Linux) debug_info() { readelf -S "$1" | grep -c '\.debug_info'; } ;;
+Darwin) debug_info() { nm -ap "$1" | grep -c ' OSO '; } ;;
+esac
+[[ $(debug_info prog) -gt 0 ]] || fail "the optimized program has no debug information to tell a stripped one by"
+expect_eq "$(debug_info lean)" 0 "debug information in the optimized program built with --strip"
+
+# The bitcode step runs no pass of LLVM's and shows none of their names.
+cat >zig-listed <<EOF2
+#!/bin/sh
+case "\$*" in *-femit-llvm-bc=*) echo "\$*" >>"$PWD/zig.log" ;; esac
+exec "$zig" "\$@"
+EOF2
+chmod +x zig-listed
+: >zig.log
+out=$(ZIG=$PWD/zig-listed rig build --release --pgo --pgo-profile=p.profdata -o prog4 p.rig 2>&1); expect_rc $? 0 "build by a saved profile, Zig listed: $out"
+expect_eq "$(grep -c . zig.log)" 1 "bitcode steps of a build"
+expect_has "$(cat zig.log)" "-fopt-bisect-limit=0" "the bitcode step"
+[[ $(cat zig.log) == *-fstrip* ]] && fail "the bitcode step of a build without --strip leaves out debug information: $(cat zig.log)"
+[[ $out == *BISECT* ]] && fail "the build shows the passes LLVM left out: $(head -3 <<<"$out")"
+expect_eq "$(./prog4)" "$(./prog)" "the program built by a saved profile, Zig listed"
+: >zig.log
+out=$(ZIG=$PWD/zig-listed rig build --release --pgo --pgo-profile=p.profdata --strip -o lean4 p.rig 2>&1); expect_rc $? 0 "build by a saved profile with --strip, Zig listed: $out"
+expect_has "$(cat zig.log)" "-fstrip" "the bitcode step of a build with --strip"
+# A bitcode step that fails: what Zig said, without the passes' names.
+cat >zig-failing <<EOF2
+#!/bin/sh
+case "\$*" in *-femit-llvm-bc=*) echo "BISECT: NOT running pass (1) x on [module]" >&2; echo "error: no bitcode today" >&2; exit 1 ;; esac
+exec "$zig" "\$@"
+EOF2
+chmod +x zig-failing
+out=$(ZIG=$PWD/zig-failing rig build --release --pgo --pgo-profile=p.profdata -o prog5 p.rig 2>&1); expect_rc $? 1 "build whose bitcode step fails"
+expect_has "$out" "error: no bitcode today" "build whose bitcode step fails"
+[[ $out == *BISECT* ]] && fail "a failed bitcode step shows the passes LLVM left out: $out"
 
 # On the Mac a program of tasks keeps its section apart, x15 is its own,
 # and the profile holds what the workload ran.
