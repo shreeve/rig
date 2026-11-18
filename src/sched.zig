@@ -2487,7 +2487,10 @@ const Poller = struct {
                     // The report is spent, whoever read it: the watcher
                     // itself, as its wait ended, or a look at its poller
                     // while it ran fibers.
-                    if (lp.lent_to.load(.seq_cst)) |lw| {
+                    if (lend_et_var.load(.monotonic)) {
+                        // It goes on reporting until it is taken back.
+                        if (by) |b| b.lend_fired += 1;
+                    } else if (lp.lent_to.load(.seq_cst)) |lw| {
                         if (lp.lent_to.cmpxchgStrong(lw, null, .seq_cst, .monotonic) == null and by != null and lw == by.?) {
                             lw.lent = null;
                             lw.lend_fired += 1;
@@ -2609,6 +2612,12 @@ fn lendOpen() void {
         if (p.environ.getPosix("RIG_LEND_AHEAD")) |v| {
             if (std.mem.eql(u8, v, "0")) lend_ahead_var.store(false, .seq_cst);
         }
+        if (p.environ.getPosix("RIG_LEND_TIME")) |v| {
+            if (std.mem.eql(u8, v, "1")) lend_time_var.store(true, .seq_cst);
+        }
+        if (p.environ.getPosix("RIG_LEND_ET")) |v| {
+            if (std.mem.eql(u8, v, "0")) lend_et_var.store(false, .seq_cst);
+        }
         if (p.environ.getPosix("RIG_LEND_KEEP")) |v| {
             if (std.mem.eql(u8, v, "1")) lend_keep_var.store(true, .seq_cst);
         }
@@ -2635,9 +2644,12 @@ fn onStats(_: std.posix.SIG) callconv(.c) void {
 /// run or more, and its poller holds descriptors: what a sleeper watches
 /// its poller for.
 fn runsLong(v: *Worker, now: u64, long: u64) bool {
+    const announced = v.long_run.load(.seq_cst);
+    const timed = lend_time_var.load(.monotonic);
+    if (!announced and !timed) return false;
     if (v.poller.count.load(.monotonic) == 0 or v.idle.load(.seq_cst) != 0) return false;
     if (@atomicLoad(?*Fiber, &v.current, .monotonic) == null) return false;
-    return v.long_run.load(.seq_cst) or now -% v.run_at.load(.monotonic) >= long;
+    return announced or (timed and now -% v.run_at.load(.monotonic) >= long);
 }
 
 /// Probe (lend): nest `v`'s poller in `sleeper`'s for one report. Any
@@ -2645,7 +2657,8 @@ fn runsLong(v: *Worker, now: u64, long: u64) bool {
 /// a sleeper as it starts a long handler (`longAhead`).
 fn lendArm(sleeper: *Worker, v: *Worker, i: usize) bool {
     const linux_ = std.os.linux;
-    var ev: linux_.epoll_event = .{ .events = linux_.EPOLL.IN | linux_.EPOLL.ONESHOT, .data = .{ .ptr = @intFromPtr(&v.poller) | lend_tag } };
+    const how: u32 = if (lend_et_var.load(.monotonic)) linux_.EPOLL.ET else linux_.EPOLL.ONESHOT;
+    var ev: linux_.epoll_event = .{ .events = linux_.EPOLL.IN | how, .data = .{ .ptr = @intFromPtr(&v.poller) | lend_tag } };
     const bit = @as(u64, 1) << @intCast(i);
     const known = sleeper.nested.load(.seq_cst) & bit != 0;
     var rc: isize = @bitCast(linux_.epoll_ctl(sleeper.poller.fd, if (known) linux_.EPOLL.CTL_MOD else linux_.EPOLL.CTL_ADD, v.poller.fd, &ev));
@@ -2671,6 +2684,21 @@ var skip_own_var: std.atomic.Value(bool) = .init(false);
 /// and taken back only as that worker goes to sleep in its own poller;
 /// no sleeper sets it again once the handler has returned.
 var lend_keep_var: std.atomic.Value(bool) = .init(false);
+/// Probe: `RIG_LEND_ET` (1): a watch reports every time its poller gains
+/// events (EPOLLET) until it is taken back, where 0 has it report once
+/// (EPOLLONESHOT) and be set again at each sleep: the watching worker
+/// then makes no call to set it again, and does not look at a poller it
+/// watches as it goes to sleep, since what lands there ends its wait.
+var lend_et_var: std.atomic.Value(bool) = .init(true);
+/// Probe: `RIG_LEND_TIME=1`: a worker that has run its fiber
+/// `RIG_LEND_US` is watched too, announced or not (the first lend probe);
+/// unset, only an announced long run is, and no fiber's start is
+/// stamped.
+var lend_time_var: std.atomic.Value(bool) = .init(false);
+/// Probe (lend): how many workers run an announced long handler now: a
+/// worker going to sleep reads this alone, and looks at the workers only
+/// while it is not 0.
+var long_count_var: std.atomic.Value(u32) align(std.atomic.cache_line) = .init(0);
 var lend_rearm_var: std.atomic.Value(u32) = .init(std.math.maxInt(u32));
 
 /// Probe (lend): the slot of a request's path (`long_table_var`).
@@ -2697,7 +2725,7 @@ pub noinline fn longAhead(slot: u8) u64 {
     const t0 = (stamp() & ~@as(u64, 63)) | (w.ran & 63);
     if (long_table_var[slot].load(.monotonic) < 2 or !lend_ahead_var.load(.monotonic)) return t0;
     w.rearms.store(0, .monotonic);
-    w.long_run.store(true, .seq_cst);
+    if (!w.long_run.swap(true, .seq_cst)) _ = long_count_var.fetchAdd(1, .seq_cst);
     if (w.poller.count.load(.monotonic) == 0 or w.poller.lent_to.load(.seq_cst) != null) return t0;
     sleepers.lock.lock();
     const top = sleepers.top;
@@ -2750,9 +2778,10 @@ pub noinline fn longOver(slot: u8, t0: u64) void {
 fn lendWatch(w: *Worker) void {
     const long = lend_ticks_var.load(.monotonic);
     if (long == 0) return;
+    if (w.lent == null and long_count_var.load(.seq_cst) == 0 and !lend_time_var.load(.monotonic)) return;
     const ws = workersNow();
     if (ws.len < 2) return;
-    const now = stamp();
+    const now = if (lend_time_var.load(.monotonic)) stamp() else 0;
     if (w.lent) |v| {
         if (v.poller.lent_to.load(.seq_cst) != w) {
             // Its worker took the watch back as its fiber ended.
@@ -2791,7 +2820,7 @@ fn lendOff(w: *Worker, v: *Worker) void {
 /// its poller: take the watch back, so that once `w` sleeps in its own
 /// poller an event there wakes `w` alone.
 noinline fn lendBack(w: *Worker) void {
-    if (w.long_run.load(.monotonic)) w.long_run.store(false, .seq_cst);
+    if (w.long_run.load(.monotonic) and w.long_run.swap(false, .seq_cst)) _ = long_count_var.fetchSub(1, .seq_cst);
     // Kept while it runs fibers (`RIG_LEND_KEEP`): `sleepIn` takes it back.
     if (lend_keep_var.load(.monotonic) and w.idle.load(.monotonic) == 0) return;
     const l = w.poller.lent_to.swap(null, .seq_cst) orelse return;
@@ -3200,9 +3229,12 @@ fn serviceAllBut(skip: ?*Worker) void {
     const opened = beginBatch(by);
     defer endBatch(by, opened);
     const now = nowNs();
+    const et = lends and lend_et_var.load(.monotonic);
     for (workersNow()) |*v| {
         _ = v.timers.fire(now);
         if (v == skip) continue;
+        // Probe: a poller this worker watches reports through its own.
+        if (et and by != null and v.poller.lent_to.load(.monotonic) == by) continue;
         if (v.poller.count.load(.monotonic) != 0) _ = v.poller.poll(0);
     }
 }
@@ -4313,7 +4345,7 @@ fn runFiber(w: *Worker, f: *Fiber) void {
     if (f.home != null) w.ran_pinned += 1;
     prepare(w, f);
     spread(w);
-    if (lends and w.poller.count.load(.monotonic) != 0) w.run_at.store(stamp(), .monotonic);
+    if (lends and lend_time_var.load(.monotonic) and w.poller.count.load(.monotonic) != 0) w.run_at.store(stamp(), .monotonic);
     w.current = f;
     switchTo(&w.sp, f.sp);
     // The fiber that switched away: `f`, or one `f` handed this worker.
