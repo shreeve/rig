@@ -1,0 +1,114 @@
+old build rc=0 1005 s
+new build rc=0 1016 s
+mitt old a4b30531fd3a505d34d2135c9d8e6352  -
+mitt new a4b30531fd3a505d34d2135c9d8e6352  -
+zod3 old 4e2a695e0fbde41902f74d35de69db3b  -
+zod3 new 4e2a695e0fbde41902f74d35de69db3b  -
+slot 555 (ab) open until 15:09:20; free 2 MiB blocks: 3160; paused: 
+=== c1a
+rc=0
+
+mitt (60 rounds, seed 1, warm-up discarded, cores 6)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old             6.20      6.65       39.19M       18.14M      7.1      7.0      22.3     2215
+new             6.22      6.66       39.19M       17.86M      6.2      7.7      22.2     2216
+aa              6.17      6.65       39.19M       18.08M      7.0      6.7      22.3     2216
+  new      against old: wall +0.3%, instructions -0.0%, rss -0.7%: no change beyond the bar
+  aa       against old: wall -0.5%, instructions +0.0%, rss +0.0%: (the A/A spread)
+
+neverthrow (60 rounds, seed 1, warm-up discarded, cores 6)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old             9.28      9.78       61.58M       32.13M     10.0      7.5      22.0     2339
+new             9.25      9.75       61.58M       32.01M      9.8      7.6      21.8     2340
+aa              9.31      9.77       61.58M       32.16M      9.9      7.3      22.0     2339
+  new      against old: wall -0.3%, instructions +0.0%, rss -0.5%: no change beyond the bar
+  aa       against old: wall +0.4%, instructions +0.0%, rss +0.0%: (the A/A spread)
+
+superstruct (60 rounds, seed 1, warm-up discarded, cores 6)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old            19.57     20.31      161.27M       77.49M     20.0      8.9      24.7     2514
+new            19.38     20.16      161.27M       77.16M     19.9      9.0      24.8     2515
+aa             19.38     20.14      161.27M       77.26M     19.8      8.9      24.7     2513
+  new      against old: wall -1.0%, instructions +0.0%, rss +0.3%: no change beyond the bar
+  aa       against old: wall -0.9%, instructions +0.0%, rss +0.0%: (the A/A spread)
+=== c1b
+rc=0
+
+tiny-invariant (20 rounds, seed 1, warm-up discarded, cores 6)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old            43.70     44.85      580.63M      178.70M     40.1     13.5      42.0     4157
+new            43.80     45.50      580.96M      179.34M     42.5     11.9      42.1     4158
+aa             43.55     44.78      580.63M      178.52M     42.2     11.8      40.8     4158
+  new      against old: wall +0.2%, instructions +0.1%, rss +0.0%: no change beyond the bar
+  aa       against old: wall -0.3%, instructions +0.0%, rss -2.9%: (the A/A spread)
+
+zod3 (20 rounds, seed 1, warm-up discarded, cores 6)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old           111.04    112.82     1046.75M      479.34M    106.7     16.6      57.4     6089
+new           110.65    112.60     1046.75M      476.56M    104.6     16.8      57.4     6090
+aa            111.65    112.95     1046.75M      479.97M    104.9     17.4      57.2     6088
+  new      against old: wall -0.4%, instructions -0.0%, rss -0.1%: no change beyond the bar
+  aa       against old: wall +0.5%, instructions +0.0%, rss -0.3%: (the A/A spread)
+
+ts-pattern (20 rounds, seed 1, warm-up discarded, cores 6)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old           679.70    687.26     7153.13M     3083.95M    654.7     40.0     183.9    13046
+new           675.84    683.07     7153.14M     3065.23M    650.7     38.3     183.8    13047
+aa            681.15    686.91     7153.13M     3090.11M    655.3     41.2     183.7    13046
+  new      against old: wall -0.6%, instructions +0.0%, rss -0.0%: no change beyond the bar
+  aa       against old: wall +0.2%, instructions +0.0%, rss -0.1%: (the A/A spread)
+=== c4a
+rc=0
+
+mitt (60 rounds, seed 1, warm-up discarded, cores 0,6,8,10)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old             7.05      7.95       47.73M       23.31M      8.6     11.8      40.2     2636
+new             7.30      8.03       47.75M       23.15M      8.7     11.6      40.2     2634
+aa              7.15      7.85       47.76M       22.97M      8.8     11.8      37.2     2640
+  new      against old: wall +3.6%, instructions +0.0%, rss -0.1%: SLOWER beyond A/A (+3.6%; the A/A spread is 1.4%): goes to the owner, not the bar
+  aa       against old: wall +1.4%, instructions +0.1%, rss -7.4%: (the A/A spread)
+
+neverthrow (60 rounds, seed 1, warm-up discarded, cores 0,6,8,10)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old             8.92      9.90       90.56M       47.73M     14.7     12.4      47.4     3039
+new             9.03      9.97       90.51M       47.84M     14.1     13.0      45.6     3040
+aa              8.87      9.63       90.54M       47.65M     13.9     13.0      45.2     3040
+  new      against old: wall +1.2%, instructions -0.1%, rss -3.8%: SLOWER beyond A/A (+1.2%; the A/A spread is 0.6%): goes to the owner, not the bar
+  aa       against old: wall -0.6%, instructions -0.0%, rss -4.7%: (the A/A spread)
+
+superstruct (60 rounds, seed 1, warm-up discarded, cores 0,6,8,10)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old            12.75     13.24      199.03M      103.14M     27.1     15.0      48.1     3478
+new            12.17     13.31      199.03M      103.16M     27.7     14.3      48.0     3484
+aa             12.52     13.30      199.02M      103.42M     27.2     14.5      47.2     3478
+  new      against old: wall -4.6%, instructions +0.0%, rss -0.1%: faster by more than 2% and beyond A/A (-4.6%)
+  aa       against old: wall -1.8%, instructions -0.0%, rss -1.9%: (the A/A spread)
+=== c4b
+rc=0
+
+tiny-invariant (20 rounds, seed 1, warm-up discarded, cores 0,6,8,10)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old            44.67     46.95      597.56M      189.81M     47.6     21.0      63.8     4812
+new            46.01     47.63      597.92M      189.84M     48.3     21.6      63.8     4812
+aa             45.54     47.22      597.56M      190.11M     47.2     21.0      62.2     4812
+  new      against old: wall +3.0%, instructions +0.1%, rss +0.0%: SLOWER beyond A/A (+3.0%; the A/A spread is 2.0%): goes to the owner, not the bar
+  aa       against old: wall +2.0%, instructions -0.0%, rss -2.6%: (the A/A spread)
+
+zod3 (20 rounds, seed 1, warm-up discarded, cores 0,6,8,10)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old            55.33     56.72     1440.41M      671.77M    153.9     29.7      81.2     9954
+new            54.34     56.29     1440.32M      668.38M    157.8     27.7      81.0     9949
+aa             54.55     57.02     1440.39M      672.87M    154.9     29.5      80.6     9956
+  new      against old: wall -1.8%, instructions -0.0%, rss -0.2%: no change beyond the bar
+  aa       against old: wall -1.4%, instructions -0.0%, rss -0.7%: (the A/A spread)
+
+ts-pattern (20 rounds, seed 1, warm-up discarded, cores 0,6,8,10)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old           253.99    262.71     7587.39M     3303.59M    749.0     64.9     206.9    24086
+new           256.77    261.14     7587.92M     3289.73M    743.8     63.5     206.7    24084
+aa            254.67    260.18     7587.91M     3291.46M    742.2     65.0     208.3    24082
+  new      against old: wall +1.1%, instructions +0.0%, rss -0.1%: SLOWER beyond A/A (+1.1%; the A/A spread is 0.3%): goes to the owner, not the bar
+  aa       against old: wall +0.3%, instructions +0.0%, rss +0.7%: (the A/A spread)
+slot 555 closed; resumed: 
+QUIET: honoured (no user process ran on cores 12-19 during slot 555)
+# done 14:11:13

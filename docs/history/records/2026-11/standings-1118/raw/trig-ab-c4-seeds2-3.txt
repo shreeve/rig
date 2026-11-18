@@ -1,0 +1,160 @@
+slot 556 (ab) open until 14:54:40; free 2 MiB blocks: 3445; paused: 
+=== c4 seed 2
+rc=1
+mitt (60 rounds, seed 2, warm-up discarded, cores 0,6,8,10)
+  new      against old: wall -4.3%, instructions -0.1%, rss -0.4%: faster by more than 2% and beyond A/A (-4.3%)
+  aa       against old: wall +3.9%, instructions -0.0%, rss +15.0%: (the A/A spread)
+neverthrow (60 rounds, seed 2, warm-up discarded, cores 0,6,8,10)
+  new      against old: wall +0.1%, instructions +0.0%, rss +0.3%: no change beyond the bar
+  aa       against old: wall +1.1%, instructions +0.0%, rss +11.4%: (the A/A spread)
+superstruct (60 rounds, seed 2, warm-up discarded, cores 0,6,8,10)
+  new      against old: wall -0.5%, instructions +0.0%, rss +0.1%: no change beyond the bar
+  aa       against old: wall +1.2%, instructions +0.0%, rss +8.1%: (the A/A spread)
+tiny-invariant (60 rounds, seed 2, warm-up discarded, cores 0,6,8,10)
+  new      against old: wall +0.3%, instructions +0.1%, rss +0.0%: no change beyond the bar
+  aa       against old: wall +0.2%, instructions +0.0%, rss +4.5%: (the A/A spread)
+  new      against old: wall +0.5%, instructions +0.0%, rss +0.2%: no change beyond the bar
+  aa       against old: wall +0.9%, instructions -0.0%, rss +4.2%: (the A/A spread)
+=== c4 seed 3
+rc=1
+mitt (60 rounds, seed 3, warm-up discarded, cores 0,6,8,10)
+  new      against old: wall -1.4%, instructions +0.1%, rss -0.1%: no change beyond the bar
+  aa       against old: wall -1.4%, instructions -0.0%, rss +6.6%: (the A/A spread)
+neverthrow (60 rounds, seed 3, warm-up discarded, cores 0,6,8,10)
+  new      against old: wall -3.7%, instructions +0.0%, rss +0.1%: faster by more than 2% and beyond A/A (-3.7%)
+  aa       against old: wall -1.9%, instructions +0.1%, rss +6.3%: (the A/A spread)
+superstruct (60 rounds, seed 3, warm-up discarded, cores 0,6,8,10)
+  new      against old: wall +0.7%, instructions -0.0%, rss -0.1%: no change beyond the bar
+  aa       against old: wall +2.5%, instructions +0.0%, rss +6.2%: (the A/A spread)
+tiny-invariant (60 rounds, seed 3, warm-up discarded, cores 0,6,8,10)
+  new      against old: wall +3.9%, instructions +0.1%, rss +1.3%: SLOWER beyond A/A (+3.9%; the A/A spread is 2.3%): goes to the owner, not the bar
+  aa       against old: wall +2.3%, instructions -0.0%, rss +6.5%: (the A/A spread)
+  new      against old: wall -0.2%, instructions -0.0%, rss -0.1%: no change beyond the bar
+  aa       against old: wall -0.9%, instructions -0.0%, rss +3.7%: (the A/A spread)
+slot 556 closed; resumed: 
+QUIET: honoured (no user process ran on cores 12-19 during slot 556)
+# done 14:16:42
+
+mitt (60 rounds, seed 2, warm-up discarded, cores 0,6,8,10)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old             7.23      7.94       47.79M       23.20M      8.1     12.1      37.3     2633
+new             6.92      7.86       47.74M       23.29M      8.9     11.7      37.1     2639
+aa              7.51      8.24       47.78M       23.36M      8.5     12.3      42.8     2636
+  new      against old: wall -4.3%, instructions -0.1%, rss -0.4%: faster by more than 2% and beyond A/A (-4.3%)
+  aa       against old: wall +3.9%, instructions -0.0%, rss +15.0%: (the A/A spread)
+
+neverthrow (60 rounds, seed 2, warm-up discarded, cores 0,6,8,10)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old             9.13      9.85       90.51M       47.16M     14.0     13.2      43.6     3034
+new             9.14      9.67       90.51M       47.38M     14.2     12.9      43.7     3041
+aa              9.24     10.06       90.54M       47.66M     14.1     13.7      48.5     3042
+  new      against old: wall +0.1%, instructions +0.0%, rss +0.3%: no change beyond the bar
+  aa       against old: wall +1.1%, instructions +0.0%, rss +11.4%: (the A/A spread)
+
+superstruct (60 rounds, seed 2, warm-up discarded, cores 0,6,8,10)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old            12.55     13.21      199.03M      102.89M     27.5     14.2      47.2     3482
+new            12.49     13.25      199.06M      102.94M     27.6     14.4      47.3     3484
+aa             12.70     13.45      199.05M      103.08M     27.3     14.9      51.1     3488
+  new      against old: wall -0.5%, instructions +0.0%, rss +0.1%: no change beyond the bar
+  aa       against old: wall +1.2%, instructions +0.0%, rss +8.1%: (the A/A spread)
+
+tiny-invariant (60 rounds, seed 2, warm-up discarded, cores 0,6,8,10)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old            45.61     47.70      597.52M      190.89M     49.1     21.4      63.2     4818
+new            45.75     47.36      597.84M      190.36M     49.4     20.0      63.3     4814
+aa             45.70     47.81      597.57M      190.29M     48.3     22.1      66.1     4816
+  new      against old: wall +0.3%, instructions +0.1%, rss +0.0%: no change beyond the bar
+  aa       against old: wall +0.2%, instructions +0.0%, rss +4.5%: (the A/A spread)
+
+zod3 (60 rounds, seed 2, warm-up discarded, cores 0,6,8,10)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old            54.54     56.25     1440.37M      669.69M    155.6     29.4      80.8     9952
+new            54.79     56.14     1440.38M      667.61M    154.5     29.8      81.0     9951
+aa             55.01     56.61     1440.32M      672.08M    156.3     29.8      84.2     9952
+  new      against old: wall +0.5%, instructions +0.0%, rss +0.2%: no change beyond the bar
+  aa       against old: wall +0.9%, instructions -0.0%, rss +4.2%: (the A/A spread)
+Traceback (most recent call last):
+  File "/zfs/trig-pup/runs/rig-light/tools/bench/ab", line 216, in <module>
+    main(sys.argv[1:])
+    ~~~~^^^^^^^^^^^^^^
+  File "/zfs/trig-pup/runs/rig-light/tools/bench/ab", line 194, in main
+    r = one(cmds[lab][1], cmds[lab][0], cwd, cores, mac_counters)
+  File "/zfs/trig-pup/runs/rig-light/tools/bench/ab", line 87, in one
+    p = subprocess.Popen(full, cwd=cwd, env=e, stdout=o, stderr=subprocess.STDOUT if not (mac_counters and not LINUX) else r)
+  File "/usr/lib/python3.14/subprocess.py", line 1039, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                        pass_fds, cwd, env,
+                        ^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+                        gid, gids, uid, umask,
+                        ^^^^^^^^^^^^^^^^^^^^^^
+                        start_new_session, process_group)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1886, in _execute_child
+    errpipe_read, errpipe_write = os.pipe()
+                                  ~~~~~~~^^
+OSError: [Errno 24] Too many open files
+
+mitt (60 rounds, seed 3, warm-up discarded, cores 0,6,8,10)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old             7.24      7.95       47.75M       23.23M      8.4     12.6      40.2     2636
+new             7.14      7.99       47.80M       23.34M      9.5     11.4      40.2     2639
+aa              7.13      8.13       47.74M       23.20M      8.5     12.3      42.9     2640
+  new      against old: wall -1.4%, instructions +0.1%, rss -0.1%: no change beyond the bar
+  aa       against old: wall -1.4%, instructions -0.0%, rss +6.6%: (the A/A spread)
+
+neverthrow (60 rounds, seed 3, warm-up discarded, cores 0,6,8,10)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old             9.41     10.07       90.52M       48.10M     15.2     12.6      45.7     3038
+new             9.06     10.03       90.55M       48.25M     14.1     13.7      45.8     3040
+aa              9.24     10.01       90.56M       48.14M     14.9     13.3      48.6     3044
+  new      against old: wall -3.7%, instructions +0.0%, rss +0.1%: faster by more than 2% and beyond A/A (-3.7%)
+  aa       against old: wall -1.9%, instructions +0.1%, rss +6.3%: (the A/A spread)
+
+superstruct (60 rounds, seed 3, warm-up discarded, cores 0,6,8,10)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old            12.55     13.19      199.03M      102.82M     27.2     14.5      48.1     3481
+new            12.64     13.15      199.03M      103.02M     26.5     15.2      48.0     3485
+aa             12.86     13.43      199.05M      103.13M     27.2     15.0      51.1     3486
+  new      against old: wall +0.7%, instructions -0.0%, rss -0.1%: no change beyond the bar
+  aa       against old: wall +2.5%, instructions +0.0%, rss +6.2%: (the A/A spread)
+
+tiny-invariant (60 rounds, seed 3, warm-up discarded, cores 0,6,8,10)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old            43.45     46.84      597.56M      190.69M     46.9     22.0      62.9     4818
+new            45.13     46.66      597.86M      190.12M     46.9     21.7      63.7     4813
+aa             44.44     46.88      597.54M      190.40M     47.2     21.9      67.0     4823
+  new      against old: wall +3.9%, instructions +0.1%, rss +1.3%: SLOWER beyond A/A (+3.9%; the A/A spread is 2.3%): goes to the owner, not the bar
+  aa       against old: wall +2.3%, instructions -0.0%, rss +6.5%: (the A/A spread)
+
+zod3 (60 rounds, seed 3, warm-up discarded, cores 0,6,8,10)
+arm          wall ms    median        instr       cycles  user ms   sys ms    rss MB   faults
+old            54.68     56.47     1440.38M      670.67M    157.5     28.1      81.2     9956
+new            54.59     56.47     1440.32M      669.26M    155.8     29.1      81.2     9958
+aa             54.16     56.59     1440.37M      672.46M    157.0     29.8      84.2     9954
+  new      against old: wall -0.2%, instructions -0.0%, rss -0.1%: no change beyond the bar
+  aa       against old: wall -0.9%, instructions -0.0%, rss +3.7%: (the A/A spread)
+Traceback (most recent call last):
+  File "/zfs/trig-pup/runs/rig-light/tools/bench/ab", line 216, in <module>
+    main(sys.argv[1:])
+    ~~~~^^^^^^^^^^^^^^
+  File "/zfs/trig-pup/runs/rig-light/tools/bench/ab", line 194, in main
+    r = one(cmds[lab][1], cmds[lab][0], cwd, cores, mac_counters)
+  File "/zfs/trig-pup/runs/rig-light/tools/bench/ab", line 87, in one
+    p = subprocess.Popen(full, cwd=cwd, env=e, stdout=o, stderr=subprocess.STDOUT if not (mac_counters and not LINUX) else r)
+  File "/usr/lib/python3.14/subprocess.py", line 1039, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                        pass_fds, cwd, env,
+                        ^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+                        gid, gids, uid, umask,
+                        ^^^^^^^^^^^^^^^^^^^^^^
+                        start_new_session, process_group)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1886, in _execute_child
+    errpipe_read, errpipe_write = os.pipe()
+                                  ~~~~~~~^^
+OSError: [Errno 24] Too many open files

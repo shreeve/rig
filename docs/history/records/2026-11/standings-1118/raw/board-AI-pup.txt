@@ -1,0 +1,56 @@
+pup-rig rc=0 /zfs/trig-pup/rig-52e8c6946/bin/rig
+light rc=0
+light gate: rig-light on pup
+  trig.rip: light: 119 of 119 expected jobs
+light gate: GREEN in 166 s
+zig build test (Debug) rc=0 40 s
+zig build test (ReleaseSafe) rc=0 303 s
+zig build test (ReleaseFast) rc=0 365 s
+
+[exited with code 0]
+m12 build mixed rc=0 18 s
+m12 build http rc=0 17 s
+m12 build net rc=0 17 s
+m12 dry: 10329991069574016370
+# slot free 14:40:37; gap 60 s
+slot 553 (board) open until 15:21:37; free 2 MiB blocks: 3261; paused: 
+stat-trivial rc=0 132 s
+stat-mix rc=0 132 s
+tail rc=0 348 s
+http12 rc=0 100 s
+slot 553 closed; resumed: 
+QUIET: honoured (no user process ran on cores 12-19 during slot 553)
+== stat-trivial
+m11          runs 3  cycles/req 31102 30539 30829  median 30829  ins/req 34413  ctxsw/req 0.634  cores 1.09
+m12          runs 3  cycles/req 29923 29876 30097  median 29923  ins/req 34060  ctxsw/req 0.633  cores 1.06
+aa           runs 3  cycles/req 30585 30145 30438  median 30438  ins/req 34340  ctxsw/req 0.636  cores 1.07
+hyper        runs 3  cycles/req 33452 33284 33110  median 33284  ins/req 35407  ctxsw/req 0.689  cores 1.18
+== stat-mix
+m11          runs 3  cycles/req 67231 66927 66766  median 66927  ins/req 61058  ctxsw/req 0.437  cores 2.34
+m12          runs 3  cycles/req 66673 66852 66647  median 66673  ins/req 61024  ctxsw/req 0.428  cores 2.33
+aa           runs 3  cycles/req 66020 66536 66558  median 66536  ins/req 60883  ctxsw/req 0.418  cores 2.33
+hyper        runs 3  cycles/req 69363 69402 69191  median 69363  ins/req 62077  ctxsw/req 0.576  cores 2.49
+m11    120000  p99 runs 62 62 62 63 63 65 16865  median 63  p50 23  p99.9 93  timer_p99 4  server 1.67  achieved 119999
+m11    80000   p99 runs 49 49 49 49 50 50 50  median 49  p50 31  p99.9 65  timer_p99 5  server 1.12  achieved 79999
+m12    120000  p99 runs 62 63 63 63 4113 10690 95639  median 63  p50 23  p99.9 128  timer_p99 5  server 1.66  achieved 119999
+m12    80000   p99 runs 49 49 50 50 50 50 50  median 50  p50 31  p99.9 61  timer_p99 5  server 1.12  achieved 79999
+aa     120000  p99 runs 62 62 63 63 63 8341 408233  median 63  p50 23  p99.9 90  timer_p99 5  server 1.67  achieved 119999
+aa     80000   p99 runs 49 49 49 49 50 50 51  median 49  p50 31  p99.9 63  timer_p99 5  server 1.11  achieved 79999
+hyper  120000  p99 runs 55 56 56 57 57 57 59  median 57  p50 17  p99.9 87  timer_p99 4  server 1.77  achieved 119999
+hyper  80000   p99 runs 50 50 50 50 51 51 51  median 50  p50 33  p99.9 74  timer_p99 5  server 1.16  achieved 79999
+== http12
+6 hyper 343315 183 365
+6 m11 745019 74 240
+6 m12 787395 67 261
+# best of 7: req/s p50 p99
+m11          843597    65 us   212 us
+m12          877968    63 us   213 us
+aa           745256    73 us   245 us
+hyper        361031   171 us   343 us
+# done 14:53:34
+closed loop m11 median 795186 range 594792 843597
+closed loop m12 median 741648 range 676109 877968
+closed loop aa median 622881 range 590493 745256
+closed loop hyper median 359505 range 339659 361031
+
+[exited with code 0]

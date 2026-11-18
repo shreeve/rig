@@ -1,0 +1,58 @@
+# lock 15:43:16
+slot 558 (ab) open until 16:08:46; free 2 MiB blocks: 2197; paused: 
+# blocks=2197 swap_mb=1358 slot=558 paused=0 running=0 late=0
+# shell nproc 22; pid 1985078's current affinity mask: 3fffff
+calibrated
+round 1 done
+round 2 done
+round 3 done
+round 4 done
+round 5 done
+round 6 done
+round 7 done
+round 8 done
+round 9 done
+round 10 done
+round 11 done
+round 12 done
+round 13 done
+round 14 done
+round 15 done
+round 16 done
+round 17 done
+round 18 done
+round 19 done
+round 20 done
+
+MB/s, fastest of 20 interleaved runs of about 400 ms, pinned to CPU 6
+| file | bytes | rig-safe | rig-aa | yyjson | simdjson-dom | sonic-rs | simd-json-tape | serde_json | go-v2 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| twitter | 631514 | 3705 | 3715 | 3865 | 4887 | 2800 | 2478 | 382 | 244 |
+| twitterescaped | 562408 | 2964 | 2966 | 2673 | 2074 | 2229 | 1431 | 333 | 192 |
+| canada | 2251051 | 1467 | 1466 | 1448 | 1497 | 1441 | 1128 | 352 | 137 |
+| citm_catalog | 1727204 | 4112 | 4117 | 3799 | 5426 | 3622 | 2602 | 701 | 330 |
+| gsoc-2018 | 3327831 | 6861 | 6860 | 3330 | 5919 | 5258 | 3509 | 1181 | 557 |
+| github_events | 65132 | 4497 | 4508 | 4020 | 5730 | 3876 | 2739 | 425 | 353 |
+| geomean | | 3563 | 3566 | 3021 | 3753 | 2954 | 2154 | 501 | 273 |
+
+MB/s, median of 20 interleaved runs of about 400 ms, pinned to CPU 6
+| file | bytes | rig-safe | rig-aa | yyjson | simdjson-dom | sonic-rs | simd-json-tape | serde_json | go-v2 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| twitter | 631514 | 3678 | 3672 | 3767 | 4857 | 2779 | 2450 | 376 | 238 |
+| twitterescaped | 562408 | 2918 | 2922 | 2637 | 2047 | 2204 | 1421 | 328 | 185 |
+| canada | 2251051 | 1441 | 1443 | 1436 | 1489 | 1434 | 1121 | 349 | 135 |
+| citm_catalog | 1727204 | 4080 | 4084 | 3694 | 5341 | 3588 | 2565 | 692 | 319 |
+| gsoc-2018 | 3327831 | 6813 | 6781 | 3297 | 5858 | 5161 | 3473 | 1173 | 543 |
+| github_events | 65132 | 4456 | 4451 | 3958 | 5593 | 3780 | 2721 | 416 | 343 |
+| geomean | | 3524 | 3522 | 2971 | 3706 | 2916 | 2135 | 494 | 266 |
+
+ranges (min-max MB/s):
+twitter rig-safe 3542-3705; rig-aa 3554-3715; yyjson 3614-3865; simdjson-dom 4766-4887; sonic-rs 2751-2800; simd-json-tape 2395-2478; serde_json 371-382; go-v2 232-244
+twitterescaped rig-safe 2854-2964; rig-aa 2784-2966; yyjson 2603-2673; simdjson-dom 1945-2074; sonic-rs 2172-2229; simd-json-tape 1390-1431; serde_json 324-333; go-v2 181-192
+canada rig-safe 1420-1467; rig-aa 1396-1466; yyjson 1416-1448; simdjson-dom 1465-1497; sonic-rs 1403-1441; simd-json-tape 1099-1128; serde_json 342-352; go-v2 133-137
+citm_catalog rig-safe 3993-4112; rig-aa 4019-4117; yyjson 3473-3799; simdjson-dom 5256-5426; sonic-rs 3489-3622; simd-json-tape 2519-2602; serde_json 676-701; go-v2 313-330
+gsoc-2018 rig-safe 6507-6861; rig-aa 6675-6860; yyjson 3231-3330; simdjson-dom 5814-5919; sonic-rs 4988-5258; simd-json-tape 3414-3509; serde_json 1163-1181; go-v2 535-557
+github_events rig-safe 4401-4497; rig-aa 4407-4508; yyjson 3871-4020; simdjson-dom 5398-5730; sonic-rs 3723-3876; simd-json-tape 2645-2739; serde_json 406-425; go-v2 333-353
+# cmd rc=0 15:48:59
+slot 558 closed; resumed: 
+QUIET: honoured (no user process ran on cores 12-19 during slot 558)

@@ -1,0 +1,112 @@
+blocks=3855 swap_mb=1358 slot=none paused=0 running=0 late=0
+started
+# slot free 12:37:08; gap 60 s
+slot 553 (board) open until 13:38:08; free 2 MiB blocks: 3890; paused: 
+stat-trivial rc=0 133 s
+stat-mix rc=0 132 s
+tail rc=0 504 s
+ceil rc=0 232 s
+http12 rc=0 100 s
+net6 rc=0 64 s
+net12 rc=0 65 s
+slot 553 closed; resumed: 
+QUIET: honoured (no user process ran on cores 12-19 during slot 553)
+slot 554 (board) open until 13:44:23; free 2 MiB blocks: 3917; paused: 
+tasks m10 round 0 rc=0
+tasks m11 round 0 rc=0
+tasks aa round 0 rc=0
+tasks m11 round 1 rc=0
+tasks aa round 1 rc=0
+tasks m10 round 1 rc=0
+tasks aa round 2 rc=0
+tasks m10 round 2 rc=0
+tasks m11 round 2 rc=0
+tasks m10 round 3 rc=0
+tasks m11 round 3 rc=0
+tasks aa round 3 rc=0
+tasks m11 round 4 rc=0
+tasks aa round 4 rc=0
+tasks m10 round 4 rc=0
+slot 554 closed; resumed: 
+QUIET: honoured (no user process ran on cores 12-19 during slot 554)
+== stat-trivial
+m10          runs 3  cycles/req 30841 27830 30774  median 30774  ins/req 34448  ctxsw/req 0.634  cores 1.08
+m11          runs 3  cycles/req 27917 30512 31007  median 30512  ins/req 34310  ctxsw/req 0.621  cores 1.08
+aa           runs 3  cycles/req 31000 29178 30437  median 30437  ins/req 34224  ctxsw/req 0.641  cores 1.07
+hyper        runs 3  cycles/req 33332 33418 33452  median 33418  ins/req 35415  ctxsw/req 0.691  cores 1.18
+== stat-mix
+m10          runs 3  cycles/req 67336 64645 64580  median 64645  ins/req 59351  ctxsw/req 0.395  cores 2.25
+m11          runs 3  cycles/req 64849 67266 66984  median 66984  ins/req 61054  ctxsw/req 0.415  cores 2.35
+aa           runs 3  cycles/req 67022 67111 64918  median 67022  ins/req 61117  ctxsw/req 0.417  cores 2.26
+hyper        runs 3  cycles/req 69393 69013 69306  median 69306  ins/req 62164  ctxsw/req 0.576  cores 2.48
+m10    120000  p99 runs 62 63 63 63 63 147 3490  median 63  p50 23  p99.9 146  timer_p99 5  server 1.67  achieved 119999
+m10    80000   p99 runs 49 49 49 49 50 50 50  median 49  p50 31  p99.9 60  timer_p99 5  server 1.13  achieved 79999
+m10    40000   p99 runs 53 54 54 54 54 54 56  median 54  p50 18  p99.9 4520  timer_p99 5  server 0.52  achieved 40000
+m11    120000  p99 runs 62 63 63 63 9829 11215 17805  median 63  p50 23  p99.9 94  timer_p99 5  server 1.66  achieved 119999
+m11    80000   p99 runs 49 49 49 49 50 50 50  median 49  p50 31  p99.9 67  timer_p99 5  server 1.12  achieved 79999
+m11    40000   p99 runs 54 54 54 54 55 56 56  median 54  p50 18  p99.9 4675  timer_p99 5  server 0.53  achieved 40000
+aa     120000  p99 runs 62 63 63 63 63 63 64  median 63  p50 23  p99.9 129  timer_p99 4  server 1.67  achieved 119999
+aa     80000   p99 runs 48 49 50 50 50 50 50  median 50  p50 31  p99.9 62  timer_p99 5  server 1.13  achieved 79999
+aa     40000   p99 runs 54 54 54 54 54 55 55  median 54  p50 18  p99.9 4363  timer_p99 5  server 0.52  achieved 40000
+hyper  120000  p99 runs 56 57 57 58 58 62 6722  median 58  p50 17  p99.9 969  timer_p99 4  server 1.77  achieved 119999
+hyper  80000   p99 runs 49 50 50 50 50 50 51  median 50  p50 33  p99.9 71  timer_p99 5  server 1.16  achieved 79999
+hyper  40000   p99 runs 55 56 56 56 56 57 57  median 56  p50 18  p99.9 4702  timer_p99 5  server 0.53  achieved 40000
+== http12
+6 hyper 343676 181 364
+6 m10 623518 93 267
+6 m11 743118 73 247
+# best of 7: req/s p50 p99
+m10          778863    70 us   229 us
+m11          747292    73 us   238 us
+aa           747570    73 us   242 us
+hyper        349633   167 us   365 us
+== ceil
+
+160000 req/s offered
+          runs                req/s                  p50                  p99                p99.9  
+m10          4      152617 (152758)      131 ms (131 ms)      239 ms (236 ms)      252 ms (250 ms)  
+m11          4      152417 (153122)      134 ms (128 ms)      243 ms (226 ms)      255 ms (237 ms)  
+aa           4      153026 (153198)      128 ms (127 ms)      255 ms (230 ms)      268 ms (248 ms)  
+hyper        4      150263 (150604)      176 ms (168 ms)      313 ms (303 ms)      331 ms (318 ms)  
+
+200000 req/s offered
+          runs                req/s                  p50                  p99                p99.9  
+m10          4      144746 (144939)      809 ms (805 ms)    1403 ms (1381 ms)    1420 ms (1399 ms)  
+m11          4      144567 (145137)      810 ms (808 ms)    1396 ms (1393 ms)    1413 ms (1410 ms)  
+aa           4      144550 (144997)      807 ms (802 ms)    1385 ms (1373 ms)    1402 ms (1393 ms)  
+hyper        4      142236 (142707)      837 ms (834 ms)    1423 ms (1422 ms)    1451 ms (1447 ms)  
+
+== net6
+connect   aa         min   28.57 med   29.60 n=15
+connect   m10        min   28.72 med   29.43 n=15
+connect   m11        min   28.72 med   29.38 n=15
+echo      aa         min    3.52 med    3.58 n=15
+echo      m10        min    3.47 med    3.60 n=15
+echo      m11        min    3.46 med    3.56 n=15
+pingpong  aa         min    4.79 med   10.87 n=15
+pingpong  m10        min    4.75 med   10.57 n=15
+pingpong  m11        min    4.77 med    4.85 n=15
+== net12
+connect   aa         min   25.98 med   27.10 n=15
+connect   m10        min   25.78 med   26.91 n=15
+connect   m11        min   26.07 med   27.16 n=15
+echo      aa         min    0.96 med    1.01 n=15
+echo      m10        min    0.96 med    1.01 n=15
+echo      m11        min    0.98 med    1.02 n=15
+pingpong  aa         min    4.85 med    4.98 n=15
+pingpong  m10        min    4.90 med    5.00 n=15
+pingpong  m11        min    4.82 med    4.97 n=15
+== tasks
+spawn    aa 156.0 [142.0-162.0]  m10 144.0 [141.0-150.0]  m11 151.0 [145.0-157.0]   vs m10: aa 1.083 m10 1.000 m11 1.049
+chain    aa 102.0 [102.0-103.0]  m10 102.0 [102.0-104.0]  m11 102.0 [101.0-109.0]   vs m10: aa 1.000 m10 1.000 m11 1.000
+fanout   aa 59.6 [59.6-60.1]  m10 59.7 [59.6-59.9]  m11 59.7 [59.7-59.9]   vs m10: aa 0.998 m10 1.000 m11 1.000
+yield    aa 6.0 [6.0-7.0]  m10 7.0 [6.0-7.0]  m11 6.0 [6.0-7.0]   vs m10: aa 0.857 m10 1.000 m11 0.857
+hog      aa 326.0 [285.0-345.0]  m10 297.0 [276.0-337.0]  m11 303.0 [286.0-364.0]   vs m10: aa 1.098 m10 1.000 m11 1.020
+produce  aa 5.8 [5.8-5.9]  m10 5.8 [5.8-5.9]  m11 5.9 [5.8-6.1]   vs m10: aa 1.000 m10 1.000 m11 1.017
+memory   aa 4.7 [4.7-4.7]  m10 4.7 [4.7-4.7]  m11 4.7 [4.7-4.7]   vs m10: aa 1.000 m10 1.000 m11 1.000
+# done 13:01:06
+
+[exited with code 0]
+
+closed loop medians (7, req/s): m10 737071 [604676-778863], m11 736597 [600620-747292], aa 743639 [600636-747570], hyper 343938
+verdict: no row of main 3bea1c455 (m11) worse than old main c014f5e3f (m10) beyond the A/A (aa = copy of m11). mix cycles 66984 vs 64645 is the bimodal 64.6k/67k draw (aa 67022; AG's m10 66523). 120k stalled rounds occur in every main arm across AG/AH.

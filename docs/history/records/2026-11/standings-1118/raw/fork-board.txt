@@ -1,0 +1,35 @@
+# lock 15:42:28
+slot 557 (ab) open until 15:57:28; free 2 MiB blocks: 1969; paused: 
+# blocks=1969 swap_mb=1358 slot=557 paused=0 running=0 late=0
+# shell nproc 22; pid 1982679's current affinity mask: 3fffff
+round 1 done
+round 2 done
+round 3 done
+round 4 done
+round 5 done
+round 6 done
+round 7 done
+round 8 done
+round 9 done
+round 10 done
+round 11 done
+round 12 done
+round 13 done
+round 14 done
+round 15 done
+round 16 done
+round 17 done
+round 18 done
+round 19 done
+round 20 done
+checks: {'psum': ['16760439056'], 'qsort': ['4194304']} agree
+| config | row | Rig median (range) | A/A median (range) | Rayon median (range) | Rig fastest | Rayon fastest | Rig/Rayon, medians | A/A/Rig, medians |
+|---|---|---|---|---|---|---|---|---|
+| 1 worker | psum | 14.36 (13.94-15.23) | 14.32 (13.95-14.54) | 11.89 (11.77-13.23) | 13.94 | 11.77 | 1.208 | 0.997 |
+| 1 worker | qsort | 255.78 (247.98-267.61) | 254.45 (246.10-265.18) | 266.85 (262.80-278.50) | 247.98 | 262.80 | 0.959 | 0.995 |
+| 12 workers | psum | 6.05 (5.36-7.27) | 6.03 (5.60-6.92) | 4.66 (4.42-5.23) | 5.36 | 4.42 | 1.300 | 0.996 |
+| 12 workers | qsort | 96.31 (83.67-102.06) | 96.77 (88.98-102.35) | 123.39 (115.41-137.80) | 83.67 | 115.41 | 0.781 | 1.005 |
+n per cell: {'1 worker/psum/rig': 20, '1 worker/qsort/rig': 20, '1 worker/psum/rig-aa': 20, '1 worker/qsort/rig-aa': 20, '1 worker/psum/rayon': 20, '1 worker/qsort/rayon': 20, '12 workers/psum/rig': 20, '12 workers/qsort/rig': 20, '12 workers/psum/rig-aa': 20, '12 workers/qsort/rig-aa': 20, '12 workers/psum/rayon': 20, '12 workers/qsort/rayon': 20}
+# cmd rc=0 15:43:08
+slot 557 closed; resumed: 
+QUIET: honoured (no user process ran on cores 12-19 during slot 557)
