@@ -217,8 +217,56 @@ const Worker = struct {
     /// How long it sleeps before it gives back what its heap holds free
     /// (`trimIdle`).
     trim_wait: i96 = trim_first,
+    /// PROBE (`keeps_short`): the share, in 65536ths, of the fibers it ran
+    /// while its poller held descriptors that ran `long_run` or longer,
+    /// each fiber moving it a 32nd of the way (`runFiber`).
+    long_share: std.atomic.Value(u32) = .init(0),
+    /// PROBE: when it switched to the fiber it runs, while its poller
+    /// holds descriptors; 0 while it runs none.
+    run_since: std.atomic.Value(i64) = .init(0),
+    /// PROBE: since when its ring has held the rest of a batch of events
+    /// from a poller whose worker runs short fibers (`runsShort`), which
+    /// it keeps for `help_after`; 0 while it holds none, or other work
+    /// has joined it.
+    held_since: std.atomic.Value(i64) = .init(0),
+    /// PROBE: whether the poller its present look or wait reads belongs
+    /// to a worker that runs short fibers (`Poller.pollEvents`).
+    batch_short: bool = false,
     thread: ?std.Thread align(std.atomic.cache_line) = null,
 };
+
+/// PROBE (mac-closed-loop, not for merge). On the Mac, a worker that holds
+/// descriptors and whose fibers are short, fewer than a tenth of them
+/// running `long_run` or longer, keeps its events' work: (1) a worker
+/// going to sleep does not look at its poller, unless its present fiber
+/// has run `long_run` (the watcher still looks at every poller each
+/// `watch_every`); (2) the fibers one batch of its poller's events makes
+/// ready, past the first, wake no worker, and none takes them, until
+/// they have waited `help_after`. A wake costs the waker a system call
+/// and the woken worker about 5 µs before it runs, and on a machine with
+/// efficiency cores it often runs there; a worker whose fibers each end
+/// sooner than that reaches the next itself first. While a tenth or more
+/// of its fibers run long, as a server's whose requests compute do, every
+/// rule is as without this.
+/// `arm_one` is the mac-echo arm: every descriptor waits in worker 0's
+/// poller.
+const keeps_short = builtin.os.tag.isDarwin() and true;
+const arm_one = builtin.os.tag.isDarwin() and false;
+const long_run: i64 = 20 * std.time.ns_per_us;
+const help_after: i64 = 50 * std.time.ns_per_us;
+const long_most: u32 = 65536 / 10;
+
+/// PROBE: whether `v`'s fibers are short (`keeps_short`).
+inline fn runsShort(v: *Worker) bool {
+    return v.long_share.load(.monotonic) < long_most;
+}
+
+/// PROBE: whether `v`'s ring holds a batch it still keeps (`held_since`).
+inline fn keepsBatch(v: *Worker) bool {
+    if (!keeps_short) return false;
+    const since = v.held_since.load(.monotonic);
+    return since != 0 and @as(i64, @intCast(nowNs())) - since < help_after;
+}
 
 /// How many of `all_workers` run tasks; set by `runMain`, and raised by
 /// `task.workers` (`growWorkers`).
@@ -362,6 +410,11 @@ fn wakeIn(f: *Fiber) void {
         if (w.batch == .rest) {
             _ = w.ring.push(f);
             if (w.servicing) return notifyNew();
+            if (keeps_short) {
+                if (!w.batch_short) {
+                    if (w.held_since.raw != 0) w.held_since.store(0, .monotonic);
+                } else if (w.held_since.raw == 0) w.held_since.store(@intCast(nowNs()), .monotonic);
+            }
             return countQuiet();
         }
         w.batch = .rest;
@@ -373,6 +426,7 @@ fn wakeIn(f: *Fiber) void {
     if (w.lifo[i].swap(f, .seq_cst)) |b| {
         if (b.home != null) w.pinned.push(b) else {
             _ = w.ring.push(b);
+            if (keeps_short and w.held_since.raw != 0) w.held_since.store(0, .monotonic);
             return notifyNew();
         }
     }
@@ -434,6 +488,7 @@ fn wakeLastIn(f: *Fiber) void {
     };
     // Only these could another worker take: pinned fibers stay, and the
     // global queue's push wakes one itself.
+    if (keeps_short and w.held_since.raw != 0) w.held_since.store(0, .monotonic);
     if (w.ring.push(f) or nextHeld(w, .monotonic)) notify();
 }
 
@@ -2403,6 +2458,10 @@ const Poller = struct {
         const by = me();
         const opened = beginBatch(by);
         defer endBatch(by, opened);
+        if (keeps_short) if (by) |b| {
+            const owner: *Worker = @alignCast(@fieldParentPtr("poller", p));
+            b.batch_short = runsShort(owner);
+        };
         var any = false;
         if (darwin) {
             const evs = &p.evs;
@@ -2539,7 +2598,7 @@ fn sleepIn(w: *Worker, timeout: ?i96) void {
         if (watchWanted(w) and watcher.cmpxchgStrong(null, w, .seq_cst, .monotonic) == null) {
             for (workersNow()) |*v| v.watch_mark.store(v.slept.load(.monotonic), .monotonic);
             _ = w.poller.poll(if (timeout) |t| @min(t, watch_every) else watch_every);
-            return serviceAll();
+            return serviceAllAs(true);
         }
     }
     _ = w.poller.poll(timeout);
@@ -2671,7 +2730,7 @@ noinline fn registerApart(fd: i32) ?*Registration {
 
 fn registerIn(fd: i32) ?*Registration {
     if (!started.*) startWorkers();
-    const w = me() orelse &all_workers.*[0];
+    const w = if (arm_one) &all_workers.*[0] else me() orelse &all_workers.*[0];
     const r = std.heap.smp_allocator.create(Registration) catch rt.oom();
     r.* = .{ .fd = fd, .poller = &w.poller };
     if (!w.poller.add(fd, r)) {
@@ -2910,6 +2969,11 @@ fn service(w: *Worker) void {
 /// worker, and those the events of any poller no worker sleeps in make
 /// ready.
 fn serviceAll() void {
+    return serviceAllAs(false);
+}
+
+/// PROBE: `serviceAll`, by the watcher as it wakes when `watching`.
+fn serviceAllAs(watching: bool) void {
     deliverInterrupt();
     const by = me();
     const opened = beginBatch(by);
@@ -2917,7 +2981,12 @@ fn serviceAll() void {
     const now = nowNs();
     for (workersNow()) |*v| {
         _ = v.timers.fire(now);
-        if (v.poller.count.load(.monotonic) != 0) _ = v.poller.poll(0);
+        if (v.poller.count.load(.monotonic) == 0) continue;
+        if (keeps_short and v != by and !watching and runsShort(v)) {
+            const since = v.run_since.load(.monotonic);
+            if (since == 0 or @as(i64, @intCast(now)) - since < long_run) continue;
+        }
+        _ = v.poller.poll(0);
     }
 }
 
@@ -4024,10 +4093,22 @@ fn runFiber(w: *Worker, f: *Fiber) void {
     prepare(w, f);
     spread(w);
     w.current = f;
+    const timed = keeps_short and !deterministic.* and w.poller.count.load(.monotonic) != 0;
+    var began: i64 = 0;
+    if (timed) {
+        began = @intCast(nowNs());
+        w.run_since.store(began, .monotonic);
+    }
     switchTo(&w.sp, f.sp);
     // The fiber that switched away: `f`, or one `f` handed this worker.
     const gone = w.current.?;
     w.current = null;
+    if (timed) {
+        w.run_since.store(0, .monotonic);
+        const g = w.long_share.raw;
+        const x: u32 = if (@as(i64, @intCast(nowNs())) - began >= long_run) 65536 else 0;
+        w.long_share.store(if (x > g) g + (x - g) / 32 else g - (g - x) / 32, .monotonic);
+    }
     if (w.after) |a| {
         w.after = null;
         a.run(gone, a.ctx);
@@ -4047,7 +4128,11 @@ fn runFiber(w: *Worker, f: *Fiber) void {
 /// would hand them on, and without this they waited for the monitor's
 /// stop, about 1 ms. A switch with nothing else waiting costs two loads.
 inline fn spread(w: *Worker) void {
-    if (!nextHeld(w, .monotonic) and w.ring.isEmpty()) return;
+    if (!nextHeld(w, .monotonic) and w.ring.isEmpty()) {
+        if (keeps_short and w.held_since.raw != 0) w.held_since.store(0, .monotonic);
+        return;
+    }
+    if (keepsBatch(w)) return;
     if (builtin.is_test) _ = test_spreads.fetchAdd(1, .monotonic);
     notify();
 }
@@ -4139,6 +4224,7 @@ fn search(w: *Worker) ?*Fiber {
     for (0..ws.len) |k| {
         const v = &ws[(start + k) % ws.len];
         if (v == w) continue;
+        if (keepsBatch(v)) continue;
         if (w.ring.stealFrom(&v.ring)) |f| {
             w.stole += 1;
             return f;
@@ -4420,14 +4506,14 @@ fn waitWoken(w: *Worker) void {
 fn workPending(w: *Worker) bool {
     if (global.count.load(.seq_cst) != 0) return true;
     for (workersNow()) |*v| {
-        if (v != w and (!v.ring.isEmpty() or nextHeld(v, .seq_cst))) return true;
+        if (v != w and ((!v.ring.isEmpty() and !keepsBatch(v)) or nextHeld(v, .seq_cst))) return true;
     }
     return false;
 }
 
 fn hasWork() bool {
     if (global.count.load(.seq_cst) != 0) return true;
-    for (workersNow()) |*v| if (!v.ring.isEmpty()) return true;
+    for (workersNow()) |*v| if (!v.ring.isEmpty() and !keepsBatch(v)) return true;
     return false;
 }
 
