@@ -3836,6 +3836,11 @@ fn initWorker(i: usize) void {
 /// (docs/history/records/2026-11/concurrency-startup).
 fn startWorkers() void {
     started.* = true;
+    if (comptime builtin.os.tag.isDarwin()) {
+        var ecpus: c_int = 0;
+        var sz: usize = @sizeOf(c_int);
+        if (std.c.sysctlbyname("hw.perflevel1.logicalcpu", &ecpus, &sz, null, 0) == 0 and ecpus > 0) e_cpus = @intCast(ecpus);
+    }
     const n = if (deterministic.*) 1 else @min(workerCount(), all_workers.*.len);
     const ws = all_workers.*[0..n];
     for (1..n) |i| initWorker(i);
@@ -4014,6 +4019,7 @@ fn loop(w: *Worker) void {
             }
             if (spare.count.load(.monotonic) > spareKept()) trimSpare();
             if (dense_spare.count.load(.monotonic) > spareKept()) trimDense();
+            if (idleSpin(w)) continue;
             sleep(w);
             continue;
         };
@@ -4026,6 +4032,32 @@ fn loop(w: *Worker) void {
         if (w.watch_owed) payWatch(w);
         runFiber(w, f);
     }
+}
+
+/// PROBE (mac-tasks, not for merge): how long a worker on a performance
+/// core with nothing to run keeps looking for work in the rings and the
+/// global queue before it sleeps; 0 never. A variable, so the A/A build
+/// (0) carries the same code.
+var idle_spin_ns: i96 = 5 * std.time.ns_per_us;
+/// CPUs numbered below this are efficiency cores (Apple numbers them
+/// first); read as the workers start.
+var e_cpus: usize = 0;
+extern "c" fn pthread_cpu_number_np(cpu: *usize) c_int;
+
+/// Spin for `idle_spin_ns` while on a performance core, looking for work
+/// another worker made (`hasWork`) or this one was given: whether any
+/// came, when the loop looks again rather than sleeping.
+fn idleSpin(w: *Worker) bool {
+    if (comptime !builtin.os.tag.isDarwin()) return false;
+    if (idle_spin_ns == 0 or e_cpus == 0) return false;
+    var cpu: usize = 0;
+    if (pthread_cpu_number_np(&cpu) != 0 or cpu < e_cpus) return false;
+    const until = nowNs() + idle_spin_ns;
+    while (nowNs() < until) {
+        if (hasWork() or w.pinned.count.load(.monotonic) != 0 or nextHeld(w, .monotonic)) return true;
+        for (0..32) |_| std.atomic.spinLoopHint();
+    }
+    return false;
 }
 
 fn runFiber(w: *Worker, f: *Fiber) void {
