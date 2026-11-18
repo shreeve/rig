@@ -312,6 +312,74 @@ const workers_len = split.cell(&workers_len_var, "sched.workers_len");
 inline fn workersNow() []Worker {
     return all_workers.*[0..workers_len.load(.acquire)];
 }
+/// SCRATCH (psum-gap probe, never merged): per-pass counters, dumped at `task.workers(63)`.
+pub const X = struct {
+    pub const C = extern struct {
+        spawns: u64 = 0, ho_next: u64 = 0, ho_ring: u64 = 0, parks: u64 = 0, runs: u64 = 0,
+        steals: u64 = 0, steal_next: u64 = 0, sleeps: u64 = 0, wakes: u64 = 0,
+        st_free: u64 = 0, st_spare: u64 = 0, st_fresh: u64 = 0, st_map: u64 = 0,
+        first_run: i64 = 0, first_wake: i64 = 0, pad: [1]u64 = .{0},
+    };
+    pub var c: [65]C align(128) = @splat(.{});
+    pub var mark_at: i64 = 0;
+    pub var flt0: i64 = 0;
+    pub var pre0: [65]u64 = @splat(0);
+    pub var sig0: [65]u64 = @splat(0);
+    pub var pass: u32 = 0;
+    pub inline fn t() i64 {
+        return @intCast(std.Io.Timestamp.now(rt.io(), .awake).nanoseconds);
+    }
+    pub inline fn i() usize {
+        const w = me_slot().* orelse return 64;
+        return (@intFromPtr(w) - @intFromPtr(all_workers.*.ptr)) / @sizeOf(Worker);
+    }
+    pub inline fn at() *C {
+        return &c[i()];
+    }
+    fn flt() i64 {
+        const r = std.posix.getrusage(std.posix.rusage.SELF);
+        return @intCast(r.minflt);
+    }
+    pub fn mark() void {
+        const now = t();
+        var buf: [900]u8 = undefined;
+        const n = if (started.*) workersNow().len else 1;
+        var tot: C = .{};
+        var pre: u64 = 0;
+        var sig: u64 = 0;
+        var firsts: [64]i64 = @splat(-1);
+        var wakes1: [64]i64 = @splat(-1);
+        for (0..n) |k| {
+            const x = &c[k];
+            inline for (.{ "spawns", "ho_next", "ho_ring", "parks", "runs", "steals", "steal_next", "sleeps", "wakes", "st_free", "st_spare", "st_fresh", "st_map" }) |f| @field(tot, f) += @field(x, f);
+            if (x.first_run != 0) firsts[k] = @divTrunc(x.first_run - mark_at, 1000);
+            if (x.first_wake != 0) wakes1[k] = @divTrunc(x.first_wake - mark_at, 1000);
+            if (preempt) {
+                pre += preOf(&all_workers.*[k]).preempts - pre0[k];
+                sig += preOf(&all_workers.*[k]).signals.raw - sig0[k];
+                pre0[k] = preOf(&all_workers.*[k]).preempts;
+                sig0[k] = preOf(&all_workers.*[k]).signals.raw;
+            }
+        }
+        inline for (.{ "spawns", "ho_next", "ho_ring", "parks", "runs", "steals", "steal_next", "sleeps", "wakes", "st_free", "st_spare", "st_fresh", "st_map" }) |f| @field(tot, f) += @field(c[64], f);
+        const fl = flt();
+        if (pass > 0) {
+            const line = std.fmt.bufPrint(&buf, "X pass {d} us {d} spawns {d} ho_next {d} ho_ring {d} parks {d} runs {d} steals {d} steal_next {d} sleeps {d} wakes {d} st_free {d} st_spare {d} st_fresh {d} st_map {d} preempted {d} signaled {d} minflt {d}\n", .{ pass, @divTrunc(now - mark_at, 1000), tot.spawns, tot.ho_next, tot.ho_ring, tot.parks, tot.runs, tot.steals, tot.steal_next, tot.sleeps, tot.wakes, tot.st_free, tot.st_spare, tot.st_fresh, tot.st_map, pre, sig, fl - flt0 }) catch @as([]u8, &.{});
+            _ = std.posix.system.write(2, line.ptr, line.len);
+            var l2: usize = (std.fmt.bufPrint(&buf, "X pass {d} first_run_us", .{pass}) catch @as([]u8, &.{})).len;
+            for (0..n) |k| l2 += (std.fmt.bufPrint(buf[l2..], " {d}", .{firsts[k]}) catch @as([]u8, &.{})).len;
+            l2 += (std.fmt.bufPrint(buf[l2..], " | first_wake_us", .{}) catch @as([]u8, &.{})).len;
+            for (0..n) |k| l2 += (std.fmt.bufPrint(buf[l2..], " {d}", .{wakes1[k]}) catch @as([]u8, &.{})).len;
+            buf[l2] = '\n';
+            _ = std.posix.system.write(2, &buf, l2 + 1);
+        }
+        for (&c) |*x| x.* = .{};
+        pass += 1;
+        flt0 = flt();
+        mark_at = t();
+    }
+};
+
 threadlocal var me_slot_var: ?*Worker = null;
 inline fn me_slot() *?*Worker {
     return split.local(&me_slot_var, "sched.me_slot");
@@ -753,6 +821,7 @@ fn stealWaiting(w: *Worker) bool {
     for (ws) |*v| {
         if (v == w) continue;
         if (w.ring.stealFrom(&v.ring)) |f| {
+            X.at().steals += 1;
             w.stole += 1;
             _ = w.ring.push(f);
             return true;
@@ -4092,6 +4161,10 @@ const workers_asked = split.cell(&workers_asked_var, "sched.workers_asked");
 /// effect. A deterministic run keeps to one thread. Never inlined into
 /// the program's own code (`mustNotBeInCode`, through `onWorkerStack`).
 pub noinline fn askWorkers(n: usize) bool {
+    if (n == 63) {
+        X.mark();
+        return true;
+    }
     const want = @max(1, @min(n, max_workers));
     if (!started.*) {
         workers_asked.* = want;
@@ -4200,6 +4273,11 @@ fn loop(w: *Worker) void {
 
 fn runFiber(w: *Worker, f: *Fiber) void {
     w.ran += 1;
+    {
+        const x = X.at();
+        x.runs += 1;
+        if (x.first_run == 0) x.first_run = X.t();
+    }
     if (preempt) preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
     if (f.home != null) w.ran_pinned += 1;
     prepare(w, f);
@@ -4362,6 +4440,7 @@ fn search(w: *Worker) ?*Fiber {
         if (v == w) continue;
         if (keepsBatch(v)) continue;
         if (w.ring.stealFrom(&v.ring)) |f| {
+            X.at().steals += 1;
             w.stole += 1;
             return f;
         }
@@ -4373,6 +4452,7 @@ fn search(w: *Worker) ?*Fiber {
         const v = &ws[(start + k) % ws.len];
         if (v == w) continue;
         if (stealNext(v)) |f| {
+            X.at().steal_next += 1;
             w.stole += 1;
             return f;
         }
@@ -4453,6 +4533,7 @@ fn notify() void {
     if (sleepers.pop()) |w| {
         _ = searching.fetchAdd(1, .seq_cst);
         w.searching = true;
+        X.at().wakes += 1;
         wakeWorker(w);
     }
 }
@@ -4470,6 +4551,11 @@ fn wakeWorker(w: *Worker) void {
 /// the fibers whose timers come due on any worker, and those its
 /// poller's events make ready, and goes back to running them.
 fn sleep(w: *Worker) void {
+    X.at().sleeps += 1;
+    defer {
+        const x = X.at();
+        if (x.first_wake == 0) x.first_wake = X.t();
+    }
     w.watch_owed = false;
     w.slept.store(w.slept.raw + 1, .monotonic);
     _ = takeWaiting(w);
@@ -5767,6 +5853,7 @@ pub const Done = struct {
                 if (s != waited) continue;
             }
             if (cancel) |c| if (c.load(.seq_cst)) return false;
+            X.at().parks += 1;
             commitWaitIn(e, deadline);
         }
         return true;
@@ -5879,6 +5966,9 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool), compt
     // Taken by a worker with nothing else to do meanwhile: wait for it the
     // usual way.
     if (!(if (from == .next) takeFromNext(w, f) else w.ring.takeLast(f))) return;
+    if (from == .next) {
+        X.at().ho_next += 1;
+    } else X.at().ho_ring += 1;
     h.done.waiter.store(waiter, .seq_cst);
     h.done.epoch.store(e, .seq_cst);
     h.done.status.store(Done.waited, .seq_cst);
@@ -5960,6 +6050,7 @@ fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: an
     if (@hasField(Extra, "fiber")) full.extra.fiber = &full.job.header.fiber;
     if (@hasDecl(Extra, "made")) full.extra.made();
     if (local) full.job.header.fiber.home = pinHereIn();
+    X.at().spawns += 1;
     wakeIn(&full.job.header.fiber);
     return .{ .job = &full.job, .extra = &full.extra };
 }
@@ -6178,11 +6269,13 @@ fn takeStack() Stack {
     if (w) |x| {
         if (x.stacks.free == null and spare.count.load(.monotonic) != 0) takeSpare(&x.stacks, spare);
         if (x.stacks.free) |n| {
+            X.at().st_free += 1;
             x.stacks.free = n.next;
             x.stacks.free_count -= 1;
             return n.stack;
         }
         if (x.stacks.fresh_left > 0) {
+            X.at().st_fresh += 1;
             const b = x.stacks.fresh_next;
             x.stacks.fresh_next += span;
             x.stacks.fresh_left -= 1;
@@ -6190,6 +6283,7 @@ fn takeStack() Stack {
         }
     }
     const count: usize = if (w != null) chunk else 1;
+    X.at().st_map += 1;
     const base = mapStacks(count) orelse rt.oom();
     if (w) |x| {
         x.stacks.fresh_next = base + span;
