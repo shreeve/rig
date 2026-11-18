@@ -200,6 +200,11 @@ const Worker = struct {
     /// Where the fibers its poller's events and its timers make ready go
     /// while it hands them out (`Batch`).
     batch: Batch = .none,
+    /// A fiber took one of its "run next" slots as it ran none, which
+    /// told no one (`wakeIn`): the next switch that finds a slot held
+    /// sets `waiting` for it (`spread`). Only this worker reads or
+    /// writes it.
+    quiet_fill: bool = false,
     /// The next worker asleep (`Sleepers`).
     next_sleeper: ?*Worker = null,
     searching: bool = false,
@@ -260,7 +265,9 @@ const searching = split.cell(&searching_var, "sched.searching");
 var stopping_var: OnLine(bool) = .{};
 const stopping = split.cell(&stopping_var, "sched.stopping");
 /// Set when work is made while every worker is busy, or a fiber that
-/// goes on running fills its worker's "run next" slot (`wake`); the first
+/// goes on running fills its worker's "run next" slot (`wake`), or a
+/// worker switches to a fiber while another, made ready as it ran none,
+/// waits in its slots (`spread`); the first
 /// yield check to see it clears it and takes that work (`claimWaiting`),
 /// and a worker that finds no work and sleeps clears it too; either sets
 /// it again while another worker's "run next" slot holds a fiber
@@ -376,7 +383,10 @@ fn wakeIn(f: *Fiber) void {
             return notifyNew();
         }
     }
-    if (f.home != null or w.current == null or w.servicing) return countQuiet();
+    if (f.home != null or w.current == null or w.servicing) {
+        if (w.current == null) w.quiet_fill = true;
+        return countQuiet();
+    }
     // After the slot is filled, so a worker that cleared `waiting` either
     // sees the slot full or sees the flag clear here (`takeWaiting`).
     if (waiting.load(.seq_cst) == 0) waiting.store(1, .monotonic);
@@ -2834,6 +2844,21 @@ inline fn pausePoint() void {
     while (!p.go.load(.seq_cst)) std.atomic.spinLoopHint();
 }
 
+/// The pause the next `searchedPoint` holds, set by a test. Test only,
+/// so never in a split build, and a plain variable rather than a cell.
+var test_searched: std.atomic.Value(?*Pause) = .init(null);
+
+/// In a test that set `test_searched`, hold here until it lets go: a
+/// worker that searched and found nothing, still counted as searching
+/// (`loop`).
+inline fn searchedPoint() void {
+    if (!builtin.is_test) return;
+    if (test_searched.load(.monotonic) == null) return;
+    const p = test_searched.swap(null, .seq_cst) orelse return;
+    p.reached.store(true, .seq_cst);
+    while (!p.go.load(.seq_cst)) std.atomic.spinLoopHint();
+}
+
 /// Test only: what the next moving deadline due for a wait calls, set
 /// by a test, between its read of the latest deadline and its read of the
 /// fiber's wait (`comePoint`), so the test can land a new wait there.
@@ -4010,6 +4035,7 @@ fn loop(w: *Worker) void {
         }
         const f = next(w) orelse {
             if (w.searching) {
+                searchedPoint();
                 w.searching = false;
                 _ = searching.fetchSub(1, .seq_cst);
             }
@@ -4057,8 +4083,29 @@ fn runFiber(w: *Worker, f: *Fiber) void {
 /// (`stealNext`). A build preempted by signal has no yield check that
 /// would hand them on, and without this they waited for the monitor's
 /// stop, about 1 ms. A switch with nothing else waiting costs two loads.
+///
+/// A fiber in a slot that took it as the worker ran none also sets
+/// `waiting`, if it is clear (`Worker.quiet_fill`). Such a fill, from a
+/// batch, a task's end, or a wait's end (`wakeIn`), tells no one, and the
+/// worker may now run another fiber: when a searcher keeps `notify` from
+/// waking anyone, and then finds nothing and sleeps, no sleeper looks in
+/// a slot (`hasWork`), so without the flag the fiber waited for the
+/// running one to stop, however long it recursed. A slot a running fiber
+/// filled set the flag then, and `takeWaiting` keeps it set while the slot
+/// holds a fiber, so only a quiet fill pays for this load. The slot's
+/// fill and this load are sequentially consistent, as a maker's are
+/// (`wakeIn`): a sleeper or check that clears the flag after this load
+/// reads the slot after its swap, so it sees the fiber and sets the flag
+/// again (`takeWaiting`), or clears it before this load, which sets it.
+/// Either way the running fiber's next check, loop or recursive, sees it
+/// and hands the fiber on (`claimWaiting`).
 inline fn spread(w: *Worker) void {
-    if (!nextHeld(w, .monotonic) and w.ring.isEmpty()) return;
+    const held = nextHeld(w, .monotonic);
+    if (!held and w.ring.isEmpty()) return;
+    if (held and w.quiet_fill) {
+        w.quiet_fill = false;
+        if (waiting.load(.seq_cst) == 0) waiting.store(1, .monotonic);
+    }
     if (builtin.is_test) _ = test_spreads.fetchAdd(1, .monotonic);
     notify();
 }
@@ -8463,6 +8510,107 @@ test "a run-next fiber whose notice another worker's check took is handed on at 
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.in_time);
+}
+
+test "a run-next fiber filled as its worker switches, which then runs a fiber from the global queue, is handed on at that fiber's recursive checks" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        /// One hold of the searcher a round, so a round's release never
+        /// meets the next round's hold.
+        var pauses: [10]Pause = @splat(.{});
+        var pause: *Pause = &pauses[0];
+        var computer_fiber: ?*Fiber = null;
+        var computer_epoch: u32 = 0;
+        var napped = std.atomic.Value(bool).init(false);
+        /// Whether a round began as the scenario needs: the other worker
+        /// held as it ends a search that found nothing, still counted;
+        /// no notice set; the computer alone in the global queue; this
+        /// worker's slots empty; and the napper's timer due in its heap.
+        var set = false;
+        var in_time = false;
+        const Unit = struct {};
+        /// Sets its timer in the heap of the worker it runs on.
+        fn napper(_: *Unit, until: i96) u8 {
+            commitWait(beginWait(false), until);
+            napped.store(true, .seq_cst);
+            return 0;
+        }
+        /// Waits until a thread outside the workers wakes it, as a
+        /// blocking call's thread does, which puts it in the global
+        /// queue; then lets the searcher go and computes in recursion,
+        /// each call reading `waiting`, as `rt.tickCall` does, until the
+        /// napper has run or 300 ms pass.
+        fn computer(_: *Unit) u8 {
+            computer_fiber = current().?;
+            computer_epoch = beginWait(false);
+            commitWait(computer_epoch, null);
+            pause.go.store(true, .seq_cst);
+            const until = nowNs() + 300 * std.time.ns_per_ms;
+            while (!napped.load(.seq_cst) and nowNs() < until) {
+                if (waiting.load(.monotonic) != 0) tickCall();
+            }
+            // One check more, in case this thread lost the CPU past the
+            // deadline before it made one.
+            if (waiting.load(.monotonic) != 0) tickCall();
+            in_time = napped.load(.seq_cst);
+            return 0;
+        }
+        fn wakeFromOutside() void {
+            _ = interrupt(computer_fiber.?, computer_epoch, false);
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            // Pinned, so only this worker runs it.
+            const w = pinHere().?;
+            _ = workersRunning();
+            var rounds: u32 = 0;
+            while (rounds < pauses.len and !set) : (rounds += 1) {
+                pause = &pauses[rounds];
+                napped.store(false, .seq_cst);
+                testNapUntilOthersSleep();
+                // Each runs here, from this worker's slot, and waits: the
+                // computer with no timer, the napper on a timer in this
+                // worker's heap.
+                const g = spawn(u8, Unit, computer, .{}, .{}, false, false).job;
+                yield();
+                const t0 = nowNs() + 50 * std.time.ns_per_ms;
+                const f = spawn(u8, Unit, napper, .{t0}, .{}, false, false).job;
+                yield();
+                // Take the notices the two tasks' making left.
+                if (waiting.load(.monotonic) != 0) tickCall();
+                const asleep = testSpinUntilOthersSleep();
+                // Wake the other worker to search, and hold it once it has
+                // found nothing, still counted as searching.
+                test_searched.store(pause, .seq_cst);
+                if (asleep) notify();
+                const give_up = nowNs() + std.time.ns_per_s;
+                while (!pause.reached.load(.seq_cst) and nowNs() < give_up) std.atomic.spinLoopHint();
+                // The computer goes to the global queue, and wakes no
+                // worker: one searches.
+                if (std.Thread.spawn(.{}, wakeFromOutside, .{})) |th| th.join() else |_| {}
+                while (nowNs() <= t0) std.atomic.spinLoopHint();
+                set = asleep and pause.reached.load(.seq_cst) and searching.load(.seq_cst) == 1 and
+                    waiting.load(.seq_cst) == 0 and global.count.load(.seq_cst) == 1 and !nextHeld(w, .seq_cst) and
+                    w.timers.heap.items.len == 1 and !napped.load(.seq_cst);
+                test_searched.store(null, .seq_cst);
+                // This worker's next turn is a 61st: it services its
+                // timers, which fills its slot with the napper as it runs
+                // no fiber, and takes the computer from the global queue.
+                if (set) w.tick = 60;
+                _ = g.join();
+                g.free();
+                _ = f.join();
+                f.free();
+                pause.go.store(true, .seq_cst);
+            }
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.set);
     try std.testing.expect(Run.in_time);
 }
 

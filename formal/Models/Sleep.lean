@@ -41,8 +41,9 @@ Checked:
   holds each worker at most once.
 A fiber left in a slot while its worker runs another, with the
 searcher that suppressed `spread`'s wake already past it, is seen by
-no last look (`hasWork` reads no slot): only the monitor's stop
-(`Config.monitor`) takes it on. Not modeled: a running fiber's fill of
+no last look (`hasWork` reads no slot): here only the monitor's stop
+(`Config.monitor`) takes it on; in the code `spread` also sets
+`waiting`, which a yield check, loop or recursive, takes. Not modeled: a running fiber's fill of
 its slot (covered by `waiting` and the yield checks), the slot's streak
 limit and its 3 µs wait, timers apart from the poller's batches, the
 watch over the pollers (`sleepIn`, `leaveWait`, `passWatch`, the trim of

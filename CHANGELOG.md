@@ -768,6 +768,16 @@ arms.
 
 ### Runtime
 
+- **A task left in a run-next slot as its worker runs another stays in
+  sight:** a task a timer, a poller, or a task's end made ready as its
+  worker ran nothing took that worker's slot and told no one, and when
+  the worker then ran a task from the global queue while another worker
+  searched, that one found nothing and slept, and the task waited for
+  the running one to stop, however long it recursed: a timer's task
+  beside a recursion of 300 ms ran after it. A worker that switches to a
+  task while another waits in its slots now sets `sched.waiting`
+  (`sched.spread`), so the running task's next recursive check hands it
+  on.
 - **A timer stays covered when the sleeper woken for it leaves early:**
   a timer earlier than every sleeper's wake kicks one sleeper, which
   sleeps again until it, and the others may sleep with no deadline. When

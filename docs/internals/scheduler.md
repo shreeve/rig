@@ -335,9 +335,12 @@ worker after.
   as searching again, so taking it wakes another for the rest
   (`sched.sleep`). formal/Models/Sleep.lean checks these handshakes
   with `sched.spread` and the pollers' batches: no worker sleeps while
-  a ring, the global queue, or its pinned queue holds work, and only a
-  task left in a slot beside another, once the searcher that kept
-  `spread` from waking anyone has passed it, waits for the monitor.
+  a ring, the global queue, or its pinned queue holds work. A task left
+  in a slot beside another, once the searcher that kept `spread` from
+  waking anyone has passed it and slept, is seen by no sleeper: `spread`
+  also sets `sched.waiting` for it, so the running task's next check,
+  loop or recursive, hands it on, and in a build preempted by signal
+  the monitor's stop does.
 
 ## Stacks
 
@@ -698,7 +701,10 @@ never fails, and yields only when other work waits.
   function. In Trig's checker 387 of the 2,812 functions on cycles
   check, and they take under a third of the calls a check in every
   one of them did. Work woken or made while every worker is busy sets it, and so
-  does a fiber that fills one of its worker's "run next" slots and runs on. The
+  does a fiber that fills one of its worker's "run next" slots and runs on,
+  and a worker that switches to a task while another waits in its slots,
+  filled as no task ran, from a poller, a timer, or a task's end
+  (`sched.spread`). The
   first check to see it clears it and yields to that work: its own
   worker's, or half of another busy worker's ring, stolen; or, when a
   worker with nothing to do could take it, wakes that worker and sets
