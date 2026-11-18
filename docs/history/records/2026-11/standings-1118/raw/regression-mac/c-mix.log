@@ -1,0 +1,48 @@
+tools/mac-claim: waiting 1 min for the Mac to go quiet (125% of a core in use, under 150% wanted). Busiest:
+  PID 407 at 31.6%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+  PID 1040 at 20.5%: /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Render
+  PID 30428 at 18.9%: /System/iOSSupport/System/Library/PrivateFrameworks/PassKitUI.framework/PlugIns/PeerPaymentMessagesExtension.a
+state 13:18:21 load { 4.53 5.11 5.12 }
+  39.4% /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer
+0 m10    sleep  99998 req/s cyc  77872 csw 0.665 p50 79 p99 10036 p999 16671 max 26947 timer99 270 gen 2.31 cores unsent 0 err 0 idle 99/99
+0 m11    sleep  99998 req/s cyc  79927 csw 0.671 p50 82 p99 1713 p999 8209 max 13801 timer99 359 gen 2.32 cores unsent 0 err 0 idle 99/99
+0 aa11   sleep  99998 req/s cyc  77929 csw 0.678 p50 74 p99 1001 p999 1595 max 2436 timer99 167 gen 2.29 cores unsent 0 err 0 idle 99/99
+0 hyper  sleep  99998 req/s cyc  88710 csw 0.861 p50 81 p99 1046 p999 1613 max 2328 timer99 178 gen 2.42 cores unsent 0 err 0 idle 99/99
+1 hyper  sleep  99998 req/s cyc  89684 csw 0.830 p50 90 p99 67275 p999 75744 max 82884 timer99 260 gen 2.40 cores unsent 0 err 0 idle 99/99
+1 m10    sleep  96747 req/s cyc  81146 csw 0.665 p50 89 p99 156829 p999 166096 max 172044 timer99 340 gen 2.26 cores unsent 16135 err 0 idle 99/99
+1 m11    sleep  99998 req/s cyc  79009 csw 0.678 p50 78 p99 1194 p999 1752 max 2887 timer99 262 gen 2.34 cores unsent 0 err 0 idle 99/99
+1 aa11   sleep  99998 req/s cyc  79460 csw 0.676 p50 79 p99 1172 p999 1740 max 2630 timer99 257 gen 2.34 cores unsent 0 err 0 idle 99/99
+2 aa11   sleep  99996 req/s cyc  79727 csw 0.678 p50 80 p99 1185 p999 1746 max 2554 timer99 260 gen 2.33 cores unsent 0 err 0 idle 99/99
+2 hyper  sleep  99998 req/s cyc  88872 csw 0.845 p50 86 p99 1182 p999 1821 max 3010 timer99 204 gen 2.42 cores unsent 0 err 0 idle 99/99
+2 m10    sleep  99998 req/s cyc  79066 csw 0.681 p50 78 p99 1203 p999 1903 max 3785 timer99 249 gen 2.32 cores unsent 0 err 0 idle 99/99
+2 m11    sleep  99998 req/s cyc  79803 csw 0.677 p50 82 p99 8667 p999 16274 max 21840 timer99 279 gen 2.33 cores unsent 0 err 0 idle 99/99
+3 m11    sleep  99998 req/s cyc  79326 csw 0.686 p50 79 p99 1191 p999 1738 max 2411 timer99 302 gen 2.32 cores unsent 0 err 0 idle 99/99
+3 aa11   sleep  99996 req/s cyc  79257 csw 0.686 p50 79 p99 1152 p999 1711 max 2317 timer99 292 gen 2.32 cores unsent 0 err 0 idle 99/99
+3 hyper  sleep  99998 req/s cyc  90872 csw 0.776 p50 102 p99 81507 p999 93493 max 115577 timer99 380 gen 2.45 cores unsent 0 err 0 idle 99/99
+3 m10    sleep  99989 req/s cyc  83020 csw 0.645 p50 102 p99 3332 p999 6443 max 13335 timer99 504 gen 2.36 cores unsent 1 err 0 idle 99/99
+4 m10    sleep  99998 req/s cyc  78603 csw 0.672 p50 78 p99 1091 p999 1660 max 2397 timer99 216 gen 2.35 cores unsent 0 err 0 idle 99/99
+4 m11    sleep  99984 req/s cyc  79863 csw 0.666 p50 82 p99 9378 p999 16319 max 20440 timer99 326 gen 2.33 cores unsent 0 err 0 idle 99/99
+4 aa11   sleep  99999 req/s cyc  78454 csw 0.662 p50 77 p99 1102 p999 1724 max 2830 timer99 201 gen 2.32 cores unsent 0 err 0 idle 99/99
+4 hyper  sleep  99998 req/s cyc  89218 csw 0.832 p50 86 p99 3485 p999 7757 max 11380 timer99 296 gen 2.42 cores unsent 0 err 0 idle 99/99
+5 hyper  sleep  99997 req/s cyc  90708 csw 0.824 p50 94 p99 3052 p999 8719 max 15493 timer99 411 gen 2.43 cores unsent 0 err 0 idle 99/99
+5 m10    sleep  99998 req/s cyc  80451 csw 0.645 p50 85 p99 20354 p999 29135 max 43985 timer99 261 gen 2.34 cores unsent 0 err 0 idle 99/99
+5 m11    sleep  99998 req/s cyc  79101 csw 0.657 p50 78 p99 1138 p999 1766 max 2580 timer99 156 gen 2.34 cores unsent 0 err 0 idle 99/99
+5 aa11   sleep  99997 req/s cyc  78924 csw 0.657 p50 78 p99 7634 p999 14926 max 20096 timer99 262 gen 2.32 cores unsent 0 err 0 idle 99/99
+6 aa11   sleep  99998 req/s cyc  77422 csw 0.675 p50 72 p99 868 p999 1495 max 2120 timer99 88 gen 2.29 cores unsent 0 err 0 idle 99/99
+6 hyper  sleep  99998 req/s cyc  88983 csw 0.867 p50 81 p99 1033 p999 1659 max 3154 timer99 136 gen 2.44 cores unsent 0 err 0 idle 99/99
+6 m10    sleep  99998 req/s cyc  78713 csw 0.664 p50 77 p99 4044 p999 12011 max 14487 timer99 193 gen 2.31 cores unsent 0 err 0 idle 99/99
+6 m11    sleep  99928 req/s cyc  81173 csw 0.625 p50 90 p99 110424 p999 118537 max 132433 timer99 333 gen 2.30 cores unsent 234 err 0 idle 99/99
+7 m11    sleep  99996 req/s cyc  79859 csw 0.665 p50 80 p99 9251 p999 16236 max 20328 timer99 280 gen 2.35 cores unsent 0 err 0 idle 99/99
+7 aa11   sleep  99997 req/s cyc  79887 csw 0.665 p50 80 p99 1360 p999 3412 max 10221 timer99 304 gen 2.36 cores unsent 0 err 0 idle 99/99
+7 hyper  sleep  99984 req/s cyc  90534 csw 0.863 p50 87 p99 1207 p999 1802 max 2991 timer99 218 gen 2.46 cores unsent 4 err 0 idle 99/99
+7 m10    sleep  99999 req/s cyc  78924 csw 0.676 p50 76 p99 1111 p999 1692 max 2227 timer99 192 gen 2.34 cores unsent 0 err 0 idle 99/99
+8 m10    sleep  99998 req/s cyc  81105 csw 0.655 p50 85 p99 67954 p999 78623 max 95456 timer99 283 gen 2.37 cores unsent 0 err 0 idle 99/99
+8 m11    sleep  99998 req/s cyc  79391 csw 0.675 p50 78 p99 1198 p999 1825 max 5218 timer99 231 gen 2.35 cores unsent 0 err 0 idle 99/99
+8 aa11   sleep  99998 req/s cyc  78781 csw 0.669 p50 76 p99 7353 p999 13977 max 19378 timer99 197 gen 2.32 cores unsent 0 err 0 idle 99/99
+8 hyper  sleep  99998 req/s cyc  89127 csw 0.860 p50 81 p99 1155 p999 1794 max 3171 timer99 165 gen 2.43 cores unsent 0 err 0 idle 99/99
+9 hyper  sleep  99997 req/s cyc  88774 csw 0.870 p50 81 p99 1186 p999 1924 max 3769 timer99 154 gen 2.43 cores unsent 0 err 0 idle 99/99
+9 m10    sleep  99999 req/s cyc  78409 csw 0.672 p50 75 p99 1166 p999 1787 max 2886 timer99 213 gen 2.31 cores unsent 0 err 0 idle 99/99
+9 m11    sleep  99998 req/s cyc  78503 csw 0.675 p50 75 p99 1132 p999 1725 max 2668 timer99 191 gen 2.32 cores unsent 0 err 0 idle 99/99
+9 aa11   sleep  99998 req/s cyc  78751 csw 0.675 p50 76 p99 1165 p999 1721 max 2447 timer99 275 gen 2.32 cores unsent 0 err 0 idle 99/99
+state 13:23:55 load { 6.77 6.15 5.61 }
+  58.9% /Applications/Google
