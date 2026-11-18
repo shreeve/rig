@@ -493,3 +493,30 @@ on both pollers with one poll(2), then takes its own events with a look and the 
 poller's with a look of it: one extra call a wake and no registration. The watch starts
 at the sleeper's next wait. Its compile check was queued behind other sessions' suites
 on the Mac when the box ended.
+
+## `l7` on the board (board AG, 2026-11-18)
+
+`l7`, ported onto main c014f5e3f (8ec62a7e7, kept as the tag `archive/120k-l7`), on
+pup in slot 550, with the spinning generator. The arms: main, an A/A copy of main,
+`l7`, `l7` with `RIG_LEND_US=0` (`l7·0`), and hyper. One core (0,5), 10,000 idle
+connections, 7 rounds; cycles a request at 150k, 3 rounds. Before the board, a count
+on E-cores (server 12,13; load 14-19; 80k) showed both workers setting watches
+(45,228 and 46,639), the coverage `l4` lacked.
+
+| | main | A/A | `l7` | `l7·0` | hyper |
+|---|---:|---:|---:|---:|---:|
+| 120k p50 / p99 / p99.9 (µs) | 23 / 63 / 89 | 23 / 63 / 108 | **17 / 58 / 75** | 23 / 63 / 82 | 17 / 56 / 89 |
+| 120k p99, slowest round | 736 | 19,664 | 59 | 47,035 | 63 |
+| 120k server cores | 1.66 | 1.67 | 1.76 | 1.67 | 1.77 |
+| 80k p50 / p99 / p99.9 | 31 / 49 / 61 | 31 / 49 / 62 | 29 / 50 / 61 | 31 / 49 / 60 | 33 / 50 / 66 |
+| cycles a request, trivial (ctx sw) | 30,593 (0.626) | 30,306 (0.635) | 30,419 (0.623) | 30,553 (0.624) | 33,467 (0.691) |
+| cycles a request, mix (ctx sw) | 66,523 (0.421) | 67,015 (0.426) | **70,818** (0.577) | 67,327 (0.429) | 69,293 (0.575) |
+| closed loop on 0-11, median of 7 (req/s) | 700.5k | 745.5k | 666.5k | 711.4k | 346.3k |
+
+bench/net on 0-11 was level in every arm.
+
+**Verdict: dropped** (the owner: "Drop l7, keep main"). `l7` closes 5 of the 7 µs at
+120k, matches hyper's p50 and passes its p99.9, and has no stalled round. It pays for
+that with a wake per event, as `l4` did: 6.5% more cycles a request on the mix than
+main, 2.2% more than hyper, where main spends 4% fewer than hyper. Main keeps the CPU
+lead and loses the 120k p99 by 7 µs.
