@@ -81,12 +81,22 @@ worker after.
   each file once and moves one buffer through every block. A call that
   runs on its task's thread (no scheduler, or a deterministic run) takes
   the file's own descriptor. `rig.blocking`'s waiter waits for the call, which
-  takes its arguments as they are, a buffer to read into among them. A
-  socket is registered with the poller of the worker that makes or
-  accepts it, and waits there (`net.zig`): `http.serve`'s connections,
-  like those of a server's own accept loop, share the acceptor's
-  poller, which it sleeps in while it waits to accept, so their events
-  wake it at once rather than wait for a busy worker's next look.
+  takes its arguments as they are, a buffer to read into among them. On
+  Linux a socket is registered with the poller of the worker that makes
+  or accepts it, and waits there (`net.zig`): `http.serve`'s
+  connections, like those of a server's own accept loop, share the
+  acceptor's poller, which it sleeps in while it waits to accept, so
+  their events wake it at once rather than wait for a busy worker's next
+  look. On the Mac every descriptor waits in worker 0's poller, wherever
+  it is registered from (`sched.one_poller`). A thread blocked in a
+  kqueue wakes for each event posted to it, so with a poller a worker
+  every worker was woken by its own sockets, all stayed in play, and
+  each looked at every other's poller as it went to sleep: bench/net's
+  echo made 9.0 system calls a round trip, 4.5 of them such looks, about
+  3 µs each. With one poller one worker reads 40 to 59 events at a call
+  and the others wake only for work: 4.5 calls a round trip, echo 19%
+  faster (6% faster than Tokio), ping-pong and connect level. While
+  worker 0 computes, its poller is looked at as any busy worker's is.
   Other system calls go through a `Threaded` instance of Zig's `std.Io`
   (`rt.io`) on the calling thread, which runs no tasks; a write to a
   full pipe holds its worker until it returns.
@@ -166,7 +176,10 @@ worker after.
   wakes holding descriptors kicks a sleeper to watch when none does
   (`sched.passWatch`), and so does one that took its first descriptor
   while awake, at its loop's next turn while still busy: one that
-  registers and then waits sleeps in its own poller and owes none. The
+  registers and then waits sleeps in its own poller and owes none. On
+  the Mac, where the poller is worker 0's, the worker that registers its
+  first descriptor owes the watch, not worker 0, which may be computing
+  with no turn to pay it at. The
   sleeper kicked may leave its
   sleep before it watches, popped for work or finding some, so every
   worker that leaves its sleep, whatever it holds, kicks another while

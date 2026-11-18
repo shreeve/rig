@@ -2677,8 +2677,26 @@ pub const Registration = struct {
 };
 
 /// Watch `fd`, which must not block, with the running worker's poller
-/// (worker 0's outside the workers); null when the kernel refuses it.
+/// (worker 0's outside the workers), or on the Mac with worker 0's
+/// (`one_poller`); null when the kernel refuses it.
 pub const register = if (preempt) registerApart else registerIn;
+
+/// On the Mac every descriptor waits in worker 0's poller, wherever it
+/// is registered from, as `http.serve`'s connections wait in their
+/// acceptor's. A thread blocked in a kqueue wakes for each event posted
+/// to it, so with a poller a worker each worker is woken by its own
+/// sockets, every worker stays in play, and each, as it goes to sleep,
+/// looks at every other's poller, about 3 µs a look on kqueues the
+/// kernel is posting to: bench/net's echo, 200 connections on ten
+/// workers, made 9.0 system calls a round trip, 4.5 of them such looks,
+/// and ran 16% slower than Tokio. With one poller, one worker reads 40
+/// to 59 events at a call, the others are woken only for work, and a
+/// round trip makes 4.5 calls: echo is 19% faster, ping-pong and connect
+/// level (macOS 27). Linux keeps a poller a worker, which leads Tokio on
+/// echo there. While worker 0 computes, its poller is looked at as any
+/// busy worker's is: by the others as they go to sleep, and each
+/// `watch_every` by the watcher (`sleepIn`).
+const one_poller = Poller.darwin;
 
 /// `register` in a program built to be preempted: never inlined into
 /// the program's own code (`mustNotBeInCode`).
@@ -2688,7 +2706,7 @@ noinline fn registerApart(fd: i32) ?*Registration {
 
 fn registerIn(fd: i32) ?*Registration {
     if (!started.*) startWorkers();
-    const w = me() orelse &all_workers.*[0];
+    const w = if (one_poller) &all_workers.*[0] else me() orelse &all_workers.*[0];
     const r = std.heap.smp_allocator.create(Registration) catch rt.oom();
     r.* = .{ .fd = fd, .poller = &w.poller };
     if (!w.poller.add(fd, r)) {
@@ -2701,8 +2719,16 @@ fn registerIn(fd: i32) ?*Registration {
         registered.* = r;
     }
     // Its first descriptor, taken while it is awake: a watch is owed at
-    // its loop's next turn, if it is still busy then (`payWatch`).
-    if (me() == w and w.poller.count.load(.monotonic) == 1) w.watch_owed = true;
+    // its loop's next turn, if it is still busy then (`payWatch`). With
+    // one poller the debt is the registering worker's, not worker 0's:
+    // worker 0 may be computing, with no turn to pay it at, and the
+    // registering worker is awake, and either turns, still busy, and
+    // pays, or sleeps and watches itself (`sleepIn`).
+    if (one_poller) {
+        if (me()) |by| {
+            if (w.poller.count.load(.monotonic) == 1) by.watch_owed = true;
+        }
+    } else if (me() == w and w.poller.count.load(.monotonic) == 1) w.watch_owed = true;
     return r;
 }
 
@@ -4417,8 +4443,9 @@ fn leaveSleep(w: *Worker) void {
     if (watcher.load(.seq_cst) == null) passWatch(w);
 }
 
-/// `w` took its first descriptor while awake (`registerIn`), and its
-/// loop turns to another fiber, still busy: the sleepers, having found
+/// `w` took its first descriptor while awake (`registerIn`), or on the
+/// Mac registered worker 0's first (`one_poller`), and its loop turns to
+/// another fiber, still busy: the sleepers, having found
 /// no worker awake holding any, sleep with no watch, so have one watch
 /// unless one does. Not at the registration: a fiber that registers a
 /// descriptor mostly waits on it next, and its worker, with nothing else
@@ -4433,7 +4460,8 @@ fn leaveSleep(w: *Worker) void {
 /// sleeper watch.
 fn payWatch(w: *Worker) void {
     w.watch_owed = false;
-    if (w.poller.count.load(.monotonic) != 0 and watcher.load(.seq_cst) == null) passWatch(w);
+    const held = if (one_poller) &all_workers.*[0].poller else &w.poller;
+    if (held.count.load(.monotonic) != 0 and watcher.load(.seq_cst) == null) passWatch(w);
 }
 
 /// A worker left its wait, its `sleep_due` back to `awake`: unless a
@@ -8988,6 +9016,204 @@ test "a busy worker that took its first descriptor has a sleeping worker watch i
     try std.testing.expect(Run.set);
     try std.testing.expect(Run.seen_after >= 0);
     try std.testing.expect(Run.seen_after < 50 * std.time.ns_per_ms);
+}
+
+test "a busy worker's first descriptor, taken while worker 0 computes, has a sleeping worker watch it" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        /// Whether a round began with worker 0 computing, worker 1
+        /// awake, worker 2 asleep with no deadline and no watch, and no
+        /// poller holding a descriptor.
+        var set = std.atomic.Value(bool).init(false);
+        /// How long after the byte was written a look at the poller that
+        /// holds its pipe saw it.
+        var seen_after: i96 = -1;
+        var on_one = std.atomic.Value(bool).init(false);
+        var computing = std.atomic.Value(bool).init(false);
+        var done = std.atomic.Value(bool).init(false);
+        const Unit = struct {};
+        fn reader(_: *Unit, r: *Registration) u8 {
+            _ = waitReady(r, Registration.readable, edges(r, Registration.readable), null, false);
+            return 0;
+        }
+        /// Whether worker 2 alone sleeps, unwoken, with no deadline, and
+        /// none watches, three watches on end, by `limit`.
+        fn unwatched(limit: i96) bool {
+            const ws = workersNow();
+            var since: ?i96 = null;
+            while (true) {
+                const now = nowReal();
+                const quiet = sleepers.count.load(.seq_cst) == 1 and ws[2].idle.load(.seq_cst) != 0 and
+                    watcher.load(.seq_cst) == null and ws[2].woken.load(.seq_cst) == 0 and
+                    ws[2].sleep_due.load(.seq_cst) == no_due;
+                if (!quiet) {
+                    since = null;
+                } else if (since) |t| {
+                    if (now - t >= 3 * watch_every) return true;
+                } else since = now;
+                if (now >= limit) return false;
+                std.atomic.spinLoopHint();
+            }
+        }
+        /// Moves to worker 1 and stays; once worker 0 computes and worker
+        /// 2 sleeps unwatched, registers a pipe, the first descriptor any
+        /// poller holds (worker 0's on the Mac, its own on Linux), runs a
+        /// reader that waits on it, and computes.
+        fn registrar(_: *Unit) u8 {
+            const ws = workersNow();
+            while (me() != &ws[1]) testMove();
+            _ = pinHere();
+            on_one.store(true, .seq_cst);
+            const by = nowReal() + 2 * std.time.ns_per_s;
+            while (!computing.load(.seq_cst) and nowReal() < by) std.atomic.spinLoopHint();
+            const held = ws[0].poller.count.load(.seq_cst) + ws[1].poller.count.load(.seq_cst) + ws[2].poller.count.load(.seq_cst);
+            const ok = computing.load(.seq_cst) and held == 0 and unwatched(nowReal() + 200 * std.time.ns_per_ms);
+            const fds = testPipe();
+            const r = register(fds[0]).?;
+            const j = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
+            yield();
+            // No check from here, on this worker or worker 0: only worker
+            // 2's look sees the byte. The limit only ends a run whose
+            // watch was never taken.
+            if (ok and me() == &ws[1]) {
+                set.store(true, .seq_cst);
+                const before = edges(r, Registration.readable);
+                const wrote = nowNs();
+                _ = std.posix.system.write(fds[1], "x", 1);
+                const give_up = wrote + 300 * std.time.ns_per_ms;
+                while (edges(r, Registration.readable) == before and nowNs() < give_up) std.atomic.spinLoopHint();
+                if (edges(r, Registration.readable) != before) seen_after = nowNs() - wrote;
+            } else _ = std.posix.system.write(fds[1], "x", 1);
+            done.store(true, .seq_cst);
+            _ = j.join();
+            j.free();
+            deregister(r);
+            _ = std.posix.system.close(fds[0]);
+            _ = std.posix.system.close(fds[1]);
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = pinHere();
+            _ = workersRunning();
+            var rounds: u32 = 0;
+            while (rounds < 10 and !set.load(.seq_cst)) : (rounds += 1) {
+                on_one.store(false, .seq_cst);
+                computing.store(false, .seq_cst);
+                done.store(false, .seq_cst);
+                const j = spawn(u8, Unit, registrar, .{}, .{}, false, false).job;
+                const by = nowNs() + 2 * std.time.ns_per_s;
+                while (!on_one.load(.seq_cst) and nowNs() < by) testNap(std.time.ns_per_ms);
+                // Computes, making no check, until the registrar is done.
+                computing.store(true, .seq_cst);
+                const give_up = nowNs() + 2 * std.time.ns_per_s;
+                while (!done.load(.seq_cst) and nowNs() < give_up) std.atomic.spinLoopHint();
+                _ = j.join();
+                j.free();
+            }
+        }
+    };
+    workers_override.* = 3;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.set.load(.seq_cst));
+    try std.testing.expect(Run.seen_after >= 0);
+    try std.testing.expect(Run.seen_after < 50 * std.time.ns_per_ms);
+}
+
+test "while worker 0 computes, more sockets than a look reads, registered by another worker, wait no longer than a few watches" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const n = 200;
+    const Run = struct {
+        var fds: [n][2]i32 = undefined;
+        var regs: [n]*Registration = undefined;
+        /// Whether every reader waited, and every worker but 0 slept, as
+        /// the bytes were written.
+        var set = false;
+        /// How long after the bytes were written the last reader ran.
+        var all_after: i96 = -1;
+        var started_all = std.atomic.Value(bool).init(false);
+        var woke = std.atomic.Value(u32).init(0);
+        const Unit = struct {};
+        fn reader(_: *Unit, r: *Registration) u8 {
+            if (waitReady(r, Registration.readable, edges(r, Registration.readable), null, false) == .ready) _ = woke.fetchAdd(1, .seq_cst);
+            return 0;
+        }
+        fn waitingNow() u32 {
+            var k: u32 = 0;
+            for (regs) |r| k += @intFromBool(r.waiting.load(.seq_cst) != 0);
+            return k;
+        }
+        /// Spin, making no check, until every worker but this one has
+        /// slept three watches on end, or until `limit`: whether they
+        /// have. Then a look that sees the bytes is the watcher's, or a
+        /// sleeper's own wait in the poller that holds them.
+        fn settled(limit: i96) bool {
+            var since: ?i96 = null;
+            while (true) {
+                const now = nowReal();
+                if (sleepers.count.load(.seq_cst) + 1 != workersNow().len) {
+                    since = null;
+                } else if (since) |t| {
+                    if (now - t >= 3 * watch_every) return true;
+                } else since = now;
+                if (now >= limit) return false;
+                std.atomic.spinLoopHint();
+            }
+        }
+        /// On worker 1: registers the pipes (in worker 0's poller on the
+        /// Mac, its own on Linux), starts a reader on each, and waits for
+        /// them.
+        fn registrar(_: *Unit) u8 {
+            const ws = workersNow();
+            while (me() != &ws[1]) testMove();
+            _ = pinHere();
+            var jobs: [n]*Job(u8) = undefined;
+            for (0..n) |i| {
+                fds[i] = testPipe();
+                regs[i] = register(fds[i][0]).?;
+            }
+            for (0..n) |i| jobs[i] = spawn(u8, Unit, reader, .{regs[i]}, .{}, false, false).job;
+            const by = nowNs() + 2 * std.time.ns_per_s;
+            while (waitingNow() < n and nowNs() < by) testNap(std.time.ns_per_ms);
+            started_all.store(true, .seq_cst);
+            for (jobs) |j| {
+                _ = j.join();
+                j.free();
+            }
+            for (0..n) |i| {
+                deregister(regs[i]);
+                _ = std.posix.system.close(fds[i][0]);
+                _ = std.posix.system.close(fds[i][1]);
+            }
+            return 0;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            _ = pinHere();
+            _ = workersRunning();
+            const j = spawn(u8, Unit, registrar, .{}, .{}, false, false).job;
+            const by = nowNs() + 3 * std.time.ns_per_s;
+            while (!started_all.load(.seq_cst) and nowNs() < by) testNap(std.time.ns_per_ms);
+            // Computes, making no check, from here until every reader ran.
+            set = started_all.load(.seq_cst) and waitingNow() == n and settled(nowReal() + 2 * std.time.ns_per_s);
+            const wrote = nowNs();
+            for (fds) |p| _ = std.posix.system.write(p[1], "x", 1);
+            const give_up = wrote + 2 * std.time.ns_per_s;
+            while (woke.load(.seq_cst) < n and nowNs() < give_up) std.atomic.spinLoopHint();
+            if (woke.load(.seq_cst) == n) all_after = nowNs() - wrote;
+            _ = j.join();
+            j.free();
+        }
+    };
+    workers_override.* = 3;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expect(Run.set);
+    try std.testing.expect(Run.all_after >= 0);
+    try std.testing.expect(Run.all_after < 50 * std.time.ns_per_ms);
 }
 
 fn testSleepReal(ms: u64) u64 {

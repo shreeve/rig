@@ -800,6 +800,13 @@ arms.
 
 ### Runtime
 
+- **On the Mac every socket waits in one poller:** worker 0's, wherever
+  it is registered from, as `http.serve`'s connections share their
+  acceptor's. With a kqueue a worker, every worker was woken by its own
+  sockets and looked at every other's kqueue as it went to sleep, 9.0
+  system calls a round trip on bench/net's echo; with one, 4.5. Echo is
+  19% faster, 6% faster than Tokio; ping-pong and connect are level.
+  Linux keeps a poller a worker.
 - **A task left in a run-next slot as its worker runs another stays in
   sight:** a task a timer, a poller, or a task's end made ready as its
   worker ran nothing took that worker's slot and told no one, and when
