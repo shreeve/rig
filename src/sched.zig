@@ -2998,8 +2998,11 @@ fn notifyShared() void {
         }
         return;
     }
-    ring(me());
-    kickSleeper(me());
+    // Probe: the bell, for a worker in the shared epoll; with none there,
+    // a kick for the sleeper listed last, which waits alone or is on its
+    // way to a wait. A worker that leaves the shared epoll between the
+    // two reads takes the token itself, off the list (`sleep`).
+    if (!lazy_gate or shared.inside.load(.seq_cst) != 0) ring(me()) else kickSleeper(me());
 }
 
 /// Sleep in the shared epoll up to `timeout` (null: until woken), then
