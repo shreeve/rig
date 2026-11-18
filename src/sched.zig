@@ -218,10 +218,13 @@ const Worker = struct {
     /// (`trimIdle`).
     trim_wait: i96 = trim_first,
     /// PROBE counters (`PK`).
-    pc: [20]u64 = @splat(0),
+    pc: [23]u64 = @splat(0),
     /// PROBE (`Probe.age_ns`): when it first switched to a fiber with
     /// others waiting here, 0 while none waits.
     wait_since: std.atomic.Value(i64) = .init(0),
+    /// PROBE (`Probe.look_run_us`): when it switched to the fiber it
+    /// runs, 0 while it runs none.
+    run_since: std.atomic.Value(i64) = .init(0),
     thread: ?std.Thread align(std.atomic.cache_line) = null,
 };
 
@@ -271,6 +274,27 @@ const Probe = struct {
     /// work from another only once it has waited that long there, and
     /// goes to sleep past work that has not (`search`, `sleep`).
     age_steal: bool = false,
+    /// RIG_P_AGEFREE=K, with RIG_P_AGE: work wakes a worker at once, as on
+    /// main, while fewer than K workers are awake; only the wakes past
+    /// that wait for the work to have waited (K=2: the first helper comes
+    /// at once, a second only for work that has waited). 0: every wake
+    /// waits.
+    age_free: u32 = 0,
+    /// RIG_P_LOOKRUN=us, with RIG_P_NOLOOKS=4: a worker going to sleep
+    /// looks at another's poller only while that worker has run its
+    /// present fiber for this long (`Worker.run_since`); the watcher
+    /// looks at all.
+    look_run_us: i64 = 10,
+    /// RIG_P_ECORE=N, with RIG_P_AGE: the machine's first N CPUs are
+    /// efficiency cores, and the rules of RIG_P_EMODE hold for a worker
+    /// while it runs on one (`onECore`). RIG_P_EMODE, a sum (default 7):
+    /// 1, such a worker takes work from another only once it has waited
+    /// RIG_P_AGE there; 2, going to sleep it looks at its own poller
+    /// only; 4, work wakes a worker only once it has waited, while the
+    /// last worker woken for work found itself on an efficiency core
+    /// (`spill`). With RIG_P_ECORE set, RIG_P_AGE alone gates no wake.
+    e_cpus: u32 = 0,
+    e_mode: u32 = 7,
     /// RIG_P_NOWRITE=1: a descriptor is registered for readiness to read
     /// only (a measurement of what kqueue's write edges cost a server
     /// whose writes never wait; a write that would wait is lost).
@@ -294,11 +318,33 @@ const Probe = struct {
         if (env("RIG_P_AGELEN")) |v| c.age_len = @intCast(v);
         if (env("RIG_P_AGESTEAL")) |v| c.age_steal = v != 0;
         if (env("RIG_P_NOWRITE")) |v| c.no_write = v != 0;
+        if (env("RIG_P_ECORE")) |v| c.e_cpus = @intCast(v);
+        if (env("RIG_P_EMODE")) |v| c.e_mode = @intCast(v);
+        if (env("RIG_P_AGEFREE")) |v| c.age_free = @intCast(v);
+        if (env("RIG_P_LOOKRUN")) |v| c.look_run_us = v;
     }
 };
 const own_look_default: u8 = 0;
+extern "c" fn pthread_cpu_number_np(cpu: *usize) c_int;
+/// PROBE (`Probe.e_cpus`): whether this thread runs on an efficiency
+/// core now.
+fn onECore() bool {
+    if (!Poller.darwin or probe.e_cpus == 0) return false;
+    var n: usize = 0;
+    if (pthread_cpu_number_np(&n) != 0) return false;
+    return n < probe.e_cpus;
+}
+/// PROBE (`Probe.e_mode` 4): whether the last worker woken for work
+/// found itself on an efficiency core.
+var spill: std.atomic.Value(bool) align(std.atomic.cache_line) = .init(false);
+/// PROBE: whether wakes wait for work to have waited now.
+inline fn wakesGated() bool {
+    if (probe.age_ns == 0) return false;
+    if (probe.e_cpus == 0) return true;
+    return probe.e_mode & 4 != 0 and spill.load(.monotonic);
+}
 var probe: Probe = .{};
-const PK = enum(u8) { notify, spread, kick_made, kick_notify, kick_watch, kick_timer, kick_home, waits, waits_empty, waits_settle, service_all, capped, young, pend_young, search_empty, polls, poll_hits, poll_events, poll_noany, ev_write };
+const PK = enum(u8) { notify, spread, kick_made, kick_notify, kick_watch, kick_timer, kick_home, waits, waits_empty, waits_settle, service_all, capped, young, pend_young, search_empty, polls, poll_hits, poll_events, poll_noany, ev_write, registered, woke_e, woke_p };
 inline fn pcount(k: PK) void {
     if (me()) |w| w.pc[@intFromEnum(k)] += 1;
 }
@@ -2784,6 +2830,7 @@ fn registerIn(fd: i32) ?*Registration {
     const w = if (probe.one_poller) &all_workers.*[0] else me() orelse &all_workers.*[0];
     const r = std.heap.smp_allocator.create(Registration) catch rt.oom();
     r.* = .{ .fd = fd, .poller = &w.poller };
+    w.pc[@intFromEnum(PK.registered)] += 1;
     if (!w.poller.add(fd, r)) {
         std.heap.smp_allocator.destroy(r);
         return null;
@@ -3031,10 +3078,16 @@ fn serviceAllAs(watching: bool) void {
     defer endBatch(by, opened);
     const now = nowNs();
     pcount(.service_all);
+    const e_own = probe.e_cpus != 0 and probe.e_mode & 2 != 0 and !watching and onECore();
     for (workersNow()) |*v| {
         _ = v.timers.fire(now);
+        if (v != by and e_own) continue;
         if (v != by and (probe.own_look == 1 or (probe.own_look == 2 and !watching))) continue;
         if (v != by and probe.own_look == 3 and !watching and @as(i64, @intCast(now)) - v.poller.owned_at.load(.monotonic) < probe.look_gap_us * std.time.ns_per_us) continue;
+        if (v != by and probe.own_look == 4 and !watching) {
+            const since = v.run_since.load(.monotonic);
+            if (since == 0 or @as(i64, @intCast(now)) - since < probe.look_run_us * std.time.ns_per_us) continue;
+        }
         if (v.poller.count.load(.monotonic) != 0) _ = v.poller.poll(0);
     }
 }
@@ -3881,6 +3934,11 @@ fn printDeclined(w: *Worker, i: usize) void {
 
 extern "c" fn _dyld_get_image_vmaddr_slide(image_index: u32) isize;
 
+/// PROBE: SIGUSR1's handler.
+fn onStatsSignal(_: std.posix.SIG, _: *const std.posix.siginfo_t, _: ?*anyopaque) callconv(.c) void {
+    printStats();
+}
+
 /// With `RIG_SCHED_STATS=1` set, print what each worker did to stderr,
 /// as `main` ends: so a test can check where work ran without timing it.
 fn printStats() void {
@@ -3897,7 +3955,7 @@ fn printStats() void {
         _ = std.posix.system.write(2, line.ptr, line.len);
         var pb: [900]u8 = undefined;
         const c = &w.pc;
-        const pl = std.fmt.bufPrint(&pb, "rig: probe {d}: notify {d}, spread {d}, kick_made {d}, kick_notify {d}, kick_watch {d}, kick_timer {d}, kick_home {d}, waits {d}, waits_empty {d}, waits_settle {d}, service_all {d}, capped {d}, young {d}, pend_young {d}, search_empty {d}, polls {d}, poll_hits {d}, poll_events {d}, poll_noany {d}, ev_write {d}\n", .{ i, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15], c[16], c[17], c[18], c[19] }) catch continue;
+        const pl = std.fmt.bufPrint(&pb, "rig: probe {d}: notify {d}, spread {d}, kick_made {d}, kick_notify {d}, kick_watch {d}, kick_timer {d}, kick_home {d}, waits {d}, waits_empty {d}, waits_settle {d}, service_all {d}, capped {d}, young {d}, pend_young {d}, search_empty {d}, polls {d}, poll_hits {d}, poll_events {d}, poll_noany {d}, ev_write {d}, registered {d}, woke_e {d}, woke_p {d}\n", .{ i, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15], c[16], c[17], c[18], c[19], c[20], c[21], c[22] }) catch continue;
         _ = std.posix.system.write(2, pl.ptr, pl.len);
     }
 }
@@ -3949,6 +4007,15 @@ fn initWorker(i: usize) void {
 fn startWorkers() void {
     started.* = true;
     probe.read();
+    // PROBE: SIGUSR1 prints the counters of a program that never ends.
+    if (statsWanted()) {
+        const act: std.posix.Sigaction = .{
+            .handler = .{ .sigaction = onStatsSignal },
+            .mask = std.posix.sigemptyset(),
+            .flags = std.posix.SA.SIGINFO | std.posix.SA.ONSTACK | std.posix.SA.RESTART,
+        };
+        std.posix.sigaction(std.posix.SIG.USR1, &act, null);
+    }
     const n = if (deterministic.*) 1 else @min(workerCount(), all_workers.*.len);
     const ws = all_workers.*[0..n];
     for (1..n) |i| initWorker(i);
@@ -4136,7 +4203,7 @@ fn loop(w: *Worker) void {
         if (w.searching) {
             w.searching = false;
             if (searching.fetchSub(1, .seq_cst) == 1 and workPending(w)) {
-                if (probe.age_ns == 0 or agedPending(w)) notify() else pcount(.pend_young);
+                if (!wakesGated() or ageFree() or agedPending(w)) notify() else pcount(.pend_young);
             }
         }
         runFiber(w, f);
@@ -4150,10 +4217,12 @@ fn runFiber(w: *Worker, f: *Fiber) void {
     prepare(w, f);
     spread(w);
     w.current = f;
+    if (probe.own_look == 4) w.run_since.store(@intCast(nowNs()), .monotonic);
     switchTo(&w.sp, f.sp);
     // The fiber that switched away: `f`, or one `f` handed this worker.
     const gone = w.current.?;
     w.current = null;
+    if (probe.own_look == 4) w.run_since.store(0, .monotonic);
     if (w.after) |a| {
         w.after = null;
         a.run(gone, a.ctx);
@@ -4179,7 +4248,7 @@ inline fn spread(w: *Worker) void {
     }
     if (builtin.is_test) _ = test_spreads.fetchAdd(1, .monotonic);
     if (probe.spread_min != 0 and w.ring.len() < probe.spread_min) return;
-    if (probe.age_ns != 0 and !(probe.age_min != 0 and w.ring.len() >= probe.age_min)) {
+    if (wakesGated() and !(probe.age_min != 0 and w.ring.len() >= probe.age_min) and !ageFree()) {
         const now: i64 = @intCast(nowNs());
         const since = w.wait_since.raw;
         if (since == 0) {
@@ -4277,11 +4346,12 @@ fn search(w: *Worker) ?*Fiber {
     w.rng ^= w.rng >> 17;
     w.rng ^= w.rng << 5;
     const start = w.rng % ws.len;
-    const steal_now: i64 = if (probe.age_steal) @intCast(nowNs()) else 0;
+    const steal_gate = probe.age_steal or (probe.e_cpus != 0 and probe.e_mode & 1 != 0 and onECore());
+    const steal_now: i64 = if (steal_gate) @intCast(nowNs()) else 0;
     for (0..ws.len) |k| {
         const v = &ws[(start + k) % ws.len];
         if (v == w) continue;
-        if (probe.age_steal and youngAt(v, steal_now)) continue;
+        if (steal_gate and youngAt(v, steal_now)) continue;
         if (w.ring.stealFrom(&v.ring)) |f| {
             w.stole += 1;
             return f;
@@ -4294,7 +4364,7 @@ fn search(w: *Worker) ?*Fiber {
     for (0..ws.len) |k| {
         const v = &ws[(start + k) % ws.len];
         if (v == w) continue;
-        if (probe.age_steal and youngAt(v, steal_now)) continue;
+        if (steal_gate and youngAt(v, steal_now)) continue;
         if (stealNext(v)) |f| {
             w.stole += 1;
             return f;
@@ -4406,7 +4476,7 @@ fn sleep(w: *Worker) void {
         if (!sleepers.remove(w)) waitWoken(w);
         return;
     }
-    if (searching.load(.seq_cst) == 0 and (if (probe.age_steal) hasAgedWork() else hasWork())) {
+    if (searching.load(.seq_cst) == 0 and (if (probe.age_steal or (probe.e_cpus != 0 and probe.e_mode & 1 != 0 and onECore())) hasAgedWork() else hasWork())) {
         // Work made while it went to sleep, which woke no one: it looks
         // for it again as a searching worker, so once it finds some, it
         // wakes another for the rest (`loop`), as Go's scheduler does
@@ -4474,6 +4544,12 @@ fn sleep(w: *Worker) void {
         // worker off the list meanwhile, when it waits for its kick.
         if (!sleepers.remove(w)) waitWoken(w);
         return;
+    }
+    // PROBE: woken for work (`notify`): which kind of core it woke on.
+    if (probe.e_cpus != 0 and probe.e_mode & 4 != 0) {
+        const e = onECore();
+        if (spill.load(.monotonic) != e) spill.store(e, .monotonic);
+        pcount(if (e) .woke_e else .woke_p);
     }
 }
 
@@ -4578,6 +4654,12 @@ fn workPending(w: *Worker) bool {
         if (v != w and (!v.ring.isEmpty() or nextHeld(v, .seq_cst))) return true;
     }
     return false;
+}
+
+/// PROBE (`Probe.age_free`): whether so few workers are awake that work
+/// wakes one at once.
+inline fn ageFree() bool {
+    return probe.age_free != 0 and workersNow().len - sleepers.count.load(.monotonic) < probe.age_free;
 }
 
 /// PROBE (`Probe.age_ns`): whether work that waits on a worker other
