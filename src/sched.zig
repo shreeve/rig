@@ -63,6 +63,8 @@ comptime {
         watch_thread,
         watch_word,
         exit_state,
+        // Probe (lend): its cells, on Linux on x86-64 only (`lends`).
+        if (lends) .{ lend_ticks, lend_opened, long_count, long_table, } else {},
     };
 }
 
@@ -230,6 +232,30 @@ const Worker = struct {
     /// On the Mac, its fibers' lengths and the batch it keeps
     /// (`keeps_short`); nothing on Linux, whose workers keep none.
     short: if (keeps_short) Short else void = if (keeps_short) .{} else {},
+    /// Probe (lend): on Linux on x86-64, what a worker keeps for a
+    /// sleeper's watch of a long run (`lends`); nothing elsewhere.
+    lend: if (lends) Lend else void = if (lends) .{} else {},
+};
+
+/// Probe (lend): what a worker keeps for `lends`.
+const Lend = struct {
+    /// Set while it runs a handler announced as long (`longAhead`), until
+    /// it switches away from the fiber or the handler returns.
+    long_run: std.atomic.Value(bool) = .init(false),
+    /// The sleeping worker whose wait also waits on this worker's poller
+    /// (`lendWatch`); one at a time.
+    watched_by: std.atomic.Value(?*Worker) = .init(null),
+    /// The worker whose poller it watches, which only it writes.
+    lent: ?*Worker = null,
+    /// The poller its present wait also waits on (`sleepIn`,
+    /// `Poller.pollEvents`).
+    also: ?*Poller = null,
+    /// Its counts, which `RIG_SCHED_STATS=1` prints: watches it set, its
+    /// waits a watched poller ended, and watches of its own poller it
+    /// took back.
+    set: u64 = 0,
+    fired: u64 = 0,
+    back: u64 = 0,
 };
 
 /// What a worker on the Mac keeps for `keeps_short`.
@@ -2558,9 +2584,26 @@ const Poller = struct {
         } else if (linux) {
             const linux_ = std.os.linux;
             const evs = &p.evs;
-            const ms: i32 = if (wait) |t| @intCast(@min(@divTrunc(t + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32))) else -1;
+            var ms: i32 = if (wait) |t| @intCast(@min(@divTrunc(t + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32))) else -1;
+            // Probe (lend): a sleeping worker that watches the poller of a
+            // worker in an announced long run waits on both with one
+            // poll(2), no poller registered in another, then takes its own
+            // events with a look, and the other poller's by a look of it,
+            // which takes its lock only when it is free.
+            if (lends and !look and ms != 0) if (by) |b| if (b.lend.also) |ap| if (ap != p) {
+                var fds = [2]linux_.pollfd{
+                    .{ .fd = p.fd, .events = linux_.POLL.IN, .revents = 0 },
+                    .{ .fd = ap.fd, .events = linux_.POLL.IN, .revents = 0 },
+                };
+                const prc: isize = @bitCast(linux_.poll(&fds, 2, ms));
+                if (prc > 0 and fds[1].revents != 0) {
+                    b.lend.fired += 1;
+                    if (ap.pollEvents(0, room)) any = true;
+                }
+                ms = 0;
+            };
             const rc: isize = @bitCast(linux_.epoll_wait(p.fd, evs, max_events, ms));
-            if (rc <= 0) return false;
+            if (rc <= 0) return any;
             for (evs[0..@intCast(rc)]) |ev| {
                 if (ev.data.ptr == 0) {
                     if (look) continue;
@@ -2642,6 +2685,183 @@ fn watchWanted(w: *Worker) bool {
     return false;
 }
 
+// -----------------------------------------------------------------------------
+// Probe (lend): a sleeper watches the poller of a worker in a long handler
+// -----------------------------------------------------------------------------
+
+/// Probe (lend), not for merge: while a worker runs a handler that ran
+/// long the last times (`longAhead`, announced by `net.answer`), a worker
+/// going to sleep waits on that worker's poller beside its own, with one
+/// poll(2) (`Poller.pollEvents`): an event there wakes it, and it takes
+/// the events with a look, where they waited for the handler's end. No
+/// poller is registered in another: an epoll added to an epoll makes the
+/// kernel walk every descriptor of the added one (`ep_loop_check`),
+/// 10,000 and more on a server. The watch starts at the sleeper's next
+/// wait. Linux on x86-64, whose time-stamp counter times the handlers;
+/// a program with no long handler reads one count as each worker goes
+/// to sleep. `RIG_LEND_US` sets a long run in microseconds (8); 0
+/// switches the probe off.
+pub const lends = Poller.linux and builtin.cpu.arch == .x86_64;
+
+/// Probe (lend): a long run, in time-stamp ticks, 0 while unset or
+/// switched off; and whether `lendOpen` has run.
+var lend_ticks_var: std.atomic.Value(u64) = .init(0);
+const lend_ticks = split.cell(&lend_ticks_var, "sched.lend_ticks");
+var lend_opened_var: std.atomic.Value(bool) = .init(false);
+const lend_opened = split.cell(&lend_opened_var, "sched.lend_opened");
+/// Probe (lend): how many workers run an announced long handler now: a
+/// worker going to sleep reads this alone, and looks at the workers only
+/// while it is not 0. On a line nothing else writes.
+var long_count_var: std.atomic.Value(u32) align(std.atomic.cache_line) = .init(0);
+const long_count = split.cell(&long_count_var, "sched.long_count");
+/// Probe (lend): how long the handlers of the requests whose path hashes
+/// to each slot ran, the last times: 0 to 3, and 2 or more is long.
+var long_table_var: [256]std.atomic.Value(u8) = @splat(.init(0));
+const long_table = split.cell(&long_table_var, "sched.long_table");
+
+/// Probe (lend): the time-stamp counter.
+inline fn stamp() u64 {
+    if (builtin.cpu.arch != .x86_64) return 0;
+    return asm volatile (
+        \\ rdtsc
+        \\ shlq $32, %%rdx
+        \\ orq %%rdx, %%rax
+        : [t] "={rax}" (-> u64),
+        :
+        : .{ .rdx = true, .rflags = true });
+}
+
+/// Probe (lend): read `RIG_LEND_US` and time the counter, at the first
+/// descriptor registered, by when the program's environment is kept;
+/// and with `RIG_SCHED_STATS=1`, have SIGUSR1 print the counts, for a
+/// server that never ends.
+fn lendOpen() void {
+    if (!lends) return;
+    // Uncounted: a flag set once, never waited on.
+    if (lend_opened.swap(true, .seq_cst)) return;
+    var us: u64 = 8;
+    if (rt.process.*) |p| if (p.environ.getPosix("RIG_LEND_US")) |v| {
+        us = std.fmt.parseInt(u64, v, 10) catch us;
+    };
+    if (us == 0) return;
+    const n0 = nowReal();
+    const t0 = stamp();
+    while (nowReal() - n0 < 200 * std.time.ns_per_us) std.atomic.spinLoopHint();
+    const ticks = stamp() -% t0;
+    const ns: u64 = @intCast(nowReal() - n0);
+    lend_ticks.store(us *| @max(ticks * 1000 / ns, 1), .seq_cst);
+    if (statsWanted()) {
+        const act: std.posix.Sigaction = .{ .handler = .{ .handler = onStats }, .mask = std.posix.sigemptyset(), .flags = std.posix.SA.ONSTACK | std.posix.SA.RESTART };
+        std.posix.sigaction(.USR1, &act, null);
+    }
+}
+
+/// Probe: SIGUSR1 prints `RIG_SCHED_STATS`'s counts.
+fn onStats(_: std.posix.SIG) callconv(.c) void {
+    printStats();
+}
+
+/// Probe (lend): the slot of a request's path (`long_table`).
+pub fn longSlot(path: []const u8) u8 {
+    var h: u32 = 2166136261;
+    for (path[0..@min(path.len, 32)]) |b| h = (h ^ b) *% 16777619;
+    return @truncate(h ^ (h >> 8) ^ (h >> 16));
+}
+
+/// Probe (lend): a time-stamp, before a handler runs, for `longOver`;
+/// and when handlers of this slot ran long the last times, mark this
+/// worker as running long, which the next worker to sleep watches
+/// (`lendWatch`). Never inlined: it reads this thread's worker, and the
+/// server's code that calls it may be inlined into the program's own
+/// (`mustNotBeInCode`).
+pub noinline fn longAhead(slot: u8) u64 {
+    if (!lends) return 0;
+    if (lend_ticks.load(.monotonic) == 0 or deterministic.*) return 0;
+    const w = me() orelse return 0;
+    // The stamp's low bits carry the worker's count of fibers run, by
+    // which `longOver` tells a handler that waited from one that ran.
+    const t0 = (stamp() & ~@as(u64, 63)) | (w.ran & 63);
+    if (long_table[slot].load(.monotonic) < 2) return t0;
+    // Uncounted: a mark, never waited on.
+    if (!w.lend.long_run.swap(true, .seq_cst)) _ = long_count.fetchAdd(1, .seq_cst);
+    return t0;
+}
+
+/// Probe (lend): a handler returned, `t0` from `longAhead`: note in its
+/// slot whether it ran long, and end the long run.
+pub noinline fn longOver(slot: u8, t0: u64) void {
+    if (!lends) return;
+    const long = lend_ticks.load(.monotonic);
+    if (long == 0 or t0 == 0) return;
+    const w = me();
+    // A handler that waited gave its worker up meanwhile, and its worker
+    // ran other fibers: only one that ran through is a long run.
+    const ran_through = if (w) |x| (x.ran & 63) == (t0 & 63) else false;
+    const c = long_table[slot].load(.monotonic);
+    if (ran_through and stamp() -% t0 >= long) {
+        if (c < 3) long_table[slot].store(c + 1, .monotonic);
+    } else if (c > 0) long_table[slot].store(c - 1, .monotonic);
+    // The long run is over: a watch is taken back now, before the answer
+    // is written.
+    if (c >= 2) if (w) |x| {
+        if (x.lend.long_run.load(.monotonic)) lendBack(x);
+    };
+}
+
+/// Probe (lend): whether `v`, awake and holding descriptors, runs an
+/// announced long handler: what a sleeper watches its poller for.
+fn runsLong(v: *Worker) bool {
+    if (!v.lend.long_run.load(.seq_cst)) return false;
+    return v.poller.count.load(.monotonic) != 0 and v.idle.load(.seq_cst) == 0;
+}
+
+/// Probe (lend): `w` is about to wait in its poller. A watch of its own
+/// poller is taken back, since it sleeps in it now; a watch it holds of
+/// another's is kept while that worker still runs long and let go
+/// otherwise; and while a worker runs long and no sleeper watches it,
+/// `w` watches it. Then its wait also waits on that poller.
+fn lendSleep(w: *Worker) void {
+    if (w.lend.watched_by.load(.monotonic) != null or w.lend.long_run.load(.monotonic)) lendBack(w);
+    lendWatch(w);
+    w.lend.also = if (w.lend.lent) |v| (if (v.lend.watched_by.load(.seq_cst) == w) &v.poller else null) else null;
+}
+
+fn lendWatch(w: *Worker) void {
+    if (lend_ticks.load(.monotonic) == 0) return;
+    if (w.lend.lent == null and long_count.load(.seq_cst) == 0) return;
+    if (w.lend.lent) |v| {
+        if (v.lend.watched_by.load(.seq_cst) != w) {
+            // Its worker took the watch back as its long run ended.
+            w.lend.lent = null;
+        } else if (runsLong(v)) {
+            return;
+        } else {
+            _ = v.lend.watched_by.cmpxchgStrong(w, null, .seq_cst, .monotonic);
+            w.lend.lent = null;
+        }
+    }
+    if (long_count.load(.seq_cst) == 0) return;
+    const ws = workersNow();
+    if (ws.len < 2) return;
+    for (ws) |*v| {
+        if (v == w or !runsLong(v)) continue;
+        if (v.lend.watched_by.cmpxchgStrong(null, w, .seq_cst, .monotonic) != null) continue;
+        w.lend.lent = v;
+        w.lend.set += 1;
+        return;
+    }
+}
+
+/// Probe (lend): `w` switched away from a fiber, ended a long handler, or
+/// goes to sleep: its long run is over, and a sleeper's watch of its
+/// poller is taken back, so that once `w` sleeps in its own poller an
+/// event there wakes `w` alone. A sleeper still waiting on it wakes at
+/// most once more for it, and lets it go at its next sleep.
+noinline fn lendBack(w: *Worker) void {
+    if (w.lend.long_run.load(.monotonic) and w.lend.long_run.swap(false, .seq_cst)) _ = long_count.fetchSub(1, .seq_cst);
+    if (w.lend.watched_by.swap(null, .seq_cst) != null) w.lend.back += 1;
+}
+
 /// Sleep in `w`'s poller up to `timeout`; when a worker that does not
 /// sleep holds descriptors and no other worker watches, watch: sleep at
 /// most `watch_every`, and look at every poller on waking. A watcher
@@ -2651,6 +2871,10 @@ fn watchWanted(w: *Worker) bool {
 /// awake before it looks for a watcher, all sequentially consistent, so
 /// either it sees no watcher and kicks a sleeper, or this sees it awake.
 fn sleepIn(w: *Worker, timeout: ?i96) void {
+    if (lends) lendSleep(w);
+    defer if (lends) {
+        w.lend.also = null;
+    };
     if (workersNow().len >= 2) {
         const held = watcher.load(.monotonic) == w;
         if (held) watcher.store(null, .seq_cst);
@@ -2813,6 +3037,7 @@ noinline fn registerApart(fd: i32) ?*Registration {
 
 fn registerIn(fd: i32) ?*Registration {
     if (!started.*) startWorkers();
+    if (lends and !lend_opened.load(.monotonic)) lendOpen();
     const w = if (one_poller) &all_workers.*[0] else me() orelse &all_workers.*[0];
     const r = std.heap.smp_allocator.create(Registration) catch rt.oom();
     r.* = .{ .fd = fd, .poller = &w.poller };
@@ -3951,6 +4176,11 @@ fn printStats() void {
     var buf: [320]u8 = undefined;
     for (workersNow(), 0..) |*w, i| {
         if (preempt) printDeclined(w, i);
+        if (lends) {
+            var lb: [192]u8 = undefined;
+            const l = std.fmt.bufPrint(&lb, "rig: worker {d}: watches of a long-running worker's poller: set {d}, waits it ended {d}, of its own taken back {d}\n", .{ i, w.lend.set, w.lend.fired, w.lend.back }) catch continue;
+            _ = std.posix.system.write(2, l.ptr, l.len);
+        }
         const line = (if (preempt)
             std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room), deepest stop {d} of {d} bytes\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped, preOf(w).deepest, preempt_room })
         else
@@ -4215,6 +4445,7 @@ fn runFiber(w: *Worker, f: *Fiber) void {
     // The fiber that switched away: `f`, or one `f` handed this worker.
     const gone = w.current.?;
     w.current = null;
+    if (lends and (w.lend.watched_by.load(.monotonic) != null or w.lend.long_run.load(.monotonic))) lendBack(w);
     if (timed) {
         w.short.run_since.store(0, .monotonic);
         const g = w.short.long_share.raw;
