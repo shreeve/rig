@@ -263,6 +263,38 @@ line, which some clients send after a body, are skipped (RFC 9112
 §2.2), where 0.3.0 closed the connection, and a coding is named in any
 case (`Chunked`). Trig and loco serve no HTTP; no migration is needed.
 
+**`http.serve` refuses a request that does not name its host once,
+and CONNECT, and reads `Connection` as a list:** these were served,
+and are refused now, each closing its connection:
+
+- an HTTP/1.1 request with no `Host` line, and a request of either
+  version with more than one, is answered 400, `bad request` (RFC 9112
+  §3.2). An HTTP/1.0 request needs none. A client written by hand
+  sends `Host: x` after its request line;
+- `CONNECT` is answered 405, `method not allowed`, before the handler
+  runs: a handler that answered every request gave it a 200, which a
+  client and a proxy in front take for a tunnel (RFC 9110 §9.3.6);
+- a body that is not whole 5 minutes after its head
+  (`RIG_HTTP_BODY_MS`) gets no answer: a client that sent a byte of it
+  within every idle time held its connection, and the body read so
+  far, for as long as it liked.
+
+`Connection` is a list of options, each named in any case, on every
+line of it (RFC 9110 §7.6.1): an HTTP/1.1 request with
+`Connection: close, TE` or `keep-alive, close`, or with `close` on a
+line before another, closes after its answer, where only a value of
+`close` alone, on the last line, did. An HTTP/1.0 connection stays
+open only when an option is `keep-alive` and none is `close` (RFC 9112
+§9.3), where any value but `close` kept it, `Upgrade` among them, and
+its answer says `connection: keep-alive`, without which a 1.0 client
+reads to a close that comes only after the idle time. Accepting goes
+on after a network error pending on one connection (`ENETDOWN`,
+`EPROTO`, `ENOPROTOOPT`, `EHOSTDOWN`, `ENONET`, `EHOSTUNREACH`,
+`EOPNOTSUPP`, `ENETUNREACH`), which Linux hands back from `accept`,
+as after a connection its client gave up: one ended `serve`, and
+`listener.accept()` failed with it. No migration script: Trig and loco
+serve no HTTP.
+
 ### Removed
 
 - **`--release=fast`**, Zig's fast mode, from `rig run`, `rig build`,
