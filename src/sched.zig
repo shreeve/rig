@@ -2728,6 +2728,9 @@ const Shared = struct {
     eager_until: std.atomic.Value(u64) align(std.atomic.cache_line) = .init(0),
     long_ticks: u64 = 0,
     hold_ticks: u64 = 0,
+    /// Probe: whether a worker about to sleep looks at every poller that
+    /// holds descriptors first, as on main (`RIG_LAZY_LOOK`, 1).
+    looks: bool = false,
 };
 var shared_var: Shared = .{};
 const shared = split.cell(&shared_var, "sched.shared");
@@ -2780,6 +2783,7 @@ fn openGate() void {
     const per_us = @max(ticks * 1000 / ns, 1);
     shared.long_ticks = envNumber("RIG_LAZY_RUN_US", 15) *| per_us;
     shared.hold_ticks = envNumber("RIG_LAZY_HOLD_US", 2000) *| per_us;
+    shared.looks = envNumber("RIG_LAZY_LOOK", 1) != 0;
     // Probe: SIGUSR1 prints the counters of a server that never ends.
     if (statsWanted()) {
         const act: std.posix.Sigaction = .{ .handler = .{ .handler = onStats }, .mask = std.posix.sigemptyset(), .flags = std.posix.SA.ONSTACK | std.posix.SA.RESTART };
@@ -3404,11 +3408,17 @@ fn serviceAll() void {
     const opened = beginBatch(by);
     defer endBatch(by, opened);
     const now = nowNs();
+    // Probe: a look, as on main, takes what waits in a poller in one
+    // call, where the shared epoll's wait and the poller's drain after it
+    // are two; but not while a worker waits in the shared epoll, which an
+    // event there has woken already, as main's look leaves a poller its
+    // worker sleeps in.
+    const looks = !shared_sleep or (lazy_gate and shared.looks and shared.inside.load(.seq_cst) == 0);
     for (workersNow()) |*v| {
         _ = v.timers.fire(now);
-        if (shared_sleep) {
-            if (v.poller.missed.load(.monotonic)) _ = v.poller.drain();
-        } else if (v.poller.count.load(.monotonic) != 0) _ = v.poller.poll(0);
+        if (looks and v.poller.count.load(.monotonic) != 0) {
+            _ = v.poller.poll(0);
+        } else if (shared_sleep and v.poller.missed.load(.monotonic)) _ = v.poller.drain();
     }
 }
 
