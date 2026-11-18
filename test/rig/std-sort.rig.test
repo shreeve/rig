@@ -243,6 +243,46 @@ test "sort of many Ints", "true", release: true
         ok = false
   print(ok)
 
+test "sort orders every integer width at every size and pattern", "true"
+  # U8, I32, U64, and I128 through the integer path: lengths 0 to 70 and
+  # 3,000, random, sorted, reversed, and few-valued, each against its
+  # neighbours and its sum.
+  r = random.Random.seeded(7)
+  ok = true
+  for n in [0, 1, 2, 3, 8, 9, 13, 17, 18, 31, 32, 33, 64, 65, 70, 3000]
+    for pattern in 0..4
+      a: List[U8] = List()
+      b: List[I32] = List()
+      c: List[U64] = List()
+      d: List[I128] = List()
+      sum = 0
+      for i in 0..n
+        x = (!r).int(0, 200)
+        if pattern == 1
+          x = i % 200
+        else if pattern == 2
+          x = 199 - i % 200
+        else if pattern == 3
+          x = (!r).int(0, 3)
+        sum += x
+        !a.push(U8(x))
+        !b.push(I32(x) - 100)
+        !c.push(U64(x) * 1000000007)
+        !d.push(I128(x) - 100)
+      sort.sort(!a[..])
+      sort.sort(!b[..])
+      sort.sort(!c[..])
+      sort.sort(!d[..])
+      sa = 0
+      sb = 0
+      for i in 0..n
+        sa += Int(a[i])
+        sb += Int(b[i]) + 100
+        if i > 0
+          ok = ok and a[i - 1] <= a[i] and b[i - 1] <= b[i] and c[i - 1] <= c[i] and d[i - 1] <= d[i]
+      ok = ok and sa == sum and sb == sum
+  print(ok)
+
 test "sort compares objects by their fields as order does", "true"
   # `<` and its kin on an object ordered by its fields agree with
   # `order` on every field kind: numbers, Bool, plain enums, text, an

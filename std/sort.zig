@@ -552,3 +552,256 @@ pub inline fn merge_sort_by(comptime T: type, xs: []T, lo: i64, hi: i64, room: [
         while (a + w < len) : (a += 2 * w) merge(T, v + a, @min(2 * w, len - a), s, w, less);
     }
 }
+
+
+/// Whether `sort` of `T`s takes `unstable_int`: an integer type, which
+/// `<` orders by value.
+pub inline fn int_sort(comptime T: type) bool {
+    return comptime @typeInfo(T) == .int;
+}
+
+/// Sort `xs` of integers by ipnsort (Rust's `slice::sort_unstable`, Orson
+/// Peters and Lukas Bergdoll): a branchless cyclic Lomuto partition on a
+/// recursive pseudomedian, the elements equal to an ancestor pivot split
+/// off, sorting networks of 9 and 13 with insertion and a bidirectional
+/// merge to 32, heapsort past 2 log2(n) partitions on a path. Every index
+/// is bounded by the slice's length, so it runs without Zig's checks.
+pub fn unstable_int(comptime T: type, xs: []T) void {
+    Ipn(T).sort(xs);
+}
+
+fn Ipn(comptime T: type) type {
+    return struct {
+        const small = 32;
+
+        pub fn sort(v: []T) void {
+            @setRuntimeSafety(false);
+            const len = v.len;
+            if (len < 2) return;
+            const desc = v[1] < v[0];
+            var run: usize = 2;
+            if (desc) {
+                while (run < len and v[run] < v[run - 1]) run += 1;
+            } else {
+                while (run < len and !(v[run] < v[run - 1])) run += 1;
+            }
+            if (run == len) {
+                if (desc) reverse(T, v.ptr, len);
+                return;
+            }
+            const limit: u32 = 2 * @as(u32, std.math.log2_int(usize, len | 1));
+            quicksort(v.ptr, len, false, undefined, limit);
+        }
+
+        fn quicksort(base: [*]T, len_in: usize, has_anc: bool, anc: T, limit_in: u32) void {
+            @setRuntimeSafety(false);
+            var v = base;
+            var len = len_in;
+            var have = has_anc;
+            var ap = anc;
+            var limit = limit_in;
+            while (true) {
+                if (len <= small) {
+                    ipnSmallSort(v, len);
+                    return;
+                }
+                if (limit == 0) {
+                    heapsort(v, len);
+                    return;
+                }
+                limit -= 1;
+                const p = choosePivot(v, len);
+                if (have and !(ap < v[p])) {
+                    const n = ipnPartition(v, len, p, true);
+                    v += n + 1;
+                    len -= n + 1;
+                    have = false;
+                    continue;
+                }
+                const n = ipnPartition(v, len, p, false);
+                quicksort(v, n, have, ap, limit);
+                have = true;
+                ap = v[n];
+                v += n + 1;
+                len -= n + 1;
+            }
+        }
+
+        inline fn ipnPartition(v: [*]T, len: usize, p: usize, comptime le: bool) usize {
+            @setRuntimeSafety(false);
+            std.mem.swap(T, &v[0], &v[p]);
+            const pivot = v[0];
+            const n = lomuto(v + 1, len - 1, pivot, le);
+            const t = v[0];
+            v[0] = v[n];
+            v[n] = t;
+            return n;
+        }
+
+        inline fn below(r: T, pivot: T, comptime le: bool) bool {
+            return if (le) !(pivot < r) else r < pivot;
+        }
+
+        fn lomuto(base: [*]T, len: usize, pivot: T, comptime le: bool) usize {
+            @setRuntimeSafety(false);
+            if (len == 0) return 0;
+            const tmp = base[0];
+            var gap: [*]T = base;
+            var nlt: usize = 0;
+            var i: usize = 1;
+            while (i + 1 < len) : (i += 2) {
+                inline for (0..2) |k| {
+                    const r = base[i + k];
+                    const is = below(r, pivot, le);
+                    gap[0] = base[nlt];
+                    base[nlt] = r;
+                    gap = base + i + k;
+                    nlt += @intFromBool(is);
+                }
+            }
+            while (i < len) : (i += 1) {
+                const r = base[i];
+                const is = below(r, pivot, le);
+                gap[0] = base[nlt];
+                base[nlt] = r;
+                gap = base + i;
+                nlt += @intFromBool(is);
+            }
+            const is = below(tmp, pivot, le);
+            gap[0] = base[nlt];
+            base[nlt] = tmp;
+            nlt += @intFromBool(is);
+            return nlt;
+        }
+
+        fn choosePivot(v: [*]T, len: usize) usize {
+            const n8 = len / 8;
+            const a: usize = 0;
+            const b = n8 * 4;
+            const c = n8 * 7;
+            if (len < 64) return ipnMedian3(v, a, b, c);
+            return median3rec(v, a, b, c, n8);
+        }
+
+        fn median3rec(v: [*]T, a_in: usize, b_in: usize, c_in: usize, n: usize) usize {
+            var a = a_in;
+            var b = b_in;
+            var c = c_in;
+            if (n * 8 >= 64) {
+                const n8 = n / 8;
+                a = median3rec(v, a, a + n8 * 4, a + n8 * 7, n8);
+                b = median3rec(v, b, b + n8 * 4, b + n8 * 7, n8);
+                c = median3rec(v, c, c + n8 * 4, c + n8 * 7, n8);
+            }
+            return ipnMedian3(v, a, b, c);
+        }
+
+        inline fn ipnMedian3(v: [*]T, a: usize, b: usize, c: usize) usize {
+            @setRuntimeSafety(false);
+            const x = v[a] < v[b];
+            const y = v[a] < v[c];
+            if (x == y) {
+                const z = v[b] < v[c];
+                return if (z != x) c else b;
+            }
+            return a;
+        }
+
+        inline fn swapIf(v: [*]T, a: usize, b: usize) void {
+            @setRuntimeSafety(false);
+            const x = v[a];
+            const y = v[b];
+            const s = y < x;
+            v[a] = if (s) y else x;
+            v[b] = if (s) x else y;
+        }
+
+        pub fn sort9(v: [*]T) void {
+            const n = [_][2]u8{ .{ 0, 3 }, .{ 1, 7 }, .{ 2, 5 }, .{ 4, 8 }, .{ 0, 7 }, .{ 2, 4 }, .{ 3, 8 }, .{ 5, 6 }, .{ 0, 2 }, .{ 1, 3 }, .{ 4, 5 }, .{ 7, 8 }, .{ 1, 4 }, .{ 3, 6 }, .{ 5, 7 }, .{ 0, 1 }, .{ 2, 4 }, .{ 3, 5 }, .{ 6, 8 }, .{ 2, 3 }, .{ 4, 5 }, .{ 6, 7 }, .{ 1, 2 }, .{ 3, 4 }, .{ 5, 6 } };
+            inline for (n) |p| swapIf(v, p[0], p[1]);
+        }
+
+        pub fn sort13(v: [*]T) void {
+            const n = [_][2]u8{ .{ 0, 12 }, .{ 1, 10 }, .{ 2, 9 }, .{ 3, 7 }, .{ 5, 11 }, .{ 6, 8 }, .{ 1, 6 }, .{ 2, 3 }, .{ 4, 11 }, .{ 7, 9 }, .{ 8, 10 }, .{ 0, 4 }, .{ 1, 2 }, .{ 3, 6 }, .{ 7, 8 }, .{ 9, 10 }, .{ 11, 12 }, .{ 4, 6 }, .{ 5, 9 }, .{ 8, 11 }, .{ 10, 12 }, .{ 0, 5 }, .{ 3, 8 }, .{ 4, 7 }, .{ 6, 11 }, .{ 9, 10 }, .{ 0, 1 }, .{ 2, 5 }, .{ 6, 9 }, .{ 7, 8 }, .{ 10, 11 }, .{ 1, 3 }, .{ 2, 4 }, .{ 5, 6 }, .{ 9, 10 }, .{ 1, 2 }, .{ 3, 4 }, .{ 5, 7 }, .{ 6, 8 }, .{ 2, 3 }, .{ 4, 5 }, .{ 6, 7 }, .{ 8, 9 }, .{ 3, 4 }, .{ 5, 6 } };
+            inline for (n) |p| swapIf(v, p[0], p[1]);
+        }
+
+        inline fn ipnInsertTail(v: [*]T, i: usize) void {
+            @setRuntimeSafety(false);
+            const tmp = v[i];
+            var j = i;
+            if (!(tmp < v[j - 1])) return;
+            while (true) {
+                v[j] = v[j - 1];
+                j -= 1;
+                if (j == 0 or !(tmp < v[j - 1])) break;
+            }
+            v[j] = tmp;
+        }
+
+        fn sortRegion(v: [*]T, len: usize) void {
+            var pre: usize = 1;
+            if (len >= 13) {
+                sort13(v);
+                pre = 13;
+            } else if (len >= 9) {
+                sort9(v);
+                pre = 9;
+            }
+            var i = pre;
+            while (i < len) : (i += 1) ipnInsertTail(v, i);
+        }
+
+        fn ipnSmallSort(v: [*]T, len: usize) void {
+            @setRuntimeSafety(false);
+            if (len < 2) return;
+            if (len < 18) {
+                sortRegion(v, len);
+                return;
+            }
+            const h = len / 2;
+            sortRegion(v, h);
+            sortRegion(v + h, len - h);
+            var buf: [small]T = undefined;
+            merge2(v, len, &buf);
+            @memcpy(v[0..len], buf[0..len]);
+        }
+
+        inline fn merge2(src: [*]const T, len: usize, dst0: [*]T) void {
+            @setRuntimeSafety(false);
+            const h = len / 2;
+            var l = src;
+            var r = src + h;
+            var d = dst0;
+            var lr = src + h - 1;
+            var rr = src + len - 1;
+            var dr = dst0 + len - 1;
+            var k: usize = 0;
+            while (k < h) : (k += 1) {
+                {
+                    const take_l = !(r[0] < l[0]);
+                    d[0] = if (take_l) l[0] else r[0];
+                    r += @intFromBool(!take_l);
+                    l += @intFromBool(take_l);
+                    d += 1;
+                }
+                {
+                    const take_l = !(rr[0] < lr[0]);
+                    dr[0] = if (take_l) rr[0] else lr[0];
+                    rr = @ptrFromInt(@intFromPtr(rr) -% @as(usize, @sizeOf(T)) * @intFromBool(take_l));
+                    lr = @ptrFromInt(@intFromPtr(lr) -% @as(usize, @sizeOf(T)) * @intFromBool(!take_l));
+                    dr = @ptrFromInt(@intFromPtr(dr) -% @sizeOf(T));
+                }
+            }
+            if (len % 2 != 0) {
+                const left_end = @intFromPtr(lr) +% @sizeOf(T);
+                const ln = @intFromPtr(l) < left_end;
+                d[0] = if (ln) l[0] else r[0];
+            }
+        }
+
+        fn heapsort(v: [*]T, len: usize) void {
+            std.sort.heap(T, v[0..len], {}, std.sort.asc(T));
+        }
+    };
+}
