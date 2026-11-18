@@ -227,7 +227,78 @@ const Worker = struct {
     /// (`trimIdle`).
     trim_wait: i96 = trim_first,
     thread: ?std.Thread align(std.atomic.cache_line) = null,
+    /// On the Mac, its fibers' lengths and the batch it keeps
+    /// (`keeps_short`); nothing on Linux, whose workers keep none.
+    short: if (keeps_short) Short else void = if (keeps_short) .{} else {},
 };
+
+/// What a worker on the Mac keeps for `keeps_short`.
+const Short = struct {
+    /// The share, in 65536ths, of the fibers it ran while its poller held
+    /// descriptors that ran `long_run` or longer, each fiber moving it a
+    /// 32nd of the way (`runFiber`).
+    long_share: std.atomic.Value(u32) = .init(0),
+    /// When it switched to the fiber it runs, while its poller holds
+    /// descriptors; 0 while it runs none.
+    run_since: std.atomic.Value(i64) = .init(0),
+    /// Since when its ring has held the rest of a batch of its own
+    /// poller's events while its fibers run short (`runsShort`), which it
+    /// keeps for `help_after`; 0 while it holds none, or other work has
+    /// joined it.
+    held_since: std.atomic.Value(i64) = .init(0),
+    /// Whether its present look or wait reads its own poller while its
+    /// fibers run short (`Poller.pollEvents`).
+    batch_short: bool = false,
+    /// Whether it looks at the pollers as the watcher (`sleepIn`), which
+    /// looks at every one (`serviceAll`).
+    watch_look: bool = false,
+};
+
+/// On the Mac, a worker that holds descriptors (worker 0, `one_poller`)
+/// and whose fibers are short, fewer than a tenth of them running
+/// `long_run` or longer, keeps its events' work: (1) a worker going to
+/// sleep does not look at its poller, unless its present fiber has run
+/// `long_run` (the watcher still looks at every poller each
+/// `watch_every`); (2) the fibers one batch of its own look or wait
+/// makes ready, past the first, wake no worker, and none takes them,
+/// until they have waited `help_after` (`held_since`). A wake costs the
+/// waker a system call and the woken worker about 5 µs before it runs,
+/// and on a machine with efficiency cores it often runs there; a worker
+/// whose fibers each end sooner than that reaches the next itself first:
+/// bench/http's closed loop serves 14% more requests a second, on 40%
+/// less of the server's CPU a request (macOS 27). While a tenth or more
+/// of its fibers run long, as a server's whose requests compute do,
+/// every rule is as without this. A batch kept past its time, its holder
+/// still in a fiber, is taken by the watcher, which the holder, awake
+/// and holding descriptors, always has (`sleep`). Linux keeps none: its
+/// pollers are a worker's own, and its wakes cheaper.
+const keeps_short = builtin.os.tag.isDarwin();
+const long_run: i64 = 20 * std.time.ns_per_us;
+const help_after: i64 = 50 * std.time.ns_per_us;
+const long_most: u32 = 65536 / 10;
+
+/// Whether `v`'s fibers are short (`keeps_short`).
+inline fn runsShort(v: *Worker) bool {
+    return v.short.long_share.load(.monotonic) < long_most;
+}
+
+/// Whether `v`'s ring holds a batch it still keeps (`held_since`).
+inline fn keepsBatch(v: *Worker) bool {
+    if (keeps_short) {
+        const since = v.short.held_since.load(.monotonic);
+        return since != 0 and @as(i64, @intCast(nowNs())) - since < help_after;
+    } else return false;
+}
+
+/// Whether a ring still holds a batch kept past `help_after`, which its
+/// worker has not come back to (`sleep`).
+fn keptLate() bool {
+    for (workersNow()) |*v| {
+        const since = v.short.held_since.load(.monotonic);
+        if (since != 0 and !v.ring.isEmpty() and @as(i64, @intCast(nowNs())) - since >= help_after) return true;
+    }
+    return false;
+}
 
 /// How many of `all_workers` run tasks; set by `runMain`, and raised by
 /// `task.workers` (`growWorkers`).
@@ -373,6 +444,11 @@ fn wakeIn(f: *Fiber) void {
         if (w.batch == .rest) {
             _ = w.ring.push(f);
             if (w.servicing) return notifyNew();
+            if (keeps_short) {
+                if (!w.short.batch_short) {
+                    if (w.short.held_since.raw != 0) w.short.held_since.store(0, .monotonic);
+                } else if (w.short.held_since.raw == 0) w.short.held_since.store(@intCast(nowNs()), .monotonic);
+            }
             return countQuiet();
         }
         w.batch = .rest;
@@ -384,6 +460,7 @@ fn wakeIn(f: *Fiber) void {
     if (w.lifo[i].swap(f, .seq_cst)) |b| {
         if (b.home != null) w.pinned.push(b) else {
             _ = w.ring.push(b);
+            if (keeps_short and w.short.held_since.raw != 0) w.short.held_since.store(0, .monotonic);
             return notifyNew();
         }
     }
@@ -448,6 +525,7 @@ fn wakeLastIn(f: *Fiber) void {
     };
     // Only these could another worker take: pinned fibers stay, and the
     // global queue's push wakes one itself.
+    if (keeps_short and w.short.held_since.raw != 0) w.short.held_since.store(0, .monotonic);
     if (w.ring.push(f) or nextHeld(w, .monotonic)) notify();
 }
 
@@ -2429,6 +2507,18 @@ const Poller = struct {
         const by = me();
         const opened = beginBatch(by);
         defer endBatch(by, opened);
+        // Its own poller's events, while its fibers run short: the rest
+        // of the batch they make is kept (`keeps_short`). Another
+        // worker's look, the watcher's or a busy worker's, keeps none:
+        // it may run a long fiber next while the owner goes to sleep,
+        // and then no watch would come for what it kept.
+        if (keeps_short) if (by) |b| {
+            const owner: *Worker = @alignCast(@fieldParentPtr("poller", p));
+            b.short.batch_short = b == owner and runsShort(owner);
+        };
+        defer if (keeps_short) if (by) |b| {
+            b.short.batch_short = false;
+        };
         var any = false;
         if (darwin) {
             const evs = &p.evs;
@@ -2567,6 +2657,10 @@ fn sleepIn(w: *Worker, timeout: ?i96) void {
         if (watchWanted(w) and watcher.cmpxchgStrong(null, w, .seq_cst, .monotonic) == null) {
             for (workersNow()) |*v| v.watch_mark.store(v.slept.load(.monotonic), .monotonic);
             _ = w.poller.poll(if (timeout) |t| @min(t, watch_every) else watch_every);
+            if (keeps_short) w.short.watch_look = true;
+            defer if (keeps_short) {
+                w.short.watch_look = false;
+            };
             return serviceAll();
         }
     }
@@ -2992,8 +3086,18 @@ fn serviceAll() void {
     const now = nowNs();
     for (workersNow()) |*v| {
         _ = v.timers.fire(now);
-        if (v.poller.count.load(.monotonic) != 0) _ = v.poller.poll(0);
+        if (v.poller.count.load(.monotonic) != 0 and !(keeps_short and skipsLook(v, by, now))) _ = v.poller.poll(0);
     }
+}
+
+/// On the Mac, whether `by`, going to sleep, skips `v`'s poller
+/// (`keeps_short`): `v`'s fibers are short and its present one has not
+/// yet run `long_run`, so it looks at its own soon. The watcher skips
+/// none (`Worker.short.watch_look`).
+inline fn skipsLook(v: *Worker, by: ?*Worker, now: i96) bool {
+    if (v == by or (if (by) |b| b.short.watch_look else false) or !runsShort(v)) return false;
+    const since = v.short.run_since.load(.monotonic);
+    return since == 0 or @as(i64, @intCast(now)) - since < long_run;
 }
 
 /// An interrupt canceled `main` (`rt.onInterrupt`): end its wait, here
@@ -4101,10 +4205,22 @@ fn runFiber(w: *Worker, f: *Fiber) void {
     prepare(w, f);
     spread(w);
     w.current = f;
+    const timed = keeps_short and w.poller.count.load(.monotonic) != 0;
+    var began: i64 = 0;
+    if (timed) {
+        began = @intCast(nowNs());
+        w.short.run_since.store(began, .monotonic);
+    }
     switchTo(&w.sp, f.sp);
     // The fiber that switched away: `f`, or one `f` handed this worker.
     const gone = w.current.?;
     w.current = null;
+    if (timed) {
+        w.short.run_since.store(0, .monotonic);
+        const g = w.short.long_share.raw;
+        const x: u32 = if (@as(i64, @intCast(nowNs())) - began >= long_run) 65536 else 0;
+        w.short.long_share.store(if (x > g) g + (x - g) / 32 else g - (g - x) / 32, .monotonic);
+    }
     if (w.after) |a| {
         w.after = null;
         a.run(gone, a.ctx);
@@ -4123,6 +4239,9 @@ fn runFiber(w: *Worker, f: *Fiber) void {
 /// (`stealNext`). A build preempted by signal has no yield check that
 /// would hand them on, and without this they waited for the monitor's
 /// stop, about 1 ms. A switch with nothing else waiting costs two loads.
+/// On the Mac a ring that holds only a batch its worker keeps wakes no
+/// one until `help_after` (`keeps_short`), and an empty one ends the
+/// keep.
 ///
 /// A fiber in a slot that took it as the worker ran none also sets
 /// `waiting`, if it is clear (`Worker.quiet_fill`). Such a fill, from a
@@ -4141,11 +4260,15 @@ fn runFiber(w: *Worker, f: *Fiber) void {
 /// and hands the fiber on (`claimWaiting`).
 inline fn spread(w: *Worker) void {
     const held = nextHeld(w, .monotonic);
-    if (!held and w.ring.isEmpty()) return;
+    if (!held and w.ring.isEmpty()) {
+        if (keeps_short and w.short.held_since.raw != 0) w.short.held_since.store(0, .monotonic);
+        return;
+    }
     if (held and w.quiet_fill) {
         w.quiet_fill = false;
         if (waiting.load(.seq_cst) == 0) waiting.store(1, .monotonic);
     }
+    if (!held and keepsBatch(w)) return;
     if (builtin.is_test) _ = test_spreads.fetchAdd(1, .monotonic);
     notify();
 }
@@ -4237,6 +4360,7 @@ fn search(w: *Worker) ?*Fiber {
     for (0..ws.len) |k| {
         const v = &ws[(start + k) % ws.len];
         if (v == w) continue;
+        if (keepsBatch(v)) continue;
         if (w.ring.stealFrom(&v.ring)) |f| {
             w.stole += 1;
             return f;
@@ -4402,6 +4526,19 @@ fn sleep(w: *Worker) void {
             sleepIn(w, timeout);
             if (holds) w.woke_soon = hasOwnWork(w) and nowNs() - began < brief_wait;
             w.sleep_due.store(awake, .seq_cst);
+            // On the Mac (`keeps_short`): a batch kept past `help_after`
+            // whose worker has not switched since, as one in a long fiber
+            // or switched out by the kernel, woke no one (`spread`): a
+            // worker that comes out of its wait with nothing to run, as
+            // the watcher does every `watch_every`, takes it as a
+            // searching worker.
+            if (keeps_short and !hasOwnWork(w) and searching.load(.seq_cst) == 0 and keptLate()) {
+                if (sleepers.remove(w)) {
+                    w.searching = true;
+                    _ = searching.fetchAdd(1, .seq_cst);
+                } else waitWoken(w);
+                return;
+            }
             if (trim_due and w.woken.load(.seq_cst) == 0 and nowReal() - since >= w.trim_wait) {
                 trim_due = false;
                 trimmed = true;
@@ -4560,14 +4697,14 @@ fn waitWoken(w: *Worker) void {
 fn workPending(w: *Worker) bool {
     if (global.count.load(.seq_cst) != 0) return true;
     for (workersNow()) |*v| {
-        if (v != w and (!v.ring.isEmpty() or nextHeld(v, .seq_cst))) return true;
+        if (v != w and ((!v.ring.isEmpty() and !keepsBatch(v)) or nextHeld(v, .seq_cst))) return true;
     }
     return false;
 }
 
 fn hasWork() bool {
     if (global.count.load(.seq_cst) != 0) return true;
-    for (workersNow()) |*v| if (!v.ring.isEmpty()) return true;
+    for (workersNow()) |*v| if (!v.ring.isEmpty() and !keepsBatch(v)) return true;
     return false;
 }
 
@@ -9345,6 +9482,204 @@ test "a socket's event is seen within a few ms while worker 0 computes and every
     try std.testing.expect(Run.set.load(.seq_cst));
     try std.testing.expect(Run.seen_after >= 0);
     try std.testing.expect(Run.seen_after < 20 * std.time.ns_per_ms);
+}
+
+test "a batch the watcher reads from a short-fibered worker's poller is not kept from a worker going to sleep" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var fds: [2][2]i32 = undefined;
+        var regs: [2]*Registration = undefined;
+        /// Whether a round began with both readers waiting, worker 0
+        /// computing, and worker 1 asleep holding the watch.
+        var set = std.atomic.Value(bool).init(false);
+        var wrote_at: i96 = 0;
+        /// How long after the bytes were written the reader that did not
+        /// compute ran.
+        var other_after = std.atomic.Value(i64).init(-1);
+        var turn = std.atomic.Value(u32).init(0);
+        var go = std.atomic.Value(bool).init(false);
+        var ran = std.atomic.Value(u32).init(0);
+        const Unit = struct {};
+        /// The first reader to run computes 300 ms, making no check,
+        /// once it has told worker 0 to stop; the other notes when it ran.
+        fn reader(_: *Unit, r: *Registration) u8 {
+            _ = waitReady(r, Registration.readable, edges(r, Registration.readable), null, false);
+            if (turn.fetchAdd(1, .seq_cst) == 0) {
+                go.store(true, .seq_cst);
+                const until = nowNs() + 300 * std.time.ns_per_ms;
+                while (nowNs() < until) std.atomic.spinLoopHint();
+            } else other_after.store(@intCast(nowNs() - wrote_at), .seq_cst);
+            _ = ran.fetchAdd(1, .seq_cst);
+            return 0;
+        }
+        fn waitingNow() u32 {
+            var k: u32 = 0;
+            for (regs) |r| k += @intFromBool(r.waiting.load(.seq_cst) != 0);
+            return k;
+        }
+        /// Spin, making no check, until worker 1 has slept holding the
+        /// watch three watches on end, or until `limit`: whether it has.
+        fn watchHeld(limit: i96) bool {
+            const ws = workersNow();
+            var since: ?i96 = null;
+            while (true) {
+                const now = nowReal();
+                if (sleepers.count.load(.seq_cst) != 1 or watcher.load(.seq_cst) != &ws[1]) {
+                    since = null;
+                } else if (since) |t| {
+                    if (now - t >= 3 * watch_every) return true;
+                } else since = now;
+                if (now >= limit) return false;
+                std.atomic.spinLoopHint();
+            }
+        }
+        fn first0(_: *anyopaque) callconv(.c) void {
+            _ = pinHere();
+            _ = workersRunning();
+            var rounds: u32 = 0;
+            while (rounds < 10 and !set.load(.seq_cst)) : (rounds += 1) {
+                turn.store(0, .seq_cst);
+                go.store(false, .seq_cst);
+                ran.store(0, .seq_cst);
+                other_after.store(-1, .seq_cst);
+                for (0..2) |i| {
+                    fds[i] = testPipe();
+                    regs[i] = register(fds[i][0]).?;
+                }
+                var jobs: [2]*Job(u8) = undefined;
+                for (0..2) |i| jobs[i] = spawn(u8, Unit, reader, .{regs[i]}, .{}, false, false).job;
+                const by = nowNs() + 2 * std.time.ns_per_s;
+                while (waitingNow() < 2 and nowNs() < by) testNap(std.time.ns_per_ms);
+                // Computes, making no check, from here until a reader says
+                // to stop: worker 1, the watcher, reads the bytes.
+                const ok = waitingNow() == 2 and watchHeld(nowReal() + 500 * std.time.ns_per_ms);
+                wrote_at = nowNs();
+                for (fds) |p| _ = std.posix.system.write(p[1], "x", 1);
+                const give_up = nowNs() + 2 * std.time.ns_per_s;
+                while (!go.load(.seq_cst) and nowNs() < give_up) std.atomic.spinLoopHint();
+                if (ok and go.load(.seq_cst)) set.store(true, .seq_cst);
+                // Stops computing: worker 0 now finds nothing of its own
+                // and goes to sleep while the first reader computes.
+                for (jobs) |j| {
+                    _ = j.join();
+                    j.free();
+                }
+                for (0..2) |i| {
+                    deregister(regs[i]);
+                    _ = std.posix.system.close(fds[i][0]);
+                    _ = std.posix.system.close(fds[i][1]);
+                }
+            }
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first0, s.top(), .{});
+    try std.testing.expect(Run.set.load(.seq_cst));
+    try std.testing.expect(Run.other_after.load(.seq_cst) >= 0);
+    try std.testing.expect(Run.other_after.load(.seq_cst) < 5 * std.time.ns_per_ms);
+}
+
+test "the rest of a batch a worker keeps while its first fiber computes is taken by the watcher" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var fds: [2][2]i32 = undefined;
+        var regs: [2]*Registration = undefined;
+        /// Whether a round wrote the bytes while worker 0 slept in its
+        /// poller, and worker 0 ran the reader that computes.
+        var set = std.atomic.Value(bool).init(false);
+        var asleep = std.atomic.Value(bool).init(false);
+        var on_zero = std.atomic.Value(bool).init(false);
+        var wrote_at: i96 = 0;
+        /// How long after the bytes were written the reader that did not
+        /// compute ran.
+        var other_after = std.atomic.Value(i64).init(-1);
+        var turn = std.atomic.Value(u32).init(0);
+        const Unit = struct {};
+        /// The first reader to run computes 300 ms, making no check; the
+        /// other notes when it ran.
+        fn reader(_: *Unit, r: *Registration) u8 {
+            _ = waitReady(r, Registration.readable, edges(r, Registration.readable), null, false);
+            if (turn.fetchAdd(1, .seq_cst) == 0) {
+                on_zero.store(me() == &workersNow()[0], .seq_cst);
+                const until = nowNs() + 300 * std.time.ns_per_ms;
+                while (nowNs() < until) std.atomic.spinLoopHint();
+            } else other_after.store(@intCast(nowNs() - wrote_at), .seq_cst);
+            return 0;
+        }
+        fn waitingNow() u32 {
+            var k: u32 = 0;
+            for (regs) |r| k += @intFromBool(r.waiting.load(.seq_cst) != 0);
+            return k;
+        }
+        /// On worker 1: once worker 0 sleeps, writes both bytes and ends,
+        /// so worker 1 goes to sleep too.
+        fn writer(_: *Unit) u8 {
+            const ws = workersNow();
+            while (me() != &ws[1]) testMove();
+            _ = pinHere();
+            const by = nowReal() + 500 * std.time.ns_per_ms;
+            var since: ?i96 = null;
+            while (true) {
+                const now = nowReal();
+                if (ws[0].idle.load(.seq_cst) == 0) {
+                    since = null;
+                } else if (since) |t| {
+                    if (now - t >= 3 * watch_every) break;
+                } else since = now;
+                if (now >= by) break;
+                std.atomic.spinLoopHint();
+            }
+            asleep.store(ws[0].idle.load(.seq_cst) != 0, .seq_cst);
+            wrote_at = nowNs();
+            for (fds) |p| _ = std.posix.system.write(p[1], "x", 1);
+            return 0;
+        }
+        fn first0(_: *anyopaque) callconv(.c) void {
+            _ = pinHere();
+            _ = workersRunning();
+            var rounds: u32 = 0;
+            while (rounds < 10 and !set.load(.seq_cst)) : (rounds += 1) {
+                turn.store(0, .seq_cst);
+                asleep.store(false, .seq_cst);
+                on_zero.store(false, .seq_cst);
+                other_after.store(-1, .seq_cst);
+                for (0..2) |i| {
+                    fds[i] = testPipe();
+                    regs[i] = register(fds[i][0]).?;
+                }
+                var jobs: [2]*Job(u8) = undefined;
+                for (0..2) |i| jobs[i] = spawn(u8, Unit, reader, .{regs[i]}, .{}, false, false).job;
+                const by = nowNs() + 2 * std.time.ns_per_s;
+                while (waitingNow() < 2 and nowNs() < by) testNap(std.time.ns_per_ms);
+                // Waits for the writer: worker 0 sleeps in its poller,
+                // then reads both bytes as one batch of its own.
+                const w = spawn(u8, Unit, writer, .{}, .{}, false, false).job;
+                _ = w.join();
+                w.free();
+                for (jobs) |j| {
+                    _ = j.join();
+                    j.free();
+                }
+                if (asleep.load(.seq_cst) and on_zero.load(.seq_cst)) set.store(true, .seq_cst);
+                for (0..2) |i| {
+                    deregister(regs[i]);
+                    _ = std.posix.system.close(fds[i][0]);
+                    _ = std.posix.system.close(fds[i][1]);
+                }
+            }
+        }
+    };
+    workers_override.* = 2;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first0, s.top(), .{});
+    try std.testing.expect(Run.set.load(.seq_cst));
+    try std.testing.expect(Run.other_after.load(.seq_cst) >= 0);
+    try std.testing.expect(Run.other_after.load(.seq_cst) < 5 * std.time.ns_per_ms);
 }
 
 fn testSleepReal(ms: u64) u64 {

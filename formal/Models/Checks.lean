@@ -145,3 +145,24 @@ open Models
 /-- info: FAILED after 107 states: a worker sleeps while a ring has work to steal -/
 #guard_msgs in
 #eval IO.println (explore (Sleep.system { workers := 2, budget := 2, batch := true, asleep := true, relook := true, lookSlots := true, noSpread := true })).summary
+
+-- On the Mac, a worker whose fibers are short keeps the rest of a batch
+-- of its own poller's events (`keep`): no worker is woken for it, steals
+-- it, or counts it in a last look until its time passes, and then the
+-- watcher takes it. No worker then sleeps for good while a ring holds
+-- work, kept or not.
+/-- info: ok: 57881 states, 116698 steps, 108 with no step enabled -/
+#guard_msgs in
+#eval IO.println (explore (Sleep.system { workers := 2, budget := 2, batch := true, relook := true, lookSlots := true, keep := true })).summary
+
+-- With the others asleep at first, so the batch's holder runs on while
+-- they sleep.
+/-- info: ok: 37487 states, 73884 steps, 85 with no step enabled -/
+#guard_msgs in
+#eval IO.println (explore (Sleep.system { workers := 2, budget := 2, batch := true, asleep := true, relook := true, lookSlots := true, keep := true })).summary
+
+-- Without the watcher's take, a batch kept past its time waits in the
+-- ring of a worker whose fiber runs on, with every other worker asleep.
+/-- info: FAILED after 184 states: a worker sleeps while a ring has work to steal -/
+#guard_msgs in
+#eval IO.println (explore (Sleep.system { workers := 2, budget := 2, batch := true, asleep := true, relook := true, lookSlots := true, keep := true, noWatch := true })).summary

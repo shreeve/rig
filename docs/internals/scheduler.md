@@ -100,6 +100,24 @@ worker after.
   look at their own (`sched.busyPoller`), taking its lock only when it
   is free, so while every worker is busy and worker 0 recurses with no
   check, the sockets are still seen at the others' checks.
+  On the Mac, while fewer than a tenth of worker 0's fibers run 20 µs
+  or longer (`sched.keeps_short`), worker 0 keeps its sockets' work: a
+  worker going to sleep does not look at its poller unless its present
+  fiber has run 20 µs, and the fibers one batch of worker 0's own look
+  or wait makes ready, past the first, wake no worker and are taken by
+  none until they have waited 50 µs. A wake costs the waker a system
+  call and the woken worker about 5 µs, often on an efficiency core,
+  and worker 0, its fibers each ending sooner, reaches the next itself
+  first: bench/http's closed loop serves 14% more requests a second than
+  without it, 15% more than hyper, on 40% less of the server's CPU a
+  request, and bench/mixed at 100,000 a second, a quarter of its
+  requests hashing for 31 µs, runs as before. Another worker's look,
+  the watcher's or a busy worker's, keeps nothing: it may run a long
+  fiber next while worker 0 sleeps, with no watch to come. A batch kept
+  past its time while worker 0 is still in a fiber is taken by the
+  watcher, which worker 0, awake with descriptors, always has, at most
+  `watch_every` later (`formal/Models/Sleep.lean`, `keep`). Linux keeps
+  no batch.
   Other system calls go through a `Threaded` instance of Zig's `std.Io`
   (`rt.io`) on the calling thread, which runs no tasks; a write to a
   full pipe holds its worker until it returns.

@@ -809,6 +809,17 @@ arms.
   A busy worker's turns and checks look at worker 0's poller where they
   looked at their own, so a recursion on worker 0 holds back no socket
   while the other workers are busy. Linux keeps a poller a worker.
+- **On the Mac, worker 0 keeps its sockets' work while its tasks are
+  short:** while fewer than a tenth of worker 0's tasks run 20 µs or
+  longer, a worker going to sleep does not look at its poller unless
+  its present task has run 20 µs, and the tasks one batch of its own
+  events makes ready, past the first, wake no worker for 50 µs, which
+  worker 0 reaches sooner itself than a woken worker would. bench/http's
+  closed loop serves 14% more requests a second, 15% more than hyper, on
+  40% less of the server's CPU a request; bench/mixed at 100,000 a
+  second, where a quarter of the requests hash, runs as before. A batch
+  kept past its time while worker 0 runs on is taken by the watcher
+  within a millisecond. Linux is unchanged.
 - **A task left in a run-next slot as its worker runs another stays in
   sight:** a task a timer, a poller, or a task's end made ready as its
   worker ran nothing took that worker's slot and told no one, and when

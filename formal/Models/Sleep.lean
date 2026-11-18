@@ -39,6 +39,16 @@ Checked:
   loops for ever looking at work it cannot take;
 - `searching` counts exactly the workers searching, and `sleepers`
   holds each worker at most once.
+On the Mac (`Config.keep`), a worker whose fibers are short keeps
+the rest of a batch of its own poller's events in its ring until its
+time passes: no worker is woken for it, steals it, or counts it in a
+last look. No worker sleeps for good while such a ring holds work,
+because its time passes and then the watcher, which sleeps no longer
+than `watch_every` while a worker holding descriptors is awake, takes
+it as a searching worker; the holder is the poller's own worker, awake
+while its ring holds the batch, so the watch is due. Without the
+watcher's take (`noWatch`) the batch waits while its holder's fiber
+runs on.
 A fiber left in a slot while its worker runs another, with the
 searcher that suppressed `spread`'s wake already past it, is seen by
 no last look (`hasWork` reads no slot): here only the monitor's stop
@@ -80,6 +90,9 @@ inductive Pc where
   | checkWoken | own (k : Nat) | poll | after (k : Nat)
   /-- `waitWoken`. -/
   | waitWoken | waitPoll
+  /-- The watcher's look, as it wakes, for a batch kept past its time
+  (`keptLate`): it takes it as a searching worker. -/
+  | watchTake
   | leave
   /-- `notifyNew` and `notify`, then back to `ret`. -/
   | newSearching | newSleepers | nSearching | nSleepers | nPop | nCount (v : Nat) | nWoken (v : Nat)
@@ -96,6 +109,14 @@ inductive Batch where
   | none | first | rest
   deriving BEq, Hashable, Repr, Inhabited
 
+/-- Whether a worker's ring holds the rest of a batch it keeps
+(`Config.keep`, `held_since`): kept, wakes no worker and is taken by
+none; late, kept past `help_after`, and taken as any work is, by a
+worker that looks. -/
+inductive Keep where
+  | none | kept | late
+  deriving BEq, Hashable, Repr, Inhabited
+
 structure Worker where
   pc : Pc
   /-- Where `notify` goes back to. -/
@@ -110,6 +131,7 @@ structure Worker where
   ring : Nat
   pinned : Nat
   batch : Batch
+  keep : Keep
   /-- The worker it began stealing from. -/
   start : Nat
   /-- Its fiber may make work (with `Config.firstMakes`, only the first
@@ -120,7 +142,8 @@ structure Worker where
 instance : Repr Worker where
   reprPrec w _ := repr w.pc ++ (if w.searching then " searching" else "") ++
     (if w.woken then " woken" else "") ++ (if w.idle then " idle" else "") ++
-    (if w.kicked then " kicked" else "") ++ s!" slot {w.slot} ring {w.ring} pinned {w.pinned}"
+    (if w.kicked then " kicked" else "") ++ s!" slot {w.slot} ring {w.ring} pinned {w.pinned}" ++
+    (if w.keep == .kept then " kept" else if w.keep == .late then " late" else "")
 
 structure State where
   workers : List Worker
@@ -167,6 +190,18 @@ structure Config where
   /-- The monitor stops a fiber that runs on while its worker's slots or
   ring hold work. -/
   monitor : Bool := false
+  /-- On the Mac, a worker whose fibers are short keeps the rest of a
+  batch of its own poller's events (`keeps_short`): `spread` wakes no
+  worker for it, and no worker steals it, counts it in its last look
+  (`hasWork`), or wakes another for it (`workPending`), until its time
+  passes (`help_after`), which may be at any step; then the watcher, a
+  sleeping worker that looks every `watch_every` while a worker holding
+  descriptors is awake, takes it (`sleep`, `keptLate`). Its holder is
+  the poller's own worker, awake while its ring holds the batch. -/
+  keep : Bool := false
+  /-- Broken on purpose, to show the checks find it: the watcher never
+  takes a batch kept past its time. -/
+  noWatch : Bool := false
   /-- Broken on purpose, to show the checks find each: `sleep` skips its
   last look for work, `wakeHome` never kicks, a worker about to run a
   fiber never `spread`s, or the last searcher wakes none. -/
@@ -198,8 +233,9 @@ def events (c : Config) (s : State) (i : Nat) (ret : Pc) : List State :=
     ({ s with budget := s.budget - m }.setW i fun w =>
       match w.batch with
       | .none => { w with slot := w.slot + m }
-      | .first => { w with slot := w.slot + 1, ring := w.ring + (m - 1), batch := .rest }
-      | .rest => { w with ring := w.ring + m }).go i ret
+      | .first => { w with slot := w.slot + 1, ring := w.ring + (m - 1), batch := .rest,
+                           keep := if c.keep && m > 1 && w.keep == Keep.none then .kept else w.keep }
+      | .rest => { w with ring := w.ring + m, keep := if c.keep && w.keep == Keep.none then .kept else w.keep }).go i ret
 
 /-- `service` at the turn of `next` that looks at the poller: a batch of
 its own. -/
@@ -214,10 +250,13 @@ def lifo (s : State) (i : Nat) : List State :=
   if (s.w i).slot > 0 then [(s.setW i fun w => { w with slot := w.slot - 1 }).go i .found] else [s.go i .ring]
 
 /-- `spread`, as worker `i` switches to the fiber it found: `notify`
-when its own slot or ring still holds work. -/
+when its own slot or ring still holds work, unless only its ring does
+and keeps a batch; with both empty, the batch kept ends. -/
 def spread (c : Config) (s : State) (i : Nat) : State :=
   let w := s.w i
-  if (w.slot > 0 || w.ring > 0) && !c.noSpread then notify s i .run else s.go i .run
+  if w.slot == 0 && w.ring == 0 then (s.setW i fun w => { w with keep := .none }).go i .run
+  else if w.slot == 0 && w.keep == .kept then s.go i .run
+  else if !c.noSpread then notify s i .run else s.go i .run
 
 /-- The first other worker from `k` on, for `workPending`. -/
 def nextOther (i k : Nat) : Nat := if k == i then k + 1 else k
@@ -230,16 +269,22 @@ def runs (c : Config) (s : State) (i : Nat) : List State :=
   [(s.setW i fun w => { w with maker := !c.firstMakes && w.maker }).go i .slot, s.go i .spin] ++
   (if s.budget == 0 || !w.maker then [] else
     let s' := { s with budget := s.budget - 1 }
-    let mine := s'.setW i fun w => { w with ring := w.ring + 1 }
+    let mine := s'.setW i fun w => { w with ring := w.ring + 1, keep := .none }
     (if c.ring then [notifyNew mine i .run, notify mine i .run] else []) ++
     if c.home then others.map fun v => (s'.setW v fun x => { x with pinned := x.pinned + 1 }).go i (.homeIdle v)
     else [])
+
+/-- Whether `w` holds a batch kept past its time and does not wait in
+its poller (`keptLate`): what the watcher takes. -/
+def lateOn (w : Worker) : Bool := w.keep == .late && w.ring > 0 && w.pc != .poll && w.pc != .waitPoll
 
 /-- What thread `i` (a worker) can do. -/
 def worker (c : Config) (s : State) (i : Nat) : List State :=
   let n := c.workers
   let w := s.w i
   let others := (List.range n).filter (· != i)
+  -- The time of a kept batch passes, at any step.
+  (if w.keep == .kept then [s.setW i fun w => { w with keep := .late }] else []) ++
   match w.pc with
   | .slot => lifo s i ++ service c s i
   | .tick => if s.global > 0 then [{ s with global := s.global - 1 }.go i .found] else [s.go i .lifo]
@@ -261,7 +306,7 @@ def worker (c : Config) (s : State) (i : Nat) : List State :=
       -- The others in turn from `start`.
       let v := others[(others.idxOf w.start + k) % others.length]!
       let r := (s.w v).ring
-      if r > 0 then
+      if r > 0 && (s.w v).keep != .kept then
         let m := r - r / 2
         [((s.setW v fun x => { x with ring := r - m }).setW i fun x => { x with ring := x.ring + (m - 1) }).go i .found]
       else [s.go i (.steal (k + 1))]
@@ -283,7 +328,7 @@ def worker (c : Config) (s : State) (i : Nat) : List State :=
   | .pendGlobal => [if s.global > 0 then notify s i .spread else s.go i (.pendRing (nextOther i 0))]
   | .pendRing k =>
     if k >= n then [s.go i .spread]
-    else [if (s.w k).ring > 0 then notify s i .spread else s.go i (.pendSlot k)]
+    else [if (s.w k).ring > 0 && (s.w k).keep != .kept then notify s i .spread else s.go i (.pendSlot k)]
   | .pendSlot k => [if (s.w k).slot > 0 then notify s i .spread else s.go i (.pendRing (nextOther i (k + 1)))]
   | .spread => [spread c s i]
   | .none =>
@@ -307,7 +352,8 @@ def worker (c : Config) (s : State) (i : Nat) : List State :=
   -- `hasWork`: the global queue and every ring, not the slots
   | .lookRing k =>
     if k >= n then [loopSleep s i]
-    else [s.go i (if (s.w k).ring != 0 || (c.lookSlots && (s.w k).slot != 0) then .remove else .lookRing (k + 1))]
+    else [s.go i (if ((s.w k).ring != 0 && (s.w k).keep != .kept) || (c.lookSlots && (s.w k).slot != 0) then .remove
+      else .lookRing (k + 1))]
   | .remove =>
     if s.sleepers.contains i then [{ s with sleepers := s.sleepers.erase i }.go i (if c.relook then .recount else .leave)]
     else [s.go i .waitWoken]
@@ -328,9 +374,18 @@ def worker (c : Config) (s : State) (i : Nat) : List State :=
     (if has then [s.go i .unlist] else [s.go i (if k >= 2 then .poll else .own (k + 1))]) ++
     (if k == 0 then events c s i (.own 0) else [])
   -- Its poller: a kick, or events that make fibers ready (`sleepIn`).
+  -- With a batch kept past its time on a worker not waiting in its
+  -- poller, and none searching, the watcher's wait ends (`watch_every`).
   | .poll =>
     (if w.kicked then [(s.setW i fun w => { w with kicked := false }).go i (.after 0)] else []) ++
-    events c s i (.after 0)
+    events c s i (.after 0) ++
+    (if c.keep && !c.noWatch && s.searching == 0 && others.any (fun v => lateOn (s.w v)) then [s.go i .watchTake] else [])
+  -- Off the list and searching, or, taken off by a waker, wait for it.
+  | .watchTake =>
+    if s.sleepers.contains i then
+      [({ s with sleepers := s.sleepers.erase i, searching := s.searching + 1 }.setW i fun w =>
+        { w with searching := true }).go i .leave]
+    else [s.go i .waitWoken]
   | .after k =>
     let has := match k with | 0 => w.slot != 0 || w.ring != 0 | 1 => w.pinned != 0 | _ => s.global != 0
     if has then [s.go i .unlist] else [s.go i (if k >= 2 then .checkWoken else .after (k + 1))]
@@ -408,7 +463,7 @@ def system (c : Config) : System State where
     workers := (List.range c.workers).map fun i =>
       { pc := if i == 0 then .run else if c.asleep then .poll else .slot, ret := .run,
         searching := false, woken := false, idle := c.asleep && i != 0, kicked := false,
-        slot := 0, ring := 0, batch := if c.asleep && i != 0 then .first else .none, pinned := 0, start := 0, maker := i == 0 || !c.firstMakes }
+        slot := 0, ring := 0, batch := if c.asleep && i != 0 then .first else .none, keep := .none, pinned := 0, start := 0, maker := i == 0 || !c.firstMakes }
     searching := 0, sleepers := if c.asleep then (List.range c.workers).tail else [],
     global := 0, budget := c.budget, outside := .run }
   next := next c
