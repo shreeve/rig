@@ -5018,6 +5018,32 @@ const Ring = struct {
         }
     }
 
+    /// Whether the newest fiber in the ring is `f`; for its owner.
+    fn lastIs(r: *Ring, f: *Fiber) bool {
+        const t = r.tail.load(.monotonic);
+        if (t == r.head.load(.acquire)) return false;
+        return r.slots[(t -% 1) % size].load(.monotonic) == f;
+    }
+
+    /// Take `f` back from the ring's tail, as a Chase-Lev owner pops:
+    /// move the tail back, then read the head. A thief takes half the
+    /// fibers it sees, rounded up, so it reaches the newest only when it
+    /// sees one alone, which a compare-and-swap of the head settles.
+    /// Whether this took it; for the ring's owner.
+    fn takeLast(r: *Ring, f: *Fiber) bool {
+        const t = r.tail.load(.monotonic);
+        const last = t -% 1;
+        if (r.slots[last % size].load(.monotonic) != f) return false;
+        r.tail.store(last, .seq_cst);
+        const h = r.head.load(.seq_cst);
+        const left = last -% h;
+        if (left != 0 and left <= size) return true;
+        // One left, or none: a thief took it, or races for it.
+        const won = left == 0 and r.head.cmpxchgStrong(h, h +% 1, .seq_cst, .monotonic) == null;
+        r.tail.store(t, .seq_cst);
+        return won;
+    }
+
     fn pop(r: *Ring) ?*Fiber {
         while (true) {
             const h = r.head.load(.acquire);
@@ -5784,7 +5810,17 @@ pub const Header = struct {
             // the "run next" slot may also be one woken partway, which
             // goes on where it stopped instead. A wait with a deadline
             // sleeps on its timer instead.
-            if (deadline == null and h.fiber.sp == 0 and nextHolds(w, &h.fiber)) handoff(w, h, cancel);
+            if (deadline == null and h.fiber.sp == 0) {
+                if (nextHolds(w, &h.fiber)) {
+                    handoff(w, h, cancel, .next);
+                } else if (w.ring.lastIs(&h.fiber)) {
+                    // Pushed from the slots to the ring by the tasks made
+                    // after it and not stolen, it is the newest there, as
+                    // a fork-join's halves are when waited for in turn:
+                    // taken back, as Rayon's join pops its own deque.
+                    handoff(w, h, cancel, .ring);
+                }
+            }
         }
         return Done.waitIn(&h.done, cancel, deadline);
     }
@@ -5827,13 +5863,14 @@ pub fn Job(comptime T: type) type {
 }
 
 /// Hand this worker to the task of `h`, which has not started and is
-/// next on it (in one of its "run next" slots): switch
+/// next on it (in one of its "run next" slots, or the newest in its ring,
+/// `from`): switch
 /// straight to it, on its own stack, and straight back when it ends,
 /// past the queues. The fiber waiting sleeps as it hands its worker over,
 /// recorded as the task's waiter, so a task that stops on the way ends
 /// the usual way and wakes it. A cancel that came before the wait began,
 /// when `cancel` is given, leaves the task where it is.
-fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool)) void {
+fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool), comptime from: enum { next, ring }) void {
     const waiter = w.current.?;
     const f = &h.fiber;
     pausePoint();
@@ -5841,7 +5878,7 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool)) void 
     if (cancel) |c| if (c.load(.seq_cst)) return;
     // Taken by a worker with nothing else to do meanwhile: wait for it the
     // usual way.
-    if (!takeFromNext(w, f)) return;
+    if (!(if (from == .next) takeFromNext(w, f) else w.ring.takeLast(f))) return;
     h.done.waiter.store(waiter, .seq_cst);
     h.done.epoch.store(e, .seq_cst);
     h.done.status.store(Done.waited, .seq_cst);
@@ -5853,6 +5890,13 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool)) void 
     spread(w);
     w.current = f;
     w.ran += 1;
+    // A fiber taken back from the ring is one the worker's loop would
+    // have run from there, after the waiter parked: the monitor counts
+    // it so, and does not stop a fork-join that takes back its own
+    // tasks for the work it spilled (`watchSlices`). One from a slot
+    // goes on the waiter's count, so a fiber that makes tasks and waits
+    // for each at once is stopped as one that computes.
+    if (preempt and from == .ring) preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
     if (f.home != null) w.ran_pinned += 1;
     checkOffOwnStack(w);
     switchTo(&waiter.sp, f.sp);
@@ -6787,6 +6831,29 @@ pub fn abandon(ended: *const fn (*Fiber) void) noreturn {
     const h: *Header = @fieldParentPtr("fiber", f);
     h.panicked.store(true, .seq_cst);
     finishFiber(f);
+}
+
+test "a ring's owner takes back its newest fiber, and a thief and the owner never both take one" {
+    var fibers: [3]Fiber = undefined;
+    for (&fibers) |*f| f.* = .{ .run = undefined };
+    var r: Ring = .{};
+    var thief: Ring = .{};
+    for (&fibers) |*f| _ = r.push(f);
+    try std.testing.expect(r.lastIs(&fibers[2]));
+    try std.testing.expect(!r.takeLast(&fibers[1]));
+    try std.testing.expect(r.takeLast(&fibers[2]));
+    try std.testing.expect(r.lastIs(&fibers[1]));
+    // A thief takes half of two, rounded up: the older; the newest stays.
+    try std.testing.expectEqual(&fibers[0], thief.stealFrom(&r).?);
+    try std.testing.expect(r.takeLast(&fibers[1]));
+    try std.testing.expect(r.isEmpty());
+    try std.testing.expect(!r.lastIs(&fibers[1]));
+    // One left, taken by a thief first: the owner finds it gone.
+    _ = r.push(&fibers[0]);
+    var thief2: Ring = .{};
+    try std.testing.expectEqual(&fibers[0], thief2.stealFrom(&r).?);
+    try std.testing.expect(!r.takeLast(&fibers[0]));
+    try std.testing.expect(r.isEmpty());
 }
 
 test "a watch on a task's end, taken back, leaves its finish waking no one" {

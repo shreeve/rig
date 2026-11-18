@@ -92,6 +92,16 @@ A new session, human or agent, takes these steps in order:
   unsigned one miscompiles in release builds (LLVM `trunc nsw`); Rig's
   emitted Zig and runtime cast through the unsigned type of the source's
   width instead, until Zig fixes it.
+- **Fork-join against Rayon** (bench/fork, the Mac, 10 workers): qsort
+  1.6-3.4% faster than Rayon over three boards, psum 5-7% slower; at one
+  worker Rayon leads both. The integer sort kernel (#1145), integer
+  folds by vectors (#1146, Zig 0.17 only: remove on 0.18 if plain loops
+  vectorize, INTERNALS "Known Zig 0.17 issues") and the ring join
+  (#1147) carry it. psum's rest is the first parallel pass and memory
+  bandwidth. Two leads wait on the owner: a handoff keeping its time
+  slice (qsort 12-16% faster at one worker, other work waits longer)
+  and stacks touched at worker start (costs memory). Records:
+  `~/Data/Code/Claude/rig/rig/fable-review/fork-join-2.md`.
 - **Health:** a change lands on a green core suite (`swarm test/rig.rip`:
   the test files, the doc examples, their pending examples the planned
   Core rules, the examples, the unit tests, the oracle floors in
@@ -113,15 +123,6 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
-- **Integer folds by vectors** (branch `fold`, draft PR): a `for` whose
-  body is only `s OP= x` over a List or a slice of integers (`+`, `+%`,
-  `^`, `|`, `&`) is the storage plan's decision `fold`, which emit
-  lowers to `rig.fold`, a vector loop, since Zig 0.17 runs LLVM with its
-  loop vectorizer off; a checked `+=` panics on the same element as the
-  plain loop. A checked Int sum 1.9 times as fast, psum at one worker
-  6% faster. For Zig 0.17 only: on 0.18, check whether the plain loops
-  vectorize and remove it (INTERNALS, "Known Zig 0.17 issues"). Waits on
-  the light gates and the owner.
 - **The stable sort** (branch `sort-stable`, then `sort-drift` on
   it; owner, 2026-11-16, "fastest, within 2% of Rust's stable sort"):
   `sort_by`, `sort_by_key`, and `sort` of a type with its own `order`

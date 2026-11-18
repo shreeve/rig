@@ -355,9 +355,16 @@ worker after.
   its speed.
 - **Cheap until it runs.** A task gets its stack when it first runs,
   from the worker that runs it. A waiter whose task has not started and
-  is still in one of its worker's slots hands the worker straight to it, on the task's
-  own stack, and the task switches straight back when it ends, past the
-  queues (`sched.handoff`). Running the task on the waiter's own stack
+  is still in one of its worker's slots, or is the newest in its ring,
+  hands the worker straight to it, on the task's own stack, and the task
+  switches straight back when it ends, past the queues
+  (`sched.handoff`). The ring's newest is taken back as a Chase-Lev
+  owner pops (`Ring.takeLast`): a fork-join's halves made past the four
+  slots are waited for in turn, newest first, so its walk stays depth
+  first, as Rayon's `join` pops its own deque, where a waiter that parked
+  left its stack held and its worker ran the ring's oldest, a bigger
+  subtree. The take counts as a fiber started for the monitor
+  (`watchSlices`), as the park it replaces did. Running the task on the waiter's own stack
   would be faster still, but is safe only for a task whose stack use is
   proven to fit, which Rig does not prove.
 - **Idle workers** steal from a random victim, at most half of them
@@ -638,7 +645,9 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
 - **The monitor**, a thread of its own, looks at each worker every
   millisecond, or every 50 µs while work waits (`watchSlices`). A
   worker whose fiber has run a slice, 10 ms, while other work waits, or
-  whose own queue held work at two looks in a row, or whose timer or
+  whose own queue held work at two looks in a row with no fiber started
+  between (one taken back from its ring by a handoff counts, as the run
+  of the waiter's park it replaces did), or whose timer or
   poller is due, gets SIGURG, and again at each look until it stops.
   After four in a row that it declined, each signal waits twice as long
   as the one before, up to 1 ms (`resignalAfter`): a worker blocked in a

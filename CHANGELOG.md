@@ -810,6 +810,18 @@ arms.
 
 ### Runtime
 
+- **A fork-join takes back its own tasks from its ring:** `>t` on a
+  task that has not started and is the newest in its worker's ring (a
+  fork-join's halves made past the four run-next slots, waited for in
+  turn) takes it back from the ring's tail, as a Chase-Lev owner pops,
+  and runs it by handoff, as it runs one still in a slot. A waiter that
+  parked there left its stack held while its worker ran the ring's
+  oldest task, a bigger subtree; the walk now stays depth first, as
+  Rayon's `join`. The take counts as a fiber started for the preemption
+  monitor, as the park it replaces did, so a fork-join that takes back
+  its own tasks is not stopped every 100 µs for them. On the Mac
+  (bench/fork, paired medians over 20 rounds) psum is 1.6-2.0% faster at
+  10 workers and 7-8% at one; bench/tasks and bench/net are level.
 - **On the Mac every socket waits in one poller:** worker 0's, wherever
   it is registered from, as `http.serve`'s connections share their
   acceptor's. With a kqueue a worker, every worker was woken by its own
