@@ -95,8 +95,11 @@ worker after.
   echo made 9.0 system calls a round trip, 4.5 of them such looks, about
   3 µs each. With one poller one worker reads 40 to 59 events at a call
   and the others wake only for work: 4.5 calls a round trip, echo 19%
-  faster (6% faster than Tokio), ping-pong and connect level. While
-  worker 0 computes, its poller is looked at as any busy worker's is.
+  faster (6% faster than Tokio), ping-pong and connect level. A busy
+  worker's turns and checks look at worker 0's poller where they would
+  look at their own (`sched.busyPoller`), taking its lock only when it
+  is free, so while every worker is busy and worker 0 recurses with no
+  check, the sockets are still seen at the others' checks.
   Other system calls go through a `Threaded` instance of Zig's `std.Io`
   (`rt.io`) on the calling thread, which runs no tasks; a write to a
   full pipe holds its worker until it returns.
