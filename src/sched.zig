@@ -225,6 +225,7 @@ const Worker = struct {
     p_hand: u64 = 0,
     p_inline: u64 = 0,
     p_ring: u64 = 0,
+    p_yields: u64 = 0,
     p_ringtook: u64 = 0,
     p_block: u64 = 0,
     p_spill: u64 = 0,
@@ -662,7 +663,10 @@ fn claimWaiting(w: *Worker) void {
     // here.
     if (!hasOwnWork(w) and !othersWait(w)) return;
     if (leftToIdle(w)) return waiting.store(1, .monotonic);
-    if (hasOwnWork(w) or stealWaiting(w)) yield();
+    if (hasOwnWork(w) or stealWaiting(w)) {
+        w.p_yields += 1;
+        yield();
+    }
 }
 
 /// Take into `w`'s ring work that waits for another busy worker, as
@@ -3820,7 +3824,7 @@ fn printStats() void {
     for (workersNow(), 0..) |*w, i| {
         if (preempt) printDeclined(w, i);
         const line = (if (preempt)
-            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room), deepest stop {d} of {d} bytes; joins done {d} handoff {d} (on the waiter's stack {d}) blocked {d}, ring tail {d} took {d}, spills {d}, wakes {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped, preOf(w).deepest, preempt_room, w.p_done, w.p_hand, w.p_inline, w.p_block, w.p_ring, w.p_ringtook, w.p_spill, w.p_wakes })
+            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room), deepest stop {d} of {d} bytes; joins done {d} handoff {d} (on the waiter's stack {d}) blocked {d}, ring tail {d} took {d}, spills {d}, wakes {d}, check yields {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped, preOf(w).deepest, preempt_room, w.p_done, w.p_hand, w.p_inline, w.p_block, w.p_ring, w.p_ringtook, w.p_spill, w.p_wakes, w.p_yields })
         else
             std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, joins done {d} handoff {d} (on the waiter's stack {d}) blocked {d}, spills {d}, wakes {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, w.p_done, w.p_hand, w.p_inline, w.p_block, w.p_spill, w.p_wakes })) catch continue;
         _ = std.posix.system.write(2, line.ptr, line.len);
