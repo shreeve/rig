@@ -829,6 +829,15 @@ arms.
 
 ### Runtime
 
+- **A handoff's own stores take no fence:** `>t` on a task it runs at
+  once (`handoff`) writes the waiter's wait and the task's end record
+  with release and relaxed stores where they were sequentially
+  consistent, which x86 makes an `xchg` each; only the steps that race
+  (the slot or ring take, the waiter's marking, its claim) stay
+  sequentially consistent, as does the wait word of a wait a cancel can
+  end. A join costs 71 ns at one worker on pup, against 86 (`nil`, a
+  fork-join of 4,095 joins with no work, 17% faster); AArch64 stores
+  the two orders alike, so the Mac is level.
 - **A fork-join takes back its own tasks from its ring:** `>t` on a
   task that has not started and is the newest in its worker's ring (a
   fork-join's halves made past the four run-next slots, waited for in
