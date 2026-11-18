@@ -313,6 +313,15 @@ inline fn workersNow() []Worker {
     return all_workers.*[0..workers_len.load(.acquire)];
 }
 /// SCRATCH (psum-gap probe, never merged): per-pass counters, dumped at `task.workers(63)`.
+pub var x_spawn_first = false;
+pub var x_nomap = false;
+pub var x_mainspawn = false;
+pub var x_notrim = false;
+fn xKnob(comptime name: []const u8) bool {
+    const p = rt.process.* orelse return false;
+    const v = p.environ.getPosix(name) orelse return false;
+    return std.mem.eql(u8, v, "1");
+}
 pub const X = struct {
     pub const C = extern struct {
         spawns: u64 = 0, ho_next: u64 = 0, ho_ring: u64 = 0, parks: u64 = 0, runs: u64 = 0,
@@ -4073,6 +4082,10 @@ fn initWorker(i: usize) void {
 /// made as ten threads start and run, each took about 160 µs, not 7
 /// (docs/history/records/2026-11/concurrency-startup).
 fn startWorkers() void {
+    x_spawn_first = xKnob("RIG_X_SPAWNFIRST");
+    x_nomap = xKnob("RIG_X_NOMAP");
+    x_mainspawn = xKnob("RIG_X_MAINSPAWN");
+    x_notrim = xKnob("RIG_X_NOTRIM");
     started.* = true;
     const n = if (deterministic.*) 1 else @min(workerCount(), all_workers.*.len);
     const ws = all_workers.*[0..n];
@@ -4081,6 +4094,11 @@ fn startWorkers() void {
     workers_len.store(n, .release);
     if (n == 1) {
         if (preempt and !deterministic.*) startMonitor();
+        return;
+    }
+    if (x_mainspawn) {
+        for (ws[1..]) |*v| v.thread = std.Thread.spawn(.{}, workerMain, .{ v, 0 }) catch rt.oom();
+        if (preempt) startMonitor();
         return;
     }
     starting.store(1, .monotonic);
@@ -4108,10 +4126,11 @@ fn startRest(n: usize) void {
     }
     if (builtin.is_test and hold_start_for_test) while (!stopping.load(.seq_cst)) std.atomic.spinLoopHint();
     const ws = all_workers.*[0..n];
-    for (ws[1..]) |*v| {
+    if (!x_spawn_first and !x_nomap) for (ws[1..]) |*v| {
         if (programEnding()) break;
         mapFirstStacks(v);
-    }
+    };
+    defer if (x_spawn_first and !x_nomap) mapFirstStacks(&ws[1]);
     for (ws[2..], 2..) |*v, i| {
         if (programEnding()) {
             // Never to run a fiber: stopped, for a teardown that waits.
@@ -4233,6 +4252,7 @@ fn workerMain(w: *Worker, n: usize) void {
     if (preempt) preOf(w).tid = rt.threadId();
     defer leavePreempt(w);
     if (n > 0) startRest(n);
+    if (n == 0 and (x_spawn_first or x_mainspawn) and !x_nomap) mapFirstStacks(w);
     loop(w);
 }
 
@@ -4583,7 +4603,7 @@ fn sleep(w: *Worker) void {
     // Once asleep `trim_wait`, it gives back what its heap holds free
     // (`trimIdle`), once a sleep, if its heap has grown since its last
     // trim (`trimWorth`); otherwise it sleeps with no timeout of its own.
-    var trim_due = rt.fast_alloc.trimWorth() or (builtin.is_test and trim_worker_for_test.load(.seq_cst) == w);
+    var trim_due = (!x_notrim and rt.fast_alloc.trimWorth()) or (builtin.is_test and trim_worker_for_test.load(.seq_cst) == w);
     const since = if (trim_due) nowReal() else 0;
     var trimmed = false;
     defer if (trimmed) rt.fast_alloc.wakeIdle();
