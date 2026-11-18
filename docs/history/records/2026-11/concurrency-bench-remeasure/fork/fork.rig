@@ -42,10 +42,8 @@ fun qsort(xs: List[Int]) -> List[Int]
   a = qsort(<lo)&
   b = qsort(<hi)
   out = >a
-  for x in mid
-    !out.push(x)
-  for x in b
-    !out.push(x)
+  !out.extend(?mid[..])
+  !out.extend(?b[..])
   out
 
 sub main()

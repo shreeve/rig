@@ -92,6 +92,16 @@ A new session, human or agent, takes these steps in order:
   unsigned one miscompiles in release builds (LLVM `trunc nsw`); Rig's
   emitted Zig and runtime cast through the unsigned type of the source's
   width instead, until Zig fixes it.
+- **Fork-join against Rayon** (bench/fork, the Mac, 10 workers): qsort
+  1.6-3.4% faster than Rayon over three boards, psum 5-7% slower; at one
+  worker Rayon leads both. The integer sort kernel (#1145), integer
+  folds by vectors (#1146, Zig 0.17 only: remove on 0.18 if plain loops
+  vectorize, INTERNALS "Known Zig 0.17 issues") and the ring join
+  (#1147) carry it. psum's rest is the first parallel pass and memory
+  bandwidth. Two leads wait on the owner: a handoff keeping its time
+  slice (qsort 12-16% faster at one worker, other work waits longer)
+  and stacks touched at worker start (costs memory). Records:
+  `~/Data/Code/Claude/rig/rig/fable-review/fork-join-2.md`.
 - **Health:** a change lands on a green core suite (`swarm test/rig.rip`:
   the test files, the doc examples, their pending examples the planned
   Core rules, the examples, the unit tests, the oracle floors in
@@ -112,16 +122,6 @@ A new session, human or agent, takes these steps in order:
   case is marked `known:`; a `known:` names the failure it waits for.
 
 ## In flight
-
-- **The ring join** (branch `fork-ring-join`, draft): `>t` takes its
-  task back from its worker's ring tail and runs it by handoff, and the
-  take counts as a run for the preemption monitor. bench/fork on the
-  Mac: psum 1.6-2.0% faster at 10 workers and 7-8% at one; qsort level
-  in other layouts but 2% slower at 10 workers and 8-9% at one in the
-  branch's own build, a layout effect (the same behavior in another
-  build is level). Waits on the core suite, the Trig and loco light
-  gates, pup, the guards, and the owner. Records:
-  `~/Data/Code/Claude/rig/rig/fable-review/fork-join-2.md`.
 
 - **The stable sort** (branch `sort-stable`, then `sort-drift` on
   it; owner, 2026-11-16, "fastest, within 2% of Rust's stable sort"):

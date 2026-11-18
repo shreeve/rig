@@ -101,6 +101,7 @@ pub const SetOrder = storage.SetOrder;
 pub const ResourceKind = sema.ResourceKind;
 pub const SetStep = storage.SetStep;
 pub const StepPoint = storage.StepPoint;
+pub const Fold = storage.Fold;
 pub const JumpDest = sema.JumpDest;
 pub const CallTarget = sema.CallTarget;
 pub const Dispatch = sema.Dispatch;
@@ -849,6 +850,11 @@ pub const Facts = struct {
     }
     pub fn isPureArg(f: Facts, e: Sexp) ?bool {
         return storage.decided(f.c(), e, .pure_arg);
+    }
+    /// How a `for` folds integers into a local, or null when it is not a
+    /// fold (`storage.fold`).
+    pub fn fold(f: Facts, loop: Sexp) ??Fold {
+        return storage.decided(f.c(), loop, .fold);
     }
     /// Whether a `for` consumes its source (`storage.forConsumes`).
     pub fn forConsumes(f: Facts, loop: Sexp) ?bool {

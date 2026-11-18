@@ -99,6 +99,7 @@ fun work(n: Int) -> Int
   for y in ys
     s += y
   sort.sort_by(!xs[..], |a, b| a % 100 < b % 100)
+  sort.sort(!xs[..])
   m: Map[Int, Int] = Map()
   for i in 0..1000
     !m.put(i, i)
