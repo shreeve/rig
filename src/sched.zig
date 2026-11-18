@@ -2660,8 +2660,10 @@ pub fn longSlot(path: []const u8) u8 {
 /// worker as running long, and have the sleeper listed last watch its
 /// poller, from now: an event there wakes that sleeper at once, where it
 /// waited for this handler's end. With HTTP's handlers that return at
-/// once nothing is done but a load.
-pub fn longAhead(slot: u8) u64 {
+/// once nothing is done but a load. Never inlined: it reads this
+/// thread's worker, and the server's code that calls it may be inlined
+/// into the program's own (`mustNotBeInCode`).
+pub noinline fn longAhead(slot: u8) u64 {
     if (!lends) return 0;
     const t0 = stamp();
     if (long_table_var[slot].load(.monotonic) < 2 or !lend_ahead_var.load(.monotonic)) return t0;
@@ -2686,7 +2688,7 @@ pub fn longAhead(slot: u8) u64 {
 
 /// Probe (lend): a handler returned, `t0` from `longAhead`: note in its
 /// slot whether it ran long.
-pub fn longOver(slot: u8, t0: u64) void {
+pub noinline fn longOver(slot: u8, t0: u64) void {
     if (!lends) return;
     const long = lend_ticks_var.load(.monotonic);
     if (long == 0) return;
