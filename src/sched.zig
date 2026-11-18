@@ -3814,11 +3814,11 @@ fn printStats() void {
     const p = rt.process.* orelse return;
     const v = p.environ.getPosix("RIG_SCHED_STATS") orelse return;
     if (!std.mem.eql(u8, v, "1")) return;
-    var buf: [320]u8 = undefined;
+    var buf: [480]u8 = undefined;
     for (workersNow(), 0..) |*w, i| {
         if (preempt) printDeclined(w, i);
         const line = (if (preempt)
-            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room), deepest stop {d} of {d} bytes\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped, preOf(w).deepest, preempt_room })
+            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room), deepest stop {d} of {d} bytes; joins done {d} handoff {d} (on the waiter's stack {d}) blocked {d}, spills {d}, wakes {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped, preOf(w).deepest, preempt_room, w.p_done, w.p_hand, w.p_inline, w.p_block, w.p_spill, w.p_wakes })
         else
             std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, joins done {d} handoff {d} (on the waiter's stack {d}) blocked {d}, spills {d}, wakes {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, w.p_done, w.p_hand, w.p_inline, w.p_block, w.p_spill, w.p_wakes })) catch continue;
         _ = std.posix.system.write(2, line.ptr, line.len);
