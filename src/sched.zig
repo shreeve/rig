@@ -268,6 +268,16 @@ inline fn keepsBatch(v: *Worker) bool {
     return since != 0 and @as(i64, @intCast(nowNs())) - since < help_after;
 }
 
+/// PROBE: whether a ring still holds a batch kept past `help_after`,
+/// which its worker has not come back to (`sleep`).
+fn keptLate() bool {
+    for (workersNow()) |*v| {
+        const since = v.held_since.load(.monotonic);
+        if (since != 0 and !v.ring.isEmpty() and @as(i64, @intCast(nowNs())) - since >= help_after) return true;
+    }
+    return false;
+}
+
 /// How many of `all_workers` run tasks; set by `runMain`, and raised by
 /// `task.workers` (`growWorkers`).
 var workers_len_var: std.atomic.Value(usize) = .init(0);
@@ -4093,7 +4103,7 @@ fn runFiber(w: *Worker, f: *Fiber) void {
     prepare(w, f);
     spread(w);
     w.current = f;
-    const timed = keeps_short and !deterministic.* and w.poller.count.load(.monotonic) != 0;
+    const timed = keeps_short and w.poller.count.load(.monotonic) != 0;
     var began: i64 = 0;
     if (timed) {
         began = @intCast(nowNs());
@@ -4388,6 +4398,18 @@ fn sleep(w: *Worker) void {
             sleepIn(w, timeout);
             if (holds) w.woke_soon = hasOwnWork(w) and nowNs() - began < brief_wait;
             w.sleep_due.store(awake, .seq_cst);
+            // PROBE (`keeps_short`): a batch kept past `help_after` whose
+            // worker has not switched since, as one the kernel has
+            // switched out, woke no one (`spread`): a worker that comes
+            // out of its wait with nothing to run, as the watcher does
+            // every `watch_every`, takes it as a searching worker.
+            if (keeps_short and !hasOwnWork(w) and searching.load(.seq_cst) == 0 and keptLate()) {
+                if (sleepers.remove(w)) {
+                    w.searching = true;
+                    _ = searching.fetchAdd(1, .seq_cst);
+                } else waitWoken(w);
+                return;
+            }
             if (trim_due and w.woken.load(.seq_cst) == 0 and nowReal() - since >= w.trim_wait) {
                 trim_due = false;
                 trimmed = true;
