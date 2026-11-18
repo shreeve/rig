@@ -218,6 +218,15 @@ const Worker = struct {
     /// stole, and times it slept. The watcher reads `slept` too
     /// (`watchWanted`).
     ran: u64 = 0,
+    /// Probe counts (probe-fork-join-counts): waits on a task that found
+    /// it ended, ran it by handoff, or blocked; slot spills to the ring;
+    /// wakes this worker issued.
+    p_done: u64 = 0,
+    p_hand: u64 = 0,
+    p_inline: u64 = 0,
+    p_block: u64 = 0,
+    p_spill: u64 = 0,
+    p_wakes: u64 = 0,
     ran_pinned: u64 = 0,
     stole: u64 = 0,
     slept: std.atomic.Value(u64) = .init(0),
@@ -383,6 +392,7 @@ fn wakeIn(f: *Fiber) void {
     w.lifo_head.store(i, .monotonic);
     if (w.lifo[i].swap(f, .seq_cst)) |b| {
         if (b.home != null) w.pinned.push(b) else {
+            w.p_spill += 1;
             _ = w.ring.push(b);
             return notifyNew();
         }
@@ -3810,7 +3820,7 @@ fn printStats() void {
         const line = (if (preempt)
             std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room), deepest stop {d} of {d} bytes\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped, preOf(w).deepest, preempt_room })
         else
-            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw })) catch continue;
+            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, joins done {d} handoff {d} (on the waiter's stack {d}) blocked {d}, spills {d}, wakes {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, w.p_done, w.p_hand, w.p_inline, w.p_block, w.p_spill, w.p_wakes })) catch continue;
         _ = std.posix.system.write(2, line.ptr, line.len);
     }
 }
@@ -4289,6 +4299,7 @@ fn notify() void {
     if (sleepers.pop()) |w| {
         _ = searching.fetchAdd(1, .seq_cst);
         w.searching = true;
+        if (me()) |m| m.p_wakes += 1;
         wakeWorker(w);
     }
 }
@@ -5595,7 +5606,10 @@ pub const Header = struct {
     }
 
     fn waitEndIn(h: *Header, cancel: ?*const std.atomic.Value(bool), deadline: ?i96) bool {
-        if (h.done.isDone()) return true;
+        if (h.done.isDone()) {
+            if (me()) |w| w.p_done += 1;
+            return true;
+        }
         const b: Blocked = .{ .task = h };
         block(&b);
         defer unblock();
@@ -5605,8 +5619,16 @@ pub const Header = struct {
             // the "run next" slot may also be one woken partway, which
             // goes on where it stopped instead. A wait with a deadline
             // sleeps on its timer instead.
-            if (deadline == null and h.fiber.sp == 0 and nextHolds(w, &h.fiber)) handoff(w, h, cancel);
+            if (deadline == null and h.fiber.sp == 0 and nextHolds(w, &h.fiber)) {
+                w.p_hand += 1;
+                switch (joinMode()) {
+                    1 => if (runInline(w, h)) return true else handoff(w, h, cancel),
+                    2 => if (!handoffHere(w, h)) handoff(w, h, cancel),
+                    else => handoff(w, h, cancel),
+                }
+            }
         }
+        if (!h.done.isDone()) me().?.p_block += 1;
         return Done.waitIn(&h.done, cancel, deadline);
     }
 };
@@ -5645,6 +5667,87 @@ pub fn Job(comptime T: type) type {
             self.header.destroy(&self.header);
         }
     };
+}
+
+/// Probe: how `>t` runs a task in its slot (`RIG_P_JOIN`, default 0).
+var join_mode: u8 = 255;
+inline fn joinMode() u8 {
+    if (join_mode == 255) {
+        join_mode = 0;
+        if (rt.process.*) |p| if (p.environ.getPosix("RIG_P_JOIN")) |v| {
+            if (v.len == 1 and v[0] >= '0' and v[0] <= '2') join_mode = v[0] - '0';
+        };
+    }
+    return join_mode;
+}
+
+/// The least stack a waiter keeps free to run its task on it.
+const inline_room: usize = 1 << 20;
+
+/// Whether the waiter's stack has `inline_room` left below `sp`.
+inline fn roomBelow(waiter: *Fiber, sp: usize) bool {
+    const g = waiter.state.stack_guard;
+    return g.hi != 0 and sp >= g.hi + inline_room;
+}
+
+/// Probe 1: run the task of `h`, not started and in one of `w`'s "run
+/// next" slots, as a plain call on the waiter's stack. The task is the
+/// worker's `current` meanwhile, so its state is its own; if it stops,
+/// it saves its place on this stack and may resume on another worker.
+noinline fn runInline(w: *Worker, h: *Header) bool {
+    const waiter = w.current.?;
+    if (waiter.home != null or h.fiber.home != null) return false;
+    if (!roomBelow(waiter, @frameAddress())) return false;
+    const f = &h.fiber;
+    if (!takeFromNext(w, f)) return false;
+    f.state.stack_guard = waiter.state.stack_guard;
+    f.sp = 1;
+    w.current = f;
+    w.ran += 1;
+    w.p_inline += 1;
+    f.run(f);
+    f.finished = true;
+    const now = me().?;
+    now.current = waiter;
+    h.done.finish();
+    return true;
+}
+
+/// Probe 2: `handoff`, with the task's first frame on the waiter's own
+/// stack, 4 KiB below this frame (room for the switch's own frames). A
+/// wait no cancel ends: the waiter must not run while the task's frames
+/// sit below it. Whether it handed the worker over.
+noinline fn handoffHere(w: *Worker, h: *Header) bool {
+    const waiter = w.current.?;
+    if (waiter.home != null or h.fiber.home != null) return false;
+    const fp = @frameAddress();
+    if (!roomBelow(waiter, fp)) return false;
+    const f = &h.fiber;
+    pausePoint();
+    const e = beginWait(false);
+    if (!takeFromNext(w, f)) return false;
+    h.done.waiter.store(waiter, .seq_cst);
+    h.done.epoch.store(e, .seq_cst);
+    h.done.status.store(Done.waited, .seq_cst);
+    f.handoff = waiter;
+    f.handoff_epoch = e;
+    f.stack = null;
+    f.state.stack_guard = waiter.state.stack_guard;
+    f.sp = initialFrame(f, fp - 4096);
+    spread(w);
+    w.current = f;
+    w.ran += 1;
+    w.p_inline += 1;
+    checkOffOwnStack(w);
+    switchTo(&waiter.sp, f.sp);
+    checkHome(waiter);
+    const now = me().?;
+    if (now.returned) |done| {
+        now.returned = null;
+        endStack(now, done);
+        h.done.status.store(Done.ended, .seq_cst);
+    }
+    return true;
 }
 
 /// Hand this worker to the task of `h`, which has not started and is
