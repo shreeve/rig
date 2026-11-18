@@ -4,9 +4,7 @@ Where Rig stood at the end of 2026-11-18, after the sort kernel (#1145),
 integer folds by vectors (#1146), the ring join (#1147), the Mac
 closed-loop rule (#1144), `--strip` (#1076) and `String` of text pieces
 (#1077): first that none of them made anything slower, then fresh
-standings against Rayon and the JSON parsers on pup. The Mac halves of
-the two standings boards were run by the Concurrency session and are
-recorded with its notes.
+standings against Rayon and the JSON parsers on pup and the Mac.
 
 ## Nothing got slower
 
@@ -22,7 +20,7 @@ each with an A/A arm.
   152.4k against 152.6k a second (hyper 150.3k). Closed loop on 0-11,
   median of 7: 736.6k against 737.1k (hyper 343.9k). bench/net and
   bench/tasks level.
-- **The Mac** (the Concurrency session): every row inside the A/A's
+- **The Mac** ([regression-mac.md](regression-mac.md)): every row inside the A/A's
   spread; the closed loop 159.1k against 159.1k (hyper 139.1k), bench/mixed
   p50 78 against 78 µs (hyper 86), mix cycles a request 1.001 of the old.
 - **Trig** ([raw/trig-ab-seed1.txt](raw/trig-ab-seed1.txt),
@@ -51,11 +49,22 @@ each with an A/A arm.
 | psum, 12 workers | 6.05 ms | 4.66 ms | Rig 30% slower |
 | psum, 1 worker | 14.36 ms | 11.89 ms | Rig 21% slower |
 
-On the Mac (10 workers, three boards of 20 rounds, the three fixes
-stacked on c014f5e3f): qsort 1.6-3.4% faster than Rayon, psum 5.3-7.1%
-slower; at one worker Rayon leads both. psum at one worker trails on
-both machines, so its gap is mostly the leaf and the cost of each split,
-not stealing.
+## Against Rayon, the Mac
+
+[rayon-mac.md](rayon-mac.md): bench/fork, Rig a303f69fd against Rayon
+1.12.0, three boards of 20 interleaved rounds, each its own
+`tools/mac-claim`, pooled: Rig/Rayon as a paired median [interquartile
+range], beside a rebuild and a layout control.
+
+| | workers | Rig/Rayon | |
+|---|---:|---:|---|
+| qsort | 10 | 0.998 [0.959-1.034] | level |
+| qsort | 1 | 1.107 [1.088-1.121] | Rig 11% slower |
+| psum | 10 | 1.034 [0.974-1.137] | Rig 3% slower, inside the A/A spread |
+| psum | 1 | 1.250 [1.198-1.351] | Rig 25% slower |
+
+psum at one worker trails on both machines, so its gap is mostly the leaf
+and the cost of each split, not stealing.
 
 ## Against the JSON parsers, pup
 
@@ -68,4 +77,16 @@ twitterescaped (10.7% ahead of yyjson); simdjson leads twitter,
 citm_catalog and github_events by 1.26-1.32 times. Against the x86 race of
 2026-10-15, std.json is 29% faster by geomean.
 
-The scripts are in [scripts/](scripts/), every sample in [raw/](raw/).
+## Against the JSON parsers, the Mac
+
+[json-mac.md](json-mac.md): Apple M5, 50 interleaved rounds in two
+claims, fastest of 50. By geomean std.json runs 4,642 MB/s: 7.6% faster
+than yyjson (4,313), the fastest of the others, and 0.1% slower than the
+best parser of each file; 1.28 times sonic-rs, 1.32 times simdjson's DOM,
+1.60 times simd-json, 5.4 times serde_json, 9.8 times Go's
+`encoding/json/v2`. It leads gsoc-2018 (9% ahead of sonic-rs, 71% ahead of
+yyjson), citm_catalog (6%) and canada (5%); yyjson leads twitter by 11%,
+twitterescaped by 7% and github_events by 1.5%. Against 2026-11-07,
+std.json is 1.4% faster by geomean, with yyjson's numbers within 0.4%.
+
+The scripts are in [scripts/](scripts/), every sample in [raw/](raw/). The Mac's scripts are in [scripts/mac/](scripts/mac/).

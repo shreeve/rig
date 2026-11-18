@@ -1,0 +1,5 @@
+state 13:14:23 load { 3.03 3.28 4.54 }
+  37.7% /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer
+  23.5% /System/iOSSupport/System/Library/PrivateFrameworks/PassKitUI.framework/PlugIns/PeerPaymentMessagesExtension.appex/Contents/MacOS/PeerPaymentMessagesExtension
+state 13:14:39 load { 6.79 4.10 4.81 }
+  20.7% /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer

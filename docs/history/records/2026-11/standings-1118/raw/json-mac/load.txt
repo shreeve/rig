@@ -1,0 +1,28 @@
+== b1 start 2026-11-18 15:21:40
+15:21  up 1 day, 14 hrs, 4 users, load averages: 4.32 3.38 3.10
+total %cpu:  total %cpu: 
+ %CPU   PID ARGS
+ 48.0   407 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+ 12.1  1040 /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Renderer) --type=renderer --user-d
+  8.8 61288 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/157.0.8103.79/Helpers/Google Chrome Helper 
+  8.5  2820 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+  7.7  2860 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/157.0.8103.79/Helpers/Google Chrome Helper 
+  5.2   852 /usr/libexec/trustd
+  4.8   493 /usr/libexec/syspolicyd
+== b1 end 2026-11-18 15:27:24 rc=0
+15:27  up 1 day, 14:06, 4 users, load averages: 3.24 3.22 3.11
+claim b1 exit 0
+== b2 start 2026-11-18 15:29:41
+15:29  up 1 day, 14:08, 4 users, load averages: 2.42 2.87 2.98
+total %cpu: 108
+ %CPU   PID ARGS
+ 45.5   407 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+ 37.9  1040 /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Renderer) --type=renderer --user-d
+ 18.2  1296 /Users/shreeve/Library/Application Support/Claude/claude-code/2.1.325/485fdac4332e/claude.app/Contents/MacOS/claude --output-format stream
+ 11.2  2860 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/157.0.8103.79/Helpers/Google Chrome Helper 
+  7.7  1023 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=gpu-process --gpu-recent-crash-count=0 
+  7.4  1017 /Applications/Claude.app/Contents/MacOS/Claude
+  7.3 22785 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/157.0.8103.79/Helpers/Google Chrome Helper 
+== b2 end 2026-11-18 15:36:05 rc=0
+15:36  up 1 day, 14:14, 4 users, load averages: 6.79 5.42 4.06
+claim b2 exit 0
