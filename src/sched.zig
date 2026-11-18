@@ -281,6 +281,11 @@ const Probe = struct {
     /// searching (so `notify` wakes no sleeper meanwhile, as Go's
     /// spinning M), and looks for work as `workPending` does (slots too).
     spin_search: bool = false,
+    /// RIG_P_PUSHCAP=N: a fiber pushed out of a run-next slot into the
+    /// ring by a fiber made or woken (`wakeIn`) wakes no sleeper while N
+    /// workers are awake; the wakes at a switch (`spread`), at a yield
+    /// (`wakeLast`) and by the last searcher stay as on main (0: no cap).
+    push_cap: u32 = 0,
     /// CPUs below this number are efficiency cores (the M5 numbers them first).
     e_cpus: u32 = 0,
     fn env(name: [:0]const u8) ?i64 {
@@ -306,6 +311,7 @@ const Probe = struct {
         if (env("RIG_P_SPAWNRING")) |v| c.spawn_ring = v != 0;
         if (env("RIG_P_HELPAFTER")) |v| c.help_after = v;
         if (env("RIG_P_SPINSEARCH")) |v| c.spin_search = v != 0;
+        if (env("RIG_P_PUSHCAP")) |v| c.push_cap = @intCast(v);
         var ecpus: c_int = 0;
         var sz: usize = @sizeOf(c_int);
         if (builtin.os.tag.isDarwin()) {
@@ -482,6 +488,7 @@ fn wakeIn(f: *Fiber) void {
     if (w.lifo[i].swap(f, .seq_cst)) |b| {
         if (b.home != null) w.pinned.push(b) else {
             _ = w.ring.push(b);
+            if (probe.push_cap != 0 and workersNow().len - sleepers.count.load(.monotonic) >= probe.push_cap) return pcount(.capped);
             return notifyNew();
         }
     }
