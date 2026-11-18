@@ -236,6 +236,9 @@ const Worker = struct {
     /// Probe (lend2): the poller of a worker in an announced long run that
     /// this worker's next wait also waits on (`sleepIn`, `pollEvents`).
     also: ?*Poller = null,
+    /// Probe (lend2): the time-stamp at which a wait of this worker last
+    /// ended for the poller it watched (`RIG_LEND_QUIET_US`).
+    fired_at: u64 = 0,
     /// Probe (lend): the watches sleepers set on its poller in the
     /// announced long run it is in (`RIG_LEND_REARM`).
     rearms: std.atomic.Value(u32) = .init(0),
@@ -2480,6 +2483,7 @@ const Poller = struct {
                 const prc: isize = @bitCast(linux_.poll(&fds, 2, ms));
                 if (prc > 0 and fds[1].revents != 0) {
                     b.lend_fired += 1;
+                    if (lend_quiet_var.load(.monotonic) != 0) b.fired_at = stamp();
                     if (ap.pollEvents(0, room)) any = true;
                 }
                 ms = 0;
@@ -2599,6 +2603,11 @@ const lend_tag: usize = 2;
 /// Probe (lend): a long run, in time-stamp ticks: `RIG_LEND_US`
 /// microseconds (8); 0 while unset or switched off.
 var lend_ticks_var: std.atomic.Value(u64) = .init(0);
+/// Probe (lend2): `RIG_LEND_QUIET_US` in time-stamp ticks (0, none): after
+/// a sleeper's wait ends for the poller it watches, its waits watch no
+/// poller for that long, so the events that land there meanwhile wait for
+/// one wake, or the long handler's end, rather than wake it each.
+var lend_quiet_var: std.atomic.Value(u64) = .init(0);
 var lend_set_var: std.atomic.Value(bool) = .init(false);
 
 /// Probe (lend): the time-stamp counter.
@@ -2626,7 +2635,11 @@ fn lendOpen() void {
     while (nowReal() - n0 < 200 * std.time.ns_per_us) std.atomic.spinLoopHint();
     const ticks = stamp() -% t0;
     const ns: u64 = @intCast(nowReal() - n0);
-    lend_ticks_var.store(us *| @max(ticks * 1000 / ns, 1), .seq_cst);
+    const per_us = @max(ticks * 1000 / ns, 1);
+    lend_ticks_var.store(us *| per_us, .seq_cst);
+    if (rt.process.*) |p| if (p.environ.getPosix("RIG_LEND_QUIET_US")) |v| {
+        lend_quiet_var.store((std.fmt.parseInt(u64, v, 10) catch 0) *| per_us, .seq_cst);
+    };
     if (rt.process.*) |p| {
         if (p.environ.getPosix("RIG_LEND_AHEAD")) |v| {
             if (std.mem.eql(u8, v, "1")) lend_ahead_var.store(true, .seq_cst);
@@ -2858,6 +2871,8 @@ fn sleepIn(w: *Worker, timeout: ?i96) void {
     if (lends) lendWatch(w);
     if (lends) {
         w.also = if (w.lent) |v| (if (v.poller.lent_to.load(.seq_cst) == w) &v.poller else null) else null;
+        const quiet = lend_quiet_var.load(.monotonic);
+        if (w.also != null and quiet != 0 and stamp() -% w.fired_at < quiet) w.also = null;
     }
     defer if (lends) {
         w.also = null;
