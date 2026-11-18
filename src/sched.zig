@@ -548,7 +548,7 @@ fn afterTick(f: *Fiber, _: ?*anyopaque) void {
 /// or a descriptor, so a loop that holds neither pays two loads.
 fn serviceNow(w: *Worker) bool {
     const due = w.timers.due.load(.monotonic);
-    const polls = w.poller.count.load(.monotonic) != 0;
+    const polls = fdCount(w) != 0;
     if (due == no_due and !polls) return false;
     const now = nowNs();
     return due <= now or (polls and now - w.polled_at >= poll_interval);
@@ -601,7 +601,7 @@ const poll_interval: i96 = 250 * std.time.ns_per_us;
 /// ready, looking at the poller at most every `poll_interval`.
 fn serviceBusy(w: *Worker) void {
     const due = w.timers.due.load(.monotonic);
-    const polls = w.poller.count.load(.monotonic) != 0;
+    const polls = fdCount(w) != 0;
     if (due == no_due and !polls) return;
     w.servicing = true;
     defer w.servicing = false;
@@ -1431,8 +1431,8 @@ fn workWaits(w: *Worker) bool {
 /// poller holds events, which its own yield checks would have seen to.
 fn serviceDue(w: *Worker, now: i96) bool {
     if (w.timers.due.load(.monotonic) <= now) return true;
-    if (w.poller.count.load(.monotonic) == 0) return false;
-    var fds = [1]std.posix.pollfd{.{ .fd = w.poller.fd, .events = std.posix.POLL.IN, .revents = 0 }};
+    if (fdCount(w) == 0) return false;
+    var fds = [1]std.posix.pollfd{.{ .fd = if (directNow()) shared.fd else w.poller.fd, .events = std.posix.POLL.IN, .revents = 0 }};
     return (std.posix.poll(&fds, 0) catch 0) > 0;
 }
 
@@ -2382,7 +2382,7 @@ const Poller = struct {
         } else if (linux) {
             const linux_ = std.os.linux;
             var ev: linux_.epoll_event = .{ .events = linux_.EPOLL.OUT | linux_.EPOLL.ET, .data = .{ .ptr = out_mark } };
-            if (@as(isize, @bitCast(linux_.epoll_ctl(p.fd, linux_.EPOLL.CTL_ADD, 1, &ev))) < 0) return false;
+            if (@as(isize, @bitCast(linux_.epoll_ctl(if (directNow()) shared.fd else p.fd, linux_.EPOLL.CTL_ADD, 1, &ev))) < 0) return false;
         } else return false;
         _ = p.count.fetchAdd(1, .monotonic);
         return true;
@@ -2397,7 +2397,7 @@ const Poller = struct {
             var none: [1]std.c.kevent64_s = undefined;
             _ = std.c.kevent64(p.fd, @ptrCast(&ev), 1, &none, 0, .{}, null);
         } else if (linux) {
-            _ = std.os.linux.epoll_ctl(p.fd, std.os.linux.EPOLL.CTL_DEL, 1, null);
+            _ = std.os.linux.epoll_ctl(if (directNow()) shared.fd else p.fd, std.os.linux.EPOLL.CTL_DEL, 1, null);
         }
         _ = p.count.fetchSub(1, .monotonic);
     }
@@ -2438,6 +2438,7 @@ const Poller = struct {
         // Linux's shared sleep has no wait in a poller: every call is a
         // look, which takes again for a sleeper that found it held.
         if (shared_sleep and look) {
+            if (directNow()) return lookShared();
             if (!p.lock.tryLockSeq()) return false;
             return p.drainHeld(room);
         }
@@ -2731,6 +2732,12 @@ const Shared = struct {
     /// Probe: whether a worker about to sleep looks at every poller that
     /// holds descriptors first, as on main (`RIG_LAZY_LOOK`, 1).
     looks: bool = false,
+    /// Probe: the worker whose wait in the shared epoll last ended with
+    /// events (`waitsAlone`).
+    keeper: std.atomic.Value(?*Worker) align(std.atomic.cache_line) = .init(null),
+    /// Probe (direct): the registrations' free records (`takeSlot`).
+    slots_lock: SpinLock align(std.atomic.cache_line) = .{},
+    slots: ?*Registration = null,
 };
 var shared_var: Shared = .{};
 const shared = split.cell(&shared_var, "sched.shared");
@@ -2809,6 +2816,9 @@ inline fn noteRun(w: *Worker) void {
 noinline fn longRun(w: *Worker, t: u64) void {
     @branchHint(.cold);
     w.sleep_stats.long += 1;
+    // No hold: a sleeper waits in the shared epoll only while it finds
+    // the worker that left it running a fiber long (`waitsAlone`).
+    if (shared.hold_ticks == 0) return;
     const until = shared.eager_until.load(.monotonic);
     // Written at most twice a hold, so busy workers do not pass its line
     // around.
@@ -2829,13 +2839,22 @@ noinline fn longRun(w: *Worker, t: u64) void {
 /// that short fibers do not repay.
 fn waitsAlone(w: *Worker) bool {
     if (!lazy_gate or shared.long_ticks == 0) return false;
-    if (shared.inside.load(.seq_cst) == 0) return false;
     const t = stamp();
     if (t < shared.eager_until.load(.monotonic)) return false;
-    for (workersNow()) |*v| {
-        if (v == w or @atomicLoad(?*Fiber, &v.current, .monotonic) == null) continue;
-        if (t -% v.switched_at.load(.monotonic) >= shared.long_ticks) return false;
+    if (shared.inside.load(.seq_cst) == 0) {
+        // No worker waits there: this one does, unless the worker whose
+        // wait there last ended with events (`Shared.keeper`) is awake,
+        // running the fibers they made ready, and has not run one long:
+        // it waits there again once it has run them, as main's worker
+        // goes back to its own poller, and an event meanwhile waits for
+        // it rather than wake this one.
+        const k = shared.keeper.load(.seq_cst) orelse return false;
+        if (k == w or k.idle.load(.seq_cst) != 0) return false;
+        if (@atomicLoad(?*Fiber, &k.current, .monotonic) != null and t -% k.switched_at.load(.monotonic) >= shared.long_ticks) return false;
+        return true;
     }
+    // A worker waits there already, and no run was long lately: one is
+    // enough.
     return true;
 }
 
@@ -3015,7 +3034,8 @@ fn sharedWait(w: *Worker, timeout: ?i96) bool {
     const ms: i32 = if (timeout) |t| @intCast(@min(@divTrunc(t + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32))) else -1;
     const evs = &w.wake_evs;
     _ = shared.inside.fetchAdd(1, .seq_cst);
-    const rc: isize = @bitCast(linux_.epoll_pwait(shared.fd, evs, evs.len, ms, &w.sleep_mask));
+    const most: u32 = if (directNow()) 64 else @intCast(evs.len);
+    const rc: isize = @bitCast(linux_.epoll_pwait(shared.fd, evs, most, ms, &w.sleep_mask));
     _ = shared.inside.fetchSub(1, .seq_cst);
     // Before it looks for work: a kick that found the flag set has its
     // work seen below.
@@ -3023,6 +3043,13 @@ fn sharedWait(w: *Worker, timeout: ?i96) bool {
     if (rc == 0) return false;
     w.sleep_stats.woke += 1;
     if (rc < 0) return true;
+    if (directNow()) {
+        if (handleShared(w, evs[0..@intCast(rc)], true)) {
+            w.sleep_stats.drained += 1;
+            if (shared.keeper.load(.monotonic) != w) shared.keeper.store(w, .seq_cst);
+        }
+        return true;
+    }
     const got = evs[0..@intCast(rc)];
     var bell = false;
     for (got) |ev| {
@@ -3077,7 +3104,9 @@ pub fn watchStdout(want: bool) void {
         stdout_poller.* = null;
         return;
     }
-    const w = me() orelse if (workersNow().len != 0) &all_workers.*[0] else return;
+    const here = me() orelse if (workersNow().len != 0) &all_workers.*[0] else return;
+    // Probe (direct): counted on worker 0's poller, with the descriptors.
+    const w = if (directNow()) &all_workers.*[0] else here;
     if (w.poller.watchOut()) stdout_poller.* = &w.poller;
 }
 
@@ -3120,6 +3149,11 @@ pub const Registration = struct {
     /// before its clock jumps (`unsent`).
     prev: ?*Registration = null,
     next: ?*Registration = null,
+    /// Probe (direct): how many times its record was given back
+    /// (`giveSlot`). The shared epoll's event carries the count it was
+    /// registered under, and one read for an earlier count is dropped
+    /// (`handleShared`).
+    gen: std.atomic.Value(u32) = .init(0),
 
     /// An end of the descriptor is readiness too, for the waits it ends:
     /// the end of reading (the other end shut down writing, EOF or RDHUP)
@@ -3166,6 +3200,22 @@ noinline fn registerApart(fd: i32) ?*Registration {
 fn registerIn(fd: i32) ?*Registration {
     if (!started.*) startWorkers();
     const w = me() orelse &all_workers.*[0];
+    if (directNow()) {
+        const r = takeSlot();
+        r.fd = fd;
+        r.poller = &all_workers.*[0].poller;
+        r.seen.store(0, .seq_cst);
+        r.drained_at.store(0, .monotonic);
+        r.short_not_empty.store(false, .monotonic);
+        const linux_ = std.os.linux;
+        var ev: linux_.epoll_event = .{ .events = linux_.EPOLL.IN | linux_.EPOLL.OUT | linux_.EPOLL.RDHUP | linux_.EPOLL.PRI | linux_.EPOLL.ET, .data = .{ .u64 = @intFromPtr(r) | @as(u64, @as(u16, @truncate(r.gen.load(.seq_cst)))) << 48 } };
+        if (@as(isize, @bitCast(linux_.epoll_ctl(shared.fd, linux_.EPOLL.CTL_ADD, fd, &ev))) < 0) {
+            giveSlot(r);
+            return null;
+        }
+        _ = r.poller.count.fetchAdd(1, .monotonic);
+        return r;
+    }
     const r = std.heap.smp_allocator.create(Registration) catch rt.oom();
     r.* = .{ .fd = fd, .poller = &w.poller };
     if (!w.poller.add(fd, r)) {
@@ -3193,8 +3243,123 @@ pub fn deregister(r: *Registration) void {
         }
         if (r.next) |n| n.prev = r.prev;
     }
+    if (directNow()) {
+        _ = std.os.linux.epoll_ctl(shared.fd, std.os.linux.EPOLL.CTL_DEL, r.fd, null);
+        _ = r.poller.count.fetchSub(1, .monotonic);
+        return giveSlot(r);
+    }
     r.poller.remove(r.fd);
     std.heap.smp_allocator.destroy(r);
+}
+
+/// Probe (direct): whether every descriptor is registered with the shared
+/// epoll itself, where the workers that wait there read its events as
+/// their wait ends, with no poller between and no lock: Linux on x86-64,
+/// in a run that is not deterministic.
+const direct_fds = lazy_gate;
+inline fn directNow() bool {
+    return direct_fds and !deterministic.*;
+}
+
+/// Probe (direct): how many descriptors `w` has to look at: the shared
+/// epoll's, or its own poller's.
+inline fn fdCount(w: *Worker) u32 {
+    return if (directNow()) all_workers.*[0].poller.count.load(.monotonic) else w.poller.count.load(.monotonic);
+}
+
+/// Probe (direct): a registration's record, from the free ones or a new
+/// block of 64. Records are never given back to the allocator, so a
+/// worker that read an event just before its descriptor was deregistered
+/// still reads a record, whose `gen` tells it the event is stale; one
+/// that read `gen` just before it changed counts an edge on a record
+/// that is free or in use again, which wakes at most a fiber that tries
+/// its call and waits again. A record's lock, waiters and `gen` are
+/// never reset.
+fn takeSlot() *Registration {
+    const s = shared;
+    s.slots_lock.lock();
+    if (s.slots) |r| {
+        s.slots = r.next;
+        s.slots_lock.unlock();
+        r.next = null;
+        return r;
+    }
+    s.slots_lock.unlock();
+    const block = std.heap.smp_allocator.alloc(Registration, 64) catch rt.oom();
+    for (block) |*r| r.* = .{ .fd = -1, .poller = &all_workers.*[0].poller };
+    s.slots_lock.lock();
+    for (block[1..]) |*r| {
+        r.next = s.slots;
+        s.slots = r;
+    }
+    s.slots_lock.unlock();
+    return &block[0];
+}
+
+fn giveSlot(r: *Registration) void {
+    const s = shared;
+    _ = r.gen.fetchAdd(1, .seq_cst);
+    s.slots_lock.lock();
+    r.next = s.slots;
+    s.slots = r;
+    s.slots_lock.unlock();
+}
+
+/// Probe (direct): the events a worker read from the shared epoll, as its
+/// wait there ended (`sleeper`) or by a look: the bell, stdout's room,
+/// and each descriptor's readiness, which wakes the fibers waiting on
+/// it; whether any. A look that takes the bell from the sleeper it was
+/// rung for passes the wake on (`passBell`).
+fn handleShared(w: *Worker, got: []const std.os.linux.epoll_event, sleeper: bool) bool {
+    const linux_ = std.os.linux;
+    var bell = false;
+    for (got) |ev| {
+        if (ev.data.u64 == 0) bell = true;
+    }
+    // Cleared before it looks for what a ring was for.
+    if (bell) shared.rung.store(false, .seq_cst);
+    deliverInterrupt();
+    const opened = beginBatch(w);
+    defer endBatch(w, opened);
+    var any = false;
+    var room = false;
+    for (got) |ev| {
+        const d = ev.data.u64;
+        if (d == 0) continue;
+        if (d == Poller.out_mark) {
+            room = true;
+            continue;
+        }
+        const r: *Registration = @ptrFromInt(@as(usize, @intCast(d & ((1 << 48) - 1))));
+        if (@as(u16, @truncate(r.gen.load(.seq_cst))) != @as(u16, @truncate(d >> 48))) continue;
+        var bits: u32 = 0;
+        if (ev.events & (linux_.EPOLL.IN | linux_.EPOLL.PRI | linux_.EPOLL.RDHUP | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0) bits |= Registration.readable;
+        if (ev.events & (linux_.EPOLL.OUT | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0) bits |= Registration.writable;
+        if (r.ready(bits, ev.events & (linux_.EPOLL.PRI | linux_.EPOLL.RDHUP | linux_.EPOLL.HUP | linux_.EPOLL.ERR) != 0)) any = true;
+    }
+    if (room) rt.stdoutRoom();
+    if (bell and !sleeper) passBell(w);
+    return any;
+}
+
+/// Probe (direct): a look at the shared epoll, by a worker that runs
+/// fibers or is about to sleep; whether it made any fiber ready.
+fn lookShared() bool {
+    const w = me() orelse return false;
+    const evs = &w.wake_evs;
+    const rc: isize = @bitCast(std.os.linux.epoll_pwait(shared.fd, evs, 64, 0, null));
+    if (rc <= 0) return false;
+    return handleShared(w, evs[0..@intCast(rc)], false);
+}
+
+/// Probe (direct): a look took the bell: if the wake it was rung for
+/// still waits (`Shared.token`), ring again for a worker in the shared
+/// epoll, or kick one that waits alone.
+fn passBell(w: *Worker) void {
+    if (shared.token.load(.seq_cst) == 0) return;
+    // Not `w` itself, which, about to sleep, takes the wake as it looks
+    // for work (`sleep`).
+    if (shared.inside.load(.seq_cst) != 0) ring(null) else kickSleeper(w);
 }
 
 /// The edges `r`'s poller has seen for `interest`: what a caller reads
@@ -3397,7 +3562,7 @@ fn service(w: *Worker) void {
     const opened = beginBatch(w);
     defer endBatch(w, opened);
     if (w.timers.due.load(.acquire) != no_due) _ = w.timers.fire(nowNs());
-    if (w.poller.count.load(.monotonic) != 0) _ = w.poller.poll(0);
+    if (fdCount(w) != 0) _ = w.poller.poll(0);
 }
 
 /// Before a worker sleeps: wake the fibers whose timers are due on any
@@ -4202,7 +4367,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     var mask_before: if (shared_sleep) std.os.linux.sigset_t else void = undefined;
     if (sharedNow()) {
         openShared();
-        joinShared(&first.poller);
+        if (!directNow()) joinShared(&first.poller);
         mask_before = blockKicks(first);
     }
     openDense();
@@ -4516,7 +4681,7 @@ fn workerCount() usize {
 /// epoll on Linux (`joinShared`).
 fn openPoller(w: *Worker) void {
     w.poller.open();
-    if (sharedNow()) joinShared(&w.poller);
+    if (sharedNow() and !directNow()) joinShared(&w.poller);
 }
 
 /// A worker's thread; worker 1's starts the rest of `n` first, and
