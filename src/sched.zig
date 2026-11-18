@@ -1749,6 +1749,14 @@ pub fn beginWait(cancelable: bool) u32 {
     return f.wait.epoch;
 }
 
+/// `beginWait` for a wait no cancel can end, of the running fiber `f`: no
+/// flag is read after the word is written, so the store needs no fence.
+inline fn beginPlainWait(f: *Fiber) u32 {
+    f.wait.epoch +%= 1;
+    f.wait.word.store(Wait.pack(f.wait.epoch, false, Wait.about), .release);
+    return f.wait.epoch;
+}
+
 /// Sleep until the wait `epoch`, which `beginWait` gave, is woken, or
 /// `deadline` (the monotonic clock, in nanoseconds) passes.
 pub const commitWait = if (preempt) commitWaitApart else commitWaitIn;
@@ -6041,7 +6049,7 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool), compt
     const waiter = w.current.?;
     const f = &h.fiber;
     pausePoint();
-    const e = beginWait(cancel != null);
+    const e = if (cancel != null) beginWait(true) else beginPlainWait(waiter);
     if (cancel) |c| if (c.load(.seq_cst)) return;
     // Taken by a worker with nothing else to do meanwhile: wait for it the
     // usual way.
@@ -6049,9 +6057,9 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool), compt
     if (from == .next) {
         X.at().ho_next += 1;
     } else X.at().ho_ring += 1;
-    h.done.waiter.store(waiter, .seq_cst);
-    h.done.epoch.store(e, .seq_cst);
-    h.done.status.store(Done.waited, .seq_cst);
+    h.done.waiter.store(waiter, .monotonic);
+    h.done.epoch.store(e, .monotonic);
+    h.done.status.store(Done.waited, .release);
     // The waiter is marked asleep by the task, once this switch has saved
     // it (`fiberMain`), so no waker queues it while it still runs.
     f.handoff = waiter;
@@ -6077,7 +6085,7 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool), compt
     if (now.returned) |done| {
         now.returned = null;
         endStack(now, done);
-        h.done.status.store(Done.ended, .seq_cst);
+        h.done.status.store(Done.ended, .release);
     }
 }
 
