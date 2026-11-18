@@ -4352,6 +4352,11 @@ pub const Emitter = struct {
             }
         }
         defer if (mark) |m| self.hoisted.shrinkRetainingCapacity(m);
+        // PROBE (fork-leaves): `for x in xs` whose body is only `s OP= x`,
+        // OP a wrapping add or a bit operator on an integer element, folds
+        // the elements by vectors (`rig.fold`), as Zig 0.17, its loop
+        // vectorizer off, would not. A real build records this in sema.
+        if (try self.probeFold(sexp, lp, source, binding, elem_ty, is_list, owned or header == .held or through or by_ptr or string_bytes or self.loopIndex(sexp) != null)) return;
         try self.startLoopLine(lp);
         try self.pushScope();
         const l = try self.openLabeled(lp.loop);
@@ -4400,6 +4405,44 @@ pub const Emitter = struct {
         try self.closeLoopBody(lp, body, ir.For.body(sexp));
         try self.closeLabeled(l);
         try self.popScope();
+    }
+
+    /// PROBE: the fold `emitFor` names, or false when the loop is not one.
+    fn probeFold(self: *Emitter, sexp: Sexp, lp: *Loop, source: Sexp, binding: Sexp, elem_ty: ?TypeId, is_list: bool, other: bool) Error!bool {
+        if (other or lp.target.value_ty != null) return false;
+        const et = elem_ty orelse return false;
+        if (self.facts.types.get(et) != .int) return false;
+        const stmts = try self.stmtsOf(ir.For.body(sexp));
+        if (stmts.len != 1 or !stmts[0].isKind(.set)) return false;
+        const set = stmts[0];
+        const op = rig.bindingKindOf(ir.Set.op(set)).operator() orelse return false;
+        const name: []const u8 = switch (op) {
+            .@"+%" => "add",
+            .@"^" => "xor",
+            .@"|" => "bor",
+            .@"&" => "band",
+            else => return false,
+        };
+        const target = ir.Set.target(set);
+        const value = ir.Set.value(set);
+        if (target != .src or value != .src) return false;
+        const bname = self.srcText(binding);
+        if (!std.mem.eql(u8, self.srcText(value), bname) or std.mem.eql(u8, self.srcText(target), bname)) return false;
+        const tsym = self.facts.symbolOf(target) orelse return false;
+        if (self.symType(tsym) != et) return false;
+        const local = self.localBySym(tsym) orelse return false;
+        try self.enterLoop(lp);
+        try self.writeIndent(self.indent);
+        try self.writeLocalPlace(local);
+        try self.w.print(" = rig.fold(.{s}, ", .{name});
+        try self.writeLocalPlace(local);
+        try self.w.writeAll(", ");
+        const h = try self.openHeader(source);
+        try self.emitExpr(source);
+        try self.closeHeader(h);
+        if (is_list) try self.w.writeAll(".items()");
+        if (lp.turns) |n| try self.w.print(", &{s});\n", .{n}) else try self.w.writeAll(", null);\n");
+        return true;
     }
 
     /// `for x in <v`: the List (or the array, `array`) is consumed; each

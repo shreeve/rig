@@ -446,6 +446,55 @@ pub inline fn turn(n: *u32) void {
     }
 }
 
+/// PROBE (fork-leaves): `s OP= x` for every `x` of `xs`, `op` a
+/// wrapping add or a bit operator, as `for x in xs` would, folded 16
+/// bytes a lane group, four groups a turn (as LLVM's loop vectorizer
+/// writes the loop), then the rest one at a time. Zig 0.17 builds with
+/// LLVM's loop vectorizer off, so the plain loop stays one element at a
+/// time. A turn of four groups counts one turn of the loop that holds
+/// the fold (`turns`, `rig.turn`).
+pub inline fn fold(comptime op: enum { add, xor, bor, band }, s: anytype, xs: []const @TypeOf(s), turns: ?*u32) @TypeOf(s) {
+    const T = @TypeOf(s);
+    const lanes = @max(1, 16 / @sizeOf(T));
+    const V = @Vector(lanes, T);
+    const step = 4 * lanes;
+    const one: T = switch (op) {
+        .band => ~@as(T, 0),
+        else => 0,
+    };
+    const f = struct {
+        inline fn f(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+            return switch (op) {
+                .add => a +% b,
+                .xor => a ^ b,
+                .bor => a | b,
+                .band => a & b,
+            };
+        }
+    }.f;
+    const p = xs.ptr;
+    const n = xs.len;
+    var a0: V = @splat(one);
+    var a1: V = @splat(one);
+    var a2: V = @splat(one);
+    var a3: V = @splat(one);
+    var i: usize = 0;
+    while (i + step <= n) : ({
+        i += step;
+        if (turns) |t| turn(t);
+    }) {
+        a0 = f(a0, @as(V, p[i..][0..lanes].*));
+        a1 = f(a1, @as(V, p[i + lanes ..][0..lanes].*));
+        a2 = f(a2, @as(V, p[i + 2 * lanes ..][0..lanes].*));
+        a3 = f(a3, @as(V, p[i + 3 * lanes ..][0..lanes].*));
+    }
+    const v = f(f(a0, a1), f(a2, a3));
+    var r = s;
+    inline for (0..lanes) |k| r = f(r, v[k]);
+    while (i < n) : (i += 1) r = f(r, p[i]);
+    return r;
+}
+
 /// The entry of a function of a program that makes tasks that every
 /// cycle of calls passes through one of (`inlining.Pass.cutCycles`): on
 /// the scheduler, when work waits that no idle worker will take
