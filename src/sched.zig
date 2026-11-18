@@ -2766,7 +2766,7 @@ fn envNumber(comptime name: []const u8, default: u64) u64 {
     return default;
 }
 
-/// Probe: set the gate's ticks, as the shared epoll opens: a long run is
+/// Probe: set the gate's ticks, as the workers start: a long run is
 /// `RIG_LAZY_RUN_US` microseconds (15; 0: no gate, every sleeper waits in
 /// the shared epoll), and after one every sleeper waits there for
 /// `RIG_LAZY_HOLD_US` (2,000).
@@ -2890,7 +2890,6 @@ fn openShared() void {
     s.pid = linux_.getpid();
     const act: std.posix.Sigaction = .{ .handler = .{ .handler = onKick }, .mask = std.posix.sigemptyset(), .flags = std.posix.SA.ONSTACK | std.posix.SA.RESTART };
     std.posix.sigaction(kick_signal, &act, null);
-    openGate();
 }
 
 fn onKick(_: std.posix.SIG) callconv(.c) void {}
@@ -4352,6 +4351,9 @@ fn initWorker(i: usize) void {
 /// (docs/history/records/2026-11/concurrency-startup).
 fn startWorkers() void {
     started.* = true;
+    // Probe: here, not as the shared epoll opens, which is before the
+    // program's environment is kept (`rt.start`).
+    if (sharedNow()) openGate();
     const n = if (deterministic.*) 1 else @min(workerCount(), all_workers.*.len);
     const ws = all_workers.*[0..n];
     for (1..n) |i| initWorker(i);
