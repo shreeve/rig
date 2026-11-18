@@ -94,6 +94,23 @@ best probe that ties hyper there (`l4`) costs 6-8% of the mix's cycles and
 5-6% on connect over twelve workers, trading a win for a tie; its successor
 (`l6`) was being measured when this was written ([linux-120k.md](linux-120k.md)).
 
+## bench/tasks: the lesson does not carry over
+
+A fourth expert took the same idea to pure task scheduling on the Mac
+([tasks.md](tasks.md)). Rig trails Tokio and Go on no bench/tasks row there
+(spawn 1.25 times as fast as Tokio, chain 3.1, yield 7, produce 1.19, fanout
+level), and on the fork-join record only by 7% (psum) and 8% (qsort) behind
+Rayon, which is the leaves' code in a safe build, not the scheduler. Only
+spawn runs faster with fewer workers (2.6 times at 2 than at 10, as Tokio is
+fastest at 1); yield, fanout and produce want every worker. 25 probe arms
+(caps on awake workers, waking only on a backlog, QoS, spinning before sleep
+on performance cores, and more) each won one row only by losing another;
+the best, a 5 µs spin on performance cores, won spawn only in the first
+waves after start and lost it warm. The HTTP win removed work that existed
+only because extra workers were awake; here the extra workers' cost is the
+steals and wakes the other rows need. Probe branches archived as
+`archive/tasks-spin` and `archive/tasks-switches`.
+
 ## The lesson
 
 A scheduler's cost on a machine of mixed cores is not only its code but how
