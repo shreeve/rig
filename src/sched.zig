@@ -317,6 +317,38 @@ pub var x_spawn_first = false;
 pub var x_nomap = false;
 pub var x_mainspawn = false;
 pub var x_notrim = false;
+pub var x_tree = false;
+pub var x_fan = false;
+/// How many of workers 1..n-1 lie in the subtree of `i` (children 2i, 2i+1).
+fn xSubtree(i: usize, n: usize) u32 {
+    var c: u32 = 0;
+    var lo = i;
+    var hi = i;
+    while (lo < n) {
+        c += @intCast(@min(hi, n - 1) - lo + 1);
+        lo = 2 * lo;
+        hi = 2 * hi + 1;
+    }
+    return c;
+}
+/// Worker `i` of `n`, tree start: map (on macOS) and start its children 2i and 2i+1; worker 1 then the monitor.
+fn xTreeStart(i: usize, n: usize) void {
+    defer if (starting.fetchSub(1, .acq_rel) == 1) rt.io().futexWake(u32, &starting.raw, 1);
+    const ws = all_workers.*[0..n];
+    for ([_]usize{ 2 * i, 2 * i + 1 }) |c| {
+        if (c >= n) continue;
+        if (programEnding()) {
+            const k = xSubtree(c, n);
+            if (tears_down and exit_state.phase.load(.seq_cst) != .idle)
+                _ = exit_state.stopped.fetchAdd(k, .seq_cst);
+            if (starting.fetchSub(k, .acq_rel) == k) rt.io().futexWake(u32, &starting.raw, 1);
+            continue;
+        }
+        if (macho and !x_nomap) mapFirstStacks(&ws[c]);
+        ws[c].thread = std.Thread.spawn(.{}, workerMain, .{ &ws[c], n }) catch rt.oom();
+    }
+    if (i == 1 and preempt and !programEnding()) startMonitor();
+}
 fn xKnob(comptime name: []const u8) bool {
     const p = rt.process.* orelse return false;
     const v = p.environ.getPosix(name) orelse return false;
@@ -4086,6 +4118,8 @@ fn startWorkers() void {
     x_nomap = xKnob("RIG_X_NOMAP");
     x_mainspawn = xKnob("RIG_X_MAINSPAWN");
     x_notrim = xKnob("RIG_X_NOTRIM");
+    x_tree = xKnob("RIG_X_TREE");
+    x_fan = xKnob("RIG_X_FAN");
     started.* = true;
     const n = if (deterministic.*) 1 else @min(workerCount(), all_workers.*.len);
     const ws = all_workers.*[0..n];
@@ -4099,6 +4133,12 @@ fn startWorkers() void {
     if (x_mainspawn) {
         for (ws[1..]) |*v| v.thread = std.Thread.spawn(.{}, workerMain, .{ v, 0 }) catch rt.oom();
         if (preempt) startMonitor();
+        return;
+    }
+    if (x_tree) {
+        starting.store(@intCast(n - 1), .monotonic);
+        if (macho and !x_nomap) mapFirstStacks(&ws[1]);
+        ws[1].thread = std.Thread.spawn(.{}, workerMain, .{ &ws[1], n }) catch rt.oom();
         return;
     }
     starting.store(1, .monotonic);
@@ -4166,7 +4206,11 @@ const starting = split.cell(&starting_var, "sched.starting");
 /// `main` ends, so it stops a monitor that has started and joins threads
 /// that have.
 fn waitStarting() void {
-    while (starting.load(.acquire) != 0) rt.io().futexWait(u32, &starting.raw, 1) catch {};
+    while (true) {
+        const v = starting.load(.acquire);
+        if (v == 0) break;
+        rt.io().futexWait(u32, &starting.raw, v) catch {};
+    }
 }
 
 /// How many workers the program asked for (`task.workers`), in place of
@@ -4251,7 +4295,9 @@ fn workerMain(w: *Worker, n: usize) void {
     me_slot().* = w;
     if (preempt) preOf(w).tid = rt.threadId();
     defer leavePreempt(w);
-    if (n > 0) startRest(n);
+    if (x_tree) {
+        xTreeStart((@intFromPtr(w) - @intFromPtr(all_workers.*.ptr)) / @sizeOf(Worker), n);
+    } else if (n > 0) startRest(n);
     if (n == 0 and (x_spawn_first or x_mainspawn) and !x_nomap) mapFirstStacks(w);
     loop(w);
 }
@@ -4284,7 +4330,10 @@ fn loop(w: *Worker) void {
         // searching and more work waits, wake another to look for it.
         if (w.searching) {
             w.searching = false;
-            if (searching.fetchSub(1, .seq_cst) == 1 and workPending(w)) notify();
+            if (searching.fetchSub(1, .seq_cst) == 1 and workPending(w)) {
+                notify();
+                if (x_fan) xNotifyMore();
+            }
         }
         if (w.watch_owed) payWatch(w);
         runFiber(w, f);
@@ -4549,6 +4598,17 @@ fn notifyNew() void {
 fn notify() void {
     if (deterministic.*) return;
     if (searching.load(.seq_cst) != 0) return;
+    if (sleepers.count.load(.seq_cst) == 0) return;
+    if (sleepers.pop()) |w| {
+        _ = searching.fetchAdd(1, .seq_cst);
+        w.searching = true;
+        X.at().wakes += 1;
+        wakeWorker(w);
+    }
+}
+
+/// Probe: wake one more sleeper, counted searching, even while one searches.
+fn xNotifyMore() void {
     if (sleepers.count.load(.seq_cst) == 0) return;
     if (sleepers.pop()) |w| {
         _ = searching.fetchAdd(1, .seq_cst);
