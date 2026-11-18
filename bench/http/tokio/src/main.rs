@@ -25,13 +25,28 @@ async fn hello(req: Request<hyper::body::Incoming>) -> Result<Response<Full<Byte
     }
 }
 
-#[tokio::main(flavor = "multi_thread")]
-async fn main() {
+// `HYPER_WORKERS=N` sets the runtime's worker count (default: Tokio's,
+// one per core it may run on), and `HYPER_NODELAY=1` sets TCP_NODELAY on
+// each connection, as Rig's server does: probes of what holds hyper's
+// throughput, never set by bench-http itself.
+fn main() {
+    let mut rt = tokio::runtime::Builder::new_multi_thread();
+    if let Some(n) = std::env::var("HYPER_WORKERS").ok().and_then(|v| v.parse().ok()) {
+        rt.worker_threads(n);
+    }
+    rt.enable_all().build().unwrap().block_on(serve());
+}
+
+async fn serve() {
+    let nodelay = std::env::var("HYPER_NODELAY").map(|v| v == "1").unwrap_or(false);
     let addr = std::env::args().nth(1).unwrap_or_else(|| "127.0.0.1:0".to_string());
     let l = TcpListener::bind(&addr).await.unwrap();
     println!("{}", l.local_addr().unwrap().port());
     loop {
         let (c, _) = l.accept().await.unwrap();
+        if nodelay {
+            let _ = c.set_nodelay(true);
+        }
         tokio::spawn(async move {
             let _ = http1::Builder::new().serve_connection(TokioIo::new(c), service_fn(hello)).await;
         });

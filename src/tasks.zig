@@ -102,8 +102,8 @@ pub fn Task(comptime T: type) type {
 
         /// `x.name(args...)&`: start a method's call as a task. `x` is
         /// the address of the method's self, or of a view of it. A method
-        /// that takes its self by value is given it here, before the task
-        /// starts.
+        /// that takes its view by value, as a small value read is, is
+        /// given it here, before the task starts.
         pub fn spawnMethod(x: anytype, comptime name: []const u8, args: anytype) Self {
             return startMethod(false, x, name, args);
         }
@@ -111,6 +111,18 @@ pub fn Task(comptime T: type) type {
         /// `x.name(args...)&` for a local task (`spawnLocal`).
         pub fn spawnMethodLocal(x: anytype, comptime name: []const u8, args: anytype) Self {
             return startMethod(true, x, name, args);
+        }
+
+        /// `(<x).name(args...)&` of a method that takes its self by
+        /// value (`<@`): `x` is the self, moved or copied into the task's
+        /// arguments.
+        pub fn spawnMethodValue(x: anytype, comptime name: []const u8, args: anytype) Self {
+            return start(false, false, @field(@TypeOf(x), name), .{x} ++ args);
+        }
+
+        /// `spawnMethodValue` for a local task (`spawnLocal`).
+        pub fn spawnMethodValueLocal(x: anytype, comptime name: []const u8, args: anytype) Self {
+            return start(true, false, @field(@TypeOf(x), name), .{x} ++ args);
         }
 
         /// `x.area()&` through a witness (`W.area`, docs/design/apis.md,
@@ -461,22 +473,32 @@ const Wakeup = struct {
     }
 };
 
-/// What `task.all` gives for the tasks `Tup` (a tuple of
-/// `Task`s): each one's value, in order, failing when any can fail.
-fn TaskValues(comptime Tup: type) type {
+/// What `task.all` gives for the tasks `Tup` (a tuple of `Task`s):
+/// each one's value, in order, when `values`, which the checker decided
+/// (`SemContext.recordTaskJoin`), and nothing otherwise; failing when
+/// any can fail.
+fn TaskValues(comptime Tup: type, comptime values: bool) type {
     const tasks = @typeInfo(Tup).@"struct".field_types;
-    var values: [tasks.len]type = undefined;
     var results: [tasks.len]type = undefined;
     var fallible = false;
-    for (tasks, &values, &results) |Tk, *V, *R| {
+    for (tasks, &results) |Tk, *R| {
         R.* = Tk.__rig_args[0];
-        if (@typeInfo(R.*) == .error_union) {
-            fallible = true;
-            V.* = @typeInfo(R.*).error_union.payload;
-        } else V.* = R.*;
+        if (@typeInfo(R.*) == .error_union) fallible = true;
     }
-    const Values = @Tuple(&values);
+    const Values = if (values) TaskTuple(Tup) else void;
     return if (fallible) WaitErr(&results)!Values else Values;
+}
+
+/// The tasks `Tup`'s values, in order, as `task.all` collects them: a
+/// task that gives nothing holds a `void`.
+fn TaskTuple(comptime Tup: type) type {
+    const tasks = @typeInfo(Tup).@"struct".field_types;
+    var values: [tasks.len]type = undefined;
+    for (tasks, &values) |Tk, *V| {
+        const R = Tk.__rig_args[0];
+        V.* = if (@typeInfo(R) == .error_union) @typeInfo(R).error_union.payload else R;
+    }
+    return @Tuple(&values);
 }
 
 /// The error set a wait for work whose results are `Rs` fails with:
@@ -495,21 +517,21 @@ fn WaitErr(comptime Rs: []const type) type {
 }
 
 /// `task.all(a, b, ...)`: wait for tasks of any
-/// types, and give each one's value. When some can fail, waiting is a
+/// types, and give each one's value when `gives`, as the checker
+/// recorded, or nothing (`TaskValues`). When some can fail, waiting is a
 /// waiting point, and the first task to fail, in the order they end,
 /// cancels the others: the call waits for them, drops what they gave,
 /// and fails with its error, whose fields go into the waiter's slot
 /// `out`, as `Task.waitInto`'s do.
-pub fn waitTasksInto(tasks: anytype, out: anytype) TaskValues(@TypeOf(tasks)) {
+pub fn waitTasksInto(tasks: anytype, out: anytype, comptime gives: bool) TaskValues(@TypeOf(tasks), gives) {
     const Tup = @TypeOf(tasks);
     const n = @typeInfo(Tup).@"struct".field_types.len;
-    const Out = TaskValues(Tup);
+    const Out = TaskValues(Tup, gives);
     const fallible = @typeInfo(Out) == .error_union;
-    const Values = if (fallible) @typeInfo(Out).error_union.payload else Out;
-    var values: Values = undefined;
+    var values: TaskTuple(Tup) = undefined;
     if (comptime !fallible) {
         inline for (0..n) |i| values[i] = tasks[i].waitInto(rt.no_slot);
-        return values;
+        return if (gives) values else {};
     }
     var ts = tasks;
     // On the heap: a panic passed on from a task waited for leaves this
@@ -565,7 +587,7 @@ pub fn waitTasksInto(tasks: anytype, out: anytype) TaskValues(@TypeOf(tasks)) {
             };
         }
     }
-    const err = failure orelse return values;
+    const err = failure orelse return if (gives) values else {};
     inline for (0..n) |i| if (!taken[i]) ts[i].control.cancel();
     inline for (0..n) |i| if (!taken[i]) {
         var result = ts[i].job.join();
@@ -1062,6 +1084,55 @@ pub fn parEachInto(xs: anytype, f: anytype, limit: Int, out: anytype) EachOut(@T
     if (comptime !fallible) return parRun(false, xs.len, limit, &ctx, Ctx.chunk, out);
     // Every failure is `f`'s, or a wait's `task.Stop` in it.
     return parRun(true, xs.len, limit, &ctx, Ctx.chunk, out) catch |err| @errorCast(err);
+}
+
+/// `par.push(!t, ?sizes, f, limit: n)`: push `sizes.sum()` slots onto
+/// the table `t` at once (`pushRuns`), then `f(!run, k)` for each run
+/// `k`, the next `sizes[k]` of those slots in order, each call on one of
+/// up to `limit` tasks (`parRun`, over the runs). Run `k` is the same
+/// slots whichever task takes it. The sizes and the room are tested
+/// before any task starts; a failure leaves the slots pushed, each
+/// holding what it held unless `f` wrote it. A failure's fields go into
+/// the caller's slot `out`, as `parMapInto`'s do.
+pub fn parPushInto(t: anytype, sizes: anytype, f: anytype, limit: Int, out: anytype) EachOut(@TypeOf(f)) {
+    const F = @TypeOf(f);
+    const fallible = @typeInfo(ReturnOf(F)) == .error_union;
+    const T = @typeInfo(@TypeOf(t.slots)).pointer.child;
+    // `starts[k]` is run `k`'s first slot past `first`, and
+    // `starts[sizes.len]` the slots of every run.
+    const starts = defaultAllocator().alloc(u64, sizes.len + 1) catch oom();
+    defer defaultAllocator().free(starts);
+    var total: u64 = 0;
+    for (sizes, 0..) |size, k| {
+        if (size < 0) negativeRun(k, size);
+        starts[k] = total;
+        total +|= @intCast(size);
+    }
+    starts[sizes.len] = total;
+    const first = t.pushRuns(total);
+    const Ctx = struct {
+        slots: [*]T,
+        starts: []const u64,
+        f: F,
+
+        fn chunk(c: *const @This(), lo: usize, hi: usize, slot: rt.ErrSlot) if (fallible) anyerror!void else void {
+            for (lo..hi) |k| {
+                const run = c.slots[@intCast(c.starts[k])..@intCast(c.starts[k + 1])];
+                const i: Int = @intCast(k);
+                if (comptime fallible) try c.f.call(rt.argsWithSlot(F, .{ run, i }, slot)) else c.f.call(.{ run, i });
+            }
+        }
+    };
+    const ctx: Ctx = .{ .slots = t.slots + @as(usize, @intCast(first)), .starts = starts, .f = f };
+    if (comptime !fallible) return parRun(false, sizes.len, limit, &ctx, Ctx.chunk, out);
+    // Every failure is `f`'s, or a wait's `task.Stop` in it.
+    return parRun(true, sizes.len, limit, &ctx, Ctx.chunk, out) catch |err| @errorCast(err);
+}
+
+fn negativeRun(k: usize, size: Int) noreturn {
+    @branchHint(.cold);
+    var buf: [128]u8 = undefined;
+    @panic(std.fmt.bufPrint(&buf, "par.push takes no negative size, and run {d}'s is {d}", .{ k, size }) catch "par.push takes no negative size");
 }
 
 /// What `par.workers` gives for `f`: a List of each call's value, or
@@ -2313,9 +2384,12 @@ pub fn Actor(comptime T: type) type {
             @panic(text);
         }
 
-        /// What method `name` of `T` gives.
+        /// What method `name` of `T` gives: nothing, for one that never
+        /// returns (`noreturn`, a `sub`'s), whose call the caller waits
+        /// for like any other's.
         fn Result(comptime name: []const u8) type {
-            return @typeInfo(@TypeOf(@field(T, name))).@"fn".return_type.?;
+            const R = @typeInfo(@TypeOf(@field(T, name))).@"fn".return_type.?;
+            return if (R == noreturn) void else R;
         }
 
         /// Run method `name` on the value with `args`: through its
@@ -2819,12 +2893,27 @@ pub fn sleep(ns: i64) Stop!void {
 /// interrupt that cancels `main` ends the sleep (its handler leaves
 /// system calls to fail with EINTR, `rt.cancelOnInterrupt`), and the
 /// sleep fails with `Stop.canceled` (`checkStop`); Zig's own sleep
-/// would go back to sleeping.
+/// would go back to sleeping. While `print` has bytes left that a full
+/// stdout did not take at once (`rt.flushBeforePoll`), the sleep waits
+/// in `poll` for stdout's room as well, writing more as it comes, to the
+/// millisecond; once none are left, it sleeps out the rest.
 fn sleepHere(ns: i64) Stop!void {
     const posix = std.posix;
     if (canceledHere()) return canceled_error;
-    var left: posix.timespec = .{ .sec = @intCast(@divTrunc(ns, std.time.ns_per_s)), .nsec = @intCast(@rem(ns, std.time.ns_per_s)) };
-    rt.flushBeforeWait();
+    const until = nowNs() + ns;
+    while (rt.flushBeforePoll()) {
+        const wait = until - nowNs();
+        if (wait <= 0) return;
+        var fds = [1]posix.pollfd{.{ .fd = 1, .events = posix.POLL.OUT, .revents = 0 }};
+        const ms: i32 = @intCast(@min(@divTrunc(wait + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32)));
+        switch (posix.errno(posix.system.poll(&fds, fds.len, ms))) {
+            .INTR => try checkStop(),
+            else => {},
+        }
+    }
+    const rest = until - nowNs();
+    if (rest <= 0) return;
+    var left: posix.timespec = .{ .sec = @intCast(@divTrunc(rest, std.time.ns_per_s)), .nsec = @intCast(@rem(rest, std.time.ns_per_s)) };
     while (true) {
         switch (posix.errno(posix.system.nanosleep(&left, &left))) {
             .INTR => try checkStop(),

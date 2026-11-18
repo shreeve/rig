@@ -42,7 +42,7 @@ sub main()
 RIG
 "$RIG" check stress.rig >check.txt 2>&1 || fail "stress.rig: $(cat check.txt)"
 "$RIG" emit stress.rig 2>&1 | grep -q 'spawnDense(nap' || fail "stress.rig: nap is not on a dense stack"
-"$RIG" build --release=fast -o stress stress.rig >build.txt 2>&1 || fail "build stress.rig: $(cat build.txt)"
+"$RIG" build --release -o stress stress.rig >build.txt 2>&1 || fail "build stress.rig: $(cat build.txt)"
 python3 - <<'PY' || fail "stress: no guard was written into the executable"
 import sys
 d = open("stress", "rb").read()
@@ -58,7 +58,7 @@ while (( run < 3 || $(date +%s) < end )); do
     expect_eq "$out" "$want" "stress run $run"
 done
 
-RIG_SANITIZE=1 "$RIG" build --release=fast -o sanitized stress.rig >build-s.txt 2>&1 || fail "build stress.rig, sanitized: $(cat build-s.txt)"
+RIG_SANITIZE=1 "$RIG" build --release -o sanitized stress.rig >build-s.txt 2>&1 || fail "build stress.rig, sanitized: $(cat build-s.txt)"
 out=$(RIG_SANITIZE=1 "$TIMEOUT_CMD" 60 ./sanitized 2>err-s.txt) || fail "sanitized stress (status $?): $out $(tail -3 err-s.txt)"
 expect_eq "$out" "$want" "sanitized stress"
 echo ok

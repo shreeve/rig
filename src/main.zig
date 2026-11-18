@@ -16,6 +16,7 @@ const diag = @import("diag.zig");
 const emit = @import("emit.zig");
 const symbols = @import("symbols.zig");
 const inlining = @import("inlining.zig");
+const returns = @import("returns.zig");
 const units = @import("units.zig");
 const bolt = @import("bolt.zig");
 const pgo = @import("pgo.zig");
@@ -39,8 +40,9 @@ const usage =
     \\Usage: rig <command> [options] <file.rig>
     \\       rig run [options] <file.rig> -- <program arguments>
     \\       rig build --release --bolt [options] <file.rig> -- <workload>
+    \\       rig build --bolt --bolt-profile=<file> -o <out> <executable>
     \\       rig build --release --pgo [options] <file.rig> -- <workload>
-    \\       rig batch build [--release[=safe|fast]] [--preempt] <dir> <file.rig>...
+    \\       rig batch build [--release] [--preempt] <dir> <file.rig>...
     \\       rig batch run <dir> <n>
     \\       rig clean
     \\       rig lsp
@@ -94,11 +96,11 @@ const usage =
     \\                         cannot go to another core
     \\  --time                 Print the time each pass of the compiler
     \\                         takes, summed over the modules (check)
-    \\  --release[=safe|fast]  Optimize (run, build, test): `--release` and
-    \\                         `--release=safe` are Zig's safe mode, which
-    \\                         keeps overflow and bounds checks;
-    \\                         `--release=fast` is its fast mode. Default:
-    \\                         debug, leak-checked.
+    \\  --release              Optimize (run, build, test) in Zig's safe
+    \\                         mode, which keeps every check Rig adds:
+    \\                         overflow, conversions, bounds. Default:
+    \\                         debug, leak-checked. `--release=safe` is
+    \\                         the same
     \\  --seed=<n>             Run deterministically with seed n (run, test):
     \\                         on one thread, with a virtual clock that
     \\                         sleeps take no time on, the seed choosing
@@ -119,7 +121,12 @@ const usage =
     \\                         it under perf (build; Linux, with perf,
     \\                         perf2bolt, and llvm-bolt)
     \\  --bolt-profile=<file>  Keep BOLT's profile in <file>; with no
-    \\                         workload, lay the build out by <file>
+    \\                         workload, lay the build out by <file>.
+    \\                         Given an executable a `--bolt` build
+    \\                         wrote, in place of <file.rig>, `--bolt`
+    \\                         lays a copy of it out into <out>, compiling
+    \\                         nothing: one machine builds, another whose
+    \\                         processor records branches lays it out
     \\  --pgo                  Optimize the release build by LLVM's
     \\                         profile-guided optimization, trained on
     \\                         where <workload> (after `--`) runs it
@@ -213,13 +220,11 @@ const Command = enum { tokens, parse, normalize, check, run, build, @"test", emi
 const Mode = enum {
     debug,
     safe,
-    fast,
 
     fn zigFlag(mode: Mode) []const u8 {
         return switch (mode) {
             .debug => "-Odebug",
             .safe => "-Osafe",
-            .fast => "-Ofast",
         };
     }
 
@@ -265,6 +270,9 @@ const Options = struct {
     /// `build --bolt` (src/bolt.zig): the workload is `program_args`.
     bolt: bool = false,
     bolt_profile: ?[]const u8 = null,
+    /// `build --bolt` of an executable a `--bolt` build wrote, not of a
+    /// .rig file: lay it out with no compile (`bolt.layOut`).
+    bolt_input: bool = false,
     /// `build --pgo` (src/pgo.zig): the workload is `program_args`.
     pgo: bool = false,
     pgo_profile: ?[]const u8 = null,
@@ -427,6 +435,7 @@ pub fn main(init: std.process.Init) !void {
         .run, .build, .@"test" => {
             // Before the build, so a missing tool fails at once.
             const tools = if (opts.bolt) try bolt.Tools.find(allocator, io, env.get("PATH") orelse "/usr/bin:/bin", opts.program_args.len > 0) else null;
+            if (opts.bolt_input) return bolt.layOut(allocator, io, tools.?, opts.path, opts.out_path.?, opts.program_args, opts.bolt_profile);
             const pgo_tools = if (opts.pgo) try pgo.Tools.find(allocator, io, env.get("PATH") orelse "/usr/bin:/bin", env.zig(), opts.program_args.len > 0) else null;
             buildCommand(allocator, io, env, opts, pgo_tools) catch |err| {
                 if (program_pending) notRun("{s}", .{@errorName(err)});
@@ -473,8 +482,8 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
             std.process.exit(0);
         } else if (eql(arg, "--release") or eql(arg, "--release=safe")) {
             mode = .safe;
-        } else if (eql(arg, "--release=fast")) {
-            mode = .fast;
+        } else if (std.mem.startsWith(u8, arg, "--release=")) {
+            releaseError(arg);
         } else if (eql(arg, "--tests")) {
             tests = true;
         } else if (std.mem.startsWith(u8, arg, "--seed=")) {
@@ -534,7 +543,16 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     if (split_units != null and cmd != .build and cmd != .run and cmd != .@"test") usageError("`--units` applies to build, run, and test", .{});
     if (split_units != null and split_units.? > 1 and (lay_out or profiled)) usageError("`--bolt` and `--pgo` build one unit: leave out `--units`", .{});
     if (lay_out and cmd != .build) usageError("`--bolt` applies to build", .{});
-    if (lay_out and mode == .debug) usageError("`--bolt` lays out a release build: add `--release`", .{});
+    // `rig build --bolt` of an executable a `--bolt` build wrote lays it
+    // out with no compile: a machine whose processor records no branches
+    // builds it, and one that does lays it out.
+    const bolt_input = lay_out and path != null and isElf(io, path.?);
+    if (bolt_input) {
+        if (profiled) usageError("`--pgo` builds from a .rig file: `rig build --bolt` of an executable only lays it out", .{});
+        const o = out_path orelse usageError("`rig build --bolt` of an executable needs `-o` for the laid-out copy", .{});
+        if (std.mem.eql(u8, o, path.?)) usageError("`-o {s}` would write over the executable laid out", .{o});
+    }
+    if (lay_out and mode == .debug and !bolt_input) usageError("`--bolt` lays out a release build: add `--release`", .{});
     if (bolt_profile != null and !lay_out) usageError("`--bolt-profile` goes with `--bolt`", .{});
     if (lay_out and program_args.len == 0 and bolt_profile == null) usageError("`--bolt` needs a workload after `--` (`rig build --release --bolt -o prog prog.rig -- ./prog input`), or a saved `--bolt-profile=FILE`", .{});
     if (profiled and cmd != .build) usageError("`--pgo` applies to build", .{});
@@ -551,6 +569,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
         return .{ .command = cmd, .path = "" };
     }
     const file = path orelse usageError("`rig {s}` needs a .rig file", .{@tagName(cmd)});
+    if (bolt_input) return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .bolt = true, .bolt_profile = bolt_profile, .bolt_input = true, .program_args = program_args };
     // `rig test` also takes a module of the standard library by its
     // name, `std.NAME`: a word with no `/` that is not a `.rig` file.
     if (cmd == .@"test" and std.mem.eql(u8, file, "std")) usageError("`rig test std` takes one module of the standard library: `rig test std.NAME`", .{});
@@ -751,6 +770,13 @@ fn eql(a: []const u8, b: []const u8) bool {
     return std.mem.eql(u8, a, b);
 }
 
+/// A `--release=MODE` other than `safe`: every build keeps Rig's checks,
+/// and a program leaves them only where its source says so.
+fn releaseError(arg: []const u8) noreturn {
+    if (eql(arg, "--release=fast")) usageError("`--release=fast` is gone: every build keeps Rig's checks; write `+%`, `-%` or `*%` for wrapping arithmetic, or `raw` for Zig builtins", .{});
+    usageError("unknown option `{s}`: `--release` builds in Zig's safe mode, which keeps Rig's checks", .{arg});
+}
+
 fn usageError(comptime fmt: []const u8, args: anytype) noreturn {
     std.debug.print("error: " ++ fmt ++ "\nRun `rig --help` for usage.\n", args);
     std.process.exit(2);
@@ -917,6 +943,7 @@ fn loadChecked(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
             try storage.decideExactEnums(ctxs);
         }
         try inlining.decide(allocator, &graph, inlining.max_size);
+        try returns.decide(allocator, &graph);
         timing.stop(times, .inlining, t1);
         try graph.markTextTables();
     }
@@ -1336,7 +1363,7 @@ fn runStarted(allocator: std.mem.Allocator, io: std.Io, env: Env, environ: *std.
     }
 }
 
-/// `rig batch build [--release[=safe|fast]] DIR FILE...` builds every
+/// `rig batch build [--release] DIR FILE...` builds every
 /// program into one executable, `DIR/bin`, with one Zig compile and one
 /// copy of the runtime: each program's root module goes to `DIR/pN` (`N`
 /// its place among the files), every other file of its package to
@@ -1372,8 +1399,8 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
     while (i < args.len and args[i].len > 1 and args[i][0] == '-') : (i += 1) {
         if (eql(args[i], "--release") or eql(args[i], "--release=safe")) {
             mode = .safe;
-        } else if (eql(args[i], "--release=fast")) {
-            mode = .fast;
+        } else if (std.mem.startsWith(u8, args[i], "--release=")) {
+            releaseError(args[i]);
         } else if (eql(args[i], "--preempt")) {
             preempt = preempt_host;
         } else usageError("unknown option `{s}`", .{args[i]});
@@ -1756,6 +1783,15 @@ fn hasBinary(allocator: std.mem.Allocator, io: std.Io, zig_cache: []const u8, na
         if (st.kind == .file) return true;
     }
     return false;
+}
+
+/// Whether `path` is an ELF file: an executable, for `rig build --bolt`.
+fn isElf(io: std.Io, path: []const u8) bool {
+    const file = std.Io.Dir.cwd().openFile(io, path, .{}) catch return false;
+    defer file.close(io);
+    var head: [4]u8 = undefined;
+    const n = file.readPositional(io, &.{&head}, 0) catch return false;
+    return n == head.len and std.mem.eql(u8, &head, "\x7fELF");
 }
 
 fn isDirectory(io: std.Io, path: []const u8) bool {
@@ -3136,6 +3172,7 @@ test {
     _ = lsp;
     _ = frames;
     _ = pgo;
+    _ = bolt;
     _ = map_trace;
     _ = @import("ownership.zig");
     _ = @import("runtime.zig");

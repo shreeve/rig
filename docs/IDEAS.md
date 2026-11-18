@@ -12,6 +12,7 @@ Forms are written in plain text, not `rig` blocks, since none of them runs yet.
 The reviews these ideas come from:
 - Crystal through five lenses, Ruby, Zig, Rust, Swift, and Go: [crystal-review/](history/records/2026-11/crystal-review/SYNTHESIS.md).
 - Rig's concurrency against Rayon, Tokio, Go, Swift, and Erlang: [concurrency-review/](history/records/2026-11/concurrency-review/SYNTHESIS.md).
+- Goose, a memory-safe language with no heap, and Rig read the same way: [goose/](history/records/2026-11/goose/review.md).
 
 The concurrency plan the owner approved from that review is on the ROADMAP, under "Concurrency".
 
@@ -45,12 +46,14 @@ The concurrency plan the owner approved from that review is on the ROADMAP, unde
   - Form: `a.is_same(?b)`: whether two `*T` handles hold the same value.
   - Source: the Crystal review (Swift).
   - Needs: a name from the owner.
-- **`task.all` over tasks that give no value.**
-  - Form: `task.all(f()&, g()&)!`, one visible wait for several subs, the first failure canceling the rest.
-  - Today `task.all` rejects a task that gives nothing.
-  - An implicit wait at a scope's end was set aside: it would hide a failure point at a dedent.
-  - Source: the owner, 2026-11-03.
-  - Needs: a failing case first; it accepts more programs and rejects none.
+- **A List that never moves.** A grow-only list in reserved address space: a push never relocates it, so a view of an element survives later pushes, where today a live view of a List rejects the push and a program keeps an index or a `Slot` instead.
+  - Form: a std type beside `List`, whose push is a write that ends no view of its elements.
+  - The runtime already reserves address space for task stacks.
+  - Source: the Goose review (grow-only arrays).
+  - Needs: a CORE paragraph, since it changes what a push ends; then a design round.
+- **A region freed at once.** Values made in a named region are views lent from it, and dropping the region frees them all in one step, for data that dies together: a file's tree, a parse's temporaries, one request's data.
+  - Source: the Goose review (data stacks freed at scope exit).
+  - Needs: a CORE paragraph and a design round; first, a measure of the share of Trig's time and memory in data that dies together.
 
 ## Libraries
 
@@ -81,12 +84,16 @@ The concurrency plan the owner approved from that review is on the ROADMAP, unde
 - **A shared cell with read-modify-write operations,** for a parallel search that wants other tasks' results mid-run: a best cost lowered with `fetch_min`, a counter raised with `fetch_add`, never a separate read and write. Check first what std's synchronized types already offer.
   - Source: Rayon's FAQ, 2026-11-04.
   - Needs: that check, then a design round.
+- **A packed sequence of variant records.** Each value is stored at its own variant's size, not the largest one's; the sequence is walked, never indexed. Goose's one large win (`records`, about 2 times faster than Rust's enum on 4 times less memory) comes from it.
+  - Form: a std type over an enum, built with `push` and read with `for`.
+  - Source: the Goose review (variable-size enums).
+  - Needs: a measured share first, in token streams, Trig's trees, or std.json's parsed form; then a design round.
+- **A checked byte image of a Table.** A `Table` whose slots link by `Slot` means the same thing at any address, so it can be saved as its bytes and loaded with one read and a pass that checks every slot, tag, and length before the value exists.
+  - Source: the Goose review (`to_bytes` and `from_bytes`).
+  - Needs: a design round. It is not a way to ship Trig's libs pre-parsed, which the owner set aside.
 
 ## Concurrency, beyond the approved plan
 
-- **`MADV_NOHUGEPAGE` on task stacks.** Rig sets it on Tables and large heap blocks, but not on stacks (`sched.takeStack`). Under transparent huge pages set to `always`, the RHEL and Fedora default, a sleeping task might hold 2 MiB.
-  - Source: the Crystal review (Zig), unverified.
-  - Needs: one pup run with that setting, in the plan's first step.
 - **A protocol for leaving a slow system call.** A fast call costs two atomic operations; only a slow one moves the stuck worker to a fresh thread, as Crystal's `Fiber.syscall` and its monitor do. Tasks pinned to their thread stay on it. This is the design for the plan's handoff of a stuck worker.
   - Source: the Crystal review (Go).
 - **Freeing idle stacks gradually:** halve each worker's pool of free stacks every 5 s, and clear it when the program is idle.
@@ -101,6 +108,12 @@ The concurrency plan the owner approved from that review is on the ROADMAP, unde
 
 ## Compiler, runtime, and tooling
 
+- **A function that must have no bounds checks.** A mark on a function makes any check left in its body, after `src/proofs.zig`, a compile error that names the check, so a hot loop in Trig, std.json, or the tables cannot regain a check after an unrelated change.
+  - Source: the Goose review (`checkfree fn`).
+  - Needs: a name from the owner; no CORE change.
+- **A benchmarks page written by its scripts,** dated, naming its machines and build modes, its losses, and how any average is formed, so it cannot go stale by hand.
+  - Source: the Goose review (`bench/results.md`, generated).
+  - Needs: nothing but the work; it goes with the next measurement of docs/launch/benchmarks.md.
 - **A failure's trace in debug builds.** When a failure leaves `main`, print each `f()!` site it passed through, not only `error: E.name`, from Zig's error return trace. No syntax.
   - Source: the Crystal review (Rust).
 - **C structs and pointers through views.** In an `extern fun`, `!T` becomes `*T` and `?T` `*const T`, and `extern obj` declares a C-layout object. A write view is then an out-parameter, with no `out` keyword. Today Rig passes only integers, floats, and `Bool` to C. This carries the ROADMAP's C-ABI-friendly `extern` types.

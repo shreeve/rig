@@ -3,7 +3,7 @@
 # guard of 64 GiB (docs/internals/INTERNALS.md, "The program's stack"). This checks
 # what needs the command line: that `rig test`'s tests run there too;
 # that a frame of 100 MiB, larger than the whole stack, stops with a
-# stack-overflow error in the release modes, where only a hand-written
+# stack-overflow error in a release build, where only a hand-written
 # frame reaches that size; and, on Linux, that a program that cannot
 # reserve its stack stops before it runs. The exit status and a failure
 # out of `main`, which reach the program through that stack too, are
@@ -47,7 +47,7 @@ rig emit big.rig >/dev/null 2>&1 || fail "emit big.rig"
 pkg=$RIG_OUT_DIR/programs/big
 perl -0pi -e 's/(pub noinline fn big\(i: i64\) i64 \{).*?\n\}/$1\n    var a: [13107200]i64 = undefined;\n    a[\@intCast(i)] = i;\n    std.mem.doNotOptimizeAway(&a);\n    return a[\@intCast(i)];\n}/s' "$pkg/__rig_main.zig"
 grep -q '13107200' "$pkg/__rig_main.zig" || fail "the 100 MiB frame was not written into the package"
-for mode in ReleaseSafe ReleaseFast; do
+for mode in ReleaseSafe; do
     (cd "$pkg" && zig_once "$PWD/../big-$mode" -- . -- "${ZIG:-zig}" build-exe -O $mode -femit-bin="$PWD/../big-$mode" __rig_main.zig) >build.log 2>&1 || fail "build big $mode: $(cat build.log)"
     out=$(quiet "$RIG_OUT_DIR/programs/big-$mode" 2>err.txt); rc=$?
     expect_rc $rc 134 "a 100 MiB frame in $mode ($(head -c 300 err.txt))"

@@ -48,7 +48,7 @@ if [[ -n $darwin ]]; then
 fi
 
 modes=debug
-[[ -n "${NO_CRASH_REPORT_FULL:-}" ]] && modes="debug release release=safe release=fast"
+[[ -n "${NO_CRASH_REPORT_FULL:-}" ]] && modes="debug release release=safe"
 for mode in $modes; do
     flag=""; [[ $mode == debug ]] || flag=--$mode
     exe=crash_q_$tag; [[ $mode == debug ]] || exe=boom-${mode//=/-}

@@ -75,9 +75,10 @@ the rules below depend on them:
   `JoinHandle` detaches its task.
 
 Where Tokio is ahead is memory for a task at rest: a Tokio task can be
-a few hundred bytes, and a Rig task holds a page of its stack and a page
-table for it, 32.7 KiB on the Mac and 8.9 KiB on Linux
-([bench/tasks/SCALING.md](../../bench/tasks/SCALING.md); [the scheduler](../internals/scheduler.md),
+a few hundred bytes, and a Rig task holds a page of its stack, 17.1 KiB
+on the Mac with its share of the page tables when its stack is dense,
+and about twice that on a large stack, which has a page table of its
+own ([launch/benchmarks.md](../launch/benchmarks.md); [the scheduler](../internals/scheduler.md),
 "Stacks").
 
 ## What a program writes
@@ -104,7 +105,10 @@ place a fallible type stands as a type argument.
 - `<t.cancel()` cancels a fallible task, waits for it, and gives what it
   returned, usually `Stop.canceled`.
 - `task.all(a, b, c)` waits for several tasks of different types at
-  once. The first error cancels the others.
+  once, and gives each one's value, or nothing when none gives one
+  (`task.all(save(?a)&, save(?b)&)!`). The first error cancels the
+  others, those that cannot fail among them: their waits that can fail
+  fail with `Stop.canceled`, and they run on to their end.
 - `time.within(d, |<t| >t!)` waits with a deadline: `within` calls its
   closure once (`f: once ?fun() -> R!`), so the closure may move the
   task in.
@@ -646,12 +650,15 @@ Tokio and Go (bench/tasks, bench/actors, bench/net, bench/http):
 - fan-out and fan-in of CPU-bound work;
 - memory for idle tasks and idle connections.
 
-Memory is the one place Rig trails, and the design says so: a task
-holds at least a page of stack, against Tokio's hundreds of bytes. An
-HTTP connection that waits for its next request holds no buffer (its
-worker lends it one per request), so an idle connection costs less than
-Tokio's or Go's. Smaller committed stacks and io_uring buffer rings are
-measured work beyond that, not a promise.
+Rig trails in memory per task, and the design says so: a task holds at
+least a page of stack, against Tokio's hundreds of bytes. An HTTP
+connection that waits for its next request holds no buffer (its worker
+lends it one per request) and waits on a dense stack, so on the Mac an
+idle connection costs less than hyper's or Go's, page tables included.
+Smaller committed stacks and io_uring buffer rings are measured work
+beyond that, not a promise. Where else Rig trails, loopback round trips
+and fork-join against Rayon, is on the
+[benchmarks page](../launch/benchmarks.md).
 
 ## Proof obligations
 

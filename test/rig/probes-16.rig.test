@@ -171,7 +171,13 @@ fail "rev215-a23 ret object K", "`mk` returns a view of `x`, but its signature s
   <t
   print(p.v.s)
 
-fail "rev220-cell-set", "cannot lend `@` to write in an index of `@c`, a place being lent"
+test "rev220-cell-set", '''
+  50
+  42
+'''
+  # A marked call in an index of a Cell's List lends the place to read
+  # (Core §4): the index runs first, and the element is copied from the
+  # List the call put in.
   obj K
     c: Cell[List[Int]]
 

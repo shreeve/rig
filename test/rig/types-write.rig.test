@@ -47,10 +47,11 @@ test "write call short form", '''
 '''
   # A write call whose value is used and is no `Bool` is written short,
   # `!v.m(...)`: the `!` lends self of the chain's first method
-  # call, `@` in `!@new_node(k)`, `@nodes` in `!@nodes.remove(0).len`,
-  # `p.flags` in `!p.flags.remove(0)`. A call whose declared result is a
-  # `T` is short even where `T` is a `Bool`, and so is a `Bool?`, which
-  # no condition or `not` takes.
+  # call, `@` in `!@new_node(k)`, `@nodes` in `!@nodes.remove(0).len`.
+  # Inside a generic body a call returning a `T` is short, since `T` is
+  # a parameter there, and so is a `Bool?`, which no condition or `not`
+  # takes. Where self's type arguments make the result a `Bool`
+  # (`List[Bool]`, `Box[Bool]`), the long form says what is meant.
 
   obj Pool
     nodes: List[String]
@@ -83,10 +84,10 @@ test "write call short form", '''
   print(!p.first(), !p.texts(), p.nodes.len)
   !p.flags.push(true)
   !p.flags.push(false)
-  b = !p.flags.remove(0)
-  print(b, "generic") if !p.flags.remove(0) == false
+  b = (!p.flags).remove(0)
+  print(b, "generic") if (!p.flags).remove(0) == false
   x: Box[Bool] = Box(items: List([true]))
-  if !x.take()
+  if (!x).take()
     print("boxed")
   v: List[Int] = List([1])
   print(!v.pop() ?? 0, !x.maybe())
@@ -94,10 +95,48 @@ test "write call short form", '''
   if !v.pop() as n
     print(twice(n) + 1)
 
-fail "write call short form on a Bool", "17:5: write `(!@seen).add(k)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", "21:8: write `(!c.seen).add(k)`", "23:10: write `(!c).bump()`", "25:7: write `(!c).bump()`", "26:7: write `(!c).checked()`", errors: 5
-  # A write call whose declared result is a `Bool`, or a `Bool` that may
-  # fail, keeps its `!` in parentheses wherever its value is used: Rust's
+fail "write call on a List[Bool]", "13:4: `!` lends `flags` to write and never negates: write `(!flags).remove(0)` for what `remove` returns, or `not (!flags).remove(0)` for its opposite", "16:5: `!` lends `b` to write and never negates: write `(!b).take()` for what `take` returns, or `not (!b).take()` for its opposite", "18:9: `!` lends `flags` to write and never negates: write `not (!flags).remove(0)`", errors: 3
+  # A write call's result is judged with self's type arguments applied
+  # where the call knows them: `remove` on a `List[Bool]` returns a
+  # `Bool`, so `if !flags.remove(0)` would read as "if not removed", as
+  # Rust's `if !flags.remove(0)` does. Under `not` the negation is meant,
+  # and the long form under it is the one offered.
+  obj Box[T]
+    items: List[T]
+
+    fun take(!@) -> T
+      !@items.remove(0)
+
+  flags = List([true, false, true])
+  if !flags.remove(0)
+    print("true")
+  b = Box(items: List([true]))
+  x = !b.take()
+  print(x)
+  c = not !flags.remove(0)
+  print(c)
+
+test "write call on a generic body's T", "true false"
+  # Inside a generic body a `T` stays a `T`, though an instance makes it
+  # a `Bool`: the short form is checked once, for every instance.
+  fun first[T](xs: !List[T]) -> T
+    !xs.remove(0)
+
+  fun pair[T](xs: !List[T]) -> List[T]
+    out: List[T] = List()
+    !out.push(!xs.remove(0))
+    out
+
+  flags = List([true, false])
+  a = first(!flags)
+  print(a, pair(!flags)[0])
+
+fail "write call short form on a Bool", "19:5: `!` lends `@seen` to write and never negates: write `(!@seen).add(k)` for what `add` returns, or `not (!@seen).add(k)` for its opposite", "23:8: write `(!c.seen).add(k)`", "25:10: write `not (!c).bump()`", "27:7: write `(!c).bump()`", "28:7: write `(!c).checked()`", errors: 5
+  # A write call whose result is a `Bool`, or a `Bool` that may fail,
+  # keeps its `!` in parentheses wherever its value is used: Rust's
   # `if !seen.insert(k)` means "already seen", and short it would read so.
+  # Under `not` the negation is meant, and only `not (!c).bump()` is
+  # offered.
 
   obj Counter
     n: Int

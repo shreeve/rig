@@ -43,6 +43,20 @@ comprehension, `x => ...`, `lambda`, `if let`, `o or 0` for an
 optional, `range(3)`, and `enumerate(xs)` are rejected with the Rig
 spelling, where each got a parse error or an unbound name.
 
+**`swap` exchanges no Cell, and `!s` of a `*{A}` lends only the
+handle** (both accepted by 0.3.0). `swap(!a, !b)` of two `Cell`s, a
+`Cell` reached through a `!Cell[T]`, a `*Cell[T]` that may not be
+written, a field, a branch, or a `=!` binding, or a `Cell` with itself,
+is rejected: "`swap` moves values whole, and a `Cell[Int]` changes only
+by its marked calls, which every handle shares: exchange its value with
+the Cell's own `old = (!c).swap(v)`". It read and wrote the Cell as
+plain memory, so a change another task made between was lost. Handles
+themselves still swap (`swap(!x, !y)` of two `*Cell[Int]` locals). And
+`!s` of a `*{A}` where a `!{A}` goes, which `rig check` accepted and Zig
+rejected, is a type mismatch: a `*{A}` only reads, as any handle. Trig,
+loco's sources, std, examples, and bench swap no Cell and lend no
+`*{A}` so; no migration is needed.
+
 **`extend_from_bytes` and `$embed` records read only `exact` objects**
 (a change to main since 0.3.0, which had neither): an object made from
 bytes, a literal's, a `?String`'s, or an embedded file's, is declared
@@ -76,8 +90,46 @@ a bare number, and of `per:` of `task.supervise` and
   `while`, and a ternary (`x = a + b if pair() as a, b else a` gave
   `a` two meanings). Rename the binding.
 
-**Four ownership holes are closed**, each rejecting programs 0.3.0
+**Seven ownership holes are closed**, each rejecting programs 0.3.0
 accepted:
+
+- a receive or send arm of `task.select` through a read view of a
+  channel's handle, `got: !ch.on_recv()` or `put: !ch.on_send(3)` of a
+  `ch: ?*Chan[Int]` (and the older `(!ch).on_recv(f)`), which received
+  or sent through a view that promised nothing changes, is rejected, as
+  `!ch.recv()` there was: "cannot lend to write through a read view
+  `?*Chan[Int]`; take a write view, or share a handle of your own with
+  `+h`". So is one through a field of a `?W`, an element of a
+  `?List[*Chan[T]]` or of a `[]*Chan[T]`, a read binding, or a `|?h|`
+  capture. Pass a handle of your own, `+ch`. Neither Trig nor std has a
+  select arm;
+- a `[]T` is a read view of its elements, so a handle in one changes
+  nothing through it, as through a `?List[T]`: `!s[0].set(5)` on a
+  `[]*Cell[Int]`, `!s[0].c.set(5)` on a `[]*Node`, a `Signal`'s `set`,
+  an actor's `!@` method `!s[0].add(1)` on a `[]*Actor[Box]`,
+  `(!s[0]).recv()`, and a select arm, each also through `s = ?xs[..]`
+  of a `?List`, which laundered the read view away, are rejected:
+  "cannot lend to write through a slice; a `[]T` is read-only", or,
+  for a Cell behind a handle the element holds, "cannot lend to write
+  through a read view `[]*Node`". Take a write slice, `![]*Cell[Int]`,
+  or a handle of your own. Trig, std, examples, and bench have no
+  slice of handles;
+- a channel or an actor made in a generic body, `*Chan[T](n)`, or
+  `*Actor(Box(v: v))` and `*Actor.supervised(...)` of a value holding a
+  `T`, is checked when it is made, whether or not the body puts a `T`
+  in it, as a `T` stored in a Cell is. At an instance whose `T` may
+  hold a view (`mk[?String]()`) it is rejected: "`mk[?String]` cannot
+  use `T = ?String`: the generic body makes a channel of `T`, which
+  carries no loan". A generic checked by its bounds, a `pub` one or one
+  with bounds (`[T: Sends]`), that makes such a channel or actor is
+  rejected where it is declared, even with no instance: "`pub fun
+  mk[T]` keeps a `T` where no loan is tracked: write `[T: Owned]`".
+  Add `Owned` to its bounds. Such a channel held a view of text that could be
+  freed while the channel held it (a use of freed memory under
+  `RIG_SANITIZE=1`), which a send arm, `put: !ch.on_send(?s)`, put in
+  unchecked; a send arm's value is now checked as `send`'s is, "cannot
+  store a view of `s` in a `Chan`". Use an owning type, `String`. Trig
+  makes channels and actors only of concrete types that hold no view;
 
 - a write view of a read view, `x` of `for x in !vv` over a
   `List[?T]`, reaches its value only to read it: `for n in !x.ns`,
@@ -121,8 +173,152 @@ none of these ever built:
   "closure parameter `x` needs a type", or "cannot infer `T`", where
   `rig build` reported an internal error.
 
+**A write call whose `Bool` value is used is judged with self's type
+arguments applied:** `!flags.remove(0)` on a `List[Bool]`, or `!b.take()`
+on a `Box[Bool]` whose `take` returns `T`, is a `Bool`, so where its
+value is used (`if !flags.remove(0)`, `x = !b.take()`) it is rejected
+now, as `if !seen.add(k)` is: "`!` lends `flags` to write and never
+negates: write `(!flags).remove(0)` for what `remove` returns, or `not
+(!flags).remove(0)` for its opposite". 0.3.0 judged the result the
+method declares, `T`, and accepted the short form, which a reader of
+C, Rust, or Go takes for `not`. Inside a generic body, where `T` is a
+parameter, the short form stays. Write the long form, or `not` before
+it where the negation was meant. Trig has no such site.
+
+**A fallible `sub` returns no value**: `return say(1)!`, `return ok()`,
+and `return f() catch ...` in a `sub` marked `!`, whose value is
+nothing, are rejected, as in a `sub` that cannot fail: "a `sub`
+returns no value, and fails only by returning an error: write
+`say(1)!` on its own line, then `return`". `return E.bad` and
+`return e` stay. Neither Trig nor the repository has such a `return`.
+
+**A generic body that discards several results holding a `T`**
+(`task.all(<a, <b)` as a statement, a call of `-> (T, T)` alone) makes
+`T` plain data, as discarding one `T` does: an instance whose `T` owns,
+`both[String](...)`, is rejected with "the generic body discards a
+value that holds a `T`", where it leaked. Bind the results and drop
+them, or give the body plain data.
+**`http.Response`'s `type` is an `http.Type`:** `.text`, `.html`,
+`.json`, `.css`, `.js`, `.csv`, `.xml`, `.svg`, `.png`, `.jpeg`,
+`.gif`, `.webp`, `.pdf`, `.wasm`, `.bytes`, or `.other(text)` for any
+other content type, written as given. A response built with text,
+`http.Response(status: 200, type: "image/png", body: b)`, is rejected,
+with "type mismatch: expected `http.Type`, got `Static`"; write `type: .png`, or
+`type: .other("image/x-icon")` for a type not named, and `.other("")`
+for none. `text`, `json`, `html`, `status`, and `not_found` are
+unchanged. Trig and loco have no such site.
+
+**`http.serve` frames a request's body as RFC 9112 says, and answers
+a head it refuses 400:** a request whose body a proxy in front could
+frame otherwise is refused, where 0.3.0 read it. These are answered
+400, `bad request`, and the connection closes:
+
+- a `Transfer-Encoding` whose last coding is not `chunked`
+  (`gzip`, `chunked, gzip`, `none`): 0.3.0 read no body, and on a GET
+  took the body's bytes for the next request;
+- a `Content-Length` that is not digits alone (`+3`, `1_0`, `-0`),
+  which 0.3.0 read as a number;
+- a CR, LF, or NUL that ends no line in the head, as
+  `X: a\nTransfer-Encoding: chunked`, which 0.3.0 kept in the header's
+  value, and a head ending in a bare `\n\n`;
+- a header line with no colon, or whose name is no token, as one with
+  a space or a tab before its colon (`Content-Length : 5`, RFC 9112
+  §5.1): 0.3.0 passed the line by, read no body, and took the body's
+  bytes for the next request, where a proxy that drops the space reads
+  a length;
+- every other head that does not parse, which 0.3.0 closed with no
+  answer.
+
+A request's body is read by the headers that frame it, whatever its
+method (RFC 9112 §6.3): a GET, HEAD, DELETE, OPTIONS, TRACE, or CONNECT
+with a `Content-Length` or chunked on a connection kept alive ended the
+whole server, by a failed assertion, and so did a chunk size of
+2^64 - 1, by an overflow. The server reads chunks itself now, as strictly
+as it reads a head: a chunk's size is 1 to 16 hex digits, then nothing
+or `;` and its extensions; every line ends in CRLF; a chunk's data is
+followed by CRLF; and a trailer is a header line, up to the empty line
+that ends the body. Every other form is answered 400, where Zig's
+reader took a bare LF, no digits at all, letters past `f`, and a space
+before or after the size, and ended the trailers at a first line of two
+or three bytes, reading the rest as the next request. Extensions count
+against the body's limit as data does. A body that ends before its
+`Content-Length` says, the client having closed, is not whole and gets
+no answer: it was handed to the handler as complete. An HTTP/1.0
+request that is chunked closes after its answer, and an `Expect` on
+one is passed by.
+
+A request with neither a `Content-Length` nor chunked has no body,
+whatever its method: 0.3.0 panicked, ending the whole server, on a
+POST, PUT, PATCH, or QUERY with neither on a connection kept alive. A
+request with both is read as chunked and its connection closed after
+the answer, where 0.3.0 kept it open and read what followed as the
+next request. A handler's status below 200 is answered 500: 0.3.0
+panicked on 100 or less, and sent 101 to 199 as an interim answer
+followed by a body. A 204 or a 304 is sent as its status line alone:
+0.3.0 sent a length and the handler's body after it, which a client,
+reading no body after either, took for the start of the next answer.
+A `.other` type holding a NUL is answered 500, as
+one holding a CR or LF is. Up to two empty lines before a request
+line, which some clients send after a body, are skipped (RFC 9112
+§2.2), where 0.3.0 closed the connection, and a coding is named in any
+case (`Chunked`). Trig and loco serve no HTTP; no migration is needed.
+
+**`http.serve` refuses a request that does not name its host once,
+and CONNECT, and reads `Connection` as a list:** these were served,
+and are refused now, each closing its connection:
+
+- an HTTP/1.1 request with no `Host` line, and a request of either
+  version with more than one, is answered 400, `bad request` (RFC 9112
+  §3.2). An HTTP/1.0 request needs none. A client written by hand
+  sends `Host: x` after its request line;
+- `CONNECT` is answered 405, `method not allowed`, before the handler
+  runs: a handler that answered every request gave it a 200, which a
+  client and a proxy in front take for a tunnel (RFC 9110 §9.3.6);
+- a body that is not whole 5 minutes after its head
+  (`RIG_HTTP_BODY_MS`) gets no answer: a client that sent a byte of it
+  within every idle time held its connection, and the body read so
+  far, for as long as it liked.
+
+`Connection` is a list of options, each named in any case, on every
+line of it (RFC 9110 §7.6.1): an HTTP/1.1 request with
+`Connection: close, TE` or `keep-alive, close`, or with `close` on a
+line before another, closes after its answer, where only a value of
+`close` alone, on the last line, did. An HTTP/1.0 connection stays
+open only when an option is `keep-alive` and none is `close` (RFC 9112
+§9.3), where any value but `close` kept it, `Upgrade` among them, and
+its answer says `connection: keep-alive`, without which a 1.0 client
+reads to a close that comes only after the idle time. Accepting goes
+on after a network error pending on one connection (`ENETDOWN`,
+`EPROTO`, `ENOPROTOOPT`, `EHOSTDOWN`, `ENONET`, `EHOSTUNREACH`,
+`EOPNOTSUPP`, `ENETUNREACH`), which Linux hands back from `accept`,
+as after a connection its client gave up: one ended `serve`, and
+`listener.accept()` failed with it. No migration script: Trig and loco
+serve no HTTP.
+
+### Removed
+
+- **`--release=fast`**, Zig's fast mode, from `rig run`, `rig build`,
+  `rig test`, and `rig batch build`. Every build keeps Rig's checks
+  (overflow, conversions, shifts, bounds, vector lanes), so "accept
+  means correct" holds in every mode. The flag is a usage error that
+  names the opt-outs: "`--release=fast` is gone: every build keeps
+  Rig's checks; write `+%`, `-%` or `*%` for wrapping arithmetic, or
+  `raw` for Zig builtins". To migrate, drop the flag (`--release` is
+  Zig's safe mode, and `--release=safe` stays its synonym), and write
+  `+%`, `-%`, `*%`, or a `raw` block where unchecked code is meant. No
+  program is rejected. The benchmarks build Rig with `--release`
+  alone; their `rig-fast` variants are gone, and tables measured with
+  them say so.
+
 ### Added
 
+- **`!xs.extend(?ys[a..b])`** appends to a `List[T]` a copy of each element of a slice, an array, or a List, growing once and copying them with one `@memcpy`, where a loop of `push` tested the room for each. `T` copies and holds no view, as for `List(a)`: an owning `T` is rejected with the loop that clones each element, `for y in ys` with `!xs.push(+y)`, and a `T` that holds a view with `!xs.push(y)`; a generic body's `T` is checked in each instance. A source that views the List, `!xs.extend(?xs[..2])`, is rejected by the ownership checker (SPEC "List").
+- **`task.all` of tasks that give no value**: `task.all(save(?a)&, save(?b)&)!` waits for several `sub`s at once and gives nothing, a statement; the first to fail cancels the others, and `!` or `catch` takes the wait's failure as for tasks that give values. One call does not mix tasks that give values with tasks that give none, which is rejected with "`task.all` gives each task's value, or nothing when none gives one". In a generic body a task of a type parameter's type gives a value, a `T`, even in an instance that binds `T` to `Void`, as before. The rejections that land beside it, a leak in a generic body and a fallible `sub`'s `return` of nothing, are listed under "Upgrading from v0.3.0".
+- **`http.ok(<body)`** of std.http is a 200 response of plain text that takes the String `body`, where `http.text(body)` copies the text it reads. A `Response`'s `type` is an `http.Type`, `.json`, which the server writes as its full content type from a table made when the program is compiled; `.other(text)` writes any other, a `Static` held with no copy. It was a `String` each response allocated. `text`, `json`, `html`, `status`, and `not_found` are as before.
+- **`par.push(!t, ?sizes, f, limit: n)`** of std.par pushes `sizes.sum()` slots onto a Table at once and writes them on several tasks, a run at a time: run `k` is the next `sizes[k]` slots, in order, and `f(!run, k)` takes it as a `![]T`. The table ends as a serial loop of pushes leaves it, at any worker count and seed. The sizes and the room are tested before any task starts, a full table panicking with `push`'s message. bench/par-push times it against a serial loop.
+- **`par.each` with a function that gives a value** is rejected, with "`par.each` keeps nothing its function gives", where Zig rejected the program it emitted.
+- **std.shared**: `shared.Map[K, V]`, a map several tasks fill and read at once. A key keeps the first value put under it, and nothing is replaced or taken, so `get` gives a view of the value where it lies with no lock and no write to memory another task reads; `put_new` and `ensure` lock one of 64 shards. It lives behind `*shared.Map[K, V]`, whose handles go to any task. bench/shared times it against Maps behind actors.
+- **A word-Cell object goes to other tasks.** An object that holds a Cell and whose every field, as declared, is plain data, a Cell of one word, or another such object changes through a handle only by its Cells, so its handles are counted atomically and cross cores, as a `*Cell[Int]`'s do (Core sentence 9). The error for one that stays with one task names the field that keeps it. A program whose tasks were local only because they took such a handle now runs them on any core, so a race already in it, such as a `get` then a `set` of one of its Cells, becomes live.
 - **`task.workers(n)` raises the workers after the first task.** A program that learns how much work it has only once running, as a checker does after parsing, can ask for more workers then. It only raises; it gives false for fewer than run, and a deterministic run keeps to one thread.
 - **Dense stacks.** `rig build --release` gives a task that cannot need much stack a dense stack, which holds 17.6 KB on the Mac where a large one holds 33.5 KB. A task with recursion, or a call through a pointer, keeps a large stack, as does every task of a debug build or `rig run`.
 - **`task.fast_cores()`** gives how many fast physical cores the
@@ -249,6 +445,116 @@ none of these ever built:
 
 ### Compiler
 
+**A loop that folds integers runs by vectors.** A `for` over a List or a
+slice of integers whose body is only `s += x`, `s +%= x`, `s ^= x`,
+`s |= x`, or `s &= x`, `s` a local of the element's type, is lowered to
+`rig.fold`, a vector loop, since Zig 0.17 builds with LLVM's loop
+vectorizer off. A checked `s += x` still panics on the element where
+the loop as written would. On an Apple M5 a checked Int sum runs 1.9
+times as fast, an I32 one 3.8 times, and a wrapping Int sum 1.7 times
+from L1; `bench/fork`'s psum is 6% faster at one worker and level at
+all workers, where it reads memory as fast as the machine gives it.
+
+**The hint for a task lent to write keeps self's `!`**: `t =
+!b.bump()&`, where it wrote `t = b.bump()&`, which is rejected.
+**A generic call whose bounds fail reports once.** An instance made by
+one whose type arguments break its bounds is no longer checked, so the
+generic helpers that instance would reach do not repeat its error:
+`sort.sort` of `F32`s gives the one bound error at the call, not one
+more for each of std.sort's helpers.
+
+**`!` of a value that changes by a marked call lends to read.** `!x`
+puts only a read loan on `x` when it lends a write view of a Cell, a
+Signal, a channel, an actor, or a value that holds a Cell, judged by the
+concrete type of the value lent from (Core §4); `!h` lending the handle
+itself, assigning `h`, and dropping it stay writes. The rule itself
+accepts more programs and rejects none (the `swap` change above is the
+one that rejects): `!c.add((!c).swap(4))`,
+`!ch.send((!ch.recv()! ?? 0) + 5)!`, a view `r = ?c` kept across
+`!c.set(5)`, `hit2(!h, !h)` for two `!Hits`, `(!@).bump((!@).bump(1))`,
+a put into std.shared's map while a view it gave lives, and a task of
+`(!h).bump()&`, which now goes into a set or is returned, keeping its
+read loan while it runs. One fact, `loanOf`, recorded by typecheck,
+replaces the ownership checker's exceptions for actor calls and select
+arms.
+
+- An owned closure literal passed to a generic function,
+  `apply(3, *|x| x + 1)` with `f: *fun(T) -> R`, takes its parameter
+  types from the other arguments and binds the result's type, as a
+  closure lent to the call does, and builds and runs, where `rig check`
+  accepted it and emit failed ("cannot emit an untyped parameter").
+- A closure written in `par.map` or `par.workers` whose body is in
+  error, `par.map(?xs, |x| x.abs())` on `Int`s or `|c| (!c).swap(5)`
+  on a read view of a `*Cell`, is rejected with its own error, checked
+  given the element it is lent, where `rig check` accepted it and emit
+  stopped with an internal error. This rejects programs `rig check`
+  accepted, none of which built. A closure that propagates, or gives
+  nothing to `par.map`, reports its own errors too, with no stray
+  "use of `!` propagation requires a fallible enclosing function". A
+  closure passed to a generic function whose result would bind a type
+  parameter, `sort.sort_by_key(!xs[..], |a| a.abs())`, reports its
+  errors in place of "cannot infer `K`".
+- A closure in `par.map` or `par.workers` that takes more parameters
+  than the call passes, `par.map(?xs, |x, y| x + y)`, is rejected with
+  "this closure takes 2 parameters, but `par.map` passes 1", where
+  `rig check` accepted it and emit failed.
+- A generic call reports no "cannot infer" for a type parameter left
+  unbound by a closure in error: one whose result is in error, one
+  waiting on its result, or one with a parameter of an unknown type,
+  `apply(3, |x: Nope| x)`; the closure's error says why.
+- A closure in error that propagates, written in `par.map`,
+  `task.isolate`, `task.supervise`, a select arm, `reduce`, or a generic
+  call whose function can fail, is checked as one that can fail, the
+  reading with fewer errors: its own errors are reported once, with no
+  "use of `!` propagation requires a fallible enclosing function" and
+  no "`!` needs a fallible operand" or "fallible call ... must be
+  wrapped" about the call, which gives no type of its own.
+- A method task through a shared handle or a box, `(!h).bump()&` or
+  `?h.peek()&` of a `*T`, a `*Frozen[T]`, or a `^T`, in a local, a
+  field, an element, or through a view, builds and runs, where `rig
+  check` accepted it and Zig rejected the emitted call: the method is
+  given the value's address behind the handle or in the box, reached
+  as a plain call reaches it. `std.shared.Map`'s method tasks build
+  for the same reason.
+- A task's `wait` written out on a task made there,
+  `(sq(5)&).wait()`, is rejected with the call itself as the fix,
+  "write `sq(5)`", and on a task in a field with taking it out to a
+  name first, where the hint was a `>` of no name, which does not parse.
+- An arm of `task.select` on a handle made in the arm,
+  `got: !make().on_recv()` or `(!make()!).on_recv(f)`, drops the
+  channel with its statement, where the channel leaked; one on a branch
+  of handles, `got: !(a if k else b).on_recv()`, in either spelling,
+  builds and runs, where `rig check` accepted it and `rig run` stopped
+  with an internal error in emit. The arm's `!` is a lend checked as a
+  marked method's self is, so its temporary and its branch are held
+  as a self's are.
+- An arm whose handle is no channel says so first, "`n` is a `Int`,
+  not a channel", with no advice on lending it before that.
+- A function other than `main` that gives no value and cannot fail, and
+  whose every path ends in a `panic`, in a call of such a function, or
+  in a `loop` no `break` leaves, is emitted with Zig's result
+  `noreturn` (`src/returns.zig`, decided once for the whole program), so
+  LLVM drops each caller's path past a call of it, which a `void`
+  result kept in a split build: Trig's shared `debug.fail` helper, a
+  `sub` ending in `panic`, cost its parse phase 1.2% at one checker
+  that way. Nothing a program means or whether it is accepted changes.
+- An exit inside a call's arguments runs its defers with self lent to
+  no one, since the call never starts: `!nums.push(text.parse_int(w)!)`
+  under `errdefer !nums.resize(n, 0)` is accepted, where it was rejected
+  with "cannot lend `nums` to write while a read loan is live", and so
+  are the same shape under a `defer`, a `?`, a `return` or `continue`
+  in the argument, two write calls pending at once, and an index the
+  failure is in (`!g[text.parse_int(w)!].push(1)`). A lend an earlier
+  argument made, `keep(!nums, text.parse_int(w)!)`, stays rejected.
+- One principle decides where a `!` cannot stand: a `!` is rejected
+  wherever reading it as `not` would also type-check. A write call
+  whose `Bool` value is used says so: "`!` lends `seen` to write and
+  never negates: write `(!seen).add(3)` for what `add` returns, or
+  `not (!seen).add(3)` for its opposite", and under `not`, where the
+  negation is plain, offers only `not (!seen).add(3)`. The result is
+  judged with self's type arguments applied where the call knows them,
+  so `!flags.remove(0)` on a `List[Bool]` is a `Bool`; inside a generic
+  body a `T` stays a `T`.
 - An object or payload enum that holds a generic of another module
   whose fields name the generic's parameter as an optional (`kids:
   List[T?]` in `W[T]`, held as `w.W[Node]` in `Node`) is rejected with
@@ -373,6 +679,27 @@ none of these ever built:
 
 ### Tests
 
+- The scheduler's unit tests assert what holds however late the system
+  runs a thread, not how soon. Two tasks that answer each other over a
+  socket each wake the other into their own worker's run-next slot,
+  waking no worker (`sched.WakeCount`); which worker runs a woken side
+  is a race between pollers, which a debug build or a loaded machine
+  tips toward two workers. A test that leaves work to an idle worker
+  waits until that worker sleeps; the blocking pool's tests count the
+  calls inside at once rather than time them; the moves a heap test
+  needs are made, not hoped for (`testMove`); and a wait on a full
+  socket buffer tells room that late bytes made from readiness with
+  none. The tests of an idle worker woken for a busy one's descriptors
+  or timer assert that it slept and then ran the fiber; a 10 s limit
+  only ends a broken run. The tests of a maker that leaves its task to
+  an idle worker repeat until a round finds that worker asleep, as one
+  between its search and its sleep counts as busy.
+- Tasks made in turn and waited for in order start on the idle workers
+  because the switch to the first wakes one for the others
+  (`sched.spread`): a unit test counts that wake and asserts the others
+  start while the first, which makes no yield check, still runs. It
+  replaces `test/cli/spawn_wake.sh`, which required them to start
+  within 300 µs, a bound a loaded machine's late threads miss.
 - `tools/mac-claim LABEL CMD` runs one timing job holding the Mac's
   claim line, with `TRIG_MAC_CLAIMED=1` and `RIG_MAC_CLAIMED=1` set for
   it, so a tool that waits on the claim does not wait on its own: it waits while another claim holds the Mac or a
@@ -417,6 +744,18 @@ none of these ever built:
   it skipped on stderr elsewhere; it fails, too, when fewer programs
   than its floor (22) are in λRig's scope, or when lrig writes a line it
   does not know.
+- The reference ownership checker (`bin/rig-oracle`) checks the task
+  rules of its own: a task keeps what its call lent to write as a write
+  loan, and a task carrying one moves only into the binding that names
+  it and into its wait or cancel (its new rule T2); no Cell, Signal,
+  owned closure, actor's value, or channel holds a task. It decides a
+  method of an actor's value called through its handle, which reads
+  the handle (its `!` lends nothing, and its task keeps none of the
+  handle), and the arms of `task.select`, which stay lent and taken
+  until the select returns, and reads an element method such as
+  `xs.sum()` as reading its self. Verdict tests state each task rule.
+  Its floors rise by what it now decides (159 functions of the
+  tests, 40 of the docs).
 - The reference ownership checker (`bin/rig-oracle`) agrees with the
   compiler on a closure literal lent to a call, whose result carries the
   loans of what the closure captured, and decides the flow of sets of
@@ -447,6 +786,18 @@ none of these ever built:
 
 ### Docs
 
+- The concurrency docs' benchmarks are measured with `--release` on the
+  Mac (docs/launch/benchmarks.md, docs/CONCURRENCY.md, the launch post
+  and FAQ): `fanout` is level with Tokio and Go, a sleeping task holds
+  17.1 KiB on a dense stack, an idle HTTP connection less than hyper's
+  and Go's with page tables counted for all three, and loopback round
+  trips and fork-join trail Tokio and Rayon. The x86-64 Linux figures
+  are measured with `--release` too, all three runtimes on the same
+  cores: a sleeping task holds 5.2 KiB, and the HTTP server answers
+  592,000 to 846,000 requests a second against hyper's 473,000 to
+  486,000 at its best worker count, spending more CPU on a request but
+  keeping more cores busy.
+
 - The docs, std, the examples, and the benchmarks write a self sigil
   short wherever it applies, `!c.read(!buf, 4096)!`, `?p.dist(q)`,
   `<conn.close()`; the long form stays only for a write call whose
@@ -459,6 +810,396 @@ none of these ever built:
 
 ### Runtime
 
+- **A fork-join takes back its own tasks from its ring:** `>t` on a
+  task that has not started and is the newest in its worker's ring (a
+  fork-join's halves made past the four run-next slots, waited for in
+  turn) takes it back from the ring's tail, as a Chase-Lev owner pops,
+  and runs it by handoff, as it runs one still in a slot. A waiter that
+  parked there left its stack held while its worker ran the ring's
+  oldest task, a bigger subtree; the walk now stays depth first, as
+  Rayon's `join`. The take counts as a fiber started for the preemption
+  monitor, as the park it replaces did, so a fork-join that takes back
+  its own tasks is not stopped every 100 µs for them. On the Mac
+  (bench/fork, paired medians over 20 rounds) psum is 1.6-2.0% faster at
+  10 workers and 7-8% at one; bench/tasks and bench/net are level.
+- **On the Mac every socket waits in one poller:** worker 0's, wherever
+  it is registered from, as `http.serve`'s connections share their
+  acceptor's. With a kqueue a worker, every worker was woken by its own
+  sockets and looked at every other's kqueue as it went to sleep, 9.0
+  system calls a round trip on bench/net's echo; with one, 4.5. Echo is
+  19% faster, 6% faster than Tokio; ping-pong and connect are level.
+  A busy worker's turns and checks look at worker 0's poller where they
+  looked at their own, so a recursion on worker 0 holds back no socket
+  while the other workers are busy. Linux keeps a poller a worker.
+- **On the Mac, worker 0 keeps its sockets' work while its tasks are
+  short:** while fewer than a tenth of worker 0's tasks run 20 µs or
+  longer, a worker going to sleep does not look at its poller unless
+  its present task has run 20 µs, and the tasks one batch of its own
+  events makes ready, past the first, wake no worker for 50 µs, which
+  worker 0 reaches sooner itself than a woken worker would. bench/http's
+  closed loop serves 14% more requests a second, 15% more than hyper, on
+  40% less of the server's CPU a request; bench/mixed at 100,000 a
+  second, where a quarter of the requests hash, runs as before. A batch
+  kept past its time while worker 0 runs on is taken by the watcher
+  within a millisecond. Linux is unchanged.
+- **A task left in a run-next slot as its worker runs another stays in
+  sight:** a task a timer, a poller, or a task's end made ready as its
+  worker ran nothing took that worker's slot and told no one, and when
+  the worker then ran a task from the global queue while another worker
+  searched, that one found nothing and slept, and the task waited for
+  the running one to stop, however long it recursed: a timer's task
+  beside a recursion of 300 ms ran after it. A worker that switches to a
+  task while another waits in its slots now sets `sched.waiting`
+  (`sched.spread`), so the running task's next recursive check hands it
+  on.
+- **A timer stays covered when the sleeper woken for it leaves early:**
+  a timer earlier than every sleeper's wake kicks one sleeper, which
+  sleeps again until it, and the others may sleep with no deadline. When
+  that one left its sleep first, popped for work or finding some, the
+  timer waited for the next worker to sleep, however long the busy
+  workers computed without a loop check: a 10 ms sleep beside a fiber
+  that recursed for half a second took half a second. A worker leaving
+  its sleep now kicks a sleeper for the earliest deadline unless one
+  wakes by then (`sched.passTimers`), and the sleep takes 10 ms.
+- **A busy worker's sockets stay watched when the sleeper kicked to
+  watch them leaves early:** a worker that woke holding descriptors
+  kicked one sleeper to watch every poller, and the others, having found
+  no busy worker holding any, slept with no timeout. When that sleeper
+  left its sleep first, popped for work or finding some, or when a busy
+  worker took its first descriptor, no worker watched, and an event on
+  the socket of a worker that computed without a loop check waited for
+  the computation to end. A worker leaving its sleep now kicks another
+  sleeper while none watches and a busy worker holds descriptors
+  (`sched.leaveSleep`), and so does a busy worker that took its first
+  descriptor, at its loop's next turn: the event is seen within the
+  watch's millisecond.
+- **On the Mac a look at a poller returns at once:** every kqueue call is
+  `kevent64`, and a look passes `KEVENT_FLAG_IMMEDIATE`, where an empty
+  zero-timeout `kevent` cost about 12 µs and a context switch; it now
+  costs 0.16 µs and none. A worker whose poller holds descriptors, and
+  whose last wait ended with work within 50 µs, first waits at most
+  20 µs with that near deadline, since macOS wakes such a wait about
+  2 µs sooner. On the Mac an HTTP request costs 12.5% fewer cycles
+  (8.4% under the mixed load), connect runs 5.3% faster and ping-pong
+  1%; the trade, accepted by the owner: bench/net's echo runs 3.8%
+  slower, the look's old short wait having picked up a busy worker's
+  events on the way to sleep. Linux is unchanged.
+- **A batch of events wakes one fiber locally and leaves the rest to be
+  stolen:** of the fibers one look at a poller (or one firing of timers)
+  makes ready, the first takes the worker's run-next slot and the rest
+  go to its ring, where an idle worker takes them at once, where before
+  they waited in run-next slots that others reach only after 3 µs. A
+  steal copies straight into the thief's ring, and a look at a poller
+  fills no stack buffer first. The last searcher to find work wakes
+  another only while other work waits (`sched.workPending`), and
+  formal/Models/Sleep.lean models both (`workPending`, `spread`). On
+  pup, an HTTP request costs 4-5% fewer cycles (3-9% fewer than
+  hyper's), and ping-pong and echo run 2-7% faster; on the Mac a
+  request costs 8-9% fewer cycles. The trade: the one-core HTTP
+  ceiling at saturation is 0.05-0.3% lower, about twice the noise a
+  change of code layout makes.
+- **A sleeping worker that trims its heap has another watch its
+  descriptors:** out of its wait while it gives its heap's free pages
+  back, it counts as awake, and passes the watch on or has another
+  sleeping worker take it (`sched.leaveWait`), so an event on its
+  poller meanwhile waits no longer than a watch's 1 ms while another
+  worker sleeps. With every other worker busy, it waits until the trim
+  ends, as before, since busy workers look only at their own pollers.
+- **A worker going to sleep never blocks writing stdout.** Before it
+  waits in its poller it writes only what stdout takes at once of what
+  `print` buffered, and what is left is written as stdout has room,
+  watched for writability on that worker's poller. A server whose
+  stdout was a full pipe, whose reader waited for its answer on a
+  socket before reading, could block in that write and never see the
+  connection; it answers now. A pipe takes `PIPE_BUF` bytes at a time
+  while it polls writable, a socket what fits (on macOS, which ignores
+  `MSG_DONTWAIT`, its low-water mark at a time), a regular file or
+  `/dev/null` everything; a terminal is still written a line at a time
+  by `print`, and a `print` that fills the buffer and the final flush
+  still write everything. A program that makes no task does the same
+  in its waits on a socket and its sleeps, which also poll for stdout's
+  room while bytes are left, so it too answers with stdout full.
+- **A program started with stdin, stdout, or stderr closed gets
+  `/dev/null` there**, opened the way it is not used (stdin for writing,
+  stdout and stderr for reading), as the C library does for a
+  set-user-ID program: no socket or file the program opens takes their
+  numbers, so a `print` can no longer write into a socket the program
+  opened, and a write of a closed stdout still fails with "stdout: not
+  open for writing".
+- **A program's first parallel call starts faster:** at the first task
+  `main` starts worker 1 alone, which maps 16 stacks (address space,
+  untouched) for itself and each worker after it, and then starts them
+  and the monitor. `main` waited on nine thread starts, and the stacks
+  were mapped as the work spread, where macOS serializes each mapping
+  among the threads starting and running. psum's first call on the Mac
+  is 10% faster (2.230 ms at the median, from 2.486), 0.22 ms over a
+  warm call where it was 0.45, against Rayon's 0.12
+  (docs/history/records/2026-11/concurrency-startup). Workers still
+  start at the first task, and a program that makes none starts none.
+  A program that ends while worker 1 is still starting the others
+  starts no more, so an `os.exit` right after the first task tears down
+  as one later does.
+- **`sort.sort` of integers sorts by ipnsort** (Rust's
+  `sort_unstable`: a branchless cyclic Lomuto partition on a recursive
+  pseudomedian, the elements equal to an earlier pivot split off,
+  sorting networks of 9 and 13 with insertion and a bidirectional merge
+  for 32 elements or fewer, heapsort past 2 log2(n) unbalanced
+  partitions), in a kernel written in Zig (std/sort.zig). On the Mac
+  every Int row of std-sort's board is faster than pattern-defeating
+  quicksort, from 1.7 times as fast (sorted input) to 12 times
+  (reversed, 16 elements); random Ints of 256 to 2^20 elements are
+  within 3% of Rust's `sort_unstable`, and 16 random Ints sort 2.2
+  times as fast as Rust's. The kernel keeps the rules of the program's
+  loops: its code lies in the program's section, where a signal
+  preempts a task, and where yield checks run it checks every 16,384
+  elements it handles, so a long sort keeps no other task waiting. With
+  bench/fork's merge-back written with `extend`, as its Rayon twin
+  writes it, qsort of 2^22 Ints is 15% faster at one worker and 6 to 7%
+  faster at ten
+  (docs/history/records/2026-11/concurrency-bench-remeasure/).
+- **`sort.sort` sorts by pattern-defeating quicksort where equal
+  elements are the same value**: numbers, `Bool`, text, plain enums,
+  and the optionals, arrays, objects, and enums made only of these whose
+  header derives `Ord`. There no program can tell equal elements apart,
+  so the order quicksort leaves them in is unseen, and `sort` stays
+  stable in meaning. It compares with `<` inline, allocates nothing, and
+  takes O(n log n) comparisons at worst and O(n) on sorted or reversed
+  input. On the Mac, against the merge sort `sort` used before, every
+  row of 16 to 4,194,304 elements is faster: random Ints 2.1 times as
+  fast at 16 elements, 6.0 times at 4,096, and 10.3 times at 4,194,304;
+  random text 1.3 to 2.6 times; random objects 1.1 to 8.2 times; and
+  sorted, reversed, and 16-valued input from 7% faster (16 reversed
+  Strings) to 24 times as fast (a million Ints of 16 values). Against
+  Zig's `std.sort.pdq` given whole-value swaps and built the same way,
+  it is level or faster on 65 of the 72 rows and at most 10% slower
+  (reversed Ints). A type
+  with an `order` of its own, whose equal values may differ, one holding
+  a handle, and `sort_by` and `sort_by_key` sort by the stable merge
+  below (docs/history/records/2026-11/std-sort/).
+- **`sort.sort_by`, `sort.sort_by_key`, and `sort.sort` of a type with
+  an `order` of its own sort as Rust's `sort` does** (driftsort, by
+  Orson Peters and Lukas Bergdoll): natural runs of sqrt(n) elements or
+  more kept, a strictly falling one reversed, and merged in powersort's
+  order; input without such runs sorted by a stable quicksort that
+  partitions through a room, in pieces as large as the room, and splits
+  off the elements equal to a pivot (O(n log k) for k distinct values);
+  32 elements or fewer by sorting networks and insertion, 20 or fewer
+  by insertion. The room holds half of the slice or, while it takes at
+  most 8 MB, all of it: one allocation, none for 20 elements or fewer
+  or for input in order or strictly in reverse; out of memory panics,
+  as at any allocation. The algorithm is in std/sort.rig; the loops
+  that move elements between the slice and the room while they compare
+  them are std/sort.zig's, which check the range they are given and run
+  unchecked inside, each element moved exactly once whatever the
+  comparator answers. The sort is inline throughout, so the comparator
+  is inlined into it at each call. It replaces insertion runs of 20
+  merged in place by rotations. A natural run is scanned four steps a
+  turn. On the Mac, against that merge sort, random records are 13
+  times as fast at a million (196.77 to 15.31 ns per element), random
+  Ints 15 times, random text 6.7 times, reversed input 39 times,
+  16-valued input 19 to 29 times; against the buffered merge before it
+  every row is faster, by 9% at the least. Against Rust's `sort_by`, 58
+  of 64 rows are within 2% or faster: random text 1.6 to 1.9 times as
+  fast, sorted input 42% faster to twice as fast, reversed input 9 to
+  53% faster, random and 16-valued records level; random Ints are 2 to
+  6% slower, and 16-valued Ints of 1,024 to 4,096 elements 5 to 9%
+  (docs/history/records/2026-11/std-sort/drift.md).
+- **Text `<`, `<=`, `>`, and `>=` compare eight bytes at a time**:
+  from 8 bytes in common as big-endian words, the last word overlapping
+  the bytes found equal (`rig.textLess`), where `std.mem.order` compared
+  and branched on every byte; a `Bool` from one compare, which a sort's
+  partition takes with no branch. A stable sort of 65,536 random text
+  views is 4.3 times as fast as with `std.mem.order`, sorted ones 6.3
+  times; `sort` of random, sorted, or reversed text 1.3 to 4.4 times.
+- **An integer's `order` folds into one compare where its result is
+  tested**: `rig.order` no longer goes through `std.math.order`, whose
+  checked `unreachable` kept `x.order(?y) == .less` from becoming
+  `x < y`; a stable sort of records by an own `order` on an Int key is
+  46% faster on a million random keys.
+- **`!xs.swap(i, j)` of an element up to 64 bytes swaps whole values**,
+  where `std.mem.swap` moved one byte at a time, which LLVM turned into
+  byte shuffles of the two elements: an insertion sort of 16 Ints ran
+  two to three times as slow so. A larger element is still swapped in pieces.
+- **`<` on an object ordered by its fields** compares field by field,
+  the first that differs deciding, a number, `Bool`, or plain enum field
+  by `!=` and `<`, without making an `Order` first, which made Zig's
+  pattern-defeating quicksort of objects of two Ints 1.8 to 3.2 times as
+  slow when tried there.
+- **`http.serve` copies no request's text for its handler:** a
+  request's `method`, `path`, `query`, and `head` view the bytes read,
+  which the handler only reads (`?http.Request`), and only its `body`
+  is allocated. A request with a body has its head copied once, into
+  one block, before the body is read.
+- **`http.serve` writes its answer's head from text made once:** the
+  status line comes from a table made when the program is compiled,
+  and the length is written digit by digit. The bytes sent are those
+  Zig's `respond` wrote. A response whose type holds a CR, LF, or NUL
+  is answered 500, where a safe build panicked on a CR or LF. The
+  server parses a request's head as Zig's `Head.parse` does, finding
+  the header a name means by its length first.
+- **`http.serve` reads a request's head in one pass:** finding where
+  the head ends, each line's end and colon, CRs and NULs, and the
+  target's `?` together, a vector of bytes at a time, where Zig's
+  `receiveHead` found the end and `Head.parse` split the lines again.
+  The head ends at its first empty line or bare `\n\n`, wherever its
+  bytes fall: by where the bytes fell between reads and its vectors,
+  Zig's `HeadParser` missed some ends, a bare `\n\n` or one after a
+  bare `\n` (`\n\r\n\r\n`), and found some that are none, after a line
+  of one byte (`\r\na\r\n`), leaving the headers after it for the next
+  request.
+  Each line is read as `Head.parse` reads it, with its errors, and a
+  head is refused beyond those as Upgrading says (a stray CR, LF, or
+  NUL, a length not digits, a Transfer-Encoding not ending in
+  `chunked`). A Zig test compares the two on heads generated from
+  pieces, each read whole and a few bytes at a time.
+- **`req.arg(name)`** compares each pair's start with the name, with
+  no split.
+- **Loopback round trips make fewer system calls:** a socket read that
+  comes back short took all there was, so the next read waits on the
+  poller for an edge before it calls, rather than being told EAGAIN (an
+  end that came with the last bytes still lets it return at once); a
+  kick a look finds stays standing in a flag, so a kick costs one
+  system call however many workers look. Urgent data ends the wait, as
+  the end of reading does. On Linux bench/net's echo runs 4-6% faster
+  and ping-pong 5%, with 40% fewer system calls; on the Mac echo runs 5%
+  faster and ping-pong 2%; connect, HTTP, bench/tasks and bench/actors
+  are level on both
+  (docs/history/records/2026-11/concurrency-loopback/profile.md).
+- **A connection reset before it is accepted no longer stops the
+  server:** on macOS every socket option on a reset connection fails
+  with EINVAL, which Zig's `posix.setsockopt` took for a bug, so an
+  accept, a listen, or `batch` on such a connection reached
+  unreachable code. std.net sets its options with the system call and
+  lets the connection's next read or write meet the reset.
+- **A FIFO's reader on macOS sees its writer leave:** `file.read` of a
+  FIFO, and a `File`'s reads of one, read without blocking and wait for
+  bytes in a poll of at most 64 ms (`rig.net.FifoWait`). A read parked
+  in the macOS kernel can miss a writer that opens the FIFO and closes
+  it, writing nothing, as the read begins, and wait for good, and
+  macOS's poll and kqueue never report the writers gone: plain `cat`
+  hangs so in 1 of 300 such rounds on a loaded Mac, and eight readers
+  of 500 rounds each hung in 7 of 8 runs, where none now does. The end
+  such a writer leaves comes at the next poll, so a FIFO's reader waits
+  up to 64 ms longer for it.
+- **A `File`'s read of a nonblocking descriptor waits:** on every
+  system, a read that finds no bytes on a descriptor that does not
+  block, such as a stdin a parent left O_NONBLOCK, waits for them in a
+  poll (bounded on macOS, as above) and reads again, as a blocking read
+  would, where it failed with `FileError.failed`.
+- **A span takes its 4 KiB units and no more:** a large block under
+  16 MiB is a run of 4 KiB units of a span segment, its length rounded
+  up to whole units, where it was rounded to four buckets a doubling
+  and then to 16 KiB units. Trig's `ast.NodeRec` blocks of 34.5 KB take
+  36 KiB, where they took 48. On the Mac, Trig's peak memory is 15 MiB
+  lower on supabase-studio at one checker (1280 to 1265 MiB) and 14 MiB
+  at four, and 6 MiB lower on webpack at one and at four, at the same
+  speed. A unit is a quarter of the Mac's page, so there a block aligned
+  past 4 KiB is a mapping of its own, and a span gives back to the
+  system only the pages wholly inside it.
+- **Eight small classes a doubling to 8 KiB:** small blocks from 64
+  bytes to 8 KiB fall in eight size classes a doubling, where there were
+  four, so a block wastes at most a ninth of itself where it wasted a
+  fifth; from 8 KiB to 32 KiB they stay four a doubling, as a class's
+  64 KiB page holds only two or three such blocks and the room it leaves
+  past them outweighs a finer class. On the Mac, Trig's peak memory is
+  12 MiB lower on supabase-studio at one checker and 10 MiB at four, and
+  2 MiB lower on webpack at one checker and level at four, at the same
+  speed. The fast path is unchanged.
+- **An index tests both ends with one compare:** `xs[i]`, `xs[i] = v`,
+  `get`, `insert`, `remove`, `swap_remove`, `keep`, and `swap` on a
+  List or a slice of elements of at least a byte read a signed index as
+  unsigned and compare it once with the length, where a sign test and a
+  bound test made two. A negative index still panics with "index out of
+  bounds". A length read as an `Int` is known non-negative to the
+  optimizer, so past a test `i < n` of that length the compare folds to
+  the sign test alone: std.json's six guard files retire 0.5 to 2.5%
+  fewer instructions than before.
+- **A match on a plain enum makes no test of its tag:** Zig's safe mode
+  tests that a switched enum holds one of its tags; safe Rig never holds
+  another, so emit switches on `rig.namedTag(x)`, which states the range
+  to the optimizer, and an optimized build drops the test. A match inside
+  `raw`, a debug build, and an enum whose values are not one run of
+  integers keep it.
+- **`std.file` writes no fill over its buffers:** Zig's safe builds
+  write 0xAA over every `undefined` local at each call, and `std.file`
+  kept large ones on the stack. `read_dir` takes its 32 KiB buffer from
+  the runtime's allocator, which writes nothing over it, and sorts a
+  directory of up to 24 entries as Zig's sort does, without its 2 KiB
+  stack of ranges. A path goes to the system through a 512-byte
+  buffer on the stack, or a block of the allocator for a longer one,
+  where each call kept one for the longest path (4 KiB on Linux, 1 KiB
+  on macOS). `exists`, `stat`, `read_dir`, and the whole read of a file
+  make their own stat and open of a directory from that path, the
+  system calls of Zig's `statFile` and `openDir` with the same errors,
+  since Zig's copy each path into a buffer for the longest one; a name
+  in a path longer than the system takes is `name_too_long` on Linux,
+  where Zig's took ENAMETOOLONG from statx for its own bug. A whole
+  read of a file that reports its size has no 4 KiB probe on its stack,
+  and `realpath` writes into the String it gives.
+- **Release allocator:** on Linux, a segment that gets huge pages is
+  not faulted in ahead: its first write to each 2 MiB faults all of it
+  in, so the call made for each 64 KiB page a class took
+  (`MADV_POPULATE_WRITE`) found all but the first of 32 mapped. A
+  segment of small pages is faulted in a page at a time as before,
+  and 1 MiB at a time once its heap has taken 64 MiB from the system.
+- A task's record is a block of Rig's allocator in a release build,
+  taken from the heap of the thread that makes the task and given back
+  to it by the thread that frees it, where it was a block of Zig's
+  `smp_allocator`, which maps and unmaps memory for records as tasks
+  are made and freed. A debug build keeps Zig's allocator.
+  Together, on pup, Trig checking supabase-studio at four checkers
+  makes 3,241 to 3,586 `madvise` calls where it made 12,975 to 13,135,
+  968 to 971 `mmap` where it made 1,872 to 1,897, and 1,011 to 1,027
+  `munmap` where it made 1,812 to 1,819.
+- A large block under 16 MiB is a span of a 32 MiB segment of its
+  heap, carved from the reservation the small blocks' segments come
+  from, where it was a mapping of its own: taking one, growing one,
+  and freeing one make no `mmap`, `munmap`, or `mremap`. A span freed
+  joins the free spans beside it; one that grows takes the free span
+  after it, or the room after it at its segment's end, and else is
+  copied, where on Linux `mremap` moved its pages; a span freed on
+  another thread goes back to its heap, and a heap with no free span
+  that fits takes one of another heap's whose pages are resident
+  before it takes new pages. A block of 16 MiB or more is a mapping of
+  its own, as before. Forty-eight Lists of 40 to 88 KiB, each grown
+  five times to twice its length and freed, three times over, made 117
+  `mmap`, 182 `munmap`, and 269 `mremap` calls on Linux and 283 `mmap`
+  and 274 `munmap` on the Mac, and make none.
+- On Linux, every segment of small blocks, every span segment, and
+  every large block of 2 MiB or more mapped on its own asks for huge
+  pages (`MADV_HUGEPAGE`) while the system has free 2 MiB blocks for it
+  and 8 more, where span segments, mappings of 2 to 16 MiB, and the
+  segments of a heap that does not fault in ahead (a server's worker's,
+  a blocking-pool thread's) kept small pages, and under
+  `enabled=always` asked for them. Trig checking supabase-studio on pup
+  runs 3.3% faster at one checker, 4.9% at four, and 3.5% balanced,
+  with 41 to 67% fewer cycles walking page tables and 36 to 58% fewer
+  page faults. The cost is memory: peak RSS is 2.5 to 3.4% higher on
+  large projects and 6 to 8% higher on tiny ones, as a huge page
+  commits 2 MiB of a List's room not yet filled, and a heap that keeps
+  to one segment commits its segment 2 MiB at a time.
+- A worker that has slept 10 ms gives back what its heap holds free,
+  once its heap has taken 4 MiB from the system since it last did:
+  the pages of its kept large blocks, and on Linux each 64 KiB class
+  page whose blocks are all free (`MADV_DONTNEED`); what stays free goes
+  on its remote lists, where any heap that would take a new page takes
+  it first. So memory a burst of tasks freed serves the thread that
+  works on: Trig's parallel loader, checking Material UI's docs at one
+  checker with 8 cores, peaked 74 MiB over loading on one thread, and
+  peaks 14 MiB over it.
+- A `rig build --bolt` executable built to be preempted is preempted:
+  BOLT moved the program's functions out of `rig_text` and rewrote the
+  section's bounds so that no address lay between them, so no signal
+  stopped a task, and a task that spun on a worker kept it. BOLT now
+  lays out only the program's own functions, those its profile names,
+  leaving the runtime's where the linker put them; `bin/rig` writes
+  where the program's code then lies into the executable, which the
+  runtime reads as it starts, and fails the build if a section holds
+  functions of both. `rig build --bolt` also takes an executable such a
+  build wrote, in place of the .rig file, and lays a copy of it out into
+  `-o`'s file by a workload or a saved `--bolt-profile`, compiling
+  nothing: one machine builds, and another, whose processor records
+  branches, lays the build out the same way.
 - `String(a, b, ...)` whose pieces are all text (a literal, a `?String`,
   a String) adds their lengths, allocates one block of the sum, and
   copies each piece into it once. It wrote them through a writer into a

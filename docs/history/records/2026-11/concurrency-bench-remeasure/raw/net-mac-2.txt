@@ -1,0 +1,8 @@
+
+Sun Nov 15 20:44:12 MST 2026
+{ 3.27 4.15 5.16 }
+7a2efd0f3
+         rig-safe      tokio         go            vs tokio
+pingpong 16.38 us/trip 13.63 us/trip 16.39 us/trip rig-safe 1.2x slower, go 1.2x slower
+echo     8.60 us/trip  5.81 us/trip  7.33 us/trip  rig-safe 1.5x slower, go 1.3x slower
+connect  50.73 us/conn 59.71 us/conn 61.73 us/conn rig-safe 1.2x faster, go 1.0x slower

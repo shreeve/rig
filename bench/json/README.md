@@ -25,7 +25,7 @@ bench/json/bench-json
 
 That builds each variant and times them interleaved, keeping each one's
 fastest run. The default variants are `rig-safe` (`rig build --release`,
-Zig's safe mode, every check kept), `rig-fast`, and Zig's `std.json`
+Zig's safe mode, every check kept) and Zig's `std.json`
 building the same tape or its `Value`, each in `-OReleaseSafe` and
 `-OReleaseFast`. `bench/json/bench-json --help` lists the options, among
 them `--files`, `--variants` (including `rig-safe@TIER=0`, which rewrites

@@ -98,7 +98,8 @@ fn absent(err: anyerror) Error!void {
 /// A regular file is read in the task (`readInline`); a FIFO on Linux
 /// on the pool from the descriptor the task opened (`readFifo`); anything
 /// else, a device, a FIFO elsewhere, or a failure to report, on the pool
-/// from the path (`readHere`).
+/// from the path (`readHere`), a FIFO among them read as `fifoBytes`
+/// reads.
 pub fn read(path: []const u8) Error!?rig.String {
     return switch (try readInline(path)) {
         .got => |s| s,
@@ -125,15 +126,15 @@ const Inline = union(enum) { got: ?rig.String, fifo: i32, pool };
 /// waits as it would.
 fn readInline(path: []const u8) Error!Inline {
     try rig.checkStop();
-    var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
-    const z = terminated(path, &buf) catch |err| {
+    var buf: Path = .{};
+    defer buf.free();
+    const z = buf.of(path) catch |err| {
         try absent(err);
         return .{ .got = null };
     };
     const io = rig.io();
     if (comptime !fifo_by_descriptor) {
-        const named = std.Io.Dir.cwd().statFile(io, path, .{}) catch |err| {
-            const e = failure(err);
+        const named = statAt(cwd, z, true) catch |e| {
             if (e == not_found or e == error.@"std.file.FileError.not_directory") return .{ .got = null };
             return .pool;
         };
@@ -170,23 +171,33 @@ fn readInline(path: []const u8) Error!Inline {
 /// nothing there could not tell the end from a writer yet to come.
 const fifo_by_descriptor = builtin.os.tag == .linux;
 
-/// The bytes of the FIFO `readInline` opened, nonblocking, at `fd`, as a
-/// blocking read gives them: up to the end its last writer leaves. A
-/// read of nothing (0) is the end once a poll has reported the writers
-/// gone (POLLHUP), and otherwise means no writer has come yet, or one
-/// left between the poll and the read: the next poll waits for a writer
-/// or reports the one that left. Each read takes what the FIFO holds,
-/// up to a full pipe's 64 KiB.
+/// The bytes of the FIFO `readInline` opened, nonblocking, at `fd`
+/// (`fifoBytes`).
 fn readFifo(fd: Fd) Error!?rig.String {
     var own = fd;
     defer own.__rig_drop();
+    return try fifoBytes(own.fd, false);
+}
+
+/// The bytes of the FIFO open at `fd`, which does not block, as a
+/// blocking read gives them: up to the end its last writer leaves.
+/// Opened once a writer came (`paired`), a read of nothing (0) is that
+/// end. Opened without waiting, as `readInline` opens, it is the end
+/// once a poll has reported the writers gone (POLLHUP), and otherwise
+/// means no writer has come yet, or one left between the poll and the
+/// read: the next poll waits for a writer or reports the one that left.
+/// Each read takes what the FIFO holds, up to a full pipe's 64 KiB; each
+/// wait is a `rig.net.FifoWait`'s, bounded on macOS, whose poll never
+/// reports the end.
+fn fifoBytes(fd: i32, paired: bool) Error!rig.String {
     var s: rig.String = .empty;
     errdefer rig.dropElement(rig.String, &s);
+    var w: rig.net.FifoWait = .{};
     var gone = false;
     while (true) {
-        const n = readSome(own.fd, s.roomFor(64 * 1024)) catch |err| switch (err) {
+        const n = readSome(fd, s.roomFor(64 * 1024)) catch |err| switch (err) {
             error.WouldBlock => {
-                gone = try waitReadable(own.fd);
+                gone = try w.wait(fd);
                 continue;
             },
             else => |e| return e,
@@ -195,36 +206,23 @@ fn readFifo(fd: Fd) Error!?rig.String {
             s.list.items.len += n;
             continue;
         }
-        if (gone) break;
-        gone = try waitReadable(own.fd);
+        if (paired or gone) break;
+        gone = try w.wait(fd);
     }
     s.fit();
     return s;
 }
 
-/// Wait until the FIFO at `fd` has bytes to read or its writers are
-/// gone; whether the poll reported them gone (POLLHUP).
-fn waitReadable(fd: i32) Error!bool {
-    var fds = [1]posix.pollfd{.{ .fd = fd, .events = posix.POLL.IN, .revents = 0 }};
-    while (true) {
-        try rig.checkStop();
-        const rc = sys.poll(&fds, fds.len, -1);
-        switch (posix.errno(rc)) {
-            .SUCCESS => if (rc > 0) return fds[0].revents & posix.POLL.HUP != 0,
-            .INTR => {},
-            else => |e| return errnoFailure(e),
-        }
-    }
-}
-
 fn readHere(path: []const u8) Error!?rig.String {
-    var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
-    const z = terminated(path, &buf) catch |err| {
+    var buf: Path = .{};
+    defer buf.free();
+    const z = buf.of(path) catch |err| {
         try absent(err);
         return null;
     };
     // Opened as a directory may be, so that one stat gives both what it is
-    // and its size.
+    // and its size. A FIFO's open waits for a writer; then its reads do
+    // not block (`fifoBytes`).
     const fd = openAt(z, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }) catch |err| {
         try absent(err);
         return null;
@@ -233,6 +231,10 @@ fn readHere(path: []const u8) Error!?rig.String {
     const file: std.Io.File = .{ .handle = fd, .flags = .{ .nonblocking = false } };
     const st = file.stat(rig.io()) catch |err| return failure(err);
     if (st.kind == .directory) return error.@"std.file.FileError.is_directory";
+    if (st.kind == .named_pipe) {
+        try setNonblocking(fd, true);
+        return try fifoBytes(fd, true);
+    }
     return readOpen(fd, st) catch |err| switch (err) {
         error.WouldBlock => error.@"std.file.FileError.failed",
         else => |e| e,
@@ -248,22 +250,33 @@ fn readOpen(fd: i32, st: std.Io.File.Stat) (Error || error{WouldBlock})!rig.Stri
     var s: rig.String = .empty;
     errdefer rig.dropElement(rig.String, &s);
     _ = s.roomFor(size);
-    // Read into the spare capacity, a sized file only up to its size (the
-    // buffer may hold more), so it is done once that is read; any other
-    // goes on, once the buffer is full, into `probe`, which finds its end
-    // without growing the buffer.
+    // A sized file is read into the spare capacity up to its size (the
+    // buffer may hold more), and is done once that is read.
+    if (sized) {
+        while (s.list.items.len < size) {
+            const room = s.list.unusedCapacitySlice();
+            const n = try readSome(fd, room[0..@min(room.len, size - s.list.items.len)]);
+            if (n == 0) break;
+            s.list.items.len += n;
+        }
+    } else try readRest(fd, &s);
+    s.fit();
+    return s;
+}
+
+/// The rest of a file that reports no size onto `s`: into its spare
+/// capacity, then, once that is full, into `probe`, which finds the end
+/// without growing the buffer. Only such a read has `probe` on its
+/// stack, which Zig's safe builds fill at every call.
+fn readRest(fd: i32, s: *rig.String) (Error || error{WouldBlock})!void {
     var probe: [4096]u8 = undefined;
     while (true) {
         const room = s.list.unusedCapacitySlice();
-        const spare = if (sized) room[0..@min(room.len, size -| s.list.items.len)] else room;
-        if (spare.len == 0 and sized) break;
-        const into = if (spare.len > 0) spare else &probe;
+        const into = if (room.len > 0) room else &probe;
         const n = try readSome(fd, into);
-        if (n == 0) break;
-        if (spare.len > 0) s.list.items.len += n else s.appendBytes(probe[0..n]);
+        if (n == 0) return;
+        if (room.len > 0) s.list.items.len += n else s.appendBytes(probe[0..n]);
     }
-    s.fit();
-    return s;
 }
 
 /// Write `data` as the whole file at `path`, creating it or emptying it
@@ -288,10 +301,12 @@ pub fn rename(from: []const u8, to: []const u8) Error!void {
 /// `Dir.rename` takes EINVAL (a directory moved into itself) for its
 /// caller's bug and panics.
 fn renameHere(from: []const u8, to: []const u8) Error!void {
-    var from_buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
-    var to_buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
-    const a = try terminated(from, &from_buf);
-    const b = try terminated(to, &to_buf);
+    var from_buf: Path = .{};
+    defer from_buf.free();
+    var to_buf: Path = .{};
+    defer to_buf.free();
+    const a = try from_buf.of(from);
+    const b = try to_buf.of(to);
     while (true) {
         switch (posix.errno(sys.renameat(posix.AT.FDCWD, a, posix.AT.FDCWD, b))) {
             .SUCCESS => return,
@@ -332,7 +347,7 @@ pub fn exists_at(path: []const u8) Error!bool {
 }
 
 fn existsHere(path: []const u8) Error!bool {
-    _ = std.Io.Dir.cwd().statFile(rig.io(), path, .{}) catch |err| {
+    _ = statPath(path, true) catch |err| {
         try absent(err);
         return false;
     };
@@ -341,7 +356,7 @@ fn existsHere(path: []const u8) Error!bool {
 
 /// Whether a file, or anything but a directory, is at `path`.
 fn isFile(path: []const u8) bool {
-    const s = std.Io.Dir.cwd().statFile(rig.io(), path, .{}) catch return false;
+    const s = statPath(path, true) catch return false;
     return s.kind != .directory;
 }
 
@@ -352,8 +367,9 @@ pub fn remove(path: []const u8) Error!bool {
 }
 
 fn removeHere(path: []const u8) Error!bool {
-    var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
-    const z = try terminated(path, &buf);
+    var buf: Path = .{};
+    defer buf.free();
+    const z = try buf.of(path);
     return unlinkAt(z) catch |unlinked| {
         if (unlinked == error.@"std.task.Stop.canceled" or unlinked == error.@"std.task.Stop.timeout") return unlinked;
         // A directory, which `unlink` will not remove (EISDIR on Linux,
@@ -372,8 +388,9 @@ pub fn unlink(path: []const u8) Error!bool {
 }
 
 fn unlinkHere(path: []const u8) Error!bool {
-    var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
-    return unlinkAt(try terminated(path, &buf));
+    var buf: Path = .{};
+    defer buf.free();
+    return unlinkAt(try buf.of(path));
 }
 
 fn unlinkAt(z: [*:0]const u8) Error!bool {
@@ -392,8 +409,9 @@ pub fn rmdir(path: []const u8) Error!bool {
 }
 
 fn rmdirHere(path: []const u8) Error!bool {
-    var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
-    return rmdirAt(try terminated(path, &buf));
+    var buf: Path = .{};
+    defer buf.free();
+    return rmdirAt(try buf.of(path));
 }
 
 fn rmdirAt(z: [*:0]const u8) Error!bool {
@@ -414,13 +432,20 @@ pub fn realpath(path: []const u8) Error!?rig.String {
     return realpathHere(path);
 }
 
+/// Written straight into the String's room for the longest path, which
+/// `fit` then cuts to the path's length: a buffer of that length on the
+/// stack would be filled at every call in Zig's safe builds.
 fn realpathHere(path: []const u8) Error!?rig.String {
-    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
-    const n = std.Io.Dir.cwd().realPathFile(rig.io(), path, &buf) catch |err| {
+    var s: rig.String = .empty;
+    const room = s.roomFor(std.Io.Dir.max_path_bytes);
+    const n = std.Io.Dir.cwd().realPathFile(rig.io(), path, room) catch |err| {
+        rig.dropElement(rig.String, &s);
         try absent(err);
         return null;
     };
-    return fresh(buf[0..n]);
+    s.list.items.len = n;
+    s.fit();
+    return s;
 }
 
 // -----------------------------------------------------------------------------
@@ -437,15 +462,19 @@ pub fn stat_into(path: []const u8, info: *rig.List(i64)) Error!bool {
 }
 
 fn statHere(path: []const u8) Error!?[4]i64 {
-    const io = rig.io();
-    const cwd = std.Io.Dir.cwd();
-    const here = cwd.statFile(io, path, .{ .follow_symlinks = false }) catch |err| {
+    var buf: Path = .{};
+    defer buf.free();
+    const z = buf.of(path) catch |err| {
+        try absent(err);
+        return null;
+    };
+    const here = statAt(cwd, z, false) catch |err| {
         try absent(err);
         return null;
     };
     var s = here;
     if (here.kind == .sym_link) {
-        s = cwd.statFile(io, path, .{}) catch |err| blk: {
+        s = statAt(cwd, z, true) catch |err| blk: {
             // A link that names nothing.
             try absent(err);
             var broken = here;
@@ -492,31 +521,38 @@ const Entries = struct {
 
 fn entriesHere(path: []const u8) Error!?Entries {
     const io = rig.io();
-    var dir = std.Io.Dir.cwd().openDir(io, path, .{ .iterate = true }) catch |err| {
-        // A file at the path, or on the way to it, is not a directory.
-        if (failure(err) != not_found) return failure(err);
-        return null;
-    };
+    var dir: std.Io.Dir = .{ .handle = (try openDirAt(path)) orelse return null };
     defer dir.close(io);
     var out: Entries = .{};
     errdefer rig.dropElement(Entries, &out);
     // Many entries to a system call, where `iterate`'s 2 KiB holds about
-    // 55; and no seek to the start of a directory just opened.
-    var buf: [32 << 10]u8 align(@alignOf(usize)) = undefined;
-    var reader: std.Io.Dir.Reader = .init(dir, &buf);
+    // 55; and no seek to the start of a directory just opened. From the
+    // runtime's allocator, which writes nothing over it: on the stack,
+    // Zig's safe builds would fill all 32 KiB at every call.
+    const buf = rig.allocSlice(usize, dir_buffer_bytes / @sizeOf(usize));
+    defer rig.freeSlice(usize, buf);
+    var reader: std.Io.Dir.Reader = .init(dir, std.mem.sliceAsBytes(buf));
     reader.state = .reading;
     while (reader.next(io) catch |err| return failure(err)) |entry| {
         var kind = entry.kind;
         var link = kind == .sym_link;
         // A link's kind is what it names; a kind the directory does not
         // record is looked up.
-        if (kind == .unknown) {
-            if (dir.statFile(io, entry.name, .{ .follow_symlinks = false })) |here| {
-                link = here.kind == .sym_link;
-                kind = here.kind;
-            } else |_| {}
+        if (kind == .unknown or link) {
+            var name: Path = .{};
+            defer name.free();
+            if (name.of(entry.name)) |z| {
+                if (kind == .unknown) {
+                    if (statAt(dir.handle, z, false)) |here| {
+                        link = here.kind == .sym_link;
+                        kind = here.kind;
+                    } else |_| {}
+                }
+                if (link) kind = if (statAt(dir.handle, z, true)) |target| target.kind else |_| .unknown;
+            } else |_| if (link) {
+                kind = .unknown;
+            }
         }
-        if (link) kind = if (dir.statFile(io, entry.name, .{})) |target| target.kind else |_| .unknown;
         out.names.push(fresh(entry.name));
         out.codes.push(kindCode(kind) + @as(i64, if (link) 4 else 0));
     }
@@ -532,8 +568,38 @@ fn entriesHere(path: []const u8) Error!?Entries {
             std.mem.swap(i64, &s.codes[a], &s.codes[b]);
         }
     };
-    std.sort.pdqContext(0, out.names.len, Later{ .names = out.names.items(), .codes = out.codes.items() });
+    const later: Later = .{ .names = out.names.items(), .codes = out.codes.items() };
+    // A short list as `pdqContext` sorts one, but without the stack of
+    // ranges it makes first, which Zig's safe builds fill at every call:
+    // names in a directory differ, so the order is the same.
+    if (out.names.len <= 24) std.sort.insertionContext(0, out.names.len, later) else std.sort.pdqContext(0, out.names.len, later);
     return out;
+}
+
+/// The bytes of the buffer `entriesHere` reads a directory into.
+const dir_buffer_bytes = 32 << 10;
+
+/// A descriptor of the directory at `path`, open to read its entries, or
+/// null when nothing is at `path`; anything else there, or on the way
+/// to it, is `not_directory`. The open of Zig's `Dir.openDir`, with the
+/// FileErrors its errors give, but with the path copied as `Path`
+/// copies it.
+fn openDirAt(path: []const u8) Error!?posix.fd_t {
+    var buf: Path = .{};
+    defer buf.free();
+    const z = buf.of(path) catch |err| {
+        if (err == not_found) return null;
+        return err;
+    };
+    while (true) {
+        const rc = sys.openat(cwd, z, .{ .ACCMODE = .RDONLY, .DIRECTORY = true, .CLOEXEC = true }, @as(posix.mode_t, 0));
+        switch (posix.errno(rc)) {
+            .SUCCESS => return @intCast(rc),
+            .INTR => try rig.checkStop(),
+            .NOENT => return null,
+            else => |e| return pathFailure(e),
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -543,31 +609,43 @@ fn entriesHere(path: []const u8) Error!?Entries {
 /// A descriptor of the file at `path` open to read, or null when nothing
 /// is there. Without `wait`, the open does not wait for a FIFO's writer
 /// or a device to be ready: it opens with O_NONBLOCK, then clears it, so
-/// the reads after it wait as any read does.
+/// the reads after it wait as any read does. On macOS a FIFO's is left
+/// not blocking, either way, and its reads wait in `poll`
+/// (`rig.net.FifoWait`): a read parked in the kernel there can miss the
+/// end its writers leave.
 pub fn open_fd(path: []const u8, wait: bool) Error!?i64 {
     const got = (try pool(?Fd, openHere, .{ path, wait })) orelse return null;
     return got.fd;
 }
 
 fn openHere(path: []const u8, wait: bool) Error!?Fd {
-    var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
-    const fd = openAt(try terminated(path, &buf), .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NONBLOCK = !wait }) catch |err| {
+    var buf: Path = .{};
+    defer buf.free();
+    const fd = openAt(try buf.of(path), .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NONBLOCK = !wait }) catch |err| {
         try absent(err);
         return null;
     };
     var got: Fd = .{ .fd = fd };
-    if (!wait) blocking(fd) catch |err| {
-        got.__rig_drop();
-        return err;
-    };
+    errdefer got.__rig_drop();
+    const fifo = darwin and (try statFd(fd)).kind == .named_pipe;
+    if (fifo) try setNonblocking(fd, true) else if (!wait) try setNonblocking(fd, false);
     return got;
 }
 
-/// Clear O_NONBLOCK on `fd`, so its reads wait.
-fn blocking(fd: i32) FileError!void {
+/// Whether a FIFO's descriptor is left not blocking (`open_fd`).
+const darwin = builtin.os.tag.isDarwin();
+
+/// What is open at `fd`.
+fn statFd(fd: i32) FileError!std.Io.File.Stat {
+    const file: std.Io.File = .{ .handle = fd, .flags = .{ .nonblocking = false } };
+    return file.stat(rig.io()) catch |err| failure(err);
+}
+
+/// Set or clear O_NONBLOCK on `fd`: cleared, its reads wait.
+fn setNonblocking(fd: i32, on: bool) FileError!void {
     const flags = try fcntl(fd, posix.F.GETFL, 0);
     const nonblock: usize = @as(u32, @bitCast(posix.O{ .NONBLOCK = true }));
-    _ = try fcntl(fd, posix.F.SETFL, flags & ~nonblock);
+    _ = try fcntl(fd, posix.F.SETFL, if (on) flags | nonblock else flags & ~nonblock);
 }
 
 fn fcntl(fd: i32, cmd: i32, arg: usize) FileError!usize {
@@ -595,8 +673,9 @@ fn createHere(path: []const u8, parents: bool) Error!Fd {
 /// missing directory on the way to it when `parents`: emptied, or to
 /// write at its end.
 fn openMaking(path: []const u8, how: enum { truncate, append }, parents: bool) Error!i32 {
-    var buf: [std.Io.Dir.max_path_bytes:0]u8 = undefined;
-    const z = try terminated(path, &buf);
+    var buf: Path = .{};
+    defer buf.free();
+    const z = try buf.of(path);
     var flags: posix.O = .{ .ACCMODE = .WRONLY, .CREAT = true, .CLOEXEC = true };
     if (how == .truncate) flags.TRUNC = true else flags.APPEND = true;
     return openAt(z, flags) catch |err| {
@@ -622,14 +701,88 @@ fn openAt(path: [*:0]const u8, flags: posix.O) Error!i32 {
     }
 }
 
-/// `path` with a 0 after it, in `buf`.
-fn terminated(path: []const u8, buf: *[std.Io.Dir.max_path_bytes:0]u8) FileError![*:0]const u8 {
-    if (path.len >= buf.len) return error.@"std.file.FileError.name_too_long";
-    if (std.mem.findScalar(u8, path, 0) != null) return error.@"std.file.FileError.invalid";
-    if (path.len == 0) return not_found;
-    @memcpy(buf[0..path.len], path);
-    buf[path.len] = 0;
-    return buf[0..path.len :0];
+/// A path with a 0 after it, as a system call takes it, kept for one
+/// call: on the stack when shorter than `short`, as nearly every path
+/// is, and otherwise in a block from the runtime's allocator, which
+/// `free` gives back. Zig's safe builds fill every `undefined` local at
+/// each call, so a buffer for the longest path (4 KiB on Linux) on the
+/// stack would cost every call that fill.
+const Path = struct {
+    short: [512]u8 = undefined,
+    long: []u8 = &.{},
+
+    /// `path` with a 0 after it. A path as long as the longest the
+    /// system takes is `name_too_long`, one with a 0 in it `invalid`,
+    /// and the empty path `not_found`, as the system reports it.
+    fn of(p: *Path, path: []const u8) FileError![*:0]const u8 {
+        if (path.len >= std.Io.Dir.max_path_bytes) return error.@"std.file.FileError.name_too_long";
+        if (std.mem.findScalar(u8, path, 0) != null) return error.@"std.file.FileError.invalid";
+        if (path.len == 0) return not_found;
+        const into: []u8 = if (path.len < p.short.len) &p.short else long: {
+            p.long = rig.allocSlice(u8, path.len + 1);
+            break :long p.long;
+        };
+        @memcpy(into[0..path.len], path);
+        into[path.len] = 0;
+        return into[0..path.len :0];
+    }
+
+    fn free(p: *Path) void {
+        rig.freeSlice(u8, p.long);
+        p.long = &.{};
+    }
+};
+
+/// The working directory, for the `*at` system calls.
+const cwd = posix.AT.FDCWD;
+
+/// What is at `path`, a link followed when `follow`: `statAt` in the
+/// working directory.
+fn statPath(path: []const u8, follow: bool) FileError!std.Io.File.Stat {
+    var buf: Path = .{};
+    defer buf.free();
+    return statAt(cwd, try buf.of(path), follow);
+}
+
+/// What is at `z` in the directory open at `dir`, a link followed when
+/// `follow`: what Zig's `Dir.statFile` gives, from the same system call
+/// (statx on Linux, fstatat elsewhere), but from a path already ended by
+/// a 0: `statFile` copies each path into a buffer for the longest one,
+/// which Zig's safe builds fill at every call.
+fn statAt(dir: posix.fd_t, z: [*:0]const u8, follow: bool) FileError!std.Io.File.Stat {
+    while (true) {
+        if (comptime builtin.os.tag == .linux) {
+            const linux = std.os.linux;
+            const flags: u32 = linux.AT.NO_AUTOMOUNT | @as(u32, if (follow) 0 else linux.AT.SYMLINK_NOFOLLOW);
+            var stx = std.mem.zeroes(linux.Statx);
+            switch (linux.errno(linux.statx(dir, z, flags, std.Io.Threaded.linux_statx_request, &stx))) {
+                .SUCCESS => return std.Io.Threaded.statFromLinux(&stx) catch error.@"std.file.FileError.failed",
+                .INTR => continue,
+                else => |e| return pathFailure(e),
+            }
+        } else {
+            var st = std.mem.zeroes(posix.Stat);
+            const flags: u32 = if (follow) 0 else posix.AT.SYMLINK_NOFOLLOW;
+            switch (posix.errno(sys.fstatat(dir, z, &st, flags))) {
+                .SUCCESS => return std.Io.Threaded.statFromPosix(&st),
+                .INTR => continue,
+                else => |e| return pathFailure(e),
+            }
+        }
+    }
+}
+
+/// The FileError of a failed open of a directory (`openDirAt`) or stat
+/// (`statAt`): what `failure` gives for the error Zig's `openDir` and
+/// `statFile` make of the `errno`. Where Zig's takes an `errno` for a
+/// bug of its own (Linux's ENAMETOOLONG from statx, a name in the path
+/// longer than the system takes), it is the system's reason.
+fn pathFailure(e: posix.E) FileError {
+    return switch (e) {
+        .ACCES, .PERM, .LOOP, .NOENT, .NOTDIR, .NAMETOOLONG, .INVAL => errnoFailure(e),
+        .ILSEQ => error.@"std.file.FileError.invalid",
+        else => error.@"std.file.FileError.failed",
+    };
 }
 
 /// `File.read`: up to `max` bytes onto the end of `into`, read into its

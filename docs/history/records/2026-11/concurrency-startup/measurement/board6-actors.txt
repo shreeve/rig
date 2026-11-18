@@ -1,0 +1,9 @@
+rounds 20; fastest / median, ms (memory: bytes a live task)
+arm                             solo               contend                spread
+main                   4.834 / 4.961       11.921 / 12.649         0.860 / 0.882
+aa                     4.888 / 4.988       11.977 / 12.873         0.851 / 0.878
+tree                   4.850 / 4.998       11.278 / 11.908         0.810 / 0.891
+
+medians against main's
+aa:                      0.5% slower           1.8% slower           0.5% faster
+tree:                    0.7% slower           5.9% faster           1.0% slower

@@ -1,0 +1,20 @@
+ of 20
+aa           chain       995.61 us
+final        chain      1006.97 us
+main         chain      1002.56 us
+aa           fanout    279972.61 us
+final        fanout    279874.80 us
+main         fanout    279867.66 us
+aa           hog          15.57 us
+final        hog          16.05 us
+main         hog          14.49 us
+aa           produce    6452.61 us
+final        produce    6436.37 us
+main         produce    6453.20 us
+aa           spawn      7919.31 us
+final        spawn      8066.75 us
+main         spawn      8019.11 us
+aa           yield     31542.52 us
+final        yield     31360.81 us
+main         yield     31691.93 us
+

@@ -105,18 +105,15 @@ in it.
 `rig run` builds in Zig's debug mode with a leak-checking allocator: a program
 that leaks memory reports it and exits with an error. Built with
 `RIG_SANITIZE=1`, it also crashes at any use of freed memory. `--release` builds
-in Zig's safe mode, and `--release=fast` in its fast mode. Integer
-overflow, out-of-bounds indexing and slicing, and a numeric conversion
-whose value does not fit panic in debug and safe builds; a panic exits
-with status 134 in every mode ([§17](#panic)).
-The fast mode is the one outside that guarantee: it drops the
-overflow and conversion checks, so there an overflow or an out-of-range
-conversion is undefined behavior. That holds for the lanes of a vector
-as for a scalar: `+ - * -v` and `<<` on vectors are checked in debug and
-safe builds and unchecked in fast. Indexing and slicing stay checked in
-every mode; a test the compiler proves already passed (a guard or an
-earlier check made it on every path, and nothing it tested changed
-since) is not repeated.
+in Zig's safe mode. Both modes keep every check: integer overflow,
+out-of-bounds indexing and slicing, a shift by too much, and a numeric
+conversion whose value does not fit panic, for the lanes of a vector
+as for a scalar, and a panic exits with status 134 ([§17](#panic)). No
+build mode turns a check off. A program leaves them only where its
+source says so: `+%`, `-%`, and `*%` wrap, and a `raw` block reaches
+Zig's builtins and extern functions ([§15](#15-raw-code-and-ffi)). A test the compiler
+proves already passed (a guard or an earlier check made it on every
+path, and nothing it tested changed since) is not repeated.
 
 ---
 
@@ -1301,9 +1298,7 @@ its lanes.
 `+%`, `-%`, `*%`, their saturating forms `+|`, `-|`, `&`, `|`, `^`, and
 `-v` give a vector of the same type, and `==`, `!=`, `<`, `<=`, `>`, and
 `>=` give a mask. Each lane follows the scalar rule for its type: `+`,
-`-`, `*`, and `-v` panic when any lane overflows in debug and safe
-builds, and in `--release=fast` are unchecked (an overflowing lane is
-undefined behavior, as a scalar's is), the wrapping forms wrap, and the saturating forms stop at the lane
+`-`, `*`, and `-v` panic when any lane overflows, the wrapping forms wrap, and the saturating forms stop at the lane
 type's limits; the integer operators take integer lanes, `&`, `|`, and
 `^` also a mask's, the orderings number lanes, and `-v` signed or float
 lanes. A scalar of the lane type, or a literal that fits it, stands for
@@ -1311,8 +1306,8 @@ every lane, on either side: `v < 0x20`, `v == quote`, `1 + v`. The
 shifts `v << c`, `v <<% c`, and `v >> c` move every integer lane by one
 amount `c`, an integer, below the lane's bit count, with the scalar rules: a
 constant `c` at or over it is rejected and a run-time one
-panics, `<<` panics where a lane loses bits (or its sign) under the same rule
-(fast does not check), `<<%` drops them, and `>>` is arithmetic on signed lanes. The compound forms
+panics, `<<` panics where a lane loses bits (or its sign) under the same rule,
+`<<%` drops them, and `>>` is arithmetic on signed lanes. The compound forms
 (`v += 1`, `m |= v == q`, `v >>= 4`) assign the result. `/` and `%`
 take no vector. A vector's lanes are computed only when the program
 runs, even from constants: where a constant scalar that overflows is
@@ -1597,7 +1592,9 @@ sub main()
 does not ([SYNTAX §8](docs/SYNTAX.md#functions)). A `fun` always has a
 return type: a `fun` without `->`, or returning `Void`, is rejected in
 favor of a `sub`. A `sub` marked `!`, `sub save(n: Int)!`, may fail,
-and its type is `sub(Int)!` ([§13](#13-errors)). A function's value is
+and its type is `sub(Int)!` ([§13](#13-errors)); its `return` takes no
+value or an error, `return E.bad`, never a call that gives nothing
+(`return save(1)!`), which stands on its own line. A function's value is
 its last expression, or the value of a `return`. A call always has its
 parentheses, `greet()`: the name alone is the function as a value.
 
@@ -1962,7 +1959,12 @@ Without a marker the compiler decides which small functions to inline
 ([INTERNALS](docs/internals/INTERNALS.md), "Inlining"), and LLVM may
 inline larger ones. A function whose every path ends in a `panic` is
 taken as `rarely`: the branch to a panic, and to the runtime's own
-failure reports, is laid out as the path that is not taken.
+failure reports, is laid out as the path that is not taken. A function other than `main`
+that gives no value and cannot fail, and whose every path ends in a
+`panic`, in a call of such a function, or in a `loop` no `break`
+leaves, with no `return` and no `!` or `?` that passes a failure or a
+`none` on, is compiled as one that never returns, so what follows a call
+of it is known never to run. Neither rule changes what a program means.
 `rig build --release` warns about a function whose frame, as the
 executable reserves it, passes a page though its own values fit in one,
 and names the functions it calls to mark `called`; a `rarely` function,
@@ -2252,26 +2254,33 @@ A `?`, `!`, or `<` before a place and a method call marks self:
 `!v.push(x)` is `(!v).push(x)` ([SYNTAX §5](docs/SYNTAX.md#self-sigils)).
 Writing `?` is optional, since a read self is lent without it. The
 short form is checked against the method: `!` before a method that
-does not take `!@` is rejected (it reads as negation, which is
-`not`), `<` before one that does not take `<@`, `?` before one that
-takes `!@` or `<@`, and any of them before a function with no
-self (`Point.origin()`). A
-write call whose value is used and whose method declares a `Bool`
-result (or a `Bool` that may fail, `Bool!`) is written in the long
-form, `(!set).insert(k)`, wherever the value goes (a condition, an
-`as` header, an operand, a binding, an argument, a return value, a
-function's or a closure's last line, a `match` subject, `??`), so its
-`!` never reads as negation: `if !seen.insert(k)` would read as "if
-not inserted". Any other write call is written short wherever its
-value goes, `x = !v.pop()`, `while !it.next() as x`, `t =
-!@new_node(k)`. The result the method declares decides, before its
-type's arguments apply: `!flags.remove(0)` on a `List[Bool]` returns
-`T`, and is short. A `for` source is no exception: `for x in
-!b.drain()` is `for x in (!b).drain()` ([for](#for)). A `Bool`
-call whose value is discarded is short
-too: a statement `!set.insert(k)`, alone or under `!`, `?`, or `catch`,
-and `_ = !set.insert(k)`, since `_ =` discards. The long form
-`(!v).pop()` is valid everywhere.
+does not take `!@` is rejected, `<` before one that does not take
+`<@`, `?` before one that takes `!@` or `<@`, and any of them before a
+function with no self (`Point.origin()`).
+
+`!` never negates, and one principle says where it cannot stand: **a
+`!` is rejected wherever reading it as `not` would also type-check.**
+That is `!done` where a `Bool` is read ([Operators](#operators)), `!`
+before a method that only reads and returns a `Bool` (`if
+!q.is_empty()`), and a write call whose value is used and is a `Bool`
+(or a `Bool` that may fail, `Bool!`), wherever the value goes (a
+condition, an `as` header, an operand, a binding, an argument, a
+return value, a function's or a closure's last line, a `match`
+subject, `??`): `if !seen.insert(k)` would read as "if not inserted".
+Such a call is written in the long form, `(!set).insert(k)` for what
+it returns, or `not (!set).insert(k)` for its opposite. Its result is
+judged with self's type arguments applied where the call knows them:
+`!flags.remove(0)` on a `List[Bool]` returns a `Bool`, and is written
+`(!flags).remove(0)`, while inside a generic body, where a `List[T]`'s
+`T` is a parameter, `!xs.remove(0)` returns a `T`, and is short. Any
+other write call is written short wherever its value goes, `x =
+!v.pop()`, `while !it.next() as x`, `t = !@new_node(k)`. A `for`
+source is no exception: `for x in !b.drain()` is `for x in
+(!b).drain()` ([for](#for)). A `Bool` call whose value is discarded is
+short too, since a discarded `not` means nothing: a statement
+`!set.insert(k)`, alone or under `!`, `?`, or `catch`, and `_ =
+!set.insert(k)`, since `_ =` discards. The long form `(!v).pop()` is
+valid everywhere.
 
 ```rig
 obj Tally
@@ -2351,7 +2360,7 @@ sub main()
 ```
 
 ```error
-write `(!t).insert(1)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`
+`!` lends `t` to write and never negates: write `(!t).insert(1)` for what `insert` returns, or `not (!t).insert(1)` for its opposite
 ```
 
 ```rig
@@ -3344,8 +3353,11 @@ holds the value. A type argument may be a read view, of an owner too
 (`same(?v)` is `same[?List[Int]]`): the result holds what `?v` lent, so
 `v` stays lent while the result is used. It cannot be a write view,
 which is never stored in a value ([Write views](#write-views)), and a
-body that stores its `T` in a Cell, a Signal, or an owned closure cannot
-be instantiated with a view, since those carry no loan; write `?T`
+body that stores its `T` in a Cell, a Signal, an owned closure, or a
+channel, or that makes a channel of `T` or an actor whose value holds
+a `T` (even one it puts nothing in), cannot be instantiated with a
+view, since those carry no loan; a body checked by its bounds needs
+`T: Owned` for each ([Bounds](#bounds)); write `?T`
 in the signature to take a view that is only read. In an instance a `T`
 may hold a view, so the check of a body against its signature counts a
 parameter whose loans reach a value of a type that holds a type
@@ -3600,7 +3612,10 @@ payload's fields, each of which must be ordered. A type's header names
 A body may do with a bounded `T` what its bounds name and no more: copy
 a `T: Copy`, clone a `T: Clone` (`+x` of a `T`, a `?T`, or a `T?`, as
 each instance clones it), compare a `T: Ord` or a `T: Num`, hash a `T: Hash`, and
-call no method on it. Whether a literal fits a `T` is still checked at each instance.
+call no method on it, and keep it where no loan is tracked (store it in
+a Cell, a Signal, an owned closure, or a channel, or make a channel of
+`T` or an actor whose value holds one) only with `T: Owned`: `pub fun
+mk[T: Owned]() -> *Chan[T]`. Whether a literal fits a `T` is still checked at each instance.
 A bounded `T` passed to another generic provides only what its bounds
 name, and one without `Sends` or `Syncs` does not cross to another
 task. A `T` checked by its bounds (a bounded `T`, or a `pub`
@@ -5061,7 +5076,7 @@ The forms are in [SYNTAX §9](docs/SYNTAX.md#9-bindings-and-assignment). `x =
 e` binds a new local `x` when no `x` is visible, and otherwise assigns
 the visible one: through it, when `x` holds a write view
 ([View places](#view-places)). `x =! e` binds a fixed local, which
-cannot be reassigned. `_ = e` evaluates `e` and discards it, and an
+cannot be reassigned or lent to write. `_ = e` evaluates `e` and discards it, and an
 owning value discarded so is dropped at once. A binding's type comes
 from its annotation or its value.
 
@@ -5768,8 +5783,9 @@ sub main()
 `and`, `or`, and `not` take `Bool`s, and `and` and `or` short-circuit:
 the right side runs only when the left does not decide. The spellings
 `&&` and `||` are rejected with a hint. Prefix `!` always lends to write, never
-negation: a `!x` whose `Bool` value would be read (a condition, an
-operand, a binding, an argument) is rejected. It is valid only where a
+negation, and is rejected wherever reading it as `not` would also
+type-check ([§3](#objects)): a `!x` whose `Bool` value would be read (a
+condition, an operand, a binding, an argument) is rejected. It is valid only where a
 `!Bool` is expected, as for an argument to a `flag: !Bool` parameter.
 
 `not` binds looser than a comparison and tighter than `and` and `or`:
@@ -7327,7 +7343,11 @@ a `fun f() -> T!`, a `sub f()!`, `sub main()`, a closure whose type can
 fail, or a test. In a function, closure, or `drop` body that cannot
 fail, or inside deferred code, it is rejected: write `defer`. A deferred body may not move or drop
 outer bindings, even one it assigns again (`defer x = f(<x)`), or propagate with `!`. It runs after the values declared
-after it are dropped, so it may not read one through a view. A
+after it are dropped, so it may not read one through a view. An exit
+inside a call's arguments, `!v.push(parse(w)!)`, leaves before the call
+starts, so a deferred body it runs may write `v`, the call's self: the
+call never takes it. A lend an earlier argument already made,
+`keep(!v, parse(w)!)`, stays in force while it runs. A
 one-line `defer` or `errdefer` cannot declare a name, nor several
 results' names (`defer q, r = f()`); a deferred block can. Nor is its
 statement a `defer` or an `errdefer` itself: it runs at the exit already.
@@ -7855,7 +7875,7 @@ are rejected. A local binding is no constant, whatever it holds:
 | `![]T` | `[]T` | `![]T` (lent on) |
 | `String` | `?String` (also `(?String)?`) | `!String` |
 | `^T` | the views of `T`, through any number of boxes | the write views of `T` |
-| `*T` | the read views of `T` | `!*T`, the handle itself, never a view of the value |
+| `*T` | the read views of `T` | `!*T`, the handle itself; of a `T` that changes by a marked call, also a `!T` ([§9](#lending-a-shared-value-to-write)) |
 | `X?` | `View?` for each view of `X` | `!(X?)`, by the first row |
 | a function or closure | `?fun` | |
 
@@ -9243,12 +9263,17 @@ handle automatically, including through fields and loop elements. `?h`
 lends the value's read views ([§7](#lending)), a `?Shape` of a `*Shape`
 and a `?String` of a `*String`, and a `for` walks the List or array it
 lends in place ([§6](#for)), with the loan on `h`, so `h` may not be
-dropped, moved, or reassigned while the view is used. `!h` lends only
-the handle itself (a `!*T`), never a write view of the value. Writing a
-field, calling a `!@` method, or consuming the value through a handle
-is rejected, because other handles share it, so `!h.push(x)` through a
-`*List[T]` is rejected too. Shared state that changes goes in a `Cell`
-([§10](#cell)): a shared List is a `*Cell[List[T]]`.
+dropped, moved, or reassigned while the view is used. `!h` lends the
+handle itself, a `!*T` the callee may point elsewhere, and so lends `h`
+to write. Writing a field, calling a `!@` method, or consuming the value
+through a handle is rejected, because other handles share it, so
+`!h.push(x)` through a `*List[T]` is rejected too. Only a value that
+changes by a marked call (Core sentence 9: a `Cell` or a value that
+holds one, a `Signal`, a channel, an actor) changes through a handle.
+Such a call, or `!h` lending its `!T`, lends `h` only to read
+([Cell](#cell), [below](#lending-a-shared-value-to-write)). Shared state
+that changes goes in a `Cell` ([§10](#cell)): a shared List is a
+`*Cell[List[T]]`.
 
 ```rig reject
 obj User
@@ -9261,6 +9286,822 @@ sub main()
 
 ```error
 cannot assign through a shared handle
+```
+
+### Lending a shared value to write
+
+`!x` puts a write loan on `x`, and only a read loan when what it lends
+is a write view of a value that changes by a marked call: a `Cell`, a
+`Signal`, a channel, an actor, or a value that holds a Cell
+([Core §4](docs/CORE.md#4-one-lend-table)). That is judged by the
+concrete type of the value lent from, not by the view it becomes; a
+value whose type is an API object `{A}` or a type parameter is no such
+value, so `!s` of a `*{A}` lends only the handle. `swap` exchanges no
+such value whole: a Cell's value is exchanged by its own `!c.swap(v)`,
+one step every handle sees. `!h` lending the handle itself, a `!*T`
+the callee may point elsewhere, still lends `h` to write, as assigning
+and dropping `h` do, and a marked call through a read view is rejected.
+The loan begins before the call's arguments are evaluated and lasts as
+long as the view it carries: for the call, for the life of a task that
+holds self, or until a select returns; an actor's call keeps none.
+Each kind of handle, accepted and rejected:
+
+**`*Cell[T]`.** Two marked calls of one Cell may nest; a write to the
+place that holds the handle, while a call through it is made, may not.
+
+```rig
+sub main()
+  c = *Cell(1)
+  !c.add((!c).swap(4))
+  print(c.get())
+```
+
+```output
+5
+```
+
+```rig reject
+fun grow(cs: !List[*Cell[Int]]) -> Int
+  !cs.push(*Cell(0))
+  1
+
+sub main()
+  cs = List[*Cell[Int]]()
+  !cs.push(*Cell(1))
+  _ = !cs[0].add(grow(!cs))
+```
+
+```error
+cannot lend `cs` to write while a read loan is live
+```
+
+`swap` does not exchange two Cells: each changes only by its marked
+calls, which another task's may race.
+
+```rig reject
+sub trade(a: !Cell[Int], b: !Cell[Int])
+  swap(!a, !b)
+```
+
+```error
+`swap` moves values whole, and a `Cell[Int]` changes only by its marked calls, which every handle shares: exchange its value with the Cell's own `old = (!c).swap(v)`
+```
+
+**`*Cell[List[T]]`.** Its List's members lend as `set` does; an
+element is never lent.
+
+```rig
+sub main()
+  c = *Cell(List[Int]())
+  !c.push(1)
+  !c.push((!c).pop() ?? 0)
+  print(c.len, c[0])
+```
+
+```output
+1 1
+```
+
+```rig reject
+sub bump(x: !Int)
+  x += 1
+
+sub main()
+  c = *Cell(List[Int]())
+  !c.push(1)
+  bump(!c[0])
+```
+
+```error
+cannot lend an element of a Cell's List
+```
+
+**`?*Cell[T]`.** A read view of a handle reads the Cell and changes
+nothing.
+
+```rig
+fun peek(c: ?*Cell[Int]) -> Int
+  c.get()
+
+sub main()
+  c = *Cell(3)
+  print(peek(?c))
+```
+
+```output
+3
+```
+
+```rig reject
+sub bump(c: ?*Cell[Int])
+  !c.set(5)
+```
+
+```error
+cannot lend to write through a read view `?*Cell[Int]`
+```
+
+**`*Signal[T]`.** A read view of the signal lives across a `set`.
+
+```rig
+sub main()
+  sig: *Signal[Int] = *Signal(0)
+  r = ?sig
+  !sig.set(7)
+  print(r.get())
+```
+
+```output
+7
+```
+
+```rig reject
+sub poke(s: ?*Signal[Int])
+  !s.set(1)
+```
+
+```error
+cannot lend to write through a read view `?*Signal[Int]`
+```
+
+**`*Chan[T]`, sending and receiving.** A receive may feed a send on the
+same channel.
+
+```rig
+sub main()!
+  ch = *Chan[Int](2)
+  !ch.send(1)!
+  !ch.send((!ch.recv()! ?? 0) + 5)!
+  print(!ch.recv()! ?? -1)
+```
+
+```output
+6
+```
+
+```rig reject
+fun grow(xs: !List[*Chan[Int]]) -> Int
+  !xs.push(*Chan[Int](1))
+  8
+
+sub main()!
+  xs = List[*Chan[Int]]()
+  !xs.push(*Chan[Int](1))
+  !xs[0].send(grow(!xs))!
+```
+
+```error
+cannot lend `xs` to write while a read loan is live
+```
+
+**`*Chan[T]`, a select's arms.** Two arms may name one channel; an arm
+through a read view is rejected.
+
+```rig
+use std.task
+
+sub main()!
+  ch = *Chan[Int](1)
+  !ch.send(7)!
+  match task.select(got: !ch.on_recv(), put: !ch.on_send(8))!
+    .got(v?) => print("got", v)
+    .got(none) => print("closed")
+    .put => print("put")
+```
+
+```output
+got 7
+```
+
+```rig reject
+use std.task
+
+sub take(r: ?*Chan[Int])!
+  match task.select(got: !r.on_recv())!
+    .got(v?) => print("got", v)
+    .got(none) => print("closed")
+```
+
+```error
+cannot lend to write through a read view `?*Chan[Int]`
+```
+
+**`Task[T]`, a select's arm.** An arm on a task's end lends the task to
+read.
+
+```rig
+use std.task
+
+fun nine() -> Int
+  9
+
+sub main()!
+  t = nine()&
+  match task.select(done: ?t.on_end())!
+    .done => print(>t)
+```
+
+```output
+9
+```
+
+```rig reject
+use std.task
+
+fun nine() -> Int
+  9
+
+sub main()!
+  t = nine()&
+  match task.select(done: !t.on_end())!
+    .done => print(>t)
+```
+
+```error
+an arm on a task's end lends the task to read
+```
+
+**`*Actor[T]`, a `!@` method.** Two calls through one handle may nest.
+
+```rig
+obj Counter
+  n: Int
+
+  fun add(!@, k: Int) -> Int
+    @n += k
+    @n
+
+sub main()
+  a = *Actor(Counter(n: 0))
+  print((!a).add((!a).add(1)))
+```
+
+```output
+2
+```
+
+```rig reject
+obj Counter
+  n: Int
+
+  fun add(!@, k: Int) -> Int
+    @n += k
+    @n
+
+fun grow(xs: !List[*Actor[Counter]]) -> Int
+  !xs.push(*Actor(Counter(n: 0)))
+  8
+
+sub main()
+  xs = List[*Actor[Counter]]()
+  !xs.push(*Actor(Counter(n: 0)))
+  print(!xs[0].add(grow(!xs)))
+```
+
+```error
+cannot lend `xs` to write while a read loan is live
+```
+
+**`*Actor[T]`, a `?@` method.** It is called bare.
+
+```rig
+obj Counter
+  n: Int
+
+  fun count(?@) -> Int
+    @n
+
+sub main()
+  a = *Actor(Counter(n: 4))
+  print(a.count())
+```
+
+```output
+4
+```
+
+```rig reject
+obj Counter
+  n: Int
+
+  fun count(?@) -> Int
+    @n
+
+sub main()
+  a = *Actor(Counter(n: 0))
+  print((!a).count())
+```
+
+```error
+`count` only reads the actor: call it bare
+```
+
+**`*Actor[T]`, a call made a task.** It keeps no loan, so the handle
+may be reassigned while the task runs.
+
+```rig
+obj Counter
+  n: Int
+
+  fun add(!@, k: Int) -> Int
+    @n += k
+    @n
+
+sub main()
+  a = *Actor(Counter(n: 0))
+  t = !a.add(1)&
+  a = *Actor(Counter(n: 5))
+  print(>t, (!a).add(0))
+```
+
+```output
+1 5
+```
+
+```rig reject
+obj Counter
+  n: Int
+
+  sub add(!@, k: Int)
+    @n += k
+
+sub poke(a: ?*Actor[Counter])
+  !a.add(1)
+```
+
+```error
+cannot lend to write through a read view `?*Actor[Counter]`
+```
+
+**`*Frozen[T]`.** Nothing changes through it.
+
+```rig
+obj Page
+  n: Int
+
+fun size(p: ?Page) -> Int
+  p.n
+
+sub main()
+  p = *Frozen(Page(n: 1))
+  print(size(?p), p.n)
+```
+
+```output
+1 1
+```
+
+```rig reject
+obj Page
+  n: Int
+
+  sub bump(!@)
+    @n += 1
+
+sub main()
+  p = *Frozen(Page(n: 1))
+  !p.bump()
+```
+
+```error
+cannot call method `bump`, which writes `self`, through a shared handle
+```
+
+**A plain `*T`.** `!h` lends the handle itself, which the callee may
+point elsewhere; the value does not change through it.
+
+```rig
+obj User
+  age: Int
+
+sub reset(h: !*User)
+  h = *User(age: 0)
+
+sub main()
+  h = *User(age: 7)
+  reset(!h)
+  print(h.age)
+```
+
+```output
+0
+```
+
+```rig reject
+obj User
+  age: Int
+
+sub older(u: !User)
+  u.age += 1
+
+sub main()
+  h = *User(age: 7)
+  older(!h)
+```
+
+```error
+expected `!User`, got `!*User`
+```
+
+**A `*T` whose `T` holds a Cell: calls.** Calls through one handle may
+nest, and a read view may live across one.
+
+```rig
+obj Hits
+  n: Cell[Int]
+  step: Int
+
+  fun bump(!@, k: Int) -> Int
+    !@n.add(k)
+
+sub show(r: ?Hits, k: Int)
+  print(r.n.get(), k)
+
+sub main()
+  h = *Hits(n: Cell(0), step: 2)
+  print((!h).bump((!h).bump(1)))
+  show(?h, !h.bump(3))
+```
+
+```output
+2
+5 5
+```
+
+```rig reject
+obj Hits
+  n: Cell[Int]
+
+  sub bump(!@)
+    _ = !@n.add(1)
+
+sub poke(h: ?*Hits)
+  !h.bump()
+```
+
+```error
+cannot lend to write through a read view `?*Hits`
+```
+
+**... tasks.** A task of such a call keeps its read loan while it runs:
+the handle may be read, and the task may go into a set, but the handle
+is not reassigned.
+
+```rig
+obj Hits
+  n: Cell[Int]
+  step: Int
+
+  fun bump(!@) -> Int
+    !@n.add(@step)
+
+sub main()
+  h = *Hits(n: Cell(0), step: 2)
+  t = (!h).bump()&
+  print(h.step)
+  ts = Tasks[Int]()
+  !ts.add((!h).bump()&)
+  for r in >ts
+    print(r > 0)
+  a = >t
+  print(a > 0, h.n.get())
+```
+
+```output
+2
+true
+true 4
+```
+
+```rig reject
+obj Hits
+  n: Cell[Int]
+  step: Int
+
+  fun bump(!@) -> Int
+    !@n.add(@step)
+
+sub main()
+  h = *Hits(n: Cell(0), step: 2)
+  t = (!h).bump()&
+  h = *Hits(n: Cell(5), step: 1)
+  print(>t)
+```
+
+```error
+cannot reassign `h` while it is lent
+```
+
+**... a result that views self.** It keeps the read loan while it
+lives.
+
+```rig
+obj Hits
+  n: Cell[Int]
+
+  fun cell(!@) -> !Cell[Int]
+    !@n
+
+sub main()
+  h = *Hits(n: Cell(0))
+  w = !h.cell()
+  print(h.n.get())
+  _ = !w.add(1)
+  print(h.n.get())
+```
+
+```output
+0
+1
+```
+
+```rig reject
+obj Hits
+  n: Cell[Int]
+
+  fun cell(!@) -> !Cell[Int]
+    !@n
+
+sub main()
+  h = *Hits(n: Cell(0))
+  w = !h.cell()
+  h = *Hits(n: Cell(5))
+  _ = !w.add(1)
+```
+
+```error
+cannot reassign `h` while it is lent
+```
+
+**... `!h` alone.** `!h` lending a `!Hits` lends `h` to read; lending
+the handle itself, a `!*Hits`, lends it to write.
+
+```rig
+obj Hits
+  n: Cell[Int]
+
+sub hit2(a: !Hits, b: !Hits)
+  _ = !a.n.add(1)
+  _ = !b.n.add(1)
+
+sub main()
+  h = *Hits(n: Cell(0))
+  hit2(!h, !h)
+  print(h.n.get())
+```
+
+```output
+2
+```
+
+```rig reject
+obj Hits
+  n: Cell[Int]
+
+sub both(a: !*Hits, b: !*Hits)
+  a = *Hits(n: Cell(1))
+
+sub main()
+  h = *Hits(n: Cell(0))
+  both(!h, !h)
+```
+
+```error
+cannot lend `h` to write while a write loan is live
+```
+
+**A `!*Cell[T]` parameter.** Marked calls through it lend it to read;
+assigning it is a write.
+
+```rig
+fun bump(c: !*Cell[Int]) -> Int
+  !c.add((!c).swap(4))
+
+sub main()
+  c = *Cell(1)
+  print(bump(!c))
+```
+
+```output
+5
+```
+
+```rig reject
+sub f(c: !*Cell[Int])
+  r = ?c
+  c = *Cell(9)
+  print(r.get())
+```
+
+```error
+cannot reassign `c` while it is lent
+```
+
+**A `!Cell[T]`, or `!@` of a value that holds a Cell.** A write view of
+such a value lends as its handle does.
+
+```rig
+obj Hits
+  n: Cell[Int]
+
+  fun bump(!@, k: Int) -> Int
+    !@n.add(k)
+
+  fun twice(!@) -> Int
+    (!@).bump((!@).bump(1))
+
+fun swapped(c: !Cell[Int]) -> Int
+  !c.add((!c).swap(4))
+
+sub main()
+  h = *Hits(n: Cell(0))
+  c = *Cell(1)
+  print((!h).twice(), swapped(!c))
+```
+
+```output
+2 5
+```
+
+```rig reject
+sub put(c: !Cell[Int], d: ?Cell[Int])
+  c = d
+```
+
+```error
+only a value that copies is copied out of a view
+```
+
+**`*{A}`.** The handle only reads; `!h` of a `*Hits` lent as two
+`!{Bump}` lends `h` to read, while two `!{Grow}` of one owned value are
+two write loans.
+
+```rig
+api Bump
+  sub bump(!@)
+  fun count(?@) -> Int
+
+obj Hits: Bump
+  n: Cell[Int]
+
+  sub bump(!@)
+    _ = !@n.add(1)
+
+  fun count(?@) -> Int
+    @n.get()
+
+sub both(a: !{Bump}, b: !{Bump})
+  !a.bump()
+  !b.bump()
+
+sub main()
+  h = *Hits(n: Cell(0))
+  both(!h, !h)
+  s: *{Bump} = +h
+  print(s.count())
+```
+
+```output
+2
+```
+
+```rig reject
+api Grow
+  sub grow(!@)
+
+obj Bag: Grow
+  xs: List[Int]
+
+  sub grow(!@)
+    !@xs.push(1)
+
+sub both(a: !{Grow}, b: !{Grow})
+  !a.grow()
+  !b.grow()
+
+sub main()
+  b = Bag(xs: List[Int]())
+  both(!b, !b)
+```
+
+```error
+cannot lend `b` to write while a write loan is live
+```
+
+```rig reject
+api Bump
+  sub bump(!@)
+
+obj Hits: Bump
+  n: Cell[Int]
+
+  sub bump(!@)
+    _ = !@n.add(1)
+
+sub main()
+  s: *{Bump} = *Hits(n: Cell(0))
+  !s.bump()
+```
+
+```error
+`*{Bump}` only reads, as any handle
+```
+
+**`~T`.** A weak handle reaches its value once upgraded, and the new
+handle lends as any.
+
+```rig
+sub main()
+  c = *Cell(1)
+  w = ~c
+  if *w as h
+    !h.set(2)
+  print(c.get())
+```
+
+```output
+2
+```
+
+```rig reject
+sub main()
+  c = *Cell(1)
+  w = ~c
+  !w.set(2)
+```
+
+```error
+reaches its value only once upgraded
+```
+
+**`Tasks[T]`.** A set of tasks is an owned value, and `!ts.add(...)`
+lends it to write.
+
+```rig
+obj Hits
+  n: Cell[Int]
+
+sub work(h: *Hits)
+  _ = !h.n.add(1)
+
+sub main()
+  h = *Hits(n: Cell(0))
+  ts = Tasks[Void]()
+  !ts.add(work(+h)&)
+  >ts
+  print(h.n.get())
+```
+
+```output
+1
+```
+
+```rig reject
+sub work(n: Int)
+  print(n)
+
+sub main()
+  ts = Tasks[Void]()
+  !ts.add(work(1)&)
+  r = ?ts
+  !ts.add(work(2)&)
+  print(r.len)
+  >ts
+```
+
+```error
+cannot lend `ts` to write while a read loan is live
+```
+
+**std.shared's `*Map`.** A view `ensure` gives keeps a read loan, so
+the map takes more keys while it lives, but is not reassigned.
+
+```rig
+use std.shared
+
+sub main()
+  m = shared.Map[Int, String].new()
+  r = !m.ensure(1, String("ten"))
+  _ = !m.put_new(2, String("twenty"))
+  print(m.len(), r)
+```
+
+```output
+2 ten
+```
+
+```rig reject
+use std.shared
+
+sub main()
+  m = shared.Map[Int, String].new()
+  r = !m.ensure(1, String("ten"))
+  m = shared.Map[Int, String].new()
+  print(r)
+```
+
+```error
+cannot reassign `m` while it is lent
 ```
 
 ### Weak handles
@@ -9428,6 +10269,50 @@ a cache line of its own, so tasks changing Cells made one after another
 do not slow one another. A Cell of more than one word stays with one
 task.
 
+So does a *word-Cell object*: an object that holds a Cell and whose
+every field, as declared, is plain data ([§2](#kinds-of-value)), a
+Cell of one word, or another word-Cell object. Through a handle only
+its Cells change, each change one such instruction, so its handles,
+weak ones too, are counted atomically and its strong ones go to other
+tasks, as a word Cell's do, each allocation has a cache line of its
+own, and its `drop` runs in whichever task drops the last handle. An
+object that holds a Cell and any other field (a `String`, a `List`, a
+handle, a value with a `drop` body) stays with one task, and the
+crossing error names that field. A generic object is decided by its
+declaration, the same for every instance: a field `v: T` keeps
+`Box[Int]` with one task too. `shared.Map` is one
+([STD, std.shared](docs/STD.md#stdshared)).
+
+Each Cell operation is one change; a `get` then a `set` are two, and a
+change another task makes between them is lost. Count with `add` or
+`sub`, and replace a value with `compare_swap` or `swap`, not by
+reading and storing it.
+
+```rig
+obj Hits
+  n: Cell[Int]
+  step: Int
+
+  sub bump(!@)
+    _ = !@n.add(@step)
+
+sub work(h: *Hits)
+  for 0..1000
+    !h.bump()
+
+sub main()
+  h = *Hits(n: Cell(0), step: 2)
+  ts = Tasks[Void]()
+  for 0..8
+    !ts.add(work(+h)&)
+  >ts
+  print(h.n.get())
+```
+
+```output
+16000
+```
+
 ```rig
 sub work(hits: *Cell[Int])
   for 0..1000
@@ -9450,9 +10335,17 @@ Every call that changes a Cell is marked: `set`, `swap`, `push`,
 `pop`, `keep`, `clear`, `c[i] = x` (written `(!c)[i] = x`), and a `Signal`'s `set`
 and `subscribe`. They take `!@`, so the self-sigil rule enforces
 the mark, and a read view (`?Cell[T]`, a `?@` method of an object
-holding one) cannot change a Cell. `!c` where `c` is a handle lends the
-handle: `bump(!local)` with `local: *Cell[Int]`, and `bump(!k.hits)` with
-`k: *Counter`. A closure or a `Signal` subscriber marks the handle it
+holding one) cannot change a Cell. A marked call lends the place it
+names to read, not to write. So does `!h` handing over a `!Cell[T]`, or
+a `!S` of a value that holds a Cell. The place keeps the value alive,
+and what changes is only what every handle shares. So two such lends of
+one place may live at once, `!c.add((!c).swap(4))`, and a read view may
+live across one, `r = ?c`, `!c.set(5)`, `r.get()`. This holds whether
+`c` is a `*Cell[Int]`, a `!*Cell[Int]`, or a `!Cell[Int]`. A task made
+by a call through a value that holds a Cell, `(!h).bump()&`, keeps that
+read loan for its life. `!c` lending the handle itself, a `!*Cell[T]`,
+lends `c` to write ([Lending a shared value to
+write](#lending-a-shared-value-to-write)). A closure or a `Signal` subscriber marks the handle it
 captured, `|+c| !c.set(1)`. Reading (`c.get()`, `c.len`, `c[i]`) is
 unmarked.
 
@@ -9486,9 +10379,11 @@ lends what it holds, a `!C`, and a `!*C` parameter is a type mismatch whose
 hint is to pass `+h` for a handle of your own. A read view of a handle, or
 of a value that holds one, is not lent to write at all: `?` changes nothing.
 That holds however the view is reached: a `?*C` parameter, a field
-handle of a `?W`, a binding of a read `if … as`, `while … as`, `match`,
-or `for` (`if @head as n` in a `?@` method), or a closure's `|?h|`. A
-handle of your own changes the Cell: `mine = +n`, then `!mine.c.set(5)`.
+handle of a `?W`, an element of a `[]*C`, which is a read view of its
+elements (`?xs[..]` of a `?List` too), a binding of a read `if … as`,
+`while … as`, `match`, or `for` (`if @head as n` in a `?@` method), or
+a closure's `|?h|`. A handle of your own changes the Cell: `mine = +n`,
+then `!mine.c.set(5)`.
 
 ```rig reject
 obj Node
@@ -9623,6 +10518,7 @@ owns one), and read views.
 | `!v.remove(i)` | remove the element at `i` and hand it over, moving the rest down by one; panics out of range |
 | `!v.swap_remove(i)` | remove the element at `i` and hand it over, moving the last element into its place: one element moves, not the rest, and the order of what is left changes; panics out of range |
 | `!v.clear()` | drop every element |
+| `!v.extend(s)` | append a copy of each element of `s`, a `[]T` (`?ys[a..b]`, an array, or a List), in one copy, growing once; `T` copies and holds no view (below), and `s` may not view `v`, which is lent to write |
 | `!v.extend_from_bytes(s)` | append the records the bytes of `s`, a `?String` (or a `Static`), hold, in one copy, growing once; `T` is a type whose every bit pattern is a value, or with `Bool`s and enums when `s` is written `$embed(path)` (below); panics unless `s.len` is a whole number of `$size(T)` |
 
 **Inline room.** `List[T, inline: n]` keeps its first `n` elements
@@ -9699,6 +10595,43 @@ undo read
 1 open
 [1, 2]
 undo open
+```
+
+**`extend` copies plain data,** as `List(a)` does: each element of the
+source is copied in, so `T` is a type that copies and holds no view,
+whose copies the List owns with no loan of the source. An owning `T`,
+such as a `String`, would need a clone of each element, which Rig
+writes where it happens: `for y in ys` with `!xs.push(+y)`. A `T` that
+holds a view, such as a `?String`, is pushed one element at a time,
+`!xs.push(y)`, where the List takes each view's loan. A source that
+views the List itself, `!xs.extend(?xs[..2])`, is rejected: the List is
+lent to write while the source keeps it lent to read.
+
+```rig
+sub main()
+  xs = List([1, 2])
+  ys = List([3, 4, 5])
+  a = [6, 7]
+  !xs.extend(?ys[1..])
+  !xs.extend(?a)
+  !ys.push(8)
+  print(xs, ys)
+```
+
+```output
+[1, 2, 4, 5, 6, 7] [3, 4, 5, 8]
+```
+
+```rig reject
+sub main()
+  xs: List[String] = List()
+  ys = [String("a"), String("b")]
+  !xs.extend(?ys)
+  print(xs.len)
+```
+
+```error
+`extend` copies every element of its source, and a `String` owns a resource, so it cannot be copied: write a loop that makes each element with `+x` (`for y in ys` with `!xs.push(+y)`)
 ```
 
 **`extend_from_bytes` makes elements from bytes,** so every bit pattern
@@ -10449,7 +11382,7 @@ closures of type `*sub()`. It lives behind a shared handle: a stack
 | `!s.set(v)` | store `v`, then call every subscriber in subscription order |
 | `!s.subscribe(cb)` | take ownership of the handle `cb` (pass `+cb` to keep yours) |
 
-Both are marked calls, as a Cell's are. A `set` from inside a subscriber is queued and delivered after the
+Both are marked calls, and lend as a Cell's do. A `set` from inside a subscriber is queued and delivered after the
 current round, with the latest value winning. Subscribing from inside a
 subscriber panics. A subscriber that reads its own signal must capture
 it weakly, or the signal and its subscriber keep each other alive.
@@ -13352,7 +14285,11 @@ After `>u`, `xs` can be lent to write again. A task lent to write
 keeps its write loan while it runs, and no value holds a write view
 ([Write views](#write-views)), so it is bound to a local where it is
 made, `t = fill(!xs, 3)&`, and waited for there, `>t`; it is not
-moved, held in a list, or returned. A task with read loans only goes
+moved, held in a list, or returned. A `!x` that lends `x` only to read,
+the write view of a value that changes by a marked call
+([Lending a shared value to write](#lending-a-shared-value-to-write)),
+gives its task a read loan: `(!h).bump()&` of a `*Hits` that holds a
+Cell. A task with read loans only goes
 where a value holding those views goes: held in a list, a set, or an
 object, and returned, `-> Task[Int] from xs`, as any result is
 ([Core sentence 7](docs/CORE.md#2-the-core-in-ten-sentences)): a
@@ -13618,9 +14555,67 @@ sub main()
 `task.all(a, b, ...)` of `std.task`
 ([std.task](docs/STD.md#stdtask)) waits for two tasks or more, of
 different types, and gives each one's value as several results:
-`u, o = task.all(user(id)&, orders(id)&)!`. The call takes its tasks,
-and can fail when any of them can; then the first to fail cancels the
-others.
+`u, o = task.all(user(id)&, orders(id)&)!`. When no task gives a
+value, as a `sub`'s gives none, the call gives nothing and stands as a
+statement: `task.all(save(?a)&, save(?b)&)!`. One call does not mix
+the two; tasks that give no value wait in a `task.all` of their own.
+In a generic body, a task whose type is a type parameter's, `Task[T]`,
+gives a value, a `T`, even in an instance that binds `T` to `Void`: the
+body is checked once, for every instance, so `x, y = task.all(<a, <b)`
+binds two `Void`s there, and `task.all(<a, <b)` of a `Task[T]` and a
+`Task[U]` waits for a `Void` task and an `Int` task together.
+The call takes its tasks, and can fail when any of them can; then the
+first to fail cancels the others, those that cannot fail among them.
+A task that cannot fail meets that cancel as any task does: each of
+its waits that can fail fails with `Stop.canceled`, which it catches
+as its code says, and it runs on to its end. Only a cancel it is
+handed by name, `<t.cancel()`, is rejected for it. The loans of its
+tasks end where it returns.
+
+```rig
+use std.task
+use std.time
+
+error Bad
+  no
+
+sub slow()
+  time.sleep(2) catch |e| print("slow saw", e)
+  print("slow ends")
+
+sub bad()!
+  return Bad.no
+
+sub main()
+  task.all(slow()&, bad()&) catch |e| print("all:", e)
+```
+
+```output
+slow saw Stop.canceled
+slow ends
+all: Bad.no
+```
+
+```rig
+use std.task
+
+error Name
+  empty
+
+sub check(name: ?String)!
+  return Name.empty if name.len == 0
+
+sub main()
+  a = String("ann")
+  b = String("")
+  task.all(check(?a)&, check(?b)&) catch |e| print(e)
+  print(a, b.len)
+```
+
+```output
+Name.empty
+ann 0
+```
 
 A wait fails with the set its work declares: `task.all` with the one of
 its tasks' sets that holds the others, `par.map` and `par.each` with
@@ -13650,6 +14645,7 @@ thread.
 | `!T`, `![]T` | when `T` sends | never |
 | `Task[T]` | when `T` sends | never |
 | `*Cell[T]` of one word: an `Int`, `Bool`, `Float`, or plain enum | yes | yes |
+| `*T` of a word-Cell object: it holds a Cell, and every field, as declared, is plain data, a Cell of one word, or another word-Cell object ([Cell](#cell)) | yes | yes |
 | `*Frozen[T]` ([Frozen values](#frozen-values)) | yes | yes |
 | a function value, `fun(A) -> R` or `sub(A)` | yes | yes |
 | any other `*T`, `~T`, `Cell`, `Signal`, `Tasks[T]`; a callable view `?fun`; an owned closure `*fun` or `~fun` | never | never |
@@ -13660,9 +14656,9 @@ thread.
 | a frozen value's shared API object, `*{A + Syncs}` | yes | yes |
 
 So a task may be handed to another task, which waits for it, and keeps
-its loans for that task's whole life. A `*T` or `~T` handle never
-crosses, by value, through a view, or in a field, an element, or an
-optional, since its count is not atomic. An API object crosses only
+its loans for that task's whole life. Any other `*T` or `~T` handle
+never crosses, by value, through a view, or in a field, an element, or
+an optional, since its count is not atomic. An API object crosses only
 by a bound it names ([API objects](#api-objects)), and without it goes
 to no task, a local one included.
 
@@ -13674,9 +14670,11 @@ stays on that thread from then on, so no count they share changes on two
 cores at once. Such tasks take turns on one core, at their waits and
 yield checks; the code reads the same as for any task, and the compiler
 picks which a task is. So a GUI program's `*T`, `Cell`, and `Signal`
-code can use `&`. `rig check --tasks` lists each local task, with the
-argument that pins it and the type in that argument that stays on one
-thread:
+code can use `&`. A method task through such a handle is local the
+same way: `(!b).fill()&` of a `*Bag` holding a `Cell[List[Int]]`, and
+it keeps `b` lent until it ends. `rig check --tasks` lists each local
+task, with the argument that pins it and the type in that argument that
+stays on one thread:
 
 ```text
 main.rig:8:7: `val(?n)&` is local, pinned to its maker's thread by `?n`: `?*Node` views a `*` handle whose count is not atomic, so two cores could change it at once
@@ -13963,8 +14961,9 @@ An actor holds a value that many tasks change, one method at a time.
 `*Actor(x)` moves `x` into it and gives a `*Actor[T]`, a shared handle
 to it; `*Actor(x, mailbox: n)` sets how many calls made with `&` it
 holds at once, 64 by default. `x` is an object or enum, whose fields
-move and hold no view: nothing in its declaration changes. `Actor(x)`
-stands only as the operand of `*`.
+move and hold no view: nothing in its declaration changes, and at each
+instance of a generic body that makes one, `x` holds none either.
+`Actor(x)` stands only as the operand of `*`.
 
 The handle is counted atomically, so it crosses to other tasks: `+a`
 makes another, for a holder of its own; a read view `?a` lends one; and
@@ -13977,8 +14976,12 @@ answer.
 - A `?@` method is called bare, `a.count()`, through a handle or a read
   view of one.
 - A `!@` method is marked, `!a.add(x)`, or `(!a).add(x)` where its `Bool` value
-  is used, and needs a handle you hold: through `?a` it is rejected. The
-  `!` marks the call, and lends nothing: the actor changes its own value.
+  is used, and needs a handle you hold: through `?a`, or an element of
+  a `[]*Actor[T]`, it is rejected. The `!` marks the call, and lends
+  the handle's place to read for it, as a Cell's marked call does. The
+  actor changes its own value, one method at a time, so
+  `(!a).add((!a).add(1))` runs, and `!xs[0].add(grow(!xs))` is
+  rejected.
 - A `<@` method, or one whose signature has `keeps` or `from`, cannot be
   called through a handle, and an actor's fields are reached only by its
   methods.
@@ -13987,8 +14990,9 @@ answer.
   actor's state.
 
 With `&`, the call is a task that the actor runs in its turn. As any
-task, it keeps the loans of its arguments, but it keeps none of the
-handle, which may be used again while it runs. It takes a slot of
+task, it keeps the loans of its arguments, but none of the handle: the
+call gives the actor a count of its own, so the handle may be used,
+reassigned, or dropped while the task runs. It takes a slot of
 the actor's mailbox while it runs, and waits for one when every slot is
 taken.
 
@@ -14088,7 +15092,8 @@ sub main()
 `*Chan[T](n)` is a bounded channel of `n` slots (at least one), behind
 a shared handle counted atomically, as a Cell of one word is: its
 handles go to other tasks when `T` moves, and what it carries holds no
-view. `Chan[T](n)` stands only as the operand of `*`.
+view, at each instance of a generic body that makes one too.
+`Chan[T](n)` stands only as the operand of `*`.
 
 - `!ch.send(<v)!` waits for room and sends `v`.
 - `!ch.recv()!` waits for a value and gives it as `T?`; once the
@@ -14098,7 +15103,10 @@ view. `Chan[T](n)` stands only as the operand of `*`.
   waiting for room, in its own task.
 
 Sending and receiving change the channel, so each is marked with `!`
-through a handle the task holds, and each is a fallible waiting point,
+through a handle the task holds, never a read view. The mark lends
+the handle's place to read, as a Cell's does, so
+`!ch.send((!ch.recv()! ?? 0) + 5)!` passes on what it receives. Each
+is a fallible waiting point,
 as `time.sleep` is: a canceled task fails there with
 `task.Stop.canceled`, and past its deadline with `task.Stop.timeout`.
 
@@ -14128,6 +15136,27 @@ a `match` on the value runs the winner's body:
   first task to end wins, and the others run on, held as before.
   `!t.on_end()` and `<t.on_end()` are rejected, since the arm changes
   and takes nothing.
+
+A receive or send arm changes its channel, so its `!` needs a handle
+the task holds, as `!ch.recv()` does, and lends the handle's place to
+read until the select returns: two arms may name one channel, and a
+write to that place before the select returns (`grow(!chs)` in an arm)
+is rejected. A read view of one changes nothing, however it is reached (a `?*Chan` parameter, a field of a
+`?W`, an element of a `[]*Chan`, a read binding, a closure's `|?h|`).
+What a send arm sends goes into the channel as `send`'s value does.
+
+```rig reject
+use std.task
+
+sub take(ch: ?*Chan[Int])!
+  match task.select(got: !ch.on_recv())!
+    .got(v?) => print(v)
+    .got(none) => print("closed")
+```
+
+```error
+cannot lend to write through a read view `?*Chan[Int]`; take a write view, or share a handle of your own with `+h`
+```
 
 Messages name the type by its arms, `select(got, quit, late)`; a
 program never writes it. The value is an ordinary value: it is bound
@@ -14398,6 +15427,62 @@ sub main()
 ```output
 [90, 70, 40, 30, 20, 10]
 26
+```
+
+`par.push(!t, ?sizes, f)` pushes `sizes.sum()` slots onto a
+[Table](#table) at once and writes them on several tasks, a run at a
+time: run `k` is the next `sizes[k]` slots, in order from the table's
+`len` before the call, and `f(!run, k)` takes it as a `![]T`.
+
+- `sizes` is a List, an array, or a slice of `Int`. The call panics
+  before any task starts when a size is negative, and with `push`'s
+  message, "a table of `n` slots is full", when the slots do not fit.
+- Run `k` is the same slots whichever task takes it, so the table ends
+  as a loop of `!t.push(x)` in the order of the runs leaves it. Until
+  `f` writes a slot, it holds what it held, `T()` unless written by
+  slot.
+- `limit:`, the chunks the tasks take, and failure are as for
+  `par.each`, over the runs: with one task, or one run, the calling
+  task writes the runs in order. A failure leaves the slots pushed.
+
+`t` is lent to write for the call, as any `!` argument is, and the
+runs are disjoint slices of its slots, each lent to one task, as
+`par.each` lends each element. `f` is as for `par.each`, and takes the
+run and its index; `T` must be sendable.
+
+```rig
+use std.par
+
+obj Rec
+  file: U32 = 0
+  local: U32 = 0
+
+sub main()
+  t: Table[Rec, 1024] = Table()
+  !t.push(Rec())
+  sizes = List([3, 0, 2])
+  par.push(!t, ?sizes, |run, k|
+    for r, l in !run
+      r = Rec(file: U32(k), local: U32(l))
+  )
+  print(t.len, t[4].file, t[5].local)
+```
+
+```output
+6 2 1
+```
+
+```rig reject
+use std.par
+
+sub main()
+  t: Table[Int, 64] = Table()
+  sizes = List([2, 2])
+  par.push(!t, ?sizes, |?t, run, k| run[0] = t.len)
+```
+
+```error
+cannot lend `t` to read while a write loan is live
 ```
 
 ---

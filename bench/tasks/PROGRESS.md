@@ -11,6 +11,8 @@ that leaves a task's maker running while idle workers take what it
 makes: the rows before them have none, and Tokio's and Go's are from then. Until #356 the scheduler was
 the `rig-sched` variant, and `rig-fast` ran on Zig's `Threaded`
 backend; from #356 on, `rig-fast` runs on the scheduler.
+Rows marked `rig-fast` were built in Zig's fast mode, which Rig no
+longer builds; `bench-tasks --record` adds `rig-safe` rows (`--release`).
 
 | Date | Change | Variant | spawn (per task) | chain (per task) | fanout (per run) | yield (per yield) | hog (per step) | memory (per task) | produce (per run) |
 |---|---|---|---|---|---|---|---|---|---|
@@ -56,6 +58,9 @@ backend; from #356 on, `rig-fast` runs on the scheduler.
 | 2026-10-30 | #781: a large optional result through the caller's place | rig-safe | 90 ns | 54 ns | 71.6 ms | 5 ns | 117.56 us | 17.1 KiB |
 | 2026-10-30 | main a8acfdc5c before #780, alternated | rig-fast | 110 ns | 45 ns | 88.0 ms | 5 ns | 79.97 us | 17.1 KiB |
 | 2026-10-30 | #780: String and List appends grow by value | rig-fast | 92 ns | 45 ns | 88.5 ms | 5 ns | 95.72 us | 17.1 KiB |
+| 2026-11-15 | main 7a2efd0f3, re-measured with --release (records/2026-11/concurrency-bench-remeasure), fastest of 14 over two boards | rig-safe | 133 ns | 51 ns | 65.8 ms | 6 ns | 153 ns | 16.6 KiB | 5.3 ms |
+| 2026-11-15 | the same boards | tokio | 175 ns | 165 ns | 66.1 ms | 39 ns | 3.3 ms | 262 B | 6.0 ms |
+| 2026-11-15 | the same boards | go | 228 ns | 199 ns | 67.2 ms | 226 ns | 3.4 ms | 2.9 KiB | 5.8 ms |
 
 ## x86-64 (pup)
 
@@ -146,3 +151,6 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-11-09 | #1048: a Table of a heap that does little waits to ask for huge pages (pup cores 0-11) | rig-fast | 122 ns | 93 ns | 70.9 ms | 5 ns | 275 ns | 4.6 KiB | 6.5 ms |
 | 2026-11-09 | main ec0a2a743 before #1048, alternated (Mac) | rig-fast | 165.5 ns | 45 ns | 79.75 ms | 5 ns | 180.5 ns | 16.7 KiB | 7.05 ms |
 | 2026-11-09 | #1048: a Table of a heap that does little waits to ask for huge pages (Mac) | rig-fast | 162 ns | 45 ns | 81.1 ms | 5 ns | 197 ns | 16.7 KiB | 6.65 ms |
+| 2026-11-15 | main bfd872b6d (7a2efd0f3's compiler and runtime), --release (records/2026-11/concurrency-bench-remeasure), fastest of 7 (pup cores 0-11) | rig-safe | 168 ns | 100 ns | 59.6 ms | 6 ns | 316 ns | 4.7 KiB | 6.0 ms |
+| 2026-11-15 | the same board | tokio | 236 ns | 213 ns | 65.4 ms | 32 ns | 3.2 ms | 373 B | 5.5 ms |
+| 2026-11-15 | the same board | go | 210 ns | 234 ns | 55.1 ms | 244 ns | 3.0 ms | 2.8 KiB | 4.9 ms |

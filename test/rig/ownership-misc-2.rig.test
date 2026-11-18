@@ -911,7 +911,7 @@ fail "text moves", "8:5: `t` owns a `String`, which can't be copied by `=`: writ
 
 fail "text string param in cell", "5:10: cannot store a view of `s` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one; if it is only passed literal text, declare the parameter `Static`, which carries no loan", "8:6: an owned closure cannot capture a view of `s`"
   # A String parameter may view a caller's Text, so it cannot be stored
-  # where no loan is tracked: in a Cell, a Signal, or an owned closure.
+  # where no loan is tracked: in a Cell, a Signal, a channel, an actor's value, or an owned closure.
 
   sub keep(c: !Cell[?String], s: ?String)
     !c.set(s)

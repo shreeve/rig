@@ -405,7 +405,7 @@ const Checker = struct {
         stored_full.copyFrom(stored);
         if (op.what == .call) {
             self.readOnly(stored);
-            const wants_write = if (op.def) |d| self.f.vars.items[d].kind == .write_view or self.f.vars.items[d].holds_writes else false;
+            const wants_write = op.task_writes or if (op.def) |d| self.f.vars.items[d].kind == .write_view or self.f.vars.items[d].holds_writes else false;
             if (!wants_write) self.readOnly(flow);
         }
         // Each of several results carries what its own type could view,
@@ -648,13 +648,30 @@ const Checker = struct {
                 }
             }
         }
+        // T2 (SPEC §18, "Loans"): a task that carries a write loan is
+        // bound where it is made and waited for there; no other move,
+        // return, or store takes it on, since no value holds a write view.
+        if (!op.binds_task) for ([_][]const VarId{ op.moves, if (op.what == .ret) op.reads else &.{} }) |g| for (g) |v| {
+            const vv = self.f.vars.items[v];
+            if (!vv.task or vv.waits) continue;
+            if (op.def) |d| if (self.f.vars.items[d].waits) continue;
+            for (self.f.loans.items, 0..) |l, li| {
+                if (!st.holds[v].has(li) or l.mode != .write) continue;
+                try self.report(.T2, op.pos, "a task lent `{s}` to write keeps that loan while it runs, so it stays where it is bound and is waited for there", .{self.name(l.root)});
+                return;
+            }
+        };
         // C8 (s9): an owned closure, a Cell, or a Signal takes no value
         // that carries a loan.
         if (op.no_loans) {
             for (op.moves) |v| {
+                if (self.f.vars.items[v].holds_task) {
+                    try self.report(.C8, op.pos, "a task would be stored where every handle reaches it; a task may carry a loan, and no shared home holds one", .{});
+                    return;
+                }
                 for (self.f.loans.items, 0..) |l, li| {
                     if (!st.holds[v].has(li)) continue;
-                    try self.report(.C8, op.pos, "a value carrying a loan of `{s}` would be stored where every handle reaches it; an owned closure, a Cell, or a Signal holds only values that carry no loan", .{self.name(l.root)});
+                    try self.report(.C8, op.pos, "a value carrying a loan of `{s}` would be stored where every handle reaches it; an owned closure, a Cell, a Signal, an actor's value, or a channel holds only values that carry no loan", .{self.name(l.root)});
                     return;
                 }
             }

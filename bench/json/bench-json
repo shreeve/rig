@@ -10,7 +10,6 @@ usage: bench/json/bench-json [options]
                     gsoc-2018,github_events from bench/json/check/data/simd-json, which tools/fetch-json-data.sh fetches)
   --variants a,b    what to build and time (default: all but experiments):
                       rig-safe        rig build --release (Zig's safe mode)
-                      rig-fast        rig build --release=fast
                       zig-tape-safe   std.json.Scanner -> the same tape, -OReleaseSafe
                       zig-tape-fast   the same, -OReleaseFast
                       zig-value-safe  std.json.parseFromSlice(Value), -OReleaseSafe
@@ -18,9 +17,10 @@ usage: bench/json/bench-json [options]
                     and experiments, only when named:
                       rig-safeinl     rig-safe with the runtime's maskFirst
                                       inline (sizes a wide mask's call)
-                      rig-nocheck     rig-fast's emitted Zig with Rig's index,
+                      rig-nocheck     rig-safe's emitted Zig with Rig's index,
                                       slice, and read bounds checks removed from
-                                      its runtime: sizes what they cost
+                                      its runtime, built -OReleaseFast: sizes
+                                      what the checks cost
                     A Rig variant may name settings after `@`, joined by
                     `+`: each rewrites a module constant or `type` alias
                     of std/json.rig, as in rig-safe@TIER=0 (SIMD only);
@@ -47,7 +47,7 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 RIG = os.environ.get("RIG", os.path.join(ROOT, "bin", "rig"))
 DATA = os.path.join(ROOT, "bench", "json", "check", "data", "simd-json")
 FILES = ["twitter", "twitterescaped", "canada", "citm_catalog", "gsoc-2018", "github_events"]
-DEFAULT = ["rig-safe", "rig-fast", "zig-tape-safe", "zig-tape-fast", "zig-value-safe", "zig-value-fast"]
+DEFAULT = ["rig-safe", "zig-tape-safe", "zig-tape-fast", "zig-value-safe", "zig-value-fast"]
 
 MAIN = '''use json
 use std.os
@@ -150,8 +150,7 @@ def build(name, variant, data, tmp, zig):
         open(os.path.join(d, "main.rig"), "w").write(MAIN.replace("@SRC@", rig_literal(data)))
         out = os.path.join(d, "out")
         env = dict(os.environ, RIG_OUT_DIR=out, ZIG=zig)
-        mode = "--release" if base in ("rig-safe", "rig-safeinl") else "--release=fast"
-        run([RIG, "build", mode, "-o", exe + ".tmp", os.path.join(d, "main.rig")], env=env)
+        run([RIG, "build", "--release", "-o", exe + ".tmp", os.path.join(d, "main.rig")], env=env)
         if base == "rig-safeinl":
             inline_mask_first(os.path.join(out, "rig", "runtime.zig"))
             run([zig, "build-exe", "-OReleaseSafe", "--cache-dir", os.path.join(out, ".zc"),

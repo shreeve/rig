@@ -2,7 +2,7 @@
 """Times `text.find` built by two rigs: bench/text/time.rig, built with
 `--release` by BASE and by NEW, run in turns ROUNDS times on FILE, each
 case's fastest time kept. With `--rivals`, times std.text built by one
-rig (`--release` and `--release=fast`) against the memchr crate
+rig (`--release`) against the memchr crate
 (rust/: `memmem::find`, and a `memmem::Finder` built once per case) and
 Go's `bytes.Index` (find.go), the same cases, all in turns.
 
@@ -22,10 +22,10 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def build(rig, out, name, flag="--release"):
+def build(rig, out, name):
     exe = os.path.join(out, name)
     env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, name + "-out"))
-    subprocess.run([rig, "build", flag, "-o", exe, os.path.join(HERE, "time.rig")], check=True, env=env)
+    subprocess.run([rig, "build", "--release", "-o", exe, os.path.join(HERE, "time.rig")], check=True, env=env)
     return exe
 
 
@@ -50,11 +50,11 @@ def check_found():
 
 
 # The rivals: each a program and the arguments after FILE.
-RIVALS = ("rig-safe", "rig-fast", "memchr", "memchr-finder", "go")
+RIVALS = ("rig-safe", "memchr", "memchr-finder", "go")
 
 
 def build_rivals(rig, out):
-    exes = {"rig-safe": (build(rig, out, "rig-safe"), ()), "rig-fast": (build(rig, out, "rig-fast", "--release=fast"), ())}
+    exes = {"rig-safe": (build(rig, out, "rig-safe"), ())}
     target = os.path.join(out, "cargo")
     native = os.environ.get("RUSTFLAGS", "-C target-cpu=native")
     subprocess.run(["cargo", "build", "-q", "--release", "--locked", "--offline"], check=True,
@@ -89,8 +89,8 @@ def rivals(rig, path, rounds):
     for key in best["rig-safe"]:
         size, k, kind = key
         row = [best[v][key] for v in RIVALS]
-        std = min(row[:2])
-        rival = min(range(2, len(RIVALS)), key=lambda i: row[i])
+        std = row[0]
+        rival = min(range(1, len(RIVALS)), key=lambda i: row[i])
         r = row[rival]
         word = "faster" if std <= r else "slower"
         pct = (r / std - 1) * 100 if std <= r else (std / r - 1) * 100

@@ -107,6 +107,14 @@ bomb "isolate none", "index out of bounds", prints: "before"
   t = bad(9)&
   print(>t catch -1)
 
+fail "isolate closure that propagates reports its own error alone", "4:27: type `Int` has no method `abs`", "5:29: type `Int` has no method `nope`", errors: 2
+  use std.task
+
+  sub main()!
+    n = task.isolate(|| (3).abs()!) catch -1
+    m = task.supervise(|| (3).nope()!) catch -1
+    print(n, m)
+
 fail "isolate write capture", "`task.isolate` drops what a panic in it half-changed, so nothing outside it may be lent to it to write, and `|!total|` lends `total` so: give the change back as its value, or keep it in a `*Cell`, captured `|+total|`", errors: 1
   use std.task
 

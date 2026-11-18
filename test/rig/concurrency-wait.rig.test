@@ -252,6 +252,52 @@ fail "wait written out with a deadline", "a task is waited for with `>`, which t
   t = sq(5)&
   print(<t.wait(within: 5) catch 0)
 
+fail "wait written out on a task made there", "a task waited for as soon as it starts is the call itself: write `(?mkbox(4)).peek()`", "a task waited for as soon as it starts is the call itself: write `sq(5)`", errors: 2
+  # `>` takes a name alone, so the hint is the call itself, which
+  # parses and runs (the case below).
+  obj P
+    n: Int
+
+    fun peek(?@) -> Int
+      @n
+
+  fun mkbox(n: Int) -> ^P
+    ^P(n: n)
+
+  fun sq(x: Int) -> Int
+    x * x
+
+  x = ((?mkbox(4)).peek()&).wait()
+  y = (sq(5)&).wait()
+  print(x, y)
+
+test "wait written out on a task made there, as the hint says", "4 25"
+  obj P
+    n: Int
+
+    fun peek(?@) -> Int
+      @n
+
+  fun mkbox(n: Int) -> ^P
+    ^P(n: n)
+
+  fun sq(x: Int) -> Int
+    x * x
+
+  x = (?mkbox(4)).peek()
+  y = sq(5)
+  print(x, y)
+
+fail "wait written out on a task in a field", "a task is waited for with `>` on a name: take it out to one first, `t = <j.t`, then wait for that, `>t`", errors: 1
+  fun sq(x: Int) -> Int
+    x * x
+
+  obj Job
+    t: Task[Int]
+
+  j = Job(t: sq(5)&)
+  print(j.t.wait())
+
 fail "wait print a task", "`t` is a task, which `print` cannot show: wait for what it gives, `>t`"
   fun sq(x: Int) -> Int
     x * x

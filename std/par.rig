@@ -12,10 +12,13 @@
 #   the order of `items`, until none is left. It gives a List of the
 #   values in the order of the items, or nothing when `f` gives nothing. Each
 #   state goes to one task, to write, so it must be sendable.
+# - `par.push(!t, ?sizes, f, limit: n)` pushes `sizes.sum()` slots onto
+#   the Table `t` at once, then calls `f(!run, k)` for each run `k`, the
+#   next `sizes[k]` of those slots in order, as a `![]T`.
 #
 # `f` is a closure written in the call, or a function's name. Every task
 # reads what the closure captures, so each capture must sync, and none
 # is a write view. When `f` can fail, so can the call: the first failure
-# cancels the other tasks, and the call fails with it. `limit`, of `map`
-# and `each`, is how many tasks run at once, by default one per worker; with one, or few
+# cancels the other tasks, and the call fails with it. `limit`, of `map`,
+# `each`, and `push`, is how many tasks run at once, by default one per worker; with one, or few
 # elements, the calls run in turn on the calling task.

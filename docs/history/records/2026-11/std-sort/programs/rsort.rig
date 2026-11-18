@@ -1,0 +1,163 @@
+# std.sort on the data zsort.zig and rust/ sort: Ints, text views, an
+# object ordered by its fields, and records ordered by one key through
+# `sort_by` (a closure) and through `sort` (an own `order`); `cstr` is
+# `sstr`'s texts held in one String. Prints the fastest round, ns per
+# element.
+# rsort KIND PATTERN N ROUNDS
+use std.hint
+use std.os
+use std.sort
+use std.text
+use std.time
+
+obj P: Ord
+  a: Int
+  b: Int
+
+obj Rec
+  key: Int
+  id: Int
+
+obj RecO: Ord
+  key: Int
+  id: Int
+
+  fun order(?@, other: ?RecO) -> Order
+    @key.order(?other.key)
+
+obj Gen
+  state: U64
+
+  fun next(!@) -> U64
+    @state = @state +% 0x9e3779b97f4a7c15
+    z = @state
+    z = (z ^ (z >> 30)) *% 0xbf58476d1ce4e5b9
+    z = (z ^ (z >> 27)) *% 0x94d049bb133111eb
+    z ^ (z >> 31)
+
+  fun key(!@, pattern: ?String, i: Int, n: Int) -> Int
+    if pattern == "rand"
+      return Int(!@next() >> 1)
+    if pattern == "sorted"
+      return i
+    if pattern == "rev"
+      return n - i
+    Int(!@next() % 16)
+
+sub main()
+  args = os.args()
+  kind = args[1]
+  pattern = args[2]
+  n = text.parse_int(args[3]) catch 0
+  rounds = text.parse_int(args[4]) catch 1
+  reps = 1
+  if (1 << 20) / n > 1
+    reps = (1 << 20) / n
+  total = reps * n
+  g = Gen(state: 42)
+  keys: List[Int] = List(capacity: total)
+  for _ in 0..reps
+    for i in 0..n
+      !keys.push(!g.key(pattern, i, n))
+  best = Int.max
+  if kind == "int" or kind == "sint"
+    work: List[Int] = List(capacity: total)
+    for k in ?keys
+      !work.push(k)
+    for _ in 0..rounds
+      for i in 0..total
+        work[i] = keys[i]
+      t0 = time.now()
+      for r in 0..reps
+        if kind == "int"
+          sort.sort(!work[r * n..(r + 1) * n])
+        else
+          sort.sort_by(!work[r * n..(r + 1) * n], |a, b| a < b)
+      dt = t0.elapsed()
+      hint.keep(?work)
+      if dt < best
+        best = dt
+  else if kind == "str" or kind == "sstr"
+    sorted = pattern == "sorted" or pattern == "rev"
+    texts: List[String] = List(capacity: total)
+    for k in ?keys
+      t: String = `{k + 1000000000000 if sorted else k}`
+      !texts.push(<t)
+    for _ in 0..rounds
+      work: List[?String] = List(capacity: total)
+      for t in ?texts
+        !work.push(t)
+      t0 = time.now()
+      for r in 0..reps
+        if kind == "str"
+          sort.sort(!work[r * n..(r + 1) * n])
+        else
+          sort.sort_by(!work[r * n..(r + 1) * n], |a, b| a < b)
+      dt = t0.elapsed()
+      hint.keep(?work)
+      if dt < best
+        best = dt
+  else if kind == "cstr"
+    # The texts of `sstr` laid out one after another in one String, as
+    # zsort.zig's arena lays them out: views sorted by `sort_by`.
+    sorted = pattern == "sorted" or pattern == "rev"
+    all: String = String()
+    offs: List[Int] = List(capacity: total + 1)
+    for k in ?keys
+      !offs.push(all.len)
+      !all.add(`{k + 1000000000000 if sorted else k}`)
+    !offs.push(all.len)
+    for _ in 0..rounds
+      work: List[?String] = List(capacity: total)
+      for i in 0..total
+        !work.push(?all[offs[i]..offs[i + 1]])
+      t0 = time.now()
+      for r in 0..reps
+        sort.sort_by(!work[r * n..(r + 1) * n], |a, b| a < b)
+      dt = t0.elapsed()
+      hint.keep(?work)
+      if dt < best
+        best = dt
+  else if kind == "obj"
+    work: List[P] = List(capacity: total)
+    for k in ?keys
+      !work.push(P(a: k / 1024, b: k % 1024))
+    for _ in 0..rounds
+      for i in 0..total
+        work[i] = P(a: keys[i] / 1024, b: keys[i] % 1024)
+      t0 = time.now()
+      for r in 0..reps
+        sort.sort(!work[r * n..(r + 1) * n])
+      dt = t0.elapsed()
+      hint.keep(?work)
+      if dt < best
+        best = dt
+  else if kind == "rec"
+    work: List[Rec] = List(capacity: total)
+    for k, i in ?keys
+      !work.push(Rec(key: k, id: i % n))
+    for _ in 0..rounds
+      for i in 0..total
+        work[i] = Rec(key: keys[i], id: i % n)
+      t0 = time.now()
+      for r in 0..reps
+        sort.sort_by(!work[r * n..(r + 1) * n], |a, b| a.key < b.key)
+      dt = t0.elapsed()
+      hint.keep(?work)
+      if dt < best
+        best = dt
+  else
+    work: List[RecO] = List(capacity: total)
+    for k, i in ?keys
+      !work.push(RecO(key: k, id: i % n))
+    for _ in 0..rounds
+      for i in 0..total
+        work[i] = RecO(key: keys[i], id: i % n)
+      t0 = time.now()
+      for r in 0..reps
+        sort.sort(!work[r * n..(r + 1) * n])
+      dt = t0.elapsed()
+      hint.keep(?work)
+      if dt < best
+        best = dt
+  print(Float(best) / Float(total))

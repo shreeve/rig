@@ -8,7 +8,7 @@ output. It is not part of the test suite.
 ```sh
 zig build                                   # bin/rig
 bench/terminal/bench-terminal               # every corpus and variant
-bench/terminal/bench-terminal --files tui --variants rig-fast,ghostty --reps 9
+bench/terminal/bench-terminal --files tui --variants rig-safe,ghostty --reps 9
 DISPATCH=/path/to/dispatch bench/terminal/bench-terminal  # and Dispatch
 GHOSTTY_SDK=/path/to/an/older/MacOSX.sdk \
   bench/terminal/bench-terminal                           # and Ghostty's SIMD build
@@ -37,6 +37,8 @@ input.
 
 ## Results
 
+The `rig-fast` columns were measured in Zig's fast mode, which Rig no
+longer builds; the rows wait to be measured again with `--release`.
 Apple M5, arm64, 120x40, fastest of 7 interleaved runs. `rig-safe` and
 `rig-fast` keep std.terminal's default history, 10,000 rows (about
 9.6 MB at 120 columns); `ghostty, 10 MB scrollback` keeps Ghostty's

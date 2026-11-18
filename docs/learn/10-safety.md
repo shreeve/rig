@@ -176,9 +176,9 @@ use of freed memory crashes at the access instead of printing a stale
 value. The test suite sets it for every program it runs.
 
 `--release` keeps bounds, overflow, conversion, and shift, in Zig's safe mode.
-`--release=fast` drops the overflow, conversion, and shift checks by request, so
-there an overflow is undefined behavior. That mode is outside the
-guarantee.
+No build mode drops a check. A program that wants wrapping arithmetic
+says so where it happens, with `+%`, `-%`, or `*%`, and a program that
+needs Zig's unchecked builtins calls them in a `raw` block.
 
 A check at run time says nothing about paths no test took. It is a net
 under the compiler, not a substitute for it.

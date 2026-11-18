@@ -1,7 +1,7 @@
 # `rig build` writes a native executable: ./<name> by default, or -o;
 # Zig's debug mode by default, its safe mode with --release, which keeps
-# overflow checks. Its fast mode, with --release=fast, is built and run
-# by release_checks.sh.
+# overflow checks. No flag builds without them: `--release=fast` is a
+# usage error that names the opt-outs a program writes instead.
 # timeout: 120
 # builds: shared
 source "$ROOT/test/cli/_lib.sh"
@@ -34,6 +34,18 @@ out=$(bin/sum-safe 2>&1); rc=$?
 expect_has "$out" "total 135" "release build"
 expect_has "$out" "integer overflow" "release build keeps overflow checks"
 [[ $rc -ne 0 ]] || fail "release build: overflow exited 0"
+
+for verb in build run test; do
+    out=$(rig $verb --release=fast sum.rig 2>&1); rc=$?
+    expect_rc $rc 2 "rig $verb --release=fast"
+    expect_has "$out" "\`--release=fast\` is gone: every build keeps Rig's checks" "rig $verb --release=fast"
+    expect_has "$out" "\`+%\`" "rig $verb --release=fast names wrapping arithmetic"
+done
+out=$(rig build --release=small sum.rig 2>&1); expect_rc $? 2 "rig build --release=small"
+expect_has "$out" "unknown option \`--release=small\`" "rig build --release=small"
+out=$(rig batch build --release=fast batch sum.rig 2>&1); expect_rc $? 2 "rig batch build --release=fast"
+expect_has "$out" "\`--release=fast\` is gone" "rig batch build --release=fast"
+[[ ! -e batch ]] || fail "rig batch build --release=fast made its directory"
 
 cat >lib.rig <<'EOF'
 pub fun twice(n: Int) -> Int

@@ -1,0 +1,32 @@
+# bench-mixed 2026-11-16 04:52 load 9.90 6.47 6.00 commit 91b2ee3ef+dirty Darwin arm64 10 cores; rates 120000,160000, 5000 idle, 128 conns, 1 in 4 computes
+rig-safe  round 0  120000 offered  119996 done  p50 1675 us  p99 49.7 ms  p99.9 72.0 ms  max 87.4 ms  srv 3.0 cores  idle 99/99
+rig-safe  round 0  160000 offered  111096 done  p50 895 ms  p99 1533 ms  p99.9 1599 ms  max 1639 ms  srv 3.0 cores  idle 99/99
+tokio     round 0  120000 offered  119996 done  p50 138 us  p99 1832 us  p99.9 3841 us  max 6913 us  srv 2.5 cores  idle 99/99
+tokio     round 0  160000 offered  127776 done  p50 621 ms  p99 1009 ms  p99.9 1037 ms  max 1057 ms  srv 3.0 cores  idle 99/99
+go        round 0  120000 offered  119995 done  p50 830 us  p99 48.4 ms  p99.9 58.6 ms  max 89.1 ms  srv 3.6 cores  idle 99/99
+go        round 0  160000 offered  121621 done  p50 719 ms  p99 1213 ms  p99.9 1271 ms  max 1302 ms  srv 3.7 cores  idle 99/99
+tokio     round 1  120000 offered  119997 done  p50 122 us  p99 1431 us  p99.9 2873 us  max 7239 us  srv 2.4 cores  idle 99/99
+tokio     round 1  160000 offered  126782 done  p50 570 ms  p99 1041 ms  p99.9 1087 ms  max 1158 ms  srv 3.0 cores  idle 99/99
+go        round 1  120000 offered  117629 done  p50 421 us  p99 91.3 ms  p99.9 102 ms  max 189 ms  srv 3.2 cores  idle 99/99
+go        round 1  160000 offered  114261 done  p50 890 ms  p99 1432 ms  p99.9 1472 ms  max 1507 ms  srv 3.6 cores  idle 99/99
+rig-safe  round 1  120000 offered  118867 done  p50 2302 us  p99 54.7 ms  p99.9 124 ms  max 149 ms  srv 3.1 cores  idle 99/99
+rig-safe  round 1  160000 offered  116272 done  p50 862 ms  p99 1369 ms  p99.9 1415 ms  max 1472 ms  srv 3.2 cores  idle 99/99
+go        round 2  120000 offered  119995 done  p50 288 us  p99 10.5 ms  p99.9 17.7 ms  max 85.6 ms  srv 3.5 cores  idle 99/99
+go        round 2  160000 offered  115963 done  p50 866 ms  p99 1387 ms  p99.9 1451 ms  max 1497 ms  srv 3.6 cores  idle 99/99
+rig-safe  round 2  120000 offered  119996 done  p50 236 us  p99 4632 us  p99.9 6082 us  max 23.1 ms  srv 3.0 cores  idle 99/99
+rig-safe  round 2  160000 offered  124431 done  p50 685 ms  p99 1111 ms  p99.9 1139 ms  max 1176 ms  srv 3.3 cores  idle 99/99
+tokio     round 2  120000 offered  119937 done  p50 250 us  p99 7217 us  p99.9 10.9 ms  max 23.1 ms  srv 2.4 cores  idle 99/99
+tokio     round 2  160000 offered  122723 done  p50 710 ms  p99 1160 ms  p99.9 1187 ms  max 1217 ms  srv 2.8 cores  idle 99/99
+
+120000 req/s offered
+          runs                req/s                  p50                  p99                p99.9                  max                / p99            /hash p99            srv cores
+rig-safe     3      119996 (119996)     1675 us (236 us)    49.7 ms (4632 us)    72.0 ms (6082 us)    87.4 ms (23.1 ms)    49.7 ms (4616 us)    49.7 ms (4679 us)            3.0 (3.0)
+tokio        3      119996 (119997)      138 us (122 us)    1832 us (1431 us)    3841 us (2873 us)    7239 us (6913 us)    1794 us (1376 us)    1944 us (1574 us)            2.4 (2.4)
+go           3      119995 (119995)      421 us (288 us)    48.4 ms (10.5 ms)    58.6 ms (17.7 ms)    89.1 ms (85.6 ms)    48.4 ms (10.5 ms)    48.4 ms (10.6 ms)            3.5 (3.2)
+
+160000 req/s offered
+          runs                req/s                  p50                  p99                p99.9                  max                / p99            /hash p99            srv cores
+rig-safe     3      116272 (124431)      862 ms (685 ms)    1369 ms (1111 ms)    1415 ms (1139 ms)    1472 ms (1176 ms)    1369 ms (1111 ms)    1369 ms (1111 ms)            3.2 (3.0)
+tokio        3      126782 (127776)      621 ms (570 ms)    1041 ms (1009 ms)    1087 ms (1037 ms)    1158 ms (1057 ms)    1041 ms (1009 ms)    1041 ms (1009 ms)            3.0 (2.8)
+go           3      115963 (121621)      866 ms (719 ms)    1387 ms (1213 ms)    1451 ms (1271 ms)    1497 ms (1302 ms)    1387 ms (1213 ms)    1388 ms (1213 ms)            3.6 (3.6)
+done

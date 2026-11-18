@@ -1,0 +1,18 @@
+# quiet
+base 120000 req/s 119995 p50 189 p99 1546 user 1.45 sys 1.65 cores
+tokio 120000 req/s 119991 p50 185 p99 1573 user 1.50 sys 1.77 cores
+# spin
+base 120000 req/s 118859 p50 4955 p99 135099 user 1.55 sys 1.53 cores
+tokio 120000 req/s 119997 p50 103 p99 1311 user 1.28 sys 1.00 cores
+# quiet
+base 120000 req/s 119995 p50 191 p99 1787 user 1.45 sys 1.66 cores
+tokio 120000 req/s 119995 p50 186 p99 2007 user 1.50 sys 1.78 cores
+# spin
+base 120000 req/s 117768 p50 10291 p99 87714 user 1.55 sys 1.57 cores
+tokio 120000 req/s 119695 p50 338 p99 45716 user 1.37 sys 1.26 cores
+# quiet
+base 120000 req/s 119984 p50 197 p99 4246 user 1.45 sys 1.66 cores
+tokio 120000 req/s 119972 p50 262 p99 1862 user 1.51 sys 1.82 cores
+# spin
+base 120000 req/s 115784 p50 88563 p99 207629 user 1.45 sys 1.56 cores
+tokio 120000 req/s 119985 p50 897 p99 100395 user 1.41 sys 1.36 cores

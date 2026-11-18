@@ -28,8 +28,8 @@ Rig gives each through the same `&` and `>t`, on one scheduler.
 |---|---|---|
 | Threads and preemption | OS threads, Go | nothing: the runtime runs a worker per core |
 | Async I/O | Tokio | an ordinary call that reads a socket |
-| Compute | Rayon | `t = f()&`, `g()`, `>t`; `par.map`, `par.each` |
-| Tasks | Go | `f()&`, `Tasks[T]`, `<t.cancel()`, `time.within` |
+| Compute | Rayon | `t = f()&`, `g()`, `>t`; `par.map`, `par.each`, `par.push` |
+| Tasks | Go | `f()&`, `Tasks[T]`, `task.all`, `<t.cancel()`, `time.within` |
 | Actors | Erlang | `*Actor(x)`, and its methods called through the handle |
 | Structured concurrency | Swift | nothing more: a task belongs to its scope |
 | Channels and select | Go's CSP | `*Chan[T](n)`, `task.select(...)` |
@@ -142,7 +142,9 @@ spread with no such delay. If no worker took the task, `>t` runs it at
 once by handoff (below).
 `par.map(?xs, f)` and `par.each(!xs, f)` run a function over a list on
 one task per worker, or `limit:` of them, and
-`par.workers(!states, ?items, f)` gives each task a state of its own.
+`par.workers(!states, ?items, f)` gives each task a state of its own;
+`par.push(!t, ?sizes, f)` pushes a Table's next slots at once and has
+the tasks write them, a run each.
 Results come in the order of the input, and every task calls the one
 closure, so it may capture nothing lent to write.
 
@@ -176,6 +178,10 @@ sub main()
 
 `<ts.wait_first()` gives the first success and cancels the rest, so
 mirror 3's minute of sleep ends at once; `>ts` waits for them all.
+`task.all(a&, b&)` waits for a few tasks of different types at once,
+giving each one's value, or nothing when they give none, as `sub`s do:
+`task.all(save(?x)&, save(?y)&)!` is one visible wait, where the first
+to fail cancels the others.
 
 **Underneath,** a task is a fiber: a record and a stack of its own,
 switched by saving and restoring the few registers a call keeps. It is
@@ -229,6 +235,20 @@ message whose caller waits for the answer. When the actor is idle, the
 caller takes it with one atomic step and runs the method on its own
 stack, as the actor, with no message and no switch. So an idle actor
 costs about what a lock does, and Rig has no `Mutex`.
+
+Every call takes the actor, a read as much as a write, so a table many
+tasks read is no actor's: `shared.Map`
+([STD](STD.md#stdshared)) keeps the first value put under each key, so
+a lookup takes nothing and writes nothing, and only a put of a new key
+locks, one shard of 64.
+
+An object that holds a Cell, and whose every field is plain data, a
+Cell of one word, or another such object, is shared the same way, with no actor: its handles go to other tasks,
+and each Cell operation lands at once in one order every task sees
+(SPEC, "Cell"). Each operation is one change, so a `get` then a `set`
+are two, and a change another task makes between them is lost: count
+with `!c.add(n)`, and replace a value with `(!c).compare_swap(old,
+new)` or `!c.swap(v)`.
 
 **It guarantees** that an actor runs one method at a time, each to its
 end, so no one sees its state half-changed. A call that would close a
@@ -360,10 +380,11 @@ worker's slots for 3 µs may be taken too. Work made while every worker
 is busy sets a flag that the next yield check acts on.
 
 **Handoff.** If the task has not started and still sits in this
-worker's slot when `>t` comes, the waiter hands its worker straight to
-it, switching onto the task's stack past every queue, and the task
+worker's slot when `>t` comes, or is the newest in its ring (a
+fork-join's halves made past the four slots, waited for in turn), the
+waiter hands its worker straight to it, switching onto the task's stack past every queue, and the task
 switches straight back when it ends (`sched.handoff`). A chain of tasks,
-each made and waited for at once, runs on its maker's worker at 47 ns a
+each made and waited for at once, runs on its maker's worker at 51 ns a
 task on the Mac (`chain`, below).
 
 **Parking on I/O and on timers.** A task that must wait begins a
@@ -371,15 +392,18 @@ numbered wait, tells its waker the number, looks once more, and switches
 away; only then is it marked asleep. On a socket it sleeps until the
 descriptor's count of ready edges, read before its call, changes, so no
 waiter consumes another's readiness. A timer's deadline goes into its
-worker's heap, which bounds the worker's sleep in its poller.
+worker's heap, which bounds the worker's sleep in its poller. A
+connection of `http.serve` holds one deadline that each wait moves
+without touching the heap, whose timer moves to it only when it comes
+due, so a request costs no heap work.
 
 **The waiter woken.** A task that ends marks its record ending, wakes
 its one recorded waiter, and only then marks it ended, so the waiter may
 free the record at once. The wake is one compare-and-swap for that
 wait's number, so a stale wake does nothing, and puts the waiter in the
-waking worker's run-next slot, so two tasks that answer each other stay
-on one worker. `>t` takes the result and ends the task's loans; a
-task's panic passes on to its waiter there.
+waking worker's run-next slot, so two tasks that answer each other, each
+waiting as soon as it sends, stay on one worker. `>t` takes the result
+and ends the task's loans; a task's panic passes on to its waiter there.
 
 **What crosses cores.** Any worker may run a task, so the checker
 derives two facts for every type: whether its value *sends* (may be
@@ -437,55 +461,57 @@ anything, so a task keeps about 3 KiB free below its stack pointer
 for a stop (`preempt_room` in src/sched.zig). Other targets keep the
 yield checks.
 
-**Measured** on an Apple M5 with 10 cores, interleaved, best of 5
-(2026-11-08, main 0d1c64647; `bench/tasks/PROGRESS.md`):
+**Measured** on an Apple M5 with 10 cores, with `--release`, the
+fastest of 14 interleaved runs (2026-11-15, main 7a2efd0f3;
+[launch/benchmarks.md](launch/benchmarks.md)):
 
 | `bench/tasks` | Rig | Tokio | Go |
 |---|---|---|---|
-| spawn, per task | 151 ns | 176 ns | 227 ns |
-| chain (start one, wait), per task | 42 ns | 182 ns | 226 ns |
-| yield, per yield | 4 ns | 41 ns | 248 ns |
-| fanout, 10 CPU-bound tasks | 81.1 ms | 66.5 ms | 67.0 ms |
-| hog, a task waiting behind a long computation | 162 ns | 4.0 ms | 4.2 ms |
-| produce, tasks made while others take them | 6.7 ms | 5.6 ms | 6.1 ms |
+| spawn, per task | 133 ns | 175 ns | 228 ns |
+| chain (start one, wait), per task | 51 ns | 165 ns | 199 ns |
+| yield, per yield | 6 ns | 39 ns | 226 ns |
+| fanout, 10 CPU-bound tasks | 65.8 ms | 66.1 ms | 67.2 ms |
+| hog, a task waiting behind a long computation | 153 ns | 3.3 ms | 3.4 ms |
+| produce, tasks made while others take them | 5.3 ms | 6.0 ms | 5.8 ms |
 | resident memory, per sleeping task | 16.6 KiB | 262 B | 2.9 KiB |
 
-Starting a task costs less than Tokio's and Go's; a chain is 4.3 times
-as fast as Tokio's, and a yield 9 times. `fanout` is 22% slower than
-Tokio's, a gap in the compiled loop ([launch/benchmarks.md](launch/benchmarks.md)).
-A task behind a long computation waits for a slice of it, not all of it:
-162 ns, against Tokio's 4.0 ms and Go's 4.2 ms.
+Starting a task costs less than Tokio's and Go's; a chain is 3.2 times
+as fast as Tokio's, and a yield 6.5 times. `fanout` is level with
+Tokio's and Go's. A task behind a long computation waits for a slice of
+it, not all of it: 153 ns, against Tokio's 3.3 ms and Go's 3.4 ms.
 
-The memory row counts resident pages only. The kernel also keeps a page
-table for each task's stack, which a Tokio or Go task does not need, so
-counted as the kernel counts it (`footprint` on macOS, VmRSS plus VmPTE
-on Linux; [bench/tasks/SCALING.md](../bench/tasks/SCALING.md)) a
-sleeping task holds 32.7 KiB on the Mac, 16.1 KiB of it page tables,
-against Tokio's 267 B and Go's 2.9 KiB; and 8.9 KiB on pup (x86-64
-Linux), 4.3 KiB of it page tables, against Tokio's 388 B and Go's
-2.9 KiB.
+The memory row counts resident pages only. Counted as the kernel
+counts it (`footprint`, page tables included; `bench/tasks/bench-scale`)
+a sleeping task holds 17.1 KiB, 537 B of it page tables, against
+Tokio's 264 B and Go's 2.9 KiB. That task sits on a dense stack, which
+a release build gives every task whose stack the compiler can bound,
+packed beside its neighbours under shared page tables; a task with
+recursion or a call through a pointer keeps a large stack, with a page
+table of its own, about twice that. On x86-64 Linux, where a page is
+4 KiB, a sleeping task holds 5.2 KiB, against Tokio's 391 B and Go's
+2.8 KiB.
 
-Divide and conquer with `f()&` and `>t`, fastest of 20 on ten workers
-on the Mac: a parallel sum takes 2.74 ms, against Rayon's 2.43 ms, and
-a quicksort 85.8 ms, against Rayon's 48.7 ms.
+Divide and conquer with `f()&` and `>t`, fastest of 20 interleaved runs
+on the Mac: a parallel sum takes 2.83 ms, against Rayon's 2.39 ms, and
+a quicksort 80.2 ms, against Rayon's 52.5 ms; on x86-64 Linux 6.66 ms
+against 4.48, and 120.6 ms against 117.3
+([launch/benchmarks.md](launch/benchmarks.md), "Fork-join").
 
-`bench/actors/PROGRESS.md` has a counter called from one task at 5.2
-ns a call, against 3.7 ns behind Go's `sync.Mutex` and 134 ns for a
-Tokio actor; `bench/http/PROGRESS.md` has `http.serve` at 163,212
-requests a second (p99 786 µs), 9.5% fewer than hyper's 180,339 (p99
-614 µs) and about Go's 163,675 (p99 1,071 µs), and 16.8 KiB per idle
-connection against hyper's 18.6 KiB and Go's 18.5 KiB, in resident
-memory. Counted with its page tables, as the kernel counts a process,
-Rig's idle connection holds 17.2 KiB on the Mac, since it waits on a
-dense stack. Its load
-generator is closed-loop, which understates p99, so no claim against
-Tokio or Go rests on these before the mixed-workload benchmark.
+`bench/actors` has a counter called from one task at 5.0 ns a call,
+against 3.4 ns behind Go's `sync.Mutex` and 138 ns for a Tokio actor.
+`bench/http` has `http.serve` at 128,402 requests a second (p99
+690 µs), 7.8% fewer than hyper's 139,202 (p99 617 µs) and 6.5% more
+than Go's 120,522 (p99 1,014 µs). Counted with its page tables, as the
+kernel counts a process, an idle connection holds 17.3 KiB, against
+hyper's 18.7 KiB and Go's 20.2 KiB, since it waits on a dense stack and
+holds no buffer. The load generator is closed-loop, which understates
+p99, so no claim against Tokio or Go rests on these before the
+mixed-workload benchmark.
 
 **The gaps,** from the [ROADMAP](ROADMAP.md)'s "Concurrency":
 
-- **Task memory:** a sleeping task's 32.7 KiB brought to Go's 2.9 KiB
-  or under, first by stacks placed closer together (one page table for
-  many), then by small stacks packed into shared pages, sized by a
+- **Task memory:** a sleeping task's 17.1 KiB brought to Go's 2.9 KiB
+  or under, by small stacks packed into shared pages, sized by a
   proven bound
   ([records/2026-11/task-memory/](history/records/2026-11/task-memory/small-stacks.md)).
 - **Free fork-join,** for the quicksort's gap: an awaited unstarted

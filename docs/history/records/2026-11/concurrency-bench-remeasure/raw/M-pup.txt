@@ -1,0 +1,10 @@
+# blocks=4820 swap_mb=1360 slot=311 paused=0 running=0 late=0 load 0.17 0.68 1.48
+bfd872b6d 2026-11-15 21:50:13 -0700
+
+### memory per sleeping task
+
+| runtime | total | of it, page tables |
+|---|---|---|
+| rig-safe | 5.1 KiB | 515 B |
+| tokio | 380 B | -0 B |
+| go | 2.8 KiB | 7 B |

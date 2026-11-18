@@ -4,30 +4,58 @@ Rig's sigils show who owns a value and who may change it. [CORE](CORE.md)
 states the ownership model in full; [SYNTAX](SYNTAX.md) and
 [SPEC](../SPEC.md) give every form.
 
-Sigils are the language's mechanics; words are its libraries:
+Sigils are the language's mechanics; words are its libraries. Rig has
+ten sigil characters, `! < + ? ^ * ~ @ &` and `>`; `=!` is `=` with
+`!`. Each means the same thing wherever it appears, and its position
+(before a value, before a type, after a type, after an expression) says
+which of its uses it is.
 
-| Mechanic | Sigils |
-|---|---|
-| Binding | `x = e` binds, `x =! e` binds for good |
-| Taking and copying | `<x` moves (alone on a line, drops), `+x` copies or makes another handle |
-| Lending | `?x` lends to read, `!x` to write; as types, `?T` and `!T` |
-| Holding | `*x` shared (`*w` upgrades a weak handle), `^x` boxed, `~x` weak, `@` self |
-| Failure and absence | `T?` may be absent, `T!` may fail; `e?` and `e!` pass them on |
-| Concurrency | `f(x)&` sends work off, `>t` takes its result back |
+**Binding.**
 
-Each sigil in each position:
+| Sigil | Meaning | Example |
+|---|---|---|
+| `=!` | binds a fixed local, which is never reassigned or lent to write, like Rust's `let` without `mut`; `x = e` binds or assigns | `limit =! 100` |
+
+**Taking and copying.**
+
+| Sigil | Meaning | Example |
+|---|---|---|
+| `<` | `<x` moves `x`; alone on a line, drops it now | `b = <a`, `f(<a)`, `<a` |
+| `+` | `+x` clones: a new owner, or another handle | `b = +a` |
+
+**Lending.**
 
 | Sigil | Before a value | Before a type |
 |---|---|---|
-| `?` | `?x` lends `x` to read | `?T`, a read view |
-| `!` | `!x` lends `x` to write | `!T`, a write view |
-| `<` | `<x` moves `x`; alone on a line, drops it now | |
-| `+` | `+x` clones: a new owner, or another handle | |
-| `^` `*` `~` | `^<x` moves `x` into a box; `*<x` moves `x` into a counted handle; `~h` is a weak handle, and `*w` upgrades it to a `*T?` | `^T`, `*T`, `~T` |
-| `&` `>` | the dispatch sigil and the wait sigil: `t = f(x)&` runs the call as a task; `>t` waits for it and takes its result | |
+| `?` | `?x` lends `x` to read; a bare argument is lent so where its parameter is a read view | `?T`, a read view |
+| `!` | `!x` lends `x` to write; this mark is never implied | `!T`, a write view |
 
-After a type, `T?` may be `none` and `T!` may fail; after an
-expression, `e?` passes `none` up and `e!` passes a failure up.
+**Holding.**
+
+| Sigil | Before a value | Before a type |
+|---|---|---|
+| `^` | `^<x` moves `x` into a box | `^T`, an owned box |
+| `*` | `*<x` moves `x` into a counted handle; `*w` upgrades a weak handle to a `*T?` | `*T`, a shared handle |
+| `~` | `~h` is a weak handle of `h` | `~T`, a weak handle |
+| `@` | self, in a method: `?@` reads, `!@` changes, `<@` consumes | |
+
+**Failure and absence.**
+
+| Sigil | After a type | After an expression |
+|---|---|---|
+| `?` | `T?` may be `none` | `e?` passes `none` up |
+| `!` | `T!` may fail | `e!` passes a failure up |
+
+**Concurrency.**
+
+| Sigil | Meaning | Example |
+|---|---|---|
+| `&` | after a call, runs it as a task | `t = f(x)&` |
+| `>` | waits for a task and takes its result | `print(>t)` |
+
+`?` and `!` do the most work: a lend before a value, a view before a
+type, absence or failure after a type, and passing it up after an
+expression. `!` never means "not"; Rig writes `not`.
 
 **An object is a value; `^` puts it on the heap and `*` shares it.** `b = a`
 copies a plain object and moves an owning one; the object itself is
@@ -61,8 +89,10 @@ read where its parameter is a read view: `size(v)` is `size(?v)` for
 is rejected: write `<v` to move it or `+v` to pass a clone (plain data
 such as an `Int` just copies). A write is always written: `grow(!v)`, or
 `!v.push(3)` for a method that changes `v`, `x = !v.pop()` where its
-result is used. A write call whose `Bool` result is used puts its `!` in
-parentheses, `if (!seen).add(k)`, so it never reads as `not`. A value
+result is used. `!` never negates: a `!` is rejected wherever reading it
+as `not` would also type-check, so a write call whose `Bool` result is
+used puts its `!` in parentheses, `if (!seen).add(k)`, or `if not
+(!seen).add(k)` for the opposite. A value
 has any number of read views or one write view, never both.
 
 **A lend in a binding lasts.** `r = ?v[0]` keeps a view of `v[0]`;
@@ -101,7 +131,7 @@ the same: `?@` reads (`a.balance()`), `!@` changes
 (`!a.pay(30)`), and `<@` consumes (`<a.close()`).
 
 **Shared state.** What handles share is a `Cell`, and it changes only by
-a marked call: `!c.set(5)`, which lends the handle `c`. Reading,
+a marked call: `!c.set(5)`, which lends `c` to read. Reading,
 `c.get()`, is unmarked, and a read view never changes a `Cell`. A value
 no one changes again is frozen, `*Frozen(x)`, and any task reads it
 through its handles.

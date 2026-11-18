@@ -5,7 +5,7 @@ measure the memory a sleeping task takes in the kernel's own count
 
 usage: bench/tasks/bench-scale [options]
 
-  --variants a,b  what to build and time (default: rig-fast,tokio,rayon,go;
+  --variants a,b  what to build and time (default: rig-safe,tokio,rayon,go;
                   swift, on macOS, has the memory row only)
   --workers LIST  worker counts, comma-separated (default: 1,2,4 and
                   every CPU on macOS; 1,2,4,8,16 elsewhere)
@@ -224,7 +224,7 @@ def big(n):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--variants", default="rig-fast,tokio,rayon,go")
+    ap.add_argument("--variants", default="rig-safe,tokio,rayon,go")
     ap.add_argument("--workers")
     ap.add_argument("--cpus")
     ap.add_argument("--benches", default=",".join(BENCHES))

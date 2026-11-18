@@ -104,6 +104,10 @@ test "reduce function a closure binding", "6"
   g = |a: Int, b: ?Int| a + b
   print(xs.reduce(0, g))
 
+fail "reduce closure that propagates reports its own error alone", "2:34: type `?Int` has no method `abs`", errors: 1
+  xs = [1, 2, 3]
+  print(xs.reduce(0, |a, x| (a + x.abs())!))
+
 fail "reduce takes a start and a function", "`reduce` takes the starting value and the function that gives the next value from the running one and each element"
   print([1, 2].reduce(0))
 

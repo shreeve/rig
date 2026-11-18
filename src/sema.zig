@@ -1156,10 +1156,12 @@ pub const SelfMode = enum { none, read, write, value };
 /// requirement one on each instance, as a Rig-written generic's use does
 /// (`Requirement.copies`).
 pub const Needs = struct {
-    /// A `T` that copies, a `T` whose every bit pattern is a value
+    /// A `T` that copies, a `T` that copies and holds no view
+    /// (`plain`), whose copies the method keeps where no loan is
+    /// tracked, a `T` whose every bit pattern is a value
     /// (`bytesRecord`), which the method makes from bytes, or a `T`
     /// that `==` compares.
-    t: enum { copies, records, equatable },
+    t: enum { copies, plain, records, equatable },
     /// What the method does with a `T`, as the note of a generic body
     /// whose instance fails says it.
     op: []const u8,
@@ -1952,8 +1954,8 @@ pub const Facts = struct {
     /// with a value in it -> what a failing one reports.
     test_checks: FastMap(u64, []const u8) = .empty,
     /// The calls of `task.all`, which wait for the tasks they take
-    /// (`Checker.taskJoin`).
-    task_joins: FastMap(u64, void) = .empty,
+    /// (`Checker.taskJoin`) -> whether the call gives their values.
+    task_joins: FastMap(u64, bool) = .empty,
     /// The calls of `par.map`, `par.each`, and `par.workers`, which run a
     /// function on several tasks (`Checker.parCall`).
     par_calls: FastMap(u64, ParCall) = .empty,
@@ -1969,6 +1971,9 @@ pub const Facts = struct {
     /// `*Actor.supervised(f)` calls (`Checker.actorSupervised`).
     actor_supervised: FastMap(u64, void) = .empty,
     actor_calls: FastMap(u64, void) = .empty,
+    /// What each `!x` puts on `x`, a read loan or a write loan
+    /// (`Checker.recordLoan`).
+    loans: FastMap(u64, LendKind) = .empty,
     /// The method calls made on a value of a type parameter
     /// (`Checker.typeParamCall`), whose method each instance gives.
     type_param_calls: FastMap(u64, void) = .empty,
@@ -2547,6 +2552,9 @@ pub const Question = enum(u8) {
     /// Of a read `for` or an `if … as`: whether its binding is the bytes
     /// of a String it reaches (`storage.bindsStringBytes`).
     binds_string_bytes,
+    /// Of a `for`: how it combines integers into a local, when it is a
+    /// fold, which emit lowers to `rig.fold` (`storage.fold`).
+    fold,
     /// Of `return a, b`'s parts: whether they are evaluated into storage
     /// first (`storage.hoistsResults`).
     hoists_results,
@@ -2963,7 +2971,7 @@ pub const FnInstance = struct {
         return .{ .params = self.params, .args = self.args };
     }
 
-    const Context = struct {
+    pub const Context = struct {
         pub fn hash(_: Context, k: FnInstance) u64 {
             var h = std.hash.Wyhash.init(0);
             h.update(std.mem.sliceAsBytes(k.params));
@@ -3345,8 +3353,9 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
     if (comptime std.mem.eql(u8, name, "types") or std.mem.eql(u8, name, "payload_fields") or std.mem.eql(u8, name, "string_nums") or std.mem.eql(u8, name, "splats"))
         return w.print(" {s}", .{try formatTypeIn(ctx, a, v)});
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
+    if (comptime std.mem.eql(u8, name, "task_joins")) return w.writeAll(if (v) " values" else " nothing");
     switch (V) {
-        StringCall, Use, Upgrade, ParCall, SelectArm, BuiltinCall, SwapCall => try w.print(" {s}", .{@tagName(v)}),
+        StringCall, Use, Upgrade, ParCall, SelectArm, BuiltinCall, SwapCall, LendKind => try w.print(" {s}", .{@tagName(v)}),
         Duration => try w.print(" {d}ns {s}", .{ v.unit_ns, if (v.float) "Float" else "Int" }),
         []const u8 => try w.print(" \"{f}\"", .{std.zig.fmtString(v)}),
         Lift => try w.print(" {s} from {s}", .{ try formatTypeIn(ctx, a, v.into), try formatTypeIn(ctx, a, v.from) }),
@@ -4037,9 +4046,11 @@ pub const PlainRequirement = struct {
     /// a read view reaches, taken out rather than copied.
     as_view: bool = false,
     /// Not a copy: the value is stored where no loan is tracked (a Cell,
-    /// a Signal, an owned closure), so each instance's argument must
-    /// hold no `?String`, which may view a String.
+    /// a Signal, an owned closure, a channel, an actor's value), so each
+    /// instance's argument must hold no `?String`, which may view a
+    /// String. `home` says which, for the message.
     view: bool = false,
+    home: NoLoanHome = .cell,
     /// Not a copy: the body holds a value of `param`'s associated type of
     /// this name (`S.Item`) past a write, move, or drop of the `S` it came
     /// from, which views it in an instance whose associated type may view
@@ -4061,6 +4072,59 @@ pub const PlainRequirement = struct {
     method: ?u32 = null,
     /// The module whose source `pos` is in; 0 for this one.
     module_id: u32 = 0,
+};
+
+/// Where a generic body keeps a value of a type parameter that no loan
+/// is tracked in (`PlainRequirement.view`), as its message names it.
+pub const NoLoanHome = enum {
+    cell,
+    signal,
+    closure,
+    /// A value sent into a channel (`send`, a send arm).
+    channel,
+    /// A channel made, `*Chan[T](n)`, whose values are `T`s.
+    channel_made,
+    /// An actor made, `*Actor(x)` or `*Actor.supervised(f)`, whose value
+    /// holds a `T`.
+    actor_made,
+    /// The elements of a slice copied into a List, `!xs.extend(?s)`.
+    list_extend,
+
+    /// What the body does with a value of parameter `pname`, after
+    /// "the generic body".
+    pub fn doing(h: NoLoanHome, a: std.mem.Allocator, pname: []const u8) ![]const u8 {
+        return switch (h) {
+            .cell => std.fmt.allocPrint(a, "stores a `{s}` in a Cell", .{pname}),
+            .signal => std.fmt.allocPrint(a, "stores a `{s}` in a Signal", .{pname}),
+            .closure => std.fmt.allocPrint(a, "stores a `{s}` in an owned closure", .{pname}),
+            .channel => std.fmt.allocPrint(a, "sends a `{s}` into a channel", .{pname}),
+            .channel_made => std.fmt.allocPrint(a, "makes a channel of `{s}`", .{pname}),
+            .actor_made => std.fmt.allocPrint(a, "makes an actor whose value holds a `{s}`", .{pname}),
+            .list_extend => std.fmt.allocPrint(a, "copies `{s}`s into a List with `extend`", .{pname}),
+        };
+    }
+
+    /// The note at the body's site: "`T` stored here", or "made here".
+    pub fn site(h: NoLoanHome) []const u8 {
+        return switch (h) {
+            .channel_made, .actor_made => "made here",
+            .list_extend => "copied here",
+            else => "stored here",
+        };
+    }
+
+    /// What keeps the value, for "a value that holds no loan, which ...
+    /// keeps".
+    pub fn keeper(h: NoLoanHome) []const u8 {
+        return switch (h) {
+            .cell => "a Cell",
+            .signal => "a Signal",
+            .closure => "an owned closure",
+            .channel, .channel_made => "a channel",
+            .actor_made => "an actor's value",
+            .list_extend => "a List's `extend`",
+        };
+    }
 };
 
 /// An associated type (`I.Item`, an `AssocOf` symbol) at an instance
@@ -4393,6 +4457,11 @@ pub const SemContext = struct {
     /// a Zig `packed struct`, decided for the whole program after every
     /// module is checked (`storage.decideWords`).
     word_held: FastMap(SymbolId, void) = .empty,
+    /// Each object declared here that holds a Cell, and whether it is a
+    /// word-Cell object or which field keeps it from being one
+    /// (`recordCellObjects`): read by the crossing walk (`cellObject`),
+    /// its messages, and emit (`facts.isCellObject`).
+    cell_objects: FastMap(SymbolId, CellVerdict) = .empty,
     /// The plain enums declared here that an `exact` object holds, with
     /// their tag's bytes (`enumBytes`): emit gives each its tag type,
     /// `enum(u8)`, which a Zig `extern struct` needs where it takes no
@@ -4465,6 +4534,10 @@ pub const SemContext = struct {
     /// The functions and methods Zig inlines at every call, by where
     /// their names are declared (`inlining.decide`).
     inlined: FastMap(u32, void) = .empty,
+    /// The functions and methods that never return, by where their names
+    /// are declared: Zig's result for each is `noreturn`
+    /// (`returns.decide`).
+    never_returns: FastMap(u32, void) = .empty,
     /// In a split build, the unit that owns each function and method it
     /// cuts, by where their names are declared (`units.decide`).
     split_units: FastMap(u32, u16) = .empty,
@@ -4664,6 +4737,7 @@ pub const SemContext = struct {
         self.ct_locals.deinit(self.allocator);
         self.named_nones.deinit(self.allocator);
         self.word_held.deinit(self.allocator);
+        self.cell_objects.deinit(self.allocator);
         self.exact_enums.deinit(self.allocator);
         self.generic_arrays.deinit(self.allocator);
         self.generic_frames.deinit(self.allocator);
@@ -4700,6 +4774,7 @@ pub const SemContext = struct {
         self.used.deinit(self.allocator);
         self.discards.deinit(self.allocator);
         self.inlined.deinit(self.allocator);
+        self.never_returns.deinit(self.allocator);
         self.split_units.deinit(self.allocator);
         self.entry_checks.deinit(self.allocator);
         self.frame_sizes.deinit(self.allocator);
@@ -5687,13 +5762,16 @@ pub const SemContext = struct {
         return self.facts.temp_drops.contains(nodeKey(node) orelse return false);
     }
 
-    pub fn recordTaskJoin(self: *SemContext, call: Sexp) !void {
-        try self.facts.task_joins.put(self.allocator, recordExprKey(call) orelse return, {});
+    /// `call` is a `task.all`; `values`, whether it gives its tasks'
+    /// values or nothing.
+    pub fn recordTaskJoin(self: *SemContext, call: Sexp, values: bool) !void {
+        try self.facts.task_joins.put(self.allocator, recordExprKey(call) orelse return, values);
     }
 
-    /// Whether `call` is a `task.all` (`recordTaskJoin`).
-    pub fn isTaskJoin(self: *const SemContext, call: Sexp) bool {
-        return self.facts.task_joins.contains(exprKey(call) orelse return false);
+    /// Of a `task.all`, whether it gives its tasks' values; null for any
+    /// other call (`recordTaskJoin`).
+    pub fn taskJoinOf(self: *const SemContext, call: Sexp) ?bool {
+        return self.facts.task_joins.get(exprKey(call) orelse return null);
     }
 
     pub fn recordActorMake(self: *SemContext, call: Sexp) !void {
@@ -5760,6 +5838,17 @@ pub const SemContext = struct {
     /// (`recordActorCall`).
     pub fn isActorCall(self: *const SemContext, call: Sexp) bool {
         return self.facts.actor_calls.contains(exprKey(call) orelse return false);
+    }
+
+    pub fn recordLoan(self: *SemContext, lend: Sexp, kind: LendKind) !void {
+        try self.facts.loans.put(self.allocator, recordExprKey(lend) orelse return, kind);
+    }
+
+    /// What `!x`, `lend`, puts on `x` (Core §4): a read loan where it
+    /// lends a write view of a value that changes by a marked call
+    /// (`loanOfView`), a write loan anywhere else (`recordLoan`).
+    pub fn loanOf(self: *const SemContext, lend: Sexp) LendKind {
+        return self.facts.loans.get(exprKey(lend) orelse return .write) orelse .write;
     }
 
     pub fn recordTypeParamCall(self: *SemContext, call: Sexp) !void {
@@ -5858,8 +5947,8 @@ pub const SemContext = struct {
         try self.facts.par_calls.put(self.allocator, recordExprKey(call) orelse return, kind);
     }
 
-    /// Which of `par.map` and `par.each` `call` is, or null for any
-    /// other call (`recordParCall`).
+    /// Which of `par.map`, `par.each`, `par.workers`, and `par.push`
+    /// `call` is, or null for any other call (`recordParCall`).
     pub fn parCallOf(self: *const SemContext, call: Sexp) ?ParCall {
         return self.facts.par_calls.get(exprKey(call) orelse return null);
     }
@@ -6474,6 +6563,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try checkTypeSizes(&ctx, order);
     try computeOrigins(&ctx);
     try resolve.checkDeclarations(&ctx);
+    try recordCellObjects(&ctx);
     timing.stop(opts.timing, .resolve, t0);
     t0 = timing.start(opts.timing);
     try typecheck.checkModule(&ctx, tree, module_scope);
@@ -11501,16 +11591,43 @@ pub fn holdsCellByValue(ctx: *const SemContext, ty: TypeId) bool {
 }
 
 /// Whether a value of `ty` changes through a shared handle, by a marked
-/// call (`!c.set(5)`): a `Cell`, a `Signal`, or a value that holds a
-/// Cell by value. The one list of what a write lend may reach through a
-/// `*`; a write view of such a value changes only its Cells and
-/// Signals, never its other fields (`Checker.placeOf`).
+/// call (`!c.set(5)`): a `Cell`, a `Signal`, a channel, an actor, or a
+/// value that holds a Cell by value, judged by its concrete type. The
+/// one list of what a write lend may reach through a `*`; a write view
+/// of such a value changes only its Cells and Signals, never its other
+/// fields (`Checker.placeOf`). An API object, which may hold anything,
+/// and a type parameter are no such value, so a `*{A}` lends only its
+/// handle (Core §4).
 pub fn changesByMark(ctx: *const SemContext, ty: TypeId) bool {
     const t = unwrapAccess(ctx, ty);
     return switch (ctx.types.get(t)) {
         .parameterized_nominal => |pn| pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or holdsCellByValue(ctx, t),
+        .api_object, .type_var => false,
         else => holdsCellByValue(ctx, t),
     };
+}
+
+/// Whether a place of type `viewed` holds a value that changes only by a
+/// marked call (`changesByMark`), rather than a handle or a view of one,
+/// which is a place of its own: what `!` lends to read (`loanOfView`),
+/// and what `swap` never exchanges.
+pub fn holdsMarkedValue(ctx: *const SemContext, viewed: TypeId) bool {
+    return switch (ctx.types.get(viewed)) {
+        .shared, .weak, .read_view, .write_view => false,
+        else => changesByMark(ctx, viewed),
+    };
+}
+
+/// What a write view of a value of `viewed` puts on the place it is lent
+/// from (Core §4): a read loan where the value changes by a marked call
+/// (`changesByMark`), judged by its type where it is lent, and a write
+/// loan for any other. Such a value lives only behind `*`, is never
+/// replaced whole, and keeps every view it gives out while it lives, so
+/// many write views of it may live at once. An API object, which may
+/// hold anything, and a type parameter are no such value; a handle lent
+/// itself (`!*T`) is written.
+pub fn loanOfView(ctx: *const SemContext, viewed: TypeId) LendKind {
+    return if (holdsMarkedValue(ctx, viewed)) .read else .write;
 }
 
 /// One machine word, which every change to it replaces at once: an
@@ -11585,7 +11702,184 @@ pub fn frozenOfHandle(ctx: *const SemContext, ty: TypeId) ?TypeId {
 /// (`frozenObject`). The one test of whether a count is atomic; the
 /// runtime's `synchronized` makes the same choice.
 pub fn atomicHandle(ctx: *const SemContext, inner: TypeId) bool {
-    return isWordCell(ctx, inner) or actorValue(ctx, inner) != null or chanValue(ctx, inner) != null or frozenValue(ctx, inner) != null or frozenObject(ctx, inner);
+    return isWordCell(ctx, inner) or actorValue(ctx, inner) != null or chanValue(ctx, inner) != null or frozenValue(ctx, inner) != null or frozenObject(ctx, inner) or cellObject(ctx, inner);
+}
+
+/// Whether `inner` is a word-Cell object (Core sentence 9): an object
+/// that holds a Cell and whose every field, as declared, is plain data,
+/// a Cell of one word, or another word-Cell object. Through a handle
+/// only its Cells change, each change one atomic instruction, so its
+/// handles count atomically and go to other tasks, as a word Cell's do.
+/// Read from what sema recorded for the declaring module
+/// (`SemContext.cell_objects`), as emit reads it for the runtime's
+/// `synchronized` (`__rig_synced`).
+pub fn cellObject(ctx: *const SemContext, inner: TypeId) bool {
+    const decl = cellDecl(ctx, inner) orelse return false;
+    return cellObjectSym(decl.ctx, decl.sym);
+}
+
+/// `cellObject` of the object `sym` declares in `ctx`.
+pub fn cellObjectSym(ctx: *const SemContext, sym: SymbolId) bool {
+    const v = ctx.cell_objects.get(sym) orelse return false;
+    return v == .cells;
+}
+
+/// The declaration of the object `ty` names, the one a word-Cell object
+/// is decided by: a generic object's, the same for every instance; null
+/// for a built-in type or one that names no object.
+fn cellDecl(ctx: *const SemContext, ty: TypeId) ?CloneSeen {
+    return switch (ctx.types.get(ty)) {
+        .nominal => |sym| declaredAt(ctx, sym),
+        .imported_nominal => blk: {
+            const d = nominalDecl(ctx, ty) orelse break :blk null;
+            break :blk .{ .ctx = d.ctx, .sym = d.sym };
+        },
+        .parameterized_nominal => |pn| if (isBuiltinGeneric(ctx, pn.sym) or isHashTable(ctx, pn.sym)) null else declaredAt(ctx, pn.sym),
+        else => null,
+    };
+}
+
+/// What sema decided of an object that holds a Cell
+/// (`SemContext.cell_objects`): a word-Cell object, or the first field
+/// that keeps it from being one, and why.
+pub const CellVerdict = union(enum) {
+    cells,
+    refused: CellRefusal,
+};
+
+pub const CellRefusal = struct {
+    /// The field's index in the declaration's `fields`.
+    field: u32,
+    why: Why,
+
+    pub const Why = enum {
+        /// The declaration is an enum: the field is a variant.
+        variant,
+        /// The field's type names a type parameter: decided by the
+        /// declaration, the same for every instance.
+        generic,
+        /// A Cell of more than one word.
+        wide_cell,
+        /// An object that holds a Cell and is no word-Cell object: its
+        /// own verdict says which of its fields.
+        nested,
+        /// Neither plain data, a Cell of one word, nor such an object.
+        other,
+    };
+};
+
+/// Decide, for each object this module declares that holds a Cell,
+/// whether it is a word-Cell object (`cellObject`), by one positive list
+/// over its fields: plain data (Core §1, `isPlain`) that names no type
+/// parameter, a Cell of one word, or another word-Cell object. Recorded
+/// once, after the declarations resolve and before any body is checked,
+/// so the crossing walk, its messages, and emit read one decision.
+fn recordCellObjects(ctx: *SemContext) std.mem.Allocator.Error!void {
+    ctx.cell_objects.clearRetainingCapacity();
+    for (ctx.symbols.items, 0..) |s, i| {
+        if (isProxy(s) or (s.kind != .nominal_type and s.kind != .generic_type)) continue;
+        _ = try cellVerdict(ctx, @intCast(i), 0);
+    }
+}
+
+/// The verdict of the object `sym` declares here (`recordCellObjects`),
+/// recorded; null when it holds no Cell.
+fn cellVerdict(ctx: *SemContext, sym: SymbolId, depth: u32) std.mem.Allocator.Error!?CellVerdict {
+    if (ctx.cell_objects.get(sym)) |v| return v;
+    const s = ctx.symbols.items[sym];
+    if (s.kind != .nominal_type and s.kind != .generic_type) return null;
+    var cells = false;
+    var refused: ?CellRefusal = null;
+    for (s.fields orelse &.{}, 0..) |f, i| {
+        if (f.is_method or f.is_drop_method) continue;
+        const at: u32 = @intCast(i);
+        if (f.is_variant) {
+            if (refused == null) refused = .{ .field = at, .why = .variant };
+            for (f.payload orelse &.{}) |pf| {
+                if (holdsCellByValue(ctx, pf.ty)) cells = true;
+            }
+            continue;
+        }
+        switch (try cellPart(ctx, f.ty, depth + 1)) {
+            .plain => {},
+            .cells => cells = true,
+            .holds_cell => |why| {
+                cells = true;
+                if (refused == null) refused = .{ .field = at, .why = why };
+            },
+            .refused => |why| if (refused == null) {
+                refused = .{ .field = at, .why = why };
+            },
+        }
+    }
+    if (!cells) return null;
+    const v: CellVerdict = if (refused) |r| .{ .refused = r } else .cells;
+    try ctx.cell_objects.put(ctx.allocator, sym, v);
+    return v;
+}
+
+const CellPart = union(enum) {
+    plain,
+    cells,
+    /// It holds a Cell, and is refused.
+    holds_cell: CellRefusal.Why,
+    refused: CellRefusal.Why,
+};
+
+/// What a field of type `ty` is to a word-Cell object (`cellVerdict`).
+fn cellPart(ctx: *SemContext, ty: TypeId, depth: u32) std.mem.Allocator.Error!CellPart {
+    if (isWordCell(ctx, ty)) return .cells;
+    const info = ctx.typeInfo(ty);
+    const holds = info.cell;
+    if (info.has_type_var) return if (holds) .{ .holds_cell = .generic } else .{ .refused = .generic };
+    if (!holds) return if (try isPlain(ctx, ty)) .plain else .{ .refused = .other };
+    if (isCell(ctx, ty)) return .{ .holds_cell = .wide_cell };
+    if (depth > max_alias_height) return .{ .holds_cell = .other };
+    const d = cellDecl(ctx, ty) orelse return .{ .holds_cell = .other };
+    const v = if (d.ctx == ctx) try cellVerdict(ctx, d.sym, depth) else d.ctx.cell_objects.get(d.sym);
+    const got = v orelse return .{ .holds_cell = .other };
+    return switch (got) {
+        .cells => .cells,
+        .refused => .{ .holds_cell = .nested },
+    };
+}
+
+/// Why a `*` handle to `inner`, which holds a Cell, stays with one task,
+/// from sema's verdict (`cellObject`): the field that keeps it from being
+/// a word-Cell object, through the objects it is held in
+/// (`` `a.s: String` ``), and what that field is. Null when `inner` is a
+/// word-Cell object or holds no Cell an object declares.
+pub fn cellRefusalReason(ctx: *SemContext, inner: TypeId) std.mem.Allocator.Error!?[]const u8 {
+    const a = ctx.arena.allocator();
+    var decl = cellDecl(ctx, inner) orelse return null;
+    var path: std.ArrayList(u8) = .empty;
+    var depth: u32 = 0;
+    while (depth <= max_alias_height) : (depth += 1) {
+        const v = decl.ctx.cell_objects.get(decl.sym) orelse return null;
+        const r = switch (v) {
+            .cells => return null,
+            .refused => |r| r,
+        };
+        const f = (decl.ctx.symbols.items[decl.sym].fields orelse return null)[r.field];
+        if (r.why == .variant) {
+            if (depth == 0) return "a `*` handle to an enum that holds a Cell, which stays with one task; of the values that hold a Cell, only a word-Cell object goes to other tasks";
+            return try a.print("a `*` handle to an object that holds a Cell and `{s}`, an enum that holds one, which stays with one task", .{path.items});
+        }
+        if (path.items.len > 0) try path.append(a, '.');
+        try path.appendSlice(a, f.name);
+        if (r.why == .nested) {
+            decl = cellDecl(decl.ctx, f.ty) orelse return null;
+            continue;
+        }
+        const shown = try formatTypeIn(decl.ctx, a, f.ty);
+        const what: []const u8 = switch (r.why) {
+            .generic => ": a generic part is decided by the declaration, the same for every instance",
+            .wide_cell => ", a Cell of more than one word",
+            else => ", which is neither plain data, a Cell of one word, nor a word-Cell object",
+        };
+        return try a.print("a `*` handle to an object that holds a Cell and `{s}: {s}`{s}, so it stays with one task", .{ path.items, shown, what });
+    }
+    return null;
 }
 
 /// Whether `ty` is a `Cell[T]`.
@@ -11902,9 +12196,11 @@ pub fn taskResult(ctx: *const SemContext, ty: TypeId) ?TypeId {
 pub const Crossing = enum { moves, shares };
 
 /// `par.map(?xs, f)`, which gives each call's value, `par.each(!xs, f)`,
-/// which writes each element, or `par.workers(!states, ?items, f)`,
-/// which gives each call's value, each task with a state of its own.
-pub const ParCall = enum { map, each, workers };
+/// which writes each element, `par.workers(!states, ?items, f)`, which
+/// gives each call's value, each task with a state of its own, or
+/// `par.push(!t, ?sizes, f)`, which pushes a table's next slots and
+/// writes them a run at a time.
+pub const ParCall = enum { map, each, workers, push };
 
 /// Whether a value of `ty` meets `how` (`Crossing`): nothing it reaches
 /// is a `*T` or `~T`, whose counts are not atomic, a `Cell` or a
@@ -13740,7 +14036,8 @@ pub fn readsAsValue(ctx: *const SemContext, ty: TypeId) bool {
     return isScalar(ctx, ty) or isPlainEnum(ctx, ty);
 }
 
-/// The type parameters `ty` holds by value, appended to `out`.
+/// The type parameters `ty` holds by value, appended to `out`: every
+/// one `holdsIn` finds, so the two agree on what a value holds.
 pub fn heldTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(SymbolId), a: std.mem.Allocator) std.mem.Allocator.Error!void {
     if (!ctx.holds(ty).holds_type_var) return;
     switch (ctx.types.get(ty)) {
@@ -13748,6 +14045,7 @@ pub fn heldTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayList(Symb
         .optional => |inner| try heldTypeVars(ctx, inner, out, a),
         .fallible => |inner| try heldTypeVars(ctx, inner.ok, out, a),
         .array => |arr| try heldTypeVars(ctx, arr.elem, out, a),
+        .results => |parts| for (parts) |part| try heldTypeVars(ctx, part, out, a),
         .parameterized_nominal => |pn| {
             const held = ctx.symbols.items[pn.sym].contents.held;
             for (pn.args, 0..) |arg, i| {

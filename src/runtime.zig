@@ -70,6 +70,10 @@ comptime {
         stdout_buffer,
         stdout_writer,
         stdout_is_tty,
+        stdout_kind,
+        stdout_step,
+        stdout_room_missed,
+        stdout_left,
         panic_stage,
         current_test,
         test_false,
@@ -105,6 +109,7 @@ pub const actorSpawn = tasks.actorSpawn;
 pub const isolateInto = tasks.isolateInto;
 pub const monotonicNs = tasks.monotonicNs;
 pub const parEachInto = tasks.parEachInto;
+pub const parPushInto = tasks.parPushInto;
 pub const parWorkersInto = tasks.parWorkersInto;
 pub const enterDeadline = tasks.enterDeadline;
 pub const restoreDeadline = tasks.restoreDeadline;
@@ -441,6 +446,95 @@ pub inline fn turn(n: *u32) void {
     }
 }
 
+/// `for x in xs` whose body is only `s OP= x`, over integers (the storage
+/// plan's `Fold`): `s` combined with every element of `xs`, sixteen
+/// bytes a vector and sixteen vectors a turn, as LLVM's loop vectorizer
+/// would write the loop, which Zig 0.17 builds with off (INTERNALS, "Known
+/// Zig 0.17 issues"). A turn counts one turn of the loop that holds the
+/// fold (`turn`).
+///
+/// A checked `+` (`.add`) panics on the element where the plain loop
+/// would. Each turn bounds its elements' size by `m`, so every sum of
+/// `s` and its first elements lies within `s ± c·m`; a turn whose bound
+/// could leave the type adds its elements one at a time, as written.
+pub inline fn fold(comptime how: enum { add_wrap, add, bit_xor, bit_or, bit_and }, s: anytype, xs: []const @TypeOf(s), turns: ?*u32) @TypeOf(s) {
+    const T = @TypeOf(s);
+    const lanes = 16 / @sizeOf(T);
+    const V = @Vector(lanes, T);
+    const U = @Vector(lanes, @Int(.unsigned, @bitSizeOf(T)));
+    // Sixteen vectors a turn, into four sums, written without `inline
+    // for`, so no fold spends its caller's compile-time branches.
+    const c = 16 * lanes;
+    const op = struct {
+        inline fn op(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+            return switch (how) {
+                .add_wrap, .add => a +% b,
+                .bit_xor => a ^ b,
+                .bit_or => a | b,
+                .bit_and => a & b,
+            };
+        }
+    }.op;
+    const reduce: std.lang.ReduceOp = switch (how) {
+        .add_wrap, .add => .Add,
+        .bit_xor => .Xor,
+        .bit_or => .Or,
+        .bit_and => .And,
+    };
+    const unit: V = @splat(if (how == .bit_and) ~@as(T, 0) else 0);
+    var a0 = unit;
+    var a1 = unit;
+    var a2 = unit;
+    var a3 = unit;
+    var r = s;
+    var i: usize = 0;
+    while (i + c <= xs.len) : ({
+        i += c;
+        if (turns) |t| turn(t);
+    }) {
+        const p = xs[i..][0..c];
+        if (how == .add) {
+            a0 = unit;
+            a1 = unit;
+            a2 = unit;
+            a3 = unit;
+        }
+        var j: usize = 0;
+        while (j < c) : (j += 4 * lanes) {
+            a0 = op(a0, @as(V, p[j..][0..lanes].*));
+            a1 = op(a1, @as(V, p[j + lanes ..][0..lanes].*));
+            a2 = op(a2, @as(V, p[j + 2 * lanes ..][0..lanes].*));
+            a3 = op(a3, @as(V, p[j + 3 * lanes ..][0..lanes].*));
+        }
+        if (how != .add) continue;
+        // |x| <= (x ^ (x >> 63)) + 1 for a signed x; OR-ed, a bound of all.
+        var m0: U = @splat(0);
+        var m1: U = @splat(0);
+        j = 0;
+        while (j < c) : (j += 2 * lanes) {
+            m0 |= foldSize(V, U, p[j..][0..lanes].*);
+            m1 |= foldSize(V, U, p[j + lanes ..][0..lanes].*);
+        }
+        const m = @as(i128, @reduce(.Or, m0 | m1)) + 1;
+        if (r + c * m > std.math.maxInt(T) or r - c * m < std.math.minInt(T)) {
+            for (p) |x| r += x;
+            continue;
+        }
+        r +%= @reduce(.Add, (a0 +% a1) +% (a2 +% a3));
+    }
+    if (how != .add) r = op(r, @reduce(reduce, op(op(a0, a1), op(a2, a3))));
+    for (xs[i..]) |x| r = if (how == .add) r + x else op(r, x);
+    return r;
+}
+
+/// A bound on the size of each lane of `x` (`fold`): `x` itself when
+/// unsigned, and `x ^ (x >> 63)`, at least `|x| - 1`, when signed.
+inline fn foldSize(comptime V: type, comptime U: type, x: V) U {
+    const T = @typeInfo(V).vector.child;
+    if (@typeInfo(T).int.signedness == .unsigned) return x;
+    return @bitCast(x ^ (x >> @splat(@bitSizeOf(T) - 1)));
+}
+
 /// The entry of a function of a program that makes tasks that every
 /// cycle of calls passes through one of (`inlining.Pass.cutCycles`): on
 /// the scheduler, when work waits that no idle worker will take
@@ -677,9 +771,14 @@ pub const OrderedSet = ordered_zig.OrderedSet;
 const unordered_zig = @import("unordered.zig");
 pub const UnorderedMap = unordered_zig.UnorderedMap;
 pub const UnorderedSet = unordered_zig.UnorderedSet;
+/// Its hashes, which std.shared's table (std/shared.zig) takes too: the
+/// text hash, and the multiplier of the integer hash.
+pub const textHash = unordered_zig.textHash;
+pub const int_hash_mul = unordered_zig.int_mul;
 
 test {
     _ = sched;
+    _ = net;
     _ = split;
     _ = fast_alloc;
     _ = ordered_zig;
@@ -1996,6 +2095,46 @@ pub inline fn bytesEql(a: []const u8, b: []const u8) bool {
 
 const V16 = @Vector(16, u8);
 
+/// How two byte slices order: by the first byte that differs, a prefix
+/// first. Text `order`, and a byte slice's.
+pub inline fn textOrder(a: []const u8, b: []const u8) std.math.Order {
+    if (textLess(a, b)) return .lt;
+    if (textLess(b, a)) return .gt;
+    return .eq;
+}
+
+/// Whether byte slice `a` orders before `b` (`textOrder`): text `<`. From
+/// 8 bytes in common, eight at a time as big-endian words, whose order is
+/// the bytes' order, the last word overlapping the bytes found equal;
+/// shorter, byte by byte. A `Bool` from one compare where the bytes
+/// differ, which a sort's partition and merge take with no branch: an
+/// `Order` returned instead, LLVM branches on in a safe build, a
+/// mispredicted branch per comparison of random text.
+pub inline fn textLess(a: []const u8, b: []const u8) bool {
+    const n = @min(a.len, b.len);
+    const p = a.ptr;
+    const q = b.ptr;
+    if (n >= 8) {
+        var i: usize = 0;
+        while (i < n - 8) : (i += 8) {
+            const x = std.mem.bigToNative(u64, loadUnaligned(u64, p + i));
+            const y = std.mem.bigToNative(u64, loadUnaligned(u64, q + i));
+            if (x != y) return x < y;
+        }
+        const x = std.mem.bigToNative(u64, loadUnaligned(u64, p + n - 8));
+        const y = std.mem.bigToNative(u64, loadUnaligned(u64, q + n - 8));
+        if (x != y) return x < y;
+    } else {
+        for (p[0..n], q[0..n]) |x, y| if (x != y) return x < y;
+    }
+    return a.len < b.len;
+}
+
+/// Whether byte slice `a` orders after `b`: text `>`.
+pub inline fn textGreater(a: []const u8, b: []const u8) bool {
+    return textLess(b, a);
+}
+
 /// `bytesEql` past 32 bytes: the first 16, apart, so a difference
 /// there ends the test at once; then to 64 bytes the next 16 and the
 /// last 32, which overlap; longer, 32 bytes a step, then the last 32.
@@ -2313,7 +2452,18 @@ pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bo
     const B = @TypeOf(b);
     // Text orders by its bytes, a String, a view of one, or a `?String`;
     // a view held as a pointer orders as the value it reaches.
-    if (comptime isString(A) or isString(B)) return std.mem.order(u8, stringBytes(a), stringBytes(b)).compare(op);
+    if (comptime isString(A) or isString(B)) {
+        const x = stringBytes(a);
+        const y = stringBytes(b);
+        return switch (op) {
+            .lt => textLess(x, y),
+            .gt => textLess(y, x),
+            .lte => !textLess(y, x),
+            .gte => !textLess(x, y),
+            .eq => bytesEql(x, y),
+            .neq => !bytesEql(x, y),
+        };
+    }
     // A frozen value's handles order by what they reach, as they compare.
     if (comptime isShared(A) and isShared(B)) return compare(a.value, op, b.value);
     if (comptime isValuePointer(A)) return compare(a.*, op, b);
@@ -2322,8 +2472,63 @@ pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bo
     switch (@typeInfo(T)) {
         // A float compares as `<` does, NaN beside anything false.
         .int, .float, .comptime_int, .comptime_float => return std.math.compare(a, op, b),
+        // An object ordered by its fields answers `<` by the fields,
+        // the first that differs deciding, without making an `Order`.
+        .@"struct" => if (comptime derivedFields(T) and op != .eq and op != .neq) return switch (op) {
+            .lt => fieldsLess(T, a, b),
+            .gt => fieldsLess(T, b, a),
+            .lte => !fieldsLess(T, b, a),
+            .gte => !fieldsLess(T, a, b),
+            else => unreachable,
+        } else return order(@as(T, a), @as(T, b)).compare(op),
         else => return order(@as(T, a), @as(T, b)).compare(op),
     }
+}
+
+/// Whether `T` is an object `order` orders by its fields: no order of
+/// its own, and none of the runtime's types that `order` reads apart.
+fn derivedFields(comptime T: type) bool {
+    return @typeInfo(T) == .@"struct" and !ownsApi(T, "__rig_own_order") and @hasDecl(T, "__rig_name") and
+        !isString(T) and !isOptStruct(T) and !@hasDecl(T, "__rig_box");
+}
+
+/// `order(a, b) == .lt` for an object ordered by its fields: a field
+/// that is a number, `Bool`, or a plain enum by `!=` and `<`, any other
+/// by `order`.
+fn fieldsLess(comptime T: type, a: T, b: T) bool {
+    const names = @typeInfo(T).@"struct".field_names;
+    inline for (names, 0..) |name, i| {
+        const x = @field(a, name);
+        const y = @field(b, name);
+        const F = @TypeOf(x);
+        const scalar = switch (@typeInfo(F)) {
+            .int, .bool => true,
+            .@"enum" => !ownsApi(F, "__rig_own_order"),
+            else => false,
+        };
+        if (scalar) {
+            const xi = scalarRank(x);
+            const yi = scalarRank(y);
+            if (i + 1 == names.len) return xi < yi;
+            if (xi != yi) return xi < yi;
+        } else {
+            const o = order(x, y);
+            if (o != .eq) return o == .lt;
+        }
+    }
+    return false;
+}
+
+inline fn scalarRank(x: anytype) switch (@typeInfo(@TypeOf(x))) {
+    .bool => u1,
+    .@"enum" => |e| e.tag_type,
+    else => @TypeOf(x),
+} {
+    return switch (@typeInfo(@TypeOf(x))) {
+        .bool => @intFromBool(x),
+        .@"enum" => @intFromEnum(x),
+        else => x,
+    };
 }
 
 /// How `a` and `b` of one type that provides `Ord` order
@@ -2339,8 +2544,8 @@ pub fn order(a: anytype, b: @TypeOf(a)) std.math.Order {
         .equal => .eq,
         .greater => .gt,
     };
-    if (comptime isStringView(T)) return std.mem.order(u8, a, b);
-    if (comptime isString(T)) return std.mem.order(u8, stringBytes(a), stringBytes(b));
+    if (comptime isStringView(T)) return textOrder(a, b);
+    if (comptime isString(T)) return textOrder(stringBytes(a), stringBytes(b));
     if (comptime isShared(T)) return order(a.value, b.value);
     if (comptime isOptStruct(T)) {
         const x = some(a) orelse return if (some(b) == null) .eq else .lt;
@@ -2348,9 +2553,10 @@ pub fn order(a: anytype, b: @TypeOf(a)) std.math.Order {
         return order(x, y);
     }
     switch (@typeInfo(T)) {
-        .int, .float, .comptime_int, .comptime_float => return std.math.order(a, b),
-        .bool => return std.math.order(@intFromBool(a), @intFromBool(b)),
-        .@"enum" => return std.math.order(@intFromEnum(a), @intFromEnum(b)),
+        .int, .comptime_int => return intOrder(a, b),
+        .float, .comptime_float => return std.math.order(a, b),
+        .bool => return intOrder(@intFromBool(a), @intFromBool(b)),
+        .@"enum" => return intOrder(@intFromEnum(a), @intFromEnum(b)),
         .optional => {
             const x = a orelse return if (b == null) .eq else .lt;
             const y = b orelse return .gt;
@@ -2370,7 +2576,7 @@ pub fn order(a: anytype, b: @TypeOf(a)) std.math.Order {
         },
         .@"union" => |u| {
             const Tag = u.tag_type orelse @compileError("rig.order: no order of " ++ @typeName(T));
-            const o = std.math.order(@intFromEnum(@as(Tag, a)), @intFromEnum(@as(Tag, b)));
+            const o = intOrder(@intFromEnum(@as(Tag, a)), @intFromEnum(@as(Tag, b)));
             if (o != .eq) return o;
             switch (a) {
                 inline else => |x, tag| return order(x, @field(b, @tagName(tag))),
@@ -2381,13 +2587,66 @@ pub fn order(a: anytype, b: @TypeOf(a)) std.math.Order {
     }
 }
 
+/// Whether two values of `T` that `order` finds equal are the same value,
+/// which nothing in safe Rig can tell apart: numbers, `Bool`, plain enums,
+/// text (equal bytes), and optionals, arrays, boxes, objects, and enums'
+/// payloads made only of these and ordered as `order` derives it. A type
+/// with an order of its own, a handle (whose identity a Cell or a weak
+/// handle shows), a view held by address, and any value the runtime
+/// holds (a List, a Map) are not. It follows `order` case by case, so a
+/// sort may reorder equal elements of such a `T` unseen (`std.sort`).
+pub fn orderIsIdentity(comptime T: type) bool {
+    if (ownsApi(T, "__rig_own_order")) return false;
+    if (isStringView(T)) return true;
+    if (isOptStruct(T)) return orderIsIdentity(Payload(T));
+    return switch (@typeInfo(T)) {
+        .int, .bool, .void => true,
+        .@"enum" => true,
+        .optional => |o| orderIsIdentity(o.child),
+        .array => |a| orderIsIdentity(a.child),
+        .@"struct" => |st| blk: {
+            if (@hasDecl(T, "__rig_string")) break :blk true;
+            if (@hasDecl(T, "__rig_box")) break :blk orderIsIdentity(@typeInfo(@FieldType(T, "value")).pointer.child);
+            // A Rig object or tuple; the runtime's own types are none.
+            if (!@hasDecl(T, "__rig_name")) break :blk false;
+            inline for (st.field_types) |F| if (!orderIsIdentity(F)) break :blk false;
+            break :blk true;
+        },
+        .@"union" => |u| blk: {
+            if (u.tag_type == null or !@hasDecl(T, "__rig_name")) break :blk false;
+            inline for (u.field_types) |F| if (!payloadIsIdentity(F)) break :blk false;
+            break :blk true;
+        },
+        else => false,
+    };
+}
+
+/// `orderIsIdentity` of one variant's payload in a Rig enum: a variant
+/// with named fields, `circle(r: Int)`, is emitted as a struct with those
+/// fields and no declarations, which `order` orders by its fields; any
+/// other payload is a type of its own.
+fn payloadIsIdentity(comptime F: type) bool {
+    if (@typeInfo(F) == .@"struct" and @typeInfo(F).@"struct".decl_names.len == 0 and !@typeInfo(F).@"struct".is_tuple) {
+        inline for (@typeInfo(F).@"struct".field_types) |G| if (!orderIsIdentity(G)) return false;
+        return true;
+    }
+    return orderIsIdentity(F);
+}
+
 fn orderElements(a: anytype, b: @TypeOf(a)) std.math.Order {
     const n = @min(a.len, b.len);
     for (a[0..n], b[0..n]) |x, y| {
         const o = order(x, y);
         if (o != .eq) return o;
     }
-    return std.math.order(a.len, b.len);
+    return intOrder(a.len, b.len);
+}
+
+/// How integers `a` and `b` order. `std.math.order` ends in a checked
+/// `unreachable`, for a NaN, which keeps LLVM from folding a test of its
+/// result, as `x.order(?y) == .less`, back into one compare.
+inline fn intOrder(a: anytype, b: anytype) std.math.Order {
+    return if (a < b) .lt else if (a > b) .gt else .eq;
 }
 
 // -----------------------------------------------------------------------------
@@ -2395,10 +2654,13 @@ fn orderElements(a: anytype, b: @TypeOf(a)) std.math.Order {
 // -----------------------------------------------------------------------------
 
 /// Whether `T` is a Cell many tasks change at once: one of one word in a
-/// program that makes tasks (`Cell.__rig_word`). The allocation behind
-/// a `*` of it counts its handles atomically, so they cross cores.
+/// program that makes tasks (`Cell.__rig_word`), or an object whose only
+/// changing parts are such Cells (`__rig_synced`, `sema.cellObject`).
+/// The allocation behind a `*` of it counts its handles atomically, so
+/// they cross cores.
 fn synchronized(comptime T: type) bool {
     if (@typeInfo(T) != .@"struct") return false;
+    if (@hasDecl(T, "__rig_synced")) return true;
     // An actor's handles go to other tasks (`tasks.Actor`).
     if (@hasDecl(T, "__rig_actor")) return true;
     // So do a channel's (`tasks.Chan`).
@@ -2429,7 +2691,7 @@ pub fn Frozen(comptime T: type) type {
 /// no two such Cells share a line and cores changing each its own do not
 /// take the line from one another. Every other `*T` keeps a word's.
 fn countedAlign(comptime T: type, comptime is_frozen: bool) usize {
-    if (!is_frozen and @typeInfo(T) == .@"struct" and @hasDecl(T, "__rig_word") and T.__rig_word) return std.atomic.cache_line;
+    if (!is_frozen and @typeInfo(T) == .@"struct" and ((@hasDecl(T, "__rig_word") and T.__rig_word) or @hasDecl(T, "__rig_synced"))) return std.atomic.cache_line;
     return @alignOf(usize);
 }
 
@@ -2703,7 +2965,9 @@ pub fn isNone(value: anytype) bool {
 /// the element at `i`, or null when out of range.
 pub fn elementAt(items: anytype, i: Int) Opt(ElementOf(@TypeOf(items))) {
     const O = Opt(ElementOf(@TypeOf(items)));
-    const idx = std.math.cast(usize, i) orelse return pack(O, null);
+    const idx = offsetIn(items, i) orelse return pack(O, null);
+    // `idx < items.len` by `offsetIn`; tested again so an empty array's
+    // read is never compiled, and folded where it is.
     return pack(O, if (idx < items.len) items[idx] else null);
 }
 
@@ -2943,7 +3207,7 @@ pub fn Cell(comptime T: type) type {
         /// reaches back into the cell finds the elements not yet dropped;
         /// what it pushes past the first `n` is dropped in turn.
         pub fn listKeep(self: *Self, n: Int) void {
-            const rest = index(n, self.value.len + 1);
+            const rest = indexHeld(n, self.value.len + 1);
             if (comptime !needsDrop(E)) {
                 self.value.len = rest;
                 return;
@@ -3389,8 +3653,8 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
 
         /// The element at `i`, or null when out of range. Plain-data `T` only.
         pub fn get(self: *const Self, i: Int) Opt(T) {
-            const idx = std.math.cast(usize, i) orelse return pack(Opt(T), null);
-            return pack(Opt(T), if (idx < self.len) self.memConst()[idx] else null);
+            const idx = heldOffset(i, self.len) orelse return pack(Opt(T), null);
+            return pack(Opt(T), self.memConst()[idx]);
         }
 
         /// `v.index_of(x)`: the index of the first element equal to `x`
@@ -3422,7 +3686,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         /// `i` as a slot of the live elements, panicking unless `0 <= i <
         /// len`; inside the buffer by `len <= buf.len`.
         inline fn indexOf(self: *const Self, i: anytype) usize {
-            const idx = index(i, self.len);
+            const idx = indexHeld(i, self.len);
             invariant(idx < self.memConst().len);
             return idx;
         }
@@ -3440,13 +3704,13 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
             return &self.memConst().ptr[self.provenSlot(provenOffset(i, self.len, 1, p))];
         }
         pub inline fn atIf(self: *const Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) T {
-            return self.memConst().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
+            return self.memConst().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok, true))];
         }
         pub inline fn slotIf(self: *Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) *T {
-            return &self.mem().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
+            return &self.mem().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok, true))];
         }
         pub inline fn constSlotIf(self: *const Self, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) *const T {
-            return &self.memConst().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok))];
+            return &self.memConst().ptr[self.provenSlot(offsetIf(i, self.len, 1, p, q, ok, true))];
         }
 
         inline fn provenSlot(self: *const Self, idx: ?usize) usize {
@@ -3468,7 +3732,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         /// Insert `value` at `i`, moving the elements from `i` on up by
         /// one; `i` may be `len`. Panics unless `0 <= i <= len`.
         pub fn insert(self: *Self, i: Int, value: T) void {
-            const idx = index(i, self.len + 1);
+            const idx = indexHeld(i, self.len + 1);
             self.reserveTotal(self.len + 1);
             const m = self.mem();
             std.mem.copyBackwards(T, m[idx + 1 .. self.len + 1], m[idx..self.len]);
@@ -3480,7 +3744,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         /// it down by one; the caller owns it. Panics unless
         /// `0 <= i < len`.
         pub fn remove(self: *Self, i: Int) T {
-            const idx = index(i, self.len);
+            const idx = indexHeld(i, self.len);
             const m = self.mem();
             const value = m[idx];
             std.mem.copyForwards(T, m[idx .. self.len - 1], m[idx + 1 .. self.len]);
@@ -3491,7 +3755,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         /// `(!v).swap_remove(i)`: hand over the element at `i` and move the
         /// last element into its place, so one element moves, not the rest.
         pub fn swap_remove(self: *Self, i: Int) T {
-            const idx = index(i, self.len);
+            const idx = indexHeld(i, self.len);
             const m = self.mem();
             const value = m[idx];
             self.len -= 1;
@@ -3555,7 +3819,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         /// last first as `clear` does, keeping the buffer. Panics unless
         /// `0 <= n <= len`.
         pub fn keep(self: *Self, n: Int) void {
-            const rest = index(n, self.len + 1);
+            const rest = indexHeld(n, self.len + 1);
             if (comptime !needsDrop(T)) {
                 self.len = rest;
                 return;
@@ -3598,6 +3862,21 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
             invariant(want <= m.len);
             @memset(m.ptr[self.len..want], value);
             self.len = want;
+        }
+
+        /// `!v.extend(?s)`: append a copy of each element of `s`, growing
+        /// once and copying them in with one `@memcpy`. Sema admits only
+        /// a `T` that copies and holds no view, and the ownership checker
+        /// keeps `s` from viewing this List, which is lent to write.
+        pub fn extend(self: *Self, src: []const T) void {
+            if (src.len == 0) return;
+            self.reserveTotal(self.len + src.len);
+            if (comptime @sizeOf(T) != 0) {
+                const m = self.mem();
+                invariant(self.len + src.len <= m.len);
+                @memcpy(m.ptr[self.len..][0..src.len], src);
+            }
+            self.len += src.len;
         }
 
         /// `!v.extend_from_bytes(s)`: append the records the bytes of `s`
@@ -4318,11 +4597,53 @@ fn moduleOf(comptime name: []const u8) []const u8 {
 // -----------------------------------------------------------------------------
 
 /// Convert a Rig index of any integer type to `usize`, panicking unless
-/// `0 <= i < count`.
+/// `0 <= i < count`, for a `count` of any size: a signed `i` takes a
+/// sign test and a bound test. A held count takes one (`indexHeld`).
 pub fn index(i: anytype, count: usize) usize {
     const idx = std.math.cast(usize, i) orelse indexPanic();
     if (idx >= count) indexPanic();
     return idx;
+}
+
+/// `index` against a `count` of at most `2^63`, as a held length is
+/// (`heldLen`), and one past it: one compare (`heldOffset`). A plain
+/// function, as `index` is, so a debug build's trace names the caller.
+pub fn indexHeld(i: anytype, count: usize) usize {
+    return heldOffset(i, count) orelse indexPanic();
+}
+
+/// `i` as a `usize` when `0 <= i < count`, else null, for a `count` of at
+/// most `2^63`. A signed `i` read as unsigned is below `count` exactly
+/// when `0 <= i < count`, since a negative one reads as at least `2^63`:
+/// one compare where a sign test and a bound test make two, as
+/// `offsetBelow` makes it for a compile-time count.
+inline fn heldOffset(i: anytype, count: usize) ?usize {
+    invariant(@as(u64, count) <= 1 << 63);
+    const info = @typeInfo(@TypeOf(i));
+    if (comptime info == .int and info.int.signedness == .signed and info.int.bits <= 64) {
+        const u: u64 = @bitCast(@as(i64, i));
+        if (u >= count) return null;
+        // Exact: below `count`, which a `usize` holds.
+        return @truncate(u);
+    }
+    const idx = std.math.cast(usize, i) orelse return null;
+    return if (idx < count) idx else null;
+}
+
+/// `index` against `items.len`: one compare when that length is held
+/// (`lenHeld`), two for a slice of zero-bit elements, whose length no
+/// memory bounds.
+inline fn indexIn(items: anytype, i: anytype) usize {
+    if (comptime lenHeld(@TypeOf(items))) return indexHeld(i, items.len);
+    return index(i, items.len);
+}
+
+/// `i` as a slot of `items`, or null when out of range: `indexIn`'s
+/// tests, for a read that gives null.
+inline fn offsetIn(items: anytype, i: anytype) ?usize {
+    if (comptime lenHeld(@TypeOf(items))) return heldOffset(i, items.len);
+    const idx = std.math.cast(usize, i) orelse return null;
+    return if (idx < items.len) idx else null;
 }
 
 /// `index` against a compile-time `n`, as an array's length or a
@@ -4360,6 +4681,36 @@ pub inline fn offsetBelow(i: anytype, comptime n: u64) ?u64 {
     }
     const v = std.math.cast(u64, i) orelse return null;
     return if (v < n) v else null;
+}
+
+/// A Rig enum's value, stated to the optimizer as one of its named
+/// tags: `switch (rig.namedTag(k))` in an optimized build makes no test
+/// that `k` holds a named tag, which Zig's safe mode makes before each
+/// switch on an enum. Safe Rig makes an enum's value only by naming a
+/// variant or by a checked conversion (`E.from_int`, `E.from_text`), so
+/// it always holds one. A debug build keeps Zig's test, which checks the
+/// fact, as `proven_checks` does. An enum whose tags are not one run of
+/// integers keeps it too: a range is what the optimizer folds.
+pub inline fn namedTag(e: anytype) @TypeOf(e) {
+    const E = @TypeOf(e);
+    if (comptime proven_checks or @typeInfo(E) != .@"enum") return e;
+    const info = @typeInfo(E).@"enum";
+    const values = info.field_values;
+    if (comptime info.mode != .exhaustive or values.len < 2) return e;
+    comptime var lo = values[0];
+    comptime var hi = values[0];
+    inline for (values) |x| {
+        lo = @min(lo, x);
+        hi = @max(hi, x);
+    }
+    // A run of integers, and not every value of the tag type, which Zig
+    // has no test for.
+    if (comptime hi - lo + 1 != values.len or values.len == 1 << @bitSizeOf(info.tag_type)) return e;
+    // `lo <= tag <= hi` by how safe Rig makes an enum (above).
+    @setRuntimeSafety(false);
+    const v = @intFromEnum(e);
+    if (v < lo or v > hi) unreachable;
+    return e;
 }
 
 /// A duration of `n` units of `unit` nanoseconds (`sema.Duration`):
@@ -4557,7 +4908,7 @@ fn Elems(comptime P: type) type {
 /// `s[i]` for a string or slice: the element at `i`, with `s` evaluated
 /// once; panics when out of range.
 pub fn at(items: anytype, i: anytype) std.meta.Elem(@TypeOf(items)) {
-    const idx = index(i, items.len);
+    const idx = indexIn(items, i);
     // `idx < items.len` by `index`.
     @setRuntimeSafety(proven_checks);
     return items[idx];
@@ -4566,7 +4917,7 @@ pub fn at(items: anytype, i: anytype) std.meta.Elem(@TypeOf(items)) {
 /// `s[i] = x` through a `![]T`: the slot at `i`, with `s` evaluated
 /// once; panics when out of range. Read-only for a read-only slice.
 pub fn elemPtr(items: anytype, i: anytype) @TypeOf(&items[0]) {
-    const idx = index(i, items.len);
+    const idx = indexIn(items, i);
     // `idx < items.len` by `index`.
     @setRuntimeSafety(proven_checks);
     return &items[idx];
@@ -4636,11 +4987,13 @@ pub inline fn okBelow(i: Int, comptime k: u64, n: usize) bool {
 
 /// `i` as the start of `width` elements within `count`: the tests `p`
 /// proves (or none) are omitted, and while `ok`, those `q` proves too; a
-/// test that is made fails as `index` fails.
-inline fn offsetIf(i: Int, count: usize, width: usize, comptime p: ?Proven, comptime q: Proven, ok: bool) ?usize {
+/// test that is made fails as `index` fails. A `held` count, at most
+/// `2^63`, takes both tests of one element in one compare (`heldOffset`).
+inline fn offsetIf(i: Int, count: usize, width: usize, comptime p: ?Proven, comptime q: Proven, ok: bool, comptime held: bool) ?usize {
     const both: Proven = comptime if (p) |pp| (if (pp == q) q else .both) else q;
     if (ok) return provenOffset(i, count, width, both);
     if (p) |pp| return provenOffset(i, count, width, pp);
+    if (held and width == 1) return heldOffset(i, count);
     const u = std.math.cast(usize, i) orelse return null;
     if (u > count or count - u < width) return null;
     return u;
@@ -4649,11 +5002,11 @@ inline fn offsetIf(i: Int, count: usize, width: usize, comptime p: ?Proven, comp
 /// `atProven` and `elemPtrProven` with the tests `q` omitted too while
 /// `ok` (`offsetIf`).
 pub inline fn atIf(items: anytype, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) std.meta.Elem(@TypeOf(items)) {
-    return items.ptr[offsetIf(i, items.len, 1, p, q, ok) orelse indexPanic()];
+    return items.ptr[offsetIf(i, items.len, 1, p, q, ok, comptime lenHeld(@TypeOf(items))) orelse indexPanic()];
 }
 
 pub inline fn elemPtrIf(items: anytype, i: Int, comptime p: ?Proven, comptime q: Proven, ok: bool) @TypeOf(&items[0]) {
-    return &items.ptr[offsetIf(i, items.len, 1, p, q, ok) orelse indexPanic()];
+    return &items.ptr[offsetIf(i, items.len, 1, p, q, ok, comptime lenHeld(@TypeOf(items))) orelse indexPanic()];
 }
 
 /// `a + b`, which cannot overflow while `ok`; else the add tests it, and
@@ -4679,10 +5032,10 @@ pub inline fn addProven(a: Int, b: Int) Int {
 // lane reports one (`@reduce(.Or, flags)` is true), so a correct program
 // panics. The helpers below never ask for the intrinsic: they compute the
 // wrapped result and find an overflowing lane with lane comparisons, then
-// panic as a scalar overflow does. Lanes follow the scalar rule in every
-// mode: the checks are there in debug and safe builds, and `--release=fast`
-// (no runtime safety) drops them, so each helper is the plain operator
-// and an overflowing lane is undefined behavior, as a scalar's is.
+// panic as a scalar overflow does. Lanes follow the scalar rule: every
+// Rig build keeps runtime safety, so the checks are always there; the
+// runtime's Zig built with safety off (its own unit tests in Zig's fast
+// mode) takes the plain operator, as a scalar does.
 
 /// Whether lane arithmetic checks for overflow: when runtime safety is on.
 const lane_checks = builtin.optimize.runtimeSafety();
@@ -4877,15 +5230,25 @@ pub inline fn reduceInto(items: anytype, first: anytype, f: anytype, out: anytyp
 }
 
 /// `!s.swap(i, j)`: panics unless both indexes are in range. An element
-/// swapped with itself stays, as `std.mem.swap` may not be given one
-/// place twice.
+/// of up to 64 bytes goes through a copy, as whole values: `std.mem.swap`
+/// moves bytes one at a time, which LLVM turns into byte shuffles of two
+/// neighbours (a sort's insertion ran twice as slow so). A larger one is
+/// swapped by `std.mem.swap`, in pieces, never itself, as it may not be
+/// given one place twice.
 pub fn swap(items: anytype, i: anytype, j: anytype) linksection(program_section) void {
-    const a = index(i, items.len);
-    const b = index(j, items.len);
-    if (a == b) return;
+    const a = indexIn(items, i);
+    const b = indexIn(items, j);
+    const T = std.meta.Elem(@TypeOf(items));
     // `a, b < items.len` by `index`.
     @setRuntimeSafety(proven_checks);
-    std.mem.swap(std.meta.Elem(@TypeOf(items)), &items[a], &items[b]);
+    if (comptime @sizeOf(T) <= 64) {
+        const t = items[a];
+        items[a] = items[b];
+        items[b] = t;
+        return;
+    }
+    if (a == b) return;
+    std.mem.swap(T, &items[a], &items[b]);
 }
 
 /// `swap` with the tests `p` proves of both indexes omitted. The swap
@@ -4920,7 +5283,7 @@ pub const Order = enum {
 pub fn orderOf(a: anytype, b: anytype) Order {
     const A = @TypeOf(a);
     const B = @TypeOf(b);
-    if (comptime isString(A) or isString(B)) return fromMath(std.mem.order(u8, stringBytes(a), stringBytes(b)));
+    if (comptime isString(A) or isString(B)) return fromMath(textOrder(stringBytes(a), stringBytes(b)));
     if (comptime isValuePointer(A)) return orderOf(a.*, b);
     if (comptime isValuePointer(B)) return orderOf(a, b.*);
     const T = @TypeOf(a, b);
@@ -4944,7 +5307,7 @@ pub fn totalOrder(a: anytype, b: anytype) Order {
     var y: S = @bitCast(@as(T, b));
     x ^= @bitCast(@as(U, @bitCast(x >> (bits - 1))) >> 1);
     y ^= @bitCast(@as(U, @bitCast(y >> (bits - 1))) >> 1);
-    return fromMath(std.math.order(x, y));
+    return fromMath(intOrder(x, y));
 }
 
 /// `x.min(y)` of floats: the smaller, a NaN losing to a number (IEEE 754
@@ -5289,8 +5652,8 @@ inline fn laneSplat(comptime V: type, x: laneChild(V)) V {
 /// loses bits or its sign, found by shifting back (`(r >> c) != v`): no
 /// overflow intrinsic, and a vector known at compile time still panics
 /// when the program runs rather than stopping the build. With runtime
-/// safety off (`--release=fast`) it is `<<%`, as a scalar `<<` is the plain
-/// shift there.
+/// safety off (Zig's fast mode, which no Rig build uses) it is `<<%`, as
+/// a scalar `<<` is the plain shift there.
 pub inline fn vecShl(v: anytype, amount: anytype) @TypeOf(v) {
     return laneShift(if (lane_checks) .left_checked else .left, v, amount);
 }
@@ -5336,8 +5699,8 @@ inline fn laneAmount(comptime V: type, amount: anytype) @Vector(@typeInfo(V).vec
 /// The amount `n` of a shift of a `T` (`x << n`, `x <<% n`, `x >> n`),
 /// in the width Zig shifts a `T` by. One that is negative or not below
 /// `T`'s bit count panics with the text of the constant check; with
-/// runtime safety off (`--release=fast`) it is unchecked, as a
-/// conversion is. A constant amount is checked when it compiles. Not
+/// runtime safety off (Zig's fast mode, which no Rig build uses) it is
+/// unchecked, as a conversion is. A constant amount is checked when it compiles. Not
 /// `inline`: its result type is worked out once per type, not at every
 /// shift of a function, which Zig's branch quota would count.
 pub fn shiftAmount(comptime T: type, n: anytype) std.math.Log2Int(T) {
@@ -5997,9 +6360,16 @@ fn lenHeld(comptime P: type) bool {
 /// bytes (a 64-bit one at most `2^57`); `allocSlice` and `reallocSlice`
 /// refuse a longer one all the same. A List of zero-bit elements, which
 /// takes no memory, stops at `max_len` where it grows (`ListOf.growBy`).
-/// Debug builds verify it.
+/// Debug builds verify it; an optimized build states it to the
+/// optimizer, so the length read as an `Int` is known non-negative: past
+/// a test `i < n` of that length, `heldOffset`'s one unsigned compare
+/// folds to the sign test, where without the fact it stays whole.
 pub inline fn heldLen(n: usize) Int {
-    invariant(@as(u64, n) <= max_len);
+    {
+        // A length's bound by construction (above), asserted in debug.
+        @setRuntimeSafety(proven_checks);
+        if (@as(u64, n) > max_len) unreachable;
+    }
     return @bitCast(@as(u64, n));
 }
 
@@ -6172,8 +6542,15 @@ fn tryLockOutput() bool {
     return took;
 }
 
+/// Let go of the output lock. While bytes are left for stdout's room, an
+/// edge of room read while the lock was held is written for now
+/// (`stdoutRoom`).
 fn unlockOutput() void {
-    if (concurrent) output_lock.unlock(io());
+    if (concurrent) {
+        const left = stdout_left.*;
+        output_lock.unlock(io());
+        if (left) takeMissedRoomOff();
+    }
     if (preempt) sched.holdOn();
 }
 
@@ -7379,6 +7756,9 @@ fn mapStack(guards: []const usize) ?usize {
 /// `main` with the program's `main`, and by `runTests`. A program whose
 /// stack and guard cannot be mapped stops before it runs.
 pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
+    // Before the scheduler opens its pollers, which would otherwise take
+    // a closed stdout's number.
+    holdStandardDescriptors();
     if (!own_stack) return @call(.auto, f, args);
     const top = mapStack(&guard_sizes) orelse {
         std.debug.print("rig: cannot reserve the program's stack and the guard below it\n", .{});
@@ -7641,7 +8021,7 @@ fn onOverflow(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx: ?*anyop
     // Only a debug build calls Zig's handler, for its trace. An optimized
     // build aborts with the message alone: Zig's handler there walks the
     // trace by a frame-pointer unwinder, which can fault again at the top
-    // of the program's stack; and in `--release=fast` there is no handler.
+    // of the program's stack.
     if (builtin.mode != .debug or !std.options.enable_segfault_handler) std.process.abort();
     for (Sanitizer.signals, overflow_previous) |s, *old| {
         if (s != sig) continue;
@@ -7652,11 +8032,11 @@ fn onOverflow(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx: ?*anyop
 }
 
 // The handler of a SIGILL or SIGFPE, in a build whose root has Zig's
-// handler of a fault (debug and `--release`), which reports either as
+// handler of a fault (every Rig build), which reports either as
 // an illegal instruction or an arithmetic exception, with a trace, and
 // aborts. It runs in front of Zig's: a signal that was sent ends the
-// program by that signal (`sentSignal`), as in `--release=fast`, which
-// has no handler; a real one puts Zig's handler back and returns, so the
+// program by that signal (`sentSignal`), as the default action would;
+// a real one puts Zig's handler back and returns, so the
 // instruction runs again and faults into it.
 
 var trap_previous_var: [2]std.posix.Sigaction = undefined;
@@ -7859,6 +8239,7 @@ const process_args = split.cell(&process_args_var, "runtime.process_args");
 /// gathered into `Static`s once, freed by `finish`.
 pub fn start(init: std.process.Init.Minimal) void {
     process.* = init;
+    holdStandardDescriptors();
     // A write to a closed pipe (`prog | head`) or socket fails with
     // BrokenPipe, instead of killing the program by SIGPIPE: a socket's
     // write gets an error, and `stdoutFailed` ends the program as
@@ -7923,6 +8304,36 @@ pub fn start(init: std.process.Init.Minimal) void {
 }
 
 fn onBrokenPipe(_: std.posix.SIG) callconv(.c) void {}
+
+/// Put `/dev/null` on each of descriptors 0, 1, and 2 the program started
+/// without, so that no descriptor it opens (a socket, a poller, a file)
+/// takes stdin's, stdout's, or stderr's number: `print` would write into
+/// it, and on macOS stdout's watch for room (`sched.watchStdout`) would
+/// take a socket's from `net`. Each is opened the way it is not used, as
+/// the C library opens them for a set-user-ID program: stdin for writing
+/// only, stdout and stderr for reading only, so a read of stdin or a
+/// write of stdout or stderr fails as it does on a closed descriptor
+/// (EBADF), and a closed stdout is reported as "stdout: not open for
+/// writing". An `open` takes the lowest free number, so in order each
+/// lands on the one it fills. Called first in `onOwnStack`, before the
+/// scheduler opens a poller, and again in `start`, for a program that
+/// does not run on its own stack, where it costs three `fcntl`s.
+fn holdStandardDescriptors() void {
+    if (builtin.os.tag != .linux and !builtin.os.tag.isDarwin()) return;
+    const sys = std.posix.system;
+    for (0..3) |n| {
+        const fd: i32 = @intCast(n);
+        if (std.posix.errno(sys.fcntl(fd, std.posix.F.GETFD, @as(usize, 0))) != .BADF) continue;
+        const mode: std.posix.ACCMODE = if (fd == 0) .WRONLY else .RDONLY;
+        const rc = sys.open("/dev/null", .{ .ACCMODE = mode }, @as(std.posix.mode_t, 0));
+        if (std.posix.errno(rc) != .SUCCESS) return;
+        const got: i32 = @intCast(rc);
+        if (got != fd) {
+            _ = sys.close(got);
+            return;
+        }
+    }
+}
 
 /// Every signal handler runs on its thread's alternate stack (`AltStack`),
 /// never on a task's, where the frame the kernel writes for it, up to
@@ -8333,9 +8744,11 @@ fn endBy(sig: std.posix.SIG) noreturn {
 
 // Output. `print` writes to one process-wide buffer. It is flushed
 // when the program finishes, before anything is written to stderr (a
-// `warn`, a panic, an error report), before a thread waits on I/O or
-// time (`flushBeforeWait`), and after every `print` when stdout is a
-// terminal.
+// `warn`, a panic, an error report), and after every `print` when stdout
+// is a terminal; a `print` that fills it writes it out there and then,
+// waiting in its call as long as stdout makes it. Before a worker waits
+// on I/O or time, and whenever stdout has room again, what stdout takes
+// at once is written (`flushBeforeWait`), and never more.
 
 var stdout_buffer_var: [8192]u8 = undefined;
 const stdout_buffer = split.cell(&stdout_buffer_var, "runtime.stdout_buffer");
@@ -8343,11 +8756,119 @@ var stdout_writer_var: ?std.Io.File.Writer = null;
 const stdout_writer = split.cell(&stdout_writer_var, "runtime.stdout_writer");
 var stdout_is_tty_var = false;
 const stdout_is_tty = split.cell(&stdout_is_tty_var, "runtime.stdout_is_tty");
+var stdout_kind_var: OutKind = .file;
+const stdout_kind = split.cell(&stdout_kind_var, "runtime.stdout_kind");
+
+/// What stdout is, which decides how a worker about to wait writes to it
+/// without blocking (`flushBeforeWait`).
+const OutKind = enum {
+    /// A regular file, `/dev/null`, or another device that is not a
+    /// terminal: a write never waits on a reader, so it is written in
+    /// full, and never watched (epoll refuses a regular file).
+    file,
+    /// A pipe: a pipe that polls writable has room for `pipe_buf` bytes,
+    /// so it takes that many at a time while it does, with no flag set on
+    /// its descriptor, which the shell and the other processes writing it
+    /// share.
+    pipe,
+    /// A socket, whose writability promises room for its send buffer's
+    /// low-water mark, not `pipe_buf`: on Linux sent with `MSG_DONTWAIT`,
+    /// which takes what fits and waits for none of it; on macOS, which
+    /// ignores `MSG_DONTWAIT` (a send blocks once the buffer is full),
+    /// written as a pipe is, at most `SO_SNDLOWAT` bytes at a time while
+    /// it polls writable (`stdout_step`).
+    socket,
+    /// A terminal: `print` writes it out a line at a time in its own call,
+    /// so whenever the output lock is free nothing is left to write, and
+    /// a worker about to wait writes nothing; were a byte ever left, the
+    /// next `print` or the final flush would write it. Its writability
+    /// promises less than a line, and making its shared descriptor
+    /// non-blocking would make the shell's too.
+    tty,
+
+    /// Whether bytes left over are written when stdout has room again,
+    /// registered with a poller for its writability (`sched.watchStdout`).
+    fn watched(k: OutKind) bool {
+        return k == .pipe or k == .socket;
+    }
+};
+
+/// What a write of a pipe that polls writable takes without blocking:
+/// `PIPE_BUF`, the platform's (512 bytes on macOS, 4096 on Linux).
+const pipe_buf: usize = if (builtin.os.tag == .linux) 4096 else 512;
+
+/// What one write of stdout takes without blocking once it polls
+/// writable (`writeWhatFits`): `pipe_buf` for a pipe, and for a socket
+/// outside Linux its send buffer's low-water mark (`SO_SNDLOWAT`, 2048
+/// bytes unless the program's parent set it).
+var stdout_step_var: usize = pipe_buf;
+const stdout_step = split.cell(&stdout_step_var, "runtime.stdout_step");
+
+/// Stdout's `SO_SNDLOWAT`, at least 1, or `pipe_buf` when the system does
+/// not say.
+fn sendLowWater() usize {
+    if (comptime !builtin.os.tag.isDarwin()) return pipe_buf;
+    var v: c_int = 0;
+    var size: std.c.socklen_t = @sizeOf(c_int);
+    if (std.c.getsockopt(1, std.c.SOL.SOCKET, std.c.SO.SNDLOWAT, &v, &size) != 0) return pipe_buf;
+    return @max(@as(usize, @intCast(@max(v, 0))), 1);
+}
+
+/// What stdout is, when it is not a terminal: by the type `fstat` gives,
+/// asked of the system directly, as a closed stdout is no error here (a
+/// write then reports it, `stdoutFailed`).
+fn stdoutKind() OutKind {
+    const mode: u32 = if (builtin.os.tag == .linux)
+        linuxMode(1) orelse return .file
+    else if (builtin.os.tag.isDarwin()) blk: {
+        var st: std.c.Stat = undefined;
+        if (std.c.fstat(1, &st) != 0) return .file;
+        break :blk st.mode;
+    } else return .file;
+    const S = std.posix.S;
+    return switch (mode & S.IFMT) {
+        S.IFIFO => .pipe,
+        S.IFSOCK => .socket,
+        else => .file,
+    };
+}
+
+/// The mode of Linux descriptor `fd` (its type and permissions), or null
+/// when it is closed or the kernel will not say: by `statx`, and, from a
+/// kernel older than `statx` (4.11) or a sandbox that refuses it, by
+/// `fstat` (`linuxFstatMode`).
+fn linuxMode(fd: i32) ?u32 {
+    const linux = std.os.linux;
+    var sx: linux.Statx = undefined;
+    const at_empty_path: u32 = 0x1000;
+    return switch (linux.errno(linux.statx(fd, "", at_empty_path, .{ .TYPE = true }, &sx))) {
+        .SUCCESS => sx.mode,
+        .BADF => null,
+        else => linuxFstatMode(fd),
+    };
+}
+
+/// The mode of Linux descriptor `fd` by `fstat`, whose result is laid out
+/// by the architecture (`st_mode` at byte 24 on x86-64, 16 on the others
+/// Rig builds for), or null.
+fn linuxFstatMode(fd: i32) ?u32 {
+    const linux = std.os.linux;
+    const mode_at: usize = switch (builtin.cpu.arch) {
+        .x86_64 => 24,
+        .aarch64, .riscv64, .loongarch64 => 16,
+        else => return null,
+    };
+    var st: [256]u8 align(16) = undefined;
+    if (linux.errno(linux.syscall2(.fstat, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(&st))) != .SUCCESS) return null;
+    return std.mem.readInt(u32, st[mode_at..][0..4], .little);
+}
 
 fn stdout() *std.Io.Writer {
     if (stdout_writer.* == null) {
         const file = std.Io.File.stdout();
         stdout_is_tty.* = file.isTty(io()) catch false;
+        stdout_kind.* = if (stdout_is_tty.*) .tty else stdoutKind();
+        stdout_step.* = if (stdout_kind.* == .socket) sendLowWater() else pipe_buf;
         stdout_writer.* = file.writerStreaming(io(), stdout_buffer);
     }
     return &stdout_writer.*.?.interface;
@@ -8373,16 +8894,145 @@ fn flushWriter(w: *std.Io.Writer) std.Io.Writer.Error!void {
     return w.flush();
 }
 
-/// Write out what `print` has buffered before a thread blocks, waiting
-/// on I/O or time: a server's first line, piped to another program,
-/// shows while it waits for a connection. A thread that cannot take the
-/// output lock leaves it to the one printing, which flushes before it
-/// waits in turn. A write that fails is left for the next flush, which
-/// reports it.
+/// Write what stdout takes at once of what `print` has buffered, before
+/// a worker waits on I/O or time: a server's first line, piped to
+/// another program, shows while it waits for a connection. It never
+/// blocks, so a worker on its way to its wait always reaches it, and sees
+/// the events of its poller, even when stdout is a full pipe whose reader
+/// waits for this program's answer on a socket. What stdout does not take
+/// stays buffered, in order, and stdout is registered once for its
+/// writability, with the poller of the worker that left it
+/// (`sched.watchStdout`): its edge, seen by whichever worker looks at that
+/// poller, writes more the same way (`stdoutRoom`), and the registration
+/// is dropped once the buffer is empty. A worker that cannot take the
+/// output lock leaves the bytes to its holder: a `print`, which writes
+/// them all if it fills the buffer, and otherwise reaches this before its
+/// own worker waits; or the final flush. How it writes depends on what
+/// stdout is (`OutKind`). A write that fails is left for the next flush
+/// that blocks, a full buffer's or the final one, which reports it.
+///
+/// "Never blocks" holds while this program is stdout's only writer. Room
+/// is read first and written into after, so another process writing the
+/// same pipe or socket (a child that inherited stdout, the other side of
+/// `a & b` into one pipe, a parent that shares the socket) can fill it in
+/// between, and the write then waits, as any write of a full pipe does,
+/// until the reader takes enough.
 pub fn flushBeforeWait() void {
     if (concurrent and !tryLockOutput()) return;
     defer unlockOutput();
-    if (stdout_writer.*) |*w| if (w.interface.end != 0) flushOff(&w.interface) catch {};
+    writeLeft();
+}
+
+/// Under the output lock: write what stdout takes at once of what `print`
+/// has buffered (`writeWhatFits`), and keep stdout watched for its room
+/// while bytes are left (`sched.watchStdout`), or stop once none are or a
+/// write fails.
+fn writeLeft() void {
+    const sw = if (stdout_writer.*) |*sw| sw else return;
+    const w = &sw.interface;
+    const kind = stdout_kind.*;
+    if (w.end != 0) writeWhatFits(w, kind) catch {
+        stdout_left.* = false;
+        if (kind.watched()) sched.watchStdout(false);
+        return;
+    };
+    stdout_left.* = kind.watched() and w.end != 0;
+    if (kind.watched()) sched.watchStdout(stdout_left.*);
+}
+
+/// Whether the last write of what stdout takes at once (`writeLeft`) left
+/// bytes for stdout's room, which its edges then write (`stdoutRoom`);
+/// read and written under the output lock.
+var stdout_left_var = false;
+const stdout_left = split.cell(&stdout_left_var, "runtime.stdout_left");
+
+/// Set when a worker reads stdout's edge of room to write (`stdoutRoom`)
+/// and cannot take the output lock to write: the edge comes once, so the
+/// lock's holder writes for it after letting go (`unlockOutput`).
+var stdout_room_missed_var: std.atomic.Value(u32) = .init(0);
+const stdout_room_missed = split.cell(&stdout_room_missed_var, "runtime.stdout_room_missed");
+
+/// A poller read stdout's edge of room to write (`sched.watchStdout`):
+/// write what stdout takes at once, as a worker going to sleep does
+/// (`flushBeforeWait`). Its holder, when the output lock is taken, writes
+/// it instead: the edge is recorded (`stdout_room_missed`) before the lock
+/// is tried, and every holder while bytes are left for it looks for it after
+/// it lets go of the lock (`takeMissedRoom`), so an edge read while a
+/// worker on its way to sleep holds the lock is never lost, and the bytes
+/// left wait for no worker to sleep. Every step on the record is a
+/// read-modify-write, which orders it with the lock's own steps: a holder
+/// whose look comes before this record let go of the lock before this
+/// tries it, and one whose look comes after sees the record.
+pub fn stdoutRoom() void {
+    _ = stdout_room_missed.swap(1, .acq_rel);
+    takeMissedRoomOff();
+}
+
+/// `takeMissedRoom` on the worker's own stack (`sched.onWorkerStack`): a
+/// poller's look and a `print` may run on a task's stack, whose bound
+/// does not count these system calls.
+fn takeMissedRoomOff() void {
+    if (scheduled) sched.onWorkerStack(takeMissedRoom, .{}) else takeMissedRoom();
+}
+
+/// While an edge of room is recorded (`stdoutRoom`) and the output lock is
+/// free, take the lock and the record, and write for it; a holder of the
+/// lock looks again once it lets go.
+fn takeMissedRoom() void {
+    while (stdout_room_missed.fetchAdd(0, .acq_rel) != 0) {
+        if (!tryLockOutput()) return;
+        _ = stdout_room_missed.swap(0, .acq_rel);
+        writeLeft();
+        output_lock.unlock(io());
+        if (preempt) sched.holdOn();
+    }
+}
+
+/// Before a thread outside the scheduler waits, in a program that makes
+/// no task, on a socket (`net`'s `waitFor`) or a sleep (`sleepHere`):
+/// write what stdout takes at once of what `print` has buffered, as a
+/// worker going to sleep does (`flushBeforeWait`), so a server's first
+/// line, piped to another program, shows while it waits, and the wait
+/// never blocks on a full stdout whose reader waits for the program.
+/// True when bytes are left that stdout, a pipe or a socket, takes once
+/// it has room: the caller's wait then also waits for that (`poll`, fd 1,
+/// `POLLOUT`) and calls this again when it comes. A write that fails is
+/// left for the next flush that blocks, which reports it.
+pub fn flushBeforePoll() bool {
+    if (concurrent and !tryLockOutput()) return false;
+    defer unlockOutput();
+    const sw = if (stdout_writer.*) |*sw| sw else return false;
+    const w = &sw.interface;
+    if (w.end == 0) return false;
+    const kind = stdout_kind.*;
+    writeWhatFits(w, kind) catch return false;
+    return w.end != 0 and kind.watched();
+}
+
+/// Write the head of `w`'s buffer to stdout, of kind `kind`, as far as
+/// stdout takes it without blocking, and drop what was written from the
+/// buffer; `error.WriteFailed` when a write fails.
+fn writeWhatFits(w: *std.Io.Writer, kind: OutKind) error{WriteFailed}!void {
+    while (w.end != 0) {
+        const head = w.buffer[0..w.end];
+        const rc: WriteResult = switch (kind) {
+            .tty => return,
+            .file => std.posix.system.write(1, head.ptr, head.len),
+            .socket => if (builtin.os.tag == .linux)
+                std.posix.system.sendto(1, head.ptr, head.len, std.posix.MSG.DONTWAIT, null, 0)
+            else
+                try writePolled(head),
+            .pipe => try writePolled(head),
+        };
+        switch (std.posix.errno(rc)) {
+            .SUCCESS => if (rc == 0) return else {
+                _ = w.consume(@intCast(rc));
+            },
+            .INTR => {},
+            .AGAIN => return,
+            else => return error.WriteFailed,
+        }
+    }
 }
 
 /// Write out what `print` has buffered on the way out of a program that
@@ -8391,6 +9041,20 @@ pub fn flushBeforeWait() void {
 /// comes.
 fn flushQuietly() void {
     if (stdout_writer.*) |*w| flushOff(&w.interface) catch {};
+}
+
+/// What the system's `write` gives: `isize` from the C library, `usize`
+/// from Linux's system call.
+const WriteResult = @TypeOf(std.posix.system.write(1, "", 0));
+
+/// A write of at most `stdout_step` bytes of `head` to stdout once it
+/// polls writable, a system call's result; 0 when it does not.
+fn writePolled(head: []const u8) error{WriteFailed}!WriteResult {
+    var fds = [1]std.posix.pollfd{.{ .fd = 1, .events = std.posix.POLL.OUT, .revents = 0 }};
+    const n = std.posix.poll(&fds, 0) catch return error.WriteFailed;
+    if (n == 0) return 0;
+    if (fds[0].revents & std.posix.POLL.OUT == 0) return error.WriteFailed;
+    return std.posix.system.write(1, head.ptr, @min(head.len, stdout_step.*));
 }
 
 /// One `print`: its pieces in order, the spaces between its arguments and
@@ -9244,6 +9908,8 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
                     // hold, as a function shows no code.
                     if (comptime @hasDecl(@FieldType(p.child, "value"), "__rig_chan")) return w.writeAll("<chan>");
                     if (comptime @hasDecl(@FieldType(p.child, "value"), "__rig_actor")) return w.writeAll("<actor>");
+                    // An object of word Cells prints as any object does.
+                    if (comptime @hasDecl(@FieldType(p.child, "value"), "__rig_synced")) return writeValue(w, value.value, top);
                     try w.writeAll("Cell(value: ");
                     try writeValue(w, value.value.get(), false);
                     return w.writeAll(")");
@@ -9512,6 +10178,24 @@ test "bytesEql: every length to 200, every alignment, a difference at every byte
     };
 }
 
+test "textOrder: as std.mem.order at every length to 40, a difference at every byte" {
+    // textLess and textGreater through it.
+    var a: [48]u8 = undefined;
+    var b: [48]u8 = undefined;
+    for (&a, 0..) |*c, i| c.* = @truncate(i *% 37 +% 11);
+    for (0..41) |n| for (0..41) |m| {
+        @memcpy(b[0..m], a[0..m]);
+        const x = a[0..n];
+        try testing.expectEqual(std.mem.order(u8, x, b[0..m]), textOrder(x, b[0..m]));
+        for (0..@min(n, m)) |k| for ([_]u8{ 1, 0x80, 0xff }) |d| {
+            b[k] = a[k] +% d;
+            try testing.expectEqual(std.mem.order(u8, x, b[0..m]), textOrder(x, b[0..m]));
+            try testing.expectEqual(std.mem.order(u8, b[0..m], x), textOrder(b[0..m], x));
+            b[k] = a[k];
+        };
+    };
+}
+
 test "prefetch: any index, in range or not" {
     var a = [_]u64{ 1, 2, 3 };
     for ([_]i64{ -1, 0, 2, 3, std.math.minInt(i64), std.math.maxInt(i64) }) |i| prefetch(&a, i);
@@ -9619,6 +10303,46 @@ test "lookup: at compile time" {
     try testing.expectEqual([4]u8{ '0', 'f', 0, 0 }, @as([4]u8, r));
 }
 
+test "fold: as the plain loop, for every operator, type, and length to 600" {
+    var prng = std.Random.DefaultPrng.init(0xf01d);
+    const r = prng.random();
+    inline for (.{ u8, i8, u16, i16, u32, i32, u64, i64 }) |T| {
+        var xs: [600]T = undefined;
+        for (0..600) |n| for (0..4) |shape| {
+            for (xs[0..n], 0..) |*x, i| x.* = switch (shape) {
+                0 => @intCast(i % 100),
+                1 => r.int(T),
+                // Elements near the type's size, so turns add one at a time.
+                2 => if (i % 2 == 0) std.math.maxInt(T) else std.math.minInt(T) +% 1,
+                else => r.intRangeAtMost(T, std.math.minInt(T) / 64, std.math.maxInt(T) / 64),
+            };
+            const s0: T = if (shape == 3) std.math.maxInt(T) / 2 else r.int(T);
+            const ys = xs[0..n];
+            var wrap = s0;
+            var bxor = s0;
+            var bor = s0;
+            var band = s0;
+            var wide: i128 = s0;
+            var fits = true;
+            for (ys) |x| {
+                wrap +%= x;
+                bxor ^= x;
+                bor |= x;
+                band &= x;
+                wide += x;
+                fits = fits and wide >= std.math.minInt(T) and wide <= std.math.maxInt(T);
+            }
+            var turns: u32 = tick_turns;
+            try testing.expectEqual(wrap, fold(.add_wrap, s0, ys, &turns));
+            try testing.expectEqual(bxor, fold(.bit_xor, s0, ys, null));
+            try testing.expectEqual(bor, fold(.bit_or, s0, ys, null));
+            try testing.expectEqual(band, fold(.bit_and, s0, ys, null));
+            // Where the plain loop would not panic, the checked fold gives its sum.
+            if (fits) try testing.expectEqual(wrap, fold(.add, s0, ys, null));
+        };
+    }
+}
+
 test "vecAddSat, vecSubSat: the wrapped forms agree with Zig's" {
     var prng = std.Random.DefaultPrng.init(0x5a7);
     const r = prng.random();
@@ -9658,7 +10382,7 @@ test "lag: every amount and lane count" {
 }
 
 test "lane arithmetic: the unchecked form is the plain operator" {
-    // `--release=fast` runs the unchecked form; an overflowing lane is
+    // Zig's fast mode runs the unchecked form; an overflowing lane is
     // undefined there, so only lanes that do not overflow are run, and the
     // two forms must agree on them.
     inline for (.{ u8, i8, u16, i16, u32, i32, u64, i64 }) |T| {
@@ -10766,6 +11490,14 @@ test "index bounds and division" {
     try testing.expectEqual(2, index(@as(i32, 2), 3));
     try testing.expectEqual(0, index(0, 1));
     try testing.expectEqual(2, index(@as(u8, 2), 3));
+    try testing.expectEqual(2, indexHeld(@as(i64, 2), 3));
+    try testing.expectEqual(0, indexHeld(@as(i32, 0), 1));
+    try testing.expectEqual(2, indexHeld(@as(u8, 2), 3));
+    try testing.expectEqual(@as(?usize, null), heldOffset(@as(i64, -1), 3));
+    try testing.expectEqual(@as(?usize, null), heldOffset(@as(i64, std.math.minInt(i64)), 1 << 63));
+    try testing.expectEqual(@as(?usize, null), heldOffset(@as(i64, 3), 3));
+    try testing.expectEqual(@as(?usize, null), heldOffset(@as(i8, -1), 200));
+    try testing.expectEqual(@as(?usize, (1 << 63) - 1), heldOffset(@as(i64, std.math.maxInt(i64)), 1 << 63));
     try testing.expectEqual('b', at(@as([]const u8, "abc"), @as(i64, 1)));
     try testing.expectEqual(2.5, div(@as(f64, 5), 2));
     try testing.expectEqual(-2, div(@as(i64, -5), 2));
@@ -11023,4 +11755,135 @@ test "this machine's fast cores are at least one, at most its logical CPUs, and 
     const n = fastCores();
     try std.testing.expect(n >= 1 and n <= logical);
     try std.testing.expectEqual(n, fastCores());
+}
+
+test "orderIsIdentity: an enum's variant with fields counts its fields" {
+    const name = .{ .module = "", .name = .{"Shape"} };
+    const Shape = union(enum) {
+        dot: void,
+        circle: struct { r: i64 },
+        pub const __rig_name = name;
+    };
+    const Holds = union(enum) {
+        dot: void,
+        at: struct { p: *i64 },
+        pub const __rig_name = name;
+    };
+    try std.testing.expect(comptime orderIsIdentity(Shape));
+    try std.testing.expect(!comptime orderIsIdentity(Holds));
+    try std.testing.expect(!comptime orderIsIdentity(struct { r: i64 }));
+}
+
+/// Run `child` in a child process; its exit status.
+fn statusOfChild(comptime child: fn () u8) !u8 {
+    const sys = std.posix.system;
+    const pid = sys.fork();
+    if (pid == 0) sys.exit(child());
+    var status: i32 = 0;
+    if (builtin.target.os.tag == .linux) {
+        if (std.posix.errno(sys.waitpid(@intCast(pid), &status, 0)) != .SUCCESS) return error.WaitFailed;
+    } else if (sys.waitpid(pid, &status, 0) != pid) return error.WaitFailed;
+    if (status & 0x7f != 0) return error.Signaled;
+    return @intCast((status >> 8) & 0xff);
+}
+
+/// Fill the pipe `fd` writes to, through a flag cleared again; how many
+/// bytes it took.
+fn fillPipe(fd: i32) usize {
+    const sys = std.posix.system;
+    const nonblock: u32 = @bitCast(std.posix.O{ .NONBLOCK = true });
+    _ = sys.fcntl(fd, std.posix.F.SETFL, @as(usize, nonblock));
+    const chunk: [512]u8 = @splat('f');
+    var filled: usize = 0;
+    for ([_]usize{ chunk.len, 1 }) |size| while (true) {
+        const rc = sys.write(fd, &chunk, size);
+        if (std.posix.errno(rc) != .SUCCESS) break;
+        filled += @intCast(rc);
+    };
+    _ = sys.fcntl(fd, std.posix.F.SETFL, @as(usize, 0));
+    return filled;
+}
+
+/// Read `n` bytes from `fd` into `buf`, or fewer at its end.
+fn readSome(fd: i32, buf: []u8) usize {
+    var got: usize = 0;
+    while (got < buf.len) {
+        const n = std.posix.read(fd, buf[got..]) catch break;
+        if (n == 0) break;
+        got += n;
+    }
+    return got;
+}
+
+test "an edge of stdout's room read while the output lock is held is written by its holder" {
+    if (builtin.os.tag != .linux and !builtin.os.tag.isDarwin()) return error.SkipZigTest;
+    const Child = struct {
+        fn run() u8 {
+            const sys = std.posix.system;
+            var fds: [2]i32 = undefined;
+            if (std.posix.errno(sys.pipe(&fds)) != .SUCCESS) return 1;
+            _ = sys.dup2(fds[1], 1);
+            const w = stdout();
+            if (stdout_kind.* != .pipe) return 2;
+            const filled = fillPipe(1);
+            w.writeAll("room\n") catch return 3;
+            // A worker on its way to sleep holds the lock: stdout is full,
+            // so nothing is written and the bytes are left for its room.
+            if (!tryLockOutput()) return 4;
+            writeLeft();
+            if (!stdout_left.* or w.end != 5) return 5;
+            // The reader drains the pipe, and another worker reads the
+            // edge while the lock is held.
+            var drain: [4096]u8 = undefined;
+            var drained: usize = 0;
+            while (drained < filled) drained += readSome(fds[0], drain[0..@min(drain.len, filled - drained)]);
+            stdoutRoom();
+            if (w.end != 5) return 6;
+            // Its holder writes for it as it lets go.
+            unlockOutput();
+            if (w.end != 0) return 7;
+            var got: [5]u8 = undefined;
+            if (readSome(fds[0], &got) != 5 or !std.mem.eql(u8, &got, "room\n")) return 8;
+            return 0;
+        }
+    };
+    try testing.expectEqual(0, try statusOfChild(Child.run));
+}
+
+test "a program started without stdin, stdout, or stderr gets /dev/null there, the other way" {
+    if (builtin.os.tag != .linux and !builtin.os.tag.isDarwin()) return error.SkipZigTest;
+    const Child = struct {
+        fn run() u8 {
+            const sys = std.posix.system;
+            for (0..3) |fd| _ = sys.close(@intCast(fd));
+            holdStandardDescriptors();
+            for (0..3) |fd| {
+                if (std.posix.errno(sys.fcntl(@intCast(fd), std.posix.F.GETFD, @as(usize, 0))) != .SUCCESS) return 1;
+            }
+            // A write of stdout or stderr fails as it does with them closed.
+            if (std.posix.errno(sys.write(1, "x", 1)) != .BADF) return 2;
+            if (std.posix.errno(sys.write(2, "x", 1)) != .BADF) return 3;
+            var b: [1]u8 = undefined;
+            if (std.posix.errno(sys.read(0, &b, 1)) != .BADF) return 4;
+            // What the program opens next lands past them.
+            var fds: [2]i32 = undefined;
+            if (std.posix.errno(sys.pipe(&fds)) != .SUCCESS) return 5;
+            if (fds[0] < 3 or fds[1] < 3) return 6;
+            return 0;
+        }
+    };
+    try testing.expectEqual(0, try statusOfChild(Child.run));
+}
+
+test "Linux's fstat gives a descriptor's type as statx does" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    var fds: [2]i32 = undefined;
+    try testing.expectEqual(.SUCCESS, std.posix.errno(std.os.linux.pipe(&fds)));
+    defer for (fds) |fd| {
+        _ = std.os.linux.close(fd);
+    };
+    const mode = linuxFstatMode(fds[0]) orelse return error.NoMode;
+    try testing.expectEqual(std.posix.S.IFIFO, mode & std.posix.S.IFMT);
+    try testing.expectEqual(linuxMode(fds[0]).?, mode);
+    try testing.expectEqual(null, linuxMode(-1));
 }
