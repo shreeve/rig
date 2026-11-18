@@ -459,7 +459,7 @@ pub inline fn turn(n: *u32) void {
 /// could leave the type adds its elements one at a time, as written.
 pub inline fn fold(comptime how: enum { add_wrap, add, bit_xor, bit_or, bit_and }, s: anytype, xs: []const @TypeOf(s), turns: ?*u32) @TypeOf(s) {
     const T = @TypeOf(s);
-    const lanes = 16 / @sizeOf(T);
+    const lanes = foldLanes(T);
     const V = @Vector(lanes, T);
     const U = @Vector(lanes, @Int(.unsigned, @bitSizeOf(T)));
     // Sixteen vectors a turn, into four sums, written without `inline
@@ -525,6 +525,15 @@ pub inline fn fold(comptime how: enum { add_wrap, add, bit_xor, bit_or, bit_and 
     if (how != .add) r = op(r, @reduce(reduce, op(op(a0, a1), op(a2, a3))));
     for (xs[i..]) |x| r = if (how == .add) r + x else op(r, x);
     return r;
+}
+
+/// The lanes of a `fold`'s vectors of `T`: the widest vector the target
+/// adds in one instruction, at most 32 bytes (AVX2's; NEON's and SSE's
+/// are 16).
+fn foldLanes(comptime T: type) comptime_int {
+    const most = 32 / @sizeOf(T);
+    const native = std.simd.suggestVectorLength(T) orelse 16 / @sizeOf(T);
+    return @min(most, @max(native, 16 / @sizeOf(T)));
 }
 
 /// A bound on the size of each lane of `x` (`fold`): `x` itself when
