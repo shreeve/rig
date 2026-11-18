@@ -2656,17 +2656,18 @@ fn runsLong(v: *Worker, now: u64, long: u64) bool {
 /// worker may: `sleeper` as it goes to sleep (`lendWatch`), or `v` for
 /// a sleeper as it starts a long handler (`longAhead`).
 fn lendArm(sleeper: *Worker, v: *Worker, i: usize) bool {
+    _ = i;
     const linux_ = std.os.linux;
     const how: u32 = if (lend_et_var.load(.monotonic)) linux_.EPOLL.ET else linux_.EPOLL.ONESHOT;
     var ev: linux_.epoll_event = .{ .events = linux_.EPOLL.IN | how, .data = .{ .ptr = @intFromPtr(&v.poller) | lend_tag } };
-    const bit = @as(u64, 1) << @intCast(i);
-    const known = sleeper.nested.load(.seq_cst) & bit != 0;
-    var rc: isize = @bitCast(linux_.epoll_ctl(sleeper.poller.fd, if (known) linux_.EPOLL.CTL_MOD else linux_.EPOLL.CTL_ADD, v.poller.fd, &ev));
-    // Added meanwhile by another worker, for this one.
-    if (rc < 0 and !known) rc = @bitCast(linux_.epoll_ctl(sleeper.poller.fd, linux_.EPOLL.CTL_MOD, v.poller.fd, &ev));
-    if (rc < 0) return false;
-    if (!known) _ = sleeper.nested.fetchOr(bit, .seq_cst);
-    return true;
+    // Added for each watch and removed as it is taken back (`lendOff`):
+    // the kernel refuses a poller nested in one that it nests itself,
+    // whether or not the nested one reports, so a watch left registered
+    // each way would let only one of two workers ever watch the other
+    // (as the first build of this probe did).
+    var rc: isize = @bitCast(linux_.epoll_ctl(sleeper.poller.fd, linux_.EPOLL.CTL_ADD, v.poller.fd, &ev));
+    if (rc == -@as(isize, @intFromEnum(linux_.E.EXIST))) rc = @bitCast(linux_.epoll_ctl(sleeper.poller.fd, linux_.EPOLL.CTL_MOD, v.poller.fd, &ev));
+    return rc >= 0;
 }
 
 /// Probe (lend): how long the handlers of the requests whose path
@@ -2808,12 +2809,9 @@ fn lendWatch(w: *Worker) void {
     }
 }
 
-/// Probe (lend): take `w`'s watch of `v`'s poller off `w`'s poller: the
-/// nested poller stays registered there, reporting nothing.
+/// Probe (lend): take `w`'s watch of `v`'s poller off `w`'s poller.
 fn lendOff(w: *Worker, v: *Worker) void {
-    const linux_ = std.os.linux;
-    var ev: linux_.epoll_event = .{ .events = 0, .data = .{ .ptr = @intFromPtr(&v.poller) | lend_tag } };
-    _ = linux_.epoll_ctl(w.poller.fd, linux_.EPOLL.CTL_MOD, v.poller.fd, &ev);
+    _ = std.os.linux.epoll_ctl(w.poller.fd, std.os.linux.EPOLL.CTL_DEL, v.poller.fd, null);
 }
 
 /// Probe (lend): `w` switched away from a fiber while a sleeper watched
