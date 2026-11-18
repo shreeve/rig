@@ -4321,6 +4321,7 @@ pub const Emitter = struct {
         // A List or an array of values that move, which the loop takes or
         // its source makes, hands its elements over one at a time.
         if (try self.need(self.facts.forConsumes(sexp), sexp)) return self.emitConsumingFor(sexp, lp, !is_list);
+        if (try self.need(self.facts.fold(sexp), sexp)) |how| return self.emitFold(sexp, lp, how, is_list);
         const elem_sym = self.facts.symbolOf(binding);
         const elem_ty: ?TypeId = if (elem_sym) |s| self.symType(s) else null;
         const header = self.facts.headerOf(sexp);
@@ -4400,6 +4401,33 @@ pub const Emitter = struct {
         try self.closeLoopBody(lp, body, ir.For.body(sexp));
         try self.closeLabeled(l);
         try self.popScope();
+    }
+
+    /// A `for` that folds integers into a local (`storage.fold`): one
+    /// call, which counts the loop's turns as the loop would.
+    ///
+    ///     s = rig.fold(.add, s, xs, &__rig_turns_N);
+    fn emitFold(self: *Emitter, sexp: Sexp, lp: *Loop, how: facts.Fold, is_list: bool) Error!void {
+        const source = ir.For.source(sexp);
+        const set = (try self.stmtsOf(ir.For.body(sexp)))[0];
+        const sum = self.facts.symbolOf(ir.Set.target(set)) orelse return self.unsupported(set, "a fold into no name");
+        const local = self.localBySym(sum) orelse return self.unsupported(set, "a fold into no local");
+        try self.startLoopLine(lp);
+        try self.writeLocalPlace(local);
+        try self.w.print(" = rig.fold(.{s}, ", .{@tagName(how)});
+        try self.writeLocalPlace(local);
+        try self.w.writeAll(", ");
+        if (try self.headerPoints(source)) {
+            try self.emitSubjectPtr(source, false);
+            try self.w.writeAll(".*");
+        } else {
+            const h = try self.openHeader(source);
+            try self.emitExpr(source);
+            try self.closeHeader(h);
+        }
+        if (is_list) try self.w.writeAll(".items()");
+        try self.enterLoop(lp);
+        if (lp.turns) |n| try self.w.print(", &{s});", .{n}) else try self.w.writeAll(", null);");
     }
 
     /// `for x in <v`: the List (or the array, `array`) is consumed; each

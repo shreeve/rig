@@ -446,6 +446,95 @@ pub inline fn turn(n: *u32) void {
     }
 }
 
+/// `for x in xs` whose body is only `s OP= x`, over integers (the storage
+/// plan's `Fold`): `s` combined with every element of `xs`, sixteen
+/// bytes a vector and sixteen vectors a turn, as LLVM's loop vectorizer
+/// would write the loop, which Zig 0.17 builds with off (INTERNALS, "Known
+/// Zig 0.17 issues"). A turn counts one turn of the loop that holds the
+/// fold (`turn`).
+///
+/// A checked `+` (`.add`) panics on the element where the plain loop
+/// would. Each turn bounds its elements' size by `m`, so every sum of
+/// `s` and its first elements lies within `s ± c·m`; a turn whose bound
+/// could leave the type adds its elements one at a time, as written.
+pub inline fn fold(comptime how: enum { add_wrap, add, bit_xor, bit_or, bit_and }, s: anytype, xs: []const @TypeOf(s), turns: ?*u32) @TypeOf(s) {
+    const T = @TypeOf(s);
+    const lanes = 16 / @sizeOf(T);
+    const V = @Vector(lanes, T);
+    const U = @Vector(lanes, @Int(.unsigned, @bitSizeOf(T)));
+    // Sixteen vectors a turn, into four sums, written without `inline
+    // for`, so no fold spends its caller's compile-time branches.
+    const c = 16 * lanes;
+    const op = struct {
+        inline fn op(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+            return switch (how) {
+                .add_wrap, .add => a +% b,
+                .bit_xor => a ^ b,
+                .bit_or => a | b,
+                .bit_and => a & b,
+            };
+        }
+    }.op;
+    const reduce: std.lang.ReduceOp = switch (how) {
+        .add_wrap, .add => .Add,
+        .bit_xor => .Xor,
+        .bit_or => .Or,
+        .bit_and => .And,
+    };
+    const unit: V = @splat(if (how == .bit_and) ~@as(T, 0) else 0);
+    var a0 = unit;
+    var a1 = unit;
+    var a2 = unit;
+    var a3 = unit;
+    var r = s;
+    var i: usize = 0;
+    while (i + c <= xs.len) : ({
+        i += c;
+        if (turns) |t| turn(t);
+    }) {
+        const p = xs[i..][0..c];
+        if (how == .add) {
+            a0 = unit;
+            a1 = unit;
+            a2 = unit;
+            a3 = unit;
+        }
+        var j: usize = 0;
+        while (j < c) : (j += 4 * lanes) {
+            a0 = op(a0, @as(V, p[j..][0..lanes].*));
+            a1 = op(a1, @as(V, p[j + lanes ..][0..lanes].*));
+            a2 = op(a2, @as(V, p[j + 2 * lanes ..][0..lanes].*));
+            a3 = op(a3, @as(V, p[j + 3 * lanes ..][0..lanes].*));
+        }
+        if (how != .add) continue;
+        // |x| <= (x ^ (x >> 63)) + 1 for a signed x; OR-ed, a bound of all.
+        var m0: U = @splat(0);
+        var m1: U = @splat(0);
+        j = 0;
+        while (j < c) : (j += 2 * lanes) {
+            m0 |= foldSize(V, U, p[j..][0..lanes].*);
+            m1 |= foldSize(V, U, p[j + lanes ..][0..lanes].*);
+        }
+        const m = @as(i128, @reduce(.Or, m0 | m1)) + 1;
+        if (r + c * m > std.math.maxInt(T) or r - c * m < std.math.minInt(T)) {
+            for (p) |x| r += x;
+            continue;
+        }
+        r +%= @reduce(.Add, (a0 +% a1) +% (a2 +% a3));
+    }
+    if (how != .add) r = op(r, @reduce(reduce, op(op(a0, a1), op(a2, a3))));
+    for (xs[i..]) |x| r = if (how == .add) r + x else op(r, x);
+    return r;
+}
+
+/// A bound on the size of each lane of `x` (`fold`): `x` itself when
+/// unsigned, and `x ^ (x >> 63)`, at least `|x| - 1`, when signed.
+inline fn foldSize(comptime V: type, comptime U: type, x: V) U {
+    const T = @typeInfo(V).vector.child;
+    if (@typeInfo(T).int.signedness == .unsigned) return x;
+    return @bitCast(x ^ (x >> @splat(@bitSizeOf(T) - 1)));
+}
+
 /// The entry of a function of a program that makes tasks that every
 /// cycle of calls passes through one of (`inlining.Pass.cutCycles`): on
 /// the scheduler, when work waits that no idle worker will take
@@ -10164,6 +10253,46 @@ test "lookup: at compile time" {
     const idx: @Vector(4, u8) = .{ 0, 15, 16, 0x80 };
     const r = comptime lookup(t, idx);
     try testing.expectEqual([4]u8{ '0', 'f', 0, 0 }, @as([4]u8, r));
+}
+
+test "fold: as the plain loop, for every operator, type, and length to 600" {
+    var prng = std.Random.DefaultPrng.init(0xf01d);
+    const r = prng.random();
+    inline for (.{ u8, i8, u16, i16, u32, i32, u64, i64 }) |T| {
+        var xs: [600]T = undefined;
+        for (0..600) |n| for (0..4) |shape| {
+            for (xs[0..n], 0..) |*x, i| x.* = switch (shape) {
+                0 => @intCast(i % 100),
+                1 => r.int(T),
+                // Elements near the type's size, so turns add one at a time.
+                2 => if (i % 2 == 0) std.math.maxInt(T) else std.math.minInt(T) +% 1,
+                else => r.intRangeAtMost(T, std.math.minInt(T) / 64, std.math.maxInt(T) / 64),
+            };
+            const s0: T = if (shape == 3) std.math.maxInt(T) / 2 else r.int(T);
+            const ys = xs[0..n];
+            var wrap = s0;
+            var bxor = s0;
+            var bor = s0;
+            var band = s0;
+            var wide: i128 = s0;
+            var fits = true;
+            for (ys) |x| {
+                wrap +%= x;
+                bxor ^= x;
+                bor |= x;
+                band &= x;
+                wide += x;
+                fits = fits and wide >= std.math.minInt(T) and wide <= std.math.maxInt(T);
+            }
+            var turns: u32 = tick_turns;
+            try testing.expectEqual(wrap, fold(.add_wrap, s0, ys, &turns));
+            try testing.expectEqual(bxor, fold(.bit_xor, s0, ys, null));
+            try testing.expectEqual(bor, fold(.bit_or, s0, ys, null));
+            try testing.expectEqual(band, fold(.bit_and, s0, ys, null));
+            // Where the plain loop would not panic, the checked fold gives its sum.
+            if (fits) try testing.expectEqual(wrap, fold(.add, s0, ys, null));
+        };
+    }
 }
 
 test "vecAddSat, vecSubSat: the wrapped forms agree with Zig's" {

@@ -961,6 +961,64 @@ fn decideForConsumes(ctx: *const SemContext, loop: Sexp) bool {
     return ctx.types.get(t) == .array and owns(ctx, ctx.types.get(t).array.elem) and (mode == .move or !hasStorage(ctx, source));
 }
 
+/// How a `for` loop combines integers into a local, when it is a fold:
+/// `for x in xs` over a List or a slice of integers of at most 64 bits,
+/// whose body is only `s OP= x`, `s` a local of the element's type. Emit
+/// lowers it to `rig.fold`, which combines the elements by vectors, as
+/// LLVM's loop vectorizer would and Zig 0.17, with it off, does not
+/// (INTERNALS, "Known Zig 0.17 issues"). The result is the plain loop's,
+/// and a checked `+` panics on the element where the plain loop would.
+pub const Fold = enum(u8) { add_wrap, add, bit_xor, bit_or, bit_and };
+
+/// The `Fold` of `for` loop `loop`, or null when it is not one, decided
+/// once.
+pub fn fold(ctx: *const SemContext, loop: Sexp) ?Fold {
+    return decide(ctx, loop, .fold);
+}
+
+fn decideFold(ctx: *const SemContext, loop: Sexp) ?Fold {
+    const mode = ir.For.mode(loop).tag;
+    if (mode != .iter and mode != .read) return null;
+    const source = ir.For.source(loop);
+    if (source.isKind(.@"..") or forConsumes(ctx, loop)) return null;
+    if (ctx.headerOf(loop)) |how| if (how != .viewed) return null;
+    if (ctx.symbolOf(ir.For.index(loop))) |i| if (ctx.isUsed(i)) return null;
+    // A source a shared handle holds is walked where the handle reaches it.
+    const t = typeOf(ctx, source) orelse return null;
+    const walked = sema.loopWalks(ctx, t);
+    if (walked != sema.unwrapViews(ctx, t)) return null;
+    const elem = switch (ctx.types.get(walked)) {
+        .slice => |sl| sl.elem,
+        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id) pn.args[0] else return null,
+        else => return null,
+    };
+    switch (ctx.types.get(elem)) {
+        .int => |i| if (i.width() > 64) return null,
+        else => return null,
+    }
+    const x = ctx.symbolOf(ir.For.@"var"(loop)) orelse return null;
+    if (ctx.symbols.items[x].ty != elem) return null;
+    const body = ir.For.body(loop);
+    if (!body.isKind(.block) or ir.Block.stmts(body).len != 1) return null;
+    const set = ir.Block.stmts(body)[0];
+    if (!set.isKind(.set)) return null;
+    const how: Fold = switch (rig.bindingKindOf(ir.Set.op(set)).operator() orelse return null) {
+        .@"+%" => .add_wrap,
+        .@"+" => .add,
+        .@"^" => .bit_xor,
+        .@"|" => .bit_or,
+        .@"&" => .bit_and,
+        else => return null,
+    };
+    const target = ir.Set.target(set);
+    const value = ir.Set.value(set);
+    if (target != .src or value != .src or ctx.symbolOf(value) != x) return null;
+    const s = ctx.symbolOf(target) orelse return null;
+    const sum = ctx.symbols.items[s];
+    if (s == x or sum.kind != .local or sum.access != null or sum.ty != elem) return null;
+    return how;
+}
+
 /// Whether the binding of a read `for` or of an `if … as` is the bytes
 /// of a String it reaches (`loopBindsStringBytes`,
 /// `optionalBindsStringBytes`), decided once.
@@ -1450,6 +1508,7 @@ pub fn Answer(comptime q: sema.Question) type {
         .subject_hold => ?StorageBy,
         .set_order => SetOrder,
         .step_point => StepPoint,
+        .fold => ?Fold,
         .drop_kind => ?sema.ResourceKind,
         .through_write => ?ThroughWrite,
         .compound_call => ?CompoundCall,
@@ -1501,6 +1560,7 @@ fn decider(comptime q: sema.Question) fn (*const SemContext, Sexp, Sexp) Answer(
         .catch_all => Node.of(decideCatchesAll),
         .match_selects => Node.of(decideMatchSelects),
         .binds_string_bytes => Node.of(decideBindsStringBytes),
+        .fold => Node.of(decideFold),
         .hoists_results => Node.of(decideHoistsResults),
         .through_write => Node.of(decideThroughWrite),
         .compound_call => Node.of(decideCompoundCall),
@@ -2044,6 +2104,7 @@ const Planner = struct {
     fn forLoop(p: *Planner, loop: Sexp) !void {
         const ctx = p.ctx;
         const source = ir.For.source(loop);
+        _ = fold(ctx, loop);
         if (bindsStringBytes(ctx, loop) and p.isUsed(ir.For.@"var"(loop))) try p.record(loop, .element, .pointer, .iteration);
         if (source.isKind(.@"..")) {
             try p.record(loop, .range_start, .owned, .construct);

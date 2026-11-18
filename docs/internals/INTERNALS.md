@@ -1844,7 +1844,8 @@ lowers to, which assigns its result and finds its place once
 shifts, saturating and checked lanes, a mask's operators); for each array literal,
 whether it evaluates its elements first (`hoists_args`), and how it
 holds each (`argument_hold`, `pure_arg`); and for each `while`,
-where its step runs (`step_point`, [Loops](#loops)); and for each box and
+where its step runs (`step_point`, [Loops](#loops)); for each `for`,
+whether it folds integers into a local (`fold`, [Loops](#loops)); and for each box and
 binding, whether the fill `[n of x]` it takes is built where its value
 goes (`fills_in_place`: a box's `^[n of x]` in its allocation,
 `Box(T).fill`, and a binding that declares or reassigns a local array,
@@ -4178,6 +4179,32 @@ loop's continue expression, and its source is evaluated before the loop
 is entered, so a jump in it targets the loop around this one, as the
 checker walks it before `walkLoop`.
 
+**A fold.** A `for` over a List or a slice of integers of at most 64
+bits whose body is only `s OP= x`, where `x` is the element, `s` a
+local of its type, and `OP` the checked or the wrapping `+`, `^`, `|`,
+or `&`, is a fold: the decision `fold` (`storage.fold`, read by emit as
+`Facts.fold`), recorded by the storage plan. Emit writes it as one call,
+`s = rig.fold(.add, s, xs, &turns)`, a vector loop: Zig 0.17 runs LLVM
+with its loop vectorizer off ([Known Zig 0.17 issues](#known-zig-017-issues-rig-works-around)),
+so the plain loop adds one element at a time. The fold combines sixteen
+vectors of sixteen bytes a turn into four sums and counts each turn as
+one of the loop's (`rig.turn`); it unrolls nothing with `inline for`, so
+a function holding many folds stays within Zig's compile-time branch
+quota. A wrapping `+` and the bit operators give the plain
+loop's result in any order. A checked `+` must panic on the element
+where the plain loop does, though lanes summed apart cannot see a sum
+of the first elements leave the type: each turn ORs the elements'
+magnitudes (`x ^ (x >> 63)` for a signed element, at least `|x| - 1`;
+an unsigned one itself) into a bound
+`m`, so every sum of `s` and the turn's first elements lies within
+`s ± c·m` for the turn's `c` elements; a turn whose bound stays inside
+the type adds its vectors' sum, and one whose bound could leave it adds
+its elements one at a time, as written, panicking where the plain loop
+would. Only a turn near the type's ends, or of elements near its size,
+takes the one-at-a-time path. The ownership checker walks the loop as
+written: a fold reads its source as the loop does, and its body moves
+and lends nothing.
+
 **Jump targets.** Which construct each `break` and `continue` names
 (the `while` or `for`, or a labeled `match` or `raw` block) is one rule,
 `sema.eachJumpTo`, which lists the jumps that name a construct. It is
@@ -6326,7 +6353,26 @@ unaffected. Rig writes its hot loops with `Simd`; where a loop needs an
 operation `Simd` lacks, a std shim writes it with `@Vector`, as
 std/terminal.zig's `widen` does (3x the plain loop). Each such shim is
 for this release only: on Zig 0.18, check that the plain loop vectorizes,
-and move it back into Rig.
+and move it back into Rig. A `for` that only folds integers into a local
+(`s += x`, `s +%= x`, `s ^= x`, `s |= x`, `s &= x`) is lowered to
+`rig.fold`, a vector loop ([Loops](#loops), "A fold"). On an Apple M5 a
+checked Int sum runs 1.9 times as fast, from L1 or from memory, an I32
+one 3.8 times, and a wrapping Int sum 1.7 times from L1 and 2% faster
+from memory, as fast as LLVM's loop vectorizer makes it. It is for this
+release too; on Zig 0.18, check whether the plain loops vectorize, the
+checked sum included (its overflow check leaves the loop early), and
+remove the fold if they do, in one step: the question `fold`,
+`storage.decideFold`, `Emitter.emitFold`, and `runtime.fold`.
+
+Re-enabling the vectorizer for Rig's programs is not safe on 0.17: Zig
+0.17's LLVM 22.1.8 lacks the LAA fix
+([llvm/llvm-project#187023](https://github.com/llvm/llvm-project/pull/187023),
+on LLVM's main since 2026-04-01, not on the 22.x branch), and the bug
+can miscompile a vectorized loop that loads and stores one address the
+loop does not vary, reached through a phi of the same pointer, a shape
+inlined Zig makes of an ordinary loop that writes a local through a
+call. Zig 0.17 offers no switch for it either: `zig build-exe` takes no
+`-mllvm`, and the pipeline option is set in Zig's own C++.
 
 **Checking the next Zig.** Rig stays on Zig 0.17.0 until 0.18.0 is
 released; `tools/zig-next.py` shows ahead of time what 0.18 breaks. It

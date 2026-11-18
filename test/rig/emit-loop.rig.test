@@ -806,3 +806,225 @@ test "write-iterate a List of views", "1 3\n2 5"
   !vv.push(?b)
   for x in !vv
     print(x.len, x[0])
+
+test "loop fold over integers", '''
+  true true -140217 -62693 0 -140210
+  0 0
+  253 255 0 117
+  616000
+'''
+  # A `for` whose body is only `s OP= x` over a List or a slice of
+  # integers is a fold, combined by vectors (`rig.fold`), and gives what
+  # the plain loop gives: over a List and slices, empty, shorter than one
+  # turn, with a remainder, for the checked and the wrapping `+` and the
+  # bit operators, on Int, I32, and U8. Elements too large for a turn's
+  # bound are added one at a time, exactly.
+  fun sum(xs: ?[]Int) -> Int
+    s = 0
+    for x in xs
+      s += x
+    s
+
+  fun ref(xs: ?[]Int) -> Int
+    s = 0
+    i = 0
+    while i < xs.len
+      s += xs[i]
+      i += 1
+    s
+
+  fun bits(xs: ?[]U8) -> (U8, U8, U8, U8)
+    a: U8 = 0
+    o: U8 = 0
+    n: U8 = 255
+    w: U8 = 0
+    for x in xs
+      a ^= x
+    for x in xs
+      o |= x
+    for x in xs
+      n &= x
+    for x in xs
+      w +%= x
+    return a, o, n, w
+
+  fun small(xs: ?[]I32) -> I32
+    s: I32 = 0
+    for x in xs
+      s += x
+    s
+
+  ys: List[Int] = List()
+  for i in 0..1003
+    !ys.push(i *% 2654435761 % 100000 - 50000)
+  t = 7
+  for y in ys
+    t +%= y
+  a = ?ys[..]
+  b = ?ys[3..20]
+  c = ?ys[0..0]
+  print(sum(a) == ref(a), sum(b) == ref(b), sum(a), sum(b), sum(c), t)
+  big: List[Int] = List()
+  for i in 0..100
+    !big.push(9223372036854775807 if i % 2 == 0 else -9223372036854775807)
+  g = ?big[..]
+  print(sum(g), ref(g))
+  bs: List[U8] = List()
+  for i in 0..300
+    !bs.push(U8((i * 37) % 251))
+  d = ?bs[..]
+  p, o, n, w = bits(d)
+  print(p, o, n, w)
+  zs: List[I32] = List()
+  for i in 0..77
+    !zs.push(I32(i * 1000 - 30000))
+  z = ?zs[..]
+  print(small(z))
+
+bomb "loop fold checked overflow before a smaller sum", "integer overflow", prints: "3"
+  # A checked fold panics where the plain loop does: here a sum of the
+  # first elements leaves Int, though the whole sum would not.
+  fun sum(xs: ?[]Int) -> Int
+    s = 0
+    for x in xs
+      s += x
+    s
+
+  m: List[Int] = List()
+  for _ in 0..30
+    !m.push(1)
+  !m.push(9223372036854775800)
+  !m.push(-100)
+  for _ in 0..40
+    !m.push(1)
+  print(3)
+  h = ?m[..]
+  print(sum(h))
+
+bomb "loop fold checked overflow in the remainder", "integer overflow"
+  # Past the last whole turn, the elements are added one at a time.
+  m: List[Int] = List()
+  for _ in 0..33
+    !m.push(1)
+  !m.push(9223372036854775807)
+  s = 0
+  for x in m
+    s += x
+  print(s)
+
+bomb "loop fold checked overflow of a narrow sum", "integer overflow"
+  # A U8 sum leaves U8 within the first turn of 256 bytes.
+  bs: List[U8] = List()
+  for i in 0..300
+    !bs.push(U8(i % 200))
+  s: U8 = 0
+  for x in bs
+    s += x
+  print(s)
+
+test "loop fold many in one function", "175"
+  # Each fold is a call that unrolls nothing at compile time, so one
+  # function may hold many without reaching Zig's branch quota.
+  fun many(xs: ?[]U8) -> U8
+    s: U8 = 0
+    for x in xs
+      s ^= x
+    for x in xs
+      s |= x
+    for x in xs
+      s &= x
+    for x in xs
+      s +%= x
+    for x in xs
+      s ^= x
+    for x in xs
+      s |= x
+    for x in xs
+      s &= x
+    for x in xs
+      s +%= x
+    for x in xs
+      s ^= x
+    for x in xs
+      s |= x
+    for x in xs
+      s &= x
+    for x in xs
+      s +%= x
+    for x in xs
+      s ^= x
+    for x in xs
+      s |= x
+    for x in xs
+      s &= x
+    for x in xs
+      s +%= x
+    for x in xs
+      s ^= x
+    for x in xs
+      s |= x
+    for x in xs
+      s &= x
+    for x in xs
+      s +%= x
+    for x in xs
+      s ^= x
+    for x in xs
+      s |= x
+    for x in xs
+      s &= x
+    for x in xs
+      s +%= x
+    for x in xs
+      s ^= x
+    for x in xs
+      s |= x
+    for x in xs
+      s &= x
+    for x in xs
+      s +%= x
+    for x in xs
+      s ^= x
+    for x in xs
+      s |= x
+    for x in xs
+      s &= x
+    for x in xs
+      s +%= x
+    for x in xs
+      s ^= x
+    for x in xs
+      s |= x
+    for x in xs
+      s &= x
+    for x in xs
+      s +%= x
+    for x in xs
+      s ^= x
+    for x in xs
+      s |= x
+    for x in xs
+      s &= x
+    for x in xs
+      s +%= x
+    s
+
+  bs: List[U8] = List()
+  for i in 0..300
+    !bs.push(U8(i % 199))
+  d = ?bs[..]
+  print(many(d))
+
+code "loop fold is one call", "s = rig.fold(.add, s, xs, null);"
+  # The fold is the storage plan's decision (`storage.fold`); emit
+  # writes it.
+  fun sum(xs: ?[]Int) -> Int
+    s = 0
+    for x in xs
+      s += x
+    s
+
+  v: List[Int] = List()
+  !v.push(1)
+  w = ?v[..]
+  print(sum(w))
