@@ -2626,19 +2626,19 @@ fn runsLong(v: *Worker, now: u64, long: u64) bool {
     return v.long_run.load(.seq_cst) or now -% v.run_at.load(.monotonic) >= long;
 }
 
-/// Probe (lend): nest `v`'s poller in `watcher`'s for one report. Any
-/// worker may: `watcher` as it goes to sleep (`lendWatch`), or `v` for
+/// Probe (lend): nest `v`'s poller in `sleeper`'s for one report. Any
+/// worker may: `sleeper` as it goes to sleep (`lendWatch`), or `v` for
 /// a sleeper as it starts a long handler (`longAhead`).
-fn lendArm(watcher: *Worker, v: *Worker, i: usize) bool {
+fn lendArm(sleeper: *Worker, v: *Worker, i: usize) bool {
     const linux_ = std.os.linux;
     var ev: linux_.epoll_event = .{ .events = linux_.EPOLL.IN | linux_.EPOLL.ONESHOT, .data = .{ .ptr = @intFromPtr(&v.poller) | lend_tag } };
     const bit = @as(u64, 1) << @intCast(i);
-    const known = watcher.nested.load(.seq_cst) & bit != 0;
-    var rc: isize = @bitCast(linux_.epoll_ctl(watcher.poller.fd, if (known) linux_.EPOLL.CTL_MOD else linux_.EPOLL.CTL_ADD, v.poller.fd, &ev));
+    const known = sleeper.nested.load(.seq_cst) & bit != 0;
+    var rc: isize = @bitCast(linux_.epoll_ctl(sleeper.poller.fd, if (known) linux_.EPOLL.CTL_MOD else linux_.EPOLL.CTL_ADD, v.poller.fd, &ev));
     // Added meanwhile by another worker, for this one.
-    if (rc < 0 and !known) rc = @bitCast(linux_.epoll_ctl(watcher.poller.fd, linux_.EPOLL.CTL_MOD, v.poller.fd, &ev));
+    if (rc < 0 and !known) rc = @bitCast(linux_.epoll_ctl(sleeper.poller.fd, linux_.EPOLL.CTL_MOD, v.poller.fd, &ev));
     if (rc < 0) return false;
-    if (!known) _ = watcher.nested.fetchOr(bit, .seq_cst);
+    if (!known) _ = sleeper.nested.fetchOr(bit, .seq_cst);
     return true;
 }
 
