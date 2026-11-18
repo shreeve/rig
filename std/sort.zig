@@ -629,12 +629,12 @@ fn Ipn(comptime T: type) type {
 
         inline fn ipnPartition(v: [*]T, len: usize, p: usize, comptime le: bool) usize {
             @setRuntimeSafety(false);
-            std.mem.swap(T, &v[0], &v[p]);
-            const pivot = v[0];
+            const pivot = v[p];
+            v[p] = v[0];
+            v[0] = pivot;
             const n = lomuto(v + 1, len - 1, pivot, le);
-            const t = v[0];
             v[0] = v[n];
-            v[n] = t;
+            v[n] = pivot;
             return n;
         }
 
@@ -648,23 +648,26 @@ fn Ipn(comptime T: type) type {
             const tmp = base[0];
             var gap: [*]T = base;
             var nlt: usize = 0;
-            var i: usize = 1;
-            while (i + 1 < len) : (i += 2) {
+            var r: [*]T = base + 1;
+            const end: [*]T = base + len;
+            const end2: [*]T = base + (len - 1);
+            while (@intFromPtr(r) < @intFromPtr(end2)) {
                 inline for (0..2) |k| {
-                    const r = base[i + k];
-                    const is = below(r, pivot, le);
+                    const x = r[k];
+                    const is = below(x, pivot, le);
                     gap[0] = base[nlt];
-                    base[nlt] = r;
-                    gap = base + i + k;
+                    base[nlt] = x;
+                    gap = r + k;
                     nlt += @intFromBool(is);
                 }
+                r += 2;
             }
-            while (i < len) : (i += 1) {
-                const r = base[i];
-                const is = below(r, pivot, le);
+            while (r != end) : (r += 1) {
+                const x = r[0];
+                const is = below(x, pivot, le);
                 gap[0] = base[nlt];
-                base[nlt] = r;
-                gap = base + i;
+                base[nlt] = x;
+                gap = r;
                 nlt += @intFromBool(is);
             }
             const is = below(tmp, pivot, le);
