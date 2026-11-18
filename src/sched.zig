@@ -221,8 +221,113 @@ const Worker = struct {
     /// How long it sleeps before it gives back what its heap holds free
     /// (`trimIdle`).
     trim_wait: i96 = trim_first,
+    /// PROBE counters (`PK`).
+    pc: [13]u64 = @splat(0),
+    /// PROBE: when its ring was first seen holding work by `notify`, 0 if not.
+    ring_since: i96 = 0,
     thread: ?std.Thread align(std.atomic.cache_line) = null,
 };
+
+/// PROBE (mac-echo diagnosis, not for merge): knobs read from the
+/// environment as the workers start, and counters `RIG_SCHED_STATS=1`
+/// prints.
+const Probe = struct {
+    /// RIG_P_ONEPOLLER=1: every descriptor registers with worker 0's poller.
+    one_poller: bool = false,
+    /// RIG_P_SPREAD=N: `spread` wakes a worker only when the ring holds at
+    /// least N fibers (0: as main, any work waiting).
+    spread_min: u32 = 0,
+    /// RIG_P_MAXAWAKE=N: `notify` wakes no sleeper while N workers are
+    /// awake (0: no cap).
+    max_awake: u32 = 0,
+    /// RIG_P_SETTLE, RIG_P_BRIEF: `settle_wait` and `brief_wait` in µs
+    /// (-1: main's).
+    settle_us: i64 = -1,
+    brief_us: i64 = -1,
+    /// RIG_P_NOLOOKS=1: a worker going to sleep looks only at its own
+    /// poller, not the others' (`serviceAll`).
+    own_look: bool = false,
+    /// RIG_P_NOSTEALNEXT=1: a searching worker takes nothing from another's
+    /// "run next" slots (`stealNext`).
+    no_steal_next: bool = false,
+    /// RIG_P_QOS=N: every worker thread asks for QoS class N
+    /// (0x21 user-interactive, 0x19 user-initiated, 0x15 default, 0x11 utility).
+    qos: i64 = 0,
+    /// RIG_P_BACKLOG=K: `notify` wakes a sleeper only while the caller's
+    /// ring holds at least K fibers for each worker awake (0: as main).
+    backlog: u32 = 0,
+    /// RIG_P_CHAIN=K: the last searcher that found work wakes another only
+    /// while some ring still holds at least K fibers (-1: as main, any work).
+    chain_min: i64 = -1,
+    /// RIG_P_SPIN=us: a worker about to sleep first spins this long
+    /// looking for work in the rings (0: none); RIG_P_SPINP=1 spins only
+    /// on a performance core.
+    spin_us: i64 = 0,
+    spin_p_only: bool = false,
+    /// RIG_P_ECAP=N: a worker on an efficiency core is not woken by
+    /// `notify` while N workers are awake (approximated: the sleeper
+    /// popped last ran on an efficiency core).
+    e_cap: u32 = 0,
+    /// RIG_P_STEALNEXT_NS=N: `steal_next_after` in ns (-1: main's 3 µs).
+    steal_next_ns: i64 = -1,
+    /// RIG_P_SPAWNRING=1: a task made while some worker sleeps goes to the
+    /// tail of its maker's ring, where a woken worker steals it at once,
+    /// rather than to a run-next slot.
+    spawn_ring: bool = false,
+    /// RIG_P_HELPAFTER=ns: work in the caller's ring wakes a sleeper only
+    /// once that ring has held work this long (0: as main, at once).
+    help_after: i64 = 0,
+    /// RIG_P_SPINSEARCH=1: a worker spinning before it sleeps counts as
+    /// searching (so `notify` wakes no sleeper meanwhile, as Go's
+    /// spinning M), and looks for work as `workPending` does (slots too).
+    spin_search: bool = false,
+    /// CPUs below this number are efficiency cores (the M5 numbers them first).
+    e_cpus: u32 = 0,
+    fn env(name: [:0]const u8) ?i64 {
+        const pr = rt.process.* orelse return null;
+        const v = pr.environ.getPosix(name) orelse return null;
+        return std.fmt.parseInt(i64, v, 10) catch null;
+    }
+    fn read(c: *Probe) void {
+        if (env("RIG_P_ONEPOLLER")) |v| c.one_poller = v != 0;
+        if (env("RIG_P_SPREAD")) |v| c.spread_min = @intCast(v);
+        if (env("RIG_P_MAXAWAKE")) |v| c.max_awake = @intCast(v);
+        if (env("RIG_P_SETTLE")) |v| c.settle_us = v;
+        if (env("RIG_P_BRIEF")) |v| c.brief_us = v;
+        if (env("RIG_P_NOLOOKS")) |v| c.own_look = v != 0;
+        if (env("RIG_P_NOSTEALNEXT")) |v| c.no_steal_next = v != 0;
+        if (env("RIG_P_QOS")) |v| c.qos = v;
+        if (env("RIG_P_BACKLOG")) |v| c.backlog = @intCast(v);
+        if (env("RIG_P_CHAIN")) |v| c.chain_min = v;
+        if (env("RIG_P_SPIN")) |v| c.spin_us = v;
+        if (env("RIG_P_SPINP")) |v| c.spin_p_only = v != 0;
+        if (env("RIG_P_ECAP")) |v| c.e_cap = @intCast(v);
+        if (env("RIG_P_STEALNEXT_NS")) |v| c.steal_next_ns = v;
+        if (env("RIG_P_SPAWNRING")) |v| c.spawn_ring = v != 0;
+        if (env("RIG_P_HELPAFTER")) |v| c.help_after = v;
+        if (env("RIG_P_SPINSEARCH")) |v| c.spin_search = v != 0;
+        var ecpus: c_int = 0;
+        var sz: usize = @sizeOf(c_int);
+        if (builtin.os.tag.isDarwin()) {
+            if (std.c.sysctlbyname("hw.perflevel1.logicalcpu", &ecpus, &sz, null, 0) == 0) c.e_cpus = @intCast(ecpus);
+        }
+    }
+};
+var probe: Probe = .{};
+extern "c" fn pthread_set_qos_class_self_np(qos: c_uint, rel: c_int) c_int;
+extern "c" fn pthread_cpu_number_np(cpu: *usize) c_int;
+/// PROBE: whether this thread runs on a performance core now.
+fn onPCore() bool {
+    if (!builtin.os.tag.isDarwin()) return true;
+    var cpu: usize = 0;
+    if (pthread_cpu_number_np(&cpu) != 0) return true;
+    return cpu >= probe.e_cpus;
+}
+const PK = enum(u8) { notify, spread, kick_made, kick_notify, kick_watch, kick_timer, kick_home, waits, waits_empty, waits_settle, service_all, capped };
+// pc[10] is reused as spins that found work (service_all is unused here).
+inline fn pcount(k: PK) void {
+    if (me()) |w| w.pc[@intFromEnum(k)] += 1;
+}
 
 /// How many of `all_workers` run tasks; set by `runMain`, and raised by
 /// `task.workers` (`growWorkers`).
@@ -446,7 +551,10 @@ fn wakeLastIn(f: *Fiber) void {
 /// it sleeps in its poller (`sleep`).
 fn wakeHome(f: *Fiber, home: *Worker) void {
     home.pinned.push(f);
-    if (home != me() and home.idle.load(.seq_cst) != 0) home.poller.kick();
+    if (home != me() and home.idle.load(.seq_cst) != 0) {
+        pcount(.kick_home);
+        home.poller.kick();
+    }
 }
 
 /// Pin the running fiber to its worker, and give the worker to pin a
@@ -2180,7 +2288,10 @@ fn kickForTimer(due: i64) void {
         if (until <= due) return;
         if (late == null) late = v;
     }
-    if (late) |v| v.poller.kick();
+    if (late) |v| {
+        pcount(.kick_timer);
+        v.poller.kick();
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -2271,6 +2382,7 @@ const Poller = struct {
         if (builtin.is_test and test_waking == .counted) test_waking = .kicked;
         // Not a lock, uncounted: nothing waits for the flag to clear.
         if (p.kicked.swap(true, .seq_cst)) return;
+        pcount(.kick_made);
         if (darwin) {
             const ev: std.c.kevent64_s = .{ .ident = 0, .filter = std.c.EVFILT.USER, .flags = 0, .fflags = std.c.NOTE.TRIGGER, .data = 0, .udata = 0, .ext = .{ 0, 0 } };
             var none: [1]std.c.kevent64_s = undefined;
@@ -2562,7 +2674,10 @@ fn passWatch(from: *Worker) void {
     var next_up = sleepers.top;
     if (next_up == from) next_up = from.next_sleeper;
     sleepers.lock.unlock();
-    if (next_up) |v| v.poller.kick();
+    if (next_up) |v| {
+        pcount(.kick_watch);
+        v.poller.kick();
+    }
 }
 
 /// The poller that watches stdout for room to write, or none: read and
@@ -2678,7 +2793,7 @@ noinline fn registerApart(fd: i32) ?*Registration {
 
 fn registerIn(fd: i32) ?*Registration {
     if (!started.*) startWorkers();
-    const w = me() orelse &all_workers.*[0];
+    const w = if (probe.one_poller) &all_workers.*[0] else me() orelse &all_workers.*[0];
     const r = std.heap.smp_allocator.create(Registration) catch rt.oom();
     r.* = .{ .fd = fd, .poller = &w.poller };
     if (!w.poller.add(fd, r)) {
@@ -2925,8 +3040,10 @@ fn serviceAll() void {
     const opened = beginBatch(by);
     defer endBatch(by, opened);
     const now = nowNs();
+    pcount(.service_all);
     for (workersNow()) |*v| {
         _ = v.timers.fire(now);
+        if (probe.own_look and v != by) continue;
         if (v.poller.count.load(.monotonic) != 0) _ = v.poller.poll(0);
     }
 }
@@ -3787,6 +3904,10 @@ fn printStats() void {
         else
             std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw })) catch continue;
         _ = std.posix.system.write(2, line.ptr, line.len);
+        var pb: [440]u8 = undefined;
+        const c = &w.pc;
+        const pl = std.fmt.bufPrint(&pb, "rig: probe {d}: notify {d}, spread {d}, kick_made {d}, kick_notify {d}, kick_watch {d}, kick_timer {d}, kick_home {d}, waits {d}, waits_empty {d}, waits_settle {d}, service_all {d}, capped {d}, spun {d}\n", .{ i, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], c[12] }) catch continue;
+        _ = std.posix.system.write(2, pl.ptr, pl.len);
     }
 }
 
@@ -3836,6 +3957,7 @@ fn initWorker(i: usize) void {
 /// (docs/history/records/2026-11/concurrency-startup).
 fn startWorkers() void {
     started.* = true;
+    probe.read();
     const n = if (deterministic.*) 1 else @min(workerCount(), all_workers.*.len);
     const ws = all_workers.*[0..n];
     for (1..n) |i| initWorker(i);
@@ -3988,6 +4110,7 @@ fn workerMain(w: *Worker, n: usize) void {
     const alt = rt.AltStack.attachOrStop();
     defer alt.detach();
     me_slot().* = w;
+    if (builtin.os.tag.isDarwin() and probe.qos != 0) _ = pthread_set_qos_class_self_np(@intCast(probe.qos), 0);
     if (preempt) preOf(w).tid = rt.threadId();
     defer leavePreempt(w);
     if (n > 0) startRest(n);
@@ -4008,12 +4131,38 @@ fn loop(w: *Worker) void {
             continue;
         }
         const f = next(w) orelse {
+            w.ring_since = 0;
             if (w.searching) {
                 w.searching = false;
                 _ = searching.fetchSub(1, .seq_cst);
             }
             if (spare.count.load(.monotonic) > spareKept()) trimSpare();
             if (dense_spare.count.load(.monotonic) > spareKept()) trimDense();
+            if (probe.spin_us > 0 and (!probe.spin_p_only or onPCore())) {
+                const until = nowNs() + @as(i96, probe.spin_us) * std.time.ns_per_us;
+                var found = false;
+                if (probe.spin_search and 2 * searching.load(.acquire) < workersNow().len) {
+                    _ = searching.fetchAdd(1, .seq_cst);
+                    w.searching = true;
+                }
+                while (nowNs() < until) {
+                    if (w.pinned.count.load(.monotonic) != 0 or nextHeld(w, .monotonic) or
+                        (if (probe.spin_search) workPending(w) else hasWork()))
+                    {
+                        found = true;
+                        break;
+                    }
+                    for (0..32) |_| std.atomic.spinLoopHint();
+                }
+                if (found) {
+                    w.pc[12] += 1;
+                    continue;
+                }
+                if (w.searching) {
+                    w.searching = false;
+                    _ = searching.fetchSub(1, .seq_cst);
+                }
+            }
             sleep(w);
             continue;
         };
@@ -4021,7 +4170,7 @@ fn loop(w: *Worker) void {
         // searching and more work waits, wake another to look for it.
         if (w.searching) {
             w.searching = false;
-            if (searching.fetchSub(1, .seq_cst) == 1 and workPending(w)) notify();
+            if (searching.fetchSub(1, .seq_cst) == 1 and workPending(w) and chainWanted(w)) notify();
         }
         if (w.watch_owed) payWatch(w);
         runFiber(w, f);
@@ -4060,6 +4209,8 @@ fn runFiber(w: *Worker, f: *Fiber) void {
 inline fn spread(w: *Worker) void {
     if (!nextHeld(w, .monotonic) and w.ring.isEmpty()) return;
     if (builtin.is_test) _ = test_spreads.fetchAdd(1, .monotonic);
+    if (probe.spread_min != 0 and w.ring.len() < probe.spread_min) return;
+    pcount(.spread);
     notify();
 }
 
@@ -4125,6 +4276,7 @@ fn next(w: *Worker) ?*Fiber {
     // other waiting.
     if (w.tick & 1 == 0) if (w.pinned.pop()) |f| return f;
     if (w.ring.pop()) |f| return f;
+    w.ring_since = 0;
     if (w.pinned.pop()) |f| return f;
     if (global.pop()) |f| return f;
     return search(w);
@@ -4158,6 +4310,7 @@ fn search(w: *Worker) ?*Fiber {
     if (global.pop()) |f| return f;
     // No ring had any: take a fiber another worker has kept in its "run
     // next" slot a while.
+    if (probe.no_steal_next) return null;
     for (0..ws.len) |k| {
         const v = &ws[(start + k) % ws.len];
         if (v == w) continue;
@@ -4182,7 +4335,7 @@ fn stealNext(v: *Worker) ?*Fiber {
     const slot = oldestNext(v) orelse return null;
     const f = slot.load(.seq_cst) orelse return null;
     // Wait without reading the slot, whose line its owner writes.
-    const until = nowNs() + steal_next_after;
+    const until = nowNs() + (if (probe.steal_next_ns >= 0) @as(i96, probe.steal_next_ns) else steal_next_after);
     while (nowNs() < until) std.atomic.spinLoopHint();
     if (slot.cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) return null;
     return unlessPinned(f);
@@ -4239,6 +4392,22 @@ fn notify() void {
     if (deterministic.*) return;
     if (searching.load(.seq_cst) != 0) return;
     if (sleepers.count.load(.seq_cst) == 0) return;
+    pcount(.notify);
+    if (probe.max_awake != 0 and workersNow().len - sleepers.count.load(.seq_cst) >= probe.max_awake) return pcount(.capped);
+    if (probe.help_after != 0) if (me()) |mw| {
+        if (mw.ring.isEmpty()) {
+            mw.ring_since = 0;
+        } else {
+            const now = nowNs();
+            if (mw.ring_since == 0) mw.ring_since = now;
+            if (now - mw.ring_since < probe.help_after) return pcount(.capped);
+        }
+    };
+    if (probe.backlog != 0) {
+        const awake_n: u32 = @intCast(workersNow().len - sleepers.count.load(.seq_cst));
+        const q: u32 = if (me()) |me_w| me_w.ring.len() + @as(u32, if (nextHeld(me_w, .monotonic)) 1 else 0) else probe.backlog * awake_n;
+        if (q < probe.backlog * awake_n) return pcount(.capped);
+    }
     if (sleepers.pop()) |w| {
         _ = searching.fetchAdd(1, .seq_cst);
         w.searching = true;
@@ -4247,6 +4416,7 @@ fn notify() void {
 }
 
 fn wakeWorker(w: *Worker) void {
+    pcount(.kick_notify);
     w.woken.store(1, .seq_cst);
     w.poller.kick();
 }
@@ -4296,7 +4466,9 @@ fn sleep(w: *Worker) void {
     defer endBatch(w, opened);
     // Its first wait ends soon after the work it ran, when its waits
     // have (`settle_wait`).
-    const holds = settle_wait != 0 and w.poller.count.load(.monotonic) != 0;
+    const p_settle: i96 = if (probe.settle_us >= 0) @as(i96, probe.settle_us) * std.time.ns_per_us else settle_wait;
+    const p_brief: i96 = if (probe.brief_us >= 0) @as(i96, probe.brief_us) * std.time.ns_per_us else brief_wait;
+    const holds = p_settle != 0 and w.poller.count.load(.monotonic) != 0;
     var settle = holds and w.woke_soon;
     while (w.woken.load(.seq_cst) == 0) {
         serviceAll();
@@ -4305,15 +4477,20 @@ fn sleep(w: *Worker) void {
             const due = earliestDue();
             w.sleep_due.store(due, .seq_cst);
             var timeout: ?i96 = if (due == no_due) null else @max(@as(i96, due) - nowNs(), 0);
-            if (settle) timeout = if (timeout) |t| @min(t, settle_wait) else settle_wait;
+            if (settle) {
+                pcount(.waits_settle);
+                timeout = if (timeout) |t| @min(t, p_settle) else p_settle;
+            }
             settle = false;
+            pcount(.waits);
             if (trim_due) {
                 const left = @max(since + w.trim_wait - nowReal(), 0);
                 timeout = if (timeout) |t| @min(t, left) else left;
             }
             const began = if (holds) nowNs() else 0;
             sleepIn(w, timeout);
-            if (holds) w.woke_soon = hasOwnWork(w) and nowNs() - began < brief_wait;
+            if (holds) w.woke_soon = hasOwnWork(w) and nowNs() - began < p_brief;
+            if (!hasOwnWork(w)) pcount(.waits_empty);
             w.sleep_due.store(awake, .seq_cst);
             if (trim_due and w.woken.load(.seq_cst) == 0 and nowReal() - since >= w.trim_wait) {
                 trim_due = false;
@@ -4473,6 +4650,16 @@ fn workPending(w: *Worker) bool {
     for (workersNow()) |*v| {
         if (v != w and (!v.ring.isEmpty() or nextHeld(v, .seq_cst))) return true;
     }
+    return false;
+}
+
+/// PROBE: RIG_P_CHAIN: whether some ring other than `w`'s still holds
+/// `chain_min` fibers, or `w`'s own ring does.
+fn chainWanted(w: *Worker) bool {
+    if (probe.chain_min < 0) return true;
+    const k: u32 = @intCast(probe.chain_min);
+    for (workersNow()) |*v| if (v.ring.len() >= k) return true;
+    _ = w;
     return false;
 }
 
@@ -4763,6 +4950,11 @@ const Ring = struct {
 
     fn isEmpty(r: *Ring) bool {
         return r.head.load(.seq_cst) == r.tail.load(.seq_cst);
+    }
+
+    /// PROBE: how many fibers it holds.
+    fn len(r: *Ring) u32 {
+        return r.tail.load(.seq_cst) -% r.head.load(.seq_cst);
     }
 
     /// Push `f`, and give whether the ring held others; when it is full,
@@ -5690,6 +5882,13 @@ fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: an
     if (@hasField(Extra, "fiber")) full.extra.fiber = &full.job.header.fiber;
     if (@hasDecl(Extra, "made")) full.extra.made();
     if (local) full.job.header.fiber.home = pinHereIn();
+    if (probe.spawn_ring and !local and !deterministic.* and sleepers.count.load(.monotonic) != 0) {
+        if (me()) |mw| {
+            _ = mw.ring.push(&full.job.header.fiber);
+            notifyNew();
+            return .{ .job = &full.job, .extra = &full.extra };
+        }
+    }
     wakeIn(&full.job.header.fiber);
     return .{ .job = &full.job, .extra = &full.extra };
 }
