@@ -233,6 +233,9 @@ const Worker = struct {
     /// how many times it had a sleeper watch its poller for one.
     long_run: std.atomic.Value(bool) = .init(false),
     lend_ahead: u64 = 0,
+    /// Probe (lend): the watches sleepers set on its poller in the
+    /// announced long run it is in (`RIG_LEND_REARM`).
+    rearms: std.atomic.Value(u32) = .init(0),
     thread: ?std.Thread align(std.atomic.cache_line) = null,
 };
 
@@ -2602,9 +2605,17 @@ fn lendOpen() void {
     const ticks = stamp() -% t0;
     const ns: u64 = @intCast(nowReal() - n0);
     lend_ticks_var.store(us *| @max(ticks * 1000 / ns, 1), .seq_cst);
-    if (rt.process.*) |p| if (p.environ.getPosix("RIG_LEND_AHEAD")) |v| {
-        if (std.mem.eql(u8, v, "0")) lend_ahead_var.store(false, .seq_cst);
-    };
+    if (rt.process.*) |p| {
+        if (p.environ.getPosix("RIG_LEND_AHEAD")) |v| {
+            if (std.mem.eql(u8, v, "0")) lend_ahead_var.store(false, .seq_cst);
+        }
+        if (p.environ.getPosix("RIG_SKIP_OWN_LOOK")) |v| {
+            if (std.mem.eql(u8, v, "1")) skip_own_var.store(true, .seq_cst);
+        }
+        if (p.environ.getPosix("RIG_LEND_REARM")) |v| {
+            lend_rearm_var.store(std.fmt.parseInt(u32, v, 10) catch std.math.maxInt(u32), .seq_cst);
+        }
+    }
     if (statsWanted()) {
         const act: std.posix.Sigaction = .{ .handler = .{ .handler = onStats }, .mask = std.posix.sigemptyset(), .flags = std.posix.SA.ONSTACK | std.posix.SA.RESTART };
         std.posix.sigaction(.USR1, &act, null);
@@ -2647,6 +2658,12 @@ fn lendArm(sleeper: *Worker, v: *Worker, i: usize) bool {
 /// long (`longAhead`, `longOver`).
 var long_table_var: [256]std.atomic.Value(u8) = @splat(.init(0));
 var lend_ahead_var: std.atomic.Value(bool) = .init(true);
+/// Probe: `RIG_SKIP_OWN_LOOK=1` (`serviceAllBut`); and how many times
+/// at most a sleeper watches again the poller of a worker in one
+/// announced long run, after the watch set for it ahead
+/// (`RIG_LEND_REARM`, no limit).
+var skip_own_var: std.atomic.Value(bool) = .init(false);
+var lend_rearm_var: std.atomic.Value(u32) = .init(std.math.maxInt(u32));
 
 /// Probe (lend): the slot of a request's path (`long_table_var`).
 pub fn longSlot(path: []const u8) u8 {
@@ -2665,10 +2682,13 @@ pub fn longSlot(path: []const u8) u8 {
 /// into the program's own (`mustNotBeInCode`).
 pub noinline fn longAhead(slot: u8) u64 {
     if (!lends) return 0;
-    const t0 = stamp();
+    if (lend_ticks_var.load(.monotonic) == 0 or deterministic.*) return 0;
+    const w = me() orelse return 0;
+    // The stamp's low bits carry the worker's count of fibers run, by
+    // which `longOver` tells a handler that waited from one that ran.
+    const t0 = (stamp() & ~@as(u64, 63)) | (w.ran & 63);
     if (long_table_var[slot].load(.monotonic) < 2 or !lend_ahead_var.load(.monotonic)) return t0;
-    if (lend_ticks_var.load(.monotonic) == 0 or deterministic.*) return t0;
-    const w = me() orelse return t0;
+    w.rearms.store(0, .monotonic);
     w.long_run.store(true, .seq_cst);
     if (w.poller.count.load(.monotonic) == 0 or w.poller.lent_to.load(.seq_cst) != null) return t0;
     sleepers.lock.lock();
@@ -2692,14 +2712,19 @@ pub noinline fn longOver(slot: u8, t0: u64) void {
     if (!lends) return;
     const long = lend_ticks_var.load(.monotonic);
     if (long == 0) return;
+    if (t0 == 0) return;
+    const w = me();
+    // A handler that waited gave its worker up meanwhile, and its worker
+    // ran other fibers: only one that ran through is a long run.
+    const ran_through = if (w) |x| (x.ran & 63) == (t0 & 63) else false;
     const c = long_table_var[slot].load(.monotonic);
-    if (stamp() -% t0 >= long) {
+    if (ran_through and stamp() -% t0 >= long) {
         if (c < 3) long_table_var[slot].store(c + 1, .monotonic);
     } else if (c > 0) long_table_var[slot].store(c - 1, .monotonic);
     // The long run is over: a watch no event ended is taken back now,
     // before the answer is written.
-    if (c >= 2) if (me()) |w| {
-        if (w.long_run.load(.monotonic)) lendBack(w);
+    if (c >= 2) if (w) |x| {
+        if (x.long_run.load(.monotonic)) lendBack(x);
     };
 }
 
@@ -2731,8 +2756,10 @@ fn lendWatch(w: *Worker) void {
             w.lent = null;
         } else w.lent = null;
     }
+    const most = lend_rearm_var.load(.monotonic);
     for (ws, 0..) |*v, i| {
         if (v == w or !runsLong(v, now, long)) continue;
+        if (most != std.math.maxInt(u32) and v.long_run.load(.monotonic) and v.rearms.fetchAdd(1, .monotonic) >= most) continue;
         if (v.poller.lent_to.cmpxchgStrong(null, w, .seq_cst, .monotonic) != null) continue;
         if (!lendArm(w, v, i)) {
             v.poller.lent_to.store(null, .seq_cst);
@@ -3150,6 +3177,13 @@ fn service(w: *Worker) void {
 /// worker, and those the events of any poller no worker sleeps in make
 /// ready.
 fn serviceAll() void {
+    serviceAllBut(null);
+}
+
+/// `serviceAll`, but for a look at the poller of `skip`, the worker about
+/// to wait in it (probe, `RIG_SKIP_OWN_LOOK=1`): that wait returns at
+/// once with what the look would have taken.
+fn serviceAllBut(skip: ?*Worker) void {
     deliverInterrupt();
     const by = me();
     const opened = beginBatch(by);
@@ -3157,6 +3191,7 @@ fn serviceAll() void {
     const now = nowNs();
     for (workersNow()) |*v| {
         _ = v.timers.fire(now);
+        if (v == skip) continue;
         if (v.poller.count.load(.monotonic) != 0) _ = v.poller.poll(0);
     }
 }
@@ -4532,7 +4567,13 @@ fn sleep(w: *Worker) void {
     const holds = settle_wait != 0 and w.poller.count.load(.monotonic) != 0;
     var settle = holds and w.woke_soon;
     while (w.woken.load(.seq_cst) == 0) {
-        serviceAll();
+        if (lends and skip_own_var.load(.monotonic)) {
+            // Probe: the look at its own poller is left to the wait in it
+            // that follows, unless the looks at the others found work,
+            // when it runs that and does not wait.
+            serviceAllBut(w);
+            if (hasOwnWork(w) and w.poller.count.load(.monotonic) != 0) _ = w.poller.poll(0);
+        } else serviceAll();
         if (!hasOwnWork(w)) {
             w.sleep_due.store(no_due, .seq_cst);
             const due = earliestDue();
