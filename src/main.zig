@@ -1228,8 +1228,33 @@ fn buildApart(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
     const link = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-exe", flag }, release, &.{ "--cache-dir", zig_cache, apart }, libc });
     const lock = lockObjects(allocator, io, zig_cache);
     defer if (lock) |f| f.close(io);
-    const kept = try keptBuild(allocator, io, env, zig_cache, mode, exe, try std.mem.concat(allocator, []const u8, &.{ compile, link }), pkg.files.items);
+    const probing = env.get("RIG_PROBE_BC") != null or env.get("RIG_PROBE_HOOK") != null;
+    const kept = if (probing) null else try keptBuild(allocator, io, env, zig_cache, mode, exe, try std.mem.concat(allocator, []const u8, &.{ compile, link }), pkg.files.items);
     if (kept) |k| if (reuseBuild(allocator, io, k, exe)) return keepDsym(allocator, io, exe);
+    // PROBE (fork-leaves): RIG_PROBE_HOOK runs a shell command in the
+    // package directory before it compiles; RIG_PROBE_BC compiles the root
+    // to optimized bitcode, then that bitcode to the object by `zig cc`
+    // with the flags it names (a second LLVM pipeline, as clang runs it).
+    if (env.get("RIG_PROBE_HOOK")) |hook| {
+        const code = try runZig(io, &.{ "sh", "-c", try std.fmt.allocPrint(allocator, "cd {s} && {s}", .{ dir, hook }) });
+        if (code != 0) std.process.exit(code);
+    }
+    if (env.get("RIG_PROBE_BC")) |cc_flags| {
+        const bc = try std.fs.path.join(allocator, &.{ dir, "__rig_program.bc" });
+        const to_bc = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-obj", flag }, release, &.{ "--cache-dir", zig_cache, root_zig, "-fno-emit-bin", try allocator.print("-femit-llvm-bc={s}", .{bc}) }, libc });
+        if (try runZig(io, to_bc) != 0) std.process.exit(1);
+        var cc: std.ArrayList([]const u8) = .empty;
+        try cc.appendSlice(allocator, &.{ zig, "cc", "-Wno-override-module" });
+        var it = std.mem.tokenizeScalar(u8, cc_flags, ' ');
+        while (it.next()) |f| try cc.append(allocator, f);
+        try cc.appendSlice(allocator, &.{ "-c", bc, "-o", object });
+        if (try runZig(io, cc.items) != 0) std.process.exit(1);
+        try keepCodeApart(allocator, io, object, apart);
+        const code = try runZig(io, try std.mem.concat(allocator, []const u8, &.{ link, &.{try allocator.print("-femit-bin={s}", .{exe})} }));
+        if (code != 0) std.process.exit(code);
+        writeDsym(allocator, io, exe);
+        return;
+    }
     for ([_][]const []const u8{ compile, link }, 0..) |argv, step| {
         if (step == 1) try keepCodeApart(allocator, io, object, apart);
         const code = try runZig(io, if (step == 0) argv else try std.mem.concat(allocator, []const u8, &.{ argv, &.{try allocator.print("-femit-bin={s}", .{exe})} }));
