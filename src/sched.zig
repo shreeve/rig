@@ -2609,6 +2609,9 @@ fn lendOpen() void {
         if (p.environ.getPosix("RIG_LEND_AHEAD")) |v| {
             if (std.mem.eql(u8, v, "0")) lend_ahead_var.store(false, .seq_cst);
         }
+        if (p.environ.getPosix("RIG_LEND_KEEP")) |v| {
+            if (std.mem.eql(u8, v, "1")) lend_keep_var.store(true, .seq_cst);
+        }
         if (p.environ.getPosix("RIG_SKIP_OWN_LOOK")) |v| {
             if (std.mem.eql(u8, v, "1")) skip_own_var.store(true, .seq_cst);
         }
@@ -2663,6 +2666,11 @@ var lend_ahead_var: std.atomic.Value(bool) = .init(true);
 /// announced long run, after the watch set for it ahead
 /// (`RIG_LEND_REARM`, no limit).
 var skip_own_var: std.atomic.Value(bool) = .init(false);
+/// Probe: `RIG_LEND_KEEP=1`: a watch set for a long handler is kept
+/// after the handler returns, while its worker goes on running fibers,
+/// and taken back only as that worker goes to sleep in its own poller;
+/// no sleeper sets it again once the handler has returned.
+var lend_keep_var: std.atomic.Value(bool) = .init(false);
 var lend_rearm_var: std.atomic.Value(u32) = .init(std.math.maxInt(u32));
 
 /// Probe (lend): the slot of a request's path (`long_table_var`).
@@ -2784,6 +2792,8 @@ fn lendOff(w: *Worker, v: *Worker) void {
 /// poller an event there wakes `w` alone.
 noinline fn lendBack(w: *Worker) void {
     if (w.long_run.load(.monotonic)) w.long_run.store(false, .seq_cst);
+    // Kept while it runs fibers (`RIG_LEND_KEEP`): `sleepIn` takes it back.
+    if (lend_keep_var.load(.monotonic) and w.idle.load(.monotonic) == 0) return;
     const l = w.poller.lent_to.swap(null, .seq_cst) orelse return;
     lendOff(l, w);
     w.lend_back += 1;
@@ -2798,6 +2808,7 @@ noinline fn lendBack(w: *Worker) void {
 /// awake before it looks for a watcher, all sequentially consistent, so
 /// either it sees no watcher and kicks a sleeper, or this sees it awake.
 fn sleepIn(w: *Worker, timeout: ?i96) void {
+    if (lends and w.poller.lent_to.load(.monotonic) != null) lendBack(w);
     if (lends) lendWatch(w);
     if (workersNow().len >= 2) {
         const held = watcher.load(.monotonic) == w;
@@ -4308,7 +4319,7 @@ fn runFiber(w: *Worker, f: *Fiber) void {
     // The fiber that switched away: `f`, or one `f` handed this worker.
     const gone = w.current.?;
     w.current = null;
-    if (lends and (w.poller.lent_to.load(.monotonic) != null or w.long_run.load(.monotonic))) lendBack(w);
+    if (lends and ((w.poller.lent_to.load(.monotonic) != null and !lend_keep_var.load(.monotonic)) or w.long_run.load(.monotonic))) lendBack(w);
     if (w.after) |a| {
         w.after = null;
         a.run(gone, a.ctx);
