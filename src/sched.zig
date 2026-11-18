@@ -224,6 +224,8 @@ const Worker = struct {
     p_done: u64 = 0,
     p_hand: u64 = 0,
     p_inline: u64 = 0,
+    p_ring: u64 = 0,
+    p_ringtook: u64 = 0,
     p_block: u64 = 0,
     p_spill: u64 = 0,
     p_wakes: u64 = 0,
@@ -3818,7 +3820,7 @@ fn printStats() void {
     for (workersNow(), 0..) |*w, i| {
         if (preempt) printDeclined(w, i);
         const line = (if (preempt)
-            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room), deepest stop {d} of {d} bytes; joins done {d} handoff {d} (on the waiter's stack {d}) blocked {d}, spills {d}, wakes {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped, preOf(w).deepest, preempt_room, w.p_done, w.p_hand, w.p_inline, w.p_block, w.p_spill, w.p_wakes })
+            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room), deepest stop {d} of {d} bytes; joins done {d} handoff {d} (on the waiter's stack {d}) blocked {d}, ring tail {d} took {d}, spills {d}, wakes {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped, preOf(w).deepest, preempt_room, w.p_done, w.p_hand, w.p_inline, w.p_block, w.p_ring, w.p_ringtook, w.p_spill, w.p_wakes })
         else
             std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, joins done {d} handoff {d} (on the waiter's stack {d}) blocked {d}, spills {d}, wakes {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, w.p_done, w.p_hand, w.p_inline, w.p_block, w.p_spill, w.p_wakes })) catch continue;
         _ = std.posix.system.write(2, line.ptr, line.len);
@@ -4850,6 +4852,36 @@ const Ring = struct {
         }
     }
 
+    /// Probe: whether the newest fiber in the ring, its owner's to ask, is `f`.
+    fn lastIs(r: *Ring, f: *Fiber) bool {
+        const t = r.tail.load(.monotonic);
+        const h = r.head.load(.acquire);
+        if (t == h) return false;
+        return r.slots[(t -% 1) % size].load(.monotonic) == f;
+    }
+
+    /// Probe: take `f` back from the ring's tail, as a Chase-Lev owner
+    /// pops: move the tail back, then read the head; a thief takes at most
+    /// half, rounded up, so it reaches the last slot only when one is left,
+    /// which a compare-and-swap of the head settles. Whether this took it.
+    fn takeLast(r: *Ring, f: *Fiber) bool {
+        const t = r.tail.load(.monotonic);
+        const last = t -% 1;
+        if (r.slots[last % size].load(.monotonic) != f) return false;
+        r.tail.store(last, .seq_cst);
+        const h = r.head.load(.seq_cst);
+        const left = last -% h;
+        if (left != 0 and left <= size) return true;
+        if (left == 0) {
+            const won = r.head.cmpxchgStrong(h, h +% 1, .seq_cst, .monotonic) == null;
+            r.tail.store(t, .seq_cst);
+            return won;
+        }
+        // A thief took it already.
+        r.tail.store(t, .seq_cst);
+        return false;
+    }
+
     fn pop(r: *Ring) ?*Fiber {
         while (true) {
             const h = r.head.load(.acquire);
@@ -5626,6 +5658,9 @@ pub const Header = struct {
                     2 => if (!handoffHere(w, h)) handoff(w, h, cancel),
                     else => handoff(w, h, cancel),
                 }
+            } else if (ringJoin() and deadline == null and h.fiber.sp == 0 and h.fiber.home == null and w.ring.lastIs(&h.fiber)) {
+                w.p_ring += 1;
+                handoffFrom(w, h, cancel, true);
             }
         }
         if (!h.done.isDone()) me().?.p_block += 1;
@@ -5758,6 +5793,23 @@ noinline fn handoffHere(w: *Worker, h: *Header) bool {
 /// the usual way and wakes it. A cancel that came before the wait began,
 /// when `cancel` is given, leaves the task where it is.
 fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool)) void {
+    handoffFrom(w, h, cancel, false);
+}
+
+/// Probe: whether `>t` takes its task back from the tail of its worker's
+/// ring (`RIG_P_RINGJOIN=1`).
+var ring_join: u8 = 255;
+inline fn ringJoin() bool {
+    if (ring_join == 255) {
+        ring_join = 0;
+        if (rt.process.*) |p| if (p.environ.getPosix("RIG_P_RINGJOIN")) |v| {
+            if (std.mem.eql(u8, v, "1")) ring_join = 1;
+        };
+    }
+    return ring_join == 1;
+}
+
+fn handoffFrom(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool), comptime ring: bool) void {
     const waiter = w.current.?;
     const f = &h.fiber;
     pausePoint();
@@ -5765,7 +5817,10 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool)) void 
     if (cancel) |c| if (c.load(.seq_cst)) return;
     // Taken by a worker with nothing else to do meanwhile: wait for it the
     // usual way.
-    if (!takeFromNext(w, f)) return;
+    if (ring) {
+        if (!w.ring.takeLast(f)) return;
+        w.p_ringtook += 1;
+    } else if (!takeFromNext(w, f)) return;
     h.done.waiter.store(waiter, .seq_cst);
     h.done.epoch.store(e, .seq_cst);
     h.done.status.store(Done.waited, .seq_cst);
