@@ -2552,6 +2552,9 @@ pub const Question = enum(u8) {
     /// Of a read `for` or an `if … as`: whether its binding is the bytes
     /// of a String it reaches (`storage.bindsStringBytes`).
     binds_string_bytes,
+    /// Of a `for`: how it combines integers into a local, when it is a
+    /// fold, which emit lowers to `rig.fold` (`storage.fold`).
+    fold,
     /// Of `return a, b`'s parts: whether they are evaluated into storage
     /// first (`storage.hoistsResults`).
     hoists_results,

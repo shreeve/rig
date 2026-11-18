@@ -445,6 +445,16 @@ serve no HTTP.
 
 ### Compiler
 
+**A loop that folds integers runs by vectors.** A `for` over a List or a
+slice of integers whose body is only `s += x`, `s +%= x`, `s ^= x`,
+`s |= x`, or `s &= x`, `s` a local of the element's type, is lowered to
+`rig.fold`, a vector loop, since Zig 0.17 builds with LLVM's loop
+vectorizer off. A checked `s += x` still panics on the element where
+the loop as written would. On an Apple M5 a checked Int sum runs 1.9
+times as fast, an I32 one 3.8 times, and a wrapping Int sum 1.7 times
+from L1; `bench/fork`'s psum is 6% faster at one worker and level at
+all workers, where it reads memory as fast as the machine gives it.
+
 **The hint for a task lent to write keeps self's `!`**: `t =
 !b.bump()&`, where it wrote `t = b.bump()&`, which is rejected.
 **A generic call whose bounds fail reports once.** An instance made by

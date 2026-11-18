@@ -1934,6 +1934,39 @@ code "task a turn counts as the next begins", "while (true) : (rig.turn(&"
   t = find([1, 2, 3], 2)&
   print(>t)
 
+code "task a fold counts the turns of its loop", "s = rig.fold(.add, s, xs, &__rig_turns_"
+  # A fold (`rig.fold`) counts one turn of its loop for each turn of
+  # vectors, so a long fold still reaches yield checks.
+  fun total(xs: ?[]Int) -> Int
+    s = 0
+    for x in xs
+      s += x
+    s
+
+  v: List[Int] = List()
+  for i in 0..10
+    !v.push(i)
+  w = ?v[..]
+  t = total(?w)&
+  print(>t)
+
+test "task folds over a lent List", seeds: 20, "499999500000 499999500000"
+  # Tasks fold a List lent to both of them, long enough to pass many
+  # yield checks inside the fold.
+  fun total(xs: ?[]Int) -> Int
+    s = 0
+    for x in xs
+      s += x
+    s
+
+  v: List[Int] = List()
+  for i in 0..1000000
+    !v.push(i)
+  w = ?v[..]
+  a = total(?w)&
+  b = total(?w)&
+  print(>a, >b)
+
 test "task loops over lent containers", seeds: 20, "6100091 6100091 999 1999 1143 9030 24884"
   # Loops over a List and a Table lent to several tasks at once, long
   # enough to pass many yield checks, with `continue`, `return`, a

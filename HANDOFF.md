@@ -113,6 +113,15 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **Integer folds by vectors** (branch `fold`, draft PR): a `for` whose
+  body is only `s OP= x` over a List or a slice of integers (`+`, `+%`,
+  `^`, `|`, `&`) is the storage plan's decision `fold`, which emit
+  lowers to `rig.fold`, a vector loop, since Zig 0.17 runs LLVM with its
+  loop vectorizer off; a checked `+=` panics on the same element as the
+  plain loop. A checked Int sum 1.9 times as fast, psum at one worker
+  6% faster. For Zig 0.17 only: on 0.18, check whether the plain loops
+  vectorize and remove it (INTERNALS, "Known Zig 0.17 issues"). Waits on
+  the light gates and the owner.
 - **The stable sort** (branch `sort-stable`, then `sort-drift` on
   it; owner, 2026-11-16, "fastest, within 2% of Rust's stable sort"):
   `sort_by`, `sort_by_key`, and `sort` of a type with its own `order`
