@@ -1,0 +1,12 @@
+Sun Nov 15 20:29:36 MST 2026
+{ 6.20 5.25 4.29 }
+7a2efd0f3
+tools/mac-claim: waiting 1 min for correctness jobs in tools/heavy: 31799 (running)
+        rig-safe          tokio             go                vs tokio
+spawn   133 ns/task       180 ns/task       228 ns/task       rig-safe 1.3x faster, go 1.3x slower
+chain   51 ns/task        174 ns/task       199 ns/task       rig-safe 3.4x faster, go 1.1x slower
+fanout  65.8 ms/run       67.1 ms/run       67.2 ms/run       rig-safe 1.0x faster, go 1.0x slower
+yield   6 ns/yield        40 ns/yield       246 ns/yield      rig-safe 6.6x faster, go 6.1x slower
+hog     191 ns/step       3.3 ms/step       4.2 ms/step       rig-safe 17541.5x faster, go 1.3x slower
+produce 5.3 ms/run        6.3 ms/run        6.1 ms/run        rig-safe 1.2x faster, go 1.0x faster
+memory  16.6 KiB/task     262 B/task        2.9 KiB/task      rig-safe 64.9x more, go 11.1x more

@@ -1,0 +1,9 @@
+rounds 60; fastest / median, ms (memory: bytes a live task)
+arm                            spawn
+main                 11.213 / 18.511
+aa                   10.427 / 18.694
+tree                 15.628 / 18.799
+
+medians against main's
+aa:                      1.0% slower
+tree:                    1.6% slower

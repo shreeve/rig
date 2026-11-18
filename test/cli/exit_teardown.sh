@@ -39,15 +39,18 @@ sub main()!
   _ = >ts!
 EOF
 
-# A task that never waits keeps its worker from stopping.
+# Tasks that never wait keep their workers from stopping. Main exits once
+# each has said it started, not after a nap, which on a loaded machine
+# can end before any has run.
 cat >running.rig <<'EOF'
 use std.os
-use std.time
 
 obj Big
   t: Table[Int, 4000000]
 
-sub spin()
+# Says it has started, then never waits again.
+sub spin(started: *Chan[Int])!
+  !started.send(1)!
   n = 0
   while n >= 0
     n = (n + 1) % 1000
@@ -58,10 +61,15 @@ sub main()!
     b = Big(t: Table())
     !b.t.push(i)
     !keep.push(<b)
-  a = spin()&
-  time.sleep(ms: 5)!
+  started = *Chan[Int](3)
+  ts = Tasks[Void!]()
+  for _ in 0..3
+    !ts.add(spin(+started)&)
+  for _ in 0..3
+    _ = !started.recv()!
   print("exiting", keep.len)
   os.exit(6)
+  >ts!
 EOF
 
 # Little to free: waking the workers would cost more than it saves.
@@ -84,7 +92,7 @@ sub main()!
 EOF
 
 mac=0; [[ $(uname) == Darwin ]] && mac=1
-for mode in "" --release --release=fast; do
+for mode in "" --release; do
     for prog in parked running small; do
         rig build $mode -o $prog $prog.rig >build.log 2>&1 || fail "build $prog $mode: $(cat build.log)"
     done
@@ -119,6 +127,24 @@ RIG_SCHED_STATS=1 RIG_WORKERS=1 ./parked >out.txt 2>err.txt; expect_rc $? 4 "par
 if [[ $mac == 1 ]]; then
     expect_eq "$(grep '^rig: exit:' err.txt)" "rig: exit: plain, one worker" "one worker ends plainly"
 fi
+
+# `os.exit` at once after the first task, while worker 1 may still be
+# starting the others (`sched.startRest`): the workers it has not started
+# count as stopped, so the teardown never waits out its 2 ms for threads
+# yet to start. It may still end plainly while a task runs.
+sed -e '/time.sleep(ms: 5)!/d' parked.rig >sudden.rig
+rig build --release -o sudden sudden.rig >build.log 2>&1 || fail "build sudden: $(cat build.log)"
+for workers in 8 10; do
+    for round in 1 2 3 4 5; do
+        RIG_SCHED_STATS=1 RIG_WORKERS=$workers ./sudden >out.txt 2>err.txt; expect_rc $? 4 "sudden on $workers"
+        expect_eq "$(cat out.txt)" "exiting 64" "sudden's output on $workers"
+        if [[ $mac == 1 ]]; then
+            exits=$(grep '^rig: exit:' err.txt)
+            [[ $exits == "rig: exit: torn down on "* || $exits == "rig: exit: plain, a task runs" ]] ||
+                fail "sudden on $workers workers: $exits"
+        fi
+    done
+done
 
 # Preempted by signal, the stopped workers and the exiting task are never
 # stopped by one mid-teardown.

@@ -47,8 +47,8 @@ sub main()
   print(s > 0)
 EOF2
 
-rig build --release=fast -o spread spread.rig || fail "build spread"
-rig build --release=fast -o pinned pinned.rig || fail "build pinned"
+rig build --release -o spread spread.rig || fail "build spread"
+rig build --release -o pinned pinned.rig || fail "build pinned"
 
 # CPU time over wall time, times ten, of running `$1` with four workers:
 # the best of three runs.

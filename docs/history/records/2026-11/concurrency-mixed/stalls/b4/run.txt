@@ -1,0 +1,19 @@
+# bench-mixed 2026-11-16 04:55 load 8.93 11.04 8.31 commit 91b2ee3ef+dirty Darwin arm64 10 cores; rates 120000,120000,120000, 5000 idle, 128 conns, 1 in 4 computes
+rig-safe  round 0  120000 offered  119996 done  p50 239 us  p99 54.8 ms  p99.9 75.9 ms  max 87.9 ms  srv 2.9 cores  idle 99/99
+rig-safe  round 0  120000 offered  117386 done  p50 78.9 ms  p99 191 ms  p99.9 255 ms  max 281 ms  srv 3.1 cores  idle 99/99
+rig-safe  round 0  120000 offered  112879 done  p50 150 ms  p99 338 ms  p99.9 382 ms  max 402 ms  srv 3.0 cores  idle 99/99
+tokio     round 0  120000 offered  119996 done  p50 130 us  p99 69.5 ms  p99.9 82.1 ms  max 99.5 ms  srv 2.4 cores  idle 99/99
+tokio     round 0  120000 offered  119992 done  p50 115 us  p99 6469 us  p99.9 10.9 ms  max 14.7 ms  srv 2.4 cores  idle 99/99
+tokio     round 0  120000 offered  119997 done  p50 42.2 ms  p99 138 ms  p99.9 156 ms  max 175 ms  srv 2.6 cores  idle 99/99
+tokio     round 1  120000 offered  119996 done  p50 137 us  p99 73.3 ms  p99.9 96.4 ms  max 108 ms  srv 2.5 cores  idle 99/99
+tokio     round 1  120000 offered  119993 done  p50 115 us  p99 2769 us  p99.9 5582 us  max 10.1 ms  srv 2.4 cores  idle 99/99
+tokio     round 1  120000 offered  119996 done  p50 133 us  p99 13.6 ms  p99.9 22.0 ms  max 29.0 ms  srv 2.4 cores  idle 99/99
+rig-safe  round 1  120000 offered  119992 done  p50 241 us  p99 4638 us  p99.9 6490 us  max 29.1 ms  srv 3.0 cores  idle 99/99
+rig-safe  round 1  120000 offered  119975 done  p50 961 us  p99 120 ms  p99.9 141 ms  max 150 ms  srv 3.0 cores  idle 99/99
+rig-safe  round 1  120000 offered  117014 done  p50 99.5 ms  p99 194 ms  p99.9 223 ms  max 249 ms  srv 3.1 cores  idle 99/99
+
+120000 req/s offered
+          runs                req/s                  p50                  p99                p99.9                  max                / p99            /hash p99            srv cores
+rig-safe     6      117386 (119996)      961 us (239 us)     120 ms (4638 us)     141 ms (6490 us)     150 ms (29.1 ms)     120 ms (4624 us)     120 ms (4673 us)            3.0 (2.9)
+tokio        6      119996 (119997)      130 us (115 us)    13.6 ms (2769 us)    22.0 ms (5582 us)    29.0 ms (10.1 ms)    13.6 ms (2752 us)    13.6 ms (2805 us)            2.4 (2.4)
+done

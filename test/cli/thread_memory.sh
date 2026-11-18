@@ -8,7 +8,7 @@
 # few waits run, has a frame of its own (`sched.walkFrom`). It reads the
 # thread-local sections (otool on macOS, readelf on Linux) and Zig's
 # aarch64 assembly or the program's x86_64 code (objdump), in the
-# release modes, of a program that makes tasks and actors.
+# release build, of a program that makes tasks and actors.
 source "$ROOT/test/cli/_lib.sh"
 
 case "$(uname -s)/$(uname -m)" in
@@ -40,8 +40,8 @@ sub main()
   print((!c).add(0))
 EOF2
 
-for mode in ReleaseSafe ReleaseFast; do
-    flag=--release; [[ $mode == ReleaseFast ]] && flag=--release=fast
+for mode in ReleaseSafe; do
+    flag=--release
     rig build $flag -o "waits-$mode" waits.rig >build.log 2>&1 || fail "build $mode: $(cat build.log)"
     out=$("./waits-$mode") || fail "run $mode: $out"
     expect_eq "$out" 4000 "the program's answer, $mode"
@@ -61,18 +61,18 @@ done
 if [[ $how == asm ]]; then
     rig emit waits.rig >/dev/null 2>&1 || fail "emit waits.rig"
     pkg=$RIG_OUT_DIR/programs/waits
-    for mode in ReleaseSafe ReleaseFast; do
+    for mode in ReleaseSafe; do
         (cd "$pkg" && zig_once "$PWD/../waits-$mode.s" -- . -- "${ZIG:-zig}" build-obj -O $mode -femit-asm="$PWD/../waits-$mode.s" -fno-emit-bin __rig_main.zig) >build.log 2>&1 || fail "$mode assembly: $(cat build.log)"
         python3 "$ROOT/test/cli/_frames.py" --all "$RIG_OUT_DIR/programs/waits-$mode.s" >"frames-$mode.txt"
     done
 else
-    for mode in ReleaseSafe ReleaseFast; do
+    for mode in ReleaseSafe; do
         objdump -d -M intel --no-show-raw-insn "waits-$mode" >"waits-$mode.dis"
         python3 "$ROOT/test/cli/_frames.py" --all "waits-$mode.dis" >"frames-$mode.txt"
     done
 fi
 
-for mode in ReleaseSafe ReleaseFast; do
+for mode in ReleaseSafe; do
     grep -q '^rig\.sched\.walkFrom ' "frames-$mode.txt" || fail "$mode: no frame of its own for the deadlock walk (rig.sched.walkFrom)"
     block=$(awk '$1 == "rig.sched.block" { print $2 }' "frames-$mode.txt")
     [[ -z $block ]] || (( block < 4096 )) || fail "$mode: rig.sched.block reserves $block bytes, a page or more"

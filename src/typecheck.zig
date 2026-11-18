@@ -208,6 +208,18 @@ const Checker = struct {
     /// The calls whose lasting lends were reported (`keptLends`), so that
     /// one reached from two kept values is reported once.
     kept_reported: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    /// The closure literals whose errors were reported by a check aloud
+    /// given the parameter types their call lends them (`closureErrors`,
+    /// `lambdaLeftUnbound`), where the call then stops: `synthArgs`
+    /// leaves them out, since its check, with no parameter types and as
+    /// one that cannot fail, would report errors the closure has not.
+    closures_reported: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    /// The closure literals a std form calls that check clean neither as
+    /// one that cannot fail nor as one that can (`closureType`,
+    /// `reduceFunction`): the call reports their errors and gives poison,
+    /// so whether it fails, which the closure's errors leave open, adds
+    /// no error of its own (`closureResult`).
+    closures_in_error: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
     /// The chains whose result holds views of the items of their source,
     /// each a consumer's call to the source it walks (`chainTypes`).
     chain_views: std.AutoHashMapUnmanaged(parser.NodeId, Sexp) = .empty,
@@ -460,6 +472,8 @@ const Checker = struct {
         self.expected.deinit(a);
         self.value_tails.deinit(a);
         self.kept_reported.deinit(a);
+        self.closures_reported.deinit(a);
+        self.closures_in_error.deinit(a);
         self.chain_views.deinit(a);
         self.lend_of.deinit(a);
         self.branch_lends.deinit(a);
@@ -552,9 +566,56 @@ const Checker = struct {
             .use, .type, .@"extern", .extern_fun, .extern_sub, .zig_const => {},
             .api => try self.checkApiDefaults(sexp),
             .api_add => try self.checkAddMethods(sexp),
-            .zig_extern => for (ir.ZigExtern.decls(sexp)) |d| try self.checkDecl(d),
+            .zig_extern => for (ir.ZigExtern.decls(sexp)) |d| {
+                try self.checkMarkedView(d);
+                try self.checkDecl(d);
+            },
             else => try self.errAt(sexp, not_at_module_level, .{}),
         }
+    }
+
+    /// The standard library's `extern zig` functions that take a value
+    /// that changes by a marked call, each read to keep the premise of
+    /// Core §4 in Zig the checkers do not see: the value is never replaced
+    /// whole, and every view it gave out lasts while a handle to it lives,
+    /// so the function moves and frees nothing a view may see, and any
+    /// view it gives is of such memory. `shared.Map`'s entries never move,
+    /// and are freed only when the map drops (std/shared.zig).
+    const marked_externs = [_][]const u8{ "std.shared.find", "std.shared.holds", "std.shared.insert", "std.shared.settle", "std.shared.count" };
+
+    /// An `extern zig` function `d` that takes a value that changes by a
+    /// marked call (`sema.changesByMark`), through a view, a handle, or a
+    /// box (`sema.unwrapAccess`), or whose result may view a parameter of
+    /// a type parameter's or an API object's type, which may be one, must
+    /// be one of `marked_externs`.
+    fn checkMarkedView(self: *Checker, d: Sexp) Error!void {
+        const f = if (d.isKind(.@"pub")) ir.Pub.decl(d) else d;
+        if (!f.isKind(.fun) and !f.isKind(.sub)) return;
+        const name_node = ir.get(f, .name);
+        const id = self.ctx.symbolOf(name_node) orelse return;
+        const sym = self.ctx.symbols.items[id];
+        const fn_ty = switch (self.ctx.types.get(sym.ty)) {
+            .function => |ft| ft,
+            else => return,
+        };
+        const result = switch (self.ctx.types.get(fn_ty.returns)) {
+            .fallible => |fl| fl.ok,
+            else => fn_ty.returns,
+        };
+        const gives_view = sema.mayHoldView(self.ctx, result);
+        const marked = for (fn_ty.params, 0..) |param, i| {
+            const value = sema.unwrapAccess(self.ctx, param);
+            if (sema.changesByMark(self.ctx, value)) break value;
+            const viewed = i < 64 and (sym.origins.result >> @intCast(i)) & 1 != 0;
+            switch (self.ctx.types.get(value)) {
+                .type_var, .api_object => if (gives_view and viewed) break value,
+                else => {},
+            }
+        } else return;
+        const name = identAt(self.ctx.source, name_node) orelse return;
+        const full = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ self.ctx.name, name });
+        for (marked_externs) |listed| if (std.mem.eql(u8, listed, full)) return;
+        try self.errAt(name_node, "`{s}` takes a `{s}`, which may change by marked calls, in Zig the checkers do not see: it must move and free nothing a view of it may see, and give only views of such memory (Core §4); read its Zig, then list `{s}` in `Checker.marked_externs`", .{ name, try self.tyName(marked), full });
     }
 
     /// A module-level binding is a constant, `name = value`: its value
@@ -1389,6 +1450,11 @@ const Checker = struct {
         defer self.return_operand = saved;
         self.return_operand = value;
         try self.checkExpr(value, ret);
+        // A fallible `sub` returns an error or nothing: a value that gives
+        // nothing (`return say(1)!`) is no error, and runs as a statement.
+        if (self.body.is_sub) if (self.ctx.typeOf(value)) |ty| if (self.canonical(ty) == self.t().void_id) {
+            try self.errAt(value, "a `sub` returns no value, and fails only by returning an error: write `{s}` on its own line, then `return`", .{self.sourceText(value)});
+        };
     }
 
     /// What `rig test` reports when the `Bool` that `node`, a test's last
@@ -2245,6 +2311,13 @@ const Checker = struct {
                 if (is_text or (obj == .slice and sema.writeSliceElem(self.ctx, ty) == null)) {
                     place.block(if (is_text) .string else .slice, self.startOf(p));
                     if (!crossed) place.leaf_blocked = true;
+                    // A `[]T` is a read view of its elements: nothing
+                    // changes through it, a handle it holds included, nor
+                    // a Cell behind one (Core sentence 4).
+                    if (!is_text) {
+                        place.view_blocked = true;
+                        if (place.view == null) place.view = .{ .ty = ty, .pos = self.startOf(p) };
+                    }
                 }
             } else if (if (sema.namedNoneOf(self.ctx, inner)) |n| std.mem.eql(u8, n.field, self.text(ir.Member.name(step))) else false) {
                 place.block(.none_field, self.startOf(ir.Member.name(step)));
@@ -2274,8 +2347,10 @@ const Checker = struct {
                 // A write view of a read view (`!?T`, an element of
                 // `for x in !vs` over a `List[?T]`) reaches its value
                 // through the read view. A write view of a value that
-                // holds a Cell views shared storage, which only its Cells
-                // and Signals change in (`sema.changesByMark`).
+                // changes by a marked call views shared storage, which
+                // only its Cells and Signals change in, asked of the one
+                // classifier (`sema.changesByMark`): an API object's view
+                // may be of any value, and is written through its methods.
                 .write_view => |viewed| {
                     place.indirect = true;
                     if (sema.viewedReadView(self.ctx, viewed)) |view| {
@@ -2283,7 +2358,7 @@ const Checker = struct {
                         place.leaf_blocked = true;
                         place.view_blocked = true;
                         place.view = .{ .ty = view, .pos = self.startOf(p) };
-                    } else if (sema.holdsCellByValue(self.ctx, viewed)) place.block(.shared, 0);
+                    } else if (sema.changesByMark(self.ctx, viewed)) place.block(.shared, 0);
                 },
                 // A slice views elements held elsewhere.
                 .shared, .slice => place.indirect = true,
@@ -2816,13 +2891,6 @@ const Checker = struct {
     /// (`isBoolResult`), so its `!` never reads as `not`.
     fn parenthesized(self: *Checker, recv: Sexp, returns: TypeId) bool {
         return self.isBoolResult(returns) and self.usesValue(recv, returns);
-    }
-
-    /// The result a method of `apiMethodCall` declares, before `Self` is
-    /// applied (`checkSelfSigil`); `applied` where it declares none.
-    fn apiDeclaredResult(self: *Checker, m: ApiMethod, applied: TypeId) Error!TypeId {
-        const local_ty = if (m.home == @as(*const SemContext, self.ctx)) m.field.ty else try sema.importType(self.ctx, m.home, m.field.ty, m.api.module_id);
-        return declaredResult(self.ctx, local_ty, applied);
     }
 
     /// The whole write call a hint writes for `method` on `recv`, as
@@ -7086,8 +7154,33 @@ const Checker = struct {
     const LendKind = enum { read, write };
 
     /// `?x` / `!x`. Lending a view lends it on rather than
-    /// nesting (`?b` with `b: ?B` is `?B`).
+    /// nesting (`?b` with `b: ?B` is `?B`). What `!x` puts on `x` is
+    /// recorded where its view is chosen (`recordLoan`).
     fn synthLend(self: *Checker, e: Sexp, kind: LendKind) Error!TypeId {
+        const view = try self.lendViewOf(e, kind);
+        if (kind == .write and !self.isPoison(view)) try self.recordLoan(e, view);
+        return view;
+    }
+
+    /// What `!x`, `e`, puts on `x`, given the view it lends (Core §4): a
+    /// read loan when that is a write view of a value that changes by a
+    /// marked call (`sema.loanOfView`), a write loan otherwise. A
+    /// method's self reached through a handle is the value the handle
+    /// holds, which the method is called on; a handle lent where a view
+    /// of its value goes is decided again there (`lendView`).
+    fn recordLoan(self: *Checker, e: Sexp, view: TypeId) Error!void {
+        var viewed = switch (self.ctx.types.get(view)) {
+            .write_view => |base| base,
+            else => return self.ctx.recordLoan(e, .write),
+        };
+        if (sameNode(e, self.self_obj)) switch (self.ctx.types.get(viewed)) {
+            .shared => |inner| viewed = inner,
+            else => {},
+        };
+        try self.ctx.recordLoan(e, sema.loanOfView(self.ctx, viewed));
+    }
+
+    fn lendViewOf(self: *Checker, e: Sexp, kind: LendKind) Error!TypeId {
         const operand = ir.get(e, .operand);
         try self.recordUse(operand, .lend);
         const saved_in_place = self.in_place;
@@ -8013,6 +8106,14 @@ const Checker = struct {
         const param = args[0];
         switch (needs.t) {
             .copies => if (!try self.cannotCopy(param, pos, needs.op)) return true,
+            // A copy kept where no loan is tracked holds no view; one in a
+            // generic body asks each instance for none (`Checker.requireNoView`
+            // in the ownership checker).
+            .plain => if (sema.mayHoldView(self.ctx, param)) {
+                const shown = try self.tyName(param);
+                try self.err(pos, "{s}, and {s} `{s}` holds a view, whose loan the List would not carry: push each element, `!xs.push(y)`", .{ needs.says.into_elements.what, article(shown), shown });
+                return false;
+            } else if (!try self.cannotCopy(param, pos, needs.op)) return true,
             .records => return self.readsRecords(m.name, param, pos, if (values.len > 0 and !values[0].isKind(.kwarg)) values[0] else null),
             .equatable => {
                 var params: std.ArrayList(SymbolId) = .empty;
@@ -9711,14 +9812,22 @@ const Checker = struct {
         for (ir.Call.args(node)) |arg| try parts.append(self.ctx.arena.allocator(), if (arg.isKind(.kwarg)) ir.get(arg, .value) else arg);
         // A task lent to write keeps its write loan while it runs, and no
         // value holds a write view: it stays where it is bound, and is
-        // only waited for there.
+        // only waited for there. A `!x` that puts only a read loan on `x`
+        // (`recordLoan`) lends nothing to write, as `?x` does not.
         const lends_write = for (parts.items) |part| {
-            if (part.isKind(.write)) break true;
+            if (part.isKind(.write)) {
+                if (self.ctx.loanOf(part) == .write) break true;
+                continue;
+            }
             if (self.ctx.typeOf(part)) |pt| if (self.ctx.types.get(pt) == .write_view) break true;
         } else false;
         if (lends_write) {
             if (!sameNode(node, self.local_value)) {
-                try self.errAt(callee, "this task is lent to write, and keeps its write loan while it runs, so it stays where it is bound: `t = {s}`, then `>t`", .{self.sourceText(node)});
+                // A method's self lent to write shows its `!`, which the
+                // call's own text, from its self on, leaves out.
+                const shown = self.sourceText(node);
+                const bang = has_self and ir.Member.object(callee).isKind(.write) and !std.mem.startsWith(u8, shown, "!");
+                try self.errAt(callee, "this task is lent to write, and keeps its write loan while it runs, so it stays where it is bound: `t = {s}{s}`, then `>t`", .{ if (bang) "!" else "", shown });
                 return self.t().invalid_id;
             }
             if (self.ctx.symbolOf(self.local_target)) |id| try self.write_tasks.put(self.ctx.arena.allocator(), id, {});
@@ -10141,6 +10250,25 @@ const Checker = struct {
         return self.t().invalid_id;
     }
 
+    /// `skipCall` for a call that passes `f`, the function it calls,
+    /// lent `params` (a `sub` when `sub`), and cannot build on what `f`
+    /// gives: a closure literal there is checked aloud given `params`
+    /// (`closureErrors`), after the arguments before it, so its own
+    /// errors are reported in order, and not again with no parameter
+    /// types (`closures_reported`).
+    fn skipClosureCall(self: *Checker, args: []const Sexp, f: Sexp, params: []const TypeId, sub: bool) Error!TypeId {
+        if (!f.isKind(.lambda)) return try self.skipCall(args);
+        for (args, 0..) |a, i| {
+            const e = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
+            if (!sameNode(e, f)) continue;
+            try self.synthArgs(args[0..i]);
+            try self.closureErrors(f, params, sub);
+            try self.synthArgs(args[i + 1 ..]);
+            break;
+        } else try self.synthArgs(args);
+        return self.t().invalid_id;
+    }
+
     /// Report why a call cannot be checked, at `at` (a node or a
     /// position), then `skipCall`.
     fn badCall(self: *Checker, args: []const Sexp, at: anytype, comptime fmt: []const u8, fmt_args: anytype) Error!TypeId {
@@ -10151,6 +10279,8 @@ const Checker = struct {
     /// The arguments of a call that cannot be checked: each is checked
     /// on its own, and nothing that needs a parameter's type (`[]` has
     /// none, and whether a slice is lent depends on it) is reported.
+    /// A closure literal whose errors were reported is left out
+    /// (`closures_reported`).
     fn synthArgs(self: *Checker, args: []const Sexp) Error!void {
         const saved = self.under_poison;
         const saved_view = self.view_arg;
@@ -10162,6 +10292,8 @@ const Checker = struct {
         for (args) |a| {
             const e = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
             if (e.isKind(.array) and ir.Array.elems(e).len == 0) continue;
+            const literal = if (e.isKind(.share)) ir.Share.operand(e) else e;
+            if (literal.isKind(.lambda) and self.closures_reported.contains(nodeId(literal))) continue;
             self.view_arg = e;
             _ = try self.synthExpr(e);
         }
@@ -10359,21 +10491,25 @@ const Checker = struct {
             try self.errAt(arg, "`{s}` moves values that hold no `?T`, `!T`, or slice; `{s}` may hold one", .{ what, try self.tyName(place) });
             return null;
         }
-        // A value that holds a Cell lives only behind a shared handle, whose
-        // plain data handles only read: exchanging it as a whole would write
-        // that data. (A Cell itself is exchanged by a marked call.)
-        if (sema.holdsCellByValue(self.ctx, place) and !sema.isCell(self.ctx, place)) {
-            try self.errAt(arg, "`{s}` moves values whole, and `{s}` holds a Cell, so it lives only behind a shared handle, whose other fields only read", .{ what, try self.tyName(place) });
-            return null;
-        }
-        // A Signal changes only by its marked calls: exchanged whole, its
-        // subscribers would move with it, while `set` may be running them.
-        const signal = switch (self.ctx.types.get(place)) {
-            .parameterized_nominal => |pn| pn.sym == self.ctx.signal_sym_id,
-            else => false,
-        };
-        if (signal) {
-            try self.errAt(arg, "`{s}` moves values whole, and a `{s}` changes only by its marked calls (`!s.set(v)`), which may be running its subscribers", .{ what, try self.tyName(place) });
+        // A value that changes by a marked call is never replaced whole
+        // (Core §4): a Cell's change is one indivisible step every handle
+        // sees, which a plain exchange would race; a value that holds one
+        // keeps plain data its handles only read; a Signal's set may be
+        // running its subscribers. A handle is exchanged as itself.
+        if (sema.holdsMarkedValue(self.ctx, place)) {
+            const sym: ?SymbolId = switch (self.ctx.types.get(place)) {
+                .parameterized_nominal => |pn| pn.sym,
+                else => null,
+            };
+            if (sym == self.ctx.cell_sym_id) {
+                try self.errAt(arg, "`{s}` moves values whole, and a `{s}` changes only by its marked calls, which every handle shares: exchange its value with the Cell's own `old = (!c).swap(v)`", .{ what, try self.tyName(place) });
+            } else if (sym == self.ctx.signal_sym_id) {
+                try self.errAt(arg, "`{s}` moves values whole, and a `{s}` changes only by its marked calls (`!s.set(v)`), which may be running its subscribers", .{ what, try self.tyName(place) });
+            } else if (sym == self.ctx.chan_sym_id) {
+                try self.errAt(arg, "`{s}` moves values whole, and a `{s}` changes only by its sends and receives, marked calls every handle shares", .{ what, try self.tyName(place) });
+            } else if (sym == self.ctx.actor_sym_id) {
+                try self.errAt(arg, "`{s}` moves values whole, and an `{s}` changes only by its own methods, called through its handles", .{ what, try self.tyName(place) });
+            } else try self.errAt(arg, "`{s}` moves values whole, and `{s}` holds a Cell, so it lives only behind a shared handle, whose other fields only read", .{ what, try self.tyName(place) });
             return null;
         }
         if (!arg.isKind(.write)) try self.checkLendsVisibly(arg, ty, "the call writes through");
@@ -10695,7 +10831,7 @@ const Checker = struct {
         if (ct != null and op != .push) return try self.badCall(args, ct.?, "`{s}` takes no compile-time arguments", .{method});
         const recv = try self.ctx.intern(.{ .write_view = self.t().string_id });
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{recv}), .returns = self.t().void_id, .is_sub = true });
-        if (!try self.checkSelfSigil(obj, .write, self.t().void_id, self.t().void_id, method)) {
+        if (!try self.checkSelfSigil(obj, .write, self.t().void_id, method)) {
             const kind: SelfTypeKind = switch (self.ctx.types.get(obj_ty)) {
                 .read_view => .read_view,
                 .write_view => .write_view,
@@ -12562,7 +12698,15 @@ const Checker = struct {
         /// goes; with nothing else to bind it, it is `error`.
         lambda_sets: u64 = 0,
         lambda_arg: u32 = 0,
+        /// The closure literals whose parameters were all known and whose
+        /// quiet check found errors (`lentLambdaType`).
+        failed: std.ArrayList(FailedLambda) = .empty,
     };
+
+    /// A closure literal argument of a generic call that does not check
+    /// clean though its parameters' types are known: `given` them, as
+    /// one that can fail when `fails`, where function type `pattern` goes.
+    const FailedLambda = struct { lambda: Sexp, given: []const TypeId, fails: bool, pattern: TypeId };
 
     /// Match each argument's type against the field or parameter it
     /// fills (by position, or by keyword), binding the type parameters in
@@ -12620,6 +12764,14 @@ const Checker = struct {
                 try lambdas.append(self.ctx.arena.allocator(), .{ .pattern = fn_pat, .lambda = value, .arg = @intCast(number) });
                 continue;
             }
+            // An owned closure literal (`*|x| ...`) where a function goes
+            // is matched by its parameters and result as a lent one is:
+            // whether its `*` fits is checked with the call's arguments.
+            // Where a `T` goes, it is a value of its own type.
+            if (value.isKind(.share) and ir.Share.operand(value).isKind(.lambda)) if (lambdaPattern(self.ctx, pat)) |fn_pat| {
+                try lambdas.append(self.ctx.arena.allocator(), .{ .pattern = fn_pat, .lambda = ir.Share.operand(value), .arg = @intCast(number) });
+                continue;
+            };
             const actual = try self.argType(value);
             if (sema.containsPoison(self.ctx, actual)) inf.poisoned = true;
             try self.bindArg(&inf, pat, actual, @intCast(number), 0);
@@ -12661,6 +12813,10 @@ const Checker = struct {
             for (lambdas.items, done) |l, *d| {
                 if (d.*) continue;
                 const actual = (try self.lentLambdaType(&inf, l.pattern, l.lambda)) orelse continue;
+                // A closure whose result is poison binds nothing; the
+                // diagnostic about it explains a parameter left unbound,
+                // its own or another closure's that waits on it.
+                if (sema.containsPoison(self.ctx, actual)) inf.poisoned = true;
                 inf.lambda = true;
                 defer inf.lambda = false;
                 try self.bindArg(&inf, l.pattern, actual, l.arg, 1);
@@ -12702,18 +12858,23 @@ const Checker = struct {
     const LambdaArg = struct { pattern: TypeId, lambda: Sexp, arg: u32 };
 
     /// The function type a closure literal passed where parameter type
-    /// `pat` goes is checked against: `pat` itself, or the callable a
-    /// `?fun(...)` lends.
+    /// `pat` goes is checked against: `pat` itself, the callable a
+    /// `?fun(...)` lends, or the function of an owned closure
+    /// `*fun(...)`.
     fn lambdaPattern(ctx: *const SemContext, pat: TypeId) ?TypeId {
         if (sema.callableFnTy(ctx, pat)) |f| return f;
-        return if (ctx.types.get(pat) == .function) pat else null;
+        return switch (ctx.types.get(pat)) {
+            .function => pat,
+            .shared => |inner| if (ctx.types.get(inner) == .function) inner else null,
+            else => null,
+        };
     }
 
     /// The type of closure literal `lambda` where function type `pattern`
     /// goes, checked quietly: its parameters take the types the call's
     /// other arguments bound in `pattern` (or their annotations), and its
     /// result is its body's. Null when a parameter has no type yet.
-    fn lentLambdaType(self: *Checker, inf: *const Inference, pattern: TypeId, lambda: Sexp) Error!?TypeId {
+    fn lentLambdaType(self: *Checker, inf: *Inference, pattern: TypeId, lambda: Sexp) Error!?TypeId {
         const a = self.ctx.arena.allocator();
         var params: std.ArrayList(SymbolId) = .empty;
         var types: std.ArrayList(TypeId) = .empty;
@@ -12742,9 +12903,37 @@ const Checker = struct {
         const fails = self.ctx.types.get(f.returns) == .fallible;
         const ty = try self.checkLambdaGiven(lambda, null, given, fails);
         const got = self.ctx.types.get(ty).function;
+        // A parameter whose written type is in error never gets one: the
+        // diagnostic about it explains what it leaves unbound.
+        const nodes = ir.Lambda.params(lambda).items();
+        for (got.params[0..@min(got.params.len, nodes.len)], nodes[0..@min(got.params.len, nodes.len)]) |p, node| {
+            if (self.isPoison(p) and node.isKind(.@":")) inf.poisoned = true;
+        }
         for (got.params) |p| if (self.isPoison(p)) return null;
         if (got.params.len != f.params.len) return null;
+        if (self.ctx.diagnostics.items.len != mark) try inf.failed.append(a, .{ .lambda = lambda, .given = given, .fails = fails, .pattern = pattern });
         return ty;
+    }
+
+    /// Reports the errors of a closure literal argument whose result
+    /// would bind type parameter `param` of a generic call, which nothing
+    /// bound, and whose quiet check found errors (`Inference.failed`):
+    /// checked aloud, with the parameter types the call gave it, they say
+    /// why `param` is unbound. Each closure is checked aloud once (bit
+    /// `i` of `reported`, for `inf.failed[i]`). Whether one was found.
+    fn lambdaLeftUnbound(self: *Checker, inf: *const Inference, param: SymbolId, reported: *u64) Error!bool {
+        var found = false;
+        for (inf.failed.items, 0..) |l, i| {
+            const returns = self.ctx.types.get(l.pattern).function.returns;
+            if (!sema.usesParams(self.ctx, returns, &.{param})) continue;
+            found = true;
+            const bit = @as(u64, 1) << @intCast(@min(i, 63));
+            if (reported.* & bit != 0) continue;
+            reported.* |= bit;
+            _ = try self.checkLambdaGiven(l.lambda, null, l.given, l.fails);
+            try self.closures_reported.put(self.ctx.allocator, nodeId(l.lambda), {});
+        }
+        return found;
     }
 
     /// A generic call's declared result, and the type expected of it.
@@ -12920,10 +13109,12 @@ const Checker = struct {
         if (call == .list and call.list.id != 0) try self.noteResultBinding(call.list.id, f, own, inf, callee);
         const parens = if (f.params.len > skip) "(...)" else "()";
         var ok = true;
+        var lambdas_reported: u64 = 0;
         for (inf.bound, own, 0..) |b, param, i| {
             const pname = self.ctx.symbols.items[param].name;
             if (b.ty == sema.type_invalid) {
                 ok = false;
+                if (try self.lambdaLeftUnbound(&inf, param, &lambdas_reported)) continue;
                 if (inf.poisoned) continue;
                 // An argument of another shape says why, as for any call.
                 if (inf.mismatch) |m| if (m.arg <= args.len) {
@@ -13950,7 +14141,7 @@ const Checker = struct {
         };
         if (resolved_method == null and std.mem.eql(u8, method, "get")) if (try self.sequenceGet(obj_ty, pos, args)) |ty| {
             try self.ctx.recordBuiltinCall(callee, .element_get);
-            _ = try self.checkSelfSigil(obj, .read, ty, ty, method);
+            _ = try self.checkSelfSigil(obj, .read, ty, method);
             return self.noteMethod(callee, .read, ty);
         };
 
@@ -13963,7 +14154,7 @@ const Checker = struct {
             try self.noteCallee(f);
             try self.ctx.recordBuiltinCall(callee, .is_empty);
             try self.checkArgs(args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = false }, .{}, "is_empty", pos, .{ .has_self = true });
-            _ = try self.checkSelfSigil(obj, .read, f.returns, f.returns, method);
+            _ = try self.checkSelfSigil(obj, .read, f.returns, method);
             return self.noteMethod(callee, .read, f.returns);
         }
 
@@ -14033,7 +14224,7 @@ const Checker = struct {
         }
         _ = try self.noteMethod(callee, self_mode, resolved.fn_ty.returns);
         try self.noteCallee(resolved.fn_ty);
-        const misplaced_sigil = self_mode != .none and try self.checkSelfSigil(obj, self_mode, resolved.fn_ty.returns, if (resolved.module == null) declaredResult(self.ctx, resolved.field.ty, resolved.fn_ty.returns) else resolved.fn_ty.returns, method);
+        const misplaced_sigil = self_mode != .none and try self.checkSelfSigil(obj, self_mode, resolved.fn_ty.returns, method);
         switch (self_mode) {
             .value => try self.recordUse(obj, .take),
             .write => try self.recordUse(stripSigil(obj), .lend),
@@ -14230,7 +14421,7 @@ const Checker = struct {
         if (self.isPoison(returns)) return self.skipCall(args);
         const mark = self.ctx.diagnostics.items.len;
         _ = try self.noteMethod(callee, mode, returns);
-        const misplaced_sigil = try self.checkSelfSigil(obj, mode, returns, returns, method);
+        const misplaced_sigil = try self.checkSelfSigil(obj, mode, returns, method);
         switch (mode) {
             .value => try self.recordUse(obj, .take),
             .write => try self.recordUse(stripSigil(obj), .lend),
@@ -14370,7 +14561,7 @@ const Checker = struct {
         const item = try self.ctx.intern(.{ .type_var = try sema.assocParam(self.ctx, param, .iter, "Item") });
         const returns = try self.ctx.intern(.{ .optional = item });
         _ = try self.noteMethod(callee, .write, returns);
-        const misplaced_sigil = try self.checkSelfSigil(obj, .write, returns, returns, "next");
+        const misplaced_sigil = try self.checkSelfSigil(obj, .write, returns, "next");
         if (!misplaced_sigil) {
             const kind: SelfTypeKind = switch (self.ctx.types.get(obj_ty)) {
                 .read_view => .read_view,
@@ -14405,7 +14596,7 @@ const Checker = struct {
         const self_mode = m.field.self_mode;
         _ = try self.noteMethod(callee, self_mode, fn_ty.returns);
         try self.noteCallee(fn_ty);
-        const misplaced_sigil = try self.checkSelfSigil(obj, self_mode, fn_ty.returns, if (obj.isKind(.write)) try self.apiDeclaredResult(m, fn_ty.returns) else fn_ty.returns, method);
+        const misplaced_sigil = try self.checkSelfSigil(obj, self_mode, fn_ty.returns, method);
         switch (self_mode) {
             .value => try self.recordUse(obj, .take),
             .write => try self.recordUse(stripSigil(obj), .lend),
@@ -15084,21 +15275,25 @@ const Checker = struct {
         if (self.isTemporary(obj)) try self.lendTemp(obj);
         try self.checkArgs(args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = false }, .{ .names = &.{ "start", "f" } }, "reduce", pos, .{ .has_self = true, .origins = .{ .stores = 0 } });
         if (self.current_call) |c| try self.ctx.recordReduceCall(c);
-        return result;
+        return self.closureResult(args[1], result);
     }
 
     /// The type of `reduce`'s function `f`, taking the running value as
     /// `acc` and each element as `each`: a closure literal's, checked
     /// quietly first as one that cannot fail and then, when its body
-    /// needs to, as one that can; or the type of a function or a
-    /// function value. Null, reported, when it is neither.
+    /// needs to, as one that can, and when neither checks clean, as the
+    /// one with fewer errors (`closureType`'s rule); or the type of a
+    /// function or a function value. Null, reported, when it is neither.
     fn reduceFunction(self: *Checker, f: Sexp, acc: TypeId, each: TypeId) Error!?TypeId {
         const plain = try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{ acc, each }), .returns = acc, .is_sub = false } });
         if (f.isKind(.lambda)) {
             const failing = try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{ acc, each }), .returns = try self.ctx.intern(.{ .fallible = .{ .ok = acc } }), .is_sub = false } });
-            if (try self.lambdaChecksQuietly(f, plain)) return plain;
-            if (try self.lambdaChecksQuietly(f, failing)) return failing;
-            return plain;
+            const plain_errors = try self.lambdaErrorsQuietly(f, plain);
+            if (plain_errors == 0) return plain;
+            const failing_errors = try self.lambdaErrorsQuietly(f, failing);
+            if (failing_errors == 0) return failing;
+            try self.closures_in_error.put(self.ctx.allocator, nodeId(f), {});
+            return if (failing_errors < plain_errors) failing else plain;
         }
         const ty = try self.argType(f);
         if (self.isPoison(ty)) return null;
@@ -15488,9 +15683,9 @@ const Checker = struct {
         return try sema.lacks(self.ctx, r, .Ord);
     }
 
-    /// Whether closure literal `f` checks against function type `want`
-    /// with no diagnostic, checked quietly.
-    fn lambdaChecksQuietly(self: *Checker, f: Sexp, want: TypeId) Error!bool {
+    /// How many errors closure literal `f` has against function type
+    /// `want`, checked quietly.
+    fn lambdaErrorsQuietly(self: *Checker, f: Sexp, want: TypeId) Error!usize {
         const mark = self.ctx.diagnostics.items.len;
         self.ctx.quiet += 1;
         self.tentative += 1;
@@ -15500,7 +15695,7 @@ const Checker = struct {
             self.ctx.diagnostics.shrinkRetainingCapacity(mark);
         }
         _ = try self.checkLambda(f, want);
-        return self.ctx.diagnostics.items.len == mark;
+        return self.ctx.diagnostics.items.len - mark;
     }
 
     /// `xs.sum()` and `xs.sum(start: n)`: the elements of a slice, an
@@ -15709,6 +15904,7 @@ const Checker = struct {
             if (eql(u8, name, "workers")) return try self.parWorkers(pos, args);
             if (eql(u8, name, "map")) return try self.parCall(.map, pos, args);
             if (eql(u8, name, "each")) return try self.parCall(.each, pos, args);
+            if (eql(u8, name, "push")) return try self.parPush(pos, args);
         } else if (eql(u8, module, "std.http")) {
             if (eql(u8, name, "serve")) return try self.httpServe(module_sym, pos, args);
         } else if (eql(u8, module, "std.io")) {
@@ -15721,9 +15917,15 @@ const Checker = struct {
 
     /// `task.all(a, b, ...)` of `std.task`: wait for tasks of any types,
     /// which the call takes, and give each one's value as several
-    /// results, failing when any task can. Rig declares no function of
-    /// any number of arguments, so the call is typed here, its
-    /// parameters the tasks' own types (`argType`).
+    /// results, or nothing when no task gives a value, as a `sub` does;
+    /// either way failing when any task can. A task of a type parameter's
+    /// type gives a value, `T`, whatever an instance binds it to, so a
+    /// generic body is typed, and emitted, once for every instance.
+    /// Tasks that give values and tasks that give none do not mix:
+    /// several results with holes would be a shape of its own. Which the
+    /// call gives is recorded (`recordTaskJoin`) for emit and the runtime.
+    /// Rig declares no function of any number of arguments, so the call
+    /// is typed here, its parameters the tasks' own types (`argType`).
     fn taskJoin(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
         const name = "all";
         if (args.len < 2) return try self.badCall(args, pos, "`task.all` waits for two tasks or more, `task.all(f(x)&, g(y)&, h(z)&)`; for one, `>t`", .{});
@@ -15732,6 +15934,9 @@ const Checker = struct {
         const parts = try a.alloc(TypeId, args.len);
         var sets: std.ArrayList(TypeId) = .empty;
         var fails = false;
+        // The first task that gives a value, and the first that gives none.
+        var valued: ?Sexp = null;
+        var valueless: ?Sexp = null;
         for (args, params, parts) |arg, *p, *part| {
             if (arg.isKind(.kwarg)) return try self.badCall(args, arg, "`task.{s}` takes its tasks in order, with no names", .{name});
             const ty = try self.argType(arg);
@@ -15740,18 +15945,21 @@ const Checker = struct {
             const gives = sema.taskResult(self.ctx, ty).?;
             const can_fail = self.ctx.types.get(gives) == .fallible;
             const value = if (can_fail) self.ctx.types.get(gives).fallible.ok else gives;
-            if (value == self.t().void_id) return try self.badCall(args, arg, "`task.{s}` gives each task's value, and `{s}` gives none: wait for it on its own, `>t`", .{ name, self.sourceText(arg) });
+            if (value == self.t().void_id) {
+                if (valueless == null) valueless = arg;
+            } else if (valued == null) valued = arg;
+            if (valued != null and valueless != null) return try self.badCall(args, arg, "`task.{s}` gives each task's value, or nothing when none gives one, and `{s}` gives none while `{s}` gives one: wait for the tasks that give none in a `task.{s}` of their own, or each on its own, `>t`", .{ name, self.sourceText(valueless.?), self.sourceText(valued.?), name });
             fails = fails or can_fail;
             if (can_fail) try sets.append(a, self.ctx.types.get(gives).fallible.set);
             p.* = ty;
             part.* = value;
         }
-        const results = try self.ctx.intern(.{ .results = try self.ctx.dupeIds(parts) });
-        const result = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = results, .set = try self.waitSet(sets.items) } }) else results;
-        const f: FunctionType = .{ .params = try self.ctx.dupeIds(params), .returns = result, .is_sub = false };
+        const gives = if (valued == null) self.t().void_id else try self.ctx.intern(.{ .results = try self.ctx.dupeIds(parts) });
+        const result = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = gives, .set = try self.waitSet(sets.items) } }) else gives;
+        const f: FunctionType = .{ .params = try self.ctx.dupeIds(params), .returns = result, .is_sub = valued == null };
         try self.noteCallee(f);
         try self.checkArgs(args, f, .{}, try a.print("task.{s}", .{name}), pos, .{ .declared = f.params });
-        if (self.current_call) |call| try self.ctx.recordTaskJoin(call);
+        if (self.current_call) |call| try self.ctx.recordTaskJoin(call, valued != null);
         return result;
     }
 
@@ -15800,20 +16008,23 @@ const Checker = struct {
         // A closure that gives a view of a value that copies gives the
         // value, as a generic call's result binds it (`readValue`).
         const value = readValue(self.ctx, if (fails) self.ctx.types.get(returns).fallible.ok else returns);
-        if (self.isPoison(value)) return try self.skipCall(args);
-        if (kind == .map and sema.holdsWriteView(self.ctx, value)) return try self.givesWriteView(args, f, shown, value, "x");
+        if (self.isPoison(value)) return try self.skipClosureCall(args, f, &.{each_param}, kind == .each);
+        if (kind == .map and sema.holdsWriteView(self.ctx, value)) return try self.givesWriteView(args, f, &.{each_param}, shown, value, "x");
         if (kind == .map and f.isKind(.lambda)) {
             const gives = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = value } }) else value;
             fn_ty = try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{each_param}), .returns = gives, .is_sub = false } });
         }
         const result = switch (kind) {
             .map => blk: {
-                if (value == self.t().void_id) return try self.badCall(args, f, "`par.map` gives each call's value, and `{s}` gives none: to call it on each element, `par.each(!xs, ...)`", .{self.sourceText(f)});
+                if (value == self.t().void_id) {
+                    try self.errAt(f, "`par.map` gives each call's value, and `{s}` gives none: to call it on each element, `par.each(!xs, ...)`", .{self.sourceText(f)});
+                    return try self.skipClosureCall(args, f, &.{each_param}, false);
+                }
                 const list = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.list_sym_id, .args = try self.ctx.dupeIds(&.{value}) } });
                 break :blk if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = list, .set = try self.waitSet(&.{self.ctx.types.get(returns).fallible.set}) } }) else list;
             },
             .each => if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = self.t().void_id, .set = try self.waitSet(&.{self.ctx.types.get(returns).fallible.set}) } }) else self.t().void_id,
-            .workers => unreachable,
+            .workers, .push => unreachable,
         };
         const params: []const TypeId = &.{ xs_param, try sema.callableOfFn(self.ctx, fn_ty), self.t().int_id };
         const call: FunctionType = .{ .params = try self.ctx.dupeIds(params[0..args.len]), .returns = result, .is_sub = kind == .each };
@@ -15841,17 +16052,19 @@ const Checker = struct {
         }
         if (self.current_call) |c| try self.ctx.recordParCall(c, kind);
         self.ctx.makes_tasks = true;
-        return result;
+        return self.closureResult(f, result);
     }
 
     /// Reports `f`, the function `par.map` or `par.workers` (`shown`)
     /// calls, whose value `value` holds a write view, which nothing the
     /// call gives back may hold: it would reach what a task was lent to
     /// write after the task, beside the owner's own view. `copied` is
-    /// how the closure's parameter is spelled in the hint.
-    fn givesWriteView(self: *Checker, args: []const Sexp, f: Sexp, shown: []const u8, value: TypeId, copied: []const u8) Error!TypeId {
+    /// how the closure's parameter is spelled in the hint, and `params`
+    /// what `f` takes (`skipClosureCall`).
+    fn givesWriteView(self: *Checker, args: []const Sexp, f: Sexp, params: []const TypeId, shown: []const u8, value: TypeId, copied: []const u8) Error!TypeId {
         const how = if (self.ctx.types.get(value) == .write_view) "is" else "holds";
-        return try self.badCall(args, f, "`{s}` gives back each call's value, and `{s}` {s} a write view, which no value it gives back may hold: give a copy, `+{s}`, or a value made from it", .{ shown, try self.tyName(value), how, copied });
+        try self.errAt(f, "`{s}` gives back each call's value, and `{s}` {s} a write view, which no value it gives back may hold: give a copy, `+{s}`, or a value made from it", .{ shown, try self.tyName(value), how, copied });
+        return try self.skipClosureCall(args, f, params, false);
     }
 
     /// `par.workers(!states, ?items, f)` of `std.par`: one task for each
@@ -15898,11 +16111,11 @@ const Checker = struct {
         // A closure that gives a view of a value that copies gives the
         // value, as a generic call's result binds it (`readValue`).
         const value = readValue(self.ctx, if (fails) self.ctx.types.get(returns).fallible.ok else returns);
-        if (self.isPoison(value)) return try self.skipCall(args);
+        if (self.isPoison(value)) return try self.skipClosureCall(args, f, &.{ state_param, item_param }, false);
         const none = value == self.t().void_id;
         // A write view given back would reach a task's state, or what it
         // holds, after the task, beside the state's own.
-        if (sema.holdsWriteView(self.ctx, value)) return try self.givesWriteView(args, f, shown, value, "s");
+        if (sema.holdsWriteView(self.ctx, value)) return try self.givesWriteView(args, f, &.{ state_param, item_param }, shown, value, "s");
         if (f.isKind(.lambda)) {
             const gives = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = value } }) else value;
             fn_ty = try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(&.{ state_param, item_param }), .returns = gives, .is_sub = none } });
@@ -15942,7 +16155,76 @@ const Checker = struct {
         }
         if (self.current_call) |c| try self.ctx.recordParCall(c, .workers);
         self.ctx.makes_tasks = true;
-        return result;
+        return self.closureResult(f, result);
+    }
+
+    /// `par.push(!t, ?sizes, f, limit: n)` of `std.par`: push
+    /// `sizes.sum()` slots onto the table `t` at once, then call
+    /// `f(!run, k)` for each run `k`, the next `sizes[k]` of those slots
+    /// in order, on up to `n` tasks at once. It is `par.each` over the
+    /// runs, typed as `parCall` types it: the runs are disjoint slices of
+    /// the slots `t` owns, each lent to one task to write, so `T` must be
+    /// sendable, as `each`'s elements; every task reads what `f` captures,
+    /// so these must sync. `f` gives nothing; when it can fail, so can the
+    /// call. `t` is an ordinary `!` argument, lent to write for the call.
+    fn parPush(self: *Checker, pos: u32, args: []const Sexp) Error!TypeId {
+        const shown = "par.push";
+        const example = "par.push(!t, ?sizes, |run, k| ...)";
+        var positional: usize = 0;
+        for (args) |a| {
+            if (!a.isKind(.kwarg)) {
+                positional += 1;
+                continue;
+            }
+            if (!std.mem.eql(u8, self.text(ir.Kwarg.name(a)), "limit")) return try self.badCall(args, a, "`par.push` takes the table, the sizes of the runs, a function, and at most `limit:`, how many tasks run at once: `{s}`", .{example});
+        }
+        if (positional != 3 or args.len > 4) return try self.badCall(args, pos, "`par.push` takes the table, the sizes of the runs, and a function, `{s}`, and `limit:`, how many tasks run at once", .{example});
+        const table_arg = args[0];
+        const sizes = args[1];
+        // The function comes third, or last, after `limit:`, when it is a
+        // closure written there (`trailingParam`).
+        const f = if (hasTrailingClosure(args)) args[args.len - 1] else args[2];
+        for ([_]Sexp{ table_arg, sizes, f }) |a| if (a.isKind(.kwarg)) return try self.badCall(args, a, "positional arguments must come before keyword arguments: `par.push` takes the table, the sizes, then the function, `par.push(!t, ?sizes, f, limit: n)`, or `limit:` before a closure written last, `par.push(!t, ?sizes, limit: n, |run, k| ...)`", .{});
+        const t_ty = try self.argType(table_arg);
+        if (self.isPoison(t_ty)) return try self.skipCall(args);
+        const table = sema.unwrapViews(self.ctx, t_ty);
+        const elem = sema.tableElem(self.ctx, table) orelse return try self.badCall(args, table_arg, "`par.push` pushes the next slots of a Table; `{s}` is a `{s}`", .{ self.sourceText(table_arg), try self.tyName(t_ty) });
+        if (!table_arg.isKind(.write) and self.ctx.types.get(t_ty) != .write_view) {
+            const place = try self.plainText(stripSigil(table_arg));
+            return try self.badCall(args, table_arg, "`par.push` pushes slots onto the table and writes them: lend it so, `par.push(!{s}, ...)`", .{place});
+        }
+        const sizes_ty = try self.argType(sizes);
+        if (self.isPoison(sizes_ty)) return try self.skipCall(args);
+        const size = sema.lentElem(self.ctx, sizes_ty) orelse switch (self.ctx.types.get(sema.unwrapViews(self.ctx, sizes_ty))) {
+            .slice => |sl| sl.elem,
+            else => null,
+        };
+        if (size != self.t().int_id) return try self.badCall(args, sizes, "`par.push` takes the size of each run as an `Int`, from a List, an array, or a slice; `{s}` is a `{s}`", .{ self.sourceText(sizes), try self.tyName(sizes_ty) });
+        const t_param = try self.ctx.intern(.{ .write_view = table });
+        const sizes_param = try self.ctx.intern(.{ .slice = .{ .elem = self.t().int_id } });
+        const run_param = try self.ctx.intern(.{ .write_view = try self.ctx.intern(.{ .slice = .{ .elem = elem } }) });
+        const fn_ty = (try self.parFunction(.push, f, &.{ run_param, self.t().int_id }, shown)) orelse return try self.skipCall(args);
+        const returns = self.ctx.types.get(fn_ty).function.returns;
+        const fails = self.ctx.types.get(returns) == .fallible;
+        const result = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = self.t().void_id, .set = try self.waitSet(&.{self.ctx.types.get(returns).fallible.set}) } }) else self.t().void_id;
+        const params: []const TypeId = &.{ t_param, sizes_param, try sema.callableOfFn(self.ctx, fn_ty), self.t().int_id };
+        const call: FunctionType = .{ .params = try self.ctx.dupeIds(params[0..args.len]), .returns = result, .is_sub = true };
+        try self.noteCallee(call);
+        try self.checkArgs(args, call, .{ .names = &.{ "t", "sizes", "f", "limit" } }, shown, pos, .{ .declared = call.params });
+        // Every task reads what `f` captures; each run goes to the one
+        // task that writes it.
+        if (f.isKind(.lambda)) for (sema.captureList(ir.Lambda.captures(f))) |cap| {
+            if (!try self.parCapture(cap, shown)) return self.t().invalid_id;
+        };
+        if (try sema.crossingBlocker(self.ctx, elem, .moves)) |blocker| {
+            if (try self.statedCrossing(blocker, .moves, self.startOf(table_arg))) return self.t().invalid_id;
+            try self.errAt(table_arg, "`par.push` hands the runs of `{s}` to tasks that may run on other cores, to write each, and `{s}` {s}", .{ self.sourceText(table_arg), try self.tyName(elem), try self.blockerReason(blocker, false, if (blocker == elem) "is" else null) });
+            return self.t().invalid_id;
+        }
+        try self.requireTask(elem, .moves, self.startOf(table_arg), "is lent to tasks to write", false);
+        if (self.current_call) |c| try self.ctx.recordParCall(c, .push);
+        self.ctx.makes_tasks = true;
+        return self.closureResult(f, result);
     }
 
     /// `task.isolate(f)` of `std.task`: run `f`, which takes nothing, and
@@ -16017,7 +16299,7 @@ const Checker = struct {
         };
         if (self.current_call) |c| try if (supervise) self.ctx.recordSuperviseCall(c) else self.ctx.recordIsolateCall(c);
         self.ctx.makes_tasks = true;
-        return result;
+        return self.closureResult(f, result);
     }
 
     /// `*Chan[T](n)`: a channel of `n` slots, behind its first handle. It
@@ -16066,9 +16348,9 @@ const Checker = struct {
             const obj = ir.Member.object(callee);
             if (!obj.isKind(.write)) return try self.badCall(args, obj, "an arm receives or sends, which changes the channel: mark it, `(!{s}).{s}(...)`", .{ self.sourceText(obj), method });
             const handle = ir.get(obj, .operand);
-            const handle_ty = try self.synthExpr(handle);
+            const handle_ty = try self.armHandle(obj);
             if (self.isPoison(handle_ty)) return try self.skipCall(args);
-            const elem = sema.chanOfHandle(self.ctx, handle_ty) orelse return try self.badCall(args, handle, "`{s}` is a `{s}`, not a channel; {s}", .{ self.sourceText(handle), try self.tyName(handle_ty), shape });
+            const elem = sema.chanOfHandle(self.ctx, handle_ty) orelse return try self.badArms(args, handle, "`{s}` is a `{s}`, not a channel; {s}", .{ self.sourceText(handle), try self.tyName(handle_ty), shape });
             const arm_args = ir.Call.args(arm);
             if (arm_args.len != @as(usize, if (recv) 1 else 2)) return try self.badCall(args, arm, "{s}", .{shape});
             const given: []const TypeId = if (recv) try self.ctx.dupeIds(&.{try self.ctx.intern(.{ .optional = elem })}) else &.{};
@@ -16178,7 +16460,7 @@ const Checker = struct {
             if (!recv and !std.mem.eql(u8, method, "on_send")) return try self.badArms(args, arm, "{s}", .{shape});
             if (!obj.isKind(.write)) return try self.badArms(args, obj, "an arm receives or sends, which changes the channel: mark it, `!{s}.{s}(...)`", .{ self.sourceText(obj), method });
             const handle = ir.get(obj, .operand);
-            const handle_ty = try self.synthExpr(handle);
+            const handle_ty = try self.armHandle(obj);
             if (self.isPoison(handle_ty)) return try self.skipArms(args);
             const elem = sema.chanOfHandle(self.ctx, handle_ty) orelse return try self.badArms(args, handle, "`{s}` is a `{s}`, not a channel; {s}", .{ self.sourceText(handle), try self.tyName(handle_ty), shape });
             if (arm_args.len != @as(usize, if (recv) 0 else 1)) {
@@ -16195,6 +16477,28 @@ const Checker = struct {
         if (saved_call) |c| try self.ctx.recordSelect(c);
         self.ctx.makes_tasks = true;
         return try self.ctx.intern(.{ .fallible = .{ .ok = try sema.selectType(self.ctx, names, payloads, pos) } });
+    }
+
+    /// The handle of a receive or send arm, `ch` of `!ch.on_recv()`, whose
+    /// `!` is checked as a marked method's self is (`synthLend`): the arm
+    /// changes its channel, so it needs a handle the task holds, and a
+    /// read view of one, however it is reached, is rejected there. The
+    /// handle's type, or poison once that is reported. What is no
+    /// channel gives its type alone, with no lend's diagnostic, so the
+    /// caller says it is no channel.
+    fn armHandle(self: *Checker, obj: Sexp) Error!TypeId {
+        const saved = self.self_obj;
+        defer self.self_obj = saved;
+        self.self_obj = obj;
+        const mark = self.ctx.diagnostics.items.len;
+        const lent = try self.synthExpr(obj);
+        const handle_ty = self.ctx.typeOf(ir.get(obj, .operand)) orelse return self.t().invalid_id;
+        if (self.isPoison(handle_ty)) return handle_ty;
+        if (sema.chanOfHandle(self.ctx, handle_ty) == null) {
+            self.ctx.diagnostics.shrinkRetainingCapacity(mark);
+            return handle_ty;
+        }
+        return if (self.isPoison(lent)) self.t().invalid_id else handle_ty;
     }
 
     /// `badCall` of `task.select`: the arms' channels and values are
@@ -16364,13 +16668,27 @@ const Checker = struct {
         return std.mem.eql(u8, foreign.name, module) and std.mem.eql(u8, foreign.symbols.items[n.sym_id].name, name);
     }
 
-    /// The function type of `f`, the function `par.map`, `par.each`, or
-    /// `par.workers` calls on each element, which takes `params` (the
-    /// element, or a task's state and the item): a closure written in the
+    /// The function type of `f`, the function `par.map`, `par.each`,
+    /// `par.workers`, or `par.push` calls on each element, which takes
+    /// `params` (the element, a task's state and the item, or a run and
+    /// its index): a closure written in the
     /// call, which fails when its body propagates a failure, or a
     /// function's name. Null after a diagnostic.
     fn parFunction(self: *Checker, kind: sema.ParCall, f: Sexp, params: []const TypeId, shown: []const u8) Error!?TypeId {
-        if (f.isKind(.lambda)) return try self.closureType(f, params, kind == .each);
+        if (f.isKind(.lambda)) {
+            const sub = kind == .each or kind == .push;
+            // A closure that gives a value has no type to check its
+            // parameters against until its body is typed: its count is
+            // checked first. (One that gives nothing is checked against
+            // the `sub` type the call lends, which says so.)
+            const takes = ir.Lambda.params(f).items().len;
+            if (!sub and takes > params.len) {
+                try self.errAt(f, "this closure takes {d} parameters, but `{s}` passes {d}; a closure may take fewer, never more", .{ takes, shown, params.len });
+                try self.closures_reported.put(self.ctx.allocator, nodeId(f), {});
+                return null;
+            }
+            return try self.closureType(f, params, sub);
+        }
         const ty = try self.argType(f);
         if (self.isPoison(ty)) return null;
         switch (self.fnArg(f, ty)) {
@@ -16384,20 +16702,36 @@ const Checker = struct {
                         if (have == given) continue;
                         if (self.ctx.types.get(given) != .read_view or have != readValue(self.ctx, given)) break false;
                     } else true;
-                    if (fits) return ty;
+                    if (fits) {
+                        // `each` and `push` keep nothing `f` gives.
+                        if (kind == .each or kind == .push) {
+                            const gives = got.returns;
+                            const value = if (self.ctx.types.get(gives) == .fallible) self.ctx.types.get(gives).fallible.ok else gives;
+                            if (value != self.t().void_id) {
+                                try self.errAt(f, "`{s}` keeps nothing its function gives, and `{s}` gives a `{s}`: call it in a closure that discards the value, `_ = ...`, or give nothing", .{ shown, self.sourceText(f), try self.tyName(value) });
+                                return null;
+                            }
+                        }
+                        return ty;
+                    }
                     if (kind == .workers) {
                         try self.errAt(f, "`par.workers` calls `{s}` with a task's state as `{s}` and each item as `{s}`, and `{s}` takes `{s}` and `{s}`", .{ self.sourceText(f), try self.tyName(params[0]), try self.tyName(params[1]), self.sourceText(f), try self.tyName(got.params[0]), try self.tyName(got.params[1]) });
+                    } else if (kind == .push) {
+                        try self.errAt(f, "`par.push` calls `{s}` with each run as `{s}` and its index as `{s}`, and `{s}` takes `{s}` and `{s}`", .{ self.sourceText(f), try self.tyName(params[0]), try self.tyName(params[1]), self.sourceText(f), try self.tyName(got.params[0]), try self.tyName(got.params[1]) });
                     } else try self.errAt(f, "`{s}` calls `{s}` with each element as `{s}`, and `{s}` takes `{s}`", .{ shown, self.sourceText(f), try self.tyName(params[0]), self.sourceText(f), try self.tyName(got.params[0]) });
                     return null;
                 }
                 if (kind == .workers) {
                     try self.errAt(f, "`{s}` calls `{s}` with a task's state and one item at a time, and it takes {d} parameters", .{ shown, self.sourceText(f), got.params.len });
+                } else if (kind == .push) {
+                    try self.errAt(f, "`{s}` calls `{s}` with one run and its index at a time, and it takes {d} parameters", .{ shown, self.sourceText(f), got.params.len });
                 } else try self.errAt(f, "`{s}` calls `{s}` with one element at a time, and it takes {d} parameters", .{ shown, self.sourceText(f), got.params.len });
             },
             .binding, .view => try self.manyTasksClosure(f, shown, switch (kind) {
                 .map => "par.map(?xs, |x| ...)",
                 .each => "par.each(!xs, |x| ...)",
                 .workers => "par.workers(!states, ?items, |s, x| ...)",
+                .push => "par.push(!t, ?sizes, |run, k| ...)",
             }),
             .literal, .other => try self.errAt(f, "`{s}` calls a function on each element, a closure written in the call or a function's name; `{s}` is a `{s}`", .{ shown, self.sourceText(f), try self.tyName(ty) }),
         }
@@ -16417,32 +16751,71 @@ const Checker = struct {
     /// form calls goes (`task.isolate`, `par.map`, `task.select`'s arms),
     /// lent `params`, which fails when its body propagates a failure:
     /// checked quietly as one that cannot fail, then as one that can, and,
-    /// when neither checks clean, as one that cannot, whose errors the
-    /// call's own check of `f` reports. A `sub` gives nothing, as
-    /// `par.each`'s closure.
+    /// when neither checks clean, as the one with fewer errors (one that
+    /// cannot fail on a tie), whose errors the call's own check of `f`
+    /// reports, or `closureErrors` where the call cannot build on what it
+    /// gives: a closure in error that propagates is not also reported for
+    /// propagating. A `sub` gives nothing, as `par.each`'s closure.
     fn closureType(self: *Checker, f: Sexp, params: []const TypeId, sub: bool) Error!TypeId {
-        var quiet: TypeId = undefined;
-        for ([_]bool{ false, true }) |fails| {
-            const mark = self.ctx.diagnostics.items.len;
-            self.ctx.quiet += 1;
-            self.tentative += 1;
-            defer {
-                self.ctx.quiet -= 1;
-                self.tentative -= 1;
-                self.ctx.diagnostics.shrinkRetainingCapacity(mark);
-            }
-            const ty = if (sub) blk: {
-                const returns = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = self.t().void_id } }) else self.t().void_id;
-                break :blk try self.checkLambda(f, try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(params), .returns = returns, .is_sub = true } }));
-            } else try self.checkLambdaGiven(f, null, params, fails);
-            if (self.ctx.diagnostics.items.len == mark) return ty;
-            if (!fails) quiet = ty;
-        }
-        return quiet;
+        const plain, const plain_errors = try self.closureQuietly(f, params, sub, false);
+        if (plain_errors == 0) return plain;
+        const failing, const failing_errors = try self.closureQuietly(f, params, sub, true);
+        if (failing_errors > 0) try self.closures_in_error.put(self.ctx.allocator, nodeId(f), {});
+        if (failing_errors >= plain_errors) return plain;
+        // A body whose value is poison gives no failure to its type:
+        // the closure still fails, as the call's own check of it must.
+        if (self.isPoison(failing) or self.ctx.types.get(failing) != .function) return failing;
+        const got = self.ctx.types.get(failing).function;
+        if (self.ctx.types.get(got.returns) == .fallible) return failing;
+        return try self.ctx.intern(.{ .function = .{ .params = got.params, .returns = try self.ctx.intern(.{ .fallible = .{ .ok = got.returns } }), .is_sub = got.is_sub } });
     }
 
-    /// Whether capture `cap` of the closure `par.map`, `par.each`, or
-    /// `par.workers` calls (`shown`) may be read by several tasks at
+    /// What a std form that calls `f` gives, `result`, or poison when `f`
+    /// is a closure literal in error (`closures_in_error`), whose errors
+    /// the call reported.
+    fn closureResult(self: *Checker, f: Sexp, result: TypeId) TypeId {
+        if (f.isKind(.lambda) and self.closures_in_error.contains(nodeId(f))) return self.t().invalid_id;
+        return result;
+    }
+
+    /// Reports the errors of closure literal `f`, which `closureType`
+    /// typed and which checks clean neither way, where the call that
+    /// passes it cannot build on what it gives and stops (`skipCall`
+    /// checks it again with no parameter types, which hides them): it is
+    /// checked aloud, given `params`, as the one of the two with fewer
+    /// errors.
+    fn closureErrors(self: *Checker, f: Sexp, params: []const TypeId, sub: bool) Error!void {
+        _, const plain = try self.closureQuietly(f, params, sub, false);
+        _, const failing = try self.closureQuietly(f, params, sub, true);
+        _ = try self.closureAs(f, params, sub, failing < plain);
+        try self.closures_reported.put(self.ctx.allocator, nodeId(f), {});
+    }
+
+    /// Closure literal `f` checked quietly as `closureType` checks it, as
+    /// one that can fail when `fails`: its type, and how many errors it has.
+    fn closureQuietly(self: *Checker, f: Sexp, params: []const TypeId, sub: bool, fails: bool) Error!struct { TypeId, usize } {
+        const mark = self.ctx.diagnostics.items.len;
+        self.ctx.quiet += 1;
+        self.tentative += 1;
+        defer {
+            self.ctx.quiet -= 1;
+            self.tentative -= 1;
+            self.ctx.diagnostics.shrinkRetainingCapacity(mark);
+        }
+        const ty = try self.closureAs(f, params, sub, fails);
+        return .{ ty, self.ctx.diagnostics.items.len - mark };
+    }
+
+    /// Closure literal `f` checked as `closureType` checks it, as one that
+    /// can fail when `fails`.
+    fn closureAs(self: *Checker, f: Sexp, params: []const TypeId, sub: bool, fails: bool) Error!TypeId {
+        if (!sub) return try self.checkLambdaGiven(f, null, params, fails);
+        const returns = if (fails) try self.ctx.intern(.{ .fallible = .{ .ok = self.t().void_id } }) else self.t().void_id;
+        return try self.checkLambda(f, try self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(params), .returns = returns, .is_sub = true } }));
+    }
+
+    /// Whether capture `cap` of the closure `par.map`, `par.each`,
+    /// `par.workers`, or `par.push` calls (`shown`) may be read by several tasks at
     /// once: not a write view, and of a type that shares. Reports why not.
     fn parCapture(self: *Checker, cap: Sexp, shown: []const u8) Error!bool {
         const mode = sema.captureModeOf(cap) orelse return true;
@@ -16487,7 +16860,7 @@ const Checker = struct {
         const f: FunctionType = .{ .params = try self.ctx.dupeIds(&.{set}), .returns = result, .is_sub = result == self.t().void_id };
         try self.noteCallee(f);
         _ = try self.noteMethod(callee, .value, result);
-        const misplaced_sigil = try self.checkSelfSigil(obj, .value, result, result, method);
+        const misplaced_sigil = try self.checkSelfSigil(obj, .value, result, method);
         try self.recordUse(obj, .take);
         if (!misplaced_sigil) {
             const saved_of = self.self_of;
@@ -16529,7 +16902,17 @@ const Checker = struct {
     fn spelledWait(self: *Checker, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
         const held = sema.unwrapViews(self.ctx, obj_ty);
         if (!sema.isTask(self.ctx, held) or !std.mem.eql(u8, method, "wait")) return null;
-        const shown = try self.plainText(stripSigil(obj));
+        const task = stripSigil(obj);
+        const shown = try self.plainText(task);
+        // `>` takes a name alone: a task made where it is waited for is
+        // the call itself, and any other is bound to a name first.
+        if (task != .src) {
+            if (task.isKind(.call) and ir.Call.task(task) != .nil) {
+                const call = std.mem.trimEnd(u8, shown, "&");
+                return try self.badCall(args, pos, "a task waited for as soon as it starts is the call itself: write `{s}`", .{call});
+            }
+            return try self.badCall(args, pos, "a task is waited for with `>` on a name: take it out to one first, `t = <{s}`, then wait for that, `>t`", .{shown});
+        }
         if (args.len > 0) return try self.badCall(args, pos, "a task is waited for with `>`, which takes nothing; to give the wait a deadline, write it in `time.within`: `time.within(2 * time.SECOND, |<{s}| >{s}!)`", .{ shown, shown });
         return try self.badCall(args, pos, "a task is waited for with `>`: write `>{s}`", .{shown});
     }
@@ -16578,7 +16961,7 @@ const Checker = struct {
             // A write method of the Cell's List, marked as any is
             // (`checkSelfMode`); the Cell is the handle's own, so
             // the handle is lent, not the Cell exclusively.
-            const misplaced_sigil = try self.checkSelfSigil(obj, .write, f.returns, f.returns, method);
+            const misplaced_sigil = try self.checkSelfSigil(obj, .write, f.returns, method);
             try self.recordUse(stripSigil(obj), .lend);
             if (!misplaced_sigil and self.hands(obj).kind != .made) try self.rejectResourceTemporary(obj, obj_ty);
             if (!misplaced_sigil) {
@@ -16870,12 +17253,13 @@ const Checker = struct {
     /// `Parser.selfSigil`): the sigil is the self mode of `m`, so
     /// a `!` before a method that only reads is the habit of `!` as
     /// negation, and a `!` call whose `Bool` value is used is written
-    /// `(!p).m(...)` so it never reads as one. `declared` is the result
-    /// the method declares, before its type's arguments are applied, so
-    /// a call returning a `T` that is a `Bool` keeps the short form. A
-    /// `?` spells out the read self a call takes anyway. Returns
-    /// whether it reported an error.
-    fn checkSelfSigil(self: *Checker, recv: Sexp, mode: SelfMode, returns: TypeId, declared: TypeId, method: []const u8) Error!bool {
+    /// `(!p).m(...)` so it never reads as one: a `!` is rejected wherever
+    /// reading it as `not` would also type-check. `returns` is the result
+    /// with self's type arguments applied, so `!flags.remove(0)` on a
+    /// `List[Bool]` is a `Bool`, while inside a generic body, where they
+    /// are parameters, a `T` stays a `T`. A `?` spells out the read self
+    /// a call takes anyway. Returns whether it reported an error.
+    fn checkSelfSigil(self: *Checker, recv: Sexp, mode: SelfMode, returns: TypeId, method: []const u8) Error!bool {
         if (!self.isSelfSigil(recv)) return false;
         const place = ir.get(recv, .operand);
         const at = self.ctx.span(place);
@@ -16898,10 +17282,15 @@ const Checker = struct {
                     try self.errAt(recv, "`(!{s})` already lends `{s}` to write: remove the outer `!` and write `{s}`", .{ lent, lent, call });
                     return true;
                 }
-                if (!self.isBoolResult(declared)) return false;
+                if (!self.isBoolResult(returns)) return false;
                 const long = try self.ctx.arena.allocator().print("({s})", .{self.sourceText(recv)});
                 const call = if (self.current_call) |c| try self.spliced(c, &.{recv}, &.{long}) else try self.ctx.arena.allocator().print("{s}.{s}(...)", .{ long, method });
-                try self.errAt(recv, "write `{s}`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`", .{call});
+                // Under `not` the negation is meant: only its long form.
+                if (self.current_call) |c| if (sameSite(c, self.not_operand)) {
+                    try self.errAt(recv, "`!` lends `{s}` to write and never negates: write `not {s}`", .{ name, call });
+                    return true;
+                };
+                try self.errAt(recv, "`!` lends `{s}` to write and never negates: write `{s}` for what `{s}` returns, or `not {s}` for its opposite", .{ name, call, method, call });
             },
             else => if (returns == self.t().bool_id) {
                 try self.errAt(recv, "`{s}` does not write `self`; for negation use `not`", .{method});
@@ -17285,6 +17674,13 @@ const Checker = struct {
         const sliced = self.slicedArg(e);
         var lend = (if (sliced) sliceArgLend(self.ctx, actual, expected) else sema.lendsAs(self.ctx, from, kind, expected)) orelse
             return sliced and try self.sliceArgRejected(e, actual, expected);
+        // `!h` of a handle lends the handle itself where a `!*T` goes, and
+        // a write view of the value it holds where the lend goes through
+        // the handle (`recordLoan`).
+        if (e.isKind(.write) and !sliced) switch (self.ctx.types.get(from)) {
+            .shared => |inner| try self.ctx.recordLoan(e, if (lend.has(.handle)) sema.loanOfView(self.ctx, inner) else .write),
+            else => {},
+        };
         const view = sema.isReadOrWriteView(self.ctx, actual);
         // A bare value where a view argument goes is lent to read where it
         // is, as `?e` would lend it (Core sentence 1): a place, or a value
@@ -17496,6 +17892,13 @@ const Checker = struct {
         if (frozen == null and syncs) {
             const by_api = !into.object.builtins.contains(.Syncs);
             const why = if (by_api) try std.fmt.allocPrint(self.ctx.arena.allocator(), " (`{s}` builds on `Syncs`)", .{try sema.apiName(self.ctx, into.object.api)}) else "";
+            // A word-Cell object's count is atomic: what keeps it out is
+            // that its Cells change, where `Syncs` erases only what never
+            // does.
+            if (sema.cellObject(self.ctx, inner)) {
+                try self.errAt(e, "`{s}` is erased to `{s}`, which holds only a frozen value{s}, and `{s}` changes through its Cells", .{ shown, shown_view, why, try self.tyName(inner) });
+                return true;
+            }
             try self.errAt(e, "`{s}` is erased to `{s}`, which several tasks read{s}, but its count is not atomic: freeze the value, `*Frozen(...)`", .{ shown, shown_view, why });
             return true;
         }
@@ -21487,9 +21890,16 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
     }
     // A method's instance checks only its own parameters; its type's
     // are checked with self's instance.
+    // An instance made by one whose bounds failed is not checked: the
+    // failure written at the call is the error, and the generics that
+    // instance calls would only repeat it (`sort.sort[F32]` and each of
+    // the bounded helpers it reaches).
+    var failed: std.HashMapUnmanaged(sema.FnInstance, void, sema.FnInstance.Context, 80) = .empty;
+    defer failed.deinit(ctx.allocator);
     var i: usize = 0;
     while (i < ctx.fn_instances.items.len) : (i += 1) {
         const f = ctx.fn_instances.items[i];
+        if (f.via) |via| if (via == .func and failed.contains(via.func)) continue;
         // An implementation's method reached through an API has the
         // arguments the call's instance of the API's method checks and
         // reports.
@@ -21498,6 +21908,7 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
         // So are its bounds, which are the API's method's.
         const bounded = if (f.through_api) try sema.boundsMet(ctx, f.inst.ownParams(), f.inst.ownArgs()) else try sema.checkBounds(ctx, f.inst.ownParams(), f.inst.ownArgs(), f.site, of);
         if (!bounded) {
+            try failed.put(ctx.allocator, f.inst, {});
             if (!f.through_api) if (f.via) |via| try ctx.note(f.site, "`{s}` is made by `{s}`", .{ try sema.rootName(ctx, of), try sema.rootName(ctx, via) });
         } else if (try checkRequirements(ctx, &reqs, f.inst.ownParams(), f.inst.ownArgs(), f.site, of) and
             try checkMethodCalls(ctx, f.inst.subst(), f.inst.ownParams(), f.site, of))
@@ -22161,10 +22572,14 @@ fn crossingReason(ctx: *SemContext, blocker: TypeId, shared: bool, verb: ?[]cons
     const why: []const u8 = switch (ctx.types.get(blocker)) {
         .shared, .weak => |inner| if (ctx.types.get(inner) == .function)
             "an owned closure, whose captures its type does not show"
+        else if (blocker_is_weak and (sema.isWordCell(ctx, inner) or sema.cellObject(ctx, inner)))
+            "a `~` handle, which stays with one task; a `*` handle to the same value goes to other tasks"
         else if (blocker_is_weak)
             "a `~` handle whose count is not atomic, so two cores could change it at once"
         else if (sema.isCell(ctx, inner))
             "a `*` handle to a Cell of more than one word, which stays with one task; a Cell of an `Int`, `Bool`, `Float`, or plain enum goes to other tasks"
+        else if (try sema.cellRefusalReason(ctx, inner)) |reason|
+            reason
         else
             "a `*` handle whose count is not atomic, so two cores could change it at once",
         .callable => "a closure or function lent for a call, whose captures its type does not show",
@@ -22915,16 +23330,6 @@ fn recordObjectTable(ctx: *SemContext, id: SymbolId) Error!void {
 /// An API method a conformance must provide: its field, and the API of
 /// the closure that declares it.
 const ApiMethod = struct { api: sema.ApiRef, home: *const SemContext, field: Field };
-
-/// The result the method of type `fn_ty`, a type of `ctx`, declares,
-/// before any type's arguments are applied: `T`, not the `Bool` a
-/// `List[Bool]` gives it. `applied` where `fn_ty` is no function.
-fn declaredResult(ctx: *const SemContext, fn_ty: TypeId, applied: TypeId) TypeId {
-    return switch (ctx.types.get(fn_ty)) {
-        .function => |f| f.returns,
-        else => applied,
-    };
-}
 
 fn checkConformance(ctx: *SemContext, index: usize) Error!void {
     const a = ctx.arena.allocator();
@@ -23790,7 +24195,7 @@ test "check: where a Cell and a write view stand, and a branch lent in place, ar
     // a context takes in place.
     const call = "self." ++ "lendsBranch(";
     var from: usize = 0;
-    for ([_][]const u8{ "headerLendsBranch", "synthLend", "lendsToWrite", "lendSlice", "weakUpgrade", "lendTempIn", "checkExpr" }) |want| {
+    for ([_][]const u8{ "headerLendsBranch", "lendViewOf", "lendsToWrite", "lendSlice", "weakUpgrade", "lendTempIn", "checkExpr" }) |want| {
         from = std.mem.findPos(u8, tc, from, call).?;
         const fn_at = std.mem.findLast(u8, tc[0..from], "    fn ").?;
         const got = tc[fn_at + "    fn ".len .. fn_at + std.mem.findScalar(u8, tc[fn_at..], '(').?];
@@ -23810,6 +24215,25 @@ test "check: where a Cell and a write view stand, and a branch lent in place, ar
     // that holds a Cell differently from any other.
     for ([_][]const u8{ @embedFile("ownership.zig"), @embedFile("emit.zig"), @embedFile("facts.zig") }) |src| {
         try std.testing.expectEqual(0, std.mem.count(u8, src, "holdsCell" ++ "ByValue"));
+    }
+}
+
+test "check: what `!x` puts on `x` is decided once, by loanOfView" {
+    // A read or a write loan (Core §4) is one fact: `sema.loanOfView`
+    // decides it, typecheck records it where `!x`'s view is chosen
+    // (`recordLoan`) and where a handle becomes a view of its value
+    // (`lendView`), and the ownership checker reads it (`loanOf`). Emit
+    // never asks.
+    const tc = @embedFile("typecheck.zig");
+    try std.testing.expectEqual(1, std.mem.count(u8, @embedFile("sema.zig"), "pub fn " ++ "loanOfView("));
+    try std.testing.expectEqual(2, std.mem.count(u8, tc, "sema." ++ "loanOfView("));
+    try std.testing.expectEqual(2, std.mem.count(u8, @embedFile("ownership.zig"), "self.loan" ++ "Of("));
+    for ([_][]const u8{ @embedFile("ownership.zig"), @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig") }) |other| {
+        try std.testing.expectEqual(0, std.mem.count(u8, other, "loanOf" ++ "View("));
+        try std.testing.expectEqual(0, std.mem.count(u8, other, "record" ++ "Loan("));
+    }
+    for ([_][]const u8{ @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig") }) |other| {
+        try std.testing.expectEqual(0, std.mem.count(u8, other, "loan" ++ "Of("));
     }
 }
 

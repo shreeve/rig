@@ -193,7 +193,8 @@ pub fun read_dir(path: ?String) -> List[Entry]?!
 # The file at `path` to read, or `none` when nothing is there. With
 # `wait: false` the open does not wait for a FIFO's writer, or a device
 # to be ready; the reads after it wait as any read does (a FIFO with no
-# writer reads as its end, 0 bytes).
+# writer reads as its end, 0 bytes). On macOS a FIFO's reads wait in a
+# poll of at most 64 ms rather than in the read, either way.
 pub fun open(path: ?String, wait: Bool = true) -> File?!
   if open_fd(path, wait)! as fd
     return File(fd: fd)
@@ -277,7 +278,9 @@ extern zig "file.zig"
   fun dir_entries(path: ?String, names: !List[String], codes: !List[Int]) -> Bool!
 
   # A descriptor of the file at `path` open to read, or none; without
-  # `wait`, opened without waiting for a writer, then made to wait.
+  # `wait`, opened without waiting for a writer, then made to block. On
+  # macOS a FIFO's is left not blocking, either way, and its reads wait
+  # in a poll.
   fun open_fd(path: ?String, wait: Bool) -> Int?!
 
   # A descriptor of the file at `path`, created or emptied, open to write.

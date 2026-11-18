@@ -56,6 +56,13 @@ A new session, human or agent, takes these steps in order:
   line, `v0.3.x`; an earlier line gets no further releases. Rounds land
   on `main` untagged until the next tag; its release notes include a
   migration guide for the renames (`tools/migrate-0.3.py`).
+- **Build modes:** debug (the default, leak-checked) and `--release`
+  (Zig's safe mode). No mode drops a check; a program opts out only in
+  its source, with `+%`, `-%`, `*%`, or a `raw` block. `--release=fast`
+  is a usage error naming those opt-outs, and the benchmarks' Rig rows
+  measured in the fast mode wait to be measured again with `--release`.
+  The concurrency benchmarks are, on the Mac and on pup
+  (docs/history/records/2026-11/concurrency-bench-remeasure/README.md).
 - **Branches:** `main` is the one long-lived branch. Work lands through
   short-lived branches and pull requests: plain git, with no CI,
   gates, or required checks.
@@ -85,6 +92,16 @@ A new session, human or agent, takes these steps in order:
   unsigned one miscompiles in release builds (LLVM `trunc nsw`); Rig's
   emitted Zig and runtime cast through the unsigned type of the source's
   width instead, until Zig fixes it.
+- **Fork-join against Rayon** (bench/fork, the Mac, 10 workers): qsort
+  1.6-3.4% faster than Rayon over three boards, psum 5-7% slower; at one
+  worker Rayon leads both. The integer sort kernel (#1145), integer
+  folds by vectors (#1146, Zig 0.17 only: remove on 0.18 if plain loops
+  vectorize, INTERNALS "Known Zig 0.17 issues") and the ring join
+  (#1147) carry it. psum's rest is the first parallel pass and memory
+  bandwidth. Two leads wait on the owner: a handoff keeping its time
+  slice (qsort 12-16% faster at one worker, other work waits longer)
+  and stacks touched at worker start (costs memory). Records:
+  `~/Data/Code/Claude/rig/rig/fable-review/fork-join-2.md`.
 - **Health:** a change lands on a green core suite (`swarm test/rig.rip`:
   the test files, the doc examples, their pending examples the planned
   Core rules, the examples, the unit tests, the oracle floors in
@@ -106,6 +123,65 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **The stable sort** (branch `sort-stable`, then `sort-drift` on
+  it; owner, 2026-11-16, "fastest, within 2% of Rust's stable sort"):
+  `sort_by`, `sort_by_key`, and `sort` of a type with its own `order`
+  sort by driftsort (Rust's `sort`): powersort-merged runs, a stable
+  quicksort for input without runs, small sorts by networks, inline so
+  the comparator is inlined; std/sort.zig holds the element-moving
+  loops. Text `<` compares eight bytes at a time (`rig.textLess`). The
+  Zig ceiling (record's `programs/drift.zig`) is within 2% of Rust or
+  faster on 39 of 48 rows (reversed input of a few thousand 7 to 8%
+  slower); Rig's port is faster than the buffered merge on every row,
+  and within 2% of Rust or faster on 58 of 64 (text 1.6 to 1.9 times
+  as fast, sorted and reversed input faster, records level), 2 to 9%
+  slower on random and small 16-valued Ints.
+  Waits on the core suite, the Trig and loco light gates, and the
+  owner. Records: `docs/history/records/2026-11/std-sort/drift.md`.
+- **`task.all` of tasks that give no value** (branch `task-all-subs`;
+  owner, 2026-11-03): `task.all(f()&, g()&)!` waits for several `sub`s
+  and gives nothing; a mix of tasks that give values and tasks that
+  give none stays rejected; a task of a type parameter's type gives a
+  value in every instance. It merges `task-all-fixes` (two rejections,
+  listed in CHANGELOG), which lands first.
+  Records: `docs/history/records/2026-11/concurrency-task-all/notes.md`.
+- **FIFO reads on macOS** (branch `fifo-pool`): `file.read` of a FIFO,
+  and a `File`'s reads of one, read without blocking and wait in a
+  poll of at most 64 ms, since a read parked in the macOS kernel can
+  miss a writer that opens and closes, writing nothing, and hang (the
+  core suite's `cli.std_file_ops` died so under load). Waits on pup's
+  `zig build test`, the Trig and loco light gates, and the owner.
+  Records: `docs/history/records/2026-11/concurrency-fifo/notes.md`.
+- **Functions that never return** (branch `noreturn-subs`): a `sub`
+  whose every path ends in a `panic`, a call of such a function, or a
+  `loop` no `break` leaves is emitted with Zig's result `noreturn`
+  (`src/returns.zig`), for Trig's shared `debug.fail`, whose `void`
+  result cost its parse phase 1.2%. No program's meaning changes. Waits
+  on the Trig and loco light gates and the owner. Design:
+  `docs/history/records/2026-11/never-returns/design.md`.
+- **Allocator rounding** (branch `alloc-rounding`): a span takes its
+  4 KiB units and no more, where its length was rounded to four buckets
+  a doubling and 16 KiB units; Trig's peak memory on the Mac is 15 MiB
+  lower on supabase-studio and 6 MiB on webpack, at the same speed.
+  Small blocks to 8 KiB fall in eight classes a doubling, where there
+  were four: 12 MiB lower again on supabase-studio, 2 MiB on webpack.
+  Waits on pup's `zig build test`, the Trig and loco light gates, and
+  pup timing. Design: lever 1 of
+  `~/Data/Code/Claude/rig/rig/proposals/mem-census.md`.
+- **`par.push`** (branch `par-push`): `par.push(!t, ?sizes, f)` of
+  std.par pushes a Table's next slots at once and writes them on
+  several tasks, a run each, for Trig's Ids.of (Trig branch `par-ids`).
+  The owner approved the name and the build; it lands after the core
+  suite, the Trig and loco light gates, and pup timing. Design:
+  `~/Data/Code/Claude/rig/rig/proposals/table-par-fill.md`.
+- **`shared.Map`** (branch `concurrent-map`, draft PR): a map
+  several tasks fill and read, insert-only, lookups that take no lock
+  and write nothing shared, values viewed in place. It rests on one
+  clause added to Core sentence 9 (a word-Cell object's handles cross
+  tasks); the owner approved the clause, after a review of four
+  experts, and the name. Waits on pup's `zig build test` and the Trig
+  and loco light gates. Design:
+  `~/Data/Code/Claude/rig/rig/proposals/std-concurrent-map.md`.
 - **A channel's receive of a niche-held `T?`** (branch
   `chan-niche-recv`): `Chan.recv` and a select's receiving arm give
   `rig.Opt(T)`, so a `Chan` of an object with a niche, a box, or an
@@ -255,6 +331,18 @@ A new session, human or agent, takes these steps in order:
   release (`tools/migrate-select.py`). A task's end is an arm too,
   built: `done: ?t.on_end()` lends `t`, its variant carries nothing,
   and the body takes the result with `>t`; two task arms are a race.
+  A receive or send arm's `!` is checked as a marked method's self
+  is, so a read view of a handle, however reached, is rejected there
+  as `!ch.recv()` is (records/2026-11/concurrency-lend-doctrine/select-read-view.md).
+- **What `!` lends to a shared value** (owner, 2026-11-15, "Approve the
+  defaults"; branch `lend-doctrine`), built: `!x` puts only a read loan
+  on `x` when it lends a write view of a Cell, a Signal, a channel, an
+  actor, or a value that holds a Cell, judged by the type where it is
+  lent (Core §4). One fact, `loanOf`, recorded by typecheck, replaces
+  the ownership checker's actor and select-arm exceptions; it accepts
+  more programs and rejects none. The reference checker learns the rule
+  from CORE's text in a change of its own
+  (records/2026-11/concurrency-lend-doctrine/build.md).
 - **Durations** (owner, 2026-11-04; branch `durations`), built: a bare
   number is seconds, an `Int` or a `Float`, and `ms:`, `us:`, `ns:`
   name the other units, in `time.sleep`, `time.after`, `time.within`,

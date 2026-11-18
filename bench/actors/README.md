@@ -14,8 +14,8 @@ bench/actors/bench-actors --out $D --time-only --reps 9
 ```
 
 It needs `bin/rig` built first, Cargo, and Go. `bench/actors/bench-actors
---help` lists the variants (`rig-fast`, `tokio` and `go` by default;
-`rig-safe` on request) and the options. `--record "#PR: what changed"`
+--help` lists the variants (`rig-safe`, `tokio` and `go` by default)
+and the options. `--record "#PR: what changed"`
 adds the Rig rows to [PROGRESS.md](PROGRESS.md).
 
 ## The benchmarks
@@ -39,7 +39,7 @@ parallel, with the cost of starting the tasks and making the counters.
 ## The rules
 
 As in [bench/tasks](../tasks/README.md): the same work and constants in
-each program; each runtime as it is used (Rig with `--release=fast`,
+each program; each runtime as it is used (Rig with `--release`,
 Tokio with `cargo build --release` on its multi-threaded runtime, Go
 with `go build`); Tokio from the repository's `misc/tokio` clone when
 there is one; the best of interleaved runs; arm64 timed on the Mac and

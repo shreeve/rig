@@ -35,7 +35,7 @@ sub main()
     print("after")
 EOF2
 want=$'one\ntwo\nthree\nflush.rig:9:5: panic: four\nfive'
-for mode in "" "--release" "--release=fast"; do
+for mode in "" "--release"; do
   how=${mode:-debug}
   rig build $mode -o flush flush.rig >build.log 2>&1 || fail "build flush.rig $how: $(cat build.log)"
   out=$(quiet ./flush order 2>&1); expect_rc $? 134 "panic exit status $how"

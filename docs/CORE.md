@@ -838,11 +838,19 @@ gone
 
 **9. Shared storage.** You change what you were lent with `!`, or what
 you share with `*`. A name's own value changes by assigning it. What
-you share is a `Cell`, and it changes only by a marked call: `!c.set(5)`.
+you share changes only by a marked call, `!c.set(5)`: a `Cell`, a
+`Signal`, a channel, an actor (SPEC §18), or a value that holds a
+`Cell`, and §4 says what the call lends.
 A value that holds a `Cell` lives only behind `*` (`*Cell(0)`, or a
 field of a value made with `*`); it is never a local, parameter,
 element, or type argument by value. A `Cell` of one word may go to
-other tasks, each change landing at once. A frozen value, `*Frozen(x)`,
+other tasks, each change landing at once in one order every task sees,
+and so may a *word-Cell object*: an object that holds a `Cell` and
+whose every field, as declared, is plain data (§1), a `Cell` of one
+word, or another word-Cell object. Through a handle only its Cells
+change; its handles, weak ones too, count atomically, and its `drop`
+runs in whichever task drops the last. A `get` then a `set` are two
+changes, not one. A frozen value, `*Frozen(x)`,
 lives only behind `*`: never a local, parameter, element, or type
 argument by value. It holds only data that never changes: no `Cell`,
 `Signal`, task, closure, view, or handle but another frozen value's.
@@ -1222,10 +1230,62 @@ takes none of the views in `!x`'s column, `!x` is rejected (sentence 4):
 | `![]T` | `[]T` | `![]T` (lent on) | built |
 | `String` | `?String` (also `(?String)?`) | `!String` | built |
 | `^T` | the views of `T` | the write views of `T` | built |
-| `*T`, `*{A}` | the read views of `T`; of a `*{A}`, the `?{A}` it holds | nothing of the value (`!h` lends the handle itself) | built |
+| `*T`, `*{A}` | the read views of `T`; of a `*{A}`, the `?{A}` it holds | the handle itself, `!*T` | built |
+| `*T` whose `T` changes by a marked call (sentence 9) | the read views of `T` | the handle itself, `!*T`, or a `!T`, which changes only by marked calls | built |
 | `X?` | `View?` for each view of `X` | `!(X?)`, by the first row | built |
 | a function or closure | `?fun` | | built |
 | a `T` that provides `A` | `?{A}` | `!{A}` | built |
+
+`!x` puts a write loan on `x`, and only a read loan when what it lends
+is a write view of a value that changes by a marked call (sentence 9),
+by a marked call or alone: `!c.set(5)`, `!h.bump()`, `!ch.send(<v)!`,
+`!a.add(x)`, a select's `!ch.on_recv()`, `hit(!h)` for a `!Hits`. Such
+a value lives only behind `*`. It is never replaced whole (`swap`
+exchanges none: a Cell's own `!c.swap(v)` does, in one step), and every
+view it gives out lasts while it lives, which each such type, std's
+`shared.Map` among them, meets by its declaration. So many write views of it may
+live at once, each changing only what every handle shares, while `x`
+stays put and keeps the value alive. So `!c.add((!c).swap(4))` is
+accepted, and so is a view `r = ?c` kept across `!c.set(5)`, whether
+`c` is a `*Cell[Int]`, a `!*Cell[Int]`, or a `!Cell[Int]`. The loan is
+judged by the concrete type of the value lent from, not by the view it
+becomes: `!h` of a `*Hits` lent where a `!{A}` goes lends `h` to read.
+A value whose type is an API object `{A}` or a type parameter is no
+such value, so two `!{A}` lends of one owned value, or of a `!{A}`
+parameter, are two write loans, and `!s` of a `*{A}` lends only the
+handle. `!h` that lends the handle itself, a `!*T` the
+callee may point elsewhere, puts a write loan on `h`, and so do
+assigning `h` and dropping it. A marked call through a read view is
+rejected (sentence 4). The loan begins before the call's arguments are
+evaluated, and lasts as long as the view it carries (sentence 6): for
+the call, for the life of a task that holds self, or until a select
+returns. An actor's call gives the actor a count of its own, not a
+view, so `!a.add(x)&` keeps no loan once made. *(built)*
+
+```rig
+sub main()
+  c = *Cell(1)
+  !c.add((!c).swap(4))
+  r = ?c
+  !c.set(7)
+  print(r.get())
+```
+
+```output
+7
+```
+
+```rig reject
+sub main()
+  c = *Cell(1)
+  r = ?c
+  c = *Cell(2)
+  print(r.get())
+```
+
+```error
+cannot reassign `c` while it is lent
+```
 
 A view of a value that copies (§1) is copied out where that value is
 expected, a plain object, array, or optional as a number is, and the
@@ -2157,12 +2217,14 @@ rule in SYNTAX is syntax too.
   `(!a if c else !b).x`, and a slice lend, `(?t[..])[0]`, are values,
   not lends of a place. *(built)*
 - **A write call whose `Bool` value is used** is written
-  `(!s).insert(k)`, everywhere: a condition, an `as` header, an operand,
-  a binding, an argument, a result, so its `!` never reads as `not`.
-  Any other write call is written short wherever its value goes,
-  `x = !v.pop()`; the result its method declares decides, so a call
-  returning a `T` that is a `Bool` is short too. The long form
-  `(!v).pop()` is valid everywhere. *(built)*
+  `(!s).insert(k)`, or `not (!s).insert(k)` for its opposite,
+  everywhere: a condition, an `as` header, an operand, a binding, an
+  argument, a result. A `!` is rejected wherever reading it as `not`
+  would also type-check. Any other write call is written short wherever
+  its value goes, `x = !v.pop()`; the result is judged with self's type
+  arguments applied where the call knows them, so `!flags.remove(0)`
+  on a `List[Bool]` is a `Bool`, and a `T` in a generic body is short.
+  The long form `(!v).pop()` is valid everywhere. *(built)*
 - **Labels**, the `catch` forms, `pass`, and `??`.
 - **Habits from other languages that keep Rig's meaning,** documented
   rather than changed: integer `/` and `%` truncate as in C; `u?.n`
@@ -2200,7 +2262,7 @@ sub main()
 ```
 
 ```error
-write `(!s).insert(1)`: a write call whose `Bool` value is used puts its `!` in parentheses, so it never reads as `not`
+`!` lends `s` to write and never negates: write `(!s).insert(1)` for what `insert` returns, or `not (!s).insert(1)` for its opposite
 ```
 
 ## 9. Inside the compiler

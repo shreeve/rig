@@ -12,14 +12,14 @@ source "$ROOT/test/cli/_lib.sh"
 check() { # NAME EXPECTED
     local name=$1 want=$2 out run
     "$RIG" emit "$name.rig" 2>&1 | grep -q 'spawnDense(' || fail "$name: no task is on a dense stack"
-    "$RIG" build --release=fast -o "$name" "$name.rig" >build.txt 2>&1 || fail "build $name: $(cat build.txt)"
+    "$RIG" build --release -o "$name" "$name.rig" >build.txt 2>&1 || fail "build $name: $(cat build.txt)"
     python3 - "$name" <<'PY' || fail "$name: no guard was written into the executable"
 import sys
 d = open(sys.argv[1], "rb").read()
 i = d.find(b"rig-dense-guard!")
 sys.exit(0 if i >= 0 and int.from_bytes(d[i + 16:i + 24], "little") > 0 else 1)
 PY
-    RIG_SANITIZE=1 "$RIG" build --release=fast -o "$name-s" "$name.rig" >build-s.txt 2>&1 || fail "build sanitized $name: $(cat build-s.txt)"
+    RIG_SANITIZE=1 "$RIG" build --release -o "$name-s" "$name.rig" >build-s.txt 2>&1 || fail "build sanitized $name: $(cat build-s.txt)"
     for run in 1 2 3 4 5; do
         out=$("$TIMEOUT_CMD" 30 "./$name" 2>err.txt | tr '\n' '/') || fail "$name run $run: $(tail -3 err.txt)"
         expect_eq "$out" "$want/" "$name run $run"

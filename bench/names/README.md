@@ -21,8 +21,9 @@ Each word sits in a buffer of its own, as a word read from input does.
 ## Results
 
 Apple Silicon (arm64), Zig 0.17.0, 2026-10-16, on a shared machine
-(load 6 to 8 of 10 cores), ns per lookup. ReleaseSafe is what
-`rig build --release` makes; ReleaseFast is `--release=fast`:
+(load 6 to 8 of 10 cores), ns per lookup. The safe rows are what
+`rig build --release` makes; the fast rows were measured in Zig's fast
+mode, which Rig no longer builds:
 
 | Names | Mode | One by one, hit | One by one, miss | Table, hit | Table, miss |
 |---|---|---|---|---|---|

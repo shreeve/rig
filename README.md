@@ -43,9 +43,9 @@ applies to every view, not a special rule for tasks.
   panics with the calls that formed it, and a test replays the same
   schedule from a seed.
 - **Zig's cost model.** The output is plain Zig. Starting and switching
-  tasks costs less than in Tokio or Go, and the HTTP server answers
-  about as many requests as hyper on a Mac, and more on Linux
-  ([benchmarks](docs/launch/benchmarks.md)).
+  tasks costs less than in Tokio or Go, and on a Mac the HTTP server
+  answers 8% fewer requests than hyper and 7% more than Go, and on
+  x86-64 Linux more than either ([benchmarks](docs/launch/benchmarks.md)).
 
 Every `rig` example in this README is checked by the test suite.
 
@@ -58,17 +58,18 @@ appears:
 
 | Mechanic | Sigils |
 |---|---|
-| Binding | `x = e` binds, `x =! e` binds for good |
+| Binding | `x = e` binds, `x =! e` binds a fixed local |
 | Taking and copying | `<x` moves (alone on a line, drops), `+x` copies or makes another handle |
 | Lending | `?x` lends to read, `!x` to write; as types, `?T` and `!T` |
 | Holding | `*x` shared (`*w` upgrades a weak handle), `^x` boxed, `~x` weak, `@` self |
 | Failure and absence | `T?` may be absent, `T!` may fail; `e?` and `e!` pass them on |
 | Concurrency | `f(x)&` sends work off, `>t` takes its result back |
 
-What a library chooses stays a word: canceling a task is
+They are ten characters, `! < + ? ^ * ~ @ &` and `>`; `=!` is `=`
+with `!`. What a library chooses stays a word: canceling a task is
 `<t.cancel()`. Rig spells negation `not`, so `!` never means "not".
-[docs/QUICK.md](docs/QUICK.md) puts every sigil on one page, and
-[the sigils journey](docs/learn/01-sigils.md) teaches them.
+[docs/QUICK.md](docs/QUICK.md) lists every use of each sigil on one
+page, and [the sigils journey](docs/learn/01-sigils.md) teaches them.
 
 ## Status
 

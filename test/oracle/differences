@@ -326,3 +326,12 @@ test/reject/ownership/write_view_held_by_a_loop_value_is_lent_while_it_lives.rig
 # more write views than its bound is rejected, never accepted unchecked
 # (AGENTS.md, North Star 1); the oracle has no bound.
 test/reject/ownership/write_view_chain_past_the_checker_bound.rig main prod-rejects prod-strict a store through 17 write views in a chain passes the checker's bound
+
+# A lend an argument has already made (`!nums`, or the write view a call
+# returned) stays in force while the defers of a failure in a later
+# argument run; the compiler ends there only the holds that wait for the
+# call to start (self's reservation, a place found up to an index, a
+# value read for a later consumer). The call never runs, so Core §7
+# allows the defer to write what the lend reaches.
+test/reject/ownership/defer_at_a_failure_after_a_lend_in_the_call.rig lent prod-rejects prod-strict `keep(!nums, g()!)` under an `errdefer` that writes `nums`
+test/reject/ownership/defer_at_a_failure_after_a_lend_in_the_call.rig started prod-rejects prod-strict `keep(!b.slot(), g()!)` under an `errdefer` that writes `b.v`

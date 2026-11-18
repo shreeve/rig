@@ -49,7 +49,7 @@ sub main()
   sum = >a + >b
   print(sum, >r, task.worker_count())
 RIG
-"$RIG" build --release=fast -o stress stress.rig >build.txt 2>&1 || fail "build stress.rig: $(cat build.txt)"
+"$RIG" build --release -o stress stress.rig >build.txt 2>&1 || fail "build stress.rig: $(cat build.txt)"
 end=$(( $(date +%s) + 20 ))
 run=0
 while (( run < 3 || $(date +%s) < end )); do
@@ -78,7 +78,7 @@ sub main()
   xs = >ts
   print(xs.len)
 RIG
-"$RIG" build --release=fast -o spread spread.rig >build-s.txt 2>&1 || fail "build spread.rig: $(cat build-s.txt)"
+"$RIG" build --release -o spread spread.rig >build-s.txt 2>&1 || fail "build spread.rig: $(cat build-s.txt)"
 out=$(RIG_SCHED_STATS=1 "$TIMEOUT_CMD" 60 ./spread 2>stats.txt | tr '\n' ' ') || fail "spread: $out"
 expect_eq "$out" "true 64 " "spread"
 ran=$(grep -cE 'rig: worker [1-3]: ran [1-9]' stats.txt) || true
@@ -110,7 +110,7 @@ sub main()
   os.exit(3)
   print(>r)
 RIG
-"$RIG" build --release=fast -o exiting exiting.rig >build-e.txt 2>&1 || fail "build exiting.rig: $(cat build-e.txt)"
+"$RIG" build --release -o exiting exiting.rig >build-e.txt 2>&1 || fail "build exiting.rig: $(cat build-e.txt)"
 for run in $(seq 1 30); do
     status=0
     out=$("$TIMEOUT_CMD" 60 ./exiting 2>err.txt) || status=$?

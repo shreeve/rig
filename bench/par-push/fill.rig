@@ -1,0 +1,94 @@
+# par.push against a serial loop of pushes (README.md): about 3.5M
+# 32-byte records, in about 12.5K runs of uneven sizes, filled into a
+# fresh Table, as Trig's Ids.of fills its binder table, a run per file.
+#
+# - `serial`: `!t.push(x)` for each record, run by run, in order.
+# - `push N`: `par.push(!t, ?sizes, f, limit: N)`, each run written by
+#   one of N tasks.
+#
+# Each record is a pure function of its run's source ids, the run's
+# index, and its base, so every form fills the same table. Each rep
+# makes a fresh table, whose pages are first touched by the fill; the
+# forms interleave, and the fastest of REPS counts. Prints
+# `NAME MS CHECK` per form: the checks must agree.
+
+use std.par
+use std.time
+
+FILES = 12500
+REPS = 15
+
+obj Sym
+  file: U32 = 0
+  local: U32 = 0
+  id: U64 = 0
+  base: U64 = 0
+  flags: U64 = 0
+
+# The size of file `k`'s run: most hold tens to hundreds of symbols, and
+# one in forty a few thousand, as a project's large files do.
+fun size_of(k: Int) -> Int
+  x = (k * 2654435761) % 1000003
+  return 1500 + x % 3500 if k % 40 == 7
+  20 + x % 380
+
+fun record(k: Int, l: Int, src: ?List[Int], base: Int) -> Sym
+  Sym(file: U32(k), local: U32(l), id: U64(src[l]), base: U64(base + l), flags: U64(src[l] % 8))
+
+fun check(t: ?Table[Sym, 4194304]) -> Int
+  total = 0
+  for i in 0..t.len
+    if i % 97 == 0
+      s = t[i]
+      total = (total + Int(s.file) * 31 + Int(s.local) + Int(s.id) + Int(s.base) + Int(s.flags)) % 1000000007
+  total + t.len
+
+fun serial(sources: ?List[List[Int]], bases: ?List[Int]) -> Int
+  t: Table[Sym, 4194304] = Table()
+  for src, k in sources
+    for l in 0..src.len
+      !t.push(record(k, l, ?src, bases[k]))
+  check(?t)
+
+fun pushed(sources: ?List[List[Int]], bases: ?List[Int], sizes: ?List[Int], workers: Int) -> Int
+  t: Table[Sym, 4194304] = Table()
+  par.push(!t, sizes, limit: workers, |?sources, ?bases, run, k|
+    src = ?sources[k]
+    base = bases[k]
+    for r, l in !run
+      r = record(k, l, src, base)
+  )
+  check(?t)
+
+sub main()
+  sizes: List[Int] = List()
+  bases: List[Int] = List()
+  sources: List[List[Int]] = List()
+  total = 0
+  for k in 0..FILES
+    n = size_of(k)
+    !sizes.push(n)
+    !bases.push(total)
+    src: List[Int] = List(capacity: n)
+    for l in 0..n
+      !src.push((k * 7919 + l * 104729) % 1000003)
+    !sources.push(<src)
+    total += n
+  print("records", total, "runs", FILES, "MB", total * 32 / 1000000)
+  names = List(["serial", "push 1", "push 2", "push 4", "push 8"])
+  limits = List([0, 1, 2, 4, 8])
+  best = List([0, 0, 0, 0, 0])
+  checks = List([0, 0, 0, 0, 0])
+  for _ in 0..REPS
+    for form in 0..5
+      t = time.now()
+      c = 0
+      if form == 0
+        c = serial(?sources, ?bases)
+      else
+        c = pushed(?sources, ?bases, ?sizes, limits[form])
+      ns = t.elapsed()
+      best[form] = ns if best[form] == 0 or ns < best[form]
+      checks[form] = c
+  for form in 0..5
+    print(names[form], Float(best[form]) / 1000000.0, checks[form])

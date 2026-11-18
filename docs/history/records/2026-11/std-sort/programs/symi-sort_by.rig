@@ -1,0 +1,85 @@
+# The scratch arm "symi": std.sort's stable merge (insertion-sorted runs
+# of 20, SymMerge by rotations) as one inline body with an explicit
+# stack in place of recursion, so a closure's compare is inlined. It
+# replaced `sort_by` in a copy of std/ (RIG_STD) and was never committed.
+
+pub inline sub sort_by[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
+  n = xs.len
+  width = 20
+  a = 0
+  while a < n : a += width
+    insertion_iter(!xs, less, a, math.min(a + width, n))
+  while width < n : width *= 2
+    a = 0
+    while a + width < n : a += 2 * width
+      sym_merge_iter(!xs, less, a, a + width, math.min(a + 2 * width, n))
+
+inline sub insertion_iter[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool, a: Int, b: Int)
+  i = a + 1
+  while i < b : i += 1
+    j = i
+    while j > a and less(?xs[j], ?xs[j - 1]) : j -= 1
+      !xs.swap(j, j - 1)
+
+inline sub sym_merge_iter[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool, a0: Int, m0: Int, b0: Int)
+  st = [240 of 0]
+  st[0] = a0
+  st[1] = m0
+  st[2] = b0
+  top = 3
+  while top > 0
+    top -= 3
+    a = st[top]
+    m = st[top + 1]
+    b = st[top + 2]
+    if m - a == 1
+      i = m
+      j = b
+      while i < j
+        h = (i + j) / 2
+        if less(?xs[h], ?xs[a])
+          i = h + 1
+        else
+          j = h
+      k = a
+      while k < i - 1 : k += 1
+        !xs.swap(k, k + 1)
+      continue
+    if b - m == 1
+      i = a
+      j = m
+      while i < j
+        h = (i + j) / 2
+        if not less(?xs[m], ?xs[h])
+          i = h + 1
+        else
+          j = h
+      k = m
+      while k > i : k -= 1
+        !xs.swap(k, k - 1)
+      continue
+    mid = (a + b) / 2
+    n = mid + m
+    start = n - b if m > mid else a
+    r = mid if m > mid else m
+    p = n - 1
+    while start < r
+      c = (start + r) / 2
+      if not less(?xs[p - c], ?xs[c])
+        start = c + 1
+      else
+        r = c
+    end = n - start
+    if start < m and m < end
+      rotate(!xs, start, m, end)
+    if a < start and start < mid
+      st[top] = a
+      st[top + 1] = start
+      st[top + 2] = mid
+      top += 3
+    if mid < end and end < b
+      st[top] = mid
+      st[top + 1] = end
+      st[top + 2] = b
+      top += 3
+

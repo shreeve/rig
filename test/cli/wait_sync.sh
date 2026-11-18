@@ -56,15 +56,18 @@ expect_eq "$z_unshift" "$z_shift" "epochOf shifts back as far as pack shifts up"
 need "Wait.lean pack" "$(lbody "$lean" '^def pack ')" "e * 2 ^ epochShift" "if c then cancelableBit else 0" "s.code"
 need "sched.zig Wait.pack" "$(zbody "$zig" 'fn pack[(]')" "if (cancelable) cancelable_bit else 0" "| state"
 
-# Every Zig function that touches a wait's word, and the Lean step it is
-# ("-" for none of its own). An entry other files call is a pair
-# (`interrupt` is `interruptApart`, never inlined, in a program built to
-# be preempted, and `interruptIn` otherwise): the body, `...In`, is the
-# step.
+# Every Zig function that touches a wait's word, each a Lean step. An
+# entry other files call is a pair (`interrupt` is `interruptApart`,
+# never inlined, in a program built to be preempted, and `interruptIn`
+# otherwise): the body, `...In`, is the step. A cancel
+# (`interruptForCancelIn`) and a deadline's timer (`Deadline.come`) only
+# read the word, for the present epoch, and end that wait by `interrupt`:
+# the step `interrupt`, which Wait.lean takes for any epoch, so reading
+# one first adds no step (checked below).
 zfns=$(awk '
     /^ *(pub )?(inline |noinline )?fn [a-zA-Z_]+\(/ { s = $0; sub(/^ *(pub )?(inline |noinline )?fn /, "", s); sub(/\(.*/, "", s); cur = s }
     /wait\.word/ { print cur }' "$zig" | sort -u | tr '\n' ' ')
-want="beginWait claim fallAsleep fiberMain interruptForCancelIn interruptIn "
+want="beginWait claim come fallAsleep fiberMain interruptForCancelIn interruptIn "
 expect_eq "$(tr ' ' '\n' <<<"$zfns" | sed '/^$/d' | sort | tr '\n' ' ')" "$want" \
     "the functions of src/sched.zig that touch a wait's word: each must be a step of Wait.lean, listed here"
 
@@ -98,6 +101,14 @@ need "sched.zig interrupt" "$(zbody "$zig" 'fn interruptIn[(]')" \
     "& ~Wait.states) | Wait.woken, .seq_cst, .seq_cst)" "if (state == Wait.asleep) wakeIn(f);"
 need "sched.zig interruptForCancel" "$(zbody "$zig" 'fn interruptForCancelIn[(]')" \
     "interruptIn(f, Wait.epochOf(f.wait.word.load(.seq_cst)), true)"
+need "sched.zig Deadline.come" "$(zbody "$zig" 'fn come[(]')" \
+    "const epoch = Wait.epochOf(f.wait.word.load(.seq_cst));" "return interrupt(f, epoch, false);"
+# The two that read the present epoch write the word only through
+# `interrupt`.
+for f in 'fn interruptForCancelIn[(]' 'fn come[(]'; do
+    writes=$(zbody "$zig" "$f" | grep -F 'wait.word.' | grep -vF 'wait.word.load(.seq_cst)')
+    [[ -z $writes ]] || fail "sched.zig $f: touches the word other than to read it: $writes"
+done
 
 # claim: a wait of its epoch, asleep, becomes woken, run at once.
 need "Wait.lean claim" "$(lbody "$lean" '^  [|] claim ')" "e = w.epoch ∧ w.st = .asleep" "st := .woken"

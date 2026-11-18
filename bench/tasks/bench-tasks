@@ -3,9 +3,9 @@
 
 usage: bench/tasks/bench-tasks [options]
 
-  --variants a,b  what to build and time (default: rig-fast,tokio,go):
-                    rig-fast   bench/tasks/tasks.rig, rig build --release=fast
-                    rig-safe   the same, rig build --release (Zig's safe mode)
+  --variants a,b  what to build and time (default: rig-safe,tokio,go):
+                    rig-safe   bench/tasks/tasks.rig, rig build --release (Zig's safe
+                               mode, every check kept)
                     tokio      bench/tasks/tokio, cargo build --release, on
                                Tokio's multi-threaded runtime
                     go         bench/tasks/go, go build
@@ -19,8 +19,8 @@ usage: bench/tasks/bench-tasks [options]
                   the crates.io release Cargo resolves)
   --record NOTE   append the Rig variants' rows to bench/tasks/PROGRESS.md,
                   dated, with NOTE (say, "#348: fibers on one worker")
-  --gate          fail when rig-fast takes more than 1.5 times the last
-                  rig-fast row PROGRESS.md holds for this machine's
+  --gate          fail when rig-safe takes more than 1.5 times the last
+                  rig-safe row PROGRESS.md holds for this machine's
                   architecture, on any benchmark: run by hand before a
                   change to the scheduler or to tasks lands
 
@@ -83,10 +83,9 @@ def build(v, out, tokio):
     if os.path.exists(exe):
         return exe
     tmp = exe + ".new"
-    if v.startswith("rig-"):
+    if v == "rig-safe":
         env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, "rig-out-" + v))
-        flag = "--release" if v == "rig-safe" else "--release=fast"
-        subprocess.run([RIG, "build", flag, "-o", tmp, os.path.join(HERE, "tasks.rig")], check=True, env=env)
+        subprocess.run([RIG, "build", "--release", "-o", tmp, os.path.join(HERE, "tasks.rig")], check=True, env=env)
     elif v == "tokio":
         target = os.path.join(out, "cargo")
         cmd = ["cargo", "build", "--release", "-q", "--target-dir", target]
@@ -204,7 +203,7 @@ def record(note, variants, best):
 
 
 def recorded():
-    """The last rig-fast row PROGRESS.md holds for this machine's
+    """The last rig-safe row PROGRESS.md holds for this machine's
     architecture (its first table for arm64, the x86-64 one for x86-64),
     as each benchmark's time per operation in ns, and memory in bytes."""
     import platform
@@ -215,7 +214,7 @@ def recorded():
         if line.startswith("## x86-64"):
             section = "x86"
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if section == ("x86" if x86 else "arm64") and len(cells) in (9, 10) and cells[2] == "rig-fast":
+        if section == ("x86" if x86 else "arm64") and len(cells) in (9, 10) and cells[2] == "rig-safe":
             row = cells
     if row is None:
         return None
@@ -228,13 +227,13 @@ def recorded():
 
 
 def gate(best):
-    """Fail when rig-fast is over 1.5 times the last recorded row."""
+    """Fail when rig-safe is over 1.5 times the last recorded row."""
     last = recorded()
     if last is None:
-        sys.exit("bench-tasks: --gate found no rig-fast row for this machine in PROGRESS.md")
+        sys.exit("bench-tasks: --gate found no rig-safe row for this machine in PROGRESS.md")
     slow = []
     for name in last:
-        now = best["rig-fast"][name] / (OPS[name][1] if name in OPS else 1)
+        now = best["rig-safe"][name] / (OPS[name][1] if name in OPS else 1)
         if now > 1.5 * last[name]:
             slow.append("%s %.1fx the recorded row" % (name, now / last[name]))
     if slow:
@@ -250,7 +249,7 @@ def compare(ns, base):
 
 def main():
     ap = argparse.ArgumentParser(add_help=True)
-    ap.add_argument("--variants", default="rig-fast,tokio,go")
+    ap.add_argument("--variants", default="rig-safe,tokio,go")
     ap.add_argument("--reps", type=int, default=5)
     ap.add_argument("--out")
     ap.add_argument("--build-only", action="store_true")
@@ -260,8 +259,8 @@ def main():
     ap.add_argument("--gate", action="store_true")
     a = ap.parse_args()
     variants = a.variants.split(",")
-    if a.gate and "rig-fast" not in variants:
-        variants.insert(0, "rig-fast")
+    if a.gate and "rig-safe" not in variants:
+        variants.insert(0, "rig-safe")
     out = a.out or tempfile.mkdtemp(prefix="bench-tasks-")
     os.makedirs(out, exist_ok=True)
     tokio = tokio_source(a.tokio) if "tokio" in variants else None

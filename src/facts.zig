@@ -101,6 +101,7 @@ pub const SetOrder = storage.SetOrder;
 pub const ResourceKind = sema.ResourceKind;
 pub const SetStep = storage.SetStep;
 pub const StepPoint = storage.StepPoint;
+pub const Fold = storage.Fold;
 pub const JumpDest = sema.JumpDest;
 pub const CallTarget = sema.CallTarget;
 pub const Dispatch = sema.Dispatch;
@@ -276,6 +277,11 @@ pub const Facts = struct {
     pub fn isInlined(f: Facts, name: Sexp) bool {
         return f.c().inlined.contains(f.c().startOf(name));
     }
+    /// Whether the function or method whose name leaf is `name` never
+    /// returns, which Zig's result `noreturn` says (`returns.decide`).
+    pub fn neverReturns(f: Facts, name: Sexp) bool {
+        return f.c().never_returns.contains(f.c().startOf(name));
+    }
     /// In a split build, the unit that owns the function or method whose
     /// name leaf is `name`, when it is cut (`units.decide`).
     pub fn splitUnitOf(f: Facts, name: Sexp) ?u16 {
@@ -423,8 +429,8 @@ pub const Facts = struct {
     pub fn readsInPlace(f: Facts, node: Sexp) bool {
         return f.c().readsInPlace(node);
     }
-    pub fn isTaskJoin(f: Facts, call: Sexp) bool {
-        return f.c().isTaskJoin(call);
+    pub fn taskJoinOf(f: Facts, call: Sexp) ?bool {
+        return f.c().taskJoinOf(call);
     }
     pub fn isActorMake(f: Facts, call: Sexp) bool {
         return f.c().isActorMake(call);
@@ -845,6 +851,11 @@ pub const Facts = struct {
     pub fn isPureArg(f: Facts, e: Sexp) ?bool {
         return storage.decided(f.c(), e, .pure_arg);
     }
+    /// How a `for` folds integers into a local, or null when it is not a
+    /// fold (`storage.fold`).
+    pub fn fold(f: Facts, loop: Sexp) ??Fold {
+        return storage.decided(f.c(), loop, .fold);
+    }
     /// Whether a `for` consumes its source (`storage.forConsumes`).
     pub fn forConsumes(f: Facts, loop: Sexp) ?bool {
         return storage.decided(f.c(), loop, .for_consumes);
@@ -1157,6 +1168,12 @@ pub const Facts = struct {
     pub fn wordHeldBitsOfSym(f: Facts, sym: SymbolId) ?u8 {
         if (!f.c().word_held.contains(sym)) return null;
         return sema.wordBitsOfSym(f.c(), sym);
+    }
+    /// Whether the object `sym` declares here is a word-Cell object
+    /// (`sema.cellObject`), whose handles count atomically: emit marks it
+    /// `__rig_synced` for the runtime's `synchronized`.
+    pub fn isCellObject(f: Facts, sym: SymbolId) bool {
+        return sema.cellObjectSym(f.c(), sym);
     }
     /// Whether the object `sym` declares here is `exact`, laid out in
     /// declaration order: a Zig `extern struct`.

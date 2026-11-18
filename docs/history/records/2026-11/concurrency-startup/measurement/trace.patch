@@ -1,0 +1,275 @@
+--- src/sched.zig	2026-11-15 22:38:25.838099718 -0700
++++ src/sched.zig	2026-11-15 23:57:09.786662541 -0700
+@@ -222,6 +222,69 @@
+ inline fn workersNow() []Worker {
+     return all_workers.*[0..workers_len.load(.acquire)];
+ }
++
++/// SCRATCH: start-up trace (never committed).
++pub const Trace = struct {
++    pub const Ev = extern struct { t: u64, k: u32, a: u32 };
++    pub const per = 16384;
++    pub var bufs: [65][per]Ev = undefined;
++    pub var lens: [65]u32 = @splat(0);
++    pub var shared_len: std.atomic.Value(u32) = .init(0);
++    pub var on: bool = false;
++    extern "c" fn clock_gettime_nsec_np(clock: u32) u64;
++    pub inline fn now() u64 {
++        return clock_gettime_nsec_np(8);
++    }
++    pub fn idx() usize {
++        const w = me_slot().* orelse return 64;
++        const base = @intFromPtr(all_workers.*.ptr);
++        return (@intFromPtr(w) - base) / @sizeOf(Worker);
++    }
++    pub fn add(k: u32, a: u32) void {
++        if (!on) return;
++        addAt(now(), k, a);
++    }
++    pub fn addAt(t: u64, k: u32, a: u32) void {
++        if (!on) return;
++        const i = idx();
++        const n = if (i == 64) shared_len.fetchAdd(1, .monotonic) else blk: {
++            const v = lens[i];
++            lens[i] = v + 1;
++            break :blk v;
++        };
++        if (n >= per) return;
++        bufs[i][n] = .{ .t = t, .k = k, .a = a };
++    }
++    pub fn flt() u32 {
++        const r = std.posix.getrusage(0);
++        return @intCast(r.minflt);
++    }
++    pub fn dump() void {
++        if (!on) return;
++        lens[64] = @min(shared_len.load(.monotonic), per);
++        var buf: [128]u8 = undefined;
++        for (0..65) |i| {
++            const n = @min(lens[i], per);
++            for (bufs[i][0..n]) |e| {
++                const line = std.fmt.bufPrint(&buf, "T {d} {d} {d} {d}\n", .{ e.t, i, e.k, e.a }) catch continue;
++                _ = std.posix.system.write(2, line.ptr, line.len);
++            }
++        }
++    }
++    pub fn init() void {
++        // Every buffer a 10-worker run writes is touched here, before any
++        // timing; whether to record is read at the first task.
++        for ([_]usize{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 64 }) |b| {
++            const bytes = std.mem.sliceAsBytes(bufs[b][0..]);
++            var i: usize = 0;
++            while (i < bytes.len) : (i += 4096) @as(*volatile u8, &bytes[i]).* = 0;
++        }
++    }
++    pub fn decide() void {
++        on = xKnob("RIG_START_TRACE") == 1;
++    }
++};
++
+ threadlocal var me_slot_var: ?*Worker = null;
+ inline fn me_slot() *?*Worker {
+     return split.local(&me_slot_var, "sched.me_slot");
+@@ -3237,6 +3300,7 @@
+     // Each worker is written as it starts (`initWorker`), so the pages of
+     // those a program never starts are never touched: taken raw, as a
+     // safe build's `alloc` would fill the whole array with `undefined`.
++    Trace.init();
+     all_workers.* = rawWorkers(cap);
+     initWorker(0);
+     workers_len.store(1, .release);
+@@ -3251,6 +3315,8 @@
+     m.fiber.sp = initialFrame(&m.fiber, top);
+     me_slot().* = first;
+     if (preempt) preOf(first).tid = rt.threadId();
++    if (xKnob("RIG_X_PREFAULT") > 0) xPrefault(first, xKnob("RIG_X_PREFAULT"));
++    if (xKnob("RIG_X_EAGER") > 0) startWorkers();
+     if (deterministic.*) wake(&m.fiber) else _ = first.ring.push(&m.fiber);
+     loop(first);
+     // `stopping` is set, so past a raise under way the workers are final.
+@@ -3261,6 +3327,7 @@
+     while (kicking.load(.seq_cst) != 0) std.atomic.spinLoopHint();
+     pool.stop();
+     printStats();
++    Trace.dump();
+     for (ws[1..]) |*w| w.thread.?.join();
+     timers.clear();
+     for (ws) |*w| {
+@@ -3371,14 +3438,32 @@
+ /// the runtime has the program's environment, for `RIG_WORKERS`, and a
+ /// program that makes none starts none.
+ fn startWorkers() void {
++    Trace.decide();
++    Trace.add(18, Trace.flt());
++    Trace.add(1, 0);
+     started.* = true;
+     const n = if (deterministic.*) 1 else @min(workerCount(), all_workers.*.len);
+     const ws = all_workers.*[0..n];
+     for (1..n) |i| initWorker(i);
+     for (ws[1..]) |*w| w.poller.open();
++    Trace.add(2, 0);
+     workers_len.store(n, .release);
+-    for (ws[1..]) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
++    if (xKnob("RIG_X_MAPALL") > 0 and ws[0].stacks.fresh_left == 0 and ws[0].stacks.free == null) xMapChunk(&ws[0]);
++    if (xKnob("RIG_X_MAPALL") > 0 and xKnob("RIG_X_TREE") == 0) for (ws[1..]) |*w| xMapChunk(w);
++    if (xKnob("RIG_X_MAPALL") > 0 and xKnob("RIG_X_TREE") > 0 and n > 1) xMapChunk(&ws[1]);
++    if (xKnob("RIG_X_TREE") > 0 and n > 1) {
++        x_tree_n = n;
++        ws[1].thread = std.Thread.spawn(.{}, workerMain, .{&ws[1]}) catch rt.oom();
++        Trace.add(3, 1);
++        Trace.add(4, 0);
++        return;
++    }
++    for (ws[1..], 1..) |*w, i| {
++        w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
++        Trace.add(3, @intCast(i));
++    }
+     if (preempt and !deterministic.*) startMonitor();
++    Trace.add(4, 0);
+ }
+ 
+ /// How many workers the program asked for (`task.workers`), in place of
+@@ -3392,6 +3477,11 @@
+ /// effect. A deterministic run keeps to one thread. Never inlined into
+ /// the program's own code (`mustNotBeInCode`, through `onWorkerStack`).
+ pub noinline fn askWorkers(n: usize) bool {
++    if (n == 63) {
++        Trace.add(18, Trace.flt());
++        Trace.add(14, 0);
++        return true;
++    }
+     const want = @max(1, @min(n, max_workers));
+     if (!started.*) {
+         workers_asked.* = want;
+@@ -3450,11 +3540,60 @@
+     return @max(1, std.Thread.getCpuCount() catch 1);
+ }
+ 
++
++/// SCRATCH: experiment knobs, read from libc's environment at any time.
++
++/// SCRATCH: map a fresh reservation of `chunk` stacks for `x`, as
++/// `takeStack` maps one, so its first tasks need no system call.
++fn xMapChunk(x: *Worker) void {
++    const guard = rt.task_guard;
++    const len = rt.task_stack_size;
++    const span = guard + len + std.heap.pageSize();
++    const got = std.posix.mmap(null, span * chunk, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch rt.oom();
++    const base = @intFromPtr(got.ptr);
++    rt.fast_alloc.keepSmall(base, span * chunk);
++    for (0..chunk) |i| {
++        const b = base + i * span;
++        if (std.posix.errno(std.posix.system.mprotect(@ptrFromInt(b + guard), len, .{ .READ = true, .WRITE = true })) != .SUCCESS) rt.oom();
++    }
++    x.stacks.fresh_next = base;
++    x.stacks.fresh_left = chunk;
++}
++var x_tree_n: usize = 0;
++fn xKnob(comptime name: [:0]const u8) usize {
++    const v = std.c.getenv(name) orelse return 0;
++    return std.fmt.parseInt(usize, std.mem.span(v), 10) catch 0;
++}
++
++/// SCRATCH: map and touch `k` stacks on this worker, then keep them free.
++fn xPrefault(w: *Worker, k: usize) void {
++    var got: [256]Stack = undefined;
++    const n = @min(k, got.len);
++    for (got[0..n]) |*g| {
++        g.* = takeStack();
++        if (xKnob("RIG_X_NOTOUCH") == 0) @as(*volatile u8, @ptrFromInt(g.base + g.guard + g.len - 64)).* = 0;
++    }
++    for (got[0..n]) |g| releaseStack(w, g);
++}
++
+ fn workerMain(w: *Worker) void {
++    const t_enter = Trace.now();
+     defer rt.fast_alloc.threadExit();
+     const alt = rt.AltStack.attachOrStop();
+     defer alt.detach();
+     me_slot().* = w;
++    Trace.addAt(t_enter, 5, 0);
++    Trace.add(6, 0);
++    if (x_tree_n > 0 and w == &all_workers.*[1]) {
++        if (xKnob("RIG_X_MAPALL") > 0) for (all_workers.*[2..x_tree_n]) |*v| xMapChunk(v);
++        for (all_workers.*[2..x_tree_n], 2..) |*v, i| {
++            v.thread = std.Thread.spawn(.{}, workerMain, .{v}) catch rt.oom();
++            Trace.add(3, @intCast(i));
++        }
++        if (preempt and !deterministic.*) startMonitor();
++    }
++    if (xKnob("RIG_X_PREFAULT") > 0) xPrefault(w, xKnob("RIG_X_PREFAULT"));
++    Trace.add(15, 0);
+     if (preempt) preOf(w).tid = rt.threadId();
+     defer leavePreempt(w);
+     loop(w);
+@@ -3494,6 +3633,7 @@
+ }
+ 
+ fn runFiber(w: *Worker, f: *Fiber) void {
++    Trace.add(7, 0);
+     w.ran += 1;
+     if (preempt) preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
+     if (f.home != null) w.ran_pinned += 1;
+@@ -3616,6 +3756,7 @@
+         if (v == w) continue;
+         if (w.ring.stealFrom(&v.ring)) |f| {
+             w.stole += 1;
++            Trace.add(8, 0);
+             return f;
+         }
+     }
+@@ -3711,6 +3852,7 @@
+ }
+ 
+ fn wakeWorker(w: *Worker) void {
++    Trace.add(11, @intCast((@intFromPtr(w) - @intFromPtr(all_workers.*.ptr)) / @sizeOf(Worker)));
+     w.woken.store(1, .seq_cst);
+     w.poller.kick();
+ }
+@@ -3723,6 +3865,8 @@
+ /// the fibers whose timers come due on any worker, and those its
+ /// poller's events make ready, and goes back to running them.
+ fn sleep(w: *Worker) void {
++    Trace.add(9, 0);
++    defer Trace.add(10, 0);
+     w.slept.store(w.slept.raw + 1, .monotonic);
+     _ = takeWaiting(w);
+     w.woken.store(0, .seq_cst);
+@@ -5264,6 +5408,8 @@
+         }
+     }
+     const count: usize = if (w != null) chunk else 1;
++    const t_map = Trace.now();
++    defer Trace.addAt(t_map, 12, @intCast(Trace.now() - t_map));
+     const got = std.posix.mmap(null, span * count, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch rt.oom();
+     const base = @intFromPtr(got.ptr);
+     rt.fast_alloc.keepSmall(base, span * count);
+--- src/alloc.zig	2026-11-15 22:38:25.824886780 -0700
++++ src/alloc.zig	2026-11-15 22:41:04.231498230 -0700
+@@ -1952,6 +1952,8 @@
+     region_lock.lock();
+     defer region_lock.unlock();
+     if (region_next.load(.monotonic) != 0) return;
++    const t_map = sched.Trace.now();
++    defer sched.Trace.addAt(t_map, 13, @intCast(sched.Trace.now() - t_map));
+     const raw = std.posix.mmap(null, region_size + segment_size, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch {
+         // No room for it: each segment is mapped on its own.
+         region_end.* = 0;
+@@ -1966,6 +1968,8 @@
+ fn mapOwnSegment() ?*Segment {
+     // Map twice the size, then give back what lies outside one aligned
+     // segment.
++    const t_map = sched.Trace.now();
++    defer sched.Trace.addAt(t_map, 13, @intCast(sched.Trace.now() - t_map));
+     const raw = std.posix.mmap(null, 2 * segment_size, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch return null;
+     const start = @intFromPtr(raw.ptr);
+     const aligned = std.mem.alignForward(usize, start, segment_size);
+@@ -2537,6 +2541,8 @@
+         my_heap().* = s;
+         return s;
+     }
++    const t_map = sched.Trace.now();
++    defer sched.Trace.addAt(t_map, 13, @intCast(sched.Trace.now() - t_map));
+     const bytes = std.posix.mmap(null, std.mem.alignForward(usize, @sizeOf(Heap), std.heap.pageSize()), .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0) catch return null;
+     const h: *Heap = @ptrCast(@alignCast(bytes.ptr));
+     h.* = .{};

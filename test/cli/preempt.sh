@@ -122,12 +122,12 @@ sub main()
 RIG
 
 for p in hold starve ring; do
-    out=$("$TIMEOUT_CMD" 60 "$RIG" run --release=fast $p.rig 2>err-$p.txt) || fail "$p.rig (timeout 60 s): $out $(cat err-$p.txt)"
+    out=$("$TIMEOUT_CMD" 60 "$RIG" run --release $p.rig 2>err-$p.txt) || fail "$p.rig (timeout 60 s): $out $(cat err-$p.txt)"
     [ ! -s err-$p.txt ] || fail "$p.rig wrote to stderr: $(cat err-$p.txt)"
     "$RIG" emit $p.rig > $p.zig 2>&1 || fail "emit $p.rig: $(cat $p.zig)"
     ! grep -q "linksection(rig.preempt_section)" $p.zig || fail "$p.rig makes local tasks, but its functions are placed for preemption"
 done
-out=$("$RIG" run --release=fast plain.rig 2>&1) || fail "plain.rig: $out"
+out=$("$RIG" run --release plain.rig 2>&1) || fail "plain.rig: $out"
 expect_eq "$out" "498497" "plain.rig"
 "$RIG" emit plain.rig > plain.zig 2>&1 || fail "emit plain.rig: $(cat plain.zig)"
 case "$(uname -s)/$(uname -m)" in

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The print-size guard: the machine code one `print` adds to a program
-built with `--release=fast`, against the bound in bench/print/guard.txt.
+built with `--release`, against the bound in bench/print/guard.txt.
 
 It builds two programs that differ only in how many print lines they add
 to one that prints every value, 0 and SITES (200), each line a mix of literal text and values of every
@@ -90,7 +90,7 @@ def build(rig, d, n):
     exe = os.path.join(d, "p%d" % n)
     with open(src, "w") as f:
         f.write(program(n))
-    p = subprocess.run([rig, "build", "--release=fast", "-o", exe, src], cwd=d, capture_output=True, text=True)
+    p = subprocess.run([rig, "build", "--release", "-o", exe, src], cwd=d, capture_output=True, text=True)
     if p.returncode != 0:
         sys.exit("guard: rig build of %d sites failed:\n%s" % (n, p.stderr[-2000:]))
     out = subprocess.run([exe], capture_output=True, text=True)
@@ -118,7 +118,7 @@ def main():
     print("code per print site: %.0f bytes" % per_site)
     if update:
         with open(BASE, "w") as f:
-            f.write("# bench/print/guard.py: the most code one print site may add, --release=fast\n")
+            f.write("# bench/print/guard.py: the most code one print site may add, --release\n")
             f.write("# measured %.0f bytes per site; the bound is that plus %d%%\n" % (per_site, round((HEADROOM - 1) * 100)))
             f.write("bytes_per_site %d\n" % round(per_site * HEADROOM))
         print("wrote %s" % BASE)

@@ -41,6 +41,7 @@ never read as the library's.
 | [`std.time`](#stdtime) | clocks and sleeping |
 | [`std.task`](#stdtask) | stopping a task, waiting for several, and isolating a panic: `Stop`, `check`, `all`, `isolate`, `workers` |
 | [`std.par`](#stdpar) | calling a function on each element on several tasks: `map`, `each`, `workers` |
+| [`std.shared`](#stdshared) | a map several tasks fill and read at once: `shared.Map` |
 | [`std.net`](#stdnet) | TCP connections: listening, accepting, connecting, reading, and writing; IP addresses and ports as data |
 | [`std.http`](#stdhttp) | an HTTP/1.1 server: `serve`, requests, and responses |
 | [`std.target`](#stdtarget) | the target the program is compiled for: its architecture, system, and CPU features, and whether the build is a debug build |
@@ -535,8 +536,13 @@ when `io.stdout().is_terminal()`.
 read waits until something opens it to write; with `wait: false` it
 returns at once, as `sync` and `tail --pid` need, and a read with no
 writer gives the end of the file, 0 bytes. The File waits on its reads
-as any File does: std never leaves one nonblocking, since its reads run
-on the blocking pool and concurrency comes from tasks.
+as any File does, on the blocking pool, since concurrency comes from
+tasks. On macOS a FIFO's descriptor is left nonblocking, whether the
+open waited or not, and a read that finds no bytes waits in a poll of
+at most 64 ms and reads again: a read parked in the kernel there can
+miss a writer that opens the FIFO and closes it, writing nothing, and
+wait for good, and its poll never reports the writers gone. A whole
+read (`file.read`) of a FIFO waits the same way.
 
 ```rig
 use std.file
@@ -838,7 +844,7 @@ same waiting points fail with `Stop.timeout`.
 | `workers(n: Int) -> Bool` | run tasks on `n` workers, at most 64, in place of one per core or `RIG_WORKERS`: a program sets it from its own arguments, say. Before the program makes its first task, which starts the workers, it sets how many start; after, it can only raise the number, and gives false for fewer than run. It gives whether it took effect; a deterministic run (`rig test`) runs on one thread whatever it asks |
 | `worker_count() -> Int` | the number of workers tasks run on: one per core, `RIG_WORKERS`, or what `workers(n)` set, before the first task starts them or after; 1 in a deterministic run and in a program that makes no task. A program sizes its own work by it, as one task per worker |
 | `fast_cores() -> Int` | how many fast physical cores the program may run on, at least 1 ([below](#the-fast-cores)) |
-| `all(a, b, ...)` | wait for two tasks or more, of any types, and give each one's value as several results; it can fail when any task can, and then the first to fail cancels the others |
+| `all(a, b, ...)` | wait for two tasks or more, of any types, and give each one's value as several results, or nothing when no task gives a value (a `sub`'s); one call does not mix the two. It can fail when any task can, and then the first to fail cancels the others |
 | `isolate(f)` | run `f`, which takes nothing, and give what it gives; a panic in it, or in a task it started, stops here: its tasks are canceled, and it fails with `Stop.panicked` ([SPEC §18](../SPEC.md#isolating-a-panic)) |
 | `supervise(f, restarts: n, per: s)` | run `f` isolated, and again each time it fails or panics, at most `n` times within `s` seconds, an `Int` or a `Float` (`per: 0.5`); past that, fail as its last run failed ([SPEC §18](../SPEC.md#isolating-a-panic)) |
 | `select(name: arm, ...)` | wait until one arm, `name: !ch.on_recv()`, `name: !ch.on_send(<v)`, `name: ?t.on_end()`, or `name: time.after(ms: 50)`, can complete, commit it alone, and give a value whose variant is the winner's name, matched by `match`: a receive's carries the value as `T?`, none once the channel is closed and empty; a task's end carries nothing, and the body takes the task's result with `>t`, at once ([SPEC §18](../SPEC.md#channels)) |
@@ -902,7 +908,8 @@ true
 
 Calling a function on each element of a List, an array, or a slice, on
 several tasks at once ([SPEC §18](../SPEC.md#each-element-on-several-tasks)).
-The tasks of `map` and `each` take chunks of the elements in turn. `f` is a closure written
+The tasks of `map` and `each` take chunks of the elements in turn, and
+those of `push` chunks of the runs. `f` is a closure written
 in the call, whose captures must sync, or a function's name.
 `workers` (below) is timed against hand-built forms in
 [bench/par](../bench/par/README.md).
@@ -912,9 +919,11 @@ in the call, whose captures must sync, or a function's name.
 | `map(?xs, f, limit: n)` | a `List` of `f(x)` for each element, in the order of `xs`; `f` takes each as `?T` |
 | `each(!xs, f, limit: n)` | call `f` on each element, as `!T`, which it may write |
 | `workers(!states, ?items, f)` | one task for each state; each calls `f(!s, x)` with its own state on the next item it takes, in the order of `items`, until none is left: a `List` of the values in the order of the items, or nothing when `f` gives nothing |
+| `push(!t, ?sizes, f, limit: n)` | push `sizes.sum()` slots onto the Table `t` at once, then call `f(!run, k)` for each run `k`, the next `sizes[k]` of those slots in order, as a `![]T` it writes |
 
-`limit` is how many tasks run at once, by default one per worker; it
-comes after `f`, or before a closure written last. When
+`limit`, of `map`, `each`, and `push`, is how many tasks run at once,
+by default one per worker; it comes after `f`, or before a closure
+written last. When
 `f` can fail, so can the call: the first failure cancels the rest, and
 the call fails with its error.
 
@@ -991,6 +1000,113 @@ sub main()
 ```output
 [5, 5, 1, 5]
 4
+```
+
+`push` fills a Table whose records come in runs of uneven sizes, a run
+for each file, say, on several tasks. Run `k` is always the same slots,
+so the table ends as a serial loop of `!t.push(x)` leaves it, whichever
+task wrote each run. The sizes and the room are tested before any task
+starts; the slots of a reserved table are first touched by the task
+that writes them. It is timed against a serial loop of pushes in
+[bench/par-push](../bench/par-push/README.md).
+
+```rig
+use std.par
+
+sub main()
+  t: Table[Int, 1024] = Table()
+  sizes = List([2, 0, 3, 1])
+  par.push(!t, ?sizes, limit: 2, |run, k|
+    for x, i in !run
+      x = k * 10 + i
+  )
+  print(t)
+```
+
+```output
+[0, 1, 20, 21, 22, 30]
+```
+
+## std.shared
+
+A map several tasks fill and read at once. A key keeps the first value
+put under it: nothing is replaced or taken, so a value stays where it
+was put, and `get` gives a view of it there with no lock, no count
+changed, and nothing written that another task reads. Putting a new key
+locks one of the map's 64 shards, chosen by the key's hash, so tasks
+putting keys of different shards never wait for one another. It is
+timed against actors holding Maps in [bench/shared](../bench/shared/README.md).
+
+A `shared.Map` lives behind a handle, `*shared.Map[K, V]`, and each
+task holds one of its own, `+m`. It is a word-Cell object (Core
+sentence 9) whatever its keys and values: its only field is a Cell of
+one word that holds its table's address, so its handles are counted
+atomically and go to other tasks, as a `*Cell[Int]`'s do. Its keys are what a Map's are (`K: Hash`); its keys and
+values hold no loan and go to any task (`Owned + Sends + Syncs`): text,
+numbers, Lists and objects of such, and frozen values, but no `*T` whose
+count is not atomic.
+
+| Member | Signature | Ownership |
+|---|---|---|
+| `shared.Map[K, V].new(capacity: n)` | `pub fun new(capacity: Int = 0) -> *Map[K, V]` | an empty map behind a new handle, with room for `n` entries before a shard grows |
+| `m.get(k)` | `pub fun get(?@, k: ?K) -> (?V)? from @` | the value of `k`, viewed where the map holds it, or `none` |
+| `m.has(k)` | `pub fun has(?@, k: ?K) -> Bool` | whether the map holds `k` |
+| `(!m).put_new(k, v)` | `pub fun put_new(!@, k: K, v: V) -> Bool` | put `v` under `k` only when `k` is new: true if it did; otherwise `k` and `v` are dropped |
+| `!m.ensure(k, v)` | `pub fun ensure(!@, k: K, v: V) -> ?V from @, k, v` | put `v` under `k` when `k` is new, and view the value under `k`: `v`, or the one another task put first |
+| `m.len()` | `pub fun len(?@) -> Int` | how many entries it holds: exact when no task is putting one |
+
+A view from `get` or `ensure` keeps the handle it came through lent to
+read while it lives, so the map cannot be dropped under it, and a put
+while it lives goes through another handle. No put moves or changes a
+value another task views. A lookup that may put asks first, so a hit
+takes no lock:
+
+```rig
+use std.shared
+
+fun id_of(ids: *shared.Map[String, Int], path: ?String, next: Int) -> Int
+  if ids.get(path) as id
+    return id
+  !ids.ensure(String(path), next)
+
+sub load(ids: *shared.Map[String, Int], w: Int)
+  for i in 0..100
+    _ = id_of(+ids, String("/src/file", i % 50, ".ts"), w * 1000 + i)
+
+sub main()
+  ids = shared.Map[String, Int].new(capacity: 1000)
+  ts = Tasks[Void]()
+  for w in 0..4
+    !ts.add(load(+ids, w)&)
+  >ts
+  first = ids.get("/src/file7.ts") ?? -1
+  print(ids.len(), first % 1000, ids.has("/src/file50.ts"))
+```
+
+```output
+50 7 false
+```
+
+A value is read in place, never copied, and a value of several parts
+goes in once and is read by every task:
+
+```rig
+use std.shared
+
+obj Package
+  name: String
+  main: String
+
+sub main()
+  pkgs = shared.Map[String, Package].new()
+  h = +pkgs
+  p = !h.ensure(String("/a/package.json"), Package(name: String("a"), main: String("index.js")))
+  q = !pkgs.ensure(String("/a/package.json"), Package(name: String("b"), main: String("b.js")))
+  print(p.name, q.main, pkgs.len())
+```
+
+```output
+a index.js 1
 ```
 
 ## std.net
@@ -1182,8 +1298,10 @@ the server goes on.
 | `Request` | `method`, `path` (the target before any `?`), `query` (after it), `head` (the request line and headers as they came), and `body` |
 | `req.arg(name)` | the value of query parameter `name`, as written, or `none` |
 | `req.header(name)` | the value of header `name`, any case, or `none` |
-| `Response` | `status`, `type` (its content type), and `body` |
+| `Response` | `status`, `type` (its content type, an `http.Type`), and `body` |
+| `Type` | `.text`, `.html`, `.json`, `.css`, `.js`, `.csv`, `.xml`, `.svg`, `.png`, `.jpeg`, `.gif`, `.webp`, `.pdf`, `.wasm`, `.bytes`, or `.other(text)`, a `Static` written as given (none when empty) |
 | `text(body)`, `json(body)`, `html(body)` | a 200 response of plain text, JSON written already, or HTML |
+| `ok(<body)` | a 200 response of plain text that takes the String `body`, copying nothing |
 | `status(code, body)` | a response of status `code` and plain text `body` |
 | `not_found()` | 404 |
 
@@ -1218,6 +1336,35 @@ sub main()!
 HTTP/1.1 200 OK
 ```
 
+A response's type is an `http.Type`, `.json`, which the server writes
+as its full content type; `.other(text)` writes any other. `text`,
+`json`, `html`, and `status` copy the body they read; `ok` takes a
+String built for the answer, so it is never copied.
+
+```rig
+use std.http
+
+fun count(n: Int) -> http.Response
+  http.ok(String("count: ", n))
+
+fun image(png: ?String) -> http.Response
+  http.Response(status: 200, type: .png, body: String(png))
+
+fun icon(ico: ?String) -> http.Response
+  http.Response(status: 200, type: .other("image/x-icon"), body: String(ico))
+
+sub main()
+  r = count(3)
+  i = image("PNG")
+  print(r.status, r.type, r.body)
+  print(i.type, i.body.len, icon("ICO").type)
+```
+
+```output
+200 .text count: 3
+.png 3 .other(text: "image/x-icon")
+```
+
 The server guards itself against clients that send too much, too
 slowly, or too many at once, with limits read from the environment
 when `serve` starts:
@@ -1226,11 +1373,13 @@ when `serve` starts:
 |---|---|---|
 | A connection waiting for its next request, or for a read of a body or a write of a response to make progress, is closed after | 60 s | `RIG_HTTP_IDLE_MS` |
 | A request's head must arrive whole, from its first byte, within | 10 s | `RIG_HTTP_HEAD_MS` |
+| A request's body must arrive whole, from the end of its head, within | 5 min | `RIG_HTTP_BODY_MS` |
 | A body larger than this is answered 413, and its connection closed | 16 MiB | `RIG_HTTP_MAX_BODY` (bytes) |
 
 A body over the limit is refused before any of it is read when its
 `Content-Length` says so, and once the limit is passed when it comes
-chunked. A client that sends `Expect: 100-continue` is asked for the
+chunked. A body not whole by its deadline gets no answer, and its
+connection is closed, however steadily its bytes come. A client that sends `Expect: 100-continue` is asked for the
 body (`100 Continue`) only once its length is within the limit; any
 other expectation is answered 417. Once the process has run out of
 file descriptors, `serve` pauses, from 5 ms doubling to 1 s, and
@@ -1240,6 +1389,42 @@ close; the listener stays open. In a deterministic run (`RIG_SEED`,
 takes no time. Arguments to `http.serve` that set
 these limits per server are *(planned)* ([ROADMAP](ROADMAP.md)); the environment sets them for the
 whole process.
+
+A request's body is framed as RFC 9112 says: by
+`Transfer-Encoding: chunked`, which must be its last coding, named in
+any case, or by a
+`Content-Length` of digits alone; a request with neither has no body,
+whatever its method, and one with both is read as chunked and its
+connection closed after the answer, since a proxy in front may have
+framed it by its length. A body is read whatever the request's method.
+Chunks are read as RFC 9112 §7.1 writes them, and no other way: a size
+of 1 to 16 hex digits, then nothing or `;` and extensions, each line
+ended by CRLF, the data followed by CRLF, and trailers that are header
+lines, read and dropped; any other form is answered 400, a size or
+extensions past the limit 413, and a body that ends before its length
+or its last chunk gets no answer. A head that does not parse, holds a CR, LF,
+or NUL that ends no line, a header line with no colon or a name that
+is no token (as one with a space before its colon), or names a
+Transfer-Encoding not ending in `chunked` or a length not digits, is
+answered 400 and its connection closed; up to two empty lines before a
+request line are skipped. An HTTP/1.1 request names its host once
+(RFC 9112 §3.2): one with no `Host` line, and a request of either
+version with more than one, is answered 400 and its connection closed;
+an HTTP/1.0 request needs none. `CONNECT` asks for a tunnel, which the
+server is not (RFC 9110 §9.3.6): it is answered 405,
+`method not allowed`, before the handler runs, and its connection
+closed. A handler's status below 200, which would be
+an interim answer or none, and an `.other` type holding a CR, LF, or
+NUL, are answered 500. A 204 or a 304 is sent as its status line
+alone, with no length, type, or body, whatever the handler gave: a
+client reads no body after either.
+
+`Connection` is a list of options (RFC 9110 §7.6.1), each named in any
+case, on every line of it. An HTTP/1.1 connection stays open after a
+request unless one of its options is `close`. An HTTP/1.0 connection
+stays open only when one is `keep-alive` and none is `close` (RFC 9112
+§9.3), and the answer then says `connection: keep-alive`; an answer
+after which the server closes says `connection: close`.
 
 ## std.target
 
@@ -1557,15 +1742,50 @@ literal or a bare name is lent as it is passed.
 
 | Function | Result |
 |---|---|
-| `sort[T: Ord](xs: ![]T)` | sort `xs` in place, in the order of `<`, keeping equal elements in the order they had; allocates nothing |
+| `sort[T: Ord](xs: ![]T)` | sort `xs` in place, in the order of `<`, keeping equal elements that can be told apart in the order they had |
 | `sort_by[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)` | the same, in the order `less` gives: `less(a, b)` says whether `a` belongs before `b` |
 | `sort_by_key[T, K: Ord](xs: ![]T, key: ?fun(?T) -> K)` | the same, in the order of the keys `key` gives, by `<`; `key` is called twice for each comparison |
 | `lower_bound[T: Ord](xs: []T, x: ?T) -> Int` | in `xs` sorted by `<`, the index where `x` belongs: the first element not less than `x`, or `xs.len` |
 | `search[T: Ord](xs: []T, x: ?T) -> Int?` | in `xs` sorted by `<`, the index of the first element equal to `x`, by binary search; `none` when there is none |
 
-`sort` sorts runs of 20 elements by insertion, then merges them in
-place by rotations: O(n log n) comparisons, O(n log² n) swaps, and
-O(log n) stack, with no other memory.
+Every sort is stable in meaning: elements the order finds equal keep
+the order they had wherever a program could tell them apart. Where
+equal elements are the same value, nothing can tell them apart, and
+`sort` uses a quicksort, which does not keep their order. Integers sort
+by ipnsort (as Rust's `sort_unstable`: a branchless partition on a
+recursive pseudomedian, the elements equal to an earlier pivot split
+off, and sorting networks with insertion for 32 elements or fewer).
+`Bool`, text, plain enums, and the optionals, arrays, objects, and
+enums made only of these whose header derives `Ord` (`obj Point: Ord`
+with no `order` of its own) sort by pattern-defeating quicksort (as
+Zig's `std.sort.pdq`). Each compares with `<` inline, takes
+O(n log n) comparisons at worst (a heapsort past too many unbalanced
+partitions), O(n) on sorted or reversed input, and O(log n) stack, and
+allocates nothing. A long sort of integers lets other tasks run as a
+long loop does: preempted where loops are, and elsewhere checking
+every 16,384 elements (docs/internals/scheduler.md, "Yield checks").
+
+Otherwise, for a type with an `order` of its own (two keys it calls
+equal may still differ) or one holding a handle, and for `sort_by` and
+`sort_by_key` always, it sorts stably, as Rust's `sort` does
+(driftsort, by Orson Peters and Lukas Bergdoll): natural runs of
+sqrt(n) elements or more (64 up to 4,096 elements) are kept, a
+strictly falling one reversed, and merged in powersort's order; input without such runs is
+sorted by a stable quicksort, which partitions through a room in
+pieces as large as the room and splits off the elements equal to a
+pivot, so input of few distinct values sorts in a few passes; 32
+elements or fewer are sorted by sorting networks and insertion, and
+20 or fewer by insertion alone. That is O(n log n) comparisons, O(n)
+on input in order or in reverse, O(n log k) on input of k distinct
+values, and one allocation, of room for half of `xs` or, while it
+takes at most 8 MB, all of it, freed before the sort returns. It
+allocates nothing for 20 elements or fewer, or for input already in
+order or strictly in reverse; when memory runs out, the program
+panics, as at any allocation. `sort_by` and `sort_by_key` are
+compiled into each call, where the comparator is known, so it can be
+inlined into the sort. A comparator that is no order (`less(a, b)`
+and `less(b, a)` both true, say) sorts nothing in particular, but the
+slice still holds each of its elements once.
 
 ```rig
 use std.sort
@@ -1598,6 +1818,33 @@ bob 9
 ann 7
 cy 7
 ann
+```
+
+An `order` of its own may call two different values equal, and `sort`
+keeps those in the order they had:
+
+```rig
+use std.sort
+
+obj Chore: Ord
+  priority: Int
+  name: ?String
+
+  fun order(?@, other: ?Chore) -> Order
+    @priority.order(?other.priority)
+
+sub main()
+  chores = [Chore(priority: 2, name: "mail"), Chore(priority: 1, name: "fix"), Chore(priority: 2, name: "lunch"), Chore(priority: 1, name: "ship")]
+  sort.sort(!chores)
+  for t in ?chores
+    print(t.priority, t.name)
+```
+
+```output
+1 fix
+1 ship
+2 mail
+2 lunch
 ```
 
 A float provides no `Ord`: a NaN is neither below nor above a number,
@@ -2072,6 +2319,32 @@ for `n` more elements without changing the length, so the next `n`
 pushes allocate nothing; a negative `n` panics. `!v.keep(n)` keeps the
 first `n` elements and drops the rest, so a List can be rewound to a
 length saved earlier.
+
+`!v.extend(?ys[a..b])` appends a copy of each element of a slice, an
+array, or a List, growing once and copying them with one `@memcpy`: the
+fast way to append a run, where a loop of `push` tests the room for
+each. `T` is plain data, a type that copies and holds no view, as for
+`List(a)`; an owning `T` is cloned element by element with
+`!xs.push(+y)`, which shows each clone ([SPEC, List](../SPEC.md#list)).
+
+```rig
+obj P
+  x: Int
+  y: Float
+
+sub main()
+  xs: List[Int] = List(capacity: 2)
+  ys = List([1, 2, 3, 4])
+  !xs.extend(?ys[1..3])
+  !xs.extend(ys)
+  ps: List[P] = List()
+  !ps.extend([P(x: 1, y: 0.5), P(x: 2, y: 1.5)])
+  print(xs, ps.len, ps[1].y)
+```
+
+```output
+[2, 3, 1, 2, 3, 4] 2 1.5
+```
 
 `!v.extend_from_bytes(s)` appends the records the bytes of `s` hold, a
 `?String` or a `Static` such as an embedded file

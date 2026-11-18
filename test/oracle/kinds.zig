@@ -47,6 +47,9 @@ pub const Info = struct {
     /// In a generic body: it moves only because it holds a type
     /// parameter, whose instances may copy (SPEC "Generic bodies").
     generic_copy: bool = false,
+    /// It holds a task or a set of tasks, which may always carry a loan:
+    /// no shared home holds one (docs/design/concurrency.md, rule 3).
+    holds_task: bool = false,
 };
 
 pub const Kinds = struct {
@@ -207,6 +210,7 @@ pub const Kinds = struct {
             .drop_reads = scan.drop_body and kind == .owning,
             .unsupported = if (ti.poison) "a type with an error" else scan.unsupported,
             .generic_copy = kind == .owning and !(ti.glue or ti.unique or ti.any_error or (self.planned and ti.cell)) and !try self.holdsUncopied(ty),
+            .holds_task = scan.task,
         };
         return info;
     }
@@ -376,6 +380,10 @@ const Scan = struct {
     seen: std.AutoHashMapUnmanaged(struct { usize, TypeId, bool, bool }, void) = .empty,
     unsupported: ?[]const u8 = null,
     drop_body: bool = false,
+    /// A task or a set of tasks it holds, not through a view or handle.
+    task: bool = false,
+    /// A task or a set of tasks it reaches, through a handle too.
+    reached_task: bool = false,
     /// Walking what a weak handle holds, which it never drops.
     under_weak: bool = false,
     /// Walking what a read view or a handle reaches, which is only read.
@@ -449,16 +457,26 @@ const Scan = struct {
                 // only values that carry no loan (Core s9): what it holds
                 // carries none, and a store into it is checked (C8). One
                 // of a `?T`, `!T`, or slice is the compiler's to reject.
+                // One of a task holds what may carry a loan: the store
+                // that puts the task there is C8.
                 if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) {
                     for (pn.args) |arg| {
-                        if (ctx.typeInfo(arg).views.marked) return self.mark("a `Cell` or `Signal` of a view");
+                        const outer = self.reached_task;
+                        self.reached_task = false;
                         try self.walk(ctx, arg, depth + 1, in_generic);
+                        const held = self.reached_task;
+                        self.reached_task = outer or held;
+                        if (!held and ctx.typeInfo(arg).views.marked) return self.mark("a `Cell` or `Signal` of a view");
                     }
                     return;
                 }
                 // A task's drop waits for its call, which uses what the
                 // task was lent (Core s6), as a `drop` body would.
-                if ((pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) and !self.under_weak) self.drop_body = true;
+                if ((pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) and !self.under_weak) {
+                    self.drop_body = true;
+                    self.reached_task = true;
+                    if (!self.read_only) self.task = true;
+                }
                 for (pn.args) |arg| try self.walk(ctx, arg, depth + 1, in_generic);
                 if (pn.sym != ctx.list_sym_id and pn.sym != ctx.box_sym_id) try self.fields(ctx, pn.sym, depth, true);
             },

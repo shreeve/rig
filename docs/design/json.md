@@ -165,8 +165,8 @@ references' published designs where marked. In order of expected gain:
    `for block in bytes.blocks(16)` that hands out fixed-size views with
    one bounds check per block and a remainder for the tail. Removing
    every bounds check from the runtime in an experiment gained 11% on
-   twitter, 10% on github_events and 6% on canada (`rig-fast` against
-   `rig-nocheck`).
+   twitter, 10% on github_events and 6% on canada (the code in Zig's
+   fast mode against `rig-nocheck`).
 3. **Checks the compiler proves away** (mostly done). Indexes and reads
    bounded by a loop's condition, `+` under such a bound, and the string
    scan's 16-byte reads are proven, with no check. The

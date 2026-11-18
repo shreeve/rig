@@ -406,6 +406,9 @@ pub const Emitter = struct {
     /// its environment `__rig_self`, `__rig_self1`, ... so a closure
     /// inside another does not shadow the outer one's.
     closure_depth: u32 = 0,
+    /// `raw` blocks around the current point. A `match` inside one keeps
+    /// Zig's test that its enum holds a named tag (`rig.namedTag`).
+    raw_depth: u32 = 0,
     nominal: ?Nominal = null,
     /// The module's additions (`add Int: Shape`), whose methods its
     /// witnesses hold (`emitWitnesses`).
@@ -928,6 +931,7 @@ pub const Emitter = struct {
             try self.w.print("pub const {f} = extern struct {{\n", .{ident(name)});
         } else try self.w.print("pub const {f} = struct {{\n", .{ident(name)});
         if (self.facts.wordBitsOfSym(sym) != null) try self.w.writeAll("    pub const __rig_word_sized = {};\n");
+        if (self.facts.isCellObject(sym)) try self.w.writeAll("    pub const __rig_synced = {};\n");
         try self.emitFields(1);
         try self.emitRigName(1);
         try self.emitOwnApis(1);
@@ -975,6 +979,7 @@ pub const Emitter = struct {
         const prev = try self.enterNominal(ir.GenericStruct.name(node), true, members);
         defer self.nominal = prev;
         try self.emitGenericHead(ir.GenericStruct.tparams(node), "struct");
+        if (self.facts.isCellObject(self.nominal.?.sym)) try self.w.writeAll("        pub const __rig_synced = {};\n");
         try self.emitFields(2);
         try self.emitRigName(2);
         try self.emitOwnApis(2);
@@ -1996,7 +2001,7 @@ pub const Emitter = struct {
             // `anyerror!void`, `anyerror!i64`: whether or not `-> Int!` says so.
             try self.w.writeAll("anyerror!");
             try self.emitTypeTy(if (main_status) self.facts.types.int_id else self.facts.types.void_id);
-        } else if (return_ty) |r| try self.emitTypeTy(r) else try self.w.writeAll("void");
+        } else if (return_ty) |r| try self.emitTypeTy(r) else try self.w.writeAll(if (self.facts.neverReturns(name_node)) "noreturn" else "void");
         try self.w.writeAll(" ");
         // A `sub` yields no value, even one that may fail (`Void!`).
         if (return_ty != null and !f.is_sub) try self.emitValueBody(body) else try self.emitBlock(body);
@@ -2798,7 +2803,11 @@ pub const Emitter = struct {
             .match => try self.emitMatch(sexp, false, null),
             .block => try self.emitBlock(sexp),
             // `raw` marks an audit boundary for sema; it lowers to a block.
-            .raw_block => try self.emitBlock(ir.RawBlock.body(sexp)),
+            .raw_block => {
+                self.raw_depth += 1;
+                defer self.raw_depth -= 1;
+                try self.emitBlock(ir.RawBlock.body(sexp));
+            },
             .@"defer", .@"errdefer" => {
                 try self.w.print("{s} ", .{@tagName(head)});
                 const body = ir.get(sexp, .body);
@@ -4312,6 +4321,7 @@ pub const Emitter = struct {
         // A List or an array of values that move, which the loop takes or
         // its source makes, hands its elements over one at a time.
         if (try self.need(self.facts.forConsumes(sexp), sexp)) return self.emitConsumingFor(sexp, lp, !is_list);
+        if (try self.need(self.facts.fold(sexp), sexp)) |how| return self.emitFold(sexp, lp, how, is_list);
         const elem_sym = self.facts.symbolOf(binding);
         const elem_ty: ?TypeId = if (elem_sym) |s| self.symType(s) else null;
         const header = self.facts.headerOf(sexp);
@@ -4391,6 +4401,33 @@ pub const Emitter = struct {
         try self.closeLoopBody(lp, body, ir.For.body(sexp));
         try self.closeLabeled(l);
         try self.popScope();
+    }
+
+    /// A `for` that folds integers into a local (`storage.fold`): one
+    /// call, which counts the loop's turns as the loop would.
+    ///
+    ///     s = rig.fold(.add, s, xs, &__rig_turns_N);
+    fn emitFold(self: *Emitter, sexp: Sexp, lp: *Loop, how: facts.Fold, is_list: bool) Error!void {
+        const source = ir.For.source(sexp);
+        const set = (try self.stmtsOf(ir.For.body(sexp)))[0];
+        const sum = self.facts.symbolOf(ir.Set.target(set)) orelse return self.unsupported(set, "a fold into no name");
+        const local = self.localBySym(sum) orelse return self.unsupported(set, "a fold into no local");
+        try self.startLoopLine(lp);
+        try self.writeLocalPlace(local);
+        try self.w.print(" = rig.fold(.{s}, ", .{@tagName(how)});
+        try self.writeLocalPlace(local);
+        try self.w.writeAll(", ");
+        if (try self.headerPoints(source)) {
+            try self.emitSubjectPtr(source, false);
+            try self.w.writeAll(".*");
+        } else {
+            const h = try self.openHeader(source);
+            try self.emitExpr(source);
+            try self.closeHeader(h);
+        }
+        if (is_list) try self.w.writeAll(".items()");
+        try self.enterLoop(lp);
+        if (lp.turns) |n| try self.w.print(", &{s});", .{n}) else try self.w.writeAll(", null);");
     }
 
     /// `for x in <v`: the List (or the array, `array`) is consumed; each
@@ -4570,6 +4607,11 @@ pub const Emitter = struct {
         const place = info.reread;
         const subject = info.subject;
         try self.w.writeAll("switch (");
+        // A plain enum holds a named tag in safe code, which the switch
+        // states rather than tests (`rig.namedTag`); inside `raw`, Zig
+        // tests it.
+        const named_tag = !info.error_set and info.ty != null and self.raw_depth == 0 and self.facts.isPlainEnum(self.peelViews(info.ty.?));
+        if (named_tag) try self.w.writeAll("rig.namedTag(");
         if (err_value and info.mode == .consume and !info.temp) {
             // `match <e` takes the error as it tests its code; each arm
             // then owns what it reads again through the place.
@@ -4626,6 +4668,7 @@ pub const Emitter = struct {
             }
             if (by_ptr and h.label.len > 0 and info.boxed) try self.writeMatchReach(self.typeOf(subject).?);
         }
+        if (named_tag) try self.w.writeAll(")");
         try self.w.writeAll(") ");
         try self.openBrace();
 
@@ -7182,7 +7225,11 @@ pub const Emitter = struct {
                 if (num != null) try self.w.writeAll(")") else if (!bare and head == .@"if") try self.w.writeAll(")");
             },
             .block => try self.emitValueBlock(sexp, .{}, self.typeOf(sexp)),
-            .raw_block => try self.emitValueBlock(ir.RawBlock.body(sexp), .{}, self.typeOf(sexp)),
+            .raw_block => {
+                self.raw_depth += 1;
+                defer self.raw_depth -= 1;
+                try self.emitValueBlock(ir.RawBlock.body(sexp), .{}, self.typeOf(sexp));
+            },
             .@"while", .@"for", .labeled => if (facts.syntax.hasValueBreaks(self.source, sexp)) try self.emitLoopValue(sexp) else return self.unsupported(sexp, "a loop without a value in value position"),
             .array => if (try self.hoistsArgs(sexp)) try self.emitHoistedArray(sexp) else try self.emitArray(sexp),
             .array_fill => try self.emitArrayFill(sexp),
@@ -7394,7 +7441,7 @@ pub const Emitter = struct {
             // Strings and byte slices order by their bytes.
             if (order.bytes) {
                 if (!bare) try self.w.writeAll("(");
-                try self.emitCall2("std.mem.order(u8, ", operands, order.test_);
+                try self.emitCall2(order.test_, operands, ")");
                 if (!bare) try self.w.writeAll(")");
                 return;
             }
@@ -7857,17 +7904,27 @@ pub const Emitter = struct {
         const fixed = obj_ty != null and !self.place_chain and !self.keep_comptime and !self.isModuleValue(obj, sexp) and
             self.isScalarPart(sexp) and isZigComptimeIn(self, obj, 0);
         if (fixed) try self.w.writeAll("rig.rt(");
-        try self.emitMemberBase(obj, obj_ty);
-        if (obj_ty) |t| if (!self.isBoxMethod(sexp, t, field)) {
-            // A consuming method of an owned box's value takes the value
-            // out of each box, which is freed.
-            if (self.facts.boxedType(t) != null and self.facts.boxedNominal(t) != null and self.facts.methodSelfMode(t, field) == .value) {
-                var b = t;
-                while (self.facts.boxedType(b)) |inner| : (b = inner) try self.w.writeAll(".unbox()");
-            } else try self.writeReach(t);
-        };
+        try self.emitReached(sexp, field);
         try self.w.print(".{f}", .{ident(field)});
         if (fixed) try self.w.writeAll(")");
+    }
+
+    /// The value member `sexp`, read as `field`, is a member of: its
+    /// object reached through each view, shared handle, and box its type
+    /// holds (`writeReach`), as a field or method is reached through
+    /// it, or taken out of each box for a method that consumes it.
+    fn emitReached(self: *Emitter, sexp: Sexp, field: []const u8) Error!void {
+        const obj = ir.Member.object(sexp);
+        const obj_ty = self.typeOf(obj);
+        try self.emitMemberBase(obj, obj_ty);
+        const t = obj_ty orelse return;
+        if (self.isBoxMethod(sexp, t, field)) return;
+        // A consuming method of an owned box's value takes the value
+        // out of each box, which is freed.
+        if (self.facts.boxedType(t) != null and self.facts.boxedNominal(t) != null and self.facts.methodSelfMode(t, field) == .value) {
+            var b = t;
+            while (self.facts.boxedType(b)) |inner| : (b = inner) try self.w.writeAll(".unbox()");
+        } else try self.writeReach(t);
     }
 
     /// `.value` for each shared handle and box that member access on a
@@ -9277,9 +9334,29 @@ pub const Emitter = struct {
             const saved = self.read_place;
             defer self.read_place = saved;
             self.read_place = !self.selfWrites(sexp);
+            const name = self.srcText(ir.Member.name(callee));
+            const recv_ty = self.typeOf(recv);
+            // A self the method takes by value goes to the task as a
+            // value, moved or copied, as a plain call passes it: out of
+            // each box for a consuming method, and never by the address
+            // of a Zig temporary.
+            if (recv_ty) |t| if (self.facts.methodSelfMode(t, name) == .value) {
+                try self.w.writeAll(if (self.facts.isLocalTask(sexp)) ".spawnMethodValueLocal(" else ".spawnMethodValue(");
+                try self.emitReached(callee, name);
+                try self.w.print(", \"{s}\", .{{ ", .{name});
+                try self.emitArgs(sexp);
+                return self.w.writeAll(" })");
+            };
             try self.w.writeAll(if (self.facts.isLocalTask(sexp)) ".spawnMethodLocal(" else ".spawnMethod(");
-            try self.emitAddressOf(lentPlace(recv));
-            try self.w.print(", \"{s}\", .{{ ", .{self.srcText(ir.Member.name(callee))});
+            // A self behind a shared handle or in a box is reached as a
+            // plain call reaches it, and the method is given the value's
+            // address there, never the handle's or the box's.
+            const reached = if (recv_ty) |t| self.facts.unwrapAccess(t) != self.facts.unwrapViews(t) else false;
+            if (reached) {
+                try self.w.writeAll("&");
+                try self.emitReached(callee, name);
+            } else try self.emitAddressOf(lentPlace(recv));
+            try self.w.print(", \"{s}\", .{{ ", .{name});
         } else {
             try self.w.writeAll(if (self.facts.isLocalTask(sexp)) ".spawnLocal(" else if (self.facts.isDenseCall(sexp)) ".spawnDense(" else ".spawn(");
             try self.emitExpr(callee);
@@ -9378,12 +9455,13 @@ pub const Emitter = struct {
         };
 
         if (self.facts.builtinCallOf(callee)) |b| return self.emitBuiltinCall(sexp, callee, b);
-        // `task.all(a, b, ...)`: the tasks, waited for together.
-        if (self.facts.isTaskJoin(sexp)) {
+        // `task.all(a, b, ...)`: the tasks, waited for together, giving
+        // their values or nothing, as the checker decided.
+        if (self.facts.taskJoinOf(sexp)) |values| {
             const out = self.slotOf(sexp);
             try self.w.writeAll("rig.waitTasksInto(.{ ");
             try self.emitArgs(sexp);
-            return self.w.print(" }}, {s})", .{out});
+            return self.w.print(" }}, {s}, {})", .{ out, values });
         }
         // `c.m(args)` through an actor's handle: a message the runtime
         // sends, which waits for the answer.
@@ -9495,18 +9573,26 @@ pub const Emitter = struct {
             try self.emitArgs(sexp);
             return self.w.print(", {s})", .{out});
         }
-        // `par.map(?xs, f, limit: n)`, `par.each(!xs, f, limit: n)`: run
-        // by the runtime, with no limit but the workers' count when none
-        // is given; `par.workers(!states, ?items, f)`, one task a state.
+        // `par.map(?xs, f, limit: n)`, `par.each(!xs, f, limit: n)`, and
+        // `par.push(!t, ?sizes, f, limit: n)`: run by the runtime, with no
+        // limit but the workers' count when none is given;
+        // `par.workers(!states, ?items, f)`, one task a state.
         if (self.facts.parCallOf(sexp)) |kind| {
             const out = self.slotOf(sexp);
             try self.w.writeAll(switch (kind) {
                 .map => "rig.parMapInto(",
                 .each => "rig.parEachInto(",
                 .workers => "rig.parWorkersInto(",
+                .push => "rig.parPushInto(",
             });
             try self.emitArgs(sexp);
-            if (kind != .workers and args.len == 2) try self.w.writeAll(", 0");
+            // With no `limit:`, one task per worker.
+            const no_limit = switch (kind) {
+                .map, .each => args.len == 2,
+                .push => args.len == 3,
+                .workers => false,
+            };
+            if (no_limit) try self.w.writeAll(", 0");
             return self.w.print(", {s})", .{out});
         }
         // A set's waits, `>ts` and `<ts.wait_first()`, with no deadline
@@ -11534,7 +11620,8 @@ pub const Emitter = struct {
         bytes: bool,
         /// The `std.math.CompareOperator` name.
         op: []const u8,
-        /// What tests the `std.math.Order` of two byte strings.
+        /// The call that tests two byte strings, up to its operands
+        /// (`rig.textLess(`, `!rig.textGreater(`).
         test_: []const u8,
     };
 
@@ -11566,10 +11653,10 @@ pub const Emitter = struct {
         }
         if (!bytes and !values) return null;
         return switch (kind) {
-            .@"<" => .{ .bytes = bytes, .op = "lt", .test_ = ") == .lt" },
-            .@"<=" => .{ .bytes = bytes, .op = "lte", .test_ = ") != .gt" },
-            .@">" => .{ .bytes = bytes, .op = "gt", .test_ = ") == .gt" },
-            .@">=" => .{ .bytes = bytes, .op = "gte", .test_ = ") != .lt" },
+            .@"<" => .{ .bytes = bytes, .op = "lt", .test_ = "rig.textLess(" },
+            .@"<=" => .{ .bytes = bytes, .op = "lte", .test_ = "!rig.textGreater(" },
+            .@">" => .{ .bytes = bytes, .op = "gt", .test_ = "rig.textGreater(" },
+            .@">=" => .{ .bytes = bytes, .op = "gte", .test_ = "!rig.textLess(" },
             else => null,
         };
     }
@@ -12051,6 +12138,7 @@ test "every runtime call of a function value passes the slot it takes" {
         .{ .file = "runtime.zig", .call = "} else acc = f.call(.{ acc, lend(x) })", .why = no_fail },
         .{ .file = "tasks.zig", .call = "} else c.out[i] = c.f.call(.{rt.lend(&c.xs[i])})", .why = no_fail },
         .{ .file = "tasks.zig", .call = "else c.f.call(.{&c.xs[i]})", .why = no_fail },
+        .{ .file = "tasks.zig", .call = "else c.f.call(.{ run, i })", .why = no_fail },
         .{ .file = "tasks.zig", .call = "c.out[i] = c.f.call(.{ s, x })", .why = no_fail },
         .{ .file = "tasks.zig", .call = "} else c.f.call(.{ s, x })", .why = no_fail },
         .{ .file = "tasks.zig", .call = "self.value = self.make.?.value.invoke(.{})", .why = "the function that makes a supervised actor's value cannot fail (`Actor.supervised`)" },

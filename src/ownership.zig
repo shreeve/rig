@@ -131,7 +131,10 @@
 //!   effects are undone after the check. A `defer` runs after the value
 //!   the exit leaves with is formed (a result, a `break` value, a
 //!   block's value), so that value's loans are in force while it is
-//!   checked (`ExitTo.result`); a returned write view has moved.
+//!   checked (`ExitTo.result`); a returned write view has moved. An exit
+//!   that leaves a statement before a call in it starts ends the holds
+//!   that wait for that call (`dropPendingHolds`): `!v.push(f()!)` under
+//!   `errdefer !v.clear()` is accepted, as `x = f()!` then `!v.push(x)`.
 
 const std = @import("std");
 const parser = @import("parser.zig");
@@ -969,7 +972,7 @@ pub const Checker = struct {
                 try self.note(r.pos, "here", .{});
                 continue;
             }
-            const what = if (r.view) "a value that holds no loan, which a Cell, a Signal, or an owned closure keeps" else if (r.element) "taking an element its collection still owns" else "a copy";
+            const what = if (r.view) try std.fmt.allocPrint(a, "a value that holds no loan, which {s} keeps", .{r.home.keeper()}) else if (r.element) "taking an element its collection still owns" else "a copy";
             try self.err(r.pos, "{s}", .{try sema.unboundedMessage(ctx, a, sym, api, what)});
         }
     }
@@ -1071,8 +1074,8 @@ pub const Checker = struct {
             if (r.param != param or !r.view) continue;
             if (!try sema.liveAt(ctx, r.module_id, r.pos, subst.params, subst.args)) continue;
             const why = (try sema.objectLoanReason(ctx, self.arena(), arg)) orelse if (sema.holdsMarkedView(ctx, arg)) "a view keeps what it views lent" else "a `?String` may view a String (a `Static` carries no loan)";
-            try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body stores a `{s}` in a Cell, a Signal, or an owned closure, which carries no loan, and {s}", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, why });
-            try self.noteIn(r.module_id, r.pos, "`{s}` stored here", .{pname});
+            try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body {s}, which carries no loan, and {s}", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), try r.home.doing(self.arena(), pname), why });
+            try self.noteIn(r.module_id, r.pos, "`{s}` {s}", .{ pname, r.home.site() });
             return;
         }
     }
@@ -2010,10 +2013,15 @@ pub const Checker = struct {
             // The defers that `e` runs, re-checked against the state here.
             const back: ?Point = if (e.goesOn()) try self.here() else null;
             const top = self.scopes.items.len - 1;
+            const held = if (e == .scope_end) null else try self.dropPendingHolds(x.to);
             switch (e) {
                 .scope_end => try self.runDefers(top, false, x.result),
                 .jump => |depth| try self.runDefersTo(depth, false, x.result),
                 .@"return", .propagate => |fails| try self.runDefersTo(0, fails, x.result),
+            }
+            if (held) |h| {
+                self.temps.clearRetainingCapacity();
+                try self.temps.appendSlice(self.gpa, h);
             }
             if (back) |p| try self.rewind(p);
         }
@@ -2027,6 +2035,36 @@ pub const Checker = struct {
             s.temps = to.temps;
         };
         return s;
+    }
+
+    /// Before the defers of an exit that leaves the statement it is in
+    /// run (a `return`, `e!`, `e?`, a jump), drop from the temporaries
+    /// the read loans that hold a place only until an operation the
+    /// exit abandons runs: a write self's reservation, which is read
+    /// until its call starts (`reserved`), a place found up to an index
+    /// (`place_hold`), and a value read in place for a consumer that
+    /// runs after the later operands (`held_read`). The exit leaves
+    /// before that operation, so it never runs: no call starts, nothing
+    /// reads the value, and none of them holds a value to drop. Each
+    /// other loan stays, a write lend already made among them (`f(!v,
+    /// g()!)`), and so does every hold the point a jump goes to keeps
+    /// (`to`). Returns the temporaries to restore after.
+    fn dropPendingHolds(self: *Checker, to: ?Point) Error!?[]const Loan {
+        var any = false;
+        for (self.temps.items) |l| if (pendingHold(l) and !(if (to) |p| containsLoan(p.temps, l) else false)) {
+            any = true;
+            break;
+        };
+        if (!any) return null;
+        const held = try self.arena().dupe(Loan, self.temps.items);
+        var n: usize = 0;
+        for (held) |l| {
+            if (pendingHold(l) and !(if (to) |p| containsLoan(p.temps, l) else false)) continue;
+            self.temps.items[n] = l;
+            n += 1;
+        }
+        self.temps.shrinkRetainingCapacity(n);
+        return held;
     }
 
     /// Report each var below `depth` that keeps a loan on a var at
@@ -3039,7 +3077,7 @@ pub const Checker = struct {
                     // String as `?t[..]`.
                     self.walkElems(sexp, ir.get(sexp, .operand), if (sexp.isKind(.read)) .read else .write)
                 else
-                    self.walkLend(ir.get(sexp, .operand), if (sexp.isKind(.read)) .read else .write),
+                    self.walkLend(ir.get(sexp, .operand), self.loanOf(sexp)),
                 .clone, .weak => self.walkCloneWeak(sexp),
                 .share => self.walkShare(sexp),
                 .box => self.walkConsumed(ir.Box.operand(sexp), .box),
@@ -3743,6 +3781,15 @@ pub const Checker = struct {
     // View, move, clone, drop
     // -------------------------------------------------------------------------
 
+    /// What lend `e` (`?x` or `!x`) puts on `x` (`SemContext.loanOf`).
+    fn loanOf(self: *const Checker, e: Sexp) LoanKind {
+        if (e.isKind(.read)) return .read;
+        return switch (self.sema.loanOf(e)) {
+            .read => .read,
+            .write => .write,
+        };
+    }
+
     /// How `e` is lent where a view of another type is expected
     /// (`SemContext.lendOf`).
     fn lendOf(self: *const Checker, e: Sexp) ?sema.Lend {
@@ -4271,7 +4318,7 @@ pub const Checker = struct {
                 try self.errAt(place, "`<` here would leave `{s}` as it was: it copies; remove the `<` to copy it", .{shown});
             } else if (leaf.source == .branch_part) {
                 try self.errAt(place, "`<` here would copy `{s}` out without moving it, and the binding its branch reads would still drop it; exchange the part where it is owned, with `swap`", .{shown});
-            } else try self.errAt(place, "`<` here would copy `{s}` out without moving it, and a field that is not optional cannot be moved out; exchange it: `old = swap(!{s}, v)`", .{ shown, shown }),
+            } else try self.errAt(place, "`<` here would copy `{s}` out without moving it, and a field that is not optional cannot be moved out; {s}", .{ shown, try self.exchangeHint(ty, shown, "exchange it") }),
         }
     }
 
@@ -4351,6 +4398,19 @@ pub const Checker = struct {
         return .{};
     }
 
+    /// How a move-out diagnostic says to exchange `path`, of type `ty`:
+    /// with `swap`, or, for a Cell, which `swap` never exchanges, with the
+    /// Cell's own swap; a value that holds a Cell is never exchanged
+    /// (`sema.holdsMarkedValue`, the one classifier).
+    fn exchangeHint(self: *Checker, ty: ?TypeId, path: []const u8, lead: []const u8) Error![]const u8 {
+        const ctx = self.sema;
+        if (ty) |t| if (sema.holdsMarkedValue(ctx, t)) {
+            if (sema.isCell(ctx, t)) return std.fmt.allocPrint(self.arena(), "exchange its value with the Cell's own swap instead: `old = (!{s}).swap(v)`", .{path});
+            return std.fmt.allocPrint(self.arena(), "it changes only by its marked calls, and is never exchanged whole", .{});
+        };
+        return std.fmt.allocPrint(self.arena(), "{s}: `old = swap(!{s}, v)`", .{ lead, path });
+    }
+
     /// `<p.f` or `<v[i]` of a part that can be neither ended nor emptied
     /// (`MoveSource.part`): rejected. One that copies would stay as it
     /// was; one that moves would stay owned by its parent, or by what
@@ -4388,13 +4448,13 @@ pub const Checker = struct {
                 try self.err(pos, "cannot move out of `{s}`: `{s}` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `swap`", .{ shown, self.spanText(l) });
             } else if ((l.isKind(.read) or l.isKind(.write)) and self.resolvePlace(ir.get(l, .operand)) != null) {
                 // A lend of a place: the place's own path names the part.
-                try self.err(pos, "cannot move out of `{s}`: it is reached through `{s}`, a view; exchange it instead: `old = swap(!{s}, v)`", .{ shown, self.spanText(l), path });
+                try self.err(pos, "cannot move out of `{s}`: it is reached through `{s}`, a view; {s}", .{ shown, self.spanText(l), try self.exchangeHint(ty, path, "exchange it instead") });
             } else try self.err(pos, "cannot move out of `{s}`: it is reached through `{s}`, a view, which gives up nothing of what it views; exchange the part where it is owned, with `swap`", .{ shown, self.spanText(l) });
             return .{};
         }
         const root = self.vars.items[place.root].name;
         if (place.through_view) {
-            try self.err(pos, "cannot move out of `{s}`: `{s}` is a view; exchange it instead: `old = swap(!{s}, v)`", .{ path, root, path });
+            try self.err(pos, "cannot move out of `{s}`: `{s}` is a view; {s}", .{ path, root, try self.exchangeHint(self.exprType(inner), path, "exchange it instead") });
         } else if (place.through_shared) {
             try self.err(pos, "cannot move out of `{s}`: it is reached through a shared handle and other handles may still use it; clone it with `+{s}`", .{ path, path });
         } else if (place.indexed) {
@@ -4425,7 +4485,7 @@ pub const Checker = struct {
             return .{};
         }
         if (v.loop_view or v.elem_view or v.as_view or v.ref != .none) {
-            try self.err(pos, "cannot move out of `{s}`: `{s}` is a view; exchange it instead: `old = swap(!{s}, v)`", .{ path, root, path });
+            try self.err(pos, "cannot move out of `{s}`: `{s}` is a view; {s}", .{ path, root, try self.exchangeHint(self.exprType(inner), path, "exchange it instead") });
             return .{};
         }
         if (try self.rejectConsumedView(id, pos, "move a field out of")) return .{};
@@ -4448,7 +4508,7 @@ pub const Checker = struct {
             e = object;
         }
         if (place.path_ended or place.path == whole_path) {
-            try self.err(pos, "cannot move out of `{s}`: only a field reached through fields `{s}` owns moves out; exchange it instead: `old = swap(!{s}, v)`", .{ path, root, path });
+            try self.err(pos, "cannot move out of `{s}`: only a field reached through fields `{s}` owns moves out; {s}", .{ path, root, try self.exchangeHint(self.exprType(inner), path, "exchange it instead") });
             return .{};
         }
         if (!try self.checkLivePath(id, place.path, pos)) return .{};
@@ -4817,9 +4877,10 @@ pub const Checker = struct {
 
     /// Every type parameter `ty` holds must hold no `?String` in each
     /// instance, because the value is stored where no loan is tracked:
-    /// in a Cell, a Signal, or an owned closure.
-    fn requireNoView(self: *Checker, pos: u32, ty: ?TypeId) Error!void {
-        return self.addRequirement(pos, ty orelse return, .{ .param = 0, .pos = pos, .view = true });
+    /// in a Cell, a Signal, a channel, an actor's value, or an owned
+    /// closure.
+    fn requireNoView(self: *Checker, pos: u32, ty: ?TypeId, home: sema.NoLoanHome) Error!void {
+        return self.addRequirement(pos, ty orelse return, .{ .param = 0, .pos = pos, .view = true, .home = home });
     }
 
     fn addRequirement(self: *Checker, pos: u32, ty: TypeId, req: PlainRequirement) Error!void {
@@ -5399,7 +5460,7 @@ pub const Checker = struct {
     /// view.
     fn storeInCellList(self: *Checker, target: Sexp, value: Value) Error!void {
         const pos = self.startOf(target);
-        try self.requireNoView(pos, self.exprType(target));
+        try self.requireNoView(pos, self.exprType(target), .cell);
         const loans = (try self.carry(self.exprType(target), value)).loans;
         if (loans.len > 0) try self.err(pos, "cannot store a view of `{s}` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one{s}", .{ self.vars.items[loans[0].root].name, staticParamHint(loans[0]) });
     }
@@ -5604,9 +5665,12 @@ pub const Checker = struct {
         // it calls, or a self that is no place) is copied there, so it
         // is held until the call runs (`holdRead`).
         const callee_found = self.errors_found;
-        // An actor call's `!` marks the call, not a lend: the call reads
-        // the handle, and the actor changes its own value.
+        // An actor's call and a select's arm keep no loan in their result:
+        // the actor holds a count of its own, and a select ends its arms.
         const actor_call = self.sema.isActorCall(node) or self.sema.selectArmOf(node) != null;
+        // What the call puts on the place self is: a read loan, a write
+        // loan where `!` lends to write (`loanOf`).
+        var recv_loan: LoanKind = .read;
         if (callee.isKind(.member) and !actor_call and self.callsFunctionField(node, callee)) {
             // A function held in a field is called with the arguments
             // alone; it reaches nothing of the value holding it.
@@ -5621,7 +5685,7 @@ pub const Checker = struct {
                 obj = ir.get(obj, .operand);
             }
             recv_mode = if (explicit_write) .write else self.selfMode(obj, callee);
-            if (actor_call) recv_mode = .read;
+            recv_loan = if (explicit_write) self.loanOf(ir.Member.object(callee)) else if (recv_mode == .write) .write else .read;
             const place = if (recv_mode == .value) null else self.resolvePlace(obj);
             if (place) |p| {
                 const found = self.errors_found;
@@ -5637,12 +5701,12 @@ pub const Checker = struct {
                 if (self.flowLive(id) and !self.isScalar(self.vars.items[id].ty) and self.errors_found == found) {
                     const pos = self.startOf(obj);
                     reservation = self.temps.items.len;
-                    try self.addTemp(.{ .root = id, .path = p.path, .kind = .read, .pos = pos, .reserved = recv_mode == .write });
+                    try self.addTemp(.{ .root = id, .path = p.path, .kind = .read, .pos = pos, .reserved = recv_loan == .write });
                     recv_root = id;
                     recv_path = p.path;
                     // A built-in's methods hand out values, never views
                     // of self.
-                    const kind: LoanKind = if (recv_mode == .write) .write else .read;
+                    const kind = recv_loan;
                     recv_held = recv_val;
                     recv_value = if (actor_call or self.builtinName(self.exprType(obj)) != null) recv_val else try self.valueUnion(recv_val, try self.lendOn(id, .{ .root = id, .path = p.path, .kind = kind, .pos = pos }));
                 }
@@ -5657,7 +5721,7 @@ pub const Checker = struct {
                 // A built-in's methods hand out values, never views of
                 // self.
                 if ((recv_mode == .read or recv_mode == .write) and !actor_call and !self.namesType(callee) and self.builtinName(self.exprType(obj)) == null) {
-                    const kind: LoanKind = if (recv_mode == .write) .write else .read;
+                    const kind = recv_loan;
                     // A self the call holds in storage of its own is
                     // lent from there; any other is lent where its leaves
                     // are.
@@ -5693,7 +5757,7 @@ pub const Checker = struct {
         const text_op = self.sema.stringCallOf(node) orelse self.sema.stringCallOf(callee);
         if (self.isPrint(callee) or text_op != null) {
             try self.walkReadArgs(args);
-            if (recv_root) |id| if (recv_mode == .write) {
+            if (recv_root) |id| if (recv_loan == .write) {
                 const reserved = self.temps.orderedRemove(reservation);
                 const at = self.startOf(ir.Member.object(callee));
                 if (try self.conflictingLoan(id, recv_path, .write, at)) |l| try self.noteWholeSelf(id, recv_path, l, callee, at);
@@ -5702,13 +5766,26 @@ pub const Checker = struct {
             self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
             return .{};
         }
-        // Every handle to a Cell or Signal reaches what it holds, so what
-        // goes in (`Cell(v)`, `set`, `swap`, `subscribe`) may
-        // not hold a view.
-        const into = if (callee.isKind(.member) and !self.namesType(callee))
+        // Every handle to a Cell, Signal, or channel reaches what it
+        // holds, so what goes in (`Cell(v)`, `set`, `swap`, `subscribe`,
+        // `send`) may not hold a view. Of an arm of `task.select`, a send
+        // arm's value goes into its channel as `send`'s does, and its
+        // function and a receive arm's go to the select, which calls them.
+        const arm = self.sema.selectArmOf(node);
+        const into = if (arm != null and arm.? != .send)
+            null
+        else if (callee.isKind(.member) and !self.namesType(callee))
             self.builtinName(self.exprType(ir.Member.object(callee)))
         else if (self.namesType(callee)) self.builtinName(self.exprType(node)) else null;
         const cell: ?[]const u8 = if (into != null and !std.mem.eql(u8, into.?, "List")) into else null;
+        // `!xs.extend(?s)` copies `s`'s elements and keeps no loan of
+        // them: in a generic body, each instance's hold no view.
+        const extends = into != null and std.mem.eql(u8, into.?, "List") and callee.isKind(.member) and std.mem.eql(u8, self.text(ir.Member.name(callee)), "extend");
+        // A channel's values and an actor's value hold no view (SPEC
+        // "Channels", "Actors"): one made in a generic body asks each
+        // instance for a type that holds none.
+        if (self.sema.isChanMake(node)) try self.requireNoView(self.startOf(node), self.exprType(node), .channel_made);
+        if (self.sema.isActorMake(node) or self.sema.isActorSupervised(node)) try self.requireNoView(self.startOf(node), self.exprType(node), .actor_made);
         // A consuming self is passed like an argument.
         const consumed_recv = if (recv_mode == .value and callee.isKind(.member)) recv_value else Value{};
         // Which arguments the call passes loans on from (Core sentence
@@ -5726,7 +5803,7 @@ pub const Checker = struct {
             // carries of self (Core sentence 7).
             const paths = if (params) |p| p.origins.self_paths else &.{};
             const recv_part = if (paths.len > 0 and callee.isKind(.member) and recv_mode != .value and !actor_call and !field_call)
-                try self.selfPathsResult(paths, recv_root, recv_path, if (recv_mode == .write) .write else .read, self.startOf(ir.Member.object(callee)), recv_held, recv_value)
+                try self.selfPathsResult(paths, recv_root, recv_path, recv_loan, self.startOf(ir.Member.object(callee)), recv_held, recv_value)
             else
                 recv_value;
             result = try self.valueUnion(result, recv_part);
@@ -5764,8 +5841,11 @@ pub const Checker = struct {
             for (v.loans) |l| if (l.kind == .write and !l.ext and !containsLoan(self.temps.items[@min(temps_start, self.temps.items.len)..], l)) try self.addTemp(l);
             // A generic body's `T` holds no loan here, but an instance's
             // may be a `?String` viewing a String.
-            if (cell != null) try self.requireNoView(self.startOf(a), self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a));
-            if (cell != null and v.loans.len > 0 and !self.rejected(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a)) {
+            // A send arm stores its value, its first argument, alone.
+            if (extends and i == 0) try self.requireNoView(self.startOf(a), self.exprType(a), .list_extend);
+            const stores_arg = cell != null and (arm == null or i == 0);
+            if (stores_arg) try self.requireNoView(self.startOf(a), self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a), if (std.mem.eql(u8, cell.?, "Chan")) .channel else if (std.mem.eql(u8, cell.?, "Signal")) .signal else .cell);
+            if (stores_arg and v.loans.len > 0 and !self.rejected(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a)) {
                 const held = v.*;
                 v.* = .{};
                 if (self.readsPlainValue(a)) continue;
@@ -5798,14 +5878,14 @@ pub const Checker = struct {
         };
         // What the call keeps by its callee's `keeps`, for a conflict's note.
         if (params) |p| if (p.origins.stores & p.origins.lent != 0) {
-            const write_recv = if (recv_mode == .write) recv_root else null;
+            const write_recv = if (recv_loan == .write) recv_root else null;
             if (p.keepsLentSelf()) try self.noteKept(callee, recv_value, "@", write_recv, arg_values);
             for (arg_values, 0..) |v, i| if (p.keepsLent(i)) try self.noteKept(callee, v, p.paramName(i) orelse "?", write_recv, arg_values);
         };
 
         // A write self is lent when the call starts, before the
         // callee stores anything.
-        if (recv_root) |id| if (recv_mode == .write) {
+        if (recv_root) |id| if (recv_loan == .write) {
             // The reservation itself is no conflict.
             const reserved = self.temps.orderedRemove(reservation);
             const at = self.startOf(ir.Member.object(callee));
@@ -6563,7 +6643,7 @@ pub const Checker = struct {
         for (caps) |cap| {
             const cv = try self.applyCapture(cap);
             try cap_values.append(self.arena(), cv);
-            if (owned) try self.requireNoView(sema.captureNameNode(cap).?.src.pos, self.symType(sema.captureNameNode(cap).?.src.pos));
+            if (owned) try self.requireNoView(sema.captureNameNode(cap).?.src.pos, self.symType(sema.captureNameNode(cap).?.src.pos), .closure);
             // An API object may hold a loan its type does not show: an
             // owned closure keeps one only where its braces name `Owned`.
             const ctx = self.sema;
@@ -8800,6 +8880,12 @@ fn isIdentStart(c: u8) bool {
 fn isLendOf(lends: []const Loan, l: Loan) bool {
     for (lends) |x| if (x.root == l.root and x.path == l.path and !x.ext) return true;
     return false;
+}
+
+/// Whether `l` holds a place only until a pending operation runs
+/// (`Checker.dropPendingHolds`).
+fn pendingHold(l: Loan) bool {
+    return l.kind == .read and (l.reserved or l.place_hold or l.held_read != .none);
 }
 
 fn containsLoan(set: []const Loan, l: Loan) bool {

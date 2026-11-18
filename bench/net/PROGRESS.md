@@ -6,6 +6,8 @@ The reference rows are Tokio's and Go's when the benchmark began; the
 Rig rows below them are added as the runtime grows (`bench-net --record
 "#PR: what changed"`, which appends to the end of the file, so a Mac row
 moves up into its table).
+Rows marked `rig-fast` were built in Zig's fast mode, which Rig no
+longer builds; `bench-net --record` adds `rig-safe` rows (`--release`).
 
 | Date | Change | Variant | pingpong (per trip) | echo (per trip) | connect (per conn) |
 |---|---|---|---|---|---|
@@ -37,6 +39,10 @@ moves up into its table).
 | 2026-10-30 | #780: String and List appends grow by value | rig-fast | 14.22 us | 5.91 us | 49.06 us |
 | 2026-11-09 | main efa08ecf0 before #1045, shuffled (Mac) | rig-fast | 13.84 us | 6.14 us | 49.14 us |
 | 2026-11-09 | #1045: dense stacks (Mac) | rig-fast | 14.68 us | 6.19 us | 48.20 us |
+| 2026-11-15 | main 7a2efd0f3, re-measured with --release (records/2026-11/concurrency-bench-remeasure), fastest of 10 over two boards | rig-safe | 16.38 us | 8.54 us | 50.73 us |
+| 2026-11-15 | the same boards | tokio | 13.63 us | 5.81 us | 59.71 us |
+| 2026-11-15 | the same boards | go | 16.39 us | 7.33 us | 61.73 us |
+| 2026-11-15 | main ec0a2a743 (2026-11-09), --release, in an A/B with 7a2efd0f3 (16.42 / 8.63 / 51.19 us) | rig-safe | 16.46 us | 8.60 us | 50.18 us |
 
 ## x86-64 (pup)
 
@@ -116,3 +122,6 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-11-09 | #1051: a connection's task takes a dense stack (pup cores 0-11) | rig-fast | 5.21 us | 1.08 us | 27.07 us |
 | 2026-11-09 | main ec0a2a743 before #1048, alternated (Mac) | rig-fast | 15.72 us | 6.15 us | 52.58 us |
 | 2026-11-09 | #1048: a Table of a heap that does little waits to ask for huge pages (Mac) | rig-fast | 16.46 us | 6.16 us | 51.14 us |
+| 2026-11-15 | main bfd872b6d (7a2efd0f3's compiler and runtime), --release (records/2026-11/concurrency-bench-remeasure), fastest of 7 (pup cores 0-11) | rig-safe | 5.30 us | 1.10 us | 25.17 us |
+| 2026-11-15 | the same board | tokio | 4.90 us | 1.29 us | 31.28 us |
+| 2026-11-15 | the same board | go | 5.53 us | 957 ns | 43.08 us |

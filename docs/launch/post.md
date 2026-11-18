@@ -39,7 +39,7 @@ one-character mark that means the same thing wherever it appears.
 
 | Mechanic | Sigils |
 |---|---|
-| Binding | `x = e` binds, `x =! e` binds for good |
+| Binding | `x = e` binds, `x =! e` binds a fixed local |
 | Taking and copying | `<x` moves (alone on a line, drops), `+x` copies or makes another handle |
 | Lending | `?x` lends to read, `!x` to write; as types, `?T` and `!T` |
 | Holding | `*x` shared (`*w` upgrades a weak handle), `^x` boxed, `~x` weak, `@` self |
@@ -119,7 +119,7 @@ In Rig, a call that finds the actor idle takes it in one atomic step
 and runs the method on the caller's own stack. Only a call that finds
 it busy waits a moment, as a mutex would, and is then queued. So an
 actor nobody else is using costs about what a lock does: about 5 ns a
-call on an Apple M5, against 3.5 ns for a Go mutex and 135 ns for the
+call on an Apple M5, against 3.4 ns for a Go mutex and 138 ns for the
 usual Tokio actor, a task serving a channel. Rig has no `Mutex` type,
 because it does not need one.
 
@@ -217,25 +217,29 @@ twenty schedules, and sleeps take no time.
 
 Tasks are fibers on a worker thread per core, with work stealing, and
 each worker waits on its own kqueue or epoll poller. Long loops yield
-to the tasks waiting behind them. Against Tokio and Go, on an Apple M5
-and a 22-core Linux machine ([benchmarks.md](benchmarks.md)):
+to the tasks waiting behind them. Against Tokio and Go, on an Apple M5,
+with Rig built `--release` ([benchmarks.md](benchmarks.md)):
 
-- **Start a task and wait for it:** 44 to 80 ns, against 118 to 250 ns
-  in Tokio and 188 to 271 ns in Go.
-- **Switch between tasks:** 8 to 10 ns, against 42 to 47 ns in Tokio.
-- **Wait behind a long computation:** 77 to 80 µs, against 2.3 to 4.3 ms
-  in Tokio and 2.0 to 4.3 ms in Go.
-- **Actors under contention:** 8 tasks calling one actor cost 31 to
-  35 ns a call, against 65 to 79 ns for a Go mutex.
-- **HTTP:** on the Mac, about as many requests as hyper (169,000 a
-  second against 179,000). On Linux, 830,000 a second against hyper's
-  297,000 and Go's 235,000, with the load generator on the same
-  machine. We would like others to reproduce that one.
-- **Memory:** a task holds at least one page of stack and a page
-  table for it, so it costs 32.7 KiB on the Mac and 8.9 KiB on Linux,
-  against about 300 bytes in Tokio and 2.9 KiB in Go. An idle HTTP
-  connection holds no buffers, so its resident memory is under hyper's
-  and Go's, but with its page table it costs more than hyper's.
+- **Start a task and wait for it:** 51 ns, against 165 ns in Tokio and
+  199 ns in Go.
+- **Switch between tasks:** 6 ns, against 39 ns in Tokio and 226 ns in
+  Go.
+- **Wait behind a long computation:** 153 ns, against 3.3 ms in Tokio
+  and 3.4 ms in Go, since a signal stops the computation.
+- **Actors under contention:** 8 tasks calling one actor cost 15 ns a
+  call, against 77 ns for a Go mutex.
+- **HTTP:** 128,000 requests a second, against hyper's 139,000 and Go's
+  121,000, with the load generator on the same machine.
+- **Memory:** a task holds at least one page of stack, so a sleeping
+  task costs 17.1 KiB, page tables included, against about 300 bytes in
+  Tokio and 2.9 KiB in Go. An idle HTTP connection holds no buffers, so
+  it costs 17.3 KiB, under hyper's 18.7 KiB and Go's 20.2 KiB.
+
+On a 22-core x86-64 Linux machine the picture holds, with two changes:
+a sleeping task costs 5.2 KiB, since a page is 4 KiB there, and the
+HTTP server answers 592,000 to 846,000 requests a second on the P-cores,
+against hyper's 486,000 at its best and Go's 451,000, spending more CPU
+on each request than hyper but keeping more cores busy.
 
 ## What is new, and what is not
 
@@ -259,10 +263,9 @@ itself, and grow slice by slice.
 Rig is young. Its scheduler runs on macOS and Linux, on arm64 and
 x86-64. Its networking is TCP and an HTTP/1.1 server, with no TLS or
 HTTP client yet. A task's stack page makes many idle tasks costlier
-than Tokio's, and CPU-heavy work spread over the cores trails Tokio and
-Go by 5 to 16 percent, in the compiled loops rather than the scheduler.
-Opening a connection on Linux is slower than Tokio's, 36 µs against
-31.
+than Tokio's. A loopback round trip is 20 to 47% slower than Tokio's,
+and divide and conquer trails Rayon's: a parallel sum by 18%, and a
+quicksort into new Lists by 53%.
 
 The code, the specification (SPEC.md, section 18), the design and its
 reviews (docs/design/concurrency.md), and every benchmark are in the

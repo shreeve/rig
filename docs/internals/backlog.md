@@ -68,10 +68,16 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   draws Zig's warning, and one that large fails to build).
   With it, build debug programs for x86_64 with `-fllvm`, as aarch64's
   are.
-- The reference checker (`bin/rig-oracle`) models no tasks: a wait's
-  failure (`>t!`, `>t catch`) and the loans a task keeps while it runs
-  have no second opinion beside the compiler's. Teach it CORE's rules
-  for them, as it learned "A failure moves its error" (#601).
+- The reference checker (`bin/rig-oracle`) leaves one task rule to the
+  compiler: a fallible task the normal path drops without waiting is
+  rejected (SPEC §18, "Drop"), a rule that its error is not lost, which
+  Core §2 does not make (a dropped task drops its error), so the
+  checker accepts the two tests of it (`task fallible lost`, `sets
+  lost`). And CORE §4 says `!h` lends a handle itself, but not how long
+  an arm of `task.select` holds that lend: the compiler and the checker
+  read `!ch.on_recv()` as a read lend of the place holding `ch`, held
+  until the select returns, so two arms may name one channel. The
+  owner decides whether the Core says so.
 - The reference checker (`bin/rig-oracle`) takes memory quadratic in
   the exits of one `match` arm. For an arm `.one(:n)` of `match <e`
   with that many `return ... if ...` lines, its peak resident memory:
@@ -176,7 +182,7 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   declared after the first section's `repeat` neither main nor the
   branch folds them (6.89 and 6.86G instructions). Keeping the tables
   in registers without the fold would need them proven uncaptured
-  across the String's calls; `--release=fast` is unaffected.
+  across the String's calls; Zig's fast mode is unaffected.
 - Remote frees batched per owning heap, as Linux 7.4's slab sheaves
   and snmalloc do. Today each free of a block another heap owns
   (`src/alloc.zig`) is one compare-and-swap onto that heap's remote
@@ -273,16 +279,22 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   seed picks which worker runs and when one steals, so a fiber lost or
   left waiting fails under the same seed every time. Source: Rig,
   reviewing #1001.
-- **A scheduler unit test fails under load** in a debug build.
-  `src/sched.zig`'s "two tasks that answer each other over a socket stay
-  on one worker" counts the answers a side reads on a worker other than
-  the one that wrote them, and expects few. On pup, with another release
-  build's load (1.2 to 5.4), `zig build test -Doptimize=debug` failed it
-  in 3 of 4 runs, on main as on a branch that left the scheduler alone
-  (2026-10-27); safe and fast passed.
-  Decide whether the test measures a property load may break (and
-  should allow a share of crossings, or run pinned), or the scheduler
-  lets a woken pair drift apart under load.
+- **A unit test needs more than 8 MB of main-thread stack.** Run
+  directly, outside `zig build`, the debug unit-test binary overflows
+  the default 8 MB stack at `src/sema.zig`'s "check: a long chain of
+  types each holding the next by value" and dies with a segfault; with
+  `ulimit -s 65536` it passes. A test that needs more than the default
+  stack fails wherever the binary runs without a raised limit. Source:
+  Rig, running #1092's tests on x86-64 Linux.
+- **The stack census of a safe build.** `tools/stack-census.py` leaves
+  every task of a `--release` build unknown: Zig's safe mode keeps the
+  stack trace a system call's wrapper writes for an unexpected errno
+  (`posix.mmap`, inlined from `posix.unexpectedErrno`), a write through
+  a pointer the census cannot follow. Counted as cold (`--cold
+  '^posix\.mmap$'`), the task of test/cli/stack_census.sh's `spin` is
+  688 bytes. The census should count that path as cold where it is
+  inlined, as it counts the panic path; test/cli/stack_census.sh holds
+  the gap as a known one, and fails the day it closes.
 - **A result that views a `for` element cannot outlive the turn.**
   `for b in balls` (or `for b in ?balls`) over a `List[Ball]` whose
   `Ball` copies, then `best = ?b.hit()` with `fun hit(?@) -> Hit from @`,

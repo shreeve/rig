@@ -50,6 +50,94 @@ test "http serve", seeds: 20, '''
     print(get(port, p)!)
   print(<t.cancel() catch -1)
 
+test "http panic, then the next request", seeds: 20, '''
+  500 internal server error
+  200 ok:2
+  500 internal server error
+  200 ok:4
+  500 internal server error
+  200 ok:6
+  -1
+'''
+  # A handler that panics deep in a recursion answers 500, and the next
+  # request on the same connection runs isolated again and answers.
+  use std.text
+
+  fun deep(n: Int, hits: *Cell[Int]) -> Int
+    if n == 0
+      return [1, 2][hits.get() + 5]
+    deep(n - 1, +hits) + 1
+
+  fun route(req: ?http.Request, hits: *Cell[Int]) -> http.Response
+    !hits.add(1)
+    match req.path
+      "/boom" => http.text(String(deep(300, +hits)))
+      _ => http.text(String("ok:", hits.get()))
+
+  fun run(l: net.Listener, hits: *Cell[Int]) -> Int!
+    http.serve(<l, |+hits, req| route(req, +hits))!
+    0
+
+  hits = *Cell(0)
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l, +hits)&
+  c = net.connect(String("127.0.0.1:", port))!
+  for i in 0..6
+    path = "/boom" if i % 2 == 0 else "/ok"
+    (!c).write(String("GET ", path, " HTTP/1.1\r\nHost: x\r\n\r\n"))!
+    want = "internal server error" if i % 2 == 0 else "ok:"
+    got = String()
+    while text.find(?got, want) == none
+      _ = (!c).read(!got, 4096)!
+    at = text.find(?got, "\r\n\r\n") ?? 0
+    print(?got[9..12], text.trim(?got[at..]))
+  print(<t.cancel() catch -1)
+
+test "http panic, then the next request, released", release: true, '''
+  500 internal server error
+  200 ok:2
+  500 internal server error
+  200 ok:4
+  500 internal server error
+  200 ok:6
+  -1
+'''
+  # A handler that panics deep in a recursion answers 500, and the next
+  # request on the same connection runs isolated again and answers.
+  use std.text
+
+  fun deep(n: Int, hits: *Cell[Int]) -> Int
+    if n == 0
+      return [1, 2][hits.get() + 5]
+    deep(n - 1, +hits) + 1
+
+  fun route(req: ?http.Request, hits: *Cell[Int]) -> http.Response
+    !hits.add(1)
+    match req.path
+      "/boom" => http.text(String(deep(300, +hits)))
+      _ => http.text(String("ok:", hits.get()))
+
+  fun run(l: net.Listener, hits: *Cell[Int]) -> Int!
+    http.serve(<l, |+hits, req| route(req, +hits))!
+    0
+
+  hits = *Cell(0)
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l, +hits)&
+  c = net.connect(String("127.0.0.1:", port))!
+  for i in 0..6
+    path = "/boom" if i % 2 == 0 else "/ok"
+    (!c).write(String("GET ", path, " HTTP/1.1\r\nHost: x\r\n\r\n"))!
+    want = "internal server error" if i % 2 == 0 else "ok:"
+    got = String()
+    while text.find(?got, want) == none
+      _ = (!c).read(!got, 4096)!
+    at = text.find(?got, "\r\n\r\n") ?? 0
+    print(?got[9..12], text.trim(?got[at..]))
+  print(<t.cancel() catch -1)
+
 test "http keep alive", seeds: 20, "500 500"
   # Many clients, each sending its requests on one connection.
   use std.text
@@ -108,6 +196,442 @@ test "http pipelined", seeds: 20, "/a: /b:hello /c:"
   b = text.find(?got, "/b:hello") ?? -1
   d = text.find(?got, "/c:") ?? -1
   print("/a:" if a >= 0 else "?", "/b:hello" if b > a else "?", "/c:" if d > b else "?")
+  _ = <t.cancel() catch -1
+
+test "http request fields", seeds: 20, '''
+  GET /one a=1&b=2 1 tag-1 true true - 0
+  POST /two   long:6000 true true GET 20000:b
+  POST /four   long:6000 true true GET 20000:c
+  GET /three a=3 3 - true true GET 0
+  /one GET
+'''
+  # A handler reads a request's fields: it copies them, compares them,
+  # slices and hashes them, reads headers and arguments, and keeps
+  # copies across requests. Requests come pipelined on one connection,
+  # two with a large head and a body longer than the read buffer, one
+  # of them chunked.
+  use std.shared
+  use std.text
+
+  fun route(req: ?http.Request, seen: *shared.Map[String, String]) -> http.Response
+    _ = (!seen).put_new(+req.path, String(req.method))
+    p = +req.path
+    tag = req.header("x-tag") ?? String("-")
+    t = String(tag)
+    if req.header("X-Big") as b
+      t = String("long:", b.len)
+    keys: Set[String] = Set()
+    !keys.add(String(req.path))
+    first = String(seen.get("/one") ?? "-") if req.path != "/one" else String("-")
+    last = String(":", ?req.body[req.body.len - 1..]) if req.body.len > 0 else String()
+    http.text(String(req.method, " ", p, " ", req.query, " ", req.arg("a") ?? String(""), " ", t, " ", p == req.path and ?p[1..] == ?req.path[1..], " ", keys.has(?req.path), " ", first, " ", req.body.len, last, "\n"))
+
+  fun run(l: net.Listener, seen: *shared.Map[String, String]) -> Int!
+    http.serve(<l, |+seen, req| route(req, +seen))!
+    0
+
+  seen = shared.Map[String, String].new()
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l, +seen)&
+  c = net.connect(String("127.0.0.1:", port))!
+  big = String()
+  for 0..6000
+    !big.push(120)
+  body = String()
+  for 0..20000
+    !body.push(98)
+  chunks = String()
+  for 0..20
+    !chunks.add("3e8\r\n")
+    for 0..1000
+      !chunks.push(99)
+    !chunks.add("\r\n")
+  (!c).write(String("GET /one?a=1&b=2 HTTP/1.1\r\nHost: x\r\nX-Tag:  tag-1 \r\n\r\nPOST /two HTTP/1.1\r\nHost: x\r\nX-Big: ", big, "\r\nContent-Length: 20000\r\n\r\n", body))!
+  (!c).write(String("POST /four HTTP/1.1\r\nHost: x\r\nX-Big: ", big, "\r\nTransfer-Encoding: chunked\r\n\r\n", chunks, "0\r\n\r\n"))!
+  (!c).write("GET /three?a=3 HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")!
+  got = String()
+  while (!c).read(!got, 4096)! > 0
+    pass
+  for line in text.lines(?got)
+    if text.starts_with(line, "GET ") or text.starts_with(line, "POST ")
+      print(line)
+  print("/one", seen.get("/one") ?? "-")
+  _ = <t.cancel() catch -1
+
+test "http responses", seeds: 20, '''
+  200 text/plain; charset=utf-8 moved /ok
+  201 image/png png
+  200 image/x-icon ico
+  204 - 
+  200 application/json {"a":1}
+'''
+  # `ok` takes the body it is given; a response's type is an `http.Type`,
+  # a named one or `.other(text)`, written as given, and an empty one
+  # sends none.
+  use std.text
+
+  fun kind_of(path: ?String) -> http.Type
+    .png if text.ends_with(path, ".png") else .text
+
+  fun run(l: net.Listener) -> Int!
+    http.serve(<l, |req|
+      match req.path
+        "/ok" => http.ok(String("moved ", req.path))
+        "/png" => http.Response(status: 201, type: kind_of("a.png"), body: String("png"))
+        "/ico" => http.Response(status: 200, type: .other("image/x-icon"), body: String("ico"))
+        "/none" => http.Response(status: 204, type: .other(""), body: String())
+        _ => http.json("{\"a\":1}")
+    )!
+    0
+
+  # The status, content type, and body of the answer for `path`.
+  fun get(port: Int, path: ?String) -> String!
+    c = net.connect(String("127.0.0.1:", port))!
+    (!c).write(String("GET ", path, " HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))!
+    got = String()
+    loop
+      if (!c).read(!got, 4096)! == 0
+        break
+    kind = String("-")
+    if text.find(?got, "content-type: ") as at
+      rest = ?got[at + 14..]
+      kind = String(?rest[..text.find(rest, "\r\n") ?? 0])
+    at = (text.find(?got, "\r\n\r\n") ?? 0) + 4
+    String(?got[9..12], " ", kind, " ", ?got[at..])
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l)&
+  for p in ["/ok", "/png", "/ico", "/none", "/j"]
+    print(get(port, p)!)
+  _ = <t.cancel() catch -1
+
+test "http content types", seeds: 20, '''
+  text [content-type: text/plain; charset=utf-8]
+  html [content-type: text/html; charset=utf-8]
+  json [content-type: application/json]
+  css [content-type: text/css; charset=utf-8]
+  js [content-type: text/javascript; charset=utf-8]
+  csv [content-type: text/csv; charset=utf-8]
+  xml [content-type: application/xml]
+  svg [content-type: image/svg+xml]
+  png [content-type: image/png]
+  jpeg [content-type: image/jpeg]
+  gif [content-type: image/gif]
+  webp [content-type: image/webp]
+  pdf [content-type: application/pdf]
+  wasm [content-type: application/wasm]
+  bytes [content-type: application/octet-stream]
+  other [content-type: application/x-thing; v=1]
+'''
+  # The bytes of each type's header line, between its CRLFs.
+  use std.text
+
+  fun type_of(name: ?String) -> http.Type
+    match name
+      "text" => .text
+      "html" => .html
+      "json" => .json
+      "css" => .css
+      "js" => .js
+      "csv" => .csv
+      "xml" => .xml
+      "svg" => .svg
+      "png" => .png
+      "jpeg" => .jpeg
+      "gif" => .gif
+      "webp" => .webp
+      "pdf" => .pdf
+      "wasm" => .wasm
+      "bytes" => .bytes
+      _ => .other("application/x-thing; v=1")
+
+  fun run(l: net.Listener) -> Int!
+    http.serve(<l, |req| http.Response(status: 200, type: type_of(?req.path[1..]), body: String()))!
+    0
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l)&
+  for name in ["text", "html", "json", "css", "js", "csv", "xml", "svg", "png", "jpeg", "gif", "webp", "pdf", "wasm", "bytes", "other"]
+    c = net.connect(String("127.0.0.1:", port))!
+    (!c).write(String("GET /", name, " HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))!
+    got = String()
+    loop
+      if (!c).read(!got, 4096)! == 0
+        break
+    for piece in text.split(?got, "\r\n")
+      if text.starts_with(piece, "content-type")
+        print(`{name} [{piece}]`)
+  _ = <t.cancel() catch -1
+
+test "http answers 500 for what it cannot send", seeds: 20, '''
+  /s/100 500 internal server error
+  /s/101 500 internal server error
+  /s/199 500 internal server error
+  /s/0 500 internal server error
+  /s/200 200 s200
+  /cr 500 internal server error
+  /lf 500 internal server error
+  /nul 500 internal server error
+'''
+  # A status from 100 to 199 is an interim answer, which carries no body
+  # and is followed by the final one, and a status below 100 is none: each
+  # is answered 500, as is a type whose text holds a CR, LF, or NUL, which
+  # no header line may hold.
+  use std.text
+
+  fun route(req: ?http.Request) -> http.Response
+    if text.starts_with(req.path, "/s/")
+      code = text.parse_int(?req.path[3..]) catch 0
+      return http.status(code, String("s", code))
+    match req.path
+      "/cr" => http.Response(status: 200, type: .other("text/html\rSet-Cookie: x=1"), body: String("cr"))
+      "/lf" => http.Response(status: 200, type: .other("text/html\nSet-Cookie: x=1"), body: String("lf"))
+      _ => http.Response(status: 200, type: .other("a\x00b"), body: String("nul"))
+
+  fun run(l: net.Listener) -> Int!
+    http.serve(<l, |req| route(req))!
+    0
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l)&
+  for path in ["/s/100", "/s/101", "/s/199", "/s/0", "/s/200", "/cr", "/lf", "/nul"]
+    c = net.connect(String("127.0.0.1:", port))!
+    (!c).write(String("GET ", path, " HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))!
+    got = String()
+    loop
+      if (!c).read(!got, 4096)! == 0
+        break
+    at = text.find(?got, "\r\n\r\n") ?? 0
+    print(path, ?got[9..12], text.trim(?got[at..]))
+  _ = <t.cancel() catch -1
+
+fail "http type misspelled", "no variant `jsno` on enum `http.Type`"
+  r = http.Response(status: 200, type: .jsno, body: String())
+  print(r.status)
+
+test "http answers byte for byte", seeds: 20, '''
+  [HTTP/1.1 200 OK]
+  [content-length: 4]
+  [content-type: text/plain; charset=utf-8]
+  []
+  [s200HTTP/1.1 201 Created]
+  [content-length: 4]
+  [content-type: text/plain; charset=utf-8]
+  []
+  [HTTP/1.1 599 ]
+  [content-length: 4]
+  [content-type: text/plain; charset=utf-8]
+  []
+  [s599HTTP/1.1 204 No Content]
+  []
+  [HTTP/1.1 304 Not Modified]
+  []
+  [HTTP/1.1 999 ]
+  [content-length: 4]
+  [content-type: text/plain; charset=utf-8]
+  []
+  [s999HTTP/1.1 200 OK]
+  [content-length: 2]
+  [content-type: application/json]
+  []
+  [{}HTTP/1.1 200 OK]
+  [content-length: 1]
+  []
+  [eHTTP/1.1 200 OK]
+  [content-length: 5]
+  [content-type: text/plain; charset=utf-8]
+  []
+  [/p:hiHTTP/1.1 500 Internal Server Error]
+  [content-length: 22]
+  []
+  [internal server error
+  HTTP/1.1 404 Not Found]
+  [connection: close]
+  [content-length: 4]
+  [content-type: text/plain; charset=utf-8]
+  []
+  [s404]
+  [HTTP/1.1 200 OK]
+  [connection: close]
+  [content-length: 5]
+  [content-type: text/plain; charset=utf-8]
+  []
+  [/old:]
+  [HTTP/1.1 200 OK]
+  [connection: keep-alive]
+  [content-length: 7]
+  [content-type: text/plain; charset=utf-8]
+  []
+  [/alive:HTTP/1.1 301 Moved Permanently]
+  [connection: close]
+  [content-length: 4]
+  [content-type: text/plain; charset=utf-8]
+  []
+  [s301]
+  [HTTP/1.1 413 Payload Too Large]
+  [connection: close]
+  [content-length: 18]
+  []
+  [content too large
+  ]
+  [HTTP/1.1 417 Expectation Failed]
+  [connection: close]
+  [content-length: 19]
+  []
+  [expectation failed
+  ]
+'''
+  # Every byte of each answer, as Zig's `respond` wrote them: the status
+  # line of a named status and of one with no name, HEAD, a 204 and a
+  # 304, which carry no length and no body, an empty type, a 500,
+  # keep-alive and close on HTTP/1.1 and 1.0, where an HTTP/1.0 client
+  # that asked to keep the connection is told it is kept, 413, and 417.
+  use std.text
+
+  fun route(req: ?http.Request) -> http.Response
+    if text.starts_with(req.path, "/s/")
+      code = text.parse_int(?req.path[3..]) catch 0
+      return http.status(code, String("s", code))
+    match req.path
+      "/j" => http.json("{}")
+      "/e" => http.Response(status: 200, type: .other(""), body: String("e"))
+      "/boom" => http.text(String([1][req.path.len]))
+      _ => http.text(String(req.path, ":", req.body))
+
+  fun run(l: net.Listener) -> Int!
+    http.serve(<l, |req| route(req))!
+    0
+
+  # Every byte of the answers to `ask`, sent on one connection, a line at
+  # each CRLF.
+  sub show(port: Int, ask: ?String)!
+    c = net.connect(String("127.0.0.1:", port))!
+    (!c).write(ask)!
+    got = String()
+    loop
+      if (!c).read(!got, 4096)! == 0
+        break
+    for piece in text.split(?got, "\r\n")
+      print(`[{piece}]`)
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l)&
+  show(port, "GET /s/200 HTTP/1.1\r\nHost: x\r\n\r\nHEAD /s/201 HTTP/1.1\r\nHost: x\r\n\r\nGET /s/599 HTTP/1.1\r\nHost: x\r\n\r\nGET /s/204 HTTP/1.1\r\nHost: x\r\n\r\nGET /s/304 HTTP/1.1\r\nHost: x\r\n\r\nGET /s/999 HTTP/1.1\r\nHost: x\r\n\r\nGET /j HTTP/1.1\r\nHost: x\r\n\r\nGET /e HTTP/1.1\r\nHost: x\r\n\r\nPOST /p HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\nhiGET /boom HTTP/1.1\r\nHost: x\r\n\r\nGET /s/404 HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")!
+  show(port, "GET /old HTTP/1.0\r\n\r\n")!
+  show(port, "GET /alive HTTP/1.0\r\nConnection: keep-alive\r\n\r\nGET /s/301 HTTP/1.0\r\n\r\n")!
+  show(port, "POST /big HTTP/1.1\r\nHost: x\r\nContent-Length: 99999999\r\n\r\n")!
+  show(port, "POST /x HTTP/1.1\r\nHost: x\r\nContent-Length: 1\r\nExpect: later\r\n\r\nx")!
+  _ = <t.cancel() catch -1
+
+test "http host and connect", seeds: 20, '''
+  [HTTP/1.1 400 Bad Request][connection: close][bad request]
+  [HTTP/1.1 400 Bad Request][connection: close][bad request]
+  [HTTP/1.1 400 Bad Request][connection: close][bad request]
+  [HTTP/1.1 400 Bad Request][connection: close][bad request]
+  [HTTP/1.1 400 Bad Request][connection: close][bad request]
+  [HTTP/1.1 200 OK][connection: close][/old]
+  [HTTP/1.1 200 OK][/emptyHTTP/1.1 200 OK][connection: close][/next]
+  [HTTP/1.1 405 Method Not Allowed][connection: close][method not allowed]
+  [HTTP/1.1 405 Method Not Allowed][connection: close][method not allowed]
+  [HTTP/1.1 405 Method Not Allowed][connection: close][method not allowed]
+  [HTTP/1.1 200 OK][connection: close][/next]
+  4
+'''
+  # An HTTP/1.1 request names its host once (RFC 9112 §3.2): one with no
+  # Host line, or with two, in any version, is answered 400. An HTTP/1.0
+  # request needs none, and a Host with no value is one. CONNECT asks
+  # for a tunnel, which this server is not (RFC 9110 §9.3.6): 405. Each
+  # refusal closes the connection, so the request after it gets no
+  # answer, and the handler runs for none of them.
+  use std.text
+
+  fun run(l: net.Listener, hits: *Cell[Int]) -> Int!
+    http.serve(<l, |+hits, req|
+      !hits.add(1)
+      http.text(req.path)
+    )!
+    0
+
+  # The answers to `ask`, sent on one connection: each line but a length
+  # or a type, between brackets.
+  fun answers(port: Int, ask: ?String) -> String!
+    c = net.connect(String("127.0.0.1:", port))!
+    (!c).write(ask)!
+    got = String()
+    loop
+      if (!c).read(!got, 4096)! == 0
+        break
+    out = String()
+    for piece in text.split(?got, "\r\n")
+      if piece.len > 0 and not text.starts_with(piece, "content-")
+        !out.add("[", text.trim(piece), "]")
+    out
+
+  hits = *Cell(0)
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l, +hits)&
+  next = "GET /next HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+  print(answers(port, String("GET /a HTTP/1.1\r\n\r\n", next))!)
+  print(answers(port, String("POST /a HTTP/1.1\r\nContent-Length: 3\r\n\r\nabc", next))!)
+  print(answers(port, String("GET /a HTTP/1.1\r\nHost: x\r\nHost: x\r\n\r\n", next))!)
+  print(answers(port, String("GET /a HTTP/1.1\r\nHost: x\r\nX: y\r\nhOST: z\r\n\r\n", next))!)
+  print(answers(port, String("GET /a HTTP/1.0\r\nHost: x\r\nHost: y\r\nConnection: keep-alive\r\n\r\n", next))!)
+  print(answers(port, String("GET /old HTTP/1.0\r\n\r\n", next))!)
+  print(answers(port, String("GET /empty HTTP/1.1\r\nHost:\r\n\r\n", next))!)
+  print(answers(port, String("CONNECT h:443 HTTP/1.1\r\nHost: h:443\r\n\r\n", next))!)
+  print(answers(port, String("CONNECT h:443 HTTP/1.0\r\nConnection: keep-alive\r\n\r\n", next))!)
+  print(answers(port, String("CONNECT h:443 HTTP/1.1\r\nHost: h:443\r\nContent-Length: 3\r\n\r\nabc", next))!)
+  print(answers(port, next)!)
+  print(hits.get())
+  _ = <t.cancel() catch -1
+
+test "http headers", seeds: 20, '''
+  /a v1|b:c|first|-|h70 kept v1
+  /b -|-|-|-|- kept -
+  /c -|-|-|-|h70 kept -
+'''
+  # `header` finds a header by name in any case, its value trimmed: the
+  # first of two; past 64 headers, and in a copy of the request.
+  use std.text
+
+  fun answer(req: ?http.Request) -> http.Response
+    copy = +req
+    each = ["x-one", "X-TWO", "Dup", "missing", "H70"]
+    got = String(req.path, " ")
+    for name, i in each
+      if i > 0
+        !got.add("|")
+      !got.add(req.header(name) ?? String("-"))
+    !got.add(" kept ", copy.header("X-One") ?? String("-"), "\n")
+    http.ok(<got)
+
+  fun run(l: net.Listener) -> Int!
+    http.serve(<l, |req| answer(req))!
+    0
+
+  l = net.listen("127.0.0.1:0")!
+  port = l.port()
+  t = run(<l)&
+  c = net.connect(String("127.0.0.1:", port))!
+  many = String()
+  for i in 0..80
+    !many.add("H", i, ": h", i, "\r\n")
+  (!c).write(String("GET /a HTTP/1.1\r\nHost: x\r\nX-One:  v1 \r\nx-two:b:c\r\nDUP: first\r\ndup: second\r\nH70: h70\r\n\r\n"))!
+  (!c).write("GET /b HTTP/1.1\r\nHost: x\r\n\r\n")!
+  (!c).write(String("GET /c HTTP/1.1\r\nHost: x\r\n", many, "Connection: close\r\n\r\n"))!
+  got = String()
+  loop
+    if (!c).read(!got, 4096)! == 0
+      break
+  for line in text.lines(?got)
+    if text.starts_with(line, "/")
+      print(line)
   _ = <t.cancel() catch -1
 
 test "http expect continue", seeds: 20, '''

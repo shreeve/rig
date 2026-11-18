@@ -3,9 +3,9 @@
 
 usage: bench/actors/bench-actors [options]
 
-  --variants a,b  what to build and time (default: rig-fast,tokio,go):
-                    rig-fast   bench/actors/actors.rig, rig build --release=fast
-                    rig-safe   the same, rig build --release (Zig's safe mode)
+  --variants a,b  what to build and time (default: rig-safe,tokio,go):
+                    rig-safe   bench/actors/actors.rig, rig build --release (Zig's safe
+                               mode, every check kept)
                     tokio      bench/actors/tokio, cargo build --release: a
                                task serving an mpsc channel, on Tokio's
                                multi-threaded runtime
@@ -55,10 +55,9 @@ def build(v, out, tokio):
     if os.path.exists(exe):
         return exe
     tmp = exe + ".new"
-    if v.startswith("rig-"):
+    if v == "rig-safe":
         env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, "rig-out-" + v))
-        flag = "--release" if v == "rig-safe" else "--release=fast"
-        subprocess.run([RIG, "build", flag, "-o", tmp, os.path.join(HERE, "actors.rig")], check=True, env=env)
+        subprocess.run([RIG, "build", "--release", "-o", tmp, os.path.join(HERE, "actors.rig")], check=True, env=env)
     elif v == "tokio":
         target = os.path.join(out, "cargo")
         cmd = ["cargo", "build", "--release", "-q", "--target-dir", target]
@@ -114,7 +113,7 @@ def compare(ns, base):
 
 def main():
     ap = argparse.ArgumentParser(add_help=True)
-    ap.add_argument("--variants", default="rig-fast,tokio,go")
+    ap.add_argument("--variants", default="rig-safe,tokio,go")
     ap.add_argument("--reps", type=int, default=5)
     ap.add_argument("--out")
     ap.add_argument("--build-only", action="store_true")

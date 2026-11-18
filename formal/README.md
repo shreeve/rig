@@ -53,7 +53,7 @@ model checks, by hand: several minutes and 8 GB.
 | `LRig.lean` | `lrig`, an executable of λRig's `check` and `run`, for the agreement test |
 | `Models/Explore.lean` | An explicit-state model checker: every state a system of atomic steps reaches |
 | `Models/Ring.lean` | A worker's ring of ready fibers: push, pop, steal, and the overflow |
-| `Models/Sleep.lean` | How workers search, sleep, and are woken: `searching`, `sleepers`, `notify`, and the pinned queue's `idle` flag |
+| `Models/Sleep.lean` | How workers search, sleep, and are woken: `searching`, `sleepers`, `notify`, `workPending`, `spread`, the run-next slots, the pollers' batches, and the pinned queue's `idle` flag |
 | `Models/Checks.lean` | The model checks `lake build` runs, with the counts each gave |
 | `Models/Deep.lean` | Larger model checks, by hand |
 
@@ -425,24 +425,41 @@ still in the ring once. Bounds: a ring of 4 with 5 pushes, 2 pops, and
 2 thieves stealing once each (515,484 states), and a ring of 2 with 4
 pushes, 2 pops, and a thief stealing twice. Counters do not wrap.
 
-**`Sleep.lean`** (`loop`, `next`, `search`, `notify`, `notifyNew`,
-`sleep`, `waitWoken`, `wakeHome`): workers take work from their ring,
-their pinned queue, and the global queue, then search (counted in
-`searching`, at most half of them), and sleep: clear `woken`, set
-`idle`, list themselves in `sleepers`, look once more for work unless a
-worker searches, then wait in the poller. Fibers make work into their
-ring (`wake`, `wakeLast`) or another worker's pinned queue
-(`wakeHome`); a thread outside makes work into the global queue or a
-pinned queue. A fiber may run on for ever, never yielding: the worst
-case, where its worker's ring must be stolen. Checked: `searching`
-counts the workers searching, `sleepers` lists none twice, and no
-worker waits in its poller while there is work it could take. Bounds:
-2 workers with 2 pieces of work, made each way; 3 workers, the others
-asleep at first, with 1 piece into a ring, 2 into pinned queues, or 1
-into the global queue. `Deep.lean` runs 3 workers with 2 pieces into a
-ring (7,734,406 states), and 2 workers making work every way at once,
-with `relook` (1,301,655 states). Three workers with 2 pieces into the
-global queue pass 30 million states, too many to finish.
+**`Sleep.lean`** (`loop`, `next`, `search`, `workPending`, `spread`,
+`notify`, `notifyNew`, `sleep`, `waitWoken`, `wakeHome`, `Batch`):
+workers take work from their run-next slots, their ring, their pinned
+queue, and the global queue, then search (counted in `searching`, at
+most half of them: half of another ring, the global queue, another
+worker's slot), and sleep: clear `woken`, set `idle`, list themselves
+in `sleepers`, look once more for work unless a worker searches, then
+wait in the poller. The last searcher to find a fiber wakes another
+only when the global queue or another worker's ring or slots hold work
+(`workPending`); a worker about to run a fiber wakes one when its own
+slots or ring still hold work and none searches (`spread`). Fibers make
+work into their ring (`wake`, `wakeLast`) or another worker's pinned
+queue (`wakeHome`); a thread outside makes work into the global queue
+or a pinned queue; a worker's poller makes fibers ready with no wake, a
+batch's first into its slot and the rest into its ring. A fiber may
+run on for ever, never yielding: the worst case, where its worker's
+queues must be stolen. On the Mac a worker whose fibers are short
+keeps the rest of a batch of its own poller's events from the others
+until its time passes, and then the watcher takes it (`keep`).
+Checked: `searching` counts the workers searching, `sleepers` lists
+none twice, and no worker waits in its poller while there is work it
+could take, kept or not; without the watcher's take, a kept batch
+waits while its holder's fiber runs on. Bounds: 2 workers with 2
+pieces of work, made each way; 3 workers, the others asleep at first,
+with 1 piece into a ring, 2 into pinned queues, or 1 into the global
+queue; 2 workers with 3 pieces into a ring, so a thief steals two;
+2 workers with 2 pieces from pollers whose batches are kept, awake or
+asleep at first.
+`Deep.lean` runs 3 workers with 2 pieces into a ring (3,593,823
+states), 2 workers making work every way at once, with `relook`
+(1,919,333 states) and with the pollers' batches and the monitor too
+(3,800,847 states), and 3 workers with 2 pieces from pollers and a
+last look that reads the slots (5,918,074 states). Three workers with
+2 pieces into the global queue, or from pollers with the monitor, pass
+30 million states, too many to finish.
 
 The pinned queue's `idle` handshake holds (as the panel found by
 reading). So does the `searching`/`sleepers` handshake for work made
@@ -467,14 +484,40 @@ Work found in that last look is not taken while searching, so no
 notifies, and the check passes. `Checks.lean` pins both: the check
 without `relook` fails with this trace, and the checks with it pass.
 
+Since the last searcher wakes another only while other work waits,
+two kinds of work are woken for only by `spread`: what a thief stole
+beyond the fiber it runs, which stays in its own ring, and a batch's
+rest. Without `spread`, three pieces made into worker 0's ring while
+worker 1 searches wake no one; worker 1 steals two, worker 0 takes the
+third and sleeps with no last look, since one searches; worker 1, the
+last searcher, finds no other work waiting and runs on, its ring
+holding the other. `Checks.lean` pins that trace, and the check with
+`spread` passes.
+
+One fiber is woken for by nothing the model's workers do: one left in
+a worker's slot while it runs another, once the searcher that kept
+`spread` from waking anyone has passed that slot. Worker 1's sleep
+puts one batch's first in its slot and it goes back to work as worker
+0 ends a search that found nothing; at its turn to look at its poller,
+worker 1 puts the next batch's first in a second slot and runs that
+one, and its `spread` wakes no one, since worker 0 still searches;
+worker 0's last look reads the rings and the global queue, both empty,
+and it sleeps. The monitor's stop takes the fiber on, at its second
+1 ms look; the check passes with the monitor modeled (`monitor`), and
+with a last look that reads the slots too (`lookSlots`), which
+`src/sched.zig` does not do.
+
 Each check is shown not to be vacuous by breaking the protocol on
 purpose: a thief that claims with a plain store takes a fiber twice, a
-`sleep` with no last look leaves a ring's work, and a `wakeHome` that
-never kicks leaves pinned work.
+`sleep` with no last look leaves a ring's work, a `wakeHome` that
+never kicks leaves pinned work, a last searcher that never wakes
+another leaves a ring's work, and a switch with no `spread` leaves a
+thief's surplus or a batch's rest.
 
-Not modeled: the run-next slot, timers, the poller's events, `waiting`
-and the yield checks, `stopping`, and the blocking pool. A fiber in a
-busy worker's run-next slot wakes no worker: its maker's next yield
+Not modeled: a running fiber's fill of its slot, the slot's streak
+limit and its 3 µs wait, timers apart from the pollers' batches,
+`waiting` and the yield checks, `stopping`, and the blocking pool. A
+fiber a running one puts in its run-next slot wakes no worker: its maker's next yield
 check hands it on, a recursive one only through `waiting`, so a check
 or a sleeper that clears `waiting` sets it again while another
 worker's slot holds a fiber (`takeWaiting`; docs/internals/scheduler.md,

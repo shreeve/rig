@@ -84,6 +84,295 @@ test "task methods", seeds: 20, '''
   v = (<c).into()&
   print(>v)
 
+test "task methods through a handle", seeds: 20, '''
+  1
+  1
+  2
+  2
+  5
+'''
+  # A method task through a shared handle reaches the method through the
+  # handle as a plain call does: `(!h).bump()&` lends the shared value to
+  # write, `?h.peek()&` to read. An actor's method task is the contrast:
+  # the call goes to the actor's own task.
+  obj Hits
+    n: Cell[Int]
+
+    fun bump(!@) -> Int
+      !@n.add(1)
+
+    fun peek(?@) -> Int
+      @n.get()
+
+  obj Ctr
+    n: Int
+
+    fun add(!@, k: Int) -> Int
+      @n += k
+      @n
+
+  h = *Hits(n: Cell(0))
+  t = (!h).bump()&
+  print(>t)
+  u = ?h.peek()&
+  print(>u)
+  print((!h).bump())
+  print(?h.peek())
+  c = *Actor(Ctr(n: 0))
+  a = (!c).add(5)&
+  print(>a)
+
+test "task methods through a handle in a field, an element, and a view", seeds: 20, '''
+  1
+  1
+  2
+  4
+  5
+  5
+'''
+  # The handle is reached where it is: in an object's field, in an
+  # element, or through a view of it, a parameter's or a local's.
+  obj Hits
+    n: Cell[Int]
+
+    fun bump(!@) -> Int
+      !@n.add(1)
+
+    fun add(!@, k: Int) -> Int
+      !@n.add(k)
+
+    fun peek(?@) -> Int
+      @n.get()
+
+  obj Holder
+    hits: *Hits
+
+  fun twice(h: !*Hits) -> Int
+    t = (!h).bump()&
+    _ = >t
+    u = ?h.peek()&
+    >u
+
+  o = Holder(hits: *Hits(n: Cell(0)))
+  t = (!o.hits).bump()&
+  print(>t)
+  u = ?o.hits.peek()&
+  print(>u)
+  print(twice(!o.hits))
+  hs = [+o.hits, +o.hits]
+  v = (!hs[1]).add(2)&
+  print(>v)
+  w = !o.hits
+  x = (!w).bump()&
+  print(>x)
+  print(o.hits.n.get())
+
+test "task methods through a handle another handle shares", seeds: 20, '''
+  1
+  200
+  true
+  40
+'''
+  # The maker changes the Cell through a second handle while the task
+  # runs, and may drop that handle. A one-word Cell is counted
+  # atomically, so `Hits`'s tasks go to any core; `Bag`'s
+  # `Cell[List[Int]]` is not, so its task is local, pinned with its
+  # maker to one thread, where the two take turns.
+  obj Hits
+    n: Cell[Int]
+
+    fun bump(!@) -> Int
+      !@n.add(1)
+
+    fun many(!@) -> Int
+      for _ in 0..100
+        _ = !@n.add(1)
+      @n.get()
+
+  obj Bag
+    xs: Cell[List[Int]]
+
+    fun fill(!@) -> Int
+      for i in 0..20
+        !@xs.push(i)
+      @xs.len
+
+  h = *Hits(n: Cell(0))
+  h2 = +h
+  t = (!h2).bump()&
+  <h
+  print(>t)
+  g = *Hits(n: Cell(0))
+  g2 = +g
+  u = (!g).many()&
+  for _ in 0..100
+    _ = !g2.n.add(1)
+  _ = >u
+  print(g2.n.get())
+  b = *Bag(xs: Cell(List[Int]()))
+  b2 = +b
+  v = (!b).fill()&
+  for i in 0..20
+    !b2.xs.push(i)
+  print(>v > 0)
+  print(b2.xs.len)
+
+test "task methods through a box and a frozen handle", seeds: 20, '''
+  1
+  1
+  x0
+  y2
+  3
+'''
+  # A box's value is reached in the box, and a method that consumes it
+  # takes it out of the box, a local's or a field's, and goes to the task
+  # as a value; a frozen value is reached behind its handle.
+  obj Plain
+    n: Int
+
+    fun inc(!@) -> Int
+      @n += 1
+      @n
+
+    fun peek(?@) -> Int
+      @n
+
+  obj Named
+    n: Int
+    s: String
+
+    fun into(<@) -> String
+      String(@s, @n)
+
+  obj Holder
+    b: ^Named
+
+  b = ^Plain(n: 0)
+  t = (!b).inc()&
+  print(>t)
+  u = ?b.peek()&
+  print(>u)
+  c = ^Named(n: 0, s: String("x"))
+  v = (<c).into()&
+  print(>v)
+  o = Holder(b: ^Named(n: 2, s: String("y")))
+  x = (<o.b).into()&
+  print(>x)
+  f = *Frozen(Plain(n: 3))
+  w = ?f.peek()&
+  print(>w)
+
+test "task methods through a box holding a handle that stays on one thread", seeds: 20, '''
+  true
+  101
+  101
+'''
+  # A box holding a `*Hits` whose Cell is more than a word makes its
+  # method tasks local: they run on the maker's thread, which changes the
+  # Cell and copies the handle between their turns.
+  obj Hits
+    xs: Cell[List[Int]]
+
+  obj Q
+    h: *Hits
+
+    fun peek(?@) -> Int
+      @h.xs.len
+
+    fun push(!@) -> Int
+      !@h.xs.push(1)
+      @h.xs.len
+
+    fun keep(?@) -> Int
+      k = +@h
+      k.xs.len
+
+  hh = *Hits(xs: Cell(List[Int]()))
+  b = ^Q(h: +hh)
+  t = ?b.peek()&
+  for _ in 0..100
+    !hh.xs.push(1)
+  print(>t >= 0)
+  u = (!b).push()&
+  print(>u)
+  w = ?b.keep()&
+  for _ in 0..100
+    c = +hh
+    <c
+  print(>w)
+
+code "task methods through a box holding a handle that stays on one thread are local", "spawnMethodLocal(&b.value", "spawnMethodValue(rig.take(&__rig_alive_c, c).unbox(), \"into\""
+  obj Hits
+    xs: Cell[List[Int]]
+
+  obj Q
+    h: *Hits
+
+    fun push(!@) -> Int
+      !@h.xs.push(1)
+      @h.xs.len
+
+  obj Named
+    n: Int
+
+    fun into(<@) -> Int
+      @n
+
+  b = ^Q(h: *Hits(xs: Cell(List[Int]())))
+  u = (!b).push()&
+  c = ^Named(n: 2)
+  v = (<c).into()&
+  print(>u, >v)
+
+test "task methods through a handle give views", seeds: 20, '''
+  t
+  one
+'''
+  # A method task through a handle may give a view of the shared value,
+  # which keeps the handle lent while it lives.
+  use std.shared
+
+  obj Hits
+    n: Cell[Int]
+    title: String
+
+    fun hit(!@) -> ?String
+      _ = !@n.add(1)
+      ?@title
+
+  h = *Hits(n: Cell(0), title: String("t"))
+  t = (!h).hit()&
+  print(>t)
+  m = shared.Map[Int, String].new()
+  u = (!m).ensure(1, String("one"))&
+  print(>u)
+
+fail "task methods through a handle keep it lent", "cannot drop `h` while it is lent", "cannot reassign `g` while it is lent", "cannot drop `k` while it is lent", errors: 3
+  obj Hits
+    n: Cell[Int]
+    title: String
+
+    fun bump(!@) -> Int
+      !@n.add(1)
+
+    fun hit(!@) -> ?String
+      _ = !@n.add(1)
+      ?@title
+
+  h = *Hits(n: Cell(0), title: String("h"))
+  t = (!h).bump()&
+  <h
+  print(>t)
+  g = *Hits(n: Cell(0), title: String("g"))
+  u = (!g).bump()&
+  g = *Hits(n: Cell(5), title: String("g"))
+  print(>u)
+  k = *Hits(n: Cell(0), title: String("k"))
+  v = (!k).hit()&
+  r = >v
+  <k
+  print(r)
+
 test "task generic", seeds: 20, "[7, 7]"
   fun twice[T](x: T) -> List[T]
     out: List[T] = List()
@@ -163,6 +452,7 @@ fail "task print", "`t` is a task, which `print` cannot show: wait for what it g
   print(<t)
 
 test "task defer before", seeds: 20, "0"
+  # oracle: main accept
   # A defer declared before the task runs after the task is dropped.
   fun total(xs: ?List[Int]) -> Int
     xs.len
@@ -506,7 +796,36 @@ fail "task write loan bound", "this task is lent to write, and keeps its write l
   ts: List[Task[Int]] = List()
   !ts.push(fill(!xs, 3)&)
 
+fail "task write loan bound self", "this task is lent to write, and keeps its write loan while it runs, so it stays where it is bound: `t = !b.bump()&`, then `>t`", errors: 2
+  # The hint keeps the `!` that lends self to write.
+  use std.task
+
+  obj Box
+    n: Int
+
+    fun bump(!@) -> Int
+      @n += 1
+      @n
+
+  b = Box(n: 10)
+  c = Box(n: 1)
+  x, y = task.all(!b.bump()&, !c.bump()&)
+
+test "task write loan bound self hint", "11"
+  # What the hint writes is accepted.
+  obj Box
+    n: Int
+
+    fun bump(!@) -> Int
+      @n += 1
+      @n
+
+  b = Box(n: 10)
+  t = !b.bump()&
+  >t
+
 fail "task write loan moved", "`t` is a task lent to write, which keeps its write loan while it runs, so it is only waited for or canceled where it is bound: `>t`", errors: 1
+  # oracle: main reject T2
   fun fill(xs: !List[Int], n: Int) -> Int
     !xs.push(n)
     n
@@ -515,6 +834,29 @@ fail "task write loan moved", "`t` is a task lent to write, which keeps its writ
   ts: List[Task[Int]] = List()
   t = fill(!xs, 4)&
   !ts.push(<t)
+
+fail "task write loan moved to a local", "`t` is a task lent to write, which keeps its write loan while it runs, so it is only waited for or canceled where it is bound: `>t`", errors: 1
+  # oracle: main reject T2
+  sub fill(xs: !List[Int], n: Int)
+    for i in 0..n
+      !xs.push(i)
+
+  xs: List[Int] = List()
+  t = fill(!xs, 3)&
+  u = <t
+  >u
+
+fail "task write loan read", "use of `xs` while a write loan is live", errors: 1
+  # A task keeps what its call was lent to write as a write loan.
+  # oracle: main reject C4
+  sub fill(xs: !List[Int], n: Int)
+    for i in 0..n
+      !xs.push(i)
+
+  xs: List[Int] = List()
+  t = fill(!xs, 3)&
+  print(xs.len)
+  >t
 
 test "task returned with from", seeds: 20, "2 3"
   # A task with read loans only is returned as any result is: `from v`
@@ -1173,6 +1515,7 @@ fail "task returned out of a deadline's closure keeps its loan", "cannot lend `x
   print(>t)
 
 fail "task in a Cell", "a Cell holds no task, and `Task[Int]` is one: a cycle through a Cell could keep the task from ever being waited for; wait for it first and keep what it gives", errors: 1
+  # oracle: main reject C8
   # A Cell is a shared home, which holds no task, even one with no loan.
   fun sq(x: Int) -> Int
     x * x
@@ -1182,6 +1525,7 @@ fail "task in a Cell", "a Cell holds no task, and `Task[Int]` is one: a cycle th
   print(1)
 
 fail "task in an object in a Cell", "a Cell holds no task, and `H` holds one", errors: 1
+  # oracle: main reject C8
   obj H
     t: Task[Int]
 
@@ -1192,6 +1536,7 @@ fail "task in an object in a Cell", "a Cell holds no task, and `H` holds one", e
   print(1)
 
 fail "task set in a Cell", "a Cell holds no task, and `Tasks[Int]` is one", errors: 1
+  # oracle: main reject C8
   c = *Cell(Tasks[Int]())
   print(1)
 
@@ -1206,6 +1551,7 @@ fail "task read loan live", "cannot lend `xs` to write while a read loan is live
   print(>u)
 
 fail "task defer after", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # oracle: main reject C4
   # A defer declared after the task runs before the task is dropped,
   # while it still reads `xs`.
   fun total(xs: ?List[Int]) -> Int
@@ -1218,6 +1564,107 @@ fail "task defer after", "cannot lend `xs` to write while a read loan is live", 
   u = total(?xs)&
   defer clear(!xs)
   print(xs.len)
+
+fail "task dropped where its scope ends keeps its loans", "cannot lend `xs` to write while a read loan is live", errors: 1
+  # A task's drop waits for it, so it uses what the task was lent.
+  # oracle: main reject C4
+  fun total(xs: ?List[Int]) -> Int
+    xs.len
+
+  xs: List[Int] = List()
+  u = total(?xs)&
+  !xs.push(1)
+
+fail "task in a channel", "a channel's values hold no loan, and a `Task[Int]` may hold a view", errors: 1
+  # A channel is a shared home, which holds no task.
+  fun sq(x: Int) -> Int
+    x * x
+
+  ch = *Chan[Task[Int]](1)
+  !ch.send(sq(3)&)!
+
+fail "task in an actor's value", "an actor's value holds no loan, and a `H` may hold a view", errors: 1
+  # An actor's value is a shared home, which holds no task.
+  obj H
+    t: Task[Int]
+
+    fun get(?@) -> Int
+      1
+
+  fun sq(x: Int) -> Int
+    x * x
+
+  a = *Actor(H(t: sq(3)&))
+  print(a.get())
+
+fail "task in an owned closure", "an owned closure holds no task: `t` is a `Task[Int]`, which only the scope that waits for it may hold; wait for it first and capture its value", errors: 1
+  # oracle: main reject C8
+  fun sq(x: Int) -> Int
+    x * x
+
+  t = sq(3)&
+  f = *|<t| >t
+  print(f())
+
+test "task canceled ends its loans", seeds: 20, "0"
+  # oracle: main accept
+  use std.time
+
+  fun total(xs: ?List[Int]) -> Int!
+    time.sleep(1)!
+    xs.len
+
+  xs: List[Int] = List()
+  t = total(?xs)&
+  n = <t.cancel() catch 0
+  !xs.push(1)
+  print(n)
+
+test "task errors waited, canceled, and dropped", seeds: 20, '''
+  E.bad(msg: "no")
+  -1
+  0 -2
+'''
+  # `>t!` passes the task's error on, `>t catch |err|` binds it,
+  # `<u.cancel()` gives what the task gave, and dropping a task drops
+  # its error (Core §2, "A failure moves its error").
+  # oracle: g accept
+  # oracle: main accept
+  error E
+    bad(msg: String)
+
+  fun f() -> Int!
+    return E.bad(msg: String("no"))
+
+  fun g() -> Int!
+    t = f()&
+    >t! + 1
+
+  t = f()&
+  n = >t catch |err|
+    print(err)
+    0
+  u = f()&
+  print(<u.cancel() catch -1)
+  w = f()&
+  <w
+  print(n, g() catch -2)
+
+fail "task error moved out of its catch", "use of `err` after move", errors: 1
+  # oracle: main reject C1
+  error E
+    bad(msg: String)
+
+  fun f() -> Int!
+    return E.bad(msg: String("no"))
+
+  t = f()&
+  n = >t catch |err|
+    keep = <err
+    print(keep)
+    print(err)
+    0
+  print(n)
 
 fail "task fallible lost", "the task `u` can fail, and it is dropped where its scope ends without being waited for, so its error would be lost", errors: 1
   error Parity
@@ -1369,8 +1816,7 @@ bomb "task stack overflow frame", "rig: stack overflow", prints: "before"
 bomb "task stack overflow deep frames", "rig: stack overflow", prints: "before", release: true
   # Recursion in a task whose frames are large runs out of stack in the
   # guard below it, sized from those frames, and stops the program with a
-  # stack-overflow error. `--release=fast` folds the levels into a loop
-  # that never ends, so the test does not build it.
+  # stack-overflow error.
 
   fun dive(depth: Int, prev: ?[300000]Int) -> Int
     a = [300000 of depth]
@@ -1487,6 +1933,39 @@ code "task a turn counts as the next begins", "while (true) : (rig.turn(&"
 
   t = find([1, 2, 3], 2)&
   print(>t)
+
+code "task a fold counts the turns of its loop", "s = rig.fold(.add, s, xs, &__rig_turns_"
+  # A fold (`rig.fold`) counts one turn of its loop for each turn of
+  # vectors, so a long fold still reaches yield checks.
+  fun total(xs: ?[]Int) -> Int
+    s = 0
+    for x in xs
+      s += x
+    s
+
+  v: List[Int] = List()
+  for i in 0..10
+    !v.push(i)
+  w = ?v[..]
+  t = total(?w)&
+  print(>t)
+
+test "task folds over a lent List", seeds: 20, "499999500000 499999500000"
+  # Tasks fold a List lent to both of them, long enough to pass many
+  # yield checks inside the fold.
+  fun total(xs: ?[]Int) -> Int
+    s = 0
+    for x in xs
+      s += x
+    s
+
+  v: List[Int] = List()
+  for i in 0..1000000
+    !v.push(i)
+  w = ?v[..]
+  a = total(?w)&
+  b = total(?w)&
+  print(>a, >b)
 
 test "task loops over lent containers", seeds: 20, "6100091 6100091 999 1999 1143 9030 24884"
   # Loops over a List and a Table lent to several tasks at once, long

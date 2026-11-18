@@ -1,0 +1,58 @@
+# blocks=4821 swap_mb=1360 slot=312 paused=0 running=0 late=0 load 0.31 0.86 1.60
+bfd872b6d 2026-11-15 21:50:13 -0700
+        rig-safe          tokio             go                vs tokio
+spawn   193 ns/task       263 ns/task       210 ns/task       rig-safe 1.4x faster, go 1.3x faster
+chain   100 ns/task       222 ns/task       276 ns/task       rig-safe 2.2x faster, go 1.2x slower
+fanout  60.9 ms/run       65.4 ms/run       55.7 ms/run       rig-safe 1.1x faster, go 1.2x faster
+yield   7 ns/yield        32 ns/yield       244 ns/yield      rig-safe 4.5x faster, go 7.5x slower
+hog     370 ns/step       3.4 ms/step       3.0 ms/step       rig-safe 9172.9x faster, go 1.1x faster
+produce 6.2 ms/run        5.9 ms/run        5.1 ms/run        rig-safe 1.1x slower, go 1.1x faster
+memory  4.7 KiB/task      387 B/task        2.8 KiB/task      rig-safe 12.3x more, go 7.5x more
+        rig-safe          tokio             go                vs tokio
+spawn   176 ns/task       266 ns/task       210 ns/task       rig-safe 1.5x faster, go 1.3x faster
+chain   110 ns/task       225 ns/task       279 ns/task       rig-safe 2.1x faster, go 1.2x slower
+fanout  59.7 ms/run       65.4 ms/run       55.1 ms/run       rig-safe 1.1x faster, go 1.2x faster
+yield   6 ns/yield        32 ns/yield       253 ns/yield      rig-safe 5.5x faster, go 7.8x slower
+hog     446 ns/step       3.4 ms/step       3.0 ms/step       rig-safe 7622.3x faster, go 1.1x faster
+produce 6.0 ms/run        5.9 ms/run        5.2 ms/run        rig-safe 1.0x slower, go 1.1x faster
+memory  4.7 KiB/task      394 B/task        2.8 KiB/task      rig-safe 12.1x more, go 7.3x more
+        rig-safe          tokio             go                vs tokio
+spawn   182 ns/task       258 ns/task       212 ns/task       rig-safe 1.4x faster, go 1.2x faster
+chain   102 ns/task       260 ns/task       284 ns/task       rig-safe 2.6x faster, go 1.1x slower
+fanout  59.6 ms/run       66.4 ms/run       55.9 ms/run       rig-safe 1.1x faster, go 1.2x faster
+yield   6 ns/yield        32 ns/yield       254 ns/yield      rig-safe 5.0x faster, go 7.8x slower
+hog     409 ns/step       3.2 ms/step       3.0 ms/step       rig-safe 7827.9x faster, go 1.1x faster
+produce 6.4 ms/run        6.2 ms/run        4.9 ms/run        rig-safe 1.0x slower, go 1.3x faster
+memory  4.7 KiB/task      397 B/task        2.8 KiB/task      rig-safe 12.0x more, go 7.3x more
+        rig-safe          tokio             go                vs tokio
+spawn   190 ns/task       236 ns/task       213 ns/task       rig-safe 1.2x faster, go 1.1x faster
+chain   107 ns/task       220 ns/task       287 ns/task       rig-safe 2.1x faster, go 1.3x slower
+fanout  60.1 ms/run       66.7 ms/run       55.4 ms/run       rig-safe 1.1x faster, go 1.2x faster
+yield   6 ns/yield        32 ns/yield       253 ns/yield      rig-safe 5.5x faster, go 7.9x slower
+hog     316 ns/step       3.4 ms/step       3.0 ms/step       rig-safe 10738.4x faster, go 1.1x faster
+produce 6.3 ms/run        5.5 ms/run        4.9 ms/run        rig-safe 1.2x slower, go 1.1x faster
+memory  4.7 KiB/task      387 B/task        2.8 KiB/task      rig-safe 12.3x more, go 7.5x more
+        rig-safe          tokio             go                vs tokio
+spawn   180 ns/task       262 ns/task       210 ns/task       rig-safe 1.5x faster, go 1.2x faster
+chain   107 ns/task       224 ns/task       234 ns/task       rig-safe 2.1x faster, go 1.0x slower
+fanout  60.2 ms/run       67.0 ms/run       56.0 ms/run       rig-safe 1.1x faster, go 1.2x faster
+yield   7 ns/yield        32 ns/yield       245 ns/yield      rig-safe 4.7x faster, go 7.6x slower
+hog     402 ns/step       3.4 ms/step       3.0 ms/step       rig-safe 8528.3x faster, go 1.1x faster
+produce 6.4 ms/run        6.2 ms/run        5.2 ms/run        rig-safe 1.0x slower, go 1.2x faster
+memory  4.7 KiB/task      373 B/task        2.8 KiB/task      rig-safe 12.8x more, go 7.8x more
+        rig-safe          tokio             go                vs tokio
+spawn   188 ns/task       241 ns/task       211 ns/task       rig-safe 1.3x faster, go 1.1x faster
+chain   106 ns/task       213 ns/task       254 ns/task       rig-safe 2.0x faster, go 1.2x slower
+fanout  61.2 ms/run       66.4 ms/run       55.9 ms/run       rig-safe 1.1x faster, go 1.2x faster
+yield   7 ns/yield        32 ns/yield       250 ns/yield      rig-safe 4.6x faster, go 7.8x slower
+hog     435 ns/step       3.4 ms/step       3.0 ms/step       rig-safe 7862.1x faster, go 1.1x faster
+produce 6.3 ms/run        6.3 ms/run        5.1 ms/run        rig-safe 1.0x faster, go 1.2x faster
+memory  4.7 KiB/task      373 B/task        2.8 KiB/task      rig-safe 12.8x more, go 7.8x more
+        rig-safe          tokio             go                vs tokio
+spawn   168 ns/task       268 ns/task       211 ns/task       rig-safe 1.6x faster, go 1.3x faster
+chain   107 ns/task       221 ns/task       239 ns/task       rig-safe 2.1x faster, go 1.1x slower
+fanout  60.0 ms/run       66.0 ms/run       56.0 ms/run       rig-safe 1.1x faster, go 1.2x faster
+yield   7 ns/yield        32 ns/yield       250 ns/yield      rig-safe 4.9x faster, go 7.7x slower
+hog     320 ns/step       3.5 ms/step       3.0 ms/step       rig-safe 10826.4x faster, go 1.2x faster
+produce 6.3 ms/run        6.1 ms/run        5.3 ms/run        rig-safe 1.0x slower, go 1.1x faster
+memory  4.7 KiB/task      387 B/task        2.8 KiB/task      rig-safe 12.3x more, go 7.4x more

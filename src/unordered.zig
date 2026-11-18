@@ -200,7 +200,7 @@ inline fn read32(p: [*]const u8) u64 {
 
 /// The table's text hash: up to 16 bytes one folded multiply of two
 /// overlapping reads, up to 32 two in parallel, Wyhash above.
-inline fn textHash(s: []const u8) u64 {
+pub inline fn textHash(s: []const u8) u64 {
     const k0: u64 = 0x243f6a8885a308d3;
     const k1: u64 = 0x13198a2e03707344;
     const k2: u64 = 0xa4093822299f31d0;
@@ -235,7 +235,7 @@ inline fn textHash(s: []const u8) u64 {
 /// The multiplier of the table's integer hash: odd, and not the golden
 /// ratio's 0x9e3779b97f4a7c15, a common stride, whose square spreads
 /// keys of that stride into a few groups.
-const int_mul: u64 = 0x4b33a62ed433d4a3;
+pub const int_mul: u64 = 0x4b33a62ed433d4a3;
 
 /// `HashMap[K, V]`'s table.
 pub fn UnorderedMap(comptime K: type, comptime V: type) type {

@@ -3,9 +3,9 @@
 
 usage: bench/http/bench-http [options]
 
-  --variants a,b  what to build and time (default: rig-fast,tokio,go):
-                    rig-fast   bench/http/server.rig, rig build --release=fast
-                    rig-safe   the same, rig build --release (Zig's safe mode)
+  --variants a,b  what to build and time (default: rig-safe,tokio,go):
+                    rig-safe   bench/http/server.rig, rig build --release (Zig's safe
+                               mode, every check kept)
                     tokio      bench/http/tokio, hyper on Tokio's
                                multi-threaded runtime, cargo build --release
                     go         bench/http/go, net/http, go build
@@ -41,10 +41,9 @@ def build(v, out):
     if os.path.exists(exe):
         return exe
     tmp = exe + ".new"
-    if v.startswith("rig-"):
+    if v == "rig-safe":
         env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, "rig-out-" + v))
-        flag = "--release" if v == "rig-safe" else "--release=fast"
-        subprocess.run([RIG, "build", flag, "-o", tmp, os.path.join(HERE, "server.rig")], check=True, env=env)
+        subprocess.run([RIG, "build", "--release", "-o", tmp, os.path.join(HERE, "server.rig")], check=True, env=env)
     elif v == "tokio":
         target = os.path.join(out, "cargo")
         subprocess.run(["cargo", "build", "--release", "-q", "--target-dir", target], check=True, cwd=os.path.join(HERE, "tokio"))
@@ -137,7 +136,7 @@ def record(note, variants, best):
 
 def main():
     ap = argparse.ArgumentParser(add_help=True)
-    ap.add_argument("--variants", default="rig-fast,tokio,go")
+    ap.add_argument("--variants", default="rig-safe,tokio,go")
     ap.add_argument("--reps", type=int, default=3)
     ap.add_argument("--conns", type=int, default=64)
     ap.add_argument("--duration", type=int, default=3)

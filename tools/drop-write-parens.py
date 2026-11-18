@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Drop the parentheses a self sigil no longer needs: `?`, `!`, or `<`
 before a place reaches the self of the method call after it, so the
-call is written short, and only a write call whose method declares a
-`Bool` result and whose value is used keeps its `!` in parentheses, as
+call is written short, and only a write call whose `Bool` value is
+used keeps its `!` in parentheses, as
 does an assignment's target (SYNTAX "Self sigils"):
 
     x = (!v).pop() ?? 0        ->  x = !v.pop() ?? 0
@@ -44,7 +44,7 @@ usage: tools/drop-write-parens.py [--dry-run] RIG DIR ARGS [-- ARGS ...]
 import os, re, shutil, subprocess, sys, tempfile
 
 ERROR = re.compile(r"^(\S+\.rig):(\d+):(\d+): error: (.*)$")
-BOOL = "a write call whose `Bool` value is used puts its `!` in parentheses"
+BOOL = "to write and never negates: write `"
 NAME = r"[A-Za-z_]\w*"
 PLACE = r"(?:@(?:%s)?|%s)(?:\.%s|\[[^\[\]()\n]*\])*" % (NAME, NAME, NAME)
 SITE = re.compile(r"\(([!?<])(%s)\)\.(%s)\s*[(\[]" % (PLACE, NAME))

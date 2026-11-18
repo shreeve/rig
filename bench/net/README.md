@@ -14,8 +14,8 @@ bench/net/bench-net --out $D --time-only --reps 9
 ```
 
 It needs `bin/rig` built first, Cargo, and Go. `bench/net/bench-net
---help` lists the variants (`rig-fast`, `tokio` and `go` by default;
-`rig-safe` on request) and the options. `--record "#PR: what changed"`
+--help` lists the variants (`rig-safe`, `tokio` and `go` by default)
+and the options. `--record "#PR: what changed"`
 adds the Rig rows to [PROGRESS.md](PROGRESS.md).
 
 ## The benchmarks
@@ -56,4 +56,6 @@ writes, and the headline numbers against Tokio and Go are in
 [docs/launch/benchmarks.md](../../docs/launch/benchmarks.md).
 
 On loopback, a round trip costs what the system calls and one wake each
-way cost, so the three runtimes stay close.
+way cost. Rig opens a connection faster than Tokio and Go; its round
+trips are slower than Tokio's, most in `echo`, where many connections
+are ready at once.
