@@ -1081,7 +1081,12 @@ fn answer(comptime F: type, f: F, request: *std.http.Server.Request, settings: S
             return t.f.call(.{t.req});
         }
     };
+    // Probe (lend): a handler that ran long the last times for this path
+    // has a sleeping worker watch this worker's poller while it runs.
+    const long_slot = rig.sched.longSlot(if (q) |i| target[0..i] else target);
+    const long_t0 = rig.sched.longAhead(long_slot);
     var resp: Resp = tasks.isolateInto(Thunk{ .f = f, .req = &req }, rig.no_slot) catch return failed(request, keep_alive);
+    rig.sched.longOver(long_slot, long_t0);
     defer rig.drop(&resp);
     // A status below 200 is an interim answer, which has no body and
     // comes before the final one, or none at all: 500.

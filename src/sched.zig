@@ -224,10 +224,15 @@ const Worker = struct {
     /// and its counts: watches set, ended by an event, and taken back.
     run_at: std.atomic.Value(u64) = .init(0),
     lent: ?*Worker = null,
-    nested: u64 = 0,
+    nested: std.atomic.Value(u64) = .init(0),
     lend_set: u64 = 0,
     lend_fired: u64 = 0,
     lend_back: u64 = 0,
+    /// Probe (lend): set while it runs a handler that ran long the last
+    /// times (`longAhead`), until it switches away from the fiber; and
+    /// how many times it had a sleeper watch its poller for one.
+    long_run: std.atomic.Value(bool) = .init(false),
+    lend_ahead: u64 = 0,
     thread: ?std.Thread align(std.atomic.cache_line) = null,
 };
 
@@ -2597,6 +2602,9 @@ fn lendOpen() void {
     const ticks = stamp() -% t0;
     const ns: u64 = @intCast(nowReal() - n0);
     lend_ticks_var.store(us *| @max(ticks * 1000 / ns, 1), .seq_cst);
+    if (rt.process.*) |p| if (p.environ.getPosix("RIG_LEND_AHEAD")) |v| {
+        if (std.mem.eql(u8, v, "0")) lend_ahead_var.store(false, .seq_cst);
+    };
     if (statsWanted()) {
         const act: std.posix.Sigaction = .{ .handler = .{ .handler = onStats }, .mask = std.posix.sigemptyset(), .flags = std.posix.SA.ONSTACK | std.posix.SA.RESTART };
         std.posix.sigaction(.USR1, &act, null);
@@ -2615,7 +2623,82 @@ fn onStats(_: std.posix.SIG) callconv(.c) void {
 fn runsLong(v: *Worker, now: u64, long: u64) bool {
     if (v.poller.count.load(.monotonic) == 0 or v.idle.load(.seq_cst) != 0) return false;
     if (@atomicLoad(?*Fiber, &v.current, .monotonic) == null) return false;
-    return now -% v.run_at.load(.monotonic) >= long;
+    return v.long_run.load(.seq_cst) or now -% v.run_at.load(.monotonic) >= long;
+}
+
+/// Probe (lend): nest `v`'s poller in `watcher`'s for one report. Any
+/// worker may: `watcher` as it goes to sleep (`lendWatch`), or `v` for
+/// a sleeper as it starts a long handler (`longAhead`).
+fn lendArm(watcher: *Worker, v: *Worker, i: usize) bool {
+    const linux_ = std.os.linux;
+    var ev: linux_.epoll_event = .{ .events = linux_.EPOLL.IN | linux_.EPOLL.ONESHOT, .data = .{ .ptr = @intFromPtr(&v.poller) | lend_tag } };
+    const bit = @as(u64, 1) << @intCast(i);
+    const known = watcher.nested.load(.seq_cst) & bit != 0;
+    var rc: isize = @bitCast(linux_.epoll_ctl(watcher.poller.fd, if (known) linux_.EPOLL.CTL_MOD else linux_.EPOLL.CTL_ADD, v.poller.fd, &ev));
+    // Added meanwhile by another worker, for this one.
+    if (rc < 0 and !known) rc = @bitCast(linux_.epoll_ctl(watcher.poller.fd, linux_.EPOLL.CTL_MOD, v.poller.fd, &ev));
+    if (rc < 0) return false;
+    if (!known) _ = watcher.nested.fetchOr(bit, .seq_cst);
+    return true;
+}
+
+/// Probe (lend): how long the handlers of the requests whose path
+/// hashes to each slot ran, the last times: 0 to 3, and 2 or more is
+/// long (`longAhead`, `longOver`).
+var long_table_var: [256]std.atomic.Value(u8) = @splat(.init(0));
+var lend_ahead_var: std.atomic.Value(bool) = .init(true);
+
+/// Probe (lend): the slot of a request's path (`long_table_var`).
+pub fn longSlot(path: []const u8) u8 {
+    var h: u32 = 2166136261;
+    for (path[0..@min(path.len, 32)]) |b| h = (h ^ b) *% 16777619;
+    return @truncate(h ^ (h >> 8) ^ (h >> 16));
+}
+
+/// Probe (lend): a time-stamp, before a handler runs, for `longOver`;
+/// and when handlers of this slot ran long the last times, mark this
+/// worker as running long, and have the sleeper listed last watch its
+/// poller, from now: an event there wakes that sleeper at once, where it
+/// waited for this handler's end. With HTTP's handlers that return at
+/// once nothing is done but a load.
+pub fn longAhead(slot: u8) u64 {
+    if (!lends) return 0;
+    const t0 = stamp();
+    if (long_table_var[slot].load(.monotonic) < 2 or !lend_ahead_var.load(.monotonic)) return t0;
+    if (lend_ticks_var.load(.monotonic) == 0 or deterministic.*) return t0;
+    const w = me() orelse return t0;
+    w.long_run.store(true, .seq_cst);
+    if (w.poller.count.load(.monotonic) == 0 or w.poller.lent_to.load(.seq_cst) != null) return t0;
+    sleepers.lock.lock();
+    const top = sleepers.top;
+    sleepers.lock.unlock();
+    const q = top orelse return t0;
+    if (q == w) return t0;
+    if (w.poller.lent_to.cmpxchgStrong(null, q, .seq_cst, .monotonic) != null) return t0;
+    const i = (@intFromPtr(w) - @intFromPtr(&all_workers.*[0])) / @sizeOf(Worker);
+    if (!lendArm(q, w, i)) {
+        w.poller.lent_to.store(null, .seq_cst);
+        return t0;
+    }
+    w.lend_ahead += 1;
+    return t0;
+}
+
+/// Probe (lend): a handler returned, `t0` from `longAhead`: note in its
+/// slot whether it ran long.
+pub fn longOver(slot: u8, t0: u64) void {
+    if (!lends) return;
+    const long = lend_ticks_var.load(.monotonic);
+    if (long == 0) return;
+    const c = long_table_var[slot].load(.monotonic);
+    if (stamp() -% t0 >= long) {
+        if (c < 3) long_table_var[slot].store(c + 1, .monotonic);
+    } else if (c > 0) long_table_var[slot].store(c - 1, .monotonic);
+    // The long run is over: a watch no event ended is taken back now,
+    // before the answer is written.
+    if (c >= 2) if (me()) |w| {
+        if (w.long_run.load(.monotonic)) lendBack(w);
+    };
 }
 
 /// Probe (lend): `w` is about to wait in its poller. While another worker
@@ -2649,15 +2732,10 @@ fn lendWatch(w: *Worker) void {
     for (ws, 0..) |*v, i| {
         if (v == w or !runsLong(v, now, long)) continue;
         if (v.poller.lent_to.cmpxchgStrong(null, w, .seq_cst, .monotonic) != null) continue;
-        const linux_ = std.os.linux;
-        var ev: linux_.epoll_event = .{ .events = linux_.EPOLL.IN | linux_.EPOLL.ONESHOT, .data = .{ .ptr = @intFromPtr(&v.poller) | lend_tag } };
-        const bit = @as(u64, 1) << @intCast(i);
-        const op: u32 = if (w.nested & bit != 0) linux_.EPOLL.CTL_MOD else linux_.EPOLL.CTL_ADD;
-        if (@as(isize, @bitCast(linux_.epoll_ctl(w.poller.fd, op, v.poller.fd, &ev))) < 0) {
+        if (!lendArm(w, v, i)) {
             v.poller.lent_to.store(null, .seq_cst);
             continue;
         }
-        w.nested |= bit;
         w.lent = v;
         w.lend_set += 1;
         return;
@@ -2676,6 +2754,7 @@ fn lendOff(w: *Worker, v: *Worker) void {
 /// its poller: take the watch back, so that once `w` sleeps in its own
 /// poller an event there wakes `w` alone.
 noinline fn lendBack(w: *Worker) void {
+    if (w.long_run.load(.monotonic)) w.long_run.store(false, .seq_cst);
     const l = w.poller.lent_to.swap(null, .seq_cst) orelse return;
     lendOff(l, w);
     w.lend_back += 1;
@@ -3932,7 +4011,7 @@ fn printStats() void {
     for (workersNow(), 0..) |*w, i| {
         if (preempt) printDeclined(w, i);
         if (lends) {
-            const l = std.fmt.bufPrint(&buf, "rig: worker {d}: watches of a busy poller: set {d}, ended by an event {d}, taken back {d}\n", .{ i, w.lend_set, w.lend_fired, w.lend_back }) catch continue;
+            const l = std.fmt.bufPrint(&buf, "rig: worker {d}: watches of a busy poller: set {d}, set for it ahead of a long handler {d}, ended by an event {d}, taken back {d}\n", .{ i, w.lend_set, w.lend_ahead, w.lend_fired, w.lend_back }) catch continue;
             _ = std.posix.system.write(2, l.ptr, l.len);
         }
         const line = (if (preempt)
@@ -4192,7 +4271,7 @@ fn runFiber(w: *Worker, f: *Fiber) void {
     // The fiber that switched away: `f`, or one `f` handed this worker.
     const gone = w.current.?;
     w.current = null;
-    if (lends and w.poller.lent_to.load(.monotonic) != null) lendBack(w);
+    if (lends and (w.poller.lent_to.load(.monotonic) != null or w.long_run.load(.monotonic))) lendBack(w);
     if (w.after) |a| {
         w.after = null;
         a.run(gone, a.ctx);
