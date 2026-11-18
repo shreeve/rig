@@ -453,8 +453,51 @@ pub inline fn turn(n: *u32) void {
 /// LLVM's loop vectorizer off, so the plain loop stays one element at a
 /// time. A turn of four groups counts one turn of the loop that holds
 /// the fold (`turns`, `rig.turn`).
-pub inline fn fold(comptime op: enum { add, xor, bor, band }, s: anytype, xs: []const @TypeOf(s), turns: ?*u32) @TypeOf(s) {
+pub inline fn fold(comptime op: enum { add, add_checked, xor, bor, band }, s: anytype, xs: []const @TypeOf(s), turns: ?*u32) @TypeOf(s) {
     const T = @TypeOf(s);
+    // `s += x` panics where a sum of the first elements leaves `T`: the
+    // vectors keep each lane's least and greatest element too, and when
+    // `s + n * least` or `s + n * greatest` could leave `T`, the loop runs
+    // again one element at a time, as written, to panic where it would.
+    if (op == .add_checked) {
+        const V = @Vector(@max(1, 16 / @sizeOf(T)), T);
+        const lanes = @typeInfo(V).vector.len;
+        const p = xs.ptr;
+        const n = xs.len;
+        var a0: V = @splat(0);
+        var a1: V = @splat(0);
+        var lo: V = @splat(std.math.maxInt(T));
+        var hi: V = @splat(std.math.minInt(T));
+        var i: usize = 0;
+        while (i + 2 * lanes <= n) : ({
+            i += 2 * lanes;
+            if (turns) |t| turn(t);
+        }) {
+            const x0: V = p[i..][0..lanes].*;
+            const x1: V = p[i + lanes ..][0..lanes].*;
+            a0 +%= x0;
+            a1 +%= x1;
+            lo = @min(lo, @min(x0, x1));
+            hi = @max(hi, @max(x0, x1));
+        }
+        var least: T = @reduce(.Min, lo);
+        var most: T = @reduce(.Max, hi);
+        var r = s;
+        const v = a0 +% a1;
+        inline for (0..lanes) |k| r +%= v[k];
+        while (i < n) : (i += 1) {
+            r +%= p[i];
+            least = @min(least, p[i]);
+            most = @max(most, p[i]);
+        }
+        const W = i256;
+        const fits = n == 0 or (@as(W, s) + @as(W, n) * @as(W, most) <= std.math.maxInt(T) and
+            @as(W, s) + @as(W, n) * @as(W, least) >= std.math.minInt(T));
+        if (fits) return r;
+        var q = s;
+        for (xs) |x| q += x;
+        return q;
+    }
     const lanes = @max(1, 16 / @sizeOf(T));
     const V = @Vector(lanes, T);
     const step = 4 * lanes;
@@ -465,7 +508,7 @@ pub inline fn fold(comptime op: enum { add, xor, bor, band }, s: anytype, xs: []
     const f = struct {
         inline fn f(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
             return switch (op) {
-                .add => a +% b,
+                .add, .add_checked => a +% b,
                 .xor => a ^ b,
                 .bor => a | b,
                 .band => a & b,

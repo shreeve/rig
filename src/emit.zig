@@ -4418,6 +4418,7 @@ pub const Emitter = struct {
         const op = rig.bindingKindOf(ir.Set.op(set)).operator() orelse return false;
         const name: []const u8 = switch (op) {
             .@"+%" => "add",
+            .@"+" => "add_checked",
             .@"^" => "xor",
             .@"|" => "bor",
             .@"&" => "band",
