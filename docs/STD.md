@@ -1373,11 +1373,13 @@ when `serve` starts:
 |---|---|---|
 | A connection waiting for its next request, or for a read of a body or a write of a response to make progress, is closed after | 60 s | `RIG_HTTP_IDLE_MS` |
 | A request's head must arrive whole, from its first byte, within | 10 s | `RIG_HTTP_HEAD_MS` |
+| A request's body must arrive whole, from the end of its head, within | 5 min | `RIG_HTTP_BODY_MS` |
 | A body larger than this is answered 413, and its connection closed | 16 MiB | `RIG_HTTP_MAX_BODY` (bytes) |
 
 A body over the limit is refused before any of it is read when its
 `Content-Length` says so, and once the limit is passed when it comes
-chunked. A client that sends `Expect: 100-continue` is asked for the
+chunked. A body not whole by its deadline gets no answer, and its
+connection is closed, however steadily its bytes come. A client that sends `Expect: 100-continue` is asked for the
 body (`100 Continue`) only once its length is within the limit; any
 other expectation is answered 417. Once the process has run out of
 file descriptors, `serve` pauses, from 5 ms doubling to 1 s, and
@@ -1405,11 +1407,24 @@ or NUL that ends no line, a header line with no colon or a name that
 is no token (as one with a space before its colon), or names a
 Transfer-Encoding not ending in `chunked` or a length not digits, is
 answered 400 and its connection closed; up to two empty lines before a
-request line are skipped. A handler's status below 200, which would be
+request line are skipped. An HTTP/1.1 request names its host once
+(RFC 9112 §3.2): one with no `Host` line, and a request of either
+version with more than one, is answered 400 and its connection closed;
+an HTTP/1.0 request needs none. `CONNECT` asks for a tunnel, which the
+server is not (RFC 9110 §9.3.6): it is answered 405,
+`method not allowed`, before the handler runs, and its connection
+closed. A handler's status below 200, which would be
 an interim answer or none, and an `.other` type holding a CR, LF, or
 NUL, are answered 500. A 204 or a 304 is sent as its status line
 alone, with no length, type, or body, whatever the handler gave: a
 client reads no body after either.
+
+`Connection` is a list of options (RFC 9110 §7.6.1), each named in any
+case, on every line of it. An HTTP/1.1 connection stays open after a
+request unless one of its options is `close`. An HTTP/1.0 connection
+stays open only when one is `keep-alive` and none is `close` (RFC 9112
+§9.3), and the answer then says `connection: keep-alive`; an answer
+after which the server closes says `connection: close`.
 
 ## std.target
 

@@ -164,8 +164,10 @@ worker after.
   that even when its own yield checks do not come (in recursion, say),
   and it passes the watch on as it goes back to work. A worker that
   wakes holding descriptors kicks a sleeper to watch when none does
-  (`sched.passWatch`), and so does one that takes its first descriptor
-  while awake (`sched.register`). The sleeper kicked may leave its
+  (`sched.passWatch`), and so does one that took its first descriptor
+  while awake, at its loop's next turn while still busy: one that
+  registers and then waits sleeps in its own poller and owes none. The
+  sleeper kicked may leave its
   sleep before it watches, popped for work or finding some, so every
   worker that leaves its sleep, whatever it holds, kicks another while
   none watches and a worker awake holds descriptors

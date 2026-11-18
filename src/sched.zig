@@ -197,6 +197,10 @@ const Worker = struct {
     /// Set while a yield check wakes the fibers its timers and poller
     /// make ready, which it then yields to (`wake`).
     servicing: bool = false,
+    /// Set as it takes its first descriptor while awake (`registerIn`):
+    /// it has a sleeper watch at its loop's next turn while it stays busy
+    /// (`payWatch`), and forgets it as it sleeps.
+    watch_owed: bool = false,
     /// Where the fibers its poller's events and its timers make ready go
     /// while it hands them out (`Batch`).
     batch: Batch = .none,
@@ -2513,13 +2517,13 @@ const settle_wait: i96 = if (Poller.darwin) 20 * std.time.ns_per_us else 0;
 const brief_wait: i96 = 50 * std.time.ns_per_us;
 
 /// Whether a worker other than `w`, awake, holds descriptors: what the
-/// watcher looks at every poller for. Its count is read sequentially
-/// consistent, for a watcher letting go against a worker taking its
-/// first descriptor (`registerIn`).
-fn busyDescriptors(w: ?*Worker) bool {
+/// watcher looks at every poller for. A watcher letting go reads the
+/// counts sequentially consistent (`counted`), against a worker that
+/// took its first descriptor (`payWatch`).
+fn busyDescriptors(w: ?*Worker, comptime counted: std.builtin.AtomicOrder) bool {
     for (workersNow()) |*v| {
         if (v == w) continue;
-        if (v.poller.count.load(.seq_cst) != 0 and v.idle.load(.seq_cst) == 0) return true;
+        if (v.poller.count.load(counted) != 0 and v.idle.load(.seq_cst) == 0) return true;
     }
     return false;
 }
@@ -2528,7 +2532,7 @@ fn busyDescriptors(w: ?*Worker) bool {
 /// descriptors is awake, or has slept since the last watch began, so it
 /// woke since.
 fn watchWanted(w: *Worker) bool {
-    if (busyDescriptors(w)) return true;
+    if (busyDescriptors(w, .seq_cst)) return true;
     for (workersNow()) |*v| {
         if (v == w or v.poller.count.load(.monotonic) == 0) continue;
         if (v.slept.load(.monotonic) != v.watch_mark.load(.monotonic)) return true;
@@ -2558,12 +2562,12 @@ fn sleepIn(w: *Worker, timeout: ?i96) void {
 }
 
 /// A worker, `from`, left its sleep while none watches (`leaveSleep`),
-/// or took its first descriptor (`registerIn`): while a worker that does
-/// not sleep holds descriptors, have a sleeping worker look again, and
-/// watch (`sleepIn`). Not `from` itself, still listed when it leaves its
-/// wait to trim.
+/// or runs on busy after it took its first descriptor (`payWatch`):
+/// while a worker that does not sleep holds descriptors, have a sleeping
+/// worker look again, and watch (`sleepIn`). Not `from` itself, still
+/// listed when it leaves its wait to trim.
 fn passWatch(from: *Worker) void {
-    if (!busyDescriptors(null)) return;
+    if (!busyDescriptors(null, .monotonic)) return;
     sleepers.lock.lock();
     var next_up = sleepers.top;
     if (next_up == from) next_up = from.next_sleeper;
@@ -2696,14 +2700,9 @@ fn registerIn(fd: i32) ?*Registration {
         if (registered.*) |n| n.prev = r;
         registered.* = r;
     }
-    // Its first descriptor, taken while it is awake: the sleepers, having
-    // found no worker awake holding any, sleep with no watch, so have one
-    // watch unless one does. It counted the descriptor, then reads the
-    // watch, and a watcher letting go of it reads the counts after
-    // (`sleepIn`), all sequentially consistent: either this sees the
-    // watch held, and the watcher sees the count and keeps it, or this
-    // has a sleeper watch.
-    if (w.poller.count.load(.seq_cst) == 1 and watcher.load(.seq_cst) == null) passWatch(w);
+    // Its first descriptor, taken while it is awake: a watch is owed at
+    // its loop's next turn, if it is still busy then (`payWatch`).
+    if (me() == w and w.poller.count.load(.monotonic) == 1) w.watch_owed = true;
     return r;
 }
 
@@ -4050,6 +4049,7 @@ fn loop(w: *Worker) void {
             w.searching = false;
             if (searching.fetchSub(1, .seq_cst) == 1 and workPending(w)) notify();
         }
+        if (w.watch_owed) payWatch(w);
         runFiber(w, f);
     }
 }
@@ -4306,6 +4306,7 @@ fn wakeWorker(w: *Worker) void {
 /// the fibers whose timers come due on any worker, and those its
 /// poller's events make ready, and goes back to running them.
 fn sleep(w: *Worker) void {
+    w.watch_owed = false;
     w.slept.store(w.slept.raw + 1, .monotonic);
     _ = takeWaiting(w);
     w.woken.store(0, .seq_cst);
@@ -4414,6 +4415,25 @@ fn leaveSleep(w: *Worker) void {
     if (held) watcher.store(null, .seq_cst);
     if (held or w.poller.count.load(.monotonic) != 0) w.idle.store(0, .seq_cst);
     if (watcher.load(.seq_cst) == null) passWatch(w);
+}
+
+/// `w` took its first descriptor while awake (`registerIn`), and its
+/// loop turns to another fiber, still busy: the sleepers, having found
+/// no worker awake holding any, sleep with no watch, so have one watch
+/// unless one does. Not at the registration: a fiber that registers a
+/// descriptor mostly waits on it next, and its worker, with nothing else
+/// to run, sleeps in its own poller (`sleep`, which forgets the debt)
+/// and, waking, passes the watch as any worker holding descriptors does
+/// (`leaveSleep`); a kick at each registration woke a sleeper for each
+/// connection made and closed at once (bench/net's connect, 3% slower on
+/// two threads of one core). It counted the descriptor,
+/// then reads the watch, and a watcher letting go reads the counts after
+/// (`sleepIn`), all sequentially consistent: either this sees the watch
+/// held, and the watcher sees the count and keeps it, or this has a
+/// sleeper watch.
+fn payWatch(w: *Worker) void {
+    w.watch_owed = false;
+    if (w.poller.count.load(.monotonic) != 0 and watcher.load(.seq_cst) == null) passWatch(w);
 }
 
 /// A worker left its wait, its `sleep_due` back to `awake`: unless a
@@ -8915,7 +8935,7 @@ test "a busy worker's descriptors stay watched when the sleeper kicked to watch 
     try std.testing.expect(Run.seen_after < 50 * std.time.ns_per_ms);
 }
 
-test "a busy worker's first descriptor has a sleeping worker watch it" {
+test "a busy worker that took its first descriptor has a sleeping worker watch it" {
     if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
     const Run = struct {
         /// Whether a round began with the other worker asleep with no
@@ -8924,6 +8944,11 @@ test "a busy worker's first descriptor has a sleeping worker watch it" {
         /// How long after the byte was written the other worker's look
         /// at this one's poller saw it.
         var seen_after: i96 = -1;
+        const Unit = struct {};
+        fn reader(_: *Unit, r: *Registration) u8 {
+            _ = waitReady(r, Registration.readable, edges(r, Registration.readable), null, false);
+            return 0;
+        }
         fn first(_: *anyopaque) callconv(.c) void {
             const w = pinHere().?;
             _ = workersRunning();
@@ -8932,17 +8957,23 @@ test "a busy worker's first descriptor has a sleeping worker watch it" {
                 testNapUntilOthersSleep();
                 set = w.poller.count.load(.seq_cst) == 0 and testSpinUntilUnwatched(w, nowReal() + 100 * std.time.ns_per_ms);
                 if (!set) continue;
-                // Its first descriptor, and no check from here: only the
-                // other worker's look at this one's poller sees the byte.
-                // The limit only ends a run whose watch was never taken.
+                // Its first descriptor, and a reader that waits on it,
+                // which this worker runs and then comes back here (`loop`).
                 const fds = testPipe();
                 const r = register(fds[0]).?;
+                const j = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
+                yield();
+                // No check from here: only the other worker's look at this
+                // one's poller sees the byte. The limit only ends a run
+                // whose watch was never taken.
                 const before = edges(r, Registration.readable);
                 const wrote = nowNs();
                 _ = std.posix.system.write(fds[1], "x", 1);
                 const give_up = wrote + 300 * std.time.ns_per_ms;
                 while (edges(r, Registration.readable) == before and nowNs() < give_up) std.atomic.spinLoopHint();
                 if (edges(r, Registration.readable) != before) seen_after = nowNs() - wrote;
+                _ = j.join();
+                j.free();
                 deregister(r);
                 _ = std.posix.system.close(fds[0]);
                 _ = std.posix.system.close(fds[1]);
