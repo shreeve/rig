@@ -380,8 +380,9 @@ worker's slots for 3 µs may be taken too. Work made while every worker
 is busy sets a flag that the next yield check acts on.
 
 **Handoff.** If the task has not started and still sits in this
-worker's slot when `>t` comes, the waiter hands its worker straight to
-it, switching onto the task's stack past every queue, and the task
+worker's slot when `>t` comes, or is the newest in its ring (a
+fork-join's halves made past the four slots, waited for in turn), the
+waiter hands its worker straight to it, switching onto the task's stack past every queue, and the task
 switches straight back when it ends (`sched.handoff`). A chain of tasks,
 each made and waited for at once, runs on its maker's worker at 51 ns a
 task on the Mac (`chain`, below).

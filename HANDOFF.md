@@ -113,6 +113,16 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **The ring join** (branch `fork-ring-join`, draft): `>t` takes its
+  task back from its worker's ring tail and runs it by handoff, and the
+  take counts as a run for the preemption monitor. bench/fork on the
+  Mac: psum 1.6-2.0% faster at 10 workers and 7-8% at one; qsort level
+  in other layouts but 2% slower at 10 workers and 8-9% at one in the
+  branch's own build, a layout effect (the same behavior in another
+  build is level). Waits on the core suite, the Trig and loco light
+  gates, pup, the guards, and the owner. Records:
+  `~/Data/Code/Claude/rig/rig/fable-review/fork-join-2.md`.
+
 - **The stable sort** (branch `sort-stable`, then `sort-drift` on
   it; owner, 2026-11-16, "fastest, within 2% of Rust's stable sort"):
   `sort_by`, `sort_by_key`, and `sort` of a type with its own `order`
