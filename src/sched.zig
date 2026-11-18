@@ -251,7 +251,7 @@ const Worker = struct {
 /// `arm_one` is the mac-echo arm: every descriptor waits in worker 0's
 /// poller.
 const keeps_short = builtin.os.tag.isDarwin() and true;
-const arm_one = builtin.os.tag.isDarwin() and false;
+const arm_one = builtin.os.tag.isDarwin() and true;
 const long_run: i64 = 20 * std.time.ns_per_us;
 const help_after: i64 = 50 * std.time.ns_per_us;
 const long_most: u32 = 65536 / 10;
