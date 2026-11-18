@@ -441,12 +441,18 @@ queue (`wakeHome`); a thread outside makes work into the global queue
 or a pinned queue; a worker's poller makes fibers ready with no wake, a
 batch's first into its slot and the rest into its ring. A fiber may
 run on for ever, never yielding: the worst case, where its worker's
-queues must be stolen. Checked: `searching` counts the workers
-searching, `sleepers` lists none twice, and no worker waits in its
-poller while there is work it could take. Bounds: 2 workers with 2
+queues must be stolen. On the Mac a worker whose fibers are short
+keeps the rest of a batch of its own poller's events from the others
+until its time passes, and then the watcher takes it (`keep`).
+Checked: `searching` counts the workers searching, `sleepers` lists
+none twice, and no worker waits in its poller while there is work it
+could take, kept or not; without the watcher's take, a kept batch
+waits while its holder's fiber runs on. Bounds: 2 workers with 2
 pieces of work, made each way; 3 workers, the others asleep at first,
 with 1 piece into a ring, 2 into pinned queues, or 1 into the global
-queue; 2 workers with 3 pieces into a ring, so a thief steals two.
+queue; 2 workers with 3 pieces into a ring, so a thief steals two;
+2 workers with 2 pieces from pollers whose batches are kept, awake or
+asleep at first.
 `Deep.lean` runs 3 workers with 2 pieces into a ring (3,593,823
 states), 2 workers making work every way at once, with `relook`
 (1,919,333 states) and with the pollers' batches and the monitor too
