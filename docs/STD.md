@@ -1751,13 +1751,19 @@ literal or a bare name is lent as it is passed.
 Every sort is stable in meaning: elements the order finds equal keep
 the order they had wherever a program could tell them apart. Where
 equal elements are the same value, nothing can tell them apart, and
-`sort` uses pattern-defeating quicksort (as Rust's `sort_unstable` and
-Zig's `std.sort.pdq`), which does not keep their order: for numbers,
+`sort` uses a quicksort, which does not keep their order. Integers sort
+by ipnsort (as Rust's `sort_unstable`: a branchless partition on a
+recursive pseudomedian, the elements equal to an earlier pivot split
+off, and sorting networks with insertion for 32 elements or fewer).
 `Bool`, text, plain enums, and the optionals, arrays, objects, and
 enums made only of these whose header derives `Ord` (`obj Point: Ord`
-with no `order` of its own). It compares with `<` inline, takes
-O(n log n) comparisons at worst, O(n) on sorted or reversed input, and
-O(log n) stack, and allocates nothing.
+with no `order` of its own) sort by pattern-defeating quicksort (as
+Zig's `std.sort.pdq`). Each compares with `<` inline, takes
+O(n log n) comparisons at worst (a heapsort past too many unbalanced
+partitions), O(n) on sorted or reversed input, and O(log n) stack, and
+allocates nothing. A long sort of integers lets other tasks run as a
+long loop does: preempted where loops are, and elsewhere checking
+every 16,384 elements (docs/internals/scheduler.md, "Yield checks").
 
 Otherwise, for a type with an `order` of its own (two keys it calls
 equal may still differ) or one holding a handle, and for `sort_by` and

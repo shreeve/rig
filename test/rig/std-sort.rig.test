@@ -1,6 +1,7 @@
 # std.sort: tests whose names start `sort`.
 use std.random
 use std.sort
+use std.task
 
 test "sort keeps equal keys in order through sort_by", "true"
   # Records of equal keys keep the order they had, at every size around
@@ -222,12 +223,18 @@ test "sort of owned text drops nothing twice", '''
   print(xs)
 
 test "sort of many Ints", "true", release: true
-  # Large enough for the quicksort's every path: block partitions, the
-  # split of equal elements, sorted and reversed runs found in one pass.
+  # Large enough for every path of both quicksorts: Ints through the
+  # integer kernel, and objects ordered by an Int through
+  # pattern-defeating quicksort, with its block partitions, its split of
+  # equal elements, and sorted and reversed runs found in one pass.
+  obj Key: Ord
+    k: Int
+
   r = random.Random.seeded(15)
   ok = true
   for pattern in 0..4
     v: List[Int] = List()
+    keys: List[Key] = List()
     for i in 0..200000
       x = (!r).int(0, 1 << 40)
       if pattern == 1
@@ -237,11 +244,130 @@ test "sort of many Ints", "true", release: true
       else if pattern == 3
         x = (!r).int(0, 10)
       !v.push(x)
+      !keys.push(Key(k: x))
     sort.sort(!v[..])
+    sort.sort(!keys[..])
     for x, i in ?v[..]
-      if i > 0 and v[i - 1] > x
+      if i > 0 and (v[i - 1] > x or keys[i - 1].k > keys[i].k)
+        ok = false
+      if keys[i].k != x
         ok = false
   print(ok)
+
+test "sort of integers agrees with the stable sort at every width, size, and pattern", "true", release: true
+  # Integers sort by their own kernel (std/sort.zig, `unstable_int`):
+  # here against the stable merge by `<`, at every width, signed and
+  # unsigned, with each type's least and greatest values. Lengths lie on
+  # both sides of the networks (9, 13), the merge of two (18), the small
+  # sort (32), the pseudomedian (64), and a yield check's budget
+  # (16,384); patterns random, few-valued, rising, falling, sawtooth,
+  # organ pipe, all equal, and extremes.
+  fun agrees[T: Ord + Copy](xs: ![]T) -> Bool
+    want: List[T] = List()
+    for x in ?xs
+      !want.push(x)
+    sort.sort_by(!want[..], |a, b| a < b)
+    sort.sort(!xs)
+    for x, i in ?xs
+      if x != want[i]
+        return false
+    true
+
+  fun bits(r: !random.Random, pattern: Int, i: Int, n: Int) -> U64
+    return (!r).next() if pattern == 0
+    return U64((!r).int(0, 4)) if pattern == 1
+    return U64(i) if pattern == 2
+    return U64(n - i) if pattern == 3
+    return U64(i % 37) if pattern == 4
+    return U64(i if i < n / 2 else n - i) if pattern == 5
+    return 5 if pattern == 6
+    c = (!r).int(0, 4)
+    0 if c == 0 else U64.max if c == 1 else U64(1) << 63 if c == 2 else (U64(1) << 63) - 1
+
+  r = random.Random.seeded(3)
+  ok = true
+  for n in [0, 1, 2, 3, 8, 9, 12, 13, 17, 18, 19, 31, 32, 33, 63, 64, 65, 100, 1000, 16383, 16384, 16385, 40000, 200000]
+    for pattern in 0..8
+      a: List[U8] = List()
+      b: List[I8] = List()
+      c: List[U16] = List()
+      d: List[I16] = List()
+      e: List[U32] = List()
+      f: List[I32] = List()
+      g: List[U64] = List()
+      h: List[Int] = List()
+      u: List[U128] = List()
+      v: List[I128] = List()
+      for i in 0..n
+        x = bits(!r, pattern, i, n)
+        y = bits(!r, pattern, i, n)
+        !a.push(U8.wrap(x))
+        !b.push(I8.wrap(x))
+        !c.push(U16.wrap(x))
+        !d.push(I16.wrap(x))
+        !e.push(U32.wrap(x))
+        !f.push(I32.wrap(x))
+        !g.push(x)
+        !h.push(Int.wrap(x))
+        !u.push(U128(x) << 64 | U128(y))
+        !v.push(I128.wrap(U128(x) << 64 | U128(y)))
+      ok = ok and agrees(!a[..]) and agrees(!b[..]) and agrees(!c[..]) and agrees(!d[..]) and agrees(!e[..])
+      ok = ok and agrees(!f[..]) and agrees(!g[..]) and agrees(!h[..]) and agrees(!u[..]) and agrees(!v[..])
+  print(ok)
+
+test "sort of integers in tasks sorts through its yield checks", "true true", seeds: 20
+  # In a seeded run the integer kernel checks every 16,384 elements, as
+  # a loop checks every 1,024 turns, and a seed may yield at each: two
+  # tasks sort on one worker, taking turns mid-sort.
+  fun sorted(seed: U64, spread: Int) -> Bool
+    r = random.Random.seeded(seed)
+    xs: List[I32] = List()
+    for _ in 0..100000
+      !xs.push(I32((!r).int(0, spread)))
+    sort.sort(!xs[..])
+    for i in 1..xs.len
+      if xs[i - 1] > xs[i]
+        return false
+    true
+
+  a = sorted(1, 1 << 30)&
+  b = sorted(2, 7)&
+  print(>a, >b)
+
+test "sort of integers yields to a local task at its checks", "2 1"
+  # Local tasks take turns on one thread at their yield checks: the
+  # watcher, waiting for the sort to start, runs while it sorts, at the
+  # kernel's checks, and the sorter sees its mark as the sort returns.
+  obj Node
+    v: Int
+
+  fun sorter(n: ?*Node, c: *Cell[Int], xs: List[Int]) -> Int
+    new xs = <xs
+    !c.add(1)
+    sort.sort(!xs[..])
+    seen = c.get()
+    for i in 1..xs.len
+      if xs[i - 1] > xs[i]
+        return -1
+    seen + n.v - 1
+
+  fun watcher(n: ?*Node, c: *Cell[Int]) -> Int
+    spins = 0
+    while c.get() == 0
+      spins += 1
+    !c.add(1)
+    n.v + spins % 1
+
+  task.workers(1)
+  r = random.Random.seeded(5)
+  xs: List[Int] = List()
+  for _ in 0..200000
+    !xs.push((!r).int(0, 1000000))
+  n = *Node(v: 1)
+  c = *Cell(0)
+  w = watcher(?n, +c)&
+  s = sorter(?n, +c, <xs)&
+  print(>s, >w)
 
 test "sort compares objects by their fields as order does", "true"
   # `<` and its kin on an object ordered by its fields agree with

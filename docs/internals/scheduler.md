@@ -758,6 +758,14 @@ never fails, and yields only when other work waits.
   line, so it never sets the flag, and busy tasks do not keep yielding
   to each other.
 
+- **std's integer sort.** `sort.sort` of an integer type runs a
+  kernel written in Zig (std/sort.zig, `unstable_int`), which computes
+  long without waiting as a loop does, and keeps a loop's rules: its
+  code lies in the program's section, where a signal stops it, and
+  where checks run it counts the elements it handles and checks every
+  16,384 (`check_every`, `Budget`), tens of microseconds of partitioning;
+  a sort of 32 elements and a heap's sift run whole between checks.
+
 **A check costs the code around it no registers.** In an optimized
 build for x86_64 (System V) or aarch64, both checks call the scheduler
 through a function that saves every register a call may change,
