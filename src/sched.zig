@@ -318,6 +318,7 @@ pub var x_nomap = false;
 pub var x_mainspawn = false;
 pub var x_notrim = false;
 pub var x_tree = false;
+pub var x_warmheap = false;
 pub var x_fan = false;
 /// How many of workers 1..n-1 lie in the subtree of `i` (children 2i, 2i+1).
 fn xSubtree(i: usize, n: usize) u32 {
@@ -4127,6 +4128,7 @@ fn startWorkers() void {
     x_mainspawn = xKnob("RIG_X_MAINSPAWN");
     x_notrim = xKnob("RIG_X_NOTRIM");
     x_tree = xKnob("RIG_X_TREE");
+    x_warmheap = xKnob("RIG_X_WARMHEAP");
     x_fan = xKnob("RIG_X_FAN");
     started.* = true;
     const n = if (deterministic.*) 1 else @min(workerCount(), all_workers.*.len);
@@ -4307,6 +4309,11 @@ fn workerMain(w: *Worker, n: usize) void {
         xTreeStart((@intFromPtr(w) - @intFromPtr(all_workers.*.ptr)) / @sizeOf(Worker), n);
     } else if (n > 0) startRest(n);
     if (n == 0 and (x_spawn_first or x_mainspawn) and !x_nomap) mapFirstStacks(w);
+    if (x_warmheap and own_records) {
+        // Probe: this worker's heap takes its first segment now, before the work reaches it.
+        const p = rt.fast_alloc.allocRecord(256, .of(u64)) orelse rt.oom();
+        rt.fast_alloc.freeRecord(p[0..256], .of(u64));
+    }
     loop(w);
 }
 
