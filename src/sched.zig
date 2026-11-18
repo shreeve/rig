@@ -218,7 +218,7 @@ const Worker = struct {
     /// (`trimIdle`).
     trim_wait: i96 = trim_first,
     /// PROBE counters (`PK`).
-    pc: [23]u64 = @splat(0),
+    pc: [24]u64 = @splat(0),
     /// PROBE (`Probe.age_ns`): when it first switched to a fiber with
     /// others waiting here, 0 while none waits.
     wait_since: std.atomic.Value(i64) = .init(0),
@@ -295,6 +295,16 @@ const Probe = struct {
     /// (`spill`). With RIG_P_ECORE set, RIG_P_AGE alone gates no wake.
     e_cpus: u32 = 0,
     e_mode: u32 = 7,
+    /// RIG_P_R=1, with RIG_P_AGE: the rules of RIG_P_AGE with
+    /// RIG_P_AGESTEAL, and no look at another worker's poller, hold only
+    /// while the fibers of the workers that hold descriptors are short:
+    /// while fewer than RIG_P_RFRAC in 256 of them (default 26, a tenth)
+    /// ran RIG_P_RLONG µs or longer (default 10; `long_share`). While
+    /// more do, every rule is main's. A worker going to sleep still looks
+    /// at the poller of a worker that has run its present fiber that long.
+    r_on: bool = false,
+    r_long_ns: i64 = 10 * std.time.ns_per_us,
+    r_frac: u32 = 26 * 256,
     /// RIG_P_NOWRITE=1: a descriptor is registered for readiness to read
     /// only (a measurement of what kqueue's write edges cost a server
     /// whose writes never wait; a write that would wait is lost).
@@ -319,6 +329,9 @@ const Probe = struct {
         if (env("RIG_P_AGESTEAL")) |v| c.age_steal = v != 0;
         if (env("RIG_P_NOWRITE")) |v| c.no_write = v != 0;
         if (env("RIG_P_ECORE")) |v| c.e_cpus = @intCast(v);
+        if (env("RIG_P_R")) |v| c.r_on = v != 0;
+        if (env("RIG_P_RLONG")) |v| c.r_long_ns = v * std.time.ns_per_us;
+        if (env("RIG_P_RFRAC")) |v| c.r_frac = @intCast(v * 256);
         if (env("RIG_P_EMODE")) |v| c.e_mode = @intCast(v);
         if (env("RIG_P_AGEFREE")) |v| c.age_free = @intCast(v);
         if (env("RIG_P_LOOKRUN")) |v| c.look_run_us = v;
@@ -337,14 +350,23 @@ fn onECore() bool {
 /// PROBE (`Probe.e_mode` 4): whether the last worker woken for work
 /// found itself on an efficiency core.
 var spill: std.atomic.Value(bool) align(std.atomic.cache_line) = .init(false);
+/// PROBE (`Probe.r_on`): the share, in 65536ths, of the fibers run on
+/// workers that hold descriptors that ran `r_long_ns` or longer, each
+/// fiber moving it a 32nd of the way.
+var long_share: std.atomic.Value(u32) align(std.atomic.cache_line) = .init(0);
+/// PROBE (`Probe.r_on`): whether those fibers are short now.
+inline fn shortMode() bool {
+    return long_share.load(.monotonic) < probe.r_frac;
+}
 /// PROBE: whether wakes wait for work to have waited now.
 inline fn wakesGated() bool {
     if (probe.age_ns == 0) return false;
+    if (probe.r_on) return shortMode();
     if (probe.e_cpus == 0) return true;
     return probe.e_mode & 4 != 0 and spill.load(.monotonic);
 }
 var probe: Probe = .{};
-const PK = enum(u8) { notify, spread, kick_made, kick_notify, kick_watch, kick_timer, kick_home, waits, waits_empty, waits_settle, service_all, capped, young, pend_young, search_empty, polls, poll_hits, poll_events, poll_noany, ev_write, registered, woke_e, woke_p };
+const PK = enum(u8) { notify, spread, kick_made, kick_notify, kick_watch, kick_timer, kick_home, waits, waits_empty, waits_settle, service_all, capped, young, pend_young, search_empty, polls, poll_hits, poll_events, poll_noany, ev_write, registered, woke_e, woke_p, long_run };
 inline fn pcount(k: PK) void {
     if (me()) |w| w.pc[@intFromEnum(k)] += 1;
 }
@@ -3082,6 +3104,10 @@ fn serviceAllAs(watching: bool) void {
     for (workersNow()) |*v| {
         _ = v.timers.fire(now);
         if (v != by and e_own) continue;
+        if (v != by and probe.r_on and !watching and shortMode()) {
+            const since = v.run_since.load(.monotonic);
+            if (since == 0 or @as(i64, @intCast(now)) - since < probe.r_long_ns) continue;
+        }
         if (v != by and (probe.own_look == 1 or (probe.own_look == 2 and !watching))) continue;
         if (v != by and probe.own_look == 3 and !watching and @as(i64, @intCast(now)) - v.poller.owned_at.load(.monotonic) < probe.look_gap_us * std.time.ns_per_us) continue;
         if (v != by and probe.own_look == 4 and !watching) {
@@ -3955,7 +3981,7 @@ fn printStats() void {
         _ = std.posix.system.write(2, line.ptr, line.len);
         var pb: [900]u8 = undefined;
         const c = &w.pc;
-        const pl = std.fmt.bufPrint(&pb, "rig: probe {d}: notify {d}, spread {d}, kick_made {d}, kick_notify {d}, kick_watch {d}, kick_timer {d}, kick_home {d}, waits {d}, waits_empty {d}, waits_settle {d}, service_all {d}, capped {d}, young {d}, pend_young {d}, search_empty {d}, polls {d}, poll_hits {d}, poll_events {d}, poll_noany {d}, ev_write {d}, registered {d}, woke_e {d}, woke_p {d}\n", .{ i, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15], c[16], c[17], c[18], c[19], c[20], c[21], c[22] }) catch continue;
+        const pl = std.fmt.bufPrint(&pb, "rig: probe {d}: notify {d}, spread {d}, kick_made {d}, kick_notify {d}, kick_watch {d}, kick_timer {d}, kick_home {d}, waits {d}, waits_empty {d}, waits_settle {d}, service_all {d}, capped {d}, young {d}, pend_young {d}, search_empty {d}, polls {d}, poll_hits {d}, poll_events {d}, poll_noany {d}, ev_write {d}, registered {d}, woke_e {d}, woke_p {d}, long_run {d}\n", .{ i, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15], c[16], c[17], c[18], c[19], c[20], c[21], c[22], c[23] }) catch continue;
         _ = std.posix.system.write(2, pl.ptr, pl.len);
     }
 }
@@ -4217,12 +4243,21 @@ fn runFiber(w: *Worker, f: *Fiber) void {
     prepare(w, f);
     spread(w);
     w.current = f;
-    if (probe.own_look == 4) w.run_since.store(@intCast(nowNs()), .monotonic);
+    const timed = probe.r_on and w.poller.count.load(.monotonic) != 0;
+    const began: i64 = if (timed or probe.own_look == 4) @intCast(nowNs()) else 0;
+    if (timed or probe.own_look == 4) w.run_since.store(began, .monotonic);
     switchTo(&w.sp, f.sp);
     // The fiber that switched away: `f`, or one `f` handed this worker.
     const gone = w.current.?;
     w.current = null;
-    if (probe.own_look == 4) w.run_since.store(0, .monotonic);
+    if (timed or probe.own_look == 4) w.run_since.store(0, .monotonic);
+    if (timed) {
+        const ran: i64 = @as(i64, @intCast(nowNs())) - began;
+        const g = long_share.load(.monotonic);
+        const x: u32 = if (ran >= probe.r_long_ns) 65536 else 0;
+        long_share.store(if (x > g) g + (x - g) / 32 else g - (g - x) / 32, .monotonic);
+        if (x != 0) pcount(.long_run);
+    }
     if (w.after) |a| {
         w.after = null;
         a.run(gone, a.ctx);
@@ -4346,7 +4381,7 @@ fn search(w: *Worker) ?*Fiber {
     w.rng ^= w.rng >> 17;
     w.rng ^= w.rng << 5;
     const start = w.rng % ws.len;
-    const steal_gate = probe.age_steal or (probe.e_cpus != 0 and probe.e_mode & 1 != 0 and onECore());
+    const steal_gate = probe.age_steal or (probe.r_on and shortMode()) or (probe.e_cpus != 0 and probe.e_mode & 1 != 0 and onECore());
     const steal_now: i64 = if (steal_gate) @intCast(nowNs()) else 0;
     for (0..ws.len) |k| {
         const v = &ws[(start + k) % ws.len];
@@ -4476,7 +4511,7 @@ fn sleep(w: *Worker) void {
         if (!sleepers.remove(w)) waitWoken(w);
         return;
     }
-    if (searching.load(.seq_cst) == 0 and (if (probe.age_steal or (probe.e_cpus != 0 and probe.e_mode & 1 != 0 and onECore())) hasAgedWork() else hasWork())) {
+    if (searching.load(.seq_cst) == 0 and (if (probe.age_steal or (probe.r_on and shortMode()) or (probe.e_cpus != 0 and probe.e_mode & 1 != 0 and onECore())) hasAgedWork() else hasWork())) {
         // Work made while it went to sleep, which woke no one: it looks
         // for it again as a searching worker, so once it finds some, it
         // wakes another for the rest (`loop`), as Go's scheduler does
