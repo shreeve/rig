@@ -482,7 +482,8 @@ pub const Heap = struct {
         // fault fills 2 MiB, which costs a heap that keeps to one
         // segment, as a server's worker's, up to 2 MiB it has not
         // written.
-        const huge = builtin.os.tag == .linux and ask(@intFromPtr(s), segment_size, .huge);
+        // PROBE (psum-gap memory): a heap's first segment keeps small pages.
+        const huge = builtin.os.tag == .linux and h.taken > segment_size and ask(@intFromPtr(s), segment_size, .huge);
         // The header's page, of a segment of small pages: with the
         // segment's first window, or alone, each page then faulting in
         // as its class takes it (`faultFresh`).
