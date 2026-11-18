@@ -232,6 +232,11 @@ const Worker = struct {
     /// reads, kept here as a poller keeps its own.
     sleep_mask: if (shared_sleep) std.os.linux.sigset_t else void = undefined,
     wake_evs: if (shared_sleep) [max_workers + 1]std.os.linux.epoll_event else void = undefined,
+    /// Probe (the lazy gate): the time-stamp of its last switch away from
+    /// a fiber, or of its last sleep's end (`noteRun`), and whether it
+    /// waits alone (`aloneWait`).
+    switched_at: std.atomic.Value(u64) = .init(0),
+    alone: std.atomic.Value(bool) = .init(false),
     /// How long it sleeps before it gives back what its heap holds free
     /// (`trimIdle`).
     trim_wait: i96 = trim_first,
@@ -2715,6 +2720,14 @@ const Shared = struct {
     /// prints.
     rang: std.atomic.Value(u64) align(std.atomic.cache_line) = .init(0),
     kicked: std.atomic.Value(u64) = .init(0),
+    /// Probe (the lazy gate): the workers waiting in the shared epoll, or
+    /// about to; the time-stamp until which every sleeper waits there
+    /// (`longRun`); and a long run and the hold after one, in time-stamp
+    /// ticks (0: every sleeper waits in the shared epoll, always).
+    inside: std.atomic.Value(u32) align(std.atomic.cache_line) = .init(0),
+    eager_until: std.atomic.Value(u64) align(std.atomic.cache_line) = .init(0),
+    long_ticks: u64 = 0,
+    hold_ticks: u64 = 0,
 };
 var shared_var: Shared = .{};
 const shared = split.cell(&shared_var, "sched.shared");
@@ -2726,7 +2739,138 @@ const SleepStats = struct {
     drained: u64 = 0,
     rang: u64 = 0,
     kicked: u64 = 0,
+    /// Probe: waits alone (`aloneWait`), and runs of `long_ticks` or more.
+    alone: u64 = 0,
+    long: u64 = 0,
 };
+
+/// Probe (the lazy gate): whether sleepers choose where they wait
+/// (`waitsAlone`): Linux on x86-64, whose time-stamp counter times a run.
+const lazy_gate = shared_sleep and builtin.cpu.arch == .x86_64;
+
+/// Probe: the time-stamp counter.
+inline fn stamp() u64 {
+    if (builtin.cpu.arch != .x86_64) return 0;
+    return asm volatile (
+        \\ rdtsc
+        \\ shlq $32, %%rdx
+        \\ orq %%rdx, %%rax
+        : [t] "={rax}" (-> u64),
+        :
+        : .{ .rdx = true, .rflags = true });
+}
+
+/// Probe: the number the environment variable `name` gives, else `default`.
+fn envNumber(comptime name: []const u8, default: u64) u64 {
+    if (rt.process.*) |p| if (p.environ.getPosix(name)) |v| return std.fmt.parseInt(u64, v, 10) catch default;
+    return default;
+}
+
+/// Probe: set the gate's ticks, as the shared epoll opens: a long run is
+/// `RIG_LAZY_RUN_US` microseconds (15; 0: no gate, every sleeper waits in
+/// the shared epoll), and after one every sleeper waits there for
+/// `RIG_LAZY_HOLD_US` (2,000).
+fn openGate() void {
+    if (!lazy_gate) return;
+    const n0 = nowReal();
+    const t0 = stamp();
+    while (nowReal() - n0 < 200 * std.time.ns_per_us) std.atomic.spinLoopHint();
+    const ticks = stamp() -% t0;
+    const ns: u64 = @intCast(nowReal() - n0);
+    const per_us = @max(ticks * 1000 / ns, 1);
+    shared.long_ticks = envNumber("RIG_LAZY_RUN_US", 15) *| per_us;
+    shared.hold_ticks = envNumber("RIG_LAZY_HOLD_US", 2000) *| per_us;
+    // Probe: SIGUSR1 prints the counters of a server that never ends.
+    if (statsWanted()) {
+        const act: std.posix.Sigaction = .{ .handler = .{ .handler = onStats }, .mask = std.posix.sigemptyset(), .flags = std.posix.SA.ONSTACK | std.posix.SA.RESTART };
+        std.posix.sigaction(.USR1, &act, null);
+    }
+}
+
+fn onStats(_: std.posix.SIG) callconv(.c) void {
+    printStats();
+}
+
+/// Probe: `w` switched away from a fiber: time its run, from the switch
+/// or the sleep before it, and after a long one have every sleeper wait
+/// in the shared epoll for a while (`longRun`).
+inline fn noteRun(w: *Worker) void {
+    if (!lazy_gate) return;
+    const t = stamp();
+    const ran = t -% w.switched_at.raw;
+    w.switched_at.store(t, .monotonic);
+    if (ran >= shared.long_ticks and shared.long_ticks != 0) longRun(w, t);
+}
+
+noinline fn longRun(w: *Worker, t: u64) void {
+    @branchHint(.cold);
+    w.sleep_stats.long += 1;
+    const until = shared.eager_until.load(.monotonic);
+    // Written at most twice a hold, so busy workers do not pass its line
+    // around.
+    if (until -% t > shared.hold_ticks / 2 and until >= t) return;
+    shared.eager_until.store(t +| shared.hold_ticks, .seq_cst);
+    // The gate opened: the workers that wait alone move to the shared
+    // epoll.
+    if (until < t) for (workersNow()) |*v| {
+        if (v != w and v.alone.load(.seq_cst)) signalWorker(v, w);
+    };
+}
+
+/// Probe: whether `w`, about to wait, waits alone, for its kick and its
+/// timeout only, and leaves the pollers' events to the worker already in
+/// the shared epoll: when one is, no run was long lately, and no worker
+/// has run its fiber long. A long run (a handler that computes) opens the
+/// gate, and then each event wakes a sleeper at once, which costs a wake
+/// that short fibers do not repay.
+fn waitsAlone(w: *Worker) bool {
+    if (!lazy_gate or shared.long_ticks == 0) return false;
+    if (shared.inside.load(.seq_cst) == 0) return false;
+    const t = stamp();
+    if (t < shared.eager_until.load(.monotonic)) return false;
+    for (workersNow()) |*v| {
+        if (v == w or @atomicLoad(?*Fiber, &v.current, .monotonic) == null) continue;
+        if (t -% v.switched_at.load(.monotonic) >= shared.long_ticks) return false;
+    }
+    return true;
+}
+
+/// Probe: wait alone up to `timeout`, for a kick (`signalWorker`) only.
+/// One of the workers that wait alone wakes every `watch_every`, and
+/// decides again where it waits. Whether a kick ended the wait.
+fn aloneWait(w: *Worker, timeout: ?i96) bool {
+    if (timeout == null or timeout.? > 0) rt.flushBeforeWait();
+    const linux_ = std.os.linux;
+    const watches = watcher.cmpxchgStrong(null, w, .seq_cst, .monotonic) == null;
+    defer if (watches) watcher.store(null, .seq_cst);
+    var t = timeout;
+    if (watches) t = if (t) |x| @min(x, watch_every) else watch_every;
+    var ts: linux_.timespec = undefined;
+    const tp: ?*linux_.timespec = if (t) |x| blk: {
+        ts = .{ .sec = @intCast(@divTrunc(x, std.time.ns_per_s)), .nsec = @intCast(@mod(x, std.time.ns_per_s)) };
+        break :blk &ts;
+    } else null;
+    var none: [1]linux_.pollfd = undefined;
+    w.alone.store(true, .seq_cst);
+    // The gate opened meanwhile: its opener signals the workers it sees
+    // alone, after it opens it.
+    const rc: isize = if (stamp() < shared.eager_until.load(.seq_cst)) 0 else @bitCast(linux_.ppoll(&none, 0, tp, &w.sleep_mask));
+    w.alone.store(false, .seq_cst);
+    if (w.signaled.load(.seq_cst)) w.signaled.store(false, .seq_cst);
+    w.sleep_stats.alone += 1;
+    deliverInterrupt();
+    return rc != 0;
+}
+
+/// Probe: kick the sleeper listed last, when no worker waits in the
+/// shared epoll to hear the bell.
+fn kickSleeper(by: ?*Worker) void {
+    if (!lazy_gate or shared.inside.load(.seq_cst) != 0) return;
+    sleepers.lock.lock();
+    const v = sleepers.top;
+    sleepers.lock.unlock();
+    if (v) |x| signalWorker(x, by);
+}
 
 /// Open the shared epoll and its bell, and install the kick signal's
 /// handler, as `main` starts on the scheduler.
@@ -2746,6 +2890,7 @@ fn openShared() void {
     s.pid = linux_.getpid();
     const act: std.posix.Sigaction = .{ .handler = .{ .handler = onKick }, .mask = std.posix.sigemptyset(), .flags = std.posix.SA.ONSTACK | std.posix.SA.RESTART };
     std.posix.sigaction(kick_signal, &act, null);
+    openGate();
 }
 
 fn onKick(_: std.posix.SIG) callconv(.c) void {}
@@ -2851,6 +2996,7 @@ fn notifyShared() void {
         return;
     }
     ring(me());
+    kickSleeper(me());
 }
 
 /// Sleep in the shared epoll up to `timeout` (null: until woken), then
@@ -2862,7 +3008,9 @@ fn sharedWait(w: *Worker, timeout: ?i96) bool {
     const linux_ = std.os.linux;
     const ms: i32 = if (timeout) |t| @intCast(@min(@divTrunc(t + std.time.ns_per_ms - 1, std.time.ns_per_ms), std.math.maxInt(i32))) else -1;
     const evs = &w.wake_evs;
+    _ = shared.inside.fetchAdd(1, .seq_cst);
     const rc: isize = @bitCast(linux_.epoll_pwait(shared.fd, evs, evs.len, ms, &w.sleep_mask));
+    _ = shared.inside.fetchSub(1, .seq_cst);
     // Before it looks for work: a kick that found the flag set has its
     // work seen below.
     if (w.signaled.load(.seq_cst)) w.signaled.store(false, .seq_cst);
@@ -3287,7 +3435,10 @@ pub fn kickForInterrupt() void {
     if (stopping.load(.seq_cst)) return;
     // On Linux's shared sleep one sleeper, woken by the bell, passes it
     // on, and a busy worker's service does.
-    if (sharedNow()) return ring(null);
+    if (sharedNow()) {
+        ring(null);
+        return kickSleeper(null);
+    }
     for (workersNow()) |*w| w.poller.kick();
 }
 
@@ -4130,7 +4281,7 @@ fn printStats() void {
     const p = rt.process.* orelse return;
     const v = p.environ.getPosix("RIG_SCHED_STATS") orelse return;
     if (!std.mem.eql(u8, v, "1")) return;
-    var buf: [512]u8 = undefined;
+    var buf: [1024]u8 = undefined;
     for (workersNow(), 0..) |*w, i| {
         if (preempt) printDeclined(w, i);
         const head = (if (preempt)
@@ -4144,7 +4295,7 @@ fn printStats() void {
         // the kicks it sent.
         if (shared_sleep and !deterministic.*) {
             const st = w.sleep_stats;
-            len += (std.fmt.bufPrint(buf[len .. buf.len - 1], ", woke {d} ({d} for nothing), drained {d}, rang {d}, kicked {d}", .{ st.woke, st.woke_idle, st.drained, st.rang, st.kicked }) catch continue).len;
+            len += (std.fmt.bufPrint(buf[len .. buf.len - 1], ", woke {d} ({d} for nothing), drained {d}, rang {d}, kicked {d}, alone {d}, long runs {d}", .{ st.woke, st.woke_idle, st.drained, st.rang, st.kicked, st.alone, st.long }) catch continue).len;
         }
         buf[len] = '\n';
         _ = std.posix.system.write(2, &buf, len + 1);
@@ -4370,6 +4521,7 @@ fn workerMain(w: *Worker, n: usize) void {
 /// A worker's life: run what is ready, look for more, sleep when there
 /// is none, until `main` ends.
 fn loop(w: *Worker) void {
+    if (lazy_gate) w.switched_at.store(stamp(), .monotonic);
     while (!stopping.load(.acquire)) {
         if (tears_down and exit_state.phase.load(.acquire) != .idle) stopForExit(w, false);
         if (deterministic.*) {
@@ -4388,6 +4540,7 @@ fn loop(w: *Worker) void {
             if (spare.count.load(.monotonic) > spareKept()) trimSpare();
             if (dense_spare.count.load(.monotonic) > spareKept()) trimDense();
             sleep(w);
+            if (lazy_gate) w.switched_at.store(stamp(), .monotonic);
             continue;
         };
         // Work found: stop searching, and if this worker was the last
@@ -4411,6 +4564,7 @@ fn runFiber(w: *Worker, f: *Fiber) void {
     // The fiber that switched away: `f`, or one `f` handed this worker.
     const gone = w.current.?;
     w.current = null;
+    noteRun(w);
     if (w.after) |a| {
         w.after = null;
         a.run(gone, a.ctx);
@@ -4689,7 +4843,7 @@ fn sleep(w: *Worker) void {
                 timeout = if (timeout) |t| @min(t, left) else left;
             }
             const began = if (holds) nowNs() else 0;
-            const roused = if (shared_sleep) sharedWait(w, timeout) else sleepIn(w, timeout);
+            const roused = if (shared_sleep) (if (waitsAlone(w)) aloneWait(w, timeout) else sharedWait(w, timeout)) else sleepIn(w, timeout);
             if (holds) w.woke_soon = hasOwnWork(w) and nowNs() - began < brief_wait;
             w.sleep_due.store(awake, .seq_cst);
             if (trim_due and w.woken.load(.seq_cst) == 0 and nowReal() - since >= w.trim_wait) {
