@@ -1234,14 +1234,16 @@ fn buildApart(allocator: std.mem.Allocator, io: std.Io, env: Env, mode: Mode, di
     // PROBE (fork-leaves): RIG_PROBE_HOOK runs a shell command in the
     // package directory before it compiles; RIG_PROBE_BC compiles the root
     // to optimized bitcode, then that bitcode to the object by `zig cc`
-    // with the flags it names (a second LLVM pipeline, as clang runs it).
+    // with the flags it names (a second LLVM pipeline, as clang runs it);
+    // with RIG_PROBE_RAW=1, Zig's unoptimized bitcode, so clang's pipeline
+    // is the only one.
     if (env.get("RIG_PROBE_HOOK")) |hook| {
         const code = try runZig(io, &.{ "sh", "-c", try std.fmt.allocPrint(allocator, "cd {s} && {s}", .{ dir, hook }) });
         if (code != 0) std.process.exit(code);
     }
     if (env.get("RIG_PROBE_BC")) |cc_flags| {
         const bc = try std.fs.path.join(allocator, &.{ dir, "__rig_program.bc" });
-        const to_bc = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-obj", flag }, release, &.{ "--cache-dir", zig_cache, root_zig, "-fno-emit-bin", try allocator.print("-femit-llvm-bc={s}", .{bc}) }, libc });
+        const to_bc = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, "build-obj", flag }, release, &.{ "--cache-dir", zig_cache, root_zig, "-fno-emit-bin", try allocator.print("{s}={s}", .{ if (env.flag("RIG_PROBE_RAW")) "--verbose-llvm-bc" else "-femit-llvm-bc", bc }) }, libc });
         if (try runZig(io, to_bc) != 0) std.process.exit(1);
         var cc: std.ArrayList([]const u8) = .empty;
         try cc.appendSlice(allocator, &.{ zig, "cc", "-Wno-override-module" });
