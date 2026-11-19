@@ -448,10 +448,10 @@ pub inline fn turn(n: *u32) void {
 
 /// `for x in xs` whose body is only `s OP= x`, over integers (the storage
 /// plan's `Fold`): `s` combined with every element of `xs`, sixteen
-/// bytes a vector and sixteen vectors a turn, as LLVM's loop vectorizer
-/// would write the loop, which Zig 0.17 builds with off (INTERNALS, "Known
-/// Zig 0.17 issues"). A turn counts one turn of the loop that holds the
-/// fold (`turn`).
+/// vectors a turn of the widest the target adds (`foldLanes`), as LLVM's
+/// loop vectorizer would write the loop, which Zig 0.17 builds with off
+/// (INTERNALS, "Known Zig 0.17 issues"). A turn counts one turn of the
+/// loop that holds the fold (`turn`).
 ///
 /// A checked `+` (`.add`) panics on the element where the plain loop
 /// would. Each turn bounds its elements' size by `m`, so every sum of
@@ -459,7 +459,7 @@ pub inline fn turn(n: *u32) void {
 /// could leave the type adds its elements one at a time, as written.
 pub inline fn fold(comptime how: enum { add_wrap, add, bit_xor, bit_or, bit_and }, s: anytype, xs: []const @TypeOf(s), turns: ?*u32) @TypeOf(s) {
     const T = @TypeOf(s);
-    const lanes = 16 / @sizeOf(T);
+    const lanes = foldLanes(T);
     const V = @Vector(lanes, T);
     const U = @Vector(lanes, @Int(.unsigned, @bitSizeOf(T)));
     // Sixteen vectors a turn, into four sums, written without `inline
@@ -525,6 +525,17 @@ pub inline fn fold(comptime how: enum { add_wrap, add, bit_xor, bit_or, bit_and 
     if (how != .add) r = op(r, @reduce(reduce, op(op(a0, a1), op(a2, a3))));
     for (xs[i..]) |x| r = if (how == .add) r + x else op(r, x);
     return r;
+}
+
+/// The lanes of a `fold`'s vectors of `T`: the widest vector the target
+/// adds in one instruction, at most 32 bytes (AVX2's; NEON's and SSE's
+/// are 16). On pup's x86-64 cores (AVX2), sixteen 16-byte vectors a
+/// turn read memory more slowly than sixteen 32-byte ones: `bench/fork`'s
+/// psum, at one worker, takes 14% less time with the wider.
+fn foldLanes(comptime T: type) comptime_int {
+    const most = 32 / @sizeOf(T);
+    const native = std.simd.suggestVectorLength(T) orelse 16 / @sizeOf(T);
+    return @min(most, @max(native, 16 / @sizeOf(T)));
 }
 
 /// A bound on the size of each lane of `x` (`fold`): `x` itself when
@@ -10304,12 +10315,13 @@ test "lookup: at compile time" {
     try testing.expectEqual([4]u8{ '0', 'f', 0, 0 }, @as([4]u8, r));
 }
 
-test "fold: as the plain loop, for every operator, type, and length to 600" {
+test "fold: as the plain loop, for every operator, type, and length to 1,100" {
     var prng = std.Random.DefaultPrng.init(0xf01d);
     const r = prng.random();
     inline for (.{ u8, i8, u16, i16, u32, i32, u64, i64 }) |T| {
-        var xs: [600]T = undefined;
-        for (0..600) |n| for (0..4) |shape| {
+        // Two turns of a byte fold's widest vectors (`foldLanes`) and more.
+        var xs: [1100]T = undefined;
+        for (0..1100) |n| for (0..4) |shape| {
             for (xs[0..n], 0..) |*x, i| x.* = switch (shape) {
                 0 => @intCast(i % 100),
                 1 => r.int(T),

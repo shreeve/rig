@@ -902,9 +902,10 @@ bomb "loop fold checked overflow before a smaller sum", "integer overflow", prin
   print(sum(h))
 
 bomb "loop fold checked overflow in the remainder", "integer overflow"
-  # Past the last whole turn, the elements are added one at a time.
+  # Past the last whole turn, the elements are added one at a time: 130
+  # elements are whole turns to 128 for vectors of 16 bytes or of 32.
   m: List[Int] = List()
-  for _ in 0..33
+  for _ in 0..130
     !m.push(1)
   !m.push(9223372036854775807)
   s = 0
@@ -913,9 +914,9 @@ bomb "loop fold checked overflow in the remainder", "integer overflow"
   print(s)
 
 bomb "loop fold checked overflow of a narrow sum", "integer overflow"
-  # A U8 sum leaves U8 within the first turn of 256 bytes.
+  # A U8 sum leaves U8 within the first turn, of 256 bytes or of 512.
   bs: List[U8] = List()
-  for i in 0..300
+  for i in 0..1100
     !bs.push(U8(i % 200))
   s: U8 = 0
   for x in bs
