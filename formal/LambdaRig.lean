@@ -12,6 +12,7 @@ import LambdaRig.Examples
 import LambdaRig.Wait
 import LambdaRig.Tasks
 import LambdaRig.TasksSound
+import LambdaRig.Inline
 import LambdaRig.Crossing
 import LambdaRig.Mono
 import LambdaRig.TaskLoans

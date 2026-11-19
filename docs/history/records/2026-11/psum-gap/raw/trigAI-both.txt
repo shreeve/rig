@@ -1,0 +1,50 @@
+old build rc=0 1006 s
+new build rc=0 1031 s
+mitt old a4b30531fd3a505d34d2135c9d8e6352  -
+mitt new a4b30531fd3a505d34d2135c9d8e6352  -
+zod3 old 4e2a695e0fbde41902f74d35de69db3b  -
+zod3 new 4e2a695e0fbde41902f74d35de69db3b  -
+slot 600 (ab) open until 22:11:11; free 2 MiB blocks: 3011; paused: 
+=== c1
+rc=0
+mitt (30 rounds, seed 1, warm-up discarded, cores 6)
+  new      against old: wall +3.1%, instructions +0.0%, rss -4.5%: SLOWER beyond A/A (+3.1%; the A/A spread is 1.9%): goes to the owner, not the bar
+  aa       against old: wall +1.9%, instructions +0.0%, rss +0.3%: (the A/A spread)
+neverthrow (30 rounds, seed 1, warm-up discarded, cores 6)
+  new      against old: wall +2.6%, instructions +0.0%, rss -5.8%: SLOWER beyond A/A (+2.6%; the A/A spread is 1.4%): goes to the owner, not the bar
+  aa       against old: wall +1.4%, instructions +0.0%, rss -0.0%: (the A/A spread)
+superstruct (30 rounds, seed 1, warm-up discarded, cores 6)
+  new      against old: wall +3.2%, instructions +0.0%, rss -3.9%: SLOWER beyond A/A (+3.2%; the A/A spread is 0.1%): goes to the owner, not the bar
+  aa       against old: wall -0.1%, instructions +0.0%, rss +0.0%: (the A/A spread)
+tiny-invariant (30 rounds, seed 1, warm-up discarded, cores 6)
+  new      against old: wall +2.0%, instructions +0.0%, rss -2.4%: SLOWER beyond A/A (+2.0%; the A/A spread is 0.5%): goes to the owner, not the bar
+  aa       against old: wall -0.5%, instructions +0.0%, rss +0.0%: (the A/A spread)
+zod3 (30 rounds, seed 1, warm-up discarded, cores 6)
+  new      against old: wall +1.5%, instructions +0.0%, rss -0.9%: SLOWER beyond A/A (+1.5%; the A/A spread is 0.1%): goes to the owner, not the bar
+  aa       against old: wall +0.1%, instructions +0.0%, rss +0.0%: (the A/A spread)
+ts-pattern (30 rounds, seed 1, warm-up discarded, cores 6)
+  new      against old: wall +1.8%, instructions +0.0%, rss -0.2%: SLOWER beyond A/A (+1.8%; the A/A spread is 0.0%): goes to the owner, not the bar
+  aa       against old: wall +0.0%, instructions +0.0%, rss -0.0%: (the A/A spread)
+=== c4
+rc=0
+mitt (60 rounds, seed 1, warm-up discarded, cores 0,6,8,10)
+  new      against old: wall -7.8%, instructions +0.1%, rss -16.3%: faster by more than 2% and beyond A/A (-7.8%)
+  aa       against old: wall -2.4%, instructions -0.1%, rss -7.6%: (the A/A spread)
+neverthrow (60 rounds, seed 1, warm-up discarded, cores 0,6,8,10)
+  new      against old: wall -0.9%, instructions +0.1%, rss -17.1%: no change beyond the bar
+  aa       against old: wall -1.0%, instructions -0.0%, rss -7.6%: (the A/A spread)
+superstruct (60 rounds, seed 1, warm-up discarded, cores 0,6,8,10)
+  new      against old: wall -1.5%, instructions +0.0%, rss -12.1%: no change beyond the bar
+  aa       against old: wall -0.4%, instructions -0.0%, rss -1.7%: (the A/A spread)
+tiny-invariant (60 rounds, seed 1, warm-up discarded, cores 0,6,8,10)
+  new      against old: wall +1.1%, instructions +0.0%, rss -9.7%: no change beyond the bar
+  aa       against old: wall +1.6%, instructions -0.0%, rss -0.9%: (the A/A spread)
+zod3 (60 rounds, seed 1, warm-up discarded, cores 0,6,8,10)
+  new      against old: wall -0.7%, instructions -0.0%, rss -6.0%: no change beyond the bar
+  aa       against old: wall +0.4%, instructions -0.0%, rss -0.5%: (the A/A spread)
+ts-pattern (60 rounds, seed 1, warm-up discarded, cores 0,6,8,10)
+  new      against old: wall +1.4%, instructions +0.0%, rss -1.9%: SLOWER beyond A/A (+1.4%; the A/A spread is 1.0%): goes to the owner, not the bar
+  aa       against old: wall +1.0%, instructions -0.0%, rss +0.2%: (the A/A spread)
+slot 600 closed; resumed: 
+QUIET: honoured (no user process ran on cores 12-19 during slot 600)
+# done 21:14:10

@@ -458,6 +458,17 @@ serve no HTTP.
 
 ### Compiler
 
+- **A task that never leaves its binding is recorded as a fork:**
+  `t = f(x)&`, declaring `t` in a block, where every later naming of `t`
+  is `>t`, `<t.cancel()`, or a read lend `?t`, and the task's record
+  (header, arguments, and result) takes at most 1 KiB, gets the storage
+  fact `task_record` (`storage.taskStaysInFrame`). A task moved,
+  returned, added to a `Tasks` set, stored, captured by a closure, or
+  bound again does not. Emit starts a fork through `rig.Task(T).frame`,
+  which records it on the fiber (`Fiber.fork`); nothing reads it yet. The
+  preemption monitor and the record held in the maker's frame build on it
+  (records/2026-11/free-fork-join).
+
 **A loop that folds integers runs by vectors.** A `for` over a List or a
 slice of integers whose body is only `s += x`, `s +%= x`, `s ^= x`,
 `s |= x`, or `s &= x`, `s` a local of the element's type, is lowered to
@@ -833,12 +844,14 @@ arms.
 
 ### Runtime
 
-- **The preemption monitor leaves forks to the slice:** a task made
-  with `&` that has not started no longer counts for the monitor's two
-  looks 50 µs apart, which stop a fiber whose worker queued work at both
-  with none started between; only a fiber that is not a fork does, one
-  woken from a wait or by an event, one that yielded or was stopped, an
-  actor's runner. Forks still count for the 10 ms slice, and while one
+- **The preemption monitor leaves forks to the slice:** a fork, a task
+  bound by `t = f(x)&` that stays in its maker's frame and is waited for
+  there (`task_record`), no longer counts for the monitor's two looks
+  50 µs apart, which stop a fiber whose worker queued work at both with
+  none started between. Every other task, one added to a `Tasks` set,
+  returned, stored, or moved, and std's connections, and every fiber
+  woken, yielded, or stopped, keeps that bound. Forks still count for
+  the 10 ms slice, and while one
   waits at a busy worker and another sleeps, the monitor wakes one to
   take it. A fork-join's own forks wait in its queues all the time it
   runs, so on one worker it was stopped every 100 µs and the monitor
@@ -848,7 +861,17 @@ arms.
   qsort at one worker is 15% faster, 139.4 ms against 163.1; psum at
   one worker and both at 10 workers are level, as are bench/actors and
   bench/net.
-
+- **An actor's method runs inline only with the room its own task
+  would give it:** a call that finds the actor idle runs the method on
+  the caller's stack when that stack has as much room left as the
+  method proves it takes (the bound dense stacks use, now recorded for
+  each call), or a whole task's stack when it proves none. It ran inline
+  with a quarter of a stack left, 16 MiB, so a method recursing past
+  that overflowed when it found the actor idle and ran when it did not.
+  A task's stack holds 1 MiB past `main`'s 64 MiB, address space only,
+  so a task that has used no more than that still runs any method
+  inline; `main`, whose stack is 64 MiB, sends a message for a method
+  with no proven bound.
 - **A thief and a ring's owner never both take one fiber:** a thief
   copied half a ring and claimed it by moving the head, a claim that
   checks only the head, while the owner taking back its newest

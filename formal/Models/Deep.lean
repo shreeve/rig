@@ -3,6 +3,7 @@ Larger runs of the models, by hand (`lake build Models.Deep`, a few
 minutes and 8 GB): `lake build` runs `Checks.lean` only.
 -/
 import Models.Sleep
+import Models.Ring
 
 open Models
 
@@ -37,3 +38,9 @@ def batches3 : Sleep.Config :=
 /-- info: ok: 5918074 states, 17691824 steps, 631 with no step enabled -/
 #guard_msgs in
 #eval IO.println (explore (Sleep.system batches3) 30000000).summary
+
+-- The ring with `takeLast`: a ring of 4, the owner pushes 4, pops once
+-- and takes back twice, while 2 thieves steal once each.
+/-- info: ok: 2002451 states, 5014982 steps, 7487 with no step enabled -/
+#guard_msgs in
+#eval IO.println (explore (Ring.system { size := 4, pushes := 4, pops := 1, takes := 2, steals := [1, 1] }) 30000000).summary

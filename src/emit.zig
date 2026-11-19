@@ -2356,6 +2356,7 @@ pub const Emitter = struct {
             .api_object => "__rig_obj",
             .results, .result_place => "__rig_res",
             .held_header => "__rig_header",
+            .task_record => "__rig_task",
             // The storage of these is another's: the header's value, the
             // capture it copies, or Zig's (`zigTemporary`).
             .header_copy, .as_copy, .zig_temp => "",
@@ -9295,9 +9296,11 @@ pub const Emitter = struct {
             try self.emitMemberBase(obj, self.typeOf(obj) orelse return self.unsupported(obj, "an untyped actor handle"));
             try self.w.print(", \"{s}\", .{{ ", .{self.srcText(ir.Member.name(callee))});
             try self.emitArgs(sexp);
-            return self.w.writeAll(" })");
+            return self.w.print(" }}, {})", .{self.facts.callDepth(sexp) orelse 0});
         }
         try self.emitTypeTy(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped task"));
+        // A task that stays in its maker's frame, a fork, starts so.
+        if (self.facts.taskInFrame(sexp)) try self.w.writeAll(".frame");
         // Through a witness: its method, given self as it takes it.
         if (self.facts.dispatchOf(sexp)) |d| if (d == .static and !d.static.self_arg and d.static.self_mode != .value) {
             const recv = self.selfOf(sexp) orelse return self.unsupported(sexp, "a call through a witness without its self");
@@ -9471,7 +9474,9 @@ pub const Emitter = struct {
             try self.emitMemberBase(obj, self.typeOf(obj) orelse return self.unsupported(obj, "an untyped actor handle"));
             try self.w.print(", \"{s}\", .{{ ", .{self.srcText(ir.Member.name(callee))});
             try self.emitArgs(sexp);
-            return self.w.writeAll(" })");
+            // The method's proven depth, or 0 for none: the room an inline
+            // run needs (`Actor.claim`).
+            return self.w.print(" }}, {})", .{self.facts.callDepth(sexp) orelse 0});
         }
         // `task.select(arm, ...)`: each arm a channel operation and the
         // function the runtime calls when it is the one that commits.
@@ -12145,7 +12150,7 @@ test "every runtime call of a function value passes the slot it takes" {
         .{ .file = "tasks.zig", .call = "const value = make.value.invoke(.{})", .why = "the function that makes a supervised actor's value cannot fail (`Actor.supervised`)" },
         .{ .file = "tasks.zig", .call = "c.result = c.actor.invoke(name, c.args)", .why = method },
         .{ .file = "tasks.zig", .call = "return self.invoke(name, args)", .why = method },
-        .{ .file = "tasks.zig", .call = "return @TypeOf(box.value).call(box, name, args)", .why = method },
+        .{ .file = "tasks.zig", .call = "return @TypeOf(box.value).call(box, name, args, depth)", .why = method },
         .{ .file = "net.zig", .call = "return t.f.call(.{t.req})", .why = "`http.serve`'s handler is a `?fun(?Request) -> Response`, which cannot fail" },
         .{ .file = "ordered.zig", .call = "f.call(.{ rt.lend(&entry.key), &entry.value })", .why = "`Map.update`'s `f` is a `?sub(?K, !V)`, which cannot fail" },
         .{ .file = "ordered.zig", .call = "f.call(.{rt.lend(&e.key)})", .why = "`Set.retain`'s `f` is a `?fun(?K) -> Bool`, which cannot fail" },

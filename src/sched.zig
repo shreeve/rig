@@ -80,6 +80,10 @@ pub const Fiber = struct {
     /// It runs on a dense stack when one can be had (`takeDense`): the
     /// compiler found nothing in it that needs a large one.
     dense: bool = false,
+    /// It is a fork: a task made by `t = f(x)&` that the compiler found
+    /// stays in its maker's frame and is waited for there
+    /// (`storage.taskStaysInFrame`, `tasks.Task(T).frame`).
+    fork: bool = false,
     /// What its worker does once it has switched away for good: publish
     /// its end (`Header`), or nothing for `main`.
     done: ?*const fn (*Fiber) void = null,
@@ -6062,16 +6066,17 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool), compt
 /// Start `f(args...)` as a fiber, ready to run, and give its record,
 /// and an `Extra` the record holds for the caller (`tasks.zig` keeps a
 /// task's `Control` there), which `f` gets first. A `local` task, and the
-/// fiber making it, are pinned to this worker (`pinHere`).
+/// fiber making it, are pinned to this worker (`pinHere`). A `fork` is
+/// recorded on the fiber (`Fiber.fork`).
 pub const spawn = if (preempt) spawnApart else spawnIn;
 
 /// `spawn` in a program built to be preempted: never inlined into the
 /// program's own code, and one call in all (`mustNotBeInCode`).
-noinline fn spawnApart(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool, dense_stack: bool) Spawned(T, Extra) {
-    return spawnIn(T, Extra, f, args, extra, local, dense_stack);
+noinline fn spawnApart(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool, dense_stack: bool, fork: bool) Spawned(T, Extra) {
+    return spawnIn(T, Extra, f, args, extra, local, dense_stack, fork);
 }
 
-fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool, dense_stack: bool) Spawned(T, Extra) {
+fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool, dense_stack: bool, fork: bool) Spawned(T, Extra) {
     const Args = @TypeOf(args);
     const Full = struct {
         job: Job(T),
@@ -6101,7 +6106,7 @@ fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: an
     };
     if (!started.*) startWorkers();
     const full = createRecord(Full);
-    full.* = .{ .job = .{ .header = .{ .fiber = .{ .run = Full.start, .done = Header.end, .dense = dense_stack }, .destroy = if (preempt) Full.destroyApart else Full.destroy } }, .extra = extra, .args = args };
+    full.* = .{ .job = .{ .header = .{ .fiber = .{ .run = Full.start, .done = Header.end, .dense = dense_stack, .fork = fork }, .destroy = if (preempt) Full.destroyApart else Full.destroy } }, .extra = extra, .args = args };
     // An `Extra` that names its task's fiber is given it, for a cancel to
     // reach the fiber's wait (`interruptForCancel`), and one that records
     // its task somewhere does so before the task can run (`made`).
@@ -7284,7 +7289,7 @@ test "workers that return dense stacks at once do not overrun the list of their 
         fn first(_: *anyopaque) callconv(.c) void {
             dense.guard = 64 << 10;
             var jobs: [workers_n]*Job(u64) = undefined;
-            for (&jobs) |*j| j.* = spawn(u64, Unit, trims, .{}, .{}, false, false).job;
+            for (&jobs) |*j| j.* = spawn(u64, Unit, trims, .{}, .{}, false, false, false).job;
             var total: u64 = 0;
             for (jobs) |j| {
                 total += j.join();
@@ -7402,7 +7407,7 @@ test "a worker whose first stacks cannot be mapped maps them as it needs them" {
             map_fails_for_test = false;
             for (workersNow()[1..]) |*w| mapped += w.stacks.fresh_left;
             var jobs: [64]*Job(u64) = undefined;
-            for (&jobs) |*j| j.* = spawn(u64, Unit, one, .{}, .{}, false, false).job;
+            for (&jobs) |*j| j.* = spawn(u64, Unit, one, .{}, .{}, false, false, false).job;
             for (jobs) |j| {
                 total += j.join();
                 j.free();
@@ -7593,7 +7598,7 @@ test "many workers run many fibers, each waited for, and their results add up" {
         fn first(_: *anyopaque) callconv(.c) void {
             var jobs: [2000]*Job(u64) = undefined;
             for (0..50) |_| {
-                for (&jobs, 0..) |*j, i| j.* = spawn(u64, Unit, leaf, .{@as(u64, i)}, .{}, false, false).job;
+                for (&jobs, 0..) |*j, i| j.* = spawn(u64, Unit, leaf, .{@as(u64, i)}, .{}, false, false, false).job;
                 for (jobs) |j| {
                     sum += j.join();
                     j.free();
@@ -7620,7 +7625,7 @@ test "a task waited for as soon as it is made runs by handoff, and one that stop
         }
         fn first(_: *anyopaque) callconv(.c) void {
             for (0..20000) |i| {
-                const j = spawn(u64, Unit, leaf, .{@as(u64, i)}, .{}, false, false).job;
+                const j = spawn(u64, Unit, leaf, .{@as(u64, i)}, .{}, false, false, false).job;
                 sum += j.join();
                 j.free();
             }
@@ -7651,7 +7656,7 @@ test "local tasks and the fiber that made them stay on its worker, woken there b
         fn local(_: *Unit, home: *Worker, i: u64) u64 {
             var got: u64 = 0;
             for (0..4) |k| {
-                const j = spawn(u64, Unit, leaf, .{i * 4 + k}, .{}, false, false).job;
+                const j = spawn(u64, Unit, leaf, .{i * 4 + k}, .{}, false, false, false).job;
                 yield();
                 if (me().? != home) _ = moved.fetchAdd(1, .seq_cst);
                 got += j.join();
@@ -7663,7 +7668,7 @@ test "local tasks and the fiber that made them stay on its worker, woken there b
         fn first(_: *anyopaque) callconv(.c) void {
             var jobs: [200]*Job(u64) = undefined;
             const home = me().?;
-            for (&jobs, 0..) |*j, i| j.* = spawn(u64, Unit, local, .{ home, @as(u64, i) }, .{}, true, false).job;
+            for (&jobs, 0..) |*j, i| j.* = spawn(u64, Unit, local, .{ home, @as(u64, i) }, .{}, true, false, false).job;
             for (jobs) |j| {
                 sum += j.join();
                 j.free();
@@ -7700,7 +7705,7 @@ test "a fiber waiting on a pipe wakes when its other end is written, and a deadl
         fn first(_: *anyopaque) callconv(.c) void {
             const fds = testPipe();
             const r = register(fds[0]).?;
-            const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false, false).job;
+            const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false, false, false).job;
             while (true) {
                 const seen = edges(r, Registration.readable);
                 var b: [1]u8 = undefined;
@@ -7794,7 +7799,7 @@ test "a moving deadline sets its timer once for many waits, moves it when it com
         fn first(_: *anyopaque) callconv(.c) void {
             const fds = testPipe();
             const r = register(fds[0]).?;
-            const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false, false).job;
+            const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false, false, false).job;
             // A timer of each wait's own: one put in and one taken out
             // for each wait that sleeps.
             var at = test_heap_work.load(.seq_cst);
@@ -7860,7 +7865,7 @@ test "a cancel ends a wait by a moving deadline, which is taken back after" {
         fn first(_: *anyopaque) callconv(.c) void {
             const fds = testPipe();
             const r = register(fds[0]).?;
-            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false, false).job;
+            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false, false, false).job;
             while (!began.load(.seq_cst)) yield();
             testNap(5 * std.time.ns_per_ms);
             const start = nowNs();
@@ -7917,7 +7922,7 @@ test "a wait begun after a moving deadline's timer read the deadline, which that
             const fds = testPipe();
             const r = register(fds[0]).?;
             var d: Deadline = .{};
-            const j = spawn(u8, Unit, writer, .{ fds[1], &d }, .{}, false, false).job;
+            const j = spawn(u8, Unit, writer, .{ fds[1], &d }, .{}, false, false, false).job;
             // The first wait sets the timer, 20 ms ahead, and an edge
             // ends it well before.
             first_got = waitReadyBy(r, Registration.readable, edges(r, Registration.readable), &d, nowNs() + 20 * std.time.ns_per_ms, false);
@@ -7983,7 +7988,7 @@ test "a cancel that lands after a wait on a descriptor last looked, but before i
             const fds = testPipe();
             const r = register(fds[0]).?;
             test_pause.store(&pause, .seq_cst);
-            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false, false).job;
+            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false, false, false).job;
             while (!pause.reached.load(.seq_cst)) yield();
             ctl.cancel();
             const start = nowNs();
@@ -8029,7 +8034,7 @@ test "an edge after a wait's call would block reaches it, though another waiter 
             const fds = testPipe();
             const r = register(fds[0]).?;
             test_pause.store(&pause, .seq_cst);
-            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false, false).job;
+            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false, false, false).job;
             while (!pause.reached.load(.seq_cst)) yield();
             // This fiber waits too, and is woken by the byte, before the
             // reader looks again, whose read came before it.
@@ -8078,7 +8083,7 @@ test "a cancel that lands as a waiter is about to hand its worker to a task stil
             const f = current().?;
             f.state.control = &outer;
             outer.fiber = f;
-            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false, false).job;
+            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false, false, false).job;
             waited = j.waitEnd(&outer.canceled, null);
             if (!waited) inner.cancel();
             got = j.join();
@@ -8090,7 +8095,7 @@ test "a cancel that lands as a waiter is about to hand its worker to a task stil
             const fds = testPipe();
             const r = register(fds[0]).?;
             test_pause.store(&pause, .seq_cst);
-            const j = spawn(u8, Unit, waiter, .{r}, .{}, false, false).job;
+            const j = spawn(u8, Unit, waiter, .{r}, .{}, false, false, false).job;
             while (!pause.reached.load(.seq_cst)) yield();
             outer.cancel();
             pause.go.store(true, .seq_cst);
@@ -8217,7 +8222,7 @@ test "a timer set earlier than a sleeping worker's wakes it, though the timer's 
                 asleep = testSpinUntilOthersSleep();
             }
             if (!asleep) return;
-            const j = spawn(u8, Unit, napper, .{}, .{}, false, false).job;
+            const j = spawn(u8, Unit, napper, .{}, .{}, false, false, false).job;
             // The napper runs here, sets its timer on this worker, and
             // this fiber computes without a yield check: only the other
             // worker, woken for the timer, fires it and runs the napper.
@@ -8299,9 +8304,9 @@ test "a timer stays covered when the sleeper that woke for an earlier one leaves
                 // worker's heap: the first kicks one sleeper, which sleeps
                 // again until it; the second, later, kicks no one.
                 const t0 = nowNs() + 20 * std.time.ns_per_ms;
-                const a = spawn(u8, Unit, firstNapper, .{t0}, .{}, false, false).job;
+                const a = spawn(u8, Unit, firstNapper, .{t0}, .{}, false, false, false).job;
                 yield();
-                const b = spawn(u8, Unit, secondNapper, .{t0 + 20 * std.time.ns_per_ms}, .{}, false, false).job;
+                const b = spawn(u8, Unit, secondNapper, .{t0 + 20 * std.time.ns_per_ms}, .{}, false, false, false).job;
                 yield();
                 set = w.timers.heap.items.len == 2 and spinFor(w, @intCast(t0), t0 - 5 * std.time.ns_per_ms);
                 // This worker computes without a check: at the first
@@ -8348,14 +8353,14 @@ test "a lone worker's yield checks wake the fibers its timers and its poller mak
             return 0;
         }
         fn first(_: *anyopaque) callconv(.c) void {
-            const a = spawn(u8, Unit, napper, .{}, .{}, false, false).job;
+            const a = spawn(u8, Unit, napper, .{}, .{}, false, false, false).job;
             yield();
             napped_in_time = testSpinUntil(&napped, true);
             _ = a.join();
             a.free();
             const fds = testPipe();
             const r = register(fds[0]).?;
-            const b = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
+            const b = spawn(u8, Unit, reader, .{r}, .{}, false, false, false).job;
             yield();
             _ = std.posix.system.write(fds[1], "x", 1);
             read_in_time = testSpinUntil(&read, true);
@@ -8419,7 +8424,7 @@ test "of the fibers one look at a poller or one firing of timers makes ready, th
             for (0..k) |i| {
                 fds[i] = testPipe();
                 rs[i] = register(fds[i][0]).?;
-                js[i] = spawn(u8, Unit, reader, .{rs[i]}, .{}, false, false).job;
+                js[i] = spawn(u8, Unit, reader, .{rs[i]}, .{}, false, false, false).job;
             }
             yieldUntil(readersWait);
             for (fds) |fd| _ = std.posix.system.write(fd[1], "x", 1);
@@ -8437,7 +8442,7 @@ test "of the fibers one look at a poller or one firing of timers makes ready, th
                 _ = std.posix.system.close(fd[1]);
             }
             const due = nowNs() + 5 * std.time.ns_per_ms;
-            for (0..k) |i| js[i] = spawn(u8, Unit, napper, .{due}, .{}, false, false).job;
+            for (0..k) |i| js[i] = spawn(u8, Unit, napper, .{due}, .{}, false, false, false).job;
             yieldUntil(nappersWait);
             while (nowNs() < due) std.atomic.spinLoopHint();
             _ = w.timers.fire(nowNs());
@@ -8486,7 +8491,7 @@ test "a task made while its maker computes runs beside it, from the maker's next
             while (rounds < 10 and !ran.load(.seq_cst)) : (rounds += 1) {
                 testNapUntilOthersSleep();
                 maker_on = me();
-                const j = spawn(u8, Unit, beside, .{}, .{}, false, false).job;
+                const j = spawn(u8, Unit, beside, .{}, .{}, false, false, false).job;
                 // The task is in this worker's run-next slot, and this one
                 // computes, with a yield check each turn.
                 const until = nowNs() + 2 * std.time.ns_per_s;
@@ -8530,7 +8535,7 @@ test "a task's maker that computes keeps its worker while an idle worker runs wh
                 const home = me();
                 var moved = false;
                 child_on.store(null, .seq_cst);
-                const j = spawn(u8, Unit, child, .{}, .{}, false, false).job;
+                const j = spawn(u8, Unit, child, .{}, .{}, false, false, false).job;
                 // The child waits in this worker's run-next slot while
                 // this one computes, checking each turn: the check leaves
                 // it to the idle worker, which it wakes, and never yields.
@@ -8575,12 +8580,12 @@ test "a task's maker that computes yields to what it made when every other worke
         }
         fn first(_: *anyopaque) callconv(.c) void {
             _ = workersRunning();
-            const h = spawn(u8, Unit, hold, .{}, .{}, false, false).job;
+            const h = spawn(u8, Unit, hold, .{}, .{}, false, false, false).job;
             // Hand the holder to the other worker: yield until it runs there.
             const until = nowNs() + 2 * std.time.ns_per_s;
             while (!holding.load(.seq_cst) and nowNs() < until) yield();
             const home = me();
-            const j = spawn(u8, Unit, child, .{}, .{}, false, false).job;
+            const j = spawn(u8, Unit, child, .{}, .{}, false, false, false).job;
             while (child_on.load(.seq_cst) == null and nowNs() < until) tick();
             ok = child_on.load(.seq_cst) == home;
             release.store(true, .seq_cst);
@@ -8611,7 +8616,7 @@ test "a task's maker that computes yields to a local task it made, though a work
         fn first(_: *anyopaque) callconv(.c) void {
             _ = workersRunning();
             testNapUntilOthersSleep();
-            const j = spawn(u8, Unit, child, .{}, .{}, true, false).job;
+            const j = spawn(u8, Unit, child, .{}, .{}, true, false, false).job;
             const until = nowNs() + 2 * std.time.ns_per_s;
             while (!ran.load(.seq_cst) and nowNs() < until) tick();
             ok = ran.load(.seq_cst);
@@ -8665,7 +8670,7 @@ test "two tasks that answer each other over a socket each wake the other into th
             const fds = testTcpPair();
             const rs = [2]*Registration{ register(fds[0]).?, register(fds[1]).? };
             count.fibers[0].store(current().?, .seq_cst);
-            const j = spawn(u8, Unit, server, .{rs[1]}, .{}, false, false).job;
+            const j = spawn(u8, Unit, server, .{rs[1]}, .{}, false, false, false).job;
             for (0..trips) |_| {
                 send(rs[0]);
                 receive(rs[0]);
@@ -8730,7 +8735,7 @@ test "a deterministic run waits for bytes on their way on a socket before its cl
             for (0..200) |_| {
                 const fds = testTcpPair();
                 const r = register(fds[0]).?;
-                const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false, false).job;
+                const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false, false, false).job;
                 if (waitReady(r, Registration.readable, edges(r, Registration.readable), nowNs() + std.time.ns_per_ms, false) != .ready) timeouts += 1;
                 _ = j.join();
                 j.free();
@@ -8813,7 +8818,7 @@ test "a run-next fiber that wakes no worker is handed on at its maker's next rec
         fn first(_: *anyopaque) callconv(.c) void {
             _ = workersRunning();
             testNapUntilOthersSleep();
-            const j = spawn(u8, Unit, mark, .{}, .{}, false, false).job;
+            const j = spawn(u8, Unit, mark, .{}, .{}, false, false, false).job;
             // Computing in recursion: each call reads `waiting`, as
             // `rt.tickCall` does.
             const until = nowNs() + 2 * std.time.ns_per_s;
@@ -8856,14 +8861,14 @@ test "a run-next fiber made as the other worker goes to sleep is handed on at it
                 ran.store(false, .seq_cst);
                 // A task the other worker runs, which ends at once: that
                 // worker then looks for work, finds none, and sleeps.
-                const h = spawn(u8, Unit, helper, .{}, .{}, false, false).job;
+                const h = spawn(u8, Unit, helper, .{}, .{}, false, false, false).job;
                 yield();
                 while (!ended.load(.seq_cst)) std.atomic.spinLoopHint();
                 // Made a little later each round, so some round makes it
                 // as that worker goes to sleep.
                 const until = nowNs() + @as(i96, @intCast(round % 80)) * 100;
                 while (nowNs() < until) std.atomic.spinLoopHint();
-                const j = spawn(u8, Unit, mark, .{}, .{}, false, false).job;
+                const j = spawn(u8, Unit, mark, .{}, .{}, false, false, false).job;
                 // Computing in recursion: each call reads `waiting`, as
                 // `rt.tickCall` does. A fiber the checks lose never runs
                 // here; one left to the other worker, woken for it, runs
@@ -8924,7 +8929,7 @@ test "a run-next fiber whose notice another worker's check took is handed on at 
         /// `waiting`; once the maker has filled its slot too, take the
         /// flag at a recursive check, which yields to its own task.
         fn other(_: *Unit) u8 {
-            const g = spawn(u8, Unit, tiny, .{}, .{}, false, false).job;
+            const g = spawn(u8, Unit, tiny, .{}, .{}, false, false, false).job;
             y_ready.store(true, .seq_cst);
             while (!m_filled.load(.seq_cst)) std.atomic.spinLoopHint();
             tickCall();
@@ -8937,13 +8942,13 @@ test "a run-next fiber whose notice another worker's check took is handed on at 
         fn first(_: *anyopaque) callconv(.c) void {
             _ = workersRunning();
             testNapUntilOthersSleep();
-            const y = spawn(u8, Unit, other, .{}, .{}, false, false).job;
+            const y = spawn(u8, Unit, other, .{}, .{}, false, false, false).job;
             // Off to the other worker: this one takes `other` from its
             // slot, and the woken one this fiber from the ring.
             yield();
             while (!y_ready.load(.seq_cst)) std.atomic.spinLoopHint();
             // The flag is set already, so filling the slot leaves it.
-            const j = spawn(u8, Unit, mark, .{}, .{}, false, false).job;
+            const j = spawn(u8, Unit, mark, .{}, .{}, false, false, false).job;
             m_filled.store(true, .seq_cst);
             while (!y_claimed.load(.seq_cst)) std.atomic.spinLoopHint();
             recurse();
@@ -9020,10 +9025,10 @@ test "a run-next fiber filled as its worker switches, which then runs a fiber fr
                 // Each runs here, from this worker's slot, and waits: the
                 // computer with no timer, the napper on a timer in this
                 // worker's heap.
-                const g = spawn(u8, Unit, computer, .{}, .{}, false, false).job;
+                const g = spawn(u8, Unit, computer, .{}, .{}, false, false, false).job;
                 yield();
                 const t0 = nowNs() + 50 * std.time.ns_per_ms;
-                const f = spawn(u8, Unit, napper, .{t0}, .{}, false, false).job;
+                const f = spawn(u8, Unit, napper, .{t0}, .{}, false, false, false).job;
                 yield();
                 // Take the notices the two tasks' making left.
                 if (waiting.load(.monotonic) != 0) tickCall();
@@ -9100,10 +9105,10 @@ test "tasks made in turn and waited for in order start on the idle workers, woke
                 // All four wait in this worker's "run next" slots, which
                 // no sleeper looks in, and filling them wakes no worker
                 // (`wakeIn`).
-                const j1 = spawn(u8, Unit, lead, .{}, .{}, false, false).job;
-                const j2 = spawn(u8, Unit, rest, .{}, .{}, false, false).job;
-                const j3 = spawn(u8, Unit, rest, .{}, .{}, false, false).job;
-                const j4 = spawn(u8, Unit, rest, .{}, .{}, false, false).job;
+                const j1 = spawn(u8, Unit, lead, .{}, .{}, false, false, false).job;
+                const j2 = spawn(u8, Unit, rest, .{}, .{}, false, false, false).job;
+                const j3 = spawn(u8, Unit, rest, .{}, .{}, false, false, false).job;
+                const j4 = spawn(u8, Unit, rest, .{}, .{}, false, false, false).job;
                 // The wait hands this worker to the first while the
                 // others wait in its slots: the switch wakes a worker for
                 // them (`spread`), which takes the oldest (`stealNext`)
@@ -9156,7 +9161,7 @@ test "an idle worker wakes for the descriptors of a busy one" {
             const fds = testPipe();
             const r = register(fds[0]).?;
             read_on.store(null, .seq_cst);
-            const j = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
+            const j = spawn(u8, Unit, reader, .{r}, .{}, false, false, false).job;
             // Nap until the reader waits: this worker runs it, then sleeps
             // holding the descriptor, and wakes, which has a sleeping
             // worker watch (`passWatch`).
@@ -9229,7 +9234,7 @@ test "a sleeping worker that leaves its wait to trim its heap has another watch 
             home = pinHere();
             fds = testPipe();
             const r = register(fds[0]).?;
-            const j = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
+            const j = spawn(u8, Unit, reader, .{r}, .{}, false, false, false).job;
             const ready_by = nowNs() + 2 * std.time.ns_per_s;
             testNap(std.time.ns_per_ms);
             while (r.waiting.load(.seq_cst) == 0 and nowNs() < ready_by) testNap(std.time.ns_per_ms);
@@ -9327,7 +9332,7 @@ test "a busy worker's descriptors stay watched when the sleeper kicked to watch 
             // has slept through a whole watch. The bell wakes it, and the
             // sleeper it kicks runs the task instead of watching: that
             // worker computes, and so does this one.
-            const j = spawn(u8, Unit, spinner, .{}, .{}, false, false).job;
+            const j = spawn(u8, Unit, spinner, .{}, .{}, false, false, false).job;
             _ = waitReady(rung.?, Registration.readable, edges(rung.?, Registration.readable), null, false);
             if (set.load(.seq_cst)) {
                 const by = nowNs() + 100 * std.time.ns_per_ms;
@@ -9390,7 +9395,7 @@ test "a busy worker that took its first descriptor has a sleeping worker watch i
                 // which this worker runs and then comes back here (`loop`).
                 const fds = testPipe();
                 const r = register(fds[0]).?;
-                const j = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
+                const j = spawn(u8, Unit, reader, .{r}, .{}, false, false, false).job;
                 yield();
                 // No check from here: only the other worker's look at this
                 // one's poller sees the byte. The limit only ends a run
@@ -9471,7 +9476,7 @@ test "a busy worker's first descriptor, taken while worker 0 computes, has a sle
             const ok = computing.load(.seq_cst) and held == 0 and unwatched(nowReal() + 200 * std.time.ns_per_ms);
             const fds = testPipe();
             const r = register(fds[0]).?;
-            const j = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
+            const j = spawn(u8, Unit, reader, .{r}, .{}, false, false, false).job;
             yield();
             // No check from here, on this worker or worker 0: only worker
             // 2's look sees the byte. The limit only ends a run whose
@@ -9501,7 +9506,7 @@ test "a busy worker's first descriptor, taken while worker 0 computes, has a sle
                 on_one.store(false, .seq_cst);
                 computing.store(false, .seq_cst);
                 done.store(false, .seq_cst);
-                const j = spawn(u8, Unit, registrar, .{}, .{}, false, false).job;
+                const j = spawn(u8, Unit, registrar, .{}, .{}, false, false, false).job;
                 const by = nowNs() + 2 * std.time.ns_per_s;
                 while (!on_one.load(.seq_cst) and nowNs() < by) testNap(std.time.ns_per_ms);
                 // Computes, making no check, until the registrar is done.
@@ -9575,7 +9580,7 @@ test "while worker 0 computes, more sockets than a look reads, registered by ano
                 fds[i] = testPipe();
                 regs[i] = register(fds[i][0]).?;
             }
-            for (0..n) |i| jobs[i] = spawn(u8, Unit, reader, .{regs[i]}, .{}, false, false).job;
+            for (0..n) |i| jobs[i] = spawn(u8, Unit, reader, .{regs[i]}, .{}, false, false, false).job;
             const by = nowNs() + 2 * std.time.ns_per_s;
             while (waitingNow() < n and nowNs() < by) testNap(std.time.ns_per_ms);
             started_all.store(true, .seq_cst);
@@ -9593,7 +9598,7 @@ test "while worker 0 computes, more sockets than a look reads, registered by ano
         fn first(_: *anyopaque) callconv(.c) void {
             _ = pinHere();
             _ = workersRunning();
-            const j = spawn(u8, Unit, registrar, .{}, .{}, false, false).job;
+            const j = spawn(u8, Unit, registrar, .{}, .{}, false, false, false).job;
             const by = nowNs() + 3 * std.time.ns_per_s;
             while (!started_all.load(.seq_cst) and nowNs() < by) testNap(std.time.ns_per_ms);
             // Computes, making no check, from here until every reader ran.
@@ -9677,7 +9682,7 @@ test "a socket's event is seen within a few ms while worker 0 computes and every
             const ok = computing.load(.seq_cst) and on_two.load(.seq_cst) and held == 0 and allBusy(nowReal() + 200 * std.time.ns_per_ms);
             const fds = testPipe();
             const r = register(fds[0]).?;
-            const j = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
+            const j = spawn(u8, Unit, reader, .{r}, .{}, false, false, false).job;
             yield();
             if (ok and me() == &ws[1] and sleepers.count.load(.seq_cst) == 0) {
                 set.store(true, .seq_cst);
@@ -9707,8 +9712,8 @@ test "a socket's event is seen within a few ms while worker 0 computes and every
                 on_two.store(false, .seq_cst);
                 computing.store(false, .seq_cst);
                 done.store(false, .seq_cst);
-                const a = spawn(u8, Unit, looper, .{}, .{}, false, false).job;
-                const b = spawn(u8, Unit, spinner, .{}, .{}, false, false).job;
+                const a = spawn(u8, Unit, looper, .{}, .{}, false, false, false).job;
+                const b = spawn(u8, Unit, spinner, .{}, .{}, false, false, false).job;
                 const by = nowNs() + 2 * std.time.ns_per_s;
                 while (!(on_one.load(.seq_cst) and on_two.load(.seq_cst)) and nowNs() < by) testNap(std.time.ns_per_ms);
                 // Computes, making no check, as a recursion without a
@@ -9797,7 +9802,7 @@ test "a batch the watcher reads from a short-fibered worker's poller is not kept
                     regs[i] = register(fds[i][0]).?;
                 }
                 var jobs: [2]*Job(u8) = undefined;
-                for (0..2) |i| jobs[i] = spawn(u8, Unit, reader, .{regs[i]}, .{}, false, false).job;
+                for (0..2) |i| jobs[i] = spawn(u8, Unit, reader, .{regs[i]}, .{}, false, false, false).job;
                 const by = nowNs() + 2 * std.time.ns_per_s;
                 while (waitingNow() < 2 and nowNs() < by) testNap(std.time.ns_per_ms);
                 // Computes, making no check, from here until a reader says
@@ -9901,12 +9906,12 @@ test "the rest of a batch a worker keeps while its first fiber computes is taken
                     regs[i] = register(fds[i][0]).?;
                 }
                 var jobs: [2]*Job(u8) = undefined;
-                for (0..2) |i| jobs[i] = spawn(u8, Unit, reader, .{regs[i]}, .{}, false, false).job;
+                for (0..2) |i| jobs[i] = spawn(u8, Unit, reader, .{regs[i]}, .{}, false, false, false).job;
                 const by = nowNs() + 2 * std.time.ns_per_s;
                 while (waitingNow() < 2 and nowNs() < by) testNap(std.time.ns_per_ms);
                 // Waits for the writer: worker 0 sleeps in its poller,
                 // then reads both bytes as one batch of its own.
-                const w = spawn(u8, Unit, writer, .{}, .{}, false, false).job;
+                const w = spawn(u8, Unit, writer, .{}, .{}, false, false, false).job;
                 _ = w.join();
                 w.free();
                 for (jobs) |j| {
@@ -9991,8 +9996,8 @@ test "the blocking pool runs calls at once, counting a thread busy as it hands i
             return if (meet) blocking(meeting, .{}) else blocking(alone, .{});
         }
         fn pair(meet: bool) void {
-            const a = spawn(u64, Unit, caller, .{meet}, .{}, false, false).job;
-            const b = spawn(u64, Unit, caller, .{meet}, .{}, false, false).job;
+            const a = spawn(u64, Unit, caller, .{meet}, .{}, false, false, false).job;
+            const b = spawn(u64, Unit, caller, .{meet}, .{}, false, false, false).job;
             _ = a.join();
             _ = b.join();
             a.free();
@@ -10045,8 +10050,8 @@ test "past its soft bound, the blocking pool grows once a queued call has waited
             // the first's thread busy, waits for the monitor, which
             // starts a thread for it after `grow_after`, so the calls
             // overlap, as a call that blocks for good would need.
-            const a = spawn(u64, Unit, caller, .{}, .{}, false, false).job;
-            const b = spawn(u64, Unit, caller, .{}, .{}, false, false).job;
+            const a = spawn(u64, Unit, caller, .{}, .{}, false, false, false).job;
+            const b = spawn(u64, Unit, caller, .{}, .{}, false, false, false).job;
             _ = a.join();
             _ = b.join();
             a.free();
@@ -10110,7 +10115,7 @@ test "a cancel or a deadline ends a wait on the blocking pool, and the call runs
             f.state.deadline = null;
             @memset(&path_buf, 'z');
             // A cancel, once the call runs.
-            const j = spawn(u8, Unit, late, .{}, .{}, false, false).job;
+            const j = spawn(u8, Unit, late, .{}, .{}, false, false, false).job;
             const running = nowNs() + 5 * std.time.ns_per_s;
             while (calls.now.load(.seq_cst) == 0 and nowNs() < running) testNap(std.time.ns_per_ms);
             ctl.cancel();
@@ -10172,7 +10177,7 @@ test "RIG_SCHED_STATS counts: what each worker ran, stole, and slept" {
         }
         fn first(_: *anyopaque) callconv(.c) void {
             for (0..100) |_| {
-                const j = spawn(u8, Unit, leaf, .{}, .{}, true, false).job;
+                const j = spawn(u8, Unit, leaf, .{}, .{}, true, false, false).job;
                 _ = j.join();
                 j.free();
             }
@@ -10257,7 +10262,7 @@ test "a deterministic run waits for bytes on their way on a socket, though every
                 const fds = testTcpPair();
                 const r = register(fds[0]).?;
                 const w = register(fds[1]).?;
-                const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false, false).job;
+                const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false, false, false).job;
                 var got: usize = 0;
                 var buf: [64 * 1024]u8 = undefined;
                 while (got < 256 * 1024) {
@@ -10336,7 +10341,7 @@ test "a blocking call fills a buffer its caller lends, and a stoppable one takes
             return 0;
         }
         fn first(_: *anyopaque) callconv(.c) void {
-            const j = spawn(u8, Unit, caller, .{}, .{}, false, false).job;
+            const j = spawn(u8, Unit, caller, .{}, .{}, false, false, false).job;
             _ = j.join();
             j.free();
         }
@@ -10369,13 +10374,13 @@ test "a task's record is a block of its maker's heap, in a build that is not lea
         fn first(_: *anyopaque) callconv(.c) void {
             const a = rt.fast_alloc;
             // A first task, so the record's class has its page.
-            const warm = spawn(u8, Unit, one, .{0}, .{}, false, false).job;
+            const warm = spawn(u8, Unit, one, .{0}, .{}, false, false, false).job;
             _ = warm.join();
             const home = me();
             const taken = a.heapForTest().taken;
             var rounds: usize = 0;
             for (0..1000) |i| {
-                const j = spawn(u8, Unit, one, .{@as(u8, @truncate(i))}, .{}, false, false).job;
+                const j = spawn(u8, Unit, one, .{@as(u8, @truncate(i))}, .{}, false, false, false).job;
                 // Counted only while this fiber stays on its worker,
                 // whose heap is the one read.
                 if (me() != home) break;
@@ -10391,8 +10396,8 @@ test "a task's record is a block of its maker's heap, in a build that is not lea
             var sum: usize = 0;
             var freers: [64]*Job(u8) = undefined;
             for (&freers, 0..) |*f, i| {
-                const j = spawn(u8, Unit, one, .{@as(u8, @truncate(i))}, .{}, false, false).job;
-                f.* = spawn(u8, Unit, freer, .{j}, .{}, false, false).job;
+                const j = spawn(u8, Unit, one, .{@as(u8, @truncate(i))}, .{}, false, false, false).job;
+                f.* = spawn(u8, Unit, freer, .{j}, .{}, false, false, false).job;
             }
             for (freers) |f| {
                 sum += f.join();
@@ -10458,7 +10463,7 @@ test "a fiber that allocates, moves to another worker, and allocates again uses 
         }
         fn first(_: *anyopaque) callconv(.c) void {
             var jobs: [16]*Job(u8) = undefined;
-            for (&jobs) |*j| j.* = spawn(u8, Unit, hop, .{}, .{}, false, false).job;
+            for (&jobs) |*j| j.* = spawn(u8, Unit, hop, .{}, .{}, false, false, false).job;
             for (jobs) |j| {
                 _ = j.join();
                 j.free();
@@ -10466,7 +10471,7 @@ test "a fiber that allocates, moves to another worker, and allocates again uses 
             hop_lost = lost.load(.monotonic);
             // A heap kept across a switch, used on another thread.
             var stales: [8]*Job(u8) = undefined;
-            for (&stales) |*j| j.* = spawn(u8, Unit, stale, .{}, .{}, false, false).job;
+            for (&stales) |*j| j.* = spawn(u8, Unit, stale, .{}, .{}, false, false, false).job;
             for (stales) |j| {
                 _ = j.join();
                 j.free();

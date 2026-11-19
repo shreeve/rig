@@ -1,0 +1,61 @@
+calibrated
+round 1 done
+round 2 done
+round 3 done
+round 4 done
+round 5 done
+round 6 done
+round 7 done
+round 8 done
+round 9 done
+round 10 done
+round 11 done
+round 12 done
+round 13 done
+round 14 done
+round 15 done
+round 16 done
+round 17 done
+round 18 done
+round 19 done
+round 20 done
+round 21 done
+round 22 done
+round 23 done
+round 24 done
+round 25 done
+round 26 done
+round 27 done
+round 28 done
+round 29 done
+round 30 done
+
+MB/s, fastest of 30 interleaved runs of about 400 ms, pinned to CPU 6
+| file | bytes | rig-safe | rig-z | rig-aa |
+|---|---:|---:|---:|---:|
+| twitter | 631514 | 3708 | 3688 | 3715 |
+| twitterescaped | 562408 | 2975 | 3004 | 2980 |
+| canada | 2251051 | 1465 | 1420 | 1458 |
+| citm_catalog | 1727204 | 4102 | 4124 | 4103 |
+| gsoc-2018 | 3327831 | 6801 | 6652 | 6763 |
+| github_events | 65132 | 4489 | 4615 | 4498 |
+| geomean | | 3557 | 3547 | 3554 |
+
+MB/s, median of 30 interleaved runs of about 400 ms, pinned to CPU 6
+| file | bytes | rig-safe | rig-z | rig-aa |
+|---|---:|---:|---:|---:|
+| twitter | 631514 | 3666 | 3615 | 3644 |
+| twitterescaped | 562408 | 2929 | 2977 | 2934 |
+| canada | 2251051 | 1449 | 1403 | 1444 |
+| citm_catalog | 1727204 | 4053 | 4074 | 4047 |
+| gsoc-2018 | 3327831 | 6714 | 6547 | 6713 |
+| github_events | 65132 | 4415 | 4549 | 4410 |
+| geomean | | 3510 | 3498 | 3504 |
+
+ranges (min-max MB/s):
+twitter rig-safe 3563-3708; rig-z 3450-3688; rig-aa 3539-3715
+twitterescaped rig-safe 2814-2975; rig-z 2880-3004; rig-aa 2816-2980
+canada rig-safe 1419-1465; rig-z 1345-1420; rig-aa 1420-1458
+citm_catalog rig-safe 3837-4102; rig-z 3961-4124; rig-aa 3928-4103
+gsoc-2018 rig-safe 6557-6801; rig-z 6349-6652; rig-aa 6436-6763
+github_events rig-safe 4295-4489; rig-z 4378-4615; rig-aa 4297-4498

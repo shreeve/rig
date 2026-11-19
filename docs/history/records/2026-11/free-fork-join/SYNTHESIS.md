@@ -16,7 +16,8 @@ Three experts on Opus 5.5 wrote to [brief.md](brief.md):
   2.542, paired 0.970 [0.910-1.000]. Warm passes at 10 workers: the ceiling 2.048, Rig 2.121, Rayon
   2.160. On pup, a probe with both effects removed ran the first pass in 3.87 ms against Rayon's
   4.32. The ceiling expert puts Rig beating Rayon on pup's 12-worker board at about 75%, once both
-  land; the pup ceiling job (`ceil/pup-job.sh`) settles it.
+  land. On pup the ceiling itself runs that pass in 3.94 ms against Rayon's 4.61, with its workers
+  started before it (ceiling.md, "The pup board"); Rig at main took 6.09.
 - **Per join:** the ceiling pays 3.7 ns, Rayon 9.9, Rig 67.6 (`nil`, 1 worker, warm). A stack and
   two switches are 20.5 ns of Rig's excess, its sequentially consistent stores 8.2, a heap record
   0.9, the monitor's count 0.8; about 40 ns more is Rig's task path itself. At 1 worker that is 7%

@@ -7799,14 +7799,24 @@ pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn
 }
 
 /// A task's stack and its guard, as `sched.zig` maps a fiber's. A task's
-/// stack is as large as `main`'s, for the same frames. Its guard is at
+/// stack is `main`'s 64 MiB, for the same frames, and `task_stack_extra`
+/// more, address space no task touches until it runs that deep: a task
+/// that has used no more than the extra still has a whole task's stack
+/// left, so an actor's method may run inline there (`tasks.roomInline`).
+/// Its guard is at
 /// least twice the largest frame the program's code may take, which
 /// `bin/rig` measures and writes into the root (`__rig_task_guard`,
 /// `sema.taskGuard`): 16 MiB for most programs, so a million tasks fit
 /// in the address space, and up to `main`'s smaller guard for a program
 /// with frames as large as the compiler accepts. A program built without
 /// it takes that guard.
-pub const task_stack_size = stack_size;
+pub const task_stack_size = stack_size + task_stack_extra;
+pub const task_stack_extra: usize = 1 << 20;
+
+/// The stack every task is promised: `main`'s, 64 MiB. A method run
+/// inline needs this much room left on its caller's stack unless the
+/// compiler proves it needs less (`tasks.roomInline`).
+pub const task_stack_promise = stack_size;
 pub const task_guard: usize = if (@hasDecl(root, "__rig_task_guard")) root.__rig_task_guard else guard_sizes[guard_sizes.len - 1];
 
 /// How far apart dense stacks lie (`sched.takeDense`), guard included, as

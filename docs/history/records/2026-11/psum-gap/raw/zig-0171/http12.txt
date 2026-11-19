@@ -1,0 +1,6 @@
+ of 5: req/s p50 p99
+m13          906767    60 us   201 us
+z71          855513    64 us   209 us
+aa           910521    59 us   207 us
+hyper        360879   176 us   342 us
+

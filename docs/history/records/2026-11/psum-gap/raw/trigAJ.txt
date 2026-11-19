@@ -1,0 +1,38 @@
+hp build rc=0 1021 s
+early build rc=0 1032 s
+mitt old a4b30531fd3a505d34d2135c9d8e6352  -
+mitt hp a4b30531fd3a505d34d2135c9d8e6352  -
+mitt early a4b30531fd3a505d34d2135c9d8e6352  -
+zod3 old 4e2a695e0fbde41902f74d35de69db3b  -
+zod3 hp 4e2a695e0fbde41902f74d35de69db3b  -
+zod3 early 4e2a695e0fbde41902f74d35de69db3b  -
+slot 601 (ab) open until 22:50:39; free 2 MiB blocks: 2740; paused: 
+=== c1
+rc=0
+mitt (40 rounds, seed 1, warm-up discarded, cores 6)
+  hp       against old: wall -0.9%, instructions +0.0%, rss -4.6%: no change beyond the bar
+  early    against old: wall +3.1%, instructions +0.0%, rss -0.0%: no change beyond the bar
+  aa       against old: wall +3.9%, instructions +0.0%, rss +0.1%: (the A/A spread)
+neverthrow (40 rounds, seed 1, warm-up discarded, cores 6)
+  hp       against old: wall -0.1%, instructions +0.0%, rss -5.8%: no change beyond the bar
+  early    against old: wall +0.4%, instructions +0.0%, rss +0.1%: no change beyond the bar
+  aa       against old: wall -0.7%, instructions +0.0%, rss -0.0%: (the A/A spread)
+superstruct (40 rounds, seed 1, warm-up discarded, cores 6)
+  hp       against old: wall +3.8%, instructions +0.0%, rss -3.9%: SLOWER beyond A/A (+3.8%; the A/A spread is 0.2%): goes to the owner, not the bar
+  early    against old: wall +2.3%, instructions +0.0%, rss +0.1%: SLOWER beyond A/A (+2.3%; the A/A spread is 0.2%): goes to the owner, not the bar
+  aa       against old: wall -0.2%, instructions +0.0%, rss +0.0%: (the A/A spread)
+tiny-invariant (40 rounds, seed 1, warm-up discarded, cores 6)
+  hp       against old: wall +0.7%, instructions +0.0%, rss -2.5%: SLOWER beyond A/A (+0.7%; the A/A spread is 0.2%): goes to the owner, not the bar
+  early    against old: wall +1.1%, instructions +0.0%, rss +0.1%: SLOWER beyond A/A (+1.1%; the A/A spread is 0.2%): goes to the owner, not the bar
+  aa       against old: wall +0.2%, instructions +0.0%, rss +0.0%: (the A/A spread)
+zod3 (40 rounds, seed 1, warm-up discarded, cores 6)
+  hp       against old: wall +1.1%, instructions +0.0%, rss -0.9%: SLOWER beyond A/A (+1.1%; the A/A spread is 0.5%): goes to the owner, not the bar
+  early    against old: wall +0.7%, instructions +0.0%, rss +0.0%: SLOWER beyond A/A (+0.7%; the A/A spread is 0.5%): goes to the owner, not the bar
+  aa       against old: wall -0.5%, instructions +0.0%, rss -0.0%: (the A/A spread)
+ts-pattern (40 rounds, seed 1, warm-up discarded, cores 6)
+  hp       against old: wall +2.2%, instructions +0.0%, rss -0.2%: SLOWER beyond A/A (+2.2%; the A/A spread is 0.3%): goes to the owner, not the bar
+  early    against old: wall +3.6%, instructions +0.0%, rss +0.0%: SLOWER beyond A/A (+3.6%; the A/A spread is 0.3%): goes to the owner, not the bar
+  aa       against old: wall +0.3%, instructions +0.0%, rss +0.0%: (the A/A spread)
+slot 601 closed; resumed: 
+QUIET: NOT honoured in slot 601: 70 samples of other work on cores 12-19; first:       1  pid 2468806 cpu 18 102% age 10s /home/shreeve/.local/zig-0.17.1/zig build-exe -Osafe --dep build_options --dep rig_std -Mroot=src/main.zig -Mbuild_optio;      1  pid 2468806 cpu 17 103% age 8s /home/shreeve/.local/zig-0.17.1/zig build-exe -Osafe --dep build_options --dep rig_std -Mroot=src/
+# done 21:53:26

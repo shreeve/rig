@@ -364,7 +364,11 @@ worker after.
   first, as Rayon's `join` pops its own deque, where a waiter that parked
   left its stack held and its worker ran the ring's oldest, a bigger
   subtree. The take counts as a fiber started for the monitor
-  (`watchSlices`), as the park it replaces did. Running the task on the waiter's own stack
+  (`watchSlices`), as the park it replaces did. A thief holds the
+  ring's `stealing` flag from its look at the tail to its claim, and
+  `takeLast` leaves the fiber while it is held; formal/Models/Ring.lean
+  checks that no fiber is then taken twice, and that without the flag
+  one is. Running the task on the waiter's own stack
   would be faster still, but is safe only for a task whose stack use is
   proven to fit, which Rig does not prove.
 - **Idle workers** steal from a random victim, at most half of them
@@ -416,9 +420,11 @@ large stack. A dense stack's pages go back to the system past what the
 workers keep, and its address stays reserved (`sched.trimDense`); a build
 that sanitizes makes a finished one inaccessible for good.
 
-A task's stack is 64 MiB of address space, as `main`'s is, since a
-frame may keep up to 13 MiB of values, committed only as the task
-touches it. Stacks never move, since loans point into them. They are
+A task's stack is 65 MiB of address space, `main`'s 64 MiB, since a
+frame may keep up to 13 MiB of values, and 1 MiB more
+(`rt.task_stack_extra`), committed only as the task touches it. The
+extra lets a task that has used no more than it run an actor's method
+inline with a whole task's stack left (`tasks.roomInline`). Stacks never move, since loans point into them. They are
 carved 16 at a time from one reservation, whose stacks stay untouched,
 holding no page, until a task runs on each, and ask for small pages
 where the system gives huge ones unasked (`enabled=always`), since a

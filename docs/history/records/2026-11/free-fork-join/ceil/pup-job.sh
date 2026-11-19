@@ -41,6 +41,10 @@ build() {
     ls -la "$OUT/bin"
 }
 
+# The arms that run the monitor (mon, mon3, all4, all43) are left out on
+# Linux: there the monitor arm stops at its start with an errno Zig's
+# wrapper treats as unreachable (std/c.zig, `errno`), not yet traced. The
+# Mac's boards measured them.
 timing() {
     local B=$OUT/bin rig1=() rig3=()
     [[ -x $B/rig ]] && rig1=(rig="$B/rig" rig-aa="$B/rig-aa" rig-seq="$B/rig-seq")
@@ -48,9 +52,9 @@ timing() {
     export WORKERS="1 12" PIN="1:6,12:0-11"
     cd "$OUT"
     taskset -c 8 python3 src/board.py 20 board1.json ceil="$B/ceil" aa="$B/ceil-aa" heap="$B/heap" stack="$B/stack" \
-        sc="$B/sc" mon="$B/mon" all4="$B/all4" seq="$B/seq" "${rig1[@]}" rayon="$B/rayon" >board1.log 2>&1
+        sc="$B/sc" seq="$B/seq" "${rig1[@]}" rayon="$B/rayon" >board1.log 2>&1
     taskset -c 8 python3 src/board.py 20 board3.json ceil="$B/ceil3" aa="$B/ceil3-aa" heap="$B/heap3" stack="$B/stack3" \
-        sc="$B/sc3" mon="$B/mon3" all4="$B/all43" "${rig3[@]}" rayon="$B/rayon3" >board3.log 2>&1
+        sc="$B/sc3" "${rig3[@]}" rayon="$B/rayon3" >board3.log 2>&1
     python3 src/stats.py ceil board1.json >board1.txt
     python3 src/stats.py ceil board3.json >board3.txt
     echo "done: $OUT/board1.txt $OUT/board3.txt"
