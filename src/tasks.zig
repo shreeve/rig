@@ -27,7 +27,6 @@ const io = rt.io;
 const oom = rt.oom;
 const task = rt.task;
 
-
 /// `Task(T)`: a call running as a task of its own (`f(x)&`), which gives
 /// a `T` when it ends. It runs as a fiber of the scheduler (`rt.sched`),
 /// on a stack of its own. `wait` takes its result. Dropping a task that can fail cancels it and waits for
@@ -53,135 +52,156 @@ pub fn Task(comptime T: type) type {
         pub const __rig_args = .{T};
         const fallible = @typeInfo(T) == .error_union;
 
-        /// `f(args...)&`: start the call as a task, which keeps the
-        /// deadline of the task starting it.
-        pub fn spawn(comptime f: anytype, args: anytype) Self {
-            return start(false, false, f, args);
-        }
+        /// The ways to start a task: `Starts(false)`'s, aliased here, and
+        /// `frame`'s, for a task the compiler found stays in its maker's
+        /// frame and is waited for there (`task_record`, a fork), which
+        /// the fiber records (`sched.Fiber.fork`).
+        pub const spawn = Starts(false).spawn;
+        pub const spawnDense = Starts(false).spawnDense;
+        pub const spawnLocal = Starts(false).spawnLocal;
+        pub const spawnMethod = Starts(false).spawnMethod;
+        pub const spawnMethodLocal = Starts(false).spawnMethodLocal;
+        pub const spawnMethodValue = Starts(false).spawnMethodValue;
+        pub const spawnMethodValueLocal = Starts(false).spawnMethodValueLocal;
+        pub const spawnWitness = Starts(false).spawnWitness;
+        pub const spawnWitnessLocal = Starts(false).spawnWitnessLocal;
+        pub const spawnObject = Starts(false).spawnObject;
+        pub const spawnObjectLocal = Starts(false).spawnObjectLocal;
+        pub const frame = Starts(true);
 
-        /// `f(args...)&` for a task the compiler found fits a dense stack
-        /// (`sched.takeDense`): no recursion and no call through a pointer.
-        pub fn spawnDense(comptime f: anytype, args: anytype) Self {
-            return start(false, true, f, args);
-        }
+        fn Starts(comptime fork: bool) type {
+            return struct {
+                /// `f(args...)&`: start the call as a task, which keeps the
+                /// deadline of the task starting it.
+                pub fn spawn(comptime f: anytype, args: anytype) Self {
+                    return start(false, false, f, args);
+                }
 
-        /// `f(args...)&` for a local task: one given or lent a value that
-        /// stays on one thread (a `*` handle whose count is not atomic, a
-        /// Cell of more than one word, a Signal, a function). It and the
-        /// task starting it run on this thread from now on.
-        pub fn spawnLocal(comptime f: anytype, args: anytype) Self {
-            return start(true, false, f, args);
-        }
+                /// `f(args...)&` for a task the compiler found fits a dense stack
+                /// (`sched.takeDense`): no recursion and no call through a pointer.
+                pub fn spawnDense(comptime f: anytype, args: anytype) Self {
+                    return start(false, true, f, args);
+                }
 
-        fn start(comptime local: bool, comptime dense: bool, comptime f: anytype, args: anytype) Self {
-            const Args = @TypeOf(args);
-            // A fiber is on a stack of its own already, and the runtime
-            // keeps its state per fiber. `run` gives `T` even where `f` is
-            // generic.
-            const Fiber = struct {
-                fn run(control: *Control, deadline: ?i96, a: Args) T {
+                /// `f(args...)&` for a local task: one given or lent a value that
+                /// stays on one thread (a `*` handle whose count is not atomic, a
+                /// Cell of more than one word, a Signal, a function). It and the
+                /// task starting it run on this thread from now on.
+                pub fn spawnLocal(comptime f: anytype, args: anytype) Self {
+                    return start(true, false, f, args);
+                }
+
+                fn start(comptime local: bool, comptime dense: bool, comptime f: anytype, args: anytype) Self {
+                    const Args = @TypeOf(args);
+                    // A fiber is on a stack of its own already, and the runtime
+                    // keeps its state per fiber. `run` gives `T` even where `f` is
+                    // generic.
+                    const Fiber = struct {
+                        fn run(control: *Control, deadline: ?i96, a: Args) T {
+                            const state = task();
+                            state.control = control;
+                            state.own = control;
+                            state.deadline = deadline;
+                            state.isolate = control.isolate;
+                            defer control.finish();
+                            // A call that may fail with fields writes them into
+                            // the task's record.
+                            if (comptime takesSlot(@TypeOf(f))) return rt.callCode(T, f, a ++ .{rt.failSlot(&control.err)});
+                            return rt.callCode(T, f, a);
+                        }
+                    };
+                    // The task's record holds its `Control`: one allocation for
+                    // both. It keeps the isolate of the task starting it, which
+                    // records it before it can run (`Control.made`).
                     const state = task();
-                    state.control = control;
-                    state.own = control;
-                    state.deadline = deadline;
-                    state.isolate = control.isolate;
-                    defer control.finish();
-                    // A call that may fail with fields writes them into
-                    // the task's record.
-                    if (comptime takesSlot(@TypeOf(f))) return rt.callCode(T, f, a ++ .{rt.failSlot(&control.err)});
-                    return rt.callCode(T, f, a);
+                    const made = rt.sched.spawn(T, Control, Fiber.run, .{ state.deadline, args }, .{ .isolate = state.isolate }, local, dense, fork);
+                    return .{ .job = made.job, .control = made.extra };
+                }
+
+                /// `x.name(args...)&`: start a method's call as a task. `x` is
+                /// the address of the method's self, or of a view of it. A method
+                /// that takes its view by value, as a small value read is, is
+                /// given it here, before the task starts.
+                pub fn spawnMethod(x: anytype, comptime name: []const u8, args: anytype) Self {
+                    return startMethod(false, x, name, args);
+                }
+
+                /// `x.name(args...)&` for a local task (`spawnLocal`).
+                pub fn spawnMethodLocal(x: anytype, comptime name: []const u8, args: anytype) Self {
+                    return startMethod(true, x, name, args);
+                }
+
+                /// `(<x).name(args...)&` of a method that takes its self by
+                /// value (`<@`): `x` is the self, moved or copied into the task's
+                /// arguments.
+                pub fn spawnMethodValue(x: anytype, comptime name: []const u8, args: anytype) Self {
+                    return start(false, false, @field(@TypeOf(x), name), .{x} ++ args);
+                }
+
+                /// `spawnMethodValue` for a local task (`spawnLocal`).
+                pub fn spawnMethodValueLocal(x: anytype, comptime name: []const u8, args: anytype) Self {
+                    return start(true, false, @field(@TypeOf(x), name), .{x} ++ args);
+                }
+
+                /// `x.area()&` through a witness (`W.area`, docs/design/apis.md,
+                /// Stage 3): `x` is the address of its self, or of a view of it,
+                /// as for `spawnMethod`.
+                pub fn spawnWitness(comptime f: anytype, x: anytype, args: anytype) Self {
+                    return start(false, false, f, .{rt.selfArg(f, x)} ++ args);
+                }
+
+                /// `spawnWitness` for a local task (`spawnLocal`).
+                pub fn spawnWitnessLocal(comptime f: anytype, x: anytype, args: anytype) Self {
+                    return start(true, false, f, .{rt.selfArg(f, x)} ++ args);
+                }
+
+                /// `s.area()&` through an API object (docs/design/apis.md, Stage
+                /// 5): the entry `name` of its table, given the address the object
+                /// holds; the object, its two words, goes to the task, which its
+                /// braces' crossing bound allows. An entry of a fallible method
+                /// takes the slot, which the task's record gives it; an entry
+                /// whose result goes out through the caller's place, a place of
+                /// the task's own (`resultOut`).
+                pub fn spawnObject(obj: anytype, comptime name: []const u8, args: anytype) Self {
+                    return startObject(false, obj, name, args);
+                }
+
+                /// `spawnObject` for a local task (`spawnLocal`).
+                pub fn spawnObjectLocal(obj: anytype, comptime name: []const u8, args: anytype) Self {
+                    return startObject(true, obj, name, args);
+                }
+
+                fn startObject(comptime local: bool, obj: anytype, comptime name: []const u8, args: anytype) Self {
+                    const O = @TypeOf(obj);
+                    const A = @TypeOf(args);
+                    const Entry = @TypeOf(@field(obj.vt.*, name));
+                    const Call = if (comptime takesSlot(Entry)) struct {
+                        fn run(o: O, a: A, out: rt.ErrSlot) T {
+                            return @call(.auto, @field(o.vt.*, name), .{o.ptr} ++ a ++ .{out});
+                        }
+                    } else if (comptime resultOut(Entry, T)) struct {
+                        fn run(o: O, a: A) T {
+                            var res = rt.outPlace(T);
+                            return rt.packOut(T, @call(.auto, @field(o.vt.*, name), .{o.ptr} ++ a ++ .{&res}), &res);
+                        }
+                    } else struct {
+                        fn run(o: O, a: A) T {
+                            return @call(.auto, @field(o.vt.*, name), .{o.ptr} ++ a);
+                        }
+                    };
+                    return start(local, false, Call.run, .{ obj, args });
+                }
+
+                fn startMethod(comptime local: bool, x: anytype, comptime name: []const u8, args: anytype) Self {
+                    const P = @TypeOf(x);
+                    const Ptr = if (@typeInfo(@typeInfo(P).pointer.child) == .pointer) @typeInfo(P).pointer.child else P;
+                    const ptr: Ptr = if (Ptr == P) x else x.*;
+                    const method = @field(@typeInfo(Ptr).pointer.child, name);
+                    const SelfParam = @typeInfo(@TypeOf(method)).@"fn".param_types[0].?;
+                    if (@typeInfo(SelfParam) == .pointer) return start(local, false, method, .{ptr} ++ args);
+                    return start(local, false, method, .{ptr.*} ++ args);
                 }
             };
-            // The task's record holds its `Control`: one allocation for
-            // both. It keeps the isolate of the task starting it, which
-            // records it before it can run (`Control.made`).
-            const state = task();
-            const made = rt.sched.spawn(T, Control, Fiber.run, .{ state.deadline, args }, .{ .isolate = state.isolate }, local, dense);
-            return .{ .job = made.job, .control = made.extra };
-        }
-
-        /// `x.name(args...)&`: start a method's call as a task. `x` is
-        /// the address of the method's self, or of a view of it. A method
-        /// that takes its view by value, as a small value read is, is
-        /// given it here, before the task starts.
-        pub fn spawnMethod(x: anytype, comptime name: []const u8, args: anytype) Self {
-            return startMethod(false, x, name, args);
-        }
-
-        /// `x.name(args...)&` for a local task (`spawnLocal`).
-        pub fn spawnMethodLocal(x: anytype, comptime name: []const u8, args: anytype) Self {
-            return startMethod(true, x, name, args);
-        }
-
-        /// `(<x).name(args...)&` of a method that takes its self by
-        /// value (`<@`): `x` is the self, moved or copied into the task's
-        /// arguments.
-        pub fn spawnMethodValue(x: anytype, comptime name: []const u8, args: anytype) Self {
-            return start(false, false, @field(@TypeOf(x), name), .{x} ++ args);
-        }
-
-        /// `spawnMethodValue` for a local task (`spawnLocal`).
-        pub fn spawnMethodValueLocal(x: anytype, comptime name: []const u8, args: anytype) Self {
-            return start(true, false, @field(@TypeOf(x), name), .{x} ++ args);
-        }
-
-        /// `x.area()&` through a witness (`W.area`, docs/design/apis.md,
-        /// Stage 3): `x` is the address of its self, or of a view of it,
-        /// as for `spawnMethod`.
-        pub fn spawnWitness(comptime f: anytype, x: anytype, args: anytype) Self {
-            return start(false, false, f, .{rt.selfArg(f, x)} ++ args);
-        }
-
-        /// `spawnWitness` for a local task (`spawnLocal`).
-        pub fn spawnWitnessLocal(comptime f: anytype, x: anytype, args: anytype) Self {
-            return start(true, false, f, .{rt.selfArg(f, x)} ++ args);
-        }
-
-        /// `s.area()&` through an API object (docs/design/apis.md, Stage
-        /// 5): the entry `name` of its table, given the address the object
-        /// holds; the object, its two words, goes to the task, which its
-        /// braces' crossing bound allows. An entry of a fallible method
-        /// takes the slot, which the task's record gives it; an entry
-        /// whose result goes out through the caller's place, a place of
-        /// the task's own (`resultOut`).
-        pub fn spawnObject(obj: anytype, comptime name: []const u8, args: anytype) Self {
-            return startObject(false, obj, name, args);
-        }
-
-        /// `spawnObject` for a local task (`spawnLocal`).
-        pub fn spawnObjectLocal(obj: anytype, comptime name: []const u8, args: anytype) Self {
-            return startObject(true, obj, name, args);
-        }
-
-        fn startObject(comptime local: bool, obj: anytype, comptime name: []const u8, args: anytype) Self {
-            const O = @TypeOf(obj);
-            const A = @TypeOf(args);
-            const Entry = @TypeOf(@field(obj.vt.*, name));
-            const Call = if (comptime takesSlot(Entry)) struct {
-                fn run(o: O, a: A, out: rt.ErrSlot) T {
-                    return @call(.auto, @field(o.vt.*, name), .{o.ptr} ++ a ++ .{out});
-                }
-            } else if (comptime resultOut(Entry, T)) struct {
-                fn run(o: O, a: A) T {
-                    var res = rt.outPlace(T);
-                    return rt.packOut(T, @call(.auto, @field(o.vt.*, name), .{o.ptr} ++ a ++ .{&res}), &res);
-                }
-            } else struct {
-                fn run(o: O, a: A) T {
-                    return @call(.auto, @field(o.vt.*, name), .{o.ptr} ++ a);
-                }
-            };
-            return start(local, false, Call.run, .{ obj, args });
-        }
-
-        fn startMethod(comptime local: bool, x: anytype, comptime name: []const u8, args: anytype) Self {
-            const P = @TypeOf(x);
-            const Ptr = if (@typeInfo(@typeInfo(P).pointer.child) == .pointer) @typeInfo(P).pointer.child else P;
-            const ptr: Ptr = if (Ptr == P) x else x.*;
-            const method = @field(@typeInfo(Ptr).pointer.child, name);
-            const SelfParam = @typeInfo(@TypeOf(method)).@"fn".param_types[0].?;
-            if (@typeInfo(SelfParam) == .pointer) return start(local, false, method, .{ptr} ++ args);
-            return start(local, false, method, .{ptr.*} ++ args);
         }
 
         /// `>t`: wait for the task to end and take its result. A

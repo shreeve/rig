@@ -2875,3 +2875,68 @@ test "task deep psum on eight workers, many rounds", '''
   for _ in 0..20
     total += psum(whole)
   print(total)
+
+code "task frame record where the task never leaves its binding", "var t = rig.Task(i64).frame.spawn", "var u = rig.Task(i64).frame.spawn", "var v = rig.Task(anyerror!i64).frame.spawn", "var w = rig.Task(i64).frame.spawn"
+  # A task bound to a fresh name and only waited for (`>t`), lent to
+  # read (`?u`), canceled (`<v.cancel()`), or dropped stays in its
+  # maker's frame (`task_record`): a fork.
+  use std.task
+
+  fun f(x: Int) -> Int
+    x + 1
+
+  fun h(x: Int) -> Int!
+    task.check()!
+    x
+
+  fun g(t: ?Task[Int]) -> Int
+    1
+
+  t = f(1)&
+  u = f(2)&
+  print(>t, g(?u))
+  v = h(3)&
+  <v.cancel() catch 0
+  w = f(4)&
+
+code "task frame record not where the task leaves its binding", "var m = rig.Task(i64).spawn", "ts.add(rig.Task(i64).spawn", "var r = rig.Task(i64).spawn", "var q = rig.Task(i64).spawn", "var c = rig.Task(i64).spawn", "var b = rig.Task(i64).spawn", "var k = rig.Task(i64).spawn"
+  # A task moved (`<m`), added to a set, returned, assigned again,
+  # captured by a closure that moves it, or given an argument of more
+  # than 1 KiB by value keeps its record on the heap; so does a task
+  # stored in a field.
+  obj Holder
+    t: Task[Int]
+
+  fun f(x: Int) -> Int
+    x + 1
+
+  fun keep(t: Task[Int]) -> Int
+    >t
+
+  fun big(a: [512]Int) -> Int
+    a[0]
+
+  fun back() -> Task[Int]
+    r = f(9)&
+    r
+
+  m = f(5)&
+  print(keep(<m))
+  ts = Tasks[Int]()
+  !ts.add(f(6)&)
+  xs = >ts
+  arr: [512]Int = [512 of 0]
+  b = big(arr)&
+  print(>b)
+  q = f(7)&
+  q = f(8)&
+  print(>q)
+  bk = back()
+  print(>bk)
+  c = f(10)&
+  run = |<c| 0
+  print(run())
+  k = f(11)&
+  hd = Holder(t: <k)
+  kt = <hd.t
+  print(>kt)

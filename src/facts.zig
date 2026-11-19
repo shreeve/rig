@@ -590,6 +590,12 @@ pub const Facts = struct {
     pub fn isLocalTask(f: Facts, call: Sexp) bool {
         return f.c().isLocalTask(call);
     }
+    /// Whether the task `call` makes stays in its maker's frame and is
+    /// waited for there, a fork (`storage.taskStaysInFrame`,
+    /// `StorageKind.task_record`).
+    pub fn taskInFrame(f: Facts, call: Sexp) bool {
+        return f.storageOf(call, .task_record) != null;
+    }
     pub fn isIsolateCall(f: Facts, call: Sexp) bool {
         return f.c().isIsolateCall(call);
     }
