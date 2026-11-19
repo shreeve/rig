@@ -54,6 +54,7 @@ comptime {
         all_workers,
         grow_lock,
         started,
+        started_ahead,
         starting,
         workers_asked,
         graph,
@@ -3892,6 +3893,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     first.poller.open();
     openDense();
     started.* = false;
+    started_ahead.* = false;
     if (preempt) findCode();
     stopping.store(false, .seq_cst);
     var m: Main = .{ .fiber = .{ .run = Main.start, .done = Main.end }, .arg = arg, .run = run };
@@ -4104,11 +4106,22 @@ const starting = split.cell(&starting_var, "sched.starting");
 /// is deterministic, which starts none. Their threads start beside
 /// `main`, off its path but for one thread's start (`startRest`), and
 /// sleep until its first task: that task then spreads to workers that
-/// run, not to threads still starting while it waits. Never inlined into
-/// the program's own code (`mustNotBeInCode`).
+/// run, not to threads still starting while it waits. Each takes its
+/// heap's first segment as it starts (`workerMain`), so that page's first
+/// fault, 2 MiB zeroed where the system gives huge pages, lands before
+/// the work and not on its way. Never inlined into the program's own
+/// code (`mustNotBeInCode`).
 pub noinline fn startAhead() void {
-    if (!started.* and !deterministic.*) startWorkers();
+    if (started.* or deterministic.*) return;
+    started_ahead.* = true;
+    startWorkers();
 }
+
+/// The workers were started ahead of the program's first task
+/// (`startAhead`): each takes its heap's first segment as it starts.
+/// Written before their threads start, which order it before their reads.
+var started_ahead_var = false;
+const started_ahead = split.cell(&started_ahead_var, "sched.started_ahead");
 
 /// Wait until worker 1 has started the others and the monitor, as
 /// `main` ends, so it stops a monitor that has started and joins threads
@@ -4199,7 +4212,19 @@ fn workerMain(w: *Worker, n: usize) void {
     if (preempt) preOf(w).tid = rt.threadId();
     defer leavePreempt(w);
     if (n > 0) startRest(n);
+    if (started_ahead.*) takeFirstSegment();
     loop(w);
+}
+
+/// A worker started ahead of the work takes its heap's first segment
+/// now, by a record it takes and gives back: the segment's first page is
+/// written here, its fault taken while the worker has nothing to do,
+/// where it would otherwise fall on the first task it runs. A
+/// leak-checked build's records are not the heap's, and take none.
+fn takeFirstSegment() void {
+    if (!own_records) return;
+    const p = rt.fast_alloc.allocRecord(256, .of(u64)) orelse rt.oom();
+    rt.fast_alloc.freeRecord(p[0..256], .of(u64));
 }
 
 /// A worker's life: run what is ready, look for more, sleep when there

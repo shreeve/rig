@@ -856,7 +856,10 @@ arms.
   and never names `task.workers` starts its workers as `main` starts
   (its root declares `__rig_start_early`), where they started at the
   first task; one that names `task.workers` starts them at its first
-  task, as before. They sleep until that task, which then spreads to workers that
+  task, as before. Each worker started ahead takes its heap's first
+  segment as its thread starts, so that page's first fault (2 MiB zeroed
+  on Linux, where the heap asks for huge pages) falls before the work
+  rather than on the worker's first task. They sleep until that task, which then spreads to workers that
   run rather than to threads still starting. A process's first parallel
   pass is faster for it: on the Mac (the fork-join board's psum, one
   pass a process, paired medians over 38 rounds) 5% faster at 10 workers
