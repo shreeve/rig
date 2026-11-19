@@ -1,0 +1,26 @@
+tools/mac-claim: waiting 1 min for the Mac to go quiet (76% of a core in use, under 150% wanted). Busiest:
+  PID 407 at 18.2%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+  PID 1040 at 13.3%: /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Render
+  PID 1023 at 6.9%: /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=gpu-process
+start 01:34:52 1:34  up 2 days, 13 mins, 4 users, load averages: 4.03 4.97 6.46
+round 1
+round 2
+round 3
+round 4
+round 5
+round 6
+round 7
+round 8
+round 9
+round 10
+round 11
+round 12
+round 13
+round 14
+round 15
+round 16
+round 17
+round 18
+round 19
+round 20
+end 01:35:53 1:35  up 2 days, 14 mins, 4 users, load averages: 4.18 4.78 6.28
