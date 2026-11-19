@@ -53,3 +53,14 @@ The A/A arm read 1.035 of Rayon on psum at one worker against `n20`'s
 round to round on this machine; qsort's cells and `nil` hold within 4%.
 Raw samples: [inline/](inline/) (b1, b2, b4, b5, as `board.py` wrote
 them).
+
+## bench/tasks, actors, net (b6, 12 rounds; b3, 7)
+
+bench/tasks against main, paired medians (`rec` beside it): chain 0.46
+(0.259 ms against 0.557; #1171 0.87), the one row a waiter takes its task
+back unstarted every time; spawn 0.90, yield 0.96, produce 1.00, fanout
+1.03 (#1171 1.02), hog level. bench/actors (contend 12.3 ms against
+11.9, solo 5.22 against 5.17, spread 1.04 against 1.11) and bench/net
+(connect 25.8 against 26.0, echo 530 against 526, pingpong 328 against
+346) level within this machine's spread, over 7 rounds against main.
+Peak memory level: tasks 11.5 MiB, actors 4.0, net 7.1-7.2.

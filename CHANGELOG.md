@@ -870,8 +870,9 @@ arms.
   work costs 31 ns at one worker, against 63 (`nil`; Rayon 10); psum at
   one worker 6.9-7.4 ms, against 7.7-8.1 and Rayon's 8.2; qsort at one
   worker 143.9-145.4 ms, level with #1171 and 7-9% faster than Rayon, at
-  the same 502 MiB peak; both level at 10 workers
-  (records/2026-11/free-fork-join/inline.md).
+  the same 502 MiB peak; both level at 10 workers. bench/tasks' chain is
+  54% faster than main's (46% faster than #1171's); its other rows,
+  bench/actors and bench/net level (records/2026-11/free-fork-join/inline.md).
 - **A yield check leaves a worker's own forks to the slice:** in a build
   with yield checks (a program with local tasks, a target with no
   preemption by signal), a check yields to its worker's own queues only
