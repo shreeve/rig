@@ -1467,24 +1467,26 @@ fn stopMonitor() void {
 /// had then and has still, having started none since (so the work waits
 /// no more than about two periods, as a yield check's turns let it),
 /// when a fiber that is not a fork waited at both looks: in some
-/// worker's slots or ring (`Worker.queued_woken`), or pinned to this one. Or
-/// signal one that has run a fiber for a slice while any work waits
-/// (`workWaits`), forks included; or whose timers are due or whose
-/// poller holds events. Forks alone at two looks stop no fiber: if a
-/// worker sleeps the monitor wakes one to take them (`notify`), and if
-/// every worker is busy they wait for the slice. So a fork-join, whose
-/// own forks wait in its queues all the time it runs, runs on unstopped.
-/// The period is the wait (`RIG_PREEMPT_WAIT_US`, 50 µs) while a busy
-/// worker's queues hold work and a fiber that is not a fork waits, or
-/// while they hold forks and a worker sleeps; 1 ms while any worker runs
-/// a fiber; and twice as long each period every worker spends without,
-/// up to 10 ms. It ends as `main` ends (`stopMonitor`).
+/// worker's slots or ring (`Worker.queued_woken`), or pinned to this one;
+/// or when a worker slept or searched at both, forks included, since one
+/// could then run the forks and the stop that moves the maker spreads the
+/// fork-join over the idle workers. Or signal one that has run a fiber
+/// for a slice while any work waits (`workWaits`), forks included; or
+/// whose timers are due or whose poller holds events. So forks alone are
+/// left to the slice only while every worker is busy, when no other could
+/// take them: a fork-join on one worker, or one that keeps every worker
+/// busy, runs on unstopped. The period is the wait
+/// (`RIG_PREEMPT_WAIT_US`, 50 µs) while a busy worker's queues hold work
+/// that the rule above hurries; 1 ms while any worker runs a fiber; and
+/// twice as long each period every worker spends without, up to 10 ms. It ends as `main` ends (`stopMonitor`).
 fn watchSlices(slice: i96, wait: i96) void {
     var seen: [max_workers]u32 = @splat(0);
     var since: [max_workers]i96 = @splat(0);
     var had: [max_workers]bool = @splat(false);
-    // Whether a fiber that is not a fork waited at the last look.
+    // Whether a fiber that is not a fork waited at the last look, and
+    // whether a worker slept or searched then.
     var woken_had = false;
+    var idle_had = false;
     // Signals sent to each worker since it last switched, and when it is
     // signaled next once it has declined `resignal_free` of them.
     var tries: [max_workers]u32 = @splat(0);
@@ -1509,9 +1511,15 @@ fn watchSlices(slice: i96, wait: i96) void {
         for (ws) |*w| queued +%= w.queued_woken.load(.monotonic);
         const woken = @as(i32, @bitCast(queued -% started_n)) > 0;
         defer woken_had = woken;
+        // A worker sleeps or searches: a fork waiting at a busy worker could
+        // run there, so forks count as waiting, as every task does, and
+        // the stop that moves the maker spreads the fork-join over the
+        // idle workers. Only while every worker is busy, when no other
+        // could take them, are forks left to the slice.
+        const idle = sleepers.count.load(.seq_cst) != 0 or searching.load(.seq_cst) != 0;
+        defer idle_had = idle;
         var busy = false;
         var hurry = false;
-        var forks = false;
         for (ws, 0..) |*w, i| {
             const pre = preOf(w);
             const runs = pre.runs.load(.monotonic);
@@ -1520,7 +1528,7 @@ fn watchSlices(slice: i96, wait: i96) void {
             const pinned = w.pinned.count.load(.monotonic) != 0;
             defer had[i] = work;
             if (running and work) {
-                if (woken or pinned) hurry = true else forks = true;
+                if (woken or pinned or idle) hurry = true;
             }
             if (!running or runs != seen[i]) {
                 seen[i] = runs;
@@ -1530,7 +1538,7 @@ fn watchSlices(slice: i96, wait: i96) void {
                 continue;
             }
             busy = true;
-            const waited = work and had[i] and ((woken and woken_had) or pinned);
+            const waited = work and had[i] and ((woken and woken_had) or pinned or (idle and idle_had));
             if (!waited and !serviceDue(w, now) and (now - since[i] < slice or !workWaits(w))) continue;
             // Again until it stops: a signal that finds the fiber outside
             // the program's code does nothing. After `resignal_free` in a
@@ -1545,11 +1553,7 @@ fn watchSlices(slice: i96, wait: i96) void {
             signalThread(pre.tid);
             pre.signaling.unlockApart();
         }
-        // Forks wait at a busy worker while another sleeps: wake one to
-        // take them, as the stop that queued the fiber behind them would.
-        const sleeping = forks and sleepers.count.load(.seq_cst) != 0;
-        if (sleeping) notify();
-        period = if (hurry or sleeping) wait else if (busy) std.time.ns_per_ms else @min(2 * period, 10 * std.time.ns_per_ms);
+        period = if (hurry) wait else if (busy) std.time.ns_per_ms else @min(2 * period, 10 * std.time.ns_per_ms);
     }
 }
 

@@ -688,19 +688,22 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
   queue held work at two looks in a row with no fiber started between
   (one taken back from its ring by a handoff counts, as the run of the
   waiter's park it replaces did) while a fiber that is not a fork
-  waited at both, or whose timer or poller is due, gets SIGURG, and
-  again at each look until it stops. Forks alone stop no fiber at two
-  looks: while one waits at a busy worker and another worker sleeps,
-  the monitor looks every 50 µs and wakes one to take it (`notify`);
-  while every worker is busy, forks wait for the slice. So a fork-join,
-  whose own forks wait in its queues all the time it runs, runs on
-  unstopped, and on one worker the monitor looks once a millisecond
-  rather than every 50 µs (test/cli/preempt_forks.sh). The bounds,
-  behind a fiber that never yields: a fiber that is not a fork waits
-  until the monitor's next look, then 50 µs more (a millisecond and
-  50 µs while a worker runs, up to 10 ms after every worker was idle);
-  a fork waits the same while another worker sleeps, and up to the
-  slice and two looks, about 12 ms, while every worker is busy. A
+  waited at both, or a worker slept or searched at both, or whose timer
+  or poller is due, gets SIGURG, and again at each look until it stops.
+  So forks count as waiting while a worker is idle: one could take
+  them, and the stop that moves the maker to the global queue spreads
+  the fork-join over the idle workers, as at the start of psum's pass
+  on twelve workers, where waking one idle worker a look instead left
+  the pass 37-44% slower on pup. Only while every worker is busy are
+  forks left to the slice: a fork-join on one worker, or one that keeps
+  every worker busy, runs on unstopped, and on one worker the monitor
+  looks once a millisecond rather than every 50 µs
+  (test/cli/preempt_forks.sh). The bounds, behind a fiber that never
+  yields: a fiber that is not a fork waits until the monitor's next
+  look, then 50 µs more (a millisecond and 50 µs while a worker runs,
+  up to 10 ms after every worker was idle); a fork waits the same while
+  a worker is idle, and up to the slice and two looks, about 12 ms,
+  while every worker is busy. A
   maker that spins on a flag its fork sets so goes on after one slice.
   After four in a row that it declined, each signal waits twice as long
   as the one before, up to 1 ms (`resignalAfter`): a worker blocked in a
