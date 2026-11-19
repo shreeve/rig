@@ -404,8 +404,9 @@ worker after.
   extra 1 MiB (`rt.task_stack_extra`). Each adds 16 KiB for the frames
   from the wait to the task's own. No stack, no switch, and no fiber of
   its own: the task's state is swapped into the waiter's fiber, all but
-  its stack guard (`Inline`, in `runHere`'s frame), and the run stays on
-  the waiter's count for the monitor. A wait in the task is the fiber's,
+  its stack guard (`Inline`, in `runHere`'s frame), and the monitor counts
+  the run as it counts a handoff: one taken back from the ring as a fiber
+  started, one from a slot on the waiter's count. A wait in the task is the fiber's,
   which whatever ends it wakes; a deadlock's walk sees the innermost
   wait; a signal may stop the task's code, and the fiber may resume on
   another worker unless pinned, so `runHere` reads its worker again after

@@ -6264,7 +6264,7 @@ pub const Inline = struct {
 /// The task's state is swapped into the waiter's fiber, which stays the
 /// one running (`current`): a wait in the task is the fiber's, which
 /// whatever ends it wakes; a deadlock's walk sees the innermost wait; and
-/// the monitor and the pin see one fiber. A signal may stop the task's
+/// the monitor and the pin see one fiber, counted as a handoff counts it. A signal may stop the task's
 /// code and the fiber resume on another worker, so nothing read of this
 /// worker before the call is used after it. Off in a deterministic run,
 /// where the seed picks every fiber.
@@ -6275,9 +6275,15 @@ fn runHere(h: *Header, cancel: ?*const std.atomic.Value(bool)) bool {
     const w = me() orelse return false;
     const f = w.current orelse return false;
     if (!roomFor(f, &h.fiber)) return false;
-    if (!(takeFromNext(w, &h.fiber) or w.ring.takeLast(&h.fiber))) return false;
-    // Counted started, if it was counted queued, as a handoff counts it.
+    const from_ring = !takeFromNext(w, &h.fiber);
+    if (from_ring and !w.ring.takeLast(&h.fiber)) return false;
+    // Counted started, if it was counted queued, as a handoff counts it;
+    // and one taken back from the ring as a fiber the worker's loop would
+    // have run from there, after the waiter parked, so the monitor does
+    // not stop a fork-join that takes back the work it spilled
+    // (`watchSlices`). One from a slot stays on the waiter's count.
     noteStarted(w, &h.fiber);
+    if (preempt and from_ring) preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
     var in: Inline = .{ .parent = f.inline_top, .header = h, .waiter_cancel = cancel, .task_cancel = h.cancel, .state = f.state, .held = f.held, .home = f.home };
     h.fiber.host.store(f, .seq_cst);
     if (in.parent) |p| p.child = &in;
