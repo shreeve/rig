@@ -1,0 +1,6 @@
+base: file 30532352
+	Section __text: 868168
+	Section __rig_text: 10407212
+a64: file 30614432
+	Section __text: 868168
+	Section __rig_text: 10488044
