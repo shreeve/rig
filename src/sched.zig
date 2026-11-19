@@ -5880,9 +5880,13 @@ pub fn Job(comptime T: type) type {
 /// recorded as the task's waiter, so a task that stops on the way ends
 /// the usual way and wakes it. A cancel that came before the wait began,
 /// when `cancel` is given, leaves the task where it is.
+var layout_pad: u8 = 0;
+
 fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool), comptime from: enum { next, ring }) void {
     const waiter = w.current.?;
     const f = &h.fiber;
+    // Layout control (never run): 96 bytes of nops.
+    if (@as(*volatile u8, &layout_pad).* == 1) asm volatile (".fill 96, 1, 0x90");
     pausePoint();
     const e = if (cancel != null) beginWait(true) else beginPlainWait(waiter);
     if (cancel) |c| if (c.load(.seq_cst)) return;
