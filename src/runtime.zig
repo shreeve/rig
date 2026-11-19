@@ -6465,6 +6465,22 @@ pub const start_early = scheduled and @hasDecl(root, "__rig_start_early") and ro
 pub const preempt = scheduled and sched.preempt_built and @hasDecl(root, "__rig_preempt") and root.__rig_preempt;
 pub const preempt_section = sched.preempt_section;
 
+/// On the Mac, a word of the program's section aligned to 16 KiB, a page
+/// of arm64 macOS: the section takes its largest member's alignment, so
+/// it starts on a page boundary, and where the program's code falls
+/// within a page depends on the program alone. A change to the runtime or
+/// std moves none of it, and an Apple core's cost for a short loop that
+/// crosses a 4 KiB boundary (docs/history/records/2026-11/code-align)
+/// changes only when the program's own code does. Zig's linker keeps a
+/// section's alignment from its members, not from its header. Never run;
+/// a weak symbol, so the units of a split build, which each hold one,
+/// keep one.
+fn programSectionAnchor() align(16384) linksection(preempt_section) callconv(.c) void {}
+
+comptime {
+    if (preempt and builtin.object_format == .macho) @export(&programSectionAnchor, .{ .name = "__rig_program_section_anchor", .linkage = .weak });
+}
+
 /// `f(args...)`, the program's own `main` or a task's function, called
 /// by the runtime: in a program built to be preempted, through a
 /// function in `preempt_section` that is never inlined into its caller,
