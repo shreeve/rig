@@ -1,0 +1,21 @@
+{'psum': ['16760439056'], 'qsort': ['4194304'], 'pass': ['16760437835', '16760439056']}
+bw1 asc scalar pass        n=15     5.16 ms (4.26-11.57) 52.0 GB/s
+bw1 asc vec pass           n=15     4.60 ms (3.77-11.13) 58.4 GB/s
+bw1 leafasc scalar pass    n=15     4.55 ms (3.93-12.43) 59.0 GB/s
+bw1 leafasc vec pass       n=15     4.40 ms (3.60-7.59) 61.0 GB/s
+bw1 leafdesc scalar pass   n=15     5.80 ms (4.91-8.25) 46.3 GB/s
+bw1 leafdesc vec pass      n=15     5.62 ms (4.60-7.42) 47.7 GB/s
+bw10 asc vec pass          n=15     2.61 ms (2.17-4.03) 102.8 GB/s
+bw4 asc vec pass           n=15     3.38 ms (2.79-3.74) 79.5 GB/s
+w1 rayon psum              n=15     4.22 ms (3.83-9.79) 63.6 GB/s
+w1 rayon qsort             n=15   151.89 ms (147.99-168.59)
+w1 rig psum                n=15     6.00 ms (5.14-7.98) 44.7 GB/s
+w1 rig qsort               n=15   171.61 ms (163.26-199.26)
+w1 rig-aa psum             n=15     6.27 ms (5.14-8.17) 42.8 GB/s
+w1 rig-aa qsort            n=15   171.70 ms (166.80-204.78)
+w10 rayon psum             n=15     2.52 ms (2.21-3.24) 106.6 GB/s
+w10 rayon qsort            n=15    57.65 ms (53.98-70.96)
+w10 rig psum               n=15     2.63 ms (2.41-3.78) 102.0 GB/s
+w10 rig qsort              n=15    57.05 ms (46.54-81.32)
+w10 rig-aa psum            n=15     2.61 ms (2.42-4.08) 102.7 GB/s
+w10 rig-aa qsort           n=15    57.21 ms (51.60-73.63)

@@ -101,7 +101,10 @@ A new session, human or agent, takes these steps in order:
   bandwidth. Two leads wait on the owner: a handoff keeping its time
   slice (qsort 12-16% faster at one worker, other work waits longer)
   and stacks touched at worker start (costs memory). Records:
-  `~/Data/Code/Claude/rig/rig/fable-review/fork-join-2.md`.
+  `~/Data/Code/Claude/rig/rig/fable-review/fork-join-2.md`. On pup at
+  12 workers, a heap's first segment keeping small pages for its first
+  2 MiB brings psum within 1-3% of Rayon (from 22-27%), for psum 1.5-1.7%
+  slower at one worker (docs/history/records/2026-11/psum-gap-memory/).
 - **Health:** a change lands on a green core suite (`swarm test/rig.rip`:
   the test files, the doc examples, their pending examples the planned
   Core rules, the examples, the unit tests, the oracle floors in

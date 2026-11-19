@@ -47,7 +47,8 @@
 //! the system most of what every heap has or more than one segment's
 //! worth, faults in at once the memory it is about to fill (`prefault`).
 //! Every new segment, every span segment, and every new large block of
-//! 2 MiB or more mapped on its own asks for huge pages, each while the
+//! 2 MiB or more mapped on its own asks for huge pages, but for the
+//! first 2 MiB of a heap's first segment (`firstHalfSmall`), each while the
 //! system has free 2 MiB blocks for it and a few more (`hugeFreeFor`),
 //! counted on the node of the thread that asks (`freeHugeBlocks`): on
 //! Trig they take 41 to 67% fewer cycles walking page tables, for 2.5
@@ -63,7 +64,7 @@
 //! compacts there; under `always`, where every range gets huge pages
 //! unasked and asking would make its faults compact, nothing asks for
 //! huge pages, and what should keep small pages (a Table's first
-//! 2 MiB, a task's stack) asks for them; under `never` nothing asks, and
+//! 2 MiB, a heap's first segment's, a task's stack) asks for them; under `never` nothing asks, and
 //! /proc/buddyinfo is never read. A reserved Table asks only for a heap
 //! that faults in ahead, waiting for the one that reserved it to come to
 //! (`tableWaits`).
@@ -477,12 +478,11 @@ pub const Heap = struct {
         };
         const s = mapSegment() orelse return null;
         h.took(segment_size);
-        // Every segment asks for huge pages, a heap's first as its
-        // later ones: a TLB entry then covers 2 MiB of its blocks, and a
-        // fault fills 2 MiB, which costs a heap that keeps to one
-        // segment, as a server's worker's, up to 2 MiB it has not
-        // written.
-        const huge = builtin.os.tag == .linux and ask(@intFromPtr(s), segment_size, .huge);
+        // A segment asks for huge pages: a TLB entry then covers 2 MiB
+        // of its blocks, and a fault fills 2 MiB. A heap's first segment,
+        // while the heap has taken nothing else, keeps small pages for
+        // its first 2 MiB and asks for its second (`firstHalfSmall`).
+        const huge = builtin.os.tag == .linux and if (h.taken <= segment_size) firstHalfSmall(@intFromPtr(s)) else ask(@intFromPtr(s), segment_size, .huge);
         // The header's page, of a segment of small pages: with the
         // segment's first window, or alone, each page then faulting in
         // as its class takes it (`faultFresh`).
@@ -492,6 +492,22 @@ pub const Heap = struct {
         h.segment = s;
         h.faultFresh(s, @intFromPtr(s) + page_size, fill);
         return @intFromPtr(s) + page_size;
+    }
+
+    /// A heap's first segment, at `s`: its first 2 MiB keep small pages
+    /// and its second asks for huge ones, and it counts as a segment of
+    /// small pages (`Segment.huge`). A thread's first small block, as a
+    /// worker's first task record, then faults in 4 KiB, not 2 MiB: on
+    /// pup, twelve workers that each zeroed a huge page as they started
+    /// made psum's first parallel pass over 256 MB take 1.25 times as
+    /// long, as they zeroed 24 MiB on its critical paths while it held
+    /// memory's bandwidth (docs/history/records/2026-11/psum-gap-memory/).
+    /// A heap that writes past 2 MiB of small blocks gets huge pages from
+    /// there, and its later segments get them whole.
+    fn firstHalfSmall(s: usize) bool {
+        _ = ask(s, huge_page, .small);
+        _ = ask(s + huge_page, segment_size - huge_page, .huge);
+        return false;
     }
 
     /// Fault in ahead `page` of `s`, never handed out before, whose
@@ -3741,10 +3757,36 @@ test "on Linux a new segment is aligned for huge pages and asks for them while 2
     try std.testing.expectEqual(@as(usize, 0), s % huge_page);
     try std.testing.expect(try advisedHugeForTest(s));
     try std.testing.expect(try advisedHugeForTest(s + segment_size - 1));
-    var small = testHeap();
-    const q = small.newPage(0).?;
-    try std.testing.expect(!faultsAhead(&small));
-    try std.testing.expect(try advisedHugeForTest(q));
+    var later = testHeap();
+    later.taken = segment_size;
+    const r = later.newPage(0).?;
+    try std.testing.expect(!faultsAhead(&later));
+    try std.testing.expect(try advisedHugeForTest(r));
+}
+
+test "on Linux a heap's first segment keeps small pages for its first 2 MiB and asks for huge pages for its second" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    useBuddyinfoForTest(buddyinfo_plenty);
+    defer useBuddyinfoForTest(null);
+    var h = testHeap();
+    const p = h.newPage(0).?;
+    const s = p & ~(segment_size - 1);
+    try std.testing.expect(!segmentOf(@ptrFromInt(p)).huge);
+    try std.testing.expect(!try advisedHugeForTest(s));
+    try std.testing.expect(!try advisedHugeForTest(s + huge_page - 1));
+    try std.testing.expect(try advisedHugeForTest(s + huge_page));
+    try std.testing.expect(try advisedHugeForTest(s + segment_size - 1));
+    // Its first block faults in a small page, not 2 MiB.
+    @as(*u8, @ptrFromInt(p)).* = 1;
+    try std.testing.expect(try residentForTest(@ptrFromInt(s), huge_page) < huge_page);
+    // Its next segment asks for huge pages whole.
+    const used = segmentOf(@ptrFromInt(p));
+    used.used = pages_per_segment;
+    const q = h.newPage(0).?;
+    const t = q & ~(segment_size - 1);
+    try std.testing.expect(t != s);
+    try std.testing.expect(try advisedHugeForTest(t));
+    try std.testing.expect(segmentOf(@ptrFromInt(q)).huge);
 }
 
 test "Lists of large blocks under 16 MiB, taken, grown by doubling, and freed, three times over, make no mmap, munmap, or mremap" {
@@ -4289,11 +4331,15 @@ test "on Linux under `always` nothing asks for huge pages, what should keep smal
     const p = busy.newPage(0).?;
     try std.testing.expect(!try advisedHugeForTest(p));
     try std.testing.expect(!try advisedSmallForTest(p));
+    // A heap's first segment asks for small pages for its first 2 MiB,
+    // and nothing for its second.
     var lone = testHeap();
     const q = lone.newPage(0).?;
     try std.testing.expect(!faultsAhead(&lone));
     try std.testing.expect(!try advisedHugeForTest(q));
-    try std.testing.expect(!try advisedSmallForTest(q));
+    try std.testing.expect(try advisedSmallForTest(q));
+    try std.testing.expect(!try advisedHugeForTest((q & ~(segment_size - 1)) + huge_page));
+    try std.testing.expect(!try advisedSmallForTest((q & ~(segment_size - 1)) + huge_page));
     // A block of 16 MiB asks for nothing, and so does the span segment
     // of one of 8 MiB.
     var h = testHeap();

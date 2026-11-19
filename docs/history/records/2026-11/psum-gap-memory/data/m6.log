@@ -1,0 +1,37 @@
+# lock 18:07:36
+slot 585 (ab) open until 18:37:37; free 2 MiB blocks: 3145; paused: 2183555 2183673
+# blocks=3145 swap_mb=1357 slot=585 paused=2 running=0 late=0
+# shell nproc 22; pid 2187125's current affinity mask: 3fffff
+round 1
+round 2
+round 3
+round 4
+round 5
+round 6
+round 7
+round 8
+round 9
+round 10
+round 11
+round 12
+round 13
+round 14
+round 15
+round 16
+round 17
+round 18
+round 19
+round 20
+round 21
+round 22
+round 23
+round 24
+round 25
+round 26
+round 27
+round 28
+round 29
+round 30
+# cmd rc=0 18:09:31
+slot 585 closed; resumed: 2183555 2183673
+QUIET: honoured (no user process ran on cores 12-19 during slot 585)

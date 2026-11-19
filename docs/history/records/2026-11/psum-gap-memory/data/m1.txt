@@ -1,0 +1,320 @@
+1|bw1 huge asc scalar|10525760:16760439056|
+1|bw1 huge asc vec|11133208:16760439056|
+1|bw1 huge leafasc scalar|10680394:16760439056|
+1|bw1 huge leafasc vec|10758722:16760439056|
+1|bw1 huge leafdesc scalar|13285025:16760439056|
+1|bw1 huge leafdesc vec|11266053:16760439056|
+1|bw1 small asc scalar|12223596:16760439056|
+1|bw1 small asc vec|11272835:16760439056|
+1|bw1 small leafasc scalar|12429603:16760439056|
+1|bw1 small leafasc vec|11286995:16760439056|
+1|bw1 small leafdesc scalar|13912819:16760439056|
+1|bw1 small leafdesc vec|12080076:16760439056|
+1|bw1 plain asc scalar|12188669:16760439056|
+1|bw1 plain asc vec|11244903:16760439056|
+1|bw1 plain leafasc scalar|12367783:16760439056|
+1|bw1 plain leafasc vec|11295679:16760439056|
+1|bw1 plain leafdesc scalar|13871740:16760439056|
+1|bw1 plain leafdesc vec|11706151:16760439056|
+1|bw12 huge asc scalar|3464024:16760434436|
+1|bw12 huge asc vec|3106339:16760434436|
+1|bw12 small asc scalar|3496793:16760434436|
+1|bw12 small asc vec|3816074:16760434436|
+1|w1 rig|psum:13656772:16760439056 qsort:254094350:4194304|page-faults=3197 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=19911 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=63510 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1099976163 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2882969590
+1|w1 rig-aa|psum:13610479:16760439056 qsort:261719072:4194304|page-faults=3502 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=17348 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=62394 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1091432337 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2883538634
+1|w1 rig-nothp|psum:14743081:16760439056 qsort:313218223:4194304|page-faults=124908 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=84967 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=1709168 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1224073561 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2923987669
+1|w1 rayon|psum:11663477:16760439056 qsort:267955055:4194304|page-faults=154656 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=89349 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2228380 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1132904040 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2903986170
+1|w1 rayon-thp|psum:11567269:16760439056 qsort:234451472:4194304|page-faults=42320 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=50266 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=646548 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1021464042 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2903959297
+1|w12 rig|psum:6027750:16760439056 qsort:93511582:4194304|page-faults=7533 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=92689 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=257090 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2128994803 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2890199749
+1|w12 rig-aa|psum:6158971:16760439056 qsort:102692962:4194304|page-faults=15087 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=148858 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=397153 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2056577709 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2894725794
+1|w12 rig-nothp|psum:5690924:16760439056 qsort:123743488:4194304|page-faults=146158 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=271830 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2171009 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1936214895 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2940376472
+1|w12 rayon|psum:5005029:16760439056 qsort:117962837:4194304|page-faults=249305 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=310195 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=3466285 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2068486855 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=3026707269
+1|w12 rayon-thp|psum:5683717:16760439056 qsort:103550081:4194304|page-faults=176238 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=312150 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2232397 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1977658919 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=3002516766
+2|bw1 huge asc vec|10896643:16760439056|
+2|bw1 huge leafasc scalar|10503485:16760439056|
+2|bw1 huge leafasc vec|11203712:16760439056|
+2|bw1 huge leafdesc scalar|12472618:16760439056|
+2|bw1 huge leafdesc vec|10970406:16760439056|
+2|bw1 small asc scalar|12160415:16760439056|
+2|bw1 small asc vec|11086047:16760439056|
+2|bw1 small leafasc scalar|12052442:16760439056|
+2|bw1 small leafasc vec|11127941:16760439056|
+2|bw1 small leafdesc scalar|13906558:16760439056|
+2|bw1 small leafdesc vec|11593952:16760439056|
+2|bw1 plain asc scalar|12226354:16760439056|
+2|bw1 plain asc vec|11115405:16760439056|
+2|bw1 plain leafasc scalar|12159687:16760439056|
+2|bw1 plain leafasc vec|11193395:16760439056|
+2|bw1 plain leafdesc scalar|13857266:16760439056|
+2|bw1 plain leafdesc vec|12633080:16760439056|
+2|bw12 huge asc scalar|3473927:16760434436|
+2|bw12 huge asc vec|3120604:16760434436|
+2|bw12 small asc scalar|3806654:16760434436|
+2|bw12 small asc vec|3768485:16760434436|
+2|w1 rig|psum:23466984:16760439056 qsort:259364853:4194304|page-faults=2285 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=18031 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=52640 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1148353129 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2883250144
+2|w1 rig-aa|psum:15913603:16760439056 qsort:253678959:4194304|page-faults=2597 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=14214 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=45236 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1093497217 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2883655028
+2|w1 rig-nothp|psum:14710347:16760439056 qsort:301956461:4194304|page-faults=116059 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=75832 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=1546780 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1213664898 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2922574302
+2|w1 rayon|psum:11507876:16760439056 qsort:270201494:4194304|page-faults=154623 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=94988 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2240047 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1137273384 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2903986779
+2|w1 rayon-thp|psum:11587355:16760439056 qsort:236283942:4194304|page-faults=41947 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=53740 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=631201 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1034373191 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2903958005
+2|w12 rig|psum:6262860:16760439056 qsort:99081478:4194304|page-faults=6442 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=121788 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=234394 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1914488381 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2890295809
+2|w12 rig-aa|psum:6062146:16760439056 qsort:99250967:4194304|page-faults=4798 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=99239 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=164675 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2030932086 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2891350825
+2|w12 rig-nothp|psum:5564138:16760439056 qsort:136001778:4194304|page-faults=153674 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=276148 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2231441 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2022948586 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2940359049
+2|w12 rayon|psum:4769624:16760439056 qsort:125106807:4194304|page-faults=237758 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=367302 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=3467835 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2070485577 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2989559584
+2|w12 rayon-thp|psum:5978136:16760439056 qsort:96489221:4194304|page-faults=145568 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=254777 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=1863996 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2010823588 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=3043427055
+2|bw1 huge asc scalar|10872857:16760439056|
+3|bw1 huge leafasc scalar|10528537:16760439056|
+3|bw1 huge leafasc vec|10778151:16760439056|
+3|bw1 huge leafdesc scalar|12118325:16760439056|
+3|bw1 huge leafdesc vec|11368719:16760439056|
+3|bw1 small asc scalar|12688755:16760439056|
+3|bw1 small asc vec|11941939:16760439056|
+3|bw1 small leafasc scalar|12209703:16760439056|
+3|bw1 small leafasc vec|11254610:16760439056|
+3|bw1 small leafdesc scalar|13860071:16760439056|
+3|bw1 small leafdesc vec|11635325:16760439056|
+3|bw1 plain asc scalar|12153767:16760439056|
+3|bw1 plain asc vec|11157304:16760439056|
+3|bw1 plain leafasc scalar|12379212:16760439056|
+3|bw1 plain leafasc vec|11187493:16760439056|
+3|bw1 plain leafdesc scalar|15487086:16760439056|
+3|bw1 plain leafdesc vec|11612630:16760439056|
+3|bw12 huge asc scalar|3532322:16760434436|
+3|bw12 huge asc vec|3192090:16760434436|
+3|bw12 small asc scalar|3749167:16760434436|
+3|bw12 small asc vec|3126825:16760434436|
+3|w1 rig|psum:13902923:16760439056 qsort:249984685:4194304|page-faults=2154 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=14113 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=52117 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1090949718 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2884427267
+3|w1 rig-aa|psum:14249815:16760439056 qsort:254013821:4194304|page-faults=1136 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=10612 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=19983 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1080787255 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2882360661
+3|w1 rig-nothp|psum:14810648:16760439056 qsort:307421363:4194304|page-faults=120795 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=89117 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=1677898 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1220161751 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2924018033
+3|w1 rayon|psum:11771270:16760439056 qsort:275825209:4194304|page-faults=154625 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=101085 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2267772 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1169688733 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2903986870
+3|w1 rayon-thp|psum:11813487:16760439056 qsort:236076507:4194304|page-faults=41704 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=53340 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=619988 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1022933524 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2903957177
+3|w12 rig|psum:6585435:16760439056 qsort:93648986:4194304|page-faults=12282 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=123397 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=369577 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2036743229 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2897107552
+3|w12 rig-aa|psum:6414214:16760439056 qsort:96968751:4194304|page-faults=11943 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=134927 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=387980 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2014853928 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2893306601
+3|w12 rig-nothp|psum:5084134:16760439056 qsort:133837171:4194304|page-faults=150008 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=277266 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2250588 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1927981334 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2937311824
+3|w12 rayon|psum:4575424:16760439056 qsort:123214065:4194304|page-faults=243138 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=275554 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=3396791 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2078489990 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=3001181767
+3|w12 rayon-thp|psum:5119377:16760439056 qsort:99158986:4194304|page-faults=165226 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=248374 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2206299 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1965812394 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=3012466483
+3|bw1 huge asc scalar|10497132:16760439056|
+3|bw1 huge asc vec|10817946:16760439056|
+4|bw1 huge leafasc vec|10912960:16760439056|
+4|bw1 huge leafdesc scalar|12489889:16760439056|
+4|bw1 huge leafdesc vec|11475563:16760439056|
+4|bw1 small asc scalar|12547020:16760439056|
+4|bw1 small asc vec|12355851:16760439056|
+4|bw1 small leafasc scalar|12368151:16760439056|
+4|bw1 small leafasc vec|11237932:16760439056|
+4|bw1 small leafdesc scalar|13803155:16760439056|
+4|bw1 small leafdesc vec|11755586:16760439056|
+4|bw1 plain asc scalar|12893390:16760439056|
+4|bw1 plain asc vec|11185811:16760439056|
+4|bw1 plain leafasc scalar|12338507:16760439056|
+4|bw1 plain leafasc vec|11232163:16760439056|
+4|bw1 plain leafdesc scalar|13768780:16760439056|
+4|bw1 plain leafdesc vec|11770629:16760439056|
+4|bw12 huge asc scalar|3617985:16760434436|
+4|bw12 huge asc vec|3615509:16760434436|
+4|bw12 small asc scalar|3614797:16760434436|
+4|bw12 small asc vec|3124990:16760434436|
+4|w1 rig|psum:14212022:16760439056 qsort:253679690:4194304|page-faults=954 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=8970 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=16859 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1084631696 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2883088245
+4|w1 rig-aa|psum:14312908:16760439056 qsort:248402573:4194304|page-faults=1094 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=11020 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=24587 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1090945390 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2880696515
+4|w1 rig-nothp|psum:14828639:16760439056 qsort:337709301:4194304|page-faults=131921 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=99079 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=1762471 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1208897821 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2921876983
+4|w1 rayon|psum:12088091:16760439056 qsort:267559662:4194304|page-faults=154624 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=101493 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2241703 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1128521862 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2903987739
+4|w1 rayon-thp|psum:11208790:16760439056 qsort:238746017:4194304|page-faults=41680 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=55836 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=640299 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1021596994 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2903958019
+4|w12 rig|psum:7257070:16760439056 qsort:98401296:4194304|page-faults=2558 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=84744 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=83255 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2005582796 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2891624563
+4|w12 rig-aa|psum:5915322:16760439056 qsort:105271189:4194304|page-faults=14487 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=159926 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=412763 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2027932402 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2893719745
+4|w12 rig-nothp|psum:5020260:16760439056 qsort:132941314:4194304|page-faults=138750 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=256308 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2137128 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1906547891 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2936933223
+4|w12 rayon|psum:5161796:16760439056 qsort:114869970:4194304|page-faults=237803 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=270492 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=3408616 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2070748233 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2997833896
+4|w12 rayon-thp|psum:6184970:16760439056 qsort:96661480:4194304|page-faults=149359 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=243722 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=1939435 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1935474711 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2995894931
+4|bw1 huge asc scalar|10565881:16760439056|
+4|bw1 huge asc vec|11068352:16760439056|
+4|bw1 huge leafasc scalar|10909477:16760439056|
+5|bw1 huge leafdesc scalar|12438663:16760439056|
+5|bw1 huge leafdesc vec|11302583:16760439056|
+5|bw1 small asc scalar|12804267:16760439056|
+5|bw1 small asc vec|11482042:16760439056|
+5|bw1 small leafasc scalar|12363415:16760439056|
+5|bw1 small leafasc vec|11302074:16760439056|
+5|bw1 small leafdesc scalar|13973997:16760439056|
+5|bw1 small leafdesc vec|11836956:16760439056|
+5|bw1 plain asc scalar|12437300:16760439056|
+5|bw1 plain asc vec|11574559:16760439056|
+5|bw1 plain leafasc scalar|12313796:16760439056|
+5|bw1 plain leafasc vec|11249441:16760439056|
+5|bw1 plain leafdesc scalar|15629123:16760439056|
+5|bw1 plain leafdesc vec|11734320:16760439056|
+5|bw12 huge asc scalar|3454809:16760434436|
+5|bw12 huge asc vec|3871548:16760434436|
+5|bw12 small asc scalar|3552909:16760434436|
+5|bw12 small asc vec|3755467:16760434436|
+5|w1 rig|psum:14355683:16760439056 qsort:244175886:4194304|page-faults=2536 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=22971 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=78750 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1086921325 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2879422904
+5|w1 rig-aa|psum:14389495:16760439056 qsort:252911030:4194304|page-faults=996 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=10019 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=20583 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1105410500 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2883732438
+5|w1 rig-nothp|psum:14800562:16760439056 qsort:337391415:4194304|page-faults=130070 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=91582 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=1722710 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1220893578 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2923235077
+5|w1 rayon|psum:12413789:16760439056 qsort:268064786:4194304|page-faults=154624 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=98839 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2248874 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1129819421 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2903986913
+5|w1 rayon-thp|psum:11751933:16760439056 qsort:239632031:4194304|page-faults=42565 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=55358 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=651245 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1030485339 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2903959764
+5|w12 rig|psum:6405314:16760439056 qsort:92782371:4194304|page-faults=19379 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=129749 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=469154 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2100292947 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2897040133
+5|w12 rig-aa|psum:6861347:16760439056 qsort:102057250:4194304|page-faults=14695 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=146886 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=405601 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2015097132 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2896724220
+5|w12 rig-nothp|psum:5582813:16760439056 qsort:132689983:4194304|page-faults=153934 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=269034 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2402114 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1931261222 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2943306556
+5|w12 rayon|psum:4598354:16760439056 qsort:126846720:4194304|page-faults=242208 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=278499 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=3555433 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2095215025 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=3004540116
+5|w12 rayon-thp|psum:5960037:16760439056 qsort:95422948:4194304|page-faults=111414 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=211661 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=1780663 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1978890140 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2998330062
+5|bw1 huge asc scalar|10563899:16760439056|
+5|bw1 huge asc vec|10787602:16760439056|
+5|bw1 huge leafasc scalar|11048367:16760439056|
+5|bw1 huge leafasc vec|11167458:16760439056|
+6|bw1 huge leafdesc vec|11354951:16760439056|
+6|bw1 small asc scalar|12471475:16760439056|
+6|bw1 small asc vec|11247270:16760439056|
+6|bw1 small leafasc scalar|12400410:16760439056|
+6|bw1 small leafasc vec|11335838:16760439056|
+6|bw1 small leafdesc scalar|14336158:16760439056|
+6|bw1 small leafdesc vec|11736990:16760439056|
+6|bw1 plain asc scalar|12434648:16760439056|
+6|bw1 plain asc vec|11255772:16760439056|
+6|bw1 plain leafasc scalar|12741382:16760439056|
+6|bw1 plain leafasc vec|11267107:16760439056|
+6|bw1 plain leafdesc scalar|13921852:16760439056|
+6|bw1 plain leafdesc vec|11892551:16760439056|
+6|bw12 huge asc scalar|3487544:16760434436|
+6|bw12 huge asc vec|3158024:16760434436|
+6|bw12 small asc scalar|3992809:16760434436|
+6|bw12 small asc vec|3405795:16760434436|
+6|w1 rig|psum:13913590:16760439056 qsort:267453734:4194304|page-faults=3932 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=16924 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=67114 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1096819852 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2883443478
+6|w1 rig-aa|psum:14192129:16760439056 qsort:250681144:4194304|page-faults=927 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=8308 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=16711 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1092990159 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2881825999
+6|w1 rig-nothp|psum:15056773:16760439056 qsort:323364207:4194304|page-faults=120692 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=87067 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=1571008 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1221330473 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2920307310
+6|w1 rayon|psum:12061598:16760439056 qsort:268160869:4194304|page-faults=154623 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=98491 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2244256 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1128159048 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2903986713
+6|w1 rayon-thp|psum:11734465:16760439056 qsort:238758828:4194304|page-faults=41895 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=53934 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=644289 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1032220507 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2903957764
+6|w12 rig|psum:6353586:16760439056 qsort:103862291:4194304|page-faults=15434 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=143900 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=415505 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2079617859 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2896028541
+6|w12 rig-aa|psum:5821006:16760439056 qsort:86725740:4194304|page-faults=1484 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=54992 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=47113 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1991476800 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2886952003
+6|w12 rig-nothp|psum:5630187:16760439056 qsort:132079693:4194304|page-faults=155394 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=275530 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2378680 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1926072338 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2944061058
+6|w12 rayon|psum:5047775:16760439056 qsort:125407134:4194304|page-faults=245908 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=287694 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=3620673 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2104322504 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=3016297215
+6|w12 rayon-thp|psum:6221391:16760439056 qsort:95630852:4194304|page-faults=136110 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=222980 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=1891549 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1998238732 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=3015230409
+6|bw1 huge asc scalar|10732963:16760439056|
+6|bw1 huge asc vec|10841532:16760439056|
+6|bw1 huge leafasc scalar|11684342:16760439056|
+6|bw1 huge leafasc vec|11033509:16760439056|
+6|bw1 huge leafdesc scalar|12564013:16760439056|
+7|bw1 small asc scalar|12407969:16760439056|
+7|bw1 small asc vec|11252905:16760439056|
+7|bw1 small leafasc scalar|12419378:16760439056|
+7|bw1 small leafasc vec|11313722:16760439056|
+7|bw1 small leafdesc scalar|14201388:16760439056|
+7|bw1 small leafdesc vec|11716145:16760439056|
+7|bw1 plain asc scalar|12362897:16760439056|
+7|bw1 plain asc vec|11299921:16760439056|
+7|bw1 plain leafasc scalar|12406778:16760439056|
+7|bw1 plain leafasc vec|11355104:16760439056|
+7|bw1 plain leafdesc scalar|14048544:16760439056|
+7|bw1 plain leafdesc vec|11759430:16760439056|
+7|bw12 huge asc scalar|3513513:16760434436|
+7|bw12 huge asc vec|3127733:16760434436|
+7|bw12 small asc scalar|3507965:16760434436|
+7|bw12 small asc vec|3567559:16760434436|
+7|w1 rig|psum:13982175:16760439056 qsort:258028655:4194304|page-faults=2542 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=15070 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=49521 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1096722160 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2880914454
+7|w1 rig-aa|psum:13866660:16760439056 qsort:255071865:4194304|page-faults=1050 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=9506 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=18123 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1093175083 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2881411227
+7|w1 rig-nothp|psum:14926752:16760439056 qsort:316720929:4194304|page-faults=124143 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=83628 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=1685253 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1218500507 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2923249586
+7|w1 rayon|psum:11781183:16760439056 qsort:267439846:4194304|page-faults=154624 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=106344 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2247399 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1127161569 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2903986711
+7|w1 rayon-thp|psum:11309638:16760439056 qsort:238513101:4194304|page-faults=41827 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=52332 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=642938 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1032798507 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2903958669
+7|w12 rig|psum:6277668:16760439056 qsort:94439528:4194304|page-faults=4921 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=90512 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=189844 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2024969279 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2893704719
+7|w12 rig-aa|psum:6282768:16760439056 qsort:97077678:4194304|page-faults=6449 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=98908 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=257425 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2086896838 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2894149410
+7|w12 rig-nothp|psum:5760197:16760439056 qsort:135462280:4194304|page-faults=146674 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=257516 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2213913 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1931287458 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2943553615
+7|w12 rayon|psum:5178329:16760439056 qsort:114591738:4194304|page-faults=238995 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=285805 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=3337182 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2072419141 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=3007869118
+7|w12 rayon-thp|psum:5714823:16760439056 qsort:90246883:4194304|page-faults=121988 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=200312 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=1657414 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1929622752 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2988180486
+7|bw1 huge asc scalar|10307291:16760439056|
+7|bw1 huge asc vec|10955383:16760439056|
+7|bw1 huge leafasc scalar|10315969:16760439056|
+7|bw1 huge leafasc vec|11223839:16760439056|
+7|bw1 huge leafdesc scalar|12459732:16760439056|
+7|bw1 huge leafdesc vec|11118280:16760439056|
+8|bw1 small asc vec|11377849:16760439056|
+8|bw1 small leafasc scalar|12541630:16760439056|
+8|bw1 small leafasc vec|11267239:16760439056|
+8|bw1 small leafdesc scalar|13950007:16760439056|
+8|bw1 small leafdesc vec|11717917:16760439056|
+8|bw1 plain asc scalar|13255849:16760439056|
+8|bw1 plain asc vec|11244989:16760439056|
+8|bw1 plain leafasc scalar|12347457:16760439056|
+8|bw1 plain leafasc vec|11251991:16760439056|
+8|bw1 plain leafdesc scalar|13914348:16760439056|
+8|bw1 plain leafdesc vec|11728766:16760439056|
+8|bw12 huge asc scalar|3440760:16760434436|
+8|bw12 huge asc vec|3104571:16760434436|
+8|bw12 small asc scalar|3533139:16760434436|
+8|bw12 small asc vec|3159054:16760434436|
+8|w1 rig|psum:14031331:16760439056 qsort:258866041:4194304|page-faults=4126 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=22940 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=92991 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1098568551 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2884249060
+8|w1 rig-aa|psum:14525619:16760439056 qsort:252739651:4194304|page-faults=1746 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=13687 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=56209 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1084852827 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2880965187
+8|w1 rig-nothp|psum:14934845:16760439056 qsort:320818186:4194304|page-faults=124040 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=84202 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=1693069 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1232021697 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2925937427
+8|w1 rayon|psum:12242995:16760439056 qsort:277227451:4194304|page-faults=154623 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=101619 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2259428 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1147349419 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2903986619
+8|w1 rayon-thp|psum:11311277:16760439056 qsort:238887594:4194304|page-faults=41537 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=52605 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=633362 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1026735013 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2903958220
+8|w12 rig|psum:6103065:16760439056 qsort:89962929:4194304|page-faults=16035 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=148327 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=509102 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2023433490 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2896484052
+8|w12 rig-aa|psum:6816467:16760439056 qsort:92799163:4194304|page-faults=8607 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=102247 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=320141 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2147321257 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2896026955
+8|w12 rig-nothp|psum:5536513:16760439056 qsort:128565445:4194304|page-faults=140180 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=249636 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2097640 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2012096845 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2940197684
+8|w12 rayon|psum:4730295:16760439056 qsort:128462914:4194304|page-faults=256784 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=291079 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=3744412 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2100380515 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=3017455517
+8|w12 rayon-thp|psum:5439546:16760439056 qsort:106660663:4194304|page-faults=215603 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=385459 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2630550 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1954835143 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2990696805
+8|bw1 huge asc scalar|10686427:16760439056|
+8|bw1 huge asc vec|10887223:16760439056|
+8|bw1 huge leafasc scalar|10870518:16760439056|
+8|bw1 huge leafasc vec|11361809:16760439056|
+8|bw1 huge leafdesc scalar|12214906:16760439056|
+8|bw1 huge leafdesc vec|11167104:16760439056|
+8|bw1 small asc scalar|13265073:16760439056|
+9|bw1 small leafasc scalar|12553336:16760439056|
+9|bw1 small leafasc vec|11326876:16760439056|
+9|bw1 small leafdesc scalar|13978158:16760439056|
+9|bw1 small leafdesc vec|11726667:16760439056|
+9|bw1 plain asc scalar|12451802:16760439056|
+9|bw1 plain asc vec|11277624:16760439056|
+9|bw1 plain leafasc scalar|13950203:16760439056|
+9|bw1 plain leafasc vec|11403225:16760439056|
+9|bw1 plain leafdesc scalar|14756104:16760439056|
+9|bw1 plain leafdesc vec|11753234:16760439056|
+9|bw12 huge asc scalar|4070833:16760434436|
+9|bw12 huge asc vec|3130207:16760434436|
+9|bw12 small asc scalar|3526064:16760434436|
+9|bw12 small asc vec|3197242:16760434436|
+9|w1 rig|psum:14336607:16760439056 qsort:253441823:4194304|page-faults=2911 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=12809 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=48582 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1092559544 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2884429160
+9|w1 rig-aa|psum:14185964:16760439056 qsort:250715954:4194304|page-faults=1001 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=9849 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=18491 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1088837354 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2883344989
+9|w1 rig-nothp|psum:17119998:16760439056 qsort:315743060:4194304|page-faults=120522 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=94161 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=1679967 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1224344100 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2923505225
+9|w1 rayon|psum:11869426:16760439056 qsort:269303176:4194304|page-faults=154626 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=101651 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2250257 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1134994720 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2903986418
+9|w1 rayon-thp|psum:11839993:16760439056 qsort:237348362:4194304|page-faults=41933 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=52792 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=644152 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1031666451 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2903958908
+9|w12 rig|psum:7111318:16760439056 qsort:98450002:4194304|page-faults=22396 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=144286 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=559201 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2079458110 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2896587230
+9|w12 rig-aa|psum:6338828:16760439056 qsort:86671703:4194304|page-faults=20392 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=144853 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=584549 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2024699793 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2896960706
+9|w12 rig-nothp|psum:5477198:16760439056 qsort:136569035:4194304|page-faults=145103 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=294826 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2127548 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1913747870 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2935709017
+9|w12 rayon|psum:4697131:16760439056 qsort:122030160:4194304|page-faults=235767 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=282241 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=3508544 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2068870175 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=3006199965
+9|w12 rayon-thp|psum:5185343:16760439056 qsort:100774725:4194304|page-faults=171803 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=256871 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2243577 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1930389441 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2973466389
+9|bw1 huge asc scalar|10615900:16760439056|
+9|bw1 huge asc vec|10875121:16760439056|
+9|bw1 huge leafasc scalar|10746399:16760439056|
+9|bw1 huge leafasc vec|11160120:16760439056|
+9|bw1 huge leafdesc scalar|12589421:16760439056|
+9|bw1 huge leafdesc vec|11050688:16760439056|
+9|bw1 small asc scalar|12289504:16760439056|
+9|bw1 small asc vec|11201204:16760439056|
+10|bw1 small leafasc vec|11309551:16760439056|
+10|bw1 small leafdesc scalar|14011312:16760439056|
+10|bw1 small leafdesc vec|11655289:16760439056|
+10|bw1 plain asc scalar|12301660:16760439056|
+10|bw1 plain asc vec|11156274:16760439056|
+10|bw1 plain leafasc scalar|12210070:16760439056|
+10|bw1 plain leafasc vec|11252099:16760439056|
+10|bw1 plain leafdesc scalar|13898070:16760439056|
+10|bw1 plain leafdesc vec|11694605:16760439056|
+10|bw12 huge asc scalar|3504540:16760434436|
+10|bw12 huge asc vec|3180999:16760434436|
+10|bw12 small asc scalar|3538964:16760434436|
+10|bw12 small asc vec|3107676:16760434436|
+10|w1 rig|psum:14535186:16760439056 qsort:265196281:4194304|page-faults=1304 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=11923 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=27669 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1109372274 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2882612385
+10|w1 rig-aa|psum:14189461:16760439056 qsort:254642568:4194304|page-faults=2142 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=14733 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=51026 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1105367516 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2883837882
+10|w1 rig-nothp|psum:14922094:16760439056 qsort:309696546:4194304|page-faults=117385 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=89422 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=1542889 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1233729221 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2924325981
+10|w1 rayon|psum:11757719:16760439056 qsort:268748420:4194304|page-faults=154624 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=92507 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2234502 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1136268837 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2903985730
+10|w1 rayon-thp|psum:11551206:16760439056 qsort:251893770:4194304|page-faults=41704 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=52559 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=650573 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1069854334 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2903958575
+10|w12 rig|psum:6252798:16760439056 qsort:96393491:4194304|page-faults=23507 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=161305 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=565674 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2028005095 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2896650415
+10|w12 rig-aa|psum:6606938:16760439056 qsort:99802132:4194304|page-faults=15365 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=137322 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=399562 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2028542271 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2895927581
+10|w12 rig-nothp|psum:6853239:16760439056 qsort:132158293:4194304|page-faults=155751 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=286082 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2366285 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1919915789 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2938360310
+10|w12 rayon|psum:4658697:16760439056 qsort:112981435:4194304|page-faults=235244 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=269328 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=3204648 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=2094959512 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=3003539449
+10|w12 rayon-thp|psum:6154321:16760439056 qsort:102418752:4194304|page-faults=178840 cpu_atom/dTLB-load-misses/=<not counted> cpu_core/dTLB-load-misses/=266904 cpu_atom/dTLB-store-misses/=<not counted> cpu_core/dTLB-store-misses/=2363443 cpu_atom/cycles/u=<not counted> cpu_core/cycles/u=1935624779 cpu_atom/instructions/u=<not counted> cpu_core/instructions/u=2997507434
+10|bw1 huge asc scalar|9948873:16760439056|
+10|bw1 huge asc vec|11281689:16760439056|
+10|bw1 huge leafasc scalar|11256742:16760439056|
+10|bw1 huge leafasc vec|11249079:16760439056|
+10|bw1 huge leafdesc scalar|12968382:16760439056|
+10|bw1 huge leafdesc vec|11774089:16760439056|
+10|bw1 small asc scalar|12480241:16760439056|
+10|bw1 small asc vec|11228162:16760439056|
+10|bw1 small leafasc scalar|12370671:16760439056|
