@@ -844,6 +844,15 @@ arms.
 
 ### Runtime
 
+- **A task's record is written once:** a task made on the heap is
+  filled where it lies, as before the fork's record moved into its
+  maker's frame, where it was built by a call and copied in, through
+  the stack: a spawn took 5% more instructions and 15% more L1 data
+  misses on pup, bench/tasks' spawn 7-16% slower. 30 runs of its waves
+  take 3.41 G instructions on the Mac, against 3.49 before the fix and
+  3.38 before the fork's record. Only a fork runs on its waiter's stack
+  (`sched.runHere`), as the design has it: a task held in a set,
+  returned or stored is waited for as a fiber of its own.
 - **A fork its waiter reaches unstarted runs on the waiter's stack:** a
   task not yet started that is next on its waiter's worker, at a `>t` or
   the drop that waits for it, runs on the waiter's own stack and fiber

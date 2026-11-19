@@ -6287,6 +6287,9 @@ pub const Inline = struct {
 /// worker before the call is used after it. Off in a deterministic run,
 /// where the seed picks every fiber.
 fn runHere(h: *Header, cancel: ?*const std.atomic.Value(bool)) bool {
+    // Only a fork, waited for by its maker (`task_record`): a task held in
+    // a set, returned or stored is waited for as a fiber of its own.
+    if (!h.fiber.fork) return false;
     if (deterministic.*) return false;
     if (builtin.is_test and test_no_inline) return false;
     if (cancel) |c| if (c.load(.monotonic)) return false;
@@ -6446,7 +6449,11 @@ fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: an
     const Full = Record(T, Extra, f, @TypeOf(args));
     if (!started.*) startWorkers();
     const full = createRecord(Full);
-    full.* = Full.filled(args, extra, dense_stack, fork, false);
+    // Written where it lies, field by field: a record built by a call
+    // (`filled`) and then copied in was written twice, through the
+    // stack (on pup's x86 a spawn took 5% more instructions and 15% more
+    // L1 data misses).
+    full.* = .{ .job = .{ .header = .{ .fiber = .{ .run = Full.start, .done = Header.end, .dense = dense_stack, .fork = fork }, .destroy = if (preempt) Full.destroyApart else Full.destroy } }, .extra = extra, .args = args };
     return startIn(Full, full, local, fork);
 }
 
