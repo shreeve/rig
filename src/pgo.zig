@@ -155,9 +155,13 @@ pub fn build(allocator: std.mem.Allocator, io: std.Io, tools: Tools, b: Build, w
     defer cwd.deleteTree(io, work) catch {};
     const bitcode = try std.fs.path.join(allocator, &.{ work, "program.bc" });
     // Zig's native processor, the target's position flags, clang's -O3
-    // with merged functions, as Zig's own pipeline has.
+    // with merged functions, as Zig's own pipeline has, and with its loop
+    // vectorizer off, as Zig 0.17 builds every program
+    // (docs/internals/INTERNALS.md, "Known Zig 0.17 issues": an LLVM bug
+    // miscompiled the Zig compiler itself), so a program built by profile
+    // runs only code Zig's pipeline would make.
     const cpu: []const u8 = if (b.apart != null) "-mcpu=native+reserve_x15" else "-mcpu=native";
-    const cc: []const []const u8 = try std.mem.concat(allocator, []const u8, &.{ &.{ b.zig, "cc", "-target", target, cpu, "-c", "-O3" }, position, &.{ "-Xclang", "-fmerge-functions", "-Wno-override-module" } });
+    const cc: []const []const u8 = try std.mem.concat(allocator, []const u8, &.{ &.{ b.zig, "cc", "-target", target, cpu, "-c", "-O3", "-fno-vectorize" }, position, &.{ "-Xclang", "-fmerge-functions", "-Wno-override-module" } });
 
     try writeBitcode(allocator, io, try std.mem.concat(allocator, []const u8, &.{ &.{ b.zig, "build-exe" }, b.flags, &.{ "--cache-dir", b.cache, b.root, try allocPrint(allocator, "-femit-llvm-bc={s}", .{bitcode}), "-fno-emit-bin", "-fopt-bisect-limit=0" } }), try std.fs.path.join(allocator, &.{ work, "bitcode.log" }));
     const merged = profile orelse try std.fs.path.join(allocator, &.{ work, "program.profdata" });

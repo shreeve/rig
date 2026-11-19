@@ -458,6 +458,12 @@ serve no HTTP.
 
 ### Compiler
 
+- **`--pgo` compiles with LLVM's loop vectorizer off**, as Zig 0.17
+  builds every program: its `zig cc -O3` step turned the vectorizer
+  back on, which Zig 0.17 keeps off because an LLVM bug miscompiled the
+  Zig compiler itself, so a program built by profile ran code no other
+  Rig build makes. Found by the code-alignment round
+  (docs/history/records/2026-11/code-align).
 **A loop that folds integers runs by vectors.** A `for` over a List or a
 slice of integers whose body is only `s += x`, `s +%= x`, `s ^= x`,
 `s |= x`, or `s &= x`, `s` a local of the element's type, is lowered to
