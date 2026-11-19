@@ -4083,8 +4083,9 @@ const starting = split.cell(&starting_var, "sched.starting");
 /// is deterministic, which starts none. Their threads start beside
 /// `main`, off its path but for one thread's start (`startRest`), and
 /// sleep until its first task: that task then spreads to workers that
-/// run, not to threads still starting while it waits.
-pub fn startAhead() void {
+/// run, not to threads still starting while it waits. Never inlined into
+/// the program's own code (`mustNotBeInCode`).
+pub noinline fn startAhead() void {
     if (!started.* and !deterministic.*) startWorkers();
 }
 
