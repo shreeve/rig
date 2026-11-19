@@ -870,16 +870,27 @@ arms.
   none started between. Every other task, one added to a `Tasks` set,
   returned, stored, or moved, and std's connections, and every fiber
   woken, yielded, or stopped, keeps that bound. Forks still count for
-  the 10 ms slice, and while one
-  waits at a busy worker and another sleeps, the monitor wakes one to
-  take it. A fork-join's own forks wait in its queues all the time it
-  runs, so on one worker it was stopped every 100 µs and the monitor
-  woke every 50 µs; now it runs unstopped and the monitor looks once a
-  millisecond (test/cli/preempt_forks.sh).
+  the 10 ms slice, and count for the two looks too while a worker sleeps
+  or searches, so the stop that moves a maker still spreads a fork-join
+  over idle workers. A fork-join's own forks wait in its queues all the
+  time it runs, so on one worker it was stopped every 100 µs and the
+  monitor woke every 50 µs; now it runs unstopped and the monitor looks
+  once a millisecond (test/cli/preempt_forks.sh).
   On the Mac (fork-order's fork.rig, paired medians over 24 rounds),
   qsort at one worker is 15% faster, 139.4 ms against 163.1; psum at
   one worker and both at 10 workers are level, as are bench/actors and
   bench/net.
+- **A worker started ahead holds a few small pages, not a huge one:**
+  the first segment a worker takes as it starts with `main` keeps small
+  pages for its first 2 MiB and asks for huge pages for its second
+  (`alloc.startSmall`), where it faulted in a whole 2 MiB huge page for
+  each worker. On pup at 12 workers, peak memory returns to what it was
+  before the workers started early: a program of two tasks 35.1 MiB
+  (57.9 with the huge page, 35.1 before), bench/tasks 5.5 MiB (25.1,
+  15.6 before), its `idle` 2.4 (25.1, 2.3 before). psum at 12 workers
+  stays at 3.9 ms against Rayon's 4.6-4.7; fork.rig, Trig's
+  `task.workers` programs and one-worker runs are not affected
+  (docs/history/records/2026-11/early-memory/).
 - **An actor's method runs inline only with the room its own task
   would give it:** a call that finds the actor idle runs the method on
   the caller's stack when that stack has as much room left as the

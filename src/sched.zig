@@ -106,10 +106,10 @@ pub const Fiber = struct {
     /// (`spendBudget`), so a socket that is always ready cannot keep it
     /// on its worker.
     budget: u8 = budget_size,
-    /// It waits in its worker's "run next" slots or ring and is not a
-    /// fork, so the monitor's two looks hurry it (`Worker.queued_woken`);
-    /// cleared as a worker starts it.
-    woken: bool = false,
+    /// It is a fork counted as it was queued on a worker's "run next"
+    /// slots or ring (`Worker.queued_forks`); cleared as a worker starts
+    /// it, which counts it started.
+    counted: bool = false,
     /// The worker it runs on and no other, once pinned (`pinHere`): a
     /// local task, and the task that made one. It waits in that worker's
     /// `pinned` queue, never in a ring or the global queue, so no other
@@ -232,19 +232,18 @@ const Worker = struct {
     ran_pinned: u64 = 0,
     stole: u64 = 0,
     slept: std.atomic.Value(u64) = .init(0),
-    /// How many fibers that are not forks it has queued on its own "run
-    /// next" slots and ring (`noteWoken`), and how many such fibers it
-    /// has started, wherever they were queued (`noteStarted`): fibers
-    /// woken from a wait or by an event, fibers that yielded or were
-    /// stopped, fibers no one waits for (an actor's runner), and every
-    /// task made that is not a fork. A fork, a task the compiler found
-    /// stays in its maker's frame and is waited for there (`Fiber.fork`),
-    /// is not counted. The sums over every worker differ by the fibers that are
-    /// not forks waiting in some worker's slots or rings, which the
-    /// preemption monitor's two looks hurry (`watchSlices`); forks it
-    /// leaves to the slice. Kept only where preemption is built.
-    queued_woken: std.atomic.Value(u32) = .init(0),
-    started_woken: std.atomic.Value(u32) = .init(0),
+    /// How many forks it has queued on its own "run next" slots and ring
+    /// as it made them (`noteFork`), and how many counted forks it has
+    /// started, wherever they were queued (`noteStarted`). A fork is a
+    /// task the compiler found stays in its maker's frame and is waited
+    /// for there (`Fiber.fork`). The sums over every worker differ by the
+    /// forks waiting in some worker's slots or rings; every other fiber
+    /// waiting there (woken, yielded, stopped, an actor's runner, any
+    /// other task made) is what the preemption monitor's two looks hurry
+    /// (`watchSlices`), and only forks pay for the count. Kept only where
+    /// preemption is built.
+    queued_forks: std.atomic.Value(u32) = .init(0),
+    started_forks: std.atomic.Value(u32) = .init(0),
     /// Its `slept` as the watcher began its last watch.
     watch_mark: std.atomic.Value(u64) = .init(0),
     /// How long it sleeps before it gives back what its heap holds free
@@ -457,8 +456,8 @@ fn wakeIn(f: *Fiber) void {
 }
 
 /// `wakeIn` for `f`, which is `woken` unless it is a fork just made
-/// (`Fiber.fork`, `spawn`), which the monitor leaves to the slice
-/// (`Worker.queued_woken`).
+/// (`Fiber.fork`, `spawn`), which is counted (`Worker.queued_forks`) so
+/// the monitor can leave it to the slice.
 inline fn wakeQueued(f: *Fiber, comptime woken: bool) void {
     if (deterministic.*) return ready.append(std.heap.smp_allocator, f) catch rt.oom();
     countWake(f);
@@ -471,7 +470,7 @@ inline fn wakeQueued(f: *Fiber, comptime woken: bool) void {
         global.push(f);
         return notifyNew();
     };
-    if (preempt and woken) noteWoken(w, f);
+    if (preempt and !woken) noteFork(w, f);
     if (w.batch != .none and f.home == null) {
         if (w.batch == .rest) {
             _ = w.ring.push(f);
@@ -558,7 +557,6 @@ fn wakeLastIn(f: *Fiber) void {
     // Only these could another worker take: pinned fibers stay, and the
     // global queue's push wakes one itself.
     if (keeps_short and w.short.held_since.raw != 0) w.short.held_since.store(0, .monotonic);
-    if (preempt) noteWoken(w, f);
     if (w.ring.push(f) or nextHeld(w, .monotonic)) notify();
 }
 
@@ -1029,20 +1027,29 @@ const Preempt = struct {
     declined_n: u32 = 0,
 };
 
-/// Note that `w`, on its own thread, queues on its own slots or ring
-/// `f`, which is not a fork (`Worker.queued_woken`). A fiber is queued
-/// once before it starts.
-inline fn noteWoken(w: *Worker, f: *Fiber) void {
-    f.woken = true;
-    w.queued_woken.store(w.queued_woken.raw +% 1, .monotonic);
+/// Note that `w`, on its own thread, queues on its own slots or ring the
+/// fork `f` it just made (`Worker.queued_forks`). A fork is queued once
+/// before it starts.
+inline fn noteFork(w: *Worker, f: *Fiber) void {
+    f.counted = true;
+    w.queued_forks.store(w.queued_forks.raw +% 1, .monotonic);
 }
 
-/// Note that `w`, on its own thread, starts `f`: if it was counted
-/// queued (`noteWoken`), count it started.
+/// Note that `w`, on its own thread, starts `f`: if it is a fork counted
+/// queued (`noteFork`), count it started. Any other fiber pays one load.
 inline fn noteStarted(w: *Worker, f: *Fiber) void {
-    if (!f.woken) return;
-    f.woken = false;
-    w.started_woken.store(w.started_woken.raw +% 1, .monotonic);
+    if (!f.counted) return;
+    f.counted = false;
+    w.started_forks.store(w.started_forks.raw +% 1, .monotonic);
+}
+
+/// How many fibers wait in `w`'s "run next" slots and ring, as the
+/// monitor reads them from its own thread (`watchSlices`): a moment's
+/// count, which a steal under way may leave a few off.
+fn queuedCount(w: *Worker) u32 {
+    var n: u32 = @min(w.ring.tail.load(.monotonic) -% w.ring.head.load(.monotonic), Ring.size);
+    inline for (&w.lifo) |*slot| n += @intFromBool(slot.load(.monotonic) != null);
+    return n;
 }
 
 /// Note that a signal to `w` was declined at `pc`.
@@ -1479,24 +1486,26 @@ fn stopMonitor() void {
 /// had then and has still, having started none since (so the work waits
 /// no more than about two periods, as a yield check's turns let it),
 /// when a fiber that is not a fork waited at both looks: in some
-/// worker's slots or ring (`Worker.queued_woken`), or pinned to this one. Or
-/// signal one that has run a fiber for a slice while any work waits
-/// (`workWaits`), forks included; or whose timers are due or whose
-/// poller holds events. Forks alone at two looks stop no fiber: if a
-/// worker sleeps the monitor wakes one to take them (`notify`), and if
-/// every worker is busy they wait for the slice. So a fork-join, whose
-/// own forks wait in its queues all the time it runs, runs on unstopped.
-/// The period is the wait (`RIG_PREEMPT_WAIT_US`, 50 µs) while a busy
-/// worker's queues hold work and a fiber that is not a fork waits, or
-/// while they hold forks and a worker sleeps; 1 ms while any worker runs
-/// a fiber; and twice as long each period every worker spends without,
-/// up to 10 ms. It ends as `main` ends (`stopMonitor`).
+/// worker's slots or ring (more fibers there than forks, `Worker.queued_forks`), or pinned to this one;
+/// or when a worker slept or searched at both, forks included, since one
+/// could then run the forks and the stop that moves the maker spreads the
+/// fork-join over the idle workers. Or signal one that has run a fiber
+/// for a slice while any work waits (`workWaits`), forks included; or
+/// whose timers are due or whose poller holds events. So forks alone are
+/// left to the slice only while every worker is busy, when no other could
+/// take them: a fork-join on one worker, or one that keeps every worker
+/// busy, runs on unstopped. The period is the wait
+/// (`RIG_PREEMPT_WAIT_US`, 50 µs) while a busy worker's queues hold work
+/// that the rule above hurries; 1 ms while any worker runs a fiber; and
+/// twice as long each period every worker spends without, up to 10 ms. It ends as `main` ends (`stopMonitor`).
 fn watchSlices(slice: i96, wait: i96) void {
     var seen: [max_workers]u32 = @splat(0);
     var since: [max_workers]i96 = @splat(0);
     var had: [max_workers]bool = @splat(false);
-    // Whether a fiber that is not a fork waited at the last look.
+    // Whether a fiber that is not a fork waited at the last look, and
+    // whether a worker slept or searched then.
     var woken_had = false;
+    var idle_had = false;
     // Signals sent to each worker since it last switched, and when it is
     // signaled next once it has declined `resignal_free` of them.
     var tries: [max_workers]u32 = @splat(0);
@@ -1510,20 +1519,31 @@ fn watchSlices(slice: i96, wait: i96) void {
         monitor_looks.store(monitor_looks.raw +% 1, .monotonic);
         const now = nowReal();
         const ws = workersNow();
-        // The fibers that are not forks waiting in the workers' slots and
-        // rings. A fiber stolen before it starts is counted queued where
-        // it was queued and started where it runs. Every count started is
-        // read before every count queued, so a fiber queued and started
-        // between the reads counts as waiting at most.
-        var queued: u32 = 0;
-        var started_n: u32 = 0;
-        for (ws) |*w| started_n +%= w.started_woken.load(.monotonic);
-        for (ws) |*w| queued +%= w.queued_woken.load(.monotonic);
-        const woken = @as(i32, @bitCast(queued -% started_n)) > 0;
+        // Whether a fiber that is not a fork waits in the workers' slots
+        // and rings: more fibers wait there than forks do. A fork stolen
+        // before it starts is counted queued where it was made and
+        // started where it runs. Every count queued is read before every
+        // count started, so a fork queued and started between the reads
+        // counts as waiting at least, and the fibers are counted last, so
+        // one stolen meanwhile is counted at most once.
+        var forks_queued: u32 = 0;
+        var forks_started: u32 = 0;
+        var fibers: u32 = 0;
+        for (ws) |*w| forks_queued +%= w.queued_forks.load(.monotonic);
+        for (ws) |*w| forks_started +%= w.started_forks.load(.monotonic);
+        for (ws) |*w| fibers += queuedCount(w);
+        const forks_waiting: i64 = @as(i32, @bitCast(forks_queued -% forks_started));
+        const woken = @as(i64, fibers) > forks_waiting;
         defer woken_had = woken;
+        // A worker sleeps or searches: a fork waiting at a busy worker could
+        // run there, so forks count as waiting, as every task does, and
+        // the stop that moves the maker spreads the fork-join over the
+        // idle workers. Only while every worker is busy, when no other
+        // could take them, are forks left to the slice.
+        const idle = sleepers.count.load(.seq_cst) != 0 or searching.load(.seq_cst) != 0;
+        defer idle_had = idle;
         var busy = false;
         var hurry = false;
-        var forks = false;
         for (ws, 0..) |*w, i| {
             const pre = preOf(w);
             const runs = pre.runs.load(.monotonic);
@@ -1532,7 +1552,7 @@ fn watchSlices(slice: i96, wait: i96) void {
             const pinned = w.pinned.count.load(.monotonic) != 0;
             defer had[i] = work;
             if (running and work) {
-                if (woken or pinned) hurry = true else forks = true;
+                if (woken or pinned or idle) hurry = true;
             }
             if (!running or runs != seen[i]) {
                 seen[i] = runs;
@@ -1542,7 +1562,7 @@ fn watchSlices(slice: i96, wait: i96) void {
                 continue;
             }
             busy = true;
-            const waited = work and had[i] and ((woken and woken_had) or pinned);
+            const waited = work and had[i] and ((woken and woken_had) or pinned or (idle and idle_had));
             if (!waited and !serviceDue(w, now) and (now - since[i] < slice or !workWaits(w))) continue;
             // Again until it stops: a signal that finds the fiber outside
             // the program's code does nothing. After `resignal_free` in a
@@ -1557,11 +1577,7 @@ fn watchSlices(slice: i96, wait: i96) void {
             signalThread(pre.tid);
             pre.signaling.unlockApart();
         }
-        // Forks wait at a busy worker while another sleeps: wake one to
-        // take them, as the stop that queued the fiber behind them would.
-        const sleeping = forks and sleepers.count.load(.seq_cst) != 0;
-        if (sleeping) notify();
-        period = if (hurry or sleeping) wait else if (busy) std.time.ns_per_ms else @min(2 * period, 10 * std.time.ns_per_ms);
+        period = if (hurry) wait else if (busy) std.time.ns_per_ms else @min(2 * period, 10 * std.time.ns_per_ms);
     }
 }
 
@@ -4318,10 +4334,14 @@ fn workerMain(w: *Worker, n: usize) void {
 /// A worker started ahead of the work takes its heap's first segment
 /// now, by a record it takes and gives back: the segment's first page is
 /// written here, its fault taken while the worker has nothing to do,
-/// where it would otherwise fall on the first task it runs. A
-/// leak-checked build's records are not the heap's, and take none.
+/// where it would otherwise fall on the first task it runs. The segment
+/// keeps small pages for its first 2 MiB (`fast_alloc.startSmall`), so
+/// a worker that never runs a task holds a few of them, not a huge
+/// page. A leak-checked build's records are not the heap's, and take
+/// none.
 fn takeFirstSegment() void {
     if (!own_records) return;
+    rt.fast_alloc.startSmall();
     const p = rt.fast_alloc.allocRecord(256, .of(u64)) orelse rt.oom();
     rt.fast_alloc.freeRecord(p[0..256], .of(u64));
 }
