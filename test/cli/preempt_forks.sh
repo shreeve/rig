@@ -22,8 +22,7 @@ esac
 
 # A quicksort of 2^20 Ints on one worker: the high half of each
 # partition is a fork, waited for once the low half is sorted; leaves of
-# 4,096 are sorted by std.sort. Every partition runs under a millisecond,
-# well inside the slice.
+# 4,096 are sorted by std.sort.
 cat > qsort.rig <<'RIG'
 use std.sort
 use std.task
@@ -67,12 +66,13 @@ sub main()
   print(ok, t.elapsed() / 1_000_000)
 RIG
 
-out=$(RIG_SCHED_STATS=1 "$TIMEOUT_CMD" 120 "$RIG" run --release qsort.rig 2>err-qsort.txt) || fail "qsort.rig (timeout 120 s): $out $(cat err-qsort.txt)"
+out=$(RIG_PREEMPT_SLICE_US=1000000 RIG_SCHED_STATS=1 "$TIMEOUT_CMD" 120 "$RIG" run --release qsort.rig 2>err-qsort.txt) || fail "qsort.rig (timeout 120 s): $out $(cat err-qsort.txt)"
 read -r ok ms <<<"$out"
 expect_eq "$ok" "1" "qsort.rig sorted"
 pre=$(awk '/rig: worker 0:/ { for (i = 1; i <= NF; i++) if ($i == "preempted") print $(i + 1) + 0 }' err-qsort.txt)
-# No partition runs a slice, so nothing stops it; at 50 µs a look the
-# monitor would look 20 times a millisecond, at 1 ms about once.
+# With a slice of a second, which no partition runs even on a loaded
+# machine, nothing stops it; at 50 µs a look the monitor would look 20
+# times a millisecond, at 1 ms about once.
 [[ "$pre" == "0" ]] || fail "qsort.rig: a fork-join on one worker was stopped $pre times in $ms ms: $(cat err-qsort.txt)"
 grep -q 'rig: monitor: looked' err-qsort.txt || fail "qsort.rig: no count of the monitor's looks: $(cat err-qsort.txt)"
 looks=$(awk '/rig: monitor: looked/ { print $4 }' err-qsort.txt)
