@@ -18,7 +18,7 @@ takes, in its code or its data (`resolved`).
 
 A task's stack starts in `rig.sched.fiberStartNaked`, which calls
 `fiberMain`, which calls the fiber's `run` through a pointer: one of
-`sched.spawnIn`'s or `sched.spawnDetached`'s `Full.start`, one for each
+`sched.Record`'s or `sched.spawnDetached`'s `Full.start`, one for each
 type of task (`--entries`). Each is named by the program's function it
 runs, from the debug information (`atos -i` on macOS,
 `llvm-symbolizer --inlining` on Linux).
@@ -1180,7 +1180,7 @@ def called_names(fn, by, depth=3):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("exe")
-    ap.add_argument("--entries", default=r"rig\.sched\.spawn(In|Detached)__\w+\.Full\.start$")
+    ap.add_argument("--entries", default=r"rig\.sched\.(spawn(In|Detached)__\w+\.Full|Record\(.*\))\.start(\.\d+)?$")
     ap.add_argument("--top", type=int, default=15, help="the deepest functions to list")
     ap.add_argument("--json")
     ap.add_argument("--cold", help="also count these functions as run off the task's stack, as a step that moves them would (a what-if)")

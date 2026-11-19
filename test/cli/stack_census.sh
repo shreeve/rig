@@ -62,7 +62,7 @@ rig build --release tasks.rig >build.out 2>&1 || fail "rig build: $(cat build.ou
 out=$(./tasks) || fail "the program: $out"
 expect_eq "$out" "496491 64 64 5" "the program's output"
 
-row() { grep -F "| rig.sched.spawn" <<<"$1" | grep -F -- "$2"; }
+row() { grep -F -e "| rig.sched.spawn" -e "| rig.sched.Record(" <<<"$1" | grep -F -- "$2"; }
 out=$(python3 -I "$census" tasks 2>&1) || fail "the census: $out"
 expect_has "$out" "3 task types" "the census's task types"
 # A known gap (docs/internals/backlog.md, "The stack census of a safe
@@ -86,7 +86,7 @@ bounded "a task of direct calls is bounded" "$spin_row"
 # The par.map task: the one task type that is neither spin nor deep (its
 # runs column names a closure's function, or `?` where the debug
 # information inlines it away).
-map_row=$(grep -F "| rig.sched.spawn" <<<"$out" | grep -v -F -e "| __rig_main.spin |" -e "| __rig_main.deep |" | head -1)
+map_row=$(grep -F -e "| rig.sched.spawn" -e "| rig.sched.Record(" <<<"$out" | grep -v -F -e "| __rig_main.spin |" -e "| __rig_main.deep |" | head -1)
 [[ -n $map_row ]] || fail "no par.map task in the census: $out"
 bounded "a par.map task, through its FnRef's thunks, is bounded" "$map_row"
 map_entry=$(awk -F' [|] ' '{print $1}' <<<"$map_row" | tr -d '| ')

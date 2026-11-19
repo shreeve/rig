@@ -48,8 +48,8 @@ frame_part=$(awk '/if \(self.in_frame\) \{/ { on = 1; next } on && /\} else \{/ 
 need "Control.finish of a frame record" "$frame_part" "self.done.store(true, .seq_cst);"
 lacks "Control.finish of a frame record" "$frame_part" "remove" "isolate" "unlink"
 # The reader of `ended` takes it off under the lock, unless the stopper did.
-need "Control.leave" "$(zbody "$zig" '^    fn leave[(]self: [*]Control[)]')" "iso.lock.lock();" "if (self.iso_prev == null and iso.first != self) return;" "iso.unlink(self);"
-need "Task.release" "$(zbody "$zig" '^        inline fn release[(]self: Self[)]')" "if (self.control.in_frame) {" "return self.control.leave();"
+need "Control.leave" "$(zbody "$zig" '^    noinline fn leave[(]self: [*]Control, iso: [*]Isolate[)]')" "iso.lock.lock();" "if (self.iso_prev == null and iso.first != self) return;" "iso.unlink(self);"
+need "Task.release" "$(zbody "$zig" '^        inline fn release[(]self: Self[)]')" "if (self.control.in_frame) {" "self.control.leave(iso);"
 need "Isolate.stop" "$(zbody "$zig" '^    fn stop[(]self: [*]Isolate, wait: bool[)]')" "self.takeEndedFrames();" "self.lock.lock();"
 need "Isolate.takeEndedFrames" "$(zbody "$zig" '^    fn takeEndedFrames[(]')" "if (!x.in_frame) continue;" "if (x.frameEnded()) self.unlink(x)"
 

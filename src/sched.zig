@@ -6165,7 +6165,7 @@ pub fn Record(comptime T: type, comptime Extra: type, comptime f: anytype, compt
 
         /// The record, filled: `destroy` frees it, unless it lies in its
         /// maker's frame (`in_frame`), whose end lets it go.
-        inline fn init(args: Args, extra: Extra, dense_stack: bool, comptime fork: bool, comptime in_frame: bool) @This() {
+        inline fn filled(args: Args, extra: Extra, dense_stack: bool, comptime fork: bool, comptime in_frame: bool) @This() {
             const destroys = if (in_frame) Header.inFrame else if (preempt) destroyApart else destroy;
             return .{ .job = .{ .header = .{ .fiber = .{ .run = start, .done = Header.end, .dense = dense_stack, .fork = fork }, .destroy = destroys } }, .extra = extra, .args = args };
         }
@@ -6189,7 +6189,7 @@ fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: an
     const Full = Record(T, Extra, f, @TypeOf(args));
     if (!started.*) startWorkers();
     const full = createRecord(Full);
-    full.* = Full.init(args, extra, dense_stack, fork, false);
+    full.* = Full.filled(args, extra, dense_stack, fork, false);
     return startIn(Full, full, local, fork);
 }
 
@@ -6197,7 +6197,7 @@ fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: an
 /// its maker's frame (the storage fact `task_record`): a fork's. Plain
 /// stores, which the slot takes where it lies; `startAt` starts it there.
 pub inline fn frameRecord(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, dense_stack: bool) Record(T, Extra, f, @TypeOf(args)) {
-    return Record(T, Extra, f, @TypeOf(args)).init(args, extra, dense_stack, true, true);
+    return Record(T, Extra, f, @TypeOf(args)).filled(args, extra, dense_stack, true, true);
 }
 
 /// Start the fork whose record `full` lies in its maker's frame

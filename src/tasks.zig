@@ -338,7 +338,8 @@ pub fn Task(comptime T: type) type {
                 // The record lies in the frame of the waiter's own
                 // function, above this one on its stack.
                 if (rt.sanitize) std.debug.assert(@intFromPtr(self.job) > @frameAddress());
-                return self.control.leave();
+                if (self.control.isolate) |iso| self.control.leave(iso);
+                return;
             }
             self.job.free();
         }
@@ -490,8 +491,7 @@ pub const Control = struct {
     /// until it ends, or the maker is the isolate's own call, so the
     /// isolate is there; and after this nothing reads the record, so the
     /// frame may go.
-    fn leave(self: *Control) void {
-        const iso = self.isolate orelse return;
+    noinline fn leave(self: *Control, iso: *Isolate) void {
         rt.sched.raceStep();
         iso.lock.lock();
         defer iso.lock.unlock();
