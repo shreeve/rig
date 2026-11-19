@@ -2020,30 +2020,13 @@ const Planner = struct {
         }
     }
 
-    /// The tasks of `block` whose records stay in its frame: each
-    /// `t = f(x)&` statement the task never leaves (`taskStaysInFrame`),
-    /// with a record of at most `max_frame_task_bytes`.
+    /// The tasks of `block` whose records stay in its frame
+    /// (`taskRecordIn`).
     fn frameTasks(p: *Planner, block: Sexp) !void {
         for (rig.children(block)) |stmt| {
-            const task = frameTaskSite(p.ctx, stmt) orelse continue;
-            if (!decideAt(p.ctx, stmt, block, .task_stays)) continue;
-            if (!try p.recordFits(task)) continue;
+            const task = (try taskRecordIn(p.ctx, stmt, block)) orelse continue;
             try p.record(task, .task_record, .owned, .block);
         }
-    }
-
-    /// Whether the record of the task `call` makes, its header, its
-    /// arguments, and its result, takes at most `max_frame_task_bytes`.
-    fn recordFits(p: *Planner, task: Sexp) !bool {
-        var bytes: u128 = task_header_bytes;
-        const ty = typeOf(p.ctx, task) orelse return false;
-        const result = sema.taskResult(p.ctx, ty) orelse return false;
-        bytes += (try sema.minBytes(p.ctx, result)) orelse return false;
-        for (ir.Call.args(task)) |a| {
-            const at = typeOf(p.ctx, argValue(a)) orelse return false;
-            bytes += (try sema.minBytes(p.ctx, at)) orelse return false;
-        }
-        return bytes <= max_frame_task_bytes;
     }
 
     /// A header `e` that makes statement temporaries is evaluated in a
@@ -2465,8 +2448,41 @@ fn decideBindHold(ctx: *const SemContext, set: Sexp) BindHold {
 pub const max_frame_task_bytes = 1024;
 
 /// What a task's record holds besides its arguments and result, at most
-/// (`sched.Job`, `tasks.Control`), counted against `max_frame_task_bytes`.
-const task_header_bytes = 256;
+/// (`sched.Record`: its `Job`'s header, its `tasks.Control`, and its
+/// deadline), counted against `max_frame_task_bytes` and in its maker's
+/// frame (`taskRecordBytes`). A unit test checks it against the runtime's.
+pub const task_header_bytes = 512;
+
+/// The task call of `stmt`, a statement of `block`, when its record stays
+/// in a slot of `block`'s frame (`task_record`): a `frameTaskSite` whose
+/// task never leaves its binding (`task_stays`), with a record of at most
+/// `max_frame_task_bytes`. Asked by the plan (`Planner.frameTasks`) and by
+/// the frame count, where the record counts (`typecheck.checkFrames`).
+pub fn taskRecordIn(ctx: *SemContext, stmt: Sexp, block: Sexp) !?Sexp {
+    const task = frameTaskSite(ctx, stmt) orelse return null;
+    if (!decideAt(ctx, stmt, block, .task_stays)) return null;
+    const bytes = (try taskRecordBytes(ctx, task)) orelse return null;
+    return if (bytes <= max_frame_task_bytes) task else null;
+}
+
+/// The bytes of the record of the task `call` makes: its header
+/// (`task_header_bytes`), its self, its arguments, and its result; null
+/// where a size is not known.
+pub fn taskRecordBytes(ctx: *SemContext, task: Sexp) !?u128 {
+    var bytes: u128 = task_header_bytes;
+    const ty = typeOf(ctx, task) orelse return null;
+    const result = sema.taskResult(ctx, ty) orelse return null;
+    bytes += (try sema.minBytes(ctx, result)) orelse return null;
+    if (selfOf(ctx, task)) |recv| {
+        const rt_ = typeOf(ctx, recv) orelse return null;
+        bytes += (try sema.minBytes(ctx, rt_)) orelse return null;
+    }
+    for (ir.Call.args(task)) |a| {
+        const at = typeOf(ctx, argValue(a)) orelse return null;
+        bytes += (try sema.minBytes(ctx, at)) orelse return null;
+    }
+    return bytes;
+}
 
 /// The task call of `stmt` if it is a site a task's record may stay in
 /// its maker's frame at: an assignment, written `=`, that declares a fresh
@@ -2474,13 +2490,15 @@ const task_header_bytes = 256;
 /// an actor's handle, which the actor runs.
 pub fn frameTaskSite(ctx: *const SemContext, stmt: Sexp) ?Sexp {
     if (!stmt.isKind(.set)) return null;
+    // The value first: a task call is rare, and the name's lookup is not
+    // free (the frame count asks of every statement).
+    const value = ir.Set.value(stmt);
+    if (!value.isKind(.call) or ir.Call.task(value) == .nil) return null;
     if (rig.bindingKindOf(ir.Set.op(stmt)) != .default) return null;
     const target = ir.Set.target(stmt);
     if (target != .src) return null;
     const sym = ctx.symbolOf(target) orelse return null;
     if (ctx.symbols.items[sym].decl_pos != target.src.pos) return null;
-    const value = ir.Set.value(stmt);
-    if (!value.isKind(.call) or ir.Call.task(value) == .nil) return null;
     if (ctx.isActorCall(value)) return null;
     return value;
 }
@@ -2743,4 +2761,13 @@ fn lendsInto(a: std.mem.Allocator, ctx: *const SemContext, e: Sexp, plain: anyty
         }
     }
     for (e.items()) |c| try lendsInto(a, ctx, c, plain);
+}
+
+test "a task's record holds at most `task_header_bytes` besides its arguments and result" {
+    const tasks = @import("tasks.zig");
+    const F = struct {
+        fn f() void {}
+    };
+    const Frame = tasks.Task(void).Frame(false, F.f, @TypeOf(.{}));
+    try std.testing.expect(@sizeOf(Frame) <= task_header_bytes);
 }

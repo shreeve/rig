@@ -602,6 +602,18 @@ fn requeue(f: *Fiber, _: ?*anyopaque) void {
     wakeLastIn(f);
 }
 
+/// In a deterministic run (`RIG_SEED`) of a build that sanitizes, let the
+/// seed switch to another ready fiber here: between the last accesses of
+/// a task's record that lies in its maker's frame (`tasks.Control.finish`,
+/// `leave`). So a test's seeds try the orders of
+/// formal/Models/FrameRecord.lean, and a write into a stack given back
+/// faults (`releaseStack`). Nothing in any other build.
+pub inline fn raceStep() void {
+    if (comptime !rt.sanitize) return;
+    if (!deterministic.* or current() == null) return;
+    if (ready.items.len > 0 and random(2) == 0) yield();
+}
+
 /// A yield check of a loop (`rt.turn`): yield when other work waits
 /// for this worker, in its "run next" slot or ring, or in the global
 /// queue, or take work that waits for a busy one (`claimWaiting`). Work
@@ -5996,6 +6008,19 @@ pub const Header = struct {
     panicked: std.atomic.Value(bool) = .init(false),
     destroy: *const fn (*Header) void,
 
+    /// The `destroy` of a record in its maker's frame (`frameRecord`), which
+    /// its waiter never frees (`tasks.Task.release`).
+    fn inFrame(_: *Header) void {
+        unreachable;
+    }
+
+    /// Whether the task has ended: `Done`'s `ended`, after which whoever
+    /// ran it touches its record no more.
+    pub fn endedOf(f: *Fiber) bool {
+        const h: *Header = @fieldParentPtr("fiber", f);
+        return h.done.status.load(.seq_cst) == Done.ended;
+    }
+
     pub fn end(f: *Fiber) void {
         const h: *Header = @fieldParentPtr("fiber", f);
         h.done.finish();
@@ -6127,22 +6152,12 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool), compt
     }
 }
 
-/// Start `f(args...)` as a fiber, ready to run, and give its record,
-/// and an `Extra` the record holds for the caller (`tasks.zig` keeps a
-/// task's `Control` there), which `f` gets first. A `local` task, and the
-/// fiber making it, are pinned to this worker (`pinHere`). A `fork` is
-/// recorded on the fiber (`Fiber.fork`).
-pub const spawn = if (preempt) spawnApart else spawnIn;
-
-/// `spawn` in a program built to be preempted: never inlined into the
-/// program's own code, and one call in all (`mustNotBeInCode`).
-noinline fn spawnApart(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool, dense_stack: bool, comptime fork: bool) Spawned(T, Extra) {
-    return spawnIn(T, Extra, f, args, extra, local, dense_stack, fork);
-}
-
-fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool, dense_stack: bool, comptime fork: bool) Spawned(T, Extra) {
-    const Args = @TypeOf(args);
-    const Full = struct {
+/// A task's record: its `Job`, an `Extra` it holds for the caller
+/// (`tasks.zig` keeps a task's `Control` there), which `f` gets first,
+/// and `f`'s arguments. On the heap (`spawn`), or in a slot of its
+/// maker's frame (`frameRecord`, then `startAt`).
+pub fn Record(comptime T: type, comptime Extra: type, comptime f: anytype, comptime Args: type) type {
+    return struct {
         job: Job(T),
         extra: Extra = .{},
         args: Args,
@@ -6167,10 +6182,63 @@ fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: an
         noinline fn destroyApart(h: *Header) void {
             destroy(h);
         }
+
+        /// The record, filled: `destroy` frees it, unless it lies in its
+        /// maker's frame (`in_frame`), whose end lets it go.
+        inline fn filled(args: Args, extra: Extra, dense_stack: bool, comptime fork: bool, comptime in_frame: bool) @This() {
+            const destroys = if (in_frame) Header.inFrame else if (preempt) destroyApart else destroy;
+            return .{ .job = .{ .header = .{ .fiber = .{ .run = start, .done = Header.end, .dense = dense_stack, .fork = fork }, .destroy = destroys } }, .extra = extra, .args = args };
+        }
     };
+}
+
+/// Start `f(args...)` as a fiber, ready to run, and give its record,
+/// and an `Extra` the record holds for the caller (`tasks.zig` keeps a
+/// task's `Control` there), which `f` gets first. A `local` task, and the
+/// fiber making it, are pinned to this worker (`pinHere`). A `fork` is
+/// recorded on the fiber (`Fiber.fork`).
+pub const spawn = if (preempt) spawnApart else spawnIn;
+
+/// `spawn` in a program built to be preempted: never inlined into the
+/// program's own code, and one call in all (`mustNotBeInCode`).
+noinline fn spawnApart(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool, dense_stack: bool, comptime fork: bool) Spawned(T, Extra) {
+    return spawnIn(T, Extra, f, args, extra, local, dense_stack, fork);
+}
+
+fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool, dense_stack: bool, comptime fork: bool) Spawned(T, Extra) {
+    const Full = Record(T, Extra, f, @TypeOf(args));
     if (!started.*) startWorkers();
     const full = createRecord(Full);
-    full.* = .{ .job = .{ .header = .{ .fiber = .{ .run = Full.start, .done = Header.end, .dense = dense_stack, .fork = fork }, .destroy = if (preempt) Full.destroyApart else Full.destroy } }, .extra = extra, .args = args };
+    full.* = Full.filled(args, extra, dense_stack, fork, false);
+    return startIn(Full, full, local, fork);
+}
+
+/// A record of `f(args...)`, filled and not yet started, for a slot of
+/// its maker's frame (the storage fact `task_record`): a fork's. Plain
+/// stores, which the slot takes where it lies; `startAt` starts it there.
+pub inline fn frameRecord(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, dense_stack: bool) Record(T, Extra, f, @TypeOf(args)) {
+    return Record(T, Extra, f, @TypeOf(args)).filled(args, extra, dense_stack, true, true);
+}
+
+/// Start the fork whose record `full` lies in its maker's frame
+/// (`frameRecord`), as `spawn` starts one on the heap. Its `Job.free` frees
+/// nothing (`Header.inFrame`): the frame's end lets it go, once its
+/// waiter has read `Done`'s `ended` (`tasks.Task.release`).
+pub const startAt = if (preempt) startAtApart else startAtIn;
+
+/// `startAt` in a program built to be preempted: never inlined into the
+/// program's own code (`mustNotBeInCode`).
+noinline fn startAtApart(full: anytype, local: bool) Spawned(@TypeOf(full.job.result), @TypeOf(full.extra)) {
+    return startAtIn(full, local);
+}
+
+fn startAtIn(full: anytype, local: bool) Spawned(@TypeOf(full.job.result), @TypeOf(full.extra)) {
+    if (!started.*) startWorkers();
+    return startIn(@TypeOf(full.*), full, local, true);
+}
+
+inline fn startIn(comptime Full: type, full: *Full, local: bool, comptime fork: bool) Spawned(@TypeOf(full.job.result), @TypeOf(full.extra)) {
+    const Extra = @TypeOf(full.extra);
     // An `Extra` that names its task's fiber is given it, for a cancel to
     // reach the fiber's wait (`interruptForCancel`), and one that records
     // its task somewhere does so before the task can run (`made`).

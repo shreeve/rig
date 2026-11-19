@@ -123,6 +123,14 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **Free fork-join, the record in the frame** (#1171, on #1168): a
+  fork's record lies in its maker's frame, let go by whoever reads its
+  end, the order formal/Models/FrameRecord.lean passed. `nil` at one
+  worker 11% faster than #1168 (55 ns a join; Rayon 10); psum, qsort,
+  bench/tasks, actors, net level. Next: the inline run on today's
+  queue, then the Chase-Lev deque (records/2026-11/free-fork-join).
+  Waits on Trig's light gate, pup, and the owner.
+
 - **The stable sort** (branch `sort-stable`, then `sort-drift` on
   it; owner, 2026-11-16, "fastest, within 2% of Rust's stable sort"):
   `sort_by`, `sort_by_key`, and `sort` of a type with its own `order`

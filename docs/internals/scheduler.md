@@ -60,7 +60,10 @@ worker after.
   that makes the task, with no lock and no system call, and the thread
   that frees it gives it back to that heap (`sched.createRecord`,
   `alloc.allocRecord`); a debug build, which checks for leaks, takes it
-  from Zig's allocator. A
+  from Zig's allocator. A fork's record, a task bound by `t = f(x)&` and
+  waited for in its maker's frame (the storage fact `task_record`), lies
+  in a slot of that frame instead (`sched.frameRecord`, `startAt`): no
+  allocation, and nothing to free. A
   switch saves the registers a call keeps on the stack being left and
   restores those of the stack resumed (`sched.switchTo`, written for
   aarch64 and x86_64).
@@ -581,7 +584,28 @@ once, with at most one fiber waiting (`sched.Done`, which `Header` and
 then marks the record waited with a compare-and-swap; what finishes it
 marks it ending, wakes that waiter if one is marked, and only then
 marks it ended. The waiter goes on only once it reads ended, so it may
-free the record at once: no waker touches it after. A set of tasks and
+free the record at once: no waker touches it after.
+
+A fork's record in its maker's frame is let go when the frame ends, and
+a frame may outlive its function only on a stack a panic left to an
+isolate, which gives it back once no task under it is listed. So the
+last access of the record by whoever ran the fork is `Done`'s ended:
+`Control.finish` leaves a frame record on its isolate's list, and
+whoever reads ended takes it off, under the isolate's lock: the maker
+at its join or drop (`Task.release`, `Control.leave`), or, once the
+maker panicked, the isolate's stopper, which takes off each listed
+frame record whose `Done` reads ended (`Isolate.stop`). A listed record
+lies in a live frame or a kept stack, so the stopper reads none that was
+let go; nothing wakes it as such a fork ends, so it looks again from
+every 20 µs, doubling to 1 ms. Taking the record off at the thief's end,
+as a heap record is, let the stopper give the stack back between that
+and the thief's last writes; taking it off after ended let a live
+maker's next frame be written by the removal.
+[formal/Models/FrameRecord.lean](../../formal/Models/FrameRecord.lean)
+checks both failures and the order kept, and test/cli/frame_record.sh
+holds the Zig to it. A deterministic run of a sanitized build may
+switch between those steps (`sched.raceStep`), so a test's seeds try
+the orders, and a write into a stack given back faults. A set of tasks and
 `task.all` wait on a count instead (`tasks.Wakeup`), which each of their
 tasks adds to as it ends, and a select on the claim of its first arm,
 which the claimer makes under its channel's lock. A select's arm on a

@@ -402,6 +402,9 @@ pub const Emitter = struct {
     /// The result the `result_part` being emitted takes: `__rig_res_N[j]`,
     /// of the destructure whose target it is (`emitDestructure`).
     part_name: []const u8 = "",
+    /// The fork whose record the binding being emitted made in the slot
+    /// `name` (`task_record`): its value starts it there (`emitTask`).
+    task_slot: ?struct { call: Sexp, name: []const u8 } = null,
     /// Closure bodies being emitted around the current point. Each names
     /// its environment `__rig_self`, `__rig_self1`, ... so a closure
     /// inside another does not shadow the outer one's.
@@ -2892,6 +2895,19 @@ pub const Emitter = struct {
         const in_place = try self.need(self.facts.fillsInPlace(sexp), sexp);
         if (self.facts.symbols.items[sym].decl_pos == target.src.pos) {
             if (in_place) return self.emitFillBind(target, sym, expr);
+            // A fork's record is made in the slot of this frame its
+            // storage fact names (`task_record`), then started there.
+            if (self.facts.taskInFrame(expr)) {
+                const slot = try self.hiddenStorage(expr, .task_record, .owned, .next);
+                try self.w.print("var {s} = ", .{slot});
+                try self.emitTask(expr);
+                try self.w.writeAll(";\n");
+                try self.writeIndent(self.indent);
+                const saved = self.task_slot;
+                defer self.task_slot = saved;
+                self.task_slot = .{ .call = expr, .name = slot };
+                return self.emitBind(sexp, sym);
+            }
             try self.emitBind(sexp, sym);
         } else {
             const local = self.localBySym(sym) orelse return self.unsupported(target, "an assignment to this name");
@@ -9284,10 +9300,14 @@ pub const Emitter = struct {
     }
 
     /// `f(x)&`: the call started as a task, its arguments evaluated here
-    /// (`rig.Task(T).spawn`). A method's self goes by its address,
+    /// (`rig.Task(T).spawn`). A fork's record is made in its slot
+    /// (`rig.Task(T).frame.spawn`, `task_record`), and started there by
+    /// its binding (`emitSet`). A method's self goes by its address,
     /// which the runtime passes on, or reads when the method takes its
     /// self by value (`spawnMethod`).
     fn emitTask(self: *Emitter, sexp: Sexp) Error!void {
+        // A fork whose record its binding statement made in its slot.
+        if (self.task_slot) |ts| if (sameNode(ts.call, sexp)) return self.w.print("{s}.start()", .{ts.name});
         const callee = self.facts.calleeOf(sexp);
         // `c.m(x)&` through an actor's handle (`rig.actorSpawn`).
         if (self.facts.isActorCall(sexp)) {
