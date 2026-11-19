@@ -6935,7 +6935,9 @@ test "a ring's owner takes back no fiber a thief has copied and is about to clai
     try std.testing.expect(!(took_b and thief_b));
     // Whatever is left is a ring, its head no further than its tail.
     try std.testing.expect(r.tail.load(.seq_cst) -% r.head.load(.seq_cst) <= Ring.size);
-    _ = took_x;
+    // The thief held the ring's flag from before its look at the tail:
+    // the owner took nothing back meanwhile, X included.
+    try std.testing.expect(!took_x);
 }
 
 test "a watch on a task's end, taken back, leaves its finish waking no one" {
