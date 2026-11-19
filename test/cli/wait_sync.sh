@@ -67,7 +67,7 @@ need "sched.zig Wait.pack" "$(zbody "$zig" 'fn pack[(]')" "if (cancelable) cance
 zfns=$(awk '
     /^ *(pub )?(inline |noinline )?fn [a-zA-Z_]+\(/ { s = $0; sub(/^ *(pub )?(inline |noinline )?fn /, "", s); sub(/\(.*/, "", s); cur = s }
     /wait\.word/ { print cur }' "$zig" | sort -u | tr '\n' ' ')
-want="beginWait claim come fallAsleep fiberMain interruptForCancelIn interruptIn "
+want="beginPlainWait beginWait claim come fallAsleep fiberMain interruptForCancelIn interruptIn "
 expect_eq "$(tr ' ' '\n' <<<"$zfns" | sed '/^$/d' | sort | tr '\n' ' ')" "$want" \
     "the functions of src/sched.zig that touch a wait's word: each must be a step of Wait.lean, listed here"
 
@@ -80,6 +80,9 @@ expect_eq "$lsteps" "begin claim fallAsleep giveUp interrupt resume " \
 need "Wait.lean begin" "$(lbody "$lean" '^  [|] begin ')" "⟨w.epoch + 1, .about, c, .waiting, 0, 0⟩"
 need "sched.zig beginWait" "$(zbody "$zig" 'pub fn beginWait[(]')" \
     "f.wait.epoch +%= 1" "Wait.pack(f.wait.epoch, cancelable, Wait.about)" ".seq_cst"
+# beginPlainWait: begin with `c` false, a wait no cancel can end.
+need "sched.zig beginPlainWait" "$(zbody "$zig" 'inline fn beginPlainWait[(]')" \
+    "f.wait.epoch +%= 1" "Wait.pack(f.wait.epoch, false, Wait.about)"
 
 # fallAsleep: about to sleep becomes asleep; a waker came first: queue it.
 need "Wait.lean fallAsleep" "$(lbody "$lean" '^  [|] fallAsleep ')" \

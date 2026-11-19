@@ -839,6 +839,25 @@ arms.
 
 ### Runtime
 
+- **A thief and a ring's owner never both take one fiber:** a thief
+  copied half a ring and claimed it by moving the head, a claim that
+  checks only the head, while the owner taking back its newest
+  (`>t`, since the ring join) took without one when more than one was
+  left; an owner that took back two while a thief stalled between its
+  copy and its claim ran a fiber the thief also ran, and left the head
+  past the tail. A thief now holds the ring's `stealing` flag from
+  before it reads the tail until after its claim, and the owner leaves
+  the fiber while the flag is held. psum, qsort and bench/tasks are
+  level on pup.
+- **A handoff's own stores take no fence:** `>t` on a task it runs at
+  once (`handoff`) writes the waiter's wait and the task's end record
+  with release and relaxed stores where they were sequentially
+  consistent, which x86 makes an `xchg` each; only the steps that race
+  (the slot or ring take, the waiter's marking, its claim) stay
+  sequentially consistent, as does the wait word of a wait a cancel can
+  end. A join costs 71 ns at one worker on pup, against 86 (`nil`, a
+  fork-join of 4,095 joins with no work, 17% faster); AArch64 stores
+  the two orders alike, so the Mac is level.
 - **The workers start as `main` starts:** a program that makes a task
   and never names `task.workers` starts its workers as `main` starts
   (its root declares `__rig_start_early`), and one that names it starts

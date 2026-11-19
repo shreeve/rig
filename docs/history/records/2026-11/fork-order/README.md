@@ -79,6 +79,37 @@ forward one, paired):
 | qsort | 1 | 1.025 [1.000-1.052] | 1.006 [0.994-1.016] |
 | qsort | 10 | 0.968 [0.919-1.026] | 0.983 [0.958-1.008] |
 
+## pup, and the walk alone
+
+From the psum round's notes of the same day, kept outside the repository in
+`~/Data/Code/Claude/rig/rig/psum-gap/` (leaf.md, memory.md, runtime.md),
+measured on other programs than this record's: warm passes, the second or
+third psum of a process, where this record's programs time the first.
+
+pup (x86-64, Core Ultra 9 185H), psum, medians in ms. "Forward" is the maker
+running the first half, fork.rig's order and `rayon::join`'s:
+
+| | Rig, forward | Rig, backward | Rayon, forward | Rayon, backward |
+|---|---:|---:|---:|---:|
+| 1 worker, warm, before #1151 (runtime.md, 20 rounds) | 13.41 | 13.97 | 12.18 | 13.26 |
+| 1 worker, warm, before #1151 (leaf.md, 15 rounds) | 13.27-13.31 | 14.07-14.34 | 11.88-12.11 | 12.87-13.07 |
+| 1 worker, warm, with #1151 (leaf.md) | 11.67 | | 12.09-12.20 | |
+| 12 workers, first pass (runtime.md) | 6.19 | 6.38 | 4.30 | 4.56 |
+| 12 workers, warm (runtime.md) | 3.14 | 3.24 | 3.09 | 3.16 |
+
+On pup the backward walk costs Rig 4% at one worker and Rayon 9%; with
+#1151 and the forward walk Rig's warm psum at one worker is ahead of
+Rayon's. The first pass at 12 workers trails in either order: that gap is
+the workers' start, not the walk.
+
+The Mac, the same notes (runtime.md, 20 rounds, warm, one worker): Rig
+forward 3.84, backward 4.98; Rayon forward 3.65, backward 4.78.
+
+The walk with no runtime at all (memory.md: one thread reading the same
+256 MB in leaves of 8,192, last leaf first against first leaf first): 28%
+slower on the Mac (5.62 against 4.40 ms); on pup 1% slower with huge pages
+and vector adds, 4% with small pages, 16% with scalar adds.
+
 ## What it shows
 
 - **psum, one worker.** The backward walk costs each runtime 12%. Against
@@ -97,3 +128,26 @@ forward one, paired):
 The order is the program's, not the runtime's: `&` offers its call and the
 maker runs on. A fork-join over one array reads it forwards when the maker
 keeps the first half.
+
+## pup
+
+pup (Core Ultra 9 185H), Rig 08b2caf1a (with #1151's wider fold), both Rayon twins built fresh (LTO, one
+codegen unit), ab slot 590, quiet honoured; 20 rounds, the five arms in rotating order, 1 worker on P-core 6 and
+12 workers on P-cores 0-11; medians in ms, range in brackets ([raw/pup/board.txt](raw/pup/board.txt), every
+sample in [raw/pup/samples.txt](raw/pup/samples.txt), scripts in [scripts/](scripts/)).
+
+| | fork.rig (right half on the task) | rayon/ | fork-left.rig | rayon-right-first/ | A/A |
+|---|---:|---:|---:|---:|---:|
+| psum, 1 worker | 11.99 [11.50-12.59] | 11.89 [11.65-12.41] | 12.39 | 13.02 | 11.94 |
+| psum, 12 workers | 5.77 [5.26-6.18] | 4.72 [4.38-5.14] | 5.86 | 4.78 | 5.76 |
+| qsort, 1 worker | 272.1 [266.2-284.6] | 265.8 [263.0-273.9] | 257.1 | 282.2 | 270.6 |
+| qsort, 12 workers | 96.4 [89.6-107.1] | 120.4 [114.9-128.8] | 96.3 | 125.4 | 97.2 |
+
+- **psum, one worker:** in the same order Rig is level with Rayon (0.9% slower; the A/A reads 0.4%). The old
+  pair's 20% was the walk order (both runtimes lose 3-9% walking backward here) and the leaf's 16-byte vectors
+  (#1151).
+- **psum, 12 workers:** Rig 22% slower in either order: the cold first pass (huge-page zeroing of each worker's
+  first heap segment, and thread start), not the order.
+- **qsort, one worker:** Rig 2.4% slower in the same order and 3.3% faster in the old one; Rayon prefers its own
+  order by 6%.
+- **qsort, 12 workers:** Rig 20% faster than Rayon in either order.
