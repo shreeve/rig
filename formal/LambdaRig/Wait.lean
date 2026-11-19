@@ -16,9 +16,12 @@ for any epoch, so the read adds none. A fiber handed its
 worker takes back the wait of the one that handed it over (`claim`),
 running it at once, which counts as queueing it.
 
-Each step is one atomic instruction on the wait's word (a
-compare-and-swap, sequentially consistent), so any order of steps is a
-run of the real protocol. What is proved, of every state reached:
+Each step is one atomic access to the wait's word: a begin is a store
+(sequentially consistent, or release for a wait no cancel can end,
+`beginPlainWait`), and every other step a compare-and-swap. Every access
+to one word falls in that word's single modification order whatever
+memory order it names, so any order of steps is a run of the real
+protocol. What is proved, of every state reached:
 
 - `one_waker`: at most one waker ends a wait;
 - `queued_once`: the fiber is queued at most once for a wait;
