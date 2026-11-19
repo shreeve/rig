@@ -6448,6 +6448,12 @@ const makes_tasks = @hasDecl(root, "__rig_tasks") and root.__rig_tasks;
 const concurrent = builtin.is_test or makes_tasks;
 /// A program that makes tasks runs them on the scheduler (`sched.zig`).
 pub const scheduled = makes_tasks;
+/// A program that makes tasks and never names `task.workers` declares
+/// `__rig_start_early` in its root: its workers start as `main` starts
+/// (`start`, `sched.startAhead`), so its first tasks find them running. One that
+/// names `task.workers` starts them as it first calls it, or at its first
+/// task; a batch's programs start theirs at their first task.
+pub const start_early = scheduled and @hasDecl(root, "__rig_start_early") and root.__rig_start_early;
 
 /// Built to be preempted, a program that makes tasks declares
 /// `__rig_preempt` in its root: where the system has the preemption it
@@ -8308,6 +8314,9 @@ pub fn start(init: std.process.Init.Minimal) void {
         sanitizer.configure(init.environ);
         Sanitizer.installHandler();
     }
+    // Last, with the environment read and every handler in place: the
+    // workers start beside `main` (`start_early`).
+    if (start_early) sched.startAhead();
     if (@TypeOf(init.args.vector) != []const [*:0]const u8) return;
     const list = defaultAllocator().alloc([]const u8, init.args.vector.len) catch oom();
     for (list, init.args.vector) |*arg, c| arg.* = std.mem.sliceTo(c, 0);

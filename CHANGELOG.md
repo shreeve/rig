@@ -43,6 +43,12 @@ comprehension, `x => ...`, `lambda`, `if let`, `o or 0` for an
 optional, `range(3)`, and `enumerate(xs)` are rejected with the Rig
 spelling, where each got a parse error or an unbound name.
 
+**The first `task.workers(n)` starts the workers**, where it only
+recorded `n` until the first task: a second call before any task can
+then only raise their number, and gives false for fewer.
+`task.workers(8)` then `task.workers(4)` runs 8 workers, where 0.3.0
+ran 4; call it once, with the number wanted.
+
 **`swap` exchanges no Cell, and `!s` of a `*{A}` lends only the
 handle** (both accepted by 0.3.0). `swap(!a, !b)` of two `Cell`s, a
 `Cell` reached through a `!Cell[T]`, a `*Cell[T]` that may not be
@@ -862,6 +868,19 @@ arms.
   memory is 2.3 MB where it was 8.7. psum at one worker is 1.5 to 1.7%
   slower (docs/history/records/2026-11/psum-gap-memory/).
 
+- **The workers start as `main` starts:** a program that makes a task
+  and never names `task.workers` starts its workers as `main` starts
+  (its root declares `__rig_start_early`), and one that names it starts
+  them at its first `task.workers(n)`, where they started at the first
+  task. They sleep until that task, which then spreads to workers that
+  run rather than to threads still starting. A process's first parallel
+  pass is faster for it: on the Mac (the fork-join board's psum, one
+  pass a process, paired medians over 38 rounds) 5% faster at 10 workers
+  (2.35 to 2.25 ms, 35 rounds of 38), level with Rayon where it trailed
+  by 4%; one worker and qsort are level. A program that makes no task
+  starts none, as before; one whose tasks are never reached pays about
+  0.1 ms for the threads' start. A deterministic run starts none, and a
+  batch's programs start theirs at their first task.
 - **A fork-join takes back its own tasks from its ring:** `>t` on a
   task that has not started and is the newest in its worker's ring (a
   fork-join's halves made past the four run-next slots, waited for in

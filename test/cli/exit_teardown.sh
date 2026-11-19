@@ -128,11 +128,16 @@ if [[ $mac == 1 ]]; then
     expect_eq "$(grep '^rig: exit:' err.txt)" "rig: exit: plain, one worker" "one worker ends plainly"
 fi
 
-# `os.exit` at once after the first task, while worker 1 may still be
+# `os.exit` at once after the workers start, while worker 1 may still be
 # starting the others (`sched.startRest`): the workers it has not started
 # count as stopped, so the teardown never waits out its 2 ms for threads
-# yet to start. It may still end plainly while a task runs.
-sed -e '/time.sleep(ms: 5)!/d' parked.rig >sudden.rig
+# yet to start. It may still end plainly while a task runs. The program
+# sets its workers just before its first task, so they start there and
+# not as `main` starts (`sched.askWorkers`).
+{
+    echo "use std.task"
+    awk '/ts = Tasks\[Int!\]\(\)/ { print "  _ = task.workers(task.worker_count())" } !/time.sleep\(ms: 5\)!/' parked.rig
+} >sudden.rig
 rig build --release -o sudden sudden.rig >build.log 2>&1 || fail "build sudden: $(cat build.log)"
 for workers in 8 10; do
     for round in 1 2 3 4 5; do
@@ -142,6 +147,25 @@ for workers in 8 10; do
             exits=$(grep '^rig: exit:' err.txt)
             [[ $exits == "rig: exit: torn down on "* || $exits == "rig: exit: plain, a task runs" ]] ||
                 fail "sudden on $workers workers: $exits"
+        fi
+    done
+done
+
+# `os.exit` at once after the first tasks of a program whose workers
+# started as `main` did: every worker is awake, taking a task or going
+# back to sleep, so none is claimed asleep and each must reach the top of
+# its loop. On a busy machine one may not get there within the wait, and
+# the exit is then plain; it is never wrong.
+sed -e '/time.sleep(ms: 5)!/d' parked.rig >awake.rig
+rig build --release -o awake awake.rig >build.log 2>&1 || fail "build awake: $(cat build.log)"
+for workers in 4 10; do
+    for round in 1 2 3 4 5; do
+        RIG_SCHED_STATS=1 RIG_WORKERS=$workers ./awake >out.txt 2>err.txt; expect_rc $? 4 "awake on $workers"
+        expect_eq "$(cat out.txt)" "exiting 64" "awake's output on $workers"
+        if [[ $mac == 1 ]]; then
+            exits=$(grep '^rig: exit:' err.txt)
+            [[ $exits == "rig: exit: torn down on "* || $exits == "rig: exit: plain, a task runs" || $exits == "rig: exit: plain, the workers did not stop" ]] ||
+                fail "awake on $workers workers: $exits"
         fi
     done
 done

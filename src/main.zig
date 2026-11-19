@@ -362,6 +362,11 @@ const Env = struct {
     /// naming the file the program creates as it starts (`buildCommand`).
     fn writeRootFlags(env: Env, w: *std.Io.Writer, hook: bool, tasks: ?u64, actors: bool, reads: Reads) !void {
         if (tasks) |guard| try w.print("pub const __rig_tasks = true;\npub const __rig_task_guard: usize = {d};\npub const __rig_dense_stride: usize = {d};\n", .{ guard, sema.denseStride(builtin.os.tag) });
+        // A program that makes tasks and never sets how many workers run
+        // starts them as `main` starts (`sched.runMain`). A batch's root
+        // declares none of this: its one runtime serves programs that
+        // make no task too.
+        if (tasks != null and !reads.workers) try w.writeAll("pub const __rig_start_early = true;\n");
         if (actors) try w.writeAll("pub const __rig_actors = true;\n");
         if (reads.since_start) try w.writeAll("pub const __rig_since_start = true;\n");
         if (reads.memory) try w.writeAll("pub const __rig_memory = true;\n");
@@ -2144,23 +2149,25 @@ fn makesActors(graph: *const modules.ModuleGraph) bool {
 
 /// What the runtime keeps only for a program that reads it
 /// (`sema.noteRuntimeRead`): the clock's reading as the program starts,
-/// and the allocator's counts.
+/// and the allocator's counts; and whether the program names
+/// `task.workers`, so its workers start as it sets their number.
 const Reads = struct {
     since_start: bool = false,
     memory: bool = false,
+    workers: bool = false,
 
     fn any(r: Reads) bool {
         return r.since_start or r.memory;
     }
 
     fn with(r: Reads, o: Reads) Reads {
-        return .{ .since_start = r.since_start or o.since_start, .memory = r.memory or o.memory };
+        return .{ .since_start = r.since_start or o.since_start, .memory = r.memory or o.memory, .workers = r.workers or o.workers };
     }
 };
 
 fn readsOf(graph: *const modules.ModuleGraph) Reads {
     var r: Reads = .{};
-    for (graph.modules.items) |*m| r = r.with(.{ .since_start = m.sema.reads_since_start, .memory = m.sema.reads_memory });
+    for (graph.modules.items) |*m| r = r.with(.{ .since_start = m.sema.reads_since_start, .memory = m.sema.reads_memory, .workers = m.sema.sets_workers });
     return r;
 }
 

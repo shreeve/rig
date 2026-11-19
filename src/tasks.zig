@@ -2825,16 +2825,16 @@ pub fn checkStop() Stop!void {
 }
 
 /// `task.workers(n)`: run tasks on `n` workers (1 to 64), in place of
-/// one per core or `RIG_WORKERS`; whether it took effect: before the
-/// program's first task starts the workers, or after, to raise their
-/// number, and in a program that makes tasks.
+/// one per core or `RIG_WORKERS`; whether it took effect: the first call
+/// before any task, which starts them, or one that raises their number
+/// once they run, and in a program that makes tasks.
 pub fn setWorkers(n: Int) bool {
     if (!rt.scheduled or n < 1) return false;
     return rt.sched.askWorkers(@intCast(n));
 }
 
-/// `task.worker_count()`: how many workers tasks run on, before the first
-/// task starts them or after; one in a program that makes none.
+/// `task.worker_count()`: how many workers tasks run on, before they
+/// start or after; one in a program that makes none.
 pub fn workerCount() Int {
     if (!rt.scheduled) return 1;
     return @intCast(rt.sched.workerTotal());
