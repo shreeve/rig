@@ -844,6 +844,23 @@ arms.
 
 ### Runtime
 
+- **The preemption monitor leaves forks to the slice:** a fork, a task
+  bound by `t = f(x)&` that stays in its maker's frame and is waited for
+  there (`task_record`), no longer counts for the monitor's two looks
+  50 µs apart, which stop a fiber whose worker queued work at both with
+  none started between. Every other task, one added to a `Tasks` set,
+  returned, stored, or moved, and std's connections, and every fiber
+  woken, yielded, or stopped, keeps that bound. Forks still count for
+  the 10 ms slice, and count for the two looks too while a worker sleeps
+  or searches, so the stop that moves a maker still spreads a fork-join
+  over idle workers. A fork-join's own forks wait in its queues all the
+  time it runs, so on one worker it was stopped every 100 µs and the
+  monitor woke every 50 µs; now it runs unstopped and the monitor looks
+  once a millisecond (test/cli/preempt_forks.sh).
+  On the Mac (fork-order's fork.rig, paired medians over 24 rounds),
+  qsort at one worker is 15% faster, 139.4 ms against 163.1; psum at
+  one worker and both at 10 workers are level, as are bench/actors and
+  bench/net.
 - **A worker started ahead holds a few small pages, not a huge one:**
   the first segment a worker takes as it starts with `main` keeps small
   pages for its first 2 MiB and asks for huge pages for its second
