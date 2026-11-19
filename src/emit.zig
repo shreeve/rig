@@ -2356,6 +2356,7 @@ pub const Emitter = struct {
             .api_object => "__rig_obj",
             .results, .result_place => "__rig_res",
             .held_header => "__rig_header",
+            .task_record => "__rig_task",
             // The storage of these is another's: the header's value, the
             // capture it copies, or Zig's (`zigTemporary`).
             .header_copy, .as_copy, .zig_temp => "",
@@ -9298,6 +9299,8 @@ pub const Emitter = struct {
             return self.w.print(" }}, {})", .{self.facts.callDepth(sexp) orelse 0});
         }
         try self.emitTypeTy(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped task"));
+        // A task that stays in its maker's frame, a fork, starts so.
+        if (self.facts.taskInFrame(sexp)) try self.w.writeAll(".frame");
         // Through a witness: its method, given self as it takes it.
         if (self.facts.dispatchOf(sexp)) |d| if (d == .static and !d.static.self_arg and d.static.self_mode != .value) {
             const recv = self.selfOf(sexp) orelse return self.unsupported(sexp, "a call through a witness without its self");
