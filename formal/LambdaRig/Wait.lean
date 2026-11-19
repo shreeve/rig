@@ -148,7 +148,8 @@ def W.interrupt (w : W) (e : Nat) (cancel : Bool) : W :=
 
 /-- One atomic step of the fiber, its worker, or a waker. -/
 inductive Step : W → W → Prop where
-  /-- `beginWait(cancelable)`: a new epoch, about to sleep. -/
+  /-- `beginWait(cancelable)`: a new epoch, about to sleep; `beginPlainWait`
+  is the step with `c` false. -/
   | begin (w : W) (c : Bool) (h : w.phase = .running) :
       Step w ⟨w.epoch + 1, .about, c, .waiting, 0, 0⟩
   /-- The fiber gives the wait up before it commits, as a wait that finds

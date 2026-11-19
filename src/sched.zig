@@ -1639,6 +1639,16 @@ pub fn beginWait(cancelable: bool) u32 {
     return f.wait.epoch;
 }
 
+/// `beginWait` for a wait no cancel can end, of the running fiber `f`.
+/// `beginWait` fences its store so that a cancel's flag, read after it,
+/// is not read before it; with no flag to read, a release store does, as
+/// every waker's read-modify-write of the word sees it or fails.
+inline fn beginPlainWait(f: *Fiber) u32 {
+    f.wait.epoch +%= 1;
+    f.wait.word.store(Wait.pack(f.wait.epoch, false, Wait.about), .release);
+    return f.wait.epoch;
+}
+
 /// Sleep until the wait `epoch`, which `beginWait` gave, is woken, or
 /// `deadline` (the monotonic clock, in nanoseconds) passes.
 pub const commitWait = if (preempt) commitWaitApart else commitWaitIn;
@@ -5923,14 +5933,18 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool), compt
     const waiter = w.current.?;
     const f = &h.fiber;
     pausePoint();
-    const e = beginWait(cancel != null);
+    const e = if (cancel != null) beginWait(true) else beginPlainWait(waiter);
     if (cancel) |c| if (c.load(.seq_cst)) return;
     // Taken by a worker with nothing else to do meanwhile: wait for it the
     // usual way.
     if (!(if (from == .next) takeFromNext(w, f) else w.ring.takeLast(f))) return;
-    h.done.waiter.store(waiter, .seq_cst);
-    h.done.epoch.store(e, .seq_cst);
-    h.done.status.store(Done.waited, .seq_cst);
+    // Read on this thread, or by the worker that ends the task once it has
+    // stopped and been woken elsewhere: every step of that hand-over is a
+    // seq_cst read-modify-write or a queue's release and acquire, so these
+    // stores need no fence of their own (an `xchg` each on x86).
+    h.done.waiter.store(waiter, .monotonic);
+    h.done.epoch.store(e, .monotonic);
+    h.done.status.store(Done.waited, .release);
     // The waiter is marked asleep by the task, once this switch has saved
     // it (`fiberMain`), so no waker queues it while it still runs.
     f.handoff = waiter;
@@ -5956,7 +5970,7 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool), compt
     if (now.returned) |done| {
         now.returned = null;
         endStack(now, done);
-        h.done.status.store(Done.ended, .seq_cst);
+        h.done.status.store(Done.ended, .release);
     }
 }
 
