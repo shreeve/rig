@@ -458,6 +458,17 @@ serve no HTTP.
 
 ### Compiler
 
+- **A task that never leaves its binding is recorded as a fork:**
+  `t = f(x)&`, declaring `t` in a block, where every later naming of `t`
+  is `>t`, `<t.cancel()`, or a read lend `?t`, and the task's record
+  (header, arguments, and result) takes at most 1 KiB, gets the storage
+  fact `task_record` (`storage.taskStaysInFrame`). A task moved,
+  returned, added to a `Tasks` set, stored, captured by a closure, or
+  bound again does not. Emit starts a fork through `rig.Task(T).frame`,
+  which records it on the fiber (`Fiber.fork`); nothing reads it yet. The
+  preemption monitor and the record held in the maker's frame build on it
+  (records/2026-11/free-fork-join).
+
 **A loop that folds integers runs by vectors.** A `for` over a List or a
 slice of integers whose body is only `s += x`, `s +%= x`, `s ^= x`,
 `s |= x`, or `s &= x`, `s` a local of the element's type, is lowered to
