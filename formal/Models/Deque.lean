@@ -1,7 +1,8 @@
 /-
-The fork deque of a worker (`Forks`, docs/history/records/2026-11/
-free-fork-join/runtime.md §3), as designed, before its Zig is written:
-a Chase-Lev deque of forks. Its owner pushes at `bottom` and takes
+The fork deque of a worker (`Forks` in src/sched.zig, designed in
+docs/history/records/2026-11/free-fork-join/runtime.md §3): a
+Chase-Lev deque of forks. The code's comments name the checks below
+that each of its orders answers. Its owner pushes at `bottom` and takes
 from `bottom`; thieves take the oldest at `top`, one at a time, by a
 compare-and-swap of `top`.
 
