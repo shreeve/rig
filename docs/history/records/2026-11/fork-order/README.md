@@ -128,3 +128,26 @@ and vector adds, 4% with small pages, 16% with scalar adds.
 The order is the program's, not the runtime's: `&` offers its call and the
 maker runs on. A fork-join over one array reads it forwards when the maker
 keeps the first half.
+
+## pup
+
+pup (Core Ultra 9 185H), Rig 08b2caf1a (with #1151's wider fold), both Rayon twins built fresh (LTO, one
+codegen unit), ab slot 590, quiet honoured; 20 rounds, the five arms in rotating order, 1 worker on P-core 6 and
+12 workers on P-cores 0-11; medians in ms, range in brackets ([raw/pup/board.txt](raw/pup/board.txt), every
+sample in [raw/pup/samples.txt](raw/pup/samples.txt), scripts in [scripts/](scripts/)).
+
+| | fork.rig (right half on the task) | rayon/ | fork-left.rig | rayon-right-first/ | A/A |
+|---|---:|---:|---:|---:|---:|
+| psum, 1 worker | 11.99 [11.50-12.59] | 11.89 [11.65-12.41] | 12.39 | 13.02 | 11.94 |
+| psum, 12 workers | 5.77 [5.26-6.18] | 4.72 [4.38-5.14] | 5.86 | 4.78 | 5.76 |
+| qsort, 1 worker | 272.1 [266.2-284.6] | 265.8 [263.0-273.9] | 257.1 | 282.2 | 270.6 |
+| qsort, 12 workers | 96.4 [89.6-107.1] | 120.4 [114.9-128.8] | 96.3 | 125.4 | 97.2 |
+
+- **psum, one worker:** in the same order Rig is level with Rayon (0.9% slower; the A/A reads 0.4%). The old
+  pair's 20% was the walk order (both runtimes lose 3-9% walking backward here) and the leaf's 16-byte vectors
+  (#1151).
+- **psum, 12 workers:** Rig 22% slower in either order: the cold first pass (huge-page zeroing of each worker's
+  first heap segment, and thread start), not the order.
+- **qsort, one worker:** Rig 2.4% slower in the same order and 3.3% faster in the old one; Rayon prefers its own
+  order by 6%.
+- **qsort, 12 workers:** Rig 20% faster than Rayon in either order.
