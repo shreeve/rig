@@ -1838,7 +1838,9 @@ index is pure, staying where it is (`pure_arg`); and for each
 assignment, which of its steps it evaluates into storage in their turn
 (`set_order`, [Assignments](#assignments)), for one that declares a
 binding, whether the binding holds its value, a pointer, or the address
-of the place it lends (`bind_hold`), and for a compound one, the call it
+of the place it lends (`bind_hold`), for one that binds a task,
+`t = f(x)&`, whether the task never leaves `t` (`task_stays`, below), and
+for a compound one, the call it
 lowers to, which assigns its result and finds its place once
 (`compound_call`: `rig.rem`, `@divTrunc`, `@shlExact`, a vector's lane
 shifts, saturating and checked lanes, a mask's operators); for each array literal,
@@ -2001,6 +2003,7 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | `results` | `__rig_res` | the several results a call gives, which each target of `q, r = f()` takes in its turn, or the names of `if f() as a, b` take; what no target takes (`_`) it drops at the statement's end | owned | statement, body |
 | `argument` (of `return a, b`) | `__rig_arg` | the parts of `return a, b`, made in their turn when a later part can leave after an earlier one that owns (`storage.hoistsResults`) | owned | call |
 | `held_header` | `__rig_header` | a parameter lent a `String`, or a `List` with no inline room, to write, which the body uses in a loop: its header, held for the body and written back by `defer`, which the parameter's name views (`storage.planHeldHeaders`); none where a task, a closure, or a `raw` block names the parameter, or the result holds a view | copy | block |
+| `task_record` | `__rig_task` | a fork: the record of a task made by `t = f(x)&`, an assignment written `=` that declares a fresh name in a block, not through an actor's handle, that stays in its maker's frame (`storage.taskStaysInFrame`, `storage.taskRecordIn`). Every later naming of `t` in the block is the task of `>t`, the self of `<t.cancel()`, or a read lend `?t`, outside every closure, so its drop, which waits, runs before the block ends; any other naming (a move, `return`, a `Tasks` add, a stored field, a closure's capture, an assignment) keeps it off, as does a record (header, arguments, and result) over `max_frame_task_bytes`, 1 KiB. The record counts in the frame (`typecheck.checkFrames`, `storage.taskRecordIn`); emit makes it in the slot, `var __rig_task_N = rig.Task(T).frame.spawn(f, .{ x })`, which records the fork on its fiber (`Fiber.fork`), and the binding starts it there, `t = __rig_task_N.start()` (`sched.startAt`) | owned | block |
 | `zig_temp` | (Zig's own) | a value made here whose address emit takes where Zig holds it: a leaf reached by address that no slot keeps (`leafStep` is `made`, not `dropsTemp`), a literal leaf, or a temporary array lent to a call that evaluates its arguments where they stand (`lendsTempArray`) | owned | statement |
 
 `owned` storage holds a value of its own, made there or taken; `copy`

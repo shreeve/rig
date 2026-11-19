@@ -458,6 +458,17 @@ serve no HTTP.
 
 ### Compiler
 
+- **A task that never leaves its binding is recorded as a fork:**
+  `t = f(x)&`, declaring `t` in a block, where every later naming of `t`
+  is `>t`, `<t.cancel()`, or a read lend `?t`, and the task's record
+  (header, arguments, and result) takes at most 1 KiB, gets the storage
+  fact `task_record` (`storage.taskStaysInFrame`). A task moved,
+  returned, added to a `Tasks` set, stored, captured by a closure, or
+  bound again does not. Emit starts a fork through `rig.Task(T).frame`,
+  which records it on the fiber (`Fiber.fork`); nothing reads it yet. The
+  preemption monitor and the record held in the maker's frame build on it
+  (records/2026-11/free-fork-join).
+
 **A loop that folds integers runs by vectors.** A `for` over a List or a
 slice of integers whose body is only `s += x`, `s +%= x`, `s ^= x`,
 `s |= x`, or `s &= x`, `s` a local of the element's type, is lowered to
@@ -833,6 +844,44 @@ arms.
 
 ### Runtime
 
+- **A fork its waiter reaches unstarted runs on the waiter's stack:** a
+  task not yet started that is next on its waiter's worker, at a `>t` or
+  the drop that waits for it, runs on the waiter's own stack and fiber
+  when the room left there is at least what its own stack would give
+  it: a dense stack's for a task that fits one, else a whole task's
+  stack, which a task's stack keeps while it has used no more than its
+  extra 1 MiB (`sched.runHere`, `roomFor`). No stack, no switch, and no
+  fiber of its own: the task's state is swapped into the waiter's fiber,
+  all but its stack guard. Where the room is short the wait hands off as
+  before, so no stack runs short: `main`'s 64 MiB never has the room, so
+  the forks `main` waits for hand off, one a level of a fork-join's
+  spine. A cancel of a task run inline reaches the fiber running it
+  (`Fiber.host`), and its next wait passes the cancel down to each level
+  whose waiter is canceled (`passCancelDown`,
+  formal/Models/InlineCancel.lean); a task started under a canceled
+  waiter starts canceled. A panic ends the levels one at a time, from
+  the innermost out, each as a task that panicked on a fiber of its own,
+  up to an isolate begun at that level (`Isolate.at`). A deadlock's
+  message names each task run inline on the way as `a task`, as before.
+  A wait with a deadline and a deterministic run run nothing inline.
+  `RIG_SCHED_STATS=1` counts the tasks run inline (`inlined`).
+  On the Mac (fork-order's fork.rig at three code placements, fork3.rig,
+  paired medians over 10 to 16 rounds, against #1171): a join with no
+  work costs 31 ns at one worker, against 63 (`nil`; Rayon 10); psum at
+  one worker 6.9-7.4 ms, against 7.7-8.1 and Rayon's 8.2; qsort at one
+  worker 143.9-145.4 ms, level with #1171 and 7-9% faster than Rayon, at
+  the same 502 MiB peak; both level at 10 workers. bench/tasks' chain is
+  54% faster than main's (46% faster than #1171's); its other rows,
+  bench/actors and bench/net level (records/2026-11/free-fork-join/inline.md).
+- **A yield check leaves a worker's own forks to the slice:** in a build
+  with yield checks (a program with local tasks, a target with no
+  preemption by signal), a check yields to its worker's own queues only
+  when a fiber that is not a fork waits in some worker's slots or ring,
+  pinned or global work waits, or a worker sleeps or searches; forks
+  alone, with every worker busy, wait a slice, 10 ms, as the monitor
+  leaves them (`sched.ownWorkWaits`). A fork-join so goes on
+  depth first, its waits taking its forks back, where it yielded to each
+  fork as it was made.
 - **A worker started ahead holds a few small pages, not a huge one:**
   the first segment a worker takes as it starts with `main` keeps small
   pages for its first 2 MiB and asks for huge pages for its second
@@ -844,6 +893,42 @@ arms.
   stays at 3.9 ms against Rayon's 4.6-4.7; fork.rig, Trig's
   `task.workers` programs and one-worker runs are not affected
   (docs/history/records/2026-11/early-memory/).
+- **A fork's record lies in its maker's frame:** a task the compiler
+  records as a fork (`task_record`: `t = f(x)&`, waited for in the
+  block that binds it) is made in a slot of its maker's frame and
+  started there (`sched.frameRecord`, `startAt`), with no allocation and
+  nothing to free; the record counts in the frame's size. Whoever runs
+  the fork leaves it on its isolate's list, its last access being
+  `Done`'s ended, and whoever reads ended takes it off under the
+  isolate's lock: the maker at its join or drop, or the isolate's
+  stopper once a panic left the maker's stack to it
+  (formal/Models/FrameRecord.lean). Taken off at the fork's end, as a
+  heap record is, a stopper could give that stack back before the
+  fork's last writes into it; a sanitized seeded run of the new isolate
+  case faulted on 18 of 20 seeds that way (test/cli/frame_record.sh,
+  concurrency-isolate).
+  On the Mac (fork-order's fork3.rig, paired medians over 20 rounds),
+  a join with no work costs 55 ns at one worker, against 62 with the
+  monitor's change alone and 68 before it (`nil`, 11% faster); psum and
+  qsort, and bench/tasks, actors and net, are level, but for
+  bench/tasks' chain, 12% faster.
+- **The preemption monitor leaves forks to the slice:** a fork, a task
+  bound by `t = f(x)&` that stays in its maker's frame and is waited for
+  there (`task_record`), no longer counts for the monitor's two looks
+  50 µs apart, which stop a fiber whose worker queued work at both with
+  none started between. Every other task, one added to a `Tasks` set,
+  returned, stored, or moved, and std's connections, and every fiber
+  woken, yielded, or stopped, keeps that bound. Forks still count for
+  the 10 ms slice, and count for the two looks too while a worker sleeps
+  or searches, so the stop that moves a maker still spreads a fork-join
+  over idle workers. A fork-join's own forks wait in its queues all the
+  time it runs, so on one worker it was stopped every 100 µs and the
+  monitor woke every 50 µs; now it runs unstopped and the monitor looks
+  once a millisecond (test/cli/preempt_forks.sh).
+  On the Mac (fork-order's fork.rig, paired medians over 24 rounds),
+  qsort at one worker is 15% faster, 139.4 ms against 163.1; psum at
+  one worker and both at 10 workers are level, as are bench/actors and
+  bench/net.
 - **An actor's method runs inline only with the room its own task
   would give it:** a call that finds the actor idle runs the method on
   the caller's stack when that stack has as much room left as the

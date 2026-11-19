@@ -22186,6 +22186,14 @@ const FrameWalker = struct {
                         try self.deferBody(c, f, kids[i + 1 ..]);
                         continue;
                     };
+                    // A fork's record, in a slot of this frame
+                    // (`storage.taskRecordIn`, `task_record`).
+                    if (frame) |f| if (kind == .block) if (try storage.taskRecordIn(ctx, c, node)) |task| {
+                        const bytes = (try storage.taskRecordBytes(ctx, task)).?;
+                        const byte = try ctx.intern(.{ .int = .{ .bits = 8, .signed = false } });
+                        const record = try ctx.intern(.{ .array = .{ .elem = byte, .len = try sema.ctInt(ctx, @intCast(bytes)) } });
+                        try f.append(ctx.allocator, .{ .ty = record, .name = "a task's record" });
+                    };
                     try self.walk(c, frame, false, self.copiedIn(node, c));
                 }
             },

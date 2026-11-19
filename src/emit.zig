@@ -402,6 +402,9 @@ pub const Emitter = struct {
     /// The result the `result_part` being emitted takes: `__rig_res_N[j]`,
     /// of the destructure whose target it is (`emitDestructure`).
     part_name: []const u8 = "",
+    /// The fork whose record the binding being emitted made in the slot
+    /// `name` (`task_record`): its value starts it there (`emitTask`).
+    task_slot: ?struct { call: Sexp, name: []const u8 } = null,
     /// Closure bodies being emitted around the current point. Each names
     /// its environment `__rig_self`, `__rig_self1`, ... so a closure
     /// inside another does not shadow the outer one's.
@@ -2356,6 +2359,7 @@ pub const Emitter = struct {
             .api_object => "__rig_obj",
             .results, .result_place => "__rig_res",
             .held_header => "__rig_header",
+            .task_record => "__rig_task",
             // The storage of these is another's: the header's value, the
             // capture it copies, or Zig's (`zigTemporary`).
             .header_copy, .as_copy, .zig_temp => "",
@@ -2891,6 +2895,19 @@ pub const Emitter = struct {
         const in_place = try self.need(self.facts.fillsInPlace(sexp), sexp);
         if (self.facts.symbols.items[sym].decl_pos == target.src.pos) {
             if (in_place) return self.emitFillBind(target, sym, expr);
+            // A fork's record is made in the slot of this frame its
+            // storage fact names (`task_record`), then started there.
+            if (self.facts.taskInFrame(expr)) {
+                const slot = try self.hiddenStorage(expr, .task_record, .owned, .next);
+                try self.w.print("var {s} = ", .{slot});
+                try self.emitTask(expr);
+                try self.w.writeAll(";\n");
+                try self.writeIndent(self.indent);
+                const saved = self.task_slot;
+                defer self.task_slot = saved;
+                self.task_slot = .{ .call = expr, .name = slot };
+                return self.emitBind(sexp, sym);
+            }
             try self.emitBind(sexp, sym);
         } else {
             const local = self.localBySym(sym) orelse return self.unsupported(target, "an assignment to this name");
@@ -9283,10 +9300,14 @@ pub const Emitter = struct {
     }
 
     /// `f(x)&`: the call started as a task, its arguments evaluated here
-    /// (`rig.Task(T).spawn`). A method's self goes by its address,
+    /// (`rig.Task(T).spawn`). A fork's record is made in its slot
+    /// (`rig.Task(T).frame.spawn`, `task_record`), and started there by
+    /// its binding (`emitSet`). A method's self goes by its address,
     /// which the runtime passes on, or reads when the method takes its
     /// self by value (`spawnMethod`).
     fn emitTask(self: *Emitter, sexp: Sexp) Error!void {
+        // A fork whose record its binding statement made in its slot.
+        if (self.task_slot) |ts| if (sameNode(ts.call, sexp)) return self.w.print("{s}.start()", .{ts.name});
         const callee = self.facts.calleeOf(sexp);
         // `c.m(x)&` through an actor's handle (`rig.actorSpawn`).
         if (self.facts.isActorCall(sexp)) {
@@ -9298,6 +9319,8 @@ pub const Emitter = struct {
             return self.w.print(" }}, {})", .{self.facts.callDepth(sexp) orelse 0});
         }
         try self.emitTypeTy(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped task"));
+        // A task that stays in its maker's frame, a fork, starts so.
+        if (self.facts.taskInFrame(sexp)) try self.w.writeAll(".frame");
         // Through a witness: its method, given self as it takes it.
         if (self.facts.dispatchOf(sexp)) |d| if (d == .static and !d.static.self_arg and d.static.self_mode != .value) {
             const recv = self.selfOf(sexp) orelse return self.unsupported(sexp, "a call through a witness without its self");

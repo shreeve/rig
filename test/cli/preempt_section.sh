@@ -39,8 +39,10 @@ source "$ROOT/test/cli/_lib.sh"
 command -v objdump >/dev/null || exit 0
 objdump --version 2>/dev/null | grep -q LLVM || [[ $(uname -s) == Linux ]] || exit 0
 
-# The functions of sched.zig whose code may sit in the program's section.
-allowed="current nowNs seed computed lock unlock lockGraph unlockGraph block unblock leadsOn taken free join waitEnd settleLeftCalls wakeLeft"
+# The functions of sched.zig whose code may sit in the program's section;
+# `frameRecord` and `filled` are a fork's record made in its maker's
+# frame, plain stores.
+allowed="current nowNs seed computed lock unlock lockGraph unlockGraph block unblock leadsOn taken free join waitEnd settleLeftCalls wakeLeft frameRecord filled"
 # The functions of tasks.zig whose code may not: the mailbox entries'
 # bodies, which take the actor's lock uncounted.
 apart="sendIn takeIn"
