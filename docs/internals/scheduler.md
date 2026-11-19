@@ -677,12 +677,16 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
   (`watchSlices`). A fork is a task that has not started and that the
   compiler found stays in its maker's frame and is waited for there:
   bound by `t = f(x)&` and named after only by `>t`, `<t.cancel()`, or
-  `?t` (the storage fact `task_record`, `Fiber.fork`). Every other fiber
-  in a worker's "run next" slots or ring, any other task made (one
-  added to a `Tasks` set, returned, stored, or moved, and std's
-  connections), one woken from a wait or by an event, one that yielded
-  or was stopped, an actor's runner, is counted as it is queued and as
-  it starts (`Worker.queued_woken`, `Worker.started_woken`). A worker
+  `?t` (the storage fact `task_record`, `Fiber.fork`). Each fork is
+  counted as its maker queues it and as a worker starts it
+  (`Worker.queued_forks`, `Worker.started_forks`), and the monitor
+  counts the fibers waiting in every worker's "run next" slots and
+  ring: more there than forks is a fiber that is not a fork waiting,
+  any other task made (one added to a `Tasks` set, returned, stored,
+  or moved, and std's connections), one woken from a wait or by an
+  event, one that yielded or was stopped, an actor's runner. Only forks
+  pay for the count; on pup, counting the others instead made a spawn
+  13% slower (141 ns against 125) and an actor's call 10%. A worker
   whose fiber has run a
   slice, 10 ms, while other work waits, forks included, or whose own
   queue held work at two looks in a row with no fiber started between
