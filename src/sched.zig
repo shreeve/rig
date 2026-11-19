@@ -5883,6 +5883,8 @@ pub fn Job(comptime T: type) type {
 fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool), comptime from: enum { next, ring }) void {
     const waiter = w.current.?;
     const f = &h.fiber;
+    // Layout control (never run): 96 bytes of nops.
+    if (@intFromPtr(h) == 1) asm volatile (".fill 96, 1, 0x90");
     pausePoint();
     const e = if (cancel != null) beginWait(true) else beginPlainWait(waiter);
     if (cancel) |c| if (c.load(.seq_cst)) return;
