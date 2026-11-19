@@ -2966,6 +2966,18 @@ pub const Pause = struct {
 /// never in a split build, and a plain variable rather than a cell.
 var test_pause: std.atomic.Value(?*Pause) = .init(null);
 
+/// The pause the next `stealPoint` holds, set by a test: a thief between
+/// copying a victim's fibers and claiming them (`Ring.stealFrom`). Test
+/// only, a plain variable rather than a cell.
+var test_steal_pause: std.atomic.Value(?*Pause) = .init(null);
+
+inline fn stealPoint() void {
+    if (test_steal_pause.load(.monotonic) == null) return;
+    const p = test_steal_pause.swap(null, .seq_cst) orelse return;
+    p.reached.store(true, .seq_cst);
+    while (!p.go.load(.seq_cst)) std.atomic.spinLoopHint();
+}
+
 /// In a test that set `test_pause`, hold here until it lets go: between
 /// a waiting point's last look at its cancel flag and the wait it begins.
 inline fn pausePoint() void {
@@ -5075,6 +5087,7 @@ const Ring = struct {
                 const g = victim.slots[(h +% i) % size].load(.monotonic) orelse return null;
                 r.slots[(own +% i -% 1) % size].store(g, .monotonic);
             }
+            if (builtin.is_test) stealPoint();
             if (victim.head.cmpxchgWeak(h, h +% n, .acq_rel, .monotonic) != null) continue;
             if (n > 1) r.tail.store(own +% n -% 1, .seq_cst);
             return first;
@@ -6854,6 +6867,39 @@ test "a ring's owner takes back its newest fiber, and a thief and the owner neve
     try std.testing.expectEqual(&fibers[0], thief2.stealFrom(&r).?);
     try std.testing.expect(!r.takeLast(&fibers[0]));
     try std.testing.expect(r.isEmpty());
+}
+
+test "a ring's owner takes back no fiber a thief has copied and is about to claim" {
+    // The ring holds A, B, X. A thief sees all three and copies the older
+    // two, A and B; before it claims them, the owner takes back X, then B.
+    // At most one of the two may end up with B, and the ring stays whole.
+    var fibers: [3]Fiber = undefined;
+    for (&fibers) |*f| f.* = .{ .run = undefined };
+    var r: Ring = .{};
+    var thief: Ring = .{};
+    for (&fibers) |*f| _ = r.push(f);
+    var pause: Pause = .{};
+    test_steal_pause.store(&pause, .seq_cst);
+    defer test_steal_pause.store(null, .seq_cst);
+    const Thief = struct {
+        fn run(t: *Ring, v: *Ring, got: *?*Fiber) void {
+            got.* = t.stealFrom(v);
+        }
+    };
+    var first: ?*Fiber = null;
+    const th = try std.Thread.spawn(.{}, Thief.run, .{ &thief, &r, &first });
+    while (!pause.reached.load(.seq_cst)) std.atomic.spinLoopHint();
+    const took_x = r.takeLast(&fibers[2]);
+    const took_b = r.takeLast(&fibers[1]);
+    pause.go.store(true, .seq_cst);
+    th.join();
+    var thief_b = first == &fibers[1];
+    while (thief.pop()) |g| thief_b = thief_b or g == &fibers[1];
+    try std.testing.expectEqual(&fibers[0], first.?);
+    try std.testing.expect(!(took_b and thief_b));
+    // Whatever is left is a ring, its head no further than its tail.
+    try std.testing.expect(r.tail.load(.seq_cst) -% r.head.load(.seq_cst) <= Ring.size);
+    _ = took_x;
 }
 
 test "a watch on a task's end, taken back, leaves its finish waking no one" {
