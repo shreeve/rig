@@ -57,6 +57,8 @@ Three experts on Opus 5.5 wrote to [brief.md](brief.md):
 
 ## The decisions (defaults)
 
+The owner approved these on 2026-11-18 ("Approve the defaults").
+
 1. Land #1156 and #1158 first; they decide the 12-worker board. The Rig session runs
    `ceil/pup-job.sh` with the early-start Rig, then with main once both land.
 2. Land the actor room fix (`actor-room`) on its own, ahead of the feature. It also brings the
