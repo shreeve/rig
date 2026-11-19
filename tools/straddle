@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+"""tools/straddle [--all] BIN [FUNC...]: the short loops of an arm64 Mac
+executable that cross a 4 KiB boundary, by function. A loop is a
+backward branch and its target, at most 256 bytes; an Apple core runs one
+that crosses a 4 KiB boundary slower (docs/history/records/2026-11/
+code-align, measure.md: qsort 15% slower at one worker). It reads the
+program's section, `__rig_text` (with --all, all of `__TEXT`); given FUNC
+names, only those functions' loops (a substring of the symbol). Exits 1
+when a loop it reports crosses, so a board can rebuild or flag an arm
+whose timed function has one."""
+import re
+import subprocess
+import sys
+
+MAX = 256
+
+def main(argv):
+    allsec = "--all" in argv
+    args = [a for a in argv if a != "--all"]
+    if not args or args[0] in ("-h", "--help"):
+        print(__doc__.strip(), file=sys.stderr)
+        return 2
+    binary, funcs = args[0], args[1:]
+    cmd = ["xcrun", "llvm-objdump", "-d", "--no-show-raw-insn"] + ([] if allsec else ["--section=__rig_text"]) + [binary]
+    out = subprocess.run(cmd, capture_output=True, text=True)
+    if out.returncode != 0:
+        print("straddle: %s" % out.stderr.strip(), file=sys.stderr)
+        return 2
+    fn, loops, hits = None, 0, []
+    for line in out.stdout.splitlines():
+        m = re.match(r"([0-9a-f]+) <(.*)>:", line)
+        if m:
+            fn = m.group(2)
+            continue
+        if funcs and not (fn and any(f in fn for f in funcs)):
+            continue
+        m = re.match(r"\s*([0-9a-f]+):\s+(b\.\w+|b|cbn?z|tbn?z)\s+(.*)", line)
+        if not m:
+            continue
+        t = re.search(r"0x([0-9a-f]+) <", m.group(3))
+        if not t:
+            continue
+        at, to = int(m.group(1), 16), int(t.group(1), 16)
+        if to > at:
+            continue
+        loops += 1
+        if to // 4096 != at // 4096 and at + 4 - to <= MAX:
+            hits.append("%s %x..%x (%d bytes)" % (fn, to, at + 4, at + 4 - to))
+    print("%s: %d loops, %d cross 4 KiB" % (binary, loops, len(hits)))
+    for h in hits:
+        print("    " + h)
+    return 1 if hits else 0
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
