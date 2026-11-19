@@ -63,6 +63,7 @@ comptime {
         owing,
         watch_thread,
         watch_word,
+        monitor_looks,
         exit_state,
     };
 }
@@ -80,6 +81,11 @@ pub const Fiber = struct {
     /// It runs on a dense stack when one can be had (`takeDense`): the
     /// compiler found nothing in it that needs a large one.
     dense: bool = false,
+    /// It is a fork: a task made by `t = f(x)&` that the compiler found
+    /// stays in its maker's frame and is waited for there
+    /// (`storage.taskStaysInFrame`, `tasks.Task(T).frame`). The
+    /// preemption monitor leaves it to the slice (`watchSlices`).
+    fork: bool = false,
     /// What its worker does once it has switched away for good: publish
     /// its end (`Header`), or nothing for `main`.
     done: ?*const fn (*Fiber) void = null,
@@ -100,11 +106,26 @@ pub const Fiber = struct {
     /// (`spendBudget`), so a socket that is always ready cannot keep it
     /// on its worker.
     budget: u8 = budget_size,
+    /// It is a fork counted as it was queued on a worker's "run next"
+    /// slots or ring (`Worker.queued_forks`); cleared as a worker starts
+    /// it, which counts it started.
+    counted: bool = false,
     /// The worker it runs on and no other, once pinned (`pinHere`): a
     /// local task, and the task that made one. It waits in that worker's
     /// `pinned` queue, never in a ring or the global queue, so no other
     /// worker takes it.
     home: ?*Worker = null,
+    /// Of a task run on its waiter's stack (`runHere`): the fiber that
+    /// runs it, whose wait a cancel of the task ends
+    /// (`interruptForCancel`); null otherwise.
+    host: std.atomic.Value(?*Fiber) = .init(null),
+    /// The innermost of the tasks this fiber runs on its own stack for
+    /// the waits it is in (`Inline`), or null.
+    inline_top: ?*Inline = null,
+    /// Set by a cancel of this fiber's task or of a task it runs inline:
+    /// its next wait a cancel may end passes the cancel down the tasks it
+    /// runs inline first (`passCancelDown`).
+    cancel_below: std.atomic.Value(bool) = .init(false),
 };
 
 /// Give back a stack a task that panicked left to its boundary
@@ -172,6 +193,9 @@ const Worker = struct {
     returned: ?*Fiber = null,
     /// Turns since it last looked at the global queue first.
     tick: u32 = 0,
+    /// When its yield checks first found forks alone waiting in its own
+    /// queues, or 0 (`ownWorkWaits`).
+    forks_since: i96 = 0,
     /// 1 once woken from its sleep, in its poller (`sleep`).
     woken: std.atomic.Value(u32) = .init(0),
     /// The kernel's queue of events it sleeps in (`Poller`), and the
@@ -216,12 +240,27 @@ const Worker = struct {
     rng: u32 = 1,
     /// What it did, which `RIG_SCHED_STATS=1` prints as `main` ends
     /// (`printStats`): fibers it ran, of them pinned ones, fibers it
-    /// stole, and times it slept. The watcher reads `slept` too
+    /// stole, times it slept, and tasks run inline (`inlined`). The
+    /// watcher reads `slept` too
     /// (`watchWanted`).
     ran: u64 = 0,
     ran_pinned: u64 = 0,
+    /// Tasks its fibers ran on their own stacks (`runHere`).
+    inlined: u64 = 0,
     stole: u64 = 0,
     slept: std.atomic.Value(u64) = .init(0),
+    /// How many forks it has queued on its own "run next" slots and ring
+    /// as it made them (`noteFork`), and how many counted forks it has
+    /// started, wherever they were queued (`noteStarted`). A fork is a
+    /// task the compiler found stays in its maker's frame and is waited
+    /// for there (`Fiber.fork`). The sums over every worker differ by the
+    /// forks waiting in some worker's slots or rings; every other fiber
+    /// waiting there (woken, yielded, stopped, an actor's runner, any
+    /// other task made) is what the preemption monitor's two looks hurry
+    /// (`watchSlices`) and a yield check yields to (`ownWorkWaits`), and
+    /// only forks pay for the count.
+    queued_forks: std.atomic.Value(u32) = .init(0),
+    started_forks: std.atomic.Value(u32) = .init(0),
     /// Its `slept` as the watcher began its last watch.
     watch_mark: std.atomic.Value(u64) = .init(0),
     /// How long it sleeps before it gives back what its heap holds free
@@ -430,6 +469,13 @@ noinline fn wakeApart(f: *Fiber) void {
 }
 
 fn wakeIn(f: *Fiber) void {
+    return wakeQueued(f, true);
+}
+
+/// `wakeIn` for `f`, which is `woken` unless it is a fork just made
+/// (`Fiber.fork`, `spawn`), which is counted (`Worker.queued_forks`) so
+/// the monitor can leave it to the slice.
+inline fn wakeQueued(f: *Fiber, comptime woken: bool) void {
     if (deterministic.*) return ready.append(std.heap.smp_allocator, f) catch rt.oom();
     countWake(f);
     defer if (builtin.is_test) {
@@ -441,6 +487,7 @@ fn wakeIn(f: *Fiber) void {
         global.push(f);
         return notifyNew();
     };
+    if (!woken) noteFork(w, f);
     if (w.batch != .none and f.home == null) {
         if (w.batch == .rest) {
             _ = w.ring.push(f);
@@ -572,10 +619,23 @@ fn requeue(f: *Fiber, _: ?*anyopaque) void {
     wakeLastIn(f);
 }
 
+/// In a deterministic run (`RIG_SEED`) of a build that sanitizes, let the
+/// seed switch to another ready fiber here: between the last accesses of
+/// a task's record that lies in its maker's frame (`tasks.Control.finish`,
+/// `leave`). So a test's seeds try the orders of
+/// formal/Models/FrameRecord.lean, and a write into a stack given back
+/// faults (`releaseStack`). Nothing in any other build.
+pub inline fn raceStep() void {
+    if (comptime !rt.sanitize) return;
+    if (!deterministic.* or current() == null) return;
+    if (ready.items.len > 0 and random(2) == 0) yield();
+}
+
 /// A yield check of a loop (`rt.turn`): yield when other work waits
 /// for this worker, in its "run next" slot or ring, or in the global
 /// queue, or take work that waits for a busy one (`claimWaiting`). Work
-/// a sleeping or searching worker can take is left to it.
+/// a sleeping or searching worker can take is left to it. Its own forks
+/// alone wait a slice, as the monitor leaves them (`ownWorkWaits`).
 pub noinline fn tick() void {
     const w = me() orelse return;
     // Deterministic: computing costs virtual time, which wakes the fibers
@@ -594,9 +654,64 @@ pub noinline fn tick() void {
     if (serviceNow(w)) return stopIn(.{ .run = afterTick });
     if (hasOwnWork(w)) {
         if (leftToIdle(w)) return;
-        return yield();
+        if (ownWorkWaits(w)) return yield();
+        return;
     }
     if (waiting.load(.monotonic) != 0) claimWaiting(w);
+}
+
+/// Whether the work in `w`'s own queues waits for its running fiber, as a
+/// yield check sees it: pinned fibers or the global queue's, a fiber in
+/// any worker's slots or ring that is not a fork (`nonForkWaits`), or any
+/// work while a worker sleeps or searches (`workersIdle`). Forks alone,
+/// with every worker busy, wait for the slice, as the monitor leaves them
+/// (`watchSlices`): a fork-join, whose own forks wait in its queues all
+/// the time it runs, goes on depth first, and its waits take them back.
+fn ownWorkWaits(w: *Worker) bool {
+    if (w.pinned.count.load(.seq_cst) != 0 or global.count.load(.monotonic) != 0) return true;
+    if (!nextHeld(w, .monotonic) and w.ring.isEmpty()) {
+        w.forks_since = 0;
+        return false;
+    }
+    if (workersIdle() or nonForkWaits()) return true;
+    const now = nowNs();
+    if (w.forks_since == 0) {
+        w.forks_since = now;
+        return false;
+    }
+    if (now - w.forks_since < fork_slice) return false;
+    w.forks_since = 0;
+    return true;
+}
+
+/// How long forks alone wait in a worker's queues before its yield checks
+/// yield to them: the monitor's slice.
+const fork_slice: i96 = 10 * std.time.ns_per_ms;
+
+/// Whether a fiber that is not a fork waits in some worker's slots or
+/// ring: more fibers wait there than forks do (`Worker.queued_forks`). A
+/// fork stolen before it starts is counted queued where it was made and
+/// started where it runs. Every count queued is read before every count
+/// started, so a fork queued and started between the reads counts as
+/// waiting at least, and the fibers are counted last, so one stolen
+/// meanwhile is counted at most once.
+fn nonForkWaits() bool {
+    const ws = workersNow();
+    var forks_queued: u32 = 0;
+    var forks_started: u32 = 0;
+    var fibers: u32 = 0;
+    for (ws) |*v| forks_queued +%= v.queued_forks.load(.monotonic);
+    for (ws) |*v| forks_started +%= v.started_forks.load(.monotonic);
+    for (ws) |*v| fibers += queuedCount(v);
+    const forks_waiting: i64 = @as(i32, @bitCast(forks_queued -% forks_started));
+    return @as(i64, fibers) > forks_waiting;
+}
+
+/// Whether a worker sleeps or searches: one could take the work that
+/// waits, forks included, so a fiber is hurried for them as for any
+/// work (`watchSlices`, `ownWorkWaits`).
+fn workersIdle() bool {
+    return sleepers.count.load(.seq_cst) != 0 or searching.load(.seq_cst) != 0;
 }
 
 /// On the worker's stack, after a yield check's stop (`tick`): service
@@ -741,7 +856,9 @@ fn claimWaiting(w: *Worker) void {
     // here.
     if (!hasOwnWork(w) and !othersWait(w)) return;
     if (leftToIdle(w)) return waiting.store(1, .monotonic);
-    if (hasOwnWork(w) or stealWaiting(w)) yield();
+    if (hasOwnWork(w)) {
+        if (ownWorkWaits(w)) yield();
+    } else if (stealWaiting(w)) yield();
 }
 
 /// Take into `w`'s ring work that waits for another busy worker, as
@@ -984,6 +1101,31 @@ const Preempt = struct {
     declined_at: [8]usize = @splat(0),
     declined_n: u32 = 0,
 };
+
+/// Note that `w`, on its own thread, queues on its own slots or ring the
+/// fork `f` it just made (`Worker.queued_forks`). A fork is queued once
+/// before it starts.
+inline fn noteFork(w: *Worker, f: *Fiber) void {
+    f.counted = true;
+    w.queued_forks.store(w.queued_forks.raw +% 1, .monotonic);
+}
+
+/// Note that `w`, on its own thread, starts `f`: if it is a fork counted
+/// queued (`noteFork`), count it started. Any other fiber pays one load.
+inline fn noteStarted(w: *Worker, f: *Fiber) void {
+    if (!f.counted) return;
+    f.counted = false;
+    w.started_forks.store(w.started_forks.raw +% 1, .monotonic);
+}
+
+/// How many fibers wait in `w`'s "run next" slots and ring, as the
+/// monitor reads them from its own thread (`watchSlices`): a moment's
+/// count, which a steal under way may leave a few off.
+fn queuedCount(w: *Worker) u32 {
+    var n: u32 = @min(w.ring.tail.load(.monotonic) -% w.ring.head.load(.monotonic), Ring.size);
+    inline for (&w.lifo) |*slot| n += @intFromBool(slot.load(.monotonic) != null);
+    return n;
+}
 
 /// Note that a signal to `w` was declined at `pc`.
 fn declined(w: *Worker, pc: usize) void {
@@ -1415,18 +1557,30 @@ fn stopMonitor() void {
 }
 
 /// Every period: signal each worker that has run one fiber since the
-/// last look while work waited for it all that time, work it had then
-/// and has still, having started none since (so the work waits no more
-/// than about two periods, as a yield check's turns let it); or that has
-/// run one for a slice while any work waits (`workWaits`); or whose
-/// timers are due or whose poller holds events. The period is the wait
-/// (`RIG_PREEMPT_WAIT_US`, 50 µs) while any worker has work waiting, 1
-/// ms while any runs a fiber, and twice as long each period every worker
-/// spends without, up to 10 ms. It ends as `main` ends (`stopMonitor`).
+/// last look while work waited in its own queues all that time, work it
+/// had then and has still, having started none since (so the work waits
+/// no more than about two periods, as a yield check's turns let it),
+/// when a fiber that is not a fork waited at both looks: in some
+/// worker's slots or ring (more fibers there than forks, `Worker.queued_forks`), or pinned to this one;
+/// or when a worker slept or searched at both, forks included, since one
+/// could then run the forks and the stop that moves the maker spreads the
+/// fork-join over the idle workers. Or signal one that has run a fiber
+/// for a slice while any work waits (`workWaits`), forks included; or
+/// whose timers are due or whose poller holds events. So forks alone are
+/// left to the slice only while every worker is busy, when no other could
+/// take them: a fork-join on one worker, or one that keeps every worker
+/// busy, runs on unstopped. The period is the wait
+/// (`RIG_PREEMPT_WAIT_US`, 50 µs) while a busy worker's queues hold work
+/// that the rule above hurries; 1 ms while any worker runs a fiber; and
+/// twice as long each period every worker spends without, up to 10 ms. It ends as `main` ends (`stopMonitor`).
 fn watchSlices(slice: i96, wait: i96) void {
     var seen: [max_workers]u32 = @splat(0);
     var since: [max_workers]i96 = @splat(0);
     var had: [max_workers]bool = @splat(false);
+    // Whether a fiber that is not a fork waited at the last look, and
+    // whether a worker slept or searched then.
+    var woken_had = false;
+    var idle_had = false;
     // Signals sent to each worker since it last switched, and when it is
     // signaled next once it has declined `resignal_free` of them.
     var tries: [max_workers]u32 = @splat(0);
@@ -1437,15 +1591,30 @@ fn watchSlices(slice: i96, wait: i96) void {
         if (stopping.load(.seq_cst)) return;
         rt.io().futexWaitTimeout(u32, &watch_word.raw, word, .{ .duration = .{ .raw = .{ .nanoseconds = period }, .clock = .awake } }) catch {};
         if (stopping.load(.seq_cst)) return;
+        monitor_looks.store(monitor_looks.raw +% 1, .monotonic);
         const now = nowReal();
+        const ws = workersNow();
+        const woken = nonForkWaits();
+        defer woken_had = woken;
+        // A worker sleeps or searches: a fork waiting at a busy worker could
+        // run there, so forks count as waiting, as every task does, and
+        // the stop that moves the maker spreads the fork-join over the
+        // idle workers. Only while every worker is busy, when no other
+        // could take them, are forks left to the slice.
+        const idle = workersIdle();
+        defer idle_had = idle;
         var busy = false;
-        var queued = false;
-        for (workersNow(), 0..) |*w, i| {
-            const runs = preOf(w).runs.load(.monotonic);
+        var hurry = false;
+        for (ws, 0..) |*w, i| {
+            const pre = preOf(w);
+            const runs = pre.runs.load(.monotonic);
             const running = @atomicLoad(?*Fiber, &w.current, .monotonic) != null;
             const work = queuedHere(w);
-            queued = queued or work;
+            const pinned = w.pinned.count.load(.monotonic) != 0;
             defer had[i] = work;
+            if (running and work) {
+                if (woken or pinned or idle) hurry = true;
+            }
             if (!running or runs != seen[i]) {
                 seen[i] = runs;
                 since[i] = now;
@@ -1454,7 +1623,7 @@ fn watchSlices(slice: i96, wait: i96) void {
                 continue;
             }
             busy = true;
-            const waited = work and had[i];
+            const waited = work and had[i] and ((woken and woken_had) or pinned or (idle and idle_had));
             if (!waited and !serviceDue(w, now) and (now - since[i] < slice or !workWaits(w))) continue;
             // Again until it stops: a signal that finds the fiber outside
             // the program's code does nothing. After `resignal_free` in a
@@ -1464,15 +1633,19 @@ fn watchSlices(slice: i96, wait: i96) void {
             if (tries[i] >= resignal_free and now < next_at[i]) continue;
             tries[i] += 1;
             if (tries[i] >= resignal_free) next_at[i] = now + resignalAfter(tries[i], wait);
-            _ = preOf(w).signals.fetchAdd(1, .monotonic);
-            const pre = preOf(w);
+            _ = pre.signals.fetchAdd(1, .monotonic);
             pre.signaling.lockApart();
             signalThread(pre.tid);
             pre.signaling.unlockApart();
         }
-        period = if (queued) wait else if (busy) std.time.ns_per_ms else @min(2 * period, 10 * std.time.ns_per_ms);
+        period = if (hurry) wait else if (busy) std.time.ns_per_ms else @min(2 * period, 10 * std.time.ns_per_ms);
     }
 }
+
+/// How many times the monitor has looked at the workers, for
+/// `RIG_SCHED_STATS=1`.
+var monitor_looks_var: std.atomic.Value(u64) = .init(0);
+const monitor_looks = split.cell(&monitor_looks_var, "sched.monitor_looks");
 
 /// How many signals in a row the monitor sends a worker that declines
 /// them, one a period, before it backs off (`watchSlices`).
@@ -1637,6 +1810,10 @@ pub fn beginWait(cancelable: bool) u32 {
     const f = current().?;
     f.wait.epoch +%= 1;
     f.wait.word.store(Wait.pack(f.wait.epoch, cancelable, Wait.about), .seq_cst);
+    // A cancel of a task this fiber runs inline, or of the one it runs
+    // them for, reaches the flags of the tasks inside it first, so the
+    // wait's own look at its flag sees it.
+    if (cancelable and f.cancel_below.load(.seq_cst)) passCancelDown(f);
     return f.wait.epoch;
 }
 
@@ -1729,7 +1906,18 @@ noinline fn interruptForCancelApart(f: *Fiber) void {
 }
 
 fn interruptForCancelIn(f: *Fiber) void {
-    _ = interruptIn(f, Wait.epochOf(f.wait.word.load(.seq_cst)), true);
+    // A task run inline waits on the fiber that runs it (`Fiber.host`),
+    // perhaps in a wait of a task inside it, whose flag the cancel has
+    // not set: the bit makes that fiber's next wait pass it down first
+    // (`passCancelDown`), and the wait it is in ends. The canceler's flag,
+    // then the bit, then the word; the waiter's word, then the bit, then
+    // its flag (formal/Models/InlineCancel.lean).
+    const p = f.host.load(.seq_cst) orelse f;
+    p.cancel_below.store(true, .seq_cst);
+    // The inline run ended meanwhile: the wait `p` may be in now is not
+    // the task's.
+    if (p != f and f.host.load(.seq_cst) != p) return;
+    _ = interruptIn(p, Wait.epochOf(p.wait.word.load(.seq_cst)), true);
 }
 
 /// The fibers waiting for one condition that another fiber or thread
@@ -3975,12 +4163,15 @@ fn printStats() void {
     const v = p.environ.getPosix("RIG_SCHED_STATS") orelse return;
     if (!std.mem.eql(u8, v, "1")) return;
     var buf: [320]u8 = undefined;
+    if (preempt) if (std.fmt.bufPrint(&buf, "rig: monitor: looked {d} times\n", .{monitor_looks.load(.monotonic)})) |line| {
+        _ = std.posix.system.write(2, line.ptr, line.len);
+    } else |_| {};
     for (workersNow(), 0..) |*w, i| {
         if (preempt) printDeclined(w, i);
         const line = (if (preempt)
-            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room), deepest stop {d} of {d} bytes\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped, preOf(w).deepest, preempt_room })
+            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, inlined {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room), deepest stop {d} of {d} bytes\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, w.inlined, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped, preOf(w).deepest, preempt_room })
         else
-            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw })) catch continue;
+            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, inlined {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, w.inlined })) catch continue;
         _ = std.posix.system.write(2, line.ptr, line.len);
     }
 }
@@ -4219,10 +4410,14 @@ fn workerMain(w: *Worker, n: usize) void {
 /// A worker started ahead of the work takes its heap's first segment
 /// now, by a record it takes and gives back: the segment's first page is
 /// written here, its fault taken while the worker has nothing to do,
-/// where it would otherwise fall on the first task it runs. A
-/// leak-checked build's records are not the heap's, and take none.
+/// where it would otherwise fall on the first task it runs. The segment
+/// keeps small pages for its first 2 MiB (`fast_alloc.startSmall`), so
+/// a worker that never runs a task holds a few of them, not a huge
+/// page. A leak-checked build's records are not the heap's, and take
+/// none.
 fn takeFirstSegment() void {
     if (!own_records) return;
+    rt.fast_alloc.startSmall();
     const p = rt.fast_alloc.allocRecord(256, .of(u64)) orelse rt.oom();
     rt.fast_alloc.freeRecord(p[0..256], .of(u64));
 }
@@ -4264,6 +4459,7 @@ fn loop(w: *Worker) void {
 
 fn runFiber(w: *Worker, f: *Fiber) void {
     w.ran += 1;
+    noteStarted(w, f);
     if (preempt) preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
     if (f.home != null) w.ran_pinned += 1;
     prepare(w, f);
@@ -5724,22 +5920,37 @@ const Walk = struct {
 
         /// The methods running on the fiber a step leads to, outermost
         /// first: from the one the step's call waits on, or every one
-        /// for a task's.
+        /// for a task's. A task the fiber runs inline on the way
+        /// (`Inline`) is `a task`, where it began among them, as it is
+        /// when it runs on a fiber of its own.
         fn methods(n: *Names, s: Step) void {
-            var list: [max_steps]*const Label = undefined;
+            var list: [max_steps]*Held = undefined;
             var count: usize = 0;
             var at = s.fiber.held;
             while (at) |h| : (at = h.next) {
                 if (count < list.len) {
-                    list[count] = h.doing;
+                    list[count] = h;
                     count += 1;
                 }
                 if (h == s.at) break;
             }
+            if (s.at == null) n.tasksAfter(s.fiber, null);
             while (count > 0) {
                 count -= 1;
-                n.add(list[count]);
+                n.add(list[count].doing);
+                n.tasksAfter(s.fiber, list[count]);
             }
+        }
+
+        /// `a task` for each task `f` runs inline that began right after
+        /// it took `held`, or with none held for null.
+        fn tasksAfter(n: *Names, f: *Fiber, held: ?*Held) void {
+            var k: usize = 0;
+            var at = f.inline_top;
+            while (at) |in| : (at = in.parent) {
+                if (in.held == held) k += 1;
+            }
+            for (0..k) |_| n.task();
         }
 
         fn add(n: *Names, l: *const Label) void {
@@ -5885,6 +6096,22 @@ pub const Header = struct {
     /// result (`abandon`).
     panicked: std.atomic.Value(bool) = .init(false),
     destroy: *const fn (*Header) void,
+    /// The flag a cancel of the task sets (`tasks.Control.canceled`), for
+    /// a cancel to pass to it while it runs inline (`passCancelDown`).
+    cancel: ?*std.atomic.Value(bool) = null,
+
+    /// The `destroy` of a record in its maker's frame (`frameRecord`), which
+    /// its waiter never frees (`tasks.Task.release`).
+    fn inFrame(_: *Header) void {
+        unreachable;
+    }
+
+    /// Whether the task has ended: `Done`'s `ended`, after which whoever
+    /// ran it touches its record no more.
+    pub fn endedOf(f: *Fiber) bool {
+        const h: *Header = @fieldParentPtr("fiber", f);
+        return h.done.status.load(.seq_cst) == Done.ended;
+    }
 
     pub fn end(f: *Fiber) void {
         const h: *Header = @fieldParentPtr("fiber", f);
@@ -5902,6 +6129,10 @@ pub const Header = struct {
 
     fn waitEndIn(h: *Header, cancel: ?*const std.atomic.Value(bool), deadline: ?i96) bool {
         if (h.done.isDone()) return true;
+        // Not started, and next on this worker, with room on this stack:
+        // run it here, on the waiter's own stack and fiber. A wait with a
+        // deadline sleeps on its timer instead.
+        if (deadline == null and h.fiber.sp == 0 and runHere(h, cancel)) return true;
         const b: Blocked = .{ .task = h };
         block(&b);
         defer unblock();
@@ -6002,6 +6233,7 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool), compt
     // goes on the waiter's count, so a fiber that makes tasks and waits
     // for each at once is stopped as one that computes.
     if (preempt and from == .ring) preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
+    noteStarted(w, f);
     if (f.home != null) w.ran_pinned += 1;
     checkOffOwnStack(w);
     switchTo(&waiter.sp, f.sp);
@@ -6016,21 +6248,153 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool), compt
     }
 }
 
-/// Start `f(args...)` as a fiber, ready to run, and give its record,
-/// and an `Extra` the record holds for the caller (`tasks.zig` keeps a
-/// task's `Control` there), which `f` gets first. A `local` task, and the
-/// fiber making it, are pinned to this worker (`pinHere`).
-pub const spawn = if (preempt) spawnApart else spawnIn;
+/// One task a fiber runs on its own stack for a wait it is in
+/// (`runHere`), in `runHere`'s frame: what the waiter had, given back as
+/// the task ends, and the links a cancel passes down
+/// (`passCancelDown`) and a panic walks up (`tasks.endInlineLevels`).
+/// Only the fiber reads them, over frames live on its stack.
+pub const Inline = struct {
+    /// The level the waiter itself runs inline, or null for the fiber's
+    /// own task; and the level inside this one, while one runs.
+    parent: ?*Inline,
+    child: ?*Inline = null,
+    header: *Header,
+    /// The waiter's cancel flag when its wait passes a cancel on to the
+    /// task (`tasks.Task.waitInto`), and the task's own.
+    waiter_cancel: ?*const std.atomic.Value(bool),
+    task_cancel: ?*std.atomic.Value(bool),
+    /// The waiter's state, all but its stack guard, which stays: an
+    /// overflow faults in the guard of the stack the frames are on.
+    state: rt.TaskState,
+    held: ?*Held,
+    home: ?*Worker,
+};
 
-/// `spawn` in a program built to be preempted: never inlined into the
-/// program's own code, and one call in all (`mustNotBeInCode`).
-noinline fn spawnApart(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool, dense_stack: bool) Spawned(T, Extra) {
-    return spawnIn(T, Extra, f, args, extra, local, dense_stack);
+/// Run the task of `h`, which has not started, on the waiter's own stack
+/// and fiber, and give true once it has ended; or give false, having
+/// claimed nothing, and the wait goes on as ever (`handoff`, or a park).
+/// Only the task waited for, only while it is next on this worker (in a
+/// "run next" slot, or the newest in the ring), and only when the room
+/// left on this stack is at least what the task's own stack would give
+/// it (`roomFor`), so no stack runs short. A waiter canceled before the
+/// wait passes the cancel on first, and the task then runs canceled.
+///
+/// The task's state is swapped into the waiter's fiber, which stays the
+/// one running (`current`): a wait in the task is the fiber's, which
+/// whatever ends it wakes; a deadlock's walk sees the innermost wait; and
+/// the monitor and the pin see one fiber, counted as a handoff counts it. A signal may stop the task's
+/// code and the fiber resume on another worker, so nothing read of this
+/// worker before the call is used after it. Off in a deterministic run,
+/// where the seed picks every fiber.
+fn runHere(h: *Header, cancel: ?*const std.atomic.Value(bool)) bool {
+    if (deterministic.*) return false;
+    if (builtin.is_test and test_no_inline) return false;
+    if (cancel) |c| if (c.load(.monotonic)) return false;
+    const w = me() orelse return false;
+    const f = w.current orelse return false;
+    if (!roomFor(f, &h.fiber)) return false;
+    const from_ring = !takeFromNext(w, &h.fiber);
+    if (from_ring and !w.ring.takeLast(&h.fiber)) return false;
+    // Counted started, if it was counted queued, as a handoff counts it;
+    // and one taken back from the ring as a fiber the worker's loop would
+    // have run from there, after the waiter parked, so the monitor does
+    // not stop a fork-join that takes back the work it spilled
+    // (`watchSlices`). One from a slot stays on the waiter's count.
+    noteStarted(w, &h.fiber);
+    if (preempt and from_ring) preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
+    var in: Inline = .{ .parent = f.inline_top, .header = h, .waiter_cancel = cancel, .task_cancel = h.cancel, .state = f.state, .held = f.held, .home = f.home };
+    h.fiber.host.store(f, .seq_cst);
+    if (in.parent) |p| p.child = &in;
+    f.inline_top = &in;
+    f.state = .{ .stack_guard = in.state.stack_guard };
+    // A cancel of the waiter that came after its look above: the task
+    // starts canceled, as the waiter's wait would have passed it on.
+    if (cancel) |c| if (c.load(.seq_cst)) if (h.cancel) |t| t.store(true, .seq_cst);
+    h.fiber.run(&h.fiber);
+    endInline(f, &in);
+    // Its last access: nothing reads the record after, and the waiter
+    // goes on as from a wait that read `ended`.
+    h.done.status.store(Done.ended, .release);
+    me().?.inlined += 1;
+    return true;
 }
 
-fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool, dense_stack: bool) Spawned(T, Extra) {
-    const Args = @TypeOf(args);
-    const Full = struct {
+/// Test only: set, a wait runs nothing inline, so a test reaches the
+/// handoff behind it. Never compiled outside a test, so never in a split
+/// build, and a plain variable rather than a cell.
+var test_no_inline = false;
+
+/// The task of the innermost level `in` of `f`'s inline runs has ended,
+/// or panicked: give the waiter back what it had.
+pub fn endInline(f: *Fiber, in: *Inline) void {
+    f.state = in.state;
+    f.home = in.home;
+    f.held = in.held;
+    f.inline_top = in.parent;
+    if (in.parent) |p| p.child = null;
+    in.header.fiber.host.store(null, .seq_cst);
+}
+
+/// The task of the innermost level `in` of `f`'s inline runs panicked
+/// and did not stop it (`tasks.endInlineLevels`): it ends so, as
+/// `abandon` ends a fiber, and its waiter gets back what it had.
+pub fn endInlinePanicked(f: *Fiber, in: *Inline) void {
+    const h = in.header;
+    h.panicked.store(true, .seq_cst);
+    endInline(f, in);
+    h.done.status.store(Done.ended, .release);
+}
+
+/// Whether the room left on `f`'s stack here is at least what the task
+/// of `t` would have on a stack of its own: what a dense stack gives, for
+/// one that fits one (`Fiber.dense`), else a whole task's stack,
+/// `rt.task_stack_promise`, which a large stack keeps while its fiber has
+/// used no more than `rt.task_stack_extra`. Each adds `inline_slack` for
+/// the frames from here to the task's own. A stack the runtime did not
+/// map, as `main`'s is not on a worker, has none.
+inline fn roomFor(f: *Fiber, t: *const Fiber) bool {
+    const own = if (t.dense and dense.guard != 0) rt.dense_stride - dense.guard - std.heap.pageSize() else rt.task_stack_promise;
+    const g = f.state.stack_guard;
+    const at = @frameAddress();
+    if (g.hi == 0 or at < g.hi or at - g.hi > g.len) return false;
+    return at - g.hi >= own + inline_slack;
+}
+
+/// The frames from `runHere` to a task's own, which the task's runner
+/// has below it on a stack of its own too, at most.
+const inline_slack: usize = 16 << 10;
+
+/// Pass a cancel down the tasks `f` runs inline (`Fiber.cancel_below`),
+/// from the outermost in: each whose waiter is canceled, and whose wait
+/// passes a cancel on, is canceled, as that waiter's wait would have done.
+/// Called by the fiber itself at a wait a cancel may end, and by a look at
+/// its task's flag (`tasks.canceledHere`).
+pub const passCancelDown = if (preempt) passCancelDownApart else passCancelDownIn;
+
+/// `passCancelDown` in a program built to be preempted: never inlined
+/// into the program's own code (`mustNotBeInCode`).
+noinline fn passCancelDownApart(f: *Fiber) void {
+    passCancelDownIn(f);
+}
+
+fn passCancelDownIn(f: *Fiber) void {
+    f.cancel_below.store(false, .seq_cst);
+    var base = f.inline_top orelse return;
+    while (base.parent) |p| base = p;
+    var at: ?*Inline = base;
+    while (at) |in| : (at = in.child) {
+        const c = in.waiter_cancel orelse continue;
+        if (!c.load(.seq_cst)) continue;
+        if (in.task_cancel) |t| t.store(true, .seq_cst);
+    }
+}
+
+/// A task's record: its `Job`, an `Extra` it holds for the caller
+/// (`tasks.zig` keeps a task's `Control` there), which `f` gets first,
+/// and `f`'s arguments. On the heap (`spawn`), or in a slot of its
+/// maker's frame (`frameRecord`, then `startAt`).
+pub fn Record(comptime T: type, comptime Extra: type, comptime f: anytype, comptime Args: type) type {
+    return struct {
         job: Job(T),
         extra: Extra = .{},
         args: Args,
@@ -6055,17 +6419,71 @@ fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: an
         noinline fn destroyApart(h: *Header) void {
             destroy(h);
         }
+
+        /// The record, filled: `destroy` frees it, unless it lies in its
+        /// maker's frame (`in_frame`), whose end lets it go.
+        inline fn filled(args: Args, extra: Extra, dense_stack: bool, comptime fork: bool, comptime in_frame: bool) @This() {
+            const destroys = if (in_frame) Header.inFrame else if (preempt) destroyApart else destroy;
+            return .{ .job = .{ .header = .{ .fiber = .{ .run = start, .done = Header.end, .dense = dense_stack, .fork = fork }, .destroy = destroys } }, .extra = extra, .args = args };
+        }
     };
+}
+
+/// Start `f(args...)` as a fiber, ready to run, and give its record,
+/// and an `Extra` the record holds for the caller (`tasks.zig` keeps a
+/// task's `Control` there), which `f` gets first. A `local` task, and the
+/// fiber making it, are pinned to this worker (`pinHere`). A `fork` is
+/// recorded on the fiber (`Fiber.fork`).
+pub const spawn = if (preempt) spawnApart else spawnIn;
+
+/// `spawn` in a program built to be preempted: never inlined into the
+/// program's own code, and one call in all (`mustNotBeInCode`).
+noinline fn spawnApart(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool, dense_stack: bool, comptime fork: bool) Spawned(T, Extra) {
+    return spawnIn(T, Extra, f, args, extra, local, dense_stack, fork);
+}
+
+fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool, dense_stack: bool, comptime fork: bool) Spawned(T, Extra) {
+    const Full = Record(T, Extra, f, @TypeOf(args));
     if (!started.*) startWorkers();
     const full = createRecord(Full);
-    full.* = .{ .job = .{ .header = .{ .fiber = .{ .run = Full.start, .done = Header.end, .dense = dense_stack }, .destroy = if (preempt) Full.destroyApart else Full.destroy } }, .extra = extra, .args = args };
+    full.* = Full.filled(args, extra, dense_stack, fork, false);
+    return startIn(Full, full, local, fork);
+}
+
+/// A record of `f(args...)`, filled and not yet started, for a slot of
+/// its maker's frame (the storage fact `task_record`): a fork's. Plain
+/// stores, which the slot takes where it lies; `startAt` starts it there.
+pub inline fn frameRecord(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, dense_stack: bool) Record(T, Extra, f, @TypeOf(args)) {
+    return Record(T, Extra, f, @TypeOf(args)).filled(args, extra, dense_stack, true, true);
+}
+
+/// Start the fork whose record `full` lies in its maker's frame
+/// (`frameRecord`), as `spawn` starts one on the heap. Its `Job.free` frees
+/// nothing (`Header.inFrame`): the frame's end lets it go, once its
+/// waiter has read `Done`'s `ended` (`tasks.Task.release`).
+pub const startAt = if (preempt) startAtApart else startAtIn;
+
+/// `startAt` in a program built to be preempted: never inlined into the
+/// program's own code (`mustNotBeInCode`).
+noinline fn startAtApart(full: anytype, local: bool) Spawned(@TypeOf(full.job.result), @TypeOf(full.extra)) {
+    return startAtIn(full, local);
+}
+
+fn startAtIn(full: anytype, local: bool) Spawned(@TypeOf(full.job.result), @TypeOf(full.extra)) {
+    if (!started.*) startWorkers();
+    return startIn(@TypeOf(full.*), full, local, true);
+}
+
+inline fn startIn(comptime Full: type, full: *Full, local: bool, comptime fork: bool) Spawned(@TypeOf(full.job.result), @TypeOf(full.extra)) {
+    const Extra = @TypeOf(full.extra);
     // An `Extra` that names its task's fiber is given it, for a cancel to
     // reach the fiber's wait (`interruptForCancel`), and one that records
     // its task somewhere does so before the task can run (`made`).
     if (@hasField(Extra, "fiber")) full.extra.fiber = &full.job.header.fiber;
+    if (@hasField(Extra, "canceled")) full.job.header.cancel = &full.extra.canceled;
     if (@hasDecl(Extra, "made")) full.extra.made();
     if (local) full.job.header.fiber.home = pinHereIn();
-    wakeIn(&full.job.header.fiber);
+    wakeQueued(&full.job.header.fiber, !fork);
     return .{ .job = &full.job, .extra = &full.extra };
 }
 
@@ -7241,7 +7659,7 @@ test "workers that return dense stacks at once do not overrun the list of their 
         fn first(_: *anyopaque) callconv(.c) void {
             dense.guard = 64 << 10;
             var jobs: [workers_n]*Job(u64) = undefined;
-            for (&jobs) |*j| j.* = spawn(u64, Unit, trims, .{}, .{}, false, false).job;
+            for (&jobs) |*j| j.* = spawn(u64, Unit, trims, .{}, .{}, false, false, false).job;
             var total: u64 = 0;
             for (jobs) |j| {
                 total += j.join();
@@ -7359,7 +7777,7 @@ test "a worker whose first stacks cannot be mapped maps them as it needs them" {
             map_fails_for_test = false;
             for (workersNow()[1..]) |*w| mapped += w.stacks.fresh_left;
             var jobs: [64]*Job(u64) = undefined;
-            for (&jobs) |*j| j.* = spawn(u64, Unit, one, .{}, .{}, false, false).job;
+            for (&jobs) |*j| j.* = spawn(u64, Unit, one, .{}, .{}, false, false, false).job;
             for (jobs) |j| {
                 total += j.join();
                 j.free();
@@ -7439,7 +7857,7 @@ test "askWorkers before any task starts no worker, and sets how many the first t
             first = askWorkers(5);
             again = askWorkers(3);
             after_ask = started.*;
-            const j = spawn(u64, Unit, one, .{}, .{}, false, false).job;
+            const j = spawn(u64, Unit, one, .{}, .{}, false, false, false).job;
             _ = j.join();
             j.free();
             waitStarting();
@@ -7629,7 +8047,7 @@ test "many workers run many fibers, each waited for, and their results add up" {
         fn first(_: *anyopaque) callconv(.c) void {
             var jobs: [2000]*Job(u64) = undefined;
             for (0..50) |_| {
-                for (&jobs, 0..) |*j, i| j.* = spawn(u64, Unit, leaf, .{@as(u64, i)}, .{}, false, false).job;
+                for (&jobs, 0..) |*j, i| j.* = spawn(u64, Unit, leaf, .{@as(u64, i)}, .{}, false, false, false).job;
                 for (jobs) |j| {
                     sum += j.join();
                     j.free();
@@ -7656,7 +8074,7 @@ test "a task waited for as soon as it is made runs by handoff, and one that stop
         }
         fn first(_: *anyopaque) callconv(.c) void {
             for (0..20000) |i| {
-                const j = spawn(u64, Unit, leaf, .{@as(u64, i)}, .{}, false, false).job;
+                const j = spawn(u64, Unit, leaf, .{@as(u64, i)}, .{}, false, false, false).job;
                 sum += j.join();
                 j.free();
             }
@@ -7687,7 +8105,7 @@ test "local tasks and the fiber that made them stay on its worker, woken there b
         fn local(_: *Unit, home: *Worker, i: u64) u64 {
             var got: u64 = 0;
             for (0..4) |k| {
-                const j = spawn(u64, Unit, leaf, .{i * 4 + k}, .{}, false, false).job;
+                const j = spawn(u64, Unit, leaf, .{i * 4 + k}, .{}, false, false, false).job;
                 yield();
                 if (me().? != home) _ = moved.fetchAdd(1, .seq_cst);
                 got += j.join();
@@ -7699,7 +8117,7 @@ test "local tasks and the fiber that made them stay on its worker, woken there b
         fn first(_: *anyopaque) callconv(.c) void {
             var jobs: [200]*Job(u64) = undefined;
             const home = me().?;
-            for (&jobs, 0..) |*j, i| j.* = spawn(u64, Unit, local, .{ home, @as(u64, i) }, .{}, true, false).job;
+            for (&jobs, 0..) |*j, i| j.* = spawn(u64, Unit, local, .{ home, @as(u64, i) }, .{}, true, false, false).job;
             for (jobs) |j| {
                 sum += j.join();
                 j.free();
@@ -7736,7 +8154,7 @@ test "a fiber waiting on a pipe wakes when its other end is written, and a deadl
         fn first(_: *anyopaque) callconv(.c) void {
             const fds = testPipe();
             const r = register(fds[0]).?;
-            const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false, false).job;
+            const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false, false, false).job;
             while (true) {
                 const seen = edges(r, Registration.readable);
                 var b: [1]u8 = undefined;
@@ -7830,7 +8248,7 @@ test "a moving deadline sets its timer once for many waits, moves it when it com
         fn first(_: *anyopaque) callconv(.c) void {
             const fds = testPipe();
             const r = register(fds[0]).?;
-            const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false, false).job;
+            const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false, false, false).job;
             // A timer of each wait's own: one put in and one taken out
             // for each wait that sleeps.
             var at = test_heap_work.load(.seq_cst);
@@ -7896,7 +8314,7 @@ test "a cancel ends a wait by a moving deadline, which is taken back after" {
         fn first(_: *anyopaque) callconv(.c) void {
             const fds = testPipe();
             const r = register(fds[0]).?;
-            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false, false).job;
+            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false, false, false).job;
             while (!began.load(.seq_cst)) yield();
             testNap(5 * std.time.ns_per_ms);
             const start = nowNs();
@@ -7953,7 +8371,7 @@ test "a wait begun after a moving deadline's timer read the deadline, which that
             const fds = testPipe();
             const r = register(fds[0]).?;
             var d: Deadline = .{};
-            const j = spawn(u8, Unit, writer, .{ fds[1], &d }, .{}, false, false).job;
+            const j = spawn(u8, Unit, writer, .{ fds[1], &d }, .{}, false, false, false).job;
             // The first wait sets the timer, 20 ms ahead, and an edge
             // ends it well before.
             first_got = waitReadyBy(r, Registration.readable, edges(r, Registration.readable), &d, nowNs() + 20 * std.time.ns_per_ms, false);
@@ -8019,7 +8437,7 @@ test "a cancel that lands after a wait on a descriptor last looked, but before i
             const fds = testPipe();
             const r = register(fds[0]).?;
             test_pause.store(&pause, .seq_cst);
-            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false, false).job;
+            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false, false, false).job;
             while (!pause.reached.load(.seq_cst)) yield();
             ctl.cancel();
             const start = nowNs();
@@ -8065,7 +8483,7 @@ test "an edge after a wait's call would block reaches it, though another waiter 
             const fds = testPipe();
             const r = register(fds[0]).?;
             test_pause.store(&pause, .seq_cst);
-            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false, false).job;
+            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false, false, false).job;
             while (!pause.reached.load(.seq_cst)) yield();
             // This fiber waits too, and is woken by the byte, before the
             // reader looks again, whose read came before it.
@@ -8114,7 +8532,7 @@ test "a cancel that lands as a waiter is about to hand its worker to a task stil
             const f = current().?;
             f.state.control = &outer;
             outer.fiber = f;
-            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false, false).job;
+            const j = spawn(Readiness, Unit, reader, .{r}, .{}, false, false, false).job;
             waited = j.waitEnd(&outer.canceled, null);
             if (!waited) inner.cancel();
             got = j.join();
@@ -8126,7 +8544,7 @@ test "a cancel that lands as a waiter is about to hand its worker to a task stil
             const fds = testPipe();
             const r = register(fds[0]).?;
             test_pause.store(&pause, .seq_cst);
-            const j = spawn(u8, Unit, waiter, .{r}, .{}, false, false).job;
+            const j = spawn(u8, Unit, waiter, .{r}, .{}, false, false, false).job;
             while (!pause.reached.load(.seq_cst)) yield();
             outer.cancel();
             pause.go.store(true, .seq_cst);
@@ -8139,6 +8557,9 @@ test "a cancel that lands as a waiter is about to hand its worker to a task stil
     };
     workers_override.* = 2;
     defer workers_override.* = null;
+    // The handoff's own race: the reader is not run inline.
+    test_no_inline = true;
+    defer test_no_inline = false;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
@@ -8253,7 +8674,7 @@ test "a timer set earlier than a sleeping worker's wakes it, though the timer's 
                 asleep = testSpinUntilOthersSleep();
             }
             if (!asleep) return;
-            const j = spawn(u8, Unit, napper, .{}, .{}, false, false).job;
+            const j = spawn(u8, Unit, napper, .{}, .{}, false, false, false).job;
             // The napper runs here, sets its timer on this worker, and
             // this fiber computes without a yield check: only the other
             // worker, woken for the timer, fires it and runs the napper.
@@ -8335,9 +8756,9 @@ test "a timer stays covered when the sleeper that woke for an earlier one leaves
                 // worker's heap: the first kicks one sleeper, which sleeps
                 // again until it; the second, later, kicks no one.
                 const t0 = nowNs() + 20 * std.time.ns_per_ms;
-                const a = spawn(u8, Unit, firstNapper, .{t0}, .{}, false, false).job;
+                const a = spawn(u8, Unit, firstNapper, .{t0}, .{}, false, false, false).job;
                 yield();
-                const b = spawn(u8, Unit, secondNapper, .{t0 + 20 * std.time.ns_per_ms}, .{}, false, false).job;
+                const b = spawn(u8, Unit, secondNapper, .{t0 + 20 * std.time.ns_per_ms}, .{}, false, false, false).job;
                 yield();
                 set = w.timers.heap.items.len == 2 and spinFor(w, @intCast(t0), t0 - 5 * std.time.ns_per_ms);
                 // This worker computes without a check: at the first
@@ -8384,14 +8805,14 @@ test "a lone worker's yield checks wake the fibers its timers and its poller mak
             return 0;
         }
         fn first(_: *anyopaque) callconv(.c) void {
-            const a = spawn(u8, Unit, napper, .{}, .{}, false, false).job;
+            const a = spawn(u8, Unit, napper, .{}, .{}, false, false, false).job;
             yield();
             napped_in_time = testSpinUntil(&napped, true);
             _ = a.join();
             a.free();
             const fds = testPipe();
             const r = register(fds[0]).?;
-            const b = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
+            const b = spawn(u8, Unit, reader, .{r}, .{}, false, false, false).job;
             yield();
             _ = std.posix.system.write(fds[1], "x", 1);
             read_in_time = testSpinUntil(&read, true);
@@ -8455,7 +8876,7 @@ test "of the fibers one look at a poller or one firing of timers makes ready, th
             for (0..k) |i| {
                 fds[i] = testPipe();
                 rs[i] = register(fds[i][0]).?;
-                js[i] = spawn(u8, Unit, reader, .{rs[i]}, .{}, false, false).job;
+                js[i] = spawn(u8, Unit, reader, .{rs[i]}, .{}, false, false, false).job;
             }
             yieldUntil(readersWait);
             for (fds) |fd| _ = std.posix.system.write(fd[1], "x", 1);
@@ -8473,7 +8894,7 @@ test "of the fibers one look at a poller or one firing of timers makes ready, th
                 _ = std.posix.system.close(fd[1]);
             }
             const due = nowNs() + 5 * std.time.ns_per_ms;
-            for (0..k) |i| js[i] = spawn(u8, Unit, napper, .{due}, .{}, false, false).job;
+            for (0..k) |i| js[i] = spawn(u8, Unit, napper, .{due}, .{}, false, false, false).job;
             yieldUntil(nappersWait);
             while (nowNs() < due) std.atomic.spinLoopHint();
             _ = w.timers.fire(nowNs());
@@ -8522,7 +8943,7 @@ test "a task made while its maker computes runs beside it, from the maker's next
             while (rounds < 10 and !ran.load(.seq_cst)) : (rounds += 1) {
                 testNapUntilOthersSleep();
                 maker_on = me();
-                const j = spawn(u8, Unit, beside, .{}, .{}, false, false).job;
+                const j = spawn(u8, Unit, beside, .{}, .{}, false, false, false).job;
                 // The task is in this worker's run-next slot, and this one
                 // computes, with a yield check each turn.
                 const until = nowNs() + 2 * std.time.ns_per_s;
@@ -8566,7 +8987,7 @@ test "a task's maker that computes keeps its worker while an idle worker runs wh
                 const home = me();
                 var moved = false;
                 child_on.store(null, .seq_cst);
-                const j = spawn(u8, Unit, child, .{}, .{}, false, false).job;
+                const j = spawn(u8, Unit, child, .{}, .{}, false, false, false).job;
                 // The child waits in this worker's run-next slot while
                 // this one computes, checking each turn: the check leaves
                 // it to the idle worker, which it wakes, and never yields.
@@ -8611,12 +9032,12 @@ test "a task's maker that computes yields to what it made when every other worke
         }
         fn first(_: *anyopaque) callconv(.c) void {
             _ = workersRunning();
-            const h = spawn(u8, Unit, hold, .{}, .{}, false, false).job;
+            const h = spawn(u8, Unit, hold, .{}, .{}, false, false, false).job;
             // Hand the holder to the other worker: yield until it runs there.
             const until = nowNs() + 2 * std.time.ns_per_s;
             while (!holding.load(.seq_cst) and nowNs() < until) yield();
             const home = me();
-            const j = spawn(u8, Unit, child, .{}, .{}, false, false).job;
+            const j = spawn(u8, Unit, child, .{}, .{}, false, false, false).job;
             while (child_on.load(.seq_cst) == null and nowNs() < until) tick();
             ok = child_on.load(.seq_cst) == home;
             release.store(true, .seq_cst);
@@ -8647,7 +9068,7 @@ test "a task's maker that computes yields to a local task it made, though a work
         fn first(_: *anyopaque) callconv(.c) void {
             _ = workersRunning();
             testNapUntilOthersSleep();
-            const j = spawn(u8, Unit, child, .{}, .{}, true, false).job;
+            const j = spawn(u8, Unit, child, .{}, .{}, true, false, false).job;
             const until = nowNs() + 2 * std.time.ns_per_s;
             while (!ran.load(.seq_cst) and nowNs() < until) tick();
             ok = ran.load(.seq_cst);
@@ -8701,7 +9122,7 @@ test "two tasks that answer each other over a socket each wake the other into th
             const fds = testTcpPair();
             const rs = [2]*Registration{ register(fds[0]).?, register(fds[1]).? };
             count.fibers[0].store(current().?, .seq_cst);
-            const j = spawn(u8, Unit, server, .{rs[1]}, .{}, false, false).job;
+            const j = spawn(u8, Unit, server, .{rs[1]}, .{}, false, false, false).job;
             for (0..trips) |_| {
                 send(rs[0]);
                 receive(rs[0]);
@@ -8766,7 +9187,7 @@ test "a deterministic run waits for bytes on their way on a socket before its cl
             for (0..200) |_| {
                 const fds = testTcpPair();
                 const r = register(fds[0]).?;
-                const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false, false).job;
+                const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false, false, false).job;
                 if (waitReady(r, Registration.readable, edges(r, Registration.readable), nowNs() + std.time.ns_per_ms, false) != .ready) timeouts += 1;
                 _ = j.join();
                 j.free();
@@ -8849,7 +9270,7 @@ test "a run-next fiber that wakes no worker is handed on at its maker's next rec
         fn first(_: *anyopaque) callconv(.c) void {
             _ = workersRunning();
             testNapUntilOthersSleep();
-            const j = spawn(u8, Unit, mark, .{}, .{}, false, false).job;
+            const j = spawn(u8, Unit, mark, .{}, .{}, false, false, false).job;
             // Computing in recursion: each call reads `waiting`, as
             // `rt.tickCall` does.
             const until = nowNs() + 2 * std.time.ns_per_s;
@@ -8892,14 +9313,14 @@ test "a run-next fiber made as the other worker goes to sleep is handed on at it
                 ran.store(false, .seq_cst);
                 // A task the other worker runs, which ends at once: that
                 // worker then looks for work, finds none, and sleeps.
-                const h = spawn(u8, Unit, helper, .{}, .{}, false, false).job;
+                const h = spawn(u8, Unit, helper, .{}, .{}, false, false, false).job;
                 yield();
                 while (!ended.load(.seq_cst)) std.atomic.spinLoopHint();
                 // Made a little later each round, so some round makes it
                 // as that worker goes to sleep.
                 const until = nowNs() + @as(i96, @intCast(round % 80)) * 100;
                 while (nowNs() < until) std.atomic.spinLoopHint();
-                const j = spawn(u8, Unit, mark, .{}, .{}, false, false).job;
+                const j = spawn(u8, Unit, mark, .{}, .{}, false, false, false).job;
                 // Computing in recursion: each call reads `waiting`, as
                 // `rt.tickCall` does. A fiber the checks lose never runs
                 // here; one left to the other worker, woken for it, runs
@@ -8960,7 +9381,7 @@ test "a run-next fiber whose notice another worker's check took is handed on at 
         /// `waiting`; once the maker has filled its slot too, take the
         /// flag at a recursive check, which yields to its own task.
         fn other(_: *Unit) u8 {
-            const g = spawn(u8, Unit, tiny, .{}, .{}, false, false).job;
+            const g = spawn(u8, Unit, tiny, .{}, .{}, false, false, false).job;
             y_ready.store(true, .seq_cst);
             while (!m_filled.load(.seq_cst)) std.atomic.spinLoopHint();
             tickCall();
@@ -8973,13 +9394,13 @@ test "a run-next fiber whose notice another worker's check took is handed on at 
         fn first(_: *anyopaque) callconv(.c) void {
             _ = workersRunning();
             testNapUntilOthersSleep();
-            const y = spawn(u8, Unit, other, .{}, .{}, false, false).job;
+            const y = spawn(u8, Unit, other, .{}, .{}, false, false, false).job;
             // Off to the other worker: this one takes `other` from its
             // slot, and the woken one this fiber from the ring.
             yield();
             while (!y_ready.load(.seq_cst)) std.atomic.spinLoopHint();
             // The flag is set already, so filling the slot leaves it.
-            const j = spawn(u8, Unit, mark, .{}, .{}, false, false).job;
+            const j = spawn(u8, Unit, mark, .{}, .{}, false, false, false).job;
             m_filled.store(true, .seq_cst);
             while (!y_claimed.load(.seq_cst)) std.atomic.spinLoopHint();
             recurse();
@@ -9056,10 +9477,10 @@ test "a run-next fiber filled as its worker switches, which then runs a fiber fr
                 // Each runs here, from this worker's slot, and waits: the
                 // computer with no timer, the napper on a timer in this
                 // worker's heap.
-                const g = spawn(u8, Unit, computer, .{}, .{}, false, false).job;
+                const g = spawn(u8, Unit, computer, .{}, .{}, false, false, false).job;
                 yield();
                 const t0 = nowNs() + 50 * std.time.ns_per_ms;
-                const f = spawn(u8, Unit, napper, .{t0}, .{}, false, false).job;
+                const f = spawn(u8, Unit, napper, .{t0}, .{}, false, false, false).job;
                 yield();
                 // Take the notices the two tasks' making left.
                 if (waiting.load(.monotonic) != 0) tickCall();
@@ -9136,10 +9557,10 @@ test "tasks made in turn and waited for in order start on the idle workers, woke
                 // All four wait in this worker's "run next" slots, which
                 // no sleeper looks in, and filling them wakes no worker
                 // (`wakeIn`).
-                const j1 = spawn(u8, Unit, lead, .{}, .{}, false, false).job;
-                const j2 = spawn(u8, Unit, rest, .{}, .{}, false, false).job;
-                const j3 = spawn(u8, Unit, rest, .{}, .{}, false, false).job;
-                const j4 = spawn(u8, Unit, rest, .{}, .{}, false, false).job;
+                const j1 = spawn(u8, Unit, lead, .{}, .{}, false, false, false).job;
+                const j2 = spawn(u8, Unit, rest, .{}, .{}, false, false, false).job;
+                const j3 = spawn(u8, Unit, rest, .{}, .{}, false, false, false).job;
+                const j4 = spawn(u8, Unit, rest, .{}, .{}, false, false, false).job;
                 // The wait hands this worker to the first while the
                 // others wait in its slots: the switch wakes a worker for
                 // them (`spread`), which takes the oldest (`stealNext`)
@@ -9192,7 +9613,7 @@ test "an idle worker wakes for the descriptors of a busy one" {
             const fds = testPipe();
             const r = register(fds[0]).?;
             read_on.store(null, .seq_cst);
-            const j = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
+            const j = spawn(u8, Unit, reader, .{r}, .{}, false, false, false).job;
             // Nap until the reader waits: this worker runs it, then sleeps
             // holding the descriptor, and wakes, which has a sleeping
             // worker watch (`passWatch`).
@@ -9265,7 +9686,7 @@ test "a sleeping worker that leaves its wait to trim its heap has another watch 
             home = pinHere();
             fds = testPipe();
             const r = register(fds[0]).?;
-            const j = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
+            const j = spawn(u8, Unit, reader, .{r}, .{}, false, false, false).job;
             const ready_by = nowNs() + 2 * std.time.ns_per_s;
             testNap(std.time.ns_per_ms);
             while (r.waiting.load(.seq_cst) == 0 and nowNs() < ready_by) testNap(std.time.ns_per_ms);
@@ -9363,7 +9784,7 @@ test "a busy worker's descriptors stay watched when the sleeper kicked to watch 
             // has slept through a whole watch. The bell wakes it, and the
             // sleeper it kicks runs the task instead of watching: that
             // worker computes, and so does this one.
-            const j = spawn(u8, Unit, spinner, .{}, .{}, false, false).job;
+            const j = spawn(u8, Unit, spinner, .{}, .{}, false, false, false).job;
             _ = waitReady(rung.?, Registration.readable, edges(rung.?, Registration.readable), null, false);
             if (set.load(.seq_cst)) {
                 const by = nowNs() + 100 * std.time.ns_per_ms;
@@ -9426,7 +9847,7 @@ test "a busy worker that took its first descriptor has a sleeping worker watch i
                 // which this worker runs and then comes back here (`loop`).
                 const fds = testPipe();
                 const r = register(fds[0]).?;
-                const j = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
+                const j = spawn(u8, Unit, reader, .{r}, .{}, false, false, false).job;
                 yield();
                 // No check from here: only the other worker's look at this
                 // one's poller sees the byte. The limit only ends a run
@@ -9507,7 +9928,7 @@ test "a busy worker's first descriptor, taken while worker 0 computes, has a sle
             const ok = computing.load(.seq_cst) and held == 0 and unwatched(nowReal() + 200 * std.time.ns_per_ms);
             const fds = testPipe();
             const r = register(fds[0]).?;
-            const j = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
+            const j = spawn(u8, Unit, reader, .{r}, .{}, false, false, false).job;
             yield();
             // No check from here, on this worker or worker 0: only worker
             // 2's look sees the byte. The limit only ends a run whose
@@ -9537,7 +9958,7 @@ test "a busy worker's first descriptor, taken while worker 0 computes, has a sle
                 on_one.store(false, .seq_cst);
                 computing.store(false, .seq_cst);
                 done.store(false, .seq_cst);
-                const j = spawn(u8, Unit, registrar, .{}, .{}, false, false).job;
+                const j = spawn(u8, Unit, registrar, .{}, .{}, false, false, false).job;
                 const by = nowNs() + 2 * std.time.ns_per_s;
                 while (!on_one.load(.seq_cst) and nowNs() < by) testNap(std.time.ns_per_ms);
                 // Computes, making no check, until the registrar is done.
@@ -9611,7 +10032,7 @@ test "while worker 0 computes, more sockets than a look reads, registered by ano
                 fds[i] = testPipe();
                 regs[i] = register(fds[i][0]).?;
             }
-            for (0..n) |i| jobs[i] = spawn(u8, Unit, reader, .{regs[i]}, .{}, false, false).job;
+            for (0..n) |i| jobs[i] = spawn(u8, Unit, reader, .{regs[i]}, .{}, false, false, false).job;
             const by = nowNs() + 2 * std.time.ns_per_s;
             while (waitingNow() < n and nowNs() < by) testNap(std.time.ns_per_ms);
             started_all.store(true, .seq_cst);
@@ -9629,7 +10050,7 @@ test "while worker 0 computes, more sockets than a look reads, registered by ano
         fn first(_: *anyopaque) callconv(.c) void {
             _ = pinHere();
             _ = workersRunning();
-            const j = spawn(u8, Unit, registrar, .{}, .{}, false, false).job;
+            const j = spawn(u8, Unit, registrar, .{}, .{}, false, false, false).job;
             const by = nowNs() + 3 * std.time.ns_per_s;
             while (!started_all.load(.seq_cst) and nowNs() < by) testNap(std.time.ns_per_ms);
             // Computes, making no check, from here until every reader ran.
@@ -9713,7 +10134,7 @@ test "a socket's event is seen within a few ms while worker 0 computes and every
             const ok = computing.load(.seq_cst) and on_two.load(.seq_cst) and held == 0 and allBusy(nowReal() + 200 * std.time.ns_per_ms);
             const fds = testPipe();
             const r = register(fds[0]).?;
-            const j = spawn(u8, Unit, reader, .{r}, .{}, false, false).job;
+            const j = spawn(u8, Unit, reader, .{r}, .{}, false, false, false).job;
             yield();
             if (ok and me() == &ws[1] and sleepers.count.load(.seq_cst) == 0) {
                 set.store(true, .seq_cst);
@@ -9743,8 +10164,8 @@ test "a socket's event is seen within a few ms while worker 0 computes and every
                 on_two.store(false, .seq_cst);
                 computing.store(false, .seq_cst);
                 done.store(false, .seq_cst);
-                const a = spawn(u8, Unit, looper, .{}, .{}, false, false).job;
-                const b = spawn(u8, Unit, spinner, .{}, .{}, false, false).job;
+                const a = spawn(u8, Unit, looper, .{}, .{}, false, false, false).job;
+                const b = spawn(u8, Unit, spinner, .{}, .{}, false, false, false).job;
                 const by = nowNs() + 2 * std.time.ns_per_s;
                 while (!(on_one.load(.seq_cst) and on_two.load(.seq_cst)) and nowNs() < by) testNap(std.time.ns_per_ms);
                 // Computes, making no check, as a recursion without a
@@ -9833,7 +10254,7 @@ test "a batch the watcher reads from a short-fibered worker's poller is not kept
                     regs[i] = register(fds[i][0]).?;
                 }
                 var jobs: [2]*Job(u8) = undefined;
-                for (0..2) |i| jobs[i] = spawn(u8, Unit, reader, .{regs[i]}, .{}, false, false).job;
+                for (0..2) |i| jobs[i] = spawn(u8, Unit, reader, .{regs[i]}, .{}, false, false, false).job;
                 const by = nowNs() + 2 * std.time.ns_per_s;
                 while (waitingNow() < 2 and nowNs() < by) testNap(std.time.ns_per_ms);
                 // Computes, making no check, from here until a reader says
@@ -9937,12 +10358,12 @@ test "the rest of a batch a worker keeps while its first fiber computes is taken
                     regs[i] = register(fds[i][0]).?;
                 }
                 var jobs: [2]*Job(u8) = undefined;
-                for (0..2) |i| jobs[i] = spawn(u8, Unit, reader, .{regs[i]}, .{}, false, false).job;
+                for (0..2) |i| jobs[i] = spawn(u8, Unit, reader, .{regs[i]}, .{}, false, false, false).job;
                 const by = nowNs() + 2 * std.time.ns_per_s;
                 while (waitingNow() < 2 and nowNs() < by) testNap(std.time.ns_per_ms);
                 // Waits for the writer: worker 0 sleeps in its poller,
                 // then reads both bytes as one batch of its own.
-                const w = spawn(u8, Unit, writer, .{}, .{}, false, false).job;
+                const w = spawn(u8, Unit, writer, .{}, .{}, false, false, false).job;
                 _ = w.join();
                 w.free();
                 for (jobs) |j| {
@@ -10027,8 +10448,8 @@ test "the blocking pool runs calls at once, counting a thread busy as it hands i
             return if (meet) blocking(meeting, .{}) else blocking(alone, .{});
         }
         fn pair(meet: bool) void {
-            const a = spawn(u64, Unit, caller, .{meet}, .{}, false, false).job;
-            const b = spawn(u64, Unit, caller, .{meet}, .{}, false, false).job;
+            const a = spawn(u64, Unit, caller, .{meet}, .{}, false, false, false).job;
+            const b = spawn(u64, Unit, caller, .{meet}, .{}, false, false, false).job;
             _ = a.join();
             _ = b.join();
             a.free();
@@ -10081,8 +10502,8 @@ test "past its soft bound, the blocking pool grows once a queued call has waited
             // the first's thread busy, waits for the monitor, which
             // starts a thread for it after `grow_after`, so the calls
             // overlap, as a call that blocks for good would need.
-            const a = spawn(u64, Unit, caller, .{}, .{}, false, false).job;
-            const b = spawn(u64, Unit, caller, .{}, .{}, false, false).job;
+            const a = spawn(u64, Unit, caller, .{}, .{}, false, false, false).job;
+            const b = spawn(u64, Unit, caller, .{}, .{}, false, false, false).job;
             _ = a.join();
             _ = b.join();
             a.free();
@@ -10146,7 +10567,7 @@ test "a cancel or a deadline ends a wait on the blocking pool, and the call runs
             f.state.deadline = null;
             @memset(&path_buf, 'z');
             // A cancel, once the call runs.
-            const j = spawn(u8, Unit, late, .{}, .{}, false, false).job;
+            const j = spawn(u8, Unit, late, .{}, .{}, false, false, false).job;
             const running = nowNs() + 5 * std.time.ns_per_s;
             while (calls.now.load(.seq_cst) == 0 and nowNs() < running) testNap(std.time.ns_per_ms);
             ctl.cancel();
@@ -10208,7 +10629,7 @@ test "RIG_SCHED_STATS counts: what each worker ran, stole, and slept" {
         }
         fn first(_: *anyopaque) callconv(.c) void {
             for (0..100) |_| {
-                const j = spawn(u8, Unit, leaf, .{}, .{}, true, false).job;
+                const j = spawn(u8, Unit, leaf, .{}, .{}, true, false, false).job;
                 _ = j.join();
                 j.free();
             }
@@ -10293,7 +10714,7 @@ test "a deterministic run waits for bytes on their way on a socket, though every
                 const fds = testTcpPair();
                 const r = register(fds[0]).?;
                 const w = register(fds[1]).?;
-                const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false, false).job;
+                const j = spawn(u8, Unit, writer, .{fds[1]}, .{}, false, false, false).job;
                 var got: usize = 0;
                 var buf: [64 * 1024]u8 = undefined;
                 while (got < 256 * 1024) {
@@ -10372,7 +10793,7 @@ test "a blocking call fills a buffer its caller lends, and a stoppable one takes
             return 0;
         }
         fn first(_: *anyopaque) callconv(.c) void {
-            const j = spawn(u8, Unit, caller, .{}, .{}, false, false).job;
+            const j = spawn(u8, Unit, caller, .{}, .{}, false, false, false).job;
             _ = j.join();
             j.free();
         }
@@ -10405,13 +10826,13 @@ test "a task's record is a block of its maker's heap, in a build that is not lea
         fn first(_: *anyopaque) callconv(.c) void {
             const a = rt.fast_alloc;
             // A first task, so the record's class has its page.
-            const warm = spawn(u8, Unit, one, .{0}, .{}, false, false).job;
+            const warm = spawn(u8, Unit, one, .{0}, .{}, false, false, false).job;
             _ = warm.join();
             const home = me();
             const taken = a.heapForTest().taken;
             var rounds: usize = 0;
             for (0..1000) |i| {
-                const j = spawn(u8, Unit, one, .{@as(u8, @truncate(i))}, .{}, false, false).job;
+                const j = spawn(u8, Unit, one, .{@as(u8, @truncate(i))}, .{}, false, false, false).job;
                 // Counted only while this fiber stays on its worker,
                 // whose heap is the one read.
                 if (me() != home) break;
@@ -10427,8 +10848,8 @@ test "a task's record is a block of its maker's heap, in a build that is not lea
             var sum: usize = 0;
             var freers: [64]*Job(u8) = undefined;
             for (&freers, 0..) |*f, i| {
-                const j = spawn(u8, Unit, one, .{@as(u8, @truncate(i))}, .{}, false, false).job;
-                f.* = spawn(u8, Unit, freer, .{j}, .{}, false, false).job;
+                const j = spawn(u8, Unit, one, .{@as(u8, @truncate(i))}, .{}, false, false, false).job;
+                f.* = spawn(u8, Unit, freer, .{j}, .{}, false, false, false).job;
             }
             for (freers) |f| {
                 sum += f.join();
@@ -10494,7 +10915,7 @@ test "a fiber that allocates, moves to another worker, and allocates again uses 
         }
         fn first(_: *anyopaque) callconv(.c) void {
             var jobs: [16]*Job(u8) = undefined;
-            for (&jobs) |*j| j.* = spawn(u8, Unit, hop, .{}, .{}, false, false).job;
+            for (&jobs) |*j| j.* = spawn(u8, Unit, hop, .{}, .{}, false, false, false).job;
             for (jobs) |j| {
                 _ = j.join();
                 j.free();
@@ -10502,7 +10923,7 @@ test "a fiber that allocates, moves to another worker, and allocates again uses 
             hop_lost = lost.load(.monotonic);
             // A heap kept across a switch, used on another thread.
             var stales: [8]*Job(u8) = undefined;
-            for (&stales) |*j| j.* = spawn(u8, Unit, stale, .{}, .{}, false, false).job;
+            for (&stales) |*j| j.* = spawn(u8, Unit, stale, .{}, .{}, false, false, false).job;
             for (stales) |j| {
                 _ = j.join();
                 j.free();

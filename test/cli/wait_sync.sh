@@ -102,8 +102,15 @@ need "sched.zig interrupt" "$(zbody "$zig" 'fn interruptIn[(]')" \
     "if (Wait.epochOf(w) != epoch) return false;" "if (state == Wait.woken) return false;" \
     "if (cancel and w & Wait.cancelable_bit == 0) return false;" \
     "& ~Wait.states) | Wait.woken, .seq_cst, .seq_cst)" "if (state == Wait.asleep) wakeIn(f);"
+# A cancel of a task run inline ends the wait of the fiber that runs it
+# (`Fiber.host`), after it sets that fiber's bit, which the fiber's next
+# wait reads after it begins (formal/Models/InlineCancel.lean): the
+# canceler's flag, then the bit, then the word.
 need "sched.zig interruptForCancel" "$(zbody "$zig" 'fn interruptForCancelIn[(]')" \
-    "interruptIn(f, Wait.epochOf(f.wait.word.load(.seq_cst)), true)"
+    "const p = f.host.load(.seq_cst) orelse f;" "p.cancel_below.store(true, .seq_cst);" \
+    "interruptIn(p, Wait.epochOf(p.wait.word.load(.seq_cst)), true)"
+need "sched.zig beginWait's bit" "$(zbody "$zig" 'pub fn beginWait[(]')" \
+    "if (cancelable and f.cancel_below.load(.seq_cst)) passCancelDown(f);"
 need "sched.zig Deadline.come" "$(zbody "$zig" 'fn come[(]')" \
     "const epoch = Wait.epochOf(f.wait.word.load(.seq_cst));" "return interrupt(f, epoch, false);"
 # The two that read the present epoch write the word only through

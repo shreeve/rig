@@ -2875,3 +2875,465 @@ test "task deep psum on eight workers, many rounds", '''
   for _ in 0..20
     total += psum(whole)
   print(total)
+
+code "task frame record where the task never leaves its binding", "= rig.Task(i64).frame.spawnDense(f, .{ 1 });", "var t = __rig_task_", "var u = __rig_task_", "= rig.Task(anyerror!i64).frame.spawnDense(h, .{ 3 });", "var v = __rig_task_", "var w = __rig_task_"
+  # A task bound to a fresh name and only waited for (`>t`), lent to
+  # read (`?u`), canceled (`<v.cancel()`), or dropped stays in its
+  # maker's frame (`task_record`): a fork, whose record is made in a slot
+  # of the frame and started there.
+  use std.task
+
+  fun f(x: Int) -> Int
+    x + 1
+
+  fun h(x: Int) -> Int!
+    task.check()!
+    x
+
+  fun g(t: ?Task[Int]) -> Int
+    1
+
+  t = f(1)&
+  u = f(2)&
+  print(>t, g(?u))
+  v = h(3)&
+  <v.cancel() catch 0
+  w = f(4)&
+
+code "task frame record not where the task leaves its binding", "var m = rig.Task(i64).spawn", "ts.add(rig.Task(i64).spawn", "var r = rig.Task(i64).spawn", "var q = rig.Task(i64).spawn", "var c = rig.Task(i64).spawn", "var b = rig.Task(i64).spawn", "var k = rig.Task(i64).spawn"
+  # A task moved (`<m`), added to a set, returned, assigned again,
+  # captured by a closure that moves it, or given an argument of more
+  # than 1 KiB by value keeps its record on the heap; so does a task
+  # stored in a field.
+  obj Holder
+    t: Task[Int]
+
+  fun f(x: Int) -> Int
+    x + 1
+
+  fun keep(t: Task[Int]) -> Int
+    >t
+
+  fun big(a: [512]Int) -> Int
+    a[0]
+
+  fun back() -> Task[Int]
+    r = f(9)&
+    r
+
+  m = f(5)&
+  print(keep(<m))
+  ts = Tasks[Int]()
+  !ts.add(f(6)&)
+  xs = >ts
+  arr: [512]Int = [512 of 0]
+  b = big(arr)&
+  print(>b)
+  q = f(7)&
+  q = f(8)&
+  print(>q)
+  bk = back()
+  print(>bk)
+  c = f(10)&
+  run = |<c| 0
+  print(run())
+  k = f(11)&
+  hd = Holder(t: <k)
+  kt = <hd.t
+  print(>kt)
+
+test "task frame records in a fork-join tree", seeds: 20, timeout: 30, '''
+  2147450880 2147450880 2048 ok
+'''
+  # Each fork's record lies in its maker's frame, the right half on a
+  # task, and is let go when the frame ends: psum's tree on any number of
+  # workers, and on one; a quicksort's, whose forks take and give back
+  # owned Lists.
+  use std.sort
+  use std.task
+
+  fun psum(xs: ?[]Int) -> Int
+    return xs.sum() if xs.len <= 64
+    mid = xs.len / 2
+    right = xs[mid..]
+    b = psum(?right)&
+    a = psum(xs[..mid])
+    a + >b
+
+  fun qsort(xs: List[Int]) -> List[Int]
+    if xs.len <= 16
+      new ys = <xs
+      sort.sort(!ys[..])
+      return ys
+    pivot = xs[xs.len / 2]
+    lo: List[Int] = List()
+    mid: List[Int] = List()
+    hi: List[Int] = List()
+    for x in xs
+      if x < pivot
+        !lo.push(x)
+      else if x > pivot
+        !hi.push(x)
+      else
+        !mid.push(x)
+    b = qsort(<hi)&
+    out = qsort(<lo)
+    !out.extend(?mid[..])
+    high = >b
+    !out.extend(?high[..])
+    out
+
+  xs: List[Int] = List()
+  for i in 0..65536
+    !xs.push(i)
+  whole = ?xs[..]
+  first = psum(whole)
+  task.workers(1)
+  second = psum(whole)
+  task.workers(4)
+  ys: List[Int] = List()
+  for i in 0..2048
+    !ys.push((i *% 7919) % 2048)
+  zs = qsort(<ys)
+  ok = "ok"
+  for i in 1..zs.len
+    ok = "unsorted" if zs[i - 1] > zs[i]
+  print(first, second, zs.len, ok)
+
+test "task frame records canceled, dropped unwaited, and in a loop", seeds: 20, timeout: 30, '''
+  canceled 0
+  dropped 3
+  early -1
+  loop 45
+'''
+  # A fork canceled (`<t.cancel()`), one dropped with no wait at its
+  # scope's end or at an early return, and one made afresh each pass of a
+  # loop: each record lies in its maker's frame and is let go once the
+  # fork has ended.
+  use std.task
+
+  fun slow(n: Int) -> Int!
+    for _ in 0..n
+      task.check()!
+    n
+
+  fun quick(n: Int) -> Int
+    n
+
+  fun cancels() -> Int
+    t = slow(1_000_000)&
+    <t.cancel() catch 0
+
+  fun drops() -> Int
+    t = quick(3)&
+    u = quick(4)&
+    >t
+
+  fun early(n: Int) -> Int
+    t = quick(n)&
+    return -1 if n > 0
+    >t
+
+  print("canceled", cancels())
+  print("dropped", drops())
+  print("early", early(5))
+  total = 0
+  for i in 0..10
+    t = quick(i)&
+    total += >t
+  print("loop", total)
+
+test "task frame record of a fork that panics, under an isolate", seeds: 20, timeout: 30, '''
+  0 -9
+  1 -9
+  2 -9
+'''
+  # A fork panics: its maker's wait passes the panic on, up to the
+  # isolate, which takes the ended fork's record off its list before it
+  # gives the stacks back.
+  use std.task
+
+  fun pick(xs: [3]Int, i: Int) -> Int
+    xs[i]
+
+  fun bad(i: Int) -> Int
+    pick([1, 2, 3], i)
+
+  fun maker(i: Int) -> Int
+    t = bad(i)&
+    u = bad(0)&
+    >u + >t
+
+  for k in 0..3
+    print(k, task.isolate(|+k| maker(9 + k)) catch -9)
+
+test "task inline forks on one worker", timeout: 30, '''
+  2147450880 2147450880
+'''
+  # On one worker each fork's waiter finds it unstarted and next, with a
+  # whole task's stack of room, and runs it on its own stack and fiber
+  # (`runHere`); `main`'s stack is exactly 64 MiB, so the forks `main`
+  # itself waits for hand off instead (test/cli/fork_inline.sh counts).
+  use std.task
+
+  fun psum(xs: ?[]Int) -> Int
+    return xs.sum() if xs.len <= 64
+    mid = xs.len / 2
+    right = xs[mid..]
+    b = psum(?right)&
+    a = psum(xs[..mid])
+    a + >b
+
+  task.workers(1)
+  xs: List[Int] = List()
+  for i in 0..65536
+    !xs.push(i)
+  whole = ?xs[..]
+  t = psum(?whole)&
+  print(psum(whole), >t)
+
+test "task inline cancel reaches the level that sleeps", timeout: 30, '''
+  0 -9 -9
+  1 -9 -9
+  2 -9 -9
+  3 -9 -9
+'''
+  # An isolate stops while a fork run inline `k` levels down sleeps for an
+  # hour. The cancel reaches the fiber's wait through the sleeping level's
+  # host; under an isolate of its own (`guarded`), each level passes it
+  # down from the one the stop canceled (`passCancelDown`). Either way the
+  # isolate ends at once.
+  use std.task
+  use std.time
+
+  fun pick(xs: [3]Int, i: Int) -> Int
+    xs[i]
+
+  fun nap(n: Int) -> Int!
+    if n == 0
+      time.sleep(ms: 3_600_000)!
+      return 0
+    t = nap(n - 1)&
+    >t!
+
+  fun guarded(n: Int) -> Int!
+    task.isolate(|+n| nap(n)!)!
+
+  fun boom() -> Int!
+    time.sleep(ms: 5)!
+    pick([1, 2, 3], 9)
+
+  fun both(k: Int, inner: Bool) -> Int!
+    a = boom()&
+    if inner
+      c = guarded(k)&
+      return >c! + >a!
+    b = nap(k)&
+    >b! + >a!
+
+  task.workers(1)
+  for k in 0..4
+    print(k, task.isolate(|+k| both(k, false)!) catch -9, task.isolate(|+k| both(k, true)!) catch -9)
+
+test "task inline under a canceled waiter starts canceled", timeout: 30, '''
+  canceled -1
+  woke
+  waiter -1
+'''
+  # A fork canceled, or waited for by a waiter canceled before its
+  # wait, runs inline canceled: its first waiting
+  # point fails at once, and nothing sleeps the hour.
+  use std.task
+  use std.time
+
+  fun nap() -> Int!
+    time.sleep(ms: 3_600_000)!
+    1
+
+  fun cancels() -> Int
+    t = nap()&
+    <t.cancel() catch -1
+
+  fun waiter() -> Int!
+    t = nap()&
+    time.sleep(ms: 3_600_000) catch print("woke")
+    >t!
+
+  fun outer() -> Int
+    w = waiter()&
+    <w.cancel() catch -1
+
+  task.workers(1)
+  print("canceled", cancels())
+  t = outer()&
+  print("waiter", >t)
+
+test "task inline fork that panics, under an isolate at each level", timeout: 30, '''
+  -9
+  -6
+  -9
+  2147450880
+'''
+  # A fork three levels inline panics: each level that does not stop it
+  # ends as a task that panicked on a fiber of its own, and its waiter
+  # passes it on, up to the isolate, whether that was begun outside every
+  # level or by a task run inline (`guard`). Then the stacks serve again.
+  use std.task
+
+  fun pick(xs: [3]Int, i: Int) -> Int
+    xs[i]
+
+  fun deep(n: Int, i: Int) -> Int
+    return pick([1, 2, 3], i) if n == 0
+    t = deep(n - 1, i)&
+    u = deep(n - 1, 0)&
+    >u + >t
+
+  fun guard(n: Int) -> Int
+    task.isolate(|+n| deep(n, 9)) catch -7
+
+  fun outer(n: Int) -> Int
+    t = guard(n)&
+    >t + 1
+
+  fun psum(xs: ?[]Int) -> Int
+    return xs.sum() if xs.len <= 64
+    mid = xs.len / 2
+    right = xs[mid..]
+    b = psum(?right)&
+    a = psum(xs[..mid])
+    a + >b
+
+  task.workers(1)
+  print(task.isolate(|| deep(3, 9)) catch -9)
+  w = outer(3)&
+  print(>w)
+  print(task.isolate(|| outer(0) + deep(4, 9)) catch -9)
+  xs: List[Int] = List()
+  for i in 0..65536
+    !xs.push(i)
+  whole = ?xs[..]
+  print(psum(whole))
+
+test "task inline fork of an actor's method that panics", timeout: 30, '''
+  -9
+  after
+'''
+  # A method run inline by its caller, on the stack an isolate runs its
+  # closure on, forks a task, which runs inline too and panics: the task
+  # ends as on a fiber of its own, the actor dies, and the isolate stops
+  # the panic.
+  use std.task
+
+  fun pick(xs: [3]Int, i: Int) -> Int
+    xs[i]
+
+  fun bad(i: Int) -> Int
+    pick([1, 2, 3], i)
+
+  obj Hub
+    n: Int
+
+    fun run(!@, i: Int) -> Int
+      t = bad(i)&
+      >t + @n
+
+  task.workers(1)
+  h = *Actor(Hub(n: 3))
+  print(task.isolate(|+h| (!h).run(9)) catch -9)
+  print("after")
+
+test "task inline forks that sleep, on one worker and on four", timeout: 30, '''
+  55 55
+'''
+  # A fork run inline sleeps: the fiber parks with the fork's frames on
+  # its stack, may resume on another worker, and the waiter goes on once
+  # the fork returns.
+  use std.task
+  use std.time
+
+  fun nap(n: Int) -> Int!
+    time.sleep(ms: 1)!
+    n
+
+  fun fib(n: Int) -> Int!
+    return nap(n)! if n < 2
+    t = fib(n - 1)&
+    u = fib(n - 2)&
+    >u! + >t!
+
+  fun run() -> Int
+    fib(10) catch -1
+
+  task.workers(1)
+  a = run()&
+  x = >a
+  task.workers(4)
+  b = run()&
+  print(x, >b)
+
+test "task inline hands off once a waiter has used its stack's extra room", timeout: 60, '''
+  40
+'''
+  # Each level holds 256 KiB of locals, so after a few levels inline the
+  # room left is less than a whole task's stack, and the wait hands off to
+  # the fork on a stack of its own, which then runs its own forks inline:
+  # no stack runs short (test/cli/fork_inline.sh counts the handoffs).
+  use std.task
+
+  fun fat(n: Int) -> Int
+    big: [32768]Int = [32768 of 1]
+    big[100 + n] = n
+    return 0 if n == 0
+    t = fat(n - 1)&
+    >t + big[100 + n] - n + big[1]
+
+  task.workers(1)
+  w = fat(40)&
+  print(>w)
+
+bomb "task inline fork of an actor's method that panics, on its runner", "an actor's method this task called panicked", timeout: 30
+  # `main`'s stack has no room for the method, so the actor's runner runs
+  # it; the task it forks runs inline on the runner's stack and panics.
+  # The task ends as on a fiber of its own, not at the runner's isolate,
+  # which its level did not begin (`Isolate.here`); the actor dies at its
+  # runner, and the panic passes to `main`, which ends the program.
+  use std.task
+
+  fun pick(xs: [3]Int, i: Int) -> Int
+    xs[i]
+
+  fun bad(i: Int) -> Int
+    pick([1, 2, 3], i)
+
+  obj Hub
+    n: Int
+
+    fun run(!@, i: Int) -> Int
+      t = bad(i)&
+      >t + @n
+
+  task.workers(1)
+  h = *Actor(Hub(n: 3))
+  print((!h).run(9))
+
+bomb "task inline deadlock names the task", "deadlock: these calls wait on each other, and none can go on: Hub.run -> a task -> Hub.get", prints: "before", timeout: 30
+  # A method waits on a task that calls its own actor; the task runs
+  # inline on the runner's stack, and the deadlock names it as it would
+  # on a fiber of its own.
+  obj Hub
+    n: Int
+
+    fun get(?@) -> Int
+      @n
+
+    fun run(!@, me: *Actor[Hub]) -> Int
+      t = peek(<me)&
+      >t
+
+  fun peek(h: *Actor[Hub]) -> Int
+    h.get()
+
+  h = *Actor(Hub(n: 3))
+  print("before")
+  print((!h).run(+h))
