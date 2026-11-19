@@ -239,3 +239,11 @@ it removes nothing:
 5. Run probes/pup-job.sh on pup before deciding anything for x86.
 6. Race Trig with probes/trig-ab.sh when the Mac is quiet, if the lead
    still wants align(64)'s time.
+
+## x86: pup (Rig session, ab slot 652)
+
+`probes/pup-job.sh` on pup's Core Ultra 9 185H (Meteor Lake), P-core 3 with its sibling idle, two
+runs: the synthetic loop at 160 offsets (1024-1151 by 1, and 4032-4094 by 2, which cross 4 KiB).
+The medians span 3.053-3.130 ms, a 2.4-2.5% spread in all, with no step where the loop crosses
+4 KiB (4032-4094: 3.055-3.119 ms), against 25-45% on the M5. On this x86 core a loop's place does
+not matter, so Linux keeps its layout. Samples in [raw/pup/](raw/pup/).
