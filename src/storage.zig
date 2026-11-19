@@ -2490,13 +2490,15 @@ pub fn taskRecordBytes(ctx: *SemContext, task: Sexp) !?u128 {
 /// an actor's handle, which the actor runs.
 pub fn frameTaskSite(ctx: *const SemContext, stmt: Sexp) ?Sexp {
     if (!stmt.isKind(.set)) return null;
+    // The value first: a task call is rare, and the name's lookup is not
+    // free (the frame count asks of every statement).
+    const value = ir.Set.value(stmt);
+    if (!value.isKind(.call) or ir.Call.task(value) == .nil) return null;
     if (rig.bindingKindOf(ir.Set.op(stmt)) != .default) return null;
     const target = ir.Set.target(stmt);
     if (target != .src) return null;
     const sym = ctx.symbolOf(target) orelse return null;
     if (ctx.symbols.items[sym].decl_pos != target.src.pos) return null;
-    const value = ir.Set.value(stmt);
-    if (!value.isKind(.call) or ir.Call.task(value) == .nil) return null;
     if (ctx.isActorCall(value)) return null;
     return value;
 }
