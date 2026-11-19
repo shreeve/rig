@@ -312,8 +312,8 @@ ceiling's Linux build links glibc (`-lc`; libc malloc, as Rust's); it was
 cross-compiled from the Mac for x86-64 Linux. On pup the monitor arm
 stops at its start with an errno Zig's wrapper treats as unreachable
 (`std/c.zig`, `errno`), even with SIGURG set and sent by system call, so
-the job leaves `mon` and `mon3` out; the Mac's boards measured the monitor
-alone.
+the job leaves out the arms that run it (`mon`, `mon3`, `all4`,
+`all43`); the Mac's boards measured them.
 
 ## Can Rig beat Rayon on psum at 12 workers on pup?
 
