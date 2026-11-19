@@ -381,3 +381,44 @@ test "isolate a panic in a task waiting in task.all", seeds: 20, timeout: 20, ''
 
   for k in 0..3
     print(k, task.isolate(|| outer()!) catch -9)
+
+test "isolate gives back a panicked maker's stack only after its fork's record is done with", seeds: 20, timeout: 20, '''
+  0 -9 27
+  1 -9 27
+  2 -9 27
+  3 -9 27
+'''
+  # A fork's record lies in its maker's frame (`t = spin(n)&`, waited for
+  # there). The maker panics while the fork runs on, and its stack goes
+  # to the isolate; the fork's end is written into the record after, and
+  # the isolate gives the stack back only once that last write is done
+  # (formal/Models/FrameRecord.lean). The tasks started next may take it
+  # at once; a build that sanitizes unmaps it, so a late write faults.
+  use std.task
+
+  fun pick(xs: [3]Int, i: Int) -> Int
+    xs[i]
+
+  fun spin(n: Int) -> Int
+    s = 0
+    for i in 0..n
+      s += i % 3
+    s
+
+  fun maker(n: Int) -> Int
+    t = spin(n)&
+    x = pick([1, 2, 3], 9)
+    x + >t
+
+  fun outer() -> Int
+    t = maker(20_000)&
+    >t
+
+  fun after() -> Int
+    a = spin(10)&
+    b = spin(10)&
+    c = spin(10)&
+    >a + >b + >c
+
+  for k in 0..4
+    print(k, task.isolate(|| outer()) catch -9, after())

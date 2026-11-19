@@ -844,6 +844,20 @@ arms.
 
 ### Runtime
 
+- **A fork's record lies in its maker's frame:** a task the compiler
+  records as a fork (`task_record`: `t = f(x)&`, waited for in the
+  block that binds it) is made in a slot of its maker's frame and
+  started there (`sched.frameRecord`, `startAt`), with no allocation and
+  nothing to free; the record counts in the frame's size. Whoever runs
+  the fork leaves it on its isolate's list, its last access being
+  `Done`'s ended, and whoever reads ended takes it off under the
+  isolate's lock: the maker at its join or drop, or the isolate's
+  stopper once a panic left the maker's stack to it
+  (formal/Models/FrameRecord.lean). Taken off at the fork's end, as a
+  heap record is, a stopper could give that stack back before the
+  fork's last writes into it; a sanitized seeded run of the new isolate
+  case faulted on 18 of 20 seeds that way (test/cli/frame_record.sh,
+  concurrency-isolate).
 - **The preemption monitor leaves forks to the slice:** a fork, a task
   bound by `t = f(x)&` that stays in its maker's frame and is waited for
   there (`task_record`), no longer counts for the monitor's two looks

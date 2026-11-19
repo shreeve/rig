@@ -2394,9 +2394,11 @@ pub const StorageKind = enum {
     /// so a loop keeps the header in registers.
     held_header,
     /// The record of a task made by `t = f(x)&` that stays in its
-    /// maker's frame and is waited for there (`storage.taskStaysInFrame`):
-    /// a fork. The runtime is told so as the task starts
-    /// (`rig.Task(T).frame`); emit makes no storage for it yet.
+    /// maker's frame and is waited for there (`storage.taskRecordIn`): a
+    /// fork. Emit makes it in this slot, `var __rig_task_N =
+    /// rig.Task(T).frame.spawn(f, .{ x })`, and starts it there,
+    /// `t = __rig_task_N.start()`; it counts in the frame
+    /// (`typecheck.checkFrames`).
     task_record,
     /// A value made here whose address emit takes where Zig holds it, in
     /// no slot: a leaf no statement slot keeps (`storage.leafStep` is
