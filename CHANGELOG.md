@@ -833,6 +833,14 @@ arms.
 
 ### Runtime
 
+- **On macOS a List that grows past 16 MiB moves its pages:** a large
+  block that grows maps a fresh range and takes its old pages into it
+  (`mach_vm_remap`), as Linux's `mremap` moves them, where it copied its
+  elements into pages that each faulted in; a span that grows past
+  16 MiB does the same when it starts on a page. A 16 MiB List doubled
+  takes 1.21 ms where it took 2.41 (Rust's `Vec`, 1.19), and fork.rig's
+  qsort at 10 workers 5% less time; peak memory is level
+  (docs/history/records/2026-11/list-grow/).
 - **An actor's method runs inline only with the room its own task
   would give it:** a call that finds the actor idle runs the method on
   the caller's stack when that stack has as much room left as the

@@ -35,8 +35,10 @@
 //! of 16 MiB or more is a mapping of its own: the heap that frees it
 //! keeps it for the next request it fits, and keeps the rest of it
 //! apart (`takeKept`), within the same bound of its own
-//! (`keepBound`), resident or cold as a span is (`cold`), and on Linux
-//! one that grows moves its pages (`mremap`) when no kept block fits.
+//! (`keepBound`), resident or cold as a span is (`cold`), and one that
+//! grows moves its pages when no kept block fits (`mremap` on Linux,
+//! `movePages` on macOS), as does a span that grows past 16 MiB on
+//! macOS when it starts on a page.
 //! Segments are never unmapped: memory freed stays for reuse. A worker that has slept a while trims
 //! its heap (`trimIdle`): it gives back the pages of its free spans and
 //! kept large blocks and, on Linux, each class page whose blocks are all
@@ -2999,11 +3001,12 @@ fn movePages(from: usize, to: usize, len: usize, left: Left) bool {
 extern "c" fn mach_vm_remap(target_task: std.c.mach_port_t, target_address: *u64, size: u64, mask: u64, flags: c_int, src_task: std.c.mach_port_t, src_address: u64, copy: c_int, cur_protection: *c_int, max_protection: *c_int, inheritance: c_uint) c_int;
 
 /// A large block grown to `new_len`. A span grows where it lies or is
-/// copied (below). A mapping of its own is copied into a kept block
-/// that fits, which then keeps the old one in turn, since a kept
-/// block's pages are resident and copying into them costs less than
-/// faulting in fresh ones; else, on Linux and from `move_large`, it
-/// grows by moving its pages (`mremap`). Anything else, or a block that
+/// copied (below), or, past 16 MiB on macOS, moves its whole pages into
+/// a fresh mapping when it starts on a page. A mapping of its own is
+/// copied into a kept block that fits, which then keeps the old one in
+/// turn, since a kept block's pages are resident and copying into them
+/// costs less than faulting in fresh ones; else, from `move_large`, it
+/// grows by moving its pages (`mremap` on Linux, `movePages` on macOS). Anything else, or a block that
 /// shrinks, is left to the caller, which copies it into a new block.
 fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize) ?[*]u8 {
     // A mapped run is not this heap's: the caller copies it into a new
