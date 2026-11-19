@@ -49,10 +49,14 @@ model checks, by hand: several minutes and 8 GB.
 | `LambdaRig/Wait.lean` | The wait protocol of `sched.Wait`, as atomic steps, and what it guarantees a waker and a cancel |
 | `LambdaRig/Tasks.lean` | The task machine: who holds each handle, cores, pins, and the values that stay on one thread |
 | `LambdaRig/TasksSound.lean` | Its invariant, kept by every step, and what follows from it |
+| `LambdaRig/Inline.lean` | A task run inline on its waiter's stack is a schedule of the task machine |
 | `LambdaRig/Crossing.lean` | API objects crossing tasks: erasing keeps what a crossing check reads |
 | `LRig.lean` | `lrig`, an executable of λRig's `check` and `run`, for the agreement test |
 | `Models/Explore.lean` | An explicit-state model checker: every state a system of atomic steps reaches |
-| `Models/Ring.lean` | A worker's ring of ready fibers: push, pop, steal, and the overflow |
+| `Models/Ring.lean` | A worker's ring of ready fibers: push, pop, take back, steal with the `stealing` flag, and the overflow |
+| `Models/Deque.lean` | The fork deque of free fork-join, as designed: push, `popIf`, `popNewest`, steal, under x86 and arm64 store orders |
+| `Models/FrameRecord.lean` | A task record in its maker's frame: who may let it go, against a thief and an isolate's stopper |
+| `Models/InlineCancel.lean` | A cancel of a task run inline: the fiber's bit, `host`, and `passCancelDown` |
 | `Models/Sleep.lean` | How workers search, sleep, and are woken: `searching`, `sleepers`, `notify`, `workPending`, `spread`, the run-next slots, the pollers' batches, and the pinned queue's `idle` flag |
 | `Models/Checks.lean` | The model checks `lake build` runs, with the counts each gave |
 | `Models/Deep.lean` | Larger model checks, by hand |
@@ -360,6 +364,17 @@ a probe of the concurrency panel
 holding 2's handle in its result; `main` waits for 1 and takes 2, then
 hands 2 to a new task 3.
 
+**`Inline.lean`** proves that free fork-join's inline run is a
+schedule of the task machine (language.md §8, item 6): the waiter takes
+no step while its task runs on its stack, so the run is the task moved
+to its waiter's core, its own steps, its `finish`, and the waiter's
+`wait`. `inline_core`: a task its running waiter holds, not pinned or
+made local, is on the waiter's core after at most one `migrate`; a local
+task already is, being pinned with its holder. `inline_reach`: the
+states of the run are reached, so every guarantee above holds of them
+unchanged. Only the stack is new, which the room rule covers outside
+λRig.
+
 **`Crossing.lean`** proves Stage 5's crossing obligations
 (docs/design/apis.md): an API object crosses tasks only by a bound it
 names, `Sends` or `Syncs`, a fact of the hidden value checked where it
@@ -409,21 +424,33 @@ compiled (`precompileModules`) and run while `lake build` elaborates
 within its bounds, and every step is sequentially consistent, so it
 says nothing of weaker orderings (the ring's acquire and monotonic
 loads, or a Dekker handshake whose loads are not `.seq_cst`; those need
-GenMC or herd7). Of every state reached it checks the model's rules;
+GenMC or herd7), but where a model gives a thread a store buffer, as
+`Deque.lean` does, to show which of its orders the design needs. Of every state reached it checks the model's rules;
 of every state where no step is enabled (a worker waiting in its
 poller for a kick no one sends) it checks that nothing is lost; and it
 checks that from every state some run reaches such a state, so no
 thread loops for ever.
 
-**`Ring.lean`** (src/sched.zig, `Ring`): the owner pushes and pops,
-thieves steal half (copy, then compare-and-swap `head`), and a push to
-a full ring hands the older half to the global queue; each load,
-store, and compare-and-swap of `head`, `tail`, or a slot is a step.
-Checked: no fiber is taken twice, `head` stays within `size` behind
-`tail`, and when all are done every fiber pushed was taken once or is
-still in the ring once. Bounds: a ring of 4 with 5 pushes, 2 pops, and
-2 thieves stealing once each (515,484 states), and a ring of 2 with 4
-pushes, 2 pops, and a thief stealing twice. Counters do not wrap.
+**`Ring.lean`** (src/sched.zig, `Ring`): the owner pushes, pops, and
+takes back the newest (`takeLast`); thieves steal half (a look at the
+ring, the `stealing` flag taken, a copy, a compare-and-swap of `head`,
+the flag let go); a push to a full ring hands the older half to the
+global queue. Each load, store, and compare-and-swap of `head`, `tail`,
+`stealing`, or a slot is a step. Checked: no fiber is taken twice,
+`head` passes `tail` only while `takeLast` has moved `tail` back, and
+by one, the ring never holds more than its size, and when all are done
+every fiber pushed was taken once or is still in the ring once.
+Bounds: a ring of 4 with 5 pushes, 2 pops, and 2 thieves stealing once
+each (630,553 states); a ring of 2 with 4 pushes, 2 pops, and a thief
+stealing twice; a ring of 4 with 3 pushes and 2 take backs against a
+thief stealing once, the shape of #1157's race; and a ring of 2 with 3
+pushes, a pop, and 2 take backs against a thief stealing twice.
+`Deep.lean` runs a ring of 4 with 4 pushes, a pop, 2 take backs, and
+2 thieves (2,002,451 states). Counters do not wrap. `flag := false` is
+the code before #1157, and the check finds its race: a thief sees A,
+B, X and copies A and B; the owner takes back X, then B with no
+compare-and-swap, since A is left; the thief's claim, which checks only
+`head`, moves it past A and B, and B is taken twice.
 
 **`Sleep.lean`** (`loop`, `next`, `search`, `workPending`, `spread`,
 `notify`, `notifyNew`, `sleep`, `waitWoken`, `wakeHome`, `Batch`):
@@ -523,6 +550,81 @@ or a sleeper that clears `waiting` sets it again while another
 worker's slot holds a fiber (`takeWaiting`; docs/internals/scheduler.md,
 "Yield checks"). That handshake is checked by unit tests in
 `src/sched.zig`, not here.
+
+### Free fork-join, before its code
+
+Four models check the design of free fork-join
+(docs/history/records/2026-11/free-fork-join/: runtime.md §2-§5,
+language.md §8) before its Zig is written. Each header says what it
+stands for; each broken protocol is kept in `Checks.lean` as a check
+that must fail.
+
+**`Deque.lean`** (`Forks`, runtime.md §3): a Chase-Lev deque of forks.
+The maker pushes forks and joins them newest first by `popIf`; a fork
+it took it runs inline, else it waits for the record's `ended`; then it
+lets the record go. Its loop may take the newest (`popNewest`), and
+thieves take the oldest by a compare-and-swap of `top`, then write the
+stolen bit into the record and end it. Checked: no fork taken twice, no
+thief claims an empty slot, `top` passes `bottom` only during the
+owner's take, no write into a record after it was let go (so a stolen
+fork's record outlives the thief's last write), and every fork ends
+taken once and let go. An interleaving model is sequentially
+consistent, so the deque runs three ways: sequentially consistent; with
+a store buffer for the maker, drained in order (x86); and drained in
+any order but that a release store waits for every earlier one and two
+stores to one place keep theirs (arm64). A seq_cst store and the
+compare-and-swap drain the buffer first, the stronger reading of
+arm64's `stlr` then `ldar`. Bounds: a deque of 2, 3 forks (the third
+may find it full), 2 thieves stealing once, and, sequentially
+consistent, the loop taking the newest once (701,808 states). The design
+holds on all three. Its orders are needed: the pop's store of `bottom`
+made a release, x86 lets the load of `top` pass it and a fork is taken
+twice; the push's store of `bottom` made monotonic, arm64 lets it reach
+memory before the slot's and a thief claims an empty slot (x86 needs no
+release there); a thief that reads `bottom` before `top`, the last fork
+taken with no compare-and-swap, or a claim by a plain store takes a
+fork twice; a thief that writes through the slot's pointer before its
+claim wins writes into a record already let go. Loads are not reordered
+in the model, so the design must keep its loads seq_cst (`ldar`), as
+runtime.md has them.
+
+**`FrameRecord.lean`** (language.md §8): a record in its maker's frame,
+listed in its isolate; the maker, which joins it or panics, leaving its
+stack to the isolate; a thief that ran the fork; and the isolate's
+stopper, which waits for its list to empty, gives the kept stacks back
+and returns. Checked: no access to the record after its memory was let
+go, none to the isolate after the stopper returned, and every run ends.
+Today's `Control.finish` (off the list, then the record's writes) is
+sound while no maker panics, and with a frame record it fails: the
+thief's remove empties the list, the stopper gives the stack back, and
+the thief's store of `done` writes into it. Moving the remove after
+`Done`'s last store, the first fix language.md names, fails too: a live
+maker reads `ended`, uses its frame again, and the thief's remove
+writes the record's links. So does a stopper that notes the listed
+records and waits for their `ended`, since the thief took the record off
+the list first. What passes: the thief's last access is `ended`, and
+whoever reads `ended` takes the record off the list under the isolate's
+lock, the maker at its join or, once a panic stopped the isolate, the
+stopper, which reads a record only while it is listed. Bounds: one
+maker, fork, thief, and isolate, the maker free to panic before its
+join, a panic elsewhere free to stop the isolate while it lives.
+
+**`InlineCancel.lean`** (runtime.md §2, "Cancel"): one physical fiber
+running up to `depth` levels inline, each level's task with its cancel
+flag, starting and ending levels (a later fork using an ended level's
+frame again) and waiting at the innermost (`beginWait`, then
+`passCancelDown` while the bit is set, then its own flag, then commit);
+a canceler under the isolate's lock sets a level's flag, reads `host`,
+sets the bit on that fiber, and reads its wait word. Checked: no cancel
+of a live level leaves the fiber asleep; a wait given up for a cancel
+finds every level inside the canceled one canceled; and no thread but
+the fiber reads any record but the canceled task's, which the lock
+keeps. Bounds: 2 levels with 3 started (4,919 states) and 3 levels with
+4 started, 2 waits, one cancel of any level. The bit set after the
+word is read, a bit sent to the task's own `Fiber` (no `host`), and a
+wait that reads only its own flag each lose a cancel of an outer level;
+a canceler that walks the chain itself reads a record a later fork
+reused.
 
 ## Agreement with bin/rig
 

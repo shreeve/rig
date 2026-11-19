@@ -364,7 +364,11 @@ worker after.
   first, as Rayon's `join` pops its own deque, where a waiter that parked
   left its stack held and its worker ran the ring's oldest, a bigger
   subtree. The take counts as a fiber started for the monitor
-  (`watchSlices`), as the park it replaces did. Running the task on the waiter's own stack
+  (`watchSlices`), as the park it replaces did. A thief holds the
+  ring's `stealing` flag from its look at the tail to its claim, and
+  `takeLast` leaves the fiber while it is held; formal/Models/Ring.lean
+  checks that no fiber is then taken twice, and that without the flag
+  one is. Running the task on the waiter's own stack
   would be faster still, but is safe only for a task whose stack use is
   proven to fit, which Rig does not prove.
 - **Idle workers** steal from a random victim, at most half of them
