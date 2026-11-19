@@ -1,0 +1,17 @@
+# lock 16:03:46
+slot 580 (ab) open until 16:18:47; free 2 MiB blocks: 2338; paused: 
+# blocks=2338 swap_mb=1358 slot=580 paused=0 running=0 late=0
+# shell nproc 22; pid 2011701's current affinity mask: 3fffff
+round 1
+round 2
+round 3
+round 4
+round 5
+round 6
+round 7
+round 8
+round 9
+round 10
+# cmd rc=0 16:04:40
+slot 580 closed; resumed: 
+QUIET: honoured (no user process ran on cores 12-19 during slot 580)

@@ -1,0 +1,27 @@
+# lock 16:12:37
+slot 581 (ab) open until 16:28:07; free 2 MiB blocks: 2643; paused: 
+# blocks=2643 swap_mb=1358 slot=581 paused=0 running=2 late=0
+# shell nproc 22; pid 2028181's current affinity mask: 3fffff
+round 1
+round 2
+round 3
+round 4
+round 5
+round 6
+round 7
+round 8
+round 9
+round 10
+round 11
+round 12
+round 13
+round 14
+round 15
+round 16
+round 17
+round 18
+round 19
+round 20
+# cmd rc=0 16:14:10
+slot 581 closed; resumed: 
+QUIET: NOT honoured in slot 581: 11 samples of other work on cores 12-19; first:       1  pid 2029611 cpu 16 99.7% age 15s zig build-exe -Osafe -fomit-frame-pointer -fno-stack-protector --cache-dir /zfs/trig-pup/psum-gap/leaf/out/.zig-cache /z;      1  pid 2029611 cpu 16 99.6% age 13s zig build-exe -Osafe -fomit-frame-pointer -fno-stack-protector --cache-dir /zfs/trig-pup/psum-g

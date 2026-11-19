@@ -833,6 +833,16 @@ arms.
 
 ### Runtime
 
+- **A heap's first segment keeps small pages for its first 2 MiB**
+  (release allocator, Linux): while a heap has taken nothing else, its
+  first segment asks for huge pages only for its second 2 MiB, so a
+  thread's first small block, as a worker's first task record, faults
+  in 4 KiB rather than zeroing 2 MiB. On pup, psum's first parallel pass
+  at 12 workers takes 18 to 19% less time (main took 1.21 to 1.23 times
+  as long; 1 to 3% behind Rayon, from 22 to 27%), and bench/tasks' peak
+  memory is 2.3 MB where it was 8.7. psum at one worker is 1.5 to 1.7%
+  slower (docs/history/records/2026-11/psum-gap-memory/).
+
 - **A fork-join takes back its own tasks from its ring:** `>t` on a
   task that has not started and is the newest in its worker's ring (a
   fork-join's halves made past the four run-next slots, waited for in

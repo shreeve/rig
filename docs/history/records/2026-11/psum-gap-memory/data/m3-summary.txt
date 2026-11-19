@@ -1,0 +1,21 @@
+checks {'psum': ['16760439056'], 'qsort': ['4194304']}
+w1   psum  rig        n=20    14.48 ms (13.95-15.35)  rig/rig 1.000
+w1   psum  rig-aa     n=20    14.36 ms (14.02-14.52)  rig-aa/rig 0.991
+w1   psum  seg1       n=20    14.55 ms (14.09-15.39)  seg1/rig 1.005
+w1   psum  seg1b      n=20    14.50 ms (14.11-14.80)  seg1b/rig 1.002
+w1   psum  rayon      n=20    11.91 ms (11.82-12.97)  rayon/rig 0.823
+w1   qsort rig        n=20   254.22 ms (245.98-268.11)  rig/rig 1.000
+w1   qsort rig-aa     n=20   256.52 ms (242.17-266.40)  rig-aa/rig 1.009
+w1   qsort seg1       n=20   262.21 ms (255.76-271.23)  seg1/rig 1.031
+w1   qsort seg1b      n=20   255.96 ms (244.33-265.97)  seg1b/rig 1.007
+w1   qsort rayon      n=20   266.05 ms (264.15-289.82)  rayon/rig 1.047
+w12  psum  rig        n=20     5.97 ms (5.48-6.62)  rig/rig 1.000
+w12  psum  rig-aa     n=20     6.27 ms (5.64-7.06)  rig-aa/rig 1.049
+w12  psum  seg1       n=20     4.90 ms (4.36-5.33)  seg1/rig 0.820
+w12  psum  seg1b      n=20     4.78 ms (4.41-5.74)  seg1b/rig 0.800
+w12  psum  rayon      n=20     4.64 ms (4.39-5.11)  rayon/rig 0.776
+w12  qsort rig        n=20    96.24 ms (81.16-106.59)  rig/rig 1.000
+w12  qsort rig-aa     n=20    96.85 ms (90.47-102.29)  rig-aa/rig 1.006
+w12  qsort seg1       n=20    96.43 ms (87.66-102.13)  seg1/rig 1.002
+w12  qsort seg1b      n=20    97.69 ms (89.18-103.09)  seg1b/rig 1.015
+w12  qsort rayon      n=20   123.95 ms (118.14-139.37)  rayon/rig 1.288
