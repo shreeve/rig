@@ -7448,7 +7448,7 @@ test "askWorkers before any task starts no worker, and sets how many the first t
             first = askWorkers(5);
             again = askWorkers(3);
             after_ask = started.*;
-            const j = spawn(u64, Unit, one, .{}, .{}, false, false).job;
+            const j = spawn(u64, Unit, one, .{}, .{}, false, false, false).job;
             _ = j.join();
             j.free();
             waitStarting();
