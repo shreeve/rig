@@ -467,6 +467,10 @@ the loop as written would. On an Apple M5 a checked Int sum runs 1.9
 times as fast, an I32 one 3.8 times, and a wrapping Int sum 1.7 times
 from L1; `bench/fork`'s psum is 6% faster at one worker and level at
 all workers, where it reads memory as fast as the machine gives it.
+Each vector is the widest the target adds, up to 32 bytes: with AVX2 on
+pup (x86-64), psum at one worker takes 14% less time than with 16-byte
+vectors (14.38 ms to 12.29, Rayon 11.98), a checked Int sum from L1
+57% less, and a wrapping one 27% less.
 
 **The hint for a task lent to write keeps self's `!`**: `t =
 !b.bump()&`, where it wrote `t = b.bump()&`, which is rejected.
@@ -829,6 +833,16 @@ arms.
 
 ### Runtime
 
+- **A thief and a ring's owner never both take one fiber:** a thief
+  copied half a ring and claimed it by moving the head, a claim that
+  checks only the head, while the owner taking back its newest
+  (`>t`, since the ring join) took without one when more than one was
+  left; an owner that took back two while a thief stalled between its
+  copy and its claim ran a fiber the thief also ran, and left the head
+  past the tail. A thief now holds the ring's `stealing` flag from
+  before it reads the tail until after its claim, and the owner leaves
+  the fiber while the flag is held. psum, qsort and bench/tasks are
+  level on pup.
 - **A handoff's own stores take no fence:** `>t` on a task it runs at
   once (`handoff`) writes the waiter's wait and the task's end record
   with release and relaxed stores where they were sequentially

@@ -4187,7 +4187,10 @@ or `&`, is a fold: the decision `fold` (`storage.fold`, read by emit as
 `s = rig.fold(.add, s, xs, &turns)`, a vector loop: Zig 0.17 runs LLVM
 with its loop vectorizer off ([Known Zig 0.17 issues](#known-zig-017-issues-rig-works-around)),
 so the plain loop adds one element at a time. The fold combines sixteen
-vectors of sixteen bytes a turn into four sums and counts each turn as
+vectors a turn into four sums, each vector the widest the target adds
+(`foldLanes`: 32 bytes with AVX2, 16 with NEON or SSE; on pup's x86-64
+cores sixteen 16-byte vectors a turn read memory more slowly than
+32-byte ones), and counts each turn as
 one of the loop's (`rig.turn`); it unrolls nothing with `inline for`, so
 a function holding many folds stays within Zig's compile-time branch
 quota. A wrapping `+` and the bit operators give the plain

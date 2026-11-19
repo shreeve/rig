@@ -2785,3 +2785,93 @@ fail "task waited for after its owner drops", "cannot drop `v` while it is lent"
     >t
 
   print(spawn())
+
+test "task joins newest first, each task once", seeds: 20, '''
+  64 49 36 25 16 9 4 1
+'''
+  # Eight tasks made in turn and waited for newest first: the four
+  # newest wait in their worker's "run next" slots, the older ones in
+  # its ring, which `>t` takes back from the ring's tail while thieves
+  # take from its head. Each task gives its own number, once.
+  fun sq(i: Int) -> Int
+    i * i
+
+  t1 = sq(1)&
+  t2 = sq(2)&
+  t3 = sq(3)&
+  t4 = sq(4)&
+  t5 = sq(5)&
+  t6 = sq(6)&
+  t7 = sq(7)&
+  t8 = sq(8)&
+  print(>t8, >t7, >t6, >t5, >t4, >t3, >t2, >t1)
+
+test "task joins newest first on eight workers, many rounds", '''
+  612000
+'''
+  # The same on eight threads, 3,000 times: a thief between copying
+  # half a ring and claiming it never shares a task with the owner
+  # taking its newest back (`Ring.takeLast`, `Ring.stealFrom`).
+  use std.task
+
+  fun sq(i: Int) -> Int
+    i * i
+
+  fun round() -> Int
+    t1 = sq(1)&
+    t2 = sq(2)&
+    t3 = sq(3)&
+    t4 = sq(4)&
+    t5 = sq(5)&
+    t6 = sq(6)&
+    t7 = sq(7)&
+    t8 = sq(8)&
+    >t8 + >t7 + >t6 + >t5 + >t4 + >t3 + >t2 + >t1
+
+  task.workers(8)
+  total = 0
+  for _ in 0..3000
+    total += round()
+  print(total)
+
+test "task deep psum", seeds: 20, '''
+  2147450880
+'''
+  # A fork-join ten levels deep: each level's left half waits in the
+  # ring and is taken back innermost first.
+  fun psum(xs: ?[]Int) -> Int
+    return xs.sum() if xs.len <= 64
+    mid = xs.len / 2
+    left = xs[..mid]
+    a = psum(?left)&
+    b = psum(xs[mid..])
+    >a + b
+
+  xs: List[Int] = List()
+  for i in 0..65536
+    !xs.push(i)
+  whole = ?xs[..]
+  print(psum(whole))
+
+test "task deep psum on eight workers, many rounds", '''
+  42949017600
+'''
+  use std.task
+
+  fun psum(xs: ?[]Int) -> Int
+    return xs.sum() if xs.len <= 64
+    mid = xs.len / 2
+    left = xs[..mid]
+    a = psum(?left)&
+    b = psum(xs[mid..])
+    >a + b
+
+  task.workers(8)
+  xs: List[Int] = List()
+  for i in 0..65536
+    !xs.push(i)
+  whole = ?xs[..]
+  total = 0
+  for _ in 0..20
+    total += psum(whole)
+  print(total)
