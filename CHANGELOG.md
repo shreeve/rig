@@ -844,6 +844,28 @@ arms.
 
 ### Runtime
 
+- **A fork its waiter reaches unstarted runs on the waiter's stack:** a
+  task not yet started that is next on its waiter's worker, at a `>t` or
+  the drop that waits for it, runs on the waiter's own stack and fiber
+  when the room left there is at least what its own stack would give
+  it: a dense stack's for a task that fits one, else a whole task's
+  stack, which a task's stack keeps while it has used no more than its
+  extra 1 MiB (`sched.runHere`, `roomFor`). No stack, no switch, and no
+  fiber of its own: the task's state is swapped into the waiter's fiber,
+  all but its stack guard. Where the room is short the wait hands off as
+  before, so no stack runs short: `main`'s 64 MiB never has the room, so
+  the forks `main` waits for hand off, one a level of a fork-join's
+  spine. A cancel of a task run inline reaches the fiber running it
+  (`Fiber.host`), and its next wait passes the cancel down to each level
+  whose waiter is canceled (`passCancelDown`,
+  formal/Models/InlineCancel.lean); a task started under a canceled
+  waiter starts canceled. A panic ends the levels one at a time, from
+  the innermost out, each as a task that panicked on a fiber of its own,
+  up to an isolate begun at that level (`Isolate.at`). A deadlock's
+  message names each task run inline on the way as `a task`, as before.
+  A wait with a deadline and a deterministic run run nothing inline.
+  `RIG_SCHED_STATS=1` counts the tasks run inline (`inlined`).
+  BOARD_PLACEHOLDER
 - **A worker started ahead holds a few small pages, not a huge one:**
   the first segment a worker takes as it starts with `main` keeps small
   pages for its first 2 MiB and asks for huge pages for its second

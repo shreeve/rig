@@ -9635,7 +9635,7 @@ pub fn passPanicFrom(what: []const u8) noreturn {
 
 /// Whether a panic here ends the program: it stops at no actor's runner
 /// and no isolate.
-fn panicEnds() bool {
+pub fn panicEnds() bool {
     return !tasks.panicStops() and panicBoundary() == null;
 }
 
@@ -9643,7 +9643,10 @@ fn panicEnds() bool {
 /// fiber runs a method of dies (`tasks.actorsDie`), and the panic stops
 /// at the runner the fiber is, or else at its nearest isolate
 /// (`tasks.panicked`). With neither, this returns, and the program ends.
+/// The tasks the fiber runs inline end first, one level at a time, up to
+/// one that began the isolate (`tasks.endInlineLevels`).
 fn stopPanic() void {
+    tasks.endInlineLevels();
     if (tasks.actorsDie()) {
         leaveFrames();
         sched.abandonDetached();
