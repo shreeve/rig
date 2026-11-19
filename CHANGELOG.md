@@ -833,6 +833,22 @@ arms.
 
 ### Runtime
 
+- **The preemption monitor leaves forks to the slice:** a task made
+  with `&` that has not started no longer counts for the monitor's two
+  looks 50 µs apart, which stop a fiber whose worker queued work at both
+  with none started between; only a fiber that is not a fork does, one
+  woken from a wait or by an event, one that yielded or was stopped, an
+  actor's runner. Forks still count for the 10 ms slice, and while one
+  waits at a busy worker and another sleeps, the monitor wakes one to
+  take it. A fork-join's own forks wait in its queues all the time it
+  runs, so on one worker it was stopped every 100 µs and the monitor
+  woke every 50 µs; now it runs unstopped and the monitor looks once a
+  millisecond (test/cli/preempt_forks.sh).
+  On the Mac (fork-order's fork.rig, paired medians over 24 rounds),
+  qsort at one worker is 15% faster, 139.4 ms against 163.1; psum at
+  one worker and both at 10 workers are level, as are bench/actors and
+  bench/net.
+
 - **A thief and a ring's owner never both take one fiber:** a thief
   copied half a ring and claimed it by moving the head, a claim that
   checks only the head, while the owner taking back its newest

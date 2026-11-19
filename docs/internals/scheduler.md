@@ -645,12 +645,29 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
 (`sched.preempt_built`, `rt.preempt`):
 
 - **The monitor**, a thread of its own, looks at each worker every
-  millisecond, or every 50 µs while work waits (`watchSlices`). A
-  worker whose fiber has run a slice, 10 ms, while other work waits, or
-  whose own queue held work at two looks in a row with no fiber started
-  between (one taken back from its ring by a handoff counts, as the run
-  of the waiter's park it replaces did), or whose timer or
-  poller is due, gets SIGURG, and again at each look until it stops.
+  millisecond, or every 50 µs while a fiber that is not a fork waits
+  (`watchSlices`). A fork is a task made with `&` that has not started;
+  every other fiber in a worker's "run next" slots or ring, one woken
+  from a wait or by an event, one that yielded or was stopped, an
+  actor's runner, is counted as it is queued and as it starts
+  (`Worker.queued_woken`, `Worker.started_woken`). A worker whose fiber has run a
+  slice, 10 ms, while other work waits, forks included, or whose own
+  queue held work at two looks in a row with no fiber started between
+  (one taken back from its ring by a handoff counts, as the run of the
+  waiter's park it replaces did) while a fiber that is not a fork
+  waited at both, or whose timer or poller is due, gets SIGURG, and
+  again at each look until it stops. Forks alone stop no fiber at two
+  looks: while one waits at a busy worker and another worker sleeps,
+  the monitor looks every 50 µs and wakes one to take it (`notify`);
+  while every worker is busy, forks wait for the slice. So a fork-join,
+  whose own forks wait in its queues all the time it runs, runs on
+  unstopped, and on one worker the monitor looks once a millisecond
+  rather than every 50 µs (test/cli/preempt_forks.sh). The bounds,
+  behind a fiber that never yields: a fiber that is not a fork waits
+  until the monitor's next look, then 50 µs more (a millisecond and
+  50 µs while a worker runs, up to 10 ms after every worker was idle);
+  a fork waits the same while another worker sleeps, and up to the
+  slice and two looks, about 12 ms, while every worker is busy.
   After four in a row that it declined, each signal waits twice as long
   as the one before, up to 1 ms (`resignalAfter`): a worker blocked in a
   system call, as a write to a full pipe blocks, took one every 50 µs,
