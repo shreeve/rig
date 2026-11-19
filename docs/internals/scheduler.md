@@ -755,16 +755,25 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
   them, and the stop that moves the maker to the global queue spreads
   the fork-join over the idle workers, as at the start of psum's pass
   on twelve workers, where waking one idle worker a look instead left
-  the pass 37-44% slower on pup. Only while every worker is busy are
-  forks left to the slice: a fork-join on one worker, or one that keeps
-  every worker busy, runs on unstopped, and on one worker the monitor
-  looks once a millisecond rather than every 50 µs
+  the pass 37-44% slower on pup. And forks count as waiting while the
+  fiber running on their worker made none of them since it started
+  there (`Worker.maker_runs`, set as a fiber makes a fork, cleared as
+  the worker starts or hands itself to another): a fork made and then
+  left while its maker waits for other tasks, as Trig's checker pool
+  makes the files' associations and then waits for its checkers, runs
+  beside them as any task would, where it waited up to a slice behind
+  them (Trig's zod3 at four checkers 1.2-1.8% slower). Only while every
+  worker is busy and the fiber running beside them made them are forks
+  left to the slice: a fork-join on one worker, or one that keeps every
+  worker busy, runs on unstopped, and on one worker the monitor looks
+  once a millisecond rather than every 50 µs
   (test/cli/preempt_forks.sh). The bounds, behind a fiber that never
   yields: a fiber that is not a fork waits until the monitor's next
   look, then 50 µs more (a millisecond and 50 µs while a worker runs,
   up to 10 ms after every worker was idle); a fork waits the same while
-  a worker is idle, and up to the slice and two looks, about 12 ms,
-  while every worker is busy. A
+  a worker is idle or the fiber beside it did not make it, and up to
+  the slice and two looks, about 12 ms, behind its own maker while every
+  worker is busy. A
   maker that spins on a flag its fork sets so goes on after one slice.
   A build with yield checks keeps the same rule: a check yields to its
   worker's own queues only when a fiber that is not a fork waits in any

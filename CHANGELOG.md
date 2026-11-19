@@ -844,6 +844,15 @@ arms.
 
 ### Runtime
 
+- **A fork waits behind its own maker only:** the preemption monitor
+  leaves forks to the slice only while the fiber running on their
+  worker made them (`Worker.maker_runs`), as a fork-join's maker does,
+  which takes them back as it waits. A fork made and then left while
+  its maker waits for other tasks is hurried as any task is: Trig's
+  checker pool makes the files' associations as a fork and then waits
+  for its checkers, and the fork waited up to a slice behind them,
+  Trig's zod3 at four checkers 1.2-1.8% slower than before the
+  narrowed monitor.
 - **A fork its waiter reaches unstarted runs on the waiter's stack:** a
   task not yet started that is next on its waiter's worker, at a `>t` or
   the drop that waits for it, runs on the waiter's own stack and fiber

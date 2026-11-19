@@ -13,7 +13,8 @@
 # spinning on its flag is stopped at once. And on two workers, a fork
 # left in a busy worker's slot while the other sleeps is taken by the
 # other, which the monitor wakes, with no stop. Where preemption is not
-# built, nothing runs.
+# built, nothing runs. A fork made and then left while its maker waits
+# for other tasks is hurried as any task is (`Worker.maker_runs`).
 source "$ROOT/test/cli/_lib.sh"
 case "$(uname -s)/$(uname -m)" in
     Linux/x86_64 | Darwin/arm64) ;;
@@ -165,3 +166,43 @@ expect_eq "$out" "true" "spread.rig"
 grep -q 'rig: worker 1: ran [1-9]' err-spread.txt || fail "spread.rig: the fork did not move to the other worker: $(cat err-spread.txt)"
 grep -q 'rig: worker 0: .* preempted 0,' err-spread.txt || fail "spread.rig: the maker was stopped: $(cat err-spread.txt)"
 exit 0
+
+# A fork made and then left while its maker waits for other tasks is no
+# fork-join of the fiber running beside it, and is hurried as any task:
+# here the maker makes a fork, then a task in a set that spins until the
+# fork has run, and waits for the set. The spinner, which made no fork,
+# is stopped at the monitor's second look, well inside the 200 ms slice
+# a fork waits behind its own maker (Trig's checker pool and its files'
+# associations, `Worker.maker_runs`).
+cat > left.rig <<'RIG'
+use std.task
+use std.time
+
+fun setter(c: *Cell[Int]) -> Int
+  !c.add(1)
+  1
+
+fun spinner(c: *Cell[Int]) -> Int
+  t = time.now()
+  spins = 0
+  # The clock is read once in a million turns: a signal that finds the
+  # spinner in the runtime's code, reading it, would be declined.
+  while c.get() == 0
+    spins += 1
+    if spins % 1_000_000 == 0 and t.elapsed() > 1000 * time.MS
+      break
+  t.elapsed() / 1_000_000
+
+sub main()
+  task.workers(1)
+  c = *Cell(0)
+  a = setter(+c)&
+  ts = Tasks[Int]()
+  !ts.add(spinner(+c)&)
+  xs = >ts
+  print(>a, xs[0])
+RIG
+out=$(RIG_PREEMPT_SLICE_US=200000 RIG_SCHED_STATS=1 "$TIMEOUT_CMD" 60 "$RIG" run --release left.rig 2>err-left.txt) || fail "left.rig (timeout 60 s): $out $(cat err-left.txt)"
+read -r one left_ms <<<"$out"
+expect_eq "$one" "1" "left.rig"
+(( left_ms < 100 )) || fail "left.rig: a fork left while its maker waits for a set ran after $left_ms ms, behind a fiber that did not make it"

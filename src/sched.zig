@@ -260,6 +260,15 @@ const Worker = struct {
     /// (`watchSlices`) and a yield check yields to (`ownWorkWaits`), and
     /// only forks pay for the count.
     queued_forks: std.atomic.Value(u32) = .init(0),
+    /// The fiber running here has made a fork since it started on this
+    /// worker (`noteFork`), so the forks waiting here are its own fork-join's
+    /// as psum's and qsort's are, which it takes back as it waits: only then
+    /// does the monitor leave them to the slice (`watchSlices`). Cleared as
+    /// the worker starts or hands itself to another fiber (`runFiber`,
+    /// `handoff`), so a fork its maker made and then waited elsewhere for,
+    /// as Trig's checker pool makes the files' associations and then waits
+    /// for its checkers, is hurried as any task is.
+    maker_runs: std.atomic.Value(bool) = .init(false),
     started_forks: std.atomic.Value(u32) = .init(0),
     /// Its `slept` as the watcher began its last watch.
     watch_mark: std.atomic.Value(u64) = .init(0),
@@ -662,18 +671,20 @@ pub noinline fn tick() void {
 
 /// Whether the work in `w`'s own queues waits for its running fiber, as a
 /// yield check sees it: pinned fibers or the global queue's, a fiber in
-/// any worker's slots or ring that is not a fork (`nonForkWaits`), or any
-/// work while a worker sleeps or searches (`workersIdle`). Forks alone,
-/// with every worker busy, wait for the slice, as the monitor leaves them
-/// (`watchSlices`): a fork-join, whose own forks wait in its queues all
-/// the time it runs, goes on depth first, and its waits take them back.
+/// any worker's slots or ring that is not a fork (`nonForkWaits`), forks
+/// the running fiber did not make (`Worker.maker_runs`), or any work while
+/// a worker sleeps or searches (`workersIdle`). A running fiber's own
+/// forks alone, with every worker busy, wait for the slice, as the monitor
+/// leaves them (`watchSlices`): a fork-join, whose own forks wait in its
+/// queues all the time it runs, goes on depth first, and its waits take
+/// them back.
 fn ownWorkWaits(w: *Worker) bool {
     if (w.pinned.count.load(.seq_cst) != 0 or global.count.load(.monotonic) != 0) return true;
     if (!nextHeld(w, .monotonic) and w.ring.isEmpty()) {
         w.forks_since = 0;
         return false;
     }
-    if (workersIdle() or nonForkWaits()) return true;
+    if (!w.maker_runs.raw or workersIdle() or nonForkWaits()) return true;
     const now = nowNs();
     if (w.forks_since == 0) {
         w.forks_since = now;
@@ -1108,6 +1119,13 @@ const Preempt = struct {
 inline fn noteFork(w: *Worker, f: *Fiber) void {
     f.counted = true;
     w.queued_forks.store(w.queued_forks.raw +% 1, .monotonic);
+    if (!w.maker_runs.raw) w.maker_runs.store(true, .monotonic);
+}
+
+/// The worker `w` starts or hands itself to another fiber, which has made
+/// no fork here yet (`Worker.maker_runs`).
+inline fn noteSwitch(w: *Worker) void {
+    if (w.maker_runs.raw) w.maker_runs.store(false, .monotonic);
 }
 
 /// Note that `w`, on its own thread, starts `f`: if it is a fork counted
@@ -1577,6 +1595,9 @@ fn watchSlices(slice: i96, wait: i96) void {
     var seen: [max_workers]u32 = @splat(0);
     var since: [max_workers]i96 = @splat(0);
     var had: [max_workers]bool = @splat(false);
+    // Whether each worker's running fiber had made no fork at the last
+    // look (`Worker.maker_runs`).
+    var stranger_had: [max_workers]bool = @splat(false);
     // Whether a fiber that is not a fork waited at the last look, and
     // whether a worker slept or searched then.
     var woken_had = false;
@@ -1611,9 +1632,12 @@ fn watchSlices(slice: i96, wait: i96) void {
             const running = @atomicLoad(?*Fiber, &w.current, .monotonic) != null;
             const work = queuedHere(w);
             const pinned = w.pinned.count.load(.monotonic) != 0;
+            // The forks waiting here are not the running fiber's own.
+            const stranger = !w.maker_runs.load(.monotonic);
+            defer stranger_had[i] = stranger;
             defer had[i] = work;
             if (running and work) {
-                if (woken or pinned or idle) hurry = true;
+                if (woken or pinned or idle or stranger) hurry = true;
             }
             if (!running or runs != seen[i]) {
                 seen[i] = runs;
@@ -1623,7 +1647,7 @@ fn watchSlices(slice: i96, wait: i96) void {
                 continue;
             }
             busy = true;
-            const waited = work and had[i] and ((woken and woken_had) or pinned or (idle and idle_had));
+            const waited = work and had[i] and ((woken and woken_had) or pinned or (idle and idle_had) or (stranger and stranger_had[i]));
             if (!waited and !serviceDue(w, now) and (now - since[i] < slice or !workWaits(w))) continue;
             // Again until it stops: a signal that finds the fiber outside
             // the program's code does nothing. After `resignal_free` in a
@@ -4464,6 +4488,7 @@ fn runFiber(w: *Worker, f: *Fiber) void {
     if (f.home != null) w.ran_pinned += 1;
     prepare(w, f);
     spread(w);
+    noteSwitch(w);
     w.current = f;
     const timed = keeps_short and w.poller.count.load(.monotonic) != 0;
     var began: i64 = 0;
@@ -6224,6 +6249,7 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool), compt
     f.handoff_epoch = e;
     prepare(w, f);
     spread(w);
+    noteSwitch(w);
     w.current = f;
     w.ran += 1;
     // A fiber taken back from the ring is one the worker's loop would
