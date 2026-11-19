@@ -853,6 +853,16 @@ arms.
   3.38 before the fork's record. Only a fork runs on its waiter's stack
   (`sched.runHere`), as the design has it: a task held in a set,
   returned or stored is waited for as a fiber of its own.
+
+- **On macOS a List that grows past 16 MiB moves its pages:** a large
+  block that grows maps a fresh range and takes its old pages into it
+  (`mach_vm_remap`), as Linux's `mremap` moves them, where it copied its
+  elements into pages that each faulted in; a span that grows past
+  16 MiB does the same when it starts on a page. A 16 MiB List doubled
+  takes 1.21 ms where it took 2.41 (Rust's `Vec`, 1.19), and fork.rig's
+  qsort at 10 workers 5% less time; peak memory is level
+  (docs/history/records/2026-11/list-grow/).
+
 - **A fork its waiter reaches unstarted runs on the waiter's stack:** a
   task not yet started that is next on its waiter's worker, at a `>t` or
   the drop that waits for it, runs on the waiter's own stack and fiber

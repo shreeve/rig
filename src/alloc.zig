@@ -35,8 +35,10 @@
 //! of 16 MiB or more is a mapping of its own: the heap that frees it
 //! keeps it for the next request it fits, and keeps the rest of it
 //! apart (`takeKept`), within the same bound of its own
-//! (`keepBound`), resident or cold as a span is (`cold`), and on Linux
-//! one that grows moves its pages (`mremap`) when no kept block fits.
+//! (`keepBound`), resident or cold as a span is (`cold`), and one that
+//! grows moves its pages when no kept block fits (`mremap` on Linux,
+//! `movePages` on macOS), as does a span that grows past 16 MiB on
+//! macOS when it starts on a page.
 //! Segments are never unmapped: memory freed stays for reuse. A worker that has slept a while trims
 //! its heap (`trimIdle`): it gives back the pages of its free spans and
 //! kept large blocks and, on Linux, each class page whose blocks are all
@@ -207,7 +209,7 @@ threadlocal var prefaults_for_test: usize = 0;
 
 /// Test only: the calls this thread has made to map a large block, to
 /// unmap one or a piece of one, and to move one as it grows.
-threadlocal var calls_for_test: struct { mmap: usize = 0, munmap: usize = 0, mremap: usize = 0 } = .{};
+threadlocal var calls_for_test: struct { mmap: usize = 0, munmap: usize = 0, mremap: usize = 0, moves: usize = 0 } = .{};
 
 /// Whether `h` faults in ahead: it leads the heaps (`leads`), or it has
 /// taken from the system `prefault_big` bytes or more, more than its
@@ -2988,12 +2990,54 @@ fn releaseMapped(memory: []u8) bool {
     return false;
 }
 
+/// What `movePages` leaves where the pages were: nothing (`unmap`), or
+/// fresh pages that read as zeros and are not resident (`refresh`), as a
+/// span segment's units must stay mapped.
+const Left = enum { unmap, refresh };
+
+/// macOS: move the `len` bytes of whole pages at `from` to `to`, the
+/// start of a fresh mapping at least that long, without copying them, as
+/// Linux's `mremap` moves a mapping: `to` takes the pages `from` maps
+/// (`mach_vm_remap`, sharing them), and `from` then leaves them, so
+/// `to` holds them alone. A List grown past 16 MiB copied its old
+/// elements into pages that each faulted in, where the system's own
+/// allocator grows in place; at 10 workers that was 6% of fork.rig's
+/// qsort (docs/history/records/2026-11/list-grow/). False, with nothing
+/// moved, where the system refuses or elsewhere.
+fn movePages(from: usize, to: usize, len: usize, left: Left) bool {
+    if (builtin.os.tag != .macos) return false;
+    if (builtin.is_test) calls_for_test.moves += 1;
+    var target: u64 = to;
+    var cur: c_int = 0;
+    var max: c_int = 0;
+    const task = std.c.mach_task_self();
+    const vm_flags_fixed_overwrite: c_int = 0x4000;
+    if (mach_vm_remap(task, &target, len, 0, vm_flags_fixed_overwrite, task, from, 0, &cur, &max, 1) != 0) return false;
+    switch (left) {
+        .unmap => unmapLarge(from, len),
+        .refresh => _ = std.posix.mmap(@ptrFromInt(from), len, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .FIXED = true }, -1, 0) catch {
+            // The pages stay shared: copy them into `to` in its own
+            // fresh pages, so neither range holds the other's.
+            @branchHint(.cold);
+            _ = std.posix.mmap(@ptrFromInt(to), len, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .FIXED = true }, -1, 0) catch @panic("rig: a large block could not be moved");
+            return false;
+        },
+    }
+    return true;
+}
+
+/// `mach_vm_remap` (mach/mach_vm.h): maps at `target_address` the
+/// `size` bytes `src_task` maps at `src_address`, shared when `copy` is
+/// false.
+extern "c" fn mach_vm_remap(target_task: std.c.mach_port_t, target_address: *u64, size: u64, mask: u64, flags: c_int, src_task: std.c.mach_port_t, src_address: u64, copy: c_int, cur_protection: *c_int, max_protection: *c_int, inheritance: c_uint) c_int;
+
 /// A large block grown to `new_len`. A span grows where it lies or is
-/// copied (below). A mapping of its own is copied into a kept block
-/// that fits, which then keeps the old one in turn, since a kept
-/// block's pages are resident and copying into them costs less than
-/// faulting in fresh ones; else, on Linux and from `move_large`, it
-/// grows by moving its pages (`mremap`). Anything else, or a block that
+/// copied (below), or, past 16 MiB on macOS, moves its whole pages into
+/// a fresh mapping when it starts on a page. A mapping of its own is
+/// copied into a kept block that fits, which then keeps the old one in
+/// turn, since a kept block's pages are resident and copying into them
+/// costs less than faulting in fresh ones; else, from `move_large`, it
+/// grows by moving its pages (`mremap` on Linux, `movePages` on macOS). Anything else, or a block that
 /// shrinks, is left to the caller, which copies it into a new block.
 fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret: usize) ?[*]u8 {
     // A mapped run is not this heap's: the caller copies it into a new
@@ -3012,16 +3056,24 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
         // where it lies into pages that fault in; else it is copied
         // into a new block.
         const at = @intFromPtr(memory.ptr);
+        var fresh = false;
         const p: [*]u8 = blk: {
             if (new_size < span_max) {
                 if (growSpan(h, at, old_size, new_size, false)) break :blk memory.ptr;
                 if (takeSpan(h, false, spanUnits(new_size))) |q| break :blk @ptrFromInt(q);
                 if (growSpan(h, at, old_size, new_size, true)) break :blk memory.ptr;
             }
-            break :blk allocLargeFrom(h, new_len, alignment.toByteUnits(), null) orelse return null;
+            break :blk allocLargeFrom(h, new_len, alignment.toByteUnits(), &fresh) orelse return null;
         };
         if (p != memory.ptr) {
-            @memcpy(p[0..memory.len], memory);
+            // Into a fresh mapping of its own on macOS, the span's whole
+            // pages move rather than copy (`movePages`), when it starts on
+            // a page. A span it grew into, though fresh, is never one.
+            const into_mapping = fresh and !isSpan(@intFromPtr(p)) and at % std.heap.pageSize() == 0;
+            const whole = if (into_mapping) std.mem.alignBackward(usize, memory.len, std.heap.pageSize()) else 0;
+            const moved = whole >= move_large and movePages(at, @intFromPtr(p), whole, .refresh);
+            const from: usize = if (moved) whole else 0;
+            @memcpy(p[from..memory.len], memory[from..]);
             freeSpan(h, at, old_size);
         }
         if (counts) h.count(@intCast(new_size - old_size), 0);
@@ -3037,7 +3089,23 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
         if (counts) h.count(@intCast(new_size - old_size), 0);
         return p;
     }
-    if (builtin.os.tag != .linux or memory.len < move_large) return null;
+    if (memory.len < move_large) return null;
+    if (builtin.os.tag == .macos) {
+        // macOS has no `mremap`: the block's pages move into a fresh
+        // mapping (`movePages`), where the room past them faults in as
+        // it is written.
+        const to = mapLarge(new_pages) orelse return null;
+        if (!movePages(@intFromPtr(memory.ptr), to, old_pages, .unmap)) {
+            unmapLarge(to, new_pages);
+            return null;
+        }
+        h.took(new_pages - old_pages);
+        lent(h, new_pages - old_pages);
+        trimKept(h);
+        if (counts) h.count(@intCast(new_size - old_size), 0);
+        return @ptrFromInt(to);
+    }
+    if (builtin.os.tag != .linux) return null;
     const linux = std.os.linux;
     // A block grown to `huge_large` moves to pages aligned for huge ones.
     const to = if (new_pages >= huge_large) mapLarge(new_pages) orelse return null else 0;
@@ -3800,6 +3868,34 @@ test "on Linux the first segment of a worker's heap started small keeps small pa
     try std.testing.expect(q & ~(segment_size - 1) != s);
     try std.testing.expect(segmentOf(@ptrFromInt(q)).huge);
     try std.testing.expect(try advisedHugeForTest(q));
+}
+
+test "on macOS a block that grows past 16 MiB moves its pages rather than copying them, from a span that starts on a page or from a mapping, and keeps its bytes" {
+    if (builtin.os.tag != .macos) return error.SkipZigTest;
+    const a = allocator;
+    const pg = std.heap.pageSize();
+    // A span under 16 MiB, filled, grown past it into a mapping.
+    var b = try a.alloc(u8, 15 << 20);
+    for (b, 0..) |*x, i| x.* = @truncate(i *% 7);
+    const aligned = @intFromPtr(b.ptr) % pg == 0;
+    var before = calls_for_test.moves;
+    b = a.remap(b, 30 << 20) orelse return error.TestUnexpectedResult;
+    for (b[0 .. 15 << 20], 0..) |x, i| try std.testing.expectEqual(@as(u8, @truncate(i *% 7)), x);
+    for (b[15 << 20 ..]) |x| try std.testing.expectEqual(@as(u8, 0), x);
+    try std.testing.expectEqual(@as(usize, @intFromBool(aligned)), calls_for_test.moves - before);
+    // The span it left, its pages mapped afresh, is taken and written.
+    const c = try a.alloc(u8, 15 << 20);
+    @memset(c, 9);
+    a.free(c);
+    // The mapping, grown again: its pages move, and its bytes stay.
+    @memset(b[15 << 20 ..], 3);
+    before = calls_for_test.moves;
+    b = a.remap(b, 60 << 20) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(usize, 1), calls_for_test.moves - before);
+    for (b[0 .. 15 << 20], 0..) |x, i| try std.testing.expectEqual(@as(u8, @truncate(i *% 7)), x);
+    for (b[15 << 20 .. 30 << 20]) |x| try std.testing.expectEqual(@as(u8, 3), x);
+    for (b[30 << 20 ..]) |x| try std.testing.expectEqual(@as(u8, 0), x);
+    a.free(b);
 }
 
 test "Lists of large blocks under 16 MiB, taken, grown by doubling, and freed, three times over, make no mmap, munmap, or mremap" {

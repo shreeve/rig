@@ -1,0 +1,20 @@
+tools/mac-claim: waiting 1 min for the Mac to go quiet (152% of a core in use, under 150% wanted). Busiest:
+  PID 30979 at 100.0%: /Users/shreeve/.local/share/mise/installs/zig/0.17.0/zig build-exe -Osafe --dep build_options --dep rig_std -M
+  PID 407 at 25.8%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+  PID 30428 at 4.2%: /System/iOSSupport/System/Library/PrivateFrameworks/PassKitUI.framework/PlugIns/PeerPaymentMessagesExtension.a
+tools/mac-claim: waiting 3 min for the Mac to go quiet (143% of a core in use, under 150% wanted). Busiest:
+  PID 68213 at 42.9%: /System/Library/PrivateFrameworks/XprotectFramework.framework/Versions/A/XPCServices/XprotectService.xpc/Conte
+  PID 407 at 35.8%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+  PID 493 at 9.4%: /usr/libexec/syspolicyd
+tools/mac-claim: waiting 5 min for the Mac to go quiet (107% of a core in use, under 150% wanted). Busiest:
+  PID 407 at 24.2%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+  PID 906 at 14.7%: com.apple.weather.menu
+  PID 1040 at 13.6%: /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Render
+tools/mac-claim: waiting 7 min for the Mac to go quiet (221% of a core in use, under 150% wanted). Busiest:
+  PID 27191 at 24.2%: /usr/libexec/diskimagesiod
+  PID 44438 at 18.5%: /private/var/run/com.apple.security.cryptexd/mnt/com.apple.iPhoneOS.SimulatorRuntime-v24.1.434.0.fye9KC/Librar
+  PID 63764 at 11.0%: /usr/libexec/findmylocateagent
+tools/mac-claim: waiting 9 min for the Mac to go quiet (109% of a core in use, under 150% wanted). Busiest:
+  PID 407 at 28.8%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+  PID 1017 at 9.7%: /Applications/Claude.app/Contents/MacOS/Claude
+  PID 2820 at 6.1%: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome

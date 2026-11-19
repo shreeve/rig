@@ -170,6 +170,11 @@ for p in tasks actors calls; do
         obj="mac-$p/__rig_program-apart.o"
         [[ -f $obj ]] || fail "bench/$p: no object $obj"
         objdump -h "mac-$p.bin" | grep -q ' __rig_text ' || fail "bench/$p: the executable has no __rig_text section"
+        # The section starts on a 16 KiB boundary (`rt.programSectionAnchor`),
+        # so the program's code keeps its place within a page whatever the
+        # runtime's size.
+        addr=$(otool -l "mac-$p.bin" | awk '/sectname __rig_text/ {s=1} s && /addr/ {print $2; exit}')
+        (( addr % 16384 == 0 )) || fail "bench/$p: the executable's __rig_text starts at $addr, not on a 16 KiB boundary"
         check "$obj" __rig_text "$p"
         calls "$obj" __rig_text "mac-$p"
         x15='[[:space:],[](x15|w15)([[:space:],]|]|$)'
