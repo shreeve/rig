@@ -1,0 +1,41 @@
+calibrated
+round 1 done
+round 2 done
+round 3 done
+round 4 done
+round 5 done
+round 6 done
+round 7 done
+round 8 done
+round 9 done
+round 10 done
+
+MB/s, fastest of 10 interleaved runs of about 400 ms, pinned to CPU 6
+| file | bytes | rig-safe | rig-z | rig-aa | yyjson | simdjson-dom |
+|---|---:|---:|---:|---:|---:|---:|
+| twitter | 631514 | 3702 | 3681 | 3718 | 3859 | 4921 |
+| twitterescaped | 562408 | 2977 | 2985 | 2968 | 2673 | 2095 |
+| canada | 2251051 | 1459 | 1393 | 1453 | 1448 | 1489 |
+| citm_catalog | 1727204 | 4111 | 4104 | 4102 | 3773 | 5397 |
+| gsoc-2018 | 3327831 | 6814 | 6636 | 6752 | 3322 | 5895 |
+| github_events | 65132 | 4475 | 4604 | 4481 | 4016 | 5669 |
+| geomean | | 3554 | 3525 | 3546 | 3015 | 3747 |
+
+MB/s, median of 10 interleaved runs of about 400 ms, pinned to CPU 6
+| file | bytes | rig-safe | rig-z | rig-aa | yyjson | simdjson-dom |
+|---|---:|---:|---:|---:|---:|---:|
+| twitter | 631514 | 3660 | 3639 | 3655 | 3817 | 4833 |
+| twitterescaped | 562408 | 2952 | 2955 | 2931 | 2630 | 2042 |
+| canada | 2251051 | 1414 | 1380 | 1417 | 1443 | 1466 |
+| citm_catalog | 1727204 | 4022 | 4032 | 4025 | 3677 | 5325 |
+| gsoc-2018 | 3327831 | 6675 | 6556 | 6652 | 3289 | 5855 |
+| github_events | 65132 | 4400 | 4553 | 4415 | 3960 | 5544 |
+| geomean | | 3490 | 3483 | 3486 | 2975 | 3684 |
+
+ranges (min-max MB/s):
+twitter rig-safe 3573-3702; rig-z 3563-3681; rig-aa 3594-3718; yyjson 3747-3859; simdjson-dom 4761-4921
+twitterescaped rig-safe 2925-2977; rig-z 2915-2985; rig-aa 2902-2968; yyjson 2584-2673; simdjson-dom 2016-2095
+canada rig-safe 1378-1459; rig-z 1353-1393; rig-aa 1396-1453; yyjson 1422-1448; simdjson-dom 1458-1489
+citm_catalog rig-safe 3857-4111; rig-z 3812-4104; rig-aa 3930-4102; yyjson 3594-3773; simdjson-dom 5243-5397
+gsoc-2018 rig-safe 6579-6814; rig-z 6406-6636; rig-aa 6610-6752; yyjson 3142-3322; simdjson-dom 5810-5895
+github_events rig-safe 4281-4475; rig-z 4410-4604; rig-aa 4282-4481; yyjson 3849-4016; simdjson-dom 5357-5669

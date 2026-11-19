@@ -1,0 +1,11 @@
+ of 10
+aa           connect      25.81 us
+m13          connect      26.05 us
+z71          connect      25.88 us
+aa           echo          0.96 us
+m13          echo          0.97 us
+z71          echo          0.96 us
+aa           pingpong      5.09 us
+m13          pingpong      4.93 us
+z71          pingpong      5.00 us
+
