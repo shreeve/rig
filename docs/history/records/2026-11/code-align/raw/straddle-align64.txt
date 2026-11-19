@@ -1,0 +1,79 @@
+p64/s0: 113 loops, 1 cross 4 KiB
+    ___rig_main.psum 10005cf90..10005d010 (128 B)
+p64/s1: 120 loops, 1 cross 4 KiB
+    _rig.runtime.inCode__func_359 10005bfb4..10005c04c (152 B)
+p64/s2: 124 loops, 4 cross 4 KiB
+    _rig.std.sort.Ipn(i64).sortRegion 10005cfdc..10005d00c (48 B)
+    _rig.std.sort.Ipn(i64).sortRegion 10005cff8..10005d024 (44 B)
+    _rig.std.sort.Ipn(i64).sortRegion 10005cff4..10005d034 (64 B)
+    _rig.std.sort.Ipn(i64).sortRegion 10005cff4..10005d04c (88 B)
+p64/s3: 129 loops, 0 cross 4 KiB
+p64/s4: 135 loops, 1 cross 4 KiB
+    _rig.runtime.inCode__func_359 10005bfec..10005c004 (24 B)
+p64/s5: 142 loops, 0 cross 4 KiB
+p64/s6: 147 loops, 0 cross 4 KiB
+p64/s7: 153 loops, 0 cross 4 KiB
+p64/s8: 159 loops, 0 cross 4 KiB
+p64/s9: 165 loops, 0 cross 4 KiB
+p64/s10: 171 loops, 3 cross 4 KiB
+    _rig.runtime.inCode__func_359 10005bf64..10005c004 (160 B)
+    _rig.runtime.inCode__func_359 10005bf64..10005c01c (184 B)
+    _rig.std.sort.Ipn(i64).quicksort 10005cfe4..10005d01c (56 B)
+p64/s11: 177 loops, 1 cross 4 KiB
+    ___rig_main.__rig_run_main 10005bffc..10005c020 (36 B)
+p64/s12: 181 loops, 2 cross 4 KiB
+    ___rig_main.__rig_run_main 10005bfec..10005c02c (64 B)
+    ___rig_main.__rig_run_main 10005bfb0..10005c078 (200 B)
+p64/s13: 186 loops, 1 cross 4 KiB
+    ___rig_main.qsort 10005cf60..10005d05c (252 B)
+p64/s14: 192 loops, 0 cross 4 KiB
+p64/s15: 198 loops, 0 cross 4 KiB
+p64/s16: 204 loops, 0 cross 4 KiB
+p64/s17: 210 loops, 1 cross 4 KiB
+    ___rig_main.qsort 10005cf6c..10005d018 (172 B)
+p64/s18: 216 loops, 1 cross 4 KiB
+    ___rig_main.psum 10005df90..10005e010 (128 B)
+p64/s19: 223 loops, 1 cross 4 KiB
+    ___rig_main.__rig_run_main 10005cffc..10005d01c (32 B)
+p64/s20: 225 loops, 0 cross 4 KiB
+p64/s21: 231 loops, 0 cross 4 KiB
+p64/s22: 233 loops, 1 cross 4 KiB
+    ___rig_main.__rig_run_main 10005cfec..10005d004 (24 B)
+p64/s23: 239 loops, 0 cross 4 KiB
+p64/s24: 242 loops, 0 cross 4 KiB
+p64/s25: 249 loops, 4 cross 4 KiB
+    ___rig_main.__rig_run_main 10005cff4..10005d00c (24 B)
+    _rig.std.sort.Ipn(i64).heapsort 10005dfac..10005e010 (100 B)
+    _rig.std.sort.Ipn(i64).heapsort 10005dfcc..10005e030 (100 B)
+    _rig.std.sort.Ipn(i64).heapsort 10005dfac..10005e034 (136 B)
+p64/s26: 254 loops, 1 cross 4 KiB
+    _rig.std.sort.Ipn(i64).quicksort 10005dfcc..10005e020 (84 B)
+p64/s27: 262 loops, 1 cross 4 KiB
+    _rig.std.sort.Ipn(i64).quicksort 10005dff8..10005e020 (40 B)
+p64/s28: 268 loops, 1 cross 4 KiB
+    ___rig_main.__rig_run_main 10005cfec..10005d004 (24 B)
+p64/s29: 274 loops, 0 cross 4 KiB
+p64/s30: 279 loops, 0 cross 4 KiB
+p64/s31: 285 loops, 2 cross 4 KiB
+    ___rig_main.__rig_run_main 10005cf58..10005d008 (176 B)
+    ___rig_main.qsort 10005df60..10005e05c (252 B)
+p64/s32: 292 loops, 2 cross 4 KiB
+    ___rig_main.__rig_run_main 10005cffc..10005d01c (32 B)
+    ___rig_main.__rig_run_main 10005cffc..10005d02c (48 B)
+p64/s33: 295 loops, 0 cross 4 KiB
+p64/s34: 300 loops, 1 cross 4 KiB
+    ___rig_main.psum 10005eff4..10005f004 (16 B)
+p64/s35: 306 loops, 1 cross 4 KiB
+    ___rig_main.qsort 10005df6c..10005e018 (172 B)
+p64/s36: 310 loops, 1 cross 4 KiB
+    ___rig_main.psum 10005ef90..10005f010 (128 B)
+p64/s37: 310 loops, 0 cross 4 KiB
+p64/s38: 312 loops, 4 cross 4 KiB
+    _rig.std.sort.Ipn(i64).sortRegion 10005efdc..10005f00c (48 B)
+    _rig.std.sort.Ipn(i64).sortRegion 10005eff8..10005f024 (44 B)
+    _rig.std.sort.Ipn(i64).sortRegion 10005eff4..10005f034 (64 B)
+    _rig.std.sort.Ipn(i64).sortRegion 10005eff4..10005f04c (88 B)
+p64/s39: 323 loops, 0 cross 4 KiB
+p64/s40: 325 loops, 2 cross 4 KiB
+    ___rig_main.__rig_run_main 10005cffc..10005d014 (24 B)
+    ___rig_main.__rig_run_main 10005dff0..10005e008 (24 B)
