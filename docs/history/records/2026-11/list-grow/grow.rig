@@ -1,0 +1,27 @@
+# grow.rig CASE: one List growth, timed, in a fresh process, as qsort's extends grow.
+#   span: a full List of 1,886,750 Ints (15.1 MB, under 16 MiB) extended by as many (30.2 MB)
+#   map:  a full List of 2,097,152 Ints (16 MiB) extended by as many (32 MiB)
+#   push: 4,194,304 pushes into a List made empty (timed whole)
+use std.os
+use std.time
+
+sub main()
+  args = os.args()
+  m = 1 << 22
+  src: List[Int] = List(capacity: m)
+  for i in 0..m
+    !src.push((i *% 6364136223846793005 +% 1442695040888963407) >> 20)
+  case = args[1]
+  if case == "push"
+    t = time.now()
+    xs: List[Int] = List()
+    for i in 0..m
+      !xs.push(i)
+    print("push", t.elapsed(), xs.len)
+  else
+    h = 1886750 if case == "span" else 2097152
+    a: List[Int] = List(capacity: h)
+    !a.extend(?src[..h])
+    t = time.now()
+    !a.extend(?src[h..2 * h])
+    print(case, t.elapsed(), a.len)

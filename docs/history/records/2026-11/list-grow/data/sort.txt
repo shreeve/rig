@@ -1,0 +1,6 @@
+sint sorted 16 old 0.338 branch 0.333 ratio 0.987
+sstr sorted 4096 old 0.632 branch 0.632 ratio 1.000
+sstr sorted 65536 old 0.629 branch 0.629 ratio 1.001
+rec rev 16 old 3.044 branch 3.045 ratio 1.000
+sint rand 16 old 6.297 branch 6.326 ratio 1.005
+rec rand 65536 old 11.496 branch 11.601 ratio 1.009
