@@ -455,3 +455,6 @@ answers; if a 4 KiB crossing costs there too, the same tool applies to
 "not now" to rejected; loop alignment from "draft" to rejected on Zig
 0.17; the post-link check is added, as a tool for boards and not a
 compiler pass; the page-aligned program section on the Mac stays.
+
+
+The owner approved the defaults above on 2026-11-19 ("Approve the defaults").
