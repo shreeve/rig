@@ -299,7 +299,7 @@ code "apis object box the drop and clone entries", ".__rig_drop = rig.dropErased
 
   print(1)
 
-code "apis object crossing a task through its table", "rig.Task(f64).spawnObject(b, \"area\", .{ });", "rig.ApiView(__rig_table_Shape, .read, \" + Syncs\")"
+code "apis object crossing a task through its table", "rig.Task(f64).frame.spawnObject(b, \"area\", .{ });", "rig.ApiView(__rig_table_Shape, .read, \" + Syncs\")"
   # A call through an object whose braces let it cross is a task on any
   # core, given the object's two words; a crossing bound changes no Zig
   # but the braces the type is spelled with.

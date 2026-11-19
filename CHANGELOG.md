@@ -458,6 +458,17 @@ serve no HTTP.
 
 ### Compiler
 
+- **A task that never leaves its binding is recorded as a fork:**
+  `t = f(x)&`, declaring `t` in a block, where every later naming of `t`
+  is `>t`, `<t.cancel()`, or a read lend `?t`, and the task's record
+  (header, arguments, and result) takes at most 1 KiB, gets the storage
+  fact `task_record` (`storage.taskStaysInFrame`). A task moved,
+  returned, added to a `Tasks` set, stored, captured by a closure, or
+  bound again does not. Emit starts a fork through `rig.Task(T).frame`,
+  which records it on the fiber (`Fiber.fork`); nothing reads it yet. The
+  preemption monitor and the record held in the maker's frame build on it
+  (records/2026-11/free-fork-join).
+
 **A loop that folds integers runs by vectors.** A `for` over a List or a
 slice of integers whose body is only `s += x`, `s +%= x`, `s ^= x`,
 `s |= x`, or `s &= x`, `s` a local of the element's type, is lowered to
@@ -844,6 +855,42 @@ arms.
   stays at 3.9 ms against Rayon's 4.6-4.7; fork.rig, Trig's
   `task.workers` programs and one-worker runs are not affected
   (docs/history/records/2026-11/early-memory/).
+- **A fork's record lies in its maker's frame:** a task the compiler
+  records as a fork (`task_record`: `t = f(x)&`, waited for in the
+  block that binds it) is made in a slot of its maker's frame and
+  started there (`sched.frameRecord`, `startAt`), with no allocation and
+  nothing to free; the record counts in the frame's size. Whoever runs
+  the fork leaves it on its isolate's list, its last access being
+  `Done`'s ended, and whoever reads ended takes it off under the
+  isolate's lock: the maker at its join or drop, or the isolate's
+  stopper once a panic left the maker's stack to it
+  (formal/Models/FrameRecord.lean). Taken off at the fork's end, as a
+  heap record is, a stopper could give that stack back before the
+  fork's last writes into it; a sanitized seeded run of the new isolate
+  case faulted on 18 of 20 seeds that way (test/cli/frame_record.sh,
+  concurrency-isolate).
+  On the Mac (fork-order's fork3.rig, paired medians over 20 rounds),
+  a join with no work costs 55 ns at one worker, against 62 with the
+  monitor's change alone and 68 before it (`nil`, 11% faster); psum and
+  qsort, and bench/tasks, actors and net, are level, but for
+  bench/tasks' chain, 12% faster.
+- **The preemption monitor leaves forks to the slice:** a fork, a task
+  bound by `t = f(x)&` that stays in its maker's frame and is waited for
+  there (`task_record`), no longer counts for the monitor's two looks
+  50 µs apart, which stop a fiber whose worker queued work at both with
+  none started between. Every other task, one added to a `Tasks` set,
+  returned, stored, or moved, and std's connections, and every fiber
+  woken, yielded, or stopped, keeps that bound. Forks still count for
+  the 10 ms slice, and while one
+  waits at a busy worker and another sleeps, the monitor wakes one to
+  take it. A fork-join's own forks wait in its queues all the time it
+  runs, so on one worker it was stopped every 100 µs and the monitor
+  woke every 50 µs; now it runs unstopped and the monitor looks once a
+  millisecond (test/cli/preempt_forks.sh).
+  On the Mac (fork-order's fork.rig, paired medians over 24 rounds),
+  qsort at one worker is 15% faster, 139.4 ms against 163.1; psum at
+  one worker and both at 10 workers are level, as are bench/actors and
+  bench/net.
 - **An actor's method runs inline only with the room its own task
   would give it:** a call that finds the actor idle runs the method on
   the caller's stack when that stack has as much room left as the

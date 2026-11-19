@@ -27,7 +27,6 @@ const io = rt.io;
 const oom = rt.oom;
 const task = rt.task;
 
-
 /// `Task(T)`: a call running as a task of its own (`f(x)&`), which gives
 /// a `T` when it ends. It runs as a fiber of the scheduler (`rt.sched`),
 /// on a stack of its own. `wait` takes its result. Dropping a task that can fail cancels it and waits for
@@ -53,32 +52,28 @@ pub fn Task(comptime T: type) type {
         pub const __rig_args = .{T};
         const fallible = @typeInfo(T) == .error_union;
 
-        /// `f(args...)&`: start the call as a task, which keeps the
-        /// deadline of the task starting it.
-        pub fn spawn(comptime f: anytype, args: anytype) Self {
-            return start(false, false, f, args);
-        }
+        /// The ways to start a task: `Starts(false)`'s, aliased here, and
+        /// `frame`'s, for a task the compiler found stays in its maker's
+        /// frame and is waited for there (`task_record`, a fork), which
+        /// the fiber records (`sched.Fiber.fork`).
+        pub const spawn = Starts(false).spawn;
+        pub const spawnDense = Starts(false).spawnDense;
+        pub const spawnLocal = Starts(false).spawnLocal;
+        pub const spawnMethod = Starts(false).spawnMethod;
+        pub const spawnMethodLocal = Starts(false).spawnMethodLocal;
+        pub const spawnMethodValue = Starts(false).spawnMethodValue;
+        pub const spawnMethodValueLocal = Starts(false).spawnMethodValueLocal;
+        pub const spawnWitness = Starts(false).spawnWitness;
+        pub const spawnWitnessLocal = Starts(false).spawnWitnessLocal;
+        pub const spawnObject = Starts(false).spawnObject;
+        pub const spawnObjectLocal = Starts(false).spawnObjectLocal;
+        pub const frame = Starts(true);
 
-        /// `f(args...)&` for a task the compiler found fits a dense stack
-        /// (`sched.takeDense`): no recursion and no call through a pointer.
-        pub fn spawnDense(comptime f: anytype, args: anytype) Self {
-            return start(false, true, f, args);
-        }
-
-        /// `f(args...)&` for a local task: one given or lent a value that
-        /// stays on one thread (a `*` handle whose count is not atomic, a
-        /// Cell of more than one word, a Signal, a function). It and the
-        /// task starting it run on this thread from now on.
-        pub fn spawnLocal(comptime f: anytype, args: anytype) Self {
-            return start(true, false, f, args);
-        }
-
-        fn start(comptime local: bool, comptime dense: bool, comptime f: anytype, args: anytype) Self {
-            const Args = @TypeOf(args);
-            // A fiber is on a stack of its own already, and the runtime
-            // keeps its state per fiber. `run` gives `T` even where `f` is
-            // generic.
-            const Fiber = struct {
+        /// What runs a task of `f` given `Args`, as its fiber's call: it
+        /// keeps the task's state per fiber, and gives `T` even where `f`
+        /// is generic.
+        fn Runner(comptime f: anytype, comptime Args: type) type {
+            return struct {
                 fn run(control: *Control, deadline: ?i96, a: Args) T {
                     const state = task();
                     state.control = control;
@@ -91,77 +86,63 @@ pub fn Task(comptime T: type) type {
                     if (comptime takesSlot(@TypeOf(f))) return rt.callCode(T, f, a ++ .{rt.failSlot(&control.err)});
                     return rt.callCode(T, f, a);
                 }
+
+                /// The record's arguments: the deadline of the task
+                /// starting it, then `f`'s.
+                const RecordArgs = struct { ?i96, Args };
+                const Full = rt.sched.Record(T, Control, run, RecordArgs);
             };
-            // The task's record holds its `Control`: one allocation for
-            // both. It keeps the isolate of the task starting it, which
-            // records it before it can run (`Control.made`).
-            const state = task();
-            const made = rt.sched.spawn(T, Control, Fiber.run, .{ state.deadline, args }, .{ .isolate = state.isolate }, local, dense);
-            return .{ .job = made.job, .control = made.extra };
         }
 
-        /// `x.name(args...)&`: start a method's call as a task. `x` is
-        /// the address of the method's self, or of a view of it. A method
-        /// that takes its view by value, as a small value read is, is
-        /// given it here, before the task starts.
-        pub fn spawnMethod(x: anytype, comptime name: []const u8, args: anytype) Self {
-            return startMethod(false, x, name, args);
+        /// A fork's record, made in the slot of its maker's frame that the
+        /// storage fact `task_record` names (`Starts(true)`), and not yet
+        /// started: `start` starts it where it lies, and gives the task.
+        pub fn Frame(comptime local: bool, comptime f: anytype, comptime Args: type) type {
+            return struct {
+                full: Runner(f, Args).Full,
+
+                /// Start the fork whose record this is: it is listed in the
+                /// isolate of the task starting it (`Control.made`), and its
+                /// waiter's read of its end lets the record go
+                /// (`release`).
+                pub inline fn start(self: *@This()) Self {
+                    const made = rt.sched.startAt(&self.full, local);
+                    return .{ .job = made.job, .control = made.extra };
+                }
+            };
         }
 
-        /// `x.name(args...)&` for a local task (`spawnLocal`).
-        pub fn spawnMethodLocal(x: anytype, comptime name: []const u8, args: anytype) Self {
-            return startMethod(true, x, name, args);
+        /// The method `name` of the self `x` points to, or views.
+        fn MethodPtr(comptime P: type) type {
+            return if (@typeInfo(@typeInfo(P).pointer.child) == .pointer) @typeInfo(P).pointer.child else P;
         }
 
-        /// `(<x).name(args...)&` of a method that takes its self by
-        /// value (`<@`): `x` is the self, moved or copied into the task's
-        /// arguments.
-        pub fn spawnMethodValue(x: anytype, comptime name: []const u8, args: anytype) Self {
-            return start(false, false, @field(@TypeOf(x), name), .{x} ++ args);
+        fn methodOf(comptime P: type, comptime name: []const u8) @TypeOf(@field(@typeInfo(MethodPtr(P)).pointer.child, name)) {
+            return @field(@typeInfo(MethodPtr(P)).pointer.child, name);
         }
 
-        /// `spawnMethodValue` for a local task (`spawnLocal`).
-        pub fn spawnMethodValueLocal(x: anytype, comptime name: []const u8, args: anytype) Self {
-            return start(true, false, @field(@TypeOf(x), name), .{x} ++ args);
+        /// The self a method's task gets: by address when the method
+        /// takes a pointer, else by value.
+        fn MethodSelf(comptime P: type, comptime name: []const u8) type {
+            const SelfParam = @typeInfo(@TypeOf(methodOf(P, name))).@"fn".param_types[0].?;
+            return if (@typeInfo(SelfParam) == .pointer) MethodPtr(P) else @typeInfo(MethodPtr(P)).pointer.child;
         }
 
-        /// `x.area()&` through a witness (`W.area`, docs/design/apis.md,
-        /// Stage 3): `x` is the address of its self, or of a view of it,
-        /// as for `spawnMethod`.
-        pub fn spawnWitness(comptime f: anytype, x: anytype, args: anytype) Self {
-            return start(false, false, f, .{rt.selfArg(f, x)} ++ args);
+        inline fn methodSelf(x: anytype, comptime name: []const u8) MethodSelf(@TypeOf(x), name) {
+            const Ptr = MethodPtr(@TypeOf(x));
+            const ptr: Ptr = if (Ptr == @TypeOf(x)) x else x.*;
+            return if (MethodSelf(@TypeOf(x), name) == Ptr) ptr else ptr.*;
         }
 
-        /// `spawnWitness` for a local task (`spawnLocal`).
-        pub fn spawnWitnessLocal(comptime f: anytype, x: anytype, args: anytype) Self {
-            return start(true, false, f, .{rt.selfArg(f, x)} ++ args);
-        }
-
-        /// `s.area()&` through an API object (docs/design/apis.md, Stage
-        /// 5): the entry `name` of its table, given the address the object
-        /// holds; the object, its two words, goes to the task, which its
-        /// braces' crossing bound allows. An entry of a fallible method
-        /// takes the slot, which the task's record gives it; an entry
-        /// whose result goes out through the caller's place, a place of
-        /// the task's own (`resultOut`).
-        pub fn spawnObject(obj: anytype, comptime name: []const u8, args: anytype) Self {
-            return startObject(false, obj, name, args);
-        }
-
-        /// `spawnObject` for a local task (`spawnLocal`).
-        pub fn spawnObjectLocal(obj: anytype, comptime name: []const u8, args: anytype) Self {
-            return startObject(true, obj, name, args);
-        }
-
-        fn startObject(comptime local: bool, obj: anytype, comptime name: []const u8, args: anytype) Self {
-            const O = @TypeOf(obj);
-            const A = @TypeOf(args);
-            const Entry = @TypeOf(@field(obj.vt.*, name));
-            const Call = if (comptime takesSlot(Entry)) struct {
+        /// What runs the entry `name` of an API object's table, an `O`,
+        /// given `A` (`spawnObject`).
+        fn ObjectCall(comptime O: type, comptime name: []const u8, comptime A: type) type {
+            const Entry = @FieldType(@typeInfo(@FieldType(O, "vt")).pointer.child, name);
+            return if (takesSlot(Entry)) struct {
                 fn run(o: O, a: A, out: rt.ErrSlot) T {
                     return @call(.auto, @field(o.vt.*, name), .{o.ptr} ++ a ++ .{out});
                 }
-            } else if (comptime resultOut(Entry, T)) struct {
+            } else if (resultOut(Entry, T)) struct {
                 fn run(o: O, a: A) T {
                     var res = rt.outPlace(T);
                     return rt.packOut(T, @call(.auto, @field(o.vt.*, name), .{o.ptr} ++ a ++ .{&res}), &res);
@@ -171,17 +152,107 @@ pub fn Task(comptime T: type) type {
                     return @call(.auto, @field(o.vt.*, name), .{o.ptr} ++ a);
                 }
             };
-            return start(local, false, Call.run, .{ obj, args });
         }
 
-        fn startMethod(comptime local: bool, x: anytype, comptime name: []const u8, args: anytype) Self {
-            const P = @TypeOf(x);
-            const Ptr = if (@typeInfo(@typeInfo(P).pointer.child) == .pointer) @typeInfo(P).pointer.child else P;
-            const ptr: Ptr = if (Ptr == P) x else x.*;
-            const method = @field(@typeInfo(Ptr).pointer.child, name);
-            const SelfParam = @typeInfo(@TypeOf(method)).@"fn".param_types[0].?;
-            if (@typeInfo(SelfParam) == .pointer) return start(local, false, method, .{ptr} ++ args);
-            return start(local, false, method, .{ptr.*} ++ args);
+        fn Starts(comptime fork: bool) type {
+            return struct {
+                /// What a start gives: the task, or, for a fork, its
+                /// record, made and not yet started (`Frame`).
+                fn Out(comptime local: bool, comptime f: anytype, comptime Args: type) type {
+                    return if (fork) Frame(local, f, Args) else Self;
+                }
+
+                /// `f(args...)&`: start the call as a task, which keeps the
+                /// deadline of the task starting it.
+                pub fn spawn(comptime f: anytype, args: anytype) Out(false, f, @TypeOf(args)) {
+                    return start(false, false, f, args);
+                }
+
+                /// `f(args...)&` for a task the compiler found fits a dense stack
+                /// (`sched.takeDense`): no recursion and no call through a pointer.
+                pub fn spawnDense(comptime f: anytype, args: anytype) Out(false, f, @TypeOf(args)) {
+                    return start(false, true, f, args);
+                }
+
+                /// `f(args...)&` for a local task: one given or lent a value that
+                /// stays on one thread (a `*` handle whose count is not atomic, a
+                /// Cell of more than one word, a Signal, a function). It and the
+                /// task starting it run on this thread from now on.
+                pub fn spawnLocal(comptime f: anytype, args: anytype) Out(true, f, @TypeOf(args)) {
+                    return start(true, false, f, args);
+                }
+
+                fn start(comptime local: bool, comptime dense: bool, comptime f: anytype, args: anytype) Out(local, f, @TypeOf(args)) {
+                    const R = Runner(f, @TypeOf(args));
+                    // The task's record holds its `Control`: one allocation for
+                    // both, or one slot of its maker's frame for a fork. It
+                    // keeps the isolate of the task starting it, which
+                    // records it before it can run (`Control.made`).
+                    const state = task();
+                    const control: Control = .{ .isolate = state.isolate, .in_frame = fork };
+                    const a: R.RecordArgs = .{ state.deadline, args };
+                    if (fork) return .{ .full = rt.sched.frameRecord(T, Control, R.run, a, control, dense) };
+                    const made = rt.sched.spawn(T, Control, R.run, a, control, local, dense, false);
+                    return .{ .job = made.job, .control = made.extra };
+                }
+
+                /// `x.name(args...)&`: start a method's call as a task. `x` is
+                /// the address of the method's self, or of a view of it. A method
+                /// that takes its view by value, as a small value read is, is
+                /// given it here, before the task starts.
+                pub fn spawnMethod(x: anytype, comptime name: []const u8, args: anytype) Out(false, methodOf(@TypeOf(x), name), @TypeOf(.{methodSelf(x, name)} ++ args)) {
+                    return startMethod(false, x, name, args);
+                }
+
+                /// `x.name(args...)&` for a local task (`spawnLocal`).
+                pub fn spawnMethodLocal(x: anytype, comptime name: []const u8, args: anytype) Out(true, methodOf(@TypeOf(x), name), @TypeOf(.{methodSelf(x, name)} ++ args)) {
+                    return startMethod(true, x, name, args);
+                }
+
+                /// `(<x).name(args...)&` of a method that takes its self by
+                /// value (`<@`): `x` is the self, moved or copied into the task's
+                /// arguments.
+                pub fn spawnMethodValue(x: anytype, comptime name: []const u8, args: anytype) Out(false, @field(@TypeOf(x), name), @TypeOf(.{x} ++ args)) {
+                    return start(false, false, @field(@TypeOf(x), name), .{x} ++ args);
+                }
+
+                /// `spawnMethodValue` for a local task (`spawnLocal`).
+                pub fn spawnMethodValueLocal(x: anytype, comptime name: []const u8, args: anytype) Out(true, @field(@TypeOf(x), name), @TypeOf(.{x} ++ args)) {
+                    return start(true, false, @field(@TypeOf(x), name), .{x} ++ args);
+                }
+
+                /// `x.area()&` through a witness (`W.area`, docs/design/apis.md,
+                /// Stage 3): `x` is the address of its self, or of a view of it,
+                /// as for `spawnMethod`.
+                pub fn spawnWitness(comptime f: anytype, x: anytype, args: anytype) Out(false, f, @TypeOf(.{rt.selfArg(f, x)} ++ args)) {
+                    return start(false, false, f, .{rt.selfArg(f, x)} ++ args);
+                }
+
+                /// `spawnWitness` for a local task (`spawnLocal`).
+                pub fn spawnWitnessLocal(comptime f: anytype, x: anytype, args: anytype) Out(true, f, @TypeOf(.{rt.selfArg(f, x)} ++ args)) {
+                    return start(true, false, f, .{rt.selfArg(f, x)} ++ args);
+                }
+
+                /// `s.area()&` through an API object (docs/design/apis.md, Stage
+                /// 5): the entry `name` of its table, given the address the object
+                /// holds; the object, its two words, goes to the task, which its
+                /// braces' crossing bound allows. An entry of a fallible method
+                /// takes the slot, which the task's record gives it; an entry
+                /// whose result goes out through the caller's place, a place of
+                /// the task's own (`resultOut`).
+                pub fn spawnObject(obj: anytype, comptime name: []const u8, args: anytype) Out(false, ObjectCall(@TypeOf(obj), name, @TypeOf(args)).run, @TypeOf(.{ obj, args })) {
+                    return start(false, false, ObjectCall(@TypeOf(obj), name, @TypeOf(args)).run, .{ obj, args });
+                }
+
+                /// `spawnObject` for a local task (`spawnLocal`).
+                pub fn spawnObjectLocal(obj: anytype, comptime name: []const u8, args: anytype) Out(true, ObjectCall(@TypeOf(obj), name, @TypeOf(args)).run, @TypeOf(.{ obj, args })) {
+                    return start(true, false, ObjectCall(@TypeOf(obj), name, @TypeOf(args)).run, .{ obj, args });
+                }
+
+                fn startMethod(comptime local: bool, x: anytype, comptime name: []const u8, args: anytype) Out(local, methodOf(@TypeOf(x), name), @TypeOf(.{methodSelf(x, name)} ++ args)) {
+                    return start(local, false, methodOf(@TypeOf(x), name), .{methodSelf(x, name)} ++ args);
+                }
+            };
         }
 
         /// `>t`: wait for the task to end and take its result. A
@@ -199,7 +270,7 @@ pub fn Task(comptime T: type) type {
         /// lends, or are dropped where it lends none (`rt.no_slot`).
         pub fn waitInto(self: Self, out: anytype) T {
             var t = self;
-            defer t.job.free();
+            defer t.release();
             if (canceledHere()) {
                 var result = t.stop();
                 if (comptime !fallible) return result;
@@ -242,7 +313,7 @@ pub fn Task(comptime T: type) type {
         /// go into the caller's slot `out`, as `waitInto`'s do.
         pub fn cancelInto(self: Self, out: anytype) T {
             var t = self;
-            defer t.job.free();
+            defer t.release();
             return keepResult(T, t.stop(), &t.control.err, out);
         }
 
@@ -253,9 +324,24 @@ pub fn Task(comptime T: type) type {
         /// A task that cannot fail is waited for, unless the task that
         /// drops it is canceled, which passes the cancel on.
         pub fn __rig_drop(self: *Self) void {
-            defer self.job.free();
+            defer self.release();
             var result = if (fallible or canceledHere()) self.stop() else self.job.join();
             dropResult(T, &result, &self.control.err);
+        }
+
+        /// The task has ended, as its waiter read (`Done`'s `ended`): let
+        /// its record go. A heap record is freed; one in its maker's frame
+        /// is taken off its isolate's list (`Control.leave`), the frame's
+        /// end letting it go.
+        inline fn release(self: Self) void {
+            if (self.control.in_frame) {
+                // The record lies in the frame of the waiter's own
+                // function, above this one on its stack.
+                if (rt.sanitize) std.debug.assert(@intFromPtr(self.job) > @frameAddress());
+                if (self.control.isolate) |iso| self.control.leave(iso);
+                return;
+            }
+            self.job.free();
         }
 
         /// Record the cancel, which ends a wait the task is in that a
@@ -349,6 +435,10 @@ pub const Control = struct {
     next: ?*Control = null,
     /// Its place in the set that holds it (`Tasks.dropEnded`).
     index: u32 = 0,
+    /// Its record lies in its maker's frame (`Task.Frame`, the storage
+    /// fact `task_record`): its waiter takes it off its isolate's list
+    /// (`leave`), and `finish` leaves it there.
+    in_frame: bool = false,
 
     /// The task is made and not yet running: it runs under the isolate
     /// of the task starting it, which lists it now, so a panic there
@@ -371,10 +461,48 @@ pub const Control = struct {
     /// `Wakeup` that comes to watch it after finds it ended
     /// (`Wakeup.watch`), so no end goes unseen; one task with neither
     /// pays a store and a load.
+    ///
+    /// A record in its maker's frame stays on its isolate's list: the
+    /// last access of it by whoever ran the task is `Done`'s `ended`
+    /// (`rt.sched.Header.end`), and whoever reads that takes it off,
+    /// under the isolate's lock: its waiter (`leave`), or the isolate's
+    /// stopper once a panic left the maker's stack to the isolate
+    /// (`Isolate.stop`). Taken off here, as a heap record is, the stopper
+    /// could give that stack back, and another task take it, before
+    /// the writes that follow (formal/Models/FrameRecord.lean, `today`).
     fn finish(self: *Control) void {
-        if (self.isolate) |iso| iso.remove(self);
-        self.done.store(true, .seq_cst);
+        if (self.in_frame) {
+            // FrameRecord.lean, the thief's `done` and `wakeup`, then
+            // (`runFiber`) `endStack`, `Done`'s `ending` and `ended`.
+            rt.sched.raceStep();
+            self.done.store(true, .seq_cst);
+            rt.sched.raceStep();
+        } else {
+            if (self.isolate) |iso| iso.remove(self);
+            self.done.store(true, .seq_cst);
+        }
         if (self.wakeup.load(.seq_cst)) |w| w.ended(self);
+    }
+
+    /// The task, whose record lies in its maker's frame, has ended, as
+    /// its waiter read (`Done`'s `ended`): take it off its isolate's
+    /// list, unless the isolate's stopper did. FrameRecord.lean's maker,
+    /// steps 4 and 5 of the `fixed` order. The maker's own task is listed
+    /// until it ends, or the maker is the isolate's own call, so the
+    /// isolate is there; and after this nothing reads the record, so the
+    /// frame may go.
+    noinline fn leave(self: *Control, iso: *Isolate) void {
+        rt.sched.raceStep();
+        iso.lock.lock();
+        defer iso.lock.unlock();
+        if (self.iso_prev == null and iso.first != self) return;
+        iso.unlink(self);
+    }
+
+    /// The task's record lies in its maker's frame and its `Done` reads
+    /// `ended`: whoever ran it is done with it (`Isolate.stop`).
+    fn frameEnded(self: *const Control) bool {
+        return rt.sched.Header.endedOf(self.fiber.?);
     }
 };
 
@@ -1288,6 +1416,12 @@ pub const Isolate = struct {
     noinline fn remove(self: *Isolate, c: *Control) void {
         self.lock.lock();
         defer self.lock.unlock();
+        self.unlink(c);
+    }
+
+    /// Take `c` off the list, under the lock, and wake the stopper once
+    /// none is left.
+    fn unlink(self: *Isolate, c: *Control) void {
         if (c.iso_prev) |p| p.next = c.next else self.first = c.next;
         if (c.next) |n| n.iso_prev = c.iso_prev;
         c.iso_prev = null;
@@ -1309,13 +1443,44 @@ pub const Isolate = struct {
     /// Cancel every task listed, and every one listed later; with
     /// `wait`, sleep until none is and every task that panicked has left
     /// its stack.
+    ///
+    /// A task whose record lies in its maker's frame stays listed after
+    /// it ends, until whoever reads its end takes it off (`Control.finish`).
+    /// When its maker panicked, that is the stopper: under the lock, it
+    /// takes off each such record whose `Done` reads `ended`. A record
+    /// still listed lies in a frame that is live, or on a stack the
+    /// isolate keeps, so the stopper reads none that was let go
+    /// (formal/Models/FrameRecord.lean, the stopper's step 1 of the
+    /// `fixed` order). Nothing wakes it as such a task ends, since whoever
+    /// ran it touches no isolate after: it looks again after a while,
+    /// from 20 µs, doubling to 1 ms.
     fn stop(self: *Isolate, wait: bool) void {
         self.lock.lock();
         defer self.lock.unlock();
         self.stopping = true;
         var c = self.first;
         while (c) |x| : (c = x.next) x.cancel();
-        while (wait and (self.first != null or self.leaving != 0)) _ = rt.sched.sleepOn(&self.stopper, &self.lock, null, false);
+        var poll: i96 = 20_000;
+        while (wait) {
+            const frames = self.takeEndedFrames();
+            if (self.first == null and self.leaving == 0) break;
+            const deadline: ?i96 = if (frames) rt.sched.nowNs() + poll else null;
+            if (frames) poll = @min(poll * 2, 1_000_000);
+            _ = rt.sched.sleepOn(&self.stopper, &self.lock, deadline, false);
+        }
+    }
+
+    /// Under the lock: take off every listed task whose record lies in
+    /// its maker's frame and has ended; whether one that has not is left.
+    fn takeEndedFrames(self: *Isolate) bool {
+        var pending = false;
+        var c = self.first;
+        while (c) |x| {
+            c = x.next;
+            if (!x.in_frame) continue;
+            if (x.frameEnded()) self.unlink(x) else pending = true;
+        }
+        return pending;
     }
 
     /// Give back the stacks tasks that panicked left it: every task under

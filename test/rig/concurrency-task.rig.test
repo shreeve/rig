@@ -2875,3 +2875,194 @@ test "task deep psum on eight workers, many rounds", '''
   for _ in 0..20
     total += psum(whole)
   print(total)
+
+code "task frame record where the task never leaves its binding", "= rig.Task(i64).frame.spawnDense(f, .{ 1 });", "var t = __rig_task_", "var u = __rig_task_", "= rig.Task(anyerror!i64).frame.spawnDense(h, .{ 3 });", "var v = __rig_task_", "var w = __rig_task_"
+  # A task bound to a fresh name and only waited for (`>t`), lent to
+  # read (`?u`), canceled (`<v.cancel()`), or dropped stays in its
+  # maker's frame (`task_record`): a fork, whose record is made in a slot
+  # of the frame and started there.
+  use std.task
+
+  fun f(x: Int) -> Int
+    x + 1
+
+  fun h(x: Int) -> Int!
+    task.check()!
+    x
+
+  fun g(t: ?Task[Int]) -> Int
+    1
+
+  t = f(1)&
+  u = f(2)&
+  print(>t, g(?u))
+  v = h(3)&
+  <v.cancel() catch 0
+  w = f(4)&
+
+code "task frame record not where the task leaves its binding", "var m = rig.Task(i64).spawn", "ts.add(rig.Task(i64).spawn", "var r = rig.Task(i64).spawn", "var q = rig.Task(i64).spawn", "var c = rig.Task(i64).spawn", "var b = rig.Task(i64).spawn", "var k = rig.Task(i64).spawn"
+  # A task moved (`<m`), added to a set, returned, assigned again,
+  # captured by a closure that moves it, or given an argument of more
+  # than 1 KiB by value keeps its record on the heap; so does a task
+  # stored in a field.
+  obj Holder
+    t: Task[Int]
+
+  fun f(x: Int) -> Int
+    x + 1
+
+  fun keep(t: Task[Int]) -> Int
+    >t
+
+  fun big(a: [512]Int) -> Int
+    a[0]
+
+  fun back() -> Task[Int]
+    r = f(9)&
+    r
+
+  m = f(5)&
+  print(keep(<m))
+  ts = Tasks[Int]()
+  !ts.add(f(6)&)
+  xs = >ts
+  arr: [512]Int = [512 of 0]
+  b = big(arr)&
+  print(>b)
+  q = f(7)&
+  q = f(8)&
+  print(>q)
+  bk = back()
+  print(>bk)
+  c = f(10)&
+  run = |<c| 0
+  print(run())
+  k = f(11)&
+  hd = Holder(t: <k)
+  kt = <hd.t
+  print(>kt)
+
+test "task frame records in a fork-join tree", seeds: 20, timeout: 30, '''
+  2147450880 2147450880 2048 ok
+'''
+  # Each fork's record lies in its maker's frame, the right half on a
+  # task, and is let go when the frame ends: psum's tree on any number of
+  # workers, and on one; a quicksort's, whose forks take and give back
+  # owned Lists.
+  use std.sort
+  use std.task
+
+  fun psum(xs: ?[]Int) -> Int
+    return xs.sum() if xs.len <= 64
+    mid = xs.len / 2
+    right = xs[mid..]
+    b = psum(?right)&
+    a = psum(xs[..mid])
+    a + >b
+
+  fun qsort(xs: List[Int]) -> List[Int]
+    if xs.len <= 16
+      new ys = <xs
+      sort.sort(!ys[..])
+      return ys
+    pivot = xs[xs.len / 2]
+    lo: List[Int] = List()
+    mid: List[Int] = List()
+    hi: List[Int] = List()
+    for x in xs
+      if x < pivot
+        !lo.push(x)
+      else if x > pivot
+        !hi.push(x)
+      else
+        !mid.push(x)
+    b = qsort(<hi)&
+    out = qsort(<lo)
+    !out.extend(?mid[..])
+    high = >b
+    !out.extend(?high[..])
+    out
+
+  xs: List[Int] = List()
+  for i in 0..65536
+    !xs.push(i)
+  whole = ?xs[..]
+  first = psum(whole)
+  task.workers(1)
+  second = psum(whole)
+  task.workers(4)
+  ys: List[Int] = List()
+  for i in 0..2048
+    !ys.push((i *% 7919) % 2048)
+  zs = qsort(<ys)
+  ok = "ok"
+  for i in 1..zs.len
+    ok = "unsorted" if zs[i - 1] > zs[i]
+  print(first, second, zs.len, ok)
+
+test "task frame records canceled, dropped unwaited, and in a loop", seeds: 20, timeout: 30, '''
+  canceled 0
+  dropped 3
+  early -1
+  loop 45
+'''
+  # A fork canceled (`<t.cancel()`), one dropped with no wait at its
+  # scope's end or at an early return, and one made afresh each pass of a
+  # loop: each record lies in its maker's frame and is let go once the
+  # fork has ended.
+  use std.task
+
+  fun slow(n: Int) -> Int!
+    for _ in 0..n
+      task.check()!
+    n
+
+  fun quick(n: Int) -> Int
+    n
+
+  fun cancels() -> Int
+    t = slow(1_000_000)&
+    <t.cancel() catch 0
+
+  fun drops() -> Int
+    t = quick(3)&
+    u = quick(4)&
+    >t
+
+  fun early(n: Int) -> Int
+    t = quick(n)&
+    return -1 if n > 0
+    >t
+
+  print("canceled", cancels())
+  print("dropped", drops())
+  print("early", early(5))
+  total = 0
+  for i in 0..10
+    t = quick(i)&
+    total += >t
+  print("loop", total)
+
+test "task frame record of a fork that panics, under an isolate", seeds: 20, timeout: 30, '''
+  0 -9
+  1 -9
+  2 -9
+'''
+  # A fork panics: its maker's wait passes the panic on, up to the
+  # isolate, which takes the ended fork's record off its list before it
+  # gives the stacks back.
+  use std.task
+
+  fun pick(xs: [3]Int, i: Int) -> Int
+    xs[i]
+
+  fun bad(i: Int) -> Int
+    pick([1, 2, 3], i)
+
+  fun maker(i: Int) -> Int
+    t = bad(i)&
+    u = bad(0)&
+    >u + >t
+
+  for k in 0..3
+    print(k, task.isolate(|+k| maker(9 + k)) catch -9)

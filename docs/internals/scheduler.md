@@ -60,7 +60,10 @@ worker after.
   that makes the task, with no lock and no system call, and the thread
   that frees it gives it back to that heap (`sched.createRecord`,
   `alloc.allocRecord`); a debug build, which checks for leaks, takes it
-  from Zig's allocator. A
+  from Zig's allocator. A fork's record, a task bound by `t = f(x)&` and
+  waited for in its maker's frame (the storage fact `task_record`), lies
+  in a slot of that frame instead (`sched.frameRecord`, `startAt`): no
+  allocation, and nothing to free. A
   switch saves the registers a call keeps on the stack being left and
   restores those of the stack resumed (`sched.switchTo`, written for
   aarch64 and x86_64).
@@ -581,7 +584,28 @@ once, with at most one fiber waiting (`sched.Done`, which `Header` and
 then marks the record waited with a compare-and-swap; what finishes it
 marks it ending, wakes that waiter if one is marked, and only then
 marks it ended. The waiter goes on only once it reads ended, so it may
-free the record at once: no waker touches it after. A set of tasks and
+free the record at once: no waker touches it after.
+
+A fork's record in its maker's frame is let go when the frame ends, and
+a frame may outlive its function only on a stack a panic left to an
+isolate, which gives it back once no task under it is listed. So the
+last access of the record by whoever ran the fork is `Done`'s ended:
+`Control.finish` leaves a frame record on its isolate's list, and
+whoever reads ended takes it off, under the isolate's lock: the maker
+at its join or drop (`Task.release`, `Control.leave`), or, once the
+maker panicked, the isolate's stopper, which takes off each listed
+frame record whose `Done` reads ended (`Isolate.stop`). A listed record
+lies in a live frame or a kept stack, so the stopper reads none that was
+let go; nothing wakes it as such a fork ends, so it looks again from
+every 20 µs, doubling to 1 ms. Taking the record off at the thief's end,
+as a heap record is, let the stopper give the stack back between that
+and the thief's last writes; taking it off after ended let a live
+maker's next frame be written by the removal.
+[formal/Models/FrameRecord.lean](../../formal/Models/FrameRecord.lean)
+checks both failures and the order kept, and test/cli/frame_record.sh
+holds the Zig to it. A deterministic run of a sanitized build may
+switch between those steps (`sched.raceStep`), so a test's seeds try
+the orders, and a write into a stack given back faults. A set of tasks and
 `task.all` wait on a count instead (`tasks.Wakeup`), which each of their
 tasks adds to as it ends, and a select on the claim of its first arm,
 which the claimer makes under its channel's lock. A select's arm on a
@@ -673,12 +697,35 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
 (`sched.preempt_built`, `rt.preempt`):
 
 - **The monitor**, a thread of its own, looks at each worker every
-  millisecond, or every 50 µs while work waits (`watchSlices`). A
-  worker whose fiber has run a slice, 10 ms, while other work waits, or
-  whose own queue held work at two looks in a row with no fiber started
-  between (one taken back from its ring by a handoff counts, as the run
-  of the waiter's park it replaces did), or whose timer or
-  poller is due, gets SIGURG, and again at each look until it stops.
+  millisecond, or every 50 µs while a fiber that is not a fork waits
+  (`watchSlices`). A fork is a task that has not started and that the
+  compiler found stays in its maker's frame and is waited for there:
+  bound by `t = f(x)&` and named after only by `>t`, `<t.cancel()`, or
+  `?t` (the storage fact `task_record`, `Fiber.fork`). Every other fiber
+  in a worker's "run next" slots or ring, any other task made (one
+  added to a `Tasks` set, returned, stored, or moved, and std's
+  connections), one woken from a wait or by an event, one that yielded
+  or was stopped, an actor's runner, is counted as it is queued and as
+  it starts (`Worker.queued_woken`, `Worker.started_woken`). A worker
+  whose fiber has run a
+  slice, 10 ms, while other work waits, forks included, or whose own
+  queue held work at two looks in a row with no fiber started between
+  (one taken back from its ring by a handoff counts, as the run of the
+  waiter's park it replaces did) while a fiber that is not a fork
+  waited at both, or whose timer or poller is due, gets SIGURG, and
+  again at each look until it stops. Forks alone stop no fiber at two
+  looks: while one waits at a busy worker and another worker sleeps,
+  the monitor looks every 50 µs and wakes one to take it (`notify`);
+  while every worker is busy, forks wait for the slice. So a fork-join,
+  whose own forks wait in its queues all the time it runs, runs on
+  unstopped, and on one worker the monitor looks once a millisecond
+  rather than every 50 µs (test/cli/preempt_forks.sh). The bounds,
+  behind a fiber that never yields: a fiber that is not a fork waits
+  until the monitor's next look, then 50 µs more (a millisecond and
+  50 µs while a worker runs, up to 10 ms after every worker was idle);
+  a fork waits the same while another worker sleeps, and up to the
+  slice and two looks, about 12 ms, while every worker is busy. A
+  maker that spins on a flag its fork sets so goes on after one slice.
   After four in a row that it declined, each signal waits twice as long
   as the one before, up to 1 ms (`resignalAfter`): a worker blocked in a
   system call, as a write to a full pipe blocks, took one every 50 µs,
