@@ -14775,7 +14775,10 @@ be fallible, `Task[Int!]` ([§13](#13-errors)).
 each is a fiber on a stack of its own at least as large as `main`'s, run by a
 worker thread per core (`task.workers(n)` before the first task, or
 `RIG_WORKERS`, sets how many), with a guard
-below it at least twice the program's largest frame. A long loop or
+below it at least twice the program's largest frame. A task its waiter
+reaches before it has started may run on the waiter's stack instead,
+when the room left there is at least what its own stack would give it.
+A long loop or
 recursion lets other tasks run when they are waiting
 ([docs/internals/scheduler.md](docs/internals/scheduler.md)).
 A call that blocks its thread, as reading a file does, runs on a pool

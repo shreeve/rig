@@ -314,12 +314,13 @@ worker after.
   `main` ends, what each worker did, to stderr:
 
   ```
-  rig: worker 0: ran 1203, pinned 1, stole 0, slept 4
+  rig: worker 0: ran 1203, pinned 1, stole 0, slept 4, inlined 0
   ```
 
   the fibers it ran (by handoff too), of them pinned ones, the fibers it
-  stole, and the times it slept, so a test can check where work ran
-  without timing it (`test/cli/sched_stats.sh`).
+  stole, the times it slept, and the tasks its fibers ran inline
+  (`runHere`), so a test can check where work ran without timing it
+  (`test/cli/sched_stats.sh`, `test/cli/fork_inline.sh`).
 
 ## Speed
 
@@ -393,9 +394,40 @@ worker after.
   ring's `stealing` flag from its look at the tail to its claim, and
   `takeLast` leaves the fiber while it is held; formal/Models/Ring.lean
   checks that no fiber is then taken twice, and that without the flag
-  one is. Running the task on the waiter's own stack
-  would be faster still, but is safe only for a task whose stack use is
-  proven to fit, which Rig does not prove.
+  one is.
+- **Inline.** Before a handoff, a waiter whose task has not started and
+  is next on its worker runs it on its own stack and fiber when the room
+  left there is at least what the task's own stack would give it
+  (`sched.runHere`, `roomFor`): a dense stack's for a task that fits one
+  (`Fiber.dense`), else a whole task's stack, `rt.task_stack_promise`,
+  which a large stack keeps while its fiber has used no more than its
+  extra 1 MiB (`rt.task_stack_extra`). Each adds 16 KiB for the frames
+  from the wait to the task's own. No stack, no switch, and no fiber of
+  its own: the task's state is swapped into the waiter's fiber, all but
+  its stack guard (`Inline`, in `runHere`'s frame), and the monitor counts
+  the run as it counts a handoff: one taken back from the ring as a fiber
+  started, one from a slot on the waiter's count. A wait in the task is the fiber's,
+  which whatever ends it wakes; a deadlock's walk sees the innermost
+  wait; a signal may stop the task's code, and the fiber may resume on
+  another worker unless pinned, so `runHere` reads its worker again after
+  the call. Where the room is short the wait hands off as above, so no
+  stack runs short: `main`'s stack is exactly 64 MiB, so the forks
+  `main` waits for hand off, one a level of a fork-join's spine, and each
+  runs its own subtree inline. A wait with a deadline, and every
+  deterministic run, runs nothing inline. A cancel of a task run inline
+  reaches the fiber that runs it (`Fiber.host`), whose bit
+  (`cancel_below`) makes its next wait a cancel may end, and a look at
+  its task's flag, pass the cancel down from the outermost level in to
+  each level whose waiter is canceled (`passCancelDown`); a waiter
+  canceled before the run starts it canceled
+  ([formal/Models/InlineCancel.lean](../../formal/Models/InlineCancel.lean)).
+  A panic ends the levels one at a time, from the innermost out, in one
+  frame (`tasks.endInlineLevels`): each that does not stop it ends as a
+  task that panicked on a fiber of its own, and its waiter passes it on,
+  up to an isolate begun at that level (`Isolate.at`), or ends the
+  program where the waiter has no boundary. An inline run is a schedule
+  of the task machine's steps
+  ([formal/LambdaRig/Inline.lean](../../formal/LambdaRig/Inline.lean)).
 - **Idle workers** steal from a random victim, at most half of them
   searching at once; the last searching to find work wakes one more
   when other work waits for it, as Tokio's `notify_if_work_pending`
@@ -448,8 +480,9 @@ that sanitizes makes a finished one inaccessible for good.
 A task's stack is 65 MiB of address space, `main`'s 64 MiB, since a
 frame may keep up to 13 MiB of values, and 1 MiB more
 (`rt.task_stack_extra`), committed only as the task touches it. The
-extra lets a task that has used no more than it run an actor's method
-inline with a whole task's stack left (`tasks.roomInline`). Stacks never move, since loans point into them. They are
+extra lets a task that has used no more than it run an actor's method,
+or a task it waits for, inline with a whole task's stack left
+(`tasks.roomInline`, `sched.roomFor`). Stacks never move, since loans point into them. They are
 carved 16 at a time from one reservation, whose stacks stay untouched,
 holding no page, until a task runs on each, and ask for small pages
 where the system gives huge ones unasked (`enabled=always`), since a
@@ -733,6 +766,11 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
   a worker is idle, and up to the slice and two looks, about 12 ms,
   while every worker is busy. A
   maker that spins on a flag its fork sets so goes on after one slice.
+  A build with yield checks keeps the same rule: a check yields to its
+  worker's own queues only when a fiber that is not a fork waits in any
+  worker's, as the same counts tell, or pinned or global work waits;
+  forks alone it yields to once they have waited a slice
+  (`sched.ownWorkWaits`).
   After four in a row that it declined, each signal waits twice as long
   as the one before, up to 1 ms (`resignalAfter`): a worker blocked in a
   system call, as a write to a full pipe blocks, took one every 50 µs,

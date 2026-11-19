@@ -844,6 +844,55 @@ arms.
 
 ### Runtime
 
+- **A fork its waiter reaches unstarted runs on the waiter's stack:** a
+  task not yet started that is next on its waiter's worker, at a `>t` or
+  the drop that waits for it, runs on the waiter's own stack and fiber
+  when the room left there is at least what its own stack would give
+  it: a dense stack's for a task that fits one, else a whole task's
+  stack, which a task's stack keeps while it has used no more than its
+  extra 1 MiB (`sched.runHere`, `roomFor`). No stack, no switch, and no
+  fiber of its own: the task's state is swapped into the waiter's fiber,
+  all but its stack guard. Where the room is short the wait hands off as
+  before, so no stack runs short: `main`'s 64 MiB never has the room, so
+  the forks `main` waits for hand off, one a level of a fork-join's
+  spine. A cancel of a task run inline reaches the fiber running it
+  (`Fiber.host`), and its next wait passes the cancel down to each level
+  whose waiter is canceled (`passCancelDown`,
+  formal/Models/InlineCancel.lean); a task started under a canceled
+  waiter starts canceled. A panic ends the levels one at a time, from
+  the innermost out, each as a task that panicked on a fiber of its own,
+  up to an isolate begun at that level (`Isolate.at`). A deadlock's
+  message names each task run inline on the way as `a task`, as before.
+  A wait with a deadline and a deterministic run run nothing inline.
+  `RIG_SCHED_STATS=1` counts the tasks run inline (`inlined`).
+  On the Mac (fork-order's fork.rig at three code placements, fork3.rig,
+  paired medians over 10 to 16 rounds, against #1171): a join with no
+  work costs 31 ns at one worker, against 63 (`nil`; Rayon 10); psum at
+  one worker 6.9-7.4 ms, against 7.7-8.1 and Rayon's 8.2; qsort at one
+  worker 143.9-145.4 ms, level with #1171 and 7-9% faster than Rayon, at
+  the same 502 MiB peak; both level at 10 workers. bench/tasks' chain is
+  54% faster than main's (46% faster than #1171's); its other rows,
+  bench/actors and bench/net level (records/2026-11/free-fork-join/inline.md).
+- **A yield check leaves a worker's own forks to the slice:** in a build
+  with yield checks (a program with local tasks, a target with no
+  preemption by signal), a check yields to its worker's own queues only
+  when a fiber that is not a fork waits in some worker's slots or ring,
+  pinned or global work waits, or a worker sleeps or searches; forks
+  alone, with every worker busy, wait a slice, 10 ms, as the monitor
+  leaves them (`sched.ownWorkWaits`). A fork-join so goes on
+  depth first, its waits taking its forks back, where it yielded to each
+  fork as it was made.
+- **A worker started ahead holds a few small pages, not a huge one:**
+  the first segment a worker takes as it starts with `main` keeps small
+  pages for its first 2 MiB and asks for huge pages for its second
+  (`alloc.startSmall`), where it faulted in a whole 2 MiB huge page for
+  each worker. On pup at 12 workers, peak memory returns to what it was
+  before the workers started early: a program of two tasks 35.1 MiB
+  (57.9 with the huge page, 35.1 before), bench/tasks 5.5 MiB (25.1,
+  15.6 before), its `idle` 2.4 (25.1, 2.3 before). psum at 12 workers
+  stays at 3.9 ms against Rayon's 4.6-4.7; fork.rig, Trig's
+  `task.workers` programs and one-worker runs are not affected
+  (docs/history/records/2026-11/early-memory/).
 - **A fork's record lies in its maker's frame:** a task the compiler
   records as a fork (`task_record`: `t = f(x)&`, waited for in the
   block that binds it) is made in a slot of its maker's frame and
@@ -880,17 +929,6 @@ arms.
   qsort at one worker is 15% faster, 139.4 ms against 163.1; psum at
   one worker and both at 10 workers are level, as are bench/actors and
   bench/net.
-- **A worker started ahead holds a few small pages, not a huge one:**
-  the first segment a worker takes as it starts with `main` keeps small
-  pages for its first 2 MiB and asks for huge pages for its second
-  (`alloc.startSmall`), where it faulted in a whole 2 MiB huge page for
-  each worker. On pup at 12 workers, peak memory returns to what it was
-  before the workers started early: a program of two tasks 35.1 MiB
-  (57.9 with the huge page, 35.1 before), bench/tasks 5.5 MiB (25.1,
-  15.6 before), its `idle` 2.4 (25.1, 2.3 before). psum at 12 workers
-  stays at 3.9 ms against Rayon's 4.6-4.7; fork.rig, Trig's
-  `task.workers` programs and one-worker runs are not affected
-  (docs/history/records/2026-11/early-memory/).
 - **An actor's method runs inline only with the room its own task
   would give it:** a call that finds the actor idle runs the method on
   the caller's stack when that stack has as much room left as the

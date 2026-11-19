@@ -1375,6 +1375,11 @@ pub const Isolate = struct {
     /// The fiber `isolate` was called on, whose own stack waits at
     /// `home` while `f` runs apart.
     fiber: ?*rt.sched.Fiber,
+    /// The innermost task the fiber ran inline as it began
+    /// (`rt.sched.Inline`): a panic stops here only at that level
+    /// (`here`), and a task run inline under it on the same fiber, as an
+    /// actor's runner's method's tasks are, ends as on a fiber of its own.
+    at: ?*rt.sched.Inline = null,
     home: usize = 0,
     /// The isolate this one is inside, on the same fiber.
     outer: ?*Isolate,
@@ -1490,6 +1495,14 @@ pub const Isolate = struct {
         self.kept.deinit(std.heap.smp_allocator);
     }
 
+    /// Whether it was begun by the running task: on this fiber, at the
+    /// level the fiber runs inline now.
+    fn here(self: *const Isolate, f: ?*rt.sched.Fiber) bool {
+        if (self.fiber != f) return false;
+        const x = f orelse return true;
+        return self.at == x.inline_top;
+    }
+
     /// Whether `from`, the nearest isolate of a task, is `self` or inside
     /// it.
     fn holds(self: *const Isolate, from: ?*Isolate) bool {
@@ -1518,7 +1531,7 @@ fn isolateWith(f: anytype, slot: rt.ErrSlot) IsolateOut(@TypeOf(f)) {
     const R = ReturnOf(F);
     const state = task();
     const fiber = rt.sched.current();
-    var rec: Isolate = .{ .fiber = fiber, .held = if (fiber) |x| x.held else null, .outer = state.isolate, .id = rt.isolateBegins(state.isolate) };
+    var rec: Isolate = .{ .fiber = fiber, .at = if (fiber) |x| x.inline_top else null, .held = if (fiber) |x| x.held else null, .outer = state.isolate, .id = rt.isolateBegins(state.isolate) };
     const Run = struct {
         f: F,
         rec: *Isolate,
@@ -1595,7 +1608,7 @@ pub fn panicked(iso: *Isolate) noreturn {
     iso.panicked.store(true, .seq_cst);
     rt.isolatePanicked(iso.id);
     rt.leaveFrames();
-    if (iso.fiber == rt.sched.current()) {
+    if (iso.here(rt.sched.current())) {
         task().unwinding = true;
         iso.stop(true);
         task().unwinding = false;
@@ -2745,7 +2758,7 @@ pub fn Actor(comptime T: type) type {
             const self = &box.value;
             const f = rt.sched.current().?;
             var held: rt.sched.Held = .{ .held_by = &self.held_by, .doing = undefined, .die = dieRunner, .next = f.held };
-            var stops: Isolate = .{ .fiber = f, .outer = null, .id = 0, .runner = true };
+            var stops: Isolate = .{ .fiber = f, .at = f.inline_top, .outer = null, .id = 0, .runner = true };
             f.held = &held;
             f.state.runner = true;
             f.state.isolate = &stops;
@@ -2814,7 +2827,7 @@ pub fn actorsDie() bool {
     const f = rt.sched.current() orelse return false;
     const stop = panicStops();
     const iso = f.state.isolate;
-    const kept = if (iso != null and iso.?.fiber == f) iso.?.held else null;
+    const kept = if (iso != null and iso.?.here(f)) iso.?.held else null;
     var at = f.held;
     f.held = kept;
     while (at != kept) : (at = at.?.next) at.?.die(at.?);
@@ -2831,7 +2844,39 @@ pub fn panicStops() bool {
     const f = rt.sched.current() orelse return false;
     if (!f.state.runner) return false;
     const iso = f.state.isolate orelse return true;
-    return iso.runner or iso.fiber != f;
+    return iso.runner or !iso.here(f);
+}
+
+/// A panic on a fiber that runs tasks inline (`rt.sched.runHere`) ends
+/// them one level at a time, from the innermost out, in this one frame,
+/// so a deep chain takes no stack per level: each level that does not
+/// stop the panic ends as a task that panicked on a fiber of its own
+/// (`panicked`): the actors it holds since it began die, its isolate's
+/// tasks are stopped, its `Control` finishes, its record is marked
+/// `panicked` and ended, and its waiter's state comes back, which passes
+/// the panic on. It stops at a level whose task began the nearest
+/// isolate (`Isolate.here`), where `rt.stopPanic` goes on as ever, as it
+/// does once no level is left. A waiter with no boundary ends the
+/// program, as its wait would have.
+pub fn endInlineLevels() void {
+    if (!rt.scheduled) return;
+    const f = rt.sched.current() orelse return;
+    while (f.inline_top) |in| {
+        const state = &f.state;
+        const iso = if (state.unwinding) null else state.isolate;
+        if (iso) |x| if (x.here(f)) return;
+        var at = f.held;
+        while (at != in.held) : (at = at.?.next) at.?.die(at.?);
+        f.held = in.held;
+        if (iso) |x| {
+            x.panicked.store(true, .seq_cst);
+            rt.isolatePanicked(x.id);
+            x.stop(false);
+        }
+        if (state.own) |c| c.finish();
+        rt.sched.endInlinePanicked(f, in);
+        if (rt.panicEnds()) rt.passPanic();
+    }
 }
 
 /// Whether the running task's stack has room for an actor's method run
@@ -2979,7 +3024,17 @@ const canceled_error = error.@"std.task.Stop.canceled";
 /// a canceler sets the flag and then looks at the wait
 /// (`Control.cancel`), so at least one of the two sees the other.
 fn canceledHere() bool {
-    const control = task().control orelse return false;
+    const state = task();
+    const control = state.control orelse return false;
+    if (control.canceled.load(.seq_cst)) return true;
+    // A cancel of a task the fiber runs this one inline for comes as the
+    // fiber's bit (`rt.sched.passCancelDown`). The state of a control that
+    // names a fiber is a fiber's; a blocking pool thread's names none.
+    if (!rt.scheduled or control.fiber == null) return false;
+    const f: *rt.sched.Fiber = @fieldParentPtr("state", state);
+    if (rt.sanitize) std.debug.assert(rt.sched.current() == f);
+    if (!f.cancel_below.load(.seq_cst)) return false;
+    rt.sched.passCancelDown(f);
     return control.canceled.load(.seq_cst);
 }
 
