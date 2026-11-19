@@ -852,7 +852,12 @@ arms.
   take 3.41 G instructions on the Mac, against 3.49 before the fix and
   3.38 before the fork's record. Only a fork runs on its waiter's stack
   (`sched.runHere`), as the design has it: a task held in a set,
-  returned or stored is waited for as a fiber of its own.
+  returned or stored is waited for as a fiber of its own. A task that is
+  not a fork wakes through `wakeIn`, called rather than pasted into
+  `spawn`, which it had made five times its size; and the flag a fork's
+  cancel sets reaches `runHere` from its waiter, not from a field of
+  every task's record, which is 448 bytes again where it had grown to
+  464 (bench/tasks' spawn, one cache line fewer).
 
 - **On macOS a List that grows past 16 MiB moves its pages:** a large
   block that grows maps a fresh range and takes its old pages into it

@@ -6096,9 +6096,6 @@ pub const Header = struct {
     /// result (`abandon`).
     panicked: std.atomic.Value(bool) = .init(false),
     destroy: *const fn (*Header) void,
-    /// The flag a cancel of the task sets (`tasks.Control.canceled`), for
-    /// a cancel to pass to it while it runs inline (`passCancelDown`).
-    cancel: ?*std.atomic.Value(bool) = null,
 
     /// The `destroy` of a record in its maker's frame (`frameRecord`), which
     /// its waiter never frees (`tasks.Task.release`).
@@ -6123,16 +6120,16 @@ pub const Header = struct {
     /// false.
     const waitEnd = if (preempt) waitEndApart else waitEndIn;
 
-    noinline fn waitEndApart(h: *Header, cancel: ?*const std.atomic.Value(bool), deadline: ?i96) bool {
-        return waitEndIn(h, cancel, deadline);
+    noinline fn waitEndApart(h: *Header, cancel: ?*const std.atomic.Value(bool), task_cancel: ?*std.atomic.Value(bool), deadline: ?i96) bool {
+        return waitEndIn(h, cancel, task_cancel, deadline);
     }
 
-    fn waitEndIn(h: *Header, cancel: ?*const std.atomic.Value(bool), deadline: ?i96) bool {
+    fn waitEndIn(h: *Header, cancel: ?*const std.atomic.Value(bool), task_cancel: ?*std.atomic.Value(bool), deadline: ?i96) bool {
         if (h.done.isDone()) return true;
         // Not started, and next on this worker, with room on this stack:
         // run it here, on the waiter's own stack and fiber. A wait with a
         // deadline sleeps on its timer instead.
-        if (deadline == null and h.fiber.sp == 0 and runHere(h, cancel)) return true;
+        if (deadline == null and h.fiber.sp == 0 and runHere(h, cancel, task_cancel)) return true;
         const b: Blocked = .{ .task = h };
         block(&b);
         defer unblock();
@@ -6171,7 +6168,7 @@ pub fn Job(comptime T: type) type {
         /// task that panicked gave none: the panic passes to the waiter
         /// (`rt.passPanic`).
         pub fn join(self: *Self) T {
-            _ = self.header.waitEnd(null, null);
+            _ = self.header.waitEnd(null, null, null);
             return self.taken();
         }
 
@@ -6183,9 +6180,12 @@ pub fn Job(comptime T: type) type {
         }
 
         /// Wait for the task to end, unless the flag `cancel` is set
-        /// or `deadline` passes first: whether it has ended.
-        pub fn waitEnd(self: *Self, cancel: ?*const std.atomic.Value(bool), deadline: ?i96) bool {
-            return self.header.waitEnd(cancel, deadline);
+        /// or `deadline` passes first: whether it has ended. `task_cancel`
+        /// is the flag a cancel of the task sets (`tasks.Control.canceled`),
+        /// for the waiter's cancel to reach it while it runs on the
+        /// waiter's stack (`runHere`, `passCancelDown`).
+        pub fn waitEnd(self: *Self, cancel: ?*const std.atomic.Value(bool), task_cancel: ?*std.atomic.Value(bool), deadline: ?i96) bool {
+            return self.header.waitEnd(cancel, task_cancel, deadline);
         }
 
         pub fn free(self: *Self) void {
@@ -6286,7 +6286,7 @@ pub const Inline = struct {
 /// code and the fiber resume on another worker, so nothing read of this
 /// worker before the call is used after it. Off in a deterministic run,
 /// where the seed picks every fiber.
-fn runHere(h: *Header, cancel: ?*const std.atomic.Value(bool)) bool {
+fn runHere(h: *Header, cancel: ?*const std.atomic.Value(bool), task_cancel: ?*std.atomic.Value(bool)) bool {
     // Only a fork, waited for by its maker (`task_record`): a task held in
     // a set, returned or stored is waited for as a fiber of its own.
     if (!h.fiber.fork) return false;
@@ -6305,14 +6305,14 @@ fn runHere(h: *Header, cancel: ?*const std.atomic.Value(bool)) bool {
     // (`watchSlices`). One from a slot stays on the waiter's count.
     noteStarted(w, &h.fiber);
     if (preempt and from_ring) preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
-    var in: Inline = .{ .parent = f.inline_top, .header = h, .waiter_cancel = cancel, .task_cancel = h.cancel, .state = f.state, .held = f.held, .home = f.home };
+    var in: Inline = .{ .parent = f.inline_top, .header = h, .waiter_cancel = cancel, .task_cancel = task_cancel, .state = f.state, .held = f.held, .home = f.home };
     h.fiber.host.store(f, .seq_cst);
     if (in.parent) |p| p.child = &in;
     f.inline_top = &in;
     f.state = .{ .stack_guard = in.state.stack_guard };
     // A cancel of the waiter that came after its look above: the task
     // starts canceled, as the waiter's wait would have passed it on.
-    if (cancel) |c| if (c.load(.seq_cst)) if (h.cancel) |t| t.store(true, .seq_cst);
+    if (cancel) |c| if (c.load(.seq_cst)) if (task_cancel) |t| t.store(true, .seq_cst);
     h.fiber.run(&h.fiber);
     endInline(f, &in);
     // Its last access: nothing reads the record after, and the waiter
@@ -6487,7 +6487,6 @@ inline fn startIn(comptime Full: type, full: *Full, local: bool, comptime fork: 
     // reach the fiber's wait (`interruptForCancel`), and one that records
     // its task somewhere does so before the task can run (`made`).
     if (@hasField(Extra, "fiber")) full.extra.fiber = &full.job.header.fiber;
-    if (@hasField(Extra, "canceled")) full.job.header.cancel = &full.extra.canceled;
     if (@hasDecl(Extra, "made")) full.extra.made();
     if (local) full.job.header.fiber.home = pinHereIn();
     // A task that is not a fork wakes through `wakeIn` called, not pasted
@@ -8544,7 +8543,7 @@ test "a cancel that lands as a waiter is about to hand its worker to a task stil
             f.state.control = &outer;
             outer.fiber = f;
             const j = spawn(Readiness, Unit, reader, .{r}, .{}, false, false, false).job;
-            waited = j.waitEnd(&outer.canceled, null);
+            waited = j.waitEnd(&outer.canceled, null, null);
             if (!waited) inner.cancel();
             got = j.join();
             j.free();

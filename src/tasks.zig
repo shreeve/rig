@@ -285,10 +285,10 @@ pub fn Task(comptime T: type) type {
             const mine = cancelFlag();
             const deadline = if (fallible) task().deadline else null;
             var timed_out = false;
-            if (!job.waitEnd(mine, deadline)) {
+            if (!job.waitEnd(mine, &t.control.canceled, deadline)) {
                 timed_out = !(if (mine) |c| c.load(.acquire) else false);
                 t.control.cancel();
-                _ = job.waitEnd(null, null);
+                _ = job.waitEnd(null, null, null);
             }
             result = job.taken();
             if (comptime fallible) if (timed_out) {
