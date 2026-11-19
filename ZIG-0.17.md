@@ -17,6 +17,14 @@ aarch64-macos. Every API spelling in this file was compiled against 0.17.0
 unless it is explicitly marked *unverified*. Where the official release notes
 are wrong, this document says so and gives the shipped form.
 
+**Zig 0.17.1** (2026-11-02) is a bug-fix release of 0.17 ("more than 57
+issues", focused on regressions and upgrade blockers) with no listed breaking
+change and no per-fix list on its release page. Rig builds and passes every
+gate with it, but stays on 0.17.0: on pup, two of std.json's six files ran
+2.5-3.2% slower with it (30 rounds, beyond an A/A), with instruction counts
+unchanged, and none of its fixes is one Rig needs. Everything in this file
+holds for 0.17.1.
+
 **Authority order when sources disagree:** the installed 0.17.0 standard
 library source → a five-line probe compiled with `zig test` → this document →
 the release notes → your memory. Your memory is the least reliable source for
@@ -2786,7 +2794,8 @@ What found every regression in the ports above, in order:
   time on aarch64 and x86, where the same IR through `zig cc -O3` vectorizes
   sixteen lanes wide. Explicit `@Vector` code is unaffected, so write hot
   loops with `@Vector` for this release, and on 0.18 check that the plain
-  loop vectorizes before keeping the workaround.
+  loop vectorizes before keeping the workaround. 0.17.1 (2026-11-02) keeps
+  the same line in `src/zig_llvm.cpp`: still off.
 - `std.hash.XxHash3.hash` is 2–9× slower than 0.16's for 17–240-byte
   inputs and 30–60× slower above 240 (aarch64-macos, `-Ofast`: 241 bytes
   517 ns against 8.4, 4 KiB 3.3 µs against 0.1). The values are
