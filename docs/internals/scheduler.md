@@ -758,6 +758,11 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
   a fork waits the same while another worker sleeps, and up to the
   slice and two looks, about 12 ms, while every worker is busy. A
   maker that spins on a flag its fork sets so goes on after one slice.
+  A build with yield checks keeps the same rule: a check yields to its
+  worker's own queues only when a fiber that is not a fork waits in any
+  worker's, as the same counts tell, or pinned or global work waits;
+  forks alone it yields to once they have waited a slice
+  (`sched.ownWorkWaits`).
   After four in a row that it declined, each signal waits twice as long
   as the one before, up to 1 ms (`resignalAfter`): a worker blocked in a
   system call, as a write to a full pipe blocks, took one every 50 µs,

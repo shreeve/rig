@@ -193,6 +193,9 @@ const Worker = struct {
     returned: ?*Fiber = null,
     /// Turns since it last looked at the global queue first.
     tick: u32 = 0,
+    /// When its yield checks first found forks alone waiting in its own
+    /// queues, or 0 (`ownWorkWaits`).
+    forks_since: i96 = 0,
     /// 1 once woken from its sleep, in its poller (`sleep`).
     woken: std.atomic.Value(u32) = .init(0),
     /// The kernel's queue of events it sleeps in (`Poller`), and the
@@ -485,7 +488,7 @@ inline fn wakeQueued(f: *Fiber, comptime woken: bool) void {
         global.push(f);
         return notifyNew();
     };
-    if (preempt and woken) noteWoken(w, f);
+    if (woken) noteWoken(w, f);
     if (w.batch != .none and f.home == null) {
         if (w.batch == .rest) {
             _ = w.ring.push(f);
@@ -633,7 +636,8 @@ pub inline fn raceStep() void {
 /// A yield check of a loop (`rt.turn`): yield when other work waits
 /// for this worker, in its "run next" slot or ring, or in the global
 /// queue, or take work that waits for a busy one (`claimWaiting`). Work
-/// a sleeping or searching worker can take is left to it.
+/// a sleeping or searching worker can take is left to it. Its own forks
+/// alone wait a slice, as the monitor leaves them (`ownWorkWaits`).
 pub noinline fn tick() void {
     const w = me() orelse return;
     // Deterministic: computing costs virtual time, which wakes the fibers
@@ -652,9 +656,48 @@ pub noinline fn tick() void {
     if (serviceNow(w)) return stopIn(.{ .run = afterTick });
     if (hasOwnWork(w)) {
         if (leftToIdle(w)) return;
-        return yield();
+        if (ownWorkWaits(w)) return yield();
+        return;
     }
     if (waiting.load(.monotonic) != 0) claimWaiting(w);
+}
+
+/// Whether the work in `w`'s own queues waits for its running fiber, as a
+/// yield check sees it: pinned fibers or the global queue's, or a fiber in
+/// any worker's slots or ring that is not a fork (`Worker.queued_woken`).
+/// Forks alone wait for the slice, as the monitor leaves them
+/// (`watchSlices`): a fork-join, whose own forks wait in its queues all
+/// the time it runs, goes on depth first, and its waits take them back.
+fn ownWorkWaits(w: *Worker) bool {
+    if (w.pinned.count.load(.seq_cst) != 0 or global.count.load(.monotonic) != 0) return true;
+    if (!nextHeld(w, .monotonic) and w.ring.isEmpty()) {
+        w.forks_since = 0;
+        return false;
+    }
+    if (wokenWaits()) return true;
+    const now = nowNs();
+    if (w.forks_since == 0) {
+        w.forks_since = now;
+        return false;
+    }
+    if (now - w.forks_since < fork_slice) return false;
+    w.forks_since = 0;
+    return true;
+}
+
+/// How long forks alone wait in a worker's queues before its yield checks
+/// yield to them: the monitor's slice.
+const fork_slice: i96 = 10 * std.time.ns_per_ms;
+
+/// Whether a fiber that is not a fork waits in some worker's slots or
+/// ring: more counted queued than started (`noteWoken`, `noteStarted`).
+fn wokenWaits() bool {
+    const ws = workersNow();
+    var started_n: u32 = 0;
+    var queued: u32 = 0;
+    for (ws) |*v| started_n +%= v.started_woken.load(.monotonic);
+    for (ws) |*v| queued +%= v.queued_woken.load(.monotonic);
+    return @as(i32, @bitCast(queued -% started_n)) > 0;
 }
 
 /// On the worker's stack, after a yield check's stop (`tick`): service
@@ -799,7 +842,9 @@ fn claimWaiting(w: *Worker) void {
     // here.
     if (!hasOwnWork(w) and !othersWait(w)) return;
     if (leftToIdle(w)) return waiting.store(1, .monotonic);
-    if (hasOwnWork(w) or stealWaiting(w)) yield();
+    if (hasOwnWork(w)) {
+        if (ownWorkWaits(w)) yield();
+    } else if (stealWaiting(w)) yield();
 }
 
 /// Take into `w`'s ring work that waits for another busy worker, as
@@ -4396,10 +4441,8 @@ fn loop(w: *Worker) void {
 
 fn runFiber(w: *Worker, f: *Fiber) void {
     w.ran += 1;
-    if (preempt) {
-        preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
-        noteStarted(w, f);
-    }
+    noteStarted(w, f);
+    if (preempt) preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
     if (f.home != null) w.ran_pinned += 1;
     prepare(w, f);
     spread(w);
@@ -6172,7 +6215,7 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool), compt
     // goes on the waiter's count, so a fiber that makes tasks and waits
     // for each at once is stopped as one that computes.
     if (preempt and from == .ring) preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
-    if (preempt) noteStarted(w, f);
+    noteStarted(w, f);
     if (f.home != null) w.ran_pinned += 1;
     checkOffOwnStack(w);
     switchTo(&waiter.sp, f.sp);
@@ -6233,7 +6276,7 @@ fn runHere(h: *Header, cancel: ?*const std.atomic.Value(bool)) bool {
     if (!roomFor(f, &h.fiber)) return false;
     if (!(takeFromNext(w, &h.fiber) or w.ring.takeLast(&h.fiber))) return false;
     // Counted started, if it was counted queued, as a handoff counts it.
-    if (preempt) noteStarted(w, &h.fiber);
+    noteStarted(w, &h.fiber);
     var in: Inline = .{ .parent = f.inline_top, .header = h, .waiter_cancel = cancel, .task_cancel = h.cancel, .state = f.state, .held = f.held, .home = f.home };
     h.fiber.host.store(f, .seq_cst);
     if (in.parent) |p| p.child = &in;

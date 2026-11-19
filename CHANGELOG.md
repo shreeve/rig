@@ -866,6 +866,14 @@ arms.
   A wait with a deadline and a deterministic run run nothing inline.
   `RIG_SCHED_STATS=1` counts the tasks run inline (`inlined`).
   BOARD_PLACEHOLDER
+- **A yield check leaves a worker's own forks to the slice:** in a build
+  with yield checks (a program with local tasks, a target with no
+  preemption by signal), a check yields to its worker's own queues only
+  when a fiber that is not a fork waits in some worker's slots or ring,
+  or pinned or global work waits; forks alone wait a slice, 10 ms, as
+  the monitor leaves them (`sched.ownWorkWaits`). A fork-join so goes on
+  depth first, its waits taking its forks back, where it yielded to each
+  fork as it was made.
 - **A worker started ahead holds a few small pages, not a huge one:**
   the first segment a worker takes as it starts with `main` keeps small
   pages for its first 2 MiB and asks for huge pages for its second
