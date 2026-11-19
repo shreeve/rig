@@ -865,7 +865,13 @@ arms.
   message names each task run inline on the way as `a task`, as before.
   A wait with a deadline and a deterministic run run nothing inline.
   `RIG_SCHED_STATS=1` counts the tasks run inline (`inlined`).
-  BOARD_PLACEHOLDER
+  On the Mac (fork-order's fork.rig at three code placements, fork3.rig,
+  paired medians over 10 to 16 rounds, against #1171): a join with no
+  work costs 31 ns at one worker, against 63 (`nil`; Rayon 10); psum at
+  one worker 6.9-7.4 ms, against 7.7-8.1 and Rayon's 8.2; qsort at one
+  worker 143.9-145.4 ms, level with #1171 and 7-9% faster than Rayon, at
+  the same 502 MiB peak; both level at 10 workers
+  (records/2026-11/free-fork-join/inline.md).
 - **A yield check leaves a worker's own forks to the slice:** in a build
   with yield checks (a program with local tasks, a target with no
   preemption by signal), a check yields to its worker's own queues only
