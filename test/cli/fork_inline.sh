@@ -63,6 +63,39 @@ for mode in debug release; do
     (( ran >= 6 && inlined >= 15 )) || fail "fat $mode: ran $ran, inlined $inlined: no handoff once the room ran short, or no inline run below it: $(cat err-fat.txt)"
 done
 
+# Forks joined in the order they were made, not newest first: the join
+# of the older moves the newer to a "run next" slot (`spillNewer`), and
+# all run inline; the 1,000 forks `main` waits for hand off.
+cat > order.rig <<'RIG'
+use std.task
+
+fun leaf(i: Int) -> Int
+  i
+
+fun three(i: Int) -> Int
+  a = leaf(i)&
+  b = leaf(i + 1)&
+  c = leaf(i + 2)&
+  s = >a
+  s += >b
+  s + >c
+
+sub main()
+  task.workers(1)
+  s = 0
+  for i in 0..1000
+    t = three(i)&
+    s += >t
+  print(s)
+RIG
+for mode in debug release; do
+    flag=""; [[ $mode == release ]] && flag="--release"
+    out=$(RIG_SCHED_STATS=1 "$TIMEOUT_CMD" 60 "$RIG" run $flag order.rig 2>err-order.txt) || fail "order $mode (timeout 60 s): $out $(cat err-order.txt)"
+    expect_eq "$out" "1501500" "order $mode"
+    ran=$(count ran err-order.txt); inlined=$(count inlined err-order.txt)
+    (( inlined >= 2900 && ran <= 1100 )) || fail "order $mode: ran $ran, inlined $inlined: forks joined oldest first did not run inline: $(cat err-order.txt)"
+done
+
 out=$(RIG_SANITIZE=1 RIG_SCHED_STATS=1 "$TIMEOUT_CMD" 60 "$RIG" run psum.rig 2>err-san.txt) || fail "psum sanitized (timeout 60 s): $out $(cat err-san.txt)"
 expect_eq "$out" "2147450880" "psum sanitized"
 (( $(count inlined err-san.txt) >= 1000 )) || fail "psum sanitized ran no fork inline: $(cat err-san.txt)"

@@ -480,6 +480,16 @@ fn wakeIn(f: *Fiber) void {
 /// (`Forks`), or, local or with the deque full, is counted
 /// (`Worker.queued_forks`) so the monitor can leave it to the slice.
 inline fn wakeQueued(f: *Fiber, comptime woken: bool) void {
+    return queueOn(f, if (woken) .woken else .fork);
+}
+
+/// How `queueOn` queues a fiber: one woken, a fork just made, or a fork
+/// taken off its deque for a join out of order (`spillNewer`), which
+/// takes the slots, counted.
+const Queued = enum { woken, fork, spilled };
+
+inline fn queueOn(f: *Fiber, comptime how: Queued) void {
+    const woken = how == .woken;
     if (deterministic.*) return ready.append(std.heap.smp_allocator, f) catch rt.oom();
     countWake(f);
     defer if (builtin.is_test) {
@@ -495,7 +505,7 @@ inline fn wakeQueued(f: *Fiber, comptime woken: bool) void {
         // A fork goes on its worker's deque (`Forks`), unless it is
         // local, pinned to this worker, which no thief may take, or the
         // deque is full: those take the slots, counted.
-        if (f.home == null) if (w.forks.push(f)) |had| {
+        if (how == .fork and f.home == null) if (w.forks.push(f)) |had| {
             if (had) forkWake();
             return;
         };
@@ -6332,10 +6342,12 @@ pub const Header = struct {
             // goes on where it stopped instead. A wait with a deadline
             // sleeps on its timer instead.
             if (deadline == null and h.fiber.sp == 0) {
-                if (w.forks.newestIs(&h.fiber)) {
+                if (w.forks.newestIs(&h.fiber) or (spillNewer(w, &h.fiber) and w.forks.newestIs(&h.fiber))) {
                     // A fork that could not run here (no room on this
-                    // stack, or a cancel came first): handed this worker,
-                    // on a stack of its own.
+                    // stack, as on `main`'s, or a cancel came first):
+                    // handed this worker, on a stack of its own, the forks
+                    // above it moved to the slots first when it is joined
+                    // out of order (`spillNewer`).
                     handoff(w, h, cancel, .forks);
                 } else if (nextHolds(w, &h.fiber)) {
                     handoff(w, h, cancel, .next);
@@ -6494,7 +6506,7 @@ fn runHere(h: *Header, cancel: ?*const std.atomic.Value(bool)) bool {
     if (!roomFor(f, &h.fiber)) return false;
     // A fork, from this worker's deque, newest first; else a task from a
     // "run next" slot or the ring's newest.
-    const from_forks = w.forks.popIf(&h.fiber);
+    const from_forks = w.forks.popIf(&h.fiber) or (spillNewer(w, &h.fiber) and w.forks.popIf(&h.fiber));
     const from_ring = !from_forks and !takeFromNext(w, &h.fiber);
     if (from_ring and !w.ring.takeLast(&h.fiber)) return false;
     // Counted started, if it was counted queued, as a handoff counts it;
@@ -6522,6 +6534,37 @@ fn runHere(h: *Header, cancel: ?*const std.atomic.Value(bool)) bool {
     me().?.inlined += 1;
     return true;
 }
+
+/// A join of `f`, a fork on `w`'s deque below the newest, as `a = f()&;
+/// b = g()&; >a; >b` joins: move the forks above it, `spill_most` at
+/// most, to `w`'s "run next" slots, oldest first, so `f` is the newest
+/// and its waiter takes it back (`runHere`), and each moved fork is
+/// taken back from its slot when it is joined in turn. None of them runs
+/// here: a fork run on its maker's stack before the maker goes on could
+/// wait for what the maker does next. Whether it moved any; for `w`'s
+/// running fiber.
+fn spillNewer(w: *Worker, f: *Fiber) bool {
+    const d = &w.forks;
+    const b = d.bottom.raw;
+    const t = d.top.load(.monotonic);
+    var above: u32 = 1;
+    while (above <= spill_most and Forks.held(b -% above, t) > 0) : (above += 1) {
+        if (d.slots[(b -% above -% 1) % Forks.size].load(.monotonic) == f) break;
+    } else return false;
+    var moved: [spill_most]*Fiber = undefined;
+    var n: u32 = 0;
+    while (n < above) : (n += 1) moved[n] = d.popNewest() orelse break;
+    // Oldest first, so the newest of them takes the newest slot.
+    var i = n;
+    while (i > 0) {
+        i -= 1;
+        queueOn(moved[i], .spilled);
+    }
+    return n == above;
+}
+
+/// How many forks a join out of order moves off its deque at most.
+const spill_most = run_next_slots;
 
 /// Test only: set, a wait runs nothing inline, so a test reaches the
 /// handoff behind it. Never compiled outside a test, so never in a split

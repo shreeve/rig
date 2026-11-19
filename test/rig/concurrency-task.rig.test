@@ -3339,12 +3339,14 @@ bomb "task inline deadlock names the task", "deadlock: these calls wait on each 
   print((!h).run(+h))
 
 test "task deque forks joined out of order on one worker", seeds: 20, timeout: 30, '''
-  6 30
+  6 30 42
 '''
   # Forks wait on their worker's deque (`sched.Forks`). A maker that joins
-  # its older fork first finds it not the newest: it parks, and its
-  # worker's loop runs the forks from the deque, newest first, each on a
-  # stack of its own, which ends the wait.
+  # its older fork first finds it not the newest: the forks above it move
+  # to the "run next" slots, up to four, and it runs inline. With more
+  # above it, the maker parks, and its worker's loop runs the forks from
+  # the deque, newest first, each on a stack of its own, which ends the
+  # wait.
   use std.task
 
   fun double(n: Int) -> Int
@@ -3356,8 +3358,17 @@ test "task deque forks joined out of order on one worker", seeds: 20, timeout: 3
     x = >a
     x + >b
 
+  fun six() -> Int
+    a = double(1)&
+    b = double(2)&
+    c = double(3)&
+    d = double(4)&
+    e = double(5)&
+    f = double(6)&
+    >a + >b + >c + >d + >e + >f
+
   task.workers(1)
-  print(maker(1) - 4, maker(3))
+  print(maker(1) - 4, maker(3), six())
 
 test "task deque fork a maker waits for on a channel, on one worker", seeds: 20, timeout: 30, "42"
   # The maker waits on a channel its fork sends on before it joins the
