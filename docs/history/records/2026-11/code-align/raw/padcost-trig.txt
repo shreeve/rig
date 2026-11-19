@@ -1,0 +1,3 @@
+program section 10404740 bytes, 2922 functions; 2344 hold an inner loop, 10172656 bytes
+align(64) on those: expected padding 75008 bytes (0.7%)
+align(next power of two of size, at most 4096) on those: expected padding 3033802 bytes (29.2%); 645 of them are over 4 KiB

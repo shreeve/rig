@@ -148,7 +148,40 @@ spread. The crossing placements and the shift that clears them:
 At 10 workers the board's own noise (quartiles of about ±8%) hides most
 of it; the crossing reads 4-6% there.
 
-COST
+## Cost
+
+Of `align(64)` on every emitted function (the probe rig,
+`RIG_PROBE_ALIGN=64`), the one function alignment worth costing, though
+it removes nothing:
+
+- **Size.** qsort-mac: the program section grows from 8,876 to 8,952
+  bytes, the file not at all ([raw/size-qsort.txt](raw/size-qsort.txt)).
+  Trig (tools/trig/main.rig, CHECK_IDS false, `rig build --release`, its
+  libtrees made by tools/trig/gen-libtrees, the probe rig at Rig main
+  b7bb1df1d with `TRIG_RIG_OVERRIDE=1`): 5,132 functions emitted
+  `align(64)`; the program section grows by 80,832 bytes, 0.78% (10,407,212
+  to 10,488,044), the file by 0.27% ([raw/size-trig.txt](raw/size-trig.txt)).
+- **std.json's and the tables' guards** (instructions, so blind to layout
+  by design): every row within 0.2% of its baseline in both arms, base
+  and align(64) alike ([raw/guards-base.txt](raw/guards-base.txt),
+  [raw/guards-a64.txt](raw/guards-a64.txt)); the padding is never run.
+- **Trig at one checker on the Mac: not measured.** Both builds exist
+  and [probes/trig-ab.sh](probes/trig-ab.sh) races them (Trig's
+  tools/bench/ab, 20 shuffled rounds, A/A, instructions and cycles), but
+  for the last hour of the round the Mac never went quiet (load 9 to 15,
+  other sessions' suites and gates), and the claim gave up. Its run
+  instructions cannot differ but by the guards' noise (the padding is
+  never run); its time is a layout lottery like any other build's.
+- **Crossings in Trig.** The layout check on Trig: 106,310 loops in the
+  program section; 1,332 inner loops (at most 256 bytes) cross 4 KiB in
+  the base build, 1,278 under align(64)
+  ([raw/straddle-trig-base.txt](raw/straddle-trig-base.txt),
+  [raw/straddle-trig-a64.txt](raw/straddle-trig-a64.txt)): about 1.2% of
+  them in any build, as L/4096 predicts. Trig holds its loops in 2,344
+  functions, 645 of them over 4 KiB; aligning each to its size's next
+  power of two (at most 4 KiB) would pad the section by about 29%
+  ([raw/padcost-trig.txt](raw/padcost-trig.txt)) and still leave those
+  645 unprotected.
 
 ## For the design
 
@@ -172,6 +205,9 @@ COST
 
 ## Files
 
+- probes/emit-align.diff: the probe rig (`RIG_PROBE_ALIGN=N` writes
+  `align(N)` on every emitted function); built in a scratch copy, never
+  committed.
 - probes/: gen.py, buildk.sh, buildall.sh (the eight placements under each
   alignment), alignpkg.sh (align(N) on a package's functions by hand),
   relink.sh and apart.py (rebuild an edited package as `rig build
@@ -180,7 +216,26 @@ COST
   shifted fixes and the align(128) crossing placement), layout.py and
   straddle.py (where things sit; the layout check), loopgen.py and
   loopgen-x86.py (the synthetic loop), board.py, stats.py, armstats.py,
-  claim.sh, buildtrig.sh, guards.sh, pup-job.sh.
-- raw/: layout-k.txt, layout-align.txt, straddle-align64.txt, screen1,
-  validate and means (`.json` samples, `.log` with the machine's load),
-  loop1, loop2, loop2-random, loop2-sorted.
+  claim.sh, buildtrig.sh, guards.sh, padcost.py, trig-ab.sh, pup-job.sh.
+- raw/: layout-k.txt, layout-align.txt, straddle-align64.txt,
+  straddle-trig-base.txt, straddle-trig-a64.txt, padcost-trig.txt,
+  size-qsort.txt, size-trig.txt, guards-base.txt, guards-a64.txt, screen1,
+  validate and means (`.json` samples, `.log` with the machine's load;
+  means-stats.txt), loop1, loop2, loop2-random, loop2-sorted.
+
+## Recommended defaults
+
+1. Emit no function alignment for layout: `align(16)` to `align(128)`
+   neither causes nor removes the crossing (an `align(128)` placement is
+   16.5% slower), and costs 0.78% of Trig's program section.
+2. Keep the boards' two or three placements and their median; add the
+   layout check (probes/straddle.py's rule) to board tooling, so a row
+   whose hot loop crosses 4 KiB is flagged, not read as a regression.
+3. If a compiler means is built, make it the post-link check aimed at
+   loops a profile (`--pgo`) names hot, shifting their functions by
+   alignment until clear; no blanket fix (Trig has about 1,300 crossing
+   inner loops in any build, and most crossings cost nothing).
+4. No loop-head padding: Zig 0.17 offers none that lands reliably.
+5. Run probes/pup-job.sh on pup before deciding anything for x86.
+6. Race Trig with probes/trig-ab.sh when the Mac is quiet, if the lead
+   still wants align(64)'s time.
