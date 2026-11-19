@@ -130,6 +130,12 @@ A new session, human or agent, takes these steps in order:
   bench/tasks, actors, net level. Next: the inline run on today's
   queue, then the Chase-Lev deque (records/2026-11/free-fork-join).
   Waits on Trig's light gate, pup, and the owner.
+- **Free fork-join, the inline run** (#1175, on #1171): a fork its waiter
+  reaches unstarted runs on the waiter's stack and fiber when the room
+  rule allows (`sched.runHere`), with cancels through `Fiber.host` and
+  panics level by level; and yield checks leave a worker's own forks to
+  the slice. Next: the Chase-Lev deque. Waits on its board, the gates
+  left in its PR, Trig's light gate, pup, and the owner.
 
 - **The stable sort** (branch `sort-stable`, then `sort-drift` on
   it; owner, 2026-11-16, "fastest, within 2% of Rust's stable sort"):

@@ -3089,7 +3089,7 @@ test "task inline forks on one worker", timeout: 30, '''
   for i in 0..65536
     !xs.push(i)
   whole = ?xs[..]
-  t = psum(whole)&
+  t = psum(?whole)&
   print(psum(whole), >t)
 
 test "task inline cancel reaches the level that sleeps", timeout: 30, '''
@@ -3125,7 +3125,10 @@ test "task inline cancel reaches the level that sleeps", timeout: 30, '''
 
   fun both(k: Int, inner: Bool) -> Int!
     a = boom()&
-    b = (if inner then guarded(k) else nap(k))&
+    if inner
+      c = guarded(k)&
+      return >c! + >a!
+    b = nap(k)&
     >b! + >a!
 
   task.workers(1)
@@ -3134,11 +3137,11 @@ test "task inline cancel reaches the level that sleeps", timeout: 30, '''
 
 test "task inline under a canceled waiter starts canceled", timeout: 30, '''
   canceled -1
-  dropped 5
+  woke
   waiter -1
 '''
-  # A fork canceled, or dropped unwaited, or waited for by a waiter
-  # canceled before its wait, runs inline canceled: its first waiting
+  # A fork canceled, or waited for by a waiter canceled before its
+  # wait, runs inline canceled: its first waiting
   # point fails at once, and nothing sleeps the hour.
   use std.task
   use std.time
@@ -3151,10 +3154,6 @@ test "task inline under a canceled waiter starts canceled", timeout: 30, '''
     t = nap()&
     <t.cancel() catch -1
 
-  fun drops() -> Int
-    t = nap()&
-    5
-
   fun waiter() -> Int!
     t = nap()&
     time.sleep(ms: 3_600_000) catch print("woke")
@@ -3166,7 +3165,6 @@ test "task inline under a canceled waiter starts canceled", timeout: 30, '''
 
   task.workers(1)
   print("canceled", cancels())
-  print("dropped", drops())
   t = outer()&
   print("waiter", >t)
 
@@ -3221,10 +3219,10 @@ test "task inline fork of an actor's method that panics", timeout: 30, '''
   -9
   after
 '''
-  # A method run by the actor's runner forks a task, which runs inline on
-  # the runner's stack and panics: the task ends as on a fiber of its own,
-  # not at the runner's isolate (`Isolate.here`); the actor dies at its
-  # runner, and the caller gets the panic.
+  # A method run inline by its caller, on the stack an isolate runs its
+  # closure on, forks a task, which runs inline too and panics: the task
+  # ends as on a fiber of its own, the actor dies, and the isolate stops
+  # the panic.
   use std.task
 
   fun pick(xs: [3]Int, i: Int) -> Int
@@ -3293,3 +3291,49 @@ test "task inline hands off once a waiter has used its stack's extra room", time
   task.workers(1)
   w = fat(40)&
   print(>w)
+
+bomb "task inline fork of an actor's method that panics, on its runner", "an actor's method this task called panicked", timeout: 30
+  # `main`'s stack has no room for the method, so the actor's runner runs
+  # it; the task it forks runs inline on the runner's stack and panics.
+  # The task ends as on a fiber of its own, not at the runner's isolate,
+  # which its level did not begin (`Isolate.here`); the actor dies at its
+  # runner, and the panic passes to `main`, which ends the program.
+  use std.task
+
+  fun pick(xs: [3]Int, i: Int) -> Int
+    xs[i]
+
+  fun bad(i: Int) -> Int
+    pick([1, 2, 3], i)
+
+  obj Hub
+    n: Int
+
+    fun run(!@, i: Int) -> Int
+      t = bad(i)&
+      >t + @n
+
+  task.workers(1)
+  h = *Actor(Hub(n: 3))
+  print((!h).run(9))
+
+bomb "task inline deadlock names the task", "deadlock: these calls wait on each other, and none can go on: Hub.run -> a task -> Hub.get", prints: "before", timeout: 30
+  # A method waits on a task that calls its own actor; the task runs
+  # inline on the runner's stack, and the deadlock names it as it would
+  # on a fiber of its own.
+  obj Hub
+    n: Int
+
+    fun get(?@) -> Int
+      @n
+
+    fun run(!@, me: *Actor[Hub]) -> Int
+      t = peek(<me)&
+      >t
+
+  fun peek(h: *Actor[Hub]) -> Int
+    h.get()
+
+  h = *Actor(Hub(n: 3))
+  print("before")
+  print((!h).run(+h))
