@@ -79,6 +79,37 @@ forward one, paired):
 | qsort | 1 | 1.025 [1.000-1.052] | 1.006 [0.994-1.016] |
 | qsort | 10 | 0.968 [0.919-1.026] | 0.983 [0.958-1.008] |
 
+## pup, and the walk alone
+
+From the psum round's notes of the same day, kept outside the repository in
+`~/Data/Code/Claude/rig/rig/psum-gap/` (leaf.md, memory.md, runtime.md),
+measured on other programs than this record's: warm passes, the second or
+third psum of a process, where this record's programs time the first.
+
+pup (x86-64, Core Ultra 9 185H), psum, medians in ms. "Forward" is the maker
+running the first half, fork.rig's order and `rayon::join`'s:
+
+| | Rig, forward | Rig, backward | Rayon, forward | Rayon, backward |
+|---|---:|---:|---:|---:|
+| 1 worker, warm, before #1151 (runtime.md, 20 rounds) | 13.41 | 13.97 | 12.18 | 13.26 |
+| 1 worker, warm, before #1151 (leaf.md, 15 rounds) | 13.27-13.31 | 14.07-14.34 | 11.88-12.11 | 12.87-13.07 |
+| 1 worker, warm, with #1151 (leaf.md) | 11.67 | | 12.09-12.20 | |
+| 12 workers, first pass (runtime.md) | 6.19 | 6.38 | 4.30 | 4.56 |
+| 12 workers, warm (runtime.md) | 3.14 | 3.24 | 3.09 | 3.16 |
+
+On pup the backward walk costs Rig 4% at one worker and Rayon 9%; with
+#1151 and the forward walk Rig's warm psum at one worker is ahead of
+Rayon's. The first pass at 12 workers trails in either order: that gap is
+the workers' start, not the walk.
+
+The Mac, the same notes (runtime.md, 20 rounds, warm, one worker): Rig
+forward 3.84, backward 4.98; Rayon forward 3.65, backward 4.78.
+
+The walk with no runtime at all (memory.md: one thread reading the same
+256 MB in leaves of 8,192, last leaf first against first leaf first): 28%
+slower on the Mac (5.62 against 4.40 ms); on pup 1% slower with huge pages
+and vector adds, 4% with small pages, 16% with scalar adds.
+
 ## What it shows
 
 - **psum, one worker.** The backward walk costs each runtime 12%. Against
