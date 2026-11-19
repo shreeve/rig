@@ -4151,7 +4151,7 @@ fn printStats() void {
     for (workersNow(), 0..) |*w, i| {
         if (preempt) printDeclined(w, i);
         const line = (if (preempt)
-            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room), deepest stop {d} of {d} bytes, inlined {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped, preOf(w).deepest, preempt_room, w.inlined })
+            std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, inlined {d}, preempted {d}, signaled {d} ({d} outside the program's code, {d} under a lock, {d} without room), deepest stop {d} of {d} bytes\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, w.inlined, preOf(w).preempts, preOf(w).signals.raw, preOf(w).outside, preOf(w).held_off, preOf(w).cramped, preOf(w).deepest, preempt_room })
         else
             std.fmt.bufPrint(&buf, "rig: worker {d}: ran {d}, pinned {d}, stole {d}, slept {d}, inlined {d}\n", .{ i, w.ran, w.ran_pinned, w.stole, w.slept.raw, w.inlined })) catch continue;
         _ = std.posix.system.write(2, line.ptr, line.len);
@@ -6351,7 +6351,15 @@ const inline_slack: usize = 16 << 10;
 /// passes a cancel on, is canceled, as that waiter's wait would have done.
 /// Called by the fiber itself at a wait a cancel may end, and by a look at
 /// its task's flag (`tasks.canceledHere`).
-pub fn passCancelDown(f: *Fiber) void {
+pub const passCancelDown = if (preempt) passCancelDownApart else passCancelDownIn;
+
+/// `passCancelDown` in a program built to be preempted: never inlined
+/// into the program's own code (`mustNotBeInCode`).
+noinline fn passCancelDownApart(f: *Fiber) void {
+    passCancelDownIn(f);
+}
+
+fn passCancelDownIn(f: *Fiber) void {
     f.cancel_below.store(false, .seq_cst);
     var base = f.inline_top orelse return;
     while (base.parent) |p| base = p;

@@ -3028,9 +3028,9 @@ fn canceledHere() bool {
     const control = state.control orelse return false;
     if (control.canceled.load(.seq_cst)) return true;
     // A cancel of a task the fiber runs this one inline for comes as the
-    // fiber's bit (`rt.sched.passCancelDown`). A task's state is its
-    // fiber's.
-    if (!rt.scheduled) return false;
+    // fiber's bit (`rt.sched.passCancelDown`). The state of a control that
+    // names a fiber is a fiber's; a blocking pool thread's names none.
+    if (!rt.scheduled or control.fiber == null) return false;
     const f: *rt.sched.Fiber = @fieldParentPtr("state", state);
     if (rt.sanitize) std.debug.assert(rt.sched.current() == f);
     if (!f.cancel_below.load(.seq_cst)) return false;
