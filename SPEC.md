@@ -14772,7 +14772,7 @@ handle to work the runtime holds already. `Task[T]` holds a call's result, so it
 be fallible, `Task[Int!]` ([§13](#13-errors)).
 
 **Running.** A program that makes tasks runs them on Rig's scheduler:
-each is a fiber on a stack of its own as large as `main`'s, run by a
+each is a fiber on a stack of its own at least as large as `main`'s, run by a
 worker thread per core (`task.workers(n)` before the first task, or
 `RIG_WORKERS`, sets how many), with a guard
 below it at least twice the program's largest frame. A long loop or
@@ -15004,7 +15004,10 @@ runs to its end, and its caller waits for it, through a cancel too.
 
 A call that finds the actor idle, with nothing in its mailbox, takes it
 in one atomic step and runs the method at once on the caller's stack,
-with no message and no switch, when that stack has room. The method
+with no message and no switch, when that stack has as much room left
+as the actor's own task would give the method: what the compiler
+proves the method takes, or a whole task's stack when it proves no
+bound (a method that recurses, or calls through a function value). The method
 still runs as the actor: it has started, so the caller's cancel and
 deadline do not stop it, and the caller meets them at its own next
 waiting point. Messages sent meanwhile go to the actor's own task.
