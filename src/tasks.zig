@@ -2411,15 +2411,17 @@ pub fn Actor(comptime T: type) type {
         /// the actor, with no message and no switch: under no cancel or
         /// deadline, as its runner runs one, so a canceled caller cannot
         /// stop it partway. What arrived meanwhile goes to a runner after
-        /// it (`release`).
-        pub inline fn call(box: *rt.Shared(Self), comptime name: []const u8, args: anytype) Result(name) {
-            return callAs(box, name, args, false);
+        /// it (`release`), when the caller's stack has as much room as the
+        /// method's own task would give it: `depth`, the method's proven
+        /// depth, or 0 for none (`roomInline`).
+        pub inline fn call(box: *rt.Shared(Self), comptime name: []const u8, args: anytype, comptime depth: u64) Result(name) {
+            return callAs(box, name, args, false, depth);
         }
 
         /// `call`, for a call made with `&` (`slotted`) that holds a slot
         /// of the mailbox, which it gives back once it is answered, run
         /// inline, withdrawn, or refused by a dead actor.
-        fn callAs(box: *rt.Shared(Self), comptime name: []const u8, args: anytype, comptime slotted: bool) Result(name) {
+        fn callAs(box: *rt.Shared(Self), comptime name: []const u8, args: anytype, comptime slotted: bool, comptime depth: u64) Result(name) {
             const R = Result(name);
             const self = &box.value;
             const fallible = @typeInfo(R) == .error_union;
@@ -2429,7 +2431,7 @@ pub fn Actor(comptime T: type) type {
             };
             const f = rt.sched.current();
             const t = if (f) |x| &x.state else task();
-            if (f != null and self.claim(t)) {
+            if (f != null and self.claim(t, depth)) {
                 var held: rt.sched.Held = .{ .held_by = &self.held_by, .doing = label(name), .die = dieInline(slotted), .next = f.?.held };
                 f.?.held = &held;
                 defer {
@@ -2521,14 +2523,14 @@ pub fn Actor(comptime T: type) type {
         }
 
         /// Take the actor for a call run inline: when it is idle, which
-        /// means its mailbox is empty, and the caller's stack has room
-        /// (`roomInline`).
+        /// means its mailbox is empty, and the caller's stack has the room
+        /// the method needs (`roomInline`).
         ///
         /// A caller that finds it running inline with no mail spins a
         /// little first (`claim_spins`), as a mutex does, since a short
         /// method is soon done and sleeping costs more than the wait.
-        fn claim(self: *Self, t: *rt.TaskState) bool {
-            if (!roomInline(t)) return false;
+        fn claim(self: *Self, t: *rt.TaskState, comptime depth: u64) bool {
+            if (!roomInline(t, depth)) return false;
             if (self.state.cmpxchgStrong(0, busy, .acquire, .monotonic) == null) return true;
             return claimSpinning(&self.state);
         }
@@ -2668,16 +2670,28 @@ pub fn panicStops() bool {
 }
 
 /// Whether the running task's stack has room for an actor's method run
-/// inline (`Actor.claim`): a quarter of its length or more above its
-/// guard, or the caller sends a message, which the actor's own task runs
+/// inline (`Actor.claim`): as much room above its guard as the method's
+/// own task would give it, so a method never overflows inline that would
+/// not overflow on the actor's own task. That is `depth`, the most stack
+/// the compiler proves the method takes with all it calls, when it
+/// proves one; else a whole task's stack, `rt.task_stack_promise`, which
+/// a task has left while it has used no more than `rt.task_stack_extra`.
+/// Each adds `inline_slack` for the frames between here and the method.
+/// Otherwise the caller sends a message, which the actor's own task runs
 /// on a stack of its own. A stack the runtime did not map, or one it
 /// cannot place the frame in, has none.
-fn roomInline(t: *rt.TaskState) bool {
+fn roomInline(t: *rt.TaskState, comptime depth: u64) bool {
+    const need: usize = (if (depth > 0) @as(usize, @intCast(depth)) else rt.task_stack_promise) + inline_slack;
     const g = t.stack_guard;
     const at = @frameAddress();
     if (g.hi == 0 or at < g.hi or at - g.hi > g.len) return false;
-    return at - g.hi >= g.len / 4;
+    return at - g.hi >= need;
 }
+
+/// The frames from `Actor.claim` to the method's own (`runInline`,
+/// `invoke`), which a method run inline has below it and its own task's
+/// runner has too, at most.
+const inline_slack: usize = 16 << 10;
 
 /// A call of an actor's method, in its caller's frame: the actor runs
 /// it (`run`) and answers (`answer`), which wakes the caller, as a task's
@@ -2749,9 +2763,9 @@ fn BoxOf(comptime H: type) type {
 }
 
 /// `c.m(args)` through an actor handle (`Actor.call`).
-pub fn actorCall(handle: anytype, comptime name: []const u8, args: anytype) ActorResult(@TypeOf(handle), name) {
+pub fn actorCall(handle: anytype, comptime name: []const u8, args: anytype, comptime depth: u64) ActorResult(@TypeOf(handle), name) {
     const box = boxOf(handle);
-    return @TypeOf(box.value).call(box, name, args);
+    return @TypeOf(box.value).call(box, name, args, depth);
 }
 
 /// What method `name` gives through a handle of type `H`.
@@ -2763,8 +2777,8 @@ fn ActorResult(comptime H: type, comptime name: []const u8) type {
 
 /// `c.m(args)&`: the call as a task, which holds a handle of its own and
 /// one of the actor's `&` slots until it is answered, waiting for a free
-/// one first.
-pub fn actorSpawn(handle: anytype, comptime name: []const u8, args: anytype) Task(ActorResult(@TypeOf(handle), name)) {
+/// one first. `depth` is the method's proven depth, or 0 (`actorCall`).
+pub fn actorSpawn(handle: anytype, comptime name: []const u8, args: anytype, comptime depth: u64) Task(ActorResult(@TypeOf(handle), name)) {
     const R = ActorResult(@TypeOf(handle), name);
     const box = boxOf(handle);
     const self = &box.value;
@@ -2773,14 +2787,14 @@ pub fn actorSpawn(handle: anytype, comptime name: []const u8, args: anytype) Tas
     const Run = struct {
         fn run(b: @TypeOf(box), a: @TypeOf(args)) R {
             defer b.dropStrong();
-            return A.callAs(b, name, a, true);
+            return A.callAs(b, name, a, true, depth);
         }
 
         /// `run` of a method that may fail with fields: it is given the
         /// task's slot, last.
         fn runInto(b: @TypeOf(box), a: @TypeOf(args), slot: rt.ErrSlot) R {
             defer b.dropStrong();
-            return A.callAs(b, name, a ++ .{slot}, true);
+            return A.callAs(b, name, a ++ .{slot}, true, depth);
         }
     };
     if (comptime takesSlot(@TypeOf(@field(@TypeOf(self.value), name)))) return Task(R).spawn(Run.runInto, .{ box.cloneStrong(), args });

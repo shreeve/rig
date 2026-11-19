@@ -15083,6 +15083,13 @@ const Checker = struct {
         }
         try self.requireTask(result, .moves, pos, "is given back by an actor's task", false);
         if (self.current_call) |c| try self.ctx.recordActorCall(c);
+        // The method the call reaches, as any method call records it: its
+        // proven depth is the room a run inline needs (`Actor.claim`). A
+        // generic type's method keeps none, and runs inline only with a
+        // whole task's stack left.
+        if (m.subst.params.len == 0) if (sema.nominalDecl(self.ctx, value)) |nom| {
+            try self.noteTarget(nom.ctx.module_id, m.field.decl_pos, m.field.inline_marked, .empty);
+        };
         return f.returns;
     }
 

@@ -4589,8 +4589,9 @@ pub const SemContext = struct {
     inlined_calls: FastMap(NodeKey, void) = .empty,
     /// The calls whose callee a task may run on a dense stack: every
     /// function it can reach is known, none is recursive, and the frames
-    /// add up to less than `dense_depth_limit` (`inlining.decide`).
-    dense_calls: FastMap(NodeKey, void) = .empty,
+    /// add up to less than `dense_depth_limit` (`inlining.decide`); each
+    /// with that depth, the most stack the call may take, in bytes.
+    dense_calls: FastMap(NodeKey, u64) = .empty,
     /// The node `Question`s decided so far, each once.
     decided: *Decided,
     /// Facts of types worked out on their first ask (`TypeMemo`).

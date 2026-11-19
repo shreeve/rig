@@ -9295,7 +9295,7 @@ pub const Emitter = struct {
             try self.emitMemberBase(obj, self.typeOf(obj) orelse return self.unsupported(obj, "an untyped actor handle"));
             try self.w.print(", \"{s}\", .{{ ", .{self.srcText(ir.Member.name(callee))});
             try self.emitArgs(sexp);
-            return self.w.writeAll(" })");
+            return self.w.print(" }}, {})", .{self.facts.callDepth(sexp) orelse 0});
         }
         try self.emitTypeTy(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped task"));
         // Through a witness: its method, given self as it takes it.
@@ -9471,7 +9471,9 @@ pub const Emitter = struct {
             try self.emitMemberBase(obj, self.typeOf(obj) orelse return self.unsupported(obj, "an untyped actor handle"));
             try self.w.print(", \"{s}\", .{{ ", .{self.srcText(ir.Member.name(callee))});
             try self.emitArgs(sexp);
-            return self.w.writeAll(" })");
+            // The method's proven depth, or 0 for none: the room an inline
+            // run needs (`Actor.claim`).
+            return self.w.print(" }}, {})", .{self.facts.callDepth(sexp) orelse 0});
         }
         // `task.select(arm, ...)`: each arm a channel operation and the
         // function the runtime calls when it is the one that commits.
@@ -12145,7 +12147,7 @@ test "every runtime call of a function value passes the slot it takes" {
         .{ .file = "tasks.zig", .call = "const value = make.value.invoke(.{})", .why = "the function that makes a supervised actor's value cannot fail (`Actor.supervised`)" },
         .{ .file = "tasks.zig", .call = "c.result = c.actor.invoke(name, c.args)", .why = method },
         .{ .file = "tasks.zig", .call = "return self.invoke(name, args)", .why = method },
-        .{ .file = "tasks.zig", .call = "return @TypeOf(box.value).call(box, name, args)", .why = method },
+        .{ .file = "tasks.zig", .call = "return @TypeOf(box.value).call(box, name, args, depth)", .why = method },
         .{ .file = "net.zig", .call = "return t.f.call(.{t.req})", .why = "`http.serve`'s handler is a `?fun(?Request) -> Response`, which cannot fail" },
         .{ .file = "ordered.zig", .call = "f.call(.{ rt.lend(&entry.key), &entry.value })", .why = "`Map.update`'s `f` is a `?sub(?K, !V)`, which cannot fail" },
         .{ .file = "ordered.zig", .call = "f.call(.{rt.lend(&e.key)})", .why = "`Set.retain`'s `f` is a `?fun(?K) -> Bool`, which cannot fail" },

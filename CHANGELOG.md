@@ -833,6 +833,17 @@ arms.
 
 ### Runtime
 
+- **An actor's method runs inline only with the room its own task
+  would give it:** a call that finds the actor idle runs the method on
+  the caller's stack when that stack has as much room left as the
+  method proves it takes (the bound dense stacks use, now recorded for
+  each call), or a whole task's stack when it proves none. It ran inline
+  with a quarter of a stack left, 16 MiB, so a method recursing past
+  that overflowed when it found the actor idle and ran when it did not.
+  A task's stack holds 1 MiB past `main`'s 64 MiB, address space only,
+  so a task that has used no more than that still runs any method
+  inline; `main`, whose stack is 64 MiB, sends a message for a method
+  with no proven bound.
 - **A thief and a ring's owner never both take one fiber:** a thief
   copied half a ring and claimed it by moving the head, a claim that
   checks only the head, while the owner taking back its newest

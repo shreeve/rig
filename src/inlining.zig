@@ -1549,10 +1549,12 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
             try mods[site.module].sema.inlined_calls.put(allocator, site.id, {});
             break;
         };
+        var most: u64 = 0;
         const fits = reached.len > 0 and for (reached) |t| {
             const d = depth[t] orelse break false;
             if (d >= sema.dense_depth_limit) break false;
+            most = @max(most, d);
         } else true;
-        if (fits) try mods[site.module].sema.dense_calls.put(allocator, site.id, {});
+        if (fits) try mods[site.module].sema.dense_calls.put(allocator, site.id, most);
     }
 }
