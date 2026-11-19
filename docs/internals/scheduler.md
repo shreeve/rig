@@ -14,9 +14,13 @@ first task, or make none (Trig asks for its workers as it reads its
 command line, long before its checkers' first task), and in a program
 of a batch, whose one runtime serves programs that make none. Started ahead,
 each takes its heap's first segment as its thread starts
-(`takeFirstSegment`), so that page's first fault, 2 MiB zeroed where the
-system gives huge pages, falls before the work rather than on a worker's
-first stolen task, while the other cores stream memory. They sleep until
+(`takeFirstSegment`), so that page's first fault falls before the work
+rather than on a worker's first stolen task, while the other cores stream
+memory. That segment keeps small pages for its first 2 MiB and asks for
+huge pages for its second (`alloc.startSmall`): a huge page there was
+2 MiB zeroed for every worker, which on pup cost a program of two tasks
+on twelve workers 22 MiB more at its peak; with small pages an idle
+worker holds a few of them. They sleep until
 the first task, which then spreads to workers that run
 rather than to threads still starting: a process's first parallel pass,
 psum over 256 MB on the Mac's 10 workers, takes 2.25 ms where a start at

@@ -833,6 +833,17 @@ arms.
 
 ### Runtime
 
+- **A worker started ahead holds a few small pages, not a huge one:**
+  the first segment a worker takes as it starts with `main` keeps small
+  pages for its first 2 MiB and asks for huge pages for its second
+  (`alloc.startSmall`), where it faulted in a whole 2 MiB huge page for
+  each worker. On pup at 12 workers, peak memory returns to what it was
+  before the workers started early: a program of two tasks 35.1 MiB
+  (57.9 with the huge page, 35.1 before), bench/tasks 5.5 MiB (25.1,
+  15.6 before), its `idle` 2.4 (25.1, 2.3 before). psum at 12 workers
+  stays at 3.9 ms against Rayon's 4.6-4.7; fork.rig, Trig's
+  `task.workers` programs and one-worker runs are not affected
+  (docs/history/records/2026-11/early-memory/).
 - **An actor's method runs inline only with the room its own task
   would give it:** a call that finds the actor idle runs the method on
   the caller's stack when that stack has as much room left as the

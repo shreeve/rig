@@ -1,0 +1,43 @@
+round 1 done
+round 2 done
+round 3 done
+round 4 done
+round 5 done
+round 6 done
+round 7 done
+round 8 done
+round 9 done
+round 10 done
+round 11 done
+round 12 done
+round 13 done
+round 14 done
+round 15 done
+round 16 done
+round 17 done
+round 18 done
+round 19 done
+round 20 done
+checks: {'psum': ['16760439056'], 'qsort': ['4194304']} agree
+| config | row | arm | median ms (range) | fastest | against rayon | against cur |
+|---|---|---|---|---|---|---|
+| 1 worker | psum | cur | 11.90 (11.47-12.56) | 11.47 | 0.994 | 1.000 |
+| 1 worker | psum | new | 11.91 (11.37-12.29) | 11.37 | 0.995 | 1.001 |
+| 1 worker | psum | aa | 11.87 (11.42-12.38) | 11.42 | 0.992 | 0.997 |
+| 1 worker | psum | d | 11.90 (11.58-12.10) | 11.58 | 0.994 | 1.000 |
+| 1 worker | psum | rayon | 11.97 (11.79-13.14) | 11.79 | 1.000 | 1.006 |
+| 1 worker | qsort | cur | 276.86 (268.79-284.97) | 268.79 | 1.025 | 1.000 |
+| 1 worker | qsort | new | 278.69 (268.99-287.00) | 268.99 | 1.032 | 1.007 |
+| 1 worker | qsort | aa | 272.19 (265.83-281.43) | 265.83 | 1.008 | 0.983 |
+| 1 worker | qsort | d | 275.24 (263.73-286.29) | 263.73 | 1.019 | 0.994 |
+| 1 worker | qsort | rayon | 270.04 (266.02-279.40) | 266.02 | 1.000 | 0.975 |
+| 12 workers | psum | cur | 4.19 (3.59-5.41) | 3.59 | 0.907 | 1.000 |
+| 12 workers | psum | new | 3.93 (3.62-5.36) | 3.62 | 0.851 | 0.938 |
+| 12 workers | psum | aa | 3.77 (3.48-6.06) | 3.48 | 0.816 | 0.900 |
+| 12 workers | psum | d | 4.20 (3.64-5.52) | 3.64 | 0.910 | 1.004 |
+| 12 workers | psum | rayon | 4.62 (4.38-5.32) | 4.38 | 1.000 | 1.103 |
+| 12 workers | qsort | cur | 96.83 (89.78-128.89) | 89.78 | 0.776 | 1.000 |
+| 12 workers | qsort | new | 98.76 (89.85-116.80) | 89.85 | 0.791 | 1.020 |
+| 12 workers | qsort | aa | 99.62 (92.42-122.17) | 92.42 | 0.798 | 1.029 |
+| 12 workers | qsort | d | 100.10 (88.99-126.47) | 88.99 | 0.802 | 1.034 |
+| 12 workers | qsort | rayon | 124.80 (117.13-139.52) | 117.13 | 1.000 | 1.289 |

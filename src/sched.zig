@@ -4219,10 +4219,14 @@ fn workerMain(w: *Worker, n: usize) void {
 /// A worker started ahead of the work takes its heap's first segment
 /// now, by a record it takes and gives back: the segment's first page is
 /// written here, its fault taken while the worker has nothing to do,
-/// where it would otherwise fall on the first task it runs. A
-/// leak-checked build's records are not the heap's, and take none.
+/// where it would otherwise fall on the first task it runs. The segment
+/// keeps small pages for its first 2 MiB (`fast_alloc.startSmall`), so
+/// a worker that never runs a task holds a few of them, not a huge
+/// page. A leak-checked build's records are not the heap's, and take
+/// none.
 fn takeFirstSegment() void {
     if (!own_records) return;
+    rt.fast_alloc.startSmall();
     const p = rt.fast_alloc.allocRecord(256, .of(u64)) orelse rt.oom();
     rt.fast_alloc.freeRecord(p[0..256], .of(u64));
 }
