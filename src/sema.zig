@@ -4260,6 +4260,11 @@ pub const SemContext = struct {
     /// The module names `os.memory`: the program's root declares
     /// `__rig_memory`, so its allocator counts what it hands out.
     reads_memory: bool = false,
+    /// The module names `task.workers`: the program may set how many
+    /// workers run, and start none, so they start at its first task, not
+    /// as `main` starts (the program's root then declares no
+    /// `__rig_start_early`).
+    sets_workers: bool = false,
     simd_sym_id: SymbolId = symbol_invalid,
     /// `Table[T, n]` and `Slot[n]`: a table of `n` slots, and a number
     /// that names one (`Type.slot`).
@@ -6512,15 +6517,18 @@ pub fn stdRenamed(foreign: *const SemContext, owner: []const u8, member: []const
 
 /// `module.name`, a public declaration of the imported module `foreign`,
 /// named in `ctx`'s module: the two the runtime keeps an answer for only
-/// in a program that names one, so no other program pays for it.
-/// `time.since_start` needs the clock read as the program starts, and
-/// `os.memory` an allocator that counts. Every path to another module's
-/// declaration comes here (`Checker.foreignSymbol`); the runtime stops at
-/// compile time a program that reaches either one without its flag.
+/// in a program that names one, so no other program pays for it, and the
+/// one that says when the workers start. `time.since_start` needs the
+/// clock read as the program starts, and `os.memory` an allocator that
+/// counts; a program that names `task.workers` may set how many workers
+/// run, so they wait for its first task. Every path to another module's declaration comes
+/// here (`Checker.foreignSymbol`); the runtime stops at compile time a
+/// program that reaches either of the first two without its flag.
 pub fn noteRuntimeRead(ctx: *SemContext, foreign: *const SemContext, name: []const u8) void {
     if (!foreign.is_std) return;
     if (std.mem.eql(u8, foreign.name, "std.time") and std.mem.eql(u8, name, "since_start")) ctx.reads_since_start = true;
     if (std.mem.eql(u8, foreign.name, "std.os") and std.mem.eql(u8, name, "memory")) ctx.reads_memory = true;
+    if (std.mem.eql(u8, foreign.name, "std.task") and std.mem.eql(u8, name, "workers")) ctx.sets_workers = true;
 }
 
 /// Report that `module.name`, a declaration of the imported module

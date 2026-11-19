@@ -1,0 +1,10 @@
+# lock 00:34:54
+slot 620 (ab) open until 01:19:54; free 2 MiB blocks: 3297; paused: 2731279 2731340
+# blocks=3297 swap_mb=1358 slot=620 paused=2 running=0 late=0
+# shell nproc 22; pid 2733947's current affinity mask: 3fffff
+fork rc=0
+tasks done
+rss done
+# cmd rc=0 00:37:25
+slot 620 closed; resumed: 2731279 2731340
+QUIET: honoured (no user process ran on cores 12-19 during slot 620)

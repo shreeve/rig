@@ -1,0 +1,10 @@
+# lock 00:42:32
+slot 621 (ab) open until 01:27:33; free 2 MiB blocks: 2179; paused: 
+# blocks=2179 swap_mb=1358 slot=621 paused=0 running=1 late=0
+# shell nproc 22; pid 2752397's current affinity mask: 3fffff
+tasks done
+fork rc=0
+rss done
+# cmd rc=0 00:47:31
+slot 621 closed; resumed: 
+QUIET: NOT honoured in slot 621: 100 samples of other work on cores 12-19; first:       1  pid 2771647 cpu 12 100% age 0s ./.zig-cache/o/9d7a662225863407830f83ef1a597ce1/test --cache-dir=./.zig-cache --seed=0xd18b953a --listen=-;      1  pid 2771558 cpu 15 110% age 3s ./.zig-cache/o/9d7a662225863407830f83ef1a597ce1/test --cache-dir=./.zig-cache --seed=0xd18b953a --listen=-;      

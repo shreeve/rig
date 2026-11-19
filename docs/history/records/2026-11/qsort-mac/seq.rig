@@ -1,0 +1,67 @@
+# Fork-join with `&` tasks, in rayon::join's order: the maker runs the
+# first half and the second waits on a task, so one worker walks the
+# halves first to last. psum: the sum of 2^25 Ints, split in halves down
+# to 8,192, the right half on a task; qsort: 2^22 Ints sorted by a
+# quicksort that partitions into two owned Lists (safe Rig cannot yet
+# give two tasks write views of one List's halves), the high half on a
+# task down to 8,192, then std.sort. fork-left.rig is the other order.
+use std.sort
+use std.time
+
+GRAIN = 8192
+
+fun seq_sum(xs: ?[]Int) -> Int
+  s = 0
+  for x in xs
+    s +%= x
+  s
+
+fun psum(xs: ?[]Int) -> Int
+  return seq_sum(xs) if xs.len <= GRAIN
+  mid = xs.len / 2
+  right = xs[mid..]
+  a = psum(xs[..mid])
+  b = psum(?right)
+  a +% b
+
+fun qsort(xs: List[Int]) -> List[Int]
+  if xs.len <= GRAIN
+    new ys = <xs
+    sort.sort(!ys[..])
+    return ys
+  pivot = xs[xs.len / 2]
+  lo: List[Int] = List(capacity: xs.len / 2)
+  mid: List[Int] = List()
+  hi: List[Int] = List(capacity: xs.len / 2)
+  for x in xs
+    if x < pivot
+      !lo.push(x)
+    else if x > pivot
+      !hi.push(x)
+    else
+      !mid.push(x)
+  out = qsort(<lo)
+  !out.extend(?mid[..])
+  high = qsort(<hi)
+  !out.extend(?high[..])
+  out
+
+sub main()
+  n = 1 << 25
+  xs: List[Int] = List(capacity: n)
+  for i in 0..n
+    !xs.push(i *% 2654435761 % 1000)
+  t = time.now()
+  whole = ?xs[..]
+  s = psum(whole)
+  print("psum", t.elapsed(), s)
+  m = 1 << 22
+  ys: List[Int] = List(capacity: m)
+  for i in 0..m
+    !ys.push((i *% 6364136223846793005 +% 1442695040888963407) >> 20)
+  t2 = time.now()
+  zs = qsort(<ys)
+  ok = 1
+  for i in 1..zs.len
+    ok = 0 if zs[i - 1] > zs[i]
+  print("qsort", t2.elapsed(), ok * zs.len)
