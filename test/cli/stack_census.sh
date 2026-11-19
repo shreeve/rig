@@ -89,7 +89,7 @@ bounded "a task of direct calls is bounded" "$spin_row"
 map_row=$(grep -F -e "| rig.sched.spawn" -e "| rig.sched.Record(" <<<"$out" | grep -v -F -e "| __rig_main.spin |" -e "| __rig_main.deep |" | head -1)
 [[ -n $map_row ]] || fail "no par.map task in the census: $out"
 bounded "a par.map task, through its FnRef's thunks, is bounded" "$map_row"
-map_entry=$(awk -F' [|] ' '{print $1}' <<<"$map_row" | tr -d '| ')
+map_entry=$(awk -F' [|] ' '{print $1}' <<<"$map_row" | sed 's/^| *//; s/ *$//')
 deep_row=$(row "$out" "__rig_main.deep")
 expect_has "$deep_row" "| unknown: " "a recursive task stays unknown"
 grep -qE '\| [0-9,]+ B \|' <<<"$deep_row" && fail "a recursive task has a bound: $deep_row"
