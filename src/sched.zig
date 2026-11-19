@@ -6490,7 +6490,11 @@ inline fn startIn(comptime Full: type, full: *Full, local: bool, comptime fork: 
     if (@hasField(Extra, "canceled")) full.job.header.cancel = &full.extra.canceled;
     if (@hasDecl(Extra, "made")) full.extra.made();
     if (local) full.job.header.fiber.home = pinHereIn();
-    wakeQueued(&full.job.header.fiber, !fork);
+    // A task that is not a fork wakes through `wakeIn` called, not pasted
+    // in: inlined, the wake made `spawn` five times its size and left the
+    // ring's push and `notifyNew` as calls of their own (on pup's x86 a
+    // spawn took 5% more instructions).
+    if (fork) wakeQueued(&full.job.header.fiber, false) else @call(.never_inline, wakeIn, .{&full.job.header.fiber});
     return .{ .job = &full.job, .extra = &full.extra };
 }
 
