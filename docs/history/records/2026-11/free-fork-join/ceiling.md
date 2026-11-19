@@ -342,7 +342,7 @@ is not what decides it; about 75% sure.
 
 `pup-job.sh` with Rig at main 2dc9a46f5 (before the early start and the
 first-segment fault), the monitor arms left out, quiet honoured; the
-data is on pup in `/zfs/trig-pup/ffj-ceil/run2/` (`board1.txt`,
+tables and samples are in [raw/pup/](raw/pup/) (`board1.txt`,
 `board3.txt`, and the JSON beside them). Medians, each arm's time over
 the ceiling's, paired by round:
 
