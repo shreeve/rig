@@ -6473,12 +6473,12 @@ pub const preempt_section = sched.preempt_section;
 /// crosses a 4 KiB boundary (docs/history/records/2026-11/code-align)
 /// changes only when the program's own code does. Zig's linker keeps a
 /// section's alignment from its members, not from its header. Never run;
-/// exported inside its own object only, so each unit of a split build
-/// holds its own.
+/// a weak symbol, so the units of a split build, which each hold one,
+/// keep one.
 fn programSectionAnchor() align(16384) linksection(preempt_section) callconv(.c) void {}
 
 comptime {
-    if (preempt and builtin.object_format == .macho) @export(&programSectionAnchor, .{ .name = "__rig_program_section_anchor", .linkage = .internal });
+    if (preempt and builtin.object_format == .macho) @export(&programSectionAnchor, .{ .name = "__rig_program_section_anchor", .linkage = .weak });
 }
 
 /// `f(args...)`, the program's own `main` or a task's function, called
