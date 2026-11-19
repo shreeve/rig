@@ -3337,3 +3337,98 @@ bomb "task inline deadlock names the task", "deadlock: these calls wait on each 
   h = *Actor(Hub(n: 3))
   print("before")
   print((!h).run(+h))
+
+test "task deque forks joined out of order on one worker", seeds: 20, timeout: 30, '''
+  6 30
+'''
+  # Forks wait on their worker's deque (`sched.Forks`). A maker that joins
+  # its older fork first finds it not the newest: it parks, and its
+  # worker's loop runs the forks from the deque, newest first, each on a
+  # stack of its own, which ends the wait.
+  use std.task
+
+  fun double(n: Int) -> Int
+    n * 2
+
+  fun maker(n: Int) -> Int
+    a = double(n)&
+    b = double(n * 4)&
+    x = >a
+    x + >b
+
+  task.workers(1)
+  print(maker(1) - 4, maker(3))
+
+test "task deque fork a maker waits for on a channel, on one worker", seeds: 20, timeout: 30, "42"
+  # The maker waits on a channel its fork sends on before it joins the
+  # fork: it parks, and its worker's loop takes the fork from the deque.
+  use std.task
+
+  fun answer(ch: *Chan[Int]) -> Int!
+    !ch.send(42)!
+    1
+
+  fun maker() -> Int!
+    ch = *Chan[Int](1)
+    t = answer(+ch)&
+    got = (!ch).recv()! ?? 0
+    got + (>t)! - 1
+
+  task.workers(1)
+  print(maker()!)
+
+test "task deque fork whose maker spins on a flag it sets, on one worker", timeout: 60, "1 true"
+  # The maker spins on a flag its fork sets, with no waiting point: the
+  # fork waits on the deque for the slice, then the maker yields to it,
+  # or is stopped and queued behind it.
+  use std.task
+
+  fun setter(c: *Cell[Int]) -> Int
+    !c.add(1)
+    1
+
+  task.workers(1)
+  c = *Cell(0)
+  t = setter(+c)&
+  spins = 0
+  while c.get() == 0
+    spins += 1
+  print(>t, spins > 0)
+
+test "task deque forks stolen by idle workers, and their panics passed to the maker", timeout: 60, '''
+  2147450880 2147450880
+  0 -9
+  1 -9
+  2 -9
+'''
+  # On four workers the idle ones steal forks from the busy one's deque,
+  # the oldest first; the stolen fork's waiter waits for its end. A fork
+  # that panics, stolen or run inline, passes the panic up to the isolate.
+  use std.task
+
+  fun psum(xs: ?[]Int) -> Int
+    return xs.sum() if xs.len <= 64
+    mid = xs.len / 2
+    right = xs[mid..]
+    b = psum(?right)&
+    a = psum(xs[..mid])
+    a + >b
+
+  fun pick(xs: [3]Int, i: Int) -> Int
+    xs[i]
+
+  fun bad(n: Int, i: Int) -> Int
+    return pick([1, 2, 3], i) if n == 0
+    b = bad(n - 1, i)&
+    a = bad(n - 1, 0)
+    a + >b
+
+  task.workers(4)
+  xs: List[Int] = List()
+  for i in 0..65536
+    !xs.push(i)
+  whole = ?xs[..]
+  t = psum(?whole)&
+  print(psum(whole), >t)
+  for k in 0..3
+    print(k, task.isolate(|+k| bad(8, 9 + k)) catch -9)

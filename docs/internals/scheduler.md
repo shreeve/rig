@@ -371,6 +371,36 @@ worker after.
   also takes the oldest task left in another's slots 3 µs
   (`sched.stealNext`), as Go takes a `runnext`. A global queue takes overflow and work from
   outside the workers.
+- **Forks** go on a deque of their worker's own, not the slots or the
+  ring (`sched.Forks`): a Chase-Lev deque of 256, as Rayon's. A fork is
+  a task whose record lies in its maker's frame (the storage fact
+  `task_record`); a local one, which no thief may take, and one made as
+  the deque is full take the slots instead. The maker pushes it with a
+  release store and no fence, takes it back at its join with one
+  (`popIf`, below), and idle workers steal the oldest, one at a time, by
+  a compare-and-swap, after every ring (`sched.search`), so a
+  fork-join's thieves take its largest subtrees. A worker's loop takes
+  its own newest forks, those whose maker parked or was stopped, after
+  its slots and before its pinned queue, ring and the global queue
+  (`sched.next`), so a maker that yields to its forks, or is stopped for
+  them, runs behind them. A push onto a deque that held forks wakes a
+  sleeping worker when none searches, by plain loads (`forkWake`), as
+  Rayon's: a race may lose the wake, which costs parallelism for a
+  while and never progress, since the maker always reaches its join, a
+  drop, or a park. The sleeper's last look and the last searcher's read
+  every deque (`hasWork`, `workPending`), a switch that leaves forks
+  waiting wakes one (`spread`), and the monitor kicks a sleeper for
+  forks it saw at two looks while a worker slept or searched; a yield
+  check wakes one too (`leftToIdle`). The orders are those
+  [formal/Models/Deque.lean](../../formal/Models/Deque.lean) checks on
+  arm64 and x86, each beside a variant that fails: the slot's store
+  then `bottom`'s release store at the push; `bottom`'s seq_cst store
+  then `top`'s seq_cst load at a take, the one full fence of an unstolen
+  fork and its join (`stlr` then `ldar` on arm64, an `xchg` on x86); the
+  last fork settled by a compare-and-swap of `top`; and a thief's loads
+  of `top`, then `bottom`, then the slot's pointer, never read through
+  before its claim wins. test/cli/fork_race.sh races them on real
+  workers.
 - **Cache lines.** Each worker begins a cache line and fills whole
   lines, so no line holds two workers' fields, and the fields each
   writes at every switch never slow another's (`sched.Worker`). The
@@ -396,7 +426,8 @@ worker after.
   checks that no fiber is then taken twice, and that without the flag
   one is.
 - **Inline.** Before a handoff, a waiter whose task has not started and
-  is next on its worker runs it on its own stack and fiber when the room
+  is next on its worker (the newest on its deque of forks, in one of its
+  slots, or the newest in its ring) runs it on its own stack and fiber when the room
   left there is at least what the task's own stack would give it
   (`sched.runHere`, `roomFor`): a dense stack's for a task that fits one
   (`Fiber.dense`), else a whole task's stack, `rt.task_stack_promise`,
@@ -405,8 +436,8 @@ worker after.
   from the wait to the task's own. No stack, no switch, and no fiber of
   its own: the task's state is swapped into the waiter's fiber, all but
   its stack guard (`Inline`, in `runHere`'s frame), and the monitor counts
-  the run as it counts a handoff: one taken back from the ring as a fiber
-  started, one from a slot on the waiter's count. A wait in the task is the fiber's,
+  the run as it counts a handoff: one taken back from the deque or the
+  ring as a fiber started, one from a slot on the waiter's count. A wait in the task is the fiber's,
   which whatever ends it wakes; a deadlock's walk sees the innermost
   wait; a signal may stop the task's code, and the fiber may resume on
   another worker unless pinned, so `runHere` reads its worker again after
@@ -435,7 +466,7 @@ worker after.
   no one only to find nothing; workers with no
   work sleep in their poller (below). A worker about to sleep lists
   itself as asleep, then, when none searches, looks once more at the
-  global queue and every ring; one that finds work there counts itself
+  global queue, every ring and every deque of forks; one that finds work there counts itself
   as searching again, so taking it wakes another for the rest
   (`sched.sleep`). formal/Models/Sleep.lean checks these handshakes
   with `sched.spread` and the pollers' batches: no worker sleeps while
@@ -734,11 +765,13 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
   (`watchSlices`). A fork is a task that has not started and that the
   compiler found stays in its maker's frame and is waited for there:
   bound by `t = f(x)&` and named after only by `>t`, `<t.cancel()`, or
-  `?t` (the storage fact `task_record`, `Fiber.fork`). Each fork is
-  counted as its maker queues it and as a worker starts it
-  (`Worker.queued_forks`, `Worker.started_forks`), and the monitor
-  counts the fibers waiting in every worker's "run next" slots and
-  ring: more there than forks is a fiber that is not a fork waiting,
+  `?t` (the storage fact `task_record`, `Fiber.fork`). Forks wait on
+  their worker's deque (`sched.Forks`), which the monitor reads apart.
+  One that takes the slots instead, a local fork or one made as the
+  deque is full, is counted as its maker queues it and as a worker
+  starts it (`Worker.queued_forks`, `Worker.started_forks`), and the
+  monitor counts the fibers waiting in every worker's "run next" slots
+  and ring: more there than forks is a fiber that is not a fork waiting,
   any other task made (one added to a `Tasks` set, returned, stored,
   or moved, and std's connections), one woken from a wait or by an
   event, one that yielded or was stopped, an actor's runner. Only forks
@@ -751,11 +784,12 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
   waiter's park it replaces did) while a fiber that is not a fork
   waited at both, or a worker slept or searched at both, or whose timer
   or poller is due, gets SIGURG, and again at each look until it stops.
-  So forks count as waiting while a worker is idle: one could take
-  them, and the stop that moves the maker to the global queue spreads
-  the fork-join over the idle workers, as at the start of psum's pass
-  on twelve workers, where waking one idle worker a look instead left
-  the pass 37-44% slower on pup. Only while every worker is busy are
+  Forks on a deque at two looks while a worker slept or searched at
+  both get a sleeper kicked to steal them (`notify`), with no signal:
+  the maker runs on, and each thief's own pushes wake the next, so the
+  fork-join spreads over the idle workers as Rayon's does. While a
+  deque holds forks and a worker sleeps or searches, the monitor looks
+  every 50 µs. Only while every worker is busy are
   forks left to the slice: a fork-join on one worker, or one that keeps
   every worker busy, runs on unstopped, and on one worker the monitor
   looks once a millisecond rather than every 50 µs
@@ -769,8 +803,9 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
   A build with yield checks keeps the same rule: a check yields to its
   worker's own queues only when a fiber that is not a fork waits in any
   worker's, as the same counts tell, or pinned or global work waits;
-  forks alone it yields to once they have waited a slice
-  (`sched.ownWorkWaits`).
+  forks alone, on its deque or counted in its slots, it leaves to an
+  idle worker, which it wakes, and yields to them once they have waited
+  a slice (`sched.ownWorkWaits`).
   After four in a row that it declined, each signal waits twice as long
   as the one before, up to 1 ms (`resignalAfter`): a worker blocked in a
   system call, as a write to a full pipe blocks, took one every 50 µs,
