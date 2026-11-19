@@ -1,0 +1,95 @@
+# Pieces of fork.rig's qsort alone, one thread, on its input. Each piece
+# REPS times; prints `NAME ns check` per rep.
+use std.sort
+use std.time
+
+fun input(m: Int) -> List[Int]
+  ys: List[Int] = List(capacity: m)
+  for i in 0..m
+    !ys.push((i *% 6364136223846793005 +% 1442695040888963407) >> 20)
+  ys
+
+# The partition as fork.rig writes it: three fresh Lists.
+fun part(xs: ?[]Int) -> Int
+  pivot = xs[xs.len / 2]
+  lo: List[Int] = List(capacity: xs.len / 2)
+  mid: List[Int] = List()
+  hi: List[Int] = List(capacity: xs.len / 2)
+  for x in xs
+    if x < pivot
+      !lo.push(x)
+    else if x > pivot
+      !hi.push(x)
+    else
+      !mid.push(x)
+  lo.len * 3 + hi.len + mid.len
+
+# The partition into Lists made and touched before the clock.
+fun part_warm(xs: ?[]Int, lo: !List[Int], mid: !List[Int], hi: !List[Int]) -> Int
+  pivot = xs[xs.len / 2]
+  for x in xs
+    if x < pivot
+      !lo.push(x)
+    else if x > pivot
+      !hi.push(x)
+    else
+      !mid.push(x)
+  lo.len * 3 + hi.len + mid.len
+
+sub main()
+  m = 1 << 22
+  src = input(m)
+  reps = 7
+  whole = ?src[..]
+  for _ in 0..reps
+    t = time.now()
+    c = part(whole)
+    print("part", t.elapsed(), c)
+  lo: List[Int] = List(capacity: m)
+  mid: List[Int] = List(capacity: m)
+  hi: List[Int] = List(capacity: m)
+  for _ in 0..reps
+    !lo.clear()
+    !mid.clear()
+    !hi.clear()
+    t = time.now()
+    c = part_warm(whole, !lo, !mid, !hi)
+    print("partwarm", t.elapsed(), c)
+  # extend: a List of half the input, full, grown by the other half.
+  h = m / 2
+  for _ in 0..reps
+    a: List[Int] = List(capacity: h)
+    !a.extend(?src[..h])
+    t = time.now()
+    !a.extend(?src[h..])
+    print("extend", t.elapsed(), a.len)
+  # extend into room already there.
+  for _ in 0..reps
+    a: List[Int] = List(capacity: m)
+    !a.extend(?src[..h])
+    t = time.now()
+    !a.extend(?src[h..])
+    print("extendroom", t.elapsed(), a.len)
+  # allocate and fill: List(capacity:) of m/2 then pushes.
+  for _ in 0..reps
+    t = time.now()
+    a: List[Int] = List(capacity: h)
+    for x in ?src[..h]
+      !a.push(x)
+    print("fresh", t.elapsed(), a.len)
+  # leaves: 512 leaves of 8,192, each copied then sorted.
+  for _ in 0..reps
+    s = 0
+    t = time.now()
+    for k in 0..512
+      new leaf = List(?src[k * 8192..(k + 1) * 8192])
+      sort.sort(!leaf[..])
+      s +%= leaf[100]
+    print("leaves", t.elapsed(), s)
+  for _ in 0..reps
+    s = 0
+    t = time.now()
+    for k in 0..512
+      new leaf = List(?src[k * 8192..(k + 1) * 8192])
+      s +%= leaf[100]
+    print("leafcopy", t.elapsed(), s)

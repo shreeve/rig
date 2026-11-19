@@ -1,0 +1,53 @@
+# fork.rig's qsort with the steps of its top three levels stamped
+# (time.since_start, ns): partition end, own half end, extend(mid) end,
+# wait end, extend(high) end. Prints `ph DEPTH PATH start part own ext1 wait ext2`.
+use std.sort
+use std.task
+use std.time
+
+GRAIN = 8192
+
+fun qsort(xs: List[Int], d: Int, path: Int) -> List[Int]
+  if xs.len <= GRAIN
+    new ys = <xs
+    sort.sort(!ys[..])
+    return ys
+  t0 = time.since_start()
+  pivot = xs[xs.len / 2]
+  lo: List[Int] = List(capacity: xs.len / 2)
+  mid: List[Int] = List()
+  hi: List[Int] = List(capacity: xs.len / 2)
+  for x in xs
+    if x < pivot
+      !lo.push(x)
+    else if x > pivot
+      !hi.push(x)
+    else
+      !mid.push(x)
+  n = xs.len
+  <xs
+  t1 = time.since_start()
+  b = qsort(<hi, d + 1, path * 2 + 1)&
+  out = qsort(<lo, d + 1, path * 2)
+  t2 = time.since_start()
+  !out.extend(?mid[..])
+  t3 = time.since_start()
+  high = >b
+  t4 = time.since_start()
+  !out.extend(?high[..])
+  t5 = time.since_start()
+  print("ph", d, path, n, t0, t1, t2, t3, t4, t5) if d < 3
+  out
+
+sub main()
+  m = 1 << 22
+  ys: List[Int] = List(capacity: m)
+  for i in 0..m
+    !ys.push((i *% 6364136223846793005 +% 1442695040888963407) >> 20)
+  t2 = time.now()
+  zs = qsort(<ys, 0, 0)
+  e = t2.elapsed()
+  ok = 1
+  for i in 1..zs.len
+    ok = 0 if zs[i - 1] > zs[i]
+  print("qsort", e, ok * zs.len)
