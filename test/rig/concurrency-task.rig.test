@@ -2850,7 +2850,8 @@ test "task deep psum", seeds: 20, '''
   xs: List[Int] = List()
   for i in 0..65536
     !xs.push(i)
-  print(psum(?xs[..]))
+  whole = ?xs[..]
+  print(psum(whole))
 
 test "task deep psum on eight workers, many rounds", '''
   42949017600
@@ -2869,7 +2870,8 @@ test "task deep psum on eight workers, many rounds", '''
   xs: List[Int] = List()
   for i in 0..65536
     !xs.push(i)
+  whole = ?xs[..]
   total = 0
   for _ in 0..20
-    total += psum(?xs[..])
+    total += psum(whole)
   print(total)

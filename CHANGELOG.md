@@ -833,6 +833,16 @@ arms.
 
 ### Runtime
 
+- **A thief and a ring's owner never both take one fiber:** a thief
+  copied half a ring and claimed it by moving the head, a claim that
+  checks only the head, while the owner taking back its newest
+  (`>t`, since the ring join) took without one when more than one was
+  left; an owner that took back two while a thief stalled between its
+  copy and its claim ran a fiber the thief also ran, and left the head
+  past the tail. A thief now holds the ring's `stealing` flag from
+  before it reads the tail until after its claim, and the owner leaves
+  the fiber while the flag is held. psum, qsort and bench/tasks are
+  level on pup.
 - **A fork-join takes back its own tasks from its ring:** `>t` on a
   task that has not started and is the newest in its worker's ring (a
   fork-join's halves made past the four run-next slots, waited for in
