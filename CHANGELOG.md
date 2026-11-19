@@ -858,6 +858,11 @@ arms.
   fork's last writes into it; a sanitized seeded run of the new isolate
   case faulted on 18 of 20 seeds that way (test/cli/frame_record.sh,
   concurrency-isolate).
+  On the Mac (fork-order's fork3.rig, paired medians over 20 rounds),
+  a join with no work costs 55 ns at one worker, against 62 with the
+  monitor's change alone and 68 before it (`nil`, 11% faster); psum and
+  qsort, and bench/tasks, actors and net, are level, but for
+  bench/tasks' chain, 12% faster.
 - **The preemption monitor leaves forks to the slice:** a fork, a task
   bound by `t = f(x)&` that stays in its maker's frame and is waited for
   there (`task_record`), no longer counts for the monitor's two looks
