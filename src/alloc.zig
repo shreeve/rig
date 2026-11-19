@@ -3757,8 +3757,11 @@ test "on Linux a new segment is aligned for huge pages and asks for them while 2
     try std.testing.expectEqual(@as(usize, 0), s % huge_page);
     try std.testing.expect(try advisedHugeForTest(s));
     try std.testing.expect(try advisedHugeForTest(s + segment_size - 1));
+    // A heap that has taken something already (here half a segment, in
+    // large blocks) and does not fault in ahead: its first segment asks
+    // for huge pages whole, its first 2 MiB included.
     var later = testHeap();
-    later.taken = segment_size;
+    later.taken = segment_size / 2;
     const r = later.newPage(0).?;
     try std.testing.expect(!faultsAhead(&later));
     try std.testing.expect(try advisedHugeForTest(r));
