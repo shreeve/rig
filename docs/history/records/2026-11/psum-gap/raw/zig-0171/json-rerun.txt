@@ -1,0 +1,20 @@
+slot 608 (ab) open until 23:15:26; free 2 MiB blocks: 2154; paused: 2559054 2576815
+rc=0
+|---|---:|---:|---:|---:|
+| twitter | 631514 | 3665 | 3634 | 3669 |
+| twitterescaped | 562408 | 2941 | 2971 | 2940 |
+| canada | 2251051 | 1425 | 1390 | 1427 |
+| citm_catalog | 1727204 | 4029 | 4014 | 4028 |
+| gsoc-2018 | 3327831 | 6706 | 6572 | 6711 |
+| github_events | 65132 | 4399 | 4520 | 4393 |
+| geomean | | 3496 | 3485 | 3496 |
+
+ranges (min-max MB/s):
+twitter rig-safe 3596-3726; rig-z 3574-3702; rig-aa 3577-3713
+twitterescaped rig-safe 2902-2993; rig-z 2864-3001; rig-aa 2877-2975
+canada rig-safe 1372-1467; rig-z 1368-1415; rig-aa 1391-1466
+citm_catalog rig-safe 3862-4105; rig-z 3948-4120; rig-aa 3868-4111
+gsoc-2018 rig-safe 6562-6816; rig-z 6394-6643; rig-aa 6562-6807
+github_events rig-safe 4284-4494; rig-z 4412-4624; rig-aa 4265-4466
+slot 608 closed; resumed: 2559054 2576815
+QUIET: NOT honoured in slot 608: 5 samples of other work on cores 12-19; first:       1  pid 2579681 cpu 16 114% age 0s ./.zig-cache/o/3e71269e9c0f0a6fc32d286d6f9612a5/test --cache-dir=./.zig-cache --seed=0xc8bc7c08 --listen=-;      1  pid 2579613 cpu 12 123% age 0s ./.zig-cache/o/3e71269e9c0f0a6fc32d286d6f9612a5/test --cache-dir=./.zig-cache --seed=0xc8bc7c08 --listen=-;      

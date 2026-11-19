@@ -1,0 +1,4 @@
+m13          runs 3  cycles/req 66566 66676 66976  median 66676  ins/req 61059  ctxsw/req 0.420  cores 2.33
+z71          runs 3  cycles/req 67268 67136 66541  median 67136  ins/req 61298  ctxsw/req 0.436  cores 2.33
+aa           runs 3  cycles/req 66752 66843 66473  median 66752  ins/req 61076  ctxsw/req 0.422  cores 2.33
+hyper        runs 3  cycles/req 69380 69096 69577  median 69380  ins/req 62171  ctxsw/req 0.574  cores 2.49
