@@ -4251,9 +4251,10 @@ pub const SemContext = struct {
     /// The module names `os.memory`: the program's root declares
     /// `__rig_memory`, so its allocator counts what it hands out.
     reads_memory: bool = false,
-    /// The module names `task.workers`: the program sets how many workers
-    /// run, so they start as it first does, not as `main` starts (the
-    /// program's root then declares no `__rig_start_early`).
+    /// The module names `task.workers`: the program may set how many
+    /// workers run, and start none, so they start at its first task, not
+    /// as `main` starts (the program's root then declares no
+    /// `__rig_start_early`).
     sets_workers: bool = false,
     simd_sym_id: SymbolId = symbol_invalid,
     /// `Table[T, n]` and `Slot[n]`: a table of `n` slots, and a number
@@ -6509,8 +6510,8 @@ pub fn stdRenamed(foreign: *const SemContext, owner: []const u8, member: []const
 /// in a program that names one, so no other program pays for it, and the
 /// one that says when the workers start. `time.since_start` needs the
 /// clock read as the program starts, and `os.memory` an allocator that
-/// counts; a program that names `task.workers` sets how many workers run,
-/// so they wait for it. Every path to another module's declaration comes
+/// counts; a program that names `task.workers` may set how many workers
+/// run, so they wait for its first task. Every path to another module's declaration comes
 /// here (`Checker.foreignSymbol`); the runtime stops at compile time a
 /// program that reaches either of the first two without its flag.
 pub fn noteRuntimeRead(ctx: *SemContext, foreign: *const SemContext, name: []const u8) void {

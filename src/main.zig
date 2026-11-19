@@ -2150,7 +2150,8 @@ fn makesActors(graph: *const modules.ModuleGraph) bool {
 /// What the runtime keeps only for a program that reads it
 /// (`sema.noteRuntimeRead`): the clock's reading as the program starts,
 /// and the allocator's counts; and whether the program names
-/// `task.workers`, so its workers start as it sets their number.
+/// `task.workers`, so its workers start at its first task, not as `main`
+/// starts.
 const Reads = struct {
     since_start: bool = false,
     memory: bool = false,

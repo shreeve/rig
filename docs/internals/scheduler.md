@@ -8,11 +8,11 @@ before its first task, or else `RIG_WORKERS` of them when that is set;
 a program that makes none starts no workers. The workers start as
 `main` starts (`rt.start`, `startAhead`; the program's root declares
 `__rig_start_early`, from typecheck's note that it makes a task and
-never names `task.workers`), or, in a program that names
-`task.workers`, as it first calls it (`askWorkers`), since only then
-is their number known; and at the first task in a program of a batch,
-whose one runtime serves programs that make none, and in one that
-names `task.workers` and makes a task before calling it. Started ahead,
+never names `task.workers`); else at the first task: in a program that
+names `task.workers`, which may set their number again before its
+first task, or make none (Trig, which asks for its workers as it reads
+its command line, makes none at one checker), and in a program of a
+batch, whose one runtime serves programs that make none. Started ahead,
 they sleep until the first task, which then spreads to workers that run
 rather than to threads still starting: a process's first parallel pass,
 psum over 256 MB on the Mac's 10 workers, takes 2.25 ms where a start at

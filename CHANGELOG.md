@@ -43,12 +43,6 @@ comprehension, `x => ...`, `lambda`, `if let`, `o or 0` for an
 optional, `range(3)`, and `enumerate(xs)` are rejected with the Rig
 spelling, where each got a parse error or an unbound name.
 
-**The first `task.workers(n)` starts the workers**, where it only
-recorded `n` until the first task: a second call before any task can
-then only raise their number, and gives false for fewer.
-`task.workers(8)` then `task.workers(4)` runs 8 workers, where 0.3.0
-ran 4; call it once, with the number wanted.
-
 **`swap` exchanges no Cell, and `!s` of a `*{A}` lends only the
 handle** (both accepted by 0.3.0). `swap(!a, !b)` of two `Cell`s, a
 `Cell` reached through a `!Cell[T]`, a `*Cell[T]` that may not be
@@ -860,9 +854,9 @@ arms.
   the two orders alike, so the Mac is level.
 - **The workers start as `main` starts:** a program that makes a task
   and never names `task.workers` starts its workers as `main` starts
-  (its root declares `__rig_start_early`), and one that names it starts
-  them at its first `task.workers(n)`, where they started at the first
-  task. They sleep until that task, which then spreads to workers that
+  (its root declares `__rig_start_early`), where they started at the
+  first task; one that names `task.workers` starts them at its first
+  task, as before. They sleep until that task, which then spreads to workers that
   run rather than to threads still starting. A process's first parallel
   pass is faster for it: on the Mac (the fork-join board's psum, one
   pass a process, paired medians over 38 rounds) 5% faster at 10 workers

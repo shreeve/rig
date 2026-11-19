@@ -6451,8 +6451,8 @@ pub const scheduled = makes_tasks;
 /// A program that makes tasks and never names `task.workers` declares
 /// `__rig_start_early` in its root: its workers start as `main` starts
 /// (`start`, `sched.startAhead`), so its first tasks find them running. One that
-/// names `task.workers` starts them as it first calls it, or at its first
-/// task; a batch's programs start theirs at their first task.
+/// names `task.workers` starts them at its first task, as a batch's
+/// programs do.
 pub const start_early = scheduled and @hasDecl(root, "__rig_start_early") and root.__rig_start_early;
 
 /// Built to be preempted, a program that makes tasks declares

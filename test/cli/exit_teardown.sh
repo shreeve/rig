@@ -132,8 +132,8 @@ fi
 # starting the others (`sched.startRest`): the workers it has not started
 # count as stopped, so the teardown never waits out its 2 ms for threads
 # yet to start. It may still end plainly while a task runs. The program
-# sets its workers just before its first task, so they start there and
-# not as `main` starts (`sched.askWorkers`).
+# names `task.workers`, so its workers start at its first task, not as
+# `main` starts.
 {
     echo "use std.task"
     awk '/ts = Tasks\[Int!\]\(\)/ { print "  _ = task.workers(task.worker_count())" } !/time.sleep\(ms: 5\)!/' parked.rig

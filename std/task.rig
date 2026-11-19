@@ -19,17 +19,18 @@ extern zig "task.zig"
   pub sub check()!Stop
 
   # Run tasks on `n` workers (at most 64), in place of one per core or
-  # `RIG_WORKERS`: a program sets it from its own arguments, say. The
-  # first call before any task starts the workers, `n` of them, so the
-  # program's first tasks find them running; once they have started it
-  # can only raise the number, and gives false for fewer than run. It
-  # gives whether it took effect. A deterministic run (`rig test`) runs
-  # on one thread whatever it asks.
+  # `RIG_WORKERS`: a program sets it from its own arguments, say. Before
+  # the program makes its first task, which starts the workers, it sets
+  # how many start; after, it can only raise the number, and gives
+  # false for fewer than run. It gives whether it took effect. A
+  # deterministic run (`rig test`) runs on one thread whatever it asks.
+  # A program that names `workers` starts its workers at its first task,
+  # not as `main` starts.
   pub fun workers(n: Int) -> Bool
 
   # The number of workers tasks run on: one per core, `RIG_WORKERS`, or
-  # what `workers(n)` set, before they start or after. One in a
-  # deterministic run, and in a program that makes no task.
+  # what `workers(n)` set, before the program's first task starts them or
+  # after. One in a deterministic run, and in a program that makes no task.
   pub fun worker_count() -> Int
 
   # How many fast physical cores the program may run on, at least 1:

@@ -3880,8 +3880,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     };
     // Worker 0 runs `main` alone until the workers start (`startWorkers`):
     // as `main` starts, in a program built to start them early
-    // (`startAhead`); else as it sets their number (`askWorkers`) or
-    // makes its first task.
+    // (`startAhead`); else as it makes its first task.
     const cap = @max(max_workers, workers_override.* orelse 0);
     // Each worker is written as it starts (`initWorker`), so the pages of
     // those a program never starts are never touched: taken raw, as a
@@ -4123,18 +4122,18 @@ fn waitStarting() void {
 var workers_asked_var: ?usize = null;
 const workers_asked = split.cell(&workers_asked_var, "sched.workers_asked");
 
-/// `task.workers(n)`: run tasks on `n` workers, at most `max_workers`.
-/// The first call before any task starts them, `n` of them, so the
-/// program's first tasks find them running; once they have started, `n`
-/// raises their number, and fewer than run is refused. It gives whether
-/// it took effect. A deterministic run keeps to one thread. Never inlined
-/// into the program's own code (`mustNotBeInCode`, through
+/// `task.workers(n)`: run tasks on `n` workers, at most `max_workers`,
+/// from when they start, as the program makes its first task, or from
+/// now if they have started and `n` is no fewer than run; whether it took
+/// effect. It starts no worker: a program that names it starts them at
+/// its first task, since it may set the number again before then, and
+/// may make no task at all. A deterministic run keeps to one thread.
+/// Never inlined into the program's own code (`mustNotBeInCode`, through
 /// `onWorkerStack`).
 pub noinline fn askWorkers(n: usize) bool {
     const want = @max(1, @min(n, max_workers));
     if (!started.*) {
         workers_asked.* = want;
-        if (!deterministic.*) startWorkers();
         return true;
     }
     if (deterministic.*) return false;
@@ -7398,23 +7397,30 @@ test "a program built to start early that ends at once starts no more workers th
     try std.testing.expectEqual(@as(u32, 0), test_started);
 }
 
-test "the first askWorkers before any task starts that many workers, and later ones only raise them" {
+test "askWorkers before any task starts no worker, and sets how many the first task starts" {
     const Run = struct {
-        var before = true;
+        const Unit = struct {};
         var first = false;
-        var after = false;
+        var again = false;
+        var after_ask = true;
         var len: usize = 0;
         var fewer = true;
         var more = false;
         var grown: usize = 0;
+        fn one(_: *Unit) u64 {
+            return 1;
+        }
         fn main(_: *anyopaque) callconv(.c) void {
-            before = started.*;
-            first = askWorkers(3);
-            after = started.*;
+            first = askWorkers(5);
+            again = askWorkers(3);
+            after_ask = started.*;
+            const j = spawn(u64, Unit, one, .{}, .{}, false, false).job;
+            _ = j.join();
+            j.free();
             waitStarting();
             len = workersNow().len;
             fewer = askWorkers(2);
-            more = askWorkers(5);
+            more = askWorkers(4);
             grown = workersNow().len;
         }
     };
@@ -7425,13 +7431,13 @@ test "the first askWorkers before any task starts that many workers, and later o
     var dummy: u8 = 0;
     runMain(&dummy, Run.main, s.top(), .{});
     workers_asked.* = null;
-    try std.testing.expect(!Run.before);
     try std.testing.expect(Run.first);
-    try std.testing.expect(Run.after);
+    try std.testing.expect(Run.again);
+    try std.testing.expect(!Run.after_ask);
     try std.testing.expectEqual(@as(usize, 3), Run.len);
     try std.testing.expect(!Run.fewer);
     try std.testing.expect(Run.more);
-    try std.testing.expectEqual(@as(usize, 5), Run.grown);
+    try std.testing.expectEqual(@as(usize, 4), Run.grown);
 }
 
 test "a dense stack's guard faults" {
