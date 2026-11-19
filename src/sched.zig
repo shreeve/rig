@@ -6270,6 +6270,7 @@ pub const Inline = struct {
 /// where the seed picks every fiber.
 fn runHere(h: *Header, cancel: ?*const std.atomic.Value(bool)) bool {
     if (deterministic.*) return false;
+    if (builtin.is_test and test_no_inline) return false;
     if (cancel) |c| if (c.load(.monotonic)) return false;
     const w = me() orelse return false;
     const f = w.current orelse return false;
@@ -6293,6 +6294,11 @@ fn runHere(h: *Header, cancel: ?*const std.atomic.Value(bool)) bool {
     me().?.inlined += 1;
     return true;
 }
+
+/// Test only: set, a wait runs nothing inline, so a test reaches the
+/// handoff behind it. Never compiled outside a test, so never in a split
+/// build, and a plain variable rather than a cell.
+var test_no_inline = false;
 
 /// The task of the innermost level `in` of `f`'s inline runs has ended,
 /// or panicked: give the waiter back what it had.
@@ -8519,6 +8525,9 @@ test "a cancel that lands as a waiter is about to hand its worker to a task stil
     };
     workers_override.* = 2;
     defer workers_override.* = null;
+    // The handoff's own race: the reader is not run inline.
+    test_no_inline = true;
+    defer test_no_inline = false;
     const s = takeStack();
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
