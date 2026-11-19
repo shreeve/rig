@@ -1,0 +1,29 @@
+--- a/src/emit.zig
++++ b/src/emit.zig
+@@ -1996,6 +1996,7 @@
+         }
+         if (!is_main) if (self.facts.splitUnitOf(name_node)) |unit| try self.emitCut(name, unit, args.written());
+         try self.w.writeAll(") ");
++        if (!inlined) try probeAlign(self.w);
+         if (self.code_section and !inlined) try self.w.writeAll("linksection(rig.preempt_section) ");
+         if (main_fails) {
+             // `anyerror!void`, `anyerror!i64`: whether or not `-> Int!` says so.
+@@ -10834,6 +10835,7 @@
+             try self.w.print(", {s}: rig.ErrSlot", .{self.fun.out_name});
+         }
+         try self.w.writeAll(") ");
++        try probeAlign(self.w);
+         if (self.code_section) try self.w.writeAll("linksection(rig.preempt_section) ");
+         if (ret) |r| try self.emitTypeTy(r) else try self.w.writeAll("void");
+         try self.w.writeAll(" ");
+@@ -12225,3 +12227,10 @@
+     while (types.get(t) == .optional) : (n += 1) t = types.get(t).optional;
+     return n;
+ }
++
++/// Probe (code-align round): `align(N) ` on every emitted function when
++/// RIG_PROBE_ALIGN=N is set at emit time.
++fn probeAlign(w: anytype) !void {
++    const v = std.c.getenv("RIG_PROBE_ALIGN") orelse return;
++    try w.print("align({s}) ", .{std.mem.span(v)});
++}

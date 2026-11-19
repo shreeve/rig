@@ -1,0 +1,32 @@
+tools/mac-claim: waiting 1 min for the Mac to go quiet (194% of a core in use, under 150% wanted). Busiest:
+  PID 58704 at 99.1%: zig build-exe -j2 -Osafe -fomit-frame-pointer -fno-stack-protector --cache-dir /var/folders/bf/z51x2wd97wj4790
+  PID 407 at 35.5%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+  PID 1040 at 10.8%: /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Render
+tools/mac-claim: waiting 3 min for the Mac to go quiet (292% of a core in use, under 150% wanted). Busiest:
+  PID 62696 at 97.6%: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-frontend -fronten
+  PID 1017 at 65.5%: /Applications/Claude.app/Contents/MacOS/Claude
+  PID 407 at 36.0%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+tools/mac-claim: waiting 5 min for the Mac to go quiet (82% of a core in use, under 150% wanted). Busiest:
+  PID 407 at 25.7%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+  PID 1023 at 8.9%: /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=gpu-process
+  PID 1040 at 7.9%: /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Render
+tools/mac-claim: waiting 7 min for the Mac to go quiet (105% of a core in use, under 150% wanted). Busiest:
+  PID 407 at 45.8%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+  PID 1023 at 14.8%: /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=gpu-process
+  PID 1300 at 10.7%: /Users/shreeve/Library/Application Support/Claude/claude-code/2.1.325/485fdac4332e/claude.app/Contents/MacOS/c
+tools/mac-claim: waiting 9 min for the Mac to go quiet (115% of a core in use, under 150% wanted). Busiest:
+  PID 407 at 24.6%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+  PID 1017 at 16.5%: /Applications/Claude.app/Contents/MacOS/Claude
+  PID 71751 at 14.2%: (mlhostd)
+tools/mac-claim: the Mac did not go quiet in 10 minutes (123% of a core in use, under 150% wanted); giving up the claim. Busiest:
+  PID 407 at 30.8%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+  PID 1040 at 17.4%: /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Render
+  PID 1023 at 12.3%: /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=gpu-process
+  PID 1300 at 9.5%: /Users/shreeve/Library/Application Support/Claude/claude-code/2.1.325/485fdac4332e/claude.app/Contents/MacOS/c
+  PID 1017 at 6.9%: /Applications/Claude.app/Contents/MacOS/Claude
+  PID 30428 at 6.4%: /System/iOSSupport/System/Library/PrivateFrameworks/PassKitUI.framework/PlugIns/PeerPaymentMessagesExtension.a
+  PID 83288 at 4.8%: /Applications/Google Drive.app/Contents/MacOS/Google Drive --auto_restart_count=2 --first_auto_restart_timesta
+  PID 6300 at 4.2%: /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/157.0.8103.79/H
+start 03:19:49 3:19  up 2 days,  1:58, 4 users, load averages: 3.30 3.19 4.14
+end 03:24:15 3:24  up 2 days,  2:03, 4 users, load averages: 3.33 3.67 4.13
+sums {'psum': '16760439056', 'qsort': '4194304'}
