@@ -101,6 +101,19 @@ against `deq`'s placement 0, reads 0.96 [0.74-1.12] of Rayon against
 workers, which on pup decides the 12-worker board through #1168's
 spread, is 0.93 of Rayon here and level with `inl` (0.96 [0.82-1.09]).
 
+### bench/tasks, actors, net (c2, 10 rounds, with the spill, 8185df92f)
+
+Paired medians against #1175 (`inl`), main in brackets: tasks chain
+0.99 (0.48), fanout 1.00, hog 1.14 of 7 µs (0.69), produce 1.00, spawn
+0.97 (1.24), yield 1.03; actors contend 1.02, solo 1.00, spread 0.98;
+net connect 1.00, echo 0.99, pingpong 0.99 (0.93). Peak memory level:
+tasks 11.6 MiB, actors 4.1, net 7.1. Before the spill (c, the first
+commit) every row was the same but `hog`, 21.8 ms. `spawn` is 24%
+slower than main on both #1175 and this branch (14.2-14.4 ms against
+11.4), where inline.md read it 0.90 of main: a change on #1175's side
+since (its main merge or #1177), not the deque's, and to be bisected
+there.
+
 ### Each piece's share of a join (nil, 1 worker)
 
 | from | to | ns a join |
