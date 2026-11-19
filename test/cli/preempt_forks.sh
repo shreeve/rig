@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 # timeout: 300
 # Where preemption by signal is built, a fork-join is not stopped for its
-# own forks. Its forks wait in its worker's queues all the time it runs,
-# and the monitor's two looks 50 µs apart hurry only a fiber that is not
-# a fork (`Preempt.woken`): on one worker, a quicksort whose forks wait
+# own forks. A fork is a task bound by `t = f(x)&` that stays in its
+# maker's frame and is waited for there (`task_record`). Its forks wait
+# in its worker's queues all the time it runs, and the monitor's two
+# looks 50 µs apart hurry only a fiber that is not a fork
+# (`Worker.queued_woken`): on one worker, a quicksort whose forks wait
 # behind every partition runs with no stop and the monitor looking about
 # once a millisecond, not every 50 µs. Forks still count for the slice:
 # a maker that spins on a flag its fork sets is stopped after one slice
-# and the fork runs. And on two workers, a fork left in a busy worker's
-# slot while the other sleeps is taken by the other, which the monitor
-# wakes, with no stop. Where preemption is not built, nothing runs.
+# and the fork runs; a task held in a `Tasks` set is no fork, and a maker
+# spinning on its flag is stopped at once. And on two workers, a fork
+# left in a busy worker's slot while the other sleeps is taken by the
+# other, which the monitor wakes, with no stop. Where preemption is not
+# built, nothing runs.
 source "$ROOT/test/cli/_lib.sh"
 case "$(uname -s)/$(uname -m)" in
     Linux/x86_64 | Darwin/arm64) ;;
@@ -97,6 +101,42 @@ RIG
 out=$(RIG_SCHED_STATS=1 "$TIMEOUT_CMD" 60 "$RIG" run --release turns.rig 2>err-turns.txt) || fail "turns.rig (timeout 60 s): $out $(cat err-turns.txt)"
 expect_eq "$out" "1 true" "turns.rig"
 grep -q 'preempted [1-9]' err-turns.txt || fail "turns.rig: the maker was not stopped: $(cat err-turns.txt)"
+
+# With a slice of 200 ms, the maker spinning on its fork's flag runs the
+# slice, and one spinning on the flag of a task held in a set, no fork,
+# is stopped at the monitor's second look, well inside it.
+cat > held.rig <<'RIG'
+use std.task
+use std.time
+
+fun setter(c: *Cell[Int]) -> Int
+  !c.add(1)
+  1
+
+sub main()
+  task.workers(1)
+  c = *Cell(0)
+  d = *Cell(0)
+  spins = 0
+  t0 = time.now()
+  t = setter(+c)&
+  while c.get() == 0
+    spins += 1
+  fork_ms = t0.elapsed() / 1_000_000
+  ts = Tasks[Int]()
+  t1 = time.now()
+  !ts.add(setter(+d)&)
+  while d.get() == 0
+    spins += 1
+  held_ms = t1.elapsed() / 1_000_000
+  xs = >ts
+  print(>t + xs.len + spins % 1, fork_ms, held_ms)
+RIG
+out=$(RIG_PREEMPT_SLICE_US=200000 RIG_SCHED_STATS=1 "$TIMEOUT_CMD" 60 "$RIG" run --release held.rig 2>err-held.txt) || fail "held.rig (timeout 60 s): $out $(cat err-held.txt)"
+read -r two fork_ms held_ms <<<"$out"
+expect_eq "$two" "2" "held.rig"
+(( fork_ms >= 150 )) || fail "held.rig: the maker spinning on its fork's flag was stopped after $fork_ms ms, inside the slice of 200"
+(( held_ms < 100 )) || fail "held.rig: the maker spinning on the flag of a task in a set was stopped after $held_ms ms, not at the second look"
 
 # On two workers: the maker computes while its fork waits in its slot
 # and the other worker sleeps. The monitor wakes the other, which takes

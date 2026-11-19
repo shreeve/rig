@@ -82,7 +82,8 @@ pub const Fiber = struct {
     dense: bool = false,
     /// It is a fork: a task made by `t = f(x)&` that the compiler found
     /// stays in its maker's frame and is waited for there
-    /// (`storage.taskStaysInFrame`, `tasks.Task(T).frame`).
+    /// (`storage.taskStaysInFrame`, `tasks.Task(T).frame`). The
+    /// preemption monitor leaves it to the slice (`watchSlices`).
     fork: bool = false,
     /// What its worker does once it has switched away for good: publish
     /// its end (`Header`), or nothing for `main`.
@@ -234,9 +235,10 @@ const Worker = struct {
     /// next" slots and ring (`noteWoken`), and how many such fibers it
     /// has started, wherever they were queued (`noteStarted`): fibers
     /// woken from a wait or by an event, fibers that yielded or were
-    /// stopped, and fibers no one waits for (an actor's runner). A task
-    /// just made that a waiter holds (`spawn`) is a fork and is not
-    /// counted. The sums over every worker differ by the fibers that are
+    /// stopped, fibers no one waits for (an actor's runner), and every
+    /// task made that is not a fork. A fork, a task the compiler found
+    /// stays in its maker's frame and is waited for there (`Fiber.fork`),
+    /// is not counted. The sums over every worker differ by the fibers that are
     /// not forks waiting in some worker's slots or rings, which the
     /// preemption monitor's two looks hurry (`watchSlices`); forks it
     /// leaves to the slice. Kept only where preemption is built.
@@ -453,9 +455,9 @@ fn wakeIn(f: *Fiber) void {
     return wakeQueued(f, true);
 }
 
-/// `wakeIn` for `f`, which is `woken` unless it is a task just made that
-/// a waiter holds (`spawn`): a fork, which the monitor leaves to the
-/// slice (`Worker.queued_woken`).
+/// `wakeIn` for `f`, which is `woken` unless it is a fork just made
+/// (`Fiber.fork`, `spawn`), which the monitor leaves to the slice
+/// (`Worker.queued_woken`).
 inline fn wakeQueued(f: *Fiber, comptime woken: bool) void {
     if (deterministic.*) return ready.append(std.heap.smp_allocator, f) catch rt.oom();
     countWake(f);
@@ -6072,11 +6074,11 @@ pub const spawn = if (preempt) spawnApart else spawnIn;
 
 /// `spawn` in a program built to be preempted: never inlined into the
 /// program's own code, and one call in all (`mustNotBeInCode`).
-noinline fn spawnApart(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool, dense_stack: bool, fork: bool) Spawned(T, Extra) {
+noinline fn spawnApart(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool, dense_stack: bool, comptime fork: bool) Spawned(T, Extra) {
     return spawnIn(T, Extra, f, args, extra, local, dense_stack, fork);
 }
 
-fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool, dense_stack: bool, fork: bool) Spawned(T, Extra) {
+fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype, extra: Extra, local: bool, dense_stack: bool, comptime fork: bool) Spawned(T, Extra) {
     const Args = @TypeOf(args);
     const Full = struct {
         job: Job(T),
@@ -6113,7 +6115,7 @@ fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: an
     if (@hasField(Extra, "fiber")) full.extra.fiber = &full.job.header.fiber;
     if (@hasDecl(Extra, "made")) full.extra.made();
     if (local) full.job.header.fiber.home = pinHereIn();
-    wakeQueued(&full.job.header.fiber, false);
+    wakeQueued(&full.job.header.fiber, !fork);
     return .{ .job = &full.job, .extra = &full.extra };
 }
 
