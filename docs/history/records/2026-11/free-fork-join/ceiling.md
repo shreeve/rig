@@ -338,6 +338,32 @@ is not what decides it; about 75% sure.
   behave differently on pup. pup-job.sh's board, with the early-start Rig,
   the ceiling and Rayon in one slot, settles it.
 
+## The pup board (Rig session, ab slot 607)
+
+`pup-job.sh` with Rig at main 2dc9a46f5 (before the early start and the
+first-segment fault), the monitor arms left out, quiet honoured; the
+tables and samples are in [raw/pup/](raw/pup/) (`board1.txt`,
+`board3.txt`, and the JSON beside them). Medians, each arm's time over
+the ceiling's, paired by round:
+
+| row | workers | Rig | Rayon | stack | heap, sc, seq |
+|---|---:|---:|---:|---:|---|
+| psum | 1 | 1.065 | 1.083 | 1.032 | level |
+| psum | 12 | 1.515 (6.09 ms) | 1.181 (4.61 ms) | 1.059 | |
+| qsort | 1 | 0.900 | 0.868 | | rig-seq 0.632 |
+| qsort | 12 | 0.691 (102.6 ms) | 0.866 (126.6 ms) | | |
+| nil, first pass | 1 | 9.8 (0.388 ms) | 1.6 | 2.84 | heap 1.22, sc 3.29 |
+| nil, first pass | 12 | 7.6 | 1.9 | | |
+
+The ceiling takes psum's one pass at 12 workers in 3.94 ms. That is 15%
+under Rayon's 4.61, on pup, with its workers started and their heaps
+touched before the pass: a runtime of Rig's shape can beat Rayon there.
+Rig at main took 6.09 ms. The early start and the first-segment fault
+(#1158) target that pass. Per join (`nil`), Rig trails the ceiling most:
+9.8 times its time at one worker, where Rayon is 1.6. That gap is what
+free fork-join targets. The ceiling's qsort is slower than both Rig and
+Rayon on pup too, from its partition code (see "qsort").
+
 ## What I could not measure
 
 - pup itself (the job is written, not run), and therefore the huge-page
