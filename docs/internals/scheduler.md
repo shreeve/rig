@@ -734,30 +734,37 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
   (`watchSlices`). A fork is a task that has not started and that the
   compiler found stays in its maker's frame and is waited for there:
   bound by `t = f(x)&` and named after only by `>t`, `<t.cancel()`, or
-  `?t` (the storage fact `task_record`, `Fiber.fork`). Every other fiber
-  in a worker's "run next" slots or ring, any other task made (one
-  added to a `Tasks` set, returned, stored, or moved, and std's
-  connections), one woken from a wait or by an event, one that yielded
-  or was stopped, an actor's runner, is counted as it is queued and as
-  it starts (`Worker.queued_woken`, `Worker.started_woken`). A worker
+  `?t` (the storage fact `task_record`, `Fiber.fork`). Each fork is
+  counted as its maker queues it and as a worker starts it
+  (`Worker.queued_forks`, `Worker.started_forks`), and the monitor
+  counts the fibers waiting in every worker's "run next" slots and
+  ring: more there than forks is a fiber that is not a fork waiting,
+  any other task made (one added to a `Tasks` set, returned, stored,
+  or moved, and std's connections), one woken from a wait or by an
+  event, one that yielded or was stopped, an actor's runner. Only forks
+  pay for the count; on pup, counting the others instead made a spawn
+  13% slower (141 ns against 125) and an actor's call 10%. A worker
   whose fiber has run a
   slice, 10 ms, while other work waits, forks included, or whose own
   queue held work at two looks in a row with no fiber started between
   (one taken back from its ring by a handoff counts, as the run of the
   waiter's park it replaces did) while a fiber that is not a fork
-  waited at both, or whose timer or poller is due, gets SIGURG, and
-  again at each look until it stops. Forks alone stop no fiber at two
-  looks: while one waits at a busy worker and another worker sleeps,
-  the monitor looks every 50 µs and wakes one to take it (`notify`);
-  while every worker is busy, forks wait for the slice. So a fork-join,
-  whose own forks wait in its queues all the time it runs, runs on
-  unstopped, and on one worker the monitor looks once a millisecond
-  rather than every 50 µs (test/cli/preempt_forks.sh). The bounds,
-  behind a fiber that never yields: a fiber that is not a fork waits
-  until the monitor's next look, then 50 µs more (a millisecond and
-  50 µs while a worker runs, up to 10 ms after every worker was idle);
-  a fork waits the same while another worker sleeps, and up to the
-  slice and two looks, about 12 ms, while every worker is busy. A
+  waited at both, or a worker slept or searched at both, or whose timer
+  or poller is due, gets SIGURG, and again at each look until it stops.
+  So forks count as waiting while a worker is idle: one could take
+  them, and the stop that moves the maker to the global queue spreads
+  the fork-join over the idle workers, as at the start of psum's pass
+  on twelve workers, where waking one idle worker a look instead left
+  the pass 37-44% slower on pup. Only while every worker is busy are
+  forks left to the slice: a fork-join on one worker, or one that keeps
+  every worker busy, runs on unstopped, and on one worker the monitor
+  looks once a millisecond rather than every 50 µs
+  (test/cli/preempt_forks.sh). The bounds, behind a fiber that never
+  yields: a fiber that is not a fork waits until the monitor's next
+  look, then 50 µs more (a millisecond and 50 µs while a worker runs,
+  up to 10 ms after every worker was idle); a fork waits the same while
+  a worker is idle, and up to the slice and two looks, about 12 ms,
+  while every worker is busy. A
   maker that spins on a flag its fork sets so goes on after one slice.
   A build with yield checks keeps the same rule: a check yields to its
   worker's own queues only when a fiber that is not a fork waits in any

@@ -877,8 +877,9 @@ arms.
   with yield checks (a program with local tasks, a target with no
   preemption by signal), a check yields to its worker's own queues only
   when a fiber that is not a fork waits in some worker's slots or ring,
-  or pinned or global work waits; forks alone wait a slice, 10 ms, as
-  the monitor leaves them (`sched.ownWorkWaits`). A fork-join so goes on
+  pinned or global work waits, or a worker sleeps or searches; forks
+  alone, with every worker busy, wait a slice, 10 ms, as the monitor
+  leaves them (`sched.ownWorkWaits`). A fork-join so goes on
   depth first, its waits taking its forks back, where it yielded to each
   fork as it was made.
 - **A worker started ahead holds a few small pages, not a huge one:**
@@ -918,12 +919,12 @@ arms.
   none started between. Every other task, one added to a `Tasks` set,
   returned, stored, or moved, and std's connections, and every fiber
   woken, yielded, or stopped, keeps that bound. Forks still count for
-  the 10 ms slice, and while one
-  waits at a busy worker and another sleeps, the monitor wakes one to
-  take it. A fork-join's own forks wait in its queues all the time it
-  runs, so on one worker it was stopped every 100 µs and the monitor
-  woke every 50 µs; now it runs unstopped and the monitor looks once a
-  millisecond (test/cli/preempt_forks.sh).
+  the 10 ms slice, and count for the two looks too while a worker sleeps
+  or searches, so the stop that moves a maker still spreads a fork-join
+  over idle workers. A fork-join's own forks wait in its queues all the
+  time it runs, so on one worker it was stopped every 100 µs and the
+  monitor woke every 50 µs; now it runs unstopped and the monitor looks
+  once a millisecond (test/cli/preempt_forks.sh).
   On the Mac (fork-order's fork.rig, paired medians over 24 rounds),
   qsort at one worker is 15% faster, 139.4 ms against 163.1; psum at
   one worker and both at 10 workers are level, as are bench/actors and
