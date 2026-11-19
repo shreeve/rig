@@ -234,7 +234,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/facts.zig` | `Facts`, emit's read-only view of a checked module: the facts table, the storage facts, and how each type is held in Zig |
 | `src/emit.zig` | Zig code generation |
 | `src/runtime.zig` | the runtime shipped with every program |
-| `src/sched.zig` | the scheduler: fibers, workers, rings and stealing, the wait protocol, pollers and timers, the blocking pool, the deterministic mode; written beside the runtime as `rig/sched.zig` ([scheduler.md](scheduler.md)) |
+| `src/sched.zig` | the scheduler: fibers, workers, rings, fork deques and stealing, the wait protocol, pollers and timers, the blocking pool, the deterministic mode; written beside the runtime as `rig/sched.zig` ([scheduler.md](scheduler.md)) |
 | `src/tasks.zig` | the task runtime: `Task`, `Tasks`, cancellation and deadlines, `par`, `task.isolate`, actors, `Chan` and `select`, over the scheduler |
 | `src/net.zig` | sockets and the HTTP server for `std.net` and `std.http`, registered with the workers' pollers |
 | `src/table.zig` | `Table[T, n]` and `Slot[n]`: how a table holds its slots (reserved, made, or committed), written beside the runtime as `rig/table.zig` ([Tables](#tables)) |

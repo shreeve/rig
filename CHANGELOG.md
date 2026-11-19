@@ -844,6 +844,29 @@ arms.
 
 ### Runtime
 
+- **Forks wait on a deque of their worker's own:** a fork, a task whose
+  record lies in its maker's frame, goes on its worker's Chase-Lev deque
+  (`sched.Forks`), not the "run next" slots or the ring. Its maker pushes
+  it with no fence and takes it back at its join with one; idle workers
+  steal the oldest, one at a time, after every ring, so a fork-join's
+  thieves take its largest subtrees, as Rayon's do; a worker's loop runs
+  its own newest forks before its ring and the global queue. The orders
+  are those formal/Models/Deque.lean checks on arm64 and x86. A push
+  onto a deque that held forks wakes a sleeping worker by plain loads,
+  as Rayon's push does, and a wake lost to a race is recovered by the
+  sleeper's last look, the last searcher's, a switch, the monitor and a
+  yield check, which all read the deques. The monitor kicks a sleeper
+  for forks it saw at two looks while a worker slept or searched, with
+  no signal, where it stopped the maker. Local forks, and those made as
+  the deque is full, keep the slots. A join of a fork below the newest
+  (`a = f()&; b = g()&; >a; >b`) moves the forks above it, up to four,
+  to the slots, so it still runs inline. On the Mac (fork-order's
+  fork.rig at three code placements, fork3.rig, paired medians over 10
+  to 16 rounds): a join with no work costs 26.3 ns at one worker, against
+  28.9 on #1175 and 66.4 on main (`nil`; Rayon 9.9); psum at one worker,
+  warm, 0.99 of Rayon's time, a tie still; qsort at one worker 0.89, at
+  ten 0.97; peak memory level with #1175 (502 MiB at one worker, Rayon
+  585) (records/2026-11/free-fork-join/deque.md).
 - **A fork its waiter reaches unstarted runs on the waiter's stack:** a
   task not yet started that is next on its waiter's worker, at a `>t` or
   the drop that waits for it, runs on the waiter's own stack and fiber

@@ -379,7 +379,12 @@ worker after.
   release store and no fence, takes it back at its join with one
   (`popIf`, below), and idle workers steal the oldest, one at a time, by
   a compare-and-swap, after every ring (`sched.search`), so a
-  fork-join's thieves take its largest subtrees. A worker's loop takes
+  fork-join's thieves take its largest subtrees. A join of a fork below
+  the newest, as `a = f()&; b = g()&; >a; >b` joins, moves the forks above
+  it, up to four, to the "run next" slots (`spillNewer`), where each is
+  taken back when it is joined in turn: none runs on the maker's stack
+  before the maker goes on, since it might wait for what the maker does
+  next. A worker's loop takes
   its own newest forks, those whose maker parked or was stopped, after
   its slots and before its pinned queue, ring and the global queue
   (`sched.next`), so a maker that yields to its forks, or is stopped for

@@ -136,6 +136,16 @@ A new session, human or agent, takes these steps in order:
   panics level by level; and yield checks leave a worker's own forks to
   the slice. Next: the Chase-Lev deque. Waits on its board, the gates
   left in its PR, Trig's light gate, pup, and the owner.
+- **Free fork-join, the deque** (#1179, on #1175): forks wait on a
+  Chase-Lev deque of their worker's own (`sched.Forks`), with the
+  orders formal/Models/Deque.lean checks; thieves take the oldest, one
+  at a time; the monitor kicks a sleeper for forks rather than stopping
+  the maker. `nil` at one worker 26.3 ns a join (#1175 28.9, Rayon 9.9);
+  psum at one worker still a tie with Rayon (0.99), qsort 0.89. Inlining the push and the join into the
+  program's code under signal preemption needs a restartable sequence
+  in assembly (records/2026-11/free-fork-join/deque.md); not built.
+  Waits on pup (psum's 12-worker spread), Trig's light gate, and the
+  owner.
 
 - **The stable sort** (branch `sort-stable`, then `sort-drift` on
   it; owner, 2026-11-16, "fastest, within 2% of Rust's stable sort"):
