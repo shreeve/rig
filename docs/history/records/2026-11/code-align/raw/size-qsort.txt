@@ -1,0 +1,5 @@
+align 0: file 579200 __text 336352 __rig_text 8876
+align 16: file 579200 __text 336352 __rig_text 8888
+align 32: file 579200 __text 336352 __rig_text 8920
+align 64: file 579200 __text 336352 __rig_text 8952
+align 128: file 579200 __text 336352 __rig_text 8952
