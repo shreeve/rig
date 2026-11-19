@@ -54,6 +54,7 @@ comptime {
         all_workers,
         grow_lock,
         started,
+        started_ahead,
         starting,
         workers_asked,
         graph,
@@ -3878,7 +3879,9 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
             for (ws) |*w| wakeWorker(w);
         }
     };
-    // Worker 0 runs `main` alone until its first task (`startWorkers`).
+    // Worker 0 runs `main` alone until the workers start (`startWorkers`):
+    // as `main` starts, in a program built to start them early
+    // (`startAhead`); else as it makes its first task.
     const cap = @max(max_workers, workers_override.* orelse 0);
     // Each worker is written as it starts (`initWorker`), so the pages of
     // those a program never starts are never touched: taken raw, as a
@@ -3890,6 +3893,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     first.poller.open();
     openDense();
     started.* = false;
+    started_ahead.* = false;
     if (preempt) findCode();
     stopping.store(false, .seq_cst);
     var m: Main = .{ .fiber = .{ .run = Main.start, .done = Main.end }, .arg = arg, .run = run };
@@ -4096,6 +4100,29 @@ var test_started: u32 = 0;
 var starting_var: std.atomic.Value(u32) = .init(0);
 const starting = split.cell(&starting_var, "sched.starting");
 
+/// Start the workers as `main` starts, in a program built to
+/// (`rt.start_early`): called by `rt.start`, the first thing `main` does,
+/// once the environment says how many (`RIG_WORKERS`) and whether the run
+/// is deterministic, which starts none. Their threads start beside
+/// `main`, off its path but for one thread's start (`startRest`), and
+/// sleep until its first task: that task then spreads to workers that
+/// run, not to threads still starting while it waits. Each takes its
+/// heap's first segment as it starts (`workerMain`), so that page's first
+/// fault, 2 MiB zeroed where the system gives huge pages, lands before
+/// the work and not on its way. Never inlined into the program's own
+/// code (`mustNotBeInCode`).
+pub noinline fn startAhead() void {
+    if (started.* or deterministic.*) return;
+    started_ahead.* = true;
+    startWorkers();
+}
+
+/// The workers were started ahead of the program's first task
+/// (`startAhead`): each takes its heap's first segment as it starts.
+/// Written before their threads start, which order it before their reads.
+var started_ahead_var = false;
+const started_ahead = split.cell(&started_ahead_var, "sched.started_ahead");
+
 /// Wait until worker 1 has started the others and the monitor, as
 /// `main` ends, so it stops a monitor that has started and joins threads
 /// that have.
@@ -4111,8 +4138,11 @@ const workers_asked = split.cell(&workers_asked_var, "sched.workers_asked");
 /// `task.workers(n)`: run tasks on `n` workers, at most `max_workers`,
 /// from when they start, as the program makes its first task, or from
 /// now if they have started and `n` is no fewer than run; whether it took
-/// effect. A deterministic run keeps to one thread. Never inlined into
-/// the program's own code (`mustNotBeInCode`, through `onWorkerStack`).
+/// effect. It starts no worker: a program that names it starts them at
+/// its first task, since it may set the number again before then, and
+/// may make no task at all. A deterministic run keeps to one thread.
+/// Never inlined into the program's own code (`mustNotBeInCode`, through
+/// `onWorkerStack`).
 pub noinline fn askWorkers(n: usize) bool {
     const want = @max(1, @min(n, max_workers));
     if (!started.*) {
@@ -4182,7 +4212,19 @@ fn workerMain(w: *Worker, n: usize) void {
     if (preempt) preOf(w).tid = rt.threadId();
     defer leavePreempt(w);
     if (n > 0) startRest(n);
+    if (started_ahead.*) takeFirstSegment();
     loop(w);
+}
+
+/// A worker started ahead of the work takes its heap's first segment
+/// now, by a record it takes and gives back: the segment's first page is
+/// written here, its fault taken while the worker has nothing to do,
+/// where it would otherwise fall on the first task it runs. A
+/// leak-checked build's records are not the heap's, and take none.
+fn takeFirstSegment() void {
+    if (!own_records) return;
+    const p = rt.fast_alloc.allocRecord(256, .of(u64)) orelse rt.oom();
+    rt.fast_alloc.freeRecord(p[0..256], .of(u64));
 }
 
 /// A worker's life: run what is ready, look for more, sleep when there
@@ -7342,6 +7384,85 @@ test "a program that ends while worker 1 starts the rest starts no more" {
     hold_start_for_test = false;
     // Worker 1 alone ran; the others were never started, nor joined.
     try std.testing.expectEqual(@as(u32, 0), test_started);
+}
+
+test "a program built to start early has its workers as main starts, and ends with no task made" {
+    const Run = struct {
+        const n = 4;
+        var was_started = false;
+        var len: usize = 0;
+        var threads: usize = 0;
+        fn main(_: *anyopaque) callconv(.c) void {
+            // As `rt.start` does first: no task made, no worker count set.
+            startAhead();
+            was_started = started.*;
+            waitStarting();
+            const ws = workersNow();
+            len = ws.len;
+            for (ws[1..]) |*w| threads += @intFromBool(w.thread != null);
+        }
+    };
+    runForTest(Run.main, Run.n);
+    try std.testing.expect(Run.was_started);
+    try std.testing.expectEqual(@as(usize, Run.n), Run.len);
+    try std.testing.expectEqual(@as(usize, Run.n - 1), Run.threads);
+}
+
+test "a program built to start early that ends at once starts no more workers than had begun" {
+    const Run = struct {
+        const n = 6;
+        fn main(_: *anyopaque) callconv(.c) void {
+            startAhead();
+        }
+    };
+    hold_start_for_test = true;
+    test_started = 0;
+    runForTest(Run.main, Run.n);
+    hold_start_for_test = false;
+    try std.testing.expectEqual(@as(u32, 0), test_started);
+}
+
+test "askWorkers before any task starts no worker, and sets how many the first task starts" {
+    const Run = struct {
+        const Unit = struct {};
+        var first = false;
+        var again = false;
+        var after_ask = true;
+        var len: usize = 0;
+        var fewer = true;
+        var more = false;
+        var grown: usize = 0;
+        fn one(_: *Unit) u64 {
+            return 1;
+        }
+        fn main(_: *anyopaque) callconv(.c) void {
+            first = askWorkers(5);
+            again = askWorkers(3);
+            after_ask = started.*;
+            const j = spawn(u64, Unit, one, .{}, .{}, false, false).job;
+            _ = j.join();
+            j.free();
+            waitStarting();
+            len = workersNow().len;
+            fewer = askWorkers(2);
+            more = askWorkers(4);
+            grown = workersNow().len;
+        }
+    };
+    // No override (`runForTest`): `workerCount` reads what `askWorkers`
+    // recorded.
+    workers_asked.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.main, s.top(), .{});
+    workers_asked.* = null;
+    try std.testing.expect(Run.first);
+    try std.testing.expect(Run.again);
+    try std.testing.expect(!Run.after_ask);
+    try std.testing.expectEqual(@as(usize, 3), Run.len);
+    try std.testing.expect(!Run.fewer);
+    try std.testing.expect(Run.more);
+    try std.testing.expectEqual(@as(usize, 4), Run.grown);
 }
 
 test "a dense stack's guard faults" {
