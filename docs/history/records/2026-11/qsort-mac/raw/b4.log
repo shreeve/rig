@@ -1,0 +1,40 @@
+tools/mac-claim: waiting 1 min for the Mac to go quiet (392% of a core in use, under 150% wanted). Busiest:
+  PID 720 at 213.5%: /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/
+  PID 78087 at 100.0%: /Users/shreeve/.local/share/mise/installs/zig/0.17.0/zig test -Osafe --dep build_options --dep rig_std -Mroot=
+  PID 80091 at 13.9%: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new --no-first-run --no-default-browse
+tools/mac-claim: waiting 3 min for the Mac to go quiet (87% of a core in use, under 150% wanted). Busiest:
+  PID 407 at 19.9%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+  PID 55711 at 6.1%: /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/157.0.8103.79/H
+  PID 2820 at 5.7%: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+start 01:27:56 1:27  up 2 days, 6 mins, 4 users, load averages: 2.84 5.65 7.44
+round 1
+round 2
+round 3
+round 4
+round 5
+round 6
+round 7
+round 8
+round 9
+round 10
+round 11
+round 12
+round 13
+round 14
+round 15
+round 16
+round 17
+round 18
+round 19
+round 20
+round 21
+round 22
+round 23
+round 24
+round 25
+round 26
+round 27
+round 28
+round 29
+round 30
+end 01:29:09 1:29  up 2 days, 8 mins, 4 users, load averages: 5.46 6.10 7.48
