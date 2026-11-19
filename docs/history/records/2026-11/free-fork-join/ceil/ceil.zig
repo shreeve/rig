@@ -312,6 +312,8 @@ fn workerMain(w: *Worker) void {
 }
 
 fn threadId() usize {
+    // Linux: the kernel's thread id, for `tgkill` (the monitor arm).
+    if (builtin.target.os.tag == .linux) return @intCast(std.os.linux.gettid());
     return @intFromPtr(std.c.pthread_self());
 }
 
@@ -510,6 +512,36 @@ fn runOnStack(w: *Worker, j: *Job) void {
 // -----------------------------------------------------------------------------
 
 fn onUrg(_: std.posix.SIG, _: *const std.posix.siginfo_t, _: ?*anyopaque) callconv(.c) void {}
+fn onUrgLinux(_: std.os.linux.SIG, _: *const std.os.linux.siginfo_t, _: ?*anyopaque) callconv(.c) void {}
+
+/// SIGURG's handler, which does nothing. On Linux the handler is set by
+/// the system call, as Rig's runtime sets its own (it links no libc):
+/// glibc's `sigaction` refused the flags with `EINVAL` there.
+fn installUrg() void {
+    if (builtin.target.os.tag == .linux) {
+        const act: std.os.linux.Sigaction = .{
+            .handler = .{ .sigaction = onUrgLinux },
+            .mask = std.os.linux.sigemptyset(),
+            .flags = std.os.linux.SA.SIGINFO | std.os.linux.SA.ONSTACK | std.os.linux.SA.RESTART,
+        };
+        const rc = std.os.linux.sigaction(.URG, &act, null);
+        if (std.os.linux.errno(rc) != .SUCCESS) @panic("ceil: sigaction(SIGURG) failed");
+        return;
+    }
+    const act: std.posix.Sigaction = .{
+        .handler = .{ .sigaction = onUrg },
+        .mask = std.posix.sigemptyset(),
+        .flags = std.posix.SA.SIGINFO | std.posix.SA.ONSTACK | std.posix.SA.RESTART,
+    };
+    std.posix.sigaction(.URG, &act, null);
+}
+
+/// Send SIGURG to the worker whose thread id is `tid` (`threadId`).
+fn signalUrg(tid: usize) void {
+    if (builtin.target.os.tag == .linux) {
+        _ = std.os.linux.tgkill(std.os.linux.getpid(), @intCast(tid), .URG);
+    } else _ = std.c.pthread_kill(@ptrFromInt(tid), .URG);
+}
 
 var signals: std.atomic.Value(u64) = .init(0);
 var looks: std.atomic.Value(u64) = .init(0);
@@ -552,7 +584,7 @@ fn monitorMain() void {
                 next_at[i] = now + @min(wait << shift, std.time.ns_per_ms);
             }
             _ = signals.fetchAdd(1, .monotonic);
-            if (!no_signals) _ = std.c.pthread_kill(@ptrFromInt(w.tid), .URG);
+            if (!no_signals) signalUrg(w.tid);
         }
         period = if (queued) wait else if (busy) std.time.ns_per_ms else @min(2 * period, 10 * std.time.ns_per_ms);
     }
@@ -684,14 +716,7 @@ fn body() void {
     me = &workers[0];
     workers[0].tid = threadId();
     touchAllocators(&workers[0]);
-    if (cfg.monitor) {
-        const act: std.posix.Sigaction = .{
-            .handler = .{ .sigaction = onUrg },
-            .mask = std.posix.sigemptyset(),
-            .flags = std.posix.SA.SIGINFO | std.posix.SA.ONSTACK | std.posix.SA.RESTART,
-        };
-        std.posix.sigaction(.URG, &act, null);
-    }
+    if (cfg.monitor) installUrg();
     for (workers[1..]) |*w| {
         const t = std.Thread.spawn(.{}, workerMain, .{w}) catch oom();
         t.detach();
