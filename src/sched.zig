@@ -4993,11 +4993,31 @@ fn unmapShare(w: *Worker, ex: *Exit) void {
 /// its owner and thieves take from `head`, by compare-and-swap. A thief
 /// copies the fibers it would take, then claims them by moving `head`
 /// past them; a slot is written again only once `head` has passed it.
+/// A worker's queue of ready fibers: its owner pushes at the tail and
+/// takes from the head (`pop`) or, for a fork-join, back from the tail
+/// (`takeLast`); thieves take half from the head (`stealFrom`).
+///
+/// A thief copies the fibers it sees, then claims them by moving the head
+/// past them. The claim checks only the head, so the tail it saw may be
+/// stale by then: an owner that took back two from the tail meanwhile
+/// would run a fiber the thief also claims. So a thief holds `stealing`
+/// from before it reads the tail until after its claim, and the owner,
+/// having moved the tail back, reads `stealing` and leaves the fiber
+/// (restoring the tail) while it is held. The tail store, the flag's
+/// read, the flag's take and the thief's tail read are sequentially
+/// consistent: either the owner's read comes first in that order, and
+/// the thief's later read of the tail sees it moved back, so it never
+/// copies what the owner took; or the thief took the flag first, and the
+/// owner sees it held, or sees it let go after the claim, whose head the
+/// owner's next read then sees. One thief at a time: another finds the
+/// flag held and looks elsewhere, as a claim it lost would.
 const Ring = struct {
     const size = 256;
     slots: [size]std.atomic.Value(?*Fiber) = @splat(.init(null)),
     head: std.atomic.Value(u32) = .init(0),
     tail: std.atomic.Value(u32) = .init(0),
+    /// 1 while a thief copies from this ring and claims what it copied.
+    stealing: std.atomic.Value(u32) = .init(0),
 
     fn isEmpty(r: *Ring) bool {
         return r.head.load(.seq_cst) == r.tail.load(.seq_cst);
@@ -5040,13 +5060,19 @@ const Ring = struct {
     /// Take `f` back from the ring's tail, as a Chase-Lev owner pops:
     /// move the tail back, then read the head. A thief takes half the
     /// fibers it sees, rounded up, so it reaches the newest only when it
-    /// sees one alone, which a compare-and-swap of the head settles.
-    /// Whether this took it; for the ring's owner.
+    /// sees one alone, which a compare-and-swap of the head settles; a
+    /// thief that may have seen the tail before it moved back holds
+    /// `stealing`, and the fiber is left to it (see `Ring`). Whether this
+    /// took it; for the ring's owner.
     fn takeLast(r: *Ring, f: *Fiber) bool {
         const t = r.tail.load(.monotonic);
         const last = t -% 1;
         if (r.slots[last % size].load(.monotonic) != f) return false;
         r.tail.store(last, .seq_cst);
+        if (r.stealing.load(.seq_cst) != 0) {
+            r.tail.store(t, .seq_cst);
+            return false;
+        }
         const h = r.head.load(.seq_cst);
         const left = last -% h;
         if (left != 0 and left <= size) return true;
@@ -5070,14 +5096,24 @@ const Ring = struct {
     /// owner's), and give the first to run. As Go's `runqsteal`: the
     /// others are copied past this ring's tail, where no thief reads,
     /// then claimed by moving `victim`'s head past them, then published
-    /// by moving this ring's tail. Nothing is written before the victim
-    /// is seen to hold any, so a look at an empty ring costs two loads.
+    /// by moving this ring's tail, all while holding the victim's
+    /// `stealing` (see `Ring`). Nothing is written before the victim is
+    /// seen to hold any, so a look at an empty ring costs two loads.
     fn stealFrom(r: *Ring, victim: *Ring) ?*Fiber {
         const own = r.tail.load(.monotonic);
         std.debug.assert(r.head.load(.monotonic) == own);
+        {
+            const avail = victim.tail.load(.acquire) -% victim.head.load(.acquire);
+            if (avail == 0 or avail > size) return null;
+        }
+        // Uncounted: no signal stops a thief holding the flag (a build
+        // preempted by signal has no yield checks, so it steals only in a
+        // worker's search, the runtime's own code), and no one waits for it.
+        if (victim.stealing.cmpxchgStrong(0, 1, .seq_cst, .monotonic) != null) return null;
+        defer victim.stealing.store(0, .release);
         while (true) {
-            const h = victim.head.load(.acquire);
-            const t = victim.tail.load(.acquire);
+            const h = victim.head.load(.seq_cst);
+            const t = victim.tail.load(.seq_cst);
             const avail = t -% h;
             if (avail == 0 or avail > size) return null;
             const n = avail - avail / 2;
