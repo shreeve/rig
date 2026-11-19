@@ -5,8 +5,30 @@ How Rig runs tasks fast: the engine under `f(x)&` (docs/design/concurrency.md,
 `PROGRESS.md` records each step. Every program that makes tasks runs on it, with one worker
 per core, or as many as the program asks for with `task.workers(n)`
 before its first task, or else `RIG_WORKERS` of them when that is set;
-a program that makes none starts no workers. At that first task `main`
-starts worker 1 alone (`startWorkers`), which maps a first reservation
+a program that makes none starts no workers. The workers start as
+`main` starts (`rt.start`, `startAhead`; the program's root declares
+`__rig_start_early`, from typecheck's note that it makes a task and
+never names `task.workers`); else at the first task: in a program that
+names `task.workers`, which may set their number again before its
+first task, or make none (Trig asks for its workers as it reads its
+command line, long before its checkers' first task), and in a program
+of a batch, whose one runtime serves programs that make none. Started ahead,
+each takes its heap's first segment as its thread starts
+(`takeFirstSegment`), so that page's first fault falls before the work
+rather than on a worker's first stolen task, while the other cores stream
+memory. That segment keeps small pages for its first 2 MiB and asks for
+huge pages for its second (`alloc.startSmall`): a huge page there was
+2 MiB zeroed for every worker, which on pup cost a program of two tasks
+on twelve workers 22 MiB more at its peak; with small pages an idle
+worker holds a few of them. They sleep until
+the first task, which then spreads to workers that run
+rather than to threads still starting: a process's first parallel pass,
+psum over 256 MB on the Mac's 10 workers, takes 2.25 ms where a start at
+the first task takes 2.35
+([concurrency-startup](../history/records/2026-11/concurrency-startup/README.md)
+has where that time goes). A program whose tasks are never reached pays
+for the threads' start, about 0.1 ms, and their sleep. To start them
+`main` starts worker 1 alone (`startWorkers`), which maps a first reservation
 of 16 stacks, untouched, for itself and each worker after it, and then
 starts them and the monitor (`startRest`): `main` waits on one thread's start rather than
 nine, and the mappings land before the work spreads, where macOS

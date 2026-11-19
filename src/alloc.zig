@@ -391,6 +391,9 @@ pub const Heap = struct {
     /// Whether Tables this heap reserved wait for it to fault in ahead
     /// before they ask for huge pages (`tableWaits`).
     tables_wait: bool = false,
+    /// Whether its first segment keeps small pages for its first 2 MiB
+    /// (`startSmall`).
+    start_small: bool = false,
     /// Its first segment with pages `trimIdle` gave back.
     released: ?*Segment = null,
     /// How many times `trimIdle` has counted its free blocks.
@@ -481,8 +484,10 @@ pub const Heap = struct {
         // later ones: a TLB entry then covers 2 MiB of its blocks, and a
         // fault fills 2 MiB, which costs a heap that keeps to one
         // segment, as a server's worker's, up to 2 MiB it has not
-        // written.
-        const huge = builtin.os.tag == .linux and ask(@intFromPtr(s), segment_size, .huge);
+        // written. A worker started ahead of the work keeps small pages
+        // for its first segment's first 2 MiB (`startSmall`).
+        const first_small = h.start_small and h.segment == null;
+        const huge = builtin.os.tag == .linux and if (first_small) firstHalfSmall(@intFromPtr(s)) else ask(@intFromPtr(s), segment_size, .huge);
         // The header's page, of a segment of small pages: with the
         // segment's first window, or alone, each page then faulting in
         // as its class takes it (`faultFresh`).
@@ -492,6 +497,15 @@ pub const Heap = struct {
         h.segment = s;
         h.faultFresh(s, @intFromPtr(s) + page_size, fill);
         return @intFromPtr(s) + page_size;
+    }
+
+    /// The first segment, at `s`, of a heap marked `start_small`: its
+    /// first 2 MiB keep small pages and its second asks for huge ones,
+    /// and it counts as a segment of small pages (`Segment.huge`).
+    fn firstHalfSmall(s: usize) bool {
+        _ = ask(s, huge_page, .small);
+        _ = ask(s + huge_page, segment_size - huge_page, .huge);
+        return false;
     }
 
     /// Fault in ahead `page` of `s`, never handed out before, whose
@@ -2717,6 +2731,23 @@ pub noinline fn allocRecord(len: usize, alignment: std.mem.Alignment) ?[*]u8 {
     return allocLargeFrom(h, len, alignment.toByteUnits(), null);
 }
 
+/// The running thread is a worker started ahead of the work
+/// (`sched.startAhead`): its heap's first segment, if it has none yet,
+/// keeps small pages for its first 2 MiB and asks for huge pages for its
+/// second (`firstHalfSmall`). The worker takes that segment before it
+/// looks for work (`sched.takeFirstSegment`), so the fault of its first
+/// page lands off the work's path, and a worker that never runs a task
+/// holds a few small pages of it, not a 2 MiB huge page: a program of
+/// two tasks on twelve workers held 22 MiB more without this
+/// (docs/history/records/2026-11/early-memory/). A worker that runs
+/// many tasks writes past the first 2 MiB into huge pages, and its later
+/// segments ask for them whole. On Linux; elsewhere it marks the heap
+/// and changes nothing.
+pub fn startSmall() void {
+    const h = heap() orelse return;
+    if (h.segment == null and h.taken == 0) h.start_small = true;
+}
+
 /// Give back `memory`, a block `allocRecord` made with `alignment`, on
 /// any thread: one that did not make it puts it on its heap's remote
 /// list.
@@ -3744,6 +3775,30 @@ test "on Linux a new segment is aligned for huge pages and asks for them while 2
     var small = testHeap();
     const q = small.newPage(0).?;
     try std.testing.expect(!faultsAhead(&small));
+    try std.testing.expect(try advisedHugeForTest(q));
+}
+
+test "on Linux the first segment of a worker's heap started small keeps small pages for its first 2 MiB, and its next asks for huge pages whole" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    useBuddyinfoForTest(buddyinfo_plenty);
+    defer useBuddyinfoForTest(null);
+    var h = testHeap();
+    h.start_small = true;
+    const p = h.newPage(0).?;
+    const s = p & ~(segment_size - 1);
+    try std.testing.expect(!segmentOf(@ptrFromInt(p)).huge);
+    try std.testing.expect(!try advisedHugeForTest(s));
+    try std.testing.expect(!try advisedHugeForTest(s + huge_page - 1));
+    try std.testing.expect(try advisedHugeForTest(s + huge_page));
+    try std.testing.expect(try advisedHugeForTest(s + segment_size - 1));
+    // Its first block faults in a small page, not 2 MiB.
+    @as(*u8, @ptrFromInt(p)).* = 1;
+    try std.testing.expect(try residentForTest(@ptrFromInt(s), huge_page) < huge_page);
+    // Its next segment asks for huge pages whole.
+    segmentOf(@ptrFromInt(p)).used = pages_per_segment;
+    const q = h.newPage(0).?;
+    try std.testing.expect(q & ~(segment_size - 1) != s);
+    try std.testing.expect(segmentOf(@ptrFromInt(q)).huge);
     try std.testing.expect(try advisedHugeForTest(q));
 }
 

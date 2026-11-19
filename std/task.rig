@@ -24,6 +24,8 @@ extern zig "task.zig"
   # how many start; after, it can only raise the number, and gives
   # false for fewer than run. It gives whether it took effect. A
   # deterministic run (`rig test`) runs on one thread whatever it asks.
+  # A program that names `workers` starts its workers at its first task,
+  # not as `main` starts.
   pub fun workers(n: Int) -> Bool
 
   # The number of workers tasks run on: one per core, `RIG_WORKERS`, or

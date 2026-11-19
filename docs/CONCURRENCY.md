@@ -39,9 +39,10 @@ Rig gives each through the same `&` and `>t`, on one scheduler.
 **The program writes** nothing; it never names a thread.
 
 **Underneath,** a program that makes tasks starts one worker thread per
-core (or `task.workers(n)`, or `RIG_WORKERS`); one that makes none
-starts no workers. `main`'s thread is worker 0, and `main` runs as the
-first task. Each worker keeps its ready tasks in a ring and a few "run
+core (or `RIG_WORKERS`) as `main` starts, so its first tasks find them
+running; one that sets their number with `task.workers(n)` starts them
+at its first task; one that makes none starts no workers.
+`main`'s thread is worker 0, and `main` runs as the first task. Each worker keeps its ready tasks in a ring and a few "run
 next" slots, and an idle worker steals from a busy one.
 
 A task pauses only where it waits, so a long computation would hold its
@@ -356,7 +357,8 @@ written, then makes one allocation: the task's record, holding its
 fiber, its completion (`sched.Done`), its cancel state, its arguments,
 and a slot for its result. Its state and reference count share one
 atomic word, so a wake is one compare-and-swap and a task is queued at
-most once. The first task a program makes starts the workers.
+most once. The workers start as `main` starts, or, in a program that
+sets their number with `task.workers(n)`, at its first task.
 
 **The stack.** A task gets a stack only when it first runs, from the
 worker that runs it. A stack is 64 MiB of address space, committed only

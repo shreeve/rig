@@ -1,0 +1,30 @@
+tools/mac-claim: waiting 1 min for the Mac to go quiet (170% of a core in use, under 150% wanted). Busiest:
+  PID 7316 at 98.8%: /Users/shreeve/.local/share/mise/installs/zig/0.17.0/zig build-exe -Osafe --dep build_options --dep rig_std -M
+  PID 78197 at 15.7%: /System/Applications/Messages.app/Contents/MacOS/Messages
+  PID 407 at 10.4%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+start 00:57:02 0:57  up 1 day, 23:35, 4 users, load averages: 3.24 6.32 7.56
+round 1
+round 2
+round 3
+round 4
+round 5
+round 6
+round 7
+round 8
+round 9
+round 10
+round 11
+round 12
+round 13
+round 14
+round 15
+round 16
+round 17
+round 18
+round 19
+round 20
+round 21
+round 22
+round 23
+round 24
+end 00:58:16 0:58  up 1 day, 23:37, 4 users, load averages: 5.47 6.21 7.41

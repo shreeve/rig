@@ -5712,7 +5712,11 @@ channel) gets `pub const __rig_tasks = true;` in its root module,
 written with `__rig_task_guard`, the size of each task's stack guard
 (`sema.taskGuard`, from the program's largest frame). The runtime then
 runs `main` as the first fiber of the scheduler (`sched.runMain`) and
-every task as another, on a worker thread per core. Programs that make
+every task as another, on a worker thread per core. A program built
+alone that never names `task.workers` (`sema.noteRuntimeRead` notes the
+name) also gets `pub const __rig_start_early = true;`: its workers start
+as `main` starts (`rt.start`, `sched.startAhead`), where one that names
+`task.workers` starts them as it calls it. Programs that make
 none compile as if there were one thread. The pieces are
 `src/sched.zig` (fibers, workers, waits, pollers, the blocking pool),
 `src/tasks.zig` (what a task, a set, an actor, and a channel do over

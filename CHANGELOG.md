@@ -844,6 +844,17 @@ arms.
 
 ### Runtime
 
+- **A worker started ahead holds a few small pages, not a huge one:**
+  the first segment a worker takes as it starts with `main` keeps small
+  pages for its first 2 MiB and asks for huge pages for its second
+  (`alloc.startSmall`), where it faulted in a whole 2 MiB huge page for
+  each worker. On pup at 12 workers, peak memory returns to what it was
+  before the workers started early: a program of two tasks 35.1 MiB
+  (57.9 with the huge page, 35.1 before), bench/tasks 5.5 MiB (25.1,
+  15.6 before), its `idle` 2.4 (25.1, 2.3 before). psum at 12 workers
+  stays at 3.9 ms against Rayon's 4.6-4.7; fork.rig, Trig's
+  `task.workers` programs and one-worker runs are not affected
+  (docs/history/records/2026-11/early-memory/).
 - **An actor's method runs inline only with the room its own task
   would give it:** a call that finds the actor idle runs the method on
   the caller's stack when that stack has as much room left as the
@@ -874,6 +885,22 @@ arms.
   end. A join costs 71 ns at one worker on pup, against 86 (`nil`, a
   fork-join of 4,095 joins with no work, 17% faster); AArch64 stores
   the two orders alike, so the Mac is level.
+- **The workers start as `main` starts:** a program that makes a task
+  and never names `task.workers` starts its workers as `main` starts
+  (its root declares `__rig_start_early`), where they started at the
+  first task; one that names `task.workers` starts them at its first
+  task, as before. Each worker started ahead takes its heap's first
+  segment as its thread starts, so that page's first fault (2 MiB zeroed
+  on Linux, where the heap asks for huge pages) falls before the work
+  rather than on the worker's first task. They sleep until that task, which then spreads to workers that
+  run rather than to threads still starting. A process's first parallel
+  pass is faster for it: on the Mac (the fork-join board's psum, one
+  pass a process, paired medians over 38 rounds) 5% faster at 10 workers
+  (2.35 to 2.25 ms, 35 rounds of 38), level with Rayon where it trailed
+  by 4%; one worker and qsort are level. A program that makes no task
+  starts none, as before; one whose tasks are never reached pays about
+  0.1 ms for the threads' start. A deterministic run starts none, and a
+  batch's programs start theirs at their first task.
 - **A fork-join takes back its own tasks from its ring:** `>t` on a
   task that has not started and is the newest in its worker's ring (a
   fork-join's halves made past the four run-next slots, waited for in
