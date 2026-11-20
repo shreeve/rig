@@ -2725,12 +2725,33 @@ noinline fn allocSlow(len: usize, alignment: std.mem.Alignment) ?[*]u8 {
 /// A block for a record of the runtime's own, a task's (`sched.spawn`),
 /// as `alloc` gives one, or null: from the running thread's heap, and
 /// outside the program's counts (`counts`), which are of what the
-/// program holds.
-pub noinline fn allocRecord(len: usize, alignment: std.mem.Alignment) ?[*]u8 {
+/// program holds. Typed with its alignment, so its caller casts it to
+/// the record with no check: a class is taken from the size table only
+/// at an alignment of 8 or less, every class's size a multiple of 8
+/// (`classSize`), and past it by `classAligned`, whose class's size is a
+/// multiple of the alignment, at most a page; a class's blocks are carved
+/// at multiples of its size from a page (`allocFrom`), and its free,
+/// remote, and donated lists hold its blocks alone; a large block is
+/// aligned by `allocLargeFrom`. A record's size and alignment are its
+/// type's, so its class is found at compile time: no lookup at a spawn
+/// (`classAligned` took 2.3% of bench/tasks spawn's cycles on pup at
+/// twelve workers).
+pub noinline fn allocRecord(comptime len: usize, comptime alignment: std.mem.Alignment) ?[*]align(alignment.toByteUnits()) u8 {
+    const class = comptime classOf(len, alignment);
+    // The class's free list first, read here as `alloc`'s fast path reads
+    // it: this call is never inlined, so the heap is this thread's.
+    if (class) |c| if (my_heap().*) |h| if (h.free[c]) |b| {
+        if (builtin.is_test) mustOwn(h);
+        h.free[c] = b.next;
+        invariant(@intFromPtr(b) % alignment.toByteUnits() == 0);
+        @setRuntimeSafety(proven_checks);
+        return @ptrCast(@alignCast(b));
+    };
     const h = heap() orelse return null;
-    if (classOf(len, alignment)) |c| return h.alloc(c);
-    if (alignment.toByteUnits() > std.heap.pageSize()) return null;
-    return allocLargeFrom(h, len, alignment.toByteUnits(), null);
+    const p = if (class) |c| h.alloc(c) else if (alignment.toByteUnits() > std.heap.pageSize()) null else allocLargeFrom(h, len, alignment.toByteUnits(), null);
+    invariant(@intFromPtr(p) % alignment.toByteUnits() == 0);
+    @setRuntimeSafety(proven_checks);
+    return @alignCast(p);
 }
 
 /// The running thread is a worker started ahead of the work
@@ -2750,13 +2771,14 @@ pub fn startSmall() void {
     if (h.segment == null and h.taken == 0) h.start_small = true;
 }
 
-/// Give back `memory`, a block `allocRecord` made with `alignment`, on
-/// any thread: one that did not make it puts it on its heap's remote
-/// list.
-pub noinline fn freeRecord(memory: []u8, alignment: std.mem.Alignment) void {
+/// Give back `p`, a block of `len` bytes `allocRecord` made with
+/// `alignment`, on any thread: one that did not make it puts it on its
+/// heap's remote list. Its class is found at compile time, as
+/// `allocRecord`'s is.
+pub noinline fn freeRecord(p: [*]u8, comptime len: usize, comptime alignment: std.mem.Alignment) void {
     const h = heap() orelse return;
-    if (classOf(memory.len, alignment)) |c| return h.freeSmall(memory.ptr, c);
-    freeLarge(h, memory.ptr, memory.len);
+    if (comptime classOf(len, alignment)) |c| return h.freeSmall(p, c);
+    freeLarge(h, p, len);
 }
 
 /// Test only: whether `p` is a small block of the running thread's heap.
@@ -4810,4 +4832,23 @@ test "a large size under 16 MiB is its whole units, and every larger one its buc
     }
     // Trig's `ast.NodeRec` blocks, 34.5 KB, take 36 KiB, not 48.
     try std.testing.expectEqual(36 << 10, largeSize(34_500));
+}
+
+test "a record's block is aligned as its type, small or large" {
+    // Every class's size, and two large blocks.
+    const lens = comptime blk: {
+        var l: [class_count + 2]usize = undefined;
+        for (0..class_count) |c| l[c] = classSize(c);
+        l[class_count] = max_small + 1;
+        l[class_count + 1] = max_small + 4096;
+        break :blk l;
+    };
+    inline for (.{ .@"8", .@"16", .@"64" }) |tag| {
+        const a: std.mem.Alignment = tag;
+        inline for (lens) |len| {
+            const p = allocRecord(len, a).?;
+            try std.testing.expect(@intFromPtr(p) % a.toByteUnits() == 0);
+            freeRecord(p, len, a);
+        }
+    }
 }

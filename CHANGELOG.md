@@ -853,11 +853,30 @@ arms.
   3.38 before the fork's record. Only a fork runs on its waiter's stack
   (`sched.runHere`), as the design has it: a task held in a set,
   returned or stored is waited for as a fiber of its own. A task that is
-  not a fork wakes through `wakeIn`, called rather than pasted into
+  not a fork wakes through `wakeMade`, called rather than pasted into
   `spawn`, which it had made five times its size; and the flag a fork's
   cancel sets reaches `runHere` from its waiter, not from a field of
   every task's record, which is 448 bytes again where it had grown to
   464 (bench/tasks' spawn, one cache line fewer).
+- **A burst of tasks goes to the ring:** a task made while every "run
+  next" slot is full goes to the ring's tail (`sched.wakeMade`), where it
+  took a slot and moved the slot's oldest fiber to the ring: one locked
+  store a task where it took two, and the workers woken for the burst
+  steal half the ring at once. On pup at twelve workers the slot's swap
+  alone had taken 4% of bench/tasks spawn's cycles, its line pulled to
+  and fro by the workers searching; a spawn takes 117.5 ns there, where
+  it took 123.6, and 96 at one worker, where it took 103. A task's record
+  is cast from its block with no check of its alignment, which the
+  allocator proves (`alloc.allocRecord`).
+- **A task's record finds its class at compile time:** `allocRecord`
+  and `freeRecord` take the record's size and alignment as constants, so
+  a spawn and a task's free look up no class (`classAligned` had taken
+  2.3% of spawn's cycles on pup at twelve workers), and `allocRecord`
+  takes a block from the class's free list itself, calling the heap only
+  when the list is empty. On pup bench/tasks' spawn takes 103 ns, where
+  it took 131 (21% faster), and hog 19% less; a spawn alone takes 78.8 ns
+  at one worker, where it took 102.3 (758 instructions, where it took
+  969), and 112.5 at twelve, where it took 124.7.
 
 - **On macOS a List that grows past 16 MiB moves its pages:** a large
   block that grows maps a fresh range and takes its old pages into it

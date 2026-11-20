@@ -369,7 +369,10 @@ worker after.
   monitor's stop; a maker that makes one task and goes on computing
   hands it on at that stop. A worker with nothing else to steal
   also takes the oldest task left in another's slots 3 µs
-  (`sched.stealNext`), as Go takes a `runnext`. A global queue takes overflow and work from
+  (`sched.stealNext`), as Go takes a `runnext`. A task made while
+  every slot is full goes to the ring's tail, not into a slot
+  (`sched.wakeMade`), so a burst of tasks fills the slots once and is
+  stolen from the ring. A global queue takes overflow and work from
   outside the workers.
 - **Cache lines.** Each worker begins a cache line and fills whole
   lines, so no line holds two workers' fields, and the fields each
