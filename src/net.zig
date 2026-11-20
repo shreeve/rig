@@ -15,6 +15,21 @@ const posix = std.posix;
 const sys = posix.system;
 const IpAddress = std.Io.net.IpAddress;
 
+/// A socket's read and write. On Linux, `recvfrom` and `sendto`, which
+/// go to the socket at once, where `read` and `write` first pass through
+/// the file layer, its checks and the file-change hooks each call fires
+/// (on pup a TCP round trip spent 0.2 µs more in the kernel through
+/// them than Tokio's through these). Elsewhere `read` and `write`.
+inline fn sockRead(fd: i32, buf: [*]u8, len: usize) @TypeOf(sys.read(0, undefined, 0)) {
+    if (builtin.os.tag == .linux) return sys.recvfrom(fd, buf, len, 0, null, null);
+    return sys.read(fd, buf, len);
+}
+
+inline fn sockWrite(fd: i32, buf: [*]const u8, len: usize) @TypeOf(sys.write(0, undefined, 0)) {
+    if (builtin.os.tag == .linux) return sys.sendto(fd, buf, len, 0, null, 0);
+    return sys.write(fd, buf, len);
+}
+
 pub const NetError = error{
     @"std.net.NetError.address",
     @"std.net.NetError.in_use",
@@ -360,7 +375,7 @@ fn readKept(s: i32, reg: i64, into: *rig.String, want: usize) Error!usize {
         }
         const b = rig.sched.takeBlock();
         const asked = @min(want, b.len);
-        const rc = sys.read(s, b, asked);
+        const rc = sockRead(s, b, asked);
         const e = posix.errno(rc);
         if (e == .SUCCESS) {
             const n: usize = @intCast(rc);
@@ -395,7 +410,7 @@ fn readKept(s: i32, reg: i64, into: *rig.String, want: usize) Error!usize {
 fn readMore(s: i32, into: *rig.String, more: usize) usize {
     const room = into.roomFor(more);
     while (true) {
-        const rc = sys.read(s, room.ptr, more);
+        const rc = sockRead(s, room.ptr, more);
         switch (posix.errno(rc)) {
             .SUCCESS => {
                 const n: usize = @intCast(rc);
@@ -418,7 +433,7 @@ fn readSome(s: i32, reg: i64, dest: []u8, limit: Limit) Error!usize {
             try waitFor(s, reg, rig.sched.Registration.readable, seen, limit);
             continue;
         }
-        const rc = sys.read(s, dest.ptr, dest.len);
+        const rc = sockRead(s, dest.ptr, dest.len);
         switch (posix.errno(rc)) {
             .SUCCESS => {
                 const n: usize = @intCast(rc);
@@ -442,7 +457,7 @@ fn writeAll(s: i32, reg: i64, bytes: []const u8, limit: Limit) Error!void {
     var at: usize = 0;
     while (at < bytes.len) {
         const seen = edges(reg, rig.sched.Registration.writable);
-        const rc = sys.write(s, bytes[at..].ptr, bytes.len - at);
+        const rc = sockWrite(s, bytes[at..].ptr, bytes.len - at);
         switch (posix.errno(rc)) {
             .SUCCESS => at += @intCast(rc),
             .AGAIN => try waitFor(s, reg, rig.sched.Registration.writable, seen, limit),
@@ -2463,7 +2478,7 @@ const Conn = struct {
                 continue;
             }
             c.hold();
-            const rc = sys.read(c.fd, c.reader.buffer.ptr, c.reader.buffer.len);
+            const rc = sockRead(c.fd, c.reader.buffer.ptr, c.reader.buffer.len);
             switch (posix.errno(rc)) {
                 .SUCCESS => {
                     if (rc == 0) return false;
@@ -2497,7 +2512,7 @@ const Conn = struct {
         var waited: i64 = 0;
         while (left > 0) {
             rig.checkStop() catch return;
-            const rc = sys.read(c.fd, &buf, @min(buf.len, left));
+            const rc = sockRead(c.fd, &buf, @min(buf.len, left));
             switch (posix.errno(rc)) {
                 .SUCCESS => {
                     if (rc == 0) return;
