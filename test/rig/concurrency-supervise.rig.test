@@ -88,14 +88,18 @@ test "supervise a remake that panics answers the call it took", seeds: 20, timeo
 '''
   # A supervised actor's runner makes its value again for the call it
   # took; a panic there ends the actor, and that call panics in its
-  # caller rather than wait for ever.
+  # caller rather than wait for ever. The calls reach the actor in turn:
+  # `bad`'s only once `slow` runs, and `good`'s only after `bad` has made
+  # its call, each told by a cell, not by a sleep alone, which under load
+  # let them arrive in another order.
   use std.task
   use std.time
 
   obj Rooms
     n: Int
 
-    fun slow(?@) -> Int
+    fun slow(?@, began: *Cell[Int]) -> Int
+      (!began).add(1)
       s = 0
       for i in 0..40_000_000
         s += i % 3
@@ -108,10 +112,11 @@ test "supervise a remake that panics answers the call it took", seeds: 20, timeo
     k = (!made).add(1)
     Rooms(n: [7][k - 1])
 
-  fun hold(r: *Actor[Rooms]) -> Int
-    r.slow()
+  fun hold(r: *Actor[Rooms], began: *Cell[Int]) -> Int
+    r.slow(+began)
 
-  fun bad(r: *Actor[Rooms]) -> Int
+  fun bad(r: *Actor[Rooms], sent: *Cell[Int]) -> Int
+    (!sent).add(1)
     task.isolate(|+r| r.pick(5)) catch -1
 
   fun good(r: *Actor[Rooms]) -> Int
@@ -119,11 +124,16 @@ test "supervise a remake that panics answers the call it took", seeds: 20, timeo
 
   sub main()!
     made = *Cell(0)
+    began = *Cell(0)
+    sent = *Cell(0)
     r = *Actor.supervised(*|+made| make(+made))
-    a = hold(+r)&
-    time.sleep(ms: 5)!
-    b = bad(+r)&
-    time.sleep(ms: 1)!
+    a = hold(+r, +began)&
+    while began.get() == 0
+      time.sleep(ms: 1)!
+    b = bad(+r, +sent)&
+    while sent.get() == 0
+      time.sleep(ms: 1)!
+    time.sleep(ms: 20)!
     c = good(+r)&
     print(>b)
     print(>c)
