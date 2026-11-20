@@ -28,6 +28,7 @@ const split = rt.split;
 comptime {
     if (split.on and split.main) _ = .{
         workers_len,
+        zva_64,
         workers_override,
         global,
         sleepers,
@@ -4248,6 +4249,7 @@ fn startWorkers() void {
     const ws = all_workers.*[0..n];
     for (1..n) |i| initWorker(i);
     for (ws[1..]) |*w| w.poller.open();
+    if (comptime zva_target) zva_64.* = zvaIs64();
     workers_len.store(n, .release);
     if (n == 1) {
         if (preempt and !deterministic.*) startMonitor();
@@ -6490,17 +6492,40 @@ fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: an
 /// each), bench/tasks' spawn took 140 to 190 ns a spawn in most runs,
 /// where it took 95 before the fill moved in place, and 100 to 120 with
 /// this. With one worker the lines are this core's already, and the
-/// zeroing would only cost (3 ns a spawn). Apple's cores zero 64 bytes a
-/// `dc zva`.
+/// zeroing would only cost (3 ns a spawn).
 inline fn claimRecord(at: usize, len: usize) void {
-    if (comptime !(builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64)) return;
-    if (workers_len.load(.monotonic) < 2) return;
+    if (comptime !zva_target) return;
+    if (!zva_64.* or workers_len.load(.monotonic) < 2) return;
+    zeroLines(at, len);
+}
+
+/// Zero each whole 64-byte line in `[at, at + len)`, and nothing else:
+/// only where `dc zva` zeroes 64-byte blocks and may be used (`zva_64`).
+inline fn zeroLines(at: usize, len: usize) void {
     var p = std.mem.alignForward(usize, at, 64);
     const end = std.mem.alignBackward(usize, at + len, 64);
     while (p < end) : (p += 64) asm volatile ("dc zva, %[p]"
         :
         : [p] "r" (p),
         : .{ .memory = true });
+}
+
+/// Apple silicon, where `dc zva` may zero a task's record (`claimRecord`).
+const zva_target = builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64;
+
+/// Whether this core's `dc zva` is allowed and zeroes 64 bytes
+/// (DCZID_EL0: DZP clear, BS 4), read as the workers start
+/// (`startWorkers`). A block of another size would zero past a record's
+/// lines, so then none are zeroed.
+var zva_64_var: bool = false;
+const zva_64 = split.cell(&zva_64_var, "sched.zva_64");
+
+fn zvaIs64() bool {
+    if (comptime !zva_target) return false;
+    const v = asm volatile ("mrs %[v], dczid_el0"
+        : [v] "=r" (-> u64),
+    );
+    return v & 0x10 == 0 and v & 0xf == 4;
 }
 
 /// A record of `f(args...)`, filled and not yet started, for a slot of
@@ -11197,5 +11222,21 @@ test "every lock the runtime takes is counted for preemption" {
                 return error.Uncounted;
             }
         }
+    }
+}
+
+test "a record's whole lines are zeroed, and nothing beside them" {
+    if (comptime !zva_target) return error.SkipZigTest;
+    if (!zvaIs64()) return error.SkipZigTest;
+    var buf: [64 * 10]u8 align(64) = undefined;
+    // A record starting on a line, and one starting inside one: only the
+    // lines wholly inside each are zeroed.
+    for ([_]usize{ 64, 80 }) |off| {
+        @memset(&buf, 0xaa);
+        const len = 448;
+        zeroLines(@intFromPtr(&buf) + off, len);
+        const lo = std.mem.alignForward(usize, off, 64);
+        const hi = std.mem.alignBackward(usize, off + len, 64);
+        for (buf, 0..) |b, k| try std.testing.expectEqual(@as(u8, if (k >= lo and k < hi) 0 else 0xaa), b);
     }
 }
