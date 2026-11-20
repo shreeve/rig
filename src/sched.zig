@@ -4441,7 +4441,7 @@ fn takeFirstSegment() void {
     if (!own_records) return;
     rt.fast_alloc.startSmall();
     const p = rt.fast_alloc.allocRecord(256, .of(u64)) orelse rt.oom();
-    rt.fast_alloc.freeRecord(p[0..256], .of(u64));
+    rt.fast_alloc.freeRecord(p, 256, .of(u64));
 }
 
 /// A worker's life: run what is ready, look for more, sleep when there
@@ -6582,7 +6582,7 @@ inline fn createRecord(comptime R: type) *R {
 /// Free `r`, a record `createRecord` made, on any thread.
 inline fn destroyRecord(comptime R: type, r: *R) void {
     if (!own_records) return std.heap.smp_allocator.destroy(r);
-    rt.fast_alloc.freeRecord(std.mem.asBytes(r), .of(R));
+    rt.fast_alloc.freeRecord(@ptrCast(r), @sizeOf(R), comptime .of(R));
 }
 
 /// What `spawn` gives: the task's record, and the `Extra` in it.
