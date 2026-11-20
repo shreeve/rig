@@ -864,12 +864,9 @@ arms.
   store a task where it took two, and the workers woken for the burst
   steal half the ring at once. On pup at twelve workers the slot's swap
   alone had taken 4% of bench/tasks spawn's cycles, its line pulled to
-  and fro by the workers searching. A worker searching for work waits
-  3 µs once for every slot it saw full, then takes the first fiber still
-  there (`sched.search`), where it waited 3 µs at each worker in turn:
-  pause had been 63% of search's cycles, beside a busy worker on the same
-  core. A task's record is cast from its block with no check of its
-  alignment, which the allocator proves (`alloc.allocRecord`).
+  and fro by the workers searching. A task's record is cast from its
+  block with no check of its alignment, which the allocator proves
+  (`alloc.allocRecord`).
 
 - **On macOS a List that grows past 16 MiB moves its pages:** a large
   block that grows maps a fresh range and takes its old pages into it
