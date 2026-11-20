@@ -52,3 +52,106 @@ for the hash map's next design.
 | `archive/hash-int-spread` | `ed93b7b78` | The HashMap's integer hash multiplier a464, in place of 4b33 | Not taken (2026-11-01, overnight under the owner's delegation): a quiet pup rerun over four code layouts cleared its three RED rows, but remove rows are 6.9-9.3% slower at the median beyond about 2% noise, and the owner's exceptions covered only the Mac's int iterate and int1000 remove; no Map row may get slower | #802, closed | the #802 comments |
 | `archive/list-push` | `fcdcef091` | `List.push` inline, reading its length once; `String.push` reading its length once (the json panel's item 3) | Not taken (2026-11-06): Trig at one and four checkers gained nothing (instructions level to 0.18% more, paired cycles within noise to 2.1% more), and std.json ran 3.0% slower on gsoc-2018 for 1.8% fewer instructions; Trig's binary 12.9 KB larger. A lightweight tag, not annotated | none (measured on its branch) | [json/list-push-2026-11-06.md](2026-11/json/list-push-2026-11-06.md) |
 | `archive/preempt-std` | `54f73728f` | Option A of preemption by default: std.text's searches pay at their entry the yield check a signal left owed (`rig.owedAtEntry`, the process-wide count `sched.owing`) | Not taken (2026-11-06): it closes the gap as #994 (option B) does, a 20 ms sleeper beside a loop of searches woken at 20 ms, but costs 2-3 instructions per search in a build with the option (find 84.42 against 82.07, count 155.19 against 151.92) where B costs none. Kept as the fallback for code that cannot be placed in the program's section | none (never a PR) | [preempt/default-on-2026-11-06.md](2026-11/preempt/default-on-2026-11-06.md) |
+
+## Tags of 2026-11-15 to 2026-11-20
+
+The concurrency, fork-join, HTTP, spawn, and memory rounds of these days
+archived their probes, timing arms, and attempts not taken as they went.
+The branch cleanup of 2026-11-20 (owner: one `main` branch, every other
+branch an archive tag or gone) gave the rest theirs. Each row gives the
+tag's own message, or its commit's subject where the tag carries none.
+The measurements are in that round's records (records/2026-11/:
+`concurrency-*`, `hyper-*` and `mac-fewer-workers` for the HTTP and
+sleep rounds, `psum-gap` and `free-fork-join` for fork-join, `spawn-1119`
+for spawn and the Mac, `early-memory` for memory).
+
+| Tag | Commit | Archived | What it holds |
+|---|---|---|---|
+| `archive/panic-cold` | `3f75989e7` | 2026-11-15 | runtime: a failed index and each of Zig's safety checks panic out of line |
+| `archive/alloc-kept-age` | `4211977d8` | 2026-11-15 | records: pages the allocator keeps and does not use |
+| `archive/alloc-first-seg` | `25bdbe470` | 2026-11-15 | alloc: a heap's first segment keeps small pages |
+| `archive/hyper-steal-now` | `c7c8b186f` | 2026-11-16 | sched: probe arm, a worker takes another's run-next fiber at once (steal_next_after 0) |
+| `archive/hyper-steal-1us` | `0e46d3605` | 2026-11-16 | sched: probe arm, a busy worker's run-next fiber waits 1 us before another takes it |
+| `archive/hyper-steal-2us` | `2dd6fd595` | 2026-11-16 | sched: probe arm, a busy worker's run-next fiber waits 2 us before another takes it |
+| `archive/hyper-steal-4us` | `c175d68c7` | 2026-11-16 | sched: probe arm, a busy worker's run-next fiber waits 4 us before another takes it |
+| `archive/hyper-stack` | `6453c55bb` | 2026-11-16 | tasks: an isolate runs on the stack its worker kept from the last |
+| `archive/hyper-deadline` | `208e0e919` | 2026-11-16 | net: a connection's deadline is one timer that moves only when it fires |
+| `archive/hyper-headers` | `735c8a696` | 2026-11-16 | http: headers are parsed once, and an answer's head is written from text made once |
+| `archive/hyper-search-stamp` | `6349f1e29` | 2026-11-16 | sched: a searcher takes a run-next fiber it has seen 3 µs by its own clock |
+| `archive/hyper-search` | `5c14e07ae` | 2026-11-16 | sched: a searcher takes a run-next fiber still in its slot after 3 µs, however its owner switched |
+| `archive/hyper-search-slack` | `ec2d2bdf5` | 2026-11-16 | sched: a worker's timed waits on Linux keep to their time, with 1 ns of slack |
+| `archive/hyper-search-brief` | `b9d26e8fe` | 2026-11-16 | sched: a searcher's brief wait for a run-next fiber keeps to its time on Linux |
+| `archive/hyper-search-fix` | `cb10c93c5` | 2026-11-16 | sched: a searcher takes a run-next fiber it has seen 3 µs, however often its owner switched |
+| `archive/hyper-all` | `6dd724288` | 2026-11-16 | http: headers are parsed once, and an answer's head is written from text made once |
+| `archive/hyper-parse` | `ee90434bc` | 2026-11-16 | http: a request's head is read in one pass |
+| `archive/hyper-look` | `c955351b7` | 2026-11-16 | sched: a poller is skipped only while its worker is inside the kernel's wait |
+| `archive/hyper-look0` | `971247345` | 2026-11-16 | sched: look_after is 0 µs, a timing arm |
+| `archive/hyper-look250` | `e5d4d8bcf` | 2026-11-16 | sched: look_after is 250 µs, a timing arm |
+| `archive/hyper-quiet` | `d994802af` | 2026-11-16 | sched: a switch that leaves work only in run-next slots kicks no searcher |
+| `archive/hyper-connect` | `5f5f19b77` | 2026-11-16 | sched: a searcher sees a fiber put back in a run-next slot afresh |
+| `archive/hyper-noindex` | `ccd7474d2` | 2026-11-16 | http: a request's head is read in one pass |
+| `archive/hyper-noindex-look` | `41002bb5c` | 2026-11-16 | sched: the look tests stamp their looks ahead of the clock, so a loaded machine cannot fail them |
+| `archive/hyper-noindex-precise` | `b6cfc37ee` | 2026-11-16 | sched: a searcher's wait for a stuck worker's run-next fiber keeps to its time on Linux |
+| `archive/hyper-noindex-once` | `0ba467dc5` | 2026-11-16 | sched: a searcher waits once for a run-next fiber it noted |
+| `archive/hyper-nofill` | `222d477e4` | 2026-11-16 | sched: a steal and a look at a poller fill no stack buffer first |
+| `archive/hyper-ring` | `70c67f386` | 2026-11-16 | formal: the sleep model wakes as the scheduler does, with workPending, spread and the pollers' batches |
+| `archive/hyper-nosearch` | `bdea1eb0d` | 2026-11-16 | http: transfer codings are named in any case, and empty lines before a request line are skipped |
+| `archive/hyper-qos` | `7ab2bf7d3` | 2026-11-16 | sched: a sleeping worker looks at another's poller only while that one is stuck awake |
+| `archive/sched-solo` | `26d178e46` | 2026-11-16 | sched: a sleeping worker looks at another's poller once its worker has left it unattended |
+| `archive/sched-flush-s` | `895095f55` | 2026-11-16 | sched: a sleeping worker looks at another's poller once its worker has left it unattended |
+| `archive/sched-accept` | `a71646a3c` | 2026-11-17 | sched: a sleeping worker looks at another's poller only once its worker has left it unattended |
+| `archive/layout` | `e7d2128fb` | 2026-11-17 | sched: probe arm, two functions moved to the file's end (a layout control for timing, not for merge) |
+| `archive/sched-batch-c2` | `4482fd87d` | 2026-11-17 | sched: the last searcher that woke no one looks again at its next switch |
+| `archive/map-measure-wip` | `e77268df7` | 2026-11-17 | map-measure: uncommitted edits kept when the worktree was removed (archive only) |
+| `archive/mem-census-wip` | `19a196060` | 2026-11-17 | mem-census: uncommitted edits kept when the worktree was removed (archive only) |
+| `archive/sched-holder` | `e07c367e0` | 2026-11-17 | sched: a sleeping worker holds a busy worker's poller and rings its bell |
+| `archive/layout2` | `b75cc1839` | 2026-11-17 | sched: probe arm, two functions moved to the file's end (a layout control for timing, not for merge) |
+| `archive/sched-holder2` | `975d60ebf` | 2026-11-17 | sched: a worker that answers its bell arms its holder's watch at once, and only an idle worker holds |
+| `archive/sched-holder2b` | `1f48e9bb7` | 2026-11-17 | sched: a holder rings only after the owner has been busy 20 µs (timing arm) |
+| `archive/watch-d` | `0683d21ac` | 2026-11-17 | sched: the test of a watched worker asleep in its poller reads its pipe's result as a signed count |
+| `archive/lay3` | `94194cd14` | 2026-11-17 | sched: probe arm, two functions moved to the file's end (a layout control for timing, not for merge) |
+| `archive/watch-d2` | `daace2ebe` | 2026-11-17 | test: sched_stats's SIGTERM case ends main's own sleep, which the signal cancels |
+| `archive/watch-d3` | `b26e6f536` | 2026-11-17 | sched: a watcher waking with work keeps the watch unless another owner is busy |
+| `archive/120k-d4` | `6c0416f4f` | 2026-11-17 | sched: on Linux every worker sleeps in one epoll that nests every poller |
+| `archive/shared-sleep` | `6c0416f4f` | 2026-11-17 | sched: on Linux every worker sleeps in one epoll that nests every poller |
+| `archive/120k-lay` | `20aec4a2c` | 2026-11-17 | sched: probe arm, two functions moved to the file's end (a layout control for timing, not for merge) |
+| `archive/120k-d4m` | `ba0281a69` | 2026-11-17 | sched: probe arm, the shared sleep of archive/shared-sleep on main (not for merge) |
+| `archive/closed-c1` | `62144fdb3` | 2026-11-17 | probe arm, not for merge: closed-loop switches on the Mac (RIG_P_AGE, RIG_P_AGESTEAL, RIG_P_NOWRITE) over the mac-echo probe's |
+| `archive/120k-d5` | `815d0ab1c` | 2026-11-17 | sched: probe arm, a notify with no worker in the shared epoll kicks a sleeper and rings no bell (not for merge) |
+| `archive/closed-c2` | `9ccb0a7a3` | 2026-11-17 | probe arm, not for merge: efficiency-core rules, free helpers, a look by the owner's run time, and counters on SIGUSR1 |
+| `archive/120k-gs` | `3eda58ef4` | 2026-11-17 | sched: probe arm, the direct shared epoll compiles for Linux (not for merge) |
+| `archive/closed-c3` | `7bba55531` | 2026-11-17 | probe arm, not for merge: the rules hold only while the fibers of the workers that hold descriptors are short (RIG_P_R) |
+| `archive/closed-final` | `c9b42cb9d` | 2026-11-17 | probe arm, not for merge: on the Mac a worker whose fibers are short keeps its events' work |
+| `archive/120k-lend` | `bb58fc63c` | 2026-11-17 | sched: probe arm, a watch's nested poller is registered for the watch and removed with it (not for merge) |
+| `archive/closed-final2` | `9969c559a` | 2026-11-17 | probe arm, not for merge: the watcher takes a batch kept past its time, and one load at a switch |
+| `archive/closed-one` | `ada025290` | 2026-11-17 | probe arm, not for merge: the short-fiber rule with its stall guard, and every descriptor in worker 0's poller |
+| `archive/120k-lend2` | `1603c5c81` | 2026-11-17 | sched: probe arm, a sleeper watches no poller for a while after its watch fires (not for merge) |
+| `archive/tasks-spin` | `fb1948c58` | 2026-11-17 | sched: probe arm, a worker on a performance core spins 5 us for work before it sleeps (not for merge) |
+| `archive/tasks-switches` | `664e78054` | 2026-11-17 | sched: probe switch RIG_P_PUSHCAP, a cap on the wakes of fibers pushed out of a run-next slot (not for merge) |
+| `archive/fork-join-ring` | `f7895d3f0` | 2026-11-18 | probe: `>t` takes its task back from its worker's ring tail, not for merge |
+| `archive/fork-bc` | `79cbc4fe8` | 2026-11-18 | probe: RIG_PROBE_RAW=1 hands clang Zig's unoptimized bitcode, so one pipeline runs, with the loop vectorizer |
+| `archive/fork-qsort-ext` | `31f661b6c` | 2026-11-18 | fork record: qsort appends its halves with extend, as its Rayon twin does |
+| `archive/fork-qsort-ipn` | `9c6ab14c3` | 2026-11-18 | std.sort: the integer partition swaps its pivot as a value and walks by pointer |
+| `archive/fork-join-inline` | `2734c69c7` | 2026-11-18 | probe: count the yields a yield check makes to queued work (claimWaiting) |
+| `archive/fork-fold` | `9217052e0` | 2026-11-18 | probe: fold a checked += over integers by vectors, exactly |
+| `archive/fork-join-ring-tail` | `455ad60dd` | 2026-11-18 | probe: `>t` takes its task back from its worker's ring tail, not for merge |
+| `archive/120k-l7` | `8ec62a7e7` | 2026-11-18 | 120k-l7: a sleeper polls a long-running worker's poller beside its own with one poll(2). Board AG (pup slot 550): 120k p50/p99/p99.9 17/58/75 against main's 23/63/89 and hyper's 17/56/89, no stalled rounds; mix 70,818 cycles a request against main's 66,523 (6.5% more) and hyper's 69,293. Dropped by the owner 2026-11-18: the mix cost outweighs the 120k gain. |
+| `archive/seg-first-small` | `205d09c37` | 2026-11-18 | alloc: the test of a heap that does not fault in ahead takes half a segment before its first |
+| `archive/zig-0171` | `53d983b53` | 2026-11-18 | toolchain: Zig 0.17.1 |
+| `archive/fork-maker` | `4e9e6f076` | 2026-11-19 | sched: a fork waits behind its own maker only |
+| `archive/spawn-search-once` | `f95c21aff` | 2026-11-19 | sched: a search waits once for every run-next slot it saw full |
+| `archive/spawn-clock-look` | `d0995a086` | 2026-11-19 | sched: a search's wait reads the clock once every 16 pauses |
+| `archive/spawn-clock-look-steal` | `f38e73737` | 2026-11-19 | sched: stealNext's wait reads the clock once every 16 pauses |
+| `archive/elf-anchor` | `bf981bde5` | 2026-11-19 | runtime: the program's section starts on a 16 KiB boundary on Linux too |
+| `archive/mac-connect-trims` | `edd13bce0` | 2026-11-19 | net: on the Mac a connection makes three system calls fewer to set up and close |
+| `archive/ffj-deque` | `687b84112` | 2026-11-20 | Forks wait on a Chase-Lev deque of their worker's own (#1179, closed 2026-11-19): its fast path was unsound; the inline run (#1175) landed instead. |
+| `archive/mac-esteal` | `d220c20c1` | 2026-11-20 | Mac efficiency-core stealing arms (2026-11-20): an E-core thief takes one task, or skips shallow rings; none reached base at 10 workers (108-111 vs 94 ns). |
+| `archive/mac-hold` | `dde907515` | 2026-11-20 | Mac awake-worker hold (2026-11-20): helpers with short work keep the search count; lost: spawn at 10 workers 18-44% slower. records/2026-11/spawn-1119 and the round-031 queue. |
+| `archive/pgo-novec` | `66232b59b` | 2026-11-20 | rig build --pgo compiles its profile build with LLVM's loop vectorizer off, as Zig 0.17 does (#1178): never measured on Trig's PGO build; closed 2026-11-20 in the branch cleanup, to revive with a Trig PGO A/B. |
+| `archive/psum-handoff-pad` | `34545148d` | 2026-11-20 | Layout probe (2026-11-18): 96 bytes of never-run nops in the handoff (x86); records/2026-11/psum-gap. |
+| `archive/psum-handoff-pad2` | `b0d4a96fa` | 2026-11-20 | Layout probe (2026-11-18): 96 never-run bytes in the handoff; records/2026-11/psum-gap. |
+| `archive/psum-mem` | `fa7d173b0` | 2026-11-20 | psum-gap memory probe B (2026-11-18): a heap's first segment keeps small pages for its first 2 MiB; the idea landed as #1170. |
+| `archive/psum-runtime-trace` | `2486d1a03` | 2026-11-20 | psum-gap runtime trace knobs (2026-11-18), RIG_X_WARMHEAP and others, for the first parallel pass; not for merge; records/2026-11/psum-gap. |
+| `archive/psum-stack-both` | `644e8e694` | 2026-11-20 | psum-gap board arm (2026-11-18): main with the early-start and handoff changes together; measured in records/2026-11/psum-gap (stack-board.md), superseded by #1158/#1170. |
+| `archive/psum-stack-hp` | `ea7217f22` | 2026-11-20 | psum-gap board arm (2026-11-18): main with seg-first-small (first 2 MiB small pages); measured in records/2026-11/psum-gap, superseded by #1170. |
+| `archive/ring-steal-race-pad` | `fc71d5685` | 2026-11-20 | Layout probe (2026-11-18): 32 never-run bytes in the handoff, to test whether a psum gap was code placement; records/2026-11/psum-gap. |
