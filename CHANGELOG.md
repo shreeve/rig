@@ -858,6 +858,14 @@ arms.
   cancel sets reaches `runHere` from its waiter, not from a field of
   every task's record, which is 448 bytes again where it had grown to
   464 (bench/tasks' spawn, one cache line fewer).
+- **On Apple silicon a task's record is taken a line at a time:** with
+  more than one worker, `spawn` zeroes the record's whole cache lines
+  with `dc zva` before it fills them (`sched.claimRecord`). A record
+  comes back from its maker's free list holding the lines its runner
+  last wrote, often on the other cluster, and the fill, field by field,
+  read each back first: at ten workers on an M5 bench/tasks' spawn took
+  140 to 190 ns in most runs, and takes 100 to 122 (95 to 130 before
+  the fill moved in place); one worker is unchanged.
 - **A burst of tasks goes to the ring:** a task made while every "run
   next" slot is full goes to the ring's tail (`sched.wakeMade`), where it
   took a slot and moved the slot's oldest fiber to the ring: one locked

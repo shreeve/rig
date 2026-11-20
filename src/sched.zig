@@ -6471,12 +6471,36 @@ fn spawnIn(comptime T: type, comptime Extra: type, comptime f: anytype, args: an
     const Full = Record(T, Extra, f, @TypeOf(args));
     if (!started.*) startWorkers();
     const full = createRecord(Full);
+    claimRecord(@intFromPtr(full), @sizeOf(Full));
     // Written where it lies, field by field: a record built by a call
     // (`filled`) and then copied in was written twice, through the
     // stack (on pup's x86 a spawn took 5% more instructions and 15% more
     // L1 data misses).
     full.* = .{ .job = .{ .header = .{ .fiber = .{ .run = Full.start, .done = Header.end, .dense = dense_stack, .fork = fork }, .destroy = if (preempt) Full.destroyApart else Full.destroy } }, .extra = extra, .args = args };
     return startIn(Full, full, local, fork);
+}
+
+/// On Apple silicon with more than one worker: zero the whole cache lines
+/// of a task's record about to be written, `[at, at + len)`, with
+/// `dc zva`, which takes each line without reading it. A record comes
+/// back from the maker's free list holding the lines the task's runner
+/// last wrote, often on a core of the other cluster, and its fill, field
+/// by field, read each of them back first, across the clusters: at ten
+/// workers on an M5 (four performance cores, six efficiency cores, an L2
+/// each), bench/tasks' spawn took 140 to 190 ns a spawn in most runs,
+/// where it took 95 before the fill moved in place, and 100 to 120 with
+/// this. With one worker the lines are this core's already, and the
+/// zeroing would only cost (3 ns a spawn). Apple's cores zero 64 bytes a
+/// `dc zva`.
+inline fn claimRecord(at: usize, len: usize) void {
+    if (comptime !(builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64)) return;
+    if (workers_len.load(.monotonic) < 2) return;
+    var p = std.mem.alignForward(usize, at, 64);
+    const end = std.mem.alignBackward(usize, at + len, 64);
+    while (p < end) : (p += 64) asm volatile ("dc zva, %[p]"
+        :
+        : [p] "r" (p),
+        : .{ .memory = true });
 }
 
 /// A record of `f(args...)`, filled and not yet started, for a slot of
