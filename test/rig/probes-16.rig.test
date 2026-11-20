@@ -2645,7 +2645,7 @@ test "rev255-zb02 shared receiver kept clone", "x"
   <a
   print(out[0].n)
 
-fail "rev255-zb03 weak upgrade kept", "`s` does not live long enough"
+fail "rev255-zb03 weak upgrade kept", "`s` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj N
     n: String
 

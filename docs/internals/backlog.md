@@ -298,9 +298,9 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
 - **A result that views a `for` element cannot outlive the turn.**
   `for b in balls` (or `for b in ?balls`) over a `List[Ball]` whose
   `Ball` copies, then `best = ?b.hit()` with `fun hit(?@) -> Hit from @`,
-  is rejected: "`b` does not live long enough ... `b` goes out of scope
-  while `best` still views it". The first error's hint, `?b.hit()`, gives
-  the second. Indexing, `best = ?balls[i].hit()`, runs, and so does a
+  is rejected: "`b` is dropped here, at the end of its scope, while a
+  read view of it is still in use". The first error's hint, `?b.hit()`,
+  gives the second. Indexing, `best = ?balls[i].hit()`, runs, and so does a
   loop over `List[^Ball]`; Rust accepts the loop over `&self.list`. The
   rejection is sound for the Zig emitted, since a copyable element is
   bound by copy (`for (balls.items()) |b|`). Accepting it takes two

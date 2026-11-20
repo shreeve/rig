@@ -789,7 +789,7 @@ test "field store through local write view", '''
     .full(sv) => print(sv.b.n)
     .empty => print("empty")
 
-fail "field store through local write view outlives", "14:3: cannot store a view of `y` through `w`: `p` outlives it", "21:10: `y` does not live long enough"
+fail "field store through local write view outlives", "14:3: cannot store a view of `y` through `w`: `p` outlives it", "`y` is dropped here, at the end of its scope, while a read view of it is still in use", "21:10: a read view of `y` is made here"
   # A field assigned through a local write view is part of the place it
   # views, which outlives a later local and the function's own values
   # when it is a view parameter.

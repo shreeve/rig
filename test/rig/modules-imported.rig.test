@@ -771,7 +771,7 @@ test "imported variant positional", '''
       some(value: T)
       nothing
 
-fail "imported view stored through write view", "`x` does not live long enough"
+fail "imported view stored through write view", "`x` is dropped here, at the end of its scope, while a read view of it is still in use"
   # An imported function's write view parameter carries the loans stored
   # through it, as a local one does: `put` stores `?x` into `holder`,
   # which outlives `x`.

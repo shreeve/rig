@@ -262,7 +262,7 @@ fail "view escapes by break", "`b` does not live long enough"
     break
   print(r.payload)
 
-fail "view escapes loop body", "`b` does not live long enough"
+fail "view escapes loop body", "`b` is dropped here, at the end of its scope, while a read view of it is still in use"
   # A view of a loop-body local cannot survive into the next iteration or
   # past the loop.
 
@@ -376,7 +376,7 @@ fail "view of temporary escapes", "18:9: cannot return a view of `S(n: rt(n))`, 
   print(first(?S(n: 2)))
   print(h.s.n, r.n, q.n, c.s.n)
 
-fail "view outlives inner scope", "`b` does not live long enough"
+fail "view outlives inner scope", "`b` is dropped here, at the end of its scope, while a read view of it is still in use"
   # A view stored in an outer binding may not outlive the inner-scope
   # value it views.
 
@@ -490,7 +490,7 @@ fail "view returned from fn", "cannot drop `h` while a read view of it is still 
   x = +r.inner
   print(x.payload)
 
-fail "view slice element outlives", "14:13: `a` does not live long enough"
+fail "view slice element outlives", "`a` is dropped here, at the end of its scope, while a read view of it is still in use", "14:13: a read view of `a` is made here"
   # A returned view of a slice element keeps the slice's source
   # viewed, so the source cannot go first.
 
@@ -568,7 +568,7 @@ fail "view stored in field", "cannot drop `b` while a read view of it is still i
   <b
   print(v.box.payload)
 
-fail "view stored through passed write view", "21:13: `x` does not live long enough"
+fail "view stored through passed write view", "`x` is dropped here, at the end of its scope, while a read view of it is still in use", "21:13: a read view of `x` is made here, and `fill` keeps it in `a` (its signature says `keeps r`), so the view lasts while `a` is used"
   # A callee may store a view wherever a write view passed to it
   # leads, also one moved in from a local.
 

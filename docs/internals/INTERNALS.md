@@ -3402,9 +3402,32 @@ whose environment's drop may run a `drop` body (`env_drop_reads`), a
 parameter, and the hidden var that keeps a `for` source viewed are always
 live. Desugared, a drop that runs no `drop` body is a release of memory
 the value owns, which reads none of the views it holds. The
-conflict checks and the "does not live long enough" checks at scope ends
-and jumps skip loans whose holder is not live. This is textual, so it is
-the same on every path, and conservative where paths differ.
+conflict checks and the checks that a view does not outlive its root at
+scope ends and jumps skip loans whose holder is not live. This is
+textual, so it is the same on every path, and conservative where paths
+differ.
+
+**Both ends of a view.** A conflict points at the view that blocks it
+twice: where it is made (`noteLoan`) and the use that keeps it in use
+(`noteStillUsed`), worked out only once the error is reported, from what
+the walk keeps anyway, so a program without errors pays nothing. It
+finds the live var that holds the loan (`holderOf`) and follows the
+reason `holderLive` gave: the holder's next use after the conflict, one
+that reads the value before one that only assigns it, or else the first
+in a loop around (`nextUse`); a task's wait; deferred code; the target
+of an assignment whose value is being walked; the caller, for a
+parameter; the drop at the end of its scope of a task, or of a value
+whose `drop` body may read the view (`scopeEnd`); the loop that takes
+its next element from a source it holds; the `match` that reads its
+subject again after a guard; or, through a var or a temporary that views
+the holder, where that one is used. A view the statement in flight holds
+is used by the call that takes it, which runs after its arguments
+(`noteStmtUse`), or by the `task.select` whose arms hold it. A var a
+scope drops as the code falls through while a live var views it is
+reported at the scope's end, "`c` is dropped here, at the end of its
+scope, while a read view of it is still in use", with the same two
+notes; a jump out of the scope reports it where the view is made, "`c`
+does not live long enough".
 
 **Control flow.** `if`, `match`, ternaries, `catch`, the fallback of
 `??`, and the right side of `and` and `or` walk every branch from the

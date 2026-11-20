@@ -447,7 +447,7 @@ test "review258-p123 closure capture store outer", "u"
   f()
   print(v[0].s)
 
-fail "review258-p124 closure capture store shorter", "`u` does not live long enough"
+fail "review258-p124 closure capture store shorter", "`u` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj H
     s: ?String
 
@@ -644,7 +644,7 @@ fail "review258-p138 match binding", "cannot drop `u` while a read view of it is
     .a(h) => print(h.s)
     .b => pass
 
-fail "review258-p139b loop binding local", "`u` does not live long enough"
+fail "review258-p139b loop binding local", "`u` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj H
     s: ?String
 
@@ -902,7 +902,7 @@ test "review258-p37 closure assign", "[6]"
   f(3)
   print(v)
 
-fail "review258-p38 closure store view", "`k` does not live long enough"
+fail "review258-p38 closure store view", "`k` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj H
     s: ?String
 
@@ -917,7 +917,7 @@ fail "review258-p38 closure store view", "`k` does not live long enough"
   f(?u)
   print(v[0].s)
 
-fail "review258-p39 closure store local", "`d` does not live long enough"
+fail "review258-p39 closure store local", "`d` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj H
     s: ?String
 
@@ -963,7 +963,7 @@ fail "review258-p41 callable view store", "cannot store a view of `d` through `g
   go(?slot, !v)
   print(v[0].s)
 
-fail "review258-p42 multi from inner", "`d` does not live long enough"
+fail "review258-p42 multi from inner", "`d` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj H
     s: ?String
 
@@ -1369,7 +1369,7 @@ test "review258-p88 paren prop", '''
   print(go(!v) catch 0)
   print(v)
 
-fail "review258-p89 local view outer", "`d` does not live long enough"
+fail "review258-p89 local view outer", "`d` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj H
     s: ?String
 
@@ -1584,7 +1584,7 @@ fail "rust164250-repoint-drop-local", "cannot drop `l` while a read view of it i
   <l
   print("end")
 
-fail "rust164250-repoint-scope-end", "`l` does not live long enough"
+fail "rust164250-repoint-scope-end", "`l` is dropped here, at the end of its scope, while a read view of it is still in use"
   # rust-lang/rust#164250's Rig analog: an object whose drop body reads a
   # read-view field re-pointed at a shorter-lived local must be rejected.
 

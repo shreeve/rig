@@ -414,7 +414,7 @@ test "temporaries drop order", '''
     i += 1
   print(i)
 
-fail "temporaries not kept", "19:9: a view of the temporary `String(\"abc\")` outlives its statement", "20:6: a view of the temporary `String(\"x\")` outlives its statement", "21:11: a view of the temporary `String(\"abc\")` outlives its statement", "22:6: a view of the temporary `String(\"r\")` outlives its statement", "25:17: `t` does not live long enough", errors: 5
+fail "temporaries not kept", "19:9: a view of the temporary `String(\"abc\")` outlives its statement", "20:6: a view of the temporary `String(\"x\")` outlives its statement", "21:11: a view of the temporary `String(\"abc\")` outlives its statement", "22:6: a view of the temporary `String(\"r\")` outlives its statement", "`t` is dropped here, at the end of its scope, while a read view of it is still in use", "25:17: a read view of `t` is made here", errors: 5
   # An owning temporary lives until its statement ends, so nothing may
   # keep a view of it: not a binding, a field, a call's String result,
   # or a slice. A `match` takes a call's result: a view of a payload it
@@ -596,7 +596,7 @@ test "temporary match takes payload", '''
     .b => print("b")
   print("end")
 
-fail "temporary match view escapes", "14:17: `t` does not live long enough", errors: 1
+fail "temporary match view escapes", "`t` is dropped here, at the end of its scope, while a read view of it is still in use", "14:17: a read view of `t` is made here", errors: 1
   # A `match` takes a call's result, as `match <e` would: a payload an
   # arm binds is dropped when the arm ends, so a view of it cannot
   # outlive the arm.
@@ -982,7 +982,7 @@ test "text view loans", '''
   <u
   print(free)
 
-fail "text view outlives scope", "does not live long enough"
+fail "text view outlives scope", "`t` is dropped here, at the end of its scope, while a read view of it is still in use"
   # An object holding a String that views a Text, or a List of such
   # Strings, cannot outlive the Text.
 
@@ -2117,7 +2117,7 @@ fail "vec of views loans", "6:1: cannot reassign `a` while a read view of it is 
   a = 2
   print(v.len)
 
-fail "vec of views outlived", "which belongs to this function", "`x` does not live long enough"
+fail "vec of views outlived", "which belongs to this function", "`x` is dropped here, at the end of its scope, while a read view of it is still in use"
   # A view pushed into a List may not outlive what it views.
 
   fun mk() -> List[?Int]

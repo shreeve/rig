@@ -1171,7 +1171,7 @@ test "the error a statement holds leaves by every way there is", '''
     print(viewed(2))
     print(narrowed(1).len, narrowed(2).len)
 
-fail "a narrowed error under `match e` is a view of the caught one", "cannot move out of `x`: it is a view of `e`", "`x` owns an `E`, which can't be copied by `=`: write `<x` to move it, `+x` to clone it, or `?x` to view it", "`x` does not live long enough", errors: 3
+fail "a narrowed error under `match e` is a view of the caught one", "cannot move out of `x`: it is a view of `e`", "`x` owns an `E`, which can't be copied by `=`: write `<x` to move it, `+x` to clone it, or `?x` to view it", "`x` is dropped here, at the end of its scope, while a read view of it is still in use", errors: 3
   # `x: E =>` binds the error it narrows as a payload is bound (CORE §2,
   # "A failure moves its error": matched as an enum of its sets): under
   # `match e` a view of `e`, which is not moved out of, not copied when

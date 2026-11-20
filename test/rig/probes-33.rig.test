@@ -567,7 +567,7 @@ fail "review-step45-r2-e15 take from opt", "`grab[String]` cannot use `T = Strin
   <o
   print(r)
 
-fail "review-step45-r2-e16b view of loop copy escape int", "`x` does not live long enough"
+fail "review-step45-r2-e16b view of loop copy escape int", "`x` is dropped here, at the end of its scope, while a read view of it is still in use"
   # same with T = Int, and non-generic Int (base-comparable)
   fun lastref[T](v: ?List[T]) -> ?T
     r = ?v[0]

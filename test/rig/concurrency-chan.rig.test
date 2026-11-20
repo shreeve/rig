@@ -939,7 +939,7 @@ fail "chan select named sends what it moves", "4:17: use of `s` after move"
   match task.select(put: !a.on_send(<s))!
     .put => print(s)
 
-fail "chan select named in a block a view escapes", "11:7: `s` does not live long enough", "14:7: `t` does not live long enough"
+fail "chan select named in a block a view escapes", "`s` is dropped here, at the end of its scope, while a read view of it is still in use", "11:7: a read view of `s` is made here", "`t` is dropped here, at the end of its scope, while a read view of it is still in use", "14:7: a read view of `t` is made here"
   use std.task
   use std.time
 

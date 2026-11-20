@@ -706,7 +706,7 @@ fail "review-results-f10", "cannot reassign `b` while a read view of it is still
   a = Guard(s: "lit", tag: 2)
   print(b, a.tag)
 
-fail "review-results-p02 for write", "`d` does not live long enough"
+fail "review-results-p02 for write", "`d` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj K
     a: ?String
 
@@ -721,7 +721,7 @@ fail "review-results-p02 for write", "`d` does not live long enough"
     !x.put(?d)
   print(l[0].a)
 
-fail "review-results-p03 for write chain", "`d` does not live long enough"
+fail "review-results-p03 for write chain", "`d` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj K
     a: ?String
 
@@ -818,7 +818,7 @@ test "review-rev126-call target order compound", "[100, 0, 0, 0]"
   put(!a[..], "abcd", 3)
   print(a)
 
-fail "review-revamp-checkers-p-a1", "`row` does not live long enough"
+fail "review-revamp-checkers-p-a1", "`row` is dropped here, at the end of its scope, while a read view of it is still in use"
   # loop over ?g of arrays: row is a view? slice escape
   g = [[1, 2], [3, 4]]
   s = ?g[0][0..1]
@@ -840,7 +840,7 @@ fail "review-revamp-checkers-p-a4", "`xs` does not live long enough"
   d = [0]
   print(first(?e, ?d))
 
-fail "review-revamp-checkers-p-a5", "`row` does not live long enough"
+fail "review-revamp-checkers-p-a5", "`row` is dropped here, at the end of its scope, while a read view of it is still in use"
   fun rows(g: ?[2][2]Int) -> []Int
     s = ?g[0][0..1]
     for row in g

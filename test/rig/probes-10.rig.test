@@ -383,7 +383,7 @@ test "optwrite-review-f05-reads-ok", '''
   set(none, ?u)
   print(h.s, h.n)
 
-fail "optwrite-review-g01-caller-branch", "`u` does not live long enough"
+fail "optwrite-review-g01-caller-branch", "`u` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj H
     s: ?String
 
@@ -398,7 +398,7 @@ fail "optwrite-review-g01-caller-branch", "`u` does not live long enough"
     set(!h if c else none, ?u)
   print(h.s)
 
-fail "optwrite-review-g02-caller-local-opt", "`u` does not live long enough"
+fail "optwrite-review-g02-caller-local-opt", "`u` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj H
     s: ?String
 
@@ -413,7 +413,7 @@ fail "optwrite-review-g02-caller-local-opt", "`u` does not live long enough"
     set(<o, ?u)
   print(h.s)
 
-fail "optwrite-review-g03-method-param-caller", "`src` does not live long enough"
+fail "optwrite-review-g03-method-param-caller", "`src` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj H
     s: ?String
 
@@ -1071337,7 +1071337,7 @@ fail "p-q2", "cannot change `n.title` while a read view of it is still in use"
   !n.title.add("b")
   print(v)
 
-fail "p-q3", "`s` does not live long enough"
+fail "p-q3", "`s` is dropped here, at the end of its scope, while a read view of it is still in use"
   t = String("abc")
   out: List[?String] = List()
   put = |!out, s: ?String| !out.push(s)

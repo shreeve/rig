@@ -962,7 +962,7 @@ test "match payload owner kept", '''
     .b => pass
   print(s)
 
-fail "match payload view escapes", "27:8: cannot return a view of `e`, which belongs to this function", "37:3: cannot reassign `e` while a read view of it is still in use", "47:8: cannot move `e` while a read view of it is still in use", "54:8: a view of the temporary `mkh()` outlives its statement", "64:10: `e` does not live long enough", errors: 5
+fail "match payload view escapes", "27:8: cannot return a view of `e`, which belongs to this function", "37:3: cannot reassign `e` while a read view of it is still in use", "47:8: cannot move `e` while a read view of it is still in use", "54:8: a view of the temporary `mkh()` outlives its statement", "`e` is dropped here, at the end of its scope, while a read view of it is still in use", "64:10: a read view of `e` is made here", errors: 5
   # A read `match` binding views the subject where it is, so a view of
   # one lives as long as the subject's loan allows, and no longer: it is
   # not returned from a function that owns the subject, the subject may

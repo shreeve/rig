@@ -2131,7 +2131,7 @@ fail "R15-p-a9", "cannot change `p.x` while a write view of it is still in use"
   w[0] = 5
   u[0] = 6
 
-fail "R15-p-aa1", "`loc` does not live long enough"
+fail "R15-p-aa1", "`loc` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj R
     s: []Int
 
@@ -2146,7 +2146,7 @@ fail "R15-p-aa1", "`loc` does not live long enough"
     w[0] = R(s: ?loc[..])
   print(rs[0].s)
 
-fail "R15-p-aa2", "`loc` does not live long enough"
+fail "R15-p-aa2", "`loc` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj R
     s: []Int
 
@@ -2161,7 +2161,7 @@ fail "R15-p-aa2", "`loc` does not live long enough"
     !w.fill(R(s: ?loc[..]))
   print(rs[0].s)
 
-fail "R15-p-aa3", "`loc` does not live long enough"
+fail "R15-p-aa3", "`loc` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj R
     s: []Int
 
@@ -2192,7 +2192,7 @@ fail "R15-p-aa4", "cannot store a view of `loc` through `r`: `r` views `rs`, whi
       r = R(s: ?loc[..])
   print(rs[0].s)
 
-fail "R15-p-aa5", "`loc` does not live long enough"
+fail "R15-p-aa5", "`loc` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj R
     s: []Int
 
@@ -2209,7 +2209,7 @@ fail "R15-p-aa5", "`loc` does not live long enough"
     put(!rs[..], R(s: ?loc[..]))
   print(rs[0].s)
 
-fail "R15-p-aa6", "`loc` does not live long enough"
+fail "R15-p-aa6", "`loc` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj R
     s: []Int
 
@@ -2225,7 +2225,7 @@ fail "R15-p-aa6", "`loc` does not live long enough"
     e.s = ?loc[..]
   print(rs[0].s)
 
-fail "R15-p-aa8", "`loc` does not live long enough"
+fail "R15-p-aa8", "`loc` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj R
     s: []Int
 

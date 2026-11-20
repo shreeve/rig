@@ -1410,7 +1410,7 @@ fail "review-step45-b03 vecview via fn", "cannot drop `t` while a read view of i
   <t
   print(v)
 
-fail "review-step45-b04 vecview inner scope", "`t` does not live long enough"
+fail "review-step45-b04 vecview inner scope", "`t` is dropped here, at the end of its scope, while a read view of it is still in use"
   # a view of an inner-scope Text pushed to an outer List
   v: List[?String] = List()
   if true
@@ -1418,7 +1418,7 @@ fail "review-step45-b04 vecview inner scope", "`t` does not live long enough"
     !v.push(?t)
   print(v)
 
-fail "review-step45-b05 vecview field inner scope", "`e` does not live long enough"
+fail "review-step45-b05 vecview field inner scope", "`e` is dropped here, at the end of its scope, while a read view of it is still in use"
   # a view of an inner-scope Int pushed to an outer object's List field
   obj Bag
     items: List[?Int]
@@ -1447,7 +1447,7 @@ fail "review-step45-b07 vecview loop push", "`i` is bound but never read; name i
     !v.push(?t)
   print(v)
 
-fail "review-step45-b08 vecview elem assign", "`t2` does not live long enough"
+fail "review-step45-b08 vecview elem assign", "`t2` is dropped here, at the end of its scope, while a read view of it is still in use"
   # v[0] = ?t2 where t2 is inner-scoped
   t = String("a")
   v: List[?String] = List()

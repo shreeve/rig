@@ -95,7 +95,7 @@ test "R15-p-k2", '''
   print(buf)
   print(get[U32, .big](?buf[..], 0), get[U16, .little](?buf[..], 2))
 
-fail "R15-p-m1", "`b` does not live long enough"
+fail "R15-p-m1", "`b` is dropped here, at the end of its scope, while a write view of it is still in use"
   fun t() -> Bool
     true
 
@@ -107,7 +107,7 @@ fail "R15-p-m1", "`b` does not live long enough"
   w[0] = 9
   print(w)
 
-fail "R15-p-m2", "`s` does not live long enough"
+fail "R15-p-m2", "`s` is dropped here, at the end of its scope, while a write view of `s.arr` is still in use"
   obj S
     arr: [2]Int
 
@@ -120,7 +120,7 @@ fail "R15-p-m2", "`s` does not live long enough"
   w[0] = 9
   print(vs[0].arr)
 
-fail "R15-p-m3", "`s` does not live long enough"
+fail "R15-p-m3", "`s` is dropped here, at the end of its scope, while a write view of `s.arr` is still in use"
   obj S
     arr: [2]Int
 
@@ -614,7 +614,7 @@ test "R16-dg9", '''
   print(apply(+cb, 1))
   print(apply(<cb, 1))
 
-fail "R16-e2", "`l` does not live long enough"
+fail "R16-e2", "`l` is dropped here, at the end of its scope, while a read view of it is still in use"
   fun double(n: Int) -> Int
     n * 2
 
@@ -624,7 +624,7 @@ fail "R16-e2", "`l` does not live long enough"
     h = ?l
   print(h(1))
 
-fail "R16-e4", "`l` does not live long enough"
+fail "R16-e4", "`l` is dropped here, at the end of its scope, while a read view of it is still in use"
   fun double(n: Int) -> Int
     n * 2
 
@@ -884,7 +884,7 @@ fail "R16-l4", "cannot reassign closure binding `add`; closure bindings are fixe
   add()
   print(b)
 
-fail "R16-lf11", "`l` does not live long enough"
+fail "R16-lf11", "`l` is dropped here, at the end of its scope, while a read view of it is still in use"
   a: List[Int] = List()
   !a.push(1)
   r = ?a

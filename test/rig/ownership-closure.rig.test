@@ -348,7 +348,7 @@ test "closure result takes tail", '''
   print(h(mk(3), true).id, h(mk(4), false).id)
   print(k(mk(5), 1).id, t(mk(6)).id, apply(?g, mk(7)).id)
 
-fail "closure result views captured view", "13:8: `x` does not live long enough"
+fail "closure result views captured view", "`x` is dropped here, at the end of its scope, while a read view of it is still in use", "13:8: a read view of `x` is made here"
   # Calling a closure yields a value that may lend what the closure
   # captured, so it cannot outlive the viewed value.
 

@@ -137,7 +137,7 @@ fail "slice diagnostics", "8:4: cannot change parameter `a`", "12:3: cannot make
 
   shared()
 
-fail "slice diagnostics ownership", "13:12: `w` is a write view the closure captures, and a return value would hand it out of the closure at each call, though a write view has one holder; use it inside the closure instead", "19:14: cannot use `grid` while a write view of it is still in use", "29:18: `loc` does not live long enough"
+fail "slice diagnostics ownership", "13:12: `w` is a write view the closure captures, and a return value would hand it out of the closure at each call, though a write view has one holder; use it inside the closure instead", "19:14: cannot use `grid` while a write view of it is still in use", "`loc` is dropped here, at the end of its scope, while a read view of it is still in use", "29:18: a read view of `loc` is made here"
   # Each mistake in how long a write slice lives, or where it goes, gets
   # one diagnostic that names it.
 
@@ -173,7 +173,7 @@ fail "slice diagnostics ownership", "13:12: `w` is a write view the closure capt
   looped()
   stored()
 
-fail "slice of copy escapes", "10:8: `row` does not live long enough"
+fail "slice of copy escapes", "`row` is dropped here, at the end of its scope, while a read view of it is still in use", "10:8: a read view of `row` is made here"
   # A loop element is a copy: a slice of one points into the copy and
   # cannot outlive it. (A read view of an array points at the array, so
   # a slice of it may outlive the view; see
@@ -431,7 +431,7 @@ fail "slice push while live", "10:1: cannot change `v` while a read view of it i
   eat(<v)
   print(s)
 
-fail "slice return array copy", "10:4: cannot return a view of `a`: a parameter taken by value belongs to this function and ends with it; take `a: ?[3]Int`", "13:4: cannot return a view of `p`", "17:13: cannot return a view of `x`, which belongs to this function", "`b` does not live long enough", errors: 4
+fail "slice return array copy", "10:4: cannot return a view of `a`: a parameter taken by value belongs to this function and ends with it; take `a: ?[3]Int`", "13:4: cannot return a view of `p`", "17:13: cannot return a view of `x`, which belongs to this function", "`b` is dropped here, at the end of its scope, while a read view of it is still in use", errors: 4
   # A parameter taken by value, and a loop's copy of an element, belong to
   # the function, so a view of them cannot be returned. A view returned
   # from a lent to read array parameter views the caller's array, which

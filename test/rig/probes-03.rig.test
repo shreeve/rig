@@ -3357,7 +3357,7 @@ test "assignthrough-q07", "8 none"
 
   print(run(4), run(none))
 
-fail "assignthrough-q09", "`d` does not live long enough"
+fail "assignthrough-q09", "`d` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj H
     s: ?String
 
@@ -3382,7 +3382,7 @@ test "assignthrough-q10", "[2]"
   apply(first, !v)
   print(v)
 
-fail "assignthrough-q14", "`e` does not live long enough"
+fail "assignthrough-q14", "`e` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj H
     s: ?String
 

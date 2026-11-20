@@ -1013,7 +1013,7 @@ test "assign element after value", '''
   v[at_end(!v)] = String("n")
   print(v)
 
-fail "assign target after value scope", "23:12: `u` does not live long enough", "36:12: `u` does not live long enough", "46:10: `u` does not live long enough", "60:10: `u` does not live long enough", "70:10: `u` does not live long enough", "82:12: `u` does not live long enough", "94:12: `u` does not live long enough", "105:12: `u` does not live long enough", "118:12: `u` does not live long enough", "132:12: `u` does not live long enough", errors: 10
+fail "assign target after value scope", "`u` is dropped here, at the end of its scope, while a write view of it is still in use", "23:12: a write view of `u` is made here", "36:12: a write view of `u` is made here", "46:10: a write view of `u` is made here", "60:10: a write view of `u` is made here", "70:10: a write view of `u` is made here", "82:12: a write view of `u` is made here", "94:12: a write view of `u` is made here", "105:12: a write view of `u` is made here", "118:12: a write view of `u` is made here", "`u` is dropped here, at the end of its scope, while a read view of it is still in use", "132:12: a read view of `u` is made here", errors: 10
   # An assignment is `{ __v = value; place op= __v }`: every scope nested
   # in the value ends before the target is used, so a view the target reads
   # may not be pointed at a local of such a scope, the last one included
@@ -2940,7 +2940,7 @@ fail "call write lend kept", "34:26: cannot change `v` while a read view of it i
 
   result_then_write()
 
-fail "callable call result loans", "12:9: cannot return a view of `c`, which belongs to this function", "20:9: `c` does not live long enough", "25:9: `d` does not live long enough", "29:9: `e` does not live long enough"
+fail "callable call result loans", "12:9: cannot return a view of `c`, which belongs to this function", "`c` is dropped here, at the end of its scope, while a read view of it is still in use", "20:9: a read view of `c` is made here", "`d` is dropped here, at the end of its scope, while a read view of it is still in use", "25:9: a read view of `d` is made here", "`e` is dropped here, at the end of its scope, while a read view of it is still in use", "29:9: a read view of `e` is made here"
   # Calling a callable gives a result that views what the callable
   # holds, whatever form the callee takes: a closure binding, a viewed
   # callable held by a local, a lent closure called in place, or one a
@@ -2973,7 +2973,7 @@ fail "callable call result loans", "12:9: cannot return a view of `c`, which bel
     r = echo(?n)()
   print(r.len)
 
-fail "callable view escape", "25:4: cannot return a view of `g`, which belongs to this function", "28:11: an owned closure cannot capture a view of `f`", "29:12: cannot move-capture view parameter `f`", "40:8: `l` does not live long enough", "45:2: cannot drop `m` while a read view of it is still in use", "48:12: cannot change `c` while a read view of it is still in use", "53:38: cannot change `total` while a write view of it is still in use"
+fail "callable view escape", "25:4: cannot return a view of `g`, which belongs to this function", "28:11: an owned closure cannot capture a view of `f`", "29:12: cannot move-capture view parameter `f`", "`l` is dropped here, at the end of its scope, while a read view of it is still in use", "40:8: a read view of `l` is made here", "45:2: cannot drop `m` while a read view of it is still in use", "48:12: cannot change `c` while a read view of it is still in use", "53:38: cannot change `total` while a write view of it is still in use"
   # A callable view follows the second-class view rules. It may not
   # outlive the closure it lends or what that closure captured, be
   # captured by an owned closure, or be returned from a function that was
@@ -3028,7 +3028,7 @@ fail "callable view escape", "25:4: cannot return a view of `g`, which belongs t
     b(2)
   both(|!total, n| print(total + n), |!total, n| print(total - n))
 
-fail "callable view results", "20:6: cannot return a view of `w`, which belongs to this function", "26:14: `b` does not live long enough", "31:13: `c` does not live long enough"
+fail "callable view results", "20:6: cannot return a view of `w`, which belongs to this function", "`b` is dropped here, at the end of its scope, while a read view of it is still in use", "26:14: a read view of `b` is made here, and `fill` keeps it in `v` (its signature says `keeps f`), so the view lasts while `v` is used", "`c` is dropped here, at the end of its scope, while a read view of it is still in use", "31:13: a read view of `c` is made here"
   # What a callable view returns may lend what it captured: a call's
   # result, and what its write views lead to, carry those views, so
   # they cannot outlive the captured values; and a callable's result that
@@ -9654,7 +9654,7 @@ test "repoint releases old view", '''
   !z.add("!")
   print(c, d)
 
-fail "repointed view outlived", "14:10: `n` does not live long enough", "15:8: `o` does not live long enough"
+fail "repointed view outlived", "`n` is dropped here, at the end of its scope, while a read view of it is still in use", "14:10: a read view of `n` is made here", "`o` is dropped here, at the end of its scope, while a write view of it is still in use", "15:8: a write view of `o` is made here"
   # A view pointed elsewhere may not outlive what it views, in a field or
   # a local.
 
@@ -10202,7 +10202,7 @@ test "store into unnamed self", '''
   wv(!v)[0].r = ?t
   print(h.rs, a.rs, b.rs, b.r, v[0].r)
 
-fail "store into unnamed self is rejected", "48:19: `s` does not live long enough", "56:28: `s` does not live long enough", "62:23: `s` does not live long enough", "68:25: `s` does not live long enough", "74:18: `s` does not live long enough", "81:19: `s` does not live long enough", errors: 6
+fail "store into unnamed self is rejected", "`s` is dropped here, at the end of its scope, while a read view of `s.t` is still in use", "48:19: a read view of `s.t` is made here", "56:28: a read view of `s.t` is made here", "62:23: a read view of `s.t` is made here", "68:25: a read view of `s.t` is made here", "74:18: a read view of `s.t` is made here", "81:19: a read view of `s.t` is made here", errors: 6
   # A store reached through a write loan lands in what that loan reaches,
   # whatever the syntax: a write method's self that is no named place
   # (a write view a call returns, a branching self, one whose
@@ -10337,7 +10337,7 @@ fail "store through loop element outlives", "14:3: cannot store a view of `y` th
     vw = View(b: ?y)
   print(arr[0].b.n)
 
-fail "store through nested view outlives", "27:24: `k` does not live long enough", "31:17: `k` does not live long enough", "37:18: `k` does not live long enough", "43:20: `k` does not live long enough", "49:28: `k` does not live long enough", errors: 5
+fail "store through nested view outlives", "`k` is dropped here, at the end of its scope, while a read view of it is still in use", "27:24: a read view of `k` is made here", "31:17: a read view of `k` is made here", "37:18: a read view of `k` is made here", "43:20: a read view of `k` is made here", "49:28: a read view of `k` is made here", errors: 5
   # A value stored through write views lands in the value the last one
   # reaches, which must not outlive what the value views: `o.i =
   # Inner(x: R(y: ?k))` stores into `o`, and `o.i.x = R(y: ?k)` into its
@@ -10390,7 +10390,7 @@ fail "store through nested view outlives", "27:24: `k` does not live long enough
       _ => pass
   print(e)
 
-fail "store through write view outlives", "`y` does not live long enough", "`z` does not live long enough"
+fail "store through write view outlives", "`y` is dropped here, at the end of its scope, while a read view of it is still in use", "`z` is dropped here, at the end of its scope, while a read view of it is still in use"
   # A view a call stores through a write view lands in the value the
   # write view leads to, so it may not outlive that value.
 
@@ -10443,7 +10443,7 @@ fail "store view through held write view", "14:3: cannot store a view of `t` thr
   put(!outer)
   print(outer.r.n)
 
-fail "store view through local write view", "15:16: `y` does not live long enough"
+fail "store view through local write view", "`y` is dropped here, at the end of its scope, while a read view of it is still in use", "15:16: a read view of `y` is made here"
   # Assigning through a local write view stores the value in the place
   # it views, which outlives a view of a later local.
 
@@ -10537,7 +10537,7 @@ test "string copies free", '''
   <lits
   print(last, c.get())
 
-fail "string copies keep text", "13:1: cannot change `t` while a read view of it is still in use", "19:12: `u` does not live long enough", errors: 2
+fail "string copies keep text", "13:1: cannot change `t` while a read view of it is still in use", "`u` is dropped here, at the end of its scope, while a read view of it is still in use", "19:12: a read view of `u` is made here", errors: 2
   # A String copied out of a List or a slice of one views the Text it
   # views, not the List: dropping the List is fine, changing the Text is not,
   # and the Text must outlive the copy.
@@ -10561,7 +10561,7 @@ fail "string copies keep text", "13:1: cannot change `t` while a read view of it
     o = sl[0]
   print(o)
 
-fail "string of local text", "10:3: cannot return a view of `t`, which belongs to this function", "10:3: a `?String` views text it doesn't own; return a `String` to give text of its own", "14:14: cannot return a view of `t`, which belongs to this function", "14:14: a `?String` views text it doesn't own; return a `String` to give text of its own", "18:3: cannot store a view of `t` in `u.name`: `u` outlives it", "18:12: a `?String` views text it doesn't own; store a `String` to own it", "23:12: `t` does not live long enough", "23:12: a `?String` views text it doesn't own; store a `String` to own it", errors: 4
+fail "string of local text", "10:3: cannot return a view of `t`, which belongs to this function", "10:3: a `?String` views text it doesn't own; return a `String` to give text of its own", "14:14: cannot return a view of `t`, which belongs to this function", "14:14: a `?String` views text it doesn't own; return a `String` to give text of its own", "18:3: cannot store a view of `t` in `u.name`: `u` outlives it", "18:12: a `?String` views text it doesn't own; store a `String` to own it", "`t` is dropped here, at the end of its scope, while a read view of it is still in use", "23:12: a read view of `t` is made here", "23:12: a `?String` views text it doesn't own; store a `String` to own it", errors: 4
   # A String views text it doesn't own. Where one outlives the Text it
   # views, as a function's String result or a String field, the
   # diagnostic says so and points at Text, which owns its bytes.
@@ -10744,7 +10744,7 @@ fail "string view stores", "18:2: cannot drop `t` while a read view of it is sti
   <t
   print(a, c, d, n)
 
-fail "string view untracked", "14:1: `put[?String]` cannot use `T = ?String`: the generic body stores a `T` in a Cell, which holds no view, and a `?String` may view a String (a `Static` holds no view)", "15:5: `later[?String]` cannot use `T = ?String`", "18:15: `s` does not live long enough", "21:10: cannot store a view of `t` in a `Signal`"
+fail "string view untracked", "14:1: `put[?String]` cannot use `T = ?String`: the generic body stores a `T` in a Cell, which holds no view, and a `?String` may view a String (a `Static` holds no view)", "15:5: `later[?String]` cannot use `T = ?String`", "`s` is dropped here, at the end of its scope, while a read view of it is still in use", "18:15: a read view of `s` is made here", "21:10: cannot store a view of `t` in a `Signal`"
   # Loans are not followed into a Cell's or Signal's contents or an owned
   # closure's captures, so a String that may view a Text cannot go there:
   # not a view, not a String parameter, not a closure's String parameter
@@ -10989,7 +10989,7 @@ fail "kept view in a closure given to a generic", "`head(v)` keeps a view of `v`
     r[0] + x
   ))
 
-fail "a chain in a block keeps its scope's end in the source", "7:10: `qs` does not live long enough"
+fail "a chain in a block keeps its scope's end in the source", "`qs` is dropped here, at the end of its scope, while a read view of it is still in use", "7:10: a read view of `qs` is made here"
   # A chain's hidden names sit past the source's end; the block still
   # ends where its last line does, so a view escaping it is caught.
   new best: (?String)? = none
@@ -11002,7 +11002,7 @@ fail "a chain in a block keeps its scope's end in the source", "7:10: `qs` does 
   if best as b
     print(b)
 
-fail "collected views do not outlive their source's block", "8:9: `qs` does not live long enough"
+fail "collected views do not outlive their source's block", "`qs` is dropped here, at the end of its scope, while a read view of it is still in use", "8:9: a read view of `qs` is made here"
   obj P
     name: String
 
@@ -11015,7 +11015,7 @@ fail "collected views do not outlive their source's block", "8:9: `qs` does not 
   if best as b
     print(b[0].name)
 
-fail "collected String views do not outlive their source's block", "5:11: `qs` does not live long enough"
+fail "collected String views do not outlive their source's block", "`qs` is dropped here, at the end of its scope, while a read view of it is still in use", "5:11: a read view of `qs` is made here"
   new best: List[?String]? = none
   if true
     qs = List[String]()
@@ -11024,7 +11024,7 @@ fail "collected String views do not outlive their source's block", "5:11: `qs` d
   if best as b
     print(b[0])
 
-fail "a padded closure in a block keeps its scope's end in the source", "10:10: `qs` does not live long enough"
+fail "a padded closure in a block keeps its scope's end in the source", "`qs` is dropped here, at the end of its scope, while a read view of it is still in use", "10:10: a read view of `qs` is made here"
   # A closure padded to its type has a hidden parameter past the
   # source's end, as a chain's names are.
   sub each(f: ?sub(Int, Int))
@@ -11039,7 +11039,7 @@ fail "a padded closure in a block keeps its scope's end in the source", "10:10: 
   if best as b
     print(b)
 
-fail "a bare for in a block keeps its scope's end in the source", "5:10: `qs` does not live long enough"
+fail "a bare for in a block keeps its scope's end in the source", "`qs` is dropped here, at the end of its scope, while a read view of it is still in use", "5:10: a read view of `qs` is made here"
   new best: (?String)? = none
   if true
     qs = List[String]()

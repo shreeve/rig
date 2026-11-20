@@ -2,7 +2,7 @@
 
 use std.text
 
-fail "r3-s36-loans-text st02 loop view into vec", "`t` does not live long enough"
+fail "r3-s36-loans-text st02 loop view into vec", "`t` is dropped here, at the end of its scope, while a read view of it is still in use"
   names: List[?String] = List()
   for i in 0..3
     t = String("n", i)
@@ -446,7 +446,7 @@ fail "r3-s36-n34 return move defer writes", "use of `r` after move"
   !x.v.push(3)
   print(x.v.len, x.v[0])
 
-fail "r3-s36-n36 read field repoint inner", "`b` does not live long enough"
+fail "r3-s36-n36 read field repoint inner", "`b` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj H
     r: ?List[Int]
 
@@ -458,7 +458,7 @@ fail "r3-s36-n36 read field repoint inner", "`b` does not live long enough"
     h.r = ?b
   print(h.r.len)
 
-fail "r3-s36-n38 read local repoint loop", "`b` does not live long enough"
+fail "r3-s36-n38 read local repoint loop", "`b` is dropped here, at the end of its scope, while a read view of it is still in use"
   a: List[Int] = List()
   r = ?a
   for i in 0..2

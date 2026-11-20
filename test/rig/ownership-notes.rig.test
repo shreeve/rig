@@ -1,0 +1,149 @@
+# ownership: tests whose names start `notes`.
+#
+# A conflict with a view points at both ends of the view: where it is
+# made, and the use that keeps it in use, the next one after the
+# conflict. For a task the use is its wait; for a task or a value with a
+# `drop` body that is never used again, its drop at the end of its scope;
+# for a view the statement in flight holds, the call that takes it, or
+# the `task.select` whose arms hold it.
+
+use std.task
+
+fail "notes read view", "4:1: cannot change `v` while a read view of it is still in use", "3:6: a read view of `v` is made here", "5:7: still used here", errors: 1
+  v: List[Int] = List()
+  !v.push(1)
+  a = ?v[..]
+  !v.push(2)
+  print(a.len)
+
+fail "notes write view", "3:7: cannot use `n` while a write view of it is still in use", "2:6: a write view of `n` is made here", "4:1: still used here", errors: 1
+  n = 1
+  w = !n
+  print(n)
+  w += 1
+
+fail "notes field of a place", "7:1: cannot reassign `p` while a read view of `p.name` is still in use", "6:5: a read view of `p.name` is made here", "8:7: still used here", errors: 1
+  obj P
+    name: String
+    n: Int
+
+  p = P(name: String("a"), n: 1)
+  s = ?p.name
+  p = P(name: String("b"), n: 2)
+  print(s)
+
+fail "notes cell", "3:1: cannot reassign `c` while a write view of it is still in use", "2:6: a write view of `c` is made here", "4:7: still used here", errors: 1
+  c = *Cell(0)
+  w = !c
+  c = *Cell(1)
+  print(w.get())
+
+fail "notes cell kept by a call", "9:1: cannot reassign `h` while a write view of it is still in use", "8:6: a write view of `h` is made here", "10:6: still used here", errors: 1
+  obj Hits
+    n: Cell[Int]
+
+    fun cell(!@) -> !Cell[Int]
+      !@n
+
+  h = *Hits(n: Cell(0))
+  w = !h.cell()
+  h = *Hits(n: Cell(5))
+  _ = !w.add(1)
+
+fail "notes task", "6:1: cannot change `xs` while a read view of it is still in use", "5:12: a read view of `xs` is made here", "7:7: still used here", errors: 1
+  fun total(xs: ?List[Int]) -> Int
+    xs.len
+
+  xs: List[Int] = List()
+  t = total(?xs)&
+  !xs.push(1)
+  print(>t)
+
+fail "notes task dropped at its scope's end", "7:3: cannot change `xs` while a read view of it is still in use", "6:14: a read view of `xs` is made here", "8:16: `u` is dropped here, at the end of its scope, and waits for its task, which still uses the view", errors: 1
+  fun total(xs: ?List[Int]) -> Int
+    xs.len
+
+  xs: List[Int] = List()
+  if xs.len == 0
+    u = total(?xs)&
+    !xs.push(1)
+    print(xs.len)
+  print(xs.len)
+
+fail "notes drop at the end of a scope", "6:11: `c` is dropped here, at the end of its scope, while a read view of it is still in use", "5:8: a read view of `c` is made here", "7:7: still used here", errors: 1
+  keep = String("keep")
+  r = ?keep[..]
+  if keep.len > 0
+    c = String("inner")
+    r = ?c[..]
+    print(c)
+  print(r)
+
+fail "notes drop at the end of a scope, of a field", "9:16: `p` is dropped here, at the end of its scope, while a read view of `p.name` is still in use", "8:7: a read view of `p.name` is made here", "10:7: still used here", errors: 1
+  obj P
+    name: String
+
+  keep = String("keep")
+  r = ?keep[..]
+  if keep.len > 0
+    p = P(name: String("inner"))
+    r = ?p.name
+    print(p.name)
+  print(r)
+
+fail "notes drop body", "9:1: cannot reassign `x` while a read view of it is still in use", "8:18: a read view of `x` is made here", "9:6: `g` is dropped here, at the end of its scope, and its `drop` body could still read the view", errors: 1
+  obj Guard
+    item: ?Int
+
+    drop(!@)
+      print("guard", @item)
+
+  x = 1
+  g = Guard(item: ?x)
+  x = 2
+
+fail "notes loop", "6:3: cannot change `v` while a read view of it is still in use", "3:6: a read view of `v` is made here", "5:9: still used here, in the next iteration of the loop", errors: 1
+  v: List[Int] = List()
+  !v.push(1)
+  r = ?v[..]
+  for i in 0..3
+    print(r.len)
+    !v.push(i)
+
+fail "notes loop source", "4:3: cannot change `v` while a read view of it is still in use", "3:11: a read view of `v` is made here", "3:1: still used here, by the loop, which takes its next element from it", errors: 1
+  v: List[Int] = List()
+  !v.push(1)
+  for x in ?v
+    !v.push(x)
+
+fail "notes deferred code", "5:1: cannot change `v` while a read view of it is still in use", "3:6: a read view of `v` is made here", "4:13: still used here, in deferred code, which runs at the end of its scope", errors: 1
+  v: List[Int] = List()
+  !v.push(1)
+  s = ?v[..]
+  defer print(s[0])
+  !v.push(2)
+
+fail "notes call", "6:16: cannot use `v` while a write view of it is still in use", "6:13: a write view of `v` is made here", "6:7: still used here, by the call, which runs after its arguments", errors: 1
+  fun grow(v: !List[Int], n: Int) -> Int
+    !v.push(n)
+    v.len
+
+  v: List[Int] = List()
+  print(grow(!v, v.len))
+
+fail "notes select", "10:18: cannot change `n` while a write view of it is still in use", "6:18: a write view of `n` is made here", "5:5: still used here: `task.select` makes every arm before it runs one, and each arm's views last until it returns", errors: 1
+  a = *Chan[Int](1)
+  b = *Chan[Int](1)
+  !b.send(7)!
+  n = 0
+  x = task.select(
+    (!a).on_recv(|!n, v|
+      n += 1
+      n
+    ),
+    (!b).on_recv(|!n, v|
+      n += 2
+      n
+    ),
+  )!
+  print(x, n)

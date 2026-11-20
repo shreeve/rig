@@ -45,7 +45,7 @@ fail "review-seam2-r2-z08 view local assign", "a view of the temporary `mkh()` o
   w = wrap(!mkh())
   print(w.r)
 
-fail "review-seam2-r2-z10 elem temp assign", "`s` does not live long enough"
+fail "review-seam2-r2-z10 elem temp assign", "`s` is dropped here, at the end of its scope, while a read view of `s.t` is still in use"
   # Review probe r2/z10_elem_temp_assign.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
   # oracle: S.drop accept
   # oracle: H.me accept
@@ -8008,7 +8008,7 @@ fail "review-std-b11", "cannot let this call store a view of `a` in `v`: `v` out
   f(!v)
   print(v.xs)
 
-fail "review-std-b14", "`a` does not live long enough"
+fail "review-std-b14", "`a` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj Counter
     n: Int
 
@@ -8024,7 +8024,7 @@ fail "review-std-b14", "`a` does not live long enough"
     s = (!c).keep(?a)
   print(s)
 
-fail "review-std-b16", "`a` does not live long enough"
+fail "review-std-b16", "`a` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj View
     xs: []Int
 
@@ -8043,7 +8043,7 @@ fail "review-std-b16", "`a` does not live long enough"
     !c.stash(!v, ?a)
   print(v.xs)
 
-fail "review-std-b8", "`a` does not live long enough"
+fail "review-std-b8", "`a` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj View
     xs: []Int
 
@@ -8060,7 +8060,7 @@ fail "review-std-b8", "`a` does not live long enough"
     !h.put(?a)
   print(h.b.xs)
 
-fail "review-std-b9", "`a` does not live long enough"
+fail "review-std-b9", "`a` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj Holder
     v: List[[]Int]
 

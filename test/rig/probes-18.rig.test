@@ -1117,7 +1117,7 @@ fail "review-b4b-2-p20 for elem then push", "cannot change `v` while a read view
   print(clobber(1))
   print(saved.t)
 
-fail "review-b4b-2-p21 store vec then drop", "`e` does not live long enough"
+fail "review-b4b-2-p21 store vec then drop", "`e` is dropped here, at the end of its scope, while a read view of it is still in use"
   # Payload views pushed into a List of views; the subject List then dropped. Expect reject.
   obj Res
     n: Int
@@ -1142,7 +1142,7 @@ fail "review-b4b-2-p21 store vec then drop", "`e` does not live long enough"
   for x in views
     print(x.t)
 
-fail "review-b4b-2-p22 store vec ok", "`e` does not live long enough"
+fail "review-b4b-2-p22 store vec ok", "`e` is dropped here, at the end of its scope, while a read view of it is still in use"
   # Payload views pushed into a List of views; ok. Expect accept, prints one two.
   obj Res
     n: Int
@@ -1315,7 +1315,7 @@ test "review-b4b-2-p27 multi field ok", '''
   print(clobber(1))
   print(s1.t, s2.t)
 
-fail "review-b4b-2-p32 generic catchall made", "`x` does not live long enough"
+fail "review-b4b-2-p32 generic catchall made", "`x` is dropped here, at the end of its scope, while a read view of it is still in use"
   # Generic body: catch-all of a made subject escapes the arm. Expect reject.
   enum Opt[T]
     some(v: T)

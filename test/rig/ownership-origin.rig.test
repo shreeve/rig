@@ -404,7 +404,7 @@ test "origin store by type", '''
   <l
   print(h.r[0])
 
-fail "origin stores before result", "`w` does not live long enough"
+fail "origin stores before result", "`w` is dropped here, at the end of its scope, while a read view of it is still in use"
   # A call stores before its result is handed back: `next` re-points
   # `@items` at `extra`, so its result views `w`, which ends first.
 
