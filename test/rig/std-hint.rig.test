@@ -44,3 +44,37 @@ fail "hint keep reads only", "3:11: `!n` here is read, not held: `hint.keep` onl
   # `keep` lends a read view, so it takes no `!x`.
   n = 1
   hint.keep(!n)
+
+test "hint opaque gives its value back", "963953 1.5 true ab"
+  # `opaque` gives back what it is given, of any type; an owned value
+  # moves in and out.
+  fun spin(n: Int) -> Int
+    m = hint.opaque(n)
+    total = 0
+    for i in 0..m
+      total = (total + i * 7) % 1000003
+    total
+
+  s = String("ab")
+  t = hint.opaque(<s)
+  print(spin(10000), hint.opaque(1.5), hint.opaque(true), t)
+
+test "hint opaque hides a constant from release builds", "963953", release: true
+  # The count reaches the loop through `opaque`, so the loop runs for it
+  # rather than for a constant folded into it.
+  m = hint.opaque(10000)
+  total = 0
+  for i in 0..m
+    total = (total + i * 7) % 1000003
+  total
+
+code "hint opaque calls the module's function with the type first", /__rig_m\d+_std_hint\.@"opaque"\(i64, 3\)/
+  hint.opaque(3)
+
+fail "hint opaque takes an owned value by move", "4:17: `s` owns a `String`, which can't be copied into an argument: write `<s` to move it or `+s` to pass a clone"
+  # `opaque` takes its argument as an argument takes any value: an owned
+  # one moves.
+  s = String("ab")
+  t = hint.opaque(s)
+  print(t)
+

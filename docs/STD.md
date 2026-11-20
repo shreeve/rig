@@ -1548,6 +1548,7 @@ read and wrote any other memory, so no load or store moves across it.
 | Member | Result |
 |---|---|
 | `keep[T](x: ?T)` | nothing; lends `x` to read for the call, and costs no instruction beyond holding `x` in memory |
+| `opaque[T](x: T) -> T` | `x` itself, which the optimizer must treat as any value of its type; an owned value moves in and out |
 
 A benchmark keeps each round's result, so the round's work is done
 however little else reads it, and since any memory may have changed,
@@ -1581,7 +1582,28 @@ sub main()
 `keep` gives nothing back, so it hides nothing about a value from the
 code after it: an input the optimizer could fold, a constant or a value
 in registers, is held in memory first, a List's element or an object's
-field, which the clobber makes it read again.
+field, which the clobber makes it read again. `opaque` hides an input:
+what it gives back comes through the same empty assembly, so the code
+after it is compiled for any value, not specialized for the one written.
+Rust's benchmarks write `black_box(n)` for this:
+
+```rig
+use std.hint
+
+fun spin(n: Int) -> Int
+  m = hint.opaque(n)
+  total = 0
+  for i in 0..m
+    total = (total + i * 7) % 1000003
+  total
+
+sub main()
+  print(spin(10000))
+```
+
+```output
+963953
+```
 
 ## std.random
 
