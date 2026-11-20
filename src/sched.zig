@@ -171,7 +171,7 @@ const Worker = struct {
     /// the oldest or nothing, by one swap; the oldest it displaces goes to
     /// the ring. This worker takes the newest, at most `lifo_limit` times
     /// in a row; a worker with nothing else to steal takes the oldest
-    /// once it has waited there a while (`stealNext`), as Go's `runnext`.
+    /// once it has waited there a while (`search`), as Go's `runnext`.
     /// A task made and waited for runs at once while it is still in a
     /// slot (`handoff`), so a fiber that makes several and waits for each
     /// in turn waits behind none of the ring's. Whoever moves a slot from
@@ -457,7 +457,7 @@ fn currentOf() ?*Fiber {
 /// slots wakes one (`spread`), and a maker that goes on computing hands
 /// `f` on at the monitor's stop (`afterPreempt`). A worker that
 /// searches also takes a fiber left in a busy worker's slot a while
-/// (`stealNext`). Of the fibers one batch of a poller's events or of
+/// (`search`). Of the fibers one batch of a poller's events or of
 /// timers makes ready, only the first takes the slot; the others go to
 /// the ring (`Batch`). Outside the workers, `f` goes to the global queue.
 pub const wake = if (preempt) wakeApart else wakeIn;
@@ -548,7 +548,7 @@ inline fn wakeQueued(f: *Fiber, comptime kind: enum { woken, made, fork }) void 
 /// work or at a task's end. The first goes to its "run next" slot, which
 /// it runs next; the others go to its ring, which a worker woken for them
 /// steals from at once, where in a slot each would wait out
-/// `stealNext`'s 3 µs. They wake no worker as they are queued: the worker
+/// `search`'s 3 µs. They wake no worker as they are queued: the worker
 /// wakes one as it switches to the first (`spread`), once it is off the
 /// sleepers' list, so it does not wake itself, as Go readies a poll's
 /// list and starts idle processors for it, and Tokio keeps the first task
@@ -4518,7 +4518,7 @@ fn runFiber(w: *Worker, f: *Fiber) void {
 /// made ready into a slot wakes no worker (`wakeIn`), and a fiber that
 /// makes several tasks and waits for the first, or for anything, leaves
 /// the others there as its worker runs on: the woken worker takes them
-/// (`stealNext`). A build preempted by signal has no yield check that
+/// (`search`). A build preempted by signal has no yield check that
 /// would hand them on, and without this they waited for the monitor's
 /// stop, about 1 ms. A switch with nothing else waiting costs two loads.
 /// On the Mac a ring that holds only a batch its worker keeps wakes no
@@ -4650,36 +4650,47 @@ fn search(w: *Worker) ?*Fiber {
     }
     if (global.pop()) |f| return f;
     // No ring had any: take a fiber another worker has kept in its "run
-    // next" slot a while.
+    // next" slot a while. One wait for all of them, not one a worker: a
+    // pass that waited out each full slot in turn and found each fiber
+    // gone, as a burst of tasks moves them on, spun up to 3 µs a worker,
+    // most of a searching worker's cycles on pup, beside a busy one on
+    // the same core.
+    var seen: [steal_next_most]SlotSeen = undefined;
+    var n: usize = 0;
     for (0..ws.len) |k| {
         const v = &ws[(start + k) % ws.len];
         if (v == w) continue;
-        if (stealNext(v)) |f| {
-            w.stole += 1;
-            return f;
-        }
+        const slot = oldestNext(v) orelse continue;
+        const f = slot.load(.seq_cst) orelse continue;
+        seen[n] = .{ .slot = slot, .fiber = f };
+        n += 1;
+        if (n == seen.len) break;
+    }
+    if (n == 0) return null;
+    // Wait without reading the slots, whose lines their owners write.
+    const until = nowNs() + steal_next_after;
+    while (nowNs() < until) std.atomic.spinLoopHint();
+    for (seen[0..n]) |e| {
+        if (e.slot.cmpxchgStrong(e.fiber, null, .seq_cst, .monotonic) != null) continue;
+        const f = unlessPinned(e.fiber) orelse continue;
+        w.stole += 1;
+        return f;
     }
     return null;
 }
+
+/// A fiber seen in another worker's "run next" slot, to take once it has
+/// waited there `steal_next_after` (`search`).
+const SlotSeen = struct { slot: *std.atomic.Value(?*Fiber), fiber: *Fiber };
+
+/// How many workers' slots one search waits on at once.
+const steal_next_most = 8;
 
 /// How long a fiber waits in a busy worker's "run next" slot before a
 /// worker with nothing to do takes it: long enough that a fiber made and
 /// waited for at once runs on its maker's worker (`handoff`), as Go waits
 /// 3 µs before it takes a `runnext`.
 const steal_next_after: i96 = 3 * std.time.ns_per_us;
-
-/// Take the fiber in `v`'s "run next" slot, if it is still there after
-/// `steal_next_after`. A pinned one taken so goes back to its home's
-/// queue.
-fn stealNext(v: *Worker) ?*Fiber {
-    const slot = oldestNext(v) orelse return null;
-    const f = slot.load(.seq_cst) orelse return null;
-    // Wait without reading the slot, whose line its owner writes.
-    const until = nowNs() + steal_next_after;
-    while (nowNs() < until) std.atomic.spinLoopHint();
-    if (slot.cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) return null;
-    return unlessPinned(f);
-}
 
 /// The oldest of `v`'s "run next" slots that holds a fiber, which a
 /// worker from outside takes: the first after the newest, going round.
@@ -9596,7 +9607,7 @@ test "tasks made in turn and waited for in order start on the idle workers, woke
                 const j4 = spawn(u8, Unit, rest, .{}, .{}, false, false, false).job;
                 // The wait hands this worker to the first while the
                 // others wait in its slots: the switch wakes a worker for
-                // them (`spread`), which takes the oldest (`stealNext`)
+                // them (`spread`), which takes the oldest (`search`)
                 // and, the last searching, wakes the next.
                 _ = j1.join();
                 spreads = test_spreads.load(.seq_cst);
