@@ -469,13 +469,28 @@ noinline fn wakeApart(f: *Fiber) void {
 }
 
 fn wakeIn(f: *Fiber) void {
-    return wakeQueued(f, true);
+    return wakeQueued(f, .woken);
 }
 
-/// `wakeIn` for `f`, which is `woken` unless it is a fork just made
-/// (`Fiber.fork`, `spawn`), which is counted (`Worker.queued_forks`) so
-/// the monitor can leave it to the slice.
-inline fn wakeQueued(f: *Fiber, comptime woken: bool) void {
+/// `wakeIn` for a task just made that is not a fork (`spawn`): when the
+/// slot it would take holds a fiber, every "run next" slot is full, and
+/// it goes to the ring's tail rather than move the oldest there. A burst
+/// of tasks (`Tasks.add` in a loop) so fills the slots once and the ring
+/// after, one locked store a task, where each took a slot and pushed the
+/// slot's fiber, two (on pup's x86 at twelve workers, the slot's swap
+/// alone took 4% of all cycles, its line pulled to and fro by the
+/// workers searching);
+/// and the workers woken for the burst steal half the ring at once. The
+/// newest is still the ring's last, which a wait for it takes back
+/// (`Header.waitEnd`).
+fn wakeMade(f: *Fiber) void {
+    return wakeQueued(f, .made);
+}
+
+/// `wakeIn` for `f`: a fiber `woken`, a task just `made`, or a `fork`
+/// just made (`Fiber.fork`, `spawn`), which is counted
+/// (`Worker.queued_forks`) so the monitor can leave it to the slice.
+inline fn wakeQueued(f: *Fiber, comptime kind: enum { woken, made, fork }) void {
     if (deterministic.*) return ready.append(std.heap.smp_allocator, f) catch rt.oom();
     countWake(f);
     defer if (builtin.is_test) {
@@ -487,7 +502,7 @@ inline fn wakeQueued(f: *Fiber, comptime woken: bool) void {
         global.push(f);
         return notifyNew();
     };
-    if (!woken) noteFork(w, f);
+    if (kind == .fork) noteFork(w, f);
     if (w.batch != .none and f.home == null) {
         if (w.batch == .rest) {
             _ = w.ring.push(f);
@@ -504,6 +519,13 @@ inline fn wakeQueued(f: *Fiber, comptime woken: bool) void {
     // Into the slot after the newest, which holds the oldest or nothing:
     // the oldest goes to the ring.
     const i = (w.lifo_head.raw +% 1) % run_next_slots;
+    // Read on its owner's thread, which alone fills a slot: a fiber seen
+    // here that a worker took meanwhile only sends this one to the ring.
+    if (kind == .made and f.home == null and w.lifo[i].raw != null) {
+        _ = w.ring.push(f);
+        if (keeps_short and w.short.held_since.raw != 0) w.short.held_since.store(0, .monotonic);
+        return notifyNew();
+    }
     w.lifo_head.store(i, .monotonic);
     if (w.lifo[i].swap(f, .seq_cst)) |b| {
         if (b.home != null) w.pinned.push(b) else {
@@ -6489,11 +6511,11 @@ inline fn startIn(comptime Full: type, full: *Full, local: bool, comptime fork: 
     if (@hasField(Extra, "fiber")) full.extra.fiber = &full.job.header.fiber;
     if (@hasDecl(Extra, "made")) full.extra.made();
     if (local) full.job.header.fiber.home = pinHereIn();
-    // A task that is not a fork wakes through `wakeIn` called, not pasted
+    // A task that is not a fork wakes through `wakeMade` called, not pasted
     // in: inlined, the wake made `spawn` five times its size and left the
     // ring's push and `notifyNew` as calls of their own (on pup's x86 a
     // spawn took 5% more instructions).
-    if (fork) wakeQueued(&full.job.header.fiber, false) else @call(.never_inline, wakeIn, .{&full.job.header.fiber});
+    if (fork) wakeQueued(&full.job.header.fiber, .fork) else @call(.never_inline, wakeMade, .{&full.job.header.fiber});
     return .{ .job = &full.job, .extra = &full.extra };
 }
 
