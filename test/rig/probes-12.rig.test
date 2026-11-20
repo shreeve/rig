@@ -47,7 +47,7 @@ test "r3-or-fit-f8 env static", "true"
   <t
   print(v.len > 0)
 
-fail "r3-or-formal-closure ret", "cannot assign to `y.n` while `y` is lent"
+fail "r3-or-formal-closure ret", "cannot assign to `y.n` while a read view of `y` is still in use"
   obj Item
     n: Int
 
@@ -89,7 +89,7 @@ test "r3-or-formal-cut", "v =x"
     !sep.add("x")
     print(kv.after, sep)
 
-fail "r3-or-formal-deep1", "cannot lend `x` to write while a read loan is live"
+fail "r3-or-formal-deep1", "cannot change `x` while a read view of it is still in use"
   obj Pair
     a: ?List[Int]
 
@@ -140,7 +140,7 @@ test "r3-or-formal-disjoint2", "3 2"
   add(!p.x, !p.y)
   print(p.x, p.y)
 
-fail "r3-or-formal-firstmut", "cannot assign to `y.n` while `y` is lent"
+fail "r3-or-formal-firstmut", "cannot assign to `y.n` while a write view of `y` is still in use"
   obj Item
     n: Int
 
@@ -155,7 +155,7 @@ fail "r3-or-formal-firstmut", "cannot assign to `y.n` while `y` is lent"
   r.n = 9
   print(x.n, y.n)
 
-fail "r3-or-formal-generic", "cannot lend `y` to write while a read loan is live"
+fail "r3-or-formal-generic", "cannot change `y` while a read view of it is still in use"
   fun first[T](a: ?T, b: ?T) -> ?T
     a
 
@@ -241,7 +241,7 @@ test "r3-or-formal-method key", "3 2"
   k = 2
   print(r.n, k)
 
-fail "r3-or-formal-mkpair", "cannot lend `y` to write while a read loan is live"
+fail "r3-or-formal-mkpair", "cannot change `y` while a read view of it is still in use"
   obj Pair
     a: ?List[Int]
     b: ?List[Int]
@@ -306,7 +306,7 @@ test "r3-or-formal-produces", "5 3"
   k = 3
   print(r.n, k)
 
-fail "r3-or-formal-recur", "cannot assign to `y.n` while `y` is lent"
+fail "r3-or-formal-recur", "cannot assign to `y.n` while a read view of `y` is still in use"
   obj Item
     n: Int
 
@@ -337,7 +337,7 @@ fail "r3-or-formal-selfref", "cannot store in `@items` a view of `@own`: a value
   !s.fix()
   print(s.items[0].n)
 
-fail "r3-or-formal-selfref2", "cannot assign to `b.own[0]` while `b` is lent"
+fail "r3-or-formal-selfref2", "cannot assign to `b.own[0]` while a write view of `b` is still in use"
   obj Item
     n: Int
 
@@ -355,7 +355,7 @@ fail "r3-or-formal-selfref2", "cannot assign to `b.own[0]` while `b` is lent"
   b.own[0] = Item(n: 9)
   print(a.items[0].n)
 
-fail "r3-or-formal-split", "cannot lend `sep` to write while a read loan is live"
+fail "r3-or-formal-split", "cannot change `sep` while a read view of it is still in use"
   line = String("a,b")
   sep = String(",")
   parts = text.split(?line, ?sep)
@@ -462,7 +462,7 @@ test "r3-or-generic-sound", "3 2 1"
   w = take_both(4, 5)
   print(p.left(), w.len, v.len)
 
-fail "r3-or-generic-unsound", "cannot return a view of `w`, which this function was not lent"
+fail "r3-or-generic-unsound", "cannot return a view of `w`, which belongs to this function"
   # The unsound neighbours of r3-or-generic-sound: a generic body's views
   # and moves follow the Core as any other body's do.
   #
@@ -582,7 +582,7 @@ test "r3-or-handle-sound", '''
   weak_after_drop()
   lends_the_handle()
 
-fail "r3-or-handle-unsound", "cannot drop `a` while it is lent"
+fail "r3-or-handle-unsound", "cannot drop `a` while a read view of it is still in use"
   # The unsound neighbours of r3-or-handle-sound: a view of a box's
   # contents outliving the handle it was reached through, and a loan the
   # contents carry outliving a change to what they view, on a clone or a
@@ -705,7 +705,7 @@ test "r3-or-impl-hdr sep temp", "v"
   if text.cut(?t, ?String("=")) as kv
     print(kv.after)
 
-fail "r3-or-impl-kw args", "cannot lend `y` to write while a read loan is live"
+fail "r3-or-impl-kw args", "cannot change `y` while a read view of it is still in use"
   fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
     a
 
@@ -747,7 +747,7 @@ fail "r3-or-impl-u10 temp ok", "a view of the temporary `mk()` outlives its stat
   r = first(?x, ?mk())
   print(r.len, r[0])
 
-fail "r3-or-impl-u1 paths", "cannot lend `y` to write while a read loan is live"
+fail "r3-or-impl-u1 paths", "cannot change `y` while a read view of it is still in use"
   fun pick(a: ?List[Int], b: ?List[Int], c: Bool) -> ?List[Int]
     if c
       return b
@@ -759,7 +759,7 @@ fail "r3-or-impl-u1 paths", "cannot lend `y` to write while a read loan is live"
   !y.push(1)
   print(r.len)
 
-fail "r3-or-impl-u2 struct", "cannot lend `x` to write while a read loan is live"
+fail "r3-or-impl-u2 struct", "cannot change `x` while a read view of it is still in use"
   obj Pair
     a: ?List[Int]
     b: ?List[Int]
@@ -775,7 +775,7 @@ fail "r3-or-impl-u2 struct", "cannot lend `x` to write while a read loan is live
   !y.push(1)
   print(r.len)
 
-fail "r3-or-impl-u3b swap ok", "cannot lend `x` to write while a read loan is live"
+fail "r3-or-impl-u3b swap ok", "cannot change `x` while a read view of it is still in use"
   fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
     a
 
@@ -789,7 +789,7 @@ fail "r3-or-impl-u3b swap ok", "cannot lend `x` to write while a read loan is li
   !x.push(1)
   print(r.len, r[0])
 
-fail "r3-or-impl-u4 loop", "cannot lend `y` to write while a read loan is live"
+fail "r3-or-impl-u4 loop", "cannot change `y` while a read view of it is still in use"
   fun last(a: ?List[Int], b: ?List[Int], n: Int) -> ?List[Int]
     r = a
     i = 0
@@ -804,7 +804,7 @@ fail "r3-or-impl-u4 loop", "cannot lend `y` to write while a read loan is live"
   !y.push(1)
   print(r.len)
 
-fail "r3-or-impl-u5 closure", "cannot lend `y` to write while a read loan is live"
+fail "r3-or-impl-u5 closure", "cannot change `y` while a read view of it is still in use"
   fun via(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
     g = |?b, k: Int| b
     g(1)
@@ -815,7 +815,7 @@ fail "r3-or-impl-u5 closure", "cannot lend `y` to write while a read loan is liv
   !y.push(1)
   print(r.len)
 
-fail "r3-or-impl-u7 mutual", "cannot lend `y` to write while a read loan is live"
+fail "r3-or-impl-u7 mutual", "cannot change `y` while a read view of it is still in use"
   fun ping(a: ?List[Int], b: ?List[Int], n: Int) -> ?List[Int]
     if n == 0
       return a
@@ -832,7 +832,7 @@ fail "r3-or-impl-u7 mutual", "cannot lend `y` to write while a read loan is live
   !y.push(1)
   print(r.len)
 
-fail "r3-or-impl-u8 byval", "cannot lend `y` to write while a read loan is live"
+fail "r3-or-impl-u8 byval", "cannot change `y` while a read view of it is still in use"
   obj Pair
     a: ?List[Int]
     b: ?List[Int]
@@ -941,7 +941,7 @@ test "r3-or-pa-store", "1"
   put(!h, ?b)
   print(h.v.len)
 
-fail "r3-or-pa-store2", "cannot lend `b` to write while a read loan is live"
+fail "r3-or-pa-store2", "cannot change `b` while a read view of it is still in use"
   obj Holder
     v: ?List[Int]
 
@@ -956,7 +956,7 @@ fail "r3-or-pa-store2", "cannot lend `b` to write while a read loan is live"
   !b.push(2)
   print(h.v.len)
 
-fail "r3-or-pa-store3", "cannot lend `a` to write while a read loan is live"
+fail "r3-or-pa-store3", "cannot change `a` while a read view of it is still in use"
   obj Holder
     v: ?List[Int]
 
@@ -1070,7 +1070,7 @@ test "r3-or-power-logger", '''
     log(!ctx, ?m)
   print(ctx.count)
 
-fail "r3-or-power-parser scratch", "cannot lend `p` to write while a read loan is live"
+fail "r3-or-power-parser scratch", "cannot change `p` while a read view of it is still in use"
   # Parser that views a token slice and also owns a scratch List[Tok].
   # L0 alone keeps `p` lent after `next` (Parser can own a Tok itself,
   # in `scratch`); `from @toks` frees it. Rust: `-> &'a Tok` in
@@ -1095,7 +1095,7 @@ fail "r3-or-power-parser scratch", "cannot lend `p` to write while a read loan i
   b = (!p).next()
   print(a.kind, b.kind)
 
-fail "r3-or-power-table get free", "cannot lend `q` to write while a read loan is live"
+fail "r3-or-power-table get free", "cannot change `q` while a read view of it is still in use"
   # Same as table_get, as a free function: isolates the read-self bug.
   obj Env
     keys: []?String
@@ -1133,7 +1133,7 @@ test "r3-or-red-c2 wcap call twice lent", '''
   print(a(3), b(4))
   print(v.len)
 
-fail "r3-or-red-c3 wcap ret view", "cannot return a view of `v`, which this function was not lent"
+fail "r3-or-red-c3 wcap ret view", "cannot return a view of `v`, which belongs to this function"
   obj Item
     n: Int
 
@@ -1195,7 +1195,7 @@ fail "r3-or-red-f1 fun reassign", "cannot reassign closure binding `g`; closure 
   r = call(?g, ?x, ?y)
   print(r.n)
 
-fail "r3-or-red-f2 fun lent var", "cannot assign to `y.n` while `y` is lent"
+fail "r3-or-red-f2 fun lent var", "cannot assign to `y.n` while a read view of `y` is still in use"
   # Must stay rejected once `left` says `from a` and `right` says `from b`:
   # a `?fun` local re-pointed in a branch holds the join of both.
   obj Item
@@ -1216,7 +1216,7 @@ fail "r3-or-red-f2 fun lent var", "cannot assign to `y.n` while `y` is lent"
   y.n = 5
   print(r.n)
 
-fail "r3-or-red-f4 fun result", "cannot assign to `y.n` while `y` is lent"
+fail "r3-or-red-f4 fun result", "cannot assign to `y.n` while a read view of `y` is still in use"
   # Must stay rejected once `left` says `from a` and `right` says `from b`:
   # `choose`'s result type must not take `left`'s narrower origins.
   obj Item
@@ -1240,7 +1240,7 @@ fail "r3-or-red-f4 fun result", "cannot assign to `y.n` while `y` is lent"
   y.n = 5
   print(r.n)
 
-fail "r3-or-red-r10 main local holder", "cannot lend `b` to write while a read loan is live"
+fail "r3-or-red-r10 main local holder", "cannot change `b` while a read view of it is still in use"
   obj Holder
     r: []Int
 
@@ -1288,7 +1288,7 @@ fail "r3-or-red-r12 param selfloan in body", "cannot store in `a.r` a view of `a
   h = Holder(r: ?x[..], own: List())
   print(f(!h))
 
-fail "r3-or-red-r2 store then return", "cannot assign to `y.n` while `y` is lent"
+fail "r3-or-red-r2 store then return", "cannot assign to `y.n` while a read view of `y` is still in use"
   obj Item
     n: Int
 
@@ -1306,7 +1306,7 @@ fail "r3-or-red-r2 store then return", "cannot assign to `y.n` while `y` is lent
   y.n = 7
   print(r.n)
 
-fail "r3-or-red-r4 local writeview", "cannot lend `v` to write while a read loan is live"
+fail "r3-or-red-r4 local writeview", "cannot change `v` while a read view of it is still in use"
   obj Holder
     r: []Int
 
@@ -1334,7 +1334,7 @@ fail "r3-or-red-r5 param owner local", "cannot store a view of `b` in `a.r`: `a`
   h = Holder(r: ?x[..])
   print(f(!h))
 
-fail "r3-or-red-r9 store readparam", "cannot lend `c` to write while a read loan is live"
+fail "r3-or-red-r9 store readparam", "cannot change `c` while a read view of it is still in use"
   # TODAY: accepted, and RIG_SANITIZE=1 crashes (use of freed memory).
   # A view of write parameter `b` (or `c`) stored into write parameter
   # `a` does not keep `b` lent inside the callee, so `!b.push` reallocs
@@ -1471,7 +1471,7 @@ test "r3-or-repoint-sound", '''
   # oracle: moved_in accept
   # oracle: bare_value accept
 
-fail "r3-or-repoint-unsound", "use of `n` while a write loan is live"
+fail "r3-or-repoint-unsound", "cannot use `n` while a write view of it is still in use"
   # Re-pointing a `!T` local hands it the new place's loan (Core §6), and
   # a view taken of it before keeps the old place's.
 
@@ -1510,7 +1510,7 @@ test "r3-or-simp-s2 from ident", "5"
   m = Move(from: 2, to: 7)
   print(span(m.from, m.to))
 
-fail "r3-or-simp-s4 static lit", "cannot drop `t` while it is lent"
+fail "r3-or-simp-s4 static lit", "cannot drop `t` while a read view of it is still in use"
   # A result that views only literals: accepted today with any argument.
   fun label(k: Int, name: ?String) -> ?String
     if k > 0
@@ -1599,7 +1599,7 @@ test "r3-origins-nll3b", "7"
   r = get_or_add(!b)
   print(r.n)
 
-fail "r3-origins-nll3c", "cannot assign to `b.items[0]` while `b.items` is lent"
+fail "r3-origins-nll3c", "cannot assign to `b.items[0]` while a read view of `b.items` is still in use"
   obj Item
     n: Int
 
@@ -1611,7 +1611,7 @@ fail "r3-origins-nll3c", "cannot assign to `b.items[0]` while `b.items` is lent"
     b.items[0] = Item(n: 7)
     r
 
-fail "r3-origins-pair", "cannot lend `y` to write while a read loan is live"
+fail "r3-origins-pair", "cannot change `y` while a read view of it is still in use"
   obj Pair
     a: ?List[Int]
     b: ?List[Int]

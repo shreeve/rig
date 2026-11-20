@@ -81,7 +81,7 @@ test "review-errors-m9", '''
     pub fun f() -> Int!
       return D.full
 
-fail "review-header-paths-1-o01 store readview of self into arg", "cannot reassign `h` while it is lent"
+fail "review-header-paths-1-o01 store readview of self into arg", "cannot reassign `h` while a write view of it is still in use"
   obj H
     n: Int
     v: List[Int]
@@ -98,7 +98,7 @@ fail "review-header-paths-1-o01 store readview of self into arg", "cannot reassi
   print(d.len)
   print(d[0])
 
-fail "review-header-paths-1-t01 for branch part readview local owner", "cannot lend `z` to write while a read loan is live"
+fail "review-header-paths-1-t01 for branch part readview local owner", "cannot change `z` while a read view of it is still in use"
   obj RV
     rv: ?List[Int]
     n: Int
@@ -120,7 +120,7 @@ fail "review-header-paths-1-t01 for branch part readview local owner", "cannot l
     n += e
   print(n)
 
-fail "review-header-paths-1-t02 match branch part slice local owner", "cannot lend `z` to write while a read loan is live"
+fail "review-header-paths-1-t02 match branch part slice local owner", "cannot change `z` while a read view of it is still in use"
   obj SV
     sl: []Int
     n: Int
@@ -140,7 +140,7 @@ fail "review-header-paths-1-t02 match branch part slice local owner", "cannot le
     !z.push(1)
   print(t[0])
 
-fail "review-header-paths-1-t03 as branch part optreadview local owner", "cannot lend `z` to write while a read loan is live"
+fail "review-header-paths-1-t03 as branch part optreadview local owner", "cannot change `z` while a read view of it is still in use"
   obj OV
     ov: (?List[Int])?
 
@@ -159,7 +159,7 @@ fail "review-header-paths-1-t03 as branch part optreadview local owner", "cannot
       !z.push(1)
     print(s[0])
 
-fail "review-header-paths-1-t05 for read plain array part local", "use of `xs` while a write loan is live"
+fail "review-header-paths-1-t05 for read plain array part local", "cannot use `xs` while a write view of it is still in use"
   obj A3
     arr: [3]Int
 
@@ -386,7 +386,7 @@ test "review-labels-1-h06b header view then mutate", '''
   !v.push(4)
   print(v.len)
 
-fail "review-labels-1-h06c header view held across jump", "cannot lend `v` to write while a read loan is live"
+fail "review-labels-1-h06c header view held across jump", "cannot change `v` while a read view of it is still in use"
   fun first(v: ?List[Int], i: Int) -> (?Int)?
     ?v[i] if i < v.len else none
 
@@ -1002,7 +1002,7 @@ test "review-lang4-c2", '''
   !w.push(1)
   print(p.x)
 
-fail "review-lang4-c3", "use of `n` while a write loan is live"
+fail "review-lang4-c3", "cannot use `n` while a write view of it is still in use"
   sub bump(a: !Int, b: Int)
     a += b
 
@@ -1380,7 +1380,7 @@ test "review-lend-base-2-p-g10", "[4]"
   !(pick(!q, true) ?? !p).v.push(4)
   print(p.v)
 
-fail "review-lend-base-2-p-g13", "cannot lend `q` to write while a write loan is live"
+fail "review-lend-base-2-p-g13", "cannot change `q` while a write view of it is still in use"
   error E
     bad
 

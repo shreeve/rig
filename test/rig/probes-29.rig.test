@@ -8210,7 +8210,7 @@ fail "review-std-r5", "`r` is a unique `random.Random`, which can't be copied by
   a = r
   print((!a).next() == (!r).next())
 
-fail "review-std-s6", "cannot lend `xs` to read while a write loan is live"
+fail "review-std-s6", "cannot use `xs` while a write view of it is still in use"
   xs = [3, 1, 2]
   sort.sort_by(!xs, |?xs, a, b| xs[0] < 1)
   print(xs)
@@ -8322,21 +8322,21 @@ bomb "review-std-v4", "index out of bounds"
   !v.push(1)
   !v.remove(-1)
 
-fail "review-std-v5", "cannot lend `v` to write while a read loan is live"
+fail "review-std-v5", "cannot change `v` while a read view of it is still in use"
   v = List[Int]()
   !v.push(1)
   !v.push(2)
   for x in ?v
     !v.insert(0, x)
 
-fail "review-std-v6", "cannot lend `v` to write while a read loan is live"
+fail "review-std-v6", "cannot change `v` while a read view of it is still in use"
   v = List[Int]()
   !v.push(1)
   s = ?v[..]
   !v.insert(0, 5)
   print(s)
 
-fail "review-std-v7", "cannot lend `v` to write while a read loan is live"
+fail "review-std-v7", "cannot change `v` while a write view of it is still in use"
   v = List[Int]()
   !v.push(1)
   !v.push(2)
@@ -8345,7 +8345,7 @@ fail "review-std-v7", "cannot lend `v` to write while a read loan is live"
   !v.insert(v.len, v.len)
   print(v)
 
-fail "review-std-v8", "cannot lend `v` to write while a read loan is live"
+fail "review-std-v8", "cannot change `v` while a write view of it is still in use"
   obj Res
     n: Int
 

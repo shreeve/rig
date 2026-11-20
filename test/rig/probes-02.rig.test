@@ -261,7 +261,7 @@ test "R15-p-qs", "true 0 999 2000"
       ok = false
   print(ok, v[0], v[v.len - 1], v.len)
 
-fail "R15-p-r5", "bare use of write view `w` in binding would copy a write view, which is unique; use `<w` to move it"
+fail "R15-p-r5", "bare use of write view `w` in binding would copy it, and a write view never copies; use `<w` to move it"
   v: List[Int] = List()
   !v.push(1)
   w = !v[..]
@@ -408,7 +408,7 @@ test "R15-repro-copy keeps source lent", "[9, 2, 3] [1, 2, 3]"
   a[0] = 9
   print(a, b)
 
-fail "R16-a1", "cannot lend `v` to write while a read loan is live"
+fail "R16-a1", "cannot change `v` while a read view of it is still in use"
   sub walk(v: !List[Int], f: ?sub(Int))
     !v.push(1)
     f(1)
@@ -417,7 +417,7 @@ fail "R16-a1", "cannot lend `v` to write while a read loan is live"
   l = |?v, n: Int| print(v.len + n)
   walk(!v, ?l)
 
-fail "R16-a2", "cannot lend `v` to read while a write loan is live"
+fail "R16-a2", "cannot use `v` while a write view of it is still in use"
   sub walk(v: !List[Int], f: ?sub(Int))
     !v.push(1)
     f(1)
@@ -425,7 +425,7 @@ fail "R16-a2", "cannot lend `v` to read while a write loan is live"
   v: List[Int] = List()
   walk(!v, |?v, n| print(v.len + n))
 
-fail "R16-a3", "cannot lend `v` to write while a read loan is live"
+fail "R16-a3", "cannot change `v` while a read view of it is still in use"
   sub walk(f: ?sub(Int), v: !List[Int])
     !v.push(1)
     f(1)
@@ -530,7 +530,7 @@ test "R16-ctx1", '''
   y = val(|<c, a| a + c.id, x) if x > 3 else 0
   print(y)
 
-fail "R16-d1", "cannot reassign `x` while it is lent"
+fail "R16-d1", "cannot reassign `x` while a write view of it is still in use"
   x = 1
   f = |!x|
     x += 1
@@ -538,14 +538,14 @@ fail "R16-d1", "cannot reassign `x` while it is lent"
   x = 5
   print(x)
 
-fail "R16-d2", "cannot reassign `x` while it is lent"
+fail "R16-d2", "cannot reassign `x` while a read view of it is still in use"
   x = 1
   f = |?x| print(x)
   defer f()
   x = 5
   print(x)
 
-fail "R16-d3", "cannot reassign `x` while it is lent"
+fail "R16-d3", "cannot reassign `x` while a write view of it is still in use"
   sub run(f: ?sub())
     f()
 
@@ -556,7 +556,7 @@ fail "R16-d3", "cannot reassign `x` while it is lent"
   x = 5
   print(x)
 
-fail "R16-d4", "cannot drop `v` while it is lent"
+fail "R16-d4", "cannot drop `v` while a read view of it is still in use"
   v: List[Int] = List()
   !v.push(1)
   f = |?v| print(v.len)
@@ -564,7 +564,7 @@ fail "R16-d4", "cannot drop `v` while it is lent"
   <v
   print(1)
 
-fail "R16-d5", "use of `x` while a write loan is live"
+fail "R16-d5", "cannot use `x` while a write view of it is still in use"
   x = 1
   f = |!x|
     x += 1
@@ -636,7 +636,7 @@ fail "R16-e4", "`l` does not live long enough"
     h = g
   print(h(1))
 
-fail "R16-e5", "cannot reassign `x` while it is lent"
+fail "R16-e5", "cannot reassign `x` while a write view of it is still in use"
   fun double(n: Int) -> Int
     n * 2
 
@@ -836,7 +836,7 @@ test "R16-k6", "3"
   f()
   print(v.n)
 
-fail "R16-l1", "cannot reassign `x` while it is lent"
+fail "R16-l1", "cannot reassign `x` while a write view of it is still in use"
   x = 1
   f = |!x|
     x += 1
@@ -854,7 +854,7 @@ fail "R16-l2", "`i` is bound but never read; name it `_` to ignore the value"
     x = 10
   print(x)
 
-fail "R16-l3", "use of `x` while a write loan is live"
+fail "R16-l3", "cannot use `x` while a write view of it is still in use"
   x = 0
   f = |!x|
     x += 1
@@ -864,7 +864,7 @@ fail "R16-l3", "use of `x` while a write loan is live"
     print(x)
     i += 1
 
-fail "R16-l3c", "use of `x` while a write loan is live"
+fail "R16-l3c", "cannot use `x` while a write view of it is still in use"
   x = 0
   f = |!x|
     x += 1
@@ -919,7 +919,7 @@ test "R16-lf15", "1"
   !c.push(42)
   print(get(|?c| c))
 
-fail "R16-lf16", "cannot return a view of `l`, which this function was not lent"
+fail "R16-lf16", "cannot return a view of `l`, which belongs to this function"
   fun bad(a: ?List[Int]) -> ?List[Int]
     c: List[Int] = List()
     !c.push(42)
@@ -1016,7 +1016,7 @@ test "R16-m1", '''
   s = ?b.map(|x| "s")
   print(s[0])
 
-fail "R16-mv1", "cannot move `v` while a read loan is live"
+fail "R16-mv1", "cannot move `v` while a read view of it is still in use"
   sub take(f: ?fun() -> Int, v: List[Int])
     print(f(), v.len)
 
@@ -1040,7 +1040,7 @@ fail "R16-mv3", "use of `v` after move"
   !v.push(1)
   take(|<v| v.len, <v)
 
-fail "R16-mv4", "cannot move-capture `v` while a read loan is live"
+fail "R16-mv4", "cannot move-capture `v` while a read view of it is still in use"
   sub take(f: ?fun() -> Int, g: ?fun() -> Int)
     print(f(), g())
 
@@ -1137,7 +1137,7 @@ test "R16-ord1", '''
     a
   ))
 
-fail "R16-pw1", "cannot assign to `w.n` while `w` is lent"
+fail "R16-pw1", "cannot assign to `w.n` while a read view of `w` is still in use"
   obj Wrap
     n: Int
 
@@ -1173,7 +1173,7 @@ test "R16-pw2", '''
   f(!a)
   print(a.n)
 
-fail "R16-r1", "cannot return a view of `l`, which this function was not lent"
+fail "R16-r1", "cannot return a view of `l`, which belongs to this function"
   fun mk(x: ?List[Int]) -> ?fun() -> Int
     l = |?x| x.len
     ?l
@@ -1182,7 +1182,7 @@ fail "R16-r1", "cannot return a view of `l`, which this function was not lent"
   f = mk(?v)
   print(f())
 
-fail "R16-r2", "cannot return a view of `l`, which this function was not lent"
+fail "R16-r2", "cannot return a view of `l`, which belongs to this function"
   fun id(f: ?fun() -> Int) -> ?fun() -> Int
     f
 
@@ -1264,7 +1264,7 @@ fail "R16-rs5", "cannot move out of `b.r`: `b` is a view; exchange it instead: `
   g()
   print("end")
 
-fail "R16-rv2", "cannot lend `b` to write while a read loan is live"
+fail "R16-rv2", "cannot change `b` while a read view of it is still in use"
   obj Bag
     items: List[Int]
 
@@ -1337,7 +1337,7 @@ test "R16-sc3", "2"
 
   print(twice(ret))
 
-fail "R16-sc4", "cannot return a view of `l`, which this function was not lent"
+fail "R16-sc4", "cannot return a view of `l`, which belongs to this function"
   fun ret(f: ?fun(Int) -> Int) -> ?fun(Int) -> Int
     f
 

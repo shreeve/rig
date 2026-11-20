@@ -253,7 +253,7 @@ test "review-box-p153", '''
   print(b.n, c.n)
   print(usex(1) catch -1, usex(2) catch -1)
 
-fail "review-box-p155", "cannot reassign `h` while it is lent"
+fail "review-box-p155", "cannot reassign `h` while a read view of it is still in use"
   obj R
     n: Int
 
@@ -307,7 +307,7 @@ test "review-box-p16", "5"
   b = +a
   print(b)
 
-fail "review-box-p160", "cannot reassign `h` while it is lent"
+fail "review-box-p160", "cannot reassign `h` while a read view of it is still in use"
   obj R
     n: Int
 
@@ -471,7 +471,7 @@ test "review-box-p169", '''
     <y
   print(o)
 
-fail "review-box-p171", "cannot move `b` while a read loan is live"
+fail "review-box-p171", "cannot move `b` while a read view of it is still in use"
   obj R
     n: Int
 
@@ -621,7 +621,7 @@ test "review-box-p39", '''
   head = none
   print("done")
 
-fail "review-box-p41", "cannot return a view of `p`, which this function was not lent"
+fail "review-box-p41", "cannot return a view of `p`, which belongs to this function"
   obj P
     x: Int
 
@@ -631,7 +631,7 @@ fail "review-box-p41", "cannot return a view of `p`, which this function was not
 
   b = mk()
 
-fail "review-box-p46", "cannot move `b` while a write loan is live"
+fail "review-box-p46", "cannot move `b` while a write view of it is still in use"
   obj R
     n: Int
 
@@ -680,7 +680,7 @@ test "review-box-p49", '''
   s.n = 4
   print(b.n)
 
-fail "review-box-p50", "cannot lend `b` to read while a write loan is live"
+fail "review-box-p50", "cannot use `b` while a write view of it is still in use"
   obj R
     n: Int
 
@@ -901,7 +901,7 @@ fail "review-box-p66", "an owned closure cannot capture a view of `b`: it can be
   <b
   print(f())
 
-fail "review-box-p76", "cannot drop `t` while it is lent"
+fail "review-box-p76", "cannot drop `t` while a read view of it is still in use"
   obj Leaf
     n: Int
 
@@ -919,7 +919,7 @@ fail "review-box-p76", "cannot drop `t` while it is lent"
       <t
       print(a)
 
-fail "review-box-p82", "cannot assign to `h.r` while `h` is lent"
+fail "review-box-p82", "cannot assign to `h.r` while a read view of `h` is still in use"
   obj R
     n: Int
 
@@ -937,7 +937,7 @@ fail "review-box-p82", "cannot assign to `h.r` while `h` is lent"
     h.r = none
     print(x.n)
 
-fail "review-box-p83", "cannot assign to `h.r` while `h` is lent"
+fail "review-box-p83", "cannot assign to `h.r` while a read view of `h` is still in use"
   obj R
     n: Int
 
@@ -953,7 +953,7 @@ fail "review-box-p83", "cannot assign to `h.r` while `h` is lent"
     h.r = none
     print(x.n)
 
-fail "review-box-p84", "cannot assign to `a[0]` while `a` is lent"
+fail "review-box-p84", "cannot assign to `a[0]` while a write view of `a` is still in use"
   obj R
     n: Int
 
@@ -1027,7 +1027,7 @@ test "review-box-p88", '''
     x.n = 5
   print(h)
 
-fail "review-box-p90", "cannot drop `t` while it is lent"
+fail "review-box-p90", "cannot drop `t` while a read view of it is still in use"
   obj R
     n: Int
 
@@ -1473,7 +1473,7 @@ test "review-cell-mark-1-p68 recv fixed field shared", "2"
   !s.h.hit()
   print(k.n.get())
 
-fail "review-cell-mark-1-p72 view into holder cellvec", "cannot store a view of `s` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one; if it is only passed literal text, declare the parameter `Static`, which carries no loan"
+fail "review-cell-mark-1-p72 view into holder cellvec", "cannot store a view of `s` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one; if it is only passed literal text, declare the parameter `Static`, which holds no view"
   obj H
     log: Cell[List[?String]]
 

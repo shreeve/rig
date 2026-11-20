@@ -34,14 +34,14 @@ happens.
 
 Rig is a compiled language with ownership, like Rust, with fewer rules.
 Its mechanics are sigils and its libraries are words: how a value is
-bound, taken, lent, held, failed, or run at the same time is a
+bound, taken, viewed, held, failed, or run at the same time is a
 one-character mark that means the same thing wherever it appears.
 
 | Mechanic | Sigils |
 |---|---|
 | Binding | `x = e` binds, `x =! e` binds a fixed local |
 | Taking and copying | `<x` moves (alone on a line, drops), `+x` copies or makes another handle |
-| Lending | `?x` lends to read, `!x` to write; as types, `?T` and `!T` |
+| Views | `?x` makes a read view, `!x` a write view; as types, `?T` and `!T` |
 | Holding | `*x` shared (`*w` upgrades a weak handle), `^x` boxed, `~x` weak, `@` self |
 | Failure and absence | `T?` may be absent, `T!` may fail; `e?` and `e!` pass them on |
 | Concurrency | `f(x)&` sends work off, `>t` takes its result back |
@@ -52,8 +52,8 @@ policy a library chooses stays a word: `<t.cancel()`,
 
 ## A task belongs to its owner
 
-`total(?xs)&` lends `xs` to the task to read, and the task keeps that
-loan until `>u` takes its result. The task reads the list in place,
+`total(?xs)&` makes a read view of `xs` for the task, and the task keeps
+that view until `>u` takes its result. The task reads the list in place,
 with no copy and no reference count, and nothing may change it
 meanwhile:
 
@@ -69,7 +69,7 @@ sub main()
 ```
 
 ```error
-cannot lend `xs` to write while a read loan is live
+cannot change `xs` while a read view of it is still in use
 ```
 
 That is the same rule Rig applies to any view, and it holds because a

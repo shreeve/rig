@@ -167,8 +167,8 @@ true
 Ada: 6 6
 ```
 
-A view follows the rules from the chapter on ownership. It carries a
-loan on the String it came from, so that String cannot change while the
+A view follows the rules from the chapter on ownership. It leaves
+the String it came from read-only, so that String cannot change while the
 view lives:
 
 ```rig reject
@@ -180,10 +180,10 @@ sub main()
 ```
 
 ```error
-cannot lend `name` to write while a read loan is live
+cannot change `name` while a read view of it is still in use
 ```
 
-A `Static` carries no loan, because the program never frees its bytes.
+A `Static` carries no view, because the program never frees its bytes.
 That is why it can go where views cannot, in an object's field that
 outlives the call. The compiler will not turn a view into a `Static`,
 since a view may point into a String:
@@ -433,7 +433,7 @@ stop 1
 more (so words in other scripts stay whole), lowercases the ASCII
 letters, and replaces the rest with a space. `text.words(?low)` yields
 each nonempty run between spaces, as views into `low`. `ensure(w, 0)`
-puts a zero under an unseen word and lends the count to write, so one line
+puts a zero under an unseen word and makes a write view of the count, so one line
 counts every word. The map holds views, which is why `low` must outlive
 `seen`, and the compiler checks it. It lists words in the order they
 first appeared.

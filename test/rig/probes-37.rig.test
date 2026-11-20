@@ -139,7 +139,7 @@ test "review-while-step-w46-body-shadows-h", "303"
 
   # expect: 303
 
-fail "review-while-step-w48-grow-then-return-ok", "cannot lend `v` to write while a read loan is live"
+fail "review-while-step-w48-grow-then-return-ok", "cannot change `v` while a read view of it is still in use"
   # Valid: the body grows `v` only on a path that returns, which never
   # reaches the step.
   #
@@ -170,7 +170,7 @@ fail "review-while-step-w48-grow-then-return-ok", "cannot lend `v` to write whil
 
   # expect: 4
 
-fail "review-while-step-w51-step-stores-h-via-call", "cannot lend `v` to write while a read loan is live"
+fail "review-while-step-w51-step-stores-h-via-call", "cannot change `v` while a read view of it is still in use"
   # The step passes `h` to a function that stores it in `last`; after the
   # loop, `v` grows and `last` is read.
   #
@@ -198,7 +198,7 @@ fail "review-while-step-w51-step-stores-h-via-call", "cannot lend `v` to write w
   !v.push(2)
   print(last.s[0])
 
-fail "review-while-step-w54-step-grows-via-h-cond-reads", "cannot lend `w` to write while a read loan is live"
+fail "review-while-step-w54-step-grows-via-h-cond-reads", "cannot change `w` while a read view of it is still in use"
   # The step writes `w` through a call, while `h` views `w` and the step
   # reads `h` after the call in the same statement.
   #
@@ -226,7 +226,7 @@ fail "review-while-step-w54-step-grows-via-h-cond-reads", "cannot lend `w` to wr
     i += 1
   print(k)
 
-fail "review-while-step-w55-optional-view-binding", "cannot lend `v` to write while a read loan is live"
+fail "review-while-step-w55-optional-view-binding", "cannot change `v` while a read view of it is still in use"
   # The condition binds an optional slice; the step reads through it with
   # `??`; the body grows the List.
   #
@@ -463,7 +463,7 @@ fail "review258-p124 closure capture store shorter", "`u` does not live long eno
     f()
   print(v[0].s)
 
-fail "review258-p125 closure store then mutate", "cannot lend `u` to write while a read loan is live"
+fail "review258-p125 closure store then mutate", "cannot change `u` while a read view of it is still in use"
   obj H
     s: ?String
 
@@ -479,7 +479,7 @@ fail "review258-p125 closure store then mutate", "cannot lend `u` to write while
   !u.add("x")
   print(v[0].s)
 
-fail "review258-p126 store then drop source", "cannot drop `u` while it is lent"
+fail "review258-p126 store then drop source", "cannot drop `u` while a read view of it is still in use"
   obj H
     s: ?String
 
@@ -590,7 +590,7 @@ fail "review258-p134 summary method", "`set` stores a view of `u` in `@`, which 
   <u
   print(b.items[0].s)
 
-fail "review258-p136b loop binding", "cannot drop `u` while it is lent"
+fail "review258-p136b loop binding", "cannot drop `u` while a read view of it is still in use"
   obj H
     s: ?String
 
@@ -606,7 +606,7 @@ fail "review258-p136b loop binding", "cannot drop `u` while it is lent"
   <u
   print(v[0].s)
 
-fail "review258-p137 if as binding", "cannot drop `u` while it is lent"
+fail "review258-p137 if as binding", "cannot drop `u` while a read view of it is still in use"
   obj H
     s: ?String
 
@@ -622,7 +622,7 @@ fail "review258-p137 if as binding", "cannot drop `u` while it is lent"
   if o as q
     print(q.s)
 
-fail "review258-p138 match binding", "cannot drop `u` while it is lent"
+fail "review258-p138 match binding", "cannot drop `u` while a read view of it is still in use"
   obj H
     s: ?String
 
@@ -847,7 +847,7 @@ test "review258-p33 temp method", "ok"
   (!make()).me() = String("new2")
   print("ok")
 
-fail "review258-p34 selfview", "cannot lend `h` to write while a read loan on `h.t` is live"
+fail "review258-p34 selfview", "cannot change `h` while a read view of `h.t` is still in use"
   obj H
     t: String
     s: ?String
@@ -860,7 +860,7 @@ fail "review258-p34 selfview", "cannot lend `h` to write while a read loan on `h
   slot(!h) = H(t: String("b"), s: ?h.t)
   print(h.s)
 
-fail "review258-p35 selfview elem", "cannot lend `v` to write while a read loan is live"
+fail "review258-p35 selfview elem", "cannot change `v` while a read view of it is still in use"
   obj H
     t: String
     s: ?String
@@ -1178,7 +1178,7 @@ test "review258-p67 float compound", "[1.75]"
   sl(!v, 0) += 1
   print(v)
 
-fail "review258-p70 closure returns view", "cannot return a view of `v`, which this function was not lent"
+fail "review258-p70 closure returns view", "cannot return a view of `v`, which belongs to this function"
   v: List[Int] = List()
   !v.push(1)
   g = |!v| !v[0]
@@ -1186,7 +1186,7 @@ fail "review258-p70 closure returns view", "cannot return a view of `v`, which t
   g() += 1
   print(v)
 
-fail "review258-p71 closure ret store local", "cannot return a view of `v`, which this function was not lent"
+fail "review258-p71 closure ret store local", "cannot return a view of `v`, which belongs to this function"
   obj H
     s: ?String
 
@@ -1234,7 +1234,7 @@ test "review258-p77 value reads old owning", '''
   sl(!v, 0) = +v[0]
   print(v)
 
-fail "review258-p78 value view of old", "cannot lend `v` to write while a read loan is live"
+fail "review258-p78 value view of old", "cannot change `v` while a read view of it is still in use"
   obj H
     t: String
     s: ?String
@@ -1551,7 +1551,7 @@ test "rt-a", '''
   x = "héllo"
   print(x.len, x < "i", 'a')
 
-fail "rust164250-repoint-declared-first", "cannot drop `l` while it is lent"
+fail "rust164250-repoint-declared-first", "cannot drop `l` while a read view of it is still in use"
   # rust-lang/rust#164250's Rig analog: an object whose drop body reads a
   # read-view field re-pointed at a shorter-lived local must be rejected.
 
@@ -1567,7 +1567,7 @@ fail "rust164250-repoint-declared-first", "cannot drop `l` while it is lent"
   q.f = ?l
   <l
 
-fail "rust164250-repoint-drop-local", "cannot drop `l` while it is lent"
+fail "rust164250-repoint-drop-local", "cannot drop `l` while a read view of it is still in use"
   # rust-lang/rust#164250's Rig analog: an object whose drop body reads a
   # read-view field re-pointed at a shorter-lived local must be rejected.
 

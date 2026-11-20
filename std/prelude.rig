@@ -27,7 +27,7 @@
 #
 # Each member below is the type's as a program sees it, its signature
 # what every checker reads; its body asks the table. A member of the
-# table that lends returns a view of the table, and one that writes
+# table that reads returns a view of the table, and one that writes
 # moves the keys and values it takes into it.
 
 # One entry of a Map, as `items()` gives it: views of its key and value.
@@ -63,7 +63,7 @@ pub obj Map[K: Hash, V]
   pub inline fun get(?@, k: ?K) -> (?V)? from @
     ?@t.get(k)
 
-  # The value of the key `k`, lent to write where the Map holds it, or
+  # A write view of the value of the key `k` where the Map holds it, or
   # `none`.
   pub inline fun edit(!@, k: ?K) -> (!V)? from @
     !@t.edit(k)
@@ -87,23 +87,23 @@ pub obj Map[K: Hash, V]
     @len += 1 if added
     added
 
-  # Put `v` under `k` when `k` is new, and lend the value under `k` to
-  # write. When `k` is there, `k` and `v` are dropped.
+  # Put `v` under `k` when `k` is new, and give a write view of the
+  # value under `k`. When `k` is there, `k` and `v` are dropped.
   pub inline fun ensure(!@, k: K, v: V) -> !V from @, k, v
     j = !@t.ensure(<k, <v)
     @len = @t.count()
     !@t.value_mut(j)
 
-  # Put `v` under `k` when `k` is new, and lend the value under `k` to
-  # write, with whether `k` was new. When `k` is there, `k` and `v` are
-  # dropped.
+  # Put `v` under `k` when `k` is new, and give a write view of the
+  # value under `k`, with whether `k` was new. When `k` is there, `k` and
+  # `v` are dropped.
   pub inline fun ensure_added(!@, k: K, v: V) -> (!V, Bool) from @, k, v
     was = @len
     j = !@t.ensure(<k, <v)
     @len = @t.count()
     return !@t.value_mut(j), @len > was
 
-  # Lend the value under `k` to write, putting `make(k)` there first
+  # Give a write view of the value under `k`, putting `make(k)` there first
   # when `k` is new, so the value is made only then. When `k` is there,
   # `k` is dropped and `make` is not called.
   pub inline fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k
@@ -185,7 +185,7 @@ pub obj Map[K: Hash, V]
   pub fun values(?@) -> Values[K, V] from @
     Values(map: ?@, next_at: 0, end: @first_end(), holes: @t.holes())
 
-  # Call `f` with each key, in order, and its value lent to write.
+  # Call `f` with each key, in order, and a write view of its value.
   pub sub update(!@, f: ?sub(?K, !V))
     !@t.update(f)
 
@@ -356,7 +356,7 @@ pub obj HashMap[K: Hash, V]
   pub inline fun get(?@, k: ?K) -> (?V)? from @
     ?@t.get(k)
 
-  # The value of the key `k`, lent to write where the HashMap holds it,
+  # A write view of the value of the key `k` where the HashMap holds it,
   # or `none`.
   pub inline fun edit(!@, k: ?K) -> (!V)? from @
     !@t.edit(k)
@@ -380,20 +380,20 @@ pub obj HashMap[K: Hash, V]
     @len += 1 if added
     added
 
-  # Put `v` under `k` when `k` is new, and lend the value under `k` to
-  # write. When `k` is there, `k` and `v` are dropped.
+  # Put `v` under `k` when `k` is new, and give a write view of the
+  # value under `k`. When `k` is there, `k` and `v` are dropped.
   pub inline fun ensure(!@, k: K, v: V) -> !V from @, k, v
     !@t.ensure(<k, <v, !@len)
 
-  # Put `v` under `k` when `k` is new, and lend the value under `k` to
-  # write, with whether `k` was new. When `k` is there, `k` and `v` are
-  # dropped.
+  # Put `v` under `k` when `k` is new, and give a write view of the
+  # value under `k`, with whether `k` was new. When `k` is there, `k` and
+  # `v` are dropped.
   pub inline fun ensure_added(!@, k: K, v: V) -> (!V, Bool) from @, k, v
     was = @len
     w = !@t.ensure(<k, <v, !@len)
     return w, @len > was
 
-  # Lend the value under `k` to write, putting `make(k)` there first
+  # Give a write view of the value under `k`, putting `make(k)` there first
   # when `k` is new, so the value is made only then. When `k` is there,
   # `k` is dropped and `make` is not called.
   pub inline fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k
@@ -461,7 +461,7 @@ pub obj HashMap[K: Hash, V]
   pub fun values(?@) -> HashValues[K, V] from @
     HashValues(map: ?@, group: -1, lanes: 0)
 
-  # Call `f` with each key and its value lent to write.
+  # Call `f` with each key and a write view of its value.
   pub sub update(!@, f: ?sub(?K, !V))
     !@t.update(f)
 

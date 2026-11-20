@@ -116,7 +116,7 @@ test "review-revamp-rest-p8-c3", "42"
   d = +c
   print(run(c, !d) catch 0)
 
-fail "review-revamp-rest-p8-c4", "cannot lend `v` to write while a read loan is live"
+fail "review-revamp-rest-p8-c4", "cannot change `v` while a read view of it is still in use"
   obj P
     n: Int
     fun plus(?@, k: Int) -> Int
@@ -647,7 +647,7 @@ test "review-rule2-swap-writable-handles", '''
   print(r.get(), o.h.get())
   print(c.get())
 
-fail "review-sc3-b9", "cannot lend `o` to write while a read loan is live"
+fail "review-sc3-b9", "cannot change `o` while a read view of it is still in use"
   o: List[Int]? = List()
   if ?o as x
     if !o as y
@@ -1547,7 +1547,7 @@ test "review-sc4-a1b", '''
   !vw.push(2)
   print(v.len, v[0])
 
-fail "review-sc4-b2", "cannot reassign `w` while it is lent"
+fail "review-sc4-b2", "cannot reassign `w` while a write view of it is still in use"
   x = 1
   w = !x
   w2 = !w
@@ -1555,7 +1555,7 @@ fail "review-sc4-b2", "cannot reassign `w` while it is lent"
   w2 = 6
   print(x)
 
-fail "review-sc4-b3", "cannot reassign `w` while it is lent"
+fail "review-sc4-b3", "cannot reassign `w` while a write view of it is still in use"
   x = 1
   w = !x
   f = |!w| w = 3
@@ -1995,7 +1995,7 @@ test "review-sc4-lp", '''
     s = .full(b: *B(n: i + 1))
   print("end")
 
-fail "review-sc4-p2", "cannot reassign `b` while it is lent"
+fail "review-sc4-p2", "cannot reassign `b` while a write view of it is still in use"
   enum Shape
     circle(r: Int)
     point
@@ -2116,7 +2116,7 @@ test "review-sc4-rt", '''
   print(p)
   print(c, z)
 
-fail "review-sc4-s2", "cannot lend `h.v` to read while a write loan on `h` is live"
+fail "review-sc4-s2", "cannot use `h.v` while a write view of `h` is still in use"
   obj V
     n: Int
 
@@ -2428,7 +2428,7 @@ test "review-sc4-u9", '''
   set(!z)
   print(z)
 
-fail "review-sc4-w3", "cannot reassign `s` while it is lent"
+fail "review-sc4-w3", "cannot reassign `s` while a write view of it is still in use"
   obj B
     n: Int
 

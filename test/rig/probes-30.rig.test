@@ -4,7 +4,7 @@ use std.json
 use std.random
 use std.random as rnd
 
-fail "review-stdjson-dangle drop", "cannot drop `s` while it is lent"
+fail "review-stdjson-dangle drop", "cannot drop `s` while a read view of it is still in use"
   s = String("[\"abc\"]")
   doc = json.parse(?s) catch return
   <s
@@ -17,7 +17,7 @@ fail "review-stdjson-dangle loop", "`s` does not live long enough"
     (!doc).load(?s) catch return
   print(doc.string(1))
 
-fail "review-stdjson-dangle mutate", "cannot lend `s` to write while a read loan is live"
+fail "review-stdjson-dangle mutate", "cannot change `s` while a read view of it is still in use"
   s = String("[\"abc\"]")
   doc = json.parse(?s) catch return
   !s.clear()
@@ -32,7 +32,7 @@ fail "review-stdjson-dangle reparse", "cannot let this call store a view of `s` 
   keep(!doc)
   print(doc.string(1))
 
-fail "review-stdjson-dangle return", "cannot return a view of `s`, which this function was not lent"
+fail "review-stdjson-dangle return", "cannot return a view of `s`, which belongs to this function"
   fun make() -> json.Doc
     s = String("[\"abc\"]")
     json.parse(?s) catch json.Doc()
@@ -40,7 +40,7 @@ fail "review-stdjson-dangle return", "cannot return a view of `s`, which this fu
   doc = make()
   print(doc.string(1))
 
-fail "review-stdjson-stale view", "cannot lend `doc` to write while a read loan is live"
+fail "review-stdjson-stale view", "cannot change `doc` while a read view of it is still in use"
   doc = json.Doc()
   a = "[\"a\\n\"]"
   b = "[\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n\"]"
@@ -49,7 +49,7 @@ fail "review-stdjson-stale view", "cannot lend `doc` to write while a read loan 
   (!doc).load(?b) catch return
   print(v)
 
-fail "review-step1-p1 store return writeparam", "cannot lend `v` to write while a read loan is live"
+fail "review-step1-p1 store return writeparam", "cannot change `v` while a read view of it is still in use"
   # Inferred or declared result origins must see that `a.r` now views `b`.
   # Today the union default rejects the caller; a recorder that reads the
   # returned value's loans sees only `a` if the store is not in `a`'s flow.
@@ -84,7 +84,7 @@ fail "review-step1-p29 rng", "`o` is a unique `random.Random?`, which can't be c
   v = w
   print(dup(<r))
 
-fail "review-step1-p2 store return readparam", "cannot lend `v` to write while a read loan is live"
+fail "review-step1-p2 store return readparam", "cannot change `v` while a read view of it is still in use"
   obj Holder
     r: []Int
 
@@ -814,7 +814,7 @@ test "review-step10-a34 armview loop carried", '''
       .a(p) if k > 0 => print(keep(p, !h))
       _ => print(0)
 
-fail "review-step10-a36b v014 form", "cannot return a view of `mk(42)`, which this function was not lent"
+fail "review-step10-a36b v014 form", "cannot return a view of `mk(42)`, which belongs to this function"
   # (a36 without `from`, for v0.1.4)
   # B3 "discarded" rule, function tail: the tail call of a function is its
   # statement, so `endCallHeld` drops the result's loans on what the call
@@ -1558,7 +1558,7 @@ test "review-step10-r2-h15 lent generic local explicit", '''
   print(direct(5))
   print(hoisted(5))
 
-fail "review-step2-p1-h1", "cannot lend `a` to write while `self`'s read of it is in use"
+fail "review-step2-p1-h1", "cannot change `a` while `self`'s read of it is still in use"
   obj P
     v: List[Int]
 
@@ -1578,7 +1578,7 @@ fail "review-step2-p1-h1", "cannot lend `a` to write while `self`'s read of it i
   print((a if c else b).peek(!a))
   print(a.v.len)
 
-fail "review-step2-p1-h15", "cannot lend `a` to write while an earlier argument's read of it is in use"
+fail "review-step2-p1-h15", "cannot change `a` while an earlier argument's read of it is still in use"
   fun grow(t: !String) -> Int
     for _ in 0..100
       !t.add("abcdefgh")
@@ -1587,7 +1587,7 @@ fail "review-step2-p1-h15", "cannot lend `a` to write while an earlier argument'
   a = String("a")
   print(a, grow(!a))
 
-fail "review-step2-p1-h16", "cannot lend `a` to write while a read loan is live"
+fail "review-step2-p1-h16", "cannot change `a` while a read view of it is still in use"
   fun grow(t: !String) -> Int
     for _ in 0..100
       !t.add("abcdefgh")
@@ -1601,7 +1601,7 @@ fail "review-step2-p1-h16", "cannot lend `a` to write while a read loan is live"
   c = true
   print(two(?a if c else ?b, grow(!a)))
 
-fail "review-step2-p1-h3", "cannot lend `a` to write while a read loan is live"
+fail "review-step2-p1-h3", "cannot change `a` while a read view of it is still in use"
   fun peek(p: ?List[Int], other: !List[Int]) -> Int
     for i in 0..100
       !other.push(i)
@@ -1614,7 +1614,7 @@ fail "review-step2-p1-h3", "cannot lend `a` to write while a read loan is live"
   c = true
   print(peek(?a if c else ?b, !a))
 
-fail "review-step2-p1-h6", "cannot lend `a` to write while an earlier argument's read of it is in use"
+fail "review-step2-p1-h6", "cannot change `a` while an earlier argument's read of it is still in use"
   fun grow(v: !List[Int]) -> Int
     for i in 0..100
       !v.push(i)
@@ -1626,7 +1626,7 @@ fail "review-step2-p1-h6", "cannot lend `a` to write while an earlier argument's
   c = true
   print(a if c else b, grow(!a))
 
-fail "review-step2-p1-h8", "cannot lend `a` to write while a read loan is live"
+fail "review-step2-p1-h8", "cannot change `a` while a read view of it is still in use"
   obj P
     v: List[Int]
 
@@ -1640,7 +1640,7 @@ fail "review-step2-p1-h8", "cannot lend `a` to write while a read loan is live"
   a = P(v: <v)
   print(a.peek(!a))
 
-fail "review-step2-p1-h9", "cannot lend `a` to write while the left operand's read of it is in use"
+fail "review-step2-p1-h9", "cannot change `a` while the left operand's read of it is still in use"
   fun grow(t: !String) -> String
     for _ in 0..100
       !t.add("abcdefgh")
@@ -1902,7 +1902,7 @@ test "review-step3-a09 temp positions", '''
   w = o ?? size(mk(7))
   print(w)
 
-fail "review-step3-b01 kwargs conflict", "cannot lend `n` to write while a read loan is live"
+fail "review-step3-b01 kwargs conflict", "cannot change `n` while a read view of it is still in use"
   sub add(a: !Int, b: ?Int)
     a += b
 
@@ -1936,7 +1936,7 @@ test "review-step3-b03 generic infer view", '''
   print(k)
   !t.add("z")
 
-fail "review-step3-b04 copy arg loan", "cannot lend `p` to read while a write loan is live"
+fail "review-step3-b04 copy arg loan", "cannot use `p` while a write view of it is still in use"
   obj P
     x: Int
 
@@ -1952,7 +1952,7 @@ fail "review-step3-b04 copy arg loan", "cannot lend `p` to read while a write lo
   seti(!n, n)
   print(p.x, n)
 
-fail "review-step3-b05", "use of `n` while a write loan is live"
+fail "review-step3-b05", "cannot use `n` while a write view of it is still in use"
   sub seti(a: !Int, b: Int)
     a += b
 
@@ -2061,7 +2061,7 @@ fail "review-step3-k01 closure lend move", "an owned closure cannot capture a vi
   cb = *|?k, x: Int| x * k
   print(twice(cb, eat(<cb)))
 
-fail "review-step3-k02 vec lend then move", "cannot move `v` while a read loan is live"
+fail "review-step3-k02 vec lend then move", "cannot move `v` while a read view of it is still in use"
   fun total(xs: []Int, n: Int) -> Int
     t = n
     for x in xs
@@ -2075,7 +2075,7 @@ fail "review-step3-k02 vec lend then move", "cannot move `v` while a read loan i
   !v.push(1)
   print(total(v, eat(<v)))
 
-fail "review-step3-k03 vec lend then write", "cannot lend `v` to write while a read loan is live"
+fail "review-step3-k03 vec lend then write", "cannot change `v` while a read view of it is still in use"
   fun total(xs: []Int, n: Int) -> Int
     t = n
     for x in xs
@@ -2091,7 +2091,7 @@ fail "review-step3-k03 vec lend then write", "cannot lend `v` to write while a r
   !v.push(1)
   print(total(v, grow(!v)))
 
-fail "review-step3-k04 text lend then write", "cannot lend `t` to write while a read loan is live"
+fail "review-step3-k04 text lend then write", "cannot change `t` while a read view of it is still in use"
   fun both(s: ?String, n: Int) -> Int
     s.len + n
 
@@ -2104,7 +2104,7 @@ fail "review-step3-k04 text lend then write", "cannot lend `t` to write while a 
   b = ^String("abc")
   print(both(b, grow(!b)))
 
-fail "review-step3-k05 handle lend then drop", "cannot move `h` while a read loan is live"
+fail "review-step3-k05 handle lend then drop", "cannot move `h` while a read view of it is still in use"
   obj S
     n: Int
     t: String
@@ -2118,7 +2118,7 @@ fail "review-step3-k05 handle lend then drop", "cannot move `h` while a read loa
   h = *S(n: 1, t: String("x"))
   print(get(h, eat(<h)))
 
-fail "review-step3-l01 opt loans", "cannot reassign `o` while it is lent"
+fail "review-step3-l01 opt loans", "cannot reassign `o` while a read view of it is still in use"
   obj S
     n: Int
     t: String
@@ -2132,7 +2132,7 @@ fail "review-step3-l01 opt loans", "cannot reassign `o` while it is lent"
   if k as x
     print(x.n)
 
-fail "review-step3-l02 opt loans bare", "cannot drop `o` while it is lent"
+fail "review-step3-l02 opt loans bare", "cannot drop `o` while a read view of it is still in use"
   obj S
     n: Int
     t: String
@@ -2176,7 +2176,7 @@ test "review-step3-l03 opt temp", '''
   o: S? = S(n: 3, t: String("o"))
   print(maybe(o))
 
-fail "review-step3-l05 handle loans", "cannot drop `h` while it is lent"
+fail "review-step3-l05 handle loans", "cannot drop `h` while a read view of it is still in use"
   obj S
     n: Int
     t: String
@@ -2189,7 +2189,7 @@ fail "review-step3-l05 handle loans", "cannot drop `h` while it is lent"
   <h
   print(k.n)
 
-fail "review-step3-l06 handle loans2", "cannot reassign `h` while it is lent"
+fail "review-step3-l06 handle loans2", "cannot reassign `h` while a read view of it is still in use"
   obj S
     n: Int
     t: String
@@ -2202,7 +2202,7 @@ fail "review-step3-l06 handle loans2", "cannot reassign `h` while it is lent"
   h = *S(n: 6, t: String("b"))
   print(k.n)
 
-fail "review-step3-l07 handle move", "cannot move `h` while a read loan is live"
+fail "review-step3-l07 handle move", "cannot move `h` while a read view of it is still in use"
   obj S
     n: Int
     t: String
@@ -2218,7 +2218,7 @@ fail "review-step3-l07 handle move", "cannot move `h` while a read loan is live"
   eat(<h)
   print(k.n)
 
-fail "review-step3-l12 handle in vec", "cannot lend `v` to write while a read loan is live"
+fail "review-step3-l12 handle in vec", "cannot change `v` while a read view of it is still in use"
   obj S
     n: Int
     t: String

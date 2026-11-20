@@ -1069,7 +1069,7 @@ test "audit-ownership-n07 if as then return store"
     return
   print("after", vw.b.v.len)
 
-fail "audit-ownership-o07 closure lent with write", "cannot lend `v` to read while a write loan is live"
+fail "audit-ownership-o07 closure lent with write", "cannot use `v` while a write view of it is still in use"
   sub run(v: !List[Int], f: ?fun() -> Int)
     !v.push(f())
 
@@ -1078,7 +1078,7 @@ fail "audit-ownership-o07 closure lent with write", "cannot lend `v` to read whi
   run(!v, |?v| v.len)
   print(v)
 
-fail "audit-ownership-o09 two returned wb", "cannot lend `v` to write while a write loan is live"
+fail "audit-ownership-o09 two returned wb", "cannot change `v` while a write view of it is still in use"
   fun slot(a: !List[Int]) -> !List[Int]
     a
 
@@ -1151,7 +1151,7 @@ test "audit-ownership-o14 array of vecs", "1 5"
   !a[1].push(5)
   print(a[0].len, a[1][0])
 
-fail "audit-ownership-o15 array slice then write", "cannot assign to `a[0]` while `a` is lent"
+fail "audit-ownership-o15 array slice then write", "cannot assign to `a[0]` while a read view of `a` is still in use"
   a = [1, 2, 3]
   s = ?a[0..2]
   a[0] = 9

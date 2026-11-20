@@ -5,7 +5,7 @@
 # condition is walked (Core sentence 6). Each `bump` grows the List past
 # its capacity, so a wrong acceptance reads freed memory.
 
-fail "order postfix guard reads a view its condition grows", "cannot lend `v` to write while a read loan is live"
+fail "order postfix guard reads a view its condition grows", "cannot change `v` while a read view of it is still in use"
   obj Item
     n: Int
 
@@ -19,7 +19,7 @@ fail "order postfix guard reads a view its condition grows", "cannot lend `v` to
   r = ?v[0]
   print(r.n) if bump(!v) > 0
 
-fail "order ternary branch reads a view its condition grows", "cannot lend `v` to write while a read loan is live"
+fail "order ternary branch reads a view its condition grows", "cannot change `v` while a read view of it is still in use"
   obj Item
     n: Int
 
@@ -33,7 +33,7 @@ fail "order ternary branch reads a view its condition grows", "cannot lend `v` t
   r = ?v[0]
   print(r.n if bump(!v) > 0 else 0)
 
-fail "order ternary bound reads a view its condition grows", "cannot lend `v` to write while a read loan is live"
+fail "order ternary bound reads a view its condition grows", "cannot change `v` while a read view of it is still in use"
   obj Item
     n: Int
 
@@ -48,7 +48,7 @@ fail "order ternary bound reads a view its condition grows", "cannot lend `v` to
   x = r.n if bump(!v) > 0 else 0
   print(x)
 
-fail "order ternary copies out a view its condition grows", "cannot lend `v` to write while a read loan is live"
+fail "order ternary copies out a view its condition grows", "cannot change `v` while a read view of it is still in use"
   obj Item
     n: Int
 
@@ -63,7 +63,7 @@ fail "order ternary copies out a view its condition grows", "cannot lend `v` to 
   x = r if bump(!v) > 0 else Item(n: 5)
   print(x)
 
-fail "order postfix return reads a view its condition grows", "cannot lend `v` to write while a read loan is live"
+fail "order postfix return reads a view its condition grows", "cannot change `v` while a read view of it is still in use"
   obj Item
     n: Int
 
@@ -81,7 +81,7 @@ fail "order postfix return reads a view its condition grows", "cannot lend `v` t
   !v.push(Item(n: 1))
   print(f(!v))
 
-fail "order postfix assignment reads a view its condition grows", "cannot lend `v` to write while a read loan is live"
+fail "order postfix assignment reads a view its condition grows", "cannot change `v` while a read view of it is still in use"
   obj Item
     n: Int
 
@@ -109,7 +109,7 @@ fail "order postfix guard reads a view its condition moves", "cannot move `v`"
   r = ?v[0]
   print(r.n) if take(<v) > 0
 
-fail "order ternary reads a write view its condition writes", "cannot lend `a` to write"
+fail "order ternary reads a write view its condition writes", "cannot change `a` while a write view of it is still in use"
   fun poke(a: !Int) -> Int
     a += 100
     a
@@ -118,7 +118,7 @@ fail "order ternary reads a write view its condition writes", "cannot lend `a` t
   w = !a
   print(w + 0 if poke(!a) > 0 else 0)
 
-fail "order postfix guard over a ternary", "cannot lend `v` to write while a read loan is live"
+fail "order postfix guard over a ternary", "cannot change `v` while a read view of it is still in use"
   obj Item
     n: Int
 

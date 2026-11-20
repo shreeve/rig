@@ -68,7 +68,7 @@ the rules below depend on them:
 
 - **Tasks view in place.** `score(?d)&` reads `d` where it is, with no
   copy and no counted handle, because a task ends before `d` does
-  ("Loans and structure"). Tokio's `spawn` takes only `'static` data,
+  ("Views and structure"). Tokio's `spawn` takes only `'static` data,
   since a future can be leaked.
 - **No task is left running.** Dropping a task cancels it and waits for
   it, so every task ends inside the scope that made it. Dropping a Tokio
@@ -112,20 +112,20 @@ place a fallible type stands as a type argument.
 - `time.within(d, |<t| >t!)` waits with a deadline: `within` calls its
   closure once (`f: once ?fun() -> R!`), so the closure may move the
   task in.
-- A function may return a task (`-> Task[T]`). The task keeps the loans
+- A function may return a task (`-> Task[T]`). The task keeps the views
   its signature shows, as any result does: a task's type may hold a
-  view of anything, so the result keeps the loans of each parameter
+  view of anything, so the result keeps the views of each parameter
   whose type could hold a view, or of those its `from` names
-  (`-> Task[Int] from v`), and the caller keeps them until it waits.
+  (`-> Task[Int] from v`), and the caller leaves their places read-only until it waits.
 
-**Where a task may go.** A task holds the loans of its arguments, so it
+**Where a task may go.** A task holds the views of its arguments, so it
 goes only where a value holding those views may go:
-- a task with read loans only may be bound, held in a `Tasks` set or
+- a task with read views only may be bound, held in a `Tasks` set or
   another owned value, and returned with `from`;
-- a task with a write loan may only be bound to a local and waited for,
+- a task with a write view may only be bound to a local and waited for,
   since no value holds a write view: no `return`, last value, `break`,
   or move takes it on;
-- no task, whatever its loans, is ever placed in a shared home (below):
+- no task, whatever its views, is ever placed in a shared home (below):
   no Cell, channel, actor, or owned closure holds one.
   So a task cannot be leaked, and there are no orphans.
 
@@ -165,32 +165,32 @@ no syntax:
   none is left: work whose tasks each keep a cache or a checker, with
   the heaviest items put first so the load evens out.
 
-## Loans and structure
+## Views and structure
 
-A task keeps the loans of its arguments until it ends: `score(?d)&`
-lends `d` to read for the task's whole life. So a task reads its
+A task keeps the views of its arguments until it ends: `score(?d)&`
+makes a read view of `d` for the task's whole life. So a task reads its
 caller's data in place, with no copy and no counted handle, and no other
 task can change that data meanwhile. Rust cannot offer this to async
 tasks, because a future can be leaked; it is why Tokio's `spawn` needs
 `'static`.
 
-It is sound because a task's drop always runs before the owner of its
-loans goes. Five rules make that so:
+It is sound because a task's drop always runs before the places it
+views go. Five rules make that so:
 
-1. **A task's drop uses its loans.** A loan lasts until its value's
-   last use, or until its drop when the type has a `drop` body (CORE
+1. **A task's drop uses its views.** A view limits its place until its
+   value's last use, or until its drop when the type has a `drop` body (CORE
    sentence 6). `Task` counts as having one, and so does every value
    whose drop glue reaches a task. So after `t = f(?v)&`, `!v.push(1)`
    is rejected while `t` lives.
 2. **Drops and `defer`s are checked in the order they run.** In
    `t = f(?x)&` followed by `defer clear(!x)`, the `defer` runs before
    `t` drops, so it is rejected.
-3. **No shared home holds a loan.** A *shared home* is a type whose value
+3. **No shared home holds a view.** A *shared home* is a type whose value
    changes through a shared path: `Cell`, `Signal`, an owned closure,
    `Chan`, `Actor`, and any Zig-backed type that declares
-   *shares*. None holds a value that may carry a loan, and `Task` always
+   *shares*. None holds a value that may carry a view, and `Task` always
    may. A leak in Rig needs a cycle through a shared home, so a value
-   that carries a loan never leaks. Rig has no `forget`.
+   that carries a view never leaks. Rig has no `forget`.
 4. **A panic stops at a boundary** (see "Failure"), which cancels and
    waits for every task started under it before it gives back the
    stacks those tasks may point into: its own, and that of each task
@@ -202,7 +202,7 @@ loans goes. Five rules make that so:
 
 The principles of [formal-plan.md](formal-plan.md) change in three places:
 - principle 4, "safety never rests on a drop running", becomes "safety
-  never rests on dropping a value that carries no loan";
+  never rests on dropping a value that carries no view";
 - principle 6 names tasks and actors as the concurrency, with channels
   in `std`;
 - the Core gains the task and crossing rules within its budget,
@@ -290,12 +290,12 @@ there. The checker derives two facts for every type:
 | `*Cell[T]`, for a one-word plain `T` | yes | yes |
 | `*Chan[T]` | when `T` sends | when `T` sends |
 | `*Actor[T]` | yes | yes |
-| `Task[T]` | when `T` and its loans' views send | never |
+| `Task[T]` | when `T` and its views send | never |
 | a Zig-backed type | as declared | as declared |
 
 A task's argument is given to it, moved (`<x`) or copied, when its type
-sends. Otherwise it is lent: to read (`?x`) when its type syncs, and to
-write (`!x`) when its type sends. A closure called as a task follows the
+sends. Otherwise it is passed as a view: a read view (`?x`) when its type syncs, and a
+write view (`!x`) when its type sends. A closure called as a task follows the
 same rules for its captures. What a task gives goes back to the task
 that waits for it, so its type sends, as `par.map`'s values and an
 actor call's result do; a local task's result stays on its thread and
@@ -305,7 +305,7 @@ A function a library calls from many tasks at once needs no mark on its
 type. The checker reads the requirement from the library's body, as it
 reads what a generic function needs of its type parameters, and checks
 the closure where the library is called, with the closure in hand:
-- `par.map`'s body lends `f` to several tasks at once, so the closure
+- `par.map`'s body gives `f` to several tasks at once, so the closure
   passed to `par.map` must sync: its captures sync, and it captures
   nothing with `!`;
 - `http.serve` gives every connection's task the one handler, so, as
@@ -316,7 +316,7 @@ A closure that breaks the rule is rejected where it is passed:
 ```text
 par.map(?docs, |!counts, d| tally(!counts, d))
 # error: `par.map` calls the closure on several tasks at once, and
-#   `|!counts|` lends `counts` to write, which no two tasks may hold at once
+#   `|!counts|` makes a write view of `counts`, which no two tasks may hold at once
 ```
 
 The checker types `par.map`, `par.each`, `par.workers`, and
@@ -337,7 +337,7 @@ core frees it there, so the program's allocator is thread-safe.
 
 ## Local tasks
 
-A task given or lent a value that does not cross, where it would
+A task given a value, or a view of one, that does not cross, where it would
 otherwise be rejected, is *local*: it is pinned to the thread of the
 task that makes it, and that task is pinned there too, from then on.
 What stays on one thread is then shared by tasks that run on that one
@@ -352,9 +352,9 @@ any tasks on one worker do. So a GUI program's `*T`, `Cell`, and
   marks it in the source, as nothing marks how a `Cell` is kept safe.
   `rig check --tasks` lists each local task and what pins it: the
   argument, and the type in it that stays on one thread.
-- **What still stops it.** A set of tasks, a task or a write view lent
-  to read, and a function lent to read, which may lend what it captures
-  to write (a closure literal written in the task's call among them, as
+- **What still stops it.** A set of tasks, a task or a write view passed
+  as a read view, and a function passed as a read view, which may make a
+  write view of what it captures (a closure literal written in the task's call among them, as
   `?f` is), are not held by two tasks at once even on one thread. A
   channel's elements go to any task that holds a handle of it, so they
   must cross whoever holds the channel.
@@ -396,19 +396,19 @@ value, as a `Cell` isn't. Lowering never copies a Cell of one word into
 a read view. Each of its operations is sequentially consistent, so user
 code still has no data races and sees sequential consistency.
 
-A module-level `*Cell` of one word or `*Chan` carries no loan, so actors
+A module-level `*Cell` of one word or `*Chan` carries no view, so actors
 and tasks anywhere may use it, through a handle of their own.
 
 ## Actors
 
 **Making one** (built). `*Actor(Counter(hits: 0))` moves the value into a task
 of its own and gives a `*Actor[Counter]`, a handle to it. Any object
-whose fields move and carry no loan can be an actor; nothing in its
+whose fields move and carry no view can be an actor; nothing in its
 declaration changes.
 
 The handle is counted atomically:
 - `+rooms` makes another, for a task or core of its own;
-- `?rooms` lends one to read, to tasks that end before it;
+- `?rooms` makes a read view of one, for tasks that end before it;
 - `~rooms` is a weak handle.
 
 The actor lives until its last handle is dropped and it has answered
@@ -425,13 +425,13 @@ message, and the call waits for the answer.
   Through `?rooms` it is rejected, since `?` changes nothing.
 - A `<@` method cannot be called through a handle.
 - A method whose signature has `keeps` or `from` cannot be called through
-  a handle: the actor holds no loan, and a result never views its state.
+  a handle: the actor holds no view, and a result never views its state.
 - With `&`, the call gives a `Task` and the caller does not wait.
 - `time.within` around the call, or the task making it, sets its
   deadline; a call has no deadline of its own.
 
-**Arguments.** An argument moves or is copied. A call may also lend a
-value that shares, `rooms.log(?line)`. A call of a method that can fail
+**Arguments.** An argument moves or is copied. A call may also pass a
+read view of a value that shares, `rooms.log(?line)`. A call of a method that can fail
 is withdrawn when it has not started and its caller is canceled or its
 deadline passes, and fails with `Stop.canceled` or `Stop.timeout`. A
 method that has started runs to its end, and its caller waits for it.
@@ -517,8 +517,7 @@ boundary. Three things are boundaries:
   stands, with no unwinding.
 - **`task.isolate(f)`** (built) runs `f` and gives `T!` with
   `task.Stop.panicked` in the set; its message and location go to
-  stderr, and become the error's data once errors carry data. Nothing outside
-  `f` may be lent to it to write, so everything a panic in `f` could
+  stderr, and become the error's data once errors carry data. `f` is given no write view of anything outside it, so everything a panic in `f` could
   have half-changed is `f`'s own, and is abandoned: what survives is
   either untouched or was only read. `http.serve` runs each request
   this way, so a bug fails that request with a 500, stops its tasks,
@@ -540,8 +539,8 @@ boundary. Three things are boundaries:
   before the actors it ends answer their callers, whose own panics wait
   for it.
 
-Why this is sound without a runtime that knows the heap: loans point only
-from tasks into their owners, never the other way. So when a boundary's
+Why this is sound without a runtime that knows the heap: views point only
+from tasks into their places, never the other way. So when a boundary's
 frames are left, nothing that survives points into them, and anything
 outside the boundary that the dead code touched was only read.
 
@@ -587,7 +586,7 @@ restarted by a small parent) remains, as defence in depth.
   atomically, CML-style, so a message is never taken by an arm that then
   loses (built: `match task.select(got: !a.on_recv(), put: !b.on_send(<x), late: time.after(ms: 50))!`,
   whose value's variant is the winner's name, its body run in the enclosing scope),
-  and over a task's end, `done: ?t.on_end()`, which lends the task and
+  and over a task's end, `done: ?t.on_end()`, which makes a view of the task and
   leaves it to its holder, so a race of tasks is a select of their ends
   (built);
 - `task.supervise` and `*Actor.supervised`.
@@ -657,7 +656,7 @@ Tokio and Go (bench/tasks, bench/actors, bench/net, bench/http):
 Rig trails in memory per task, and the design says so: a task holds at
 least a page of stack, against Tokio's hundreds of bytes. An HTTP
 connection that waits for its next request holds no buffer (its worker
-lends it one per request) and waits on a dense stack, so on the Mac an
+hands it one per request) and waits on a dense stack, so on the Mac an
 idle connection costs less than hyper's or Go's, page tables included.
 Smaller committed stacks and io_uring buffer rings are measured work
 beyond that, not a promise. Where else Rig trails, loopback round trips
@@ -670,7 +669,7 @@ These fit the existing λRig work in `formal/`, in this order:
 
 1. data-race freedom of the crossing facts and synchronized types, with
    threads in the machine and fork as a step;
-2. no value that carries a loan is leaked;
+2. no value that carries a view is leaked;
 3. no orphans: live tasks form a tree rooted in live frames;
 4. deadlock detection is exact for waits on one thing;
 5. after a cancel, every fallible waiting point fails;

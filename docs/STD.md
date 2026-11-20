@@ -248,7 +248,7 @@ Their text
 lives as long as the program, as a literal's does, and views no `String`,
 so both are a `Static` ([SPEC §2](../SPEC.md#static)). They hold the
 bytes the operating system gave, which are not checked to be UTF-8.
-A `Static` carries no loan, so a result can be kept, returned, and
+A `Static` carries no view, so a result can be kept, returned, and
 stored anywhere, in a `Cell` too, whatever `name` is.
 
 | Function | Result |
@@ -737,7 +737,7 @@ It fails as the reads and writes fail, with a `file.FileError`, a
 `net.NetError`, or a `task.Stop`, once what it read before has been
 written. Rig has no interfaces, so the checker types the call, as it
 does `http.serve`: each end must be a `file.File` (a standard stream
-among them) or a `net.Stream`, lent to write.
+among them) or a `net.Stream`, passed as a write view.
 
 ```rig
 use std.file
@@ -1042,7 +1042,7 @@ task holds one of its own, `+m`. It is a word-Cell object (Core
 sentence 9) whatever its keys and values: its only field is a Cell of
 one word that holds its table's address, so its handles are counted
 atomically and go to other tasks, as a `*Cell[Int]`'s do. Its keys are what a Map's are (`K: Hash`); its keys and
-values hold no loan and go to any task (`Owned + Sends + Syncs`): text,
+values hold no view and go to any task (`Owned + Sends + Syncs`): text,
 numbers, Lists and objects of such, and frozen values, but no `*T` whose
 count is not atomic.
 
@@ -1055,8 +1055,8 @@ count is not atomic.
 | `!m.ensure(k, v)` | `pub fun ensure(!@, k: K, v: V) -> ?V from @, k, v` | put `v` under `k` when `k` is new, and view the value under `k`: `v`, or the one another task put first |
 | `m.len()` | `pub fun len(?@) -> Int` | how many entries it holds: exact when no task is putting one |
 
-A view from `get` or `ensure` keeps the handle it came through lent to
-read while it lives, so the map cannot be dropped under it, and a put
+A view from `get` or `ensure` leaves the handle it came through
+read-only while it lives, so the map cannot be dropped under it, and a put
 while it lives goes through another handle. No put moves or changes a
 value another task views. A lookup that may put asks first, so a hit
 takes no lock:
@@ -1541,13 +1541,13 @@ done
 
 What the optimizer must not see through, for benchmarks. `keep` is
 Rust's `std::hint::black_box`: an empty `asm volatile` that takes the
-address of what it is lent and clobbers memory. The optimizer must
+address of what it is passed and clobbers memory. The optimizer must
 compute the value, hold it in memory, and assume the call read it and
 read and wrote any other memory, so no load or store moves across it.
 
 | Member | Result |
 |---|---|
-| `keep[T](x: ?T)` | nothing; lends `x` to read for the call, and costs no instruction beyond holding `x` in memory |
+| `keep[T](x: ?T)` | nothing; makes a read view of `x` for the call, and costs no instruction beyond holding `x` in memory |
 | `opaque[T](x: T) -> T` | `x` itself, which the optimizer must treat as any value of its type; an owned value moves in and out |
 
 A benchmark keeps each round's result, so the round's work is done
@@ -1760,7 +1760,7 @@ with `<` ([SPEC, Bounds](../SPEC.md#bounds)), which a float is not;
 `sort_by_key` the order of a key that provides `Ord`. `lower_bound`
 and `search` take a view of what they look for, `x: ?T`, so a List of
 Strings is searched without giving up or cloning the String sought; a
-literal or a bare name is lent as it is passed.
+literal or a bare name is passed as a view.
 
 | Function | Result |
 |---|---|
@@ -1970,19 +1970,19 @@ a Set.
 | `!m.reserve(n)` | `sub reserve(!@, n: Int)` | makes room for `n` more entries at once, sizing the entries and the table for them rather than growing as they are put |
 | `m.len` | `pub ?len: Int` | the number of entries: a field any code reads and only the Map's own methods write |
 | `m.has(k)` | `fun has(?@, k: ?K) -> Bool` | reads |
-| `m.get(k)` | `fun get(?@, k: ?K) -> (?V)? from @` | the view keeps `m` lent to read, not `k` |
-| `!m.edit(k)` | `fun edit(!@, k: ?K) -> (!V)? from @` | keeps `m` lent to write |
+| `m.get(k)` | `fun get(?@, k: ?K) -> (?V)? from @` | the view leaves `m` read-only, not `k` |
+| `!m.edit(k)` | `fun edit(!@, k: ?K) -> (!V)? from @` | leaves `m` unusable |
 | `!m.put(k, v)` | `sub put(!@, k: K, v: V)` | puts `v` under `k`, inserting or overwriting; the old value is dropped, and a key already there keeps its place and `k` is dropped |
 | `!m.replace(k, v)` | `fun replace(!@, k: K, v: V) -> V?` | puts `v` under `k`, inserting or overwriting, and hands back the old value, or `none` when `k` is new |
 | `(!m).put_new(k, v)` | `fun put_new(!@, k: K, v: V) -> Bool` | puts `v` under `k` only when `k` is new: true if it did; otherwise `k` and `v` are dropped |
-| `!m.ensure(k, v)` | `fun ensure(!@, k: K, v: V) -> !V from @, k, v` | puts `v` under `k` when `k` is new, and lends the value under `k` to write; otherwise `k` and `v` are dropped. The view keeps `m` lent to write |
+| `!m.ensure(k, v)` | `fun ensure(!@, k: K, v: V) -> !V from @, k, v` | puts `v` under `k` when `k` is new, and gives a write view of the value under `k`; otherwise `k` and `v` are dropped. The view leaves `m` unusable |
 | `!m.ensure_with(k, make)` | `fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k` | as `ensure`, with the value `make(k)` made only when `k` is new; when `k` is there, `make` is not called and `k` is dropped. The value `make` gives may view the key or what `make` captured, so a `V` that can hold a view (`(?String)?`, `List[?String]`) is refused ([SPEC "Generic bodies"](../SPEC.md#generic-bodies)): use a `V` that owns what it holds, or `edit` and `put`; the Map keeps nothing of `make` |
-| `!m.ensure_by(k, key, v)` | `fun ensure_by(!@, k: ?K, key: ?fun(?K) -> K, v: V) -> !V from @, k, key, v keeps k, key` | as `ensure`, with the key viewed: `key(k)` makes the key to put only when `k` is new, so a count by a viewed key, `(!m).ensure_by(word, \|w\| +w, 0) += 1`, makes no key for a word already there; otherwise `key` is not called and `v` is dropped. The key `key(k)` makes must equal `k`: one that differs panics, since the Map would hold it where `k` was looked up. Where a key may view memory (`Map[?String, V]`), the Map keeps `k` lent; a key that owns its memory, a String or an Int, keeps nothing, though a named `k` is written `?k` |
-| `w, added = !m.ensure_added(k, v)` | `fun ensure_added(!@, k: K, v: V) -> (!V, Bool) from @, k, v` | as `ensure`, and also whether `k` was new; `w` keeps `m` lent to write, `added` keeps nothing |
-| `if m.at(i) as k, v` | `fun at(?@, i: Int) -> (?K, ?V)? from @` | the entry at index `i` in order, its key and value viewed where the Map holds them, or `none` past the end; both views keep `m` lent to read. One step while no entry is gone since the entries were last compacted; else it counts the live entries before it, 64 at a time |
+| `!m.ensure_by(k, key, v)` | `fun ensure_by(!@, k: ?K, key: ?fun(?K) -> K, v: V) -> !V from @, k, key, v keeps k, key` | as `ensure`, with the key viewed: `key(k)` makes the key to put only when `k` is new, so a count by a viewed key, `(!m).ensure_by(word, \|w\| +w, 0) += 1`, makes no key for a word already there; otherwise `key` is not called and `v` is dropped. The key `key(k)` makes must equal `k`: one that differs panics, since the Map would hold it where `k` was looked up. Where a key may view memory (`Map[?String, V]`), the Map keeps a view of `k`; a key that owns its memory, a String or an Int, keeps nothing, though a named `k` is written `?k` |
+| `w, added = !m.ensure_added(k, v)` | `fun ensure_added(!@, k: K, v: V) -> (!V, Bool) from @, k, v` | as `ensure`, and also whether `k` was new; `w` leaves `m` unusable, `added` keeps nothing |
+| `if m.at(i) as k, v` | `fun at(?@, i: Int) -> (?K, ?V)? from @` | the entry at index `i` in order, its key and value viewed where the Map holds them, or `none` past the end; both views leave `m` read-only. One step while no entry is gone since the entries were last compacted; else it counts the live entries before it, 64 at a time |
 | `!m.take(k)` | `fun take(!@, k: ?K) -> V?` | the value back, owned; the key dropped at once |
 | `!m.clear()` | `sub clear(!@)` | drops every entry |
-| `?m.items()` | `fun items(?@) -> Items[K, V] from @` | the iterator keeps `m` lent to read; each `Item[?K, ?V]` (`e.key`, `e.value`) views `m` (`next(!@) -> Item[?K, ?V]? from @map`), and keeps it lent to read while it lives |
+| `?m.items()` | `fun items(?@) -> Items[K, V] from @` | the iterator leaves `m` read-only; each `Item[?K, ?V]` (`e.key`, `e.value`) views `m` (`next(!@) -> Item[?K, ?V]? from @map`), and leaves it read-only while it lives |
 | `?m.keys()`, `?m.values()` | `fun keys(?@) -> Keys[K, V] from @` | likewise, each a `?K` or a `?V` |
 | `!m.update(f)` | `sub update(!@, f: ?sub(?K, !V))` | writes each value in place; keys stay read-only. `f` could store the key's view in the value, so a `V` that can hold it is refused, whatever `f` does ([SPEC "Generic bodies"](../SPEC.md#generic-bodies)): use a `V` that owns what it holds, or walk `items` |
 | `!m.retain(f)` | `sub retain(!@, f: ?fun(?K, !V) -> Bool)` | keeps the entries `f` is true for, in order; `f` reads each key and may write its value, in order, and cannot reach `m`; an entry it rejects is dropped then. A `V` that can hold the key's view is refused, as for `update` |
@@ -2082,7 +2082,7 @@ holds a `?String` looks up with no copy, and its Map holds views, as a
 A view an iterator gives views the Map or Set, not the iterator: each
 `next` says `from @map` (`from @set`), which names the iterator's field
 holding a view of it (Core sentence 7). An item may be kept past its
-step of the loop, `keep = e.value`, and keeps the Map lent to read
+step of the loop, `keep = e.value`, and leaves the Map read-only
 while it lives, so `!m.put(...)` waits until it is last used. To keep a
 value while the Map changes, clone it (`+e.value`).
 
@@ -2118,7 +2118,7 @@ new a
 2 true
 ```
 
-The view `get` returns keeps the Map lent to read, so the Map is not
+The view `get` returns leaves the Map read-only, so the Map is not
 changed while it lives:
 
 ```rig reject
@@ -2132,12 +2132,12 @@ sub main()
 ```
 
 ```error
-cannot lend `m` to write while a read loan is live
+cannot change `m` while a read view of it is still in use
 ```
 
 Where the value copies, `?? v` with a value `v` gives a copy of it
 instead of the view ([SPEC §12](../SPEC.md#the-fallback-of-)), which
-keeps no loan:
+keeps no view:
 
 ```rig
 
@@ -2412,7 +2412,7 @@ sub main()
 `!v.resize(n, x)` grows a List to `n` elements with copies of `x`, or
 shrinks it to `n` as `keep` does; a negative `n` panics. Each copies
 one value into many elements, so the element must copy: plain data,
-or a read view whose copies carry its loan. A List of owners is grown
+or a read view, whose copies view the same place. A List of owners is grown
 by a loop whose `+x` makes each element.
 
 ```rig
@@ -2530,7 +2530,7 @@ sub main()
 |---|---|
 | `*Frozen(x)` | moves `x`, which holds only data that never changes (no `Cell`, `Signal`, actor, channel, other handle, task, closure, or view), behind a new handle |
 | `f.field`, `f.m()`, `f[i]` | reads through the handle, as through any `*T`; nothing writes through it |
-| `?f` | lends the frozen value as a `?T` |
+| `?f` | makes a read view of the frozen value, a `?T` |
 | `+f` | another handle, in one atomic step; the last one dropped, on any task, drops the value |
 | `f == g`, `f < g`, hashing | compare, order, and hash the values the handles reach, so `*Frozen[String]` keys a Map and sorts |
 
@@ -2538,7 +2538,7 @@ sub main()
 
 `xs.reduce(start, f)` folds the elements of a slice, an array, or a
 List into one value. It passes the running value, `start` first, and
-each element in order, lent as `?T`, to `f`, and keeps what `f` gives;
+each element in order, as a `?T` view, to `f`, and keeps what `f` gives;
 it gives the last, or `start` when there are no elements. A `start` of
 type `A` takes an `f` of type `?fun(A, ?T) -> A`: a closure written in
 the call, or a function's name. It only reads the elements.
@@ -2711,7 +2711,7 @@ so nothing here allocates but `format_int`, which returns a new String,
 `chunks`, which returns a new List, `edit_distance`, which grows the
 `row` it is given, and an `Interner`, which holds its strings' text and
 its table. A `?String` taken from a `String`
-([SPEC §10](../SPEC.md#string)) keeps it lent through every part these
+([SPEC §10](../SPEC.md#string)) keeps it read-only through every part these
 functions return.
 
 | Function | Result |
@@ -3457,7 +3457,7 @@ It prints as `JsonError.eof(at: 5)`, and a `match` takes it apart.
 
 An object's entries are its keys and values, alternating, between its
 `object` and `object_end` entries. A string without escapes is a view of
-`src`, so a `Doc` keeps `src` lent while it is in use. An integer literal
+`src`, so a `Doc` keeps `src` read-only while it is in use. An integer literal
 that fits an `Int` is an `int`; any other number is the nearest `Float`
 (`-0` is a `Float`), and one beyond `Float.max` is a `range` error.
 `NaN` and `Infinity` are errors, as are an unpaired surrogate in a `\u`

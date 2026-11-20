@@ -19,7 +19,7 @@ obj IntSource
   sub subscribe(!@, listener: *sub(Int))
     !@listeners.push(<listener)
 
-  # A Cell lends no view of the List inside it, so the list is swapped
+  # A Cell gives no view of the List inside it, so the list is swapped
   # out to be walked, and swapped back.
   sub set(!@, v: Int)
     !@value.set(v)

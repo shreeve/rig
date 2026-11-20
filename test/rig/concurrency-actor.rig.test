@@ -394,7 +394,7 @@ fail "actor call marks", "`get` only reads the actor: call it bare, `c.get(...)`
   c.bump()
   print(c.take())
 
-fail "actor read view changes", "cannot lend to write through a read view `?*Actor[C]`"
+fail "actor read view changes", "cannot make a write view through a read view `?*Actor[C]`"
   obj C
     n: Int
 
@@ -405,7 +405,7 @@ fail "actor read view changes", "cannot lend to write through a read view `?*Act
   r = ?c
   !r.bump()
 
-fail "actor made in a generic holds no view", "16:5: `mk[?String]` cannot use `T = ?String`: the generic body makes an actor whose value holds a `T`, which carries no loan", "17:5: `again[?String]` cannot use `T = ?String`", errors: 2
+fail "actor made in a generic holds no view", "16:5: `mk[?String]` cannot use `T = ?String`: the generic body makes an actor whose value holds a `T`, which holds no view, and a `?String` may view a String (a `Static` holds no view)", "17:5: `again[?String]` cannot use `T = ?String`", errors: 2
   # An actor's value holds no view, wherever the actor is made: in a
   # generic body, each instance's `T` holds none.
   obj Box[T]
@@ -425,7 +425,7 @@ fail "actor made in a generic holds no view", "16:5: `mk[?String]` cannot use `T
   b = again[?String]()
   print(a.get(), b.get())
 
-fail "actor through a read slice", "12:4: cannot lend to write through a slice; a `[]T` is read-only", "16:4: cannot lend to write through a slice; a `[]T` is read-only", errors: 2
+fail "actor through a read slice", "12:4: cannot make a write view through a slice; a `[]T` is read-only", "16:4: cannot make a write view through a slice; a `[]T` is read-only", errors: 2
   # A `[]T` is a read view of its elements: an actor's handle in one calls
   # no `!@` method through it.
   # oracle: f reject C10
@@ -462,7 +462,7 @@ fail "actor view result", "`first` gives a `?Int`, which may view the actor's st
   c = *Actor(C(items: List[Int]()))
   print(c.first())
 
-fail "actor write view argument", "a method an actor runs takes no write view: `!zs` lends `zs` to write"
+fail "actor write view argument", "a method an actor runs takes no write view: `!zs` makes a write view of `zs`"
   obj C
     n: Int
 
@@ -495,7 +495,7 @@ test "actor marked call while a task reads the handle", seeds: 20, "true 1"
   !a.add(String("one"))
   print(>t <= 1, a.count())
 
-fail "actor task keeps argument loans", "cannot lend `ys` to write while a read loan is live"
+fail "actor task keeps argument loans", "cannot change `ys` while a read view of it is still in use"
   # oracle: main reject C4
   obj C
     n: Int
@@ -729,7 +729,7 @@ fail "actor closure literal in a task call", "13:16: an actor runs its methods o
   total += 100
   print(>t, total)
 
-fail "actor closure literal in a call", "12:18: an actor runs its methods on a task of its own, and `|+k, x| x + k` is lent to it to read", errors: 1
+fail "actor closure literal in a call", "12:18: an actor runs its methods on a task of its own, and `|+k, x| x + k` is passed to it as a read view: `?fun(Int) -> Int` views a closure or function passed to a call as a view", errors: 1
   # An actor runs its methods on a task of its own, so a closure literal
   # given to one is lent to that task, waited on or not.
   obj Counter
@@ -1014,7 +1014,7 @@ test "actor argument lent bare to a view parameter", seeds: 20, "5"
   p = Plain(n: 4)
   print(d.peek(p))
 
-fail "actor argument lent bare crosses as a view", "an actor runs its methods on a task of its own, and `Holder(j: ^Sum(xs: List([1, 2])))` is lent to it to read: `?Holder` holds `{Job + Sends}`"
+fail "actor argument lent bare crosses as a view", "an actor runs its methods on a task of its own, and `Holder(j: ^Sum(xs: List([1, 2])))` is passed to it as a read view: `?Holder` holds `{Job + Sends}`"
   # A value lent bare where a `?T` goes is shared with the actor's task,
   # so `T` syncs (SPEC §18), as when `?` is written.
   api Job
@@ -1038,7 +1038,7 @@ fail "actor argument lent bare crosses as a view", "an actor runs its methods on
   c = *Actor(Counter(hits: 0))
   print(c.peek(Holder(j: ^Sum(xs: List([1, 2])))))
 
-fail "actor slice argument shares its elements", "an actor runs its methods on a task of its own, and `xs` is lent to it to read"
+fail "actor slice argument shares its elements", "an actor runs its methods on a task of its own, and `xs` is passed to it as a read view"
   # A slice lent to an actor, bare or with `?`, is read on its task, so
   # its elements sync (SPEC §18).
   api Job

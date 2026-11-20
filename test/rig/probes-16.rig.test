@@ -27,7 +27,7 @@ test "rev210-j02 repoint field then write", '''
   w.s = String("z")
   print(a.s, b.s)
 
-fail "rev210-k03 generic box inst", "cannot assign to `p.a` while `p.a.name` is lent"
+fail "rev210-k03 generic box inst", "cannot assign to `p.a` while a read view of `p.a.name` is still in use"
   # Reviewer probe for #210 (field loans): Fields through a box in a
   # generic object instance.
 
@@ -204,7 +204,7 @@ test "rev220-cell-set", '''
     !c.set(<n)
     0
 
-fail "rev220-handle-field", "cannot lend `p` to write in an index of `p.hl`, a place being lent"
+fail "rev220-handle-field", "cannot change `p` in an index of a view being made of `p.hl`"
   obj P
     hl: *List[Int]
 
@@ -220,7 +220,7 @@ fail "rev220-handle-field", "cannot lend `p` to write in an index of `p.hl`, a p
   p = P(hl: *<v)
   print(p.hl[reh(!p)])
 
-fail "rev220-handle-local", "cannot lend `h` to write in an index of a place it is lending"
+fail "rev220-handle-local", "cannot change `h` in an index of a view being made of it"
   fun reh(h: !*List[Int]) -> Int
     n: List[Int] = List()
     for i in 0..100
@@ -233,7 +233,7 @@ fail "rev220-handle-local", "cannot lend `h` to write in an index of a place it 
   h = *<v
   print(h[reh(!h)])
 
-fail "rev220-handle-root", "cannot lend `h` to write in an index of a place it is lending"
+fail "rev220-handle-root", "cannot change `h` in an index of a view being made of it"
   obj P
     hl: *List[Int]
 
@@ -631,7 +631,7 @@ test "rev227-empty-generic-field", "1 0 1 0"
       n: Int = Int.max
       pub ?s: String = String()
 
-fail "rev227-ro-while", "cannot lend `t.last` to write: field `last` of `lib.Tally` is read-only outside module `lib`, which declares it `pub ?last`"
+fail "rev227-ro-while", "cannot change `t.last`: field `last` of `lib.Tally` is read-only outside module `lib`, which declares it `pub ?last`"
   # A while header that lends a read-only field to write is rejected.
 
   use lib
@@ -1684,7 +1684,7 @@ test "rev240-fix d08 inner index", "[[1]]"
   (!vs[0]).push(1)
   print(vs)
 
-fail "rev240-g01 view of closure outlives drop", "cannot drop `f` while it is lent"
+fail "rev240-g01 view of closure outlives drop", "cannot drop `f` while a read view of it is still in use"
   fun id(f: ?fun(Int) -> Int) -> ?fun(Int) -> Int from f
     f
 
@@ -1694,7 +1694,7 @@ fail "rev240-g01 view of closure outlives drop", "cannot drop `f` while it is le
   <f
   print(g(1))
 
-fail "rev240-g02 view of closure direct", "cannot drop `f` while it is lent"
+fail "rev240-g02 view of closure direct", "cannot drop `f` while a read view of it is still in use"
   s = String("hello")
   f = |<s, x: Int| x + s.len
   g = ?f
@@ -2069,7 +2069,7 @@ test "rev240-m05 retain drop interleaving", '''
   !m.retain(|k, r| keep(k, !r))
   print("after", m.len)
 
-fail "rev240-p03 ensure with view across take", "use of `m` while a write loan is live"
+fail "rev240-p03 ensure with view across take", "cannot use `m` while a write view of it is still in use"
   fun mk(k: ?Int) -> String
     String("v")
 
@@ -2079,7 +2079,7 @@ fail "rev240-p03 ensure with view across take", "use of `m` while a write loan i
   !c.add("x")
   print(t)
 
-fail "rev240-p10 return ensure view of local map", "cannot return a view of `m`, which this function was not lent"
+fail "rev240-p10 return ensure view of local map", "cannot return a view of `m`, which belongs to this function"
   fun grab() -> !Int
     m = Map[Int, Int].new()
     (!m).ensure(1, 0)
@@ -2117,7 +2117,7 @@ test "rev240-s10 reuse fn value for two maps", "30 20 2"
     count += 1
     k * 10
 
-fail "rev255-a05 nested generic keeps", "cannot drop `n` while it is lent"
+fail "rev255-a05 nested generic keeps", "cannot drop `n` while a read view of it is still in use"
   obj Inner[W]
     w: (?W)?
 
@@ -2184,7 +2184,7 @@ fail "rev255-f11 generic mk store", "`fill` stores a view of `s` in `out`, which
   <t
   print(out[0])
 
-fail "rev255-f26 nested generic view wrap", "cannot drop `t` while it is lent"
+fail "rev255-f26 nested generic view wrap", "cannot drop `t` while a read view of it is still in use"
   obj Inner[W]
     w: (?W)?
 
@@ -2197,7 +2197,7 @@ fail "rev255-f26 nested generic view wrap", "cannot drop `t` while it is lent"
   if o.i.w as w
     print(w)
 
-fail "rev255-h07 for write holder", "cannot drop `t` while it is lent"
+fail "rev255-h07 for write holder", "cannot drop `t` while a read view of it is still in use"
   obj P
     src: ?String
 
@@ -2224,7 +2224,7 @@ fail "rev255-h07d for write direct store", "cannot store a view of `t` in `x.src
   <t
   print(xs[0].src)
 
-fail "rev255-i01 keyword reorder", "cannot drop `t` while it is lent"
+fail "rev255-i01 keyword reorder", "cannot drop `t` while a read view of it is still in use"
   obj P
     src: ?String
 
@@ -2239,7 +2239,7 @@ fail "rev255-i01 keyword reorder", "cannot drop `t` while it is lent"
   <t
   print(p.src)
 
-fail "rev255-i03 comptime param method", "cannot drop `t` while it is lent"
+fail "rev255-i03 comptime param method", "cannot drop `t` while a read view of it is still in use"
   obj P
     src: ?String
 
@@ -2254,7 +2254,7 @@ fail "rev255-i03 comptime param method", "cannot drop `t` while it is lent"
   <t
   print(p.src)
 
-fail "rev255-i08 method called as fn", "cannot drop `t` while it is lent"
+fail "rev255-i08 method called as fn", "cannot drop `t` while a read view of it is still in use"
   obj P
     src: ?String
 
@@ -2357,7 +2357,7 @@ fail "rev255-k11 store held view match", "`absorb` stores a view of `e` in `out`
   <t
   print(out[0])
 
-fail "rev255-m01", "cannot drop `n` while it is lent"
+fail "rev255-m01", "cannot drop `n` while a read view of it is still in use"
   # oracle: main reject C4
   use b
 
@@ -2390,7 +2390,7 @@ fail "rev255-m01", "cannot drop `n` while it is lent"
       pub sub watch(!@, a: ?String, s: ?String) keeps s
         @src = s
 
-fail "rev255-m03", "cannot drop `n` while it is lent"
+fail "rev255-m03", "cannot drop `n` while a read view of it is still in use"
   use b
 
   sub main()
@@ -2451,7 +2451,7 @@ test "rev255-q10 swap keeps both then write", "z one"
   x.s = "z"
   print(x.s, y.s)
 
-fail "rev255-q11 swap keeps both drop t1", "cannot drop `t1` while it is lent"
+fail "rev255-q11 swap keeps both drop t1", "cannot drop `t1` while a read view of it is still in use"
   obj H
     s: ?String
 
@@ -2479,7 +2479,7 @@ test "rev255-q13 list keeps then mutate source", "hello 2"
   !xs.push("more")
   print(out[0], xs.len)
 
-fail "rev255-r01 write self kept then write", "cannot assign to `p.name` while `p` is lent"
+fail "rev255-r01 write self kept then write", "cannot assign to `p.name` while a read view of `p` is still in use"
   obj P
     name: String
 
@@ -2492,7 +2492,7 @@ fail "rev255-r01 write self kept then write", "cannot assign to `p.name` while `
   p.name = String("second")
   print(out[0])
 
-fail "rev255-r04 write slice kept then write", "cannot assign to `a[0]` while `a` is lent"
+fail "rev255-r04 write slice kept then write", "cannot assign to `a[0]` while a read view of `a` is still in use"
   sub reg(xs: ![]String, out: !List[?String]) keeps xs
     !out.push(?xs[0])
 
@@ -2564,7 +2564,7 @@ fail "rev255-y04 keeps self into own field list", "cannot let this call store a 
   q = <o
   print(q.out[0].n)
 
-fail "rev255-y05 keeps self moved", "cannot move `a` while a read loan is live"
+fail "rev255-y05 keeps self moved", "cannot move `a` while a read view of it is still in use"
   obj N
     n: String
 
@@ -2577,7 +2577,7 @@ fail "rev255-y05 keeps self moved", "cannot move `a` while a read loan is live"
   b = <a
   print(out[0].n, b.n)
 
-fail "rev255-z01 holder used via view", "cannot drop `t` while it is lent"
+fail "rev255-z01 holder used via view", "cannot drop `t` while a read view of it is still in use"
   obj P
     src: ?String
 
@@ -2591,7 +2591,7 @@ fail "rev255-z01 holder used via view", "cannot drop `t` while it is lent"
   <t
   print(hv.src)
 
-fail "rev255-z05 holder used via moved closure", "cannot drop `t` while it is lent"
+fail "rev255-z05 holder used via moved closure", "cannot drop `t` while a read view of it is still in use"
   obj P
     src: ?String
 
@@ -2618,7 +2618,7 @@ fail "rev255-za01 temp holder drop reads temp", "a view of the temporary `String
   !P(src: "").watch(?String("hello"))
   print("end")
 
-fail "rev255-zb01 shared receiver kept", "cannot drop `a` while it is lent"
+fail "rev255-zb01 shared receiver kept", "cannot drop `a` while a read view of it is still in use"
   obj N
     n: String
 
@@ -2660,7 +2660,7 @@ fail "rev255-zb03 weak upgrade kept", "`s` does not live long enough"
   <a
   print(out[0].n)
 
-fail "rev255-zc04 keeper in match guard", "cannot drop `t` while it is lent"
+fail "rev255-zc04 keeper in match guard", "cannot drop `t` while a read view of it is still in use"
   obj P
     src: ?String
 
@@ -2679,7 +2679,7 @@ fail "rev255-zc04 keeper in match guard", "cannot drop `t` while it is lent"
   <t
   print(p.src)
 
-fail "rev255-zc07 keeper in catch handler", "cannot drop `t` while it is lent"
+fail "rev255-zc07 keeper in catch handler", "cannot drop `t` while a read view of it is still in use"
   error Bad
     oops
 
@@ -2699,7 +2699,7 @@ fail "rev255-zc07 keeper in catch handler", "cannot drop `t` while it is lent"
   <t
   print(x, p.src)
 
-fail "rev255-zc10 keeper in and short circuit", "cannot drop `t` while it is lent"
+fail "rev255-zc10 keeper in and short circuit", "cannot drop `t` while a read view of it is still in use"
   obj P
     src: ?String
 
@@ -2788,7 +2788,7 @@ test "rev255-zi05 enum generic keeps overstrict", "hello"
     .nothing
       print("none")
 
-fail "rev255-zj04 table entry generic method", "cannot drop `x` while it is lent"
+fail "rev255-zj04 table entry generic method", "cannot drop `x` while a read view of it is still in use"
   obj Entry[K, V]
     k: K
     v: V

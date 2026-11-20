@@ -202,7 +202,7 @@ fail "a chain is not a value", "2:9: a chain is not a value: end it with a consu
   evens = xs.filter(|x| x % 2 == 0)
   print(evens)
 
-fail "a chain advances an iterator in a place only when lent to write", "a chain advances the iterator `c`: lend it to write, `(!c).map(...)`"
+fail "a chain advances an iterator in a place only when lent to write", "a chain advances the iterator `c`: make a write view of it, `(!c).map(...)`"
   obj Countdown
     n: Int
 
@@ -290,7 +290,7 @@ test "collect of views keeps its source lent", "ann cy 1"
   long = ?names.filter(|s| s.len > 2).collect()
   print(old[0].name, old[1].name, long.len)
 
-fail "a chain whose result views its source is marked where it is bound", "5:6: `names.filter(|s| s.len > 2).collect()` keeps `names` lent while `vs` lives; write `?names.filter(|s| s.len > 2).collect()`", "6:5: `names.find(|s| s.len > 2)` keeps `names` lent while `f` lives; write `?names.find(|s| s.len > 2)`", "7:5: `names.max_by(|s| s.len)` keeps `names` lent while `m` lives; write `?names.max_by(|s| s.len)`", errors: 3
+fail "a chain whose result views its source is marked where it is bound", "5:6: `names.filter(|s| s.len > 2).collect()` keeps a view of `names` while `vs` lives; write `?names.filter(|s| s.len > 2).collect()`", "6:5: `names.find(|s| s.len > 2)` keeps a view of `names` while `f` lives; write `?names.find(|s| s.len > 2)`", "7:5: `names.max_by(|s| s.len)` keeps a view of `names` while `m` lives; write `?names.max_by(|s| s.len)`", errors: 3
   # As a call that keeps its argument lent, `r = head(?v)`. A chain used
   # within its statement lends its source there, unmarked.
   names: List[String] = List()
@@ -300,7 +300,7 @@ fail "a chain whose result views its source is marked where it is bound", "5:6: 
   m = names.max_by(|s| s.len)
   print(vs.len, f ?? "", m ?? "", names.filter(|s| s.len > 2).count())
 
-fail "collected views keep their source lent", "cannot lend `names` to write while a read loan is live"
+fail "collected views keep their source lent", "cannot change `names` while a read view of it is still in use"
   names: List[String] = List()
   !names.push(String("ann"))
   vs = ?names.filter(|s| s.len > 2).collect()

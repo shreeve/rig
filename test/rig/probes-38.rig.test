@@ -46,14 +46,14 @@ test "sb-r a2"
   !s.b.push(2)
   w[0] = 5
 
-fail "sb-r a3", "cannot drop `v` while it is lent"
+fail "sb-r a3", "cannot drop `v` while a write view of it is still in use"
   v: List[Int] = List()
   !v.push(1)
   w = !v[..]
   <v
   w[0] = 5
 
-fail "sb-r a5", "use of `y` while a write loan is live"
+fail "sb-r a5", "cannot use `y` while a write view of it is still in use"
   fun pick(a: ![]Int, b: ![]Int, first: Bool) -> ![]Int
     if first
       <a
@@ -66,7 +66,7 @@ fail "sb-r a5", "use of `y` while a write loan is live"
   print(y)
   r[0] = 9
 
-fail "sb-r a6", "use of `w` while a write loan is live"
+fail "sb-r a6", "cannot use `w` while a write view of it is still in use"
   a = [1, 2, 3]
   w = !a[..]
   for x in !w
@@ -78,7 +78,7 @@ test "sb-r arr3", "1"
   a = [<v]
   print(a.len)
 
-fail "sb-r asfield", "cannot assign to `w[0]` while `w` is lent"
+fail "sb-r asfield", "cannot assign to `w[0]` while a read view of `w` is still in use"
   obj View
     xs: []Int
 
@@ -97,7 +97,7 @@ test "sb-r av3", "[9, 2, 3]"
   w[0] = 9
   print(b)
 
-fail "sb-r av4", "cannot lend `b` to read while a write loan is live"
+fail "sb-r av4", "cannot use `b` while a write view of it is still in use"
   sub z(s: ![]Int, t: []Int)
     s[0] = t[0]
 
@@ -128,7 +128,7 @@ fail "sb-r cl2", "an owned closure cannot capture `w`, which holds a view of `a`
     w[i] = 0
   f(1)
 
-fail "sb-r cl3", "use of `a` while a write loan is live"
+fail "sb-r cl3", "cannot use `a` while a write view of it is still in use"
   a = [1, 2, 3]
   w = !a[..]
   f = |<w, i: Int|
@@ -152,20 +152,20 @@ test "sb-r eqs", "true"
   w = !a[..]
   print(w == ?b[..])
 
-fail "sb-r retlocal", "cannot return a view of `a`, which this function was not lent"
+fail "sb-r retlocal", "cannot return a view of `a`, which belongs to this function"
   fun f() -> ![]Int
     a = [1, 2]
     !a[..]
 
   print(f().len)
 
-fail "sb-r same2", "cannot lend `w` to write while a read loan is live"
+fail "sb-r same2", "cannot change `w` while a read view of it is still in use"
   a = [1, 2, 3, 4]
   w = !a[..]
   !w[..2].copy(?w[2..])
   print(a)
 
-fail "sb-r same4", "cannot lend `a` to write while a read loan is live"
+fail "sb-r same4", "cannot change `a` while a read view of it is still in use"
   a = [1, 2, 3, 4]
   !a.copy(?a[..])
   print(a)
@@ -447,7 +447,7 @@ test "seam3-cellstr-i", "1"
   if o as w
     print(w.len)
 
-fail "seam3-holder-stack", "cannot lend `v` to write while a read loan is live"
+fail "seam3-holder-stack", "cannot change `v` while a read view of it is still in use"
   obj Stack[T]
     items: List[T]
 
@@ -469,13 +469,13 @@ fail "seam3-holder-stack", "cannot lend `v` to write while a read loan is live"
   !v.push(2)
   print(s.items.len)
 
-fail "seam3-holder-text", "cannot lend `t` to write while a read loan is live"
+fail "seam3-holder-text", "cannot change `t` while a read view of it is still in use"
   t = String("abc")
   b = ^?t
   !t.add("d")
   print(b)
 
-fail "seam3-review1-a01 box ret param", "cannot lend `v` to write while a read loan is live"
+fail "seam3-review1-a01 box ret param", "cannot change `v` while a read view of it is still in use"
   fun wrap(v: ?List[Int]) -> ^?List[Int]
     ^v
 
@@ -485,7 +485,7 @@ fail "seam3-review1-a01 box ret param", "cannot lend `v` to write while a read l
   !v.push(2)
   print(b.len)
 
-fail "seam3-review1-a02 box ret drop", "cannot drop `v` while it is lent"
+fail "seam3-review1-a02 box ret drop", "cannot drop `v` while a read view of it is still in use"
   fun wrap(v: ?List[Int]) -> ^?List[Int]
     ^v
 
@@ -495,7 +495,7 @@ fail "seam3-review1-a02 box ret drop", "cannot drop `v` while it is lent"
   <v
   print(b.len)
 
-fail "seam3-review1-a03 box ret local", "cannot return a view of `v`, which this function was not lent"
+fail "seam3-review1-a03 box ret local", "cannot return a view of `v`, which belongs to this function"
   fun wrap() -> ^?List[Int]
     v: List[Int] = List()
     !v.push(1)
@@ -504,7 +504,7 @@ fail "seam3-review1-a03 box ret local", "cannot return a view of `v`, which this
   b = wrap()
   print(b.len)
 
-fail "seam3-review1-a05 box ret two params", "cannot lend `c` to write while a read loan is live"
+fail "seam3-review1-a05 box ret two params", "cannot change `c` while a read view of it is still in use"
   fun pick(a: ?List[Int], b: ?List[Int]) -> ^?List[Int]
     ^b
 
@@ -515,7 +515,7 @@ fail "seam3-review1-a05 box ret two params", "cannot lend `c` to write while a r
   !c.push(2)
   print(b.len)
 
-fail "seam3-review1-a08 struct field box", "cannot lend `v` to write while a read loan is live"
+fail "seam3-review1-a08 struct field box", "cannot change `v` while a read view of it is still in use"
   obj S
     b: ^?List[Int]
 
@@ -525,7 +525,7 @@ fail "seam3-review1-a08 struct field box", "cannot lend `v` to write while a rea
   !v.push(2)
   print(s.b.len)
 
-fail "seam3-review1-a09 struct field box drop", "cannot drop `v` while it is lent"
+fail "seam3-review1-a09 struct field box drop", "cannot drop `v` while a read view of it is still in use"
   obj S
     b: ^?List[Int]
 
@@ -535,7 +535,7 @@ fail "seam3-review1-a09 struct field box drop", "cannot drop `v` while it is len
   <v
   print(s.b.len)
 
-fail "seam3-review1-a10 vec of box push later", "cannot lend `v` to write while a read loan is live"
+fail "seam3-review1-a10 vec of box push later", "cannot change `v` while a read view of it is still in use"
   v: List[Int] = List()
   !v.push(1)
   bs: List[^?List[Int]] = List()
@@ -543,7 +543,7 @@ fail "seam3-review1-a10 vec of box push later", "cannot lend `v` to write while 
   !v.push(2)
   print(bs[0].len)
 
-fail "seam3-review1-c01 closure lend box", "cannot lend `v` to write while a read loan is live"
+fail "seam3-review1-c01 closure lend box", "cannot change `v` while a read view of it is still in use"
   v: List[Int] = List()
   !v.push(1)
   b = ^?v
@@ -551,7 +551,7 @@ fail "seam3-review1-c01 closure lend box", "cannot lend `v` to write while a rea
   !v.push(2)
   print(f())
 
-fail "seam3-review1-c02 closure move box", "cannot lend `v` to write while a read loan is live"
+fail "seam3-review1-c02 closure move box", "cannot change `v` while a read view of it is still in use"
   v: List[Int] = List()
   !v.push(1)
   b = ^?v
@@ -579,7 +579,7 @@ test "seam3-review1-c07 closure lend ok", '''
   !v.push(2)
   print(v.len)
 
-fail "seam3-review1-d02 gen closure box", "`mk[?List[Int]]` cannot use `T = ?List[Int]`: the generic body stores a `T` in an owned closure, which carries no loan, and a view keeps what it views lent"
+fail "seam3-review1-d02 gen closure box", "`mk[?List[Int]]` cannot use `T = ?List[Int]`: the generic body stores a `T` in an owned closure, which holds no view, and a view keeps what it views read-only"
   fun mk[T](x: T) -> *fun() -> Int
     b = ^x
     *|<b| 1
@@ -589,7 +589,7 @@ fail "seam3-review1-d02 gen closure box", "`mk[?List[Int]]` cannot use `T = ?Lis
   <v
   print(f())
 
-fail "seam3-review1-d04 gen struct closure", "`mk[?List[Int]]` cannot use `T = ?List[Int]`: the generic body stores a `T` in an owned closure, which carries no loan, and a view keeps what it views lent"
+fail "seam3-review1-d04 gen struct closure", "`mk[?List[Int]]` cannot use `T = ?List[Int]`: the generic body stores a `T` in an owned closure, which holds no view, and a view keeps what it views read-only"
   obj Hold[T]
     v: T
 
@@ -602,7 +602,7 @@ fail "seam3-review1-d04 gen struct closure", "`mk[?List[Int]]` cannot use `T = ?
   <v
   print(f())
 
-fail "seam3-review1-d08 gen opt closure", "`mk[?List[Int]]` cannot use `T = ?List[Int]`: the generic body stores a `T` in an owned closure, which carries no loan, and a view keeps what it views lent"
+fail "seam3-review1-d08 gen opt closure", "`mk[?List[Int]]` cannot use `T = ?List[Int]`: the generic body stores a `T` in an owned closure, which holds no view, and a view keeps what it views read-only"
   fun mk[T](x: T) -> *fun() -> Int
     o: T? = x
     *|<o| 1
@@ -612,7 +612,7 @@ fail "seam3-review1-d08 gen opt closure", "`mk[?List[Int]]` cannot use `T = ?Lis
   <v
   print(f())
 
-fail "seam3-review1-e12 gen vec cell string base", "`keep[?String]` cannot use `T = ?String`: the generic body stores a `T` in a Cell, which carries no loan, and a `?String` may view a String (a `Static` carries no loan)"
+fail "seam3-review1-e12 gen vec cell string base", "`keep[?String]` cannot use `T = ?String`: the generic body stores a `T` in a Cell, which holds no view, and a `?String` may view a String (a `Static` holds no view)"
   fun keep[T](x: T) -> *Cell[List[T]]
     xs: List[T] = List()
     !xs.push(x)
@@ -625,7 +625,7 @@ fail "seam3-review1-e12 gen vec cell string base", "`keep[?String]` cannot use `
   old = (!c).swap(List())
   print(old[0])
 
-fail "seam3-review1-e13 gen vec closure string base", "`mk[?String]` cannot use `T = ?String`: the generic body stores a `T` in an owned closure, which carries no loan, and a `?String` may view a String (a `Static` carries no loan)"
+fail "seam3-review1-e13 gen vec closure string base", "`mk[?String]` cannot use `T = ?String`: the generic body stores a `T` in an owned closure, which holds no view, and a `?String` may view a String (a `Static` holds no view)"
   fun mk[T](x: T) -> *sub()
     xs: List[T] = List()
     !xs.push(x)
@@ -637,7 +637,7 @@ fail "seam3-review1-e13 gen vec closure string base", "`mk[?String]` cannot use 
   <t
   f()
 
-fail "seam3-review1-e15 gen shared closure box owner", "`mk[?^String]` cannot use `T = ?^String`: the generic body stores a `T` in an owned closure, which carries no loan, and a view keeps what it views lent"
+fail "seam3-review1-e15 gen shared closure box owner", "`mk[?^String]` cannot use `T = ?^String`: the generic body stores a `T` in an owned closure, which holds no view, and a view keeps what it views read-only"
   obj Hold[T]
     v: T
 
@@ -650,7 +650,7 @@ fail "seam3-review1-e15 gen shared closure box owner", "`mk[?^String]` cannot us
   <b
   f()
 
-fail "seam3-review1-e16 gen weak closure", "`mk[?^String]` cannot use `T = ?^String`: the generic body stores a `T` in an owned closure, which carries no loan, and a view keeps what it views lent"
+fail "seam3-review1-e16 gen weak closure", "`mk[?^String]` cannot use `T = ?^String`: the generic body stores a `T` in an owned closure, which holds no view, and a view keeps what it views read-only"
   obj Hold[T]
     v: T
 
@@ -664,7 +664,7 @@ fail "seam3-review1-e16 gen weak closure", "`mk[?^String]` cannot use `T = ?^Str
   <b
   f()
 
-fail "seam3-review1-f01 ifas payload live", "cannot lend `v` to write while a read loan is live"
+fail "seam3-review1-f01 ifas payload live", "cannot change `v` while a read view of it is still in use"
   v: List[Int] = List()
   !v.push(1)
   o: (^?List[Int])? = ^?v
@@ -672,7 +672,7 @@ fail "seam3-review1-f01 ifas payload live", "cannot lend `v` to write while a re
     !v.push(2)
     print(b.len)
 
-fail "seam3-review1-f05b opt opt", "cannot drop `v` while it is lent"
+fail "seam3-review1-f05b opt opt", "cannot drop `v` while a read view of it is still in use"
   v: List[Int] = List()
   !v.push(1)
   o: ((?List[Int])?)? = ?v
@@ -681,7 +681,7 @@ fail "seam3-review1-f05b opt opt", "cannot drop `v` while it is lent"
     if a as b
       print(b.len)
 
-fail "seam3-review1-f06 moved holder", "cannot lend `v` to write while a read loan is live"
+fail "seam3-review1-f06 moved holder", "cannot change `v` while a read view of it is still in use"
   v: List[Int] = List()
   !v.push(1)
   b = ^?v
@@ -689,7 +689,7 @@ fail "seam3-review1-f06 moved holder", "cannot lend `v` to write while a read lo
   !v.push(2)
   print(c.len)
 
-fail "seam3-review1-f07 moved into vec", "cannot drop `v` while it is lent"
+fail "seam3-review1-f07 moved into vec", "cannot drop `v` while a read view of it is still in use"
   v: List[Int] = List()
   !v.push(1)
   b = ^?v
@@ -758,7 +758,7 @@ test "seam3-review1-g10 emit struct field box match", '''
   !ws.push(^?t)
   print(ws[0].len, ws[0])
 
-fail "seam3-review1-i01 loop elem box", "cannot lend `vs` to write while a read loan is live"
+fail "seam3-review1-i01 loop elem box", "cannot change `vs` while a read view of it is still in use"
   vs: List[List[Int]] = List()
   !vs.push(List())
   bs: List[^?List[Int]] = List()
@@ -767,7 +767,7 @@ fail "seam3-review1-i01 loop elem box", "cannot lend `vs` to write while a read 
   !vs.push(List())
   print(bs[0].len)
 
-fail "seam3-review1-i02 field box", "cannot lend `s.items` to write while a read loan is live"
+fail "seam3-review1-i02 field box", "cannot change `s.items` while a read view of it is still in use"
   obj S
     items: List[Int]
 
@@ -777,14 +777,14 @@ fail "seam3-review1-i02 field box", "cannot lend `s.items` to write while a read
   !s.items.push(2)
   print(b.len)
 
-fail "seam3-review1-i03 slice box", "cannot lend `v` to write while a read loan is live"
+fail "seam3-review1-i03 slice box", "cannot change `v` while a read view of it is still in use"
   v: List[Int] = List()
   !v.push(1)
   b = ^?v[..]
   !v.push(2)
   print(b.len)
 
-fail "seam3-review1-i05 box reassign", "cannot drop `v` while it is lent"
+fail "seam3-review1-i05 box reassign", "cannot drop `v` while a read view of it is still in use"
   v: List[Int] = List()
   w: List[Int] = List()
   !v.push(1)
@@ -793,7 +793,7 @@ fail "seam3-review1-i05 box reassign", "cannot drop `v` while it is lent"
   <v
   print(b.len)
 
-fail "seam3-review1-i07 cond holder", "cannot drop `v` while it is lent"
+fail "seam3-review1-i07 cond holder", "cannot drop `v` while a read view of it is still in use"
   v: List[Int] = List()
   w: List[Int] = List()
   !v.push(1)
@@ -801,14 +801,14 @@ fail "seam3-review1-i07 cond holder", "cannot drop `v` while it is lent"
   <v
   print(b.len)
 
-fail "seam3-review1-i08 holder in tuple array", "cannot drop `v` while it is lent"
+fail "seam3-review1-i08 holder in tuple array", "cannot drop `v` while a read view of it is still in use"
   v: List[Int] = List()
   !v.push(1)
   a = [^?v, ^?v]
   <v
   print(a[0].len)
 
-fail "seam3-review1-j02 gen cell set vec", "`stash[?^String]` cannot use `T = ?^String`: the generic body stores a `T` in a Cell, which carries no loan, and a view keeps what it views lent"
+fail "seam3-review1-j02 gen cell set vec", "`stash[?^String]` cannot use `T = ?^String`: the generic body stores a `T` in a Cell, which holds no view, and a view keeps what it views read-only"
   sub stash[T](c: *Cell[List[T]], x: T)
     xs: List[T] = List()
     !xs.push(x)
@@ -930,7 +930,7 @@ test "seams-mprobes-m11", "1"
   h.v = f(!h)
   print(h.v[0])
 
-fail "seams-mprobes-m12", "cannot lend `v` to write while a write loan is live: to swap two elements of `v`, write `!v.swap(0, 1)`"
+fail "seams-mprobes-m12", "cannot change `v` while a write view of it is still in use: to swap two elements of `v`, write `!v.swap(0, 1)`"
   fun grow(v: !List[Int]) -> Int
     for i in 0..100
       !v.push(i)

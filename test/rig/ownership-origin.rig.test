@@ -155,7 +155,7 @@ fail "origin from body forms", "17:5: `get` returns a view of `other`, but its s
 
   pass
 
-fail "origin from keeps named", "14:1: cannot lend `x` to write while a read loan is live", "17:1: cannot lend `y` to write while a read loan is live", errors: 2
+fail "origin from keeps named", "14:1: cannot change `x` while a read view of it is still in use", "17:1: cannot change `y` while a read view of it is still in use", errors: 2
   # The arguments `from` names stay lent while the result lives; a
   # function lent as a value calls with its type's origins, which keep
   # every argument that could hold the result.
@@ -203,7 +203,7 @@ fail "origin from static", "6:3: `pick` returns a view of `static`, but its sign
 
   pass
 
-fail "origin holder owns target", "22:6: cannot lend `c` to write while a read loan is live"
+fail "origin holder owns target", "22:6: cannot change `c` while a read view of it is still in use"
   # A cursor that also owns items of the type it hands out keeps itself
   # lent, to read: its result may view its own `scratch`.
 
@@ -274,7 +274,7 @@ test "origin key not kept", '''
   i = 3
   print(s.n, i)
 
-fail "origin keyword argument mapping", "10:1: cannot lend `x` to write while a read loan is live"
+fail "origin keyword argument mapping", "10:1: cannot change `x` while a read view of it is still in use"
   # Keyword arguments fill parameters by name: the result keeps the
   # argument that fills `a`, wherever it is written.
 
@@ -312,7 +312,7 @@ test "origin read self keeps nothing", '''
     print(k)
   print(b.label)
 
-fail "origin self stored in argument", "18:2: cannot drop `s` while it is lent"
+fail "origin self stored in argument", "18:2: cannot drop `s` while a read view of it is still in use"
   # A method may store a view of what its self holds in what it was
   # lent to write: self stays lent while that view lives.
 
@@ -356,7 +356,7 @@ test "origin self stores into argument", "[1, 2, 3] 2"
   c.n += 1
   print(v.xs, c.n)
 
-fail "origin same type keeps both", "10:1: cannot lend `y` to write while a read loan is live"
+fail "origin same type keeps both", "10:1: cannot change `y` while a read view of it is still in use"
   # Without `from`, a result carries every argument whose type could hold
   # what it views: two arguments of the same type stay lent.
 
@@ -586,7 +586,7 @@ test "origin self path loans copied", '''
   if a as x
     print(x)
 
-fail "origin self path loans stay", "cannot lend `m1` to write while a read loan is live"
+fail "origin self path loans stay", "cannot change `m1` while a read view of it is still in use"
   # The item keeps the first Map lent after the field is pointed away.
 
   obj Walk
@@ -606,7 +606,7 @@ fail "origin self path loans stay", "cannot lend `m1` to write while a read loan
   !m1.put(3, 30)
   print(a)
 
-fail "origin self path kept map", "cannot lend `m1` to write while a read loan is live"
+fail "origin self path kept map", "cannot change `m1` while a read view of it is still in use"
   # A method that re-points the field (`keeps m`) may run while an item
   # lives, and the item still keeps the first Map lent.
 
@@ -721,7 +721,7 @@ test "origin self path write view and api", '''
   s += 10
   print(b.a, b.c)
 
-fail "origin self path whole self", "cannot lend `s` to write while a read loan on `s.text` is live"
+fail "origin self path whole self", "cannot change `s` while a read view of `s.text` is still in use"
   # A use of all of self touches the path: `reset` may change `@text`.
 
   obj Scanner
@@ -762,7 +762,7 @@ test "origin self path view self reset", "1"
   !s.reset()
   print(r)
 
-fail "origin self path held views", "cannot lend `w` to write while a read loan is live"
+fail "origin self path held views", "cannot change `w` while a read view of it is still in use"
   # An owned path's result also carries the loans self holds: `words`
   # holds views of `w`, which stays lent while `r` lives.
 
@@ -782,7 +782,7 @@ fail "origin self path held views", "cannot lend `w` to write while a read loan 
   !w.add("!")
   print(r)
 
-fail "origin self path handle", "while `s.h` is lent"
+fail "origin self path handle", "while a read view of it is still in use"
   # A handle field is an owned path: replacing it would drop what the
   # result views.
 
@@ -936,7 +936,7 @@ code "origin self path names no function", "pub inline fn set("
     !x.set(v)
   print(x.n)
 
-fail "origin self path task", "cannot drop `it` while it is lent", "cannot assign to `s.at` while `s` is lent", errors: 2
+fail "origin self path task", "cannot drop `it` while a write view of it is still in use", "cannot assign to `s.at` while a write view of `s` is still in use", errors: 2
   # A task is its call, still running: it keeps all of its self
   # lent until it is waited for, whatever paths of self `from` names.
 

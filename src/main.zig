@@ -87,10 +87,11 @@ const usage =
     \\                         them, its reach, what the calls of functions
     \\                         marked `inline` land in it, and what the
     \\                         functions the compiler inlines add (check)
-    \\  --tasks                List each local task (check): a task given or
-    \\                         lent a value that stays on one thread, such
-    \\                         as a `*T` handle, runs on the thread of the
-    \\                         task that makes it, which stays there too.
+    \\  --tasks                List each local task (check): a task given a
+    \\                         value, or a view of one, that stays on one
+    \\                         thread, such as a `*T` handle, runs on the
+    \\                         thread of the task that makes it, which
+    \\                         stays there too.
     \\                         Each line gives the task's place, the part
     \\                         that pins it, and the type in that part that
     \\                         cannot go to another core

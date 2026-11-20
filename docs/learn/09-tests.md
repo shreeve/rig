@@ -288,7 +288,7 @@ test "two tasks append to one list"
 ```
 
 ```error
-cannot lend `xs` to write while a write loan is live
+cannot change `xs` while a write view of it is still in use
 ```
 
 What remains is a race of order: tasks that share state safely but are

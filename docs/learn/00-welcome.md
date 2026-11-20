@@ -35,7 +35,7 @@ leaks; a program marked as rejected fails with the errors shown.
 ## The central idea
 
 **Sigils are the language's mechanics; words are its libraries.** How
-data is bound, taken, lent, held, failed, and run at the same time is
+data is bound, taken, viewed, held, failed, and run at the same time is
 written where it happens, as a one-character **sigil**, and a sigil
 means the same thing wherever it appears:
 
@@ -43,7 +43,7 @@ means the same thing wherever it appears:
 |---|---|
 | Binding | `x = e` binds, `x =! e` binds a fixed local |
 | Taking and copying | `<x` moves (alone on a line, drops), `+x` copies or makes another handle |
-| Lending | `?x` lends to read, `!x` to write; as types, `?T` and `!T` |
+| Views | `?x` makes a read view, `!x` a write view; as types, `?T` and `!T` |
 | Holding | `*x` shared (`*w` upgrades a weak handle), `^x` boxed, `~x` weak, `@` self |
 | Failure and absence | `T?` may be absent, `T!` may fail; `e?` and `e!` pass them on |
 | Concurrency | `f(x)&` sends work off, `>t` takes its result back |
@@ -59,8 +59,8 @@ Next to Rust and Zig:
 | Sigil | Meaning | Rust | Zig |
 |---|---|---|---|
 | `<x` | move `x` | `x` (implicit move) | copy, then stop using `x` |
-| `?x` | lend `x` to read | `&x` | `x` or `&x` |
-| `!x` | lend `x` to write | `&mut x` | `&x` |
+| `?x` | read view of `x` | `&x` | `x` or `&x` |
+| `!x` | write view of `x` | `&mut x` | `&x` |
 | `+x` | clone: a new owner | `x.clone()`, `Rc::clone(&x)` | copy, or a manual refcount bump |
 | `^x` | move into a box with one owner | `Box::new(x)` | `allocator.create(T)` |
 | `*x` | move into a shared, counted handle | `Rc::new(x)` | a hand-written refcounted box |
@@ -81,15 +81,16 @@ Four points are the ones that surprise readers from other languages:
   a failure up). Types follow suit: `T?` is an optional and `T!` a `T`
   that may fail. The by-position table of `?` and `!` is in
   [the sigils journey](01-sigils.md#-and--one-idea-each).
-- **`!` is never "not".** Logical negation is `not`, so `!v.pop()` lends
-  `v` to write and never negates (`if !done` is an error that says to
+- **`!` is never "not".** Logical negation is `not`, so `!v.pop()` makes
+  a write view of `v` and never negates (`if !done` is an error that says to
   use `not`; see [below](#habits-that-trip-people-up)). A move to
   nowhere is a drop: `<x` standing alone as a statement drops `x` now,
   and `-n` is only ever arithmetic negation.
-- **You lend a view; the compiler remembers the loan.** The owner
-  lends with `?` or `!`, what the callee gets is a view, and what stays
-  behind is a loan. Rust calls all three a "borrow"; Rig gives each its
-  own word, named from the owner's side ([CORE](../CORE.md)).
+- **A sigil on a place makes a view.** `?` or `!` on a variable, a
+  field, or an element makes a read view or a write view, and until its
+  last use the place is read-only (unusable, for a write view of an
+  ordinary value). Rust calls all of this a "borrow"; Rig gives each part
+  its own word, named from the sigil's side ([CORE](../CORE.md)).
 
 A reader sees every move, clone, write, and failure path on the line
 where it happens; reading is unmarked, and, as in Rust, a value is
@@ -208,11 +209,11 @@ still open: cfg.toml
 closing cfg.toml after 2 lines
 ```
 
-- **Lending.** `!log.write(3)` lends `log` to write, and `size(?log)`
-  lends it to read. The sigil at the call shows what the call may do to
+- **Views.** `!log.write(3)` makes a write view of `log`, and `size(?log)`
+  a read view. The sigil at the call shows what the call may do to
   your value. Views are checked, never counted, so they cost nothing at
-  run time. A value has many readers or one writer at a time, never
-  both.
+  run time. A place has many read views or one write view at a time,
+  never both, and a write view of an ordinary value leaves it unusable.
 - **Moving.** `<log` moves the file into `archive`, which owns it and
   closes it on return; a later use of `log` is a compile error.
 - **Sharing.** `*File(...)` puts a file behind a counted handle, `+cfg`
@@ -264,8 +265,8 @@ sub main()
 none -1
 ```
 
-`peek` lends `v` to read and gives an `Int?`; `next` passes its `none`
-up with `?`. `pop` lends `v` to write and gives an `Int!`; `drain`
+`peek` makes a read view of `v` and gives an `Int?`; `next` passes its `none`
+up with `?`. `pop` makes a write view of `v` and gives an `Int!`; `drain`
 passes a failure up with `!`, which `catch` turns into `-1`. There are
 no exceptions and no hidden control flow.
 
@@ -321,7 +322,7 @@ as the rest. [SPEC §18](../../SPEC.md#18-tasks) has every rule,
 [the concurrency journey](04-concurrency.md) teaches it, and
 [the launch post](../launch/post.md) tells the story.
 
-A task keeps the loans of its arguments until `>t` takes its result,
+A task keeps the views of its arguments until `>t` takes its result,
 and it never outlives the scope that owns it: dropping a task that was
 not waited for cancels it, if it can fail, and waits for it. There are
 no detached tasks and no `'static` bounds. A task's failure arrives
@@ -436,7 +437,7 @@ through it is direct, at no cost. Braces hide the type: an **API
 object**, `?{Shape}`, `!{Shape}`, `^{Shape}`, `*{Shape}`, or
 `~{Shape}`, holds a value of any type that provides `Shape`, viewed,
 boxed, or counted as the sigil says, and calls its methods through a
-table. It carries every loan the value had.
+table. It carries every view the value had.
 
 ```rig
 api Shape
@@ -542,7 +543,7 @@ support file.
 | match the error | `Err(E::Bad { at }) =>` | `error.Bad =>` | `catch \|e\|` / `.bad(at) =>` |
 | propagate | `f()?` | `try f()` | `f()!` |
 | handle | `f().unwrap_or(0)` | `f() catch 0` | `f() catch 0` |
-| lend | `&x`, `&mut x` | `&x` | `?x`, `!x` |
+| view | `&x`, `&mut x` | `&x` | `?x`, `!x` |
 | slice | `&v[a..b]`, `&mut v[a..]` | `v[a..b]`, `v[a..]` | `?v[a..b]`, `!v[a..]` |
 | reference count | `Rc::new(x)`, `Rc::clone(&r)` | by hand | `*x`, `+r` |
 | weak | `Rc::downgrade(&r)`, `w.upgrade()` | by hand | `~r`, `*w` |
@@ -684,7 +685,7 @@ sub main()
 
 `api Job: Sends` makes every `Job` object one that may go to another
 task, and the compiler checks it where each value's type is hidden. A
-`?{Shape}` keeps every loan its value had, as any view does, so no
+`?{Shape}` keeps every view its value had, as any view does, so no
 lifetime is written ([CORE §4](../CORE.md)).
 
 ### What a program becomes
@@ -932,7 +933,7 @@ sub main()
 unexpected name `x`; `print` is called with parentheses: `print(...)`
 ```
 
-**`!` is not "not".** Prefix `!` lends to write; negation is `not`.
+**`!` is not "not".** Prefix `!` makes a write view; negation is `not`.
 Where it would start a condition, or an operand of `and`, `or`, or
 `not`, the habit is an error:
 
@@ -944,7 +945,7 @@ sub main()
 ```
 
 ```error
-`!` lends to write; use `not` for negation (a `Bool` is lent to write only where a `!Bool` is expected: `f(!flag)`)
+`!` makes a write view; use `not` for negation (a `Bool` gets a write view only where a `!Bool` is expected: `f(!flag)`)
 ```
 
 **`&&` and `||`.** They are `and` and `or`; for an optional's fallback,
@@ -976,7 +977,7 @@ sub main()
 ```
 
 ```error
-method `bump` needs `self` lent to write
+method `bump` needs a write view of `self`
 ```
 
 [Writing is marked](01-sigils.md#writing-is-marked) teaches the rule.
@@ -1130,7 +1131,7 @@ compiler bug, not a user error.
 | Safe code cannot corrupt memory | Use after move, double free, use after free, dangling views, and leaks cannot happen outside a `raw` block. The test suite runs every program under a sanitizer that crashes at any use of freed memory. |
 | Effects stay visible | No feature hides a move, clone, allocation, failure, or mutation. |
 | Tasks share safely | A task takes only what may be sent to its core or be read from two at once; no two tasks hold a write view of one value. |
-| Tasks end in scope | No task outlives the scope that owns it, or the loans it keeps. |
+| Tasks end in scope | No task outlives the scope that owns it, or the views it keeps. |
 
 At run time, integer overflow, out-of-bounds indexing, and a numeric
 conversion that does not fit panic in every build, debug and

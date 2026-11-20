@@ -778,7 +778,7 @@ fail "ctfun view of a call outlives it", "a view of the temporary `sq[3]` outliv
     v = ?sq[3]
     print(v[0])
 
-fail "ctfun returned view of a call", "cannot return a view of `sq[3]`, which this function was not lent", whole: true
+fail "ctfun returned view of a call", "cannot return a view of `sq[3]`, which belongs to this function", whole: true
   fun sq[n: Int] -> [n]Int
     [n of 1]
   fun get() -> ?[3]Int
@@ -1188,7 +1188,7 @@ test "ctfun imported call sized by the caller's parameter", "[0, 1, 4]", whole: 
         t[i] = i * i
       t
 
-fail "ctfun loop changes what it walks", "cannot reassign `t` while it is lent"
+fail "ctfun loop changes what it walks", "cannot reassign `t` while a read view of it is still in use"
   fun f[n: Int] -> Int
     t = [1, 2, 3]
     s = 0

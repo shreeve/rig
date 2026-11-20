@@ -41,7 +41,7 @@ fail "audit-tests-probes-rg10 fixed reassign", "cannot reassign fixed binding `x
   x = 2
   print(x)
 
-fail "audit-tests-probes-rg17 return view of local", "cannot return a view of `s`, which this function was not lent"
+fail "audit-tests-probes-rg17 return view of local", "cannot return a view of `s`, which belongs to this function"
   obj S
     n: Int
 
@@ -66,7 +66,7 @@ fail "audit-tests-probes-rg36 view of temp stored", "a view of the temporary `S(
   h = H(s: ?S(n: 1))
   print(h.s.n)
 
-fail "audit-tests-probes-rg45 write view twice", "cannot lend `x` to write while a write loan is live"
+fail "audit-tests-probes-rg45 write view twice", "cannot change `x` while a write view of it is still in use"
   sub two(a: !Int, b: !Int)
     a += b
 
@@ -129,7 +129,7 @@ fail "audit-tests-probes-rg95 unused param ok but unused for", "`i` is bound but
   for i in 0..3
     print("x")
 
-fail "audit-tests-probes-w push in loop", "cannot lend `v` to write while a read loan is live"
+fail "audit-tests-probes-w push in loop", "cannot change `v` while a read view of it is still in use"
   v: List[Int] = List()
   !v.push(1)
   for x in ?v
@@ -237,7 +237,7 @@ fail "audit-tests-probes-y05 temp view rt", "a view of the temporary `mk(rt(7))`
   x = [rt(1), rt(2), rt(3), rt(4)]
   print(h.s.n, h.s.v.len, x[0])
 
-fail "audit-tests-probes-y06 temp view plain", "cannot return a view of `S(n: rt(n), m: rt(n + 1))`, which this function was not lent"
+fail "audit-tests-probes-y06 temp view plain", "cannot return a view of `S(n: rt(n), m: rt(n + 1))`, which belongs to this function"
   obj S
     n: Int
     m: Int
@@ -259,7 +259,7 @@ fail "audit-tests-probes-y06 temp view plain", "cannot return a view of `S(n: rt
   print(clobber(99))
   print(h.s.n, h.s.m)
 
-fail "audit-tests-probes-y07 dangling return", "cannot return a view of `S(n: rt(n), m: rt(n + 1))`, which this function was not lent"
+fail "audit-tests-probes-y07 dangling return", "cannot return a view of `S(n: rt(n), m: rt(n + 1))`, which belongs to this function"
   obj S
     n: Int
     m: Int
@@ -281,7 +281,7 @@ fail "audit-tests-probes-y07 dangling return", "cannot return a view of `S(n: rt
   print(clobber(99))
   print(h.s.n, h.s.m)
 
-fail "audit-tests-probes-y08 local view return", "cannot return a view of `s`, which this function was not lent"
+fail "audit-tests-probes-y08 local view return", "cannot return a view of `s`, which belongs to this function"
   obj S
     n: Int
 
@@ -445,7 +445,7 @@ fail "audit-typecheck-m5-main7", "`q` is assigned but never read; use it, or dis
 
     pub type PA = P
 
-fail "audit-typecheck-q3", "cannot lend `a` to write while a write loan is live"
+fail "audit-typecheck-q3", "cannot change `a` while a write view of it is still in use"
   a = 1
   swap(!a, !a)
   v = [1, 2, 3]
@@ -665,7 +665,7 @@ test "box-c4", '''
   print(h.b.v)
   <h
 
-fail "box-d1", "cannot reassign `root` while it is lent"
+fail "box-d1", "cannot reassign `root` while a write view of it is still in use"
   obj Node
     key: Int
     left: ^Node?
@@ -675,7 +675,7 @@ fail "box-d1", "cannot reassign `root` while it is lent"
     root = none
     print(n.key)
 
-fail "box-d3", "cannot reassign `root` while it is lent"
+fail "box-d3", "cannot reassign `root` while a read view of it is still in use"
   obj Node
     key: Int
     left: ^Node?
@@ -705,7 +705,7 @@ test "box-d3b", "0"
   m = leftmost(?root)
   print(m.key)
 
-fail "box-d4", "cannot drop `a` while it is lent"
+fail "box-d4", "cannot drop `a` while a read view of it is still in use"
   obj Node
     key: Int
     next: ^Node?
@@ -715,7 +715,7 @@ fail "box-d4", "cannot drop `a` while it is lent"
   <a
   print(r.key)
 
-fail "box-d5", "cannot reassign `a` while it is lent"
+fail "box-d5", "cannot reassign `a` while a read view of it is still in use"
   obj Node
     key: Int
     next: ^Node?
@@ -1131,7 +1131,7 @@ test "ca-e2", '''
 
   print(apply(|a| a, 1))
 
-fail "ca-r2", "use of `c` while a write loan is live"
+fail "ca-r2", "cannot use `c` while a write view of it is still in use"
   c = 0
   add = |!c|
     c += 1
@@ -1139,7 +1139,7 @@ fail "ca-r2", "use of `c` while a write loan is live"
   print(c)
   add()
 
-fail "ca-r3", "use of `c.n` while a write loan on `c` is live"
+fail "ca-r3", "cannot use `c.n` while a write view of `c` is still in use"
   obj Wrap
     n: Int
 
@@ -1288,7 +1288,7 @@ test "copies-clone-capture-view-holder-after-use", '''
   !v.push(2)
   print(v.len)
 
-fail "copies-clone-capture-view-holder-loan", "cannot lend `v` to write while a read loan is live"
+fail "copies-clone-capture-view-holder-loan", "cannot change `v` while a read view of it is still in use"
   obj S
     r: ?List[Int]
 
@@ -1381,7 +1381,7 @@ test "copies-fill-f1", '''
   n = 5
   print(n)
 
-fail "copies-fill-f10", "cannot return a view of `n`, which this function was not lent"
+fail "copies-fill-f10", "cannot return a view of `n`, which belongs to this function"
   fun mk() -> [3]?Int
     n = 4
     [3 of ?n]
@@ -1400,7 +1400,7 @@ test "copies-fill-f11", "[4, 4]"
   print(v)
   m = 9
 
-fail "copies-fill-f12", "cannot reassign `m` while it is lent"
+fail "copies-fill-f12", "cannot reassign `m` while a read view of it is still in use"
   v: List[?Int] = List()
   n = 3
   m = 4

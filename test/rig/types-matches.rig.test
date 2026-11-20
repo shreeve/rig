@@ -867,7 +867,7 @@ fail "matches with a name that is no constant", "4:19: `k` matches every value, 
     print(n matches _)
     print(n matches (1, k), k)
 
-fail "names alternatives bind take the loans one pattern takes", "12:5: cannot reassign `s` while it is lent", "20:13: use of `t` after move", "28:15: use of `t` after move", "34:10: cannot move `s` while a read loan is live", "40:11: use of `s` while a write loan is live"
+fail "names alternatives bind take the loans one pattern takes", "12:5: cannot reassign `s` while a read view of it is still in use", "20:13: use of `t` after move", "28:15: use of `t` after move", "34:10: cannot move `s` while a read view of it is still in use", "40:11: cannot use `s` while a write view of it is still in use"
   enum S
     a(t: String?)
     b(t: String)

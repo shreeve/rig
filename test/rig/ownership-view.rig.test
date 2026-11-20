@@ -1,6 +1,6 @@
 # ownership: tests whose names start `view`.
 
-fail "view chain through long loop", "cannot drop `b` while it is lent"
+fail "view chain through long loop", "cannot drop `b` while a read view of it is still in use"
   # A view handed down a 70-link chain, one link per loop iteration,
   # still reaches the first link: the loop analysis runs to its fixpoint
   # however many rounds that takes, so dropping `b` is rejected.
@@ -228,7 +228,7 @@ fail "view chain through long loop", "cannot drop `b` while it is lent"
   <b
   print(r1.payload)
 
-fail "view chosen by if", "cannot drop `h` while it is lent"
+fail "view chosen by if", "cannot drop `h` while a read view of it is still in use"
   # A view chosen by an if-expression views from every candidate, so
   # `h` stays lent while `r` is live.
 
@@ -278,7 +278,7 @@ fail "view escapes loop body", "`b` does not live long enough"
     i += 1
   print(r.payload)
 
-fail "view field of call result", "19:1: cannot reassign `h` while it is lent", "22:3: cannot reassign `h` while it is lent", "25:3: cannot reassign `h` while it is lent"
+fail "view field of call result", "19:1: cannot reassign `h` while a read view of it is still in use", "22:3: cannot reassign `h` while a read view of it is still in use", "25:3: cannot reassign `h` while a read view of it is still in use"
   # A view of a field reached through a view a call returns keeps what
   # the call views, bound by `=` or by `as`.
 
@@ -324,7 +324,7 @@ test "view in local struct", "10"
   w = view_of(?b)
   print(v.box.payload + w.box.payload)
 
-fail "view in returned struct", "cannot drop `h` while it is lent"
+fail "view in returned struct", "cannot drop `h` while a read view of it is still in use"
   # A call whose result can hold a view views from its viewed
   # arguments: `v` keeps `h` viewed.
 
@@ -346,7 +346,7 @@ fail "view in returned struct", "cannot drop `h` while it is lent"
   x = +v.h.inner
   print(x.payload)
 
-fail "view of temporary escapes", "18:9: cannot return a view of `S(n: rt(n))`, which this function was not lent", "23:11: a view of the temporary `S(n: rt(7))` outlives its statement", "24:6: a view of the temporary `S(n: 1)` outlives its statement", "25:11: a view of the temporary `S(n: rt(7))` outlives its statement", "26:6: a view of the temporary `mk(3)` outlives its statement"
+fail "view of temporary escapes", "18:9: cannot return a view of `S(n: rt(n))`, which belongs to this function", "23:11: a view of the temporary `S(n: rt(7))` outlives its statement", "24:6: a view of the temporary `S(n: 1)` outlives its statement", "25:11: a view of the temporary `S(n: rt(7))` outlives its statement", "26:6: a view of the temporary `mk(3)` outlives its statement"
   # A view of a temporary lives only until its statement ends. Held in
   # a binding, a field, or a returned value, it would outlive the
   # temporary it points to; used within the statement, it is fine.
@@ -449,7 +449,7 @@ test "view places", '''
   s[0] = 8
   print(a, b)
 
-fail "view result owning value", "15:10: type mismatch: expected `T`, got `!T`; only a value that copies is copied out of a view, and `T` may not copy in every instance: lend it on where it goes (`?T` or `!T`)", "19:16: type mismatch: expected `List[Int]`, got `!List[Int]`; only a value that copies is copied out of a view, and `List[Int]` owns a resource", "20:12: type mismatch: expected `List[Int]`, got `!List[Int]`"
+fail "view result owning value", "15:10: type mismatch: expected `T`, got `!T`; only a value that copies is copied out of a view, and `T` may not copy in every instance: pass it on as a view where it goes (`?T` or `!T`)", "19:16: type mismatch: expected `List[Int]`, got `!List[Int]`; only a value that copies is copied out of a view, and `List[Int]` owns a resource", "20:12: type mismatch: expected `List[Int]`, got `!List[Int]`"
   # Only a value that copies is copied out of a view where the value is
   # expected. A view of an owning value, or of a `T` that may own one, is
   # not.
@@ -471,7 +471,7 @@ fail "view result owning value", "15:10: type mismatch: expected `T`, got `!T`; 
   z: List[Int] = wv(!v)
   print(take(wv(!v)), z.len)
 
-fail "view returned from fn", "cannot drop `h` while it is lent"
+fail "view returned from fn", "cannot drop `h` while a read view of it is still in use"
   # A view returned from a function views from the viewed argument,
   # so `h` cannot be dropped while `r` is live.
 
@@ -531,7 +531,7 @@ test "view slice element returned", '''
   b = [1, 2]
   print(firsti(?b))
 
-fail "view stored by callee", "cannot drop `b` while it is lent"
+fail "view stored by callee", "cannot drop `b` while a read view of it is still in use"
   # A call may store the views it is given into its `!` arguments, so
   # after `put(!v, ?b)` the view keeps `b` viewed.
 
@@ -552,7 +552,7 @@ fail "view stored by callee", "cannot drop `b` while it is lent"
   <b
   print(v.box.payload)
 
-fail "view stored in field", "cannot drop `b` while it is lent"
+fail "view stored in field", "cannot drop `b` while a read view of it is still in use"
   # A view stored in an object field keeps its owner viewed while the
   # object is live.
 

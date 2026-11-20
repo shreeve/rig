@@ -53,7 +53,7 @@ test "closure ends with else if", "two"
       print("two")
   f()
 
-fail "closure lending hints", "22:9: `|+f|` captures what `+x` gives (a copy, a new count of a handle, or a deep copy), but `f` is `?fun(Int) -> Int`; capture it with `|?f|`", "30:7: but `f` is a closure of type `fun(Int) -> Int`; capture it with `|?f|`", "33:5: `keep` cannot take a callable view for `T`", "34:5: `Cell` cannot take a callable view for `T`", "35:7: only a local can be captured; `double` is declared at module level", "36:11: a closure literal is not a function value `fun(Int) -> Int`; declare the parameter `?fun(Int) -> Int`", "36:27: a lent closure goes to a parameter declared `?fun(Int) -> Int`", "39:14: `*sub()` is an owned closure; write `*|...| body` to make one"
+fail "closure lending hints", "22:9: `|+f|` captures what `+x` gives (a copy, a new count of a handle, or a deep copy), but `f` is `?fun(Int) -> Int`; capture it with `|?f|`", "30:7: but `f` is a closure of type `fun(Int) -> Int`; capture it with `|?f|`", "33:5: `keep` cannot take a callable view for `T`", "34:5: `Cell` cannot take a callable view for `T`", "35:7: only a local can be captured; `double` is declared at module level", "36:11: a closure literal is not a function value `fun(Int) -> Int`; declare the parameter `?fun(Int) -> Int`", "36:27: a view of a closure goes to a parameter declared `?fun(Int) -> Int`", "39:14: `*sub()` is an owned closure; write `*|...| body` to make one"
   # Each mistake in lending a closure gets one diagnostic whose hint
   # compiles: a closure or a view is captured with `|?f|`, a closure
   # literal goes to a parameter declared `?fun(...)`, and no type argument
@@ -178,7 +178,7 @@ test "closure param inference", '''
   plus5 = adder(5)
   print(plus5(1))
 
-fail "closure param names local", "closure parameter `rc` has the name of the local `rc`; to capture the local, give it a sigil (`|+rc|` copies or clones it, `|<rc|` moves it, `|?rc|` or `|!rc|` lends it, `|~rc|` holds it weakly)", "closure parameter `n` has the name of the local `n`"
+fail "closure param names local", "closure parameter `rc` has the name of the local `rc`; to capture the local, give it a sigil (`|+rc|` copies or clones it, `|<rc|` moves it, `|?rc|` or `|!rc|` makes a view of it, `|~rc|` holds it weakly)", "closure parameter `n` has the name of the local `n`"
   # In a bar list a bare name is a parameter; a capture carries a sigil.
   # A bare name that is also a local is rejected with the sigils that
   # would capture it, in a stack closure and in an owned closure.

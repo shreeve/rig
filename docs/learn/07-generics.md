@@ -246,7 +246,7 @@ sub main()
 ```
 
 Ownership is checked once, in the body, as if `T` owned a resource. So
-moves, drops, and lends are right for every instance. A body that
+moves, drops, and views are right for every instance. A body that
 copies a `T` works only with types that copy, and the error says which
 line copies.
 
@@ -499,7 +499,7 @@ sub main()
 ```
 
 `total_area` is the loop from before, in one line. Each element is
-lent to the closure as a read view, so `reduce` never copies one, and
+passed to the closure as a read view, so `reduce` never copies one, and
 `s.area()` reaches each instance's own method. `largest` is this
 chapter's first function, in one line too: `x` is a `?T`, and the bound
 `Copy` lets the closure hand back a `T` copied out of it. `reduce` works

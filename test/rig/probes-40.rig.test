@@ -62,7 +62,7 @@ test "syntax-review-designer-p16 view iter", '''
   while (!it).next() as x
     print(x)
 
-fail "syntax-review-designer-p17 split", "cannot lend `a` to write while a write loan is live"
+fail "syntax-review-designer-p17 split", "cannot change `a` while a write view of it is still in use"
   a = [1, 2, 3, 4]
   l = !a[..2]
   r = !a[2..]
@@ -135,7 +135,7 @@ test "syntax-review-designer-p31 over", "7"
   key.k = 5
   print(r.x)
 
-fail "syntax-review-designer-p32 getmut two", "use of `v` while a write loan is live"
+fail "syntax-review-designer-p32 getmut two", "cannot use `v` while a write view of it is still in use"
   obj P
     x: Int
 
@@ -751,7 +751,7 @@ test "syntax-review-symmetry-p str qslice", "he"
   t = ?s[0..2]
   print(t)
 
-fail "syntax-review-symmetry-p swap elems", "cannot lend `a` to write while a write loan is live: to swap two elements of `a`, write `!a.swap(0, 1)`"
+fail "syntax-review-symmetry-p swap elems", "cannot change `a` while a write view of it is still in use: to swap two elements of `a`, write `!a.swap(0, 1)`"
   a = [1, 2]
   swap(!a[0], !a[1])
   print(a)
@@ -1214,7 +1214,7 @@ test "syntax-review-ux-rs5", '''
   !d1.words.push("y")
   print(d1.words.len)
 
-fail "syntax-review-ux-rs5b", "cannot lend `d1.words` to write while a read loan on `d1` is live"
+fail "syntax-review-ux-rs5b", "cannot change `d1.words` while a read view of `d1` is still in use"
   obj Doc
     title: ?String
     words: List[?String]
@@ -1362,7 +1362,7 @@ test "t-m1", '''
   o: List[Int]? = List()
   print(o, o)
 
-fail "t-m2", "cannot lend `s.a` to write while a read loan on `s` is live"
+fail "t-m2", "cannot change `s.a` while a read view of `s` is still in use"
   obj S
     a: List[Int]
     b: Int

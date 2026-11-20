@@ -136,7 +136,7 @@ fail "cell compare list", "`compare_swap` compares and stores at once, so it is 
   ok = (!a).compare_swap(List[Int](), List[Int]())
   print(ok)
 
-fail "cell read view counts", "cannot lend to write through a read view `?*Cell[Int]`", errors: 1
+fail "cell read view counts", "cannot make a write view through a read view `?*Cell[Int]`", errors: 1
   # A read view only reads, a Cell's too.
   a = *Cell(0)
   r = ?a
@@ -419,7 +419,7 @@ test "cell lend tasks that hold read loans move", seeds: 20, "true true 4000"
   done = >t >= 2000
   print(all, done, h.n.get())
 
-fail "cell lend a task keeps its loan", "cannot reassign `h` while it is lent", "cannot reassign `g` while it is lent", errors: 2
+fail "cell lend a task keeps its loan", "cannot reassign `h` while a write view of it is still in use", "cannot reassign `g` while a write view of it is still in use", errors: 2
   # The read loan a task keeps lasts while it runs: the place is not
   # reassigned under it, in a set too.
 

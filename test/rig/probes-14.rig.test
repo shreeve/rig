@@ -9,7 +9,7 @@ fail "r3-s36-loans-text st02 loop view into vec", "`t` does not live long enough
     !names.push(?t[..])
   print(names)
 
-fail "r3-s36-loans-text st03 payload copy keeps loan", "cannot lend `t` to write while a read loan is live"
+fail "r3-s36-loans-text st03 payload copy keeps loan", "cannot change `t` while a read view of it is still in use"
   enum H
     has(s: ?String)
     no
@@ -24,14 +24,14 @@ fail "r3-s36-loans-text st03 payload copy keeps loan", "cannot lend `t` to write
       print(w)
     .no => print("no")
 
-fail "r3-s36-loans-text st04 closure view then mutate", "cannot lend `t` to write while a read loan is live"
+fail "r3-s36-loans-text st04 closure view then mutate", "cannot change `t` while a read view of it is still in use"
   t = String("abc")
   s: ?String = ?t[..]
   f = |?s| print(s)
   !t.add("d")
   f()
 
-fail "r3-s36-loans-text st05 over lend key", "cannot lend `k` to write while a read loan is live"
+fail "r3-s36-loans-text st05 over lend key", "cannot change `k` while a read view of it is still in use"
   # Over-lending with Strings: the result can only view `hay`, but it
   # views the key's Text too.
   fun after(hay: ?String, key: ?String) -> ?String
@@ -43,7 +43,7 @@ fail "r3-s36-loans-text st05 over lend key", "cannot lend `k` to write while a r
   !k.add("x")
   print(v)
 
-fail "r3-s36-loans-text st07 defer view at propagate", "cannot drop `x` while it is lent"
+fail "r3-s36-loans-text st07 defer view at propagate", "cannot drop `x` while a read view of it is still in use"
   error E
     bad
 
@@ -63,7 +63,7 @@ fail "r3-s36-loans-text st07 defer view at propagate", "cannot drop `x` while it
 
   print(f(true) catch 0)
 
-fail "r3-s36-loans-text st08 for view elems push", "cannot lend `t` to write while a read loan is live"
+fail "r3-s36-loans-text st08 for view elems push", "cannot change `t` while a read view of it is still in use"
   t = String("a b")
   names: List[?String] = List()
   !names.push(?t[0..1])
@@ -71,7 +71,7 @@ fail "r3-s36-loans-text st08 for view elems push", "cannot lend `t` to write whi
     !t.add("!")
     print(s)
 
-fail "r3-s36-loans-text st09 optional view coalesce", "cannot lend `t` to write while a read loan is live"
+fail "r3-s36-loans-text st09 optional view coalesce", "cannot change `t` while a read view of it is still in use"
   fun find(hay: ?String, b: U8) -> (?String)?
     for c, i in hay
       return hay[i..] if c == b
@@ -111,7 +111,7 @@ test "r3-s36-n03 tail match drops", '''
   x = pick(0)
   print(x.n)
 
-fail "r3-s36-n06 box lend then reassign", "cannot reassign `b` while it is lent"
+fail "r3-s36-n06 box lend then reassign", "cannot reassign `b` while a read view of it is still in use"
   obj S
     n: Int
 
@@ -123,7 +123,7 @@ fail "r3-s36-n06 box lend then reassign", "cannot reassign `b` while it is lent"
   b = ^S(n: 2)
   print(r.n)
 
-fail "r3-s36-n07 match box payload reassign", "cannot reassign `b` while it is lent"
+fail "r3-s36-n07 match box payload reassign", "cannot reassign `b` while a read view of it is still in use"
   enum Sh
     circle(r: List[Int])
     dot
@@ -137,7 +137,7 @@ fail "r3-s36-n07 match box payload reassign", "cannot reassign `b` while it is l
       print(r.len)
     .dot => print("dot")
 
-fail "r3-s36-n10 for vec box push in body", "cannot lend `v` to write while a read loan is live"
+fail "r3-s36-n10 for vec box push in body", "cannot change `v` while a read view of it is still in use"
   obj P
     n: Int
 
@@ -147,7 +147,7 @@ fail "r3-s36-n10 for vec box push in body", "cannot lend `v` to write while a re
     !v.push(^P(n: 2))
     print(x.n)
 
-fail "r3-s36-n11 fixed view then push", "cannot lend `v` to write while a read loan is live"
+fail "r3-s36-n11 fixed view then push", "cannot change `v` while a read view of it is still in use"
   v: List[Int] = List()
   !v.push(1)
   r =! ?v[..]
@@ -682,7 +682,7 @@ test "r3-s36-reads-f05 for vec of owner bare", '''
     print(h.n)
   print(v.len)
 
-fail "r3-s36-reads-f06 for array write in body", "cannot assign to `a[0]` while `a` is lent"
+fail "r3-s36-reads-f06 for array write in body", "cannot assign to `a[0]` while a read view of `a` is still in use"
   a = [1, 2, 3]
   for x in a
     a[0] = 9

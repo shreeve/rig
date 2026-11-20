@@ -1071242,7 +1071242,7 @@ test "p-it", '''
   !t.add("!")
   print(t)
 
-fail "p-it2", "cannot lend `t` to write while a read loan is live"
+fail "p-it2", "cannot change `t` while a read view of it is still in use"
   fun trim(s: ?String) -> ?String
     s
 
@@ -1071321,14 +1071321,14 @@ fail "p-mw2", "`mkw().v` owns a `List[Int]`, which can't be copied by `=`: write
   keep(mkw().v)
   print(x)
 
-fail "p-q1", "cannot lend `t` to write while a read loan is live"
+fail "p-q1", "cannot change `t` while a read view of it is still in use"
   t = String("abc")
   !t.add(?t[..])
   s = ?t[1..]
   !t.add(s)
   print(t)
 
-fail "p-q2", "cannot lend `n.title` to write while a read loan is live"
+fail "p-q2", "cannot change `n.title` while a read view of it is still in use"
   obj Note
     title: String
 
@@ -1071437,14 +1071437,14 @@ test "purity-designer-r10 int copy move", "1"
   m = <n
   print(m)
 
-fail "purity-designer-r11 write view twice call", "cannot lend `x` to write while a write loan is live"
+fail "purity-designer-r11 write view twice call", "cannot change `x` while a write view of it is still in use"
   sub f(a: !Int, b: !Int)
     a += b
 
   x = 1
   f(!x, !x)
 
-fail "purity-designer-r12 copy read during write", "use of `n` while a write loan is live"
+fail "purity-designer-r12 copy read during write", "cannot use `n` while a write view of it is still in use"
   n = 1
   w = !n
   print(n)

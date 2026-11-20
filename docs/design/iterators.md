@@ -60,7 +60,7 @@ compiler rewrites it as the `for` it means, before any checker runs, and
 checks and emits that loop. A chain is not a value; it ends in a
 consumer (`sum`, `count`, `collect`, ...) in the same expression, or it
 is a `for` loop's source, whose body is the consumer. Neither rule
-above is touched: no object holds the closures, which are lent to the
+above is touched: no object holds the closures, which are passed to the
 statement as any closure argument is, and no generic body walks the
 items.
 
@@ -164,24 +164,24 @@ sub main()
 A chain is checked as the loop it is, so the rules are the `for`
 loop's and a closure argument's. Nothing is new:
 
-- **The source is lent for the statement**, as a `for` source is lent
-  for its loop: read, with no mark, for a List, array, slice, or
-  string. An iterator advances, so it is lent to write, with the mark
+- **The source is viewed for the statement**, as a `for` source is
+  viewed for its loop: a read view, with no mark, for a List, array,
+  slice, or string. An iterator advances, so it gets a write view, with the mark
   of any write call: `!it.map(f).sum()`.
-- **Each closure is lent to the statement**, as one lent to `reduce`
+- **Each closure is passed to the statement**, as one passed to `reduce`
   is: its captures conflict with the statement's other views, so
   `xs.map(|!xs, x| ...)` is rejected.
 - **Items are what `for` gives:** a plain value copies, and an owner
-  element is lent, `?T`, as `reduce` lends it. A value a stage makes
+  element is a read view, `?T`, as `reduce` takes it. A value a stage makes
   (`map(|s| s.len)`) is owned by the step, and dropped at the end of
   its item unless a consumer keeps it.
 - **`collect()` keeps what it is given.** It moves made values into
   its List, copies plain ones, and keeps a view item as the view, so
-  the List keeps the source lent while it lives. A consumer whose
-  result keeps the source lent (`collect`, `find`, `min`, `max`,
-  `min_by`, `max_by` of views) is written with the lend where it is
-  bound, `vs = ?names.filter(f).collect()`, as any call that keeps an
-  argument lent; `.map(|s| +s).collect()` clones each instead.
+  the List keeps the source read-only while it lives. A consumer whose
+  result keeps a view of the source (`collect`, `find`, `min`, `max`,
+  `min_by`, `max_by` of views) is written with the sigil where it is
+  bound, `vs = ?names.filter(f).collect()`, as any call that keeps a view of an
+  argument; `.map(|s| +s).collect()` clones each instead.
 - **A closure that can fail makes the consumer fallible**, ending at
   the first failure, as `reduce` does; the call says `!` or `catch`.
 

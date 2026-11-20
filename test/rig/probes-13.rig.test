@@ -815,14 +815,14 @@ test "r3-s36-kinds-k41 clone struct of handles", "1 2"
   q = Pair(a: +p.a, b: +p.b)
   print(q.a.n, q.b.n)
 
-fail "r3-s36-loans-a01 int read then write", "cannot reassign `n` while it is lent"
+fail "r3-s36-loans-a01 int read then write", "cannot reassign `n` while a read view of it is still in use"
   # Sentence 5 for numbers: a read loan excludes a write.
   n = 1
   r = ?n
   n += 1
   print(r)
 
-fail "r3-s36-loans-a03 int field read then write", "cannot assign to `p.x` while `p.x` is lent"
+fail "r3-s36-loans-a03 int field read then write", "cannot assign to `p.x` while a read view of it is still in use"
   obj P
     x: Int
 
@@ -831,7 +831,7 @@ fail "r3-s36-loans-a03 int field read then write", "cannot assign to `p.x` while
   p.x = 5
   print(r)
 
-fail "r3-s36-loans-a04 vec int elem view then push", "cannot lend `v` to write while a read loan is live"
+fail "r3-s36-loans-a04 vec int elem view then push", "cannot change `v` while a read view of it is still in use"
   # A read view of a List[Int] element, then a push that may realloc.
   v: List[Int] = List()
   !v.push(1)
@@ -840,13 +840,13 @@ fail "r3-s36-loans-a04 vec int elem view then push", "cannot lend `v` to write w
     !v.push(i)
   print(r)
 
-fail "r3-s36-loans-a05 int closure read then write", "cannot reassign `n` while it is lent"
+fail "r3-s36-loans-a05 int closure read then write", "cannot reassign `n` while a read view of it is still in use"
   n = 1
   f = |?n| n + 1
   n = 7
   print(f())
 
-fail "r3-s36-loans-a06 vec of views", "cannot reassign `n` while it is lent"
+fail "r3-s36-loans-a06 vec of views", "cannot reassign `n` while a read view of it is still in use"
   # A loan carried into a List element lasts while the List is used.
   n = 1
   v: List[?Int] = List()
@@ -854,7 +854,7 @@ fail "r3-s36-loans-a06 vec of views", "cannot reassign `n` while it is lent"
   n = 2
   print(v[0])
 
-fail "r3-s36-loans-a07 optional of view", "cannot reassign `n` while it is lent"
+fail "r3-s36-loans-a07 optional of view", "cannot reassign `n` while a read view of it is still in use"
   n = 1
   o: (?Int)? = ?n
   n = 2
@@ -870,7 +870,7 @@ test "r3-s36-loans-a08 result of view", "1"
   n = 2
   print(r)
 
-fail "r3-s36-loans-a09 match binding of view", "cannot reassign `n` while it is lent"
+fail "r3-s36-loans-a09 match binding of view", "cannot reassign `n` while a read view of it is still in use"
   enum H
     has(r: ?Int)
     no
@@ -883,7 +883,7 @@ fail "r3-s36-loans-a09 match binding of view", "cannot reassign `n` while it is 
       print(r)
     .no => print("no")
 
-fail "r3-s36-loans-a10 loop var of views", "cannot reassign `a` while it is lent"
+fail "r3-s36-loans-a10 loop var of views", "cannot reassign `a` while a read view of it is still in use"
   a = 1
   b = 2
   xs = [?a, ?b]
@@ -904,7 +904,7 @@ test "r3-s36-loans-a11 fallible result view", "1"
   n = 2
   print(r)
 
-fail "r3-s36-loans-a12 write loan number twice", "cannot lend `n` to write while a write loan is live"
+fail "r3-s36-loans-a12 write loan number twice", "cannot change `n` while a write view of it is still in use"
   n = 1
   w1 = !n
   w2 = !n
@@ -912,7 +912,7 @@ fail "r3-s36-loans-a12 write loan number twice", "cannot lend `n` to write while
   w2 += 1
   print(n)
 
-fail "r3-s36-loans-a13 fallible view result", "cannot drop `x` while it is lent"
+fail "r3-s36-loans-a13 fallible view result", "cannot drop `x` while a read view of it is still in use"
   error E
     bad
 
@@ -1062,7 +1062,7 @@ fail "r3-s36-loans-c16 shared view through fn", "`a` does not live long enough"
   if k as kk
     print(kk.h.r.n)
 
-fail "r3-s36-loans-f01 coalesce return keeps loan", "cannot drop `r` while it is lent"
+fail "r3-s36-loans-f01 coalesce return keeps loan", "cannot drop `r` while a read view of it is still in use"
   # `?? return` leaves; the rest stays reachable and a loan taken
   # before it must stay in force after.
   obj R
@@ -1210,7 +1210,7 @@ test "r3-s36-loans-f12 and rhs move", '''
     print("both")
   print("end")
 
-fail "r3-s36-loans-m01 match write copy payload", "cannot reassign `h` while it is lent"
+fail "r3-s36-loans-m01 match write copy payload", "cannot reassign `h` while a write view of it is still in use"
   # A `match !h` payload of plain data is a write view into `h`; `h`
   # may not be replaced while it is live.
   enum H
@@ -1225,7 +1225,7 @@ fail "r3-s36-loans-m01 match write copy payload", "cannot reassign `h` while it 
     .no => print("no")
   print(h)
 
-fail "r3-s36-loans-m02 if write as copy", "cannot reassign `o` while it is lent"
+fail "r3-s36-loans-m02 if write as copy", "cannot reassign `o` while a write view of it is still in use"
   o: Int? = 1
   if !o as v
     o = none
@@ -1246,7 +1246,7 @@ test "r3-s36-loans-m03 match read string payload", "a"
 
 test "r3-s36-loans-m04 match read int payload", "1"
   # Sentence 5 says a read loan excludes a write "for numbers too", but a
-  # `match ?h` payload of plain data is a copy and holds no loan.
+  # `match ?h` payload of plain data is a copy and holds no view.
   enum H
     has(n: Int)
     no
@@ -1258,7 +1258,7 @@ test "r3-s36-loans-m04 match read int payload", "1"
       print(n)
     .no => print("no")
 
-fail "r3-s36-loans-m05 for read int elem", "cannot assign to `xs[0]` while `xs` is lent"
+fail "r3-s36-loans-m05 for read int elem", "cannot assign to `xs[0]` while a read view of `xs` is still in use"
   # Loop element of a read loop over plain data: a copy; the source stays
   # lent to read for the loop.
   xs = [1, 2, 3]

@@ -91,9 +91,9 @@ ping 4
 
 `echo` waits on `accept` and `read` with no mark and no future to poll.
 `net.listen` and `write` take a `?String`, and a literal is fixed text,
-lent with no allocation. `net.connect(String("127.0.0.1:", port))`
+passed on with no allocation. `net.connect(String("127.0.0.1:", port))`
 builds its address from parts, since Rig has no `+` on text: an owned
-`String`, allocated where the reader sees it and lent for the call.
+`String`, allocated where the reader sees it and passed to the call as a view.
 
 **Underneath,** each worker sleeps in a poller of its own, kqueue on
 macOS and epoll on Linux, which also serves its tasks' timers. A socket
@@ -147,7 +147,7 @@ one task per worker, or `limit:` of them, and
 `par.push(!t, ?sizes, f)` pushes a Table's next slots at once and has
 the tasks write them, a run each.
 Results come in the order of the input, and every task calls the one
-closure, so it may capture nothing lent to write.
+closure, so it may capture no write view.
 
 ### 4. Tasks, as in Go
 
@@ -365,7 +365,7 @@ worker that runs it. A stack is 64 MiB of address space, committed only
 as the task touches it, so a sleeping task holds about a page of it.
 Each worker keeps 32 free ones and shares up to 32 more on a spare list,
 returned to the system in runs once the workers are idle, and no stack
-moves, since loans point into it. Below each is a guard wider than the program's largest
+moves, since views point into it. Below each is a guard wider than the program's largest
 frame, by the compiler's bound on each frame, so an overflow faults.
 
 **The run-next slots and the ring.** The new task goes into one of its
@@ -405,14 +405,14 @@ free the record at once. The wake is one compare-and-swap for that
 wait's number, so a stale wake does nothing, and puts the waiter in the
 waking worker's run-next slot, so two tasks that answer each other, each
 waiting as soon as it sends, stay on one worker. `>t` takes the result
-and ends the task's loans; a task's panic passes on to its waiter there.
+and ends the task's views; a task's panic passes on to its waiter there.
 
 **What crosses cores.** Any worker may run a task, so the checker
 derives two facts for every type: whether its value *sends* (may be
 handed whole to another thread) and whether it *syncs* (two threads may
 read it through views at once). A task's argument is moved or copied
-when its type sends, lent to read when it syncs, and lent to write when
-it sends. Plain data sends and syncs; a `*Cell` of one word, `*Chan`,
+when its type sends, passed as a read view when it syncs, and as a write
+view when it sends. Plain data sends and syncs; a `*Cell` of one word, `*Chan`,
 `*Actor`, and `*Frozen` are counted atomically and go to any task. A
 plain `*T`'s count is not atomic, so a task given one is *local*: pinned
 with its maker to one thread, where local tasks take turns.
@@ -420,25 +420,25 @@ with its maker to one thread, where local tasks take turns.
 
 ## Safety
 
-**Ownership.** A task is a call whose loans last until it ends.
-`score(?d)&` lends `d` to the task for its whole life, so the task reads
-`d` in place, with no copy and no counted handle, and nothing changes
-`d` meanwhile. This is sound because a task's drop always runs before
-the owner of its loans goes: the drop counts as a use of the loans,
+**Ownership.** A task is a call whose views last until it ends.
+`score(?d)&` makes a read view of `d` for the task's whole life, so the
+task reads `d` in place, with no copy and no counted handle, and nothing
+changes `d` meanwhile. This is sound because a task's drop always runs
+before the places it views go: the drop counts as a use of the views,
 drops and `defer`s are checked in the order they run, no shared home (a
 `Cell`, a channel, an actor, an owned closure) holds a task, a panic
 stops at a boundary that waits for the tasks under it, and `main` waits
-for its tasks: the five rules of the design doc's "Loans and
+for its tasks: the five rules of the design doc's "Views and
 structure", on [CORE](CORE.md#2-the-core-in-ten-sentences)'s sentence 6.
 
-**What the compiler rejects:** a write to a value a live task was lent
-("cannot lend `xs` to write while a read loan is live"); a task thrown
+**What the compiler rejects:** a write to a value a live task views
+("cannot change `xs` while a read view of it is still in use"); a task thrown
 away as it starts ("this task is dropped as soon as it starts"); a
 fallible task the normal path drops unwaited, whose error would vanish;
-a cancel or a deadline over a task that cannot fail; a task with a write
-loan moved, returned, or put in a set; an API object without `Sends`,
+a cancel or a deadline over a task that cannot fail; a task holding a write
+view moved, returned, or put in a set; an API object without `Sends`,
 `^{Job}`, given to a task; and a closure given to `par.map`, `par.each`,
-`par.workers`, or `http.serve` that captures something lent to write.
+`par.workers`, or `http.serve` that captures a write view.
 
 **Deterministic tests.** With `RIG_SEED` set, as `rig test` sets it, a
 program runs on one thread: the seed picks the next task and

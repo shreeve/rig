@@ -2,7 +2,7 @@
 
 use std.text
 
-fail "review-take-p53", "cannot lend `s.a` to write while a read loan on `s` is live"
+fail "review-take-p53", "cannot change `s.a` while a read view of `s` is still in use"
   obj R
     n: Int
     drop(!@)
@@ -18,7 +18,7 @@ fail "review-take-p53", "cannot lend `s.a` to write while a read loan on `s` is 
     print("deferred", x)
   print(r)
 
-fail "review-take-p54", "cannot lend `s.a` to write while a write loan on `s` is live"
+fail "review-take-p54", "cannot change `s.a` while a write view of `s` is still in use"
   obj R
     n: Int
     drop(!@)
@@ -229,7 +229,7 @@ test "review-take-p80", '''
     print(<x)
   print(w)
 
-fail "review-take-p82", "cannot lend `v` to write in an index of a place it is lending"
+fail "review-take-p82", "cannot change `v` in an index of a view being made of it"
   fun grow(v: !List[Int?]) -> Int
     i = 0
     while i < 100 : i += 1
@@ -241,7 +241,7 @@ fail "review-take-p82", "cannot lend `v` to write in an index of a place it is l
   t = swap(!v[grow(!v)], 5)
   print(t, v.len)
 
-fail "review-take-p83", "cannot lend `v` to write while a read loan is live"
+fail "review-take-p83", "cannot change `v` while a read view of it is still in use"
   v: List[Int?] = List()
   !v.push(7)
   for x in ?v
@@ -324,7 +324,7 @@ test "review-take-p88", '''
     x = <w[0]
     print(x)
 
-fail "review-take-p89", "cannot lend `v` to write while a write loan is live: to swap two elements of `v`, write `!v.swap(0, 1)`"
+fail "review-take-p89", "cannot change `v` while a write view of it is still in use: to swap two elements of `v`, write `!v.swap(0, 1)`"
   obj R
     n: Int
     drop(!@)
@@ -409,7 +409,7 @@ test "review-take-p94", '''
   x = <s.into2()
   print(x)
 
-fail "review-take-p95", "cannot move `s` while a write loan on `s.a` is live"
+fail "review-take-p95", "cannot move `s` while a write view of `s.a` is still in use"
   obj S
     n: Int
     a: ^S?
@@ -470,18 +470,18 @@ test "review-take-q4", "3 S(a: none)"
   s = S(a: ^N(v: 3))
   print(f(!s), s)
 
-fail "review-text-a2", "cannot lend `t` to write while a read loan is live"
+fail "review-text-a2", "cannot change `t` while a read view of it is still in use"
   t = String("abcdefgh")
   s = ?t[..]
   !t.add(s)
   print(t)
 
-fail "review-text-a4", "cannot lend `t` to write while a read loan is live"
+fail "review-text-a4", "cannot change `t` while a read view of it is still in use"
   t = String("abcdefgh")
   !t.add(?t)
   print(t)
 
-fail "review-text-b2", "cannot lend `h.t` to write while an earlier argument's read of `h` is in use"
+fail "review-text-b2", "cannot change `h.t` while an earlier argument's read of `h` is still in use"
   obj H
     t: String
 
@@ -489,7 +489,7 @@ fail "review-text-b2", "cannot lend `h.t` to write while an earlier argument's r
   !h.t.add(h)
   print(h)
 
-fail "review-text-b3", "cannot lend `v` to write while a read loan is live"
+fail "review-text-b3", "cannot change `v` while a read view of it is still in use"
   v: List[String] = List()
   !v.push(String("abcdefghijklmnop"))
   !v[0].add(?v[0])
@@ -865,7 +865,7 @@ fail "review-text2-e11", "cannot store a view of `t` in a `Cell`: every handle t
   <t
   print(keep[0])
 
-fail "review-text2-e15", "cannot store a view of `s` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one; if it is only passed literal text, declare the parameter `Static`, which carries no loan"
+fail "review-text2-e15", "cannot store a view of `s` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one; if it is only passed literal text, declare the parameter `Static`, which holds no view"
   sub put(c: !Cell[List[?String]], s: ?String)
     !c.set(List())
     !c.push("a")
@@ -873,7 +873,7 @@ fail "review-text2-e15", "cannot store a view of `s` in a `Cell`: every handle t
 
   print(1)
 
-fail "review-text2-e16", "cannot drop `t` while it is lent"
+fail "review-text2-e16", "cannot drop `t` while a read view of it is still in use"
   obj P
     s: ?String
 
@@ -1187,19 +1187,19 @@ fail "review-text3-e7", "a view of the temporary `maybe(1) ?? N(id: 4, t: String
   s = text.trim(?(maybe(1) ?? N(id: 4, t: String("dd"))).t)
   print(s)
 
-fail "review-text3-f1", "cannot move `b` while a read loan is live"
+fail "review-text3-f1", "cannot move `b` while a read view of it is still in use"
   b = ^String("boxed")
   s = ?b[1..]
   t = <b.unbox()
   print(s, t)
 
-fail "review-text3-f2", "cannot move `b` while a read loan is live"
+fail "review-text3-f2", "cannot move `b` while a read view of it is still in use"
   b = ^String("boxed")
   s = ?b[1..]
   c = <b
   print(s, c)
 
-fail "review-text3-f3", "cannot lend `b` to write while a read loan is live"
+fail "review-text3-f3", "cannot change `b` while a read view of it is still in use"
   b = ^String("boxed")
   s = ?b[1..]
   !b.add(" more text that forces a realloc of the buffer")
@@ -1922,7 +1922,7 @@ test "review-while-step-2-gen2-matchvalue-plain-catchbreak", '''
     print("after mid", i, m)
   print("end", k, i)
 
-fail "review-while-step-gen-catchbreak-match-grow", "cannot lend `v` to write while a read loan is live"
+fail "review-while-step-gen-catchbreak-match-grow", "cannot change `v` while a read view of it is still in use"
   # oracle: mk accept
   # oracle: mkf accept
   # oracle: grow accept
@@ -2041,7 +2041,7 @@ test "review-while-step-gen-catchbreak-whileas-read", "4004 4"
       continue $outer
   print(k, n)
 
-fail "review-while-step-gen-catchnone-whilefor-grow", "cannot lend `v` to write while a read loan is live"
+fail "review-while-step-gen-catchnone-whilefor-grow", "cannot change `v` while a read view of it is still in use"
   # oracle: mk accept
   # oracle: mkf accept
   # oracle: grow accept
@@ -2162,7 +2162,7 @@ fail "review-while-step-w06-body-local-repoint", "`local` does not live long eno
     i += 1
   print(k)
 
-fail "review-while-step-w07-body-defer-reads-h", "cannot lend `v` to write while a read loan is live"
+fail "review-while-step-w07-body-defer-reads-h", "cannot change `v` while a read view of it is still in use"
   # oracle: mk accept
   # oracle: main reject C4
 
@@ -2182,7 +2182,7 @@ fail "review-while-step-w07-body-defer-reads-h", "cannot lend `v` to write while
     !v.push(2)
   print(k)
 
-fail "review-while-step-w08-step-grows-outer-view-live", "cannot lend `v` to write while a read loan is live"
+fail "review-while-step-w08-step-grows-outer-view-live", "cannot change `v` while a read view of it is still in use"
   # The step grows the List an outer view reads in the body.
   #
   # oracle: main reject C4
@@ -2196,7 +2196,7 @@ fail "review-while-step-w08-step-grows-outer-view-live", "cannot lend `v` to wri
     i += 1
   print(k)
 
-fail "review-while-step-w09-cond-grows-outer-view-step", "cannot lend `w` to write while a read loan is live"
+fail "review-while-step-w09-cond-grows-outer-view-step", "cannot change `w` while a read view of it is still in use"
   # oracle: grow accept
   # oracle: main reject C4
 
@@ -2212,7 +2212,7 @@ fail "review-while-step-w09-cond-grows-outer-view-step", "cannot lend `w` to wri
     k += 1
   print(k)
 
-fail "review-while-step-w10-closure-step", "cannot lend `v` to write while a read loan is live"
+fail "review-while-step-w10-closure-step", "cannot change `v` while a read view of it is still in use"
   # oracle: main reject C4
 
   v: List[Int] = List()
@@ -2226,7 +2226,7 @@ fail "review-while-step-w10-closure-step", "cannot lend `v` to write while a rea
     !v.push(2)
   print(k)
 
-fail "review-while-step-w11-body-stores-h-step-grows", "cannot lend `v` to write while a read loan is live"
+fail "review-while-step-w11-body-stores-h-step-grows", "cannot change `v` while a read view of it is still in use"
   # oracle: mk accept
   # oracle: main reject C4
 
@@ -2336,7 +2336,7 @@ test "review-while-step-w15-catchbreak-continue-skips-step-uaf", "21 5"
 
   # expect: 21 5
 
-fail "review-while-step-w23-reassign-source", "cannot reassign `v` while it is lent"
+fail "review-while-step-w23-reassign-source", "cannot reassign `v` while a read view of it is still in use"
   # oracle: mk accept
   # oracle: main reject C4
 
@@ -2356,7 +2356,7 @@ fail "review-while-step-w23-reassign-source", "cannot reassign `v` while it is l
     !v.push(2)
   print(k)
 
-fail "review-while-step-w24-move-source", "cannot move `v` while a read loan is live"
+fail "review-while-step-w24-move-source", "cannot move `v` while a read view of it is still in use"
   # oracle: mk accept
   # oracle: eat accept
   # oracle: main reject C4
@@ -2381,7 +2381,7 @@ fail "review-while-step-w24-move-source", "cannot move `v` while a read loan is 
     !v.push(2)
   print(k)
 
-fail "review-while-step-w25-drop-source", "cannot drop `v` while it is lent"
+fail "review-while-step-w25-drop-source", "cannot drop `v` while a read view of it is still in use"
   # oracle: mk accept
   # oracle: main reject C4
 
@@ -2402,7 +2402,7 @@ fail "review-while-step-w25-drop-source", "cannot drop `v` while it is lent"
     !v.push(2)
   print(k)
 
-fail "review-while-step-w26-shared-reassign", "cannot reassign `x` while it is lent"
+fail "review-while-step-w26-shared-reassign", "cannot reassign `x` while a read view of it is still in use"
   # A slice of a shared List; the body replaces the handle (the last one),
   # freeing the List the step's slice views.
   #
@@ -2420,7 +2420,7 @@ fail "review-while-step-w26-shared-reassign", "cannot reassign `x` while it is l
     i += 1
   print(k)
 
-fail "review-while-step-w27-shared-view-binding", "cannot reassign `r` while it is lent"
+fail "review-while-step-w27-shared-view-binding", "cannot reassign `r` while a read view of it is still in use"
   # oracle: all accept
   # oracle: mkn accept
   # oracle: main reject C4
@@ -2471,7 +2471,7 @@ test "review-while-step-w29-weak-step", "0 1"
 
   # expect: 0 1
 
-fail "review-while-step-w30-enclosing-defer", "cannot lend `v` to write while a read loan is live"
+fail "review-while-step-w30-enclosing-defer", "cannot change `v` while a read view of it is still in use"
   # A defer of the enclosing scope reads an outer view; the step grows
   # the List it views.
   #
@@ -2499,7 +2499,7 @@ fail "review-while-step-w31-repoint-write-view-local", "`y` does not live long e
     i += 1
   print(x)
 
-fail "review-while-step-w32-outer-repoint-after-grow-ok", "cannot lend `v` to write while a read loan is live"
+fail "review-while-step-w32-outer-repoint-after-grow-ok", "cannot change `v` while a read view of it is still in use"
   # Valid: the body grows the List, then re-points the outer slice at it
   # before the step reads it. (Textual liveness may over-reject.)
   #
@@ -2567,7 +2567,7 @@ fail "review-while-step-w34-cond-temp-view", "a view of the temporary `mkv(i)` o
     i += 1
   print(k)
 
-fail "review-while-step-w35-step-reassigns-view-body-stale", "cannot lend `v` to write while a read loan is live"
+fail "review-while-step-w35-step-reassigns-view-body-stale", "cannot change `v` while a read view of it is still in use"
   # The step re-points an outer slice; the body grows the List and then
   # reads the slice the step made before the growth.
   #
@@ -2611,7 +2611,7 @@ test "review-while-step-w36-cond-writes-step-reads", "510 6"
 
   # expect: 510 6
 
-fail "review-while-step-w37-fallible-cond", "cannot lend `v` to write while a read loan is live"
+fail "review-while-step-w37-fallible-cond", "cannot change `v` while a read view of it is still in use"
   # oracle: mk accept
   # oracle: run reject C4
   # oracle: main accept

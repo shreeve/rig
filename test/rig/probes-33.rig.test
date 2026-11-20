@@ -241,7 +241,7 @@ test "review-step45-r2-c13 branch temp in cond plain leaves", "qxxxxxxxxxxxxxxxx
       !t.add("xxxxxxxx")
   print(v[0], w)
 
-fail "review-step45-r2-d01 repoint via lend on move", "cannot reassign `w` while it is lent"
+fail "review-step45-r2-d01 repoint via lend on move", "cannot reassign `w` while a write view of it is still in use"
   # w = !a; w2 = !w; w = <w2: the right side doesn't name w but carries w's view of a
   a = String("a")
   b = String("b")
@@ -252,7 +252,7 @@ fail "review-step45-r2-d01 repoint via lend on move", "cannot reassign `w` while
   !w.add("!")
   print(a, b)
 
-fail "review-step45-r2-d02 repoint via fn of lend on", "cannot reassign `w` while it is lent"
+fail "review-step45-r2-d02 repoint via fn of lend on", "cannot reassign `w` while a write view of it is still in use"
   # w2 = id(!w); w = <w2 : re-point to a view derived from w through a call
   fun id(x: !String) -> !String
     x
@@ -282,7 +282,7 @@ test "review-step45-r2-d04c capture read of wview ok", "1"
   f = |?w| w.len
   print(f())
 
-fail "review-step45-r2-d04f crash double write arg after fn", "cannot lend `b` to write while a write loan is live"
+fail "review-step45-r2-d04f crash double write arg after fn", "cannot change `b` while a write view of it is still in use"
   # crash min
   fun pick(f: ?fun() -> Int, x: !String, y: !String) -> !String
     y
@@ -292,7 +292,7 @@ fail "review-step45-r2-d04f crash double write arg after fn", "cannot lend `b` t
   w = pick(?f, !b, !b)
   print(w)
 
-fail "review-step45-r2-d06 repoint loop continue", "cannot reassign `a` while it is lent"
+fail "review-step45-r2-d06 repoint loop continue", "cannot reassign `a` while a write view of it is still in use"
   # re-point in a loop with continue and break, old target used after the loop
   a = String("a")
   b = String("b")
@@ -310,7 +310,7 @@ fail "review-step45-r2-d06 repoint loop continue", "cannot reassign `a` while it
   !w.add("!")
   print(a, b, c)
 
-fail "review-step45-r2-d07 repoint branch then old used", "cannot reassign `a` while it is lent"
+fail "review-step45-r2-d07 repoint branch then old used", "cannot reassign `a` while a write view of it is still in use"
   # re-point inside a branch; after the join the old target is written while w may still view it
   a = String("a")
   b = String("b")
@@ -321,7 +321,7 @@ fail "review-step45-r2-d07 repoint branch then old used", "cannot reassign `a` w
   !w.add("!")
   print(a, b)
 
-fail "review-step45-r2-d08 repoint defer uses w", "use of `b` while a write loan is live"
+fail "review-step45-r2-d08 repoint defer uses w", "cannot use `b` while a write view of it is still in use"
   # defer writes through w; w re-pointed after; old target dropped before scope end
   b = String("b")
   w = !b
@@ -372,7 +372,7 @@ test "review-step45-r2-d11 repoint slice loop", '''
   !v.push(String("c"))
   print(v, u)
 
-fail "review-step45-r2-d12 repoint after push through", "cannot drop `t` while it is lent"
+fail "review-step45-r2-d12 repoint after push through", "cannot drop `t` while a read view of it is still in use"
   # push a view through w into its target List, re-point w, then drop the viewed Text
   inner: List[?String] = List()
   other: List[?String] = List()
@@ -383,7 +383,7 @@ fail "review-step45-r2-d12 repoint after push through", "cannot drop `t` while i
   <t
   print(inner)
 
-fail "review-step45-r2-d14 repoint view copy read", "cannot reassign `w` while it is lent"
+fail "review-step45-r2-d14 repoint view copy read", "cannot reassign `w` while a read view of it is still in use"
   # s = ?w (a read view through w, carries w's loans), then re-point w, then write a
   a = String("a")
   b = String("b")
@@ -393,7 +393,7 @@ fail "review-step45-r2-d14 repoint view copy read", "cannot reassign `w` while i
   a = String("A")
   print(s)
 
-fail "review-step45-r2-d15 repoint closure moved w", "cannot reassign `a` while it is lent"
+fail "review-step45-r2-d15 repoint closure moved w", "cannot reassign `a` while a write view of it is still in use"
   # move w into an owned-ish closure capture <w, re-point w, write a, call closure
   a = String("a")
   b = String("b")
@@ -504,7 +504,7 @@ fail "review-step45-r2-e08 bind copy", "`last[String]` cannot use `T = String`: 
   !v.push(String("b"))
   print(last(?v))
 
-fail "review-step45-r2-e10 swap in loop", "cannot lend `v` to write while a read loan is live"
+fail "review-step45-r2-e10 swap in loop", "cannot change `v` while a read view of it is still in use"
   # H3: generic loop over ?List[T], body: swap the List while looping
   obj S
     t: String
@@ -873,7 +873,7 @@ test "review-step45-s02 repoint slice local", '''
   s[0] = String("B")
   print(v, u)
 
-fail "review-step45-s03 repoint slice then old push live", "use of `v` while a write loan is live"
+fail "review-step45-s03 repoint slice then old push live", "cannot use `v` while a write view of it is still in use"
   # re-point a ![]Text local only in a branch; then push the old List and use s
   v: List[String] = List()
   !v.push(String("a"))
@@ -898,7 +898,7 @@ test "review-step45-s04 repoint annotated", "a b!"
   !w.add("!")
   print(a, b)
 
-fail "review-step45-t02 remove string view", "cannot drop `t` while it is lent"
+fail "review-step45-t02 remove string view", "cannot drop `t` while a read view of it is still in use"
   # remove a String view from List[String], drop the List, drop the source, use the view
   t = String("hello")
   w: List[?String] = List()
@@ -908,7 +908,7 @@ fail "review-step45-t02 remove string view", "cannot drop `t` while it is lent"
   <t
   print(s)
 
-fail "review-step45-t03 vec views moved in struct returned", "cannot drop `t` while it is lent"
+fail "review-step45-t03 vec views moved in struct returned", "cannot drop `t` while a read view of it is still in use"
   # a function returns an object holding a List of views of its param
   obj Bag
     items: List[?String]
@@ -923,7 +923,7 @@ fail "review-step45-t03 vec views moved in struct returned", "cannot drop `t` wh
   <t
   print(b.items)
 
-fail "review-step45-t04 vec views elem assign loans", "cannot drop `u` while it is lent"
+fail "review-step45-t04 vec views elem assign loans", "cannot drop `u` while a read view of it is still in use"
   # w[0] = ?u replaces a view element: old source t freed while w live (sound if loans union)
   t = String("t")
   u = String("u")
@@ -933,7 +933,7 @@ fail "review-step45-t04 vec views elem assign loans", "cannot drop `u` while it 
   <u
   print(w)
 
-fail "review-step45-t05 vec views insert", "cannot drop `t` while it is lent"
+fail "review-step45-t05 vec views insert", "cannot drop `t` while a read view of it is still in use"
   # insert a view, then drop its source
   w: List[?String] = List()
   t = String("t")
@@ -941,7 +941,7 @@ fail "review-step45-t05 vec views insert", "cannot drop `t` while it is lent"
   <t
   print(w)
 
-fail "review-step45-t06 vec views take elem opt", "cannot drop `t` while it is lent"
+fail "review-step45-t06 vec views take elem opt", "cannot drop `t` while a read view of it is still in use"
   # List[String?]: take a view element, drop the List, then drop the source and use the taken view
   t = String("t")
   w: List[(?String)?] = List()

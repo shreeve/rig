@@ -375,7 +375,7 @@ a loop's value that is a write view at every `break` holds the write
 view, as a binding of an `if` does, so assigning the binding writes
 through. 0.2.9 copied the value. `tools/migrate-0.3.py` prints a
 `MANUAL` line for each such binding and rewrites none: a value counts
-as a write view where it is a lend of a path (`!x`, `!x.f`, `!x[i]`) or
+as a write view where it is a write view of a path (`!x`, `!x.f`, `!x[i]`) or
 a call of a function the program, or a module it uses, declares
 returning `!T`. 2 of the 4,836 v0.2.9 programs have the shape, at one
 site each. Give the binding its value's type to copy, as before, or
@@ -480,7 +480,7 @@ sub main()
 ```
 
 ```error
-`!` lends `seen` to write and never negates: write `(!seen).add(1)` for what `add` returns, or `not (!seen).add(1)` for its opposite
+`!` makes a write view of `seen` and never negates: write `(!seen).add(1)` for what `add` returns, or `not (!seen).add(1)` for its opposite
 ```
 
 ```rig
@@ -498,13 +498,13 @@ new
 2 1
 ```
 
-### A sigil before a `for` source's method call lends its self
+### A sigil before a `for` source's method call makes a view of its self
 
 `for x in <b.items()` took the List `items` made, with `<` as the loop's
-mode. A sigil before a method call lends the call's self, in a `for`
+mode. A sigil before a method call makes a view of the call's self, in a `for`
 header as anywhere, so `<` there is checked against the method, and one
 that does not consume `self` is rejected. The loop consumes a List the
-call makes without it, and `!b.drain()` lends `b` to write.
+call makes without it, and `!b.drain()` makes a write view of `b`.
 
 ```rig reject
 obj Bag
@@ -742,20 +742,20 @@ sub main()
 | `Box[Box[T]]`, `Box[*T]`, `*~T`, `Box(f)` of a function | one holding: `^T`, `*T`, or `~T`; a function is passed as it is |
 | `BI(5)` where `type BI = Box[Int]` | `^5` |
 | `b.read[U8, .big](i)`, a byte order on a one-byte type | `b.read[U8](i)` |
-| `(?v).len`, `<(!s).o`: a lend of a path's base | `v.len`, `<s.o` |
+| `(?v).len`, `<(!s).o`: a sigil on a path's base | `v.len`, `<s.o` |
 | a method parameter named as a module-level declaration | another name |
 | two files in one directory, used as two modules, declaring one name | a directory of its own for one of them: a directory's files are one module |
 | `w = !s` of a `?String` | a `String`, to change text in place |
 | `e == f` of two caught errors | `match` one, or compare it with a member (`e == E.bad`) |
 | `_ = \|x\| x + 1`, a closure never called | call it, or remove it |
 | `*g` of a function where a `*fun` goes | `*\|\| g()` |
-| a lend of a branch that may be a named value, `(a if c else b)[0].m()` | lend each branch: `(?a if c else ?b)[0].m()` |
+| a sigil on a branch that may be a named value, `(a if c else b)[0].m()` | put the sigil on each branch: `(?a if c else ?b)[0].m()` |
 | a `defer` that changes what its scope's value views (`defer !@xs.clear()` before a last value `!@xs[0]`), or uses a write view `s` the scope returns | change it before the value is formed, or let the defer leave the value and `s` alone |
 | `fun eq(?@, other: ?P) -> Bool` on an `obj P` whose header names no `Eq` (and `order`, `hash_into`, `print` with the signatures `Ord`, `Hash`, and `Print` fix) | `obj P: Eq`, so `==` calls it, or another name |
 | a parameter `?^T`, a read view of a box | `?T`, which takes a `^T` too |
 | `peek(+w)` where `peek` takes a read view, or `(+w).len()` of a `?@` method | `peek(?w)`, `w.len()` |
 | a move or a take in the right side of `and` or `or`, or in a later part of `if a and b as x`, where a value it leaves alive views what is dropped after (`no() and take(<g)` then `<a`) | rejected (*unsound*: a drop body read freed memory); move it where it always runs, or drop the viewed value after the viewer |
-| a store through more than 16 write views in a chain | "too complex for the ownership checker": lend fewer write views in a chain |
+| a store through more than 16 write views in a chain | "too complex for the ownership checker": make fewer write views in a chain |
 
 ## Programs written against `main` between releases
 
@@ -776,14 +776,14 @@ changed again before 0.3.0. Each has a script or a one-line fix:
 | `task.select((!a).on_recv(\|v\| f(v)), (!b).on_send(<x, \|\| 0))!`, arms of closures | still accepted; `match task.select(a: !a.on_recv(), b: !b.on_send(<x))!` with arms `.a(v) => f(v)` and `.b => 0`, which goes in the next release | `tools/migrate-select.py PATH` (`MANUAL` for a closure over several lines, a copy captured in (`\|+k, v\|`) that another arm names, a `catch` after the select, a select in an expression) |
 | `for x in !(!b).items()` | `for x in (!b).items()`, which walks the `!List` the call gives for writing | by hand, as the compiler says |
 | a sigil before a chain in a `for` header that the chain dropped: `<xs.filter(f)`, `?mk().filter(f)`, `<mk().filter(f)`, `!b.each().filter(f)` of a `?@` `each`, `?it.filter(f)` of an iterator | `(<xs).filter(f)` to take `xs` or `xs.filter(f)` to walk it; no sigil; `(!it).filter(f)` | by hand, as the compiler says |
-| a chain whose result keeps its source lent, bound or returned unmarked: `vs = names.filter(f).collect()`, `f = names.find(g)`, `y = ps.min_by(k) ?? return` | `vs = ?names.filter(f).collect()`, `?names.find(g)`, `?ps.min_by(k)` | by hand, as the compiler says |
+| a chain whose result keeps a view of its source, bound or returned unmarked: `vs = names.filter(f).collect()`, `f = names.find(g)`, `y = ps.min_by(k) ?? return` | `vs = ?names.filter(f).collect()`, `?names.find(g)`, `?ps.min_by(k)` | by hand, as the compiler says |
 | a view escaping a block that holds a chain or a padded closure (`best = ?qs[0]` beside `xs.filter(f).count()`) | rejected, as in any block (*unsound*: it read freed memory); keep the viewed value alive as long as the view | by hand |
 | `x += 10` in `for x in xs.filter(f)`, which changed a copy | `for x in !xs` to change the elements, or `new y = x` for a copy | by hand, as the compiler says |
 | `z = <x` in `for x in src` of a read view `src = ?a`, or of a view in a field | as in `for x in ?a`: clone what the loop view reaches, or loop over `<a` to take the elements | by hand, as the compiler says |
 | an arm of `task.select` that reads, takes, or writes what another arm's closure or channel uses: `<s` beside `\|?s, v\|`, `n` sent beside `\|!n, v\|`, two arms' `\|!n, v\|`, `<a` beside `(!a).on_recv(...)`, `<chs` beside `(!chs[0])` | rejected: every arm is made before the select runs one; bind what the arms share before the select, or give each its own | by hand |
-| a task in a Cell, `*Cell(<t)`, or a value holding one there; `break t` of a task lent to write | rejected: wait for the task, and keep what it gives | by hand, as the compiler says |
+| a task in a Cell, `*Cell(<t)`, or a value holding one there; `break t` of a task that holds a write view | rejected: wait for the task, and keep what it gives | by hand, as the compiler says |
 | a value holding a task (a local object, a `Task[T]?`, a `*Job`, a `time.within` closure's result), then its source written or dropped before the wait | rejected (*unsound*: the task read the source after it changed or was dropped): wait for the task first | by hand, as the compiler says |
-| a `-> Task[T]` function lent a parameter its task does not read, then that parameter's owner written before the wait; `b.spawn()` of a `?@` method that gives a task | the caller keeps the lend until the wait: wait first, or take the parameter away; write `?b.spawn()` | by hand, as the compiler says |
+| a `-> Task[T]` function given a view parameter its task does not read, then the viewed place written before the wait; `b.spawn()` of a `?@` method that gives a task | the caller keeps the view until the wait: wait first, or take the parameter away; write `?b.spawn()` | by hand, as the compiler says |
 
 A program that used `(!doc).load(?src)` and `JsonError.bad(kind:,
 at:)` on `main` matches the reason itself, `.eof(at)`, and drops

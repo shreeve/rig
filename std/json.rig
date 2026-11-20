@@ -33,7 +33,7 @@
 #
 # An object's members are its key and value entries, alternating.
 # A string with no escape is not copied: its entry points into `src`,
-# so a `Doc` keeps `src` lent while it is in use.
+# so a `Doc` keeps `src` read-only while it is in use.
 #
 # Numbers: an integer literal that fits an `Int` is an `Int`; any other
 # number is the `Float` nearest to it (round half to even), and one

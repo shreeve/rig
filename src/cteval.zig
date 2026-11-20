@@ -461,7 +461,7 @@ const Pure = struct {
                 return ok;
             },
             .@"for" => {
-                if (ir.For.mode(s).tag != .iter) return self.reject(s, "lend in a loop's source", .{}, "its values are plain and copied: write `for x in {s}`", .{self.text(ir.For.source(s))});
+                if (ir.For.mode(s).tag != .iter) return self.reject(s, "make a view of a loop's source", .{}, "its values are plain and copied: write `for x in {s}`", .{self.text(ir.For.source(s))});
                 const source = ir.For.source(s);
                 var ok = if (source.isKind(.@"..")) blk: {
                     if (ir.get(source, .left) == .nil or ir.get(source, .right) == .nil) break :blk try self.reject(source, "loop over `{s}`", .{self.text(source)}, "a range it walks has both ends", .{});
@@ -579,7 +579,7 @@ const Pure = struct {
             .@"defer", .@"errdefer" => return self.reject(e, "defer", .{}, "it holds nothing to release", .{}),
             .raw_block => return self.reject(e, "use `raw`", .{}, "it runs only checked code", .{}),
             .lambda => return self.reject(e, "make a closure", .{}, plain_rule, .{}),
-            .move, .read, .write, .clone, .share, .weak, .box => return self.reject(e, "use `{s}`", .{self.text(e)}, "its values are plain, and copied where they go, so nothing is lent, moved, or shared", .{}),
+            .move, .read, .write, .clone, .share, .weak, .box => return self.reject(e, "use `{s}`", .{self.text(e)}, "its values are plain, and copied where they go, so nothing is viewed, moved, or shared", .{}),
             .propagate, .propagate_none, .@"catch", .@"??" => return self.reject(e, "use `{s}`", .{self.text(e)}, "its values are never optional and nothing fails, so there is nothing to pass on or handle", .{}),
             .builtin => return self.reject(e, "use `{s}`", .{self.text(e)}, "it runs only the forms of a compile-time function", .{}),
             // A template is written as it is, between its own backticks.

@@ -1084,7 +1084,7 @@ bomb "simd lane index panics", "index out of bounds", prints: "4", release: true
   print(lane(v, 3))
   print(lane(v, 4))
 
-fail "simd lane place", "9:1: a lane of `v` is a value, not a place, so it is not assigned: write `v = v.with(0, x)`", "10:1: a lane of `v` is a value, not a place, so it is not assigned: write `v = v.with(1, x)`", "11:6: a lane of `v` is a value, not a place, so it is not lent to write: change it with `v = v.with(2, x)`", "12:6: a lane of `v` is a value, not a place, so it is not lent: read it as `v[3]`", "13:6: a lane of `v` is a value, not a place, so it is not taken: read it as `v[0]`", errors: 5
+fail "simd lane place", "9:1: a lane of `v` is a value, not a place, so it is not assigned: write `v = v.with(0, x)`", "10:1: a lane of `v` is a value, not a place, so it is not assigned: write `v = v.with(1, x)`", "11:6: a lane of `v` is a value, not a place, so it has no write view: change it with `v = v.with(2, x)`", "12:6: a lane of `v` is a value, not a place, so it has no view: read it as `v[3]`", "13:6: a lane of `v` is a value, not a place, so it is not taken: read it as `v[0]`", errors: 5
   # A lane of a vector is a part of its value, not a place: it is read with
   # `v[i]`, and never assigned, lent, or taken; `v.with(i, x)` is the copy
   # with one lane changed.

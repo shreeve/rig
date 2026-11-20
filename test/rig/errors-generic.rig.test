@@ -307,7 +307,7 @@ test "a generic over its set from another module", '''
         return v if v > 0
       0
 
-fail "a set parameter in a function value's type", "a function that fails with `E`, a set parameter, is lent: take it as `?fun(...) -> T!E`, which lends a function of any set"
+fail "a set parameter in a function value's type", "a function that fails with `E`, a set parameter, is passed as a view: take it as `?fun(...) -> T!E`, which views a function of any set"
   fun raw_apply[E](n: Int, f: fun(Int) -> Int!E) -> Int!E
     f(n)!
 

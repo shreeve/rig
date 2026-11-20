@@ -39,7 +39,7 @@ checked per sequence (scalar) or per block (SIMD lookup).
 `std/json.rig` is a single-pass, validating, iterative parser that
 builds a tape of `Int` words, `payload * 16 + tag`. A string without
 escapes is not copied: its entry points into the source, so a `Doc`
-keeps the source lent, and Rig's types show it. Nesting costs no machine
+keeps the source read-only, and Rig's types show it. Nesting costs no machine
 stack and no other list: an open array's or object's tape entry holds
 the entry of the one around it until it closes. Escaped strings are
 decoded into one buffer. Integers that fit an `Int` are `Int`s; every

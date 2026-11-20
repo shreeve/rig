@@ -356,7 +356,7 @@ test "method writes self", '''
   u = User(name: "Steve")
   !u.modify("Bob")
 
-fail "method write without bang", "method `rename` needs `self` lent to write"
+fail "method write without bang", "method `rename` needs a write view of `self`"
   # A method that writes self (`!@`) needs its self lent to write
   # at the call: `!u.rename(...)`.
 

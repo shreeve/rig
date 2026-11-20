@@ -260,7 +260,7 @@ test "hash ensure chain", "[5, 6] 1"
   (!b).ensure(1, List()).push(6)
   print(b.get(1), b.len)
 
-fail "hash ensure keeps lent", "use of `m.len` while a write loan on `m` is live"
+fail "hash ensure keeps lent", "cannot use `m.len` while a write view of `m` is still in use"
   # The write view `ensure` returns is `from @`: it keeps the Map lent
   # to write, so the Map cannot be read or written while the view lives.
 
@@ -318,7 +318,7 @@ test "hash ensure with", '''
     calls += 1
     k * k
 
-fail "hash ensure with no map", "cannot lend `m` to write while a read loan is live"
+fail "hash ensure with no map", "cannot change `m` while a read view of it is still in use"
   # `ensure_with` holds the Map lent to write while `make` runs, so `make`
   # cannot capture the Map.
 
@@ -364,7 +364,7 @@ test "hash ensure by", '''
   if sq.get(3) as l
     print(sq.len, l)
 
-fail "hash ensure by view keys stay lent", "cannot lend `buf` to write while a read loan is live"
+fail "hash ensure by view keys stay lent", "cannot change `buf` while a read view of it is still in use"
   # A Map of view keys keeps what `key` made from the viewed key, so the
   # buffer stays lent while the Map is used.
 
@@ -383,7 +383,7 @@ bomb "hash ensure by key other than k", "Map: `ensure_by`'s `key(k)` made a key 
   (!m).ensure_by("a", |s| String("b"), 5) += 0
   print(m)
 
-fail "hash get keeps lent","cannot lend `m` to write while a read loan is live"
+fail "hash get keeps lent","cannot change `m` while a read view of it is still in use"
   # The view `get` returns is `from @`: it keeps the Map lent to read,
   # so the Map cannot be written while the view lives.
 
@@ -393,7 +393,7 @@ fail "hash get keeps lent","cannot lend `m` to write while a read loan is live"
   !m.put(String("b"), 1)
   print(r)
 
-fail "hash items then put", "cannot lend `m` to write while a read loan is live"
+fail "hash items then put", "cannot change `m` while a read view of it is still in use"
   # The iterator `items` returns views the Map, which stays lent to read
   # while the loop walks it.
 
@@ -610,7 +610,7 @@ test "hash results", '''
   if m.at(-1) as k, v
     print("below the start", k, v)
 
-fail "hash retain no map", "cannot lend `m` to write while a read loan is live"
+fail "hash retain no map", "cannot change `m` while a read view of it is still in use"
   # `retain` holds the Map lent to write while its closure runs, so the
   # closure cannot capture the Map, to read it or to write it.
 

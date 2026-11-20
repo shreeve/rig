@@ -610,7 +610,7 @@ fail "drop statement lend", "11:1: this expression does nothing as a statement: 
 
 fail "drop statement plain data", "18:1: `<n` drops nothing: `n` is plain data", "19:1: `<x` drops nothing: `x` is plain data", "20:1: `<p` drops nothing: `p` is plain data", "21:1: `<o` drops nothing: `o` is plain data", "22:1: `<k` drops nothing: `k` is plain data", errors: 5
   # A statement `<x` releases what `x` owns or ends the loans it holds;
-  # plain data that holds no view owns nothing and carries no loan, so
+  # plain data that holds no view owns nothing and holds no view, so
   # dropping it does nothing. (A String may view a Text: dropping one is
   # accepted, in behavior/ownership/drop_ends_string_view.rig.)
 
@@ -737,7 +737,7 @@ fail "fixed assign spacing", "5:2: `x=! y`: an operator has the same spacing on 
   x=! y
   print(x)
 
-fail "fixed assign touching operand", "6:3: `=!` needs a space after it: write `x =! y` for a fixed binding, or `x = !y` to lend `y` to write"
+fail "fixed assign touching operand", "6:3: `=!` needs a space after it: write `x =! y` for a fixed binding, or `x = !y` to make a write view of `y`"
   # `x =!y` could be a fixed binding of `y` or the write lend `x = !y`;
   # `=!` is one token, so the source does not say which, and it is
   # rejected.
@@ -1334,7 +1334,7 @@ fail "guard inside expression", "a postfix `if` guard must end a statement"
   x = 1
   print(x if x > 0)
 
-fail "habit ampersand view", "8:6: unexpected `&`; expected an expression, `)` or a keyword argument; Rig lends with `?x` (to read) or `!x` (to write)"
+fail "habit ampersand view", "8:6: unexpected `&`; expected an expression, `)` or a keyword argument; Rig makes views with `?x` (to read) or `!x` (to write)"
   # Rust and C take an address or a reference with `&`; Rig views with
   # `?x` to read and `!x` to write.
 
@@ -4020,7 +4020,7 @@ test "read self sigil", '''
   while i < 2 : ?p.show("step")
     i += 1
 
-fail "read self sigil on writer", "21:1: `bump` writes `self`: write `!c.bump()`", "22:7: `done` consumes `self`: write `<c.done()`; to lend the call's result, write `?(c.done())`", "23:6: `make` is called through its type or module and has no `self`; to lend the call's result, write `?(Counter.make())`"
+fail "read self sigil on writer", "21:1: `bump` writes `self`: write `!c.bump()`", "22:7: `done` consumes `self`: write `<c.done()`; to make a view of the call's result, write `?(c.done())`", "23:6: `make` is called through its type or module and has no `self`; to make a view of the call's result, write `?(Counter.make())`"
   # `?p.m()` names a read self: a method that writes or consumes its
   # self is called with `!` or `<`, and a call's result is lent
   # with `?(p.m())`.

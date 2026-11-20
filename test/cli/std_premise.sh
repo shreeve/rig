@@ -52,4 +52,4 @@ for f in peek_raw peek_h peek_rh peek_wh peek_g peek_a clear; do
   expect_has "$out" "\`$f\` takes a" "an unlisted extern, $f"
   expect_has "$out" "list \`std.shared.$f\` in \`Checker.marked_externs\`" "the fix for $f"
 done
-expect_has "$out" 'cannot lend to write through a shared handle' "a method that grows a field of a Cell holder"
+expect_has "$out" 'cannot make a write view through a shared handle' "a method that grows a field of a Cell holder"

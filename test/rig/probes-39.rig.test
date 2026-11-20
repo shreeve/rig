@@ -951,7 +951,7 @@ test "syntax-review-complete-en1", "404"
   s: Status = .missing
   print(Int(s))
 
-fail "syntax-review-complete-g1", "cannot return a view of `e`, which this function was not lent"
+fail "syntax-review-complete-g1", "cannot return a view of `e`, which belongs to this function"
   obj Entry
     k: ?String
     v: Int
@@ -1136,7 +1136,7 @@ fail "syntax-review-complete-g7", "bare use of loop view `e` in return value wou
   if m.find(1) as v
     print(v.n)
 
-fail "syntax-review-complete-g8", "cannot return a view of `x`, which this function was not lent"
+fail "syntax-review-complete-g8", "cannot return a view of `x`, which belongs to this function"
   obj Val
     n: Int
 

@@ -14,7 +14,7 @@ test "for over a call's view of a place", "a"
   for x in first_list(?ls)
     print(x)
 
-fail "for over a call's view keeps the owner lent", "cannot lend `ls` to write while a read loan is live"
+fail "for over a call's view keeps the owner lent", "cannot change `ls` while a read view of it is still in use"
   fun first_list(lists: ?List[List[String]]) -> ?List[String]
     ?lists[0]
 
@@ -26,7 +26,7 @@ fail "for over a call's view keeps the owner lent", "cannot lend `ls` to write w
     !ls.push(List())
     print(x)
 
-fail "for over a call's view: no drop of the owner", "cannot drop `ls` while it is lent"
+fail "for over a call's view: no drop of the owner", "cannot drop `ls` while a read view of it is still in use"
   fun first_list(lists: ?List[List[String]]) -> ?List[String]
     ?lists[0]
 
@@ -36,7 +36,7 @@ fail "for over a call's view: no drop of the owner", "cannot drop `ls` while it 
     <ls
     print(x)
 
-fail "for over a call's view: stored element keeps the loan", "cannot lend `ls` to write while a read loan is live"
+fail "for over a call's view: stored element keeps the loan", "cannot change `ls` while a read view of it is still in use"
   fun first_list(lists: ?List[List[String]]) -> ?List[String]
     ?lists[0]
 
@@ -219,7 +219,7 @@ test "for over a call leaves a key argument free", "[1]"
     !k.push(x)
   print(k)
 
-fail "for over a from-path view keeps that field lent", "cannot lend `b.items` to write"
+fail "for over a from-path view keeps that field lent", "cannot change `b.items` while a read view of it is still in use"
   obj Bag
     items: List[Int]
     other: List[Int]
@@ -232,7 +232,7 @@ fail "for over a from-path view keeps that field lent", "cannot lend `b.items` t
   for x in b.all()
     !b.items.push(x)
 
-fail "for over a call keeps its origin lent past the element's last use", "cannot lend `lss` to write"
+fail "for over a call keeps its origin lent past the element's last use", "cannot change `lss` while a read view of it is still in use"
   fun find(lss: ?List[List[Int]], key: ?List[Int]) -> ?List[Int] from lss
     ?lss[0]
 

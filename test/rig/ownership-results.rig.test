@@ -194,7 +194,7 @@ test "results forward", '''
   e, f = fwfail(?t) catch return
   print(e, f)
 
-fail "results forward local view", "cannot return a view of `t`, which this function was not lent", errors: 1
+fail "results forward local view", "cannot return a view of `t`, which belongs to this function", errors: 1
   fun split(s: ?String, at: Int) -> (?String, ?String)
     return s[..at], s[at..]
 
@@ -250,7 +250,7 @@ fail "results pending view", "cannot bind `s` while `v` views it"
   s, v = two(?s)
   print(v)
 
-fail "results return local view", "cannot return a view of `s`, which this function was not lent"
+fail "results return local view", "cannot return a view of `s`, which belongs to this function"
   fun two() -> (Int, ?String)
     s = String("x")
     return 1, ?s
@@ -287,7 +287,7 @@ test "results return parts", '''
   c, d = local()
   print(c, d)
 
-fail "results view outlives", "cannot lend `t` to write while a read loan is live"
+fail "results view outlives", "cannot change `t` while a read view of it is still in use"
   fun split(s: ?String, at: Int) -> (?String, ?String)
     return s[..at], s[at..]
 
@@ -332,7 +332,7 @@ test "results write lend ends", "1 [0] 1"
   a, n = grab(!v)
   print(v.len, a, n)
 
-fail "results write lend per call", "cannot reassign `y` while it is lent", errors: 1
+fail "results write lend per call", "cannot reassign `y` while a write view of it is still in use", errors: 1
   # While a result holds a write view, every write lend of the call lasts
   # to the statement's end, as for a `!T` result: the first version
   # decides it per call, not per argument (SPEC "Several results").
@@ -347,7 +347,7 @@ fail "results write lend per call", "cannot reassign `y` while it is lent", erro
   w += y
   print(x, y)
 
-fail "results write lend read view", "cannot lend `v` to write while a read loan is live", errors: 1
+fail "results write lend read view", "cannot change `v` while a read view of it is still in use", errors: 1
   # The write lend ends as the call returns, but what a result views stays
   # lent to read: `v` may not be written while `a` lives.
 
@@ -383,7 +383,7 @@ test "results write view", '''
   w2 += 1
   print(big2, c.n, c.m)
 
-fail "results write view live", "use of `c.n` while a write loan on `c` is live"
+fail "results write view live", "cannot use `c.n` while a write view of `c` is still in use"
   obj Counter
     n: Int
 

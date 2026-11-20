@@ -634,7 +634,7 @@ test "purity-rustzig-bst", '''
   keys = t.sorted()
   print(keys, t.size)
 
-fail "purity-rustzig-family", "cannot store a view of `name` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one; if it is only passed literal text, declare the parameter `Static`, which carries no loan"
+fail "purity-rustzig-family", "cannot store a view of `name` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one; if it is only passed literal text, declare the parameter `Static`, which holds no view"
   # A tree with back-pointers: parents own their children through shared
   # handles, and each child points up weakly, so the cycle does not leak.
 
@@ -705,7 +705,7 @@ test "purity-rustzig-probes-bst iter", "true false"
     insert(!root, k)
   print(contains(?root, 8), contains(?root, 3))
 
-fail "purity-rustzig-probes-p3 box", "cannot reassign `root` while it is lent"
+fail "purity-rustzig-probes-p3 box", "cannot reassign `root` while a read view of it is still in use"
   obj Node
     key: Int
     left: ^Node?
@@ -715,7 +715,7 @@ fail "purity-rustzig-probes-p3 box", "cannot reassign `root` while it is lent"
     root = none
     print(n.key)
 
-fail "purity-rustzig-probes-p4 ret", "cannot lend `v` to write while a read loan is live"
+fail "purity-rustzig-probes-p4 ret", "cannot change `v` while a read view of it is still in use"
   obj P
     x: Int
 
@@ -752,7 +752,7 @@ bomb "purity-rustzig-probes-p8 index", "index out of bounds"
   i = 3
   print(v[i])
 
-fail "purity-rustzig-probes-q1 handle view", "cannot drop `h` while it is lent"
+fail "purity-rustzig-probes-q1 handle view", "cannot drop `h` while a read view of it is still in use"
   obj U
     name: ?String
     n: Int
@@ -765,7 +765,7 @@ fail "purity-rustzig-probes-q1 handle view", "cannot drop `h` while it is lent"
   <h
   print(r.n)
 
-fail "purity-rustzig-probes-q2 elem", "use of `v` while a write loan is live"
+fail "purity-rustzig-probes-q2 elem", "cannot use `v` while a write view of it is still in use"
   obj P
     x: Int
 
@@ -990,7 +990,7 @@ test "r3-kinds-b-t01 text kinds", "ab abc x"
   b = ^String("x")
   print(t, u, ?b)
 
-fail "r3-kinds-b-t04 shared cell string view", "cannot store a view of `s` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one; if it is only passed literal text, declare the parameter `Static`, which carries no loan"
+fail "r3-kinds-b-t04 shared cell string view", "cannot store a view of `s` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one; if it is only passed literal text, declare the parameter `Static`, which holds no view"
   sub stash(c: *Cell[?String], s: ?String)
     !c.set(s)
 
@@ -1011,7 +1011,7 @@ test "r3-kinds-b-t05 static string return", "static h"
   v = first(?t)
   print(name(), v)
 
-fail "r3-kinds-b-t06 struct string copy", "cannot lend `t` to write while a read loan is live"
+fail "r3-kinds-b-t06 struct string copy", "cannot change `t` while a read view of it is still in use"
   obj Tag
     s: ?String
 
@@ -1152,7 +1152,7 @@ test "r3-or-arm-unsound", '''
   d = String("d")
   print(o.peek(?d))
 
-fail "r3-or-branch-part-receiver-unsound", "cannot reassign `wa` while it is lent"
+fail "r3-or-branch-part-receiver-unsound", "cannot reassign `wa` while a read view of it is still in use"
   # A view of a part (a field, an element) of a branching self keeps a
   # loan on every name a leaf names: writing to one while the view lives
   # is rejected (C4), as it is for a view of the whole self. A leaf
@@ -1394,7 +1394,7 @@ fail "r3-or-break-planned", "`r` owns a `Bag`, which can't be copied out by `bre
   # oracle: outer_loop reject C2
   # oracle: deferred_read reject C1
 
-fail "r3-or-carry-match string payload text changed", "cannot lend `t` to write while a read loan is live"
+fail "r3-or-carry-match string payload text changed", "cannot change `t` while a read view of it is still in use"
   # A String payload of `match ?h` carries the String's loan on the Text it
   # views: the Text cannot change while the payload is used.
 
@@ -1411,7 +1411,7 @@ fail "r3-or-carry-match string payload text changed", "cannot lend `t` to write 
       print(s)
     .no => print("no")
 
-fail "r3-or-carry-match text payload", "cannot reassign `h` while it is lent"
+fail "r3-or-carry-match text payload", "cannot reassign `h` while a read view of it is still in use"
   # An owned Text payload of `match ?h` is seen through the lend of `h`: `h`
   # cannot change while the payload is used.
 
@@ -1426,7 +1426,7 @@ fail "r3-or-carry-match text payload", "cannot reassign `h` while it is lent"
       print(t)
     .no => print("no")
 
-fail "r3-or-carry-match write string payload", "cannot reassign `h` while it is lent"
+fail "r3-or-carry-match write string payload", "cannot reassign `h` while a write view of it is still in use"
   # A payload of `match !h` is a write view: it carries the write loan on `h`.
 
   enum H
@@ -1498,7 +1498,7 @@ test "r3-or-carry-result string of slice holder", "a 5"
   a[0] = 5
   print(s, a[0])
 
-fail "r3-or-carry-result string text changed", "cannot lend `t` to write while a read loan is live"
+fail "r3-or-carry-result string text changed", "cannot change `t` while a read view of it is still in use"
   # A String a method makes from the holder's String field carries that
   # String's loan on the Text.
 
@@ -1533,7 +1533,7 @@ test "r3-or-carry-slice field holder write after", "1 1"
   p.pos = 1
   print(t.kind, p.pos)
 
-fail "r3-or-carry-slice field local write after", "cannot assign to `a[0]` while `a` is lent"
+fail "r3-or-carry-slice field local write after", "cannot assign to `a[0]` while a read view of `a` is still in use"
   # A view reached through a slice field carries the slice's loan on the
   # array it views.
 
@@ -1567,7 +1567,7 @@ test "r3-or-carry-slice field through local write view", "1 1"
   p.pos = 1
   print(t.kind, p.pos)
 
-fail "r3-or-carry-slice field through write view then write", "cannot assign to `a[1]` while `a` is lent"
+fail "r3-or-carry-slice field through write view then write", "cannot assign to `a[1]` while a read view of `a` is still in use"
   # A view reached through a slice field of what a write view sees still
   # carries the slice's loan on the array.
 
@@ -1585,7 +1585,7 @@ fail "r3-or-carry-slice field through write view then write", "cannot assign to 
   a[1] = Tok(kind: 7)
   print(t.kind)
 
-fail "r3-or-carry-string field text changed", "cannot lend `t` to write while a read loan is live"
+fail "r3-or-carry-string field text changed", "cannot change `t` while a read view of it is still in use"
   # A String sliced from a String field through `!@` carries the field's
   # loan on the Text.
 
@@ -1675,7 +1675,7 @@ test "r3-or-clone-strict", "1 2"
 
   # oracle: main accept
 
-fail "r3-or-clone-unsound", "cannot reassign `a` while it is lent"
+fail "r3-or-clone-unsound", "cannot reassign `a` while a read view of it is still in use"
   # A clone of a value that holds views carries their loans (Core s2, s6).
 
   obj Bag
@@ -1944,7 +1944,7 @@ test "r3-or-defer-sound", '''
   print(errdefer_propagate(4) catch -1, errdefer_propagate(3) catch -1)
   declares_and_moves()
 
-fail "r3-or-defer-strict", "use of `v` while a write loan is live"
+fail "r3-or-defer-strict", "cannot use `v` while a write view of it is still in use"
   # A `defer` written before a lend runs after the view is done: the
   # view `w` is declared after it, so it is dropped before the deferred
   # code runs (Core §7; SPEC "defer and errdefer"). The compiler checks
@@ -2068,7 +2068,7 @@ fail "r3-or-fit-f2 lookup", "`q` does not live long enough"
       !out.push(v)
   print(out)
 
-fail "r3-or-fit-f2b lookup struct", "cannot assign to `probe.id` while `probe` is lent"
+fail "r3-or-fit-f2b lookup struct", "cannot assign to `probe.id` while a read view of `probe` is still in use"
   obj Entry
     id: Int
     score: Int
@@ -2111,7 +2111,7 @@ test "r3-or-fit-f2c lookup key", "20 3"
     k.id = 3
     print(hit.score, k.id)
 
-fail "r3-or-fit-f2d lookup print", "cannot drop `q` while it is lent"
+fail "r3-or-fit-f2d lookup print", "cannot drop `q` while a read view of it is still in use"
   obj Var
     name: ?String
     value: ?String
@@ -2181,7 +2181,7 @@ test "r3-or-fit-f2f lookup free fn", '''
       print(v)
   print(env.vars[0].name)
 
-fail "r3-or-fit-f3 two buffers", "cannot assign to `b[1]` while `b` is lent"
+fail "r3-or-fit-f3 two buffers", "cannot assign to `b[1]` while a read view of `b` is still in use"
   obj Diff
     old: []Int
     cur: []Int
@@ -2216,7 +2216,7 @@ test "r3-or-fit-f4 callback", "2 5"
   if hit as h
     print(h.id, want)
 
-fail "r3-or-fit-f4b callback ret", "cannot drop `w` while it is lent"
+fail "r3-or-fit-f4b callback ret", "cannot drop `w` while a read view of it is still in use"
   obj Wrap
     n: Int
     v: List[Int]
@@ -2331,7 +2331,7 @@ test "r3-or-fit-f6 split next", "a b"
   b = (!parts).next() ?? ""
   print(a, b)
 
-fail "r3-or-fit-f6b split sep", "cannot drop `sep` while it is lent"
+fail "r3-or-fit-f6b split sep", "cannot drop `sep` while a read view of it is still in use"
   line = String("a;b;c")
   sep = String(";")
   firsts: List[?String] = List()

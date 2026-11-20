@@ -33,7 +33,7 @@ and most lines have none ([why](DESIGN.md#sigils-rather-than-keywords),
 
 ## Why is `!` not logical negation?
 
-Because prefix `!` lends to write (`!v.push(x)` marks that `push`
+Because prefix `!` makes a write view (`!v.push(x)` marks that `push`
 writes `v`), and a sigil has one meaning; negation is the word `not`.
 Where the C, Rust, or Zig habit would change a program's meaning, such
 as `if !done`, it is a compile error that names `not`

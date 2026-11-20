@@ -20,7 +20,7 @@ list away. The rest of the story is told in words: `Rc::new`,
 Rig answers all of it on the line, with one character each. Each
 character is a **sigil**, and a sigil means the same thing wherever it
 appears. This chapter introduces them in the order a program needs
-them: naming a value, lending it, giving it away, holding it, failing,
+them: naming a value, viewing it, giving it away, holding it, failing,
 and running work at the same time. At the end they fit in one table.
 
 Every program here runs with `bin/rig run FILE.rig`, and prints what
@@ -44,7 +44,7 @@ sub main()
 ```
 
 `limit =! 100` binds `limit` for good: a fixed local, never reassigned
-or lent to write, like Rust's `let` without `mut`. Read the `!` as "for
+or given a write view, like Rust's `let` without `mut`. Read the `!` as "for
 real": the name never changes, and the compiler holds you to it.
 
 ```rig reject
@@ -86,14 +86,15 @@ sub main()
 3
 ```
 
-`?orders` lends `orders` to read. Where the parameter is a read view,
+`?orders` makes a read view of `orders`. Where the parameter is a read view,
 the bare name means the same, so `sum(orders)` and `sum(?orders)` are
 one call. The list is not copied, and `orders` is still the owner when
 `sum` returns.
 
-Three words keep this straight. The owner **lends**. The function gets
-a **view**. What stays behind with the owner is a **loan**, and while
-it lasts the owner may not change, move, or drop what it lent. A view
+Three words keep this straight. A **place** is a variable, a field, or
+an element, and `?orders` is a sigil on one. It makes a **view**, which
+the function gets. Until the view's last use the place is **read-only**:
+it may be read and copied, but not changed, moved, or dropped. A view
 passed to a call ends when the call returns. A view kept in a binding
 lasts as long as the binding is used, so that is where `?` is written:
 
@@ -106,17 +107,17 @@ sub main()
 ```
 
 ```error
-cannot lend `orders` to write while a read loan is live
+cannot change `orders` while a read view of it is still in use
 ```
 
 `first` views an element of the list. Pushing might move the list's
 storage, and `first` would point at nothing. The compiler follows each
 view back to the owner it came from, so there is no lifetime syntax to
-write: the error names the line that made the loan.
+write: the error names the line that made the view.
 
 ## Writing is marked
 
-A change is never silent. `!x` lends `x` to write, and a parameter of
+A change is never silent. `!x` makes a write view of `x`, and a parameter of
 type `!List[Int]` is a **write view**:
 
 ```rig
@@ -161,15 +162,15 @@ sub main()
 ```
 
 ```error
-lend it to write: `!orders`
+make a write view of it: `!orders`
 ```
 
-A value has any number of read views or one write view, never both.
-That one rule is why the program above cannot read freed memory, and
+A place has any number of read views or one write view, never both,
+and a write view of an ordinary value leaves it unusable. That rule is why the program above cannot read freed memory, and
 why two parts of a program never change the same value at once.
 
-Rig spells "not" as `not`. A `!` before a value always lends it to
-write, so `!done` is a mistake the compiler names:
+Rig spells "not" as `not`. A `!` before a value always makes a write
+view of it, so `!done` is a mistake the compiler names:
 
 ```rig reject
 sub main()
@@ -504,8 +505,8 @@ so either. The `&` and the `>` are written where the concurrency
 happens, and nowhere else.
 
 The task also follows the rules you have already met. `sum(?orders)&`
-lends `orders` to the task, and the loan lasts until `>u` takes the
-result. So the task reads the list in place, with no copy and no lock,
+makes a read view of `orders` for the task, and it lasts until `>u` takes
+the result. So the task reads the list in place, with no copy and no lock,
 and nothing may change it meanwhile:
 
 ```rig reject
@@ -523,12 +524,12 @@ sub main()
 ```
 
 ```error
-cannot lend `orders` to write while a read loan is live
+cannot change `orders` while a read view of it is still in use
 ```
 
 That is the error from the section on reading, word for word. A task
-is not a new kind of thing with new rules; it is a call whose loan
-lasts until its result is taken. [Concurrency without
+is not a new kind of thing with new rules; it is a call whose views
+last until its result is taken. [Concurrency without
 async](04-concurrency.md) follows that idea to actors, deadlocks, and
 tests that replay.
 
@@ -539,8 +540,8 @@ idea each:
 
 | | before a value | before a type | after a type | after an expression |
 |---|---|---|---|---|
-| `?` "maybe, just look" | `?x` lend to read | `?T` read view | `T?` optional | `e?` pass `none` up |
-| `!` "for real, act" | `!x` lend to write | `!T` write view | `T!` can fail | `e!` pass a failure up |
+| `?` "maybe, just look" | `?x` read view of `x` | `?T` read view | `T?` optional | `e?` pass `none` up |
+| `!` "for real, act" | `!x` write view of `x` | `!T` write view | `T!` can fail | `e!` pass a failure up |
 
 `!` means "act": write, or fail, or bind for real. As in Ruby's
 `sort!` and Scheme's `set!`, it marks something that changes things.
@@ -605,7 +606,7 @@ Here are all of them, grouped by what they do:
 |---|---|
 | Binding | `x = e` binds, `x =! e` binds a fixed local |
 | Taking and copying | `<x` moves (alone on a line, drops), `+x` copies or makes another handle |
-| Lending | `?x` lends to read, `!x` to write; as types, `?T` and `!T` |
+| Views | `?x` makes a read view, `!x` a write view; as types, `?T` and `!T` |
 | Holding | `*x` shared (`*w` upgrades a weak handle), `^x` boxed, `~x` weak, `@` self |
 | Failure and absence | `T?` may be absent, `T!` may fail; `e?` and `e!` pass them on |
 | Concurrency | `f(x)&` sends work off, `>t` takes its result back |
@@ -629,7 +630,7 @@ That is the principle behind the whole design:
 
 ## Where to go next
 
-- [Ownership without a collector](02-ownership.md) follows the loan
+- [Ownership without a collector](02-ownership.md) follows a view
   from one call to whole programs: containers, fields, closures, and
   the one leak the compiler does not prevent.
 - [Errors and optionals](03-errors.md) shows `T?` and `T!` at the

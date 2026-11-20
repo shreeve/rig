@@ -842,7 +842,7 @@ fail "apis own parameters", "`Ruler.mark` takes `at` as `Float`, but `Marker` de
 
   print(1)
 
-fail "apis own keeps", "`Log.watch` keeps `s`, but `Watcher.watch` keeps nothing: a call through `Watcher` would end the loan on `s` while `Log` still views it; add `keeps s` to `Watcher.watch`"
+fail "apis own keeps", "`Log.watch` keeps `s`, but `Watcher.watch` keeps nothing: a call through `Watcher` would leave `s` free while `Log` still views it; add `keeps s` to `Watcher.watch`"
   # `keeps` may be narrower than the API's, never wider.
 
   api Watcher
@@ -870,7 +870,7 @@ test "apis own keeps narrower", "1"
 
   print(1)
 
-fail "apis own from", "`Shelf.first` may give a view of `other`, but `Store.first` does not: a call through `Store` would end the loan on `other` while the result still views it; add `other` to the `from` of `Store.first`", "`Store.last` gives `?Int`, which may view what it is passed, and an API's method says what with `from`: `-> ?Int from @`"
+fail "apis own from", "`Shelf.first` may give a view of `other`, but `Store.first` does not: a call through `Store` would leave `other` free while the result still views it; add `other` to the `from` of `Store.first`", "`Store.last` gives `?Int`, which may view what it is passed, and an API's method says what with `from`: `-> ?Int from @`"
   # `from` may be narrower than the API's, never wider, and an API's
   # method whose result may view says what it views.
 
@@ -3697,7 +3697,7 @@ fail "apis pub states its bounds clone", "`pub fun dup[T]` clones a `T`: write `
 
   print(dup(?1))
 
-fail "apis pub states its bounds cell", "`pub fun boxed[T: Copy]` keeps a `T` where no loan is tracked: write `[T: Copy + Owned]`"
+fail "apis pub states its bounds cell", "`pub fun boxed[T: Copy]` keeps a `T` where no view is tracked: write `[T: Copy + Owned]`"
   pub fun boxed[T: Copy](a: T) -> Int
     c = *Cell(a)
     1
@@ -4737,7 +4737,7 @@ test "apis object of an optional", "4.0 0.0"
   none_sq: Square? = none
   print(area_of(?some), area_of(?none_sq))
 
-fail "apis object of a type that does not provide its API", "`area_of(?l)` cannot lend `l` as a `?{Shape}`: `Label` does not provide `Shape`; declare `obj Label: Shape`"
+fail "apis object of a type that does not provide its API", "`area_of(?l)` cannot make a view of `l` as a `?{Shape}`: `Label` does not provide `Shape`; declare `obj Label: Shape`"
   api Shape
     fun area(?@) -> Float
 
@@ -4762,7 +4762,7 @@ fail "apis object of an unbounded type parameter", "`x` is a `T` with no bound, 
 
   print(1)
 
-fail "apis object writes through a read view", "cannot lend to write through a read view `?{Shape}`"
+fail "apis object writes through a read view", "cannot make a write view through a read view `?{Shape}`"
   api Shape
     fun area(?@) -> Float
     sub grow(!@, by: Float)
@@ -4772,7 +4772,7 @@ fail "apis object writes through a read view", "cannot lend to write through a r
 
   print(1)
 
-fail "apis object of another object", "`s` is a `?{Named}`, which lends no other API object: an object's API and braces are fixed where its value is erased"
+fail "apis object of another object", "`s` is a `?{Named}`, which gives no view of another API object: an object's API and braces are fixed where its value is erased"
   # No conversion between object types: neither an upcast nor a marker
   # dropped.
 
@@ -4809,7 +4809,7 @@ fail "apis object names a bound its value does not meet", "`k` is erased to `?{S
   k = Key(n: 1)
   print(show(?k))
 
-fail "apis object no assignment through a write view", "cannot assign through `w`, a `!{Shape}`: the value it views may be of another type; call its methods, or hold a `^{Shape}` and replace the box", "8:3: cannot assign through `w`, a `!{Shape}`", "`swap` cannot exchange through `w`, a `!{Shape}`: the value it views may be of another type; call its methods, or hold a `^{Shape}` and replace the box", "`w` is a `!{Shape}`, whose value's type is erased, so `x = w` neither copies nor moves it: lend it on, `x = ?w` or `x = !w`"
+fail "apis object no assignment through a write view", "cannot assign through `w`, a `!{Shape}`: the value it views may be of another type; call its methods, or hold a `^{Shape}` and replace the box", "8:3: cannot assign through `w`, a `!{Shape}`", "`swap` cannot exchange through `w`, a `!{Shape}`: the value it views may be of another type; call its methods, or hold a `^{Shape}` and replace the box", "`w` is a `!{Shape}`, whose value's type is erased, so `x = w` neither copies nor moves it: pass it on as a view, `x = ?w` or `x = !w`"
   # Only its methods reach the value a `!{Shape}` views: no assignment,
   # swap, or copy, which would write or read a value of the wrong type.
 
@@ -4825,7 +4825,7 @@ fail "apis object no assignment through a write view", "cannot assign through `w
 
   print(1)
 
-fail "apis object a clone of a view", errors: 2, "`+s` would make a value of no size of its own: only a `^{Shape}` has `+`; a view copies, so `s` itself views the value again", "`+w` would make a value of no size of its own: only a `^{Shape}` has `+`; lend it on to read with `?w`"
+fail "apis object a clone of a view", errors: 2, "`+s` would make a value of no size of its own: only a `^{Shape}` has `+`; a view copies, so `s` itself views the value again", "`+w` would make a value of no size of its own: only a `^{Shape}` has `+`; pass it on as a read view with `?w`"
   api Shape
     fun area(?@) -> Float
 
@@ -4897,7 +4897,7 @@ test "apis object braces across lines", "4.0 4.0"
   a: A = ?q
   print(a.area(), area_of(?q))
 
-fail "apis object a view of plain data does not leave its block", "14:3: `?{Shape}` of `p` views a copy held in this block, since `Point` is plain data, so it cannot leave the block; lend the owner where it lives, or take `p: ?{Shape}`", "17:13: `?{Shape}` of `p` views a copy held in this block", "22:16: `?{Shape}` of `p` views a copy held in this block"
+fail "apis object a view of plain data does not leave its block", "14:3: `?{Shape}` of `p` views a copy held in this block, since `Point` is plain data, so it cannot leave the block; make the view of the value where it lives, or take `p: ?{Shape}`", "17:13: `?{Shape}` of `p` views a copy held in this block", "22:16: `?{Shape}` of `p` views a copy held in this block"
   # Returned, stored in a caller's List, and kept across a loop's
   # passes: each would outlive the copy the object views.
 
@@ -4924,7 +4924,7 @@ fail "apis object a view of plain data does not leave its block", "14:3: `?{Shap
 
   print(1)
 
-fail "apis object a view of a type parameter's value does not leave its block", "`?{Shape}` of `x` views a copy held in this block, since a `T` may be held as a copy, so it cannot leave the block; lend the owner where it lives, or take `x: ?{Shape}`"
+fail "apis object a view of a type parameter's value does not leave its block", "`?{Shape}` of `x` views a copy held in this block, since a `T` may be held as a copy, so it cannot leave the block; make the view of the value where it lives, or take `x: ?{Shape}`"
   api Shape
     fun area(?@) -> Float
 
@@ -4952,7 +4952,7 @@ fail "apis object meets no bound by an API, at a view", "`total[?{Shape}]` canno
 
   print(1)
 
-fail "apis object a read loan lasts while the object is used", "cannot lend `v` to write while a read loan is live"
+fail "apis object a read loan lasts while the object is used", "cannot change `v` while a read view of it is still in use"
   # The object carries the loan of the element it views.
 
   api Shape
@@ -5602,8 +5602,8 @@ test "apis inference sees through a box or a handle lent as a view", '''
   b2 = ^Square(side: 2.0)
   print(same(?b2))
 
-test "apis object result that holds no loan says no from", "4 4 4 5 1"
-  # A box or a handle of an object whose braces say it holds no loan
+test "apis object result that holds no view says no from", "4 4 4 5 1"
+  # A box or a handle of an object whose braces say it holds no view
   # views nothing: an API's method gives one with no `from`.
   api Job
     fun run(?@) -> Int
@@ -5768,7 +5768,7 @@ test "apis object box an optional box erased", "0.25 true"
   if maybe as m
     print(m.area(), empty == none)
 
-fail "apis object box goes to no task", "`?s` is lent to a task to read, and `?{Shape}` hides its value's type without naming `Syncs`: write `?{Shape + Syncs}`", "`?b` is lent to a task to read, and `^{Shape}` hides its value's type without naming `Syncs`: write `^{Shape + Syncs}`"
+fail "apis object box goes to no task", "`?s` is passed to a task as a read view, and `?{Shape}` hides its value's type without naming `Syncs`: write `?{Shape + Syncs}`", "`?b` is passed to a task as a read view, and `^{Shape}` hides its value's type without naming `Syncs`: write `^{Shape + Syncs}`"
   # The hidden value may hold what goes to no task, a local one
   # included: an owned closure, which two local tasks would both reach.
 
@@ -5813,7 +5813,7 @@ test "apis object box a generic function's argument", "1.0"
   print(c.area())
 
 test "apis object box Owned in a table's optional slots", "4.0 true"
-  # A table's slot holds no loan and has a default: `^{Shape + Owned}?`.
+  # A table's slot holds no view and has a default: `^{Shape + Owned}?`.
 
   api Shape
     fun area(?@) -> Float
@@ -5865,7 +5865,7 @@ test "apis object box an owned closure captures an Owned box", "1.0"
   f = *|<b| b.area()
   print(f())
 
-fail "apis object box Owned of a type holding a view", "`Note` is erased to `^{Shape + Owned}`, which holds no loan, but its field `text` is a `?String`"
+fail "apis object box Owned of a type holding a view", "`Note` is erased to `^{Shape + Owned}`, which holds no view, but its field `text` is a `?String`"
   api Shape
     fun area(?@) -> Float
 
@@ -5977,7 +5977,7 @@ fail "apis object box a consuming method through a view", "`<s.close()` consumes
 
   print(1)
 
-fail "apis object box an owned closure captures a box that may hold a loan", "an owned closure holds no loan, and a `^{Shape}` may hold one: write `^{Shape + Owned}`"
+fail "apis object box an owned closure captures a box that may hold a view", "an owned closure holds no view, and a `^{Shape}` may hold one: write `^{Shape + Owned}`"
   api Shape
     fun area(?@) -> Float
 
@@ -6099,7 +6099,7 @@ fail "apis object box a List's element type is not erased", "type mismatch: expe
   m: List[^{Shape}] = <l
   print(m.len)
 
-fail "apis object box of a type that does not provide the API", "`<l` cannot be lent as a `^{Shape}`: `Label` does not provide `Shape`"
+fail "apis object box of a type that does not provide the API", "`<l` cannot be viewed as a `^{Shape}`: `Label` does not provide `Shape`"
   api Shape
     fun area(?@) -> Float
 
@@ -6282,7 +6282,7 @@ test "apis object printed through a generic body by the braces", "Square(side: 1
   c: ^{Shape + Print} = ^Square(side: 2.0)
   show2(?b, ?c)
 
-fail "apis object reached in a field goes to no task", "`?h` is lent to a task to read: `?*Holder` holds `{Shape}`, an API object whose braces and API name no `Sends` or `Syncs` for this, so what it hides may go to no task", "`?v` is lent to a task to read: `?Holder` holds `{Shape}`", "`?o` is lent to a task to read: `?Holder?` holds `{Shape}`", "`par.map` calls the closure on several tasks at once, which all read what it captures, and `v` holds `{Shape}`", errors: 4
+fail "apis object reached in a field goes to no task", "`?h` is passed to a task as a read view: `?*Holder` holds `{Shape}`, an API object whose braces and API name no `Sends` or `Syncs` for this, so what it hides may go to no task", "`?v` is passed to a task as a read view: `?Holder` holds `{Shape}`", "`?o` is passed to a task as a read view: `?Holder?` holds `{Shape}`", "`par.map` calls the closure on several tasks at once, which all read what it captures, and `v` holds `{Shape}`", errors: 4
   # An object in a field, behind a handle or an optional, or captured
   # by `par`'s closure, goes to no task: the task is not made local.
   use std.par
@@ -6314,7 +6314,7 @@ fail "apis object reached in a field goes to no task", "`?h` is lent to a task t
   xs = List([1, 2])
   print(>t, >u, >w, par.map(?xs, |?v, x| v.s.area()))
 
-fail "apis object a generic instance gives no task", "`spawn[^{Shape}]` cannot use `T = ^{Shape}`: a value that holds a `T` is lent to a task to read in the generic body, and `^{Shape}` holds `{Shape}`, an API object", "`spawn[Holder]` cannot use `T = Holder`", errors: 2
+fail "apis object a generic instance gives no task", "`spawn[^{Shape}]` cannot use `T = ^{Shape}`: a value that holds a `T` is passed to a task as a read view in the generic body, and `^{Shape}` holds `{Shape}`, an API object", "`spawn[Holder]` cannot use `T = Holder`", errors: 2
   api Shape
     fun area(?@) -> Float
 
@@ -6338,7 +6338,7 @@ fail "apis object a generic instance gives no task", "`spawn[^{Shape}]` cannot u
   h = Holder(s: ^Square(side: 2.0))
   print(spawn(?b), spawn(?h))
 
-fail "apis bounded instance owned closure", "`local[Holder]` cannot use `T = Holder`: a value that holds a `T` is lent to a task to read in the generic body, and `Holder` holds `*fun() -> Float`, an owned closure", errors: 1
+fail "apis bounded instance owned closure", "`local[Holder]` cannot use `T = Holder`: a value that holds a `T` is passed to a task as a read view in the generic body, and `Holder` holds `*fun() -> Float`, an owned closure", errors: 1
   # A bounded `T` without `Syncs` makes the task local, which takes no
   # owned closure, checked at each instance.
   api Shape
@@ -6440,7 +6440,7 @@ test "apis generic erasure of plain values", "1.0 4.0"
 
   print(lent(?Sq(s: 1.0)), boxed(Sq(s: 2.0)).area())
 
-fail "apis default gives its self to a task", "`Holder.go` cannot use `Self = Holder`: a value that holds a `Self` is lent to a task to read in the generic body, and `Holder` holds `*fun() -> Int`, an owned closure", "`Keeper.go` cannot use `Self = Keeper`: a value that holds a `Self` is lent to a task to read in the generic body, and `Keeper` holds `{Shape}`, an API object", errors: 2
+fail "apis default gives its self to a task", "`Holder.go` cannot use `Self = Holder`: a value that holds a `Self` is passed to a task as a read view in the generic body, and `Holder` holds `*fun() -> Int`, an owned closure", "`Keeper.go` cannot use `Self = Keeper`: a value that holds a `Self` is passed to a task as a read view in the generic body, and `Keeper` holds `{Shape}`, an API object", errors: 2
   # A default is a body generic over `Self`, checked at each type that
   # reaches it, as a value of that type given to the task would be.
   api Shape
@@ -6536,7 +6536,7 @@ test "apis pub states Syncs for a task it forwards to", seeds: 20, "1"
 
   print(outer(?3))
 
-fail "apis erasure reaches every method", "`Box[*Node].run` cannot use `T = *Node`: a value that holds a `T` is lent to a task to read in the generic body", errors: 1
+fail "apis erasure reaches every method", "`Box[*Node].run` cannot use `T = *Node`: a value that holds a `T` is passed to a task as a read view in the generic body", errors: 1
   # An object's table holds every method its API names, so erasing a
   # value reaches each, called or not.
   api Runs

@@ -420,7 +420,7 @@ error is and compares no fields.
 
 A failure moves its error up through each `!` to the `catch` that
 handles it, and the handler owns it: here `<e` moves it into the list.
-A field holds no view, so an error never keeps anything lent, and
+A field holds no view, so an error never keeps a view of anything, and
 `+e` copies one. A moved error is gone, as any moved value is:
 
 ```rig reject

@@ -1,6 +1,6 @@
 # ownership: tests whose names start `self`.
 
-fail "self branch view keeps leaf loans", "17:3: cannot assign to `a.t` while `a` is lent", "24:3: cannot assign to `b.t` while `b` is lent", "32:3: cannot assign to `ts[1].t` while `ts` is lent", errors: 3
+fail "self branch view keeps leaf loans", "17:3: cannot assign to `a.t` while a read view of `a` is still in use", "24:3: cannot assign to `b.t` while a read view of `b` is still in use", "32:3: cannot assign to `ts[1].t` while a read view of `ts` is still in use", errors: 3
   # A method runs on its self where it is: called on a value that
   # branches, it runs on the leaf the branch picks, so the view it returns
   # keeps every leaf lent (Core sentence 7), through `if`, `??`, `catch`,
@@ -96,7 +96,7 @@ test "self by what it hands over", '''
   print((<w if not c else <x).take(), "take")
   print(q.id)
 
-fail "self field read then written", "21:36: cannot lend `a` to write while `self`'s read of it is in use", errors: 1
+fail "self field read then written", "21:36: cannot change `a` while `self`'s read of it is still in use", errors: 1
   # A field of a value that is no place, used as a self, is read
   # where the value is: a later argument cannot lend what the value may
   # be to write.
@@ -119,7 +119,7 @@ fail "self field read then written", "21:36: cannot lend `a` to write while `sel
   c = true
   print((a if c else b).v.get(growp(!a)))
 
-fail "self plain struct later write", "16:18: cannot lend `a` to write while a read loan is live"
+fail "self plain struct later write", "16:18: cannot change `a` while a read view of it is still in use"
   # A method takes a plain object self by address and reads it when
   # it runs, after its arguments: a later argument cannot write it first.
 
@@ -137,7 +137,7 @@ fail "self plain struct later write", "16:18: cannot lend `a` to write while a r
   a = P(x: 1)
   _ = a.show(bump(!a))
 
-fail "self read then moved", "21:34: cannot move `a` while `self`'s read of it is in use", errors: 1
+fail "self read then moved", "21:34: cannot move `a` while `self`'s read of it is still in use", errors: 1
   # A read self that is no place is held until the call runs: a later
   # argument cannot move what it may be.
 
@@ -160,7 +160,7 @@ fail "self read then moved", "21:34: cannot move `a` while `self`'s read of it i
   c = true
   print((a if c else b).sum(takep(<a)))
 
-fail "self read then written", "21:29: cannot lend `a` to write while `self`'s read of it is in use", errors: 1
+fail "self read then written", "21:29: cannot change `a` while `self`'s read of it is still in use", errors: 1
   # A read self that is no place is copied where it runs, before the
   # arguments: a later argument cannot lend what it may be to write, or
   # the call would read the copy after its buffer was freed.
@@ -183,7 +183,7 @@ fail "self read then written", "21:29: cannot lend `a` to write while `self`'s r
   c = true
   print((a if c else b).peek(!a))
 
-fail "self sigil parenthesized", "6:9: method `pop` needs `self` lent to write; write `!v.pop()`", errors: 1
+fail "self sigil parenthesized", "6:9: method `pop` needs a write view of `self`; write `!v.pop()`", errors: 1
   # Parentheses around the call make `!` apply to its value, a temporary,
   # not to self, which the call then needs lent to write.
 
@@ -192,7 +192,7 @@ fail "self sigil parenthesized", "6:9: method `pop` needs `self` lent to write; 
   n = !(v.pop())
   print(n ?? 0)
 
-fail "self stored in argument siblings", "48:11: cannot let this call store a view of `s` in `h`", "56:4: cannot drop `s` while it is lent", "62:12: cannot let this call store a view of `o` in `h`", "68:14: cannot let this call store a view of `ps` in `h`", "76:10: cannot let this call store a view of `s` in `h`", "84:12: cannot let this call store a view of `y` in `h`", "89:12: cannot let this call store a view of `mk()` in `h`", errors: 7
+fail "self stored in argument siblings", "48:11: cannot let this call store a view of `s` in `h`", "56:4: cannot drop `s` while a read view of it is still in use", "62:12: cannot let this call store a view of `o` in `h`", "68:14: cannot let this call store a view of `ps` in `h`", "76:10: cannot let this call store a view of `s` in `h`", "84:12: cannot let this call store a view of `y` in `h`", "89:12: cannot let this call store a view of `mk()` in `h`", errors: 7
   # A method may store what its self lends or holds in what it was lent
   # to write, as it may an argument's: a write self, a view of the
   # self itself, a field or element of a value, a value reached
@@ -337,7 +337,7 @@ fail "self temporary view outlives statement", "36:5: a view of the temporary `m
   t = (mkf(1) catch b).arr()
   print(r, s.n, t, mk().arr()[0])
 
-fail "self view of branch lends it", "60:6: a view of the temporary `fails(false)` outlives its statement", "67:1: cannot assign to `a.t` while `a` is lent", "68:1: cannot lend `vs` to write while a read loan is live", errors: 3
+fail "self view of branch lends it", "60:6: a view of the temporary `fails(false)` outlives its statement", "67:1: cannot assign to `a.t` while a read view of `a` is still in use", "68:1: cannot change `vs` while a read view of it is still in use", errors: 3
   # A `?@` method whose result may keep a view of its self lends the
   # self, as `?e` does. A self that branches lends each leaf it may
   # be, where it is: whether the branch is self itself, the value a
@@ -485,7 +485,7 @@ test "self view of branch lends leaves", '''
   print(x, u)
   print(first(maybe(true)) ?? 0)
 
-fail "self view of temporary leaves tail", "21:3: cannot return a view of `mk(42)`, which this function was not lent", "24:10: cannot return a view of `mk(43)`, which this function was not lent", "27:3: cannot return a view of `mk(44)`, which this function was not lent", "31:5: a view of the temporary `mk(45)` outlives its statement", "33:3: a view of the temporary `mk(46)` outlives its statement", "35:3: a view of the temporary `mk(47)` outlives its statement", "37:8: a view of the temporary `mk(48)` outlives its statement", "38:8: a view of the temporary `mk(49)` outlives its statement", "40:9: a view of the temporary `mk(50)` outlives its statement", "41:9: a view of the temporary `mk(51)` outlives its statement", "45:10: cannot return a view of `mk(y)`, which this function was not lent", errors: 11
+fail "self view of temporary leaves tail", "21:3: cannot return a view of `mk(42)`, which belongs to this function", "24:10: cannot return a view of `mk(43)`, which belongs to this function", "27:3: cannot return a view of `mk(44)`, which belongs to this function", "31:5: a view of the temporary `mk(45)` outlives its statement", "33:3: a view of the temporary `mk(46)` outlives its statement", "35:3: a view of the temporary `mk(47)` outlives its statement", "37:8: a view of the temporary `mk(48)` outlives its statement", "38:8: a view of the temporary `mk(49)` outlives its statement", "40:9: a view of the temporary `mk(50)` outlives its statement", "41:9: a view of the temporary `mk(51)` outlives its statement", "45:10: cannot return a view of `mk(y)`, which belongs to this function", errors: 11
   # A view a method returns of a temporary self lives only until its
   # statement ends, also where the call is a function's or closure's tail,
   # `return`'s value, an `if` or `match` arm's value, or a `break` value:
@@ -573,7 +573,7 @@ fail "self view of temporary outlives statement", "31:5: a view of the temporary
   u = (ps if c else qs)[1].arr()
   print(r, s.n, t, u)
 
-fail "self view stored in argument", "36:3: cannot reassign `h` while it is lent", "44:4: use of `h.v` while a write loan on `h` is live", "53:6: use of `h.v` while a write loan on `h` is live", "63:6: use of `h.v` while a write loan on `h` is live", errors: 4
+fail "self view stored in argument", "36:3: cannot reassign `h` while a write view of it is still in use", "44:4: cannot use `h.v` while a write view of `h` is still in use", "53:6: cannot use `h.v` while a write view of `h` is still in use", "63:6: cannot use `h.v` while a write view of `h` is still in use", errors: 4
   # A `!@` method may store a view of its self in another `!`
   # argument, which keeps self lent while the argument holds it
   # (SPEC "Second-class views"): reassigning self, growing what
@@ -691,7 +691,7 @@ test "self view used in statement", '''
   print(clobber(1000))
   print(r)
 
-fail "self view with move arg", "cannot move `rc` while a read loan is live"
+fail "self view with move arg", "cannot move `rc` while a read view of it is still in use"
   # A method call views its self for the whole call, so
   # `rc.show(<rc)` is rejected like `show(?rc, <rc)`.
 

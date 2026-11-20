@@ -72,8 +72,8 @@ this task is dropped as soon as it starts
 
 ## A task belongs to its owner
 
-`total(?xs)&` lends `xs` to the task. The loan lasts until `>u` takes
-the result, so the task reads the list in place, with no copy and no
+`total(?xs)&` makes a read view of `xs` for the task. It lasts until `>u`
+takes the result, so the task reads the list in place, with no copy and no
 lock. Nothing may change the list meanwhile:
 
 ```rig reject
@@ -88,7 +88,7 @@ sub main()
 ```
 
 ```error
-cannot lend `xs` to write while a read loan is live
+cannot change `xs` while a read view of it is still in use
 ```
 
 That is the rule for every view, and it holds because a task never
@@ -165,7 +165,7 @@ sub main()!
 200
 ```
 
-`!all.add(...)` moves a task into the set, which keeps its loans.
+`!all.add(...)` moves a task into the set, which keeps its views.
 `>all` gives the results in the order the tasks were added, not the
 order they ended. When one fails, the rest are canceled and the wait
 fails with its error.
@@ -397,7 +397,7 @@ still running
 
 The panic's report still goes to stderr, the tasks started inside are
 canceled and waited for, and the isolate fails with
-`task.Stop.panicked`. Nothing outside `f` is lent to it to write, so
+`task.Stop.panicked`. Nothing outside `f` is passed to it as a write view, so
 what a panic half-changed is abandoned with `f`. `http.serve` runs
 each request this way.
 
@@ -552,7 +552,7 @@ sub main()
 `par.map` gives its results in the order of `xs`, and `par.each` hands
 each task a write view of its own elements. `limit:` caps how many
 tasks run at once. Every task calls the same closure, so a capture
-lent to write is rejected:
+of a write view is rejected:
 
 ```rig reject
 use std.par
@@ -564,7 +564,7 @@ sub main()
 ```
 
 ```error
-`par.each` calls the closure on several tasks at once, and `|!total|` lends `total` to write
+`par.each` calls the closure on several tasks at once, and `|!total|` makes a write view of `total`
 ```
 
 ## What may go to another core
@@ -721,8 +721,8 @@ sub main()
 | hand a task an object | `^{Job + Sends}`, or `*{Shape + Syncs}` to many |
 | spread a loop over cores | `par.map(?xs, f)`, `par.each(!xs, f)` |
 
-A task is a call whose loan lasts until its result is taken, so the
-views and loans of the earlier chapters keep tasks from racing.
+A task is a call whose views last until its result is taken, so the
+views of the earlier chapters keep tasks from racing.
 
 **Concurrency is marked where it happens, and nowhere else.**
 

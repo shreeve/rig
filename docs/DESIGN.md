@@ -7,7 +7,7 @@ themselves are in [SPEC.md](../SPEC.md); the compiler is described in
 ## The idea
 
 Most of what makes systems code hard to read is invisible: a value is
-copied or moved, a buffer is lent or kept, a counter is bumped, an
+copied or moved, a buffer is shared out or kept, a counter is bumped, an
 error is thrown past you, a destructor runs. Rig's central rule is that
 **an effect that matters is visible where it happens**, in a form short
 enough that writing it is no burden:
@@ -27,7 +27,7 @@ sub send(p: Packet)
 
 sub main()
   p = Packet(size: 512)
-  print(size_of(?p))      # lent for reading; `p` is still ours
+  print(size_of(?p))      # a read view; `p` is still ours
   send(<p)                # handed over; `p` is gone from here on
   print("done")
 ```
@@ -55,18 +55,18 @@ task and `>t` takes its result ([why](#sigils-for-starting-and-taking-work)).
 Like Rust, Rig leaves some effects implicit: a drop where
 a scope ends, the allocation a `List`, `^T`, or `String` makes, and a plain
 copy. A change to a shared `Cell` is marked, `!c.set(5)`; a `Cell` lives
-only behind a shared handle, so it takes only values that carry no loan.
+only behind a shared handle, so it takes only values that carry no view.
 A count is added only where
 `*x` or `+x` is written, and released where `<x` drops a handle or its
 scope ends; there is no implicit error propagation, and no unmarked
 unsafe code.
 What else stays implicit is cheap and cannot surprise: reading through
-a shared handle, lending an argument, or the value of a `?@` method,
-to read for the call, and moving a local out with `return x` or
+a shared handle, passing an argument as a read view, or the value of a
+`?@` method, for the call, and moving a local out with `return x` or
 `break x`, where its scope ends anyway. Calling a method that writes
 its value (`!v.push(x)`) or consumes it (`<u.close()`) is always spelled out,
-and so is lending on a write view a binding already holds
-(`v: !List[Int]` lends on with `!v.push(x)` and `f(!v)`): at a call, `!`
+and so is passing on a write view a binding already holds
+(`v: !List[Int]` is passed on with `!v.push(x)` and `f(!v)`): at a call, `!`
 marks exactly the values it may change. A held read view is passed
 on bare, since a copy of it can change nothing.
 
@@ -112,8 +112,8 @@ For a value `x` of type `T`, a call `f(x)`, and a task `t`:
 | Expression | Type | Effect | Runtime cost |
 |---|---|---|---|
 | `<x` | `T` | ownership leaves `x` | none (a large value may be copied) |
-| `?x` | `?T` | shared, read-only loan | none: checked statically |
-| `!x` | `!T` | exclusive, writable loan | none: checked statically |
+| `?x` | `?T` | a read view: its place is read-only | none: checked statically |
+| `!x` | `!T` | a write view: its place is unusable (read-only for a cell) | none: checked statically |
 | `+x` | `T` | a new owner (`T` is plain data or a handle) | a count bump for a handle |
 | `<x` as a statement | (none) | release now: a move to nowhere | runs the drop glue |
 | `^x` | `^T` | move into a new box | one allocation |
@@ -121,7 +121,7 @@ For a value `x` of type `T`, a call `f(x)`, and a task `t`:
 | `~x` | `~U` when `T` is `*U` | a non-owning handle | a weak-count bump |
 | `e!` | `T` when `e : T!` | propagate failure | a branch |
 | `e?` | `T` when `e : T?` | return `none` from the function | a branch |
-| `f(x)&` | `Task[T]` when `f` gives `T` | run the call as a task, which keeps its arguments' loans | a dispatch |
+| `f(x)&` | `Task[T]` when `f` gives `T` | run the call as a task, which keeps its arguments' views | a dispatch |
 | `>t` | `T` when `t : Task[T]` | wait for the task and take its result | a wait |
 
 Each operation has one meaning, becomes one IR node, and succeeds
@@ -134,14 +134,14 @@ lives, `none` after. The round trip is total both ways: `~x` going
 down, and `*w` coming up, which may give `none`.
 
 **Position picks the category; the symbol picks the family.** A prefix
-`?` or `!` is always about lending: it lends in an expression and names
+`?` or `!` is always about views: it makes one in an expression and names
 the view in a type, `?x : ?T`, `!x : !T`. A suffix never is: suffix `?`
 belongs to absence and suffix `!` to failure.
 
 Each of the two carries one idea in all four positions: before a
 value, before a type, after a type, and after an expression. `?` is "maybe,
-just look": a read lend, a read view, an optional, and passing `none`
-up. `!` is "for real, act": a write lend, a write view, a type that can
+just look": a read view made, a read view named, an optional, and passing `none`
+up. `!` is "for real, act": a write view made, a write view named, a type that can
 fail, and passing a failure up. The table of the four positions is in
 [the sigils journey](learn/01-sigils.md#-and--one-idea-each). As in Ruby's
 `sort!` and Scheme's `set!`, `!` marks what changes things, so it is
@@ -168,18 +168,18 @@ it, suffixes included, so `?User?` views an optional:
 | `?User?` | a read view of an optional `User` |
 | `*Cell[List[*sub()]]` | a shared cell holding a list of owned closures |
 | `+n.first()` | clone the handle `first` returns |
-| `!v.push(x)` | lend `v` to write, then call a writing method |
+| `!v.push(x)` | make a write view of `v`, then call a writing method |
 
 One exception is made, for method calls: `?`, `!`, or `<` directly
 before a place followed by a method call applies to the place, so
 `!v.push(x)` is `(!v).push(x)` and `<conn.close()` is
 `(<conn).close()`. The three are exactly the ways a method takes self
 (`?@`, `!@`, `<@`), so a call reads the same way
-whichever mode its method takes; `?p.m()` spells out the read lend
+whichever mode its method takes; `?p.m()` spells out the read view
 a plain `p.m()` makes anyway. On a call's result `!` and `<` would mean
 nothing (the result is a temporary the caller already owns, so writing
 through it would be lost and moving it is what happens anyway), and a
-lend of a result is written around it, `?(p.m())`. `*`, `+`, `~`,
+view of a result is written around it, `?(p.m())`. `*`, `+`, `~`,
 and `-` do mean something on a result (share it, clone the handle it
 is, take a weak handle, negate it), so they keep the rule:
 `*Point.origin()` shares the new point. The exception comes with checks
@@ -195,14 +195,14 @@ truth value.
 **Absorption.** Operations that would add nothing are rejected rather
 than silently tolerated. Sharing a shared handle (`*x` when `x : *T`,
 or the type `*(*T)`) would add a second count for nothing; `+x` is the
-operation you want. A lend of a view lends on the same loan: forwarding
+operation you want. A view of a view is the same view: forwarding
 a `?B` parameter as `?b` passes a `?B`, not a `??B`. And a write view
 can always be read: a `!T` is accepted where a `?T` is expected.
 
 **The same sigils, the same meanings, elsewhere.** A closure's bar list
 reuses the expression sigils for captures (`|+x|` clones, `|<x|` moves,
-`|?x|` and `|!x|` lend, `|~x|` holds weakly). A loop over a List says how its source
-is lent (`for x in ?v`), and a `match` says the same of its subject (`match !e`
+`|?x|` and `|!x|` make views, `|~x|` holds weakly). A loop over a List says how its source
+is viewed (`for x in ?v`), and a `match` says the same of its subject (`match !e`
 writes the payload in place, `match <e` takes it). Self is written
 `?@`, `!@`, or `<@`, the only place a sigil may prefix a
 parameter name. A task is started with `f(x)&` and taken with `>t`,
@@ -210,7 +210,7 @@ the pair of marks every task shares. A move-assignment is `a = <b`, and a move t
 `<x` alone on a line, is a drop: releasing a value early needs no sigil
 of its own, so `-` means only negation. The fixed binding `x =! e`
 ("set, dammit!") is the one place `!` appears in an operator that is
-not about lending or failure, and still marks what is for real: this
+not about views or failure, and still marks what is for real: this
 value, final.
 
 Here the algebra is at work in one small program:
@@ -232,7 +232,7 @@ sub main()
   o = Owner(node: *Node(id: 1))
   shared = *<o                 # move `o`, then share it: *Owner
   first = +shared.node         # clone the handle in a field: *Node
-  print(id_of(?first))         # lend the handle: ?*Node
+  print(id_of(?first))         # a read view of the handle: ?*Node
   w = ~first                   # weaken it: ~Node
   <first
   if *w as n                   # the way back, a new count: *Node?
@@ -260,33 +260,36 @@ ordinary code the compiler generates, run at points you can see.
 Sigils are bad when they are arbitrary. Rig spends them only on effects
 a reader should notice locally, keeps the set small and uniform, and
 gives each exactly one meaning. The alternative, `move(x)`,
-`lend(x)`, `clone(x)` at every site, makes code longer without making
+`view(x)`, `clone(x)` at every site, makes code longer without making
 it clearer once the set is learned. Most Rig code carries no sigils; they
 appear where the effect does. And because they appear at call sites,
-not only in signatures, a reader sees whether a value is lent or handed
+not only in signatures, a reader sees whether a value is viewed or handed
 over without looking up the callee.
 
-### Lend, view, loan: naming from the owner's side
+### Places and views: naming from the sigil's side
 
-*You lend a view; the compiler remembers the loan.*
+*A sigil on a place makes a view, and the place is limited until the
+view's last use.*
 
 Rust calls this idea a *borrow*, and the word ends up meaning three
 different things: the act (`&v`), the reference that act makes, and the
-checker's record of it. One reason is direction. Rust writes
-`&v` on the owner, at the place where the owner hands something over,
-but names the act from the callee's point of view.
+checker's record of it. One reason is direction. Rust writes `&v` on the
+value being referred to, where the value is handed over, but names the
+act from the callee's point of view.
 
-Rig writes its sigil in the same place, on the owner: `print(?v)`,
-`grow(!v)`. So it names the act from the owner's side: `v` **lends**.
-That gives each word exactly one side of the hand-over: the owner
-lends, the callee gets a view, and a loan stays with the owner.
+Rig writes its sigil in the same place, on the **place**: `print(?v)`,
+`grow(!v)`. So it names everything from the sigil's side: `?v` makes a
+**read view** of `v`, `!v` a **write view**, and the view is what the
+callee gets. What a view does to its place has its own words: any view
+leaves the place **read-only** until its last use, and a write view of
+an ordinary value leaves it **unusable**.
 
-Keeping the three apart is what lets the rules be stated plainly. "A
-loan lasts until the last use of every view that carries it" is about
-loans, not lends. One lend on one line can make a loan that copies,
-results, and fields carry long after that line. Separate words also let
-an error say exactly who is blocked and why: *cannot lend `t` to write
-while a read loan is live*.
+Keeping these apart is what lets the rules be stated plainly. "A place
+stays read-only until the last use of every view of it" is about the
+place, not the sigil. One `?v` on one line can leave `v` read-only long
+after that line, through the copies, results, and fields that carry the
+view. Separate words also let an error say exactly who is blocked and
+why: *cannot change `t` while a read view of it is still in use*.
 
 What each word means, and the rules, are in [CORE](CORE.md).
 
@@ -296,12 +299,12 @@ Rig follows the second-class-reference model of Swift, Hylo, and Mojo
 rather than Rust's lifetime parameters. A view can live in a
 parameter, a local, or a function's result, and a read view in a
 object field too (a write view is never stored inside a value), and the
-checker tracks where each one came from: a returned view carries the
-loans of every argument whose type could hold what it views, or of
+checker tracks where each one came from: a returned view counts as a view
+of every argument whose type could hold what it views, or of
 only those a `from` clause names (`-> ?Item from a`), which the
 compiler checks against the body; and an object holding a view keeps
-its source lent. A loan lasts until the last use of every view
-that carries it, not to the end of its block, as in Rust's non-lexical
+its source read-only. A place stays read-only until the last use of every view
+of it, not to the end of its block, as in Rust's non-lexical
 lifetimes. That rule is sound without annotations; the price is that
 some programs Rust can express with explicit lifetimes are rejected,
 such as one that relates the views of several results to different
@@ -322,7 +325,7 @@ needs no heap and no count: it is a view. So a parameter that takes
 one is `?fun(A) -> R`, a callable view, and it reuses the second-class
 rules for views instead of adding closure lifetimes: the
 callee calls it and passes it on, and nothing stores it. The literal is
-written bare at the call, and its captures say what is lent to it for
+written bare at the call, and its captures say what views it gets for
 the call: `sort.sort_by(!v[..], |a, b| a < b)`, or `each(?v, |!total, n| total +=
 n)`, where the checker's ordinary same-call conflict check rejects
 `each(?total, |!total, n| ...)`. `fun(A) -> R` stays a plain function
@@ -360,7 +363,7 @@ it.
 
 Running a call at the same time is written `f(x)&`, the dispatch
 sigil, and taking its result back is `>t`, the wait sigil. In Rig the mechanics of the language are sigils and
-the words are its libraries: moving a value is `<x`, lending it is `?x`
+the words are its libraries: moving a value is `<x`, viewing it is `?x`
 or `!x`, and starting work is `&`. Taking that work back is the same
 kind of act, so it is the same kind of mark. The two read as a pair,
 `&` sending the work off and `>` taking it back, and `print(>t, >u)`
@@ -400,7 +403,7 @@ of code and review.
 ### `and`, `or`, `not`
 
 Words read better than `&&` and `||`, and they free `!` for its two
-jobs, lending and failure. `&&` and `||` are rejected with a pointer
+jobs, views and failure. `&&` and `||` are rejected with a pointer
 to the words, and so is every `!` a C, Rust, or Zig reader would take
 for "not", such as `if !done` or `!q.is_empty()`, where it would start
 a condition or an operand of `and`, `or`, or `not`.
@@ -465,7 +468,7 @@ several types share, and an API object holds a value of any of them
 ([design/apis.md](design/apis.md)); and
 the model is Zig's, which Rig lowers to. Everything that does not depend
 on `T` is still checked once, in the body, and so is ownership: the body
-is checked as if `T` owns a resource, so moves, drops, and lends are
+is checked as if `T` owns a resource, so moves, drops, and views are
 right for every instance, and a copy of a `T` simply limits the body to
 plain data.
 

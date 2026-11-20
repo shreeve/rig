@@ -121,7 +121,7 @@ test "t-p6", "[0, 1]"
   !v.push(v.len)
   print(v)
 
-fail "t-p7", "use of `p.x` while a write loan on `p` is live"
+fail "t-p7", "cannot use `p.x` while a write view of `p` is still in use"
   obj P
     x: Int
 
@@ -130,7 +130,7 @@ fail "t-p7", "use of `p.x` while a write loan on `p` is live"
   w.x += p.x
   print(p.x)
 
-fail "t-q1", "cannot move `v` while an earlier argument's read of it is in use"
+fail "t-q1", "cannot move `v` while an earlier argument's read of it is still in use"
   obj P
     x: Int
     y: Int
@@ -235,7 +235,7 @@ test "t-q5", "{v} {grow(!v)}"
   !v.push(0)
   print("{v} {grow(!v)}")
 
-fail "t-q6", "cannot lend `t` to write while a read loan is live"
+fail "t-q6", "cannot change `t` while a read view of it is still in use"
   obj P
     x: Int
     y: Int
@@ -277,7 +277,7 @@ fail "t-q6", "cannot lend `t` to write while a read loan is live"
   t = T(x: 1)
   print(t.get(bt(!t)))
 
-fail "t-q7", "cannot lend `w` to write while an earlier argument's read of it is in use"
+fail "t-q7", "cannot change `w` while an earlier argument's read of it is still in use"
   obj P
     x: Int
     y: Int
@@ -312,7 +312,7 @@ fail "t-q7", "cannot lend `w` to write while an earlier argument's read of it is
   w = !v
   print(w, grow(!w), w)
 
-fail "t-q8", "cannot lend `s.a` to write while an earlier argument's read of `s` is in use"
+fail "t-q8", "cannot change `s.a` while an earlier argument's read of `s` is still in use"
   obj P
     x: Int
     y: Int
@@ -348,7 +348,7 @@ fail "t-q8", "cannot lend `s.a` to write while an earlier argument's read of `s`
   print(s.a, grow(!s.a))
   print(s.b, grow(!s.a))
 
-fail "t-r1", "cannot lend `rc` to write while an earlier argument's read of it is in use"
+fail "t-r1", "cannot change `rc` while an earlier argument's read of it is still in use"
   obj Node
     n: Int
 
@@ -487,7 +487,7 @@ test "t1-lo2", '''
   print(a)
   print(r.s)
 
-fail "t1-pv", "cannot lend `v` to write while an earlier argument's read of it is in use"
+fail "t1-pv", "cannot change `v` while an earlier argument's read of it is still in use"
   fun grow(v: !List[Int]) -> Int
     !v.push(7)
     v[0] = 0
@@ -535,7 +535,7 @@ test "t1-rn", '''
   x = (!o).int(1, 7)
   print(x >= 1 and x < 7)
 
-fail "t1-vi", "cannot lend `v` to write while an earlier argument's read of it is in use"
+fail "t1-vi", "cannot change `v` while an earlier argument's read of it is still in use"
   obj B
     n: Int
 
@@ -755,7 +755,7 @@ test "viewvalue-b1", '''
   a.x = 3
   print(b.x, c.x, d.x, a.x, seen)
 
-fail "viewvalue-c2", "cannot lend `v` to write while a read loan is live"
+fail "viewvalue-c2", "cannot change `v` while a read view of it is still in use"
   obj N
     name: String
     s: ?String
@@ -770,7 +770,7 @@ fail "viewvalue-c2", "cannot lend `v` to write while a read loan is live"
   !v.push(N(name: String("c"), s: "z"))
   print(v[0].s)
 
-fail "viewvalue-c3", "cannot assign to `v[0].s` while `v` is lent"
+fail "viewvalue-c3", "cannot assign to `v[0].s` while a read view of `v` is still in use"
   obj N
     name: String
     s: ?String
@@ -841,7 +841,7 @@ test "viewvalue-d7", '''
   print(noise(77))
   print(a, b)
 
-fail "viewvalue-e5", "cannot drop `s` while it is lent"
+fail "viewvalue-e5", "cannot drop `s` while a read view of it is still in use"
   error Bad
     oops
 

@@ -1,6 +1,6 @@
 # ownership: tests whose names start `closure`.
 
-fail "closure alias", "closure `f` cannot be moved, returned, stored, or copied; call it as `f()`, lend it to a call as `?f`, or make the literal owned (`*|...| body`) to pass it around"
+fail "closure alias", "closure `f` cannot be moved, returned, stored, or copied; call it as `f()`, pass it to a call as `?f`, or make the literal owned (`*|...| body`) to pass it around"
   # A closure binding cannot be aliased (`g = f`): copying the closure
   # would duplicate its captures.
 
@@ -10,7 +10,7 @@ fail "closure alias", "closure `f` cannot be moved, returned, stored, or copied;
   g = f
   g()
 
-fail "closure capture view rules", "5:9: cannot lend parameter `n` to write", "9:9: cannot lend fixed binding `k` to write"
+fail "closure capture view rules", "5:9: cannot change parameter `n`", "9:9: cannot change fixed binding `k`"
   # `|!x|` follows the rules of `!x`: a write view needs a binding that
   # may change.
 
@@ -25,7 +25,7 @@ fail "closure capture view rules", "5:9: cannot lend parameter `n` to write", "9
 
   go(1)
 
-fail "closure capture view rules ownership", "16:9: cannot lend `total` to write while a write loan is live", "23:12: an owned closure cannot capture a view of `x`: it can be stored anywhere", "24:13: an owned closure cannot capture a view of `x`", "30:7: use of `c.n` while a write loan on `c` is live", "36:3: cannot store a view of `inner` through captured `v`", "39:10: cannot lend `c` to write while a read loan is live"
+fail "closure capture view rules ownership", "16:9: cannot change `total` while a write view of it is still in use", "23:12: an owned closure cannot capture a view of `x`: it can be stored anywhere", "24:13: an owned closure cannot capture a view of `x`", "30:7: cannot use `c.n` while a write view of `c` is still in use", "36:3: cannot store a view of `inner` through captured `v`", "39:10: cannot change `c` while a read view of it is still in use"
   # `|?x|` and `|!x|` follow the rules of `?x` and `!x`: a write view
   # excludes every other view while the closure lives; an owned closure
   # views nothing; and nothing a view of the closure's own values is
@@ -145,7 +145,7 @@ fail "closure captures past enclosing closure", "6:9: capture `n` in the enclosi
     k()
   h()
 
-fail "closure holds view", "cannot drop `a` while it is lent"
+fail "closure holds view", "cannot drop `a` while a read view of it is still in use"
   # A closure that captured a view keeps the owner viewed while the
   # closure binding is live.
 
@@ -181,7 +181,7 @@ fail "closure in constructor arg", "8:16: closures cannot escape their defining 
   h = Holder(cb: |+count| !count.set(count.get() + 1))
   _ = h
 
-fail "closure param stored through capture", "17:3: cannot store a view of `w` through captured `v`", "20:3: cannot store a view of `w` through captured `v`", "28:1: cannot lend `b` to write while a read loan is live"
+fail "closure param stored through capture", "17:3: cannot store a view of `w` through captured `v`", "20:3: cannot store a view of `w` through captured `v`", "28:1: cannot change `b` while a read view of it is still in use"
   # A view a closure receives as a parameter lives only for that call,
   # as do the closure's own locals, while a captured write view reaches
   # a value that outlives every call. So neither may be stored through the
@@ -212,7 +212,7 @@ fail "closure param stored through capture", "17:3: cannot store a view of `w` t
   !b.push(1)
   print(v.w.len)
 
-fail "closure pass as arg", "10:9: closure `f` cannot be moved, returned, stored, or copied; call it as `f()`, lend it to a call as `?f`, or make the literal owned (`*|...| body`) to pass it around"
+fail "closure pass as arg", "10:9: closure `f` cannot be moved, returned, stored, or copied; call it as `f()`, pass it to a call as `?f`, or make the literal owned (`*|...| body`) to pass it around"
   # A local closure cannot be passed as a call argument, where the callee
   # could retain it.
 
@@ -424,7 +424,7 @@ test "closure literal lent returns a view of its capture", "3"
   v = call(|?xs| xs)
   print(v.len)
 
-fail "closure literal lent returns a view that keeps its loan", "cannot lend `xs` to write while a read loan is live", errors: 1
+fail "closure literal lent returns a view that keeps its loan", "cannot change `xs` while a read view of it is still in use", errors: 1
   # oracle: main reject C4
   fun call(f: ?fun() -> ?List[Int]) -> ?List[Int]
     f()
@@ -448,7 +448,7 @@ fail "closure tail moves capture", "9:10: `x` is captured by the closure, which 
   b = s()
   print(a.v[0], b.v[0])
 
-fail "closure tail views local", "9:4: cannot return a view of `y`, which this function was not lent"
+fail "closure tail views local", "9:4: cannot return a view of `y`, which belongs to this function"
   # A closure's value cannot lend the closure's own locals.
 
   obj Wrap
@@ -566,7 +566,7 @@ fail "closure path capture overlap", "capture `p` or `p.a`, not both: one holds 
   f = |?p, ?p.a| p.a
   print(f())
 
-fail "closure path capture of an element", "a capture names a local or a field of one, not an element: lend it first, `x = ?xs[0]`, and capture `?x`"
+fail "closure path capture of an element", "a capture names a local or a field of one, not an element: make a view of it first, `x = ?xs[0]`, and capture `?x`"
   # An index in a capture would read as the live element in the body
   # while the index was fixed when the closure was made.
 
@@ -574,7 +574,7 @@ fail "closure path capture of an element", "a capture names a local or a field o
   f = |?xs[0]| 1
   print(f())
 
-fail "closure path capture loan", "8:1: cannot lend `p.a` to write while a read loan is live"
+fail "closure path capture loan", "8:1: cannot change `p.a` while a read view of it is still in use"
   # The capture's loan is on its place, for the closure's life.
 
   obj P
@@ -731,7 +731,7 @@ test "a function value held where a write view sees views nothing", "4 2"
   (!c).run(!s, bump)
   print(c.k, s.p)
 
-fail "a call through a sub value may store a view of its write argument", "use of `n.stack` while a write loan on `n` is live", "`run` stores a view of `n` in `@`, which its caller reaches, but its signature does not keep `n`", errors: 2
+fail "a call through a sub value may store a view of its write argument", "cannot use `n.stack` while a write view of `n` is still in use", "`run` stores a view of `n` in `@`, which its caller reaches, but its signature does not keep `n`", errors: 2
   # The sibling shape: `names: ?List[Int]` could hold a view of
   # `n.stack`, and a function value's type names no `keeps` (Core s7),
   # so the call may leave one in `@`.

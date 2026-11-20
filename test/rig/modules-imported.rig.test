@@ -197,7 +197,7 @@ fail "imported constant overflow", "5:9: integer value `256` does not fit in `U8
     pub HALF = 7 / 2
     pub BIG: U128 = U128.max
 
-fail "imported constant write", "10:3: cannot assign to constant `lib.xs`", "11:9: cannot lend constant `lib.xs` to write", "12:3: cannot assign to constant `lib.xs`", "13:13: cannot write-iterate constant `lib.xs`"
+fail "imported constant write", "10:3: cannot assign to constant `lib.xs`", "11:9: cannot change constant `lib.xs`", "12:3: cannot assign to constant `lib.xs`", "13:13: cannot write-iterate constant `lib.xs`"
   # An imported module's bindings are constants, as in their own module:
   # they cannot be assigned, lent to write, or written through a loop.
 
@@ -819,7 +819,7 @@ fail "imported write view holder copy", "5:10: a write view is never stored insi
     pub obj WV
       pub b: !Wrap
 
-fail "imported blocker names its own type", "8:15: `x` is lent to a task to read: `?lib.FS` holds `*fun(?String) -> String?`, an owned closure, whose captures its type does not show", "12:17: `y` is lent to a task to read: `?lib.Pool` holds `Task[lib.Res]`, a task, which only the one that holds it may wait for", errors: 2
+fail "imported blocker names its own type", "8:15: `x` is passed to a task as a read view: `?lib.FS` holds `*fun(?String) -> String?`, an owned closure, whose captures its type does not show", "12:17: `y` is passed to a task as a read view: `?lib.Pool` holds `Task[lib.Res]`, a task, which only the one that holds it may wait for", errors: 2
   # What keeps a value of another module's object from a task is named
   # as that module declares it: the type of the field that blocks, read
   # in its own module's table, never this module's.
@@ -900,7 +900,7 @@ test "imported plain narrows another module's generic", "3 1 1 3 1 2 1"
       !out.push(<x)
       out
 
-fail "imported write call short form", "12:6: `!` lends `b` to write and never negates: write `(!b).take()` for what `take` returns, or `not (!b).take()` for its opposite", "14:6: `!` lends `s` to write and never negates: write `(!s).mark(1)` for what `mark` returns, or `not (!s).mark(1)` for its opposite", errors: 2
+fail "imported write call short form", "12:6: `!` makes a write view of `b` and never negates: write `(!b).take()` for what `take` returns, or `not (!b).take()` for its opposite", "14:6: `!` makes a write view of `s` and never negates: write `(!s).mark(1)` for what `mark` returns, or `not (!s).mark(1)` for its opposite", errors: 2
   # A method of another module's type is written short as a local one
   # is: its result is judged with self's type arguments applied, so a
   # `T` that is a `Bool` here and a declared `Bool` both keep their

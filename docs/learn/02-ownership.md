@@ -56,8 +56,8 @@ sub main()
   has one owner, so it moves, and `<names` says so.
 - A **handle** points at a value on the heap. `*Point(...)` makes a
   counted one, and `+shared` adds a count.
-- A **view** sees a value it does not own. `?kept` lends `kept`, and
-  the owner keeps it.
+- A **view** sees a value it does not own. `?kept` makes a read view of `kept`, and
+  `kept` stays where it is.
 
 A bare owner never copies by accident. The compiler names the three
 things you might have meant:
@@ -150,7 +150,7 @@ and you can read it in the output. That is the whole mechanism.
 
 ## A view out of a function
 
-A function may hand back a view of what it was lent. Here is
+A function may hand back a view of what it was passed as a view. Here is
 `longest`, with no lifetime written:
 
 ```rig
@@ -175,10 +175,10 @@ Porto and Gaia
 ```
 
 The signature is the whole contract. The result is a `?String`, and
-both arguments could hold one, so `r` carries a loan on `city` and one
-on `town`, until the last use of `r`. After the first `print`, `town`
-may change. The lends are written where `r` keeps the result; in the
-last line it is used at once, so they go unwritten.
+both arguments could hold one, so `r` is a view of `city` and of
+`town`, and both stay read-only until the last use of `r`. After the
+first `print`, `town` may change. The sigils are written where `r` keeps
+the result; in the last line it is used at once, so they go unwritten.
 
 A function may not return a view of something it owns, because that
 value drops when the function returns:
@@ -193,7 +193,7 @@ fun longest(a: ?String, b: ?String) -> ?String
 ```
 
 ```error
-cannot return a view of `joined`, which this function was not lent
+cannot return a view of `joined`, which belongs to this function
 ```
 
 And a caller may not drop what a live result views:
@@ -214,7 +214,7 @@ sub main()
 ```
 
 ```error
-cannot drop `town` while it is lent
+cannot drop `town` while a read view of it is still in use
 ```
 
 ## Saying which argument: `from`
@@ -242,8 +242,8 @@ sub main()
 deploy
 ```
 
-Without `from s`, `rest` would keep `tag` lent too, and `<tag` would be
-rejected. With it, the loan on `tag` ends as `strip` returns. The
+Without `from s`, `rest` would keep `tag` read-only too, and `<tag` would be
+rejected. With it, `tag` is free again as `strip` returns. The
 standard library writes its own `text.strip_prefix` the same way.
 
 `from` is not a promise you are trusted to keep. The compiler checks
@@ -270,7 +270,7 @@ wide.
 ## A view a callee keeps: `keeps`
 
 A call may also keep a view after it returns, by storing it in what it
-was lent to write. `keeps` says so:
+was passed as a write view. `keeps` says so:
 
 ```rig
 use std.text
@@ -304,7 +304,7 @@ the quick brown fox 1
 the quick brown fox jumps
 ```
 
-`watch` keeps `page`, so `page` stays lent while `w` is used. `look`
+`watch` keeps `page`, so `page` stays read-only while `w` is used. `look`
 keeps nothing, so `word` may drop the moment `look` returns. After the
 last use of `w`, `page` may change, but not before:
 
@@ -324,7 +324,7 @@ sub main()
 ```
 
 ```error
-cannot lend `page` to write while a read loan is live
+cannot change `page` while a read view of it is still in use
 ```
 
 The error's note names the call that kept it. A body that stores a
@@ -342,9 +342,9 @@ obj Watcher
 its signature does not keep `page`; say so: `keeps page`
 ```
 
-So a signature tells a caller everything a call does with its loans:
+So a signature tells a caller everything a call does with its views:
 `from` says what the result views, and `keeps` what the call holds on
-to. Every other loan ends when the call returns.
+to. Every other view ends when the call returns.
 
 ## Views in fields and containers
 
@@ -376,7 +376,7 @@ sub main()
 ```
 
 No name is copied. `short` holds two views into `names`, and `s` a
-view of the whole list, so `s` is a view itself and keeps `names` lent
+view of the whole list, so `s` is a view itself and leaves `names` read-only
 until its last use. A `Shortlist` has no `drop` body that could read
 its views, so its drop at the end of `main` is no use. The push comes
 after the last use, and is accepted. Before it, the push would be
@@ -484,13 +484,13 @@ count is 10
 log ui closed
 ```
 
-The sigils mean what they mean everywhere else. `|!count|` lends
-`count` to write and `|?title|` lends `title` to read, for as long as
+The sigils mean what they mean everywhere else. `|!count|` makes a
+write view of `count` and `|?title|` a read view of `title`, for as long as
 the closure lives. `|+step|` takes a copy. `|<log|` moves the log in,
 and the closure releases it once, when the closure itself goes. A bare
 name in the bars is always a parameter, never a capture.
 
-A capture's loan lasts until the closure's last use:
+A capture's view lasts until the closure's last use:
 
 ```rig reject
 sub main()
@@ -502,7 +502,7 @@ sub main()
 ```
 
 ```error
-use of `count` while a write loan is live
+cannot use `count` while a write view of it is still in use
 ```
 
 ## Closures that outlive their function
@@ -545,7 +545,7 @@ sub main()
 from one cell. When the last handle drops, the closure drops, and the
 cell with it.
 
-An owned closure can go anywhere, so it holds no loan. It captures
+An owned closure can go anywhere, so it holds no view. It captures
 owners, handles, and plain data, never a view: `*|?name| name.len` is
 rejected, because the closure could outlive `name`.
 
@@ -688,13 +688,13 @@ leak in any of them fails the test suite.
 | When is an owner released? | where its scope ends, on every path, or at `<x` |
 | When is a temporary released? | at the end of its statement |
 | When is a shared value released? | when its last strong handle drops |
-| How long does a loan last? | until the last use of every view that carries it |
+| How long does a view limit its place? | until the last use of every view of it |
 | What does a result view? | every argument that could hold it, or those `from` names |
 | What does a call keep? | only the arguments `keeps` names |
 | What changes behind a handle? | a `Cell` or a `Signal`, by a marked call |
 | What can leak? | a cycle of strong handles; break it with `~` |
 
-Drops come from scopes, loans from the sigils, and what crosses a call
+Drops come from scopes, views from the sigils, and what crosses a call
 from its signature:
 
 **Every release happens at a point you can see, and every view is
@@ -704,9 +704,9 @@ checked against the value it came from.**
 
 - Rig has no lifetime syntax, so a few programs Rust accepts are
   rejected. A function called as a value, `f(?x, ?y)`, is known only
-  by its type, which has no `from` or `keeps`: its result keeps every
-  argument lent that could hold it.
-- `?(a if c else b)` is planned. Today, lend each branch:
+  by its type, which has no `from` or `keeps`: its result views every
+  argument that could hold it.
+- `?(a if c else b)` is planned. Today, put a sigil on each branch:
   `?a if c else ?b`.
 - A `for` over a `List` of owners that a call makes, `for x in
   names()`, is planned. Today, bind the list to a name first.

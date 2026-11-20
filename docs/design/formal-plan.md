@@ -57,7 +57,7 @@ Rig's rules already leave most of these out. The plan keeps six
 principles:
 
 1. **Views are second-class.** A view lives in a local, a parameter or a
-   result, and its loan is checked where it is used. There are no
+   result, and what it limits is checked where it is used. There are no
    lifetime parameters to quantify over, and no variance.
 2. **Ownership is checked per instance, over the whole program.** A
    generic body is checked at each instance, so the proof needs no
@@ -69,8 +69,8 @@ principles:
    signature, and each such declaration is proved on its own.
 4. **Safety never rests on a drop running.** A cycle of `*T` handles can
    leak, as in Rust (#24292). A task is owned: dropping one cancels it and
-   waits, and a value that carries a loan is never leaked ([concurrency](concurrency.md),
-   "Loans and structure").
+   waits, and a value that carries a view is never leaked ([concurrency](concurrency.md),
+   "Views and structure").
 5. **The Core has a budget.** The rules a proof covers are capped at 12
    rules and 600 words. A new rule retires an old one, or changes the
    Core through its own process (CORE §10). For comparison, the "ten
@@ -87,9 +87,9 @@ proof, and how a Rig programmer copes without it.
 
 | Rust feature | Removes from the proof | How Rig copes |
 |---|---|---|
-| Lifetime parameters, variance, higher-ranked bounds (`for<'a>`) | Lifetime inclusion and the variance bugs (#25860, #84591) | Loan sets, `from` and `keeps` |
+| Lifetime parameters, variance, higher-ranked bounds (`for<'a>`) | Lifetime inclusion and the variance bugs (#25860, #84591) | View sets, `from` and `keeps` |
 | Subtyping under `!` or inside a container | Writing a wider type through a narrower view | `^C` becomes `^Tr` only at a value's top level |
-| Associated types and generic associated types | Type projection and normalization | Associated types named by the API, not projected. Lending iterators already work (below) |
+| Associated types and generic associated types | Type projection and normalization | Associated types named by the API, not projected. Iterators that give views already work (below) |
 | Specialization | Overlapping impls (#40582, #31844) | Fast paths come from kind facts |
 | Blanket impls, `impl Trait` results, auto-trait leakage | Global reasoning about impls | A generic function, a named type, or `^{Api}` |
 | Trait objects of traits that are not object-safe | #57893 | Every API object is object-safe by its shape: no generic methods, no `Self` but the `self` parameter |
@@ -104,8 +104,8 @@ proof, and how a Rig programmer copes without it.
 | `mem::forget` as safe | Leaks counted as safe | A leak is a compiler bug, except a `*T` cycle |
 | Macros, editions, compile-time type functions | Checking code that does not exist until expansion | Libraries in userland; a migrator for each breaking release |
 
-Lending iterators need no associated types. A method's result can be a
-view `from @`, and `for` lends the iterator to each step:
+Iterators that give views need no associated types. A method's result can be a
+view `from @`, and `for` makes a write view of the iterator for each step:
 
 ```rig
 obj Windows
@@ -147,7 +147,7 @@ it has no pin: no form, no rules, and no proof.
 ## What to build for reach
 
 These come in rough order. Sizes are rough too. The rounds of
-[RUST-TRIAGE](../history/records/2026-10/rust-triage.md) plan (field loans, `keeps`, path tokens, partial moves, errors
+[RUST-TRIAGE](../history/records/2026-10/rust-triage.md) plan (field views, `keeps`, path tokens, partial moves, errors
 that carry data, `yields !T`) stay as they are.
 
 1. **APIs with default bodies (built).** Bounds such as `[T: Hash]`,
@@ -174,7 +174,7 @@ that carry data, `yields !T`) stay as they are.
    With it come:
    - **Zig-backed types** (`obj Window owns`): each declares its kind,
      drop, clone and thread facts. A window, a GPU buffer or a mapped
-     file becomes an owner that lends `from @`.
+     file becomes an owner that gives views `from @`.
    - **Objects with C layout and C-callable `export` subs**, for
      callbacks from C. A `void*` context stays in the Zig shim.
    - **An "every bit pattern is valid" fact** for plain objects with C
@@ -204,10 +204,10 @@ reference checker (`test/oracle/`), restated in Lean. It covers:
 - objects, optionals, `List` as a primitive buffer, and `^ * ~`;
 - `Cell`, views, slices, paths, drop flags, `defer` and `e!`;
 - first-order functions with `from` and `keeps`, `?fun`, and `*fun`
-  that holds no loans.
+  that holds no views.
 
 It leaves out syntax, generics, modules and text. Its semantics is
-an interpreter that tags every view with its loan. Writing an owner
+an interpreter that tags every view with its place. Writing an owner
 kills its read tags, and using a dead tag stops the program. It runs the
 suite, the corpus and the matrix. It catches what the sanitizer cannot:
 a read view that sees its owner change when nothing was freed (CORE §4).
@@ -217,7 +217,7 @@ with boxes, plain numbers and views, an interpreter, an ownership
 checker, and a proof (`accepts_runs`) that every program the checker
 accepts runs without a fault or a leak (stage 3 for that slice). A cheaper version of the same check is to go into the emitted
 code as `RIG_SANITIZE=views` *(planned)*: each owner counts its writes,
-and a view checks the count it was lent at on every read.
+and a view checks the count it was made at on every read.
 
 **Stage 3: soundness.** Progress and preservation for λRig over that
 interpreter, in the style of Oxide (Weiss et al., 2019). The proof must
@@ -225,11 +225,11 @@ show:
 
 - the `from` and `keeps` summaries are sound, which is the crux;
 - a drop body reads only the views its value holds;
-- no loan enters a home that holds none;
+- no view enters a home that holds none;
 - no value views itself;
-- every way out of a scope reports the loans it ends;
+- every way out of a scope reports the views it ends;
 - each check the compiler omits as proven really holds;
-- for API objects, that erasing a type keeps its loans (proved in
+- for API objects, that erasing a type keeps its views (proved in
   `formal/LambdaRig/Erase.lean`);
 - for tasks, freedom from data races (the first slice is proved:
   [formal/README.md](../../formal/README.md), "Tasks and waits").
@@ -239,7 +239,7 @@ leak claim. That part needs Iron (Bizjak et al., POPL 2019) or explicit
 heap accounting, and it adds 3–6 person-months.
 
 The same stage links the compiler to the proof: `rig check --facts`
-exports each function's loan sets, and a small validator in Lean checks
+exports each function's view sets, and a small validator in Lean checks
 them against λRig's rules for every program compiled. This is one
 mechanism, built once. Rust has no such link.
 
@@ -272,7 +272,7 @@ It adds:
 
 - **A fuzzer against the reference checker.** It turns accepted corpus
   programs into near misses: a sigil dropped, a write placed between a
-  lend and its use, a header nested. The checkers must agree, and every
+  view and its use, a header nested. The checkers must agree, and every
   accepted program must run sanitizer-clean. Three to five weeks.
 - **A crater of its own.** Trig, `std.json`, and every example are built
   and run on every release candidate.
@@ -286,7 +286,7 @@ It adds:
 - **`noalias` waits for stage 2.** Telling Zig that write views do not
   alias turns a checker bug into a miscompile, so it comes only after
   the interpreter can catch such bugs. Rig needs no separate aliasing
-  model like Miri's, because without raw pointers its loan rules already
+  model like Miri's, because without raw pointers its view rules already
   are the aliasing model.
 
 ## The trusted base
@@ -312,7 +312,7 @@ The panel split on these. The default comes first in each.
 
 1. **Unsafe code:** Zig in trusted packages, and no raw pointers in Rig.
 2. **Module mutable state:** left out; pass a context, as GPUI passes
-   `cx`. The alternative is a plain module `var` that is never lent.
+   `cx`. The alternative is a plain module `var` that is never viewed.
 3. **Allocators as owners:** out of scope; arenas with IDs. Revisit
    when a GPUI port measures the need.
 4. **Iterator adaptors that may only be parameters, locals or results:**

@@ -13,7 +13,7 @@ that has such a diagnostic. Exits 1, listing each bad hint, if any is.
 """
 import os, re, shutil, subprocess, sys, tempfile
 
-LEND = re.compile(r'^(?P<f>.+?):(?P<l>\d+):(?P<c>\d+): error: `(?P<path>[^`]+)`: write a lend on the whole path, not its base(?P<rest>.*)$')
+LEND = re.compile(r'^(?P<f>.+?):(?P<l>\d+):(?P<c>\d+): error: `(?P<path>[^`]+)`: put the sigil on the whole path, not its base(?P<rest>.*)$')
 SLICE = re.compile(r'^(?P<f>.+?):(?P<l>\d+):(?P<c>\d+): error: `[^`]+` here is read, not held: `(?P<path>[^`]+)` only reads the place it reaches\. Write `(?P<fix>[^`]+)`$')
 BIND = re.compile(r'bind it to a name first: `(?P<name>\w+) = (?P<made>[^`]+)`, then `(?P<fix>[^`]+)`$')
 FIX = re.compile(r'^: `(?P<fix>.+)`$')
@@ -122,7 +122,7 @@ def main():
                         continue
                     left.append(f'{line}:{col}: {msg}')
                     continue
-                if 'write a lend on the whole path, not its base' in msg:
+                if 'put the sigil on the whole path, not its base' in msg:
                     continue
                 if (line - shift if line > at else line, col, msg) not in original:
                     left.append(f'{line}:{col}: {msg}')

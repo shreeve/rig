@@ -289,7 +289,7 @@ doc example but fragments, each named by its doc and a hash of its text,
 so an edit that only moves it keeps its name in
 `test/oracle/rejections`), its `matrix` set (`test/matrix.py --oracle`),
 and its `lint` check are jobs of the core. A `fail` case whose
-diagnostic suggests a lend of a place as a path's base also has each
+diagnostic suggests a view of a place as a path's base also has each
 hint checked (`test/hints.py`). A test file a tool writes names the tool
 on its first line (`written by tools/NAME.py`), and a core job,
 `generated.<file>`, runs the tool's `--check`, which fails when the file
@@ -411,11 +411,11 @@ decides (also where the compiler's semantic checks stop first):
 
 The word after the function is `accept`, or `reject` with the rule
 the oracle names (C1–C10, B1–B4, T1, an API object given to a task
-without the crossing bound its form needs, and T2, a task lent to write
+without the crossing bound its form needs, and T2, a task holding a write view
 moved from where it is bound). A different verdict, or none, fails
 the set. These lines are
 the oracle's own tests: each of the oracle's header rules (a subject
-that is a place, a made value, a part of one, a lend of one, or a
+that is a place, a made value, a part of one, a view of one, or a
 branching value) has tests that state its verdict, so the change that
 builds a planned rule can rely on the oracle to catch what it gets
 wrong. By hand:

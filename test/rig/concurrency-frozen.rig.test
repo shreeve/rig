@@ -147,7 +147,7 @@ fail "frozen holds what changes", "a frozen value holds only data that never cha
 fail "frozen lives behind a handle", "a frozen value lives only behind a shared handle: write `*Frozen(x)`"
   x = Frozen(1)
 
-fail "frozen is never written", "cannot lend to write through a shared handle"
+fail "frozen is never written", "cannot make a write view through a shared handle"
   obj Box1
     items: List[Int]
 
@@ -179,7 +179,7 @@ fail "frozen in a generic body", "`freeze[Node]` cannot use `T = Node`: the gene
 
   f = freeze(Node(next: none))
 
-fail "frozen lent to a task", "cannot drop `f` while it is lent"
+fail "frozen lent to a task", "cannot drop `f` while a read view of it is still in use"
   # A view of a frozen value lent to a task keeps the handle until the
   # wait.
   sub read(s: ?*Frozen[String])
