@@ -28,6 +28,9 @@ const split = rt.split;
 comptime {
     if (split.on and split.main) _ = .{
         workers_len,
+        hold_on,
+        hold_left,
+        hold_ns,
         connecting,
         zva_64,
         workers_override,
@@ -235,6 +238,10 @@ const Worker = struct {
     /// The next worker asleep (`Sleepers`).
     next_sleeper: ?*Worker = null,
     searching: bool = false,
+    /// It holds its count in `searching` past finding work (`hold_on`).
+    holds: bool = false,
+    /// Its last fiber, run while it held, ran `hold_ns` or longer.
+    held_long: bool = false,
     rng: u32 = 1,
     /// What it did, which `RIG_SCHED_STATS=1` prints as `main` ends
     /// (`printStats`): fibers it ran, of them pinned ones, fibers it
@@ -4242,6 +4249,7 @@ fn startWorkers() void {
     for (1..n) |i| initWorker(i);
     for (ws[1..]) |*w| w.poller.open();
     if (comptime zva_target) zva_64.* = zvaIs64();
+    readHold();
     workers_len.store(n, .release);
     if (n == 1) {
         if (preempt and !deterministic.*) startMonitor();
@@ -4452,6 +4460,7 @@ fn loop(w: *Worker) void {
             continue;
         }
         const f = next(w) orelse {
+            w.holds = false;
             if (w.searching) {
                 searchedPoint();
                 w.searching = false;
@@ -4464,13 +4473,47 @@ fn loop(w: *Worker) void {
         };
         // Work found: stop searching, and if this worker was the last
         // searching and more work waits, wake another to look for it.
-        if (w.searching) {
-            w.searching = false;
-            if (searching.fetchSub(1, .seq_cst) == 1 and workPending(w)) notify();
+        if (w.searching and !w.holds) {
+            if (hold_on.* and !w.ring.isEmpty()) {
+                w.holds = true;
+            } else {
+                w.searching = false;
+                if (searching.fetchSub(1, .seq_cst) == 1 and workPending(w)) notify();
+            }
         }
         if (w.watch_owed) payWatch(w);
         runFiber(w, f);
+        if (w.holds and (w.held_long or w.ring.count() <= hold_left.*)) letGo(w);
     }
+}
+
+/// EXPERIMENT (mac-hold): a worker that stole a batch keeps its count in
+/// `searching` while the fibers it runs are short, so a maker's pushes
+/// wake no other worker while it has work; it lets go when its ring is
+/// down to `hold_left` or a fiber runs `hold_ns`.
+var hold_on_var: bool = false;
+const hold_on = split.cell(&hold_on_var, "sched.hold_on");
+var hold_left_var: u32 = 1;
+const hold_left = split.cell(&hold_left_var, "sched.hold_left");
+var hold_ns_var: i64 = 20 * std.time.ns_per_us;
+const hold_ns = split.cell(&hold_ns_var, "sched.hold_ns");
+
+fn letGo(w: *Worker) void {
+    w.holds = false;
+    w.held_long = false;
+    w.searching = false;
+    if (searching.fetchSub(1, .seq_cst) == 1 and workPending(w)) notify();
+}
+
+fn readHold() void {
+    if (comptime !(builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64)) return;
+    var levels: c_int = 0;
+    var len: usize = @sizeOf(c_int);
+    if (std.c.sysctlbyname("hw.nperflevels", &levels, &len, null, 0) != 0 or levels != 2) return;
+    const p = rt.process.* orelse return;
+    hold_on.* = !std.mem.eql(u8, p.environ.getPosix("RIG_HOLD") orelse "1", "0");
+    if (p.environ.getPosix("RIG_HOLD_LEFT")) |v| hold_left.* = std.fmt.parseInt(u32, v, 10) catch 1;
+    if (p.environ.getPosix("RIG_HOLD_NS")) |v| hold_ns.* = std.fmt.parseInt(i64, v, 10) catch hold_ns.*;
 }
 
 fn runFiber(w: *Worker, f: *Fiber) void {
@@ -4483,7 +4526,7 @@ fn runFiber(w: *Worker, f: *Fiber) void {
     w.current = f;
     const timed = keeps_short and w.poller.count.load(.monotonic) != 0;
     var began: i64 = 0;
-    if (timed) {
+    if (timed or w.holds) {
         began = @intCast(nowNs());
         w.short.run_since.store(began, .monotonic);
     }
@@ -4491,6 +4534,10 @@ fn runFiber(w: *Worker, f: *Fiber) void {
     // The fiber that switched away: `f`, or one `f` handed this worker.
     const gone = w.current.?;
     w.current = null;
+    if (w.holds) {
+        if (!timed) w.short.run_since.store(0, .monotonic);
+        w.held_long = @as(i64, @intCast(nowNs())) - began >= hold_ns.*;
+    }
     if (timed) {
         w.short.run_since.store(0, .monotonic);
         const g = w.short.long_share.raw;
@@ -5277,6 +5324,11 @@ const Ring = struct {
     tail: std.atomic.Value(u32) = .init(0),
     /// 1 while a thief copies from this ring and claims what it copied.
     stealing: std.atomic.Value(u32) = .init(0),
+
+    /// How many fibers it holds, as its owner sees it.
+    fn count(r: *Ring) u32 {
+        return r.tail.load(.monotonic) -% r.head.load(.acquire);
+    }
 
     fn isEmpty(r: *Ring) bool {
         return r.head.load(.seq_cst) == r.tail.load(.seq_cst);
