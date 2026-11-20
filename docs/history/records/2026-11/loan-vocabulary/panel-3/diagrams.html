@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Views and Owners</title>
+<style>
+:root {
+  --bg: #fbfaf7; --fg: #1f2328; --muted: #6b7078; --line: #c9ccd1;
+  --card: #ffffff; --read: #2f6fb3; --readbg: #e6f0fa; --write: #b5452f;
+  --writebg: #fbe9e4; --ok: #2c7a3f; --no: #b5452f; --ro: #8a6d00; --robg: #fbf3d6;
+  --off: #8b2b1d; --offbg: #f6dcd6; --cell: #6b4fa3; --cellbg: #eee8f8;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15171a; --fg: #e6e7e9; --muted: #9aa0a8; --line: #3a3f46;
+    --card: #1d2024; --read: #7fb2ea; --readbg: #1d2c3d; --write: #f08a73;
+    --writebg: #3a221d; --ok: #6cc785; --no: #f08a73; --ro: #e2c25a; --robg: #352d12;
+    --off: #f3a08d; --offbg: #3d1f19; --cell: #b9a2ea; --cellbg: #2a2340;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15171a; --fg: #e6e7e9; --muted: #9aa0a8; --line: #3a3f46;
+  --card: #1d2024; --read: #7fb2ea; --readbg: #1d2c3d; --write: #f08a73;
+  --writebg: #3a221d; --ok: #6cc785; --no: #f08a73; --ro: #e2c25a; --robg: #352d12;
+  --off: #f3a08d; --offbg: #3d1f19; --cell: #b9a2ea; --cellbg: #2a2340;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+main { max-width: 820px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6rem; margin: 0 0 4px; }
+h2 { font-size: 1.15rem; margin: 40px 0 8px; }
+p { margin: 8px 0; }
+.sub { color: var(--muted); margin-bottom: 24px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  padding: 16px; margin: 12px 0; overflow-x: auto; }
+svg { width: 100%; height: auto; display: block; }
+svg text { fill: var(--fg); font-family: inherit; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .92em; }
+table { border-collapse: collapse; width: 100%; font-size: .95rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 8px 6px; text-align: left; }
+th { font-weight: 600; }
+td.y { color: var(--ok); font-weight: 700; text-align: center; }
+td.n { color: var(--no); font-weight: 700; text-align: center; }
+th.c { text-align: center; }
+.tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: .85rem; font-weight: 600; }
+.t-read { background: var(--readbg); color: var(--read); }
+.t-write { background: var(--writebg); color: var(--write); }
+.t-ro { background: var(--robg); color: var(--ro); }
+.t-off { background: var(--offbg); color: var(--off); }
+.t-cell { background: var(--cellbg); color: var(--cell); }
+.answer { border-left: 4px solid var(--read); padding: 8px 14px; background: var(--card); border-radius: 0 8px 8px 0; }
+</style>
+</head>
+<body>
+<main>
+<h1>Views and owners</h1>
+<p class="sub">Four words: <span class="tag t-read">read view</span> <span class="tag t-write">write view</span> for the holder, <span class="tag t-ro">read-only</span> <span class="tag t-off">off-limits</span> for the owner.</p>
+
+<h2>1. Two sides of one hand-over</h2>
+<p>The sigil sits on the owner. The holder gets a view. The owner is limited while the view is in use.</p>
+<div class="card">
+<svg viewBox="0 0 720 200" role="img" aria-label="The owner v hands a view to the holder; the owner is limited while the view is in use">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" style="fill: var(--muted)"/>
+    </marker>
+  </defs>
+  <rect x="20" y="40" width="250" height="120" rx="12" style="fill: var(--bg); stroke: var(--line)"/>
+  <text x="145" y="30" text-anchor="middle" style="fill: var(--muted)" font-size="13">THE OWNER</text>
+  <text x="145" y="92" text-anchor="middle" class="mono" font-size="22">v</text>
+  <text x="145" y="122" text-anchor="middle" font-size="14" style="fill: var(--muted)">owns the value</text>
+  <text x="145" y="145" text-anchor="middle" font-size="14" style="fill: var(--muted)">gets: read-only or off-limits</text>
+
+  <line x1="280" y1="100" x2="440" y2="100" stroke-width="2" marker-end="url(#ar)" style="stroke: var(--muted)"/>
+  <text x="360" y="84" text-anchor="middle" class="mono" font-size="18">?v  or  !v</text>
+  <text x="360" y="124" text-anchor="middle" font-size="13" style="fill: var(--muted)">hands over a view</text>
+
+  <rect x="450" y="40" width="250" height="120" rx="12" style="fill: var(--bg); stroke: var(--line)"/>
+  <text x="575" y="30" text-anchor="middle" style="fill: var(--muted)" font-size="13">THE HOLDER</text>
+  <text x="575" y="92" text-anchor="middle" class="mono" font-size="22">r</text>
+  <text x="575" y="122" text-anchor="middle" font-size="14" style="fill: var(--muted)">a binding, an argument, a field</text>
+  <text x="575" y="145" text-anchor="middle" font-size="14" style="fill: var(--muted)">gets: a read view or a write view</text>
+</svg>
+</div>
+
+<h2>2. Two sigils, two kinds of value</h2>
+<p>Only two sigils make views: <code>?</code> and <code>!</code>. What they leave the owner depends on one thing, the <b>type of the value viewed</b>, not who holds the view. Types come in two kinds:</p>
+<div class="card">
+<table>
+<tr><th></th><th class="c"><span class="tag t-read">?v</span> read view</th><th class="c"><span class="tag t-write">!v</span> write view</th></tr>
+<tr><td><b>An ordinary value</b><br><span style="color:var(--muted);font-size:.9rem">Int, String, List, Map, your own objects</span></td><td class="c"><span class="tag t-ro">read-only</span></td><td class="c"><span class="tag t-off">off-limits</span></td></tr>
+<tr><td><b>A value that changes only through its own calls</b><br><span style="color:var(--muted);font-size:.9rem">Cell, Signal, channel, actor, an object holding a Cell. It always lives behind <code>*</code>.</span></td><td class="c"><span class="tag t-ro">read-only</span></td><td class="c"><span class="tag t-ro">read-only</span></td></tr>
+<tr><td colspan="3" style="font-size:.9rem;color:var(--muted)">Here the owner <code>c</code> is a handle (<code>*Cell</code>). Read-only holds the <b>handle</b> still: no one may assign, move or drop it. What it shares still changes, but only through its own calls (<code>!c.set(5)</code>), as CORE sentence 9 says of all shared storage. A write view of the handle itself (<code>w = !c</code> with no type gives a <code>!*Cell</code>, which can point <code>c</code> elsewhere) is an ordinary write view: <span class="tag t-off">off-limits</span>.</td></tr>
+</table>
+<p style="font-size:.93rem;color:var(--muted)">For an ordinary value, the view decides: reading leaves the owner read-only, and writing shuts the owner out. For the second kind, the sigil makes no difference: both leave the handle read-only. The value changes only by its own calls, one step at a time, so no view can be left looking at something gone. The only thing it must be kept from is being replaced or freed, and read-only does exactly that.</p>
+</div>
+
+<h2>3. Which view leaves the owner how</h2>
+<p>Each kind of view fixes the owner's state. There are three paths, and only one is an exception.</p>
+<div class="card">
+<svg viewBox="0 0 720 300" role="img" aria-label="Read view leads to read-only; write view of an ordinary value leads to off-limits; write view of a Cell leads to read-only">
+  <defs>
+    <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" style="fill: var(--muted)"/>
+    </marker>
+  </defs>
+  <text x="130" y="24" text-anchor="middle" font-size="13" style="fill: var(--muted)">THE HOLDER GETS</text>
+  <text x="590" y="24" text-anchor="middle" font-size="13" style="fill: var(--muted)">SO THE OWNER IS</text>
+
+  <rect x="20" y="40" width="220" height="64" rx="10" style="fill: var(--readbg); stroke: var(--read)"/>
+  <text x="130" y="68" text-anchor="middle" font-size="17" font-weight="600" style="fill: var(--read)">read view</text>
+  <text x="130" y="90" text-anchor="middle" class="mono" font-size="14">?v  of anything</text>
+
+  <rect x="20" y="130" width="220" height="64" rx="10" style="fill: var(--writebg); stroke: var(--write)"/>
+  <text x="130" y="158" text-anchor="middle" font-size="17" font-weight="600" style="fill: var(--write)">write view</text>
+  <text x="130" y="180" text-anchor="middle" class="mono" font-size="14">!v  of an ordinary value</text>
+
+  <rect x="20" y="220" width="220" height="64" rx="10" style="fill: var(--cellbg); stroke: var(--cell)"/>
+  <text x="130" y="248" text-anchor="middle" font-size="17" font-weight="600" style="fill: var(--cell)">write view</text>
+  <text x="130" y="270" text-anchor="middle" class="mono" font-size="14">!c  of a Cell, Signal, ...</text>
+
+  <rect x="480" y="80" width="220" height="64" rx="10" style="fill: var(--robg); stroke: var(--ro)"/>
+  <text x="590" y="108" text-anchor="middle" font-size="17" font-weight="600" style="fill: var(--ro)">read-only</text>
+  <text x="590" y="130" text-anchor="middle" font-size="13">read it, copy it, more read views</text>
+
+  <rect x="480" y="190" width="220" height="64" rx="10" style="fill: var(--offbg); stroke: var(--off)"/>
+  <text x="590" y="218" text-anchor="middle" font-size="17" font-weight="600" style="fill: var(--off)">off-limits</text>
+  <text x="590" y="240" text-anchor="middle" font-size="13">no use at all</text>
+
+  <line x1="245" y1="72" x2="474" y2="104" stroke-width="2" marker-end="url(#ar2)" style="stroke: var(--read)"/>
+  <line x1="245" y1="162" x2="474" y2="218" stroke-width="2" marker-end="url(#ar2)" style="stroke: var(--write)"/>
+  <line x1="245" y1="252" x2="474" y2="124" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#ar2)" style="stroke: var(--cell)"/>
+  <text x="372" y="214" text-anchor="middle" font-size="12" style="fill: var(--cell)">the exception</text>
+</svg>
+<p style="font-size:.93rem;color:var(--muted)">The exception covers a value that changes only through its own calls: a Cell, a Signal, a channel, an actor, or an object holding a Cell. Many write views of it may live at once, and each call is one step.</p>
+</div>
+
+<h2>4. What the owner may do in each state</h2>
+<div class="card">
+<table>
+<tr><th>The owner <code>v</code> may…</th><th class="c">free</th><th class="c"><span class="tag t-ro">read-only</span></th><th class="c"><span class="tag t-off">off-limits</span></th></tr>
+<tr><td>read it: <code>print(v)</code>, <code>v.len</code></td><td class="y">✓</td><td class="y">✓</td><td class="n">✗</td></tr>
+<tr><td>copy it: <code>x = v</code> (a number)</td><td class="y">✓</td><td class="y">✓</td><td class="n">✗</td></tr>
+<tr><td>give another read view: <code>?v</code></td><td class="y">✓</td><td class="y">✓</td><td class="n">✗</td></tr>
+<tr><td>give a write view: <code>!v.push(1)</code></td><td class="y">✓</td><td class="n">✗</td><td class="n">✗</td></tr>
+<tr><td>assign: <code>v = List()</code></td><td class="y">✓</td><td class="n">✗</td><td class="n">✗</td></tr>
+<tr><td>move: <code>w = &lt;v</code></td><td class="y">✓</td><td class="n">✗</td><td class="n">✗</td></tr>
+<tr><td>drop: <code>&lt;v</code>, or its scope ends</td><td class="y">✓</td><td class="n">✗</td><td class="n">✗</td></tr>
+</table>
+<p style="font-size:.93rem;color:var(--muted)">For a Cell, read-only holds the handle <code>c</code>. The Cell it shares still takes its own calls (<code>!c.set(5)</code>). The rows for a write view, assigning, moving and dropping apply to the handle.</p>
+</div>
+
+<h2>5. How long it lasts: until the view's last use</h2>
+<p>The state starts where the view is made and ends at the view's last use, not at the end of the block.</p>
+<div class="card">
+<svg viewBox="0 0 720 360" role="img" aria-label="Two timelines: a read view leaves v read-only until its last use; a write view leaves n off-limits until its last use">
+  <text x="20" y="22" font-size="13" style="fill: var(--muted)">A READ VIEW</text>
+  <g class="mono" font-size="15">
+    <text x="40" y="52">v: List[Int] = List()</text>
+    <text x="40" y="82">a = ?v[..]</text>
+    <text x="40" y="112">print(a)</text>
+    <text x="40" y="142">!v.push(2)</text>
+  </g>
+  <rect x="300" y="68" width="14" height="50" rx="4" style="fill: var(--ro)"/>
+  <text x="326" y="82" font-size="14">a read view is made: <tspan font-weight="600" style="fill: var(--ro)">v is read-only</tspan></text>
+  <text x="326" y="112" font-size="14">the last use of <tspan class="mono">a</tspan>: v is free again</text>
+  <text x="326" y="142" font-size="14" style="fill: var(--ok)">✓ accepted</text>
+
+  <line x1="20" y1="170" x2="700" y2="170" style="stroke: var(--line)"/>
+
+  <text x="20" y="200" font-size="13" style="fill: var(--muted)">A WRITE VIEW</text>
+  <g class="mono" font-size="15">
+    <text x="40" y="230">n = 1</text>
+    <text x="40" y="260">w = !n</text>
+    <text x="40" y="290">print(n)</text>
+    <text x="40" y="320">w += 1</text>
+  </g>
+  <rect x="300" y="246" width="14" height="80" rx="4" style="fill: var(--off)"/>
+  <text x="326" y="260" font-size="14">a write view is made: <tspan font-weight="600" style="fill: var(--off)">n is off-limits</tspan></text>
+  <text x="326" y="290" font-size="14" style="fill: var(--no)">✗ cannot use `n` while it is off-limits</text>
+  <text x="326" y="320" font-size="14">the last use of <tspan class="mono">w</tspan>: n is free again</text>
+</svg>
+</div>
+
+<h2>6. Your question: one qualifier each?</h2>
+<div class="answer">
+<p><b>Almost, but the qualifier sits on the owner, not on the view.</b> A view is just a read view or a write view. It carries no second word. What follows from it is the owner's state:</p>
+<ul>
+<li>a read view always leaves the owner <span class="tag t-ro">read-only</span>;</li>
+<li>a write view leaves the owner <span class="tag t-off">off-limits</span>, except for a Cell and its kind, which it leaves <span class="tag t-ro">read-only</span>.</li>
+</ul>
+<p>So you choose one of two views, and the owner's state follows. It is never a separate choice, so you only learn three paths, not four combinations.</p>
+</div>
+<div class="card">
+<svg viewBox="0 0 720 150" role="img" aria-label="Old: two words that named the record. New: two views, and the owner's state follows">
+  <text x="20" y="24" font-size="13" style="fill: var(--muted)">ON MAIN TODAY</text>
+  <text x="20" y="52" font-size="15">read loan · write loan</text>
+  <text x="20" y="76" font-size="13" style="fill: var(--muted)">false for a Cell: its <tspan class="mono">!c</tspan> makes a "read loan"</text>
+  <line x1="350" y1="20" x2="350" y2="130" style="stroke: var(--line)"/>
+  <text x="380" y="24" font-size="13" style="fill: var(--muted)">PROPOSED</text>
+  <text x="380" y="52" font-size="15"><tspan style="fill: var(--read)" font-weight="600">read view</tspan> → read-only</text>
+  <text x="380" y="78" font-size="15"><tspan style="fill: var(--write)" font-weight="600">write view</tspan> → off-limits</text>
+  <text x="380" y="104" font-size="15"><tspan style="fill: var(--cell)" font-weight="600">write view</tspan> of a Cell → read-only</text>
+  <text x="380" y="128" font-size="13" style="fill: var(--muted)">the user names views; the state follows</text>
+</svg>
+</div>
+</main>
+</body>
+</html>
