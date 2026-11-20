@@ -1,0 +1,21 @@
+built
+slot 702 (ab) open until 22:23:44; free 2 MiB blocks: 2612; paused: 
+slot 702 closed; resumed: 
+QUIET: honoured (no user process ran on cores 12-19 during slot 702)
+rig   untraced us/trip: median 4.86, min 4.65, max 5.18 (24 samples)
+tokio untraced us/trip: median 4.74, min 4.57, max 5.14 (24 samples)
+== strace rig (calls and errors per trip = /160000)
+  epoll_pwait         2.167 calls/trip     0.000 errors/trip
+  futex               0.035 calls/trip     0.035 errors/trip
+  write               2.028 calls/trip     0.000 errors/trip
+  read                2.028 calls/trip     0.000 errors/trip
+== strace tokio (calls and errors per trip = /160000)
+  sendto              2.000 calls/trip     0.000 errors/trip
+  recvfrom            3.000 calls/trip     1.000 errors/trip
+  epoll_wait          2.000 calls/trip     0.000 errors/trip
+== perf sched latency rig (busiest threads)
+failed to open /zfs/trig-pup/pptrace/sched-rig.data: No such file or directory
+== perf sched latency tokio (busiest threads)
+failed to open /zfs/trig-pup/pptrace/sched-tokio.data: No such file or directory
+== perf stat per thread rig
+== perf stat per thread tokio

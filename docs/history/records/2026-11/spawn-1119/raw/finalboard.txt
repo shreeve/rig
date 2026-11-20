@@ -1,0 +1,110 @@
+pup-rig 21e415fbb rc=1
+pup-rig 456f8999e rc=0
+pup-rig f38e73737 rc=0
+trig light f38e73737 rc=0 light gate: GREEN in 179 s
+unit f38e73737 Debug rc=0
+unit f38e73737 ReleaseSafe rc=0
+unit f38e73737 ReleaseFast rc=0
+trig-ck build rc=0
+built 19:59:20
+slot 697 (ab) open until 20:49:20; free 2 MiB blocks: 2070; paused: 
+fork rc=0
+slot 697 closed; resumed: 
+QUIET: honoured (no user process ran on cores 12-19 during slot 697)
+slot 698 (ab) open until 20:29:17; free 2 MiB blocks: 2564; paused: 
+slot 698 closed; resumed: 
+QUIET: honoured (no user process ran on cores 12-19 during slot 698)
+slot 699 (ab) open until 20:50:06; free 2 MiB blocks: 2568; paused: 
+c1 rc=0
+c4 rc=0
+slot 699 closed; resumed: 
+QUIET: honoured (no user process ran on cores 12-19 during slot 699)
+== c1
+mitt:   ck       against base: wall +0.7%, instructions -0.1%, rss -0.2%: SLOWER beyond A/A (+0.7%; the A/A spread is 0.0%): goes to the owner, not the bar
+neverthrow:   ck       against base: wall -0.6%, instructions -0.0%, rss -0.5%: no change beyond the bar
+superstruct:   ck       against base: wall -0.2%, instructions -0.0%, rss -0.9%: no change beyond the bar
+tiny-invariant:   ck       against base: wall +0.7%, instructions -0.0%, rss -0.1%: SLOWER beyond A/A (+0.7%; the A/A spread is 0.1%): goes to the owner, not the bar
+zod3:   ck       against base: wall +0.8%, instructions -0.0%, rss -0.0%: SLOWER beyond A/A (+0.8%; the A/A spread is 0.3%): goes to the owner, not the bar
+ts-pattern:   ck       against base: wall +0.6%, instructions -0.0%, rss -0.0%: SLOWER beyond A/A (+0.6%; the A/A spread is 0.1%): goes to the owner, not the bar
+== c4
+mitt:   ck       against base: wall -0.4%, instructions -0.1%, rss -0.1%: no change beyond the bar
+neverthrow:   ck       against base: wall +0.5%, instructions -0.0%, rss +0.1%: no change beyond the bar
+superstruct:   ck       against base: wall +1.5%, instructions -0.0%, rss -0.3%: SLOWER beyond A/A (+1.5%; the A/A spread is 1.5%): goes to the owner, not the bar
+tiny-invariant:   ck       against base: wall +0.7%, instructions -0.0%, rss +0.3%: SLOWER beyond A/A (+0.7%; the A/A spread is 0.1%): goes to the owner, not the bar
+zod3:   ck       against base: wall +0.6%, instructions -0.0%, rss -0.0%: no change beyond the bar
+ts-pattern:   ck       against base: wall +2.0%, instructions +0.0%, rss -0.1%: SLOWER beyond A/A (+2.0%; the A/A spread is 1.1%): goes to the owner, not the bar
+| 1 worker | psum | rayon | 12.00 (11.82-14.02) | 11.82 | 1.000 | 1.000 |
+| 1 worker | psum | ab | 11.17 (10.74-11.52) | 10.74 | 0.931 | 0.931 |
+| 1 worker | psum | rv | 11.17 (10.73-11.53) | 10.73 | 0.930 | 0.930 |
+| 1 worker | psum | cl | 11.19 (10.77-11.42) | 10.77 | 0.932 | 0.932 |
+| 1 worker | psum | ck | 11.19 (10.76-11.26) | 10.76 | 0.932 | 0.932 |
+| 1 worker | psum | aa | 11.18 (10.76-11.40) | 10.76 | 0.931 | 0.931 |
+| 1 worker | qsort | rayon | 268.65 (266.37-282.41) | 266.37 | 1.000 | 1.000 |
+| 1 worker | qsort | ab | 195.04 (189.63-209.44) | 189.63 | 0.726 | 0.726 |
+| 1 worker | qsort | rv | 194.41 (190.76-201.24) | 190.76 | 0.724 | 0.724 |
+| 1 worker | qsort | cl | 188.85 (185.92-192.86) | 185.92 | 0.703 | 0.703 |
+| 1 worker | qsort | ck | 189.62 (186.43-194.04) | 186.43 | 0.706 | 0.706 |
+| 1 worker | qsort | aa | 194.51 (190.16-197.84) | 190.16 | 0.724 | 0.724 |
+| 12 workers | psum | rayon | 4.85 (4.56-5.36) | 4.56 | 1.000 | 1.000 |
+| 12 workers | psum | ab | 3.98 (3.64-4.46) | 3.64 | 0.821 | 0.821 |
+| 12 workers | psum | rv | 4.03 (3.53-5.36) | 3.53 | 0.831 | 0.831 |
+| 12 workers | psum | cl | 3.83 (3.49-4.43) | 3.49 | 0.790 | 0.790 |
+| 12 workers | psum | ck | 3.84 (3.48-4.92) | 3.48 | 0.792 | 0.792 |
+| 12 workers | psum | aa | 3.88 (3.52-4.36) | 3.52 | 0.800 | 0.800 |
+| 12 workers | qsort | rayon | 128.26 (118.44-143.14) | 118.44 | 1.000 | 1.000 |
+| 12 workers | qsort | ab | 85.97 (81.84-92.43) | 81.84 | 0.670 | 0.670 |
+| 12 workers | qsort | rv | 86.85 (83.60-88.42) | 83.60 | 0.677 | 0.677 |
+| 12 workers | qsort | cl | 84.95 (81.30-95.91) | 81.30 | 0.662 | 0.662 |
+| 12 workers | qsort | ck | 86.02 (82.58-89.69) | 82.58 | 0.671 | 0.671 |
+| 12 workers | qsort | aa | 87.34 (83.44-100.60) | 83.44 | 0.681 | 0.681 |
+spawn
+  aa   p0   129.0 0.985  p1   131.0 1.012   (against ab)
+  ab   p0   131.0 1.000  p1   129.5 1.000   (against ab)
+  rv   p0   129.0 0.985  p1   129.0 0.996   (against ab)
+  cl   p0   103.0 0.786  p1   104.5 0.807   (against ab)
+  ck   p0   102.0 0.779  p1   104.0 0.803   (against ab)
+chain
+  aa   p0    48.0 1.000  p1    47.5 0.990   (against ab)
+  ab   p0    48.0 1.000  p1    48.0 1.000   (against ab)
+  rv   p0    48.0 1.000  p1    48.0 1.000   (against ab)
+  cl   p0    48.0 1.000  p1    48.0 1.000   (against ab)
+  ck   p0    48.5 1.010  p1    48.0 1.000   (against ab)
+fanout
+  aa   p0    59.7 0.999  p1    59.8 1.002   (against ab)
+  ab   p0    59.7 1.000  p1    59.7 1.000   (against ab)
+  rv   p0    59.8 1.002  p1    59.8 1.002   (against ab)
+  cl   p0    59.7 1.000  p1    59.7 1.000   (against ab)
+  ck   p0    59.7 1.000  p1    59.6 0.998   (against ab)
+yield
+  aa   p0     7.0 1.000  p1     7.0 1.000   (against ab)
+  ab   p0     7.0 1.000  p1     7.0 1.000   (against ab)
+  rv   p0     7.0 1.000  p1     7.0 1.000   (against ab)
+  cl   p0     7.0 1.000  p1     7.0 1.000   (against ab)
+  ck   p0     7.0 1.000  p1     7.0 1.000   (against ab)
+hog
+  aa   p0   184.0 0.948  p1   185.5 1.031   (against ab)
+  ab   p0   194.0 1.000  p1   180.0 1.000   (against ab)
+  rv   p0   186.0 0.959  p1   189.5 1.053   (against ab)
+  cl   p0   157.5 0.812  p1   156.5 0.869   (against ab)
+  ck   p0   158.0 0.814  p1   155.5 0.864   (against ab)
+produce
+  aa   p0     6.0 1.043  p1     5.9 0.992   (against ab)
+  ab   p0     5.8 1.000  p1     6.0 1.000   (against ab)
+  rv   p0     5.8 1.000  p1     5.8 0.983   (against ab)
+  cl   p0     5.8 1.000  p1     5.9 0.992   (against ab)
+  ck   p0     5.8 1.009  p1     5.8 0.983   (against ab)
+== spawn-only, RIG_WORKERS=1, per spawn (500k), median of 5
+  ab    102.3 ns  instructions 969.1  cycles 495.1  L1-dcache 1.4  L1-icache 0.2  branch-misses 2.1
+  rv     95.2 ns  instructions 968.6  cycles 471.9  L1-dcache 1.4  L1-icache 0.2  branch-misses 2.1
+  cl     78.8 ns  instructions 758.4  cycles 387.6  L1-dcache 1.5  L1-icache 0.2  branch-misses 2.1
+  ck     81.5 ns  instructions 758.6  cycles 397.7  L1-dcache 1.5  L1-icache 0.2  branch-misses 2.1
+  aa    102.5 ns  instructions 969.5  cycles 495.4  L1-dcache 1.4  L1-icache 0.2  branch-misses 2.1
+== spawn-only, RIG_WORKERS=12, per spawn (500k), median of 5
+  ab    124.7 ns  instructions 1615.2  cycles 2297.1  L1-dcache 11.8  L1-icache 18.7  branch-misses 4.0
+  rv    118.5 ns  instructions 1634.1  cycles 2504.4  L1-dcache 12.5  L1-icache 17.9  branch-misses 4.2
+  cl    112.5 ns  instructions 1219.3  cycles 3521.9  L1-dcache 12.7  L1-icache 13.4  branch-misses 4.1
+  ck    115.2 ns  instructions 1101.8  cycles 3530.6  L1-dcache 12.0  L1-icache 12.7  branch-misses 3.9
+  aa    123.0 ns  instructions 1613.1  cycles 2269.7  L1-dcache 11.6  L1-icache 18.4  branch-misses 4.0
+actors/contend  ab 19.0 ck 19.0 aa 19.0  ck/ab 1.000
+actors/solo     ab 11.0 ck 11.0 aa 11.0  ck/ab 1.000
+actors/spread   ab 1.8 ck 1.8 aa 1.8  ck/ab 1.000

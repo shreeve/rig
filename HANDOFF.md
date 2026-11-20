@@ -92,16 +92,18 @@ A new session, human or agent, takes these steps in order:
   unsigned one miscompiles in release builds (LLVM `trunc nsw`); Rig's
   emitted Zig and runtime cast through the unsigned type of the source's
   width instead, until Zig fixes it.
-- **Fork-join against Rayon** (bench/fork, the Mac, 10 workers): qsort
-  1.6-3.4% faster than Rayon over three boards, psum 5-7% slower; at one
-  worker Rayon leads both. The integer sort kernel (#1145), integer
-  folds by vectors (#1146, Zig 0.17 only: remove on 0.18 if plain loops
-  vectorize, INTERNALS "Known Zig 0.17 issues") and the ring join
-  (#1147) carry it. psum's rest is the first parallel pass and memory
-  bandwidth. Two leads wait on the owner: a handoff keeping its time
-  slice (qsort 12-16% faster at one worker, other work waits longer)
-  and stacks touched at worker start (costs memory). Records:
-  `~/Data/Code/Claude/rig/rig/fable-review/fork-join-2.md`.
+- **Fork-join against Rayon** (bench/fork): ahead on every row on pup
+  (psum 6-21% faster, qsort 30-34%) and on three of four on the Mac
+  (qsort 8-9% faster, psum at ten workers 6%; psum at one worker level
+  within noise). The free fork-join stack (#1157-#1175), the integer
+  sort kernel (#1145), integer folds by vectors (#1146, Zig 0.17 only:
+  remove on 0.18 if plain loops vectorize, INTERNALS "Known Zig 0.17
+  issues") and the ring join (#1147) carry it.
+- **Spawn** (bench/tasks): on pup 103 ns a task, from 150 after the
+  fork-join stack and 125-138 before it (#1181, #1183;
+  [records/2026-11/spawn-1119](docs/history/records/2026-11/spawn-1119/README.md)).
+  On the Mac it is 12% faster at one worker, but slower at ten workers
+  since #1181 and #1183, with fewer instructions (in flight, below).
 - **Health:** a change lands on a green core suite (`swarm test/rig.rip`:
   the test files, the doc examples, their pending examples the planned
   Core rules, the examples, the unit tests, the oracle floors in
@@ -123,19 +125,17 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
-- **Free fork-join, the record in the frame** (#1171, on #1168): a
-  fork's record lies in its maker's frame, let go by whoever reads its
-  end, the order formal/Models/FrameRecord.lean passed. `nil` at one
-  worker 11% faster than #1168 (55 ns a join; Rayon 10); psum, qsort,
-  bench/tasks, actors, net level. Next: the inline run on today's
-  queue, then the Chase-Lev deque (records/2026-11/free-fork-join).
-  Waits on Trig's light gate, pup, and the owner.
-- **Free fork-join, the inline run** (#1175, on #1171): a fork its waiter
-  reaches unstarted runs on the waiter's stack and fiber when the room
-  rule allows (`sched.runHere`), with cancels through `Fiber.host` and
-  panics level by level; and yield checks leave a worker's own forks to
-  the slice. Next: the Chase-Lev deque. Waits on its board, the gates
-  left in its PR, Trig's light gate, pup, and the owner.
+- **Spawn on the Mac at ten workers:** 93-96 ns a spawn through #1180,
+  116 with #1181, 101-184 (bimodal) with #1183, while instructions fall.
+  The cause lies in coordination on Apple cores (wake timing, bursts on
+  the ring, or efficiency cores). Concurrency traces it with xctrace and
+  designs a fix; the check is a Mac spawn board and the correctness gates.
+- **Pingpong on the Mac** against Tokio: the gap is `settle_wait`, the
+  poller's 20 µs kevent timeout. Without it pingpong is level with Tokio
+  (15.0 µs), but connect is 15% slower (58.8 µs, Tokio 62.4); 5 and
+  10 µs are being measured, and the trade goes to the owner. On pup Rig
+  makes fewer system calls than Tokio a round trip, and the 2.5% gap
+  lies in the kernel.
 
 - **The stable sort** (branch `sort-stable`, then `sort-drift` on
   it; owner, 2026-11-16, "fastest, within 2% of Rust's stable sort"):

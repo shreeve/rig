@@ -1,0 +1,11 @@
+slot 693 (ab) open until 17:28:19; free 2 MiB blocks: 2637; paused: 
+c1 rc=0
+c4 rc=0
+neverthrow (100 rounds, seed 2, warm-up discarded, cores 6)
+  ab       against base: wall +1.1%, instructions +0.0%, rss +0.5%: SLOWER beyond A/A (+1.1%; the A/A spread is 0.9%): goes to the owner, not the bar
+  aa       against base: wall +0.9%, instructions +0.0%, rss +0.0%: (the A/A spread)
+tiny-invariant (100 rounds, seed 2, warm-up discarded, cores 0,6,8,10)
+  ab       against base: wall +1.4%, instructions -0.0%, rss +2.9%: SLOWER beyond A/A (+1.4%; the A/A spread is 0.9%): goes to the owner, not the bar; MEMORY RISE beyond A/A (+2.9% peak RSS; the A/A spread is 2.3%): goes to the owner, not the bar
+  aa       against base: wall -0.9%, instructions -0.0%, rss +2.3%: (the A/A spread)
+slot 693 closed; resumed: 
+QUIET: honoured (no user process ran on cores 12-19 during slot 693)

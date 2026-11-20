@@ -1,0 +1,27 @@
+tasks claim rc=0
+spawn
+  aa   p0   134.0 0.882  p1   134.0 1.043   (against main)
+  main p0   152.0 1.000  p1   128.5 1.000   (against main)
+  base p0   124.0 0.816  p1   114.5 0.891   (against main)
+chain
+  aa   p0    26.0 1.000  p1    26.0 1.000   (against main)
+  main p0    26.0 1.000  p1    26.0 1.000   (against main)
+  base p0    26.0 1.000  p1    26.0 1.000   (against main)
+fanout
+  aa   p0    68.8 0.978  p1    68.8 0.972   (against main)
+  main p0    70.4 1.000  p1    70.8 1.000   (against main)
+  base p0    69.8 0.991  p1    69.9 0.987   (against main)
+yield
+  aa   p0     6.0 1.000  p1     6.0 1.000   (against main)
+  main p0     6.0 1.000  p1     6.0 1.000   (against main)
+  base p0     6.0 1.000  p1     6.0 1.000   (against main)
+hog
+  aa   p0   100.0 0.995  p1   100.0 1.026   (against main)
+  main p0   100.5 1.000  p1    97.5 1.000   (against main)
+  base p0   104.0 1.035  p1   104.5 1.072   (against main)
+produce
+  aa   p0     5.3 1.000  p1     5.3 1.000   (against main)
+  main p0     5.3 1.000  p1     5.3 1.000   (against main)
+  base p0     5.3 1.000  p1     5.2 0.991   (against main)
+
+[exited with code 0]

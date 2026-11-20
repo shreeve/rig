@@ -1,0 +1,182 @@
+pup-rig 11f9c6e6a rc=0
+pup-rig 8bcfc88a9 rc=0
+pup-rig f95c21aff rc=0
+trig light f95c21aff rc=0 light gate: GREEN in 176 s
+unit f95c21aff Debug rc=0
+unit f95c21aff ReleaseSafe rc=0
+unit f95c21aff ReleaseFast rc=0
+trig-sp build rc=0
+built
+slot 694 (ab) open until 19:15:53; free 2 MiB blocks: 1978; paused: 
+fork rc=0
+slot 694 closed; resumed: 
+QUIET: NOT honoured in slot 694: 338 samples of other work on cores 12-19; first:       1  pid 193375 cpu 19 99.9% age 99s /home/shreeve/.local/zig-0.17.0/zig test -Osafe --dep build_options --dep rig_std -Mroot=src/main.zig -Mbuild_options=.z;      1  pid 193375 cpu 19 99.9% age 97s /home/shreeve/.local/zig-0.17.0/zig test -Osafe --dep build_options --dep rig_std -Mroot=src/main
+slot 695 (ab) open until 19:03:56; free 2 MiB blocks: 2637; paused: 
+slot 695 closed; resumed: 
+QUIET: NOT honoured in slot 695: 2 samples of other work on cores 12-19; first:       1  pid 193375 cpu 19 99.9% age 192s /home/shreeve/.local/zig-0.17.0/zig test -Osafe --dep build_options --dep rig_std -Mroot=src/main.zig -Mbuild_options=.z;      1  pid 193375 cpu 19 99.9% age 190s /home/shreeve/.local/zig-0.17.0/zig test -Osafe --dep build_options --dep rig_std -Mroot=src/ma
+slot 696 (ab) open until 19:24:46; free 2 MiB blocks: 2636; paused: 
+c1 rc=0
+c4 rc=0
+c4 recheck rc=0
+slot 696 closed; resumed: 
+QUIET: NOT honoured in slot 696: 165 samples of other work on cores 12-19; first:       1  pid 213641 cpu 15 99.9% age 287s /home/shreeve/.local/zig-0.17.0/zig test -Ofast --dep build_options --dep rig_std -Mroot=src/main.zig -Mbuild_options=.z;      1  pid 213641 cpu 15 99.9% age 285s /home/shreeve/.local/zig-0.17.0/zig test -Ofast --dep build_options --dep rig_std -Mroot=src/ma
+== c1
+mitt:   ab       against base: wall +3.5%, instructions -0.0%, rss -0.0%: no change beyond the bar
+mitt:   sp       against base: wall +1.4%, instructions -0.0%, rss -0.5%: no change beyond the bar
+neverthrow:   ab       against base: wall +0.8%, instructions -0.0%, rss +0.1%: SLOWER beyond A/A (+0.8%; the A/A spread is 0.3%): goes to the owner, not the bar
+neverthrow:   sp       against base: wall +0.3%, instructions -0.0%, rss -0.8%: no change beyond the bar
+superstruct:   ab       against base: wall -0.8%, instructions -0.0%, rss +0.4%: no change beyond the bar
+superstruct:   sp       against base: wall +0.8%, instructions -0.0%, rss -0.2%: SLOWER beyond A/A (+0.8%; the A/A spread is 0.6%): goes to the owner, not the bar
+tiny-invariant:   ab       against base: wall -0.5%, instructions -0.0%, rss -0.3%: no change beyond the bar
+tiny-invariant:   sp       against base: wall +0.0%, instructions -0.0%, rss -0.7%: no change beyond the bar
+zod3:   ab       against base: wall -0.8%, instructions +0.0%, rss +0.0%: no change beyond the bar
+zod3:   sp       against base: wall +0.2%, instructions -0.0%, rss -0.2%: no change beyond the bar
+ts-pattern:   ab       against base: wall -0.6%, instructions +0.0%, rss -0.0%: no change beyond the bar
+ts-pattern:   sp       against base: wall +0.5%, instructions +0.0%, rss -0.0%: SLOWER beyond A/A (+0.5%; the A/A spread is 0.2%): goes to the owner, not the bar
+== c4
+mitt:   ab       against base: wall -1.0%, instructions -0.1%, rss -0.3%: no change beyond the bar
+mitt:   sp       against base: wall +0.2%, instructions +0.0%, rss -0.7%: no change beyond the bar
+neverthrow:   ab       against base: wall +1.1%, instructions -0.0%, rss +0.2%: SLOWER beyond A/A (+1.1%; the A/A spread is 0.1%): goes to the owner, not the bar
+neverthrow:   sp       against base: wall +0.3%, instructions -0.0%, rss -0.2%: no change beyond the bar
+superstruct:   ab       against base: wall -0.8%, instructions +0.0%, rss +0.1%: no change beyond the bar
+superstruct:   sp       against base: wall +0.1%, instructions -0.0%, rss +0.2%: no change beyond the bar
+tiny-invariant:   ab       against base: wall -0.9%, instructions -0.0%, rss -0.2%: no change beyond the bar
+tiny-invariant:   sp       against base: wall -1.2%, instructions +0.0%, rss +2.7%: MEMORY RISE beyond A/A (+2.7% peak RSS; the A/A spread is 1.8%): goes to the owner, not the bar
+zod3:   ab       against base: wall -0.9%, instructions -0.0%, rss +0.4%: no change beyond the bar
+zod3:   sp       against base: wall +0.3%, instructions +0.0%, rss +0.2%: no change beyond the bar
+ts-pattern:   ab       against base: wall -1.4%, instructions -0.0%, rss +0.0%: no change beyond the bar
+ts-pattern:   sp       against base: wall +0.2%, instructions +0.0%, rss -0.1%: no change beyond the bar
+== c4z
+zod3:   ab       against base: wall -0.9%, instructions -0.0%, rss -0.7%: no change beyond the bar
+zod3:   sp       against base: wall -1.6%, instructions +0.0%, rss -0.3%: no change beyond the bar
+tiny-invariant:   ab       against base: wall -0.4%, instructions +0.0%, rss -0.2%: no change beyond the bar
+tiny-invariant:   sp       against base: wall +0.2%, instructions -0.0%, rss -0.2%: no change beyond the bar
+| 1 worker | psum | main | 11.20 (10.75-11.66) | 10.75 | 0.938 | 1.000 |
+| 1 worker | psum | rayon | 11.94 (11.80-12.99) | 11.80 | 1.000 | 1.066 |
+| 1 worker | psum | ab | 11.15 (10.73-11.31) | 10.73 | 0.933 | 0.995 |
+| 1 worker | psum | sp | 11.16 (10.74-11.28) | 10.74 | 0.934 | 0.996 |
+| 1 worker | psum | aa | 11.18 (10.79-11.50) | 10.79 | 0.936 | 0.998 |
+| 1 worker | qsort | main | 196.25 (192.35-199.48) | 192.35 | 0.733 | 1.000 |
+| 1 worker | qsort | rayon | 267.62 (264.70-292.22) | 264.70 | 1.000 | 1.364 |
+| 1 worker | qsort | ab | 192.83 (191.38-198.58) | 191.38 | 0.721 | 0.983 |
+| 1 worker | qsort | sp | 210.66 (207.76-221.56) | 207.76 | 0.787 | 1.073 |
+| 1 worker | qsort | aa | 193.77 (190.83-198.08) | 190.83 | 0.724 | 0.987 |
+| 12 workers | psum | main | 3.73 (3.49-4.74) | 3.49 | 0.800 | 1.000 |
+| 12 workers | psum | rayon | 4.66 (4.51-5.30) | 4.51 | 1.000 | 1.250 |
+| 12 workers | psum | ab | 3.93 (3.54-4.60) | 3.54 | 0.843 | 1.054 |
+| 12 workers | psum | sp | 3.89 (3.49-4.19) | 3.49 | 0.834 | 1.043 |
+| 12 workers | psum | aa | 3.83 (3.47-4.39) | 3.47 | 0.821 | 1.026 |
+| 12 workers | qsort | main | 85.22 (80.82-96.96) | 80.82 | 0.684 | 1.000 |
+| 12 workers | qsort | rayon | 124.64 (119.61-133.18) | 119.61 | 1.000 | 1.463 |
+| 12 workers | qsort | ab | 86.08 (82.62-90.50) | 82.62 | 0.691 | 1.010 |
+| 12 workers | qsort | sp | 87.62 (83.43-97.60) | 83.43 | 0.703 | 1.028 |
+| 12 workers | qsort | aa | 85.51 (83.24-90.19) | 83.24 | 0.686 | 1.003 |
+spawn
+  main p0   152.5 1.155  p1   150.0 1.136   (against ab)
+  aa   p0   132.5 1.004  p1   130.0 0.985   (against ab)
+  ab   p0   132.0 1.000  p1   132.0 1.000   (against ab)
+  al   p0   130.5 0.989  p1   133.5 1.011   (against ab)
+  bu   p0   131.5 0.996  p1   131.5 0.996   (against ab)
+  sp   p0   130.5 0.989  p1   135.5 1.027   (against ab)
+chain
+  main p0    49.5 1.000  p1    49.5 1.031   (against ab)
+  aa   p0    49.5 1.000  p1    48.0 1.000   (against ab)
+  ab   p0    49.5 1.000  p1    48.0 1.000   (against ab)
+  al   p0    49.0 0.990  p1    48.0 1.000   (against ab)
+  bu   p0    49.0 0.990  p1    48.0 1.000   (against ab)
+  sp   p0    49.0 0.990  p1    51.0 1.062   (against ab)
+fanout
+  main p0    60.2 1.006  p1    59.9 1.003   (against ab)
+  aa   p0    60.0 1.003  p1    59.8 1.001   (against ab)
+  ab   p0    59.8 1.000  p1    59.7 1.000   (against ab)
+  al   p0    60.0 1.003  p1    60.0 1.006   (against ab)
+  bu   p0    59.7 0.998  p1    60.0 1.004   (against ab)
+  sp   p0    59.7 0.998  p1    59.8 1.003   (against ab)
+yield
+  main p0     7.0 1.000  p1     7.0 1.000   (against ab)
+  aa   p0     7.0 1.000  p1     7.0 1.000   (against ab)
+  ab   p0     7.0 1.000  p1     7.0 1.000   (against ab)
+  al   p0     7.0 1.000  p1     7.0 1.000   (against ab)
+  bu   p0     7.5 1.071  p1     7.0 1.000   (against ab)
+  sp   p0     7.0 1.000  p1     7.0 1.000   (against ab)
+hog
+  main p0   225.0 1.077  p1   224.0 1.080   (against ab)
+  aa   p0   212.0 1.014  p1   202.0 0.973   (against ab)
+  ab   p0   209.0 1.000  p1   207.5 1.000   (against ab)
+  al   p0   214.0 1.024  p1   212.5 1.024   (against ab)
+  bu   p0   201.5 0.964  p1   204.5 0.986   (against ab)
+  sp   p0   203.0 0.971  p1   241.0 1.161   (against ab)
+produce
+  main p0     6.0 0.960  p1     6.0 0.992   (against ab)
+  aa   p0     6.1 0.984  p1     5.8 0.967   (against ab)
+  ab   p0     6.2 1.000  p1     6.0 1.000   (against ab)
+  al   p0     6.0 0.960  p1     6.0 1.008   (against ab)
+  bu   p0     6.0 0.960  p1     5.9 0.983   (against ab)
+  sp   p0     5.9 0.952  p1     6.7 1.108   (against ab)
+actors/contend  ab 19.0 sp 20.0 aa 21.0  sp/ab 1.053
+actors/solo     ab 11.0 sp 12.0 aa 13.0  sp/ab 1.091
+actors/spread   ab 1.8 sp 1.9 aa 2.0  sp/ab 1.056
+== spawn-only, RIG_WORKERS=1, per spawn (500k), median of 5
+  main  104.5 ns  instructions 993.5  cycles 505.2  L1-dcache 1.5  L1-icache 0.3  branch-misses 2.1
+  ab    102.7 ns  instructions 969.4  cycles 500.5  L1-dcache 1.4  L1-icache 0.2  branch-misses 2.1
+  al    100.7 ns  instructions 961.4  cycles 490.7  L1-dcache 1.4  L1-icache 0.2  branch-misses 2.1
+  bu     96.1 ns  instructions 968.6  cycles 471.4  L1-dcache 1.4  L1-icache 0.2  branch-misses 2.1
+  sp     98.0 ns  instructions 967.9  cycles 475.1  L1-dcache 1.4  L1-icache 0.2  branch-misses 2.1
+  aa    103.6 ns  instructions 969.3  cycles 497.3  L1-dcache 1.4  L1-icache 0.2  branch-misses 2.1
+== spawn-only, RIG_WORKERS=12, per spawn (500k), median of 5
+  main  141.6 ns  instructions 1724.8  cycles 2496.2  L1-dcache 13.0  L1-icache 20.1  branch-misses 4.2
+  ab    123.6 ns  instructions 1628.5  cycles 2308.7  L1-dcache 11.8  L1-icache 19.2  branch-misses 4.1
+  al    121.0 ns  instructions 1612.7  cycles 2282.1  L1-dcache 11.7  L1-icache 18.2  branch-misses 4.0
+  bu    117.5 ns  instructions 1631.6  cycles 2462.1  L1-dcache 12.4  L1-icache 17.5  branch-misses 4.1
+  sp    117.3 ns  instructions 1623.8  cycles 2472.8  L1-dcache 12.3  L1-icache 17.4  branch-misses 4.1
+  aa    123.6 ns  instructions 1611.0  cycles 2313.7  L1-dcache 11.7  L1-icache 18.5  branch-misses 4.0
+== perf sp all threads
+    20.36%  [.] rig.sched.search
+     7.13%  [.] rig.sched.Ring.stealFrom
+     6.84%  [.] rig.sched.loop
+     5.15%  [.] rig.sched.Record(i64,rig.tasks.Control,(function 'run'),struct { ?i96, struct { i64 } }).start
+     4.67%  [.] rig.sched.Ring.push
+     3.94%  [.] rig.sched.notify
+     3.66%  [.] rig.sched.runFiber
+     3.54%  [.] 0x0000000000000a06
+     3.51%  [.] rig.sched.next
+     3.01%  [.] rig.sched.notifyNew
+     2.53%  [.] rig.sched.wakeMade
+     2.42%  [.] rig.alloc.classAligned
+     2.28%  [.] rig.sched.prepare
+     2.27%  [.] rig.sched.Done.finishApart
+     1.60%  [.] rig.sched.spawnApart__func_707
+     1.22%  [.] __rig_main.spawn
+-- sp rig.sched.wakeIn hot
+-- sp rig.sched.search hot
+   65.82 :   105e430:        pause
+    6.62 :   105dfe4:        lock incl 0x67895(%rip)        # 10c5880 <rig.sched.searching_var>
+    4.84 :   105e432:        cmpb   $0x1,0x54c57(%rip)        # 10b3090 <rig.sched.deterministic_var>
+    4.33 :   105dfce:        mov    0x678ac(%rip),%eax        # 10c5880 <rig.sched.searching_var>
+== perf ab all threads
+    18.92%  [.] rig.sched.search
+     9.78%  [.] rig.sched.wakeIn
+     6.52%  [.] rig.sched.loop
+     6.32%  [.] rig.sched.Ring.stealFrom
+     5.14%  [.] rig.sched.next
+     4.68%  [.] rig.sched.Record(i64,rig.tasks.Control,(function 'run'),struct { ?i96, struct { i64 } }).start
+     3.75%  [.] rig.sched.notify
+     3.36%  [.] rig.alloc.classAligned
+     3.12%  [.] 0x0000000000000a06
+     3.05%  [.] rig.sched.runFiber
+     2.60%  [.] rig.sched.Done.finishApart
+     1.92%  [.] rig.sched.spawnApart__func_706
+     1.70%  [.] rig.sched.prepare
+     1.55%  [.] __rig_main.spawn
+     1.25%  [.] rig.sched.fiberStartNaked
+     1.17%  [.] rig.sched.fiberMain
+-- ab rig.sched.wakeIn hot
+   43.81 :   102d603:        xchg   %rsi,0x8e0(%r14,%rax,8)
+   27.56 :   102d7ae:        xchg   %eax,0x8d4(%r14)
+   19.10 :   102da52:        mov    0x97e28(%rip),%eax        # 10c5880 <rig.sched.searching_var>
+    2.24 :   102d787:        mov    0x8d4(%r14),%eax
+-- ab rig.sched.search hot
+   65.38 :   105e360:        pause
+    7.84 :   105df41:        lock incl 0x67938(%rip)        # 10c5880 <rig.sched.searching_var>
+    5.05 :   105e362:        cmpb   $0x1,0x54d27(%rip)        # 10b3090 <rig.sched.deterministic_var>
+    4.12 :   105df2b:        mov    0x6794f(%rip),%eax        # 10c5880 <rig.sched.searching_var>
