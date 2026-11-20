@@ -1,0 +1,75 @@
+slot 703 (ab) open until 22:14:50; free 2 MiB blocks: 2617; paused: 
+rig wall 0.86 s, user 0.14 s, sys 0.68 s, cpu 94%
+tokio wall 0.82 s, user 0.16 s, sys 0.65 s, cpu 99%
+slot 703 closed; resumed: 
+QUIET: honoured (no user process ran on cores 12-19 during slot 703)
+== rig: samples by thread (4999 Hz)
+    99.41%          3871   553575:pp-rig 
+     0.28%           103   553577:pp-rig 
+     0.12%            27   553586:pp-rig 
+     0.08%            19   553587:pp-rig 
+     0.08%            14   553576:pp-rig 
+     0.01%             3   553578:pp-rig 
+     0.01%             3   553579:pp-rig 
+     0.00%             1   553581:pp-rig 
+-- rig busiest thread 553575 by symbol
+     2.27%  [.] rig.sched.search
+     1.99%  [.] rig.sched.loop
+     1.13%  [.] rig.sched.Poller.poll
+     1.13%  [k] 0xffffffff82e001c4
+     1.03%  [.] __rig_std_net.read_from
+     1.01%  [k] 0xffffffff8454cd17
+     0.91%  [.] __rig_std_net.write_to
+     0.91%  [.] rig.sched.Ring.stealFrom
+     0.79%  [k] 0xffffffff831b0c40
+     0.68%  [.] rig.sched.next
+     0.57%  [.] rig.sched.atWaitingPoint
+     0.52%  [.] rig.net.waitFor
+     0.50%  [k] 0xffffffff82e00080
+     0.50%  [k] 0xffffffffc8762432
+-- rig second thread 553577 by symbol
+     0.01%  [.] rig.sched.next
+     0.01%  [.] rig.sched.loop
+     0.01%  [k] 0xffffffff841e2b9c
+     0.01%  [k] 0xffffffff832a63d4
+     0.01%  [k] 0xffffffff832a63e6
+     0.01%  [.] rig.sched.serviceAll
+     0.01%  [.] rig.sched.Poller.poll
+     0.00%  [k] 0xffffffff8430f8dc
+     0.00%  [.] rig.sched.holdOn
+     0.00%  [.] rig.runtime.String.ofText__func_755
+== tokio: samples by thread (4999 Hz)
+    49.98%          1954   553616:tokio-rt-worker
+    49.86%          1948   553613:tokio-rt-worker
+     0.11%            12   553612:pp-tokio       
+     0.02%             5   553621:tokio-rt-worker
+     0.01%             2   553615:tokio-rt-worker
+     0.01%             2   553618:tokio-rt-worker
+     0.01%             2   553624:tokio-rt-worker
+     0.00%             1   553614:tokio-rt-worker
+-- tokio busiest thread 553616 by symbol
+     1.94%  [.] tokio::runtime::task::raw::poll::<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>
+     1.15%  [.] __syscall_cancel_arch_start
+     0.70%  [.] __syscall_cancel
+     0.61%  [.] <tokio::net::tcp::stream::TcpStream as tokio::io::async_read::AsyncRead>::poll_read
+     0.55%  [k] 0xffffffff82e001c4
+     0.53%  [.] <tokio::runtime::scheduler::multi_thread::worker::Context>::park_internal
+     0.53%  [.] 0x0000000000000a06
+     0.45%  [.] <tokio::io::util::write_all::WriteAll<tokio::net::tcp::stream::TcpStream> as core::future::future::Future>::poll
+     0.45%  [k] 0xffffffff83147a8d
+     0.42%  [.] <tokio::runtime::scheduler::multi_thread::worker::Context>::run_task
+     0.42%  [k] 0xffffffff831b0c40
+     0.42%  [k] 0xffffffff8454cd17
+     0.40%  [k] 0xffffffff836eeb3e
+     0.38%  [.] <tokio::runtime::io::registration::Registration>::poll_ready
+-- tokio second thread 553613 by symbol
+     1.88%  [.] tokio::runtime::task::raw::poll::<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::multi_thread::worker::Launch>::launch::{closure#0}>, tokio::runtime::blocking::schedule::BlockingSchedule>
+     0.68%  [.] __syscall_cancel_arch_start
+     0.54%  [.] __syscall_cancel
+     0.47%  [.] <tokio::net::tcp::stream::TcpStream as tokio::io::async_read::AsyncRead>::poll_read
+     0.44%  [.] <tokio::runtime::io::registration::Registration>::poll_ready
+     0.42%  [k] 0xffffffff83147a8d
+     0.40%  [k] 0xffffffff8371fb50
+     0.38%  [k] 0xffffffff8454cd17
+     0.38%  [k] 0xffffffff833477ad
+     0.37%  [k] 0xffffffff82e001c4

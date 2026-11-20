@@ -1,0 +1,17 @@
+[exited with code 0]
+0
+claim rc=0
+== RIG_WORKERS=1, per spawn (500k)
+  base      66.6 ns (min 65.2)   1247.0 instructions
+  s1180     66.8 ns (min 64.6)   1246.9 instructions
+  s1173     66.7 ns (min 65.0)   1247.6 instructions
+  s1181     63.3 ns (min 62.2)   1212.5 instructions
+  main      58.3 ns (min 57.2)    998.7 instructions
+== RIG_WORKERS=10, per spawn (500k)
+  base      95.0 ns (min 80.2)   1523.1 instructions
+  s1180     93.0 ns (min 82.3)   1496.2 instructions
+  s1173     95.8 ns (min 85.2)   1497.8 instructions
+  s1181    116.1 ns (min 105.4)   1449.6 instructions
+  main     183.9 ns (min 101.2)   1276.9 instructions
+
+[exited with code 0]

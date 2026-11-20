@@ -61,6 +61,7 @@ longer builds; `bench-tasks --record` adds `rig-safe` rows (`--release`).
 | 2026-11-15 | main 7a2efd0f3, re-measured with --release (records/2026-11/concurrency-bench-remeasure), fastest of 14 over two boards | rig-safe | 133 ns | 51 ns | 65.8 ms | 6 ns | 153 ns | 16.6 KiB | 5.3 ms |
 | 2026-11-15 | the same boards | tokio | 175 ns | 165 ns | 66.1 ms | 39 ns | 3.3 ms | 262 B | 6.0 ms |
 | 2026-11-15 | the same boards | go | 228 ns | 199 ns | 67.2 ms | 226 ns | 3.4 ms | 2.9 KiB | 5.8 ms |
+| 2026-11-19 | main 636fd02a5 (#1181, #1183), medians of 10 rounds at two placements against fae440c77 (records/2026-11/spawn-1119; spawn bimodal at ten workers, traced) | rig-safe | 152 ns | 26 ns | 70.4 ms | 6 ns | 100.5 ns | | 5.3 ms |
 
 ## x86-64 (pup)
 
@@ -154,3 +155,4 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-11-15 | main bfd872b6d (7a2efd0f3's compiler and runtime), --release (records/2026-11/concurrency-bench-remeasure), fastest of 7 (pup cores 0-11) | rig-safe | 168 ns | 100 ns | 59.6 ms | 6 ns | 316 ns | 4.7 KiB | 6.0 ms |
 | 2026-11-15 | the same board | tokio | 236 ns | 213 ns | 65.4 ms | 32 ns | 3.2 ms | 373 B | 5.5 ms |
 | 2026-11-15 | the same board | go | 210 ns | 234 ns | 55.1 ms | 244 ns | 3.0 ms | 2.8 KiB | 4.9 ms |
+| 2026-11-19 | main 636fd02a5 (#1181, #1183), medians of 8 rounds at two placements (records/2026-11/spawn-1119; pup cores 0-11) | rig-safe | 103.5 ns | 48 ns | 59.8 ms | 7 ns | 152.5 ns | | 6.0 ms |

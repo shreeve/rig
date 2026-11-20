@@ -1,0 +1,124 @@
+pup-rig a3318df85 rc=0
+pup-rig baa618b9f rc=0
+pup-rig 63fc4bb68 rc=0
+trig light a3318df85 rc=0 light gate: GREEN in 176 s
+trig light baa618b9f rc=0 light gate: GREEN in 178 s
+unit baa618b9f Debug rc=0
+unit baa618b9f ReleaseSafe rc=0
+unit baa618b9f ReleaseFast rc=0
+trig-a build rc=0
+trig-ab build rc=0
+built
+slot 690 (ab) open until 17:34:47; free 2 MiB blocks: 1717; paused: 
+fork rc=0
+slot 690 closed; resumed: 
+QUIET: honoured (no user process ran on cores 12-19 during slot 690)
+slot 691 (ab) open until 17:59:40; free 2 MiB blocks: 2578; paused: 
+c1 rc=0
+c4 rc=0
+c4 zod3 rc=0
+== c1
+mitt:   pre      against base: wall +0.2%, instructions -0.0%, rss -0.5%: no change beyond the bar
+mitt:   a        against base: wall +2.1%, instructions +0.0%, rss -0.2%: SLOWER beyond A/A (+2.1%; the A/A spread is 1.8%): goes to the owner, not the bar
+mitt:   ab       against base: wall -1.0%, instructions +0.0%, rss -0.1%: no change beyond the bar
+mitt:   aa       against base: wall +1.8%, instructions +0.0%, rss -0.0%: (the A/A spread)
+neverthrow:   pre      against base: wall -2.0%, instructions -0.0%, rss -0.1%: no change beyond the bar
+neverthrow:   a        against base: wall -1.9%, instructions +0.0%, rss -0.3%: no change beyond the bar
+neverthrow:   ab       against base: wall +0.7%, instructions +0.0%, rss +0.1%: SLOWER beyond A/A (+0.7%; the A/A spread is 0.2%): goes to the owner, not the bar
+neverthrow:   aa       against base: wall -0.2%, instructions +0.0%, rss -0.0%: (the A/A spread)
+superstruct:   pre      against base: wall -0.3%, instructions -0.0%, rss -0.2%: no change beyond the bar
+superstruct:   a        against base: wall -0.3%, instructions -0.0%, rss -0.1%: no change beyond the bar
+superstruct:   ab       against base: wall -1.0%, instructions +0.0%, rss +0.4%: no change beyond the bar
+superstruct:   aa       against base: wall -0.3%, instructions +0.0%, rss +0.0%: (the A/A spread)
+tiny-invariant:   pre      against base: wall +0.0%, instructions -0.0%, rss -0.1%: no change beyond the bar
+tiny-invariant:   a        against base: wall +0.2%, instructions +0.0%, rss -0.3%: no change beyond the bar
+tiny-invariant:   ab       against base: wall -0.0%, instructions +0.0%, rss -0.3%: no change beyond the bar
+tiny-invariant:   aa       against base: wall -0.0%, instructions +0.0%, rss +0.0%: (the A/A spread)
+zod3:   pre      against base: wall -1.6%, instructions -0.0%, rss -0.0%: no change beyond the bar
+zod3:   a        against base: wall -1.2%, instructions -0.0%, rss +0.0%: no change beyond the bar
+zod3:   ab       against base: wall -1.0%, instructions -0.0%, rss -0.0%: no change beyond the bar
+zod3:   aa       against base: wall -0.8%, instructions +0.0%, rss +0.0%: (the A/A spread)
+ts-pattern:   pre      against base: wall -0.4%, instructions -0.0%, rss +0.0%: no change beyond the bar
+ts-pattern:   a        against base: wall -0.6%, instructions -0.0%, rss +0.0%: no change beyond the bar
+ts-pattern:   ab       against base: wall -1.1%, instructions -0.0%, rss -0.0%: no change beyond the bar
+ts-pattern:   aa       against base: wall -0.2%, instructions -0.0%, rss +0.0%: (the A/A spread)
+== c4
+mitt:   pre      against base: wall +1.0%, instructions -0.0%, rss -0.2%: no change beyond the bar
+mitt:   a        against base: wall +2.6%, instructions +0.0%, rss -0.4%: SLOWER beyond A/A (+2.6%; the A/A spread is 1.9%): goes to the owner, not the bar
+mitt:   ab       against base: wall -0.8%, instructions +0.0%, rss -0.5%: no change beyond the bar
+mitt:   aa       against base: wall -1.9%, instructions +0.1%, rss -7.6%: (the A/A spread)
+neverthrow:   pre      against base: wall -1.4%, instructions +0.0%, rss -0.1%: no change beyond the bar
+neverthrow:   a        against base: wall -0.7%, instructions +0.0%, rss -0.1%: no change beyond the bar
+neverthrow:   ab       against base: wall +0.3%, instructions +0.0%, rss -0.1%: no change beyond the bar
+neverthrow:   aa       against base: wall -1.5%, instructions -0.0%, rss -4.3%: (the A/A spread)
+superstruct:   pre      against base: wall -1.0%, instructions -0.0%, rss -0.0%: no change beyond the bar
+superstruct:   a        against base: wall -0.9%, instructions -0.0%, rss +0.2%: no change beyond the bar
+superstruct:   ab       against base: wall -0.3%, instructions -0.0%, rss +0.2%: no change beyond the bar
+superstruct:   aa       against base: wall +0.8%, instructions -0.0%, rss -1.8%: (the A/A spread)
+tiny-invariant:   pre      against base: wall +0.2%, instructions +0.0%, rss -0.0%: no change beyond the bar
+tiny-invariant:   a        against base: wall -0.4%, instructions -0.0%, rss +2.7%: MEMORY RISE beyond A/A (+2.7% peak RSS; the A/A spread is 2.1%): goes to the owner, not the bar
+tiny-invariant:   ab       against base: wall +1.6%, instructions +0.0%, rss +2.9%: SLOWER beyond A/A (+1.6%; the A/A spread is 1.3%): goes to the owner, not the bar; MEMORY RISE beyond A/A (+2.9% peak RSS; the A/A spread is 2.1%): goes to the owner, not the bar
+tiny-invariant:   aa       against base: wall -1.3%, instructions +0.0%, rss +2.1%: (the A/A spread)
+zod3:   pre      against base: wall -0.4%, instructions -0.0%, rss -1.3%: no change beyond the bar
+zod3:   a        against base: wall -0.9%, instructions +0.0%, rss +0.0%: no change beyond the bar
+zod3:   ab       against base: wall +0.4%, instructions +0.0%, rss -0.1%: no change beyond the bar
+zod3:   aa       against base: wall -0.4%, instructions +0.0%, rss -0.4%: (the A/A spread)
+ts-pattern:   pre      against base: wall -1.1%, instructions +0.0%, rss +0.9%: MEMORY RISE beyond A/A (+0.9% peak RSS; the A/A spread is 0.4%): goes to the owner, not the bar
+ts-pattern:   a        against base: wall +0.0%, instructions +0.0%, rss +0.9%: MEMORY RISE beyond A/A (+0.9% peak RSS; the A/A spread is 0.4%): goes to the owner, not the bar
+ts-pattern:   ab       against base: wall -1.6%, instructions +0.0%, rss -0.0%: no change beyond the bar
+ts-pattern:   aa       against base: wall +0.0%, instructions +0.0%, rss +0.4%: (the A/A spread)
+== c4z
+zod3:   pre      against base: wall +0.6%, instructions +0.0%, rss -0.0%: no change beyond the bar
+zod3:   a        against base: wall -0.4%, instructions +0.0%, rss -0.4%: no change beyond the bar
+zod3:   ab       against base: wall +0.5%, instructions -0.0%, rss -0.2%: no change beyond the bar
+zod3:   aa       against base: wall +1.1%, instructions -0.0%, rss -3.1%: (the A/A spread)
+| 1 worker | psum | main | 11.19 (10.97-11.57) | 10.97 | 0.937 | 1.000 |
+| 1 worker | psum | rayon | 11.94 (11.78-13.01) | 11.78 | 1.000 | 1.067 |
+| 1 worker | psum | pre | 11.94 (11.42-12.30) | 11.42 | 1.000 | 1.067 |
+| 1 worker | psum | a | 11.15 (10.69-11.47) | 10.69 | 0.934 | 0.996 |
+| 1 worker | psum | ab | 11.18 (10.95-11.61) | 10.95 | 0.936 | 0.999 |
+| 1 worker | psum | aa | 11.17 (10.99-11.27) | 10.99 | 0.935 | 0.998 |
+| 1 worker | qsort | main | 196.23 (192.91-198.82) | 192.91 | 0.729 | 1.000 |
+| 1 worker | qsort | rayon | 269.28 (265.96-283.40) | 265.96 | 1.000 | 1.372 |
+| 1 worker | qsort | pre | 276.48 (271.35-281.75) | 271.35 | 1.027 | 1.409 |
+| 1 worker | qsort | a | 189.67 (187.01-198.13) | 187.01 | 0.704 | 0.967 |
+| 1 worker | qsort | ab | 193.18 (190.75-196.30) | 190.75 | 0.717 | 0.984 |
+| 1 worker | qsort | aa | 196.31 (192.71-203.44) | 192.71 | 0.729 | 1.000 |
+| 12 workers | psum | main | 3.86 (3.51-4.29) | 3.51 | 0.829 | 1.000 |
+| 12 workers | psum | rayon | 4.66 (4.38-5.18) | 4.38 | 1.000 | 1.206 |
+| 12 workers | psum | pre | 4.08 (3.70-4.90) | 3.70 | 0.875 | 1.055 |
+| 12 workers | psum | a | 3.86 (3.44-4.13) | 3.44 | 0.827 | 0.998 |
+| 12 workers | psum | ab | 3.86 (3.51-4.58) | 3.51 | 0.828 | 0.999 |
+| 12 workers | psum | aa | 3.85 (3.45-4.32) | 3.45 | 0.826 | 0.996 |
+| 12 workers | qsort | main | 86.43 (80.29-91.29) | 80.29 | 0.690 | 1.000 |
+| 12 workers | qsort | rayon | 125.30 (117.29-134.89) | 117.29 | 1.000 | 1.450 |
+| 12 workers | qsort | pre | 97.96 (88.87-103.65) | 88.87 | 0.782 | 1.133 |
+| 12 workers | qsort | a | 86.00 (80.29-91.38) | 80.29 | 0.686 | 0.995 |
+| 12 workers | qsort | ab | 86.54 (78.33-92.48) | 78.33 | 0.691 | 1.001 |
+| 12 workers | qsort | aa | 86.98 (81.55-90.79) | 81.55 | 0.694 | 1.006 |
+spawn
+  main  p0  150.0 1.000  p1  147.5 1.000
+  aa    p0  147.0 0.980  p1  147.5 1.000
+  pre   p0  124.5 0.830  p1  137.5 0.932
+  a     p0  139.5 0.930  p1  140.0 0.949
+  ab    p0  129.5 0.863  p1  131.0 0.888
+chain
+  main  p0   49.0 1.000  p1   49.0 1.000
+  aa    p0   49.0 1.000  p1   48.5 0.990
+  pre   p0   83.0 1.694  p1   83.5 1.704
+  a     p0   49.0 1.000  p1   49.0 1.000
+  ab    p0   48.0 0.980  p1   48.0 0.980
+yield
+  main  p0    7.0 1.000  p1    7.0 1.000
+  aa    p0    7.0 1.000  p1    7.0 1.000
+  pre   p0    6.5 0.929  p1    7.0 1.000
+  a     p0    7.0 1.000  p1    7.0 1.000
+  ab    p0    7.0 1.000  p1    7.0 1.000
+hog
+  main  p0  209.5 1.000  p1  202.0 1.000
+  aa    p0  186.0 0.888  p1  192.0 0.950
+  pre   p0  289.0 1.379  p1  290.5 1.438
+  a     p0  185.5 0.885  p1  193.0 0.955
+  ab    p0  190.0 0.907  p1  183.0 0.906
+slot 691 closed; resumed: 
+QUIET: honoured (no user process ran on cores 12-19 during slot 691)
