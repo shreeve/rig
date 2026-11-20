@@ -2302,7 +2302,7 @@ fail "audit-ownership-b04 nullish return df", "use of `a` after move"
 
   print(f(3))
 
-fail "audit-ownership-b06 nullish return view", "cannot reassign `w` while it is lent"
+fail "audit-ownership-b06 nullish return view", "cannot reassign `w` while a read view of it is still in use"
   obj W
     v: List[Int]
 
@@ -2349,7 +2349,7 @@ test "audit-ownership-c03 while step local", '''
     !v.push(3)
   print(v.len)
 
-fail "audit-ownership-c04 while step uses view", "cannot lend `v` to write while a read loan is live"
+fail "audit-ownership-c04 while step uses view", "cannot change `v` while a read view of it is still in use"
   v: List[Int] = List()
   !v.push(1)
   r = ?v
@@ -2359,7 +2359,7 @@ fail "audit-ownership-c04 while step uses view", "cannot lend `v` to write while
     !v.clear()
   print(v.len)
 
-fail "audit-ownership-d03 match reassign while payload", "cannot reassign `s` while it is lent"
+fail "audit-ownership-d03 match reassign while payload", "cannot reassign `s` while a read view of it is still in use"
   obj Tok
     n: Int
 
@@ -2385,7 +2385,7 @@ fail "audit-ownership-d03 match reassign while payload", "cannot reassign `s` wh
       print(t.n)
     _ => print("other")
 
-fail "audit-ownership-d04 match drop while payload", "cannot drop `s` while it is lent"
+fail "audit-ownership-d04 match drop while payload", "cannot drop `s` while a read view of it is still in use"
   obj Tok
     n: Int
 
@@ -2411,7 +2411,7 @@ fail "audit-ownership-d04 match drop while payload", "cannot drop `s` while it i
       print(t.n)
     _ => print("other")
 
-fail "audit-ownership-d05 match write payload then use root", "cannot reassign `s` while it is lent"
+fail "audit-ownership-d05 match write payload then use root", "cannot reassign `s` while a write view of it is still in use"
   obj Tok
     n: Int
 
@@ -2702,7 +2702,7 @@ test "audit-ownership-e04 take through write loop elem", '''
   for b in ?v
     print(b.o == none)
 
-fail "audit-ownership-e05 take while field lent", "cannot lend `h.o` to write while a read loan is live"
+fail "audit-ownership-e05 take while field lent", "cannot change `h.o` while a read view of it is still in use"
   obj Tok
     n: Int
 
@@ -2789,7 +2789,7 @@ fail "audit-ownership-e15 take elem vec in loop over it", "`x` is bound but neve
     y = <v[0]
     print(y == none)
 
-fail "audit-ownership-f01 closure read then mutate", "cannot lend `v` to write while a read loan is live"
+fail "audit-ownership-f01 closure read then mutate", "cannot change `v` while a read view of it is still in use"
   obj Tok
     n: Int
 
@@ -2815,7 +2815,7 @@ fail "audit-ownership-f01 closure read then mutate", "cannot lend `v` to write w
   !v.clear()
   f()
 
-fail "audit-ownership-f02 closure write then read", "use of `v` while a write loan is live"
+fail "audit-ownership-f02 closure write then read", "cannot use `v` while a write view of it is still in use"
   obj Tok
     n: Int
 
@@ -2987,14 +2987,14 @@ fail "audit-ownership-f08 closure returns capture view", "`f` is a closure that 
   f: fun() -> ?Tok = || ?Tok(n: 1)
   print("x")
 
-fail "audit-ownership-f08b closure returns a view of a temporary, called", "4:24: cannot return a view of `Tok(n: 1)`, which this function was not lent", errors: 1
+fail "audit-ownership-f08b closure returns a view of a temporary, called", "4:24: cannot return a view of `Tok(n: 1)`, which belongs to this function", errors: 1
   obj Tok
     n: Int
 
   f: fun() -> ?Tok = || ?Tok(n: 1)
   print(f().n)
 
-fail "audit-ownership-f09 closure returns view of local", "cannot drop `x` while it is lent"
+fail "audit-ownership-f09 closure returns view of local", "cannot drop `x` while a read view of it is still in use"
   obj Tok
     n: Int
 
@@ -3139,7 +3139,7 @@ test "audit-ownership-f19 stack closure lent call returns", '''
   <t
   print(n)
 
-fail "audit-ownership-f20 closure cap write while arg read", "cannot lend `v` to write while a read loan is live"
+fail "audit-ownership-f20 closure cap write while arg read", "cannot change `v` while a read view of it is still in use"
   obj Tok
     n: Int
 
@@ -3226,7 +3226,7 @@ fail "audit-ownership-g02 view via local wb inner", "`y` does not live long enou
     w.b = ?y
   print(vw.b.n)
 
-fail "audit-ownership-g04 view array of views", "cannot drop `b` while it is lent"
+fail "audit-ownership-g04 view array of views", "cannot drop `b` while a read view of it is still in use"
   obj Tok
     n: Int
 
@@ -3251,7 +3251,7 @@ fail "audit-ownership-g04 view array of views", "cannot drop `b` while it is len
   <b
   print(arr[1].n)
 
-fail "audit-ownership-g06 view returned from fn", "cannot drop `x` while it is lent"
+fail "audit-ownership-g06 view returned from fn", "cannot drop `x` while a read view of it is still in use"
   obj Tok
     n: Int
 
@@ -3281,7 +3281,7 @@ fail "audit-ownership-g06 view returned from fn", "cannot drop `x` while it is l
   <x
   print(v.b.n)
 
-fail "audit-ownership-g08 method returns self view", "cannot lend `b.items` to write while a read loan on `b` is live"
+fail "audit-ownership-g08 method returns self view", "cannot change `b.items` while a read view of `b` is still in use"
   obj Tok
     n: Int
 
@@ -3312,7 +3312,7 @@ fail "audit-ownership-g08 method returns self view", "cannot lend `b.items` to w
   !b.items.clear()
   print(r.n)
 
-fail "audit-ownership-g09 nested view", "cannot drop `x` while it is lent"
+fail "audit-ownership-g09 nested view", "cannot drop `x` while a read view of it is still in use"
   obj Tok
     n: Int
 
@@ -3343,7 +3343,7 @@ fail "audit-ownership-g09 nested view", "cannot drop `x` while it is lent"
   <x
   print(vv.v.b.n)
 
-fail "audit-ownership-g17 vec view elem", "cannot drop `x` while it is lent"
+fail "audit-ownership-g17 vec view elem", "cannot drop `x` while a read view of it is still in use"
   obj Tok
     n: Int
 
@@ -3371,7 +3371,7 @@ fail "audit-ownership-g17 vec view elem", "cannot drop `x` while it is lent"
   <x
   print(v.len)
 
-fail "audit-ownership-g19 struct view field reassign outer", "cannot reassign `x` while it is lent"
+fail "audit-ownership-g19 struct view field reassign outer", "cannot reassign `x` while a read view of it is still in use"
   obj Tok
     n: Int
 
@@ -3599,7 +3599,7 @@ test "audit-ownership-h08 loop view carried", '''
     r = ?b
     a = Tok(n: 7)
 
-fail "audit-ownership-h09 loop view carried2", "cannot reassign `a` while it is lent"
+fail "audit-ownership-h09 loop view carried2", "cannot reassign `a` while a read view of it is still in use"
   obj Tok
     n: Int
 
@@ -3627,14 +3627,14 @@ fail "audit-ownership-h09 loop view carried2", "cannot reassign `a` while it is 
     print(r.n)
     r = ?b
 
-fail "audit-ownership-i01 copy read while wb", "use of `n` while a write loan is live"
+fail "audit-ownership-i01 copy read while wb", "cannot use `n` while a write view of it is still in use"
   n = 1
   w = !n
   print(n)
   w = 5
   print(n)
 
-fail "audit-ownership-i02 string read while wb", "use of `s` while a write loan is live"
+fail "audit-ownership-i02 string read while wb", "cannot use `s` while a write view of it is still in use"
   s = "a"
   w = !s
   t = s
@@ -3774,7 +3774,7 @@ test "audit-ownership-i06 swap through wb same root", '''
   f(!p)
   print(p.a.n, p.b.n)
 
-fail "audit-ownership-i07 swap alias via local wb", "cannot lend `p.b` to write while a write loan on `p` is live"
+fail "audit-ownership-i07 swap alias via local wb", "cannot change `p.b` while a write view of `p` is still in use"
   obj Tok
     n: Int
 
@@ -3831,7 +3831,7 @@ test "audit-ownership-i08 replace moves self", '''
   old = swap(!p.a, none)
   print(old == none, p.a == none)
 
-fail "audit-ownership-i09 replace whole var", "cannot lend `t` to write while a read loan is live"
+fail "audit-ownership-i09 replace whole var", "cannot change `t` while a read view of it is still in use"
   obj Tok
     n: Int
 

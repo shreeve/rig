@@ -1670,7 +1670,7 @@ test "review-copies-2-g-V-optcatch-typedopt", "1"
   c: T? = (opt(?a, 2) catch ?b) ?? ?b
   print(unopt(c, b).x)
 
-fail "review-copies-2-q01b-return-local-view-fallible-direct", "cannot return a view of `p`, which this function was not lent"
+fail "review-copies-2-q01b-return-local-view-fallible-direct", "cannot return a view of `p`, which belongs to this function"
   error Bad
     oops
 
@@ -1685,7 +1685,7 @@ fail "review-copies-2-q01b-return-local-view-fallible-direct", "cannot return a 
   v = leak(true)!
   print(v.x)
 
-fail "review-copies-2-q01c-return-local-write-view-fallible", "cannot return a view of `p`, which this function was not lent"
+fail "review-copies-2-q01c-return-local-write-view-fallible", "cannot return a view of `p`, which belongs to this function"
   error Bad
     oops
 
@@ -1702,7 +1702,7 @@ fail "review-copies-2-q01c-return-local-write-view-fallible", "cannot return a v
   v.x = 3
   print(v.x)
 
-fail "review-copies-2-q01d-return-local-view-opt-fallible", "cannot return a view of `p`, which this function was not lent"
+fail "review-copies-2-q01d-return-local-view-opt-fallible", "cannot return a view of `p`, which belongs to this function"
   error Bad
     oops
 
@@ -1719,7 +1719,7 @@ fail "review-copies-2-q01d-return-local-view-opt-fallible", "cannot return a vie
   if v as q
     print(q.x)
 
-fail "review-copies-2-q02-catch-result-keeps-loans", "cannot assign to `a.x` while `a` is lent"
+fail "review-copies-2-q02-catch-result-keeps-loans", "cannot assign to `a.x` while a read view of `a` is still in use"
   # The view a `catch` gives carries the loans of both sides.
   error Bad
     oops
@@ -1737,7 +1737,7 @@ fail "review-copies-2-q02-catch-result-keeps-loans", "cannot assign to `a.x` whi
   a.x = 5
   print(v.x)
 
-fail "review-copies-2-q02b-catch-result-keeps-handler-loan", "cannot assign to `b.x` while `b` is lent"
+fail "review-copies-2-q02b-catch-result-keeps-handler-loan", "cannot assign to `b.x` while a read view of `b` is still in use"
   error Bad
     oops
 
@@ -1754,7 +1754,7 @@ fail "review-copies-2-q02b-catch-result-keeps-handler-loan", "cannot assign to `
   b.x = 5
   print(v.x)
 
-fail "review-copies-2-q02d-write-catch-two-writers", "cannot assign to `b.x` while `b` is lent"
+fail "review-copies-2-q02d-write-catch-two-writers", "cannot assign to `b.x` while a write view of `b` is still in use"
   error Bad
     oops
 
@@ -1772,7 +1772,7 @@ fail "review-copies-2-q02d-write-catch-two-writers", "cannot assign to `b.x` whi
   w.x = 9
   print(a.x, b.x)
 
-fail "review-copies-2-q02e-write-catch-read-owner", "use of `a.x` while a write loan on `a` is live"
+fail "review-copies-2-q02e-write-catch-read-owner", "cannot use `a.x` while a write view of `a` is still in use"
   error Bad
     oops
 
@@ -2336,7 +2336,7 @@ test "review-copies-2-q04l-coalesce-return-sub", "4"
   show(?a)
   show(none)
 
-fail "review-copies-2-q05a-catch-copyout-string-holder-text-dropped", "cannot drop `t` while it is lent"
+fail "review-copies-2-q05a-catch-copyout-string-holder-text-dropped", "cannot drop `t` while a read view of it is still in use"
   error Bad
     oops
 
@@ -2355,7 +2355,7 @@ fail "review-copies-2-q05a-catch-copyout-string-holder-text-dropped", "cannot dr
   <t
   print(c.s, c.k)
 
-fail "review-copies-2-q05b-coalesce-copyout-string-holder-text-dropped", "cannot drop `t` while it is lent"
+fail "review-copies-2-q05b-coalesce-copyout-string-holder-text-dropped", "cannot drop `t` while a read view of it is still in use"
   error Bad
     oops
 
@@ -2800,7 +2800,7 @@ test "review-copies-2-q07g-store-in-struct-and-vec", "1 2 1 1 2 2"
   t.r = get(?b, true) catch ?a
   print(s.r.x, vs[0].x, cs[0].x, arr[0].x, arr[1].x, t.r.x)
 
-fail "review-copies-2-q07h-store-in-struct-loan", "cannot assign to `a.x` while `a` is lent"
+fail "review-copies-2-q07h-store-in-struct-loan", "cannot assign to `a.x` while a read view of `a` is still in use"
   error Bad
     oops
 
@@ -2824,7 +2824,7 @@ fail "review-copies-2-q07h-store-in-struct-loan", "cannot assign to `a.x` while 
   a.x = 5
   print(s.r.x)
 
-fail "review-copies-2-q07i-store-in-vec-loan", "cannot assign to `b.x` while `b` is lent"
+fail "review-copies-2-q07i-store-in-vec-loan", "cannot assign to `b.x` while a read view of `b` is still in use"
   error Bad
     oops
 
@@ -2869,7 +2869,7 @@ test "review-copies-2-q07j-copyout-into-vec-no-loan", "1"
   b.x = 6
   print(cs[0].x)
 
-fail "review-copies-2-q07k-assign-field-loan", "cannot assign to `a.x` while `a` is lent"
+fail "review-copies-2-q07k-assign-field-loan", "cannot assign to `a.x` while a read view of `a` is still in use"
   error Bad
     oops
 
@@ -2894,7 +2894,7 @@ fail "review-copies-2-q07k-assign-field-loan", "cannot assign to `a.x` while `a`
   a.x = 5
   print(t.r.x)
 
-fail "review-copies-2-q07l-write-catch-same-owner", "cannot lend `vs` to write while a write loan is live"
+fail "review-copies-2-q07l-write-catch-same-owner", "cannot change `vs` while a write view of it is still in use"
   error Bad
     oops
 

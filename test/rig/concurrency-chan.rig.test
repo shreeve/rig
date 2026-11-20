@@ -201,7 +201,7 @@ test "chan select makes its arms in order", seeds: 20, '''
   )!
   print(y, i)
 
-fail "chan select arm views what another arm moves", "10:17: cannot move `s` while a read loan is live", errors: 1
+fail "chan select arm views what another arm moves", "10:17: cannot move `s` while a read view of it is still in use", errors: 1
   # Every arm is made before the select runs one: the first arm's view
   # of `s` lives while the second takes `s`.
   a = *Chan[Int](1)
@@ -215,7 +215,7 @@ fail "chan select arm views what another arm moves", "10:17: cannot move `s` whi
   )!
   print(x)
 
-fail "chan select arms lend to write", "13:18: cannot lend `n` to write while a write loan is live: `task.select` makes every arm before it runs one, so two arms cannot each hold `n` to write; let one arm write it, or have each arm give a value and write `n` after the select", errors: 1
+fail "chan select arms lend to write", "13:18: cannot change `n` while a write view of it is still in use: `task.select` makes every arm before it runs one, so two arms cannot each hold a write view of `n`; let one arm write it, or have each arm give a value and write `n` after the select", errors: 1
   # oracle: main reject C4
   # Only one arm runs, but every arm's closure is made before the select
   # runs one, so two write captures of `n` would live at once (CORE §4).
@@ -334,14 +334,14 @@ bomb "chan send closed", seeds: 20, "send on a closed channel", prints: "before"
 fail "chan only behind a handle", "a channel lives only behind a shared handle: write `*Chan[T](n)`"
   c = Chan[Int](4)
 
-fail "chan holds no view", "a channel's values hold no loan, and a `?String` may hold a view"
+fail "chan holds no view", "a channel's values hold no view, and a `?String` may hold a view"
   c = *Chan[?String](4)
 
 fail "chan arm outside select", "`on_recv` makes an arm of `task.select`, and stands only as one of its arguments: `task.select(name: !c.on_recv(...), ...)`", errors: 1
   c = *Chan[Int](1)
   _ = (!c).on_recv(|v| v)
 
-fail "chan receive marked", "method `recv` needs `self` lent to write; write `!c.recv()`: a channel changes as it sends and receives, and a change through a shared handle is marked with `!`", errors: 1
+fail "chan receive marked", "method `recv` needs a write view of `self`; write `!c.recv()`: a channel changes as it sends and receives, and a change through a shared handle is marked with `!`", errors: 1
   c = *Chan[Int](1)
   !c.send(3) catch print("closed")
   v = c.recv() catch none
@@ -353,7 +353,7 @@ fail "chan select arm marked", "an arm receives or sends, which changes the chan
 
   _ = pick(*Chan[Int](1))
 
-fail "chan select receive through a read view", "6:27: cannot lend to write through a read view `?*Chan[Int]`; take a write view, or share a handle of your own with `+h`", errors: 1
+fail "chan select receive through a read view", "6:27: cannot make a write view through a read view `?*Chan[Int]`; take a write view, or share a handle of your own with `+h`", errors: 1
   # The compiler's types stop at the arm's `!` (the select is left
   # untyped), so the oracle gives no verdict; its C10 is the same rule.
   use std.task
@@ -367,7 +367,7 @@ fail "chan select receive through a read view", "6:27: cannot lend to write thro
   !ch.send(7)!
   take(?ch)!
 
-fail "chan select send through a read view", "6:27: cannot lend to write through a read view `?*Chan[Int]`; take a write view, or share a handle of your own with `+h`", errors: 1
+fail "chan select send through a read view", "6:27: cannot make a write view through a read view `?*Chan[Int]`; take a write view, or share a handle of your own with `+h`", errors: 1
   # The compiler's types stop at the arm's `!` (the select is left
   # untyped), so the oracle gives no verdict; its C10 is the same rule.
   use std.task
@@ -379,7 +379,7 @@ fail "chan select send through a read view", "6:27: cannot lend to write through
   ch = *Chan[Int](1)
   give(?ch)!
 
-fail "chan select arm through a read view however reached", "15:25: cannot lend to write through a read view", "18:25: cannot lend to write through a read view", "22:27: cannot lend to write through a read view", "26:38: cannot lend to write through a read view", "31:27: cannot lend to write through a read view", "35:27: cannot lend to write through a read view", "39:23: cannot lend to write through a read view", errors: 7
+fail "chan select arm through a read view however reached", "15:25: cannot make a write view through a read view", "18:25: cannot make a write view through a read view", "22:27: cannot make a write view through a read view", "26:38: cannot make a write view through a read view", "31:27: cannot make a write view through a read view", "35:27: cannot make a write view through a read view", "39:23: cannot make a write view through a read view", errors: 7
   # A receive or send arm changes its channel, as `!ch.recv()` does: a
   # read view of a handle changes nothing, whatever path reaches it.
   # The compiler's types stop at the arm's `!` (the select is left
@@ -439,7 +439,7 @@ fail "chan send arm stores no view", "9:36: cannot store a view of `s` in a `Cha
 
   print(1)
 
-fail "chan send arm of a generic stores no view at an instance", "8:3: `stash[?String]` cannot use `T = ?String`: the generic body sends a `T` into a channel, which carries no loan", errors: 1
+fail "chan send arm of a generic stores no view at an instance", "8:3: `stash[?String]` cannot use `T = ?String`: the generic body sends a `T` into a channel, which holds no view, and a `?String` may view a String (a `Static` holds no view)", errors: 1
   use std.task
 
   sub stash[T](ch: *Chan[T], v: T)!
@@ -451,7 +451,7 @@ fail "chan send arm of a generic stores no view at an instance", "8:3: `stash[?S
 
   print(1)
 
-fail "chan made in a bounded generic needs Owned", "8:4: `T` is bounded by `Sends`, which does not give a value that holds no loan, which a channel keeps; add `Owned` to its bounds: `[T: Owned + Sends]`", "11:4: `T` is bounded by `Sends`, which does not give a value that holds no loan, which an actor's value keeps; add `Owned`", errors: 2
+fail "chan made in a bounded generic needs Owned", "8:4: `T` is bounded by `Sends`, which does not give a value that holds no view, which a channel keeps; add `Owned` to its bounds: `[T: Owned + Sends]`", "11:4: `T` is bounded by `Sends`, which does not give a value that holds no view, which an actor's value keeps; add `Owned` to its bounds: `[T: Owned + Sends]`", errors: 2
   # A generic checked by its bounds says what it does with `T`: making a
   # channel of `T`, or an actor whose value holds one, keeps a `T` where
   # no loan is tracked, which needs `Owned`, though nothing is put in.
@@ -469,7 +469,7 @@ fail "chan made in a bounded generic needs Owned", "8:4: `T` is bounded by `Send
 
   print(1)
 
-fail "chan made in a generic holds no view", "11:5: `mk[?String]` cannot use `T = ?String`: the generic body makes a channel of `T`, which carries no loan", "12:5: `pool[?String]` cannot use `T = ?String`", errors: 2
+fail "chan made in a generic holds no view", "11:5: `mk[?String]` cannot use `T = ?String`: the generic body makes a channel of `T`, which holds no view, and a `?String` may view a String (a `Static` holds no view)", "12:5: `pool[?String]` cannot use `T = ?String`", errors: 2
   # A channel's values hold no view, wherever the channel is made: in a
   # generic body, each instance's `T` holds none.
   fun mk[T]() -> *Chan[T]
@@ -485,7 +485,7 @@ fail "chan made in a generic holds no view", "11:5: `mk[?String]` cannot use `T 
   c = mk[String]()
   print(b.len)
 
-fail "chan through a read slice", "6:25: cannot lend to write through a slice; a `[]T` is read-only", "10:25: cannot lend to write through a slice; a `[]T` is read-only", "13:11: cannot lend to write through a slice; a `[]T` is read-only", errors: 3
+fail "chan through a read slice", "6:25: cannot make a write view through a slice; a `[]T` is read-only", "10:25: cannot make a write view through a slice; a `[]T` is read-only", "13:11: cannot make a write view through a slice; a `[]T` is read-only", errors: 3
   # A `[]T` is a read view of its elements, so a handle in one changes
   # nothing through it, as through a `?List[T]`: `?xs[..]` launders none.
   use std.task
@@ -1171,7 +1171,7 @@ test "chan select end of the same task twice", seeds: 20, timeout: 10, "a 4"
     .a => print("a", >t)
     .b => print("a", >t)
 
-fail "chan select end lends the task", "12:65: cannot move `t` while a read loan is live", errors: 1
+fail "chan select end lends the task", "12:65: cannot move `t` while a read view of it is still in use", errors: 1
   # oracle: main reject C4
   use std.task
   use std.time
@@ -1187,7 +1187,7 @@ fail "chan select end lends the task", "12:65: cannot move `t` while a read loan
     .done => pass
     .late => pass
 
-fail "chan select end spelled", "9:23: an arm on a task's end lends the task to read, and leaves it to its holder: `done: ?t.on_end()`", "10:23: an arm on a task's end lends", "11:23: an arm on a task's end lends", "12:24: `n` is a `Int`, not a task; each arm of `task.select` is", "13:24: a task arm takes nothing: `done: ?t.on_end()`", "14:8: `on_end` makes an arm of `task.select`, and stands only as one of its arguments: `task.select(name: ?t.on_end(), ...)`", "15:18: each arm of `task.select` has a name, the variant its value matches in a `match`: `t: ?t.on_end()`", "17:4: variant `done` has no payload to destructure", errors: 8
+fail "chan select end spelled", "9:23: an arm on a task's end makes a read view of the task, and leaves it to its holder: `done: ?t.on_end()`", "10:23: an arm on a task's end makes a read view of the task", "11:23: an arm on a task's end makes a read view of the task", "12:24: `n` is a `Int`, not a task; each arm of `task.select` is", "13:24: a task arm takes nothing: `done: ?t.on_end()`", "14:8: `on_end` makes an arm of `task.select`, and stands only as one of its arguments: `task.select(name: ?t.on_end(), ...)`", "15:18: each arm of `task.select` has a name, the variant its value matches in a `match`: `t: ?t.on_end()`", "17:4: variant `done` has no payload to destructure", errors: 8
   use std.task
 
   fun sq(x: Int) -> Int
@@ -1224,7 +1224,7 @@ test "chan lend send of what it receives", seeds: 20, '''
     .got(none) => print("closed")
     .put => print("put")
 
-fail "chan lend a write in the arguments", "cannot lend `xs` to write while a read loan is live", errors: 1
+fail "chan lend a write in the arguments", "cannot change `xs` while a write view of it is still in use", errors: 1
   # The read loan begins before the arguments are evaluated: they may
   # not grow what holds the handle.
   fun grow(xs: !List[*Chan[Int]]) -> Int

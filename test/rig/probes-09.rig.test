@@ -1,6 +1,6 @@
 # Probes from past reviews and audits, 9 of 41: fold-grid-for-vec-drop to optwrite-review-a02-cross-param-ifas-ok.
 
-fail "fold-grid-for-vec-drop", "cannot drop `o` while it is lent"
+fail "fold-grid-for-vec-drop", "cannot drop `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (for-vec-drop): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -26,7 +26,7 @@ fail "fold-grid-for-vec-drop", "cannot drop `o` while it is lent"
   <o
   print(keep)
 
-fail "fold-grid-for-vec-push", "cannot lend `o` to write while a read loan is live"
+fail "fold-grid-for-vec-push", "cannot change `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (for-vec-push): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -52,7 +52,7 @@ fail "fold-grid-for-vec-push", "cannot lend `o` to write while a read loan is li
   !o.push(String("q"))
   print(keep)
 
-fail "fold-grid-generic-add", "cannot lend `o` to write while a read loan is live"
+fail "fold-grid-generic-add", "cannot change `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (generic-add): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -76,7 +76,7 @@ fail "fold-grid-generic-add", "cannot lend `o` to write while a read loan is liv
   !o.add("xyz")
   print(keep)
 
-fail "fold-grid-generic-assign", "cannot reassign `o` while it is lent"
+fail "fold-grid-generic-assign", "cannot reassign `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (generic-assign): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -100,7 +100,7 @@ fail "fold-grid-generic-assign", "cannot reassign `o` while it is lent"
   o = String("zzzz")
   print(keep)
 
-fail "fold-grid-generic-drop", "cannot drop `o` while it is lent"
+fail "fold-grid-generic-drop", "cannot drop `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (generic-drop): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -124,7 +124,7 @@ fail "fold-grid-generic-drop", "cannot drop `o` while it is lent"
   <o
   print(keep)
 
-fail "fold-grid-if-as-add", "cannot reassign `o` while it is lent"
+fail "fold-grid-if-as-add", "cannot reassign `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (if-as-add): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -149,7 +149,7 @@ fail "fold-grid-if-as-add", "cannot reassign `o` while it is lent"
   o = String("zz")
   print(keep)
 
-fail "fold-grid-if-as-assign", "cannot reassign `o` while it is lent"
+fail "fold-grid-if-as-assign", "cannot reassign `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (if-as-assign): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -174,7 +174,7 @@ fail "fold-grid-if-as-assign", "cannot reassign `o` while it is lent"
   o = none
   print(keep)
 
-fail "fold-grid-if-as-drop", "cannot drop `o` while it is lent"
+fail "fold-grid-if-as-drop", "cannot drop `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (if-as-drop): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -199,7 +199,7 @@ fail "fold-grid-if-as-drop", "cannot drop `o` while it is lent"
   <o
   print(keep)
 
-fail "fold-grid-match-bare-assign", "cannot reassign `o` while it is lent"
+fail "fold-grid-match-bare-assign", "cannot reassign `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (match-bare-assign): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -225,7 +225,7 @@ fail "fold-grid-match-bare-assign", "cannot reassign `o` while it is lent"
   o = E.empty
   print(keep)
 
-fail "fold-grid-match-drop", "cannot drop `o` while it is lent"
+fail "fold-grid-match-drop", "cannot drop `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (match-drop): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -251,7 +251,7 @@ fail "fold-grid-match-drop", "cannot drop `o` while it is lent"
   <o
   print(keep)
 
-fail "fold-grid-slice-add", "cannot lend `o` to write while a read loan is live"
+fail "fold-grid-slice-add", "cannot change `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (slice-add): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -275,7 +275,7 @@ fail "fold-grid-slice-add", "cannot lend `o` to write while a read loan is live"
   !o.add("xyz")
   print(keep)
 
-fail "fold-grid-slice-assign", "cannot reassign `o` while it is lent"
+fail "fold-grid-slice-assign", "cannot reassign `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (slice-assign): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -299,7 +299,7 @@ fail "fold-grid-slice-assign", "cannot reassign `o` while it is lent"
   o = String("zzzz")
   print(keep)
 
-fail "fold-grid-slice-drop", "cannot drop `o` while it is lent"
+fail "fold-grid-slice-drop", "cannot drop `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (slice-drop): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -323,7 +323,7 @@ fail "fold-grid-slice-drop", "cannot drop `o` while it is lent"
   <o
   print(keep)
 
-fail "fold-grid-struct-store-add", "cannot lend `o` to write while a read loan is live"
+fail "fold-grid-struct-store-add", "cannot change `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (struct-store-add): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -348,7 +348,7 @@ fail "fold-grid-struct-store-add", "cannot lend `o` to write while a read loan i
   !o.add("xyz")
   print(keep)
 
-fail "fold-grid-struct-store-assign", "cannot reassign `o` while it is lent"
+fail "fold-grid-struct-store-assign", "cannot reassign `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (struct-store-assign): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -373,7 +373,7 @@ fail "fold-grid-struct-store-assign", "cannot reassign `o` while it is lent"
   o = String("zzzz")
   print(keep)
 
-fail "fold-grid-struct-store-drop", "cannot drop `o` while it is lent"
+fail "fold-grid-struct-store-drop", "cannot drop `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (struct-store-drop): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -398,7 +398,7 @@ fail "fold-grid-struct-store-drop", "cannot drop `o` while it is lent"
   <o
   print(keep)
 
-fail "fold-grid-vec-get-assign", "cannot assign to `o[0]` while `o` is lent"
+fail "fold-grid-vec-get-assign", "cannot assign to `o[0]` while a read view of `o` is still in use"
   # The fold: a String that views a Text slot (vec-get-assign): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -423,7 +423,7 @@ fail "fold-grid-vec-get-assign", "cannot assign to `o[0]` while `o` is lent"
   o[0] = String("zzz")
   print(keep)
 
-fail "fold-grid-vec-get-clear", "cannot lend `o` to write while a read loan is live"
+fail "fold-grid-vec-get-clear", "cannot change `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (vec-get-clear): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -448,7 +448,7 @@ fail "fold-grid-vec-get-clear", "cannot lend `o` to write while a read loan is l
   !o.clear()
   print(keep)
 
-fail "fold-grid-vec-get-drop", "cannot drop `o` while it is lent"
+fail "fold-grid-vec-get-drop", "cannot drop `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (vec-get-drop): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -473,7 +473,7 @@ fail "fold-grid-vec-get-drop", "cannot drop `o` while it is lent"
   <o
   print(keep)
 
-fail "fold-grid-vec-get-push", "cannot lend `o` to write while a read loan is live"
+fail "fold-grid-vec-get-push", "cannot change `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (vec-get-push): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -498,7 +498,7 @@ fail "fold-grid-vec-get-push", "cannot lend `o` to write while a read loan is li
   !o.push(String("q"))
   print(keep)
 
-fail "fold-grid-vec-store-add", "cannot lend `o` to write while a read loan is live"
+fail "fold-grid-vec-store-add", "cannot change `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (vec-store-add): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -524,7 +524,7 @@ fail "fold-grid-vec-store-add", "cannot lend `o` to write while a read loan is l
   !o.add("xyz")
   print(keep)
 
-fail "fold-grid-vec-store-assign", "cannot reassign `o` while it is lent"
+fail "fold-grid-vec-store-assign", "cannot reassign `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (vec-store-assign): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -550,7 +550,7 @@ fail "fold-grid-vec-store-assign", "cannot reassign `o` while it is lent"
   o = String("zzzz")
   print(keep)
 
-fail "fold-grid-vec-store-drop", "cannot drop `o` while it is lent"
+fail "fold-grid-vec-store-drop", "cannot drop `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (vec-store-drop): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -576,7 +576,7 @@ fail "fold-grid-vec-store-drop", "cannot drop `o` while it is lent"
   <o
   print(keep)
 
-fail "fold-guard", "cannot reassign `e` while it is lent"
+fail "fold-guard", "cannot reassign `e` while a read view of it is still in use"
   # The fold: a String that views a Text slot (guard): rejected, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -593,7 +593,7 @@ fail "fold-guard", "cannot reassign `e` while it is lent"
   e = E.empty
   print(keep)
 
-fail "fold-oracle-b05-ifas-field-assign", "cannot reassign `h` while `h.o` is lent"
+fail "fold-oracle-b05-ifas-field-assign", "cannot reassign `h` while a read view of `h.o` is still in use"
   # bad: if ?h.o as p, keep bytes, reassign holder
   obj H
     o: String?
@@ -605,7 +605,7 @@ fail "fold-oracle-b05-ifas-field-assign", "cannot reassign `h` while `h.o` is le
   h = H(o: none)
   print(keep)
 
-fail "fold-oracle-b06-whileas-assign-in-loop", "cannot reassign `o` while it is lent"
+fail "fold-oracle-b06-whileas-assign-in-loop", "cannot reassign `o` while a read view of it is still in use"
   # bad: while ?o as p, reassign o inside body while p used after
   o: String? = String("a")
   n = 0
@@ -616,7 +616,7 @@ fail "fold-oracle-b06-whileas-assign-in-loop", "cannot reassign `o` while it is 
     if n > 2
       break
 
-fail "fold-oracle-b12-optional-coalesce", "cannot reassign `o` while it is lent"
+fail "fold-oracle-b12-optional-coalesce", "cannot reassign `o` while a read view of it is still in use"
   # bad: if ?o as p ... else "d" value, then o = none
   o: String? = String("abc")
   s: ?String = if ?o as p
@@ -626,7 +626,7 @@ fail "fold-oracle-b12-optional-coalesce", "cannot reassign `o` while it is lent"
   o = none
   print(s)
 
-fail "fold-oracle-f03-ifas-ret-field", "cannot return a view of `h`, which this function was not lent"
+fail "fold-oracle-f03-ifas-ret-field", "cannot return a view of `h`, which belongs to this function"
   # bad: return bytes bound by if ?h.o as p of a local holder
   obj H
     o: String?
@@ -639,7 +639,7 @@ fail "fold-oracle-f03-ifas-ret-field", "cannot return a view of `h`, which this 
 
   print(f())
 
-fail "fold-oracle-f04-whileas-field-drop", "cannot drop `h` while `h.o` is lent"
+fail "fold-oracle-f04-whileas-field-drop", "cannot drop `h` while a read view of `h.o` is still in use"
   # bad: while ?h.o as p keeps bytes, then drop h
   obj H
     o: String?
@@ -652,7 +652,7 @@ fail "fold-oracle-f04-whileas-field-drop", "cannot drop `h` while `h.o` is lent"
   <h
   print(keep)
 
-fail "fold-oracle-f06-ifas-vec-opt-elem", "cannot lend `v` to write while a read loan is live"
+fail "fold-oracle-f06-ifas-vec-opt-elem", "cannot change `v` while a read view of it is still in use"
   # bad: if ?v[0] as p over List[Text?], keep, then clear
   v: List[String?] = List()
   !v.push(String("abc"))
@@ -695,7 +695,7 @@ fail "fold-ret-closure-bad", "an owned closure cannot capture a view of `t`: it 
   g = f()
   g()
 
-fail "fold-ret-ifas-local-bad", "cannot return a view of `o`, which this function was not lent"
+fail "fold-ret-ifas-local-bad", "cannot return a view of `o`, which belongs to this function"
   # The fold: a String that views a Text slot (ret-ifas-local-bad): rejected, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -729,7 +729,7 @@ test "fold-ret-ifas-param-ok", "a"
   o: String? = String("a")
   print(f(?o))
 
-fail "fold-ret-loop-local-bad", "cannot return a view of `v`, which this function was not lent"
+fail "fold-ret-loop-local-bad", "cannot return a view of `v`, which belongs to this function"
   # The fold: a String that views a Text slot (ret-loop-local-bad): rejected, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -765,7 +765,7 @@ test "fold-ret-loop-param-ok", "a"
   !v.push(String("a"))
   print(f(?v))
 
-fail "fold-ret-match-local-bad", "cannot return a view of `e`, which this function was not lent"
+fail "fold-ret-match-local-bad", "cannot return a view of `e`, which belongs to this function"
   # The fold: a String that views a Text slot (ret-match-local-bad): rejected, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -799,7 +799,7 @@ test "fold-ret-match-param-ok", "a"
   e = E.full(t: String("a"))
   print(f(?e))
 
-fail "fold-while-as", "cannot reassign `o` while it is lent"
+fail "fold-while-as", "cannot reassign `o` while a read view of it is still in use"
   # The fold: a String that views a Text slot (while-as): rejected, or runs sanitizer-clean.
   enum E
     full(t: String)
@@ -2240,7 +2240,7 @@ test "h1-b", "4 4"
   m = 3
   f(!m)
 
-fail "h1-c", "bare use of write view `w2` in binding would copy a write view, which is unique; use `<w2` to move it"
+fail "h1-c", "bare use of write view `w2` in binding would copy it, and a write view never copies; use `<w2` to move it"
   sub f(w2: !Int)
     w: !Int = w2
     w += 1
@@ -2911,7 +2911,7 @@ fail "optwrite-r21-caller-sees-store", "`u` does not live long enough"
     set(!h, ?u)
   print(h.s)
 
-fail "optwrite-r22-caller-sees-store-write", "cannot lend `u` to write while a read loan is live"
+fail "optwrite-r22-caller-sees-store-write", "cannot change `u` while a read view of it is still in use"
   obj H
     s: ?String
 

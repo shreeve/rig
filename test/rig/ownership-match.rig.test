@@ -103,11 +103,11 @@ fail "match bare payload move", "23:17: cannot move `v` out of `o`: `match o` re
   g = get(.some(v: *B(n: 5)), *B(n: 6))
   print(g.n)
 
-fail "match branch copies write view", "21:10: cannot lend `getw(!x) if c else y`: it may be `y`, a value a name holds, which lending the branching value would copy; lend each branch: `getw(!x) if c else ?y`", "26:10: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?a if c else ?b`", "36:10: cannot lend `a if c else !d`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?a if c else !d`", "42:9: cannot lend `o?`: it may be `o`, a value a name holds, which lending the branching value would copy; lend what it unwraps, and unwrap it in a header: `if ?o as x`", "49:9: cannot lend `o ?? !d`: it may be `o`, a value a name holds, which lending the branching value would copy; lend each branch: `?o ?? !d`", errors: 5
+fail "match branch copies write view", "21:10: cannot make a view of `getw(!x) if c else y`: it may be `y`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `getw(!x) if c else ?y`", "26:10: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?a if c else ?b`", "36:10: cannot make a view of `a if c else !d`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?a if c else !d`", "42:9: cannot make a view of `o?`: it may be `o`, a value a name holds, which a view of the branching value would copy; make a view of what it unwraps, and unwrap it in a header: `if ?o as x`", "49:9: cannot make a view of `o ?? !d`: it may be `o`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?o ?? !d`", errors: 5
   # A branch a `match` reads in place is lent there (every in-place read
   # of a branch is a lend), and a leaf that is a name holding a write view
   # would be copied by lending the branching value, a second writer that
-  # holds no loan on it: bare write views, a call beside a name, `??` and
+  # holds no view on it: bare write views, a call beside a name, `??` and
   # `?` of an optional write view. None is lent on (`sema.makesWriteView`
   # lends on only write lends and calls), so no binding writes through a
   # copy. The hint lends each leaf.
@@ -288,7 +288,7 @@ test "match consume binding writes", '''
     .empty => print("e")
   print("end")
 
-fail "match consume view", "9:9: `match <s` consumes an owned value, and `s` is a view (`?Shape`); match what it views with `match s`", "16:7: a `match` reaches the value inside a box by lending the box: `match ?b` or `match !b`; to take the value out, bind it first: `v = <b.unbox()`"
+fail "match consume view", "9:9: `match <s` consumes an owned value, and `s` is a view (`?Shape`); match what it views with `match s`", "16:7: a `match` reaches the value inside a box through a view of the box: `match ?b` or `match !b`; to take the value out, bind it first: `v = <b.unbox()`"
   # `match <e` consumes an owned value: a view owns no fields to hand
   # over, and a box is matched through a view of it.
 
@@ -333,7 +333,7 @@ test "match copy payload tail", '''
   s: S = .one(a: *B(n: 1), k: 3)
   print(go(<s))
 
-fail "match field overwrite while payload live", "cannot assign to `h.s` while `h.s` is lent", "cannot reassign `h` while it is lent"
+fail "match field overwrite while payload live", "cannot assign to `h.s` while a read view of it is still in use", "cannot reassign `h` while a read view of it is still in use"
   # The matched value stays lent while a payload binding is in use:
   # overwriting it would drop the value the payload views.
 
@@ -463,7 +463,7 @@ fail "match generic branch of places", "16:9: a `match` reads a place or takes a
 
   guarded(1, 2, 3, true)
 
-fail "match guard stores", "24:27: `x` does not live long enough", "35:3: cannot reassign `y` while it is lent"
+fail "match guard stores", "24:27: `x` does not live long enough", "35:3: cannot reassign `y` while a read view of it is still in use"
   # A guard that fails runs on the way to the later arms: a view it
   # stored in an outer value is still there after the match, even when
   # the guarded arm's body never falls through.
@@ -962,7 +962,7 @@ test "match payload owner kept", '''
     .b => pass
   print(s)
 
-fail "match payload view escapes", "27:8: cannot return a view of `e`, which this function was not lent", "37:3: cannot reassign `e` while it is lent", "47:8: cannot move `e` while a read loan is live", "54:8: a view of the temporary `mkh()` outlives its statement", "64:10: `e` does not live long enough", errors: 5
+fail "match payload view escapes", "27:8: cannot return a view of `e`, which belongs to this function", "37:3: cannot reassign `e` while a read view of it is still in use", "47:8: cannot move `e` while a read view of it is still in use", "54:8: a view of the temporary `mkh()` outlives its statement", "64:10: `e` does not live long enough", errors: 5
   # A read `match` binding views the subject where it is, so a view of
   # one lives as long as the subject's loan allows, and no longer: it is
   # not returned from a function that owns the subject, the subject may
@@ -1418,7 +1418,7 @@ fail "match payload write view", "9:6: a write view is never stored inside a val
     .none_ => print("none")
   print(x.v.len)
 
-fail "match payload write view twice", "17:14: cannot lend `h` to write while a write loan is live"
+fail "match payload write view twice", "17:14: cannot change `h` while a write view of it is still in use"
   # A `match !h` payload lends to write its scrutinee while it is live, so
   # a nested match on the same value cannot bind a second view of it.
 
@@ -1465,7 +1465,7 @@ fail "match read payload assign", "11:5: cannot assign to `r`: it is a copy of a
     .square(s) => print(s)
   print(c)
 
-fail "match subject lent through arms", "32:20: cannot lend `v` to write while a write loan is live", "38:26: cannot lend `v` to write while a write loan is live", "43:22: cannot lend `v` to write while a write loan is live", "49:16: cannot lend `h` to write while a write loan is live", "52:15: cannot lend `v` to write while a read loan is live", errors: 5
+fail "match subject lent through arms", "32:20: cannot change `v` while a write view of it is still in use", "38:26: cannot change `v` while a write view of it is still in use", "43:22: cannot change `v` while a write view of it is still in use", "49:16: cannot change `h` while a write view of it is still in use", "52:15: cannot change `v` while a read view of it is still in use", errors: 5
   # A `match` reads its subject again after a guard runs, to test the next
   # arm's pattern: what the subject views stays lent through every guard,
   # in a nested match too. A write lend of it there is rejected, as is one
@@ -1554,7 +1554,7 @@ test "match subject loan ends with bindings", '''
   prune(!u)
   show(?u)
 
-fail "match subject reassign while binding live", "11:5: cannot reassign `t` while it is lent", "14:5: cannot reassign `t` while it is lent", "18:5: cannot reassign `t` while it is lent"
+fail "match subject reassign while binding live", "11:5: cannot reassign `t` while a write view of it is still in use", "14:5: cannot reassign `t` while a write view of it is still in use", "18:5: cannot reassign `t` while a read view of it is still in use"
   # While a payload binding is live, the matched value cannot be
   # reassigned: the binding views what the old value holds.
 
@@ -1693,7 +1693,7 @@ fail "match view into header temporary", "34:13: this `match` reads the view its
     .a(n) if n > k => print("a", n)
     _ => print("other")
 
-fail "match view subject misuse", "16:9: `match <s` consumes an owned value, and `s` is a write view (`!Slot`); write the payload in place with `match !s`, or read it with `match s`", "21:10: cannot lend to write through a read view `?Slot`", "27:10: cannot assign to `x`: it is a read view of `s`; to change it in place, match with `match !s`"
+fail "match view subject misuse", "16:9: `match <s` consumes an owned value, and `s` is a write view (`!Slot`); write the payload in place with `match !s`, or read it with `match s`", "21:10: cannot make a write view through a read view `?Slot`", "27:10: cannot assign to `x`: it is a read view of `s`; to change it in place, match with `match !s`"
   # `match <s` on a write view points at `match !s`; `match !s` through a
   # read view is one error, not a cascade; a bare match's binding of the
   # whole viewed value only reads.
@@ -1724,7 +1724,7 @@ fail "match view subject misuse", "16:9: `match <s` consumes an owned value, and
 
   pass
 
-fail "match write binding excludes", "11:11: use of `c` while a write loan is live"
+fail "match write binding excludes", "11:11: cannot use `c` while a write view of it is still in use"
   # A `match !c` binding lends `c` to write while it is live, so `c` cannot
   # be used then.
 
@@ -2047,7 +2047,7 @@ test "match write payload lend ends", release: true, '''
   forms()
   read_match()
 
-fail "match write payload lent", "67:7: cannot lend `t` to write while a read loan is live", "76:7: cannot lend `t` to write while a read loan is live", "85:7: cannot lend `t` to write while a read loan is live", "94:7: cannot reassign `t` while it is lent", "102:7: cannot lend `t` to write while a read loan is live", "111:7: cannot lend `t` to write while a read loan is live", "120:7: cannot lend `x` to write while a read loan is live", "129:7: cannot reassign `b` while it is lent", "140:7: cannot lend `xs` to write while a read loan is live", "143:7: cannot lend `xs` to write while a read loan is live", "152:7: cannot lend `p.t` to write while a read loan is live", "155:7: cannot lend `p.xs` to write while a read loan is live", "164:7: cannot reassign `x` while it is lent", "174:11: cannot lend `t` to write while a read loan is live", "184:7: cannot lend `t` to write while a read loan is live", "194:7: cannot lend `t` to write while a read loan is live", "203:7: cannot lend `t` to write while a read loan is live", "211:7: cannot reassign `t` while it is lent", "217:7: cannot lend `xs` to write while a read loan is live", errors: 19
+fail "match write payload lent", "67:7: cannot change `t` while a read view of it is still in use", "76:7: cannot change `t` while a read view of it is still in use", "85:7: cannot change `t` while a read view of it is still in use", "94:7: cannot reassign `t` while a read view of it is still in use", "102:7: cannot change `t` while a read view of it is still in use", "111:7: cannot change `t` while a read view of it is still in use", "120:7: cannot change `x` while a read view of it is still in use", "129:7: cannot reassign `b` while a read view of it is still in use", "140:7: cannot change `xs` while a read view of it is still in use", "143:7: cannot change `xs` while a read view of it is still in use", "152:7: cannot change `p.t` while a read view of it is still in use", "155:7: cannot change `p.xs` while a read view of it is still in use", "164:7: cannot reassign `x` while a read view of it is still in use", "174:11: cannot change `t` while a read view of it is still in use", "184:7: cannot change `t` while a read view of it is still in use", "194:7: cannot change `t` while a read view of it is still in use", "203:7: cannot change `t` while a read view of it is still in use", "211:7: cannot reassign `t` while a read view of it is still in use", "217:7: cannot change `xs` while a read view of it is still in use", errors: 19
   # A binding of `match !e` is a write view of the payload it binds, so a
   # lend of it is a loan on the binding, as a lend of any write view is
   # (`!T` parameters, `if !o as w`, `for x in !v`): while a view of it is
@@ -2270,7 +2270,7 @@ fail "match write payload lent", "67:7: cannot lend `t` to write while a read lo
 
   slice()
 
-fail "match write payload lent forms", "37:7: cannot lend `t` to write while a read loan is live", "46:9: cannot lend `t` to write while a read loan is live", "55:9: cannot lend `t` to write while a read loan is live", "64:7: cannot lend `t` to write while a read loan is live", "74:7: cannot lend `t` to write while a read loan is live", "83:7: cannot lend `r.t` to write while a read loan on `r` is live", "92:7: cannot lend `t` to write while a read loan is live", errors: 7
+fail "match write payload lent forms", "37:7: cannot change `t` while a read view of it is still in use", "46:9: cannot change `t` while a read view of it is still in use", "55:9: cannot change `t` while a read view of it is still in use", "64:7: cannot change `t` while a read view of it is still in use", "74:7: cannot change `t` while a read view of it is still in use", "83:7: cannot change `r.t` while a read view of `r` is still in use", "92:7: cannot change `t` while a read view of it is still in use", errors: 7
   # Every form of lend of a `match !e` binding puts a loan on the binding,
   # which a write through it while the view is live conflicts with: a
   # `|?t|` capture, a `for` source, an `if … as` subject, a view stored in
@@ -2523,7 +2523,7 @@ test "match as a pattern owns and drops", '''
     print("loop", p.n, q.n)
   print("end")
 
-fail "match as a pattern moves and lends", "11:7: use of `s` after move", "18:9: use of `u` while a write loan is live", errors: 2
+fail "match as a pattern moves and lends", "11:7: use of `s` after move", "18:9: cannot use `u` while a write view of it is still in use", errors: 2
   obj Res
     n: Int
 

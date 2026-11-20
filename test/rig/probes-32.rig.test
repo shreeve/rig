@@ -64,7 +64,7 @@ test "review-step45-f06 sort by owners", '''
   sort.sort_by(!a, |x, y| bigger(x, y))
   print(a[0].n, a[1].n, a[2].n)
 
-fail "review-step45-f07 slice of vec then push", "cannot lend `v` to write while a read loan is live"
+fail "review-step45-f07 slice of vec then push", "cannot change `v` while a read view of it is still in use"
   # slice view of a List[Text] held, then push (must reject)
   v: List[String] = List()
   !v.push(String("a"))
@@ -98,7 +98,7 @@ test "review-step45-f09 slice swap", '''
   flip(!v)
   print(v)
 
-fail "review-step45-g01 repoint lend on uaf", "cannot reassign `w` while it is lent"
+fail "review-step45-g01 repoint lend on uaf", "cannot reassign `w` while a read view of it is still in use"
   # w = !m; r = ?w; w = !n (re-point) then replace m while r still views m
   m = String("mmmm")
   n = String("nnnn")
@@ -110,7 +110,7 @@ fail "review-step45-g01 repoint lend on uaf", "cannot reassign `w` while it is l
   w = String("x")
   print(n)
 
-fail "review-step45-g02 repoint branch", "cannot reassign `m` while it is lent"
+fail "review-step45-g02 repoint branch", "cannot reassign `m` while a write view of it is still in use"
   # re-point in one branch only, then write m while w may still view it
   m = String("m")
   n = String("n")
@@ -157,7 +157,7 @@ test "review-step45-g05 repoint loop elems", '''
     !w.add("!")
   print(v, m)
 
-fail "review-step45-g06 repoint loop then push", "use of `v` while a write loan is live"
+fail "review-step45-g06 repoint loop then push", "cannot use `v` while a write view of it is still in use"
   # re-point at an element in a loop, then push to the List, then write through w
   v: List[String] = List()
   !v.push(String("a"))
@@ -195,7 +195,7 @@ test "review-step45-g08 repoint fn result", '''
   !w.add("!")
   print(v, m)
 
-fail "review-step45-g09 repoint closure", "cannot reassign `w` while it is lent"
+fail "review-step45-g09 repoint closure", "cannot reassign `w` while a write view of it is still in use"
   # a closure captures w (write), then w re-pointed while the closure lives
   m = 1
   n = 2
@@ -253,7 +253,7 @@ test "review-step45-i02 clone struct with view", "own viewed"
   <s
   print(c.own, c.see)
 
-fail "review-step45-i03 clone vec views loans", "cannot drop `t` while it is lent"
+fail "review-step45-i03 clone vec views loans", "cannot drop `t` while a read view of it is still in use"
   # +v of a List of views must carry the views' loans
   t = String("viewed")
   v: List[?String] = List()
@@ -423,7 +423,7 @@ test "review-step45-j03 shared cell vec", '''
   old = (!d).swap(<w)
   print(old)
 
-fail "review-step45-k01 closure elem view", "cannot lend `v` to write while a read loan is live"
+fail "review-step45-k01 closure elem view", "cannot change `v` while a read view of it is still in use"
   # a closure capturing an element view; push to the List, then call it
   v: List[String] = List()
   !v.push(String("a"))
@@ -432,7 +432,7 @@ fail "review-step45-k01 closure elem view", "cannot lend `v` to write while a re
   !v.push(String("b"))
   f()
 
-fail "review-step45-k02 closure capture vec write elem", "cannot lend `v` to read while a write loan is live"
+fail "review-step45-k02 closure capture vec write elem", "cannot use `v` while a write view of it is still in use"
   # a closure capturing !v writes an element; elem view held across
   v: List[String] = List()
   !v.push(String("a"))
@@ -451,7 +451,7 @@ fail "review-step45-k03 defer elem", "use of `v` after move"
   defer print(v[0])
   print(take(<v))
 
-fail "review-step45-k04 defer elem write", "cannot lend `v` to write while a read loan is live"
+fail "review-step45-k04 defer elem write", "cannot change `v` while a read view of it is still in use"
   # defer writes an element; a view of the element is still live at defer? 
   v: List[String] = List()
   !v.push(String("a"))
@@ -459,7 +459,7 @@ fail "review-step45-k04 defer elem write", "cannot lend `v` to write while a rea
   x = ?v[0]
   print(x)
 
-fail "review-step45-k04b defer push plain", "cannot lend `v` to write while a read loan is live"
+fail "review-step45-k04b defer push plain", "cannot change `v` while a read view of it is still in use"
   # defer writes v (plain List[Int]) while a later read view is used before scope end
   v: List[Int] = List()
   !v.push(1)
@@ -467,7 +467,7 @@ fail "review-step45-k04b defer push plain", "cannot lend `v` to write while a re
   x = ?v
   print(x)
 
-fail "review-step45-k05 break with elem view", "cannot lend `v` to write while a read loan is live"
+fail "review-step45-k05 break with elem view", "cannot change `v` while a read view of it is still in use"
   # a loop breaks with a view of an element; then the List is changed
   v: List[String] = List()
   !v.push(String("a"))
@@ -477,7 +477,7 @@ fail "review-step45-k05 break with elem view", "cannot lend `v` to write while a
   !v.push(String("c"))
   print(r)
 
-fail "review-step45-k06 for elem place source push", "cannot lend `m` to write while a read loan is live"
+fail "review-step45-k06 for elem place source push", "cannot change `m` while a read view of it is still in use"
   # for over an element place source (List[List[Text]]), push to outer inside
   m: List[List[String]] = List()
   row: List[String] = List()
@@ -487,7 +487,7 @@ fail "review-step45-k06 for elem place source push", "cannot lend `m` to write w
     !m.push(List())
     print(t)
 
-fail "review-step45-k07 for write elem source", "use of `m` while a write loan is live"
+fail "review-step45-k07 for write elem source", "cannot use `m` while a write view of it is still in use"
   # for t in !m[0] and read m inside
   m: List[List[String]] = List()
   row: List[String] = List()
@@ -508,7 +508,7 @@ test "review-step45-k08 for write elem assign", '''
     x = String(x, "!")
   print(v)
 
-fail "review-step45-k09 for read then take elem", "cannot lend `v` to write while a read loan is live"
+fail "review-step45-k09 for read then take elem", "cannot change `v` while a read view of it is still in use"
   # for x in v (List[Text?]); inside take <v[0]
   v: List[String?] = List()
   !v.push(String("a"))
@@ -567,7 +567,7 @@ test "review-step45-k14 break loop body owner", "x"
     break <t
   print(r)
 
-fail "review-step45-l01 nested vec views push", "cannot drop `t` while it is lent"
+fail "review-step45-l01 nested vec views push", "cannot drop `t` while a read view of it is still in use"
   # !m[0].push(?t) where m: List[List[String]]; then drop t, then use m
   m: List[List[?String]] = List()
   !m.push(List())
@@ -576,7 +576,7 @@ fail "review-step45-l01 nested vec views push", "cannot drop `t` while it is len
   <t
   print(m)
 
-fail "review-step45-l02 nested assign views", "cannot drop `t` while it is lent"
+fail "review-step45-l02 nested assign views", "cannot drop `t` while a read view of it is still in use"
   # m[0] = <inner where inner holds ?t; then drop t
   m: List[List[?String]] = List()
   !m.push(List())
@@ -587,7 +587,7 @@ fail "review-step45-l02 nested assign views", "cannot drop `t` while it is lent"
   <t
   print(m)
 
-fail "review-step45-l03 wrap views through call", "cannot drop `t` while it is lent"
+fail "review-step45-l03 wrap views through call", "cannot drop `t` while a read view of it is still in use"
   # a List of views passed by value through a function and returned
   fun wrap(v: List[?String]) -> List[?String]
     <v
@@ -599,7 +599,7 @@ fail "review-step45-l03 wrap views through call", "cannot drop `t` while it is l
   <t
   print(w)
 
-fail "review-step45-l04 method stores view", "cannot drop `t` while it is lent"
+fail "review-step45-l04 method stores view", "cannot drop `t` while a read view of it is still in use"
   # a method stores a view into self's List field; then the source dropped
   obj Bag
     items: List[?String]
@@ -613,7 +613,7 @@ fail "review-step45-l04 method stores view", "cannot drop `t` while it is lent"
   <t
   print(b.items)
 
-fail "review-step45-l05 copy view elem out", "cannot drop `t` while it is lent"
+fail "review-step45-l05 copy view elem out", "cannot drop `t` while a read view of it is still in use"
   # s = w[0] copies a String view out of a List[String]; drop w then t
   t = String("x")
   w: List[?String] = List()
@@ -623,7 +623,7 @@ fail "review-step45-l05 copy view elem out", "cannot drop `t` while it is lent"
   <t
   print(s)
 
-fail "review-step45-l06 vec views struct moved", "cannot drop `t` while it is lent"
+fail "review-step45-l06 vec views struct moved", "cannot drop `t` while a read view of it is still in use"
   # object holding a List of views moved into a List of objects, then source dropped
   obj Bag
     items: List[?String]
@@ -636,7 +636,7 @@ fail "review-step45-l06 vec views struct moved", "cannot drop `t` while it is le
   <t
   print(bags[0].items)
 
-fail "review-step45-l07 vec views in opt elem take", "cannot drop `t` while it is lent"
+fail "review-step45-l07 vec views in opt elem take", "cannot drop `t` while a read view of it is still in use"
   # take a List of views out of an optional element, then drop the source
   t = String("x")
   inner: List[?String] = List()
@@ -647,7 +647,7 @@ fail "review-step45-l07 vec views in opt elem take", "cannot drop `t` while it i
     <t
     print(got)
 
-fail "review-step45-l08 swap views vecs", "cannot drop `t` while it is lent"
+fail "review-step45-l08 swap views vecs", "cannot drop `t` while a read view of it is still in use"
   # swap of elements carrying different loans
   t = String("x")
   m: List[List[?String]] = List()
@@ -718,7 +718,7 @@ fail "review-step45-m03 elem arg owned param", "`eat` takes ownership of a `List
   !vv.push(List())
   print(eat(vv[0]))
 
-fail "review-step45-m04 push take elem arg", "cannot lend `v` to write while a read loan is live"
+fail "review-step45-m04 push take elem arg", "cannot change `v` while a write view of it is still in use"
   # !v.push(<v[0]) : take an element in the argument of a write call on v
   v: List[String?] = List()
   !v.push(String("a"))
@@ -743,7 +743,7 @@ test "review-step45-m06 box elem unbox opt", '''
     print(<b.unbox())
   print(v)
 
-fail "review-step45-m07 ifas elem view text", "cannot assign to `v[0]` while `v` is lent"
+fail "review-step45-m07 ifas elem view text", "cannot assign to `v[0]` while a read view of `v` is still in use"
   # if v[0] as t on List[Text?], the binding escapes to an outer view
   v: List[String?] = List()
   !v.push(String("hi"))
@@ -769,7 +769,7 @@ test "review-step45-m08 while as elem", '''
     i += 1
   print(v)
 
-fail "review-step45-m09 take while other elem lent", "cannot lend `v` to write while a read loan is live"
+fail "review-step45-m09 take while other elem lent", "cannot change `v` while a read view of it is still in use"
   # <v[1] while ?v[0] is live (take writes v)
   v: List[String?] = List()
   !v.push(String("a"))
@@ -964,7 +964,7 @@ fail "review-step45-p08 array elem as arg owned", "`eat` takes ownership of a `S
   a = [String("a"), String("b")]
   print(eat(a[0]))
 
-fail "review-step45-q01 shared elem view drop", "cannot drop `h` while it is lent"
+fail "review-step45-q01 shared elem view drop", "cannot drop `h` while a read view of it is still in use"
   # view of an element in a shared handle's List; drop the only handle
   obj S
     v: List[String]

@@ -279,7 +279,7 @@ fail "table no slots in a table", "a `Table` has `n` slots; `n` is at least 1"
   t: Table[Int, 0] = Table()
   print(t.len)
 
-fail "table push while a slot is viewed", "cannot lend `t` to write while a read loan is live"
+fail "table push while a slot is viewed", "cannot change `t` while a read view of it is still in use"
   t: Table[Int, 4] = Table()
   s = (!t).push(1)
   a = ?t[s]

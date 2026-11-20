@@ -198,7 +198,7 @@ fail "review-never-data-1-j01 branch receiver view result", "`i` is bound but ne
     !a.v.push(String("z"))
   print(r)
 
-fail "review-never-data-1-j02 branch receiver drop", "cannot drop `a` while it is lent"
+fail "review-never-data-1-j02 branch receiver drop", "cannot drop `a` while a read view of it is still in use"
   obj H
     v: List[String]
 
@@ -214,7 +214,7 @@ fail "review-never-data-1-j02 branch receiver drop", "cannot drop `a` while it i
   <a
   print(r)
 
-fail "review-never-data-1-j09 branch coalesce receiver", "cannot drop `b` while it is lent"
+fail "review-never-data-1-j09 branch coalesce receiver", "cannot drop `b` while a read view of it is still in use"
   obj H
     v: List[String]
 
@@ -345,7 +345,7 @@ test "review-never-data-1-k04 closure capture wv", '''
   gen(!p, show)
   print(p.n)
 
-fail "review-never-data-1-k07 generic capture wv local", "bare use of write view `v` in binding would copy a write view, which is unique; use `<v` to move it"
+fail "review-never-data-1-k07 generic capture wv local", "bare use of write view `v` in binding would copy it, and a write view never copies; use `<v` to move it"
   obj P
     n: Int
     t: String
@@ -484,7 +484,7 @@ test "review-never-data-1-o02 result branch wv", "1 12 1 0"
   pickv(!u, !v, true).push(3)
   print(x, y, u.len, v.len)
 
-fail "review-payload-loan-1-p03 generic payload", "cannot reassign `v` while it is lent"
+fail "review-payload-loan-1-p03 generic payload", "cannot reassign `v` while a read view of it is still in use"
   enum Opt[T]
     some(v: T)
     nothing
@@ -500,7 +500,7 @@ fail "review-payload-loan-1-p03 generic payload", "cannot reassign `v` while it 
   o = Opt.some(String("hello"))
   f(!o, String("other"))
 
-fail "review-payload-loan-1-p05 nested in for", "cannot lend `t` to write while a read loan is live"
+fail "review-payload-loan-1-p05 nested in for", "cannot change `t` while a read view of it is still in use"
   enum E
     a(t: String)
     b
@@ -516,7 +516,7 @@ fail "review-payload-loan-1-p05 nested in for", "cannot lend `t` to write while 
         print(s)
       .b => pass
 
-fail "review-payload-loan-1-p06 in closure", "cannot lend `t` to write while a read loan is live"
+fail "review-payload-loan-1-p06 in closure", "cannot change `t` while a read view of it is still in use"
   enum E
     a(t: String)
     b
@@ -532,7 +532,7 @@ fail "review-payload-loan-1-p06 in closure", "cannot lend `t` to write while a r
       .b => print("b")
   f()
 
-fail "review-payload-loan-1-p07 catchall named field", "cannot lend `q.t` to write while a read loan is live"
+fail "review-payload-loan-1-p07 catchall named field", "cannot change `q.t` while a read view of it is still in use"
   obj P
     t: String
     xs: List[Int]
@@ -552,7 +552,7 @@ fail "review-payload-loan-1-p07 catchall named field", "cannot lend `q.t` to wri
           print(s)
         .b => pass
 
-fail "review-payload-loan-1-p10 call returns write bare", "cannot lend `t` to write while a read loan is live"
+fail "review-payload-loan-1-p10 call returns write bare", "cannot change `t` while a read view of it is still in use"
   enum E
     a(t: String)
     b
@@ -572,7 +572,7 @@ fail "review-payload-loan-1-p10 call returns write bare", "cannot lend `t` to wr
       print(s)
     .b => pass
 
-fail "review-payload-loan-1-p11 nested path", "cannot lend `t` to write while a read loan is live"
+fail "review-payload-loan-1-p11 nested path", "cannot change `t` while a read view of it is still in use"
   enum E
     a(t: String)
     b
@@ -595,7 +595,7 @@ fail "review-payload-loan-1-p11 nested path", "cannot lend `t` to write while a 
   g = G(h: H(e: E.a(String("hello"))))
   f(!g)
 
-fail "review-payload-loan-1-p14 defer in arm", "cannot lend `t` to write while a read loan is live"
+fail "review-payload-loan-1-p14 defer in arm", "cannot change `t` while a read view of it is still in use"
   enum E
     a(t: String)
     b
@@ -609,7 +609,7 @@ fail "review-payload-loan-1-p14 defer in arm", "cannot lend `t` to write while a
         !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
     .b => pass
 
-fail "review-payload-loan-1-p15 defer write after view", "cannot lend `t` to write while a read loan is live"
+fail "review-payload-loan-1-p15 defer write after view", "cannot change `t` while a read view of it is still in use"
   enum E
     a(t: String)
     b
@@ -622,7 +622,7 @@ fail "review-payload-loan-1-p15 defer write after view", "cannot lend `t` to wri
       print(s)
     .b => pass
 
-fail "review-payload-loan-1-q02 consume vec payload", "cannot lend `xs` to write while a read loan is live"
+fail "review-payload-loan-1-q02 consume vec payload", "cannot change `xs` while a read view of it is still in use"
   enum V
     a(xs: List[Int])
     b
@@ -653,7 +653,7 @@ fail "review-payload-loan-1-q05 move binding", "cannot move out of `t`: it is a 
       print(s)
     .b => pass
 
-fail "review-payload-loan-1-q07 capture write", "cannot lend `t` to write while a read loan is live"
+fail "review-payload-loan-1-q07 capture write", "cannot change `t` while a read view of it is still in use"
   enum E
     a(t: String)
     b
@@ -669,7 +669,7 @@ fail "review-payload-loan-1-q07 capture write", "cannot lend `t` to write while 
       print(s)
     .b => pass
 
-fail "review-payload-loan-1-q08 catchall whole reassign", "cannot reassign `x` while it is lent"
+fail "review-payload-loan-1-q08 catchall whole reassign", "cannot reassign `x` while a read view of it is still in use"
   enum E
     a(t: String)
     b
@@ -685,7 +685,7 @@ fail "review-payload-loan-1-q08 catchall whole reassign", "cannot reassign `x` w
           print(s)
         .b => pass
 
-fail "review-payload-loan-1-q09 inner read match of write binding", "cannot reassign `i` while it is lent"
+fail "review-payload-loan-1-q09 inner read match of write binding", "cannot reassign `i` while a read view of it is still in use"
   enum O
     a(e: E)
     b
@@ -705,7 +705,7 @@ fail "review-payload-loan-1-q09 inner read match of write binding", "cannot reas
         .b => pass
     .b => pass
 
-fail "review-payload-loan-1-q10 vec payload index write", "cannot assign to `xs[0]` while `xs` is lent"
+fail "review-payload-loan-1-q10 vec payload index write", "cannot assign to `xs[0]` while a read view of `xs` is still in use"
   enum V
     a(xs: List[String])
     b
@@ -720,7 +720,7 @@ fail "review-payload-loan-1-q10 vec payload index write", "cannot assign to `xs[
       print(s)
     .b => pass
 
-fail "review-payload-loan-1-s01 catchall then inner write", "cannot lend `x` to write while a read loan is live"
+fail "review-payload-loan-1-s01 catchall then inner write", "cannot change `x` while a read view of it is still in use"
   enum E
     a(t: String)
     b
@@ -736,7 +736,7 @@ fail "review-payload-loan-1-s01 catchall then inner write", "cannot lend `x` to 
         .b => pass
       print(r)
 
-fail "review-payload-loan-1-s02 two write lends", "cannot lend `t` to write while a write loan is live"
+fail "review-payload-loan-1-s02 two write lends", "cannot change `t` while a write view of it is still in use"
   enum E
     a(t: String)
     b
@@ -751,7 +751,7 @@ fail "review-payload-loan-1-s02 two write lends", "cannot lend `t` to write whil
       print(w1)
     .b => pass
 
-fail "review-payload-loan-1-s03 index subject", "cannot lend `t` to write while a read loan is live"
+fail "review-payload-loan-1-s03 index subject", "cannot change `t` while a read view of it is still in use"
   enum E
     a(t: String)
     b
@@ -766,7 +766,7 @@ fail "review-payload-loan-1-s03 index subject", "cannot lend `t` to write while 
       print(s)
     .b => pass
 
-fail "review-payload-loan-1-s05 ifas then match", "cannot lend `t` to write while a read loan is live"
+fail "review-payload-loan-1-s05 ifas then match", "cannot change `t` while a read view of it is still in use"
   enum E
     a(t: String)
     b
@@ -781,7 +781,7 @@ fail "review-payload-loan-1-s05 ifas then match", "cannot lend `t` to write whil
         print(s)
       .b => pass
 
-fail "review-payload-loan-1-s06 write lend then read binding", "use of `t` while a write loan is live"
+fail "review-payload-loan-1-s06 write lend then read binding", "cannot use `t` while a write view of it is still in use"
   enum E
     a(t: String)
     b
@@ -794,7 +794,7 @@ fail "review-payload-loan-1-s06 write lend then read binding", "use of `t` while
       !w.add("a")
     .b => pass
 
-fail "review-payload-loan-1-s08 vec payload for read", "cannot reassign `xs` while it is lent"
+fail "review-payload-loan-1-s08 vec payload for read", "cannot reassign `xs` while a read view of it is still in use"
   enum V
     a(xs: List[String])
     b
@@ -903,7 +903,7 @@ test "review-payload-loan-1-v08 return whole view of payload", "hello"
   d = String("d")
   print(peek(!e, ?d))
 
-fail "review-payload-loan-1-v10 loop outer var", "cannot lend `e` to write while a read loan is live"
+fail "review-payload-loan-1-v10 loop outer var", "cannot change `e` while a read view of it is still in use"
   enum E
     a(t: String)
     b
@@ -961,7 +961,7 @@ test "review-payload-loan-1-v12 struct payload view then write after", '''
       print(p.t, p.xs.len)
     .b => pass
 
-fail "review-payload-loan-1-v15 defer param", "cannot lend `t` to write while a read loan is live"
+fail "review-payload-loan-1-v15 defer param", "cannot change `t` while a read view of it is still in use"
   sub f(t: !String)
     defer !t.add("x")
     s = ?t[1..]
@@ -971,7 +971,7 @@ fail "review-payload-loan-1-v15 defer param", "cannot lend `t` to write while a 
   f(!t)
   print(t)
 
-fail "review-payload-loan-1-v15b defer ifas", "cannot lend `t` to write while a read loan is live"
+fail "review-payload-loan-1-v15b defer ifas", "cannot change `t` while a read view of it is still in use"
   o: String? = String("hello")
   if !o as t
     defer !t.add("x")
@@ -1089,14 +1089,14 @@ fail "review-payload-loan-2-g10 baseline match value int view", "`n` is bound bu
   x = 5
   print(r)
 
-fail "review-payload-loan-2-g11 writeview local int view", "cannot reassign `x` while it is lent"
+fail "review-payload-loan-2-g11 writeview local int view", "cannot reassign `x` while a write view of it is still in use"
   x = 1
   w = !x
   r = ?w
   x = 5
   print(r)
 
-fail "review-payload-loan-2-h04 ifas escape then owner", "use of `x` while a write loan is live"
+fail "review-payload-loan-2-h04 ifas escape then owner", "cannot use `x` while a write view of it is still in use"
   x = String("hello")
   o: (!String)? = !x
   d = String("d")
@@ -1107,7 +1107,7 @@ fail "review-payload-loan-2-h04 ifas escape then owner", "use of `x` while a wri
     !x.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
   print(r)
 
-fail "review-payload-loan-3-a01 slice local relend", "cannot lend `v` to write while a read loan is live"
+fail "review-payload-loan-3-a01 slice local relend", "cannot change `v` while a read view of it is still in use"
   v: List[Int] = List()
   !v.push(1)
   !v.push(2)
@@ -1116,7 +1116,7 @@ fail "review-payload-loan-3-a01 slice local relend", "cannot lend `v` to write w
   !v.push(3)
   print(t)
 
-fail "review-payload-loan-3-a02 slice payload relend", "cannot lend `v` to write while a read loan is live"
+fail "review-payload-loan-3-a02 slice payload relend", "cannot change `v` while a read view of it is still in use"
   enum E
     a(s: []Int)
     b
@@ -1132,7 +1132,7 @@ fail "review-payload-loan-3-a02 slice payload relend", "cannot lend `v` to write
       print(t)
     .b => pass
 
-fail "review-payload-loan-3-a03 slice payload copy", "cannot lend `v` to write while a read loan is live"
+fail "review-payload-loan-3-a03 slice payload copy", "cannot change `v` while a read view of it is still in use"
   enum E
     a(s: []Int)
     b
@@ -1148,7 +1148,7 @@ fail "review-payload-loan-3-a03 slice payload copy", "cannot lend `v` to write w
       print(t)
     .b => pass
 
-fail "review-payload-loan-3-a04 string payload relend", "cannot lend `x` to write while a read loan is live"
+fail "review-payload-loan-3-a04 string payload relend", "cannot change `x` while a read view of it is still in use"
   enum E
     a(s: ?String)
     b
@@ -1162,7 +1162,7 @@ fail "review-payload-loan-3-a04 string payload relend", "cannot lend `x` to writ
       print(t)
     .b => pass
 
-fail "review-payload-loan-3-a05 for slice elem relend", "cannot lend `v` to write while a read loan is live"
+fail "review-payload-loan-3-a05 for slice elem relend", "cannot change `v` while a read view of it is still in use"
   v: List[Int] = List()
   !v.push(1)
   !v.push(2)
@@ -1173,7 +1173,7 @@ fail "review-payload-loan-3-a05 for slice elem relend", "cannot lend `v` to writ
     !v.push(3)
     print(t)
 
-fail "review-payload-loan-3-a06 ifas slice relend", "cannot lend `v` to write while a read loan is live"
+fail "review-payload-loan-3-a06 ifas slice relend", "cannot change `v` while a read view of it is still in use"
   v: List[Int] = List()
   !v.push(1)
   !v.push(2)
@@ -1183,7 +1183,7 @@ fail "review-payload-loan-3-a06 ifas slice relend", "cannot lend `v` to write wh
     !v.push(3)
     print(t)
 
-fail "review-payload-loan-3-c01 readmatch owner reassign", "cannot reassign `o` while it is lent"
+fail "review-payload-loan-3-c01 readmatch owner reassign", "cannot reassign `o` while a read view of it is still in use"
   enum Opt
     some(t: String)
     nothing
@@ -1196,7 +1196,7 @@ fail "review-payload-loan-3-c01 readmatch owner reassign", "cannot reassign `o` 
       print(r)
     .nothing => pass
 
-fail "review-payload-loan-3-c02 generic readmatch reassign", "cannot reassign `o` while it is lent"
+fail "review-payload-loan-3-c02 generic readmatch reassign", "cannot reassign `o` while a read view of it is still in use"
   enum Opt[T]
     some(t: T)
     nothing
@@ -1213,7 +1213,7 @@ fail "review-payload-loan-3-c02 generic readmatch reassign", "cannot reassign `o
 
   print(f(Opt.some(String("hello")), Opt[String].nothing))
 
-fail "review-payload-loan-3-c03 generic catchall reassign", "cannot reassign `o` while it is lent"
+fail "review-payload-loan-3-c03 generic catchall reassign", "cannot reassign `o` while a read view of it is still in use"
   enum Opt[T]
     some(t: T)
     nothing
@@ -1231,7 +1231,7 @@ fail "review-payload-loan-3-c03 generic catchall reassign", "cannot reassign `o`
 
   print(f(Opt.some(String("hello")), Opt[String].nothing))
 
-fail "review-payload-loan-3-c04 generic writematch lend", "cannot reassign `x` while it is lent"
+fail "review-payload-loan-3-c04 generic writematch lend", "cannot reassign `x` while a read view of it is still in use"
   enum Opt[T]
     some(t: T)
     nothing
@@ -1248,7 +1248,7 @@ fail "review-payload-loan-3-c04 generic writematch lend", "cannot reassign `x` w
 
   print(f(Opt.some(String("hello")), String("bye")))
 
-fail "review-payload-loan-3-f01 write binding moved out match value", "cannot reassign `e` while it is lent"
+fail "review-payload-loan-3-f01 write binding moved out match value", "cannot reassign `e` while a write view of it is still in use"
   enum E
     a(t: String)
     b
@@ -1262,7 +1262,7 @@ fail "review-payload-loan-3-f01 write binding moved out match value", "cannot re
   !r.add("x")
   print(r)
 
-fail "review-payload-loan-3-f02 write binding break out", "bare use of write view `t` in `break` value would copy a write view, which is unique; use `<t` to move it"
+fail "review-payload-loan-3-f02 write binding break out", "bare use of write view `t` in `break` value would copy it, and a write view never copies; use `<t` to move it"
   enum E
     a(t: String)
     b
@@ -1290,7 +1290,7 @@ fail "review-payload-loan-3-f02b write binding break move", "cannot move out of 
   e = E.b
   print(r)
 
-fail "review-payload-loan-3-f03 ifas write moved out", "cannot reassign `o` while it is lent"
+fail "review-payload-loan-3-f03 ifas write moved out", "cannot reassign `o` while a write view of it is still in use"
   o: String? = String("hello")
   d = String("dflt")
   r = if !o as t
@@ -1300,7 +1300,7 @@ fail "review-payload-loan-3-f03 ifas write moved out", "cannot reassign `o` whil
   o = none
   print(r)
 
-fail "review-payload-loan-3-f04 for write moved out", "bare use of write view `t` in `break` value would copy a write view, which is unique; use `<t` to move it"
+fail "review-payload-loan-3-f04 for write moved out", "bare use of write view `t` in `break` value would copy it, and a write view never copies; use `<t` to move it"
   v: List[String] = List()
   !v.push(String("hello"))
   d = String("dflt")
@@ -1313,7 +1313,7 @@ fail "review-payload-loan-3-f04 for write moved out", "bare use of write view `t
   !v.clear()
   print(r)
 
-fail "review-payload-loan-3-f04b for write break move", "use of `v` while a write loan is live"
+fail "review-payload-loan-3-f04b for write break move", "cannot use `v` while a write view of it is still in use"
   v: List[String] = List()
   !v.push(String("hello"))
   d = String("dflt")
@@ -1326,7 +1326,7 @@ fail "review-payload-loan-3-f04b for write break move", "use of `v` while a writ
   !v.clear()
   print(r)
 
-fail "review-payload-loan-3-f05 write binding return", "cannot reassign `e` while it is lent"
+fail "review-payload-loan-3-f05 write binding return", "cannot reassign `e` while a write view of it is still in use"
   enum E
     a(t: String)
     b
@@ -1342,7 +1342,7 @@ fail "review-payload-loan-3-f05 write binding return", "cannot reassign `e` whil
   e = E.b
   print(r)
 
-fail "review-payload-loan-3-g01 self write view return", "cannot assign to `@t` while `@t` is lent"
+fail "review-payload-loan-3-g01 self write view return", "cannot assign to `@t` while a read view of it is still in use"
   obj S
     t: String
     n: Int
@@ -1409,7 +1409,7 @@ test "review-payload-loan-3-i08 local opt writeview read as", '''
   if no as k
     print(k + 1)
 
-fail "review-payload-loan-3-l04 as lend branches", "cannot assign to `x.t` while `x.t` is lent"
+fail "review-payload-loan-3-l04 as lend branches", "cannot assign to `x.t` while a read view of it is still in use"
   obj P
     t: String
 
@@ -1488,7 +1488,7 @@ test "review-payload-loan-3-n02 local readas reads", '''
   if to as t
     print(t.len, t[1..])
 
-fail "review-payload-loan-3-o02 defer lend live", "cannot lend `t` to write while a read loan is live"
+fail "review-payload-loan-3-o02 defer lend live", "cannot change `t` while a read view of it is still in use"
   enum E
     a(t: String)
     z
@@ -1503,7 +1503,7 @@ fail "review-payload-loan-3-o02 defer lend live", "cannot lend `t` to write whil
       .z => pass
   print("x")
 
-fail "review-payload-loan-3-o03 labeled break value binding", "cannot reassign `e` while it is lent"
+fail "review-payload-loan-3-o03 labeled break value binding", "cannot reassign `e` while a read view of it is still in use"
   enum E
     a(t: String)
     z
@@ -1518,7 +1518,7 @@ fail "review-payload-loan-3-o03 labeled break value binding", "cannot reassign `
   e = E.z
   print(s)
 
-fail "review-payload-loan-3-o04 method self match write", "cannot lend `t` to write while a read loan is live"
+fail "review-payload-loan-3-o04 method self match write", "cannot change `t` while a read view of it is still in use"
   enum E
     a(t: String)
     z
@@ -1534,7 +1534,7 @@ fail "review-payload-loan-3-o04 method self match write", "cannot lend `t` to wr
   e = E.a(String("hello"))
   !e.grow()
 
-fail "review-payload-loan-3-p01 if as writeparam live", "cannot lend `b` to write while a read loan is live"
+fail "review-payload-loan-3-p01 if as writeparam live", "cannot change `b` while a read view of it is still in use"
   sub f(o: !(String?))
     if !o as b
       s = ?b[1..]
@@ -1560,7 +1560,7 @@ test "review-payload-loan-3-p02 if as writeparam after", '''
   f(!y)
   print(y ?? String("none"))
 
-fail "review-payload-loan-3-p03 for index write live", "cannot lend `b` to write while a read loan is live"
+fail "review-payload-loan-3-p03 for index write live", "cannot change `b` while a read view of it is still in use"
   v: List[String] = List()
   !v.push(String("hello"))
   for b, i in !v
@@ -1568,7 +1568,7 @@ fail "review-payload-loan-3-p03 for index write live", "cannot lend `b` to write
     !b.add(" and more and more and more text to realloc the buffer")
     print(s, i)
 
-fail "review-payload-loan-4-e03 call live reassign", "cannot reassign `e` while it is lent"
+fail "review-payload-loan-4-e03 call live reassign", "cannot reassign `e` while a write view of it is still in use"
   obj Res
     n: Int
     v: List[Int]
@@ -1604,7 +1604,7 @@ fail "review-payload-loan-4-e03 call live reassign", "cannot reassign `e` while 
       print(s[0])
     .b => pass
 
-fail "review-payload-loan-4-e04 call live read owner", "use of `e` while a write loan is live"
+fail "review-payload-loan-4-e04 call live read owner", "cannot use `e` while a write view of it is still in use"
   obj Res
     n: Int
     v: List[Int]
@@ -1639,7 +1639,7 @@ fail "review-payload-loan-4-e04 call live read owner", "use of `e` while a write
       r.n = 4
     .b => pass
 
-fail "review-payload-loan-4-e05 branch live write other", "cannot reassign `d` while it is lent"
+fail "review-payload-loan-4-e05 branch live write other", "cannot reassign `d` while a write view of it is still in use"
   obj Res
     n: Int
     v: List[Int]
@@ -1677,7 +1677,7 @@ fail "review-payload-loan-4-e05 branch live write other", "cannot reassign `d` w
       print(s[0])
     .b => pass
 
-fail "review-payload-loan-4-e06 branch live lend e", "cannot lend `e` to write while a write loan is live"
+fail "review-payload-loan-4-e06 branch live lend e", "cannot change `e` while a write view of it is still in use"
   obj Res
     n: Int
     v: List[Int]

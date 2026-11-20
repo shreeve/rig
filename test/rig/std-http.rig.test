@@ -714,7 +714,7 @@ test "http body limit", seeds: 20, '''
   print(send(port, "GET /ok HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")!)
   _ = <t.cancel() catch -1
 
-fail "http serve captures share", "`http.serve` calls the closure on several tasks at once, and `|!count|` lends `count` to write"
+fail "http serve captures share", "`http.serve` calls the closure on several tasks at once, and `|!count|` makes a write view of `count`"
   fun run(l: net.Listener) -> Int!
     count = 0
     http.serve(<l, |!count, req| http.text(req.path))!

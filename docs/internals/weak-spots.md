@@ -47,7 +47,7 @@ and run the suite after.
     `generic view field guard` of `test/rig/emit-generic.rig.test`, and the
     escape, `generic view field escape` of `test/rig/ownership-generic.rig.test`.
 - **Addresses of Zig rvalues.** `emitLeafPtr`'s `&@as(T, value)` and a
-  temporary array lent to a call are the storage fact `zig_temp`. Emit
+  temporary array passed to a call as a view are the storage fact `zig_temp`. Emit
   still takes the address of two kinds of Zig rvalue no fact names: a
   `?@` method on a made value no slot keeps, or on a branching value
   with a made leaf, and labeled value blocks' yields (docs/internals/INTERNALS.md,
@@ -59,7 +59,7 @@ and run the suite after.
 - **What a view could hold:** `carry` and `sema.viewReach`, and `?String`
   values in Cells, generics, and closures.
 - **What a `^T` does not yet forward:** a box reaches its value's fields
-  and methods, and lends its views, but `xs[i]`, `?xs[a..b]`, `for x in
+  and methods, and gives its views, but `xs[i]`, `?xs[a..b]`, `for x in
   xs`, `==`, and arithmetic on a boxed array, List, or number name the
   box and are rejected; a box has an `unbox` of its own that hides a
   value's method of that name. A generic body cannot reach through a
@@ -88,7 +88,7 @@ and run the suite after.
     expected, every value that copies is copied out (`sema.copies`).
   - The oracle accepts two shapes the Core rejects (the compiler
     rejects both): a `?@` result reaching an owned field beside a
-    held view, and re-pointing a write view a closure has lent. Add
+    held view, and re-pointing a write view a closure has captured. Add
     them as `# oracle:` tests when the oracle learns them.
   - `bin/rig-oracle` in a worktree goes stale; `test/rig.rip` rebuilds it,
     so rebuild before using it by hand.
@@ -100,10 +100,10 @@ and run the suite after.
 - **Field-precise re-pointing:** its own round (decision 1d): what a
   var holds is still per var, so re-pointing `p.v` keeps the old view's
   loans while `p` lives.
-- **Branching values lent implicitly:** a bare `a if c else b` passed
+- **Branching values viewed implicitly:** a bare `a if c else b` passed
   where a `?T` goes, as to `slices.contains` or `sort.search`, is a type
-  mismatch, where a bare name or literal is lent; `?(a if c else b)`
-  lends it. Decide whether implicit lends extend to branching values.
+  mismatch, where a bare name or literal becomes a view; `?(a if c else b)`
+  makes one. Decide whether implicit views extend to branching values.
 - **`into` for stores, function-type `from`, and path tokens:** Core
   changes, each its own reviewed change.
 
@@ -125,8 +125,8 @@ These belong to the design owner.
 Settled and built: field-disjoint loans (CORE sentence 5 and §5, "A field
 is a place of its own"). The other three rules the Core left open are
 decided and built (CORE sentences 1, 6, and 7): a call's result that
-holds no write view keeps a write argument lent to read, and that
-argument's write lend ends as the call returns; dropping a container of
+holds no write view leaves a write argument read-only, and that
+argument's write view ends as the call returns; dropping a container of
 views uses them only through a `drop` body; a bare name or place only
 reads, so `x = h.w`, like `x = w`, of a `!Int` copies the Int. An
 object of `?String` values is a view, as CORE §1 says, and never plain

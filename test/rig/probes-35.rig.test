@@ -2,7 +2,7 @@
 
 use std.text
 
-fail "review-syntax-b-2-b26 array text elem writeview", "cannot assign to `a[0]` while `a` is lent"
+fail "review-syntax-b-2-b26 array text elem writeview", "cannot assign to `a[0]` while a read view of `a` is still in use"
   fun keep(s: ?String) -> ?String
     s
 
@@ -74,7 +74,7 @@ fail "review-syntax-b-2-c08 method ret write view", "a view reached through `(!h
     !h.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
   print(s)
 
-fail "review-syntax-b-2-c12 writeview moved slice", "cannot move `w` while a read loan is live"
+fail "review-syntax-b-2-c12 writeview moved slice", "cannot move `w` while a read view of it is still in use"
   fun keep(s: ?String) -> ?String
     s
 
@@ -89,7 +89,7 @@ fail "review-syntax-b-2-c12 writeview moved slice", "cannot move `w` while a rea
   t = String("hello")
   f(!t)
 
-fail "review-syntax-b-2-c13 writeview relend slice", "cannot lend `w` to write while a read loan is live"
+fail "review-syntax-b-2-c13 writeview relend slice", "cannot change `w` while a read view of it is still in use"
   fun keep(s: ?String) -> ?String
     s
 
@@ -105,7 +105,7 @@ fail "review-syntax-b-2-c13 writeview relend slice", "cannot lend `w` to write w
   t = String("hello")
   f(!t)
 
-fail "review-syntax-b-2-c19 closure ret write slice", "cannot return a view of `t`, which this function was not lent"
+fail "review-syntax-b-2-c19 closure ret write slice", "cannot return a view of `t`, which belongs to this function"
   fun keep(s: ?String) -> ?String
     s
 
@@ -116,7 +116,7 @@ fail "review-syntax-b-2-c19 closure ret write slice", "cannot return a view of `
     !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
   print(s)
 
-fail "review-syntax-b-2-d05 writeslice slice of slice", "cannot assign to `w[0]` while `w` is lent"
+fail "review-syntax-b-2-d05 writeslice slice of slice", "cannot assign to `w[0]` while a read view of `w` is still in use"
   sub f(w: ![]String)
     s = ?w[0..1]
     t = s[0..1]
@@ -208,7 +208,7 @@ fail "review-syntax-b-2-e08 writeview of temp", "a view reached through `wid(!mk
   s = keep(?wid(!mk())[1..])
   print(s)
 
-fail "review-syntax-b-2-f02 trim writeview slice", "cannot lend `w` to write while a read loan is live"
+fail "review-syntax-b-2-f02 trim writeview slice", "cannot change `w` while a read view of it is still in use"
   sub f(w: !String)
     s = text.trim(?w[1..])
     for _ in 0..50
@@ -218,7 +218,7 @@ fail "review-syntax-b-2-f02 trim writeview slice", "cannot lend `w` to write whi
   t = String(" hello ")
   f(!t)
 
-fail "review-syntax-b-2-f03 split writeview", "cannot lend `w` to write while a read loan is live"
+fail "review-syntax-b-2-f03 split writeview", "cannot change `w` while a read view of it is still in use"
   sub f(w: !String)
     it = text.split(?w[0..], " ")
     for _ in 0..50
@@ -241,7 +241,7 @@ test "review-syntax-b-2-f05 writeview print ok", '''
   t = String(" hello ")
   f(!t)
 
-fail "review-syntax-b-2-g01 for bytes writeview add", "cannot lend `w` to write while a read loan is live"
+fail "review-syntax-b-2-g01 for bytes writeview add", "cannot change `w` while a read view of it is still in use"
   sub f(w: !String)
     for b in w
       if b == 104
@@ -252,7 +252,7 @@ fail "review-syntax-b-2-g01 for bytes writeview add", "cannot lend `w` to write 
   t = String("hello")
   f(!t)
 
-fail "review-syntax-b-2-g02 for vec writeview push", "cannot lend `w` to write while a read loan is live"
+fail "review-syntax-b-2-g02 for vec writeview push", "cannot change `w` while a read view of it is still in use"
   sub f(w: !List[Int])
     for x in w
       if x == 1
@@ -265,7 +265,7 @@ fail "review-syntax-b-2-g02 for vec writeview push", "cannot lend `w` to write w
   !v.push(2)
   f(!v)
 
-fail "review-syntax-b-2-g03 for bytes box writeview", "cannot reassign `w` while it is lent"
+fail "review-syntax-b-2-g03 for bytes box writeview", "cannot reassign `w` while a read view of it is still in use"
   sub f(w: !^String)
     for b in w
       if b == 104
@@ -275,7 +275,7 @@ fail "review-syntax-b-2-g03 for bytes box writeview", "cannot reassign `w` while
   t = ^String("hello")
   f(!t)
 
-fail "review-syntax-b-2-m02 match bang bound written", "cannot lend `t` to write while a read loan is live"
+fail "review-syntax-b-2-m02 match bang bound written", "cannot change `t` while a read view of it is still in use"
   fun keep(s: ?String) -> ?String
     s
 
@@ -295,7 +295,7 @@ fail "review-syntax-b-2-m02 match bang bound written", "cannot lend `t` to write
       print(s)
     .b => print("b")
 
-fail "review-syntax-b-2-m03 match bang readlend", "cannot lend `t` to write while a read loan is live"
+fail "review-syntax-b-2-m03 match bang readlend", "cannot change `t` while a read view of it is still in use"
   fun keep(s: ?String) -> ?String
     s
 
@@ -314,7 +314,7 @@ fail "review-syntax-b-2-m03 match bang readlend", "cannot lend `t` to write whil
       print(r)
     .b => print("b")
 
-fail "review-syntax-b-2-m04 match bang vec payload", "cannot lend `xs` to write while a read loan is live"
+fail "review-syntax-b-2-m04 match bang vec payload", "cannot change `xs` while a read view of it is still in use"
   fun keepv(s: []Int) -> []Int
     s
 
@@ -333,7 +333,7 @@ fail "review-syntax-b-2-m04 match bang vec payload", "cannot lend `xs` to write 
       print(s)
     .b => print("b")
 
-fail "review-syntax-b-2-m05 match bang param", "cannot lend `t` to write while a read loan is live"
+fail "review-syntax-b-2-m05 match bang param", "cannot change `t` while a read view of it is still in use"
   fun keep(s: ?String) -> ?String
     s
 
@@ -356,7 +356,7 @@ fail "review-syntax-b-2-m05 match bang param", "cannot lend `t` to write while a
   x = E.a(String("hello"))
   f(!x)
 
-fail "review-syntax-b-2-m06 match bang reassign payload", "cannot reassign `t` while it is lent"
+fail "review-syntax-b-2-m06 match bang reassign payload", "cannot reassign `t` while a read view of it is still in use"
   fun keep(s: ?String) -> ?String
     s
 
@@ -375,7 +375,7 @@ fail "review-syntax-b-2-m06 match bang reassign payload", "cannot reassign `t` w
       print(s)
     .b => print("b")
 
-fail "review-syntax-b-2-m07 match bang reassign subject", "cannot reassign `e` while it is lent"
+fail "review-syntax-b-2-m07 match bang reassign subject", "cannot reassign `e` while a write view of it is still in use"
   fun keep(s: ?String) -> ?String
     s
 
@@ -394,7 +394,7 @@ fail "review-syntax-b-2-m07 match bang reassign subject", "cannot reassign `e` w
       print(s)
     .b => print("b")
 
-fail "review-syntax-b-2-m09 match bang struct payload", "cannot lend `p.t` to write while a read loan is live"
+fail "review-syntax-b-2-m09 match bang struct payload", "cannot change `p.t` while a read view of it is still in use"
   fun keep(s: ?String) -> ?String
     s
 
@@ -414,7 +414,7 @@ fail "review-syntax-b-2-m09 match bang struct payload", "cannot lend `p.t` to wr
       print(s)
     .b => print("b")
 
-fail "review-syntax-b-2-m10 match bang box payload", "cannot reassign `b` while it is lent"
+fail "review-syntax-b-2-m10 match bang box payload", "cannot reassign `b` while a read view of it is still in use"
   fun keep(s: ?String) -> ?String
     s
 
@@ -430,7 +430,7 @@ fail "review-syntax-b-2-m10 match bang box payload", "cannot reassign `b` while 
       print(s)
     .z => print("z")
 
-fail "review-syntax-b-2-m11 for bang binding", "cannot lend `t` to write while a read loan is live"
+fail "review-syntax-b-2-m11 for bang binding", "cannot change `t` while a read view of it is still in use"
   v: List[String] = List()
   !v.push(String("hello"))
   for t in !v
@@ -439,7 +439,7 @@ fail "review-syntax-b-2-m11 for bang binding", "cannot lend `t` to write while a
       !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
     print(s)
 
-fail "review-syntax-b-2-m12 if bang as written", "cannot lend `w` to write while a read loan is live"
+fail "review-syntax-b-2-m12 if bang as written", "cannot change `w` while a read view of it is still in use"
   o: String? = String("hello")
   if !o as w
     s = ?w[1..]
@@ -447,7 +447,7 @@ fail "review-syntax-b-2-m12 if bang as written", "cannot lend `w` to write while
       !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
     print(s)
 
-fail "review-syntax-b-2-m13 match bang box subject", "cannot lend `t` to write while a read loan is live"
+fail "review-syntax-b-2-m13 match bang box subject", "cannot change `t` while a read view of it is still in use"
   enum E
     a(t: String)
     b
@@ -461,7 +461,7 @@ fail "review-syntax-b-2-m13 match bang box subject", "cannot lend `t` to write w
       print(s)
     .b => print("b")
 
-fail "review-syntax-b-2-m14 match bang vec written", "cannot lend `xs` to write while a read loan is live"
+fail "review-syntax-b-2-m14 match bang vec written", "cannot change `xs` while a read view of it is still in use"
   enum V
     a(v: List[Int])
     b
@@ -481,7 +481,7 @@ fail "review-syntax-b-2-m14 match bang vec written", "cannot lend `xs` to write 
       print(s)
     .b => print("b")
 
-fail "review-syntax-b-2-m15 match bang named payload", "cannot lend `x` to write while a read loan is live"
+fail "review-syntax-b-2-m15 match bang named payload", "cannot change `x` while a read view of it is still in use"
   enum E
     a(t: String, n: Int)
     b
@@ -495,7 +495,7 @@ fail "review-syntax-b-2-m15 match bang named payload", "cannot lend `x` to write
       print(s)
     _ => pass
 
-fail "review-syntax-b-2-m17 match bang arrow call", "cannot lend `t` to read while a write loan is live"
+fail "review-syntax-b-2-m17 match bang arrow call", "cannot use `t` while a write view of it is still in use"
   fun grow(t: !String, s: ?String) -> ?String
     for _ in 0..50
       !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
@@ -561,7 +561,7 @@ test "review-syntax-b-2-o04 write holder string field reassign", '''
   g(!r)
   print(r.f)
 
-fail "review-syntax-b-2-o05 write holder readview bad", "cannot lend `t` to write while a read loan is live"
+fail "review-syntax-b-2-o05 write holder readview bad", "cannot change `t` while a read view of it is still in use"
   obj R
     f: ?String
 
@@ -573,7 +573,7 @@ fail "review-syntax-b-2-o05 write holder readview bad", "cannot lend `t` to writ
     !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
   print(s)
 
-fail "review-syntax-b-2-o06 closure read of writeview", "cannot lend `w` to write while a read loan is live"
+fail "review-syntax-b-2-o06 closure read of writeview", "cannot change `w` while a read view of it is still in use"
   sub f(w: !String)
     g = |?w| w[1..]
     s = g()
@@ -584,7 +584,7 @@ fail "review-syntax-b-2-o06 closure read of writeview", "cannot lend `w` to writ
   t = String("hello")
   f(!t)
 
-fail "review-syntax-b-2-o08 read of write then move", "cannot move `w` while a read loan is live"
+fail "review-syntax-b-2-o08 read of write then move", "cannot move `w` while a read view of it is still in use"
   sub g(w: !String)
     for _ in 0..50
       !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
@@ -596,7 +596,7 @@ fail "review-syntax-b-2-o08 read of write then move", "cannot move `w` while a r
   g(<w)
   print(s)
 
-fail "review-syntax-b-2-o13 callable view write capture", "cannot lend `t` to read while a write loan is live"
+fail "review-syntax-b-2-o13 callable view write capture", "cannot use `t` while a write view of it is still in use"
   sub f(r: ?String, g: ?sub())
     s = r[1..]
     g()
@@ -815,7 +815,7 @@ test "review-take-h4", '''
   t = <s.t.a
   print(t, s)
 
-fail "review-take-p01", "cannot lend `s.a` to write while a read loan is live"
+fail "review-take-p01", "cannot change `s.a` while a read view of it is still in use"
   obj R
     n: Int
     drop(!@)
@@ -831,7 +831,7 @@ fail "review-take-p01", "cannot lend `s.a` to write while a read loan is live"
     print(x.n)
   print("end")
 
-fail "review-take-p02", "cannot lend `s.a` to write while a read loan is live"
+fail "review-take-p02", "cannot change `s.a` while a read view of it is still in use"
   obj R
     n: Int
     drop(!@)
@@ -867,7 +867,7 @@ test "review-take-p03", '''
   print(s)
   print("end")
 
-fail "review-take-p04", "cannot lend `s.b` to write while a write loan on `s` is live"
+fail "review-take-p04", "cannot change `s.b` while a write view of `s` is still in use"
   obj R
     n: Int
     drop(!@)
@@ -1411,7 +1411,7 @@ test "review-take-p29", '''
     print("weak")
   print("end")
 
-fail "review-take-p32", "cannot lend `s.a` to write while a write loan is live"
+fail "review-take-p32", "cannot change `s.a` while a write view of it is still in use"
   obj S
     a: Int
     b: Int
@@ -1473,12 +1473,12 @@ test "review-take-p35", '''
   old = swap(!s.a, <s.b)
   print(old, s)
 
-fail "review-take-p36", "use of `x` while a write loan is live"
+fail "review-take-p36", "cannot use `x` while a write view of it is still in use"
   x = 1
   old = swap(!x, x + 1)
   print(old, x)
 
-fail "review-take-p37", "use of `v` while a write loan is live"
+fail "review-take-p37", "cannot use `v` while a write view of it is still in use"
   v: List[Int] = List()
   !v.push(1)
   !v.push(2)
@@ -1487,7 +1487,7 @@ fail "review-take-p37", "use of `v` while a write loan is live"
   swap(!v[0], !v[1])
   print(v)
 
-fail "review-take-p38", "cannot lend `a` to write while a write loan is live: to swap two elements of `a`, write `!a.swap(0, 2)`"
+fail "review-take-p38", "cannot change `a` while a write view of it is still in use: to swap two elements of `a`, write `!a.swap(0, 2)`"
   a: [3]Int = [1, 2, 3]
   swap(!a[0], !a[2])
   print(a)
@@ -1531,7 +1531,7 @@ test "review-take-p46", '''
   f(x: <s.a, y: peek(?s))
   print(s)
 
-fail "review-take-p47", "cannot lend `s.a` to write while a write loan on `s` is live"
+fail "review-take-p47", "cannot change `s.a` while a write view of `s` is still in use"
   obj R
     n: Int
     drop(!@)
@@ -1548,7 +1548,7 @@ fail "review-take-p47", "cannot lend `s.a` to write while a write loan on `s` is
   t = <s.a
   print(w, t)
 
-fail "review-take-p48", "use of `s` while a write loan is live"
+fail "review-take-p48", "cannot use `s` while a write view of it is still in use"
   obj R
     n: Int
     drop(!@)

@@ -459,7 +459,7 @@ test "hashmap ensure chain", "[5, 6] 1"
   (!b).ensure(1, List()).push(6)
   print(b.get(1), b.len)
 
-fail "hashmap ensure keeps lent", "use of `m.len` while a write loan on `m` is live"
+fail "hashmap ensure keeps lent", "cannot use `m.len` while a write view of `m` is still in use"
   # The write view `ensure` returns is `from @`: it keeps the HashMap lent
   # to write, so it cannot be read or written while the view lives.
 
@@ -511,7 +511,7 @@ test "hashmap ensure with", '''
     calls += 1
     k * k
 
-fail "hashmap ensure with no map", "cannot lend `m` to write while a read loan is live"
+fail "hashmap ensure with no map", "cannot change `m` while a read view of it is still in use"
   # `ensure_with` holds the HashMap lent to write while `make` runs, so
   # `make` cannot capture it.
 
@@ -553,7 +553,7 @@ test "hashmap ensure by", '''
   if sq.get(3) as l
     print(sq.len, l)
 
-fail "hashmap ensure by view keys stay lent", "cannot lend `buf` to write while a read loan is live"
+fail "hashmap ensure by view keys stay lent", "cannot change `buf` while a read view of it is still in use"
   # A HashMap of view keys keeps what `key` made from the viewed key, so
   # the buffer stays lent while the HashMap is used.
 
@@ -572,7 +572,7 @@ bomb "hashmap ensure by key other than k", "HashMap: `ensure_by`'s `key(k)` made
   (!m).ensure_by("a", |s| String("b"), 5) += 0
   print(m)
 
-fail "hashmap get keeps lent", "cannot lend `m` to write while a read loan is live"
+fail "hashmap get keeps lent", "cannot change `m` while a read view of it is still in use"
   # The view `get` returns is `from @`: it keeps the HashMap lent to
   # read, so it cannot be written while the view lives.
 
@@ -581,7 +581,7 @@ fail "hashmap get keeps lent", "cannot lend `m` to write while a read loan is li
   !m.put(String("b"), 1)
   print(r)
 
-fail "hashmap items then put", "cannot lend `m` to write while a read loan is live"
+fail "hashmap items then put", "cannot change `m` while a read view of it is still in use"
   # The iterator `items` returns views the HashMap, which stays lent to
   # read while the loop walks it.
 
@@ -590,7 +590,7 @@ fail "hashmap items then put", "cannot lend `m` to write while a read loan is li
   for e in ?m.items()
     !m.put(String("c"), 2)
 
-fail "hashmap keys then take", "cannot lend `s` to write while a read loan is live"
+fail "hashmap keys then take", "cannot change `s` while a read view of it is still in use"
   # A HashSet's walk keeps it lent to read too.
 
   s = HashSet[Int].new()
@@ -598,7 +598,7 @@ fail "hashmap keys then take", "cannot lend `s` to write while a read loan is li
   for k in ?s.items()
     _ = (!s).take(k)
 
-fail "hashmap value view keeps its loan", "cannot drop `t` while it is lent"
+fail "hashmap value view keeps its loan", "cannot drop `t` while a read view of it is still in use"
   # A value that views text, taken out of a HashMap, still views it.
 
   t = String("x")
@@ -804,7 +804,7 @@ test "hashmap results", '''
     count(!m, word)
   print(m.get("a") ?? 0, m.get("b") ?? 0, m.len)
 
-fail "hashmap retain no map", "cannot lend `m` to write while a read loan is live"
+fail "hashmap retain no map", "cannot change `m` while a read view of it is still in use"
   # `retain` holds the HashMap lent to write while its closure runs, so
   # the closure cannot capture it.
 

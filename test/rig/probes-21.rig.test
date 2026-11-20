@@ -348,7 +348,7 @@ test "review-copies-2-q14b-fallible-view-fn-inside-closure", "1 2"
   b = P(x: 2)
   print(outer(?a, ?b, 1), outer(?a, ?b, 0))
 
-fail "review-copies-p02-copy-out-view-holder-loan", "cannot lend `xs` to write while a read loan is live"
+fail "review-copies-p02-copy-out-view-holder-loan", "cannot change `xs` while a read view of it is still in use"
   obj S
     v: ?List[Int]
 
@@ -360,7 +360,7 @@ fail "review-copies-p02-copy-out-view-holder-loan", "cannot lend `xs` to write w
   !xs.push(2)
   print(c.v.len)
 
-fail "review-copies-p03-write-view-read-holder-loan", "cannot lend `xs` to write while a read loan is live"
+fail "review-copies-p03-write-view-read-holder-loan", "cannot change `xs` while a read view of it is still in use"
   obj S
     v: ?List[Int]
 
@@ -372,7 +372,7 @@ fail "review-copies-p03-write-view-read-holder-loan", "cannot lend `xs` to write
   !xs.push(2)
   print(c.v.len)
 
-fail "review-copies-p04-clone-capture-view-string-text-dropped", "cannot drop `t` while it is lent"
+fail "review-copies-p04-clone-capture-view-string-text-dropped", "cannot drop `t` while a read view of it is still in use"
   obj S
     s: ?String
 
@@ -429,7 +429,7 @@ test "review-copies-p05-clone-capture-vec-paths", '''
   unused()
   many()
 
-fail "review-copies-p06-fill-read-view-mutate", "cannot reassign `n` while it is lent"
+fail "review-copies-p06-fill-read-view-mutate", "cannot reassign `n` while a read view of it is still in use"
   n = 1
   m = 2
   a = [?m, ?m, ?m]
@@ -437,7 +437,7 @@ fail "review-copies-p06-fill-read-view-mutate", "cannot reassign `n` while it is
   n = 5
   print(a[0])
 
-fail "review-copies-p08-copy-read-views-mutate", "cannot reassign `n` while it is lent"
+fail "review-copies-p08-copy-read-views-mutate", "cannot reassign `n` while a read view of it is still in use"
   n = 1
   m = 2
   src = [?n, ?n]
@@ -446,7 +446,7 @@ fail "review-copies-p08-copy-read-views-mutate", "cannot reassign `n` while it i
   n = 9
   print(dst[0])
 
-fail "review-copies-p09-owned-closure-returns-string-struct-of-capture", "cannot return a view of `t`, which this function was not lent"
+fail "review-copies-p09-owned-closure-returns-string-struct-of-capture", "cannot return a view of `t`, which belongs to this function"
   # An owned closure returns a plain object whose String views its own
   # captured Text; the closure is then dropped.
   obj P
@@ -458,7 +458,7 @@ fail "review-copies-p09-owned-closure-returns-string-struct-of-capture", "cannot
   <f
   print(p.s)
 
-fail "review-copies-p18-branch-copy-out-view-holder", "cannot lend `xs` to write while a read loan is live"
+fail "review-copies-p18-branch-copy-out-view-holder", "cannot change `xs` while a read view of it is still in use"
   # A branch whose arms are a read view of S and an S: the view is copied
   # out; the copy carries the loan of the view S holds.
   obj S
@@ -491,7 +491,7 @@ test "review-copies-p18ok-branch-copy-out-view-holder", "1"
   s = S(v: ?ys)
   print(c.v.len)
 
-fail "review-copies-p19-coalesce-copy-out-view-holder", "cannot lend `xs` to write while a read loan is live"
+fail "review-copies-p19-coalesce-copy-out-view-holder", "cannot change `xs` while a read view of it is still in use"
   obj S
     v: ?List[Int]
 
@@ -522,7 +522,7 @@ test "review-copies-p19ok-coalesce-copy-out-view-holder", "1"
   o = none
   print(c.v.len)
 
-fail "review-copies-p20-coalesce-local-copy-out-view-holder", "cannot lend `xs` to write while a read loan is live"
+fail "review-copies-p20-coalesce-local-copy-out-view-holder", "cannot change `xs` while a read view of it is still in use"
   obj S
     v: ?List[Int]
 
@@ -549,7 +549,7 @@ test "review-copies-p20ok-coalesce-local-copy-out-view-holder", "1"
   o = none
   print(c.v.len)
 
-fail "review-copies-p21-array-copy-out-view-holder", "cannot lend `xs` to write while a read loan is live"
+fail "review-copies-p21-array-copy-out-view-holder", "cannot change `xs` while a read view of it is still in use"
   xs: List[Int] = List()
   !xs.push(1)
   a = [?xs, ?xs]
@@ -568,7 +568,7 @@ test "review-copies-p21ok-array-copy-out-view-holder", "1"
   a = [?xs, ?xs]
   print(c[0].len)
 
-fail "review-copies-p22-result-copy-out-then-holder-changes", "cannot lend `xs` to write while a read loan is live"
+fail "review-copies-p22-result-copy-out-then-holder-changes", "cannot change `xs` while a read view of it is still in use"
   # The copy out of a view keeps the loans of the views S holds, not the
   # loan on s: s may change, xs may not.
   obj S
@@ -610,7 +610,7 @@ test "review-copies-p22ok-result-copy-out-then-holder-changes", '''
   !ys.push(3)
   print(t.v.len)
 
-fail "review-copies-p23-string-holder-copy-out-text-dropped", "cannot drop `t` while it is lent"
+fail "review-copies-p23-string-holder-copy-out-text-dropped", "cannot drop `t` while a read view of it is still in use"
   obj S
     s: ?String
 
@@ -623,7 +623,7 @@ fail "review-copies-p23-string-holder-copy-out-text-dropped", "cannot drop `t` w
   <t
   print(c.s)
 
-fail "review-copies-p25-write-view-struct-literal-field", "cannot lend `w` to write while a write loan is live"
+fail "review-copies-p25-write-view-struct-literal-field", "cannot change `w` while a write view of it is still in use"
   # A bare write view of a plain object read as a field value: Core
   # sentence 1 says it reads the value it sees.
   obj P
@@ -640,7 +640,7 @@ fail "review-copies-p25-write-view-struct-literal-field", "cannot lend `w` to wr
   w.x = 5
   print(q.p.x, a.x)
 
-fail "review-copies-p25b-write-view-int-struct-literal-field", "cannot lend `w` to write while a write loan is live"
+fail "review-copies-p25b-write-view-int-struct-literal-field", "cannot change `w` while a write view of it is still in use"
   obj Q
     p: Int
     o: Int?
@@ -651,7 +651,7 @@ fail "review-copies-p25b-write-view-int-struct-literal-field", "cannot lend `w` 
   w = 5
   print(q.p, a)
 
-fail "review-copies-p32-clone-capture-through-view-vec-of-slices", "cannot assign to `a[1]` while `a` is lent"
+fail "review-copies-p32-clone-capture-through-view-vec-of-slices", "cannot assign to `a[1]` while a read view of `a` is still in use"
   # `|+r|` deep-clones a List of slices through a view: the clone keeps
   # the slices' loan on `a`, not the view's loan on `x`.
   a = [1, 2, 3]
@@ -677,7 +677,7 @@ test "review-copies-p32ok-clone-capture-through-view-vec-of-slices", '''
   a[1] = 9
   print(a)
 
-fail "review-copies-p33-clone-capture-vec-of-text-views", "cannot drop `t` while it is lent"
+fail "review-copies-p33-clone-capture-vec-of-text-views", "cannot drop `t` while a read view of it is still in use"
   # `|+v|` deep-clones a List of Strings viewing a Text; the Text is
   # then dropped while the closure lives.
   t = String("a long heap allocated text here")
@@ -735,14 +735,14 @@ test "review-copies-p34-clone-capture-escape-and-fail", '''
   print(run(1) catch -1)
   print(run(5) catch -1)
 
-fail "review-copies-p36-owned-closure-string-result", "cannot drop `t` while it is lent"
+fail "review-copies-p36-owned-closure-string-result", "cannot drop `t` while a read view of it is still in use"
   f = *|s: ?String| s
   t = String("a long heap allocated text here")
   p = f(?t)
   <t
   print(p)
 
-fail "review-copies-p37-owned-closure-struct-param-stored", "cannot store a view of `p` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one; if it is only passed literal text, declare the parameter `Static`, which carries no loan"
+fail "review-copies-p37-owned-closure-struct-param-stored", "cannot store a view of `p` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one; if it is only passed literal text, declare the parameter `Static`, which holds no view"
   # An owned closure stores a String-holding object param into a captured
   # Cell it shares; the Text dies before the Cell is read.
   obj P
@@ -827,14 +827,14 @@ fail "review-copies-p43-copy-text-views-drop", "`t` does not live long enough"
     !a.copy(?b[..])
   print(a[0])
 
-fail "review-copies-p44-n-of-text-view-drop", "cannot return a view of `t`, which this function was not lent"
+fail "review-copies-p44-n-of-text-view-drop", "cannot return a view of `t`, which belongs to this function"
   fun mk() -> [3]?String
     t = String("a long heap allocated text here")
     [3 of ?t]
 
   print(mk()[0])
 
-fail "review-copies-p45-boundary-pols", "cannot assign to `a.x` while `a` is lent"
+fail "review-copies-p45-boundary-pols", "cannot assign to `a.x` while a read view of `a` is still in use"
   # The kept boundary: how a read view of a plain object reads in each
   # form, beside a write view of one and a read view of an Int.
   obj P
@@ -924,7 +924,7 @@ test "review-copies-p46-generic-copies-instances", '''
   oo: (Int?)? = 5
   print(cap(oo), three(oo))
 
-fail "review-copies-p49b-while-step-uses-slice-after-push", "cannot lend `v` to write while a read loan is live"
+fail "review-copies-p49b-while-step-uses-slice-after-push", "cannot change `v` while a read view of it is still in use"
   # The step reads a slice the condition binds... rejected: a view
   # binding may not be used by the step.
   #
@@ -942,7 +942,7 @@ fail "review-copies-p49b-while-step-uses-slice-after-push", "cannot lend `v` to 
     !v.push(2)
   print(k, v.len)
 
-fail "review-copies-p49c-while-step-outer-slice", "cannot lend `v` to write while a read loan is live"
+fail "review-copies-p49c-while-step-outer-slice", "cannot change `v` while a read view of it is still in use"
   # A plain `while c: step` whose step reads a slice declared before the
   # loop, after the body grew the List.
   #
@@ -957,7 +957,7 @@ fail "review-copies-p49c-while-step-outer-slice", "cannot lend `v` to write whil
     !v.push(2)
   print(k, v.len)
 
-fail "review-copies-p49d-while-step-text-holder", "cannot lend `t` to write while a read loan is live"
+fail "review-copies-p49d-while-step-text-holder", "cannot change `t` while a read view of it is still in use"
   # oracle: mk accept
   # oracle: main reject C4
 
@@ -999,7 +999,7 @@ test "review-copies-p49e-while-step-struct-reads-only", "12"
     i += 1
   print(k)
 
-fail "review-copies-p49f-while-step-outer-repointed", "cannot lend `v` to write while a read loan is live"
+fail "review-copies-p49f-while-step-outer-repointed", "cannot change `v` while a read view of it is still in use"
   # The step reads an outer slice the body re-points at a List, after the
   # body grew that List.
   #
@@ -1016,7 +1016,7 @@ fail "review-copies-p49f-while-step-outer-repointed", "cannot lend `v` to write 
     i += 1
   print(k, v.len)
 
-fail "review-copies-p50-defer-reads-slice-after-push", "cannot lend `v` to write while a read loan is live"
+fail "review-copies-p50-defer-reads-slice-after-push", "cannot change `v` while a read view of it is still in use"
   # A defer reads a slice at scope end, after the List it views grew.
   #
   # oracle: main reject C4
@@ -1028,7 +1028,7 @@ fail "review-copies-p50-defer-reads-slice-after-push", "cannot lend `v` to write
   !v.push(3)
   print(v.len)
 
-fail "review-copies-p50b-defer-reads-struct-slice-after-push", "cannot lend `v` to write while a read loan is live"
+fail "review-copies-p50b-defer-reads-struct-slice-after-push", "cannot change `v` while a read view of it is still in use"
   # oracle: main reject C4
 
   obj S

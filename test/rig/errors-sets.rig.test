@@ -606,7 +606,7 @@ test "sets a member widens to its union where a view of it goes", '''
   o: L? = A.w
   print(o == A.x, o == .w)
 
-fail "sets a member with fields is bound before it is lent as its union", "14:10: type mismatch: expected `?L`, got `A`; bind it first, `k: L = A.x(n: 3)`, then lend `?k`", errors: 1
+fail "sets a member with fields is bound before it is lent as its union", "14:10: type mismatch: expected `?L`, got `A`; bind it first, `k: L = A.x(n: 3)`, then pass `?k`", errors: 1
   # A value of a union with fields made where its view goes would be a
   # temporary a view could outlive: it is bound first.
   error A
@@ -716,7 +716,7 @@ test "sets a code lent as a key and into an optional view of a union with fields
   b = B.z
   print(opt(b), opt(none), opt(?b))
 
-fail "sets a member with fields is bound before it is lent as `error`", "10:11: type mismatch: expected `?error`, got `A`; bind it first, `k: error = <a`, then lend `?k`", "11:11: type mismatch: expected `?error`, got `A`; bind it first, `k: error = A.x(s: String(\"q\"))`, then lend `?k`", errors: 2
+fail "sets a member with fields is bound before it is lent as `error`", "10:11: type mismatch: expected `?error`, got `A`; bind it first, `k: error = <a`, then pass `?k`", "11:11: type mismatch: expected `?error`, got `A`; bind it first, `k: error = A.x(s: String(\"q\"))`, then pass `?k`", errors: 2
   # As where a view of its union goes; a place that moves is moved
   # into the binding.
   error A

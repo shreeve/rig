@@ -972,7 +972,7 @@ pub const Checker = struct {
                 try self.note(r.pos, "here", .{});
                 continue;
             }
-            const what = if (r.view) try std.fmt.allocPrint(a, "a value that holds no loan, which {s} keeps", .{r.home.keeper()}) else if (r.element) "taking an element its collection still owns" else "a copy";
+            const what = if (r.view) try std.fmt.allocPrint(a, "a value that holds no view, which {s} keeps", .{r.home.keeper()}) else if (r.element) "taking an element its collection still owns" else "a copy";
             try self.err(r.pos, "{s}", .{try sema.unboundedMessage(ctx, a, sym, api, what)});
         }
     }
@@ -1073,8 +1073,8 @@ pub const Checker = struct {
         for (self.plain_reqs.items) |r| {
             if (r.param != param or !r.view) continue;
             if (!try sema.liveAt(ctx, r.module_id, r.pos, subst.params, subst.args)) continue;
-            const why = (try sema.objectLoanReason(ctx, self.arena(), arg)) orelse if (sema.holdsMarkedView(ctx, arg)) "a view keeps what it views lent" else "a `?String` may view a String (a `Static` carries no loan)";
-            try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body {s}, which carries no loan, and {s}", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), try r.home.doing(self.arena(), pname), why });
+            const why = (try sema.objectLoanReason(ctx, self.arena(), arg)) orelse if (sema.holdsMarkedView(ctx, arg)) "a view keeps what it views read-only" else "a `?String` may view a String (a `Static` holds no view)";
+            try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body {s}, which holds no view, and {s}", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), try r.home.doing(self.arena(), pname), why });
             try self.noteIn(r.module_id, r.pos, "`{s}` {s}", .{ pname, r.home.site() });
             return;
         }
@@ -1135,10 +1135,10 @@ pub const Checker = struct {
         const aname = try sema.formatTypeIn(ctx, a, arg);
         const fname = try sema.formatTypeIn(ctx, a, inst);
         if (r.in_result) {
-            try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body holds as a `{s}` what a `{s}` gives when passed a view, and tracks no loan in it, but a `{s}` can hold a view; use a `{s}` that owns what it holds", .{ shown, pname, aname, pname, fname, aname, pname });
+            try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body holds as a `{s}` what a `{s}` gives when passed a view, and tracks no view in it, but a `{s}` can hold a view; use a `{s}` that owns what it holds", .{ shown, pname, aname, pname, fname, aname, pname });
             try self.noteIn(r.module_id, r.pos, "the body holds the result as a `{s}` here", .{pname});
         } else {
-            try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body passes a `{s}` a view beside a write view of a `{s}` it holds, whose loans it does not track, and a `{s}` can hold the view; use a `{s}` that owns what it holds", .{ shown, pname, aname, fname, pname, aname, pname });
+            try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body passes a `{s}` a view beside a write view of a `{s}` it holds, whose views it does not track, and a `{s}` can hold the view; use a `{s}` that owns what it holds", .{ shown, pname, aname, fname, pname, aname, pname });
             try self.noteIn(r.module_id, r.pos, "the body passes the views here", .{});
         }
     }
@@ -1264,7 +1264,7 @@ pub const Checker = struct {
     /// is stored where no loan is tracked: the loan `l` is the parameter's
     /// own (`ext`), and a `Static` has none.
     fn staticParamHint(l: Loan) []const u8 {
-        return if (l.ext) "; if it is only passed literal text, declare the parameter `Static`, which carries no loan" else "";
+        return if (l.ext) "; if it is only passed literal text, declare the parameter `Static`, which holds no view" else "";
     }
 
     fn arena(self: *Checker) std.mem.Allocator {
@@ -1391,7 +1391,7 @@ pub const Checker = struct {
         if (self.quiet > 0 or !self.last_err_kept) return;
         const lent = try self.pathText(loan.root, loan.path);
         if (loan.place_hold) {
-            try self.note(loan.pos, "`{s}` is lent here, and the place is found up to each index before the index runs", .{lent});
+            try self.note(loan.pos, "a view of `{s}` is made here, and the place is found up to each index before the index runs", .{lent});
         } else if (loan.held_read != .none) {
             const uses = switch (loan.held_read) {
                 .none, .argument => "the call uses it after its later arguments run",
@@ -1402,20 +1402,37 @@ pub const Checker = struct {
             };
             try self.note(loan.pos, "`{s}` read here: the value shares its storage, and {s}", .{ lent, uses });
         } else if (loan.reserved) {
-            try self.note(loan.pos, "`{s}` lent to write here, as `self`, which is read until the call starts", .{lent});
+            try self.note(loan.pos, "a write view of `{s}` is made here, as `self`, which is read until the call starts", .{lent});
         } else if (loan.read_of_write) {
-            try self.note(loan.pos, "`{s}` lent to write here, and kept lent to read by a view that only reads it", .{lent});
+            try self.note(loan.pos, "a write view of `{s}` is made here, and kept as a read view by a value that only reads it", .{lent});
         } else if (self.kept_lends.get(loan.pos)) |k| {
-            try self.note(loan.pos, "`{s}` lent to {s} here, and `{s}` keeps it in `{s}` (its signature says `keeps {s}`), so the loan lasts while `{s}` is used", .{ lent, @tagName(loan.kind), k.callee, k.holder, k.param, k.holder });
-        } else try self.note(loan.pos, "`{s}` lent to {s} here", .{ lent, @tagName(loan.kind) });
+            try self.note(loan.pos, "a {s} view of `{s}` is made here, and `{s}` keeps it in `{s}` (its signature says `keeps {s}`), so the view lasts while `{s}` is used", .{ self.viewWord(loan), lent, k.callee, k.holder, k.param, k.holder });
+        } else try self.note(loan.pos, "a {s} view of `{s}` is made here", .{ self.viewWord(loan), lent });
     }
 
-    /// How a message names the place loan `l` is on, after a use of
-    /// place `path` of the same var: nothing when it is that place, and
-    /// ` on `p.a`` when one holds the other.
-    fn loanOnText(self: *Checker, l: Loan, path: PathId) Error![]const u8 {
-        if (l.path == path) return "";
-        return self.arena().print(" on `{s}`", .{try self.pathText(l.root, l.path)});
+    /// How a message names the view loan `l` records, by the sigil
+    /// written: a cell's `!c` is a write view though its loan is a read
+    /// loan, and a write self is one though it is read until its call
+    /// starts. A result that only reads what `!v` gave it is a read view.
+    fn viewWord(self: *const Checker, l: Loan) []const u8 {
+        if (l.kind == .write or l.reserved) return "write";
+        if (l.read_of_write) return "read";
+        return if (self.bangAt(l.pos)) "write" else "read";
+    }
+
+    /// Whether `!` is written at `pos`, or just before it: a loan's
+    /// position is its sigil's (a write self) or its operand's, which the
+    /// sigil touches.
+    fn bangAt(self: *const Checker, pos: u32) bool {
+        if (pos < self.source.len and self.source[pos] == '!') return true;
+        return pos > 0 and pos <= self.source.len and self.source[pos - 1] == '!';
+    }
+
+    /// How a message names the view loan `l` records, after a use of
+    /// place `path` of the same var: `a read view of it`, or `a write
+    /// view of `p.a`` when that view is of another place.
+    fn viewOfText(self: *Checker, l: Loan, path: PathId) Error![]const u8 {
+        return self.arena().print("a {s} view of {s}", .{ self.viewWord(l), try self.lentText(l, path) });
     }
 
     /// How a message names what loan `l` is on, after a use of place
@@ -1458,7 +1475,7 @@ pub const Checker = struct {
             .operand => "the left operand's",
             .base => "the indexed value's",
         };
-        return self.arena().print("while {s} read of {s} is in use", .{ who, of });
+        return self.arena().print("while {s} read of {s} is still in use", .{ who, of });
     }
 
     /// What is done to a var, for a loan conflict.
@@ -1483,37 +1500,44 @@ pub const Checker = struct {
         // Diagnostics name both places: the one used, and the one lent
         // where it is not the same.
         const name = try self.pathText(id, path);
-        const on = try self.loanOnText(l, path);
+        const view = try self.viewOfText(l, path);
         const lent = try self.lentText(l, path);
-        const in_index = if (l.path == path) "in an index of a place it is lending" else try self.arena().print("in an index of {s}, a place being lent", .{lent});
-        const held = try self.heldReadClause(l.held_read, lent);
-        // Every arm of `task.select` is made before it runs one, so what
-        // two arms lend lives at once: the fix moves the use out of one.
+        const verb = switch (access) {
+            .read => "use",
+            // A cell changes through its own calls (`!c.set(5)`), so a
+            // write of the handle that holds one is named as such.
+            .write => if (path == whole_path and self.holdsCellHandle(id)) "make a write view of the handle" else "change",
+            .consume => |v| v,
+        };
+        // Every arm of `task.select` is made before it runs one, so the
+        // views two arms make live at once: the fix moves the use out of
+        // one.
         if (access == .write and l.kind == .write and !l.place_hold and l.held_read == .none and self.inTwoArms(self.cur_stmt, pos, l.pos)) {
-            try self.err(pos, "cannot lend `{s}` to write while a write loan{s} is live: `task.select` makes every arm before it runs one, so two arms cannot each hold `{s}` to write; let one arm write it, or have each arm give a value and write `{s}` after the select", .{ name, on, name, name });
+            try self.err(pos, "cannot change `{s}` while {s} is still in use: `task.select` makes every arm before it runs one, so two arms cannot each hold a write view of `{s}`; let one arm write it, or have each arm give a value and write `{s}` after the select", .{ name, view, name, name });
             try self.noteLoan(l);
             return l;
         }
-        switch (access) {
-            .read => try self.err(pos, "cannot lend `{s}` to read while a write loan{s} is live", .{ name, on }),
-            .write => if (l.place_hold)
-                try self.err(pos, "cannot lend `{s}` to write {s}", .{ name, in_index })
-            else if (l.held_read != .none)
-                try self.err(pos, "cannot lend `{s}` to write {s}", .{ name, held })
-            else switch (l.kind) {
-                .read => try self.err(pos, "cannot lend `{s}` to write while a read loan{s} is live", .{ name, on }),
-                .write => try self.err(pos, "cannot lend `{s}` to write while a write loan{s} is live", .{ name, on }),
-            },
-            .consume => |verb| if (l.place_hold)
-                try self.err(pos, "cannot {s} `{s}` {s}", .{ verb, name, in_index })
-            else if (l.held_read != .none)
-                try self.err(pos, "cannot {s} `{s}` {s}", .{ verb, name, held })
-            else
-                try self.err(pos, "cannot {s} `{s}` while a {s} loan{s} is live", .{ verb, name, @tagName(l.kind), on }),
-        }
+        if (access != .read and l.place_hold)
+            try self.err(pos, "cannot {s} `{s}` in an index of a view being made of {s}", .{ verb, name, lent })
+        else if (access != .read and l.held_read != .none)
+            try self.err(pos, "cannot {s} `{s}` {s}", .{ verb, name, try self.heldReadClause(l.held_read, lent) })
+        else
+            try self.err(pos, "cannot {s} `{s}` while {s} is still in use", .{ verb, name, view });
         try self.noteLoan(l);
         if (access != .read and l.held_read == .callee) try self.noteCloneCallee(l.pos);
         return l;
+    }
+
+    /// Whether var `id` holds a handle to a cell (`*Cell[T]`, a
+    /// `Signal`, …), which changes only through its own calls: for
+    /// diagnostics.
+    fn holdsCellHandle(self: *const Checker, id: VarId) bool {
+        const ctx = self.sema;
+        const ty = self.vars.items[id].ty orelse return false;
+        return switch (ctx.types.get(ty)) {
+            .shared => |inner| sema.holdsMarkedValue(ctx, inner),
+            else => false,
+        };
     }
 
     /// Whether positions `a` and `b` lie in two arms of one `task.select`
@@ -1543,7 +1567,7 @@ pub const Checker = struct {
         if (self.paths.depth(l.path) <= self.paths.depth(path)) return;
         const recv = try self.pathText(id, path);
         const method = self.text(ir.Member.name(callee));
-        try self.note(pos, "the call lends all of `{s}`: lend the fields it writes, `(!{s}.field).method(...)`, or make `{s}` a function of those fields", .{ recv, recv, method });
+        try self.note(pos, "the call makes a write view of all of `{s}`: make write views of the fields it writes, `(!{s}.field).method(...)`, or make `{s}` a function of those fields", .{ recv, recv, method });
     }
 
     /// The fix for a call of an owned closure held in what the call
@@ -1670,7 +1694,7 @@ pub const Checker = struct {
                 return self.noteStringViewOfString(l, hv.ty);
             }
         }
-        try self.note(root.decl, "`{s}` goes out of scope while it is still lent", .{root.name});
+        try self.note(root.decl, "`{s}` goes out of scope while a view of it is still in use", .{root.name});
     }
 
     /// An API object that views a copy, a local of the block that erased
@@ -1683,7 +1707,7 @@ pub const Checker = struct {
             try std.fmt.allocPrint(self.arena(), "since a `{s}` may be held as a copy", .{try sema.formatTypeIn(ctx, self.arena(), ty)})
         else
             try std.fmt.allocPrint(self.arena(), "since `{s}` is plain data", .{try sema.formatTypeIn(ctx, self.arena(), ty)});
-        try self.err(l.pos, "`{s}` of `{s}` views a copy held in this block, {s}, so it cannot leave the block; lend the owner where it lives, or take `{s}: {s}`", .{ view, root.erased_of, why, root.erased_of, view });
+        try self.err(l.pos, "`{s}` of `{s}` views a copy held in this block, {s}, so it cannot leave the block; make the view of the value where it lives, or take `{s}: {s}`", .{ view, root.erased_of, why, root.erased_of, view });
     }
 
     /// Where loan `l` of a String outlives the String in a value of type
@@ -3304,7 +3328,7 @@ pub const Checker = struct {
 
     /// A closure binding used as a value.
     fn errClosureValue(self: *Checker, pos: u32, name: []const u8) Error!void {
-        try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or copied; call it as `{s}()`, lend it to a call as `?{s}`, or make the literal owned (`*|...| body`) to pass it around", .{ name, name, name });
+        try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or copied; call it as `{s}()`, pass it to a call as `?{s}`, or make the literal owned (`*|...| body`) to pass it around", .{ name, name, name });
     }
 
     /// `?f` of closure binding `id`: a read loan on the closure, and the
@@ -3322,7 +3346,7 @@ pub const Checker = struct {
         if (!try self.checkLivePath(id, path, pos)) return;
         if (self.findLoan(id, whole_path, .write, null) == null) return;
         if (self.findLoan(id, path, .write, null)) |l| {
-            try self.err(pos, "use of `{s}` while a write loan{s} is live", .{ try self.pathText(id, path), try self.loanOnText(l, path) });
+            try self.err(pos, "cannot use `{s}` while {s} is still in use", .{ try self.pathText(id, path), try self.viewOfText(l, path) });
             try self.noteLoan(l);
         }
     }
@@ -3854,7 +3878,7 @@ pub const Checker = struct {
         const pos = self.startOf(inner);
         if (v.closure) {
             if (kind == .read and place.whole) return self.lendClosure(id, pos);
-            try self.err(pos, "closure `{s}` cannot be lent to write; lend it as `?{s}`", .{ v.name, v.name });
+            try self.err(pos, "closure `{s}` cannot be given a write view; pass it as `?{s}`", .{ v.name, v.name });
             return .{};
         }
         return (try self.lendVar(id, place.path, kind, pos)) orelse .{};
@@ -4435,7 +4459,7 @@ pub const Checker = struct {
         }
         // A write view has one holder, which keeps it.
         if (via == null and self.refOfType(ty) == .write) {
-            try self.err(pos, "cannot move out of `{s}`: a write view has one holder, and `{s}` keeps it; lend it on with `!{s}`", .{ path, self.vars.items[place.root].name, path });
+            try self.err(pos, "cannot move out of `{s}`: a write view has one holder, and `{s}` keeps it; pass it on with `!{s}`", .{ path, self.vars.items[place.root].name, path });
             return .{};
         }
         if (via) |l| {
@@ -4728,7 +4752,7 @@ pub const Checker = struct {
             return;
         }
         if (self.findLoan(id, whole_path, .any, null)) |l| {
-            try self.err(pos, "cannot drop `{s}` while {s} is lent", .{ name, try self.lentText(l, whole_path) });
+            try self.err(pos, "cannot drop `{s}` while {s} is still in use", .{ name, try self.viewOfText(l, whole_path) });
             try self.noteLoan(l);
             return;
         }
@@ -4780,7 +4804,7 @@ pub const Checker = struct {
                 // A write view of a Copy value is copied where the
                 // value is read; where a `!T` goes, the view would be.
                 if (v.ref == .write and !self.readsThroughWriteView(v.ty)) {
-                    try self.err(pos, "bare use of write view `{s}` in {s} would copy a write view, which is unique; use `<{s}` to move it", .{ name, sink.text(), name });
+                    try self.err(pos, "bare use of write view `{s}` in {s} would copy it, and a write view never copies; use `<{s}` to move it", .{ name, sink.text(), name });
                 } else if (v.ref != .write and self.carriesWriteView(v.ty)) {
                     try self.err(pos, "bare use of `{s}` in {s} would copy the write view it holds; use `<{s}` to move it", .{ name, sink.text(), name });
                 }
@@ -5243,7 +5267,7 @@ pub const Checker = struct {
             return;
         }
         if (self.findLoan(id, whole_path, .any, null)) |l| {
-            try self.err(pos, "cannot reassign `{s}` while {s} is lent", .{ v.name, try self.lentText(l, whole_path) });
+            try self.err(pos, "cannot reassign `{s}` while {s} is still in use", .{ v.name, try self.viewOfText(l, whole_path) });
             try self.noteLoan(l);
         }
     }
@@ -5352,7 +5376,10 @@ pub const Checker = struct {
         if (!try self.fillParts(id, place, pos)) return;
         const v = self.vars.items[id];
         if (self.findLoan(id, place.path, .any, null)) |l| {
-            try self.err(pos, "cannot assign to `{s}` while `{s}` is lent", .{ try self.placeText(target), try self.pathText(l.root, l.path) });
+            const shown = try self.placeText(target);
+            const viewed = try self.pathText(l.root, l.path);
+            const of = if (std.mem.eql(u8, shown, viewed)) "it" else try self.arena().print("`{s}`", .{viewed});
+            try self.err(pos, "cannot assign to `{s}` while a {s} view of {s} is still in use", .{ shown, self.viewWord(l), of });
             try self.noteLoan(l);
             return;
         }
@@ -6297,7 +6324,7 @@ pub const Checker = struct {
         if (if (swap) self.sameCollection(args[0], args[1]) else null) |e| {
             // Two elements of one collection: its own `swap` exchanges
             // them. Said once, here.
-            try self.err(self.startOf(ir.Write.operand(args[1])), "cannot lend `{s}` to write while a write loan is live: to swap two elements of `{s}`, write `!{s}.swap({s}, {s})`", .{ e.base, e.base, e.base, e.i, e.j });
+            try self.err(self.startOf(ir.Write.operand(args[1])), "cannot change `{s}` while a write view of it is still in use: to swap two elements of `{s}`, write `!{s}.swap({s}, {s})`", .{ e.base, e.base, e.base, e.i, e.j });
             try saved.appendSlice(self.gpa, self.temps.items[start..lent]);
             self.temps.shrinkRetainingCapacity(start);
         }
@@ -6648,7 +6675,7 @@ pub const Checker = struct {
             // owned closure keeps one only where its braces name `Owned`.
             const ctx = self.sema;
             if (owned) if (self.symType(sema.captureNameNode(cap).?.src.pos)) |ct| if (try sema.objectLoanReason(ctx, self.arena(), ct)) |why| {
-                try self.err(sema.captureNameNode(cap).?.src.pos, "an owned closure holds no loan, and {s}", .{why});
+                try self.err(sema.captureNameNode(cap).?.src.pos, "an owned closure holds no view, and {s}", .{why});
                 value = try self.valueUnion(value, cv);
                 continue;
             };
@@ -6755,7 +6782,7 @@ pub const Checker = struct {
             if (mode == .cap_read) return self.lendClosure(id, pos);
             // Reported by the type checker.
             if (self.isPoisonType(self.symType(pos))) return .{};
-            try self.err(pos, "cannot capture closure `{s}`; closures cannot be copied. Lend it with `|?{s}|`", .{ name, name });
+            try self.err(pos, "cannot capture closure `{s}`; closures cannot be copied. Capture a read view of it with `|?{s}|`", .{ name, name });
             return .{};
         }
         if (mode == .cap_move) return self.moveVar(id, pos, .capture);
@@ -6763,7 +6790,7 @@ pub const Checker = struct {
         if (mode == .cap_read or mode == .cap_write) return (try self.lendVar(id, whole_path, if (mode == .cap_read) .read else .write, pos)) orelse .{};
         if (!try self.checkCapturable(id, pos)) return .{};
         if (self.findLoan(id, whole_path, .write, null)) |l| {
-            try self.err(pos, "cannot capture `{s}` while a write loan{s} is live", .{ name, try self.loanOnText(l, whole_path) });
+            try self.err(pos, "cannot capture `{s}` while {s} is still in use", .{ name, try self.viewOfText(l, whole_path) });
             try self.noteLoan(l);
             return .{};
         }
@@ -7033,7 +7060,7 @@ pub const Checker = struct {
                     }
                     return;
                 }
-                try self.err(self.func.returned_at[i], "{s} returns a view of `{s}`, but a call of it carries no loan of `{s}`: its type cannot hold what the result views", .{ what, pname, pname });
+                try self.err(self.func.returned_at[i], "{s} returns a view of `{s}`, but a call of it does not count as a view of `{s}`: its type cannot hold what the result views", .{ what, pname, pname });
             }
             if (self.func.stored & bit != 0 and o.stores & bit == 0) {
                 if (o.lent & bit != 0) {
@@ -7041,7 +7068,7 @@ pub const Checker = struct {
                     const into = self.func.stored_in[i];
                     const kept = try self.paramList(items, (o.stores & o.lent) | (self.func.stored & o.lent), false, .nil);
                     try self.err(self.func.stored_at[i], "{s} stores a view of `{s}` in `{s}`, which its caller reaches, but its signature does not keep `{s}`; say so: `keeps {s}`", .{ what, pname, into, pname, kept });
-                } else try self.err(self.func.stored_at[i], "{s} stores a view of `{s}` where its caller can reach it, but a call of it keeps no loan of `{s}`: its type cannot hold what the write parameters hold", .{ what, pname, pname });
+                } else try self.err(self.func.stored_at[i], "{s} stores a view of `{s}` where its caller can reach it, but a call of it keeps no view of `{s}`: its type cannot hold what the write parameters hold", .{ what, pname, pname });
             }
         }
     }
@@ -7145,7 +7172,7 @@ pub const Checker = struct {
                 try self.noteStringResultOfString(l, self.func.ret_ty);
                 continue;
             }
-            try self.err(l.pos, "cannot return a view of `{s}`, which this function was not lent", .{r.name});
+            try self.err(l.pos, "cannot return a view of `{s}`, which belongs to this function", .{r.name});
             try self.note(r.decl, "`{s}` is local to this {s}", .{ r.name, if (self.func.in_closure) "closure" else "function" });
             try self.noteStringResultOfString(l, self.func.ret_ty);
         }
@@ -9132,7 +9159,7 @@ test "a bound view blocks a write" {
         \\  poke(!user)
         \\  look(r)
         \\
-    , "cannot lend `user` to write while a read loan is live");
+    , "cannot change `user` while a read view of it is still in use");
 }
 
 test "move in loop body is seen by the next iteration" {
@@ -9254,7 +9281,7 @@ test "a view chosen by if keeps both roots lent" {
         \\  <b
         \\  look(r)
         \\
-    , "cannot drop `b` while it is lent");
+    , "cannot drop `b` while a read view of it is still in use");
 }
 
 test "a view returned from a call views the argument" {
@@ -9268,7 +9295,7 @@ test "a view returned from a call views the argument" {
         \\  <h
         \\  look(r)
         \\
-    , "cannot drop `h` while it is lent");
+    , "cannot drop `h` while a read view of it is still in use");
 }
 
 test "a returned view of a local is rejected" {
@@ -9277,7 +9304,7 @@ test "a returned view of a local is rejected" {
         \\  user = make()
         \\  ?user
         \\
-    , "cannot return a view of `user`, which this function was not lent");
+    , "cannot return a view of `user`, which belongs to this function");
 }
 
 test "a returned view of a view parameter is fine" {
@@ -9297,7 +9324,7 @@ test "a method's self is lent for the whole call" {
         \\  rc = make()
         \\  rc.show(<rc)
         \\
-    , "cannot move `rc` while a read loan is live");
+    , "cannot move `rc` while a read view of it is still in use");
 }
 
 test "dropping a view parameter is rejected" {

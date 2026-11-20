@@ -18,30 +18,31 @@ behavior, and the suite checks that it does not work yet, so the block
 becomes an ordinary example in the change that builds the rule
 ([test/README.md](../test/README.md#doc-examples)).
 
-**Three words.** *You lend a view; the compiler remembers the loan.*
+**Places and views.** *A sigil on a place makes a view, and the place
+is limited until the view's last use.*
 
-The sigil is written on the owner's side. In `print(?v)` and `grow(!v)`,
-the `?` or `!` sits on `v`, the owner, exactly where the owner hands
-something over. So the verb belongs to the owner: `v` **lends**. Each of
-the three words belongs to one side of that hand-over, and means one
-thing only:
+In `print(?v)` and `grow(!v)`, the `?` or `!` sits on `v`, the
+**place**: a variable, a field, or an element. What it makes is a
+**view**, a value of type `?T`, `!T`, `[]T`, or `![]T` (the read view
+of text is `?String`), which may be copied, returned, and stored.
 
-| Word | What it is | Which side | Where you see it |
-|---|---|---|---|
-| **lend** | the act | the owner's | the sigil: `?x` lends to read, `!x` lends to write |
-| **view** | the value handed over | it travels with the holder: copied, returned, stored | a value of type `?T`, `!T`, `[]T`, or `![]T` (the read view of text is `?String`) |
-| **loan** | the record | it stays with the owner, and limits the owner until every view is done | in the compiler, and in its error messages |
+| `?x` makes | `!x` makes |
+|---|---|
+| a **read view**: its holder reads through it | a **write view**: its holder may also change through it |
 
-- To **lend** `x` is to let someone use it without taking it. A lend
-  happens once, on one line.
-- A **view** is what they get. Copying a read view copies the view, not
-  what it views, and every copy carries the same loan.
-- A **loan** is the compiler's record that views of `x` exist. While it
-  is live, `x` may not change, move, or drop in a way a view would
-  notice. A loan lasts until the last use of every view that carries it,
-  not until the lend's line ends.
+- Any view leaves its place **read-only** until its last use: the
+  place may be read, copied, and given more views, but not changed,
+  assigned, moved, or dropped.
+- A write view of an ordinary value goes further: its place is
+  **unusable** until the view's last use, as after a move, except that
+  it comes back by itself.
 
-One lend makes one loan, which any number of views may carry:
+A **cell** (sentence 9) is not ordinary: it changes only through its
+own calls, so a write view of it leaves its place read-only. Copying a
+read view copies the view, not what it views. A view costs nothing at
+run time: what it leaves its place is checked by the compiler alone.
+In Rust's terms, a read view is a `&T`, and a write view of an
+ordinary value is a `&mut T`.
 
 ```rig reject
 sub main()
@@ -54,13 +55,13 @@ sub main()
 ```
 
 ```error
-cannot lend `v` to write while a read loan is live
+cannot change `v` while a read view of it is still in use
 ```
 
-The lend is on line 4 (`?v[..]`). The loan stays with `v` while the
-views `a` and `b` are still used below, so `!v.push(2)` is rejected.
-*Borrow*, the word Rust uses, names the same event from the callee's
-side; Rig names everything from the side the sigil is on.
+`?v[..]` on line 4 makes a read view, and `b = a` copies it. `v` stays
+read-only while `a` and `b` are still used below, so `!v.push(2)` is
+rejected. *Borrow*, the word Rust uses, names the same event from the
+callee's side; Rig names everything from the side the sigil is on.
 
 ---
 
@@ -123,13 +124,13 @@ sub main()
 
 **A vector is plain data, one value like an `Int`.** A `Simd[T, n]`
 holds `n` lanes of a number or `Bool`, so it owns nothing and views
-nothing: a bare use copies it, it carries no loan, and nothing moves,
+nothing: a bare use copies it, it limits no place, and nothing moves,
 clones, or drops it but the rules of whatever holds it. Its lanes are
 parts of its value, not places, as an Int's bits are: `v[i]` reads a
-lane, and no lane is assigned, lent, or taken (`v.with(i, x)` makes
+lane, and no lane is assigned, viewed, or taken (`v.with(i, x)` makes
 the changed copy). `v` itself is a place like any other binding,
-field, or element, lent with `?v` and `!v`. Reading a vector out of
-bytes copies them, so the vector carries no loan on what it was read
+field, or element, viewed with `?v` and `!v`. Reading a vector out of
+bytes copies them, so the vector is no view of what it was read
 from. *(built)*
 
 ```rig
@@ -258,7 +259,7 @@ sub main()
 ```
 
 ```error
-bare use of write view `v` in binding would copy a write view, which is unique
+bare use of write view `v` in binding would copy it, and a write view never copies; use `<v` to move it
 ```
 
 ```rig
@@ -346,25 +347,26 @@ statement ends ([§3](#3-temporaries)). *(built)*
 no later drop point or `defer` is reached, and what is still owned goes
 back to the operating system with the process. *(built)*
 
-**4. `?x` lends `x` to read, and `!x` lends it to write, as whichever
-view the context expects** ([§4](#4-one-lend-table)). `?` promises that
-nothing changes. A read lend may
+**4. `?x` makes a read view of the place `x`, and `!x` a write view,
+whichever the context expects** ([§4](#4-one-view-table)). Nothing
+changes what a read view sees while it is in use, except a cell's own
+calls (sentence 9). A `?` may
 go unwritten where its view lasts only for the use: an argument, a
 method's self, or a header's subject (sentence 1), and `print` and
-`String` read their arguments the same way. A lend is written wherever
+`String` read their arguments the same way. The sigil is written wherever
 its view may outlast its statement: when it is kept in a binding or a
-field, kept by the call it is lent to (`!p.watch(?t)`), or kept by a
+field, kept by the call it is passed to (`!p.watch(?t)`), or kept by a
 call's result that is stored in a binding, a field, or a return, or
 handed to a call that keeps it (`r = head(?v)`, `xs = ?b.all()`,
-`!xs.push(head(?v))`). So is every write lend. A result used within its
-statement (`print(head(v).len)`) leaves it unwritten. `!` lends any
-value to write, named or temporary: `!mk().pop()` lends the value
-`mk()` makes, which lives until its statement ends ([§3](#3-temporaries)),
+`!xs.push(head(?v))`). So is every `!`. A result used within its
+statement (`print(head(v).len)`) leaves it unwritten. `!` makes a write
+view of any value, named or temporary: `!mk().pop()` makes one of the
+value `mk()` makes, which lives until its statement ends ([§3](#3-temporaries)),
 so every change is still marked by `!`. *(built* for the rows of §4
-marked built.*)* A written `!` must lend to write: `!x` is rejected
+marked built.*)* A written `!` must make a write view: `!x` is rejected
 wherever `x` is only read: an operand, an index, `print`, a copy, or an
-argument the callee only reads. Write `x` to copy it, `?x` to lend it to
-read, or `!T` in the type to keep the write view. *(built)*
+argument the callee only reads. Write `x` to copy it, `?x` to make a
+read view, or `!T` in the type to keep the write view. *(built)*
 
 ```rig
 sub grow(v: !List[Int])
@@ -402,11 +404,15 @@ sub main()
 42
 ```
 
-**5. A place has any number of read loans, or one write loan, never
-both.** A loan on a place covers every place inside it, so two
-places conflict when one holds the other: `p` and `p.a`, `p.a` and
-`p.a.b`, but not `p.a` and `p.b`. This holds for every type, numbers
-included. *(built)*
+**5. Any view leaves its place read-only until its last use, and a
+write view of an ordinary value leaves it unusable.** Read-only: the
+place may be read, copied, and given more views, but not changed,
+assigned, moved, or dropped. Unusable: it may not be used at all. A
+cell is not ordinary (sentence 9). A view of a place covers every
+place inside it, so two places conflict when one holds the other: `p`
+and `p.a`, `p.a` and `p.a.b`, but not `p.a` and `p.b`. An element is
+not told apart from its array or List: a view of `a[0]` covers all of
+`a`. This holds for every type, numbers included. *(built)*
 
 ```rig reject
 sub add(a: !Int, b: ?Int)
@@ -418,14 +424,15 @@ sub main()
 ```
 
 ```error
-cannot lend `n` to read while a write loan is live
+cannot use `n` while a write view of it is still in use
 ```
 
-**6. A loan lasts until the last use of every view that carries it,**
-wherever that view went: a field, an array, an optional, a closure, a
-result. Dropping a value uses the views it holds only when its
-drop runs a `drop` body, which could read them, so a `List[[]Int]`'s
-loans end at its last use, not where it is dropped. *(built)*
+**6. A place stays read-only or unusable until the last use of every
+view of it,** wherever that view went: a field, an array, an optional,
+a closure, a result. Dropping a value uses the views it holds only when
+its drop runs a `drop` body, which could read them, so the views a
+`List[[]Int]` holds end at its last use, not where it is dropped.
+*(built)*
 
 ```rig reject
 sub main()
@@ -436,7 +443,7 @@ sub main()
 ```
 
 ```error
-cannot lend `v` to write while a read loan is live
+cannot change `v` while a read view of it is still in use
 ```
 
 ```rig
@@ -469,48 +476,49 @@ sub main()
 ```
 
 ```error
-cannot assign to `a[0]` while `a` is lent
+cannot assign to `a[0]` while a read view of `a` is still in use
 ```
 
-**7. A call passes on only the loans its signature shows.** A function
-returns a view only of what it was lent, or of something that lives for
-the whole program: a `Static` (a text literal is one), a module
-constant, or `os.args()`. Its result carries the loans of the arguments
-whose types could hold what it views, or, when the result says
+**7. A call passes on only the views its signature shows.** A function
+returns a view only of what was passed to it as a view, or of something
+that lives for the whole program: a `Static` (a text literal is one), a
+module constant, or `os.args()`. Its result counts as a view of each
+argument whose type could hold what it views, or, when the result says
 `from a`, of `a` alone. A method's `from` may also name a path of
 self, as §5 defines one (`from @text`, `from @a.b`), whose type could
-hold what the result views. The result then carries the loans self
-holds and a loan on that path alone, not on all of self, so a use of
+hold what the result views. The result then counts as the views self
+holds and as a view of that path alone, not of all of self, so a use of
 self's other paths may go on while it lives; a use of all of self
 (`(!s).m()`, `!s.m()`, `<s`, `s = x`) still touches the path. When the
 path is a field declared as a read view (`?T`, `[]T`, `?String`, or an
-optional of one), the result carries the loans self holds and none on
-self, so self may be lent again, even to write, while the result lives;
-when self is itself a view, its loans are the loans that view carries.
+optional of one), the result counts as the views self holds and as no
+view of self, so self may be given another view, even a write view,
+while the result lives; when self is itself a view, the result counts
+as whatever that view counts as.
 The body is checked against the path: each view it returns comes from
 that path, a view a call through a bound returns included. *(built)* A
-result that holds no write view carries its loans as read loans, even
-one of an argument lent to write, whose write lend then ends as the
+result that holds no write view counts as a read view, even of an
+argument passed as a write view, whose write view then ends as the
 call returns unless the call keeps it: after `head(!v)`, in its own
-statement or through `r = head(!v)`, `v` may be read, but not written,
+statement or through `r = head(!v)`, `v` is read-only, not unusable,
 while the result lives. A view reached through a
-read view that a value holds carries that view's loans, not a loan on
+read view that a value holds counts as that view, not as a view of
 the holder. A view reached through a write view that a binding holds
-(`!s.value`, `s: !Slot`) carries that view's loans, path for path, and
-a loan on the binding that ends with the binding's scope. So `if
+(`!s.value`, `s: !Slot`) counts as that view, path for path, and as a
+view of the binding that ends with the binding's scope. So `if
 !@slots[j] as s` may `return !s.value` `from @`, but nothing in that
 scope, its defers included, may use `s` while the view lives.
-*(built)* What a call stores in what a write view lent to it sees
-carries, in the same way, the loans of the arguments whose types could
-hold it; for a lent parameter (a view, an optional of one, or
+*(built)* What a call stores through a write view passed to it counts,
+in the same way, as a view of each argument whose type could hold it;
+for a view parameter (a view, an optional of one, or
 self), a declared function narrows this to the parameters its
 signature names in `keeps` (`sub watch(!@, s: ?String) keeps s`). A
-kept loan lasts while the holder is used, though the holder's own write
-lend ends as the call returns; a lend the call does not keep lasts no
+kept view lasts while the holder is used, though the write view of the
+holder ends as the call returns; a view the call does not keep lasts no
 longer than the call and its result. A function called as a value is
 known only by its type, which names no `from` or `keeps`, so nothing
 narrows its result or its stores. The compiler checks each body against
-its signature, `from` and `keeps` included: a body that stores a lent
+its signature, `from` and `keeps` included: a body that stores a view
 parameter, on any path, directly or through a call that keeps it, names
 it in `keeps`. *(built)*
 
@@ -521,7 +529,7 @@ fun pick(a: ?List[Int]) -> ?List[Int]
 ```
 
 ```error
-which this function was not lent
+which belongs to this function
 ```
 
 A `Cursor` holds only a view of the items, so an item `next` hands out
@@ -631,11 +639,11 @@ sub main()
 ```
 
 ```error
-cannot lend `v` to write while a read loan is live
+cannot change `v` while a read view of it is still in use
 ```
 
-`edit` hands out a view of a slot's value, lent through `s`, which views
-the slot; the view outlives `s` and keeps `@slots` lent:
+`edit` hands out a view of a slot's value, made through `s`, which views
+the slot; the view outlives `s` and keeps `@slots` unusable:
 
 ```rig
 obj Slot
@@ -680,7 +688,7 @@ obj Table
 ```
 
 ```error
-cannot assign to `@slots[j]` while `@slots` is lent
+cannot assign to `@slots[j]` while a write view of `@slots` is still in use
 ```
 
 ```rig
@@ -699,8 +707,8 @@ sub main()
 0
 ```
 
-`watch` keeps the text it is lent, so `text` stays lent while `p` is
-used, yet `p` may be written again at once; `note` keeps nothing, so
+`watch` keeps the view of the text passed to it, so `text` stays
+read-only while `p` is used, yet `p` may be written again at once; `note` keeps nothing, so
 `m` may be dropped as soon as it returns:
 
 ```rig
@@ -745,10 +753,10 @@ sub main()
 ```
 
 ```error
-cannot lend `text` to write while a read loan is live
+cannot change `text` while a read view of it is still in use
 ```
 
-A body that stores a lent parameter without naming it is rejected at
+A body that stores a view parameter without naming it is rejected at
 the store:
 
 ```rig reject
@@ -775,13 +783,13 @@ discarded, as one result is. Until its target takes it, each result is
 a temporary of the call's statement (§3). The targets take theirs left
 to right, by the rule `x = e` has, so a name cannot be bound while a
 result not yet taken views it. A result that `_` discards drops at the
-statement's end, the last made first, and keeps what it views lent
+statement's end, the last made first, and keeps what it views limited
 until then only when its drop runs a `drop` body (sentence 6). Each
-result carries the loans its own type could hold, so a `Bool` beside a
-view carries none, and a result may be a write view, as `-> !T` is,
+result counts as the views its own type could hold, so a `Bool` beside
+a view counts as none, and a result may be a write view, as `-> !T` is,
 beside results whose types could view nothing it views (sentence 5).
-When no result holds a write view, every write lend of the call ends as
-it returns, as for one result. *(built; two write-view results are
+When no result holds a write view, every write view passed to the call
+ends as it returns, as for one result. *(built; two write-view results are
 planned)*
 
 ```rig
@@ -836,11 +844,14 @@ ada
 gone
 ```
 
-**9. Shared storage.** You change what you were lent with `!`, or what
-you share with `*`. A name's own value changes by assigning it. What
-you share changes only by a marked call, `!c.set(5)`: a `Cell`, a
-`Signal`, a channel, an actor (SPEC §18), or a value that holds a
-`Cell`, and §4 says what the call lends.
+**9. Shared storage and cells.** You change what a write view sees
+with `!`. A name's own value changes by assigning it. What you share
+through `*` changes only by a marked call, `!c.set(5)`, and only a
+**cell** has such calls: a `Cell`, or a value that holds one directly,
+which is a `Signal`, a channel, an actor (SPEC §18), or an object with
+a `Cell` field. A cell changes only through its own calls, each one
+complete step, so a write view of it leaves its place read-only, not
+unusable, and many views of it may be in use at once (§4).
 A value that holds a `Cell` lives only behind `*` (`*Cell(0)`, or a
 field of a value made with `*`); it is never a local, parameter,
 element, or type argument by value. A `Cell` of one word may go to
@@ -856,9 +867,9 @@ argument by value. It holds only data that never changes: no `Cell`,
 `Signal`, task, closure, view, or handle but another frozen value's.
 So nothing it reaches ever changes, its handles are counted atomically
 and go to any task, and erased they are a `*{A + Syncs}` (§4), and `?f`
-lends the frozen value as a `?T`. `Cell`, `Signal`, and owned closures
-are no-loan homes: they hold no view that carries a loan, so they keep
-text only as a `Static`; a `*T` carries the loans of what it holds.
+makes a read view of the frozen value, a `?T`. `Cell`, `Signal`, and
+owned closures hold no view, so they keep text only as a `Static`; a
+`*T` limits whatever the value it holds limits.
 *(built)*
 
 ```rig
@@ -934,15 +945,15 @@ return Bad.oops
 ```
 
 **A failure moves its error.** An error set's member may carry fields,
-as an enum's variant does. Each field's type holds no loan, holds no
+as an enum's variant does. Each field's type holds no view, holds no
 `*` or `~` handle anywhere inside it, and clones (sentence 2), so an
-error never limits an owner, goes to any task, always has a `+`, and
+error never limits a place, goes to any task, always has a `+`, and
 drops without running a `drop` body. *(built)* An error is plain or
 owning by the enum rule (§1), and `error`, which holds an error of any
-set, is owning. *(built)* Each fallible call is lent, to write, a
-hidden `E?` of its statement, `E` the call's set, empty until the call
+set, is owning. *(built)* Each fallible call is passed a write view of
+a hidden `E?` of its statement, `E` the call's set, empty until the call
 fails; the `!` or `catch` that every fallible call carries (sentence 10)
-is that lend's mark, and since an error holds no loan, the call keeps
+is that view's mark, and since an error holds no view, the call keeps
 nothing there and its result views none of it (sentence 7). *(built)*
 A failing `return` stores the error it made through its function's
 view and leaves, before the scopes it leaves end. On a failure the
@@ -1014,7 +1025,7 @@ error Lookup
 ```
 
 ```error
-an error's field never holds a loan: hold a `String` or a `Static`
+an error's field never holds a view: hold a `String` or a `Static`
 ```
 
 ```rig
@@ -1042,16 +1053,16 @@ Only code inside `raw` may break these rules. *(built)*
 
 ## 3. Temporaries
 
-*(built.* A lend of a branching value that may be a name's,
-`?(a if c else b)`, is *planned*; today each branch is lent, `?a if c
-else ?b`.*)*
+*(built.* A view of a branching value that may be a name's,
+`?(a if c else b)`, is *planned*; today the sigil goes on each branch,
+`?a if c else ?b`.*)*
 
 **A branch is a value, never a place.** Wherever a branching value, or
 a path from one, is used where it stands as a view (a sigil, a `for`'s
 `?` or `!`, a header's subject, an argument where a view goes, or a
-write view passed or bound), it is lent there, and a leaf a name holds
-is rejected: each branch is lent instead, `?a if c else ?b` or
-`!a if c else !b`. A branch of read views copies the view it takes, and
+write view passed or bound), a view of it is made there, and a leaf a
+name holds is rejected: the sigil goes on each branch instead, `?a if c
+else ?b` or `!a if c else !b`. A branch of read views copies the view it takes, and
 is only read. *(built)*
 
 ```rig
@@ -1099,8 +1110,8 @@ b)` moves nothing.
 no name: a call's result, a constructor, `+x`, or a block or `match`
 value. Its statement is its scope, so it is a *temporary*, dropped when
 the statement ends, the last made first, also when the statement fails
-or leaves early. A temporary may be lent to read or to write (sentence
-4), and a view of it may be used only within its statement. A value
+or leaves early. A temporary may be given a read view or a write view
+(sentence 4), and a view of it may be used only within its statement. A value
 made to be called (`(+h.f)(x)`) is a temporary too *(planned)*, and so
 is a template where a `?String` is expected, built in 256 bytes of the
 statement's stack, then on the heap.
@@ -1192,11 +1203,10 @@ sub main()
 ada
 ```
 
-**A loop reads a view a call returns where it points.** What the
-loans of a value name is one fact (§9): `first(?ls)` views `ls`, so a
-`for` over it walks `ls[0]` in place, as it walks a place, and `ls`
-stays lent while the loop runs. A view whose loans name a value made
-in the header is rejected: the value ends with the header, so it is
+**A loop reads a view a call returns where it points.** What a value
+views is one fact (§9): `first(?ls)` views `ls`, so a `for` over it
+walks `ls[0]` in place, as it walks a place, and `ls` stays read-only
+while the loop runs. A view of a value made in the header is rejected: the value ends with the header, so it is
 bound to a name first. *(built)*
 
 ```rig
@@ -1216,51 +1226,61 @@ sub main()
 a
 ```
 
-## 4. One lend table
+## 4. One view table
 
-`?x` and `!x` lend the view the context expects; where the context
+`?x` and `!x` make the view the context expects; where the context
 takes none of the views in `!x`'s column, `!x` is rejected (sentence 4):
 
-| Owner `x` | `?x` lends | `!x` lends | Status |
+| `x` is | `?x` makes | `!x` makes | Status |
 |---|---|---|---|
 | any `T` | `?T` | `!T` | built |
 | `[N]T`, `List[T]` | `[]T` | `![]T` | built |
 | a place `p.f` or `v[i]` | the views of the field or element | its write views | built |
-| a held `!T` | `?T` | `!T` (lent on) | built |
-| `![]T` | `[]T` | `![]T` (lent on) | built |
+| a held `!T` | `?T` | `!T` (passed on) | built |
+| `![]T` | `[]T` | `![]T` (passed on) | built |
 | `String` | `?String` (also `(?String)?`) | `!String` | built |
 | `^T` | the views of `T` | the write views of `T` | built |
 | `*T`, `*{A}` | the read views of `T`; of a `*{A}`, the `?{A}` it holds | the handle itself, `!*T` | built |
-| `*T` whose `T` changes by a marked call (sentence 9) | the read views of `T` | the handle itself, `!*T`, or a `!T`, which changes only by marked calls | built |
+| `*T` whose `T` is a cell (sentence 9) | the read views of `T` | the handle itself, `!*T`, or a `!T`, which changes only by marked calls | built |
 | `X?` | `View?` for each view of `X` | `!(X?)`, by the first row | built |
 | a function or closure | `?fun` | | built |
 | a `T` that provides `A` | `?{A}` | `!{A}` | built |
 
-`!x` puts a write loan on `x`, and only a read loan when what it lends
-is a write view of a value that changes by a marked call (sentence 9),
-by a marked call or alone: `!c.set(5)`, `!h.bump()`, `!ch.send(<v)!`,
-`!a.add(x)`, a select's `!ch.on_recv()`, `hit(!h)` for a `!Hits`. Such
-a value lives only behind `*`. It is never replaced whole (`swap`
-exchanges none: a Cell's own `!c.swap(v)` does, in one step), and every
-view it gives out lasts while it lives, which each such type, std's
-`shared.Map` among them, meets by its declaration. So many write views of it may
-live at once, each changing only what every handle shares, while `x`
-stays put and keeps the value alive. So `!c.add((!c).swap(4))` is
-accepted, and so is a view `r = ?c` kept across `!c.set(5)`, whether
-`c` is a `*Cell[Int]`, a `!*Cell[Int]`, or a `!Cell[Int]`. The loan is
-judged by the concrete type of the value lent from, not by the view it
-becomes: `!h` of a `*Hits` lent where a `!{A}` goes lends `h` to read.
-A value whose type is an API object `{A}` or a type parameter is no
-such value, so two `!{A}` lends of one owned value, or of a `!{A}`
-parameter, are two write loans, and `!s` of a `*{A}` lends only the
-handle. `!h` that lends the handle itself, a `!*T` the
-callee may point elsewhere, puts a write loan on `h`, and so do
-assigning `h` and dropping it. A marked call through a read view is
-rejected (sentence 4). The loan begins before the call's arguments are
-evaluated, and lasts as long as the view it carries (sentence 6): for
-the call, for the life of a task that holds self, or until a select
-returns. An actor's call gives the actor a count of its own, not a
-view, so `!a.add(x)&` keeps no loan once made. *(built)*
+`!x` leaves `x` unusable, except where it makes a write view of a
+cell (sentence 9), by a marked call or alone: `!c.set(5)`, `!h.bump()`,
+`!ch.send(<v)!`, `!a.add(x)`, a select's `!ch.on_recv()`, `hit(!h)` for
+a `!Hits`. A cell lives only behind `*`, so its place holds a handle.
+It is never replaced whole (`swap` exchanges none: a Cell's own
+`!c.swap(v)` does, in one step), and nothing it hands out can dangle:
+every view it gives out lasts while it lives, which each such type,
+std's `shared.Map` among them, meets by its declaration. So a write
+view of it leaves the handle only read-only, and many may be in use at
+once, each changing only what every handle shares, while the handle
+stays put and keeps the cell alive. Each call is one step; two calls
+are two steps, and another task may act between them. So
+`!c.add((!c).swap(4))` is accepted, and so is a view `r = ?c` kept
+across `!c.set(5)`, whether `c` is a `*Cell[Int]`, a `!*Cell[Int]`, or a
+`!Cell[Int]`. What a write view leaves its place is judged by the
+concrete type of the value it sees, not by the view it becomes: `!h` of
+a `*Hits` passed where a `!{A}` goes leaves `h` read-only. A value whose
+type is an API object `{A}` or a type parameter is no cell, so two
+`!{A}` of one owned value, or of a `!{A}` parameter, are two ordinary
+write views, and `!s` of a `*{A}` makes a write view only of the
+handle. `!h` that makes a write view of the handle itself, a `!*T` the
+callee may point elsewhere, leaves `h` unusable, and so does `w = !c`
+with no type written, where `c` can be assigned: write
+`w: !Cell[Int] = !c` for a write view of the cell. Assigning `h` and
+dropping it are refused while any view of it is in use. A marked call
+through a read view is rejected (sentence 4). The view begins before
+the call's arguments are evaluated, and its place stays limited as long
+as the view is used (sentence 6): for the call, for the life of a task
+that holds self, or until a select returns. An actor's call gives the
+actor a count of its own, not a view, so `!a.add(x)&` keeps nothing
+limited once made. *(built)*
+
+No call ever gives a write view into the value a `Cell` holds, as
+Rust's `get_mut` would: what `r = head(!v)` leaves of `v`, read-only
+but not unusable, relies on it.
 
 ```rig
 sub main()
@@ -1284,19 +1304,19 @@ sub main()
 ```
 
 ```error
-cannot reassign `c` while it is lent
+cannot reassign `c` while a read view of it is still in use
 ```
 
 A view of a value that copies (§1) is copied out where that value is
 expected, a plain object, array, or optional as a number is, and the
-copy carries no loan but those of the views it holds, as with a call's
+copy limits nothing but what the views it holds limit, as with a call's
 `?Int` result. `a ?? b` is `v` when `a` holds a view `v`, and `b`
 otherwise; `a catch b` is the same over a failure (§8). So when `b` is
 a `T`, the type the view sees, `v` is copied out to match it, as above:
 `m.get(k) ?? 0` is an `Int`, and `m` stays free to change. A fallback
 that is a view or a jump leaves the view, and so does `none` where an
 optional view is expected. When the viewed type does not copy, a `T`
-fallback is rejected: lend the fallback and clone the result, as in
+fallback is rejected: make the fallback a view and clone the result, as in
 `+(m.get(k) ?? ?String("none"))`. *(built)*
 
 ```rig
@@ -1321,18 +1341,18 @@ sub main()
 ```
 
 ```error
-only a value that copies is copied out of a view, and a `String` owns a resource: lend the fallback, so the result is the view, and clone that for a `String` of its own: `+(m.get("a") ?? ?String("none"))`
+only a value that copies is copied out of a view, and a `String` owns a resource: make the fallback a view, so the result is one, and clone that for a `String` of its own: `+(m.get("a") ?? ?String("none"))`
 ```
 
-A slice `x[a..b]` is the same lend, of
+A slice `x[a..b]` is the same view, of
 part of `x`, and goes unwritten as an argument where `x` does:
 `total(w[1..3])` is `total(?w[1..3])`. *(built)* So `sort.sort(!v)` works on a `List` as it does on an array,
 and one `fun area(s: ?Shape)` serves a `Shape`, a `^Shape`, and a
-`*Shape`. A `String` lends a `?String`, its bytes, and that is its only
+`*Shape`. A `String` gives a `?String`, its bytes, and that is its only
 read view: `?t`, a loop or pattern binding of a `String`, and a generic
 `?T` at `T = String` are all `?String` values, and a read view of a read
-view is that read view. A `?String` is a view, so nothing lends a
-`?String` place to write: assign to it to point it at other text, or hold
+view is that read view. A `?String` is a view, so nothing makes a write
+view of a `?String` place: assign to it to point it at other text, or hold
 a `String`. A `Static` is read as a `?String` where the text is only read;
 it never converts where the text can be written, and nothing converts a
 `?String` to a `Static`. *(built)*
@@ -1368,8 +1388,8 @@ sub main()
 1
 ```
 
-A `String` lends a `?String`, which views its bytes, so the `String` may not
-change while the view is used:
+`?t` of a `String` makes a `?String`, which views its bytes, so the
+`String` may not change while the view is used:
 
 ```rig
 use std.text
@@ -1398,7 +1418,7 @@ sub main()
 ```
 
 ```error
-cannot lend `t` to write while a read loan is live
+cannot change `t` while a read view of it is still in use
 ```
 
 ```rig
@@ -1416,16 +1436,16 @@ sub main()
 1 3
 ```
 
-**An API object hides its value's type, never its loans.** `?{A}`,
+**An API object hides its value's type, never what it views.** `?{A}`,
 `!{A}`, and `^{A}` hold a value of some type that provides `A`. A
-value lends one by the row above, unwritten where the view lasts only
+place gives one by the row above, unwritten where the view lasts only
 for the use (sentence 4). A `^T` moves into a `^{A}` and keeps its
 box. Only the value reached is erased, never a place's or an element's
-type. The API object carries every loan the value carried, and since
+type. The API object limits every place the value limited, and since
 the type is hidden it may hold anything: a view, a handle, a `drop`
-body. So the loans of a `?{A}` or `!{A}` end at its last use, and
-those of a `^{A}` at its drop (sentence 6). A call through one passes
-on only the loans the API's `from` and `keeps` show (sentence 7).
+body. So what a `?{A}` or `!{A}` limits is free at its last use, and
+what a `^{A}` limits at its drop (sentence 6). A call through one passes
+on only the views the API's `from` and `keeps` show (sentence 7).
 Erasing a read view of plain data, or of a type parameter's value,
 views a local of the erasing block. *(built)*
 
@@ -1466,7 +1486,7 @@ sub main()
 4.0 9.0
 ```
 
-The API object `s` carries the read loan on `v`, so `v` may not change
+The API object `s` is a read view of `v`, so `v` may not change
 while `s` is used:
 
 ```rig reject
@@ -1488,7 +1508,7 @@ sub main()
 ```
 
 ```error
-cannot lend `v` to write while a read loan is live
+cannot change `v` while a read view of it is still in use
 ```
 
 **A shared API object counts a value of hidden type, and an API object
@@ -1497,9 +1517,9 @@ a value of some type that provides `A`, and `~{A}` is its weak handle.
 A `*T` moves into a `*{A}`, keeping its allocation, and a frozen
 value's handle only into a `*{A + Syncs}`. A handle is erased only as
 it moves or counts, never through a view. Like every handle, it only
-reads: calls reach `?@` methods, `?s` lends the `?{A}` it holds, and
-`+s` adds a count. Both forms carry the loans of what they hold until
-the last count is dropped. *(built)*
+reads: calls reach `?@` methods, `?s` makes a `?{A}` of the value it
+holds, and `+s` adds a count. Both forms limit what the value they hold
+limits until the last count is dropped. *(built)*
 
 - `Sends` and `Syncs`, in the braces or the API, are facts of the
   hidden value, checked where it is erased (a type parameter's by its
@@ -1648,7 +1668,7 @@ sub main()
 object field may hold a `Cell`. Each field and element is a place:
 
 - `p.f` and `v[i]` read it (sentence 1);
-- `?p.f`, `!p.f`, `?v[i]`, and `!v[i]` lend it;
+- `?p.f`, `!p.f`, `?v[i]`, and `!v[i]` make views of it;
 - `<p.f` and `<v[i]` take an optional one, leaving `none`, and `<p.f`
   moves any other field of an object a local owns;
 - assigning to it drops the old value.
@@ -1656,13 +1676,13 @@ object field may hold a `Cell`. Each field and element is a place:
 **A field is a place of its own.** A path is a name and the fields
 after it, through what a write view the name holds sees, and through
 a box. It stops at an element, a handle, or an optional's value, and
-the loan is on the path so far: `?v[i]` and `!v[j]` are both loans on
-`v`, and `?h.f` with `h: *T` is a loan on `h`. A use touches the path
+a view limits the path so far: `?v[i]` and `!v[j]` both limit `v`, and
+`?h.f` with `h: *T` limits `h`. A use touches the path
 it names: `?p.a`, `!p.a`, `<p.a`, `p.a = x`, `!p.a.m()`, and
 `swap(!p.a, !p.b)` touch `p.a` (and `p.b`); `p`, `<p`, `p = x`,
 `(!p).m()`, and `!p.m()` touch all of `p`. A value never holds a view
-of itself: storing in a part of `p` a value that carries a loan on a
-part of `p` is rejected. *(built)*
+of itself: storing in a part of `p` a value that views a part of `p`
+is rejected. *(built)*
 
 ```rig
 obj Arena
@@ -1705,7 +1725,7 @@ sub main()
 ```
 
 ```error
-cannot lend `p` to write while a read loan on `p.name` is live
+cannot change `p` while a read view of `p.name` is still in use
 ```
 
 ```rig reject
@@ -1727,8 +1747,9 @@ cannot store in `p.v` a view of `p.s`: a value never holds a view of itself
 is a parameter, self, a result, or a local. It is never a field,
 an element, a type argument, or what a `?`, an optional, or a handle
 holds. `^T`, optionals, and a generic `T` hold any value but a write view,
-as a `List` does. A holder of a read view carries its loan: with `^?v`,
-`v` stays lent while the box, or a view it gave out, is used.
+as a `List` does. A holder of a read view limits what the view limits:
+with `^?v`, `v` stays read-only while the box, or a view it gave out,
+is used.
 A function type's parameters and result are not parts of a value of
 that type: `List[*sub(!Checker)]` holds no write view. *(built)*
 
@@ -1822,7 +1843,7 @@ sub main()
 
 **A list of owners works as a list of plain data does.** `List[String]`, `List[List[Int]]`, and a `List` of objects that each own a string take their elements by move and drop each one once. `swap` and `sort_by` only move elements, so they work for any element; `sort` also needs `<`. *(built)*
 
-**Only a value that copies is duplicated without `+`.** An operation that writes copies of a value it leaves in place, as `copy`, `fill`, `[n of x]`, `List.filled`, and `resize` do, needs an element type that copies (§1). A read view copies, and each copy carries its loan. Anything else is rejected, since each copy would be a clone no `+x` wrote (sentences 1 and 2): write a loop that makes each element with `+x`. The element type decides, so `resize` needs one that copies even when it only shrinks; `!xs.keep(n)` shrinks any list. *(built)*
+**Only a value that copies is duplicated without `+`.** An operation that writes copies of a value it leaves in place, as `copy`, `fill`, `[n of x]`, `List.filled`, and `resize` do, needs an element type that copies (§1). A read view copies, and each copy limits what the view limits. Anything else is rejected, since each copy would be a clone no `+x` wrote (sentences 1 and 2): write a loop that makes each element with `+x`. The element type decides, so `resize` needs one that copies even when it only shrinks; `!xs.keep(n)` shrinks any list. *(built)*
 
 ```rig reject
 sub main()
@@ -1873,8 +1894,8 @@ sub main()
 `n` slots from the moment it is made, each `T()` until written. A
 `Slot[n]` is plain data: a number below `n` that only `push`, `of`, and
 literals make. A slot is a place, like a List's element: read in place,
-lent with `?t[s]` or `!t[s]`, and assigned (dropping the old value).
-`!t.push(x)` lends the table to write, assigns slot `len`, and returns
+viewed with `?t[s]` or `!t[s]`, and assigned (dropping the old value).
+`!t.push(x)` makes a write view of the table, assigns slot `len`, and returns
 it. It desugars to the forms above: `t[s]` is the element `s` of an
 array of `n` elements the table owns, and `!t.push(x)` is
 `t[len] = x; len += 1` after a test that `len < n`. No rule here
@@ -1890,15 +1911,15 @@ sub main()
 ```
 
 ```error
-cannot lend `t` to write while a read loan is live
+cannot change `t` while a read view of it is still in use
 ```
 
 **A container written in Rig follows its signatures.** `Map[K,
 V]` and `Set[K]` are std code with no rule of their own: `!m.put(k,
 v)` takes `k` and `v` as any owning parameter does; `m.get(k)` returns
-a `(?V)?` view `from @`, which carries the loan on `m` and not on
-`k` (sentence 7); `!m.edit(k)` returns a `(!V)?` that carries a write
-loan on `m`; and
+a `(?V)?` view `from @`, which counts as a read view of `m` and not
+of `k` (sentence 7); `!m.edit(k)` returns a `(!V)?` that counts as a
+write view of `m`; and
 `!m.take(k)` hands the value back owned and drops the key. *(built)*
 
 ## 6. Bindings and assignment
@@ -1927,13 +1948,13 @@ A call evaluates its self and arguments left to right, then runs; an
 operator evaluates its operands left to right, then yields. Plain data
 read as a value (an operand, a field or element read, an argument to a
 parameter of a plain type) is copied where it stands, through a view
-too, and keeps nothing lent there. Whatever else an earlier argument or
-operand hands over (a view, which `print` and `String` arguments are; a
-value that shares storage its place owns; what a write view reaches)
-stays lent, to read, until the call returns or the operator yields, so
-a later one can't change it. A write lend of a method's self acts as a
-read loan until the call starts, so `!v.push(v.len)` works; a write
-lend in any other argument is a write loan at once, so
+too, and keeps nothing limited there. Whatever else an earlier argument
+or operand hands over (a view, which `print` and `String` arguments are;
+a value that shares storage its place owns; what a write view reaches)
+stays read-only until the call returns or the operator yields, so a
+later one can't change it. A write view of a method's self counts as
+a read view until the call starts, so `!v.push(v.len)` works; in any
+other argument a write view leaves its place unusable at once, so
 `grow(!v, v.len)` is rejected. *(built)*
 
 ```rig
@@ -1959,11 +1980,11 @@ sub main()
 ```
 
 ```error
-while an earlier argument's read of it is in use
+while an earlier argument's read of it is still in use
 ```
 
-A field copied out of a view keeps nothing lent, so the view's last use
-is behind the write lend after it:
+A field copied out of a view keeps nothing limited, so the view's last
+use is behind the write view after it:
 
 ```rig
 fun bump(a: ![3]Int) -> Int
@@ -1981,10 +2002,10 @@ sub main()
 ```
 
 A clone that holds no view (`+e.key`, a String) is made where it
-stands, as a copied field is, and keeps nothing lent there. So
+stands, as a copied field is, and keeps nothing limited there. So
 `!m.take(+e.key)` works where `e` views `m`: the view's last use is
-behind the write lend. Passing the view itself, `!m.take(e.key)`, keeps
-it lent while the call writes `m`, and is rejected. *(built)*
+behind the write view. Passing the view itself, `!m.take(e.key)`, keeps
+`m` read-only while the call writes it, and is rejected. *(built)*
 
 ```rig
 sub main()
@@ -2011,7 +2032,7 @@ sub main()
 ```
 
 ```error
-cannot lend `m` to write while a read loan is live
+cannot change `m` while a read view of it is still in use
 ```
 
 **Bindings.** A local binding may be reassigned. Parameters and fixed
@@ -2068,17 +2089,17 @@ sub main()
 
 ## 7. Closures and defer
 
-**Closures.** A closure captures each name with a sigil: `?x` lends
-`x` to read for the closure's life, `!x` lends it to write, `<x` moves
+**Closures.** A closure captures each name with a sigil: `?x` makes a
+read view of `x` for the closure's life, `!x` a write view, `<x` moves
 it in, and `+x` captures what `+x` gives, read through a view: a copy
 of a value that copies, a new count of a handle, or a deep copy of an
 owner. A capture may name a field path instead, `?p.a` or `!@cache`:
 it is `w = ?p.a`, made with the closure and captured `<w`, and in the
 body the path names `w`; so with every sigil. Captures are fixed: the body reads them, and writes only
 through a captured write view. A closure's life ends at its last use,
-so a closure literal lent to a call lends its captures for that call.
-A stack closure may be lent (`?fun`) but not stored. A closure literal
-lent to a call known to call it exactly once (`time.within`) is that
+so the views a closure literal passed to a call captures last for that
+call. A stack closure may be passed as a view (`?fun`) but not stored.
+A closure literal passed to a call known to call it exactly once (`time.within`) is that
 one call's: what it owns of its captures (`<x`, `+x`, `~x`) it takes as
 a function takes a parameter given by value, so the body may move them
 out, and drops the rest when it returns. *(built)*
@@ -2111,14 +2132,14 @@ sub main()
 **An owned closure is a function with its own environment.** `*|...|`
 moves or clones its captures into a value behind a counted handle,
 `*fun(A) -> R` or `*sub(A)`, which is stored, returned, cloned, and
-dropped like any `*T`. The environment holds no loan (sentence 9), so
+dropped like any `*T`. The environment holds no view (sentence 9), so
 an owned closure captures owners, handles, and plain data, never a
 view. Its parameters and result are any a function's may be, and
 follow sentences 4 and 7 as a function's do: of a view it is given,
 read or write, it keeps what its type could hold (sentence 7); what it
 is given to own, it drops, returns,
 or stores through a write parameter; its result views only what the
-call lent it. So a write view reaches a stored closure only as an
+call passed it as a view. So a write view reaches a stored closure only as an
 argument, for one call: mutation is never data. Calling a closure
 reads what holds it until the call returns (§6), so a closure held in
 `x` is not called with `!x`: clone its handle first, `f = +x.f`, then
@@ -2127,7 +2148,7 @@ reads what holds it until the call returns (§6), so a closure held in
 **A function value is an address.** `fun(A) -> R` or `sub(A)`, as a
 value, is the address of a named function and holds nothing, so it
 moves and shares as an `Int` does and goes to any task. A closure is
-never such a value: a stack closure stays in its binding and is lent
+never such a value: a stack closure stays in its binding and is passed
 only as a callable view `?fun`, which no task takes, and an owned
 closure is a `*fun` handle, which goes to no task. *(built)*
 
@@ -2165,7 +2186,7 @@ sub main()
 ```
 
 ```error
-cannot lend `@` to write while the callee's read of `@hook` is in use
+cannot change `@` while the callee's read of `@hook` is still in use
 ```
 
 A value made to be called is a temporary of its statement (§3):
@@ -2184,7 +2205,7 @@ sub main()
 ```
 
 **Defer.** `defer` and `errdefer` run where their scope ends. They may
-read and write what is live there; they never extend a loan past it.
+read and write what is live there; they never keep a view in use past it.
 What their scope gives back is live while they run. No failure leaves
 one: a fallible call in it is caught there, so the error a failing
 scope is leaving with is never replaced. *(built)*
@@ -2210,12 +2231,12 @@ rule in SYNTAX is syntax too.
 - **The self-sigil rule:** `!v.push(x)` applies `!` to `v`, and
   `!mk().pop()` applies it to `mk()`. *(built)*
 - **`x =! e`:** a local binding that never changes. *(built)*
-- **The sigil leads the whole path.** Write `!p.x` to lend a field,
-  `p.x` to read it, and `p.x = 4` to assign it. `(!p).x`, `(?arr)[0]`
-  and `(!v)[0..2]` are rejected. Parentheses around a lend are only for
-  calling on it: `(!s).insert(k)`. A branch of lends,
-  `(!a if c else !b).x`, and a slice lend, `(?t[..])[0]`, are values,
-  not lends of a place. *(built)*
+- **The sigil leads the whole path.** Write `!p.x` for a write view of
+  a field, `p.x` to read it, and `p.x = 4` to assign it. `(!p).x`,
+  `(?arr)[0]` and `(!v)[0..2]` are rejected. Parentheses around a view
+  are only for calling on it: `(!s).insert(k)`. A branch of views,
+  `(!a if c else !b).x`, and a slice view, `(?t[..])[0]`, are values,
+  not views of a place. *(built)*
 - **A write call whose `Bool` value is used** is written
   `(!s).insert(k)`, or `not (!s).insert(k)` for its opposite,
   everywhere: a condition, an `as` header, an operand, a binding, an
@@ -2262,7 +2283,7 @@ sub main()
 ```
 
 ```error
-`!` lends `s` to write and never negates: write `(!s).insert(1)` for what `insert` returns, or `not (!s).insert(1)` for its opposite
+`!` makes a write view of `s` and never negates: write `(!s).insert(1)` for what `insert` returns, or `not (!s).insert(1)` for its opposite
 ```
 
 ## 9. Inside the compiler
@@ -2274,10 +2295,10 @@ no pass decides them again by looking at syntax.
   a loan; cloneable; how a read view is represented (a copy, or a
   pointer). *(built)*
 - **Per expression, one classification** of what it hands over: a
-  place, a made value, a lend, branches, or a jump; and of what the
+  place, a made value, a sigil's view, branches, or a jump; and of what the
   loans its value carries name: a place, a value made in its statement,
   both, or neither, composed from its parts (a name names a place, a
-  path what its root names, a lend where its operand lives, a call what
+  path what its root names, a sigil's view where its operand lives, a call what
   the inputs its result carries name, and every other value what its
   parts name) *(built)*; whether the value lives for the whole program
   *(planned)*.

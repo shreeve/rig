@@ -38,7 +38,7 @@ test "review-place-b9-x040 elem method temp wb", "0"
   !mk(!a).fill(0)
   print(a[0])
 
-fail "review-printlow-add-alias-box", "cannot lend `xs` to write while an earlier argument's read of it is in use"
+fail "review-printlow-add-alias-box", "cannot change `xs` while an earlier argument's read of it is still in use"
   b = ^String("abcdefgh")
   xs: List[String] = List()
   !xs.push(String("q"))
@@ -656,7 +656,7 @@ test "review-printlow-value-kinds", '''
   v = ?str
   print(str, v, str.len)
 
-fail "review-results-f01", "cannot reassign `b` while it is lent"
+fail "review-results-f01", "cannot reassign `b` while a read view of it is still in use"
   obj Guard
     s: ?String
     tag: Int
@@ -673,7 +673,7 @@ fail "review-results-f01", "cannot reassign `b` while it is lent"
   b, a = mk()
   print(b, a.tag)
 
-fail "review-results-f04", "cannot reassign `b` while it is lent"
+fail "review-results-f04", "cannot reassign `b` while a read view of it is still in use"
   obj Guard
     s: ?String
     tag: Int
@@ -691,7 +691,7 @@ fail "review-results-f04", "cannot reassign `b` while it is lent"
   b, a = mk(?c)
   print(b, a.tag)
 
-fail "review-results-f10", "cannot reassign `b` while it is lent"
+fail "review-results-f10", "cannot reassign `b` while a read view of it is still in use"
   obj Guard
     s: ?String
     tag: Int
@@ -750,7 +750,7 @@ test "review-results-v07", '''
   v, s = mk(?s)
   print(s)
 
-fail "review-results-z04", "cannot lend `x` to write while a read loan is live"
+fail "review-results-z04", "cannot change `x` while a read view of it is still in use"
   obj Guard
     s: ?String
     tag: Int
@@ -770,7 +770,7 @@ fail "review-results-z04", "cannot lend `x` to write while a read loan is live"
   g, n = mk(!x, 1)
   print(g.tag, n)
 
-fail "review-results-z05", "cannot lend `x` to write while a read loan is live"
+fail "review-results-z05", "cannot change `x` while a read view of it is still in use"
   obj Guard
     s: ?String
     tag: Int
@@ -1126,7 +1126,7 @@ fail "review-revamp-checkers-p-f2", "cannot move out of `@v`: `@` is a view; exc
   !s.drain()
   print(s.v.len)
 
-fail "review-revamp-checkers-p-g1", "cannot lend `c` to read while a write loan is live"
+fail "review-revamp-checkers-p-g1", "cannot use `c` while a write view of it is still in use"
   enum Shape
     circle(r: Int)
     point
@@ -1143,7 +1143,7 @@ fail "review-revamp-checkers-p-g1", "cannot lend `c` to read while a write loan 
     .circle(r) => r
   print(n)
 
-fail "review-revamp-checkers-p-g2", "cannot lend `v` to write while a write loan is live"
+fail "review-revamp-checkers-p-g2", "cannot change `v` while a write view of it is still in use"
   enum Shape
     circle(r: Int)
     point
@@ -1460,7 +1460,7 @@ test "review-revamp-checkers-p-q2", '''
   print(use2(1))
   print(use2(2))
 
-fail "review-revamp-checkers-p-s1", "cannot lend `vs` to write while a read loan is live"
+fail "review-revamp-checkers-p-s1", "cannot change `vs` while a read view of it is still in use"
   enum E
     a(v: List[Int])
     b
@@ -1475,7 +1475,7 @@ fail "review-revamp-checkers-p-s1", "cannot lend `vs` to write while a read loan
       print(x.len)
     .b => print("b")
 
-fail "review-revamp-checkers-p-s2", "cannot reassign `e` while it is lent"
+fail "review-revamp-checkers-p-s2", "cannot reassign `e` while a write view of it is still in use"
   enum E
     a(v: List[Int])
     b
@@ -1515,7 +1515,7 @@ test "review-revamp-checkers-p-s4", '''
     .a(x) => print(x.len)
     .b => print("b")
 
-fail "review-revamp-checkers-p-s5", "cannot reassign `e` while it is lent"
+fail "review-revamp-checkers-p-s5", "cannot reassign `e` while a read view of it is still in use"
   enum E
     a(v: List[Int])
     b
@@ -1530,7 +1530,7 @@ fail "review-revamp-checkers-p-s5", "cannot reassign `e` while it is lent"
       print(y.len)
     .b => print("b")
 
-fail "review-revamp-checkers-p-s6", "cannot reassign `w` while it is lent"
+fail "review-revamp-checkers-p-s6", "cannot reassign `w` while a read view of it is still in use"
   obj P
     v: List[Int]
 
@@ -1548,7 +1548,7 @@ fail "review-revamp-checkers-p-s6", "cannot reassign `w` while it is lent"
       print(x.v.len)
     .b => print("b")
 
-fail "review-revamp-checkers-p-s7", "cannot reassign `e` while it is lent"
+fail "review-revamp-checkers-p-s7", "cannot reassign `e` while a read view of it is still in use"
   enum E
     a(v: List[Int])
     b
@@ -1583,7 +1583,7 @@ test "review-revamp-checkers-p-v1", '''
   !v.push(get(?mk(4)))
   print(v[0])
 
-fail "review-revamp-checkers-p-w7", "cannot move `b` while a read loan is live"
+fail "review-revamp-checkers-p-w7", "cannot move `b` while a read view of it is still in use"
   obj S
     n: Int
     v: List[Int]
@@ -1602,7 +1602,7 @@ fail "review-revamp-checkers-p-w7", "cannot move `b` while a read loan is live"
   eat(<b)
   print(v.r.n)
 
-fail "review-revamp-checkers-p-w8", "cannot reassign `b` while it is lent"
+fail "review-revamp-checkers-p-w8", "cannot reassign `b` while a read view of it is still in use"
   obj S
     n: Int
     v: List[Int]
@@ -1618,7 +1618,7 @@ fail "review-revamp-checkers-p-w8", "cannot reassign `b` while it is lent"
   b = S(n: 3, v: List())
   print(v.r.n)
 
-fail "review-revamp-checkers-p-w9", "cannot reassign `q` while it is lent"
+fail "review-revamp-checkers-p-w9", "cannot reassign `q` while a read view of it is still in use"
   obj S
     n: Int
 
@@ -1815,7 +1815,7 @@ test "review-revamp-rest-p4-d09", "3"
     true => print(3)
     false => print(2)
 
-fail "review-revamp-rest-p5-e01", "cannot lend `vs` to write while a read loan is live"
+fail "review-revamp-rest-p5-e01", "cannot change `vs` while a write view of it is still in use"
   fun grow(v: !List[List[Int]]) -> Int
     for _ in 0..100
       !v.push(List[Int]())
@@ -1926,7 +1926,7 @@ test "review-revamp-rest-p5-h04", "2"
   !ps[0].bump(ps.len)
   print(ps[0].n)
 
-fail "review-revamp-rest-p5-h05", "cannot lend `ps` to write while a read loan is live"
+fail "review-revamp-rest-p5-h05", "cannot change `ps` while a write view of it is still in use"
   obj P
     n: Int
     sub bump(!@, k: Int)

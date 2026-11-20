@@ -1284,7 +1284,7 @@ test "safe builtin outside raw", "8"
   n = $size($type(x))
   print(n)
 
-fail "type runs nothing", "16:19: `$type` does not run its operand, so the call `side(1)` never happens; write the operand without `<`, `!`, or a call", "16:42: the move `<s`", "16:60: the write lend `!xs`", "16:79: the clone `+xs`", "16:98: the propagation `ok(1)!`", "16:120: the `catch` `ok(1) catch 0`", "17:19: the box `^<p`", "17:38: the shared handle `*<q`", "17:57: the weak handle `~h`", "17:75: the panic `panic(\"no\")`", "19:25: `$TypeOf` does not run its operand, so the call `side(2)`", errors: 12
+fail "type runs nothing", "16:19: `$type` does not run its operand, so the call `side(1)` never happens; write the operand without `<`, `!`, or a call", "16:42: the move `<s`", "16:60: the write view `!xs`", "16:79: the clone `+xs`", "16:98: the propagation `ok(1)!`", "16:120: the `catch` `ok(1) catch 0`", "17:19: the box `^<p`", "17:38: the shared handle `*<q`", "17:57: the weak handle `~h`", "17:75: the panic `panic(\"no\")`", "19:25: `$TypeOf` does not run its operand, so the call `side(2)`", errors: 12
   # `$type(x)` is written inside Zig's `@TypeOf`, which never evaluates
   # `x`, so its operand holds nothing that would run: no call, move,
   # write lend, clone, box, handle, propagation, `catch`, or `panic`.

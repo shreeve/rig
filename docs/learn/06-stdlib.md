@@ -190,9 +190,9 @@ here. `doc.kind(i)` says what entry `i` is, `doc.string(i)` and
 at `i`, so it skips an array or an object whole.
 
 A string without escapes is a view of `src`, so an `Order` holds
-`?String` views and copies no text. The chain of loans is the one of
-[chapter two](02-ownership.md): `read_orders(?doc)` lends the document,
-the orders keep `doc` lent, and `doc` keeps `src` lent. None of the
+`?String` views and copies no text. The chain of views is the one of
+[chapter two](02-ownership.md): `read_orders(?doc)` makes a read view of the
+document, the orders keep `doc` read-only, and `doc` keeps `src` read-only. None of the
 three can be changed or dropped while the orders live.
 
 ## Counting with a Map and a Set
@@ -233,13 +233,13 @@ cy 5
 ```
 
 `!units.ensure(o.who, 0)` puts `0` under a customer the first time,
-and lends the value under that key to write, so one line counts every
+and makes a write view of the value under that key, so one line counts every
 order. `(!items).add(o.item)` says whether the item was new. Both change
 their table, so both carry the `!` of chapter one. `get` and `has` only
 read. `items()` walks the entries in the order they were first put in,
 each a pair `e.key`, `e.value` for one step of the loop.
 
-`get` gives a view, `(?V)?`, and a view keeps the map lent. The map
+`get` gives a view, `(?V)?`, and a view keeps the map read-only. The map
 cannot change while the view lives:
 
 ```rig reject
@@ -253,7 +253,7 @@ sub main()
 ```
 
 ```error
-cannot lend `units` to write while a read loan is live
+cannot change `units` while a read view of it is still in use
 ```
 
 A `put` can move every value, as a push moves a list's storage. To keep
@@ -305,7 +305,7 @@ bob 1
 [1, 2, 3, 5] 2 none 3
 ```
 
-`sort_by(!totals, less)` takes the list lent to write, and `less(a, b)`
+`sort_by(!totals, less)` takes a write view of the list, and `less(a, b)`
 says whether `a` belongs before `b`. The sort is stable, so `ada` and
 `cy`, tied at 5, stay in the order the map gave them. `sort(!sizes)`
 uses `<`. On a sorted slice, `search` finds an index by binary search, or
@@ -611,7 +611,7 @@ sub main()
 ```
 
 ```error
-method `put` needs `self` lent to write; write `!m.put(String("ada"), 1)`
+method `put` needs a write view of `self`; write `!m.put(String("ada"), 1)`
 ```
 
 The same split runs through std. `file.read` is `String?!`: the type

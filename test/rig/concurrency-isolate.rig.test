@@ -115,27 +115,27 @@ fail "isolate closure that propagates reports its own error alone", "4:27: type 
     m = task.supervise(|| (3).nope()!) catch -1
     print(n, m)
 
-fail "isolate write capture", "`task.isolate` drops what a panic in it half-changed, so nothing outside it may be lent to it to write, and `|!total|` lends `total` so: give the change back as its value, or keep it in a `*Cell`, captured `|+total|`", errors: 1
+fail "isolate write capture", "`task.isolate` drops what a panic in it half-changed, so it may take no write view of anything outside it, and `|!total|` makes a write view of `total`: give the change back as its value, or keep it in a `*Cell`, captured `|+total|`", errors: 1
   use std.task
 
   total = 0
   task.isolate(|!total| total += 1) catch print("no")
 
-fail "isolate named closure", "`task.isolate` drops what a panic in `?f` half-changed, so nothing outside it may be lent to it to write, which a closure's type does not show: write the closure in the call, `task.isolate(|| ...)`", errors: 1
+fail "isolate named closure", "`task.isolate` drops what a panic in `?f` half-changed, so it may take no write view of anything outside it, which a closure's type does not show: write the closure in the call, `task.isolate(|| ...)`", errors: 1
   use std.task
 
   f = || 3
   b = task.isolate(?f) catch 0
   print(b)
 
-fail "isolate closure binding", "`task.isolate` drops what a panic in `f` half-changed, so nothing outside it may be lent to it to write, which a closure's type does not show: write the closure in the call, `task.isolate(|| ...)`", errors: 1
+fail "isolate closure binding", "`task.isolate` drops what a panic in `f` half-changed, so it may take no write view of anything outside it, which a closure's type does not show: write the closure in the call, `task.isolate(|| ...)`", errors: 1
   use std.task
 
   f = || 3
   b = task.isolate(f) catch 0
   print(b)
 
-fail "isolate captures a closure that writes", "7:20: `task.isolate` drops what a panic in it half-changed, so nothing outside it may be lent to it to write, and `g` is a closure, whose type does not show what it writes: keep the state it changes in a `*Cell`, or capture an owned closure, `*|...| body`", errors: 1
+fail "isolate captures a closure that writes", "7:20: `task.isolate` drops what a panic in it half-changed, so it may take no write view of anything outside it, and `g` is a closure, whose type does not show what it writes: keep the state it changes in a `*Cell`, or capture an owned closure, `*|...| body`", errors: 1
   # A closure written in the call that captures another closure could
   # write through it what a panic would leave half made.
   use std.task
@@ -145,7 +145,7 @@ fail "isolate captures a closure that writes", "7:20: `task.isolate` drops what 
   r = task.isolate(|?g| g()) catch print("no")
   print(v.len)
 
-fail "supervise captures a closure that writes", "`task.supervise` drops what a panic in it half-changed, so nothing outside it may be lent to it to write, and `g` is a closure", errors: 1
+fail "supervise captures a closure that writes", "`task.supervise` drops what a panic in it half-changed, so it may take no write view of anything outside it, and `g` is a closure", errors: 1
   use std.task
 
   n = 0
@@ -153,7 +153,7 @@ fail "supervise captures a closure that writes", "`task.supervise` drops what a 
   task.supervise(|?g| g(), restarts: 1) catch |e| print(e)
   print(n)
 
-fail "isolate captures a write view", "`task.isolate` drops what a panic in it half-changed, so nothing outside it may be lent to it to write, and `v` holds a write view: give the change back as its value, or keep the state in a `*Cell`", errors: 1
+fail "isolate captures a write view", "`task.isolate` drops what a panic in it half-changed, so it may take no write view of anything outside it, and `v` holds a write view: give the change back as its value, or keep the state in a `*Cell`", errors: 1
   use std.task
 
   sub fill(v: !List[String])
@@ -232,7 +232,7 @@ test "isolate leaves a lent String it grew", seeds: 20, "-1 after"
   r = task.isolate(|| run()) catch -1
   print(r, "after")
 
-fail "isolate generic task owned closure", "`go[*fun() -> Int]` cannot use `T = *fun() -> Int`: a value that holds a `T` is lent to a task to read in the generic body", errors: 1
+fail "isolate generic task owned closure", "`go[*fun() -> Int]` cannot use `T = *fun() -> Int`: a value that holds a `T` is passed to a task as a read view in the generic body", errors: 1
   # A task started under an isolate takes what any task takes.
   use std.task
 

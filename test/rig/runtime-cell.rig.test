@@ -20,7 +20,7 @@ test "cell get set", '''
   !c.set(c.get() + 10)
   print(c.get())
 
-fail "cell holder write view changes cells", "14:5: cannot assign through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.", "17:6: cannot lend to write through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.", errors: 2
+fail "cell holder write view changes cells", "14:5: cannot assign through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.", "17:6: cannot make a write view through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.", errors: 2
   # A value that holds a Cell lives only behind a shared handle, so a write
   # view of it changes its Cells and nothing else: its other fields change
   # only through a handle that owns them, which handles only read.
@@ -163,7 +163,7 @@ test "cell marked calls", release: true, '''
   from_owned_handle(+fixed)
   print(fixed.get())
 
-fail "cell read view unchanged", "10:6: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate", "13:6: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate", "16:4: cannot lend to write through a read view `?Cell[Int]`", errors: 3
+fail "cell read view unchanged", "10:6: cannot make a write view through a read view (`?T`); take a write view (`!T`) to mutate", "13:6: cannot make a write view through a read view (`?T`); take a write view (`!T`) to mutate", "16:4: cannot make a write view through a read view `?Cell[Int]`", errors: 3
   # `?` promises that nothing changes, a shared Cell included: a read view
   # of a Cell, or a `?@` method of a value holding one, cannot change
   # it. It takes `!`, and the caller marks the lend.
@@ -185,7 +185,7 @@ fail "cell read view unchanged", "10:6: cannot lend to write through a read view
   bump(k.hits)
   print(k.hits.get())
 
-fail "cell read view of handle unchanged", "26:4: cannot lend to write through a read view `?*Node`; take a write view, or share a handle of your own with `+h`", "27:11: cannot lend to write through a read view `?*Node`", "27:30: cannot lend to write through a read view `?*Node`", "27:48: cannot lend to write through a read view `?*Node`", "27:66: cannot lend to write through a read view `?*Node`", "31:6: cannot lend to write through a read view `?*Node`", "33:6: cannot lend to write through a read view `?*Node`", "37:4: cannot lend to write through a read view `?W`", "38:4: cannot lend to write through a read view `?Deep`", "42:13: cannot lend to write through a read view `?*Node`", "47:6: cannot lend to write through a read view `?*Node`", "19:16: cannot lend to write through a read view `?*Node`; `node` is a read view of the value inside `@head`: to write through it, take `!@`, then bind it with `if !@head as node`", errors: 12
+fail "cell read view of handle unchanged", "26:4: cannot make a write view through a read view `?*Node`; take a write view, or share a handle of your own with `+h`", "27:11: cannot make a write view through a read view `?*Node`", "27:30: cannot make a write view through a read view `?*Node`", "27:48: cannot make a write view through a read view `?*Node`", "27:66: cannot make a write view through a read view `?*Node`", "31:6: cannot make a write view through a read view `?*Node`", "33:6: cannot make a write view through a read view `?*Node`", "37:4: cannot make a write view through a read view `?W`", "38:4: cannot make a write view through a read view `?Deep`", "42:13: cannot make a write view through a read view `?*Node`", "47:6: cannot make a write view through a read view `?*Node`", "19:16: cannot make a write view through a read view `?*Node`; `node` is a read view of the value inside `@head`: to write through it, take `!@`, then bind it with `if !@head as node`", errors: 12
   # A read view of a handle, or of a value that holds one, is never lent
   # to write (SPEC §10, "Cell"), however it is reached: a parameter, a
   # field handle of a viewed value, a read `if … as` or `while … as`
@@ -441,7 +441,7 @@ test "cell through handle param", '''
   f()
   print(c[0])
 
-fail "cell unmarked set", "6:3: method `set` needs `self` lent to write; write `!c.set(5)`: changing a shared Cell is marked with `!`", "7:9: method `swap` needs `self` lent to write; write `!c.swap(6)`: changing a shared Cell is marked with `!`", "9:3: method `push` needs `self` lent to write; write `!v.push(1)`: changing a shared Cell is marked with `!`", "10:10: method `pop` needs `self` lent to write; write `!v.pop()`: changing a shared Cell is marked with `!`", "11:3: method `clear` needs `self` lent to write; write `!v.clear()`: changing a shared Cell is marked with `!`", "12:1: write `(!v)[i] = e`: changing a shared Cell is marked with `!`", errors: 6
+fail "cell unmarked set", "6:3: method `set` needs a write view of `self`; write `!c.set(5)`: changing a shared Cell is marked with `!`", "7:9: method `swap` needs a write view of `self`; write `!c.swap(6)`: changing a shared Cell is marked with `!`", "9:3: method `push` needs a write view of `self`; write `!v.push(1)`: changing a shared Cell is marked with `!`", "10:10: method `pop` needs a write view of `self`; write `!v.pop()`: changing a shared Cell is marked with `!`", "11:3: method `clear` needs a write view of `self`; write `!v.clear()`: changing a shared Cell is marked with `!`", "12:1: write `(!v)[i] = e`: changing a shared Cell is marked with `!`", errors: 6
   # A shared Cell changes only by a marked call, so a call that changes it
   # without `!` is rejected, with the mark in the hint: `set`, `replace`,
   # and a Cell of a List's `push`, `pop`, `clear`, and element assignment.

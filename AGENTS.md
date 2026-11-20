@@ -36,7 +36,7 @@ These are about the compiler, not the process. They do not bend.
 3. **Effects stay visible.** Every sigil survives as a named node in the
    IR. No feature hides a move, clone, allocation, failure, or mutation.
 4. **One classifier per fact.** Whether an expression is a place, a made
-   value, a lend, or a view is decided once, by a positive list, and
+   value, or a view is decided once, by a positive list, and
    recorded. The checker checks exactly what is emitted: emit decides
    nothing the checkers did not walk.
 5. **Ownership features fit the Core.** A change that touches ownership
@@ -255,9 +255,10 @@ until its rule is built. docs/internals/tests.md has the rest.
   instructions on one checker, with peak memory no higher (memory from
   a larger executable excepted); a change under it waits as a draft to
   be measured stacked with others.
-- **One vocabulary.** *You lend a view; the compiler remembers the
-  loan*: lend is the act, view the value handed over, loan the owner's
-  record. Never "borrow". A Rig `obj` is an "object", never a "struct".
+- **One vocabulary.** A sigil on a place makes a view, a read view or a
+  write view; any view leaves its place read-only until its last use,
+  and a write view of an ordinary value leaves it unusable; a cell is a
+  `Cell` or a value that holds one. Never "lend" or "borrow". A Rig `obj` is an "object", never a "struct".
   `@` and its sigil forms (`?@`, `!@`, `<@`, `+@`) are "self", never
   "receiver".
 - **Taste.** Dissolve a problem rather than patch it; simplify; one
@@ -353,7 +354,7 @@ Machine-specific practice (the owner's machines):
 - **The tree is not what the grammar says.** The Parser wrapper rewrites
   it before any pass runs (INTERNALS, "The parser wrapper"): a statement
   `<x` becomes `(drop x)`; `!x.v.push(1)` becomes `(!x.v).push(1)`; a
-  `for` source sigil moves into the loop's mode unless it lends a method
+  `for` source sigil moves into the loop's mode unless it makes a view of a method
   call's self (`for x in !b.drain()`); `pub` on a member is
   stripped and recorded; a module-level `x = v` is a constant. A `for`
   over an iterator becomes a `while` after the module's first check, so

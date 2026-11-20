@@ -51,7 +51,7 @@ The concurrency plan the owner approved from that review is on the ROADMAP, unde
   - The runtime already reserves address space for task stacks.
   - Source: the Goose review (grow-only arrays).
   - Needs: a CORE paragraph, since it changes what a push ends; then a design round.
-- **A region freed at once.** Values made in a named region are views lent from it, and dropping the region frees them all in one step, for data that dies together: a file's tree, a parse's temporaries, one request's data.
+- **A region freed at once.** Values made in a named region are views of it, and dropping the region frees them all in one step, for data that dies together: a file's tree, a parse's temporaries, one request's data.
   - Source: the Goose review (data stacks freed at scope exit).
   - Needs: a CORE paragraph and a design round; first, a measure of the share of Trig's time and memory in data that dies together.
 

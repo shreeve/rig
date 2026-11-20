@@ -1309,7 +1309,7 @@ pub const Lexer = struct {
                 .leading_zero => "a decimal number has no leading zero",
                 .radix_case => "radix prefixes are lowercase: `0x`, `0b`, `0o`",
                 .bad_number => "malformed number; `_` may separate digits, and a space or an operator ends a number",
-                .fixed_touch => "`=!` needs a space after it: write `x =! y` for a fixed binding, or `x = !y` to lend `y` to write",
+                .fixed_touch => "`=!` needs a space after it: write `x =! y` for a fixed binding, or `x = !y` to make a write view of `y`",
                 .detached_prefix => "a prefix sigil touches its operand",
                 .semicolon => "unexpected `;`",
                 .brace => "Rig has no braces: a block is the lines indented under its header",
@@ -4072,7 +4072,7 @@ pub const Parser = struct {
             .of => "a fill literal `[n of x]` holds one count and one element; it cannot share brackets with a list",
             .nullish => "`??` is the fallback operator; an optional of an optional is written `(T?)?`",
             // Where no operator could come: C and Rust's address-of.
-            .ampersand => "Rig lends with `?x` (to read) or `!x` (to write)",
+            .ampersand => "Rig makes views with `?x` (to read) or `!x` (to write)",
             else => null,
         };
     }
@@ -5414,7 +5414,7 @@ pub const Parser = struct {
         const text = self.pathText(place) orelse {
             const shown = diag.textBetween(self.base.source, self.span(place).start, self.span(place).end);
             self.reject(place, if (place.isKind(.index))
-                std.fmt.allocPrint(self.allocator(), "a capture names a local or a field of one, not an element: lend it first, `x = ?{s}`, and capture `?x`", .{shown}) catch "a capture names a local or a field of one, not an element"
+                std.fmt.allocPrint(self.allocator(), "a capture names a local or a field of one, not an element: make a view of it first, `x = ?{s}`, and capture `?x`", .{shown}) catch "a capture names a local or a field of one, not an element"
             else
                 std.fmt.allocPrint(self.allocator(), "a capture names a local or a field of one: bind `{s}` to a name first, and capture the name", .{shown}) catch "a capture names a local or a field of one");
             return node;

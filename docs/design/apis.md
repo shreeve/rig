@@ -49,7 +49,7 @@ Two principles hold across every stage:
 - **Ownership stays visible.** An API's method declares how it takes
   self, `?@`, `!@`, or `<@`, and what its result views and its call
   keeps, `from` and `keeps`, exactly as a method does. Nothing an API
-  adds hides a move, a lend, or a store.
+  adds hides a move, a view, or a store.
 - **Dispatch stays visible, and its cost with it.** A call through a
   bound is a direct call at no cost. A call through an API object is
   an indirect call, and only a type written in braces makes one, so
@@ -163,7 +163,7 @@ the instance; the body is not rewritten to fit.
 **Ownership.** The body is ownership-checked once, as today, for a `T`
 that may own a resource. The method a call reaches is not known there,
 so the call is checked as a call of a function value is, with no
-`from` or `keeps` to narrow it: its result may carry the loans of self
+`from` or `keeps` to narrow it: its result may be a view of self
 and of every view argument, and a call that writes self may store what
 any argument views in self. Every method meets these bounds, so the
 check holds for every instance. An instance never needs a second
@@ -310,7 +310,7 @@ capabilities a type may give its own meaning.
 |---|---|---|
 | `Copy` | a bare use copies | never: plain data and read views |
 | `Clone` | `+x` makes a new owner | never; implied by `Copy` |
-| `Owned` | holds no loan | never: no part is a view (`Static` is fine) |
+| `Owned` | holds no view | never: no part is a view (`Static` is fine) |
 | `Sends` | may go to another task | never: SPEC §18 |
 | `Syncs` | may be read by several tasks at once | never: SPEC §18 |
 | `Eq` | `==`, `!=` | `fun eq(?@, other: ?Self) -> Bool` |
@@ -320,7 +320,7 @@ capabilities a type may give its own meaning.
 | `Num`, `Integer: Num`, `Signed: Num` | arithmetic and `<` and its kin (IEEE 754's for a float); `%`, bits, shifts; negation | never: built-in numbers only |
 
 `Copy` never implies `Owned`: `[T: Copy]` with `T = ?String` keeps its
-loan. A Cell's elements need both, written `Copy + Owned`; there is no
+view. A Cell's elements need both, written `Copy + Owned`; there is no
 shorter name. `Iter` comes with Stage 3, since its useful bound names
 its item type, `[I: Iter, I.Item: Ord]`.
 
@@ -569,7 +569,7 @@ parameter position, never more. A call through a bound uses the API's
 clauses, which every implementation is within. In an API, a method
 whose result could hold a view must write its `from`; there is no
 default. An implementation that keeps what its API does not would let
-a call through the API end a loan the implementation still holds, so
+a call through the API end a view the implementation still holds, so
 it is rejected where it is declared.
 
 **How an API's method fails.** As any method does: `-> T!E` with a
@@ -648,7 +648,7 @@ header, and a `[T: Job]` may be sent to another task.
 
 **What a bounded body may do.** Call what its bounds declare, and use
 what the built-in bounds name, and no more. Actors never provide a
-user API: `*Actor[A]` meets none, and nothing lends a view of an actor's
+user API: `*Actor[A]` meets none, and nothing makes a view of an actor's
 value, so no bound reaches an actor's state around its mailbox.
 
 **Facts no API names.** A bound states what a body does that an API
@@ -679,7 +679,7 @@ number APIs: it copies, compares, orders, hashes, prints, and crosses.
 facts of a type's parts ([SPEC §18](../../SPEC.md#18-tasks)): a
 function value moves and shares, a callable view and an owned closure
 do neither, and a `*Frozen[T]` does both. A call through a bound may be
-a task, `x.area()&`, which crosses by the bounds: self lent to read
+a task, `x.area()&`, which crosses by the bounds: a read view of self
 needs `Syncs`, and a bounded `T` with neither makes the task local, as
 in Stage 2. A closure is never generic and takes no bound; one written
 in a bounded body calls through the body's bounds. A function value
@@ -690,8 +690,8 @@ points, and Stage 3 changes neither:
 
 - A `*Frozen[T]` provides `Eq`, `Hash`, and `Print` as its value does,
   `Sends` and `Syncs` always, and no API of a program's own: a handle
-  is not its value. A generic over `T: Shape` takes `?f`, which lends
-  the frozen value as a `?T`, and calls its `?@` methods; nothing
+  is not its value. A generic over `T: Shape` takes `?f`, which makes
+  a read view of the frozen value, a `?T`, and calls its `?@` methods; nothing
   reaches a `!@` or `<@` method through it.
 - Freezing a bounded `T` is checked at each instance, as a fact no API
   names.
@@ -753,7 +753,7 @@ call on a `T` with no bound, which Zig resolves at each instance, is
 `total[Label]` cannot use `T = Label`: `total` needs `T: Shape`, and `Label` does not provide `Shape`; declare `obj Label: Shape`
 `Square` provides `Shape` but has no method `area`; declare `fun area(?@) -> Float` in `Square`
 `Counter.next` takes `self` as `?@`, but `Source` declares `next(!@)`; a method meets its API with the same self: write `fun next(!@) -> Item?`
-`Log.watch` keeps `s`, but `Watcher.watch` keeps nothing: a call through `Watcher` would end the loan on `s` while `Log` still views it; add `keeps s` to `Watcher.watch`
+`Log.watch` keeps `s`, but `Watcher.watch` keeps nothing: a call through `Watcher` would leave `s` free while `Log` still views it; add `keeps s` to `Watcher.watch`
 `c.area()` could call `Shape.area` or `Region.area`, which both apply to `geo.Circle`; name the API: `Shape.area(c)`
 `Disk.size` fails with `Int!Io`, but `Sized` declares `size(?@) -> Int!Bad`; a method meets its API with the same set: write `-> Int!Bad`
 `Pool` provides `Job`, which builds on `Sends`, but `Pool` cannot be sent to another task: its field `cache` is a `*Cell[List[Int]]`
@@ -864,7 +864,7 @@ sub main()
 ```
 
 ```error
-`Log.watch` keeps `s`, but `Watcher.watch` keeps nothing: a call through `Watcher` would end the loan on `s` while `Log` still views it; add `keeps s` to `Watcher.watch`
+`Log.watch` keeps `s`, but `Watcher.watch` keeps nothing: a call through `Watcher` would leave `s` free while `Log` still views it; add `keeps s` to `Watcher.watch`
 ```
 
 ```rig reject
@@ -954,13 +954,13 @@ sub main()
 `{Shape}` rejected as unsized (written or inferred), the bounds an
 object meets, and which methods a call through one reaches, with why
 for those it does not;
-the views, `?{Shape}` and `!{Shape}`: the erasure, lent by the lend
+the views, `?{Shape}` and `!{Shape}`: the erasure, made by the view
 table's last row and recorded once; calls through a table, typed and
 checked by the API's declaration and clauses; the copy of a plain read
 view, local to its block; and the oracle's second opinion on each;
 the boxes, `^{Shape}`: a `^T` moved in keeping its allocation, its drop
 through the table and the drop queue, `<@` methods that end the box,
-`Clone` and `Print` entries, loans to the drop, `Owned`'s no-loan
+`Clone` and `Print` entries, views to the drop, `Owned`'s no-view
 homes, and no default value
 (SPEC, "API objects").
 An object of an API with an associated type, `^{Source[Item: Int]}`,
@@ -970,7 +970,7 @@ An **API object** is a value of some type that provides an API, the
 type chosen when the program runs. It is written as the API in braces,
 behind a view or a box. Its ownership rules are CORE's, approved before
 any code (CORE §4, "An API object hides its value's type, never its
-loans"); this section follows them and designs the rest:
+views"); this section follows them and designs the rest:
 
 ```text
 api Shape
@@ -984,7 +984,7 @@ fun area_of(s: ?{Shape}) -> Float
 
 sub main()
   sq = Square(side: 2.0)
-  print(area_of(sq))                      # lends `?{Shape}`, unmarked like any read
+  print(area_of(sq))                      # makes a `?{Shape}`, unmarked like any read
   shapes: List[^{Shape}] = List()
   !shapes.push(^Square(side: 3.0))        # boxed where the `^` is written
   c = ^Circle(r: 1.0)
@@ -1033,12 +1033,12 @@ braces: a block is the lines indented under its header". A map or set
 literal, if Rig ever has one, sits in an expression, where a type never
 does.
 
-**Making one.** At an expected type, by an ordinary lend or move. The
-lend table gains one row: a value of a type that provides `Shape` lends
-`?{Shape}` to read and `!{Shape}` to write. The rows compose as they do
+**Making one.** At an expected type, by an ordinary view or move. The
+view table gains one row: a value of a type that provides `Shape` makes
+a `?{Shape}` as a read view and a `!{Shape}` as a write view. The rows compose as they do
 today, so `?b` of a `^Square`, `?h` of a `*Square`, and `?f` of a
-`*Frozen[Square]` lend a `?{Shape}` of the value they reach, and `?b`
-of a `^{Shape}` lends the `?{Shape}` it holds. A box is made by moving
+`*Frozen[Square]` make a `?{Shape}` of the value they reach, and `?b`
+of a `^{Shape}` makes the `?{Shape}` it holds. A box is made by moving
 one in: `<c` of a `c: ^Square`, where a `^{Shape}` is expected, keeps
 its allocation, and `^Square(side: 3.0)` and `^<sq` box a new one
 where the `^` is written. A bounded `T` erases through its witness, as
@@ -1047,7 +1047,7 @@ object, as it meets no bound by an API (Stage 3). The built-in APIs in
 the braces are checked here, where the type is still known:
 `^{Shape + Owned}` of a `Note` holding a `?String` is rejected. No
 sigil marks the erasure; the braces in the expected type do. Only
-the value a lend or a move reaches is erased, never a place's or an
+the value a view or a move reaches is erased, never a place's or an
 element's type: a `!^Square` is never a `!^{Shape}`, through which
 `b = ^Circle(r: 1.0)` would write a `Circle` into a `^Square`. One
 object form never converts to another API's: a `?{Named}` is not a
@@ -1119,12 +1119,12 @@ numeric code, prefer a bound.
   neither the erased type's `from @field` nor `Iter`'s rule for a view
   result applies. An owned closure is the case of one method with no
   clauses, so today's closure rules are unchanged.
-- An object carries every loan the value carried, and since the type
+- An object carries every view the value carried, and since the type
   is hidden it may hold anything: a view, a handle, a `drop` body. So
-  the loans of a `?{Shape}` or `!{Shape}` end at its last use, and
+  the views of a `?{Shape}` or `!{Shape}` end at its last use, and
   those of a `^{Shape}` at its drop, which may read them.
   `^{Shape + Owned}` holds no view, checked at the erasure, and goes
-  where no loan may: an owned closure's environment. It may still hold
+  where no view may: an owned closure's environment. It may still hold
   a handle, so the error, freezing, and crossing rules reject it where
   a handle may not go: an error set's field, an actor's state, the
   value of a `*Frozen`.
@@ -1132,13 +1132,13 @@ numeric code, prefer a bound.
   of a type parameter's value, views a local of the erasing block: a
   copy of the value, decided by kind, never by the size at which
   `rig.ReadView` passes a view as a copy, so whether a program compiles
-  never turns on a size. The object carries a loan on that local, so
+  never turns on a size. The object is a view of that local, so
   it never leaves the block, returned or stored beyond it (a loop's
   pass is a block, so objects kept across passes are rejected too), and
-  the error says to lend the owner where it lives, or to take a
+  the error says to put the sigil on the owner where it lives, or to take a
   `?{Shape}`. An object of a generic `?T` therefore cannot be returned.
-  A temporary lent as an object is a temporary of its statement, as any
-  lent temporary is (CORE §3).
+  A temporary viewed as an object is a temporary of its statement, as any
+  viewed temporary is (CORE §3).
 - An object meets only the `Clone`, `Print`, and `Owned` its braces or
   API name, each checked on the value's type where it is erased. It
   meets no other built-in bound, and none is forwarded through its view
@@ -1164,11 +1164,11 @@ numeric code, prefer a bound.
   rejected, as at a built-in type.
 - An object is never frozen: whether a value can be frozen is a fact of
   its type's parts, gone with the type. Freeze the value first; `?f` of
-  the `*Frozen[Square]` lends a `?{Shape}`.
+  the `*Frozen[Square]` makes a `?{Shape}`.
 - An API object goes to no task in this stage, a local one included:
   its hidden value may hold what goes to none, an owned closure or a set
   of tasks, so a task over a call through one (`s.area()&`), a task
-  given or lent one, a channel send, an actor's argument, and
+  given a view of one, a channel send, an actor's argument, and
   `par.each` reject it. Crossing is a bound in the braces (Stage 5).
 - A closure captures an object as it captures any view or owner, and an
   owned closure takes a `^{Shape}` only with `+ Owned`. A closure is
@@ -1177,7 +1177,7 @@ numeric code, prefer a bound.
   included, passes through its entry untouched.
 
 **Frozen values and Stage 5.** A `*Frozen[T]` stays a handle to a value
-whose type is known, read by many tasks; it lends a `?T`, which erases
+whose type is known, read by many tasks; it makes a `?T`, which erases
 as any read view of its value does, inside one task. Stage 4 has no
 counted object: an erased value many tasks read, and `*{Shape}` itself,
 are Stage 5's, their crossing checked where the type is erased.
@@ -1196,7 +1196,7 @@ arguments and, where the method takes one, the slot; Zig takes no
 address of an inline function, so the method stays inlinable everywhere
 else. A `<@` entry moves the value out of the box and frees it first.
 An entry whose result is an optional wider than three words, a `Hit?`,
-writes the value through a place the caller lends, its last parameter,
+writes the value through a place the caller passes as a write view, its last parameter,
 and returns only whether there is one, so a `none` writes nothing
 (INTERNALS, "APIs and API objects").
 `?{Shape}` is `rig.ApiView(__rig_table_Shape, .read, "")`, `!{Shape}`
@@ -1217,12 +1217,12 @@ reaches.
 `{Shape}` has no size of its own: hold it behind a view, a box, or a handle, `?{Shape}`, `!{Shape}`, `^{Shape}`, or `*{Shape}`
 braces hold APIs, and `Square` is a type: write `?Square` for a view of it, or name an API it provides, `?{Shape}`
 `{Shape + Named}` names two APIs of a program's own, and an object has one table: declare `api Both: Shape + Named` and write `?{Both}`
-`area_of(?l)` cannot lend `l` as a `?{Shape}`: `Label` does not provide `Shape`; declare `obj Label: Shape`
+`area_of(?l)` cannot make a `?{Shape}` of `l`: `Label` does not provide `Shape`; declare `obj Label: Shape`
 `Shape.scale` takes compile-time parameters, which a call through `?{Shape}` cannot pass: call it through a bound, `[T: Shape]`
 cannot assign through `w`, a `!{Shape}`: the value it views may be of another type; call its methods, or hold a `^{Shape}` and replace the box
-`Note` is erased to `^{Shape + Owned}`, which holds no loan, but its field `text` is a `?String`
+`Note` is erased to `^{Shape + Owned}`, which holds no view, but its field `text` is a `?String`
 `+b` makes a new owner, and a `^{Shape}` is not cloned: its type is erased; write `^{Shape + Clone}`, or build `Shape` on `Clone`
-`?{Shape}` of `p` views a copy held in this block, since `Point` is plain data, so it cannot leave the block; lend the owner where it lives, or take `p: ?{Shape}`
+`?{Shape}` of `p` views a copy held in this block, since `Point` is plain data, so it cannot leave the block; put the sigil on the owner where it lives, or take `p: ?{Shape}`
 `Source` declares `type Item`, so an object of it names that type: `^{Source[Item: Int]}`
 ```
 
@@ -1249,7 +1249,7 @@ braces:
 api Shape
   fun area(?@) -> Float
 
-api Job: Sends + Owned                  # every Job may go to another task, and holds no loan
+api Job: Sends + Owned                  # every Job may go to another task, and holds no view
   fun run(?@) -> Int
 
 fun area_of(s: *{Shape + Syncs}) -> Float
@@ -1289,7 +1289,7 @@ known:
   atomic (below), never a `*{Shape}`.
 
 A handle is erased only as it moves or counts, never through a view:
-`!sq` lent as a `!*{Shape}` would let a `Circle` be written into a
+`!sq` made into a `!*{Shape}` would let a `Circle` be written into a
 `*Square`, and a `?*Square` read as a `?*{Shape}` would read eight
 bytes as sixteen. Nothing else becomes one. An actor's or a channel's handle does not:
 their methods are messages, not the value's. A box does not: `*<b` of a
@@ -1302,8 +1302,8 @@ It is a handle, so it only reads (CORE sentence 8):
 - a call through it reaches the API's `?@` methods; a `!@` or `<@`
   method is rejected, with the fix: hold a `^{Shape}`, or change the
   value through a `Cell` it holds;
-- `?s` lends the `?{Shape}` it holds, by the `*T` row of the lend table,
-  at no cost (the same two words); `!s` lends the handle itself, as `!h`
+- `?s` makes the `?{Shape}` it holds, by the `*T` row of the view table,
+  at no cost (the same two words); `!s` makes a write view of the handle itself, as `!h`
   of a `*T` does;
 - `+s` adds a count, never a clone, so `Clone` in its braces is
   rejected; `<s` moves it; a drop gives a count back, and the last one
@@ -1356,7 +1356,7 @@ weak handle. It exists only for a `*{Shape}` that does not sync, so its
 counts are always plain, and it never crosses, so its braces are its
 handle's without a crossing bound. `~` of a `*{Shape + Syncs}` is
 rejected, as a frozen value has no weak handle: an upgrade on one core
-would race the atomic last drop on another. It carries the loans its
+would race the atomic last drop on another. It carries the views its
 `*{Shape}` carries, so `*w` never gives a count that has escaped them.
 
 ### Crossing tasks: a bound in the braces
@@ -1404,12 +1404,12 @@ braces alone.
 are unchanged; objects meet them by the table above:
 
 - A task's argument: `work(<j)&` gives it a `^{Job + Sends}`;
-  `total(?b)&` lends it a `^{Shape + Syncs}` to read; `area_of(+f)&`
+  `total(?b)&` gives it a read view of a `^{Shape + Syncs}`; `area_of(+f)&`
   gives it a `*{Shape + Syncs}`.
 - A channel's element moves and holds no view, so it is
   `*Chan[^{Job + Sends + Owned}]`, or `*Chan[^{Job}]` of an
   `api Job: Sends + Owned`. `Sends` never implies `Owned`: a task keeps
-  the loans of what it is given, but a channel, an actor's state, and
+  the views of what it is given, but a channel, an actor's state, and
   an owned closure keep none.
 - An actor's state holds `^{Job + Sends + Owned}` fields; its methods
   take boxes that send and read views of what syncs, and give results
@@ -1488,7 +1488,7 @@ bound follows it, `^{Source[Item: Int] + Sends}`.
 - An object without the bound a task needs goes to no task; one with it
   goes as its form's row says.
 - No object, and no owned closure, hides a task or a set of tasks.
-- A `*{A}` only reads; it carries the loans of what it holds, as a `*T`
+- A `*{A}` only reads; it carries the views of what it holds, as a `*T`
   does, until its last count is dropped, and its `~{A}` the same; `+
   Owned` carries none, and a `*{A + Syncs}` holds a frozen value,
   which holds no view.
@@ -1543,9 +1543,9 @@ a frozen value's handle is erased only to `*{Shape + Syncs}`, which counts atomi
 |---|---|---|---|
 | 1 | per-instance typing of the call; the function-value ownership rule | the same rule, read from the call's facts | nothing |
 | 2 | bounded parameters held to their bounds; marker facts | computes the marker facts itself; a copy of a bounded `T` needs `Copy` | `Copy` only of plain kinds |
-| 3 | conformance, coherence, clauses within the API's by position, the same failure as the API's; one dispatch fact per call | conformance clauses checked on its own; a call through a bound read with the API's clauses | a subsumption lemma, proved: a call checked against wider clauses is sound for any callee within them (formal/LambdaRig/Calls.lean: `within_live` for loans, both clauses; `api_calls_run` for programs whose calls take read views) |
-| 4 | object facts; the erasure's lend; no assignment through `!{...}`; a dynamic call checked with the API's clauses; an object of a plain view's copy stays in its block | object facts computed itself; a dynamic call read with the API's clauses from its dispatch fact; abstains only on what is not built | erasing a type keeps its loans, proved (formal/LambdaRig/Erase.lean: `allows_erase` for the checker, `erase_live` for values, `erased_runs` for programs whose objects only calls reach, conservative by `checkE_lift`); a λRig box holds only an Int, so a box of erased type keeping its loans to its drop waits for boxes of views |
-| 5 | count operations in the table, chosen by the hidden allocation at erasure; crossing bounds checked at erasure by `crossingBlocker`; an object without one goes to no task; no object hides a task | crossing facts of objects computed from their braces and API; a `*{A}` carries its value's loans to its last count | crossing obligations, proved: an object checked at erasure holds no value that stays on one thread, so `confined` still holds (formal/LambdaRig/Crossing.lean: `crosses_erase`, `erase_sends`, `bare_no_spawn`, `erase_confined`); `Sends` and `Syncs` are one fact in the task machine, and counts are not modeled |
+| 3 | conformance, coherence, clauses within the API's by position, the same failure as the API's; one dispatch fact per call | conformance clauses checked on its own; a call through a bound read with the API's clauses | a subsumption lemma, proved: a call checked against wider clauses is sound for any callee within them (formal/LambdaRig/Calls.lean: `within_live` for views, both clauses; `api_calls_run` for programs whose calls take read views) |
+| 4 | object facts; the erasure's view; no assignment through `!{...}`; a dynamic call checked with the API's clauses; an object of a plain view's copy stays in its block | object facts computed itself; a dynamic call read with the API's clauses from its dispatch fact; abstains only on what is not built | erasing a type keeps its views, proved (formal/LambdaRig/Erase.lean: `allows_erase` for the checker, `erase_live` for values, `erased_runs` for programs whose objects only calls reach, conservative by `checkE_lift`); a λRig box holds only an Int, so a box of erased type keeping its views to its drop waits for boxes of views |
+| 5 | count operations in the table, chosen by the hidden allocation at erasure; crossing bounds checked at erasure by `crossingBlocker`; an object without one goes to no task; no object hides a task | crossing facts of objects computed from their braces and API; a `*{A}` carries its value's views to its last count | crossing obligations, proved: an object checked at erasure holds no value that stays on one thread, so `confined` still holds (formal/LambdaRig/Crossing.lean: `crosses_erase`, `erase_sends`, `bare_no_spawn`, `erase_confined`); `Sends` and `Syncs` are one fact in the task machine, and counts are not modeled |
 
 ## Alternatives considered
 

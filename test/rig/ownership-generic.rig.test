@@ -116,7 +116,7 @@ test "generic as views the value inside a viewed optional", '''
   n = shown(?t) + shown(?p) + field(?w) + shown(?e)
   print(area_of(?sq), shown(?t) + shown(?t), n / 4, field(?w), shown(?e))
 
-fail "generic as keeps the optional lent", "3:5: cannot reassign `o` while it is lent", errors: 1
+fail "generic as keeps the optional lent", "3:5: cannot reassign `o` while a read view of it is still in use", errors: 1
   fun clear[T: Print](o: !T?) -> Int
     if ?o as v
       o = none
@@ -446,7 +446,7 @@ test "generic catch all view guarded", release: true, '''
   lends(String("one"), String("two"), String("k"), false)
   lends(Pt(x: 1, y: 2), Pt(x: 3, y: 4), Pt(x: 0, y: 0), true)
 
-fail "generic fn value view at string view", "cannot drop `t` while it is lent"
+fail "generic fn value view at string view", "cannot drop `t` while a read view of it is still in use"
   # A generic function's `T` may hold a view of its `?String` argument, so its result keeps that argument lent.
   fun mk(s: ?String) -> ?String
     s
@@ -459,7 +459,7 @@ fail "generic fn value view at string view", "cannot drop `t` while it is lent"
   <t
   print(k)
 
-fail "generic fn value view in list", "cannot drop `t` while it is lent"
+fail "generic fn value view in list", "cannot drop `t` while a read view of it is still in use"
   # A generic function's `T` may hold a view of its `?String` argument, so its result keeps that argument lent.
   fun mk(s: ?String) -> List[?String]
     l: List[?String] = List()
@@ -474,7 +474,7 @@ fail "generic fn value view in list", "cannot drop `t` while it is lent"
   <t
   print(k)
 
-fail "generic fn value view result", "cannot drop `t` while it is lent"
+fail "generic fn value view result", "cannot drop `t` while a read view of it is still in use"
   # A generic function's `T` may hold a view of its `?String` argument, so its result keeps that argument lent.
   obj K
     s: ?String
@@ -505,7 +505,7 @@ test "generic fn value view result used", "abc"
   print(k)
   <t
 
-fail "generic fn value view store", "cannot drop `t` while it is lent"
+fail "generic fn value view store", "cannot drop `t` while a read view of it is still in use"
   # A generic function's `T` may hold a view of its `?String` argument, so its result keeps that argument lent.
   obj K
     s: ?String
@@ -522,7 +522,7 @@ fail "generic fn value view store", "cannot drop `t` while it is lent"
   <t
   print(k.s)
 
-fail "generic fn value view through write", "cannot drop `t` while it is lent"
+fail "generic fn value view through write", "cannot drop `t` while a read view of it is still in use"
   # A generic function's `T` may hold a view of its `?String` argument, so its result keeps that argument lent.
   obj K
     s: ?String
@@ -903,7 +903,7 @@ test "type param method keeps", "y"
   put(!h, "y")
   print(h.s)
 
-fail "type param method stores through an owned value", "`stash[Log]` cannot use `T = Log`: the generic body calls `x.watch(s)`, and `Log.watch` keeps a view of an argument in `x`, a `T` the body holds, whose loans it does not track", errors: 1
+fail "type param method stores through an owned value", "`stash[Log]` cannot use `T = Log`: the generic body calls `x.watch(s)`, and `Log.watch` keeps a view of an argument in `x`, a `T` the body holds, whose views it does not track", errors: 1
   # A view stored in a `T` the body owns, which then moves into the
   # caller's list: the caller may drop `b` and read the list. The body
   # does not track the loans a `T` it holds carries, so an instance
@@ -956,7 +956,7 @@ test "generic optional of a Copy parameter copies", "hello 3 world"
   !xs.push(?t)
   print(or_else(a, ?t), or_else(none, 3), first_non_zero(?xs[..]) ?? ?s)
 
-fail "generic optional of a parameter keeps what its bounds say", "cannot return a view of `local`, which this function was not lent", "`E` is bounded by `Hash`, which does not give a copy", errors: 2
+fail "generic optional of a parameter keeps what its bounds say", "cannot return a view of `local`, which belongs to this function", "`E` is bounded by `Hash`, which does not give a copy", errors: 2
   # The sibling shapes: an `E?` the body holds is still a local whose
   # view cannot leave, and one of an `E` that does not copy is not copied.
   # oracle: local_opt reject C5
@@ -1752,7 +1752,7 @@ test "generic plain of a value's known type is a constant", "true false"
 
   print(known(1, 2), other(3))
 
-fail "closure stores its parameter's view in a generic body's value", "9:2: `Map[String, (?String)?]` cannot use `V = (?String)?`: the generic body passes a `?sub(?String, !(?String)?)` a view beside a write view of a `V` it holds, whose loans it does not track, and a `(?String)?` can hold the view; use a `V` that owns what it holds"
+fail "closure stores its parameter's view in a generic body's value", "9:2: `Map[String, (?String)?]` cannot use `V = (?String)?`: the generic body passes a `?sub(?String, !(?String)?)` a view beside a write view of a `V` it holds, whose views it does not track, and a `(?String)?` can hold the view; use a `V` that owns what it holds"
   # A generic body tracks no view a value of a type parameter holds, so
   # `update`'s call of `f(?key, !value)` cannot see `f` store the key's
   # view in a `(?String)?` value; the value would outlive the key. The
@@ -1954,7 +1954,7 @@ test "generic value from a lent parameter returned through a local", "a"
   r = mk(?xs, List[?String](), |k, v| !v.push(k))
   print(r[0])
 
-fail "generic value from a lent parameter returned keeps it lent", "cannot drop `xs` while it is lent"
+fail "generic value from a lent parameter returned keeps it lent", "cannot drop `xs` while a read view of it is still in use"
   fun mk[V](xs: ?List[String], v: V, f: ?sub(?String, !V)) -> V
     b = <v
     f(?xs[0], !b)

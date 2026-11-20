@@ -34,7 +34,7 @@ is timeless: no dates, no "currently", "now", or "new".
    "What is not there yet" where that is honest, and "Where to go
    next": the next journey, then the reference sections. SPEC is the
    last link, never the first stop.
-7. **One vocabulary:** lend, view, loan; owner, handle, box; self, never
+7. **One vocabulary:** place, view; owner, handle, box; self, never
    "receiver"; task. `&` is the dispatch sigil and `>` the wait sigil.
    The named sets of methods a type provides are APIs
    ([design/apis.md](../design/apis.md)).

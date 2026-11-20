@@ -149,7 +149,7 @@ test "apis object crossing a call through the object as a task", seeds: 20, "4.0
   print(>t, >u, >w)
 
 test "apis object crossing a channel of boxes", seeds: 20, "60 3"
-  # A channel's element sends and holds no loan: `api Job: Sends +
+  # A channel's element sends and holds no view: `api Job: Sends +
   # Owned` gives both to every `^{Job}`.
   use std.task
 
@@ -183,7 +183,7 @@ test "apis object crossing a channel of boxes", seeds: 20, "60 3"
   print(>c!, 3)
 
 test "apis object crossing an actor's state of boxes", seeds: 20, "3 60"
-  # An actor's state holds boxes that send and hold no loan, and its
+  # An actor's state holds boxes that send and hold no view, and its
   # method takes one from other tasks.
   api Job
     fun run(?@) -> Int
@@ -421,7 +421,7 @@ fail "apis object crossing a box given without its bound", "`<j` is given to a t
   t = work(<j)&
   print(>t)
 
-fail "apis object crossing lent without its bound", "`?b` is lent to a task to read, and `^{Shape}` hides its value's type without naming `Syncs`: write `^{Shape + Syncs}`", "`?s` is lent to a task to read, and `?{Shape}` hides its value's type without naming `Syncs`: write `?{Shape + Syncs}`", "`!w` is lent to a task to write, and `!{Shape}` hides its value's type without naming `Sends`: write `!{Shape + Sends}`", "`?c` is lent to a task to read, and `^{Shape + Sends}` hides its value's type without naming `Syncs`: write `^{Shape + Sends + Syncs}`", errors: 4
+fail "apis object crossing lent without its bound", "`?b` is passed to a task as a read view, and `^{Shape}` hides its value's type without naming `Syncs`: write `^{Shape + Syncs}`", "`?s` is passed to a task as a read view, and `?{Shape}` hides its value's type without naming `Syncs`: write `?{Shape + Syncs}`", "`!w` is passed to a task as a write view, and `!{Shape}` hides its value's type without naming `Sends`: write `!{Shape + Sends}`", "`?c` is passed to a task as a read view, and `^{Shape + Sends}` hides its value's type without naming `Syncs`: write `^{Shape + Sends + Syncs}`", errors: 4
   # oracle: main reject T1
   # oracle: look reject T1
   # oracle: write reject T1
@@ -457,7 +457,7 @@ fail "apis object crossing lent without its bound", "`?b` is lent to a task to r
   u = total(?c)&
   print(>t, >u, look(?b))
 
-fail "apis object crossing a local task without its bound", "`?b` is lent to a task to read, and `^{Shape}` hides its value's type without naming `Syncs`: write `^{Shape + Syncs}` (a local task too: what it hides may go to no task)", errors: 1
+fail "apis object crossing a local task without its bound", "`?b` is passed to a task as a read view, and `^{Shape}` hides its value's type without naming `Syncs`: write `^{Shape + Syncs}` (a local task too: what it hides may go to no task)", errors: 1
   # oracle: main reject T1
   # Another part pins the task to this thread, which an object needs its
   # bound for too: what it hides may be an owned closure.
@@ -502,7 +502,7 @@ fail "apis object crossing a generic without the bound", "`T` is erased to `^{Sh
   fun boxed[T: Shape](x: ^T) -> ^{Shape + Sends}
     <x
 
-fail "apis object crossing a channel of boxes that may hold a loan", "a channel's values hold no loan, and a `^{Job + Sends}` may hold one: write `^{Job + Owned + Sends}`", errors: 1
+fail "apis object crossing a channel of boxes that may hold a view", "a channel's values hold no view, and a `^{Job + Sends}` may hold one: write `^{Job + Owned + Sends}`", errors: 1
   use std.task
 
   api Job
@@ -512,7 +512,7 @@ fail "apis object crossing a channel of boxes that may hold a loan", "a channel'
 
   ch = *Chan[J](1)
 
-fail "apis object crossing an actor's state that may hold a loan", "an actor's value holds no loan, and a `Queue` may hold a view", errors: 1
+fail "apis object crossing an actor's state that may hold a view", "an actor's value holds no view, and a `Queue` may hold a view", errors: 1
   api Job
     fun run(?@) -> Int
 
@@ -840,7 +840,7 @@ fail "apis object crossing a held object names the bound it lacks", "`+h` is giv
   u = g(<p)&
   print(>t, >u)
 
-fail "apis object crossing a value erased at the task's call crosses by the parameter's braces", "`^Sum(n: 3)` is given to a task, and `^{Job}` hides its value's type without naming `Sends`: write `^{Job + Sends}`", "`<j` is given to a task, and `^{Job}` hides its value's type without naming `Sends`: write `^{Job + Sends}`", "`?s` is lent to a task to read, and `?{Job}` hides its value's type without naming `Syncs`: write `?{Job + Syncs}`", "an actor runs its methods on a task of its own, and `?s` is lent to it to read: `?{Job}` hides its value's type without naming `Syncs`: write `?{Job + Syncs}`", errors: 4
+fail "apis object crossing a value erased at the task's call crosses by the parameter's braces", "`^Sum(n: 3)` is given to a task, and `^{Job}` hides its value's type without naming `Sends`: write `^{Job + Sends}`", "`<j` is given to a task, and `^{Job}` hides its value's type without naming `Sends`: write `^{Job + Sends}`", "`?s` is passed to a task as a read view, and `?{Job}` hides its value's type without naming `Syncs`: write `?{Job + Syncs}`", "an actor runs its methods on a task of its own, and `?s` is passed to it as a read view: `?{Job}` hides its value's type without naming `Syncs`: write `?{Job + Syncs}`", errors: 4
   # The designer's answer to the review of phase 1: an argument erased
   # into an object parameter crosses by the parameter's braces, as one
   # erased before the call does, whatever its known type.

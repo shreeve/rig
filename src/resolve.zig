@@ -561,7 +561,7 @@ const SymbolResolver = struct {
         const name = identAt(self.ctx.source, name_node) orelse return;
         const parent = self.ctx.scopes.items[self.scope].parent orelse return;
         if (self.visibleLocal(parent, name)) |prev| {
-            try self.ctx.errAt(name_node, "closure parameter `{s}` has the name of the local `{s}`; to capture the local, give it a sigil (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|?{s}|` or `|!{s}|` lends it, `|~{s}|` holds it weakly), or name the parameter differently", .{ name, name, name, name, name, name, name });
+            try self.ctx.errAt(name_node, "closure parameter `{s}` has the name of the local `{s}`; to capture the local, give it a sigil (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|?{s}|` or `|!{s}|` makes a view of it, `|~{s}|` holds it weakly), or name the parameter differently", .{ name, name, name, name, name, name, name });
             try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
             return;
         }
@@ -2500,7 +2500,7 @@ pub const TypeResolver = struct {
         }
         if (sema.setParamUnlent(self.ctx, ty)) |sym| {
             const name = self.ctx.symbols.items[sym].name;
-            return self.ctx.errAt(node, "a function that fails with `{s}`, a set parameter, is lent: take it as `?fun(...) -> T!{s}`, which lends a function of any set", .{ name, name });
+            return self.ctx.errAt(node, "a function that fails with `{s}`, a set parameter, is passed as a view: take it as `?fun(...) -> T!{s}`, which views a function of any set", .{ name, name });
         }
     }
 
@@ -3881,7 +3881,7 @@ pub const TypeResolver = struct {
             };
         };
         if (!ok) {
-            try self.ctx.err(sema.paramPos(first, pos), "`drop` takes self lent to write: `drop(!@)`", .{});
+            try self.ctx.err(sema.paramPos(first, pos), "`drop` takes a write view of self: `drop(!@)`", .{});
             return;
         }
         const fn_ty = try self.ctx.intern(.{ .function = .{
@@ -5009,7 +5009,7 @@ const cell_get: sema.Needs = .{ .t = .copies, .op = "copies out with `Cell.get` 
 
 /// `xs.get(i)` hands out a copy of an element.
 const list_get: sema.Needs = .{ .t = .copies, .op = "copies an element out of a List", .says = .{
-    .element_out = "read it in place with `v[i]`, or lend it with `?v[i]`",
+    .element_out = "read it in place with `v[i]`, or make a view of it with `?v[i]`",
 } };
 
 /// `xs.index_of(x)` compares each element with `x`.

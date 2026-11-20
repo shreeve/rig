@@ -6,7 +6,7 @@ points at where the repository says more.
 ## Why is waiting a sigil, not a keyword?
 
 Because in Rig the mechanics of the language are sigils, and the words
-are its libraries. Moving a value is `<x`, lending it is `?x` or `!x`,
+are its libraries. Moving a value is `<x`, viewing it is `?x` or `!x`,
 and running a call at the same time is `f(x)&`. Taking that work back
 is the same kind of act, so it is the same kind of mark: `>t`. The two
 read as a pair, `&` sending the work off and `>` taking it back, and
@@ -32,7 +32,7 @@ ordinary function. Rig keeps that and adds what Go leaves to the
 programmer. Go lets two goroutines write the same map; its runtime may
 catch that and abort, and most other races show up only when the race
 detector is on. Rig's compiler rejects them, because a task keeps the
-loans of what it is given and only values that are safe to move or share
+views of what it is given and only values that are safe to move or share
 may cross cores. A goroutine can outlive everything that started it; a
 Rig task cannot outlive its owner: dropping one waits for it,
 canceling it first when it can fail. Go's `context.Context` is passed by hand to every call that
@@ -94,11 +94,11 @@ calls can wait for an answer.
 Trio showed that a task should never outlive the block that started it.
 Rig makes that the default for every task, with no nursery object: the
 scope that holds the task is the group, and the compiler knows what the
-task was lent from it.
+task has views of.
 
 ## Are data races impossible?
 
-That is the design: a task keeps the loans of what it is given, a value
+That is the design: a task keeps the views of what it is given, a value
 crosses cores only when its type says it may, and shared state that
 changes is a one-word `*Cell` (atomic) or an actor (one method at a
 time). The proofs so far cover parts of this, not all of it:

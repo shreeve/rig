@@ -426,7 +426,7 @@ spacing that would read as the other form is rejected.
 
 A prefix sigil says how a value is held, and a suffix `?` or `!` is
 control flow: Rig has no `!` for "not" (that is `not`), so `!v.pop()`
-lends `v` to write ([the welcome page](learn/00-welcome.md#the-central-idea)).
+makes a write view of `v` ([the welcome page](learn/00-welcome.md#the-central-idea)).
 
 So a sigil touches what it marks, and spacing shows how a line reads:
 
@@ -490,7 +490,7 @@ a prefix `-` touches its operand: write `-b`
 
 Tokens split by the longest match, as in C and Zig, so `a == b` is not
 `a = = b`. `=!` is one token, so `x =!y` could be a fixed binding of `y`
-or `x = !y`, a write lend; a `=!` with no space after it is rejected. A
+or `x = !y`, a write view; a `=!` with no space after it is rejected. A
 sigil after the `]` of an array or slice type starts its element type: in
 `[2]?Int`, each element is a read view.
 
@@ -509,7 +509,7 @@ match arm's `=>`, so a wait is spaced `x = >t`.
 or `[index]` steps) that a method call follows applies to the place,
 the value the method is called on, its self. Postfixes after the call
 apply to its result. In a chain, it reaches the self of the first method call
-(`!a.b().c(x)` is `(!a).b().c(x)`). `!` lends any value to write
+(`!a.b().c(x)` is `(!a).b().c(x)`). `!` makes a write view of any value
 ([CORE](CORE.md) sentence 4), so it also reaches a self no
 name holds, and the fields and elements after it: the value a call
 that is no method call makes (`!mk().pop()`), a literal
@@ -518,33 +518,33 @@ A call of a call's value is walked through to the first call:
 `!a.b(x)(y).g()` is `(!a).b(x)(y).g()`. A function called through a
 module or a type reads as a method of a value, so `!lib.mk().bump()`
 reaches `lib`: the checker says so, and the call in parentheses,
-`!(lib.mk()).bump()`, lends the value it makes.
+`!(lib.mk()).bump()`, makes a view of the value it makes.
 
 | Long form | Short form | Meaning |
 |---|---|---|
-| `(!v).push(x)` | `!v.push(x)` | lend `v` to write, then push |
+| `(!v).push(x)` | `!v.push(x)` | make a write view of `v`, then push |
 | `(!@items).push(k)` | `!@items.push(k)` | a field of `@` in a `!@` method |
-| `(!c).set(5)` | `!c.set(5)` | a shared `Cell` changes only by a marked call; the mark lends `c` to read |
+| `(!c).set(5)` | `!c.set(5)` | a shared `Cell` changes only by a marked call; the mark leaves `c` read-only |
 | `(!grid[r]).bump()` | `!grid[r].bump()` | an element, changed in place |
 | `(!v).put[2](x)` | `!v.put[2](x)` | a method with compile-time arguments |
-| `(!mk()).pop()` | `!mk().pop()` | lend the value `mk()` makes to write, a temporary |
+| `(!mk()).pop()` | `!mk().pop()` | make a write view of the value `mk()` makes, a temporary |
 | `(!mk().items).push(k)` | `!mk().items.push(k)` | a field of that temporary |
 | `(!(+s)).bump()` | `!(+s).bump()` | a parenthesized self |
 | `((!v).pop())?` | `!v.pop()?` | the suffix applies to the result |
 | `x = (!v).pop() ?? 0` | `x = !v.pop() ?? 0` | a value used, in a binding, an argument, an `as` header, or a result |
 | `if (!s).insert(k)` | none | a `Bool` value used keeps its parentheses |
 | `(<conn).close()` | `<conn.close()` | move `conn` into `close` |
-| `(?p).dist(q)` | `?p.dist(q)` | lend `p` to read; the same as `p.dist(q)` |
+| `(?p).dist(q)` | `?p.dist(q)` | make a read view of `p`; the same as `p.dist(q)` |
 
 Only `?`, `!`, and `<` reach self, since they are the modes a
 method declares (`?@`, `!@`, `<@`). Every other prefix, and
 `?`, `!`, or `<` with no method call after the place, applies to the
 whole expression: `*Point.origin()` shares the new `Point`, `-a.len`
-negates the length, `!x.v` lends the field, `<p.f` takes the optional
-field, and `?xs[0]` lends the element. A `?` or `<` before a value a call
-makes applies to the whole expression too: `?f(x).g()` lends what `g`
+negates the length, `!x.v` makes a write view of the field, `<p.f` takes the optional
+field, and `?xs[0]` makes a read view of the element. A `?` or `<` before a value a call
+makes applies to the whole expression too: `?f(x).g()` makes a read view of what `g`
 returns, since a made self is read or taken without a sigil. With
-parentheses around the call, `?(p.m())` and `!(p.m())` lend its
+parentheses around the call, `?(p.m())` and `!(p.m())` make a view of its
 result. The long form is valid everywhere. `!` never negates: a `!`
 is rejected wherever reading it as `not` would also type-check. So the
 long form is required for a write call whose `Bool` value is used, `if
@@ -615,7 +615,7 @@ written in parentheses, `not (a == b)`, never `not a == b`, which
 could read as `(not a) == b` ([SPEC §5](../SPEC.md#operators)). `not a
 and b` is `(not a) and b`. `as` binds tighter than `and`, in a condition that
 binds ([§10](#conditions-that-bind)). There is no `&&`, `||`, `**`,
-`++`, or `--`, and prefix `!` lends to write, never "not". The bitwise
+`++`, or `--`, and prefix `!` makes a write view, never "not". The bitwise
 complement of an integer is the method `x.not()`, and the counts of its bits
 are the methods `x.leading_zeros()`, `x.trailing_zeros()`, and `x.count_ones()`;
 `x.swap_bytes()` reverses its bytes. What each
@@ -630,7 +630,7 @@ operator does, and which types it takes, is in
 | a generic instance | `List[Int]`, `Pair[Int, ?String]`, `Ring[Int, 4]`, `lib.Wrap[Int]` | [SPEC §3](../SPEC.md#generic-types) |
 | optional | `T?` | a `T` or `none` |
 | fallible | `T!` | a `T` or an error; a return type only |
-| read view | `?T` | [SPEC §7](../SPEC.md#lending) |
+| read view | `?T` | [SPEC §7](../SPEC.md#views) |
 | write view | `!T` | a parameter's, self's, a result's, or a binding's type ([SPEC §2](../SPEC.md#composite-and-handle-types)) |
 | box | `^T` | [SPEC §10](../SPEC.md#boxes-t) |
 | shared handle | `*T` | [SPEC §9](../SPEC.md#9-shared-and-weak-handles) |
@@ -766,7 +766,7 @@ sign -1
   @`, a path of self, `-> ?String from @text`, or `-> ?String from
   static` for only what lives for the whole program ([CORE sentence
   7](CORE.md#2-the-core-in-ten-sentences)).
-- A function that keeps a lent parameter names it last on its header:
+- A function that keeps a view parameter names it last on its header:
   `sub watch(!@, s: ?String) keeps s`, `fun bind(!@, s: ?String)
   -> ?String from s keeps s`, `sub save(p: !Page, s: ?String)!
   keeps s` ([CORE sentence 7](CORE.md#2-the-core-in-ten-sentences)).
@@ -1598,7 +1598,7 @@ An `if` or `while` condition binds the value inside an optional with
 | `if ?a as x`, `if !a as x` | a read or write view of the value inside `a` |
 | `if <p.f as x` | the value taken out of a field, which is left `none` |
 | `while a as x` | each value `a` produces |
-| `while !q.pop() as x` | what a call that lends its self to write returns |
+| `while !q.pop() as x` | what a call that makes a write view of its self returns |
 | `if a as x and x > 0 and b as y` | in order, each part only when the ones before it held |
 | `if a as _` | nothing: a test for a value |
 | `if f() as a, b`, `while f() as a, b` | each of the several results inside the optional a call gives, `-> (A, B)?` |
@@ -1728,8 +1728,8 @@ as `print` writes it: `String("n=", n)`, or `String()` for an empty one.
 | `xs[i]` | an element, bounds-checked |
 | `s[a..b]` | a slice of a `?String`, itself a `?String` |
 | `?xs[a..b]`, `!xs[a..b]` | a read or write slice of an array or List |
-| `?t[a..b]` | a lend of part of a String: a `?String` viewing it |
-| `f(xs[a..b])` | `f(?xs[a..b])` where `f` takes a `[]T` or a `?String`: a slice argument is lent as its name is |
+| `?t[a..b]` | a view of part of a String: a `?String` viewing it |
+| `f(xs[a..b])` | `f(?xs[a..b])` where `f` takes a `[]T` or a `?String`: a slice argument is a view as its name is |
 | `xs[a..=b]`, `xs[..=b]` | a slice through `xs[b]` |
 | `xs[a..]`, `xs[..b]`, `xs[..]` | a slice with an open side |
 | `?a` where a `[]T` is expected | `?a[..]`; `!a` where a `![]T` is |
@@ -1738,12 +1738,12 @@ as `print` writes it: `String("n=", n)`, or `String()` for an empty one.
 | `e.text`, `Color.from_text(word)` | a plain enum value's name, a `Static`; the variant of that name, or `none` ([SPEC](../SPEC.md#enums)) |
 | `mod.name`, `mod.Type.name` | a module's declaration or a type's member |
 
-A lend of a place is never the base of a path: `(!p).x`, `(?xs)[0]`,
+A view of a place is never the base of a path: `(!p).x`, `(?xs)[0]`,
 and `(<(!p)).x` are rejected, and written `p.x` where the path is read
-or assigned, and `!p.x` or `?xs[0]` where it is lent
-([SPEC](../SPEC.md#lending)). A
+or assigned, and `!p.x` or `?xs[0]` where it is viewed
+([SPEC](../SPEC.md#views)). A
 method's self, `(!s).insert(k)`, a value that branches,
-`(!a if c else !b).x`, and a lend of a slice, `(?t[..])[0]`, are not
+`(!a if c else !b).x`, and a view of a slice, `(?t[..])[0]`, are not
 this rule's.
 
 ### Compile-time arguments
@@ -1882,7 +1882,7 @@ is `*(w?)`, so a gone value is propagated with `(*w)?`. Between two values `^` i
 and a prefix `^` touches its operand. `<x` alone on a line drops `x`
 now; where a value is expected, it moves it there. A sigil may reach
 into a place: `+p.a` clones the handle in a field, `<p.f` takes an optional
-field, and `?xs[0]` lends an element. [SPEC §7](../SPEC.md#7-ownership)
+field, and `?xs[0]` makes a view of an element. [SPEC §7](../SPEC.md#7-ownership)
 says what each does.
 
 ### Closures
@@ -1895,7 +1895,7 @@ names with optional types:
 |---|---|
 | `+x` | capture a copy of plain data, or a clone of a handle |
 | `<x` | move `x` in |
-| `?x`, `!x` | lend `x` to read or write |
+| `?x`, `!x` | make a read or write view of `x` |
 | `~x` | hold a shared handle weakly |
 | `?p.a`, `!@cache` | any of these, of one field of `p` or of self |
 | `a`, `a: Int` | a parameter |
@@ -1913,7 +1913,7 @@ sub main()
 ```
 
 ```error
-closure parameter `n` has the name of the local `n`; to capture the local, give it a sigil (`|+n|` copies or clones it, `|<n|` moves it, `|?n|` or `|!n|` lends it, `|~n|` holds it weakly), or name the parameter differently
+closure parameter `n` has the name of the local `n`; to capture the local, give it a sigil (`|+n|` copies or clones it, `|<n|` moves it, `|?n|` or `|!n|` makes a view of it, `|~n|` holds it weakly), or name the parameter differently
 ```
 
 The body is an expression or an assignment on the same line
@@ -1961,7 +1961,7 @@ A parameter's type, and the result's, may come from context;
 
 The suffix names the kind of early exit: `?` for `none`, `!` for a
 failure, so a line shows which one it can take. Note the direction:
-`?x` (prefix) lends, and `x?` (suffix) unwraps.
+`?x` (prefix) makes a view, and `x?` (suffix) unwraps.
 
 ### Blocks as values
 

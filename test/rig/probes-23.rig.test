@@ -2306,7 +2306,7 @@ test "review-move-done-2-e02 take index effects", "false 101"
   # oracle: mkv accept
   # oracle: grow accept
 
-fail "review-move-done-2-e05 take args order", "cannot lend `s.o` to write while a read loan is live"
+fail "review-move-done-2-e05 take args order", "cannot change `s.o` while a read view of it is still in use"
   # A take beside a lend of the same place in one call.
   obj S
     o: List[Int]?
@@ -4073,7 +4073,7 @@ test "review-never-data-1-c05 branch bound stored", "1 2"
   o.v += 10
   print(a, b)
 
-fail "review-never-data-1-c08 closure env wv", "closure `g` cannot be moved, returned, stored, or copied; call it as `g()`, lend it to a call as `?g`, or make the literal owned (`*|...| body`) to pass it around"
+fail "review-never-data-1-c08 closure env wv", "closure `g` cannot be moved, returned, stored, or copied; call it as `g()`, pass it to a call as `?g`, or make the literal owned (`*|...| body`) to pass it around"
   sub run(f: sub())
     f()
 

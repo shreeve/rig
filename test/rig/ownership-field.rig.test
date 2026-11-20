@@ -38,7 +38,7 @@ test "field box fields", "id 1"
 
   # oracle: main accept
 
-fail "field closure captures whole", "15:1: cannot assign to `p.n` while `p` is lent", errors: 1
+fail "field closure captures whole", "15:1: cannot assign to `p.n` while a read view of `p` is still in use", errors: 1
   # A closure captures a name, not a path (`|?p|` lends all of `p` for the
   # closure's life), so writing any field of `p` while the closure lives
   # conflicts. A field-precise capture would need a capture of a path,
@@ -129,7 +129,7 @@ fail "field drop order view into sibling", "17:1: cannot store in `p.v` a view o
 
   # oracle: main reject C9
 
-fail "field element then field of owner", "16:1: cannot assign to `p.items` while `p.items` is lent", errors: 1
+fail "field element then field of owner", "16:1: cannot assign to `p.items` while a read view of it is still in use", errors: 1
   # `?p.items[0]` is a loan on `p.items`; replacing the whole list frees
   # the element.
   # Rule: a path stops at an element; assigning the path so far overlaps.
@@ -148,7 +148,7 @@ fail "field element then field of owner", "16:1: cannot assign to `p.items` whil
   p.items = List()
   print(r)
 
-fail "field elements overlap", "19:1: cannot lend `p.items` to write while a read loan is live", errors: 1
+fail "field elements overlap", "19:1: cannot change `p.items` while a read view of it is still in use", errors: 1
   # An index is a run-time value, so `v[0]` and `v[1]` cannot be told
   # apart; and a push may move the whole buffer. A path stops at an
   # element.
@@ -231,7 +231,7 @@ test "field generic disjoint", "v 1"
   !p.log.push(r.len)
   print(r, p.log.len)
 
-fail "field generic same field", "14:1: cannot assign to `p.item` while `p.item` is lent", errors: 1
+fail "field generic same field", "14:1: cannot assign to `p.item` while a read view of it is still in use", errors: 1
   # With `T = String`, assigning `p.item` frees the bytes `r` views. The
   # rule is the same for every `T`: the generic body is checked once, with
   # `T` opaque.
@@ -248,7 +248,7 @@ fail "field generic same field", "14:1: cannot assign to `p.item` while `p.item`
   p.item = String("w")
   print(r)
 
-fail "field handle field reassigned", "17:1: cannot assign to `p.h` while `p.h` is lent", errors: 1
+fail "field handle field reassigned", "17:1: cannot assign to `p.h` while a read view of it is still in use", errors: 1
   # A path stops at a handle: `?p.h.name` is a loan on `p.h`. Assigning
   # `p.h` drops this handle's count, which may free the shared value `r`
   # views.
@@ -268,7 +268,7 @@ fail "field handle field reassigned", "17:1: cannot assign to `p.h` while `p.h` 
   p.h = *Sym(name: String("b"))
   print(r)
 
-fail "field loop carried", "17:3: cannot lend `p.items` to write while a read loan is live", errors: 1
+fail "field loop carried", "17:3: cannot change `p.items` while a read view of it is still in use", errors: 1
   # `prev`, declared before the loop and read in it, counts as live
   # anywhere in the loop (docs/internals/INTERNALS.md, "Liveness"), so its view of
   # `p.items` conflicts with the push, though `prev` is re-pointed before
@@ -288,7 +288,7 @@ fail "field loop carried", "17:3: cannot lend `p.items` to write while a read lo
     !p.items.push(i)
     prev = ?p.items[..]
 
-fail "field loop push into iterated", "14:7: cannot lend `@items` to write while a read loan is live", errors: 1
+fail "field loop push into iterated", "14:7: cannot change `@items` while a read view of it is still in use", errors: 1
   # Pushing to the list a `for` walks may move its buffer under the loop;
   # Go's range evaluates the slice once and never sees the appends, which
   # Rig can't promise. The paths are equal.
@@ -388,7 +388,7 @@ test "field method result on field", "2 true"
   !p.collect(1)
   print(p.imports.len, p.uses_node)
 
-fail "field move whole while field lent", "16:10: cannot move `p` while a read loan on `p.name` is live", errors: 1
+fail "field move whole while field lent", "16:10: cannot move `p` while a read view of `p.name` is still in use", errors: 1
   # Moving `p` moves every field, the one `r` views included; the moved
   # value may be dropped or changed through its new owner.
   # Rule: `<p` touches all of `p`.
@@ -407,7 +407,7 @@ fail "field move whole while field lent", "16:10: cannot move `p` while a read l
   consume(<p)
   print(r)
 
-fail "field nested and parent", "16:1: cannot assign to `p.a` while `p.a.b` is lent", errors: 1
+fail "field nested and parent", "16:1: cannot assign to `p.a` while a read view of `p.a.b` is still in use", errors: 1
   # `r` views `p.a.b`; assigning `p.a` drops the old `Inner`, and its
   # String with it, so `r` would dangle. `p.a` is a prefix of `p.a.b`.
   # Rule: a loan on a place covers every place inside it.
@@ -459,7 +459,7 @@ test "field optional payload disjoint", "abc 3"
     p.n = s.len
     print(s, p.n)
 
-fail "field optional payload same field", "13:3: cannot assign to `p.o` while `p.o` is lent", errors: 1
+fail "field optional payload same field", "13:3: cannot assign to `p.o` while a read view of it is still in use", errors: 1
   # `s` views the String inside `p.o`; setting `p.o = none` drops it.
   # Rule: the payload's loan is on `p.o`; assigning `p.o` is the same
   # path.
@@ -475,7 +475,7 @@ fail "field optional payload same field", "13:3: cannot assign to `p.o` while `p
     p.o = none
     print(s)
 
-fail "field parent while nested written", "23:17: cannot lend `p.a` to read while a write loan on `p.a.b` is live", errors: 1
+fail "field parent while nested written", "23:17: cannot use `p.a` while a write view of `p.a.b` is still in use", errors: 1
   # `w` is a write view of `p.a.b`; reading `p.a` (a parent) while it
   # lives would read through a place another view may change.
   # Rule: `p.a` and `p.a.b` overlap (prefix), so a read of one and a write
@@ -526,7 +526,7 @@ test "field range writes other", "7 2"
   !c.sum()
   print(c.total, c.seen.len)
 
-fail "field read view field carries source", "12:1: cannot lend `src` to write while a read loan is live", errors: 1
+fail "field read view field carries source", "12:1: cannot change `src` while a read view of it is still in use", errors: 1
   # A path ends where a read view begins: a slice through `s.text`, a
   # `?String`, carries that view's loan on `src`, so `src` cannot be
   # written while the slice lives.
@@ -562,7 +562,7 @@ test "field read view field no holder loan", "ab 1"
   s = Scanner(text: ?src, pos: 0)
   !s.scan()
 
-fail "field reassign whole while field lent", "12:1: cannot reassign `p` while `p.name` is lent", errors: 1
+fail "field reassign whole while field lent", "12:1: cannot reassign `p` while a read view of `p.name` is still in use", errors: 1
   # Assigning `p` drops its old value, the String `r` views included.
   # Rule: `p = x` touches all of `p`.
   # From Trig's acceptance tests
@@ -577,7 +577,7 @@ fail "field reassign whole while field lent", "12:1: cannot reassign `p` while `
   p = P(name: String("b"), n: 2)
   print(r)
 
-fail "field same field two paths", "15:1: cannot lend `p.items` to write while a read loan is live", errors: 1
+fail "field same field two paths", "15:1: cannot change `p.items` while a read view of it is still in use", errors: 1
   # `x` views `p.items`' buffer; pushing to `p.items` may move it, so `x`
   # would read freed memory. The same path through two uses overlaps.
   # Rule: two places conflict when one path is a prefix of the other (here
@@ -886,7 +886,7 @@ test "field take while other lent", '''
     print(s.pos, r)
   print(p.saved == none)
 
-fail "field through whole self method", "18:1: cannot lend `p` to write while a read loan on `p.name` is live", errors: 1
+fail "field through whole self method", "18:1: cannot change `p` while a read view of `p.name` is still in use", errors: 1
   # `!p.bump()` lends all of `p` to write: the signature says so, and the
   # caller may not look into the body (Core sentence 7). `bump` could
   # clear `p.name`, so `r` must not live across the call.
@@ -974,7 +974,7 @@ test "field token value to arena", '''
 
   # oracle: Parser.literal accept
 
-fail "field view escapes by method result", "18:1: cannot assign to `p.n` while `p` is lent", errors: 1
+fail "field view escapes by method result", "18:1: cannot assign to `p.n` while a read view of `p` is still in use", errors: 1
   # A `!@` method's view result carries a loan on all of `@`;
   # without a path in the signature the caller cannot know which field the
   # result views, so writing any field while it lives is rejected.
@@ -1055,7 +1055,7 @@ test "field view loop elements view the list", '''
     !s.short.push(?n)
   print(s.short)
 
-fail "field view loop elements keep the list lent", "cannot lend `names` to write while a read loan is live", errors: 1
+fail "field view loop elements keep the list lent", "cannot change `names` while a read view of it is still in use", errors: 1
   # The loop's elements view the List the field views, so the List
   # cannot change while the loop walks it.
 
@@ -1069,7 +1069,7 @@ fail "field view loop elements keep the list lent", "cannot lend `names` to writ
     print(n)
     !names.push(String("bob"))
 
-fail "field write param whole assign", "13:3: cannot reassign `p` while `p.name` is lent", errors: 1
+fail "field write param whole assign", "13:3: cannot reassign `p` while a read view of `p.name` is still in use", errors: 1
   # Through a write view `p: !P`, `p = P(...)` writes the whole value the
   # caller owns, dropping the String `r` views.
   # Rule: assigning a name writes all of what it names; a path through a
@@ -1167,7 +1167,7 @@ test "a view through a read-view field of self outlives a write of self", "8 8 7
   emit_from(!c)
   print(x, y, c.builder.out[0] - 1, c.builder.out.len)
 
-fail "a view through an owned field of self is a loan on self", "cannot lend `@` to write while a read loan on `@program.files` is live"
+fail "a view through an owned field of self is a loan on self", "cannot change `@` while a read view of `@program.files` is still in use"
   # The sibling shape: `program` is owned, so the view is a loan on `@`.
   # oracle: Checker.look reject C4
 
@@ -1192,7 +1192,7 @@ fail "a view through an owned field of self is a loan on self", "cannot lend `@`
 
   print(1)
 
-fail "a view through a held read view is a loan on what it views", "cannot lend `p.files` to write while a read loan on `p` is live"
+fail "a view through a held read view is a loan on what it views", "cannot change `p.files` while a read view of `p` is still in use"
   # The view `?c.program.files[0].ast` carries the loan `c.program`
   # holds, on `p`: `p` is not written while it lives.
   # oracle: main reject C4
@@ -1217,7 +1217,7 @@ fail "a view through a held read view is a loan on what it views", "cannot lend 
   !p.files.clear()
   print(tree[0])
 
-fail "a read through a read-view field of self while self is lent to write", "use of `@program` while a write loan on `@` is live"
+fail "a read through a read-view field of self while self is lent to write", "cannot use `@program` while a write view of `@` is still in use"
   # Reading the read view self holds reads `@`: not while a write loan
   # on all of `@` is live.
   # oracle: Checker.look reject C4

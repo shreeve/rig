@@ -1013,7 +1013,7 @@ fail "extend of an owning element", "3:5: `extend` copies every element of its s
   !xs.extend(?ys)
   print(xs.len)
 
-fail "extend of an element that holds a view", "`extend` copies every element of its source, and a `?String` holds a view, whose loan the List would not carry: push each element, `!xs.push(y)`"
+fail "extend of an element that holds a view", "`extend` copies every element of its source, and a `?String` holds a view, which the List would not track: push each element, `!xs.push(y)`"
   s = String("hi")
   t = String("yo")
   xs: List[?String] = List()
@@ -1021,12 +1021,12 @@ fail "extend of an element that holds a view", "`extend` copies every element of
   !xs.extend(?vs)
   print(xs.len)
 
-fail "extend from a slice of its own List", "cannot lend `xs` to write while a read loan is live"
+fail "extend from a slice of its own List", "cannot change `xs` while a read view of it is still in use"
   xs = List([1, 2, 3])
   !xs.extend(?xs[0..2])
   print(xs)
 
-fail "extend from its own List", "cannot lend `xs` to write while a read loan is live"
+fail "extend from its own List", "cannot change `xs` while a read view of it is still in use"
   xs = List([1, 2, 3])
   !xs.extend(xs)
   print(xs)
@@ -1039,7 +1039,7 @@ fail "extend in a generic body of an owning element", "`add_all[String]` cannot 
   add_all(!xs, [String("a")])
   print(xs.len)
 
-fail "extend in a generic body of an element that holds a view", "`add_all[?String]` cannot use `T = ?String`: the generic body copies `T`s into a List with `extend`, which carries no loan, and a `?String` may view a String"
+fail "extend in a generic body of an element that holds a view", "`add_all[?String]` cannot use `T = ?String`: the generic body copies `T`s into a List with `extend`, which holds no view, and a `?String` may view a String (a `Static` holds no view)"
   sub add_all[T](xs: !List[T], ys: []T)
     !xs.extend(ys)
 

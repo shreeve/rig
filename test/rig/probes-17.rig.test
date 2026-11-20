@@ -1,6 +1,6 @@
 # Probes from past reviews and audits, 17 of 41: review-arm-temps-2-m11_name_writeview_compound to review-b4b-1-p12_wm_value_pos.
 
-fail "review-arm-temps-2-m11 name writeview compound", "cannot lend `v` to write while a write loan is live"
+fail "review-arm-temps-2-m11 name writeview compound", "cannot change `v` while a write view of it is still in use"
   fun grow(v: !List[Int]) -> Int
     for _ in 0..200
       !v.push(1)
@@ -16,7 +16,7 @@ fail "review-arm-temps-2-m11 name writeview compound", "cannot lend `v` to write
     _ => 3
   print(v[0])
 
-fail "review-arm-temps-2-m12 nested set owner reassigned", "cannot reassign `v` while it is lent"
+fail "review-arm-temps-2-m12 nested set owner reassigned", "cannot reassign `v` while a write view of it is still in use"
   v: List[Int] = List()
   !v.push(7)
   w = !v[0..1]
@@ -29,7 +29,7 @@ fail "review-arm-temps-2-m12 nested set owner reassigned", "cannot reassign `v` 
     _ => 3
   print(v[0])
 
-fail "review-arm-temps-2-m15 readview repoint overreject", "cannot lend `v` to write while a read loan is live"
+fail "review-arm-temps-2-m15 readview repoint overreject", "cannot change `v` while a read view of it is still in use"
   # A read-view local re-pointed from a value whose arm grows its old referent.
   fun grow(v: !List[Int]) -> Int
     for _ in 0..3
@@ -72,7 +72,7 @@ test "review-arm-temps-2-m16 writeview repoint", "9 6 4"
   r[0] = 9
   print(u[0], v[0], v.len)
 
-fail "review-arm-temps-2-m17 defer set match", "cannot lend `v` to write while a write loan is live"
+fail "review-arm-temps-2-m17 defer set match", "cannot change `v` while a write view of it is still in use"
   fun grow(v: !List[Int]) -> Int
     for _ in 0..200
       !v.push(1)
@@ -87,7 +87,7 @@ fail "review-arm-temps-2-m17 defer set match", "cannot lend `v` to write while a
     _ => 3
   print("x")
 
-fail "review-arm-temps-2-m18 loop set arm", "cannot lend `v` to write while a write loan is live"
+fail "review-arm-temps-2-m18 loop set arm", "cannot change `v` while a write view of it is still in use"
   fun grow(v: !List[Int]) -> Int
     for _ in 0..200
       !v.push(1)
@@ -102,7 +102,7 @@ fail "review-arm-temps-2-m18 loop set arm", "cannot lend `v` to write while a wr
       _ => grow(!v)
   print(v[0])
 
-fail "review-arm-temps-2-m20 set value while step", "cannot lend `v` to write while a write loan is live"
+fail "review-arm-temps-2-m20 set value while step", "cannot change `v` while a write view of it is still in use"
   fun grow(v: !List[Int]) -> Int
     for _ in 0..200
       !v.push(1)
@@ -119,7 +119,7 @@ fail "review-arm-temps-2-m20 set value while step", "cannot lend `v` to write wh
       2
   print(v[0])
 
-fail "review-arm-temps-2-m21 name target old drop reads view", "cannot lend `v` to write while a read loan is live"
+fail "review-arm-temps-2-m21 name target old drop reads view", "cannot change `v` while a read view of it is still in use"
   # The store drops the old value of `h`, whose `drop` reads what it views,
   # after the arm grows that owner.
   obj H
@@ -182,7 +182,7 @@ test "review-arm-temps-2-m24 arm local view of name target", '''
     _ => D(n: 5)
   print("s", s.n)
 
-fail "review-arm-temps-2-m25 outer view of name target set in arm", "cannot reassign `s` while it is lent"
+fail "review-arm-temps-2-m25 outer view of name target set in arm", "cannot reassign `s` while a read view of it is still in use"
   obj D
     n: Int
 
@@ -200,7 +200,7 @@ fail "review-arm-temps-2-m25 outer view of name target set in arm", "cannot reas
     _ => D(n: 5)
   print(r.n)
 
-fail "review-arm-temps-2-m26 for iter view body grows", "cannot lend `v` to write while a read loan is live"
+fail "review-arm-temps-2-m26 for iter view body grows", "cannot change `v` while a read view of it is still in use"
   fun grow(v: !List[Int]) -> Int
     for _ in 0..200
       !v.push(1)
@@ -319,7 +319,7 @@ test "review-arm-temps-2-m30 nested set target in arm", "5 201"
     _ => 3
   print(v[0], u[0])
 
-fail "review-arm-temps-2-m33 slice holder drop reads", "cannot lend `v` to write while a read loan is live"
+fail "review-arm-temps-2-m33 slice holder drop reads", "cannot change `v` while a read view of it is still in use"
   # The store drops the old `h`, whose `drop` reads a slice of `v`, after the
   # arm grows `v`.
   obj H
@@ -346,7 +346,7 @@ fail "review-arm-temps-2-m33 slice holder drop reads", "cannot lend `v` to write
     _ => H(v: ?u[0..1])
   print("end")
 
-fail "review-arm-temps-2-m34 slice holder drop reads plain", "cannot lend `v` to write while a read loan is live"
+fail "review-arm-temps-2-m34 slice holder drop reads plain", "cannot change `v` while a read view of it is still in use"
   # The same as m33 with no nested statement: the right side grows `v`, then
   # the store drops the old `h`, whose `drop` reads a slice of `v`.
   obj H
@@ -408,7 +408,7 @@ test "review-arm-temps-2-m36 self field target grow in arm", "201 201"
   !b.set(0)
   print(b.v[0], b.v.len)
 
-fail "review-arm-temps-2-m37 payload binding target", "cannot lend `b` to write while a write loan is live"
+fail "review-arm-temps-2-m37 payload binding target", "cannot change `b` while a write view of it is still in use"
   # The target writes through a payload binding of the enclosing match; the
   # value's arm lends the subject's owner.
   obj D
@@ -679,7 +679,7 @@ test "review-arm-temps-2-m51 block last line set", "5"
     w[0] = 3
   print(v[0])
 
-fail "review-arm-temps-l02 binding view grow block", "cannot lend `v` to write while a write loan is live"
+fail "review-arm-temps-l02 binding view grow block", "cannot change `v` while a write view of it is still in use"
   enum Sh
     name(t: String)
     point
@@ -698,7 +698,7 @@ fail "review-arm-temps-l02 binding view grow block", "cannot lend `v` to write w
     .point => pass
   print(v.len)
 
-fail "review-arm-temps-l03 place subject grow", "cannot lend `v` to write while a read loan is live"
+fail "review-arm-temps-l03 place subject grow", "cannot change `v` while a read view of it is still in use"
   enum Sh
     name(t: String)
     point
@@ -715,7 +715,7 @@ fail "review-arm-temps-l03 place subject grow", "cannot lend `v` to write while 
     .point => pass
   print(v.len)
 
-fail "review-arm-temps-l04 write view used in later stmt", "cannot lend `v` to write while a read loan is live"
+fail "review-arm-temps-l04 write view used in later stmt", "cannot change `v` while a read view of it is still in use"
   # A write view taken before the match, used after it: a write lend in an
   # arm must still conflict.
   fun grow(v: !List[Int]) -> Int
@@ -732,7 +732,7 @@ fail "review-arm-temps-l04 write view used in later stmt", "cannot lend `v` to w
     _ => pass
   print(x[0])
 
-fail "review-arm-temps-l05 view in loop earlier arm", "cannot lend `v` to write while a read loan is live"
+fail "review-arm-temps-l05 view in loop earlier arm", "cannot change `v` while a read view of it is still in use"
   # A view used in an earlier arm, in a loop: the arm of the next iteration
   # reads it after a later arm lent to write.
   fun grow(v: !List[Int]) -> Int
@@ -748,7 +748,7 @@ fail "review-arm-temps-l05 view in loop earlier arm", "cannot lend `v` to write 
       0 => print(x[0])
       _ => print(grow(!v))
 
-fail "review-arm-temps-l06 view in loop earlier arm rev", "cannot lend `v` to write while a read loan is live"
+fail "review-arm-temps-l06 view in loop earlier arm rev", "cannot change `v` while a read view of it is still in use"
   fun grow(v: !List[Int]) -> Int
     for _ in 0..50
       !v.push(1)
@@ -762,7 +762,7 @@ fail "review-arm-temps-l06 view in loop earlier arm rev", "cannot lend `v` to wr
       0 => print(x[0])
       _ => print(grow(!v))
 
-fail "review-arm-temps-l07 subject viewed by guard after", "cannot lend `v` to write while a read loan is live"
+fail "review-arm-temps-l07 subject viewed by guard after", "cannot change `v` while a read view of it is still in use"
   # The subject views v; a later arm's guard reads it through x after a
   # write lend in an earlier-tested arm? Guards run before the arm body.
   fun grow(v: !List[Int]) -> Int
@@ -780,7 +780,7 @@ fail "review-arm-temps-l07 subject viewed by guard after", "cannot lend `v` to w
     _ => 2
   print(r)
 
-fail "review-arm-temps-l08 while step reads view", "cannot lend `v` to write while a read loan is live"
+fail "review-arm-temps-l08 while step reads view", "cannot change `v` while a read view of it is still in use"
   fun grow(v: !List[Int]) -> Int
     for _ in 0..50
       !v.push(1)
@@ -795,7 +795,7 @@ fail "review-arm-temps-l08 while step reads view", "cannot lend `v` to write whi
       0 => print(grow(!v))
       _ => pass
 
-fail "review-arm-temps-l11 compound target grow", "cannot lend `v` to write while a write loan is live"
+fail "review-arm-temps-l11 compound target grow", "cannot change `v` while a write view of it is still in use"
   fun grow(v: !List[Int]) -> Int
     for _ in 0..200
       !v.push(1)
@@ -810,7 +810,7 @@ fail "review-arm-temps-l11 compound target grow", "cannot lend `v` to write whil
     _ => 3
   print(v[0], v.len)
 
-fail "review-arm-temps-l12 field target grow", "cannot lend `v` to write while a write loan is live"
+fail "review-arm-temps-l12 field target grow", "cannot change `v` while a write view of it is still in use"
   obj S
     n: Int
 
@@ -828,7 +828,7 @@ fail "review-arm-temps-l12 field target grow", "cannot lend `v` to write while a
     _ => 3
   print(v[0].n, v.len)
 
-fail "review-arm-temps-l13 assign target view grow block", "cannot lend `v` to write while a write loan is live"
+fail "review-arm-temps-l13 assign target view grow block", "cannot change `v` while a write view of it is still in use"
   fun grow(v: !List[Int]) -> Int
     for _ in 0..200
       !v.push(1)
@@ -844,7 +844,7 @@ fail "review-arm-temps-l13 assign target view grow block", "cannot lend `v` to w
     _ => 3
   print(v[0], v.len)
 
-fail "review-arm-temps-l14 assign target if block grow", "cannot lend `v` to write while a write loan is live"
+fail "review-arm-temps-l14 assign target if block grow", "cannot change `v` while a write view of it is still in use"
   # Same class with an `if` whose branch is a block: the branch's lines are
   # statements of their own, so the target's view looks dead there.
   fun grow(v: !List[Int]) -> Int
@@ -862,7 +862,7 @@ fail "review-arm-temps-l14 assign target if block grow", "cannot lend `v` to wri
     3
   print(v[0], v.len)
 
-fail "review-arm-temps-l15 assign target ternary", "cannot lend `v` to write while a write loan is live"
+fail "review-arm-temps-l15 assign target ternary", "cannot change `v` while a write view of it is still in use"
   fun grow(v: !List[Int]) -> Int
     for _ in 0..200
       !v.push(1)
@@ -875,7 +875,7 @@ fail "review-arm-temps-l15 assign target ternary", "cannot lend `v` to write whi
   w[0] = grow(!v) if k else 3
   print(v[0], v.len)
 
-fail "review-arm-temps-l16 assign target catch block", "cannot lend `v` to write while a write loan is live"
+fail "review-arm-temps-l16 assign target catch block", "cannot change `v` while a write view of it is still in use"
   error E
     bad
 
@@ -895,7 +895,7 @@ fail "review-arm-temps-l16 assign target catch block", "cannot lend `v` to write
     grow(!v)
   print(v[0], v.len)
 
-fail "review-arm-temps-l17 assign target match view read", "cannot lend `v` to read while a write loan is live"
+fail "review-arm-temps-l17 assign target match view read", "cannot use `v` while a write view of it is still in use"
   # The same with a read: the target is a write view, an arm reads v through
   # a read lend (allowed only if w is dead) and the store follows.
   fun look(v: ?List[Int]) -> Int
@@ -910,7 +910,7 @@ fail "review-arm-temps-l17 assign target match view read", "cannot lend `v` to r
     _ => 3
   print(v[0], v.len)
 
-fail "review-arm-temps-l18 assign target match move", "cannot move `v` while a write loan is live"
+fail "review-arm-temps-l18 assign target match move", "cannot move `v` while a write view of it is still in use"
   # The arm moves the owner the target views.
   v: List[Int] = List()
   !v.push(7)
@@ -939,7 +939,7 @@ fail "review-arm-temps-l20 assign field of moved owner", "use of `s` after move"
     _ => 3
   print("done")
 
-fail "review-arm-temps-l21 assign target index view", "cannot lend `v` to write while a read loan is live"
+fail "review-arm-temps-l21 assign target index view", "cannot change `v` while a read view of it is still in use"
   # The view is read in the target's index, not its base.
   fun grow(v: !List[Int]) -> Int
     for _ in 0..200
@@ -1026,7 +1026,7 @@ test "review-assign-desugar-n06 nested index value grows outer", "201 101 201"
   a[0][0] += grow(!a)
   print(a[0][0], a[0][1], a.len)
 
-fail "review-assign-desugar-n07 name view drop referent last arm", "cannot drop `v` while it is lent"
+fail "review-assign-desugar-n07 name view drop referent last arm", "cannot drop `v` while a write view of it is still in use"
   # `w = match` through a write view whose last arm drops the referent.
   sub run(k: Int)
     v: List[Int] = List()
@@ -1064,7 +1064,7 @@ test "review-assign-desugar-n09 local compound value sets target", "13 105"
     _ => 4
   print(x, v[0])
 
-fail "review-assign-desugar-n10 name view move referent first arm", "cannot move `v` while a write loan is live"
+fail "review-assign-desugar-n10 name view move referent first arm", "cannot move `v` while a write view of it is still in use"
   # `w = match` through a write view whose first arm moves the referent.
   fun sink(v: List[Int]) -> Int
     v.len
@@ -1079,7 +1079,7 @@ fail "review-assign-desugar-n10 name view move referent first arm", "cannot move
 
   run(0)
 
-fail "review-assign-desugar-n11 view value held into struct", "cannot lend `v` to write while a read loan is live"
+fail "review-assign-desugar-n11 view value held into struct", "cannot change `v` while a read view of it is still in use"
   # A value that is a view, made in __v and stored into an object local:
   # the object's loan on `v` lasts, so a later grow must be rejected.
   obj H
@@ -1190,7 +1190,7 @@ test "review-assign-desugar-n12 value types", '''
     _ => 3
   print(i, f, c == Color.green, o == none, s, b, p.a, p.b, vc[0] == Color.green, vo[0] == none)
 
-fail "review-assign-desugar-n13 payload binding name target", "cannot lend `b` to write while a write loan is live"
+fail "review-assign-desugar-n13 payload binding name target", "cannot change `b` while a write view of it is still in use"
   # A write payload binding as a name target; the value replaces the subject.
   enum Bx
     has(n: Int)
@@ -1209,7 +1209,7 @@ fail "review-assign-desugar-n13 payload binding name target", "cannot lend `b` t
         _ => 3
     .nothing => pass
 
-fail "review-assign-desugar-n14 payload vec binding name target", "cannot lend `b` to write while a write loan is live"
+fail "review-assign-desugar-n14 payload vec binding name target", "cannot change `b` while a write view of it is still in use"
   # A write payload binding holding a List, as a name target: the value
   # replaces the subject, which drops the List the store writes into.
   enum Bx
@@ -1231,7 +1231,7 @@ fail "review-assign-desugar-n14 payload vec binding name target", "cannot lend `
         _ => List()
     .nothing => pass
 
-fail "review-assign-desugar-n15 view value then index grows", "cannot lend `v` to write while a read loan is live"
+fail "review-assign-desugar-n15 view value then index grows", "cannot change `v` while a read view of it is still in use"
   # The value is a view (made in __v); the target's index then grows what
   # it views. The loan of __v must be live across the index.
   obj H
@@ -1787,7 +1787,7 @@ fail "review-assign-desugar-n40 name catch block repoint", "`u` does not live lo
     3
   print(v[0])
 
-fail "review-assign-desugar-n41 nested index view last arm grow", "cannot lend `a` to write while a write loan is live"
+fail "review-assign-desugar-n41 nested index view last arm grow", "cannot change `a` while a write view of it is still in use"
   # `wv[0][0] = match` through a slice of a List of Vecs; the last arm
   # grows the outer List, which the slice views.
   fun grow(a: !List[List[Int]]) -> Int
@@ -1844,7 +1844,7 @@ fail "review-assign-desugar-n43 index in index view last arm", "`t` does not liv
       3
   print(u[0][0])
 
-fail "review-b4b-1-p01 read as push in body", "cannot lend `v` to write while a read loan is live"
+fail "review-b4b-1-p01 read as push in body", "cannot change `v` while a read view of it is still in use"
   # read `if … as` over a List element through a temporary index; body
   # grows the List and then uses the binding (dangling). Expect reject.
   fun idx(s: ?String) -> Int
@@ -1857,7 +1857,7 @@ fail "review-b4b-1-p01 read as push in body", "cannot lend `v` to write while a 
       !v.push(String("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"))
     print(t)
 
-fail "review-b4b-1-p02 write as push in body", "use of `v` while a write loan is live"
+fail "review-b4b-1-p02 write as push in body", "cannot use `v` while a write view of it is still in use"
   # write `if !… as` over List element via temp index; body pushes then writes t. Expect reject.
   fun idx(s: ?String) -> Int
     s.len - 1
@@ -1870,7 +1870,7 @@ fail "review-b4b-1-p02 write as push in body", "use of `v` while a write loan is
     !t.add("x")
   print(v)
 
-fail "review-b4b-1-p03 match write push in arm", "use of `v` while a write loan is live"
+fail "review-b4b-1-p03 match write push in arm", "cannot use `v` while a write view of it is still in use"
   # write match on List element through temp index; arm pushes then writes payload. Expect reject.
   enum E
     a(t: String)
@@ -1889,7 +1889,7 @@ fail "review-b4b-1-p03 match write push in arm", "use of `v` while a write loan 
     .b(n) => n += 1
   print(v.len)
 
-fail "review-b4b-1-p04 match write push in arm notemp", "use of `v` while a write loan is live"
+fail "review-b4b-1-p04 match write push in arm notemp", "cannot use `v` while a write view of it is still in use"
   # 2d47a2db: write match on List element (no temp); arm pushes then writes payload. Expect reject.
   enum E
     a(t: String)
@@ -1906,7 +1906,7 @@ fail "review-b4b-1-p04 match write push in arm notemp", "use of `v` while a writ
     .b(n) => n += 1
   print(v.len)
 
-fail "review-b4b-1-p05 match write push then int", "use of `v` while a write loan is live"
+fail "review-b4b-1-p05 match write push then int", "cannot use `v` while a write view of it is still in use"
   # write match on List element; arm pushes then writes Int payload n. Expect reject.
   enum E
     a(n: Int)
@@ -1940,7 +1940,7 @@ test "review-b4b-1-p06 match write push no later use", ".a(n: 99) 65"
     .b(n) => n += 1
   print(v[0], v.len)
 
-fail "review-b4b-1-p07 read match move owner", "cannot move `v` while a read loan is live"
+fail "review-b4b-1-p07 read match move owner", "cannot move `v` while a read view of it is still in use"
   # read match through temp index, arm moves the owner then uses payload. Expect reject.
   enum E
     a(t: String)
@@ -1960,7 +1960,7 @@ fail "review-b4b-1-p07 read match move owner", "cannot move `v` while a read loa
       print(t)
     .b(n) => print(n)
 
-fail "review-b4b-1-p08 for elem push", "use of `m` while a write loan is live"
+fail "review-b4b-1-p08 for elem push", "cannot use `m` while a write view of it is still in use"
   # for over element (array) of a List via temp index; body pushes. Expect reject.
   fun idx(s: ?String) -> Int
     s.len - 1
@@ -1988,7 +1988,7 @@ test "review-b4b-1-p09 while as push", "axxx 193"
     break if k > 2
   print(v[0], v.len)
 
-fail "review-b4b-1-p10 while as push use after", "use of `v` while a write loan is live"
+fail "review-b4b-1-p10 while as push use after", "cannot use `v` while a write view of it is still in use"
   # while-as over List element via temp index; push then use t. Expect reject.
   fun idx(s: ?String) -> Int
     s.len - 1

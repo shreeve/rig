@@ -1,5 +1,5 @@
 # Counting words with a hash map. `ensure` puts 0 under a new word and
-# lends the count to write, so one line counts every word. The map keeps
+# gives a write view of the count, so one line counts every word. The map keeps
 # words in the order they first appeared. The counts are then copied into
 # a list and ordered with std.sort; `sort_by` keeps equal counts in that
 # order.

@@ -86,7 +86,7 @@ fail "R11a-a4", "only module `lib` can construct `lib.Wrap`: its field `c` is pr
     pub fun deep[T: Eq](x: T) -> Bool
       x == x
 
-fail "R11a-d1l", "cannot lend `v` to write while a read loan is live"
+fail "R11a-d1l", "cannot change `v` while a read view of it is still in use"
   fun first[T](v: ?List[T]) -> ?T
     ?v[0]
 
@@ -2073,7 +2073,7 @@ test "R13-v-v4", '''
   !xs.push(<n)
   print(a, b, c, d, e, f, g, h, xs.len)
 
-fail "R15-p-a1", "cannot move `v` while a write loan is live"
+fail "R15-p-a1", "cannot move `v` while a write view of it is still in use"
   # write slice alive while root moved
   v: List[Int] = List()
   !v.push(1)
@@ -2083,7 +2083,7 @@ fail "R15-p-a1", "cannot move `v` while a write loan is live"
   w[0] = 5
   print(u)
 
-fail "R15-p-a3", "cannot reassign `v` while it is lent"
+fail "R15-p-a3", "cannot reassign `v` while a write view of it is still in use"
   # root reassigned
   v: List[Int] = List()
   !v.push(1)
@@ -2092,7 +2092,7 @@ fail "R15-p-a3", "cannot reassign `v` while it is lent"
   w[0] = 5
   print(v)
 
-fail "R15-p-a5", "use of `v` while a write loan is live"
+fail "R15-p-a5", "cannot use `v` while a write view of it is still in use"
   v: List[Int] = List()
   !v.push(1)
   w = !v[..]
@@ -2100,7 +2100,7 @@ fail "R15-p-a5", "use of `v` while a write loan is live"
   w[0] = 5
   print(x)
 
-fail "R15-p-a7", "cannot assign to `a[0]` while `a` is lent"
+fail "R15-p-a7", "cannot assign to `a[0]` while a write view of `a` is still in use"
   # root element written
   a = [1, 2, 3]
   w = !a[..]
@@ -2120,7 +2120,7 @@ test "R15-p-a8", "[5, 2] [9, 4]"
   w[0] = 5
   print(p.x, p.y)
 
-fail "R15-p-a9", "cannot lend `p.x` to write while a write loan is live"
+fail "R15-p-a9", "cannot change `p.x` while a write view of it is still in use"
   # same field twice
   obj P
     x: [2]Int
@@ -2241,7 +2241,7 @@ fail "R15-p-aa8", "`loc` does not live long enough"
     w[0].s = ?loc[..]
   print(rs[0].s)
 
-fail "R15-p-ab1", "use of `b.v` while a write loan on `b` is live"
+fail "R15-p-ab1", "cannot use `b.v` while a write view of `b` is still in use"
   obj B
     v: List[Int]
     fun items(!@) -> ![]Int
@@ -2255,7 +2255,7 @@ fail "R15-p-ab1", "use of `b.v` while a write loan on `b` is live"
   !b.v.push(4)
   it[0] = 9
 
-fail "R15-p-ab5", "use of `b.v` while a write loan is live"
+fail "R15-p-ab5", "cannot use `b.v` while a write view of it is still in use"
   obj B
     v: List[Int]
 
@@ -2351,7 +2351,7 @@ test "R15-p-af5", '''
   r = ?h.b[..]
   print(r.len)
 
-fail "R15-p-af6", "cannot reassign `h` while it is lent"
+fail "R15-p-af6", "cannot reassign `h` while a read view of it is still in use"
   obj S
     b: [4]U8
 
@@ -2360,7 +2360,7 @@ fail "R15-p-af6", "cannot reassign `h` while it is lent"
   h = *S(b: [9, 9, 9, 9])
   print(r.len, r[0])
 
-fail "R15-p-af7", "cannot reassign `h` while it is lent"
+fail "R15-p-af7", "cannot reassign `h` while a read view of it is still in use"
   obj S
     v: List[Int]
 
@@ -2425,7 +2425,7 @@ test "R15-p-am2", '''
   print(w[0])
   print(r)
 
-fail "R15-p-an1", "cannot move `v` while a write loan is live"
+fail "R15-p-an1", "cannot move `v` while a write view of it is still in use"
   fun take(v: List[Int]) -> Int
     v.len
 
@@ -2479,7 +2479,7 @@ test "R15-p-ao1", '''
   !c.write[U8](c[0], c[3])
   print(c[1], c.read[U8](c.len - 1))
 
-fail "R15-p-b1", "cannot lend `b.a` to write while a read loan on `b` is live"
+fail "R15-p-b1", "cannot change `b.a` while a write view of `b` is still in use"
   # method with !@ and a ![]T param from the same object
   obj B
     a: [4]Int
@@ -2491,7 +2491,7 @@ fail "R15-p-b1", "cannot lend `b.a` to write while a read loan on `b` is live"
   b = B(a: [0, 0, 0, 0])
   !b.go(!b.a[..])
 
-fail "R15-p-b2", "cannot lend `b.a` to write while a read loan on `b` is live"
+fail "R15-p-b2", "cannot change `b.a` while a write view of `b` is still in use"
   # copy between param write slice and self field
   obj B
     a: [4]Int
@@ -2502,7 +2502,7 @@ fail "R15-p-b2", "cannot lend `b.a` to write while a read loan on `b` is live"
   !b.go(!b.a[..])
   print(b.a)
 
-fail "R15-p-b3", "cannot lend `a` to write while a write loan is live"
+fail "R15-p-b3", "cannot change `a` while a write view of it is still in use"
   # two write params from the same root
   sub two(x: ![]Int, y: ![]Int)
     !x.copy(y)
@@ -2511,7 +2511,7 @@ fail "R15-p-b3", "cannot lend `a` to write while a write loan is live"
   two(!a[0..2], !a[1..3])
   print(a)
 
-fail "R15-p-b6", "cannot lend `a` to read while a write loan is live"
+fail "R15-p-b6", "cannot use `a` while a write view of it is still in use"
   # ![]T param and ?[4]Int param same root
   sub two(x: ![]Int, y: ?[4]Int)
     x[0] = y[3]
@@ -2520,7 +2520,7 @@ fail "R15-p-b6", "cannot lend `a` to read while a write loan is live"
   two(!a[0..2], ?a)
   print(a)
 
-fail "R15-p-b7", "cannot lend `vs` to write while a write loan is live"
+fail "R15-p-b7", "cannot change `vs` while a write view of it is still in use"
   # List element array reached two ways
   vs: List[[3]Int] = List()
   !vs.push([1, 2, 3])
@@ -2529,7 +2529,7 @@ fail "R15-p-b7", "cannot lend `vs` to write while a write loan is live"
   w[0] = 1
   u[0] = 2
 
-fail "R15-p-b9", "cannot assign to `s[0]` while `s` is lent"
+fail "R15-p-b9", "cannot assign to `s[0]` while a write view of `s` is still in use"
   # Write slice from a ![]T param stored and the param reused
   sub f(s: ![]Int)
     t = !s[..1]
@@ -2539,13 +2539,13 @@ fail "R15-p-b9", "cannot assign to `s[0]` while `s` is lent"
   a = [1, 2]
   f(!a[..])
 
-fail "R15-p-c12", "cannot assign to `a[0]` while `a` is lent"
+fail "R15-p-c12", "cannot assign to `a[0]` while a write view of `a` is still in use"
   a = [1, 2]
   w = !a[..]
   defer print(w[0])
   a[0] = 9
 
-fail "R15-p-c5", "cannot return a view of `b`, which this function was not lent"
+fail "R15-p-c5", "cannot return a view of `b`, which belongs to this function"
   # returned from ![N] param: ok; returned from a local array param copy of !
   fun g(a: ![2]Int) -> ![]Int
     b = a
@@ -2573,7 +2573,7 @@ test "R15-p-d1", "[5, 2]"
   f()
   print(a)
 
-fail "R15-p-d2", "cannot assign to `a[1]` while `a` is lent"
+fail "R15-p-d2", "cannot assign to `a[1]` while a write view of `a` is still in use"
   a = [1, 2]
   w = !a[..]
   f = |<w|
@@ -2610,14 +2610,14 @@ fail "R15-p-d9", "an owned closure cannot capture `w`, which holds a view of `a`
   print(a)
   f()
 
-fail "R15-p-e5", "cannot return a view of `w`, which this function was not lent"
+fail "R15-p-e5", "cannot return a view of `w`, which belongs to this function"
   a = [1, 2]
   w = !a[..]
   f = |<w| !w[1..]
   x = f()
   print(x)
 
-fail "R15-p-e8", "cannot return a view of `a`, which this function was not lent"
+fail "R15-p-e8", "cannot return a view of `a`, which belongs to this function"
   f = |n: Int|
     a = [n, n]
     !a[..]
@@ -2695,7 +2695,7 @@ bomb "R15-p-f5", "slice bounds out of range"
   s = !v[1..]
   print(s.len)
 
-fail "R15-p-g1", "cannot lend `s` to write while a write loan is live"
+fail "R15-p-g1", "cannot change `s` while a write view of it is still in use"
   sub two(x: ![]Int, y: ![]Int)
     !x.copy(y)
 

@@ -102,8 +102,8 @@ worker after.
   a pool thread is free. A `File`'s read, write, and
   sync work on a duplicate of its descriptor, so a task that stops
   waiting and closes its file leaves the call a descriptor of its own;
-  a read moves the caller's String in and fills it, and `io.copy` lends
-  each file once and moves one buffer through every block. A call that
+  a read moves the caller's String in and fills it, and `io.copy` takes
+  each file as a view once and moves one buffer through every block. A call that
   runs on its task's thread (no scheduler, or a deterministic run) takes
   the file's own descriptor. `rig.blocking`'s waiter waits for the call, which
   takes its arguments as they are, a buffer to read into among them. On
@@ -485,7 +485,7 @@ frame may keep up to 13 MiB of values, and 1 MiB more
 (`rt.task_stack_extra`), committed only as the task touches it. The
 extra lets a task that has used no more than it run an actor's method,
 or a task it waits for, inline with a whole task's stack left
-(`tasks.roomInline`, `sched.roomFor`). Stacks never move, since loans point into them. They are
+(`tasks.roomInline`, `sched.roomFor`). Stacks never move, since views point into them. They are
 carved 16 at a time from one reservation, whose stacks stay untouched,
 holding no page, until a task runs on each, and ask for small pages
 where the system gives huge ones unasked (`enabled=always`), since a

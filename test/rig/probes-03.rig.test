@@ -3262,7 +3262,7 @@ test "assignthrough-exb", "[4, 5]"
   slot(!v, 0) += grow(!v)
   print(v)
 
-fail "assignthrough-exb2", "cannot lend `v` to write while a write loan is live"
+fail "assignthrough-exb2", "cannot change `v` while a write view of it is still in use"
   fun slot(v: !List[Int], i: Int) -> !Int from v
     !v[i]
 
@@ -3291,7 +3291,7 @@ test "assignthrough-p04", '''
   !v.push(String("old"))
   print(put(!v, false), put(!v, true), v)
 
-fail "assignthrough-p12", "cannot lend `v` to write while a read loan is live"
+fail "assignthrough-p12", "cannot change `v` while a read view of it is still in use"
   fun slot(v: !List[Int], i: Int) -> !Int from v
     !v[i]
 
@@ -3322,7 +3322,7 @@ test "assignthrough-p15", "[9]"
   mk(!v)[0] = 9
   print(v)
 
-fail "assignthrough-p16", "cannot return a view of `w`, which this function was not lent"
+fail "assignthrough-p16", "cannot return a view of `w`, which belongs to this function"
   obj W
     w: Int
 
@@ -3332,7 +3332,7 @@ fail "assignthrough-p16", "cannot return a view of `w`, which this function was 
 
   f() = 3
 
-fail "assignthrough-q03", "cannot lend `h` to write while a read loan on `h.t` is live"
+fail "assignthrough-q03", "cannot change `h` while a read view of `h.t` is still in use"
   obj H
     t: String
     s: ?String

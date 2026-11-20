@@ -228,7 +228,7 @@ fail "cell made outside shared", "12:5: `Cell(0)` makes a `Cell[Int]`, which hol
   b = ^Cell(3)
   print(c.get(), b)
 
-fail "cell moved self", "7:6: method `push` needs `self` lent to write, not moved", "9:10: method `pop` needs `self` lent to write, not moved", "11:6: method `clear` needs `self` lent to write, not moved", "13:6: method `set` needs `self` lent to write, not moved", "15:10: method `swap` needs `self` lent to write, not moved", errors: 5
+fail "cell moved self", "7:6: method `push` needs a write view of `self`, not a move", "9:10: method `pop` needs a write view of `self`, not a move", "11:6: method `clear` needs a write view of `self`, not a move", "13:6: method `set` needs a write view of `self`, not a move", "15:10: method `swap` needs a write view of `self`, not a move", errors: 5
   # A Cell's `set`, `replace`, and its List's `push`, `pop`, and `clear`
   # take their self lent to write, as any `!@` method does, so a
   # `*Cell` handle moved there with `<` is rejected: `<` would end the
@@ -329,7 +329,7 @@ test "cell signal plain data", '''
   !mode.set(Color.red)
   print(mode.get() == Color.red)
 
-fail "cell through a read slice", "11:4: cannot lend to write through a read view `[]*C`", "14:4: cannot lend to write through a slice; a `[]T` is read-only", "17:4: cannot lend to write through a slice; a `[]T` is read-only", "21:4: cannot lend to write through a slice; a `[]T` is read-only", errors: 4
+fail "cell through a read slice", "11:4: cannot make a write view through a read view `[]*C`", "14:4: cannot make a write view through a slice; a `[]T` is read-only", "17:4: cannot make a write view through a slice; a `[]T` is read-only", "21:4: cannot make a write view through a slice; a `[]T` is read-only", errors: 4
   # A `[]T` is a read view of its elements: a Cell or Signal behind a
   # handle in one changes through none of them, as through a `?List[T]`.
   # oracle: field reject C10
@@ -421,7 +421,7 @@ fail "cell value field", "5:9: a Cell is read with `c.get()` and written with `!
   print(c.value)
   c.value = 8
 
-fail "cell vec element place", "9:6: cannot lend an element of a Cell's List", "10:1: an element of a Cell's List is written whole", "13:1: an element of a Cell's List is written whole", "14:4: cannot assign to `.len`; a length is read-only"
+fail "cell vec element place", "9:6: cannot make a view of an element of a Cell's List", "10:1: an element of a Cell's List is written whole", "13:1: an element of a Cell's List is written whole", "14:4: cannot assign to `.len`; a length is read-only"
   # An element of a Cell's List is a copy: it cannot be lent, and it is
   # written whole with `c[i] = e`, not through a field or `+=`.
 

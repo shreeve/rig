@@ -126,7 +126,7 @@ fail "a type parameter clones only where its instance clones", "`dup[Res]` canno
   o = Once(n: 2)
   print(dup(?r).n, loose(?r).n, capl(?o))
 
-fail "another module's type with a drop body has no clone", "`+x` cannot clone a `lib.Res`: a value with a `drop` body, or holding a Signal or a write view, has no clone; move it with `<x`, or lend it"
+fail "another module's type with a drop body has no clone", "`+x` cannot clone a `lib.Res`: a value with a `drop` body, or holding a Signal or a write view, has no clone; move it with `<x`, or pass a view of it"
   use lib
 
   sub main()
@@ -178,7 +178,7 @@ fail "a Map of Maps of values with no clone has no clone", "has no clone"
   m2 = +m
   print(m2.len)
 
-fail "a clone into a read view", "16:8: lend `v` instead: a clone into a read view is only read, then dropped", "21:6: lend `?w` instead: a clone into a read view is only read, then dropped", "22:7: lend `?s` instead: a clone into a read view is only read, then dropped", "24:8: call the method on `b` instead: a clone into a read self is only read, then dropped", "25:12: lend `?w` instead: a clone into a read view is only read, then dropped", errors: 5
+fail "a clone into a read view", "16:8: pass `v` instead: a clone into a read view is only read, then dropped", "21:6: pass `?w` instead: a clone into a read view is only read, then dropped", "22:7: pass `?s` instead: a clone into a read view is only read, then dropped", "24:8: call the method on `b` instead: a clone into a read self is only read, then dropped", "25:12: pass `?w` instead: a clone into a read view is only read, then dropped", errors: 5
   # A clone into a read view is made only to be read and dropped: the
   # call lends the original.
   obj B
@@ -260,7 +260,7 @@ test "a clone ends a view before the call writes what it views", "2 60"
   (!c).trim()
   print(c.entries.len, c.bytes)
 
-fail "a view handed to a call that writes what it views", "7:5: cannot lend `m` to write while a read loan is live", "13:6: cannot lend `m2` to write while a read loan is live", errors: 2
+fail "a view handed to a call that writes what it views", "7:5: cannot change `m` while a read view of it is still in use", "13:6: cannot change `m2` while a read view of it is still in use", errors: 2
   # The view itself is lent while `take` writes `m`; and a clone ends
   # the view only where the view is not used after it.
   m: Map[String, Int] = Map()

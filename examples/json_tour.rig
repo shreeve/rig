@@ -2,7 +2,7 @@
 # gives a Doc, a tape with one entry per value, in document order. Walking the tape
 # with `kind` and `next` reads an object's keys and values, an array's
 # items, and skips what is not wanted. Strings without escapes view
-# the source, so `src` stays lent while `doc` is in use.
+# the source, so `src` stays read-only while `doc` is in use.
 
 use std.json
 

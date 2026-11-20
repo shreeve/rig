@@ -376,7 +376,7 @@ fail "match value non exhaustive", "18:11: `match` is not exhaustive: it misses 
     true => print("yes")
   print(x)
 
-fail "match write bool", "6:7: `!` lends to write; use `not` for negation (a `Bool` is lent to write only where a `!Bool` is expected: `f(!flag)`)", "9:5: `!` lends to write; use `not` for negation"
+fail "match write bool", "6:7: `!` makes a write view; use `not` for negation (a `Bool` gets a write view only where a `!Bool` is expected: `f(!flag)`)", "9:5: `!` makes a write view; use `not` for negation (a `Bool` gets a write view"
   # `!` before a Bool reads as negation, so a Bool subject is not matched
   # with `match !b`, nor bound with `w = !b`: the message says where a Bool
   # is lent to write.

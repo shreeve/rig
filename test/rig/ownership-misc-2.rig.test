@@ -132,7 +132,7 @@ fail "take rejections", "13:8: cannot take through a read view (`?T`)", "17:5: c
   print(z)
   rd(?s)
 
-fail "take rejections ownership", "17:10: cannot lend `s.top` to write while a read loan is live", "21:21: cannot lend `s.top` to write while a write loan is live", "28:7: use of `msg` after move", "29:7: `s` is partly moved: `s.n` was moved out; assign it first", "30:8: `s` is partly moved: `s.n` was moved out; assign it first"
+fail "take rejections ownership", "17:10: cannot change `s.top` while a read view of it is still in use", "21:21: cannot change `s.top` while a write view of it is still in use", "28:7: use of `msg` after move", "29:7: `s` is partly moved: `s.n` was moved out; assign it first", "30:8: `s` is partly moved: `s.n` was moved out; assign it first"
   # Taking an optional out of a field writes the field: not while another
   # view of the value is live, and not twice in one call. A field that
   # is not optional moves out as a name does, and leaves `s` partly
@@ -770,7 +770,7 @@ test "temporary views in statement", '''
     if j == 2
       break
 
-fail "temporary views kept", "11:14: cannot return a view of `String(\" x \")`, which this function was not lent", "13:16: a view of the temporary `String(\" a \")` outlives its statement", "14:21: a view of the temporary `String(\" b \")` outlives its statement", "16:20: a view of the temporary `String(\" c \")` outlives its statement", "17:6: a view of the temporary `String(\"d\")` outlives its statement", "19:17: a view of the temporary `String(\"k=v\")` outlives its statement", errors: 6
+fail "temporary views kept", "11:14: cannot return a view of `String(\" x \")`, which belongs to this function", "13:16: a view of the temporary `String(\" a \")` outlives its statement", "14:21: a view of the temporary `String(\" b \")` outlives its statement", "16:20: a view of the temporary `String(\" c \")` outlives its statement", "17:6: a view of the temporary `String(\"d\")` outlives its statement", "19:17: a view of the temporary `String(\"k=v\")` outlives its statement", errors: 6
   # A view of a temporary cannot outlive its statement, which drops the
   # temporary: not in a binding, a field, a List, or a result. A `while`
   # header's temporaries last one pass, since the next pass evaluates the
@@ -794,7 +794,7 @@ fail "temporary views kept", "11:14: cannot return a view of `String(\" x \")`, 
     last = kw.after
   print(s, e, v, r, f())
 
-fail "text add while viewed", "6:1: cannot lend `t` to write while a read loan is live", errors: 1
+fail "text add while viewed", "6:1: cannot change `t` while a read view of it is still in use", errors: 1
   # A String taken from a Text views it: the Text cannot change while
   # the view is in use, since the change may move its bytes.
 
@@ -803,7 +803,7 @@ fail "text add while viewed", "6:1: cannot lend `t` to write while a read loan i
   !t.add("d")
   print(s)
 
-fail "text drop while viewed", "9:2: cannot drop `t` while it is lent", "13:1: cannot lend `u` to write while a read loan is live", "17:1: cannot reassign `w` while it is lent", errors: 3
+fail "text drop while viewed", "9:2: cannot drop `t` while a read view of it is still in use", "13:1: cannot change `u` while a read view of it is still in use", "17:1: cannot reassign `w` while a read view of it is still in use", errors: 3
   # A Text cannot be dropped, cleared, or reassigned while a String
   # views it, even through a function's result.
 
@@ -851,7 +851,7 @@ test "text handle slice", '''
   <h
   print(g)
 
-fail "text handle slice keeps handle", "9:4: cannot return a view of `h`", "14:4: cannot drop `h` while it is lent", "20:3: cannot reassign `w` while `w.t` is lent", "28:6: cannot drop `g` while it is lent", errors: 4
+fail "text handle slice keeps handle", "9:4: cannot return a view of `h`", "14:4: cannot drop `h` while a read view of it is still in use", "20:3: cannot reassign `w` while a read view of `w.t` is still in use", "28:6: cannot drop `g` while a read view of it is still in use", errors: 4
   # A slice of a Text reached through a handle (`*String`) lends the
   # handle (Core §4: a `*T` lends the read views of its `T`): the handle may
   # not be dropped, moved, or replaced while the String is used.
@@ -886,7 +886,7 @@ fail "text handle slice keeps handle", "9:4: cannot return a view of `h`", "14:4
   field()
   upgraded()
 
-fail "text move while viewed", "8:6: cannot move `t` while a read loan is live", errors: 1
+fail "text move while viewed", "8:6: cannot move `t` while a read view of it is still in use", errors: 1
   # A Text cannot be moved while a String views it.
 
   sub eat(t: String)
@@ -909,9 +909,9 @@ fail "text moves", "8:5: `t` owns a `String`, which can't be copied by `=`: writ
   keep(<t)
   print(t, u)
 
-fail "text string param in cell", "5:10: cannot store a view of `s` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one; if it is only passed literal text, declare the parameter `Static`, which carries no loan", "8:6: an owned closure cannot capture a view of `s`"
+fail "text string param in cell", "5:10: cannot store a view of `s` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one; if it is only passed literal text, declare the parameter `Static`, which holds no view", "8:6: an owned closure cannot capture a view of `s`"
   # A String parameter may view a caller's Text, so it cannot be stored
-  # where no loan is tracked: in a Cell, a Signal, a channel, an actor's value, or an owned closure.
+  # where no view is tracked: in a Cell, a Signal, a channel, an actor's value, or an owned closure.
 
   sub keep(c: !Cell[?String], s: ?String)
     !c.set(s)
@@ -947,7 +947,7 @@ test "text view loans", '''
   # A String viewing a Text carries the Text's loan wherever it goes: into
   # a binding, an object, a List[String], a call's result, and a closure.
   # Each holds the Text viewed until its last use; then the Text can be
-  # changed, moved, or dropped again. Strings from literals hold no loan.
+  # changed, moved, or dropped again. Strings from literals hold no view.
 
   obj Span
     label: ?String
@@ -997,7 +997,7 @@ fail "text view outlives scope", "does not live long enough"
     !names.push(?t[1..])
   print(n.s, names)
 
-fail "text view returned", "6:4: cannot return a view of `t`, which this function was not lent", "9:4: cannot return a view of `t`", "12:9: cannot return a view of `t`", errors: 3
+fail "text view returned", "6:4: cannot return a view of `t`, which belongs to this function", "9:4: cannot return a view of `t`", "12:9: cannot return a view of `t`", errors: 3
   # A view of a local Text, or of a Text parameter taken by value, cannot
   # leave the function: the Text ends with it.
 
@@ -1045,7 +1045,7 @@ fail "unbox self ternary", "11:6: `a` owns a `^N`, which can't be copied into an
   print(n.v.len)
   print(a.v[0])
 
-fail "unequal branch operand read then written", "12:32: cannot lend `a` to write while the left operand's read of it is in use", errors: 1
+fail "unequal branch operand read then written", "12:32: cannot change `a` while the left operand's read of it is still in use", errors: 1
   # A branching left operand of `!=` holds each place it may be until
   # the right operand has run.
 
@@ -1989,7 +1989,7 @@ test "vec for moving elements bound", '''
   for x in w
     print(x)
 
-fail "vec for moving elements source", "25:10: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first", "27:11: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first", "29:11: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first", "31:11: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first", "35:10: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mkh()` to a name first", "37:10: cannot lend `v if c else k`: it may be `v`, a value a name holds", errors: 6
+fail "vec for moving elements source", "25:10: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first", "27:11: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first", "29:11: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first", "31:11: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first", "35:10: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mkh()` to a name first", "37:10: cannot make a view of `v if c else k`: it may be `v`, a value a name holds, which a view of the branching value would copy; put the sigil on", errors: 6
   # A loop over a List whose elements move walks a List a name holds, a
   # field or element of one, or one a view of only places reaches (`items(?v,
   # ?k)`, CORE §9). Any other source, a List made here (bare, taken, or
@@ -2040,7 +2040,7 @@ fail "vec for non bare source", "8:12: a loop over a List of `*sub()` walks a Li
   for cb in ?makeSubs()
     cb()
 
-fail "vec for write during iter", "cannot lend `subs` to write while a read loan is live"
+fail "vec for write during iter", "cannot change `subs` while a read view of it is still in use"
   # Writing to a List while iterating over it is rejected (the loop holds a
   # read view).
 
@@ -2108,7 +2108,7 @@ test "vec of views", '''
   !s.push(?arr[..2])
   print(s)
 
-fail "vec of views loans", "6:1: cannot reassign `a` while it is lent"
+fail "vec of views loans", "6:1: cannot reassign `a` while a read view of it is still in use"
   # A List of views keeps each pushed view's loan while it lives.
 
   a = 1
@@ -2117,7 +2117,7 @@ fail "vec of views loans", "6:1: cannot reassign `a` while it is lent"
   a = 2
   print(v.len)
 
-fail "vec of views outlived", "which this function was not lent", "`x` does not live long enough"
+fail "vec of views outlived", "which belongs to this function", "`x` does not live long enough"
   # A view pushed into a List may not outlive what it views.
 
   fun mk() -> List[?Int]
@@ -2149,7 +2149,7 @@ test "vec push after iteration", '''
   print(total)
   print(v.len)
 
-fail "vec push during iteration", "cannot lend `v` to write while a read loan is live"
+fail "vec push during iteration", "cannot change `v` while a read view of it is still in use"
   # Iterating a List (with or without `?`) views it for the whole loop; a
   # push could reallocate the buffer being iterated.
 
@@ -2386,7 +2386,7 @@ test "while step reads binding", '''
   step_grows()
   step_continues()
 
-fail "while step reads binding after grow", "57:5: cannot lend `v` to write while a read loan is live", "65:5: cannot lend `v` to write while a read loan is live", "73:5: cannot lend `v` to write while a read loan is live", "81:5: cannot lend `v` to write while a read loan is live", "88:5: cannot lend `t` to write while a read loan is live", "96:5: cannot lend `v` to write while a read loan is live", "104:5: cannot lend `v` to write while a read loan is live", "112:5: cannot lend `v` to write while a read loan is live", "122:7: cannot lend `v` to write while a read loan is live", "133:7: cannot lend `v` to write while a read loan is live", "141:11: cannot lend `v` to write while a read loan is live", "152:7: cannot lend `v` to write while a read loan is live", errors: 12
+fail "while step reads binding after grow", "57:5: cannot change `v` while a read view of it is still in use", "65:5: cannot change `v` while a read view of it is still in use", "73:5: cannot change `v` while a read view of it is still in use", "81:5: cannot change `v` while a read view of it is still in use", "88:5: cannot change `t` while a read view of it is still in use", "96:5: cannot change `v` while a read view of it is still in use", "104:5: cannot change `v` while a read view of it is still in use", "112:5: cannot change `v` while a read view of it is still in use", "122:7: cannot change `v` while a read view of it is still in use", "133:7: cannot change `v` while a read view of it is still in use", "141:11: cannot change `v` while a read view of it is still in use", "152:7: cannot change `v` while a read view of it is still in use", errors: 12
   # The step of `while c as h: step` runs after the body, so a view the
   # step reads through `h` keeps its loan through the body: growing the
   # List or Text it views there is rejected, whatever the way to the step
@@ -2602,7 +2602,7 @@ test "while true break move", '''
       break
   print("end")
 
-fail "whole self method field arg", "28:6: cannot lend `@` to write while a read loan on `@scanner.value` is live", "lend the fields it writes", errors: 1
+fail "whole self method field arg", "28:6: cannot change `@` while a read view of `@scanner.value` is still in use", "makes a write view of all of `@`: make write views of the fields it writes", errors: 1
   # A `!@` method lends all of `@`, so it cannot be called while a
   # field of `@` is lent: the caller does not look into the body (Core
   # sentence 7). The idiom is a function of the fields it writes, which

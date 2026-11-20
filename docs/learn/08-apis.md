@@ -373,7 +373,7 @@ sigil always says how it is held, as for any value. `^{Shape}` is a box
 that owns one, so `List[^{Shape}]` holds squares and circles together.
 `?{Shape}` is a read view of one, and `!{Shape}` a write view.
 
-`area_of(sq)` lends a plain `Square` as a `?{Shape}`, with no box and
+`area_of(sq)` passes a plain `Square` as a `?{Shape}`, with no box and
 no copy. `!s.grow(1.0)` changes each shape through its box, marked as
 any write is. A method that takes `<@` ends the box it is called on:
 
@@ -412,10 +412,10 @@ API, and calls it. That is one indirect call, the price of not knowing
 the type. A call through a bound, `[T: Shape]`, costs nothing: it is
 direct. So the braces mark where the cost is.
 
-## An object keeps its loans
+## An object keeps its views
 
-An API object hides the value's type, never its loans. A `?{Shape}`
-made from an element of a List keeps the List lent, as a `?Square`
+An API object hides the value's type, never its views. A `?{Shape}`
+made from an element of a List keeps the List read-only, as a `?Square`
 would:
 
 ```rig reject
@@ -437,12 +437,12 @@ sub main()
 ```
 
 ```error
-cannot lend `v` to write while a read loan is live
+cannot change `v` while a read view of it is still in use
 ```
 
 The push could move the List's elements, and `s` would read freed
 memory. Since the type is hidden, the object may hold anything: a
-view, a handle, a `drop` body. So a view's loans last to its last use,
+view, a handle, a `drop` body. So a view limits its place until its last use,
 and a box's to its drop, and no lifetime is ever written.
 
 ## Shared objects
@@ -591,7 +591,7 @@ made once for each API and type a program erases.
 | `^{Job + Sends}`, `*{Shape + Syncs}` | an object that may go to a task, or be read by many |
 
 **A bound checks a contract and costs nothing; braces hide the type,
-keep its loans, and mark the one indirect call.**
+keep its views, and mark the one indirect call.**
 
 ## What is not there yet
 

@@ -801,7 +801,7 @@ fail "move payload of viewed scrutinee", "cannot move out of `b`: it is a view o
 
   print(1)
 
-fail "move scrutinee while payload live", "cannot move `s` while a read loan is live"
+fail "move scrutinee while payload live", "cannot move `s` while a read view of it is still in use"
   # A payload binding views the matched value, which cannot be moved while
   # the binding is in use.
 
@@ -830,7 +830,7 @@ fail "move self in drop body", "cannot move `@` out of its own drop body"
     drop(!@)
       other = <@
 
-fail "move skipped and", "cannot drop `a` while it is lent"
+fail "move skipped and", "cannot drop `a` while a read view of it is still in use"
   # The right side of `and` runs only when the left is true (SPEC §7),
   # so a move there leaves `g` live on the path where it is skipped:
   # `g` still views `a`, and its drop body reads it where its scope
@@ -856,7 +856,7 @@ fail "move skipped and", "cannot drop `a` while it is lent"
   <a
   print(ok)
 
-fail "move skipped condition part", "cannot drop `a` while it is lent", "cannot drop `b` while it is lent", "cannot drop `c` while it is lent", errors: 3
+fail "move skipped condition part", "cannot drop `a` while a read view of it is still in use", "cannot drop `b` while a read view of it is still in use", "cannot drop `c` while a read view of it is still in use", errors: 3
   # A part of a binding condition runs only when the parts before it
   # held: the `else`, and the path past a `while`, start from the state
   # each part that may fail leaves, so a move in a later part leaves `g`
@@ -1123,7 +1123,7 @@ fail "move vec element", "12:6: cannot move out of `v[0]`: elements cannot be mo
   !v.push(*P(n: 7))
   eat(<v[0])
 
-fail "move view payload keeps loan", "22:11: cannot lend `x` to write while a read loan is live"
+fail "move view payload keeps loan", "22:11: cannot change `x` while a read view of it is still in use"
   # A payload copied out of the matched value still views what it views:
   # `x` cannot be written while `k` is used.
 

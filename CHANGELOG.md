@@ -821,6 +821,17 @@ arms.
 
 ### Docs
 
+- Places and views replace lend and loan. A sigil on a place (a
+  variable, a field, or an element) makes a read view or a write view;
+  any view leaves its place read-only until its last use, and a write
+  view of an ordinary value leaves it unusable; a cell, a `Cell` or a
+  value that holds one, is left read-only even by a write view. CORE's
+  preface is "Places and views", §4 is "One view table", and the
+  messages name the act and the view that blocks it: "cannot change `v`
+  while a read view of it is still in use". No program is accepted or
+  rejected differently, and the emitted Zig is the same; tools and
+  editors that match message text see the new wording.
+
 - The concurrency docs' benchmarks are measured with `--release` on the
   Mac (docs/launch/benchmarks.md, docs/CONCURRENCY.md, the launch post
   and FAQ): `fanout` is level with Tokio and Go, a sleeping task holds

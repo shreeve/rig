@@ -22,7 +22,7 @@ test "keeps argument through result", "x"
   !b.watch(name(?t))
   print(b.src)
 
-fail "keeps argument through result unwritten", "18:15: `name(t)` keeps `t` lent in what `watch` stores; write `name(?t)`"
+fail "keeps argument through result unwritten", "18:15: `name(t)` keeps a view of `t` in what `watch` stores; write `name(?t)`"
   # Why: `watch` keeps what `name(t)` views, a view of `t`, so the lend
   # outlasts the statement and must be written `?t`.
   # Rule: a lend is written wherever its view may outlast its statement
@@ -43,7 +43,7 @@ fail "keeps argument through result unwritten", "18:15: `name(t)` keeps `t` lent
   !b.watch(name(t))
   print(b.src)
 
-fail "keeps argument unwritten", "18:10: keeps `t` lent in what `watch` stores; write `!b.watch(?t)`", "21:1: keeps `a` lent in what `register` stores; write `?a.register(!out)`", errors: 2
+fail "keeps argument unwritten", "18:10: keeps a view of `t` in what `watch` stores; write `!b.watch(?t)`", "21:1: keeps a view of `a` in what `register` stores; write `?a.register(!out)`", errors: 2
   # A place lent to a parameter the callee keeps is lent with `?` written
   # (Core sentence 4), a self too.
 
@@ -183,7 +183,7 @@ test "keeps checker name lookup", "0 1"
   !c.names.push(String("length"))
   print((!c).check_access(7), c.lookups)
 
-fail "keeps clause names", "7:31: `a` has no parameter `t`; `keeps` names lent parameters, `@` among them", "10:34: `keeps s`: `s` is named twice", "13:28: `keeps n`: `c` takes nothing to write that could hold it", errors: 3
+fail "keeps clause names", "7:31: `a` has no parameter `t`; `keeps` names view parameters, `@` among them", "10:34: `keeps s`: `s` is named twice", "13:28: `keeps n`: `c` takes nothing to write that could hold it", errors: 3
   # `keeps` names lent parameters, each once, that something the function
   # writes could hold.
 
@@ -201,7 +201,7 @@ fail "keeps clause names", "7:31: `a` has no parameter `t`; `keeps` names lent p
 
   pass
 
-fail "keeps drop while kept", "14:2: cannot drop `t` while it is lent", "13:10: `watch` keeps it in `b` (its signature says `keeps s`)"
+fail "keeps drop while kept", "14:2: cannot drop `t` while a read view of it is still in use", "13:10: `watch` keeps it in `b` (its signature says `keeps s`)"
   # Why: `watch` keeps `s` in `@`; dropping `t` while `b` is used would
   # leave `b.src` viewing freed bytes.
   # Rule: a kept lend lasts while its holder is used.
@@ -335,7 +335,7 @@ test "keeps generic field text", "4"
   put(!b, ?n)
   print(b.last)
 
-fail "keeps generic field text is rejected", "14:2: cannot drop `n` while it is lent"
+fail "keeps generic field text is rejected", "14:2: cannot drop `n` while a read view of it is still in use"
   # Why: `put` keeps `x` in `b`'s `(?T)?` field, a `?String` for a
   # `Bag[String]`, so `n` stays lent while `b` is used.
   # Rule: a kept lend lasts while its holder is used (Core sentence 7).
@@ -424,7 +424,7 @@ test "keeps into write argument", "2 y"
   collect(!names, ?b)
   print(names.len, names[1])
 
-fail "keeps kept loan conflicts", "19:1: cannot lend `t` to write while a read loan is live", "18:10: `watch` keeps it in `b` (its signature says `keeps s`), so the loan lasts while `b` is used", "23:1: cannot assign to `a.n` while `a` is lent", "22:2: `register` keeps it in `out` (its signature says `keeps @`), so the loan lasts while `out` is used", errors: 2
+fail "keeps kept loan conflicts", "19:1: cannot change `t` while a read view of it is still in use", "18:10: a read view of `t` is made here, and `watch` keeps it in `b` (its signature says `keeps s`), so the view lasts while `b` is used", "23:1: cannot assign to `a.n` while a read view of `a` is still in use", "22:2: a read view of `a` is made here, and `register` keeps it in `out` (its signature says `keeps @`), so the view lasts while `out` is used", errors: 2
   # A kept lend lasts while its holder is used, and the note says which
   # call kept it, in what.
 
@@ -891,7 +891,7 @@ test "keeps a Map's and a Set's views by their signatures", '''
   set_views()
   edit_then_put()
 
-fail "keeps a Map's and a Set's views past their keys", "cannot drop `s` while it is lent", "cannot drop `s` while it is lent", "cannot lend `m` to write while a read loan is live", "cannot drop `m` while it is lent", errors: 6
+fail "keeps a Map's and a Set's views past their keys", "cannot drop `s` while a read view of it is still in use", "cannot drop `s` while a read view of it is still in use", "cannot change `m` while a read view of it is still in use", "cannot drop `m` while a read view of it is still in use", errors: 6
   # The sibling shapes: a key kept as a view outlives what it views, and
   # a value `get` views outlives a write or the drop of its Map.
   # oracle: key_dropped reject C4

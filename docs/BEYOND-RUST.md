@@ -7,35 +7,33 @@ itself is tested. This page collects those differences for readers who
 know Rust. The rules themselves are in [CORE](CORE.md); the reasons for
 the sigils are in [DESIGN](DESIGN.md).
 
-## 1. One word for each side of a hand-over
+## 1. Words for each side of a hand-over
 
 Rust's *borrow* names three things at once: the act (`&v`), the
-reference it makes, and the checker's record that keeps the owner from
-changing. Rig names each from where it sits
-([DESIGN](DESIGN.md#lend-view-loan-naming-from-the-owners-side)):
+reference it makes, and the checker's record that keeps `v` from
+changing. Rig names what each side has
+([DESIGN](DESIGN.md#places-and-views-naming-from-the-sigils-side)):
 
-| Rust | Rig | What it is | Where it lives |
-|---|---|---|---|
-| borrow `v` (`&v`, `&mut v`) | `v` **lends** (`?v`, `!v`) | the act | the owner's side, where the sigil is written |
-| a reference, a slice, a `&str` | a **view** (`?T`, `!T`, `[]T`, `![]T`, `?String`) | the value handed over | travels with the callee |
-| "`v` is borrowed" | a **loan** of `v` | the record | stays with the owner, and limits it until every view is done |
+| Rust | Rig | What it is |
+|---|---|---|
+| borrow `v` (`&v`, `&mut v`) | `?v` or `!v`, written on the **place** `v` | the act, where the sigil is written |
+| a reference, a slice, a `&str` | a **read view** or a **write view** (`?T`, `!T`, `[]T`, `![]T`, `?String`) | the value handed over |
+| "`v` is borrowed" | `v` is **read-only**, or **unusable** under a write view | what the place may still do, until the view's last use |
 
-The sigil is written on the owner in both languages, at the place where
-the owner hands something over. Rust names that act from the callee's
-side; Rig names it from the owner's, where the code shows it. So an
-error can say exactly which act meets which record: *cannot lend `v` to
-write while a read loan is live*.
+The sigil is written on the place in both languages, where it hands
+something over. Rust names that act from the callee's side; Rig names
+what each side has. So an error can say what was tried and what blocks
+it: *cannot change `v` while a read view of it is still in use*.
 
-The words stay inside Rust's conversation. *Loan* is the term Rust's own
-checker uses internally: Polonius, the formal model behind Rust's
-next-generation checker, states its rules as loans that are issued,
-killed, and invalidated. A Rust programmer needs one line of
-translation, and nothing to unlearn.
+A Rust programmer needs one line of translation: a read view is a `&T`,
+and a write view of an ordinary value is a `&mut T`. A write view of a
+cell (a `Cell`, `Signal`, channel, or actor) is closer to Rust's
+`&Cell`: it leaves its place read-only, so many may be in use at once.
 
 **One word for every view.** Rust's `&T`, `&mut T`, `&[T]`, and `&str`
 are four ideas to learn. In Rig they are one: a view, read or write,
 of a value, of part of an array or `List`, or of a `String`'s bytes. The
-same rules cover all of them ([CORE §4](CORE.md#4-one-lend-table)).
+same rules cover all of them ([CORE §4](CORE.md#4-one-view-table)).
 
 **A drop is a move.** Rust's `drop(x)` moves `x` into a function that
 does nothing with it. Rig says the same with no function: `<x` alone on

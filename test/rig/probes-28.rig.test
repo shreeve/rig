@@ -400,7 +400,7 @@ test "review-sc5-sh", "4 4 99"
     new LIMIT = 99
     print(f(), S().v, LIMIT)
 
-fail "review-sc5-sw", "cannot lend `v` to write while a write loan is live: to swap two elements of `v`, write `!v.swap(0, 1)`"
+fail "review-sc5-sw", "cannot change `v` while a write view of it is still in use: to swap two elements of `v`, write `!v.swap(0, 1)`"
   obj P
     a: Int
     b: Int
@@ -1576,7 +1576,7 @@ fail "review-seam2-c03 move lent", "a view of the temporary `mk(1)` outlives its
   x = <(!mk(1))
   print(x.n)
 
-fail "review-seam2-c07 move whole while lent", "cannot move `s` while a write loan on `s.n` is live"
+fail "review-seam2-c07 move whole while lent", "cannot move `s` while a write view of `s.n` is still in use"
   # Review probe c07_move_whole_while_lent.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
   # oracle: S.at accept
   # oracle: S.drop accept

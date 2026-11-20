@@ -6186,9 +6186,9 @@ pub const Emitter = struct {
                     self.bare = true;
                     try self.emitValue(sexp, false);
                 }
-                from = self.facts.unwrapViews(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped lend"));
+                from = self.facts.unwrapViews(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped view"));
             } else if (!(written or lend.implicit) or (written and first == .unbox and !lend.has(.text))) {
-                from = self.facts.unwrapViews(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped lend"));
+                from = self.facts.unwrapViews(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped view"));
                 at.ptr = written or self.isPtrViewExpr(sexp);
                 // A view held as a pointer is lent from the pointer it
                 // holds, in any position, so each row reaches through it
@@ -6203,7 +6203,7 @@ pub const Emitter = struct {
                 try self.w.writeAll(")");
             } else {
                 const operand = if (written) ir.get(sexp, .operand) else sexp;
-                from = self.facts.unwrapViews(self.typeOf(operand) orelse return self.unsupported(sexp, "an untyped lend"));
+                from = self.facts.unwrapViews(self.typeOf(operand) orelse return self.unsupported(sexp, "an untyped view"));
                 const list = self.facts.types.get(from) == .parameterized_nominal;
                 if (lend.has(.text)) {
                     try self.emitExpr(operand);
@@ -8295,7 +8295,7 @@ pub const Emitter = struct {
             // by address would hand over a resource or a value of a type
             // parameter from inside a view, which typecheck rejects: a
             // payload captured from a lend has no storage a fact names.
-            .lend => return self.unsupported(e, "a payload captured by address from a lend"),
+            .lend => return self.unsupported(e, "a payload captured by address from a view"),
             .jump => {},
         }
         try self.emitBare(e);

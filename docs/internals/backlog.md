@@ -7,13 +7,13 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
 [weak-spots](weak-spots.md).
 
 - A known over-strict rejection: what a call stores from a view reached
-  through a lent read view should carry that view's loans, not a loan
+  through a read view passed in should carry that view's loans, not a loan
   on the holder (Core sentence 7). `hold(!@, c: ?Cursor)` storing
-  `c.items` must say `keeps c`, and then keeps `c` itself lent while the
+  `c.items` must say `keeps c`, and then keeps `c` itself read-only while the
   holder is used, though only `c.items`' loans need to last. Narrowing
-  it needs a new reach fact (what a lent parameter's own view target is,
+  it needs a new reach fact (what a view parameter's own view target is,
   apart from what it reaches through the views it holds) and a call rule
-  that stores the argument's held loans instead of its lend. Probes:
+  that stores the argument's held loans instead of its own view. Probes:
   the cases `corekeeps-p4 store through view` and `corekeeps-p4b keeps
   through view` of test/rig/probes-08.rig.test.
 - Several results, after v1 (SPEC "Several results"):
@@ -22,8 +22,8 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
     calling convention returns in registers where it returns a tuple
     or an object through memory; it serves objects too, and lands only
     if it passes the speed rule;
-  - write lends ended per argument: while a result holds a write view,
-    the lends of the arguments its origins leave out could end at the
+  - write views ended per argument: while a result holds a write view,
+    the write views of the arguments its origins leave out could end at the
     return, as they do when no result holds one;
   - `from` per result, so a write view and a read view may come from
     different parameters whose types could both hold either, and
@@ -73,9 +73,9 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   rejected (SPEC §18, "Drop"), a rule that its error is not lost, which
   Core §2 does not make (a dropped task drops its error), so the
   checker accepts the two tests of it (`task fallible lost`, `sets
-  lost`). And CORE §4 says `!h` lends a handle itself, but not how long
-  an arm of `task.select` holds that lend: the compiler and the checker
-  read `!ch.on_recv()` as a read lend of the place holding `ch`, held
+  lost`). And CORE §4 says `!h` makes a write view of a handle itself, but not how long
+  an arm of `task.select` holds that view: the compiler and the checker
+  read `!ch.on_recv()` as a read view of the place holding `ch`, held
   until the select returns, so two arms may name one channel. The
   owner decides whether the Core says so.
 - The reference checker (`bin/rig-oracle`) takes memory quadratic in
@@ -127,7 +127,7 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   explicitly would make what each helper reads visible.
 - **Tighter generated code**: Debug builds pay for round trips such as
   `rig.lend(&rig.elemPtr(xs, j).*)` and `rig.eql((&p).*, (&q).*)`, and a
-  generic `for x in xs` copies each element it only lends. Release
+  generic `for x in xs` copies each element it only views. Release
   builds optimize these away.
 - **A statement under `if target.debug` leaves a trace in a release
   build** (Trig's NEEDS 77). `target.debug` is known at compile time,
@@ -223,11 +223,11 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   `rig.ErrorValue`, but the ownership checker's reach (`sema.viewReach`)
   would have to see a `?L` reach an `A`, or a view of a temporary `A`
   outlives it.
-- Lending a handle parameter to write is accepted as `!c` but rejected
-  as a capture. In `sub poke(c: *Cell[Int])`, `!c.set(2)` lends the
-  Cell `c` holds, while `f = |!c| !c.set(3)` is "cannot lend parameter
-  `c` to write". So is `!o.h` for `o` an owned parameter. Decide whether
-  a capture and a field lend, like `!c`, lend what the handle holds.
+- A write view of a handle parameter is accepted as `!c` but rejected
+  as a capture. In `sub poke(c: *Cell[Int])`, `!c.set(2)` makes a view of the
+  Cell `c` holds, while `f = |!c| !c.set(3)` is "cannot make a write view of
+  parameter `c`". So is `!o.h` for `o` an owned parameter. Decide whether
+  a capture and a field make a view of what the handle holds, like `!c`.
 - **A Map's value in its key's tail padding.** An ordered `Map`'s entry
   is `{key, value}` in Zig's layout, so a value that would fit the
   key's tail padding still pads the entry. Read from Trig's layouts it
@@ -317,7 +317,7 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   take the short form too. Trig has 60 such sites (2026-10-29).
 - **Literal arithmetic given a read view is refused.** `f(4 + 1)`,
   where `f` takes a `?Int`, says "type mismatch: expected `?Int`, got
-  `Int`", while `f(4)` and `f(x + 1)` are lent as made values. Literal
+  `Int`", while `f(4)` and `f(x + 1)` are views of made values. Literal
   arithmetic checked against a view should be checked against the
   value it views. Found with the errors-only fixes (2026-10-29).
 - **A `?^T` field cannot be filled from a parameter.** A
@@ -336,8 +336,8 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
 - **A write view of an array is no read slice.** A `![4]U8` passed
   bare where a `[]U8` goes is rejected ("type mismatch: expected `[]U8`,
   got `![4]U8`"), though a `![]U8` reads as the `[]U8` it views and a
-  `?[4]U8` lends its elements there. It is sound, only stricter: decide
-  whether a write view of an array lends its elements to read, as `?a`
+  `?[4]U8` views its elements there. It is sound, only stricter: decide
+  whether a write view of an array gives read views of its elements, as `?a`
   does, and otherwise name the form to write in the message (`?k` or
   `?k[..]`). Found with queue row 29 (2026-10-31).
 - **A payload test on an error's member never lowers.** `.bad(l?)` or

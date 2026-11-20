@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Places and Views</title>
+<style>
+:root {
+  --bg: #fbfaf7; --fg: #1f2328; --muted: #6b7078; --line: #c9ccd1; --card: #ffffff;
+  --read: #2f6fb3; --readbg: #e6f0fa; --write: #b5452f; --writebg: #fbe9e4;
+  --ok: #2c7a3f; --no: #b5452f; --ro: #8a6d00; --robg: #fbf3d6;
+  --off: #8b2b1d; --offbg: #f6dcd6; --cell: #6b4fa3; --cellbg: #eee8f8;
+  --place: #2f7a4a; --placebg: #e3f4e8;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15171a; --fg: #e6e7e9; --muted: #9aa0a8; --line: #3a3f46; --card: #1d2024;
+    --read: #7fb2ea; --readbg: #1d2c3d; --write: #f08a73; --writebg: #3a221d;
+    --ok: #6cc785; --no: #f08a73; --ro: #e2c25a; --robg: #352d12;
+    --off: #f3a08d; --offbg: #3d1f19; --cell: #b9a2ea; --cellbg: #2a2340;
+    --place: #7fd19b; --placebg: #1c3326;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15171a; --fg: #e6e7e9; --muted: #9aa0a8; --line: #3a3f46; --card: #1d2024;
+  --read: #7fb2ea; --readbg: #1d2c3d; --write: #f08a73; --writebg: #3a221d;
+  --ok: #6cc785; --no: #f08a73; --ro: #e2c25a; --robg: #352d12;
+  --off: #f3a08d; --offbg: #3d1f19; --cell: #b9a2ea; --cellbg: #2a2340;
+    --place: #7fd19b; --placebg: #1c3326;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+main { max-width: 820px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6rem; margin: 0 0 4px; }
+h2 { font-size: 1.15rem; margin: 36px 0 8px; }
+p { margin: 8px 0; }
+.sub { color: var(--muted); margin-bottom: 20px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  padding: 16px; margin: 12px 0; overflow-x: auto; }
+.small { font-size: .92rem; color: var(--muted); }
+svg { width: 100%; height: auto; display: block; }
+svg text { fill: var(--fg); font-family: inherit; }
+.mono, code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+code { font-size: .92em; }
+pre { margin: 8px 0; font-size: .92rem; line-height: 1.6; white-space: pre-wrap; }
+table { border-collapse: collapse; width: 100%; font-size: .95rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 8px 6px; text-align: left; vertical-align: top; }
+th { font-weight: 600; }
+tr:last-child > td { border-bottom: none; }
+td.y { color: var(--ok); font-weight: 700; text-align: center; }
+td.n { color: var(--no); font-weight: 700; text-align: center; }
+th.c, td.c { text-align: center; }
+.tag { display: inline-block; margin: 2px 0; padding: 1px 8px; border-radius: 999px; font-size: .85rem; font-weight: 600; white-space: nowrap; }
+.t-place { background: var(--placebg); color: var(--place); }
+.t-read { background: var(--readbg); color: var(--read); }
+.t-write { background: var(--writebg); color: var(--write); }
+.t-ro { background: var(--robg); color: var(--ro); }
+.t-cell { background: var(--cellbg); color: var(--cell); }
+.t-off { background: var(--offbg); color: var(--off); }
+.rule { border-left: 4px solid var(--read); padding: 10px 14px; background: var(--card); border-radius: 0 8px 8px 0; }
+.rule p { margin: 4px 0; }
+.err { color: var(--no); }
+.open { border-left: 4px solid var(--ro); padding: 10px 14px; background: var(--card); border-radius: 0 8px 8px 0; }
+</style>
+</head>
+<body>
+<main>
+<h1>Places and views</h1>
+<p class="sub">The words settled so far, and cells as the compiler actually treats them.</p>
+
+<h2>1. The words</h2>
+<div class="card">
+<table>
+<tr><th>Word</th><th>Meaning</th></tr>
+<tr><td><span class="tag t-place">place</span></td><td>a variable, a field, or an element: what a sigil is put on</td></tr>
+<tr><td><span class="tag t-read">read view</span><br><span class="tag t-write" style="margin-top:6px">write view</span></td><td>what <code>?</code> and <code>!</code> make; a view has no other qualifier</td></tr>
+<tr><td><span class="tag t-ro">read-only</span></td><td>what every view leaves its place: it may be read, copied and given views, but not changed, assigned, moved or dropped</td></tr>
+<tr><td><span class="tag t-off">unusable</span></td><td>what a write view of an ordinary value leaves its place: it can't be used at all, as after a move, but it comes back by itself at the view's last use</td></tr>
+<tr><td><span class="tag t-cell">cell</span></td><td>a <code>Cell</code>, or a value that holds one: a Signal, a channel, an actor, or an object with a Cell field. It lives only behind <code>*</code> and changes only through its own calls</td></tr>
+</table>
+</div>
+
+<h2>2. The rule</h2>
+<div class="rule">
+<p>Any view leaves its place <span class="tag t-ro">read-only</span> until its last use.</p>
+<p>A write view of an ordinary value goes further: its place is <span class="tag t-off">unusable</span> until the view's last use.</p>
+<p class="small" style="margin-top:8px">An ordinary value is anything that isn't a <span class="tag t-cell">cell</span>.</p>
+</div>
+<div class="card">
+<svg viewBox="0 0 720 170" role="img" aria-label="A sigil on a place makes a view; the place is limited while the view is in use">
+  <defs><marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--muted)"/></marker></defs>
+  <rect x="20" y="30" width="250" height="110" rx="12" style="fill: var(--bg); stroke: var(--line)"/>
+  <text x="145" y="22" text-anchor="middle" font-size="13" style="fill: var(--muted)">THE PLACE</text>
+  <text x="145" y="78" text-anchor="middle" class="mono" font-size="20">v   p.items   xs[0]</text>
+  <text x="145" y="112" text-anchor="middle" font-size="14" style="fill: var(--muted)">limited while the view is in use</text>
+  <line x1="280" y1="85" x2="440" y2="85" stroke-width="2" marker-end="url(#a1)" style="stroke: var(--muted)"/>
+  <text x="360" y="70" text-anchor="middle" class="mono" font-size="18">?  or  !</text>
+  <text x="360" y="108" text-anchor="middle" font-size="13" style="fill: var(--muted)">the sigil makes</text>
+  <rect x="450" y="30" width="250" height="110" rx="12" style="fill: var(--bg); stroke: var(--line)"/>
+  <text x="575" y="22" text-anchor="middle" font-size="13" style="fill: var(--muted)">THE VIEW</text>
+  <text x="575" y="72" text-anchor="middle" font-size="17" font-weight="600" style="fill: var(--read)">read view</text>
+  <text x="575" y="98" text-anchor="middle" font-size="17" font-weight="600" style="fill: var(--write)">write view</text>
+  <text x="575" y="124" text-anchor="middle" font-size="13" style="fill: var(--muted)">a binding, an argument, a field</text>
+</svg>
+<p class="small">In <code>!p.items.push(1)</code>, the <code>!</code> covers the whole path: a write view of <code>p.items</code>, handed to <code>push</code> as its self. <code>p.name</code> stays free.</p>
+</div>
+
+<h2>3. Every view leaves its place read-only</h2>
+<div class="card">
+<table>
+<tr><th>While the view is in use, the place may…</th><th class="c">read</th><th class="c">copy</th><th class="c">give views</th><th class="c">change, assign, move, drop</th></tr>
+<tr><td><span class="tag t-read">read view</span></td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="n">✗</td></tr>
+<tr><td><span class="tag t-write">write view</span> of a <span class="tag t-cell">cell</span></td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="n">✗</td></tr>
+<tr><td><span class="tag t-write">write view</span> of an ordinary value</td><td class="n">✗</td><td class="n">✗</td><td class="n">✗</td><td class="n">✗</td></tr>
+</table>
+<p class="small">The last column is ✗ in every row: that column is read-only, and every view gives it. Only a write view of an ordinary value goes further, because it could leave the value half-changed while someone reads it. A Cell changes only by its own calls, each one complete step, so it never needs to stop reads.</p>
+</div>
+
+<h2>4. Two sigils, two kinds of value</h2>
+<p>What a view leaves its place depends on the kind of value the view sees, not on who holds the view.</p>
+<div class="card">
+<table>
+<tr><th>The view sees…</th><th class="c"><span class="tag t-read">?v</span></th><th class="c"><span class="tag t-write">!v</span></th></tr>
+<tr><td><b>an ordinary value</b><br><span class="small">Int, String, List, Map, your own objects</span></td><td class="c"><span class="tag t-ro">read-only</span></td><td class="c"><span class="tag t-off">unusable</span></td></tr>
+<tr><td><b>a cell</b><br><span class="small">Cell, Signal, channel, actor, an object with a Cell field, std's shared.Map</span></td><td class="c"><span class="tag t-ro">read-only</span></td><td class="c"><span class="tag t-ro">read-only</span></td></tr>
+</table>
+<p class="small">The second row is one rule for all six members. 180 programs, six members by three kinds of view by ten acts, gave the same verdict for every member.</p>
+</div>
+
+<h2>5. How long: until the view's last use</h2>
+<div class="card">
+<svg viewBox="0 0 720 310" role="img" aria-label="Two timelines with the new messages">
+  <text x="20" y="22" font-size="13" style="fill: var(--muted)">A READ VIEW</text>
+  <g class="mono" font-size="15">
+    <text x="30" y="52">a = ?v[..]</text>
+    <text x="30" y="82">!v.push(2)</text>
+    <text x="30" y="112">print(a)</text>
+  </g>
+  <rect x="200" y="38" width="12" height="80" rx="4" style="fill: var(--ro)"/>
+  <text x="224" y="52" font-size="14">a read view of v is made here: <tspan font-weight="600" style="fill: var(--ro)">v is read-only</tspan></text>
+  <text x="224" y="82" font-size="14" class="err">✗ cannot change `v` while a read view of it is still in use</text>
+  <text x="224" y="112" font-size="14">still used here, its last use: v is free again</text>
+  <line x1="20" y1="140" x2="700" y2="140" style="stroke: var(--line)"/>
+  <text x="20" y="168" font-size="13" style="fill: var(--muted)">A WRITE VIEW</text>
+  <g class="mono" font-size="15">
+    <text x="30" y="198">w = !n</text>
+    <text x="30" y="228">print(n)</text>
+    <text x="30" y="258">w += 1</text>
+    <text x="30" y="288">print(n)</text>
+  </g>
+  <rect x="200" y="184" width="12" height="80" rx="4" style="fill: var(--off)"/>
+  <text x="224" y="198" font-size="14">a write view of n is made here: <tspan font-weight="600" style="fill: var(--off)">n is unusable</tspan></text>
+  <text x="224" y="228" font-size="14" class="err">✗ cannot use `n` while a write view of it is still in use</text>
+  <text x="224" y="258" font-size="14">still used here, its last use</text>
+  <text x="224" y="288" font-size="14" style="fill: var(--ok)">✓ accepted: w still exists, but is no longer used</text>
+</svg>
+</div>
+
+<h2>6. A cell: the place holds a handle</h2>
+<p>A cell lives only behind <code>*</code>. So its place never holds the cell itself; it holds a handle.</p>
+<div class="card">
+<svg viewBox="0 0 720 220" role="img" aria-label="The place c holds a handle that points at a Cell on the heap; several views reach the Cell while c is read-only">
+  <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--cell)"/></marker></defs>
+  <text x="120" y="22" text-anchor="middle" font-size="13" style="fill: var(--muted)">THE PLACE</text>
+  <rect x="30" y="40" width="180" height="80" rx="10" style="fill: var(--robg); stroke: var(--ro)"/>
+  <text x="120" y="72" text-anchor="middle" class="mono" font-size="16">c: *Cell[Int]</text>
+  <text x="120" y="100" text-anchor="middle" font-size="14" font-weight="600" style="fill: var(--ro)">read-only, held still</text>
+  <line x1="215" y1="80" x2="470" y2="80" stroke-width="2.5" marker-end="url(#a2)" style="stroke: var(--cell)"/>
+  <text x="342" y="70" text-anchor="middle" font-size="13" style="fill: var(--muted)">the handle points at</text>
+  <text x="590" y="22" text-anchor="middle" font-size="13" style="fill: var(--muted)">THE SHARED CELL</text>
+  <rect x="480" y="40" width="220" height="80" rx="10" style="fill: var(--cellbg); stroke: var(--cell)"/>
+  <text x="590" y="72" text-anchor="middle" class="mono" font-size="16">Cell: 4</text>
+  <text x="590" y="100" text-anchor="middle" font-size="13">changes only by its own calls</text>
+  <g class="mono" font-size="14">
+    <text x="300" y="168" text-anchor="middle" style="fill: var(--write)">!c.set(5)</text>
+    <text x="440" y="168" text-anchor="middle" style="fill: var(--write)">!c.add(1)</text>
+    <text x="580" y="168" text-anchor="middle" style="fill: var(--read)">r = ?c</text>
+  </g>
+  <line x1="300" y1="152" x2="540" y2="124" stroke-width="1.5" stroke-dasharray="4 4" style="stroke: var(--cell)"/>
+  <line x1="440" y1="152" x2="580" y2="124" stroke-width="1.5" stroke-dasharray="4 4" style="stroke: var(--cell)"/>
+  <line x1="580" y1="152" x2="620" y2="124" stroke-width="1.5" stroke-dasharray="4 4" style="stroke: var(--cell)"/>
+  <text x="440" y="202" text-anchor="middle" font-size="13" style="fill: var(--muted)">many views at once, each call one step: <tspan class="mono">!c.add((!c).swap(4))</tspan> is accepted</text>
+</svg>
+<table>
+<tr><th>While any view of <code>c</code> is in use, <code>c</code> may…</th><th class="c"></th></tr>
+<tr><td>be read; give <code>+c</code>, <code>~c</code>, <code>?c</code>, another <code>!c</code>; take its own calls (<code>!c.set(5)</code>)</td><td class="y">✓</td></tr>
+<tr><td>be reassigned, moved, dropped, or handed over as the handle itself (a <code>!*Cell</code> parameter)</td><td class="n">✗</td></tr>
+</table>
+<p class="small">"Holds" means holds directly. An ordinary object with a handle field (<code>c: *Cell[Int]</code>), kept by value in <code>b</code>, is an ordinary value: <code>!b</code> leaves <code>b</code> unusable.</p>
+</div>
+
+<h2>7. How long each member's view lasts</h2>
+<p>The rule is the same for all six; only "until its last use" takes a different shape.</p>
+<div class="card">
+<table>
+<tr><th>The view is made by…</th><th>It lasts…</th></tr>
+<tr><td>a call: <code>!c.set(5)</code>, <code>!ch.send(v)</code>, <code>!a.add(x)</code></td><td>for the call</td></tr>
+<tr><td>a binding: <code>w: !Cell[Int] = !c</code></td><td>until the last use of <code>w</code></td></tr>
+<tr><td>a task that holds self: <code>t = (!h).bump()&amp;</code></td><td>until it is waited for (<code>&gt;t</code>) or dropped</td></tr>
+<tr><td>a select's arm: <code>!ch.on_recv()</code></td><td>until the select returns</td></tr>
+<tr><td>an actor's call made a task: <code>!a.add(x)&amp;</code></td><td>not at all: the task holds its own count of the actor, not a view</td></tr>
+</table>
+</div>
+
+<h2>8. Open: the untyped <code>w = !c</code></h2>
+<div class="open">
+<p>The same line means two things, depending on where <code>c</code> lives and whether a type is written:</p>
+<pre>w: !Cell[Int] = !c     a write view of the Cell    → c is read-only
+w = !c                 a write view of the handle  → c is unusable
+                       (it may point c at another Cell: w = *Cell(9))</pre>
+<p>When <code>c</code> is a <code>*Cell</code> parameter, which can't be assigned, the untyped line already picks the Cell. A trial build that always picked the Cell when no type is written broke 11 tests. 7 of them are real: <code>swap(!a, !b)</code> of two Cell handles (6 tests) and a generic <code>!T</code> (1). Those would need another spelling.</p>
+</div>
+
+<h2>9. Smaller findings</h2>
+<div class="card">
+<ul>
+<li><b>Signal</b> isn't counted as holding a Cell, so a <code>Signal</code> by value is accepted as a parameter or a List element, where a channel or actor is refused.</li>
+<li><b>A <code>!Chan[T]</code></b> can send and receive, but it isn't accepted as a select arm, which takes only the handle.</li>
+<li><b><code>?Actor[T]</code> and <code>!Actor[T]</code></b> are accepted as types but have no methods.</li>
+<li><b>Messages</b> must name the view by the sigil written. The compiler records a Cell's <code>!c</code> as a read loan, and today's note says "lent to read here" under <code>!c</code>.</li>
+</ul>
+</div>
+</main>
+</body>
+</html>

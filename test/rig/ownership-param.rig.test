@@ -1,6 +1,6 @@
 # ownership: tests whose names start `param`.
 
-fail "param store alias", "11:5: cannot lend `b` to write while a read loan is live", errors: 1
+fail "param store alias", "11:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A store through a local write view of parameter `a` lands in `a`'s
   # value, which keeps `b` lent for the rest of the body.
 
@@ -20,7 +20,7 @@ fail "param store alias", "11:5: cannot lend `b` to write while a read loan is l
   h = Holder(r: ?x[..])
   print(f(!h, !v))
 
-fail "param store as binding", "11:5: cannot lend `b` to write while a read loan is live", errors: 1
+fail "param store as binding", "11:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A store through an `if !a as h` binding lands in parameter `a`'s value,
   # which keeps `b` lent for the rest of the body.
 
@@ -42,7 +42,7 @@ fail "param store as binding", "11:5: cannot lend `b` to write while a read loan
   h: Holder? = Holder(r: ?x[..])
   print(f(!h, !v))
 
-fail "param store assign whole", "10:5: cannot lend `b` to write while a read loan is live", errors: 1
+fail "param store assign whole", "10:5: cannot change `b` while a read view of it is still in use", errors: 1
   # Assigning write parameter `a` writes into the caller's value, which
   # keeps `b` lent for the rest of the body.
 
@@ -74,7 +74,7 @@ fail "param store by value write field", "9:6: a write view is never stored insi
 
   print(1)
 
-fail "param store call", "13:5: cannot lend `b` to write while a read loan is live", errors: 1
+fail "param store call", "13:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A call that may store its arguments in its `!` arguments stores a view
   # of `b` in parameter `a`, which keeps `b` lent for the rest of the body.
 
@@ -96,7 +96,7 @@ fail "param store call", "13:5: cannot lend `b` to write while a read loan is li
   h = Holder(r: ?x[..])
   print(f(!h, !v))
 
-fail "param store closure capture", "11:5: cannot lend `b` to write while a read loan is live", errors: 1
+fail "param store closure capture", "11:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A closure that captures `!a` and `?b` may store a view of `b` in `a`:
   # making it keeps `b` lent for the rest of the body.
 
@@ -116,7 +116,7 @@ fail "param store closure capture", "11:5: cannot lend `b` to write while a read
   h = Holder(r: ?x[..])
   print(f(!h, !v))
 
-fail "param store closure param", "14:5: cannot lend `b` to write while a read loan is live", errors: 1
+fail "param store closure param", "14:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A closure's write parameter is a parameter too: a view of `b` stored
   # in `a` keeps `b` lent for the rest of the closure's body.
 
@@ -134,7 +134,7 @@ fail "param store closure param", "14:5: cannot lend `b` to write while a read l
     a.r[0]
   print(g(!h, !v))
 
-fail "param store defer", "12:5: cannot lend `b` to write while a read loan is live", errors: 1
+fail "param store defer", "12:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A `defer` that stores in parameter `a` runs when its block ends; from
   # there on, `b` stays lent for the rest of the body.
 
@@ -155,7 +155,7 @@ fail "param store defer", "12:5: cannot lend `b` to write while a read loan is l
   h = Holder(r: ?x[..])
   print(f(!h, !v))
 
-fail "param store element", "7:5: cannot lend `b` to write while a read loan is live", errors: 1
+fail "param store element", "7:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A store into an element of write slice `a` keeps `b` lent for the
   # rest of the body.
 
@@ -171,7 +171,7 @@ fail "param store element", "7:5: cannot lend `b` to write while a read loan is 
   hs = [?x[..], ?x[..]]
   print(f(!hs, !v))
 
-fail "param store element field", "10:5: cannot lend `b` to write while a read loan is live", errors: 1
+fail "param store element field", "10:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A store into a field of an element of write slice `a` keeps `b` lent
   # for the rest of the body.
 
@@ -190,7 +190,7 @@ fail "param store element field", "10:5: cannot lend `b` to write while a read l
   hs = [Holder(r: ?x[..])]
   print(f(!hs, !v))
 
-fail "param store field", "11:5: cannot lend `b` to write while a read loan is live", errors: 1
+fail "param store field", "11:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A view of write parameter `b` stored in write parameter `a` keeps `b`
   # lent for the rest of the body: the caller reads `a` after the return,
   # so `!b.push` cannot reallocate the buffer `a.r` views.
@@ -210,7 +210,7 @@ fail "param store field", "11:5: cannot lend `b` to write while a read loan is l
   h = Holder(r: ?x[..])
   print(f(!h, !v))
 
-fail "param store loop element", "11:5: cannot lend `b` to write while a read loan is live", errors: 1
+fail "param store loop element", "11:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A store through a `for k in !a` element lands in parameter `a`'s
   # elements, which keeps `b` lent for the rest of the body.
 
@@ -230,7 +230,7 @@ fail "param store loop element", "11:5: cannot lend `b` to write while a read lo
   hs = [Holder(r: ?x[..])]
   print(f(!hs, !v))
 
-fail "param store loop element assign", "11:5: cannot lend `b` to write while a read loan is live", errors: 1
+fail "param store loop element assign", "11:5: cannot change `b` while a read view of it is still in use", errors: 1
   # Assigning a `for k in !a` element writes into parameter `a`'s
   # elements, which keeps `b` lent for the rest of the body.
 
@@ -250,7 +250,7 @@ fail "param store loop element assign", "11:5: cannot lend `b` to write while a 
   hs = [Holder(r: ?x[..])]
   print(f(!hs, !v))
 
-fail "param store match payload", "16:5: cannot lend `b` to write while a read loan is live", errors: 1
+fail "param store match payload", "16:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A store through a `match !a` payload lands in parameter `a`'s value,
   # which keeps `b` lent for the rest of the body.
 
@@ -277,7 +277,7 @@ fail "param store match payload", "16:5: cannot lend `b` to write while a read l
   e: E = .one(h: Holder(r: ?x[..]))
   print(f(!e, !v))
 
-fail "param store method", "13:5: cannot lend `b` to write while a read loan is live", errors: 1
+fail "param store method", "13:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A method that stores its argument in `!@` stores a view of `b` in
   # parameter `a`, which keeps `b` lent for the rest of the body.
 
@@ -299,7 +299,7 @@ fail "param store method", "13:5: cannot lend `b` to write while a read loan is 
   h = Holder(r: ?x[..])
   print(f(!h, !v))
 
-fail "param store nested", "13:5: cannot lend `b` to write while a read loan is live", errors: 1
+fail "param store nested", "13:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A store into a field of a field of parameter `a` keeps `b` lent for
   # the rest of the body.
 
@@ -321,7 +321,7 @@ fail "param store nested", "13:5: cannot lend `b` to write while a read loan is 
   o = Outer(h: Holder(r: ?x[..]))
   print(f(!o, !v))
 
-fail "param store read back", "11:5: cannot lend `c` to write while a read loan is live", errors: 1
+fail "param store read back", "11:5: cannot change `c` while a read view of it is still in use", errors: 1
   # A view of `b` stored in parameter `a` and read back into a local keeps
   # `b` lent: `t` views `b`'s buffer through `a`.
 
@@ -341,7 +341,7 @@ fail "param store read back", "11:5: cannot lend `c` to write while a read loan 
   h = Holder(r: ?x[..])
   print(f(!h, ?x[..], !v))
 
-fail "param store swap", "11:5: cannot lend `b` to write while a read loan is live", errors: 1
+fail "param store swap", "11:5: cannot change `b` while a read view of it is still in use", errors: 1
   # `swap` moves a value holding a String that views `b` into parameter
   # `a`, which keeps `b` lent for the rest of the body.
 
@@ -361,7 +361,7 @@ fail "param store swap", "11:5: cannot lend `b` to write while a read loan is li
   h = Holder(s: ?t[..])
   print(f(!h, !w))
 
-fail "param store then assign owner", "12:3: cannot assign to `b.n` while `b` is lent", errors: 1
+fail "param store then assign owner", "12:3: cannot assign to `b.n` while a read view of `b` is still in use", errors: 1
   # A read view of `b` stored in parameter `a` keeps `b` lent: `b` cannot
   # be written while the read loan is live.
 
@@ -491,7 +491,7 @@ test "param store view", '''
   print(text_view(!w, !t))
   print(w.s)
 
-fail "param store view is rejected", "10:5: cannot lend `b` to write while a read loan is live", errors: 1
+fail "param store view is rejected", "10:5: cannot change `b` while a read view of it is still in use", errors: 1
   # Storing a String viewing `b` in a field of parameter `a` keeps `b`
   # lent for the rest of the body.
 
@@ -510,7 +510,7 @@ fail "param store view is rejected", "10:5: cannot lend `b` to write while a rea
   h = Holder(s: ?t[..])
   print(f(!h, !w))
 
-fail "param store write field", "13:5: cannot lend `b` to write while a read loan is live", errors: 1
+fail "param store write field", "13:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A store into a field of a `Holder` that parameter `c` writes lands in
   # what the caller lent, which keeps `b` lent for the rest of the body.
 
@@ -533,7 +533,7 @@ fail "param store write field", "13:5: cannot lend `b` to write while a read loa
   c = Ctx(w: <h)
   print(f(!c, !v))
 
-fail "param store write through", "13:5: cannot lend `b` to write while a read loan is live", errors: 1
+fail "param store write through", "13:5: cannot change `b` while a read view of it is still in use", errors: 1
   # Assigning a `Holder` field of parameter `c` writes into what the
   # caller lent, which keeps `b` lent for the rest of the body.
 

@@ -1,7 +1,7 @@
 # Rig
 
 Rig is a compiled systems language with ownership like Rust's, fewer
-rules, and no garbage collector. How a value is moved, lent, shared,
+rules, and no garbage collector. How a value is moved, viewed, shared,
 failed, or run at the same time is written as a one-character sigil
 where it happens, and the compiler checks every one. Rig compiles to
 [Zig](https://ziglang.org) 0.17, which optimizes, generates code, and
@@ -26,11 +26,11 @@ sub main()
 ```
 
 `&` after a call runs it as a task, and `>t` waits for it and takes its
-result. `?xs` lends `xs` to read. There is no `async`, no `await`, and
+result. `?xs` makes a read view of `xs`. There is no `async`, no `await`, and
 no executor to set up: `total` and `sq` are ordinary functions, and any
 function can run as a task. The task reads the list in place, with no
-copy and no reference count, and the compiler keeps the loan until
-`>u`, so a write to `xs` before then is rejected. That is the rule Rig
+copy and no reference count, and the compiler keeps `xs` read-only
+until `>u`, so a write to `xs` before then is rejected. That is the rule Rig
 applies to every view, not a special rule for tasks.
 
 - **Effects are visible.** Every move, clone, write, failure path, and
@@ -52,7 +52,7 @@ Every `rig` example in this README is checked by the test suite.
 ## The sigils
 
 **Sigils are the language's mechanics; words are its libraries.** How
-data is bound, taken, lent, held, failed, and run at the same time is a
+data is bound, taken, viewed, held, failed, and run at the same time is a
 one-character sigil, and a sigil means the same thing wherever it
 appears:
 
@@ -60,7 +60,7 @@ appears:
 |---|---|
 | Binding | `x = e` binds, `x =! e` binds a fixed local |
 | Taking and copying | `<x` moves (alone on a line, drops), `+x` copies or makes another handle |
-| Lending | `?x` lends to read, `!x` to write; as types, `?T` and `!T` |
+| Views | `?x` makes a read view, `!x` a write view; as types, `?T` and `!T` |
 | Holding | `*x` shared (`*w` upgrades a weak handle), `^x` boxed, `~x` weak, `@` self |
 | Failure and absence | `T?` may be absent, `T!` may fail; `e?` and `e!` pass them on |
 | Concurrency | `f(x)&` sends work off, `>t` takes its result back |

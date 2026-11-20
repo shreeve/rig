@@ -277,7 +277,7 @@ test "array as slice", '''
   s: []Int = ?a
   print(s.len)
 
-fail "array as slice is rejected", "20:6: type mismatch: expected `![]Int`, got `[3]Int`; write `!a` or `!a[..]`", "22:14: a temporary array is lent as a `[]Int` only to a call that keeps no view of it; bind it to a name and pass `?name`"
+fail "array as slice is rejected", "20:6: type mismatch: expected `![]Int`, got `[3]Int`; write `!a` or `!a[..]`", "22:14: a temporary array is passed as a `[]Int` only to a call that keeps no view of it; bind it to a name and pass `?name`"
   # A bare named array where a `![]T` is expected would be written unseen:
   # it is written `!a`. A temporary array kept in a field is lent nowhere.
   # (A bare array, or a temporary one, as a `[]T` argument is lent to
@@ -1023,7 +1023,7 @@ test "bytes wide", '''
     !m.push(U8(i))
   print(m.read[U128, .big](2), m.read[U128, .little](4))
 
-fail "bytes write read only", "5:3: cannot `write` a `[]U8`; its elements are read-only", "6:4: cannot lend a `[]U8` to write: its elements are read-only", "10:1: cannot `write` a `[]U8`; its elements are read-only", "12:1: cannot `write` a `?String`; a `?String` is read-only", "14:7: `read` works on bytes: a `[]U8`, an `![]U8`, a `[N]U8`, a `List[U8]`, or a `?String`; got `[4]Int`", "15:1: `write` writes the elements; lend `self` with `!`"
+fail "bytes write read only", "5:3: cannot `write` a `[]U8`; its elements are read-only", "6:4: cannot make a write view of a `[]U8`: its elements are read-only", "10:1: cannot `write` a `[]U8`; its elements are read-only", "12:1: cannot `write` a `?String`; a `?String` is read-only", "14:7: `read` works on bytes: a `[]U8`, an `![]U8`, a `[N]U8`, a `List[U8]`, or a `?String`; got `[4]Int`", "15:1: `write` writes the elements; make a write view of `self` with `!`"
   # `write` needs writable bytes: not those of a read slice, a String, or
   # anything but a byte buffer; and `read` reads bytes only.
 
@@ -1095,7 +1095,7 @@ fail "call unknown keyword", "`sub_ab` has no parameter `c`"
 
   print(sub_ab(a: 1, c: 2))
 
-fail "callable view types", "9:6: a callable view `?fun(Int) -> Int` is only a parameter's, a local's, or a result's type", "17:1: a callable view `?fun(Int) -> Int` lives only as long as what it views, so it cannot be a module-level binding", "26:11: a callable view `?fun(Int) -> Int` is only a parameter's", "27:9: a callable view `[2]?fun(Int) -> Int` is only a parameter's", "28:7: a callable view `?fun(Int) -> Int` is only a parameter's", "29:7: `Wrap` cannot take a callable view for `T`", "33:15: `?fun(Int) -> Int` views a closure for the call; write the closure without `*` (remove the `*`)", "34:25: a closure literal is lent as `?fun(Int) -> Int` only as a call's argument; bind the closure", "35:12: this call's result may hold the callable it is lent", "38:7: a call never changes what a closure captures, so a closure is lent to read: write `?l`"
+fail "callable view types", "9:6: a callable view `?fun(Int) -> Int` is only a parameter's, a local's, or a result's type", "17:1: a callable view `?fun(Int) -> Int` lives only as long as what it views, so it cannot be a module-level binding", "26:11: a callable view `?fun(Int) -> Int` is only a parameter's", "27:9: a callable view `[2]?fun(Int) -> Int` is only a parameter's", "28:7: a callable view `?fun(Int) -> Int` is only a parameter's", "29:7: `Wrap` cannot take a callable view for `T`", "33:15: `?fun(Int) -> Int` views a closure for the call; write the closure without `*` (remove the `*`)", "34:25: a closure literal is passed as `?fun(Int) -> Int` only as a call's argument; bind the closure (`f = |...| ...`) and pass", "35:12: this call's result may hold the closure passed to it, and a closure literal lives only for the call; bind the closure (`f = |...| ...`) and pass", "38:7: a call never changes what a closure captures, so a closure is passed as a read view: write `?l`"
   # A callable view `?fun(...)` is only a parameter's, a local's, or a
   # result's type: no field, List, array, optional, or type argument holds
   # one, and neither does a module-level binding. A call never changes a
@@ -1494,7 +1494,7 @@ test "coalesce view value", '''
   print(nm.get("a") ?? 9, nm.get("b") ?? 9, nm.get("c") ?? 9, (nm.get("a") ?? 9) ?? 1)
   print(m.get("x") ?? m.get("a") ?? 2)
 
-fail "coalesce view value generic", "8:3: `m.get(k) ?? d` would copy out the `T` that `m.get(k)` views, since its fallback is a value, not a view; only a value that copies is copied out of a view, and `T` may not copy in every instance: lend the fallback, so the result is the view: `m.get(k) ?? ?d`", "12:5: only a value that copies is copied out of a view, and `T` may not copy in every instance", "21:3: `T` may not copy in every instance", errors: 3
+fail "coalesce view value generic", "8:3: `m.get(k) ?? d` would copy out the `T` that `m.get(k)` views, since its fallback is a value, not a view; only a value that copies is copied out of a view, and `T` may not copy in every instance: make the fallback a view, so the result is one: `m.get(k) ?? ?d`", "12:5: only a value that copies is copied out of a view, and `T` may not copy in every instance", "21:3: `T` may not copy in every instance", errors: 3
   # In a generic body, `m.get(k) ?? d` with `d: T` would copy out the `T`
   # the view reaches, and a `T` may not copy in every instance, so it is
   # rejected, as the copy out `if m.get(k) as v` then `v` else `d` is,
@@ -1521,7 +1521,7 @@ fail "coalesce view value generic", "8:3: `m.get(k) ?? d` would copy out the `T`
   e: List[Int] = List()
   print(lookup(?m, "a", 0), lookup2(?m, "a", 0), first_or(?e, 4))
 
-fail "coalesce view value owner", "18:5: `m.get(\"a\") ?? String(\"none\")` would copy out the `String` that `m.get(\"a\")` views, since its fallback is a value, not a view; only a value that copies is copied out of a view, and a `String` owns a resource: lend the fallback, so the result is the view, and clone that for a `String` of its own: `+(m.get(\"a\") ?? ?String(\"none\"))`", "20:5: a `List[Int]` owns a resource: lend the fallback", "22:5: an `Own` owns a resource: lend the fallback, so the result is the view, and clone that for an `Own` of its own: `+(o.get(\"a\") ?? ?Own(items: List()))`", "24:5: `+(pick(?t, true) catch ?String(\"u\"))`", errors: 4
+fail "coalesce view value owner", "18:5: `m.get(\"a\") ?? String(\"none\")` would copy out the `String` that `m.get(\"a\")` views, since its fallback is a value, not a view; only a value that copies is copied out of a view, and a `String` owns a resource: make the fallback a view, so the result is one, and clone that for a `String` of its own: `+(m.get(\"a\") ?? ?String(\"none\"))`", "20:5: a `List[Int]` owns a resource: make the fallback a view, so the result is one", "22:5: an `Own` owns a resource: make the fallback a view, so the result is one, and clone that for an `Own` of its own: `+(o.get(\"a\") ?? ?Own(items: List()))`", "24:5: `+(pick(?t, true) catch ?String(\"u\"))`", errors: 4
   # `a ?? b` and `a catch b` copy out the value a view on the left reaches
   # only when it copies: a String, a List, and an owning object do not,
   # and the diagnostic shows the fallback lent, which gives the view, and
@@ -2476,7 +2476,7 @@ fail "drop decl on generic", "`drop` bodies are only for non-generic objects, no
     drop(!@)
       print(0)
 
-fail "drop decl read self", "`drop` takes self lent to write: `drop(!@)`"
+fail "drop decl read self", "`drop` takes a write view of self: `drop(!@)`"
   # A `drop` declaration takes self lent to write, `drop(!@)`; a read
   # view is rejected.
 
@@ -2527,7 +2527,7 @@ fail "elem method as value", "5:7: `read` is a method of `[2]U8`, only called: `
   g = b.fill
   print(f, g)
 
-fail "elem method on temporary", "7:1: `fill` writes the elements; lend `self` with `!`: `!mk().fill(0)`", errors: 1
+fail "elem method on temporary", "7:1: `fill` writes the elements; make a write view of `self` with `!`: `!mk().fill(0)`", errors: 1
   # `fill` writes the elements of its self in place, so self
   # is lent to write, which `!` marks, a temporary's too: `!mk().fill(0)`.
 
@@ -3278,7 +3278,7 @@ fail "fallback not fresh", "15:16: `e` owns a `String`, which can't be copied by
   y = mko(0) ?? (e if c else g)
   print(y, f(none))
 
-fail "fallback variant literal lent hint", "18:6: lend the fallback, so the result is the view, and clone that for a `Val` of its own: `+(o ?? ?(Val.empty))`", "19:6: lend the fallback, so the result is the view, and clone that for a `Val` of its own: `+(o ?? ?(Val.table(m: List())))`"
+fail "fallback variant literal lent hint", "18:6: make the fallback a view, so the result is one, and clone that for a `Val` of its own: `+(o ?? ?(Val.empty))`", "19:6: make the fallback a view, so the result is one, and clone that for a `Val` of its own: `+(o ?? ?(Val.table(m: List())))`"
   # A `??` whose fallback is a value copies out what its left side views;
   # the hint lends the fallback in a form that parses and types: a
   # variant literal names its enum, and a call through a type is
@@ -5428,7 +5428,7 @@ test "lasting lend stored", "1 1 [7]"
   !xs.push(head(?v))
   print(count(head(v)), xs.len, xs[0])
 
-fail "lasting lend stored is rejected", "19:15: `head(v)` keeps `v` lent in what `push` stores; write `head(?v)`", "21:16: `head(v)` keeps `v` lent in what `push` stores; write `head(?v)`", "22:28: `head(v)` keeps `v` lent in what `push` stores; write `head(?v)`", errors: 3
+fail "lasting lend stored is rejected", "19:15: `head(v)` keeps a view of `v` in what `push` stores; write `head(?v)`", "21:16: `head(v)` keeps a view of `v` in what `push` stores; write `head(?v)`", "22:28: `head(v)` keeps a view of `v` in what `push` stores; write `head(?v)`", errors: 3
   # A lend kept beyond its statement is written, also when a callee stores
   # it: a result handed to a call that may store it keeps its argument
   # lent inside what the call stores into. A result the call only reads
@@ -5453,7 +5453,7 @@ fail "lasting lend stored is rejected", "19:15: `head(v)` keeps `v` lent in what
   !hs.push(Holder(seen: head(v)))
   print(count(head(v)), xs.len, hs.len)
 
-fail "lasting lend written", "26:8: `head(b.items[..])` keeps `b.items[..]` lent in the value it returns; write `head(?b.items[..])`", "35:10: `head(v)` keeps `v` lent while `r` lives; write `head(?v)`", "36:6: `b.all()` keeps `b` lent while `xs` lives; write `?b.all()`", "37:23: `head(v)` keeps `v` lent while `h` lives; write `head(?v)`", "38:15: `head(v)` keeps `v` lent while `h.seen` lives; write `head(?v)`", "44:20: `head(v)` keeps `v` lent while `nested` lives; write `head(?v)`", errors: 6
+fail "lasting lend written", "26:8: `head(b.items[..])` keeps a view of `b.items[..]` in the value it returns; write `head(?b.items[..])`", "35:10: `head(v)` keeps a view of `v` while `r` lives; write `head(?v)`", "36:6: `b.all()` keeps a view of `b` while `xs` lives; write `?b.all()`", "37:23: `head(v)` keeps a view of `v` while `h` lives; write `head(?v)`", "38:15: `head(v)` keeps a view of `v` while `h.seen` lives; write `head(?v)`", "44:20: `head(v)` keeps a view of `v` while `nested` lives; write `head(?v)`", errors: 6
   # A lend kept in a binding is written (Core sentence 4). A call whose
   # result keeps an argument or its self lent, and whose result is
   # stored in a binding, a field, or a return, writes that lend: the loan
@@ -5513,7 +5513,7 @@ fail "len is a field", "5:6: no method `len` on type `[]Int`; `len` is a field: 
   a = [1, 2]
   print(v.len(), s.len(), a.len(), ?v.len(), count(?a[..]))
 
-fail "lent closure to generic view", "13:7: `use_it` cannot take a lent closure for `T`", "14:5: `View` cannot take a lent closure for `T`", "16:5: a call never changes what a closure captures, so a closure is lent to read: write `?f`"
+fail "lent closure to generic view", "13:7: `use_it` cannot take a view of a closure for `T`: a closure is passed as a view", "14:5: `View` cannot take a view of a closure for `T`: a closure is passed as a view", "16:5: a call never changes what a closure captures, so a closure is passed as a read view: write `?f`"
   # A closure is lent only where a `?fun(...)` / `?sub(...)` is declared:
   # a `?T` of a generic function, field, or payload takes a read view of
   # a value, and a stack closure is not one. `!f` does not lend it.
@@ -5556,7 +5556,7 @@ fail "list filled rejected", "13:10: `List.filled` copies its value into every e
   j = List.filled(3)
   print(a, b, c, d, e, f, g, i, j)
 
-fail "list resize rejected", "19:4: `resize` copies its value into every element it adds, and a `String` owns a resource, so it cannot be copied: write a loop that makes each element with `+x` (`for xs.len..n` with `!xs.push(+x)`); `!xs.keep(n)` shrinks any List", "20:4: `resize` copies its value into every element it adds, and a `String` owns a resource", "22:4: `resize` copies its value into every element it adds, and a `Named` owns a resource", "24:3: method `resize` needs `self` lent to write; write `!v.resize(3, 0)`", "25:14: type mismatch: expected `Int`, got `Static`", "26:1: `grow[String]` cannot use `T = String`", "14:4: cannot lend to write through a read view `?List[Int]`", errors: 7
+fail "list resize rejected", "19:4: `resize` copies its value into every element it adds, and a `String` owns a resource, so it cannot be copied: write a loop that makes each element with `+x` (`for xs.len..n` with `!xs.push(+x)`); `!xs.keep(n)` shrinks any List", "20:4: `resize` copies its value into every element it adds, and a `String` owns a resource", "22:4: `resize` copies its value into every element it adds, and a `Named` owns a resource", "24:3: method `resize` needs a write view of `self`; write `!v.resize(3, 0)`", "25:14: type mismatch: expected `Int`, got `Static`", "26:1: `grow[String]` cannot use `T = String`", "14:4: cannot make a write view through a read view `?List[Int]`", errors: 7
   # `!v.resize(n, x)` copies `x` into every element it adds, so the element
   # type must copy, even when the call would only shrink (line 20 shrinks
   # a List of two Strings to one): a List of owners grows by a loop that
@@ -5976,7 +5976,7 @@ fail "read view size", "5:5: `[20000]?Simd[Int, 64]` takes 10240000 bytes; a val
   c: [1000000](?Int)? = [1000000 of ?n]
   print(a[0][3], b[0], c[0])
 
-fail "missing view sigil", "16:9: type mismatch: expected `?S`, got `S`; lend it to read: `?s`", "17:6: type mismatch: expected `!Int`, got `Int`; lend it to write: `!x`"
+fail "missing view sigil", "16:9: type mismatch: expected `?S`, got `S`; make a read view of it: `?s`", "17:6: type mismatch: expected `!Int`, got `Int`; make a write view of it: `!x`"
   # A value where a view of it is expected, and the lend is written (a
   # binding keeps it; a write lend is always written): the message names
   # the sigil that lends it.
@@ -6039,7 +6039,7 @@ test "module constant branch", '''
     print(D, d.len, S, F)
     print(G, L, M, g.len)
 
-fail "module constant write", "10:9: cannot lend constant `LIMIT` to write"
+fail "module constant write", "10:9: cannot change constant `LIMIT`"
   # A module constant cannot be lent to write from a function: it is named a
   # constant, not a `=!` binding, in what the checkers say.
 
@@ -7334,7 +7334,7 @@ fail "read only field without pub", "5:3: `?` before a field means other modules
 
   print(Tally(count: 1).count)
 
-fail "read self where result view expected", "15:13: `?p.shifted(4)` reads `p` for the call; write `?(p.shifted(4))` to lend the call's result", "17:13: write `?(h.shifted(1))` to lend the call's result"
+fail "read self where result view expected", "15:13: `?p.shifted(4)` reads `p` for the call; write `?(p.shifted(4))` to make a view of the call's result", "17:13: write `?(h.shifted(1))` to make a view of the call's result"
   # `?p.m()` reads `p` for the call; where a view of the call's result
   # is kept (a binding), the hint puts the view around the call. (As an
   # argument, the result is lent as a temporary of the statement.)
@@ -7379,7 +7379,7 @@ test "rebind view local", '''
   print(r)
   print(a, b)
 
-fail "self move sigil misuse", "6:4: sigil-prefixed member (`?other` / `!other` / `<other`) is not allowed in a nominal body", "11:17: self, `@`, must be the first parameter of a method", "11:17: sigil-prefixed parameter sugar (`?@` / `!@` / `<@`) is only allowed at the first parameter position", "14:9: `drop` takes self lent to write: `drop(!@)`", "17:8: sigil-prefixed parameter is only allowed for self, `@`", "20:8: `<@` is only allowed in a method body"
+fail "self move sigil misuse", "6:4: sigil-prefixed member (`?other` / `!other` / `<other`) is not allowed in a nominal body", "11:17: self, `@`, must be the first parameter of a method", "11:17: sigil-prefixed parameter sugar (`?@` / `!@` / `<@`) is only allowed at the first parameter position", "14:9: `drop` takes a write view of self: `drop(!@)`", "17:8: sigil-prefixed parameter is only allowed for self, `@`", "20:8: `<@` is only allowed in a method body"
   # `<@` is only a method's first parameter, and only `@` takes it; a
   # drop body views its self, so it cannot take `<@`.
 
@@ -7404,7 +7404,7 @@ fail "self move sigil misuse", "6:4: sigil-prefixed member (`?other` / `!other` 
 
   print(f(1), g(2))
 
-fail "self sigil bool result", "16:6: `!` lends `s` to write and never negates: write `(!s).checked(3)` for what `checked` returns, or `not (!s).checked(3)` for its opposite", "21:4: `!` lends `set` to write and never negates: write `(!set).insert(1)` for what `insert` returns, or `not (!set).insert(1)` for its opposite", "23:7: `!` lends `set` to write and never negates: write `(!set).insert(2)` for what `insert` returns, or `not (!set).insert(2)` for its opposite", "25:17: `!` lends `set` to write and never negates: write `(!set).insert(3)` for what `insert` returns, or `not (!set).insert(3)` for its opposite", "26:14: `!` lends `set` to write and never negates: write `(!set).insert(4)` for what `insert` returns, or `not (!set).insert(4)` for its opposite", "27:5: `!` lends `set` to write and never negates: write `(!set).insert(5)` for what `insert` returns, or `not (!set).insert(5)` for its opposite", "28:9: `!` lends `set` to write and never negates: write `not (!set).insert(6)`", "29:10: `!` lends `set` to write and never negates: write `(!set).insert(7)` for what `insert` returns, or `not (!set).insert(7)` for its opposite", "32:4: `!` lends `set` to write and never negates: write `(!set).insert(8)` for what `insert` returns, or `not (!set).insert(8)` for its opposite", "34:14: `!` lends `set` to write and never negates: write `(!set).insert(9)` for what `insert` returns, or `not (!set).insert(9)` for its opposite", "35:10: `!` lends `set` to write and never negates: write `(!set).insert(10)` for what `insert` returns, or `not (!set).insert(10)` for its opposite", "36:15: `!` lends `set` to write and never negates: write `(!set).insert(11)` for what `insert` returns, or `not (!set).insert(11)` for its opposite", "37:10: `!` lends `set` to write and never negates: write `(!set).insert(12)` for what `insert` returns, or `not (!set).insert(12)` for its opposite"
+fail "self sigil bool result", "16:6: `!` makes a write view of `s` and never negates: write `(!s).checked(3)` for what `checked` returns, or `not (!s).checked(3)` for its opposite", "21:4: `!` makes a write view of `set` and never negates: write `(!set).insert(1)` for what `insert` returns, or `not (!set).insert(1)` for its opposite", "23:7: `!` makes a write view of `set` and never negates: write `(!set).insert(2)` for what `insert` returns, or `not (!set).insert(2)` for its opposite", "25:17: `!` makes a write view of `set` and never negates: write `(!set).insert(3)` for what `insert` returns, or `not (!set).insert(3)` for its opposite", "26:14: `!` makes a write view of `set` and never negates: write `(!set).insert(4)` for what `insert` returns, or `not (!set).insert(4)` for its opposite", "27:5: `!` makes a write view of `set` and never negates: write `(!set).insert(5)` for what `insert` returns, or `not (!set).insert(5)` for its opposite", "28:9: `!` makes a write view of `set` and never negates: write `not (!set).insert(6)`", "29:10: `!` makes a write view of `set` and never negates: write `(!set).insert(7)` for what `insert` returns, or `not (!set).insert(7)` for its opposite", "32:4: `!` makes a write view of `set` and never negates: write `(!set).insert(8)` for what `insert` returns, or `not (!set).insert(8)` for its opposite", "34:14: `!` makes a write view of `set` and never negates: write `(!set).insert(9)` for what `insert` returns, or `not (!set).insert(9)` for its opposite", "35:10: `!` makes a write view of `set` and never negates: write `(!set).insert(10)` for what `insert` returns, or `not (!set).insert(10)` for its opposite", "36:15: `!` makes a write view of `set` and never negates: write `(!set).insert(11)` for what `insert` returns, or `not (!set).insert(11)` for its opposite", "37:10: `!` makes a write view of `set` and never negates: write `(!set).insert(12)` for what `insert` returns, or `not (!set).insert(12)` for its opposite"
   # A write call whose `Bool` value is used puts its lend in parentheses,
   # `(!s).m(...)`, so a leading `!` never reads as negation: a `Bool` in a
   # condition, an operand of `and`, `or`, or `not`, a `Bool!` under `!`.
@@ -7444,7 +7444,7 @@ fail "self sigil bool result", "16:6: `!` lends `s` to write and never negates: 
   g = 1 if !set.insert(12) == true else 2
   print(e, f, g)
 
-fail "self sigil bool used", "14:5: `!` lends `@` to write and never negates: write `(!@).insert(k)` for what `insert` returns, or `not (!@).insert(k)` for its opposite", "17:10: `!` lends `s` to write and never negates: write `(!s).insert(k)` for what `insert` returns, or `not (!s).insert(k)` for its opposite", "20:3: `!` lends `s` to write and never negates: write `(!s).insert(k)` for what `insert` returns, or `not (!s).insert(k)` for its opposite", "23:11: `!` lends `s` to write and never negates: write `(!s).checked(3)` for what `checked` returns, or `not (!s).checked(3)` for its opposite", "27:9: `!` lends `set` to write and never negates: write `(!set).insert(1)` for what `insert` returns, or `not (!set).insert(1)` for its opposite", "28:7: `!` lends `set` to write and never negates: write `(!set).insert(1)` for what `insert` returns, or `not (!set).insert(1)` for its opposite", "29:7: `!` lends `set` to write and never negates: write `(!set).insert(2)` for what `insert` returns, or `not (!set).insert(2)` for its opposite", "32:25: `!` lends `set` to write and never negates: write `(!set).insert(3)` for what `insert` returns, or `not (!set).insert(3)` for its opposite", "33:6: `!` lends `set` to write and never negates: write `(!set).checked(4)` for what `checked` returns, or `not (!set).checked(4)` for its opposite", errors: 9
+fail "self sigil bool used", "14:5: `!` makes a write view of `@` and never negates: write `(!@).insert(k)` for what `insert` returns, or `not (!@).insert(k)` for its opposite", "17:10: `!` makes a write view of `s` and never negates: write `(!s).insert(k)` for what `insert` returns, or `not (!s).insert(k)` for its opposite", "20:3: `!` makes a write view of `s` and never negates: write `(!s).insert(k)` for what `insert` returns, or `not (!s).insert(k)` for its opposite", "23:11: `!` makes a write view of `s` and never negates: write `(!s).checked(3)` for what `checked` returns, or `not (!s).checked(3)` for its opposite", "27:9: `!` makes a write view of `set` and never negates: write `(!set).insert(1)` for what `insert` returns, or `not (!set).insert(1)` for its opposite", "28:7: `!` makes a write view of `set` and never negates: write `(!set).insert(1)` for what `insert` returns, or `not (!set).insert(1)` for its opposite", "29:7: `!` makes a write view of `set` and never negates: write `(!set).insert(2)` for what `insert` returns, or `not (!set).insert(2)` for its opposite", "32:25: `!` makes a write view of `set` and never negates: write `(!set).insert(3)` for what `insert` returns, or `not (!set).insert(3)` for its opposite", "33:6: `!` makes a write view of `set` and never negates: write `(!set).checked(4)` for what `checked` returns, or `not (!set).checked(4)` for its opposite", errors: 9
   # A write call whose `Bool` value is used is written `(!s).m(...)`
   # wherever the value goes, not only where its `!` could read as
   # negation: here a `Bool` in a binding, an argument, a `return`, a body's

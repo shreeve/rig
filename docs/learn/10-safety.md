@@ -29,7 +29,7 @@ as rules that do not bend. They are about the compiler, not the process:
 | Accept means correct | If `rig check` accepts a program, the Zig it writes compiles, runs, and does what the source says. What it cannot lower, it rejects with a Rig error. |
 | Safe code cannot corrupt memory | Use after move, double free, use after free, dangling views, and leaks are compiler bugs, not program bugs. Only `raw` code may break this. |
 | Effects stay visible | No feature hides a move, a clone, an allocation, a failure, or a mutation. Each sigil is a named step in the compiler's tree. |
-| One classifier per fact | Whether an expression is a place, a made value, a lend, or a view is decided once and recorded. The checker checks what emit writes. |
+| One classifier per fact | Whether an expression is a place, a made value, or a view is decided once and recorded. The checker checks what emit writes. |
 | Ownership fits the Core | Every ownership rule follows from the ten sentences of [CORE](../CORE.md). |
 | Docs claim only what runs | Every `rig` example in the docs is a test. |
 
@@ -51,7 +51,7 @@ sub main()
 ```
 
 ```error
-cannot drop `b` while it is lent
+cannot drop `b` while a read view of it is still in use
 ```
 
 `r` views the box in `b`. Dropping `b` frees the box, and `print(r)`
@@ -194,7 +194,7 @@ It is written from the ten sentences of CORE and the ownership sections
 of SPEC, without reading the production checker, and a lint in the suite
 fails if it uses any of the compiler's own ownership classifications. It
 lowers each function to a small form with every temporary and the order
-of evaluation written out, then follows moves, loans, and drops through
+of evaluation written out, then follows moves, views, and drops through
 the control flow. Each function gets a verdict, accept or reject with
 the rule broken, or none when it uses a form the oracle does not model.
 
@@ -239,18 +239,18 @@ interpreter, an ownership checker, and a proof about them.
 
 The first slice of λRig is small. Its values are plain integers and one
 kind of owner, a box holding an integer. Its forms are a name, a move
-`<x`, a clone `+x`, a box `^e`, the lends `?x` and `!x`, assignment,
+`<x`, a clone `+x`, a box `^e`, the views `?x` and `!x`, assignment,
 `+`, `print`, sequencing, and a scoped binding. The interpreter runs a program and tags every view
-with the loan it was lent under. It checks the tag on each use and stops
+with the record of the place it views. It checks the tag on each use and stops
 at the first broken promise: a use after move, a use after free, a view
-used after its loan ended, or a leak at the end.
+used after its place was dropped, or a leak at the end.
 
 The program from the first section, written in λRig, is one of eleven
 that the repository keeps, each with whether the checker accepts it:
 
 ```lean
 /-- Rejected: a view outlives the box it sees. `b = ^1`, `r = ?b`,
-`<b`, `print(r)`. The drop ends the loan, so the run stops at the dead tag. -/
+`<b`, `print(r)`. The drop ends the place, so the run stops at the dead tag. -/
 def dropWhileRead : Expr :=
   letIn "b" (box (lit 1)) <|
   letIn "r" (lend .read "b") <|
@@ -261,7 +261,7 @@ def dropWhileRead : Expr :=
 
 `accepts` is the λRig checker, and the `#guard` makes `lake build` fail
 if it ever accepted this program. Run anyway, it stops at a dead tag:
-the view `r` is used after its loan ended. Four of the eleven are
+the view `r` is used after its place was dropped. Four of the eleven are
 accepted and run clean. Each of the seven rejected ones stops at the
 fault its rejection prevents.
 
@@ -274,19 +274,19 @@ theorem accepts_runs (e : Expr) (h : accepts e = true) :
 
 In prose: if the checker accepts a program, running it ends without a
 fault and with nothing left allocated. `run` reports a fault for a name
-used after a move, a cell used after it was freed, a view whose loan
-ended, a step with no meaning, and a leak at the end, so `.ok` rules out
+used after a move, a cell used after it was freed, a view whose place
+was dropped, a step with no meaning, and a leak at the end, so `.ok` rules out
 each of them. It holds for every program the checker accepts, whatever
 the program. A `#guard_msgs` in the source pins the proof's axioms to
 Lean's standard three, so no step is assumed. It is the λRig form of the
 second promise, for this slice.
 
 The proof covers the Core's first six sentences, each by the fault it
-rules out. Sentences 5 and 6 are the loan rules: any number of read
-loans or one write loan, and a loan lasts until the last use of the
-views that carry it. A second theorem, `Keeps.eval`, shows that every
-cell of every state the interpreter reaches holds read loans or one
-write loan, never both. That shows the machine means sentence 5 the way
+rules out. Sentences 5 and 6 are the rules on views: any number of read
+views or one write view of a place, and a place stays limited until the
+last use of the views of it. A second theorem, `Keeps.eval`, shows that every
+cell of every state the interpreter reaches holds read views or one
+write view, never both. That shows the machine means sentence 5 the way
 the Core states it, and it says nothing about the checker.
 `accepts_runs` does.
 
@@ -389,7 +389,7 @@ The Lean model grows in slices, each keeping `accepts_runs` proved:
 objects, optionals, `List`, first-order functions with `from` and
 `keeps`, `Cell`, `*T` and `~T`, and loops. After those, the plan is to
 run the interpreter over the suite beside the oracle, and in time to
-replace the oracle with it. A validator that checks the loan facts the
+replace the oracle with it. A validator that checks the view facts the
 compiler exports against λRig's rules, for every program compiled, is
 planned too, and so are proofs for the code Rig trusts. The plan is
 [FORMAL-RIG](../design/formal-plan.md).

@@ -58,7 +58,7 @@ test "review-b4b-1-p16 wm catchall", '''
     x => x = E.b
   print(v[0], v[1])
 
-fail "review-b4b-1-p17 wm vecvec push inner", "use of `vv` while a write loan is live"
+fail "review-b4b-1-p17 wm vecvec push inner", "cannot use `vv` while a write view of it is still in use"
   # write match on vv[0][i]; arm pushes to vv (outer) then writes payload. Expect reject.
   enum E
     a(n: Int)
@@ -78,7 +78,7 @@ fail "review-b4b-1-p17 wm vecvec push inner", "use of `vv` while a write loan is
     .b => pass
   print(vv[0][0])
 
-fail "review-b4b-1-p18 wm vecvec push inner2", "use of `vv` while a write loan is live"
+fail "review-b4b-1-p18 wm vecvec push inner2", "cannot use `vv` while a write view of it is still in use"
   # write match on vv[0][i]; arm pushes to vv[0] (inner) then writes payload. Expect reject.
   enum E
     a(n: Int)
@@ -97,7 +97,7 @@ fail "review-b4b-1-p18 wm vecvec push inner2", "use of `vv` while a write loan i
     .b => pass
   print(vv[0][0])
 
-fail "review-b4b-1-p20 index mutates base", "cannot lend `vv` to write in an index of a place it is lending"
+fail "review-b4b-1-p20 index mutates base", "cannot change `vv` in an index of a view being made of it"
   # subject vv[0][grow(!vv, ?Text("a"))]: the index grows the outer List while
   # the element pointer of vv[0] may already be computed. Expect reject (or clean run).
   fun grow(vv: !List[[2]Int?], s: ?String) -> Int
@@ -111,7 +111,7 @@ fail "review-b4b-1-p20 index mutates base", "cannot lend `vv` to write in an ind
     n = 50
   print(vv[0], vv.len)
 
-fail "review-b4b-1-p21 index mutates base notemp", "cannot lend `vv` to write in an index of a place it is lending"
+fail "review-b4b-1-p21 index mutates base notemp", "cannot change `vv` in an index of a view being made of it"
   # same as p20 without the temporary. Expect reject (or clean run).
   fun grow(vv: !List[[2]Int?]) -> Int
     for _ in 0..64
@@ -124,7 +124,7 @@ fail "review-b4b-1-p21 index mutates base notemp", "cannot lend `vv` to write in
     n = 50
   print(vv[0], vv.len)
 
-fail "review-b4b-1-p22 match index mutates", "cannot lend `vv` to write in an index of a place it is lending"
+fail "review-b4b-1-p22 match index mutates", "cannot change `vv` in an index of a view being made of it"
   # match on vv[0][grow(!vv, ?Text)] with Text payloads. Expect reject (or clean).
   enum E
     a(t: String)
@@ -142,7 +142,7 @@ fail "review-b4b-1-p22 match index mutates", "cannot lend `vv` to write in an in
     .b => pass
   print(vv[0], vv.len)
 
-fail "review-b4b-1-p24 view call mutating index", "cannot lend `h` to write while a write loan is live"
+fail "review-b4b-1-p24 view call mutating index", "cannot change `h` while a write view of it is still in use"
   # view-returning call base, index mutates the owner. Expect reject.
   enum E
     a(t: String)
@@ -280,7 +280,7 @@ test "review-b4b-1-p41 while repoint", '''
     break if k > 3
   print(k)
 
-fail "review-b4b-1-p42 while repoint use", "cannot move `a` while a read loan is live"
+fail "review-b4b-1-p42 while repoint use", "cannot move `a` while a read view of it is still in use"
   # while-as: body re-points the view, then uses t, then moves old owner. Expect reject at the move or clean.
   fun idx(s: ?String) -> Int
     s.len - 1
@@ -345,7 +345,7 @@ test "review-b4b-1-p45 while set elem", "[none] 1"
     k += 1
   print(a, k)
 
-fail "review-b4b-1-p46 while set elem use", "cannot assign to `a[0]` while `a` is lent"
+fail "review-b4b-1-p46 while set elem use", "cannot assign to `a[0]` while a write view of `a` is still in use"
   # while !… as: body sets the element to none, then uses t. Expect reject.
   fun idx(s: ?String) -> Int
     s.len - 1
@@ -393,7 +393,7 @@ test "review-b4b-1-p54 wm option elem", '''
       .b => pass
   print(v)
 
-fail "review-b4b-1-p55 handle elem reassign", "cannot assign to `hs[0]` while `hs` is lent"
+fail "review-b4b-1-p55 handle elem reassign", "cannot assign to `hs[0]` while a read view of `hs` is still in use"
   # read match through a handle element via temp index; arm replaces the element (dropping the last handle) then uses t. Expect reject.
   enum E
     a(t: String)
@@ -410,7 +410,7 @@ fail "review-b4b-1-p55 handle elem reassign", "cannot assign to `hs[0]` while `h
       print(t)
     .b => pass
 
-fail "review-b4b-1-p56 handle elem drop vec", "cannot drop `hs` while it is lent"
+fail "review-b4b-1-p56 handle elem drop vec", "cannot drop `hs` while a read view of it is still in use"
   # read match through a handle element via temp index; arm drops the List then uses t. Expect reject.
   enum E
     a(t: String)
@@ -499,7 +499,7 @@ test "review-b4b-1-p62 wm box vec", '''
   viaparam(!h, i)
   print(o, h.f[0])
 
-fail "review-b4b-1-p63 binding escapes", "cannot lend `v` to write while a read loan is live"
+fail "review-b4b-1-p63 binding escapes", "cannot change `v` while a read view of it is still in use"
   # a binding of a header that points escapes into an outer name / is returned; then the owner is grown. Expect reject at the push.
   fun idx(s: ?String) -> Int
     s.len - 1
@@ -532,7 +532,7 @@ test "review-b4b-1-p64 binding returned", "2 a"
   r = get(?v)
   print(clobber(1), r)
 
-fail "review-b4b-1-p65 binding returned grow", "cannot lend `v` to write while a read loan is live"
+fail "review-b4b-1-p65 binding returned grow", "cannot change `v` while a read view of it is still in use"
   # returned header binding, then the owner grows while the view lives. Expect reject.
   fun idx(s: ?String) -> Int
     s.len - 1
@@ -600,7 +600,7 @@ test "review-b4b-1-p67 nested headers", '''
       !u.add("z")
   print(vv)
 
-fail "review-b4b-1-p70 box catchall escape", "cannot assign to `bs[0]` while `bs` is lent"
+fail "review-b4b-1-p70 box catchall escape", "cannot assign to `bs[0]` while a read view of `bs` is still in use"
   # catch-all over a lent Box element (plain enum inside) escapes into r; the box is then replaced (old box freed) and r read. Expect reject or r reads a valid value.
   enum E
     a(xs: [4]Int)
@@ -624,7 +624,7 @@ fail "review-b4b-1-p70 box catchall escape", "cannot assign to `bs[0]` while `bs
     .a(xs) => print(xs[0], xs[3])
     .b => print("b")
 
-fail "review-b4b-1-p71 box catchall escape notemp", "cannot assign to `bs[0]` while `bs` is lent"
+fail "review-b4b-1-p71 box catchall escape notemp", "cannot assign to `bs[0]` while a read view of `bs` is still in use"
   # p70 without the temp. Expect reject or r reads a valid value.
   enum E
     a(xs: [4]Int)
@@ -646,7 +646,7 @@ fail "review-b4b-1-p71 box catchall escape notemp", "cannot assign to `bs[0]` wh
     .a(xs) => print(xs[0], xs[3])
     .b => print("b")
 
-fail "review-b4b-1-p72 box catchall escape guard", "cannot assign to `bs[0]` while `bs` is lent"
+fail "review-b4b-1-p72 box catchall escape guard", "cannot assign to `bs[0]` while a read view of `bs` is still in use"
   # guarded catch-all over a lent Box element escapes into r; the box is then replaced. Expect reject or valid.
   enum E
     a(xs: [4]Int)
@@ -737,7 +737,7 @@ test "review-b4b-2-p02 vec elem ok", '''
   print(clobber(1))
   print(saved.t, saved.n)
 
-fail "review-b4b-2-p03 repoint view subject", "cannot reassign `e1` while it is lent"
+fail "review-b4b-2-p03 repoint view subject", "cannot reassign `e1` while a read view of it is still in use"
   # Subject is a view local; it is re-pointed after the match, then the original owner is reassigned. Expect reject at reassign of e1.
   obj Res
     n: Int
@@ -793,7 +793,7 @@ test "review-b4b-2-p04 repoint view ok", '''
   print(clobber(1))
   print(saved.t, p)
 
-fail "review-b4b-2-p05 break out of loop", "cannot reassign `e` while it is lent"
+fail "review-b4b-2-p05 break out of loop", "cannot reassign `e` while a read view of it is still in use"
   # A payload view carried out of a loop through break, then the subject is reassigned. Expect reject.
   obj Res
     n: Int
@@ -849,7 +849,7 @@ test "review-b4b-2-p06 loop value break", '''
   print(clobber(1))
   print(saved.t)
 
-fail "review-b4b-2-p07 return then push", "cannot lend `v` to write while a read loan is live"
+fail "review-b4b-2-p07 return then push", "cannot change `v` while a read view of it is still in use"
   # A function returns a payload view of a List element; the caller then pushes. Expect reject at the push.
   obj Res
     n: Int
@@ -934,7 +934,7 @@ test "review-b4b-2-p11 branching subject", '''
   print(clobber(1))
   print(saved.t)
 
-fail "review-b4b-2-p12 branching then mutate", "cannot reassign `e2` while it is lent"
+fail "review-b4b-2-p12 branching then mutate", "cannot reassign `e2` while a read view of it is still in use"
   # Subject is a branching value of views; payload view escapes; then one owner is reassigned. Expect reject.
   obj Res
     n: Int
@@ -988,7 +988,7 @@ fail "review-b4b-2-p13 held header escape", "a view of the temporary `mkh()` out
   print(clobber(1))
   print(saved.t)
 
-fail "review-b4b-2-p15 box vec elem reassign", "cannot assign to `bs[0]` while `bs` is lent"
+fail "review-b4b-2-p15 box vec elem reassign", "cannot assign to `bs[0]` while a read view of `bs` is still in use"
   # Box element of a List via a view param; view escapes; element replaced. Expect reject.
   obj Res
     n: Int
@@ -1015,7 +1015,7 @@ fail "review-b4b-2-p15 box vec elem reassign", "cannot assign to `bs[0]` while `
   print(clobber(1))
   print(saved.t)
 
-fail "review-b4b-2-p16 handle reassign", "cannot reassign `h` while it is lent"
+fail "review-b4b-2-p16 handle reassign", "cannot reassign `h` while a read view of it is still in use"
   # Shared handle subject; view escapes; the handle is reassigned (last strong ref). Expect reject.
   obj Res
     n: Int
@@ -1039,7 +1039,7 @@ fail "review-b4b-2-p16 handle reassign", "cannot reassign `h` while it is lent"
   print(clobber(1))
   print(saved.t)
 
-fail "review-b4b-2-p17 handle drop", "cannot drop `h` while it is lent"
+fail "review-b4b-2-p17 handle drop", "cannot drop `h` while a read view of it is still in use"
   # Shared handle subject; view escapes; the handle is dropped. Expect reject.
   obj Res
     n: Int
@@ -1090,7 +1090,7 @@ test "review-b4b-2-p18 handle clone ok", '''
   print(clobber(1))
   print(saved.t, g)
 
-fail "review-b4b-2-p20 for elem then push", "cannot lend `v` to write while a read loan is live"
+fail "review-b4b-2-p20 for elem then push", "cannot change `v` while a read view of it is still in use"
   # for element binding matched; view escapes the loop; the List then grows. Expect reject.
   obj Res
     n: Int
@@ -1166,7 +1166,7 @@ fail "review-b4b-2-p22 store vec ok", "`e` does not live long enough"
   for x in views
     print(x.t)
 
-fail "review-b4b-2-p23 nested match", "cannot reassign `e` while it is lent"
+fail "review-b4b-2-p23 nested match", "cannot reassign `e` while a read view of it is still in use"
   # Nested match: view of an inner payload escapes both matches, then the outer subject is reassigned. Expect reject.
   enum In
     x(t: String)
@@ -1354,7 +1354,7 @@ test "review-b4b-2-p35 nonggeneric catchall", '''
     x => saved = ?x
   print(saved)
 
-fail "review-b4b-2-p40 write view param", "cannot reassign `w` while it is lent"
+fail "review-b4b-2-p40 write view param", "cannot reassign `w` while a read view of it is still in use"
   # Subject is a write-view param read by match; view escapes; then assigned through. Expect reject.
   obj Res
     n: Int
@@ -1381,7 +1381,7 @@ fail "review-b4b-2-p40 write view param", "cannot reassign `w` while it is lent"
   e = E.a(r: Res(n: 1, t: String("one")))
   f(!e)
 
-fail "review-b4b-2-p41 write view local writethrough", "cannot reassign `w` while it is lent"
+fail "review-b4b-2-p41 write view local writethrough", "cannot reassign `w` while a read view of it is still in use"
   # Subject is a write-view local; view escapes; then a value is assigned through it. Expect reject.
   obj Res
     n: Int
@@ -1406,7 +1406,7 @@ fail "review-b4b-2-p41 write view local writethrough", "cannot reassign `w` whil
   print(clobber(1))
   print(saved.t)
 
-fail "review-b4b-2-p42 write view local repoint", "cannot reassign `w` while it is lent"
+fail "review-b4b-2-p42 write view local repoint", "cannot reassign `w` while a read view of it is still in use"
   # Write-view local re-pointed after the match, then the first owner reassigned. Expect reject at e1 reassign.
   obj Res
     n: Int
@@ -1433,7 +1433,7 @@ fail "review-b4b-2-p42 write view local repoint", "cannot reassign `w` while it 
   print(clobber(1))
   print(saved.t, w)
 
-fail "review-b4b-2-p43 write view local repoint ok", "cannot reassign `w` while it is lent"
+fail "review-b4b-2-p43 write view local repoint ok", "cannot reassign `w` while a read view of it is still in use"
   # Write-view local re-pointed after the match; e1 untouched. Expect accept, prints one.
   obj Res
     n: Int
@@ -1460,7 +1460,7 @@ fail "review-b4b-2-p43 write view local repoint ok", "cannot reassign `w` while 
   print(clobber(1))
   print(saved.t, e2)
 
-fail "review-b4b-2-p44 closure capture", "cannot reassign `e` while it is lent"
+fail "review-b4b-2-p44 closure capture", "cannot reassign `e` while a read view of it is still in use"
   # A closure captures a payload view; the subject is then reassigned and the closure called. Expect reject.
   obj Res
     n: Int
@@ -1510,7 +1510,7 @@ test "review-b4b-2-p45 owned closure view", '''
   print(clobber(1))
   f()
 
-fail "review-b4b-2-p47 closure plus capture", "cannot reassign `e` while it is lent"
+fail "review-b4b-2-p47 closure plus capture", "cannot reassign `e` while a read view of it is still in use"
   # A closure made in the arm captures the payload binding view `s` with |?s|; the subject is then reassigned. Expect reject.
   obj Res
     n: Int
@@ -1567,7 +1567,7 @@ test "review-b4b-2-p60 guarded field of call view", '''
   print(clobber(1))
   print(saved.t)
 
-fail "review-b4b-2-p71 field of branch guarded", "cannot reassign `h2` while it is lent"
+fail "review-b4b-2-p71 field of branch guarded", "cannot reassign `h2` while a read view of it is still in use"
   # Guarded match on a field of a branching value of views; the payload view escapes; then h2 reassigned. Expect reject at the reassign.
   obj Res
     n: Int
@@ -1631,7 +1631,7 @@ test "review-b4b-2-p72 field of branch guarded ok", '''
   print(clobber(1))
   print(saved.t, s2.t)
 
-fail "review-b4b-2-p73 branch views guarded", "cannot reassign `e2` while it is lent"
+fail "review-b4b-2-p73 branch views guarded", "cannot reassign `e2` while a read view of it is still in use"
   # Guarded match on a branching value of views; view escapes; then e2 reassigned. Expect reject.
   obj Res
     n: Int
@@ -1696,7 +1696,7 @@ test "review-b4b-2-p75 generic elem temp guarded", '''
   g(String("one"), String("two two two two two two two two"), String("k"))
   g(1, 2, 3)
 
-fail "review-b4b-2-p76 generic elem temp push", "cannot lend `v` to write while a read loan is live"
+fail "review-b4b-2-p76 generic elem temp push", "cannot change `v` while a read view of it is still in use"
   # As p75 then the List grows. Expect reject.
   enum Opt[T]
     some(v: T)
@@ -1726,7 +1726,7 @@ fail "review-b4b-2-p76 generic elem temp push", "cannot lend `v` to write while 
 
   g(String("one"), String("two"), String("three"), String("k"))
 
-fail "review-b4b-2-p77 generic box", "cannot reassign `bx` while it is lent"
+fail "review-b4b-2-p77 generic box", "cannot reassign `bx` while a read view of it is still in use"
   # Generic: guarded match on a Box of a generic enum; view escapes; then box reassigned. Expect reject.
   enum Opt[T]
     some(v: T)
@@ -1834,7 +1834,7 @@ test "review-b4b-2-p80 generic guarded catchall writeparam", '''
   print(big(9))
   print(q)
 
-fail "review-box-bug as temp loan", "cannot reassign `h` while it is lent"
+fail "review-box-bug as temp loan", "cannot reassign `h` while a read view of it is still in use"
   obj R
     n: Int
 
@@ -1873,7 +1873,7 @@ test "review-box-bug hoist", "7"
   n = 1
   print(add(y: n + 1, x: ?s.b))
 
-fail "review-box-p01", "cannot reassign `o` while it is lent"
+fail "review-box-p01", "cannot reassign `o` while a write view of it is still in use"
   obj R
     n: Int
 
@@ -1903,7 +1903,7 @@ test "review-box-p02", '''
     print(x.n)
   print(o)
 
-fail "review-box-p04", "cannot move `o` while a read loan is live"
+fail "review-box-p04", "cannot move `o` while a read view of it is still in use"
   obj R
     n: Int
 
@@ -1915,7 +1915,7 @@ fail "review-box-p04", "cannot move `o` while a read loan is live"
     y = <o
     print(x.n)
 
-fail "review-box-p06", "cannot reassign `h` while it is lent"
+fail "review-box-p06", "cannot reassign `h` while a read view of it is still in use"
   obj R
     n: Int
 
@@ -1956,7 +1956,7 @@ test "review-box-p07", '''
     h = H(r: none)
   <h
 
-fail "review-box-p08", "cannot assign to `h.r` while `h` is lent"
+fail "review-box-p08", "cannot assign to `h.r` while a write view of `h` is still in use"
   obj R
     n: Int
 
@@ -1972,7 +1972,7 @@ fail "review-box-p08", "cannot assign to `h.r` while `h` is lent"
     h.r = none
     print(x.n)
 
-fail "review-box-p09", "cannot lend `o` to read while a write loan is live"
+fail "review-box-p09", "cannot use `o` while a write view of it is still in use"
   obj R
     n: Int
 
@@ -2148,7 +2148,7 @@ test "review-box-p108", '''
     .c(r) => print("pc", r)
     .s(k) => print("ps", k)
 
-fail "review-box-p11", "cannot reassign `cur` while it is lent"
+fail "review-box-p11", "cannot reassign `cur` while a write view of it is still in use"
   obj Node
     v: Int
     next: ^Node?
@@ -2176,7 +2176,7 @@ fail "review-box-p117", "bare use of loop view `x` in binding would carry the vi
     print(y.n)
   print("end")
 
-fail "review-box-p12", "cannot reassign `head` while it is lent"
+fail "review-box-p12", "cannot reassign `head` while a read view of it is still in use"
   obj Node
     v: Int
     next: ^Node?
@@ -2412,7 +2412,7 @@ test "review-box-p129", '''
   v = ^List[Int]()
   print(peekv(?v).len)
 
-fail "review-box-p13", "cannot reassign `cur` while it is lent"
+fail "review-box-p13", "cannot reassign `cur` while a write view of it is still in use"
   obj Node
     v: Int
     next: ^Node?

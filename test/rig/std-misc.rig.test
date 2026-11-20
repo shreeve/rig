@@ -2463,7 +2463,7 @@ test "random owned bindings", '''
   old = (!w).swap(random.Random.seeded(6))
   print((!old).next() != 0)
 
-fail "random read loop", "23:11: cannot lend `a if f else b`: it may be `a`, a value a name holds", errors: 1
+fail "random read loop", "23:11: cannot make a view of `a if f else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on", errors: 1
   # A `Random` is unique, so nothing copies one: a loop over a place reads
   # each element where it is (`?Random`), as a generic body's loop over a
   # `T` does (`count`), and one over an array made here takes it, but a

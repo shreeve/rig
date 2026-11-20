@@ -311,7 +311,7 @@ fail "cell store value holding view", "cannot store a view of `vw` in a `Cell`",
   park(+a)
   print("done")
 
-fail "cell temporary lent named leaf", "35:8: cannot lend `a if c else mkc()`: it may be `a`, a value a name holds", "37:8: cannot lend `mkh().e if c else mkh().d`: it may be `mkh().e`, a part of the temporary `mkh()`", "39:14: cannot lend `r if c else mkr()`: it may be `r`, a value a name holds", errors: 3
+fail "cell temporary lent named leaf", "35:8: cannot make a view of `a if c else mkc()`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on", "37:8: cannot make a view of `mkh().e if c else mkh().d`: it may be `mkh().e`, a part of the temporary `mkh()`, which a view of the branching value would copy; put the sigil on", "39:14: cannot make a view of `r if c else mkr()`: it may be `r`, a value a name holds, which a view of the branching value would copy; put the sigil on", errors: 3
   # A temporary lent to read lives in its statement's slot (Core §3). A
   # branching value with a leaf a name holds, or a part of a temporary, is
   # no temporary: lending it would copy that leaf into the slot, which
@@ -561,7 +561,7 @@ test "cell lend shared map ensure", "2 ten"
   _ = !m.put_new(2, String("twenty"))
   print(m.len(), r)
 
-fail "cell lend the handle itself twice", "cannot lend `h` to write while a write loan is live", errors: 1
+fail "cell lend the handle itself twice", "cannot make a write view of the handle `h` while a write view of it is still in use", errors: 1
   # `!h` lending the handle itself, a `!*Hits` the callee may point
   # elsewhere, is a write loan.
 
@@ -574,7 +574,7 @@ fail "cell lend the handle itself twice", "cannot lend `h` to write while a writ
   h = *Hits(n: Cell(0))
   both(!h, !h)
 
-fail "cell lend a write to the place in the arguments", "cannot lend `c` to write while a read loan is live", "cannot lend `cs` to write while a read loan is live", "cannot move `c` while a read loan is live", errors: 3
+fail "cell lend a write to the place in the arguments", "cannot make a write view of the handle `c` while a write view of it is still in use", "cannot change `cs` while a write view of it is still in use", "cannot move `c` while a write view of it is still in use", errors: 3
   # The read loan begins before the call's arguments are evaluated, so
   # they may not point the handle elsewhere, grow what holds it, or move
   # it.
@@ -597,7 +597,7 @@ fail "cell lend a write to the place in the arguments", "cannot lend `c` to writ
   _ = !cs[0].add(grow(!cs))
   _ = !c.add(gone(<c))
 
-fail "cell lend a result view, then rebind or drop", "cannot reassign `h` while it is lent", "cannot drop `g` while it is lent", errors: 2
+fail "cell lend a result view, then rebind or drop", "cannot reassign `h` while a write view of it is still in use", "cannot drop `g` while a write view of it is still in use", errors: 2
   # A read loan still keeps the place from being reassigned or dropped
   # while the view it carries lives.
 
@@ -616,7 +616,7 @@ fail "cell lend a result view, then rebind or drop", "cannot reassign `h` while 
   <g
   _ = !v.add(1)
 
-fail "cell lend an erased value twice", "cannot lend `b` to write while a write loan is live", "cannot lend `s` to write while a write loan is live", errors: 2
+fail "cell lend an erased value twice", "cannot change `b` while a write view of it is still in use", "cannot change `s` while a write view of it is still in use", errors: 2
   # Only the type where it is lent decides: an owned value lent as an
   # API object, or an API object itself, is lent to write, whatever the
   # value may hold.
@@ -640,7 +640,7 @@ fail "cell lend an erased value twice", "cannot lend `b` to write while a write 
   sub twice(s: !{Grow})
     both(!s, !s)
 
-fail "cell lend a type parameter twice", "cannot lend `x` to write while a write loan is live", errors: 1
+fail "cell lend a type parameter twice", "cannot change `x` while a write view of it is still in use", errors: 1
   # A value of a type parameter is lent to write, whatever an instance's
   # type is.
 

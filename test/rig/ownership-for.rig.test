@@ -1,6 +1,6 @@
 # ownership: tests whose names start `for`.
 
-fail "for bare iterator not writable", "14:8: cannot lend to write through a read view `?Count`", "18:8: cannot lend parameter `it` to write; parameters are immutable (bind a copy with `new it = it`, or take `it: !Count` to write through to the caller)", "22:6: cannot lend fixed binding `k` to write (bound with `=!`)", "25:6: `for ?c` would only read an iterator, which `next` cannot advance; write `for !c` to advance it in place", "27:6: `!Count(lo: 0, hi: 2)` advances a place, and this is a value made here; write `for Count(lo: 0, hi: 2)`, which holds it for the loop", errors: 5
+fail "for bare iterator not writable", "14:8: cannot make a write view through a read view `?Count`", "18:8: cannot change parameter `it`; parameters are immutable (bind a copy with `new it = it`, or take `it: !Count` to write through to the caller)", "22:6: cannot change fixed binding `k` (bound with `=!`)", "25:6: `for ?c` would only read an iterator, which `next` cannot advance; write `for !c` to advance it in place", "27:6: `!Count(lo: 0, hi: 2)` advances a place, and this is a value made here; write `for Count(lo: 0, hi: 2)`, which holds it for the loop", errors: 5
   # `for !it` is `for _ in !it`, so the iterator must be writable where the
   # loop stands, as for `for n in !it`.
 
@@ -95,7 +95,7 @@ test "for consuming iteration", '''
     !keep.push(<x)
   print(keep.len)
 
-fail "for consuming iteration moves", "use of `v` after move", "cannot move `w` while a read loan is live", "use of `u` after move"
+fail "for consuming iteration moves", "use of `v` after move", "cannot move `w` while a read view of it is still in use", "use of `u` after move"
   # `for x in <v` moves `v`: it cannot be used afterwards, consumed while
   # viewed, or consumed again by a later loop iteration.
 
@@ -120,7 +120,7 @@ fail "for consuming iteration moves", "use of `v` after move", "cannot move `w` 
       print(x.n)
     i += 1
 
-fail "for held iterator keeps lent", "23:5: cannot lend `v` to write while a read loan is live", "28:5: cannot lend `v` to write while a read loan is live", "32:5: cannot lend `b.xs` to write while a read loan on `b` is live", "37:7: cannot lend `v` to write while a read loan is live", errors: 4
+fail "for held iterator keeps lent", "23:5: cannot change `v` while a read view of it is still in use", "28:5: cannot change `v` while a read view of it is still in use", "32:5: cannot change `b.xs` while a read view of `b` is still in use", "37:7: cannot change `v` while a read view of it is still in use", errors: 4
   # A `for` over an iterator it holds (a value made there, a place it
   # takes, or a method's iterator lent from a place) keeps what the
   # iterator views lent for every iteration: writing it in the body would
@@ -407,7 +407,7 @@ fail "for iterator kept view", "27:5: `for iterator` does not live long enough",
     if keep as k
       print(k.name)
 
-fail "for iterator made view", "38:10: `b.each()` keeps `b` lent while the loop walks it; write `for ... in ?b.each()`", "40:10: `each` does not write `self`; remove the `!`", errors: 2
+fail "for iterator made view", "38:10: `b.each()` keeps a view of `b` while the loop walks it; write `for ... in ?b.each()`", "40:10: `each` does not write `self`; remove the `!`", errors: 2
   # An iterator a method returns views the place it came from, so the
   # loop keeps that place lent: the lend is written on self, as
   # `for x in ?b.each()`. A sigil before the call is its self's, as
@@ -487,7 +487,7 @@ test "for iterator write self", '''
     print(x)
   print("|", b.xs.len)
 
-fail "for iterator not writable", "15:13: cannot lend to write through a read view `?Count`", "19:13: cannot lend parameter `it` to write; parameters are immutable (bind a copy with `new it = it`, or take `it: !Count` to write through to the caller)", "23:11: cannot lend fixed binding `k` to write (bound with `=!`)", "26:11: `for n in ?c` would only read an iterator, which `next` cannot advance; write `for n in !c` to advance it in place", "28:11: `!Count(lo: 0, hi: 2)` advances a place, and this is a value made here; write `for n in Count(lo: 0, hi: 2)`, which holds it for the loop", errors: 5
+fail "for iterator not writable", "15:13: cannot make a write view through a read view `?Count`", "19:13: cannot change parameter `it`; parameters are immutable (bind a copy with `new it = it`, or take `it: !Count` to write through to the caller)", "23:11: cannot change fixed binding `k` (bound with `=!`)", "26:11: `for n in ?c` would only read an iterator, which `next` cannot advance; write `for n in !c` to advance it in place", "28:11: `!Count(lo: 0, hi: 2)` advances a place, and this is a value made here; write `for n in Count(lo: 0, hi: 2)`, which holds it for the loop", errors: 5
   # `for x in it` is `while (!it).next() as x`, so the iterator must be
   # writable where the loop stands: a read view, a `=!` binding, and `?it`
   # cannot be advanced, and `!` needs a place, not a value made there.
@@ -518,7 +518,7 @@ fail "for iterator not writable", "15:13: cannot lend to write through a read vi
   for n in !Count(lo: 0, hi: 2)
     print(n)
 
-fail "for iterator view loan", "21:3: cannot lend `items` to write while a read loan is live", "24:3: cannot lend `items` to write while a read loan is live", errors: 2
+fail "for iterator view loan", "21:3: cannot change `items` while a read view of it is still in use", "24:3: cannot change `items` while a read view of it is still in use", errors: 2
   # A loop over an iterator that gives views of a List keeps the List lent:
   # the List cannot change while a view the loop binds is alive, as for
   # `while (!w).next() as it`.
@@ -647,7 +647,7 @@ test "for iterator views", release: true, '''
   found = find(41)
   print(found)
 
-fail "for lent branch path", "18:12: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?(?a if c else ?b).v`", "24:12: cannot lend `ys if c else zs`: it may be `ys`, a value a name holds", errors: 2
+fail "for lent branch path", "18:12: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?(?a if c else ?b).v`", "24:12: cannot make a view of `ys if c else zs`: it may be `ys`, a value a name holds, which a view of the branching value would copy; put the sigil on", errors: 2
   # `for x in ?S` lends its source as `?S` does: a path from a branch of
   # names is lent through each branch, so the loan on the name taken is
   # kept while the loop's views live.
@@ -674,7 +674,7 @@ fail "for lent branch path", "18:12: cannot lend `a if c else b`: it may be `a`,
   for y in ?(ys if c else zs)[0].v
     print(y)
 
-fail "for lent iterator write", "23:3: cannot lend", "25:8: cannot move", errors: 2
+fail "for lent iterator write", "23:3: cannot change `b.xs` while a read view of `b` is still in use", "25:8: cannot move", errors: 2
   # `for x in ?b.each()` holds the iterator `each` makes, which views `b`,
   # so `b` stays lent to read for the whole loop: it cannot be written in
   # the body, nor moved.
@@ -793,7 +793,7 @@ test "for over temporary vec", '''
     print("b", x)
   print(first_big(4))
 
-fail "for over vec expression", "8:13: cannot lend `o?`: it may be `o`, a value a name holds", "17:12: cannot lend `a if c else b`: it may be `a`, a value a name holds", "19:11: cannot lend `a if c else b`: it may be `a`, a value a name holds", errors: 3
+fail "for over vec expression", "8:13: cannot make a view of `o?`: it may be `o`, a value a name holds, which a view of the branching value would copy; make a view of", "17:12: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on", "19:11: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on", errors: 3
   # A `for` over a List walks a named List in place, or consumes the List a
   # call makes. Any other expression (`o?`, a ternary, a `match`) could
   # name a place on one path and make a List on another, so it is bound
@@ -848,7 +848,7 @@ test "for takes array of owners", '''
     !keep.push(<t)
   print(keep)
 
-fail "for temporary source loans", "26:2: cannot drop `t` while it is lent", "34:2: cannot drop `v` while it is lent", errors: 2
+fail "for temporary source loans", "26:2: cannot drop `t` while a read view of it is still in use", "34:2: cannot drop `v` while a read view of it is still in use", errors: 2
   # The elements of a `for` over a value no binding holds (an array
   # literal, or a call's result) carry what that value views, so one
   # stored outside the loop keeps it viewed.
@@ -900,7 +900,7 @@ fail "for write iteration conflicts", "cannot write-iterate through a read view 
   for y in !make()
     y = 1
 
-fail "for write iteration conflicts ownership", "6:11: cannot lend `v` to write while a read loan is live"
+fail "for write iteration conflicts ownership", "6:11: cannot change `v` while a read view of it is still in use"
   # `for x in !xs` lends `xs` to write for the whole loop.
 
   v: List[Int] = List()
@@ -1011,7 +1011,7 @@ fail "for through a shared handle only reads", "9:11: cannot write-iterate throu
   for x in ?mk()
     print(x)
 
-fail "for through a shared handle holds it", "6:3: cannot reassign `h` while it is lent", "9:4: cannot drop `h` while it is lent", errors: 2
+fail "for through a shared handle holds it", "6:3: cannot reassign `h` while a read view of it is still in use", "9:4: cannot drop `h` while a read view of it is still in use", errors: 2
   # The loop's loan on `h` keeps the handle, and so the List, for the
   # whole loop.
 

@@ -1030,7 +1030,7 @@ test "an error of a set without fields goes where `error` carries fields", '''
     print(l[0])
     print(pick(1) == E.bad)
 
-fail "a field holding a loan", "an error's field never holds a loan: hold a `String` or a `Static`"
+fail "a field holding a loan", "an error's field never holds a view: hold a `String` or a `Static`"
   error E
     bad(names: List[?String])
 
@@ -1398,7 +1398,7 @@ fail "a short-form member with fields made without them", "13:9: variant `bad` c
     take(.bad,
       u: .bad)
 
-fail "a short-form member with fields lent where a view of a union or `error` goes", "type mismatch: expected `?Both`, got `Oops`; bind it first, `k: Both = .bad(at: 1)`, then lend `?k`", "type mismatch: expected `?error`, got `Oops`; bind it first, `k: error = .plain`, then lend `?k`", errors: 2
+fail "a short-form member with fields lent where a view of a union or `error` goes", "type mismatch: expected `?Both`, got `Oops`; bind it first, `k: Both = .bad(at: 1)`, then pass `?k`", "type mismatch: expected `?error`, got `Oops`; bind it first, `k: error = .plain`, then pass `?k`", errors: 2
   error Oops
     bad(at: Int)
     plain

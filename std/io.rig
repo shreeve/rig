@@ -8,7 +8,7 @@
 # the reads and writes do, a `file.FileError`, a `net.NetError`, or a
 # `task.Stop`, with what was copied before written. The checker types
 # the call, as it does `http.serve`: each end must be a `file.File` or a
-# `net.Stream`, lent to write.
+# `net.Stream`, passed as a write view.
 
 use std.file
 

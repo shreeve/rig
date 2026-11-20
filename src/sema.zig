@@ -1503,7 +1503,7 @@ pub fn boundUse(a: std.mem.Allocator, api: Api, tname: []const u8, op: []const u
         .Print => a.print("prints a `{s}`", .{tname}),
         .Copy => a.print("copies a `{s}`", .{tname}),
         .Clone => a.print("clones a `{s}`", .{tname}),
-        .Owned => a.print("keeps a `{s}` where no loan is tracked", .{tname}),
+        .Owned => a.print("keeps a `{s}` where no view is tracked", .{tname}),
         .Sends => a.print("sends a `{s}` to another task", .{tname}),
         .Syncs => a.print("lets several tasks read a `{s}`", .{tname}),
         .Iter => a.print("iterates a `{s}`", .{tname}),
@@ -4124,7 +4124,7 @@ pub const NoLoanHome = enum {
         };
     }
 
-    /// What keeps the value, for "a value that holds no loan, which ...
+    /// What keeps the value, for "a value that holds no view, which ...
     /// keeps".
     pub fn keeper(h: NoLoanHome) []const u8 {
         return switch (h) {
@@ -8899,11 +8899,11 @@ pub const heap_stacked_rule = "a value is held one way on the heap, as `^T` (one
 pub const heap_stacked = "`{s}` stacks one heap holding on another; " ++ heap_stacked_rule;
 
 /// The diagnostic for a write view of a `?String` (`writesView`).
-pub const write_text_view = "`!?String` cannot be written: a `?String` is a read view of text, which nothing lends to write; assign to the place to point it at other text, or hold a `String` to change text in place";
+pub const write_text_view = "`!?String` cannot be written: a `?String` is a read view of text, which never becomes a write view; assign to the place to point it at other text, or hold a `String` to change text in place";
 
 /// The diagnostic for a write view of any other read view, `!?T`
 /// (`writesView`), given `?T`.
-pub const write_read_view = "`!{s}` cannot be written: a `{s}` is a read view, which nothing lends to write; assign to the place to point it elsewhere, or hold the value to change it in place";
+pub const write_read_view = "`!{s}` cannot be written: a `{s}` is a read view, which never becomes a write view; assign to the place to point it elsewhere, or hold the value to change it in place";
 
 /// Whether `ty` is a write view of a read view (`!?String`, `!?T`), or
 /// an optional of one. Nothing lends a read view's place to write: it
@@ -10193,7 +10193,7 @@ pub fn iterLack(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?[]const u
     const a = ctx.arena.allocator();
     if (unwrapViews(ctx, ty) != ty) return "a view only reads an iterator, and `next(!@)` advances it; pass the iterator itself, `!it`";
     // A box is not its value: a generic body calls `next` on the box.
-    if (boxedType(ctx, ty)) |inner| return try a.print("a box holds an iterator but is none itself; name the iterator's type in brackets, `[{s}]`, and the box is lent as it", .{try formatType(ctx, inner)});
+    if (boxedType(ctx, ty)) |inner| return try a.print("a box holds an iterator but is none itself; name the iterator's type in brackets, `[{s}]`, and the box is passed as a view of it", .{try formatType(ctx, inner)});
     switch (try iterItem(ctx, ty)) {
         .item => {},
         .malformed => |why| return try a.print("its `next` {s}", .{why}),
@@ -10541,7 +10541,7 @@ pub fn cannotDo(api: Api) []const u8 {
     return switch (api) {
         .Copy => "cannot be copied",
         .Clone => "cannot be cloned",
-        .Owned => "may hold a loan",
+        .Owned => "may hold a view",
         .Sends => "cannot be sent to another task",
         .Syncs => "cannot be read by several tasks at once",
         .Eq => "cannot be compared with `==`",
@@ -12556,7 +12556,7 @@ pub fn frozenReason(ctx: *SemContext, ty: TypeId, blocker: TypeId) std.mem.Alloc
     if (blocker != ty) return a.print("`{s}` holds `{s}`", .{ shown, try formatType(ctx, blocker) });
     const what: []const u8 = switch (ctx.types.get(ty)) {
         .read_view, .write_view, .string_view, .slice => "is a view",
-        .callable => "is a closure lent for a call",
+        .callable => "is a closure passed to a call as a view",
         .shared, .weak => |inner| if (ctx.types.get(inner) == .function) "is an owned closure" else if (atomicHandle(ctx, inner)) "is a handle that changes what it reaches" else "is a `*` handle whose count is not atomic",
         else => "is a handle that changes what it reaches",
     };
@@ -13469,14 +13469,14 @@ fn declKeeps(ctx: *SemContext, name: []const u8, pos: u32, f: FunctionType, o: *
         for (d.names.items()) |n| {
             if (n.isKind(.member)) {
                 const text = try selfPathText(ctx, n);
-                try ctx.errAt(n, "`keeps {s}`: `keeps` names lent parameters, not their parts; write `keeps @`", .{text});
+                try ctx.errAt(n, "`keeps {s}`: `keeps` names view parameters, not their parts; write `keeps @`", .{text});
                 continue;
             }
             const text = identAt(ctx.source, n) orelse continue;
             const i = for (d.params.items(), 0..) |p, i| {
                 if (paramName(ctx.source, p)) |pn| if (std.mem.eql(u8, pn, text)) break i;
             } else {
-                try ctx.errAt(n, "`{s}` has no parameter `{s}`; `keeps` names lent parameters, `@` among them", .{ name, text });
+                try ctx.errAt(n, "`{s}` has no parameter `{s}`; `keeps` names view parameters, `@` among them", .{ name, text });
                 continue;
             };
             if (i >= f.params.len) continue;

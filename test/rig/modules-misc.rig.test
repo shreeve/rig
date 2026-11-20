@@ -1425,7 +1425,7 @@ test "foreign constant methods", '''
     pub NONE: Opt[Int] = .nothing
     pub GREEN: Color = .green
 
-fail "foreign constant write", "9:3: cannot assign to constant `geo.KP`", "10:9: cannot lend constant `geo.KP` to write", "11:13: cannot write-iterate constant `geo.KP`", "13:4: cannot lend constant `geo.KP` to write", "14:3: cannot assign to constant `geo.LIMIT`", errors: 5
+fail "foreign constant write", "9:3: cannot assign to constant `geo.KP`", "10:9: cannot change constant `geo.KP`", "11:13: cannot write-iterate constant `geo.KP`", "13:4: cannot change constant `geo.KP`", "14:3: cannot assign to constant `geo.LIMIT`", errors: 5
   # Another module's constants cannot change: not by assignment, a write
   # view, a write loop, or an element method.
   use geo
@@ -1623,7 +1623,7 @@ fail "foreign private generic", "6:17: `lib.Hidden` is not public", "6:37: gener
     pub fun hide(n: Int) -> Int
       Hidden(v: n).v
 
-fail "foreign variant write", "16:9: cannot lend constant `lib.Color.red` to write: it lives for the whole program and never changes", "17:9: cannot lend constant `lib.Byte.max` to write", "18:9: cannot lend constant `lib.twice` to write", errors: 3
+fail "foreign variant write", "16:9: cannot change constant `lib.Color.red`: it lives for the whole program and never changes", "17:9: cannot change constant `lib.Byte.max`", "18:9: cannot change constant `lib.twice`", errors: 3
   # Another module's enum variant, an imported number type's limit, and
   # another module's function are constants, as this module's are: never
   # lent to write.
@@ -3142,7 +3142,7 @@ fail "read only field header", "9:5: cannot assign through a read view (`?T`); `
     pub fun make() -> Tally
       Tally(boxed: ^Inner())
 
-fail "read only field writes", "14:5: cannot assign to `w.count`: field `count` of `lib.Tally` is read-only outside module `lib`, which declares it `pub ?count`", "18:5: cannot assign to `t.count`: field `count` of `lib.Tally` is read-only outside module `lib`", "19:5: cannot assign to `t.inner.n`: field `inner` of `lib.Tally` is read-only outside module `lib`", "20:5: cannot assign to `t.count`", "21:10: cannot lend `t.count` to write", "22:10: cannot take `t.last`", "23:6: cannot lend `t.tags` to write", "25:11: cannot lend `t.count` to write", "26:15: cannot lend `t.count` to write", "27:15: cannot write-iterate `t.tags`", "29:9: cannot lend `t.mode` to write", "32:5: cannot assign to `b.count`", "37:7: only module `lib` can construct `lib.Tally`: its fields `count`, `tags`, `inner`, `mode`, `last` are read-only", errors: 13
+fail "read only field writes", "14:5: cannot assign to `w.count`: field `count` of `lib.Tally` is read-only outside module `lib`, which declares it `pub ?count`", "18:5: cannot assign to `t.count`: field `count` of `lib.Tally` is read-only outside module `lib`", "19:5: cannot assign to `t.inner.n`: field `inner` of `lib.Tally` is read-only outside module `lib`", "20:5: cannot assign to `t.count`", "21:10: cannot change `t.count`", "22:10: cannot take `t.last`", "23:6: cannot change `t.tags`", "25:11: cannot change `t.count`", "26:15: cannot change `t.count`", "27:15: cannot write-iterate `t.tags`", "29:9: cannot change `t.mode`", "32:5: cannot assign to `b.count`", "37:7: only module `lib` can construct `lib.Tally`: its fields `count`, `tags`, `inner`, `mode`, `last` are read-only", errors: 13
   # A field declared `pub ?name: T` in another module is read-only here,
   # however it would be written: assigned, or a part of it assigned;
   # assigned by an operator; lent to write; taken out; written by a method
@@ -3734,7 +3734,7 @@ test "write lend made by module", '''
     pub fun mk() -> T
       T(n: 5)
 
-fail "write lend through module", "26:9: `!` here reaches `lib`, a module, not the value `lib.mk()` makes: write `!(lib.mk())` to lend that value, or remove the `!`", "27:9: `!` here reaches `lib.T`, a type, not the value `lib.T.make()` makes: write `!(lib.T.make())` to lend that value, or remove the `!`", "28:9: `!` here reaches `U`, a type, not the value `U.make()` makes: write `!(U.make())` to lend that value, or remove the `!`", "29:8: `!` here reaches `E`, a type, not the value `E.a(s: \"x\")` makes: write `!(E.a(s: \"x\"))` to lend that value, or remove the `!`", "30:6: `!` here reaches `lib`, a module, and `lib.ok()` makes a `Bool`; for negation use `not`", errors: 5
+fail "write lend through module", "26:9: `!` here reaches `lib`, a module, not the value `lib.mk()` makes: write `!(lib.mk())` to make a write view of that value, or remove the `!`", "27:9: `!` here reaches `lib.T`, a type, not the value `lib.T.make()` makes: write `!(lib.T.make())` to make a write view of that value, or remove the `!`", "28:9: `!` here reaches `U`, a type, not the value `U.make()` makes: write `!(U.make())` to make a write view of that value, or remove the `!`", "29:8: `!` here reaches `E`, a type, not the value `E.a(s: \"x\")` makes: write `!(E.a(s: \"x\"))` to make a write view of that value, or remove the `!`", "30:6: `!` here reaches `lib`, a module, and `lib.ok()` makes a `Bool`; for negation use `not`", errors: 5
   # `!` before a function called through a module or a type reaches the
   # module or type, which a parse cannot tell from a value's method: one
   # diagnostic says so, and how to lend the value the call makes

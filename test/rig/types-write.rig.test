@@ -1,7 +1,7 @@
 # types: tests whose names start `write`.
 
 
-fail "write call already lent", "`(!b)` already lends `b` to write: remove the outer `!` and write `(!b).ensure(1, List())`"
+fail "write call already lent", "`(!b)` already makes a write view of `b`: remove the outer `!` and write `(!b).ensure(1, List())`"
   # A self already lent to write, `(!b)`, takes no second `!`: the
   # outer one is removed, not parenthesized again.
 
@@ -10,7 +10,7 @@ fail "write call already lent", "`(!b)` already lends `b` to write: remove the o
   !(!b).ensure(1, List()).push(5)
   print(b.len)
 
-fail "write call hint value used", "19:7: method `pop` needs `self` lent to write; write `!v.pop()`", "20:3: method `pop` needs `self` lent to write; write `!v.pop()`", "21:5: `pop` does not consume `self`; it writes it: `!v.pop()`, and its result needs no `<`", "22:5: `pop` writes `self`: write `!v.pop()`; to lend the call's result, write `?(v.pop())`", "23:5: write `!w.pop()`: the call writes `w`", "24:5: `take` changes `self`, a temporary no name holds; add `!`: `!mk().take()`", "25:9: method `add` needs `self` lent to write; write `(!seen).add(1)`", errors: 7
+fail "write call hint value used", "19:7: method `pop` needs a write view of `self`; write `!v.pop()`", "20:3: method `pop` needs a write view of `self`; write `!v.pop()`", "21:5: `pop` does not consume `self`; it writes it: `!v.pop()`, and its result needs no `<`", "22:5: `pop` writes `self`: write `!v.pop()`; to make a view of the call's result, write `?(v.pop())`", "23:5: write `!w.pop()`: the call writes `w`", "24:5: `take` changes `self`, a temporary no name holds; add `!`: `!mk().take()`", "25:9: method `add` needs a write view of `self`; write `(!seen).add(1)`", errors: 7
   # A hint that writes a write call writes it as the call is used: the
   # long form `(!s).m(...)` where its `Bool` value is used, and the short
   # form elsewhere, so following a hint never draws the error that a write
@@ -95,7 +95,7 @@ test "write call short form", '''
   if !v.pop() as n
     print(twice(n) + 1)
 
-fail "write call on a List[Bool]", "13:4: `!` lends `flags` to write and never negates: write `(!flags).remove(0)` for what `remove` returns, or `not (!flags).remove(0)` for its opposite", "16:5: `!` lends `b` to write and never negates: write `(!b).take()` for what `take` returns, or `not (!b).take()` for its opposite", "18:9: `!` lends `flags` to write and never negates: write `not (!flags).remove(0)`", errors: 3
+fail "write call on a List[Bool]", "13:4: `!` makes a write view of `flags` and never negates: write `(!flags).remove(0)` for what `remove` returns, or `not (!flags).remove(0)` for its opposite", "16:5: `!` makes a write view of `b` and never negates: write `(!b).take()` for what `take` returns, or `not (!b).take()` for its opposite", "18:9: `!` makes a write view of `flags` and never negates: write `not (!flags).remove(0)`", errors: 3
   # A write call's result is judged with self's type arguments applied
   # where the call knows them: `remove` on a `List[Bool]` returns a
   # `Bool`, so `if !flags.remove(0)` would read as "if not removed", as
@@ -131,7 +131,7 @@ test "write call on a generic body's T", "true false"
   a = first(!flags)
   print(a, pair(!flags)[0])
 
-fail "write call short form on a Bool", "19:5: `!` lends `@seen` to write and never negates: write `(!@seen).add(k)` for what `add` returns, or `not (!@seen).add(k)` for its opposite", "23:8: write `(!c.seen).add(k)`", "25:10: write `not (!c).bump()`", "27:7: write `(!c).bump()`", "28:7: write `(!c).checked()`", errors: 5
+fail "write call short form on a Bool", "19:5: `!` makes a write view of `@seen` and never negates: write `(!@seen).add(k)` for what `add` returns, or `not (!@seen).add(k)` for its opposite", "23:8: write `(!c.seen).add(k)`", "25:10: write `not (!c).bump()`", "27:7: write `(!c).bump()`", "28:7: write `(!c).checked()`", errors: 5
   # A write call whose result is a `Bool`, or a `Bool` that may fail,
   # keeps its `!` in parentheses wherever its value is used: Rust's
   # `if !seen.insert(k)` means "already seen", and short it would read so.
@@ -195,7 +195,7 @@ code "write call long form emit", "const x: i64 = (v.pop() orelse 0);", "const n
   b = Box(items: List([2]))
   print(x, (!b).take())
 
-fail "write lend constant", "56:7: cannot lend constant `Color.red` to write: it lives for the whole program and never changes", "57:7: cannot lend constant `E.bad` to write", "58:7: cannot lend constant `false` to write", "59:7: cannot lend constant `\"abc\"` to write", "60:7: cannot lend constant `none` to write", "61:6: cannot lend constant `5` to write", "62:6: cannot lend constant `-5` to write", "63:7: cannot lend constant `2 + 3` to write", "64:8: cannot lend constant `not true` to write", "65:8: cannot lend constant `Color.red if f(1) == 1 else Color.green` to write", "66:6: cannot lend constant `Int.max` to write", "67:7: cannot lend constant `U8.max` to write", "68:7: cannot lend constant `Int.max - 1` to write", "69:7: cannot lend constant `f` to write", "70:7: cannot lend constant `P.origin` to write", errors: 15
+fail "write lend constant", "56:7: cannot change constant `Color.red`: it lives for the whole program and never changes", "57:7: cannot change constant `E.bad`", "58:7: cannot change constant `false`", "59:7: cannot change constant `\"abc\"`", "60:7: cannot change constant `none`", "61:6: cannot change constant `5`", "62:6: cannot change constant `-5`", "63:7: cannot change constant `2 + 3`", "64:8: cannot change constant `not true`", "65:8: cannot change constant `Color.red if f(1) == 1 else Color.green`", "66:6: cannot change constant `Int.max`", "67:7: cannot change constant `U8.max`", "68:7: cannot change constant `Int.max - 1`", "69:7: cannot change constant `f`", "70:7: cannot change constant `P.origin`", errors: 15
   # A constant lives for the whole program and never changes (Core
   # sentence 7), so it is never lent to write: a literal, `none`, an enum
   # variant that holds no payload, an error value, a number type's limit,
@@ -289,7 +289,7 @@ test "write lend function binding", '''
   setf(!h)
   print(h(2))
 
-fail "write self branches", "14:2: method `bump` writes `self`, and `p if c else q` may be `p`, a value a name holds", "15:2: method `bump` writes `self`, and `o ?? q` may be `o`, a value a name holds", "16:3: method `bump` needs `self` lent to write; write `!p.bump()`", errors: 3
+fail "write self branches", "14:2: method `bump` writes `self`, and `p if c else q` may be `p`, a value a name holds", "15:2: method `bump` writes `self`, and `o ?? q` may be `o`, a value a name holds", "16:3: method `bump` needs a write view of `self`; write `!p.bump()`", errors: 3
   # A `!@` method writes its self: a branching value that may be a
   # name's would be written as a copy (plain data too), and a place is
   # lent with `!`.
@@ -683,7 +683,7 @@ test "write view bool", '''
   view: !Bool = !a
   print(view)
 
-fail "write view bool as not", "11:7: `!` lends to write; use `not` for negation", "15:6: `!` lends to write; use `not` for negation", "19:13: `!` lends to write; use `not` for negation", "23:20: `!` lends to write; use `not` for negation", "26:13: `!` lends to write; use `not` for negation", "29:15: `!` lends to write; use `not` for negation", "32:9: `ok` does not write `self`; for negation use `not`", "36:6: `!` lends to write; use `not` for negation"
+fail "write view bool as not", "11:7: `!` makes a write view; use `not` for negation (a `Bool` gets a write view", "15:6: `!` makes a write view; use `not` for negation (a `Bool` gets a write view", "19:13: `!` makes a write view; use `not` for negation (a `Bool` gets a write view", "23:20: `!` makes a write view; use `not` for negation (a `Bool` gets a write view", "26:13: `!` makes a write view; use `not` for negation (a `Bool` gets a write view", "29:15: `!` makes a write view; use `not` for negation (a `Bool` gets a write view", "32:9: `ok` does not write `self`; for negation use `not`", "36:6: `!` makes a write view; use `not` for negation (a `Bool` gets a write view"
   # `!` is a write view, never negation: a write view of a `Bool`
   # read as a `Bool` is rejected wherever it appears, and so is `!` before
   # a method that only reads its self (`!c.ok()`).
@@ -857,7 +857,7 @@ test "taken bindings lent to write", '''
     !q.items.push(*Cnt(v: 1, n: Cell(20)))
     print((!q).drain())
 
-fail "taken plain bindings immutable", "13:11: cannot lend `x` to write; loop and pattern bindings are immutable (move it into a new binding with `new x = <x`)", "18:10: cannot lend `v` to write; loop and pattern bindings are immutable (bind a copy with `new v = v`)", "21:10: cannot lend `x` to write; loop and pattern bindings are immutable (bind a copy with `new x = x`)"
+fail "taken plain bindings immutable", "13:11: cannot change `x`; loop and pattern bindings are immutable (move it into a new binding with `new x = <x`)", "18:10: cannot change `v`; loop and pattern bindings are immutable (bind a copy with `new v = v`)", "21:10: cannot change `x`; loop and pattern bindings are immutable (bind a copy with `new x = x`)"
   # A binding that takes plain data, or a type parameter's value, holds
   # it as a pattern binding does and is not written; `new` binds one.
 
@@ -881,7 +881,7 @@ fail "taken plain bindings immutable", "13:11: cannot lend `x` to write; loop an
       inc(!x)
     each[Int](2)
 
-fail "write view immutable bindings", "cannot lend parameter `n` to write", "cannot lend fixed binding `y` to write", "cannot lend captured `k` to write", "cannot lend `x` to write; loop and pattern bindings are immutable", "cannot lend `v` to write: it is a copy of the value inside `m`; to change that value in place, bind it with `!m as v`"
+fail "write view immutable bindings", "cannot change parameter `n`", "cannot change fixed binding `y`", "cannot change captured `k`", "cannot change `x`; loop and pattern bindings are immutable", "cannot change `v`: it is a copy of the value inside `m`; to change that value in place, bind it with `!m as v`"
   # `!x` writes through `x`, so `x` must be mutable: a plain parameter, a
   # fixed binding, a capture, and a loop or `as` binding are not.
 
@@ -953,7 +953,7 @@ fail "write view of string type from retain's type", "7:15: closure parameter `v
   !m.retain(|k, _| true)
   print(m.len)
 
-fail "write view of a read view", "4:13: `!?List[Int]` cannot be written: a `?List[Int]` is a read view, which nothing lends to write", "7:15: `!?Int` cannot be written", errors: 2
+fail "write view of a read view", "4:13: `!?List[Int]` cannot be written: a `?List[Int]` is a read view, which never becomes a write view", "7:15: `!?Int` cannot be written", errors: 2
   # The same for any read view: assigning to the place points it
   # elsewhere, and nothing lends it to write.
 
@@ -1013,7 +1013,7 @@ test "write view param replaces value", '''
   replace(!x)
   print(x.v * 10)
 
-fail "write view read slice", "8:4: cannot lend a `[]Int` to write: its elements are read-only", "12:6: cannot lend a `[]Int` to write: its elements are read-only", "15:6: cannot lend a `[]Int` to write: its elements are read-only"
+fail "write view read slice", "8:4: cannot make a write view of a `[]Int`: its elements are read-only", "12:6: cannot make a write view of a `[]Int`: its elements are read-only", "15:6: cannot make a write view of a `[]Int`: its elements are read-only"
   # A `[]T` is read-only, so a write view of one, which would be a
   # writable `![]T`, is rejected: of a local, a parameter, or a field.
 
@@ -1054,7 +1054,7 @@ fail "write view stored in value", "5:6: a write view is never stored inside a v
   a = [!n, !m]
   print(a.len)
 
-fail "write call hint for source", "12:12: method `drain` needs `self` lent to write; write `!b.drain()`", errors: 1
+fail "write call hint for source", "12:12: method `drain` needs a write view of `self`; write `!b.drain()`", errors: 1
   # Before a `for` source's method call, a `!` lends the call's self, as
   # before any call: the hint writes `!b.drain()`, and both spellings
   # run, walking the List the call makes.

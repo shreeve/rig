@@ -237,7 +237,7 @@ test "self sigil value used short", '''
   f = |!c| !c.next()
   print(x, n, m, y, z, f())
 
-fail "self sigil without self", "14:5: `!` here reaches `Point`, a type, not the value `Point.origin()` makes: write `!(Point.origin())` to lend that value, or remove the `!`", "15:5: `origin` is called through its type or module and has no `self`; remove the `<`", "17:1: `get` only reads the Cell; remove the `!`", "19:7: `on` is a field holding a function, not a method that takes `self`; remove the `!`"
+fail "self sigil without self", "14:5: `!` here reaches `Point`, a type, not the value `Point.origin()` makes: write `!(Point.origin())` to make a write view of that value, or remove the `!`", "15:5: `origin` is called through its type or module and has no `self`; remove the `<`", "17:1: `get` only reads the Cell; remove the `!`", "19:7: `on` is a field holding a function, not a method that takes `self`; remove the `!`"
   # `!` and `<` before a call apply to the method's self, so a call
   # with none rejects them: an associated function called through its
   # type (where `!` reaches the type, not the value the call makes), a
@@ -258,7 +258,7 @@ fail "self sigil without self", "14:5: `!` here reaches `Point`, a type, not the
   hooks = Hooks(on: *|n| n + 1)
   print(!hooks.on(1), a.x, b.x)
 
-fail "self sigil on a built-in type's call", "6:9: `!` here reaches `Slot[4]`, a type, not the value `Slot[4].of(1)` makes: write `!(Slot[4].of(1))` to lend that value, or remove the `!`", "7:9: `!` here reaches `B`, a type, not the value `B.of(2)` makes: write `!(B.of(2))` to lend that value, or remove the `!`", "8:9: `!Simd[U8, 4].splat(1)` here is read, not held: only its `Simd[U8, 4]` is read here. Write `Simd[U8, 4].splat(1)`", "9:9: `of` is called through its type or module and has no `self`; to lend the call's result, write `?(Slot[4].of(1))`", "10:9: `of` is called through its type or module and has no `self`; remove the `<`", errors: 5
+fail "self sigil on a built-in type's call", "6:9: `!` here reaches `Slot[4]`, a type, not the value `Slot[4].of(1)` makes: write `!(Slot[4].of(1))` to make a write view of that value, or remove the `!`", "7:9: `!` here reaches `B`, a type, not the value `B.of(2)` makes: write `!(B.of(2))` to make a write view of that value, or remove the `!`", "8:9: `!Simd[U8, 4].splat(1)` here is read, not held: only its `Simd[U8, 4]` is read here. Write `Simd[U8, 4].splat(1)`", "9:9: `of` is called through its type or module and has no `self`; to make a view of the call's result, write `?(Slot[4].of(1))`", "10:9: `of` is called through its type or module and has no `self`; remove the `<`", errors: 5
   # `Slot[n]` and `Simd[T, n]` are types, so a sigil before a call
   # through one reaches no value, as it reaches none through an object.
   type B = Slot[4]
@@ -421,7 +421,7 @@ test "replace swap generic", '''
   sw(!n, !m)
   print(n, m)
 
-fail "swap result thrown away", "5:1: this `swap` gives back the old value of `x`, which a statement throws away: to store `2`, write `x = 2`; to exchange two places, lend both to write, `swap(!x, !b)`", "7:2: this `swap` gives back the Cell's old value, which a statement throws away: to store `3`, write `!c.set(3)`", errors: 2
+fail "swap result thrown away", "5:1: this `swap` gives back the old value of `x`, which a statement throws away: to store `2`, write `x = 2`; to exchange two places, pass write views of both, `swap(!x, !b)`", "7:2: this `swap` gives back the Cell's old value, which a statement throws away: to store `3`, write `!c.set(3)`", errors: 2
   # A swap that gives back a value is meant to keep it: a statement that
   # throws it away meant to store, or to exchange two places.
   x = 1
@@ -449,7 +449,7 @@ test "swap forms", '''
   o = (!c).swap(4)
   print(c.get(), o)
 
-fail "swap misuse", "10:6: `swap` moves values that hold no `?T`, `!T`, or slice; `V` may hold one", "13:10: `swap` exchanges two places of one type; got `Int` and `Static`", "14:12: `swap` takes a place lent to write: `!x`; got `Int`", "15:16: type mismatch: expected `Int`, got `Static`"
+fail "swap misuse", "10:6: `swap` moves values that hold no `?T`, `!T`, or slice; `V` may hold one", "13:10: `swap` exchanges two places of one type; got `Int` and `Static`", "14:12: `swap` takes a write view of a place: `!x`; got `Int`", "15:16: type mismatch: expected `Int`, got `Static`"
   # `swap` takes places lent to write (`!x`) of one type, whose values
   # hold no view, and the value a swap stores has the place's type.
 
@@ -1228,7 +1228,7 @@ test "static in holders", release: true, '''
 '''
   # A `Static` is text that lives for the whole program: a literal, or
   # text derived only from literals. It is plain data that carries no
-  # loan, so it goes where no loan is tracked: in a `Cell`, a `Signal`, an
+  # loan, so it goes where no view is tracked: in a `Cell`, a `Signal`, an
   # owned closure, and in an object field or a generic `T` stored there.
 
   obj Tag
@@ -1313,7 +1313,7 @@ fail "static name reserved", "3:5: `Static` is a reserved built-in nominal name 
 
   print(1)
 
-fail "static never where written", "12:8: cannot lend `loose` to write: it holds a read view of text, `?String`", "13:15: cannot lend `loose` to write", "14:20: type mismatch: expected `Static`, got `?String`", "15:9: type mismatch: expected `Static`, got `?String`; `fixed` is a `Static`, bound to a literal's text, and a `?String` may view a `String`: declare it `fixed: ?String = ...` to hold other text", errors: 4
+fail "static never where written", "12:8: cannot make a write view of `loose`: it holds a read view of text, `?String`", "13:15: cannot make a write view of `loose`", "14:20: type mismatch: expected `Static`, got `?String`", "15:9: type mismatch: expected `Static`, got `?String`; `fixed` is a `Static`, bound to a literal's text, and a `?String` may view a `String`: declare it `fixed: ?String = ...` to hold other text", errors: 4
   # A `Static` is read as a `?String`, never where the text can be written:
   # a `?String` view cannot be written into a `Static` place, and a `?String`
   # place, which nothing lends to write, is no `!Static`.
@@ -1397,7 +1397,7 @@ test "static reads as string", release: true, '''
   sub_text = text.trim("  padded  ")
   print(part, sub_text, text.contains(lit, "i"), text.find(part, "t") ?? -1)
 
-fail "string byte and len write", "11:1: cannot assign to a byte of a `?String`; a `?String` is read-only", "12:7: cannot lend a byte of a `?String` to write; a `?String` is read-only", "13:3: cannot assign to `.len`; a length is read-only", "14:8: cannot lend `.len` to write; a length is read-only", "15:3: cannot assign to `.len`; a length is read-only"
+fail "string byte and len write", "11:1: cannot assign to a byte of a `?String`; a `?String` is read-only", "12:7: cannot change a byte of a `?String`; a `?String` is read-only", "13:3: cannot assign to `.len`; a length is read-only", "14:8: cannot change `.len`; a length is read-only", "15:3: cannot assign to `.len`; a length is read-only"
   # A String's bytes and every `.len` are read-only.
 
   sub inc(n: !Int)
@@ -1500,7 +1500,7 @@ fail "string owner expected", "9:12: type mismatch: expected `String`, got `Stat
   print(size(?t))
   x: String = "lit"
 
-fail "string place not lent to write", "12:7: cannot lend `a` to write: it holds a read view of text, `?String`", "12:11: cannot lend `b` to write", "14:13: cannot lend `p.left` to write", "17:15: cannot lend `names[0]` to write", "20:6: cannot lend `v` to write", "21:7: cannot lend `a` to write", errors: 6
+fail "string place not lent to write", "12:7: cannot make a write view of `a`: it holds a read view of text, `?String`", "12:11: cannot make a write view of `b`", "14:13: cannot make a write view of `p.left`", "17:15: cannot make a write view of `names[0]`", "20:6: cannot make a write view of `v`", "21:7: cannot make a write view of `a`", errors: 6
   # A `?String` is a read view of text, and nothing lends a view's own slot
   # to write: `swap`, `replace`, and `!` on a place that holds one are
   # rejected, as for any read view. Assign to it to point it at other
@@ -2424,7 +2424,7 @@ test "text build", '''
     !big.add(i % 10)
   print(big.len, big[4990..])
 
-fail "text forms", "5:5: a slice of a String views it; write `?t[0..1]`", "6:6: cannot lend a slice of a String to write", "7:3: cannot assign to `.len`; a length is read-only", "8:3: method `add` needs `self` lent to write; write `!t.add(\"x\")`", "9:12: `String(...)` takes no keyword arguments", "10:4: has no method `pop`"
+fail "text forms", "5:5: a slice of a String views it; write `?t[0..1]`", "6:6: cannot make a write view of a slice of a String", "7:3: cannot assign to `.len`; a length is read-only", "8:3: method `add` needs a write view of `self`; write `!t.add(\"x\")`", "9:12: `String(...)` takes no keyword arguments", "10:4: has no method `pop`"
   # A Text is changed only through its `!` methods, and viewed only
   # through a visible `?` view.
 
@@ -3612,7 +3612,7 @@ fail "vec bad kwarg", "`List` constructor accepts only `capacity` as a kwarg; go
 
   v: List[Int] = List(size: 10)
 
-fail "vec get copies only", "`List.get` would copy an element out of a `List` of `String`, which a copy cannot share; read it in place with `v[i]`, or lend it with `?v[i]`"
+fail "vec get copies only", "`List.get` would copy an element out of a `List` of `String`, which a copy cannot share; read it in place with `v[i]`, or make a view of it with `?v[i]`"
   # `v.get(i)` hands out a copy of the element, so it needs one that
   # copies; an owning element is read in place or lent.
 
@@ -3948,7 +3948,7 @@ test "weak upgrade clone and drop", '''
   <w
   # scope exit drops `n`, the last strong handle: prints 1
 
-fail "weak upgrade forms", "12:8: `*w?` is `*(w?)`, and `w` is a weak handle, not an optional: to return `none` once its value is gone, write `(*w)?`", "17:5: `*` only reads the weak handle it upgrades: write `*w`", "22:6: cannot lend `w if c else w2`: it may be `w`, a value a name holds, which lending the branching value would copy; lend each branch: `*(?w if c else ?w2)`", errors: 3
+fail "weak upgrade forms", "12:8: `*w?` is `*(w?)`, and `w` is a weak handle, not an optional: to return `none` once its value is gone, write `(*w)?`", "17:5: `*` only reads the weak handle it upgrades: write `*w`", "22:6: cannot make a view of `w if c else w2`: it may be `w`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `*(?w if c else ?w2)`", errors: 3
   # `*w` only reads the weak handle it upgrades, so a write lend there is
   # rejected. A suffix binds tighter than `*`: `*w?` is `*(w?)`, which
   # propagates `none` out of the weak handle itself; the hint gives

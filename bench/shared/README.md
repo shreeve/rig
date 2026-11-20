@@ -3,8 +3,8 @@
 `shared.rig` times `shared.Map` ([STD](../../docs/STD.md#stdshared))
 against the shapes that held a map several tasks write before it: a
 `Map` in each of 64 actors, a key's hash picking one, and one `Map`
-behind one actor; and, for lookups alone, one `Map` lent to every task
-to read, the floor no shared map beats. It is not part of the test
+behind one actor; and, for lookups alone, one `Map` passed to every task
+as a read view, the floor no shared map beats. It is not part of the test
 suite or CI.
 
 ```sh
@@ -52,7 +52,7 @@ Mac (M5, 4 fast and 6 slow cores), 2026-11-11, branch `concurrent-map`,
 parentheses nanoseconds of CPU an operation. 12 tasks is more than the
 cores.
 
-| Phase | Tasks | shared.Map | 64 actor shards | one actor | Map lent to read |
+| Phase | Tasks | shared.Map | 64 actor shards | one actor | Map as a read view |
 |---|---|---|---|---|---|
 | insert | 1 | 5.3 (53) | 4.9 (49) | 3.1 (31) | |
 | insert | 6 | 3.8 (230) | 4.2 (250) | 9.0 (542) | |

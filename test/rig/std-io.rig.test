@@ -34,7 +34,7 @@ fail "io copy takes files and streams", "`io.copy` reads from and writes to a `f
     s = String("x")
     io.copy(!s, !c)!
 
-fail "io copy lends both ends to write", "`io.copy` reads and writes through `c`: lend it to write, `!c`"
+fail "io copy lends both ends to write", "`io.copy` reads and writes through `c`: make a write view of it, `!c`"
   fun run(l: ?net.Listener, d: !net.Stream) -> Int!
     c = l.accept()!
     io.copy(c, !d)!

@@ -123,7 +123,7 @@ test "par one task", seeds: 20, "[2, 4, 6]"
   xs = List([1, 2, 3])
   print(par.map(?xs, |x| x * 2, limit: 1))
 
-fail "par write capture", "`par.each` calls the closure on several tasks at once, and `|!total|` lends `total` to write, which no two tasks may hold at once: gather what each call gives with `par.map`, or count with a `*Cell[Int]`, captured `|+total|`", errors: 1
+fail "par write capture", "`par.each` calls the closure on several tasks at once, and `|!total|` makes a write view of `total`, which no two tasks may hold at once: gather what each call gives with `par.map`, or count with a `*Cell[Int]`, captured `|+total|`", errors: 1
   use std.par
 
   xs = List([1, 2, 3])
@@ -183,7 +183,7 @@ fail "par map gives nothing", "`par.map` gives each call's value, and `|x| print
   xs = List([1, 2, 3])
   ys = par.map(?xs, |x| print(x))
 
-fail "par each writes", "`par.each` lends each element to write: lend the elements so, `par.each(!xs, ...)`", errors: 1
+fail "par each writes", "`par.each` passes each element as a write view: make write views of the elements, `par.each(!xs, ...)`", errors: 1
   use std.par
 
   xs = List([1, 2, 3])
@@ -224,7 +224,7 @@ test "par path capture", seeds: 20, '''
   cfg.k = 4
   print(par.map(?[1, 2, 3], |+cfg.k, x| x * cfg.k))
 
-fail "par generic instance owned closure", "`go[*fun() -> Int]` cannot use `T = *fun() -> Int`: a value that holds a `T` is lent to tasks to read in the generic body, and `*fun() -> Int` is an owned closure", errors: 1
+fail "par generic instance owned closure", "`go[*fun() -> Int]` cannot use `T = *fun() -> Int`: a value that holds a `T` is passed to tasks as a read view in the generic body, and `*fun() -> Int` is an owned closure", errors: 1
   use std.par
 
   fun go[T](xs: ?List[T]) -> List[Int]
@@ -234,7 +234,7 @@ fail "par generic instance owned closure", "`go[*fun() -> Int]` cannot use `T = 
   !xs.push(*|| 4)
   print(go(?xs))
 
-fail "par generic capture owned closure", "`go[*fun() -> Int]` cannot use `T = *fun() -> Int`: a value that holds a `T` is lent to tasks to read in the generic body", errors: 1
+fail "par generic capture owned closure", "`go[*fun() -> Int]` cannot use `T = *fun() -> Int`: a value that holds a `T` is passed to tasks as a read view in the generic body", errors: 1
   use std.par
 
   fun go[T](v: ?T) -> List[Int]
@@ -256,7 +256,7 @@ test "par generic instances", seeds: 20, "[1, 1] [2, 3]"
 
   print(go(?List(["a", "b"])), inc(?3))
 
-fail "par generic instance stays on one thread", "`go[*Node]` cannot use `T = *Node`: a value that holds a `T` is lent to tasks to read in the generic body, and `*Node` is a `*` handle whose count is not atomic", errors: 1
+fail "par generic instance stays on one thread", "`go[*Node]` cannot use `T = *Node`: a value that holds a `T` is passed to tasks as a read view in the generic body, and `*Node` is a `*` handle whose count is not atomic", errors: 1
   use std.par
 
   obj Node
@@ -452,7 +452,7 @@ bomb "par workers no states", seeds: 20, "par.workers has no states to take the 
   ys = par.workers(!states, ?[1, 2], |s, x| x)
   print(ys)
 
-fail "par workers states write", "`par.workers` lends each task one state to write: lend the states so, `par.workers(!states, ...)`", errors: 1
+fail "par workers states write", "`par.workers` gives each task a write view of one state: make write views of the states, `par.workers(!states, ...)`", errors: 1
   use std.par
 
   obj Count
@@ -497,7 +497,7 @@ fail "par workers values move", "`par.workers` gathers the values that tasks on 
   states = List([Count()])
   hs = par.workers(!states, ?[1, 2], |s, x| *Thing(n: x))
 
-fail "par workers write capture", "`par.workers` calls the closure on several tasks at once, and `|!total|` lends `total` to write, which no two tasks may hold at once: keep what each task writes in its state, or gather what each call gives", errors: 1
+fail "par workers write capture", "`par.workers` calls the closure on several tasks at once, and `|!total|` makes a write view of `total`, which no two tasks may hold at once: keep what each task writes in its state, or gather what each call gives", errors: 1
   use std.par
 
   obj Count
@@ -638,7 +638,7 @@ fail "par closure in error reported once", "7:30: use of unbound name `nope`", "
     states = [0, 0]
     print(par.workers(!states, ?xs, |s, x| x + nope2)!)
 
-fail "par map closure's own error", "8:27: cannot lend to write through a read view `?*Cell[Int]`; take a write view, or share a handle of your own with `+h`", errors: 1
+fail "par map closure's own error", "8:27: cannot make a write view through a read view `?*Cell[Int]`; take a write view, or share a handle of your own with `+h`", errors: 1
   # A closure whose body is in error and gives no value is reported
   # given the element it is lent, as a function's name is.
   use std.par
@@ -827,14 +827,14 @@ test "par push made table", seeds: 20, '''
   )
   print(t)
 
-fail "par push reads the table", "cannot lend `t` to read while a write loan is live", errors: 1
+fail "par push reads the table", "cannot use `t` while a write view of it is still in use", errors: 1
   use std.par
 
   t: Table[Int, 64] = Table()
   sizes = List([2, 2])
   par.push(!t, ?sizes, |?t, run, k| run[0] = t.len)
 
-fail "par push write capture", "`par.push` calls the closure on several tasks at once, and `|!n|` lends `n` to write, which no two tasks may hold at once: gather what each call gives with `par.map`, or count with a `*Cell[Int]`, captured `|+n|`", errors: 1
+fail "par push write capture", "`par.push` calls the closure on several tasks at once, and `|!n|` makes a write view of `n`, which no two tasks may hold at once: gather what each call gives with `par.map`, or count with a `*Cell[Int]`, captured `|+n|`", errors: 1
   use std.par
 
   t: Table[Int, 64] = Table()
@@ -849,7 +849,7 @@ fail "par push takes a table", "`par.push` pushes the next slots of a Table; `!x
   sizes = List([2, 2])
   par.push(!xs, ?sizes, |run, k| run[0] = k)
 
-fail "par push writes", "`par.push` pushes slots onto the table and writes them: lend it so, `par.push(!t, ...)`", errors: 1
+fail "par push writes", "`par.push` pushes slots onto the table and writes them: pass a write view of it, `par.push(!t, ...)`", errors: 1
   use std.par
 
   t: Table[Int, 64] = Table()

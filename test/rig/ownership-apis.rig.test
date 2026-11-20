@@ -2,7 +2,7 @@
 # `from` and `keeps`, which every implementation is within, never the
 # instance's (docs/design/apis.md, Stage 3).
 
-fail "apis a result from the API's parameter", "16:4: cannot drop `t` while it is lent"
+fail "apis a result from the API's parameter", "16:4: cannot drop `t` while a read view of it is still in use"
   # `pick`'s result views `other`, as the API declares, so `t` stays lent
   # while `v` lives.
 
@@ -96,7 +96,7 @@ test "apis a bounded owner moves through a witness", '''
 
 # ---- through an API object (Stage 4) ----
 
-fail "apis object a result from self keeps the owner's loan", "cannot lend `sq` to write while a read loan is live"
+fail "apis object a result from self keeps the owner's loan", "cannot change `sq` while a read view of it is still in use"
   # The object carries `sq`'s loan, and the result `from @` carries the
   # object's, so `sq` stays lent while `l` lives.
 
@@ -122,7 +122,7 @@ fail "apis object a result from self keeps the owner's loan", "cannot lend `sq` 
   !sq.grow(1.0)
   print(l)
 
-fail "apis object keeps through a write view", "cannot drop `t` while it is lent"
+fail "apis object keeps through a write view", "cannot drop `t` while a read view of it is still in use"
   # `keeps t` through a `!{Watcher}` stores the loan in the owner the
   # object views.
 
@@ -206,7 +206,7 @@ test "apis object ends its loan at its last use", "2.0"
 # A `^{A}`'s loans last to its drop, which may run the hidden type's
 # `drop` body and read them (Core §4, sentence 6); `+ Owned` holds none.
 
-fail "apis object box keeps a loan to its drop", "cannot lend `t` to write while a read loan is live"
+fail "apis object box keeps a loan to its drop", "cannot change `t` while a read view of it is still in use"
   # The box's last use is before `!t.push`, but its drop, at the end of
   # the block, may read `t`.
 
@@ -287,7 +287,7 @@ test "apis object box ended, its loans end", "1 1"
   <t
   print(n, 1)
 
-fail "apis object box keeps through a call", "cannot drop `t` while it is lent"
+fail "apis object box keeps through a call", "cannot drop `t` while a read view of it is still in use"
   # `!b.watch(?t)` with `keeps t`: `b` carries `t`'s loan.
 
   api Watcher
@@ -310,7 +310,7 @@ fail "apis object box keeps through a call", "cannot drop `t` while it is lent"
   <t
   print(1)
 
-fail "apis object box made from a view keeps it", "cannot drop `t` while it is lent"
+fail "apis object box made from a view keeps it", "cannot drop `t` while a read view of it is still in use"
   # H1: a result `^{Shape}` of a value holding the view `t` carries its
   # loan, whatever the erased type's fields.
 
@@ -373,7 +373,7 @@ fail "apis a call by the API's name keeps what the API keeps", "`t` is dropped b
 
 # ---- Stage 5, phase 2: shared and weak objects ----
 
-fail "apis object shared keeps a loan to its last count", "cannot lend `t` to write while a read loan is live"
+fail "apis object shared keeps a loan to its last count", "cannot change `t` while a read view of it is still in use"
   # A `*{A}` carries its value's loans across `+s` until the last count
   # is dropped: `g` still holds `t`'s loan after `<s`.
   api Named
@@ -392,7 +392,7 @@ fail "apis object shared keeps a loan to its last count", "cannot lend `t` to wr
   !t.add("d")
   print(g.size())
 
-fail "apis object shared keeps a loan to its drop", "cannot lend `t` to write while a read loan is live"
+fail "apis object shared keeps a loan to its drop", "cannot change `t` while a read view of it is still in use"
   # The hidden type may have a `drop` body, which reads what it holds:
   # the loan lasts to the drop, past the last use.
   api Named
@@ -410,7 +410,7 @@ fail "apis object shared keeps a loan to its drop", "cannot lend `t` to write wh
   !t.add("d")
   print(t)
 
-fail "apis object shared a weak handle keeps the loan", "cannot lend `t` to write while a read loan is live"
+fail "apis object shared a weak handle keeps the loan", "cannot change `t` while a read view of it is still in use"
   # The adversary's A4: `~{A}` carries its `*{A}`'s loans, so `*w` never
   # gives a count that has escaped them.
   api Named
@@ -430,7 +430,7 @@ fail "apis object shared a weak handle keeps the loan", "cannot lend `t` to writ
   if *w as g
     print(g.size())
 
-test "apis object shared Owned and Syncs hold no loan", "3 3 abcd"
+test "apis object shared Owned and Syncs hold no view", "3 3 abcd"
   # `+ Owned` is checked where the value is erased, and a `*{A + Syncs}`
   # holds a frozen value, which holds no view: `t` changes while both
   # live.
@@ -468,7 +468,7 @@ test "apis object shared a loan ends with the last count", "3 abcd"
   !t.add("d")
   print(n, t)
 
-fail "apis object shared an owned closure's capture", "an owned closure holds no loan, and a `*{Named}` may hold one: write `*{Named + Owned}`"
+fail "apis object shared an owned closure's capture", "an owned closure holds no view, and a `*{Named}` may hold one: write `*{Named + Owned}`"
   api Named
     fun size(?@) -> Int
 
@@ -482,7 +482,7 @@ fail "apis object shared an owned closure's capture", "an owned closure holds no
   f = *|<s| s.size()
   print(f())
 
-fail "apis object a generic body's owned closure names the object", "`stash[^{Shape}]` cannot use `T = ^{Shape}`: the generic body stores a `T` in an owned closure, which carries no loan, and a `^{Shape}` may hold one: write `^{Shape + Owned}`", errors: 1
+fail "apis object a generic body's owned closure names the object", "`stash[^{Shape}]` cannot use `T = ^{Shape}`: the generic body stores a `T` in an owned closure, which holds no view, and a `^{Shape}` may hold one: write `^{Shape + Owned}`", errors: 1
   # Why an object may hold a loan is one reason with its fix
   # (`sema.objectLoanReason`): an instance gives it as an owned closure's
   # capture does.
@@ -502,7 +502,7 @@ fail "apis object a generic body's owned closure names the object", "`stash[^{Sh
   g = stash(<b)
   print(g())
 
-fail "apis object a channel's values and an Owned bound name the object", "a channel's values hold no loan, and a `*{Shape}` may hold one: write `*{Shape + Owned}`", "`keep[List[^{Shape}]]` cannot use `T = List[^{Shape}]`: `List[^{Shape}]` may hold a loan; it holds a `^{Shape}`", errors: 2
+fail "apis object a channel's values and an Owned bound name the object", "a channel's values hold no view, and a `*{Shape}` may hold one: write `*{Shape + Owned}`", "`keep[List[^{Shape}]]` cannot use `T = List[^{Shape}]`: `List[^{Shape}]` may hold a view; it holds a `^{Shape}`", errors: 2
   use std.task
 
   api Shape

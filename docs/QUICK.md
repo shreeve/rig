@@ -14,7 +14,7 @@ which of its uses it is.
 
 | Sigil | Meaning | Example |
 |---|---|---|
-| `=!` | binds a fixed local, which is never reassigned or lent to write, like Rust's `let` without `mut`; `x = e` binds or assigns | `limit =! 100` |
+| `=!` | binds a fixed local, which is never reassigned or given a write view, like Rust's `let` without `mut`; `x = e` binds or assigns | `limit =! 100` |
 
 **Taking and copying.**
 
@@ -23,12 +23,12 @@ which of its uses it is.
 | `<` | `<x` moves `x`; alone on a line, drops it now | `b = <a`, `f(<a)`, `<a` |
 | `+` | `+x` clones: a new owner, or another handle | `b = +a` |
 
-**Lending.**
+**Views.**
 
 | Sigil | Before a value | Before a type |
 |---|---|---|
-| `?` | `?x` lends `x` to read; a bare argument is lent so where its parameter is a read view | `?T`, a read view |
-| `!` | `!x` lends `x` to write; this mark is never implied | `!T`, a write view |
+| `?` | `?x` makes a read view of `x`; a bare argument becomes one where its parameter is a read view | `?T`, a read view |
+| `!` | `!x` makes a write view of `x`; this mark is never implied | `!T`, a write view |
 
 **Holding.**
 
@@ -53,7 +53,7 @@ which of its uses it is.
 | `&` | after a call, runs it as a task | `t = f(x)&` |
 | `>` | waits for a task and takes its result | `print(>t)` |
 
-`?` and `!` do the most work: a lend before a value, a view before a
+`?` and `!` do the most work: a view made before a value, a view before a
 type, absence or failure after a type, and passing it up after an
 expression. `!` never means "not"; Rig writes `not`.
 
@@ -71,10 +71,10 @@ task) and `Syncs` (may be read by several at once).
 
 **Braces in a type hide the value's type.** `?{Shape}` views a value of
 any type that provides `api Shape`, and `!{Shape}` writes one:
-`area_of(sq)` lends a `Square` where `s: ?{Shape}` is the parameter,
+`area_of(sq)` passes a `Square` as a view where `s: ?{Shape}` is the parameter,
 and `s.area()` calls the hidden type's method through its table.
 `^{Shape}` owns one, `*{Shape}` counts one, and `~{Shape}` holds one
-weakly. The object keeps every loan the value had. It goes to a task
+weakly. The object keeps every view the value had. It goes to a task
 only by a bound in its braces or its API: `^{Job + Sends}` may be
 given to one, and `*{Shape + Syncs}`, a frozen value's, read by many.
 
@@ -83,8 +83,8 @@ the one familiar exception: `max[Float](1, 2)` passes a type, `xs[i]`
 indexes a value. A function with only brackets runs at compile time:
 `fun cap[n: Int] -> Int`, called `cap[8]`, is a constant.
 
-**Reading is unmarked; writing is marked.** A bare argument is lent to
-read where its parameter is a read view: `size(v)` is `size(?v)` for
+**Reading is unmarked; writing is marked.** A bare argument becomes a
+read view where its parameter is a read view: `size(v)` is `size(?v)` for
 `size(xs: ?List[Int])`. Where the parameter owns its value, a bare owner
 is rejected: write `<v` to move it or `+v` to pass a clone (plain data
 such as an `Int` just copies). A write is always written: `grow(!v)`, or
@@ -92,22 +92,22 @@ such as an `Int` just copies). A write is always written: `grow(!v)`, or
 result is used. `!` never negates: a `!` is rejected wherever reading it
 as `not` would also type-check, so a write call whose `Bool` result is
 used puts its `!` in parentheses, `if (!seen).add(k)`, or `if not
-(!seen).add(k)` for the opposite. A value
-has any number of read views or one write view, never both.
+(!seen).add(k)` for the opposite. Any view leaves its place read-only until its last use, and a write
+view of an ordinary value leaves it unusable.
 
-**A lend in a binding lasts.** `r = ?v[0]` keeps a view of `v[0]`;
+**A view in a binding lasts.** `r = ?v[0]` keeps a view of `v[0]`;
 while `r` is used later, `v` may not change, move, or drop. `for x in
 ?v` reads each element in place, and `for x in !v` lets the body change
-it. The same holds for a call whose result keeps its argument lent:
+it. The same holds for a call whose result keeps a view of its argument:
 `r = head(?v)`, `xs = ?b.all()`, `vs = ?v.filter(f).collect()`, and
 `!xs.push(head(?v))` are written, while `print(head(v).len)` needs no
-mark, since its loan ends with the statement.
+mark, since its view ends with the statement.
 
-**A call keeps only what it says.** A view lent to a call ends when the
+**A call keeps only what it says.** A view passed to a call ends when the
 call returns, unless the function names that parameter in `keeps`:
 `sub watch(!@, s: ?String) keeps s` may store `s` in `@`, so its
-call is written `!b.watch(?t)`, and `t` stays lent while `b` is used. A
-body that stores a lent parameter without saying so is rejected. A
+call is written `!b.watch(?t)`, and `t` stays read-only while `b` is used. A
+body that stores a view parameter without saying so is rejected. A
 result names what it views, `from a`; a method's may name one field of
 self, `fun digits(!@) -> ?String from @text`, which leaves the other
 fields free while the view lives.
@@ -131,7 +131,7 @@ the same: `?@` reads (`a.balance()`), `!@` changes
 (`!a.pay(30)`), and `<@` consumes (`<a.close()`).
 
 **Shared state.** What handles share is a `Cell`, and it changes only by
-a marked call: `!c.set(5)`, which lends `c` to read. Reading,
+a marked call: `!c.set(5)`, which leaves `c` read-only. Reading,
 `c.get()`, is unmarked, and a read view never changes a `Cell`. A value
 no one changes again is frozen, `*Frozen(x)`, and any task reads it
 through its handles.
@@ -171,7 +171,7 @@ value or a jump, `o ?? return`, never a block. A search is a chain,
 `xs.find(|x| x > 3) ?? 0`, or `xs.index_of(x)` on a List.
 
 **Closures.** `|+n, x| x + n` names how it holds each outer value: `+n`
-copies or clones it, `?n` and `!n` lend it, `<n` takes it, `~n` holds
+copies or clones it, `?n` and `!n` make views of it, `<n` takes it, `~n` holds
 it weakly. A capture may be one field, `|?@template, k| ...`, which
 leaves the rest of the object free. `?fun(Int) -> Int` is a view of a
 closure for a call; `*fun` owns one.
@@ -189,7 +189,7 @@ that can fail: its `defer`s and drops run, and it ends with status 130.
 two, with `return a / b, a % b`, and `q, r = divmod(17, 5)` binds each
 by name; `_` discards one. They never form a value: a group of values
 kept past its statement is an object. One result may be a write view,
-`w, added = !m.ensure_added(k, 0)`, which keeps `m` lent to write as
+`w, added = !m.ensure_added(k, 0)`, which leaves `m` unusable while
 `w` lives, while `added` keeps nothing.
 
 **`not`** negates: `not done`. A comparison under it takes parentheses,

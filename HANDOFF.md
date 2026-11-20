@@ -125,6 +125,11 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **The view vocabulary** (owner, 2026-11-20; branch `loan-vocab`,
+  #1192): places, read and write views, read-only, unusable, and cells
+  replace lend and loan in the docs and the messages. PR 1 is the
+  wording; PR 2 adds the notes "still used here"; PR 3 renames the
+  compiler's identifiers (records/2026-11/loan-vocabulary/decisions.md).
 - **Spawn on the Mac at ten workers:** 93-96 ns a spawn through #1180,
   116 with #1181, 101-184 (bimodal) with #1183, while instructions fall.
   The cause lies in coordination on Apple cores (wake timing, bursts on
@@ -572,10 +577,14 @@ release notes.
 
 ## Conventions
 
-- **Vocabulary:** *you lend a view; the compiler remembers the loan.*
-  - lend: the act, written on the owner's side;
-  - view: the value handed over;
-  - loan: the owner-side record.
+- **Vocabulary:** *a sigil on a place makes a view.*
+  - place: a variable, a field, or an element;
+  - read view, write view: what `?x` and `!x` make;
+  - read-only: what any view leaves its place until its last use;
+  - unusable: what a write view of an ordinary value leaves its place;
+  - cell: a `Cell`, or a value that holds one, which a write view leaves
+    read-only. "Loan" is only the compiler's record; never "lend" or
+    "borrow".
 
 - **Commits:** prose, "area: what it now does", with a body of plain
   sentences and no AI attribution (AGENTS.md).

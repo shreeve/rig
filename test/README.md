@@ -40,7 +40,7 @@ A case that fails lands in `.swarm/died`, with its reason in
 | `test/rig/probes-*.rig.test` | the probes of past reviews, as cases (below) |
 | `test/oracle/` | the reference ownership checker and its lists (docs/internals/tests.md) |
 | `test/lanes/` | the SIMD lane grids `test/cli/lane_grid.sh` generates and checks |
-| `test/matrix.py`, `test/hints.py` | the matrix and the lend hints' check (below) |
+| `test/matrix.py`, `test/hints.py` | the matrix and the view hints' check (below) |
 
 Beside them, by hand: `bench/json/check/` compares `std.json` with
 Python's `json` module, and `tools/equiv.py` proves a refactor changed
@@ -215,7 +215,7 @@ be rejected), and holds each to one rule: `rig check` rejects it with a
 `file:line:col` diagnostic, or it runs clean under the sanitizer. A
 rejection by the parser, or for a name the program never binds, fails
 the cell: the generator wrote a program that tests nothing. A slice of the
-value, written with no lend, stands as an argument where a `[]T` or a
+value, written with no sigil, stands as an argument where a `[]T` or a
 `?String` goes, also while a later argument writes what it slices; and a
 slice of an array, a List, a String, or a `?String` held owned, through a
 read or write view, a `*T`, a box (or a write view of either), a field,
@@ -228,9 +228,9 @@ store, and a result. And it uses a view of a read `match` payload in
 its arm, or returns or stores it, for each kind of type reached through
 each kind of subject, runs other code on the stack before reading it,
 and checks that a program that runs prints what the payload holds,
-since the sanitizer cannot see a stale stack slot. It lends a binding
+since the sanitizer cannot see a stale stack slot. It makes a view of a binding
 that is a write view (a `match !e` payload of every subject, named,
-guarded, nested, and of a branch of write lends; `if !o as b` and
+guarded, nested, and of a branch of write views; `if !o as b` and
 `while !o as b`; `for b in !v`, with an index and over an array; a `!T`
 parameter; a `|!b|` capture; a held `b = !x`; a `defer` in the arm) of
 a String, a
@@ -244,8 +244,8 @@ write views, `??` of an optional write view), through the binding or
 through the place; every such program must be rejected
 (`lendw.`). And it puts each header (`match`, `if … as`, `while … as`,
 `for`) over a subject that reaches a place holding a write view through
-a branch, through a path, `?.`, `??`, and `catch`, written bare, lent
-to read (`?S`), and lent to write (`!S`), for a `!W` parameter and a
+a branch, through a path, `?.`, `??`, and `catch`, written bare, passed
+as a read view (`?S`), and passed as a write view (`!S`), for a `!W` parameter and a
 local write view, and writes through the place while a view of the binding lives; every such
 program must be rejected (`hdr.`). A `while` step
 reads what its condition binds, a view or an object holding one, while
@@ -274,7 +274,7 @@ element, a temporary changed where it stands) must be rejected
 (`cellmut.value.`, `celltemp.value.`). It also guards an index, a byte
 read or write (of an integer or a `Simd`), or an add with each guard the compiler knows, and two
 that prove nothing (`+%`, `or`), writes what the guard named between it
-and the use in each way a program can (an assignment, a `!` lend, a
+and the use in each way a program can (an assignment, a `!` view, a
 closure, a `defer`, a branch, a `match` arm, a loop, `raw`, a shadowing
 `new`, a step), and checks that `rig check --facts=proofs` lists at the
 use exactly the tests its own table of the rules proves, and that the

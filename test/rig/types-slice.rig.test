@@ -1,6 +1,6 @@
 # types: tests whose names start `slice`.
 
-fail "slice argument needs read view", "31:6: `zero` writes the elements of `w[1..]`, and a slice is lent to read unless it is written `!`; write `zero(!w[1..])`", "32:11: `own` takes a `List[Int]`, which owns its elements, and `v[..]` only views `v`'s", "32:24: `pair` takes a `[2]Int`, which owns its elements, and `w[..2]` only views `w`'s", "32:38: `name` takes a `String`, which owns its bytes, and `t[1..]` only views `t`'s; write `name(String(?t[1..]))` to pass a copy", "32:52: type mismatch: expected `?[]Int`, got `[]Int`", "33:5: a slice of an array or List views it; write `?w[1..]`", "34:11: a slice of an array or List views it; write `?w[..2]`", "26:3: a slice of an array or List views it; write `?a[1..]`", errors: 8
+fail "slice argument needs read view", "31:6: `zero` writes the elements of `w[1..]`, and a slice is a read view unless it is written `!`; write `zero(!w[1..])`", "32:11: `own` takes a `List[Int]`, which owns its elements, and `v[..]` only views `v`'s", "32:24: `pair` takes a `[2]Int`, which owns its elements, and `w[..2]` only views `w`'s", "32:38: `name` takes a `String`, which owns its bytes, and `t[1..]` only views `t`'s; write `name(String(?t[1..]))` to pass a copy", "32:52: type mismatch: expected `?[]Int`, got `[]Int`", "33:5: a slice of an array or List views it; write `?w[1..]`", "34:11: a slice of an array or List views it; write `?w[..2]`", "26:3: a slice of an array or List views it; write `?a[1..]`", errors: 8
   # A slice argument is lent to read where its parameter takes the read
   # view it makes: a `[]T`, a String, or an optional of one. Anywhere else
   # it says what to write: `!xs[a..b]` where a `![]T` goes, a copy where a
@@ -229,7 +229,7 @@ test "slice copy into param", '''
   !x.fill(0)
   print(x, y, v)
 
-fail "slice elem methods", "10:3: cannot `fill` a `[]Int`; its elements are read-only", "13:1: `fill` writes the elements; lend `self` with `!`: `!a.fill(0)`", "15:1: cannot `swap` a `?String`; a `?String` is read-only", "17:5: `fill` copies its value into every element, and a `*P` owns a resource, so it cannot be copied: write a loop that makes each element with `+x` (`for i in 0..xs.len` with `xs[i] = +x`)", "19:9: type mismatch: expected `[]Int`, got `[]U8`", "20:12: index `2` is out of bounds for an array of length 2", "`swap` takes two arguments, the indexes of the elements to swap; got 1 argument", "`fill` takes no compile-time arguments", "24:1: `fill` does not consume `self`; remove the `<`"
+fail "slice elem methods", "10:3: cannot `fill` a `[]Int`; its elements are read-only", "13:1: `fill` writes the elements; make a write view of `self` with `!`: `!a.fill(0)`", "15:1: cannot `swap` a `?String`; a `?String` is read-only", "17:5: `fill` copies its value into every element, and a `*P` owns a resource, so it cannot be copied: write a loop that makes each element with `+x` (`for i in 0..xs.len` with `xs[i] = +x`)", "19:9: type mismatch: expected `[]Int`, got `[]U8`", "20:12: index `2` is out of bounds for an array of length 2", "`swap` takes two arguments, the indexes of the elements to swap; got 1 argument", "`fill` takes no compile-time arguments", "24:1: `fill` does not consume `self`; remove the `<`"
   # `copy`, `fill`, and `swap` write the elements: self is written
   # `!xs` (or is a `![]T`), never moved, and a String or a `[]T` is
   # read-only. `fill` and `copy` copy values in, so the elements are plain
@@ -255,7 +255,7 @@ fail "slice elem methods", "10:3: cannot `fill` a `[]Int`; its elements are read
   w = !a[..]
   <w.fill(0)
 
-fail "slice element write", "15:1: cannot assign through a slice; a `[]T` is read-only", "16:1: cannot assign through a slice; a `[]T` is read-only", "17:6: cannot lend to write through a slice; a `[]T` is read-only", "20:1: cannot assign through a slice; a `[]T` is read-only", "21:2: cannot lend to write through a slice; a `[]T` is read-only"
+fail "slice element write", "15:1: cannot assign through a slice; a `[]T` is read-only", "16:1: cannot assign through a slice; a `[]T` is read-only", "17:6: cannot make a write view through a slice; a `[]T` is read-only", "20:1: cannot assign through a slice; a `[]T` is read-only", "21:2: cannot make a write view through a slice; a `[]T` is read-only"
   # A `[]T` is read-only: its elements cannot be assigned, lent to write,
   # or reached by a `!@` method.
 
@@ -292,7 +292,7 @@ fail "slice fill copy views", "8:6: a write view is never stored inside a value,
   a = [1, 2]
   print(a[0])
 
-fail "slice of branch write views", "9:13: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `(?a if c else ?b)[1..]`", "10:14: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `(?a if c else ?b)[..2]`", errors: 2
+fail "slice of branch write views", "9:13: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `(?a if c else ?b)[1..]`", "10:14: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `(?a if c else ?b)[..2]`", errors: 2
   # A slice of a branching value whose branches are write views a name
   # holds would copy a write view: each branch is lent instead, and the
   # hint writes the slice that way.
@@ -415,7 +415,7 @@ test "slice temporary", "[1, 2] 5"
 
   print(?make()[0..2], total(?make()[1..]))
 
-fail "slice write", "7:8: cannot lend parameter `a` to write", "8:8: cannot lend to write through a read view (`?T`)", "9:8: cannot lend a slice of a `[]Int` to write; a `[]T` is read-only", "13:6: cannot lend a slice of a `?String` to write; a `?String` is read-only", "15:6: cannot lend fixed binding `c` to write", "18:8: cannot lend `row` to write: it is a copy of an element of `rows`; to change the elements in place, loop with `for row in !rows`"
+fail "slice write", "7:8: cannot change parameter `a`", "8:8: cannot make a write view through a read view (`?T`)", "9:8: cannot make a write view of a slice of a `[]Int`; a `[]T` is read-only", "13:6: cannot make a write view of a slice of a `?String`; a `?String` is read-only", "15:6: cannot change fixed binding `c`", "18:8: cannot change `row`: it is a copy of an element of `rows`; to change the elements in place, loop with `for row in !rows`"
   # `!xs[a..b]` needs elements the code may write: not a String's, not a
   # `[]T`'s, and not those of a fixed binding, a loop binding (a copy), a
   # by-value or lent to read parameter. (A temporary's are written in its

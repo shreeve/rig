@@ -2,7 +2,7 @@
 
 use std.sort
 
-fail "write field stores param view", "13:5: cannot lend `b` to write while a read loan is live", errors: 1
+fail "write field stores param view", "13:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A store through local write view `c` lands in local `h`, which then
   # holds the view of parameter `b`: `b` stays lent while `h` is used.
 
@@ -90,7 +90,7 @@ test "write lend branch moved leaf", '''
   go(true)
   go(false)
 
-fail "write lend branch part of temp", "25:3: cannot lend `mkpair(3).a if c else mk(5)` to write: it may be `mkpair(3).a`, a part of the temporary `mkpair(3)`, which lending the branching value would copy", errors: 1
+fail "write lend branch part of temp", "25:3: cannot make a write view of `mkpair(3).a if c else mk(5)`: it may be `mkpair(3).a`, a part of the temporary `mkpair(3)`, which a view of the branching value would copy; put the sigil on", errors: 1
   # A branching value that may be a part of a temporary is lent per
   # branch, as one that may be a name's is: lending it whole would copy
   # the part out of its temporary, which the write would miss.
@@ -413,7 +413,7 @@ test "write lend read result", '''
   deferred()
   in_closure()
 
-fail "write lend read result is rejected", "43:3: cannot lend `v` to write while a read loan is live", "49:3: cannot reassign `v` while it is lent", "55:8: cannot move `v` while a read loan is live", "61:9: use of `v` while a write loan is live", "67:3: cannot assign to `b.count` while `b` is lent", "73:3: cannot lend `b.items` to write while a read loan is live", "80:3: cannot lend `rows` to write while a read loan is live", "86:3: cannot lend `v` to write while a read loan is live", "94:5: cannot lend `v` to write while a read loan is live", "100:3: cannot lend `v` to write while a read loan is live", "106:3: cannot lend `v` to write while a read loan is live", errors: 11
+fail "write lend read result is rejected", "43:3: cannot change `v` while a read view of it is still in use", "49:3: cannot reassign `v` while a read view of it is still in use", "55:8: cannot move `v` while a read view of it is still in use", "61:9: cannot use `v` while a write view of it is still in use", "67:3: cannot assign to `b.count` while a read view of `b` is still in use", "73:3: cannot change `b.items` while a read view of it is still in use", "80:3: cannot change `rows` while a read view of it is still in use", "86:3: cannot change `v` while a read view of it is still in use", "94:5: cannot change `v` while a read view of it is still in use", "100:3: cannot change `v` while a read view of it is still in use", "106:3: cannot change `v` while a read view of it is still in use", errors: 11
   # A call lent `!v` whose result holds no write view leaves `v` lent to
   # read while the result lives: `v` may not be written, reassigned, or
   # moved. A result that is a write view keeps `v` lent to write.
@@ -944,7 +944,7 @@ test "write lend temporary kinds", '''
   flip(!mkbool())
   print("end")
 
-fail "write lend temporary outlives", "25:5: cannot return a view of `mk()`, which this function was not lent", "27:6: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "29:7: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "31:6: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "33:7: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "35:6: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", errors: 6
+fail "write lend temporary outlives", "25:5: cannot return a view of `mk()`, which belongs to this function", "27:6: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "29:7: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "31:6: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "33:7: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "35:6: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", errors: 6
   # `!` lends any value to write, a temporary too, but a temporary lives
   # only until its statement ends (Core §3): a write view of it, or of a
   # field or element of it, or one a write method returns, that is held
@@ -982,7 +982,7 @@ fail "write lend temporary outlives", "25:5: cannot return a view of `mk()`, whi
   z = !mk().arr[..]
   print(z)
 
-fail "write lend temporary rejected", "36:1: `push` changes `self`, a temporary no name holds; add `!`: `!mkv().push(1)`", "37:3: cannot lend `a if c else b` to write: it may be `a`, a value a name holds", "38:28: cannot call method `bump`, which writes `self`, through a shared handle", "39:8: cannot call method `bump`, which writes `self`, through a shared handle", "40:11: the loop would walk the temporary `mk()` after its header drops it", "42:1: cannot assign to a field or element of a temporary", "43:7: cannot lend constant `false` to write: it lives for the whole program"
+fail "write lend temporary rejected", "36:1: `push` changes `self`, a temporary no name holds; add `!`: `!mkv().push(1)`", "37:3: cannot make a write view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on", "38:28: cannot call method `bump`, which writes `self`, through a shared handle", "39:8: cannot call method `bump`, which writes `self`, through a shared handle", "40:11: the loop would walk the temporary `mk()` after its header drops it", "42:1: cannot assign to a field or element of a temporary", "43:7: cannot change constant `false`: it lives for the whole program"
   # What `!` on a temporary does not make valid (Core sentences 4, 8, 9,
   # §3): a write method with no `!` (the hint adds it); a branching value
   # that may be a name's, which would be lent as a copy (each branch is
@@ -1359,7 +1359,7 @@ test "write lend temporary view", '''
   sort.sort(!mka())
   !mka().fill(0)
 
-fail "write method while lent", "cannot lend `u` to write while a read loan is live"
+fail "write method while lent", "cannot change `u` while a read view of it is still in use"
   # A `!@` method call needs self not lent.
 
   obj User
@@ -1420,7 +1420,7 @@ test "write param read copy then local store", '''
   optional(!h)
   print(h.s)
 
-fail "write self note", "20:21: cannot lend `b` to write while a read loan is live", "20:9: lent to write here, as `self`, which is read until the call starts"
+fail "write self note", "20:21: cannot change `b` while a write view of it is still in use", "20:9: a write view of `b` is made here, as `self`, which is read until the call starts"
   # A write self is lent to write, and read until its call starts
   # (Core §6), so an argument cannot lend it to write; the note says the
   # lend was a write.
@@ -1442,7 +1442,7 @@ fail "write self note", "20:21: cannot lend `b` to write while a read loan is li
   !b.items.push(Item(n: 7))
   print((!b).consume((!b).first()))
 
-fail "write self outer bang", "20:4: `pop` changes `self`, a temporary no name holds; the `!` here lends what `pop` returns, not `self`: write `!(mkopt(n)?).pop()`"
+fail "write self outer bang", "20:4: `pop` changes `self`, a temporary no name holds; the `!` here makes a write view of what `pop` returns, not of `self`: write `!(mkopt(n)?).pop()`"
   # A `!` that does not reach a write method's temporary self: one
   # outside a chain the self-sigil rule stops at (`!o?.pop()` lends
   # what `pop` returns). The diagnostic says so, and names what works.
@@ -1628,7 +1628,7 @@ test "write self through returned view", "2 11"
   pick(!s, !t, false).bump()
   print(s.n, t.n)
 
-fail "write slice aliasing", "8:8: cannot lend `a` to write while a write loan is live", "16:4: use of `v` while a write loan is live", "22:9: use of `a` while a write loan is live", "29:3: cannot assign to `w[1]` while `w` is lent", "36:3: cannot assign to `w[1]` while `w` is lent"
+fail "write slice aliasing", "8:8: cannot change `a` while a write view of it is still in use", "16:4: cannot use `v` while a write view of it is still in use", "22:9: cannot use `a` while a write view of it is still in use", "29:3: cannot assign to `w[1]` while a write view of `w` is still in use", "36:3: cannot assign to `w[1]` while a read view of `w` is still in use"
   # A `![]T` is a write view of its root: two live write slices of one
   # array are rejected, and so are a push to a List, a use of the root, and
   # a write through the slice while a reslice of it is live.
@@ -1669,7 +1669,7 @@ fail "write slice aliasing", "8:8: cannot lend `a` to write while a write loan i
 
   two()
 
-fail "write slice as read", "14:3: cannot assign to `w[0]` while `w` is lent", "19:9: cannot lend `w` to read while a write loan is live"
+fail "write slice as read", "14:3: cannot assign to `w[0]` while a read view of `w` is still in use", "19:9: cannot use `w` while a write view of it is still in use"
   # A `![]T` lent to read cannot be written while the view lives, nor lent
   # to write in the same call.
 
@@ -1703,7 +1703,7 @@ fail "write slice escape", "6:8: `+x` cannot clone a `![]Int`: it is a write vie
 
   clone()
 
-fail "write slice escape ownership", "6:4: cannot return a view of `a`, which this function was not lent", "11:7: bare use of write view `w` in binding would copy a write view, which is unique"
+fail "write slice escape ownership", "6:4: cannot return a view of `a`, which belongs to this function", "11:7: bare use of write view `w` in binding would copy it, and a write view never copies"
   # A `![]T` is a write view: it is not copied, and it is returned only
   # when it views from a `!` parameter.
 
@@ -2021,7 +2021,7 @@ test "write view branches read", '''
 
   names()
 
-fail "write view copied", "bare use of write view `w` in binding would copy a write view, which is unique"
+fail "write view copied", "bare use of write view `w` in binding would copy it, and a write view never copies"
   # Copying a write view into a second binding would give two live
   # mutable paths to the same value; move it with `<w` instead. A bare
   # write view of a value that copies reads that value (Core sentence 1:
@@ -2054,7 +2054,7 @@ fail "write view copied by binding", "9:6: a write view is never stored inside a
   h = Holder(v: List())
   print(h.v.len)
 
-fail "write view field lent to struct", "13:6: use of `e` while a write loan is live", errors: 1
+fail "write view field lent to struct", "13:6: cannot use `e` while a write view of it is still in use", errors: 1
   # Building a second write view from a first one lends the first out: it
   # cannot be used while the second is live (here the second is read
   # while the first would push, freeing the buffer).
@@ -2138,7 +2138,7 @@ test "write view lent as copied read", '''
   g: [2]?Int = [wn, wk]
   print(g[0], g[1])
 
-fail "write view lent bare", "13:5: write `!@bump()`: the call writes `@`", "26:8: write `!c`: the call writes through `c`", "30:3: `fill` writes the elements; lend `self` with `!`: `!xs.fill(0)`", "33:14: write `!c`: the call writes through `c`", "38:1: write `!w.bump()`: the call writes `w`"
+fail "write view lent bare", "13:5: write `!@bump()`: the call writes `@`", "26:8: write `!c`: the call writes through `c`", "30:3: `fill` writes the elements; make a write view of `self` with `!`: `!xs.fill(0)`", "33:14: write `!c`: the call writes through `c`", "38:1: write `!w.bump()`: the call writes `w`"
   # Lending a write view always shows its sigil: a held write view (a
   # `!T` parameter, `@` in a `!@` method, a local) is lent to a `!T`
   # parameter, a `!@` self, or an element method as `!w`. A held
@@ -2345,7 +2345,7 @@ test "write view result binding holds view", '''
   l = 1
   print(n, m)
 
-fail "write view held by a loop value is lent while it lives", "12:7: use of `n` while a write loan is live", errors: 1
+fail "write view held by a loop value is lent while it lives", "12:7: cannot use `n` while a write view of it is still in use", errors: 1
   # A binding of a loop's value that is a write view at every `break`
   # holds the view, as a binding of an `if` does, so `n` stays lent to
   # write while `l` is used. 0.2.9 copied the value instead.
@@ -2359,7 +2359,7 @@ fail "write view held by a loop value is lent while it lives", "12:7: use of `n`
   l = 1
   print(n, l)
 
-fail "write view result binding lent", "10:7: use of `n` while a write loan is live", errors: 1
+fail "write view result binding lent", "10:7: cannot use `n` while a write view of it is still in use", errors: 1
   # A binding of a call's `!Int` result holds the write view, so the value
   # the call was lent stays lent to write while the binding is used.
 
@@ -2371,7 +2371,7 @@ fail "write view result binding lent", "10:7: use of `n` while a write loan is l
   w = 5
   print(n, w)
 
-fail "write view temporary handle", "14:6: cannot lend `o?` to write: it may be `o`, a value a name holds, which lending the branching value would copy", errors: 1
+fail "write view temporary handle", "14:6: cannot make a write view of `o?`: it may be `o`, a value a name holds, which a view of the branching value would copy; make a view of", errors: 1
   # A handle no binding holds is lent to write as any value is
   # (`test/behavior/ownership/write_lend_temporary_view.rig`): `!h` lends the
   # handle itself. A value that may be a name's, like the value inside an
@@ -2390,7 +2390,7 @@ fail "write view temporary handle", "14:6: cannot lend `o?` to write: it may be 
 
   print(f(none) ?? 0)
 
-fail "write view through read view", "cannot lend to write through a read view", "cannot write-iterate through a read view"
+fail "write view through read view", "cannot make a write view through a read view", "cannot write-iterate through a read view"
   # A read view cannot be upgraded to a write view of a part of the
   # value: a field reached through `?T` cannot be lent to write, given to
   # a `!@` method, or write-iterated.
@@ -2417,7 +2417,7 @@ fail "write view through read view", "cannot lend to write through a read view",
   h = Holder(c: Counter(n: 0), xs: [1, 2])
   f(?h)
 
-fail "write-iterate through a binding that holds a read view", "15:11: cannot write-iterate through a read view (`?T`); take a write view (`!T`) to mutate", "18:11: cannot write-iterate through a read view", "22:11: cannot write-iterate through a read view", "27:11: cannot write-iterate through a read view", "31:11: cannot write-iterate through a read view", "34:13: cannot write-iterate through a read view", "38:1: cannot lend to write through a read view (`?T`)", errors: 7
+fail "write-iterate through a binding that holds a read view", "15:11: cannot write-iterate through a read view (`?T`); take a write view (`!T`) to mutate", "18:11: cannot write-iterate through a read view", "22:11: cannot write-iterate through a read view", "27:11: cannot write-iterate through a read view", "31:11: cannot write-iterate through a read view", "34:13: cannot write-iterate through a read view", "38:1: cannot make a write view through a read view (`?T`)", errors: 7
   # A place that holds a read view, as a binding of `?a`, of a call
   # that returns one, a field, or an element, writes nothing through it,
   # as a step across one does not: each loop would drop the String that
@@ -2458,7 +2458,7 @@ fail "write-iterate through a binding that holds a read view", "15:11: cannot wr
   seen.fill(0)
   print(first)
 
-fail "write through a write view of a read view", "16:3: cannot assign through a read view (`?T`)", "18:4: cannot lend to write through a read view (`?T`)", "20:3: cannot assign through a read view (`?T`)", "22:13: cannot write-iterate through a read view (`?T`)", "25:4: cannot lend to write through a read view (`?T`)", errors: 5
+fail "write through a write view of a read view", "16:3: cannot assign through a read view (`?T`)", "18:4: cannot make a write view through a read view (`?T`)", "20:3: cannot assign through a read view (`?T`)", "22:13: cannot write-iterate through a read view (`?T`)", "25:4: cannot make a write view through a read view (`?T`)", errors: 5
   # `for x in !vs` over a `List[?T]` gives each element as a `!?T`: the
   # loop may point it elsewhere, but what it reaches is only read, as
   # through the `?T`. Each write would drop or move what `first` views.
@@ -2508,7 +2508,7 @@ test "write-iterate through a write view a binding holds, and a read view pointe
     x += 10
   print(a)
 
-fail "write view view in loop", "16:2: cannot drop `t` while it is lent", errors: 1
+fail "write view view in loop", "16:2: cannot drop `t` while a read view of it is still in use", errors: 1
   # A view stored through a write view in a loop lands in what it
   # views, and a copy made on the next iteration keeps the Text viewed.
 
@@ -2527,7 +2527,7 @@ fail "write view view in loop", "16:2: cannot drop `t` while it is lent", errors
   <t
   print(o)
 
-fail "write view while read live", "cannot lend `user` to write while a read loan is live"
+fail "write view while read live", "cannot change `user` while a read view of it is still in use"
   # A write view cannot be taken while a read view of the same value
   # is live: used later.
 
@@ -2663,7 +2663,7 @@ test "write a call's write view read where a value is stored", "[10, 10] 10"
     slot(!v, 1) = slot(!v, 0)
     print(v, p.x)
 
-fail "write a call's write view kept past a write", "use of `v` while a write loan is live", errors: 1
+fail "write a call's write view kept past a write", "cannot use `v` while a write view of it is still in use", errors: 1
   # The sibling shape: a `!Int` the call gives, kept in a binding, keeps
   # `v` lent to write while it lives.
   # oracle: main reject C4
@@ -2679,7 +2679,7 @@ fail "write a call's write view kept past a write", "use of `v` while a write lo
     w = 3
     print(v)
 
-fail "write view returned while a task holds it", "16:14: cannot move `s` while a write loan is live", "22:12: cannot move `s` while a write loan is live", "27:5: cannot move `s` while a write loan is live", errors: 3
+fail "write view returned while a task holds it", "16:14: cannot move `s` while a write view of it is still in use", "22:12: cannot move `s` while a write view of it is still in use", "27:5: cannot move `s` while a write view of it is still in use", errors: 3
   # A returned write view moves, as `<s` would: not while a task it was
   # lent to, waited for where its scope ends, still holds it.
   obj Slot
@@ -2853,7 +2853,7 @@ test "write view lent through a binding is returned", '''
     .full(s) => print(s.value)
     .empty => pass
 
-fail "write view lent through a binding stays lent", "24:7: cannot assign to `@slots[j]` while `@slots` is lent", "31:7: cannot reassign `s` while `s.items` is lent", "37:14: `other` returns a view of `@p`, but its signature says it views only `@o`", "42:13: cannot reassign `s` while `s.items` is lent", "50:15: cannot lend `s.items` to write while a write loan on `s` is live", "56:15: cannot lend `s.items` to write while a write loan on `s` is live", "61:13: cannot reassign `s` while `s.items` is lent", "69:15: cannot reassign `s` while `s.items` is lent", "79:12: `s` does not live long enough", "84:11: cannot reassign `s` while `s.items` is lent", "90:13: cannot reassign `s` while `s.items` is lent", "98:8: cannot return a view of `x`, which this function was not lent", "103:9: cannot return a view of `xs`, which this function was not lent", errors: 13
+fail "write view lent through a binding stays lent", "24:7: cannot assign to `@slots[j]` while a write view of `@slots` is still in use", "31:7: cannot reassign `s` while a write view of `s.items` is still in use", "37:14: `other` returns a view of `@p`, but its signature says it views only `@o`", "42:13: cannot reassign `s` while a write view of `s.items` is still in use", "50:15: cannot change `s.items` while a write view of `s` is still in use", "56:15: cannot change `s.items` while a write view of `s` is still in use", "61:13: cannot reassign `s` while a write view of `s.items` is still in use", "69:15: cannot reassign `s` while a write view of `s.items` is still in use", "79:12: `s` does not live long enough", "84:11: cannot reassign `s` while a write view of `s.items` is still in use", "90:13: cannot reassign `s` while a write view of `s.items` is still in use", "98:8: cannot return a view of `x`, which belongs to this function", "103:9: cannot return a view of `xs`, which belongs to this function", errors: 13
   # What a returned view sees stays lent while it lives, and the binding
   # it was lent through is not used while it lives, by a defer, a
   # closure a defer calls, or a task, at a `return`, a block's value, or
