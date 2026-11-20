@@ -256,6 +256,12 @@ pub fn finish_connect(fd: i64, reg: i64) Error!void {
     // The connect began before the socket was registered, so any edge the
     // registration has seen may be the one it waits for: it waits past
     // none.
+    // Counted while it waits, for the Mac's sleeping workers
+    // (`rig.sched.connecting`).
+    if (darwin) _ = rig.sched.connecting.*.fetchAdd(1, .monotonic);
+    defer if (darwin) {
+        _ = rig.sched.connecting.*.fetchSub(1, .monotonic);
+    };
     try waitFor(s, reg, rig.sched.Registration.writable, 0, .{});
     var err: c_int = 0;
     var len: posix.socklen_t = @sizeOf(c_int);

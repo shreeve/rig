@@ -858,6 +858,15 @@ arms.
   cancel sets reaches `runHere` from its waiter, not from a field of
   every task's record, which is 448 bytes again where it had grown to
   464 (bench/tasks' spawn, one cache line fewer).
+- **On the Mac a sleeping worker waits with no first deadline:** a
+  worker holding descriptors no longer waits first for at most 20 µs
+  (`settle_wait`). macOS wakes a thread from such a wait sooner, which
+  made bench/net's connections faster, but its ping-pong was 7% slower
+  than Tokio's for it: ping-pong is level with Tokio's now (14.6 µs a
+  round trip against 14.8), echo stays ahead. Only while a task waits
+  for a connection it makes to finish does the first wait end within
+  20 µs (`sched.connecting`), so connect is as fast as before (51 µs a
+  connection, where it took 58 without it; Tokio 63).
 - **On Apple silicon a task's record is taken a line at a time:** with
   more than one worker, `spawn` zeroes the record's whole cache lines
   with `dc zva` before it fills them (`sched.claimRecord`). A record
