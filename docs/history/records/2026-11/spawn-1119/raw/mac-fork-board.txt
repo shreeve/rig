@@ -1,0 +1,9 @@
+claim rc=0
+round 20: main1/10 psum 3.50, main1/10 qsort 57.88, base/10 psum 2.63, base/10 qsort 60.59, base1/10 psum 2.75, base1/10 qsort 56.91, aa/10 psum 2.29, aa/10 qsort 52.32, rayon/10 psum 2.49, rayon/10 qsort 55.70, main/10 psum 2.33, main/10 qsort 55.21, main1/1 psum 6.01, main1/1 qsort 134.92, base/1 psum 9.22, base/1 qsort 137.24, base1/1 psum 5.77, base1/1 qsort 138.23, aa/1 psum 5.98, aa/1 qsort 134.56, rayon/1 psum 5.67, rayon/1 qsort 150.65, main/1 psum 5.88, main/1 qsort 135.41
+end 21:52:46 21:52  up 2 days, 20:31, 3 users, load averages: 5.65 7.40 18.82
+ 1 workers psum  main 7.05 (1.061 rayon, 1.000 main)  main1 6.43 (0.967 rayon, 0.911 main)  base 7.00 (1.053 rayon, 0.993 main)  base1 7.02 (1.056 rayon, 0.995 main)  aa 6.39 (0.962 rayon, 0.907 main)  rayon 6.64 (1.000 rayon, 0.942 main)
+ 1 workers qsort main 139.36 (0.922 rayon, 1.000 main)  main1 137.22 (0.907 rayon, 0.985 main)  base 139.75 (0.924 rayon, 1.003 main)  base1 140.07 (0.926 rayon, 1.005 main)  aa 136.68 (0.904 rayon, 0.981 main)  rayon 151.23 (1.000 rayon, 1.085 main)
+10 workers psum  main 2.50 (0.938 rayon, 1.000 main)  main1 2.61 (0.979 rayon, 1.044 main)  base 2.57 (0.964 rayon, 1.028 main)  base1 2.61 (0.982 rayon, 1.046 main)  aa 2.61 (0.982 rayon, 1.047 main)  rayon 2.66 (1.000 rayon, 1.066 main)
+10 workers qsort main 55.39 (0.907 rayon, 1.000 main)  main1 56.18 (0.920 rayon, 1.014 main)  base 58.13 (0.952 rayon, 1.049 main)  base1 57.22 (0.937 rayon, 1.033 main)  aa 55.98 (0.917 rayon, 1.011 main)  rayon 61.06 (1.000 rayon, 1.102 main)
+
+[exited with code 0]
