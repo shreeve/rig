@@ -495,7 +495,7 @@ fail "review-text-b3", "cannot change `v` while a read view of it is still in us
   !v[0].add(?v[0])
   print(v)
 
-fail "review-text-c1", "`t` does not live long enough"
+fail "review-text-c1", "`t` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj S
     s: ?String
 
@@ -2145,7 +2145,7 @@ test "review-while-step-w04-labeled-continue-inner-while", "25 5"
 
   # expect: 25 5
 
-fail "review-while-step-w06-body-local-repoint", "`local` does not live long enough"
+fail "review-while-step-w06-body-local-repoint", "`local` is dropped here, at the end of its scope, while a read view of it is still in use"
   # The body re-points an outer view at a body-local List, which drops
   # at the body's end; the step then reads the view.
   #
@@ -2485,7 +2485,7 @@ fail "review-while-step-w30-enclosing-defer", "cannot change `v` while a read vi
     i += 1
   print(v.len)
 
-fail "review-while-step-w31-repoint-write-view-local", "`y` does not live long enough"
+fail "review-while-step-w31-repoint-write-view-local", "`y` is dropped here, at the end of its scope, while a write view of it is still in use"
   # The body re-points an outer write view at a body-local value; the
   # step writes through it after the local's scope ended.
   #

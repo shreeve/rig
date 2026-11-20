@@ -133,7 +133,7 @@ test "review-step45-g03 repoint then use old", "M n2"
   !w.add("2")
   print(m, n)
 
-fail "review-step45-g04 repoint inner scope", "`k` does not live long enough"
+fail "review-step45-g04 repoint inner scope", "`k` is dropped here, at the end of its scope, while a write view of it is still in use"
   # re-point at an inner-scope local, then write after it is gone
   m = String("m")
   w = !m
@@ -976,7 +976,7 @@ fail "review-step45-q01 shared elem view drop", "cannot drop `h` while a read vi
   <h
   print(r)
 
-fail "review-step45-q02 upgrade elem view escape", "`g` does not live long enough"
+fail "review-step45-q02 upgrade elem view escape", "`g` is dropped here, at the end of its scope, while a read view of it is still in use"
   # element view through an upgraded weak handle escapes the if
   obj S
     v: List[String]

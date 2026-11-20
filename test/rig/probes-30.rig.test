@@ -10,7 +10,7 @@ fail "review-stdjson-dangle drop", "cannot drop `s` while a read view of it is s
   <s
   print(doc.string(1))
 
-fail "review-stdjson-dangle loop", "`s` does not live long enough"
+fail "review-stdjson-dangle loop", "`s` is dropped here, at the end of its scope, while a read view of it is still in use"
   doc = json.Doc()
   for _ in 0..2
     s = String("[\"abc\"]")
@@ -367,7 +367,7 @@ fail "review-step10-a01 leaf made coalesce", "a view of the temporary `mko(5) ??
   print(clobber(9))
   print(r.n)
 
-fail "review-step10-a03 as header copy view escape", "`x` does not live long enough"
+fail "review-step10-a03 as header copy view escape", "`x` is dropped here, at the end of its scope, while a read view of it is still in use"
   # header_value + as_value copy: `if pick(?h, ?String("k")) as x` makes a
   # header temporary, so the binding views a copy (plain data accepted).
   # Store a view of x in an outer var and read it after the body.

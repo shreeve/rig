@@ -1766,7 +1766,7 @@ fail "review-sc4-dg2", "`v` does not live long enough"
     _ => ?z[..]
   print(x.len)
 
-fail "review-sc4-dg3", "`b` does not live long enough"
+fail "review-sc4-dg3", "`b` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj B
     n: Int
 

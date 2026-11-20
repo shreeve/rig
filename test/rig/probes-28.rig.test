@@ -1742,7 +1742,7 @@ test "review-seam2-g01 wrap view recv", '''
   wrap(!s).pop()
   print(s.n)
 
-fail "review-seam2-h07 store via view recv bang", "`s` does not live long enough"
+fail "review-seam2-h07 store via view recv bang", "`s` is dropped here, at the end of its scope, while a read view of `s.t` is still in use"
   # Review probe h07_store_via_view_recv_bang.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
   # oracle: S.drop accept
   # oracle: H.keep accept
@@ -2654,7 +2654,7 @@ fail "review-seam2-r2-w15 branch temp lends", "cannot move out of `(!mk(1) if c 
   x = <(!mk(1) if c else !mk(2)).items
   print(x)
 
-fail "review-seam2-r2-x01 bracket named", "`s` does not live long enough"
+fail "review-seam2-r2-x01 bracket named", "`s` is dropped here, at the end of its scope, while a read view of `s.t` is still in use"
   # Review probe r2/x01_bracket_named.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
   # oracle: S.drop accept
   # oracle: H.keep accept
@@ -2877,7 +2877,7 @@ fail "review-seam2-r2-x05 branch recv", "a view of the temporary `mk(1)` is held
   !(mkh() if c else mkh()).keep(?mk(1).t)
   print("end")
 
-fail "review-seam2-r2-x06 branch named recv", "`s` does not live long enough"
+fail "review-seam2-r2-x06 branch named recv", "`s` is dropped here, at the end of its scope, while a read view of `s.t` is still in use"
   # Review probe r2/x06_branch_named_recv.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
   # oracle: S.drop accept
   # oracle: H.keep accept
@@ -3177,7 +3177,7 @@ fail "review-seam2-r2-x12 wrap temp", "a view of the temporary `mk(1)` is held b
   wrap(!mkh()).keep(?mk(1).t)
   print("end")
 
-fail "review-seam2-r2-x13 named me chain", "`s` does not live long enough"
+fail "review-seam2-r2-x13 named me chain", "`s` is dropped here, at the end of its scope, while a read view of `s.t` is still in use"
   # Review probe r2/x13_named_me_chain.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
   # oracle: S.drop accept
   # oracle: H.keep accept
@@ -3334,7 +3334,7 @@ test "review-seam2-r2-x14 order safe", '''
   put(?mk(1).t, !mkh())
   print("end")
 
-fail "review-seam2-r2-x15 named vec elem", "`s` does not live long enough"
+fail "review-seam2-r2-x15 named vec elem", "`s` is dropped here, at the end of its scope, while a read view of `s.t` is still in use"
   # Review probe r2/x15_named_vec_elem.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
   # oracle: S.drop accept
   # oracle: H.keep accept
@@ -3412,7 +3412,7 @@ fail "review-seam2-r2-x15 named vec elem", "`s` does not live long enough"
     !w.keep(?s.t)
   print("end")
 
-fail "review-seam2-r2-x16 named view binding", "`s` does not live long enough"
+fail "review-seam2-r2-x16 named view binding", "`s` is dropped here, at the end of its scope, while a read view of `s.t` is still in use"
   # Review probe r2/x16_named_view_binding.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
   # oracle: S.drop accept
   # oracle: H.keep accept
@@ -3526,7 +3526,7 @@ fail "review-seam2-r2-y04 generic method body", "a view of the temporary `mk(1)`
   go(1)
   print("end")
 
-fail "review-seam2-r2-y05 generic recv named", "`s` does not live long enough"
+fail "review-seam2-r2-y05 generic recv named", "`s` is dropped here, at the end of its scope, while a read view of `s.t` is still in use"
   # Review probe r2/y05_generic_recv_named.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
   # oracle: S.drop accept
   # oracle: H.drop accept
@@ -3651,7 +3651,7 @@ test "review-seam2-r2-z01 assign through view", '''
   wrap(!mkh()).r = ?mk(1).t
   print("end")
 
-fail "review-seam2-r2-z02 assign through view named", "`s` does not live long enough"
+fail "review-seam2-r2-z02 assign through view named", "`s` is dropped here, at the end of its scope, while a read view of `s.t` is still in use"
   # Review probe r2/z02_assign_through_view_named.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
   # oracle: S.drop accept
   # oracle: H.me accept

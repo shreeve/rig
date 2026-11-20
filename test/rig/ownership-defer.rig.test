@@ -225,7 +225,7 @@ fail "defer ends loan at propagate", "19:4: cannot drop `x` while a read view of
 
   print(f(true) catch 0)
 
-fail "defer fallthrough stores", "11:16: `inner` does not live long enough", errors: 1
+fail "defer fallthrough stores", "`inner` is dropped here, at the end of its scope, while a read view of it is still in use", "11:16: a read view of `inner` is made here", errors: 1
   # A `defer` that stores a loan on a local of its scope runs as the
   # scope ends, after which the local is gone.
   obj H
@@ -557,7 +557,7 @@ fail "defer runs after its block's value", "15:14: cannot use `@xs` while a writ
   t = Tab(xs: List(), n: 0)
   print(t.n)
 
-fail "defer stores view", "8:14: `t` does not live long enough", "15:15: `v` does not live long enough", errors: 2
+fail "defer stores view", "`t` is dropped here, at the end of its scope, while a read view of it is still in use", "8:14: a read view of `t` is made here", "`v` is dropped here, at the end of its scope, while a read view of it is still in use", "15:15: a read view of `v` is made here", errors: 2
   # Deferred code runs as its scope exits, before the scope's values are
   # dropped: a view it stores in a binding from outside the scope would
   # outlive them.
@@ -589,7 +589,7 @@ fail "defer stores view at break", "10:14: `v` does not live long enough", error
     break
   print(s)
 
-fail "defer stores view of scope var", "9:14: `v` does not live long enough", errors: 1
+fail "defer stores view of scope var", "`v` is dropped here, at the end of its scope, while a read view of it is still in use", "9:14: a read view of `v` is made here", errors: 1
   # A `defer` body runs when its scope exits: a view it stores outside
   # the scope, of a var the scope drops, does not live long enough.
 
@@ -601,7 +601,7 @@ fail "defer stores view of scope var", "9:14: `v` does not live long enough", er
     defer s = ?v[..]
   print(s)
 
-fail "defer stores view past propagate", "18:16: `v` does not live long enough", errors: 1
+fail "defer stores view past propagate", "`v` is dropped here, at the end of its scope, while a read view of it is still in use", "18:16: a read view of `v` is made here", errors: 1
   # The defers checked at `e!` leave no effects on the path that goes on,
   # but they still run when that path leaves the block: the view the
   # defer stores there, of a var the block drops, does not live long

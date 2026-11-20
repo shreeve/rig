@@ -602,7 +602,7 @@ fail "r3-s45-v-v19 view of vec elem push", "cannot change `a` while a read view 
   !a.push(2)
   print(v)
 
-fail "r3-s45-v-v21 loop local", "`x` does not live long enough"
+fail "r3-s45-v-v21 loop local", "`x` is dropped here, at the end of its scope, while a read view of it is still in use"
   v: List[?Int] = List()
   for i in 0..3
     x = i
@@ -640,7 +640,7 @@ test "r3-s45-v-v24 assign view elem ok", '''
   b = 6
   print(a, b)
 
-fail "r3-s45-v-v26 inner scope", "`x` does not live long enough"
+fail "r3-s45-v-v26 inner scope", "`x` is dropped here, at the end of its scope, while a read view of it is still in use"
   v: List[?Int] = List()
   if true
     x = 5
@@ -3549,7 +3549,7 @@ test "rev203-e09 failing guard between", '''
     print("got", r.n)
     print("h", h.d.n)
 
-fail "rev203-e10 loop break continue", "`tmp` does not live long enough"
+fail "rev203-e10 loop break continue", "`tmp` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj S
     text: ?String
     value: String

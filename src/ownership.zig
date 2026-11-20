@@ -802,6 +802,10 @@ pub const Checker = struct {
     quiet: u32 = 0,
 
     func: FnCtx = .{},
+    /// The body of the function being walked, at whose end its own scope
+    /// ends: where a conflict's note says a var of that scope is dropped
+    /// (`scopeEnd`).
+    fn_body: Sexp = .nil,
     loop: ?*LoopCtx = null,
     /// The loops around each deferred body being walked, innermost
     /// last: `loop` is null at a deferred body's start, so a jump in it
@@ -1393,14 +1397,7 @@ pub const Checker = struct {
         if (loan.place_hold) {
             try self.note(loan.pos, "a view of `{s}` is made here, and the place is found up to each index before the index runs", .{lent});
         } else if (loan.held_read != .none) {
-            const uses = switch (loan.held_read) {
-                .none, .argument => "the call uses it after its later arguments run",
-                .self => "the call uses it as `self` after its arguments run",
-                .callee => "the call runs it after its arguments run",
-                .operand => "the operator uses it after its right operand runs",
-                .base => "it is indexed after its index runs",
-            };
-            try self.note(loan.pos, "`{s}` read here: the value shares its storage, and {s}", .{ lent, uses });
+            try self.note(loan.pos, "`{s}` read here: the value shares its storage, and {s}", .{ lent, heldUse(loan.held_read) });
         } else if (loan.reserved) {
             try self.note(loan.pos, "a write view of `{s}` is made here, as `self`, which is read until the call starts", .{lent});
         } else if (loan.read_of_write) {
@@ -1408,6 +1405,18 @@ pub const Checker = struct {
         } else if (self.kept_lends.get(loan.pos)) |k| {
             try self.note(loan.pos, "a {s} view of `{s}` is made here, and `{s}` keeps it in `{s}` (its signature says `keeps {s}`), so the view lasts while `{s}` is used", .{ self.viewWord(loan), lent, k.callee, k.holder, k.param, k.holder });
         } else try self.note(loan.pos, "a {s} view of `{s}` is made here", .{ self.viewWord(loan), lent });
+    }
+
+    /// How what reads a value in place uses it, after the operands that
+    /// follow it run.
+    fn heldUse(reader: Reader) []const u8 {
+        return switch (reader) {
+            .none, .argument => "the call uses it after its later arguments run",
+            .self => "the call uses it as `self` after its arguments run",
+            .callee => "the call runs it after its arguments run",
+            .operand => "the operator uses it after its right operand runs",
+            .base => "it is indexed after its index runs",
+        };
     }
 
     /// How a message names the view loan `l` records, by the sigil
@@ -1441,6 +1450,251 @@ pub const Checker = struct {
     fn lentText(self: *Checker, l: Loan, path: PathId) Error![]const u8 {
         if (l.path == path) return "it";
         return self.arena().print("`{s}`", .{try self.pathText(l.root, l.path)});
+    }
+
+    // -------------------------------------------------------------------------
+    // Where a view is still used: a conflict's second note
+    // -------------------------------------------------------------------------
+
+    /// Note the other end of the view loan `l` records, which blocks
+    /// what is done at `at`: the use that keeps it in force. That is
+    /// the next use, after `at`, of what holds it, for a task its wait;
+    /// or the drop, at the end of its scope, of a task or of a value
+    /// whose `drop` body reads it; or the `task.select` whose arms hold
+    /// it. It mirrors `holderLive`, which decided the view is in force,
+    /// and reads only what the walk keeps anyway (`uses`, `walked`), so a
+    /// program without errors pays nothing for it.
+    fn noteStillUsed(self: *Checker, l: Loan, at: u32) Error!void {
+        if (self.quiet > 0 or !self.last_err_kept) return;
+        if (l.place_hold or l.held_read != .none) return;
+        if (self.holderOf(l)) |h| return self.noteHolderUse(h, l, at, null, 0);
+        return self.noteStmtUse(l, at);
+    }
+
+    /// The var whose value holds loan `l` and is still live after the
+    /// current point, as `findLoan` found it.
+    fn holderOf(self: *const Checker, l: Loan) ?VarId {
+        for (self.flows.items, 0..) |f, h| {
+            for (f.loans) |x| if (x.root == l.root and x.path == l.path and x.pos == l.pos and x.kind == l.kind and !x.ext) {
+                if (self.holderLive(@intCast(h), null)) return @intCast(h);
+                break;
+            };
+        }
+        return null;
+    }
+
+    /// `noteStillUsed` for loan `l`, which the statement in flight holds:
+    /// the `task.select` whose arms hold it, or the call that takes it,
+    /// which runs after its arguments. A view made before the statement
+    /// came into it in a var's value, written as an argument.
+    fn noteStmtUse(self: *Checker, l: Loan, at_sigil: u32) Error!void {
+        const stmt = self.cur_stmt;
+        if (stmt == .nil) return;
+        // A position may be a sigil's, before the leaf it touches.
+        var at = at_sigil;
+        while (at < self.source.len and std.mem.findScalar(u8, "!?<+~>*^-", self.source[at]) != null) at += 1;
+        if (self.selectWith(stmt, at, l.pos)) |sel|
+            return self.note(self.startOf(sel), "still used here: `task.select` makes every arm before it runs one, and each arm's views last until it returns", .{});
+        const sp = self.span(stmt);
+        const inside = l.pos >= sp.start and l.pos < sp.end;
+        const made = if (inside) l.pos else self.carrierIn(stmt, l) orelse return;
+        const call = self.callWith(stmt, made, at, !inside) orelse return;
+        const callee = ir.Call.callee(call);
+        const pos = if (callee.isKind(.member)) self.startOf(ir.Member.name(callee)) else self.startOf(callee);
+        try self.note(pos, "still used here, by the call, which runs after its arguments", .{});
+    }
+
+    /// The innermost call in `node` that has positions `a` and `b` in
+    /// it; when `direct`, `a` must be the last leaf of its self or of
+    /// an argument.
+    fn callWith(self: *const Checker, node: Sexp, a: u32, b: u32, direct: bool) ?Sexp {
+        if (node != .list) return null;
+        const sp = self.span(node);
+        if (a < sp.start or a >= sp.end or b < sp.start or b >= sp.end) return null;
+        for (node.items()) |c| if (self.callWith(c, a, b, direct)) |call| return call;
+        if (!node.isKind(.call)) return null;
+        if (!direct) return node;
+        const callee = ir.Call.callee(node);
+        if (callee.isKind(.member) and self.extent(ir.Member.object(callee)).hi == a) return node;
+        for (ir.Call.args(node)) |arg| if (self.extent(arg).hi == a) return node;
+        return null;
+    }
+
+    /// The leaf in `node` of a var whose value carried loan `l` into the
+    /// statement: it holds the loan still, or moved there.
+    fn carrierIn(self: *const Checker, node: Sexp, l: Loan) ?u32 {
+        switch (node) {
+            .src => |leaf| {
+                const sym = self.sema.symbolOf(node) orelse return null;
+                for (self.vars.items, self.flows.items) |v, f| if (v.sym != null and v.sym.? == sym) {
+                    if (f.status == .moved and f.at <= leaf.pos and f.at +| 1 >= leaf.pos) return leaf.pos;
+                    for (f.loans) |x| if (x.root == l.root and x.pos == l.pos) return leaf.pos;
+                };
+                return null;
+            },
+            .list => {
+                for (node.items()) |c| if (self.carrierIn(c, l)) |p| return p;
+                return null;
+            },
+            else => return null,
+        }
+    }
+
+    /// `noteStillUsed` for loan `l`, which var `h` holds: the next use of
+    /// `h`, the deferred code or the caller that uses it, its drop, the
+    /// loop that reads it again, or where what views `h` in turn is
+    /// still used. `end` is set where `at` is a scope's end, where the
+    /// liveness of `h` is asked (`releaseVarsFrom`).
+    fn noteHolderUse(self: *Checker, h: VarId, l: Loan, at: u32, end: ?u32, depth: u8) Error!void {
+        if (depth > 16) return;
+        const ctx = self.sema;
+        const v = self.vars.items[h];
+        if (v.call_held) return self.noteStmtUse(l, at);
+        if (v.kind == .hidden and !v.temp_value and v.arm_of.len == 0 and v.erased_of.len == 0) {
+            // The source a loop walks, held while it runs: it takes its
+            // next element from it.
+            var lp = self.loop;
+            while (lp) |c| : (lp = c.parent) {
+                if (!c.is_loop) continue;
+                const body = if (c.node.isKind(.@"for")) ir.For.body(c.node) else if (c.node.isKind(.@"while")) ir.While.body(c.node) else continue;
+                if (v.decl >= self.startOf(c.node) and v.decl < self.extent(body).lo)
+                    return self.note(self.startOf(c.node), "still used here, by the loop, which takes its next element from it", .{});
+            }
+            // What a `match` holds of its subject while it chooses an arm:
+            // it reads the subject again after a guard (`walkMatch`).
+            if (v.name.len == 0 and self.afterMatch(v.decl))
+                return self.note(v.decl, "still used here, by the `match`, which reads its subject again after a guard to test the next arm", .{});
+        }
+        if (!v.temp_value and v.kind != .hidden and !self.isGlobal(h)) if (v.sym) |sym| {
+            if (self.nextUse(v, sym, at, end)) |u| {
+                // A use before the statement in flight (before the scope's
+                // end) runs again in the loop's next iteration.
+                const before = if (end) |e| u < e else u < self.stmtStart();
+                // A task's use is its wait, `>t`: point at the wait.
+                const wait = u > 0 and self.source[u - 1] == '>' and if (v.ty) |ty| sema.isTask(ctx, ty) or sema.isTaskSet(ctx, ty) else false;
+                if (!before) return self.note(if (wait) u - 1 else u, "still used here", .{});
+                if (self.inDeferred(u)) return self.note(u, "still used here, in deferred code, which runs at the end of its scope", .{});
+                return self.note(u, "still used here, in the next iteration of the loop", .{});
+            }
+            // The target of an assignment whose value is being walked is
+            // used after it.
+            for (self.after_value.items) |a| if (a.sym == sym) if (self.targetUse(sym, at)) |u|
+                return self.note(u, "still used here", .{});
+            if (self.defer_used.contains(sym)) if (self.deferredUse(sym)) |u|
+                return self.note(u, "still used here, in deferred code, which runs at the end of its scope", .{});
+            if (v.kind == .param)
+                return self.note(v.decl, "still used by the caller, through `{s}`, after the function returns", .{v.name});
+        };
+        // A value that owns what it holds uses its views where it is
+        // dropped only through a `drop` body; a task's waits for its call.
+        const owns = !v.payload_view and !v.loop_view and v.ref == .none;
+        if (owns and v.name.len > 0) if (v.ty) |ty| if (sema.dropRunsBody(ctx, ty) != .no) {
+            if (self.scopeEnd(h)) |e| {
+                if (sema.isTaskSet(ctx, ty))
+                    return self.note(e, "`{s}` is dropped here, at the end of its scope, and waits for its tasks, which still use the view", .{v.name});
+                if (sema.isTask(ctx, ty))
+                    return self.note(e, "`{s}` is dropped here, at the end of its scope, and waits for its task, which still uses the view", .{v.name});
+                return self.note(e, "`{s}` is dropped here, at the end of its scope, and its `drop` body could still read the view", .{v.name});
+            }
+        };
+        // Through a live var that views `h`, or the statement in flight.
+        if (self.isLent(h)) for (self.flows.items, 0..) |f, j| {
+            if (j == h) continue;
+            for (f.loans) |x| if (x.root == h and !x.ext) {
+                if (self.holderLiveDepth(@intCast(j), end, depth + 1)) return self.noteHolderUse(@intCast(j), x, at, end, depth + 1);
+                break;
+            };
+        };
+        for (self.temps.items) |x| if (x.root == h) {
+            if (x.held_read != .none) return self.note(x.pos, "still used here: {s}", .{heldUse(x.held_read)});
+            return self.noteStmtUse(x, at);
+        };
+    }
+
+    /// Whether `pos` follows the keyword `match`: a match's subject.
+    fn afterMatch(self: *const Checker, pos: u32) bool {
+        const before = std.mem.trimEnd(u8, self.source[0..@min(pos, self.source.len)], " \t");
+        if (!std.mem.endsWith(u8, before, "match")) return false;
+        const k = before.len - "match".len;
+        return k == 0 or !(std.ascii.isAlphanumeric(before[k - 1]) or before[k - 1] == '_');
+    }
+
+    /// The target of an assignment around `at` whose value is being
+    /// walked: the use of `sym` not walked yet nearest before `at`.
+    fn targetUse(self: *const Checker, sym: SymbolId, at: u32) ?u32 {
+        const all = self.uses.get(sym) orelse return null;
+        var best: ?u32 = null;
+        for (all.items) |p| {
+            if (p > at or std.mem.findScalar(u32, self.walked.items, p) != null) continue;
+            if (best == null or p > best.?) best = p;
+        }
+        return best;
+    }
+
+    /// The use of var `v` (symbol `sym`) that keeps it live past `at`,
+    /// as `holderLiveDepth` counts uses: the first after `at`, or else
+    /// the first in the loop around, which runs again. A use that reads
+    /// the value comes before one that only assigns the var, which
+    /// counts too.
+    fn nextUse(self: *const Checker, v: Var, sym: SymbolId, at: u32, end: ?u32) ?u32 {
+        const all = self.uses.get(sym) orelse return null;
+        const from = self.liveFrom(v.decl, end);
+        const any_walked = end != null or from < self.stmtStart();
+        // By whether the use only assigns, then whether it is after `at`.
+        var best: [2][2]?u32 = .{ .{ null, null }, .{ null, null } };
+        for (all.items) |p| {
+            if (p < from or p == v.decl) continue;
+            if (!any_walked and p < self.stmtEnd() and std.mem.findScalar(u32, self.walked.items, p) != null) continue;
+            const slot = &best[@intFromBool(self.assignsOnly(p))][@intFromBool(p <= at)];
+            if (slot.* == null or p < slot.*.?) slot.* = p;
+        }
+        return best[0][0] orelse best[0][1] orelse best[1][0] orelse best[1][1];
+    }
+
+    /// Whether the name at `pos` is only assigned there (`x = e`, `x: T
+    /// = e`), not read.
+    fn assignsOnly(self: *const Checker, pos: u32) bool {
+        var i = pos;
+        while (i < self.source.len and (std.ascii.isAlphanumeric(self.source[i]) or self.source[i] == '_')) i += 1;
+        while (i < self.source.len and self.source[i] == ' ') i += 1;
+        if (i >= self.source.len) return false;
+        if (self.source[i] == ':') return true;
+        return self.source[i] == '=' and (i + 1 >= self.source.len or self.source[i + 1] != '=');
+    }
+
+    /// Whether `pos` lies in the body of a `defer` or `errdefer` of a
+    /// scope still open.
+    fn inDeferred(self: *const Checker, pos: u32) bool {
+        for (self.scopes.items) |s| for (s.defers.items) |d| {
+            const x = self.extent(d.body);
+            if (pos >= x.lo and pos <= x.hi) return true;
+        };
+        return false;
+    }
+
+    /// A use of symbol `sym` in deferred code of a scope still open.
+    fn deferredUse(self: *const Checker, sym: SymbolId) ?u32 {
+        const all = self.uses.get(sym) orelse return null;
+        for (all.items) |p| if (self.inDeferred(p)) return p;
+        return null;
+    }
+
+    /// Where var `id` is dropped at the end of its scope: just past the
+    /// scope's last character, or null where the scope's code is not
+    /// known.
+    fn scopeEnd(self: *const Checker, id: VarId) ?u32 {
+        const s = self.scopes.items[self.scopeOf(id)];
+        return self.endOf(if (s.kind == .function) self.fn_body else s.node);
+    }
+
+    /// Just past the last character of `node`, or null for none.
+    fn endOf(self: *const Checker, node: Sexp) ?u32 {
+        if (node == .nil) return null;
+        const ext = self.extent(node);
+        if (ext.hi < ext.lo) return null;
+        var end = @min(@max(self.span(node).end, ext.hi +| 1), @as(u32, @intCast(self.source.len)));
+        while (end > ext.hi +| 1 and std.ascii.isWhitespace(self.source[end - 1])) end -= 1;
+        return end;
     }
 
     /// A lend a call kept (`kept_lends`): the callee, the parameter its
@@ -1515,6 +1769,7 @@ pub const Checker = struct {
         if (access == .write and l.kind == .write and !l.place_hold and l.held_read == .none and self.inTwoArms(self.cur_stmt, pos, l.pos)) {
             try self.err(pos, "cannot change `{s}` while {s} is still in use: `task.select` makes every arm before it runs one, so two arms cannot each hold a write view of `{s}`; let one arm write it, or have each arm give a value and write `{s}` after the select", .{ name, view, name, name });
             try self.noteLoan(l);
+            try self.noteStillUsed(l, pos);
             return l;
         }
         if (access != .read and l.place_hold)
@@ -1524,6 +1779,7 @@ pub const Checker = struct {
         else
             try self.err(pos, "cannot {s} `{s}` while {s} is still in use", .{ verb, name, view });
         try self.noteLoan(l);
+        try self.noteStillUsed(l, pos);
         if (access != .read and l.held_read == .callee) try self.noteCloneCallee(l.pos);
         return l;
     }
@@ -1543,8 +1799,14 @@ pub const Checker = struct {
     /// Whether positions `a` and `b` lie in two arms of one `task.select`
     /// in `node`.
     fn inTwoArms(self: *const Checker, node: Sexp, a: u32, b: u32) bool {
+        return self.selectWith(node, a, b) != null;
+    }
+
+    /// The `task.select` in `node` that has positions `a` and `b` in two
+    /// of its arms.
+    fn selectWith(self: *const Checker, node: Sexp, a: u32, b: u32) ?Sexp {
         const ctx = self.sema;
-        if (node != .list) return false;
+        if (node != .list) return null;
         if (node.isKind(.call)) {
             var arm_a: ?usize = null;
             var arm_b: ?usize = null;
@@ -1554,10 +1816,10 @@ pub const Checker = struct {
                 if (a >= x.lo and a <= x.hi) arm_a = i;
                 if (b >= x.lo and b <= x.hi) arm_b = i;
             }
-            if (arm_a != null and arm_b != null) return arm_a.? != arm_b.?;
+            if (arm_a != null and arm_b != null) return if (arm_a.? != arm_b.?) node else null;
         }
-        for (node.items()) |c| if (self.inTwoArms(c, a, b)) return true;
-        return false;
+        for (node.items()) |c| if (self.selectWith(c, a, b)) |sel| return sel;
+        return null;
     }
 
     /// The fix for a call that lends all of `recv` (place `path` of var
@@ -1647,18 +1909,19 @@ pub const Checker = struct {
         defer scope.defers.deinit(self.gpa);
         const start = scope.start;
         const ext = self.extent(scope.node);
-        try self.releaseVarsFrom(start, self.reachable, if (ext.hi >= ext.lo) ext.hi +| 1 else null);
+        try self.releaseVarsFrom(start, self.reachable, if (ext.hi >= ext.lo) ext.hi +| 1 else null, scope.node);
         self.truncateVars(start);
     }
 
     /// Remove every loan on vars `>= start` from vars below `start` and
     /// from the temporaries, reporting each surviving loan when `report`
     /// and its holder is still live at position `end`, where the scope
-    /// ends (or after the current statement when null).
-    fn releaseVarsFrom(self: *Checker, start: u32, report: bool, end: ?u32) Error!void {
+    /// ends (or after the current statement when null). The scope
+    /// covers `node`, at whose end its vars are dropped.
+    fn releaseVarsFrom(self: *Checker, start: u32, report: bool, end: ?u32, node: Sexp) Error!void {
         if (self.lentFrom(start)) {
             if (report) for (self.flows.items[0..@min(start, self.flows.items.len)], 0..) |f, holder| {
-                if (hasLoanFrom(f.loans, start)) _ = try self.reportHolder(f, @intCast(holder), start, end);
+                if (hasLoanFrom(f.loans, start)) _ = try self.reportHolder(f, @intCast(holder), start, end, if (end != null) node else .nil);
             };
             for (0..@min(start, self.flows.items.len)) |holder| {
                 var f = self.flows.items[holder];
@@ -1680,12 +1943,29 @@ pub const Checker = struct {
         }
     }
 
-    fn reportShortLived(self: *Checker, l: Loan, holder: ?VarId) Error!void {
+    /// Report loan `l` on a var leaving scope, which `holder` (when
+    /// known) keeps. Where the scope ends as the code falls through, at
+    /// `drop` (and at `end` for liveness), the drop is what meets the
+    /// view.
+    fn reportShortLived(self: *Checker, l: Loan, holder: ?VarId, drop: ?struct { at: u32, end: u32 }) Error!void {
         const root = self.vars.items[l.root];
         if (root.erased_of.len > 0) return self.reportErasedCopy(l, root);
         if (root.arm_of.len > 0) return self.reportArmView(l);
         if (root.call_held) return self.reportCallHeld(l, holder);
         if (root.kind == .hidden and root.name.len > 0) return self.reportTempOutlived(l, holder);
+        if (drop) |d| if (holder) |h| if (self.vars.items[h].name.len > 0) {
+            // A jump out of the scope that drops it first reported it
+            // where the view is made: counted, as a repeated error is.
+            for (self.diagnostics.items) |x| if (x.severity == .@"error" and x.pos == l.pos and std.mem.endsWith(u8, x.message, "does not live long enough")) {
+                self.errors_found += 1;
+                self.last_err_kept = false;
+                return;
+            };
+            try self.err(d.at, "`{s}` is dropped here, at the end of its scope, while {s} is still in use", .{ root.name, try self.viewOfText(l, whole_path) });
+            try self.noteLoan(l);
+            if (self.quiet == 0 and self.last_err_kept) try self.noteHolderUse(h, l, d.end, d.end, 0);
+            return self.noteStringViewOfString(l, self.vars.items[h].ty);
+        };
         try self.err(l.pos, "`{s}` does not live long enough", .{root.name});
         if (holder) |h| {
             const hv = self.vars.items[h];
@@ -2100,16 +2380,21 @@ pub const Checker = struct {
         if (!self.lentFrom(depth)) return;
         for (self.flows.items[0..@min(depth, self.flows.items.len)], 0..) |f, holder| {
             if (!hasLoanFrom(f.loans, depth)) continue;
-            if (!(try self.reportHolder(f, @intCast(holder), depth, at))) try self.reportTempHolder(f, @intCast(holder), depth);
+            if (!(try self.reportHolder(f, @intCast(holder), depth, at, .nil))) try self.reportTempHolder(f, @intCast(holder), depth);
         }
     }
 
     /// Report each loan on a var at `depth` or above that `holder`
     /// (whose flow is `f`) keeps, where the holder is live at `at` (after
-    /// the current statement when null). Whether it is.
-    fn reportHolder(self: *Checker, f: Flow, holder: VarId, depth: u32, at: ?u32) Error!bool {
+    /// the current statement when null). Whether it is. `scope` is the
+    /// code of a scope that ends as the code falls through, which drops
+    /// those vars at its end (`.nil` for another exit).
+    fn reportHolder(self: *Checker, f: Flow, holder: VarId, depth: u32, at: ?u32, scope: Sexp) Error!bool {
         if (!self.holderLive(holder, at)) return false;
-        for (f.loans) |l| if (l.root >= depth) try self.reportShortLived(l, holder);
+        // Where the scope that drops them ends, when it ends as the code
+        // falls through: worked out only here, for the message.
+        const drop_at = self.endOf(scope);
+        for (f.loans) |l| if (l.root >= depth) try self.reportShortLived(l, holder, if (drop_at) |d| .{ .at = d, .end = at.? } else null);
         return true;
     }
 
@@ -2651,16 +2936,19 @@ pub const Checker = struct {
 
     fn walkFunOnce(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp, returns: Sexp, body: Sexp) Error!void {
         const saved_func = self.func;
+        const saved_body = self.fn_body;
         const saved_loop = self.loop;
         const saved_reachable = self.reachable;
         defer {
             self.func = saved_func;
+            self.fn_body = saved_body;
             self.loop = saved_loop;
             self.reachable = saved_reachable;
         }
         const ret_ty = self.fnReturnType(name);
         const returns_value = returns != .nil and !self.isVoid(ret_ty);
         self.func = .{ .ret_may_view = returns_value and self.returnMayView(ret_ty, returns), .ret_ty = if (returns_value) ret_ty else null, .origins = self.declOrigins(name) };
+        self.fn_body = body;
         self.loop = null;
         // The body runs when called, not here: its effects on anything
         // outside it are undone afterwards.
@@ -2955,7 +3243,7 @@ pub const Checker = struct {
     /// Value `v` leaving the scopes of the vars `>= start`: report its
     /// loans on them and drop those.
     fn escapeVarsFrom(self: *Checker, v: Value, start: u32) Error!Value {
-        for (v.loans) |l| if (l.root >= start and !l.deref) try self.reportShortLived(l, null);
+        for (v.loans) |l| if (l.root >= start and !l.deref) try self.reportShortLived(l, null, null);
         return .{ .loans = try self.filterLoansBelow(v.loans, start) };
     }
 
@@ -3348,6 +3636,7 @@ pub const Checker = struct {
         if (self.findLoan(id, path, .write, null)) |l| {
             try self.err(pos, "cannot use `{s}` while {s} is still in use", .{ try self.pathText(id, path), try self.viewOfText(l, path) });
             try self.noteLoan(l);
+            try self.noteStillUsed(l, pos);
         }
     }
 
@@ -4754,6 +5043,7 @@ pub const Checker = struct {
         if (self.findLoan(id, whole_path, .any, null)) |l| {
             try self.err(pos, "cannot drop `{s}` while {s} is still in use", .{ name, try self.viewOfText(l, whole_path) });
             try self.noteLoan(l);
+            try self.noteStillUsed(l, pos);
             return;
         }
         try self.markInvalid(id, .dropped, pos);
@@ -5269,6 +5559,7 @@ pub const Checker = struct {
         if (self.findLoan(id, whole_path, .any, null)) |l| {
             try self.err(pos, "cannot reassign `{s}` while {s} is still in use", .{ v.name, try self.viewOfText(l, whole_path) });
             try self.noteLoan(l);
+            try self.noteStillUsed(l, pos);
         }
     }
 
@@ -5381,6 +5672,7 @@ pub const Checker = struct {
             const of = if (std.mem.eql(u8, shown, viewed)) "it" else try self.arena().print("`{s}`", .{viewed});
             try self.err(pos, "cannot assign to `{s}` while a {s} view of {s} is still in use", .{ shown, self.viewWord(l), of });
             try self.noteLoan(l);
+            try self.noteStillUsed(l, pos);
             return;
         }
         // An element of a Cell's List, or a field of one, is stored in
@@ -6792,6 +7084,7 @@ pub const Checker = struct {
         if (self.findLoan(id, whole_path, .write, null)) |l| {
             try self.err(pos, "cannot capture `{s}` while {s} is still in use", .{ name, try self.viewOfText(l, whole_path) });
             try self.noteLoan(l);
+            try self.noteStillUsed(l, pos);
             return .{};
         }
         // `|+x|` through a view captures a copy or a clone of what the
@@ -9266,7 +9559,7 @@ test "a view may not outlive an inner scope" {
         \\    r = ?b
         \\  look(r)
         \\
-    , "`b` does not live long enough");
+    , "`b` is dropped here, at the end of its scope, while a read view of it is still in use");
 }
 
 test "a view chosen by if keeps both roots lent" {

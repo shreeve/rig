@@ -777,7 +777,7 @@ test "review-copies-p38-owned-closure-big-values", '''
   g = +f
   print(g(r, 0).ps[0].s)
 
-fail "review-copies-p39-fill-through-slice-param-scope", "`n` does not live long enough"
+fail "review-copies-p39-fill-through-slice-param-scope", "`n` is dropped here, at the end of its scope, while a read view of it is still in use"
   # A callee fills a caller's array of views through a write slice with a
   # view of a local that dies before the array is read.
   sub fillit(s: ![]?Int, x: ?Int) keeps x
@@ -790,7 +790,7 @@ fail "review-copies-p39-fill-through-slice-param-scope", "`n` does not live long
     fillit(!a[..], ?n)
   print(a[0])
 
-fail "review-copies-p40-copy-through-slice-param-scope", "`b` does not live long enough"
+fail "review-copies-p40-copy-through-slice-param-scope", "`b` is dropped here, at the end of its scope, while a read view of it is still in use"
   sub copyit(d: ![]?Int, s: []?Int) keeps s
     !d.copy(s)
 
@@ -802,7 +802,7 @@ fail "review-copies-p40-copy-through-slice-param-scope", "`b` does not live long
     copyit(!a[..], ?b[..])
   print(a[0])
 
-fail "review-copies-p41-fill-local-scope", "`n` does not live long enough"
+fail "review-copies-p41-fill-local-scope", "`n` is dropped here, at the end of its scope, while a read view of it is still in use"
   m = 1
   a = [?m, ?m, ?m]
   if true
@@ -810,7 +810,7 @@ fail "review-copies-p41-fill-local-scope", "`n` does not live long enough"
     !a.fill(?n)
   print(a[0])
 
-fail "review-copies-p42-copy-local-scope", "`n` does not live long enough"
+fail "review-copies-p42-copy-local-scope", "`n` is dropped here, at the end of its scope, while a read view of it is still in use"
   m = 1
   a = [?m, ?m]
   if true
@@ -819,7 +819,7 @@ fail "review-copies-p42-copy-local-scope", "`n` does not live long enough"
     !a.copy(?b[..])
   print(a[0])
 
-fail "review-copies-p43-copy-text-views-drop", "`t` does not live long enough"
+fail "review-copies-p43-copy-text-views-drop", "`t` is dropped here, at the end of its scope, while a read view of it is still in use"
   a: [2]?String = ["x", "y"]
   if true
     t = String("a long heap allocated text here")

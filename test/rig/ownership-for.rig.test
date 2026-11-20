@@ -338,7 +338,7 @@ test "for iterator hidden name", release: true, '''
       print(" ", n, m)
   print(__rig_iter0)
 
-fail "for iterator kept view", "27:5: `for iterator` does not live long enough", "36:7: `for iterator` does not live long enough", "45:5: `for iterator` does not live long enough", "54:9: `for iterator` does not live long enough", "63:5: `for iterator` does not live long enough", errors: 5
+fail "for iterator kept view", "`for iterator` is dropped here, at the end of its scope, while a read view of it is still in use", "27:5: a write view of `for iterator` is made here, and kept as a read view by a value that only reads it", "36:7: a write view of `for iterator` is made here, and kept as a read view by a value that only reads it", "45:5: a write view of `for iterator` is made here, and kept as a read view by a value that only reads it", "54:9: a write view of `for iterator` is made here, and kept as a read view by a value that only reads it", "63:5: a write view of `for iterator` is made here, and kept as a read view by a value that only reads it", errors: 5
   # A view a loop variable holds of the iterator's own state cannot outlive
   # an iterator the loop holds: `for iterator` ends with the loop, whether
   # the loop runs out, breaks, is labeled, or is inside a `loop` it does
@@ -715,7 +715,7 @@ fail "for loop move", "11:8: use of `rc` after move"
   for i in 0..3
     eat(<rc)
 
-fail "for move element keeps view", "`y` does not live long enough"
+fail "for move element keeps view", "`y` is dropped here, at the end of its scope, while a read view of it is still in use"
   # The elements of `for x in <v` carry the views the List held, so an
   # element moved elsewhere cannot outlive what it views.
 

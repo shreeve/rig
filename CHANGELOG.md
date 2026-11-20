@@ -459,6 +459,21 @@ serve no HTTP.
 
 ### Compiler
 
+- **A conflict points at both ends of the view that blocks it:** beside
+  "a read view of `v` is made here", a second note, "still used here", at
+  the use that keeps the view in use, the next one after the conflict:
+  a task's wait (`>t`), deferred code, the next iteration of a loop, or
+  the call that takes the view, which runs after its arguments. A task,
+  or a value whose `drop` body may read the view, that is never used
+  again says it is dropped at the end of its scope; a `task.select` that
+  its arms' views block says so. A var a scope drops as the code falls
+  through while a view of it is still in use reads "`c` is dropped here,
+  at the end of its scope, while a read view of it is still in use",
+  where it read "`c` does not live long enough" at the view, with the
+  same two notes; a jump out of the scope still says the latter. No
+  program is accepted or rejected differently, and the emitted Zig is the
+  same; tools that match message text see the new wording.
+
 - **A task that never leaves its binding is recorded as a fork:**
   `t = f(x)&`, declaring `t` in a block, where every later naming of `t`
   is `>t`, `<t.cancel()`, or a read lend `?t`, and the task's record

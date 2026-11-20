@@ -2046,7 +2046,7 @@ test "r3-or-fit-f1b prefix tmp", "ada"
   <key
   print(v)
 
-fail "r3-or-fit-f2 lookup", "`q` does not live long enough"
+fail "r3-or-fit-f2 lookup", "`q` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj Var
     name: ?String
     value: ?String

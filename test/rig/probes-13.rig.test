@@ -953,7 +953,7 @@ test "r3-s36-loans-c01 share struct with view", '''
   h = *V(r: ?a)
   print(h.r.n)
 
-fail "r3-s36-loans-c02 share escapes scope", "`a` does not live long enough"
+fail "r3-s36-loans-c02 share escapes scope", "`a` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj R
     n: Int
     drop(!@)
@@ -989,7 +989,7 @@ test "r3-s36-loans-c07 owned closure literal string", "hi rig"
   f = *|+name| print("hi", name)
   f()
 
-fail "r3-s36-loans-c12 shared view weak upgrade", "`a` does not live long enough"
+fail "r3-s36-loans-c12 shared view weak upgrade", "`a` is dropped here, at the end of its scope, while a read view of it is still in use"
   # A weak handle to a box holding a view, upgraded after the viewed
   # value's scope ended.
   obj R
@@ -1013,7 +1013,7 @@ fail "r3-s36-loans-c12 shared view weak upgrade", "`a` does not live long enough
       print(s.r.n)
   print(hold.r.n)
 
-fail "r3-s36-loans-c13 shared view in vec", "`a` does not live long enough"
+fail "r3-s36-loans-c13 shared view in vec", "`a` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj R
     n: Int
     drop(!@)
@@ -1040,7 +1040,7 @@ fail "r3-s36-loans-c14 owned closure captures shared view", "an owned closure ca
   f = *|+h| h.r.n
   print(f())
 
-fail "r3-s36-loans-c16 shared view through fn", "`a` does not live long enough"
+fail "r3-s36-loans-c16 shared view through fn", "`a` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj R
     n: Int
     drop(!@)
@@ -1122,7 +1122,7 @@ fail "r3-s36-loans-f03 continue stores body view", "`inner` does not live long e
     if i < 5
       continue
 
-fail "r3-s36-loans-f04 catch handler view", "`inner` does not live long enough"
+fail "r3-s36-loans-f04 catch handler view", "`inner` is dropped here, at the end of its scope, while a read view of it is still in use"
   # A catch handler's local, viewed into an outer var.
   error E
     bad
@@ -1146,7 +1146,7 @@ fail "r3-s36-loans-f04 catch handler view", "`inner` does not live long enough"
     0
   print(v.r.n, k)
 
-fail "r3-s36-loans-f07 while as view escapes", "`r` does not live long enough"
+fail "r3-s36-loans-f07 while as view escapes", "`r` is dropped here, at the end of its scope, while a read view of it is still in use"
   # `while … as` binding's view stored outward then the iteration ends.
   obj R
     n: Int
@@ -1170,7 +1170,7 @@ fail "r3-s36-loans-f07 while as view escapes", "`r` does not live long enough"
     v = V(r: ?r)
   print(v.r.n)
 
-fail "r3-s36-loans-f08 defer stores later local", "`a` does not live long enough"
+fail "r3-s36-loans-f08 defer stores later local", "`a` is dropped here, at the end of its scope, while a read view of it is still in use"
   # A defer that stores a view of a local declared after it.
   obj R
     n: Int

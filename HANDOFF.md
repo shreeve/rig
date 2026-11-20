@@ -125,11 +125,12 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
-- **The view vocabulary** (owner, 2026-11-20; branch `loan-vocab`,
-  #1192): places, read and write views, read-only, unusable, and cells
-  replace lend and loan in the docs and the messages. PR 1 is the
-  wording; PR 2 adds the notes "still used here"; PR 3 renames the
-  compiler's identifiers (records/2026-11/loan-vocabulary/decisions.md).
+- **The view vocabulary** (owner, 2026-11-20; #1192 landed PR 1):
+  places, read and write views, read-only, unusable, and cells replace
+  lend and loan in the docs and the messages. PR 1 is the wording; PR 2
+  (branch `view-notes`) adds the notes "still used here" and the
+  scope-end drop's message; PR 3 renames the compiler's identifiers
+  (records/2026-11/loan-vocabulary/decisions.md).
 - **Spawn on the Mac at ten workers:** 93-96 ns a spawn through #1180,
   116 with #1181, 101-184 (bimodal) with #1183, while instructions fall.
   The cause lies in coordination on Apple cores (wake timing, bursts on

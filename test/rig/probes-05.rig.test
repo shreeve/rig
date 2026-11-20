@@ -2870,7 +2870,7 @@ fail "audit-ownership-f03 closure store param through capture", "cannot store a 
   f(?y)
   print(vw.b.n)
 
-fail "audit-ownership-f04 closure store capture through capture", "`y` does not live long enough"
+fail "audit-ownership-f04 closure store capture through capture", "`y` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj Tok
     n: Int
 
@@ -2901,7 +2901,7 @@ fail "audit-ownership-f04 closure store capture through capture", "`y` does not 
     f()
   print(vw.b.n)
 
-fail "audit-ownership-f06 nested closure store", "`y` does not live long enough"
+fail "audit-ownership-f06 nested closure store", "`y` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj Tok
     n: Int
 
@@ -2933,7 +2933,7 @@ fail "audit-ownership-f06 nested closure store", "`y` does not live long enough"
   f()
   print(vw.b.n)
 
-fail "audit-ownership-f07 lent closure stores", "`y` does not live long enough"
+fail "audit-ownership-f07 lent closure stores", "`y` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj Tok
     n: Int
 
@@ -3167,7 +3167,7 @@ fail "audit-ownership-f20 closure cap write while arg read", "cannot change `v` 
   each(?v, |!v, n| !v.push(n))
   print(v.len)
 
-fail "audit-ownership-g01 view field inner scope", "`y` does not live long enough"
+fail "audit-ownership-g01 view field inner scope", "`y` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj Tok
     n: Int
 
@@ -3196,7 +3196,7 @@ fail "audit-ownership-g01 view field inner scope", "`y` does not live long enoug
     vw.b = ?y
   print(vw.b.n)
 
-fail "audit-ownership-g02 view via local wb inner", "`y` does not live long enough"
+fail "audit-ownership-g02 view via local wb inner", "`y` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj Tok
     n: Int
 

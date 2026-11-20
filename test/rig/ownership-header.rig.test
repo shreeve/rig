@@ -522,7 +522,7 @@ fail "header lent made cell holder", "8:12: `Counter(hits: Cell(1))` makes a `Co
   for k in ?[Counter(hits: Cell(1))]
     print(k.hits.get())
 
-fail "header made binding view escapes", "33:23: `p` does not live long enough", "41:23: `p` does not live long enough", "49:23: `p` does not live long enough", "57:14: `k` does not live long enough", "64:14: `k` does not live long enough", errors: 5
+fail "header made binding view escapes", "`p` is dropped here, at the end of its scope, while a read view of it is still in use", "33:23: a read view of `p` is made here", "41:23: a read view of `p` is made here", "49:23: a read view of `p` is made here", "`k` is dropped here, at the end of its scope, while a read view of it is still in use", "57:14: a read view of `k` is made here", "64:14: a read view of `k` is made here", errors: 5
   # A value a `match` or `for` header makes is taken and held through the
   # statement (Core §3): what the header binds of it is the body's own, so
   # a view of a payload or element does not outlive its arm or iteration,

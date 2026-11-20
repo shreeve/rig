@@ -682,7 +682,7 @@ test "review-syntax-b-2-v02 call ret write bound", '''
   !h.t.add("x")
   print(h.t)
 
-fail "review-syntax-b-2-v05 if bang as escape ok", "`r` does not live long enough"
+fail "review-syntax-b-2-v05 if bang as escape ok", "`r` is dropped here, at the end of its scope, while a read view of it is still in use"
   fun keep(s: ?String) -> ?String
     s
 
@@ -696,7 +696,7 @@ fail "review-syntax-b-2-v05 if bang as escape ok", "`r` does not live long enoug
   o: String? = String("hello")
   f(!o)
 
-fail "review-syntax-b-2-v06 if bang as escape written", "`r` does not live long enough"
+fail "review-syntax-b-2-v06 if bang as escape written", "`r` is dropped here, at the end of its scope, while a read view of it is still in use"
   fun keep(s: ?String) -> ?String
     s
 
@@ -737,7 +737,7 @@ test "review-syntax-b-2-v08 branch read ok", "ello"
   y = String("world")
   f(?x, ?y, true)
 
-fail "review-syntax-b-2-v09 match bang escape ok", "`t` does not live long enough"
+fail "review-syntax-b-2-v09 match bang escape ok", "`t` is dropped here, at the end of its scope, while a read view of it is still in use"
   fun keep(s: ?String) -> ?String
     s
 
@@ -752,7 +752,7 @@ fail "review-syntax-b-2-v09 match bang escape ok", "`t` does not live long enoug
     .b => pass
   print(s)
 
-fail "review-syntax-b-2-v11 if bang as owned escape", "`r` does not live long enough"
+fail "review-syntax-b-2-v11 if bang as owned escape", "`r` is dropped here, at the end of its scope, while a read view of it is still in use"
   fun keep(s: ?String) -> ?String
     s
 
@@ -763,7 +763,7 @@ fail "review-syntax-b-2-v11 if bang as owned escape", "`r` does not live long en
     s = keep(?r[1..])
   print(s)
 
-fail "review-syntax-b-2-v12 match bang param escape", "`t` does not live long enough"
+fail "review-syntax-b-2-v12 match bang param escape", "`t` is dropped here, at the end of its scope, while a read view of it is still in use"
   fun keep(s: ?String) -> ?String
     s
 

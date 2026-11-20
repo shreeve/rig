@@ -392,7 +392,7 @@ test "r3-or-formal-strip", "bc ax"
   !p.add("x")
   print(r ?? "", p)
 
-fail "r3-or-generic-loopcopy", "`x` does not live long enough"
+fail "r3-or-generic-loopcopy", "`x` is dropped here, at the end of its scope, while a read view of it is still in use"
   # A generic loop over a `?List[T]` binds a copy of each element, which
   # the iteration holds (SPEC "Generic bodies"): `?x` lends that copy, so
   # a view of it may not outlive the iteration (Core s6); one used within
@@ -1156,7 +1156,7 @@ test "r3-or-red-c4 rcap ret view", "1"
   r = g()
   print(r.n)
 
-fail "r3-or-red-d2 repoint", "`b` does not live long enough"
+fail "r3-or-red-d2 repoint", "`b` is dropped here, at the end of its scope, while a read view of it is still in use"
   # Must stay rejected under D2 depth tokens: after `@src = other`,
   # a projection of `@src` is not `ext(@, src)` alone.
   obj Tok
@@ -1355,7 +1355,7 @@ fail "r3-or-red-r9 store readparam", "cannot change `c` while a read view of it 
   h = Holder(r: ?x[..])
   print(f(!h, ?x[..], !v))
 
-fail "r3-or-red-s3 closure store", "`w` does not live long enough"
+fail "r3-or-red-s3 closure store", "`w` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj Item
     n: Int
 
@@ -1373,7 +1373,7 @@ fail "r3-or-red-s3 closure store", "`w` does not live long enough"
     put(!h, ?w)
   print(h.r.n)
 
-fail "r3-or-red-s4 defer store", "`w` does not live long enough"
+fail "r3-or-red-s4 defer store", "`w` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj Item
     n: Int
 
