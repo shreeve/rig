@@ -4242,6 +4242,7 @@ fn startWorkers() void {
     for (1..n) |i| initWorker(i);
     for (ws[1..]) |*w| w.poller.open();
     if (comptime zva_target) zva_64.* = zvaIs64();
+    readSteal();
     workers_len.store(n, .release);
     if (n == 1) {
         if (preempt and !deterministic.*) startMonitor();
@@ -4616,6 +4617,39 @@ fn next(w: *Worker) ?*Fiber {
     return search(w);
 }
 
+/// EXPERIMENT: on Apple silicon, how a worker on an efficiency core steals
+/// (RIG_EMOST, RIG_ELEAST), and how many of the CPUs, the first, are
+/// efficiency cores.
+var e_most: u32 = Ring.size;
+var e_least: u32 = 1;
+var e_cpus: usize = 0;
+var search_cap: u32 = std.math.maxInt(u32);
+
+extern "c" fn pthread_cpu_number_np(cpu: *usize) c_int;
+
+fn onEfficiencyCore() bool {
+    if (comptime !(builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64)) return false;
+    if (e_cpus == 0) return false;
+    var cpu: usize = 0;
+    if (pthread_cpu_number_np(&cpu) != 0) return false;
+    return cpu < e_cpus;
+}
+
+fn readSteal() void {
+    if (comptime !(builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64)) return;
+    var levels: c_int = 0;
+    var len: usize = @sizeOf(c_int);
+    if (std.c.sysctlbyname("hw.nperflevels", &levels, &len, null, 0) != 0 or levels != 2) return;
+    var n: c_int = 0;
+    len = @sizeOf(c_int);
+    if (std.c.sysctlbyname("hw.perflevel1.logicalcpu", &n, &len, null, 0) != 0) return;
+    e_cpus = @intCast(n);
+    const p = rt.process.* orelse return;
+    if (p.environ.getPosix("RIG_EMOST")) |v| e_most = std.fmt.parseInt(u32, v, 10) catch e_most;
+    if (p.environ.getPosix("RIG_ELEAST")) |v| e_least = std.fmt.parseInt(u32, v, 10) catch e_least;
+    if (p.environ.getPosix("RIG_SCAP")) |v| search_cap = std.fmt.parseInt(u32, v, 10) catch search_cap;
+}
+
 /// Steal half of another worker's ring, starting from a random one. At
 /// most half the workers search at once; a worker that finds work, and
 /// was the last searching, wakes another to look for more while more
@@ -4625,7 +4659,7 @@ fn search(w: *Worker) ?*Fiber {
     if (ws.len < 2) return null;
     // A worker woken to look for work is counted as searching already.
     if (!w.searching) {
-        if (2 * searching.load(.acquire) >= ws.len) return null;
+        if (2 * searching.load(.acquire) >= ws.len or searching.load(.acquire) >= search_cap) return null;
         _ = searching.fetchAdd(1, .seq_cst);
         w.searching = true;
     }
@@ -4633,11 +4667,14 @@ fn search(w: *Worker) ?*Fiber {
     w.rng ^= w.rng >> 17;
     w.rng ^= w.rng << 5;
     const start = w.rng % ws.len;
+    const eff = onEfficiencyCore();
+    const most: u32 = if (eff) e_most else Ring.size;
+    const least: u32 = if (eff) e_least else 1;
     for (0..ws.len) |k| {
         const v = &ws[(start + k) % ws.len];
         if (v == w) continue;
         if (keepsBatch(v)) continue;
-        if (w.ring.stealFrom(&v.ring)) |f| {
+        if (w.ring.stealSome(&v.ring, most, least)) |f| {
             w.stole += 1;
             return f;
         }
@@ -5359,11 +5396,17 @@ const Ring = struct {
     /// `stealing` (see `Ring`). Nothing is written before the victim is
     /// seen to hold any, so a look at an empty ring costs two loads.
     fn stealFrom(r: *Ring, victim: *Ring) ?*Fiber {
+        return r.stealSome(victim, size, 1);
+    }
+
+    /// `stealFrom`, taking at most `most`, and nothing from a ring holding
+    /// fewer than `least`.
+    fn stealSome(r: *Ring, victim: *Ring, most: u32, least: u32) ?*Fiber {
         const own = r.tail.load(.monotonic);
         std.debug.assert(r.head.load(.monotonic) == own);
         {
             const avail = victim.tail.load(.acquire) -% victim.head.load(.acquire);
-            if (avail == 0 or avail > size) return null;
+            if (avail == 0 or avail > size or avail < least) return null;
         }
         // Uncounted: no signal stops a thief holding the flag (a build
         // preempted by signal has no yield checks, so it steals only in a
@@ -5375,7 +5418,7 @@ const Ring = struct {
             const t = victim.tail.load(.seq_cst);
             const avail = t -% h;
             if (avail == 0 or avail > size) return null;
-            const n = avail - avail / 2;
+            const n = @min(avail - avail / 2, most);
             const first = victim.slots[h % size].load(.monotonic) orelse return null;
             var i: u32 = 1;
             while (i < n) : (i += 1) {
