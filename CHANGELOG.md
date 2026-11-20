@@ -864,9 +864,19 @@ arms.
   store a task where it took two, and the workers woken for the burst
   steal half the ring at once. On pup at twelve workers the slot's swap
   alone had taken 4% of bench/tasks spawn's cycles, its line pulled to
-  and fro by the workers searching. A task's record is cast from its
-  block with no check of its alignment, which the allocator proves
-  (`alloc.allocRecord`).
+  and fro by the workers searching; a spawn takes 117.5 ns there, where
+  it took 123.6, and 96 at one worker, where it took 103. A task's record
+  is cast from its block with no check of its alignment, which the
+  allocator proves (`alloc.allocRecord`).
+- **A task's record finds its class at compile time:** `allocRecord`
+  and `freeRecord` take the record's size and alignment as constants, so
+  a spawn and a task's free look up no class (`classAligned` had taken
+  2.3% of spawn's cycles on pup at twelve workers), and `allocRecord`
+  takes a block from the class's free list itself, calling the heap only
+  when the list is empty. On pup bench/tasks' spawn takes 103 ns, where
+  it took 131 (21% faster), and hog 19% less; a spawn alone takes 78.8 ns
+  at one worker, where it took 102.3 (758 instructions, where it took
+  969), and 112.5 at twelve, where it took 124.7.
 
 - **On macOS a List that grows past 16 MiB moves its pages:** a large
   block that grows maps a fresh range and takes its old pages into it
