@@ -4667,9 +4667,14 @@ fn search(w: *Worker) ?*Fiber {
         if (n == seen.len) break;
     }
     if (n == 0) return null;
-    // Wait without reading the slots, whose lines their owners write.
+    // Wait without reading the slots, whose lines their owners write, and
+    // read the clock once every `spins_per_look` pauses, not at each: a
+    // look is a call into the system's clock (Linux's vDSO).
     const until = nowNs() + steal_next_after;
-    while (nowNs() < until) std.atomic.spinLoopHint();
+    while (true) {
+        for (0..spins_per_look) |_| std.atomic.spinLoopHint();
+        if (nowNs() >= until) break;
+    }
     for (seen[0..n]) |e| {
         if (e.slot.cmpxchgStrong(e.fiber, null, .seq_cst, .monotonic) != null) continue;
         const f = unlessPinned(e.fiber) orelse continue;
@@ -4685,6 +4690,11 @@ const SlotSeen = struct { slot: *std.atomic.Value(?*Fiber), fiber: *Fiber };
 
 /// How many workers' slots one search waits on at once.
 const steal_next_most = 8;
+
+/// The pauses between two looks at the clock as a search waits: a
+/// fraction of `steal_next_after` on any core, as a pause takes some 40
+/// to 140 cycles on x86 and fewer on Apple's.
+const spins_per_look = 16;
 
 /// How long a fiber waits in a busy worker's "run next" slot before a
 /// worker with nothing to do takes it: long enough that a fiber made and
