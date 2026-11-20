@@ -853,11 +853,23 @@ arms.
   3.38 before the fork's record. Only a fork runs on its waiter's stack
   (`sched.runHere`), as the design has it: a task held in a set,
   returned or stored is waited for as a fiber of its own. A task that is
-  not a fork wakes through `wakeIn`, called rather than pasted into
+  not a fork wakes through `wakeMade`, called rather than pasted into
   `spawn`, which it had made five times its size; and the flag a fork's
   cancel sets reaches `runHere` from its waiter, not from a field of
   every task's record, which is 448 bytes again where it had grown to
   464 (bench/tasks' spawn, one cache line fewer).
+- **A burst of tasks goes to the ring:** a task made while every "run
+  next" slot is full goes to the ring's tail (`sched.wakeMade`), where it
+  took a slot and moved the slot's oldest fiber to the ring: one locked
+  store a task where it took two, and the workers woken for the burst
+  steal half the ring at once. On pup at twelve workers the slot's swap
+  alone had taken 4% of bench/tasks spawn's cycles, its line pulled to
+  and fro by the workers searching. A worker searching for work waits
+  3 µs once for every slot it saw full, then takes the first fiber still
+  there (`sched.search`), where it waited 3 µs at each worker in turn:
+  pause had been 63% of search's cycles, beside a busy worker on the same
+  core. A task's record is cast from its block with no check of its
+  alignment, which the allocator proves (`alloc.allocRecord`).
 
 - **On macOS a List that grows past 16 MiB moves its pages:** a large
   block that grows maps a fresh range and takes its old pages into it
