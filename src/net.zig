@@ -95,7 +95,11 @@ fn socket(family: u32) NetError!i32 {
     const rc = sys.socket(family, posix.SOCK.STREAM | flags, 0);
     if (posix.errno(rc) != .SUCCESS) return failure(posix.errno(rc));
     const fd: i32 = @intCast(rc);
-    if (darwin) nonblocking(fd);
+    if (darwin) {
+        var on: c_int = 1;
+        _ = std.c.ioctl(fd, @as(c_int, @bitCast(fionbio)), &on);
+        closeOnExec(fd);
+    }
     return fd;
 }
 
@@ -116,11 +120,16 @@ fn setOption(fd: i32, level: i32, name: u32, value: c_int) void {
     _ = sys.setsockopt(fd, level, name, std.mem.asBytes(&value), @sizeOf(c_int));
 }
 
-/// macOS sets a socket not to block after it is made.
-fn nonblocking(fd: i32) void {
+/// macOS's FIONBIO, `_IOW('f', 126, int)`, which Zig's `std.c` leaves
+/// out for it.
+const fionbio: u32 = 0x8004667e;
+
+/// macOS closes a socket on `exec` once it is made: `socket` and
+/// `accept` take no such flag there. A socket made sets itself not to
+/// block (FIONBIO, one call where `fcntl` takes two), and one accepted
+/// takes that from its listener, made so, as on BSD.
+fn closeOnExec(fd: i32) void {
     if (!darwin) return;
-    const flags = std.c.fcntl(fd, std.c.F.GETFL);
-    _ = std.c.fcntl(fd, std.c.F.SETFL, flags | @as(c_int, @bitCast(std.c.O{ .NONBLOCK = true })));
     _ = std.c.fcntl(fd, std.c.F.SETFD, @as(c_int, std.c.FD_CLOEXEC));
 }
 
@@ -285,7 +294,7 @@ fn acceptOne(s: i32, reg: i64) Error!?i32 {
         switch (posix.errno(rc)) {
             .SUCCESS => {
                 const c: i32 = @intCast(rc);
-                nonblocking(c);
+                closeOnExec(c);
                 noDelay(c);
                 return c;
             },
@@ -448,7 +457,7 @@ fn writeAll(s: i32, reg: i64, bytes: []const u8, limit: Limit) Error!void {
 
 pub fn close(fd: i64, reg: i64) void {
     if (fd < 0) return;
-    if (reg != 0) rig.sched.deregister(@ptrFromInt(@as(usize, @intCast(reg))));
+    if (reg != 0) return rig.sched.deregisterClose(@ptrFromInt(@as(usize, @intCast(reg))));
     _ = sys.close(@intCast(fd));
 }
 

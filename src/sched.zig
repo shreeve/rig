@@ -2624,10 +2624,13 @@ const Poller = struct {
         return true;
     }
 
-    /// Stop watching `fd`. Under the lock, so no event for it is being
-    /// handled; a worker holding it, asleep in the poller, is woken to
-    /// let go.
-    fn remove(p: *Poller, fd: i32) void {
+    /// Stop watching `fd`, and close it when `closes`. Under the lock, so
+    /// no event for it is being handled; a worker holding it, asleep in
+    /// the poller, is woken to let go. On the Mac a close takes the
+    /// descriptor's events off its kqueue, read or not, so one that
+    /// closes it here asks the kqueue nothing: a `kevent64` call less for
+    /// each socket closed.
+    fn remove(p: *Poller, fd: i32, comptime closes: bool) void {
         if (!p.lock.tryLock()) {
             _ = p.removers.fetchAdd(1, .seq_cst);
             p.kick();
@@ -2635,7 +2638,9 @@ const Poller = struct {
             _ = p.removers.fetchSub(1, .seq_cst);
         }
         defer p.lock.unlock();
-        if (darwin) {
+        if (darwin and closes) {
+            _ = std.posix.system.close(fd);
+        } else if (darwin) {
             const evs = [2]std.c.kevent64_s{
                 .{ .ident = @intCast(fd), .filter = std.c.EVFILT.READ, .flags = std.c.EV.DELETE, .fflags = 0, .data = 0, .udata = 0, .ext = .{ 0, 0 } },
                 .{ .ident = @intCast(fd), .filter = std.c.EVFILT.WRITE, .flags = std.c.EV.DELETE, .fflags = 0, .data = 0, .udata = 0, .ext = .{ 0, 0 } },
@@ -2644,6 +2649,7 @@ const Poller = struct {
             _ = std.c.kevent64(p.fd, &evs, 2, &none, 0, .{}, null);
         } else if (linux) {
             _ = std.os.linux.epoll_ctl(p.fd, std.os.linux.EPOLL.CTL_DEL, fd, null);
+            if (closes) _ = std.posix.system.close(fd);
         }
         _ = p.count.fetchSub(1, .monotonic);
     }
@@ -3073,7 +3079,20 @@ pub fn deregister(r: *Registration) void {
         }
         if (r.next) |n| n.prev = r.prev;
     }
-    r.poller.remove(r.fd);
+    r.poller.remove(r.fd, false);
+    std.heap.smp_allocator.destroy(r);
+}
+
+/// `deregister` `r`, and close its descriptor, in that order as one step
+/// (`Poller.remove`).
+pub fn deregisterClose(r: *Registration) void {
+    if (deterministic.*) {
+        if (r.prev) |p| p.next = r.next else if (registered.* == r) {
+            registered.* = r.next;
+        }
+        if (r.next) |n| n.prev = r.prev;
+    }
+    r.poller.remove(r.fd, true);
     std.heap.smp_allocator.destroy(r);
 }
 
@@ -9251,7 +9270,7 @@ test "a look at a poller that holds no event returns at once, without giving up 
     };
     var r: Registration = .{ .fd = fds[0], .poller = &p };
     try std.testing.expect(p.add(fds[0], &r));
-    defer p.remove(fds[0]);
+    defer p.remove(fds[0], false);
     // 2000 looks, as a busy worker makes every 61 turns and a sleeper at
     // each turn: on the Mac a `kevent` with a zero timeout gave up the
     // thread at each, about 12 µs (24 ms in all); the immediate form
