@@ -2725,12 +2725,20 @@ noinline fn allocSlow(len: usize, alignment: std.mem.Alignment) ?[*]u8 {
 /// A block for a record of the runtime's own, a task's (`sched.spawn`),
 /// as `alloc` gives one, or null: from the running thread's heap, and
 /// outside the program's counts (`counts`), which are of what the
-/// program holds.
-pub noinline fn allocRecord(len: usize, alignment: std.mem.Alignment) ?[*]u8 {
+/// program holds. Typed with its alignment, so its caller casts it to
+/// the record with no check: a class is taken from the size table only
+/// at an alignment of 8 or less, every class's size a multiple of 8
+/// (`classSize`), and past it by `classAligned`, whose class's size is a
+/// multiple of the alignment, at most a page; a class's blocks are carved
+/// at multiples of its size from a page (`allocFrom`), and its free,
+/// remote, and donated lists hold its blocks alone; a large block is
+/// aligned by `allocLargeFrom`.
+pub noinline fn allocRecord(len: usize, comptime alignment: std.mem.Alignment) ?[*]align(alignment.toByteUnits()) u8 {
     const h = heap() orelse return null;
-    if (classOf(len, alignment)) |c| return h.alloc(c);
-    if (alignment.toByteUnits() > std.heap.pageSize()) return null;
-    return allocLargeFrom(h, len, alignment.toByteUnits(), null);
+    const p = if (classOf(len, alignment)) |c| h.alloc(c) else if (alignment.toByteUnits() > std.heap.pageSize()) null else allocLargeFrom(h, len, alignment.toByteUnits(), null);
+    invariant(@intFromPtr(p) % alignment.toByteUnits() == 0);
+    @setRuntimeSafety(proven_checks);
+    return @alignCast(p);
 }
 
 /// The running thread is a worker started ahead of the work
@@ -4810,4 +4818,16 @@ test "a large size under 16 MiB is its whole units, and every larger one its buc
     }
     // Trig's `ast.NodeRec` blocks, 34.5 KB, take 36 KiB, not 48.
     try std.testing.expectEqual(36 << 10, largeSize(34_500));
+}
+
+test "a record's block is aligned as its type, small or large" {
+    inline for (.{ .@"8", .@"16", .@"64" }) |tag| {
+        const a: std.mem.Alignment = tag;
+        var len: usize = 8;
+        while (len <= max_small + 4096) : (len += if (len < 4096) 8 else 1024) {
+            const p = allocRecord(len, a).?;
+            try std.testing.expect(@intFromPtr(p) % a.toByteUnits() == 0);
+            freeRecord(p[0..len], a);
+        }
+    }
 }

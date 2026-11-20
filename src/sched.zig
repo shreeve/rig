@@ -6541,8 +6541,9 @@ const own_records = builtin.optimize != .debug;
 /// A new record of a task, an `R`, its bytes unwritten.
 inline fn createRecord(comptime R: type) *R {
     if (!own_records) return std.heap.smp_allocator.create(R) catch rt.oom();
-    const p = rt.fast_alloc.allocRecord(@sizeOf(R), .of(R)) orelse rt.oom();
-    return @ptrCast(@alignCast(p));
+    // Aligned as an `R` (`allocRecord`): cast with no check.
+    const p = rt.fast_alloc.allocRecord(@sizeOf(R), comptime .of(R)) orelse rt.oom();
+    return @ptrCast(p);
 }
 
 /// Free `r`, a record `createRecord` made, on any thread.
