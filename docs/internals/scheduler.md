@@ -200,7 +200,10 @@ worker after.
   wait of at most 10 µs or more first, which macOS wakes about 2 µs
   sooner than one with no deadline, made bench/net's connections 15%
   faster but its ping-pong 7% slower than Tokio's, and a wait of 5 µs
-  or less behaved as none (macOS 27).
+  or less behaved as none (macOS 27). So only while a task waits for a
+  connection it makes to finish does a sleep's first wait end within
+  20 µs (`sched.connecting`), which keeps connect as fast and ping-pong
+  level with Tokio's.
 - **Pinned fibers.** A local task, and the task that makes it, are
   pinned to its worker (`Fiber.home`, `sched.pinHere`). A pinned fiber
   that is ready waits in its worker's pinned queue, never a ring or the

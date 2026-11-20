@@ -863,8 +863,10 @@ arms.
   (`settle_wait`). macOS wakes a thread from such a wait sooner, which
   made bench/net's connections faster, but its ping-pong was 7% slower
   than Tokio's for it: ping-pong is level with Tokio's now (14.6 µs a
-  round trip against 14.8), echo stays ahead, and connect is 12-15%
-  slower than before but still ahead of Tokio's and Go's.
+  round trip against 14.8), echo stays ahead. Only while a task waits
+  for a connection it makes to finish does the first wait end within
+  20 µs (`sched.connecting`), so connect is as fast as before (51 µs a
+  connection, where it took 58 without it; Tokio 63).
 - **A burst of tasks goes to the ring:** a task made while every "run
   next" slot is full goes to the ring's tail (`sched.wakeMade`), where it
   took a slot and moved the slot's oldest fiber to the ring: one locked

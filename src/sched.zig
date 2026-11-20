@@ -28,6 +28,7 @@ const split = rt.split;
 comptime {
     if (split.on and split.main) _ = .{
         workers_len,
+        connecting,
         workers_override,
         global,
         sleepers,
@@ -3039,6 +3040,18 @@ fn registerIn(fd: i32) ?*Registration {
     return r;
 }
 
+/// How many connections a task waits to finish making
+/// (`net.finish_connect`). On the Mac, while any does, a sleep's first
+/// wait ends within `connect_wait`, which macOS wakes about 2 µs sooner
+/// than one with no deadline: bench/net's connect takes 51 µs a
+/// connection so, where it took 58 with no such wait. Only then: a first
+/// wait like it at every sleep of a worker holding descriptors made
+/// ping-pong 7% slower than Tokio's (docs/internals/scheduler.md). A wait
+/// of 10 µs or more wakes so; one of 5 µs or less does not (macOS 27).
+var connecting_var: std.atomic.Value(u32) = .init(0);
+pub const connecting = split.cell(&connecting_var, "sched.connecting");
+const connect_wait: i96 = 20 * std.time.ns_per_us;
+
 /// Every registration, in a deterministic run, which runs on one thread.
 var registered_var: ?*Registration = null;
 const registered = split.cell(&registered_var, "sched.registered");
@@ -4766,6 +4779,7 @@ fn sleep(w: *Worker) void {
     // it leaves: one batch (`Batch`).
     const opened = beginBatch(w);
     defer endBatch(w, opened);
+    var first = true;
     while (w.woken.load(.seq_cst) == 0) {
         serviceAll();
         if (!hasOwnWork(w)) {
@@ -4773,6 +4787,8 @@ fn sleep(w: *Worker) void {
             const due = earliestDue();
             w.sleep_due.store(due, .seq_cst);
             var timeout: ?i96 = if (due == no_due) null else @max(@as(i96, due) - nowNs(), 0);
+            if (Poller.darwin and first and connecting.*.load(.monotonic) != 0) timeout = if (timeout) |t| @min(t, connect_wait) else connect_wait;
+            first = false;
             if (trim_due) {
                 const left = @max(since + w.trim_wait - nowReal(), 0);
                 timeout = if (timeout) |t| @min(t, left) else left;
