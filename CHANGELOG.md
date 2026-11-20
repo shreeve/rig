@@ -858,6 +858,13 @@ arms.
   cancel sets reaches `runHere` from its waiter, not from a field of
   every task's record, which is 448 bytes again where it had grown to
   464 (bench/tasks' spawn, one cache line fewer).
+- **On the Mac a sleeping worker waits with no first deadline:** a
+  worker holding descriptors no longer waits first for at most 20 µs
+  (`settle_wait`). macOS wakes a thread from such a wait sooner, which
+  made bench/net's connections faster, but its ping-pong was 7% slower
+  than Tokio's for it: ping-pong is level with Tokio's now (14.6 µs a
+  round trip against 14.8), echo stays ahead, and connect is 12-15%
+  slower than before but still ahead of Tokio's and Go's.
 - **A burst of tasks goes to the ring:** a task made while every "run
   next" slot is full goes to the ring's tail (`sched.wakeMade`), where it
   took a slot and moved the slot's oldest fiber to the ring: one locked
