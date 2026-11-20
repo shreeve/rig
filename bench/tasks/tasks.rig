@@ -9,6 +9,7 @@
 # the checks must agree with tokio.rs's and main.go's.
 
 use std.os
+use std.hint
 use std.par
 use std.task
 use std.time
@@ -35,11 +36,12 @@ SKEW_BASE = 1200
 ALLOC_ROUNDS = 4400
 
 fun leaf(i: Int) -> Int
-  i
+  hint.opaque(i)
 
 fun spin(n: Int) -> Int
+  m = hint.opaque(n)
   total = 0
-  for i in 0..n
+  for i in 0..m
     total = (total + i * 7) % 1000003
   total
 
@@ -168,7 +170,7 @@ fun skew_chunk(i: Int, w: Int) -> Int
 
 fun churn(i: Int, rounds: Int) -> Int
   total = 0
-  for k in 0..rounds
+  for k in 0..hint.opaque(rounds)
     xs = List[Int]()
     for j in 0..16
       !xs.push(i + j + k)

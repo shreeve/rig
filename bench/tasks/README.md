@@ -112,7 +112,9 @@ or goroutine for each chunk and each split, and Rayon uses
 `into_par_iter` and `join`. Rayon has no sleeping tasks, so it has no
 memory row. Go's chunks keep each List and String in a slot of their
 own, and Rust's pass through `black_box`, so each allocation reaches the
-heap, as Rig's do.
+heap, as Rig's do. Where Rust's programs hide an input with `black_box`
+(`leaf`'s value, `spin`'s count, `churn`'s rounds), Rig's hide it with
+`hint.opaque`, so both compile the same loop for any input.
 
 ## Where it stands
 
