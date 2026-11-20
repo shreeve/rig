@@ -4668,15 +4668,25 @@ fn search(w: *Worker) ?*Fiber {
 /// 3 µs before it takes a `runnext`.
 const steal_next_after: i96 = 3 * std.time.ns_per_us;
 
+/// The pauses between two looks at the clock as `stealNext` waits: a
+/// fraction of `steal_next_after` on any core, as a pause takes some 40
+/// to 140 cycles on x86 and fewer on Apple's.
+const spins_per_look = 16;
+
 /// Take the fiber in `v`'s "run next" slot, if it is still there after
 /// `steal_next_after`. A pinned one taken so goes back to its home's
 /// queue.
 fn stealNext(v: *Worker) ?*Fiber {
     const slot = oldestNext(v) orelse return null;
     const f = slot.load(.seq_cst) orelse return null;
-    // Wait without reading the slot, whose line its owner writes.
+    // Wait without reading the slot, whose line its owner writes, and
+    // read the clock once every `spins_per_look` pauses, not at each: a
+    // look is a call into the system's clock (Linux's vDSO).
     const until = nowNs() + steal_next_after;
-    while (nowNs() < until) std.atomic.spinLoopHint();
+    while (true) {
+        for (0..spins_per_look) |_| std.atomic.spinLoopHint();
+        if (nowNs() >= until) break;
+    }
     if (slot.cmpxchgStrong(f, null, .seq_cst, .monotonic) != null) return null;
     return unlessPinned(f);
 }
