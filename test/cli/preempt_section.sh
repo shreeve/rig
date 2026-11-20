@@ -192,6 +192,9 @@ for p in tasks actors calls; do
             --cache-dir "$RIG_OUT_DIR/preempt-section-cache" __rig_main.zig -femit-bin="../$p") >build.err 2>&1 ||
             fail "build bench/$p for x86-64 Linux: $(cat build.err)"
     fi
+    # The section starts on a 16 KiB boundary here too (`rt.programSectionAnchor`).
+    vma=$(objdump -h "$p" | awk '$2 == "rig_text" {print $4; exit}')
+    [[ -n $vma ]] && (( 0x$vma % 16384 == 0 )) || fail "bench/$p: the executable's rig_text starts at 0x$vma, not on a 16 KiB boundary"
     check "$p" rig_text "$p"
     calls "$p" rig_text "$p"
     ! grep -q '%fs:' "${p}rig_text.dis" || fail "bench/$p: the program's section reads a thread-local: $(grep -m1 '%fs:' "${p}rig_text.dis")"
