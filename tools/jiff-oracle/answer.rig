@@ -1,10 +1,11 @@
-# std.datetime's answers to the oracle's cases (README.md): one line out
-# for each line of the file named first, in the line format, for the
-# cases std.datetime answers so far. A case it does not answer yet
-# prints `-`, which the comparison passes over.
+# std.datetime's and std.time's answers to the oracle's cases
+# (README.md): one line out for each line of the file named first, in the
+# line format, for the cases they answer so far. A case not answered yet
+# prints `-`, which the comparison passes over, as it passes over each
+# part Jiff answers `skip` (test/cli/jiff_oracle.sh).
 #
 #   bin/rig build --release tools/jiff-oracle/answer.rig -o DIR/answer
-#   DIR/answer DIR/calendar.in > DIR/calendar.rig.out
+#   DIR/answer DIR/calendar.in > DIR/calendar.rig
 
 use std.datetime
 use std.file
@@ -73,6 +74,19 @@ sub answer(op: ?String, rest: ?String)
     print(show(datetime.Time.parse(rest) catch none))
   else if op == "datetime.parse"
     print(show(datetime.DateTime.parse(rest) catch none))
+  else if op == "duration.parse"
+    print(show_iso(maybe_duration(rest)))
+  else if op == "duration.round"
+    # An input, or a multiple near it, past a `Duration`'s range is left
+    # out (§5.1): Rig panics there, and the oracle answers `skip`.
+    d = maybe_duration(a[0])
+    k = int(a[2])
+    big = I128((d ?? time.duration(0)).ns())
+    if d == none or (-big if big < 0 else big) + I128(k) * I128(unit_ns(a[1])) > I128(Int.max)
+      print("-")
+    else
+      x = d ?? time.duration(0)
+      print(duration_round(x, a[1], k, false).iso(), duration_round(x, a[1], k, true).iso())
   else if op == "time.round"
     t = time_of(a[0])
     k = int(a[2])
@@ -80,12 +94,7 @@ sub answer(op: ?String, rest: ?String)
   else if op == "datetime.round"
     dt = datetime_of(a[0])
     k = int(a[2])
-    # Jiff 1.0.0 does not carry a round past midnight in years at or
-    # below 0 (DATETIME-DESIGN §6.8), so the oracle skips those.
-    if dt.year() <= 0
-      print("skip", datetime_round(dt, a[1], k, true))
-    else
-      print(datetime_round(dt, a[1], k, false), datetime_round(dt, a[1], k, true))
+    print(datetime_round(dt, a[1], k, false), datetime_round(dt, a[1], k, true))
   else if op == "date.nth_weekday"
     print(show(date(a[0]).nth_weekday(int(a[1]), weekday(a[2])) catch none))
   else if op == "date.nth_weekday_of_month"
@@ -104,6 +113,39 @@ fun show[T](r: T?) -> String
   if r as v
     return String(v)
   String("error")
+
+# A duration in ISO 8601, or `error` when there is none.
+fun show_iso(r: time.Duration?) -> String
+  if r as v
+    return v.iso()
+  String("error")
+
+# The nanoseconds in a rounding unit of the line format.
+fun unit_ns(unit: ?String) -> Int
+  if unit == "us"
+    return 1_000
+  if unit == "ms"
+    return 1_000_000
+  if unit == "seconds"
+    return 1_000_000_000
+  if unit == "minutes"
+    return 60_000_000_000
+  if unit == "hours"
+    return 3_600_000_000_000
+  1
+
+fun duration_round(d: time.Duration, unit: ?String, k: Int, down: Bool) -> time.Duration
+  if unit == "ns"
+    return d.floor(ns: k) if down else d.round(ns: k)
+  if unit == "us"
+    return d.floor(us: k) if down else d.round(us: k)
+  if unit == "ms"
+    return d.floor(ms: k) if down else d.round(ms: k)
+  if unit == "seconds"
+    return d.floor(seconds: k) if down else d.round(seconds: k)
+  if unit == "minutes"
+    return d.floor(minutes: k) if down else d.round(minutes: k)
+  d.floor(hours: k) if down else d.round(hours: k)
 
 # The duration `s` writes, or `none` beyond a `Duration`'s range.
 fun maybe_duration(s: ?String) -> time.Duration?

@@ -3,8 +3,10 @@
 # 1.0.0 as Cargo.lock pins it, it answers a fixed set of cases with the
 # values Jiff's own tests and examples assert, and it answers from the
 # zone data Jiff bundles (2026f), never the machine's (`gen.py
-# --bundle-check`). Jiff's answers to the generated inputs are not
-# committed; std.datetime's tests compare with them as each phase lands.
+# --bundle-check`). Then std.datetime's and std.time's answers to every
+# generated case they answer (tools/jiff-oracle/answer.rig) must be
+# Jiff's, part for part, except where Jiff answers `skip`. Jiff's answers
+# are not committed: they are made here.
 # Skipped where there is no Rust toolchain, and where the pinned crates
 # are neither in Cargo's registry nor to be fetched (offline).
 source "$ROOT/test/cli/_lib.sh"
@@ -84,8 +86,29 @@ rc=$?
 expect_rc "$rc" 2 "amounts of both signs"
 expect_has "$out" "line 2: amounts of both signs" "the refusal"
 
-if command -v python3 >/dev/null; then
-    (cd "$dir" && python3 gen.py --bundle-check "$bin") || fail "the oracle does not answer from Jiff's bundled data"
-else
-    echo "python3 is not installed: the bundle check is skipped"
+if ! command -v python3 >/dev/null; then
+    echo "python3 is not installed: the bundle check and the comparison are skipped"
+    exit 0
 fi
+(cd "$dir" && python3 gen.py --bundle-check "$bin") || fail "the oracle does not answer from Jiff's bundled data"
+
+# std.datetime's and std.time's answers against Jiff's, on every case
+# gen.py writes; a case std.datetime does not answer yet is `-`.
+cases_dir=$RIG_OUT_DIR/jiff-cases
+mkdir -p "$cases_dir"
+(cd "$dir" && python3 gen.py "$cases_dir" >/dev/null) || fail "gen.py does not write the cases"
+rig build --release "$ROOT/tools/jiff-oracle/answer.rig" -o "$cases_dir/answer" || fail "answer.rig does not build"
+answered=0
+for kind in calendar counts text round; do
+    "$bin" < "$cases_dir/$kind.in" > "$cases_dir/$kind.jiff" || fail "the oracle stopped on $kind.in"
+    "$cases_dir/answer" "$cases_dir/$kind.in" > "$cases_dir/$kind.rig" || fail "answer.rig stopped on $kind.in"
+    expect_eq "$(wc -l < "$cases_dir/$kind.rig")" "$(wc -l < "$cases_dir/$kind.in")" "answers to $kind.in"
+    tally=$(paste -d '\t' "$cases_dir/$kind.in" "$cases_dir/$kind.jiff" "$cases_dir/$kind.rig" | awk -f "$dir/compare.awk")
+    echo "$kind: ${tally##*$'\n'}"
+    [[ $tally == *"differ 0 "* ]] || fail "std.datetime differs from Jiff on $kind.in: $tally"
+    read -r _ same _ <<<"${tally##*$'\n'}"
+    answered=$((answered + same))
+done
+# Every case these phases answer: fewer means answer.rig stopped
+# answering some.
+(( answered >= 842612 )) || fail "std.datetime answered $answered cases the same as Jiff, fewer than 842,612"

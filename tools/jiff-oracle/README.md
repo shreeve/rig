@@ -16,8 +16,9 @@ python3 gen.py --bundle-check target/release/jiff-oracle
 ```
 
 `test/cli/jiff_oracle.sh` builds it, checks a fixed set of its answers
-against the values Jiff's own tests assert, and runs the bundle check;
-it is skipped where there is no Rust toolchain.
+against the values Jiff's own tests assert, runs the bundle check, and
+compares std.datetime's and std.time's answers to every generated case
+with Jiff's (below); it is skipped where there is no Rust toolchain.
 
 ## What it is built from
 
@@ -56,8 +57,11 @@ several parts they are separated by single spaces.
 
 - A value Jiff refuses (out of range, a skipped or repeated time under
   `reject`, text it does not read) prints `error`.
-- A case where Rig differs from Jiff on purpose prints `skip`, and the
-  comparison passes over it (below).
+- A case where Rig differs from Jiff on purpose prints `skip`, as a whole
+  or as one part of its answer, and the comparison passes over that
+  (below). A duration past an `Int` of nanoseconds, Rig's `Duration`
+  (§5.1), is one: `duration.parse` of such a text, and `duration.round`
+  of such an input or with such an answer.
 - A line the oracle cannot read (an unknown operation, a malformed
   argument, amounts of both signs) is a mistake in the generator, not an
   answer: the oracle stops with exit status 2 and names the line.
@@ -183,15 +187,18 @@ fall often on a multiple or exactly half way.
 
 ## std.datetime's answers
 
-`answer.rig` gives std.datetime's answers to the same lines, for the
-cases it has so far; a case it has not yet prints `-`, and so does a
-`datetime.add` or `time.add` whose duration is beyond a `Duration`'s
-range (§5.1).
+`answer.rig` gives std.datetime's and std.time's answers to the same
+lines, for the cases they have so far; a case not answered yet prints
+`-`, and so does a `datetime.add` or `time.add` whose duration, or a
+`duration.round` whose input and increment, reach past a `Duration`'s
+range (§5.1). `compare.awk` compares them part for part, passing over
+`-` and each `skip`, and prints each difference and the counts;
+`jiff_oracle.sh` requires no difference.
 
 ```bash
 bin/rig build --release tools/jiff-oracle/answer.rig -o DIR/answer
 DIR/answer DIR/calendar.in > DIR/calendar.rig
-paste -d '\t' DIR/calendar.in DIR/calendar.out DIR/calendar.rig    # compare
+paste -d '\t' DIR/calendar.in DIR/calendar.out DIR/calendar.rig | awk -f tools/jiff-oracle/compare.awk
 ```
 
 ## Left out
@@ -201,8 +208,9 @@ The oracle does not check where Rig differs from Jiff on purpose
 
 - **Rounding.** `round` prints `skip` for an `Instant` before 1970 that is
   exactly half way (Jiff takes it away from 1970, §9 item 12); for a
-  `DateTime` or `ZonedDateTime` in a year at or below 0 (Jiff 1.0.0 does
-  not carry past midnight there, item 14); and for `round(days: 1)` on a
+  `DateTime` or `ZonedDateTime` in a year at or below 0 that reaches the
+  next midnight (Jiff 1.0.0 does not carry it into the next day there,
+  item 14), the `DateTime`'s round as one part of its answer; and for `round(days: 1)` on a
   `ZonedDateTime` unless the value lies in its own date's range and that
   date's start plus a day on the clock is the next date's start (item 14).
   `floor` is checked in each of these.
