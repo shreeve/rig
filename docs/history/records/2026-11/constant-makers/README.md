@@ -9,6 +9,12 @@ is a compile error; with any argument known only at run time the call is
 only Rig's constant evaluation. Branch `constant-makers`, from main
 e38454865.
 
+The rest of §10.6's list, `TimeZone.fixed`, `TimeZone.named` with a
+literal, `Duration.from_parts`, `Instant.from_unix_s`, `_ms` and `_us`,
+and `time.duration`, is out of scope here: none of them is fallible yet,
+so these three makers are the whole rule today, and the change that
+makes each fallible lists it in `constMaker` with its check.
+
 ## What landed
 
 | Part | Where |
@@ -67,10 +73,10 @@ e38454865.
    that call takes `!`: the answer is the call's own and the same in
    every instance. A call through a type parameter cannot reach `new`,
    which takes no self.
-7. **A task of the call** (`Date.new(2026, 1, 31)&`) holds what the maker
-   declares, `Task[Date!]`, as a task of any fallible call: the rule is
-   about the call's value, and the task's wait is where its failure is
-   taken.
+7. **A task of the call** (`Date.new(2026, 1, 31)&`) is checked as any
+   call is, so a refused constant is a compile error there too, and it
+   holds what the maker declares, `Task[Date!]`, as a task of any
+   fallible call: the task's wait is where a failure is taken.
 8. **The error names the part and its range**, at the argument:
    "`datetime.Date.new(2023, 2, 29)` always fails, its arguments being
    constants: February 2023 has 28 days; write a day from 1 to 28"; for a
@@ -88,10 +94,14 @@ e38454865.
 `std.datetime` came after 0.3.0, so no released program changes, and
 no release note lists a rejection. `tools/migrate-constant-makers.py`
 (in `migrate-datetime.py`'s style) drops the `!` from each call whose
-arguments are integer literals forming a real date or time, and prints
-`MANUAL` for a literal call the maker refuses or one handled with
-`catch`, and `CHECK` for a test line whose positions may move. In Rig's
-tree it rewrote 521 calls: `test/rig/std-datetime.rig.test` 197,
+arguments are integer literals forming a real date or time, reached
+through a name `use std.datetime` binds (its own, an `as` name, or a
+`type` alias of one of the three types), outside strings, a test file's
+`fail` cases, and Markdown prose; it prints `MANUAL` for a literal call
+the maker refuses or one handled with `catch`, and `CHECK` for a test
+line whose positions may move (`test/cli/migrate_constant_makers.sh`).
+In Rig's tree its first form, which matched any `Date.new(` and also
+prose, rewrote 521 calls: `test/rig/std-datetime.rig.test` 197,
 `std-datetime-docs` 142, `std-datetime-clock` 112,
 `std-datetime-ports` 32, `std-datetime-checks` 24,
 `std-datetime-instant-ports` 1, `docs/STD.md` 12, and one comment in
@@ -138,5 +148,38 @@ a case showing a constant call is never a site of a failure's trace
 `tools/emit-diff origin/main`, only `makerPanic`'s 8 runtime lines; the
 check guard, branch first, four rounds each at a load of 7.2 to 8.4:
 2,178,778,517 instructions for the branch and 2,178,250,872 for main,
-level (0.02%). The migration script, run again, finds no new literal
-call outside the records and the design's own before-and-after table.
+level (0.02%). That run of the migration script's first form was not
+clean, as the review below found: it would also have rewritten the
+deliberate refusal in `std-datetime-makers` and the design's
+before-and-after table, and named prose that already says "is refused"
+as `MANUAL` again.
+
+## Review
+
+An independent review (2026-11-22) found nothing blocking: the check
+and std's agree on every boundary it probed, in 14 contexts of emit.
+Fixed on the branch, each with its case first:
+
+1. A task of a refused constant, `Date.new(2026, 2, 30)&`, compiled and
+   failed as it ran: the check now runs before a task keeps `Task[T!]`.
+2. The migration script matched any `Date.new(`, `Time.new(`, or
+   `DateTime.new(`, a program's own `Time` too, and text in strings: it
+   now reaches only names `use std.datetime` binds and their `type`
+   aliases, skips strings, a test file's `fail` cases, and Markdown
+   prose, and names a refused call only when it has a `!` or a `catch`.
+   Run again over the tree outside the records, it rewrites nothing
+   and names nothing. A CLI case shows each, and that a second run
+   changes nothing.
+3. An argument with an error of its own no longer adds "must be wrapped
+   with `!`": the call is left unchecked, with no type of its own.
+4. A maker's call left fallible names the argument that is not a
+   constant, in a note on its error.
+5. SPEC and CHANGELOG list what counts as a constant as the compiler
+   computes it (a compile-time function's value, a type's limit,
+   ternaries; not a closure's capture or a compile-time parameter).
+6. The boundary tests cover the last day of all twelve months and the
+   day after, in a leap and a common year, and days 28 to 32 of each
+   through std's `new` at run time.
+7. CHANGELOG's account of the script, MIGRATING-0.3.md (which now names
+   it), HANDOFF (which no longer names the branch), and this record.
+

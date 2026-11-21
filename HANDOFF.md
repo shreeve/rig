@@ -145,9 +145,9 @@ A new session, human or agent, takes these steps in order:
   "total or visible" (2026-11-22; records/2026-11/datetime-strategy): no
   call in `std.time` or `std.datetime` panics, each is total or returns
   `!`, and `Duration` takes Jiff's 16 bytes, so `since` and `unix()` are
-  total. The constant-argument rule (branch `constant-makers`) gives
-  `Date.new`, `Time.new`, and `DateTime.new` called with constants their
-  plain type, checked as Rig compiles (records/2026-11/constant-makers).
+  total. The constant-argument rule gives `Date.new`, `Time.new`, and
+  `DateTime.new` called with constants their plain type, checked as Rig
+  compiles (records/2026-11/constant-makers).
   Next, in order: the keyword rule, then groups and spreads, then owners
   and read views in groups (the owner, 2026-11-22;
   [design/options.md](docs/design/options.md), its build plan's steps 1

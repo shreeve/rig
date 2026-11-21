@@ -952,3 +952,22 @@ python3 tools/migrate-loops.py src/             # rewrite in place
 | `r = for x in xs` ... `break x if f(x)` ... `else d` | `r = xs.find(f) ?? d`, or a function that returns from its loop |
 | `i = for x, j in xs` ... `break j if x == t` ... `else -1` | `i = xs.index_of(t) ?? -1` on a List |
 | a name `loop`, `file.FileError.loop` | another name, `file.FileError.link_loop` |
+
+### A datetime maker called with constants
+
+`std.datetime` is new since 0.3.0, so no 0.3.0 program meets this; a
+program written against `main` may. A call of `Date.new`, `Time.new`, or
+`DateTime.new` whose every argument is a constant is checked as Rig
+compiles and gives the plain type ([SPEC §13](../SPEC.md#13-errors)), so
+the `!` on it is rejected: `datetime.Date.new(2026, 1, 31)!` is written
+`datetime.Date.new(2026, 1, 31)`. `tools/migrate-constant-makers.py`
+drops the `!` from each such call whose arguments are integer literals,
+reached through the names `use std.datetime` binds, and prints a literal
+call the maker refuses for you to rewrite (`MANUAL`); a call whose
+constants are names, `Date.new(2026, LIMIT, 1)!`, the compiler's error
+names:
+
+```sh
+python3 tools/migrate-constant-makers.py --dry-run src/   # what would change
+python3 tools/migrate-constant-makers.py src/             # rewrite in place
+```
