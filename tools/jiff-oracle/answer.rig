@@ -42,6 +42,25 @@ sub answer(op: ?String, rest: ?String)
       print(show(dt.checked_add(d, years: int(a[1]), months: int(a[2]), weeks: int(a[3]), days: int(a[4])) catch none))
     else
       print("-")
+  else if op == "instant.add"
+    i = instant(a[0])
+    if maybe_duration(a[1]) as d
+      print(show(i.checked_add(d) catch none))
+    else
+      print("-")
+  else if op == "instant.unix"
+    # `unix()` saturates beyond a `Duration` (§5.1), where Jiff answers
+    # `skip`.
+    i = instant(a[0])
+    print(i.unix().iso(), i.unix_s(), show(datetime.Instant.from_unix(i.unix()) catch none))
+  else if op == "instant.since"
+    print(instant(a[0]).since(instant(a[1])).iso())
+  else if op == "instant.parse"
+    print(show(datetime.Instant.parse(rest) catch none))
+  else if op == "instant.round"
+    i = instant(a[0])
+    k = int(a[2])
+    print(instant_round(i, a[1], k, false), instant_round(i, a[1], k, true))
   else if op == "time.add"
     t = time_of(a[0])
     if maybe_duration(a[1]) as d
@@ -160,6 +179,9 @@ fun date(s: ?String) -> datetime.Date
 fun time_of(s: ?String) -> datetime.Time
   datetime.Time.parse(s) catch panic("not a time:", s)
 
+fun instant(s: ?String) -> datetime.Instant
+  datetime.Instant.parse(s) catch panic("not an instant:", s)
+
 fun datetime_of(s: ?String) -> datetime.DateTime
   datetime.DateTime.parse(s) catch panic("not a datetime:", s)
 
@@ -196,3 +218,16 @@ fun datetime_round(t: datetime.DateTime, unit: ?String, k: Int, down: Bool) -> d
   if unit == "hours"
     return t.floor(hours: k) if down else t.round(hours: k)
   t.floor(days: k) if down else t.round(days: k)
+
+fun instant_round(t: datetime.Instant, unit: ?String, k: Int, down: Bool) -> datetime.Instant
+  if unit == "ns"
+    return t.floor(ns: k) if down else t.round(ns: k)
+  if unit == "us"
+    return t.floor(us: k) if down else t.round(us: k)
+  if unit == "ms"
+    return t.floor(ms: k) if down else t.round(ms: k)
+  if unit == "seconds"
+    return t.floor(seconds: k) if down else t.round(seconds: k)
+  if unit == "minutes"
+    return t.floor(minutes: k) if down else t.round(minutes: k)
+  t.floor(hours: k) if down else t.round(hours: k)

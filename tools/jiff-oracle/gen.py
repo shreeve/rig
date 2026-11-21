@@ -496,6 +496,25 @@ def gen_calendar(w, zones, alias):
         b = a + r.range(-400 * DAY, 400 * DAY) if r.below(2) else rand_date_days(r) * DAY + r.below(DAY)
         b = max(MIN_DAY * DAY, min(MAX_DAY * DAY + DAY - 1, b))
         w("datetime.since %s %s" % (fmt_datetime(a, rand_ns(r)), fmt_datetime(b, rand_ns(r))))
+    # An instant's Unix time and `since`, from a stream of their own:
+    # instants within a `Duration` of 1970 most often, and across the
+    # whole range, where `unix()` and `since` saturate (§5.1).
+    r = Rand(7)
+    span = (1 << 63) // NS
+    ends = (MIN_INSTANT, MIN_INSTANT + 1, -span - 1, -span, -1, 0, span - 1, span, MAX_INSTANT - 1, MAX_INSTANT)
+    for k in range(10000):
+        if k < len(ends):
+            at = ends[k]
+        elif k % 4:
+            at = r.range(-span, span - 1)
+        else:
+            at = r.range(MIN_INSTANT, MAX_INSTANT)
+        w("instant.unix %s" % fmt_instant(at, rand_ns(r) if at != MIN_INSTANT else 0))
+    for _ in range(20000):
+        a = r.range(-span, span - 1) if r.below(2) else r.range(MIN_INSTANT, MAX_INSTANT)
+        b = a + r.range(-400 * DAY, 400 * DAY) if r.below(2) else r.range(MIN_INSTANT, MAX_INSTANT)
+        b = max(MIN_INSTANT, min(MAX_INSTANT, b))
+        w("instant.since %s %s" % (fmt_instant(a, rand_ns(r)), fmt_instant(b, rand_ns(r) if b != MIN_INSTANT else 0)))
 
 
 def near_transition(r, zone):
