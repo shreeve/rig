@@ -2601,8 +2601,7 @@ pub const TypeResolver = struct {
         }
         if (mask == 0) return 0;
         for (params.items()) |p| {
-            if (!p.isKind(.@":")) continue;
-            const name = ir.get(p, .name);
+            const name = sema.paramNameNode(p) orelse continue;
             const text = identAt(self.ctx.source, name) orelse continue;
             if (sema.duration.unitNs(text) == null) continue;
             try self.ctx.err(name.src.pos, "a function that takes a `Duration` names no parameter `{s}`: a call writes a duration with a unit's keyword, `ms: 40`, so rename it", .{text});

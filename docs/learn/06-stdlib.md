@@ -351,10 +351,10 @@ fun slow_audit(ms: Int) -> Int!
 
 sub main()
   qtys = List([3, 1, 2, 5, 4, 1])
-  start = time.now()
+  start = time.monotonic()
   kinds = tally(?qtys)
-  took = start.elapsed()
-  print(kinds, took >= 0, took < time.SECOND)
+  took = start.elapsed().ns()
+  print(kinds, took >= 0, took < 1_000_000_000)
   print(time.within(1, || slow_audit(1)!) catch -1)
   r = time.within(ms: 5, || slow_audit(60_000)!) catch |e|
     print(e)

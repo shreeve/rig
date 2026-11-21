@@ -245,7 +245,7 @@ fail "wait written out", "a task is waited for with `>`: write `>t`", errors: 1
   t = sq(5)&
   print(<t.wait())
 
-fail "wait written out with a deadline", "a task is waited for with `>`, which takes nothing; to give the wait a deadline, write it in `time.within`: `time.within(2 * time.SECOND, |<t| >t!)`", errors: 1
+fail "wait written out with a deadline", "a task is waited for with `>`, which takes nothing; to give the wait a deadline, write it in `time.within`: `time.within(2, |<t| >t!)`", errors: 1
   fun sq(x: Int) -> Int!
     x * x
 

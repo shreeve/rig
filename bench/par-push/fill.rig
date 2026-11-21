@@ -81,13 +81,13 @@ sub main()
   checks = List([0, 0, 0, 0, 0])
   for _ in 0..REPS
     for form in 0..5
-      t = time.now()
+      t = time.monotonic()
       c = 0
       if form == 0
         c = serial(?sources, ?bases)
       else
         c = pushed(?sources, ?bases, ?sizes, limits[form])
-      ns = t.elapsed()
+      ns = t.elapsed().ns()
       best[form] = ns if best[form] == 0 or ns < best[form]
       checks[form] = c
   for form in 0..5

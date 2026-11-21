@@ -64,9 +64,9 @@ test "par fails", seeds: 20, release: true, '''
   xs: List[Int] = List(capacity: 1000)
   for i in 0..1000
     !xs.push(i)
-  start = time.now()
+  start = time.monotonic()
   r = par.map(?xs, |x| slow(x)!, limit: 1000) catch |e|
-    print(e, start.elapsed() < 500 * time.MS)
+    print(e, start.elapsed() < time.duration(ms: 500))
     List[Int]()
   ok = par.map(?xs, |x| slow(x + 1000)! - 1000, limit: 1000) catch List[Int]()
   print(ok.sum())

@@ -24,9 +24,9 @@ sub main()!
   check = U64(0)
   for i in 0..n
     t = terminal.Terminal.new(cols, rows, scrollback)
-    start = time.now()
+    start = time.monotonic()
     !t.feed(data)
-    ns += start.elapsed()
+    ns += start.elapsed().ns()
     if i == n - 1
       check = fnv(t.dump(history: false))
   print(ns, check)

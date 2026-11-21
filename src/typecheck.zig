@@ -16934,7 +16934,7 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         if (args.len > 0) {
-            try self.err(pos, "`wait_first` takes nothing; to give it a deadline, call it in `time.within`: `time.within(2 * time.SECOND, |<{s}| <{s}.wait_first()!)`", .{ shown, shown });
+            try self.err(pos, "`wait_first` takes nothing; to give it a deadline, call it in `time.within`: `time.within(2, |<{s}| <{s}.wait_first()!)`", .{ shown, shown });
             try self.synthArgs(args);
             return self.t().invalid_id;
         }
@@ -16970,7 +16970,7 @@ const Checker = struct {
             }
             return try self.badCall(args, pos, "a task is waited for with `>` on a name: take it out to one first, `t = <{s}`, then wait for that, `>t`", .{shown});
         }
-        if (args.len > 0) return try self.badCall(args, pos, "a task is waited for with `>`, which takes nothing; to give the wait a deadline, write it in `time.within`: `time.within(2 * time.SECOND, |<{s}| >{s}!)`", .{ shown, shown });
+        if (args.len > 0) return try self.badCall(args, pos, "a task is waited for with `>`, which takes nothing; to give the wait a deadline, write it in `time.within`: `time.within(2, |<{s}| >{s}!)`", .{ shown, shown });
         return try self.badCall(args, pos, "a task is waited for with `>`: write `>{s}`", .{shown});
     }
 

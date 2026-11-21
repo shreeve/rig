@@ -17,11 +17,11 @@ called fun case_ns(s: ?String, pat: ?String, reps: Int) -> Int
   best = 1 << 62
   sum = 0
   for _ in 0..5
-    t0 = time.now()
+    t0 = time.monotonic()
     for _ in 0..reps
       hint.keep(?s)  # so no search is moved out of the loop
       sum += text.find(s, pat) ?? 7
-    ns = t0.elapsed()
+    ns = t0.elapsed().ns()
     best = ns if ns < best else best
   print("") if sum == -1
   best

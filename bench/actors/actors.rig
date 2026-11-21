@@ -36,23 +36,23 @@ fun own(n: Int) -> Int
 
 called sub solo()
   c = *Actor(Counter(hits: 0))
-  t = time.now()
+  t = time.monotonic()
   last = 0
   for 0..SOLO
     last = !c.add(1)
-  print("solo", t.elapsed(), last)
+  print("solo", t.elapsed().ns(), last)
 
 called sub contend()
   c = *Actor(Counter(hits: 0))
-  t = time.now()
+  t = time.monotonic()
   ts = Tasks[Void]()
   for 0..CONTEND_TASKS
     !ts.add(hammer(+c, CONTEND_CALLS)&)
   >ts
-  print("contend", t.elapsed(), c.get())
+  print("contend", t.elapsed().ns(), c.get())
 
 called sub spread()
-  t = time.now()
+  t = time.monotonic()
   ts = Tasks[Int]()
   for 0..SPREAD_TASKS
     !ts.add(own(SPREAD_CALLS)&)
@@ -60,7 +60,7 @@ called sub spread()
   sum = 0
   for x in xs
     sum += x
-  print("spread", t.elapsed(), sum)
+  print("spread", t.elapsed().ns(), sum)
 
 sub main()
   solo()

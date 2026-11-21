@@ -1,0 +1,274 @@
+# std.time: Duration's values, readers, arithmetic, rounding, and text,
+# and the monotonic clock.
+
+use std.math
+use std.time
+
+test "duration readers truncate toward zero", '''
+  1 90 5400 5400000 5400000000 5400000000000
+  -1 -1 -1500 -1500000 -1500000000
+  1.5 -1.5 1e-9
+  500000000 -500000000 0 999999999
+'''
+  # Each reader is a total, truncated toward zero; `subsec_ns` is the
+  # part below a whole second, with the duration's sign.
+  d = time.duration(minutes: 90)
+  print(d.hours(), d.minutes(), d.seconds(), d.ms(), d.us(), d.ns())
+  n = time.duration(-1.5)
+  print(n.minutes() - 1, n.seconds(), n.ms(), n.us(), n.ns())
+  print(time.duration(1.5).float_seconds(), n.float_seconds(), time.duration(ns: 1).float_seconds())
+  print(time.duration(1.5).subsec_ns(), n.subsec_ns(), time.duration(7).subsec_ns(), time.duration(ns: 999_999_999).subsec_ns())
+
+test "duration from parts", '''
+  1s 500ms -1s 500ms 0s -500ms 2s
+  true true
+'''
+  # `from_parts` takes whole seconds and the nanoseconds below them, of
+  # one sign; with `seconds` and `subsec_ns` it gives a duration back.
+  print(time.Duration.from_parts(1, 500_000_000), time.Duration.from_parts(-1, -500_000_000), time.Duration.from_parts(0, 0), time.Duration.from_parts(0, -500_000_000), time.Duration.from_parts(2, 0))
+  d = time.duration(ns: -123_456_789_012)
+  print(time.Duration.from_parts(d.seconds(), d.subsec_ns()) == d, time.Duration.from_parts(seconds: 3, ns: 4).ns() == 3_000_000_004)
+
+bomb "duration from parts of two signs", "time.Duration.from_parts: the parts 1 and -1 do not agree in sign"
+  fun minus() -> Int
+    -1
+
+  print(time.Duration.from_parts(1, minus()))
+
+bomb "duration from parts past a second", "do not agree in sign, or the nanoseconds are not within 999,999,999"
+  fun big() -> Int
+    1_000_000_000
+
+  print(time.Duration.from_parts(0, big()))
+
+test "duration arithmetic", '''
+  1h 30m 30m 2h 2h 30m 15m -1h -1h 1h
+  true true
+'''
+  # `add`, `sub`, `times`, `div` (truncating), `neg`, and `abs`; `add`
+  # and `sub` take a duration form.
+  h = time.duration(hours: 1)
+  print(h.add(minutes: 30), h.sub(1800), h.times(2), h.add(h).add(ms: 1_800_000), h.div(4), h.neg(), h.neg().times(1), h.neg().abs())
+  print(time.duration(ns: 7).div(2) == time.duration(ns: 3), time.duration(ns: -7).div(2) == time.duration(ns: -3))
+
+test "duration checked arithmetic", '''
+  1h true true
+  TimeError.range
+  TimeError.range
+  TimeError.range
+  TimeError.range
+  2562047h 47m 16s 854ms 775us 807ns
+'''
+  # The `checked_` methods fail with `TimeError.range` where the others
+  # panic, at either end of the range.
+  sub add(a: time.Duration, b: time.Duration)
+    d = a.checked_add(b) catch |e|
+      print(e)
+      return
+    print(d)
+
+  sub sub_(a: time.Duration, b: time.Duration)
+    d = a.checked_sub(b) catch |e|
+      print(e)
+      return
+    print(d)
+
+  sub times(a: time.Duration, k: Int)
+    d = a.checked_times(k) catch |e|
+      print(e)
+      return
+    print(d)
+
+  big = time.duration(ns: Int.max)
+  small = time.duration(ns: Int.min)
+  print(time.duration(1800).checked_add(1800)!, big.checked_sub(big)! == time.duration(0), small.checked_times(1)! == small)
+  add(big, time.duration(ns: 1))
+  sub_(small, time.duration(ns: 1))
+  times(big, 2)
+  times(small, -1)
+  add(big, time.duration(0))
+
+bomb "duration add past the range", "integer overflow"
+  big = time.duration(ns: Int.max)
+  print(big.add(ns: 1))
+
+bomb "duration neg of the smallest", "integer overflow"
+  print(time.duration(ns: Int.min).neg())
+
+bomb "duration times past the range", "integer overflow"
+  print(time.duration(hours: 1_000_000).times(10))
+
+bomb "duration div by zero", "division by zero"
+  fun zero() -> Int
+    0
+
+  print(time.duration(1).div(zero()))
+
+test "duration ends of the range", '''
+  2562047h 47m 16s 854ms 775us 807ns PT2562047H47M16.854775807S
+  -2562047h 47m 16s 854ms 775us 808ns -PT2562047H47M16.854775808S
+  true true
+  true true
+'''
+  # One `Int` of nanoseconds: about 292 years either way; each end prints
+  # and reads back as itself.
+  big = time.duration(ns: Int.max)
+  small = time.duration(ns: Int.min)
+  print(big, big.iso())
+  print(small, small.iso())
+  print(time.Duration.parse(big.iso())! == big, time.Duration.parse(small.iso())! == small)
+  print(time.Duration.parse(String(big))! == big, time.Duration.parse(String(small))! == small)
+
+test "duration text both ways", '''
+  2h 30m PT2H30M
+  1ms 234us 567ns PT0.001234567S
+  -1s 500ms -PT1.5S
+  0s PT0S
+  9600h PT9600H
+  true true true true true
+  true true true true true
+'''
+  # `print` writes the friendly form and `iso` ISO 8601, and `parse`
+  # reads both back (DATETIME-DESIGN §5.5).
+  ds = [time.duration(hours: 2.5), time.duration(ns: 1_234_567), time.duration(-1.5), time.duration(0), time.duration(hours: 9600)]
+  for d in ds
+    print(d, d.iso())
+  print(time.Duration.parse("2h 30m")! == ds[0], time.Duration.parse("1ms 234us 567ns")! == ds[1], time.Duration.parse("-1s 500ms")! == ds[2], time.Duration.parse("0s")! == ds[3], time.Duration.parse("9600h")! == ds[4])
+  print(time.Duration.parse("PT2H30M")! == ds[0], time.Duration.parse("PT0.001234567S")! == ds[1], time.Duration.parse("-PT1.5S")! == ds[2], time.Duration.parse("PT0S")! == ds[3], time.Duration.parse("PT9600H")! == ds[4])
+
+test "duration parse accepts Jiff's forms", '''
+  1h 30m 1h 30m 1h 30m 1h 30m -2h 30m 2h 30m 1s 500ms 1h 1h 30m 1us 1us
+  -1h 1h 30m 2h 30m 1h 2m 3s 500ms 1h 30m 1ns 1h 2s
+'''
+  # ISO 8601 and the friendly grammar Jiff reads, measured against Jiff
+  # 1.0.0: fractions with `.` or `,`, every label, `ago`, `HH:MM:SS`,
+  # and a sign for the whole.
+  ok = ["1.5h", "1h30m", "1 hour, 30 minutes", "01:30:00", "2h 30m ago", "1h 90m", "1500ms", "+1h", "PT1.5H", "1µs", "1us"]
+  line = String()
+  for s in ok
+    !line.add(" ") if line.len > 0
+    !line.add(`{time.Duration.parse(s)!}`)
+  print(line)
+  more = ["-1h", "1,5h", "2 hrs 30 mins", "1:2:3.5", "pt1h30m", "0.000000001s", "1hours", "2 seconds "]
+  line = String()
+  for s in more
+    !line.add(" ") if line.len > 0
+    !line.add(`{time.Duration.parse(s)!}`)
+  print(line)
+
+test "duration parse refuses", '''
+  10 10 10 10 10 10 10 10 10 10
+  10 10 10 10 10 10 10 10 10
+'''
+  # Each fails with `TimeError.invalid`: units out of order or twice, a
+  # sign inside, a unit of a day or more, a number with no unit, a
+  # fraction before another unit, and text past the range.
+  fun code(s: ?String) -> Int
+    time.Duration.parse(s) catch |e|
+      return 10 if e == time.TimeError.invalid else 20
+    0
+
+  bad = ["1h -30m", "30m 1h", "1h 1h", "PT-1H", "P1D", "1 day", "90", "", "-", "1w"]
+  line = String()
+  for s in bad
+    !line.add(" ") if line.len > 0
+    !line.add(`{code(s)}`)
+  print(line)
+  worse = ["1h, ", "-1h ago", "1.5ns", "1h 01:00:00", " 1h", "9223372036854775808ns", "PT2562047H47M16.854775808S", "1.0000000001s", "1.5h 30m"]
+  line = String()
+  for s in worse
+    !line.add(" ") if line.len > 0
+    !line.add(`{code(s)}`)
+  print(line)
+
+test "duration round and floor", '''
+  2s -2s 1s -1s
+  1s -2s 1s -2s
+  15m 30m 0s 1h
+  2ms 1ms 2s 0s -10h
+  1h 30m 16m 15m
+'''
+  # `round` takes a half away from zero, `floor` goes toward negative
+  # infinity, each to a multiple of one unit's increment.
+  p = time.duration(1.5)
+  n = time.duration(-1.5)
+  print(p.round(seconds: 1), n.round(seconds: 1), time.duration(1.4).round(seconds: 1), time.duration(-1.4).round(seconds: 1))
+  print(p.floor(seconds: 1), n.floor(seconds: 1), time.duration(1.9).floor(ms: 1000), n.floor(seconds: 2))
+  m = time.duration(minutes: 22)
+  print(m.round(minutes: 15), m.round(minutes: 30), m.round(hours: 2), time.duration(minutes: 60).round(hours: 1))
+  print(time.duration(us: 1500).round(ms: 1), time.duration(us: 1499).round(ms: 1), time.duration(1.5).round(ns: 1_000_000_000), time.duration(17).floor(hours: 5), time.duration(-17).floor(hours: 10))
+  k = 15
+  print(time.duration(minutes: 95).round(minutes: 30), time.duration(946).round(minutes: 1), time.duration(946).floor(minutes: k))
+
+bomb "duration round's increment not a literal", "time.Duration.round: the increment 0 is not from 1 to 1,000,000,000"
+  fun zero() -> Int
+    0
+
+  print(time.duration(1).round(ms: zero()))
+
+bomb "duration floor past the range", "integer does not fit"
+  print(time.duration(ns: Int.min).floor(hours: 1_000_000))
+
+test "durations compare, order, and key a Map", '''
+  true false true true
+  3 true
+'''
+  a = time.duration(ms: 5)
+  b = time.duration(us: 5000)
+  print(a == b, a < b, a <= b, math.max(a, time.duration(1)) == time.duration(1))
+  m = Map[time.Duration, Int]()
+  !m.put(a, 1)
+  !m.put(b, 2)
+  !m.put(time.duration(0), 3)
+  !m.put(time.duration(-1), 4)
+  print(m.len, (m.get(time.duration(ms: 5)) ?? 0) == 2)
+
+test "monotonic at, add, since, order", '''
+  true false true true
+  3s -6ns
+  2 true
+'''
+  # `Monotonic.at` names a reading, for code handed the time; `add` moves
+  # one by a duration form, `since` gives a Duration, and readings order
+  # by time, so `<`, `math.max`, and a Map's keys take them.
+  a = time.Monotonic.at(ns: 5)
+  b = a.add(3)
+  print(a < b, b <= a, a == time.Monotonic.at(ns: 5), math.max(a, b) == b)
+  print(b.since(a), a.add(ns: -6).since(a))
+  m = Map[time.Monotonic, Int]()
+  !m.put(a, 1)
+  !m.put(b, 2)
+  !m.put(time.Monotonic.at(ns: 5), 3)
+  start = time.monotonic()
+  print(m.len, time.monotonic() >= start)
+
+test "monotonic elapsed and a deadline", '''
+  true true true
+  true true
+'''
+  # The clock never goes back: `elapsed` and `since` of a later reading
+  # are at least the time slept, and a deadline made with `add` passes.
+  start = time.monotonic()
+  deadline = start.add(ms: 2)
+  time.sleep(ms: 3)!
+  later = time.monotonic()
+  took = later.since(start)
+  print(took >= time.duration(ms: 3), took < time.duration(10), start.since(later) == took.neg())
+  print(start.elapsed() >= took, time.monotonic() >= deadline)
+
+bomb "monotonic add past 292 years", "integer overflow"
+  print(time.Monotonic.at(ns: Int.max).add(1))
+
+test "since start", "true true true", seeds: 3
+  # `since_start()`: the time since the program started, which a function
+  # value reads with no `Monotonic` to hold; on the virtual clock of a
+  # deterministic run too.
+  read: fun() -> time.Duration = time.since_start
+  a = read()
+  time.sleep(ms: 2)!
+  b = time.since_start()
+  print(a >= time.duration(0), b.sub(a) >= time.duration(ms: 2), b < time.duration(10))
+
+test "time unix_ns", "true"
+  # The wall clock is past 2023.
+  print(time.unix_ns() > 1_700_000_000 * 1_000_000_000)

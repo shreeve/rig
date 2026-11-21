@@ -33,10 +33,10 @@ test "cancel sleep", seeds: 20, release: true, '''
     time.sleep(10)!
     1
 
-  start = time.now()
+  start = time.monotonic()
   u = nap()&
   print(<u.cancel() catch -1)
-  print(start.elapsed() < 5 * time.SECOND)
+  print(start.elapsed() < time.duration(5))
 
 test "cancel sticky", seeds: 20, '''
   caught once
@@ -119,9 +119,9 @@ test "cancel on drop", seeds: 20, '''
     return 7 if early
     >t!
 
-  start = time.now()
+  start = time.monotonic()
   print(first(true) catch -1)
-  print(start.elapsed() < 5 * time.SECOND)
+  print(start.elapsed() < time.duration(5))
 
 test "cancel passes to owned", seeds: 20, '''
   quiet woken

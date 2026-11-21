@@ -62,9 +62,9 @@ called sub pingpong()!
   l = net.listen("127.0.0.1:0")!
   port = l.port()
   s = serve(<l, 1)&
-  t = time.now()
+  t = time.monotonic()
   back = client(port, ?msg, PING)!
-  ns = t.elapsed()
+  ns = t.elapsed().ns()
   echoed = >s!
   print("pingpong", ns, back + echoed)
 
@@ -73,12 +73,12 @@ called sub echoes()!
   l = net.listen("127.0.0.1:0")!
   port = l.port()
   s = serve(<l, ECHO_CONNS)&
-  t = time.now()
+  t = time.monotonic()
   cs = Tasks[Int!]()
   for 0..ECHO_CONNS
     !cs.add(client(port, ?msg, ECHO_TRIPS)&)
   ys = >cs!
-  ns = t.elapsed()
+  ns = t.elapsed().ns()
   back = 0
   for y in ys
     back += y
@@ -89,11 +89,11 @@ called sub connects()!
   l = net.listen("127.0.0.1:0")!
   port = l.port()
   s = serve(<l, CONNECTS)&
-  t = time.now()
+  t = time.monotonic()
   back = 0
   for 0..CONNECTS
     back += client(port, ?msg, 1)!
-  ns = t.elapsed()
+  ns = t.elapsed().ns()
   print("connect", ns, back + >s!)
 
 sub main()!

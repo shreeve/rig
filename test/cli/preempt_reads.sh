@@ -25,9 +25,9 @@ fun reader(k: Int, stop: *Cell[Int]) -> Int!
   n
 
 fun sleeper() -> Int!
-  t = time.now()
+  t = time.monotonic()
   time.sleep(ms: 20)!
-  t.elapsed() / 1000000
+  t.elapsed().ns() / 1000000
 
 sub main()!
   task.workers(4)
@@ -75,9 +75,9 @@ fun searcher(k: Int, stop: *Cell[Int]) -> Int!
   n
 
 fun sleeper() -> Int!
-  t = time.now()
+  t = time.monotonic()
   time.sleep(ms: 20)!
-  t.elapsed() / 1000000
+  t.elapsed().ns() / 1000000
 
 sub main()!
   task.workers(1)

@@ -10,11 +10,11 @@ test "within value", seeds: 20, '''
 
   k = 10
   print(time.within(1, |+k| k + 1) catch 0)
-  start = time.now()
+  start = time.monotonic()
   time.within(ms: 5, ||
     time.sleep(10)!
     print("slept")
-  ) catch |e| print(e, start.elapsed() < 5 * time.SECOND)
+  ) catch |e| print(e, start.elapsed() < time.duration(5))
 
 test "within nested", seeds: 20, '''
   1 -1
@@ -59,12 +59,12 @@ test "within tasks", seeds: 20, release: true, '''
     loop
       task.check()!
 
-  start = time.now()
+  start = time.monotonic()
   r = time.within(ms: 10, ||
     x = slow(10_000)&
     >x!
   ) catch -1
-  print("inherited", r, start.elapsed() < 5 * time.SECOND)
+  print("inherited", r, start.elapsed() < time.duration(5))
   s = time.within(ms: 10, ||
     ts = Tasks[Int!]()
     !ts.add(slow(10_000)&)
@@ -95,10 +95,10 @@ test "within one task", seeds: 20, '''
     time.sleep(ms: ms)!
     ms
 
-  start = time.now()
+  start = time.monotonic()
   t = slow(60_000)&
   r = time.within(ms: 5, |<t| >t!) catch -1
-  print(r, start.elapsed() < 5 * time.SECOND)
+  print(r, start.elapsed() < time.duration(5))
   u = slow(3)&
   print(time.within(1, |<u| >u!) catch -1)
 

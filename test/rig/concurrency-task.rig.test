@@ -1759,7 +1759,7 @@ test "task hogs", release: true, '''
     else
       !hogs.add(up(27)&)
   slices = Tasks[Int]()
-  start = time.now()
+  start = time.monotonic()
   sum = 0
   for i in 0..20
     !slices.add(spin(10000000 + i)&)
@@ -1769,7 +1769,7 @@ test "task hogs", release: true, '''
     sum += >b
   took = start.elapsed()
   print("chain", sum)
-  print("waited", took < time.SECOND)
+  print("waited", took < time.duration(1))
   xs = >hogs
   ys = >slices
   print("hogs", xs.len)

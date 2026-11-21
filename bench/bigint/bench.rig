@@ -339,17 +339,17 @@ fun nat_shl(x: []U32, s: Int) -> List[U32]
 fun measure(f: ?fun(Int) -> Int) -> Float
   n = 1
   sink = 0
-  start = time.now()
+  start = time.monotonic()
   sink +%= f(n)
-  while start.elapsed() < 20 * time.MS and n < 1 << 40
+  while start.elapsed() < time.duration(ms: 20) and n < 1 << 40
     n *= 2
-    start = time.now()
+    start = time.monotonic()
     sink +%= f(n)
   best = Float.inf()
   for 0..7
-    start = time.now()
+    start = time.monotonic()
     sink +%= f(n)
-    ns = Float(start.elapsed()) / Float(n)
+    ns = Float(start.elapsed().ns()) / Float(n)
     best = ns if ns < best else best
   # The checksum keeps the work from being optimized away.
   print("  # sink", sink % 10) if sink == 7

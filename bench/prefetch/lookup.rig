@@ -50,13 +50,13 @@ sub main()
   want = [flat(?xs, ?keys, 0), branchy(?xs, ?keys, 0)]
   for _ in 0..ROUNDS
     for k in 0..2 * n
-      start = time.now()
+      start = time.monotonic()
       t = 0
       if k < n
         t = flat(?xs, ?keys, AHEAD[k])
       else
         t = branchy(?xs, ?keys, AHEAD[k - n])
-      ns = start.elapsed()
+      ns = start.elapsed().ns()
       if t != want[k / n]
         panic("a different total")
       if ns < best[k]

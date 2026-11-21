@@ -6006,8 +6006,9 @@ pub const Emitter = struct {
         // An argument given as a duration form (`sema.Duration`): a
         // number of its unit, which becomes the `Duration` its parameter
         // takes or an `Int` of nanoseconds, or a `Duration` whose
-        // nanoseconds an `Int` parameter takes.
-        if (self.facts.durationOf(sexp)) |d| if (!sameNode(sexp, self.durationing)) {
+        // nanoseconds an `Int` parameter takes. A hoisted one is read
+        // from its temporary, which holds what it became.
+        if (self.facts.durationOf(sexp)) |d| if (!sameNode(sexp, self.durationing) and self.hoistedOf(sexp) == null) {
             const saved = self.durationing;
             defer self.durationing = saved;
             self.durationing = sexp;
@@ -10375,7 +10376,8 @@ pub const Emitter = struct {
             try self.w.writeAll(";\n");
             return self.hoisted.append(self.allocator, .{ .node = h.node, .name = h.name });
         }
-        const ty = self.typeOf(h.node);
+        // A duration form is held as what it becomes (`sema.Duration`).
+        const ty = if (self.facts.durationOf(h.node)) |d| d.written(self.facts.types.int_id) else self.typeOf(h.node);
         const ptr = slot < params.len and self.isPtrViewTy(params[slot]);
         // A value passed as the view its parameter expects is held as that
         // view, of the parameter's type, which owns nothing.

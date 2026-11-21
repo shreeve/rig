@@ -12279,6 +12279,13 @@ pub const Duration = struct {
     float: bool = false,
     ty: TypeId = type_invalid,
     opt: TypeId = type_invalid,
+
+    /// The type of what emit writes for the argument: the `Duration?`,
+    /// the `Duration`, or `int`, the `Int` of nanoseconds.
+    pub fn written(d: Duration, int: TypeId) TypeId {
+        if (d.unit_ns == 0 or d.ty == type_invalid) return int;
+        return if (d.opt != type_invalid) d.opt else d.ty;
+    }
 };
 
 /// Whether `sym` is the type of a `task.select`'s value (`selectType`).
