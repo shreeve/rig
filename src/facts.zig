@@ -54,8 +54,8 @@ pub const Symbol = sema.Symbol;
 pub const Field = sema.Field;
 pub const FunctionType = sema.FunctionType;
 pub const ParamNominal = sema.ParamNominal;
-pub const Lend = sema.Lend;
-pub const LendStep = sema.LendStep;
+pub const View = sema.View;
+pub const ViewStep = sema.ViewStep;
 pub const StringCall = sema.StringCall;
 pub const ElemCall = sema.ElemCall;
 pub const BuiltinCall = sema.BuiltinCall;
@@ -414,11 +414,11 @@ pub const Facts = struct {
     pub fn callableOf(f: Facts, node: Sexp) ?TypeId {
         return f.c().callableOf(node);
     }
-    pub fn lendOf(f: Facts, node: Sexp) ?Lend {
-        return f.c().lendOf(node);
+    pub fn viewOf(f: Facts, node: Sexp) ?View {
+        return f.c().viewOf(node);
     }
-    pub fn lendsTempArray(f: Facts, node: Sexp) bool {
-        return f.c().lendsTempArray(node);
+    pub fn viewsTempArray(f: Facts, node: Sexp) bool {
+        return f.c().viewsTempArray(node);
     }
     pub fn readsThrough(f: Facts, node: Sexp) bool {
         return f.c().readsThrough(node);
@@ -806,7 +806,7 @@ pub const Facts = struct {
         return storage.decided(f.c(), e, .hands);
     }
     /// Whether `e` is read from storage, not made for its context: a
-    /// place, a part of a value made here, or a lend (`Hands.hasStorage`).
+    /// place, a part of a value made here, or a view (`Hands.hasStorage`).
     pub fn hasStorage(f: Facts, e: Sexp) ?bool {
         const kind = f.handsOver(e) orelse return null;
         return (sema.Hands{ .kind = kind }).hasStorage();
@@ -950,7 +950,7 @@ pub const Facts = struct {
     pub fn argParams(f: Facts, call: Sexp) []const TypeId {
         return storage.argParams(f.c(), call);
     }
-    /// A closure literal lent as a callable view.
+    /// A closure literal passed as a callable view.
     pub fn lambdaYields(f: Facts, lambda: Sexp) bool {
         return storage.lambdaYields(f.c(), lambda);
     }
@@ -1148,9 +1148,9 @@ pub const Facts = struct {
         return sema.viewHeldAsPointer(f.c(), ty);
     }
     /// Whether a read view of `inner` is a copy, not an address
-    /// (`sema.lendByValue`).
-    pub fn lendByValue(f: Facts, inner: TypeId) bool {
-        return sema.lendByValue(f.c(), inner);
+    /// (`sema.viewByValue`).
+    pub fn viewByValue(f: Facts, inner: TypeId) bool {
+        return sema.viewByValue(f.c(), inner);
     }
     /// Whether a view of type `view` of a slot of type `slot` is the bytes
     /// of a String (`sema.viewsStringBytes`).
@@ -1234,7 +1234,7 @@ pub const syntax = struct {
     /// first line, starts it with the cold hint, and `called` emits it
     /// `noinline fn`.
     pub const markerOf = rig.markerOf;
-    pub const lentPlace = storage.lentPlace;
+    pub const viewedPlace = storage.viewedPlace;
     pub const argValue = storage.argValue;
     pub const eachTargetStep = storage.eachTargetStep;
     pub const assignedThrough = storage.assignedThrough;

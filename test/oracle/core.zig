@@ -29,7 +29,7 @@ pub const Rule = enum {
     C4,
     /// s3, s6, §3: nothing is dropped while a loan of it is live.
     C5,
-    /// s7: a result views only what the function was lent.
+    /// s7: a result views only what the function was given views of.
     C6,
     /// §5: nothing moves out through a view.
     C7,
@@ -40,8 +40,8 @@ pub const Rule = enum {
     /// §7: a closure's body uses what it captured, and never moves,
     /// drops, or reassigns it: the closure may be called again.
     B3,
-    /// §7: a stack closure is called, bound, or lent; it never leaves the
-    /// function that writes it.
+    /// §7: a stack closure is called, bound, or viewed; it never leaves
+    /// the function that writes it.
     B4,
     /// s9: an owned closure, a Cell, or a Signal holds no value that
     /// carries a loan; nor does an actor's value or a channel, and none
@@ -49,7 +49,7 @@ pub const Rule = enum {
     /// (docs/design/concurrency.md, "Loans and structure", rule 3).
     C8,
     /// §5: a value never holds a view of itself: what is stored in a
-    /// var carries no loan on that var, but the lends it goes in by.
+    /// var carries no loan on that var, but the views it goes in by.
     C9,
     /// s4: `?` promises that nothing changes, so no marked call changes
     /// what a handle seen through a read view (a `?T`, or a `[]T` of its
@@ -60,9 +60,10 @@ pub const Rule = enum {
     /// §4: an API object goes to a task only by the crossing bound its
     /// braces or API name, as its form's row says (`kinds.objectCrosses`).
     T1,
-    /// SPEC §18, "Loans": a task lent to write keeps its write loan while
-    /// it runs, and no value holds a write view (§5), so it is bound to a
-    /// local where it is made and waited for there: nothing else moves it.
+    /// SPEC §18, "Loans": a task given a write view keeps its write loan
+    /// while it runs, and no value holds a write view (§5), so it is bound
+    /// to a local where it is made and waited for there: nothing else
+    /// moves it.
     T2,
 };
 
@@ -94,7 +95,7 @@ pub const Var = struct {
     /// In a closure's body: a parameter, whose views last one call.
     call_only: bool = false,
     /// A binding that sees an owner's payload through a view (`match s`,
-    /// `if ?o as x`): it reads and lends what it sees, never moves it.
+    /// `if ?o as x`): it reads and views what it sees, never moves it.
     alias: bool = false,
     /// A task (`Task[T]`), whose write loans keep it where it is bound
     /// (T2).
@@ -126,8 +127,8 @@ pub const Hole = struct {
 /// A path of a var (`Op.paths`).
 pub const PathOf = struct { v: VarId, path: []const Step };
 
-/// The record of one lend. A loan on a write view's referent (`!w` or
-/// `?w` with `w: !T`, a lend on) is `deref`: it limits `w`'s uses, but
+/// The record of one view. A loan on a write view's referent (`!w` or
+/// `?w` with `w: !T`, a view passed on) is `deref`: it limits `w`'s uses, but
 /// `w` going out of scope does not end what it views.
 pub const Loan = struct {
     root: VarId,
@@ -143,13 +144,13 @@ pub const Loan = struct {
     /// itself views, not on that value's place: what a value taken out
     /// through the parameter carries (`Op.untake`).
     held: bool = false,
-    /// What the lent place holds can hold a view: a store through a
+    /// What the viewed place holds can hold a view: a store through a
     /// write loan may leave one there.
     stores_views: bool = false,
-    /// The lend made a `?T` or `!T` pointing at the place (not a slice
+    /// The view is a `?T` or `!T` pointing at the place (not a slice
     /// or a `?String`, which view its bytes).
     pointer: bool = true,
-    /// The type of what is lent: the place, or what a slice slices. A
+    /// The type of what is viewed: the place, or what a slice slices. A
     /// view carries the loan only where that type could hold what it
     /// views (`Func.keeps`); a loan without one, which marks where a view
     /// is usable (a header's or a match arm's), is carried always.
@@ -161,10 +162,10 @@ pub const AccessKind = enum {
     /// Copy or read in place: conflicts with a live write or reserved
     /// write loan that is active.
     read,
-    /// A reserved write lend (a write receiver, two-phase): conflicts
+    /// A reserved write view (a write receiver, two-phase): conflicts
     /// with a live write or reserved loan.
     reserve,
-    /// Write, write lend, take, or assign: conflicts with any live loan.
+    /// Write, write view, take, or assign: conflicts with any live loan.
     write,
     /// Move or drop of the whole var: conflicts with any live loan.
     whole,
@@ -175,7 +176,7 @@ pub const Access = struct {
     path: []const Step = &.{},
     deref: bool = false,
     kind: AccessKind,
-    /// The loan an activation of a reserved lend ignores: its own.
+    /// The loan an activation of a reserved view ignores: its own.
     except: ?LoanId = null,
 };
 
@@ -242,7 +243,7 @@ pub const Op = struct {
     untake: bool = false,
     /// The part of a var in `reads` the op reaches when it reaches less
     /// than all of it and has no access saying so: the places `swap`
-    /// exchanges, read through the lends the call was given (Core §5:
+    /// exchanges, read through the views the call was given (Core §5:
     /// "A use touches the path it names").
     paths: []const PathOf = &.{},
     /// A take of a field that leaves it moved out (`Func.holes`), not
@@ -257,23 +258,23 @@ pub const Op = struct {
     /// not `result_loan`.
     no_result: []const VarId = &.{},
     result_loan: bool = true,
-    /// What a call may store in what it was lent to write (`gains`,
+    /// What a call may store in what it was given write views of (`gains`,
     /// `through`) carries the loans of none of these, nor its own `loan`
     /// (its receiver's) when not `store_loan`.
     no_store: []const VarId = &.{},
     store_loan: bool = true,
     /// A call's write receiver: the write view it is reached through and
-    /// its root, which the call's own lend of it is not stored in.
+    /// its root, which the call's own view of it is not stored in.
     recv_view: ?VarId = null,
     recv_root: ?VarId = null,
-    /// A task's call (`f(!x)&`): the task keeps what its call was lent
-    /// to write as a write loan until it is waited for (SPEC §18).
+    /// A task's call (`f(!x)&`): the task keeps what its call was given
+    /// write views of as a write loan until it is waited for (SPEC §18).
     task_writes: bool = false,
     /// Binds the task a task's call made, where it is made (`t = f(!x)&`):
-    /// the one move a task lent to write takes but its wait (T2).
+    /// the one move a task given a write view takes but its wait (T2).
     binds_task: bool = false,
 
-    pub const What = enum { copy, move, take, lend, make, call, assign, use, kill, ret };
+    pub const What = enum { copy, move, take, view, make, call, assign, use, kill, ret };
 };
 
 pub const Block = struct {
@@ -295,9 +296,9 @@ pub const Func = struct {
     /// parameter in `params`' order; null when the function writes none.
     from: ?u64 = null,
     /// What a `keeps` clause names (Core s7), and which parameters are
-    /// lent, a bit each in `params`' order; null for a closure.
+    /// views, a bit each in `params`' order; null for a closure.
     keeps_named: ?u64 = null,
-    lent: u64 = 0,
+    viewed: u64 = 0,
     /// Per var and loan (var-major, `loans.len` to a var): whether the
     /// var may carry the loan itself. A view carries the loans of only
     /// what could hold what it views (Core s7): a loan on a place whose

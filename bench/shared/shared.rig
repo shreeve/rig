@@ -5,7 +5,7 @@
 #   shared SHAPE PHASE TASKS   prints  SHAPE PHASE TASKS NS CHECK
 #
 # SHAPE is `shared`, `shards`, or `actor`, or for `hit` alone `map`, one
-# Map filled first and lent to every task to read, the floor; PHASE is
+# Map filled first, every task given a read view of it, the floor; PHASE is
 # - `insert`: an empty map takes the KEYS keys, each task putting its
 #   share (the keys `i` with `i % TASKS == w`);
 # - `hit`: a full map is asked for keys LOOKUPS times, every one there;

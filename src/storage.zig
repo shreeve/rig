@@ -198,7 +198,7 @@ fn decideIsPureArg(ctx: *const SemContext, e: Sexp) bool {
             // held by value (a `?String`'s bytes, a slice, a copy of a
             // number) reads the name where the call runs, after the
             // arguments written before it.
-            .read, .write => ir.get(e, .operand) == .src and ((isPtrViewExpr(ctx, e) and ctx.lendOf(e) == null) or isPureArg(ctx, ir.get(e, .operand))),
+            .read, .write => ir.get(e, .operand) == .src and ((isPtrViewExpr(ctx, e) and ctx.viewOf(e) == null) or isPureArg(ctx, ir.get(e, .operand))),
             .move => ir.get(e, .operand) == .src,
             .neg => ir.Neg.operand(e) == .src and isLiteralText(srcText(ctx, ir.Neg.operand(e))),
             else => false,
@@ -234,7 +234,7 @@ pub fn heldSelf(ctx: *const SemContext, call: Sexp) ?Sexp {
 /// closure, a type, a module's function, an instance, and a closure
 /// literal (built first, `invoked`) are no such value.
 pub fn heldFirst(ctx: *const SemContext, call: Sexp) ?HeldFirst {
-    if (heldSelf(ctx, call)) |recv| return .{ .node = lentPlace(recv), .kind = .self };
+    if (heldSelf(ctx, call)) |recv| return .{ .node = viewedPlace(recv), .kind = .self };
     const callee = ctx.calleeOf(call);
     if (callee == .src) {
         const sym = ctx.symbols.items[ctx.symbolOf(callee) orelse return null];
@@ -249,7 +249,7 @@ pub fn heldFirst(ctx: *const SemContext, call: Sexp) ?HeldFirst {
     return .{ .node = callee, .kind = .invoked };
 }
 
-/// The part `heldFirst` gives, without its lend sigils, and the kind of
+/// The part `heldFirst` gives, without its view sigils, and the kind of
 /// storage that holds it.
 pub const HeldFirst = struct {
     node: Sexp,
@@ -298,8 +298,8 @@ fn decideConsumedTemporary(ctx: *const SemContext, call: Sexp) ?Sexp {
     };
 }
 
-/// A closure literal lent as a callable view.
-pub fn lentLiteral(ctx: *const SemContext, e: Sexp) bool {
+/// A closure literal passed as a callable view.
+pub fn viewedLiteral(ctx: *const SemContext, e: Sexp) bool {
     return e.isKind(.lambda) and ctx.callableOf(e) != null;
 }
 
@@ -334,8 +334,8 @@ fn decideHoistsArgs(ctx: *const SemContext, call: Sexp) bool {
 fn callHoistsArgs(ctx: *const SemContext, call: Sexp) bool {
     if (isPrintCall(ctx, call) or stringCall(ctx, call) != null) return false;
     const args = ir.Call.args(call);
-    // A closure literal lent to the call gets an environment first.
-    for (args) |a| if (lentLiteral(ctx, argValue(a))) return true;
+    // A closure literal passed to the call gets an environment first.
+    for (args) |a| if (viewedLiteral(ctx, argValue(a))) return true;
     if (ctx.callSlotsOf(call)) |slots| {
         var last: ?usize = null;
         for (slots) |slot| {
@@ -408,14 +408,14 @@ pub const SelfHold = enum {
 /// is a name or a field path off one, which the ownership checker
 /// holds for the call, so no argument changes what it reads. A callee
 /// that copies is copied in its turn, as plain data is read (Core
-/// §6), which keeps nothing lent.
+/// §6), which keeps no view.
 pub fn selfHold(ctx: *const SemContext, call: Sexp) ?SelfHold {
     return decide(ctx, call, .self_hold);
 }
 
 fn decideSelfHold(ctx: *const SemContext, call: Sexp) ?SelfHold {
     if (consumedTemporary(ctx, call) != null) return .consumed;
-    // Lend sigils on a self are implicit in Zig's method calls.
+    // View sigils on a self are implicit in Zig's method calls.
     const first = heldFirst(ctx, call) orelse return null;
     const recv = first.node;
     if (first.kind == .invoked and !ownsValue(ctx, recv)) return .value;
@@ -435,15 +435,15 @@ fn decideSelfHold(ctx: *const SemContext, call: Sexp) ?SelfHold {
 /// that is not pure (`isPureArg`), and an array literal whose elements
 /// are evaluated first holds such an element.
 pub const ArgumentHold = enum {
-    /// A closure literal lent as a callable: its environment, and the
+    /// A closure literal passed as a callable: its environment, and the
     /// `rig.FnRef` over it.
     closure,
-    /// Any other callable lent: the `rig.FnRef`.
+    /// Any other callable passed: the `rig.FnRef`.
     callable,
-    /// A value lent as the view its parameter expects (`lendOf`): the
+    /// A value passed as the view its parameter expects (`viewOf`): the
     /// view, which points where the value is, a place or its
     /// statement's slot.
-    lent,
+    viewed,
     /// The argument's value.
     value,
 };
@@ -454,7 +454,7 @@ pub fn argumentHold(ctx: *const SemContext, v: Sexp) ArgumentHold {
 
 fn decideArgumentHold(ctx: *const SemContext, v: Sexp) ArgumentHold {
     if (ctx.callableOf(v) != null) return if (v.isKind(.lambda)) .closure else .callable;
-    if (ctx.lendOf(v) != null and !ctx.lendsTempArray(v)) return .lent;
+    if (ctx.viewOf(v) != null and !ctx.viewsTempArray(v)) return .viewed;
     return .value;
 }
 
@@ -481,11 +481,11 @@ fn argumentParam(ctx: *const SemContext, call: Sexp, ai: usize) ?TypeId {
 /// a field or element of one: Zig storage that lives until the
 /// statement ends.
 pub fn keptInSlot(ctx: *const SemContext, e: Sexp) bool {
-    var p = lentPlace(e);
+    var p = viewedPlace(e);
     while (true) {
         if (ctx.dropsTemp(p)) return true;
         if (!p.isKind(.member) and !p.isKind(.index)) return false;
-        p = lentPlace(ir.get(p, .object));
+        p = viewedPlace(ir.get(p, .object));
     }
 }
 
@@ -532,8 +532,8 @@ pub const LeafStep = enum {
     /// A field or element of a value made here: its address within that
     /// value, which is reached as a value is.
     part,
-    /// A lend: the view it makes.
-    lend,
+    /// `?x` or `!x`: the view it makes.
+    view,
     /// A value made here: its address in its statement's slot when one
     /// keeps it (`dropsTemp`), else of a Zig temporary.
     made,
@@ -569,7 +569,7 @@ fn wholeStep(ctx: *const SemContext, e: Sexp) LeafStep {
     return switch (sema.handsOver(ctx, e).kind) {
         .place => .place,
         .part_of_made => .part,
-        .lend => .lend,
+        .view => .view,
         .jump => .jump,
         .made, .branches, .none => if (e == .src) .literal else .made,
     };
@@ -582,7 +582,7 @@ fn wholeStep(ctx: *const SemContext, e: Sexp) LeafStep {
 /// so what it binds is the place's own, never a copy. `e` reaches a
 /// place when it is one (`sema.Hands.place`, its indexes evaluated in
 /// the block) whose path starts outside the header's temporaries
-/// (`startsOutsideHeader`), a lend of one held as a pointer (`!v[i]`),
+/// (`startsOutsideHeader`), a view of one held as a pointer (`!v[i]`),
 /// or a value that branches (`a if c else b`) each leaf of which reaches
 /// one or jumps. A value made in the header, a part of one, or a place
 /// inside a view of one (`id(?mk()).e`) has no place that outlives the
@@ -597,10 +597,10 @@ fn decideHeaderPoints(ctx: *const SemContext, e: Sexp) bool {
 }
 
 /// The value a header (`match`, `for`, `as`) evaluates: a `match`'s
-/// subject without its lend sigils, a `for`'s source, an `as` value.
+/// subject without its view sigils, a `for`'s source, an `as` value.
 pub fn headerSubject(header: Sexp) Sexp {
     return switch (header.kind() orelse return .nil) {
-        .match => lentPlace(ir.Match.subject(header)),
+        .match => viewedPlace(ir.Match.subject(header)),
         .@"for" => ir.For.source(header),
         .as => ir.As.value(header),
         else => .nil,
@@ -612,8 +612,8 @@ fn reachesPlace(ctx: *const SemContext, e: Sexp) bool {
     if (rig.isRangeIndex(e)) return false;
     switch (sema.handsOver(ctx, e).kind) {
         .place => return startsOutsideHeader(ctx, e),
-        // A read lend of a scalar or a view is a copy.
-        .lend => return (e.isKind(.read) or e.isKind(.write)) and isPtrViewExpr(ctx, e) and reachesPlace(ctx, ir.get(e, .operand)),
+        // A read view of a scalar or a view is a copy.
+        .view => return (e.isKind(.read) or e.isKind(.write)) and isPtrViewExpr(ctx, e) and reachesPlace(ctx, ir.get(e, .operand)),
         .branches => {
             if (!e.isKind(.@"if")) return false;
             var parts = sema.valueParts(e);
@@ -777,14 +777,14 @@ pub fn matchBlock(ctx: *const SemContext, match: Sexp) bool {
 
 fn decideMatchBlock(ctx: *const SemContext, match: Sexp) bool {
     return ctx.headerOf(match) == .held or matchSelects(ctx, match) or matchesGenericView(ctx, match) or
-        (matchRereads(ctx, match) and !subjectRereadable(lentPlace(ir.Match.subject(match))));
+        (matchRereads(ctx, match) and !subjectRereadable(viewedPlace(ir.Match.subject(match))));
 }
 
 /// The `T` of a read view `?T` whose form depends on a generic type's
 /// arguments: `T` holds a type parameter and neither owns resources nor
 /// holds a Cell on its own. Emit writes it `rig.ReadView(T)`, a copy or
 /// a pointer per instance; null for any other type. An object or an
-/// enum with payloads, and an optional of one, is lent by address in
+/// enum with payloads, and an optional of one, is viewed by address in
 /// every instance (`sema.copiedByReadView`), so its view is a pointer
 /// whatever its arguments: `rig.ReadView` would ask Zig about the type,
 /// which a view inside the type itself (`prev: (?Frame[T])?`) cannot.
@@ -794,15 +794,15 @@ pub fn genericReadView(ctx: *const SemContext, ty: TypeId) ?TypeId {
         else => return null,
     };
     if (!sema.maybeDropGlue(ctx, inner) or sema.holdsCellByValue(ctx, inner)) return null;
-    if (lentByAddressAlways(ctx, inner)) return null;
+    if (viewedByAddressAlways(ctx, inner)) return null;
     return inner;
 }
 
-/// Whether every instance of `ty` is lent by address: an object or an
+/// Whether every instance of `ty` is viewed by address: an object or an
 /// enum with a payload (`sema.isCompound`), or an optional of one.
-fn lentByAddressAlways(ctx: *const SemContext, ty: TypeId) bool {
+fn viewedByAddressAlways(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .optional => |inner| lentByAddressAlways(ctx, inner),
+        .optional => |inner| viewedByAddressAlways(ctx, inner),
         else => sema.isCompound(ctx, ty),
     };
 }
@@ -812,7 +812,7 @@ fn lentByAddressAlways(ctx: *const SemContext, ty: TypeId) bool {
 /// in `__rig_subject` and switches where it points (`rig.viewedPtr`),
 /// never on a copy of what it views.
 fn matchesGenericView(ctx: *const SemContext, match: Sexp) bool {
-    const subject = lentPlace(ir.Match.subject(match));
+    const subject = viewedPlace(ir.Match.subject(match));
     if (subject.isKind(.move) or hasStorage(ctx, subject) or !isPtrViewExpr(ctx, subject)) return false;
     return genericReadView(ctx, typeOf(ctx, subject) orelse return false) != null;
 }
@@ -827,7 +827,7 @@ pub fn subjectHold(ctx: *const SemContext, match: Sexp) ?StorageBy {
 }
 
 fn decideSubjectHold(ctx: *const SemContext, match: Sexp) ?StorageBy {
-    const subject = lentPlace(ir.Match.subject(match));
+    const subject = viewedPlace(ir.Match.subject(match));
     if (subjectRereadable(subject)) return null;
     const value = if (subject.isKind(.move)) ir.Move.operand(subject) else subject;
     if (hasStorage(ctx, value) and !subject.isKind(.move) and sema.firstStmtTemp(ctx, value) == null) return .pointer;
@@ -1073,7 +1073,7 @@ pub const ThroughWrite = enum { pointer, value };
 /// (`bindingAccess`), it is bound as the read view of what that write view
 /// views. `.pointer`: the write view itself (a `?P`, or a `[]T` of a
 /// `![]T`); `.value`: the value it points at, copied out, as a `?T` of a
-/// scalar or a view is a copy (`sema.lendByValue`). Null for any other
+/// scalar or a view is a copy (`sema.viewByValue`). Null for any other
 /// binding.
 pub fn throughWrite(ctx: *const SemContext, cond: Sexp) ?ThroughWrite {
     return decide(ctx, cond, .through_write);
@@ -1088,7 +1088,7 @@ fn decideThroughWrite(ctx: *const SemContext, cond: Sexp) ?ThroughWrite {
         else => return null,
     };
     return switch (ctx.types.get(reached)) {
-        .write_view => |inner| if (ctx.types.get(inner) != .slice and sema.lendByValue(ctx, inner)) .value else .pointer,
+        .write_view => |inner| if (ctx.types.get(inner) != .slice and sema.viewByValue(ctx, inner)) .value else .pointer,
         else => null,
     };
 }
@@ -1138,7 +1138,7 @@ pub fn matchesInPlace(ctx: *const SemContext, match: Sexp) bool {
 
 fn decideMatchesInPlace(ctx: *const SemContext, match: Sexp) bool {
     if (matchMode(ctx, match) != .read) return false;
-    const subject = lentPlace(ir.Match.subject(match));
+    const subject = viewedPlace(ir.Match.subject(match));
     if (ctx.headerOf(match) == .held) return true;
     // A value that branches is matched where it points when it is a view
     // held as a pointer, or through the address its header yields; one
@@ -1354,11 +1354,11 @@ fn setLeaves(e: Sexp) bool {
 pub const leave_kinds = rig.body_exit_kinds ++ rig.jump_kinds;
 
 /// Whether the base of an assignment's path gives the same place however
-/// late it is evaluated: a name, or a lend of a name or of a field path
+/// late it is evaluated: a name, or a view of a name or of a field path
 /// off one (`(!p)`, `(!p.q)`). A step that could change which place it
 /// gives changes the name, which a live loan of the target forbids.
 fn baseStays(e: Sexp) bool {
-    var p = lentPlace(e);
+    var p = viewedPlace(e);
     while (p.isKind(.member)) p = ir.Member.object(p);
     return p == .src;
 }
@@ -1459,8 +1459,8 @@ pub fn contains(e: Sexp, kinds: []const Tag) bool {
     return false;
 }
 
-/// `e` without the lend sigils around it.
-pub fn lentPlace(e: Sexp) Sexp {
+/// `e` without the view sigils around it.
+pub fn viewedPlace(e: Sexp) Sexp {
     var x = e;
     while (x.isKind(.read) or x.isKind(.write)) x = ir.get(x, .operand);
     return x;
@@ -1471,11 +1471,11 @@ pub fn argValue(a: Sexp) Sexp {
     return if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
 }
 
-/// Whether a lend reaches the value inside an optional on the way to its
-/// view (the lend table's `optional` row), which it captures by address.
-pub fn lendsInsideOptional(lend: sema.Lend) bool {
-    if (lend.callable() != null or lend.has(.read_only)) return false;
-    for (lend.steps()) |step| switch (step) {
+/// Whether a view reaches the value inside an optional on the way to its
+/// view (the view table's `optional` row), which it captures by address.
+pub fn viewsInsideOptional(view: sema.View) bool {
+    if (view.callable() != null or view.has(.read_only)) return false;
+    for (view.steps()) |step| switch (step) {
         .optional => return true,
         .elems, .text, .read_only => return false,
         else => {},
@@ -1660,13 +1660,13 @@ fn planHolds(ctx: *SemContext) void {
 }
 
 /// Record the parameters whose header the function holds in a local
-/// (`held_header`): a parameter lent a `String`, or a `List`
-/// with no inline room, to write, which the body uses in a loop. Emit
+/// (`held_header`): a write view parameter of a `String`, or of a `List`
+/// with no inline room, which the body uses in a loop. Emit
 /// copies the header in at the top of the body, binds the parameter's
 /// name to the copy, and writes it back by `defer`, so the loop keeps
 /// the length and capacity in registers. The call's write loan is the
 /// caller's place's only loan while the body runs (Core §2, sentence 5),
-/// and nothing else reaches a lent String or List (no shared storage
+/// and nothing else reaches a viewed String or List (no shared storage
 /// holds one to write), so the copy cannot be told apart from the place.
 /// None is held where the body could hand the copy's address beyond the
 /// call: a task or closure that names the parameter, a `raw` block, or a
@@ -1699,7 +1699,7 @@ fn planHeldHeaders(ctx: *SemContext, decl: Sexp, body: Sexp) !void {
 }
 
 /// Whether a parameter of type `ty` may hold its header: a write view of
-/// a `String`, or of a `List[T]` with no inline room, lent by pointer.
+/// a `String`, or of a `List[T]` with no inline room, viewed by pointer.
 fn holdsHeaderType(ctx: *const SemContext, ty: TypeId) bool {
     const inner = switch (ctx.types.get(ty)) {
         .write_view => |inner| inner,
@@ -1928,11 +1928,11 @@ const Planner = struct {
         // every expression, which emit reads wherever it takes an address.
         _ = reachesLeaf(ctx, e);
         _ = handsKind(ctx, e);
-        if (ctx.lendOf(e)) |lend| {
-            if (lendsInsideOptional(lend)) try p.record(e, .lent, .pointer, .expression);
+        if (ctx.viewOf(e)) |view| {
+            if (viewsInsideOptional(view)) try p.record(e, .viewed, .pointer, .expression);
             // An API object of a value that may be held as a copy views a
             // copy, a local of the erasing block (`sema.Erasure.copy`).
-            if (lend.has(.erase)) if (ctx.erasureOf(e)) |er| if (er.copy) try p.record(e, .erased_copy, .copy, .block);
+            if (view.has(.erase)) if (ctx.erasureOf(e)) |er| if (er.copy) try p.record(e, .erased_copy, .copy, .block);
             try p.leaves(if (e.isKind(.read) or e.isKind(.write)) ir.get(e, .operand) else e);
         }
         if (e != .list) return;
@@ -1948,7 +1948,7 @@ const Planner = struct {
             // A value read where its leaves are is reached through the
             // address of the leaf it takes, for a field, an element, or a
             // method.
-            .member => try p.leaves(lentPlace(ir.Member.object(e))),
+            .member => try p.leaves(viewedPlace(ir.Member.object(e))),
             .index => try p.leaves(ir.Index.object(e)),
             .@"==", .@"!=" => for ([2]Sexp{ ir.get(e, .left), ir.get(e, .right) }) |operand| {
                 _ = dropsWhenTested(ctx, operand);
@@ -2090,7 +2090,7 @@ const Planner = struct {
             // address per instance (`genericReadView`), is opened through
             // `rig.someViewed`, and the binding points at the value
             // inside where the view reaches it, so a view of the binding
-            // lent on (`?x`, `from o`) views the optional's own value.
+            // passed on (`?x`, `from o`) views the optional's own value.
             const generic = if (typeOf(ctx, value)) |t| genericReadView(ctx, t) != null else false;
             const copy = !generic and ctx.copiesHeader(cond);
             try p.subjectHeader(value);
@@ -2142,7 +2142,7 @@ const Planner = struct {
     fn match(p: *Planner, m: Sexp) !void {
         const ctx = p.ctx;
         const mode = matchMode(ctx, m);
-        const subject = lentPlace(ir.Match.subject(m));
+        const subject = viewedPlace(ir.Match.subject(m));
         // How it binds is decided for every binding, which emit reads.
         _ = holdsView(ctx, m);
         _ = matchesInPlace(ctx, m);
@@ -2220,10 +2220,10 @@ const Planner = struct {
         const ctx = p.ctx;
         const callee = ctx.calleeOf(c);
         const hoists = ctx.elemCallOf(callee) == null and hoistsArgs(ctx, c);
-        // A temporary array lent as a slice to a call that evaluates its
-        // arguments where they stand is lent where Zig holds it, which
+        // A temporary array viewed as a slice by a call that evaluates its
+        // arguments where they stand is viewed where Zig holds it, which
         // lives through the call.
-        if (!hoists) for (ir.Call.args(c)) |a| if (ctx.lendsTempArray(argValue(a))) try p.record(argValue(a), .zig_temp, .owned, .statement);
+        if (!hoists) for (ir.Call.args(c)) |a| if (ctx.viewsTempArray(argValue(a))) try p.record(argValue(a), .zig_temp, .owned, .statement);
         if (ctx.elemCallOf(callee) != null) return;
         // A closure literal called where it is written is built first.
         if (callee.isKind(.lambda)) try p.record(callee, .invoked, .owned, .call);
@@ -2256,7 +2256,7 @@ const Planner = struct {
             .dynamic => |d| d,
             else => return,
         };
-        const recv = lentPlace(if (d.self_arg) ir.Call.args(c)[0] else selfOf(ctx, c) orelse return);
+        const recv = viewedPlace(if (d.self_arg) ir.Call.args(c)[0] else selfOf(ctx, c) orelse return);
         if (recv != .src) try p.record(recv, .api_object, .copy, .call);
         const entry = sema.tableEntry(ctx, d) orelse return;
         if (entry.result_out) try p.record(c, .result_place, .owned, .call);
@@ -2277,7 +2277,7 @@ const Planner = struct {
     /// The storage of `v`, a part of a call or an array literal that is
     /// evaluated first (`hoistsArgs`), filling a parameter of type
     /// `param` if any: a value of its own, a copy, or a view, as the
-    /// lend and the parameter say, which lives for `life`.
+    /// view and the parameter say, which lives for `life`.
     fn argument(p: *Planner, v: Sexp, param: ?TypeId, life: StorageLife) !void {
         const ctx = p.ctx;
         if (isPureArg(ctx, v)) return;
@@ -2287,7 +2287,7 @@ const Planner = struct {
                 break :by .owned;
             },
             .callable => .owned,
-            .lent => .pointer,
+            .viewed => .pointer,
             .value => if (param) |t| (if (isPtrViewTy(ctx, t)) .pointer else .owned) else .owned,
         };
         try p.record(v, .argument, by, life);
@@ -2378,7 +2378,7 @@ const Planner = struct {
 
     fn leaf(p: *Planner, e: Sexp) !void {
         switch (leafStep(p.ctx, e)) {
-            .place, .part, .lend, .jump => {},
+            .place, .part, .view, .jump => {},
             // A value made here that no slot keeps, or a literal, is
             // reached where Zig holds it.
             .made => if (!p.ctx.dropsTemp(e)) try p.record(e, .zig_temp, .owned, .statement),
@@ -2408,20 +2408,20 @@ const Planner = struct {
 /// How a new binding holds its value (`bindHold`).
 pub const BindHold = enum {
     /// The value, made or copied; a read view that copies
-    /// (`sema.lendByValue`) is held as the value it views.
+    /// (`sema.viewByValue`) is held as the value it views.
     value,
     /// A view held as a pointer (`viewHeldAsPointer`), however it was
     /// obtained.
     pointer,
-    /// The address of the place `?x` or `!x` lends.
-    lend,
+    /// The address of the place `?x` or `!x` views.
+    view,
 };
 
 /// How the binding assignment `set` declares holds its value, decided
-/// once: a view of a place lent by address holds the place's address, any
+/// once: a view of a place made by address holds the place's address, any
 /// other view held as a pointer holds the pointer, and everything else
 /// the value. A write view of slice elements, a callable view, and a view
-/// of an API object are values however they are lent.
+/// of an API object are values however they are made.
 pub fn bindHold(ctx: *const SemContext, set: Sexp) BindHold {
     return decide(ctx, set, .bind_hold);
 }
@@ -2430,15 +2430,15 @@ fn decideBindHold(ctx: *const SemContext, set: Sexp) BindHold {
     const sym = ctx.symbolOf(ir.Set.target(set)) orelse return .value;
     const value = ir.Set.value(set);
     const ty = known(ctx, ctx.symbols.items[sym].ty) orelse
-        return if (value.isKind(.read) or value.isKind(.write)) .lend else .value;
-    // A read view that copies (`sema.lendByValue`) is no address.
+        return if (value.isKind(.read) or value.isKind(.write)) .view else .value;
+    // A read view that copies (`sema.viewByValue`) is no address.
     const by_address = switch (ctx.types.get(ty)) {
         .read_view => sema.viewHeldAsPointer(ctx, ty) or genericReadView(ctx, ty) != null,
         .write_view => true,
         else => false,
     };
     if (by_address and (value.isKind(.read) or value.isKind(.write)) and
-        sema.writeSliceElem(ctx, ty) == null and sema.callableFn(ctx, ty) == null and sema.objectView(ctx, ty) == null) return .lend;
+        sema.writeSliceElem(ctx, ty) == null and sema.callableFn(ctx, ty) == null and sema.objectView(ctx, ty) == null) return .view;
     return if (sema.viewHeldAsPointer(ctx, ty)) .pointer else .value;
 }
 
@@ -2506,7 +2506,7 @@ pub fn frameTaskSite(ctx: *const SemContext, stmt: Sexp) ?Sexp {
 /// Whether the task bound by `stmt`, a `frameTaskSite` in `block`, never
 /// leaves its binding (`task_stays`), by a positive list of uses: every
 /// later naming of the binding in the block is the task of `>t`, the self
-/// of `<t.cancel()`, or a read lend, `?t`, outside every closure. Its drop, which waits, then
+/// of `<t.cancel()`, or a read view, `?t`, outside every closure. Its drop, which waits, then
 /// runs before the block ends on every path. Any other naming, a move, a
 /// `return`, a `Tasks` add, a stored field, a moving capture, or an
 /// assignment, keeps the record on the heap.
@@ -2538,7 +2538,7 @@ fn onlyStays(ctx: *const SemContext, e: Sexp, sym: SymbolId) bool {
         else => return true,
     }
     if (e.kind()) |kind| switch (kind) {
-        // `?t`, a read lend, and `?t.on_end()` through it.
+        // `?t`, a read view, and `?t.on_end()` through it.
         .read => if (isSym(ctx, ir.get(e, .operand), sym)) return true,
         // `>t` and `<t.cancel()`: the wait, and the cancel, which waits
         // for the end before it returns.
@@ -2643,8 +2643,8 @@ fn isCellListTy(ctx: *const SemContext, ty: TypeId) bool {
 
 /// Decide which word-sized objects (`sema.wordBits`) emit holds as one
 /// word, a Zig `packed struct`, for the whole program at once: every
-/// module's lends can reach a type another module declares. A type stays
-/// a plain struct where a write lend anywhere (`!x.a`, a `!@` call on a
+/// module's views can reach a type another module declares. A type stays
+/// a plain struct where a write view anywhere (`!x.a`, a `!@` call on a
 /// place) takes the address of one of its fields, which a word has none
 /// of; or the address of one of a 64-bit type inside another object,
 /// where it is held at that object's 4-byte alignment (`align(4)`), not
@@ -2658,7 +2658,7 @@ pub fn decideWords(mods: []const *SemContext, trees: []const Sexp) !void {
     const a = gpa.allocator();
     // Declared sym -> plain, per declaring context.
     var plain: std.AutoHashMapUnmanaged(struct { *const SemContext, SymbolId }, void) = .empty;
-    for (mods, trees) |ctx, tree| try lendsInto(a, ctx, tree, &plain);
+    for (mods, trees) |ctx, tree| try viewsInto(a, ctx, tree, &plain);
     // A word holds the words inside it as bits of its own, so it is held
     // as one only when each of them is.
     var changed = true;
@@ -2733,7 +2733,7 @@ fn optionalWord(a: std.mem.Allocator, ctx: *const SemContext, t: TypeId, plain: 
     if (opt and sema.wordBits(ctx, ty) == 64) if (sema.nominalDecl(ctx, ty)) |d| try plain.put(a, .{ d.ctx, d.sym }, {});
 }
 
-fn lendsInto(a: std.mem.Allocator, ctx: *const SemContext, e: Sexp, plain: anytype) !void {
+fn viewsInto(a: std.mem.Allocator, ctx: *const SemContext, e: Sexp, plain: anytype) !void {
     if (e != .list) return;
     if (e.isKind(.write)) {
         // A 64-bit word inside an optional is held at four-byte
@@ -2760,7 +2760,7 @@ fn lendsInto(a: std.mem.Allocator, ctx: *const SemContext, e: Sexp, plain: anyty
             } else break;
         }
     }
-    for (e.items()) |c| try lendsInto(a, ctx, c, plain);
+    for (e.items()) |c| try viewsInto(a, ctx, c, plain);
 }
 
 test "a task's record holds at most `task_header_bytes` besides its arguments and result" {

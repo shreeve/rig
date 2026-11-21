@@ -476,7 +476,7 @@ pub fn objectBounds(ctx: *const SemContext, o: ApiObject) Apis {
 }
 
 /// The crossing bound a value going to a task as `how` says needs: `Sends`
-/// to be given or lent to write, `Syncs` to be read by several tasks.
+/// to be given or viewed to write, `Syncs` to be read by several tasks.
 pub fn crossingBound(how: Crossing) Api {
     return if (how == .moves) .Sends else .Syncs;
 }
@@ -563,7 +563,7 @@ pub fn objectHeld(ctx: *const SemContext, ty: TypeId) ?ObjectHeld {
 }
 
 /// A value erased to an API object (docs/design/apis.md, Stage 4): the
-/// value reached by a lend's rows, of type `from`, which provides the
+/// value reached by a view's rows, of type `from`, which provides the
 /// object's API by `witness`, made a `view`, `?{A}` or `!{A}`; a box
 /// `^T` moved into a `^{A}`, keeping its allocation; or a counted handle
 /// moved into a `*{A}`, keeping its allocation and its count. Recorded
@@ -1082,7 +1082,7 @@ pub const SymbolFlags = packed struct(u64) {
     /// Assigned again after its declaration (`=`, `+=`, ...):
     /// lowers to a Zig `var`.
     reassigned: bool = false,
-    /// Written through: lent to write (`!x`), or a field or element of
+    /// Written through: given a write view (`!x`), or a field or element of
     /// it assigned. Also lowers to a Zig `var`.
     written: bool = false,
     /// An `error` declaration: its variants are error values.
@@ -1214,11 +1214,11 @@ pub const Field = struct {
     /// A built-in method: what it needs of its type's parameter `T`.
     needs: ?*const Needs = null,
     /// A built-in table's method that calls its function value argument
-    /// with a view of each key it holds and its value lent to write
+    /// with a view of each key it holds and a write view of its value
     /// (`update`, `retain`): an instance whose value type can hold the
     /// view is refused, as for a Rig body that does it (SPEC "Generic
     /// bodies", `PlainRequirement.callable`).
-    lends_entries: bool = false,
+    views_entries: bool = false,
     /// A plain enum's variant: its integer value, declared or implicit.
     value: ?Wide = null,
     /// A field or method declared `pub`, which other modules may use.
@@ -1881,12 +1881,12 @@ pub const Facts = struct {
     names: FastMap(u32, SymbolId) = .empty,
     /// Expression (`exprKey`) -> its type.
     types: fastmap.DenseMap(TypeId) = .empty,
-    /// Expressions lent where a view of another type is expected ->
-    /// the rows of the lend table that make it (`Lend`, `lendsAs`).
-    lends: FastMap(u64, Lend) = .empty,
-    /// Slices (`xs[a..b]`) -> what they lend of the value they slice
-    /// (`sliceLend`).
-    slice_lends: FastMap(NodeKey, Lend) = .empty,
+    /// Expressions viewed where a view of another type is expected ->
+    /// the rows of the view table that make it (`View`, `viewAs`).
+    views: FastMap(u64, View) = .empty,
+    /// Slices (`xs[a..b]`) -> what they view of the value they slice
+    /// (`sliceView`).
+    slice_views: FastMap(NodeKey, View) = .empty,
     /// Expressions that yield a view where their context reads the
     /// value it reaches (`SemContext.recordRead`).
     reads: FastMap(u64, void) = .empty,
@@ -1936,14 +1936,14 @@ pub const Facts = struct {
     /// each exchanges two places or puts a value in one.
     swap_calls: FastMap(NodeKey, SwapCall) = .empty,
     /// Temporary arrays passed as a `[]T` argument to a call that keeps
-    /// no view of them (`SemContext.lendsTempArray`).
+    /// no view of them (`SemContext.viewsTempArray`).
     temp_arrays: FastMap(NodeKey, void) = .empty,
     /// Owning temporaries only read where they stand (a `print`
-    /// argument, a view lent to a call, an `==` operand, a `?@`
+    /// argument, a view passed to a call, an `==` operand, a `?@`
     /// self): each is dropped at the end of its statement, or of
     /// its header.
     temp_drops: FastMap(NodeKey, void) = .empty,
-    /// Temporaries lent to write (`!mk()`, `!(a if c else b).f`), or the
+    /// Temporaries given a write view (`!mk()`, `!(a if c else b).f`), or the
     /// value a written part of one starts from: written in their
     /// statement's slot.
     written_temps: FastMap(NodeKey, void) = .empty,
@@ -1973,7 +1973,7 @@ pub const Facts = struct {
     actor_calls: FastMap(u64, void) = .empty,
     /// What each `!x` puts on `x`, a read loan or a write loan
     /// (`Checker.recordLoan`).
-    loans: FastMap(u64, LendKind) = .empty,
+    loans: FastMap(u64, ViewKind) = .empty,
     /// The method calls made on a value of a type parameter
     /// (`Checker.typeParamCall`), whose method each instance gives.
     type_param_calls: FastMap(u64, void) = .empty,
@@ -1993,7 +1993,7 @@ pub const Facts = struct {
     /// `f(x)&` tasks that are local, pinned to the thread of the task
     /// that makes them (`Checker.crossCheck`), with what pins each.
     local_tasks: FastMap(u64, LocalTask) = .empty,
-    /// Values a context reads, takes, or lends (`Use`), keyed by the
+    /// Values a context reads, takes, or views (`Use`), keyed by the
     /// value: a name, or a value that yields one of its parts
     /// (`valueParts`). Emit moves a name at a tail of the value out of
     /// its binding only where the value is taken.
@@ -2011,8 +2011,8 @@ pub const Facts = struct {
     takes: FastMap(NodeKey, void) = .empty,
     /// Assignments to a field that holds `none` wherever they run: the
     /// ownership checker found it taken with `<p.f`, and neither written
-    /// nor lent to write since, on every path (`SemContext.recordOldNone`).
-    /// The store drops no old value.
+    /// nor given a write view since, on every path
+    /// (`SemContext.recordOldNone`). The store drops no old value.
     old_nones: FastMap(NodeKey, void) = .empty,
     /// `*w` nodes that upgrade a weak handle -> whether each reads or
     /// takes it (`SemContext.recordUpgrade`).
@@ -2032,10 +2032,10 @@ pub const Facts = struct {
     /// Element reads (`x[i]`) that copy the element's value out
     /// (`SemContext.copiesElem`).
     elem_copies: FastMap(NodeKey, void) = .empty,
-    /// Element reads on the path of a self a method call lends, which
+    /// Element reads on the path of a self a method call views, which
     /// are reached where they are whatever their type
-    /// (`SemContext.recordElemLent`).
-    elem_lent: FastMap(NodeKey, void) = .empty,
+    /// (`SemContext.recordElemViewed`).
+    elem_viewed: FastMap(NodeKey, void) = .empty,
     /// Payload bindings of a variant pattern -> the type of the field
     /// each binds, at the matched instance and in this module's types
     /// (`SemContext.recordPayloadField`).
@@ -2074,8 +2074,8 @@ pub const Facts = struct {
     /// `e.text` nodes: the name of plain enum value `e`'s variant, a
     /// `Static` (`SemContext.recordEnumText`).
     enum_texts: FastMap(NodeKey, void) = .empty,
-    /// `t[s]` index nodes of a table that a write reaches: assigned, lent
-    /// to write, written through, or taken from (`Checker.requireAccess`).
+    /// `t[s]` index nodes of a table that a write reaches: assigned, given
+    /// a write view, written through, or taken from (`Checker.requireAccess`).
     /// Every other slot is read, and is reached read-only, so a table
     /// held as it is written never grows for a read
     /// (`SemContext.recordTableWrite`).
@@ -2122,7 +2122,7 @@ pub const Lift = struct { into: TypeId, from: TypeId };
 /// How `*w` upgrades the weak handle `w` (`SemContext.recordUpgrade`).
 pub const Upgrade = enum {
     /// `w` is read where it is, and stays usable: a place, a part of a
-    /// value, a lend, a branching value, or a view.
+    /// value, a view, a branching value, or a view.
     reads,
     /// `w` is handed over and dropped once upgraded: a move (`*<w`) or a
     /// weak handle made there (`*~h`, `*f()`).
@@ -2149,12 +2149,12 @@ pub const WriteKind = enum {
     compound,
     /// `!x`, `!x.f`, `!x[i]` (the `write` node), and `for e in !x` (the
     /// `for` node): a write view of the binding, or of a part of it.
-    lend_write,
+    write_viewed,
     /// `x.f = e` or `x[i] = e` (the `set` node).
     elem_store,
     /// `<x.f` taking an optional out of a part (the `move` node).
     take,
-    /// `|!x|`: a closure lent `x` to write (the `cap_write` node).
+    /// `|!x|`: a closure given a write view of `x` (the `cap_write` node).
     capture,
     /// `<x` of the binding itself (the `move` or `drop` node), which
     /// leaves it moved until it is assigned again.
@@ -2244,7 +2244,7 @@ pub const FieldBound = struct { name: []const u8, hi: u64 };
 /// How a header (`for`, `match`, `if … as`, `while … as`) has a bare
 /// subject that is not plain data (docs/internals/INTERNALS.md, "Header subjects").
 pub const Header = enum {
-    /// A place, read where it stands as `?p` would lend it: each element
+    /// A place, read where it stands as `?p` would view it: each element
     /// or payload is a view of the place's own.
     viewed,
     /// A value made there, taken as `<e` would take it: each element or
@@ -2338,8 +2338,8 @@ pub const StorageKind = enum {
     /// A mutable copy of what an `as` captures, which its binding views
     /// (`__rig_opt_N_v`).
     as_copy,
-    /// The value inside an optional a lend reaches (`__rig_lent`).
-    lent,
+    /// The value inside an optional a view reaches (`__rig_lent`).
+    viewed,
     /// The copy an API object of a read view of plain data, or of a type
     /// parameter's value, views (`Erasure.copy`), a local of the erasing
     /// block (`__rig_erased`).
@@ -2355,7 +2355,7 @@ pub const StorageKind = enum {
     /// The self of such a call, or an actor's handle, or a select
     /// arm's channel (`__rig_recv`): `storage.heldFirst`.
     self,
-    /// The environment of a closure literal lent to a call (`__rig_env`).
+    /// The environment of a closure literal passed to a call (`__rig_env`).
     environment,
     /// A closure literal called where it is written, or the callee of a
     /// call whose arguments are evaluated first, which a value the call
@@ -2388,7 +2388,7 @@ pub const StorageKind = enum {
     /// drops at the statement's end.
     results,
     /// The header (pointer, length, and capacity) of a String or List a
-    /// parameter is lent to write, held in a local for the function's
+    /// write view parameter views, held in a local for the function's
     /// body and written back as it returns (`__rig_header`;
     /// `storage.planHeldHeaders`): the parameter's name views the local,
     /// so a loop keeps the header in registers.
@@ -2572,7 +2572,7 @@ pub const Question = enum(u8) {
     /// call's result, if any (`storage.compoundCall`).
     compound_call,
     /// Of an assignment that declares a binding: whether the binding holds
-    /// its value, a pointer, or the address of the place it lends
+    /// its value, a pointer, or the address of the place it views
     /// (`storage.bindHold`).
     bind_hold,
     /// Of an assignment `t = f(x)&` in a block: whether the task never
@@ -2698,8 +2698,8 @@ pub const Use = enum {
     /// `return`, a `break` value, a consuming self, a header that
     /// binds it.
     take,
-    /// Lends it: `?e`, `!e`.
-    lend,
+    /// Views it: `?e`, `!e`.
+    view,
 };
 
 /// A method of a built-in type that emit lowers to an operation of the
@@ -3040,10 +3040,10 @@ pub const Origins = struct {
     stores: ParamMask = all_params,
     /// `result` is what a `from` clause names, not the signature's types.
     declared: bool = false,
-    /// The lent parameters (`lentParam`), which `stores` holds only
+    /// The view parameters (`viewParam`), which `stores` holds only
     /// where the declaration's `keeps` names them; none for a function
     /// type's origins, which keep by type.
-    lent: ParamMask = 0,
+    viewed: ParamMask = 0,
     /// The closure parameters the function calls at most once, written
     /// `f: once ?fun() -> T`: a closure literal passed to one may move
     /// what it captures out (`|<t| >t!`), as its own parameters.
@@ -3130,9 +3130,9 @@ pub const CallParams = struct {
     }
 
     /// Whether the call keeps the argument at index `arg`, which fills a
-    /// lent parameter its callee's `keeps` names.
-    pub fn keepsLent(self: CallParams, arg: usize) bool {
-        return self.filled(.{ .arg = @intCast(arg) }, self.origins.stores & self.origins.lent);
+    /// view parameter its callee's `keeps` names.
+    pub fn keepsViewed(self: CallParams, arg: usize) bool {
+        return self.filled(.{ .arg = @intCast(arg) }, self.origins.stores & self.origins.viewed);
     }
 
     /// Whether the argument at index `arg` fills a parameter the callee
@@ -3143,8 +3143,8 @@ pub const CallParams = struct {
 
     /// Whether the call keeps its self, which its callee's `keeps`
     /// names (`keeps @`).
-    pub fn keepsLentSelf(self: CallParams) bool {
-        return self.filled(.self, self.origins.stores & self.origins.lent);
+    pub fn keepsViewedSelf(self: CallParams) bool {
+        return self.filled(.self, self.origins.stores & self.origins.viewed);
     }
 
     /// The name of the parameter the argument at index `arg` fills, when
@@ -3366,7 +3366,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     if (comptime std.mem.eql(u8, name, "task_joins")) return w.writeAll(if (v) " values" else " nothing");
     switch (V) {
-        StringCall, Use, Upgrade, ParCall, SelectArm, BuiltinCall, SwapCall, LendKind => try w.print(" {s}", .{@tagName(v)}),
+        StringCall, Use, Upgrade, ParCall, SelectArm, BuiltinCall, SwapCall, ViewKind => try w.print(" {s}", .{@tagName(v)}),
         Duration => try w.print(" {d}ns {s}", .{ v.unit_ns, if (v.float) "Float" else "Int" }),
         []const u8 => try w.print(" \"{f}\"", .{std.zig.fmtString(v)}),
         Lift => try w.print(" {s} from {s}", .{ try formatTypeIn(ctx, a, v.into), try formatTypeIn(ctx, a, v.from) }),
@@ -3377,7 +3377,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
             const at = diag.lineCol(ctx.source, ctx.startOf(v.target));
             try w.print(" {s} {s} {d}:{d}", .{ @tagName(v.to), @tagName(v.target.kind().?), at.line, at.col });
         },
-        Lend => {
+        View => {
             if (v.implicit) try w.writeAll(" implicit");
             for (v.steps()) |step| try w.print(" {s}", .{@tagName(step)});
             if (v.fn_ty != type_invalid) try w.print(" {s}", .{try formatTypeIn(ctx, a, v.fn_ty)});
@@ -3553,7 +3553,7 @@ pub const Requirement = union(enum) {
     /// capturing it in an owned closure (`Checker.hidesNoTask`).
     no_task,
     /// Goes to a task as this says (`taskBlocker`): the body gives a task
-    /// a value that holds the parameter, or lends it one (`taskParams`).
+    /// a value that holds the parameter, or a view of one (`taskParams`).
     task: TaskReach,
     /// Meets this built-in API (`lacks`): the body erases a value that
     /// holds the parameter to an API object whose braces or API name it
@@ -4071,7 +4071,7 @@ pub const PlainRequirement = struct {
     /// body's terms, is given a view of memory the body owns and may put
     /// it in a `param` the body holds by value, whose loans it does not
     /// track (SPEC "Generic bodies"). An instance is refused where the
-    /// type, at its arguments, may keep a lent argument's view in what it
+    /// type, at its arguments, may keep a view argument's view in what it
     /// writes (`sema.defaultOrigins`), or, `in_result`, where its result
     /// can hold a view.
     callable: ?TypeId = null,
@@ -5235,19 +5235,19 @@ pub const SemContext = struct {
 
     /// Whether reading element `node` (`x[i]`) copies its value out
     /// (`sema.copies` of its type is `.yes`) rather than reaching it where
-    /// it is: never where a method call lends it as self, or lends a
-    /// part of it (`recordElemLent`).
+    /// it is: never where a method call views it as self, or views a
+    /// part of it (`recordElemViewed`).
     pub fn copiesElem(self: *const SemContext, node: Sexp) bool {
         const key = nodeKey(node) orelse return false;
-        return self.facts.elem_copies.contains(key) and !self.facts.elem_lent.contains(key);
+        return self.facts.elem_copies.contains(key) and !self.facts.elem_viewed.contains(key);
     }
 
     /// `node`, an element read, is on the path of the self a method
-    /// call lends (`?xs[i].m()`, `!xs[i].f.m()`): the call is given a
+    /// call views (`?xs[i].m()`, `!xs[i].f.m()`): the call is given a
     /// view of the element where it is, never of a copy, which a result
     /// that keeps self would outlive.
-    pub fn recordElemLent(self: *SemContext, node: Sexp) !void {
-        try self.facts.elem_lent.put(self.allocator, recordKey(node), {});
+    pub fn recordElemViewed(self: *SemContext, node: Sexp) !void {
+        try self.facts.elem_viewed.put(self.allocator, recordKey(node), {});
     }
 
     /// `node` yields a view where its context reads the value it
@@ -5295,42 +5295,42 @@ pub const SemContext = struct {
         try self.facts.temp_arrays.put(self.allocator, recordKey(node), {});
     }
 
-    /// Whether `node` is a temporary array lent as a `[]T` argument for
+    /// Whether `node` is a temporary array viewed as a `[]T` argument for
     /// the call (`recordTempArray`).
-    pub fn lendsTempArray(self: *const SemContext, node: Sexp) bool {
+    pub fn viewsTempArray(self: *const SemContext, node: Sexp) bool {
         return self.facts.temp_arrays.contains(nodeKey(node) orelse return false);
     }
 
-    /// `node` is lent, where a view of another type is expected, by the
-    /// rows of the lend table `lend` names (`lendOf`).
-    pub fn recordLend(self: *SemContext, node: Sexp, lend: Lend) !void {
-        std.debug.assert(lend.len > 0 or lend.implicit);
-        try self.facts.lends.put(self.allocator, recordExprKey(node) orelse return, lend);
+    /// `node` is viewed, where a view of another type is expected, by the
+    /// rows of the view table `view` names (`viewOf`).
+    pub fn recordView(self: *SemContext, node: Sexp, view: View) !void {
+        std.debug.assert(view.len > 0 or view.implicit);
+        try self.facts.views.put(self.allocator, recordExprKey(node) orelse return, view);
     }
 
-    /// How `node` is lent where a view of another type is expected: the
-    /// rows of the lend table that make the view (`recordLend`); null
+    /// How `node` is viewed where a view of another type is expected: the
+    /// rows of the view table that make the view (`recordView`); null
     /// where its value is the view itself.
-    pub fn recordSliceLend(self: *SemContext, slice: Sexp, lend: Lend) !void {
-        try self.facts.slice_lends.put(self.allocator, recordKey(slice), lend);
+    pub fn recordSliceView(self: *SemContext, slice: Sexp, view: View) !void {
+        try self.facts.slice_views.put(self.allocator, recordKey(slice), view);
     }
 
-    /// What slice `slice` lends of the value it slices (`sliceLend`);
+    /// What slice `slice` views of the value it slices (`sliceView`);
     /// null for a node that is no checked slice.
-    pub fn sliceLendOf(self: *const SemContext, slice: Sexp) ?Lend {
+    pub fn sliceViewOf(self: *const SemContext, slice: Sexp) ?View {
         const key = nodeKey(slice) orelse return null;
-        return self.facts.slice_lends.get(key);
+        return self.facts.slice_views.get(key);
     }
 
-    pub fn lendOf(self: *const SemContext, node: Sexp) ?Lend {
-        return self.facts.lends.get(exprKey(node) orelse return null);
+    pub fn viewOf(self: *const SemContext, node: Sexp) ?View {
+        return self.facts.views.get(exprKey(node) orelse return null);
     }
 
-    /// The function type `node` is lent as, where a callable view is
-    /// expected and `node` is not one yet (`Lend.callable`).
+    /// The function type `node` is viewed as, where a callable view is
+    /// expected and `node` is not one yet (`View.callable`).
     pub fn callableOf(self: *const SemContext, node: Sexp) ?TypeId {
-        const lend = self.lendOf(node) orelse return null;
-        return lend.callable();
+        const view = self.viewOf(node) orelse return null;
+        return view.callable();
     }
 
     /// `node` is `<place` taking an optional out of a field or element,
@@ -5445,7 +5445,7 @@ pub const SemContext = struct {
     /// `node` writes binding `sym` (`WriteKind`). The binding's flags
     /// follow from the record: an assignment of the binding itself
     /// reassigns it, which lowers it to a Zig `var`; a write through it
-    /// (a write lend, a store into a part, a take, a write capture) marks
+    /// (a write view, a store into a part, a take, a write capture) marks
     /// it written, which does too. A move of the whole binding leaves its
     /// flags alone.
     pub fn recordWrite(self: *SemContext, node: Sexp, sym: SymbolId, kind: WriteKind) !void {
@@ -5453,7 +5453,7 @@ pub const SemContext = struct {
         const flags = &self.symbols.items[sym].flags;
         switch (kind) {
             .assign, .compound => flags.reassigned = true,
-            .lend_write, .elem_store, .take, .capture => flags.written = true,
+            .write_viewed, .elem_store, .take, .capture => flags.written = true,
             .move => {},
         }
     }
@@ -5737,7 +5737,7 @@ pub const SemContext = struct {
 
     /// `stmt` is an expression statement, whose value nothing uses: the
     /// value it yields, and each value it passes on to it (the operand of
-    /// `!`, `?`, `catch`, and a lend sigil), is discarded.
+    /// `!`, `?`, `catch`, and a view sigil), is discarded.
     pub fn recordDiscard(self: *SemContext, stmt: Sexp) !void {
         var e = stmt;
         while (true) {
@@ -5766,8 +5766,8 @@ pub const SemContext = struct {
         try self.facts.written_temps.put(self.allocator, recordKey(node), {});
     }
 
-    /// Whether `node` is a temporary lent to write, or the value a part
-    /// lent to write starts from (`recordWrittenTemp`): its statement's
+    /// Whether `node` is a temporary given a write view, or the value a part
+    /// given a write view starts from (`recordWrittenTemp`): its statement's
     /// slot is written, so it is reached there, never through a copy.
     pub fn writesTemp(self: *const SemContext, node: Sexp) bool {
         return self.facts.written_temps.contains(nodeKey(node) orelse return false);
@@ -5857,15 +5857,15 @@ pub const SemContext = struct {
         return self.facts.actor_calls.contains(exprKey(call) orelse return false);
     }
 
-    pub fn recordLoan(self: *SemContext, lend: Sexp, kind: LendKind) !void {
-        try self.facts.loans.put(self.allocator, recordExprKey(lend) orelse return, kind);
+    pub fn recordLoan(self: *SemContext, view: Sexp, kind: ViewKind) !void {
+        try self.facts.loans.put(self.allocator, recordExprKey(view) orelse return, kind);
     }
 
-    /// What `!x`, `lend`, puts on `x` (Core §4): a read loan where it
-    /// lends a write view of a value that changes by a marked call
+    /// What `!x` puts on `x` (Core §4): a read loan where it makes a
+    /// write view of a value that changes by a marked call
     /// (`loanOfView`), a write loan anywhere else (`recordLoan`).
-    pub fn loanOf(self: *const SemContext, lend: Sexp) LendKind {
-        return self.facts.loans.get(exprKey(lend) orelse return .write) orelse .write;
+    pub fn loanOf(self: *const SemContext, view: Sexp) ViewKind {
+        return self.facts.loans.get(exprKey(view) orelse return .write) orelse .write;
     }
 
     pub fn recordTypeParamCall(self: *SemContext, call: Sexp) !void {
@@ -5991,15 +5991,15 @@ pub const SemContext = struct {
         return self.facts.in_place_reads.contains(exprKey(node) orelse return false);
     }
 
-    /// The context of `node` reads, takes, or lends it (`Facts.uses`).
+    /// The context of `node` reads, takes, or views it (`Facts.uses`).
     /// A value has one use: a second record of it must agree. A value
-    /// lent implicitly where a view goes was first recorded as taken
-    /// (`recordImplicitLend`); checking its context again records the
-    /// take before the lend, and keeps the lend.
+    /// viewed implicitly where a view goes was first recorded as taken
+    /// (`recordImplicitView`); checking its context again records the
+    /// take before the view, and keeps the view.
     pub fn recordUse(self: *SemContext, node: Sexp, use: Use) !void {
         const key = recordExprKey(node) orelse return;
         const gop = try self.facts.uses.getOrPut(self.allocator, key);
-        if (gop.found_existing and gop.value_ptr.* == .lend and use == .take) return;
+        if (gop.found_existing and gop.value_ptr.* == .view and use == .take) return;
         if (gop.found_existing) std.debug.assert(gop.value_ptr.* == use);
         gop.value_ptr.* = use;
     }
@@ -6014,11 +6014,11 @@ pub const SemContext = struct {
         return self.facts.read_only_fields.get(nodeKey(node) orelse return null);
     }
 
-    /// The context of `node` lends it, where it was first recorded as
-    /// taken: a bare value lent to read where a view is expected.
-    pub fn recordImplicitLend(self: *SemContext, node: Sexp) !void {
+    /// The context of `node` views it, where it was first recorded as
+    /// taken: a bare value viewed to read where a view is expected.
+    pub fn recordImplicitView(self: *SemContext, node: Sexp) !void {
         const key = recordExprKey(node) orelse return;
-        try self.facts.uses.put(self.allocator, key, .lend);
+        try self.facts.uses.put(self.allocator, key, .view);
     }
 
     /// What the context of `node` does with it, where one was recorded.
@@ -7772,7 +7772,7 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
             // type does not name, so it may always hold a view: a shared
             // home never holds one (docs/design/concurrency.md, "Loans and
             // structure"). Its loans are never write views by type: a
-            // task lent to write stays where it is bound. A set of tasks
+            // task given a write view stays where it is bound. A set of tasks
             // keeps the loans of each.
             if (pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) {
                 var r: Reach = .{ .unique = true, .views = .{ .marked = true } };
@@ -8258,7 +8258,7 @@ pub fn isBuiltinCallName(name: []const u8) bool {
 pub const SwapCall = enum { places, value };
 
 /// Whether the built-in `swap`'s second argument `arg`, of type `ty`
-/// where known, is a second place lent to write, `!b` or a held `!T`: the
+/// where known, is a second place given a write view, `!b` or a held `!T`: the
 /// call exchanges two places. Otherwise it is a value the call puts in
 /// the first place, giving back what was there.
 pub fn swapsTwoPlaces(ctx: *const SemContext, arg: Sexp, ty: ?TypeId) bool {
@@ -8521,7 +8521,7 @@ fn sizedParts(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId) std.mem.Alloca
         .optional => |inner| try out.append(a, inner),
         .array => |arr| try out.append(a, arr.elem),
         .simd => |v| try out.append(a, v.elem),
-        .read_view => |inner| if (lendByValue(ctx, inner)) try out.append(a, inner),
+        .read_view => |inner| if (viewByValue(ctx, inner)) try out.append(a, inner),
         .nominal => |sym| try fieldsOf(ctx, a, &out, sym, .empty),
         .parameterized_nominal => |pn| if (isHeapBuiltin(ctx, pn.sym)) {
             // A List, a table, and a box are sized without what they hold.
@@ -8602,8 +8602,8 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
             for (parts) |part| total +|= (try minBytesOf(ctx, part, false)) orelse break :blk null;
             break :blk total;
         },
-        // A read view lent by copy is the value; any other an address.
-        .read_view => |inner| if (lendByValue(ctx, inner)) try minBytesOf(ctx, inner, false) else 8,
+        // A read view made by copy is the value; any other an address.
+        .read_view => |inner| if (viewByValue(ctx, inner)) try minBytesOf(ctx, inner, false) else 8,
         else => 8,
     };
     try ctx.byte_sizes.put(ctx.allocator, ty, bytes);
@@ -8633,12 +8633,12 @@ fn fieldBytes(ctx: *SemContext, sym: SymbolId, subst: TypeSubst) std.mem.Allocat
 }
 
 /// Whether a value of `ty` is or starts with an address, which is never
-/// 0: an optional of it is null there. A read view lent by copy is the
+/// 0: an optional of it is null there. A read view made by copy is the
 /// value it copies.
 fn isAddress(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .shared, .weak, .write_view, .string_view, .static, .slice => true,
-        .read_view => |inner| !lendByValue(ctx, inner) or isAddress(ctx, inner),
+        .read_view => |inner| !viewByValue(ctx, inner) or isAddress(ctx, inner),
         else => false,
     };
 }
@@ -8815,7 +8815,7 @@ pub fn ownedClosureFn(ctx: *const SemContext, ty: TypeId) ?FunctionType {
 }
 
 /// The function type of a callable view `?fun(...) -> R`: a
-/// closure, function, or owned closure lent to a call.
+/// closure, function, or owned closure passed to a call.
 pub fn callableFn(ctx: *const SemContext, ty: TypeId) ?FunctionType {
     return ctx.types.get(callableFnTy(ctx, ty) orelse return null).function;
 }
@@ -8906,7 +8906,7 @@ pub const write_text_view = "`!?String` cannot be written: a `?String` is a read
 pub const write_read_view = "`!{s}` cannot be written: a `{s}` is a read view, which never becomes a write view; assign to the place to point it elsewhere, or hold the value to change it in place";
 
 /// Whether `ty` is a write view of a read view (`!?String`, `!?T`), or
-/// an optional of one. Nothing lends a read view's place to write: it
+/// an optional of one. Nothing makes a write view of a read view's place: it
 /// holds a view that only reads, pointed elsewhere by assigning to it.
 /// So no parameter has this type, written (`v: !?String`) or taken from
 /// the type a closure is checked against (`|k, v|` given `?sub(?K, !V)`
@@ -9086,12 +9086,12 @@ fn fieldsHoldHandle(ctx: *const SemContext, ty: TypeId, path: ?*const TypePath) 
     return false;
 }
 
-/// Whether function type `f` is lent where function type `want` goes:
+/// Whether function type `f` is viewed where function type `want` goes:
 /// the same, or with the same parameters and a result `T!A` where
 /// `want`'s is a `T!L` whose set holds `A`'s. The view's thunk
 /// (`rig.FnRef.ofFn`) returns `want`'s result, which Zig's error union
 /// coercion makes of `f`'s.
-pub fn lendsCovariant(ctx: *const SemContext, f: TypeId, want: TypeId) bool {
+pub fn viewsCovariant(ctx: *const SemContext, f: TypeId, want: TypeId) bool {
     if (f == want) return true;
     const a = ctx.types.get(f);
     const b = ctx.types.get(want);
@@ -10847,9 +10847,9 @@ pub const Access = enum { read, write };
 /// How a `match` reaches what its bindings bind.
 pub const MatchReach = enum {
     /// `match !x`, or a write view the subject makes (a call's, or a
-    /// branch of write lends), lent on as `if … as` lends one on.
+    /// branch of write views), passed on as `if … as` passes one on.
     written,
-    /// A read match of a value another holds: a place, a lend, a read
+    /// A read match of a value another holds: a place, a view, a read
     /// view a call returns, a value that branches over places, or a
     /// part of a value made in the header.
     read,
@@ -10884,7 +10884,7 @@ pub const BindingSite = union(enum) {
     /// (`for x in <v`), or reads its elements, and the element's type.
     loop: struct { mode: LoopMode, elem: TypeId },
     /// A parameter, a local, or a closure capture, by its declared or
-    /// inferred type: a capture's is the lend its sigil writes
+    /// inferred type: a capture's is the view its sigil writes
     /// (`|?x|`, `|!x|`) or the value it copies or moves in.
     declared: TypeId,
 };
@@ -10895,8 +10895,8 @@ pub const LoopMode = enum { write, take, read };
 /// one that is no view: it owns or copies what it binds. The one decider
 /// of a binding's mode (docs/internals/INTERNALS.md, "Binding access"), by a
 /// positive list over every kind of binding. Typecheck derives the
-/// binding's type from it, ownership the loan a lend of it makes
-/// (`lendTarget`), and emit how it binds.
+/// binding's type from it, ownership the loan a view of it makes
+/// (`viewTarget`), and emit how it binds.
 pub fn decideBindingAccess(ctx: *const SemContext, site: BindingSite) ?Access {
     return switch (site) {
         // A parameter, local, or capture is the view its type is.
@@ -11080,8 +11080,8 @@ pub fn isBuiltinGeneric(ctx: *const SemContext, sym: SymbolId) bool {
 }
 
 /// The value member access on a `ty_id` reaches: through views,
-/// handles, and boxes, each of which lends the views of what it holds
-/// (Core §4, `lendsAs`).
+/// handles, and boxes, each of which gives the views of what it holds
+/// (Core §4, `viewAs`).
 pub fn unwrapAccess(ctx: *const SemContext, ty_id: TypeId) TypeId {
     var id = unwrapReadAccess(ctx, ty_id);
     while (boxedType(ctx, id)) |inner| id = unwrapReadAccess(ctx, inner);
@@ -11266,14 +11266,14 @@ pub fn containsPoison(ctx: *const SemContext, ty_id: TypeId) bool {
     return ctx.typeInfo(ty_id).poison;
 }
 
-/// Whether lending `inner` (`?inner`) hands over a copy of the value: a
-/// scalar or a view, which nothing can change while it is lent and which
-/// costs no more to copy than a pointer. Anything larger is lent by
+/// Whether a read view of `inner` (`?inner`) hands over a copy of the value: a
+/// scalar or a view, which nothing can change while it is viewed and which
+/// costs no more to copy than a pointer. Anything larger is viewed by
 /// address, as is a value that owns resources (a copy would be dropped
 /// with whatever holds it). A value that holds a Cell is no scalar.
 /// `rig.ReadView` applies the same rule to Zig types, for a
 /// generic `?T`.
-pub fn lendByValue(ctx: *const SemContext, inner: TypeId) bool {
+pub fn viewByValue(ctx: *const SemContext, inner: TypeId) bool {
     if (typeHasDropGlue(ctx, inner) or maybeDropGlue(ctx, inner)) return false;
     return copiedByReadView(ctx, inner);
 }
@@ -11282,7 +11282,7 @@ pub fn lendByValue(ctx: *const SemContext, inner: TypeId) bool {
 /// read view, a function or callable view (a `rig.FnRef`), a vector, a
 /// plain enum, a word-sized object (`wordBits`), an error of a set
 /// without fields (a Zig error), or an optional of one of those. An error that is a `rig.ErrorValue`
-/// (`isErrorValueForm`) is a struct, and lent by address. The runtime's
+/// (`isErrorValueForm`) is a struct, and viewed by address. The runtime's
 /// `ReadView` holds a generic `?T` by the same rule, read off the Zig
 /// type each of these is.
 fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
@@ -11304,7 +11304,7 @@ fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
 /// It is plain data no larger than a pointer, so a read view of it
 /// copies it, as one of a number does (`copiedByReadView`), and emit
 /// marks it (`__rig_word_sized`) so the runtime's `ReadView` agrees. Emit
-/// holds it as one word, a Zig `packed struct`, unless the program lends
+/// holds it as one word, a Zig `packed struct`, unless the program views
 /// one of its fields by address (`storage.decideWords`).
 pub fn wordBits(ctx: *const SemContext, ty: TypeId) ?u8 {
     const decl = switch (ctx.types.get(ty)) {
@@ -11605,7 +11605,7 @@ fn fieldsLayout(ctx: *SemContext, home: *const SemContext, sym: Symbol, shown: [
 
 /// Whether a value of `ty` holds a `Cell` inline (not behind a handle,
 /// a view, or a List's buffer). A read view of such a value is held as
-/// a pointer, since the cell can change while it is lent.
+/// a pointer, since the cell can change while it is viewed.
 pub fn holdsCellByValue(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).cell;
 }
@@ -11613,10 +11613,10 @@ pub fn holdsCellByValue(ctx: *const SemContext, ty: TypeId) bool {
 /// Whether a value of `ty` changes through a shared handle, by a marked
 /// call (`!c.set(5)`): a `Cell`, a `Signal`, a channel, an actor, or a
 /// value that holds a Cell by value, judged by its concrete type. The
-/// one list of what a write lend may reach through a `*`; a write view
+/// one list of what a write view may reach through a `*`; a write view
 /// of such a value changes only its Cells and Signals, never its other
 /// fields (`Checker.placeOf`). An API object, which may hold anything,
-/// and a type parameter are no such value, so a `*{A}` lends only its
+/// and a type parameter are no such value, so a `*{A}` gives only its
 /// handle (Core §4).
 pub fn changesByMark(ctx: *const SemContext, ty: TypeId) bool {
     const t = unwrapAccess(ctx, ty);
@@ -11629,7 +11629,7 @@ pub fn changesByMark(ctx: *const SemContext, ty: TypeId) bool {
 
 /// Whether a place of type `viewed` holds a value that changes only by a
 /// marked call (`changesByMark`), rather than a handle or a view of one,
-/// which is a place of its own: what `!` lends to read (`loanOfView`),
+/// which is a place of its own: what `!` views to read (`loanOfView`),
 /// and what `swap` never exchanges.
 pub fn holdsMarkedValue(ctx: *const SemContext, viewed: TypeId) bool {
     return switch (ctx.types.get(viewed)) {
@@ -11638,15 +11638,15 @@ pub fn holdsMarkedValue(ctx: *const SemContext, viewed: TypeId) bool {
     };
 }
 
-/// What a write view of a value of `viewed` puts on the place it is lent
+/// What a write view of a value of `viewed` puts on the place it is made
 /// from (Core §4): a read loan where the value changes by a marked call
-/// (`changesByMark`), judged by its type where it is lent, and a write
+/// (`changesByMark`), judged by its type where it is made, and a write
 /// loan for any other. Such a value lives only behind `*`, is never
 /// replaced whole, and keeps every view it gives out while it lives, so
 /// many write views of it may live at once. An API object, which may
-/// hold anything, and a type parameter are no such value; a handle lent
+/// hold anything, and a type parameter are no such value; a handle viewed
 /// itself (`!*T`) is written.
-pub fn loanOfView(ctx: *const SemContext, viewed: TypeId) LendKind {
+pub fn loanOfView(ctx: *const SemContext, viewed: TypeId) ViewKind {
     return if (holdsMarkedValue(ctx, viewed)) .read else .write;
 }
 
@@ -12287,9 +12287,9 @@ fn boundBlocker(ctx: *const SemContext, ty: TypeId, how: Crossing) ?TypeId {
 /// What in `ty` keeps it from going to a local task as `how` says: one
 /// pinned to the thread of the task that makes it, so values that stay on
 /// one thread go to it (a `*T` or `~T` whose counts are not atomic, a
-/// `Cell`, a `Signal`). What still stops it: a set of tasks, a task or a
-/// write view lent to read, a callable view `?fun`, whose captures may
-/// lend to write, an owned closure (`*fun`, `~fun`), and a channel's
+/// `Cell`, a `Signal`). What still stops it: a set of tasks, a read view of
+/// a task or of a write view, a callable view `?fun`, whose captures may
+/// be write views, an owned closure (`*fun`, `~fun`), and a channel's
 /// elements, which go to any task.
 pub fn localBlocker(ctx: *SemContext, ty: TypeId, how: Crossing) std.mem.Allocator.Error!?TypeId {
     return taskBlocker(ctx, ty, .{ .how = how, .local = true });
@@ -12424,7 +12424,7 @@ fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, local: bool, wal
             break :blk null;
         },
         .read_view => |inner| blockerIn(ctx, inner, .shares, local, walk),
-        // A write slice lends its elements to one task, to write.
+        // A write slice gives its elements to one task, to write.
         .write_view => |inner| if (how == .shares) here else switch (ctx.types.get(inner)) {
             .slice => |sl| blockerIn(ctx, sl.elem, .moves, local, walk),
             else => blockerIn(ctx, inner, .moves, local, walk),
@@ -12751,15 +12751,15 @@ pub fn stmtErasedCopies(ctx: *const SemContext, a: std.mem.Allocator, stmt: Sexp
 }
 
 /// Whether a view of type `ty` is held as a pointer: a write view (but
-/// a `![]T`, a slice), or a read view of a value that is not lent by
-/// value (`lendByValue`).
+/// a `![]T`, a slice), or a read view of a value that is not viewed by
+/// value (`viewByValue`).
 pub fn viewHeldAsPointer(ctx: *const SemContext, ty: TypeId) bool {
     // An API object is two words held by value, the address and the
     // table, as a callable view is (`rig.ApiView`).
     if (objectView(ctx, ty) != null) return false;
     return switch (ctx.types.get(ty)) {
         .write_view => writeSliceElem(ctx, ty) == null,
-        .read_view => |inner| !lendByValue(ctx, inner),
+        .read_view => |inner| !viewByValue(ctx, inner),
         else => false,
     };
 }
@@ -12908,7 +12908,7 @@ fn ownedParts(node: ViewNode, f: anytype) std.mem.Allocator.Error!void {
 /// What a type's own views point into: the target of each view it
 /// holds by value, not what those targets hold in turn (a view of a
 /// value that holds views keeps that value's loans, which keep the
-/// rest). A function or lent callable walked itself (a closure
+/// rest). A function or viewed callable walked itself (a closure
 /// binding's type), an owned closure, a type parameter, or a type not
 /// known points anywhere; a function value held in a value, a named
 /// function's address, points nowhere (Core §7).
@@ -13143,7 +13143,7 @@ const ReachWalk = struct {
             .callable, .api_object, .invalid, .unknown => return self.reached(path, true),
             .shared, .weak => |inner| if (ctx.types.get(inner) == .function) return self.reached(path, true),
             .function => return if (!node.held) self.reached(path, true),
-            // A task keeps whatever its call was lent (`holdsCallLoans`).
+            // A task keeps whatever its call was given (`holdsCallLoans`).
             .parameterized_nominal => if (holdsCallLoans(ctx, node.ty)) return self.reached(path, true),
             // A type parameter stands for anything; in a generic type's
             // field, for the instance's arguments, which are walked apart.
@@ -13252,11 +13252,12 @@ fn targetsOf(ctx: *const SemContext, of: TargetsOf) std.mem.Allocator.Error!View
     return t;
 }
 
-/// Whether a parameter of type `ty` is lent: a view (`isViewType`), or
-/// an optional of one. A call keeps a lent parameter only where its
-/// declaration's `keeps` names it (Core sentence 7); any other parameter
-/// is taken by value, the callee's, and kept wherever its type fits.
-pub fn lentParam(ctx: *const SemContext, ty: TypeId) bool {
+/// Whether a parameter of type `ty` is a view parameter: a view
+/// (`isViewType`), or an optional of one. A call keeps a view parameter
+/// only where its declaration's `keeps` names it (Core sentence 7); any
+/// other parameter is taken by value, the callee's, and kept wherever
+/// its type fits.
+pub fn viewParam(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .optional => |inner| isViewType(ctx, inner),
         else => isViewType(ctx, ty),
@@ -13275,7 +13276,7 @@ pub fn isViewType(ctx: *const SemContext, ty: TypeId) bool {
 /// The origins of function `name`, declared at `pos` with type `f`:
 /// its signature's (`defaultOrigins`), with the result's narrowed to the
 /// parameters its `from` clause names, and the stores to its by-value
-/// parameters and the lent ones its `keeps` clause names (`declKeeps`).
+/// parameters and the view ones its `keeps` clause names (`declKeeps`).
 /// A name that is no parameter, or one whose type cannot hold what the
 /// result views, is reported, as is a clause on a result that views
 /// nothing.
@@ -13457,12 +13458,12 @@ fn selfPathIn(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, f: Funct
 /// Narrow `o.stores` to the parameters a call of function `name`,
 /// declared at `pos` with type `f`, keeps: each taken by value whose
 /// type could hold what its write parameters lead to (`defaultOrigins`),
-/// and each lent one (`lentParam`) its `keeps` clause names. A name that
-/// is no parameter, one taken by value, one nothing the function writes
-/// could hold, and one named twice are reported.
+/// and each view parameter (`viewParam`) its `keeps` clause names. A
+/// name that is no parameter, one taken by value, one nothing the
+/// function writes could hold, and one named twice are reported.
 fn declKeeps(ctx: *SemContext, name: []const u8, pos: u32, f: FunctionType, o: *Origins) std.mem.Allocator.Error!void {
     for (f.params, 0..) |p, i| {
-        if (lentParam(ctx, p)) o.lent |= paramBit(i);
+        if (viewParam(ctx, p)) o.viewed |= paramBit(i);
     }
     var named: ParamMask = 0;
     if (ctx.declared_keeps.get(pos)) |d| {
@@ -13484,7 +13485,7 @@ fn declKeeps(ctx: *SemContext, name: []const u8, pos: u32, f: FunctionType, o: *
                 try ctx.errAt(n, "`keeps {s}`: `{s}` is named twice", .{ text, text });
                 continue;
             }
-            if (!lentParam(ctx, f.params[i])) {
+            if (!viewParam(ctx, f.params[i])) {
                 try ctx.errAt(n, "`keeps {s}`: `{s}` is taken by value, so the callee owns it already", .{ text, text });
                 continue;
             }
@@ -13495,19 +13496,19 @@ fn declKeeps(ctx: *SemContext, name: []const u8, pos: u32, f: FunctionType, o: *
             named |= paramBit(i);
         }
     }
-    o.stores &= ~o.lent | named;
+    o.stores &= ~o.viewed | named;
 }
 
 /// The origins of a function of type `f` declared with no `from` and no
-/// `keeps`: its signature's (`defaultOrigins`), keeping no lent
+/// `keeps`: its signature's (`defaultOrigins`), keeping no view
 /// parameter. What the built-in tables' members declare
 /// (`resolve.registerTables`).
 pub fn signatureOrigins(ctx: *const SemContext, a: std.mem.Allocator, f: FunctionType) std.mem.Allocator.Error!Origins {
     var o = try defaultOrigins(ctx, a, f);
     for (f.params, 0..) |p, i| {
-        if (lentParam(ctx, p)) o.lent |= paramBit(i);
+        if (viewParam(ctx, p)) o.viewed |= paramBit(i);
     }
-    o.stores &= ~o.lent;
+    o.stores &= ~o.viewed;
     return o;
 }
 
@@ -13797,7 +13798,7 @@ pub fn moves(ctx: *const SemContext, ty: TypeId) Answer {
 /// of `ty` where it is, by address, so a later argument must not change
 /// it first: a value that needs cleanup (`typeHasDropGlue`), a unique
 /// one or one holding an `error` (which move like an owner, so reading
-/// them in place lends them), or one of a type parameter. Any other
+/// them in place views them), or one of a type parameter. Any other
 /// value is copied where the read runs.
 pub fn readByAddress(ctx: *const SemContext, ty: TypeId) bool {
     return moves(ctx, ty) != .no;
@@ -14138,28 +14139,28 @@ pub fn setParamAsValue(ctx: *const SemContext, ty: TypeId) ?SymbolId {
 
 /// A set parameter `ty` names as the set of a function value or an owned
 /// closure, not of a callable view (`?fun(...) -> T!E`), or null: only a
-/// view lends a function of any set at one type.
-pub fn setParamUnlent(ctx: *const SemContext, ty: TypeId) ?SymbolId {
+/// view gives a function of any set at one type.
+pub fn setParamUnviewed(ctx: *const SemContext, ty: TypeId) ?SymbolId {
     if (!ctx.typeInfo(ty).has_type_var) return null;
     return switch (ctx.types.get(ty)) {
         .callable => |inner| switch (ctx.types.get(inner)) {
             .function => |f| for (f.params) |param| {
-                if (setParamUnlent(ctx, param)) |sym| break sym;
-            } else setParamUnlent(ctx, okOf(ctx, f.returns)),
-            else => setParamUnlent(ctx, inner),
+                if (setParamUnviewed(ctx, param)) |sym| break sym;
+            } else setParamUnviewed(ctx, okOf(ctx, f.returns)),
+            else => setParamUnviewed(ctx, inner),
         },
         .function => |f| blk: {
             const ret = ctx.types.get(f.returns);
             if (ret == .fallible and isSetParam(ctx, ret.fallible.set)) break :blk ctx.types.get(ret.fallible.set).type_var;
-            for (f.params) |param| if (setParamUnlent(ctx, param)) |sym| break :blk sym;
-            break :blk setParamUnlent(ctx, okOf(ctx, f.returns));
+            for (f.params) |param| if (setParamUnviewed(ctx, param)) |sym| break :blk sym;
+            break :blk setParamUnviewed(ctx, okOf(ctx, f.returns));
         },
         .results => |parts| for (parts) |part| {
-            if (setParamUnlent(ctx, part)) |sym| break sym;
+            if (setParamUnviewed(ctx, part)) |sym| break sym;
         } else null,
         else => blk: {
             var parts: HeldParts = .of(ctx, ty);
-            while (parts.next()) |part| if (setParamUnlent(ctx, part)) |sym| break :blk sym;
+            while (parts.next()) |part| if (setParamUnviewed(ctx, part)) |sym| break :blk sym;
             break :blk null;
         },
     };
@@ -15133,83 +15134,83 @@ pub fn eachTailPart(e: Sexp, context: anytype, comptime f: anytype) @typeInfo(@T
 }
 
 // =============================================================================
-// The lend table
+// The view table
 // =============================================================================
 
-/// One row of the lend table (Core §4): a step from a value to a view of
+/// One row of the view table (Core §4): a step from a value to a view of
 /// it, or of what it holds.
-pub const LendStep = enum(u8) {
-    /// A `^T` lends the views of its `T`.
+pub const ViewStep = enum(u8) {
+    /// A `^T` gives the views of its `T`.
     unbox,
-    /// A `*T` lends the read views of its `T`.
+    /// A `*T` gives the read views of its `T`.
     handle,
-    /// An array or a List lends its elements, `[]T` to read and `![]T` to
+    /// An array or a List gives its elements, `[]T` to read and `![]T` to
     /// write.
     elems,
-    /// A `String` lends its bytes, a `?String`.
+    /// A `String` gives its bytes, a `?String`.
     text,
-    /// A `![]T` is lent on to read, as a `[]T`, and a `!{A}` as a `?{A}`.
+    /// A `![]T` is passed on to read, as a `[]T`, and a `!{A}` as a `?{A}`.
     read_only,
-    /// An `X?` lends a `View?`: a view of the `X` inside, or `none`.
+    /// An `X?` gives a `View?`: a view of the `X` inside, or `none`.
     optional,
     /// The view is lifted into an optional where a `View?` is expected.
     lift,
-    /// A function, or an owned closure, lends a `?fun(...)`.
+    /// A function, or an owned closure, gives a `?fun(...)`.
     callable,
-    /// The value reached, of a type that provides an API, lends a `?{A}`,
+    /// The value reached, of a type that provides an API, gives a `?{A}`,
     /// and to write a `!{A}`: the last row, after the others reach the
     /// value (docs/design/apis.md, Stage 4; `SemContext.erasureOf`).
     erase,
-    /// An error of a set without fields, a code, lends a view of the error
+    /// An error of a set without fields, a code, gives a view of the error
     /// value of it where a view of `error` or of a set with fields that
-    /// holds it goes (`codeLends`): a constant, `rig.codeView`.
+    /// holds it goes (`codeViewed`): a constant, `rig.codeView`.
     code,
 };
 
-/// How a view is lent from a value of another type: the rows of the
-/// lend table, applied in order from the value (`lendsAs`). A lend with
+/// How a view is made from a value of another type: the rows of the
+/// view table, applied in order from the value (`viewAs`). A view with
 /// no rows is the first row, `?T` of a `T`.
-pub const Lend = struct {
-    rows: [max_rows]LendStep = undefined,
+pub const View = struct {
+    rows: [max_rows]ViewStep = undefined,
     len: u8 = 0,
-    /// The view the lend makes: the type its context expects.
-    view: TypeId = type_invalid,
-    /// The lend is not written: a bare value is lent to read where a
-    /// view of it is expected, as `?e` would lend it (Core sentence 1).
+    /// The type of the view made: the type its context expects.
+    ty: TypeId = type_invalid,
+    /// The view is not written: a bare value is viewed to read where a
+    /// view of it is expected, as `?e` would view it (Core sentence 1).
     implicit: bool = false,
     /// `callable`: the function type the callable has.
     fn_ty: TypeId = type_invalid,
 
     pub const max_rows = 8;
 
-    pub fn steps(self: *const Lend) []const LendStep {
+    pub fn steps(self: *const View) []const ViewStep {
         return self.rows[0..self.len];
     }
 
-    pub fn has(self: Lend, step: LendStep) bool {
-        return std.mem.findScalar(LendStep, self.rows[0..self.len], step) != null;
+    pub fn has(self: View, step: ViewStep) bool {
+        return std.mem.findScalar(ViewStep, self.rows[0..self.len], step) != null;
     }
 
-    /// The lend reaches a code through no handle or box: the code is
-    /// the value lent, a constant (`rig.codeView`) that no temporary
+    /// The view reaches a code through no handle or box: the code is
+    /// the viewed value, a constant (`rig.codeView`) that no temporary
     /// holds.
-    pub fn codeAlone(self: Lend) bool {
+    pub fn codeAlone(self: View) bool {
         return self.has(.code) and !self.has(.handle) and !self.has(.unbox);
     }
 
-    /// The function type a callable is lent as; null for any other lend.
-    pub fn callable(self: Lend) ?TypeId {
+    /// The function type a callable is viewed as; null for any other view.
+    pub fn callable(self: View) ?TypeId {
         return if (self.has(.callable)) self.fn_ty else null;
     }
 
-    /// Whether the lend only lifts the view the value is into an
+    /// Whether the view only lifts the view the value is into an
     /// optional, which a value's type admits as it is (`compatible`).
-    pub fn onlyLifts(self: Lend) bool {
+    pub fn onlyLifts(self: View) bool {
         for (self.steps()) |step| if (step != .lift) return false;
         return true;
     }
 
-    fn push(self: *Lend, step: LendStep) bool {
+    fn push(self: *View, step: ViewStep) bool {
         if (self.len == max_rows) return false;
         self.rows[self.len] = step;
         self.len += 1;
@@ -15217,25 +15218,25 @@ pub const Lend = struct {
     }
 };
 
-/// Which lend: `?` to read, `!` to write.
-pub const LendKind = enum { read, write };
+/// Which view: `?` to read, `!` to write.
+pub const ViewKind = enum { read, write };
 
-/// The lend table (Core §4): how lending a value of type `from` to read
+/// The view table (Core §4): how viewing a value of type `from` to read
 /// or to write (`kind`) makes a view of type `view`; null when no row
-/// does. The one place that knows which views a value lends.
-/// What a slice `xs[a..b]` of a value of type `from` lends, as rows of
-/// the lend table (`Lend`): the elements of an array or a List, or a
+/// does. The one place that knows which views a value gives.
+/// What a slice `xs[a..b]` of a value of type `from` views, as rows of
+/// the view table (`View`): the elements of an array or a List, or a
 /// String's bytes reached through handles (`*String`) and boxes, each a row
 /// on the way; nothing of a value that is itself a view (a `?String`, a
-/// `[]T`), whose elements it views as that view does; a `![]T` lent on
+/// `[]T`), whose elements it views as that view does; a `![]T` passed on
 /// to read. Null for a value that cannot be sliced. The type checker
-/// slices by it and records it (`SemContext.sliceLendOf`), and the
-/// ownership checker lends by the record.
-pub fn sliceLend(ctx: *const SemContext, from: TypeId) ?Lend {
-    var lend: Lend = .{};
+/// slices by it and records it (`SemContext.sliceViewOf`), and the
+/// ownership checker views by the record.
+pub fn sliceView(ctx: *const SemContext, from: TypeId) ?View {
+    var view: View = .{};
     if (writeSliceElem(ctx, from) != null) {
-        _ = lend.push(.read_only);
-        return lend;
+        _ = view.push(.read_only);
+        return view;
     }
     var t = unwrapViews(ctx, from);
     if (unwrapAccess(ctx, t) == ctx.types.string_id) {
@@ -15243,118 +15244,118 @@ pub fn sliceLend(ctx: *const SemContext, from: TypeId) ?Lend {
             switch (ctx.types.get(t)) {
                 .read_view, .write_view => |inner| t = inner,
                 .shared => |inner| {
-                    if (!lend.push(.handle)) return null;
+                    if (!view.push(.handle)) return null;
                     t = inner;
                 },
                 .string => {
-                    _ = lend.push(.text);
-                    return lend;
+                    _ = view.push(.text);
+                    return view;
                 },
                 else => {
-                    if (!lend.push(.unbox)) return null;
+                    if (!view.push(.unbox)) return null;
                     t = boxedType(ctx, t) orelse return null;
                 },
             }
         }
     }
     switch (ctx.types.get(t)) {
-        .string_view, .static, .slice => return lend,
+        .string_view, .static, .slice => return view,
         .array => {
-            _ = lend.push(.elems);
-            return lend;
+            _ = view.push(.elems);
+            return view;
         },
         .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id) {
-            _ = lend.push(.elems);
-            return lend;
+            _ = view.push(.elems);
+            return view;
         },
         else => {},
     }
     return null;
 }
 
-pub fn lendsAs(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId) ?Lend {
-    var lend: Lend = .{ .view = view };
-    return if (lendRows(ctx, from, kind, view, &lend)) lend else null;
+pub fn viewAs(ctx: *const SemContext, from: TypeId, kind: ViewKind, view: TypeId) ?View {
+    var made: View = .{ .ty = view };
+    return if (viewRows(ctx, from, kind, view, &made)) made else null;
 }
 
-fn lendRows(ctx: *const SemContext, from: TypeId, kind: LendKind, view: TypeId, lend: *Lend) bool {
+fn viewRows(ctx: *const SemContext, from: TypeId, kind: ViewKind, view: TypeId, made: *View) bool {
     const types = &ctx.types;
-    // Any `T` lends `?T`, and `!T` to write; a write lend may be read. A
-    // write view of an API object lends its read view, one of another
+    // Any `T` gives `?T`, and `!T` to write; a write view may be read. A
+    // write view of an API object gives its read view, one of another
     // Zig type (`rig.ApiView`).
     switch (types.get(view)) {
-        .read_view => |t| if (t == from or objectViewOf(ctx, from, t, .read)) return if (kind == .write and apiObject(ctx, t) != null) lend.push(.read_only) else true,
+        .read_view => |t| if (t == from or objectViewOf(ctx, from, t, .read)) return if (kind == .write and apiObject(ctx, t) != null) made.push(.read_only) else true,
         .write_view => |t| if ((t == from or objectViewOf(ctx, from, t, .write)) and kind == .write) return true,
         else => {},
     }
-    // A function, or an owned closure, lends a `?fun(...)`, one whose
-    // failure the view's set holds (`lendsCovariant`).
+    // A function, or an owned closure, gives a `?fun(...)`, one whose
+    // failure the view's set holds (`viewsCovariant`).
     if (callableFnTy(ctx, view)) |fn_ty| {
         const owned = switch (types.get(from)) {
-            .shared => |inner| lendsCovariant(ctx, inner, fn_ty),
+            .shared => |inner| viewsCovariant(ctx, inner, fn_ty),
             else => false,
         };
-        if (!owned and !(lendsCovariant(ctx, from, fn_ty) and kind == .read)) return false;
-        lend.fn_ty = fn_ty;
-        return lend.push(.callable);
+        if (!owned and !(viewsCovariant(ctx, from, fn_ty) and kind == .read)) return false;
+        made.fn_ty = fn_ty;
+        return made.push(.callable);
     }
     if (types.get(view) == .optional) {
         const want = types.get(view).optional;
-        // An `X?` lends a `View?` for each view of `X`.
+        // An `X?` gives a `View?` for each view of `X`.
         if (types.get(from) == .optional) {
-            var inner = lend.*;
-            if (inner.push(.optional) and lendRows(ctx, types.get(from).optional, kind, want, &inner)) {
-                lend.* = inner;
+            var inner = made.*;
+            if (inner.push(.optional) and viewRows(ctx, types.get(from).optional, kind, want, &inner)) {
+                made.* = inner;
                 return true;
             }
         }
         // A view where a `View?` is expected is lifted into it.
-        var lifted = lend.*;
-        if (lifted.push(.lift) and lendRows(ctx, from, kind, want, &lifted)) {
-            lend.* = lifted;
+        var lifted = made.*;
+        if (lifted.push(.lift) and viewRows(ctx, from, kind, want, &lifted)) {
+            made.* = lifted;
             return true;
         }
         return false;
     }
-    // The last row: the value reached lends an API object, which the
+    // The last row: the value reached gives an API object, which the
     // type checker checks it provides (docs/design/apis.md, Stage 4). A
-    // handle and a box lend their value's views first, by their rows;
+    // handle and a box give their value's views first, by their rows;
     // only the value reached is erased.
     if (objectView(ctx, view)) |ov| switch (types.get(from)) {
         .shared => {},
         else => if (boxedType(ctx, from) == null) {
             if (ov.form == .write and kind != .write) return false;
-            return lend.push(.erase);
+            return made.push(.erase);
         },
     };
-    if (kind == .read and codeLends(ctx, from, view)) return lend.push(.code);
+    if (kind == .read and codeViewed(ctx, from, view)) return made.push(.code);
     switch (types.get(from)) {
-        // An array lends `[]T`, and `![]T` to write.
-        .array => |a| return lendElems(ctx, a.elem, kind, view, lend),
-        // A `![]T` is lent on to read as a `[]T`.
+        // An array gives `[]T`, and `![]T` to write.
+        .array => |a| return viewElems(ctx, a.elem, kind, view, made),
+        // A `![]T` is passed on to read as a `[]T`.
         .slice => |sl| if (kind == .write) switch (types.get(view)) {
-            .slice => |v| return v.elem == sl.elem and lend.push(.read_only),
+            .slice => |v| return v.elem == sl.elem and made.push(.read_only),
             else => {},
         },
-        // A String lends its bytes; never to write.
-        .string => return kind == .read and view == types.string_view_id and lend.push(.text),
-        // A `*T` lends the read views of its `T`, and a `*Frozen[T]` those
-        // of the `T` it froze; `!h` lends the handle.
-        .shared => |inner| return (kind == .read or changesByMark(ctx, inner)) and lend.push(.handle) and lendRows(ctx, frozenValue(ctx, inner) orelse inner, kind, view, lend),
+        // A String gives its bytes; never to write.
+        .string => return kind == .read and view == types.string_view_id and made.push(.text),
+        // A `*T` gives the read views of its `T`, and a `*Frozen[T]` those
+        // of the `T` it froze; `!h` views the handle.
+        .shared => |inner| return (kind == .read or changesByMark(ctx, inner)) and made.push(.handle) and viewRows(ctx, frozenValue(ctx, inner) orelse inner, kind, view, made),
         else => {
-            // A List lends its elements, as an array does.
-            if (listElem(ctx, from)) |elem| return lendElems(ctx, elem, kind, view, lend);
-            // A box lends the views of its value.
-            if (boxedType(ctx, from)) |inner| return lend.push(.unbox) and lendRows(ctx, inner, kind, view, lend);
+            // A List gives its elements, as an array does.
+            if (listElem(ctx, from)) |elem| return viewElems(ctx, elem, kind, view, made);
+            // A box gives the views of its value.
+            if (boxedType(ctx, from)) |inner| return made.push(.unbox) and viewRows(ctx, inner, kind, view, made);
         },
     }
     return false;
 }
 
-/// Whether an error of set `from` is a code lent as an error value where
+/// Whether an error of set `from` is a code viewed as an error value where
 /// `view` goes: `from` has no fields, and `view` is a read view of
 /// `error` or of another set with fields that holds `from`.
-fn codeLends(ctx: *const SemContext, from: TypeId, view: TypeId) bool {
+fn codeViewed(ctx: *const SemContext, from: TypeId, view: TypeId) bool {
     if (!isErrorSet(ctx, from) or setHasFields(ctx, from)) return false;
     const want = switch (ctx.types.get(view)) {
         .read_view => |inner| inner,
@@ -15366,7 +15367,7 @@ fn codeLends(ctx: *const SemContext, from: TypeId, view: TypeId) bool {
 
 /// Whether `t` is the object a view as `form` of object `from` views: of
 /// the same API, its braces less the crossing bound the form cannot use
-/// (`formBraces`), as `?b` of a `^{A + Sends}` lends a `?{A}`.
+/// (`formBraces`), as `?b` of a `^{A + Sends}` gives a `?{A}`.
 fn objectViewOf(ctx: *const SemContext, from: TypeId, t: TypeId, form: ObjectForm) bool {
     const f = apiObject(ctx, from) orelse return false;
     const o = apiObject(ctx, t) orelse return false;
@@ -15392,7 +15393,7 @@ pub fn readsAsStringView(ctx: *const SemContext, actual: TypeId, expected: TypeI
 
 /// The elements of an array or a List of `elem`: `[]T` to read, `![]T`
 /// to write.
-fn lendElems(ctx: *const SemContext, elem: TypeId, kind: LendKind, view: TypeId, lend: *Lend) bool {
+fn viewElems(ctx: *const SemContext, elem: TypeId, kind: ViewKind, view: TypeId, made: *View) bool {
     const want = switch (kind) {
         .read => switch (ctx.types.get(view)) {
             .slice => |sl| sl.elem,
@@ -15403,14 +15404,14 @@ fn lendElems(ctx: *const SemContext, elem: TypeId, kind: LendKind, view: TypeId,
     // Read, the elements of a `Static` array or List are `?String`s too
     // (`readsAsStringView`); written, they are exactly their type.
     const reads = want == elem or (kind == .read and readsAsStringView(ctx, elem, want));
-    return reads and lend.push(.elems);
+    return reads and made.push(.elems);
 }
 
-/// The element type of the `[]T` a value of type `ty` lends (`lendsAs`):
+/// The element type of the `[]T` a value of type `ty` gives (`viewAs`):
 /// an array's or a List's, reached through views, boxes, and handles (a
 /// `*Frozen[T]`'s through the `T` it froze); null for any other type.
 /// Generic inference matches a `[]T` with it.
-pub fn lentElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
+pub fn viewedElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
     var t = unwrapViews(ctx, ty);
     while (true) switch (ctx.types.get(t)) {
         .array => |a| return a.elem,
@@ -15599,7 +15600,7 @@ pub const Hands = struct {
     pub const Kind = enum {
         /// Storage with an owner: a name of a binding or of a constant
         /// (a function, a module's constant, `Enum.variant`), or a field
-        /// or element path from a place, a lend, or a view (`v`, `p.f`,
+        /// or element path from a place, `?x` or `!x`, or a view (`v`, `p.f`,
         /// `xs[i].f`, `(?v).f`, `mk_ref().f` where `mk_ref()` is a `?T`).
         place,
         /// A field or element path from a value that is no place: one
@@ -15613,9 +15614,9 @@ pub const Hands = struct {
         /// value, and a branching value whose every leaf is made here or
         /// jumps.
         made,
-        /// `?x`, `!x`, and their slices (`?x[a..b]`): a view of `x`, lent
+        /// `?x`, `!x`, and their slices (`?x[a..b]`): a view of `x`, made
         /// here.
-        lend,
+        view,
         /// A value that is one of its operands (`a if c else b`,
         /// `a ?? b`, `e catch h`, `e!`, `e?`), at least one of whose
         /// leaves (`valueLeaves`) is not made here.
@@ -15627,10 +15628,10 @@ pub const Hands = struct {
     };
 
     /// The value is read from storage, not made for the context: a
-    /// place, a part of a value made here, or a lend.
+    /// place, a part of a value made here, or a view.
     pub fn hasStorage(h: Hands) bool {
         return switch (h.kind) {
-            .place, .part_of_made, .lend => true,
+            .place, .part_of_made, .view => true,
             .made, .branches, .jump, .none => false,
         };
     }
@@ -15660,7 +15661,7 @@ fn handsOverKind(source: []const u8, ctx: ?*const SemContext, node: Sexp) Hands.
     if (ctx) |c| if (c.instanceOf(node)) |inst| return if (inst == .function) .made else .none;
     return switch (shapeOf(source, node)) {
         .made => .made,
-        .lend => .lend,
+        .view => .view,
         .jump => .jump,
         .none => .none,
         .path => pathHands(source, ctx, node),
@@ -15668,7 +15669,7 @@ fn handsOverKind(source: []const u8, ctx: ?*const SemContext, node: Sexp) Hands.
             var parts = valueParts(node);
             while (parts.next()) |p| switch (handsOverKind(source, ctx, p.node)) {
                 .made, .jump => {},
-                .place, .part_of_made, .lend, .branches, .none => return .branches,
+                .place, .part_of_made, .view, .branches, .none => return .branches,
             };
             return .made;
         },
@@ -15712,7 +15713,7 @@ fn pathHands(source: []const u8, ctx: ?*const SemContext, node: Sexp) Hands.Kind
         base = object;
     }
     return switch (handsOverKind(source, ctx, base)) {
-        .place, .lend => .place,
+        .place, .view => .place,
         // A path through a view reaches what the view views, not the
         // value made here that holds it.
         .made, .branches, .part_of_made => if (ctx) |c| (if (c.typeOf(base)) |ty| (if (isReadOrWriteView(c, ty)) .place else .part_of_made) else .part_of_made) else .part_of_made,
@@ -15757,7 +15758,7 @@ pub const MoveSource = enum {
     /// What lives for the whole program: a function, or a module's
     /// constant or a part of one (`K`, `geo.K`, `geo.KP[0]`).
     declared,
-    /// A value made here: a call, a constructor, a literal, a lend, an
+    /// A value made here: a call, a constructor, a literal, a view, an
     /// enum variant (`Color.red`), a `match` or block. Nothing is left
     /// behind.
     made,
@@ -15768,13 +15769,13 @@ pub const MoveSource = enum {
 
 pub fn moveSource(ctx: *const SemContext, e: Sexp) MoveSource {
     switch (handsOver(ctx, e).kind) {
-        .made, .lend, .jump, .none => return .made,
+        .made, .view, .jump, .none => return .made,
         .branches => return .branches,
         .part_of_made => return if (handsOver(ctx, pathRoot(e)).kind == .branches) .branch_part else .made_part,
         .place => {},
     }
     const root = pathRoot(e);
-    // A path through a lend or a view made here reaches a place. An
+    // A path through `?x`, `!x`, or a view made here reaches a place. An
     // optional there is not emptied where the view's loans name only
     // values made in the statement (`(!mk()).o`, `viewsOf`); any other
     // part is rejected as one reached through a view.
@@ -15828,7 +15829,7 @@ pub fn forViewsSlot(ctx: *const SemContext, node: Sexp) bool {
 
 /// The type a `for` over a source of type `ty` walks: the value the
 /// source views, or a List or an array a shared handle holds (`*T`,
-/// `*Frozen[T]`, through views and boxes), which `?h` lends and the loop
+/// `*Frozen[T]`, through views and boxes), which `?h` views and the loop
 /// reads where the handle reaches it.
 pub fn loopWalks(ctx: *const SemContext, ty: TypeId) TypeId {
     if (accessThroughShared(ctx, ty)) {
@@ -15888,7 +15889,7 @@ pub const LoanRoots = packed struct(u8) {
 /// once, from what it hands over (`handsOver`), its type, and a call's
 /// recorded origins, by a positive list: a value whose type may hold no
 /// view names neither; a name, a place; a path, what its root names; a
-/// lend, where its operand lives (`livesIn`); a call, the join over the
+/// view, where its operand lives (`livesIn`); a call, the join over the
 /// inputs whose loans its result carries; a block or a `match`, the join
 /// of its values; a branching value, the join of its parts. A value
 /// whose type sema does not know, or that it does not classify, names a
@@ -15930,7 +15931,7 @@ fn viewsAt(ctx: *const SemContext, e: Sexp, at: ?*?Sexp) LoanRoots {
         // A view kept in a value made here carries that value's loans;
         // any other part of it is the value's own.
         .part_of_made => if (isViewType(ctx, ty)) viewsAt(ctx, pathRoot(e), at) else madeAt(pathRoot(e), at),
-        .lend => livesAt(ctx, ir.get(e, .operand), at),
+        .view => livesAt(ctx, ir.get(e, .operand), at),
         .made => madeViews(ctx, e, at),
         .branches => partsViews(ctx, e, at, viewsAt),
         .jump, .none => .{},
@@ -15945,7 +15946,7 @@ fn livesAt(ctx: *const SemContext, e: Sexp, at: ?*?Sexp) LoanRoots {
         .branches => partsViews(ctx, e, at, livesAt),
         .jump, .none => .{},
         .part_of_made => madeAt(pathRoot(e), at),
-        .made, .lend => madeAt(e, at),
+        .made, .view => madeAt(e, at),
     };
 }
 
@@ -15995,7 +15996,7 @@ fn madeViews(ctx: *const SemContext, e: Sexp, at: ?*?Sexp) LoanRoots {
 }
 
 /// What an input a call's result carries the loans of names: a view
-/// passed names what it names; a value passed where a view goes is lent
+/// passed names what it names; a value passed where a view goes is viewed
 /// there unwritten (CORE sentence 4), so it names where it lives.
 fn inputViews(ctx: *const SemContext, input: Sexp, at: ?*?Sexp) LoanRoots {
     const ty = ctx.typeOf(input) orelse return madeAt(input, at);
@@ -16112,7 +16113,7 @@ fn isLiteralLeafText(text: []const u8) bool {
 /// What a list node is by its kind alone, the positive list `handsOver`
 /// refines with the facts. Every IR kind is listed: a new one is a
 /// compile error here until it is classified.
-const Shape = enum { made, lend, jump, none, path, branches };
+const Shape = enum { made, view, jump, none, path, branches };
 
 fn shapeOf(source: []const u8, node: Sexp) Shape {
     const tag = node.kind() orelse return .none;
@@ -16131,7 +16132,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // Types.
         .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .results_type, .api_object, .fails, .unique, .exact, .fixed, .task, .inclusive => .none,
         .@"return", .@"break", .@"continue", .panic => .jump,
-        .read, .write => .lend,
+        .read, .write => .view,
         .member, .index => .path,
         .@"if", .@"??", .@"catch", .propagate, .propagate_none => if (isBranchingForm(node)) .branches else .none,
         // A loop, labeled or not, is a value when a `break` leaves it
@@ -16156,7 +16157,7 @@ pub fn yieldsValue(source: []const u8, s: Sexp) bool {
     return switch (s) {
         .src => true,
         .list => switch (shapeOf(source, s)) {
-            .made, .lend, .path, .branches => true,
+            .made, .view, .path, .branches => true,
             .jump, .none => false,
         },
         else => false,
@@ -16239,12 +16240,12 @@ pub fn valueLeaves(a: std.mem.Allocator, node: Sexp, out: *std.ArrayList(Sexp)) 
 }
 
 /// Whether header subject `subject` gives a write view it makes, which
-/// the header lends on (`match`, `if … as`): a write lend `!x`, or a
+/// the header passes on (`match`, `if … as`): a write view `!x`, or a
 /// value of a write view type whose every leaf (`yieldedLeaves`) is a
-/// write lend, a call's result, a write view taken with `<w`, or a jump
+/// write view, a call's result, a write view taken with `<w`, or a jump
 /// that gives no value (`getw(!e)`, `(!a if c else !b)`,
 /// `optw(!e) ?? !d`, `tryw(!e) catch !d`, `<slot`). Any other subject, a place or a leaf that is
-/// one included, is only read. The one decider of a header that lends
+/// one included, is only read. The one decider of a header that passes
 /// on a write view, by a positive list.
 pub fn makesWriteView(ctx: *const SemContext, subject: Sexp) std.mem.Allocator.Error!bool {
     if (subject.isKind(.write)) return true;
@@ -16922,7 +16923,7 @@ pub fn captureNameNode(cap: Sexp) ?Sexp {
     return ir.get(cap, .name);
 }
 
-/// The lend a capture of a field path makes where its closure is made,
+/// The view a capture of a field path makes where its closure is made,
 /// `(read (member p a))` for `|?p.a|`; `_` for a capture of a name.
 pub fn captureValue(cap: Sexp) Sexp {
     _ = captureModeOf(cap) orelse return .nil;
@@ -17570,11 +17571,11 @@ test "origins: a result carries what could hold what it views" {
     try std.testing.expectEqual(@as(ParamMask, 0), o(&r, "at").stores);
     try std.testing.expectEqual(@as(ParamMask, 0b11), o(&r, "first").result);
     try std.testing.expectEqual(@as(ParamMask, 0b0011), o(&r, "pick").result);
-    // `fill` keeps the lent `x`, as it says; a number or a `?String` it
-    // cannot store, and `h` it is lent only to write into.
+    // `fill` keeps the viewed `x`, as it says; a number or a `?String` it
+    // cannot store, and `h` it views only to write into.
     try std.testing.expectEqual(@as(ParamMask, 0b0010), o(&r, "fill").stores);
-    try std.testing.expectEqual(@as(ParamMask, 0b1011), o(&r, "fill").lent);
-    // `peek` names nothing: of its lent parameters it keeps none, and
+    try std.testing.expectEqual(@as(ParamMask, 0b1011), o(&r, "fill").viewed);
+    // `peek` names nothing: of its view parameters it keeps none, and
     // `t`, taken by value, it may keep by its type.
     try std.testing.expectEqual(@as(ParamMask, 0b100), o(&r, "peek").stores);
     // A type parameter could be anything, but a value taken by value is
@@ -17893,8 +17894,8 @@ test "type facts: moves, copies, cloneable" {
     // operator.
     try std.testing.expect(readsAsValue(ctx, ty.int_id));
     try std.testing.expect(!readsAsValue(ctx, p));
-    try std.testing.expect(lendByValue(ctx, ty.int_id));
-    try std.testing.expect(!lendByValue(ctx, list_int));
+    try std.testing.expect(viewByValue(ctx, ty.int_id));
+    try std.testing.expect(!viewByValue(ctx, list_int));
 }
 
 test "heap holdings: a box prints as ^T, and a holding over a held value is stacked" {
@@ -17943,7 +17944,7 @@ test "heap holdings: a box prints as ^T, and a holding over a held value is stac
     try std.testing.expectEqual(@as(?TypeId, box_box), findHeapStacked(ctx, slice));
 }
 
-test "lend table: each row makes its view" {
+test "view table: each row makes its view" {
     var r = try factsRun(
         \\obj P
         \\  x: Int
@@ -17982,9 +17983,9 @@ test "lend table: each row makes its view" {
     const opt_list = try ctx.intern(.{ .optional = list_int });
     const opt_slice = try ctx.intern(.{ .optional = slice });
 
-    const Case = struct { from: TypeId, kind: LendKind, view: TypeId, rows: ?[]const LendStep };
+    const Case = struct { from: TypeId, kind: ViewKind, view: TypeId, rows: ?[]const ViewStep };
     const cases = [_]Case{
-        // Any `T`: `?T`, and `!T` to write; a write lend may be read.
+        // Any `T`: `?T`, and `!T` to write; a write view may be read.
         .{ .from = p, .kind = .read, .view = try read(ctx, p), .rows = &.{} },
         .{ .from = p, .kind = .write, .view = try write(ctx, p), .rows = &.{} },
         .{ .from = p, .kind = .write, .view = try read(ctx, p), .rows = &.{} },
@@ -17993,7 +17994,7 @@ test "lend table: each row makes its view" {
         .{ .from = arr, .kind = .read, .view = slice, .rows = &.{.elems} },
         .{ .from = arr, .kind = .write, .view = try write(ctx, slice), .rows = &.{.elems} },
         .{ .from = arr, .kind = .read, .view = try write(ctx, slice), .rows = null },
-        // A `![]T` lent on to read.
+        // A `![]T` passed on to read.
         .{ .from = slice, .kind = .write, .view = slice, .rows = &.{.read_only} },
         // A String: a `?String`, also where a `(?String)?` is expected; never to
         // write.
@@ -18009,14 +18010,14 @@ test "lend table: each row makes its view" {
         // Boxes compose.
         .{ .from = box_box_p, .kind = .read, .view = try read(ctx, p), .rows = &.{ .unbox, .unbox } },
         .{ .from = box_arr, .kind = .read, .view = slice, .rows = &.{ .unbox, .elems } },
-        // A List lends its elements, as an array does.
+        // A List gives its elements, as an array does.
         .{ .from = list_int, .kind = .read, .view = slice, .rows = &.{.elems} },
         .{ .from = list_int, .kind = .write, .view = try write(ctx, slice), .rows = &.{.elems} },
-        // A `*T` lends the read views of its `T`, never a write view.
+        // A `*T` gives the read views of its `T`, never a write view.
         .{ .from = shared_p, .kind = .read, .view = try read(ctx, p), .rows = &.{.handle} },
         .{ .from = shared_string, .kind = .read, .view = ty.string_view_id, .rows = &.{ .handle, .text } },
         .{ .from = shared_p, .kind = .write, .view = try write(ctx, p), .rows = null },
-        // An `X?` lends a `View?`; `?o` of an `S?` is a `?(S?)`.
+        // An `X?` gives a `View?`; `?o` of an `S?` is a `?(S?)`.
         .{ .from = opt_p, .kind = .read, .view = opt_read_p, .rows = &.{.optional} },
         .{ .from = opt_p, .kind = .read, .view = try read(ctx, opt_p), .rows = &.{} },
         .{ .from = opt_list, .kind = .read, .view = opt_slice, .rows = &.{ .optional, .elems } },
@@ -18030,15 +18031,15 @@ test "lend table: each row makes its view" {
     };
     for (cases, 0..) |c, i| {
         errdefer std.debug.print("case {d}\n", .{i});
-        const lend = lendsAs(ctx, c.from, c.kind, c.view);
+        const made = viewAs(ctx, c.from, c.kind, c.view);
         const rows = c.rows orelse {
-            try std.testing.expect(lend == null);
+            try std.testing.expect(made == null);
             continue;
         };
-        try std.testing.expect(lend != null);
-        try std.testing.expectEqualSlices(LendStep, rows, lend.?.steps());
+        try std.testing.expect(made != null);
+        try std.testing.expectEqualSlices(ViewStep, rows, made.?.steps());
     }
-    try std.testing.expectEqual(fn_ty, lendsAs(ctx, fn_ty, .read, callable).?.callable().?);
+    try std.testing.expectEqual(fn_ty, viewAs(ctx, fn_ty, .read, callable).?.callable().?);
 }
 
 test "type facts: unique reaches what holds it inline" {
@@ -18431,8 +18432,8 @@ test "hands over: one kind per expression, by a positive list" {
     try std.testing.expectEqual(.part_of_made, h.kind(h.node(.member, 1)));
     try std.testing.expectEqual(.place, h.kind(h.node(.member, 2)));
     try std.testing.expectEqual(.part_of_made, h.kind(h.node(.index, 1)));
-    // A lend.
-    try std.testing.expectEqual(.lend, h.kind(h.node(.read, 0)));
+    // A view made here.
+    try std.testing.expectEqual(.view, h.kind(h.node(.read, 0)));
     // Branching values: one that may be a name's, and one whose every
     // leaf is made here, which is itself made here.
     try std.testing.expectEqual(.branches, h.kind(h.node(.@"if", 0)));

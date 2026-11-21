@@ -1891,7 +1891,7 @@ LENDW_BINDINGS.update({
     "read_while_as_local": dict(setup=["y = mk()", "o: (!TY)? = !y", "n = 0"], head=["while o as b"], depth=2, after=["  n += 1", "  break if n > 0"], rejected=True),
     # A branch whose leaf is a name holding a write view, matched in
     # place: a lend of the branch, which would copy the write view out of
-    # the name (`lendsBranch`).
+    # the name (`viewsBranch`).
     "read_branch_bare_write_views": dict(decls=_LW_E, setup=_LW_TWO + ["wa = !e1", "wb = !e2"],
                                          head=["match (wa if c else wb)", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
     "read_coalesce_local_write_view": dict(decls=_LW_E, setup=_LW_TWO + ["o: (!E)? = !e1"],
@@ -1960,7 +1960,7 @@ def lendw_program(bname, tname, lname, when):
 # view of the value the header binds, then writes through the place the
 # branch read, and reads the view. The header reads the branch in place,
 # a lend of it, which would copy the write view out of the place with no
-# loan on it (`lendsBranch`), so every program must be rejected, and one
+# loan on it (`viewsBranch`), so every program must be rejected, and one
 # that runs fails the cell. Each subject is written bare, lent to read
 # (`?S`), and lent to write (`!S`). Cells are
 # `hdr.<header>.<sigil>.<shape>.<leaf>`.
@@ -2024,7 +2024,7 @@ HDR_SHAPES = {
 
 
 # Each sigil the subject is written with: bare, lent to read (`?S`), or
-# to write (`!S`), which a lend of a branch rejects (`lendsBranch`).
+# to write (`!S`), which a lend of a branch rejects (`viewsBranch`).
 HDR_SIGILS = {"bare": "", "read": "?", "write": "!"}
 
 
