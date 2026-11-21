@@ -125,6 +125,10 @@ const Checker = struct {
     callee_node: ?Sexp = null,
     /// The call being checked, for its argument-slot fact.
     current_call: ?Sexp = null,
+    /// A std maker's call left fallible by an argument that is not a
+    /// constant (`constMakerCall`), and that argument: the error that
+    /// asks for its `!` names it.
+    maker_runtime: struct { call: Sexp = .nil, arg: Sexp = .nil } = .{},
     /// The `for` whose source is being checked, which a chain of stages
     /// may be (`chainCall`).
     chain_for: Sexp = .nil,
@@ -9916,6 +9920,8 @@ const Checker = struct {
             const callee = ir.Call.callee(node);
             const name = try self.calleeName(callee);
             try self.errAt(callee, "fallible call to `{s}` must be wrapped with `!` (propagate) or `catch` (handle)", .{name});
+            if (sameNode(self.maker_runtime.call, node))
+                try self.noteAt(self.maker_runtime.arg, "`{s}` is not a constant, so `{s}` can fail as the program runs; with every argument a constant it is checked as Rig compiles", .{ try self.plainText(self.maker_runtime.arg), try self.plainText(node) });
             if (self.ctx.symbolOf(callee)) |id| {
                 const sym = self.ctx.symbols.items[id];
                 if (sym.decl_pos != sema.builtin_decl_pos) try self.note(sym.decl_pos, "`{s}` declared as fallible here", .{name});
@@ -12521,14 +12527,13 @@ const Checker = struct {
     /// a constant (`constInt`), the check std's maker makes runs as Rig
     /// compiles, and the call gives the plain `T` of `returns`, its `T!`,
     /// or an error naming the part it refuses. An argument known only as
-    /// the program runs leaves the call `returns`. The answer is the
-    /// call's own, the same in every instance of a generic body: a
-    /// compile-time parameter is not a constant there.
+    /// the program runs leaves the call `returns` (`maker_runtime`). The
+    /// answer is the call's own, the same in every instance of a generic
+    /// body: a compile-time parameter is not a constant there. A task of
+    /// the call is checked the same, and holds what the maker gives as
+    /// declared, `Task[T!]`, as a task of any fallible call does.
     fn constMakerCall(self: *Checker, home: *const SemContext, maker: sema.ConstMaker, args: []const Sexp, returns: TypeId) Error!TypeId {
         const call = self.current_call orelse return returns;
-        // A task of the call holds what the maker gives as declared,
-        // `Task[T!]`, as a task of any fallible call does.
-        if (ir.Call.task(call) != .nil) return returns;
         const ok = switch (self.ctx.types.get(returns)) {
             .fallible => |fl| fl.ok,
             else => return returns,
@@ -12543,7 +12548,10 @@ const Checker = struct {
             switch (slot) {
                 .arg => |ai| {
                     const value = if (args[ai].isKind(.kwarg)) ir.Kwarg.value(args[ai]) else args[ai];
-                    values[i] = self.constInt(value) orelse return returns;
+                    values[i] = self.constInt(value) orelse {
+                        self.maker_runtime = .{ .call = call, .arg = value };
+                        return returns;
+                    };
                     nodes[i] = value;
                 },
                 .default => |d| values[i] = sema.constIntOf(home, d.expr) orelse return returns,
@@ -12551,6 +12559,7 @@ const Checker = struct {
             }
         }
         const i = sema.makerFault(maker, values[0..parts.len]) orelse {
+            if (ir.Call.task(call) != .nil) return returns;
             try self.ctx.recordConstMaker(call);
             return ok;
         };
@@ -12569,7 +12578,9 @@ const Checker = struct {
             .second => .{ try a.print("{d} is not a second of the minute", .{v}), "write a second from 0 to 59" },
             .ns => .{ try a.print("{d} is not a nanosecond of the second", .{v}), "write `ns` from 0 to 999_999_999" },
         };
-        try self.errAt(if (nodes[i] != .nil) nodes[i] else call, "`{s}` always fails, its arguments being constants: {s}; {s}", .{ try self.plainText(call), why, fix });
+        // The call as written, without the `&` of a task of it.
+        const shown = std.mem.trimEnd(u8, try self.plainText(call), "& ");
+        try self.errAt(if (nodes[i] != .nil) nodes[i] else call, "`{s}` always fails, its arguments being constants: {s}; {s}", .{ shown, why, fix });
         return self.t().invalid_id;
     }
 
@@ -17820,8 +17831,10 @@ const Checker = struct {
                 try self.checkArgs(args, f, info, name, pos, .{ .origins = m.origins, .declared = fty.function.params });
                 try self.stdArgTypes(if (nt.foreign) |fo| fo.module_id else null, nt.sym.name, name, after_self);
                 const home = if (nt.foreign) |fo| fo.ctx else self.ctx;
-                if (sema.constMaker(home, nt.sym.name, name)) |maker| if (self.ctx.diagnostics.items.len == mark)
-                    return self.constMakerCall(home, maker, args, f.returns);
+                // An argument with an error of its own leaves the call
+                // unchecked, and asks for no `!` besides.
+                if (sema.constMaker(home, nt.sym.name, name)) |maker|
+                    return if (self.ctx.diagnostics.items.len == mark) self.constMakerCall(home, maker, args, f.returns) else self.t().invalid_id;
                 return f.returns;
             }
             if (ct) |b| return self.badCall(args, b, "`{s}.{s}` is not a function; it takes no compile-time arguments", .{ tname, name });

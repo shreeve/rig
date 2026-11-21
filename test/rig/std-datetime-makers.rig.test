@@ -171,3 +171,61 @@ test "a constant maker's call is never a site of a failure's trace", exit: 1, fi
   sub main()!
     _ = make(3)!
     _ = make(13)!
+
+fail "a task of a refused constant is refused as Rig compiles", "1:32: `datetime.Date.new(2026, 2, 30)` always fails, its arguments being constants: February 2026 has 28 days; write a day from 1 to 28", errors: 1
+  t = datetime.Date.new(2026, 2, 30)&
+  print(>t!)
+
+fail "an argument with an error of its own gives that error alone", "1:34: overflows", errors: 1
+  print(datetime.Date.new(2026, 1, Int.max + 1))
+
+fail "a call that takes ! names the argument that is not a constant", "3:7: fallible call to `new` must be wrapped with `!` (propagate) or `catch` (handle)", "3:31: `m` is not a constant, so `datetime.Date.new(2026, m, 31)` can fail as the program runs; with every argument a constant it is checked as Rig compiles", errors: 1
+  m = 1
+  m += 2
+  print(datetime.Date.new(2026, m, 31))
+test "the last day of each month, in a leap and a common year: made by a constant call", '''
+  2024-01-31 2024-02-29 2024-03-31 2024-04-30 2024-05-31 2024-06-30 2024-07-31 2024-08-31 2024-09-30 2024-10-31 2024-11-30 2024-12-31
+  2023-01-31 2023-02-28 2023-03-31 2023-04-30 2023-05-31 2023-06-30 2023-07-31 2023-08-31 2023-09-30 2023-10-31 2023-11-30 2023-12-31
+'''
+  print(datetime.Date.new(2024, 1, 31), datetime.Date.new(2024, 2, 29), datetime.Date.new(2024, 3, 31), datetime.Date.new(2024, 4, 30), datetime.Date.new(2024, 5, 31), datetime.Date.new(2024, 6, 30), datetime.Date.new(2024, 7, 31), datetime.Date.new(2024, 8, 31), datetime.Date.new(2024, 9, 30), datetime.Date.new(2024, 10, 31), datetime.Date.new(2024, 11, 30), datetime.Date.new(2024, 12, 31))
+  print(datetime.Date.new(2023, 1, 31), datetime.Date.new(2023, 2, 28), datetime.Date.new(2023, 3, 31), datetime.Date.new(2023, 4, 30), datetime.Date.new(2023, 5, 31), datetime.Date.new(2023, 6, 30), datetime.Date.new(2023, 7, 31), datetime.Date.new(2023, 8, 31), datetime.Date.new(2023, 9, 30), datetime.Date.new(2023, 10, 31), datetime.Date.new(2023, 11, 30), datetime.Date.new(2023, 12, 31))
+fail "one past the last day of each month, in a leap and a common year: refused by a constant call", "1:33: January 2024 has 31 days", "2:33: February 2024 has 29 days", "3:33: March 2024 has 31 days", "4:33: April 2024 has 30 days", "5:33: May 2024 has 31 days", "6:33: June 2024 has 30 days", "7:33: July 2024 has 31 days", "8:33: August 2024 has 31 days", "9:33: September 2024 has 30 days", "10:35: October 2024 has 31 days", "11:35: November 2024 has 30 days", "12:35: December 2024 has 31 days", "13:34: January 2023 has 31 days", "14:34: February 2023 has 28 days", "15:34: March 2023 has 31 days", "16:34: April 2023 has 30 days", "17:34: May 2023 has 31 days", "18:34: June 2023 has 30 days", "19:34: July 2023 has 31 days", "20:34: August 2023 has 31 days", "21:34: September 2023 has 30 days", "22:35: October 2023 has 31 days", "23:35: November 2023 has 30 days", "24:35: December 2023 has 31 days", errors: 24
+  x1 = datetime.Date.new(2024, 1, 32)
+  x2 = datetime.Date.new(2024, 2, 30)
+  x3 = datetime.Date.new(2024, 3, 32)
+  x4 = datetime.Date.new(2024, 4, 31)
+  x5 = datetime.Date.new(2024, 5, 32)
+  x6 = datetime.Date.new(2024, 6, 31)
+  x7 = datetime.Date.new(2024, 7, 32)
+  x8 = datetime.Date.new(2024, 8, 32)
+  x9 = datetime.Date.new(2024, 9, 31)
+  x10 = datetime.Date.new(2024, 10, 32)
+  x11 = datetime.Date.new(2024, 11, 31)
+  x12 = datetime.Date.new(2024, 12, 32)
+  x13 = datetime.Date.new(2023, 1, 32)
+  x14 = datetime.Date.new(2023, 2, 29)
+  x15 = datetime.Date.new(2023, 3, 32)
+  x16 = datetime.Date.new(2023, 4, 31)
+  x17 = datetime.Date.new(2023, 5, 32)
+  x18 = datetime.Date.new(2023, 6, 31)
+  x19 = datetime.Date.new(2023, 7, 32)
+  x20 = datetime.Date.new(2023, 8, 32)
+  x21 = datetime.Date.new(2023, 9, 31)
+  x22 = datetime.Date.new(2023, 10, 32)
+  x23 = datetime.Date.new(2023, 11, 31)
+  x24 = datetime.Date.new(2023, 12, 32)
+
+test "days 28 to 32 of each month, in a leap and a common year: std's new at run time agrees", '''
+  oooor oorrr oooor ooorr oooor ooorr oooor oooor ooorr oooor ooorr oooor
+  oooor orrrr oooor ooorr oooor ooorr oooor oooor ooorr oooor ooorr oooor
+'''
+  fun day(y: Int, m: Int, d: Int) -> ?String
+    _ = datetime.Date.new(y, m, d) catch return "r"
+    "o"
+
+  fun days(y: Int, m: Int) -> String
+    `{day(y, m, 28)}{day(y, m, 29)}{day(y, m, 30)}{day(y, m, 31)}{day(y, m, 32)}`
+
+  sub main()
+    for y in [2024, 2023]
+      print(days(y, 1), days(y, 2), days(y, 3), days(y, 4), days(y, 5), days(y, 6), days(y, 7), days(y, 8), days(y, 9), days(y, 10), days(y, 11), days(y, 12))
