@@ -176,4 +176,4 @@ the checkout; that case, a task and an actor's method, then passed in
 After the review's fixes: `std-time-forms` (42 jobs) and
 `std-time-waits`, the doc examples of learn 04, the cases checked to fail
 with the branch's previous `rig` (2cc2bbf1d), and the whole core suite
-once (below).
+once: 12,279 jobs, none died.
