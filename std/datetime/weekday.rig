@@ -1,0 +1,28 @@
+# std.datetime: the days of the week.
+
+# A day of the week, `.monday` to `.sunday`. `==` compares two, `<`
+# orders them from Monday, a `Map` keys on one, and `print` writes its
+# English name, `Tuesday`.
+pub enum Weekday: Eq + Ord + Hash + Print
+  monday
+  tuesday
+  wednesday
+  thursday
+  friday
+  saturday
+  sunday
+
+  # Its number in ISO 8601: Monday 1 to Sunday 7.
+  pub fun iso_number(?@) -> Int
+    Int(@) + 1
+
+  sub print(?@, out: !Printer)
+    !out.text(WEEKDAY_NAMES[Int(@)])
+
+WEEKDAYS = $variants(Weekday)
+WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+# The days from weekday `b` forward to weekday `a`, 0 to 6 (jiff-core
+# `civil/weekday.rs:186`, `since`).
+fun weekday_since(a: Weekday, b: Weekday) -> Int
+  floor_mod(Int(a) - Int(b), 7)

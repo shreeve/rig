@@ -477,6 +477,25 @@ def gen_calendar(w, zones, alias):
         else:
             at = r.range(MIN_INSTANT, MAX_INSTANT)
         w("instant.add %s %s" % (fmt_instant(at, rand_ns(r)), fmt_dur(rand_dur_ns(r, s))))
+    # The helpers of §6.7, `with`, and `since` on a time and a date and
+    # time, from a stream of their own.
+    r = Rand(6)
+    names = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+    for d in sample_dates():
+        t = fmt_date_days(d)
+        for n in (1, -1, r.pick((2, -2, 5, -5, 53, -53, 0, 1_000_000, -1_000_000))):
+            w("date.nth_weekday %s %d %s" % (t, n, r.pick(names)))
+        for _ in range(2):
+            w("date.nth_weekday_of_month %s %d %s" % (t, r.range(-6, 6), r.pick(names)))
+        y, m, dd = civil_from_days(rand_date_days(r))
+        w("date.with %s %d %d %d" % (t, r.pick((y, y, -10000, 10000)), r.pick((m, m, 0, 13)), r.pick((dd, dd, 29, 30, 31, 0, 32))))
+    for _ in range(10000):
+        w("time.since %s %s" % (fmt_time(r.below(DAY), rand_ns(r)), fmt_time(r.below(DAY), rand_ns(r))))
+    for _ in range(20000):
+        a = rand_date_days(r, SAMPLE_YEARS if r.below(2) else None) * DAY + r.below(DAY)
+        b = a + r.range(-400 * DAY, 400 * DAY) if r.below(2) else rand_date_days(r) * DAY + r.below(DAY)
+        b = max(MIN_DAY * DAY, min(MAX_DAY * DAY + DAY - 1, b))
+        w("datetime.since %s %s" % (fmt_datetime(a, rand_ns(r)), fmt_datetime(b, rand_ns(r))))
 
 
 def near_transition(r, zone):

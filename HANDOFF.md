@@ -134,10 +134,12 @@ A new session, human or agent, takes these steps in order:
   arithmetic, rounding and text, `Monotonic`, and waiting; it removes
   `time.now()`, `time.Instant`, and the constants of nanoseconds, with
   `tools/migrate-datetime.py` and a patch for Trig
-  (records/2026-11/datetime-phase1). Phase 1b (branch `datetime-p1b`)
-  lets a call give several unit keywords, which add up,
-  `time.sleep(hours: 1, minutes: 30)` (records/2026-11/datetime-phase1b);
-  `std.datetime` is next.
+  (records/2026-11/datetime-phase1). Phase 1b lets a call give several
+  unit keywords, which add up, `time.sleep(hours: 1, minutes: 30)`
+  (records/2026-11/datetime-phase1b). Phase 2 (branch `datetime-p2`)
+  builds `std.datetime`'s `Date`, `Time`, `DateTime`, and `Weekday`
+  with Jiff's calendar math and the checks of their arguments
+  (records/2026-11/datetime-phase2); `Instant` (phase 3) is next.
 - **The view vocabulary** (owner, 2026-11-20; #1192 landed PR 1):
   places, read and write views, read-only, unusable, and cells are the
   words of the docs, the messages, and the code. PR 1 is the wording; PR 2

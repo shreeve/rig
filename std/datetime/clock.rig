@@ -1,0 +1,152 @@
+# std.datetime: times of day.
+
+use std.time
+
+# A time of day on the clock face, from 00:00 to 23:59:59.999999999,
+# with no date and no zone. `==` compares two, `<` orders them, a `Map`
+# keys on one, and `print` writes ISO 8601, `08:07:03.512094`: the
+# seconds always, and a fraction only when it is not zero, without its
+# trailing zeros.
+pub obj Time: Eq + Ord + Hash + Print
+  h: U8
+  m: U8
+  s: U8
+  ns: U32
+
+  # The time `hour`:`minute`:`second` and `ns` nanoseconds. Fails with
+  # `DateTimeError.range` unless the hour is 0 to 23, the minute and the
+  # second 0 to 59, and `ns` 0 to 999,999,999: `Time.new(23, 59, 60)`
+  # fails.
+  pub fun new(hour: Int, minute: Int, second: Int = 0, ns: Int = 0) -> Time!
+    if not within(hour, 0, 23) or not within(minute, 0, 59) or not within(second, 0, 59) or not within(ns, 0, 999_999_999)
+      return DateTimeError.range
+    clock(hour, minute, second, ns)
+
+  # The time `text` writes in ISO 8601, `08:07:03.5`, `0807`, `08`, or
+  # `T08:07`, and nothing else: no date, offset, or zone. A second of
+  # 60 is read as 59. Fails with `DateTimeError.invalid`, also for a
+  # time in the basic form, `1230`, that ISO 8601 also reads as a date
+  # (Dec 30), which `T1230` or `12:30` writes.
+  pub fun parse(text: ?String) -> Time!
+    if text.len > 0 and (text[0] == 'T' or text[0] == 't')
+      i, out, _ = time_text(text, 1)!
+      if i != text.len
+        return DateTimeError.invalid
+      return out
+    if starts_with_date(text)
+      return DateTimeError.invalid
+    i, out, extended = time_text(text, 0)!
+    if i != text.len or (not extended and ambiguous(text))
+      return DateTimeError.invalid
+    out
+
+  # The hour, the minute, the second, and the nanoseconds below the
+  # second, 0 to 999,999,999.
+  pub fun hour(?@) -> Int
+    Int(@h)
+
+  pub fun minute(?@) -> Int
+    Int(@m)
+
+  pub fun second(?@) -> Int
+    Int(@s)
+
+  pub fun nanosecond(?@) -> Int
+    Int(@ns)
+
+  # The time a duration later, or earlier when it is negative, wrapping
+  # past midnight: 23:00 and two hours is 01:00.
+  pub fun add(?@, d: time.Duration) -> Time
+    time_at(floor_mod(@total() + d.ns() % DAY_NS, DAY_NS))
+
+  # `add`, failing with `DateTimeError.range` where it would wrap past
+  # midnight.
+  pub fun checked_add(?@, d: time.Duration) -> Time!
+    r = I128(@total()) + I128(d.ns())
+    if r < 0 or r >= I128(DAY_NS)
+      return DateTimeError.range
+    time_at(Int(r))
+
+  # The time with the fields given by name replaced:
+  # `t.with(second: 0, ns: 0)`. Fails with `DateTimeError.range` when
+  # that is not a real time.
+  pub fun with(?@, hour: Int? = none, minute: Int? = none, second: Int? = none, ns: Int? = none) -> Time!
+    Time.new(hour ?? Int(@h), minute ?? Int(@m), second ?? Int(@s), ns ?? Int(@ns))!
+
+  # The time from `other` to this one on the clock face, negative when
+  # `other` is the later: 01:00 since 23:00 is -22 hours. A length that
+  # crosses midnight needs a date, a `DateTime`.
+  pub fun since(?@, other: Time) -> time.Duration
+    time.duration(ns: @total() - other.total())
+
+  # The nearest multiple of one unit's increment, a half going to the
+  # later, wrapping past midnight: `t.round(minutes: 15)`; 23:59:59.6
+  # with `round(seconds: 1)` is 00:00:00. A call names exactly one unit,
+  # from `ns:` to `hours:`, and an increment that divides the next
+  # larger unit and is smaller than it (`minutes: 15`, `hours: 6`),
+  # checked where it is called when it is a constant; another panics.
+  pub fun round(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none) -> Time
+    time_at(floor_mod(clock_multiple(@total(), clock_increment("Time.round", [ns, us, ms, seconds, minutes, hours], none), false), DAY_NS))
+
+  # The multiple of one unit's increment at or before the time:
+  # `t.floor(minutes: 15)`. Its argument is `round`'s.
+  pub fun floor(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none) -> Time
+    time_at(clock_multiple(@total(), clock_increment("Time.floor", [ns, us, ms, seconds, minutes, hours], none), true))
+
+  sub print(?@, out: !Printer)
+    print_time(!out, @)
+
+  # The nanoseconds since midnight.
+  fun total(?@) -> Int
+    Int(@h) * HOUR_NS + Int(@m) * MINUTE_NS + Int(@s) * SECOND_NS + Int(@ns)
+
+# The time of day of these parts, which are in range.
+fun clock(hour: Int, minute: Int, second: Int, ns: Int) -> Time
+  Time(h: U8(hour), m: U8(minute), s: U8(second), ns: U32(ns))
+
+# The time `n` nanoseconds after midnight, `n` below a day.
+fun time_at(n: Int) -> Time
+  clock(n / HOUR_NS, n % HOUR_NS / MINUTE_NS, n % MINUTE_NS / SECOND_NS, n % SECOND_NS)
+
+# Whether `s` starts with a date, which a `Time` never reads.
+fun starts_with_date(s: ?String) -> Bool
+  _, _ = date_text(s, 0) catch return false
+  true
+
+# The nanoseconds of the one unit and increment `round` or `floor`
+# (`what`) is given, as `[ns, us, ms, seconds, minutes, hours]` and,
+# for a `DateTime`, `days`: an increment that divides the next larger
+# unit and is smaller than it, and for days only 1 (Jiff's
+# `Increment::for_time` and `for_datetime`, `util/round.rs:109`).
+fun clock_increment(what: ?String, given: [6]Int?, days: Int?) -> Int
+  units = [1, 1_000, 1_000_000, SECOND_NS, MINUTE_NS, HOUR_NS]
+  limits = [1_000, 1_000, 1_000, 60, 60, 24]
+  out = 0
+  for i in 0..6
+    if given[i] == none
+      continue
+    k = given[i] ?? 0
+    if out != 0
+      panic(`datetime.{what} takes one unit and its increment`)
+    if k < 1 or k >= limits[i] or limits[i] % k != 0
+      panic(`datetime.{what}: the increment {k} does not divide {limits[i]} or is not smaller than it`)
+    out = k * units[i]
+  if days != none
+    k = days ?? 0
+    if out != 0
+      panic(`datetime.{what} takes one unit and its increment`)
+    if k != 1
+      panic(`datetime.{what}: the increment of days is 1, not {k}`)
+    out = DAY_NS
+  if out == 0
+    panic(`datetime.{what} takes one unit and its increment`)
+  out
+
+# The multiple of `inc` nearest `n`, which is not negative, a half
+# going up, or with `down` the one at or before it (Jiff's
+# `RoundMode::HalfExpand` and `Floor`).
+fun clock_multiple(n: Int, inc: Int, down: Bool) -> Int
+  r = n % inc
+  if not down and r * 2 >= inc
+    return n - r + inc
+  n - r

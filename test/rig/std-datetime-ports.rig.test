@@ -1,0 +1,189 @@
+# std.datetime: more of Jiff 1.0.0's tests (MIT), each case naming the
+# file and test it ports, and the whole range of dates walked a day at a
+# time. Jiff's spans become counts and `Duration`s (docs/design/datetime.md
+# §6.1); where Jiff counts backward from the later value, Rig counts
+# forward from the earlier (§9 item 3).
+
+use std.datetime
+use std.time
+
+test "every date of the range", "7304484 0"
+  # jiff-core civil/date.rs:1411, 1423, 1435, 1449
+  # (`unix_epoch_to_date_and_back_again_*`, `date_to_unix_epoch_and_back_again`,
+  # `date_to_week_date_and_back_again`), 1586 `days_in`, and 1566
+  # `first_of_last_of`, over the whole range: each date reached by
+  # `add(days: 1)` is the date its readers make, its count from the first
+  # date is its index, its weekday steps by one, its day of the year by
+  # one within the year, its ISO week holds from Monday to Sunday and
+  # steps on a Monday, its Thursday is in its ISO week year, its month is
+  # 28 to 31 days long, and the first and last of its month bound it.
+  low = datetime.Date.new(-9999, 1, 1)!
+  d = low
+  n = 0
+  bad = 0
+  w = low.weekday().iso_number()
+  doy = 1
+  week = low.iso_week()
+  wyear = low.iso_week_year()
+  loop
+    ok = (datetime.Date.new(d.year(), d.month(), d.day()) catch low) == d
+    ok = ok and d.days_since(low) == n and d.weekday().iso_number() == w and d.day_of_year() == doy
+    ok = ok and d.days_in_month() >= 28 and d.days_in_month() <= 31 and d.first_of_month().day() == 1 and d.last_of_month().day() == d.days_in_month()
+    if w == 1 and n > 0
+      ok = ok and ((d.iso_week() == week + 1 and d.iso_week_year() == wyear) or (d.iso_week() == 1 and d.iso_week_year() == wyear + 1))
+    else if n > 0
+      ok = ok and d.iso_week() == week and d.iso_week_year() == wyear
+    if w == 4
+      ok = ok and d.iso_week_year() == d.year()
+    if not ok
+      bad += 1
+    week = d.iso_week()
+    wyear = d.iso_week_year()
+    n += 1
+    if d.year() == 9999 and d.month() == 12 and d.day() == 31
+      break
+    next = d.add(days: 1)
+    w = w % 7 + 1
+    doy = 1 if next.year() != d.year() else doy + 1
+    d = next
+  print(n, bad)
+
+test "the day of the year in a common and a leap year", "365 366 0"
+  # jiff-core civil/date.rs:1477 `day_of_year_in_non_leap_year` and 1491
+  # `day_of_year_in_leap_year`: day `k` of the year is Jan 1 and `k - 1`
+  # days.
+  bad = 0
+  for y in [2026, 2024]
+    jan1 = datetime.Date.new(y, 1, 1)!
+    k = 1
+    d = jan1
+    while d.year() == y
+      if d.day_of_year() != k or jan1.add(days: k - 1) != d
+        bad += 1
+      k += 1
+      d = d.add(days: 1)
+  print(datetime.Date.new(2026, 12, 31)!.day_of_year(), datetime.Date.new(2024, 12, 31)!.day_of_year(), bad)
+
+test "every month has four of each weekday", "0"
+  # jiff-core civil/date.rs:1737
+  # `nth_weekday_of_month_every_month_has_four_weekdays`, over a 400-year
+  # cycle of the calendar, which repeats it, and the first and last
+  # years of the range.
+  fun has(d: datetime.Date, nth: Int, wd: datetime.Weekday) -> Bool
+    _ = d.nth_weekday_of_month(nth, wd) catch return false
+    true
+
+  bad = 0
+  years = List[Int]()
+  for y in 2000..2400
+    !years.push(y)
+  !years.push(-9999)
+  !years.push(9999)
+  for y in years
+    for m in 1..13
+      d = datetime.Date.new(y, m, 1)!
+      for wd in $variants(datetime.Weekday)
+        for nth in [-4, -3, -2, -1, 1, 2, 3, 4]
+          if not has(d, nth, wd)
+            bad += 1
+        for nth in [0, 6, -6]
+          if has(d, nth, wd)
+            bad += 1
+  print(bad)
+
+test "a day either way, and the ends", '''
+  2024-07-02 2024-06-30 2024-05-31 2024-02-29 2023-02-28 2022-12-31 -009999-01-01 9999-12-30
+  2024-07-04 2024-07-01 2024-05-31 2024-06-01 2024-02-29 2024-03-01 2023-03-01 2024-01-01 -009999-01-02 9999-12-31
+  2024-07-05 2024-07-01 2024-05-31 2024-06-01 2024-02-29 2024-03-01 2023-03-01 2024-01-01 -009999-01-03 9999-12-31
+  9999-12-31 -009999-01-01 range range range range
+  -009999-01-02 -009999-01-03 range range range
+'''
+  # jiff-core civil/date.rs:1926 `add` and 1976 `sub` (a negative `days:`,
+  # since only `Duration` has a `sub`, §6.2), with the largest counts of
+  # days either way.
+  fun d(y: Int, m: Int, day: Int) -> datetime.Date
+    datetime.Date.new(y, m, day) catch panic("no such date")
+
+  fun step(x: datetime.Date, days: Int) -> String
+    r = x.checked_add(days: days) catch return String("range")
+    String(r)
+
+  print(d(2024, 7, 3).add(days: -1), d(2024, 7, 1).add(days: -1), d(2024, 6, 1).add(days: -1), d(2024, 3, 1).add(days: -1), d(2023, 3, 1).add(days: -1), d(2023, 1, 1).add(days: -1), d(-9999, 1, 2).add(days: -1), d(9999, 12, 31).add(days: -1))
+  print(d(2024, 7, 3).add(days: 1), d(2024, 6, 30).add(days: 1), d(2024, 5, 30).add(days: 1), d(2024, 5, 31).add(days: 1), d(2024, 2, 28).add(days: 1), d(2024, 2, 29).add(days: 1), d(2023, 2, 28).add(days: 1), d(2023, 12, 31).add(days: 1), d(-9999, 1, 1).add(days: 1), d(9999, 12, 30).add(days: 1))
+  print(d(2024, 7, 3).add(days: 2), d(2024, 6, 29).add(days: 2), d(2024, 5, 29).add(days: 2), d(2024, 5, 30).add(days: 2), d(2024, 2, 27).add(days: 2), d(2024, 2, 28).add(days: 2), d(2023, 2, 27).add(days: 2), d(2023, 12, 30).add(days: 2), d(-9999, 1, 1).add(days: 2), d(9999, 12, 29).add(days: 2))
+  most = 7_304_483
+  print(step(d(-9999, 1, 1), most), step(d(9999, 12, 31), -most), step(d(-9999, 1, 1), -1), step(d(9999, 12, 31), 1), step(d(-9999, 1, 1), most + 1), step(d(9999, 12, 31), -(most + 1)))
+  print(step(d(-9999, 1, 1), 1), step(d(-9999, 1, 1), 2), step(d(-9999, 1, 1), -1), step(d(-9999, 1, 1), Int.min), step(d(9999, 12, 31), Int.max))
+
+test "time round: each increment of nanoseconds, floor, and halves", '''
+  03:34:56.987654321 03:34:56.987654322 03:34:56.98765432 03:34:56.98765432 03:34:56.98765432 03:34:56.98765432 03:34:56.98765432 03:34:56.987654325
+  03:34:56.98765432 03:34:56.9876543 03:34:56.9876543 03:34:56.987654375 03:34:56.9876544 03:34:56.98765425 03:34:56.9876545
+  13:00:00 13:46:00 13:46:23 13:46:23.123 13:46:23.123987 13:46:23.1239875
+  14:00:00 13:46:00 13:46:23 13:46:23.124 13:46:23.123988 13:46:23.1239875
+'''
+  # tests/tc39_262/civil/time/round.rs:242 `rounding_increment_nanoseconds`,
+  # 392 `rounding_mode_floor`, 497 `rounding_mode_half_expand`: the two
+  # modes Rig keeps, `floor` and `round`. Its `rounding_increment_invalid`,
+  # `rounding_increment_out_of_range` and `smallest_unit_missing` are
+  # compile errors in Rig (std-datetime-checks).
+  t = datetime.Time.new(3, 34, 56, 987_654_321)!
+  print(t.round(ns: 1), t.round(ns: 2), t.round(ns: 4), t.round(ns: 5), t.round(ns: 8), t.round(ns: 10), t.round(ns: 20), t.round(ns: 25))
+  print(t.round(ns: 40), t.round(ns: 50), t.round(ns: 100), t.round(ns: 125), t.round(ns: 200), t.round(ns: 250), t.round(ns: 500))
+  h = datetime.Time.new(13, 46, 23, 123_987_500)!
+  print(h.floor(hours: 1), h.floor(minutes: 1), h.floor(seconds: 1), h.floor(ms: 1), h.floor(us: 1), h.floor(ns: 1))
+  print(h.round(hours: 1), h.round(minutes: 1), h.round(seconds: 1), h.round(ms: 1), h.round(us: 1), h.round(ns: 1))
+
+test "time add and since: negative units and mixed signs", '''
+  01:01:01.001000999 01:01:01.000999001 01:01:00.999001001 01:00:59.001001001 00:59:01.001001001 23:01:01.001001001
+  23:25:55.5955572 23:59:25.92659262 16:00:45.987654321 15:23:30.123456789
+'''
+  # tests/tc39_262/civil/time/add.rs and sub.rs `balance_negative_time_units`,
+  # `argument_string_negative_fractional_units`, `argument_higher_units`
+  # (a day added to a time of day wraps back to it), and
+  # `argument_mixed_sign`, where Rig differs: Jiff's span takes the sign
+  # of its last unit, so `hours(1).minutes(-30)` is 1 hour 30 minutes
+  # back, 14:00:45; Rig's units each keep their own sign and add up
+  # (§5.2), 30 minutes on.
+  t = datetime.Time.new(1, 1, 1, 1_001_001)!
+  print(t.add(ns: -2), t.add(us: -2), t.add(ms: -2), t.add(seconds: -2), t.add(minutes: -2), t.add(hours: -2))
+  midnight = datetime.Time.new(0, 0)!
+  print(midnight.add(time.Duration.parse("-PT24.567890123H")!), midnight.add(time.Duration.parse("-PT1440.567890123M")!), datetime.Time.new(15, 30, 45, 987_654_321)!.add(hours: 1, minutes: -30), datetime.Time.new(15, 23, 30, 123_456_789)!.add(hours: 24))
+
+test "time since: subseconds and negative units", '''
+  1h 10m 29s 876ms 543us 211ns
+  PT1H1M1.001000999S PT1H1M1.000999001S PT1H1M0.999001001S PT1H59.001001001S PT59M1.001001001S -PT58M58.998998999S
+  PT6H52M42.25025025S 24762 24762250250250
+'''
+  # tests/tc39_262/civil/time/until.rs:10 `argument_cast`, 26
+  # `balance_negative_time_units`, 122 `result_sub_second`: one exact
+  # `Duration`, whose ISO text is in hours, minutes and seconds where
+  # Jiff's span in seconds alone prints `PT24762.25025025S`.
+  print(datetime.Time.new(16, 34, 0)!.since(datetime.Time.new(15, 23, 30, 123_456_789)!))
+  t2 = datetime.Time.new(1, 1, 1, 1_001_001)!
+  print(t2.since(datetime.Time.new(0, 0, 0, 2)!).iso(), t2.since(datetime.Time.new(0, 0, 0, 2_000)!).iso(), t2.since(datetime.Time.new(0, 0, 0, 2_000_000)!).iso(), t2.since(datetime.Time.new(0, 0, 2)!).iso(), t2.since(datetime.Time.new(0, 2, 0)!).iso(), t2.since(datetime.Time.new(2, 0)!).iso())
+  late = datetime.Time.new(17, 15, 57, 250_250_250)!.since(datetime.Time.new(10, 23, 15)!)
+  print(late.iso(), late.seconds(), late.ns())
+
+test "datetime counts and since from tc39's until", '''
+  true 14350 true
+  86400250250250 86400250 1 12 52 2 366 8784 31622400
+  1h 1m 1s 1ms 999ns 1h 1m 1s 999us 1ns 1h 1m 999ms 1us 1ns 1h 59s 1ms 1us 1ns 59m 1s 1ms 1us 1ns -58m 58s 998ms 998us 999ns
+  6 0 3h 1 12 3h
+'''
+  # tests/tc39_262/civil/datetime/until.rs:107 `inverse` (a count each way
+  # is the other negated, §6.4), 416 `subseconds`, 438 `units_changed`, 24
+  # `balance_negative_time_units`, 467 `weeks_months_mutually_exclusive`.
+  a = datetime.DateTime.new(1976, 11, 18, 15, 23, 30, 123_456_789)!
+  b = datetime.DateTime.new(2016, 3, 3, 18)!
+  print(a.days_since(b) == -b.days_since(a) and a.months_since(b) == -b.months_since(a) and a.years_since(b) == -b.years_since(a), b.days_since(a), b.since(a) == a.since(b).neg())
+  x = datetime.DateTime.new(2020, 2, 1)!
+  y = datetime.DateTime.new(2020, 2, 2, 0, 0, 0, 250_250_250)!
+  z = datetime.DateTime.new(2021, 2, 1)!
+  print(y.since(x).ns(), y.since(x).ms(), z.years_since(x), z.months_since(x), z.weeks_since(x), z.days_since(x) % 7, z.days_since(x), z.since(x).hours(), z.since(x).seconds())
+  dt = datetime.DateTime.new(1996, 5, 2, 1, 1, 1, 1_001_001)!
+  print(dt.since(datetime.DateTime.new(1996, 5, 2, 0, 0, 0, 2)!), dt.since(datetime.DateTime.new(1996, 5, 2, 0, 0, 0, 2_000)!), dt.since(datetime.DateTime.new(1996, 5, 2, 0, 0, 0, 2_000_000)!), dt.since(datetime.DateTime.new(1996, 5, 2, 0, 0, 2)!), dt.since(datetime.DateTime.new(1996, 5, 2, 0, 2, 0)!), dt.since(datetime.DateTime.new(1996, 5, 2, 2)!))
+  c = a.add(hours: 3, days: 42)
+  n = c.days_since(a)
+  d0 = a.date()
+  m = d0.add(days: n).months_since(d0)
+  print(c.weeks_since(a), n % 7, c.since(a.add(days: n)), m, d0.add(days: n).days_since(d0.add(months: m)), c.since(a.add(days: n)))

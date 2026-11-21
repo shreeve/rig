@@ -16,8 +16,9 @@ python3 gen.py --bundle-check target/release/jiff-oracle
 ```
 
 `test/cli/jiff_oracle.sh` builds it, checks a fixed set of its answers
-against the values Jiff's own tests assert, and runs the bundle check;
-it is skipped where there is no Rust toolchain.
+against the values Jiff's own tests assert, runs the bundle check, and
+compares std.datetime's and std.time's answers to every generated case
+with Jiff's (below); it is skipped where there is no Rust toolchain.
 
 ## What it is built from
 
@@ -56,8 +57,11 @@ several parts they are separated by single spaces.
 
 - A value Jiff refuses (out of range, a skipped or repeated time under
   `reject`, text it does not read) prints `error`.
-- A case where Rig differs from Jiff on purpose prints `skip`, and the
-  comparison passes over it (below).
+- A case where Rig differs from Jiff on purpose prints `skip`, as a whole
+  or as one part of its answer, and the comparison passes over that
+  (below). A duration past an `Int` of nanoseconds, Rig's `Duration`
+  (§5.1), is one: `duration.parse` of such a text, and `duration.round`
+  of such an input or with such an answer.
 - A line the oracle cannot read (an unknown operation, a malformed
   argument, amounts of both signs) is a mistake in the generator, not an
   answer: the oracle stops with exit status 2 and names the line.
@@ -90,13 +94,23 @@ its offset rounded to the minute), a duration in ISO 8601.
 | `zoned.add ZONE INSTANT Y M W D DUR` | ZONED | `z.checked_add(d, years:, …)` |
 | `time.add TIME DUR` | the wrapped TIME, then `checked_add`'s | `t.add(d)`, `t.checked_add(d)` |
 | `instant.add INSTANT DUR` | INSTANT | `i.checked_add(d)` |
+| `date.nth_weekday DATE N WEEKDAY` | DATE | `d.nth_weekday(n, w)` |
+| `date.nth_weekday_of_month DATE N WEEKDAY` | DATE | `d.nth_weekday_of_month(n, w)` |
+| `date.with DATE Y M D` | DATE | `d.with(year:, month:, day:)` |
+| `time.since TIME TIME` | DUR, or `skip` | `a.since(b)` |
+| `datetime.since DATETIME DATETIME` | DUR, or `skip` beyond `Duration`'s range | `a.since(b)` |
 
 Every date of 19 years (-9999, -9998, -1, 0, 1, 4, 100, 1600, 1900, 1969,
 1970, 2000, 2023, 2024, 2025, 2100, 2400, 9998, 9999) against each month
 offset from -24 to 24, against ±1, 4, 100, 400 and 19,998 years and
 19,999, and three mixed amounts; then dates and times, zoned values (in
 the zones of `gen.py`'s `ZONES` and every name) and times of day with
-random amounts.
+random amounts. Then, from a stream of their own, each date of the 19
+years with `nth_weekday` of 1, -1, and one of ±2, ±5, ±53, 0 and
+±1,000,000, `nth_weekday_of_month` twice with `n` from -6 to 6, and
+`with` of a random date's parts or an impossible one; and 10,000
+`time.since` and 20,000 `datetime.since`, which answers `skip` beyond an
+`Int` of nanoseconds, where Rig saturates (§6.6).
 
 ### 2. Zones (`zones.in`)
 
@@ -171,6 +185,22 @@ ISO 8601: Rig's `print` of a duration is its own (§9 item 8).
 `RoundMode::Floor`. Only increments Rig allows (§6.8) are given; values
 fall often on a multiple or exactly half way.
 
+## std.datetime's answers
+
+`answer.rig` gives std.datetime's and std.time's answers to the same
+lines, for the cases they have so far; a case not answered yet prints
+`-`, and so does a `datetime.add` or `time.add` whose duration, or a
+`duration.round` whose input and increment, reach past a `Duration`'s
+range (§5.1). `compare.awk` compares them part for part, passing over
+`-` and each `skip`, and prints each difference and the counts;
+`jiff_oracle.sh` requires no difference.
+
+```bash
+bin/rig build --release tools/jiff-oracle/answer.rig -o DIR/answer
+DIR/answer DIR/calendar.in > DIR/calendar.rig
+paste -d '\t' DIR/calendar.in DIR/calendar.out DIR/calendar.rig | awk -f tools/jiff-oracle/compare.awk
+```
+
 ## Left out
 
 The oracle does not check where Rig differs from Jiff on purpose
@@ -178,8 +208,9 @@ The oracle does not check where Rig differs from Jiff on purpose
 
 - **Rounding.** `round` prints `skip` for an `Instant` before 1970 that is
   exactly half way (Jiff takes it away from 1970, §9 item 12); for a
-  `DateTime` or `ZonedDateTime` in a year at or below 0 (Jiff 1.0.0 does
-  not carry past midnight there, item 14); and for `round(days: 1)` on a
+  `DateTime` or `ZonedDateTime` in a year at or below 0 that reaches the
+  next midnight (Jiff 1.0.0 does not carry it into the next day there,
+  item 14), the `DateTime`'s round as one part of its answer; and for `round(days: 1)` on a
   `ZonedDateTime` unless the value lies in its own date's range and that
   date's start plus a day on the clock is the next date's start (item 14).
   `floor` is checked in each of these.
@@ -196,5 +227,5 @@ The oracle does not check where Rig differs from Jiff on purpose
 
 ## Size
 
-About 1.67 million cases. `gen.py` writes them in about 2.3 s and the
-oracle answers them in about 0.6 s.
+About 1.74 million cases. `gen.py` writes them in about 3.4 s and the
+oracle answers them in about 1 s.

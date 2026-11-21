@@ -1,0 +1,181 @@
+# std.datetime: reading and writing dates and times as ISO 8601 text,
+# by Jiff's grammar (`fmt/temporal/parser.rs`, `printer.rs`), where a
+# `Date`, a `Time`, and a `DateTime` each read only their own form
+# (DATETIME-DESIGN §8.1).
+
+# ---- Reading -------------------------------------------------------------
+
+# The date at `at` in `s`, and where it ends: a year of four digits, or
+# a sign and six; then the month and the day of two digits each, all
+# joined by `-` or none at all (Jiff's `parse_date_spec`,
+# `fmt/temporal/parser.rs:524`).
+fun date_text(s: ?String, at: Int) -> (Int, Date)!
+  i, year = year_text(s, at)!
+  extended = i < s.len and s[i] == '-'
+  i = date_separator(s, i, extended)!
+  month = two_digits(s, i)!
+  i = date_separator(s, i + 2, extended)!
+  day = two_digits(s, i)!
+  if not within(month, 1, 12) or not within(day, 1, 31)
+    return DateTimeError.invalid
+  out = Date.new(year, month, day) catch return DateTimeError.invalid
+  return i + 2, out
+
+# The year at `at`, and where it ends (`parse_year`, `parser.rs:693`).
+fun year_text(s: ?String, at: Int) -> (Int, Int)!
+  if at < s.len and (s[at] == '+' or s[at] == '-')
+    v = digits_value(s, at + 1, 6)!
+    if v == 0 and s[at] == '-'
+      return DateTimeError.invalid
+    if v > MAX_YEAR
+      return DateTimeError.invalid
+    return at + 7, (-v if s[at] == '-' else v)
+  return at + 4, digits_value(s, at, 4)!
+
+# Past the `-` between a date's parts when `extended`, else where it is
+# (`parse_date_separator`, `parser.rs:858`).
+fun date_separator(s: ?String, at: Int, extended: Bool) -> Int!
+  if not extended
+    if at < s.len and s[at] == '-'
+      return DateTimeError.invalid
+    return at
+  if at >= s.len or s[at] != '-'
+    return DateTimeError.invalid
+  at + 1
+
+# The time of day at `at` in `s`, where it ends, and whether its parts
+# are joined by `:`: the hour, then the minute and the second, each of
+# two digits, and a fraction of one to nine digits after `.` or `,`.
+# A second of 60 is read as 59 (`parse_time_spec`, `parser.rs:560`).
+fun time_text(s: ?String, at: Int) -> (Int, Time, Bool)!
+  hour = two_digits(s, at)!
+  if hour > 23
+    return DateTimeError.invalid
+  i = at + 2
+  extended = i < s.len and s[i] == ':'
+  more = false
+  i, more = time_separator(s, i, extended)
+  if not more
+    return i, clock(hour, 0, 0, 0), extended
+  minute = two_digits(s, i)!
+  if minute > 59
+    return DateTimeError.invalid
+  i, more = time_separator(s, i + 2, extended)
+  if not more
+    return i, clock(hour, minute, 0, 0), extended
+  second = two_digits(s, i)!
+  if second > 60
+    return DateTimeError.invalid
+  i += 2
+  ns = 0
+  if i < s.len and (s[i] == '.' or s[i] == ',')
+    i, ns = fraction_text(s, i + 1)!
+  return i, clock(hour, minute, 59 if second == 60 else second, ns), extended
+
+# Whether another part of a time follows at `at`, and where it starts
+# (`parse_time_separator`, `parser.rs:892`): in the extended form, after
+# a `:`; in the basic form, where two digits follow.
+fun time_separator(s: ?String, at: Int, extended: Bool) -> (Int, Bool)
+  if not extended
+    return at, at + 2 <= s.len and is_digit(s[at]) and is_digit(s[at + 1])
+  if at < s.len and s[at] == ':'
+    return at + 1, true
+  return at, false
+
+# The fraction of a second from `at`, one to nine digits, as
+# nanoseconds, and where it ends (`parse_temporal_fraction`,
+# `fmt/util.rs:727`).
+fun fraction_text(s: ?String, at: Int) -> (Int, Int)!
+  i = at
+  v = 0
+  while i < s.len and i - at < 9 and is_digit(s[i])
+    v = v * 10 + Int(s[i] - '0')
+    i += 1
+  if i == at
+    return DateTimeError.invalid
+  for _ in i - at..9
+    v *= 10
+  return i, v
+
+# Whether the start of a time written in the basic form, `consumed`,
+# also reads as a month and day or as a year and month, which ISO 8601
+# leaves ambiguous (`parse_temporal_time`, `parser.rs:335`, by
+# `parse_month_day` and `parse_year_month`).
+fun ambiguous(s: ?String) -> Bool
+  month_day(s) or year_month(s)
+
+fun month_day(s: ?String) -> Bool
+  month = two_digits(s, 0) catch return false
+  i = 2
+  if i < s.len and s[i] == '-'
+    i += 1
+  day = two_digits(s, i) catch return false
+  within(month, 1, 12) and within(day, 1, 31) and day <= month_days(2024, month)
+
+fun year_month(s: ?String) -> Bool
+  i, _ = year_text(s, 0) catch return false
+  if i < s.len and s[i] == '-'
+    i += 1
+  month = two_digits(s, i) catch return false
+  within(month, 1, 12)
+
+# The two digits at `at` as a number.
+fun two_digits(s: ?String, at: Int) -> Int!
+  digits_value(s, at, 2)!
+
+# The `n` digits at `at` as a number; fails unless all `n` are digits.
+fun digits_value(s: ?String, at: Int, n: Int) -> Int!
+  if at + n > s.len
+    return DateTimeError.invalid
+  v = 0
+  for i in at..at + n
+    if not is_digit(s[i])
+      return DateTimeError.invalid
+    v = v * 10 + Int(s[i] - '0')
+  v
+
+fun is_digit(b: U8) -> Bool
+  b >= '0' and b <= '9'
+
+# ---- Writing -------------------------------------------------------------
+
+# `d` in ISO 8601: a year of four digits, or below 0 its sign and six
+# (Jiff's `DateTimePrinter`, `fmt/temporal/printer.rs`).
+sub print_date(out: !Printer, d: Date)
+  y = Int(d.y)
+  if y < 0
+    !out.text("-")
+    pad(!out, -y, 6)
+  else
+    pad(!out, y, 4)
+  !out.text("-")
+  pad(!out, Int(d.m), 2)
+  !out.text("-")
+  pad(!out, Int(d.d), 2)
+
+# `t` as `HH:MM:SS`, then a fraction when it is not zero, without its
+# trailing zeros.
+sub print_time(out: !Printer, t: Time)
+  pad(!out, Int(t.h), 2)
+  !out.text(":")
+  pad(!out, Int(t.m), 2)
+  !out.text(":")
+  pad(!out, Int(t.s), 2)
+  f = Int(t.ns)
+  if f == 0
+    return
+  !out.text(".")
+  digit = 100_000_000
+  while f != 0
+    !out.value(f / digit)
+    f = f % digit
+    digit = digit / 10
+
+# `n`, not negative, with zeros before it to `width` digits.
+sub pad(out: !Printer, n: Int, width: Int)
+  limit = 10
+  for _ in 1..width
+    if n < limit
+      !out.text("0")
+    limit *= 10
+  !out.value(n)

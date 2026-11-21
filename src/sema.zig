@@ -12299,12 +12299,41 @@ pub const ArgCheck = enum {
     /// and its increment, no positional argument, and an increment from 1
     /// to 1,000,000,000 when it is a literal.
     unit_increment,
+    /// `round` and `floor` of `datetime.Time`: as `unit_increment`, with
+    /// an increment that divides the next larger unit and is smaller
+    /// than it.
+    clock_increment,
+    /// `round` and `floor` of `datetime.DateTime`: as `clock_increment`,
+    /// and also `days: 1`.
+    day_increment,
+    /// `add` and `checked_add` of `datetime.Date`: the calendar amounts
+    /// by name, no positional argument, and no unit of a duration, since
+    /// a date has no time of day.
+    calendar_add,
+    /// `add` and `checked_add` of `datetime.DateTime`: at most one
+    /// positional argument, the duration, so `add(1, 2)` is not a second
+    /// and two years.
+    duration_add,
+    /// `with` of `datetime.Date`, `Time`, and `DateTime`: the fields by
+    /// name, no positional argument.
+    by_name,
 };
 
 /// The check of method `method` of type `owner`, declared in `home`.
 pub fn stdArgCheck(home: *const SemContext, owner: []const u8, method: []const u8) ?ArgCheck {
-    if (!home.is_std or !std.mem.eql(u8, home.name, "std.time") or !std.mem.eql(u8, owner, "Duration")) return null;
-    if (std.mem.eql(u8, method, "round") or std.mem.eql(u8, method, "floor")) return .unit_increment;
+    if (!home.is_std) return null;
+    const eq = std.mem.eql;
+    const rounds = eq(u8, method, "round") or eq(u8, method, "floor");
+    const adds = eq(u8, method, "add") or eq(u8, method, "checked_add");
+    if (eq(u8, home.name, "std.time")) {
+        return if (eq(u8, owner, "Duration") and rounds) .unit_increment else null;
+    }
+    if (!eq(u8, home.name, "std.datetime")) return null;
+    if (eq(u8, method, "with") and (eq(u8, owner, "Date") or eq(u8, owner, "Time") or eq(u8, owner, "DateTime"))) return .by_name;
+    if (eq(u8, owner, "Date") and adds) return .calendar_add;
+    if (eq(u8, owner, "DateTime") and adds) return .duration_add;
+    if (eq(u8, owner, "Time") and rounds) return .clock_increment;
+    if (eq(u8, owner, "DateTime") and rounds) return .day_increment;
     return null;
 }
 

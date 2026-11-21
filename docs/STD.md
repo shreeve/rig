@@ -39,6 +39,7 @@ never read as the library's.
 | [`std.file`](#stdfile) | reading and writing files, whole or open, making, moving, and removing them, and asking what is at a path |
 | [`std.io`](#stdio) | the standard streams and copying bytes between files and sockets: `stdin`, `stdout`, `stderr`, `copy` |
 | [`std.time`](#stdtime) | the monotonic clock, durations, and waiting |
+| [`std.datetime`](#stddatetime) | the calendar and the clock face: `Date`, `Time`, `DateTime`, `Weekday`, their sums, counts, rounding, and ISO 8601 text |
 | [`std.task`](#stdtask) | stopping a task, waiting for several, and isolating a panic: `Stop`, `check`, `all`, `isolate`, `workers` |
 | [`std.par`](#stdpar) | calling a function on each element on several tasks: `map`, `each`, `workers` |
 | [`std.shared`](#stdshared) | a map several tasks fill and read at once: `shared.Map` |
@@ -874,13 +875,99 @@ true 1h 30m
 0s
 ```
 
-### Dates, times and zones
+## std.datetime
 
-`std.datetime` is planned ([design/datetime.md](design/datetime.md)):
-the wall clock's `Instant`, `Date`, `Time`, `DateTime`,
-`ZonedDateTime`, and `TimeZone`, each built on `std.time`'s `Duration`.
-`time.unix_ns()` reads the wall clock. The whole
-surface, as it will read:
+The calendar and the clock face: a `Date` is a day on the proleptic
+Gregorian calendar, from -9999-01-01 to 9999-12-31, with a year 0 (1
+BCE, as in ISO 8601); a `Time` a time of day on the clock face, to the
+nanosecond; a `DateTime` a date and a time of day with no zone, as a
+Postgres `timestamp` or an HTML `datetime-local` holds one, every day of
+it 24 hours; and a `Weekday` a day of the week, `.monday` to `.sunday`.
+Each is plain data: `==` compares two, `<` orders them, a `Map` keys on
+one, and `print` writes ISO 8601. Nothing here allocates. The calendar
+math is Jiff 1.0.0's ([design/datetime.md](design/datetime.md)), and a
+program that only sleeps or times, using `std.time` alone, loads none of
+it.
+
+A value is made from parts or text by a fallible function, which fails
+with `DateTimeError.range` when the parts are not a real value in the
+range and `DateTimeError.invalid` when the text is not the type's form.
+Arithmetic that walks past the range panics, as `Int`'s does, and each
+`checked_add` fails instead.
+
+| Member | Result |
+|---|---|
+| `Date.new(year, month, day)!` | the date: `Date.new(2024, 2, 29)!`; `Date.new(2023, 2, 29)!` fails |
+| `Time.new(hour, minute, second = 0, ns = 0)!` | the time of day; `Time.new(23, 59, 60)!` fails |
+| `DateTime.new(year, month, day, hour = 0, minute = 0, second = 0, ns = 0)!` | the date and time |
+| `d.at(t: Time) -> DateTime`, `dt.date()`, `dt.time()` | a date and a time joined, and taken apart |
+| `year()`, `month()`, `day()`, `weekday()`, `day_of_year()`, `days_in_month()`, `iso_week()`, `iso_week_year()` | a `Date`'s and a `DateTime`'s readers, each an `Int` but `weekday()`: the month is 1 to 12, the day of the year 1 to 366; 2025-12-29 is in ISO week 1 of 2026 |
+| `hour()`, `minute()`, `second()`, `nanosecond()` | a `Time`'s and a `DateTime`'s readers; `nanosecond()` is the whole part below the second, 0 to 999,999,999 |
+| `d.add(years: 0, months: 0, weeks: 0, days: 0) -> Date` | the date the calendar amounts later, each by name and of either sign: years and months first, together as months, a day past the month's end becoming its last day (Jan 31 and a month is Feb 28, or 29); then weeks and days (Jan 31, a month and a day, is Mar 1). `d.add(1)` and `d.add(hours: 1)` are compile errors |
+| `dt.add(`*duration*`, years: 0, months: 0, weeks: 0, days: 0) -> DateTime` | the same, then a duration in a duration form ([std.time](#stdtime)), every day 24 hours: `dt.add(days: 1, hours: 2)`; a bare number is seconds, `dt.add(1)`, never a day, and `dt.add(1, 2)` is a compile error |
+| `t.add(`*duration*`) -> Time` | the time a duration later, wrapping past midnight: 23:00 and two hours is 01:00 |
+| `checked_add(…)!` | each `add`, failing with `DateTimeError.range` where it would panic, and on a `Time` where it would wrap |
+| `with(…)!` | the value with the fields given by name replaced, `d.with(day: 1)!`: `year:`, `month:`, `day:`, `hour:`, `minute:`, `second:`, `ns:` as the type has them; fails when that is not a real value |
+| `days_since(other)`, `weeks_since(other)`, `months_since(other)`, `years_since(other)` | the whole units from `other`, on a `Date` and a `DateTime`: positive when the value is the later, and `a.days_since(b)` is `-b.days_since(a)`. A count walks forward from the earlier value, so Jan 31 to Feb 28 is 0 months, and someone born on Feb 29 is a year older on Mar 1 in a common year |
+| `since(other) -> time.Duration` | the time from `other`, on a `Time` (on the clock face, so 01:00 since 23:00 is -22 hours) and a `DateTime` (every day 24 hours; beyond about 292 years the largest or smallest `Duration`) |
+| `d.first_of_month()`, `d.last_of_month()` | the first and last day of the date's month |
+| `d.nth_weekday(n, w: Weekday)!` | the `n`-th weekday `w` after the date, before it when `n` is negative, never the date itself; fails for an `n` of 0 or beyond the range |
+| `d.nth_weekday_of_month(n, w: Weekday)!` | the `n`-th `w` of the date's month, from its end when `n` is negative: `n` is 1 to 5 or -1 to -5; fails when the month has no such day |
+| `round(`*unit*`: n)`, `floor(`*unit*`: n)` | on a `Time` and a `DateTime`, the nearest multiple of one unit's increment, a half going to the later, and the one at or before it: `t.round(minutes: 15)`. The unit is `ns:` to `hours:`, with an increment that divides the next larger unit and is smaller than it, or on a `DateTime` `days: 1`; checked where it is called when it is a constant. A `Time` wraps past midnight; a `DateTime` carries into the next day |
+| `parse(s)!` | a `Date`, `Time`, or `DateTime` from ISO 8601 as Jiff reads it, in the type's own form only: `2026-11-17`, `08:07:03.5`, `2026-11-17T08:07`, or a date alone for a `DateTime` at midnight; no offset, `Z`, or zone, and no date with a `Time` or time with a `Date`. A second of 60 is read as 59, and a year below 0 is written `-000001` |
+| `w.iso_number()` | a `Weekday`'s number, Monday 1 to Sunday 7 |
+
+`add`, `checked_add`, `with`, `round`, and `floor` check their
+arguments where they are called, so none is taken as a value; a closure
+passes one. A recurrence anchors to its start: the k-th of a monthly
+series is `start.add(months: k)`, since stepping from the previous one
+drifts (Jan 31, Feb 28, Mar 28).
+
+```rig
+use std.datetime
+
+sub main()!
+  due = datetime.Date.new(2027, 1, 31)!.add(months: 1)
+  print(due, due.weekday(), due.add(days: 1))
+  print(datetime.Date.new(2024, 2, 29)!.add(years: 1), datetime.Date.new(2026, 11, 1)!.add(months: 1, days: -1))
+  born = datetime.Date.new(2024, 2, 29)!
+  print(datetime.Date.new(2025, 2, 28)!.years_since(born), datetime.Date.new(2025, 3, 1)!.years_since(born))
+  print(datetime.Date.new(2026, 11, 1)!.nth_weekday_of_month(4, .thursday)!, datetime.Date.new(2025, 12, 29)!.iso_week())
+```
+
+```output
+2027-02-28 Sunday 2027-03-01
+2025-02-28 2026-11-30
+0 1
+2026-11-26 1
+```
+
+```rig
+use std.datetime
+
+sub main()!
+  dt = datetime.DateTime.parse("2026-03-08T02:30")!
+  print(dt.add(days: 1), dt.add(0.5), dt.add(days: 1, hours: -1))
+  print(dt.round(hours: 1), dt.floor(days: 1), dt.time().add(hours: 23))
+  late = datetime.Time.new(23, 0)!
+  print(datetime.Time.new(1, 0)!.since(late), late.checked_add(hours: 2) catch late)
+  _ = datetime.Date.parse("2026-03-08T02:30") catch |e| print(e)
+```
+
+```output
+2026-03-09T02:30:00 2026-03-08T02:30:00.5 2026-03-09T01:30:00
+2026-03-08T03:00:00 2026-03-08T00:00:00 01:30:00
+-22h 23:00:00
+DateTimeError.invalid
+```
+
+### Instants and zones
+
+The rest of `std.datetime` is planned
+([design/datetime.md](design/datetime.md)): the wall clock's `Instant`,
+`ZonedDateTime`, `TimeZone`, and `format`, each built on `std.time`'s
+`Duration`. `time.unix_ns()` reads the wall clock (planned to move to
+`Instant`). The whole surface, as it will read:
 
 ```rig pending
 use std.time

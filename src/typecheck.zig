@@ -12374,8 +12374,75 @@ const Checker = struct {
     fn stdArgChecks(self: *Checker, module: ?u32, owner: []const u8, method: []const u8, args: []const Sexp, pos: u32) Error!bool {
         const home = if (module) |m| self.ctx.foreign_semas.get(m) orelse self.ctx else self.ctx;
         return switch (sema.stdArgCheck(home, owner, method) orelse return true) {
-            .unit_increment => self.checkUnitIncrement(method, args, pos),
+            .unit_increment, .clock_increment, .day_increment => |kind| self.checkUnitIncrement(method, args, pos, kind),
+            .calendar_add => self.checkCalendarAdd(method, args),
+            .duration_add => self.checkDurationAdd(method, args),
+            .by_name => self.checkByName(owner, method, args),
         };
+    }
+
+    /// `add` or `checked_add` of a `Date` (`sema.ArgCheck.calendar_add`):
+    /// its amounts by name, `add(days: 1)` and never `add(1)`, and no
+    /// unit of a duration, since a date has no time of day.
+    fn checkCalendarAdd(self: *Checker, method: []const u8, args: []const Sexp) Error!bool {
+        for (args) |a| {
+            const time_of_day = if (!a.isKind(.kwarg)) blk: {
+                // Whole days by name, when the argument is an `Int`; a
+                // `Float` or a `Duration` is a time of day, which a date
+                // has none of.
+                const saved = self.under_poison;
+                self.under_poison = true;
+                defer self.under_poison = saved;
+                const ty = self.canonical(try self.synthExpr(a));
+                if (self.isPoison(ty)) return false;
+                if (ty == self.t().int_id or ty == self.t().int_literal_id) {
+                    try self.errAt(a, "`{s}` of a `Date` takes its amounts by name, and no positional argument: `{s}(days: {s})`", .{ method, method, try self.plainText(a) });
+                    return false;
+                }
+                if (ty != self.t().float_id and ty != self.t().float_literal_id and !sema.isDurationType(self.ctx, sema.unwrapOptionals(self.ctx, ty))) {
+                    try self.errAt(a, "`{s}` of a `Date` takes its amounts by name, an `Int` of each, and no positional argument: `{s}(days: 1)`", .{ method, method });
+                    return false;
+                }
+                break :blk a;
+            } else if (sema.duration.unitNs(self.text(ir.Kwarg.name(a))) != null) ir.Kwarg.name(a) else continue;
+            // The fix keeps every amount written, on a `DateTime`.
+            var all: std.ArrayList(u8) = .empty;
+            const al = self.ctx.arena.allocator();
+            for (args, 0..) |b, i| try all.print(al, "{s}{s}", .{ if (i > 0) ", " else "", try self.plainText(b) });
+            const what = if (a.isKind(.kwarg))
+                try std.fmt.allocPrint(al, "`{s}:`", .{self.text(ir.Kwarg.name(a))})
+            else
+                try std.fmt.allocPrint(al, "duration, `{s}`", .{try self.plainText(a)});
+            try self.errAt(time_of_day, "a `Date` has no time of day, so `{s}` takes no {s}: a date and a time of day is a `DateTime`, `d.at(t).{s}({s})`", .{ method, what, method, all.items });
+            return false;
+        }
+        return true;
+    }
+
+    /// `add` or `checked_add` of a `DateTime`
+    /// (`sema.ArgCheck.duration_add`): at most one positional argument,
+    /// the duration, and the calendar amounts by name.
+    fn checkDurationAdd(self: *Checker, method: []const u8, args: []const Sexp) Error!bool {
+        var first: ?Sexp = null;
+        for (args) |a| {
+            if (a.isKind(.kwarg)) continue;
+            if (first) |f| {
+                try self.errAt(a, "`{s}` takes one duration by position and its calendar amounts by name: `{s}({s}, years: {s})`, not a second positional argument", .{ method, method, try self.plainText(f), try self.plainText(a) });
+                return false;
+            }
+            first = a;
+        }
+        return true;
+    }
+
+    /// `with` (`sema.ArgCheck.by_name`): the fields it replaces by name.
+    fn checkByName(self: *Checker, owner: []const u8, method: []const u8, args: []const Sexp) Error!bool {
+        const field = if (std.mem.eql(u8, owner, "Time")) "second: 0" else if (std.mem.eql(u8, owner, "DateTime")) "hour: 0" else "day: 1";
+        for (args) |a| if (!a.isKind(.kwarg)) {
+            try self.errAt(a, "`{s}` takes the fields it replaces by name, `{s}({s})`, and no positional argument", .{ method, method, field });
+            return false;
+        };
+        return true;
     }
 
     /// The checks of `stdArgChecks` that read the arguments' types, once
@@ -12384,7 +12451,8 @@ const Checker = struct {
     fn stdArgTypes(self: *Checker, module: ?u32, owner: []const u8, method: []const u8, args: []const Sexp) Error!void {
         const home = if (module) |m| self.ctx.foreign_semas.get(m) orelse self.ctx else self.ctx;
         switch (sema.stdArgCheck(home, owner, method) orelse return) {
-            .unit_increment => for (args) |a| {
+            .calendar_add, .duration_add, .by_name => {},
+            .unit_increment, .clock_increment, .day_increment => for (args) |a| {
                 if (!a.isKind(.kwarg)) continue;
                 const value = ir.Kwarg.value(a);
                 const ty = self.canonical(self.ctx.typeOf(value) orelse continue);
@@ -12395,10 +12463,12 @@ const Checker = struct {
         }
     }
 
-    /// `round` or `floor` (`sema.ArgCheck.unit_increment`): exactly one
-    /// unit's keyword and its increment, and no positional argument; an
-    /// increment written as a constant is from 1 to 1,000,000,000.
-    fn checkUnitIncrement(self: *Checker, method: []const u8, args: []const Sexp, pos: u32) Error!bool {
+    /// `round` or `floor` (`sema.ArgCheck.unit_increment` and its kin):
+    /// exactly one unit's keyword and its increment, and no positional
+    /// argument; an increment written as a constant is from 1 to
+    /// 1,000,000,000, and on a `Time` or a `DateTime` divides the next
+    /// larger unit and is smaller than it, or for `days:` is 1.
+    fn checkUnitIncrement(self: *Checker, method: []const u8, args: []const Sexp, pos: u32, kind: sema.ArgCheck) Error!bool {
         for (args) |a| if (!a.isKind(.kwarg)) {
             try self.errAt(a, "`{s}` takes a unit and its increment by name, `{s}(minutes: 15)`, and no positional argument", .{ method, method });
             return false;
@@ -12408,28 +12478,58 @@ const Checker = struct {
             return false;
         }
         if (args.len > 1) {
-            try self.errAt(args[1], "`{s}` takes one unit and its increment, not {d}: {s}", .{ method, args.len, try self.oneIncrement(method, args) });
+            try self.errAt(args[1], "`{s}` takes one unit and its increment, not {d}: {s}", .{ method, args.len, try self.oneIncrement(method, args, kind) });
             return false;
         }
         const name_node = ir.Kwarg.name(args[0]);
         const name = self.text(name_node);
-        if (sema.duration.unitNs(name) == null) {
-            try self.errAt(name_node, "`{s}` takes a unit from `ns:` to `hours:` and its increment, and `{s}:` is none of them", .{ method, name });
+        const days = kind == .day_increment and std.mem.eql(u8, name, "days");
+        const unit_ns = sema.duration.unitNs(name);
+        if (unit_ns == null and !days) {
+            try self.errAt(name_node, "`{s}` takes a unit from `ns:` to `hours:`{s} and its increment, and `{s}:` is none of them", .{ method, if (kind == .day_increment) ", or `days: 1`," else "", name });
             return false;
         }
         const value = ir.Kwarg.value(args[0]);
-        if (self.constInt(value)) |v| if (v < 1 or v > 1_000_000_000) {
+        const v = self.constInt(value) orelse return true;
+        if (v < 1 or v > 1_000_000_000) {
             try self.errAt(value, "an increment of `{s}` is from 1 to 1,000,000,000, and `{s}` is not", .{ method, try self.plainText(value) });
             return false;
+        }
+        if (kind == .unit_increment) return true;
+        if (days) {
+            if (v == 1) return true;
+            try self.errAt(value, "`{s}` takes `days: 1` and no other number of days, and `{s}` is not 1", .{ method, try self.plainText(value) });
+            return false;
+        }
+        // The next larger unit: 1,000 of each below a second, 60
+        // seconds and minutes, 24 hours.
+        const limit: Wide = switch (unit_ns.?) {
+            1, 1_000, 1_000_000 => 1_000,
+            3_600_000_000_000 => 24,
+            else => 60,
         };
-        return true;
+        if (v < limit and @mod(limit, v) == 0) return true;
+        var list: std.ArrayList(u8) = .empty;
+        const a = self.ctx.arena.allocator();
+        var k: Wide = 1;
+        while (k < limit) : (k += 1) {
+            if (@mod(limit, k) != 0) continue;
+            // The divisors below `limit`, the last after `or`.
+            if (list.items.len > 0) try list.appendSlice(a, if (k * 2 == limit) ", or " else ", ");
+            try list.print(a, "{d}", .{k});
+        }
+        try self.errAt(value, "an increment of `{s}` divides the next larger unit and is smaller than it, so `{s}:` takes {s}, and `{s}` is not one of them", .{ method, name, list.items, try self.plainText(value) });
+        return false;
     }
 
     /// The fix for `round` or `floor` given several units, `args`: the
     /// increment in the largest unit it is a whole number of when each is
     /// a constant, `round(minutes: 90)` for `hours: 1, minutes: 30`; else
-    /// the smallest unit given to write it in.
-    fn oneIncrement(self: *Checker, method: []const u8, args: []const Sexp) Error![]const u8 {
+    /// the smallest unit given to write it in. On a `Time` or a `DateTime`
+    /// (`kind`) the sum is offered only as an increment they take, one that
+    /// divides the next larger unit and is smaller than it; else the call
+    /// names one of the units given.
+    fn oneIncrement(self: *Checker, method: []const u8, args: []const Sexp, kind: sema.ArgCheck) Error![]const u8 {
         const a = self.ctx.arena.allocator();
         var smallest: ?i64 = null;
         var total: ?i128 = 0;
@@ -12447,8 +12547,18 @@ const Checker = struct {
         // is written in every type that rounds (docs/design/datetime.md §6.8).
         if (total) |sum| for (sema.duration.units) |unit| {
             if (@rem(sum, unit[1]) != 0 or @divTrunc(sum, unit[1]) < 1 or @divTrunc(sum, unit[1]) > 1_000_000_000) continue;
-            return std.fmt.allocPrint(a, "write the increment in one unit, `{s}({s}: {d})`", .{ method, unit[0], @divTrunc(sum, unit[1]) });
+            const n = @divTrunc(sum, unit[1]);
+            if (kind != .unit_increment) {
+                const limit: i128 = switch (unit[1]) {
+                    1, 1_000, 1_000_000 => 1_000,
+                    3_600_000_000_000 => 24,
+                    else => 60,
+                };
+                if (n >= limit or @rem(limit, n) != 0) break;
+            }
+            return std.fmt.allocPrint(a, "write the increment in one unit, `{s}({s}: {d})`", .{ method, unit[0], n });
         };
+        if (kind != .unit_increment) return std.fmt.allocPrint(a, "name one of them, `{s}({s})`", .{ method, try self.plainText(args[0]) });
         return std.fmt.allocPrint(a, "write the increment in one unit, the smallest given, `{s}:`", .{sema.duration.unitName(u)});
     }
 
@@ -23256,6 +23366,13 @@ fn checkMethodCall(ctx: *SemContext, c: sema.GenericMethodCall, subst: TypeSubst
             break :blk try a.print("and `{s}` is private to module `{s}`; declare it `pub` there", .{ owner, mname });
         }
         if (m.field.self_mode == .none) break :blk try a.print("and `{s}` takes no `self`", .{owner});
+        // A std method whose arguments are checked where it is called
+        // (`sema.stdArgCheck`) takes them by name, which a generic body's
+        // call, by position only, never gives: refused as a function
+        // value is (`typeMember`).
+        const home: *const SemContext = if (declared == ctx.module_id) ctx else ctx.foreign_semas.get(declared) orelse ctx;
+        if (sema.stdArgCheck(home, m.owner.name, c.method) != null)
+            break :blk try a.print("and `{s}` checks its arguments where it is called, by name, which a call in a generic body cannot give; call it where its type is written, or pass a closure that does", .{owner});
         if (m.field.self_mode != c.self_mode) break :blk try a.print("which {s} `{s}`, but `{s}` takes `self` as `{s}`", .{ verb, c.recv, owner, switch (m.field.self_mode) {
             .read => "?@",
             .write => "!@",

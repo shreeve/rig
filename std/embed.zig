@@ -5,6 +5,12 @@
 pub const files = [_]struct { []const u8, []const u8 }{
     .{ "prelude.rig", @embedFile("prelude.rig") },
     .{ "bigint.rig", @embedFile("bigint.rig") },
+    .{ "datetime/calendar.rig", @embedFile("datetime/calendar.rig") },
+    .{ "datetime/clock.rig", @embedFile("datetime/clock.rig") },
+    .{ "datetime/date.rig", @embedFile("datetime/date.rig") },
+    .{ "datetime/datetime.rig", @embedFile("datetime/datetime.rig") },
+    .{ "datetime/text.rig", @embedFile("datetime/text.rig") },
+    .{ "datetime/weekday.rig", @embedFile("datetime/weekday.rig") },
     .{ "file.rig", @embedFile("file.rig") },
     .{ "file.zig", @embedFile("file.zig") },
     .{ "char.zig", @embedFile("char.zig") },

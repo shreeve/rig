@@ -89,6 +89,26 @@ fn weekday(w: Weekday) -> &'static str {
     }
 }
 
+fn weekday_named(s: &str) -> Res<Weekday> {
+    Ok(match s {
+        "Monday" => Weekday::Monday,
+        "Tuesday" => Weekday::Tuesday,
+        "Wednesday" => Weekday::Wednesday,
+        "Thursday" => Weekday::Thursday,
+        "Friday" => Weekday::Friday,
+        "Saturday" => Weekday::Saturday,
+        "Sunday" => Weekday::Sunday,
+        _ => return Err(format!("bad weekday {s:?}")),
+    })
+}
+
+// A duration as ISO 8601, or `skip` beyond an `Int` of nanoseconds,
+// where Rig's `since` saturates (DATETIME-DESIGN §5.1, §6.6).
+fn since(d: SignedDuration) -> String {
+    let n = d.as_nanos();
+    if n > i64::MAX as i128 || n < i64::MIN as i128 { "skip".into() } else { d.to_string() }
+}
+
 fn args<'a>(rest: &'a str, n: usize) -> Res<Vec<&'a str>> {
     let v: Vec<&str> = rest.split(' ').collect();
     if v.len() != n || v.iter().any(|a| a.is_empty()) {
@@ -205,6 +225,43 @@ impl Oracle {
                     d.first_of_month(),
                     d.last_of_month()
                 ))
+            }
+            "date.nth_weekday" => {
+                let a = args(rest, 3)?;
+                let d = date(a[0])?;
+                let w = weekday_named(a[2])?;
+                Ok(match i32::try_from(int(a[1])?) {
+                    Ok(n) => show(d.nth_weekday(n, w)),
+                    Err(_) => "error".into(),
+                })
+            }
+            "date.nth_weekday_of_month" => {
+                let a = args(rest, 3)?;
+                let d = date(a[0])?;
+                let w = weekday_named(a[2])?;
+                Ok(match i8::try_from(int(a[1])?) {
+                    Ok(n) => show(d.nth_weekday_of_month(n, w)),
+                    Err(_) => "error".into(),
+                })
+            }
+            "date.with" => {
+                // The year, month and day replaced, each within the
+                // generator's small ranges.
+                let a = args(rest, 4)?;
+                let d = date(a[0])?;
+                let (y, m, dd) = (int(a[1])?, int(a[2])?, int(a[3])?);
+                let (Ok(y), Ok(m), Ok(dd)) = (i16::try_from(y), i8::try_from(m), i8::try_from(dd)) else {
+                    return Err("an amount beyond the generator's ranges".into());
+                };
+                Ok(show(d.with().year(y).month(m).day(dd).build()))
+            }
+            "time.since" => {
+                let a = args(rest, 2)?;
+                Ok(since(time(a[0])?.duration_since(time(a[1])?)))
+            }
+            "datetime.since" => {
+                let a = args(rest, 2)?;
+                Ok(since(datetime(a[0])?.duration_since(datetime(a[1])?)))
             }
             "datetime.add" => {
                 let a = args(rest, 6)?;
@@ -350,7 +407,12 @@ impl Oracle {
             "time.parse" => Ok(show(rest.parse::<Time>())),
             "datetime.parse" => Ok(show(rest.parse::<DateTime>())),
             "instant.parse" => Ok(show(rest.parse::<Timestamp>())),
-            "duration.parse" => Ok(show(rest.parse::<SignedDuration>())),
+            // A duration past an `Int` of nanoseconds, which Rig's
+            // `Duration` does not hold (DATETIME-DESIGN §5.1), is `skip`.
+            "duration.parse" => Ok(match rest.parse::<SignedDuration>() {
+                Ok(d) if !fits(d) => "skip".into(),
+                r => show(r),
+            }),
             "zoned.parse" => {
                 let r: Vec<String> = [
                     OffsetConflict::Reject,
@@ -383,8 +445,10 @@ impl Oracle {
                 let (u, i) = (unit(a[1])?, int(a[2])?);
                 let r = |m| show(dt.round(jiff::civil::DateTimeRound::new().smallest(u).increment(i).mode(m)));
                 // Jiff 1.0.0 does not carry a round past midnight into the
-                // next day in years at or below 0 (§6.8, §9 item 14).
-                let round = if dt.year() <= 0 { "skip".into() } else { r(RoundMode::HalfExpand) };
+                // next day in years at or below 0 (§6.8, §9 item 14): such a
+                // round is `skip`, and one that stays within the day is
+                // compared.
+                let round = if dt.year() <= 0 && passes_midnight(dt.time(), u, i) { "skip".into() } else { r(RoundMode::HalfExpand) };
                 Ok(format!("{} {}", round, r(RoundMode::Floor)))
             }
             "instant.round" => {
@@ -418,8 +482,13 @@ impl Oracle {
                 let a = args(rest, 3)?;
                 let d = duration(a[0])?;
                 let (u, i) = (unit(a[1])?, int(a[2])?);
-                let r = |m| show(d.round(jiff::SignedDurationRound::new().smallest(u).increment(i).mode(m)));
-                Ok(format!("{} {}", r(RoundMode::HalfExpand), r(RoundMode::Floor)))
+                let r = |m| d.round(jiff::SignedDurationRound::new().smallest(u).increment(i).mode(m));
+                let (round, floor) = (r(RoundMode::HalfExpand), r(RoundMode::Floor));
+                // An input or an answer past an `Int` of nanoseconds (§5.1).
+                if !fits(d) || round.as_ref().map_or(false, |x| !fits(*x)) || floor.as_ref().map_or(false, |x| !fits(*x)) {
+                    return Ok("skip".into());
+                }
+                Ok(format!("{} {}", show(round), show(floor)))
             }
 
             _ => Err(format!("unknown case {op:?}")),
@@ -443,6 +512,30 @@ fn counts(sign: i64, d: Span, w: Span, m: Span, y: Span) -> String {
         y.get_days(),
         r
     )
+}
+
+// Whether a duration is within an `Int` of nanoseconds, Rig's `Duration`.
+fn fits(d: SignedDuration) -> bool {
+    let n = d.as_nanos();
+    n >= i64::MIN as i128 && n <= i64::MAX as i128
+}
+
+// Whether time of day `t` rounded to `i` of unit `u`, a half up, reaches
+// the next midnight.
+fn passes_midnight(t: Time, u: Unit, i: i64) -> bool {
+    let per: i128 = match u {
+        Unit::Nanosecond => 1,
+        Unit::Microsecond => 1_000,
+        Unit::Millisecond => 1_000_000,
+        Unit::Second => 1_000_000_000,
+        Unit::Minute => 60_000_000_000,
+        Unit::Hour => 3_600_000_000_000,
+        _ => 86_400_000_000_000,
+    };
+    let inc = per * i as i128;
+    let n = ((i128::from(t.hour()) * 60 + i128::from(t.minute())) * 60 + i128::from(t.second())) * 1_000_000_000 + i128::from(t.subsec_nanosecond());
+    let r = n % inc;
+    r * 2 >= inc && n - r + inc == 86_400_000_000_000
 }
 
 // Whether `past`, the time since the floor, is exactly half the increment.
