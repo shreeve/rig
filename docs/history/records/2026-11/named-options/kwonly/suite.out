@@ -1,0 +1,5 @@
+building rig and rig-oracle (zig build)...
+rig.rip: built rig and rig-oracle in 138 s
+rig.rip: 50 packs to compile, as jobs
+676.23 secs for 12373 jobs by 4 workers @ 18.30 jobs/sec
+exit 0

@@ -1,0 +1,9 @@
+api Shape
+  fun area(?@, scale: Int = 1) -> Int
+obj Sq
+  s: Int
+  fun area(?@, scale: Int = 1) -> Int
+    @s * @s * scale
+sub main()
+  q = Sq(s: 2)
+  print(q.area(), q.area(scale: 3))

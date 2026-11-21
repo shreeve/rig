@@ -1,0 +1,30 @@
+std/text.rig:323: parse_int: base
+std/text.rig:332: format_int: base, upper
+std/text.rig:386: edit_distance: max
+std/text.rig:555: reserve: bytes
+std/bigint.rig:251: parse: base
+std/file.rig:198: open: wait
+std/file.rig:206: create: parents
+std/file.rig:213: write: parents
+std/file.rig:218: append: parents
+std/file.rig:224: mkdir: parents
+std/terminal.rig:514: new: scrollback
+std/terminal.rig:1085: shift_up: keep
+std/terminal.rig:1242: erase_line: selective
+std/terminal.rig:1264: erase_display: selective
+std/time.rig:144: round: us, ms, seconds, minutes, hours
+std/time.rig:150: floor: us, ms, seconds, minutes, hours
+std/datetime/clock.rig:20: new: second, ns
+std/datetime/clock.rig:73: with: minute, second, ns
+std/datetime/clock.rig:88: round: us, ms, seconds, minutes, hours
+std/datetime/clock.rig:93: floor: us, ms, seconds, minutes, hours
+std/datetime/date.rig:107: add: months, weeks, days
+std/datetime/date.rig:111: checked_add: months, weeks, days
+std/datetime/date.rig:117: with: month, day
+std/datetime/datetime.rig:16: new: hour, minute, second, ns
+std/datetime/datetime.rig:86: add: years, months, weeks, days
+std/datetime/datetime.rig:90: checked_add: years, months, weeks, days
+std/datetime/datetime.rig:96: with: month, day, hour, minute, second, ns
+std/datetime/datetime.rig:138: round: us, ms, seconds, minutes, hours, days
+std/datetime/datetime.rig:144: floor: us, ms, seconds, minutes, hours, days
+TOTAL 29

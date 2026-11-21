@@ -1,0 +1,25 @@
+# A small "hexdump-ish" CLI: options parsed from argv, then a run with options.
+# Written the way a Go or Rust programmer would, positionally (accepted today).
+use std.text
+use std.os
+
+obj Opts
+  width: Int
+  base: Int
+  upper: Bool
+  color: Bool
+  dry_run: Bool
+
+fun opts(width: Int = 16, base: Int = 16, upper: Bool = false, color: Bool = true, dry_run: Bool = false) -> Opts
+  Opts(width: width, base: base, upper: upper, color: color, dry_run: dry_run)
+
+fun cell(n: Int, o: Opts) -> String
+  text.format_int(n, o.base, o.upper)
+
+sub main()!
+  # from argv: `-w 8 -U --no-color`, parsed by hand
+  o = opts(8, 16, true, false)          # which Bool is which?
+  p = opts(8, 16, false, true, true)    # dry run, colored... or upper?
+  print(cell(255, o), cell(255, p), o.color, p.dry_run)
+  print(text.parse_int("ff", 16)!, text.parse_int("0777", 8)!)
+  print(text.format_int(255, 2), text.format_int(255, 16, true))

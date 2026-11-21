@@ -1,0 +1,18 @@
+# Billing schedule and a meeting planner, as written today.
+use std.datetime
+use std.time
+
+sub main()!
+  start = datetime.DateTime.new(2024, 1, 31, 9, 30)!     # 9:30 on Jan 31
+  print(start, start.add(months: 1), start.add(months: 2))
+  grace = time.duration(hours: 36)
+  print(start.add(grace))                # a Duration value, positionally
+  print(start.add(30))                   # meant 30 days? it is 30 seconds
+  print(start.add(0.5))
+  t = datetime.Time.new(8, 7)!
+  u = datetime.Time.new(8, 7, 3, 500)!   # 500 ms? it is 500 ns
+  print(t, u)
+  z = time.Monotonic.at(0)
+  print(z.add(grace).since(z))                  # Monotonic.add takes d required
+  d = datetime.Date.new(2024, 2, 29)!
+  print(d.add(years: 1), d.at(datetime.Time.new(14, 30)!))

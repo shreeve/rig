@@ -1,0 +1,11 @@
+obj Net
+  name: ?String = "x"
+  n: Int = 3
+fun mk(name: ?String = "localhost", n: Int = 3) -> Net
+  Net(name: name, n: n)
+sub main()
+  r = mk()
+  print(r.name)
+  s = String("abc")
+  t = mk(name: ?s)
+  print(t.name)

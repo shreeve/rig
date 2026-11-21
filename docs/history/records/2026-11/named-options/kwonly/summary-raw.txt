@@ -1,0 +1,126 @@
+('bench', 'pos:assoc') 1
+('docs', 'pos:fn') 1
+('docs', 'pos:module') 8
+('loco', 'pos:fn') 25
+('std', 'pos:assoc') 5
+('std', 'pos:method') 7
+('tests', 'pos:assoc') 366
+('tests', 'pos:fn') 2
+('tests', 'pos:method') 7
+('tests', 'pos:module') 41
+('tools', 'pos:module') 6
+('trig', 'pos:assoc') 12
+('trig', 'pos:fn') 2
+('trig', 'pos:method') 2
+('trig', 'pos:module') 49
+by source (positional only, excl fnvalue): Counter({'tests': 416, 'trig': 65, 'loco': 25, 'std': 12, 'docs': 9, 'tools': 6, 'bench': 1})
+top callees:
+    117 new (second)
+    103 new (hour)
+     87 new (ns)
+     62 new (minute)
+     28 text.parse_int (base)
+     26 text.format_int (base)
+     21 stdtext.format_int (base)
+     19 kind (interp)
+      6 stdtext.parse_int (base)
+      6 shift_up (keep)
+      6 erase_line (selective)
+      5 checker.new_checker (type_log)
+      5 checker.new_checker (lazy_members)
+      4 is (short)
+      4 new (arrow_bits)
+      4 bigint.parse (base)
+      3 new (tree_in)
+      3 new (scrollback)
+      2 walk_dir (listed)
+      2 erase_display (selective)
+      2 scaled (by)
+      2 lib.maybe (d)
+      2 new (bindings)
+      2 declarations.emit_declarations (js)
+      1 get_node_at_position (ordered)
+      1 new (is_declaration_file)
+      1 new (dense_locals)
+      1 parse_text (tree_in)
+      1 new (reserve_text)
+      1 pad (width)
+      1 lib.scaled (by)
+      1 print_source_file (into_js)
+      1 check_groups (has_diagnostics)
+      1 declarations.new_checker_pool (type_log)
+      1 declarations.new_checker_pool (lazy_members)
+      1 declarations.new_checker_pool (wanted)
+      1 declarations.new_checker_pool (defer_checkers)
+call sites by source: {'loco': 25, 'trig': 52, 'std': 10, 'tests': 223, 'docs': 9, 'tools': 6, 'bench': 1} total 326
+arguments by source: {'loco': 25, 'trig': 65, 'std': 12, 'tests': 416, 'docs': 9, 'tools': 6, 'bench': 1} total 534
+top callees by call sites:
+    100 DateTime.new
+     74 Time.new
+     28 text.parse_int
+     26 text.format_int
+     21 stdtext.format_int
+     19 kind
+      6 stdtext.parse_int
+      6 shift_up
+      6 erase_line
+      5 checker.new_checker
+      4 is
+      4 Parser.new
+      4 bigint.parse
+      3 Terminal.new
+      2 walk_dir
+      2 erase_display
+      2 scaled
+      2 lib.maybe
+      2 EmitContext.new
+      2 declarations.emit_declarations
+      1 get_node_at_position
+      1 Binding.new
+      1 parse_text
+      1 pad
+      1 lib.scaled
+      1 print_source_file
+      1 check_groups
+      1 declarations.new_checker_pool
+call sites by source and callee:
+  bench     1 Terminal.new
+  docs      4 text.parse_int
+  docs      3 text.format_int
+  docs      1 bigint.parse
+  docs      1 scaled
+  loco     19 kind
+  loco      4 is
+  loco      2 walk_dir
+  std       3 shift_up
+  std       3 erase_line
+  std       2 Time.new
+  std       1 Terminal.new
+  std       1 erase_display
+  tests   100 DateTime.new
+  tests    72 Time.new
+  tests    18 text.parse_int
+  tests    17 text.format_int
+  tests     3 bigint.parse
+  tests     3 shift_up
+  tests     3 erase_line
+  tests     2 lib.maybe
+  tests     1 scaled
+  tests     1 pad
+  tests     1 lib.scaled
+  tests     1 Terminal.new
+  tests     1 erase_display
+  tools     6 text.format_int
+  trig     21 stdtext.format_int
+  trig      6 stdtext.parse_int
+  trig      6 text.parse_int
+  trig      5 checker.new_checker
+  trig      4 Parser.new
+  trig      2 EmitContext.new
+  trig      2 declarations.emit_declarations
+  trig      1 get_node_at_position
+  trig      1 Binding.new
+  trig      1 parse_text
+  trig      1 print_source_file
+  trig      1 check_groups
+  trig      1 declarations.new_checker_pool

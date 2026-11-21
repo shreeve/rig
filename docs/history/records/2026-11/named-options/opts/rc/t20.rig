@@ -1,0 +1,10 @@
+obj P
+  a: String
+  b: String
+  n: Int
+fun size(p: ?P) -> Int
+  p.a.len + p.b.len
+sub main()
+  p = P(a: String("x"), b: String("yy"), n: 1)
+  q = P(a: <p.a, b: <p.b, n: size(?p))
+  print(q.n)

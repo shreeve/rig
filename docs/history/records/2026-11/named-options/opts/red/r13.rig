@@ -1,0 +1,5 @@
+fun f(x: Int, timeout: Int = 30, retries: Int = 3) -> Int
+  timeout * 100 + retries
+sub main()
+  g = f
+  print(g(1, 5, 2))

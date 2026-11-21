@@ -1,0 +1,13 @@
+obj P
+  a: String
+  b: String
+  n: Int
+fun upd(p: P) -> P
+  P(a: <p.a, b: String("new"), n: 3)
+fun viaView(p: ?P) -> P
+  P(a: +p.a, b: +p.b, n: p.n)
+sub main()
+  q = upd(P(a: String("x"), b: String("y"), n: 1))
+  print(q.a, q.n)
+  r = viaView(?q)
+  print(r.b)

@@ -1,0 +1,18 @@
+# The same, written as the no-exemption rule requires (all valid today).
+use std.datetime
+use std.time
+
+sub main()!
+  start = datetime.DateTime.new(2024, 1, 31, hour: 9, minute: 30)!
+  print(start, start.add(months: 1), start.add(months: 2))
+  grace = time.duration(hours: 36)
+  print(start.add(d: grace))             # `d:` is the cost
+  print(start.add(days: 30))
+  print(start.add(seconds: 0.5))
+  t = datetime.Time.new(8, 7, 0)!        # second required under the panel's plan
+  u = datetime.Time.new(8, 7, 3, ns: 500)!
+  print(t, u)
+  z = time.Monotonic.at(0)
+  print(z.add(grace).since(z))                  # unchanged: d is required here
+  d = datetime.Date.new(2024, 2, 29)!
+  print(d.add(years: 1), d.at(datetime.Time.new(14, 30, 0)!))

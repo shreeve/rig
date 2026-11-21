@@ -1,0 +1,5 @@
+use std.time
+fun f(url: ?String, timeout: time.Duration? = none, connect_timeout: time.Duration? = none) -> Int
+  1
+sub main()
+  print(f("u", ms: 5))

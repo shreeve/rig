@@ -1,0 +1,6 @@
+fun twice(n: Int) -> Int
+  n * 2
+fun ap(x: Int, f: fun(Int) -> Int = twice) -> Int
+  f(x)
+sub main()
+  print(ap(3))

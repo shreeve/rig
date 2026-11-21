@@ -1,0 +1,5 @@
+fun f(timeout: Int = 30, retry: Bool = true) -> Int
+  timeout
+sub main()
+  g = f
+  print(g(5, false))

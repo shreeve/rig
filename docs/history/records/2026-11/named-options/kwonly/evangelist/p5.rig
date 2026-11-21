@@ -1,0 +1,7 @@
+# all options: the exemption lets the first one go by position
+fun window(width: Int = 80, height: Int = 24, title: Static = "rig") -> Static
+  print(width, height, title)
+  title
+sub main()
+  window(24)
+  window(height: 24)

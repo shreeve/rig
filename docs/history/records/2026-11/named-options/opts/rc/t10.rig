@@ -1,0 +1,7 @@
+obj Inner
+  a: Int = 1
+obj Outer
+  i: Inner = Inner()
+  n: Int = 2
+sub main()
+  print(Outer().i.a)

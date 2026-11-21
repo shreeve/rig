@@ -1,0 +1,4 @@
+fun g(w: !Int = 3) -> Int
+  w
+sub main()
+  print(g())

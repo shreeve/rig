@@ -1,0 +1,6 @@
+obj Net
+  n: Int = 3
+  k: Int = LIMIT * 2
+LIMIT = 5
+sub main()
+  print(Net().k)

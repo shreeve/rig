@@ -1,0 +1,7 @@
+obj P
+  a: String
+  n: Int
+sub main()
+  p = P(a: String("x"), n: 1)
+  q = P(a: <p.a, n: <p.n)
+  print(q.n)

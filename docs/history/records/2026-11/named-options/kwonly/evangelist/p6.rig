@@ -1,0 +1,4 @@
+fun mid(a: Int, b: Int = 2, c: Int) -> Int
+  a + b + c
+sub main()
+  print(mid(1, 2, 3), mid(1, c: 3))

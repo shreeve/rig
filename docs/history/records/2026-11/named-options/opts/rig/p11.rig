@@ -1,0 +1,8 @@
+obj Net
+  timeout: Int = 30
+  name: ?String = "x"
+fun fetch(url: ?String, net: ?Net) -> Int
+  net.timeout
+sub main()
+  print(fetch("u", Net(timeout: 5)))
+  print(fetch("u", Net()))

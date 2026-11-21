@@ -1,0 +1,6 @@
+fun connect(host: ?String, port: Int, timeout: Int = 30) -> Int
+  port + timeout
+
+sub main()
+  f = connect
+  print(f("h", 1))

@@ -1,0 +1,8 @@
+use std.time
+obj W
+  d: Float = -0.5
+sub main()!
+  w = W()
+  time.sleep(w.d)!
+  x = -0.5
+  time.sleep(x)!

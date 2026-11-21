@@ -1,0 +1,13 @@
+obj Tag
+  s: ?String
+  drop(!@)
+    print("drop", @s)
+obj P
+  a: Tag
+  b: Tag
+  drop(!@)
+    print("dropP")
+sub main()
+  p = P(a: Tag(s: "a"), b: Tag(s: "b"))
+  q = P(a: <p.a, b: Tag(s: "b2"))
+  print("built")

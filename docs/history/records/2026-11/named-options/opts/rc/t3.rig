@@ -1,0 +1,12 @@
+obj O
+  t: Int = 30
+  r: Bool = true
+fun bump(o: !O) -> Bool
+  o.t += 100
+  false
+fun connect(h: Int, t: Int = 30, r: Bool = true) -> Int
+  h + t
+sub main()
+  o = O(t: 5)
+  print(connect(1, t: o.t, r: bump(!o)))
+  print(o.t)

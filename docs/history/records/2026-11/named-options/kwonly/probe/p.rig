@@ -1,0 +1,46 @@
+use std.text
+
+fun scaled(n: Int, by: Int = 10) -> Int
+  n * by
+
+obj Z
+  v: Int
+
+  fun add(?@, d: Int = 1, e: Int = 2) -> Int
+    @v + d + e
+
+  fun make(v: Int, w: Int = 3) -> Z
+    Z(v: v + w)
+
+api Adder
+  fun plus(?@, a: Int, b: Int) -> Int
+
+obj W: Adder
+  v: Int
+
+  fun plus(?@, a: Int, b: Int) -> Int
+    @v + a + b
+
+fun gen[T: Adder](x: ?T) -> Int
+  x.plus(1, 2)
+
+fun ugen[T](x: ?T) -> Int
+  x.add(1, 2)
+
+sub main()
+  print(scaled(3, 2))
+  print(scaled(3, by: 2))
+  z = Z(v: 1)
+  print(z.add(5))
+  print(z.add(1, 2))
+  print(Z.add(z, 1, 2))
+  print(Z.make(1, 2))
+  f = scaled
+  print(f(1, 2))
+  g = Z.add
+  print(g(z, 1, 2))
+  print(text.parse_int("ff", 16)!)
+  print(gen(W(v: 1)))
+  print(ugen(z))
+  m = Map[Int, Int].new(16)
+  print(m.len)
