@@ -4,10 +4,11 @@ Phase 2 of the datetime design (docs/design/datetime.md, the owner's v3
 of 2026-11-17, amended 2026-11-20). It builds `std.datetime` as a
 directory module with the calendar and the clock face, its four types
 with their text, and the positional checks of §10.2's phase 2 row.
-Phase 1b (several unit keywords in one call) lands in parallel, so a
-`DateTime`'s `add` takes one unit keyword here; `Instant`, `TimeZone`,
-`ZonedDateTime`, `now`, `today`, `in_zone`, and `format` are later
-phases and stay `rig pending` in STD.
+The branch is rebased on phase 1b (several unit keywords in one call,
+main c2f90250a), so a `DateTime`'s `add` takes several units beside its
+calendar amounts. `Instant`, `TimeZone`, `ZonedDateTime`, `now`,
+`today`, `in_zone`, and `format` are later phases and stay `rig pending`
+in STD.
 
 ## What landed
 
@@ -19,9 +20,10 @@ phases and stay `rig pending` in STD.
 | `Time`: `new`, `parse`, the readers, `add` (wraps), `checked_add`, `with`, `since`, `round`, `floor`, `print` | `std/datetime/clock.rig` |
 | `DateTime`: `new`, `parse`, `date()`, `time()`, the readers of both, `add`, `checked_add`, `with`, `since` (saturating), the four counts, `round`, `floor` (with `days: 1`), `print` | `std/datetime/datetime.rig` |
 | ISO 8601 reading and writing by Jiff's grammar, each type in its own form only | `std/datetime/text.rig` |
-| The checks of §10.2's phase 2 row and of `round` and `floor` on a `Time` and a `DateTime` | `sema.ArgCheck` (`clock_increment`, `day_increment`, `calendar_add`, `duration_add`, `by_name`), `sema.stdArgCheck`; `typecheck.zig` `checkCalendarAdd`, `checkDurationAdd`, `checkByName`, `checkUnitIncrement` |
-| Tests | `test/rig/std-datetime.rig.test` (`Weekday`, `Date`; 29 cases), `std-datetime-clock` (`Time`, `DateTime`; 28), `std-datetime-checks` (every form of each checked method at each kind of call, built and run, every rejection, and the sizes; 13) |
-| The oracle: five more operations, and std.datetime's answers | `tools/jiff-oracle/gen.py`, `src/main.rs`, `answer.rig`, `README.md` |
+| The checks of §10.2's phase 2 row and of `round` and `floor` on a `Time` and a `DateTime`; no checked method called in a generic body | `sema.ArgCheck` (`clock_increment`, `day_increment`, `calendar_add`, `duration_add`, `by_name`), `sema.stdArgCheck`; `typecheck.zig` `checkCalendarAdd`, `checkDurationAdd`, `checkByName`, `checkUnitIncrement`, `oneIncrement`, and `checkMethodCall` (a generic's instance) |
+| Tests | `test/rig/std-datetime.rig.test` (`Weekday`, `Date`; 29 cases), `std-datetime-clock` (`Time`, `DateTime`; 28), `std-datetime-checks` (every form of each checked method at each kind of call, a generic among them, built and run, several units, every rejection, and the sizes; 17), `std-datetime-ports` (more of Jiff's tests, the whole range of dates; 8), `std-datetime-docs` (170 of the examples in Jiff's documentation; 10) |
+| The oracle: five more operations; std.datetime's and std.time's answers, compared with Jiff's by the suite | `tools/jiff-oracle/gen.py`, `src/main.rs`, `answer.rig`, `compare.awk`, `README.md`; `test/cli/jiff_oracle.sh` |
+| Jiff's documentation examples, each ported or left out and why | [doc-examples.md](doc-examples.md) |
 | Docs | `docs/STD.md` "std.datetime"; CHANGELOG (Unreleased, Added); HANDOFF's "In flight"; ROADMAP |
 
 No file of std.time changed: std.datetime imports it (each of
@@ -52,11 +54,23 @@ that only sleeps or times loads none of the calendar.
    first; `with` takes each field as `Int? = none`; `round` and `floor`
    six `Int?` keywords, `ns` to `hours`, and on a `DateTime` `days` too,
    as phase 1's `Duration.round` does.
-5. **The messages** of the checks:
+5. **The messages** of the checks, each fix one that compiles:
    "`add` of a `Date` takes its amounts by name, and no positional
-   argument: `add(days: 1)`" (with the value written);
+   argument: `add(days: 1)`" (with the `Int` written; for another type
+   but a `Float` or a `Duration`, "…, an `Int` of each, …");
    "a `Date` has no time of day, so `add` takes no `hours:`: a date and a
-   time of day is a `DateTime`, `d.at(t).add(hours: 1)`" (§6.2);
+   time of day is a `DateTime`, `d.at(t).add(weeks: 1, hours: 2)`" (§6.2;
+   every amount written is kept), and for a `Float` or a `Duration` by
+   position, "… takes no duration, `0.5`: … `d.at(t).add(0.5)`";
+   for two units to `round` or `floor` on a `Time` or a `DateTime`, phase
+   1b's "write the increment in one unit, `round(ms: 250)`" only where
+   the sum is an increment they take, else "name one of them,
+   `round(minutes: 1)`"; and for a checked method called in a generic
+   body, "`bump[datetime.DateTime]` cannot use `T = datetime.DateTime`:
+   the generic body calls `x.add(d, 2, 0, 0, 0)`, and
+   `datetime.DateTime.add` checks its arguments where it is called, by
+   name, which a call in a generic body cannot give; call it where its
+   type is written, or pass a closure that does";
    "`add` takes one duration by position and its calendar amounts by
    name: `add(1, years: 2)`, not a second positional argument";
    "`with` takes the fields it replaces by name, `with(day: 1)`, and no
@@ -73,10 +87,11 @@ that only sleeps or times loads none of the calendar.
    agree over the whole range (the oracle's `date.info` gives every
    date of 19 years), and Rig has no `u32` wrap to write the shift
    plainly.
-7. **Panics** name the operation and its arguments:
-   "datetime.Date.add: the date 9999-12-31 and 0 years, 0 months, 0
-   weeks and 1 days is beyond the range of dates, -9999-01-01 to
-   9999-12-31"; `DateTime.add` likewise; `DateTime.round` "rounds past
+7. **Panics** name the operation and its arguments as written:
+   "datetime.Date.add: 9999-12-31 plus years: 0, months: 0, weeks: 0,
+   days: 1 is beyond the range of dates, -9999-01-01 to 9999-12-31";
+   "datetime.DateTime.add: 9999-12-31T23:59:59 plus 1s and years: 0, …";
+   "datetime.DateTime.round: 9999-12-31T23:59:59.999999999 rounds past
    9999-12-31"; an increment that is not a constant and not allowed,
    "datetime.Time.round: the increment 7 does not divide 60 or is not
    smaller than it".
@@ -92,6 +107,16 @@ Nothing in the code made a part of the design wrong or impossible.
 `typeMember` refuses a checked method as a value); the hook took the
 new checks as variants of `sema.ArgCheck`, with no change to the call
 machinery that phase 1b touches.
+
+One class the design does not name, found by the review: **a generic
+body** passes every argument of a call on a type parameter by position,
+so `x.add(d, 2, 0, 0, 0)` in `fun bump[T](x: T, …)`, instantiated at a
+`DateTime`, added two years, and a `with` or a date's `add` by position
+ran too; phase 1's `Duration.round` was open the same way (`x.round(k,
+k, k, k, k, k)` with `k: Int?`). A checked method is now refused where a
+generic's instance is checked against its type's methods
+(`checkMethodCall`), as it is refused as a function value; a closure
+carries one.
 
 Two things the design leaves implicit, settled by Jiff's code and
 checked by the oracle:
@@ -124,7 +149,7 @@ Schneider), `:892` (`to_date`), `:519` (`to_iso_week_date`), `:1317`
 | File | Ported | Left out, and why |
 |---|---|---|
 | jiff-core `civil/mod.rs` | `year_leap`, `month_days` (`year_days` through `days_in_month`) | none |
-| jiff-core `civil/date.rs` | `date_min`, `date_max`, `unix_epoch_day_weekday`, `first_of_last_of` (sampled), `nth_weekday_of_month_various`, `_errors`, `_near_minimum_date`, `_near_maximum_date`, `nth_weekday_various`, `_errors`, `_extreme`, `add`, `to_iso_week_date_various`; the epoch-day round trips by the oracle (every date of 19 years) | `ISOWeekDate`'s own type (`iso_week_date_*`, `prop_*` on week dates), `from_day_of_year*`, `day_of_year_no_leap*`, `days_in_year`, `first_of_year`, `yesterday`, `tomorrow`, `prev_year`, `next_year`: none is in Rig's surface (§6.7, §8.5); the quickcheck properties, which the oracle's millions of cases stand for |
+| jiff-core `civil/date.rs` | `date_min`, `date_max`, `unix_epoch_day_weekday`, `first_of_last_of`, `days_in`, the four round trips (`unix_epoch_to_date_and_back_again_*`, `date_to_unix_epoch_and_back_again`, `date_to_week_date_and_back_again`), all over the whole range, every date walked a day at a time; `day_of_year_in_non_leap_year`, `day_of_year_in_leap_year`; `nth_weekday_of_month_various`, `_errors`, `_near_minimum_date`, `_near_maximum_date`, `_every_month_has_four_weekdays` (over a 400-year cycle and the end years); `nth_weekday_various`, `_errors`, `_extreme`; `add`, `sub`; `to_iso_week_date_various` | `ISOWeekDate`'s own type (`iso_week_date_*` and its `prop_*`), `from_day_of_year*`, `day_of_year_no_leap*`, `days_in_year`, `first_of_year`, `yesterday`, `tomorrow`, `prev_year`, `next_year`: none is in Rig's surface (§6.7, §8.5); the other quickcheck properties, which the whole-range walk and the oracle stand for |
 | jiff-core `civil/weekday.rs` | none | every test is of `from_*`/`to_*` offsets, `wrapping_add`, `since`, `until`, `cycle`: Rig's `Weekday` has only `iso_number()` and its order (§4.1); `iso_number` is tested |
 | jiff-core `civil/time.rs`, `civil/datetime.rs` | none directly | conversions to seconds, `Timestamp`, and overflowing adds of internal types; their results are reached through `Time.add`, `since`, and the oracle's `time.add` |
 | jiff `civil/date.rs` | `add_constrained`, `since_years`, `since_months`, `since_weeks`, `since_days`, `until_month_lengths`, `since_until_not_commutative`, `until_months_no_balance`, `until_extremes`, `nth_weekday_of_month`, `nth_weekday_extreme`, `date_invalid_day` | `t_from_unix` (an `Instant`, phase 3); `until_weeks_round` and the rounding of spans (no span, §6.1); `test_month_add*` (internal); `date_size` (Rig's sizes are tested); the serde tests |
@@ -132,22 +157,25 @@ Schneider), `:892` (`to_date`), `:519` (`to_iso_week_date`), `:1317`
 | jiff `civil/datetime.rs` | `from_temporal_docs`, `since`, `until` (in counts and the rest), `until_month_lengths` | `until` in microseconds across the whole range (a `Duration` saturates there, §6.6); `datetime_size`; serde |
 | tests/tc39_262 `civil/date/add.rs` | `basic`, `overflow_constrain`, `overflow_reject` | `balance_smaller_units*`: time units on a `Date` are a compile error in Rig (§6.2) |
 | tests/tc39_262 `civil/date/until.rs` | `basic`, `largestunit_higher_units`, `weeks_months`, `wrapping_at_end_of_month`, the exact counts of `rounding_relative` | `largestunit_smallestunit_mismatch`, `round_*`, `roundingincrement`, `roundingmode_*`, `smallestunit_higher_units`: a count is not rounded (§6.1) |
-| tests/tc39_262 `civil/time/add.rs` | `argument_duration`, `argument_string_fractional_units_rounding_mode`, `argument_object`, `argument_object_checked`, `argument_duration_max`/`_min` (with the largest `Duration`) | `argument_higher_units`, `argument_mixed_sign`: spans with days or mixed units (§6.1); `argument_string_duration_too_large` (beyond a `Duration`) |
-| tests/tc39_262 `civil/time/sub.rs` | through `add` of a negative duration (no `sub`, §6.2) | the rest as for `add.rs` |
-| tests/tc39_262 `civil/time/round.rs` | `rounding_cross_midnight`, `rounding_increment_hours`, `_minutes`, `_seconds`, `_milliseconds`, `_microseconds` | the other rounding modes (only half to the later and floor, §6.8) |
-| tests/tc39_262 `civil/time/until.rs` | `basic` | `largestunit*`, `round*`, `roundingincrement*`, `roundingmode*`: `since` is an exact `Duration` |
+| tests/tc39_262 `civil/time/add.rs` | `argument_duration`, `argument_string_fractional_units_rounding_mode`, `argument_string_negative_fractional_units`, `argument_object`, `argument_object_checked`, `argument_duration_max`/`_min` (with the largest `Duration`), `balance_negative_time_units`, `argument_higher_units` (a day wraps back), `argument_mixed_sign` (as a deviation: Jiff's span takes its last unit's sign, Rig's units each keep their own, §5.2) | `argument_string_duration_too_large` (beyond a `Duration`) |
+| tests/tc39_262 `civil/time/sub.rs` | through `add` of a negative duration (no `sub`, §6.2), the same cases | as for `add.rs` |
+| tests/tc39_262 `civil/time/round.rs` | `rounding_cross_midnight`, `rounding_increment_nanoseconds`, `_microseconds`, `_milliseconds`, `_seconds`, `_minutes`, `_hours`, `rounding_mode_floor`, `rounding_mode_half_expand`; `rounding_increment_invalid`, `_out_of_range`, and `smallest_unit_missing` are compile errors, in `std-datetime-checks` | the five other rounding modes (§6.8) |
+| tests/tc39_262 `civil/time/until.rs` | `basic`, `argument_cast`, `balance_negative_time_units`, `result_sub_second` | `largestunit*`, `round*`, `roundingincrement*`, `roundingmode*`: `since` is an exact `Duration`, not rounded |
 | tests/tc39_262 `civil/time/equals.rs` | none | each case parses a zoned or annotated string into a `Time`, which Rig refuses (§8.1); the refusals are tested |
 | tests/tc39_262 `civil/datetime/add.rs` | `ambiguous_date`, `balance_negative_time_units`, `hour_overflow` | none |
 | tests/tc39_262 `civil/datetime/round.rs` | `balance`, `limits`, `rounding_direction` (its half to the later, in a negative year), `roundingincrement_one_day`, `roundingmode_basic`, `roundingmode_halfexpand`, `roundingmode_floor`; the increment rules by the compile-time check | the other modes |
-| tests/tc39_262 `civil/datetime/until.rs` | `balance_negative_duration`, `balance` (the forward count), `no_unnecessary_units`, `wrapping_at_end_of_month` | where Jiff counts backward from the later value (`-P40M30DT…`, `-1.month().days(30).hours(23)`), Rig counts forward from the earlier (§9 item 3), tested as such; the rounding of counts |
+| tests/tc39_262 `civil/datetime/until.rs` | `balance_negative_duration`, `balance` (the forward count), `balance_negative_time_units`, `inverse`, `no_unnecessary_units`, `subseconds`, `units_changed`, `weeks_months_mutually_exclusive`, `wrapping_at_end_of_month` | where Jiff counts backward from the later value (`-P40M30DT…`, `-1.month().days(30).hours(23)`), Rig counts forward from the earlier (§9 item 3), tested as such; `largestunit_smallestunit_mismatch`, `round_*`, `roundingincrement_*`, `roundingmode_ceil`: the rounding of counts (§6.1) |
+| Jiff's documentation of these types (`src/civil/*.rs`), 354 examples | 170, in `std-datetime-docs` | 184, each listed in [doc-examples.md](doc-examples.md) with its reason: chiefly what Rig's surface does not have (spans, rounded counts, the rounding modes it lacks, `ISOWeekDate`, weekday arithmetic, builders, `strftime`), and zones and instants of later phases |
 
 ## Measured: the oracle
 
 `gen.py` writes the same 1,669,949 cases as phase 0 (the inputs' sha256
 are unchanged but `calendar.in`'s, which has the new cases after the old
-ones, byte for byte), and 71,646 more: 1,741,595 in all. Jiff answered
-them in 1 s; `answer.rig`, built with `--release`, answers phase 2's.
-Every case std.datetime answers is the same as Jiff's:
+ones, byte for byte), and 71,646 more: 1,741,595 in all. Jiff answers
+them in 1 s. `answer.rig`, built with `--release`, answers phase 2's and
+std.time's, and `test/cli/jiff_oracle.sh` builds both, runs every case,
+and requires no difference (`compare.awk`), in about 15 s. Every case
+answered is the same as Jiff's:
 
 | Operation | Same | Different | Left out on purpose |
 |---|---|---|---|
@@ -160,15 +188,48 @@ Every case std.datetime answers is the same as Jiff's:
 | `datetime.add` | 35,083 | 0 | 4,917: a duration beyond a `Duration`'s range (§5.1) |
 | `datetime.count` (with the rest) | 60,004 | 0 | |
 | `datetime.since` | 10,247 | 0 | 9,753: beyond ±292 years, where Rig saturates (§6.6) |
-| `datetime.round` (round and floor) | 15,000 | 0 | of these, 1,506 rounds in a year at or below 0, where Jiff does not carry (§6.8, item 14); their floors are compared |
+| `datetime.round` (round and floor) | 15,000 | 0 | of the rounds, 81 in a year at or below 0 that reach the next midnight, where Jiff does not carry (§6.8, item 14); their floors are compared |
 | `time.add` (wrapped and checked) | 8,748 | 0 | 1,252: a duration beyond the range |
 | `time.since` | 10,000 | 0 | |
 | `time.round` | 15,000 | 0 | |
 | `date.parse`, `time.parse`, `datetime.parse` (round trips and §8.1's spellings) | 15,041 | 0 | |
-| **all** | **829,029** | **0** | 15,922, and 1,506 rounds |
+| `duration.parse` (std.time) | 5,270 | 0 | 741: past a `Duration`'s range |
+| `duration.round` (std.time) | 8,313 | 0 | 1,687: an input, an answer, or a multiple near the input past the range |
+| **all** | **842,612** | **0** | 18,350, and 81 rounds |
 
-The cases of later phases (`instant.*`, `zoned.*`, and std.time's
-`duration.*`, which phase 1 compared) are not answered yet.
+The oracle once skipped every `datetime.round` in a year at or below 0
+(1,506); it now skips only those that reach the next midnight, so 1,425
+rounds within the day in those years are compared. The cases of later
+phases (`instant.*`, `zoned.*`) are not answered yet.
+
+## The independent review
+
+A review of the branch (2026-11-21) found nothing blocking; it confirmed
+the oracle's counts and Jiff's carry bug (in year -5, 23:30 rounds to
+00:00 of the day before), and walked every date of the range against a
+model. Its findings, each fixed with a case that failed before the fix
+(checked with the branch's previous `rig`, f2d2f0bf9):
+
+1. A generic body passed every check by (above): refused at the
+   instance, with a case for each check, std.time's `round` among them
+   (`std-datetime-checks`, "a generic body cannot call a checked
+   method").
+2. Nothing ran the comparison with the oracle: `jiff_oracle.sh` now
+   builds `answer.rig` and requires every answer to be Jiff's.
+3. Behaviours kept with no ported test, and omissions not listed: the
+   tests named in the table above, the whole range walked, and Jiff's
+   documentation examples (doc-examples.md).
+4. A date's `add(0.5)` or `add(time.duration(hours: 24))` suggested
+   `add(days: …)`, which takes an `Int`: they are told a date has no time
+   of day. Two units to a `Time`'s `round` suggested an increment it
+   refuses (`minutes: 61`): now one it takes, or one of the units given.
+5. A test printed a literal `1h` and divided `hours()` by 24 (§6.4 says
+   never): it counts days and gives the rest.
+6. The oracle skipped every round in a year at or below 0: only those
+   reaching the next midnight now.
+7. A refusal's fix dropped the other amounts: it keeps them.
+8. Panics said "1 days" and "0 days and 1s": they write the keywords.
+9. STD's "Until `Instant` lands" was not timeless: reworded.
 
 ## Verification
 
