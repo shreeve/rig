@@ -464,7 +464,7 @@ test "a set with fields from another module", '''
       return Shape.bad(side: side, why: String("negative")) if side < 0
       side * side
 
-test "main fails with fields", "defer ran", exit: 1, stderr: "error: E.bad(msg: \"x\")"
+test "main fails with fields", "defer ran", exit: 1, stderr: "error: E.bad(msg: \"x\")\n  main_fails_with_fields.rig:5:3 in f\n  main_fails_with_fields.rig:9:3 in main"
   error E
     bad(msg: String)
 
@@ -475,7 +475,7 @@ test "main fails with fields", "defer ran", exit: 1, stderr: "error: E.bad(msg: 
     defer print("defer ran")
     f()!
 
-test "`fun main() -> Int!` fails with fields", "ok 0", exit: 1, stderr: "error: E.bad(msg: \"x\")"
+test "`fun main() -> Int!` fails with fields", "ok 0", exit: 1, stderr: "error: E.bad(msg: \"x\")\n  fun_main_int_fails_with_fields.rig:5:3 in f\n  fun_main_int_fails_with_fields.rig:11:3 in main"
   error E
     bad(msg: String)
 

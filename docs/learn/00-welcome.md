@@ -724,7 +724,7 @@ whether it checks for leaks. The main correspondences:
 | `?fun(A) -> R` | `rig.FnRef`: a context pointer and a call function |
 | an owned closure | a counted, type-erased closure |
 | `defer`, `errdefer` | `defer`, `errdefer` |
-| `sub main()` | `pub fn main(__rig_init: std.process.Init.Minimal) void`, which reports a failure it propagates as `error: E.name`, with the error's fields, and exits 1 (130 when Ctrl-C cancels a `main` that can fail); in Debug it checks for leaks on exit |
+| `sub main()` | `pub fn main(__rig_init: std.process.Init.Minimal) void`, which reports a failure it propagates as `error: E.name`, with the error's fields and, in Debug, its trace, and exits 1 (130 when Ctrl-C cancels a `main` that can fail); in Debug it checks for leaks on exit |
 
 The runtime, `src/runtime.zig`, is written next to every emitted
 program; [INTERNALS](../internals/INTERNALS.md) describes it.

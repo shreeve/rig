@@ -10,6 +10,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const root = @import("root");
+const rt = @import("runtime.zig");
 
 /// Whether this compilation is one unit of a split build.
 pub const on = @hasDecl(root, "__rig_unit");
@@ -66,6 +67,7 @@ const locals_named = [_][]const u8{
     "runtime.profile_next",
     "runtime.profile_scope",
     "runtime.trace_thread",
+    "runtime.across_trace",
 };
 /// A slot's bytes: its variable's, then, last, whether its thread set it.
 const slot_size = 256;
@@ -169,6 +171,8 @@ pub inline fn call(comptime f: anytype, comptime sym: []const u8, args: std.meta
     const thunk = @extern(Thunk, .{ .name = sym });
     var ret: Ret(f) = undefined;
     thunk(@ptrCast(&args), @ptrCast(&ret));
+    // A failure's sites in the owner join this caller's trace.
+    if (comptime rt.traced) rt.acrossTrace().pass();
     return ret;
 }
 
@@ -226,7 +230,14 @@ pub fn exportFn(comptime f: anytype, comptime sym: []const u8, comptime owner: u
         fn thunk(a: *const anyopaque, r: *anyopaque) callconv(.c) void {
             const args: *const std.meta.ArgsTuple(@TypeOf(f)) = @ptrCast(@alignCast(a));
             const rp: *Ret(f) = @ptrCast(@alignCast(r));
-            rp.* = @call(.auto, f, args.*);
+            // This frame starts a trace of its own: a failure's sites
+            // are kept for the caller (`rt.acrossTrace`), from a `const`,
+            // since Zig drops them once the failure is stored in memory.
+            if (comptime rt.traced) {
+                const result = @call(.auto, f, args.*);
+                rt.acrossTrace().keep(result, 0, false);
+                rp.* = result;
+            } else rp.* = @call(.auto, f, args.*);
         }
     };
     @export(&S.thunk, .{ .name = sym });

@@ -43,7 +43,8 @@ out=$(rig run fails.rig 2>&1); expect_rc $? 1 "fallible main"
 expect_has "$out" "error: Oops.bad" "fallible main"
 
 # Every form of `main`: `sub main()!` and `fun main() -> Int!` exit 1 with
-# the error when they fail, and the latter sets the status otherwise.
+# the error and its trace when they fail, and the latter sets the status
+# otherwise.
 cat >forms.rig <<'EOF2'
 use std.os
 
@@ -64,10 +65,10 @@ out=$(rig run forms.rig 2>&1); expect_rc $? 0 "fun main() -> Int!: 0"
 out=$(rig run forms.rig -- a 2>&1); expect_rc $? 1 "fun main() -> Int!: 1"
 expect_eq "$out" "args 1" "fun main() -> Int!: 1"
 out=$(rig run forms.rig -- a b 2>&1); expect_rc $? 1 "fun main() -> Int! fails"
-expect_eq "$out" $'args 2\nerror: Oops.bad' "fun main() -> Int! fails"
+expect_eq "$out" $'args 2\nerror: Oops.bad\n  forms.rig:8:5 in check\n  forms.rig:14:3 in main' "fun main() -> Int! fails"
 printf 'error Oops\n  bad\n\nsub main()!\n  print("before")\n  return Oops.bad\n' >subfails.rig
 out=$(rig run subfails.rig 2>&1); expect_rc $? 1 "sub main()! fails"
-expect_eq "$out" $'before\nerror: Oops.bad' "sub main()! fails"
+expect_eq "$out" $'before\nerror: Oops.bad\n  subfails.rig:6:3 in main' "sub main()! fails"
 
 printf 'sub main()\n  print("sub")\n' >plain.rig
 out=$(rig run plain.rig 2>&1); expect_rc $? 0 "sub main()"

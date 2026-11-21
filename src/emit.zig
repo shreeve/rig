@@ -55,6 +55,52 @@ pub const runtime_source = @embedFile("runtime.zig");
 /// keyed by, does not depend on where it is written. Zig reads the text
 /// as two zero bytes about a word, which no path holds.
 pub const embed_dir_mark = "\\u{0}rig-package\\u{0}/";
+
+/// The byte around each site's mark (`Emitter.markSite`): a zero byte,
+/// which Zig source never holds, so a mark is never taken for code.
+pub const site_mark: u8 = 0;
+
+/// A module's Zig, `text`, without its site marks (`Emitter.markSite`),
+/// and its sites: a line `L:C file.rig:L:C` for each, the line and
+/// column in the Zig of the `try` or `return` after the mark, then the
+/// Rig place. `rig` takes the marks out as it writes the package, after
+/// the last change to the text (`writePackage`), and the module carries
+/// its sites in a table (`writeSiteTable`), where the runtime finds a
+/// failure's trace's places (`rig.writeTrace`). A text with no marks is
+/// itself, with no sites.
+pub fn placeSites(allocator: std.mem.Allocator, text: []const u8) error{OutOfMemory}!struct { zig: []const u8, sites: []const u8 } {
+    if (std.mem.findScalar(u8, text, site_mark) == null) return .{ .zig = text, .sites = "" };
+    var zig: Writer.Allocating = .init(allocator);
+    var sites: Writer.Allocating = .init(allocator);
+    var line: usize = 1;
+    // Where the current line starts in the Zig written so far.
+    var line_start: usize = 0;
+    var at: usize = 0;
+    while (std.mem.findScalarPos(u8, text, at, site_mark)) |open| {
+        const close = std.mem.findScalarPos(u8, text, open + 1, site_mark) orelse unreachable;
+        const part = text[at..open];
+        zig.writer.writeAll(part) catch return error.OutOfMemory;
+        const newlines = std.mem.countScalar(u8, part, '\n');
+        if (newlines > 0) {
+            line += newlines;
+            line_start = zig.written().len - (part.len - 1 - std.mem.findScalarLast(u8, part, '\n').?);
+        }
+        sites.writer.print("{d}:{d} {s}\n", .{ line, zig.written().len - line_start + 1, text[open + 1 .. close] }) catch return error.OutOfMemory;
+        at = close + 1;
+    }
+    zig.writer.writeAll(text[at..]) catch return error.OutOfMemory;
+    return .{ .zig = zig.written(), .sites = sites.written() };
+}
+
+/// The table of a module's `sites` (`placeSites`), written at its end,
+/// after every line a site names: the text, and a function of the
+/// module's whose address the debug information names the module's file
+/// by, which a trace's addresses are matched against (`rig.SiteTable`).
+/// So the places travel with the executable. Only a build that keeps
+/// traces reads it; any other compiles none of it.
+pub fn writeSiteTable(w: *Writer, sites: []const u8) Writer.Error!void {
+    try w.print("\nfn __rig_sites_anchor() callconv(.c) void {{}}\npub const __rig_sites: rig.SiteTable = .{{ .anchor = &__rig_sites_anchor, .text = \"{f}\" }};\n", .{std.zig.fmtString(sites)});
+}
 /// The runtime's tasks (`src/tasks.zig`), written beside it.
 pub const tasks_filename = "rig/tasks.zig";
 pub const tasks_source = @embedFile("tasks.zig");
@@ -300,6 +346,10 @@ const Scope = struct {
 
 /// State for the function whose body is being emitted.
 const FunState = struct {
+    /// What a failure's trace names the function by (`markSite`): its
+    /// name, `Type.method` for a method, `test "name"` for a test, and
+    /// `a closure in NAME` for a closure.
+    name: []const u8 = "",
     /// Declared return type.
     return_ty: ?TypeId = null,
     /// The function takes `__out`: it may fail with fields, which a
@@ -366,6 +416,9 @@ const FunState = struct {
 const Nominal = struct {
     /// How `Self` is spelled: the type name, or `__rig_Self` inside a generic.
     name: []const u8,
+    /// The type's name as written, which a method's sites name it by
+    /// (`FunState.name`); empty in an addition's witness.
+    rig_name: []const u8 = "",
     sym: SymbolId,
     /// Its methods' names, as written (`writeModuleName`) and as Zig
     /// names (`ident`, `nameTaken`), each set built once per type.
@@ -556,6 +609,9 @@ pub const Emitter = struct {
     /// The value being written inside the `rig.pack` of the optional it
     /// becomes (`emitLift`), or written where it is held as itself.
     lifting: Sexp = .nil,
+    /// Where each line of `source` starts, for the place of a failure's
+    /// site (`markSite`), made at the first.
+    line_starts: std.ArrayList(u32) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8, w: *Writer, ctx: Facts) Emitter {
         return .{
@@ -584,6 +640,7 @@ pub const Emitter = struct {
         self.cut_exports.deinit(self.allocator);
         self.flag_names.deinit(self.allocator);
         self.paused.deinit(self.allocator);
+        self.line_starts.deinit(self.allocator);
         self.arena.deinit();
     }
 
@@ -885,7 +942,7 @@ pub const Emitter = struct {
         // A test that may fail with fields is given the slot they go in,
         // which `rig.runTests` shows and drops.
         try self.w.print("fn {s}(__out: rig.ErrSlot) anyerror!void ", .{func});
-        self.fun = .{ .has_out = true, .out_unmarked = true };
+        self.fun = .{ .name = try self.fmt("test {s}", .{self.srcText(ir.Test.name(node))}), .has_out = true, .out_unmarked = true };
         try self.emitBlock(ir.Test.body(node));
         try self.w.writeAll("\n");
     }
@@ -1176,6 +1233,7 @@ pub const Emitter = struct {
         const sym = self.facts.symbolOf(name_node) orelse return self.unsupported(name_node, "an unresolved type");
         const name = if (generic) "__rig_Self" else try self.fmt("{f}", .{ident(self.srcText(name_node))});
         self.nominal = try self.nominalOf(name, sym, members);
+        self.nominal.?.rig_name = self.srcText(name_node);
         return prev;
     }
 
@@ -1913,7 +1971,8 @@ pub const Emitter = struct {
         // A function that always panics is cold, as a `rarely` one is,
         // so a call of it is laid out off the path that does not.
         const cold = marker == .rarely or (marker == .none and !is_main and rig.alwaysPanics(body));
-        self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main, .inlined = inlined, .cold = cold, .rarely = facts.syntax.funRarely(node), .entry_check = entry_check };
+        const shown_name = if (self.nominal) |nom| (if (nom.rig_name.len > 0) try self.fmt("{s}.{s}", .{ nom.rig_name, name }) else name) else name;
+        self.fun = .{ .name = shown_name, .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main, .inlined = inlined, .cold = cold, .rarely = facts.syntax.funRarely(node), .entry_check = entry_check };
         // `main` holds the slot its failure's fields go in.
         // (A `main` that declares no failure but uses `!` fails with any
         // error.)
@@ -3639,6 +3698,8 @@ pub const Emitter = struct {
         const value = ir.Return.value(node);
         if (value == .nil) return self.w.writeAll("return;");
         if (value.isKind(.results)) return self.emitReturnResults(value);
+        // A return that may fail is a site of a failure's trace.
+        if (self.typeOf(value)) |t| if (self.facts.isErrorValue(t) or self.facts.types.get(t) == .fallible) try self.markSite(node);
         try self.w.writeAll("return ");
         try self.emitReturnValue(value);
         try self.w.writeAll(";");
@@ -7081,6 +7142,7 @@ pub const Emitter = struct {
                 // its own to a call that takes one.
                 const fails_out = self.failsWithFieldsCall(operand);
                 if (fails_out and self.fun.has_out) self.fail_slot = .{ .call = operand, .expr = self.fun.out_name };
+                try self.markSite(sexp);
                 try self.w.writeAll("try ");
                 const own = if (fails_out and !self.fun.has_out) try self.openCatchSlot(operand) else null;
                 try self.emitExpr(operand);
@@ -9288,7 +9350,10 @@ pub const Emitter = struct {
     /// whole result, error or optional included, a run-time value.
     ///
     /// An optional or fallible result is made a run-time value by a `var`
-    /// in place, not by `rig.rt`: Zig passes such a value to a function
+    /// in place, not by `rig.rt`. A fallible result is a `const` first,
+    /// which the `var` copies: Zig takes a failure a call stores into a
+    /// `var` as handled and drops its sites from the error return trace,
+    /// which a failure's trace shows (`rig.writeTrace`). Not `rig.rt`: Zig passes such a value to a function
     /// through memory, and where it is a choice between a copy written
     /// field by field (payload, then flag) and Zig's constant `null`,
     /// LLVM keeps that round trip, whose whole-word load cannot be
@@ -9299,11 +9364,17 @@ pub const Emitter = struct {
         if (ir.Call.task(sexp) != .nil) return self.emitTask(sexp);
         if (!self.facts.callsInlined(sexp)) return self.emitCallPlain(sexp);
         if (self.typeOf(sexp)) |ty| switch (self.facts.types.get(ty)) {
-            .optional, .fallible => {
+            .optional => {
                 const id = self.nextId();
                 try self.w.print("(__rig_rt_{d}: {{ var __rig_v_{d} = ", .{ id, id });
                 try self.emitCallPlain(sexp);
                 return self.w.print("; _ = &__rig_v_{d}; break :__rig_rt_{d} __rig_v_{d}; }})", .{ id, id, id });
+            },
+            .fallible => {
+                const id = self.nextId();
+                try self.w.print("(__rig_rt_{d}: {{ const __rig_c_{d} = ", .{ id, id });
+                try self.emitCallPlain(sexp);
+                return self.w.print("; var __rig_v_{d} = __rig_c_{d}; _ = &__rig_v_{d}; break :__rig_rt_{d} __rig_v_{d}; }})", .{ id, id, id, id, id });
             },
             else => {},
         };
@@ -10694,6 +10765,40 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
+    /// Mark where `node` stands as a site of a failure's trace: the Zig
+    /// written next, a `try` or a failing `return`, records its address
+    /// in Zig's error return trace when a failure passes it, and the
+    /// mark, `site_mark` around the place and the function it is in
+    /// (`file.rig:L:C in parse`), says what that address shows as
+    /// (`placeSites`).
+    fn markSite(self: *Emitter, node: Sexp) Error!void {
+        const pos = self.facts.startOf(node);
+        const at = self.file.locate(pos);
+        if (self.line_starts.items.len == 0) {
+            try self.line_starts.append(self.allocator, 0);
+            for (self.source, 0..) |c, i| if (c == '\n') try self.line_starts.append(self.allocator, @intCast(i + 1));
+        }
+        const starts = self.line_starts.items;
+        const end: u32 = @intCast(@min(pos, self.source.len));
+        // The lines of the file `pos` is in count from its start.
+        const at_line = std.sort.upperBound(u32, starts, end, orderU32) - 1;
+        const first = std.sort.upperBound(u32, starts, at.start, orderU32) - 1;
+        var from: u32 = @max(starts[at_line], at.start);
+        // A byte order mark at a file's start takes no column (`diag.lineCol`).
+        if (from == at.start and std.mem.startsWith(u8, at.text, "\xEF\xBB\xBF") and end >= from + 3) from += 3;
+        var col: usize = 1;
+        for (self.source[@min(from, end)..end]) |c| col += @intFromBool(c & 0xC0 != 0x80);
+        try self.w.print("{c}{s}:{d}:{d}", .{ site_mark, at.path, at_line - first + 1, col });
+        if (self.fun.name.len > 0) try self.w.print(" in {s}", .{self.fun.name});
+        try self.w.writeByte(site_mark);
+    }
+
+    const closure_prefix = "a closure in ";
+
+    fn orderU32(key: u32, item: u32) std.math.Order {
+        return std.math.order(key, item);
+    }
+
     /// Text `emitPrintArgs` puts among the values, each a Zig string
     /// literal: `start` before the first.
     const PrintText = struct { start: ?[]const u8 = null, sep: ?[]const u8 = null, end: ?[]const u8 = null };
@@ -10887,7 +10992,9 @@ pub const Emitter = struct {
         defer self.closure_depth -= 1;
         const saved_fun = self.fun;
         defer self.fun = saved_fun;
-        self.fun = .{ .return_ty = ret, .params = params, .unused_env = if (uses_env or once) "" else env, .once_caps = once_caps.items, .once_env = if (once) env else "" };
+        // A closure's sites name the function it is written in.
+        const in_name = if (std.mem.startsWith(u8, saved_fun.name, closure_prefix)) saved_fun.name else if (saved_fun.name.len > 0) try self.fmt(closure_prefix ++ "{s}", .{saved_fun.name}) else "a closure";
+        self.fun = .{ .name = in_name, .return_ty = ret, .params = params, .unused_env = if (uses_env or once) "" else env, .once_caps = once_caps.items, .once_env = if (once) env else "" };
         try self.bindParams(params, false);
         for (params.items()) |p| {
             try self.w.writeAll(", ");
@@ -12291,4 +12398,19 @@ fn optionalDepth(types: *const facts.TypeStore, ty: TypeId) u32 {
     var t = ty;
     while (types.get(t) == .optional) : (n += 1) t = types.get(t).optional;
     return n;
+}
+
+test "placeSites takes the marks out and names the line and column after each" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const text = "fn f() !void {\n    \x00a.rig:2:3\x00try g();\n    \x00a.rig:3:5\x00return error.E;\n}\n";
+    const placed = try placeSites(arena.allocator(), text);
+    try std.testing.expectEqualStrings("fn f() !void {\n    try g();\n    return error.E;\n}\n", placed.zig);
+    try std.testing.expectEqualStrings("2:5 a.rig:2:3\n3:5 a.rig:3:5\n", placed.sites);
+    const two = try placeSites(arena.allocator(), "x(\x00b.rig:1:1\x00try f(), \x00b.rig:1:9\x00try g());\n");
+    try std.testing.expectEqualStrings("x(try f(), try g());\n", two.zig);
+    try std.testing.expectEqualStrings("1:3 b.rig:1:1\n1:12 b.rig:1:9\n", two.sites);
+    const plain = try placeSites(arena.allocator(), "const x = 1;\n");
+    try std.testing.expectEqualStrings("const x = 1;\n", plain.zig);
+    try std.testing.expectEqualStrings("", plain.sites);
 }
