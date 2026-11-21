@@ -91,7 +91,7 @@ fail "self sigil field element", "17:5: `handlers` is a field holding functions,
   print(x, y, z)
 
 fail "self sigil reads", "13:4: `is_empty` does not write `self`; for negation use `not`", "15:7: `is_empty` does not write `self`; for negation use `not`", "17:7: `peek` does not write `self`; remove the `!`"
-  # `!` before a method call lends to write self, so a method that
+  # `!` before a method call makes a write view of self, so a method that
   # only reads it is the habit of `!` as negation: use `not`, or drop the
   # `!` when the method returns no `Bool`.
 
@@ -450,7 +450,7 @@ test "swap forms", '''
   print(c.get(), o)
 
 fail "swap misuse", "10:6: `swap` moves values that hold no `?T`, `!T`, or slice; `V` may hold one", "13:10: `swap` exchanges two places of one type; got `Int` and `Static`", "14:12: `swap` takes a write view of a place: `!x`; got `Int`", "15:16: type mismatch: expected `Int`, got `Static`"
-  # `swap` takes places lent to write (`!x`) of one type, whose values
+  # `swap` takes places given as write views (`!x`) of one type, whose values
   # hold no view, and the value a swap stores has the place's type.
 
   obj V
@@ -1001,7 +1001,7 @@ test "showcase program", '''
   1
 '''
   # The original language showcase: fallible functions return plain
-  # values, `?input` lends on a view parameter, a compile-time
+  # values, `?input` passes on a view parameter, a compile-time
   # parameter specializes the function, and a user type may be named `Bytes`.
 
   obj User
@@ -1186,8 +1186,8 @@ test "static array as slice", '''
   1 q
   2 a
 '''
-  # An array or a List of `Static` lends to read as a `[]?String`, as an
-  # array of `Int` lends as a `[]Int`: a bare name, `?name`, a temporary
+  # An array or a List of `Static` is viewed as a `[]?String`, as an
+  # array of `Int` is viewed as a `[]Int`: a bare name, `?name`, a temporary
   # array, and a List.
   sub show(xs: []?String)
     print(xs.len, xs[0])
@@ -1203,7 +1203,7 @@ test "static array as slice", '''
 
 fail "static array as write slice", "7:6: type mismatch: expected `![]?String`, got `![2]Static`"
   # The elements of a `Static` array are read as `?String`s, never
-  # written as them: a write lend holds exactly its element type.
+  # written as them: a write view holds exactly its element type.
   sub fill(xs: ![]?String)
     pass
 
@@ -1316,7 +1316,7 @@ fail "static name reserved", "3:5: `Static` is a reserved built-in nominal name 
 fail "static never where written", "12:8: cannot make a write view of `loose`: it holds a read view of text, `?String`", "13:15: cannot make a write view of `loose`", "14:20: type mismatch: expected `Static`, got `?String`", "15:9: type mismatch: expected `Static`, got `?String`; `fixed` is a `Static`, bound to a literal's text, and a `?String` may view a `String`: declare it `fixed: ?String = ...` to hold other text", errors: 4
   # A `Static` is read as a `?String`, never where the text can be written:
   # a `?String` view cannot be written into a `Static` place, and a `?String`
-  # place, which nothing lends to write, is no `!Static`.
+  # place, of which nothing makes a write view, is no `!Static`.
 
   sub reset(w: !Static)
     w = "reset"
@@ -1466,9 +1466,9 @@ test "string owned and view", '''
   hi! there hi! hi
 '''
   # A `String` owns its text and a `?String` views it. Names say what a
-  # value is and sigils say how it is held: `?s` lends a `String` as a
-  # `?String`, `!s` lends it to write, and `+s` of a `?String` copies it
-  # into a new `String`.
+  # value is and sigils say how it is held: `?s` makes a `String` a
+  # `?String` view, `!s` makes a write view of it, and `+s` of a `?String`
+  # copies it into a new `String`.
 
   fun length(s: ?String) -> Int
     s.len
@@ -1501,7 +1501,7 @@ fail "string owner expected", "9:12: type mismatch: expected `String`, got `Stat
   x: String = "lit"
 
 fail "string place not under a write view", "12:7: cannot make a write view of `a`: it holds a read view of text, `?String`", "12:11: cannot make a write view of `b`", "14:13: cannot make a write view of `p.left`", "17:15: cannot make a write view of `names[0]`", "20:6: cannot make a write view of `v`", "21:7: cannot make a write view of `a`", errors: 6
-  # A `?String` is a read view of text, and nothing lends a view's own slot
+  # A `?String` is a read view of text, and nothing views a view's own slot
   # to write: `swap`, `replace`, and `!` on a place that holds one are
   # rejected, as for any read view. Assign to it to point it at other
   # text, or hold a `String` to change the text in place.
@@ -2508,7 +2508,7 @@ test "text friction", '''
   print("end")
 
 fail "text hints", "8:7: cannot index a value of type `String`; index its `?String` view: `(?t[..])[i]`", "9:3: `!t` here is read, not held: `f` only reads `t`; write `f(?t)`", errors: 2
-  # A Text is indexed through its String view, and lent as a String to
+  # A Text is indexed through its String view, and viewed as a String to
   # read with `?t`: a written `!t` there only reads.
 
   sub f(s: ?String)
@@ -2529,8 +2529,8 @@ fail "text is owned", "3:5: `String` is a reserved built-in nominal name and can
   print(xs.len, ys.len)
 
 test "text viewed as string", "5 3 1 2 3"
-  # A Text is lent where a String is expected: `?t` means `?t[..]`, a
-  # view of one lends it as is, and a bare Text argument is lent to read
+  # A Text is viewed where a String is expected: `?t` means `?t[..]`, a
+  # view of one views it as is, and a bare Text argument is given as a read view
   # as `?t` would be.
 
   fun n(s: ?String) -> Int
@@ -2716,7 +2716,7 @@ test "text views", '''
   0
 '''
   # `?t[a..b]` and `?t[..]` view a Text's bytes as a String, and `?t`
-  # lends the whole Text where a String is expected. A view views the
+  # views the whole Text where a String is expected. A view views the
   # Text: once the view's last use is past, the Text can change again.
 
   fun first_word(s: ?String) -> ?String
@@ -2752,7 +2752,7 @@ test "text views as strings", '''
   99
   lit lit
 '''
-  # A view of a Text lends its bytes where a String, or a `(?String)?`, is
+  # A view of a Text views its bytes where a String, or a `(?String)?`, is
   # expected, whether written `?t` or returned by a call; a slice of such a
   # view is a view without another `?`; `for b in ?t` walks its bytes;
   # and a part of a temporary is read through it, as by `get`.
@@ -3289,7 +3289,7 @@ test "variant keyword construction", '''
     .nothing => print("none")
 
 fail "variant literal cell payload", "20:6: `.C(c: Cell(1))` makes a `CV`, which holds a Cell, so it lives only behind a shared handle", "21:7: `.O(v: .C(c: Cell(2)))` makes a `Outer`, which holds a Cell, so it lives only behind a shared handle", errors: 2
-  # A variant literal of an enum that holds a Cell by value, lent where a
+  # A variant literal of an enum that holds a Cell by value, viewed where a
   # `?CV` goes, is rejected as `CV.C(c: Cell(1))` is: a value that holds a
   # Cell lives only behind a shared handle.
   enum CV
@@ -3362,7 +3362,7 @@ fail "variant literal error name under view", "12:11: `.Oops` is not a variant o
 fail "variant literal where view kept", "33:7: type mismatch: expected `!Val`, got `Val`", "34:7: type mismatch: expected `!Color`, got `Color`", "35:12: type mismatch: expected `?Val`, got `Val`", "36:16: type mismatch: expected `?Val`, got `Val`", "37:11: type mismatch: expected `?Val`, got `Val`", "38:6: `.Num` is an enum variant, but the expected type `?Val?` is not an enum", "27:24: type mismatch: expected `?Val`, got `Val`", "31:10: type mismatch: expected `?Val`, got `Val`", errors: 8
   # A variant literal whose enum comes from where it goes is, where a
   # view held by address goes, the value `Val.V(...)` is, and is rejected
-  # where that value is: lent to write, kept in a field, an element, or a
+  # where that value is: given as a write view, kept in a field, an element, or a
   # binding, returned, a view of an optional, or a parameter's default.
 
   enum Val
@@ -3614,7 +3614,7 @@ fail "vec bad kwarg", "`List` constructor accepts only `capacity` as a kwarg; go
 
 fail "vec get copies only", "`List.get` would copy an element out of a `List` of `String`, which a copy cannot share; read it in place with `v[i]`, or make a view of it with `?v[i]`"
   # `v.get(i)` hands out a copy of the element, so it needs one that
-  # copies; an owning element is read in place or lent.
+  # copies; an owning element is read in place or viewed.
 
   v: List[String] = List()
   !v.push(String("a"))
@@ -3787,7 +3787,7 @@ test "view number literal", '''
   2 -2 201.5
   5
 '''
-  # A number literal lent where a read view of a number is expected
+  # A number literal viewed where a read view of a number is expected
   # (`?1` for a `?Int`) takes the viewed type, as `?"ab"` does for a
   # `?String`.
 
@@ -3811,7 +3811,7 @@ test "view number literal", '''
   print(m.slot(?21))
 
 fail "view number literal range", "6:10: integer value `300` does not fit in `U8` (0..255)"
-  # A lent literal must fit the viewed type.
+  # A literal given as a view must fit the viewed type.
 
   fun h(b: ?U8) -> Int
     Int(b)
@@ -3949,11 +3949,11 @@ test "weak upgrade clone and drop", '''
   # scope exit drops `n`, the last strong handle: prints 1
 
 fail "weak upgrade forms", "12:8: `*w?` is `*(w?)`, and `w` is a weak handle, not an optional: to return `none` once its value is gone, write `(*w)?`", "17:5: `*` only reads the weak handle it upgrades: write `*w`", "22:6: cannot make a view of `w if c else w2`: it may be `w`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `*(?w if c else ?w2)`", errors: 3
-  # `*w` only reads the weak handle it upgrades, so a write lend there is
+  # `*w` only reads the weak handle it upgrades, so a write view there is
   # rejected. A suffix binds tighter than `*`: `*w?` is `*(w?)`, which
   # propagates `none` out of the weak handle itself; the hint gives
   # `(*w)?`, which returns `none` once the value is gone. A branching
-  # value that may be a name's handle is lent branch by branch, as a
+  # value that may be a name's handle is viewed branch by branch, as a
   # self is.
 
   obj Node
@@ -3975,7 +3975,7 @@ fail "weak upgrade forms", "12:8: `*w?` is `*(w?)`, and `w` is a weak handle, no
 
 fail "weak upgrade method", "10:6: a weak handle upgrades with `*w`, not a method: `if *w as s`", "12:10: a weak handle upgrades with `*w`, not a method: `if *w as s`", "13:7: a weak handle upgrades with `*w`, not a method: `if *w as s`", errors: 3
   # A weak handle upgrades with `*w`, a sigil, not a method: `w.upgrade()`
-  # is rejected with the form to write, whatever lends the handle and
+  # is rejected with the form to write, whatever views the handle and
   # whatever it is given.
 
   obj User

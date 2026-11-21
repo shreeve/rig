@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """test/hints.py RIG FILE [--run EXPECT]: every hint of the rule that a
-lend of a place is never a path's base compiles.
+sigil is never put on a path's base compiles.
 
-For each diagnostic of the rule in FILE's check (a lend as a path's
+For each diagnostic of the rule in FILE's check (a sigil on a path's
 base, or a written `!` on a slice only read), the hint is applied alone:
 its line is replaced by the rewrite, or by the binding and the rewrite
 where a temporary is bound first. The rewritten lines must then draw no
@@ -13,7 +13,7 @@ that has such a diagnostic. Exits 1, listing each bad hint, if any is.
 """
 import os, re, shutil, subprocess, sys, tempfile
 
-LEND = re.compile(r'^(?P<f>.+?):(?P<l>\d+):(?P<c>\d+): error: `(?P<path>[^`]+)`: put the sigil on the whole path, not its base(?P<rest>.*)$')
+BASE_SIGIL = re.compile(r'^(?P<f>.+?):(?P<l>\d+):(?P<c>\d+): error: `(?P<path>[^`]+)`: put the sigil on the whole path, not its base(?P<rest>.*)$')
 SLICE = re.compile(r'^(?P<f>.+?):(?P<l>\d+):(?P<c>\d+): error: `[^`]+` here is read, not held: `(?P<path>[^`]+)` only reads the place it reaches\. Write `(?P<fix>[^`]+)`$')
 BIND = re.compile(r'bind it to a name first: `(?P<name>\w+) = (?P<made>[^`]+)`, then `(?P<fix>[^`]+)`$')
 FIX = re.compile(r'^: `(?P<fix>.+)`$')
@@ -29,7 +29,7 @@ def hints(rig, path):
     _, err = check(rig, path)
     base = os.path.basename(path)
     for line in err.splitlines():
-        m = LEND.match(line)
+        m = BASE_SIGIL.match(line)
         if m and os.path.basename(m.group('f')) == base:
             rest = m.group('rest')
             b = BIND.search(rest)
@@ -107,7 +107,7 @@ def main():
             _, err = check(rig, target)
             # An error is the hint's unless the program drew it before, the
             # same text at the same place: a rewritten line's columns are
-            # mapped through the rewrite. A lend-base error on another line
+            # mapped through the rewrite. A sigil-on-base error on another line
             # is that line's own.
             shift = len(rows) - 1
             fixed = rows[-1]

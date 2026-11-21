@@ -2,7 +2,7 @@
 
 
 fail "write call already viewed", "`(!b)` already makes a write view of `b`: remove the outer `!` and write `(!b).ensure(1, List())`"
-  # A self already lent to write, `(!b)`, takes no second `!`: the
+  # A self already given as a write view, `(!b)`, takes no second `!`: the
   # outer one is removed, not parenthesized again.
 
 
@@ -46,12 +46,12 @@ test "write call short form", '''
   9
 '''
   # A write call whose value is used and is no `Bool` is written short,
-  # `!v.m(...)`: the `!` lends self of the chain's first method
-  # call, `@` in `!@new_node(k)`, `@nodes` in `!@nodes.remove(0).len`.
-  # Inside a generic body a call returning a `T` is short, since `T` is
-  # a parameter there, and so is a `Bool?`, which no condition or `not`
-  # takes. Where self's type arguments make the result a `Bool`
-  # (`List[Bool]`, `Box[Bool]`), the long form says what is meant.
+  # `!v.m(...)`: the `!` makes a write view of self of the chain's first
+  # method call, `@` in `!@new_node(k)`, `@nodes` in `!@nodes.remove(0).len`.
+  # Inside a generic body a call returning a `T` is short, since `T` is a
+  # parameter there, and so is a `Bool?`, which no condition or `not` takes.
+  # Where self's type arguments make the result a `Bool` (`List[Bool]`,
+  # `Box[Bool]`), the long form says what is meant.
 
   obj Pool
     nodes: List[String]
@@ -197,15 +197,15 @@ code "write call long form emit", "const x: i64 = (v.pop() orelse 0);", "const n
 
 fail "write view constant", "56:7: cannot change constant `Color.red`: it lives for the whole program and never changes", "57:7: cannot change constant `E.bad`", "58:7: cannot change constant `false`", "59:7: cannot change constant `\"abc\"`", "60:7: cannot change constant `none`", "61:6: cannot change constant `5`", "62:6: cannot change constant `-5`", "63:7: cannot change constant `2 + 3`", "64:8: cannot change constant `not true`", "65:8: cannot change constant `Color.red if f(1) == 1 else Color.green`", "66:6: cannot change constant `Int.max`", "67:7: cannot change constant `U8.max`", "68:7: cannot change constant `Int.max - 1`", "69:7: cannot change constant `f`", "70:7: cannot change constant `P.origin`", errors: 15
   # A constant lives for the whole program and never changes (Core
-  # sentence 7), so it is never lent to write: a literal, `none`, an enum
-  # variant that holds no payload, an error value, a number type's limit,
-  # a function or a type's function, a module's constant, an operator
-  # applied to constants, or a value that branches, every value of which
-  # is a constant. One that may be a value made at run time is a
-  # temporary instead, lent to write in its statement's slot
-  # (`test/behavior/ownership/write_view_temporary_branches.rig`); a binding that holds a function is a name like any
-  # other (`test/behavior/types/write_view_function_binding.rig`).
-  # (Another module's: `modules/foreign_variant_write`.)
+  # sentence 7), so it is never given as a write view: a literal, `none`, an enum
+  # variant that holds no payload, an error value, a number type's limit, a function
+  # or a type's function, a module's constant, an operator applied to constants, or
+  # a value that branches, every value of which is a constant. One that may be a
+  # value made at run time is a temporary instead, given as a write view in its
+  # statement's slot (`test/behavior/ownership/write_view_temporary_branches.rig`);
+  # a binding that holds a function is a name like any other
+  # (`test/behavior/types/write_view_function_binding.rig`). (Another module's:
+  # `modules/foreign_variant_write`.)
 
   enum Color
     red
@@ -272,8 +272,8 @@ test "write view function binding", '''
   20
 '''
   # A binding that holds a function is a name like any other: it may be
-  # lent to write, and the callee may re-point it. A function itself is a
-  # constant (`test/reject/types/write_view_constant.rig`).
+  # given as a write view, and the callee may re-point it. A function itself
+  # is a constant (`test/reject/types/write_view_constant.rig`).
 
   fun f(n: Int) -> Int
     n
@@ -292,7 +292,7 @@ test "write view function binding", '''
 fail "write self branches", "14:2: method `bump` writes `self`, and `p if c else q` may be `p`, a value a name holds", "15:2: method `bump` writes `self`, and `o ?? q` may be `o`, a value a name holds", "16:3: method `bump` needs a write view of `self`; write `!p.bump()`", errors: 3
   # A `!@` method writes its self: a branching value that may be a
   # name's would be written as a copy (plain data too), and a place is
-  # lent with `!`.
+  # viewed with `!`.
   obj P
     x: Int
 
@@ -409,9 +409,9 @@ test "write slice as read", '''
   1 [1, 2, 3]
   [5, 2, 3]
 '''
-  # A `![]T` passed where a `[]T` is expected is lent to read: two reads
-  # of it in one call are fine, and so is reading it while a view returned
-  # from it lives.
+  # A `![]T` passed where a `[]T` is expected is given as a read view: two
+  # reads of it in one call are fine, and so is reading it while a view
+  # returned from it lives.
 
   fun sum2(x: []Int, y: []Int) -> Int
     x[0] + y[1]
@@ -738,7 +738,7 @@ test "write view calls mutating method", '''
 '''
   # A binding that already holds a write view (`x: !T`, `!@`, a local
   # `w = !v`) calls a `!@` method as an owned binding does, `!x.m()`:
-  # lending a write view always shows its sigil.
+  # passing a write view on always shows its sigil.
 
   obj Counter
     n: Int
@@ -780,8 +780,8 @@ test "taken bindings given write views", '''
   21
 '''
   # An `as`, `match <x`, or `for x in <v` binding that owns a resource
-  # moved into it is written like a local: it is lent to write, a handle
-  # as itself (`!*Node`), in a plain and in a generic body.
+  # moved into it is written like a local: it is given as a write view, a
+  # handle as itself (`!*Node`), in a plain and in a generic body.
 
   obj Node
     n: Cell[Int]
@@ -915,9 +915,9 @@ test "write view int param", "2"
   print(n)
 
 fail "write view of string type", "5:14: `!?String` cannot be written", "8:15: `!?String` cannot be written", errors: 2
-  # Nothing lends a `?String` place to write, so a write view of one has no
-  # value and cannot be written as a type: assign to the place to point it
-  # at other text, or hold a `String` to change text in place.
+  # Nothing makes a write view of a `?String` place, so a write view of one
+  # has no value and cannot be written as a type: assign to the place to point
+  # it at other text, or hold a `String` to change text in place.
 
   sub clear(s: !?String)
     pass
@@ -955,7 +955,7 @@ fail "write view of string type from retain's type", "7:15: closure parameter `v
 
 fail "write view of a read view", "4:13: `!?List[Int]` cannot be written: a `?List[Int]` is a read view, which never becomes a write view", "7:15: `!?Int` cannot be written", errors: 2
   # The same for any read view: assigning to the place points it
-  # elsewhere, and nothing lends it to write.
+  # elsewhere, and nothing make a write view of it.
 
   sub show(v: !?List[Int])
     print(v.len)
@@ -1055,9 +1055,9 @@ fail "write view stored in value", "5:6: a write view is never stored inside a v
   print(a.len)
 
 fail "write call hint for source", "12:12: method `drain` needs a write view of `self`; write `!b.drain()`", errors: 1
-  # Before a `for` source's method call, a `!` lends the call's self, as
-  # before any call: the hint writes `!b.drain()`, and both spellings
-  # run, walking the List the call makes.
+  # Before a `for` source's method call, a `!` makes a write view of the
+  # call's self, as before any call: the hint writes `!b.drain()`, and both
+  # spellings run, walking the List the call makes.
 
   obj Bag
     items: List[Int]
@@ -1078,7 +1078,7 @@ test "a read view of a call that gives a write view", '''
   12 6 6
 '''
   # `?wr(!x)` reads the `Int` the write view reaches, where an `Int`
-  # goes and where a `?Int` does, and keeps `x` lent while it is held.
+  # goes and where a `?Int` does, and keeps a view of `x` in use while it is held.
   fun wr(a: !Int) -> !Int
     a
 

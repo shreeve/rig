@@ -136,7 +136,7 @@ fail "take rejections ownership", "17:10: cannot change `s.top` while a read vie
   # Taking an optional out of a field writes the field: not while another
   # view of the value is live, and not twice in one call. A field that
   # is not optional moves out as a name does, and leaves `s` partly
-  # moved, so `s` is not lent whole after. A local is moved as a whole,
+  # moved, so `s` is not used whole after. A local is moved as a whole,
   # and cannot be used after.
 
   obj N
@@ -224,7 +224,7 @@ test "take through branch of write views", '''
   # the leaf it took: `<` through it takes the optional field out of the
   # place that leaf views, and leaves `none` there. The other place is
   # untouched.
-  # oracle: lends accept
+  # oracle: views accept
   # oracle: bindings accept
 
   obj S
@@ -235,7 +235,7 @@ test "take through branch of write views", '''
     !xs.push(n)
     xs
 
-  sub lends(c: Bool)
+  sub views(c: Bool)
     s = S(o: mkv(1))
     t = S(o: mkv(2))
     x = <(!s if c else !t).o
@@ -249,8 +249,8 @@ test "take through branch of write views", '''
     x = <(r1 if c else r2).o
     print(x, r1.o, r2.o)
 
-  lends(true)
-  lends(false)
+  views(true)
+  views(false)
   bindings(false)
 
 test "take through view", "2 [1] none"
@@ -299,7 +299,7 @@ test "taken cell holder views", release: true, '''
 '''
   # A loop or match binding of a handle to a Cell holder is never a copy
   # (Core §1): a taken one is the construct's own, a viewed one a view of
-  # the place, and either may be lent, written or bare, and captured.
+  # the place, and either may be viewed, written or bare, and captured.
 
   obj Counter
     hits: Cell[Int]
@@ -460,7 +460,7 @@ test "temporaries read then dropped", '''
   [] Cell(value: 5) boxed
 '''
   # An owning temporary that is only read (a `print` or `String` argument,
-  # a view lent to a call that keeps none, an `==` operand) is dropped
+  # a view given to a call that keeps none, an `==` operand) is dropped
   # when its statement ends, also when the statement fails or leaves
   # early; one in a loop's condition, a header, when the condition ends.
   # A `match` takes a call's result and drops what its arms leave.
@@ -829,7 +829,7 @@ test "text handle slice", '''
   hello
 '''
   # A Text reached through a handle is sliced in place: the
-  # String views the Text the handle shares, and the handle stays lent
+  # String views the Text the handle shares, and the handle stays in use
   # while it is used.
 
   obj W
@@ -852,9 +852,9 @@ test "text handle slice", '''
   print(g)
 
 fail "text handle slice keeps handle", "9:4: cannot return a view of `h`", "14:4: cannot drop `h` while a read view of it is still in use", "20:3: cannot reassign `w` while a read view of `w.t` is still in use", "28:6: cannot drop `g` while a read view of it is still in use", errors: 4
-  # A slice of a Text reached through a handle (`*String`) lends the
-  # handle (Core §4: a `*T` lends the read views of its `T`): the handle may
-  # not be dropped, moved, or replaced while the String is used.
+  # A slice of a Text reached through a handle (`*String`) keeps a view of the
+  # handle (Core §4: a `*T` passes on the read views of its `T`): the handle
+  # may not be dropped, moved, or replaced while the String is used.
 
   obj W
     t: *String
@@ -1008,13 +1008,13 @@ fail "text view returned", "6:4: cannot return a view of `t`, which belongs to t
   fun param_view(t: String) -> ?String
     ?t[1..]
 
-  fun lent(t: String) -> ?String
+  fun viewed(t: String) -> ?String
     first(?t)
 
   fun first(s: ?String) -> ?String
     s
 
-  print(local_view(), param_view(String("x")), lent(String("y")))
+  print(local_view(), param_view(String("x")), viewed(String("y")))
 
 fail "text view through write view", "7:6: a write view is never stored inside a value, and `!String` cannot stand here", "10:6: a write view is never stored inside a value, and `!String` cannot stand here", errors: 2
   # Neither an object nor an iterator holds `!String`: a write view is never
@@ -1216,7 +1216,7 @@ fail "unwrapped write param list", "10:5: cannot let this call store a view of `
 
 fail "unwrapped write param local", "13:3: cannot store a view of `d` in `x.s`: `x` outlives it", "18:3: cannot store a view of `d` through `x`: what `x` views outlives it", "23:3: cannot store a view of `d` through `x ?? return`: `w` outlives it", "29:5: cannot store a view of `d` in `y.s`: `y` outlives it", "35:3: cannot store a view of `d` through `y`: `w` outlives it", errors: 5
   # A local holding the write view a `(!H)?` parameter holds, unwrapped
-  # or not, or lent on from it, stores in the caller's value.
+  # or not, or passed on from it, stores in the caller's value.
 
   obj H
     s: ?String
@@ -1245,7 +1245,7 @@ fail "unwrapped write param local", "13:3: cannot store a view of `d` in `x.s`: 
     if <x as y
       y.s = ?d
 
-  sub lent_on(w: (!H)?)
+  sub viewed_on(w: (!H)?)
     d = String("local")
     x = <w ?? return
     y = !x
@@ -1257,7 +1257,7 @@ fail "unwrapped write param local", "13:3: cannot store a view of `d` in `x.s`: 
   whole(!h)
   optional(!h)
   optional_header(!h)
-  lent_on(!h)
+  viewed_on(!h)
   print(h.s)
 
 fail "unwrapped write param match", "17:16: cannot store a view of `d` through `s`: `w` outlives it", "23:10: cannot store a view of `d` through `w ?? return`: `w` outlives it", errors: 2
@@ -1395,7 +1395,7 @@ test "unwrapped write param stores caller views", '''
   after
 '''
   # A `(!H)?` parameter's write view, unwrapped any way, may store what
-  # the caller lent or what lives for the whole program.
+  # the caller passed or what lives for the whole program.
 
   obj H
     s: ?String
@@ -1640,13 +1640,13 @@ test "variant literal made a view", '''
 '''
   # A variant literal whose enum comes from where it goes (`.V`,
   # `.V(...)`) is, where a read view held by address goes, the value
-  # `Val.V(...)` is: made where it stands and lent to read, held by its
-  # statement, which drops it at its end. So an owned payload, a List
-  # here, is dropped, in every place a view argument goes: a parameter,
-  # an optional view, a generic `?T`, a method's argument, a keyword
-  # argument, a std method's key, a nested variant, a loop, and a call
-  # whose later argument fails. A view that holds a copy (`?Color`)
-  # takes the literal itself.
+  # `Val.V(...)` is: made where it stands and given as a read view, held by
+  # its statement, which drops it at its end. So an owned payload, a List
+  # here, is dropped, in every place a view argument goes: a parameter, an
+  # optional view, a generic `?T`, a method's argument, a keyword argument, a
+  # std method's key, a nested variant, a loop, and a call whose later
+  # argument fails. A view that holds a copy (`?Color`) takes the literal
+  # itself.
 
 
   enum Val
@@ -1737,7 +1737,7 @@ test "variant literal made a view", '''
   print(failing() catch -1)
 
 fail "variant literal view outlives statement", "12:10: a view of the temporary `.Table(m: List())` outlives its statement, which drops it; bind the value to a name first", errors: 1
-  # A variant literal lent to a view argument is a temporary its
+  # A variant literal given to a view argument is a temporary its
   # statement drops, as `Val.Table(...)` is: a view the call returns of it
   # cannot outlive the statement.
 
@@ -1993,9 +1993,9 @@ fail "vec for moving elements source", "25:10: a loop over a List of `String` wa
   # A loop over a List whose elements move walks a List a name holds, a
   # field or element of one, or one a view of only places reaches (`items(?v,
   # ?k)`, CORE §9). Any other source, a List made here (bare, taken, or
-  # lent), a part of a value made here, or a branching value, gets one
+  # viewed), a part of a value made here, or a branching value, gets one
   # diagnostic, whose hint compiles (`test/behavior/ownership/vec_for_moving_
-  # elements_bound.rig`); a branching value is a lend of a name it may be.
+  # elements_bound.rig`); a branching value is a view of a name it may be.
 
   obj H
     items: List[String]
@@ -2603,11 +2603,11 @@ test "while true break move", '''
   print("end")
 
 fail "whole self method field arg", "28:6: cannot change `@` while a read view of `@scanner.value` is still in use", "makes a write view of all of `@`: make write views of the fields it writes", errors: 1
-  # A `!@` method lends all of `@`, so it cannot be called while a
-  # field of `@` is lent: the caller does not look into the body (Core
-  # sentence 7). The idiom is a function of the fields it writes, which
-  # lends only those paths.
-  # From Trig's acceptance tests
+  # A `!@` method makes a write view of all of `@`, so it
+  # cannot be called while a field of `@` is viewed: the
+  # caller does not look into the body (Core sentence 7).
+  # The idiom is a function of the fields it writes, which
+  # views only those paths. From Trig's acceptance tests
   # (docs/ownership/acceptance/beyond/whole_receiver_method_field_arg.rig).
 
   obj Scanner

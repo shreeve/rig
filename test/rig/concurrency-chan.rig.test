@@ -544,7 +544,7 @@ test "chan select arm on a branch", seeds: 20, '''
   print(task.select((!(a if not k else b)).on_recv(|v| v ?? 0))!)
 
 fail "chan select arm on what is no channel", "6:25: `n` is a `Int`, not a channel", "7:25: `flag` is a `Bool`, not a channel", "9:21: `k` is a `Int`, not a channel", "12:25: `ch` is a `T`, not a channel", "15:25: `ch` is a `?T`, not a channel", errors: 5
-  # What an arm names is a channel first: no advice on lending what is
+  # What an arm names is a channel first: no advice on viewing what is
   # no channel comes before that.
   use std.task
 
@@ -566,7 +566,7 @@ test "chan select end through a read view of the task", seeds: 20, '''
   done
   9
 '''
-  # A task arm lends its task to read, so a read view of the task serves.
+  # A task arm makes a read view of its task, so a read view of the task serves.
   # oracle: watch accept
   use std.task
 
@@ -978,10 +978,10 @@ test "chan select tested in a ternary", seeds: 20, "7 -1 hi none"
   print(x, y, a, b)
 
 test "chan select end before and after", seeds: 20, timeout: 10, "25 7"
-  # `name: ?t.on_end()` completes once the task `t` has ended, whether it
-  # ended before the select or ends while it waits. Its variant carries
-  # nothing: the select lends `t` to read, and the body takes the value
-  # with `>t`, which then gives it at once.
+  # `name: ?t.on_end()` completes once the task `t` has ended, whether
+  # it ended before the select or ends while it waits. Its variant
+  # carries nothing: the select makes a read view of `t`, and the body
+  # takes the value with `>t`, which then gives it at once.
   use std.task
   use std.time
 
@@ -1210,9 +1210,9 @@ test "chan views send of what it receives", seeds: 20, '''
   6
   put
 '''
-  # A send or a receive lends the place that holds the handle to read
-  # (Core §4): a receive may feed a send on the same channel, and a send
-  # arm's value may receive from the channel its select names.
+  # A send or a receive makes a read view of the place that holds the
+  # handle (Core §4): a receive may feed a send on the same channel, and
+  # a send arm's value may receive from the channel its select names.
   ch = *Chan[Int](2)
   !ch.send(1)!
   !ch.send((!ch.recv()! ?? 0) + 5)!
@@ -1225,7 +1225,7 @@ test "chan views send of what it receives", seeds: 20, '''
     .put => print("put")
 
 fail "chan views a write in the arguments", "cannot change `xs` while a write view of it is still in use", errors: 1
-  # The read loan begins before the arguments are evaluated: they may
+  # The read view begins before the arguments are evaluated: they may
   # not grow what holds the handle.
   fun grow(xs: !List[*Chan[Int]]) -> Int
     !xs.push(*Chan[Int](1))

@@ -2289,8 +2289,8 @@ test "h1-p", '''
   print(n, m)
 
 test "hf6-generic-read-view-rebound", "5"
-  # A generic method `left(?@, other: ?T) -> ?T` at `T = Int`, its result
-  # bound to a name that held a lend of a place.
+  # A generic method `left(?@, other: ?T) -> ?T` at `T = Int`, its
+  # result bound to a name that held a view of a place.
   obj Pair[T]
     x: T
 

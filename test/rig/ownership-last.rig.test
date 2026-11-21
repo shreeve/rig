@@ -1,10 +1,10 @@
 # ownership: tests whose names start `last`.
 #
-# A loan a statement takes ends at the last use of the value carrying it
+# A view a statement makes ends at the last use of the value carrying it
 # (Core sentence 6), in the order Core §6 gives: a binding's last use
 # within its statement, an operand or argument once its consumer is done
 # with it. Plain data read as a value is copied where it stands, through
-# a view too, and keeps nothing lent there. Each `bump` grows the List
+# a view too, and keeps nothing in use there. Each `bump` grows the List
 # past its capacity, so a wrong acceptance reads freed memory.
 
 test "last binding copied out before a write view", "2"
@@ -220,7 +220,7 @@ test "last generic comparison then a store of a type parameter's value", "1 0"
   if mm.m.get(1) as left
     print(mm.m.len, left.len)
 
-# A view handed over stays lent until its consumer is done (Core §6).
+# A view handed over stays in use until its consumer is done (Core §6).
 
 fail "last earlier argument's view while a later one writes", "cannot change `v` while a read view of it is still in use"
   fun first(v: ?List[Int]) -> ?Int

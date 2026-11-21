@@ -584,7 +584,7 @@ test "sets a member widens to its union where a view of it goes", '''
   1
   false true
 '''
-  # An error of a set is a value of a union that holds it: lent where a
+  # An error of a set is a value of a union that holds it: viewed where a
   # `?L` goes, a key of a `Map[L, ...]` too, and compared with an `L?`.
   error A
     x
@@ -637,9 +637,9 @@ fail "sets an optional union with fields compares with its own members", "11:7: 
   print(p == A.w)
 
 test "sets a member without fields viewed where a union with fields goes", "0 0 0 0 1"
-  # An error of a set without fields is a code: lent where a view of a
-  # set with fields that holds it goes, `error` among them, it lends the
-  # error value of the code, a constant. A view of the code lends it too.
+  # An error of a set without fields is a code: viewed where a view of a
+  # set with fields that holds it goes, `error` among them, it views the
+  # error value of the code, a constant. A view of the code views it too.
   error A
     x(n: Int)
 
@@ -819,7 +819,7 @@ fail "sets an optional's member with fields compared is unwrapped first", "an er
 
 test "sets a catch-all of `error` is a view of the error matched", "1 2 1"
   # A read match's catch-all of an error value is a view of it where it
-  # is, lent on as a view; a write match's is a write view.
+  # is, passed on as a view; a write match's is a write view.
 
   error X
     one

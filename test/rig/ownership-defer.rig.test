@@ -244,7 +244,7 @@ fail "defer in loop keeps a view", "32:17: cannot change `v` while a read view o
   # A `defer` in a loop's body runs inside the loop, before the loop reads
   # its source again, so it cannot write what that source views: a slice
   # the condition reads, an iterator a `while … as` advances, or one a
-  # `for` holds or lends.
+  # `for` holds or views.
 
   obj SCur
     xs: []Int
@@ -286,7 +286,7 @@ fail "defer in loop keeps a view", "32:17: cannot change `v` while a read view o
       defer grow(!v)
       print(x)
 
-  sub lent(b: !SB)
+  sub viewed(b: !SB)
     for x in ?b.each()
       defer grow(!b.xs)
       print(x)
@@ -298,7 +298,7 @@ fail "defer in loop keeps a view", "32:17: cannot change `v` while a read view o
   advanced(!v)
   held(!v)
   b = SB(xs: List())
-  lent(!b)
+  viewed(!b)
 
 fail "defer moves outer", "a `defer` body cannot move or drop `rc`"
   # A deferred body cannot move an outer binding: it runs at scope exit,
@@ -498,7 +498,7 @@ fail "defer revives vec at propagate", "20:9: use of `v` after move", errors: 1
 
 fail "defer runs after its block's value", "15:14: cannot use `@xs` while a write view of it is still in use", "22:14: cannot use `@xs` while a write view of it is still in use", "30:14: cannot use `@xs` while a write view of it is still in use", "41:16: cannot use `@xs` while a write view of it is still in use", "47:13: cannot assign to `@xs` while a write view of it is still in use", "54:14: cannot use `@xs` while a write view of it is still in use", errors: 6
   # A block's defers run after its value is formed, while the value is
-  # still to be used: one may not change, drop, or lend to write what
+  # still to be used: one may not change, drop, or make a write view of what
   # the value views: an `if` or `match` arm's, a block's in one, or a
   # loop's `break` value.
   obj Slot
@@ -672,7 +672,7 @@ fail "defer uses a returned write view", "16:13: use of `s` after move", "23:13:
       defer s.key = 3
       s
 
-    fun lent(!@) -> !Slot
+    fun viewed(!@) -> !Slot
       s = !@xs[0]
       defer bump(!s)
       return s
@@ -731,7 +731,7 @@ test "defer at a failure in a write call's argument", '''
   [7, 1, 2]
 '''
   # A `!` failure inside the argument of a write call leaves before the
-  # call starts, so the `errdefer` it runs finds self lent to no one:
+  # call starts, so the `errdefer` it runs finds no view of self in use:
   # the reservation that holds self to read until the call starts ends
   # with the statement the exit leaves. The same as hoisting the argument
   # first, `v = text.parse_int(w)!` then `!nums.push(v)`.
@@ -825,7 +825,7 @@ test "defer at a return or jump in a pending call", '''
 '''
   # A `return` or a `continue` in a write call's argument leaves before
   # the call starts, as a failure does: the `defer`s it runs find self
-  # lent to no one.
+  # no view of self in use.
   sub early(nums: !List[Int], xs: ?List[Int?])
     defer !nums.push(0)
     for x in xs
@@ -848,7 +848,7 @@ test "defer at a return or jump in a pending call", '''
   print(m)
 
 fail "defer at a failure after a view in the call", "cannot use `nums` while a write view of it is still in use", "cannot use `b.v` while a write view of `b` is still in use", errors: 2
-  # A lend an argument has already made stays in force while the defers
+  # A view an argument has already made stays in force while the defers
   # of a failure in a later argument run: `!nums` given to `keep`, and the
   # write view `slot` returned once its call had started and run. Only a
   # hold that waits for the call to start ends at the exit.
@@ -863,7 +863,7 @@ fail "defer at a failure after a view in the call", "cannot use `nums` while a w
     fun slot(!@) -> !List[Int] from @
       !@v
 
-  sub lent(nums: !List[Int], words: ?List[String])!
+  sub viewed(nums: !List[Int], words: ?List[String])!
     errdefer !nums.clear()
     for w in words
       keep(!nums, text.parse_int(w)!)
@@ -875,6 +875,6 @@ fail "defer at a failure after a view in the call", "cannot use `nums` while a w
 
   ws: List[String] = List()
   nums: List[Int] = List()
-  lent(!nums, ws) catch print("x")
+  viewed(!nums, ws) catch print("x")
   b = Box(v: List())
   started(!b, ws) catch print("x")

@@ -62,8 +62,9 @@ fun second(a: *Actor[S]) -> Int
 
 sub main()
   # The method's stack goes when the panic ends the runner, so the task
-  # lent a local on it must have ended first: it reads the local after
-  # its sleep is canceled, and before the caller learns of the panic.
+  # given a view of a local on it must have ended first: it reads the
+  # local after its sleep is canceled, and before the caller learns of
+  # the panic.
   a = *Actor(S(n: 1))
   t = first(+a)&
   time.sleep(ms: 5)!

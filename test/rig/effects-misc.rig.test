@@ -1287,7 +1287,7 @@ test "safe builtin outside raw", "8"
 fail "type runs nothing", "16:19: `$type` does not run its operand, so the call `side(1)` never happens; write the operand without `<`, `!`, or a call", "16:42: the move `<s`", "16:60: the write view `!xs`", "16:79: the clone `+xs`", "16:98: the propagation `ok(1)!`", "16:120: the `catch` `ok(1) catch 0`", "17:19: the box `^<p`", "17:38: the shared handle `*<q`", "17:57: the weak handle `~h`", "17:75: the panic `panic(\"no\")`", "19:25: `$TypeOf` does not run its operand, so the call `side(2)`", errors: 12
   # `$type(x)` is written inside Zig's `@TypeOf`, which never evaluates
   # `x`, so its operand holds nothing that would run: no call, move,
-  # write lend, clone, box, handle, propagation, `catch`, or `panic`.
+  # write view, clone, box, handle, propagation, `catch`, or `panic`.
 
   fun side(n: Int) -> Int
     n
@@ -1329,9 +1329,9 @@ fail "variants of type", "8:18: `$type` is only allowed as the argument of `$siz
 
 fail "swap signal whole", "7:8: `swap` moves values whole, and a `Signal[Int]` changes only by its marked calls", errors: 1
   # `swap` and `replace` move values whole. A Signal changes only by its
-  # marked calls, which may be running its subscribers, so the Signals two
-  # handle parameters lend are not exchanged; handles of local bindings,
-  # which `!` lends themselves, still are.
+  # marked calls, which may be running its subscribers, so the Signals
+  # two handle parameters give views of are not exchanged; handles of
+  # local bindings, which `!` views as themselves, still are.
 
   sub trade(s: *Signal[Int], t: *Signal[Int])
     swap(!s, !t)
@@ -1343,9 +1343,9 @@ fail "swap signal whole", "7:8: `swap` moves values whole, and a `Signal[Int]` c
   print(a.get(), b.get())
 
 test "swap a value a call views", "2 2 1"
-  # A second argument that is no lend, a call's write view, is the value
-  # it views, which `swap` puts in the place: typecheck decides which
-  # swap it is once, and the ownership checker and emit read it.
+  # A second argument that is no new view, a call's write view, is the
+  # value it views, which `swap` puts in the place: typecheck decides
+  # which swap it is once, and the ownership checker and emit read it.
 
   fun pick(a: !Int) -> !Int
     a

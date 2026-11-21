@@ -424,8 +424,8 @@ test "cross module method kwargs", "12 19"
         @w * @h * by + plus
 
 test "cross module read view", "42"
-  # `a.log_box` takes a read view `?Wrap`; a bare `Wrap` argument is lent
-  # to read, as `?b` would lend it, across modules too.
+  # `a.log_box` takes a read view `?Wrap`; a bare `Wrap` argument is given
+  # as a read view, as `?b` would give it, across modules too.
   use a
 
   sub main()
@@ -1626,7 +1626,7 @@ fail "foreign private generic", "6:17: `lib.Hidden` is not public", "6:37: gener
 fail "foreign variant write", "16:9: cannot change constant `lib.Color.red`: it lives for the whole program and never changes", "17:9: cannot change constant `lib.Byte.max`", "18:9: cannot change constant `lib.twice`", errors: 3
   # Another module's enum variant, an imported number type's limit, and
   # another module's function are constants, as this module's are: never
-  # lent to write.
+  # given as a write view.
   use lib
 
   sub setc(c: !lib.Color)
@@ -2029,7 +2029,7 @@ bomb "inline across modules", "integer overflow", prints: "2\n8\n10", release: t
 
 test "keeps across modules", "let x 9"
   # A method of another module keeps what its signature names, and no more:
-  # `note`'s lend ends with the call, and `watch`'s lasts while `b` is used.
+  # `note`'s view ends with the call, and `watch`'s lasts while `b` is used.
   use a
 
   sub main()
@@ -2183,7 +2183,7 @@ test "marker generic member across", release: true, '''
 '''
   # Another module's generic type's `inline` methods are inlined at each
   # instance made here, and mean what they mean as calls: they hand back a
-  # view, call a function they are lent, and take an owned argument, drop
+  # view, call a function they are given, and take an owned argument, drop
   # the value it replaces, and keep the new one.
 
   use lib
@@ -2927,7 +2927,7 @@ test "qualified imported members", '''
   6
 '''
   # Members of an imported type are named through the module:
-  # associated functions (`lib.P.at(3, 4)`, with a lent to write
+  # associated functions (`lib.P.at(3, 4)`, with a write view
   # parameter too) and enum variants, bare or with a payload.
 
   use lib
@@ -3040,8 +3040,8 @@ test "read only field", '''
   10
 '''
   # A field declared `pub ?name: T` is read by any module and written only
-  # by its own: here it is read, lent to read, walked, and matched, and
-  # changed only through the methods of its module. A plain `pub` field
+  # by its own: here it is read, given as a read view, walked, and matched,
+  # and changed only through the methods of its module. A plain `pub` field
   # stays writable.
 
   use lib
@@ -3145,10 +3145,10 @@ fail "read only field header", "9:5: cannot assign through a read view (`?T`); `
 fail "read only field writes", "14:5: cannot assign to `w.count`: field `count` of `lib.Tally` is read-only outside module `lib`, which declares it `pub ?count`", "18:5: cannot assign to `t.count`: field `count` of `lib.Tally` is read-only outside module `lib`", "19:5: cannot assign to `t.inner.n`: field `inner` of `lib.Tally` is read-only outside module `lib`", "20:5: cannot assign to `t.count`", "21:10: cannot change `t.count`", "22:10: cannot take `t.last`", "23:6: cannot change `t.tags`", "25:11: cannot change `t.count`", "26:15: cannot change `t.count`", "27:15: cannot write-iterate `t.tags`", "29:9: cannot change `t.mode`", "32:5: cannot assign to `b.count`", "37:7: only module `lib` can construct `lib.Tally`: its fields `count`, `tags`, `inner`, `mode`, `last` are read-only", errors: 13
   # A field declared `pub ?name: T` in another module is read-only here,
   # however it would be written: assigned, or a part of it assigned;
-  # assigned by an operator; lent to write; taken out; written by a method
-  # that writes its self; exchanged; walked or matched to write; and
-  # written through a box or a write view. Nor does it set one by
-  # constructing the object with its fields given.
+  # assigned by an operator; given as a write view; taken out; written by a
+  # method that writes its self; exchanged; walked or matched to write; and
+  # written through a box or a write view. Nor does it set one by constructing
+  # the object with its fields given.
 
   use lib
 
@@ -3694,7 +3694,7 @@ test "write view made by module", '''
   6 2 2
   .a(s: "x")
 '''
-  # The value a function called through a module or a type makes, lent
+  # The value a function called through a module or a type makes, viewed
   # to write with its call in parentheses (Core sentence 4).
   use lib
 
@@ -3737,7 +3737,7 @@ test "write view made by module", '''
 fail "write view through module", "26:9: `!` here reaches `lib`, a module, not the value `lib.mk()` makes: write `!(lib.mk())` to make a write view of that value, or remove the `!`", "27:9: `!` here reaches `lib.T`, a type, not the value `lib.T.make()` makes: write `!(lib.T.make())` to make a write view of that value, or remove the `!`", "28:9: `!` here reaches `U`, a type, not the value `U.make()` makes: write `!(U.make())` to make a write view of that value, or remove the `!`", "29:8: `!` here reaches `E`, a type, not the value `E.a(s: \"x\")` makes: write `!(E.a(s: \"x\"))` to make a write view of that value, or remove the `!`", "30:6: `!` here reaches `lib`, a module, and `lib.ok()` makes a `Bool`; for negation use `not`", errors: 5
   # `!` before a function called through a module or a type reaches the
   # module or type, which a parse cannot tell from a value's method: one
-  # diagnostic says so, and how to lend the value the call makes
+  # diagnostic says so, and how to view the value the call makes
   # (`test/behavior/modules/write_view_made_by_module`), or, before a
   # `Bool`, that `!` is not negation.
   use lib

@@ -137,7 +137,7 @@ test "closure", "99", release: true
   print(pick("abc", 2))
 
 bomb "closure mut", "index out of bounds", release: true
-  # A closure made after the guard, lent `i` to write, changes it when
+  # A closure made after the guard, given a write view of `i`, changes it when
   # called.
 
   fun pick(s: ?String, at: Int) -> U8

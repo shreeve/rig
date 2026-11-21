@@ -1,9 +1,9 @@
 # emit: tests whose names start `held`.
 
 code "held String in a loop", "const out = &__rig_header_out;"
-  # A function lent a String to write, which uses it in a loop, holds the
-  # String's header (its pointer, length, and capacity) in a local, and
-  # writes it back as it returns, so the loop keeps the header in
+  # A function given a write view of a String, which uses it in a loop,
+  # holds the String's header (its pointer, length, and capacity) in a
+  # local, and writes it back as it returns, so the loop keeps the header in
   # registers.
   sub fill(out: !String, n: Int)
     for _ in 0..n
@@ -51,7 +51,7 @@ test "held through a failure", "3 7"
   fill(!v, 10) catch print(v.len, 7)
 
 test "held through a break and a callee", "AABBBB 6"
-  # A loop's `break`, and a call the held String is lent on to, both see
+  # A loop's `break`, and a call the held String is passed on to, both see
   # the one header.
   sub two(out: !String, b: U8)
     !out.push(b)
@@ -67,7 +67,7 @@ test "held through a break and a callee", "AABBBB 6"
   fill(!s)
 
 test "held viewed by a task", seeds: 20, "3 6"
-  # A task lent the String to write holds its header for the call; its
+  # A task given a write view of the String holds its header for the call; its
   # owner reads it once the task is done.
   sub fill(xs: !List[Int], n: Int)
     for i in 0..n
@@ -82,7 +82,7 @@ test "held viewed by a task", seeds: 20, "3 6"
   twice(!v, 3)
 
 test "held not when passed on as the result's view", "abc!! 5"
-  # A function whose result is the write view it was lent hands back the
+  # A function whose result is the write view it was given hands back the
   # caller's String, not a header of its own.
   fun loud(s: !String) -> !String
     for _ in 0..2

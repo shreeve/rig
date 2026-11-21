@@ -253,7 +253,7 @@ that the repository keeps, each with whether the checker accepts it:
 `<b`, `print(r)`. The drop ends the place, so the run stops at the dead tag. -/
 def dropWhileRead : Expr :=
   letIn "b" (box (lit 1)) <|
-  letIn "r" (lend .read "b") <|
+  letIn "r" (view .read "b") <|
   drop "b" ;; out (name "r")
 
 #guard !accepts dropWhileRead

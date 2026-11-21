@@ -221,9 +221,9 @@ test "header branch read alternatives", release: true, '''
 '''
   # The forms that read or write what a branch reaches without copying a
   # value out of a place: a path through a branch of read views
-  # (`(a if c else b).e` of `?W`), a branch that lends each leaf to read
+  # (`(a if c else b).e` of `?W`), a branch that makes a read view of each leaf
   # (`?h1.w if c else ?h2.w`), `if o as x` then `if !o as x` for the value
-  # inside an optional, a branch of lends named first (`t = (!a if c
+  # inside an optional, a branch of views named first (`t = (!a if c
   # else !b)`, then `match !t.e`), and a write view a method returns.
 
   obj Res
@@ -253,7 +253,7 @@ test "header branch read alternatives", release: true, '''
       .a(r) => print(r.n)
       .b => pass
 
-  sub read_lends(h1: ?H, h2: ?H, c: Bool)
+  sub read_views(h1: ?H, h2: ?H, c: Bool)
     match (?h1.w if c else ?h2.w)
       .a(r) => print(r.n)
       .b => pass
@@ -286,7 +286,7 @@ test "header branch read alternatives", release: true, '''
   d = mk(4)
   h1 = H(w: <e)
   h2 = H(w: <d)
-  read_lends(?h1, ?h2, false)
+  read_views(?h1, ?h2, false)
   f = mk(5)
   _ = optional(!f)
   named_branch(!x, !y, true)
@@ -513,7 +513,7 @@ fail "header held temporary", "30:7: this header holds `mkh(?mkres(1))` for its 
 
 fail "header viewed made cell holder", "8:12: `Counter(hits: Cell(1))` makes a `Counter`, which holds a Cell, so it lives only behind a shared handle: write `*Counter(hits: Cell(1))`", errors: 1
   # A value that holds a Cell lives only behind a shared handle, so a
-  # `for` header cannot make one by value to lend: the made value is
+  # `for` header cannot make one by value to view: the made value is
   # rejected where it is written.
 
   obj Counter
@@ -662,10 +662,10 @@ fail "header path through branch", "31:10: cannot make a view of `a if c else b`
   # A header's subject that reaches a write view a name holds through a
   # branch, the branch itself or a path through it (`(a if c else b).e`,
   # `(a if c else b)[0].e`, `o?`, `o ?? !d`, a `catch` part), reads the
-  # branch in place, which is a lend of it: lending the branching value
+  # branch in place, which is a view of it: viewing the branching value
   # would copy the write view out of the name with no loan on it. This
   # holds for `match`, `if … as`, `while … as`, and `for` alike. The hint
-  # lends each leaf; a part of a branch of lends is matched to write once
+  # views each leaf; a part of a branch of views is matched to write once
   # the branch has a name.
 
   obj Res
@@ -731,7 +731,7 @@ fail "header path through branch", "31:10: cannot make a view of `a if c else b`
     for x in o ?? !d
       print(x)
 
-  sub lends_part(a: !W, b: !W, c: Bool)
+  sub views_part(a: !W, b: !W, c: Bool)
     match (!a if c else !b).e
       .a(r) => r.n = 1
       .b => pass
@@ -771,7 +771,7 @@ fail "header place inside temporary", "32:7: this header binds a copy of its sub
     s
 
   match mk().e
-    .a(n) => print("lend", n)
+    .a(n) => print("view", n)
     .b => print("b")
   match id(?mk()).e
     .a(n) if n > 0 => print("guarded", n)
@@ -1485,7 +1485,7 @@ test "header temporary bound first", '''
 
 fail "header temporary outlived", "32:11: the loop would walk the temporary `mk()` after its header drops it", "34:11: the loop would walk a view of the temporary `mv()` after its header drops it", "36:5: cannot move a part out of the temporary `mk()`", errors: 3
   # A header's temporaries end with the header, so nothing it binds may
-  # view one: not what a `for` lends. A call's result a `for` lends would
+  # view one: not what a `for` views. A call's result a `for` views would
   # end with the header too, and a part of a temporary cannot be moved out
   # of it. (A bare part of a made value is held for the construct:
   # test/known/ownership/match_made_part_cell_holder.rig. `as` and `match`
@@ -1536,7 +1536,7 @@ test "header temporary points", release: true, '''
   # A `match`, `if … as`, `while … as`, or `for` header whose subject is a
   # place reached through a statement temporary the header makes (an
   # index or a call's argument) binds the place's own: a guarded or
-  # unguarded match, a lend of a Box's or a handle's value, a write, a
+  # unguarded match, a view of a Box's or a handle's value, a write, a
   # Cell change, and a catch-all view returned from a function all reach
   # the place, after the header drops its temporary.
 
@@ -1669,7 +1669,7 @@ fail "header temporary rejected", "36:5: this header binds a copy of its subject
 
 fail "header temporary view bound", "20:5: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mk()` to a name first", "22:8: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mk()` to a name first", "25:8: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mke()` to a name first", errors: 3
   # What `if … as`, `while … as`, or `match` binds lives through the
-  # body, past its header, so it may not lend a temporary the header
+  # body, past its header, so it may not view a temporary the header
   # made.
   #
   # oracle: main reject C5
@@ -1697,7 +1697,7 @@ fail "header temporary view bound", "20:5: this header binds a copy of its subje
     .z => pass
 
 fail "header views keep their places", "22:5: cannot change `v` while a read view of it is still in use", "27:5: cannot reassign `o` while a read view of it is still in use", "34:8: cannot drop `b` while a read view of it is still in use", "42:8: a view of the temporary `mkh()` outlives its statement", errors: 4
-  # A header that reads a bare place keeps it lent while what it binds is
+  # A header that reads a bare place keeps it read-only while what it binds is
   # used, as `?p` does; a value it holds ends with the construct.
 
   obj Res

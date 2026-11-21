@@ -3790,8 +3790,8 @@ fail "rev206-x09 viewed drop break", "cannot change `b.xs` while a read view of 
     break
 
 test "rev210-a05 boxfield disjoint", "id 3 4"
-  # Reviewer probe for #210 (field loans): A box field lent beside writes
-  # of a sibling and of the box's other field.
+  # Reviewer probe for #210 (field loans): A box field viewed beside
+  # writes of a sibling and of the box's other field.
 
   obj Node
     name: String
@@ -3859,7 +3859,7 @@ test "rev210-e03 w across backedge ok", "3 [0, 1, 2]"
 
 fail "rev210-f13 read beside write arg", "cannot change `p.a` while a read view of `p.a.s` is still in use"
   # Reviewer probe for #210 (field loans): An argument reading `p.a.s`
-  # beside a write lend of `p.a`.
+  # beside a write view of `p.a`.
 
   obj Holder
     t: ?String
@@ -3887,7 +3887,7 @@ fail "rev210-f13 read beside write arg", "cannot change `p.a` while a read view 
 
 fail "rev210-f16 print grow same", "cannot change `p.a` while an earlier argument's read of `p.a.s` is still in use"
   # Reviewer probe for #210 (field loans): `print(p.a.s, grow(!p.a))`: a
-  # read held while the same place is lent to write.
+  # read held while a write view of the same place is made.
 
   obj Holder
     t: ?String

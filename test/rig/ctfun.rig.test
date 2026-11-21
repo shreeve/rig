@@ -220,8 +220,8 @@ test "ctfun enum value", '''
   print(Int(E.a), Int(E.b))
 
 test "ctfun viewed array", 14
-  # A call is a value made where it is written, so `?` lends a temporary
-  # of it, as it lends one of an array literal.
+  # A call is a value made where it is written, so `?` makes a view of a
+  # temporary of it, as it does for an array literal.
   fun squares[n: Int] -> [n]Int
     t = [n of 0]
     for i in 0..n

@@ -122,8 +122,8 @@ fail "for consuming iteration moves", "use of `v` after move", "cannot move `w` 
 
 fail "for held iterator keeps a view", "23:5: cannot change `v` while a read view of it is still in use", "28:5: cannot change `v` while a read view of it is still in use", "32:5: cannot change `b.xs` while a read view of `b` is still in use", "37:7: cannot change `v` while a read view of it is still in use", errors: 4
   # A `for` over an iterator it holds (a value made there, a place it
-  # takes, or a method's iterator lent from a place) keeps what the
-  # iterator views lent for every iteration: writing it in the body would
+  # takes, or a method's iterator viewing a place) keeps what the
+  # iterator views in use for every iteration: writing it in the body would
   # free what a later `next` reads.
 
   obj Cur
@@ -150,7 +150,7 @@ fail "for held iterator keeps a view", "23:5: cannot change `v` while a read vie
     for x in <c
       !v.push(x)
 
-  sub lent(b: !Bag)
+  sub viewed(b: !Bag)
     for x in ?b.each()
       !b.xs.push(x)
 
@@ -164,7 +164,7 @@ fail "for held iterator keeps a view", "23:5: cannot change `v` while a read vie
   made(!v)
   taken(!v)
   b = Bag(xs: List())
-  lent(!b)
+  viewed(!b)
   labeled(!v)
 
 fail "for iterator bare place", "19:10: write `for n in !c`: the loop advances `c`", errors: 1
@@ -198,7 +198,7 @@ test "for iterator bound view", '''
   5
 '''
   # The form the hints of a `for` over an iterator that views a place name:
-  # bind the iterator with the lend written, then advance it in place.
+  # bind the iterator with the sigil written, then advance it in place.
 
   obj Cur
     xs: ?List[Int]
@@ -409,10 +409,10 @@ fail "for iterator kept view", "`for iterator` is dropped here, at the end of it
 
 fail "for iterator made view", "38:10: `b.each()` keeps a view of `b` while the loop walks it; write `for ... in ?b.each()`", "40:10: `each` does not write `self`; remove the `!`", errors: 2
   # An iterator a method returns views the place it came from, so the
-  # loop keeps that place lent: the lend is written on self, as
+  # loop keeps a view of that place in use: the sigil is written on self, as
   # `for x in ?b.each()`. A sigil before the call is its self's, as
   # before any call: `!b.each()` is rejected for a method that reads its
-  # self, and `!b.drain()` lends `b` to write for one that writes it
+  # self, and `!b.drain()` makes a write view of `b` for one that writes it
   # ("for iterator write self").
 
   obj Cur
@@ -456,9 +456,9 @@ test "for iterator write self", '''
   0
   | 0
 '''
-  # `for x in !b.drain()` is `for x in (!b).drain()`: the `!` lends the
-  # call's self, as before any call, and the loop holds the iterator the
-  # call makes. A `!List` the call gives is walked for writing.
+  # `for x in !b.drain()` is `for x in (!b).drain()`: the `!` makes a write
+  # view of the call's self, as before any call, and the loop holds the
+  # iterator the call makes. A `!List` the call gives is walked for writing.
 
   obj Count
     n: Int
@@ -519,9 +519,9 @@ fail "for iterator not writable", "15:13: cannot make a write view through a rea
     print(n)
 
 fail "for iterator view keeps its place", "21:3: cannot change `items` while a read view of it is still in use", "24:3: cannot change `items` while a read view of it is still in use", errors: 2
-  # A loop over an iterator that gives views of a List keeps the List lent:
-  # the List cannot change while a view the loop binds is alive, as for
-  # `while (!w).next() as it`.
+  # A loop over an iterator that gives views of a List keeps a view of the
+  # List in use: the List cannot change while a view the loop binds is alive,
+  # as for `while (!w).next() as it`.
 
   obj Item
     n: Int
@@ -648,8 +648,8 @@ test "for iterator views", release: true, '''
   print(found)
 
 fail "for viewed branch path", "18:12: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?(?a if c else ?b).v`", "24:12: cannot make a view of `ys if c else zs`: it may be `ys`, a value a name holds, which a view of the branching value would copy; put the sigil on", errors: 2
-  # `for x in ?S` lends its source as `?S` does: a path from a branch of
-  # names is lent through each branch, so the loan on the name taken is
+  # `for x in ?S` views its source as `?S` does: a path from a branch of
+  # names is viewed through each branch, so the loan on the name taken is
   # kept while the loop's views live.
 
   obj W
@@ -676,7 +676,7 @@ fail "for viewed branch path", "18:12: cannot make a view of `a if c else b`: it
 
 fail "for viewed iterator write", "23:3: cannot change `b.xs` while a read view of `b` is still in use", "25:8: cannot move", errors: 2
   # `for x in ?b.each()` holds the iterator `each` makes, which views `b`,
-  # so `b` stays lent to read for the whole loop: it cannot be written in
+  # so `b` stays read-only for the whole loop: it cannot be written in
   # the body, nor moved.
 
   obj Cur
@@ -739,7 +739,7 @@ fail "for move element keeps view", "`y` is dropped here, at the end of its scop
 fail "for move viewed vec", "9:13: `<w` would move the elements out of a List that `w` only views; loop over `?w` or `!w`", "13:13: `<w` would move the elements out of a List that `w` only views", "20:11: `<w` would move the elements out of a List that `w` only views"
   # `for x in <w` hands each element over and frees the List, which it may
   # do only to a List it owns. Through a view the elements stay with the
-  # lender, so the loop reads or writes them in place instead.
+  # viewed place, so the loop reads or writes them in place instead.
 
   obj N
     v: Int
@@ -901,7 +901,7 @@ fail "for write iteration conflicts", "cannot write-iterate through a read view 
     y = 1
 
 fail "for write iteration conflicts ownership", "6:11: cannot change `v` while a read view of it is still in use"
-  # `for x in !xs` lends `xs` to write for the whole loop.
+  # `for x in !xs` makes a write view of `xs` for the whole loop.
 
   v: List[Int] = List()
   !v.push(1)
@@ -933,7 +933,7 @@ test "for through a shared List", '''
   9
   24
 '''
-  # `?h` of a `*List[T]` lends the List the handle holds, so `for x in ?h`
+  # `?h` of a `*List[T]` views the List the handle holds, so `for x in ?h`
   # reads each element where it stands, with the loan on `h`; a bare
   # `for x in h` is the same loop. A view of a handle, a handle in a
   # field, and a handle of an array are walked the same way.

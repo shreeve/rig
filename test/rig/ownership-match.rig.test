@@ -43,7 +43,7 @@ test "match arm statement liveness", '''
 '''
   # A `match` arm's body is a statement of its own, as a block's line is:
   # a write view last used in the subject is no longer live there, so the
-  # arm may lend what it viewed, as a block arm may.
+  # arm may give views of what it viewed, as a block arm may.
   enum Shape
     circle(r: Int)
     point
@@ -104,13 +104,13 @@ fail "match bare payload move", "23:17: cannot move `v` out of `o`: `match o` re
   print(g.n)
 
 fail "match branch copies write view", "21:10: cannot make a view of `getw(!x) if c else y`: it may be `y`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `getw(!x) if c else ?y`", "26:10: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?a if c else ?b`", "36:10: cannot make a view of `a if c else !d`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?a if c else !d`", "42:9: cannot make a view of `o?`: it may be `o`, a value a name holds, which a view of the branching value would copy; make a view of what it unwraps, and unwrap it in a header: `if ?o as x`", "49:9: cannot make a view of `o ?? !d`: it may be `o`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?o ?? !d`", errors: 5
-  # A branch a `match` reads in place is lent there (every in-place read
-  # of a branch is a lend), and a leaf that is a name holding a write view
-  # would be copied by lending the branching value, a second writer that
+  # A branch a `match` reads in place is viewed there (every in-place read
+  # of a branch is a view), and a leaf that is a name holding a write view
+  # would be copied by viewing the branching value, a second writer that
   # holds no view on it: bare write views, a call beside a name, `??` and
-  # `?` of an optional write view. None is lent on (`sema.makesWriteView`
-  # lends on only write lends and calls), so no binding writes through a
-  # copy. The hint lends each leaf.
+  # `?` of an optional write view. None is passed on (`sema.makesWriteView`
+  # passes on only write views and calls), so no binding writes through a
+  # copy. The hint views each leaf.
 
   obj Res
     n: Int
@@ -138,7 +138,7 @@ fail "match branch copies write view", "21:10: cannot make a view of `getw(!x) i
         print(s)
       .b => pass
 
-  sub bare_and_lend(a: !E, d: !E, c: Bool)
+  sub bare_and_view(a: !E, d: !E, c: Bool)
     match (a if c else !d)
       .a(r) => print(r.n)
       .b => pass
@@ -264,7 +264,7 @@ test "match consume binding writes", '''
   end
 '''
   # A binding of `match <s` owns what it binds: a resource it holds can
-  # be written and lent for writing, like an owned `as` binding.
+  # be written and given as a write view, like an owned `as` binding.
 
   obj B
     n: Int
@@ -334,7 +334,7 @@ test "match copy payload tail", '''
   print(go(<s))
 
 fail "match field overwrite while payload live", "cannot assign to `h.s` while a read view of it is still in use", "cannot reassign `h` while a read view of it is still in use"
-  # The matched value stays lent while a payload binding is in use:
+  # The matched value stays in use while a payload binding is in use:
   # overwriting it would drop the value the payload views.
 
   obj Tok
@@ -429,7 +429,7 @@ fail "match generic branch of places", "16:9: a `match` reads a place or takes a
   # carry no loan on the place: the match is rejected, as for a value that
   # moves, when the value may move, in a generic body (`sema.moves` is
   # `depends`), guarded or not (the review-b4b-2 probes p63 to p70). A
-  # branch over lends (`?o1 if c else ?o2`) is matched where it points.
+  # branch over views (`?o1 if c else ?o2`) is matched where it points.
 
   enum Opt[T]
     some(v: T)
@@ -534,8 +534,8 @@ test "match guards after subject", '''
   2 false 201 200
   other 301
 '''
-  # A match's subject stays lent through its guards and arms, and no
-  # longer: a guard may read the subject's owner, lend anything else, or
+  # A match's subject stays in use through its guards and arms, and no
+  # longer: a guard may read the subject's owner, view anything else, or
   # change an unrelated value; after the match, its owner may change.
 
   enum Shape
@@ -642,11 +642,11 @@ test "match made write view passed on", release: true, '''
   .a(r: Res(n: 10, t: "x")) .a(r: Res(n: 20, t: "y!")) .a(r: Res(n: 30, t: "z"))
   .a(r: Res(n: 20, t: "y!")) .a(r: Res(n: 40, t: "z"))
 '''
-  # A write view a `match` subject makes is lent on, as `if … as` lends one
-  # on: a call's result, or a branch whose every leaf is a write lend, a
+  # A write view a `match` subject makes is passed on, as `if … as` passes one
+  # on: a call's result, or a branch whose every leaf is a write view, a
   # call's result, or a write view taken with `<w` (`sema.makesWriteView`),
   # through `if`, `??`, and `catch`, nested too. The bindings write
-  # through it, as under `match !e`, and the lend keeps what it views lent
+  # through it, as under `match !e`, and the view keeps what it views in use
   # while they live.
 
   obj Res
@@ -1050,7 +1050,7 @@ test "match payload view in arm", '''
 '''
   # A view of a read `match` binding is used in its arm, however the arm
   # reaches the subject, and a copy (`+r.t`) leaves the match. A catch-all
-  # binding of a lent subject views the subject where it is. A payload field
+  # binding of a viewed subject views the subject where it is. A payload field
   # that is itself a view points where it pointed, so it may leave.
   # oracle: pick accept
 
@@ -1172,7 +1172,7 @@ test "match payload view outlives arm", release: true, '''
   2
   x x x kt
 '''
-  # A read `match` matches its subject where it is (a place, a lent box or
+  # A read `match` matches its subject where it is (a place, a viewed box or
   # handle, a view a call returns, a guarded match, a generic body), so a
   # binding that is no plain data views the subject's own payload: a view
   # of it may be returned, stored past the arm, or yielded as the match's
@@ -1324,7 +1324,7 @@ test "match payload views", '''
 '''
   # A read match binds a payload that is not plain data as a view (`?F`)
   # of the field where it is, and so the binding of a catch-all arm, usable
-  # within its arm: through a place, a lent box or handle, a view a call
+  # within its arm: through a place, a viewed box or handle, a view a call
   # returns (held as the pointer it is, also under a guard), and a generic
   # body. A `Cell` it changes is the matched value's own.
 
@@ -1419,8 +1419,8 @@ fail "match payload write view", "9:6: a write view is never stored inside a val
   print(x.v.len)
 
 fail "match payload write view twice", "17:14: cannot change `h` while a write view of it is still in use"
-  # A `match !h` payload lends to write its scrutinee while it is live, so
-  # a nested match on the same value cannot bind a second view of it.
+  # A `match !h` payload makes a write view of its scrutinee while it is live,
+  # so a nested match on the same value cannot bind a second view of it.
 
   obj Wrap
     v: List[Int]
@@ -1467,8 +1467,8 @@ fail "match read payload assign", "11:5: cannot assign to `r`: it is a copy of a
 
 fail "match subject viewed through arms", "32:20: cannot change `v` while a write view of it is still in use", "38:26: cannot change `v` while a write view of it is still in use", "43:22: cannot change `v` while a write view of it is still in use", "49:16: cannot change `h` while a write view of it is still in use", "52:15: cannot change `v` while a read view of it is still in use", errors: 5
   # A `match` reads its subject again after a guard runs, to test the next
-  # arm's pattern: what the subject views stays lent through every guard,
-  # in a nested match too. A write lend of it there is rejected, as is one
+  # arm's pattern: what the subject views stays in use through every guard,
+  # in a nested match too. A write view of it there is rejected, as is one
   # in an arm whose subject views it through a write view the arm uses,
   # in the body of an `if … as` whose binding views it and is used after,
   # and in a loop walking a view of it.
@@ -1725,8 +1725,8 @@ fail "match view subject misuse", "16:9: `match <s` consumes an owned value, and
   pass
 
 fail "match write binding excludes", "11:11: cannot use `c` while a write view of it is still in use"
-  # A `match !c` binding lends `c` to write while it is live, so `c` cannot
-  # be used then.
+  # A `match !c` binding makes a write view of `c` while it is live, so `c`
+  # cannot be used then.
 
   enum Shape
     circle(r: Int)
@@ -1839,10 +1839,10 @@ test "match write payload view ends", release: true, '''
   .a(t: "k=v12345")
   .a(t: "read")
 '''
-  # A lend of a `match !e` binding is a loan on the binding, which ends at
+  # A view of a `match !e` binding is a loan on the binding, which ends at
   # the last use of the view: the arm may read a view of the payload, and
-  # write through the binding before the lend and after the view's last
-  # use, for each kind of payload, subject, and lend. A read match's
+  # write through the binding before the view and after the view's last
+  # use, for each kind of payload, subject, and view. A read match's
   # binding, a write view by its type or not, is a read view, whose view
   # may leave the arm.
   # oracle: texts accept
@@ -2049,11 +2049,11 @@ test "match write payload view ends", release: true, '''
 
 fail "match write payload viewed", "67:7: cannot change `t` while a read view of it is still in use", "76:7: cannot change `t` while a read view of it is still in use", "85:7: cannot change `t` while a read view of it is still in use", "94:7: cannot reassign `t` while a read view of it is still in use", "102:7: cannot change `t` while a read view of it is still in use", "111:7: cannot change `t` while a read view of it is still in use", "120:7: cannot change `x` while a read view of it is still in use", "129:7: cannot reassign `b` while a read view of it is still in use", "140:7: cannot change `xs` while a read view of it is still in use", "143:7: cannot change `xs` while a read view of it is still in use", "152:7: cannot change `p.t` while a read view of it is still in use", "155:7: cannot change `p.xs` while a read view of it is still in use", "164:7: cannot reassign `x` while a read view of it is still in use", "174:11: cannot change `t` while a read view of it is still in use", "184:7: cannot change `t` while a read view of it is still in use", "194:7: cannot change `t` while a read view of it is still in use", "203:7: cannot change `t` while a read view of it is still in use", "211:7: cannot reassign `t` while a read view of it is still in use", "217:7: cannot change `xs` while a read view of it is still in use", errors: 19
   # A binding of `match !e` is a write view of the payload it binds, so a
-  # lend of it is a loan on the binding, as a lend of any write view is
+  # view of it is a loan on the binding, as one of any write view is
   # (`!T` parameters, `if !o as w`, `for x in !v`): while a view of it is
   # live, nothing writes through the binding. Each binding kind, payload
-  # type, and lend is rejected at the write, a bare slice argument's
-  # read lend too.
+  # type, and view is rejected at the write, a bare slice argument's
+  # read view too.
   # oracle: slice reject C4
   # oracle: argument reject C4
   # oracle: whole reject C4
@@ -2271,7 +2271,7 @@ fail "match write payload viewed", "67:7: cannot change `t` while a read view of
   slice()
 
 fail "match write payload viewed forms", "37:7: cannot change `t` while a read view of it is still in use", "46:9: cannot change `t` while a read view of it is still in use", "55:9: cannot change `t` while a read view of it is still in use", "64:7: cannot change `t` while a read view of it is still in use", "74:7: cannot change `t` while a read view of it is still in use", "83:7: cannot change `r.t` while a read view of `r` is still in use", "92:7: cannot change `t` while a read view of it is still in use", errors: 7
-  # Every form of lend of a `match !e` binding puts a loan on the binding,
+  # Every form of view of a `match !e` binding puts a loan on the binding,
   # which a write through it while the view is live conflicts with: a
   # `|?t|` capture, a `for` source, an `if … as` subject, a view stored in
   # an object, pushed to a List, or kept as an optional, and a view a `?@`

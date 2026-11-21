@@ -273,8 +273,8 @@ fail "find's function gives a Bool", "`find`'s function gives a `Bool`; this one
 
 test "collect of views keeps its source viewed", "ann cy 1"
   # A chain's items are what its source's `for` gives, views of owner
-  # elements, and `collect` keeps them: the List keeps its source lent
-  # while it lives, so the lend is written where it is bound.
+  # elements, and `collect` keeps them: the List keeps a view of its source
+  # in use while it lives, so the view is written where it is bound.
   obj P
     name: String
     age: Int
@@ -291,8 +291,8 @@ test "collect of views keeps its source viewed", "ann cy 1"
   print(old[0].name, old[1].name, long.len)
 
 fail "a chain whose result views its source is marked where it is bound", "5:6: `names.filter(|s| s.len > 2).collect()` keeps a view of `names` while `vs` lives; write `?names.filter(|s| s.len > 2).collect()`", "6:5: `names.find(|s| s.len > 2)` keeps a view of `names` while `f` lives; write `?names.find(|s| s.len > 2)`", "7:5: `names.max_by(|s| s.len)` keeps a view of `names` while `m` lives; write `?names.max_by(|s| s.len)`", errors: 3
-  # As a call that keeps its argument lent, `r = head(?v)`. A chain used
-  # within its statement lends its source there, unmarked.
+  # As a call that keeps a view of its argument in use, `r = head(?v)`. A
+  # chain used within its statement views its source there, unmarked.
   names: List[String] = List()
   !names.push(String("ann"))
   vs = names.filter(|s| s.len > 2).collect()
@@ -309,7 +309,7 @@ fail "collected views keep their source viewed", "cannot change `names` while a 
 
 fail "a sigil before a chain in a for header views its source", "8:10: a `<` before a chain is written on the source it takes: `(<xs).filter(...)` takes `xs`, and `xs.filter(...)` walks it where it stands", "10:11: the `?` before this chain reaches no place and does nothing: remove it; the chain walks `mk()` as a `for` over it would", errors: 2
   # `for x in !xs.filter(f)` walks `(!xs).filter(f)`, as the sigil
-  # lends a method call's self anywhere; one that reaches no place does
+  # views a method call's self anywhere; one that reaches no place does
   # nothing, and a `<` that takes the source is written on it.
   fun mk() -> List[Int]
     List([1, 2])

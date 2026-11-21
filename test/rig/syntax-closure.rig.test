@@ -6,7 +6,7 @@ test "closure assignment body", '''
 '''
   # A closure's body on the same line may be an assignment, plain or
   # compound, to a captured write view or a field through one: as a
-  # bound closure, and as a closure lent to a call in its last argument.
+  # bound closure, and as a closure given to a call in its last argument.
 
   obj Wrap
     n: Int
@@ -441,9 +441,9 @@ test "closure path capture from a method", '''
   Hello, Ada!
   1
 '''
-  # A capture may name a field path, `|?@template|`: the closure is lent
-  # that field alone, so the method may lend `@cache` to write beside it,
-  # and in the body the path names the capture.
+  # A capture may name a field path, `|?@template|`: the closure views
+  # that field alone, so the method may make a write view of `@cache` beside
+  # it, and in the body the path names the capture.
 
   obj RenderState
     cache: Map[String, String]
@@ -458,9 +458,9 @@ test "closure path capture from a method", '''
   print(s.cache.len)
 
 test "closure path capture of a local", "1 2 1"
-  # `|?p.a|` lends `p.a` alone for the closure's life: `p.b` stays free to
-  # lend to write while the closure lives, and the body reaches below the
-  # path (`p.a.len`).
+  # `|?p.a|` views `p.a` alone for the closure's life: `p.b` stays free to
+  # have a write view made while the closure lives, and the body reaches below
+  # the path (`p.a.len`).
 
   obj P
     a: List[Int]
@@ -474,7 +474,7 @@ test "closure path capture of a local", "1 2 1"
   print(f(), p.b.len, p.a.len)
 
 test "closure path capture to write", "2 5"
-  # `|!p.a|` lends the field to write: the body changes it through the
+  # `|!p.a|` makes a write view of the field: the body changes it through the
   # capture, while `p.n` is read beside it.
 
   obj P

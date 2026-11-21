@@ -697,7 +697,7 @@ test "review-copies-p34-clone-capture-escape-and-fail", '''
   -1
 '''
   # Deep-cloned closure environments on every exit path: returned from a
-  # function that was only lent the source, stored in a List, cloned,
+  # function that was only given a view of the source, stored in a List, cloned,
   # captured into another closure, and dropped on a failing path.
   error Bad
     oops
@@ -1217,7 +1217,7 @@ test "review-enumtext-args-hidden", '''
   .blue
   true
 '''
-  # `from_text` of temporaries lent with `?`, List elements, loop views, a nested `from_text`, and chained `??`.
+  # `from_text` of temporaries viewed with `?`, List elements, loop views, a nested `from_text`, and chained `??`.
   enum Color
     red
     blue
@@ -1331,7 +1331,7 @@ test "review-enumtext-deep-receivers", '''
   red
   blue
 '''
-  # `e.text` through boxes and shared handles behind read and write views, fields of objects reached through views, and closures lending them.
+  # `e.text` through boxes and shared handles behind read and write views, fields of objects reached through views, and closures viewing them.
   enum Color
     red
     blue
@@ -1498,7 +1498,7 @@ test "review-enumtext-positions", '''
   .dark_red
   .red none
 '''
-  # `from_text` in `if as`, a match subject with `??`, `?? return`, `catch`, a closure, an owned closure, a write view lent on as `?s`, and a test block.
+  # `from_text` in `if as`, a match subject with `??`, `?? return`, `catch`, a closure, an owned closure, a write view passed on as `?s`, and a test block.
   enum Color
     red
     dark_red

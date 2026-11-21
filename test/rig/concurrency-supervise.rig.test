@@ -64,9 +64,9 @@ fail "supervise makes no write view", "`task.supervise` drops what a panic in it
   _ = task.supervise(|!n| n) catch 0
 
 test "supervise restarts after a String it grew", seeds: 20, "800 2"
-  # A run that panics in a function lent a String it made, after the
-  # String grew past several buffers, leaves that String to the panic;
-  # the next run makes its own.
+  # A run that panics in a function given a view of a String it made, after
+  # the String grew past several buffers, leaves that String to the panic; the
+  # next run makes its own.
   sub fill(out: !String, n: Int, last: Int)
     for i in 0..n
       !out.push[U64, .big](U64(i))

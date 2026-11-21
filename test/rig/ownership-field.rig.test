@@ -7,7 +7,7 @@ test "field argument read beside write", '''
   [9]
 '''
   # An argument that reads `p.a` in place is held until the call runs; a
-  # later argument may still lend `p.b` to write, a disjoint path.
+  # later argument may still make a write view of `p.b`, a disjoint path.
 
   obj P
     a: List[Int]
@@ -39,8 +39,8 @@ test "field box fields", "id 1"
   # oracle: main accept
 
 fail "field closure captures whole", "15:1: cannot assign to `p.n` while a read view of `p` is still in use", errors: 1
-  # A closure captures a name, not a path (`|?p|` lends all of `p` for the
-  # closure's life), so writing any field of `p` while the closure lives
+  # A closure captures a name, not a path (`|?p|` makes a view of all of `p`
+  # for the closure's life), so writing any field of `p` while the closure lives
   # conflicts. A field-precise capture would need a capture of a path,
   # which neither proposal adds.
   # Rule: a closure captures each name with a sigil (Core §7).
@@ -60,7 +60,7 @@ test "field closure read capture writes nothing", "7"
   # A closure's body may store what one capture views through another
   # capture's write view, so making it lets what the write captures lead
   # to hold the captures' loans; a read capture leads nowhere, though its
-  # value carries `@`'s own write loan. So the closure stores nothing in
+  # value carries `@`'s own write view. So the closure stores nothing in
   # `@` through `?hv`.
 
   obj Holder
@@ -90,7 +90,7 @@ test "field drop body struct", '''
   a.ts
   close a.ts 1
 '''
-  # An object with a `drop` body is lent field by field like any other; its
+  # An object with a `drop` body gets views field by field like any other; its
   # drop runs once, at the end of its scope, after every loan is done.
   # From Trig's acceptance tests
   # (docs/ownership/acceptance/accept/field_drop_body_struct.rig).
@@ -218,7 +218,7 @@ test "field free function result", "[7] 2"
 
 test "field generic disjoint", "v 1"
   # The path rule does not depend on a field's type, so a generic `T`
-  # field is a place like any other; lending `p.item` leaves `p.log` free.
+  # field is a place like any other; a view of `p.item` leaves `p.log` free.
   # From Trig's acceptance tests
   # (docs/ownership/acceptance/accept/field_generic_disjoint.rig).
 
@@ -292,8 +292,8 @@ fail "field loop push into iterated", "14:7: cannot change `@items` while a read
   # Pushing to the list a `for` walks may move its buffer under the loop;
   # Go's range evaluates the slice once and never sees the appends, which
   # Rig can't promise. The paths are equal.
-  # Rule: the `for` lends `@items` for the loop; the body's push lends
-  # the same path to write.
+  # Rule: the `for` views `@items` for the loop; the body's push makes
+  # a write view of the same path.
   # From Trig's acceptance tests
   # (docs/ownership/acceptance/reject/field_loop_push_into_iterated.rig).
 
@@ -310,7 +310,7 @@ fail "field loop push into iterated", "14:7: cannot change `@items` while a read
   print(c.items.len)
 
 test "field match arm writes other", "13"
-  # A `match` on a view of one field lends that field; its arms may write
+  # A `match` on a view of one field views that field; its arms may write
   # another field.
   # From Trig's acceptance tests
   # (docs/ownership/acceptance/accept/field_match_arm_writes_other.rig).
@@ -335,7 +335,7 @@ test "field match arm writes other", "13"
   print(l.count)
 
 test "field match write arms write other", "3"
-  # `match !p.a` lends `p.a` to write for its arms, whose bindings view it;
+  # `match !p.a` makes a write view of `p.a` for its arms, whose bindings view it;
   # the arms may write `p.b`, a disjoint path.
 
   enum Tok
@@ -355,7 +355,7 @@ test "field match write arms write other", "3"
   print(p.b)
 
 test "field method result on field", "2 true"
-  # A method called on a field (`@ast.text(id)`) lends that field, so
+  # A method called on a field (`@ast.text(id)`) views that field, so
   # its view result carries a loan on `@ast` only, and other fields
   # (`@imports`, `@uses_node`) may be written while it lives.
   # From Trig's acceptance tests
@@ -502,7 +502,7 @@ fail "field parent while nested written", "23:17: cannot use `p.a` while a write
   print(p.a.b)
 
 test "field range writes other", "7 2"
-  # A `for` over a view of one field lends that field; the body may write
+  # A `for` over a view of one field views that field; the body may write
   # the subject's other fields.
   # From Trig's acceptance tests
   # (docs/ownership/acceptance/accept/field_range_writes_other.rig).
@@ -544,7 +544,7 @@ fail "field read view field carries source", "12:1: cannot change `src` while a 
 test "field read view field leaves its holder free", "ab 1"
   # A path ends where a read view begins: a slice of `@text`, itself a
   # `?String`, carries the loans of that view, not a loan on `@`, so
-  # even a call that lends all of `@` may run while it lives.
+  # even a call that views all of `@` may run while it lives.
 
   obj Scanner
     text: ?String
@@ -616,7 +616,7 @@ fail "field self view", "15:1: cannot store in `p.v` a view of `p.s`: a value ne
   # oracle: main reject C9
 
 fail "field self view through call", "19:2: cannot let this call store a view of `p.b` in `p.a`: a value never holds a view of itself", errors: 1
-  # `keep` stores its argument in `@`; lending `p.b` to
+  # `keep` stores its argument in `@`; giving a view of `p.b` to
   # `(!p.a).keep(...)` would put in `p.a` a view of `p.b`, a value holding
   # a view of itself.
   # Rule: a value never holds a view of itself; a stored argument's loan
@@ -739,7 +739,7 @@ test "field slice then write other", '''
   ab
   1
 '''
-  # A slice of one owned field lends that field only; assigning another
+  # A slice of one owned field views that field only; assigning another
   # field while the slice lives is allowed.
   # From Trig's acceptance tests
   # (docs/ownership/acceptance/accept/field_slice_then_write_other.rig).
@@ -818,8 +818,8 @@ test "field store through read only argument", '''
   2
   4
 '''
-  # A `?String` read out of `@` carries the parameter's own write loan
-  # on `@`, but it writes nothing: a call lends it no way into `@`,
+  # A `?String` read out of `@` carries the parameter's own write view
+  # on `@`, but it writes nothing: a call gives it no way into `@`,
   # so `!@scanner.set_text(t)` stores nothing of `@scanner` in
   # `@`. From Trig's JSDoc parser (src/parser/jsdoc.rig).
 
@@ -887,7 +887,7 @@ test "field take while other viewed", '''
   print(p.saved == none)
 
 fail "field through whole self method", "18:1: cannot change `p` while a read view of `p.name` is still in use", errors: 1
-  # `!p.bump()` lends all of `p` to write: the signature says so, and the
+  # `!p.bump()` makes a write view of all of `p`: the signature says so, and the
   # caller may not look into the body (Core sentence 7). `bump` could
   # clear `p.name`, so `r` must not live across the call.
   # Rule: `(!p).m()` and `!p.m()` touch all of `p` (proposal-field-loans
@@ -942,7 +942,7 @@ test "field token value to arena", '''
   2 abcde
 '''
   # A use touches the path it names; `!@ast` and `@scanner.value`
-  # are disjoint paths of `@`, so the write lend of one and the read of
+  # are disjoint paths of `@`, so the write view of one and the read of
   # the other may overlap (Core sentence 5, "A field is a place of its
   # own").
   # From Trig's acceptance tests
@@ -999,7 +999,7 @@ test "field view local across arms", '''
   4
   8 s:x;n:x;
 '''
-  # A local view carries the loan on the path it was lent from
+  # A local view carries the loan on the path it was viewed from
   # (`?@scanner.value`), and writes of another path (`@ast`) may
   # happen while it lives.
   # From Trig's acceptance tests
@@ -1041,7 +1041,7 @@ test "field view loop elements view the list", '''
   # A loop over a read view held in a field walks the view it reads, so
   # its elements view the List, not the value holding the field; the
   # value may store them, as it may store `?s.names[0]`. The List stays
-  # lent to read for as long as they are held.
+  # read-only for as long as they are held.
 
   obj Shortlist
     names: ?List[String]
@@ -1090,7 +1090,7 @@ fail "field write param whole assign", "13:3: cannot reassign `p` while a read v
   print(x.name)
 
 test "field write view local", "4"
-  # A local write view of one field (`w = !p.a`) holds a write loan on
+  # A local write view of one field (`w = !p.a`) holds a write view on
   # `p.a` only; `p.b` may be read while it lives.
   # From Trig's acceptance tests
   # (docs/ownership/acceptance/accept/field_write_view_local.rig).
@@ -1115,9 +1115,9 @@ test "field write view local", "4"
 test "a view through a read-view field of self outlives a write of self", "8 8 7 1"
   # `?@program.files[i].ast` is reached through `program`, a read view
   # self holds: it carries that view's loans, not a loan on `@` (Core
-  # s7), so `@` may be lent to write while it lives. The same through a
+  # s7), so a write view of `@` may be made while it lives. The same through a
   # write-view parameter, and a read through the read view beside a
-  # write loan on another field of the same parameter.
+  # write view on another field of the same parameter.
   # oracle: Checker.look accept
   # oracle: look_param accept
   # oracle: emit_from accept
@@ -1218,7 +1218,7 @@ fail "a view through a held read view views what it views", "cannot change `p.fi
   print(tree[0])
 
 fail "a read through a read-view field of self while self is under a write view", "cannot use `@program` while a write view of `@` is still in use"
-  # Reading the read view self holds reads `@`: not while a write loan
+  # Reading the read view self holds reads `@`: not while a write view
   # on all of `@` is live.
   # oracle: Checker.look reject C4
 

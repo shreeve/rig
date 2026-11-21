@@ -81,7 +81,7 @@ test "cell word operations", seeds: 20, '''
 '''
   # `swap` gives the old value, `compare_swap` whether it stored, and
   # `add` and `sub` the new value; a Cell of one word holds an Int, a
-  # Bool, a Float, or a plain enum, and a task may be lent one to read.
+  # Bool, a Float, or a plain enum, and a task may be given one as a read view.
   enum Phase
     idle
     busy
@@ -360,7 +360,7 @@ code "cell object synced", "pub const __rig_synced = {};"
   print(h.step)
 
 test "cell views a task through a handle", seeds: 20, "2 true 4000 200000"
-  # A task of a call through a value that holds a Cell keeps a read loan
+  # A task of a call through a value that holds a Cell keeps a read view
   # on the place for its life (Core §4), so the place is read, and
   # called through again, while the task runs; a Cell of a List keeps
   # its task on this thread.
@@ -394,7 +394,7 @@ test "cell views a task through a handle", seeds: 20, "2 true 4000 200000"
   print(step, done, h.n.get(), b.items.len)
 
 test "cell views tasks that hold read views move", seeds: 20, "true true 4000"
-  # A task that holds only read loans may go into a set, or be returned,
+  # A task that holds only read views may go into a set, or be returned,
   # as `work(+h)&` may.
 
   obj Hits
@@ -420,7 +420,7 @@ test "cell views tasks that hold read views move", seeds: 20, "true true 4000"
   print(all, done, h.n.get())
 
 fail "cell views a task keeps its view", "cannot reassign `h` while a write view of it is still in use", "cannot reassign `g` while a write view of it is still in use", errors: 2
-  # The read loan a task keeps lasts while it runs: the place is not
+  # The read view a task keeps lasts while it runs: the place is not
   # reassigned under it, in a set too.
 
   obj Hits

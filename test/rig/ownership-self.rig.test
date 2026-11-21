@@ -3,8 +3,8 @@
 fail "self branch view keeps leaf views", "17:3: cannot assign to `a.t` while a read view of `a` is still in use", "24:3: cannot assign to `b.t` while a read view of `b` is still in use", "32:3: cannot assign to `ts[1].t` while a read view of `ts` is still in use", errors: 3
   # A method runs on its self where it is: called on a value that
   # branches, it runs on the leaf the branch picks, so the view it returns
-  # keeps every leaf lent (Core sentence 7), through `if`, `??`, `catch`,
-  # and an element of a branching value.
+  # keeps a view of every leaf in use (Core sentence 7), through `if`, `??`,
+  # `catch`, and an element of a branching value.
 
   obj S
     t: String
@@ -59,8 +59,8 @@ test "self by what it hands over", '''
   # A method's self, by what it hands over: a place, a value made
   # there, a branching value that may be a name's, and one whose every
   # branch is made there (`<a if c else <b`). A `?@` method reads any of
-  # them in place; a `!@` method writes a place it is lent (`!p.m()`);
-  # a `<@` method takes a value made there.
+  # them in place; a `!@` method writes a place it has a write view of
+  # (`!p.m()`); a `<@` method takes a value made there.
 
   obj D
     id: Int
@@ -98,7 +98,7 @@ test "self by what it hands over", '''
 
 fail "self field read then written", "21:36: cannot change `a` while `self`'s read of it is still in use", errors: 1
   # A field of a value that is no place, used as a self, is read
-  # where the value is: a later argument cannot lend what the value may
+  # where the value is: a later argument cannot view what the value may
   # be to write.
 
   obj P
@@ -162,7 +162,7 @@ fail "self read then moved", "21:34: cannot move `a` while `self`'s read of it i
 
 fail "self read then written", "21:29: cannot change `a` while `self`'s read of it is still in use", errors: 1
   # A read self that is no place is copied where it runs, before the
-  # arguments: a later argument cannot lend what it may be to write, or
+  # arguments: a later argument cannot make a write view of what it may be, or
   # the call would read the copy after its buffer was freed.
 
   obj P
@@ -185,7 +185,7 @@ fail "self read then written", "21:29: cannot change `a` while `self`'s read of 
 
 fail "self sigil parenthesized", "6:9: method `pop` needs a write view of `self`; write `!v.pop()`", errors: 1
   # Parentheses around the call make `!` apply to its value, a temporary,
-  # not to self, which the call then needs lent to write.
+  # not to self, which the call then needs given as a write view.
 
   v: List[Int] = List()
   !v.push(1)
@@ -193,8 +193,8 @@ fail "self sigil parenthesized", "6:9: method `pop` needs a write view of `self`
   print(n ?? 0)
 
 fail "self stored in argument siblings", "48:11: cannot let this call store a view of `s` in `h`", "56:4: cannot drop `s` while a read view of it is still in use", "62:12: cannot let this call store a view of `o` in `h`", "68:14: cannot let this call store a view of `ps` in `h`", "76:10: cannot let this call store a view of `s` in `h`", "84:12: cannot let this call store a view of `y` in `h`", "89:12: cannot let this call store a view of `mk()` in `h`", errors: 7
-  # A method may store what its self lends or holds in what it was lent
-  # to write, as it may an argument's: a write self, a view of the
+  # A method may store what its self views or holds in what it was given
+  # a write view of, as it may an argument's: a write self, a view of the
   # self itself, a field or element of a value, a value reached
   # through a handle, a consumed self's views, and a temporary
   # self, which ends with its statement.
@@ -338,8 +338,8 @@ fail "self temporary view outlives statement", "36:5: a view of the temporary `m
   print(r, s.n, t, mk().arr()[0])
 
 fail "self view of branch views it", "60:6: a view of the temporary `fails(false)` outlives its statement", "67:1: cannot assign to `a.t` while a read view of `a` is still in use", "68:1: cannot change `vs` while a read view of it is still in use", errors: 3
-  # A `?@` method whose result may keep a view of its self lends the
-  # self, as `?e` does. A self that branches lends each leaf it may
+  # A `?@` method whose result may keep a view of its self views the
+  # self, as `?e` does. A self that branches views each leaf it may
   # be, where it is: whether the branch is self itself, the value a
   # field or element of it is read from, or `??`, `catch`, or `o?`. So a
   # view of it keeps a loan on each name a leaf names, and a change to one
@@ -418,7 +418,7 @@ test "self view of branch views leaves", '''
   42
 '''
   # A `?@` method whose result may keep a view of a self that
-  # branches lends each leaf self may be, where it is: the view
+  # branches views each leaf self may be, where it is: the view
   # points into that leaf, and keeps a loan on every name a leaf names, so
   # it may be used after the statement, while those names live unchanged.
   # A field or element of such a self is reached the same way. (Changing one while the view is live
@@ -535,7 +535,7 @@ fail "self view of temporary leaves tail", "21:3: cannot return a view of `mk(42
 
 fail "self view of temporary outlives statement", "31:5: a view of the temporary `mk()` outlives its statement", "32:5: a view of the temporary `mkh()` outlives its statement", "33:5: a view of the temporary `mkh()` outlives its statement", "37:6: a view of the temporary `ps if c else qs` outlives its statement", errors: 4
   # A `?@` method whose result may keep a view of a temporary self
-  # lends the temporary, which lives until its statement ends, plain data
+  # views the temporary, which lives until its statement ends, plain data
   # too: the view may be used within the statement, and nowhere after.
   # So does a field or element of a temporary, a Cell-holding part
   # included, and a branching value all of whose values are plain data.
@@ -575,7 +575,7 @@ fail "self view of temporary outlives statement", "31:5: a view of the temporary
 
 fail "self view stored in argument", "36:3: cannot reassign `h` while a write view of it is still in use", "44:4: cannot use `h.v` while a write view of `h` is still in use", "53:6: cannot use `h.v` while a write view of `h` is still in use", "63:6: cannot use `h.v` while a write view of `h` is still in use", errors: 4
   # A `!@` method may store a view of its self in another `!`
-  # argument, which keeps self lent while the argument holds it
+  # argument, which keeps a view of self in use while the argument holds it
   # (SPEC "Second-class views"): reassigning self, growing what
   # the view sees, or using it otherwise is rejected while the argument
   # lives. The oracle's verdicts are stated too, so that a weaker
@@ -652,7 +652,7 @@ test "self view used in statement", '''
   # included, or of a value that branches through data only, is used within
   # its statement, where its statement keeps self. A method whose
   # result keeps no view reads a value that branches as before, and one
-  # called on what each branch lends keeps every branch lent.
+  # called on what each branch views keeps a view of every branch in use.
 
   obj P
     xs: [4]Int
@@ -716,7 +716,7 @@ test "self element viewed in place", '''
   1.0 .matte(albedo: 0.5)
   1.0 .matte(albedo: 0.5)
 '''
-  # A method call lends its self where it is, so an element on the path of
+  # A method call views its self where it is, so an element on the path of
   # that self is reached in place, never copied out first, though its type
   # copies: a result that keeps self (`from @`) views the element, not a
   # copy the next turn of the loop writes over. An element of a List, a

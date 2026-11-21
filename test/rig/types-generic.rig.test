@@ -271,12 +271,12 @@ fail "a bracketed generic call is named as written where it fails", "11:7: `id[I
 test "generic owned closure literal", "4 13 6 13 5 4"
   # An owned closure literal, `*|x| ...`, takes its parameter types from
   # what the other arguments bind and binds what its result gives, as a
-  # closure literal lent to the call does: with captures, nested in
+  # closure literal given to the call does: with captures, nested in
   # another closure, or holding one.
   fun apply[T, R](x: T, f: *fun(T) -> R) -> R
     f(x)
 
-  fun lend[T, R](x: T, f: ?fun(T) -> R) -> R
+  fun view[T, R](x: T, f: ?fun(T) -> R) -> R
     f(x)
 
   fun maker[T](x: T) -> *fun(T) -> T
@@ -285,7 +285,7 @@ test "generic owned closure literal", "4 13 6 13 5 4"
   sub main()!
     k = 10
     m = maker(4)
-    print(apply(3, *|x| x + 1), apply(3, *|+k, x| x + k), lend(3, |x| apply(x, *|y| y * 2)), lend(3, |+k, x| x + k), m(5), apply(3, *|x| lend(x, |y| y + 1)))
+    print(apply(3, *|x| x + 1), apply(3, *|+k, x| x + k), view(3, |x| apply(x, *|y| y * 2)), view(3, |+k, x| x + k), m(5), apply(3, *|x| view(x, |y| y + 1)))
 
 fail "generic closure that propagates reports its own error alone", "10:24: type `Int` has no method `abs`", "11:39: type `Int` has no method `abs`", errors: 2
   # A closure whose errors leave a type parameter unbound is checked
@@ -320,11 +320,11 @@ fail "generic owned closure literal checked", "8:17: `?fun(Int) -> Int` views a 
   fun apply[T, R](x: T, f: *fun(T) -> R) -> R
     f(x)
 
-  fun lend[T, R](x: T, f: ?fun(T) -> R) -> R
+  fun view[T, R](x: T, f: ?fun(T) -> R) -> R
     f(x)
 
   sub main()!
-    print(lend(3, *|x| x + 1))
+    print(view(3, *|x| x + 1))
     print(apply(3, *|x| x.abs()))
 
 fail "generic closure's errors leave a parameter unbound", "12:30: type `?Int` has no method `nope`", "13:35: type `?Int` has no method `abs`", "14:39: type `Int` has no method `abs`", errors: 3
@@ -1218,8 +1218,8 @@ test "generic fn holds read view", '''
   3 abc
 '''
   # A generic function's `T` may be a read view of an owner: the result
-  # keeps the owner lent while it is used, whether it is returned whole,
-  # chosen between two, boxed, or made optional.
+  # keeps what it views read-only while it is used, whether it is returned
+  # whole, chosen between two, boxed, or made optional.
 
   fun same[T](x: T) -> T
     x
@@ -1899,7 +1899,7 @@ test "generic fn viewed operands", '''
   shift(!y, !z)
   print(x, g, y, order(!x, !y), order(!f, !g))
 
-fail "generic handle of function type", "40:5: `H[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `*T` of a `T`, and `fun(Int) -> Int` is a function type: `*fun(Int) -> Int` is an owned closure, not a handle of a function. Hold the owned closure itself in a `T`: `T = *fun(Int) -> Int`", "`Wk[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `~T` of a `T`", "`E[sub()]` cannot use `T = sub()`: the generic body makes a handle `*T` of a `T`", "`V[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `*T` of a `T`", "`O[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `*T` of a `T`", "`H[sub(Int)]` cannot use `T = sub(Int)`: the generic body makes a handle `*T` of a `T`", "`lend[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `*T` of a `T`, and `fun(Int) -> Int` is a function type: `*fun(Int) -> Int` is an owned closure, not a handle of a function. Hold the owned closure itself in a `T`: `T = *fun(Int) -> Int`", "`make[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `*T` of a `T`", errors: 8
+fail "generic handle of function type", "40:5: `H[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `*T` of a `T`, and `fun(Int) -> Int` is a function type: `*fun(Int) -> Int` is an owned closure, not a handle of a function. Hold the owned closure itself in a `T`: `T = *fun(Int) -> Int`", "`Wk[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `~T` of a `T`", "`E[sub()]` cannot use `T = sub()`: the generic body makes a handle `*T` of a `T`", "`V[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `*T` of a `T`", "`O[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `*T` of a `T`", "`H[sub(Int)]` cannot use `T = sub(Int)`: the generic body makes a handle `*T` of a `T`", "`view[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `*T` of a `T`, and `fun(Int) -> Int` is a function type: `*fun(Int) -> Int` is an owned closure, not a handle of a function. Hold the owned closure itself in a `T`: `T = *fun(Int) -> Int`", "`make[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `*T` of a `T`", errors: 8
   # A generic declaration that makes a shared or weak handle of a type
   # parameter (`*T`, `~T`) cannot be instantiated with a function type:
   # `*fun(Int) -> Int` is an owned closure, not a handle of a function,
@@ -1931,7 +1931,7 @@ fail "generic handle of function type", "40:5: `H[fun(Int) -> Int]` cannot use `
   obj G[U]
     g: H[U]
 
-  fun lend[T](h: ?*T) -> Int
+  fun view[T](h: ?*T) -> Int
     1
 
   fun make[T](x: T) -> Int
@@ -1945,7 +1945,7 @@ fail "generic handle of function type", "40:5: `H[fun(Int) -> Int]` cannot use `
   v: V[fun(Int) -> Int] = V(hs: List())
   o: O[fun(Int) -> Int] = O(h: none)
   g: G[sub(Int)] = G(g: H(h: *|a: Int| print(a)))
-  print(lend(?f))
+  print(view(?f))
   print(make(inc))
 
 test "generic holds owned closure", '''
@@ -2466,10 +2466,10 @@ test "generic param only in own type", '''
   m: Marker[?String] = Marker(n: 1)
   print(m.next().n)
 
-fail "generic payload copy any subject", "`place[String]` cannot use `T = String`: the generic body copies a `T`", "`lend[String]` cannot use `T = String`: the generic body copies a `T`, which would duplicate the resource `String` owns", "`call[String]` cannot use `T = String`: the generic body copies a `T`", "`lend_call[String]` cannot use `T = String`: the generic body copies a `T`, which would duplicate the resource `String` owns", "`branch[String]` cannot use `T = String`: the generic body copies a `T`", "`branch_call[String]` cannot use `T = String`: the generic body copies a `T`", "`field[String]` cannot use `T = String`: the generic body copies a `T`", "`field_of_call[String]` cannot use `T = String`: the generic body copies a `T`", "`field_of_branch[String]` cannot use `T = String`: the generic body copies a `T`", "`elem[String]` cannot use `T = String`: the generic body copies a `T`", "`elem_of_call[String]` cannot use `T = String`: the generic body copies a `T`", "`guarded[String]` cannot use `T = String`: the generic body copies a `T`", "`branch_value[String]` cannot use `T = String`: the generic body copies a `T`", "`holder[String]` cannot use `T = String`: the generic body copies a `T`", "`nested[String]` cannot use `T = String`: the generic body copies a `T`", "`catch_all[String]` cannot use `T = String`: the generic body copies a `T`", "`as_field_of_call[String]` cannot use `T = String`: the generic body copies a `T`", "`while_field_of_branch[String]` cannot use `T = String`: the generic body copies a `T`", "`for_call[String]` cannot use `T = String`: the generic body copies a `T`", errors: 19
+fail "generic payload copy any subject", "`place[String]` cannot use `T = String`: the generic body copies a `T`", "`view[String]` cannot use `T = String`: the generic body copies a `T`, which would duplicate the resource `String` owns", "`call[String]` cannot use `T = String`: the generic body copies a `T`", "`view_call[String]` cannot use `T = String`: the generic body copies a `T`, which would duplicate the resource `String` owns", "`branch[String]` cannot use `T = String`: the generic body copies a `T`", "`branch_call[String]` cannot use `T = String`: the generic body copies a `T`", "`field[String]` cannot use `T = String`: the generic body copies a `T`", "`field_of_call[String]` cannot use `T = String`: the generic body copies a `T`", "`field_of_branch[String]` cannot use `T = String`: the generic body copies a `T`", "`elem[String]` cannot use `T = String`: the generic body copies a `T`", "`elem_of_call[String]` cannot use `T = String`: the generic body copies a `T`", "`guarded[String]` cannot use `T = String`: the generic body copies a `T`", "`branch_value[String]` cannot use `T = String`: the generic body copies a `T`", "`holder[String]` cannot use `T = String`: the generic body copies a `T`", "`nested[String]` cannot use `T = String`: the generic body copies a `T`", "`catch_all[String]` cannot use `T = String`: the generic body copies a `T`", "`as_field_of_call[String]` cannot use `T = String`: the generic body copies a `T`", "`while_field_of_branch[String]` cannot use `T = String`: the generic body copies a `T`", "`for_call[String]` cannot use `T = String`: the generic body copies a `T`", errors: 19
   # A generic body that copies a `T` out of what a `match`, an `if … as`,
   # or a `for` reads, and gives the copy away, needs every instance's `T`
-  # to own nothing, whatever the subject: a place, a lend, a view a call
+  # to own nothing, whatever the subject: a place, a view, a view a call
   # returns, a branching value, a field or element of any of these, and a
   # guarded match. Each instance below would free its Text twice.
 
@@ -2508,7 +2508,7 @@ fail "generic payload copy any subject", "`place[String]` cannot use `T = String
       .some(v) => v
       .nothing => <d
 
-  fun lend[T](o: ?Opt[T], d: T) -> T
+  fun view[T](o: ?Opt[T], d: T) -> T
     match ?o
       .some(v) => v
       .nothing => <d
@@ -2518,7 +2518,7 @@ fail "generic payload copy any subject", "`place[String]` cannot use `T = String
       .some(v) => v
       .nothing => <d
 
-  fun lend_call[T](o: ?Opt[T], d: T) -> T
+  fun view_call[T](o: ?Opt[T], d: T) -> T
     match ?get(o)
       .some(v) => v
       .nothing => <d
@@ -2608,9 +2608,9 @@ fail "generic payload copy any subject", "`place[String]` cannot use `T = String
   xs: List[String] = List()
   !xs.push(String("x"))
   print(place(?o, String("d")))
-  print(lend(?o, String("d")))
+  print(view(?o, String("d")))
   print(call(?o, String("d")))
-  print(lend_call(?o, String("d")))
+  print(view_call(?o, String("d")))
   print(branch(?o, ?o, true, String("d")))
   print(branch_call(?o, ?o, true, String("d")))
   print(field(?w, String("d")))
@@ -2691,7 +2691,7 @@ test "generic payload copy plain", '''
       .some(v) => v
       .nothing => <d
 
-  fun lend[T](o: ?Opt[T], d: T) -> T
+  fun view[T](o: ?Opt[T], d: T) -> T
     match ?o
       .some(v) => v
       .nothing => <d
@@ -2701,7 +2701,7 @@ test "generic payload copy plain", '''
       .some(v) => v
       .nothing => <d
 
-  fun lend_call[T](o: ?Opt[T], d: T) -> T
+  fun view_call[T](o: ?Opt[T], d: T) -> T
     match ?get(o)
       .some(v) => v
       .nothing => <d
@@ -2791,9 +2791,9 @@ test "generic payload copy plain", '''
   xs: List[Int] = List()
   !xs.push(7)
   print(place(?o, 0))
-  print(lend(?o, 0))
+  print(view(?o, 0))
   print(call(?o, 0))
-  print(lend_call(?o, 0))
+  print(view_call(?o, 0))
   print(branch(?o, ?o, false, 0))
   print(branch_call(?o, ?o, true, 0))
   print(field(?w, 0))
@@ -2892,8 +2892,8 @@ test "generic struct holds read view", '''
   hey
 '''
   # A generic object, with methods, holds a read view of an owner: the
-  # value built from it keeps the owner lent while it, or a view it gave
-  # out, is used.
+  # value built from it keeps what it views read-only while it, or a view it
+  # gave out, is used.
 
   obj Hold[T]
     v: T
@@ -3271,7 +3271,7 @@ test "generic fallible closure", '''
   ran
   Void
 '''
-  # A closure lent where `?fun() -> R!` goes may propagate with `!`: its
+  # A closure given where `?fun() -> R!` goes may propagate with `!`: its
   # body's value binds `R`, and one that gives nothing binds it to `Void`.
   error Bad
     no
@@ -3623,7 +3623,7 @@ test "generic read view of an optional view", '''
   1
 '''
   # A read view of a view copies the view, in a generic body as anywhere:
-  # a `T` that is an optional of a view is lent as its value.
+  # a `T` that is an optional of a view is viewed as its value.
   obj Node
     n: Int
 
@@ -3671,7 +3671,7 @@ test "generic read view of each kind a read view copies", '''
   1.0
 '''
   # Each kind `sema.copiedByReadView` copies, given where a generic `?T`
-  # goes: the call lends it as the runtime's `ReadView(T)` holds it.
+  # goes: the call views it as the runtime's `ReadView(T)` holds it.
   api Shape
     fun area(?@) -> Float
 

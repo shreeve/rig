@@ -199,7 +199,7 @@ fail "imported constant overflow", "5:9: integer value `256` does not fit in `U8
 
 fail "imported constant write", "10:3: cannot assign to constant `lib.xs`", "11:9: cannot change constant `lib.xs`", "12:3: cannot assign to constant `lib.xs`", "13:13: cannot write-iterate constant `lib.xs`"
   # An imported module's bindings are constants, as in their own module:
-  # they cannot be assigned, lent to write, or written through a loop.
+  # they cannot be assigned, given a write view of, or written through a loop.
 
   use lib
 

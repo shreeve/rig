@@ -3,8 +3,8 @@
 # instance's (docs/design/apis.md, Stage 3).
 
 fail "apis a result from the API's parameter", "16:4: cannot drop `t` while a read view of it is still in use"
-  # `pick`'s result views `other`, as the API declares, so `t` stays lent
-  # while `v` lives.
+  # `pick`'s result views `other`, as the API declares, so a view of `t`
+  # stays in use while `v` lives.
 
   api Store
     fun pick(?@, other: ?String) -> ?String from other
@@ -98,7 +98,7 @@ test "apis a bounded owner moves through a witness", '''
 
 fail "apis object a result from self keeps self viewed", "cannot change `sq` while a read view of it is still in use"
   # The object carries `sq`'s loan, and the result `from @` carries the
-  # object's, so `sq` stays lent while `l` lives.
+  # object's, so a view of `sq` stays in use while `l` lives.
 
   api Shape
     fun label(?@) -> ?String from @

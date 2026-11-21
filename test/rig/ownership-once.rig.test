@@ -80,11 +80,11 @@ fail "once called in a loop", "`f` is called at most once (`once`), and it is us
   print(looped(|| 1))
 
 fail "once handed to a closure parameter", "`f` is called at most once (`once`), so it is only called, `f()`, or passed to another `once` parameter", errors: 1
-  fun lend(f: ?fun() -> Int) -> Int
+  fun view(f: ?fun() -> Int) -> Int
     f()
 
   fun handed(f: once ?fun() -> Int) -> Int
-    lend(f)
+    view(f)
 
   print(handed(|| 1))
 

@@ -21,7 +21,7 @@ test "shared map puts and gets", '''
 
 test "shared map ensure views the first value", "uno uno uno 1"
   m = shared.Map[String, String].new()
-  # A view keeps the handle it came through lent to read, so a put while
+  # A view keeps the handle it came through given as a read view, so a put while
   # it lives goes through another handle; the value it views never
   # changes.
   h = +m
@@ -157,7 +157,7 @@ fail "shared map value that holds a view", "`shared.Map[String, ?String]` cannot
   print(m.len())
 
 test "shared map put while a view lives", "none 1"
-  # A put lends the map to read (Core §4): it never moves a value, so a
+  # A put makes a read view of the map (Core §4): it never moves a value, so a
   # view of one lives across it.
   m = shared.Map[String, Int].new()
   v = ?m.get("a")

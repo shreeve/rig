@@ -1097,7 +1097,7 @@ test "the error a statement holds leaves by every way there is", '''
   # error": a fallible call's statement holds a hidden `E?`, which `!`
   # empties into the caller's failure, `catch |e|` into the handler's
   # own binding, and a nameless catch drops; the binding is moved on,
-  # cloned, lent, and narrowed (`x: E =>`, a view under `match e`, the
+  # cloned, viewed, and narrowed (`x: E =>`, a view under `match e`, the
   # error itself under `match <e`).
   # oracle: passed accept
   # oracle: returned accept
@@ -1364,7 +1364,7 @@ test "a short-form member where `error` or a union goes, and as a default", '''
   sub joined(e: Both = .plain)
     print(e)
 
-  sub lend(e: ?Both)
+  sub view(e: ?Both)
     print(e)
 
   sub main()
@@ -1378,9 +1378,9 @@ test "a short-form member where `error` or a union goes, and as a default", '''
     !xs.push(.bad(at: 3))
     !xs.push(.gone)
     print(xs[0], xs[1])
-    lend(.gone)
+    view(.gone)
     k: Both = .bad(at: 4)
-    lend(?k)
+    view(?k)
 
 fail "a short-form member with fields made without them", "13:9: variant `bad` carries a payload; construct it with `.bad(...)`", "14:9: variant `bad` carries a payload; construct it with `.bad(...)`", errors: 2
   error Oops
@@ -1408,11 +1408,11 @@ fail "a short-form member with fields viewed where a view of a union or `error` 
 
   error Both = Oops | Other
 
-  sub lend(u: ?Both, e: ?error)
+  sub view(u: ?Both, e: ?error)
     print(u, e)
 
   sub main()
-    lend(.bad(at: 1), .plain)
+    view(.bad(at: 1), .plain)
 
 fail "a short-form member with fields where a `T!` goes", "5:11: `.bad` is not a value of `Int`; to fail, name the error set: `Oops.bad`"
   error Oops

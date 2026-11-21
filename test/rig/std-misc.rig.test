@@ -2313,7 +2313,7 @@ test "random array", '''
   true
 '''
   # An array holds `Random`s, which are unique: a loop writes each in
-  # place, an element is lent or written where it is, and a discarded
+  # place, an element is viewed or written where it is, and a discarded
   # `Random` is simply dropped.
 
   fun step(r: !random.Random) -> U64

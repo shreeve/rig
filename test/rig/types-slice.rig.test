@@ -1,11 +1,11 @@
 # types: tests whose names start `slice`.
 
 fail "slice argument needs read view", "31:6: `zero` writes the elements of `w[1..]`, and a slice is a read view unless it is written `!`; write `zero(!w[1..])`", "32:11: `own` takes a `List[Int]`, which owns its elements, and `v[..]` only views `v`'s", "32:24: `pair` takes a `[2]Int`, which owns its elements, and `w[..2]` only views `w`'s", "32:38: `name` takes a `String`, which owns its bytes, and `t[1..]` only views `t`'s; write `name(String(?t[1..]))` to pass a copy", "32:52: type mismatch: expected `?[]Int`, got `[]Int`", "33:5: a slice of an array or List views it; write `?w[1..]`", "34:11: a slice of an array or List views it; write `?w[..2]`", "26:3: a slice of an array or List views it; write `?a[1..]`", errors: 8
-  # A slice argument is lent to read where its parameter takes the read
-  # view it makes: a `[]T`, a String, or an optional of one. Anywhere else
-  # it says what to write: `!xs[a..b]` where a `![]T` goes, a copy where a
-  # value of its own does. A slice is written with its lend everywhere but
-  # an argument: a binding, a field, a result.
+  # A slice argument is given as a read view where its parameter takes
+  # the read view it makes: a `[]T`, a String, or an optional of one.
+  # Anywhere else it says what to write: `!xs[a..b]` where a `![]T`
+  # goes, a copy where a value of its own does. A slice is written with
+  # its view everywhere but an argument: a binding, a field, a result.
 
   sub zero(xs: ![]Int)
     xs[0] = 0
@@ -98,7 +98,7 @@ test "slice behind pointer", '''
   [1, 2]
   5 [5, 6] [7]
 '''
-  # An array behind a pointer (a lent to write parameter, a List's buffer)
+  # An array behind a pointer (a write-view parameter, a List's buffer)
   # is not the function's copy, so a slice of it can be returned.
 
   obj S
@@ -256,8 +256,8 @@ fail "slice elem methods", "10:3: cannot `fill` a `[]Int`; its elements are read
   <w.fill(0)
 
 fail "slice element write", "15:1: cannot assign through a slice; a `[]T` is read-only", "16:1: cannot assign through a slice; a `[]T` is read-only", "17:6: cannot make a write view through a slice; a `[]T` is read-only", "20:1: cannot assign through a slice; a `[]T` is read-only", "21:2: cannot make a write view through a slice; a `[]T` is read-only"
-  # A `[]T` is read-only: its elements cannot be assigned, lent to write,
-  # or reached by a `!@` method.
+  # A `[]T` is read-only: its elements cannot be assigned, given a write
+  # view, or reached by a `!@` method.
 
   obj P
     x: Int
@@ -294,8 +294,8 @@ fail "slice fill copy views", "8:6: a write view is never stored inside a value,
 
 fail "slice of branch write views", "9:13: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `(?a if c else ?b)[1..]`", "10:14: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `(?a if c else ?b)[..2]`", errors: 2
   # A slice of a branching value whose branches are write views a name
-  # holds would copy a write view: each branch is lent instead, and the
-  # hint writes the slice that way.
+  # holds would copy a write view: a view is made of each branch
+  # instead, and the hint writes the slice that way.
 
   fun keep(s: ?String) -> ?String
     s
@@ -310,9 +310,9 @@ fail "slice of branch write views", "9:13: cannot make a view of `a if c else b`
   f(!x, !y, true)
 
 fail "slice of write view text bound", "6:7: a slice of a String views it; write `?t[1..]`", "12:7: a slice of a String views it; write `?w[1..]`", "16:7: a slice of a String views it; write `?h[1..]`", "20:7: a slice of a String views it; write `?b[1..]`", errors: 4
-  # A slice of a write view of a Text lends that view, so a binding writes
-  # the lend, as for a slice of the Text itself: a `!String` parameter and
-  # local, a `!*String`, and a `!^String`.
+  # A slice of a write view of a Text keeps that view in use, so a
+  # binding writes the view, as for a slice of the Text itself: a
+  # `!String` parameter and local, a `!*String`, and a `!^String`.
 
   sub param(t: !String)
     s = t[1..]
@@ -418,7 +418,7 @@ test "slice temporary", "[1, 2] 5"
 fail "slice write", "7:8: cannot change parameter `a`", "8:8: cannot make a write view through a read view (`?T`)", "9:8: cannot make a write view of a slice of a `[]Int`; a `[]T` is read-only", "13:6: cannot make a write view of a slice of a `?String`; a `?String` is read-only", "15:6: cannot change fixed binding `c`", "18:8: cannot change `row`: it is a copy of an element of `rows`; to change the elements in place, loop with `for row in !rows`"
   # `!xs[a..b]` needs elements the code may write: not a String's, not a
   # `[]T`'s, and not those of a fixed binding, a loop binding (a copy), a
-  # by-value or lent to read parameter. (A temporary's are written in its
+  # by-value or read-view parameter. (A temporary's are written in its
   # statement's slot: `test/behavior/ownership/write_view_temporary_view.rig`.)
 
   sub f(a: [2]Int, b: ?[2]Int, xs: []Int)

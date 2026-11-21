@@ -1291,7 +1291,7 @@ test "apis own compile-time bounds", "1"
     print(X(n: 1).n)
 
 test "apis own string", "1"
-  # `String`'s self lent to read is a `?String`, a view of text.
+  # `String`'s self given as a read view is a `?String`, a view of text.
 
   api Sized
     fun size(?@) -> Int
@@ -2181,7 +2181,7 @@ test "apis own self by its sigil", '''
   closed ab
 '''
   # Self goes through a bound as the API declares it: `!@` by address, so
-  # the caller's value changes; `?@` as the view lent, so a result `from
+  # the caller's value changes; `?@` as the view made, so a result `from
   # @` views the caller's value after the call; `<@` moved in.
 
   api Counter
@@ -4456,11 +4456,11 @@ fail "apis object method of an API built on", "`Named.label` names `Self` outsid
 
   print(1)
 
-# ---- Stage 4, phase 2: API objects lend and call through a table ----
+# ---- Stage 4, phase 2: API objects are viewed and called through a table ----
 
 test "apis object views a value, a box's, a handle's", "4.0 9.0 1.0 6.25"
-  # A value lends a `?{Shape}` by the lend table's last row, unwritten
-  # where the view lasts only for the call; a box and a handle lend
+  # A value is viewed as a `?{Shape}` by the view table's last row, unwritten
+  # where the view lasts only for the call; a box and a handle give
   # their value's views first, and a frozen handle the value it froze.
 
   api Shape
@@ -4503,7 +4503,7 @@ test "apis object of two types", "5.0"
   print(area_of(Square(side: 1.0)) + area_of(?Circle(r: 1.0)) + area_of(Square(side: 1.0)))
 
 test "apis object of an addition", "9.0 16.0"
-  # A type the program adds the API to lends one too: a value made
+  # A type the program adds the API to is viewed as one too: a value made
   # here is held in its statement's slot.
 
   api Shape
@@ -4520,7 +4520,7 @@ test "apis object of an addition", "9.0 16.0"
   print(area_of(3), area_of(n))
 
 test "apis object in a generic body", "8.0 18.0"
-  # A bounded `T` lends one through its own witness: an owner where it
+  # A bounded `T` is viewed as one through its own witness: an owner where it
   # lives, and a read view of one through a copy in the block.
 
   api Shape
@@ -4619,7 +4619,7 @@ test "apis object a write view makes a read view", "16.0"
   print(grown(!sq))
 
 test "apis object a List of views walked", "4.0"
-  # A `List[?{Shape}]` holds objects of several types, each lent with
+  # A `List[?{Shape}]` holds objects of several types, each viewed with
   # `?` written, since the List keeps it.
 
   api Shape
@@ -4715,7 +4715,7 @@ test "apis object of a read view of plain data, in its block", "8.0 2.0"
   print(twice(Square(side: 2.0)), sum(Big(a: 1.0, b: 0.0, c: 0.0, d: 0.0, e: 0.0, f: 0.0, g: 0.0, h: 1.0)))
 
 test "apis object of an optional", "4.0 0.0"
-  # An `X?` lends a `?{Shape}?`: the object of the value inside, or
+  # An `X?` is viewed as a `?{Shape}?`: the object of the value inside, or
   # `none`.
 
   api Shape
@@ -5059,7 +5059,7 @@ test "apis object a table beside names of the module's own", whole: true, "4.0 4
     print(sq.area(), area(1), area_of(sq))
 
 test "apis object a write view made a read view where it is written", "8.0 4.0 4.0"
-  # `?w` of a `!{Shape}` is the read view it lends, a value of another
+  # `?w` of a `!{Shape}` is the read view it makes, a value of another
   # Zig type: as an argument, as a function's result, and inside an
   # optional result.
 
@@ -5148,8 +5148,8 @@ test "apis object of a copy in a branch of one line", "18.0 4.0 9.0"
   print(bound(3, true), bound(2, false), last(3, true))
 
 test "apis object a write view made a read view by a capture and a field", "12.0 4.0"
-  # `|?w|` of a `!{Shape}` captures the read view it lends, and a field
-  # of type `?{Shape}` takes the one a bare `w` lends.
+  # `|?w|` of a `!{Shape}` captures the read view it makes, and a field
+  # of type `?{Shape}` takes the one a bare `w` makes.
 
   api Shape
     fun area(?@) -> Float
@@ -5221,7 +5221,7 @@ test "apis object box a fallible result erases its last expression and return's 
 '''
   # A result's `!` is read through by every erasure at once
   # (`erasureTarget`): its last expression, `return`'s operand, `f()!`,
-  # and a view lent, as a binding of the object's type would be.
+  # and a view made, as a binding of the object's type would be.
   api Shape
     fun area(?@) -> Float
 
@@ -5411,7 +5411,7 @@ dropped 2.0
   print(b.area())
 
 test "apis object box passes on its views", "9.0 9.0 16.0"
-  # `?b` lends a `?{Shape}`, `!b` a `!{Shape}`; a box's value is reached
+  # `?b` makes a `?{Shape}`, `!b` a `!{Shape}`; a box's value is reached
   # where it lives.
 
   api Grow
@@ -5547,7 +5547,7 @@ test "apis inference sees through a box or a handle given as a view", '''
   Square(side: 2.0)
 '''
   # A box or a handle where a view goes is matched by the value it
-  # lends: a pattern naming a type of its own, and a `T` bounded by an
+  # views: a pattern naming a type of its own, and a `T` bounded by an
   # API of the program's own, which no handle provides; an unbounded `T`
   # binds the box itself.
   api Shape
@@ -5833,7 +5833,7 @@ test "apis object box a closure captures a box", '''
 4.0
 9.0
 '''
-  # A stack closure lends a box it captures, or takes it.
+  # A stack closure views a box it captures, or takes it.
 
   api Shape
     fun area(?@) -> Float
@@ -6384,7 +6384,7 @@ test "apis plain fields go to local tasks", seeds: 20, "4.0 1 4.0"
   u = look(?h)&
   print(>t, >u, local(?Square(side: 2.0)))
 
-fail "apis generic erasure hides no task", "`lent[Job]` cannot use `T = Job`: the generic body erases a value that holds a `T` to `?{Shape}`, which would hide a task from the rules that wait for one, and its field `t` is a `Task[Float]`", "`boxed[Job]` cannot use `T = Job`: the generic body erases a value that holds a `T` to `^{Shape}`", errors: 2
+fail "apis generic erasure hides no task", "`viewed[Job]` cannot use `T = Job`: the generic body erases a value that holds a `T` to `?{Shape}`, which would hide a task from the rules that wait for one, and its field `t` is a `Task[Float]`", "`boxed[Job]` cannot use `T = Job`: the generic body erases a value that holds a `T` to `^{Shape}`", errors: 2
   # A bounded `T` erased to an object is checked at each instance, as a
   # known type is where it is erased.
   api Shape
@@ -6411,12 +6411,12 @@ fail "apis generic erasure hides no task", "`lent[Job]` cannot use `T = Job`: th
   fun boxed[T: Shape](x: T) -> ^{Shape}
     ^<x
 
-  fun lent[T: Shape](x: ?T) -> Float
+  fun viewed[T: Shape](x: ?T) -> Float
     area_of(x)
 
-  print(lent(?Sq(s: 1.0)), boxed(Sq(s: 2.0)).area())
+  print(viewed(?Sq(s: 1.0)), boxed(Sq(s: 2.0)).area())
   j = Job(t: work()&)
-  print(lent(?j))
+  print(viewed(?j))
   b = boxed(Job(t: work()&))
 
 test "apis generic erasure of plain values", "1.0 4.0"
@@ -6435,10 +6435,10 @@ test "apis generic erasure of plain values", "1.0 4.0"
   fun boxed[T: Shape](x: T) -> ^{Shape}
     ^<x
 
-  fun lent[T: Shape](x: ?T) -> Float
+  fun viewed[T: Shape](x: ?T) -> Float
     area_of(x)
 
-  print(lent(?Sq(s: 1.0)), boxed(Sq(s: 2.0)).area())
+  print(viewed(?Sq(s: 1.0)), boxed(Sq(s: 2.0)).area())
 
 fail "apis default gives its self to a task", "`Holder.go` cannot use `Self = Holder`: a value that holds a `Self` is passed to a task as a read view in the generic body, and `Holder` holds `*fun() -> Int`, an owned closure", "`Keeper.go` cannot use `Self = Keeper`: a value that holds a `Self` is passed to a task as a read view in the generic body, and `Keeper` holds `{Shape}`, an API object", errors: 2
   # A default is a body generic over `Self`, checked at each type that
@@ -6769,7 +6769,7 @@ test "apis object a task's large optional result", seeds: 20, "12 true"
     print(v.c, y == none)
 
 test "a write API view returned as an optional read view", "4.0\ntrue"
-  # A `!{Shape}` narrows to the `?{Shape}` it lends where an optional of
+  # A `!{Shape}` narrows to the `?{Shape}` it views where an optional of
   # one goes, as it does where the view itself goes.
   api Shape
     fun area(?@) -> Float

@@ -271,8 +271,8 @@ test "optional holds read view", '''
   2 2
   true
 '''
-  # An optional holds a read view of an owner, and keeps the owner lent
-  # while it is used.
+  # An optional holds a read view of a place, and keeps the place
+  # read-only while it is used.
 
   fun find(v: ?List[List[Int]], want: Int) -> (?List[Int])?
     for i in 0..v.len

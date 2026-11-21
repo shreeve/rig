@@ -251,8 +251,8 @@ test "sets all subs", seeds: 20, '''
   print(xs.len)
 
 fail "sets all subs write", "this task holds a write view while it runs, so it stays where it is bound", errors: 2
-  # A task lent to write is bound and waited for where it is bound, as a
-  # task that gives a value is.
+  # A task given as a write view is bound and waited for where it is bound, as
+  # a task that gives a value is.
   use std.task
 
   sub fill(xs: !List[Int])
@@ -500,7 +500,7 @@ test "sets waited end their views", seeds: 20, "[0] 1"
   print(r, xs.len)
 
 fail "sets waited give what their tasks view", "cannot change `xs` while a read view of it is still in use", errors: 1
-  # What a set's tasks give may view what they were lent.
+  # What a set's tasks give may view what they were given.
   # oracle: main reject C4
   fun first(v: ?List[String]) -> ?String
     ?v[0]

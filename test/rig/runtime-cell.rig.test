@@ -92,10 +92,10 @@ test "cell marked calls", release: true, '''
   2
 '''
   # A shared Cell changes only by a marked call: `!c.set(5)`. The mark
-  # lends the handle `c`, as `!v.push(x)` lends `v`; it is not exclusive
-  # over the Cell, since another handle is another name. Reading is
-  # unmarked. A `!@` method and a `!T` parameter change a Cell the same
-  # way, and a closure marks the handle it captured.
+  # makes a view of the handle `c`, as `!v.push(x)` does of `v`; it is
+  # not exclusive over the Cell, since another handle is another name.
+  # Reading is unmarked. A `!@` method and a `!T` parameter change a
+  # Cell the same way, and a closure marks the handle it captured.
 
   obj Counter
     hits: Cell[Int]
@@ -164,9 +164,9 @@ test "cell marked calls", release: true, '''
   print(fixed.get())
 
 fail "cell read view unchanged", "10:6: cannot make a write view through a read view (`?T`); take a write view (`!T`) to mutate", "13:6: cannot make a write view through a read view (`?T`); take a write view (`!T`) to mutate", "16:4: cannot make a write view through a read view `?Cell[Int]`", errors: 3
-  # `?` promises that nothing changes, a shared Cell included: a read view
-  # of a Cell, or a `?@` method of a value holding one, cannot change
-  # it. It takes `!`, and the caller marks the lend.
+  # `?` promises that nothing changes, a shared Cell included: a read
+  # view of a Cell, or a `?@` method of a value holding one, cannot
+  # change it. It takes `!`, and the caller marks the view.
 
   obj Counter
     hits: Cell[Int]
@@ -186,11 +186,11 @@ fail "cell read view unchanged", "10:6: cannot make a write view through a read 
   print(k.hits.get())
 
 fail "cell read view of handle unchanged", "26:4: cannot make a write view through a read view `?*Node`; take a write view, or share a handle of your own with `+h`", "27:11: cannot make a write view through a read view `?*Node`", "27:30: cannot make a write view through a read view `?*Node`", "27:48: cannot make a write view through a read view `?*Node`", "27:66: cannot make a write view through a read view `?*Node`", "31:6: cannot make a write view through a read view `?*Node`", "33:6: cannot make a write view through a read view `?*Node`", "37:4: cannot make a write view through a read view `?W`", "38:4: cannot make a write view through a read view `?Deep`", "42:13: cannot make a write view through a read view `?*Node`", "47:6: cannot make a write view through a read view `?*Node`", "19:16: cannot make a write view through a read view `?*Node`; `node` is a read view of the value inside `@head`: to write through it, take `!@`, then bind it with `if !@head as node`", errors: 12
-  # A read view of a handle, or of a value that holds one, is never lent
-  # to write (SPEC §10, "Cell"), however it is reached: a parameter, a
-  # field handle of a viewed value, a read `if … as` or `while … as`
-  # binding, a `?@` method's, a closure's capture, or a loop's element.
-  # Every marked change of a Cell is rejected so.
+  # A read view of a handle, or of a value that holds one, is never
+  # given a write view (SPEC §10, "Cell"), however it is reached: a
+  # parameter, a field handle of a viewed value, a read `if … as` or
+  # `while … as` binding, a `?@` method's, a closure's capture, or a
+  # loop's element. Every marked change of a Cell is rejected so.
 
   obj Node
     elem: Cell[Int]
@@ -314,10 +314,10 @@ test "cell set through read view", release: true, '''
   102 2
   shared 42
 '''
-  # A Cell changes by a marked call: `set` and `replace` change it through
-  # a `!T` view, and through a `!@` method of an object holding one. A
-  # by-value parameter owns the shared handle moved into it, which it may
-  # lend out.
+  # A Cell changes by a marked call: `set` and `replace` change it
+  # through a `!T` view, and through a `!@` method of an object holding
+  # one. A by-value parameter owns the shared handle moved into it,
+  # which it may give views of.
 
   obj Counter
     hits: Cell[Int]
@@ -329,7 +329,7 @@ test "cell set through read view", release: true, '''
   sub bump(c: !Cell[Int], by: Int)
     !c.set(c.get() + by)
 
-  fun lent(c: *Counter) -> Int
+  fun viewed(c: *Counter) -> Int
     bump(!c.hits, 100)
     c.hits.get()
 
@@ -347,7 +347,7 @@ test "cell set through read view", release: true, '''
   !k.hit()
   print(k.name, k.hits.get())
   before = k.hits.get()
-  print(lent(<k), before)
+  print(viewed(<k), before)
 
   box = *Counter(hits: Cell(40), name: "shared")
   !box.hit()
@@ -375,9 +375,9 @@ test "cell through handle param", '''
   44
 '''
   # `!c` of a shared handle that may not be written, such as a parameter,
-  # lends the Cell the handle holds, not the handle: an element assigned
-  # through it, a List member called on it, and a Cell's own `swap`
-  # all reach the Cell on the heap, with a concrete or a generic element.
+  # views the Cell the handle holds, not the handle: an element assigned
+  # through it, a List member called on it, and a Cell's own `swap` all
+  # reach the Cell on the heap, with a concrete or a generic element.
 
   obj P
     x: Int

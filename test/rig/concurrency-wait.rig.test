@@ -6,7 +6,7 @@ test "wait basics", seeds: 20, '''
   30
 '''
   # `&` sends the work off and `>` takes what it gives back. A wait takes
-  # the task, and ends the loans it kept: `xs` is lent to write after.
+  # the task, and ends the loans it kept: `xs` can be viewed to write after.
   fun total(xs: ?List[Int]) -> Int
     xs.sum()
 
@@ -127,7 +127,7 @@ test "wait set", seeds: 20, '''
   print("done")
 
 test "wait void and write view", seeds: 20, "[0, 1, 2]"
-  # A task lent to write is waited for where it is bound.
+  # A task given as a write view is waited for where it is bound.
   sub fill(xs: !List[Int], n: Int)
     for i in 0..n
       !xs.push(i)

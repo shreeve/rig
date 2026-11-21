@@ -401,7 +401,7 @@ test "R15-repro-copy array source", "[9, 2, 3]"
   print(b)
 
 test "R15-repro-copy keeps source viewed", "[9, 2, 3] [1, 2, 3]"
-  # After `!b.copy(?a[..])`, `a` stays lent to read for as long as `b` lives.
+  # After `!b.copy(?a[..])`, `a` stays read-only for as long as `b` lives.
   a = [1, 2, 3]
   b = [0, 0, 0]
   !b.copy(?a[..])

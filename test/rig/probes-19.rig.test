@@ -1333,8 +1333,8 @@ test "review-cell-mark-1-p20 two writeviews alias", "0"
   f(!h, !g)
 
 test "review-cell-mark-1-p21 same handle twice", "1"
-  # `!h` lending a `!H` of a value that holds a Cell lends `h` to read
-  # (Core §4), so `?h` goes beside it.
+  # `!h` passing on a `!H` of a value that holds a Cell makes a read
+  # view of `h` (Core §4), so `?h` goes beside it.
   obj H
     log: Cell[List[Int]]
 
@@ -1515,8 +1515,8 @@ test "review-cell-temp-x02 oracle opt view coalesce text", '''
   print((mkt(6).opt() ?? ?mkt(0)).t)
 
 test "review-cell-temp-x04 oracle coalesce plain", "5"
-  # Minimal: a view of a temporary through `??` with another lent temporary,
-  # read within the statement. No Cell, no self.
+  # Minimal: a view of a temporary through `??` with another viewed
+  # temporary, read within the statement. No Cell, no self.
   #
   # oracle: opt accept
   # oracle: mkt accept
@@ -1534,8 +1534,8 @@ test "review-cell-temp-x04 oracle coalesce plain", "5"
   print((opt(?mkt(5)) ?? ?mkt(0)).n)
 
 test "review-cell-temp-x05 oracle coalesce named left", "1"
-  # `(opt(?b) ?? ?mkt(0)).n`,
-  # a lent temporary on the right of `??`, read within its statement.
+  # `(opt(?b) ?? ?mkt(0)).n`, a viewed temporary on the right of `??`,
+  # read within its statement.
   #
   # oracle: opt accept
   # oracle: mkt accept
@@ -1688,9 +1688,9 @@ test "review-cell-temp2-p21 unique named leaf", '''
   5 6
   7
 '''
-  # A `unique` type without a Cell: a read lend of a branch beside a name's
-  # value (rejected now: it would copy the unique value into the slot), a
-  # `?@` method on such a branch, and a read of a field.
+  # A `unique` type without a Cell: a read view of a branch beside a
+  # name's value (rejected now: it would copy the unique value into the
+  # slot), a `?@` method on such a branch, and a read of a field.
   #
   # oracle: R.get accept
   # oracle: mkr accept

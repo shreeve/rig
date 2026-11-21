@@ -54,7 +54,7 @@ test "method named like function", '''
   print(helper())
 
 test "moved branch path base", "5 [3, 14] 3 2 8", release: true
-  # A value that branches over lends, moved (`<(!p if c else !q)`), is the
+  # A value that branches over views, moved (`<(!p if c else !q)`), is the
   # view of the place the branch took: a field or element of it is
   # reached through that place, read or written.
 
@@ -650,7 +650,7 @@ test "read view of plain data rebound", '''
   7
 '''
   # A read view of plain data copies (Core §4), in a local, a field, a
-  # parameter, and a result alike, generic or not: a local bound to a lend
+  # parameter, and a result alike, generic or not: a local bound to a view
   # takes a call's result, and a generic `?T` agrees with its instance.
 
   obj Pt
@@ -736,7 +736,7 @@ test "read view rebound to call", '''
 '''
   # A read view of a value it copies (a number, a String, a plain enum, an
   # optional of one) that a name holds may be bound again to the view a
-  # call returns, a generic method's included, as to a lend of another
+  # call returns, a generic method's included, as to a view of another
   # place.
 
   enum Dir
@@ -999,7 +999,7 @@ test "take element through branch", release: true, '''
   7 [5, 6] [none, 8]
 '''
   # `<` takes an optional element through a value that branches over write
-  # lends, leaving `none` in the element of the place the branch took: the
+  # views, leaving `none` in the element of the place the branch took: the
   # branch is indexed as a whole, in a binding and in an `if … as` header.
 
   obj S

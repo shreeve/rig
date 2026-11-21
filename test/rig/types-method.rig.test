@@ -108,7 +108,7 @@ fail "method on int", "type `Int` has no method `twice`"
   print(x.twice())
 
 test "method reads self", "Steve"
-  # A `?@` method reads self; `u.greet()` lends `u` implicitly.
+  # A `?@` method reads self; `u.greet()` views `u` implicitly.
 
   obj User
     name: ?String
@@ -357,7 +357,7 @@ test "method writes self", '''
   !u.modify("Bob")
 
 fail "method write without bang", "method `rename` needs a write view of `self`"
-  # A method that writes self (`!@`) needs its self lent to write
+  # A method that writes self (`!@`) needs a write view of its self
   # at the call: `!u.rename(...)`.
 
   obj User

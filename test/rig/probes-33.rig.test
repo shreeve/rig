@@ -212,7 +212,7 @@ test "review-step45-r2-c11b branch read escape reuse", '''
   print(r.len, r)
 
 test "review-step45-r2-c12 match value subject temp", "qxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-  # if-as over a match value whose arm lends an element through a temp; grow t
+  # if-as over a match value whose arm views an element through a temp; grow t
   fun idx(s: ?String) -> Int
     s.len - 1
 
@@ -648,7 +648,7 @@ test "review-step45-r2-f05 guarded match readview array elem", "5"
   print(f(?e))
 
 test "review-step45-r2-f06 readview elem forms", "20"
-  # element of a read-view List in each form: while-as, lends of fields, implicit lend args, ?@ method
+  # element of a read-view List in each form: while-as, views of fields, implicit view args, ?@ method
   obj R
     t: String
     n: Int

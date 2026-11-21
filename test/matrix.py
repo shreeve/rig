@@ -10,12 +10,12 @@ for one type (Int, ?String, String, List, `*T`, `^T`, a struct with a
 a Cell, every one of which must be rejected), plus the
 stores into a view parameter (`store.`, below), a call that keeps each
 kind of parameter by each store, with `keeps` and without (`keeps.`,
-below), a loan reaching a generic body's `T` result each way, its `from`
+below), a view reaching a generic body's `T` result each way, its `from`
 naming that parameter or not (`gen.`, below), a value `swap`
 takes out of each kind of place, then the place written, the value put
 back, or what it views dropped while it lives (`taken.`, below), the views of a
 read `match` payload, used in the arm or escaping (`payload.`), a
-`match` payload field that is itself a view (`viewpay.`), a lend of a
+`match` payload field that is itself a view (`viewpay.`), a view of a
 binding that is a write view, then a write through it while the view
 is live or after (`lendw.`), a header (`match`, `if … as`, `while … as`,
 `for`) whose subject reaches a place holding a write view through a
@@ -24,7 +24,7 @@ branch, every one of which must be rejected (`hdr.`), a
 to a place a view reaches whose value holds a statement of its own
 (`target.`), an assignment whose target starts from a value that changes
 what its value reads (`order.`), a place built over an index that
-writes the place's root, read, lent, or assigned (`rootidx.`), a call
+writes the place's root, read, viewed, or assigned (`rootidx.`), a call
 of an owned closure held each
 way, given its holder or a value, and returning a view or a value
 (`clos.`), a loop over each kind of source that views a List, whose
@@ -38,7 +38,7 @@ changed through the `*` handle to the value holding it (`cellmut.`),
 built in debug and with `--release`, and a value holding a Cell made or
 held anywhere but behind `*` (`cellmut.value.`, `celltemp.value.`),
 every one of which must be rejected, and a branch of such places copied
-by value (`cellbranch.`), likewise, the loans on a struct's fields, a
+by value (`cellbranch.`), likewise, the views of a struct's fields, a
 nested struct's, a read-view field's, `@`'s, and a box's, each beside
 a second use of a sibling, the same field, or the whole value, in a
 line, a loop, or a closure, past each exit, rejected exactly where the
@@ -52,7 +52,7 @@ element, at each instance type, which is rejected with a diagnostic or
 runs, in debug and with `--release`, and prints what the values compare
 as, and over the same pairings that values `==` calls equal have equal
 `.hash()`es (`cmp.`), and a variant literal whose enum comes from
-where it goes, in each place a view of that enum goes, lent as the
+where it goes, in each place a view of that enum goes, viewed as the
 value `T.V(...)` is, or rejected (`vlit.`). The rule for each:
 `rig check` rejects the program with a file:line:col
 diagnostic, or it runs, and runs clean under the sanitizer (no leak, no
@@ -403,7 +403,7 @@ FORMS = {
 # The cells where `+a` would be a clone into a read view, made only to be
 # read and dropped, which Rig rejects: a `?String`'s clone given to a
 # parameter of its type, and a box's clone made for a `?@` self. The
-# clone is bound first, `k = +a`, and lent there, `?k`.
+# clone is bound first, `k = +a`, and viewed there, `?k`.
 CLONE_BOUND = {("string", c) for c in ("as_temp", "match_subject_temp", "elem_assign_call", "list_push", "destructure",
                                        "destructure_discard", "destructure_assign", "destructure_as",
                                        "destructure_catch", "destructure_none")} | {("box", "recv_view_then_write")}
@@ -459,9 +459,9 @@ CONTEXTS = {
     # A method that consumes its receiver (`<@`, `^T.unbox`).
     "recv_consume": dict(inline="print((E).M)", recv={"drop": "take()", "box": "unbox().v"}),
     # A method that writes its receiver: a value made there, or one
-    # lent with `!` (a place without one is rejected).
+    # given a write view with `!` (a place without one is rejected).
     "recv_write": dict(inline="(E).M", recv={"list": "push(1)", "text": 'add("x")', "drop": "bump()"}),
-    # `!` lends any value to write (Core sentence 4): the receiver of a
+    # `!` makes a write view of any value (Core sentence 4): the receiver of a
     # write method, an argument where a `!T` goes, and a write view held
     # past the statement, which a temporary's must not be.
     "recv_write_lent": dict(inline="!(E).M", recv={"list": "push(1)", "text": 'add("x")', "drop": "bump()"}),
@@ -480,7 +480,7 @@ CONTEXTS = {
     # `+e` reads `e`, and `_ = e` drops what it takes.
     "clone": dict(inline="x = +(E)\n  print(look(?x))"),
     "discard": dict(inline="_ = E"),
-    # A value read in place, then its place lent to write (`poke(!W)`) by
+    # A value read in place, then a write view of its place (`poke(!W)`) given by
     # a later operand of the same call or operator, before the read is
     # used. `W` is what the form reads: `h.f` for a field, `b` for a
     # fallback, else `a`.
@@ -489,8 +489,8 @@ CONTEXTS = {
                                  recv={t: "get(poke(!W))" if t == "list" else "peek(poke(!W))"
                                        for t in ("list", "shared", "box", "drop")}),
     # A view a method returns of its receiver, kept while the receiver's
-    # place is lent to write: the view keeps every place the receiver may
-    # be lent, and one of a value made there ends with its statement.
+    # place has a write view: the view keeps every place the receiver may
+    # have a view of, and one of a value made there ends with its statement.
     "recv_view_then_write": dict(inline="r = (E).M\n  _ = poke(!W)\n  print(r.v)", write=True,
                                  recv={t: "me()" for t in ("shared", "box", "drop")}),
     "eq_then_write": dict(inline="print((E) == pokev(!W))", write=True, types=("int", "string", "static", "text")),
@@ -503,8 +503,8 @@ CONTEXTS = {
                                      recv={"drop": "me()", "shared": "me()"}),
     "recv_view_held_then_write": dict(inline="x = (E).M", after="print(poke(!W), x.v)", write=True,
                                       recv={"drop": "me()", "shared": "me()"}),
-    # A slice of the value, written with no lend, as an argument where a
-    # `[]T` or a ?String goes: it is lent the way its name is, as
+    # A slice of the value, written with no sigil, as an argument where a
+    # `[]T` or a ?String goes: it is viewed the way its name is, as
     # `?(E)[..1]`, also while a later argument writes what it slices.
     "slice_arg": dict(inline="print(sliced(E[..1]))", slice=True, types=("list", "array", "text", "string", "static")),
     "slice_arg_then_write": dict(inline="print(both(E[..1], poke(!W)))", slice=True, write=True,
@@ -567,7 +567,7 @@ for shape in TAIL_SHAPES:
 # Stores into a view parameter: `f` stores a view of its write
 # parameter `b` in what its parameter `a` reaches, by each store form,
 # then grows `b` (or only reads it) and reads the view through `a`. The
-# caller reads `a` after the return, so `b` stays lent: growing it must
+# caller reads `a` after the return, so `b` keeps a view in use: growing it must
 # be rejected. Cells are `store.<owner>.<form>.<then>`.
 # -----------------------------------------------------------------------------
 
@@ -617,7 +617,7 @@ STORE_FORMS = {
 # and its `from` names `p` (and `d`, where
 # the body may return it) or only `d`.
 # Unnamed, the body is rejected; named, the result keeps `p`'s argument
-# lent, so `main` may read it, and may not drop what it views first.
+# read-only, so `main` may read it, and may not drop what it views first.
 # Cells are `gen.<form>.<said>.<then>`.
 # -----------------------------------------------------------------------------
 
@@ -755,7 +755,7 @@ STEP_SHAPES = {
 # assignment is `{ __v = value; place op= __v }` (docs/internals/INTERNALS.md), so
 # every scope in the value ends before the store goes through the view:
 # there the value may not grow, read, move, or drop what the view views,
-# nor point the view at a local of its own scope; it may lend another
+# nor point the view at a local of its own scope; it may give a view of another
 # value, or point the view at another one, and the store then lands
 # there. `in_block` puts the assignment last in a block whose local the
 # view was pointed at, which is valid. Each valid cell must be accepted
@@ -969,7 +969,7 @@ ITER_CONTEXTS = ("end", "break", "continue", "return", "fail", "else", "value_en
 # -----------------------------------------------------------------------------
 # A loop whose source views `b.xs`, from each kind of source (a `while`
 # whose condition reads a slice, `while … as` over an iterator, and a
-# `for` over a made, lent, named, or taken iterator, a List, or a
+# `for` over a made, viewed, named, or taken iterator, a List, or a
 # slice), with a body that defers a write to `b.xs` (which runs inside
 # the loop, before the source is read again: rejected), defers a write
 # to another List, or is followed by a write to `b.xs` after the loop.
@@ -1020,8 +1020,8 @@ def dloop_cells():
 # A variant literal whose enum comes from where it goes (`.V`, `.V(...)`)
 # in each place a view of its enum goes. Where the view is held by
 # address (any but a plain enum's read view), the literal is the value
-# `T.V(...)` is: lent to a view argument as a temporary its statement
-# drops, and rejected where the view is kept, lent to write, or is a view
+# `T.V(...)` is: viewed by an argument as a temporary its statement
+# drops, and rejected where the view is kept, a write view, or is a view
 # of an optional. A plain enum's read view holds a copy, so takes the
 # literal anywhere a read view goes.
 # Cells are `vlit.<literal>.<place>`.
@@ -1057,7 +1057,7 @@ VLIT_PLACES = {
     "kept": ("fun keep(v: ?T) -> ?T\n  return v\n", ["x = keep(@L)", "show(x)"], False, True, ""),
     "default": ("sub dflt(v: ?T = @L)\n  show(v)\n", ["dflt()"], False, True, ""),
     # A fallback that is a value copies out what `o` views, which only a
-    # value that copies may; a plain enum's fallback must be lent too.
+    # value that copies may; a plain enum's fallback must be viewed too.
     "coalesce": ("", ["o: (?@T)? = none", "show(o ?? @L)"], False, False, ""),
 }
 VLIT_DECLS = """enum S
@@ -1627,10 +1627,10 @@ PAYLOAD_TYPES = {
     "box": dict(ty="^N", mk="^N(v: 6)", mk2="^N(v: 60)", show="print(v.v)", out="6"),
     "shared": dict(ty="*N", mk="*N(v: 7)", mk2="*N(v: 70)", show="print(v.v)", out="7"),
 }
-# How the match reaches the enum: a `?E` parameter matched bare or lent
+# How the match reaches the enum: a `?E` parameter matched bare or viewed
 # again, or given a box, a field of a `?H` parameter, or, in a
 # generic function, a `?G[T]` parameter, the view a call returns of one,
-# a lend of that view, a branching value, or a field of a view a call
+# a view of that view, a branching value, or a field of a view a call
 # returns. `main` makes `e` from `mk()` and passes `?e`.
 PAYLOAD_SUBJECTS = {
     "param": dict(param="e: ?E", subj="e"),
@@ -1741,7 +1741,7 @@ VIEWPAY_TYPES = {
 }
 # How the match reaches the enum: a call that wraps the view, the same in
 # a generic function, a `?G[V]` or `!G[V]` parameter, or a local the
-# function makes. `main` lends `k` and `d`.
+# function makes. `main` gives views of `k` and `d`.
 VIEWPAY_SUBJECTS = {
     "call": dict(subj="wrap(x)"),
     "generic": dict(subj="gwrap(x)", generic=True),
@@ -1809,17 +1809,17 @@ def viewpay_program(tname, sname, uname):
 
 
 # -----------------------------------------------------------------------------
-# A lend of a binding that is a write view (a `match !e` payload, `if !o as
+# A view of a binding that is a write view (a `match !e` payload, `if !o as
 # b`, `for b in !v`, a `!T` parameter, a `|!b|` capture, a held `b = !x`),
 # followed by a write through the binding while
-# the lend's view is live, or after its last use. A lend of a write view
-# is a loan on it (docs/internals/INTERNALS.md, "Lending a binding"), so a write
+# that view is live, or after its last use. A view of a write view
+# leaves it read-only (docs/internals/INTERNALS.md, "Binding access"), so a write
 # while the view is live is rejected; a program that runs must print what
 # the view showed before the write, then what the write left. Cells are
 # `lendw.<binding>.<type>.<lend>.<when>`.
 # -----------------------------------------------------------------------------
 
-# Each type: its spelling, `mk()`'s body, each lend of the binding `@B`
+# Each type: its spelling, `mk()`'s body, each view of the binding `@B`
 # with the statement that shows its view `s` and what that prints, the
 # write through `@B`, and the statement that shows `@B` after it, with
 # what it prints.
@@ -1845,7 +1845,7 @@ LENDW_TYPES = {
 # Each binding: the declarations it needs, the lines before the body,
 # the lines opening it, the body's indent under them, the lines after
 # it, the binding's name when it is not `b`, for a parameter of `f`, the
-# parameter and the value `main` makes and lends `f`, and whether every
+# parameter and the value `main` makes and gives a view of to `f`, and whether every
 # program must be rejected (`rejected`).
 LENDW_BINDINGS = {
     "match": dict(decls="enum E\n  a(x: TY)\n  z\n", setup=["e = E.a(mk())"],
@@ -1874,7 +1874,7 @@ LENDW_BINDINGS.update({
     "match_guard": dict(decls=_LW_E, setup=["e = E.a(mk())", "c = true"], head=["match !e", "  .a(b) if c"], depth=4, after=["  _ => pass"]),
     "match_nested": dict(decls=_LW_E + "\nenum O\n  a(i: E)\n  z\n", setup=["o = O.a(E.a(mk()))"], head=["match !o", "  .a(io)", "    match !io", "      .a(b)"], depth=8, after=["      .z => pass", "  .z => pass"]),
     "match_call": dict(decls=_LW_E + _LW_GET, setup=["h = HH(e: E.a(mk()))"], head=["match !get(!h)", "  .a(b)"], depth=4, after=["  .z => pass"]),
-    # A branch of write lends is lent on.
+    # A branch of write views is viewed.
     "match_branch_lent_on": dict(decls=_LW_E, setup=["e1 = E.a(mk())", "e2 = E.z", "c = true"], head=["match (!e1 if c else !e2)", "  .a(b)"], depth=4, after=["  .z => pass"]),
     "while_as": dict(setup=["o: TY? = mk()", "n = 0"], head=["while !o as b"], depth=2, after=["  n += 1", "  break if n > 0"]),
     "if_as_write_param": dict(param="o: !(TY?)", arg="mk()", argty="TY?", head=["if !o as b"], depth=2),
@@ -1890,7 +1890,7 @@ LENDW_BINDINGS.update({
     "read_as_local": dict(setup=["y = mk()", "o: (!TY)? = !y"], head=["if o as b"], depth=2, rejected=True),
     "read_while_as_local": dict(setup=["y = mk()", "o: (!TY)? = !y", "n = 0"], head=["while o as b"], depth=2, after=["  n += 1", "  break if n > 0"], rejected=True),
     # A branch whose leaf is a name holding a write view, matched in
-    # place: a lend of the branch, which would copy the write view out of
+    # place: a view of the branch, which would copy the write view out of
     # the name (`viewsBranch`).
     "read_branch_bare_write_views": dict(decls=_LW_E, setup=_LW_TWO + ["wa = !e1", "wb = !e2"],
                                          head=["match (wa if c else wb)", "  .a(b)"], depth=4, after=["  .z => pass"], rejected=True),
@@ -1911,7 +1911,7 @@ LENDW_BINDINGS.update({
 
 
 def lendw_program(bname, tname, lname, when):
-    """The program for one lend-then-write cell, and what it must print."""
+    """The program for one view-then-write cell, and what it must print."""
     t = LENDW_TYPES[tname]
     b = LENDW_BINDINGS[bname]
     lend, show_s, out_s = t["lends"][lname]
@@ -1941,7 +1941,7 @@ def lendw_program(bname, tname, lname, when):
     lines += [" " * b["depth"] + l for l in body] + b.get("after", [])
     if "param" in b:
         out.append(f"sub f({b['param'].replace('TY', t['ty'])})\n" + indent(lines, 2) + "\n")
-        # `argty` types the value `main` makes and lends `f`.
+        # `argty` types the value `main` makes and gives a view of to `f`.
         y = f"y: {b['argty']} = {b['arg']}" if "argty" in b else f"y = {b['arg']}"
         out.append("sub main()\n" + indent([y.replace("TY", t["ty"]), "f(!y)"], 2) + "\n")
     else:
@@ -1959,10 +1959,10 @@ def lendw_program(bname, tname, lname, when):
 # write-view leaf (a `!W` parameter, a local `a = !x`). The arm takes a
 # view of the value the header binds, then writes through the place the
 # branch read, and reads the view. The header reads the branch in place,
-# a lend of it, which would copy the write view out of the place with no
+# a view of it, which would copy the write view out of the place with no
 # loan on it (`viewsBranch`), so every program must be rejected, and one
-# that runs fails the cell. Each subject is written bare, lent to read
-# (`?S`), and lent to write (`!S`). Cells are
+# that runs fails the cell. Each subject is written bare, as a read view
+# (`?S`), and as a write view (`!S`). Cells are
 # `hdr.<header>.<sigil>.<shape>.<leaf>`.
 # -----------------------------------------------------------------------------
 
@@ -2023,8 +2023,8 @@ HDR_SHAPES = {
 }
 
 
-# Each sigil the subject is written with: bare, lent to read (`?S`), or
-# to write (`!S`), which a lend of a branch rejects (`viewsBranch`).
+# Each sigil the subject is written with: bare, a read view (`?S`), or
+# a write view (`!S`), which a view of a branch rejects (`viewsBranch`).
 HDR_SIGILS = {"bare": "", "read": "?", "write": "!"}
 
 
@@ -2365,7 +2365,7 @@ for _f in _CB_FORMS:
 # passed as an argument whose result keeps the view, or bound bare, and
 # then the owner changed or replaced while the slice is still used
 # (`live`) or after its last use (`done`). Whatever is accepted must run
-# sanitizer-clean: a slice that lends what it slices keeps the change out.
+# sanitizer-clean: a slice that views what it slices keeps the change out.
 # -----------------------------------------------------------------------------
 
 SLICEVIEW_ELEMS = {
@@ -2438,8 +2438,8 @@ def store_program(oname, fname, then):
 # A call that keeps a parameter (Core sentence 7): each kind of parameter,
 # stored by the callee into its receiver, into a write argument, through a
 # call that keeps it, on some paths only, or not at all, with `keeps`
-# naming it and without, then the holder read, or the lent owner changed
-# first. A lent parameter is kept only when `keeps` names it, and a body
+# naming it and without, then the holder read, or the viewed value changed
+# first. A view parameter is kept only when `keeps` names it, and a body
 # that stores one unnamed is rejected; a parameter taken by value is kept
 # by its type, and `keeps` may not name it; a call through a function
 # value keeps by type. Cells are `keeps.<kind>.<store>.<said>.<then>`,
@@ -2448,10 +2448,10 @@ def store_program(oname, fname, then):
 
 # Each kind: the parameter's type `P`, the holder's field type, what the
 # callee stores (`E`), how `main` makes the holder's first value
-# (`setup`, `init`), the owner (`owner`) and the argument lent from it
+# (`setup`, `init`), the viewed value (`owner`) and the argument that views it
 # (`lend`), how the holder is read back with what it prints stored and
 # first, how the owner is changed, and how the callee hands the
-# parameter on (`on`, `p` unless written). `lent`: a lent parameter, which
+# parameter on (`on`, `p` unless written). `lent`: a view parameter, which
 # `keeps` names; `generic`: the holder is `H[T]`; `recv`: the receiver
 # is the parameter, kept in a `!List[?Item]` argument; `fnval`: the
 # callee is called through a function value.
@@ -2550,11 +2550,11 @@ def keeps_expect(k, sname, said, then):
     stores = KEEPS_STORES[sname]["stores"]
     if k.get("by_value"):
         # `keeps` names no parameter taken by value, which is kept by its
-        # type: the owner stays lent while the holder lives.
+        # type: the viewed value stays read-only while the holder lives.
         if said or then == "change":
             return rejected
         return (k["stored"] if stores else k["first"]) + "\n"
-    # An unnamed lent parameter stored is the body check's error.
+    # An unnamed view parameter stored is the body check's error.
     if stores and not said:
         return rejected
     # Kept: by the clause, or by type through a function value.
@@ -2591,7 +2591,7 @@ def taken_program(pname, then):
 
 
 # A value that holds a read view of an owner (`holder.`), whatever
-# holds it, keeps the owner lent while the holder is used: the owner is
+# holds it, keeps what it views read-only while the holder is used: that value is
 # written, moved, or dropped while the holder is still used (rejected),
 # or after its last use (runs, and prints what each saw).
 HOLDER_OWNERS = {
@@ -2692,7 +2692,7 @@ def nest_program(wname, home, oname):
 # or read, a String to own, or a ?String; and it returns a number, a
 # String, or a ?String viewing its argument. The result is printed
 # (`use`), or the argument's root is written first (`conflict`). A call
-# that lends to write what holds the closure is rejected (the closure
+# that gives a write view of what holds the closure is rejected (the closure
 # could free itself), as is a result viewing an owned parameter, a
 # write while the result views it, and a temporary callee.
 CLOS_ARGS = {
@@ -2708,7 +2708,7 @@ CLOS_ARGS = {
 }
 CLOS_RESULTS = {"plain": "Int", "owned": "String", "view": "?String"}
 CLOS_CALLEES = ("local", "field", "element", "asbind", "view", "generic", "temp")
-# The callees held in `h`, the holder the call may lend.
+# The callees held in `h`, the holder the call may give a view of.
 CLOS_IN_HOLDER = ("field", "element", "asbind", "view")
 CLOS_THENS = ("use", "conflict")
 
@@ -2759,7 +2759,7 @@ def clos_program(callee, aname, rname, then):
 # are written and passed in the order the parameters are declared
 # (docs/internals/INTERNALS.md, "Evaluation order of arguments"): one argument writes
 # what another views, written first or second, in a function, a method, and
-# a generic function. A view that is a loan (a ?String, a `?String`, a slice) is
+# a generic function. A view that keeps its place read-only (a ?String, a `?String`, a slice) is
 # rejected when written before the write; a copy of a number is not, and
 # shows the value before the write. Written after the write, every view
 # shows what the write left. Cells are `named.<call>.<kind>.<order>`.
@@ -2813,7 +2813,7 @@ def named_program(call, kind, order):
 
 # -----------------------------------------------------------------------------
 # An assignment whose target's path starts from a value that changes what
-# the assignment's value reads: a call that writes `i`, a method of a lent
+# the assignment's value reads: a call that writes `i`, a method of a viewed
 # receiver, a propagation of an optional or a failure, a branch whose
 # condition writes `i`, or a call that takes the List `x` the value reads.
 # An assignment evaluates its value, then its target from the base of its
@@ -2956,7 +2956,7 @@ def order_leave_program(step, fail):
 # element 5 at index `K`, `K` a call that writes the place's root (`root`,
 # which grows or replaces the storage the place is in and leaves the
 # element 5 in the new storage), another root of the same type (`other`),
-# or reads the root (`read`), and the place used at a site. A lend, a
+# or reads the root (`read`), and the place used at a site. A view, a
 # slice, or a receiver finds the place up to each index before the index
 # runs, so a `root` writer there is rejected; so does a read, which is
 # rejected only where the List the index applies to lies outside the
@@ -3032,23 +3032,23 @@ def rootidx_program(shape, site, writer):
     return src, "(rejected)\n" if rejected else prints + "\n"
 
 
-# Disjoint field loans (Core sentence 5, §5 "A field is a place of its
-# own"): a first loan on `X.a` (`r = ?X.a` or `w = !X.a`), used again
+# Disjoint field views (Core sentence 5, §5 "A field is a place of its
+# own"): a first view of `X.a` (`r = ?X.a` or `w = !X.a`), used again
 # after a second use of a place of the same value, in a context, past an
 # exit. The places (`FIELD_ROOTS`): a struct's fields, a nested struct's,
-# a field reached through a read-view field (whose loan is the view's,
+# a field reached through a read-view field (whose view is the view's,
 # not the holder's), self's in a `!@` method, and a box's. The
-# second use is a read lend, a write lend, a take (`<X.o`), or an
+# second use is a read view, a write view, a take (`<X.o`), or an
 # assignment, of a sibling (`sib`: `X.b`, `X.o`), the same field
 # (`same`), or the whole value (`parent`). The contexts: straight line,
-# a loop whose back edge carries the first loan, and a closure, whose
+# a loop whose back edge carries the first view, and a closure, whose
 # capture uses the whole name. The exits: fall-through, `return`,
 # `break`, `continue`, `!`, and a failing `if … as` guard. A cell the
 # rule accepts must run and print what the simulation says; any other
 # must be rejected.
 FIELD_ROOTS = {
-    # X: the value the first loan is a field of; Y: the value the second
-    # use is of (`h` holds the read view the first loan goes through);
+    # X: the value the first view is of; Y: the value the second
+    # use is of (`h` holds the read view the first view goes through);
     # cap: the name a closure captures.
     "field": dict(make=['x = P(a: String("a"), b: String("b"), o: String("o"), n: 1)'], X="x", Y="x", cap="x", again='x = P(a: String("a"), b: String("B"), o: String("o"), n: 1)'),
     "nested": dict(make=['x = Outer(i: P(a: String("a"), b: String("b"), o: String("o"), n: 1), m: 0)'], X="x.i", Y="x.i", cap="x", again='x.i = P(a: String("a"), b: String("B"), o: String("o"), n: 1)'),
@@ -3111,7 +3111,7 @@ def field_second(root, rel, second):
             "assign": ([f'{Y}.b = String("B")'], lambda s: s.update(b="B")),
         }[second]
     if rel == "same":
-        # The first loan's own field; a field that is not optional is
+        # The first view's own field; a field that is not optional is
         # never taken, and nothing is written through a read view.
         X = r["X"]
         if r.get("viewed") and second != "read":
@@ -3134,9 +3134,9 @@ def field_second(root, rel, second):
 
 def field_accepts(root, first, rel, second, ctx):
     """Whether the rule accepts the cell: the second use touches a place
-    that overlaps the first loan's only where it is the same field or the
+    that overlaps the first view's only where it is the same field or the
     whole value, or a closure captures the whole name; through a read-view
-    field the first loan is the view's, and touches nothing of `x`."""
+    field the first view is the view's, and touches nothing of `x`."""
     if FIELD_ROOTS[root].get("viewed"):
         return True
     if ctx == "closure" or rel != "sib":
@@ -3145,11 +3145,11 @@ def field_accepts(root, first, rel, second, ctx):
 
 
 def field_program(root, first, rel, second, ctx, ex):
-    """The program for one field-loan cell, and what it prints (or
+    """The program for one field-view cell, and what it prints (or
     `(rejected)`); (None, None) where the form cannot stand."""
     r = FIELD_ROOTS[root]
     if r.get("viewed") and first == "write":
-        return None, None  # a write lend through a read view is a type error
+        return None, None  # a write view through a read view is a type error
     if ex in ("break", "continue") and ctx != "loop":
         return None, None
     if ctx == "closure" and ex != "fall":

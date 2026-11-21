@@ -2,7 +2,7 @@
 use std.hint
 
 test "hint keep takes any value", "ok"
-  # `keep` lends a read view of any type: a number, text, a List, an
+  # `keep` takes a read view of any type: a number, text, a List, an
   # object. It changes nothing, so what it is given reads the same after.
   obj Peer
     port: Int
@@ -41,7 +41,7 @@ code "hint keep calls the module's function with the type first", /__rig_m\d+_st
   hint.keep(3)
 
 fail "hint keep reads only", "3:11: `!n` here is read, not held: `hint.keep` only reads `n`; write `hint.keep(?n)`"
-  # `keep` lends a read view, so it takes no `!x`.
+  # `keep` takes a read view, so it takes no `!x`.
   n = 1
   hint.keep(!n)
 

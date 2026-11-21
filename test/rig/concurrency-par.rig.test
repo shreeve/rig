@@ -30,7 +30,7 @@ test "par each", seeds: 20, '''
   1 4 4
   499500
 '''
-  # `par.each` lends each element to write.
+  # `par.each` makes a write view of each element.
   use std.par
 
   arr = [1, 2, 3, 4]
@@ -608,7 +608,7 @@ fail "par each function takes the write view", "`par.each` calls `show` with eac
   par.each(!xs, show)
 
 test "par workers in a function of views", seeds: 20, "[2, 3, 4] 3"
-  # The call stores no item in a state, so a function lent the states
+  # The call stores no item in a state, so a function given views of the states
   # and the items keeps neither.
   use std.par
 
@@ -640,7 +640,7 @@ fail "par closure in error reported once", "7:30: use of unbound name `nope`", "
 
 fail "par map closure's own error", "8:27: cannot make a write view through a read view `?*Cell[Int]`; take a write view, or share a handle of your own with `+h`", errors: 1
   # A closure whose body is in error and gives no value is reported
-  # given the element it is lent, as a function's name is.
+  # given the element view it is given, as a function's name is.
   use std.par
 
   sub main()!
@@ -650,7 +650,7 @@ fail "par map closure's own error", "8:27: cannot make a write view through a re
     print(ys[0], xs[0].get())
 
 fail "par closures' errors of every kind", "8:28: type `?Int` has no method `abs`", "9:28: type `?Int` has no method `abs`", "11:44: type `?Int` has no method `abs`", "12:22: `par.map` gives each call's value", "12:34: type `?Int` has no method `abs`", errors: 5
-  # Each closure is checked given what the call lends it, whatever its
+  # Each closure is checked given what the call gives it, whatever its
   # error: one that propagates is checked as one that can fail, and one
   # that gives nothing still reports what is wrong in it.
   use std.par

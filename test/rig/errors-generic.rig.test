@@ -168,7 +168,7 @@ test "a callback of a set without fields, in a program with fields", '''
   1000
 '''
   # A callable view of a fallible function takes the slot whatever its
-  # set; a frame that has none lends one nothing writes.
+  # set; a frame that has none gives one nothing writes.
   error Bad
     empty
 
@@ -371,7 +371,7 @@ test "a re-raise in a frame of a set without fields, in a program with fields", 
   -3
   1
 '''
-  # A frame with no slot of its own lends its call one, which a re-raise
+  # A frame with no slot of its own gives its call one, which a re-raise
   # writes: directly, through a closure, and in a task.
   use std.task
 

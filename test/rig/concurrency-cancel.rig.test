@@ -157,7 +157,7 @@ test "cancel write view", seeds: 20, '''
   -1
   0
 '''
-  # A task lent to write is canceled where it is bound.
+  # A task given as a write view is canceled where it is bound.
   use std.time
 
   fun fill(xs: !List[Int]) -> Int!

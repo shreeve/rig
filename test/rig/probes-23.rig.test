@@ -2307,7 +2307,7 @@ test "review-move-done-2-e02 take index effects", "false 101"
   # oracle: grow accept
 
 fail "review-move-done-2-e05 take args order", "cannot change `s.o` while a read view of it is still in use"
-  # A take beside a lend of the same place in one call.
+  # A take beside a view of the same place in one call.
   obj S
     o: List[Int]?
 
@@ -2849,7 +2849,7 @@ test "review-move-done-2-v01 branch of view bindings", '''
   false true true
 '''
   # A take through a branching value whose leaves are write views held in
-  # bindings, and through a view binding's field. (A read lend of `s` before
+  # bindings, and through a view binding's field. (A read view of `s` before
   # `<(!s if c else !t).o` is rejected, as it should be: not kept here.)
   obj S
     o: List[Int]?
@@ -3525,8 +3525,8 @@ test "review-move-done-p73 advice works", '''
   # oracle: main accept
 
 test "review-move-done-p74 print read then write view", "1 2"
-  # A field copied out of a read view keeps nothing lent (Core §6), so a
-  # later argument may lend `s` to write.
+  # A field copied out of a read view keeps nothing in use (Core §6), so
+  # a later argument may make a write view of `s`.
   obj S
     n: Int
 
@@ -3549,7 +3549,7 @@ test "review-needs50-equality", '''
   true true
 '''
   # A variant literal compared with a `?Q` view on either side of `==`
-  # and `!=`, bare and with a payload, after being lent as the argument
+  # and `!=`, bare and with a payload, after being given as the argument
   # that made the view. Runs sanitizer-clean.
   enum Q
     Num(n: Int)
@@ -3571,7 +3571,7 @@ test "review-needs50-generic-enum", '''
   some 3
   nothing
 '''
-  # A variant literal of a generic enum, bare and with a payload, lent
+  # A variant literal of a generic enum, bare and with a payload, given
   # where `?Opt[List[Int]]` and `?Opt[Int]` go. Runs sanitizer-clean.
   enum Opt[T]
     Some(v: T)
@@ -3603,9 +3603,9 @@ test "review-needs50-generic-view", '''
   true false
   .Str(s: "id")
 '''
-  # A variant literal lent where a generic `?T` goes once `T` is known:
-  # from an earlier argument, from a generic object's self, and from
-  # the view the call's result is lent to. Runs sanitizer-clean.
+  # A variant literal given where a generic `?T` goes once `T` is known:
+  # from an earlier argument, from a generic object's self, and from the
+  # view the call's result goes to. Runs sanitizer-clean.
   enum Q
     Num(n: Int)
     Str(s: String)
@@ -3649,7 +3649,7 @@ test "review-needs50-jumps", '''
   num 2
   -1 2
 '''
-  # A variant literal lent to a `?Val` argument, owning a List, is made
+  # A variant literal given to a `?Val` argument, owning a List, is made
   # before a later argument jumps out of the statement (`continue`,
   # `break`, `return` through `??`): the temporary is dropped on every
   # path. Runs sanitizer-clean.
@@ -3699,7 +3699,7 @@ test "review-needs50-module", '''
   end
 '''
   # A variant literal of an enum imported from another module, plain and
-  # generic, lent where `?lib.E` and `?lib.G[lib.R]` go, also by keyword.
+  # generic, given where `?lib.E` and `?lib.G[lib.R]` go, also by keyword.
   # Runs sanitizer-clean, dropping each `lib.R` at its statement's end.
   use lib
 
@@ -3749,9 +3749,9 @@ test "review-needs50-nested", '''
   4
   6
 '''
-  # Nested variant literals under a view: an outer literal lent to
+  # Nested variant literals under a view: an outer literal given to
   # `?Outer` whose owned payloads are themselves literals (with keyword
-  # arguments reordered), and a tree of boxed literals lent to `?Tree`.
+  # arguments reordered), and a tree of boxed literals given to `?Tree`.
   # Runs sanitizer-clean.
   enum Outer
     Box(v: Inner)
@@ -3808,10 +3808,10 @@ test "review-needs50-payload-kinds", '''
   drop 5
   end
 '''
-  # A variant literal lent to a `?H` argument, for each kind of payload:
-  # a `*T` cloned and moved, a `^T`, a String, an object with a `drop`, a
-  # `?String`, and a box of a nested literal. Each temporary is dropped
-  # at the end of its statement. Runs sanitizer-clean.
+  # A variant literal given to a `?H` argument, for each kind of
+  # payload: a `*T` cloned and moved, a `^T`, a String, an object with a
+  # `drop`, a `?String`, and a box of a nested literal. Each temporary
+  # is dropped at the end of its statement. Runs sanitizer-clean.
   obj N
     n: Int
 
@@ -3861,11 +3861,11 @@ test "review-needs50-positions", '''
   3
   defer 3
 '''
-  # A variant literal owning a List, lent to a `?Val` view in statement
+  # A variant literal owning a List, given to a `?Val` view in statement
   # positions other than a plain call: a closure and an owned closure, a
-  # `?fun` value, a `defer`, a postfix `if`, a `while` condition and step,
-  # a method's argument by keyword, and a view the call returns, read in
-  # the same statement. Runs sanitizer-clean.
+  # `?fun` value, a `defer`, a postfix `if`, a `while` condition and
+  # step, a method's argument by keyword, and a view the call returns,
+  # read in the same statement. Runs sanitizer-clean.
   enum Val
     Num(n: Int)
     Table(m: List[Int])
@@ -3909,9 +3909,9 @@ test "review-needs50-positions", '''
   print(size(keep(.Table(m: three()))))
 
 fail "review-needs50-view-escapes", "a view of the temporary `.Table(m: List())` outlives its statement, which drops it; bind the value to a name first"
-  # A view of a variant literal lent to a call, returned by that call, may
-  # not outlive the statement that drops the literal: bound by `if ... as`,
-  # read by the arms of `match`, or iterated by `for`. Rejected.
+  # A view of a variant literal given to a call, returned by that call,
+  # may not outlive the statement that drops the literal: bound by `if
+  # ... as`, read by the arms of `match`, or iterated by `for`. Rejected.
   enum Val
     Num(n: Int)
     Table(m: List[Int])

@@ -45,7 +45,7 @@ sub main()
   print(x)
 EOF
 out=$("$RIG" emit fallible.rig 2>/dev/null) || fail "rig emit fallible.rig"
-expect_has "$out" 'try (__rig_rt_1: { var __rig_v_1 = bar(__out); _ = &__rig_v_1; break :__rig_rt_1 __rig_v_1; })' "propagate, lending the slot, its result a run-time value in place"
+expect_has "$out" 'try (__rig_rt_1: { var __rig_v_1 = bar(__out); _ = &__rig_v_1; break :__rig_rt_1 __rig_v_1; })' "propagate, a view of the slot, its result a run-time value in place"
 expect_has "$out" 'pub inline fn foo(__out: rig.ErrSlot) anyerror!i64' "fallible return type, with the slot"
 expect_has "$out" 'rig.onOwnStack(__rig_fail_main, .{__rig_init})' "fallible main"
 expect_has "$out" 'fn __rig_run_main(__rig_init: std.process.Init.Minimal, __out: rig.ErrSlot) anyerror!void' "fallible main body"
@@ -61,7 +61,7 @@ expect_has "$out" 'var @"var": i64 = 3;' "Zig keyword"
 expect_has "$out" "var @\"rig'\": i64 = 4;" "emitter name"
 
 # A read `match` views a payload that is not plain data where it is, and
-# a catch-all binding of a lent subject is the address of the value
+# a catch-all binding of a viewed subject is the address of the value
 # switched on.
 cat >payload.rig <<'EOF2'
 obj Res
@@ -92,13 +92,13 @@ sub main()
 EOF2
 out=$("$RIG" emit payload.rig 2>/dev/null) || fail "rig emit payload.rig"
 expect_has "$out" 'const r = &__rig_payload_1.r;' "payload viewed where it is"
-expect_has "$out" 'else => |*x| rig.rt(count(x)),' "catch-all of a lent subject"
-expect_has "$out" 'const x = &e.*;' "guarded catch-all of a lent subject"
+expect_has "$out" 'else => |*x| rig.rt(count(x)),' "catch-all of a viewed subject"
+expect_has "$out" 'const x = &e.*;' "guarded catch-all of a viewed subject"
 
 # Emit takes no address of a Zig temporary value. A `?@` method on a
 # value that branches runs on the leaf it takes, through its address,
 # never on a copy (`@as(S, if ...)`), so a view it returns views the
-# leaf. A Cell-holding field of a temporary is lent, and a method is
+# leaf. A Cell-holding field of a temporary is viewed, and a method is
 # called on a kept temporary, where the statement's slot holds it, never
 # through a copy in the call's block.
 cat >leaves.rig <<'EOF2'

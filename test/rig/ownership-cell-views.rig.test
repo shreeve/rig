@@ -1,8 +1,8 @@
 # ownership: tests whose names start `cell views`: `!x` of a value that
 # changes by a marked call (a Cell, a Signal, a channel, an actor, or a
-# value that holds a Cell) puts only a read loan on `x`, while `!h`
-# lending the handle itself, assigning, and dropping stay writes (Core
-# §4, SPEC "Lending a shared value to write"). Each case states the
+# value that holds a Cell) leaves `x` read-only, while `!h`
+# of the handle itself, assigning, and dropping stay writes (Core
+# §4, SPEC "Write views of a cell"). Each case states the
 # reference checker's verdict, one for each kind of handle SPEC names.
 
 test "cell views cell calls nest", "5 7"

@@ -82,9 +82,9 @@ fail "match duplicate literal", "overlaps an earlier arm"
     _ => print("other")
 
 fail "match guard changes subject", "16:21: a guard cannot change the value being matched", "23:13: a guard cannot change the value being matched"
-  # A guard changes nothing it matches: when it fails, a later arm matches
-  # the same value, so it may not lend the subject to write, a binding of
-  # the arm, or anything reached from them.
+  # A guard changes nothing it matches: when it fails, a later arm
+  # matches the same value, so it may not make a write view of the
+  # subject, a binding of the arm, or anything reached from them.
 
   enum Shape
     circle(r: Int)
@@ -377,9 +377,9 @@ fail "match value non exhaustive", "18:11: `match` is not exhaustive: it misses 
   print(x)
 
 fail "match write bool", "6:7: `!` makes a write view; use `not` for negation (a `Bool` gets a write view only where a `!Bool` is expected: `f(!flag)`)", "9:5: `!` makes a write view; use `not` for negation (a `Bool` gets a write view"
-  # `!` before a Bool reads as negation, so a Bool subject is not matched
-  # with `match !b`, nor bound with `w = !b`: the message says where a Bool
-  # is lent to write.
+  # `!` before a Bool reads as negation, so a Bool subject is not
+  # matched with `match !b`, nor bound with `w = !b`: the message says
+  # where a Bool is given a write view.
 
   b = true
   match !b

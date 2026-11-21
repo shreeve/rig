@@ -553,7 +553,7 @@ test "r3-s36-docs-p20 print nullish owner", '''
   print(o == none)
 
 test "r3-s36-docs-p21 bare read view", "3"
-  # Core sentence 1/4: a read lend may go unwritten
+  # Core sentence 1/4: a read view may go unwritten
   obj Packet
     size: Int
 
@@ -613,7 +613,7 @@ test "r3-s36-docs-p29 swap vec handles", "2"
   print(v[0].n)
 
 test "r3-s36-docs-p30 zig static view", "true"
-  # Core sentence 7 has no static exception; std.os.args() returns a view of nothing lent
+  # Core sentence 7 has no static exception; std.os.args() returns a view of nothing it was given
 
   fun first() -> ?String
     args = os.args()
@@ -816,7 +816,7 @@ test "r3-s36-kinds-k41 clone struct of handles", "1 2"
   print(q.a.n, q.b.n)
 
 fail "r3-s36-views-a01 int read then write", "cannot reassign `n` while a read view of it is still in use"
-  # Sentence 5 for numbers: a read loan excludes a write.
+  # Sentence 5 for numbers: a read view excludes a write.
   n = 1
   r = ?n
   n += 1
@@ -939,7 +939,7 @@ test "r3-s36-views-c01 share struct with view", '''
   1
   drop 1
 '''
-  # `*x` makes a counted box any handle reaches: a value holding a loan
+  # `*x` makes a counted box any handle reaches: a value holding a view
   # may not go in.
   obj R
     n: Int
@@ -1245,7 +1245,7 @@ test "r3-s36-views-m03 match read string payload", "a"
     .no => print("no")
 
 test "r3-s36-views-m04 match read int payload", "1"
-  # Sentence 5 says a read loan excludes a write "for numbers too", but a
+  # Sentence 5 says a read view excludes a write "for numbers too", but a
   # `match ?h` payload of plain data is a copy and holds no view.
   enum H
     has(n: Int)
@@ -1260,7 +1260,7 @@ test "r3-s36-views-m04 match read int payload", "1"
 
 fail "r3-s36-views-m05 for read int elem", "cannot assign to `xs[0]` while a read view of `xs` is still in use"
   # Loop element of a read loop over plain data: a copy; the source stays
-  # lent to read for the loop.
+  # given as a read view for the loop.
   xs = [1, 2, 3]
   for x in ?xs
     xs[0] = 9
@@ -1295,7 +1295,7 @@ test "r3-s36-views-o01 plain read through then grow", "7 7 65"
   show(at0(?ps), grow(!ps))
 
 test "r3-s36-views-r01 needless view key", "b 2"
-  # Sentence 7 over-lends: the result views `key` too, though no
+  # Sentence 7 keeps too much: the result views `key` too, though no
   # `?Entry` can come from a `?Key`. Editing the key while the entry is
   # in use is rejected.
   obj Entry
@@ -1359,8 +1359,8 @@ test "r3-s36-views-r04 needless view write arg", '''
   1
   b
 '''
-  # A lent to write counter argument stays lent to write while the
-  # result lives, so it cannot even be read.
+  # A counter argument given as a write view stays in use as a write view
+  # while the result lives, so it cannot even be read.
   obj Entry
     name: ?String
 
