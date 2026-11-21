@@ -62,8 +62,8 @@ wherever a type is written: a parameter (`sub poke(a: !Actor[C])`), a
 result, a local's type (`w: !Actor[C] = !a`), a field, an element, a
 type argument (`List[?Actor[C]]()`), or a function type. So is a field
 of the value itself, `a: Actor[C]`, and a view of the value as an API
-object (`look(?a)` where `look` takes a `?{G}` and `add Actor[T]: G`
-is written). Such a view had no methods: `!w.add(1)` and `w.get()`
+object (`look(?a)` where `look` takes a `?{G}`, even when the actor's
+object provides `G`). Such a view had no methods: `!w.add(1)` and `w.get()`
 were rejected with "no method `add` on type `Actor`". The message is
 "an actor is reached only through its handle, so a view of one views
 the handle: write `?*Actor[C]`" (or `!*Actor[C]`); a value of
@@ -73,6 +73,21 @@ the handle's view, `?*Actor[C]` or `!*Actor[C]`, or the handle,
 `*Actor[C]`; `?a`, `!a`, `!a.add(x)`, and `a.get()` are unchanged.
 Trig, loco, std, examples, and bench hold no view of an actor's value;
 no migration is needed.
+
+**`add` gives an actor no API** (accepted by 0.3.0). `add Actor[T]:
+G` was accepted and could never take effect, since no value of
+`Actor[T]` reaches a `?{G}`, `!{G}`, `*{G}`, or `~{G}`; it is rejected
+at the `add`, and so are `add Actor[C]: G` for one object `C`, an
+addition through an alias (`type A = Actor[C]`, then `add A: G`), and
+`add *Actor[T]: G` or `add ~Actor[T]: G`, whose message named `add
+Actor[T]: G` as the fix. The message is "an actor is reached only
+through its handle, whose methods are messages, so `add` gives
+`Actor[T]` no API". The fix is to delete the addition, or to give the
+API to the actor's object, `obj C: G` (or `add C: G` in the API's
+module when `C` is another module's), for values of `C`. `add Chan[T]: G` and `add Signal[T]: G`
+are unchanged: a read view of a channel or a Signal views its value,
+which an addition makes an API object. Trig, loco, std, examples, and
+bench write no addition to an actor; no migration is needed.
 
 **`swap` exchanges no Cell, and `!s` of a `*{A}` lends only the
 handle** (both accepted by 0.3.0). `swap(!a, !b)` of two `Cell`s, a

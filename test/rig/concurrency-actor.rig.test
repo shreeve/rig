@@ -503,6 +503,25 @@ fail "actor value as a type", "9:13: an actor is reached only through its handle
   print(v.len)
 
 fail "actor viewed as an API object", "14:12: an actor is reached only through its handle, whose methods are messages, so `x` is no `?{G}`"
+  # Its object's API is no API of the actor: the actor is reached only
+  # through its handle, whose methods are messages.
+  api G
+    fun one(?@) -> Int
+      1
+
+  obj C: G
+    n: Int
+
+  fun look(g: ?{G}) -> Int
+    g.one()
+
+  x = *Actor(C(n: 0))
+  print(look(?x))
+
+fail "actor takes no addition", "13:5: an actor is reached only through its handle, whose methods are messages, so `add` gives `Actor[T]` no API", "14:5: an actor is reached only through its handle, whose methods are messages, so `add` gives `Actor[C]` no API", "15:5: an actor is reached only through its handle, whose methods are messages, so `add` gives `Actor[C]` no API", "16:5: an actor is reached only through its handle, whose methods are messages, so `add` gives `*Actor[T]` no API", "17:5: an actor is reached only through its handle, whose methods are messages, so `add` gives `~Actor[T]` no API", "18:5: an actor is reached only through its handle, whose methods are messages, so `add` gives `?A` no API", errors: 6
+  # No value of `Actor[T]` is viewed as an API object, so an addition to
+  # one, for every `T` or for one, by name or through an alias, or to its
+  # handle, could never take effect.
   api G
     fun one(?@) -> Int
       1
@@ -510,13 +529,36 @@ fail "actor viewed as an API object", "14:12: an actor is reached only through i
   obj C
     n: Int
 
+  type A = Actor[C]
+
   add Actor[T]: G
+  add Actor[C]: G
+  add A: G
+  add *Actor[T]: G
+  add ~Actor[T]: G
+  add ?A: G
+
+  print(1)
+
+test "actor object takes an API", seeds: 20, "1 2"
+  # An API goes on the actor's object, for its values; the actor itself
+  # is reached through its handle, whose methods are messages.
+  api G
+    fun one(?@) -> Int
+      1
+
+  obj C: G
+    n: Int
+
+    fun get(?@) -> Int
+      @n
 
   fun look(g: ?{G}) -> Int
     g.one()
 
-  x = *Actor(C(n: 0))
-  print(look(?x))
+  c = C(n: 2)
+  a = *Actor(C(n: 2))
+  print(look(?c), a.get())
 
 test "actor views of its handle", seeds: 20, '''
   1 1

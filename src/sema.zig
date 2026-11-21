@@ -12076,6 +12076,10 @@ pub const frozen_misplaced_arg = "a frozen value lives only behind its handle, s
 /// behind a view, whose fix is a view of the handle.
 pub const actor_misplaced = "an actor is reached only through its handle: write `*{s}`";
 pub const actor_viewed = "an actor is reached only through its handle, so a view of one views the handle: write `{s}*{s}`";
+/// An addition whose type is an actor's value or its handle
+/// (`TypeResolver.addedType`): no value of `Actor[T]` stands where an API
+/// object is made, so the addition could never take effect.
+pub const actor_added = "an actor is reached only through its handle, whose methods are messages, so `add` gives `{s}` no API";
 
 /// An error that a form holding an API object is not built yet (a Cell
 /// of one, Stage 5's), remembered so that `recordType` reports none

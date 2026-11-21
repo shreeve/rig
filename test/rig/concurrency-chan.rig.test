@@ -1388,3 +1388,18 @@ fail "chan select through a read view of the channel", "3:25: cannot make a writ
   # A read view of a channel changes nothing, so it is no arm.
   sub take(ch: ?Chan[Int])!
     _ = task.select(got: !ch.on_recv())!
+
+test "chan takes an addition", seeds: 20, "1"
+  # A read view of a channel views its value, a `Chan[T]`, so an addition
+  # to `Chan[T]` makes the view an API object.
+  api G
+    fun one(?@) -> Int
+      1
+
+  add Chan[T]: G
+
+  fun look(g: ?{G}) -> Int
+    g.one()
+
+  c = *Chan[Int](1)
+  print(look(?c))
