@@ -28,7 +28,9 @@ becomes its number of nanoseconds, so arithmetic on them means what it
 meant. A constant of nanoseconds a program keeps is better written as
 the seconds it counts, `TIMEOUT_S = 30`, passed bare: each line where a
 constant becomes a number is printed as `CHECK path:line`, for a person
-to tidy. Where it writes `datetime.now()`, it adds `use std.datetime`
+to tidy. It writes `datetime.now()` by the name the file gives
+std.datetime, `dt.now()` beside `use std.datetime as dt`; where there is
+none, it adds `use std.datetime`
 beside the `use std.time` of the file, the test case, or the block, in
 the order of the `use` lines there, and drops a `use std.time` nothing
 names any more.
@@ -325,10 +327,11 @@ def rewrite(text, path, base, aliases, out):
     return text, n
 
 
-def rewrite_wall(text, path, base, aliases, out):
+def rewrite_wall(text, path, base, aliases, out, dt="datetime"):
     """`text` with its `time.unix_ns()` read as std.datetime's wall
     clock, and how many; `base` is the line `text` starts on in its
-    file. A function value of `time.unix_ns` is left for a person."""
+    file, and `dt` the name std.datetime goes by there. A function value
+    of `time.unix_ns` is left for a person."""
     a = "|".join(re.escape(x) for x in aliases)
     n = 0
 
@@ -338,7 +341,7 @@ def rewrite_wall(text, path, base, aliases, out):
     for m in reversed(list(re.finditer(r"(?<![\w.@])(?:%s)\.unix_ns\(\)" % a, text))):
         if not in_code(text, m.start()):
             continue
-        new = "datetime.now().unix().ns()"
+        new = "%s.now().unix().ns()" % dt
         out.append("%s: %s -> %s" % (where(m.start()), m.group(0), new))
         text = text[: m.start()] + new + text[m.end() :]
         n += 1
@@ -384,44 +387,55 @@ USE = re.compile(r"^([ \t]*)use (std\.\w+)(?: as (\w+))?[ \t]*$", re.M)
 
 def wall_clock(text):
     """Whether `text` reads the wall clock as std.datetime's."""
-    return "datetime.now().unix().ns()" in text
+    return ".now().unix().ns()" in text
 
 
 def add_datetime(text, drop=True):
     """`text` with `use std.datetime` beside its `use std.time`, among
-    the `use` lines there in their order, and with `drop` that `use
-    std.time` dropped when no code in `text` names it any more; `text`
-    as it is when it has `use std.datetime` already, and None when it
-    has no `use std.time`."""
-    if re.search(r"^[ \t]*use std\.datetime\b", text, re.M):
-        return text
+    the `use` lines there in their order, unless it has one already (by
+    any name), and with `drop` that `use std.time` dropped when no code
+    in `text` names it, by its own name, any more; None when `text` has
+    no `use std.time` and no `use std.datetime`."""
+    has = re.search(r"^[ \t]*use std\.datetime\b", text, re.M) is not None
     uses = list(USE.finditer(text))
     at = next((m for m in uses if m.group(2) == "std.time"), None)
     if at is None:
-        return None
+        return text if has else None
     indent = at.group(1)
-    # The run of `use` lines at the same indent, one to a line, around it.
     lines = text.split("\n")
     k = text.count("\n", 0, at.start())
-    lo = k
-    while lo > 0 and USE.fullmatch(lines[lo - 1] + "") and lines[lo - 1].startswith(indent) and not lines[lo - 1][len(indent)].isspace():
-        lo -= 1
-    hi = k
-    while hi + 1 < len(lines) and USE.fullmatch(lines[hi + 1]) and lines[hi + 1].startswith(indent) and not lines[hi + 1][len(indent)].isspace():
-        hi += 1
-    place = hi + 1
-    for j in range(lo, hi + 1):
-        if USE.fullmatch(lines[j]).group(2) > "std.datetime":
-            place = j
-            break
-    lines.insert(place, indent + "use std.datetime")
-    if drop and at.group(3) is None:
+    if not has:
+        # The run of `use` lines at the same indent, one to a line, around it.
+        lo = k
+        while lo > 0 and USE.fullmatch(lines[lo - 1]) and lines[lo - 1].startswith(indent) and not lines[lo - 1][len(indent)].isspace():
+            lo -= 1
+        hi = k
+        while hi + 1 < len(lines) and USE.fullmatch(lines[hi + 1]) and lines[hi + 1].startswith(indent) and not lines[hi + 1][len(indent)].isspace():
+            hi += 1
+        place = hi + 1
+        for j in range(lo, hi + 1):
+            if USE.fullmatch(lines[j]).group(2) > "std.datetime":
+                place = j
+                break
+        lines.insert(place, indent + "use std.datetime")
         k += 1 if place <= k else 0
+    if drop:
+        name = at.group(3) or "time"
         rest = "\n".join(lines[:k] + lines[k + 1 :])
-        named = [m for m in re.finditer(r"(?<![\w.@])time\.", rest) if in_code(rest, m.start())]
+        named = [m for m in re.finditer(r"(?<![\w.@])%s\." % re.escape(name), rest) if in_code(rest, m.start())]
         if not named:
             del lines[k]
     return "\n".join(lines)
+
+
+def datetime_name(*texts):
+    """The name std.datetime goes by in the first of `texts` that imports
+    it under another, `dt` of `use std.datetime as dt`; else `datetime`."""
+    for t in texts:
+        m = re.search(r"^[ \t]*use std\.datetime as (\w+)", t, re.M)
+        if m:
+            return m.group(1)
+    return "datetime"
 
 
 def migrate(text, path):
@@ -444,7 +458,7 @@ def migrate(text, path):
                 piece, k = rewrite(piece, path, line, aliases, out)
                 n += k
             if names_wall(piece, aliases):
-                piece, k = rewrite_wall(piece, path, line, aliases, out)
+                piece, k = rewrite_wall(piece, path, line, aliases, out, datetime_name(piece, text))
                 n += k
                 if wall_clock(piece):
                     # A case with no `use std.time` of its own reads the
@@ -467,7 +481,7 @@ def migrate(text, path):
             if names_removed(body, aliases_of(body)):
                 body, k = rewrite(body, path, line, aliases_of(body), out)
             if names_wall(body, aliases_of(body)):
-                body, w = rewrite_wall(body, path, line, aliases_of(body), out)
+                body, w = rewrite_wall(body, path, line, aliases_of(body), out, datetime_name(body))
                 k += w
                 if wall_clock(body):
                     body = add_datetime(body) or body

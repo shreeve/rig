@@ -170,3 +170,18 @@ out=$("$RIG" run only.rig 2>&1) || fail "only.rig after: $out"
 expect_eq "$out" "true" "only.rig prints what it printed"
 out=$("$RIG" run wall.rig 2>&1) || fail "wall.rig after: $out"
 expect_eq "$out" "true true" "wall.rig prints what it printed"
+# A file that names std.datetime by another name reads the wall clock
+# by it; a `use std.time as t` that names nothing any more goes too.
+cat >alias.rig <<'EOF'
+use std.datetime as dt
+use std.time as t
+
+sub main()
+  print(t.unix_ns() > 0, dt.Instant.from_unix(0))
+EOF
+python3 "$ROOT/tools/migrate-datetime.py" alias.rig >out6.txt 2>&1 || fail "migrate alias.rig: $(cat out6.txt)"
+grep -q '^  print(dt.now().unix().ns() > 0, dt.Instant.from_unix(0))$' alias.rig || fail "the alias not used: $(cat alias.rig)"
+expect_eq "$(head -1 alias.rig)" "use std.datetime as dt" "use std.datetime as dt kept"
+grep -q 'use std.time' alias.rig && fail "use std.time as t, naming nothing now, kept: $(cat alias.rig)"
+out=$("$RIG" run alias.rig 2>&1) || fail "alias.rig after: $out"
+expect_eq "$out" "true 1970-01-01T00:00:00Z" "alias.rig prints what it printed"
