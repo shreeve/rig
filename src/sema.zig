@@ -1932,6 +1932,10 @@ pub const Facts = struct {
     elem_calls: FastMap(NodeKey, ElemCall) = .empty,
     /// Callee (`member`) node -> the built-in type's method it calls.
     builtin_calls: FastMap(NodeKey, BuiltinCall) = .empty,
+    /// Calls of a std maker whose arguments are all constants that pass
+    /// its check (`ConstMaker`): the call gives the plain `T` of its
+    /// callee's `T!`, which emit unwraps.
+    const_makers: FastMap(NodeKey, void) = .empty,
     /// Calls of the built-in `swap`, not hidden by a declaration: whether
     /// each exchanges two places or puts a value in one.
     swap_calls: FastMap(NodeKey, SwapCall) = .empty,
@@ -5714,6 +5718,18 @@ pub const SemContext = struct {
     /// The built-in type's method a call's callee (`member`) names.
     pub fn builtinCallOf(self: *const SemContext, callee: Sexp) ?BuiltinCall {
         return self.facts.builtin_calls.get(nodeKey(callee) orelse return null);
+    }
+
+    /// `call`, of a std maker, was checked as Rig compiles and gives its
+    /// plain type (`ConstMaker`).
+    pub fn recordConstMaker(self: *SemContext, call: Sexp) !void {
+        try self.facts.const_makers.put(self.allocator, recordKey(call), {});
+    }
+
+    /// Whether `call` is a std maker's checked as Rig compiles
+    /// (`recordConstMaker`).
+    pub fn isConstMaker(self: *const SemContext, call: Sexp) bool {
+        return self.facts.const_makers.contains(nodeKey(call) orelse return false);
     }
 
     pub fn recordSwapCall(self: *SemContext, call: Sexp, swap: SwapCall) !void {
@@ -12349,6 +12365,114 @@ pub fn stdArgCheck(home: *const SemContext, owner: []const u8, method: []const u
     if (eq(u8, owner, "DateTime") and rounds) return .day_increment;
     if (eq(u8, owner, "Instant") and rounds) return .instant_increment;
     return null;
+}
+
+/// A std maker whose call with every argument a constant is checked as
+/// Rig compiles (SPEC §13): such a call gives the plain `T` its
+/// declaration's `T!` holds, and a constant that fails the check is a
+/// compile error. Each maker's check is std's own,
+/// held here a second time; a test runs every boundary both ways.
+pub const ConstMaker = enum {
+    /// `datetime.Date.new(year, month, day)`.
+    date,
+    /// `datetime.Time.new(hour, minute, second, ns)`.
+    time,
+    /// `datetime.DateTime.new(year, month, day, hour, minute, second, ns)`.
+    date_time,
+
+    /// The parameters it checks, in order, as its declaration names them.
+    pub fn params(m: ConstMaker) []const MakerPart {
+        return switch (m) {
+            .date => &.{ .year, .month, .day },
+            .time => &.{ .hour, .minute, .second, .ns },
+            .date_time => &.{ .year, .month, .day, .hour, .minute, .second, .ns },
+        };
+    }
+};
+
+/// The maker of function `name` of type `owner`, declared in `home`.
+pub fn constMaker(home: *const SemContext, owner: []const u8, name: []const u8) ?ConstMaker {
+    if (!home.is_std or !std.mem.eql(u8, home.name, "std.datetime") or !std.mem.eql(u8, name, "new")) return null;
+    if (std.mem.eql(u8, owner, "Date")) return .date;
+    if (std.mem.eql(u8, owner, "Time")) return .time;
+    if (std.mem.eql(u8, owner, "DateTime")) return .date_time;
+    return null;
+}
+
+/// A part of a maker's value: what one of its parameters gives.
+pub const MakerPart = enum {
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    second,
+    ns,
+
+    /// The least and greatest value std.datetime takes for a part other
+    /// than the day, whose greatest is its month's length (`monthDays`).
+    pub fn range(p: MakerPart) struct { Wide, Wide } {
+        return switch (p) {
+            .year => .{ -9999, 9999 },
+            .month => .{ 1, 12 },
+            .day => .{ 1, 31 },
+            .hour => .{ 0, 23 },
+            .minute, .second => .{ 0, 59 },
+            .ns => .{ 0, 999_999_999 },
+        };
+    }
+};
+
+/// Whether `y` is a leap year of the proleptic Gregorian calendar.
+pub fn isLeapYear(y: Wide) bool {
+    return @rem(y, 4) == 0 and (@rem(y, 100) != 0 or @rem(y, 400) == 0);
+}
+
+/// The days in month `m` (1 to 12) of year `y`.
+pub fn monthDays(y: Wide, m: Wide) Wide {
+    return switch (m) {
+        2 => if (isLeapYear(y)) 29 else 28,
+        4, 6, 9, 11 => 30,
+        else => 31,
+    };
+}
+
+/// The first part of `values`, one for each of `maker`'s parameters in
+/// order, that std.datetime's maker refuses, as its `new` checks them in
+/// turn; null when it makes a value. The day is checked against its
+/// month once the year and the month pass.
+pub fn makerFault(maker: ConstMaker, values: []const Wide) ?usize {
+    const parts = maker.params();
+    var year: Wide = 0;
+    var month: Wide = 1;
+    for (parts, values, 0..) |p, v, i| {
+        const lo, var hi = p.range();
+        if (p == .day) hi = monthDays(year, month);
+        if (v < lo or v > hi) return i;
+        switch (p) {
+            .year => year = v,
+            .month => month = v,
+            else => {},
+        }
+    }
+    return null;
+}
+
+test "a maker's check agrees with the calendar at each boundary" {
+    const D = ConstMaker.date;
+    try std.testing.expectEqual(@as(?usize, null), makerFault(D, &.{ 2024, 2, 29 }));
+    try std.testing.expectEqual(@as(?usize, 2), makerFault(D, &.{ 2023, 2, 29 }));
+    try std.testing.expectEqual(@as(?usize, 2), makerFault(D, &.{ 1900, 2, 29 }));
+    try std.testing.expectEqual(@as(?usize, null), makerFault(D, &.{ 2000, 2, 29 }));
+    try std.testing.expectEqual(@as(?usize, null), makerFault(D, &.{ 0, 2, 29 }));
+    try std.testing.expectEqual(@as(?usize, 2), makerFault(D, &.{ -100, 2, 29 }));
+    try std.testing.expectEqual(@as(?usize, null), makerFault(D, &.{ -400, 2, 29 }));
+    try std.testing.expectEqual(@as(?usize, 0), makerFault(D, &.{ 10000, 1, 1 }));
+    try std.testing.expectEqual(@as(?usize, 1), makerFault(D, &.{ 2026, 13, 1 }));
+    try std.testing.expectEqual(@as(?usize, 2), makerFault(D, &.{ 2026, 4, 31 }));
+    try std.testing.expectEqual(@as(?usize, null), makerFault(.time, &.{ 23, 59, 59, 999_999_999 }));
+    try std.testing.expectEqual(@as(?usize, 3), makerFault(.time, &.{ 0, 0, 0, 1_000_000_000 }));
+    try std.testing.expectEqual(@as(?usize, 3), makerFault(.date_time, &.{ 2026, 1, 1, 24, 0, 0, 0 }));
 }
 
 /// An argument given as a duration form (`duration`): what emit writes

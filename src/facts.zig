@@ -386,6 +386,11 @@ pub const Facts = struct {
     pub fn builtinCallOf(f: Facts, callee: Sexp) ?BuiltinCall {
         return f.c().builtinCallOf(callee);
     }
+    /// Whether `call`, of a std maker, was checked as Rig compiles and
+    /// gives the plain `T` of its callee's `T!` (`sema.ConstMaker`).
+    pub fn isConstMaker(f: Facts, call: Sexp) bool {
+        return f.c().isConstMaker(call);
+    }
     pub fn splatOf(f: Facts, node: Sexp) ?TypeId {
         return f.c().splatOf(node);
     }
