@@ -64,6 +64,7 @@ comptime {
         broken_pipe_ignored,
         threaded,
         main_control,
+        main_trace,
         interrupted,
         interrupt_pending,
         wake_installed,
