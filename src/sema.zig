@@ -4394,6 +4394,10 @@ pub const SemContext = struct {
     /// resolved (`resolve.foldModuleConsts`), so a type anywhere in the
     /// module can name them.
     const_ints: FastMap(SymbolId, ConstVal) = .empty,
+    /// `Float` constants: bindings never reassigned or written whose value
+    /// is a constant `Float` (`Checker.floatConst`), for the checks of a
+    /// duration's value.
+    const_floats: FastMap(SymbolId, f64) = .empty,
     /// The bindings a use may move, drop, or give away (`consumes`,
     /// recorded by `storage.plan`): emit arms such a binding's drop
     /// behind an alive flag, and the ownership checker moves no other.
@@ -4743,6 +4747,7 @@ pub const SemContext = struct {
         self.fn_instance_set.deinit(self.allocator);
         self.generic_fn_uses.deinit(self.allocator);
         self.const_ints.deinit(self.allocator);
+        self.const_floats.deinit(self.allocator);
         self.consumed.deinit(self.allocator);
         var fm = self.field_moves.valueIterator();
         while (fm.next()) |paths| {

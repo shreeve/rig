@@ -877,7 +877,7 @@ true 1h 30m
 `std.datetime` is planned ([design/datetime.md](design/datetime.md)):
 the wall clock's `Instant`, `Date`, `Time`, `DateTime`,
 `ZonedDateTime`, and `TimeZone`, each built on `std.time`'s `Duration`.
-Until it lands, `time.unix_ns()` reads the wall clock. The whole
+`time.unix_ns()` reads the wall clock. The whole
 surface, as it will read:
 
 ```rig pending

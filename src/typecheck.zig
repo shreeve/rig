@@ -833,7 +833,7 @@ const Checker = struct {
                     try sema.recordTypeWitnesses(self.ctx);
                 },
                 .default => for (fields) |f| {
-                    if (f.default != null and f.decl_pos == ir.Default.name(m).src.pos) try self.checkDefaultValue(f.default.?, f.ty, "field");
+                    if (f.default != null and f.decl_pos == ir.Default.name(m).src.pos) try self.checkDefaultValue(f.default.?, f.ty, "field", self.text(ir.Default.name(m)));
                 },
                 .drop_decl => {
                     const prev_scope = self.enter(m);
@@ -943,7 +943,7 @@ const Checker = struct {
         }
         for (ir.get(node, .params).items()) |p| if (p.isKind(.default)) {
             const ty = self.ctx.bindingTypeOf(ir.Default.name(p)) orelse self.t().unknown_id;
-            try self.checkDefaultValue(ir.Default.value(p), ty, "parameter");
+            try self.checkDefaultValue(ir.Default.value(p), ty, "parameter", self.text(ir.Default.name(p)));
         };
         // `main` lowers to a fallible Zig `main`.
         const fallible = is_main or rig.subFails(node) or rig.returnType(node).isKind(.error_union);
@@ -974,8 +974,15 @@ const Checker = struct {
     /// module's or an imported one, or a number type's limit). A field's
     /// may also be an empty or literal constructor, `List()`, `String()`,
     /// `Cell(0)`, or `[n of 0]`, which each value gets a fresh one of.
-    fn checkDefaultValue(self: *Checker, value: Sexp, ty: TypeId, what: []const u8) Error!void {
+    fn checkDefaultValue(self: *Checker, value: Sexp, ty: TypeId, what: []const u8, name: []const u8) Error!void {
         const field = std.mem.eql(u8, what, "field");
+        // A `Duration` is made as the program runs, so no default but
+        // `none` holds one.
+        if (sema.durationParam(self.ctx, ty) != null and !std.mem.eql(u8, identAt(self.ctx.source, value) orelse "", "none")) {
+            const shown = try self.plainText(value);
+            const made = if (sema.isNumeric(self.ctx, self.ctx.typeOf(value) orelse sema.type_invalid) or isDefaultLiteral(self.ctx.source, value)) try std.fmt.allocPrint(self.ctx.arena.allocator(), "time.duration({s})", .{shown}) else shown;
+            return self.errAt(value, "a `time.Duration` is made as the program runs, so the only default it has is `none`: declare `{s}: time.Duration? = none`, and read it as `{s} ?? {s}`", .{ name, name, made });
+        }
         // A table reserves or makes its slots as the program runs, which
         // a default, a constant the object's type holds, cannot.
         if (sema.tableElem(self.ctx, ty) != null) {
@@ -1949,6 +1956,11 @@ const Checker = struct {
         } else if (is_decl and s.kind == .local and s.scope != self.module_scope and !s.flags.reassigned and !s.flags.written) {
             if (self.constVariant(rhs)) |v| try self.fixed_variants.put(self.ctx.arena.allocator(), sym_id, v);
         }
+        // So does one of a `Float`, here and at module level (`floatConst`).
+        if (is_decl and s.kind == .local and !s.flags.reassigned and !s.flags.written and self.canonical(s.ty) == self.t().float_id) switch (self.floatConst(rhs)) {
+            .value => |v| try self.ctx.const_floats.put(self.ctx.allocator, sym_id, v),
+            else => {},
+        };
     }
 
     /// Whether `rhs` hands over a write view where it is assigned: `!m`
@@ -5958,6 +5970,15 @@ const Checker = struct {
         } else try self.orderingOperand(at, op, ty);
     }
 
+    /// `l` of type `a` and `r` of type `b`, which `==` cannot compare;
+    /// a number beside a `Duration` is no duration (`sema.duration`).
+    fn cannotCompare(self: *Checker, l: Sexp, r: Sexp, a: TypeId, b: TypeId) Error!void {
+        const dl = sema.isDurationType(self.ctx, sema.unwrapViews(self.ctx, a)) and sema.isNumeric(self.ctx, b);
+        const dr = sema.isDurationType(self.ctx, sema.unwrapViews(self.ctx, b)) and sema.isNumeric(self.ctx, a);
+        if (dl or dr) return self.errAt(l, "cannot compare `{s}` with `{s}`: a number is no duration, so write `time.duration({s})`", .{ try self.tyName(a), try self.tyName(b), self.sourceText(if (dl) r else l) });
+        try self.errAt(l, "cannot compare `{s}` with `{s}`", .{ try self.tyName(a), try self.tyName(b) });
+    }
+
     /// An operand of an ordering at `at`, of type `ty`, that provides no
     /// `Ord`.
     fn orderingOperand(self: *Checker, at: Sexp, op: []const u8, ty: TypeId) Error!void {
@@ -6139,6 +6160,12 @@ const Checker = struct {
                     if (self.ctx.types.get(ty) == .optional and self.ctx.types.get(if (i == 0) b else a) != .optional) {
                         const shown = self.sourceText(operands[i]);
                         try self.errAt(operands[i], "operator `{s}` orders an optional only beside another, and `{s}` is {s} `{s}` beside {s} `{s}`: give it a value, `{s} ?? x`, or test it, `if {s} as v`", .{ op, shown, article(try self.tyName(ty)), try self.tyName(ty), article(try self.tyName(if (i == 0) b else a)), try self.tyName(if (i == 0) b else a), shown, shown });
+                    } else if ((try sema.lacks(self.ctx, ty, .Ord)) == null) {
+                        // It is ordered; the other operand is another type.
+                        const other = if (i == 0) b else a;
+                        const shown = self.sourceText(operands[1 - i]);
+                        const fix = if (sema.isDurationType(self.ctx, sema.unwrapViews(self.ctx, ty)) and sema.isNumeric(self.ctx, other)) try std.fmt.allocPrint(self.ctx.arena.allocator(), ": a number is no duration, so write `time.duration({s})`", .{shown}) else "";
+                        try self.errAt(operands[1 - i], "operator `{s}` orders two values of one type, and `{s}` is {s} `{s}` beside {s} `{s}`{s}", .{ op, shown, article(try self.tyName(other)), try self.tyName(other), article(try self.tyName(ty)), try self.tyName(ty), fix });
                     } else try self.orderingOperand(operands[i], op, ty);
                 } else {
                     // String is built, not added: `String(a, b)`, `!t.add(b)`.
@@ -6540,7 +6567,7 @@ const Checker = struct {
             // A `T` compares with a `T`, or with a literal every `T` holds.
             const tv_ty = if (ta == .type_var) a else b;
             if (!self.meetsTypeVar(tv_ty, if (ta == .type_var) b else a, .equatable)) {
-                try self.errAt(l, "cannot compare `{s}` with `{s}`", .{ try self.tyName(a), try self.tyName(b) });
+                try self.cannotCompare(l, r, a, b);
                 return self.t().bool_id;
             }
             const tv = self.ctx.types.get(tv_ty).type_var;
@@ -6584,7 +6611,7 @@ const Checker = struct {
         const handles = sema.accessThroughShared(self.ctx, a) or sema.accessThroughShared(self.ctx, b);
         if (!handles and (ta_text == string_ty or tb_text == string_ty) and (ta_text == string_ty or ta_text == string_view_ty) and (tb_text == string_ty or tb_text == string_view_ty)) return self.t().bool_id;
         if (a_read != b_read) {
-            try self.errAt(l, "cannot compare `{s}` with `{s}`", .{ try self.tyName(a), try self.tyName(b) });
+            try self.cannotCompare(l, r, a, b);
             return self.t().bool_id;
         }
         // `x == K.name` tests which variant `x` holds, comparing no
@@ -8574,7 +8601,7 @@ const Checker = struct {
         };
         const owner = decl.symbol();
         if ((try self.findMethod(obj_ty, field)) != null) {
-            if (owner.kind == .generic_type) {
+            if (owner.kind == .generic_type or sema.stdArgCheck(decl.ctx, owner.name, field) != null) {
                 try self.err(pos, "method `{s}` must be called; wrap it in a closure to pass it as a value", .{field});
             } else {
                 const tname = if (decl.module_id != null) try self.ctx.arena.allocator().print("{s}.{s}", .{ decl.ctx.name, owner.name }) else owner.name;
@@ -11971,7 +11998,19 @@ const Checker = struct {
             // A unit's keyword fills the callee's one duration parameter.
             const unit = if (info.durations != 0) sema.duration.unitNs(kname) else null;
             if (unit != null and unit_param == null) {
-                try self.errAt(kname_node, "`{s}` takes {d} durations, so each is given by its own name, `{s}: {s}`, not by a unit's keyword", .{ callee, @popCount(info.durations), self.durationNames(info)[0], try self.plainText(ir.Kwarg.value(kw)) });
+                // The first duration parameter given neither by position
+                // nor by its name.
+                const free: ?[]const u8 = for (info.names.?, 0..) |n, i| {
+                    if (!info.isDuration(i) or slots[i] != null) continue;
+                    const named = for (keyword) |other| {
+                        if (std.mem.eql(u8, self.text(ir.Kwarg.name(other)), n)) break true;
+                    } else false;
+                    if (!named) break n;
+                } else null;
+                const form = try self.plainText(kw);
+                if (free) |n| {
+                    try self.errAt(kname_node, "`{s}` takes {d} durations, so each is given by its own name: `{s}: time.duration({s})`", .{ callee, @popCount(info.durations), n, form });
+                } else try self.errAt(kname_node, "`{s}` takes {d} durations, so each is given by its own name, not by a unit's keyword: give `time.duration({s})` to the one it is for", .{ callee, @popCount(info.durations), form });
                 _ = try self.synthExpr(ir.Kwarg.value(kw));
                 repeated = true;
                 continue;
@@ -12275,6 +12314,23 @@ const Checker = struct {
         };
     }
 
+    /// The checks of `stdArgChecks` that read the arguments' types, once
+    /// `checkArgs` has given them: an increment is an `Int`, not an
+    /// optional nor `none`, which the declared `Int?` lets through.
+    fn stdArgTypes(self: *Checker, module: ?u32, owner: []const u8, method: []const u8, args: []const Sexp) Error!void {
+        const home = if (module) |m| self.ctx.foreign_semas.get(m) orelse self.ctx else self.ctx;
+        switch (sema.stdArgCheck(home, owner, method) orelse return) {
+            .unit_increment => for (args) |a| {
+                if (!a.isKind(.kwarg)) continue;
+                const value = ir.Kwarg.value(a);
+                const ty = self.canonical(self.ctx.typeOf(value) orelse continue);
+                if (self.isPoison(ty) or ty == self.t().int_id or ty == self.t().int_literal_id) continue;
+                const none = std.mem.eql(u8, identAt(self.ctx.source, value) orelse "", "none");
+                try self.errAt(value, "an increment of `{s}` is an `Int`, and `{s}` is {s}: name one unit and a number, `{s}(seconds: 1)`", .{ method, try self.plainText(value), if (none) "no number" else try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s} `{s}`", .{ article(try self.tyName(ty)), try self.tyName(ty) }), method });
+            },
+        }
+    }
+
     /// `round` or `floor` (`sema.ArgCheck.unit_increment`): exactly one
     /// unit's keyword and its increment, and no positional argument; an
     /// increment written as a constant is from 1 to 1,000,000,000.
@@ -12337,30 +12393,70 @@ const Checker = struct {
             if (self.constInt(arg)) |v| {
                 if (v * unit_ns > std.math.maxInt(i64) or v * unit_ns < std.math.minInt(i64))
                     return self.errAt(arg, "`{s}` {s} is more nanoseconds than a `Duration` holds", .{ shown, unit_name });
-                if (v < 0 and info.waits) return self.negativeWait(arg, shown);
+                if (v < 0 and info.waits) return self.negativeWait(arg, shown, try std.fmt.allocPrint(self.ctx.arena.allocator(), "{d}", .{v}));
             }
-        } else if (constFloatOf(self.ctx.source, arg)) |v| {
-            const ns = @round(v * @as(f64, @floatFromInt(unit_ns)));
-            if (!(ns >= -0x1p63 and ns < 0x1p63)) return self.errAt(arg, "`{s}` {s} is more nanoseconds than a `Duration` holds", .{ shown, unit_name });
-            if (v < 0 and info.waits) return self.negativeWait(arg, shown);
-        } else if (isNotFinite(self.ctx.source, arg)) {
-            return self.errAt(arg, "a duration is a finite number, and `{s}` is not", .{shown});
+        } else switch (self.floatConst(arg)) {
+            .value => |v| {
+                const ns = @round(v * @as(f64, @floatFromInt(unit_ns)));
+                if (!(ns >= -0x1p63 and ns < 0x1p63)) return self.errAt(arg, "`{s}` {s} is more nanoseconds than a `Duration` holds", .{ shown, unit_name });
+                if (v < 0 and info.waits) return self.negativeWait(arg, shown, try std.fmt.allocPrint(self.ctx.arena.allocator(), "{d}", .{v}));
+            },
+            .not_finite => return self.errAt(arg, "a duration is a finite number, and `{s}` is not", .{shown}),
+            .unknown => {},
         }
         const opt = if (target != null and !sema.isDurationType(self.ctx, param)) param else sema.type_invalid;
         try self.ctx.recordDuration(arg, .{ .unit_ns = unit_ns, .float = float, .ty = target orelse sema.type_invalid, .opt = opt });
     }
 
-    /// A negative constant given to a wait (`ParamInfo.waits`).
-    fn negativeWait(self: *Checker, arg: Sexp, shown: []const u8) Error!void {
-        try self.errAt(arg, "a wait of `{s}` is negative: a constant wait is zero or more, and a negative one written so is a mistake", .{shown});
+    /// A negative constant, `value` as Rig computes it, given to a wait
+    /// (`ParamInfo.waits`).
+    fn negativeWait(self: *Checker, arg: Sexp, shown: []const u8, value: []const u8) Error!void {
+        if (std.mem.eql(u8, std.mem.trim(u8, shown, "() "), value) or constFloatOf(self.ctx.source, arg) != null)
+            return self.errAt(arg, "a wait of `{s}` is negative: a constant wait is zero or more", .{shown});
+        try self.errAt(arg, "a wait of `{s}` is negative, {s}: a constant wait is zero or more", .{ shown, value });
     }
 
-    /// The names of the duration parameters of `info`, in order.
-    fn durationNames(self: *Checker, info: ParamInfo) []const []const u8 {
-        const names = info.names orelse return &.{"d"};
-        var out: std.ArrayList([]const u8) = .empty;
-        for (names, 0..) |n, i| if (info.isDuration(i)) out.append(self.ctx.arena.allocator(), n) catch return &.{"d"};
-        return if (out.items.len == 0) &.{"d"} else out.items;
+    /// A constant `Float` as Rig computes it (`FloatConst`): number
+    /// literals, a float type's limit, `Float.inf()` and `Float.nan()`,
+    /// a binding whose value is constant (`const_floats`, `const_ints`),
+    /// and the arithmetic of these, each operation in `F64`; as the one
+    /// classifier of an integer constant (`sema.constIntOf`) does for an
+    /// `Int`.
+    fn floatConst(self: *Checker, e: Sexp) FloatConst {
+        if (isNotFinite(self.ctx.source, e)) return .not_finite;
+        switch (e) {
+            .src => {
+                const lit = identAt(self.ctx.source, e) orelse return .unknown;
+                if (sema.isFloatLiteralText(lit)) {
+                    const v = floatLiteralValue(lit);
+                    return if (std.math.isFinite(v)) .{ .value = v } else .not_finite;
+                }
+                if (sema.isIntLiteralText(lit)) return .{ .value = wideToFloat(f64, std.fmt.parseInt(Wide, lit, 0) catch return .unknown) };
+                const id = self.ctx.symbolOf(e) orelse return .unknown;
+                if (self.ctx.const_floats.get(id)) |v| return .{ .value = v };
+                if (self.ctx.const_ints.get(id)) |c| return .{ .value = wideToFloat(f64, c.value) };
+                return .unknown;
+            },
+            .list => {
+                const h = e.kind() orelse return .unknown;
+                if (h == .member) return if (floatLimit(f64, self.ctx.source, e)) |v| .{ .value = v } else .unknown;
+                if (h == .neg) return switch (self.floatConst(ir.Neg.operand(e))) {
+                    .value => |v| .{ .value = -v },
+                    else => |o| o,
+                };
+                switch (h) {
+                    .@"+", .@"-", .@"*", .@"/", .@"%" => {},
+                    else => return .unknown,
+                }
+                const a = self.floatConst(ir.get(e, .left));
+                const b = self.floatConst(ir.get(e, .right));
+                if (a == .unknown or b == .unknown) return .unknown;
+                if (a == .not_finite or b == .not_finite) return .not_finite;
+                const v = floatOp(f64, h, a.value, b.value);
+                return if (std.math.isFinite(v)) .{ .value = v } else .not_finite;
+            },
+            else => return .unknown,
+        }
     }
 
     /// A keyword no parameter of `callee`, which takes a duration, is
@@ -12368,12 +12464,29 @@ const Checker = struct {
     /// or neither.
     fn badDurationKeyword(self: *Checker, at: Sexp, kname: []const u8, value: Sexp, callee: []const u8) Error!void {
         if (sema.duration.isCalendar(kname)) {
-            const per: i64 = if (std.mem.eql(u8, kname, "days")) 24 else 168;
-            const hours = if (constIntText(self.ctx.source, value)) |n| try std.fmt.allocPrint(self.ctx.arena.allocator(), "{d}", .{n * per}) else try std.fmt.allocPrint(self.ctx.arena.allocator(), "{d}", .{per});
-            return self.errAt(at, "a duration takes no `{s}:`, since a day is not always 24 hours: write `hours: {s}` for exactly {s} hours", .{ kname, hours, hours });
+            const days = std.mem.eql(u8, kname, "days");
+            const per: i64 = if (days) 24 else 168;
+            return self.errAt(at, "a duration takes no `{s}:`, since a day is not always 24 hours: write `hours: {s}`, exactly {d} hours {s}", .{ kname, try self.calendarHours(value, per), per, if (days) "a day" else "a week" });
         }
         if (isSecondsName(kname)) return self.errAt(at, "`{s}` has no parameter `{s}`; did you mean `seconds: {s}`?", .{ callee, kname, try self.plainText(value) });
         try self.errAt(at, "`{s}` has no parameter `{s}`; a duration is written bare in seconds, `{s}(2)`, or with one unit, `ms: 40`, from `ns:` to `hours:`", .{ callee, kname, callee });
+    }
+
+    /// The hours of `value` days or weeks, `per` hours each, as a
+    /// duration's `hours:` writes them: the number when it is a constant
+    /// that comes out whole, else the product, `24 * n`.
+    fn calendarHours(self: *Checker, value: Sexp, per: i64) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        if (self.constInt(value)) |n| if (std.math.cast(i64, n)) |k| if (std.math.mul(i64, k, per) catch null) |h| return std.fmt.allocPrint(a, "{d}", .{h});
+        if (constFloatOf(self.ctx.source, value)) |v| {
+            const h = v * @as(f64, @floatFromInt(per));
+            if (h == @trunc(h) and @abs(h) < 0x1p53) return std.fmt.allocPrint(a, "{d}", .{@as(i64, @intFromFloat(h))});
+        }
+        const shown = try self.plainText(value);
+        const simple = for (shown) |c| {
+            if (!(std.ascii.isAlphanumeric(c) or c == '_' or c == '.' or c == '@' or c == '(' or c == ')')) break false;
+        } else true;
+        return if (simple) std.fmt.allocPrint(a, "{d} * {s}", .{ per, shown }) else std.fmt.allocPrint(a, "{d} * ({s})", .{ per, shown });
     }
 
     fn checkArg(self: *Checker, arg: Sexp, f: FunctionType, i: usize, views: bool) Error!void {
@@ -14329,6 +14442,7 @@ const Checker = struct {
         self.view_recv = f.params[0];
         const mark = self.ctx.diagnostics.items.len;
         try self.checkArgs(args, rest, info, method, pos, .{ .has_self = true, .origins = resolved.field.origins, .declared = self.declaredParams(resolved.field, resolved.module, 1) orelse resolved.fn_ty.params[1..] });
+        try self.stdArgTypes(resolved.module, resolved.owner, method, args);
         if (self_mode == .read and !misplaced_sigil) try self.wastedCloneSelf(obj, args);
         // A self the method keeps is viewed with `?` written (Core
         // sentence 4).
@@ -17115,7 +17229,8 @@ const Checker = struct {
                     f = self.ctx.types.get(try sema.substituteType(self.ctx, m.ty, subst)).function;
                     recv = subst;
                 }
-                if (!try self.stdArgChecks(if (nt.foreign) |fo| fo.module_id else null, nt.sym.name, name, if (m.self_mode != .none and args.len > 0) args[1..] else args, pos)) return self.skipCall(args);
+                const after_self = if (m.self_mode != .none and args.len > 0 and !args[0].isKind(.kwarg)) args[1..] else args;
+                if (!try self.stdArgChecks(if (nt.foreign) |fo| fo.module_id else null, nt.sym.name, name, after_self, pos)) return self.skipCall(args);
                 const source = if (nt.foreign) |fo| fo.ctx.source else self.declSource(nt.id);
                 const info = methodParams(m, false, source);
                 f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.self_mode != .none, recv)) orelse return self.skipCall(args);
@@ -17125,6 +17240,7 @@ const Checker = struct {
                 try self.noteCallee(f);
                 self.view_call = true;
                 try self.checkArgs(args, f, info, name, pos, .{ .origins = m.origins, .declared = fty.function.params });
+                try self.stdArgTypes(if (nt.foreign) |fo| fo.module_id else null, nt.sym.name, name, after_self);
                 return f.returns;
             }
             if (ct) |b| return self.badCall(args, b, "`{s}.{s}` is not a function; it takes no compile-time arguments", .{ tname, name });
@@ -21840,6 +21956,10 @@ fn isNotFinite(source: []const u8, e: Sexp) bool {
 }
 
 /// The value of a float literal, possibly negated: `2.5`, `-1e3`.
+/// What `Checker.floatConst` knows of a `Float`: its value as Rig
+/// computes it, that it is a constant with no finite value, or nothing.
+const FloatConst = union(enum) { value: f64, not_finite, unknown };
+
 fn constFloatOf(source: []const u8, e: Sexp) ?f64 {
     if (e.isKind(.neg)) return -(constFloatOf(source, ir.Neg.operand(e)) orelse return null);
     const t = identAt(source, e) orelse return null;

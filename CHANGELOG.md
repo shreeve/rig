@@ -34,7 +34,7 @@ its fix in the message:
   `t.elapsed() < time.duration(ms: 5)`, and `print(t.elapsed())` that
   meant nanoseconds is `print(t.elapsed().ns())`;
 - `days:` or `weeks:` where a duration is taken, since a day is not
-  always 24 hours: "write `hours: 24` for exactly 24 hours";
+  always 24 hours: "write `hours: 24`, exactly 24 hours a day";
 - a negative constant given to `time.sleep`, `time.within`,
   `time.after`, or `per:`, which 0.3.0 waited as zero:
   `time.sleep(ns: -1)` is "a wait of `-1` is negative";

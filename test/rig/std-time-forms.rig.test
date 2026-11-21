@@ -171,7 +171,7 @@ fail "durations written outside their forms", "7:19: `time.sleep` takes one dura
   _ = task.select(got: !ch.on_recv(), late: time.after(ms: 1, us: 2))!
   print(time.duration(hours: 3e6))
 
-fail "durations take no days or weeks", "1:21: a duration takes no `days:`, since a day is not always 24 hours: write `hours: 24` for exactly 24 hours", "2:21: a duration takes no `weeks:`, since a day is not always 24 hours: write `hours: 336` for exactly 336 hours", "3:26: a duration takes no `days:`, since a day is not always 24 hours: write `hours: 24` for exactly 24 hours", errors: 3
+fail "durations take no days or weeks", "1:21: a duration takes no `days:`, since a day is not always 24 hours: write `hours: 24`, exactly 24 hours a day", "2:21: a duration takes no `weeks:`, since a day is not always 24 hours: write `hours: 336`, exactly 168 hours a week", "3:26: a duration takes no `days:`, since a day is not always 24 hours: write `hours: 24 * n()`, exactly 24 hours a day", errors: 3
   print(time.duration(days: 1))
   print(time.duration(weeks: 2))
   _ = time.monotonic().add(days: n())
@@ -195,11 +195,49 @@ fail "duration parameters named for units", "1:27: a function that takes a `Dura
 
   print(bad(1, 2), worse())
 
-fail "two durations take no unit", "4:12: `span` takes 2 durations, so each is given by its own name, `a: 1`, not by a unit's keyword", errors: 1
+fail "two durations take no unit", "4:12: `span` takes 2 durations, so each is given by its own name: `a: time.duration(ms: 1)`", "5:18: `span` takes 2 durations, so each is given by its own name: `b: time.duration(ms: 2)`", errors: 2
   fun span(a: time.Duration, b: time.Duration) -> time.Duration
     b.sub(a)
 
   print(span(ms: 1, b: 2))
+  print(span(a: 1, ms: 2))
+
+fail "days or weeks of a value or a fraction", "5:12: a duration takes no `days:`, since a day is not always 24 hours: write `hours: 24 * k`, exactly 24 hours a day", "6:12: a duration takes no `days:`, since a day is not always 24 hours: write `hours: 12`, exactly 24 hours a day", "7:12: a duration takes no `weeks:`, since a day is not always 24 hours: write `hours: 168 * (k + 1)`, exactly 168 hours a week", "8:12: a duration takes no `days:`, since a day is not always 24 hours: write `hours: 24 * 999999999999999999`, exactly 24 hours a day", errors: 4
+  fun n() -> Int
+    2
+
+  k = n()
+  time.sleep(days: k)!
+  time.sleep(days: 0.5)!
+  time.sleep(weeks: k + 1)!
+  time.sleep(days: 999999999999999999)!
+
+fail "a duration's default is none", "1:30: a `time.Duration` is made as the program runs, so the only default it has is `none`: declare `d: time.Duration? = none`, and read it as `d ?? time.duration(5)`", "5:23: a `time.Duration` is made as the program runs, so the only default it has is `none`: declare `t: time.Duration? = none`, and read it as `t ?? time.duration(0.5)`", errors: 2
+  fun pause(d: time.Duration = 5) -> time.Duration
+    d
+
+  obj Job
+    t: time.Duration? = 0.5
+
+  print(pause(), Job().t)
+
+test "a duration's default of none", "5s 1s"
+  fun pause(d: time.Duration? = none) -> time.Duration
+    d ?? time.duration(5)
+
+  print(pause(), pause(1))
+
+fail "a number compared with a duration", "2:25: operator `<` orders two values of one type, and `5` is an `Int` beside a `time.Duration`: a number is no duration, so write `time.duration(5)`", "3:7: cannot compare `time.Duration` with `Int`: a number is no duration, so write `time.duration(0)`", errors: 2
+  start = time.monotonic()
+  print(start.elapsed() < 5)
+  print(start.elapsed() == 0)
+
+fail "constant durations of a Float", "1:21: `Float.max` seconds is more nanoseconds than a `Duration` holds", "2:21: a duration is a finite number, and `0.0 / 0.0` is not", "4:25: `2 * x` ms is more nanoseconds than a `Duration` holds", "5:25: a duration is a finite number, and `Float.inf() * 0.5` is not", errors: 4
+  print(time.duration(Float.max))
+  print(time.duration(0.0 / 0.0))
+  x = 1e300
+  print(time.duration(ms: 2 * x))
+  print(time.duration(ns: Float.inf() * 0.5))
 
 fail "duration round and floor take one unit by name", "1:30: `round` takes a unit and its increment by name, `round(minutes: 15)`, and no positional argument", "2:24: `round` takes a unit and its increment: `round(seconds: 1)`", "3:37: `floor` takes one unit and its increment, not two: `ms: 1` or `us: 2`", "4:34: an increment of `round` is from 1 to 1,000,000,000, and `0` is not", "5:30: `round` takes a unit from `ns:` to `hours:` and its increment, and `days:` is none of them", "6:34: an increment of `floor` is from 1 to 1,000,000,000, and `1_000_000_001` is not", "7:45: `round` takes a unit and its increment by name, `round(minutes: 15)`, and no positional argument", "8:19: `std.time.Duration.round` checks its arguments where it is called, so it must be called; wrap it in a closure to pass it as a value", errors: 8
   print(time.duration(1).round(5))
@@ -210,6 +248,14 @@ fail "duration round and floor take one unit by name", "1:30: `round` takes a un
   print(time.duration(1).floor(ns: 1_000_000_001))
   print(time.Duration.round(time.duration(1), 5))
   f = time.Duration.round
+
+fail "duration round's increment is an Int", "4:41: an increment of `round` is an `Int`, and `none` is no number: name one unit and a number, `round(seconds: 1)`", "5:34: an increment of `floor` is an `Int`, and `pick()` is an `Int?`: name one unit and a number, `floor(seconds: 1)`", "6:22: method `round` must be called; wrap it in a closure to pass it as a value", errors: 3
+  fun pick() -> Int?
+    1
+
+  print(time.duration(1.5).round(seconds: none))
+  print(time.duration(1).floor(ms: pick()))
+  g = time.duration(1).round
 
 test "duration round through a closure", "2s"
   # A checked method is called; a closure passes it as a value.

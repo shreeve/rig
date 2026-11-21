@@ -14909,7 +14909,7 @@ value: `time.duration(ms: 250)`.
 - A call gives one form for each duration: two units, a unit with a
   bare number, and a unit with a `Duration` (`ms: d`) are rejected.
 - A duration takes no `days:` or `weeks:`, since a day is not always 24
-  hours: the error's fix is `hours: 24`. (A function with a parameter
+  hours: the error's fix is `hours: 24`, or `hours: 24 * n`. (A function with a parameter
   of its own named `days` takes it by name.)
 - Unit keywords fill a function's one `Duration` parameter. A function
   with two or more takes each by its own name, with a bare number of
@@ -14917,16 +14917,20 @@ value: `time.duration(ms: 250)`.
   its name so, `time.sleep(d: 5)`. No parameter of a function that
   takes a `Duration` is named for a unit.
 - An optional one is declared `d: Duration? = none`, and `none` or an
-  optional value passes as it is.
-- A bare number is positional, so a `Duration` parameter that takes one
-  comes first: `time.within(0.5, f)`. After a keyword only a closure
-  literal follows by position: `time.within(ms: 500, || f()!)`.
+  optional value passes as it is. A `Duration` is made as the program
+  runs, so `none` is the only default one takes.
+- A bare number is positional, so it fills the parameter of its place:
+  `time.within(0.5, f)`. After a keyword only a closure literal follows
+  by position: `time.within(ms: 500, || f()!)`.
 - The forms apply where the call names the function or method, through
   an API too. A function value has no parameter names: its caller
   passes a `Duration`.
 - A negative constant given to a wait, `time.sleep`, `time.within`,
   `time.after`, or `per:` of `task.supervise` and `*Actor.supervised`,
-  is rejected; a negative value as the program runs counts as zero.
+  is rejected, a constant being what Rig computes as one, for an `Int`
+or a `Float` alike (`x = -0.5` then `time.sleep(x)`); a negative value
+as the program runs counts as zero. So is a constant duration that is
+not finite or that a `Duration` cannot hold.
   `per:` is an option given by its own name, a number of seconds or a
   `Duration`, `per: 0.5`.
 
@@ -14969,8 +14973,8 @@ sub main()!
 
 ```error
 `time.sleep` takes one duration, in one unit: `ms: 1` or `us: 500`, not both
-a duration takes no `days:`, since a day is not always 24 hours: write `hours: 24` for exactly 24 hours
-a wait of `-1` is negative: a constant wait is zero or more, and a negative one written so is a mistake
+a duration takes no `days:`, since a day is not always 24 hours: write `hours: 24`, exactly 24 hours a day
+a wait of `-1` is negative: a constant wait is zero or more
 no member `MS` in module `time`; a length of time is a `time.Duration`: `time.duration(ms: 1)`, or `ms: 1` where a duration is taken
 ```
 

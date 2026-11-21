@@ -69,7 +69,7 @@ test "a negative wait at run time is none", '''
     .late => "late"
   print(v)
 
-fail "a negative wait written as a constant", "2:12: a wait of `-1` is negative: a constant wait is zero or more, and a negative one written so is a mistake", "3:16: a wait of `-5` is negative: a constant wait is zero or more, and a negative one written so is a mistake", "4:17: a wait of `-0.5` is negative: a constant wait is zero or more, and a negative one written so is a mistake", "5:58: a wait of `-2` is negative: a constant wait is zero or more, and a negative one written so is a mistake", "6:44: a wait of `-1` is negative: a constant wait is zero or more, and a negative one written so is a mistake", "11:58: a wait of `-3` is negative: a constant wait is zero or more, and a negative one written so is a mistake", errors: 6
+fail "a negative wait written as a constant", "2:12: a wait of `-1` is negative: a constant wait is zero or more", "3:16: a wait of `-5` is negative: a constant wait is zero or more", "4:17: a wait of `-0.5` is negative: a constant wait is zero or more", "5:58: a wait of `-2` is negative: a constant wait is zero or more", "6:44: a wait of `-1` is negative: a constant wait is zero or more", "11:58: a wait of `-3` is negative: a constant wait is zero or more", errors: 6
   ch = *Chan[Int](1)
   time.sleep(-1)!
   time.sleep(ms: -5)!
@@ -81,6 +81,14 @@ fail "a negative wait written as a constant", "2:12: a wait of `-1` is negative:
     n: Int
 
   a = *Actor.supervised(*|| Count(n: 4), restarts: 1, per: -3)
+
+fail "a negative wait of a constant name or sum", "3:12: a wait of `x` is negative, -0.5: a constant wait is zero or more", "4:12: a wait of `-0.5 * 2` is negative, -1: a constant wait is zero or more", "5:16: a wait of `k` is negative, -3: a constant wait is zero or more", "6:12: a wait of `0 - 1` is negative, -1: a constant wait is zero or more", errors: 4
+  x = -0.5
+  k = -3
+  time.sleep(x)!
+  time.sleep(-0.5 * 2)!
+  time.sleep(ms: k)!
+  time.sleep(0 - 1)!
 
 test "a duration other than a wait may be negative", "-1s -5ms"
   # Only a wait refuses a negative constant.
