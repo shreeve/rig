@@ -1,0 +1,235 @@
+# The cost of a `Duration`'s layout at each call that gives or takes
+# one (bench/duration/README.md): layout A holds whole seconds, an
+# `Int`, and nanoseconds, an `I32`, of one sign, in 16 bytes; layout B
+# one `Int` of nanoseconds. Both are stand-ins over today's std.time,
+# whose clock gives and whose waits take an `Int` of nanoseconds, so
+# each call converts there, as the scheduler stays an `Int` of
+# nanoseconds underneath. Each case runs its call in a loop, A and B in
+# turns, and prints the nanoseconds a call, the fastest of ROUNDS
+# rounds. Run as `duration check`, it runs each loop at N and at 2N
+# instead and prints the ratio of their times, which is near 2 only
+# when the loop does its work at every step.
+
+use std.hint
+use std.os
+use std.task
+use std.time
+
+ROUNDS = 20
+NS_PER_S = 1_000_000_000
+# The seconds past which A's nanoseconds no longer fit an `Int`: a wait
+# that long waits as long as the scheduler can.
+WAIT_S_MAX = 9_223_372_036
+
+# Layout A: whole seconds and nanoseconds, of one sign.
+obj DurA: Ord
+  s: Int
+  ns: I32
+
+  fun from_ns(n: Int) -> DurA
+    DurA(s: n / NS_PER_S, ns: I32(n % NS_PER_S))
+
+  # Nanoseconds, for a reading's `add`: past an `Int`, it panics.
+  fun total_ns(?@) -> Int
+    @s * NS_PER_S + Int(@ns)
+
+  # Nanoseconds, for a wait: past an `Int`, as long as the scheduler can.
+  fun wait_ns(?@) -> Int
+    if @s >= WAIT_S_MAX
+      return Int.max
+    if @s <= -WAIT_S_MAX
+      return Int.min
+    @s * NS_PER_S + Int(@ns)
+
+# Layout B: one `Int` of nanoseconds.
+obj DurB: Ord
+  ns: Int
+
+fun nothing() -> Int!
+  0
+
+# `t.elapsed()`: a clock read, giving a duration.
+called fun elapsed_a(n: Int) -> Int
+  t = time.now()
+  for _ in 0..n
+    d = DurA.from_ns(t.elapsed())
+    hint.keep(?d)
+  n
+
+called fun elapsed_b(n: Int) -> Int
+  t = time.now()
+  for _ in 0..n
+    d = DurB(ns: t.elapsed())
+    hint.keep(?d)
+  n
+
+# `t.since(u)` between two readings.
+called fun since_a(n: Int) -> Int
+  u = time.now()
+  t = u.add(ns: 1_234_567_891)
+  for _ in 0..n
+    d = DurA.from_ns(hint.opaque(t).since(u))
+    hint.keep(?d)
+  n
+
+called fun since_b(n: Int) -> Int
+  u = time.now()
+  t = u.add(ns: 1_234_567_891)
+  for _ in 0..n
+    d = DurB(ns: hint.opaque(t).since(u))
+    hint.keep(?d)
+  n
+
+# A deadline, `start.add(d)`, and its comparison with a reading.
+called fun deadline_a(n: Int) -> Int
+  start = time.now()
+  probe = start.add(ns: 60 * NS_PER_S)
+  d = DurA(s: 120, ns: 5)
+  hits = 0
+  for _ in 0..n
+    dl = start.add(ns: hint.opaque(d).total_ns())
+    if probe >= dl
+      hits += 1
+  hits + n
+
+called fun deadline_b(n: Int) -> Int
+  start = time.now()
+  probe = start.add(ns: 60 * NS_PER_S)
+  d = DurB(ns: 120 * NS_PER_S + 5)
+  hits = 0
+  for _ in 0..n
+    dl = start.add(ns: hint.opaque(d).ns)
+    if probe >= dl
+      hits += 1
+  hits + n
+
+# `time.sleep` of zero.
+called fun sleep_a(n: Int) -> Int!
+  d = DurA(s: 0, ns: 0)
+  for _ in 0..n
+    time.sleep(ns: hint.opaque(d).wait_ns())!
+  n
+
+called fun sleep_b(n: Int) -> Int!
+  d = DurB(ns: 0)
+  for _ in 0..n
+    time.sleep(ns: hint.opaque(d).ns)!
+  n
+
+# `time.within` around a function that does nothing.
+called fun within_a(n: Int) -> Int!
+  d = DurA(s: 5, ns: 0)
+  sum = 0
+  for _ in 0..n
+    sum += time.within(ns: hint.opaque(d).wait_ns(), || nothing()!)!
+  sum + n
+
+called fun within_b(n: Int) -> Int!
+  d = DurB(ns: 5 * NS_PER_S)
+  sum = 0
+  for _ in 0..n
+    sum += time.within(ns: hint.opaque(d).ns, || nothing()!)!
+  sum + n
+
+# A select of a channel that is ready and an `after` arm of 5 s, which
+# loses.
+called fun select_a(n: Int) -> Int!
+  ch = *Chan[Int](1)
+  d = DurA(s: 5, ns: 0)
+  sum = 0
+  for _ in 0..n
+    !ch.send(1)!
+    match task.select(got: !ch.on_recv(), late: time.after(ns: hint.opaque(d).wait_ns()))!
+      .got(v?) => sum += v
+      .got(none) => sum -= 1
+      .late => sum += 100
+  sum
+
+called fun select_b(n: Int) -> Int!
+  ch = *Chan[Int](1)
+  d = DurB(ns: 5 * NS_PER_S)
+  sum = 0
+  for _ in 0..n
+    !ch.send(1)!
+    match task.select(got: !ch.on_recv(), late: time.after(ns: hint.opaque(d).ns))!
+      .got(v?) => sum += v
+      .got(none) => sum -= 1
+      .late => sum += 100
+  sum
+
+# A select whose one arm is `after` of zero, which wins at once.
+called fun after0_a(n: Int) -> Int!
+  d = DurA(s: 0, ns: 0)
+  sum = 0
+  for _ in 0..n
+    match task.select(late: time.after(ns: hint.opaque(d).wait_ns()))!
+      .late => sum += 1
+  sum
+
+called fun after0_b(n: Int) -> Int!
+  d = DurB(ns: 0)
+  sum = 0
+  for _ in 0..n
+    match task.select(late: time.after(ns: hint.opaque(d).ns))!
+      .late => sum += 1
+  sum
+
+NAMES = ["elapsed()", "since", "deadline add, compare", "sleep(0)", "within, empty fun", "select, after loses", "select, after(0) wins"]
+# The calls a loop makes, so each loop takes some milliseconds.
+COUNTS = [400_000, 10_000_000, 10_000_000, 5_000_000, 400_000, 200_000, 200_000]
+# What each loop gives for n calls, divided by n.
+WANT = [1, 1, 1, 1, 1, 1, 1]
+
+# `x` to two decimals, for the table.
+fun round2(x: Float) -> Float
+  Float(Int(x * 100.0 + (0.5 if x >= 0.0 else -0.5))) / 100.0
+
+# Case `k`, layout A (`b` false) or B, over `n` calls: its nanoseconds.
+fun run(k: Int, b: Bool, n: Int) -> Int!
+  start = time.now()
+  got = 0
+  if k == 0
+    got = elapsed_b(n) if b else elapsed_a(n)
+  else if k == 1
+    got = since_b(n) if b else since_a(n)
+  else if k == 2
+    got = deadline_b(n) if b else deadline_a(n)
+  else if k == 3
+    got = sleep_b(n)! if b else sleep_a(n)!
+  else if k == 4
+    got = within_b(n)! if b else within_a(n)!
+  else if k == 5
+    got = select_b(n)! if b else select_a(n)!
+  else
+    got = after0_b(n)! if b else after0_a(n)!
+  ns = start.elapsed()
+  if got != WANT[k] * n
+    panic("a loop gave a different total")
+  ns
+
+sub main()!
+  if os.args().len > 1 and os.args()[1] == "check"
+    for k in 0..NAMES.len
+      for b in [false, true]
+        one = Int.max
+        two = Int.max
+        for _ in 0..5
+          x = run(k, b, COUNTS[k])!
+          one = x if x < one else one
+          y = run(k, b, 2 * COUNTS[k])!
+          two = y if y < two else two
+        print(NAMES[k], "B" if b else "A", "2N/N", round2(Float(two) / Float(one)))
+    return
+  best = [14 of Int.max]
+  for r in 0..ROUNDS
+    for k in 0..NAMES.len
+      for j in 0..2
+        b = (j == 1) != (r % 2 == 1)
+        ns = run(k, b, COUNTS[k])!
+        i = 2 * k + (1 if b else 0)
+        best[i] = ns if ns < best[i] else best[i]
+  print("case", "A ns", "B ns", "A-B ns")
+  for k in 0..NAMES.len
+    a = Float(best[2 * k]) / Float(COUNTS[k])
+    b = Float(best[2 * k + 1]) / Float(COUNTS[k])
+    print(NAMES[k], round2(a), round2(b), round2(a - b))

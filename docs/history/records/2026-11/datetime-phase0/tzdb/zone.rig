@@ -1,0 +1,14 @@
+# `zone [NAME [SECONDS]]`: the offset of zone NAME (America/New_York) at
+# SECONDS since 1970 (1700000000), through the measuring shim.
+use std.os
+use std.text
+use std.tzdbx
+
+sub main()
+  args = os.args()
+  name = args[1] if args.len > 1 else "America/New_York"
+  t = (text.parse_int(args[2]) catch 0) if args.len > 2 else 1700000000
+  if tzdbx.offset_at(name, t) as off
+    print(off)
+  else
+    print("unknown")

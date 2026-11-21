@@ -761,6 +761,14 @@ arms.
 
 ### Tests
 
+- `tools/jiff-oracle/` answers generated date, time, and zone cases
+  from Jiff 1.0.0 and its bundled 2026f zone data alone, for the datetime
+  library to match line for line; `test/cli/jiff_oracle.sh` checks it
+  against Jiff's own test values and skips where there is no Rust
+  toolchain. `tools/gen-tzdb.py` generates the zone tables from Jiff's
+  bundle and checks them (`--check`), and `bench/duration/` times
+  `Duration`'s two candidate layouts call by call.
+
 - The scheduler's unit tests assert what holds however late the system
   runs a thread, not how soon. Two tasks that answer each other over a
   socket each wake the other into their own worker's run-next slot,
