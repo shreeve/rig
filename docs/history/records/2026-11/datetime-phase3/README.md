@@ -184,4 +184,25 @@ uses nothing of std.time.
 
 ## Verification
 
-See the end of this record, filled in when the gates ran.
+On the Mac, through `tools/heavy`:
+
+- `zig build`, and `zig build test`.
+- Swarm on what changed with `oracle` and `unit`: the seven
+  `std-datetime*` files, `std-time`, `std-time-forms`, `std-time-waits`,
+  the generic files `errors-generic`, `ownership-generic`, `types-apis`,
+  `types-generic`, every doc's examples (`doc`), `cli.jiff_oracle` (the
+  oracle's 1.77 million cases, 891,707 answered the same and none
+  different), `cli.migrate_datetime`, and `cli.emit`: 1,862 jobs, none
+  died.
+- `tools/emit-diff origin/main` (main at 5db6cfed7): 12 of 38 programs
+  differ, each a bench that imports std.time, and only by the removed
+  `unix_ns`: its four lines in `__rig_std_time.zig` and the shim's
+  function and header in `rig/std/time.zig`. Trig's entry fails to emit
+  on both sides alike (its generated `buildinfo` and `libtrees` modules
+  are not in a checkout), so it compared nothing; by hand, Trig's
+  `main.rig` with the patch applied, beside stubs of those two modules,
+  checks with no error but the stubs' missing members.
+- The whole core suite once (`tools/heavy --class correctness swarm
+  test/rig.rip -w 4 -q`): 12,423 jobs in 623 s, none died.
+- A plain `tools/heavy zig build` last. The coordinator runs the review,
+  the guards, the Trig and loco light gates, and the Linux checks.
