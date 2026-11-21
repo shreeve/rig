@@ -220,8 +220,8 @@ fn Table(comptime K: type, comptime V: type) type {
         fn put(t: *Self, k: K, v: V) struct { *const Entry, bool } {
             var key = k;
             var value = v;
-            const h = hashKey(rig.lend(&key));
-            if (lookup(t, h, rig.lend(&key))) |e| {
+            const h = hashKey(rig.readView(&key));
+            if (lookup(t, h, rig.readView(&key))) |e| {
                 rig.dropElement(K, &key);
                 rig.dropElement(V, &value);
                 return .{ e, false };
@@ -230,7 +230,7 @@ fn Table(comptime K: type, comptime V: type) type {
             const sh = &t.shards[s];
             sh.lock.lock();
             var ix = t.indexes[s];
-            if (probe(ix, h, rig.lend(&key))) |e| {
+            if (probe(ix, h, rig.readView(&key))) |e| {
                 sh.lock.unlock();
                 rig.dropElement(K, &key);
                 rig.dropElement(V, &value);
@@ -297,7 +297,7 @@ pub fn make(comptime K: type, comptime V: type, capacity: i64) i64 {
 pub fn find(comptime K: type, comptime V: type, m: anytype, k: rig.ReadView(K)) ?rig.ReadView(V) {
     const T = Table(K, V);
     const e = T.lookup(T.of(m), T.hashKey(k), k) orelse return null;
-    return rig.lend(&e.value);
+    return rig.readView(&e.value);
 }
 
 pub fn holds(comptime K: type, comptime V: type, m: anytype, k: rig.ReadView(K)) bool {
@@ -312,7 +312,7 @@ pub fn insert(comptime K: type, comptime V: type, m: anytype, k: K, v: V) bool {
 
 pub fn settle(comptime K: type, comptime V: type, m: anytype, k: K, v: V) rig.ReadView(V) {
     const T = Table(K, V);
-    return rig.lend(&T.put(T.of(m), k, v)[0].value);
+    return rig.readView(&T.put(T.of(m), k, v)[0].value);
 }
 
 pub fn count(comptime K: type, comptime V: type, m: anytype) i64 {

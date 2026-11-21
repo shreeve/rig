@@ -1,12 +1,12 @@
-# No diagnostic says lend, lent, read loan or write loan: a sigil on a
-# place makes a view, a read view or a write view (AGENTS.md, "One
-# vocabulary"). Every string literal in src/*.zig is read, a test's name
-# and an identifier in emitted Zig (`rig.lend(`) aside.
+# No string in the compiler says lend, lent, read loan or write loan: a
+# sigil on a place makes a view, a read view or a write view (AGENTS.md,
+# "One vocabulary"). Every string literal in src/*.zig is read: messages,
+# test names, and the Zig that emit writes.
 source "$ROOT/test/cli/_lib.sh"
 
 out=$(python3 - "$ROOT/src" <<'PY'
 import glob, os, re, sys
-words = re.compile(r"\b(lend|lends|lending|lent|read loan|write loan|exclusive loan)\b(?!\()", re.I)
+words = re.compile(r"\b(lend|lends|lending|lent|read loan|write loan|exclusive loan)\b", re.I)
 
 def literals(line):
     """The string literals of a line of Zig, its comment left out."""
@@ -33,8 +33,6 @@ def literals(line):
 
 for path in sorted(glob.glob(os.path.join(sys.argv[1], '*.zig'))):
     for n, line in enumerate(open(path, encoding='utf-8'), 1):
-        if re.match(r'\s*test "', line):
-            continue
         for text in literals(line):
             if words.search(text):
                 print(f'{os.path.basename(path)}:{n}: {text.strip()}')

@@ -1,0 +1,25 @@
+emit-proof: rig at c1cb41748e4c and bin/rig
+IDENT (file, pattern, replacement, renames made in the emitted Zig):
+  *            \brig\.lend\(            -> rig.readView(    42
+  *            \brt\.lend\(             -> rt.readView(     1190
+  *            `rig\.lend`              -> `rig.readView`   0
+  *            __rig_lent               -> __rig_viewed     63
+  runtime.zig  \bpub fn lend\(          -> pub fn readView( 35
+  runtime.zig  (?<![\w.])lend\(         -> readView(        105
+  alloc.zig    (?<![\w.])lent\(         -> handedOut(       245
+  alloc.zig    \blendSpan\b             -> handOutSpan      245
+  alloc.zig    \blent_out\b             -> handed_out       70
+  net.zig      (?<![\w.])lend\(         -> callFd(          175
+TEXT (comment and test-name hunks of the files written beside a program):
+  src/alloc.zig: 1 hunks
+  src/net.zig: 3 hunks
+  src/ordered.zig: 1 hunks
+  src/runtime.zig: 19 hunks
+  src/sched.zig: 2 hunks
+  std/shared.zig: 0 hunks
+  std/sort.zig: 0 hunks
+  src/tasks.zig: 7 hunks
+  src/unordered.zig: 3 hunks
+  36 hunks in all, every one checked to be comments or test names
+37 programs (2 refused alike by both, skipped), 563 files: 238 changed by IDENT (25 of them a program's own Zig), 245 by TEXT
+identical: every file of BASE's emit, renamed by the table, is byte-identical to bin/rig's

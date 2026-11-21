@@ -2338,7 +2338,7 @@ pub const StorageKind = enum {
     /// A mutable copy of what an `as` captures, which its binding views
     /// (`__rig_opt_N_v`).
     as_copy,
-    /// The value inside an optional a view reaches (`__rig_lent`).
+    /// The value inside an optional a view reaches (`__rig_viewed`).
     viewed,
     /// The copy an API object of a read view of plain data, or of a type
     /// parameter's value, views (`Erasure.copy`), a local of the erasing

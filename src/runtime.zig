@@ -117,7 +117,7 @@ pub const restoreDeadline = tasks.restoreDeadline;
 /// `f(args...)`, a call that may block its thread, as `std`'s shims make
 /// one (reading a file): on the scheduler, on its blocking pool, while the
 /// task waits until it is done; otherwise here. `args` are passed as they
-/// are, so a call may read into a buffer its caller lends.
+/// are, so a call may read into a buffer its caller gives a view of.
 pub fn blocking(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
     if (scheduled) return sched.blocking(f, args);
     return @call(.auto, f, args);
@@ -1007,7 +1007,7 @@ pub fn WritePtr(comptime T: type) type {
 /// `T?` for an object held as one 64-bit word (`__rig_word_sized`, a packed
 /// struct) with no niche: the word at four-byte alignment beside a flag,
 /// twelve bytes, as the optional of the two 32-bit halves it holds would
-/// be. No write lend reaches the word inside one
+/// be. No write view reaches the word inside one
 /// (`storage.decideWords`), so no pointer to it is taken at that
 /// alignment where a `*T` goes.
 fn WordOpt(comptime T: type) type {
@@ -1240,7 +1240,7 @@ pub fn needsDrop(comptime T: type) bool {
 /// fields, a slice or `?String`, a function, or an optional of one), a
 /// pointer to anything else (an `ErrorValue` among them), and
 /// for a `String` its bytes, the one text view, `?String`. The
-/// emitter decides this itself for a known `T` (`sema.lendByValue`), by
+/// emitter decides this itself for a known `T` (`sema.viewByValue`), by
 /// the same rule, and uses this in a generic type, where `T` depends on
 /// the type arguments. A type argument never holds a Cell (a Cell lives
 /// only behind a shared handle), so the pointer is read-only.
@@ -1277,12 +1277,12 @@ pub inline fn selfArg(comptime f: anytype, recv: anytype) @typeInfo(@TypeOf(f)).
 /// one, the address of a value of the hidden type and the table of that
 /// type's methods for the API (`__rig_table_Shape_of(T, W)`, one per API
 /// and type). Two words, passed by value, as a callable view is (`FnRef`).
-/// A read view's address is a `*const`; a write view lends a read view
-/// (`read`), as `!T` lends `?T`.
+/// A read view's address is a `*const`; a write view gives a read view
+/// (`read`), as `!T` gives `?T`.
 /// `builtins` are the built-in APIs its braces name after its API, as
 /// they spell them, `" + Print"`, which only `typeName` reads. A view
 /// names only the crossing bound its form uses (`sema.formBraces`), so
-/// the view a box `^{Shape + Sends}` lends, `?{Shape}`, is the one a
+/// the view a box `^{Shape + Sends}` gives, `?{Shape}`, is the one a
 /// parameter of that type takes.
 pub fn ApiView(comptime Entries: type, comptime form: ApiForm, comptime builtins: []const u8) type {
     return ApiViewOf(Entries, form, withoutBound(builtins, if (form == .read) " + Sends" else " + Syncs"));
@@ -1306,7 +1306,7 @@ fn ApiViewOf(comptime Entries: type, comptime form: ApiForm, comptime builtins: 
         /// Its sigil and braces, for `typeName`.
         pub const __rig_api_object = .{ if (form == .read) "?" else "!", Entries, builtins };
 
-        /// The read view a write view lends.
+        /// The read view a write view gives.
         pub fn read(self: @This()) ApiView(Entries, .read, builtins) {
             return .{ .ptr = self.ptr, .vt = self.vt };
         }
@@ -1351,12 +1351,12 @@ pub fn ApiBox(comptime Entries: type, comptime builtins: []const u8) type {
             return of(T, some(b) orelse return null, vt);
         }
 
-        /// The read view the box lends, `?{Shape}`.
+        /// The read view the box gives, `?{Shape}`.
         pub fn read(self: *const Self) ApiView(Entries, .read, builtins) {
             return .{ .ptr = self.ptr, .vt = self.vt };
         }
 
-        /// The write view the box lends, `!{Shape}`.
+        /// The write view the box gives, `!{Shape}`.
         pub fn write(self: *Self) ApiView(Entries, .write, builtins) {
             return .{ .ptr = self.ptr, .vt = self.vt };
         }
@@ -1388,7 +1388,7 @@ pub fn ApiBox(comptime Entries: type, comptime builtins: []const u8) type {
 /// table, whose entries reach them from the value's address by the
 /// allocation's layout; the last count's drop is the allocation's own
 /// (`Counted.dropStrong`), deep chains through `drop_queue` as a `*T`'s
-/// are, so the object itself queues nothing. It only reads: `read` lends
+/// are, so the object itself queues nothing. It only reads: `read` gives
 /// the `?{Shape}` it holds, the same two words.
 pub fn ApiShared(comptime Entries: type, comptime builtins: []const u8) type {
     return struct {
@@ -1412,7 +1412,7 @@ pub fn ApiShared(comptime Entries: type, comptime builtins: []const u8) type {
             return of(some(h) orelse return null, vt);
         }
 
-        /// The read view the handle lends, `?{Shape}`.
+        /// The read view the handle gives, `?{Shape}`.
         pub fn read(self: *const Self) ApiView(Entries, .read, builtins) {
             return .{ .ptr = self.ptr, .vt = self.vt };
         }
@@ -1710,7 +1710,7 @@ fn copiedByReadView(comptime T: type) bool {
         .int, .float, .bool, .comptime_int, .comptime_float, .error_set, .@"enum", .@"fn", .pointer, .vector => true,
         .optional => |o| copiedByReadView(o.child),
         // A read view of an API object is a view, as `sema.copiedByReadView`
-        // says: its two words are lent as they are. A word-sized object
+        // says: its two words are passed as they are. A word-sized object
         // (`sema.wordBits`, which emit marks `__rig_word_sized`) is copied, as a
         // number is.
         .@"struct" => isWideMask(T) or isReadApiView(T) or @hasDecl(T, "__rig_word_sized"),
@@ -1724,7 +1724,7 @@ fn isReadApiView(comptime T: type) bool {
 }
 
 /// A read view of what `ptr` points to.
-pub fn lend(ptr: anytype) ReadView(@TypeOf(ptr.*)) {
+pub fn readView(ptr: anytype) ReadView(@TypeOf(ptr.*)) {
     if (comptime @TypeOf(ptr.*) == String) return ptr.bytes();
     return if (comptime ReadView(@TypeOf(ptr.*)) == @TypeOf(ptr.*)) ptr.* else ptr;
 }
@@ -1778,7 +1778,7 @@ pub fn viewedPtr(comptime T: type, view: *const ReadView(T)) *const Reached(T) {
 }
 
 /// `held`, an optional or a fallible view of a `T` that copies, with the
-/// `T` the view holds (a view lent by value) or points at copied out in
+/// `T` the view holds (a view held by value) or points at copied out in
 /// place of the view: what `a ?? b` and `a catch b` give where their
 /// fallback is a `T`, not a view.
 pub inline fn copiedOut(comptime T: type, held: anytype) CopiedOut(T, @TypeOf(held)) {
@@ -3295,7 +3295,7 @@ const Callback = Closure(&.{}, void);
 
 // A callable view `?fun(A, B) -> R` / `?sub(A)` is a
 // `FnRef(&.{ A, B }, R)`: a context pointer and a function that calls
-// through it, 16 bytes passed by value. It lends what the caller owns (a
+// through it, 16 bytes passed by value. It views what the caller owns (a
 // stack closure's environment, a function, an owned closure) for as long
 // as the ownership checker lets the view live, and owns nothing.
 
@@ -3322,7 +3322,7 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
         pub const Args = @Tuple(params);
 
         /// The first `n` of `args`: all of them, or all but the slot a
-        /// function that fails without fields does not take, lent where
+        /// function that fails without fields does not take, passed where
         /// one that may fail with fields goes.
         fn argsFor(comptime n: usize, args: Args) @Tuple(params[0..n]) {
             var out: @Tuple(params[0..n]) = undefined;
@@ -3330,7 +3330,7 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
             return out;
         }
 
-        /// Lend `env`, a stack closure's environment, whose `__rig_invoke`
+        /// A view of `env`, a stack closure's environment, whose `__rig_invoke`
         /// takes the parameters.
         pub fn of(comptime Env: type, env: *Env) Self {
             const n = @typeInfo(@TypeOf(Env.__rig_invoke)).@"fn".param_types.len - 1;
@@ -3343,7 +3343,7 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
             return .{ .ctx = env, .call_fn = thunk.call };
         }
 
-        /// Lend function `f`, a function or a pointer to one.
+        /// A view of function `f`, a function or a pointer to one.
         pub fn ofFn(f: anytype) Self {
             if (@typeInfo(@TypeOf(f)) == .@"fn") return ofFn(&f);
             const F = @TypeOf(f);
@@ -3357,7 +3357,7 @@ pub fn FnRef(comptime params: []const type, comptime R: type) type {
             return .{ .ctx = @ptrCast(@constCast(f)), .call_fn = thunk.call };
         }
 
-        /// Lend the owned closure `handle` points to (a
+        /// A view of the owned closure `handle` points to (a
         /// `*Shared(Closure(params, R))`, or a pointer to one).
         pub fn ofClosure(handle: anytype) Self {
             const box = if (@typeInfo(@TypeOf(handle.*)) == .pointer) handle.* else handle;
@@ -3878,7 +3878,7 @@ fn ListOf(comptime T: type, comptime inline_len_in: usize) type {
         /// `!v.extend(?s)`: append a copy of each element of `s`, growing
         /// once and copying them in with one `@memcpy`. Sema admits only
         /// a `T` that copies and holds no view, and the ownership checker
-        /// keeps `s` from viewing this List, which is lent to write.
+        /// keeps `s` from viewing this List, which is given a write view.
         pub fn extend(self: *Self, src: []const T) void {
             if (src.len == 0) return;
             self.reserveTotal(self.len + src.len);
@@ -5214,7 +5214,7 @@ pub inline fn prefetch(items: anytype, i: anytype) void {
 }
 
 /// `xs.reduce(start, f)`: the running value, `first`, passed with
-/// each element in order, lent, to `f`, which gives the next; the last.
+/// each element in order, viewed, to `f`, which gives the next; the last.
 /// A fallible `f` makes it fallible, failing with `f`'s first failure.
 /// Its fields go into the caller's slot `out`, or are dropped where it
 /// has none (`no_slot`). Inline, so a closure written at the call is
@@ -5231,11 +5231,11 @@ pub inline fn reduceInto(items: anytype, first: anytype, f: anytype, out: anytyp
     const slot: ErrSlot = if (comptime @TypeOf(out) == ErrSlot) out else failSlot(&own);
     for (xs) |*x| {
         if (comptime @typeInfo(R) == .error_union) {
-            acc = f.call(argsWithSlot(F, .{ acc, lend(x) }, slot)) catch |err| {
+            acc = f.call(argsWithSlot(F, .{ acc, readView(x) }, slot)) catch |err| {
                 if (comptime @TypeOf(out) != ErrSlot) dropErrorData(err, &own);
                 return err;
             };
-        } else acc = f.call(.{ acc, lend(x) });
+        } else acc = f.call(.{ acc, readView(x) });
     }
     return acc;
 }
@@ -10630,7 +10630,7 @@ test "simdRead and simdWrite: wide vectors touch exactly their bytes, padded one
 test "viewedPtr reaches what a read view views, or the view's own copy" {
     const Pair = struct { a: i64, t: String };
     var p: Pair = .{ .a = 3, .t = .{} };
-    const b: ReadView(Pair) = lend(&p);
+    const b: ReadView(Pair) = readView(&p);
     try std.testing.expect(viewedPtr(Pair, &b) == &p);
     const n: ReadView(i64) = 7;
     try std.testing.expect(viewedPtr(i64, &n) == &n);

@@ -331,7 +331,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
         }
 
         inline fn hashOf(e: *const Element) u64 {
-            return if (store_hash) e.hash else hashKey(rt.lend(&e.key));
+            return if (store_hash) e.hash else hashKey(rt.readView(&e.key));
         }
 
         inline fn keyMatches(e: *const Element, k: KeyView) bool {
@@ -800,11 +800,11 @@ fn Unordered(comptime K: type, comptime V: type) type {
         /// narrowing unsound.
         pub inline fn get(self: *const Self, k: KeyView) ?rt.ReadView(V) {
             const f = self.locate(k, hashKey(k)) orelse return null;
-            return rt.lend(&f.p.value);
+            return rt.readView(&f.p.value);
         }
 
-        /// `edit(!@, k: ?K) -> (!V)? from @`: the value of `k`, lent to
-        /// write.
+        /// `edit(!@, k: ?K) -> (!V)? from @`: the value of `k`, given as
+        /// a write view.
         ///
         /// Its origin is narrowed to self (`resolve.fromSelf`), which holds
         /// only because `k` is hashed and compared, never returned or
@@ -817,12 +817,12 @@ fn Unordered(comptime K: type, comptime V: type) type {
 
         /// `key(?@, j: Int) -> ?K`.
         pub inline fn key(self: *const Self, j: i64) KeyView {
-            return rt.lend(&self.slotAt(@intCast(j), true).key);
+            return rt.readView(&self.slotAt(@intCast(j), true).key);
         }
 
         /// `value(?@, j: Int) -> ?V`.
         pub inline fn value(self: *const Self, j: i64) rt.ReadView(V) {
-            return rt.lend(&self.slotAt(@intCast(j), true).value);
+            return rt.readView(&self.slotAt(@intCast(j), true).value);
         }
 
         /// `value_mut(!@, j: Int) -> !V`.
@@ -835,8 +835,8 @@ fn Unordered(comptime K: type, comptime V: type) type {
         /// True when `k` was new.
         pub inline fn put(self: *Self, k: K, v: V) bool {
             var kk = k;
-            const h = hashKey(rt.lend(&kk));
-            const c = self.claim(rt.lend(&kk), h);
+            const h = hashKey(rt.readView(&kk));
+            const c = self.claim(rt.readView(&kk), h);
             const e = &self.elements.?[c.i];
             if (!c.new) {
                 rt.dropElement(K, &kk);
@@ -852,8 +852,8 @@ fn Unordered(comptime K: type, comptime V: type) type {
         /// value back.
         pub inline fn replace(self: *Self, k: K, v: V) rt.Opt(V) {
             var kk = k;
-            const h = hashKey(rt.lend(&kk));
-            const c = self.claim(rt.lend(&kk), h);
+            const h = hashKey(rt.readView(&kk));
+            const c = self.claim(rt.readView(&kk), h);
             const e = &self.elements.?[c.i];
             if (!c.new) {
                 rt.dropElement(K, &kk);
@@ -877,7 +877,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
         }
 
         /// `ensure(!@, k: K, v: V, len: !Int) -> !V`: the value of `k`,
-        /// lent to write where the probe found or put it, its home group
+        /// given as a write view where the probe found or put it, its home group
         /// matched first (`claimHomeFirst`), so a key found there costs
         /// that group's compare and no index made and read back. When `k`
         /// is new, its entry is made of `k` and `v` and the count of
@@ -886,8 +886,8 @@ fn Unordered(comptime K: type, comptime V: type) type {
         pub inline fn ensure(self: *Self, k: K, v: V, len: *i64) ValPtr {
             var kk = k;
             var vv = v;
-            const h = hashKey(rt.lend(&kk));
-            const c = self.claimHomeFirst(rt.lend(&kk), h);
+            const h = hashKey(rt.readView(&kk));
+            const c = self.claimHomeFirst(rt.readView(&kk), h);
             if (!c.new) {
                 rt.dropElement(K, &kk);
                 rt.dropElement(V, &vv);
@@ -901,8 +901,8 @@ fn Unordered(comptime K: type, comptime V: type) type {
         inline fn ensureAt(self: *Self, k: K, v: V) Claim {
             var kk = k;
             var vv = v;
-            const h = hashKey(rt.lend(&kk));
-            const c = self.claim(rt.lend(&kk), h);
+            const h = hashKey(rt.readView(&kk));
+            const c = self.claim(rt.readView(&kk), h);
             if (!c.new) {
                 rt.dropElement(K, &kk);
                 rt.dropElement(V, &vv);
@@ -917,7 +917,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
         pub fn insert_new(self: *Self, k: K, v: V) i64 {
             @branchHint(.unlikely);
             var kk = k;
-            const h = hashKey(rt.lend(&kk));
+            const h = hashKey(rt.readView(&kk));
             const i = self.claimNew(h);
             self.elements.?[i] = makeElement(kk, v, h);
             return @intCast(i);
@@ -972,7 +972,7 @@ fn Unordered(comptime K: type, comptime V: type) type {
                 var m = matchFull(&self.groups[g]);
                 while (m != 0) : (m &= m - 1) {
                     const entry = &es[g * NL + laneOf(m)];
-                    f.call(.{ rt.lend(&entry.key), &entry.value });
+                    f.call(.{ rt.readView(&entry.key), &entry.value });
                 }
             }
         }
@@ -989,9 +989,9 @@ fn Unordered(comptime K: type, comptime V: type) type {
                     const lane = laneOf(m);
                     const e = &es[g * NL + lane];
                     const keep = if (is_set)
-                        f.call(.{rt.lend(&e.key)})
+                        f.call(.{rt.readView(&e.key)})
                     else
-                        f.call(.{ rt.lend(&e.key), &e.value });
+                        f.call(.{ rt.readView(&e.key), &e.value });
                     if (keep) continue;
                     dropValue(&e.value);
                     dropKey(&e.key);
@@ -1206,7 +1206,7 @@ test "unordered: growth moves every entry, crowded and overflowed ones too" {
     }
 }
 
-test "unordered: ensure lends the value where it finds or puts its key, and counts only a new key" {
+test "unordered: ensure gives a write view of the value where it finds or puts its key, and counts only a new key" {
     var m: UnorderedMap(i64, i64) = .{};
     defer m.__rig_drop();
     var len: i64 = -1;

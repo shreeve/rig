@@ -826,11 +826,11 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// narrowing unsound.
         pub inline fn get(self: *const Self, k: KeyView) ?rt.ReadView(V) {
             const j = self.findHashed(k, hashKey(k)) orelse return null;
-            return rt.lend(&self.entryOf(j, true).value);
+            return rt.readView(&self.entryOf(j, true).value);
         }
 
-        /// `edit(!@, k: ?K) -> (!V)? from @`: the value of `k`, lent to
-        /// write.
+        /// `edit(!@, k: ?K) -> (!V)? from @`: the value of `k`, given as
+        /// a write view.
         ///
         /// Its origin is narrowed to self (`resolve.fromSelf`), which holds
         /// only because `k` is hashed and compared, never returned or
@@ -843,12 +843,12 @@ fn Ordered(comptime K: type, comptime V: type) type {
 
         /// `key(?@, j: Int) -> ?K`.
         pub inline fn key(self: *const Self, j: i64) KeyView {
-            return rt.lend(&self.entryOf(@intCast(j), true).key);
+            return rt.readView(&self.entryOf(@intCast(j), true).key);
         }
 
         /// `value(?@, j: Int) -> ?V`.
         pub inline fn value(self: *const Self, j: i64) rt.ReadView(V) {
-            return rt.lend(&self.entryOf(@intCast(j), true).value);
+            return rt.readView(&self.entryOf(@intCast(j), true).value);
         }
 
         /// `value_mut(!@, j: Int) -> !V`.
@@ -861,8 +861,8 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// True when `k` was new.
         pub inline fn put(self: *Self, k: K, v: V) bool {
             var kk = k;
-            const h = hashKey(rt.lend(&kk));
-            if (self.findHashed(rt.lend(&kk), h)) |j| {
+            const h = hashKey(rt.readView(&kk));
+            if (self.findHashed(rt.readView(&kk), h)) |j| {
                 rt.dropElement(K, &kk);
                 const e = &self.entries[j];
                 dropValue(&e.value);
@@ -877,8 +877,8 @@ fn Ordered(comptime K: type, comptime V: type) type {
         /// value back.
         pub inline fn replace(self: *Self, k: K, v: V) rt.Opt(V) {
             var kk = k;
-            const h = hashKey(rt.lend(&kk));
-            if (self.findHashed(rt.lend(&kk), h)) |j| {
+            const h = hashKey(rt.readView(&kk));
+            if (self.findHashed(rt.readView(&kk), h)) |j| {
                 rt.dropElement(K, &kk);
                 const e = &self.entries[j];
                 const old = e.value;
@@ -894,8 +894,8 @@ fn Ordered(comptime K: type, comptime V: type) type {
         pub inline fn put_new(self: *Self, k: K, v: V) bool {
             var kk = k;
             var vv = v;
-            const h = hashKey(rt.lend(&kk));
-            if (self.findHashed(rt.lend(&kk), h) != null) {
+            const h = hashKey(rt.readView(&kk));
+            if (self.findHashed(rt.readView(&kk), h) != null) {
                 rt.dropElement(K, &kk);
                 rt.dropElement(V, &vv);
                 return false;
@@ -914,8 +914,8 @@ fn Ordered(comptime K: type, comptime V: type) type {
         pub inline fn ensure(self: *Self, k: K, v: V) i64 {
             var kk = k;
             var vv = v;
-            const h = hashKey(rt.lend(&kk));
-            if (self.findHashed(rt.lend(&kk), h)) |j| {
+            const h = hashKey(rt.readView(&kk));
+            if (self.findHashed(rt.readView(&kk), h)) |j| {
                 rt.dropElement(K, &kk);
                 rt.dropElement(V, &vv);
                 return @intCast(j);
@@ -928,7 +928,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
         pub fn insert_new(self: *Self, k: K, v: V) i64 {
             @branchHint(.unlikely);
             var kk = k;
-            return @intCast(self.insertHashed(kk, v, hashKey(rt.lend(&kk))));
+            return @intCast(self.insertHashed(kk, v, hashKey(rt.readView(&kk))));
         }
 
         /// An insert out of line, so a lookup that finds its key stays
@@ -1032,7 +1032,7 @@ fn Ordered(comptime K: type, comptime V: type) type {
             for (0..self.len) |j| {
                 if (self.isGone(j)) continue;
                 const entry = &self.entries[j];
-                f.call(.{ rt.lend(&entry.key), &entry.value });
+                f.call(.{ rt.readView(&entry.key), &entry.value });
             }
         }
 
@@ -1045,9 +1045,9 @@ fn Ordered(comptime K: type, comptime V: type) type {
                 if (self.isGone(j)) continue;
                 const e = &self.entries[j];
                 const keep = if (is_set)
-                    f.call(.{rt.lend(&e.key)})
+                    f.call(.{rt.readView(&e.key)})
                 else
-                    f.call(.{ rt.lend(&e.key), &e.value });
+                    f.call(.{ rt.readView(&e.key), &e.value });
                 if (keep) continue;
                 dropValue(&e.value);
                 dropKey(&e.key);

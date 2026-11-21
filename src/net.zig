@@ -516,9 +516,9 @@ pub fn release(fd: i64, reg: i64, pair: i64) void {
 /// waits are its poller's, or of a `file.File`, whose calls run on the
 /// blocking pool as `fileReadInto` and `fileWrite` run; the checker
 /// allows nothing else (`Checker.ioCopy`). One buffer carries every
-/// block, read where it is written from, and a file's descriptor is lent
-/// once for the whole copy: each block moves both into the pool's call
-/// and back.
+/// block, read where it is written from, and a file's descriptor for the
+/// pool is found once for the whole copy (`callFd`): each block moves
+/// both into the pool's call and back.
 pub fn copy(from: anytype, to: anytype) anyerror!i64 {
     var src = try copyEnd(from, false);
     defer src.__rig_drop();
@@ -552,13 +552,13 @@ fn isStream(comptime P: type) bool {
     return @hasField(@typeInfo(P).pointer.child, "reg");
 }
 
-/// The descriptor `copy` reads or writes a `file.File` through (`lend`);
+/// The descriptor `copy` reads or writes a `file.File` through (`callFd`);
 /// none for a stream, or for stdout and stderr, written through
 /// `print`'s buffer.
 fn copyEnd(end: anytype, writes: bool) FileError!Fd {
     if (comptime isStream(@TypeOf(end))) return .none;
     if (writes and (end.fd == 1 or end.fd == 2)) return .none;
-    return lend(end.fd);
+    return callFd(end.fd);
 }
 
 // -----------------------------------------------------------------------------
@@ -566,7 +566,7 @@ fn copyEnd(end: anytype, writes: bool) FileError!Fd {
 // -----------------------------------------------------------------------------
 
 /// A descriptor a call on the blocking pool owns, closed when dropped:
-/// one it opened, or a duplicate of a file's (`lend`). A call that runs
+/// one it opened, or a duplicate of a file's (`callFd`). A call that runs
 /// here is given the file's own, which it does not own.
 pub const Fd = struct {
     fd: i32,
@@ -584,7 +584,7 @@ pub const Fd = struct {
 /// closes its file leaves the call a descriptor of its own, never a
 /// number the system may give out again; `fd` itself for one that runs
 /// here (`rig.onPool`).
-fn lend(fd: i64) FileError!Fd {
+fn callFd(fd: i64) FileError!Fd {
     if (!rig.onPool()) return .{ .fd = @intCast(fd), .owned = false };
     while (true) {
         const rc = sys.fcntl(@intCast(fd), posix.F.DUPFD_CLOEXEC, @as(usize, 0));
@@ -650,7 +650,7 @@ pub fn fileReadInto(fd: i64, into: *rig.String, want: usize) (rig.Stop || FileEr
     const bare = into.list.capacity == 0;
     _ = into.roomFor(want);
     const before = into.list.items.len;
-    var d = try lend(fd);
+    var d = try callFd(fd);
     defer d.__rig_drop();
     try trip(readOnto, &d, into, want);
     if (bare) into.fit();
@@ -738,7 +738,7 @@ pub fn fileFlush(fd: i64) FileError!void {
 /// `fileReadInto` reads, which copies them (`rig.blockingStop`).
 pub fn fileWrite(fd: i64, bytes: []const u8) (rig.Stop || FileError)!void {
     if (fd == 1 or fd == 2) return standardWrite(fd, bytes);
-    var d = try lend(fd);
+    var d = try callFd(fd);
     defer d.__rig_drop();
     var none: rig.String = .empty;
     return trip(writeBytes, &d, &none, bytes);
@@ -780,7 +780,7 @@ pub const Sync = enum(u2) { all, data, fs };
 /// writes out every file system.
 pub fn fileSync(fd: i64, how: Sync) (rig.Stop || FileError)!void {
     try fileFlush(fd);
-    var d = try lend(fd);
+    var d = try callFd(fd);
     defer d.__rig_drop();
     var none: rig.String = .empty;
     return trip(syncFd, &d, &none, how);
