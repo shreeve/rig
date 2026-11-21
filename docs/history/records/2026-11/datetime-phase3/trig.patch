@@ -1,0 +1,30 @@
+--- a/tools/trig/main.rig
++++ b/tools/trig/main.rig
+@@ -11,12 +11,12 @@
+ use buildinfo
+ use execute
+ use libtrees
++use std.datetime
+ use std.file
+ use std.os
+ use std.target
+ use std.task
+ use std.text
+-use std.time
+ use tspath
+ use vfs
+ 
+@@ -91,10 +91,10 @@
+ 
+ # Go: cmd/tsc/sys.go:31 osSys.Now: nanoseconds on the wall clock.
+ # PORT: Go's reading carries a monotonic one too; std.time's monotonic
+-# reading is an Instant, which a plain function value cannot keep a
+-# start for, so this is the wall clock (std.time.unix_ns).
++# reading is a Monotonic, which a plain function value cannot keep a
++# start for, so this is the wall clock (datetime.now).
+ fun clock() -> Int
+-  time.unix_ns()
++  datetime.now().unix().ns()
+ 
+ # The balanced checkers' bytes of checked source text a checker (see
+ # TRIG_CHECKER_BYTES): fit on mitt, neverthrow, superstruct and zod3,
