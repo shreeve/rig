@@ -1,0 +1,4 @@
+use std.datetime
+
+sub main()
+  print(datetime.Instant.from_unix(10_000_000_000))

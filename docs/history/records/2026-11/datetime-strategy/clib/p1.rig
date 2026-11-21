@@ -1,0 +1,15 @@
+use std.datetime
+use std.text
+
+fun next_day(d: datetime.Date) -> datetime.Date!
+  d.checked_add(days: 1)!
+
+sub main()!
+  # a stored "no end" date, read from a database row
+  stop = datetime.Date.parse("9999-12-31")!
+  print(next_day(stop) catch stop)
+  s = text.parse_int("8000000")!
+  start = datetime.Date.new(2026, 11, 21)!
+  start.checked_add(days: s) catch |e| print("failed:", e)
+  hi = datetime.Instant.parse("9999-12-30T22:00:00.9Z")!
+  print(hi.round(seconds: 1))

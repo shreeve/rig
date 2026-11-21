@@ -1,0 +1,24 @@
+use std.time
+use std.datetime
+
+fun tryparse_t(s: ?String) -> ?String
+  _ = datetime.Time.parse(s) catch return "err"
+  "ok"
+
+sub main()!
+  d = datetime.Date.new(2024, 1, 31)!
+  print(d.add(months: 1), d.add(months: 1, days: 1), d.add(years: 1, months: -12))
+  print(datetime.Date.new(2024, 3, 31)!.months_since(datetime.Date.new(2024, 2, 29)!))
+  print(datetime.Date.new(2025, 2, 28)!.years_since(datetime.Date.new(2024, 2, 29)!), datetime.Date.new(2025, 3, 1)!.years_since(datetime.Date.new(2024, 2, 29)!))
+  print(tryparse_t("123045"), tryparse_t("12:30:45"), tryparse_t("T123045"), tryparse_t("2359"))
+  e = datetime.Date.new(9999, 12, 31)!
+  print(e.iso_week_year(), e.iso_week(), e.weekday())
+  m = datetime.Date.new(-9999, 1, 1)!
+  print(m.iso_week_year(), m.iso_week(), m.weekday())
+  print(time.Duration.parse("1h 30m")!, time.Duration.parse("PT1.5H")!.iso())
+  i = datetime.Instant.parse("2026-11-17T08:07:03.5-07:00[America/Denver]")!
+  print(i, i.unix_s(), i.round(seconds: 1))
+  print(datetime.Instant.from_unix(ms: 1700000000123))
+  dt = datetime.DateTime.parse("2026-03-08 02:30")!
+  print(dt.add(days: 1, hours: -1), dt.round(days: 1))
+  print(time.Duration.from_parts(9223372036, 854775807).neg())

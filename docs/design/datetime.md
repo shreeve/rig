@@ -1,13 +1,15 @@
 # Dates, times and zones for Rig: design brief, v3
 
-Status: **final**, 2026-11-17, amended 2026-11-20 (`Duration` is one `Int`, 5.1).
+Status: **final**, 2026-11-17, amended 2026-11-20 and 2026-11-22 (every call is total
+or visibly fallible, and `Duration` is 16 bytes: "Total or visible" below, and 5.1).
 Nothing in it is open: each decision is the owner's,
 follows Jiff, or is forced by Rig. It was reviewed over ten rounds, and states the
 design as it stands; the history is in section 13.
 
 This file is the whole design. The reviews that led to it are in `reviews/`, kept as
 evidence for its measurements; where one of them disagrees with this file, this file is
-right. The earlier drafts, v1 and v2, are deleted.
+right. The earlier drafts, v1 and v2, are deleted. The panels and the committee behind
+"Total or visible" are in `records/2026-11/datetime-strategy`.
 
 - `reviews/jiff-check.md` and `reviews/independent-review*.md`: the design against Jiff
   1.0.0's source, with measurements;
@@ -32,8 +34,81 @@ forced by Rig.
 - **[Rig]** the language or compiler forces it.
 - **[Judgment]** a reasonable designer could choose otherwise.
 
-Nothing is open. One thing is decided by a measurement and not by argument:
-the layout of `Duration`, in phase 0 (5.1).
+Nothing is open. One thing was measured before it was decided: the layout of
+`Duration`, in phase 0 (5.1).
+
+## Total or visible
+
+**[Owner, 2026-11-22]** Every call in `std.time` and `std.datetime` is either **total**,
+giving an answer for every value of its argument types, or returns `!`. No call panics
+on any value.
+
+- **Ranges are chosen to make calls total.** Where a call would fail only because a
+  range is a little too small, the range is widened or bounded so that the call cannot
+  fail, rather than given a `!`: `Duration` holds ±292 billion years (5.1), its range is
+  symmetric so `neg()` and `abs()` cannot fail, and a `Monotonic` reading stays within
+  146 years (5.7).
+- **Nothing saturates.** A result that cannot be represented is a failure, never a
+  value that is quietly wrong.
+- **One name per operation.** `add` is the fallible sum; there is no `checked_add`
+  beside it, and no saturating twin. A program that wants the end of the range asks for
+  it by name: `d.add(days: n) catch datetime.Date.max()`.
+- **Constant arguments are checked at compile time** and need no `!`:
+  `Date.new(2026, 1, 31)` (10.6).
+- **A test** finds no `panic(` in `std/time.rig` or `std/datetime/` (12).
+
+The owner's words: "We cannot have normal code panicking. That is a hard crash. It
+should only happen in extraordinary cases of system failure, not just some joker
+entered a bad date."
+
+Why every call that can fail returns `!`, and not only the ones that take text or parts:
+- **The library cannot tell input from arithmetic.** A user's number becomes arithmetic
+  one line later. The committee ran three programs, each on ordinary data, that a
+  panicking `add` or `round` ends:
+  - a user's 9999-12-31 plus a day;
+  - a renewal period read from a file, in `start.add(months: period * k)`;
+  - `Instant.parse("9999-12-30T22:00:00.9Z")!.round(seconds: 1)`.
+- **Ordinary data sits on the ends of the range.** 9999-12-31 is the "no end" of SQL
+  Server, Oracle and SAP; 0001-01-01 is .NET's `DateTime.MinValue` and Go's zero time.
+  An `Int` overflows only on extreme input; a date's range is reached by a sentinel
+  plus a day.
+- **Jiff's named methods return `Result`:** `checked_add`, `round`, `start_of_day`,
+  `tomorrow`, `Timestamp::from_second`. Only its `+` and `-` operators panic, and
+  Rig's datetime types have no operators (5.6), so Rig's `add` is Jiff's `checked_add`.
+- **A panic ends a Rig process.** Temporal's `RangeError` and java.time's
+  `DateTimeException` are caught by a request handler, and one request fails.
+- **It is smaller:** one name per operation where the alternative needs about twenty
+  `checked_` twins.
+
+What a program writes:
+- `!` passes a failure up; in a `sub main()!` it costs one character;
+- `catch` handles it;
+- `catch panic("why")` where the program truly cannot go on, a panic written in the
+  program's own source;
+- never a value fallback such as `d.add(days: n) ?? d`, which gives a wrong date
+  without a word. The docs show `!`, `catch`, and the ends by name.
+
+```rig pending
+use std.datetime
+
+fun renew(start: datetime.Date, months: Int) -> datetime.Date!
+  start.add(months: months)!
+
+sub main()!
+  start = datetime.Date.new(2027, 1, 31)
+  print(renew(start, 1)!)
+  print(renew(start, 200_000) catch datetime.Date.max())
+```
+
+```output
+2027-02-28
+9999-12-31
+```
+
+The bar holds for the library's own calls. Rig's `Int` arithmetic, which a program
+writes itself, still panics on overflow; whether the language should hold the same bar
+is a question for later (`docs/IDEAS.md`). A failure that leaves `main` names where it
+came from by an error trace (10.5).
 
 ---
 
@@ -55,12 +130,15 @@ Rig is an indentation-sensitive language that compiles to Zig 0.17.0.
   one allocates, visibly.
 - **Text:** `print(x)` writes a value's text and allocates nothing. `String(x)` gives the
   same text as a `String`.
-- **Errors:** a fallible function returns `T!` and the caller writes `f()!`. A panic is a
-  bug in the program. `Int` overflow panics, in debug and release builds.
+- **Errors:** a fallible function returns `T!` and the caller writes `f()!`, or handles
+  it with `catch`. `!` on a call that cannot fail is rejected. A panic is a bug in the
+  program, and ends it. `Int` overflow panics, in debug and release builds; no call in
+  this design panics ("Total or visible").
 - **Language rules that decide spellings** (each verified by building Rig and running a
   probe; `reviews/builder-review*.md`):
   - An object is made by naming its fields, and a constructor cannot fail. A type with
-    private fields is made by a static function: `Date.new(…)!`.
+    private fields is made by a static function: `Date.new(…)!`, or `Date.new(…)` when
+    every argument is a constant (10.6).
   - A type has no constants, and a module constant cannot be an object. So it is
     `TimeZone.utc()`, and a program's own constant holds a number (`TIMEOUT_S = 30`).
   - A method is always called with parentheses: `d.year()`.
@@ -75,8 +153,10 @@ Rig is an indentation-sensitive language that compiles to Zig 0.17.0.
   - No local or parameter may reuse the name of an imported module, so with
     `use std.time` nothing else is called `time`. (That is why the module is
     `std.datetime` and not `std.date`.)
-  - Arithmetic operators belong to built-in numbers only. Comparison comes from the
-    `Eq`, `Ord` and `Hash` APIs, which any type may have.
+  - Arithmetic operators belong to built-in numbers only, and none of this design's
+    types has one (5.6). Comparison comes from the `Eq`, `Ord` and `Hash` APIs, which
+    any type may have.
+  - `I128` is a built-in integer, and prints as an `Int` does.
   - `/` truncates toward zero. There is no floor division; the calendar code writes one.
 - **std** is embedded in the compiler; a user's build has no std directory on disk.
   - A std module's Zig helpers ("shims") are written beside the generated program, with
@@ -142,18 +222,18 @@ sub main()!
   print(d.hours())                                 # 1
   print(d)                                         # 1h 30m
 
-  # Now, in a zone
-  denver = datetime.TimeZone.named("America/Denver")!
+  # Now, in a zone (a literal name is checked at compile time: no !)
+  denver = datetime.TimeZone.named("America/Denver")
   z = datetime.now().in_zone(denver)
   print(z)               # 2026-11-17T08:07:03.512094-07:00[America/Denver]
   print(z.date(), z.weekday())                     # 2026-11-17 Tuesday
 
-  # A day later on the clock, and exactly 24 hours later
-  print(z.add(days: 1))
-  print(z.add(hours: 24))
+  # A day later on the clock, and exactly 24 hours later (fail past 9999)
+  print(z.add(days: 1)!)
+  print(z.add(hours: 24)!)
 
   # Calendar math
-  due = datetime.Date.new(2027, 1, 31)!.add(months: 1)    # 2027-02-28
+  due = datetime.Date.new(2027, 1, 31).add(months: 1)!    # 2027-02-28
   print(due.days_since(z.date()))                  # 103
 
   # A time with no zone, placed in one
@@ -168,18 +248,19 @@ sub main()!
 
 | Type | Make one | Read it | Change it | Compare and count |
 |---|---|---|---|---|
-| `time.Duration` | a duration form (5.2); `time.duration(…)`; `Duration.parse(s)!`; `Duration.from_parts(s, ns)` | `hours()` `minutes()` `seconds()` `ms()` `us()` `ns()`, `float_seconds()`, `subsec_ns()`, `iso()` | `add` `sub` `times` `div` `neg` `abs` `round` `floor`, and `checked_add` `checked_sub` `checked_times` | `Eq` `Ord` `Hash` |
-| `time.Monotonic` | `time.monotonic()`; `Monotonic.at(…)` | `elapsed()` | `add(…)` | `since`; `Eq` `Ord` `Hash` |
-| `datetime.Instant` | `datetime.now()`; `Instant.from_unix(…)`; `Instant.parse(s)!` | `unix()` `unix_s()` | `add(…)` `checked_add(…)!` `round(…)` `floor(…)` `in_zone(tz)` | `since`; `Eq` `Ord` `Hash` |
-| `datetime.Date` | `Date.new(y, m, d)!`; `Date.parse(s)!`; `datetime.today(tz)` | `year()` `month()` `day()` `weekday()` `day_of_year()` `days_in_month()` `iso_week()` `iso_week_year()` | `add(…)` `checked_add(…)!` `with(…)!` `at(t)` `in_zone(tz)!` `first_of_month()` `last_of_month()` `nth_weekday(n, w)!` `nth_weekday_of_month(n, w)!` | the counts (6.4); `Eq` `Ord` `Hash` |
-| `datetime.Time` | `Time.new(h, m, s, ns)!`; `Time.parse(s)!` | `hour()` `minute()` `second()` `nanosecond()` | `add(…)` (wraps) `checked_add(…)!` `with(…)!` `round(…)` `floor(…)` | `since`; `Eq` `Ord` `Hash` |
-| `datetime.DateTime` | `DateTime.new(y, m, d, h, mi, s, ns)!`; `date.at(t)`; `DateTime.parse(s)!` | `date()` `time()`, and the readers of both | `add(…)` `checked_add(…)!` `with(…)!` `round(…)` `floor(…)` `in_zone(tz, …)!` | `since`; the counts; `Eq` `Ord` `Hash` |
-| `datetime.TimeZone` | `named(s)!` `fixed(hours:, minutes:)` `utc()` `parse(s)!`; `datetime.local()!` | `name()` `offset_at(i)` | | `Eq` `Hash` |
-| `datetime.ZonedDateTime` | `i.in_zone(tz)`; `dt.in_zone(tz, …)!`; `ZonedDateTime.parse(s, …)!` | `instant()` `datetime()` `date()` `time()` `zone()` `offset()` `offset_text()`, and the readers of a date and a time | `add(…)` `checked_add(…)!` `with(…)!` `in_zone(tz)` `start_of_day()` `round(…)` `floor(…)` | `since`; the counts; by instant: `Eq` `Ord` `Hash` |
+| `time.Duration` | a duration form (5.2); `time.duration(…)`; `Duration.parse(s)!`; `Duration.from_parts(s, ns)!`; `min()` `max()` | `hours()` `minutes()` `seconds()`, and `ms()` `us()` `ns()` as `I128`; `float_seconds()`, `subsec_ns()`, `iso()` | `add(…)!` `sub(…)!` `times(n)!` `div(n)!` `round(…)!` `floor(…)!`, `neg()` `abs()` | `Eq` `Ord` `Hash` |
+| `time.Monotonic` | `time.monotonic()`; `Monotonic.at(…)!` | `elapsed()` | `add(…)!` | `since`; `Eq` `Ord` `Hash` |
+| `datetime.Instant` | `datetime.now()`; `Instant.from_unix_s(s, ns:)!` `from_unix_ms(ms)!` `from_unix_us(us)!` `from_unix_ns(ns)` `from_unix_float(s)!`; `Instant.parse(s)!`; `min()` `max()` | `unix()` `unix_s()` `unix_ms()` `unix_us()` | `add(…)!` `round(…)!` `floor(…)!` `in_zone(tz)` | `since`; `Eq` `Ord` `Hash` |
+| `datetime.Date` | `Date.new(y, m, d)!`; `Date.parse(s)!`; `datetime.today(tz)`; `min()` `max()` | `year()` `month()` `day()` `weekday()` `day_of_year()` `days_in_month()` `iso_week()` `iso_week_year()` | `add(…)!` `with(…)!` `at(t)` `in_zone(tz)!` `first_of_month()` `last_of_month()` `nth_weekday(n, w)!` `nth_weekday_of_month(n, w)!` | the counts (6.4); `Eq` `Ord` `Hash` |
+| `datetime.Time` | `Time.new(h, m, s, ns)!`; `Time.parse(s)!`; `min()` `max()` | `hour()` `minute()` `second()` `nanosecond()` | `add(…)` (wraps) `with(…)!` `round(…)` (wraps) `floor(…)` | `since`; `Eq` `Ord` `Hash` |
+| `datetime.DateTime` | `DateTime.new(y, m, d, h, mi, s, ns)!`; `date.at(t)`; `DateTime.parse(s)!`; `min()` `max()` | `date()` `time()`, and the readers of both | `add(…)!` `with(…)!` `round(…)!` `floor(…)!` `in_zone(tz, …)!` | `since`; the counts; `Eq` `Ord` `Hash` |
+| `datetime.TimeZone` | `named(s)!` `fixed(hours:, minutes:)!` `utc()` `parse(s)!`; `datetime.local()!` | `name()` `offset_at(i)` | | `Eq` `Hash` |
+| `datetime.ZonedDateTime` | `i.in_zone(tz)`; `dt.in_zone(tz, …)!`; `ZonedDateTime.parse(s, …)!` | `instant()` `datetime()` `date()` `time()` `zone()` `offset()` `offset_text()`, and the readers of a date and a time | `add(…)!` `with(…)!` `in_zone(tz)` `start_of_day()!` `round(…)!` `floor(…)!` | `since`; the counts; by instant: `Eq` `Ord` `Hash` |
 | `datetime.Weekday` | `.monday` … `.sunday` | `iso_number()` | | `Eq` `Ord` `Hash` |
 
 `format("…")` and `try_format(s)!` are on `Date`, `Time`, `DateTime` and `ZonedDateTime`
-(8.4).
+(8.4). The makers of 10.6, shown here with `!`, take none when every argument is a
+constant. Every call shown without `!` is total (7.2).
 
 What the smaller members give:
 - Every reader returns an `Int`: `year()`, `month()` (1 to 12), `day()`, `hour()`,
@@ -214,7 +295,9 @@ What the smaller members give:
   error whose fix names both replacements: `time.monotonic()` for timing and
   `datetime.now()` for the date and time. Nothing that compiled before silently changes
   clocks.
-- `time.unix_ns()` is removed, with the fix `datetime.now().unix().ns()`. **[Rig]** It
+- `time.unix_ns()` is removed, with the fix `datetime.now().unix().ns()`, an `I128`
+  (`Int(…)` of it where an `Int` is wanted: the wall clock reads within 1677 to 2262,
+  7.8). **[Rig]** It
   stays until `datetime.now()` exists (section 11, phase 3), so that there is always a
   wall clock and every gate stays green.
 - A program that only sleeps or times does not load the calendar code.
@@ -269,24 +352,29 @@ What the smaller members give:
 
 ## 5.1 Representation
 
-**[Owner, 2026-11-20]** One `Int` of nanoseconds, as Go's `time.Duration`. It occupies
-8 bytes, and its range is ±292 years: from 1970, the years 1677 to 2262. `sleep`,
-`elapsed()` and the scheduler's calls underneath all speak the same `Int`.
+**[Owner, 2026-11-22]** Jiff's layout: whole seconds in an `Int` and nanoseconds in an
+`I32`, of one sign, in 16 bytes. Its range is ±292 billion years, and symmetric: the
+whole seconds are within ±(2^63 − 1), never `Int.min`, and the nanoseconds within
+±999,999,999.
 
-- **This differs from Jiff**, whose duration is whole seconds and nanoseconds in 16
-  bytes, with a range of ±292 billion years. Phase 0 measured both, call by call
+- **Why 16 bytes.** Every difference this design takes then fits: `a.since(b)` for any
+  two values of a type (20,000 years at most), `i.unix()` for any instant, and
+  `m.since(earlier)` for two readings. So `since` and `unix()` are total, with no `!`
+  and no saturation ("Total or visible").
+- **What it costs.** Phase 0 measured both layouts call by call
   (`records/2026-11/datetime-phase0`): the 16 bytes cost about 1.9 ns more on
-  `elapsed()` and 0 to 0.3 ns elsewhere. The owner chose the one `Int` for its
-  simplicity.
-- **What the range leaves out**, met as Go meets it:
-  - `a.since(b)` between values more than 292 years apart **saturates** at the
-    largest or smallest `Duration` (6.6).
-  - `i.unix()` saturates the same way outside the years 1677 to 2262, and
-    `i.unix_s()` gives the whole seconds exactly at any instant (7.8).
-  - The calendar types' own arithmetic, `add(days:)`, `add(months:)` and the counts,
-    never goes through a `Duration`, so the full range of years is unaffected.
-- `Duration`'s own arithmetic (`add`, `times`, and the rest) panics when it leaves the
-  range, as every `Int` does (7.2). Only `since` and `unix()` saturate.
+  `elapsed()` (beside a clock read of about 12.7 ns, and not explained), 0.3 ns on
+  `since`, 0.1 ns on a deadline's `add`, and 0.1 to 0.3 ns on `sleep(0)`. `within` and
+  `select` show no difference beyond noise.
+- **The readers of the smaller units return `I128`** (5.3): nanoseconds over 292
+  billion years do not fit an `Int`.
+- **The scheduler still speaks an `Int` of nanoseconds** underneath `sleep`, `within`,
+  `after` and `per:`. A wait longer than that waits as long as the scheduler can (5.8).
+  A `Monotonic` reading stays one `Int` (5.7).
+- **What can still fail:** `Duration`'s own arithmetic (`add`, `sub`, `times`, `div`,
+  `round`, `floor`) returns `!`, failing `.range` past ±292 billion years and `.invalid`
+  for `div(0)` (5.4). The calendar types' own arithmetic, `add(days:)`, `add(months:)`
+  and the counts, never goes through a `Duration`.
 
 ## 5.2 Duration forms
 
@@ -302,20 +390,40 @@ Wherever a parameter is typed `Duration`, a call gives it in one of these forms.
   phase 1b; `records/2026-11/datetime-phase1b`).
   - Signs may differ, and the parts simply add: `hours: 1, minutes: -30` is 30 minutes.
   - An `Int` part is exact. A `Float` part is rounded to the nanosecond, half away from
-    zero. Then the parts are added; a sum too large for a `Duration` panics.
+    zero. Then the parts are added; a sum beyond the range fails, as below.
 - A bare number together with a unit keyword is rejected.
 - A value that is already a `Duration` passes as it is. `ms: d` with `d` a `Duration`
   is rejected.
 - **No days or weeks.** `days:` or `weeks:` where a `Duration` is taken is a compile
   error. Its fix fits the place: `hours: 24` for a wait, `add(days:)` on a value with a
-  date, and `i.in_zone(tz).add(days: 1)` for an `Instant`. A day is not always 24 hours,
+  date, and `i.in_zone(tz).add(days: 1)!` for an `Instant`. A day is not always 24 hours,
   and libraries that put 24-hour days on an exact length have shipped that bug: Java's
   `Duration.ofDays`, C#'s `TimeSpan.FromDays`, chrono's `Duration::days`. (The error
   fires only when the function called has no parameter of its own named `days`.)
-- A number that is not finite, or too large for a `Duration`, is a compile error when it
-  is a constant and a panic otherwise.
-- **`time.duration(<form>) -> Duration`** makes a standalone value:
-  `time.duration(ms: 250)`, `time.duration(5)`.
+- **A constant** that is not finite, or beyond the range, is a compile error.
+- **[Owner, 2026-11-22] A number known only at run time** never panics. Which forms can
+  fail at all follows from the range:
+  - **Total:** a bare `Int`, or one `Int` keyword from `ns:` to `seconds:`. Every
+    `Int` of seconds or less fits, so these are accepted everywhere, as a constant is.
+  - **Can fail:** a `Float` (not finite, or beyond the range), an `Int` of `minutes:` or
+    `hours:` (`Int.max` hours is past ±292 billion years), and several keywords summed.
+  - Where one of these is given, the place decides:
+    - **in a call that returns `!`** (a std call, or a program's function whose error
+      set can hold the failure, 10.7), the conversion is folded into that call's own
+      failure: `i.add(ms: t)!` has one `!`, which covers the conversion and the sum.
+      It fails `.range` beyond the range and `.invalid` for a number that is not
+      finite; both of std's error sets have those members (10.3);
+    - **in a wait** (`sleep`, `within`, `after`, `per:`), an `Int` beyond the range waits
+      as long as the scheduler can and a negative one counts as zero (5.8). A `Float`
+      is refused, with the fix `time.duration(x)!`;
+    - **anywhere else**, it is a compile error whose fix makes the conversion visible:
+      `time.duration(minutes: n)!`, then the `Duration` passed as it is.
+- **`time.duration(<form>)`** makes a standalone value: `time.duration(ms: 250)`,
+  `time.duration(5)`. It returns a `Duration` for a form that cannot fail, constants
+  among them (10.6), and a `Duration!` for a form that can: `time.duration(x)!` for a
+  `Float` read from a file.
+  - Without the constant-argument rule of 10.6, `time.duration` would take the forms
+    that cannot fail only, and `time.checked_duration(<form>) -> Duration!` the rest.
 - **Removed:** the constants `time.NS`, `US`, `MS`, `SECOND` and `MINUTE`.
 
 **Rules for a function that declares a `Duration` parameter** [Rig]:
@@ -338,10 +446,27 @@ Wherever a parameter is typed `Duration`, a call gives it in one of these forms.
 
 ## 5.3 Reading a duration
 
-- **Totals only**, each an `Int`, truncated toward zero: `hours()`, `minutes()`,
-  `seconds()`, `ms()`, `us()`, `ns()`.
+- **Totals only**, truncated toward zero, and all total. **[Owner, 2026-11-22]**
+  - `hours()`, `minutes()` and `seconds()` return an `Int`; `seconds()` is the whole
+    seconds the value holds.
+  - `ms()`, `us()` and `ns()` return an `I128`, exact: 292 billion years of
+    nanoseconds do not fit an `Int`. `ns()` of any `Duration` is exact.
   - -1.5 seconds has `seconds()` of -1, not -2.
-  - Every total fits an `Int`: `ns()` is the representation itself.
+
+```rig pending
+use std.time
+
+sub main()
+  d = time.duration(seconds: 9_300_000_000)
+  print(d.seconds(), d.ns())
+  print(time.Duration.max())
+```
+
+```output
+9300000000 9300000000000000000
+2562047788015215h 30m 7s 999ms 999us 999ns
+```
+
 - `float_seconds() -> Float` (spelling).
 - **No "parts" accessors**, with the one low-level exception in 5.4. C#'s `.Minutes` and
   Python's `.seconds` are a known trap:
@@ -349,17 +474,24 @@ Wherever a parameter is typed `Duration`, a call gives it in one of these forms.
 
 ## 5.4 Arithmetic
 
-- `add(d)`, `sub(d)`, `times(n: Int)`, `div(n: Int)` (truncating toward zero), `neg()`,
-  `abs()`.
-- Overflow panics, as `Int` arithmetic does, and so does `div(0)`. `checked_add`,
-  `checked_sub` and `checked_times` fail instead.
-- `round(…)` and `floor(…)` are in 6.8.
+**[Owner, 2026-11-22]** One name each, and every one that can leave the range returns
+`!`:
+
+- `add(d)!`, `sub(d)!`, `times(n: Int)!`: fail `.range` past ±292 billion years.
+- `div(n: Int)!`, truncating toward zero: fails `.invalid` for 0, and only then (the
+  range is symmetric, so dividing the largest value by -1 fits).
+- `neg()` and `abs()`: total, since the range is symmetric.
+- `round(…)!` and `floor(…)!` are in 6.8.
+- `Duration.min()` and `Duration.max()`: the ends of the range, total.
+- A total kept over a loop is `total = total.add(d)!`, and a mean `total.div(n)!`,
+  which fails for an empty list where it would otherwise divide by zero.
 - **[Owner] Two low-level members**, because `std.datetime` is another module and
   cannot see the fields (spelling; they are named so that nobody takes one for a
   total):
-  - `d.subsec_ns()`: the part below a whole second, with the duration's sign;
-  - `Duration.from_parts(seconds, ns)`: the two must agree in sign and `ns` must be
-    within ±999,999,999, or it panics.
+  - `d.subsec_ns()`: the part below a whole second, with the duration's sign, an `Int`;
+  - `Duration.from_parts(seconds, ns)!`: the two must agree in sign and `ns` must be
+    within ±999,999,999, or it fails `.invalid`. **[Owner, 2026-11-22]** It is the
+    representation itself, so it fails on nothing else.
 
 ## 5.5 Text
 
@@ -384,31 +516,35 @@ Wherever a parameter is typed `Duration`, a call gives it in one of these forms.
 
 ## 5.6 Operators
 
-**[Owner]** Yes, as a later change of its own, after phase 6: `+` and `-` between
-durations, unary `-`, and `*` and `/` by an `Int`, for `Duration` only.
+**[Owner, 2026-11-22]** None. `Duration` has no `+`, `-`, `*` or `/`.
 
-- Nothing in this design needs them: timing is `start.elapsed()`, and comparison comes
-  from `Ord`. Until they land, totals and averages are `total = total.add(d)` and
-  `total.div(n)`.
-- They are a language change, since arithmetic operators belong to built-in numbers,
-  and are designed and reviewed as one.
+- `a + b` on two durations can overflow, and an operator cannot carry a `!`, so an
+  operator would be the one panic left in the library, and a duration a user gave
+  could reach it (`Duration.parse(s)!` and then `+`).
+- Nothing in this design needs them: timing is `start.elapsed()`, comparison comes from
+  `Ord`, and totals and means are `total = total.add(d)!` and `total.div(n)!`.
+- Operators on plain objects in general are an idea of their own (`docs/IDEAS.md`).
 
 ## 5.7 The monotonic clock
 
 **[Owner]** `time.monotonic() -> Monotonic` reads the monotonic clock, which never goes
 back. It is today's `Instant`, renamed, and giving durations.
 
-- `m.elapsed() -> Duration`: from the reading to now.
+- **[Owner, 2026-11-22] A reading is never negative, and stays within 146 years**
+  (2^62 nanoseconds) of the clock's zero. The system's monotonic clock counts from
+  boot, nowhere near that. The difference of two readings is then one `Int`
+  subtraction that cannot overflow, so `since` and `elapsed()` are total.
+- `m.elapsed() -> Duration`: from the reading to now. Total.
 - `m.since(earlier) -> Duration`: between two readings; negative when `earlier` is the
-  later one.
-- `m.add(<duration form>) -> Monotonic`: a deadline. `rekey = start.add(120)`, and later
-  `time.monotonic() >= rekey`.
-- `Monotonic.at(<duration form>)`: a reading a duration after the clock's zero, for a
-  test or for code that is handed the time.
+  later one. Total.
+- `m.add(<duration form>) -> Monotonic!`: a deadline. `rekey = start.add(120)!`, and
+  later `time.monotonic() >= rekey`. It fails `.range` when the result is negative or
+  past 146 years.
+- `Monotonic.at(<duration form>) -> Monotonic!`: a reading a duration after the clock's
+  zero, for a test or for code that is handed the time. It fails as `add` does.
 - `Eq`, `Ord` and `Hash`. It is one `Int` of nanoseconds and passes as a word. What
   `print` shows is not meaningful.
-- `add` and `at` panic when the result does not fit: more than 292 years.
-- `time.since_start() -> Duration`: the time since the program started.
+- `time.since_start() -> Duration`: the time since the program started. Total.
 - Under the deterministic scheduler all of these are virtual.
 - A `Monotonic` and an `Instant` are different types in different modules, so the two
   clocks cannot be mixed.
@@ -420,6 +556,11 @@ back. It is today's `Instant`, renamed, and giving durations.
 - **[Owner]** A negative constant given to one of these is a compile error. A negative
   value at run time counts as zero: `sleep` returns at once, as it does today, and a
   `within` or `after` is already due.
+- **[Owner, 2026-11-22]** A wait never fails on its duration: one longer than an `Int` of
+  nanoseconds waits as long as the scheduler can, and a negative one is zero. These are
+  the right answers for a wait, not values made up. A `Float` known only at run time is
+  refused at compile time, with the fix `time.duration(x)!`, so a number that is not
+  finite never reaches a wait (5.2).
 - `per:` (a restart window on `task.supervise` and `Actor.supervised`) is an option,
   not a `Duration` parameter in the sense of 5.2: it is given by its own name, with a
   bare number of seconds or a `Duration` value:
@@ -431,8 +572,6 @@ back. It is today's `Instant`, renamed, and giving durations.
   (`task.Stop`), cancellation, nested deadlines (the earlier one holds) and `within`'s
   `f: once`. `after` stays an arm of a `select` only. `time.since_start` stays usable as
   a function value.
-- A duration longer than an `Int` of nanoseconds waits as long as the scheduler can
-  (it does not panic).
 
 ---
 
@@ -443,7 +582,7 @@ back. It is today's `Instant`, renamed, and giving durations.
 **[Judgment]** Calendar amounts are keywords, and calendar differences are `Int`
 counts.
 
-- `z.add(days: 1)`, `d.add(months: 1, days: 3)`, `d.days_since(other)`.
+- `z.add(days: 1)!`, `d.add(months: 1, days: 3)!`, `d.days_since(other)`.
 - Jiff and Temporal have a span that mixes units (`P1Y2M3DT4H`). Jiff argues for it
   (`DESIGN.md:264-345`): it round-trips ISO 8601 durations with calendar units, and it
   can be rebalanced against a date.
@@ -458,13 +597,15 @@ counts.
 
 **[Jiff]** except where marked.
 
-- **The signatures:**
-  - `Date`: `add(years: 0, months: 0, weeks: 0, days: 0)`, by keyword only.
+- **The signatures** **[Owner, 2026-11-22]** (each but `Time`'s returns `!`):
+  - `Date`: `add(years: 0, months: 0, weeks: 0, days: 0) -> Date!`, by keyword only.
   - `DateTime` and `ZonedDateTime`: `add(d: Duration? = none, years: 0, months: 0,
-    weeks: 0, days: 0)`. The duration form comes first, so `z.add(0.5)` is half a
-    second, `z.add(hours: 2)` is two hours, and `z.add(days: 1, hours: 2)` is both.
-  - `Time`, `Instant` and `Monotonic`: `add(d: Duration)`.
-  - Each `checked_add` takes the same arguments.
+    weeks: 0, days: 0)`, returning `DateTime!` and `ZonedDateTime!`. The duration form
+    comes first, so `z.add(0.5)!` is half a second, `z.add(hours: 2)!` is two hours,
+    and `z.add(days: 1, hours: 2)!` is both.
+  - `Instant` and `Monotonic`: `add(d: Duration)`, returning `Instant!` and
+    `Monotonic!`.
+  - `Time`: `add(d: Duration) -> Time`, total: it wraps (below).
   - The calendar keywords take an `Int`.
 - **Order, in three groups:**
   1. years and months, added together as months, and then the day is clamped to the
@@ -476,24 +617,27 @@ counts.
   - Jan 31 + 1 month + 1 day is Mar 1 (clamp, then days).
   - **[Judgment]** 2024-02-29 with `years: 1, months: -12` is 2024-02-29: the two
     cancel before the clamp.
-- **Amounts may be negative.** `d.add(months: -1)`; Mar 31 - 1 month is Feb 28 or 29.
+- **Amounts may be negative.** `d.add(months: -1)!`; Mar 31 - 1 month is Feb 28 or 29.
   None of these types has a `sub`; only `Duration` does.
 - **[Judgment] Signs may differ between the groups**, each applied in order with its own
-  sign: from the 1st of a month, `d.add(months: 1, days: -1)` is that month's last day,
-  and `z.add(days: 1, hours: -1)` is an hour short of the same time tomorrow. Jiff
+  sign: from the 1st of a month, `d.add(months: 1, days: -1)!` is that month's last day,
+  and `z.add(days: 1, hours: -1)!` is an hour short of the same time tomorrow. Jiff
   cannot answer this: its span has one sign for all units.
-- **Recurrences anchor to the start:** the k-th is `start.add(months: k)`. Stepping
+- **Recurrences anchor to the start:** the k-th is `start.add(months: k)!`. Stepping
   from the previous result drifts (Jan 31, Feb 28, Mar 28).
-- `add` panics when the result of any of the three groups leaves the type's range, and
-  `checked_add` fails instead (7.2). That includes amounts too large to sum:
-  `d.checked_add(years: n)!` fails for an `n` whose months overflow an `Int`.
+- **[Owner, 2026-11-22]** `add` fails `.range` when the result of any of the three
+  groups leaves the type's range (7.2). That includes amounts too large to sum:
+  `d.add(years: n)!` fails for an `n` whose months overflow an `Int`, and never panics.
+  A duration form with a run-time number fails inside the same `!` (5.2).
 - **On a `Date`:**
   - `d.add(1)` is a compile error with the fix `add(days: 1)` (10.2).
   - `d.add(hours: 1)` is a compile error that says a date has no time of day. (Jiff
     accepts it and adds the whole days.)
 - **On a `DateTime`:** every day is 24 hours, since there is no zone.
-- **On a `Time`:** `add` **wraps past midnight**: 23:00 + 2 hours is 01:00.
-  `checked_add` fails on a wrap.
+- **On a `Time`:** `add` **wraps past midnight**: 23:00 + 2 hours is 01:00. It is the
+  sum on the clock face, exact modulo a day for any `Duration`, so it cannot fail.
+  **[Owner, 2026-11-22]** There is no `checked_add` that fails on a wrap: a sum that
+  must not pass midnight is taken on a `DateTime`, whose date shows whether it did.
 
 ## 6.3 Adding to a `ZonedDateTime`
 
@@ -507,8 +651,8 @@ counts.
   zero, steps 1 and 2 are skipped and the value's instant is used as it is. (Otherwise
   `z.add(days: 0)`, or `z.add(weeks: 1, days: -7)`, on the second of a repeated time
   would move it back an hour.)
-- `z.add(days: 1)` lands at the same time on the clock, or just after a skipped one.
-  `z.add(hours: 24)` is exactly 24 hours. On a 23-hour day they differ by an hour.
+- `z.add(days: 1)!` lands at the same time on the clock, or just after a skipped one.
+  `z.add(hours: 24)!` is exactly 24 hours. On a 23-hour day they differ by an hour.
 - A repeated time does not survive a round trip (measured): the second 01:30, plus a
   day, minus a day, is the first 01:30.
 
@@ -548,7 +692,7 @@ Consequences the docs state:
 
   ```
   k = today.months_since(start)
-  if start.add(months: k + 1) <= today
+  if start.add(months: k + 1)! <= today
     k = k + 1
   ```
 
@@ -575,18 +719,18 @@ if launch < start
   late = start
 
 n = late.days_since(early)                 # never negative
-rest = late.since(early.add(days: n))      # never negative
+rest = late.since(early.add(days: n)!)     # never negative
 ```
 
 For years, months and days as well, go on from `n`, and split the two **dates**:
 
 ```
 d0 = early.date()
-d1 = d0.add(days: n)
+d1 = d0.add(days: n)!
 m = d1.months_since(d0)
 years = m / 12
 months = m % 12
-days = d1.days_since(d0.add(months: m))
+days = d1.days_since(d0.add(months: m)!)
 ```
 
 - This is measured to equal Jiff's years, months, days and rest in every case run
@@ -635,10 +779,10 @@ days = d1.days_since(d0.add(months: m))
 
 ## 6.6 `since`, equality and order
 
-- `a.since(b) -> Duration` is exact within ±292 years, and beyond them saturates at
-  the largest or smallest `Duration`, as Go's `Sub` does (5.1). It is defined on
-  `Instant`, `DateTime`, `ZonedDateTime` and `Monotonic`. For two `ZonedDateTime`s the zones may differ. For a `DateTime` every
-  day is 24 hours.
+- **[Owner, 2026-11-22]** `a.since(b) -> Duration` is exact and total for any two
+  values: a `Duration` holds the 20,000 years between the ends of the range (5.1). It
+  is defined on `Instant`, `DateTime`, `ZonedDateTime` and `Monotonic`. For two
+  `ZonedDateTime`s the zones may differ. For a `DateTime` every day is 24 hours.
 - A `Date` has no `since`, only the counts.
 - `Time.since` is the difference on the clock face and can be negative: 01:00 since
   23:00 is -22 hours. A length of time that crosses midnight needs a date: use a
@@ -653,7 +797,7 @@ days = d1.days_since(d0.add(months: m))
 **[Jiff]** except where marked.
 
 - **`with(…)!`** replaces fields by keyword and fails when the result is not a real
-  value (`Date.new(2024, 2, 29)!.with(year: 2023)` fails):
+  value (`Date.new(2024, 2, 29).with(year: 2023)` fails):
   - `Date`: `year:`, `month:`, `day:`;
   - `Time`: `hour:`, `minute:`, `second:`, `ns:`;
   - `DateTime` and `ZonedDateTime`: all of those.
@@ -664,9 +808,10 @@ days = d1.days_since(d0.add(months: m))
   happens twice, it is the first 00:00.
   - One day in the data is an exception, as in Jiff: Toronto on 1919-03-31, where the
     clock went from 23:30 to 00:30. The start is 01:00, though 00:30 to 00:59 exist.
-- **`z.start_of_day()`** is the start of `z`'s own date.
-  - **[Owner]** It cannot fail. It panics only at the very end of the range, as
-    `add` does. (Jiff's returns an error there.)
+- **`z.start_of_day()!`** is the start of `z`'s own date.
+  - **[Owner, 2026-11-22]** It fails `.range` at the very end of the range, as Jiff's
+    does: on the first date a zone shows, the day's start can lie before the first
+    instant (7.1).
 - **[Owner] `d.in_zone(tz)!`** is the start of the date `d` in `tz`: the same thing,
   starting from a date.
   - It fails only when 00:00 on `d` at the zone's offset is outside the range of
@@ -681,21 +826,26 @@ days = d1.days_since(d0.add(months: m))
   ```
   d = z.date()
   from = d.in_zone(z.zone())!
-  to = d.add(days: 1).in_zone(z.zone())!
+  to = d.add(days: 1)!.in_zone(z.zone())!
   ```
 
-  - On the last date, 9999-12-31, `add` panics; a program that stores it as "no end"
-    tests for it first or uses `checked_add`.
+  - On the last date, 9999-12-31, `add` fails; a program that stores it as "no end"
+    tests for it first, `d == datetime.Date.max()`, or handles the failure.
   - These ranges cover the timeline with no gap and no overlap. Where a repeated time
     crosses midnight, a date comes back after the next has begun, so a value can lie
     outside its own date's range: St. John's each autumn from 1987 to 2010, after 00:01
     went back to 23:01.
   - Two shorter ways are wrong:
-    - `z.add(days: 1).start_of_day()` skips a day where a late-evening time is skipped
+    - `z.add(days: 1)!.start_of_day()!` skips a day where a late-evening time is skipped
       the next day: in Nuuk, from 2026-03-27T23:30 it gives the 29th.
-    - `z.start_of_day().add(days: 1)` is an hour late on a day that did not start at
+    - `z.start_of_day()!.add(days: 1)!` is an hour late on a day that did not start at
       midnight: Havana on 2026-03-08, Beirut, Cairo, Santiago.
-- **`datetime.today(tz) -> Date`** is `datetime.now().in_zone(tz).date()`.
+- **`datetime.today(tz) -> Date`** is `datetime.now().in_zone(tz).date()`. Total.
+- **[Owner, 2026-11-22] The ends of each range by name:** `min()` and `max()` on
+  `Date`, `Time`, `DateTime`, `Instant` and `Duration`, each total, as Jiff's `MIN` and
+  `MAX` (Rig's types have no constants, so they are functions). A program that wants
+  to saturate does so on purpose, where it can be seen:
+  `d.add(days: n) catch datetime.Date.max()`.
 - **[Owner] Four helpers on a `Date`**, each Jiff's:
   - `d.first_of_month()` and `d.last_of_month()`;
   - `d.nth_weekday(n, w)!` counts from `d`: the `n`-th `w` after it, or before it when
@@ -703,7 +853,7 @@ days = d1.days_since(d0.add(months: m))
     It fails for `n` of 0 and for a result outside the range.
   - `d.nth_weekday_of_month(n, w)!` counts within `d`'s month, from its end when `n` is
     negative: the fourth Thursday of November is
-    `Date.new(2026, 11, 1)!.nth_weekday_of_month(4, .thursday)!`, the 26th. `n` is 1 to
+    `Date.new(2026, 11, 1).nth_weekday_of_month(4, .thursday)!`, the 26th. `n` is 1 to
     5 or -1 to -5; it fails for any other `n` and when the month has no such day.
 - **[Owner] `datetime.zone_names()`** gives all 598 names, old spellings included,
   as a static list of static text sorted by name, for a list a person picks from.
@@ -713,9 +863,13 @@ days = d1.days_since(d0.add(months: m))
 **[Jiff]** except where marked.
 
 - `round(…)` takes exactly one unit keyword and its increment, an `Int`:
-  `round(minutes: 15)`, `round(seconds: 1)`. It is not a duration form, and a positional
-  argument is a compile error.
-- `datetime.now().round(seconds: 1)` is how an instant prints without a fraction.
+  `round(minutes: 15)!`, `round(seconds: 1)!`. It is not a duration form, and a
+  positional argument is a compile error.
+- **[Owner, 2026-11-22]** `round` and `floor` return `!` on `Duration`, `Instant`,
+  `DateTime` and `ZonedDateTime`, failing `.range` when the result leaves the range:
+  9999-12-30T22:00:00.9Z rounded to the second is past the last instant. On a `Time`
+  they are total.
+- `datetime.now().round(seconds: 1)!` is how an instant prints without a fraction.
 - **Which increments**, each from 1 to 1,000,000,000:
 
   | Type | Units | The increment |
@@ -725,7 +879,13 @@ days = d1.days_since(d0.add(months: m))
   | `Time` | `ns:` to `hours:` | must divide the next larger unit and be smaller than it |
   | `DateTime`, `ZonedDateTime` | `ns:` to `hours:`, and `days: 1` | as for a `Time` |
 
-- A bad increment is a compile error when it is a literal and a panic otherwise.
+- **[Owner, 2026-11-22] A bad increment:**
+  - a constant one is a compile error;
+  - a computed one fails `.invalid`, through the `!` the call already has: a calendar
+    that snaps to a step the user chose (5, 10, 15 or 30 minutes) passes it as it is;
+  - on a `Time`, whose `round` and `floor` are total, the increment must be a constant,
+    and a computed one is a compile error. (A `Time` rounded by a computed step goes
+    through a `DateTime`.)
 - **Halves:** a `Duration` rounds a half away from zero (1.5 s to 2 s, -1.5 s to -2 s).
   The others round a half to the later value.
   - **[Owner]** That includes an `Instant` before 1970. Jiff rounds an instant's half
@@ -744,16 +904,16 @@ days = d1.days_since(d0.add(months: m))
     18:00 rounds to 01:00 on the 9th (measured). Rig gives 00:00 on the 9th. The oracle
     checks `round(days: 1)` only for a value inside its own date's range, on a day
     whose start plus one day on the clock is the next date's start.
-- `Time.round` wraps: 23:59:59.6 rounds to 00:00:00. The others panic when the result
-  leaves the range.
+- `Time.round` wraps: 23:59:59.6 rounds to 00:00:00. The others fail `.range` when the
+  result leaves the range.
 - **A round that passes midnight carries into the next day, in every year.** Jiff 1.0.0
   does not for years at or below 0 (`civil/datetime.rs:3582` and `3590` multiply the
   carried day by the sign of the year; measured: 23:30 in year 0 rounds to 00:00 of the
   same day). Rig does not copy that, and the oracle is not used for those cases.
 - **[Owner] `floor(…)`** takes the same argument and goes to the multiple at or
-  before the value: `z.floor(minutes: 15)`, `i.floor(hours: 1)`. For a `Duration` that
-  is toward negative infinity. Truncating is the commoner need (Go's `Truncate`, Java's
-  `truncatedTo`), and without it the only way is `with`, which is fallible. It is Jiff's
+  before the value: `z.floor(minutes: 15)!`, `i.floor(hours: 1)!`. For a `Duration`
+  that is toward negative infinity. Truncating is the commoner need (Go's `Truncate`, Java's
+  `truncatedTo`), and without it the only way is `with`, field by field. It is Jiff's
   floor mode, measured on every type.
   - **To a unit below a day, as in Jiff:** on a `ZonedDateTime`, "at or before" is on
     the clock.
@@ -779,38 +939,59 @@ days = d1.days_since(d0.add(months: m))
 - Leap seconds: `:60` in text is read as `:59`. Otherwise they are ignored, as in Unix
   time.
 
-## 7.2 What fails, and what panics
+## 7.2 What is total and what fails
 
-- **Building a value from parts or text is fallible:** `Date.new`, `Time.new`,
-  `DateTime.new`, every `parse`, `with`, `dt.in_zone`, `d.in_zone`,
-  `nth_weekday`, `nth_weekday_of_month`, `TimeZone.named`, `TimeZone.parse`,
-  `datetime.local`, `try_format`.
-  - `Date.new(year, month, day)`.
-  - `Time.new(hour, minute, second = 0, ns = 0)`.
-  - `DateTime.new(year, month, day, hour = 0, minute = 0, second = 0, ns = 0)`.
-  - `Time.new(23, 59, 60)` fails; only parsing reads `:60` as `:59`.
-- **[Owner] `add` panics when the result leaves the range**, as `Int` overflow does,
-  and `checked_add` fails instead. Jiff's operators panic the same way. Text and parts
-  from a user are checked where they come in, so reaching the panic takes arithmetic
-  that walks past the year 9999. (`Time.add` wraps instead.)
-- **The complete list of panics:**
-  - arithmetic that leaves a type's range:
-    - `add`, `round`, `floor` and `start_of_day` on `Instant` and the calendar types,
-      at the end of the range;
-    - `Monotonic.add` and `at`, beyond 292 years;
-    - `Duration`'s `add`, `sub`, `times`, `div`, `neg`, `abs`, `round` and `floor`;
-  - `Duration.div(0)`;
-  - a duration form given a number that is not a constant and is not finite or is out
-    of range, or parts whose sum is (5.2);
-  - `TimeZone.fixed` given arguments that are not literals and are out of range or of
-    mixed sign (7.4), and `Duration.from_parts` given bad parts (5.4);
-  - `round` or `floor` given an increment that is not a literal and is not allowed
-    (6.8).
-- A program that takes a number from a user checks it before it reaches one of these.
-  `Instant.from_unix(x)` with a `Float` from a user is a case: it does not fail, since
-  every `Duration` is an instant in range, and a number that is not finite or is beyond
-  a `Duration` (the years 1677 to 2262) panics, as any duration form does (5.2).
-  **[Owner, 2026-11-21]**
+**[Owner, 2026-11-22]** Every call is one or the other ("Total or visible"). **No call
+panics**, on any value.
+
+- **Total, with no `!`:**
+  - every reader: `year()` to `nanosecond()`, `weekday()`, `iso_week()`, `date()`,
+    `time()`, `zone()`, `offset()`, `offset_text()`, `name()`, and `Duration`'s
+    totals (5.3);
+  - the counts (6.4), comparison, `Eq`, `Ord` and `Hash`, and printing;
+  - `since` on every type that has one (6.6), `Monotonic.elapsed()`,
+    `time.since_start()`;
+  - `Time.add`, `Time.round` and `Time.floor`, which wrap or stay within the day;
+  - `Duration.neg()` and `abs()` (the range is symmetric);
+  - `i.in_zone(tz)` and `z.in_zone(tz)`, `d.at(t)`, `first_of_month()`,
+    `last_of_month()`, `tz.offset_at(i)`;
+  - `Instant.from_unix_ns`, `unix()`, `unix_s()`, `unix_ms()`, `unix_us()` (7.8);
+  - `datetime.now()`, `datetime.today(tz)`, `time.monotonic()`, `TimeZone.utc()`,
+    `zone_names()`, `tzdb_version()`, `min()` and `max()`;
+  - `format` with a string known at compile time (8.4), and `time.duration` of a form
+    that cannot fail (5.2).
+- **Fallible, `!`**, failing `.invalid` for a bad argument or text and `.range` for a
+  result outside the range (and with the zone errors of 10.3):
+  - **making a value from parts, text or a number:** `Date.new`, `Time.new`,
+    `DateTime.new`, every `parse`, `with`, `dt.in_zone`, `d.in_zone`, `nth_weekday`,
+    `nth_weekday_of_month`, `TimeZone.named`, `TimeZone.parse`, `TimeZone.fixed`,
+    `datetime.local`, `try_format`, `Duration.from_parts`, `Monotonic.at`, and
+    `Instant.from_unix_s`, `from_unix_ms`, `from_unix_us`, `from_unix_float`;
+    - `Date.new(year, month, day)`.
+    - `Time.new(hour, minute, second = 0, ns = 0)`.
+    - `DateTime.new(year, month, day, hour = 0, minute = 0, second = 0, ns = 0)`.
+    - `Time.new(23, 59, 60)` fails; only parsing reads `:60` as `:59`.
+  - **arithmetic that can leave the range:** `add` on `Date`; `add`, `round` and
+    `floor` on `DateTime`, `Instant` and `ZonedDateTime`; `z.start_of_day()`;
+    `Monotonic.add`; `Duration`'s `add`, `sub`, `times`, `div` (and `div(0)`),
+    `round` and `floor`;
+  - **a duration form given a number known only at run time** that can fail, folded
+    into the call's own `!` (5.2);
+  - **a computed `round` or `floor` increment** that is not allowed (6.8).
+- **One name each.** There is no `checked_add`, `checked_sub` or `checked_times`: `add`
+  is the fallible one, and the failure is handled where it is called.
+- **Constant arguments** are checked at compile time, where a bad one is an error
+  (10.2), and a maker called with constants alone takes no `!` (10.6):
+  `Date.new(2026, 1, 31)`, `TimeZone.fixed(hours: 5, minutes: 30)`.
+- **Nothing saturates.** `since` and `unix()` are exact for every value (5.1); there is
+  no saturating arithmetic but the one a program writes with `min()` and `max()`.
+- **What a program does with a failure:** `!` to pass it up, `catch` to handle it, or
+  `catch panic("why")` where it truly cannot go on, which puts the panic in the
+  program's own source. The docs never show `d.add(days: n) ?? d`: it gives a wrong date
+  without a word.
+- **The test.** No `panic(` appears in `std/time.rig` or `std/datetime/` (12).
+  `datetime.now()` reads an `Int` of nanoseconds, which lies within the range of
+  instants, so it is built with no fallback to panic in.
 
 ## 7.3 Sizes
 
@@ -823,7 +1004,7 @@ Measured on a stand-in built with Rig.
 | `Monotonic` | 8, and it passes as a word |
 | `Time` | 8 |
 | `DateTime` | 12 |
-| `Duration` | 8 |
+| `Duration` | 16: its whole seconds and its nanoseconds **[Owner, 2026-11-22]** |
 | `Instant` | 16 |
 | `ZonedDateTime` | 24: its instant, its zone and its offset in seconds |
 
@@ -840,9 +1021,10 @@ program, or a fixed offset. It never allocates and has no reference count.
   - Names match without regard to ASCII case.
   - An unknown name fails. Nothing falls back to UTC.
   - **A string literal that names no zone is a compile error**, with the nearest name
-    as its fix.
+    as its fix, and a literal that names one needs no `!` (10.6):
+    `TimeZone.named("America/Denver")`.
   - `named("UTC")`, in any case, returns `utc()` (Jiff does the same).
-- **`TimeZone.fixed(hours:, minutes:)`**
+- **`TimeZone.fixed(hours:, minutes:)!`** **[Owner, 2026-11-22]**
   - **[Owner]** Whole minutes only. Offsets with seconds are all historic (measured
     over the 598 names in the data): none is in use today, and the last ended on
     1972-01-07 (Monrovia, -00:44:30). A fixed zone with seconds could not be written
@@ -855,7 +1037,9 @@ program, or a fixed offset. It never allocates and has no reference count.
     pass 59: `fixed(minutes: 330)` is +05:30.
   - It does not take a `Duration`. To freeze a zoned value's offset as a zone:
     `TimeZone.parse(z.offset_text())!`, which fails for a historic offset with seconds.
-  - Out of range, or mixed signs: a compile error for literals, a panic otherwise.
+  - Out of range, or mixed signs: a compile error for constants, which then need no
+    `!` (10.6); otherwise it fails `.range` beyond ±25:59 and `.invalid` for mixed
+    signs.
   - `fixed(hours: 0)` is `utc()`.
 - **`TimeZone.utc()`**
 - **[Owner] `TimeZone.parse(s)!`** reads a zone name, or an offset as `+05:30`, `+0530`
@@ -872,7 +1056,7 @@ program, or a fixed offset. It never allocates and has no reference count.
   - a fixed zone: its offset, `-07:00`;
   - `utc()`: `UTC`.
   - This is what a `ZonedDateTime` prints in its brackets.
-- **`tz.offset_at(i: Instant) -> Duration`**
+- **`tz.offset_at(i: Instant) -> Duration`**, total.
 - **Equality and hashing** [Jiff], measured:
 
   | Compared | Equal? |
@@ -987,20 +1171,88 @@ program gives the same answer on every machine.
 - `datetime.now() -> Instant` reads the wall clock.
   - **[Owner]** It is the real clock under the deterministic scheduler too; only the
     monotonic clock is virtual there.
-- **`Instant.from_unix(<duration form>)`** is the instant that long after
-  1970-01-01T00:00Z: `Instant.from_unix(1_700_000_000)`, or
-  `Instant.from_unix(ms: t)` for a JavaScript time. **[Owner, 2026-11-21]** It does
-  not fail: a `Duration` reaches the years 1677 to 2262, all inside the range. A
-  number beyond a `Duration` panics, as any duration form does (5.2).
-  - A `Float` near 1.7e9 resolves only about 240 ns, so a Unix time finer than a
-    microsecond is given with `us:` or `ns:`.
-- **`i.unix() -> Duration`**, negative before 1970. Then `i.unix().seconds()`, `.ms()`.
-  - `.seconds()` truncates toward zero, so half a second before 1970 is 0, not -1.
-  - Outside the years 1677 to 2262 it saturates, as `since` does (5.1).
-- **`i.unix_s() -> Int`**: the whole seconds since 1970, floored, exact at any instant.
-  It is the count Unix tools give.
-- `i.add(<duration form>)`, `i.checked_add(…)!`, `i.since(other)`, `i.round(…)`,
-  `i.floor(…)`, `i.in_zone(tz)`.
+  - It is total: the clock reads an `Int` of nanoseconds since 1970, the years 1677 to
+    2262, inside the range.
+- **[Owner, 2026-11-22] Making an instant from a Unix time**, one maker for each unit
+  a file or a message holds, each taking an `Int` (or a `Float`) and never a duration
+  form, so the maker sees the number and can refuse it:
+
+  ```
+  Instant.from_unix_s(s: Int, ns: Int = 0) -> Instant!
+  Instant.from_unix_ms(ms: Int) -> Instant!
+  Instant.from_unix_us(us: Int) -> Instant!
+  Instant.from_unix_ns(ns: Int) -> Instant
+  Instant.from_unix_float(s: Float) -> Instant!
+  ```
+
+  - `from_unix_s(s, ns: n)!` is `s` seconds and `n` nanoseconds after
+    1970-01-01T00:00Z, as Unix tools count; `n` is given by name. It fails `.range`
+    beyond the range of instants (7.1), and for an `n` outside ±999,999,999. The two
+    may differ in sign and are summed exactly, as in Jiff's `Timestamp::new`:
+    `from_unix_s(0, ns: -1)` is 1969-12-31T23:59:59.999999999Z. `Int.max` and
+    `Int.min` fail; nothing overflows.
+  - `from_unix_ms(ms)!` and `from_unix_us(us)!` are a JavaScript or Java time and a
+    count of microseconds; each fails `.range` beyond the range. (An `Int` of either
+    reaches far past the year 9999.)
+  - `from_unix_ns(ns)` is total: an `Int` of nanoseconds reaches the years 1677 to
+    2262, all inside the range. It is Go's `UnixNano` read back.
+  - `from_unix_float(s)!` is a `Float` of seconds, a wire format of Python's
+    `time.time()`, Prometheus and many JSON APIs, converted from its exact value to the
+    nearest nanosecond, a half away from zero. It fails `.invalid` for a NaN and
+    `.range` for an infinity or a value beyond the range. A `Float` near 1.7e9
+    resolves only about 240 ns, so a finer time is given as `Int`s. Without this maker
+    a program would write `Int(f)`, which panics on a NaN.
+  - With constant arguments `from_unix_s`, `from_unix_ms` and `from_unix_us` take no
+    `!` (10.6): `Instant.from_unix_s(1_700_000_000)`.
+  - There is no `from_unix(<duration form>)`. A `Duration` value `d` is
+    `Instant.from_unix_s(d.seconds(), ns: d.subsec_ns())!`.
+- **Reading a Unix time**, all total:
+  - **`i.unix() -> Duration`**, exact at any instant, negative before 1970. Then
+    `i.unix().seconds()`, or `.ns()` as an `I128`. `.seconds()` truncates toward
+    zero, so half a second before 1970 is 0, not -1.
+  - **`i.unix_s()`, `i.unix_ms()`, `i.unix_us()`**, each an `Int`: the whole seconds,
+    milliseconds and microseconds since 1970, floored, exact at any instant
+    (microseconds at the year 9999 are about 2.5e17). `unix_s()` is the count Unix
+    tools give, and each is the inverse of its maker.
+  - There is no `unix_ns()`: nanoseconds at the year 9999 do not fit an `Int`. It is
+    `i.unix().ns()`, an `I128`.
+- At the edges:
+
+  | Call, with each number known only at run time | Result |
+  |---|---|
+  | `from_unix_s(9_300_000_000)` | 2264-09-14T21:20:00Z |
+  | `from_unix_s(253_402_207_200, ns: 999_999_999)` | 9999-12-30T22:00:00.999999999Z, the last instant |
+  | `from_unix_s(253_402_207_201)` | fails `.range` |
+  | `from_unix_s(-377_705_023_201)` | -009999-01-02T01:59:59Z, the first instant; one less fails |
+  | `from_unix_ms(8_640_000_000_000_000)` | fails `.range` (JavaScript's last `Date`, the year 275760) |
+  | `from_unix_ns(Int.max)` | 2262-04-11T23:47:16.854775807Z |
+  | `from_unix_float(nan)`, `(inf)`, `(1e12)` | fails `.invalid`, `.range`, `.range` |
+
+  The same calls with constants are compile errors where they would fail, and take no
+  `!` where they would not (10.6).
+
+```rig pending
+use std.datetime
+use std.text
+
+sub main()!
+  s = text.parse_int("9300000000")!
+  i = datetime.Instant.from_unix_s(s)!
+  print(i, i.unix_s(), i.unix_ms())
+  print(datetime.Instant.from_unix_ns(-1))
+  print(datetime.Instant.from_unix_float(text.parse_float("1700000000.5")!)!)
+  print(datetime.Instant.from_unix_ms(s * 1_000_000) catch datetime.Instant.max())
+```
+
+```output
+2264-09-14T21:20:00Z 9300000000 9300000000000
+1969-12-31T23:59:59.999999999Z
+2023-11-14T22:13:20.5Z
+9999-12-30T22:00:00.999999999Z
+```
+
+- `i.add(<duration form>)!`, `i.round(…)!`, `i.floor(…)!`, and the total
+  `i.since(other)` and `i.in_zone(tz)`.
 - There are no calendar keywords on an instant: `i.add(days: 1)` is the compile error
   of 5.2, since a day needs a zone.
 
@@ -1163,11 +1415,10 @@ A small strftime, with Jiff's meanings for each directive.
 7. **A bare number is seconds** wherever a duration is taken (5.2).
 8. **`print` of a duration** is the friendly form, with `-` and `us` (5.5).
 9. **Compile errors** where Jiff fails at run time or accepts: `days:` on a duration, a
-   positional argument to `add`, `checked_add`, `with`, `round`, `floor` or `fixed` where
+   positional argument to `add`, `with`, `round`, `floor` or `fixed` where
    10.2 forbids one, `Date.add(hours: 1)`, a misspelled zone
    name, a bad `format` string, a bad rounding increment, a bad `fixed`.
-10. **Fixed zones** take whole minutes, and `fixed` panics on a bad argument that is not
-    a literal, where Jiff returns an error (7.4).
+10. **Fixed zones** take whole minutes (7.4).
 11. **`TimeZone` hashes** (7.4), and **`Weekday` orders**, from Monday (4.1). Jiff's do
     neither.
 12. **`Instant.round`** takes a half to the later value before 1970 too (6.8).
@@ -1176,20 +1427,38 @@ A small strftime, with Jiff's meanings for each directive.
 14. **A round that passes midnight** carries into the next day in years at or below 0,
     where Jiff 1.0.0 has a bug; and **`round(days: 1)`** measures to the next day's
     start, where Jiff 1.0.0 measures to the start plus a day on the clock (6.8).
-15. **`Date`, `Time` and `DateTime` read only their own form** (8.1), and
-    `start_of_day` cannot fail (6.7).
+15. **`Date`, `Time` and `DateTime` read only their own form** (8.1).
 16. **Fewer things:** no offset type, no daylight-saving flag, only two rounding modes,
     no parsing by format string, fewer `format` directives.
-17. **`Duration` is one `Int` of nanoseconds** (5.1), where Jiff's is 16 bytes: `since`
-    beyond ±292 years and `i.unix()` outside the years 1677 to 2262 saturate, as Go's
-    do, and `i.unix_s()` gives Unix seconds.
+17. **No call panics** ("Total or visible", 7.2). **[Owner, 2026-11-22]** Jiff panics in
+    its `+` and `-` on every datetime type, in `SignedDuration`'s operators and in the
+    `abs` of its smallest value, in `SignedDuration::from_secs_f64`, and in
+    `civil::date` given bad parts. Rig has none of these. Its `add`, `round`, `floor`
+    and `start_of_day` are Jiff's `checked_add`, `round`, `floor` mode and
+    `start_of_day` under one name each, with no `checked_` or `saturating_` twins: Jiff's
+    `saturating_add` is `add(…) catch T.max()`. `Duration`'s range is symmetric, so its
+    `neg` and `abs` cannot fail.
+18. **No operators on `Duration`** (5.6), where Jiff's `SignedDuration` has `+`, `-`,
+    `*` and `/`. **[Owner, 2026-11-22]**
+19. **Constant arguments are checked at compile time** and the maker then takes no `!`
+    (10.6).
+20. **`Time.add` wraps** under its plain name, as Jiff's `wrapping_add` does; Jiff's
+    `Time::checked_add`, which fails past midnight, has no counterpart (6.2).
+21. **Unix makers** **[Owner, 2026-11-22]** (7.8): `from_unix_s(s, ns:)`,
+    `from_unix_ms`, `from_unix_us` as Jiff's `Timestamp::new`, `from_second`,
+    `from_millisecond` and `from_microsecond`, but `from_unix_ns` takes an `Int` and
+    cannot fail where Jiff's `from_nanosecond` takes an `i128` and can; and
+    `from_unix_float`, which Jiff does not have. Their inverses `unix_ms()` and
+    `unix_us()` are `Int`s, floored.
 
 ---
 
 # 10. Compiler and std work
 
-Line numbers were read from `origin/main` on 2026-11-17 and need checking again when
-the work starts. Sizes are the builder reviewer's estimates.
+Line numbers were read from `origin/main` on 2026-11-17 (10.1 to 10.4) and 2026-11-22
+(10.5 to 10.7), and need checking again when the work starts. Sizes are the reviewers'
+estimates. 10.1 to 10.4 are built (phases 1 to 3); 10.5 to 10.7 come next, in that
+order, before phase 4 (11).
 
 ## 10.1 Durations
 
@@ -1224,7 +1493,7 @@ type's tests of it land with the type.
 | Check | Size | Lands in phase |
 |---|---|---|
 | `round` and `floor`: exactly one unit keyword, no positional argument, and a literal increment must be allowed | 60 lines | 1 (with the hook) |
-| No positional argument to `Date.add`, any `with`, or `TimeZone.fixed`; at most one to `DateTime.add` and `ZonedDateTime.add` (so `z.add(1, 2)` is not a second and two years). The same for each `checked_add` | 40 | 2 |
+| No positional argument to `Date.add`, any `with`, or `TimeZone.fixed`; at most one to `DateTime.add` and `ZonedDateTime.add` (so `z.add(1, 2)` is not a second and two years) | 40 | 2 |
 | `Date.add(hours: 1)`: the message of 6.2 | 10 | 2 |
 | `TimeZone.named("…")`: a literal must name a zone (the names file from 7.5; `editDistance` gives the nearest) | 150 | 4 |
 | `TimeZone.fixed(…)`: literals in range and of one sign | 50 | 4 |
@@ -1254,11 +1523,16 @@ type's tests of it land with the type.
 - `tools/gen-tzdb.py`, with its freshness test.
 - **Errors:** one error set for each module, in the style of `std/text.rig` and
   `std/json.rig`, which the builder follows for the signatures.
-  - `std.time`: bad text (`Duration.parse`), out of range (`checked_add`,
-    `checked_sub`, `checked_times`).
-  - `std.datetime`: out of range, bad text, unknown zone, a skipped or repeated time
-    under `.reject`, an offset conflict, no system zone, a bad format string
-    (`try_format`).
+  - `std.time`, `TimeError`: `invalid`, for bad text (`Duration.parse`), bad parts
+    (`from_parts`), a number that is not finite, a computed increment that is not
+    allowed, and `div(0)`; `range`, for a result past the range (`add`, `sub`,
+    `times`, `round`, `floor`, `Monotonic.add` and `at`, and a duration form's
+    conversion).
+  - `std.datetime`, `DateTimeError`: `invalid` and `range` in the same senses, and
+    then unknown zone, a skipped or repeated time under `.reject`, an offset conflict,
+    no system zone, a bad format string (`try_format`).
+  - A duration form's conversion fails with the member of that name in the callee's
+    own set, so both sets keep `invalid` and `range` (5.2).
 - SPEC "Durations" (`SPEC.md:14850`) is rewritten. `docs/STD.md` "std.time" is
   rewritten, and "std.datetime" is new. `docs/internals/INTERNALS.md` describes the
   duration fact and changes with it. `docs/ROADMAP.md` gains the entry in phase 1, and
@@ -1297,6 +1571,116 @@ type's tests of it land with the type.
   `tools/trig/main.rig:97` reads `time.unix_ns()` (phase 3). The builder prepares each
   patch, and the Trig session lands it with the Rig change.
 
+**The migration of phases 1 to 3 to "Total or visible"** (10.7), by the same script:
+
+| Old | New |
+|---|---|
+| `x.add(…)`, `x.round(…)`, `x.floor(…)` on `Date`, `DateTime` or `Instant`; `Monotonic.add` and `at`; `Duration`'s `add`, `sub`, `times`, `div`, `round`, `floor` | the same with `!`; in a function that cannot fail, `catch panic("…")` naming the call, so the old panic stays where it was, now in the program's source |
+| `x.checked_add(…)`, `checked_sub`, `checked_times` | `x.add(…)`, `sub`, `times` |
+| `t.checked_add(d)` on a `Time` | left for a person (MANUAL): there is no call that fails past midnight (6.2) |
+| `Instant.from_unix(x)`, `from_unix(seconds: x)` | `Instant.from_unix_s(x)!` for an `Int`, `from_unix_float(x)!` for a `Float` |
+| `Instant.from_unix(ms: t)`, `us:`, `ns:` | `from_unix_ms(t)!`, `from_unix_us(t)!`, `from_unix_ns(t)` |
+| `Instant.from_unix(minutes: t)`, `hours:`, several keywords | left for a person (MANUAL); rare |
+| `Instant.from_unix(d)` with a `Duration` `d` | `Instant.from_unix_s(d.seconds(), ns: d.subsec_ns())!` |
+| `d.ms()`, `d.us()`, `d.ns()` where an `Int` is wanted | the same, an `I128`; `Int(d.ns())` where the value must be an `Int` (a `Monotonic`'s difference always fits) |
+| `Date.new(2027, 1, 31)!` and the other makers of 10.6, every argument a constant | `Date.new(2027, 1, 31)` (once 10.6 has landed) |
+| a run-time `Float` given to a wait | `time.sleep(time.duration(x)!)!` |
+
+- Every site is a compile error first: a `T!` used as a `T`, `!` on a call that cannot
+  fail, a removed name through the hint table, or an `I128` where an `Int` is wanted.
+  So the script can miss nothing silently.
+- In Rig's own source (counted 2026-11-22, tests, benches, std, docs and the oracle):
+  `checked_` on 83 lines, `from_unix(` on 55, `.unix()` on 24, `.ns()` on 97, `.ms()` on
+  14, `.us()` on 4, and about 500 calls of `Date.new`, `Time.new` or `DateTime.new`
+  with constant arguments; every `add`, `round` and `floor` in the datetime tests.
+- The live docs change with it: `docs/STD.md`, SPEC "Durations", `docs/MIGRATING-0.3.md`.
+- **Trig:** phase 1's `tools/checker/bench.rig` reads `elapsed()`, and phase 3's
+  `tools/trig/main.rig` reads `datetime.now().unix().ns()` as an `Int`; the second
+  becomes `Int(datetime.now().unix().ns())`. The builder prepares the patch with the
+  change.
+- Where a release accepted a form this rejects, the release notes list it, and Trig
+  gets its note and the script (AGENTS.md).
+
+## 10.5 Error traces
+
+**[Owner, 2026-11-22]** A language change of its own, before the change of 10.7
+(`docs/ROADMAP.md`, Language). Under "Total or visible" a failure that leaves `main`
+prints only `error: DateTimeError.range`, where a panic's message would name the call
+and the value. So when a failure leaves `main`, Rig prints each `f()!` site it passed
+through, from Zig's error return trace. It needs no syntax.
+
+| Site | Today | Change |
+|---|---|---|
+| `src/runtime.zig:8599` `failMain`, `8613` `reportFailure` | print `error: E.name`, or the error's fields | then print the trace, a Rig file and line for each `!` |
+| `src/emit.zig:1945` | `main`'s catch | passes the trace to the runtime |
+| new | (none) | how a Zig frame in the emitted code is shown as the Rig line of its `!` |
+
+- Its design is its own round: which builds print it (debug builds at least; release
+  builds if a measurement shows the trace costs little there), and the form of a line.
+- Tests: a failure from three calls deep prints three sites; one handled by `catch`
+  prints none.
+
+## 10.6 Constant arguments
+
+**[Owner, 2026-11-22]** A language rule of its own, which this library relies on:
+**when every argument to a listed std maker is a compile-time constant, and the check
+the compiler already runs on those arguments passes, the call's type is the plain type,
+not `T!`.** A bad constant is a compile error, as it is today, and `!` on a call that
+passes is rejected, as on any call that cannot fail.
+
+- **The makers listed:** `Date.new`, `Time.new`, `DateTime.new`, `TimeZone.fixed`,
+  `TimeZone.named` with a string literal, `Duration.from_parts`,
+  `Instant.from_unix_s`, `from_unix_ms` and `from_unix_us`, and `time.duration` (5.2).
+  `parse` is not among them.
+- **A constant** is what Rig already computes as one (`sema.constIntOf`,
+  `Checker.floatConst`, a string literal); the rule never asks a prover.
+- **The source shows which case applies:** every argument is a literal or a constant.
+  The answer never changes between releases. A refactor that turns a literal into a
+  variable makes the `!` required, which is where failure becomes possible, and the
+  compiler says so.
+- **Recorded once** as a fact on the call (North Star 4). Emit writes the call with a
+  `catch` that reports a disagreement between the compiler's check and the library's as
+  a bug in Rig, never Zig's `unreachable`. The validity rules exist twice, in the check
+  and in std, as `format`'s directive table does (8.4), and a test runs every maker on
+  each side of each rule both ways.
+- **SPEC §13** gains one sentence: a bare call to a fallible function is rejected,
+  unless it is a listed std maker whose arguments are all constants that pass its check.
+- Sites: `src/typecheck.zig:12505` `stdArgChecks` (the checks), `9914` (the bare-call
+  error), `src/sema.zig:16910` `constIntOf`, and the hook of 10.2 for `named` and
+  `fixed`. About 100 to 200 lines.
+- **Without the rule,** the makers keep their `!` with constants (a bad constant is
+  still a compile error, and the `!` is never taken), `time.duration` takes only the
+  forms that cannot fail, and `time.checked_duration(<form>) -> Duration!` takes the
+  rest (5.2). Nothing else in this design changes.
+- A version that drops `!` wherever a prover shows a call cannot fail was rejected:
+  whether a call needs `!` would then depend on how far the prover reaches, which
+  changes between releases. `src/proofs.zig` stays an emit optimization that never
+  changes a type.
+
+## 10.7 Total or visible
+
+**[Owner, 2026-11-22]** The change that applies "Total or visible" to phases 1 to 3,
+after 10.5 and 10.6. Phases 4 to 6 are written to it from the start.
+
+| Site | Today | Change | Size, risk |
+|---|---|---|---|
+| `std/time.rig` `Duration` | one private `Int` field `n` of nanoseconds | private `s: Int` and `ns: I32` of one sign, symmetric (5.1); `ms()`, `us()`, `ns()` return `I128`; `add`, `sub`, `times`, `div`, `round`, `floor` return `!`; `checked_*` removed; `min()`, `max()`; `from_parts` returns `!` | std, medium: every reader and every printer |
+| `std/time.rig` `Monotonic` | `at`, `add` panic past 292 years | readings within 0 to 146 years; `at` and `add` return `!` | small |
+| `src/runtime.zig:4731` `durationInt`, `4740` `durationFloat`, `4751` `durationSum`, `4765` `durationNs` | build the one field; panic out of range | build the two fields; a checked twin of each that returns the error for the callee's set; `durationNs` clamps for the scheduler | 100, medium |
+| `src/sema.zig:12233` `duration` | the form's unit and whether it is a `Float` | also how the form converts: total, folded into the callee's `!`, clamped in a wait, or refused (5.2), a positive list on the callee | 50, low |
+| `src/typecheck.zig:12770` `checkDurationArg` | a run-time number accepted anywhere | a form that can fail refused where the callee cannot fail, a run-time `Float` refused in a wait, each with the fix of 5.2; a program's function whose error set cannot hold the failure refused the same way | 100, medium |
+| `src/emit.zig:6021`, `9915` | `rig.durationInt(…)`, `rig.durationSum(…)` | `try` the checked twin where the form is folded, mapped to the callee's error | 50, medium: every form passes through it |
+| `src/typecheck.zig:12603` `checkUnitIncrement` | a computed increment reaches a panic in the body | a computed increment on a `Time` refused; elsewhere it passes and the body fails `.invalid` | 30, low |
+| `std/datetime/*.rig` | `add`, `round`, `floor` panic; `checked_add`; `from_unix`; `unix()` and `since` saturate; `now()`'s unreachable panic | the signatures of 7.2 and 7.8; `min()`, `max()`; no `panic(` | std, medium |
+| `tools/jiff-oracle` | leaves out what saturates | answers it (12) | small |
+| new test | (none) | no `panic(` in `std/time.rig` or `std/datetime/` (12) | small |
+| `tools/migrate-datetime.py` | phases 1 and 3 | the rows above (10.4) | medium |
+
+- The duration-form rule is about 150 to 250 lines in the compiler; the rest is std and
+  the migration.
+- The bench guards and phase 0's `bench/duration` show the 16-byte layout's cost on the
+  timing calls, as recorded in 5.1.
+
 ---
 
 # 11. Phases
@@ -1311,14 +1695,14 @@ Phase 1 waits for one other change to merge first: the "loan vocabulary" rename 
 Rig's ownership wording, which the owner has approved and which rewrites diagnostics in
 the same compiler files.
 
-0. **Measure.** No visible change. Its pull request holds the benchmark, the oracle,
+0. **Measure** (built). No visible change. Its pull request holds the benchmark, the oracle,
    the generator, and the numbers as a record under `docs/history/records`.
    - The 16-byte `Duration` against an `Int`, with the benchmark of 5.1. The owner
      decides on the numbers.
    - The generator and its tables: size in a program, and build time, as a record and
      not a gate. The tables themselves are committed in phase 4.
    - The Jiff oracle (section 12).
-1. **`std.time`.** `Duration` with its forms (one unit keyword), reading, arithmetic,
+1. **`std.time`** (built). `Duration` with its forms (one unit keyword), reading, arithmetic,
    `round` and `floor`, `from_parts` and `subsec_ns`, printing and parsing;
    `time.duration`; `Monotonic`; waiting; the compiler work of 10.1; the hook of 10.2
    with its first check.
@@ -1327,12 +1711,31 @@ the same compiler files.
      `time.unix_ns()`.
    - Rig's tree, its live docs and Trig's timing lines migrate.
    - 1b. Several unit keywords in one call.
-2. **`Date`, `Time`, `DateTime`, `Weekday`**, with their text: the calendar math
+2. **`Date`, `Time`, `DateTime`, `Weekday`** (built), with their text: the calendar math
    (Jiff's `jiff-core`), `add`, counts, `with`, `round`, `floor`, the helpers, ISO
    weeks. The positional checks.
-3. **`Instant`**: `now`, `from_unix`, `unix`, `add`, `since`, `round`, `floor`, RFC
-   3339. `time.unix_ns()` is removed, its uses migrate (Rig's and Trig's), and the fix
-   for `time.now()` names `datetime.now()`.
+3. **`Instant`** (built): `now`, `from_unix`, `unix`, `add`, `since`, `round`, `floor`,
+   RFC 3339. `time.unix_ns()` is removed, its uses migrate (Rig's and Trig's), and the
+   fix for `time.now()` names `datetime.now()`.
+
+**[Owner, 2026-11-22] Then, before phase 4, in this order** (records/2026-11/datetime-strategy):
+
+- **a. Error traces** (10.5), a language change of its own, so that a failure that
+  leaves `main` says where it came from before more calls become fallible.
+- **b. The constant-argument rule** (10.6), a language rule of its own.
+- **c. Total or visible** (10.7): the 16-byte `Duration` with its `I128` readers; the
+  duration-form rule (5.2); every signature of 7.2, `!` on each `add`, `round`, `floor`,
+  `Monotonic.add` and `at`, and `Duration`'s arithmetic; `checked_*` removed; the Unix
+  makers and readers of 7.8; `min()` and `max()`; `TimeZone.fixed`'s and
+  `from_parts`' `!`; no `panic(` in std, with its test; the oracle's saturation
+  exclusions dropped (12); and the migration of phases 1 to 3 in Rig's tree, its live
+  docs and Trig (10.4).
+- **d. The keyword-only rule**, decided separately.
+
+Phases 4 to 6 are written to "Total or visible" from the start: `TimeZone.fixed` and
+every `ZonedDateTime` `add`, `round`, `floor` and `start_of_day` return `!`, and nothing
+in them panics.
+
 4. **`TimeZone`**: the tables, `named` and its literal check, `fixed`, `utc`, `parse`,
    `name`, `offset_at`, `zone_names`, `tzdb_version`, `local` (with `file.read_link`).
 5. **`ZonedDateTime`**: `in_zone` (from an `Instant`, a `DateTime` and a `Date`), the
@@ -1344,7 +1747,7 @@ Phase 1 puts section 2's sample into `docs/STD.md` as `rig pending` examples, an
 phase turns its own into tests. A doc example prints a fixed instant or a comparison,
 never the current time (7.8).
 
-**After v1, as its own change:** operators on `Duration` (5.6).
+**[Owner, 2026-11-22] No operators on `Duration`** (5.6), in v1 or after.
 
 **Not in v1:** parsing by a format string, RFC 2822, locales, zone data loaded at run
 time, the Windows zone-name mapping, other rounding modes, a keyword that rejects a
@@ -1364,8 +1767,12 @@ clamped month end.
   must match line for line.
   - Its test skips where there is no Rust toolchain, as `test/cli/text_go.sh` does for
     Go. Jiff's answers are not committed.
-  - It leaves out the cases where Rig differs from Jiff on purpose: in rounding (6.8),
-    and a `since` or `unix()` beyond `Duration`'s ±292 years, which saturates (5.1).
+  - It leaves out the cases where Rig differs from Jiff on purpose, in rounding (6.8).
+    **[Owner, 2026-11-22]** Nothing else: with `Duration` in Jiff's 16 bytes, every
+    `add` of a large duration, every `since` and every `unix()` is compared, and so
+    are the failures, each where Jiff fails. The phase 3 ports left out for a
+    `Duration`'s old range (`checked_arithmetic_at_max`,
+    `nanosecond_roundtrip_boundaries`) are ported with the change of 10.7.
   - Generated inputs:
     - every date in a sample of years, against each month offset;
     - every zone, an hour either side of each transition;
@@ -1376,6 +1783,10 @@ clamped month end.
   longer fits needs none: any offset that disagrees with the embedded rules will do.
 - **Where Rig differs on purpose** (section 9) the oracle cannot check, so each is
   tested directly.
+- **[Owner, 2026-11-22] No panic.** A test reads `std/time.rig` and every file of
+  `std/datetime/` and finds no `panic(`, so the promise of "Total or visible" is one the
+  suite checks. Each fallible call has a case at each end of its range that fails with
+  the member 7.2 names, and each total one a case at its ends that does not fail.
 - **Cases that must have a test:**
 
   | Case | Source |
@@ -1401,8 +1812,15 @@ clamped month end.
   | A stored string whose offset no longer fits | write |
   | The ends of each range | Jiff `civil/date.rs:3566`, `timestamp.rs:1402` |
   | `TZ`: empty, a name, `:name`, a path, `UTC0`, `EST5`, a rule with daylight saving, nonsense | write |
-  | Negative waits; `Time.add` wrapping and `checked_add` | write |
-  | `Monotonic`: `elapsed`, `since`, `add`, ordering, a deadline | write |
+  | Negative waits; a wait longer than an `Int` of nanoseconds; a run-time `Float` refused in a wait | write |
+  | `Time.add` and `Time.round` wrapping; a computed increment refused on a `Time` and failing `.invalid` elsewhere | write |
+  | `Monotonic`: `elapsed`, `since`, `add`, ordering, a deadline; `at` and `add` failing below 0 and past 146 years | write |
+  | `Duration`: `min()` and `max()`; `neg` and `abs` of both; `add`, `times` and `round` failing past them; `div(0)`; `ms()`, `us()`, `ns()` of `max()` as `I128` | write |
+  | Each duration form with a run-time number: total (`ms: t`), folded into a `!` (`i.add(minutes: t)!` failing), clamped in a wait, and refused elsewhere with its fix | write |
+  | The constant-argument rule: each maker of 10.6 with constants (no `!`, and `!` refused), with one run-time argument (`!` required), and with a bad constant (a compile error) | write |
+  | The Unix makers at the edges of 7.8, and each reader as the inverse of its maker | write |
+  | `since` between the first and last instant, date and time; `unix()` of both | write |
+  | `9999-12-31` plus a day, a renewal period from text, and `9999-12-30T22:00:00.9Z` rounded to the second each fail, not panic | write |
   | `add(years: 1, months: -12)` on Feb 29; `z.add(1, 2)` is refused | write |
   | Years, months and days between two dates, from Feb 29 | write |
   | A day's range: Havana 2026-03-08 (the day starts at 01:00), Nuuk from 2026-03-27T23:30, Apia 2011-12-30 (no such date); `d.in_zone` on 9999-12-31 fails in UTC and succeeds in Tokyo | write |
@@ -1443,7 +1861,8 @@ clamped month end.
   - the compiler work is sized, and the summed unit keywords are their own change;
   - additions made in rounds 6 and 7 to close gaps a cold reader found, which the
     owner then approved: `floor`, the date helpers, `zone_names`, strict parsing, an
-    infallible `start_of_day`, and two low-level members of `Duration`.
+    infallible `start_of_day` (fallible since 2026-11-22), and two low-level members
+    of `Duration`.
 - **Rounds 6 to 8** reviewed v3 three ways each time: against Jiff, against Rig, and by
   a cold reader. Round 8 found no wrong answer, nothing unbuildable and no
   contradiction beyond one sentence about the ends of the range, which is corrected.
@@ -1455,6 +1874,14 @@ clamped month end.
   some smaller wording. The reader who found the day-rounding errors then checked the
   corrected rules against Jiff over 11.1 million values.
 - **Phase 0** (2026-11-20) measured `Duration`'s two layouts call by call. The owner
-  chose one `Int` of nanoseconds, as Go's, over Jiff's 16 bytes: `since` and
-  `i.unix()` saturate beyond ±292 years, and `i.unix_s()` gives Unix seconds at any
-  instant (5.1, 6.6, 7.3, 7.8).
+  first chose one `Int` of nanoseconds, as Go's, with `since` and `i.unix()`
+  saturating beyond ±292 years.
+- **Total or visible** (2026-11-22, `records/2026-11/datetime-strategy`). A question
+  about `Instant.from_unix`, whose duration form panicked on a Unix number past 2262,
+  went to two panels. The first (Rust, Zig and Go, API design) gave the Unix makers; a
+  committee of three (a date-time library view, an error-handling view and Rig's
+  compiler view) each chose, apart, that no call panics, and an independent rating
+  scored the result. The owner approved the strategy and changed one of its
+  decisions: `Duration` takes Jiff's 16 bytes, so `since` and `unix()` are total
+  rather than fallible. The sections tagged [Owner, 2026-11-22] say what changed: the
+  rule, 5.1 to 5.8, 6.2, 6.6 to 6.8, 7.2 to 7.4, 7.8, 9, 10.4 to 10.7, 11 and 12.

@@ -1,0 +1,6 @@
+use std.datetime
+use std.text
+
+sub main()
+  ms = text.parse_int("9300000000000000") catch 0
+  print(datetime.Instant.from_unix(ms: ms))

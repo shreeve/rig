@@ -1,0 +1,12 @@
+use std.time
+use std.datetime
+use std.text
+
+sub main()!
+  i = datetime.Instant.from_unix(1_700_000_000)
+  print(i)
+  d = datetime.Date.new(2026, 1, 31)!
+  print(d.add(months: 1))
+  t = text.parse_int("9300000000000000")!
+  r = i.checked_add(ms: t) catch i
+  print(r)

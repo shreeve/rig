@@ -1,0 +1,21 @@
+use std.time
+use std.datetime
+use std.text
+
+# strict style, simulated with today's checked_add
+fun due(d: datetime.Date, n: Int) -> datetime.Date!
+  d.checked_add(days: n)!.checked_add(months: 1)!
+
+fun next_run(last: datetime.Instant) -> datetime.Instant
+  last.checked_add(hours: 1) catch panic("next_run: an hour after", last, "is past 9999")
+
+sub main()!
+  d = datetime.Date.new(2027, 1, 31)!
+  print(due(d, 3)!)
+  n = text.parse_int("99999999")!
+  due(d, n) catch |e| print("refused:", e)
+  i = datetime.Instant.parse("2026-11-21T12:00:00Z")!
+  print(next_run(i))
+  x = datetime.Date.new(9999, 12, 31)!
+  y = x.checked_add(days: 1)!
+  print(y)
