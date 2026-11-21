@@ -1,0 +1,156 @@
+# std.datetime's answers to the oracle's cases (README.md): one line out
+# for each line of the file named first, in the line format, for the
+# cases std.datetime answers so far. A case it does not answer yet
+# prints `-`, which the comparison passes over.
+#
+#   bin/rig build --release tools/jiff-oracle/answer.rig -o DIR/answer
+#   DIR/answer DIR/calendar.in > DIR/calendar.rig.out
+
+use std.datetime
+use std.file
+use std.os
+use std.text
+use std.time
+
+sub main()!
+  src = file.read(os.args()[1])! ?? String()
+  rows = text.lines(?src)
+  for row in !rows
+    if text.cut(row, " ") as c
+      answer(c.before, c.after)
+    else
+      answer(row, "")
+
+sub answer(op: ?String, rest: ?String)
+  a: [6]?String = ["", "", "", "", "", ""]
+  n = 0
+  for w in text.words(rest)
+    if n < 6
+      a[n] = w
+    n += 1
+  if op == "date.add"
+    d = date(a[0])
+    print(show(d.checked_add(years: int(a[1]), months: int(a[2]), weeks: int(a[3]), days: int(a[4])) catch none))
+  else if op == "date.info"
+    d = date(a[0])
+    print(d.weekday(), d.day_of_year(), d.days_in_month(), d.iso_week(), d.iso_week_year(), d.first_of_month(), d.last_of_month())
+  else if op == "datetime.add"
+    dt = datetime_of(a[0])
+    # A duration beyond a `Duration`'s 292 years is left out (§5.1).
+    if maybe_duration(a[5]) as d
+      print(show(dt.checked_add(d, years: int(a[1]), months: int(a[2]), weeks: int(a[3]), days: int(a[4])) catch none))
+    else
+      print("-")
+  else if op == "time.add"
+    t = time_of(a[0])
+    if maybe_duration(a[1]) as d
+      print(t.add(d), show(t.checked_add(d) catch none))
+    else
+      print("-")
+  else if op == "date.count"
+    x = date(a[0])
+    y = date(a[1])
+    early = x if x < y else y
+    late = y if x < y else x
+    m = late.months_since(early)
+    print(x.days_since(y), x.weeks_since(y), x.months_since(y), x.years_since(y), m / 12, m % 12, late.days_since(early.add(months: m)))
+  else if op == "datetime.count"
+    x = datetime_of(a[0])
+    y = datetime_of(a[1])
+    early = x if x < y else y
+    late = y if x < y else x
+    # DATETIME-DESIGN §6.4: whole days and the rest, then years, months
+    # and days between the two dates.
+    days = late.days_since(early)
+    left = late.since(early.add(days: days))
+    d0 = early.date()
+    d1 = d0.add(days: days)
+    m = d1.months_since(d0)
+    print(x.days_since(y), x.weeks_since(y), x.months_since(y), x.years_since(y), m / 12, m % 12, d1.days_since(d0.add(months: m)), left.iso())
+  else if op == "date.parse"
+    print(show(datetime.Date.parse(rest) catch none))
+  else if op == "time.parse"
+    print(show(datetime.Time.parse(rest) catch none))
+  else if op == "datetime.parse"
+    print(show(datetime.DateTime.parse(rest) catch none))
+  else if op == "time.round"
+    t = time_of(a[0])
+    k = int(a[2])
+    print(time_round(t, a[1], k, false), time_round(t, a[1], k, true))
+  else if op == "datetime.round"
+    dt = datetime_of(a[0])
+    k = int(a[2])
+    # Jiff 1.0.0 does not carry a round past midnight in years at or
+    # below 0 (DATETIME-DESIGN §6.8), so the oracle skips those.
+    if dt.year() <= 0
+      print("skip", datetime_round(dt, a[1], k, true))
+    else
+      print(datetime_round(dt, a[1], k, false), datetime_round(dt, a[1], k, true))
+  else if op == "date.nth_weekday"
+    print(show(date(a[0]).nth_weekday(int(a[1]), weekday(a[2])) catch none))
+  else if op == "date.nth_weekday_of_month"
+    print(show(date(a[0]).nth_weekday_of_month(int(a[1]), weekday(a[2])) catch none))
+  else if op == "date.with"
+    print(show(date(a[0]).with(year: int(a[1]), month: int(a[2]), day: int(a[3])) catch none))
+  else if op == "time.since"
+    print(time_of(a[0]).since(time_of(a[1])).iso())
+  else if op == "datetime.since"
+    print(datetime_of(a[0]).since(datetime_of(a[1])).iso())
+  else
+    print("-")
+
+# A value, or `error` when there is none.
+fun show[T](r: T?) -> String
+  if r as v
+    return String(v)
+  String("error")
+
+# The duration `s` writes, or `none` beyond a `Duration`'s range.
+fun maybe_duration(s: ?String) -> time.Duration?
+  time.Duration.parse(s) catch return none
+
+fun int(s: ?String) -> Int
+  text.parse_int(s) catch panic("not an integer:", s)
+
+fun date(s: ?String) -> datetime.Date
+  datetime.Date.parse(s) catch panic("not a date:", s)
+
+fun time_of(s: ?String) -> datetime.Time
+  datetime.Time.parse(s) catch panic("not a time:", s)
+
+fun datetime_of(s: ?String) -> datetime.DateTime
+  datetime.DateTime.parse(s) catch panic("not a datetime:", s)
+
+fun weekday(s: ?String) -> datetime.Weekday
+  for w in $variants(datetime.Weekday)
+    if String(w) == s
+      return w
+  panic("not a weekday:", s)
+
+fun time_round(t: datetime.Time, unit: ?String, k: Int, down: Bool) -> datetime.Time
+  if unit == "ns"
+    return t.floor(ns: k) if down else t.round(ns: k)
+  if unit == "us"
+    return t.floor(us: k) if down else t.round(us: k)
+  if unit == "ms"
+    return t.floor(ms: k) if down else t.round(ms: k)
+  if unit == "seconds"
+    return t.floor(seconds: k) if down else t.round(seconds: k)
+  if unit == "minutes"
+    return t.floor(minutes: k) if down else t.round(minutes: k)
+  t.floor(hours: k) if down else t.round(hours: k)
+
+fun datetime_round(t: datetime.DateTime, unit: ?String, k: Int, down: Bool) -> datetime.DateTime
+  if unit == "ns"
+    return t.floor(ns: k) if down else t.round(ns: k)
+  if unit == "us"
+    return t.floor(us: k) if down else t.round(us: k)
+  if unit == "ms"
+    return t.floor(ms: k) if down else t.round(ms: k)
+  if unit == "seconds"
+    return t.floor(seconds: k) if down else t.round(seconds: k)
+  if unit == "minutes"
+    return t.floor(minutes: k) if down else t.round(minutes: k)
+  if unit == "hours"
+    return t.floor(hours: k) if down else t.round(hours: k)
+  t.floor(days: k) if down else t.round(days: k)
