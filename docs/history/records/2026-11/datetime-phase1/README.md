@@ -49,14 +49,19 @@ unit keywords is phase 1b's.
    parameters, `ns` to `hours`. The hook refuses any call but one unit by
    name, and a function value of either; the body panics on any other
    increment, which only a value the hook cannot see reaches.
-5. **A negative constant** is what Rig's constant evaluation calls one
-   (`sema.constIntOf`, as the range check of a duration already used): a
-   literal, its negation, and a binding fixed to one, so `x = -3` then
-   `time.sleep(x)` is refused too.
+5. **A constant** is what Rig computes as one, for an `Int`
+   (`sema.constIntOf`) and a `Float` alike (`Checker.floatConst`, over
+   `const_floats`, the `Float` bindings never reassigned): a literal, a
+   float type's limit, `Float.inf()` and `nan()`, a binding fixed to a
+   constant, and their arithmetic. So `x = -3` or `x = -0.5` then
+   `time.sleep(x)` is refused, and so are `time.duration(Float.max)`,
+   `0.0 / 0.0` and `ms: 2 * 1e300`.
 6. **`days:` and `weeks:`** give the fix that fits every place phase 1
-   has, `hours: 24` (or the hours the count makes: `weeks: 2` is
-   `hours: 336`). The fixes for a value with a date, `add(days:)`, and
-   for an `Instant`, come with those types (phases 2 and 3).
+   has, in hours: the number for a constant that comes out whole
+   (`weeks: 2` is `hours: 336`, `days: 0.5` is `hours: 12`), else the
+   product (`hours: 24 * n`). The fixes for a value with a date,
+   `add(days:)`, and for an `Instant`, come with those types (phases 2
+   and 3).
 7. **`Duration.parse`** is Jiff 1.0.0's parser, from its source
    (`fmt/friendly/parser.rs`, `parser_label.rs`, `fmt/temporal/parser.rs`,
    `fmt/util.rs`): `P` or `p` after any sign is ISO 8601, anything else
@@ -101,6 +106,43 @@ the code needed:
 - **A `Duration?` parameter** takes the `Duration` packed as its
   optional (`rig.pack`), since an object's optional may be the runtime's
   own type rather than Zig's.
+
+## The independent review
+
+A review of the branch (2026-11-21) found no accepted program that emits
+wrong Zig or computes a wrong value, and eleven findings in diagnostics
+and the migration, each now fixed with a case that failed before it
+(`std-time-forms`, `std-time-waits`, `migrate_datetime.sh`):
+
+1. `days: 999999999999999999` overflowed the compiler; the hours are
+   computed checked.
+2. The `days:` fix was `hours: 24` for any count; it is now the hours of
+   the count, or `24 * n`.
+3. The fix for a unit given to a function of two durations named a
+   parameter already given and dropped the unit; it names the one not
+   given, `b: time.duration(ms: 2)`.
+4. A `Duration` default, `d: time.Duration = 5`, was told to write
+   `time.duration(5)`, which a default refuses; it is told that `none`
+   is its only default, `d: time.Duration? = none`, read as `d ??
+   time.duration(5)`.
+5. A `Float` constant was only a literal; it is one by the rule of an
+   `Int` (decision 5).
+6. `round(seconds: none)` and an `Int?` increment passed the hook and
+   always panicked; an increment that is not an `Int` is refused.
+7. `start.elapsed() < 5` said `time.Duration` cannot be ordered; an
+   ordering or `==` of a `Duration` beside a number names
+   `time.duration(5)`. (An ordering of two types, either `Ord`, now says
+   the two differ, for any type.)
+8. `g = d.round` pointed to `time.Duration.round`, then refused; it says
+   to wrap it in a closure.
+9. `time.Duration.round(seconds: 1)`, with no self, was checked as if
+   its keyword were the self; the hook skips a first argument only when
+   it is positional.
+10. A second run of `migrate-datetime.py` changed migrated code; a file,
+    block, or test case that names no removed form is left alone, and a
+    `rig reject` block is never rewritten.
+11. STD's "Until it lands" and SPEC's "a `Duration` parameter that takes
+    one comes first" were reworded to say what is true.
 
 ## Measured
 
