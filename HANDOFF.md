@@ -125,11 +125,17 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
-- **Datetime** (owner's design v3, 2026-11-17; branch `datetime-p0`):
-  phase 0 measured the `Duration` layout, generated and checked the zone
-  tables, and built the Jiff oracle (records/2026-11/datetime-phase0).
-  The owner chose `Duration` as one `Int` of nanoseconds, saturating like
-  Go's beyond ±292 years; phase 1, `std.time`, follows.
+- **Datetime** (owner's design v3, 2026-11-17, amended 2026-11-20;
+  [design/datetime.md](docs/design/datetime.md)): phase 0 measured the
+  `Duration` layout, generated and checked the zone tables, and built the
+  Jiff oracle (records/2026-11/datetime-phase0); the owner chose one
+  `Int` of nanoseconds. Phase 1 (branch `datetime-p1`) builds
+  `std.time`: `Duration` with its forms of one unit, its readers,
+  arithmetic, rounding and text, `Monotonic`, and waiting; it removes
+  `time.now()`, `time.Instant`, and the constants of nanoseconds, with
+  `tools/migrate-datetime.py` and a patch for Trig
+  (records/2026-11/datetime-phase1). Phase 1b, several unit keywords in
+  one call, is next, then `std.datetime`.
 - **The view vocabulary** (owner, 2026-11-20; #1192 landed PR 1):
   places, read and write views, read-only, unusable, and cells are the
   words of the docs, the messages, and the code. PR 1 is the wording; PR 2
@@ -372,8 +378,7 @@ A new session, human or agent, takes these steps in order:
   (records/2026-11/concurrency-lend-doctrine/build.md).
 - **Durations** (owner, 2026-11-04; branch `durations`), built: a bare
   number is seconds, an `Int` or a `Float`, and `ms:`, `us:`, `ns:`
-  name the other units, in `time.sleep`, `time.after`, `time.within`,
-  `Instant.at`, and `t.add`; `per:` is seconds. It changes what a
+  name the other units, wherever a duration is taken; `per:` is seconds. It changes what a
   0.3.0 program means, so `tools/migrate-durations.py` rewrites one
   (MIGRATING-0.3, "From 0.3.0 to 0.3.1"), and Trig and loco get its
   note before it merges.

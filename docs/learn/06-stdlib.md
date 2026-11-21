@@ -333,8 +333,8 @@ sub main()
 
 ## How long it took
 
-A tool that is slow should say so. `time.now()` reads the monotonic
-clock, and `elapsed()` is the time since a reading:
+A tool that is slow should say so. `time.monotonic()` reads the
+monotonic clock, and `elapsed()` is the time since a reading:
 
 ```rig
 use std.time
@@ -353,8 +353,8 @@ sub main()
   qtys = List([3, 1, 2, 5, 4, 1])
   start = time.monotonic()
   kinds = tally(?qtys)
-  took = start.elapsed().ns()
-  print(kinds, took >= 0, took < 1_000_000_000)
+  took = start.elapsed()
+  print(kinds, took >= time.duration(0), took < time.duration(1))
   print(time.within(1, || slow_audit(1)!) catch -1)
   r = time.within(ms: 5, || slow_audit(60_000)!) catch |e|
     print(e)
@@ -369,11 +369,12 @@ Stop.timeout
 -1
 ```
 
-A duration is an `Int` of nanoseconds, and `time.MS` and `time.SECOND`
-write one. A reading is an `Instant`, which only gives the time between
-two readings, so it cannot be mixed up with the wall clock. A timing
-differs on every run, so this program prints facts about it. A tool
-would print `took / time.MS`.
+A length of time is a `time.Duration`, which a call writes in seconds,
+`time.duration(1)`, or with a unit, `time.duration(ms: 5)`. A reading is
+a `Monotonic`, which only gives the time between two readings, so it
+cannot be mixed up with the wall clock. A timing differs on every run,
+so this program prints facts about it. A tool would print `took`, which
+reads `1ms 234us 567ns`, or `took.ms()`.
 
 `time.within(d, f)` is the deadline of [chapter four](04-concurrency.md).
 The audit that sleeps a minute is cut short at 5 ms and fails with
@@ -630,7 +631,7 @@ policy. **Words name the policy; sigils mark the mechanics.**
 | count by key | `(!m).ensure(k, 0) += 1` |
 | keep each key once | `!s.add(k)` |
 | put in order | `sort.sort(!xs)`, `sort.sort_by(!xs, less)` |
-| time a step | `time.now()`, `t.elapsed()`, `time.within(d, f)` |
+| time a step | `time.monotonic()`, `t.elapsed()`, `time.within(d, f)` |
 | draw at random | `random.Random.seeded(n)`, `!r.shuffle(!xs)` |
 | count past 64 bits | `bigint.parse(s)!`, `a.add(b)`, `a < b` |
 | check color | `terminal.Terminal.new(c, r)`, `!t.feed(s)`, `t.dump()` |

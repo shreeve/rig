@@ -72,13 +72,13 @@ fun main() -> Int
   n = text.parse_int(os.args()[1]) catch 1
   d = json.Doc()
   check = 0
-  start = time.now()
+  start = time.monotonic()
   for _ in 0..n
     (!d).load(?src) catch |e|
       print("error", e)
       return 1
     check += d.len
-  print(start.elapsed(), check)
+  print(start.elapsed().ns(), check)
   0
 '''
 

@@ -12200,7 +12200,7 @@ pub const duration = struct {
     /// (`rig.durationInt`, `rig.durationNs`).
     pub const field = "n";
     /// Keywords of a length that is not always the same, which no
-    /// duration takes (DATETIME-DESIGN §5.2).
+    /// duration takes (docs/design/datetime.md §5.2).
     pub const calendar = [_][]const u8{ "days", "weeks" };
 
     /// The nanoseconds in the unit `name` names, if it names one.
@@ -12251,7 +12251,7 @@ pub fn durationParam(ctx: *const SemContext, ty: TypeId) ?TypeId {
 }
 
 /// A std method whose arguments are checked beyond their types where it
-/// is called (DATETIME-DESIGN §10.2), so it is never taken as a value.
+/// is called (docs/design/datetime.md §10.2), so it is never taken as a value.
 pub const ArgCheck = enum {
     /// `round` and `floor` of `time.Duration`: exactly one unit's keyword
     /// and its increment, no positional argument, and an increment from 1

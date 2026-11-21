@@ -129,7 +129,7 @@ test "duration text both ways", '''
   true true true true true
 '''
   # `print` writes the friendly form and `iso` ISO 8601, and `parse`
-  # reads both back (DATETIME-DESIGN §5.5).
+  # reads both back (docs/design/datetime.md §5.5).
   ds = [time.duration(hours: 2.5), time.duration(ns: 1_234_567), time.duration(-1.5), time.duration(0), time.duration(hours: 9600)]
   for d in ds
     print(d, d.iso())

@@ -238,7 +238,7 @@ def rewrite(text, path, base, aliases, out):
             continue
         reading = text[s:e]
         if not reading.startswith(tuple(x + "." for x in aliases)):
-            note("CHECK", s, "`%s` taken as a reading of the monotonic clock" % reading.split("(")[0])
+            note("CHECK", s, "`%s` taken as a reading of the monotonic clock" % one_line(reading))
         m = COMPARE.match(text, e)
         if m:
             end = operand_end(text, m.end())
@@ -310,6 +310,10 @@ def rewrite(text, path, base, aliases, out):
         if in_code(text, m.start()):
             out.append("MANUAL %s: `%s` as a value gives a `time.Duration` now: write `|| %s().ns()` for its nanoseconds" % (where(m.start()), m.group(0), m.group(0)))
     return text, n
+
+
+def one_line(s):
+    return " ".join(s.split())
 
 
 def aliases_of(text):

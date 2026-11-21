@@ -5,11 +5,11 @@ one (the datetime design, §5.1): layout A, whole seconds (an `Int`) and
 nanoseconds (an `I32`) of one sign, 16 bytes; layout B, one `Int` of
 nanoseconds. It is not part of the test suite or CI.
 
-Both are stand-ins written in Rig over today's `std.time`, whose clock
-gives an `Int` of nanoseconds (`t.elapsed()`, `t.since(u)`) and whose
-waits take one (`time.sleep`, `time.within`, `time.after`), so each call
-converts there, as the design keeps the scheduler an `Int` of
-nanoseconds underneath. A monotonic reading is one `Int` in both.
+Both are stand-ins written in Rig over `std.time`, whose readings they
+take as an `Int` of nanoseconds (`t.elapsed().ns()`, `t.since(u).ns()`)
+and whose waits they give one (`ns:` of `time.sleep`, `time.within`,
+`time.after`), so each call converts there, as the scheduler is an `Int`
+of nanoseconds underneath. A monotonic reading is one `Int` in both.
 
 | Case | Each call |
 |---|---|
