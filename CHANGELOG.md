@@ -403,6 +403,7 @@ serve no HTTP.
 
 ### Added
 
+- **A maker called with constants is checked as Rig compiles** ([SPEC §13](SPEC.md#13-errors)): a call of `Date.new`, `Time.new`, or `DateTime.new` of `std.datetime` whose every argument is a constant (a literal, a module constant, a binding that never changes from a constant, or arithmetic on these) cannot fail, so it gives the plain `Date`, `Time`, or `DateTime` and takes no `!`: `datetime.Date.new(2026, 1, 31)`. A constant the maker refuses is a compile error naming why and the fix, "`datetime.Date.new(2023, 2, 29)` always fails, its arguments being constants: February 2023 has 28 days; write a day from 1 to 28"; `!` or `catch` on a call that cannot fail is rejected, as on any such call; with any argument known only as the program runs, the call is fallible as declared. The check is std's, held a second time in the compiler, and a test runs each value either side of every boundary through both. `std.datetime` came after 0.3.0, so no released program changes; `tools/migrate-constant-makers.py PATH` drops the `!` from a program's constant calls and names each call it leaves for a person.
 - **A failure's trace in debug builds.** A failure that leaves `main`
   writes `error: E.name` as before, then a line `  file.rig:L:C in
   NAME` for each site it passed, innermost first, naming the function
