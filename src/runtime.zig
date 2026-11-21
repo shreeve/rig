@@ -7837,10 +7837,12 @@ pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn
             const call: *@This() = @ptrCast(@alignCast(p));
             // This frame holds Zig's trace of a failure leaving `main`,
             // whose sites Zig drops once it is stored in memory: they
-            // are kept from the `const` first.
-            const result = callCode(@TypeOf(call.result), f, call.args);
-            keepMainTrace(result);
-            call.result = result;
+            // are kept from a `const` first.
+            if (comptime traced) {
+                const result = callCode(@TypeOf(call.result), f, call.args);
+                keepMainTrace(result);
+                call.result = result;
+            } else call.result = callCode(@TypeOf(call.result), f, call.args);
         }
     };
     var call: Call = .{ .args = args };

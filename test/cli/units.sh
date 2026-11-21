@@ -7,10 +7,12 @@
 source "$ROOT/test/cli/_lib.sh"
 
 # build_in DIR ARGS...: rig with its package in a directory of its own that
-# lasts between runs, its units from an earlier run removed.
+# lasts between runs, the roots of its units from an earlier run removed.
+# Their objects stay: a kept build's executable reads its debug
+# information from them, which a failure's trace needs.
 build_in() {
     local dir="$RIG_OUT_DIR/programs/units-$1"; shift
-    rm -f "$dir"/__rig_unit_*
+    rm -f "$dir"/__rig_unit_*.zig
     RIG_OUT_DIR="$dir" "$RIG" "$@"
 }
 

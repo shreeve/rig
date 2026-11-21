@@ -233,9 +233,11 @@ pub fn exportFn(comptime f: anytype, comptime sym: []const u8, comptime owner: u
             // This frame starts a trace of its own: a failure's sites
             // are kept for the caller (`rt.acrossTrace`), from a `const`,
             // since Zig drops them once the failure is stored in memory.
-            const result = @call(.auto, f, args.*);
-            if (comptime rt.traced) rt.acrossTrace().keep(result);
-            rp.* = result;
+            if (comptime rt.traced) {
+                const result = @call(.auto, f, args.*);
+                rt.acrossTrace().keep(result);
+                rp.* = result;
+            } else rp.* = @call(.auto, f, args.*);
         }
     };
     @export(&S.thunk, .{ .name = sym });

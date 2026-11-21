@@ -83,11 +83,17 @@ pub fn Task(comptime T: type) type {
                     defer control.finish();
                     // A call that may fail with fields writes them into
                     // the task's record.
-                    const result = if (comptime takesSlot(@TypeOf(f))) rt.callCode(T, f, a ++ .{rt.failSlot(&control.err)}) else rt.callCode(T, f, a);
                     // This fiber's first frame holds Zig's trace of a
-                    // failure leaving the task, which its waiter takes.
-                    control.trace.keep(result);
-                    return result;
+                    // failure leaving the task, which its waiter takes,
+                    // kept from a `const`: Zig drops it once the failure
+                    // is stored in memory.
+                    if (comptime rt.traced) {
+                        const result = if (comptime takesSlot(@TypeOf(f))) rt.callCode(T, f, a ++ .{rt.failSlot(&control.err)}) else rt.callCode(T, f, a);
+                        control.trace.keep(result);
+                        return result;
+                    }
+                    if (comptime takesSlot(@TypeOf(f))) return rt.callCode(T, f, a ++ .{rt.failSlot(&control.err)});
+                    return rt.callCode(T, f, a);
                 }
 
                 /// The record's arguments: the deadline of the task
@@ -1568,10 +1574,12 @@ fn isolateWith(f: anytype, slot: rt.ErrSlot) IsolateOut(@TypeOf(f)) {
             const run: *@This() = @ptrCast(@alignCast(p));
             // This frame starts a stack, and holds Zig's trace, whose
             // sites of a failure Zig drops once it is stored in memory:
-            // they are kept from the `const` first.
-            const result = run.f.call(rt.argsWithSlot(F, .{}, run.slot));
-            run.trace.keep(result);
-            run.result = result;
+            // they are kept from a `const` first.
+            if (comptime rt.traced) {
+                const result = run.f.call(rt.argsWithSlot(F, .{}, run.slot));
+                run.trace.keep(result);
+                run.result = result;
+            } else run.result = run.f.call(rt.argsWithSlot(F, .{}, run.slot));
             rt.sched.leaveApart(run.rec.home);
         }
     };
