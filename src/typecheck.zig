@@ -12386,16 +12386,35 @@ const Checker = struct {
     /// unit of a duration, since a date has no time of day.
     fn checkCalendarAdd(self: *Checker, method: []const u8, args: []const Sexp) Error!bool {
         for (args) |a| {
-            if (!a.isKind(.kwarg)) {
-                try self.errAt(a, "`{s}` of a `Date` takes its amounts by name, and no positional argument: `{s}(days: {s})`", .{ method, method, try self.plainText(a) });
-                return false;
-            }
-            const name_node = ir.Kwarg.name(a);
-            const name = self.text(name_node);
-            if (sema.duration.unitNs(name) != null) {
-                try self.errAt(name_node, "a `Date` has no time of day, so `{s}` takes no `{s}:`: a date and a time of day is a `DateTime`, `d.at(t).{s}({s}: {s})`", .{ method, name, method, name, try self.plainText(ir.Kwarg.value(a)) });
-                return false;
-            }
+            const time_of_day = if (!a.isKind(.kwarg)) blk: {
+                // Whole days by name, when the argument is an `Int`; a
+                // `Float` or a `Duration` is a time of day, which a date
+                // has none of.
+                const saved = self.under_poison;
+                self.under_poison = true;
+                defer self.under_poison = saved;
+                const ty = self.canonical(try self.synthExpr(a));
+                if (self.isPoison(ty)) return false;
+                if (ty == self.t().int_id or ty == self.t().int_literal_id) {
+                    try self.errAt(a, "`{s}` of a `Date` takes its amounts by name, and no positional argument: `{s}(days: {s})`", .{ method, method, try self.plainText(a) });
+                    return false;
+                }
+                if (ty != self.t().float_id and ty != self.t().float_literal_id and !sema.isDurationType(self.ctx, sema.unwrapOptionals(self.ctx, ty))) {
+                    try self.errAt(a, "`{s}` of a `Date` takes its amounts by name, an `Int` of each, and no positional argument: `{s}(days: 1)`", .{ method, method });
+                    return false;
+                }
+                break :blk a;
+            } else if (sema.duration.unitNs(self.text(ir.Kwarg.name(a))) != null) ir.Kwarg.name(a) else continue;
+            // The fix keeps every amount written, on a `DateTime`.
+            var all: std.ArrayList(u8) = .empty;
+            const al = self.ctx.arena.allocator();
+            for (args, 0..) |b, i| try all.print(al, "{s}{s}", .{ if (i > 0) ", " else "", try self.plainText(b) });
+            const what = if (a.isKind(.kwarg))
+                try std.fmt.allocPrint(al, "`{s}:`", .{self.text(ir.Kwarg.name(a))})
+            else
+                try std.fmt.allocPrint(al, "duration, `{s}`", .{try self.plainText(a)});
+            try self.errAt(time_of_day, "a `Date` has no time of day, so `{s}` takes no {s}: a date and a time of day is a `DateTime`, `d.at(t).{s}({s})`", .{ method, what, method, all.items });
+            return false;
         }
         return true;
     }
@@ -12459,7 +12478,7 @@ const Checker = struct {
             return false;
         }
         if (args.len > 1) {
-            try self.errAt(args[1], "`{s}` takes one unit and its increment, not {d}: {s}", .{ method, args.len, try self.oneIncrement(method, args) });
+            try self.errAt(args[1], "`{s}` takes one unit and its increment, not {d}: {s}", .{ method, args.len, try self.oneIncrement(method, args, kind) });
             return false;
         }
         const name_node = ir.Kwarg.name(args[0]);
@@ -12506,8 +12525,11 @@ const Checker = struct {
     /// The fix for `round` or `floor` given several units, `args`: the
     /// increment in the largest unit it is a whole number of when each is
     /// a constant, `round(minutes: 90)` for `hours: 1, minutes: 30`; else
-    /// the smallest unit given to write it in.
-    fn oneIncrement(self: *Checker, method: []const u8, args: []const Sexp) Error![]const u8 {
+    /// the smallest unit given to write it in. On a `Time` or a `DateTime`
+    /// (`kind`) the sum is offered only as an increment they take, one that
+    /// divides the next larger unit and is smaller than it; else the call
+    /// names one of the units given.
+    fn oneIncrement(self: *Checker, method: []const u8, args: []const Sexp, kind: sema.ArgCheck) Error![]const u8 {
         const a = self.ctx.arena.allocator();
         var smallest: ?i64 = null;
         var total: ?i128 = 0;
@@ -12525,8 +12547,18 @@ const Checker = struct {
         // is written in every type that rounds (docs/design/datetime.md §6.8).
         if (total) |sum| for (sema.duration.units) |unit| {
             if (@rem(sum, unit[1]) != 0 or @divTrunc(sum, unit[1]) < 1 or @divTrunc(sum, unit[1]) > 1_000_000_000) continue;
-            return std.fmt.allocPrint(a, "write the increment in one unit, `{s}({s}: {d})`", .{ method, unit[0], @divTrunc(sum, unit[1]) });
+            const n = @divTrunc(sum, unit[1]);
+            if (kind != .unit_increment) {
+                const limit: i128 = switch (unit[1]) {
+                    1, 1_000, 1_000_000 => 1_000,
+                    3_600_000_000_000 => 24,
+                    else => 60,
+                };
+                if (n >= limit or @rem(limit, n) != 0) break;
+            }
+            return std.fmt.allocPrint(a, "write the increment in one unit, `{s}({s}: {d})`", .{ method, unit[0], n });
         };
+        if (kind != .unit_increment) return std.fmt.allocPrint(a, "name one of them, `{s}({s})`", .{ method, try self.plainText(args[0]) });
         return std.fmt.allocPrint(a, "write the increment in one unit, the smallest given, `{s}:`", .{sema.duration.unitName(u)});
     }
 
@@ -23334,6 +23366,13 @@ fn checkMethodCall(ctx: *SemContext, c: sema.GenericMethodCall, subst: TypeSubst
             break :blk try a.print("and `{s}` is private to module `{s}`; declare it `pub` there", .{ owner, mname });
         }
         if (m.field.self_mode == .none) break :blk try a.print("and `{s}` takes no `self`", .{owner});
+        // A std method whose arguments are checked where it is called
+        // (`sema.stdArgCheck`) takes them by name, which a generic body's
+        // call, by position only, never gives: refused as a function
+        // value is (`typeMember`).
+        const home: *const SemContext = if (declared == ctx.module_id) ctx else ctx.foreign_semas.get(declared) orelse ctx;
+        if (sema.stdArgCheck(home, m.owner.name, c.method) != null)
+            break :blk try a.print("and `{s}` checks its arguments where it is called, by name, which a call in a generic body cannot give; call it where its type is written, or pass a closure that does", .{owner});
         if (m.field.self_mode != c.self_mode) break :blk try a.print("which {s} `{s}`, but `{s}` takes `self` as `{s}`", .{ verb, c.recv, owner, switch (m.field.self_mode) {
             .read => "?@",
             .write => "!@",

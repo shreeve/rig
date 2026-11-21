@@ -65,7 +65,7 @@ fail "a date's add takes its amounts by name", "3:13: `add` of a `Date` takes it
   print(datetime.Date.add(d, 1))
   print(d.add(months: 1, 2))
 
-fail "a date has no time of day", "2:13: a `Date` has no time of day, so `add` takes no `hours:`: a date and a time of day is a `DateTime`, `d.at(t).add(hours: 1)`", "3:22: a `Date` has no time of day, so `add` takes no `minutes:`: a date and a time of day is a `DateTime`, `d.at(t).add(minutes: 30)`", "4:21: a `Date` has no time of day, so `checked_add` takes no `seconds:`: a date and a time of day is a `DateTime`, `d.at(t).checked_add(seconds: 1)`", "5:13: a `Date` has no time of day, so `add` takes no `ns:`: a date and a time of day is a `DateTime`, `d.at(t).add(ns: 5)`", errors: 4
+fail "a date has no time of day", "2:13: a `Date` has no time of day, so `add` takes no `hours:`: a date and a time of day is a `DateTime`, `d.at(t).add(hours: 1)`", "3:22: a `Date` has no time of day, so `add` takes no `minutes:`: a date and a time of day is a `DateTime`, `d.at(t).add(days: 1, minutes: 30)`", "4:21: a `Date` has no time of day, so `checked_add` takes no `seconds:`: a date and a time of day is a `DateTime`, `d.at(t).checked_add(seconds: 1)`", "5:13: a `Date` has no time of day, so `add` takes no `ns:`: a date and a time of day is a `DateTime`, `d.at(t).add(ns: 5)`", errors: 4
   d = datetime.Date.new(2027, 1, 31)!
   print(d.add(hours: 1))
   print(d.add(days: 1, minutes: 30))
@@ -87,7 +87,7 @@ fail "with takes its fields by name", "3:14: `with` takes the fields it replaces
   print(dt.time().with(1)!)
   print(datetime.Time.with(dt.time(), 1)!)
 
-fail "time and datetime round take one allowed unit", "3:15: `round` takes a unit from `ns:` to `hours:` and its increment, and `days:` is none of them", "4:24: an increment of `round` divides the next larger unit and is smaller than it, so `minutes:` takes 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, or 30, and `45` is not one of them", "5:22: `round` takes `days: 1` and no other number of days, and `2` is not 1", "6:16: `round` takes a unit from `ns:` to `hours:`, or `days: 1`, and its increment, and `weeks:` is none of them", "7:20: an increment of `floor` divides the next larger unit and is smaller than it, so `ns:` takes 1, 2, 4, 5, 8, 10, 20, 25, 40, 50, 100, 125, 200, 250, or 500, and `3` is not one of them", "8:23: an increment of `round` divides the next larger unit and is smaller than it, so `hours:` takes 1, 2, 3, 4, 6, 8, or 12, and `24` is not one of them", "9:15: `round` takes a unit and its increment by name, `round(minutes: 15)`, and no positional argument", "10:26: `floor` takes one unit and its increment, not two: `hours: 1` or `minutes: 1`", errors: 8
+fail "time and datetime round take one allowed unit", "3:15: `round` takes a unit from `ns:` to `hours:` and its increment, and `days:` is none of them", "4:24: an increment of `round` divides the next larger unit and is smaller than it, so `minutes:` takes 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, or 30, and `45` is not one of them", "5:22: `round` takes `days: 1` and no other number of days, and `2` is not 1", "6:16: `round` takes a unit from `ns:` to `hours:`, or `days: 1`, and its increment, and `weeks:` is none of them", "7:20: an increment of `floor` divides the next larger unit and is smaller than it, so `ns:` takes 1, 2, 4, 5, 8, 10, 20, 25, 40, 50, 100, 125, 200, 250, or 500, and `3` is not one of them", "8:23: an increment of `round` divides the next larger unit and is smaller than it, so `hours:` takes 1, 2, 3, 4, 6, 8, or 12, and `24` is not one of them", "9:15: `round` takes a unit and its increment by name, `round(minutes: 15)`, and no positional argument", "10:26: `floor` takes one unit and its increment, not 2: name one of them, `floor(hours: 1)`", "11:27: `round` takes one unit and its increment, not 2: name one of them, `round(minutes: 1)`", "12:27: `round` takes one unit and its increment, not 2: write the increment in one unit, `round(ms: 250)`", "13:25: `round` takes one unit and its increment, not 2: name one of them, `round(days: 1)`", errors: 11
   t = datetime.Time.new(1, 0)!
   dt = datetime.Date.new(2027, 1, 31)!.at(t)
   print(t.round(days: 1))
@@ -98,6 +98,9 @@ fail "time and datetime round take one allowed unit", "3:15: `round` takes a uni
   print(dt.round(hours: 24))
   print(t.round(5))
   print(dt.floor(hours: 1, minutes: 1))
+  print(t.round(minutes: 1, seconds: 30))
+  print(t.round(seconds: 0, ms: 250))
+  print(dt.round(days: 1, hours: 1))
 
 fail "checked methods are not values", "1:19: `std.datetime.Date.add` checks its arguments where it is called, so it must be called; wrap it in a closure to pass it as a value", "2:23: `std.datetime.DateTime.checked_add` checks its arguments where it is called, so it must be called; wrap it in a closure to pass it as a value", "3:19: `std.datetime.Time.with` checks its arguments where it is called, so it must be called; wrap it in a closure to pass it as a value", "5:7: method `round` must be called; wrap it in a closure to pass it as a value", errors: 4
   f = datetime.Date.add
@@ -127,3 +130,68 @@ test "sizes", "1 4 8 12"
   # §7.3: a `Weekday` is a byte, a `Date` four, a `Time` eight, and a
   # `DateTime` the two.
   print($size(datetime.Weekday), $size(datetime.Date), $size(datetime.Time), $size(datetime.DateTime))
+
+fail "a date's add refuses a duration by position", "6:13: a `Date` has no time of day, so `add` takes no duration, `0.5`: a date and a time of day is a `DateTime`, `d.at(t).add(0.5)`", "7:13: a `Date` has no time of day, so `add` takes no duration, `time.duration(hours: 24)`: a date and a time of day is a `DateTime`, `d.at(t).add(time.duration(hours: 24))`", "8:21: a `Date` has no time of day, so `checked_add` takes no duration, `half`: a date and a time of day is a `DateTime`, `d.at(t).checked_add(half, days: 1)`", "9:13: `add` of a `Date` takes its amounts by name, an `Int` of each, and no positional argument: `add(days: 1)`", "10:23: a `Date` has no time of day, so `add` takes no `hours:`: a date and a time of day is a `DateTime`, `d.at(t).add(weeks: 1, hours: 2)`", errors: 5
+  # The fix for a positional argument is `days:` only for an `Int`; for a
+  # `Float` or a `Duration`, and for a unit beside other amounts, it is a
+  # `DateTime` with every amount written.
+  d = datetime.Date.new(2027, 1, 31)!
+  half = time.duration(0.5)
+  print(d.add(0.5))
+  print(d.add(time.duration(hours: 24)))
+  print(d.checked_add(half, days: 1)!)
+  print(d.add("x"))
+  print(d.add(weeks: 1, hours: 2))
+
+fail "a generic body cannot call a checked method", "19:7: `bump[datetime.DateTime]` cannot use `T = datetime.DateTime`: the generic body calls `x.add(d, 2, 0, 0, 0)`, and `datetime.DateTime.add` checks its arguments where it is called, by name, which a call in a generic body cannot give; call it where its type is written, or pass a closure that does", "20:7: `next[datetime.Date]` cannot use `T = datetime.Date`: the generic body calls `x.add(0, 0, 0, 1)`, and `datetime.Date.add` checks its arguments where it is called", "21:7: `change[datetime.Date]` cannot use `T = datetime.Date`: the generic body calls `x.with(y, y, y)`, and `datetime.Date.with` checks its arguments where it is called", "22:7: `near[datetime.Time]` cannot use `T = datetime.Time`: the generic body calls `x.round(k, k, k, k, k, k)`, and `datetime.Time.round` checks its arguments where it is called", "23:7: `near[time.Duration]` cannot use `T = time.Duration`: the generic body calls `x.round(k, k, k, k, k, k)`, and `time.Duration.round` checks its arguments where it is called", errors: 5
+  # §10.2: a generic body passes every argument by position, so each
+  # check would be passed by: `x.add(d, 2, …)` on a `DateTime` would be
+  # two years. A checked method is refused there, as it is as a value,
+  # for std.datetime's checks and std.time's alike.
+  fun bump[T](x: T, d: time.Duration?) -> T
+    x.add(d, 2, 0, 0, 0)
+
+  fun next[T](x: T) -> T
+    x.add(0, 0, 0, 1)
+
+  fun change[T](x: T, y: Int?) -> T!
+    x.with(y, y, y)!
+
+  fun near[T](x: T, k: Int?) -> T
+    x.round(k, k, k, k, k, k)
+
+  dt = datetime.DateTime.new(2027, 1, 31, 1)!
+  d = datetime.Date.new(2027, 1, 31)!
+  print(bump(dt, time.duration(1)))
+  print(next(d))
+  print(change(d, 1)!)
+  print(near(datetime.Time.new(1, 7)!, 15))
+  print(near(time.duration(90), none))
+
+test "a generic body calls an unchecked method", '''
+  01:00:01 2027-01-31T01:00:01
+'''
+  # `Time.add` takes one duration and checks nothing, so a generic body
+  # may call it; a closure carries a checked one.
+  fun later[T](x: T, d: time.Duration) -> T
+    x.add(d)
+
+  fun apply[T](x: T, f: ?fun(T) -> T) -> T
+    f(x)
+
+  print(later(datetime.Time.new(1, 0)!, time.duration(1)), apply(datetime.DateTime.new(2027, 1, 31, 1)!, |x| x.add(1)))
+
+test "datetime add of several units", '''
+  2026-03-09T05:00:00 2026-03-09T04:00:00 2026-03-08T02:59:59.5
+  2026-03-09T05:00:00 range 2026-03-07T02:00:00
+'''
+  # §5.2 and §6.2: several unit keywords add up into the duration, each
+  # of either sign, beside the calendar amounts, applied after them.
+  fun step(dt: datetime.DateTime, h: Int) -> String
+    r = dt.checked_add(hours: h, minutes: 30, days: 0) catch return String("range")
+    String(r)
+
+  dt = datetime.DateTime.parse("2026-03-08T02:30")!
+  print(dt.add(days: 1, hours: 2, minutes: 30), dt.add(days: 1, hours: 2, minutes: -30), dt.add(minutes: 30, seconds: -0.5))
+  top = datetime.DateTime.new(9999, 12, 31, 22)!
+  print(dt.checked_add(days: 1, hours: 2, minutes: 30)!, step(top, 2), dt.checked_add(days: -1, hours: -1, minutes: 30)!)
