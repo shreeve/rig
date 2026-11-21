@@ -648,8 +648,8 @@ header, and a `[T: Job]` may be sent to another task.
 
 **What a bounded body may do.** Call what its bounds declare, and use
 what the built-in bounds name, and no more. Actors never provide a
-user API: `*Actor[A]` meets none, and nothing makes a view of an actor's
-value, so no bound reaches an actor's state around its mailbox.
+user API: `*Actor[A]` meets none, `add` gives `Actor[A]` none, and
+nothing makes a view of an actor's value, so no bound reaches an actor's state around its mailbox.
 
 **Facts no API names.** A bound states what a body does that an API
 names. A few facts of a type's parts have no API: whether a literal

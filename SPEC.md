@@ -3881,6 +3881,8 @@ addition's methods belong to the API and never become methods of the
 type. `add` names a type by its name, never a view, an optional, a
 handle, an array, a slice, or a function type, and a type of the
 module itself only under a bound, since its header says the rest. It
+names no actor, `Actor[T]`, which is reached only through its handle
+and is viewed as no API object ([Actors](#actors)). It
 names each of the type's compile-time parameters, a value parameter as
 a type parameter, `add Slot[n]: Shape`, `add Table[T, n]: Shape`, and
 its methods read `n`. A
@@ -15017,7 +15019,10 @@ of its own, so it stands only behind `*` or `~`: `Actor[T]`,
 a result, a local, a field, an element, or a type argument, and the
 value is viewed as no API object. A view of an actor is a view of its
 handle, `?*Actor[T]` or `!*Actor[T]`, which is what `?a` and `!a`
-make, and what a generic `?T` given `?a` stands for.
+make, and what a generic `?T` given `?a` stands for. So `add` gives
+an actor no API, `Actor[T]`, `Actor[C]`, or its handle: the methods
+the handle calls are messages to the actor's value, and an API goes
+on that value's own type, `obj Counter: Named`, for its values.
 
 ```rig reject
 obj Counter
@@ -15036,6 +15041,25 @@ sub main()
 
 ```error
 an actor is reached only through its handle, so a view of one views the handle: write `?*Actor[Counter]`
+```
+
+```rig reject
+api Named
+  fun name(?@) -> Int
+    1
+
+obj Counter
+  n: Int
+
+add Actor[T]: Named
+
+sub main()
+  c = *Actor(Counter(n: 1))
+  print(1)
+```
+
+```error
+an actor is reached only through its handle, whose methods are messages, so `add` gives `Actor[T]` no API
 ```
 
 A method called through a handle is a message: the actor runs its

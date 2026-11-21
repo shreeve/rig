@@ -946,3 +946,18 @@ test "cell write views of an API object and a Signal", "2 7"
   sig: *Signal[Int] = *Signal(0)
   poke(!sig)
   print(b.size(), sig.get())
+
+test "cell Signal takes an addition", seeds: 20, "1"
+  # A read view of a Signal views its value, a `Signal[T]`, so an addition
+  # to `Signal[T]` makes the view an API object.
+  api G
+    fun one(?@) -> Int
+      1
+
+  add Signal[T]: G
+
+  fun look(g: ?{G}) -> Int
+    g.one()
+
+  s = *Signal(1)
+  print(look(?s))

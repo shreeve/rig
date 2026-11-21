@@ -2333,6 +2333,12 @@ pub const TypeResolver = struct {
         };
         if (what) |w| {
             const inner = innerNamed(tnode);
+            // `add *Actor[T]`: no addition reaches an actor, through its
+            // handle or its value.
+            if (inner != null and try self.namesActor(inner.?)) {
+                try self.ctx.errAt(tnode, sema.actor_added, .{text});
+                return null;
+            }
             if (inner) |n| {
                 try self.ctx.errAt(tnode, "`add` names a type, and `{s}` is {s}: write `add {s}: {s}`", .{ text, w, diag.textOf(self.ctx.source, self.ctx.span(n)), apis_text });
             } else try self.ctx.errAt(tnode, "`add` names a type, and `{s}` is {s}", .{ text, w });
@@ -2341,6 +2347,11 @@ pub const TypeResolver = struct {
         if (!tnode.isKind(.generic_inst)) {
             const ty = try self.resolveType(tnode);
             if (self.isPoison(ty)) return null;
+            // `type A = Actor[C]` then `add A: G`.
+            if (sema.actorValue(self.ctx, ty) != null) {
+                try self.ctx.errAt(tnode, sema.actor_added, .{try sema.formatType(self.ctx, ty)});
+                return null;
+            }
             return ty;
         }
         // `add Wrap[T: Shape]`: the generic type at the addition's own
@@ -2360,6 +2371,14 @@ pub const TypeResolver = struct {
             }
             break :blk id;
         };
+        // An actor's value stands only behind its handle, whose methods
+        // are messages (`sema.actorMisplaced`): no value of `Actor[T]`
+        // is viewed as an API object, so an addition to it, for every
+        // `T` or for one, could never take effect.
+        if (gid == self.ctx.actor_sym_id) {
+            try self.ctx.errAt(tnode, sema.actor_added, .{text});
+            return null;
+        }
         const tparams = self.ctx.symbols.items[gid].type_params orelse &.{};
         const args = ir.GenericInst.args(tnode);
         var tys: std.ArrayList(TypeId) = .empty;
@@ -2395,6 +2414,19 @@ pub const TypeResolver = struct {
         // `Slot[n]` is a number below `n`, a type of its own kind.
         if (gid == self.ctx.slot_sym_id) return try self.ctx.intern(.{ .slot = tys.items[0] });
         return try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = gid, .args = tys.items } });
+    }
+
+    /// Whether `node`, the named type inside a view, handle, or other
+    /// form `add` refuses (`innerNamed`), is an actor's value:
+    /// `Actor[T]`, or an alias of an `Actor[C]`.
+    fn namesActor(self: *TypeResolver, node: Sexp) Error!bool {
+        const leaf = if (node.isKind(.generic_inst)) ir.GenericInst.name(node) else node;
+        if (leaf != .src) return false;
+        const name = identAt(self.ctx.source, leaf) orelse return false;
+        const id = self.ctx.lookup(self.scope, name) orelse return false;
+        if (node.isKind(.generic_inst)) return id == self.ctx.actor_sym_id;
+        if (self.ctx.symbols.items[id].kind != .type_alias) return false;
+        return sema.actorValue(self.ctx, try self.resolveAlias(id)) != null;
     }
 
     /// `error L = A | B`: the sets the union joins, each a set declared

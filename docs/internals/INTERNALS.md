@@ -1926,7 +1926,9 @@ view only in some places, and one decider says where:
   `?Actor[T]`, is reported with its sigil, as the view of the handle
   to write, `?*Actor[T]`, where the view is resolved, and where an
   expression's type argument is (`Checker.typeArg`); `erasable`
-  refuses to view one as an API object. It is decided by the type's
+  refuses to view one as an API object, and `TypeResolver.addedType`
+  an addition to one or to its handle (`sema.actor_added`), which
+  could never take effect. It is decided by the type's
   structure alone, where the type is written.
 
 Every spelled type asks it where it stands
