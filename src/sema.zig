@@ -3003,12 +3003,39 @@ pub fn bracketArgs(node: Sexp) []const Sexp {
 }
 
 /// What fills one parameter of a call: the argument at an index of the
-/// call's argument list (a `(kwarg ...)` stands for its value), or the
-/// parameter's default value, a literal from the declaring module.
+/// call's argument list (a `(kwarg ...)` stands for its value), the
+/// parameter's default value, a literal from the declaring module, or
+/// the parts of a duration given by several units' keywords.
 pub const ArgSlot = union(enum) {
     arg: u32,
     default: DefaultValue,
+    parts: DurationParts,
 };
+
+/// A duration parameter filled by several units' keywords, which add
+/// up, `time.sleep(hours: 1, minutes: 30)` (`duration`): the indexes of
+/// the parts in the call's argument list, in the order written. Each
+/// part is an argument whose nanoseconds emit writes as an `Int`
+/// (`Duration` with no `ty`), and emit adds them with a checked add
+/// (`rig.durationSum`) into the `Duration` `ty`, packed as the
+/// `Duration?` `opt` when the parameter is one, or into an `Int` of
+/// nanoseconds where `ty` is `type_invalid` (`time.after`).
+pub const DurationParts = struct {
+    args: []const u32,
+    ty: TypeId = type_invalid,
+    opt: TypeId = type_invalid,
+};
+
+/// The parameter slot of `slots` that argument `ai` fills, alone or as
+/// a part.
+pub fn slotOf(slots: []const ArgSlot, ai: usize) ?usize {
+    for (slots, 0..) |s, i| switch (s) {
+        .arg => |a| if (a == ai) return i,
+        .default => {},
+        .parts => |p| for (p.args) |a| if (a == ai) return i,
+    };
+    return null;
+}
 
 pub const DefaultValue = struct {
     expr: Sexp,
@@ -3090,12 +3117,14 @@ pub const DeclaredKeeps = struct { names: Sexp, params: Sexp };
 
 /// What fills a run-time parameter of a call: the self of a method
 /// called on a value, the argument at an index of the call's argument
-/// list (a `(kwarg ...)` stands for its value), or the parameter's
-/// default value.
+/// list (a `(kwarg ...)` stands for its value), the parameter's
+/// default value, or the parts of a duration (`ArgSlot.parts`),
+/// numbers, which carry no loans.
 pub const ParamFill = union(enum) {
     self,
     arg: u32,
     default,
+    parts,
 };
 
 /// A checked call's parameters: what fills each, in the callee's order,
@@ -3168,7 +3197,7 @@ pub const CallParams = struct {
             const same = switch (what) {
                 .self => f == .self,
                 .arg => |a| f == .arg and f.arg == a,
-                .default => false,
+                .default, .parts => false,
             };
             if (same and mask & paramBit(i) != 0) return true;
         }
@@ -3438,12 +3467,18 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         []const ArgSlot => for (v) |slot| switch (slot) {
             .arg => |i| try w.print(" arg{d}", .{i}),
             .default => try w.writeAll(" default"),
+            .parts => |p| {
+                try w.writeAll(" parts");
+                for (p.args, 0..) |i, k| try w.print("{s}arg{d}", .{ if (k == 0) "(" else "+", i });
+                try w.writeAll(if (p.opt != type_invalid) ") Duration?" else if (p.ty != type_invalid) ") Duration" else ")");
+            },
         },
         CallParams => {
             for (v.fills) |f| switch (f) {
                 .self => try w.writeAll(" self"),
                 .arg => |i| try w.print(" arg{d}", .{i}),
                 .default => try w.writeAll(" default"),
+                .parts => try w.writeAll(" parts"),
             };
             try writeMask(w, "result", v.origins.result, v.fills.len);
             try writeMask(w, "stores", v.origins.stores, v.fills.len);
@@ -12188,7 +12223,9 @@ pub fn selectType(ctx: *SemContext, names: []const []const u8, payloads: []const
 /// (`TypeResolver.paramDurations`) takes a duration form: a bare number
 /// of seconds, an `Int` or a `Float`, `time.sleep(2)`, `time.sleep(0.5)`;
 /// one unit's keyword and a number, `time.sleep(ms: 40)`; or a `Duration`
-/// value. The deadline arm `time.after` and the option `per:` of
+/// value. Several units' keywords add up, each unit at most once,
+/// `time.sleep(hours: 1, minutes: 30)` (`DurationParts`). The deadline
+/// arm `time.after` and the option `per:` of
 /// `task.supervise` and `*Actor.supervised`, which the checker types,
 /// take the same forms and give the runtime an `Int` of nanoseconds.
 /// The one place the spelling is decided.
@@ -12275,7 +12312,8 @@ pub fn stdArgCheck(home: *const SemContext, owner: []const u8, method: []const u
 /// for it. A number counts units of `unit_ns` nanoseconds, a `Float`
 /// rounded to whole nanoseconds, and becomes the `Duration` `ty`
 /// (`rig.durationInt`, `rig.durationFloat`), or an `Int` of nanoseconds
-/// where `ty` is `type_invalid` (`time.after`, `per:`). A `unit_ns` of 0
+/// where `ty` is `type_invalid` (`time.after`, `per:`, and each part of
+/// a duration given by several units, `DurationParts`). A `unit_ns` of 0
 /// is a `Duration` value given where an `Int` of nanoseconds goes, whose
 /// nanoseconds the runtime reads (`rig.durationNs`). A `Duration?`
 /// parameter, `opt`, takes the `Duration` packed as its optional.

@@ -4743,6 +4743,16 @@ pub fn durationFloat(comptime T: type, x: f64, comptime unit: i64) T {
     return durationOf(T, @intFromFloat(ns));
 }
 
+/// The sum of `parts`, each an `Int` of nanoseconds, as `T`
+/// (`durationInt`): a duration given by several units' keywords,
+/// `time.sleep(hours: 1, minutes: 30)` (`sema.DurationParts`). Added
+/// in the order written, checked: a sum past an `Int` panics.
+pub inline fn durationSum(comptime T: type, parts: anytype) T {
+    var ns: i64 = 0;
+    inline for (parts) |p| ns = std.math.add(i64, ns, p) catch @panic("a duration is more nanoseconds than a Duration holds");
+    return durationOf(T, ns);
+}
+
 /// `ns` nanoseconds as `T`: std.time's `Duration`, whose one field is
 /// its nanoseconds (`sema.duration.field`), or the `Int` itself.
 inline fn durationOf(comptime T: type, ns: i64) T {

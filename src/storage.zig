@@ -339,13 +339,16 @@ fn callHoistsArgs(ctx: *const SemContext, call: Sexp) bool {
     if (ctx.callSlotsOf(call)) |slots| {
         var last: ?usize = null;
         for (slots) |slot| {
-            const ai = switch (slot) {
-                .arg => |a| a,
+            const given: []const u32 = switch (slot) {
+                .arg => |*a| a[0..1],
                 .default => continue,
+                .parts => |p| p.args,
             };
-            if (isPureArg(ctx, argValue(args[ai]))) continue;
-            if (last) |l| if (ai < l) return true;
-            last = ai;
+            for (given) |ai| {
+                if (isPureArg(ctx, argValue(args[ai]))) continue;
+                if (last) |l| if (ai < l) return true;
+                last = ai;
+            }
         }
     }
     const callee = ctx.calleeOf(call);
@@ -471,9 +474,7 @@ pub fn argParams(ctx: *const SemContext, call: Sexp) []const TypeId {
 /// unknown.
 fn argumentParam(ctx: *const SemContext, call: Sexp, ai: usize) ?TypeId {
     const params = argParams(ctx, call);
-    const slot = if (ctx.callSlotsOf(call)) |slots| for (slots, 0..) |s, i| {
-        if (s == .arg and s.arg == ai) break i;
-    } else ai else ai;
+    const slot = if (ctx.callSlotsOf(call)) |slots| sema.slotOf(slots, ai) orelse ai else ai;
     return if (slot < params.len) params[slot] else null;
 }
 

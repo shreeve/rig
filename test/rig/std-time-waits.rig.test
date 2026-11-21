@@ -93,3 +93,55 @@ fail "a negative wait of a constant name or sum", "3:12: a wait of `x` is negati
 test "a duration other than a wait may be negative", "-1s -5ms"
   # Only a wait refuses a negative constant.
   print(time.duration(-1), time.Monotonic.at(0).add(ms: -5).since(time.Monotonic.at(0)))
+
+test "waits of several units", "true -1 7 8 9 -1", seeds: 20
+  # `sleep`, `within` (a closure literal after the units, or `f:` by
+  # name), and the deadline arm take several units, which add up; a part
+  # evaluated first, as an argument that is not pure is, is read from
+  # where it was evaluated.
+  fun ms(n: Int) -> Int
+    n
+
+  start = time.monotonic()
+  time.sleep(ms: 1, us: 500)!
+  time.sleep(seconds: 0, ms: ms(1), us: -500)!
+  done = start.elapsed() >= time.duration(ms: 2)
+  ch = *Chan[Int](1)
+  v = match task.select(got: !ch.on_recv(), late: time.after(ms: 1, us: 1))!
+    .got(x) => x ?? 0
+    .late => -1
+  r = time.within(seconds: 1, ms: -500, || 7)!
+  q = time.within(seconds: 1, ms: ms(-500), f: || 8)!
+  p = time.within(minutes: 1, seconds: ms(-59), || 9)!
+  w = match task.select(got: !ch.on_recv(), late: time.after(ms: ms(1), us: ms(2)))!
+    .got(x) => x ?? 0
+    .late => -1
+  print(done, v, r, q, p, w)
+
+test "a negative wait of several units at run time is none", '''
+  true
+  Stop.timeout
+'''
+  # A sum that turns out negative as the program runs waits none.
+  fun minus(n: Int) -> Int
+    -n
+
+  start = time.monotonic()
+  time.sleep(seconds: 1, ms: minus(1500))!
+  print(start.elapsed() < time.duration(1))
+  time.within(ms: 1, us: minus(5000), ||
+    time.sleep(1)!
+    print("slept")
+  ) catch |e| print(e)
+
+fail "a negative wait of several units written as constants", "2:12: a wait of `hours: 1, minutes: -90` is negative, -30m: a constant wait is zero or more", "3:54: a wait of `seconds: 1, ms: -1001` is negative, -1ms: a constant wait is zero or more", "4:17: a wait of `ms: -1, us: 500` is negative, -500us: a constant wait is zero or more", errors: 3
+  ch = *Chan[Int](1)
+  time.sleep(hours: 1, minutes: -90)!
+  _ = task.select(got: !ch.on_recv(), late: time.after(seconds: 1, ms: -1001))!
+  _ = time.within(ms: -1, us: 500, || 7)!
+
+test "a wait of several units of mixed signs", "true", seeds: 20
+  # A part may be negative while the sum is not.
+  time.sleep(hours: 0, minutes: 1, seconds: -60)!
+  time.sleep(ms: 2, us: -1500)!
+  print(true)

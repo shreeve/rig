@@ -9894,6 +9894,7 @@ pub const Emitter = struct {
             if (slots) |sl| switch (sl[i]) {
                 .arg => |ai| try self.emitArg(args[ai], params, i),
                 .default => |d| try self.emitDefault(self.semaOf(d.source) orelse return self.unsupported(call, "this default argument"), d.expr, if (i < params.len) params[i] else facts.type_invalid, false),
+                .parts => |p| try self.emitDurationParts(args, p),
             } else try self.emitArg(args[i], params, i);
         }
         // The slot its `!` or `catch` gives a call that may fail with
@@ -9903,6 +9904,23 @@ pub const Emitter = struct {
             self.fail_slot = null;
             if (self.calleeTakesSlot(call)) try self.w.print("{s}{s}", .{ if (written > 0) ", " else "", s.expr });
         };
+    }
+
+    /// A duration given by several units' keywords (`sema.DurationParts`):
+    /// `rig.durationSum(T, .{ a, b })`, each part the `Int` of nanoseconds
+    /// it counts, in the order written, packed as the `Duration?` its
+    /// parameter takes when it is one.
+    fn emitDurationParts(self: *Emitter, args: []const Sexp, p: facts.DurationParts) Error!void {
+        if (p.opt != facts.type_invalid) try self.w.print("rig.pack({s}, ", .{try self.typeText(p.opt)});
+        try self.w.writeAll("rig.durationSum(");
+        if (p.ty == facts.type_invalid) try self.w.writeAll("i64") else try self.emitTypeTy(p.ty);
+        try self.w.writeAll(", .{ ");
+        for (p.args, 0..) |ai, k| {
+            if (k > 0) try self.w.writeAll(", ");
+            try self.emitBare(argValue(args[ai]));
+        }
+        try self.w.writeAll(" })");
+        if (p.opt != facts.type_invalid) try self.w.writeAll(")");
     }
 
     /// Whether `call`'s callee takes the slot a failure's fields go in:
@@ -10347,9 +10365,7 @@ pub const Emitter = struct {
         for (args, 0..) |a, ai| {
             const value = argValue(a);
             if (try self.isPureArg(value)) continue;
-            const slot: usize = if (slots) |ss| for (ss, 0..) |s, i| {
-                if (s == .arg and s.arg == ai) break i;
-            } else ai else ai;
+            const slot: usize = if (slots) |ss| facts.slotOf(ss, ai) orelse ai else ai;
             try self.hoist(.{ .node = value, .name = "", .flag = try self.fmt("__rig_live_{d}_{d}", .{ id, ai }) }, .{ .pair = .{ id, @intCast(ai) } }, params, slot, fields);
         }
     }
