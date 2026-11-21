@@ -1880,8 +1880,8 @@ emitter ask these, never a predicate built for another question:
 | `typeHasDropGlue` | needs cleanup: a user `drop`, or holds a `*T`, `~T`, List, `^T`, String, or owned closure |
 | `maybeDropGlue` | holds a type parameter by value, so whether it needs cleanup depends on the instance |
 | `isUnique` | declared `unique`, or a `Cell`, or holds one of those inline: never copied |
-| `holdsCellByValue` | holds a `Cell` inline (not behind a handle, a view, or a List's or box's buffer): a value of it lives only behind a shared handle (below) |
-| `changesByMark` | a `Cell`, a `Signal`, or a value that holds a Cell by value: what a write view reaches through a `*`, by a marked call (below). A write view of such a value changes its Cells and Signals only; the checker blocks every other write through it as one through a shared handle |
+| `holdsCellByValue` | is or holds a `Cell` inline (not behind a handle, a view, or a List's or box's buffer), a `Signal`, a channel, and an actor among them (`isCellBuiltin`): a value of it lives only behind a shared handle (below) |
+| `changesByMark` | `holdsCellByValue` of the concrete type, never an API object or a type parameter: what a write view reaches through a `*`, by a marked call (below). A write view of such a value changes its Cells and Signals only; the checker blocks every other write through it as one through a shared handle |
 | `moves` | `yes` when it needs cleanup or is unique, `depends` for a type parameter, otherwise `no`: a bare use moves it rather than copying it |
 | `copies` | does not move and holds no write view: duplicated by a bit copy with no owner involved (plain data, read views, and values holding only those). The one copy fact: a bare use, a copy out of a view (`copiedThrough`), `fill`, `copy`, `[n of x]`, `List.filled`, `resize`, a `\|+x\|` capture, `Cell.get`, and the generic requirement `copies` all ask it |
 | `copiedThrough` | the value a `?T` or `!T` (not a `![]T`) hands over where its context reads a value: `T`, when `T` copies |

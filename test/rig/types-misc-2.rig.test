@@ -2876,7 +2876,7 @@ test "type names", '''
   List[Int]
   *Cell[Bool]
   ^Point
-  Signal[F32]
+  *Signal[F32]
   List[List[I8]]
   Int?
   (Int?)?
@@ -2995,7 +2995,7 @@ test "type names", '''
     show[List[Int]]($name(List[Int]))
     show[*Cell[Bool]]($name(*Cell[Bool]))
     show[^Point]($name(^Point))
-    show[Signal[F32]]($name(Signal[F32]))
+    show[*Signal[F32]]($name(*Signal[F32]))
     show[List[List[I8]]]($name(List[List[I8]]))
     show[Int?]($name(Int?))
     show[OO]($name(OO))

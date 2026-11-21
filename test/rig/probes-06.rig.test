@@ -4125,7 +4125,7 @@ test "audit-sema-mc3", "4 4"
   a: [k]Int = [k of 1]
   print(k, a.len)
 
-fail "audit-sema-sig4", "`y` is assigned but never read; use it, or discard the value with `_ = ...`"
+fail "audit-sema-sig4", "2:4: a value of `Signal[Int]` holds a Cell, so it lives only behind a shared handle: write `*Signal[Int]`", errors: 1
   x = *Signal[Int](value: 1)
   y: Signal[Int]? = none
   print(x.get())
