@@ -9156,6 +9156,11 @@ const Checker = struct {
                         return self.t().invalid_id;
                     }
                     if (e.isKind(.share) or e.isKind(.weak)) try sema.requireHandleOf(self.ctx, inner, self.startOf(e), if (e.isKind(.share)) "`*`" else "`~`");
+                    // `List[?Actor[T]]()`: a view of an actor views its handle.
+                    if ((e.isKind(.read) or e.isKind(.write)) and sema.actorMisplaced(self.ctx, inner, .viewed)) {
+                        try self.errAt(e, sema.actor_viewed, .{ if (e.isKind(.read)) "?" else "!", try self.tyName(inner) });
+                        return self.t().invalid_id;
+                    }
                     return self.ctx.intern(switch (e.kind().?) {
                         .share => .{ .shared = inner },
                         .weak => .{ .weak = inner },
@@ -10515,8 +10520,6 @@ const Checker = struct {
                 try self.errAt(arg, "`{s}` moves values whole, and a `{s}` changes only by its marked calls (`!s.set(v)`), which may be running its subscribers", .{ what, try self.tyName(place) });
             } else if (sym == self.ctx.chan_sym_id) {
                 try self.errAt(arg, "`{s}` moves values whole, and a `{s}` changes only by its sends and receives, marked calls every handle shares", .{ what, try self.tyName(place) });
-            } else if (sym == self.ctx.actor_sym_id) {
-                try self.errAt(arg, "`{s}` moves values whole, and an `{s}` changes only by its own methods, called through its handles", .{ what, try self.tyName(place) });
             } else try self.errAt(arg, "`{s}` moves values whole, and `{s}` holds a Cell, so it lives only behind a shared handle, whose other fields only read", .{ what, try self.tyName(place) });
             return null;
         }
@@ -17970,6 +17973,12 @@ const Checker = struct {
             try self.errAt(e, "`{s}` is a `{s}`, which gives no view of another API object: an object's API and braces are fixed where its value is erased", .{ self.sourceText(viewed), try self.tyName(self.ctx.typeOf(viewed) orelse actual) });
             return null;
         }
+        // An actor is reached only through its handle (`sema.actorMisplaced`):
+        // its value is never viewed, as an object or otherwise.
+        if (sema.actorValue(self.ctx, reached) != null) {
+            try self.errAt(e, "an actor is reached only through its handle, whose methods are messages, so `{s}` is no `{s}`", .{ self.sourceText(viewed), shown_view });
+            return null;
+        }
         const witness = (try sema.witnessFor(self.ctx, reached, object.api)) orelse {
             if (self.ctx.types.get(reached) == .type_var) {
                 const param = self.ctx.types.get(reached).type_var;
@@ -21846,8 +21855,8 @@ fn plural(n: usize) []const u8 {
 /// the type parameters (`@value + 1` requires a numeric `T`). Checked
 /// after all bodies, against every instance the module's code makes.
 /// An instance's type arguments, each standing as one (`sema.misplaced`):
-/// a value holding a Cell by value, a write view, a bare API object, or a
-/// frozen value is no type argument.
+/// a value holding a Cell by value, a write view, a bare API object, a
+/// frozen value, or an actor's value is no type argument.
 /// True when one stands misplaced, reported at the instance's site when
 /// `report` gives one.
 fn misplacedArgs(ctx: *SemContext, args: []const TypeId, report: ?u32) Error!bool {
@@ -21861,6 +21870,7 @@ fn misplacedArgs(ctx: *SemContext, args: []const TypeId, report: ?u32) Error!boo
             .write_view => try ctx.err(site, sema.write_view_misplaced, .{shown}),
             .unsized => try ctx.err(site, sema.object_unsized_arg, .{shown}),
             .frozen => try ctx.err(site, sema.frozen_misplaced_arg, .{ shown, shown }),
+            .actor => try ctx.err(site, sema.actor_misplaced, .{shown}),
         }
         return true;
     }

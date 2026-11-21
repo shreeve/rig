@@ -1920,6 +1920,14 @@ view only in some places, and one decider says where:
   where that argument stands. This needs what every type holds, so it
   is decided once `contents_ready` (deferred, `checkWhenResolved`,
   until step 5).
+- An actor's value (`sema.actorMisplaced`), `Actor[T]`, stands only in
+  a `handle`: an actor is reached only through its handle, whose
+  methods are messages, and its value has none. A view of one,
+  `?Actor[T]`, is reported with its sigil, as the view of the handle
+  to write, `?*Actor[T]`, where the view is resolved, and where an
+  expression's type argument is (`Checker.typeArg`); `erasable`
+  refuses to view one as an API object. It is decided by the type's
+  structure alone, where the type is written.
 
 Every spelled type asks it where it stands
 (`TypeResolver.misplacedAt`: a field's type, a parameter's, a

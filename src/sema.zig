@@ -11942,7 +11942,7 @@ pub const Home = enum {
 };
 
 /// What may not stand where `misplaced` says.
-pub const Misplaced = enum { cell, write_view, unsized, frozen };
+pub const Misplaced = enum { cell, write_view, unsized, frozen, actor };
 
 /// The one decider of where a Cell, a write view, and an API object may
 /// stand (Core §1), by a positive list of homes:
@@ -11962,12 +11962,15 @@ pub const Misplaced = enum { cell, write_view, unsized, frozen };
 ///   allocation holds it: never a value's, an element's, or a type
 ///   argument's type, written or inferred, so no generic `*T` or `~T`
 ///   stands for a frozen value's handle.
+/// - An actor's value, `Actor[T]`, lives only behind `*` or `~`
+///   (`actorMisplaced`).
 /// Null where `ty` may stand at `home`. The Cell rule needs what every
 /// type holds (`SemContext.contents_ready`).
 pub fn misplaced(ctx: *const SemContext, ty: TypeId, home: Home) ?Misplaced {
     if (unsizedAt(ctx, ty, home)) return .unsized;
     if (writeViewMisplaced(ctx, ty, home)) return .write_view;
     if (frozenMisplaced(ctx, ty, home)) return .frozen;
+    if (actorMisplaced(ctx, ty, home)) return .actor;
     switch (home) {
         .field, .handle, .viewed => {},
         .type_arg => if (holdsCellByValue(ctx, ty)) return .cell,
@@ -11981,6 +11984,17 @@ pub fn misplaced(ctx: *const SemContext, ty: TypeId, home: Home) ?Misplaced {
 /// so a type is rejected where it is written.
 pub fn frozenMisplaced(ctx: *const SemContext, ty: TypeId, home: Home) bool {
     return home != .handle and frozenValue(ctx, ty) != null;
+}
+
+/// Whether `ty` is an actor's value, `Actor[T]`, at a home other than
+/// behind `*` or `~` (`Misplaced.actor`). An actor is reached only
+/// through its handle, whose methods are messages: its value has no
+/// methods, so a view of it could call nothing, and `Actor(x)` stands
+/// only as the operand of `*`, so no value, field, or element holds
+/// one. Decided by the type's structure alone, so a type is rejected
+/// where it is written.
+pub fn actorMisplaced(ctx: *const SemContext, ty: TypeId, home: Home) bool {
+    return home != .handle and actorValue(ctx, ty) != null;
 }
 
 /// Whether `ty` is a bare API object, `{Shape}`, which has no size of its
@@ -12057,6 +12071,11 @@ pub const frozen_misplaced = "a frozen value lives only behind a shared handle: 
 /// (`Misplaced.frozen`): a generic `*T` would be a plain count of it, and
 /// a `~T` a weak handle of a frozen value, which has none.
 pub const frozen_misplaced_arg = "a frozen value lives only behind its handle, so `{s}` is no type argument, written or inferred: pass the handle whole where a `T` goes, `*{s}`";
+
+/// An actor's value where a value's type goes (`Misplaced.actor`), and
+/// behind a view, whose fix is a view of the handle.
+pub const actor_misplaced = "an actor is reached only through its handle: write `*{s}`";
+pub const actor_viewed = "an actor is reached only through its handle, so a view of one views the handle: write `{s}*{s}`";
 
 /// An error that a form holding an API object is not built yet (a Cell
 /// of one, Stage 5's), remembered so that `recordType` reports none
