@@ -8714,6 +8714,15 @@ pub const TaskTrace = struct {
     }
 };
 
+/// The sites of a failure on its way back from a call into another unit
+/// of a split build, whose exported frame starts a trace of its own
+/// (`split.exportFn`): kept there and added to the caller's trace
+/// (`split.call`), with nothing between on the thread.
+threadlocal var across_trace_var: TaskTrace = .{};
+pub inline fn acrossTrace() *TaskTrace {
+    return split.local(&across_trace_var, "runtime.across_trace");
+}
+
 /// Whether `result`, an error union, is a failure.
 pub fn failed(result: anytype) bool {
     return if (result) |_| false else |_| true;
