@@ -145,3 +145,85 @@ test "a trace passes through an actor's method", exit: 1, file: "actor.rig", std
     a = *Actor(Box(n: 3))
     print((!a).take(2)!)
     print((!a).take(5)!)
+
+test "a trace of nested tasks names each site once on the threaded scheduler", exit: 1, file: "nested.rig", stderr: "error: E.bad\n  nested.rig:7:3\n  nested.rig:11:3\n  nested.rig:15:3\n  nested.rig:19:3\n  nested.rig:23:9"
+  use std.task
+
+  error E
+    bad
+
+  fun parse(s: Int) -> Int!
+    return E.bad if s == 1
+    s
+
+  fun l3(s: Int) -> Int!
+    parse(s)! + 1
+
+  fun l2(s: Int) -> Int!
+    t = l3(s)&
+    >t! * 2
+
+  fun l1(s: Int) -> Int!
+    t = l2(s)&
+    >t! * 2
+
+  sub main()
+    t = l1(1)&
+    print(>t!)
+
+test "a trace of nested tasks names each site once under a seed", exit: 1, file: "nested_seeded.rig", stderr: "error: E.bad\n  nested_seeded.rig:7:3\n  nested_seeded.rig:11:3\n  nested_seeded.rig:15:3\n  nested_seeded.rig:19:3\n  nested_seeded.rig:23:9", seeds: 20
+  use std.task
+
+  error E
+    bad
+
+  fun parse(s: Int) -> Int!
+    return E.bad if s == 1
+    s
+
+  fun l3(s: Int) -> Int!
+    parse(s)! + 1
+
+  fun l2(s: Int) -> Int!
+    t = l3(s)&
+    >t! * 2
+
+  fun l1(s: Int) -> Int!
+    t = l2(s)&
+    >t! * 2
+
+  sub main()
+    t = l1(1)&
+    print(>t!)
+
+test "a trace keeps the first 32 returns and counts the rest", exit: 1, file: "deep.rig", stderr: "error: E.bad\n  deep.rig:5:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  (10 more)"
+  error E
+    bad
+
+  fun down(n: Int) -> Int!
+    return E.bad if n == 0
+    down(n - 1)! + 1
+
+  sub main()
+    print(down(40)!)
+
+test "a trace leaves out where a failure began when a `defer` handled another", exit: 1, file: "deferred.rig", stderr: "error: E.bad\n  deferred.rig:14:3\n  deferred.rig:17:9", '''
+  defer -2
+'''
+  error E
+    bad
+    other
+
+  fun parse(s: ?String) -> Int!
+    return E.bad if s == "x"
+    s.len
+
+  fun cleanup() -> Int!
+    return E.other
+
+  fun work(s: ?String) -> Int!
+    defer print("defer", cleanup() catch -2)
+    parse(s)! + 1
+
+  sub main()
+    print(work("x")!)
