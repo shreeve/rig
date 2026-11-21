@@ -64,8 +64,9 @@ parameters, or as `fun main() -> Int`, whose value is the process's exit
 status, from 0 to 255 (another value panics). Either may fail: `main`
 may propagate an error with `!`, and `sub main()!` or `fun main() -> Int!`
 may also return one; a failure that leaves `main` prints
-`error: Set.name` and ends the program with status 1
-([§13](#13-errors)). Everything `main` owns is dropped, its output
+`error: Set.name`, and in a debug build the place of each site it
+passed, and ends the program with status 1
+([§13](#13-errors), "A failure's trace"). Everything `main` owns is dropped, its output
 flushed, and the leak check run before the program exits, unless it
 panics ([§17](#17-printing-and-stopping)) or ends by `os.exit(code)`,
 which ends it at once from anywhere, running none of them
@@ -12581,7 +12582,8 @@ must say what happens to the failure, visibly:
   error. The enclosing function must itself return a `T!`, be a
   fallible `sub`, or be the top-level `sub main()` or a `test`. A failure
   that leaves `main` ends the program after `main`'s drops: it writes
-  `error: E.name` to stderr and exits with status 1.
+  `error: E.name` to stderr, then, in a debug build, its trace
+  ("A failure's trace"), and exits with status 1.
 - `f() catch fallback` handles it: the value of the call, or `fallback`
   when it fails. The fallback may be a jump, as after `??`
   ([§12](#12-optionals)): `f() catch return -1`, `f() catch |e| return e`,
@@ -12805,6 +12807,60 @@ fun find(n: Int) -> Int!
 
 ```error
 `.missing` is not a value of `Int`; to fail, name the error set: `Lookup.missing`
+```
+
+### A failure's trace
+
+In a debug build (`rig run`, `rig test`, `rig build` without
+`--release`), a failure that leaves `main` is shown with its trace: after
+the `error:` line, a line `  file.rig:L:C` for each site the failure
+passed, innermost first. The first is the failing `return` where it
+began, and each after it a `!` that passed it on, out to the `!` in
+`main`. `rig test` shows a failing test's trace the same way, after its
+`FAIL` line. The trace is what happened:
+
+- A failure a `catch` handled leaves no site, and one made in a handler
+  (`f() catch |e| return Other.bad`) keeps the sites of the failure it
+  handled, then its own `return`.
+- A failure that passes through a closure, or a function that calls one,
+  keeps the sites it passed in each.
+- A failure a task gives its waiter (`>t!`, a set's wait, `task.all`),
+  and one `task.isolate` or `par` passes on, keeps the sites it passed in
+  the task, then the waiter's.
+- A failure that began in the runtime or a Zig shim starts at the first
+  `!` in Rig code.
+
+A trace holds the first 32 returns the failure made, the runtime's
+among them, and counts the rest on a last line, `  (N more)`. A
+release build (`--release`) shows the `error:` line
+alone: the trace comes from Zig's error return traces, which a release
+build leaves out, as they cost a few percent on code that can fail.
+
+```rig
+error Config
+  missing
+
+fun port(line: ?String) -> Int!
+  return Config.missing if line.len == 0
+  line.len
+
+fun ports(a: ?String, b: ?String) -> Int!
+  port(a)! + port(b)!
+
+sub main()
+  print(ports("80", "8080")!)
+  print(ports("80", "")!)
+```
+
+```output
+6
+```
+
+```stderr exit=1
+error: Config.missing
+  main.rig:5:3
+  main.rig:9:14
+  main.rig:13:9
 ```
 
 ### Naming the error

@@ -95,6 +95,8 @@ ok    test "a negative quantity is refused"
 ok    test "a crowd is refused"
 FAIL  test "twelve items, written wrongly": total(100, 12)! == 1200 is false
 FAIL  test "the total can fail": Price.negative
+  price.rig:7:3
+  price.rig:35:3
 1
 ok    test "it prints and passes"
 5 passed, 2 failed
@@ -110,7 +112,8 @@ does a panic. Anything else passes. What a test prints appears above
 its report line.
 
 The reason after `FAIL` names the cause. For a `false`, it is the source
-of the `Bool`. For a `!`, it is the error. A `return false if n > 2`
+of the `Bool`. For a `!`, it is the error, with its trace below: the
+`return` where it began, then each `!` that passed it on. A `return false if n > 2`
 gives the rest of its line, and a bare `false` as the last line gives
 its place. To expect an error, `catch |e|` decides with a `return`, and
 the `false` after it fails the test when no error came.

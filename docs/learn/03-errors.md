@@ -563,11 +563,16 @@ main ends
 
 ```stderr exit=1
 error: Config.missing
+  main.rig:7:30
+  main.rig:13:9
 ```
 
 The second call's failure leaves `main` through `!`. Its `defer` runs
 and its values drop, then the program writes `error: Config.missing`
 to stderr and exits with status 1, so a shell script sees the failure.
+In a debug build, as `rig run` makes, the lines after it are the
+failure's trace: the `return` where it began, then each `!` that passed
+it on, out to `main` ([A failure's trace](../../SPEC.md#a-failures-trace)).
 
 A `main` that returns an error of its own is declared `sub main()!`,
 and one that chooses its exit status is `fun main() -> Int`.
