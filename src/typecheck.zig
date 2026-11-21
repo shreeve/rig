@@ -8817,6 +8817,11 @@ const Checker = struct {
                     try self.err(pos, "method `{s}.{s}` of a generic type must be called; wrap it in a closure to pass it as a value", .{ tname, field });
                     return self.t().invalid_id;
                 }
+                const home = if (nt.foreign) |fo| fo.ctx else self.ctx;
+                if (sema.stdArgCheck(home, nt.sym.name, field) != null) {
+                    try self.err(pos, "`{s}.{s}` checks its arguments where it is called, so it must be called; wrap it in a closure to pass it as a value", .{ tname, field });
+                    return self.t().invalid_id;
+                }
                 const name = try self.ctx.arena.allocator().print("{s}.{s}", .{ tname, field });
                 return self.functionValue(try self.memberType(nt.foreign, m.ty), name, pos, m.inline_marked);
             }
@@ -11786,8 +11791,12 @@ const Checker = struct {
         defaults: ?[]const ?Sexp = null,
         /// Source of the module that declares the defaults.
         source: []const u8 = "",
-        /// The parameters that take a duration (`sema.duration`).
+        /// The parameters that take a duration form (`sema.duration`).
         durations: sema.ParamMask = 0,
+        /// The callee waits the duration it is given, so a negative
+        /// constant is refused: `time.sleep`, `time.within`, `time.after`,
+        /// and `per:` (`sema.duration.waits`).
+        waits: bool = false,
 
         fn default(self: ParamInfo, i: usize) ?Sexp {
             const d = self.defaults orelse return null;
@@ -11798,20 +11807,19 @@ const Checker = struct {
             return self.durations != 0 and i < @bitSizeOf(sema.ParamMask) and self.durations & sema.paramBit(i) != 0;
         }
 
-        /// The name of duration parameter `i` when it is an option, given
-        /// by its name in seconds (`per:`), not by a unit's keyword.
-        fn optionName(self: ParamInfo, i: usize) ?[]const u8 {
-            const names = self.names orelse return null;
-            return if (i < names.len and !std.mem.eql(u8, names[i], sema.duration.param)) names[i] else null;
+        /// The duration parameter a unit's keyword fills, `ms:` of
+        /// `time.sleep(ms: 40)`: the callee's one duration parameter; none
+        /// when it has two or more, each given by its own name.
+        fn unitParam(self: ParamInfo) ?usize {
+            if (@popCount(self.durations) != 1) return null;
+            return @ctz(self.durations);
         }
 
-        /// The duration parameter a unit's keyword fills, `ms:` of
-        /// `time.sleep(ms: 40)`: the one named `ns`.
-        fn unitParam(self: ParamInfo) ?usize {
-            if (self.durations == 0) return null;
-            const names = self.names orelse return null;
-            for (names, 0..) |n, i| if (self.isDuration(i) and std.mem.eql(u8, n, sema.duration.param)) return i;
-            return null;
+        /// Whether a parameter is named `name`.
+        fn has(self: ParamInfo, name: []const u8) bool {
+            const names = self.names orelse return false;
+            for (names) |n| if (std.mem.eql(u8, n, name)) return true;
+            return false;
         }
     };
 
@@ -11915,13 +11923,15 @@ const Checker = struct {
             }
         }
         if (repeated) return self.synthArgs(args);
-        // A duration is written once, bare or with one unit's keyword.
+        // A duration is written once: bare, by its parameter's name, or
+        // with one unit's keyword.
         const unit_param = info.unitParam();
         if (unit_param) |u| {
+            const own = if (info.names) |n| (if (u < n.len) n[u] else "") else "";
             var first: ?Sexp = if (u < positional.len) positional[u] else null;
             for (keyword) |kw| {
                 const kname = self.text(ir.Kwarg.name(kw));
-                if (sema.duration.unitNs(kname) == null and !std.mem.eql(u8, kname, sema.duration.param)) continue;
+                if (sema.duration.unitNs(kname) == null and !std.mem.eql(u8, kname, own)) continue;
                 if (first) |had| {
                     try self.errAt(kw, "`{s}` takes one duration, in one unit: `{s}` or `{s}`, not both", .{ callee, try self.plainText(had), try self.plainText(kw) });
                     return self.synthArgs(args);
@@ -11947,7 +11957,7 @@ const Checker = struct {
         for (positional, 0..) |a, i| {
             slots[i] = .{ .arg = @intCast(i) };
             if (info.isDuration(i)) {
-                try self.checkDurationArg(a, sema.duration.second_ns, callee, info.optionName(i));
+                try self.checkDurationArg(a, f.params[i], null, info);
                 continue;
             }
             try self.checkArg(a, f, i, views);
@@ -11964,15 +11974,19 @@ const Checker = struct {
         for (keyword, positional.len..) |kw, ai| {
             const kname_node = ir.Kwarg.name(kw);
             const kname = self.text(kname_node);
-            // A unit's keyword fills the duration parameter named `ns`.
-            const unit = if (unit_param != null) sema.duration.unitNs(kname) else null;
+            // A unit's keyword fills the callee's one duration parameter.
+            const unit = if (info.durations != 0) sema.duration.unitNs(kname) else null;
+            if (unit != null and unit_param == null) {
+                try self.errAt(kname_node, "`{s}` takes {d} durations, so each is given by its own name, `{s}: {s}`, not by a unit's keyword", .{ callee, @popCount(info.durations), self.durationNames(info)[0], try self.plainText(ir.Kwarg.value(kw)) });
+                _ = try self.synthExpr(ir.Kwarg.value(kw));
+                repeated = true;
+                continue;
+            }
             const idx = (if (unit != null) unit_param else null) orelse for (info.names.?, 0..) |n, i| {
                 if (std.mem.eql(u8, n, kname)) break i;
             } else {
-                if (unit_param != null) {
-                    if (isSecondsName(kname)) {
-                        try self.errAt(kname_node, "a duration in seconds is written bare, with no keyword: `{s}({s})`", .{ callee, try self.plainText(ir.Kwarg.value(kw)) });
-                    } else try self.errAt(kname_node, "`{s}` has no parameter `{s}`; a duration is written bare in seconds, `{s}(2)`, or with one unit, `ms: 40`, `us: 40`, or `ns: 40`", .{ callee, kname, callee });
+                if (info.durations != 0) {
+                    try self.badDurationKeyword(kname_node, kname, ir.Kwarg.value(kw), callee);
                     // The duration it meant is not missing too.
                     repeated = true;
                 } else try self.errAt(kname_node, "`{s}` has no parameter `{s}`", .{ callee, kname });
@@ -11989,7 +12003,7 @@ const Checker = struct {
             }
             slots[idx] = .{ .arg = @intCast(ai) };
             if (info.isDuration(idx)) {
-                try self.checkDurationArg(ir.Kwarg.value(kw), unit orelse sema.duration.second_ns, callee, if (unit == null) info.optionName(idx) else null);
+                try self.checkDurationArg(ir.Kwarg.value(kw), f.params[idx], unit, info);
                 continue;
             }
             try self.checkArg(ir.Kwarg.value(kw), f, idx, views);
@@ -12256,94 +12270,116 @@ const Checker = struct {
         return null;
     }
 
-    /// `arg`, filling a duration parameter, counts units of `unit_ns`
-    /// nanoseconds (`sema.duration`): an `Int` or a `Float`, recorded
-    /// for emit, which writes the nanoseconds it is. A constant is
-    /// checked to be a finite number an `Int` of nanoseconds holds, and a
-    /// bare duration, in seconds, to name none of std.time's constants,
-    /// which count nanoseconds.
-    fn checkDurationArg(self: *Checker, arg: Sexp, unit_ns: i64, callee: []const u8, option: ?[]const u8) Error!void {
+    /// The checks of a std method's arguments beyond their types where
+    /// it is called (`sema.stdArgCheck`): method `method` of type `owner`,
+    /// declared in module `module` (null for this one), given `args` after
+    /// self. False after a diagnostic.
+    fn stdArgChecks(self: *Checker, module: ?u32, owner: []const u8, method: []const u8, args: []const Sexp, pos: u32) Error!bool {
+        const home = if (module) |m| self.ctx.foreign_semas.get(m) orelse self.ctx else self.ctx;
+        return switch (sema.stdArgCheck(home, owner, method) orelse return true) {
+            .unit_increment => self.checkUnitIncrement(method, args, pos),
+        };
+    }
+
+    /// `round` or `floor` (`sema.ArgCheck.unit_increment`): exactly one
+    /// unit's keyword and its increment, and no positional argument; an
+    /// increment written as a constant is from 1 to 1,000,000,000.
+    fn checkUnitIncrement(self: *Checker, method: []const u8, args: []const Sexp, pos: u32) Error!bool {
+        for (args) |a| if (!a.isKind(.kwarg)) {
+            try self.errAt(a, "`{s}` takes a unit and its increment by name, `{s}(minutes: 15)`, and no positional argument", .{ method, method });
+            return false;
+        };
+        if (args.len == 0) {
+            try self.err(pos, "`{s}` takes a unit and its increment: `{s}(seconds: 1)`", .{ method, method });
+            return false;
+        }
+        if (args.len > 1) {
+            try self.errAt(args[1], "`{s}` takes one unit and its increment, not two: `{s}` or `{s}`", .{ method, try self.plainText(args[0]), try self.plainText(args[1]) });
+            return false;
+        }
+        const name_node = ir.Kwarg.name(args[0]);
+        const name = self.text(name_node);
+        if (sema.duration.unitNs(name) == null) {
+            try self.errAt(name_node, "`{s}` takes a unit from `ns:` to `hours:` and its increment, and `{s}:` is none of them", .{ method, name });
+            return false;
+        }
+        const value = ir.Kwarg.value(args[0]);
+        if (self.constInt(value)) |v| if (v < 1 or v > 1_000_000_000) {
+            try self.errAt(value, "an increment of `{s}` is from 1 to 1,000,000,000, and `{s}` is not", .{ method, try self.plainText(value) });
+            return false;
+        };
+        return true;
+    }
+
+    /// `arg`, filling a duration parameter of type `param` (`sema.duration`):
+    /// a number of units of `unit` nanoseconds when a unit's keyword gives
+    /// one, else of seconds, or, with no keyword, a `Duration` value. A
+    /// number is recorded for emit, which makes the `Duration` it is, or
+    /// the `Int` of nanoseconds an `Int` parameter takes (`time.after`,
+    /// `per:`). A constant is checked to be a finite number a `Duration`
+    /// holds, and, where the callee waits it, not to be negative.
+    fn checkDurationArg(self: *Checker, arg: Sexp, param: TypeId, unit: ?i64, info: ParamInfo) Error!void {
+        try self.recordUse(arg, .take);
         const ty = try self.synthExpr(arg);
         if (self.isPoison(ty)) return;
         const shown = try self.plainText(arg);
-        const unit = for (sema.duration.units) |u| {
-            if (u[1] == unit_ns) break u[0];
-        } else "seconds";
         const value = self.canonical(ty);
         const float = value == self.t().float_id;
-        if (!float and value != self.t().int_id)
-            return self.errAt(arg, "a duration is an `Int` or a `Float`, and `{s}` is a `{s}`{s}", .{ shown, try self.tyName(ty), if (sema.isNumeric(self.ctx, ty)) try std.fmt.allocPrint(self.ctx.arena.allocator(), ": write `Int({s})`", .{shown}) else "" });
-        if (unit_ns == sema.duration.second_ns) if (try self.nanosecondConstant(arg)) |c| {
-            if (option) |o| {
-                const secs = (try self.secondsOf(arg)) orelse return self.errAt(arg, "`{s}:` is in seconds, and `{s}` counts nanoseconds: write the seconds, `{s}: 0.5`", .{ o, c, o });
-                return self.errAt(arg, "`{s}:` is in seconds, and `{s}` counts nanoseconds: write the seconds, `{s}: {s}`", .{ o, c, o, secs });
+        const target = sema.durationParam(self.ctx, param);
+        if (!float and value != self.t().int_id) {
+            if (sema.isDurationType(self.ctx, sema.unwrapOptionals(self.ctx, value)) or self.ctx.types.get(value) == .none_literal) {
+                if (unit) |u| return self.errAt(arg, "a unit's keyword takes a number, and `{s}` is a `{s}` already: write it with no keyword, not `{s}: {s}`", .{ shown, try self.tyName(ty), sema.duration.unitName(u), shown });
+                if (target != null) {
+                    try self.checkActual(arg, ty, param);
+                    return self.recordLift(arg, ty, param);
+                }
+                if (sema.isDurationType(self.ctx, value)) return self.ctx.recordDuration(arg, .{ .unit_ns = 0 });
             }
-            return self.errAt(arg, "a bare duration is in seconds, and `{s}` counts nanoseconds: write `{s}({s})`", .{ c, callee, try self.durationFix(arg) });
-        };
+            return self.errAt(arg, "a duration is a number of seconds, a unit's keyword and a number, `ms: 40`, or a `time.Duration`, and `{s}` is a `{s}`{s}", .{ shown, try self.tyName(ty), if (sema.isNumeric(self.ctx, ty)) try std.fmt.allocPrint(self.ctx.arena.allocator(), ": write `Int({s})`", .{shown}) else "" });
+        }
+        const unit_ns = unit orelse sema.duration.second_ns;
+        const unit_name = if (unit != null) sema.duration.unitName(unit_ns) else "seconds";
         if (!float) {
-            if (self.constInt(arg)) |v| if (v * unit_ns > std.math.maxInt(i64) or v * unit_ns < std.math.minInt(i64))
-                return self.errAt(arg, "`{s}` {s} is more nanoseconds than an `Int` holds", .{ shown, unit });
+            if (self.constInt(arg)) |v| {
+                if (v * unit_ns > std.math.maxInt(i64) or v * unit_ns < std.math.minInt(i64))
+                    return self.errAt(arg, "`{s}` {s} is more nanoseconds than a `Duration` holds", .{ shown, unit_name });
+                if (v < 0 and info.waits) return self.negativeWait(arg, shown);
+            }
         } else if (constFloatOf(self.ctx.source, arg)) |v| {
             const ns = @round(v * @as(f64, @floatFromInt(unit_ns)));
-            if (!(ns >= -0x1p63 and ns < 0x1p63)) return self.errAt(arg, "`{s}` {s} is more nanoseconds than an `Int` holds", .{ shown, unit });
+            if (!(ns >= -0x1p63 and ns < 0x1p63)) return self.errAt(arg, "`{s}` {s} is more nanoseconds than a `Duration` holds", .{ shown, unit_name });
+            if (v < 0 and info.waits) return self.negativeWait(arg, shown);
         } else if (isNotFinite(self.ctx.source, arg)) {
             return self.errAt(arg, "a duration is a finite number, and `{s}` is not", .{shown});
         }
-        try self.ctx.recordDuration(arg, .{ .unit_ns = unit_ns, .float = float });
+        const opt = if (target != null and !sema.isDurationType(self.ctx, param)) param else sema.type_invalid;
+        try self.ctx.recordDuration(arg, .{ .unit_ns = unit_ns, .float = float, .ty = target orelse sema.type_invalid, .opt = opt });
     }
 
-    /// A duration written `k * time.MS` (or `time.MS * k`), as the
-    /// count and the constant's name; `time.MS` alone, with a count of
-    /// "1".
-    fn countOfConstant(self: *Checker, e: Sexp) Error!?struct { []const u8, []const u8 } {
-        const isConst = struct {
-            fn f(c: *Checker, x: Sexp) Error!?[]const u8 {
-                if (!x.isKind(.member)) return null;
-                const name = c.text(ir.Member.name(x));
-                if (try c.nanosecondConstant(x) == null) return null;
-                return name;
-            }
-        }.f;
-        if (try isConst(self, e)) |name| return .{ "1", name };
-        if (!e.isKind(.@"*")) return null;
-        const l, const r = .{ ir.get(e, .left), ir.get(e, .right) };
-        if (try isConst(self, r)) |name| if (try self.nanosecondConstant(l) == null) return .{ try self.plainText(l), name };
-        if (try isConst(self, l)) |name| if (try self.nanosecondConstant(r) == null) return .{ try self.plainText(r), name };
-        return null;
+    /// A negative constant given to a wait (`ParamInfo.waits`).
+    fn negativeWait(self: *Checker, arg: Sexp, shown: []const u8) Error!void {
+        try self.errAt(arg, "a wait of `{s}` is negative: a constant wait is zero or more, and a negative one written so is a mistake", .{shown});
     }
 
-    /// The fix for a bare duration of nanoseconds, `e`: `ms: 5` for
-    /// `5 * time.MS`, `5` for `5 * time.SECOND`, else `ns: e`.
-    fn durationFix(self: *Checker, e: Sexp) Error![]const u8 {
-        const a = self.ctx.arena.allocator();
-        const k, const name = (try self.countOfConstant(e)) orelse return std.fmt.allocPrint(a, "ns: {s}", .{try self.plainText(e)});
-        if (std.mem.eql(u8, name, "SECOND") or std.mem.eql(u8, name, "MINUTE")) return (try self.secondsOf(e)).?;
-        return std.fmt.allocPrint(a, "{s}: {s}", .{ if (std.mem.eql(u8, name, "MS")) "ms" else if (std.mem.eql(u8, name, "US")) "us" else "ns", k });
+    /// The names of the duration parameters of `info`, in order.
+    fn durationNames(self: *Checker, info: ParamInfo) []const []const u8 {
+        const names = info.names orelse return &.{"d"};
+        var out: std.ArrayList([]const u8) = .empty;
+        for (names, 0..) |n, i| if (info.isDuration(i)) out.append(self.ctx.arena.allocator(), n) catch return &.{"d"};
+        return if (out.items.len == 0) &.{"d"} else out.items;
     }
 
-    /// The seconds a duration `k * time.SECOND` or `k * time.MINUTE`
-    /// counts, as written: `k`, `60 * k`.
-    fn secondsOf(self: *Checker, e: Sexp) Error!?[]const u8 {
-        const k, const name = (try self.countOfConstant(e)) orelse return null;
-        if (std.mem.eql(u8, name, "SECOND")) return k;
-        if (!std.mem.eql(u8, name, "MINUTE")) return null;
-        if (std.mem.eql(u8, k, "1")) return "60";
-        return try std.fmt.allocPrint(self.ctx.arena.allocator(), "60 * {s}", .{k});
-    }
-
-    /// The first of std.time's constants of nanoseconds `e` names
-    /// (`time.MS`), as written, if any.
-    fn nanosecondConstant(self: *Checker, e: Sexp) Error!?[]const u8 {
-        if (e.isKind(.member)) {
-            const name = self.text(ir.Member.name(e));
-            for (sema.duration.constants) |c| if (std.mem.eql(u8, c, name)) {
-                const module = (try self.moduleNamed(ir.Member.object(e))) orelse break;
-                if (std.mem.eql(u8, self.stdModule(module) orelse break, "std.time")) return try self.plainText(e);
-            };
+    /// A keyword no parameter of `callee`, which takes a duration, is
+    /// named: a length of the calendar, `days:`, a spelling of `seconds:`,
+    /// or neither.
+    fn badDurationKeyword(self: *Checker, at: Sexp, kname: []const u8, value: Sexp, callee: []const u8) Error!void {
+        if (sema.duration.isCalendar(kname)) {
+            const per: i64 = if (std.mem.eql(u8, kname, "days")) 24 else 168;
+            const hours = if (constIntText(self.ctx.source, value)) |n| try std.fmt.allocPrint(self.ctx.arena.allocator(), "{d}", .{n * per}) else try std.fmt.allocPrint(self.ctx.arena.allocator(), "{d}", .{per});
+            return self.errAt(at, "a duration takes no `{s}:`, since a day is not always 24 hours: write `hours: {s}` for exactly {s} hours", .{ kname, hours, hours });
         }
-        if (e != .list) return null;
-        for (e.items()) |child| if (try self.nanosecondConstant(child)) |c| return c;
-        return null;
+        if (isSecondsName(kname)) return self.errAt(at, "`{s}` has no parameter `{s}`; did you mean `seconds: {s}`?", .{ callee, kname, try self.plainText(value) });
+        try self.errAt(at, "`{s}` has no parameter `{s}`; a duration is written bare in seconds, `{s}(2)`, or with one unit, `ms: 40`, from `ns:` to `hours:`", .{ callee, kname, callee });
     }
 
     fn checkArg(self: *Checker, arg: Sexp, f: FunctionType, i: usize, views: bool) Error!void {
@@ -14264,6 +14300,7 @@ const Checker = struct {
             self.self_of = callee;
             try self.checkSelfMode(obj, self_mode, classifySelfType(self.ctx, obj_ty, resolved.nominal_sym), method, pos, resolved.fn_ty.returns);
         }
+        if (!try self.stdArgChecks(resolved.module, resolved.owner, method, args, pos)) return self.skipCall(args);
         const info = methodParams(resolved.field, true, resolved.source);
         const f = (try self.instantiateCall(resolved.fn_ty, ct, args, info, 1, method, pos, false, self.selfArgs(obj_ty))) orelse return self.skipCall(args);
         // The type's parameters are bound by the object self
@@ -15000,7 +15037,7 @@ const Checker = struct {
         const params, const names = try self.optionParams(args, f_ty, "make");
         const call: FunctionType = .{ .params = params, .returns = actor, .is_sub = false };
         try self.noteCallee(call);
-        try self.checkArgs(args, call, .{ .names = names, .durations = optionDurations(names) }, "Actor.supervised", self.startOf(callee), .{ .declared = call.params });
+        try self.checkArgs(args, call, .{ .names = names, .durations = optionDurations(names), .waits = true }, "Actor.supervised", self.startOf(callee), .{ .declared = call.params });
         try self.ctx.recordActorSupervised(node);
         self.ctx.makes_tasks = true;
         self.ctx.makes_actors = true;
@@ -16293,7 +16330,7 @@ const Checker = struct {
         const params, const names = try self.optionParams(args, try sema.callableOfFn(self.ctx, fn_ty), "f");
         const call: FunctionType = .{ .params = params, .returns = result, .is_sub = value == self.t().void_id };
         try self.noteCallee(call);
-        try self.checkArgs(args, call, .{ .names = names, .durations = optionDurations(names) }, shown, pos, .{ .declared = call.params });
+        try self.checkArgs(args, call, .{ .names = names, .durations = optionDurations(names), .waits = true }, shown, pos, .{ .declared = call.params });
         if (f.isKind(.lambda)) for (sema.captureList(ir.Lambda.captures(f))) |cap| {
             const name_node = sema.captureNameNode(cap) orelse continue;
             const n = self.text(name_node);
@@ -16451,7 +16488,7 @@ const Checker = struct {
             if (try self.isAfterArm(arm)) {
                 const f: FunctionType = .{ .params = try self.ctx.dupeIds(&.{self.t().int_id}), .returns = self.t().void_id, .is_sub = true };
                 try self.noteCallee(f);
-                try self.checkArgs(arm_args, f, .{ .names = &.{sema.duration.param}, .durations = sema.paramBit(0) }, "time.after", self.startOf(callee), .{ .declared = f.params });
+                try self.checkArgs(arm_args, f, .{ .names = &.{"d"}, .durations = sema.paramBit(0), .waits = true }, "time.after", self.startOf(callee), .{ .declared = f.params });
                 try self.ctx.recordType(arm, self.t().void_id);
                 try self.ctx.recordSelectArm(arm, .after);
                 payload.* = null;
@@ -17084,6 +17121,7 @@ const Checker = struct {
                     f = self.ctx.types.get(try sema.substituteType(self.ctx, m.ty, subst)).function;
                     recv = subst;
                 }
+                if (!try self.stdArgChecks(if (nt.foreign) |fo| fo.module_id else null, nt.sym.name, name, if (m.self_mode != .none and args.len > 0) args[1..] else args, pos)) return self.skipCall(args);
                 const source = if (nt.foreign) |fo| fo.ctx.source else self.declSource(nt.id);
                 const info = methodParams(m, false, source);
                 f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.self_mode != .none, recv)) orelse return self.skipCall(args);
@@ -17222,7 +17260,8 @@ const Checker = struct {
                 const local = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
                 const fty = self.ctx.types.get(local);
                 if (fty != .function) return self.badCall(args, pos, "`{s}` cannot be called", .{qualified});
-                const info = paramsOf(found.sym, found.ctx.source);
+                var info = paramsOf(found.sym, found.ctx.source);
+                info.waits = sema.duration.waits(found.ctx, name);
                 const f = (try self.instantiateCall(fty.function, ct, args, info, 0, qualified, pos, false, .empty)) orelse return self.skipCall(args);
                 if (found.sym.kind == .function) try self.noteTarget(found.module_id, found.sym.decl_pos, found.sym.flags.inline_marked, .empty);
                 // A generic function's callee has the instance's signature.
@@ -21776,11 +21815,18 @@ fn ifWithoutValue(e: Sexp) bool {
     return other == .nil or ifWithoutValue(other);
 }
 
-/// A keyword a duration in seconds might be written with, which the
-/// form leaves out: `time.sleep(2)`, not `time.sleep(seconds: 2)`.
+/// A keyword a duration in seconds might be meant by, for `seconds:`.
 fn isSecondsName(name: []const u8) bool {
-    for ([_][]const u8{ "seconds", "second", "secs", "sec", "s" }) |n| if (std.mem.eql(u8, n, name)) return true;
+    for ([_][]const u8{ "second", "secs", "sec", "s" }) |n| if (std.mem.eql(u8, n, name)) return true;
     return false;
+}
+
+/// An `Int` literal as written, possibly negated, if `e` is one.
+fn constIntText(source: []const u8, e: Sexp) ?i64 {
+    if (e.isKind(.neg)) return -(constIntText(source, ir.Neg.operand(e)) orelse return null);
+    const t = identAt(source, e) orelse return null;
+    if (t.len == 0 or !std.ascii.isDigit(t[0])) return null;
+    return std.fmt.parseInt(i64, t, 0) catch null;
 }
 
 /// `Float.inf()` or `Float.nan()`, possibly negated, of any float type.

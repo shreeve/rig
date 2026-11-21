@@ -4,9 +4,9 @@
 const std = @import("std");
 const rig = @import("../runtime.zig");
 
-pub const monotonic = rig.monotonicNs;
-pub const since_start = rig.sinceStartNs;
-pub const sleep = rig.taskSleep;
+pub const monotonic_ns = rig.monotonicNs;
+pub const start_ns = rig.sinceStartNs;
+pub const sleep_ns = rig.taskSleep;
 pub const enter_deadline = rig.enterDeadline;
 pub const restore_deadline = rig.restoreDeadline;
 

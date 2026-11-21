@@ -3367,7 +3367,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
     if (comptime std.mem.eql(u8, name, "task_joins")) return w.writeAll(if (v) " values" else " nothing");
     switch (V) {
         StringCall, Use, Upgrade, ParCall, SelectArm, BuiltinCall, SwapCall, ViewKind => try w.print(" {s}", .{@tagName(v)}),
-        Duration => try w.print(" {d}ns {s}", .{ v.unit_ns, if (v.float) "Float" else "Int" }),
+        Duration => if (v.unit_ns == 0) try w.writeAll(" value") else try w.print(" {d}ns {s}{s}", .{ v.unit_ns, if (v.float) "Float" else "Int", if (v.ty == type_invalid) "" else " Duration" }),
         []const u8 => try w.print(" \"{f}\"", .{std.zig.fmtString(v)}),
         Lift => try w.print(" {s} from {s}", .{ try formatTypeIn(ctx, a, v.into), try formatTypeIn(ctx, a, v.from) }),
         HeaderFact => try w.print(" {s}", .{@tagName(v.how)}),
@@ -6510,6 +6510,13 @@ pub fn stdRenamed(foreign: *const SemContext, owner: []const u8, member: []const
         .{ "std.bigint", "BigInt", "compare", "; compare with `<` and its kin, or write `a.order(?b)`, which gives `.less`, `.equal`, or `.greater`" },
         .{ "std.bigint", "BigInt", "equals", "; a BigInt compares with `==`" },
         .{ "std.bigint", "BigInt", "to_f64", "; write `a.to_float()`" },
+        .{ "std.time", "", "now", "; for timing, `time.monotonic()` reads the monotonic clock, and `start.elapsed()` gives a `time.Duration`; for the date and time, `time.unix_ns()` reads the wall clock" },
+        .{ "std.time", "", "Instant", "; a reading of the monotonic clock is a `time.Monotonic`, from `time.monotonic()` or `time.Monotonic.at(d)`" },
+        .{ "std.time", "", "NS", "; a length of time is a `time.Duration`: `time.duration(ns: 1)`, or `ns: 1` where a duration is taken" },
+        .{ "std.time", "", "US", "; a length of time is a `time.Duration`: `time.duration(us: 1)`, or `us: 1` where a duration is taken" },
+        .{ "std.time", "", "MS", "; a length of time is a `time.Duration`: `time.duration(ms: 1)`, or `ms: 1` where a duration is taken" },
+        .{ "std.time", "", "SECOND", "; a length of time is a `time.Duration`: `time.duration(1)`, or a bare number of seconds where a duration is taken" },
+        .{ "std.time", "", "MINUTE", "; a length of time is a `time.Duration`: `time.duration(minutes: 1)`, or `minutes: 1` where a duration is taken" },
     };
     for (table) |r| {
         if (std.mem.eql(u8, r[0], foreign.name) and std.mem.eql(u8, r[1], owner) and std.mem.eql(u8, r[2], member)) return r[3];
@@ -12171,39 +12178,107 @@ pub fn selectType(ctx: *SemContext, names: []const []const u8, payloads: []const
     return ctx.intern(.{ .nominal = id });
 }
 
-/// How a call writes a length of time (SPEC §18, "Durations"): bare, an
-/// `Int` or a `Float` of seconds, `time.sleep(2)`, `time.sleep(0.5)`; or
-/// with one unit's keyword, `time.sleep(ms: 40)`, `us: 40`, `ns: 40`. A
-/// parameter takes one when std.time declares it `ns: Duration`
-/// (`TypeResolver.paramDurations`), as `sleep`, `within`, `Instant.at`,
-/// `t.add`, and the deadline arm `time.after` do; an option of a call
-/// the checker types, `per:` of `task.supervise` and
-/// `*Actor.supervised`, takes seconds by its own name. The body sees
-/// nanoseconds, an `Int`. The one place the spelling is decided.
+/// How a call writes a length of time (SPEC §18, "Durations"). A
+/// parameter typed std.time's `Duration`, or `Duration?`, in any module
+/// (`TypeResolver.paramDurations`) takes a duration form: a bare number
+/// of seconds, an `Int` or a `Float`, `time.sleep(2)`, `time.sleep(0.5)`;
+/// one unit's keyword and a number, `time.sleep(ms: 40)`; or a `Duration`
+/// value. The deadline arm `time.after` and the option `per:` of
+/// `task.supervise` and `*Actor.supervised`, which the checker types,
+/// take the same forms and give the runtime an `Int` of nanoseconds.
+/// The one place the spelling is decided.
 pub const duration = struct {
     /// The nanoseconds in a second, the unit of a bare duration.
     pub const second_ns: i64 = 1_000_000_000;
-    /// The name of a parameter that takes a duration by its units.
-    pub const param = "ns";
     /// The units' keywords and the nanoseconds in each.
-    pub const units = [_]struct { []const u8, i64 }{ .{ "ms", 1_000_000 }, .{ "us", 1_000 }, .{ "ns", 1 } };
-    /// The constants of std.time that count nanoseconds, which a bare
-    /// duration, in seconds, does not take.
-    pub const constants = [_][]const u8{ "NS", "US", "MS", "SECOND", "MINUTE" };
+    pub const units = [_]struct { []const u8, i64 }{
+        .{ "hours", 3_600_000_000_000 }, .{ "minutes", 60_000_000_000 }, .{ "seconds", 1_000_000_000 },
+        .{ "ms", 1_000_000 },            .{ "us", 1_000 },               .{ "ns", 1 },
+    };
+    /// The one field of std.time's `Duration` and `Monotonic`, an `Int`
+    /// of nanoseconds, which the runtime fills and reads by its name
+    /// (`rig.durationInt`, `rig.durationNs`).
+    pub const field = "n";
+    /// Keywords of a length that is not always the same, which no
+    /// duration takes (DATETIME-DESIGN §5.2).
+    pub const calendar = [_][]const u8{ "days", "weeks" };
 
     /// The nanoseconds in the unit `name` names, if it names one.
     pub fn unitNs(name: []const u8) ?i64 {
         for (units) |u| if (std.mem.eql(u8, u[0], name)) return u[1];
         return null;
     }
+
+    /// The keyword of the unit of `ns` nanoseconds.
+    pub fn unitName(ns: i64) []const u8 {
+        for (units) |u| if (u[1] == ns) return u[0];
+        return "seconds";
+    }
+
+    /// Whether `name` is a calendar keyword (`calendar`).
+    pub fn isCalendar(name: []const u8) bool {
+        for (calendar) |c| if (std.mem.eql(u8, c, name)) return true;
+        return false;
+    }
+
+    /// Whether `name`, a function of `home`, waits a duration it is
+    /// given: `time.sleep` and `time.within`, whose negative constant is
+    /// refused (with `time.after` and `per:`, which the checker types).
+    pub fn waits(home: *const SemContext, name: []const u8) bool {
+        if (!home.is_std or !std.mem.eql(u8, home.name, "std.time")) return false;
+        return std.mem.eql(u8, name, "sleep") or std.mem.eql(u8, name, "within");
+    }
 };
 
-/// An argument filling a duration parameter: the nanoseconds in each of
-/// the units it counts, and whether it is a `Float`, which emit rounds
-/// to whole nanoseconds.
+/// Whether `ty` is std.time's `Duration`.
+pub fn isDurationType(ctx: *const SemContext, ty: TypeId) bool {
+    const sym, const in = switch (ctx.types.get(ty)) {
+        .nominal => |s| .{ s, ctx },
+        .imported_nominal => |n| .{ n.sym_id, ctx.foreign_semas.get(n.module_id) orelse return false },
+        else => return false,
+    };
+    return in.is_std and std.mem.eql(u8, in.name, "std.time") and std.mem.eql(u8, in.symbols.items[sym].name, "Duration");
+}
+
+/// The `Duration` a parameter of type `ty` takes a duration form for:
+/// `ty` itself, or what a `Duration?` holds; null for any other type.
+pub fn durationParam(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    if (isDurationType(ctx, ty)) return ty;
+    return switch (ctx.types.get(ty)) {
+        .optional => |inner| if (isDurationType(ctx, inner)) inner else null,
+        else => null,
+    };
+}
+
+/// A std method whose arguments are checked beyond their types where it
+/// is called (DATETIME-DESIGN §10.2), so it is never taken as a value.
+pub const ArgCheck = enum {
+    /// `round` and `floor` of `time.Duration`: exactly one unit's keyword
+    /// and its increment, no positional argument, and an increment from 1
+    /// to 1,000,000,000 when it is a literal.
+    unit_increment,
+};
+
+/// The check of method `method` of type `owner`, declared in `home`.
+pub fn stdArgCheck(home: *const SemContext, owner: []const u8, method: []const u8) ?ArgCheck {
+    if (!home.is_std or !std.mem.eql(u8, home.name, "std.time") or !std.mem.eql(u8, owner, "Duration")) return null;
+    if (std.mem.eql(u8, method, "round") or std.mem.eql(u8, method, "floor")) return .unit_increment;
+    return null;
+}
+
+/// An argument given as a duration form (`duration`): what emit writes
+/// for it. A number counts units of `unit_ns` nanoseconds, a `Float`
+/// rounded to whole nanoseconds, and becomes the `Duration` `ty`
+/// (`rig.durationInt`, `rig.durationFloat`), or an `Int` of nanoseconds
+/// where `ty` is `type_invalid` (`time.after`, `per:`). A `unit_ns` of 0
+/// is a `Duration` value given where an `Int` of nanoseconds goes, whose
+/// nanoseconds the runtime reads (`rig.durationNs`). A `Duration?`
+/// parameter, `opt`, takes the `Duration` packed as its optional.
 pub const Duration = struct {
     unit_ns: i64,
-    float: bool,
+    float: bool = false,
+    ty: TypeId = type_invalid,
+    opt: TypeId = type_invalid,
 };
 
 /// Whether `sym` is the type of a `task.select`'s value (`selectType`).
