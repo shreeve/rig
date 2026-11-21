@@ -1,0 +1,178 @@
+# std.datetime: dates.
+
+# A day on the calendar, from -9999-01-01 to 9999-12-31. `==` compares
+# two, `<` orders them, a `Map` keys on one, and `print` writes ISO
+# 8601, `2026-11-17`, a year below 0 with its sign and six digits,
+# `-000001-01-01`.
+pub obj Date: Eq + Ord + Hash + Print
+  y: I16
+  m: U8
+  d: U8
+
+  # The date `year`-`month`-`day`. Fails with `DateTimeError.range`
+  # when it is not a real date in the range: `Date.new(2023, 2, 29)!`
+  # fails.
+  pub fun new(year: Int, month: Int, day: Int) -> Date!
+    if not within(year, MIN_YEAR, MAX_YEAR) or not within(month, 1, 12) or not within(day, 1, month_days(year, month))
+      return DateTimeError.range
+    Date(y: I16(year), m: U8(month), d: U8(day))
+
+  # The date `s` writes in ISO 8601, `2026-11-17` or `20261117`, and
+  # nothing else: no time of day, offset, or zone. A year below 0 or
+  # above 9999 is written with its sign and six digits,
+  # `-000001-01-01`. Fails with `DateTimeError.invalid`.
+  pub fun parse(s: ?String) -> Date!
+    i, out = date_text(s, 0)!
+    if i != s.len
+      return DateTimeError.invalid
+    out
+
+  # The year, the month (1 to 12), and the day of the month.
+  pub fun year(?@) -> Int
+    Int(@y)
+
+  pub fun month(?@) -> Int
+    Int(@m)
+
+  pub fun day(?@) -> Int
+    Int(@d)
+
+  # The day of the week.
+  pub fun weekday(?@) -> Weekday
+    WEEKDAYS[weekday_index(@number())]
+
+  # The day of the year, 1 to 366.
+  pub fun day_of_year(?@) -> Int
+    year_day(Int(@y), Int(@m), Int(@d))
+
+  # The days in the date's month: 28 to 31.
+  pub fun days_in_month(?@) -> Int
+    month_days(Int(@y), Int(@m))
+
+  # The ISO 8601 week, 1 to 53, and the year it belongs to, which
+  # differs from `year()` in the first and last days of a year:
+  # 2025-12-29 is in week 1 of 2026.
+  pub fun iso_week(?@) -> Int
+    _, w = iso_week_of(Int(@y), Int(@m), Int(@d))
+    w
+
+  pub fun iso_week_year(?@) -> Int
+    y, _ = iso_week_of(Int(@y), Int(@m), Int(@d))
+    y
+
+  # The first and the last day of the date's month.
+  pub fun first_of_month(?@) -> Date
+    Date(y: @y, m: @m, d: 1)
+
+  pub fun last_of_month(?@) -> Date
+    Date(y: @y, m: @m, d: U8(month_days(Int(@y), Int(@m))))
+
+  # The `n`-th weekday `w` after this date, or before it when `n` is
+  # negative; never the date itself: `d.nth_weekday(1, .monday)!` is
+  # the next Monday. Fails with `DateTimeError.range` for an `n` of 0
+  # or a result beyond the range (jiff-core `civil/date.rs:770`).
+  pub fun nth_weekday(?@, n: Int, w: Weekday) -> Date!
+    if n == 0
+      return DateTimeError.range
+    here = WEEKDAYS[weekday_index(@number())]
+    diff: I128 = 0
+    if n > 0
+      diff = (I128(n) - 1) * 7 + I128(weekday_since(w, WEEKDAYS[(Int(here) + 1) % 7])) + 1
+    else
+      diff = -((-I128(n) - 1) * 7 + I128(weekday_since(WEEKDAYS[(Int(here) + 6) % 7], w))) - 1
+    date_of(day_step(@number(), diff) ?? return DateTimeError.range)
+
+  # The `n`-th weekday `w` of the date's month, from its end when `n` is
+  # negative: the fourth Thursday of November 2026 is
+  # `Date.new(2026, 11, 1)!.nth_weekday_of_month(4, .thursday)!`, the
+  # 26th. Fails with `DateTimeError.range` for an `n` other than 1 to 5
+  # or -1 to -5, and when the month has no such day (jiff-core
+  # `civil/date.rs:332`).
+  pub fun nth_weekday_of_month(?@, n: Int, w: Weekday) -> Date!
+    if n == 0 or n < -5 or n > 5
+      return DateTimeError.range
+    if n > 0
+      first = @first_of_month()
+      return Date.new(Int(@y), Int(@m), weekday_since(w, first.weekday()) + 1 + (n - 1) * 7)!
+    last = @last_of_month()
+    Date.new(Int(@y), Int(@m), Int(last.d) - weekday_since(last.weekday(), w) - (-n - 1) * 7)!
+
+  # The date the calendar amounts after this one, each by name and of
+  # either sign: `d.add(months: 1)`, `d.add(days: -3)`. Years and months
+  # are added first, together as months, and a day past the month's end
+  # becomes its last day: Jan 31 and one month is Feb 28, or Feb 29 in a
+  # leap year. Then weeks and days: Jan 31, one month and one day, is
+  # Mar 1. Panics when either step leaves the range; `checked_add`
+  # fails instead.
+  pub fun add(?@, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> Date
+    date_add(@, total_months(years, months), total_days(weeks, days)) ?? panic("datetime.Date.add: the date", @, "and", years, "years,", months, "months,", weeks, "weeks and", days, "days is beyond the range of dates, -9999-01-01 to 9999-12-31")
+
+  # `add`, failing with `DateTimeError.range` where it would panic.
+  pub fun checked_add(?@, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> Date!
+    date_add(@, total_months(years, months), total_days(weeks, days)) ?? return DateTimeError.range
+
+  # The date with the fields given by name replaced: `d.with(day: 1)`.
+  # Fails with `DateTimeError.range` when that is not a real date:
+  # Feb 29 of 2024 `with(year: 2023)` fails.
+  pub fun with(?@, year: Int? = none, month: Int? = none, day: Int? = none) -> Date!
+    Date.new(year ?? Int(@y), month ?? Int(@m), day ?? Int(@d))!
+
+  # The date at the time of day `t`.
+  pub fun at(?@, t: Time) -> DateTime
+    DateTime(on: @, at: t)
+
+  # The whole days, weeks, months, and years from `other` to this date:
+  # positive when this date is the later, negative when it is the
+  # earlier, and `a.days_since(b)` is `-b.days_since(a)`. A count walks
+  # forward from the earlier date: a month is counted when the later
+  # date's day of the month has reached the earlier's, so Jan 31 to
+  # Feb 28 is 0 months and 28 days, and someone born on Feb 29 is a
+  # year older on Mar 1 in a common year.
+  pub fun days_since(?@, other: Date) -> Int
+    @number() - other.number()
+
+  pub fun weeks_since(?@, other: Date) -> Int
+    @days_since(other) / 7
+
+  pub fun months_since(?@, other: Date) -> Int
+    if @ < other
+      return -months_between(@, other)
+    months_between(other, @)
+
+  pub fun years_since(?@, other: Date) -> Int
+    @months_since(other) / 12
+
+  sub print(?@, out: !Printer)
+    print_date(!out, @)
+
+  # The days from 1970-01-01 to this date.
+  fun number(?@) -> Int
+    epoch_day(Int(@y), Int(@m), Int(@d))
+
+# The date `n` days from 1970-01-01, which is within the range.
+fun date_of(n: Int) -> Date
+  y, m, d = civil(n)
+  Date(y: I16(y), m: U8(m), d: U8(d))
+
+# The date `months`, then `days`, after `d` (DATETIME-DESIGN §6.2, by
+# Jiff's `Date::checked_add_span`, `civil/date.rs:1356`), or `none` when
+# a step leaves the range.
+fun date_add(d: Date, months: I128, days: I128) -> Date?
+  out = d
+  if months != 0
+    y, m = month_step(Int(d.y), Int(d.m), months)?
+    out = Date(y: I16(y), m: U8(m), d: U8(math_min(Int(d.d), month_days(y, m))))
+  if days != 0
+    out = date_of(day_step(out.number(), days)?)
+  out
+
+# The whole months from `early` to `late`, which is not before it: the
+# difference in calendar months, less one when `late`'s day of the
+# month is below `early`'s (DATETIME-DESIGN §6.4; Jiff's
+# `DateDifference::since_with_largest_unit`, `civil/date.rs:2726`).
+fun months_between(early: Date, late: Date) -> Int
+  n = (Int(late.y) - Int(early.y)) * 12 + Int(late.m) - Int(early.m)
+  n - 1 if late.d < early.d else n
+
+fun math_min(a: Int, b: Int) -> Int
+  a if a < b else b

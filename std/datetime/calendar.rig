@@ -1,0 +1,154 @@
+# std.datetime: the calendar and the clock face. A `Date` is a day on the
+# proleptic Gregorian calendar, from -9999-01-01 to 9999-12-31, with a
+# year 0 (1 BCE, as in ISO 8601); a `Time` a time of day on the clock
+# face, to the nanosecond; a `DateTime` a date and a time of day with no
+# zone, every day of it 24 hours; a `Weekday` a day of the week. Each is
+# plain data, and nothing here allocates.
+#
+# The calendar math is Jiff 1.0.0's (`jiff-core`, MIT): the conversions
+# between a date and a day count, the month's length, the clamp of a
+# month's end, ISO weeks, and the order of a calendar sum's groups.
+# Each routine ported names the line of Jiff it follows.
+#
+# Copyright (c) 2023 Andrew Gallant, for the parts ported from Jiff,
+# under the MIT license.
+
+
+# Why a value could not be made: its text is not that type's form, or
+# names no real value (`parse`); or the result is not a real value or
+# lies beyond the type's range (`new`, `with`, `checked_add`,
+# `nth_weekday`, `nth_weekday_of_month`).
+pub error DateTimeError
+  invalid
+  range
+
+# The ends of the range of years, and their days counted from
+# 1970-01-01: -9999-01-01 and 9999-12-31.
+MIN_YEAR = -9999
+MAX_YEAR = 9999
+MIN_DAY = -4371587
+MAX_DAY = 2932896
+
+# The nanoseconds in each unit of a day.
+DAY_NS = 86_400_000_000_000
+HOUR_NS = 3_600_000_000_000
+MINUTE_NS = 60_000_000_000
+SECOND_NS = 1_000_000_000
+
+# Whether `y` is a leap year (jiff-core `civil/mod.rs:171`).
+fun is_leap(y: Int) -> Bool
+  k = 4 if y % 25 != 0 else 16
+  y % k == 0
+
+# The days in month `m` of year `y` (jiff-core `civil/mod.rs:189`).
+fun month_days(y: Int, m: Int) -> Int
+  if m == 2
+    return 29 if is_leap(y) else 28
+  30 | (m ^ (m >> 3))
+
+# The days from 1970-01-01 to the date `y`-`m`-`d`, negative before it:
+# Neri and Schneider's algorithm, with no branch and no division of a
+# negative number (jiff-core `civil/date.rs:490`, `to_unix_epoch_day`).
+fun epoch_day(y: Int, m: Int, d: Int) -> Int
+  j = 1 if m <= 2 else 0
+  yy = y + 32_800 - j
+  mm = m + 12 if m <= 2 else m
+  c = yy / 100
+  ystar = 1461 * yy / 4 - c + c / 4
+  mstar = (979 * mm - 2919) / 32
+  ystar + mstar + d - 1 - 12_699_422
+
+# The date `n` days from 1970-01-01, as its year, month, and day
+# (jiff-core `civil/date.rs:892`, `UnixEpochDay::to_date`).
+fun civil(n: Int) -> (Int, Int, Int)
+  nn = n + 12_699_422
+  n1 = 4 * nn + 3
+  c = n1 / 146_097
+  nc = n1 % 146_097 / 4
+  n2 = 4 * nc + 3
+  p2 = 2_939_745 * n2
+  z = p2 / 4_294_967_296
+  ny = p2 % 4_294_967_296 / 2_939_745 / 4
+  yy = 100 * c + z
+  n3 = 2141 * ny + 197_913
+  mm = n3 / 65_536
+  dd = n3 % 65_536 / 2141
+  j = ny >= 306
+  return yy - 32_800 + (1 if j else 0), (mm - 12 if j else mm), dd + 1
+
+# `a` divided by `b`, toward negative infinity, and what is left, from
+# 0 to `b` - 1: Rig's `/` truncates toward zero. `b` is positive.
+fun floor_div(a: Int, b: Int) -> Int
+  q = a / b
+  q - 1 if a % b < 0 else q
+
+fun floor_mod(a: Int, b: Int) -> Int
+  r = a % b
+  r + b if r < 0 else r
+
+# The weekday of the day `n` days from 1970-01-01, a Thursday, as
+# Monday 0 to Sunday 6 (jiff-core `civil/date.rs:728` gives the same by
+# a multiply and a shift).
+fun weekday_index(n: Int) -> Int
+  floor_mod(n + 3, 7)
+
+# The day of the year of `y`-`m`-`d`, 1 to 366 (jiff-core
+# `civil/date.rs:209`).
+fun year_day(y: Int, m: Int, d: Int) -> Int
+  before = [0, 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
+  before[m] + d + (1 if m > 2 and is_leap(y) else 0)
+
+# The day, from 1970-01-01, that ISO week year `y` starts on: the Monday
+# of the week that holds January 4 (jiff-core `civil/date.rs:1317`,
+# `iso_week_start_from_year`).
+fun iso_year_start(y: Int) -> Int
+  jan4 = epoch_day(y, 1, 4)
+  jan4 - weekday_index(jan4)
+
+# The ISO week year and week of `y`-`m`-`d` (jiff-core
+# `civil/date.rs:519`, `to_iso_week_date`).
+fun iso_week_of(y: Int, m: Int, d: Int) -> (Int, Int)
+  n = epoch_day(y, m, d)
+  year = y
+  start = iso_year_start(year)
+  if n < start
+    year -= 1
+    start = iso_year_start(year)
+  else if m == 12 and d >= 29 and year < MAX_YEAR
+    next = iso_year_start(year + 1)
+    if n >= next
+      start = next
+      year += 1
+  return year, (n - start) / 7 + 1
+
+# The year and month `months` months after year `y`'s month `m`, by
+# Jiff's `month_add_overflowing` (`civil/date.rs:3423`), with the years
+# and months already summed as months (DATETIME-DESIGN §6.2); `none`
+# when the year leaves the range or the sum leaves an `Int`.
+fun month_step(y: Int, m: Int, months: I128) -> (Int, Int)?
+  total = I128(y) * 12 + I128(m - 1) + months
+  if total < I128(MIN_YEAR) * 12 or total > I128(MAX_YEAR) * 12 + 11
+    return none
+  t = Int(total)
+  return floor_div(t, 12), floor_mod(t, 12) + 1
+
+# `years` and `months` as one count of months, as `I128` so that no sum
+# of two `Int`s overflows it.
+fun total_months(years: Int, months: Int) -> I128
+  I128(years) * 12 + I128(months)
+
+# `weeks` and `days` as one count of days.
+fun total_days(weeks: Int, days: Int) -> I128
+  I128(weeks) * 7 + I128(days)
+
+# The day `days` after day `n`, or `none` beyond the range.
+fun day_step(n: Int, days: I128) -> Int?
+  r = I128(n) + days
+  if r < I128(MIN_DAY) or r > I128(MAX_DAY)
+    return none
+  Int(r)
+
+# Whether an `Int` amount of `what` is a real month, day, hour, and so
+# on: from `lo` to `hi`.
+fun within(v: Int, lo: Int, hi: Int) -> Bool
+  v >= lo and v <= hi

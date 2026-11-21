@@ -1,0 +1,338 @@
+# std.datetime: `Time` and `DateTime`: making one, its readers, adding a
+# duration and calendar amounts, `since` and the counts, `with`,
+# `round` and `floor`, the ends of the range, `==`, `<`, and hashing,
+# and text. Cases marked with a Jiff file are ported from Jiff 1.0.0's
+# tests (MIT); the rest are the design's (docs/design/datetime.md §12).
+
+use std.datetime
+use std.time
+
+test "time new and readers", '''
+  08:07:03.512094 8 7 3 512094000
+  00:00:00 23:59:59.999999999 12:30:00
+  range range range range range
+'''
+  t = datetime.Time.new(8, 7, 3, 512_094_000)!
+  print(t, t.hour(), t.minute(), t.second(), t.nanosecond())
+  print(datetime.Time.new(0, 0)!, datetime.Time.new(23, 59, 59, 999_999_999)!, datetime.Time.new(12, 30)!)
+  # §7.2: `Time.new(23, 59, 60)` fails; only parsing reads `:60`.
+  fun try_time(h: Int, m: Int, s: Int, ns: Int) -> ?String
+    _ = datetime.Time.new(h, m, s, ns) catch return "range"
+    "ok"
+
+  print(try_time(23, 59, 60, 0), try_time(24, 0, 0, 0), try_time(0, 60, 0, 0), try_time(0, 0, 0, 1_000_000_000), try_time(-1, 0, 0, 0))
+
+test "time add wraps past midnight", '''
+  01:00:00 range 22:00:00 range
+  07:23:30.123456789 01:01:52.5 22:58:07.5
+  16:08:30.123456789 15:36:50.123456789 15:23:30.923456789 15:23:30.124256789 15:23:30.123457089
+  17:23:30.123456789 range 05:23:30.123456789
+'''
+  # §6.2: 23:00 and two hours is 01:00, and `checked_add` fails on the
+  # wrap; tests/tc39_262/civil/time/add.rs:28 `argument_duration`, 8
+  # `argument_string_fractional_units_rounding_mode`, 166
+  # `argument_object`, 217 `argument_object_checked`.
+  fun checked(t: datetime.Time, d: time.Duration) -> String
+    r = t.checked_add(d) catch return String("range")
+    String(r)
+
+  late = datetime.Time.new(23, 0)!
+  print(late.add(hours: 2), checked(late, time.duration(hours: 2)), datetime.Time.new(1, 0)!.add(hours: -3), checked(datetime.Time.new(1, 0)!, time.duration(hours: -3)))
+  t = datetime.Time.new(15, 23, 30, 123_456_789)!
+  midnight = datetime.Time.new(0, 0)!
+  print(t.add(hours: 16), midnight.add(time.Duration.parse("PT1.03125H")!), midnight.add(time.Duration.parse("-PT1.03125H")!))
+  print(t.add(minutes: 45), t.add(seconds: 800), t.add(ms: 800), t.add(us: 800), t.add(ns: 300))
+  print(checked(t, time.duration(hours: 2)), checked(t, time.duration(hours: 9)), checked(t, time.duration(hours: -10)))
+
+test "time add of the largest durations", '''
+  23:47:16.854775807 00:12:43.145224193 00:12:43.145224192 00:00:00
+'''
+  # tests/tc39_262/civil/time/add.rs:37 and 83 add the largest spans
+  # Jiff holds; here the largest and smallest `Duration` (§5.1): the
+  # wrap is what is left of whole days.
+  midnight = datetime.Time.new(0, 0)!
+  print(midnight.add(ns: Int.max), midnight.add(ns: -Int.max), midnight.add(ns: Int.min), midnight.add(hours: 24 * 100_000))
+
+test "time since", '''
+  1h -1h 1h 37m -1h 37m -22h 22h
+  23h 59m 59s 999ms 999us 999ns 0s
+'''
+  # §6.6: the difference on the clock face, negative when the other is
+  # later; tests/tc39_262/civil/time/until.rs:52 `basic`.
+  one = datetime.Time.new(15, 23, 30, 123_456_789)!
+  two = datetime.Time.new(16, 23, 30, 123_456_789)!
+  three = datetime.Time.new(17, 0, 30, 123_456_789)!
+  print(two.since(one), one.since(two), three.since(one), one.since(three), datetime.Time.new(1, 0)!.since(datetime.Time.new(23, 0)!), datetime.Time.new(23, 0)!.since(datetime.Time.new(1, 0)!))
+  print(datetime.Time.new(23, 59, 59, 999_999_999)!.since(datetime.Time.new(0, 0)!), one.since(one))
+
+test "time round and its increments", '''
+  04:00:00 04:00:00 03:00:00 04:00:00 06:00:00 00:00:00 00:00:00
+  03:35:00 03:34:00 03:36:00 03:36:00 03:35:00 03:36:00 03:30:00 03:36:00 03:30:00 03:40:00 03:30:00
+  03:34:57 03:34:56 03:34:57 03:34:56 03:34:55 03:34:54 03:35:00 03:35:00 03:35:00 03:35:00 03:35:00
+  03:34:56.988 03:34:56.988 03:34:56.988 03:34:56.99 03:34:56.984 03:34:56.99 03:34:56.98 03:34:57
+  03:34:56.987654 03:34:56.987654 03:34:56.987656 03:34:56.987655 03:34:56.987656
+'''
+  # tests/tc39_262/civil/time/round.rs: `rounding_increment_hours`,
+  # `_minutes`, `_seconds`, `_milliseconds`, `_microseconds`.
+  t = datetime.Time.new(3, 34, 56, 987_654_321)!
+  print(t.round(hours: 1), t.round(hours: 2), t.round(hours: 3), t.round(hours: 4), t.round(hours: 6), t.round(hours: 8), t.round(hours: 12))
+  print(t.round(minutes: 1), t.round(minutes: 2), t.round(minutes: 3), t.round(minutes: 4), t.round(minutes: 5), t.round(minutes: 6), t.round(minutes: 10), t.round(minutes: 12), t.round(minutes: 15), t.round(minutes: 20), t.round(minutes: 30))
+  print(t.round(seconds: 1), t.round(seconds: 2), t.round(seconds: 3), t.round(seconds: 4), t.round(seconds: 5), t.round(seconds: 6), t.round(seconds: 10), t.round(seconds: 12), t.round(seconds: 15), t.round(seconds: 20), t.round(seconds: 30))
+  print(t.round(ms: 1), t.round(ms: 2), t.round(ms: 4), t.round(ms: 5), t.round(ms: 8), t.round(ms: 10), t.round(ms: 20), t.round(ms: 25))
+  print(t.round(us: 1), t.round(us: 2), t.round(us: 4), t.round(us: 5), t.round(us: 8))
+
+test "time round wraps, halves go later, floor", '''
+  23:59:59.999999999 00:00:00 00:00:00 00:00:00 00:00:00 00:00:00
+  15:30:00 15:25:00 15:25:00 15:25:00 00:00:00 23:59:59
+  12:00:01 12:00:00 12:30:00 12:00:00
+'''
+  # tests/tc39_262/civil/time/round.rs `rounding_cross_midnight`; jiff
+  # civil/time.rs:1480 and 1483; §6.8: 23:59:59.6 rounds to 00:00:00, a
+  # half goes to the later value, and `floor` to the one at or before.
+  last = datetime.Time.new(23, 59, 59, 999_999_999)!
+  print(last.round(ns: 1), last.round(ms: 1), last.round(us: 1), last.round(seconds: 1), last.round(minutes: 1), last.round(hours: 1))
+  half = datetime.Time.new(15, 27, 30)!
+  print(half.round(minutes: 5), half.floor(minutes: 5), datetime.Time.new(15, 27, 29, 999_999_999)!.round(minutes: 5), datetime.Time.new(15, 29, 59)!.floor(minutes: 5), datetime.Time.new(23, 59, 59, 600_000_000)!.round(seconds: 1), datetime.Time.new(23, 59, 59, 600_000_000)!.floor(seconds: 1))
+  print(datetime.Time.new(12, 0, 0, 500_000_000)!.round(seconds: 1), datetime.Time.new(12, 0, 0, 499_999_999)!.round(seconds: 1), datetime.Time.new(12, 15)!.round(minutes: 30), datetime.Time.new(12, 14, 59)!.round(minutes: 30))
+
+bomb "time round with an increment that does not divide panics", "datetime.Time.round: the increment 7 does not divide 60 or is not smaller than it"
+  k = 7
+  print(datetime.Time.new(1, 0)!.round(minutes: k))
+
+test "time with", '''
+  08:00:00 08:07:00 range 23:07:03.5
+'''
+  fun change(t: datetime.Time, hour: Int? = none, minute: Int? = none, second: Int? = none, ns: Int? = none) -> String
+    r = t.with(hour: hour, minute: minute, second: second, ns: ns) catch return String("range")
+    String(r)
+
+  t = datetime.Time.new(8, 7, 3, 512_094_000)!
+  print(change(t, minute: 0, second: 0, ns: 0), change(t, second: 0, ns: 0), change(t, second: 60), change(t, hour: 23, ns: 500_000_000))
+
+test "times compare, order, and hash", '''
+  true false true
+  2 1
+'''
+  a = datetime.Time.new(8, 0)!
+  b = datetime.Time.new(8, 0, 0, 1)!
+  print(a == datetime.Time.new(8, 0, 0, 0)!, a == b, a < b)
+  seen = Map[datetime.Time, Int]()
+  !seen.put(a, 1)
+  !seen.put(b, 2)
+  !seen.put(datetime.Time.new(8, 0)!, 1)
+  print(seen.len, seen.get(datetime.Time.new(8, 0)!) ?? 0)
+
+test "time text", '''
+  08:07:03.512094 08:07:00 08:00:00 08:07:03 08:07:03.5 08:07:03.5 23:59:59
+  12:30:00 12:30:00 12:30:45 23:30:45 02:30:00 12:32:00 true
+'''
+  # §8.1: ISO 8601, the basic form and a leading `T`, a fraction after
+  # `.` or `,`, and `:60` read as `:59`; jiff fmt/temporal/parser.rs
+  # `ok_time_basic`, `ok_time_fractional`, `ok_time_leap`.
+  print(datetime.Time.parse("08:07:03.512094")!, datetime.Time.parse("08:07")!, datetime.Time.parse("08")!, datetime.Time.parse("T080703")!, datetime.Time.parse("08:07:03,5")!, datetime.Time.parse("T080703.500")!, datetime.Time.parse("23:59:60")!)
+  t = datetime.Time.new(23, 30, 45)!
+  print(datetime.Time.parse("T1230")!, datetime.Time.parse("12:30")!, datetime.Time.parse("t123045")!, datetime.Time.parse("233045")!, datetime.Time.parse("0230")!, datetime.Time.parse("1232")!, datetime.Time.parse(String(t))! == t)
+
+test "time text refused", '''
+  DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid
+  DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid
+'''
+  # §8.1: a `Time` reads only its own form: no date, offset, zone, or
+  # `Z`; and a basic time that also reads as a month and day (`1230`
+  # as Dec 30) is ambiguous, as in Jiff (`parse_temporal_time`).
+  fun read(s: ?String) -> String
+    t = datetime.Time.parse(s) catch |e| return String(e)
+    String(t)
+
+  print(read("2024-03-10T03:30"), read("2024-03-10"), read("03:30-06:00"), read("03:30[America/Denver]"), read("03:30Z"), read("1230"))
+  print(read("123045"), read("103000.123456789"), read("24:00"), read("03:3"), read("03:30:"), read(""))
+
+test "datetime new, parts, and readers", '''
+  2026-11-17T08:07:03.512094 2026-11-17 08:07:03.512094
+  2026 11 17 Tuesday 321 30 47 2026 8 7 3 512094000
+  2026-11-17T00:00:00 range range
+'''
+  dt = datetime.DateTime.new(2026, 11, 17, 8, 7, 3, 512_094_000)!
+  print(dt, dt.date(), dt.time())
+  print(dt.year(), dt.month(), dt.day(), dt.weekday(), dt.day_of_year(), dt.days_in_month(), dt.iso_week(), dt.iso_week_year(), dt.hour(), dt.minute(), dt.second(), dt.nanosecond())
+  fun try_dt(y: Int, m: Int, d: Int, h: Int) -> String
+    r = datetime.DateTime.new(y, m, d, h) catch return String("range")
+    String(r)
+
+  print(datetime.DateTime.new(2026, 11, 17)!, try_dt(2023, 2, 29, 0), try_dt(2024, 2, 29, 24))
+
+test "datetime add: duration, then the calendar", '''
+  2020-02-29T15:00:00 2020-06-01T01:12:38.271986102 2019-10-28T22:46:38.271986102
+  1996-05-02T01:01:01.001000999 1996-05-02T01:01:00.999001001 1996-05-02T01:00:59.001001001 1996-05-01T23:01:01.001001001
+  2026-03-09T02:30:00 2026-03-08T02:30:01 2026-03-08T02:30:00.5 2026-03-09T04:30:00 2026-03-09T01:30:00
+'''
+  # tests/tc39_262/civil/datetime/add.rs `ambiguous_date`, `hour_overflow`,
+  # `balance_negative_time_units`; §5.2 and §6.2: a bare number is
+  # seconds, never days; the calendar amounts by name, and signs may
+  # differ between the groups: a day and minus an hour.
+  print(datetime.DateTime.new(2020, 1, 31, 15)!.add(months: 1), datetime.DateTime.new(2020, 5, 31, 23, 12, 38, 271_986_102)!.add(hours: 2), datetime.DateTime.new(2019, 10, 29, 10, 46, 38, 271_986_102)!.add(hours: -12))
+  b = datetime.DateTime.new(1996, 5, 2, 1, 1, 1, 1_001_001)!
+  print(b.add(ns: -2), b.add(ms: -2), b.add(seconds: -2), b.add(hours: -2))
+  dt = datetime.DateTime.parse("2026-03-08T02:30")!
+  print(dt.add(days: 1), dt.add(1), dt.add(0.5), dt.add(days: 1, hours: 2), dt.add(days: 1, hours: -1))
+
+test "datetime add: the order of the groups", '''
+  2027-03-01T23:00:00 2027-03-01T01:00:00 2027-02-28T22:00:00
+  2024-02-29T00:00:00 2024-03-29T00:00:00
+'''
+  # §6.2: months, then days, then the duration: Jan 31 + 1 month + 1 day
+  # at 23:00; Jan 31 + 1 month + 2 hours from 23:00 (clamp, then carry);
+  # Feb 29 with `years: 1, months: -12`.
+  print(datetime.DateTime.new(2027, 1, 31, 23)!.add(months: 1, days: 1), datetime.DateTime.new(2027, 1, 31, 23)!.add(time.duration(hours: 2), months: 1), datetime.DateTime.new(2027, 1, 31, 23)!.add(time.duration(hours: -1), months: 1))
+  print(datetime.DateTime.new(2024, 2, 29)!.add(years: 1, months: -12), datetime.DateTime.new(2024, 2, 1)!.add(months: 2, days: -3))
+
+test "datetime add at the ends of the range", '''
+  9999-12-31T23:59:59.999999999 range range -009999-01-01T00:00:00 range
+'''
+  fun step(dt: datetime.DateTime, d: time.Duration, days: Int) -> String
+    r = dt.checked_add(d, days: days) catch return String("range")
+    String(r)
+
+  top = datetime.DateTime.new(9999, 12, 31, 23, 59, 59, 999_999_998)!
+  low = datetime.DateTime.new(-9999, 1, 1, 0, 0, 0, 1)!
+  print(top.add(ns: 1), step(top, time.duration(ns: 2), 0), step(top, time.duration(0), 1), low.add(ns: -1), step(low, time.duration(ns: -2), 0))
+
+bomb "datetime add past the last instant panics", "datetime.DateTime.add: the date and time 9999-12-31T23:59:59 and 0 years, 0 months, 0 weeks, 0 days and 1s is beyond the range"
+  dt = datetime.DateTime.new(9999, 12, 31, 23, 59, 59)!
+  print(dt.add(1))
+
+test "datetime since", '''
+  73h 30m -73h 30m 0s
+  2562047h 47m 16s 854ms 775us 807ns -2562047h 47m 16s 854ms 775us 808ns
+'''
+  # §6.6: every day 24 hours, exact within 292 years, and beyond them
+  # the largest or smallest `Duration`.
+  a = datetime.DateTime.new(2000, 5, 2, 9)!
+  b = datetime.DateTime.new(2000, 5, 5, 10, 30)!
+  print(b.since(a), a.since(b), a.since(a))
+  top = datetime.DateTime.new(9999, 12, 31)!
+  low = datetime.DateTime.new(-9999, 1, 1)!
+  print(top.since(low), low.since(top))
+
+test "datetime counts", '''
+  3 -3 2 -2 0 0 0 0
+  40 27 69931s -40 3 0 0
+  1 3 82800s 1 27 82800s
+  12 1 0 0
+'''
+  # §6.4: whole days of 24 hours from the earlier, months as for two
+  # dates from the earlier's date; tests/tc39_262/civil/datetime/
+  # until.rs:10 `balance_negative_duration`, 85 `balance`, 478
+  # `wrapping_at_end_of_month`, 149 `no_unnecessary_units`. Rig counts
+  # walk forward from the earlier value (§9 item 3), so a count from the
+  # later value, which Jiff measures backward (`-P40M30DT19H25M31S`,
+  # `-1.month().days(30).hours(23)`), is the forward count negated.
+  fun ymd(a: datetime.DateTime, b: datetime.DateTime) -> String
+    early = a if a < b else b
+    late = b if a < b else a
+    n = late.days_since(early)
+    rest = late.since(early.add(days: n))
+    d0 = early.date()
+    d1 = d0.add(days: n)
+    m = d1.months_since(d0)
+    `{m} {d1.days_since(d0.add(months: m))} {rest.seconds()}s`
+
+  x = datetime.DateTime.new(2000, 5, 2, 9)!
+  y = datetime.DateTime.new(2000, 5, 5, 10)!
+  z = datetime.DateTime.new(2000, 5, 5, 8)!
+  print(y.days_since(x), x.days_since(y), z.days_since(x), x.days_since(z), z.weeks_since(x), z.months_since(x), x.months_since(z), z.years_since(x))
+  a = datetime.DateTime.parse("2017-10-05T08:07:14")!
+  b = datetime.DateTime.parse("2021-03-05T03:32:45")!
+  c = datetime.DateTime.parse("2021-03-05T09:32:45")!
+  print(ymd(a, b), a.months_since(b), b.years_since(a), c.years_since(c), a.days_since(a))
+  print(ymd(datetime.DateTime.new(2023, 2, 28, 3)!, datetime.DateTime.new(2023, 4, 1, 2)!), ymd(datetime.DateTime.new(2023, 3, 1, 2)!, datetime.DateTime.new(2023, 1, 1, 3)!))
+  print(datetime.DateTime.new(2022, 2, 28)!.months_since(datetime.DateTime.new(2021, 2, 28)!), datetime.DateTime.new(2022, 2, 28)!.years_since(datetime.DateTime.new(2021, 2, 28)!), datetime.DateTime.new(2022, 2, 27, 23)!.years_since(datetime.DateTime.new(2021, 2, 28)!), datetime.DateTime.new(2021, 3, 28)!.months_since(datetime.DateTime.new(2021, 2, 28, 1)!))
+
+test "datetime counts in both directions", '''
+  61 -61 1 -1 0 0
+  91 -91 2 -2
+'''
+  # §12: 2023-12-30T10:00 and 2024-03-01T00:00; 2023-11-30T09:00 and
+  # 2024-02-29T09:00, each way.
+  a = datetime.DateTime.parse("2023-12-30T10:00")!
+  b = datetime.DateTime.parse("2024-03-01T00:00")!
+  print(b.days_since(a), a.days_since(b), b.months_since(a), a.months_since(b), b.years_since(a), a.years_since(b))
+  c = datetime.DateTime.parse("2023-11-30T09:00")!
+  d = datetime.DateTime.parse("2024-02-29T09:00")!
+  print(d.days_since(c), c.days_since(d), d.months_since(c), c.months_since(d))
+
+test "datetime round and floor", '''
+  1976-11-19T00:00:00 1976-11-19T00:00:00 1976-11-19T00:00:00 1976-11-19T00:00:00 1976-11-19T00:00:00 1976-11-19T00:00:00 1976-11-18T23:59:59.999999999
+  1976-11-18T16:00:00 1976-11-18T14:30:00 1976-11-18T14:23:30 1976-11-18T14:23:30.12 1976-11-18T14:23:30.12346 1976-11-18T14:23:30.12345679 1976-11-19T00:00:00
+  1976-11-19T00:00:00 1976-11-18T14:00:00 1976-11-18T14:24:00 1976-11-18T14:23:30 1976-11-18T14:23:30.124 1976-11-18T14:23:30.123988
+  1976-11-18T00:00:00 1976-11-18T14:00:00 1976-11-18T14:23:00 1976-11-18T14:23:30 1976-11-18T14:23:30.123 1976-11-18T14:23:30.123987
+'''
+  # tests/tc39_262/civil/datetime/round.rs `balance`, `roundingmode_basic`,
+  # `roundingincrement_one_day`, `roundingmode_halfexpand`,
+  # `roundingmode_floor`.
+  e = datetime.DateTime.new(1976, 11, 18, 23, 59, 59, 999_999_999)!
+  print(e.round(days: 1), e.round(hours: 1), e.round(minutes: 1), e.round(seconds: 1), e.round(ms: 1), e.round(us: 1), e.round(ns: 1))
+  dt = datetime.DateTime.new(1976, 11, 18, 14, 23, 30, 123_456_789)!
+  print(dt.round(hours: 4), dt.round(minutes: 15), dt.round(seconds: 30), dt.round(ms: 10), dt.round(us: 10), dt.round(ns: 10), dt.round(days: 1))
+  h = datetime.DateTime.new(1976, 11, 18, 14, 23, 30, 123_987_500)!
+  print(h.round(days: 1), h.round(hours: 1), h.round(minutes: 1), h.round(seconds: 1), h.round(ms: 1), h.round(us: 1))
+  print(h.floor(days: 1), h.floor(hours: 1), h.floor(minutes: 1), h.floor(seconds: 1), h.floor(ms: 1), h.floor(us: 1))
+
+test "datetime round past midnight in every year", '''
+  0001-01-01T00:00:00 -000099-12-16T00:00:00 0000-01-01T00:00:00 -000099-12-15T12:00:01
+  -009999-01-01T00:00:00 9999-12-31T23:59:59.999999
+'''
+  # §6.8 and §9 item 14: a round past midnight carries into the next
+  # day in a year at or below 0 too, where Jiff 1.0.0 stays on the same
+  # day; tests/tc39_262/civil/datetime/round.rs `rounding_direction` (a
+  # half to the later) and `limits`.
+  print(datetime.DateTime.new(0, 12, 31, 23, 30)!.round(hours: 1), datetime.DateTime.new(-99, 12, 15, 12)!.round(days: 1), datetime.DateTime.new(-1, 12, 31, 23, 59, 59, 600_000_000)!.round(seconds: 1), datetime.DateTime.new(-99, 12, 15, 12, 0, 0, 500_000_000)!.round(seconds: 1))
+  print(datetime.DateTime.new(-9999, 1, 1, 0, 0, 0, 1)!.floor(us: 1), datetime.DateTime.new(9999, 12, 31, 23, 59, 59, 999_999_499)!.round(us: 1))
+
+bomb "datetime round past the last day panics", "datetime.DateTime.round: the date and time 9999-12-31T23:59:59.999999999 rounds past 9999-12-31"
+  dt = datetime.DateTime.new(9999, 12, 31, 23, 59, 59, 999_999_999)!
+  print(dt.round(days: 1))
+
+test "datetime with", '''
+  2026-11-17T00:00:00 2024-02-29T08:07:03 range range
+'''
+  fun change(dt: datetime.DateTime, year: Int? = none, day: Int? = none, hour: Int? = none, minute: Int? = none, second: Int? = none) -> String
+    r = dt.with(year: year, day: day, hour: hour, minute: minute, second: second) catch return String("range")
+    String(r)
+
+  dt = datetime.DateTime.new(2026, 11, 17, 8, 7, 3)!
+  print(change(dt, hour: 0, minute: 0, second: 0), dt.with(year: 2024, month: 2, day: 29)!, change(datetime.DateTime.new(2024, 2, 29)!, year: 2023), change(dt, hour: 24))
+
+test "datetimes compare, order, and hash", '''
+  true false true true
+  2
+'''
+  a = datetime.DateTime.new(2024, 2, 29, 23, 59)!
+  b = datetime.DateTime.new(2024, 3, 1)!
+  print(a == datetime.DateTime.new(2024, 2, 29, 23, 59, 0, 0)!, a == b, a < b, a.date() < b.date())
+  seen = Map[datetime.DateTime, Int]()
+  !seen.put(a, 1)
+  !seen.put(b, 2)
+  !seen.put(datetime.DateTime.new(2024, 3, 1)!, 3)
+  print(seen.len)
+
+test "datetime text", '''
+  2026-11-17T08:07:03.512094 2024-03-10T00:00:00 2024-03-10T03:30:00 2024-03-10T03:30:00 2024-03-10T10:30:00 2024-06-30T23:59:59
+  true -000001-01-01T00:00:00
+'''
+  # §8.1: a date and a time joined by `T`, `t`, or a space; a date alone
+  # is midnight; the basic form; `:60` is read as `:59`.
+  print(datetime.DateTime.parse("2026-11-17T08:07:03.512094")!, datetime.DateTime.parse("2024-03-10")!, datetime.DateTime.parse("2024-03-10 03:30")!, datetime.DateTime.parse("2024-03-10t0330")!, datetime.DateTime.parse("20240310T1030")!, datetime.DateTime.parse("2024-06-30T23:59:60")!)
+  dt = datetime.DateTime.new(2026, 11, 17, 8, 7, 3, 512_094_000)!
+  print(datetime.DateTime.parse(String(dt))! == dt, datetime.DateTime.parse("-000001-01-01")!)
+
+test "datetime text refused", '''
+  DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid
+'''
+  # §8.1: a `DateTime` reads only its own form: no offset, `Z`, or zone;
+  # no time alone.
+  fun read(s: ?String) -> String
+    dt = datetime.DateTime.parse(s) catch |e| return String(e)
+    String(dt)
+
+  print(read("2024-03-10T03:30:00Z"), read("2024-03-10T03:30:00-06:00"), read("2024-03-10T03:30:00[America/Denver]"), read("2024-03-10[UTC]"), read("03:30"), read("2024-03-10T"))
