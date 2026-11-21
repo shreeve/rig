@@ -6550,7 +6550,8 @@ pub fn stdRenamed(foreign: *const SemContext, owner: []const u8, member: []const
         .{ "std.bigint", "BigInt", "compare", "; compare with `<` and its kin, or write `a.order(?b)`, which gives `.less`, `.equal`, or `.greater`" },
         .{ "std.bigint", "BigInt", "equals", "; a BigInt compares with `==`" },
         .{ "std.bigint", "BigInt", "to_f64", "; write `a.to_float()`" },
-        .{ "std.time", "", "now", "; for timing, `time.monotonic()` reads the monotonic clock, and `start.elapsed()` gives a `time.Duration`; for the date and time, `time.unix_ns()` reads the wall clock" },
+        .{ "std.time", "", "now", "; for timing, `time.monotonic()` reads the monotonic clock, and `start.elapsed()` gives a `time.Duration`; for the date and time, `datetime.now()` reads the wall clock" },
+        .{ "std.time", "", "unix_ns", "; the wall clock is std.datetime's: `datetime.now()` reads it, and `datetime.now().unix().ns()` gives its nanoseconds since 1970" },
         .{ "std.time", "", "Instant", "; a reading of the monotonic clock is a `time.Monotonic`, from `time.monotonic()` or `time.Monotonic.at(d)`" },
         .{ "std.time", "", "NS", "; a length of time is a `time.Duration`: `time.duration(ns: 1)`, or `ns: 1` where a duration is taken" },
         .{ "std.time", "", "US", "; a length of time is a `time.Duration`: `time.duration(us: 1)`, or `us: 1` where a duration is taken" },
@@ -12270,6 +12271,15 @@ pub const duration = struct {
         if (!home.is_std or !std.mem.eql(u8, home.name, "std.time")) return false;
         return std.mem.eql(u8, name, "sleep") or std.mem.eql(u8, name, "within");
     }
+
+    /// Whether `method` of `owner`, declared in `home`, adds a duration to
+    /// a value with no calendar, `datetime.Instant`'s `add` and
+    /// `checked_add`: a day on the clock needs a zone, so its fix for
+    /// `days:` names `in_zone` (docs/design/datetime.md §5.2).
+    pub fn zoneless(home: *const SemContext, owner: []const u8, method: []const u8) bool {
+        if (!home.is_std or !std.mem.eql(u8, home.name, "std.datetime") or !std.mem.eql(u8, owner, "Instant")) return false;
+        return std.mem.eql(u8, method, "add") or std.mem.eql(u8, method, "checked_add");
+    }
 };
 
 /// Whether `ty` is std.time's `Duration`.
@@ -12317,6 +12327,9 @@ pub const ArgCheck = enum {
     /// `with` of `datetime.Date`, `Time`, and `DateTime`: the fields by
     /// name, no positional argument.
     by_name,
+    /// `round` and `floor` of `datetime.Instant`: as `unit_increment`,
+    /// with an increment that divides a day.
+    instant_increment,
 };
 
 /// The check of method `method` of type `owner`, declared in `home`.
@@ -12334,6 +12347,7 @@ pub fn stdArgCheck(home: *const SemContext, owner: []const u8, method: []const u
     if (eq(u8, owner, "DateTime") and adds) return .duration_add;
     if (eq(u8, owner, "Time") and rounds) return .clock_increment;
     if (eq(u8, owner, "DateTime") and rounds) return .day_increment;
+    if (eq(u8, owner, "Instant") and rounds) return .instant_increment;
     return null;
 }
 

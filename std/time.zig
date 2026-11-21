@@ -1,5 +1,5 @@
-//! `std.time`: the monotonic and wall clocks, read through Zig's
-//! `std.Io`, and sleeping and deadlines, which the runtime's tasks keep.
+//! `std.time`: the monotonic clock, read through Zig's `std.Io`, and
+//! sleeping and deadlines, which the runtime's tasks keep.
 
 const std = @import("std");
 const rig = @import("../runtime.zig");
@@ -9,7 +9,3 @@ pub const start_ns = rig.sinceStartNs;
 pub const sleep_ns = rig.taskSleep;
 pub const enter_deadline = rig.enterDeadline;
 pub const restore_deadline = rig.restoreDeadline;
-
-pub fn unix_ns() i64 {
-    return @intCast(std.Io.Timestamp.now(rig.io(), .real).nanoseconds);
-}
