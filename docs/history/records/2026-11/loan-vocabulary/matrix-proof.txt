@@ -1,0 +1,3 @@
+matrix-proof: test/matrix.py at origin/main and this checkout
+16239 cells at BASE, 16239 now; 1199 renamed; every program byte-identical: True
+test/oracle/rejections: 5155 lines, 354 renamed, the rest unchanged: True

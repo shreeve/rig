@@ -24231,7 +24231,7 @@ test "check: where a Cell and a write view stand, and a branch viewed in place, 
     try std.testing.expect(std.mem.findPos(u8, tc, from, call) == null);
     // What a Cell kept by value needed is gone: no per-instance
     // interior mutability, Cell temporaries, or write through a field.
-    for ([_][]const u8{ "interior" ++ "Mutable", "ReadPtr" ++ "(", "lendsCell" ++ "Temp", "refuseHeld" ++ "Cell", "payloadReads" ++ "ThroughWrite", "headerCopies" ++ "WriteView" }) |gone| {
+    for ([_][]const u8{ "interior" ++ "Mutable", "ReadPtr" ++ "(", "Cell" ++ "Temp", "refuseHeld" ++ "Cell", "payloadReads" ++ "ThroughWrite", "headerCopies" ++ "WriteView" }) |gone| {
         for ([_][]const u8{ sema_src, tc, res, @embedFile("ownership.zig"), @embedFile("emit.zig"), @embedFile("storage.zig"), @embedFile("facts.zig"), @embedFile("runtime.zig") }) |src| {
             try std.testing.expectEqual(0, std.mem.count(u8, src, gone));
         }

@@ -126,10 +126,12 @@ A new session, human or agent, takes these steps in order:
 ## In flight
 
 - **The view vocabulary** (owner, 2026-11-20; #1192 landed PR 1):
-  places, read and write views, read-only, unusable, and cells replace
-  lend and loan in the docs and the messages. PR 1 is the wording; PR 2
+  places, read and write views, read-only, unusable, and cells are the
+  words of the docs, the messages, and the code. PR 1 is the wording; PR 2
   (branch `view-notes`) adds the notes "still used here" and the
-  scope-end drop's message; PR 3 renames the compiler's identifiers
+  scope-end drop's message; PR 3 renames the compiler's identifiers, PR 4
+  the tests' names, and PR 5 (branch `view-runtime`) the names the
+  runtime and the emitted Zig carry and the matrix's cells
   (records/2026-11/loan-vocabulary/decisions.md).
 - **Spawn on the Mac at ten workers:** 93-96 ns a spawn through #1180,
   116 with #1181, 101-184 (bimodal) with #1183, while instructions fall.
@@ -349,16 +351,16 @@ A new session, human or agent, takes these steps in order:
   builds types may later replace `sema.selectType` without changing
   what programs write. The closure arms are the old spelling for this
   release (`tools/migrate-select.py`). A task's end is an arm too,
-  built: `done: ?t.on_end()` lends `t`, its variant carries nothing,
+  built: `done: ?t.on_end()` views `t`, its variant carries nothing,
   and the body takes the result with `>t`; two task arms are a race.
   A receive or send arm's `!` is checked as a marked method's self
   is, so a read view of a handle, however reached, is rejected there
   as `!ch.recv()` is (records/2026-11/concurrency-lend-doctrine/select-read-view.md).
-- **What `!` lends to a shared value** (owner, 2026-11-15, "Approve the
-  defaults"; branch `lend-doctrine`), built: `!x` puts only a read loan
-  on `x` when it lends a write view of a Cell, a Signal, a channel, an
+- **What `!` leaves a shared value** (owner, 2026-11-15, "Approve the
+  defaults"; branch `lend-doctrine`), built: `!x` leaves `x` only
+  read-only when it makes a write view of a Cell, a Signal, a channel, an
   actor, or a value that holds a Cell, judged by the type where it is
-  lent (Core §4). One fact, `loanOf`, recorded by typecheck, replaces
+  viewed (Core §4). One fact, `loanOf`, recorded by typecheck, replaces
   the ownership checker's actor and select-arm exceptions; it accepts
   more programs and rejects none. The reference checker learns the rule
   from CORE's text in a change of its own

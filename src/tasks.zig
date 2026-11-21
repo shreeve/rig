@@ -174,7 +174,7 @@ pub fn Task(comptime T: type) type {
                     return start(false, true, f, args);
                 }
 
-                /// `f(args...)&` for a local task: one given or lent a value that
+                /// `f(args...)&` for a local task: one given a value or a view of one that
                 /// stays on one thread (a `*` handle whose count is not atomic, a
                 /// Cell of more than one word, a Signal, a function). It and the
                 /// task starting it run on this thread from now on.
@@ -267,7 +267,7 @@ pub fn Task(comptime T: type) type {
         /// canceled and waited for, and the wait fails with
         /// `task.Stop.timeout`. A failure's fields move from the task's
         /// record into the waiter's slot `out`, which its `!` or `catch`
-        /// lends, or are dropped where it lends none (`rt.no_slot`).
+        /// gives, or are dropped where it gives none (`rt.no_slot`).
         pub fn waitInto(self: Self, out: anytype) T {
             var t = self;
             defer t.release();
@@ -1041,7 +1041,7 @@ pub fn Tasks(comptime T: type) type {
     };
 }
 
-/// What a function lent as `f` (a `rig.FnRef`) returns.
+/// What a function passed as a view `f` (a `rig.FnRef`) returns.
 fn ReturnOf(comptime F: type) type {
     return @typeInfo(@TypeOf(F.call)).@"fn".return_type.?;
 }
@@ -1167,9 +1167,9 @@ pub fn parMapInto(xs: anytype, f: anytype, limit: Int, out_slot: anytype) MapOut
         fn chunk(c: *const @This(), lo: usize, hi: usize, slot: rt.ErrSlot) if (fallible) anyerror!void else void {
             for (lo..hi) |i| {
                 if (comptime fallible) {
-                    c.out[i] = try c.f.call(rt.argsWithSlot(F, .{rt.lend(&c.xs[i])}, slot));
+                    c.out[i] = try c.f.call(rt.argsWithSlot(F, .{rt.readView(&c.xs[i])}, slot));
                     if (comptime marked) c.made[i] = true;
-                } else c.out[i] = c.f.call(.{rt.lend(&c.xs[i])});
+                } else c.out[i] = c.f.call(.{rt.readView(&c.xs[i])});
             }
         }
     };
@@ -1311,7 +1311,7 @@ pub fn parWorkersInto(states: anytype, items: anytype, f: anytype, out_slot: any
             while (!c.failed.load(.acquire)) {
                 const i = c.next.fetchAdd(1, .monotonic);
                 if (i >= c.items.len) return;
-                const x = rt.lend(&c.items[i]);
+                const x = rt.readView(&c.items[i]);
                 if (comptime fallible) {
                     // Each call fails into a slot of its own, which the
                     // run keeps if it fails first.
@@ -1369,7 +1369,7 @@ pub fn parWorkersInto(states: anytype, items: anytype, f: anytype, out_slot: any
 /// the isolate waits for them to end, since they may point into `f`'s
 /// frames. Then `f`'s stack is left where it stands, its frames
 /// abandoned, what they own left allocated, and `isolate` fails with
-/// `task.Stop.panicked`. Nothing outside `f` was lent to it to write,
+/// `task.Stop.panicked`. Nothing outside `f` was given to it as a write view,
 /// so all a panic half-changed is `f`'s own.
 pub const Isolate = struct {
     /// The fiber `isolate` was called on, whose own stack waits at
@@ -1614,8 +1614,8 @@ pub fn panicked(iso: *Isolate) noreturn {
         task().unwinding = false;
         rt.sched.leaveApart(iso.home);
     }
-    // This task's frames may be lent to tasks under the isolate: its
-    // stack goes to the isolate, which gives it back once they have
+    // Tasks under the isolate may view this task's frames: the
+    // task's stack goes to the isolate, which gives it back once they have
     // ended, and is counted leaving before the task's end can wake it.
     const f = rt.sched.current().?;
     iso.lock.lock();
@@ -1936,7 +1936,7 @@ pub const AfterArm = struct {
 };
 
 /// A task's end: `?t.on_end()`, which completes once the task has
-/// ended, and carries nothing: the select lends the task, whose holder
+/// ended, and carries nothing: the select views the task, whose holder
 /// takes its result with `>t`. It holds no channel (`key` 0) and waits
 /// on the task's `Done`, as `>t` does, and takes its watch back when the
 /// select returns, so a task that ends later, wherever it was moved,
@@ -2191,8 +2191,8 @@ fn unlockAt(arms: anytype, key: usize) void {
 /// for `on_recv`, called with the value received, or none once the
 /// channel is closed and empty; for `on_send`, called once the value is
 /// sent. The values of the sending arms that lose are dropped. A
-/// fallible arm's function takes the slot `out` its `!` or `catch` lends,
-/// or one of the call's own where it lends none (`rt.no_slot`).
+/// fallible arm's function takes the slot `out` its `!` or `catch` gives,
+/// or one of the call's own where it gives none (`rt.no_slot`).
 pub fn selectInto(arms_in: anytype, out: anytype) SelectOut(@TypeOf(arms_in)) {
     var own: rt.ErrData = undefined;
     const slot: rt.ErrSlot = if (comptime @TypeOf(out) == rt.ErrSlot) out else rt.failSlot(&own);

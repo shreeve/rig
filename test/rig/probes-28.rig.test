@@ -1541,7 +1541,7 @@ test "review-seam2-c01 steal", '''
   print(v)
 
 fail "review-seam2-c03 move viewed", "a view of the temporary `mk(1)` outlives its statement, which drops it; bind the value to a name first"
-  # Review probe c03_move_lent.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # Review probe c03 (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
   # oracle: S.steal accept
   # oracle: S.into accept
   # oracle: S.at accept
@@ -1577,7 +1577,7 @@ fail "review-seam2-c03 move viewed", "a view of the temporary `mk(1)` outlives i
   print(x.n)
 
 fail "review-seam2-c07 move whole while viewed", "cannot move `s` while a write view of `s.n` is still in use"
-  # Review probe c07_move_whole_while_lent.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # Review probe c07 (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
   # oracle: S.at accept
   # oracle: S.drop accept
   # oracle: mk accept
@@ -2621,7 +2621,7 @@ fail "review-seam2-r04 repoint whole", "a view of the temporary `mk(5)` outlives
   print(w.n)
 
 fail "review-seam2-r2-w15 branch temp views", "cannot move out of `(!mk(1) if c else !mk(2)).items`: it is reached through `!mk(1) if c else !mk(2)`, a view, which gives up nothing of what it views; exchange the part where it is owned, with `swap`"
-  # Review probe r2/w15_branch_temp_lends.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # Review probe r2/w15 (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
   # oracle: S.drop accept
   # oracle: mk accept
   # oracle: mkopt accept

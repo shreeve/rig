@@ -97,7 +97,7 @@ inline fn bits(comptime T: type, p: [*]const T) *align(@alignOf(T)) Bits(T) {
 
 /// `a` belongs before `b` by `less`.
 inline fn lt(less: anytype, a: anytype, b: anytype) bool {
-    return less.call(.{ rig.lend(a), rig.lend(b) });
+    return less.call(.{ rig.readView(a), rig.readView(b) });
 }
 
 /// `xs[lo..hi]`, its range checked.

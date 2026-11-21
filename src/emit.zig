@@ -2073,7 +2073,7 @@ pub const Emitter = struct {
             }
             if (self.facts.storageOf(name_node, .held_header) != null) {
                 local.held = name_node;
-                if (local.param_name.len == 0) local.param_name = if (isPlainIdent(rig_name)) try self.fmt("__rig_lent_{s}", .{rig_name}) else try self.fmt("__rig_lent_{d}", .{self.nextId()});
+                if (local.param_name.len == 0) local.param_name = if (isPlainIdent(rig_name)) try self.fmt("__rig_viewed_{s}", .{rig_name}) else try self.fmt("__rig_viewed_{d}", .{self.nextId()});
             }
             _ = try self.declare(local, rig_name);
         }
@@ -2344,7 +2344,7 @@ pub const Emitter = struct {
             .whole => "__rig_whole",
             .payload => "__rig_payload",
             .as_value => "__rig_opt",
-            .viewed => "__rig_lent",
+            .viewed => "__rig_viewed",
             .erased_copy => "__rig_erased",
             .leaf => "__rig_leaf",
             .error_value => "__rig_err",
@@ -6362,7 +6362,7 @@ pub const Emitter = struct {
         };
         const ptr = if (at.ptr) at.text else try self.fmt("&{s}", .{at.text});
         return switch (types.get(view)) {
-            .read_view => if (as_ptr) ptr else self.fmt("rig.lend({s})", .{ptr}),
+            .read_view => if (as_ptr) ptr else self.fmt("rig.readView({s})", .{ptr}),
             else => ptr,
         };
     }
@@ -6586,7 +6586,7 @@ pub const Emitter = struct {
     /// `rig.ReadView(T)`, which applies `readViewIsPtr`'s rule to each
     /// instance, so an instance agrees with the code that uses it
     /// (`?Wrap[Int]` is a copy). Code that depends on the form goes through
-    /// `rig.lend` and `rig.viewed`; the rest treats it as a pointer, since
+    /// `rig.readView` and `rig.viewed`; the rest treats it as a pointer, since
     /// Zig reaches fields and methods through either.
     fn genericReadView(self: *Emitter, ty: TypeId) ?TypeId {
         return self.facts.genericReadView(ty);
@@ -6597,7 +6597,7 @@ pub const Emitter = struct {
     }
 
     /// `?x` or `!x` held by pointer: the address of `x`, or for a generic
-    /// read view, `rig.lend` of it.
+    /// read view, `rig.readView` of it.
     fn emitViewAddress(self: *Emitter, e: Sexp) Error!void {
         if (!sameNode(e, self.viewing)) if (self.facts.viewOf(e)) |view| if (!view.has(.read_only) and view.callable() == null) return self.emitView(e, view, false, true);
         const operand = ir.get(e, .operand);
@@ -6612,14 +6612,14 @@ pub const Emitter = struct {
     }
 
     /// A read view of `operand` as a view held by address: its address,
-    /// or for a generic read view (`generic`), `rig.lend` of it, which
+    /// or for a generic read view (`generic`), `rig.readView` of it, which
     /// gives each instance the view its type is viewed as. A view written
     /// `?x` and one made where a view is expected are written alike.
     fn emitReadView(self: *Emitter, operand: Sexp, generic: bool) Error!void {
         const saved_read = self.read_place;
         defer self.read_place = saved_read;
         self.read_place = true;
-        if (generic) try self.w.writeAll("rig.lend(");
+        if (generic) try self.w.writeAll("rig.readView(");
         try self.emitAddressOf(operand);
         if (generic) try self.w.writeAll(")");
     }
@@ -10976,17 +10976,17 @@ pub const Emitter = struct {
             return self.w.writeAll(".read()");
         };
         // A read view, in a generic body, of what a write view points
-        // at is that value's own read view (`rig.lend`).
+        // at is that value's own read view (`rig.readView`).
         const outer_writes = if (outer.ty) |t| self.facts.types.get(t) == .write_view else false;
         if (outer_writes and self.facts.writeSliceElem(ty) == null and self.genericReadView(ty) != null) {
-            return self.w.print("rig.lend({s})", .{outer.zig_name});
+            return self.w.print("rig.readView({s})", .{outer.zig_name});
         }
         // A `![]T` is the slice itself; a view of a view passes it on.
         if (self.facts.writeSliceElem(ty) != null or (outer_is_view and (self.isPtrViewTy(ty) or !outer.is_ptr))) {
             return self.w.writeAll(outer.zig_name);
         }
         if (self.genericReadView(ty) != null) {
-            try self.w.writeAll("rig.lend(");
+            try self.w.writeAll("rig.readView(");
             if (!outer.is_ptr) try self.w.writeAll("&");
             try self.w.writeAll(outer.zig_name);
             return self.w.writeAll(")");
@@ -12160,8 +12160,8 @@ test "every runtime call of a function value passes the slot it takes" {
     const listed = [_]Listed{
         .{ .file = "runtime.zig", .call = "return c.invoke(argsFor(n, args))", .why = "`FnRef.ofClosure` passes on the arguments its view was called with, the slot among them where the closure takes one" },
         .{ .file = "runtime.zig", .call = "cb.value.invoke(.{})", .why = "a Signal's subscriber is a `*sub()`, which cannot fail" },
-        .{ .file = "runtime.zig", .call = "} else acc = f.call(.{ acc, lend(x) })", .why = no_fail },
-        .{ .file = "tasks.zig", .call = "} else c.out[i] = c.f.call(.{rt.lend(&c.xs[i])})", .why = no_fail },
+        .{ .file = "runtime.zig", .call = "} else acc = f.call(.{ acc, readView(x) })", .why = no_fail },
+        .{ .file = "tasks.zig", .call = "} else c.out[i] = c.f.call(.{rt.readView(&c.xs[i])})", .why = no_fail },
         .{ .file = "tasks.zig", .call = "else c.f.call(.{&c.xs[i]})", .why = no_fail },
         .{ .file = "tasks.zig", .call = "else c.f.call(.{ run, i })", .why = no_fail },
         .{ .file = "tasks.zig", .call = "c.out[i] = c.f.call(.{ s, x })", .why = no_fail },
@@ -12172,12 +12172,12 @@ test "every runtime call of a function value passes the slot it takes" {
         .{ .file = "tasks.zig", .call = "return self.invoke(name, args)", .why = method },
         .{ .file = "tasks.zig", .call = "return @TypeOf(box.value).call(box, name, args, depth)", .why = method },
         .{ .file = "net.zig", .call = "return t.f.call(.{t.req})", .why = "`http.serve`'s handler is a `?fun(?Request) -> Response`, which cannot fail" },
-        .{ .file = "ordered.zig", .call = "f.call(.{ rt.lend(&entry.key), &entry.value })", .why = "`Map.update`'s `f` is a `?sub(?K, !V)`, which cannot fail" },
-        .{ .file = "ordered.zig", .call = "f.call(.{rt.lend(&e.key)})", .why = "`Set.retain`'s `f` is a `?fun(?K) -> Bool`, which cannot fail" },
-        .{ .file = "ordered.zig", .call = "f.call(.{ rt.lend(&e.key), &e.value })", .why = "`Map.retain`'s `f` is a `?fun(?K, !V) -> Bool`, which cannot fail" },
-        .{ .file = "unordered.zig", .call = "f.call(.{ rt.lend(&entry.key), &entry.value })", .why = "`HashMap.update`'s `f` is a `?sub(?K, !V)`, which cannot fail" },
-        .{ .file = "unordered.zig", .call = "f.call(.{ rt.lend(&e.key), &e.value })", .why = "`HashMap.retain`'s `f` is a `?fun(?K, !V) -> Bool`, which cannot fail" },
-        .{ .file = "unordered.zig", .call = "f.call(.{rt.lend(&e.key)})", .why = "`HashSet.retain`'s `f` is a `?fun(?K) -> Bool`, which cannot fail" },
+        .{ .file = "ordered.zig", .call = "f.call(.{ rt.readView(&entry.key), &entry.value })", .why = "`Map.update`'s `f` is a `?sub(?K, !V)`, which cannot fail" },
+        .{ .file = "ordered.zig", .call = "f.call(.{rt.readView(&e.key)})", .why = "`Set.retain`'s `f` is a `?fun(?K) -> Bool`, which cannot fail" },
+        .{ .file = "ordered.zig", .call = "f.call(.{ rt.readView(&e.key), &e.value })", .why = "`Map.retain`'s `f` is a `?fun(?K, !V) -> Bool`, which cannot fail" },
+        .{ .file = "unordered.zig", .call = "f.call(.{ rt.readView(&entry.key), &entry.value })", .why = "`HashMap.update`'s `f` is a `?sub(?K, !V)`, which cannot fail" },
+        .{ .file = "unordered.zig", .call = "f.call(.{ rt.readView(&e.key), &e.value })", .why = "`HashMap.retain`'s `f` is a `?fun(?K, !V) -> Bool`, which cannot fail" },
+        .{ .file = "unordered.zig", .call = "f.call(.{rt.readView(&e.key)})", .why = "`HashSet.retain`'s `f` is a `?fun(?K) -> Bool`, which cannot fail" },
     };
     const Source = struct { file: []const u8, text: []const u8 };
     const sources = [_]Source{

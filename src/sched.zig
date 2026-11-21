@@ -3686,7 +3686,7 @@ fn nowReal() i96 {
 /// Outside every fiber, and in a deterministic run, it runs here. No
 /// cancel or deadline ends the wait (`blockingStop` is the waiting point
 /// that does), so the fiber waits until the call is done, and `args` are
-/// passed as they are: a call may read into a buffer its caller lends.
+/// passed as they are: a call may read into a buffer its caller gives a view of.
 pub fn blocking(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
     if (!onPool()) return @call(.auto, f, args);
     return switch (poolCall(f, args, false, null)) {
@@ -10825,7 +10825,7 @@ test "a deterministic run waits for bytes on their way on a socket, though every
     try std.testing.expectEqual(@as(u32, 0), Run.timeouts);
 }
 
-test "a blocking call fills a buffer its caller lends, and a stoppable one takes no pointer but bytes it copies" {
+test "a blocking call fills a buffer its caller gives a view of, and a stoppable one takes no pointer but bytes it copies" {
     if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
     // blockingStop rejects, as it compiles, what the call could write
     // through after its waiter left, and copies what it only reads.

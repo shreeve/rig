@@ -242,7 +242,7 @@ b` and `while o as b` of a local `(!T)?`) is written the same way, and
 so is a match of a branch that reads a place holding a write view (bare
 write views, `??` of an optional write view), through the binding or
 through the place; every such program must be rejected
-(`lendw.`). And it puts each header (`match`, `if … as`, `while … as`,
+(`vieww.`). And it puts each header (`match`, `if … as`, `while … as`,
 `for`) over a subject that reaches a place holding a write view through
 a branch, through a path, `?.`, `??`, and `catch`, written bare, passed
 as a read view (`?S`), and passed as a write view (`!S`), for a `!W` parameter and a

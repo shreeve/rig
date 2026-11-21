@@ -1729,7 +1729,7 @@ pub const Lexer = struct {
             } else return self.fail(if (self.literalFollows()) .or_fallback else .or_operator, tok.pos),
             .slash => if (self.charAfter(tok) == '/' or self.charAfter(tok) == '*') return self.fail(.slash_comment, tok.pos) else .slash,
             .power => return self.fail(.power_operator, tok.pos),
-            // `x =!y`: a fixed binding of `y`, or `x = !y`, a write lend?
+            // `x =!y`: a fixed binding of `y`, or `x = !y`, a write view?
             .fixed_assign => if (!isBlank(self.charAfter(tok))) return self.fail(.fixed_touch, tok.pos) else tok.cat,
             // `xs[a..]`: an open range ends at the `]`.
             .dotdot => if (self.nextJoined().cat == .rbracket) .dotdot_open else .dotdot,
@@ -2969,7 +2969,7 @@ const byte_id_base: u16 = 0xFE00;
 const path_capture_id: u16 = byte_id_base - 1;
 
 /// Whether `leaf` names a capture of a field path, `|?@template|`: the
-/// capture's value is then the lend it makes (`Parser.capturePlace`).
+/// capture's value is then what its sigil makes (`Parser.capturePlace`).
 pub fn isPathCapture(leaf: Sexp) bool {
     return leaf == .src and leaf.src.id == path_capture_id;
 }
@@ -3109,7 +3109,7 @@ pub const IterSource = enum {
     /// `for x in !it` are `while (!it).next() as x`.
     place,
     /// A value made here, held in a hidden binding for the whole loop:
-    /// `for x in mk()`, or `for x in ?b.each()`, whose `?` lends the
+    /// `for x in mk()`, or `for x in ?b.each()`, whose `?` views the
     /// call's self as before any call.
     made,
     /// A place the loop takes (`for x in <it`), moved into the hidden
@@ -3128,7 +3128,7 @@ pub const ChainSource = enum { iterator, elements, range };
 /// A chain typecheck found (`Parser.desugarChains`): the call of its
 /// consumer, or the `for` whose source it is, and what it walks.
 /// `copies`: an element of a List, array, or slice source is plain data,
-/// which a loop's item copies; else the loop lends it, and a consumer
+/// which a loop's item copies; else the loop views it, and a consumer
 /// that keeps one keeps its index (`Parser.lowerPeel`).
 /// `zip` and `zip_copies` say the same of a `zip`'s second source.
 pub const Chain = struct { node: parser.NodeId, source: ChainSource, copies: bool = true, zip: ChainSource = .elements, zip_copies: bool = true };
@@ -5282,7 +5282,7 @@ pub const Parser = struct {
 
     /// `?`, `!`, and `<` before a place (a name and the fields and elements
     /// after it) followed by a method call apply to the place; the call
-    /// and every postfix after it apply to the lent or moved place:
+    /// and every postfix after it apply to the viewed or moved place:
     ///   (write (propagate_none (call (member v pop))))
     ///   → (propagate_none (call (member (write v) pop)))
     /// The sigil reaches the self of the chain's first method call.
@@ -5298,7 +5298,7 @@ pub const Parser = struct {
     /// links of a chain keep until this rule has read them (`parenSlot`).
     fn selfSigil(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
         const tag: parser.Tag = node.kind().?;
-        // `!` lends any value to write, so its chain may start from a
+        // `!` makes a write view of any value, so its chain may start from a
         // value no name holds: a call that is no method call
         // (`!mk().bump()`), a literal (`![a, b][0].bump()`), or a
         // parenthesized expression (`!(+s).bump()`).
@@ -5395,7 +5395,7 @@ pub const Parser = struct {
 
     /// A capture as the grammar gives it, `(cap_read _ place)`, as the
     /// passes read it: a name is the capture's name, `(cap_read x)`; a
-    /// field path keeps the lend its sigil makes there as its value, and
+    /// field path keeps what its sigil makes there as its value, and
     /// a name spanning the path from the sigil, `(cap_read ?p.a (read
     /// (member p a)))`, which the body's paths name (`namePaths`).
     fn capturePlace(self: *Parser, cap: Sexp) std.mem.Allocator.Error!Sexp {
@@ -5419,7 +5419,7 @@ pub const Parser = struct {
                 std.fmt.allocPrint(self.allocator(), "a capture names a local or a field of one: bind `{s}` to a name first, and capture the name", .{shown}) catch "a capture names a local or a field of one");
             return node;
         };
-        const lend: parser.Tag = switch (kind) {
+        const sigil: parser.Tag = switch (kind) {
             .cap_clone => .clone,
             .cap_move => .move,
             .cap_weak => .weak,
@@ -5434,7 +5434,7 @@ pub const Parser = struct {
             return node;
         }
         out[ir.slot(.cap_read, .name)] = .{ .src = .{ .pos = at.start, .len = @intCast(text.len + 1), .id = path_capture_id } };
-        out[ir.slot(.cap_read, .value)] = try self.base.newNode(lend, &.{place}, at);
+        out[ir.slot(.cap_read, .value)] = try self.base.newNode(sigil, &.{place}, at);
         return node;
     }
 
@@ -5771,7 +5771,7 @@ pub const Parser = struct {
 
         /// Whether a consumer that keeps an item keeps its index instead:
         /// an element source no `map` changed, whose loop item is a view
-        /// the loop lends (or a copy, read again at the end).
+        /// the loop makes (or a copy, read again at the end).
         fn keepsIndex(l: *const ChainLowering) bool {
             if (l.source != .elements) return false;
             for (l.steps) |st| if (eq(st.name, "map")) return false;
@@ -5908,8 +5908,8 @@ pub const Parser = struct {
             for (l.steps, 0..) |st, i| if (eq(st.name, "take")) {
                 try rooms.append(l.p.allocator(), try l.node(.@"<", &.{ try l.leaf(countName(i + 1)), try l.leaf(limitName(i + 1)) }));
             };
-            const lend = try l.node(.write, &.{try l.leaf(.chain_source)});
-            const next = try l.node(.member, &.{ lend, try l.leaf(.next) });
+            const view = try l.node(.write, &.{try l.leaf(.chain_source)});
+            const next = try l.node(.member, &.{ view, try l.leaf(.next) });
             var cond = try l.node(.as, &.{ try l.node(.call, &.{ .nil, next }), try l.leaf(if (reads) .chain_item else .discard) });
             var i = rooms.items.len;
             while (i > 0) : (i -= 1) cond = try l.node(.@"and", &.{ rooms.items[i - 1], cond });
@@ -6034,8 +6034,8 @@ pub const Parser = struct {
             }
         }
         var pre: std.ArrayList(Sexp) = .empty;
-        // The source, held: a range by its bounds, a place lent to read
-        // (an iterator to write), a value made here owned.
+        // The source, held: a range by its bounds, a read view of a place
+        // (of an iterator, a write view), a value made here owned.
         switch (source) {
             .range => {
                 l.inclusive = isInclusive(root);
@@ -6045,7 +6045,7 @@ pub const Parser = struct {
                 l.item_of[0] = .range_from;
             },
             else => {
-                // A sigil the program wrote stands; a place is lent to read.
+                // A sigil the program wrote stands; a place is given a read view.
                 const made = root.isKind(.call) or root.isKind(.array) or root.isKind(.paren) or root.isKind(.write) or root.isKind(.read) or root.isKind(.move);
                 const held = if (made) root else try l.node(if (source == .iterator) .write else .read, &.{root});
                 try pre.append(a, try l.bind(.chain_source, .nil, held));
@@ -6137,11 +6137,11 @@ pub const Parser = struct {
         try l.stages(&body);
         const last = l.steps.len;
         const made = last > 0 and eq(l.steps[last - 1].name, "map");
-        // A List's element the loop lends is lent on, `?item`; a value a
+        // A List's element the loop views is viewed again, `?item`; a value a
         // `map` made moves; anything else is the item.
         const item = try l.leaf(.chain_item);
-        const lends = l.source == .elements and !l.copies and !made;
-        const value = if (made) try l.node(.move, &.{item}) else if (lends) try l.node(.read, &.{item}) else item;
+        const views = l.source == .elements and !l.copies and !made;
+        const value = if (made) try l.node(.move, &.{item}) else if (views) try l.node(.read, &.{item}) else item;
         try body.append(a, try l.node(.set, &.{ .{ .tag = .shadow }, ir.For.@"var"(node), .nil, value }));
         try self.loop_names.put(a, ir.For.@"var"(node).src.pos, {});
         if (ir.For.index(node) != .nil) if (l.second_of[last]) |s| {
@@ -6391,8 +6391,8 @@ pub const Parser = struct {
             hold = try self.base.newNode(.set, &.{ .{ .tag = .shadow }, hiddenLeaf(key - 1, .iterator), .nil, value }, at);
             iter = hiddenLeaf(key + 2, .iterator);
         }
-        const lend = try self.base.newNode(.write, &.{iter}, at);
-        const member = try self.base.newNode(.member, &.{ lend, hiddenLeaf(key, .next) }, at);
+        const view = try self.base.newNode(.write, &.{iter}, at);
+        const member = try self.base.newNode(.member, &.{ view, hiddenLeaf(key, .next) }, at);
         const call = try self.base.newNode(.call, &.{ .nil, member }, at);
         const bound = try self.base.newNode(.as, &.{ call, binding }, .{ .start = self.span(binding).start, .end = at.end });
         const out = try self.allocator().alloc(Sexp, 5);
@@ -7078,17 +7078,17 @@ test "parser: a self sigil moves onto the place before the method" {
     const long = ir.Member.object(ir.Call.callee(stmts[1]));
     try testing.expect(long.isKind(.write) and !p.isSelfSigil(long));
     try testing.expect(stmts[2].isKind(.write));
-    // `!` lends any value to write: a called head is self.
+    // `!` makes a write view of any value: a called head is self.
     const made = ir.Member.object(ir.Call.callee(stmts[3]));
     try testing.expect(made.isKind(.write) and p.isSelfSigil(made));
     try testing.expect(ir.Write.operand(made).isKind(.call));
-    // `?` reaches self too, and lends a parenthesized call.
+    // `?` reaches self too, and views a parenthesized call.
     const read = ir.Member.object(ir.Call.callee(stmts[4]));
     try testing.expect(read.isKind(.read) and p.isSelfSigil(read));
     try testing.expect(stmts[5].isKind(.read));
-    // A `?` before a called head lends the result.
+    // A `?` before a called head views the result.
     try testing.expect(stmts[6].isKind(.read));
-    // A parenthesized self is lent to write by `!`.
+    // A parenthesized self is given a write view by `!`.
     const paren = ir.Member.object(ir.Call.callee(stmts[7]));
     try testing.expect(paren.isKind(.write) and p.isSelfSigil(paren));
     try testing.expect(ir.Write.operand(paren).isKind(.clone));

@@ -1329,7 +1329,7 @@ test "emit names hidden storage only through hiddenStorage" {
     // Spellings of a base that name no storage: a table entry's result
     // parameter, a parameter a function owns or holds the header of, and
     // a loop's index counter.
-    const others = [_][]const u8{ "rig.someOut({s}{s}), __rig_res);\\n", ", __rig_res: *rig.Payload(", "__rig_arg_{d}", "__rig_lent_{s}", "__rig_lent_{d}", "__rig_i_{d}" };
+    const others = [_][]const u8{ "rig.someOut({s}{s}), __rig_res);\\n", ", __rig_res: *rig.Payload(", "__rig_arg_{d}", "__rig_viewed_{s}", "__rig_viewed_{d}", "__rig_i_{d}" };
     var pass: enum { bases, uses } = .bases;
     while (true) : (pass = .uses) {
         var tokens = std.zig.Tokenizer.init(emit_source);

@@ -126,7 +126,7 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   in `Emitter.fun`, swapped out around a closure's body; passing it
   explicitly would make what each helper reads visible.
 - **Tighter generated code**: Debug builds pay for round trips such as
-  `rig.lend(&rig.elemPtr(xs, j).*)` and `rig.eql((&p).*, (&q).*)`, and a
+  `rig.readView(&rig.elemPtr(xs, j).*)` and `rig.eql((&p).*, (&q).*)`, and a
   generic `for x in xs` copies each element it only views. Release
   builds optimize these away.
 - **A statement under `if target.debug` leaves a trace in a release

@@ -493,7 +493,7 @@ tokens
     block                       ...stmts
 
     # Closures: the Parser wrapper splits a bar list into captures and
-    # parameters. A capture of a field path keeps the lend it makes,
+    # parameters. A capture of a field path keeps what its sigil makes,
     # `(read (member p a))` for `|?p.a|`, as its value, and a name that
     # spans the path from its sigil (`rig.isPathCapture`).
     captures                    ...caps:cap_clone|cap_move|cap_weak|cap_read|cap_write @wrapper
@@ -809,7 +809,7 @@ onames   = oname                                    → (1)
 oname    = name
          | object:oname "." name:name               → (member)
 
-# The lent parameters a function may keep, at the end of its header: it
+# The view parameters a function may keep, at the end of its header: it
 # may store what each views in what its write self and write
 # parameters lead to (`sub watch(!@, s: ?String) keeps s`; `keeps
 # @` names self).
@@ -1217,7 +1217,7 @@ step     = assign
          | "<" operand:postfix                      → (move)
 
 # The Parser wrapper moves a `?xs` / `!xs` / `<xs` source sigil into the
-# mode slot, unless it lends a method call's self (`!b.each()`).
+# mode slot, unless it views a method call's self (`!b.each()`).
 for      = FOR var:name ["," index:name] IN source:value body:block [ELSE else:block]
                                                     → (for mode:iter)
          | FOR source:value body:block [ELSE else:block]
@@ -1302,7 +1302,7 @@ pnest    = name
 # A closure starts with its bar list. An entry with a sigil is a capture;
 # a bare name is a parameter, optionally typed:
 #   |+x| clone (a copy, for a Copy value)   |<x| move   |~x| weak
-#   |?x| lend to read   |!x| lend to write
+#   |?x| read view      |!x| write view
 #   |?@template| a sigil before a field path captures that field alone
 #   |a, b| a + b      |+v, a: Int| v.set(a)      || print("tick")
 # `*` before the bars makes an owned closure: `*|+v, a| v.set(a)`. The

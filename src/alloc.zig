@@ -591,7 +591,7 @@ pub fn trimIdle() usize {
 /// sleeps (`sched.sleep`): it has grown by half since its last trim
 /// (`trimIdle`), and by a segment at least, or taken a segment since it
 /// was made (`trimGrowth`). A heap
-/// that has not grown since has given back or lent what it held then, so
+/// that has not grown since has given back or handed out what it held then, so
 /// a worker that pauses again and again, as one between the short tasks
 /// of a server or of bench/tasks does, sleeps as it would with no trim,
 /// with no timeout to wake it, and trims again only once its heap grows.
@@ -913,7 +913,7 @@ inline fn allocLargeFrom(h: *Heap, len: usize, alignment: usize, mapped: ?*bool)
     const size = mappedSize(len);
     if (n != 0) if (takeSpan(h, false, n)) |p| return @ptrFromInt(p);
     if (takeKept(&h.kept, size)) |p| {
-        lent(h, size);
+        handedOut(h, size);
         return p;
     }
     if (n != 0) {
@@ -925,7 +925,7 @@ inline fn allocLargeFrom(h: *Heap, len: usize, alignment: usize, mapped: ?*bool)
     }
     if (takeKept(&h.cold, size)) |p| {
         recommit(@intFromPtr(p), size);
-        lent(h, size);
+        handedOut(h, size);
         return p;
     }
     if (n != 0) if (carveSpan(h, n)) |p| {
@@ -939,7 +939,7 @@ inline fn allocLargeFrom(h: *Heap, len: usize, alignment: usize, mapped: ?*bool)
     if (mapped) |f| f.* = true;
     if (size >= huge_page) _ = ask(got, size, .huge);
     h.took(size);
-    lent(h, size);
+    handedOut(h, size);
     trimKept(h);
     prefault(h, got, likelyFilled(size - size / 4));
     return @ptrFromInt(got);
@@ -1397,7 +1397,7 @@ fn oneNode(text: []const u8) bool {
 /// `size` more bytes of large blocks handed out. The settled peak is
 /// raised by a free (`freeLarge`), not here, so a block handed out
 /// before the one it replaces is freed does not count twice.
-fn lent(h: *Heap, size: usize) void {
+fn handedOut(h: *Heap, size: usize) void {
     h.large_live += size;
 }
 
@@ -1689,7 +1689,7 @@ fn putSpan(sp: *Spans, seg: *SpanSegment, at: usize, len: usize, cold: bool) voi
 }
 
 /// The span of `n` units at `s` of `seg` is handed out. Under the lock.
-fn lendSpan(seg: *SpanSegment, s: usize, n: usize) void {
+fn handOutSpan(seg: *SpanSegment, s: usize, n: usize) void {
     seg.tags[s] = @intCast(n);
     seg.tags[s + n - 1] = @intCast(n);
 }
@@ -1723,7 +1723,7 @@ fn takeSpan(o: *Heap, cold: bool, n: usize) ?usize {
     const s = spanIndex(seg, p);
     const len = unlinkSpan(sp, seg, s);
     if (len > n) linkSpan(sp, seg, s + n, len - n, cold);
-    lendSpan(seg, s, n);
+    handOutSpan(seg, s, n);
     sp.live += n * span_unit;
     return p;
 }
@@ -1757,7 +1757,7 @@ fn carveSpan(h: *Heap, n: usize) ?usize {
     if (sp.segment) |seg| if (seg.used + n <= span_units) {
         const s = seg.used;
         seg.used += n;
-        lendSpan(seg, s, n);
+        handOutSpan(seg, s, n);
         sp.live += n * span_unit;
         sp.lock.unlock();
         _ = span_spare.fetchSub(n * span_unit, .monotonic);
@@ -1770,7 +1770,7 @@ fn carveSpan(h: *Heap, n: usize) ?usize {
     _ = ask(@intFromPtr(seg), span_segment_size, .huge);
     seg.heap = h;
     seg.used = span_first + n;
-    lendSpan(seg, span_first, n);
+    handOutSpan(seg, span_first, n);
     _ = span_spare.fetchSub(page_size + n * span_unit, .monotonic);
     sp.lock.lock();
     if (sp.segment) |old| if (old.used < span_units) {
@@ -1871,7 +1871,7 @@ fn growSpan(h: *Heap, p: usize, old_size: usize, new_size: usize, fresh: bool) b
     }
     const carved = extra -| after;
     seg.used += carved;
-    lendSpan(seg, s, n + extra);
+    handOutSpan(seg, s, n + extra);
     sp.live += extra * span_unit;
     sp.lock.unlock();
     if (cold) recommit(spanAt(seg, next), @min(after, extra) * span_unit);
@@ -1910,7 +1910,7 @@ fn coolSpans(o: *Heap, all: bool) usize {
         const seg = spanSegmentOf(at);
         const s = spanIndex(seg, at);
         const n = unlinkSpan(sp, seg, s);
-        lendSpan(seg, s, n);
+        handOutSpan(seg, s, n);
         sp.lock.unlock();
         given += decommit(at, n * span_unit);
         sp.lock.lock();
@@ -3105,7 +3105,7 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
     const old_pages = mappedSize(memory.len);
     const new_pages = mappedSize(new_len);
     if (takeKept(&h.kept, new_pages)) |p| {
-        lent(h, new_pages);
+        handedOut(h, new_pages);
         @memcpy(p[0..memory.len], memory);
         freeLarge(h, memory.ptr, memory.len);
         if (counts) h.count(@intCast(new_size - old_size), 0);
@@ -3122,7 +3122,7 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
             return null;
         }
         h.took(new_pages - old_pages);
-        lent(h, new_pages - old_pages);
+        handedOut(h, new_pages - old_pages);
         trimKept(h);
         if (counts) h.count(@intCast(new_size - old_size), 0);
         return @ptrFromInt(to);
@@ -3146,7 +3146,7 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
     // The pages moved stay; of the new ones, those a List is likely to
     // fill are faulted in at once.
     h.took(new_pages - old_pages);
-    lent(h, new_pages - old_pages);
+    handedOut(h, new_pages - old_pages);
     trimKept(h);
     prefault(h, rc + old_pages, likelyFilled((new_pages - old_pages) / 2));
     if (counts) h.count(@intCast(new_size - old_size), 0);
@@ -3731,10 +3731,10 @@ test "a heap with no free span that fits takes a warm one of another heap's, whi
     try std.testing.expectEqual(taken, h.taken);
     const from = spanSegmentOf(@intFromPtr(p.ptr)).heap;
     try std.testing.expect(from != h);
-    const lent_out = from.spans.live;
+    const handed_out = from.spans.live;
     // Freed, it is its own heap's again, zeroed for the next that asks.
     a.free(p);
-    try std.testing.expectEqual(lent_out - (1 << 20), from.spans.live);
+    try std.testing.expectEqual(handed_out - (1 << 20), from.spans.live);
     const again = allocZeroed(1 << 20, .@"8").?;
     for (again[0 .. 1 << 20]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
     a.free(again[0 .. 1 << 20]);
@@ -4767,7 +4767,7 @@ fn trimAllForTest(h: *Heap) void {
     for ([_]*SpanBins{ &sp.warm, &sp.cold }) |bins| while (findSpan(bins, 1)) |p| {
         const seg = spanSegmentOf(p);
         const s = spanIndex(seg, p);
-        lendSpan(seg, s, unlinkSpan(sp, seg, s));
+        handOutSpan(seg, s, unlinkSpan(sp, seg, s));
     };
     if (sp.segment) |seg| seg.used = span_units;
     sp.segment = null;
