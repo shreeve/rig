@@ -661,7 +661,7 @@ const Pass = struct {
         return .{
             .sym = w.sym,
             .keeps_nonneg = p.isAdditive(node, w),
-            .keeps_len = w.kind == .lend_write or w.kind == .elem_store,
+            .keeps_len = w.kind == .write_viewed or w.kind == .elem_store,
             .keeps_list_len = w.kind == .elem_store and storesElement(node, w.sym, p.ctx),
             .mask = try p.maskWrite(node, w),
         };

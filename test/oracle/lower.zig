@@ -2,7 +2,7 @@
 //!
 //! The lowering decides, once per expression, what it hands over (Core
 //! §3): a place read where it stands, a place copied, moved, taken, or
-//! lent, or a made value held in a hidden var. Every temporary is a var
+//! viewed, or a made value held in a hidden var. Every temporary is a var
 //! of its statement, dropped at the statement's end, last made first;
 //! a header (an `if` or `while` condition, a `for` source) is its own
 //! statement. Evaluation order is written out: a call's callee and
@@ -61,7 +61,7 @@ const How = enum {
     take,
     /// Takes it as the function's result: a bare local moves (Core s1).
     ret,
-    /// A view parameter's argument: a lend, or a view copied.
+    /// A view parameter's argument: a view made, or a view copied.
     view,
 };
 
@@ -268,7 +268,7 @@ fn readViewField(ctx: *const sema.SemContext, t: TypeId) bool {
     };
 }
 
-/// The lent parameters a function's `keeps` clause names (`keeps s,
+/// The view parameters a function's `keeps` clause names (`keeps s,
 /// self`), a bit each, read from the declaration in its module's IR: the
 /// function or method whose name is at `pos`. Zero when it writes none,
 /// and null when it is not found.
@@ -291,10 +291,10 @@ fn declaredKeeps(ctx: *const sema.SemContext, pos: u32) ?u64 {
     return mask;
 }
 
-/// Whether a parameter of type `ty` is lent (Core s7): a `?T`, `!T`,
+/// Whether a parameter of type `ty` is a view (Core s7): a `?T`, `!T`,
 /// `[]T`, or `?String`, or an optional of one. A call keeps one only
 /// where its callee's `keeps` names it.
-fn lentType(ctx: *const sema.SemContext, ty: TypeId) bool {
+fn viewParamType(ctx: *const sema.SemContext, ty: TypeId) bool {
     const t = switch (ctx.types.get(ty)) {
         .optional => |inner| inner,
         else => ty,
@@ -541,10 +541,10 @@ const Lowerer = struct {
             self.ret_ty = self.declaredReturn(ir.get(decl, .name));
         };
         if ((kind == .fun or kind == .sub) and ir.get(decl, .name) == .src) {
-            // What a call of it keeps of its lent parameters (Core s7).
+            // What a call of it keeps of its view parameters (Core s7).
             self.f.keeps_named = declaredKeeps(self.ctx, ir.get(decl, .name).src.pos) orelse 0;
             for (self.f.params.items, 0..) |p, i| {
-                if (i < 64 and lentType(self.ctx, self.f.vars.items[p].ty)) self.f.lent |= @as(u64, 1) << @intCast(i);
+                if (i < 64 and viewParamType(self.ctx, self.f.vars.items[p].ty)) self.f.viewed |= @as(u64, 1) << @intCast(i);
             }
         }
         try self.lowerBody(ir.get(decl, .body), kind == .fun);
@@ -654,7 +654,7 @@ const Lowerer = struct {
         const v = try self.newVar(sym.name, sym.ty, false, name.src.pos);
         self.f.vars.items[v].param = true;
         // A function value passed by value is a function or a closure
-        // that carries no loan: a stack closure is only lent (`?fun`).
+        // that carries no loan: a stack closure is only viewed (`?fun`).
         if (self.ctx.types.get(sym.ty) == .function) self.f.vars.items[v].holds_views = false;
         try self.vars.put(self.a, sym_id, v);
         try self.f.params.append(self.a, v);
@@ -745,7 +745,7 @@ const Lowerer = struct {
     }
 
     /// A temporary holding a view the lowering makes (an implicit read
-    /// lend), whatever the node's type says.
+    /// view), whatever the node's type says.
     fn viewTemp(self: *Lowerer, ty: TypeId, kind: kinds.Kind, pos: u32) Error!VarId {
         const v = try self.temp(ty, pos);
         self.f.vars.items[v].kind = kind;
@@ -763,9 +763,9 @@ const Lowerer = struct {
 
     /// `f(x)&`: each API object its self and arguments hold goes to the
     /// task as its form's row lets it (rule T1, `kinds.objectBlocker`): a
-    /// part lent to read, `?x`, or a name or path written bare (a view
-    /// copied, or an owner lent implicitly) is read there; one moved,
-    /// cloned, lent to write, or made in the call is given.
+    /// part given as a read view, `?x`, or a name or path written bare (a
+    /// view copied, or an owner viewed implicitly) is read there; one
+    /// moved, cloned, given as a write view, or made in the call is given.
     fn taskObjects(self: *Lowerer, e: Sexp) Error!void {
         const callee = ir.Call.callee(e);
         var parts: std.ArrayList(Sexp) = .empty;
@@ -1016,7 +1016,7 @@ const Lowerer = struct {
             if (repoint) {
                 // The new view first; the name then holds its loans, and
                 // none of the old view's (Core §6). The old view owns
-                // nothing, and a lend on of what it saw carries that
+                // nothing, and a view passed on of what it saw carries that
                 // loan itself, so nothing here conflicts with it.
                 const v = try self.eval(rhs, .take, xv.ty);
                 try self.emit(.{ .pos = pos, .what = .assign, .moves = try self.list(v), .def = x });
@@ -1056,7 +1056,7 @@ const Lowerer = struct {
 
     /// A value `v` stored where a `want` goes: a `?T` or `!T` made
     /// there, of a `want` that copies, is read there (SPEC §7
-    /// "Second-class views"), and the lend that reached it ends with the
+    /// "Second-class views"), and the view that reached it ends with the
     /// read (`v[1] = slot(!v, 0)` stores an `Int`).
     fn readWanted(self: *Lowerer, v: ?VarId, want: TypeId, pos: u32) Error!?VarId {
         const x = v orelse return null;
@@ -1216,7 +1216,7 @@ const Lowerer = struct {
     }
 
     /// Whether assigning `rhs` to a place holding a write view re-points
-    /// it: `rhs` is a new write view (a lend, `<w`, a call's), not a
+    /// it: `rhs` is a new write view (made by `!`, `<w`, a call's), not a
     /// place, whose bare name is read as the value it sees (SPEC §7).
     fn pointsAnew(self: *Lowerer, rhs: Sexp) Error!bool {
         return self.isWriteRef(try self.typeOf(rhs)) and !self.isPlaceSyntax(rhs);
@@ -1241,7 +1241,7 @@ const Lowerer = struct {
 
     /// Whether a value of `ty` is a write view, `!T`, itself (not a
     /// value holding one): assigning a value to its place writes
-    /// through it, and lending it lends on what it sees.
+    /// through it, and a view of it passes on a view of what it sees.
     fn isWriteRef(self: *Lowerer, ty: TypeId) bool {
         return self.ctx.types.get(ty) == .write_view;
     }
@@ -1448,14 +1448,14 @@ const Lowerer = struct {
         pos: u32,
         /// The subject's type, whose elements or payloads the header binds.
         ty: TypeId,
-        /// For a read lend of a place (`match ?h`): the place's root, whose
+        /// For a read view of a place (`match ?h`): the place's root, whose
         /// loans a `?String` payload carries instead of the loan on it.
         carry_from: ?VarId = null,
-        /// For a lend of a value the header made (`match ?mk()`): the
+        /// For a view of a value the header made (`match ?mk()`): the
         /// header's temporary, which the tests of the statement may read
         /// but no binding may view (Core §3).
-        lent_temp: bool = false,
-        /// For a lend of a place the function owns: its payloads are that
+        viewed_temp: bool = false,
+        /// For a view of a place the function owns: its payloads are that
         /// place's.
         of_owner: bool = false,
     };
@@ -1472,11 +1472,11 @@ const Lowerer = struct {
         // it stands, as `?p` (Core s1, planned; INTERNALS "Header
         // subjects"); an optional of plain data still copies.
         const is_place = self.isPlaceSyntax(value);
-        // An element or field of a lend (`(?v[i..2])[1]`) is a place the
+        // An element or field of a view (`(?v[i..2])[1]`) is a place the
         // header views through it; the oracle does not model that path.
         if (!is_place and (value.isKind(.member) or value.isKind(.index))) {
             const rk = chainRoot(value).kind();
-            if (rk == .read or rk == .write) return abstain("a header subject reached through a lend");
+            if (rk == .read or rk == .write) return abstain("a header subject reached through a view");
         }
         const bare: How = if (how == .take and self.planned and is_place) .read else how;
         try self.pushRegion();
@@ -1485,56 +1485,56 @@ const Lowerer = struct {
         // or a call's result, is read as its value in the header, which
         // carries no loan (Core §4).
         const named = if (value.isKind(.read)) ir.Read.operand(value) else value;
-        // A bare `match` subject, or a lend of a view a call returns
-        // (`lendsHeldView`), reads a `T` in that view where it is, as it
+        // A bare `match` subject, or a view of a view a call returns
+        // (`viewsHeldView`), reads a `T` in that view where it is, as it
         // reads a place's: each binding sees its
         // payload through the view (Core s1), and a generic body's copy
         // of one is the instance's question where the binding is used.
-        const in_place = how == .read and self.kinds.generic and (!value.isKind(.read) or self.lendsHeldView(value));
+        const in_place = how == .read and self.kinds.generic and (!value.isKind(.read) or self.viewsHeldView(value));
         if (!value.isKind(.write) and !self.isPlaceSyntax(named)) v = if (in_place) try self.readPlainThrough(v, pos) else try self.readThrough(v, pos);
         const h = try self.hold(v, "the `as` value", pos);
         try self.popRegion(pos);
         var carry_from: ?VarId = null;
         var of_owner = false;
         // A bare place read where it stands is `?p`.
-        const lent_place: ?Sexp = if (value.isKind(.read)) ir.Read.operand(value) else if (is_place and bare == .read) value else null;
-        if (lent_place) |lp| if (self.rootVar(lp)) |r| {
+        const viewed_place: ?Sexp = if (value.isKind(.read)) ir.Read.operand(value) else if (is_place and bare == .read) value else null;
+        if (viewed_place) |lp| if (self.rootVar(lp)) |r| {
             const rv = self.f.vars.items[r];
             if (rv.kind != .write_view and !rv.alias) carry_from = r;
             of_owner = rv.kind == .owning and !rv.alias;
         };
-        const lent_temp = (value.isKind(.read) or value.isKind(.write)) and self.madeSubject(ir.get(value, .operand)) and !self.lendsHeldView(value);
-        return .{ .v = h, .pos = pos, .ty = ty, .carry_from = carry_from, .lent_temp = lent_temp, .of_owner = of_owner };
+        const viewed_temp = (value.isKind(.read) or value.isKind(.write)) and self.madeSubject(ir.get(value, .operand)) and !self.viewsHeldView(value);
+        return .{ .v = h, .pos = pos, .ty = ty, .carry_from = carry_from, .viewed_temp = viewed_temp, .of_owner = of_owner };
     }
 
     /// What a header's subject hands over (Core §3), lowered inside the
     /// header's region; `bare` says what a bare place does.
-    /// - A place is read, lent, moved, or taken as written.
+    /// - A place is read, viewed, moved, or taken as written.
     /// - A value made in the header (a call's result, a constructor, a
     ///   literal) is taken. So is the made value the subject is a part
     ///   of (`mk().e`, `[a, b][0]`): a hidden var of the statement holds
     ///   it through the body, and the part is read where it stands, or
     ///   copied in the header when it is plain data (`heldView`).
-    /// - A lend of a made value (`?mk()`) lends the header's temporary:
+    /// - A view of a made value (`?mk()`) views the header's temporary:
     ///   the statement's tests may read it, but no binding may view it
-    ///   (`Held.lent_temp`).
+    ///   (`Held.viewed_temp`).
     /// - A branching value (`if`, `??`, `catch`, `o?`, `match`, a block)
     ///   is taken leaf by leaf, as a binding takes it: a bare leaf whose
     ///   type moves is rejected (C2, Core s1), `<x` moves, a made leaf is
     ///   taken, a leaf of plain data or a read view copies.
     fn subject(self: *Lowerer, value: Sexp, bare: How, name: []const u8) Error!VarId {
         const pos = self.posOf(value);
-        const lent = value.isKind(.read) or value.isKind(.write);
-        const named = if (lent) ir.get(value, .operand) else value;
+        const viewed = value.isKind(.read) or value.isKind(.write);
+        const named = if (viewed) ir.get(value, .operand) else value;
         const root = chainRoot(named);
-        if (self.madeSubject(named) and !self.lendsHeldView(value)) {
-            if (lent and isBranching(named)) return abstain("a lend of a branching value (Core §3, planned)");
-            if (lent and value.isKind(.write)) return abstain("a write lend of a made value");
+        if (self.madeSubject(named) and !self.viewsHeldView(value)) {
+            if (viewed and isBranching(named)) return abstain("a view of a branching value (Core §3, planned)");
+            if (viewed and value.isKind(.write)) return abstain("a write view of a made value");
             const part = named.kind().? == .member or named.kind().? == .index;
-            if (part and !lent) return self.heldView(named, name, bare);
-            if (lent) {
+            if (part and !viewed) return self.heldView(named, name, bare);
+            if (viewed) {
                 const hp = try self.heldPart(named, name);
-                return try self.lend(hp.place, .read, value, try self.typeOf(value));
+                return try self.viewPlace(hp.place, .read, value, try self.typeOf(value));
             }
             if (isBranching(root)) {
                 const t = try self.temp(try self.typeOf(root), pos);
@@ -1580,15 +1580,15 @@ const Lowerer = struct {
             };
         }
         const hp = try self.heldPart(named, name);
-        return try self.lend(hp.place, .read, named, hp.place.ty);
+        return try self.viewPlace(hp.place, .read, named, hp.place.ty);
     }
 
     /// Whether a header subject names a value the header makes, or a
     /// part of one: neither a place, nor a constant, nor a sigil.
-    /// Whether `value` lends to read a read view a call returns,
-    /// `?get(e)`: that lends the view on, the view itself (Core §4, a
-    /// held view lends `?T`), not a temporary the header made.
-    fn lendsHeldView(self: *Lowerer, value: Sexp) bool {
+    /// Whether `value` is a read view of a read view a call returns,
+    /// `?get(e)`: that passes the view on, the view itself (Core §4, a
+    /// held view gives `?T`), not a temporary the header made.
+    fn viewsHeldView(self: *Lowerer, value: Sexp) bool {
         if (!value.isKind(.read)) return false;
         const operand = ir.Read.operand(value);
         if (!operand.isKind(.call)) return false;
@@ -1634,7 +1634,7 @@ const Lowerer = struct {
     /// payload where it is and carries the view's loans. A held value is
     /// the body's own: a binding of the stored type is a copy of it, or
     /// owned, carrying what it holds; a binding that views a stored
-    /// value (`?T` of a stored `T`) is a lend of the holder, whose loan
+    /// value (`?T` of a stored `T`) is a view of the holder, whose loan
     /// ends with the statement (Core §3: a view of what a header made
     /// does not outlive it).
     fn bindHeld(self: *Lowerer, leaf: Sexp, h: Held, stored: ?TypeId) Error!void {
@@ -1647,17 +1647,17 @@ const Lowerer = struct {
         const xv = &self.f.vars.items[x];
         // A view of a value a header made ends with the header: a binding
         // that would carry it outlives its statement (Core §3).
-        if (h.lent_temp and (xv.holds_views or (xv.kind != .plain and (hv.kind == .read_view or hv.kind == .write_view)))) {
+        if (h.viewed_temp and (xv.holds_views or (xv.kind != .plain and (hv.kind == .read_view or hv.kind == .write_view)))) {
             return self.found(.C5, leaf.src.pos, "a loan of a temporary the header made outlives its statement", .{});
         }
         // A binding of a String's bytes, a `?String`, views the String it is
-        // stored in: a lend of the holder, as a `?T` of a stored `T` is.
+        // stored in: a view of the holder, as a `?T` of a stored `T` is.
         const slot = stored orelse self.ctx.payloadFieldOf(leaf);
         const views_string = slot != null and sema.viewsStringBytes(self.ctx, slot.?, xv.ty);
         // Its bytes are in the String's storage: a pointer into it, as a
         // `?T` of a stored `T` is.
         if (views_string) xv.holds_pointers = true;
-        // A `?String` payload of a read lend carries the `?String`'s loans, not
+        // A `?String` payload of a read view carries the `?String`'s loans, not
         // the loan on what holds it (Core s7).
         if (h.carry_from) |r| if (self.ctx.types.get(xv.ty) == .string_view and !views_string) {
             try self.emit(.{ .pos = h.pos, .what = .copy, .reads = try self.one(r), .uses = try self.one(h.v), .def = x, .carry = true });
@@ -1668,7 +1668,7 @@ const Lowerer = struct {
             .read_view, .write_view, .string_view => if (views_string or (self.ctx.types.get(xv.ty) != .string_view and (stored == null or stored.? != xv.ty))) {
                 const mode: core.Mode = if (self.ctx.types.get(xv.ty) == .write_view) .write else .read;
                 const loan = try self.newLoan(self.rootPlace(h.v), mode, false, h.pos);
-                try self.emit(.{ .pos = h.pos, .what = .lend, .reads = try self.one(h.v), .def = x, .loan = loan, .access = .{ .root = h.v, .kind = if (mode == .read) .read else .write } });
+                try self.emit(.{ .pos = h.pos, .what = .view, .reads = try self.one(h.v), .def = x, .loan = loan, .access = .{ .root = h.v, .kind = if (mode == .read) .read else .write } });
                 return;
             },
             else => {},
@@ -1705,7 +1705,7 @@ const Lowerer = struct {
     }
 
     /// The type of the `i`th payload a variant pattern binds, for an
-    /// enum of this module that is not generic, matched or lent (`?E`).
+    /// enum of this module that is not generic, matched or viewed (`?E`).
     fn payloadOf(self: *Lowerer, of: TypeId, pattern: Sexp, i: usize) ?TypeId {
         const ty = sema.unwrapViews(self.ctx, of);
         if (self.ctx.types.get(ty) != .nominal) return null;
@@ -2039,18 +2039,18 @@ const Lowerer = struct {
             try self.pushRegion();
             const v: ?VarId = switch (mode) {
                 .read, .write => blk: {
-                    // A lend of a value the header makes is a lend of the
+                    // A view of a value the header makes is a view of the
                     // header's temporary, which ends with the header, before
-                    // the loop walks it; a lent value of plain data is read
+                    // the loop walks it; a viewed value of plain data is read
                     // as its value, which carries no loan (Core §3, §4).
                     if (self.madeSubject(source)) {
-                        if (mode == .write) return abstain("a write lend of a made value");
-                        if (isBranching(source)) return abstain("a lend of a branching value (Core §3, planned)");
+                        if (mode == .write) return abstain("a write view of a made value");
+                        if (isBranching(source)) return abstain("a view of a branching value (Core §3, planned)");
                         const p = try self.place(source) orelse blk2: {
-                            const t = try self.eval(source, .take, null) orelse return abstain("a lend of a constant");
+                            const t = try self.eval(source, .take, null) orelse return abstain("a view of a constant");
                             break :blk2 Place{ .root = t, .path = &.{}, .ty = self.f.vars.items[t].ty };
                         };
-                        const view = try self.lend(p, .read, source, try self.typeOf(source));
+                        const view = try self.viewPlace(p, .read, source, try self.typeOf(source));
                         const inner = try self.typeOf(source);
                         if ((try self.kinds.of(inner)).kind.copies()) {
                             const c = try self.temp(inner, pos);
@@ -2059,8 +2059,8 @@ const Lowerer = struct {
                         }
                         break :blk view;
                     }
-                    const p = try self.place(source) orelse return abstain("a `for` over a lend of an unusual value");
-                    break :blk try self.lend(p, if (mode == .read) .read else .write, source, try self.typeOf(source));
+                    const p = try self.place(source) orelse return abstain("a `for` over a view of an unusual value");
+                    break :blk try self.viewPlace(p, if (mode == .read) .read else .write, source, try self.typeOf(source));
                 },
                 .move => if (source == .src) blk: {
                     const x = self.varOf(source) orelse return abstain("a `for` moving something not a local");
@@ -2076,7 +2076,7 @@ const Lowerer = struct {
                     if ((try self.kinds.of(p.ty)).kind.copies()) break :blk try self.copy(p, p.ty, pos);
                     // A bare place is read where it stands (Core s1, planned).
                     if (!self.planned) return abstain("a `for` over a bare place (Core s1, planned)");
-                    break :blk try self.lend(p, .read, source, p.ty);
+                    break :blk try self.viewPlace(p, .read, source, p.ty);
                 } else try self.eval(source, .take, null),
                 else => return abstain("an unusual `for`"),
             };
@@ -2362,10 +2362,10 @@ const Lowerer = struct {
     /// The hidden `E?` of a fallible call's statement, `E` the call's set
     /// (Core §2, "A failure moves its error"): a var of the statement's
     /// temporaries, made before the call's own, so it is dropped after
-    /// them, and empty until the call fails. The call is lent it to
-    /// write, the lend its `!` or `catch` marks, but an error holds no
-    /// loan, so the call keeps nothing there and its result views none
-    /// of it: the lend ends with the call and adds no loan. A wait on a
+    /// them, and empty until the call fails. The call is given a write
+    /// view of it, the view its `!` or `catch` marks, but an error holds
+    /// no loan, so the call keeps nothing there and its result views none
+    /// of it: the view ends with the call and adds no loan. A wait on a
     /// task or a set (`>t!`, `>ts catch`) is a call of its `wait`.
     fn errorSlot(self: *Lowerer, value: Sexp, pos: u32) Error!VarId {
         const err_set = switch (self.ctx.types.get(try self.typeOf(value))) {
@@ -2377,7 +2377,7 @@ const Lowerer = struct {
         return v;
     }
 
-    /// The failure edge of a call lent `slot`: the callee's failing
+    /// The failure edge of a call given a view of `slot`: the callee's failing
     /// `return` stored its error there.
     fn failed(self: *Lowerer, slot: VarId, pos: u32) Error!void {
         try self.emit(.{ .pos = pos, .what = .make, .def = slot });
@@ -2445,7 +2445,7 @@ const Lowerer = struct {
         const h = try self.newVar("temporary", mv.ty, true, pos);
         try self.regions.items[r].vars.append(self.a, h);
         try self.store(h, made, pos);
-        try self.store(j, try self.lend(.{ .root = h, .path = &.{}, .ty = mv.ty }, .read, e, mv.ty), pos);
+        try self.store(j, try self.viewPlace(.{ .root = h, .path = &.{}, .ty = mv.ty }, .read, e, mv.ty), pos);
     }
 
     /// Lower an expression in a context; the var holding its value, or
@@ -2456,7 +2456,7 @@ const Lowerer = struct {
         // An API object of a read view of plain data, or of a type
         // parameter's value, views a copy, a local of the erasing block
         // (Core §4): a new value made of what the view sees, carrying no
-        // loan on it, which the object lends.
+        // loan on it, which the object views.
         if (self.ctx.erasureOf(e)) |er| if (er.copy and !sameErased(e, self.erasing)) {
             const saved = self.erasing;
             self.erasing = e;
@@ -2465,7 +2465,7 @@ const Lowerer = struct {
             const c = try self.newVar("the copy an API object views", er.from, true, pos);
             try self.regions.items[@min(self.stmt_scope, self.regions.items.len - 1)].vars.append(self.a, c);
             try self.emit(.{ .pos = pos, .what = .make, .reads = try self.one(v), .def = c, .unpoint = true });
-            return try self.lend(.{ .root = c, .path = &.{}, .ty = er.from }, .read, e, er.view);
+            return try self.viewPlace(.{ .root = c, .path = &.{}, .ty = er.from }, .read, e, er.view);
         };
         const k = e.kind() orelse return self.leafValue(e, how, want);
         // A compile-time call is a constant: the checker computed it.
@@ -2487,13 +2487,13 @@ const Lowerer = struct {
             },
             .read, .write => {
                 const operand = ir.get(e, .operand);
-                if (k == .write) return try self.lend(try self.writePlace(operand), .write, e, try self.typeOf(e));
+                if (k == .write) return try self.viewPlace(try self.writePlace(operand), .write, e, try self.typeOf(e));
                 const p = try self.place(operand) orelse blk: {
-                    if (isBranching(operand)) return abstain("a lend of a branching value (Core §3, planned)");
+                    if (isBranching(operand)) return abstain("a view of a branching value (Core §3, planned)");
                     const t = try self.eval(operand, .take, null) orelse return null;
                     break :blk Place{ .root = t, .path = &.{}, .ty = self.f.vars.items[t].ty };
                 };
-                return try self.lend(p, .read, e, try self.typeOf(e));
+                return try self.viewPlace(p, .read, e, try self.typeOf(e));
             },
             .move => return self.move(e, how),
             .clone => {
@@ -2517,7 +2517,7 @@ const Lowerer = struct {
             .@"if", .block, .match, .@"??", .@"catch" => {
                 // A branching value read where it stands is copied there;
                 // a Cell of an owner in the copy shares what a later read
-                // lend of its place may change (Core s9), which the oracle
+                // view of its place may change (Core s9), which the oracle
                 // does not model.
                 if (how == .read) {
                     const ti = self.ctx.typeInfo(try self.typeOf(e));
@@ -2626,8 +2626,8 @@ const Lowerer = struct {
             },
             .pass, .rarely => return null,
             // A stack closure is called where it is written, bound to a
-            // local, or lent to a call; it never leaves its function
-            // (Core §7: it may be lent, not stored).
+            // local, or viewed by a call; it never leaves its function
+            // (Core §7: it may be viewed, not stored).
             .lambda => switch (how) {
                 .ret => return self.found(.B4, pos, "a stack closure does not leave the function that writes it; make it owned (`*|...|`)", .{}),
                 .take => return abstain("a stack closure stored"),
@@ -2795,10 +2795,10 @@ const Lowerer = struct {
         if (self.constRooted(obj)) return null;
         const base = try self.place(obj) orelse blk: {
             if (obj.isKind(.move)) return abstain("a sigil on an accessed object");
-            // A lend (`(!h).f`, `(?mk()).f`) is a view: its part is
+            // A sigil (`(!h).f`, `(?mk()).f`) makes a view: its part is
             // reached through it (Core §4), as through a `!T` or `?T`.
             if (obj.isKind(.read) or obj.isKind(.write)) {
-                const t = try self.eval(obj, .read, null) orelse return abstain("a lend of a constant");
+                const t = try self.eval(obj, .read, null) orelse return abstain("a view of a constant");
                 const tv = self.f.vars.items[t];
                 break :blk Place{ .root = t, .path = &.{}, .ty = tv.ty, .via = if (obj.isKind(.write)) .write else .read };
             }
@@ -2846,7 +2846,7 @@ const Lowerer = struct {
             .shared, .weak, .optional => cut = base.path.len,
             else => {},
         };
-        // A view of a handle holds the handle: the slot a marked call lends.
+        // A view of a handle holds the handle: the slot a marked call views.
         if (handle_at == null and self.ctx.types.get(sema.unwrapViews(self.ctx, base.ty)) == .shared) handle_at = .{ .len = base.path.len, .ty = base.ty, .via = base.via };
         switch (self.ctx.types.get(base.ty)) {
             // What a handle holds is read through it, and stays while the
@@ -2926,13 +2926,13 @@ const Lowerer = struct {
         const pos = self.posOf(e);
         const info = try self.kinds.of(p.ty);
         if (info.unsupported) |why| return abstain(why);
-        // A bare slice of a place lends it (Core §4), and so does one
+        // A bare slice of a place views it (Core §4), and so does one
         // through a write view, which may change or replace what the
         // slice views; a slice of a `?String` or of a read view copies the
         // view and its loans.
-        if (p.slice and !self.slicesStatic(p.slice_of) and (p.via == .own or (p.via == .write and !self.slicesStringView(p.slice_of)))) return try self.lend(p, .read, e, p.ty);
+        if (p.slice and !self.slicesStatic(p.slice_of) and (p.via == .own or (p.via == .write and !self.slicesStringView(p.slice_of)))) return try self.viewPlace(p, .read, e, p.ty);
         // A value holding a write view moves as an owner does (Core §1);
-        // the compiler lends one on where it is handed over bare, which
+        // the compiler passes one on where it is handed over bare, which
         // the oracle does not model.
         const holds_write = info.kind == .write_view and !self.isWriteRef(p.ty);
         if (holds_write and (how == .view or (how == .take and !(p.path.len == 0 and p.via == .own and self.f.vars.items[p.root].hidden)))) {
@@ -2945,7 +2945,7 @@ const Lowerer = struct {
                 // A write view read as its value copies what it reaches,
                 // a name, field, or element alike (Core s1, SPEC §7); a
                 // write slice read as a slice views the same
-                // elements, a lend on. A write view itself never copies.
+                // elements, a view passed on. A write view itself never copies.
                 const wants_view = if (want) |w| self.wantsWriteView(w) else false;
                 const t_ty = try self.innerOf(p.ty);
                 const ti = try self.kinds.of(t_ty);
@@ -2954,17 +2954,17 @@ const Lowerer = struct {
                 switch (how) {
                     .read => {
                         if (ti.kind.copies() and !elems) return try self.copy(through, t_ty, pos);
-                        return try self.lend(through, .read, e, t_ty);
+                        return try self.viewPlace(through, .read, e, t_ty);
                     },
                     .view => return abstain("a bare write view passed as a view"),
                     .take, .ret => {
                         // A `!{A}` handed on bare is never copied, its
-                        // value having no size of its own: it lends its
-                        // read view (Core §4: a write lend may be read), as
-                        // a write slice lends its elements.
-                        if (how == .take and !wants_view and self.ctx.types.get(t_ty) == .api_object) return try self.lend(through, .read, e, p.ty);
+                        // value having no size of its own: it gives its
+                        // read view (Core §4: a write view may be read), as
+                        // a write slice gives a view of its elements.
+                        if (how == .take and !wants_view and self.ctx.types.get(t_ty) == .api_object) return try self.viewPlace(through, .read, e, p.ty);
                         if (!wants_view and ti.kind.copies()) {
-                            if (elems) return try self.lend(through, .read, e, t_ty);
+                            if (elems) return try self.viewPlace(through, .read, e, t_ty);
                             return try self.copy(through, t_ty, pos);
                         }
                         if (how == .ret and p.path.len == 0 and p.via == .own) return try self.moveWhole(p.root, pos);
@@ -2978,7 +2978,7 @@ const Lowerer = struct {
                 if (self.ctx.types.get(p.ty) == .function) return abstain("a bare function value");
                 if (how == .take or how == .ret) if (self.fnTypeOf(p.ty) != null) return abstain("a function value handed on");
                 switch (how) {
-                    .read, .view => return try self.lend(p, .read, e, p.ty),
+                    .read, .view => return try self.viewPlace(p, .read, e, p.ty),
                     .ret => if (p.path.len == 0 and p.via == .own and !self.f.vars.items[p.root].hidden) return try self.moveWhole(p.root, pos),
                     .take => {},
                 }
@@ -3073,7 +3073,7 @@ const Lowerer = struct {
     }
 
     /// A closure literal (Core §7): each capture in order, as its sigil
-    /// says (`?x` and `!x` lend, `<x` moves, `+x` copies or adds a count,
+    /// says (`?x` and `!x` view, `<x` moves, `+x` copies or adds a count,
     /// `~x` holds weakly), into the closure's environment, which carries
     /// their loans; an owned closure's (`owned`) may carry none (Core
     /// s9, C8). Its body is checked as a function of its own, and what
@@ -3089,7 +3089,7 @@ const Lowerer = struct {
             const sym_id = self.ctx.symbolOf(leaf) orelse return abstain("a capture without a symbol");
             const sym = self.ctx.symbols.items[sym_id];
             // A field path is what its sigil makes of it in an
-            // expression (Core §7): `|?p.a|` lends `p.a` alone.
+            // expression (Core §7): `|?p.a|` views `p.a` alone.
             const value = sema.captureValue(cap);
             if (value != .nil) {
                 const v = try self.eval(value, .take, null) orelse return abstain("a capture of a constant");
@@ -3100,8 +3100,8 @@ const Lowerer = struct {
             const outer = self.vars.get(sym.origin) orelse return abstain("a capture of a name the lowering did not bind");
             const p = self.rootPlace(outer);
             const v = switch (sema.captureModeOf(cap).?) {
-                .cap_read => try self.lend(p, .read, leaf, sym.ty),
-                .cap_write => try self.lend(p, .write, leaf, sym.ty),
+                .cap_read => try self.viewPlace(p, .read, leaf, sym.ty),
+                .cap_write => try self.viewPlace(p, .write, leaf, sym.ty),
                 .cap_move => try self.moveWhole(outer, leaf.src.pos),
                 .cap_clone, .cap_weak => blk: {
                     // `|+x|` makes what `+x` makes (Core §7): through a
@@ -3162,14 +3162,14 @@ const Lowerer = struct {
         return t;
     }
 
-    /// The place a lend of a value that changes by a marked call
-    /// (`lendsToRead`), reached through a handle, is a loan on: the
-    /// handle's own slot, not what the handle reaches (Core s9: the lend
+    /// The place a view of a value that changes by a marked call
+    /// (`putsReadLoan`), reached through a handle, is a loan on: the
+    /// handle's own slot, not what the handle reaches (Core s9: the view
     /// is of the handle, the call changes what handles share). Null where
     /// `p` crosses no handle.
     fn handleSlot(p: Place) ?Place {
         const at = p.handle_at orelse return null;
-        // A handle a read view holds is lent as the view's own: the lend
+        // A handle a read view holds is viewed as the view's own: the view
         // writes the view's binding, never the place it views.
         const via: Place.Via = if (at.via == .read and at.len == 0) .own else at.via;
         return .{ .root = p.root, .path = p.path[0..at.len], .ty = at.ty, .via = via, .carry = p.carry, .under_write = p.under_write };
@@ -3195,36 +3195,36 @@ const Lowerer = struct {
         return self.found(.C10, self.posOf(handle), "`{s}` changes what `{s}` reaches, and `{s}` is seen through a read view, which changes nothing: a change through a handle needs a handle the task holds", .{ leafText(ir.Member.name(callee), self.src), self.textOf(handle), self.textOf(handle) });
     }
 
-    /// `lendsToRead` for `!x` handed to a call: the parameter's declared
-    /// type says what is lent, since a call's argument is typed as the
-    /// write view of `x` itself. A `!*T` lends the handle, and a `!T` of a
+    /// `putsReadLoan` for `!x` handed to a call: the parameter's declared
+    /// type says what is viewed, since a call's argument is typed as the
+    /// write view of `x` itself. A `!*T` views the handle, and a `!T` of a
     /// type parameter is no value that changes by a marked call; a `!T`
-    /// of any other type, an API object's `!{A}` among them, lends the
-    /// value `x` reaches, judged by its type at the lend.
-    fn argLendsToRead(self: *Lowerer, place_ty: TypeId, arg_ty: TypeId, sig: ?Sig, param_at: ?usize) bool {
-        const sg = sig orelse return self.lendsToRead(place_ty, arg_ty);
-        const i = param_at orelse return self.lendsToRead(place_ty, arg_ty);
+    /// of any other type, an API object's `!{A}` among them, views the
+    /// value `x` reaches, judged by its type at the view.
+    fn argPutsReadLoan(self: *Lowerer, place_ty: TypeId, arg_ty: TypeId, sig: ?Sig, param_at: ?usize) bool {
+        const sg = sig orelse return self.putsReadLoan(place_ty, arg_ty);
+        const i = param_at orelse return self.putsReadLoan(place_ty, arg_ty);
         return switch (sg.ctx.types.get(sema.unwrapViews(sg.ctx, sg.f.params[i]))) {
             .shared, .weak, .type_var => false,
-            else => self.lendsToRead(place_ty, null),
+            else => self.putsReadLoan(place_ty, null),
         };
     }
 
     /// Whether `!` of a place of type `place_ty` puts only a read loan on
     /// it (Core §4, the handle rows, and the paragraph after the table;
-    /// SPEC "Lending a shared value to write"): what it lends is a write
+    /// SPEC "Write views of a cell"): what it views is a write
     /// view of a value that changes by a marked call (Core s9), a `Cell`,
     /// a `Signal`, a channel, an actor, or a value that holds a Cell,
     /// reached through the place's views and its handle. Such a value is
     /// never replaced whole and every view it gives out lasts while it
     /// lives, so many write views of it may live at once while the place
-    /// stays put. It is judged by the type where it is lent: an API
-    /// object `{A}` or a type parameter is no such value. `lent`, the type
-    /// of the view the lend makes, says when `!h` lends the handle itself,
+    /// stays put. It is judged by the type where it is viewed: an API
+    /// object `{A}` or a type parameter is no such value. `viewed`, the
+    /// type of the view made, says when `!h` views the handle itself,
     /// a `!*T` the callee may point elsewhere: a write loan. Null, as for
     /// a method's self, is the value the place reaches, never its handle.
-    fn lendsToRead(self: *Lowerer, place_ty: TypeId, lent: ?TypeId) bool {
-        if (lent) |l| if (self.isHandle(l)) return false;
+    fn putsReadLoan(self: *Lowerer, place_ty: TypeId, viewed: ?TypeId) bool {
+        if (viewed) |l| if (self.isHandle(l)) return false;
         var t = place_ty;
         while (true) switch (self.ctx.types.get(t)) {
             .read_view, .write_view => |inner| t = inner,
@@ -3281,7 +3281,7 @@ const Lowerer = struct {
         return std.mem.findScalar(VarId, self.finding.items, root) != null;
     }
 
-    /// What `!e` lends to write (Core s4: any value, named or
+    /// What `!e` makes a write view of (Core s4: any value, named or
     /// temporary): the place `e` is, or else the value `e` makes, a
     /// temporary of the statement (Core §3), which holds it until the
     /// statement ends. A literal lives for the whole program, as a
@@ -3291,18 +3291,18 @@ const Lowerer = struct {
         // A branching value every value of which is made there is one
         // temporary (Core §3), taken branch by branch.
         if (isBranching(e)) {
-            if (!self.madeEverywhere(e)) return abstain("a write lend of a branching value that may be a name's");
+            if (!self.madeEverywhere(e)) return abstain("a write view of a branching value that may be a name's");
             const t = try self.temp(try self.typeOf(e), self.posOf(e));
             try self.valueInto(e, .take, t);
             return .{ .root = t, .path = &.{}, .ty = self.f.vars.items[t].ty };
         }
-        const t = try self.eval(e, .take, null) orelse return abstain("a write lend of a literal");
-        if (!self.f.vars.items[t].hidden) return abstain("a write lend of an unusual value");
+        const t = try self.eval(e, .take, null) orelse return abstain("a write view of a literal");
+        if (!self.f.vars.items[t].hidden) return abstain("a write view of an unusual value");
         return .{ .root = t, .path = &.{}, .ty = self.f.vars.items[t].ty };
     }
 
     /// Whether every value branching `e` may be is made there, or jumps:
-    /// none is a name, a field or element, or a lend (Core §3).
+    /// none is a name, a field or element, or a view (Core §3).
     fn madeEverywhere(self: *Lowerer, e: Sexp) bool {
         const k = e.kind() orelse return self.ctx.symbolOf(e) == null;
         return switch (k) {
@@ -3327,45 +3327,46 @@ const Lowerer = struct {
 
     /// `?p` or `!p` (Core s4, §4): a new loan on the place, carrying what
     /// the root views; through a read view, a copy of that view.
-    fn lend(self: *Lowerer, at: Place, mode: core.Mode, e: Sexp, ty: TypeId) Error!VarId {
-        return self.lendAs(at, mode, e, ty, mode == .write and self.lendsToRead(at.ty, ty));
+    fn viewPlace(self: *Lowerer, at: Place, mode: core.Mode, e: Sexp, ty: TypeId) Error!VarId {
+        return self.viewPlaceAs(at, mode, e, ty, mode == .write and self.putsReadLoan(at.ty, ty));
     }
 
-    /// `lend`, told whether a write lend lends to read (`lendsToRead`):
-    /// a write view of a value that changes by a marked call puts a read
-    /// loan on its place, through a handle on the handle's slot (Core §4).
-    fn lendAs(self: *Lowerer, at: Place, mode: core.Mode, e: Sexp, ty: TypeId, shared: bool) Error!VarId {
+    /// `viewPlace`, told whether a write view puts only a read loan
+    /// (`putsReadLoan`): a write view of a value that changes by a marked
+    /// call puts a read loan on its place, through a handle on the
+    /// handle's slot (Core §4).
+    fn viewPlaceAs(self: *Lowerer, at: Place, mode: core.Mode, e: Sexp, ty: TypeId, shared: bool) Error!VarId {
         const p = if (shared) handleSlot(at) orelse at else at;
         const pos = self.posOf(e);
         const kind: kinds.Kind = if (mode == .read) .read_view else .write_view;
-        if (mode != .read and self.isFinding(p.root)) return abstain("an index that lends its place's root to write");
-        if (mode != .read and p.handle) return abstain("a write lend through a handle");
+        if (mode != .read and self.isFinding(p.root)) return abstain("an index that makes a write view of its place's root");
+        if (mode != .read and p.handle) return abstain("a write view through a handle");
         const pk = (try self.kinds.of(p.ty)).kind;
-        // Lending a view the place holds hands over a copy of it; lending
-        // the place itself (`?p.s` as a `?String`, a slice) makes a loan.
+        // A view of a view the place holds hands over a copy of it; a view
+        // of the place itself (`?p.s` as a `?String`, a slice) makes a loan.
         const pointer = switch (self.ctx.types.get(ty)) {
             .read_view, .write_view => ty != p.ty,
             else => false,
         };
         // A generic loop's element of a `?List[T]` is a copy the iteration
-        // holds (SPEC "Generic bodies"): `?x` lends that copy, whose loan
+        // holds (SPEC "Generic bodies"): `?x` views that copy, whose loan
         // ends with the iteration.
         const loop_copy = p.path.len == 0 and mode == .read and self.loop_elems.contains(p.root) and self.genericLoopCopy(p.root);
         if (loop_copy) {
-            const loan = try self.lentLoan(p, .read, false, pos);
+            const loan = try self.viewLoan(p, .read, false, pos);
             const t = try self.viewTemp(ty, kind, pos);
-            try self.emit(.{ .pos = pos, .what = .lend, .reads = try self.one(p.root), .def = t, .loan = loan, .access = .{ .root = p.root, .kind = .read } });
+            try self.emit(.{ .pos = pos, .what = .view, .reads = try self.one(p.root), .def = t, .loan = loan, .access = .{ .root = p.root, .kind = .read } });
             return t;
         }
         if (p.via == .read or (p.via == .own and pk == .read_view and !p.slice and !pointer)) {
-            if (mode != .read) return abstain("a write lend through a read view");
+            if (mode != .read) return abstain("a write view through a read view");
             const t = try self.viewTemp(ty, kind, pos);
             try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(p.root), .def = t, .access = readAccess(p), .carry = p.carry });
             return t;
         }
         const deref = p.via == .write or (!p.slice and self.isWriteRef(p.ty));
         const loan_mode: core.Mode = if (shared) .read else mode;
-        const loan = try self.lentLoan(p, loan_mode, deref, pos);
+        const loan = try self.viewLoan(p, loan_mode, deref, pos);
         // A slice or a `?String` views the place's bytes, and copies of it
         // carry the loan; a `?T` or `!T` points at the place.
         self.f.loans.items[loan].pointer = switch (self.ctx.types.get(ty)) {
@@ -3373,7 +3374,7 @@ const Lowerer = struct {
             else => !p.slice,
         };
         const t = try self.viewTemp(ty, kind, pos);
-        try self.emit(.{ .pos = pos, .what = .lend, .reads = try self.one(p.root), .def = t, .loan = loan, .access = .{
+        try self.emit(.{ .pos = pos, .what = .view, .reads = try self.one(p.root), .def = t, .loan = loan, .access = .{
             .root = p.root,
             .path = p.loanPath(),
             .deref = deref,
@@ -3387,8 +3388,8 @@ const Lowerer = struct {
     }
 
     /// A loan on place `p`, which a view carries where the type of what
-    /// is lent could hold what the view views (`lent`; `core.Loan.ty`).
-    fn lentLoan(self: *Lowerer, p: Place, mode: core.Mode, deref: bool, pos: u32) Error!core.LoanId {
+    /// is viewed could hold what the view views (`viewed`; `core.Loan.ty`).
+    fn viewLoan(self: *Lowerer, p: Place, mode: core.Mode, deref: bool, pos: u32) Error!core.LoanId {
         const loan = try self.newLoan(p, mode, deref, pos);
         // What the loan is on: for a slice, what is sliced; through a
         // write view, the view, which may write what it reaches.
@@ -3668,14 +3669,14 @@ const Lowerer = struct {
         // A write receiver reached through a write view.
         var recv_view: ?VarId = null;
         var recv_root: ?VarId = null;
-        // The holders of the places a `swap` lends, and the value a swap
+        // The holders of the places a `swap` views, and the value a swap
         // with a value stores.
         var exchanged: std.ArrayList(VarId) = .empty;
         var stored_value: std.ArrayList(VarId) = .empty;
         // The root of the place a swap with a value takes its result out of.
         var taken: ?VarId = null;
         // The places `swap` exchanges, which the call reaches through
-        // its lends of them (`core.Op.paths`).
+        // its views of them (`core.Op.paths`).
         var swapped: std.ArrayList(core.PathOf) = .empty;
 
         // A generic function or type at type arguments of plain data is
@@ -3695,12 +3696,12 @@ const Lowerer = struct {
         var stored: []const bool = &.{};
         var all_read = false;
         // `print`, `warn`, and `String`, whose arguments are views (Core
-        // §6): a view handed over stays lent until the call returns.
+        // §6): a view handed over stays in use until the call returns.
         var view_args = false;
         // `copy`'s element type: what it stores is a copy of each element
         // its argument's slice views.
         var elem_copy: ?TypeId = null;
-        // `swap`, which lends its places for the call.
+        // `swap`, which views its places for the call.
         var exchange = false;
         var is_ctor = false;
         var reach: kinds.Reach = .{ .a = self.a };
@@ -3709,15 +3710,15 @@ const Lowerer = struct {
         // for a built-in, which carries every argument's.
         var sig: ?Sig = null;
         // The receiver's vars in `reads` and `moves`, and whether its
-        // write lend's loan is the call's own.
+        // write view's loan is the call's own.
         var recv_vars: std.ArrayList(VarId) = .empty;
         // For a `from` that names paths of self (`FromPath`): what the
         // receiver is, whose loans the result carries, and its place,
         // whose paths the result's loans are on (a receiver that is no
-        // place: its lend, `recv_lent`).
+        // place: its view, `recv_viewed`).
         var recv_held: ?VarId = null;
         var recv_place: ?Place = null;
-        var recv_lent: ?VarId = null;
+        var recv_viewed: ?VarId = null;
         var recv_deref = false;
         // A method called through an actor's handle (SPEC "Actors").
         var actor_call = false;
@@ -3773,7 +3774,7 @@ const Lowerer = struct {
                     // The value called is read first, and stays read until
                     // the call runs (Core §6): a later argument may not
                     // change it. A stack closure's binding never changes
-                    // (Core §7: it is only lent to read).
+                    // (Core §7: it is only viewed to read).
                     const cv = if (self.ctx.types.get(self.f.vars.items[v].ty) == .function)
                         v
                     else
@@ -3817,9 +3818,9 @@ const Lowerer = struct {
                 const recv_ty = try self.typeOf(recv_obj);
                 cell_store = self.isCell(recv_ty);
                 // A method called through an actor's handle is a message
-                // (SPEC "Actors"): its `!` lends the actor to read, as any
-                // value that changes by a marked call (`lendsToRead`), and
-                // as a task it keeps none of the handle.
+                // (SPEC "Actors"): its `!` puts a read loan on the actor, as
+                // any value that changes by a marked call (`putsReadLoan`),
+                // and as a task it keeps none of the handle.
                 actor_call = sema.actorOfHandle(self.ctx, recv_ty) != null;
                 // What a channel is sent, it holds until a task takes it:
                 // a channel is a shared home (SPEC "Channels").
@@ -3827,14 +3828,14 @@ const Lowerer = struct {
                 if (fn_params) |fp| {
                     try self.entryViews(callee, recv_ty, fp);
                     shapes = try self.shapesOf(fp.ctx, if (fp.ctx == self.ctx) try self.instParams(recv_ty, fp.params) else fp.params);
-                    // An arm's function is lent to the select, which calls
+                    // An arm's function is viewed by the select, which calls
                     // it (SPEC "Channels").
                     if (fp.arm) {
-                        const lent = try self.a.dupe(Shape, shapes);
-                        for (fp.params, lent) |pt, *sh| if (self.fnTypeOf(pt) != null) {
+                        const viewed = try self.a.dupe(Shape, shapes);
+                        for (fp.params, viewed) |pt, *sh| if (self.fnTypeOf(pt) != null) {
                             sh.* = .view;
                         };
-                        shapes = lent;
+                        shapes = viewed;
                     }
                     // A call on a type parameter's value is a call of a
                     // function value: what its type could hold, it may
@@ -3878,11 +3879,11 @@ const Lowerer = struct {
                 // `!x.m()` whose self is a write view of a value that
                 // changes by a marked call (a Cell's `set`, a channel's
                 // `send` or a select's `on_recv`, an actor's `!@` method, a
-                // `!@` method of a value holding a Cell) lends `x` to read,
-                // from before the arguments for as long as the view lives
-                // (Core §4, `lendsToRead`): the call is lowered as a read
-                // receiver's, whose loan its result and its task carry.
-                const shared = recv_mode == .write and obj.isKind(.write) and self.lendsToRead(recv_ty, null);
+                // `!@` method of a value holding a Cell) puts a read loan
+                // on `x`, from before the arguments for as long as the view
+                // lives (Core §4, `putsReadLoan`): the call is lowered as a
+                // read receiver's, whose loan its result and its task carry.
+                const shared = recv_mode == .write and obj.isKind(.write) and self.putsReadLoan(recv_ty, null);
                 // An arm's sigil is the arm's own, read by sema as such.
                 const robj = if (shared or arm) recv_obj else obj;
                 switch (if (shared) .read else recv_mode) {
@@ -3890,7 +3891,7 @@ const Lowerer = struct {
                     .write => {
                         // A write receiver with no `!` is a write view
                         // the receiver's value is (`wrap(!h).keep(x)`, a
-                        // branch of write lends): lent on through it.
+                        // branch of write views): passed on through it.
                         const p0 = if (obj.isKind(.write)) try self.writePlace(ir.Write.operand(obj)) else blk: {
                             const t = try self.eval(obj, .read, null) orelse return abstain("a write receiver without `!`");
                             if (self.f.vars.items[t].kind != .write_view) return abstain("a write receiver without `!`");
@@ -3898,13 +3899,13 @@ const Lowerer = struct {
                         };
                         if (p0.handle or self.isHandle(p0.ty)) return abstain("a write receiver through a handle");
                         const p = p0;
-                        // A write receiver is lent when the call runs; its
+                        // A write receiver is viewed when the call runs; its
                         // arguments may still read it (SPEC §7).
                         if (p.via == .read) return abstain("a write receiver through a read view");
                         const deref = p.via == .write or (!p.slice and self.isWriteRef(p.ty));
-                        const reserved = try self.lentLoan(p, .reserved, deref, pos);
+                        const reserved = try self.viewLoan(p, .reserved, deref, pos);
                         const r = try self.viewTemp(try self.typeOf(obj), .write_view, pos);
-                        try self.emit(.{ .pos = pos, .what = .lend, .reads = try self.one(p.root), .def = r, .loan = reserved, .access = .{ .root = p.root, .path = p.loanPath(), .deref = deref, .kind = .reserve } });
+                        try self.emit(.{ .pos = pos, .what = .view, .reads = try self.one(p.root), .def = r, .loan = reserved, .access = .{ .root = p.root, .path = p.loanPath(), .deref = deref, .kind = .reserve } });
                         try uses.append(self.a, r);
                         try reads.append(self.a, p.root);
                         try recv_vars.append(self.a, p.root);
@@ -3917,23 +3918,23 @@ const Lowerer = struct {
                         // what that view sees (`!w[0].push(?t)`).
                         if (deref) recv_view = r;
                         if (elem_method) elem_from = p.root;
-                        activation = try self.lentLoan(p, .write, deref, pos);
+                        activation = try self.viewLoan(p, .write, deref, pos);
                         access = .{ .root = p.root, .path = p.loanPath(), .deref = deref, .kind = .write, .except = reserved };
                     },
                     .read => {
-                        // A method lends its receiver for the whole call
+                        // A method views its receiver for the whole call
                         // (SPEC §7), plain data included.
                         var r: ?VarId = null;
                         if (try self.place(robj)) |p| {
-                            // A marked call changes what it lends to
+                            // A marked call changes what it views to
                             // write, which a read view never does (Core
                             // s4): a receive or send arm, a Cell's or
                             // Signal's change, an actor's `!@` method.
                             if (shared and try self.seenThroughView(robj)) return self.changeThroughView(callee, robj);
-                            r = try self.lend(p, .read, robj, p.ty);
+                            r = try self.viewPlace(p, .read, robj, p.ty);
                             if (elem_method) elem_from = p.root;
                             recv_held = p.root;
-                            // Through a read view, a lend copies the view.
+                            // Through a read view, a view copies the view.
                             if (p.via != .read and (try self.kinds.of(p.ty)).kind != .read_view) {
                                 recv_place = p;
                                 recv_deref = p.via == .write or (!p.slice and self.isWriteRef(p.ty));
@@ -3941,7 +3942,7 @@ const Lowerer = struct {
                         } else {
                             r = try self.eval(robj, .read, null);
                             recv_held = r;
-                            // `(?p).m()`: the lend is of place `p`, whose
+                            // `(?p).m()`: the view is of place `p`, whose
                             // fields alone a path of self names.
                             if (robj.isKind(.read) and fieldsOnly(recv_obj)) if (try self.place(recv_obj)) |p| {
                                 recv_held = p.root;
@@ -3955,14 +3956,14 @@ const Lowerer = struct {
                             // (Core §3): what it returns may view it.
                             if (r) |rv| if (self.f.vars.items[rv].hidden and !elem_method and (recv_obj.isKind(.call) or recv_obj.isKind(.clone) or recv_obj.isKind(.share))) {
                                 const vv = self.f.vars.items[rv];
-                                r = try self.lend(.{ .root = rv, .path = &.{}, .ty = vv.ty }, .read, recv_obj, vv.ty);
+                                r = try self.viewPlace(.{ .root = rv, .path = &.{}, .ty = vv.ty }, .read, recv_obj, vv.ty);
                             };
                             if (elem_method) elem_from = r;
                         }
                         if (r) |rv| {
                             try reads.append(self.a, rv);
                             try recv_vars.append(self.a, rv);
-                            if (recv_place == null) recv_lent = rv;
+                            if (recv_place == null) recv_viewed = rv;
                         }
                     },
                     .value => {
@@ -4019,12 +4020,12 @@ const Lowerer = struct {
             }
             try spans.append(self.a, .{ .reads = reads.items.len, .moves = moves.items.len, .param = param_at, .to_store = to_store });
             if (exchange and val.isKind(.write)) {
-                // `swap` lends its places for the call.
+                // `swap` views its places for the call.
                 const p = try self.place(ir.Write.operand(val)) orelse return abstain("an unusual `swap`");
                 const deref = p.via == .write or (!p.slice and self.isWriteRef(p.ty));
-                const loan = try self.lentLoan(p, .write, deref, pos);
+                const loan = try self.viewLoan(p, .write, deref, pos);
                 const t = try self.viewTemp(try self.typeOf(val), .write_view, pos);
-                try self.emit(.{ .pos = self.posOf(val), .what = .lend, .reads = try self.one(p.root), .def = t, .loan = loan, .access = .{ .root = p.root, .path = p.loanPath(), .deref = deref, .kind = .write } });
+                try self.emit(.{ .pos = self.posOf(val), .what = .view, .reads = try self.one(p.root), .def = t, .loan = loan, .access = .{ .root = p.root, .path = p.loanPath(), .deref = deref, .kind = .write } });
                 try uses.append(self.a, t);
                 try reads.append(self.a, p.root);
                 if (p.via == .own) try swapped.append(self.a, .{ .v = p.root, .path = p.loanPath() });
@@ -4035,8 +4036,9 @@ const Lowerer = struct {
             if (val.isKind(.write)) {
                 const p = try self.writePlace(ir.Write.operand(val));
                 const vt = try self.typeOf(val);
-                try reads.append(self.a, try self.lendAs(p, .write, val, vt, self.argLendsToRead(p.ty, vt, sig, param_at)));
-                // The call may store a view in what it was lent to write (s6).
+                try reads.append(self.a, try self.viewPlaceAs(p, .write, val, vt, self.argPutsReadLoan(p.ty, vt, sig, param_at)));
+                // The call may store a view in what it was given a write
+                // view of (s6).
                 if (try self.storesViews(p)) try gains.append(self.a, p.root);
                 continue;
             }
@@ -4048,12 +4050,12 @@ const Lowerer = struct {
             if ((arg_how == .take and (!is_ctor or cell_store)) or all_read) v = try self.readThrough(v, self.posOf(val));
             // Core §6: "Whatever else an earlier argument or operand hands
             // over (a view, which `print` and `String` arguments are; ...)
-            // stays lent, to read, until the call returns, so a later one
+            // stays in use, to read, until the call returns, so a later one
             // can't change it." A view argument is formatted where it
             // stands, so the view the copy was read through is used at the
             // call: its loans last through the later arguments. Plain data
             // read as a value (`r[1]`, `a`, `w.x`) is no view, and keeps
-            // nothing lent.
+            // nothing viewed.
             if (view_args) if (try self.handedView(val, before, v)) |hv| try uses.append(self.a, hv);
             if (elem_copy) |et| {
                 // The elements read through the slice carry their own
@@ -4065,21 +4067,21 @@ const Lowerer = struct {
                 continue;
             }
             // A value made where a view is expected is a temporary of the
-            // statement, lent to the call (Core s1, §3): the result's view
+            // statement, viewed by the call (Core s1, §3): the result's view
             // of it ends with the statement.
             const made_plain = self.f.vars.items[v].kind == .plain and !self.isPlaceSyntax(val) and val.kind() != null;
-            // A closure literal lent to a call lends its captures for that
+            // A closure literal viewed by a call views its captures for that
             // call (Core §7), and is stored nowhere: a result that cannot
             // hold a closure carries the loans of what it captured, never
             // a loan of the closure itself.
-            const lent_closure = val.isKind(.lambda) and !self.holdsCallable(try self.typeOf(e));
-            if (arg_how == .view and !lent_closure and self.f.vars.items[v].hidden and (self.f.vars.items[v].kind == .owning or made_plain)) {
+            const viewed_closure = val.isKind(.lambda) and !self.holdsCallable(try self.typeOf(e));
+            if (arg_how == .view and !viewed_closure and self.f.vars.items[v].hidden and (self.f.vars.items[v].kind == .owning or made_plain)) {
                 const vv = self.f.vars.items[v];
-                v = try self.lend(.{ .root = v, .path = &.{}, .ty = vv.ty }, .read, val, vv.ty);
+                v = try self.viewPlace(.{ .root = v, .path = &.{}, .ty = vv.ty }, .read, val, vv.ty);
             }
             // A callable whose result holds no view hands the call none
             // of its captures' views: the call only calls it (Core s7).
-            // An arm keeps its function lent until the select returns.
+            // An arm keeps its function viewed until the select returns.
             if (arm_call == null and try self.callsOnly(v, try self.typeOf(e))) {
                 try uses.append(self.a, v);
                 continue;
@@ -4105,8 +4107,8 @@ const Lowerer = struct {
         const rt = try self.typeOf(e);
         const rinfo = self.ctx.types.get(rt);
         // An arm is a value the select reads, which holds what the arm was
-        // lent and given until the select returns (SPEC "Channels"): a
-        // function's write capture stays a write loan.
+        // given and given views of until the select returns (SPEC
+        // "Channels"): a function's write capture stays a write loan.
         const result: ?VarId = if (parts.len > 0) null else if (arm_call != null) try self.viewTemp(rt, .write_view, pos) else switch (rinfo) {
             .void, .noreturn => null,
             else => try self.temp(rt, pos),
@@ -4183,10 +4185,10 @@ const Lowerer = struct {
         // A `from` that names paths of self (Core s7): the result carries
         // the loans self holds, and a loan on each path that is no read
         // view, not one on all of self.
-        if (narrowed) if (result) |r| try self.pathsResult(sig.?.paths, r, held_at_call.?, recv_place, recv_lent, recv_deref, pos);
+        if (narrowed) if (result) |r| try self.pathsResult(sig.?.paths, r, held_at_call.?, recv_place, recv_viewed, recv_deref, pos);
         // `swap` exchanges what its places hold (Core s6): each place's
         // holder then holds the views the other held, not the call's own
-        // lends of them. A swap with a value stores it in its place, above.
+        // views of them. A swap with a value stores it in its place, above.
         for (exchanged.items) |root| {
             const others = try self.a.alloc(VarId, exchanged.items.len);
             var n: usize = 0;
@@ -4251,15 +4253,15 @@ const Lowerer = struct {
     /// self carries of its receiver (Core s7): the loans self holds, what
     /// `held` carries, and for each path that is no read view, a loan on
     /// that path of the receiver's place `at`; a receiver that is no
-    /// place, `lent`, is lent whole for such a path.
-    fn pathsResult(self: *Lowerer, paths: []const FromPath, r: VarId, held: VarId, at: ?Place, lent: ?VarId, deref: bool, pos: u32) Error!void {
+    /// place, `viewed`, is viewed whole for such a path.
+    fn pathsResult(self: *Lowerer, paths: []const FromPath, r: VarId, held: VarId, at: ?Place, viewed: ?VarId, deref: bool, pos: u32) Error!void {
         try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(held), .weak = r });
         const rv = self.f.vars.items[r];
         const mode: core.Mode = if (rv.kind == .write_view or rv.holds_writes) .write else .read;
         for (paths) |fp| {
             if (fp.through_view) continue;
             const p = at orelse {
-                if (lent) |l| try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(l), .weak = r });
+                if (viewed) |l| try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(l), .weak = r });
                 continue;
             };
             const path = try self.a.alloc(Step, p.path.len + fp.fields.len);
@@ -4275,8 +4277,8 @@ const Lowerer = struct {
             var pp = p;
             pp.path = path;
             pp.ty = t;
-            const loan = try self.lentLoan(pp, mode, deref, pos);
-            try self.emit(.{ .pos = pos, .what = .lend, .loan = loan, .weak = r });
+            const loan = try self.viewLoan(pp, mode, deref, pos);
+            try self.emit(.{ .pos = pos, .what = .view, .loan = loan, .weak = r });
         }
     }
 
@@ -4341,8 +4343,8 @@ const Lowerer = struct {
         return out;
     }
 
-    /// Whether a call lent `p` to write may store a view there: what
-    /// the lend reaches can hold one.
+    /// Whether a call given a write view of `p` may store a view there:
+    /// what the view reaches can hold one.
     fn storesViews(self: *Lowerer, p: Place) Error!bool {
         var ty = p.ty;
         if (self.ctx.types.get(ty) == .write_view) ty = try self.innerOf(ty);
@@ -4735,13 +4737,13 @@ const Lowerer = struct {
         /// `keeps` (SPEC "Generic bodies").
         type_param: bool = false,
         /// An arm of `task.select` (`selectArm`), whose sigil sema reads
-        /// as the arm's own: its self is lent as its mode says.
+        /// as the arm's own: its self is viewed as its mode says.
         arm: bool = false,
     };
 
     /// A Map's or HashMap's `update` and `retain` call their function
-    /// value with a view of each key the Map owns beside the key's value
-    /// lent to write, and its `ensure_with` keeps as the value what its
+    /// value with a view of each key the Map owns beside a write view of
+    /// the key's value, and its `ensure_with` keeps as the value what its
     /// function value gives when passed a view of the key (SPEC "Generic
     /// bodies"). At an instance whose value type may keep that view, the
     /// Map would hold a view of itself (Core §5): rejected at the call.
@@ -4754,8 +4756,8 @@ const Lowerer = struct {
         const sym = self.ctx.symbols.items[pn.sym];
         if (!std.mem.eql(u8, sym.name, "Map") and !std.mem.eql(u8, sym.name, "HashMap")) return;
         const name = leafText(ir.Member.name(callee), self.src);
-        const lends = std.mem.eql(u8, name, "update") or std.mem.eql(u8, name, "retain");
-        if (!lends and !std.mem.eql(u8, name, "ensure_with")) return;
+        const views = std.mem.eql(u8, name, "update") or std.mem.eql(u8, name, "retain");
+        if (!views and !std.mem.eql(u8, name, "ensure_with")) return;
         // At a generic body's own parameters, each instance answers.
         for (pn.args) |arg| if (self.ctx.typeInfo(arg).has_type_var) return;
         // The type's parameters as the signature's context names them.
@@ -4764,7 +4766,7 @@ const Lowerer = struct {
         for (fp.full.params) |pt| {
             const f = fnTypeIn(fp.ctx, pt) orelse continue;
             var reach: kinds.Reach = .{ .a = self.a };
-            const keeps = if (lends) f.params.len > 1 and try reach.storesAt(fp.ctx, f.params, 0, tps, self.ctx, pn.args) else switch (fp.ctx.types.get(f.returns)) {
+            const keeps = if (views) f.params.len > 1 and try reach.storesAt(fp.ctx, f.params, 0, tps, self.ctx, pn.args) else switch (fp.ctx.types.get(f.returns)) {
                 .type_var => |v| for (tps, 0..) |tp, i| {
                     if (tp == v and i < pn.args.len) break (try self.kinds.of(pn.args[i])).holds_views;
                 } else false,
@@ -4791,10 +4793,10 @@ const Lowerer = struct {
         paths: []const FromPath = &.{},
 
         /// Whether a call may keep parameter `i` where its type fits: a
-        /// lent one only where `keeps` names it.
+        /// view one only where `keeps` names it.
         fn kept(self: Sig, i: usize) bool {
             const k = self.keeps orelse return true;
-            if (!lentType(self.ctx, self.f.params[i])) return true;
+            if (!viewParamType(self.ctx, self.f.params[i])) return true;
             return i < 64 and k & (@as(u64, 1) << @intCast(i)) != 0;
         }
     };
@@ -4893,14 +4895,14 @@ const Lowerer = struct {
     /// before it waits: `!ch.on_recv()`, `!ch.on_send(<v)`, which takes
     /// `v`, and `?t.on_end()`. The select commits one arm alone, which
     /// changes its channel there, so until then each arm only holds the
-    /// handle or task it names: it lends that place to read. The arm
-    /// carries what it was lent and given, so each stays lent and taken
-    /// until the select, which reads its arms, returns. A receive or send
-    /// arm's mode is `.write`: the change it commits needs a handle the
-    /// task holds, so one seen through a read view is C10 where the call
-    /// lowers its self. An arm of the
-    /// older spelling also takes the function the select calls with what
-    /// it received, lent to it. Null for any other method.
+    /// handle or task it names: it puts a read loan on that place. The
+    /// arm carries what it was given and given views of, so each stays
+    /// viewed and taken until the select, which reads its arms, returns.
+    /// A receive or send arm's mode is `.write`: the change it commits
+    /// needs a handle the task holds, so one seen through a read view is
+    /// C10 where the call lowers its self. An arm of the older spelling
+    /// also takes the function the select calls with what it received,
+    /// viewed by it. Null for any other method.
     fn selectArm(self: *Lowerer, call_node: Sexp, recv_ty: TypeId, mname: []const u8) Error!?struct { sema.SelfMode, ?MethodParams } {
         const held = sema.unwrapViews(self.ctx, recv_ty);
         const mode: sema.SelfMode = if (std.mem.eql(u8, mname, "on_end") and sema.isTask(self.ctx, held))

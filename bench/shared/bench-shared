@@ -7,7 +7,7 @@ usage: bench/shared/bench-shared [options]
                   bin/rig builds one (--release) into --out
   --out DIR       where to build (default: a new temporary directory)
   --shapes a,b    shared, shards, actor, map (default: all four; map,
-                  one Map lent to read, runs `hit` alone)
+                  one Map every task views to read, runs `hit` alone)
   --phases a,b    insert, hit, mixed (default: all three)
   --tasks a,b     task counts (default: 1,6,12)
   --rounds N      rounds; each runs every shape, phase, and task count

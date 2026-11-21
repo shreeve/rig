@@ -1262,14 +1262,14 @@ and `e?` (`sema.valueLeaves`): a branch that is a name is read where it is
 (`readsInPlace`), never moved, and a branching value all of whose
 branches are made is one temporary. A read view of a temporary
 (`?S(n: 1)`, `?make()`, a slice of one) records it the same way,
-owning or not (`lendTemp`), and so does the value a `?@` method is called on, made here,
+owning or not (`viewTemp`), and so does the value a `?@` method is called on, made here,
 or a field or element of one, whose method may keep a view of it (a
 result that may hold a view, or a call that may store one,
 `callRetains`): `r = mk().arr()` is `_t = mk()`, `r = P.arr(?_t)`,
 `<_t`, plain data too, so the view may be used until the statement
 ends. A write view of a temporary or a part of one (`!mk()`,
 `!mk().items`, the value a `!@` method is called on (`!mk().pop()`), a slice `!mk()[..]`)
-is recorded the same way, always (`lendsToWrite`): `print(!mk().pop())`
+is recorded the same way, always (`checkWriteView`): `print(!mk().pop())`
 is `_t = mk()`, `print(S.pop(!_t))`, `<_t`. A write method called on a
 temporary with no `!` is rejected, with the hint to add it
 (`writeOfTemporary`); a branching value that may be a name's gets a view
@@ -1277,7 +1277,7 @@ leaf by leaf, never as one temporary, since the write would reach a
 copy; and a constant (`isConstant`) lives for the whole program, so it
 never has a write view. What a write method or an assignment stores in
 a temporary viewed for writing lands in the statement's hidden var through
-its write loan (`storeThroughLend`), and a part is never moved out of
+its write loan (`storeThroughView`), and a part is never moved out of
 it (`viewOnPath`). When a statement drops a temporary that another of
 its temporaries views (one made before it, so dropped after it), the
 holder uses that view as any owner's drop does: only through a `drop`
@@ -1342,7 +1342,7 @@ and emit all ask it, and none decides it again from syntax. Its
 | `place` | a name of a binding or a constant (a function, a module's constant, `Enum.variant`), or a field or element path from a place, a view of a slice, or a view (`v`, `p.f`, `xs[i]`, `(?t[..])[0]`, `mk_ref().f` where `mk_ref()` is a `?T`) |
 | `part_of_made` | a field or element path from a value that is no place (`mk().v[0]`, `[a, b][1]`, `(a if c else b).f`): a part of a temporary |
 | `made` | a call, a constructor, `+x`, `*x`, `~x`, `<x`, an array, a closure, an operator's result, a literal, `none`, an enum literal, a `match`, a block, a loop's value, and a branching value every leaf of which is made there or jumps |
-| `lend` | `?x`, `!x`, and their slices |
+| `view` | `?x`, `!x`, and their slices |
 | `branches` | `a if c else b`, `a ?? b`, `e catch h`, `e!`, `e?` with a leaf that is not made there |
 | `jump` | `return`, `break`, `continue`, `panic` |
 | `none` | a statement, a declaration, a type, a pattern |
@@ -1375,15 +1375,15 @@ it hands over too (`selfShape`); the self sigil itself is
 syntax (Core §8).
 
 A view of a place is never the base of a path. One walk over each typed
-declaration (`Checker.checkLendBases`) visits every field, element, and
+declaration (`Checker.checkViewBases`) visits every field, element, and
 slice node once, after typing, so no typing routine can route a path
 around the rule.
-- **The base.** What a path's object is comes from one fact, `Checker.lendOf`: what the object hands over (`handsOver`), a `lend`, or a `<` of one, recorded once.
+- **The base.** What a path's object is comes from one fact, `Checker.viewOf`: what the object hands over (`handsOver`), a `view`, or a `<` of one, recorded once.
 - **The non-cases.** They are positive facts:
   - a member a call resolved as a method (`Checker.methods`, recorded where `synthMemberCall` resolves one) is a self, so a field holding functions, called, is a path;
   - a value that branches is no view;
-  - a view of a slice makes the view the path reaches. A written `!` on one that the path only reads is decided by `Checker.writeLendRead`, as any read of a written view is.
-- **The hint.** `LendBaseFix` rewrites the path's line. The whole path takes the sigil its context takes, read from what typing recorded: the type each expression was checked against (`Checker.expected`), a method's self mode, and the value tails a function, a closure, or a block uses (`Checker.value_tails`).
+  - a view of a slice makes the view the path reaches. A written `!` on one that the path only reads is decided by `Checker.writeViewRead`, as any read of a written view is.
+- **The hint.** `ViewBaseFix` rewrites the path's line. The whole path takes the sigil its context takes, read from what typing recorded: the type each expression was checked against (`Checker.expected`), a method's self mode, and the value tails a function, a closure, or a block uses (`Checker.value_tails`).
 - **The error is always reported.** A rewrite is the source line the path is on. The sigil the whole path takes comes from the type expected there:
   - `!` for a write view;
   - `?` for a read view, but none for an argument a `?T` parameter takes;
@@ -1409,25 +1409,25 @@ elements, and method selves (`!(a if c else b).w`,
 `(!(o ?? d)).gvw()`). Making a view of it whole would view a copy of a leaf
 that is a place, which holds no loan on the place, and under `!` a
 write view of that copy. One decider answers it, once per branch, by a
-positive list (`Checker.lendsBranch`, recorded in `branch_lends` only
+positive list (`Checker.viewsBranch`, recorded in `branch_views` only
 from a check that reports, never a quiet one's): a
-view whose operand's base (`Checker.lentBranch`) is a branching value
+view whose operand's base (`Checker.viewedBranch`) is a branching value
 is accepted only when every leaf (`sema.valueLeaves`) is made there, is
 a constant, is a view itself, or jumps; otherwise it is rejected with
 the rewrite that views each branch. Every in-place read of a branch
 asks it, and nothing else decides it:
 
-- a sigil, `?B` or `!B` (`synthLend`), and a slice viewed of one
-  (`lendSlice`);
-- a write view's statement slot (`lendsToWrite`), and a read view's
-  (`lendTempIn`, where a self or an argument is viewed without a
+- a sigil, `?B` or `!B` (`synthView`), and a slice viewed of one
+  (`viewSlice`);
+- a write view's statement slot (`checkWriteView`), and a read view's
+  (`viewTempIn`, where a self or an argument is viewed without a
   sigil, for a value that moves or is a write view);
-- a header's subject (`headerLendsBranch`, for `match`, `if … as`,
+- a header's subject (`headerViewsBranch`, for `match`, `if … as`,
   `while … as`, and `for`): viewed by its sigil, `?` or `!`, stripped the
   same way for each (`headerSubject`), or, bare, to read, unless the
   header copies it (plain data) or reads it through a copy of a read
   view (`readsInPlace`);
-- a value checked where a view goes (`checkExpr`'s `lentInPlace`): given a
+- a value checked where a view goes (`checkExpr`'s `viewedInPlace`): given a
   write view where a write view is passed, bound, or stored, and a read
   view where a `?T`, `[]T`, or `?String` goes and a leaf is a write view or
   a value that is no view (`sl(a if c else b)`). A branch of read views
@@ -1444,7 +1444,7 @@ What a context does with a value is recorded as its `Use`
 (`useOf(e)`): `read` (`readLeaf`), `take` (a binding, an argument, a
 stored field or element, `return`, a function's or a closure's value,
 a `break` value, a consuming self, a header that
-binds the value), or `lend` (`?e`, `!e`, a write self), for a name
+binds the value), or `view` (`?e`, `!e`, a write self), for a name
 and for a value that yields one of its parts. A value whose names own
 nothing needs no use (an `==` operand of plain data records none),
 since moving such a name out disarms nothing. Emit moves a name at a
@@ -1465,14 +1465,14 @@ handle is on the way, the step that makes it read-only and why
 and the element of a `Cell[List[E]]` it goes through. Every consumer
 then asks `requireAccess(place, access, at)`, which owns the
 diagnostics, for one `Access`: `assign` (`p = v`, `p op= v`),
-`lend_write` (`!p`, `!xs[a..b]`, an element method's self,
+`write_viewed` (`!p`, `!xs[a..b]`, an element method's self,
 `|!x|`), `write_iterate` (`for x in !p`), or `take` (`<p.f`). The path
 must be writable, a temporary is never written, and without a view
 or handle on the way the binding it starts from must be one that may
 change (`requireBinding`). No field or element holds a write view
 (Core §5), so no path writes through one, passes one on, or
 passes one. A Cell's members take `!@`, so a marked call on one is a
-makes a write view like any other; `lendsMarked` and `lendsHandle` say when that
+makes a write view like any other; `viewsMarked` and `viewsHandle` say when that
 view writes nothing of what holds the handle it reaches (a handle is viewed,
 not rebound, so its binding need not be writable, and a read view or a
 slice that holds it is not written).
@@ -1520,7 +1520,7 @@ lives through the body.
 | a made value `e` (a call, a constructor, an array, a branching value every leaf of which is made there, `<p` included) | `var _h = <e`, then the header over `<_h` | the construct's own: a place in `_h` that `<x` may move out of |
 | a part of a made value `e.f`, `e[i]` that is not plain data | `var _h = <e` for the whole construct, then the header over `?_h.f` (`?_h[i]`) | a view in place, as for a place: the made value is taken (Core §3), and the part is read where it stands (Core sentence 1) |
 | a part of a made value that is plain data | itself: `e` is a temporary of the header | a copy, read in the header |
-| a branching value one leaf of which is a place | itself, when its type copies or every leaf is a read view (`readsInPlace`) | a copy; otherwise the header reads it in place, which views it (`?B`, or `!B` as written), and `lendsBranch` rejects the leaf a name holds: view each leaf, or take each with `<` |
+| a branching value one leaf of which is a place | itself, when its type copies or every leaf is a read view (`readsInPlace`) | a copy; otherwise the header reads it in place, which views it (`?B`, or `!B` as written), and `viewsBranch` rejects the leaf a name holds: view each leaf, or take each with `<` |
 
 So `for x in v` is `for x in ?v`; `match b` on a `^E` is `match ?b`
 and `match h` on a `*E` is `match ?h`, whose payloads view the value
@@ -1560,7 +1560,7 @@ or a value that branches over views through the pointer it is
 (`evalSubject`), and a generic body through `rig.viewedPtr`. (A value
 that branches over bare places is matched as a copy only when its type
 copies; one whose type moves or may, a type parameter's included, is
-read in place, so `headerLendsBranch` rejects it, as a view of the
+read in place, so `headerViewsBranch` rejects it, as a view of the
 branch.) Emit captures a payload, or a catch-all's
 value, of a type parameter by pointer there, guarded or not
 (`storage.payloadByAddress`, `storage.catchAllByAddress`), and such a
@@ -1624,7 +1624,7 @@ either makes no temporary, and so is matched where the place is, or is
 rejected.
 
 Typecheck records the class where it binds: a bare place is recorded
-as a read view of the subject (`lendOf`, `Lend.implicit`), which the
+as a read view of the subject (`viewOf`, `View.implicit`), which the
 ownership checker walks as `?p` (a read loan on the place's root,
 which the bindings carry for as long as they are used) and emit writes
 as `?p` (each element or payload captured by pointer, `|*x|`, never
@@ -1648,13 +1648,13 @@ instead of re-deriving it by name:
 | `bindingTypeOf(leaf)` | the declared or inferred type of the symbol a leaf names |
 | `readsThrough(node)` | whether the node yields a view (`!x`, a call returning `!Int`, a `!Int` name) whose value its context reads: a value that copies where it is expected (`copiedThrough`), an operator's operand, the optional of `??`, `?`, or `as`, an indexed or sliced `?String` or slice, or a clone. Typecheck records it wherever it admits the view as its value (`recordAdapted`, `readThrough`); emit dereferences such a node in one place (`emitValue`), and the ownership checker ends the loans taken to reach a value that carries no loan |
 | `copiesPayload(node)` | whether an `a ?? b` or `a catch b` gives the value its payload's view reaches, copied out, because its fallback is that value, not a view ([Copies](#copies)): emit wraps `a` in `rig.copiedOut(T, a)`, the ownership checker reads `a`'s payload through (`walkPayloadHolder`), and the storage plan reaches the form as a value made there, not as the payload where it is (`leafStep`) |
-| `lendOf(node)` | for a node viewed where a view of another type is expected, or a slice argument viewed as the view it is (below): the rows of the view table that make the view (`sema.Lend`, from `sema.lendsAs`, below). The ownership checker walks a view of an array's elements or a String's bytes as `?a[..]`, views a `![]T` passed on to read only to read, and lets a closure literal viewed as a callable be an argument; emit writes each in one place (`emitLend`): an array's address, a String's `.bytes()`, a box's value, or a `rig.FnRef` (hoisting a literal's environment before the call) |
-| `loanOf(lend)` | for a `!x`, what it puts on `x`: a read loan where the view it makes is a write view of a value that changes by a marked call (`sema.loanOfView`: a Cell, a Signal, a channel, an actor, or a value that holds a Cell, judged by the concrete type, an API object or a type parameter never), a write loan anywhere else. Typecheck records it where `!x`'s view is chosen (`synthLend`, which a method's self, an actor's call, and a select arm's channel all go through), and again where a handle viewed where a view of its value goes becomes that view (`lendView`). The ownership checker views `x` by it, a call's self and a task's parts too; emit never reads it (Core §4). Every decision of what changes by a marked call, the view table's handle row (`sema.lendsAs`), `lendsHandle`, a `match !h`, the self rule, `swap`'s refusal, and this fact, asks one classifier, `sema.changesByMark`, which answers by the concrete type and never for an API object or a type parameter. Whether a call's result keeps the loan on self is a separate fact: an actor's call and a select arm keep none in their result (`walkCallBody`'s `actor_call`, from `isActorCall` and `selectArmOf`), whatever `loanOf` put. That premise, which the checkers see in Rig code, is unchecked in Zig: a std `extern zig` function that takes such a value, through a view, a handle, or a box, or that gives a view of a type parameter's or an API object's value, is rejected unless `Checker.marked_externs` lists it, read (`checkMarkedView`; `test/cli/std_premise.sh`), and std-shared's "shared map views survive every change" runs every change the map has under the sanitizer while views of it live |
-| `lendsTempArray(node)` | whether the node is a temporary array passed as a `[]T` argument to a call that keeps no view of it: emit writes `&` before it, which Zig keeps alive through the call |
+| `viewOf(node)` | for a node viewed where a view of another type is expected, or a slice argument viewed as the view it is (below): the rows of the view table that make the view (`sema.View`, from `sema.viewAs`, below). The ownership checker walks a view of an array's elements or a String's bytes as `?a[..]`, views a `![]T` passed on to read only to read, and lets a closure literal viewed as a callable be an argument; emit writes each in one place (`emitView`): an array's address, a String's `.bytes()`, a box's value, or a `rig.FnRef` (hoisting a literal's environment before the call) |
+| `loanOf(lend)` | for a `!x`, what it puts on `x`: a read loan where the view it makes is a write view of a value that changes by a marked call (`sema.loanOfView`: a Cell, a Signal, a channel, an actor, or a value that holds a Cell, judged by the concrete type, an API object or a type parameter never), a write loan anywhere else. Typecheck records it where `!x`'s view is chosen (`synthView`, which a method's self, an actor's call, and a select arm's channel all go through), and again where a handle viewed where a view of its value goes becomes that view (`viewByRows`). The ownership checker views `x` by it, a call's self and a task's parts too; emit never reads it (Core §4). Every decision of what changes by a marked call, the view table's handle row (`sema.viewAs`), `viewsHandle`, a `match !h`, the self rule, `swap`'s refusal, and this fact, asks one classifier, `sema.changesByMark`, which answers by the concrete type and never for an API object or a type parameter. Whether a call's result keeps the loan on self is a separate fact: an actor's call and a select arm keep none in their result (`walkCallBody`'s `actor_call`, from `isActorCall` and `selectArmOf`), whatever `loanOf` put. That premise, which the checkers see in Rig code, is unchecked in Zig: a std `extern zig` function that takes such a value, through a view, a handle, or a box, or that gives a view of a type parameter's or an API object's value, is rejected unless `Checker.marked_externs` lists it, read (`checkMarkedView`; `test/cli/std_premise.sh`), and std-shared's "shared map views survive every change" runs every change the map has under the sanitizer while views of it live |
+| `viewsTempArray(node)` | whether the node is a temporary array passed as a `[]T` argument to a call that keeps no view of it: emit writes `&` before it, which Zig keeps alive through the call |
 | `scopeOf(node)` | the scope a function, lambda, block, loop, arm, or catch opens |
 | `isExhaustive(match)` | whether the arms cover every value without a default |
 | `callSlotsOf(call)` | for keyword or omitted arguments, which argument or default fills each parameter |
-| `sliceLendOf(slice)` | what a slice `xs[a..b]` views of what it slices (`sema.sliceLend`): the elements of an array or a List, a String's bytes through handles and boxes, or nothing of a value that is itself a view; the type checker slices by it, and the ownership checker views by it |
+| `sliceViewOf(slice)` | what a slice `xs[a..b]` views of what it slices (`sema.sliceView`): the elements of an array or a List, a String's bytes through handles and boxes, or nothing of a value that is itself a view; the type checker slices by it, and the ownership checker views by it |
 | `callParamsOf(call)` | for every call checked against a signature, what fills each parameter (self too) and which arguments the call passes loans on from ([Call origins](#call-origins)) |
 | `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`List[Int]`), or a function's arguments |
 | `ctCallOf(node)` | for a compile-time call, `(ct_call cap 8)`: the value the checker computed and its type (`cteval.Result`), none in a compile-time function's body ([Compile-time functions](#compile-time-functions)) |
@@ -1674,28 +1674,28 @@ instead of re-deriving it by name:
 | `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`rejectHeaderCopy`, `storage.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
 | `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
 | `payloadFieldOf(leaf)` | for a payload binding of a variant pattern, the type of the field it binds at the matched instance, in this module's types: `v` in `.some(v)` of an `Opt[?String]` binds a `?String`, though `Opt` declares `v: T`. Typecheck types the binding from it, and `storage.payloadByAddress` reads it, so a field that is itself a view is bound as the view it holds in every pass, never as a pointer to it |
-| `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary viewed for reading or to write. The ownership checker holds it in a hidden var named by its source, that what reads it views (to write, under `!`: `lendTempToWrite`), and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made, an assignment's value before its target (so the `defer`s drop the last made first, as the ownership checker's `dropStmtTemps` does), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first. It is the storage fact `temp` ([Storage facts](#storage-facts)) |
-| `writesTemp(node)` | whether the node is a temporary viewed for writing, or the value a part viewed for writing starts from (`!mk()`, `!(a if c else b).f`, recorded by `lendsToWrite`): its statement's slot is written, so emit reaches it there at every site that views it (`emitMemberBase`), never through a copy |
+| `dropsTemp(node)` | whether the node is a temporary its statement (or header) drops at its end: a value made where it is only read (`readLeaf`), or a temporary viewed for reading or to write. The ownership checker holds it in a hidden var named by its source, that what reads it views (to write, under `!`: `writeViewTemp`), and drops that var when the statement or header ends (`dropStmtTemps`), so a view of it kept past that is reported; emit declares a slot, its flag, and a `defer` that drops it before the statement (inside a header's block for a header's), in the order the temporaries are made, an assignment's value before its target (so the `defer`s drop the last made first, as the ownership checker's `dropStmtTemps` does), writes `rig.keep(&slot, &flag, value).*` where it stands, and drops the slots after the statement, last made first. It is the storage fact `temp` ([Storage facts](#storage-facts)) |
+| `writesTemp(node)` | whether the node is a temporary viewed for writing, or the value a part viewed for writing starts from (`!mk()`, `!(a if c else b).f`, recorded by `checkWriteView`): its statement's slot is written, so emit reaches it there at every site that views it (`emitMemberBase`), never through a copy |
 | `discardsValue(node)` | whether nothing uses the node's value: an expression statement (`checkExprStmt`), or the operand of a `!`, `?`, `catch`, or view sigil that is one. Kept beside the table, not in `check --facts=sema` |
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
 | `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or views it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
 | `headerOf(header)`, `heldBaseOf(header)` | how a `for`, `match`, or `as` has a bare subject that is not plain data (`Header`): `viewed` (a place, read as `?p`), `taken` (a value made there, as `<e`), or `held` (a part of a made value, whose made value `heldBaseOf` gives); `takesSubject(match)` is `taken` |
-| `stringCallOf(node)` | for a `String(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in String operation it is (`push[T, e](v)` is `push_int`, whose integer type `stringNumOf(callee)` gives; `push(v, keep: k)` is `push_keep`, whose vector or integer type it gives, emitted as `pushKeep(T, v, k, e)`; `reserve(n)` is `reserve`). `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple of pieces `rig.String.of` and `add` take; `?t` of a String viewed as a `?String` is a `lendOf` `text`, walked as `?t[..]` |
+| `stringCallOf(node)` | for a `String(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in String operation it is (`push[T, e](v)` is `push_int`, whose integer type `stringNumOf(callee)` gives; `push(v, keep: k)` is `push_keep`, whose vector or integer type it gives, emitted as `pushKeep(T, v, k, e)`; `reserve(n)` is `reserve`). `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple of pieces `rig.String.of` and `add` take; `?t` of a String viewed as a `?String` is a `viewOf` `text`, walked as `?t[..]` |
 | `payloadBindings(pattern)` | for a variant pattern the checker accepted, the binding of each payload field of its variant, in field order: a name, or none for a field the pattern leaves out. A pattern binds by name, any of the fields (`:w` is one leaf in both slots of its `kwarg`, so it reads as `w: w`), and a variant with one field by position too, and `.rect(h: b)` on `rect(w, h)` desugars to `.rect(_, b)`; typecheck decides the mapping once (`fieldBindings`), and every pass that pairs bindings with fields reads it: typecheck's binding types, the storage planner, the ownership checker, emit's captures, guards, and `match <x` parts (a field left out is dropped at the end of the arm), and the reference checker |
 | `jumpDestOf(jump)` | for a `break` or `continue`, where it goes (`JumpDest`): the loop or labeled block it names, and `exit`, `step`, or `head` ([Loops](#loops)). The type checker resolves every jump once; emit writes the Zig jump from it, and the ownership checker files the state at the jump by it |
 | `unitOf(node)`, `unitRootKind(node)` | the root of the innermost unit holding a node of a body, and the kind of a unit's root (`rig.eachUnit`, [Proven checks](#proven-checks)), recorded by the storage plan; emit enters each unit as it writes it and asserts that every check, write, and hidden storage it writes lies in its own |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a self passed as an argument comes first (`P.scale[2](p)`) |
 
 **The view table.** Which views a value gives (Core §4) is decided in
-one place, `sema.lendsAs(from, kind, view)`: making a view of a value of type
+one place, `sema.viewAs(from, kind, view)`: making a view of a value of type
 `from` to read or to write makes a view of type `view` through a list of
-rows (`LendStep`): `unbox` (a `^T` gives the views of its `T`),
+rows (`ViewStep`): `unbox` (a `^T` gives the views of its `T`),
 `elems` (an array gives `[]T`, and `![]T` to write), `text` (a String
 gives its bytes, a `?String`), `read_only` (a `![]T` is passed on as a
 `[]T`), and `callable` (a function or an owned closure gives a
 `?fun(...)`). No rows is the first row, `?T` of a `T`. Typecheck asks it
-where a value meets an expected view (`lendView`) and records the rows
-it used (`lendOf`); the ownership checker and emit read that record.
+where a value meets an expected view (`viewByRows`) and records the rows
+it used (`viewOf`); the ownership checker and emit read that record.
 
 **One text view.** The read view of a `String` is its bytes, a
 `?String`, and there is no pointer view of a String. The type store makes
@@ -1726,30 +1726,30 @@ the `?String`, and emit writes each as the String's `.bytes()`:
 
 A `?String` is a view, so nothing makes a write view of a `?String` place: `!s`,
 and so a `swap` of one, are rejected where the view is
-checked (`synthLend`), and `!?String` as a written type is rejected where
+checked (`synthView`), and `!?String` as a written type is rejected where
 it is resolved. The unwritten steps make no new effect: the view, the
 loan, and the bytes are the ones `?t[..]` already has.
 
 **A read view left unwritten.** Where a view argument goes, a bare
 value is viewed for reading where it is, as `?e` would view it (Core sentence
-1). One branch of `lendView` decides it, for the argument being checked
+1). One branch of `viewByRows` decides it, for the argument being checked
 (`Checker.view_arg`), and records the view as implicit
-(`Lend.implicit`, and the use `lend`, `recordImplicitLend`). A slice is
+(`View.implicit`, and the use `view`, `recordImplicitView`). A slice is
 viewed the way its name is: a slice argument written with no view,
 `xs[a..b]` of an array, a List, a String, or a `![]T`, desugars to
 `?xs[a..b]` where its parameter takes the read view that makes (a `[]T`
 or a `?String`, or an optional of one). Whether a slice views what it
 slices is decided once, for every slice, written or not, bound or an
-argument (`sliceLendsObject`), by what holds the elements: an array's
+argument (`sliceViewsObject`), by what holds the elements: an array's
 or a List's, however reached, a `![]T`'s, and a String's, owned, boxed,
 behind a `*T`, or through a write view of one, which may add to it or
 replace it, are viewed; a String's through a read view, which cannot change
 while that view's loan lives, and what a `?String` or a `[]T` views, are
 not: the slice is a value carrying the view's loans. `synthSlice` types
 it as that view, whose own rows are the
-slice's (`sliceLendOf`), and the same branch records it implicit with no
+slice's (`sliceViewOf`), and the same branch records it implicit with no
 rows: it is the view already. The ownership checker walks an implicit
-view with no rows as `?e` (`walkImplicitLend`), so the slice is walked
+view with no rows as `?e` (`walkImplicitView`), so the slice is walked
 exactly as `?xs[a..b]` is, and emit writes it as it writes
 `?xs[a..b]`: the slice. Where the parameter takes a write view or a
 value of its own, the argument is rejected with what to write
@@ -1766,7 +1766,7 @@ argument it is a value made there, viewed for reading as a temporary of its
 statement by the branch above; anywhere else (viewed for writing, kept in a
 binding, a field, or an element, returned, a view of an optional, a
 default) it is the mismatch `E.v(...)` is. A plain enum's read view
-holds a copy (`sema.lendByValue`), so there the literal is that copy,
+holds a copy (`sema.viewByValue`), so there the literal is that copy,
 typed as the view, wherever the view goes.
 
 **How the facts are kept.** A fact about a list node is keyed by its
@@ -1891,7 +1891,7 @@ emitter ask these, never a predicate built for another question:
 | `resourceKind` | how a value that moves is held and dropped: a shared handle (`dropStrong`), a weak one (`dropWeak`), an optional, or a value `rig.drop` releases; null for one that copies. The storage plan records it for each binding and each value emit holds or discards (Storage facts) |
 | `holdsNoLoanButText` | copies and holds no view or function value (a `?String` aside): what a Cell and a Signal hold |
 | `isPlain` | provides `Copy` and `Owned`: plain data (Core §1), what `$plain(T)` answers |
-| `lendByValue` | a read view of it hands over a copy (a scalar or a view), not an address; the runtime's `ReadView(T)` holds a generic `?T` by the same rule, read off the Zig type, so a kind lowered to a struct (a `rig.ErrorValue`, `isErrorValueForm`) is viewed by address |
+| `viewByValue` | a read view of it hands over a copy (a scalar or a view), not an address; the runtime's `ReadView(T)` holds a generic `?T` by the same rule, read off the Zig type, so a kind lowered to a struct (a `rig.ErrorValue`, `isErrorValueForm`) is viewed by address |
 | `readsAsValue` | a scalar (`isScalar`) or a plain enum: an operator, generic inference, and a binding with no type read a read view of one as the value |
 | `isScalar` | a primitive that copies, or a vector: a method takes it by value, never by address |
 | `holdsVector` | is or holds inline a vector, whose size and alignment are the target's: `$size` and `$align` take none |
@@ -1946,7 +1946,7 @@ checkers or emit to reason about.
 and `clear` and element assignment are marked the same way, so the
 self-sigil rule is the whole enforcement: `!c.set(v)` is `set` of the
 write view `!Cell[T]` that the view table gives a handle, a `*T` making a view of
-its `T` to write when `T` changes by a mark (`sema.lendsAs`,
+its `T` to write when `T` changes by a mark (`sema.viewAs`,
 `sema.changesByMark`). The view records a read loan on the binding `c`
 (`loanOf`, Core §4), and no loan on the shared Cell, since another
 handle to it is another name: the Cell is never replaced whole, and
@@ -1960,7 +1960,7 @@ a place that holds a Cell whole. `!c` of a handle views the handle itself, `!*C`
 `c` may be written (`handleWritable`: `requireAccess` with the handle
 exemption off, the one fact); anywhere else it views the value it holds,
 a `!C` whose view row is `handle`, never a `!*C` a callee could point
-elsewhere (`synthLend`). A read view of a handle, or a read view on the
+elsewhere (`synthView`). A read view of a handle, or a read view on the
 path to one, is never viewed for writing. A read view changes nothing, so a read view of a Cell
 holder is a `*const T` in the emitted Zig.
 
@@ -1992,7 +1992,7 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | `subject` | `__rig_subject` | a `match` that evaluates its subject before its arms, or holds a generic view a call returns (`storage.subjectHold`) | pointer, copy, or owned | construct |
 | `whole`, `payload` | `__rig_whole`, `__rig_payload` | what an arm captures: the value `match <x` takes, or a variant's payload | owned, pointer, or copy | arm |
 | `as_value`, `as_copy` | `__rig_opt`, `__rig_opt_N_v` | what `if … as` or `while … as` captures, and a mutable copy its binding views | pointer, copy, or owned | body |
-| `lent` | `__rig_lent` | the value inside an optional a view reaches | pointer | expression |
+| `viewed` | `__rig_lent` | the value inside an optional a view reaches | pointer | expression |
 | `leaf` | `__rig_leaf` | the payload a branch of a value read where its leaves are takes (`storage.reachesLeaf`) | pointer | expression |
 | `error_value` | `__rig_err` | the error a `catch \|e\|` handler names | owned | handler |
 | `argument`, `self` | `__rig_arg`, `__rig_recv` | a call whose arguments, or an array literal whose elements, are evaluated first (`storage.hoistsArgs`, `selfHold`, `argumentHold`); a `task.select` evaluates its arms' parts first, in its own block, and an arm none; an actor's handle and an arm's channel are its `self` (`heldSelf`) | owned, copy, or pointer | call; select, for an arm's |
@@ -2004,7 +2004,7 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | `argument` (of `return a, b`) | `__rig_arg` | the parts of `return a, b`, made in their turn when a later part can leave after an earlier one that owns (`storage.hoistsResults`) | owned | call |
 | `held_header` | `__rig_header` | a parameter holding a write view of a `String`, or of a `List` with no inline room, which the body uses in a loop: its header, held for the body and written back by `defer`, which the parameter's name views (`storage.planHeldHeaders`); none where a task, a closure, or a `raw` block names the parameter, or the result holds a view | copy | block |
 | `task_record` | `__rig_task` | a fork: the record of a task made by `t = f(x)&`, an assignment written `=` that declares a fresh name in a block, not through an actor's handle, that stays in its maker's frame (`storage.taskStaysInFrame`, `storage.taskRecordIn`). Every later naming of `t` in the block is the task of `>t`, the self of `<t.cancel()`, or a read view `?t`, outside every closure, so its drop, which waits, runs before the block ends; any other naming (a move, `return`, a `Tasks` add, a stored field, a closure's capture, an assignment) keeps it off, as does a record (header, arguments, and result) over `max_frame_task_bytes`, 1 KiB. The record counts in the frame (`typecheck.checkFrames`, `storage.taskRecordIn`); emit makes it in the slot, `var __rig_task_N = rig.Task(T).frame.spawn(f, .{ x })`, which records the fork on its fiber (`Fiber.fork`), and the binding starts it there, `t = __rig_task_N.start()` (`sched.startAt`) | owned | block |
-| `zig_temp` | (Zig's own) | a value made here whose address emit takes where Zig holds it: a leaf reached by address that no slot keeps (`leafStep` is `made`, not `dropsTemp`), a literal leaf, or a temporary array passed to a call as a view that evaluates its arguments where they stand (`lendsTempArray`) | owned | statement |
+| `zig_temp` | (Zig's own) | a value made here whose address emit takes where Zig holds it: a leaf reached by address that no slot keeps (`leafStep` is `made`, not `dropsTemp`), a literal leaf, or a temporary array passed to a call as a view that evaluates its arguments where they stand (`viewsTempArray`) | owned | statement |
 
 `owned` storage holds a value of its own, made there or taken; `copy`
 holds a copy of a value still held where it was, so a view of the
@@ -2068,7 +2068,7 @@ the object.
 The predicates that decide where emit makes storage are in
 `src/storage.zig`, and emit asks the same ones. How storage holds its
 value is decided apart from how emit writes it: an argument viewed as the
-view its parameter expects (`lendOf`) is held as that view, `pointer`,
+view its parameter expects (`viewOf`) is held as that view, `pointer`,
 as is one whose parameter is a view held as a pointer, and emit gives
 each argument and self the `by` of what it writes there (an
 address, a copy, a value of its own), which must agree. Emit names every
@@ -2091,7 +2091,7 @@ var the call stored it in keeps, is reported, and no other path ends the
 var with a loan on it unreported, "a view of `e` outlives the call, which holds `e` only while
 it runs; bind `e` to a name first". A temporary self of a method
 that may keep a view of it is kept in its statement's slot instead
-(`lendTemp`), as the Core keeps it, so only a self whose method
+(`viewTemp`), as the Core keeps it, so only a self whose method
 keeps no view of it is held by the call. The other storage
 needs no walk of its own. Owned storage of a construct (`held`,
 `taken`, the consuming `for`'s) is the hidden var the construct already
@@ -2428,7 +2428,7 @@ signature holds. A value takes at most `sema.max_value_bytes`
 a `Cell[T]` is its `T`, a `Signal[T]` its value twice (the current and
 a pending one) and its subscriber list, a `List` its buffer's slice and
 length, a `^T` its pointer, and a read view the value it copies when it
-is viewed by copy (`lendByValue`: `?I128` is 16 bytes), else a pointer. An array type is checked where it is
+is viewed by copy (`viewByValue`: `?I128` is 16 bytes), else a pointer. An array type is checked where it is
 spelled or made (`checkArrayBytes`), or, when a generic call infers it
 from an argument, at that argument (`checkArraysIn`); a synthesis whose
 diagnostics are dropped (`synthQuiet`, under `quiet`) leaves it to the
@@ -2863,7 +2863,7 @@ operation on an `Int`, and needs nothing new beyond `sema.isScalar`,
 which counts a vector as a scalar: a method takes it by value, and a
 read view of it is read as its value by an operator, inference, and a
 binding with no type (`readsAsValue`), and is a copy in Zig
-(`lendByValue`, `rig.ReadView`). A lane is no place: `handsOver` lists
+(`viewByValue`, `rig.ReadView`). A lane is no place: `handsOver` lists
 `v[i]` (`sema.isLane`) with an operator's result as `made`, and
 typecheck rejects a lane assigned, viewed, or taken (`rejectLane`), with
 `with` to write.
@@ -3348,7 +3348,7 @@ write. A binding
 that holds a literal is a `Static`, so assigning it a `?String` is
 rejected with a hint to declare it `?String`.
 
-What a slice views is the type checker's record (`sliceLendOf`), never
+What a slice views is the type checker's record (`sliceViewOf`), never
 a type test of its own: a slice of a String through a handle (`?h[..]` of
 a `*String`) views the handle, as `?h` does.
 A slice of an array (`?xs[a..b]`) held in the storage of the var it is
@@ -3615,7 +3615,7 @@ instance's arguments into the type (through `interner`, the same
 (`sema.defaultOrigins`) store a view parameter, or, for a result, where
 the result can hold a view. Then the value's own loans need no `keeps`:
 a result that can hold none carries none. A built-in table's `update`
-and `retain` record it at their call (`Field.lends_entries`). A
+and `retain` record it at their call (`Field.views_entries`). A
 requirement a method of a generic type makes (`method`) is checked at
 each call of the method (`method_calls`, `checkMethodCalls`), with the
 self's type's arguments, not at each instance of the type, so a
@@ -3701,7 +3701,7 @@ of `p` into `p` met a conflict; with paths it must be said. A field
 assignment whose value carries a loan on its target's root
 (`walkFieldAssign`), and a store a call, a write view, or `swap` makes
 into a var that the stored value carries a loan on (`absorbLoans`), are
-rejected, but for the views the store goes in by (`isLendOf`): a write
+rejected, but for the views the store goes in by (`isViewOf`): a write
 self's own view, a write argument's, and the write loans held on
 the way. `swap` stores in each place the value the other held
 (`takenValue`), not only its view, so a value viewing `p` swapped into
@@ -3710,7 +3710,7 @@ the way. `swap` stores in each place the value the other held
 **What stays per var.** What a var holds (`Flow.loans`) is per var:
 re-pointing a field that holds a view does not end the old view's
 loans while the var lives. `carry` judges what a view keeps by the
-var's type, liveness is per var, and so is `isLent`'s count.
+var's type, liveness is per var, and so is `isViewed`'s count.
 
 ### Binding access
 
@@ -3740,7 +3740,7 @@ the base its fields, elements, and `?.` steps are reached from, when a
 branching value (`a if c else b`, `a ?? b`, `e catch h`, `e!`, `e?`), is
 read in place unless the header copies it (plain data) or every leaf is
 a read view, and a branch read in place is viewed
-(`Checker.headerLendsBranch`, which asks `lendsBranch`): `match (a if c
+(`Checker.headerViewsBranch`, which asks `viewsBranch`): `match (a if c
 else b)` of `!E` locals, `match o?` of a `(!E)?`, and
 `for x in (h1 if c else h2).v` are rejected, and each leaf is viewed
 instead. Making a view of the branch whole would copy a leaf a name holds, a
@@ -3764,7 +3764,7 @@ a quiet check dropped. `SemContext.bindingAccess` reads the fact, and gives a
 parameter's or local's from its type. Every pass reads it, and none
 decides a binding's mode another way (a unit test checks the sources):
 
-- **Ownership** makes views by it (`lendTarget`): a view of a var, or of a
+- **Ownership** makes views by it (`viewTarget`): a view of a var, or of a
   path in it, puts a loan on the var and carries the loans the var holds
   for `.write`; carries only the loans it holds for `.read`, as a copy
   of the view does; and puts a loan on the var for any other var, one
@@ -3809,7 +3809,7 @@ and each desugars into forms the checker already walks:
 
 | Form | Desugars to |
 |---|---|
-| a `?T` or `!T` where a `T` that copies is expected (`p: P = r`, `f(r)`, a result) | a read through the view, the node `recordRead` marks, as for a `?Int` (`copiedThrough`); a write view written there, or anywhere its view is only read (`f(!n)`, `Opt.some(v: !n)`, `!n + 1`, `print(!n)`, `rd(!n)` for a `?Int`), is rejected instead, since its `!` would view nothing to write: `Checker.readOf`, the one place type checking records a read, asks `Checker.writeLendRead` first, and `print`, `?!x`, a read view's slot, a `?@` self, and inference (`argType`) ask it too; a value that branches or loops is decided at each leaf (`sema.yieldedLeaves`) |
+| a `?T` or `!T` where a `T` that copies is expected (`p: P = r`, `f(r)`, a result) | a read through the view, the node `recordRead` marks, as for a `?Int` (`copiedThrough`); a write view written there, or anywhere its view is only read (`f(!n)`, `Opt.some(v: !n)`, `!n + 1`, `print(!n)`, `rd(!n)` for a `?Int`), is rejected instead, since its `!` would view nothing to write: `Checker.readOf`, the one place type checking records a read, asks `Checker.writeViewRead` first, and `print`, `?!x`, a read view's slot, a `?@` self, and inference (`argType`) ask it too; a value that branches or loops is decided at each leaf (`sema.yieldedLeaves`) |
 | `x = w` with a `!T` of a `T` that copies | `x: T = w` |
 | `[n of e]` | `t = e`, then `[t, t, ..., t]`: `n` copies of one value, each carrying `t`'s loans |
 | `!xs.fill(e)`, `!xs.copy(src)` | `xs[i] = e` (or `src[i]`) for each `i`: a store into `xs` of a value carrying those loans |
@@ -3819,7 +3819,7 @@ and each desugars into forms the checker already walks:
 | `!xs.resize(n, e)` | `xs` viewed for writing first, as any `!@` self is, then `k = n`, `t = e`, then `!xs.keep(k)` when `k <= xs.len`, and otherwise `!xs.push(t)` until `xs.len == k`: a store into `xs` of copies carrying `t`'s loans. Emit writes `xs.resize(k, t)`, which grows the buffer once as `push` does and fills the new slots with one `@memset`, or keeps the first `k` as `keep` does. The element copies, so it needs no cleanup, and shrinking drops nothing but the length |
 | `\|+x\|` | `c = +x` where the closure is made, then `\|<c\|`, the capture named `x`: `+x` reads through a view, copies a value that copies, counts a handle again, and clones an owner (`sema.cloneable`) |
 | `Cell.get`, `List.get`, and `??` and `?` through a view | a copy of the element or value inside, rejected when it does not copy; `if r as x` binds a copy of a value that copies, and a view of any other |
-| `a ?? b` or `a catch b` whose payload is a `?T` or `!T` (`sema.payloadViewed`) and whose fallback `b` is no view of it: it meets neither the view nor the form's type as a view, so not a view, a jump, or `none` where an optional view goes | `if a as v` then `v` else `b`, with `v` read through: the form is a `T`, recorded once by typecheck (`fallbackCopy`, the fact `copiesPayload`), which emit writes as `(rig.copiedOut(T, a) orelse b)` (`catch` alike) and the ownership checker walks as the payload read through (`walkPayloadHolder`, `copiedOut`): the copy keeps the loans of the views `T` holds, not `a`'s. A `T` that does not copy is rejected, and so is a type parameter, which may not copy in every instance, as a view read where its `T` is expected is (`checkActual`). A value that holds no view keeps no view (`keptLends`), so `n = m.get(k) ?? 0` needs no `?m` |
+| `a ?? b` or `a catch b` whose payload is a `?T` or `!T` (`sema.payloadViewed`) and whose fallback `b` is no view of it: it meets neither the view nor the form's type as a view, so not a view, a jump, or `none` where an optional view goes | `if a as v` then `v` else `b`, with `v` read through: the form is a `T`, recorded once by typecheck (`fallbackCopy`, the fact `copiesPayload`), which emit writes as `(rig.copiedOut(T, a) orelse b)` (`catch` alike) and the ownership checker walks as the payload read through (`walkPayloadHolder`, `copiedOut`): the copy keeps the loans of the views `T` holds, not `a`'s. A `T` that does not copy is rejected, and so is a type parameter, which may not copy in every instance, as a view read where its `T` is expected is (`checkActual`). A value that holds no view keeps no view (`keptViews`), so `n = m.get(k) ?? 0` needs no `?m` |
 
 A generic body that does any of these to a `T` records
 `Requirement.copies`, which each instance must meet. No value holds a
@@ -3851,7 +3851,7 @@ one's with its type parameters:
 
 A parameter is a *view parameter* when its type is a view (`sema.isViewType`: a
 `?T`, `!T`, `[]T`, `![]T`, or `?String`) or an optional of one, a
-the self of a `?@` or `!@` method among them: `sema.lentParam`, one
+the self of a `?@` or `!@` method among them: `sema.viewParam`, one
 classifier, recorded as `Origins.lent`, which the ownership checker,
 typecheck's written-view rule, and the oracle read. A `keeps` clause
 (`sub watch(!@, s: ?String) keeps s`, `keeps s, @`) names the view
@@ -3885,7 +3885,7 @@ a loan on that path of self's place, never one on all of it
 loans it holds, or its whole view for such a path. In the body, the
 caller's loan on self is tagged with the path of each place of self a
 value comes from (`tagSelf`, gated on the method having paths, so
-`lendOn` stays one compare otherwise), and `checkSelfPaths` reports a
+`viewOn` stays one compare otherwise), and `checkSelfPaths` reports a
 returned view, or a value of a type parameter's type a returned one was
 reached from, outside the paths. `[I: Iter]` takes an instance whose
 `next` has only `via_view` paths (`assocViewsBase`). A task call drops
@@ -3941,7 +3941,7 @@ write self, and through the write loans its arguments lead to) is
 self's value and each argument whose parameter is in `stores`.
 A self viewed for reading is never stored into. A store reached through
 a write loan lands in what that loan reaches, whatever the syntax
-(`storeThroughLend`): a self viewed for writing, through a write loan on
+(`storeThroughView`): a self viewed for writing, through a write loan on
 a place's var or, for any other self (a write view a call returns,
 each branch of a branching self, a value the call holds), the write
 loans its value carries; and an assignment whose target starts from a
@@ -3960,7 +3960,7 @@ anywhere in it, no type parameter, no type not known) only reads what
 it views, so every loan it keeps is a read loan (`carryResult`), also
 one of an argument or self viewed for writing: after `r = first(!v)`,
 `v` may be read while `r` lives, and not written. The write views made for its
-arguments then end as the call returns (`endWriteLends`), and what
+arguments then end as the call returns (`endWriteViews`), and what
 the result keeps stays viewed, to read, while it is in use, so
 `print(first(!v).n, v.len)`, a `for` over such a call, and a `match`
 on one read `v` as the split forms do. What the call stores
@@ -4027,12 +4027,12 @@ to a view parameter the call may keep is passed with `?` written (Core
 sentence 4): `!b.watch(t)` is rejected with the fix `!b.watch(?t)`, and a
 `?@` self a method keeps a view of is written `?a.register(!out)`. Where no
 `keeps` narrows the stores, every view parameter the call may store by
-its type counts (`sema.lentParam` of the parameter's type at the call):
+its type counts (`sema.viewParam` of the parameter's type at the call):
 a call through a function value (`f(!b, ?t)`), an owned closure, and a
 built-in generic's method at an instance whose `T` is a view
 (`!names.push(?t)` into a `List[?String]`). A
 conflict with a loan a call kept has a note naming the call, the
-parameter its `keeps` names, and the holder (`kept_lends`).
+parameter its `keeps` names, and the holder (`kept_views`).
 
 **Desugaring.** A view through a read view is the view through a copy
 of the view, as above. A call `r = f(e1, ..., en)` is
@@ -4516,7 +4516,7 @@ take the viewed `T` as the place's type (`Planner.placeAssign`,
 `emitPlaceAssign`), so a `T` that owns is replaced through a `slot`,
 the old value dropped; the ownership checker walks the call as a base
 no var holds and stores through its write loans (`walkFieldAssign`,
-`storeThroughLend`), as it does for `f(x).field = value`.
+`storeThroughView`), as it does for `f(x).field = value`.
 
 The value runs to its end first: every statement in it (a `match` arm,
 an `if` or `else` block, a `catch` handler, a nested assignment), every
@@ -4658,7 +4658,7 @@ through a `!T` binding is recorded where typecheck decides it
 (`writesThrough`, with the binding's `rebound` flag for its Zig `var`),
 and whether an element read copies the element where its type is
 recorded and where a method call views it as self (`copiesElem`,
-`recordElemLent`), and how a binding or a hidden storage holds a
+`recordElemViewed`), and how a binding or a hidden storage holds a
 value that moves where the storage plan decides it (`Symbol.hold`,
 `dropKind`, `partDrops`, `SetOrder.drops_old`; "Storage facts"). Emit
 makes no decision with a classifier the checkers also call: a unit test
@@ -4758,7 +4758,7 @@ and a query that decides more than that is a recorded fact.
   while it is viewed: a `*const T`. In a generic type, where that depends on the type
   arguments (`?T`, `?Self`), the view is a
   `rig.ReadView(T)`, which applies the same rule to each instance.
-  The rule is `sema.lendByValue`, which typecheck also uses to
+  The rule is `sema.viewByValue`, which typecheck also uses to
   read through a `!T` viewed where a copied `?T` is expected. A local
   holds a view as every other `?T` of its type is held, whatever it is
   first bound to, so `q = ?p.x` and later `q = p.left(?o)` agree.
@@ -5277,7 +5277,7 @@ and a query that decides more than that is a recorded fact.
   temporary holds a Cell by value, so none is written through it), or a
   literal, and the payload a
   branch captures by address from such a value; and a temporary array
-  viewed as a slice to a call that keeps no view of it (`lendsTempArray`)
+  viewed as a slice to a call that keeps no view of it (`viewsTempArray`)
   and evaluates its arguments where they stand. Zig keeps each until its
   statement ends (it emits no lifetime markers), and the ownership
   checker confines every view of one to the statement.
@@ -5341,7 +5341,7 @@ and a query that decides more than that is a recorded fact.
   `select`): in each arm's turn, its channel (held as a call's self is,
   `storage.heldSelf`), then its arguments; and the ownership checker
   holds an arm's loans until the select returns. Sema records which
-  expressions are viewed this way (`SemContext.lendOf`, the `callable`
+  expressions are viewed this way (`SemContext.viewOf`, the `callable`
   row). A select of named arms (`task.select(got: !a.on_recv(), late:
   time.after(ms: 50))`, `Checker.taskSelectNamed`) holds no function: its
   value's type is an enum made once per list of names and payloads
@@ -5437,7 +5437,7 @@ program-wide mode.
   (`recordCodeWidening`, in `recordAdapted`), and emit makes it
   `rig.ErrorValue.of(code, .{})` at `emitValue`, inside any optional it
   is lifted into. Viewed where a view of one goes, a code is the view
-  table's `code` row (`sema.codeLends`): emit's `rig.codeView` reaches
+  table's `code` row (`sema.codeViewed`): emit's `rig.codeView` reaches
   the error value of the code, a constant, so no temporary holds it.
 - **Set parameters.** A function's type parameter written after `!`,
   `fun total[E](f: ?fun() -> Int!E) -> Int!E`, is a set parameter
@@ -5776,7 +5776,7 @@ across modules, and only std.prelude's scope names them.
   closure. They are the same in every module, so the first module to
   register a table works them out and the rest read them
   (`resolve.TableOrigins`). `update` and `retain` pass their own entries to the closure as views
-  (`Field.lends_entries`), which makes the requirement a Rig body that
+  (`Field.views_entries`), which makes the requirement a Rig body that
   did so would (`PlainRequirement.callable`). `ensure_with` calls
   `make` in the prelude (`add_made`), whose result held as a `V` makes
   the same requirement, so the Map keeps nothing of `make`.
@@ -6541,7 +6541,7 @@ Signal, a channel, an actor, or a value that holds a Cell; an API
 object or a type parameter is none), puts only a read loan on `x`,
 through a handle on the handle's slot, from before the call's
 arguments for as long as the view lives: the call's result and its
-task carry it (Core §4, `lendsToRead`). One derivation from the type
+task carry it (Core §4, `putsReadLoan`). One derivation from the type
 where it is viewed serves a Cell's or Signal's change, a channel's send
 and receive, an actor's `!@` method, a `!@` method of a value that
 holds a Cell, and `!h` handed on as a `!T` or `!{A}`, while `!h` that a

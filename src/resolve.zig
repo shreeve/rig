@@ -172,7 +172,7 @@ const SymbolResolver = struct {
             .@"for" => try self.walkFor(sexp),
             .@"if" => try self.walkConditional(ir.If.cond(sexp), &.{ir.If.then(sexp)}, ir.If.@"else"(sexp)),
             .write => {
-                try self.markWritten(sexp, ir.Write.operand(sexp), .lend_write);
+                try self.markWritten(sexp, ir.Write.operand(sexp), .write_viewed);
                 try self.walk(ir.Write.operand(sexp));
             },
             .@"while" => try self.walkConditional(ir.While.cond(sexp), &.{ ir.While.step(sexp), ir.While.body(sexp) }, .nil),
@@ -455,7 +455,7 @@ const SymbolResolver = struct {
 
     fn walkLambda(self: *SymbolResolver, node: Sexp) Error!void {
         const captures = sema.captureList(ir.Lambda.captures(node));
-        // A capture of a field path makes its lend where the closure is
+        // A capture of a field path makes its view where the closure is
         // made, in the enclosing scope.
         for (captures) |cap| if (sema.captureValue(cap) != .nil) try self.walk(sema.captureValue(cap));
         const prev = try self.enter(node, .lambda);
@@ -474,11 +474,11 @@ const SymbolResolver = struct {
                 continue;
             }
             // `|!x|` writes the binding it captures, as `!x` does; a
-            // path's lend, `!p.a`, says so itself.
+            // path's view, `!p.a`, says so itself.
             if (cap.isKind(.cap_write) and sema.captureValue(cap) == .nil) try self.markWritten(cap, name_node, .capture);
             _ = try self.declare(name_node, .capture, .{});
         }
-        // Two captures, one a path inside the other, would lend one place
+        // Two captures, one a path inside the other, would view one place
         // twice: `|?p, ?p.a|`.
         for (captures, 0..) |cap, i| for (captures[0..i]) |earlier| {
             const a = identAt(self.ctx.source, sema.captureNameNode(cap) orelse continue) orelse continue;
@@ -1118,7 +1118,7 @@ const SymbolResolver = struct {
 
     fn walkFor(self: *SymbolResolver, node: Sexp) Error!void {
         // `for x in !xs` writes `xs` through `x`.
-        if (ir.For.mode(node).tag == .write) try self.markWritten(node, ir.For.source(node), .lend_write);
+        if (ir.For.mode(node).tag == .write) try self.markWritten(node, ir.For.source(node), .write_viewed);
         try self.walk(ir.For.source(node));
         {
             const prev = try self.enter(node, .block);
@@ -2498,7 +2498,7 @@ pub const TypeResolver = struct {
             const name = self.ctx.symbols.items[sym].name;
             return self.ctx.errAt(node, "`{s}` is an error set: it goes after `!` (`T!{s}`), and a value of it is caught (`catch |e|`)", .{ name, name });
         }
-        if (sema.setParamUnlent(self.ctx, ty)) |sym| {
+        if (sema.setParamUnviewed(self.ctx, ty)) |sym| {
             const name = self.ctx.symbols.items[sym].name;
             return self.ctx.errAt(node, "a function that fails with `{s}`, a set parameter, is passed as a view: take it as `?fun(...) -> T!{s}`, which views a function of any set", .{ name, name });
         }
@@ -2715,13 +2715,13 @@ pub const TypeResolver = struct {
     /// A parameter `?^T`: a read view of a box reads nothing a `?T`
     /// cannot, and a `?T` takes a `^T` too, where `?^T` turns a plain
     /// `T` away. A `!^T` stays, since it may replace the box, and so
-    /// does a view of a box of a view, `?^?T`, whose box lends no `?T`.
+    /// does a view of a box of a view, `?^?T`, whose box gives no `?T`.
     fn readBoxParam(self: *TypeResolver, node: Sexp, ty: TypeId) Error!void {
         const boxed = switch (self.ctx.types.get(ty)) {
             .read_view => |inner| sema.boxedType(self.ctx, inner) orelse return,
             else => return,
         };
-        // A box of a view, `^?T`, lends no `?T`.
+        // A box of a view, `^?T`, gives no `?T`.
         if (self.ctx.types.get(boxed) == .read_view) return;
         const value = try sema.formatType(self.ctx, boxed);
         const want = try self.ctx.arena.allocator().print("?{s}", .{value});
@@ -4055,7 +4055,7 @@ pub const TypeResolver = struct {
                             else => .element,
                         };
                         if (try self.misplacedAt(inner_node, inner, home)) return t.invalid_id;
-                        // Nothing lends a read view's place to write
+                        // Nothing makes a write view of a read view's place
                         // (`sema.writesView`).
                         if (head == .write_view and inner == t.string_view_id) {
                             try self.ctx.errAt(sexp, sema.write_text_view, .{});
@@ -5551,15 +5551,15 @@ fn registerTable(ctx: *SemContext, module_scope: ScopeId, name: []const u8, is_m
             try tableMethod(ctx, &t, "put", .write, &.{ write_self, k, v }, boolean),
             try tableMethod(ctx, &t, "replace", .write, &.{ write_self, k, v }, opt_v),
             try tableMethod(ctx, &t, "put_new", .write, &.{ write_self, k, v }, boolean),
-            // The unordered table's `ensure` lends the value where its
-            // probe found or put the key, and writes the count to the
-            // HashMap's `len` only for a new one (`notFromLen`); the
-            // ordered table's gives the entry's index.
+            // The unordered table's `ensure` gives a view of the value where
+            // its probe found or put the key, and writes the count to the
+            // HashMap's `len` only for a new one (`notFromLen`); the ordered
+            // table's gives the entry's index.
             if (ordered) try tableMethod(ctx, &t, "ensure", .write, &.{ write_self, k, v }, int) else try notFromLen(try tableMethod(ctx, &t, "ensure", .write, &.{ write_self, k, v, try ctx.intern(.{ .write_view = int }) }, write_v)),
             try tableMethod(ctx, &t, "insert_new", .write, &.{ write_self, k, v }, int),
             try tableMethod(ctx, &t, "take", .write, &.{ write_self, read_k }, opt_v),
-            try lendsEntries(try tableMethod(ctx, &t, "update", .write, &.{ write_self, update_f }, void_id)),
-            try lendsEntries(try tableMethod(ctx, &t, "retain", .write, &.{ write_self, retain_f }, void_id)),
+            try viewsEntries(try tableMethod(ctx, &t, "update", .write, &.{ write_self, update_f }, void_id)),
+            try viewsEntries(try tableMethod(ctx, &t, "retain", .write, &.{ write_self, retain_f }, void_id)),
         });
     } else {
         const opt_k = try ctx.intern(.{ .optional = k });
@@ -5625,13 +5625,14 @@ fn tableMethod(ctx: *SemContext, t: *TableBuild, name: []const u8, self_mode: Se
     return f;
 }
 
-/// `f`, which calls its function value with a view of each key and the
-/// key's value lent to write, both the table's own (`Field.lends_entries`):
-/// as a Rig body that did so, it refuses an instance whose value type
-/// can hold the key's view (SPEC "Generic bodies").
-fn lendsEntries(f: Field) Error!Field {
+/// `f`, which calls its function value with a view of each key and a
+/// write view of the key's value, both the table's own
+/// (`Field.views_entries`): as a Rig body that did so, it refuses an
+/// instance whose value type can hold the key's view (SPEC "Generic
+/// bodies").
+fn viewsEntries(f: Field) Error!Field {
     var out = f;
-    out.lends_entries = true;
+    out.views_entries = true;
     return out;
 }
 

@@ -38,7 +38,7 @@ pub const Info = struct {
     /// Values may hold a `?T`, `!T`, or slice.
     holds_pointers: bool,
     /// Values may hold a write view, which a call may store in them as
-    /// it was lent (Core §5: a container of write views).
+    /// it was given (Core §5: a container of write views).
     holds_writes: bool = false,
     /// Dropping it runs a user `drop` body somewhere inside.
     drop_reads: bool,
@@ -313,8 +313,8 @@ pub fn objectCrosses(ctx: *const SemContext, o: sema.ApiObject, form: sema.Objec
 }
 
 /// The first API object a value of `ty` holds that does not go to a task
-/// as it is passed, to be read there (`shares`) or given or lent to
-/// write, by `objectCrosses`: through views, optionals, arrays, slices,
+/// as it is passed, to be read there (`shares`) or given or given as a
+/// write view, by `objectCrosses`: through views, optionals, arrays, slices,
 /// built-in containers, boxes, a channel's elements, what a handle
 /// counted one task at a time reaches (read by the tasks that share it),
 /// and the fields of declared types. It abstains on everything else that
@@ -421,7 +421,7 @@ const Scan = struct {
             // A function value held in a type is a named function's
             // address and holds nothing (Core §7, "A function value is
             // an address"): no value holds a stack closure, which is only
-            // lent as a `?fun`.
+            // viewed as a `?fun`.
             .function => {},
             .callable => self.mark("a function or closure value"),
             .type_var, .ct_param => if (!in_generic) self.mark("a generic parameter"),
@@ -471,7 +471,7 @@ const Scan = struct {
                     return;
                 }
                 // A task's drop waits for its call, which uses what the
-                // task was lent (Core s6), as a `drop` body would.
+                // task was given views of (Core s6), as a `drop` body would.
                 if ((pn.sym == ctx.task_sym_id or pn.sym == ctx.tasks_sym_id) and !self.under_weak) {
                     self.drop_body = true;
                     self.reached_task = true;
@@ -508,7 +508,7 @@ const Scan = struct {
 /// "a view reached through another view carries that view's loans, not
 /// a loan on its holder"). The memory a view points into has a type: a
 /// `?T` or `!T` a `T`, a `[]T` or `![]T` its `T` elements, a `?String` a
-/// String's or a literal's bytes. A closure, a lent callable, a type
+/// String's or a literal's bytes. A closure, a callable view, a type
 /// parameter, and a type not known may point anywhere; a function value
 /// held in a value, which holds nothing (Core §7), points nowhere.
 pub const Reach = struct {

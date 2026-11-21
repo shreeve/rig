@@ -79,7 +79,7 @@ rewritten (the pass `loopview`): a binding with no type of a loop's
 value that is a write view at every `break` and `else` (`l = while
 true` then `break slot(!n)`). 0.2.9 copied the value; 0.3 holds the
 view, so assigning `l` writes through. A value counts as a write view
-where it is a lend of a path (`!x`, `!x.f`, `!x[i]`) or a call of a
+where it is `!` on a path (`!x`, `!x.f`, `!x[i]`) or a call of a
 function declared returning `!T` by the program, by the files beside it
 when its directory is a module, or by a module it uses. The `MANUAL`
 line gives the two choices: `l: T = while ...` to copy as 0.2.9 did, or
@@ -868,7 +868,7 @@ def unparen(v):
 
 
 def loop_value(v, funs):
-    """What a loop's value `v` gives: "view" (a write view a lend or a
+    """What a loop's value `v` gives: "view" (a write view a sigil or a
     call hands over), "jump" (it leaves; any value fits), or None."""
     v = unparen(v.strip())
     if not v:
@@ -938,7 +938,7 @@ def loopview_edits(src, path, report):
     """Changes nothing. Reports a binding with no type of a loop's value
     that is a write view at every `break` (and `else`): 0.2.9 copied the
     value, and 0.3 holds the view, so assigning the binding writes
-    through. A value counts as a write view where it is a lend of a path,
+    through. A value counts as a write view where it is `!` on a path,
     `!x`, `!x.f`, or `!x[i]`, or a call of a function declared returning
     `!T` (`view_funs`, `package_view_funs`, and std's `ensure`)."""
     clean = code_only(src)

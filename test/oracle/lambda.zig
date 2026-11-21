@@ -125,7 +125,7 @@ pub const Exporter = struct {
             .read, .write => {
                 const operand = ir.get(e, .operand);
                 const k = try self.kindOf(operand);
-                if (!k.owner()) return self.outside("a lend of a view");
+                if (!k.owner()) return self.outside("a view of a view");
                 try self.w(if (tag == .read) "(lend read " else "(lend write ");
                 try self.w(try self.name(operand));
                 try self.w(")");

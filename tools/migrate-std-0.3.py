@@ -25,7 +25,7 @@
               names it.
   search      a needle moved or cloned into `slices.contains`,
               `slices.index_of`, `sort.lower_bound`, or `sort.search`,
-              `<s` or `+s`, is lent, `?s`, and so is a branching one,
+              `<s` or `+s`, is viewed, `?s`, and so is a branching one,
               `?(a if c else b)`.
 
 A module used under another name (`use std.text as stdtext`) is found by
@@ -139,7 +139,7 @@ def split_args(s):
 
 def receiver_start(s, end):
     """Where the expression ending just before `end` starts: a name,
-    `@`, paths, calls, and indexes, with a lend before them."""
+    `@`, paths, calls, and indexes, with a sigil before them."""
     j = end
     while j > 0:
         c = s[j - 1]
@@ -191,7 +191,7 @@ def flat(x):
 
 
 def is_path(x):
-    """A name, `@`, fields, and indexes: what a lend is written on."""
+    """A name, `@`, fields, and indexes: what a sigil is written on."""
     return bool(SIMPLE.match(flat(x))) and "(" not in flat(x)
 
 
@@ -555,7 +555,7 @@ class Unit:
                     close = closing(line, m.end() - 1)
                     arg = line[m.end():close].strip() if close > 0 else ""
                     if not arg.startswith("!"):
-                        self.note(i, "`%s.%s` of other than a write lend `!it`" % (it, m.group(1)))
+                        self.note(i, "`%s.%s` of other than a write view `!it`" % (it, m.group(1)))
                         continue
                     rest = line[close + 1:]
                     if m.group(1) == "sum":

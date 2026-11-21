@@ -949,7 +949,7 @@ fn loadChecked(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
     if (!graph.hasErrors()) {
         const t1 = timing.start(times);
         // Which word-sized objects are held as one word: the whole
-        // program's lends decide it, before emit reads it.
+        // program's views decide it, before emit reads it.
         {
             const n = graph.modules.items.len;
             const ctxs = try allocator.alloc(*sema.SemContext, n);

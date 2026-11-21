@@ -5521,7 +5521,7 @@ fail "ignored write lend read", "13:8: `!p` here is read, not held: only its `In
   # a conversion, a printed value, `+`, `?`, `??`, `?`, a compound
   # assignment's value, and a method's index argument. Each is rejected by
   # the one decider that every read of a view as a value passes
-  # (`writeLendRead`). A held view (`w`) is read as a bare name is.
+  # (`writeViewRead`). A held view (`w`) is read as a bare name is.
 
   fun opt() -> Int?
     2
@@ -6303,7 +6303,7 @@ fail "lend branch of places", "31:9: cannot make a view of `a if c else b`: it m
   # (`a if c else b`, `a ?? b`, `e catch h`, `e?`, `e!`), or of a path of
   # fields, elements, and method calls from one, stands only where every
   # leaf is a value made there, a constant, or a lend itself
-  # (`Checker.lendsBranch`).
+  # (`Checker.viewsBranch`).
   # One with a leaf a place holds would lend a copy of that leaf's value,
   # a write view included (Core §3: a lend of a branching value that may
   # be a name's is planned). Each branch is lent instead, in a statement,
@@ -6411,7 +6411,7 @@ test "lend each branch", release: true, '''
   6 [2, 3, 4] .a(r: Res(n: 50, v: [13]))
 '''
   # Where a branch reaches a place, each branch is lent instead of the
-  # branch (`Checker.lendsBranch`): `(?a if c else ?b).v` in a `for`,
+  # branch (`Checker.viewsBranch`): `(?a if c else ?b).v` in a `for`,
   # `if … as`, `while … as`, and `match`, and a branch of write lends named
   # first (`t = (!a if c else !b)`), then lent on with `!t.v` and `!t.o`.
 

@@ -174,7 +174,7 @@ const Checker = struct {
 
     // ---- loans ----------------------------------------------------------
 
-    /// The loans an op hands to what it defines (Core: one lend makes one
+    /// The loans an op hands to what it defines (Core: one view makes one
     /// loan, which every copy of the view carries).
     /// A call's result, and what it stores, carry the loans of only some
     /// of what it reads and takes (`skip` the others, Core s7).
@@ -269,7 +269,7 @@ const Checker = struct {
     }
 
     /// What is stored in a var that took a write-view parameter's view
-    /// (`x = <w`, `if <w as x`) is stored in what the caller lent: the
+    /// (`x = <w`, `if <w as x`) is stored in what the caller viewed: the
     /// parameter, which the caller reads after the return, takes it too
     /// (Core s7).
     fn toCaller(self: *Checker, v: VarId, st: State, flow: Bits, by_take: bool) void {
@@ -397,9 +397,9 @@ const Checker = struct {
         const stored = self.stored;
         self.flowOf(op, st, stored, op.no_store, op.store_loan);
         // What a call hands back or stores is a read view of what it was
-        // lent to write, unless it may itself be or hold a write view
-        // (Core s7: a result that holds no write view carries its loans
-        // as read loans, even of an argument lent to write), and a write
+        // given write views of, unless it may itself be or hold a write
+        // view (Core s7: a result that holds no write view carries its
+        // loans as read loans, even of a write view argument), and a write
         // view pushed into a List of them stays one (Core §5).
         const stored_full = self.stored_full;
         stored_full.copyFrom(stored);
@@ -416,11 +416,11 @@ const Checker = struct {
             const pv = self.f.vars.items[p.v];
             if (op.what == .call and !(pv.kind == .write_view or pv.holds_writes)) self.readOnly(pf);
         }
-        // What the receiver itself takes leaves out the call's own lend of
+        // What the receiver itself takes leaves out the call's own view of
         // it: a callee cannot store a view of `@` through `@`, whose
         // write it is (the compiler rejects `!@w.push(?@n)`). In
         // another `!` argument it may store that view, which keeps the
-        // receiver lent while the argument holds it (SPEC "Second-class
+        // receiver viewed while the argument holds it (SPEC "Second-class
         // views").
         const stored_wo = self.stored_wo;
         const stored_full_wo = self.stored_full_wo;
@@ -431,8 +431,8 @@ const Checker = struct {
             stored_wo.unset(own);
             if (self.twins[own]) |tw| stored_wo.unset(tw);
         };
-        // A call may store what it was handed in what it was lent to
-        // write (Core s6, SPEC §7 "Second-class views"), before its
+        // A call may store what it was handed in what it was given write
+        // views of (Core s6, SPEC §7 "Second-class views"), before its
         // result is handed back: a loan its result does not keep stands
         // for what its place holds after the call (`take`).
         for (op.gains) |g| {
@@ -454,7 +454,7 @@ const Checker = struct {
         }
         for (op.moves) |v| {
             st.empty.set(v);
-            // What the caller lent keeps what was stored in it.
+            // What the caller viewed keeps what was stored in it.
             if (!self.callerReaches(v)) st.holds[v].clear();
         }
         if (op.def) |d| {
@@ -506,8 +506,8 @@ const Checker = struct {
         return false;
     }
 
-    /// Whether loan `li` is a lend `op`'s store goes in by: the call's own
-    /// lend of its receiver, or a write loan a view it stores through
+    /// Whether loan `li` is a view `op`'s store goes in by: the call's own
+    /// view of its receiver, or a write loan a view it stores through
     /// holds; or the read twin of one, as a call's stores carry them.
     fn goesInBy(self: *Checker, op: core.Op, st: State, li: LoanId) bool {
         for (self.f.loans.items, 0..) |l, x| {
@@ -587,9 +587,9 @@ const Checker = struct {
                 }
             }
         }
-        // C4 (s5): of several results, one that keeps a lend to write is
-        // the only view of what it views: no other result carries that
-        // lend.
+        // C4 (s5): of several results, one that keeps a write view is the
+        // only view of what it views: no other result carries that
+        // view.
         if (op.parts.len > 1) {
             for (op.parts, self.part_flows[0..op.parts.len]) |p, pf| {
                 self.flowOf(op, st, pf, p.no_result, p.result_loan);
@@ -614,8 +614,8 @@ const Checker = struct {
         // C9 (§5): a value never holds a view of itself. What an op
         // stores in a var (an assignment's target; what a call may store
         // in its write arguments and receiver, and in what their write
-        // loans are on) carries no loan on that var, but the lends the
-        // store goes in by: the call's own lend of its receiver, and the
+        // loans are on) carries no loan on that var, but the views the
+        // store goes in by: the call's own view of its receiver, and the
         // write loans the views it stores through hold.
         if (op.weak != null or op.gains.len > 0 or op.through.len > 0) {
             const stored = self.stored;
@@ -657,7 +657,7 @@ const Checker = struct {
             if (op.def) |d| if (self.f.vars.items[d].waits) continue;
             for (self.f.loans.items, 0..) |l, li| {
                 if (!st.holds[v].has(li) or l.mode != .write) continue;
-                try self.report(.T2, op.pos, "a task lent `{s}` to write keeps that loan while it runs, so it stays where it is bound and is waited for there", .{self.name(l.root)});
+                try self.report(.T2, op.pos, "a task given a write view of `{s}` keeps that loan while it runs, so it stays where it is bound and is waited for there", .{self.name(l.root)});
                 return;
             }
         };
@@ -676,13 +676,13 @@ const Checker = struct {
                 }
             }
         }
-        // C6 (s7): what leaves the function views only what it was lent,
-        // or what lives for the whole program. What a closure captured
-        // to write outlives each call, so it keeps no view of what one
-        // call received (Core §7).
+        // C6 (s7): what leaves the function views only what it was given
+        // views of, or what lives for the whole program. What a closure
+        // captured to write outlives each call, so it keeps no view of
+        // what one call received (Core §7).
         if (op.what == .ret) {
             // A function that says what its result views views nothing
-            // else its caller lent it (Core s7).
+            // else its caller gave it a view of (Core s7).
             if (self.f.from) |from| for (op.reads) |v| {
                 if (st.empty.has(v)) continue;
                 for (self.f.loans.items, 0..) |l, li| {
@@ -693,9 +693,9 @@ const Checker = struct {
                     return;
                 }
             };
-            // A function keeps a lent parameter only where its `keeps`
+            // A function keeps a view parameter only where its `keeps`
             // names it: what its caller reaches through a write
-            // parameter holds no other lent parameter's loans.
+            // parameter holds no other view parameter's loans.
             if (self.f.keeps_named) |keeps| for (op.keep) |v| {
                 if (st.empty.has(v) and !self.callerReaches(v)) continue;
                 for (self.f.loans.items, 0..) |l, li| {
@@ -703,7 +703,7 @@ const Checker = struct {
                     const i = std.mem.findScalar(VarId, self.f.params.items, l.root) orelse continue;
                     if (i >= 64) continue;
                     const bit = @as(u64, 1) << @intCast(i);
-                    if (self.f.lent & bit == 0 or keeps & bit != 0) continue;
+                    if (self.f.viewed & bit == 0 or keeps & bit != 0) continue;
                     try self.report(.C6, op.pos, "a view of `{s}` is kept in `{s}`, which its caller reaches, but `keeps` does not name it", .{ self.name(l.root), self.name(v) });
                     return;
                 }
@@ -729,7 +729,7 @@ const Checker = struct {
             }
             // A closure's result is handed out at every call: it views no
             // place the closure captured to write (Core §7: only a
-            // captured read lend may be the closure's value).
+            // captured read view may be the closure's value).
             for (op.reads) |v| {
                 if (st.empty.has(v)) continue;
                 for (self.f.loans.items, 0..) |l, li| {
@@ -744,7 +744,7 @@ const Checker = struct {
                 if (st.empty.has(v)) continue;
                 for (self.f.loans.items, 0..) |l, li| {
                     if (!st.holds[v].has(li) or l.external or l.deref) continue;
-                    try self.report(.C6, op.pos, "a view of `{s}` leaves the function, which was not lent it", .{self.name(l.root)});
+                    try self.report(.C6, op.pos, "a view of `{s}` leaves the function, which was given no view of it", .{self.name(l.root)});
                     return;
                 }
             };
@@ -754,7 +754,7 @@ const Checker = struct {
 
 /// The write-view parameter each local write view holds the view of,
 /// taken from it by a move or a copy, directly or through other locals:
-/// what is stored through such a local lands in what the caller lent.
+/// what is stored through such a local lands in what the caller viewed.
 fn viewsOf(a: std.mem.Allocator, f: *const core.Func) ![]?VarId {
     const out = try a.alloc(?VarId, f.vars.items.len);
     @memset(out, null);
