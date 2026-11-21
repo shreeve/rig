@@ -914,14 +914,17 @@ It rewrites `.rig` and `.rig.test` files that use std.time and the
 a constant it kept as a number: a duration a program keeps is better
 written as its seconds, `TIMEOUT_S = 30`, passed bare. It prints
 `MANUAL` for `time.since_start` taken as a function value, which gives
-a `Duration` now.
+a `Duration` now, and for `time.sleep` or `time.within` taken as one,
+which takes a `Duration`.
 
 The compiler rejects, each with its fix: `time.now()`, `time.Instant`
 and the constants; `days:` or `weeks:` where a duration is taken
 (`hours: 24`); a negative constant given to `sleep`, `within`, `after`,
-or `per:` (`time.sleep(ns: -1)`, which slept not at all); and a
-parameter named `ns`, `us`, `ms`, `seconds`, `minutes`, or `hours` in a
-function that takes a `Duration`.
+or `per:` (`time.sleep(ns: -1)`, which slept not at all); a number
+given through a function value, `s = time.sleep` then `s(1)!`, which
+takes a `Duration` now, `s(time.duration(ns: 1))!`; and a parameter
+named `ns`, `us`, `ms`, `seconds`, `minutes`, or `hours` in a function
+that takes a `Duration`.
 
 ### `loop` for `while true`, and no loop `else`
 

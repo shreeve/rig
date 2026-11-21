@@ -32,7 +32,8 @@ It finds `X.now()`, `X.Instant`, `X.since_start()`, and `X.NS` and its
 kin of `std.time`, `X` being `time` or the name of `use std.time as X`;
 and `.elapsed()` and `.since(` in a file that uses std.time, which it
 takes for a reading's and prints as `CHECK path:line` once a line. A
-`time.since_start` taken as a function value now gives a `Duration`; it
+`time.since_start` taken as a function value now gives a `Duration`,
+and `time.sleep` or `time.within` taken as one takes a `Duration`; each
 is printed as `MANUAL path:line`. In a Markdown file it rewrites the
 ```rig blocks only. A program is migrated once.
 
@@ -309,6 +310,9 @@ def rewrite(text, path, base, aliases, out):
     for m in re.finditer(r"(?<![\w.@])(?:%s)\.since_start\b(?!\()" % a, text):
         if in_code(text, m.start()):
             out.append("MANUAL %s: `%s` as a value gives a `time.Duration` now: write `|| %s().ns()` for its nanoseconds" % (where(m.start()), m.group(0), m.group(0)))
+    for m in re.finditer(r"(?<![\w.@])(?:%s)\.(?:sleep|within)\b(?![(\[])" % a, text):
+        if in_code(text, m.start()):
+            out.append("MANUAL %s: `%s` as a value takes a `time.Duration` now: give it `time.duration(ns: n)` for `n` nanoseconds" % (where(m.start()), m.group(0)))
     return text, n
 
 

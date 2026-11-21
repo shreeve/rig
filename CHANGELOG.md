@@ -40,7 +40,10 @@ its fix in the message:
   `time.sleep(ns: -1)` is "a wait of `-1` is negative";
 - a parameter named `ns`, `us`, `ms`, `seconds`, `minutes`, or `hours`
   in a function that takes a `Duration`;
-- `time.Duration.round` or `floor` taken as a value.
+- `time.Duration.round` or `floor` taken as a value;
+- a number given to `time.sleep` or `time.within` through a function
+  value, `s = time.sleep` then `s(1)!`, which slept a nanosecond: a
+  function value takes a `Duration`, `s(time.duration(ns: 1))!`.
 
 Trig times its checker's bench with `time.now()` on two lines of
 `tools/checker/bench.rig`, which the patch in

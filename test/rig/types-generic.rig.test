@@ -287,7 +287,7 @@ test "generic owned closure literal", "4 13 6 13 5 4"
     m = maker(4)
     print(apply(3, *|x| x + 1), apply(3, *|+k, x| x + k), view(3, |x| apply(x, *|y| y * 2)), view(3, |+k, x| x + k), m(5), apply(3, *|x| view(x, |y| y + 1)))
 
-fail "generic closure that propagates reports its own error alone", "10:24: type `Int` has no method `abs`", "11:39: type `Int` has no method `abs`", errors: 2
+fail "generic closure that propagates reports its own error alone", "10:24: type `Int` has no method `abs`", "11:29: type `Int` has no method `abs`", errors: 2
   # A closure whose errors leave a type parameter unbound is checked
   # once, as the call's parameter says it fails: not again as one that
   # cannot.
@@ -327,7 +327,7 @@ fail "generic owned closure literal checked", "8:17: `?fun(Int) -> Int` views a 
     print(view(3, *|x| x + 1))
     print(apply(3, *|x| x.abs()))
 
-fail "generic closure's errors leave a parameter unbound", "12:30: type `?Int` has no method `nope`", "13:35: type `?Int` has no method `abs`", "14:39: type `Int` has no method `abs`", errors: 3
+fail "generic closure's errors leave a parameter unbound", "12:30: type `?Int` has no method `nope`", "13:35: type `?Int` has no method `abs`", "14:29: type `Int` has no method `abs`", errors: 3
   # A closure whose result would bind a type parameter, and whose body is
   # in error, says why the parameter is unbound: its errors are reported,
   # checked with the parameter types the call gives it.

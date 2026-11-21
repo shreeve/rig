@@ -90,6 +90,25 @@ test "duration forms of another module", '''
       pub fun wait(?@, d: time.Duration) -> Int
         d.seconds() + @k
 
+test "duration forms through an API object", "30ms 3s 2us"
+  # A method called through an API object takes the forms its API's
+  # method declares.
+  api Waits
+    fun wait(?@, d: time.Duration) -> time.Duration
+
+  obj Clock: Waits
+    k: Int
+
+    fun wait(?@, d: time.Duration) -> time.Duration
+      d.times(@k)
+
+  fun dyn(w: ?{Waits}) -> time.Duration
+    w.wait(ms: 10)
+
+  c = Clock(k: 3)
+  b: ^{Waits} = ^Clock(k: 2)
+  print(dyn(?c), b.wait(1.5), b.wait(us: 1))
+
 test "duration forms of two parameters", "1s 1s 2s 500ms 3s"
   # With two `Duration` parameters, each is given by its own name, with a
   # bare number of seconds or a `Duration`.
@@ -97,6 +116,12 @@ test "duration forms of two parameters", "1s 1s 2s 500ms 3s"
     b.sub(a)
 
   print(span(1, 2), span(a: 1, b: 2), span(b: 2.5, a: time.duration(0)), span(time.duration(0), 3))
+
+fail "a number through a function value", "2:3: type mismatch: expected `time.Duration`, got `Int`; a number is a duration only as an argument of a call that names its function: write `time.duration(1)`", "3:20: type mismatch: expected `time.Duration`, got `Float`; a number is a duration only as an argument of a call that names its function: write `time.duration(0.5)`", errors: 2
+  s = time.sleep
+  s(1)!
+  d: time.Duration = 0.5
+  print(d)
 
 test "duration through a function value", "2s 4s"
   # A function value has no parameter names: its caller passes a

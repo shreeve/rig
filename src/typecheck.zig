@@ -11815,12 +11815,6 @@ const Checker = struct {
             return @ctz(self.durations);
         }
 
-        /// Whether a parameter is named `name`.
-        fn has(self: ParamInfo, name: []const u8) bool {
-            const names = self.names orelse return false;
-            for (names) |n| if (std.mem.eql(u8, n, name)) return true;
-            return false;
-        }
     };
 
     /// The parameters of function `sym`, declared in `source`.
@@ -17665,6 +17659,12 @@ const Checker = struct {
                 return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; a `{s}` views a List alone: declare `[]{s}`, which views an array or a List", .{ try self.tyName(expected), try self.tyName(actual), try self.tyName(expected), shown });
             }
         };
+        // A number is a duration form only as an argument of a call that
+        // names its function (`sema.duration`).
+        if (sema.durationParam(self.ctx, expected) != null and sema.isNumeric(self.ctx, actual)) {
+            const shown = try self.plainText(e);
+            return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; a number is a duration only as an argument of a call that names its function: write `time.duration({s})`", .{ try self.tyName(expected), try self.tyName(actual), shown });
+        }
         try self.mismatch(e, expected, actual);
     }
 

@@ -8145,7 +8145,7 @@ test "review-std-f1", '''
   h = *|x: Float| math.sqrt(x)
   print(h(9.0))
   s = time.sleep
-  s(1)!
+  s(time.duration(ns: 1))!
   e = os.env
   print(e("NOPE_X") == none)
 
