@@ -11951,8 +11951,17 @@ const Checker = struct {
         // with units' keywords, which add up (`sema.DurationParts`).
         var units: usize = 0;
         if (unit_param) |u| {
+            // The forms given in the order written: bare, by name, and the
+            // units, which are one form however many there are.
             const own = if (info.names) |n| (if (u < n.len) n[u] else "") else "";
-            var first: ?Sexp = if (u < positional.len) positional[u] else null;
+            var forms: [3][]const u8 = undefined;
+            var at: [3]Sexp = undefined;
+            var count: usize = 0;
+            if (u < positional.len) {
+                forms[0] = try self.plainText(positional[u]);
+                at[0] = positional[u];
+                count = 1;
+            }
             for (keyword) |kw| {
                 const kname = self.text(ir.Kwarg.name(kw));
                 const is_unit = sema.duration.unitNs(kname) != null;
@@ -11961,11 +11970,43 @@ const Checker = struct {
                     units += 1;
                     if (units > 1) continue;
                 }
-                if (first) |had| {
-                    try self.errAt(kw, "`{s}` takes one duration: `{s}` or `{s}`, not both", .{ callee, try self.plainText(had), try self.plainText(kw) });
-                    return self.synthArgs(args);
-                }
-                first = kw;
+                forms[count] = if (is_unit) try self.unitsText(keyword) else try self.plainText(kw);
+                at[count] = kw;
+                count += 1;
+            }
+            if (count > 1) {
+                try self.errAt(at[1], "`{s}` takes one duration: `{s}` or `{s}`, not both", .{ callee, forms[0], forms[1] });
+                return self.synthArgs(args);
+            }
+        } else if (info.durations != 0) {
+            // Units, or `days:` and `weeks:`, given to a callee of two or
+            // more durations, said once with the fix for all of them.
+            var units_at: ?Sexp = null;
+            var calendar = false;
+            for (keyword) |kw| {
+                const kname = self.text(ir.Kwarg.name(kw));
+                const cal = sema.duration.isCalendar(kname) and for (info.names.?) |n| {
+                    if (std.mem.eql(u8, n, kname)) break false;
+                } else true;
+                if (sema.duration.unitNs(kname) == null and !cal) continue;
+                calendar = calendar or cal;
+                if (units_at == null) units_at = ir.Kwarg.name(kw);
+            }
+            if (units_at) |kname_node| {
+                // The first duration parameter given neither by position
+                // nor by its name.
+                const free: ?[]const u8 = for (info.names.?, 0..) |n, i| {
+                    if (!info.isDuration(i) or i < positional.len) continue;
+                    const named = for (keyword) |other| {
+                        if (std.mem.eql(u8, self.text(ir.Kwarg.name(other)), n)) break true;
+                    } else false;
+                    if (!named) break n;
+                } else null;
+                const form = if (calendar) try self.calendarFix(keyword) else try self.unitsText(keyword);
+                if (free) |n| {
+                    try self.errAt(kname_node, "`{s}` takes {d} durations, so each is given by its own name: `{s}: time.duration({s})`", .{ callee, @popCount(info.durations), n, form });
+                } else try self.errAt(kname_node, "`{s}` takes {d} durations, so each is given by its own name, not by a unit's keyword: give `time.duration({s})` to the one it is for", .{ callee, @popCount(info.durations), form });
+                return self.synthArgs(args);
             }
         }
         // The parts of a duration fill one parameter: of a callee that
@@ -11973,7 +12014,7 @@ const Checker = struct {
         // argument, the units' keywords, `days:`, or a misspelling, each
         // said below.
         var unnamed: usize = 0;
-        if (info.durations != 0) for (keyword) |kw| {
+        if (unit_param != null) for (keyword) |kw| {
             const kname = self.text(ir.Kwarg.name(kw));
             for (info.names.?) |n| {
                 if (std.mem.eql(u8, n, kname)) break;
@@ -12017,33 +12058,11 @@ const Checker = struct {
         var parts: std.ArrayList(u32) = .empty;
         var parts_ns: ?i128 = 0;
         var calendar = false;
-        var units_said = false;
         for (keyword, positional.len..) |kw, ai| {
             const kname_node = ir.Kwarg.name(kw);
             const kname = self.text(kname_node);
             // A unit's keyword fills the callee's one duration parameter.
             const unit = if (info.durations != 0) sema.duration.unitNs(kname) else null;
-            if (unit != null and unit_param == null) {
-                _ = try self.synthExpr(ir.Kwarg.value(kw));
-                repeated = true;
-                // Said once, of every unit the call gives.
-                if (units_said) continue;
-                units_said = true;
-                // The first duration parameter given neither by position
-                // nor by its name.
-                const free: ?[]const u8 = for (info.names.?, 0..) |n, i| {
-                    if (!info.isDuration(i) or slots[i] != null) continue;
-                    const named = for (keyword) |other| {
-                        if (std.mem.eql(u8, self.text(ir.Kwarg.name(other)), n)) break true;
-                    } else false;
-                    if (!named) break n;
-                } else null;
-                const form = try self.unitsText(keyword);
-                if (free) |n| {
-                    try self.errAt(kname_node, "`{s}` takes {d} durations, so each is given by its own name: `{s}: time.duration({s})`", .{ callee, @popCount(info.durations), n, form });
-                } else try self.errAt(kname_node, "`{s}` takes {d} durations, so each is given by its own name, not by a unit's keyword: give `time.duration({s})` to the one it is for", .{ callee, @popCount(info.durations), form });
-                continue;
-            }
             const idx = (if (unit != null) unit_param else null) orelse for (info.names.?, 0..) |n, i| {
                 if (std.mem.eql(u8, n, kname)) break i;
             } else {
@@ -12066,10 +12085,8 @@ const Checker = struct {
                 parts_ns = if (parts_ns) |sum| (if (ns) |n| sum + n else null) else null;
                 continue;
             }
-            if (slots[idx]) |had| {
-                if (info.isDuration(idx) and had == .arg) {
-                    try self.errAt(kname_node, "`{s}` takes one duration, in one unit: `{s}` or `{s}`, not both", .{ callee, try self.plainText(args[had.arg]), try self.plainText(kw) });
-                } else try self.errAt(kname_node, "parameter `{s}` of `{s}` is given twice", .{ kname, callee });
+            if (slots[idx] != null) {
+                try self.errAt(kname_node, "parameter `{s}` of `{s}` is given twice", .{ kname, callee });
                 _ = try self.synthExpr(ir.Kwarg.value(kw));
                 repeated = true;
                 continue;
@@ -12409,9 +12426,9 @@ const Checker = struct {
     }
 
     /// The fix for `round` or `floor` given several units, `args`: the
-    /// increment in the smallest of them when each is a constant and it
-    /// comes out whole, `round(minutes: 90)` for `hours: 1, minutes: 30`;
-    /// else the smallest unit to write it in.
+    /// increment in the largest unit it is a whole number of when each is
+    /// a constant, `round(minutes: 90)` for `hours: 1, minutes: 30`; else
+    /// the smallest unit given to write it in.
     fn oneIncrement(self: *Checker, method: []const u8, args: []const Sexp) Error![]const u8 {
         const a = self.ctx.arena.allocator();
         var smallest: ?i64 = null;
@@ -12426,10 +12443,13 @@ const Checker = struct {
             total = if (total != null and v != null and @abs(v.?) <= 1_000_000_000) total.? + @as(i128, @intCast(v.?)) * unit else null;
         }
         const u = smallest orelse return std.fmt.allocPrint(a, "name one unit and its increment, `{s}(minutes: 15)`", .{method});
-        const name = sema.duration.unitName(u);
-        if (total) |sum| if (@rem(sum, u) == 0 and @divTrunc(sum, u) >= 1 and @divTrunc(sum, u) <= 1_000_000_000)
-            return std.fmt.allocPrint(a, "write the increment in one unit, `{s}({s}: {d})`", .{ method, name, @divTrunc(sum, u) });
-        return std.fmt.allocPrint(a, "write the increment in one unit, the smallest given, `{s}:`", .{name});
+        // The largest unit the sum is a whole number of, as an increment
+        // is written in every type that rounds (docs/design/datetime.md §6.8).
+        if (total) |sum| for (sema.duration.units) |unit| {
+            if (@rem(sum, unit[1]) != 0 or @divTrunc(sum, unit[1]) < 1 or @divTrunc(sum, unit[1]) > 1_000_000_000) continue;
+            return std.fmt.allocPrint(a, "write the increment in one unit, `{s}({s}: {d})`", .{ method, unit[0], @divTrunc(sum, unit[1]) });
+        };
+        return std.fmt.allocPrint(a, "write the increment in one unit, the smallest given, `{s}:`", .{sema.duration.unitName(u)});
     }
 
     /// `arg`, filling a duration parameter of type `param` (`sema.duration`):
@@ -12638,6 +12658,13 @@ const Checker = struct {
     /// days, the weeks and any `hours:` become one `hours:` where the first
     /// of them stood (`calendarHours`), the other units as written.
     fn calendarKeyword(self: *Checker, at: Sexp, kname: []const u8, keyword: []const Sexp) Error!void {
+        const days = std.mem.eql(u8, kname, "days");
+        try self.errAt(at, "a duration takes no `{s}:`, since a day is not always 24 hours: write `{s}`, exactly {d} hours {s}", .{ kname, try self.calendarFix(keyword), @as(i64, if (days) 24 else 168), if (days) "a day" else "a week" });
+    }
+
+    /// The units of `keyword` with its `days:`, `weeks:` and `hours:` as one
+    /// `hours:` (`calendarKeyword`): `hours: 26, minutes: 30`.
+    fn calendarFix(self: *Checker, keyword: []const Sexp) Error![]const u8 {
         const a = self.ctx.arena.allocator();
         // The hours of each, and their sum while each is a whole constant.
         var terms: std.ArrayList([]const u8) = .empty;
@@ -12664,8 +12691,7 @@ const Checker = struct {
                 placed = true;
             } else try fix.appendSlice(a, try self.plainText(kw));
         }
-        const days = std.mem.eql(u8, kname, "days");
-        try self.errAt(at, "a duration takes no `{s}:`, since a day is not always 24 hours: write `{s}`, exactly {d} hours {s}", .{ kname, fix.items, @as(i64, if (days) 24 else 168), if (days) "a day" else "a week" });
+        return fix.items;
     }
 
     fn checkArg(self: *Checker, arg: Sexp, f: FunctionType, i: usize, views: bool) Error!void {

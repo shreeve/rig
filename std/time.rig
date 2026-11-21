@@ -1,9 +1,10 @@
 # std.time: the monotonic clock, lengths of time, and waiting. A length
 # of time is a `Duration`. A call gives one, wherever a parameter is
 # typed `Duration`, in a duration form: bare, a number of seconds, an
-# `Int` or a `Float`, `sleep(2)`, `sleep(0.5)`; one unit's keyword and a
-# number, `sleep(ms: 40)`, from `ns:` to `hours:`; or a `Duration`,
-# `sleep(d)` (SPEC §18, "Durations"). Nothing here allocates but `iso`,
+# `Int` or a `Float`, `sleep(2)`, `sleep(0.5)`; units' keywords and their
+# numbers, from `ns:` to `hours:`, which add up, `sleep(ms: 40)`,
+# `sleep(minutes: 1, seconds: 30)`; or a `Duration`, `sleep(d)` (SPEC §18,
+# "Durations"). Nothing here allocates but `iso`,
 # which returns a new String.
 
 use std.task

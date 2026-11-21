@@ -431,7 +431,7 @@ bomb "a part of several units not finite", "a duration is not a finite number of
 
   print(time.duration(seconds: 1, ms: nan()))
 
-fail "several units written outside their forms", "5:24: `time.duration` takes one duration: `2` or `minutes: 1`, not both", "6:27: `time.duration` takes one duration: `d: 2` or `minutes: 1`, not both", "7:37: a unit's keyword takes a number, and `d` is a `time.Duration` already: write it with no keyword, not `ms: d`", "8:44: the unit `hours:` is given twice: a duration's units add up, each given at most once", "9:28: `3_000_000` hours is more nanoseconds than a `Duration` holds", "10:21: `hours: 2562047, minutes: 48` is more nanoseconds than a `Duration` holds", "11:21: `hours: -2562047, minutes: -48` is more nanoseconds than a `Duration` holds", "12:35: a duration is a finite number, and `Float.nan()` is not", "13:33: `time.duration` has no parameter `secs`; did you mean `seconds: 2`?", errors: 9
+fail "several units written outside their forms", "5:24: `time.duration` takes one duration: `2` or `minutes: 1, seconds: 3`, not both", "6:27: `time.duration` takes one duration: `d: 2` or `minutes: 1, seconds: 3`, not both", "7:37: a unit's keyword takes a number, and `d` is a `time.Duration` already: write it with no keyword, not `ms: d`", "8:44: the unit `hours:` is given twice: a duration's units add up, each given at most once", "9:28: `3_000_000` hours is more nanoseconds than a `Duration` holds", "10:21: `hours: 2562047, minutes: 48` is more nanoseconds than a `Duration` holds", "11:21: `hours: -2562047, minutes: -48` is more nanoseconds than a `Duration` holds", "12:35: a duration is a finite number, and `Float.nan()` is not", "13:33: `time.duration` has no parameter `secs`; did you mean `seconds: 2`?", errors: 9
   # A bare number or a name beside units, a `Duration` among them, a unit
   # given twice, a part or a constant sum past the range, a part not
   # finite, and a misspelled unit among them are each refused.
@@ -470,3 +470,20 @@ fail "duration round and floor take one unit, not several", "1:40: `round` takes
 
   fun n() -> Int
     1
+
+fail "units to two durations, said once with one fix", "4:12: `span` takes 2 durations, so each is given by its own name: `a: time.duration(ms: 3, us: 4)`", "5:24: `span` takes 2 durations, so each is given by its own name, not by a unit's keyword: give `time.duration(ms: 3, us: 4)` to the one it is for", "6:15: parameter `a` of `span` is given twice", "7:18: `span` takes 2 durations, so each is given by its own name: `b: time.duration(hours: 26)`", errors: 4
+  fun span(a: time.Duration, b: time.Duration) -> time.Duration
+    b.sub(a)
+
+  print(span(ms: 3, us: 4))
+  print(span(a: 1, b: 2, ms: 3, us: 4))
+  print(span(1, a: 2))
+  print(span(a: 1, days: 1, hours: 2))
+
+fail "a duration beside several units names them all", "1:26: `time.sleep` takes one duration: `ms: 1, us: 2` or `d: 3`, not both", "2:15: `time.sleep` takes one duration: `2` or `ms: 1, us: 3`, not both", errors: 2
+  time.sleep(ms: 1, us: 2, d: 3)!
+  time.sleep(2, ms: 1, us: 3)!
+
+fail "round of several units in the largest unit", "1:42: `floor` takes one unit and its increment, not 2: write the increment in one unit, `floor(minutes: 1)`", "2:40: `round` takes one unit and its increment, not 2: write the increment in one unit, `round(minutes: 30)`", errors: 2
+  print(time.duration(1).floor(minutes: 1, seconds: 0))
+  print(time.duration(1).round(hours: 1, minutes: -30))

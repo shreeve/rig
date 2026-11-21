@@ -56,10 +56,15 @@ each handled:
 3. **Messages:** a repeated unit, "the unit `hours:` is given twice: a
    duration's units add up, each given at most once"; a unit beside a
    bare number or the parameter's name, "`time.sleep` takes one duration:
-   `2` or `minutes: 1`, not both" (phase 1's said "in one unit"); units to
-   a function of two durations are said once, of all of them, "`span`
-   takes 2 durations, so each is given by its own name: `a:
-   time.duration(hours: 1, minutes: 30)`"; a keyword that names no
+   `2` or `minutes: 1, seconds: 30`, not both" (phase 1's said "in one
+   unit"), every unit named; units, and `days:` or `weeks:` among them,
+   given to a function of two durations are said once, before the count
+   of arguments, with one fix for all of them, "`span` takes 2 durations,
+   so each is given by its own name: `a: time.duration(hours: 1, minutes:
+   30)`" (`b: time.duration(hours: 26)` for `a: 1, days: 1, hours: 2`), or
+   "give `time.duration(ms: 3, us: 4)` to the one it is for" when every
+   duration is named; a duration given by position and by name is
+   "parameter `a` of `span` is given twice"; a keyword that names no
    parameter now suggests "with units' keywords, `ms: 40` or `minutes: 1,
    seconds: 30`".
 4. **`days:` and `weeks:` among units** are said once, with the fix for
@@ -68,18 +73,47 @@ each handled:
    `days: 1, hours: 2, minutes: 30` is told `hours: 26, minutes: 30`, and
    `minutes: 30, weeks: 1, days: n()` is told `minutes: 30, hours: 168 +
    24 * n()`.
-5. **The count of arguments.** Of a callee that takes a duration, the
+5. **The count of arguments.** Of a callee that takes one duration, the
    keywords that name no parameter count as one argument (the units, a
    calendar keyword, a misspelling), so `time.sleep(minutes: 1, secs: 2)`
    is told "did you mean `seconds: 2`?", not that it gives two arguments.
 6. **`round` and `floor`** keep their check of exactly one unit. Given
    several, the message counts them and gives the one-unit form when it
-   can: `round(hours: 1, minutes: 30)` is told "takes one unit and its
-   increment, not 2: write the increment in one unit, `round(minutes:
-   90)`"; else it names the smallest unit given.
+   can, in the largest unit the sum is a whole number of, which suits
+   §6.8's increments for every type: `round(hours: 1, minutes: 30)` is
+   told "takes one unit and its increment, not 2: write the increment in
+   one unit, `round(minutes: 90)`", and `floor(minutes: 1, seconds: 0)`
+   `floor(minutes: 1)`; else it names the smallest unit given. Whether
+   the one-unit increment is allowed for a `Time` or a `DateTime` (it
+   must divide the next larger unit) is checked by those types' own
+   `round` when phase 2 builds them.
 
 No form phase 1 accepted is refused. The forms phase 1 refused and 1b
 accepts are several distinct units in one call.
+
+## The independent review
+
+A review of the branch (2026-11-21) found nothing blocking: no accepted
+program broke and no sum came out wrong (37 probes). Its findings, each
+now fixed with a case that failed before it (`std-time-forms`):
+
+1. Units given to a function of two durations were counted as one
+   argument, so `span(ms: 3, us: 4)` said "expects 2 arguments, got 1".
+   The count folds the keywords that name no parameter only for a callee
+   of one duration; for two or more, units are said once, first.
+2. `docs/learn/04-concurrency.md` and `std/time.rig`'s header still said
+   one unit.
+3. "Not both" named only the first unit; it names every unit given.
+4. `span(1, a: 2)` kept phase 1's "takes one duration, in one unit"; it
+   is now "parameter `a` of `span` is given twice".
+5. `span(a: 1, days: 1, hours: 2)` got two fixes that disagreed; it gets
+   one, `b: time.duration(hours: 26)`.
+6. The one-unit fix of `round` and `floor` used the smallest unit given;
+   it uses the largest the increment is a whole number of (decision 6).
+
+Left as phase 1 had it: `time.duration(days: 1, d: 3)` is a count error
+("expects 1 argument, got 2"), not the `days:` message, since `d:` names
+the parameter and `days:` does not.
 
 ## Where the code met the design
 
@@ -90,7 +124,7 @@ one line of the oracle.
 
 ## Tests
 
-`test/rig/std-time-forms.rig.test` (13 new cases) and
+`test/rig/std-time-forms.rig.test` (16 new cases, three of them from the review) and
 `std-time-waits.rig.test` (5, the concurrent ones under `seeds: 20`),
 each reaching the emitter: several units at a function, a generic
 function, a type's function, std.time's methods, a method, an API's
@@ -138,3 +172,8 @@ of SPEC, STD, learn 06, and INTERNALS; `tools/emit-diff origin/main`
 reported the record and a test case added while it ran as files left in
 the checkout; that case, a task and an actor's method, then passed in
 `std-time-waits` alone).
+
+After the review's fixes: `std-time-forms` (42 jobs) and
+`std-time-waits`, the doc examples of learn 04, the cases checked to fail
+with the branch's previous `rig` (2cc2bbf1d), and the whole core suite
+once (below).
