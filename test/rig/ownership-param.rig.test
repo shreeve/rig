@@ -2,7 +2,7 @@
 
 fail "param store alias", "11:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A store through a local write view of parameter `a` lands in `a`'s
-  # value, which keeps `b` lent for the rest of the body.
+  # value, which keeps a view of `b` in use for the rest of the body.
 
   obj Holder
     r: []Int
@@ -22,7 +22,7 @@ fail "param store alias", "11:5: cannot change `b` while a read view of it is st
 
 fail "param store as binding", "11:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A store through an `if !a as h` binding lands in parameter `a`'s value,
-  # which keeps `b` lent for the rest of the body.
+  # which keeps a view of `b` in use for the rest of the body.
 
   obj Holder
     r: []Int
@@ -44,7 +44,7 @@ fail "param store as binding", "11:5: cannot change `b` while a read view of it 
 
 fail "param store assign whole", "10:5: cannot change `b` while a read view of it is still in use", errors: 1
   # Assigning write parameter `a` writes into the caller's value, which
-  # keeps `b` lent for the rest of the body.
+  # keeps a view of `b` in use for the rest of the body.
 
   obj Holder
     r: []Int
@@ -76,7 +76,7 @@ fail "param store by value write field", "9:6: a write view is never stored insi
 
 fail "param store call", "13:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A call that may store its arguments in its `!` arguments stores a view
-  # of `b` in parameter `a`, which keeps `b` lent for the rest of the body.
+  # of `b` in parameter `a`, which keeps a view of `b` in use for the rest of the body.
 
   obj Holder
     r: []Int
@@ -98,7 +98,7 @@ fail "param store call", "13:5: cannot change `b` while a read view of it is sti
 
 fail "param store closure capture", "11:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A closure that captures `!a` and `?b` may store a view of `b` in `a`:
-  # making it keeps `b` lent for the rest of the body.
+  # making it keeps a view of `b` in use for the rest of the body.
 
   obj Holder
     r: []Int
@@ -118,7 +118,7 @@ fail "param store closure capture", "11:5: cannot change `b` while a read view o
 
 fail "param store closure param", "14:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A closure's write parameter is a parameter too: a view of `b` stored
-  # in `a` keeps `b` lent for the rest of the closure's body.
+  # in `a` keeps a view of `b` in use for the rest of the closure's body.
 
   obj Holder
     r: []Int
@@ -136,7 +136,7 @@ fail "param store closure param", "14:5: cannot change `b` while a read view of 
 
 fail "param store defer", "12:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A `defer` that stores in parameter `a` runs when its block ends; from
-  # there on, `b` stays lent for the rest of the body.
+  # there on, `b` stays in use for the rest of the body.
 
   obj Holder
     r: []Int
@@ -156,8 +156,8 @@ fail "param store defer", "12:5: cannot change `b` while a read view of it is st
   print(f(!h, !v))
 
 fail "param store element", "7:5: cannot change `b` while a read view of it is still in use", errors: 1
-  # A store into an element of write slice `a` keeps `b` lent for the
-  # rest of the body.
+  # A store into an element of write slice `a` keeps a view of `b` in use for
+  # the rest of the body.
 
   fun f(a: ![2][]Int, b: !List[Int]) -> Int keeps b
     a[0] = ?b[..]
@@ -172,8 +172,8 @@ fail "param store element", "7:5: cannot change `b` while a read view of it is s
   print(f(!hs, !v))
 
 fail "param store element field", "10:5: cannot change `b` while a read view of it is still in use", errors: 1
-  # A store into a field of an element of write slice `a` keeps `b` lent
-  # for the rest of the body.
+  # A store into a field of an element of write slice `a` keeps a view of `b`
+  # in use for the rest of the body.
 
   obj Holder
     r: []Int
@@ -192,8 +192,8 @@ fail "param store element field", "10:5: cannot change `b` while a read view of 
 
 fail "param store field", "11:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A view of write parameter `b` stored in write parameter `a` keeps `b`
-  # lent for the rest of the body: the caller reads `a` after the return,
-  # so `!b.push` cannot reallocate the buffer `a.r` views.
+  # a view of it in use for the rest of the body: the caller reads `a` after
+  # the return, so `!b.push` cannot reallocate the buffer `a.r` views.
 
   obj Holder
     r: []Int
@@ -212,7 +212,7 @@ fail "param store field", "11:5: cannot change `b` while a read view of it is st
 
 fail "param store loop element", "11:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A store through a `for k in !a` element lands in parameter `a`'s
-  # elements, which keeps `b` lent for the rest of the body.
+  # elements, which keeps a view of `b` in use for the rest of the body.
 
   obj Holder
     r: []Int
@@ -232,7 +232,7 @@ fail "param store loop element", "11:5: cannot change `b` while a read view of i
 
 fail "param store loop element assign", "11:5: cannot change `b` while a read view of it is still in use", errors: 1
   # Assigning a `for k in !a` element writes into parameter `a`'s
-  # elements, which keeps `b` lent for the rest of the body.
+  # elements, which keeps a view of `b` in use for the rest of the body.
 
   obj Holder
     r: []Int
@@ -252,7 +252,7 @@ fail "param store loop element assign", "11:5: cannot change `b` while a read vi
 
 fail "param store match payload", "16:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A store through a `match !a` payload lands in parameter `a`'s value,
-  # which keeps `b` lent for the rest of the body.
+  # which keeps a view of `b` in use for the rest of the body.
 
   obj Holder
     r: []Int
@@ -279,7 +279,7 @@ fail "param store match payload", "16:5: cannot change `b` while a read view of 
 
 fail "param store method", "13:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A method that stores its argument in `!@` stores a view of `b` in
-  # parameter `a`, which keeps `b` lent for the rest of the body.
+  # parameter `a`, which keeps a view of `b` in use for the rest of the body.
 
   obj Holder
     r: []Int
@@ -300,8 +300,8 @@ fail "param store method", "13:5: cannot change `b` while a read view of it is s
   print(f(!h, !v))
 
 fail "param store nested", "13:5: cannot change `b` while a read view of it is still in use", errors: 1
-  # A store into a field of a field of parameter `a` keeps `b` lent for
-  # the rest of the body.
+  # A store into a field of a field of parameter `a` keeps a view of `b` in
+  # use for the rest of the body.
 
   obj Holder
     r: []Int
@@ -323,7 +323,7 @@ fail "param store nested", "13:5: cannot change `b` while a read view of it is s
 
 fail "param store read back", "11:5: cannot change `c` while a read view of it is still in use", errors: 1
   # A view of `b` stored in parameter `a` and read back into a local keeps
-  # `b` lent: `t` views `b`'s buffer through `a`.
+  # a view of `b` in use: `t` views `b`'s buffer through `a`.
 
   obj Holder
     r: []Int
@@ -343,7 +343,7 @@ fail "param store read back", "11:5: cannot change `c` while a read view of it i
 
 fail "param store swap", "11:5: cannot change `b` while a read view of it is still in use", errors: 1
   # `swap` moves a value holding a String that views `b` into parameter
-  # `a`, which keeps `b` lent for the rest of the body.
+  # `a`, which keeps a view of `b` in use for the rest of the body.
 
   obj Holder
     s: ?String
@@ -362,8 +362,8 @@ fail "param store swap", "11:5: cannot change `b` while a read view of it is sti
   print(f(!h, !w))
 
 fail "param store then assign owner", "12:3: cannot assign to `b.n` while a read view of `b` is still in use", errors: 1
-  # A read view of `b` stored in parameter `a` keeps `b` lent: `b` cannot
-  # be written while the read loan is live.
+  # A read view of `b` stored in parameter `a` keeps a view of `b` in use: `b`
+  # cannot be written while the read view is live.
 
   obj Item
     n: Int
@@ -398,10 +398,10 @@ test "param store view", '''
   6
   bcd
 '''
-  # A view stored in a view parameter keeps what it views lent for the
+  # A view stored in a view parameter keeps what it views in use for the
   # rest of the body. The owner can still be read, written before the
   # store, and written once the holder's caller is done with it; a caller's
-  # view stored there lends nothing of the callee's.
+  # view stored there keeps nothing of the callee's in use.
 
   obj Holder
     r: []Int
@@ -418,7 +418,7 @@ test "param store view", '''
       n += x
     n
 
-  # The owner is written first, then lent and only read.
+  # The owner is written first, then viewed and only read.
   fun grow_then_store(a: !Holder, b: !List[Int]) -> Int keeps b
     !b.push(5)
     a.r = ?b[..]
@@ -432,13 +432,13 @@ test "param store view", '''
       print(x)
     a.r.len
 
-  # A caller's view stored in a parameter lends nothing here.
+  # A caller's view stored in a parameter keeps nothing here in use.
   fun store_caller_view(a: !Holder, b: []Int, c: !List[Int]) -> Int keeps b
     a.r = b
     !c.push(7)
     a.r[0] + c.len
 
-  # A local holder's loan ends at its last use.
+  # A local holder's view ends at its last use.
   fun local_holder(b: !List[Int]) -> Int
     x = [9, 9]
     h = Holder(r: ?x[..])
@@ -493,7 +493,7 @@ test "param store view", '''
 
 fail "param store view is rejected", "10:5: cannot change `b` while a read view of it is still in use", errors: 1
   # Storing a String viewing `b` in a field of parameter `a` keeps `b`
-  # lent for the rest of the body.
+  # a view of it in use for the rest of the body.
 
   obj Holder
     s: ?String
@@ -512,7 +512,7 @@ fail "param store view is rejected", "10:5: cannot change `b` while a read view 
 
 fail "param store write field", "13:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A store into a field of a `Holder` that parameter `c` writes lands in
-  # what the caller lent, which keeps `b` lent for the rest of the body.
+  # what the caller passed, which keeps a view of `b` in use for the rest of the body.
 
   obj Holder
     r: []Int
@@ -535,7 +535,7 @@ fail "param store write field", "13:5: cannot change `b` while a read view of it
 
 fail "param store write through", "13:5: cannot change `b` while a read view of it is still in use", errors: 1
   # Assigning a `Holder` field of parameter `c` writes into what the
-  # caller lent, which keeps `b` lent for the rest of the body.
+  # caller passed, which keeps a view of `b` in use for the rest of the body.
 
   obj Holder
     r: []Int

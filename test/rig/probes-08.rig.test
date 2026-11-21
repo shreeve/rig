@@ -110,7 +110,7 @@ test "copies-string-holder-copy-after-use", '''
   !t.add("d")
   print(t)
 
-fail "copies-string-holder-copy-keeps-loan", "cannot change `t` while a read view of it is still in use"
+fail "copies-string-holder-copy-keeps-view", "cannot change `t` while a read view of it is still in use"
   obj S
     s: ?String
 
@@ -187,14 +187,14 @@ fail "core-audit-containers-b25 move wb alias n", "cannot use `n` while a write 
   w = 5
   print(m)
 
-test "core-audit-loans-c10 vec of views in shared", "1"
+test "core-audit-views-c10 vec of views in shared", "1"
   # A shared handle to an array of views.
   a = 1
   b = 2
   h = *[?a, ?b]
   print(h[0])
 
-test "core-audit-loans-c10b shared int array index", "1"
+test "core-audit-views-c10b shared int array index", "1"
   # Indexing a shared array (no views involved).
   h = *[1, 2]
   print(h[0])
@@ -237,7 +237,7 @@ fail "corekeeps-p4b keeps through view", "cannot drop `c` while a read view of i
   <c
   print(h.items.len)
 
-test "corekeeps-push kept lend unwritten", "1"
+test "corekeeps-push kept view unwritten", "1"
   t = String("abc")
   names: List[?String] = List()
   !names.push(?t)
@@ -1007,7 +1007,7 @@ test "final-m1-write-receiver-view-in-statement", '''
   26004
   106
 '''
-  # A write view a `!@` method returns of a temporary self lent
+  # A write view a `!@` method returns of a temporary self viewed
   # with `!`, used within its statement (Core sentence 4); without the `!`
   # the call is rejected (`test/reject/ownership/write_self_temporary.rig`).
 
@@ -1050,7 +1050,7 @@ test "final-review-w11-bind-write-view-result-int-inc", "2"
   print(n)
 
 test "final-review-x91b-recv-made-write-explicit"
-  # !mk().bump(): explicit write lend of a temporary self (Core sentence 4: accepted, kept in the statement's slot)
+  # !mk().bump(): explicit write view of a temporary self (Core sentence 4: accepted, kept in the statement's slot)
   obj S
     n: Int
 

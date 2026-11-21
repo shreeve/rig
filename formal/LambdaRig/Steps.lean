@@ -151,35 +151,35 @@ theorem sound_lit (n : Int) : Sound (.lit n) := by
   exact ⟨.int n, s, β, rfl, r.mono (fun _ h => by simpa [fv] using h), ⟨n, rfl⟩⟩
 
 /-- The loan kind `!x` or `?x` needs. -/
-def lendAccess : Mode → Access
+def viewAccess : Mode → Access
   | .read => .read
   | .write => .write
 
 /-- The cell after `?x` or `!x`. -/
-def Cell.lend (c : Cell) : Mode → Tag → Cell
-  | .read, t => c.lendRead t
-  | .write, t => c.lendWrite t
+def Cell.view (c : Cell) : Mode → Tag → Cell
+  | .read, t => c.readView t
+  | .write, t => c.writeView t
 
-theorem lend_keeps {c : Cell} {m m' : Mode} {t t' : Tag}
-    (he : (lendAccess m).ends m' = false) (h : c.live m' t' = true) :
-    (c.lend m t).live m' t' = true := by
-  cases m <;> cases m' <;> simp_all [lendAccess, Access.ends, Cell.live, Cell.lend, Cell.lendRead]
+theorem view_keeps {c : Cell} {m m' : Mode} {t t' : Tag}
+    (he : (viewAccess m).ends m' = false) (h : c.live m' t' = true) :
+    (c.view m t).live m' t' = true := by
+  cases m <;> cases m' <;> simp_all [viewAccess, Access.ends, Cell.live, Cell.view, Cell.readView]
 
-theorem lend_live (c : Cell) (m : Mode) (t : Tag) : (c.lend m t).live m t = true := by
-  cases m <;> simp [Cell.live, Cell.lend, Cell.lendRead, Cell.lendWrite]
+theorem view_live (c : Cell) (m : Mode) (t : Tag) : (c.view m t).live m t = true := by
+  cases m <;> simp [Cell.live, Cell.view, Cell.readView, Cell.writeView]
 
-theorem lend_val (c : Cell) (m : Mode) (t : Tag) : (c.lend m t).val = c.val := by
+theorem view_val (c : Cell) (m : Mode) (t : Tag) : (c.view m t).val = c.val := by
   cases m <;> rfl
 
-theorem lend_match (c : Cell) (m : Mode) (t : Tag) :
-    (match m with | .read => c.lendRead t | .write => c.lendWrite t) = c.lend m t := by
+theorem view_match (c : Cell) (m : Mode) (t : Tag) :
+    (match m with | .read => c.readView t | .write => c.writeView t) = c.view m t := by
   cases m <;> rfl
 
 theorem access_match (m : Mode) :
-    (match m with | .read => Access.read | .write => Access.write) = lendAccess m := by
+    (match m with | .read => Access.read | .write => Access.write) = viewAccess m := by
   cases m <;> rfl
 
-theorem sound_lend (m : Mode) (x : Var) : Sound (.lend m x) := by
+theorem sound_view (m : Mode) (x : Var) : Sound (.view m x) := by
   intro Γ M L τ M' σ β s hc r
   simp only [check] at hc
   cases hx : Γ.lookup x with
@@ -191,10 +191,10 @@ theorem sound_lend (m : Mode) (x : Var) : Sound (.lend m x) := by
     obtain ⟨c, hh, hs⟩ := r.slot x τx hx
     have rL := r.mono (Live' := L) (fun _ h => List.mem_append_right _ h)
     have r1 := rL.congr (s' := { s with next := s.next + 1 }) rfl rfl (Nat.le_succ _)
-    have r2 := r1.touch hx ho hh (c' := c.lend m s.next) (by rw [lend_val]; exact hs)
-      (fun z m' hz hzl _ t hl => lend_keeps (access_match m ▸ allows_spec ha hz hzl) hl)
+    have r2 := r1.touch hx ho hh (c' := c.view m s.next) (by rw [view_val]; exact hs)
+      (fun z m' hz hzl _ t hl => view_keeps (access_match m ▸ allows_spec ha hz hzl) hl)
     refine ⟨.view m (σ x) s.next, _, β, ?_, r2,
-      ⟨s.next, rfl, hm, ⟨τx, hx, ho⟩, c.lend m s.next, by simp, lend_live _ _ _⟩⟩
+      ⟨s.next, rfl, hm, ⟨τx, hx, ho⟩, c.view m s.next, by simp, view_live _ _ _⟩⟩
     rcases Ty.owner_cases ho with rfl | rfl
     · simp [Shape, hm] at hs
       obtain ⟨k, hk⟩ := hs
@@ -1177,10 +1177,10 @@ theorem Rel.unscope {Γ x τe M L σ β s w l c} (r : Rel ((x, τe) :: Γ) M L (
 /-- A value keeps its type when the names around it leave scope, as long
 as it is no view of them. -/
 theorem VFits.unscope {Γ x τe M σ β s τ w l} (hf : VFits ((x, τe) :: Γ) M (reboxed σ x l) β s τ w)
-    (hτ : τ.lentFrom x = false) : VFits Γ (M.filter (· ≠ x)) σ β s τ w := by
+    (hτ : τ.isViewOf x = false) : VFits Γ (M.filter (· ≠ x)) σ β s τ w := by
   cases τ with
   | view m y =>
-    have hyx : y ≠ x := by simpa [Ty.lentFrom] using hτ
+    have hyx : y ≠ x := by simpa [Ty.isViewOf] using hτ
     obtain ⟨t, hv, hym, ⟨τy, hy, ho⟩, cb, hcb, hl⟩ := hf
     rw [lookup_cons_other hyx] at hy
     rw [reboxed_other hyx] at hv hcb

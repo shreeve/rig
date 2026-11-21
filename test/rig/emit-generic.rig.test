@@ -1,11 +1,11 @@
 # emit: tests whose names start `generic`.
 
-test "generic bare variant lent", '''
+test "generic bare variant viewed", '''
   nothing
   nothing
   nothing
 '''
-  # A bare variant of a generic enum, written with its type, lent where a
+  # A bare variant of a generic enum, written with its type, viewed where a
   # view of the enum goes: the constant is reached through the instance
   # its type names (`Opt(i64).nothing`), never as an element of a bracket
   # list. The context-typed `.nothing` is a value made there.
@@ -201,7 +201,7 @@ test "generic eq optional view", '''
   m: String? = String("b")
   print(held[String](<o, ?t), held[String](<m, ?t))
 
-test "generic local lent implicitly", '''
+test "generic local viewed implicitly", '''
   5 5
   6 6
   1 2
@@ -209,7 +209,7 @@ test "generic local lent implicitly", '''
   P(t: "q") P(t: "q")
   1 2
 '''
-  # A `T` local lent where a `?T` is expected is lent as `?x` lends it, in
+  # A `T` local viewed where a `?T` is expected is viewed as `?x` views it, in
   # a generic body as anywhere: implicitly or written, in a call that
   # evaluates its arguments first or not, for an instance read by value and
   # one read by address.
@@ -371,7 +371,7 @@ test "generic read view of vec element", '''
   2
   hi
 '''
-  # A read view of a List element through a lent to read self reads
+  # A read view of a List element through a self viewed to read reads
   # the element in place.
 
   obj P

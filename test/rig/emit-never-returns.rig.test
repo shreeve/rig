@@ -193,7 +193,7 @@ code "never returns from another module, emitted", /fn die\(\) noreturn \{/
     pub fun ready() -> Bool
       false
 
-bomb "never returns lent as a callable", "through a value"
+bomb "never returns viewed as a callable", "through a value"
   sub fail(msg: ?String)
     panic(msg)
 

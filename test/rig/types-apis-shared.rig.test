@@ -291,8 +291,8 @@ test "apis object shared printed by its braces", '''
   print(s)
   print(w)
 
-test "apis object shared lends the read view it holds", "4.0 8.0"
-  # `?s` lends the `?{Shape}` the handle holds, the same two words.
+test "apis object shared passes on the read view it holds", "4.0 8.0"
+  # `?s` gives the `?{Shape}` the handle holds, the same two words.
   api Shape
     fun area(?@) -> Float
 
@@ -311,9 +311,9 @@ test "apis object shared lends the read view it holds", "4.0 8.0"
   s: *{Shape} = *Square(side: 2.0)
   print(area_of(?s), twice(?s))
 
-test "apis object shared lent to write is the handle", "1.0"
-  # `!s` lends the handle itself: the callee may put another in its
-  # place, erased where it is written.
+test "apis object shared write view is of the handle", "1.0"
+  # `!s` makes a write view of the handle itself: the callee may put another
+  # in its place, erased where it is written.
   api Shape
     fun area(?@) -> Float
 

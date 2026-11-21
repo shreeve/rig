@@ -439,7 +439,7 @@ test "r3-s45-r-s08 clone elem", '''
   !c.add("b")
   print(v, c)
 
-fail "r3-s45-r-s11 elem field lend push", "cannot change `v` while a read view of it is still in use"
+fail "r3-s45-r-s11 elem field view push", "cannot change `v` while a read view of it is still in use"
   obj R
     name: String
 
@@ -463,7 +463,7 @@ test "r3-s45-r-s12 match payload escape", "hi"
   !v.push(E.a(String("hi")))
   print(pick(?v))
 
-fail "r3-s45-r-s13 array assign lent", "cannot assign to `a[1]` while a read view of `a` is still in use"
+fail "r3-s45-r-s13 array assign viewed", "cannot assign to `a[1]` while a read view of `a` is still in use"
   a = [String("x"), String("y")]
   r = ?a[0]
   a[1] = String("z")
@@ -668,7 +668,7 @@ fail "r3-s45-v-v28 vec view moved", "cannot reassign `a` while a read view of it
   a = 2
   print(w)
 
-fail "r3-s45-v-v29 pop view keeps loan", "cannot reassign `a` while a read view of it is still in use"
+fail "r3-s45-v-v29 pop view keeps its place", "cannot reassign `a` while a read view of it is still in use"
   a = 1
   v: List[?Int] = List()
   !v.push(?a)
@@ -3738,7 +3738,7 @@ fail "rev206-f01 fallible each", "cannot change `b.xs` while a read view of `b` 
   fill(!b.xs)
   print(go(!b) catch -1)
 
-fail "rev206-x09 lent drop break", "cannot change `b.xs` while a read view of `b` is still in use"
+fail "rev206-x09 viewed drop break", "cannot change `b.xs` while a read view of `b` is still in use"
   obj Cur
     xs: ?List[Int]
     i: Int
@@ -3790,8 +3790,8 @@ fail "rev206-x09 lent drop break", "cannot change `b.xs` while a read view of `b
     break
 
 test "rev210-a05 boxfield disjoint", "id 3 4"
-  # Reviewer probe for #210 (field loans): A box field lent beside writes
-  # of a sibling and of the box's other field.
+  # Reviewer probe for #210 (field loans): A box field viewed beside
+  # writes of a sibling and of the box's other field.
 
   obj Node
     name: String
@@ -3859,7 +3859,7 @@ test "rev210-e03 w across backedge ok", "3 [0, 1, 2]"
 
 fail "rev210-f13 read beside write arg", "cannot change `p.a` while a read view of `p.a.s` is still in use"
   # Reviewer probe for #210 (field loans): An argument reading `p.a.s`
-  # beside a write lend of `p.a`.
+  # beside a write view of `p.a`.
 
   obj Holder
     t: ?String
@@ -3887,7 +3887,7 @@ fail "rev210-f13 read beside write arg", "cannot change `p.a` while a read view 
 
 fail "rev210-f16 print grow same", "cannot change `p.a` while an earlier argument's read of `p.a.s` is still in use"
   # Reviewer probe for #210 (field loans): `print(p.a.s, grow(!p.a))`: a
-  # read held while the same place is lent to write.
+  # read held while a write view of the same place is made.
 
   obj Holder
     t: ?String

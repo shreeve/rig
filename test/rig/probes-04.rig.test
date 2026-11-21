@@ -5119,9 +5119,9 @@ test "audit-fuzz-pf2-accepted-0bb6dd2b9b", '''
   long form
   4
 '''
-  # A call that lends its self to write whose value is a `Bool` takes the short form
-  # `!s.add(x)` wherever its `!` cannot read as negation: a binding, an
-  # argument, a return value, a body's value.
+  # A call that takes its self as a write view whose value is a `Bool`
+  # takes the short form `!s.add(x)` wherever its `!` cannot read as
+  # negation: a binding, an argument, a return value, a body's value.
 
   obj Set
     items: List[Int]
@@ -5973,8 +5973,8 @@ test "audit-fuzz-pf2-accepted-4af8d2d2c7", '''
   drop 1
 '''
   # ^T owns one T on the heap. Fields and methods of a boxed object are
-  # reached through the box; `?b` and `!b` lend the value as `?T` / `!T`;
-  # `<b.unbox()` moves the value out and frees the box.
+  # reached through the box; `?b` and `!b` make a `?T` / `!T` of the
+  # value; `<b.unbox()` moves the value out and frees the box.
 
   obj Point
     x: Int

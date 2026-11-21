@@ -274,9 +274,9 @@ test "review-arm-temps-2-m28 if block name moved", '''
   run(true)
   run(false)
 
-test "review-arm-temps-2-m29 target index temp lend after grow", "4 4"
-  # The target's index lends `v` (a temporary) after the value grows it: the
-  # checker walks the target after the value, as emit evaluates it.
+test "review-arm-temps-2-m29 target index temp view after grow", "4 4"
+  # The target's index makes a view of `v` (a temporary) after the value grows
+  # it: the checker walks the target after the value, as emit evaluates it.
   fun grow(v: !List[Int]) -> Int
     for _ in 0..3
       !v.push(1)
@@ -409,8 +409,8 @@ test "review-arm-temps-2-m36 self field target grow in arm", "201 201"
   print(b.v[0], b.v.len)
 
 fail "review-arm-temps-2-m37 payload binding target", "cannot change `b` while a write view of it is still in use"
-  # The target writes through a payload binding of the enclosing match; the
-  # value's arm lends the subject's owner.
+  # The target writes through a payload binding of the enclosing match;
+  # the value's arm makes a view of the subject's place.
   obj D
     v: List[Int]
 
@@ -716,8 +716,8 @@ fail "review-arm-temps-l03 place subject grow", "cannot change `v` while a read 
   print(v.len)
 
 fail "review-arm-temps-l04 write view used in later stmt", "cannot change `v` while a read view of it is still in use"
-  # A write view taken before the match, used after it: a write lend in an
-  # arm must still conflict.
+  # A write view taken before the match, used after it: a write view in
+  # an arm must still conflict.
   fun grow(v: !List[Int]) -> Int
     for _ in 0..50
       !v.push(1)
@@ -733,8 +733,8 @@ fail "review-arm-temps-l04 write view used in later stmt", "cannot change `v` wh
   print(x[0])
 
 fail "review-arm-temps-l05 view in loop earlier arm", "cannot change `v` while a read view of it is still in use"
-  # A view used in an earlier arm, in a loop: the arm of the next iteration
-  # reads it after a later arm lent to write.
+  # A view used in an earlier arm, in a loop: the arm of the next
+  # iteration reads it after a later arm made a write view of its place.
   fun grow(v: !List[Int]) -> Int
     for _ in 0..50
       !v.push(1)
@@ -764,7 +764,7 @@ fail "review-arm-temps-l06 view in loop earlier arm rev", "cannot change `v` whi
 
 fail "review-arm-temps-l07 subject viewed by guard after", "cannot change `v` while a read view of it is still in use"
   # The subject views v; a later arm's guard reads it through x after a
-  # write lend in an earlier-tested arm? Guards run before the arm body.
+  # write view in an earlier-tested arm? Guards run before the arm body.
   fun grow(v: !List[Int]) -> Int
     for _ in 0..50
       !v.push(1)
@@ -896,8 +896,8 @@ fail "review-arm-temps-l16 assign target catch block", "cannot change `v` while 
   print(v[0], v.len)
 
 fail "review-arm-temps-l17 assign target match view read", "cannot use `v` while a write view of it is still in use"
-  # The same with a read: the target is a write view, an arm reads v through
-  # a read lend (allowed only if w is dead) and the store follows.
+  # The same with a read: the target is a write view, an arm reads v
+  # through a read view (allowed only if w is dead) and the store follows.
   fun look(v: ?List[Int]) -> Int
     v.len
 
@@ -1081,7 +1081,7 @@ fail "review-assign-desugar-n10 name view move referent first arm", "cannot move
 
 fail "review-assign-desugar-n11 view value held into struct", "cannot change `v` while a read view of it is still in use"
   # A value that is a view, made in __v and stored into an object local:
-  # the object's loan on `v` lasts, so a later grow must be rejected.
+  # the object's view of `v` lasts, so a later grow must be rejected.
   obj H
     r: ?Int
 

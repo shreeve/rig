@@ -183,7 +183,7 @@ fail "r3-or-formal-hr store", "cannot store a view of `x` through captured `h`: 
     each(?arr, ?f)
   print(h.r.n)
 
-test "r3-or-formal-lend on2", '''
+test "r3-or-formal-view on2", '''
   7
   2 7
 '''
@@ -394,7 +394,7 @@ test "r3-or-formal-strip", "bc ax"
 
 fail "r3-or-generic-loopcopy", "`x` is dropped here, at the end of its scope, while a read view of it is still in use"
   # A generic loop over a `?List[T]` binds a copy of each element, which
-  # the iteration holds (SPEC "Generic bodies"): `?x` lends that copy, so
+  # the iteration holds (SPEC "Generic bodies"): `?x` views that copy, so
   # a view of it may not outlive the iteration (Core s6); one used within
   # the iteration is fine.
 
@@ -512,7 +512,7 @@ test "r3-or-handle-sound", '''
   # oracle: clone_outlives accept
   # oracle: carries_then_done accept
   # oracle: weak_after_drop accept
-  # oracle: lends_the_handle accept
+  # oracle: views_the_handle accept
 
   obj User
     name: ?String
@@ -570,7 +570,7 @@ test "r3-or-handle-sound", '''
     else
       print("gone")
 
-  sub lends_the_handle()
+  sub views_the_handle()
     a = *User(name: "old")
     reset(!a)
     print(a.name)
@@ -580,7 +580,7 @@ test "r3-or-handle-sound", '''
   clone_outlives()
   carries_then_done()
   weak_after_drop()
-  lends_the_handle()
+  views_the_handle()
 
 fail "r3-or-handle-unsound", "cannot drop `a` while a read view of it is still in use"
   # The unsound neighbours of r3-or-handle-sound: a view of a box's
@@ -589,7 +589,7 @@ fail "r3-or-handle-unsound", "cannot drop `a` while a read view of it is still i
   # weak handle (Core s8, s9).
   #
   # oracle: drop_while_viewed reject C4
-  # oracle: lend_then_drop reject C4
+  # oracle: view_then_drop reject C4
   # oracle: clone_carries reject C4
   # oracle: weak_carries reject C4
   # oracle: moved_handle reject C1
@@ -606,7 +606,7 @@ fail "r3-or-handle-unsound", "cannot drop `a` while a read view of it is still i
     <a
     print(r)
 
-  sub lend_then_drop()
+  sub view_then_drop()
     a = *User(name: String("eve"))
     u = ?a
     <a
@@ -1054,7 +1054,7 @@ test "r3-or-power-logger", '''
   3
 '''
   # The store channel: a logger whose context holds a String field.
-  # Today `m` stays lent because `log` is assumed to keep `msg` in `ctx`.
+  # Today `m` stays in use because `log` is assumed to keep `msg` in `ctx`.
   # Fixed only by `into` (stores default to nothing) or inference.
   obj Ctx
     name: ?String
@@ -1072,8 +1072,8 @@ test "r3-or-power-logger", '''
 
 fail "r3-or-power-parser scratch", "cannot change `p` while a read view of it is still in use"
   # Parser that views a token slice and also owns a scratch List[Tok].
-  # L0 alone keeps `p` lent after `next` (Parser can own a Tok itself,
-  # in `scratch`); `from @toks` frees it. Rust: `-> &'a Tok` in
+  # L0 alone keeps a view of `p` in use after `next` (Parser can own a Tok
+  # itself, in `scratch`); `from @toks` frees it. Rust: `-> &'a Tok` in
   # `impl<'a> Parser<'a>` accepts the twin.
   obj Tok
     kind: Int
@@ -1115,7 +1115,7 @@ fail "r3-or-power-table get free", "cannot change `q` while a read view of it is
   !q.add("X")
   print(v, q)
 
-test "r3-or-red-c2 wcap call twice lent", '''
+test "r3-or-red-c2 wcap call twice viewed", '''
   1 2
   3 4
   4
@@ -1195,7 +1195,7 @@ fail "r3-or-red-f1 fun reassign", "cannot reassign closure binding `g`; closure 
   r = call(?g, ?x, ?y)
   print(r.n)
 
-fail "r3-or-red-f2 fun lent var", "cannot assign to `y.n` while a read view of `y` is still in use"
+fail "r3-or-red-f2 fun viewed var", "cannot assign to `y.n` while a read view of `y` is still in use"
   # Must stay rejected once `left` says `from a` and `right` says `from b`:
   # a `?fun` local re-pointed in a branch holds the join of both.
   obj Item
@@ -1256,7 +1256,7 @@ fail "r3-or-red-r10 main local holder", "cannot change `b` while a read view of 
   !v.push(1)
   print(f(!v))
 
-fail "r3-or-red-r11 param selfloan", "cannot store in `a.r` a view of `a.own`: a value never holds a view of itself"
+fail "r3-or-red-r11 param self view", "cannot store in `a.r` a view of `a.own`: a value never holds a view of itself"
   obj Holder
     r: []Int
     own: List[Int]
@@ -1272,7 +1272,7 @@ fail "r3-or-red-r11 param selfloan", "cannot store in `a.r` a view of `a.own`: a
     !h.own.push(i)
   print(h.r[0])
 
-fail "r3-or-red-r12 param selfloan in body", "cannot store in `a.r` a view of `a.own`: a value never holds a view of itself"
+fail "r3-or-red-r12 param self view in body", "cannot store in `a.r` a view of `a.own`: a value never holds a view of itself"
   obj Holder
     r: []Int
     own: List[Int]
@@ -1337,8 +1337,8 @@ fail "r3-or-red-r5 param owner local", "cannot store a view of `b` in `a.r`: `a`
 fail "r3-or-red-r9 store readparam", "cannot change `c` while a read view of it is still in use"
   # TODAY: accepted, and RIG_SANITIZE=1 crashes (use of freed memory).
   # A view of write parameter `b` (or `c`) stored into write parameter
-  # `a` does not keep `b` lent inside the callee, so `!b.push` reallocs
-  # under the stored view. Base compiler (rig-base) accepts it too.
+  # `a` does not keep a view of `b` in use inside the callee, so `!b.push`
+  # reallocs under the stored view. Base compiler (rig-base) accepts it too.
   obj Holder
     r: []Int
 
@@ -1432,8 +1432,8 @@ test "r3-or-repoint-sound", '''
   2 2
 '''
   # Assigning a new write view to a `!T` local re-points it: the local
-  # then holds the new loan only, so the old place is free again (Core §6
-  # "View places"). A bare write view on the right is read as its value.
+  # then holds a view of the new place only, so the old place is free again (Core
+  # §6 "View places"). A bare write view on the right is read as its value.
 
   sub old_place_free()
     m = 1
@@ -1472,8 +1472,8 @@ test "r3-or-repoint-sound", '''
   # oracle: bare_value accept
 
 fail "r3-or-repoint-unsound", "cannot use `n` while a write view of it is still in use"
-  # Re-pointing a `!T` local hands it the new place's loan (Core §6), and
-  # a view taken of it before keeps the old place's.
+  # Re-pointing a `!T` local hands it a view of the new place (Core §6), and
+  # a view taken of it before keeps the old place in use.
 
   sub new_place_held()
     m = 1

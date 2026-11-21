@@ -13,8 +13,8 @@
 # objects' views, boxes, and shared and weak handles, their erasures, the copies they view, and
 # calls through them, the built-in Map and Set, by their methods'
 # signatures, values holding function values, which hold nothing,
-# closure literals lent to a call, closures holding values with `drop`
-# bodies, tasks and their write loans, sets of tasks and their waits,
+# closure literals passed to a call as views, closures holding values with `drop`
+# bodies, tasks and their write views, sets of tasks and their waits,
 # generic instances at tasks and sets of tasks, calls through an
 # actor's handle, and the arms of `task.select`, so each floor is what
 # it decides now. A value holding a Cell lives only

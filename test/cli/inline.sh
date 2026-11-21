@@ -219,7 +219,7 @@ out=$(rig run ensure.rig 2>&1) || fail "rig run ensure.rig: $out"
 expect_eq "$out" "9 2" "ensure.rig"
 
 # HashMap's `ensure` and `ensure_added` take the value's view from the
-# table's `ensure`, which lends it where its probe found or put the key,
+# table's `ensure`, which makes it where its probe found or put the key,
 # and `ensure_with` and `ensure_by` from `edit` when the key is there:
 # none makes a slot index and reads it back (`value_mut`) on the way to
 # a key it finds (docs/history/records/2026-10/hash-race/small-table.md).
@@ -263,11 +263,11 @@ bad = []
 for n in ['ensure', 'ensure_added']:
     body = '\n'.join(bodies.get(n, []))
     if 'self.t.ensure(' not in body or 'value_mut' in body:
-        bad.append(f'HashMap.{n} does not lend the value its table ensure finds')
+        bad.append(f'HashMap.{n} does not give a view of the value its table ensure finds')
 for n in ['ensure_with', 'ensure_by']:
     body = '\n'.join(bodies.get(n, []))
     if 'self.t.edit(' not in body:
-        bad.append(f'HashMap.{n} does not lend the value edit finds')
+        bad.append(f'HashMap.{n} does not give a view of the value edit finds')
 if bad:
     print('\n'.join(bad))
     sys.exit(1)

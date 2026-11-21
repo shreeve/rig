@@ -473,7 +473,7 @@ fail "detached prefix read", "7:6: a prefix `?` touches its operand: write `?n`"
   show(? n)
 
 fail "detached prefix type", "4:4: a prefix `*` touches its operand: write `*Cell`"
-  # In a type as in an expression, a handle or lend sigil touches the
+  # In a type as in an expression, a handle or view sigil touches the
   # type it applies to.
 
   x: * Cell[Int] = *Cell(0)
@@ -593,7 +593,7 @@ fail "drop self without parens", "6:8: a drop body takes self in parentheses: `d
     drop !@
       print(@fd)
 
-fail "drop statement lend", "11:1: this expression does nothing as a statement: `<?a` moves a view nowhere, and a view owns nothing to drop", "12:1: this expression does nothing as a statement: `<!a` moves a view nowhere, and a view owns nothing to drop", errors: 2
+fail "drop statement view", "11:1: this expression does nothing as a statement: `<?a` moves a view nowhere, and a view owns nothing to drop", "12:1: this expression does nothing as a statement: `<!a` moves a view nowhere, and a view owns nothing to drop", errors: 2
   # A statement `<?a` or `<!a` moves a view nowhere. A view owns nothing,
   # so the statement does nothing, and is rejected; `<a` drops `a`.
 
@@ -738,7 +738,7 @@ fail "fixed assign spacing", "5:2: `x=! y`: an operator has the same spacing on 
   print(x)
 
 fail "fixed assign touching operand", "6:3: `=!` needs a space after it: write `x =! y` for a fixed binding, or `x = !y` to make a write view of `y`"
-  # `x =!y` could be a fixed binding of `y` or the write lend `x = !y`;
+  # `x =!y` could be a fixed binding of `y` or the write view `x = !y`;
   # `=!` is one token, so the source does not say which, and it is
   # rejected.
 
@@ -752,7 +752,7 @@ test "fixed binding forms", '''
 '''
   # `x =! e` binds a fixed local, with or without a type, and `new x =! e`
   # shadows with one. `=!` lexes as one token only before a space, so
-  # `x =! !y` is a fixed binding of the write lend `!y`, and `x != y`
+  # `x =! !y` is a fixed binding of the write view `!y`, and `x != y`
   # compares.
 
   a =! 40
@@ -781,7 +781,7 @@ test "for bare", release: true, '''
   list 4
   read 4
   made 5
-  lent 8 3
+  view 8 3
   rest 10 -1
   name 10
   nested 12
@@ -840,7 +840,7 @@ test "for bare", release: true, '''
     break if hits > 100
     hits += 1
     break if hits > 7
-  print("lent", hits, (!c).next() ?? -1)
+  print("view", hits, (!c).next() ?? -1)
   for !c
     hits += 1
   print("rest", hits, (!c).next() ?? -1)
@@ -1018,7 +1018,7 @@ fail "for iterator signature", "31:10: cannot iterate over `Reads`: a `for` walk
 fail "for iterator source", "29:10: a `for` advances an iterator named by a name or a field path (`it`, `a.b`); bind `xs[0]` to a name first", "31:11: a `for` advances an iterator named by a name or a field path (`it`, `a.b`); bind `xs[1]` to a name first", "33:11: a `for` advances an iterator named by a name or a field path (`it`, `a.b`); bind `xs[0]` to a name first", "35:10: a `for` walks an iterator that is a place or a value made here; bind `mk().a` to a name first", "37:10: a `for` walks an iterator that is a place or a value made here; bind `p.a if c.lo > 0 else p.b` to a name first", "39:11: `for n in ?p.a` would only read an iterator, which `next` cannot advance; write `for n in !p.a` to advance it in place", "41:11: a `for` walks an iterator that is a place or a value made here; bind `mk().a` to a name first", "43:11: `!mk_count()` advances a place, and this is a value made here; write `for n in mk_count()`, which holds it for the loop", "45:8: an iterator has no index binding; keep a count in the loop: `for n in !c`", errors: 9
   # What a `for` over an iterator can walk: a name or a field path it
   # advances where it stands (written `!`), a value made there, or a place it takes with
-  # `<`. An element, a read lend, a part of a made value, a branching
+  # `<`. An element, a read view, a part of a made value, a branching
   # value, and `!` of a value made there cannot be advanced, and an
   # iterator has no index binding.
 
@@ -1063,7 +1063,7 @@ fail "for iterator source", "29:10: a `for` advances an iterator named by a name
   for n, i in c
     print(n, i)
 
-test "for lent made iterator", '''
+test "for viewed made iterator", '''
   4
   5
   40
@@ -1089,8 +1089,8 @@ test "for lent made iterator", '''
 '''
   # The `?` before a `for` loop's source that is a method call reaches the
   # call's self, as before any call (`?b.each()` is `(?b).each()`),
-  # and the loop holds the iterator the call makes, which keeps `b` lent
-  # to read for the loop. A method that writes its self is called
+  # and the loop holds the iterator the call makes, which keeps `b`
+  # read-only for the loop. A method that writes its self is called
   # with the `!` in parentheses, `(!b).drain()`, as any write call whose
   # value is used is.
 
@@ -4022,7 +4022,7 @@ test "read self sigil", '''
 
 fail "read self sigil on writer", "21:1: `bump` writes `self`: write `!c.bump()`", "22:7: `done` consumes `self`: write `<c.done()`; to make a view of the call's result, write `?(c.done())`", "23:6: `make` is called through its type or module and has no `self`; to make a view of the call's result, write `?(Counter.make())`"
   # `?p.m()` names a read self: a method that writes or consumes its
-  # self is called with `!` or `<`, and a call's result is lent
+  # self is called with `!` or `<`, and a call's result is viewed
   # with `?(p.m())`.
 
   obj Counter

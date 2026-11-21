@@ -12,7 +12,7 @@
 //! test (test/cli/agree.sh), so it stays small and syntactic.
 //!
 //! The forms: `(lit n)`, `(name x)`, `(move x)`, `(clone x)`, `(box e)`,
-//! `(lend read x)`, `(lend write x)`, `(assign x e)`, `(drop x)`,
+//! `(view read x)`, `(view write x)`, `(assign x e)`, `(drop x)`,
 //! `(add a b)`, `(out e)`, `(seq a b)`, `(let x e body)`.
 //!
 //! Left out, since λRig's meaning differs from Rig's there: a bare name
@@ -126,7 +126,7 @@ pub const Exporter = struct {
                 const operand = ir.get(e, .operand);
                 const k = try self.kindOf(operand);
                 if (!k.owner()) return self.outside("a view of a view");
-                try self.w(if (tag == .read) "(lend read " else "(lend write ");
+                try self.w(if (tag == .read) "(view read " else "(view write ");
                 try self.w(try self.name(operand));
                 try self.w(")");
                 return switch (k) {

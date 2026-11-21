@@ -180,7 +180,7 @@ fail "a Map of Maps of values with no clone has no clone", "has no clone"
 
 fail "a clone into a read view", "16:8: pass `v` instead: a clone into a read view is only read, then dropped", "21:6: pass `?w` instead: a clone into a read view is only read, then dropped", "22:7: pass `?s` instead: a clone into a read view is only read, then dropped", "24:8: call the method on `b` instead: a clone into a read self is only read, then dropped", "25:12: pass `?w` instead: a clone into a read view is only read, then dropped", errors: 5
   # A clone into a read view is made only to be read and dropped: the
-  # call lends the original.
+  # call views the original.
   obj B
     v: List[Int]
 
@@ -209,7 +209,7 @@ test "a clone into a read view kept apart", '''
   2 2
   [1, 1]
 '''
-  # Where the same call lends the original to write or moves it, the
+  # Where the same call makes a write view of the original or moves it, the
   # clone keeps the two views apart.
   obj B
     v: List[Int]
@@ -231,7 +231,7 @@ test "a clone into a read view kept apart", '''
 
 test "a clone ends a view before the call writes what it views", "2 60"
   # `oldest` views `@entries`; `+o.key` is made where it stands, so the
-  # view's last use is behind the write lend of `take` (Core §6).
+  # view's last use is behind the write view of `take` (Core §6).
   obj Entry
     ready: Bool
     touched: Int
@@ -261,7 +261,7 @@ test "a clone ends a view before the call writes what it views", "2 60"
   print(c.entries.len, c.bytes)
 
 fail "a view handed to a call that writes what it views", "7:5: cannot change `m` while a read view of it is still in use", "13:6: cannot change `m2` while a read view of it is still in use", errors: 2
-  # The view itself is lent while `take` writes `m`; and a clone ends
+  # The view itself stays in use while `take` writes `m`; and a clone ends
   # the view only where the view is not used after it.
   m: Map[String, Int] = Map()
   !m.put(String("a"), 1)
@@ -277,7 +277,7 @@ fail "a view handed to a call that writes what it views", "7:5: cannot change `m
   print(n2, e2.key)
 
 test "a clone into a read self ends a view before an argument writes", "2"
-  # `+e.value` is made before `!m` is lent, so it is no wasted clone.
+  # `+e.value` is made before a write view of `m` is made, so it is no wasted clone.
   obj Name
     s: String
 

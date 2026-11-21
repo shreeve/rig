@@ -83,7 +83,7 @@ test "results discard", '''
   print(s)
 
 fail "results discard nested drop", "26:4: cannot bind `s` while the result `_` discards views it", "27:4: cannot bind `s` while the result `_` discards views it", "28:4: cannot bind `s` while the result `_` discards views it"
-  # A discarded result keeps what it views lent to the statement's end
+  # A discarded result keeps what it views given to the statement's end
   # when its drop runs a `drop` body anywhere inside it: a field's, a
   # List's element's, or a shared handle's value's.
 
@@ -301,7 +301,7 @@ test "results views", '''
   hello!
 '''
   # A result that views carries the loans its own type can hold: the two
-  # views of `t` keep it lent to read while they are used, and then `t`
+  # views of `t` keep it read-only while they are used, and then `t`
   # may change.
 
   fun split(s: ?String, at: Int) -> (?String, ?String)
@@ -320,8 +320,8 @@ fail "results write and read", "`two` gives a write view and another result, `?I
     fun two(!@) -> (!Int, ?Int)
       return !@a, ?@a
 
-test "results write lend ends", "1 [0] 1"
-  # When no result holds a write view, the call's write lend ends as it
+test "results write view ends", "1 [0] 1"
+  # When no result holds a write view, the call's write view ends as it
   # returns: `v` may be read while `a` views it.
 
   fun grab(v: !List[Int]) -> ([]Int, Int)
@@ -332,8 +332,8 @@ test "results write lend ends", "1 [0] 1"
   a, n = grab(!v)
   print(v.len, a, n)
 
-fail "results write lend per call", "cannot reassign `y` while a write view of it is still in use", errors: 1
-  # While a result holds a write view, every write lend of the call lasts
+fail "results write view per call", "cannot reassign `y` while a write view of it is still in use", errors: 1
+  # While a result holds a write view, every write view of the call lasts
   # to the statement's end, as for a `!T` result: the first version
   # decides it per call, not per argument (SPEC "Several results").
 
@@ -347,9 +347,9 @@ fail "results write lend per call", "cannot reassign `y` while a write view of i
   w += y
   print(x, y)
 
-fail "results write lend read view", "cannot change `v` while a read view of it is still in use", errors: 1
-  # The write lend ends as the call returns, but what a result views stays
-  # lent to read: `v` may not be written while `a` lives.
+fail "results write view then read view", "cannot change `v` while a read view of it is still in use", errors: 1
+  # The write view ends as the call returns, but what a result views stays
+  # given as a read view: `v` may not be written while `a` lives.
 
   fun grab(v: !List[Int]) -> ([]Int, Int)
     !v.push(v.len)
@@ -365,7 +365,7 @@ test "results write view", '''
   true 4 11
 '''
   # One result may be a write view, beside results that hold none: `w`
-  # keeps the write loan on `c` while it lives, and `big` keeps nothing.
+  # keeps the write view on `c` while it lives, and `big` keeps nothing.
 
   obj Counter
     n: Int

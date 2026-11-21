@@ -1288,7 +1288,7 @@ test "copies-clone-capture-view-holder-after-use", '''
   !v.push(2)
   print(v.len)
 
-fail "copies-clone-capture-view-holder-loan", "cannot change `v` while a read view of it is still in use"
+fail "copies-clone-capture-view-holder-view", "cannot change `v` while a read view of it is still in use"
   obj S
     r: ?List[Int]
 

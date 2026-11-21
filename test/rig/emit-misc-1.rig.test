@@ -55,7 +55,7 @@ test "assign cell list target base held", '''
 '''
   # An element of a Cell's List is stored through the Cell its target's
   # path starts from, which runs after the value and before the index: a
-  # call there changes what the index then reads, and a lend of an element
+  # call there changes what the index then reads, and a view of an element
   # is found before an index call runs.
 
   obj B
@@ -1042,7 +1042,7 @@ test "cell holder generic vec sort", "1 2 3", release: true
 
 fail "cell in literal field", "11:7: `P(c: Cell(1))` makes a `P`, which holds a Cell, so it lives only behind a shared handle: write `*P(c: Cell(1))`", errors: 1
   # A Cell lives only behind a shared handle, so a constructor literal of a
-  # type that holds one cannot stand as a temporary lent to a call: the
+  # type that holds one cannot stand as a temporary given to a call: the
   # rule that a Cell lives only behind `*` rejects it.
 
   obj P
@@ -1053,13 +1053,13 @@ fail "cell in literal field", "11:7: `P(c: Cell(1))` makes a `P`, which holds a 
 
   bump(?P(c: Cell(1)))
 
-test "cell part lent in slot", '''
+test "cell part viewed in slot", '''
   42
   P(c: Cell(value: 1), n: 1) P(c: Cell(value: 1), n: 2)
   11
   402
 '''
-  # A field of a temporary that holds a shared Cell, lent to a call, is lent
+  # A field of a temporary that holds a shared Cell, given to a call, is viewed
   # where the statement's slot keeps the temporary: a Cell change through
   # the view is the temporary's own, and a view the call returns stays
   # good until the statement ends.
@@ -1100,7 +1100,7 @@ test "cell view branch places", release: true, '''
   5
 '''
   # A `!@` method changes a Cell through a part of a value that branches
-  # between lends of shared handles names hold: each leaf's value is reached
+  # between views of shared handles names hold: each leaf's value is reached
   # where it is, in debug and in an optimized build.
 
   obj N
@@ -2096,7 +2096,7 @@ test "guarded match element of read vec", '''
 '''
   # A guarded match reads its subject where it is: an element of a List a
   # read view reaches is read through a constant pointer, whether the
-  # subject is the element, a lend of it, or a field of it.
+  # subject is the element, a view of it, or a field of it.
 
   enum E
     a(n: Int)
@@ -2204,7 +2204,7 @@ test "handle reached through pointer", '''
   4
 '''
   # A handle reached through a pointer, a held self's address or the
-  # leaf a branch of lends takes, is dereferenced before its value is
+  # leaf a branch of views takes, is dereferenced before its value is
   # reached: a field, and a method whose arguments run first.
 
   obj Q
@@ -2224,13 +2224,13 @@ test "handle reached through pointer", '''
   print((?h1 if c else ?h2).n, (h1 if c else h2).n)
   print((?h1 if c else ?h2).get(k: g(1), j: g(2)))
 
-test "hoisted argument lent", '''
+test "hoisted argument viewed", '''
   g
   hello world, long enough to be on the heap
   g
   42
 '''
-  # An argument lent to a call whose arguments are evaluated first, as the
+  # An argument given to a call whose arguments are evaluated first, as the
   # view its parameter expects (a Text temporary as a `?String`, a Box as
   # the value it holds), is held as that view, never as the owner: the
   # statement's slot keeps and drops the owner.
@@ -2954,7 +2954,7 @@ test "inline owned params", release: true, '''
   drop b
 '''
   # An inlined function takes an owned argument, drops it, hands it back,
-  # and writes through a lend, as one that is called does: nothing leaks and
+  # and writes through a view, as one that is called does: nothing leaks and
   # nothing is dropped twice.
 
   obj Tag
@@ -3416,7 +3416,7 @@ test "marker inline large", release: true, '''
 '''
   # A function marked `inline` is inlined at every call whatever its size,
   # and means what it means as a call: it takes an owned argument and drops
-  # it, writes through a lend, holds a closure, and calls a `rarely`
+  # it, writes through a view, holds a closure, and calls a `rarely`
   # function, which stays a call. `mix` is over the size the compiler
   # inlines by itself (test/cli/markers.sh checks the Zig).
 

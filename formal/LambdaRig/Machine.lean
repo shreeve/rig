@@ -4,7 +4,7 @@
 Every place is a cell. A cell records the tags of the loans that are
 live on it: any number of read tags, or one write tag, never both
 (CORE sentence 5). The five ways to touch a cell below each keep that
-true, and `Cell.WF` states it; LambdaRig/Loans.lean proves it.
+true, and `Cell.WF` states it; LambdaRig/Views.lean proves it.
 -/
 import LambdaRig.Syntax
 
@@ -27,10 +27,10 @@ def Cell.WF (c : Cell) : Prop := c.write = none ∨ c.reads = []
 def Cell.fresh (v : Val) : Cell := { val := some v, reads := [], write := none }
 
 /-- `?x`: a new read loan ends any write loan. -/
-def Cell.lendRead (c : Cell) (t : Tag) : Cell := { c with write := none, reads := t :: c.reads }
+def Cell.readView (c : Cell) (t : Tag) : Cell := { c with write := none, reads := t :: c.reads }
 
 /-- `!x`: a new write loan ends every other loan. -/
-def Cell.lendWrite (c : Cell) (t : Tag) : Cell := { c with write := some t, reads := [] }
+def Cell.writeView (c : Cell) (t : Tag) : Cell := { c with write := some t, reads := [] }
 
 /-- The owner reads its own place: that ends a write loan, since a write
 view may no longer assume nothing else sees the value. -/

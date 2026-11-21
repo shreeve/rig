@@ -190,11 +190,11 @@ fail "cell holder no clone", "12:6: `+x` cannot clone a `Counter`: it is unique,
   all = [2 of h.c]
 
 fail "cell in temporary field", "13:13: a value of `Q` holds a Cell, so it lives only behind a shared handle: write `*Q`", "14:3: `Q(p: P(c: Cell(1)))` makes a `Q`, which holds a Cell, so it lives only behind a shared handle: write `*Q(p: P(c: Cell(1)))`", "19:7: `mk()` makes a `Q`, which holds a Cell, so it lives only behind a shared handle: write `*mk()`", errors: 3
-  # A Cell lives only behind a shared handle, so no temporary holds one: a
-  # call cannot return a value that holds a Cell to have a part of it
-  # lent. The rule that a Cell lives only behind `*` rejects the result
-  # type `Q`, the constructor that makes the value, and the temporary the
-  # call makes.
+  # A Cell lives only behind a shared handle, so no temporary holds one:
+  # a call cannot return a value that holds a Cell to have a part of it
+  # viewed. The rule that a Cell lives only behind `*` rejects the
+  # result type `Q`, the constructor that makes the value, and the
+  # temporary the call makes.
 
   obj P
     c: Cell[Int]
@@ -230,9 +230,9 @@ fail "cell made outside shared", "12:5: `Cell(0)` makes a `Cell[Int]`, which hol
 
 fail "cell moved self", "7:6: method `push` needs a write view of `self`, not a move", "9:10: method `pop` needs a write view of `self`, not a move", "11:6: method `clear` needs a write view of `self`, not a move", "13:6: method `set` needs a write view of `self`, not a move", "15:10: method `swap` needs a write view of `self`, not a move", errors: 5
   # A Cell's `set`, `replace`, and its List's `push`, `pop`, and `clear`
-  # take their self lent to write, as any `!@` method does, so a
+  # take their self as a write view, as any `!@` method does, so a
   # `*Cell` handle moved there with `<` is rejected: `<` would end the
-  # binding for a call that only lends it.
+  # binding for a call that only views it.
 
   c: *Cell[List[Int]] = *Cell(List[Int]())
   (<c).push(1)
@@ -422,8 +422,8 @@ fail "cell value field", "5:9: a Cell is read with `c.get()` and written with `!
   c.value = 8
 
 fail "cell vec element place", "9:6: cannot make a view of an element of a Cell's List", "10:1: an element of a Cell's List is written whole", "13:1: an element of a Cell's List is written whole", "14:4: cannot assign to `.len`; a length is read-only"
-  # An element of a Cell's List is a copy: it cannot be lent, and it is
-  # written whole with `c[i] = e`, not through a field or `+=`.
+  # An element of a Cell's List is a copy: it cannot be viewed, and it
+  # is written whole with `c[i] = e`, not through a field or `+=`.
 
   obj P
     x: Int

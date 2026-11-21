@@ -2702,7 +2702,7 @@ test "audit-ownership-e04 take through write loop elem", '''
   for b in ?v
     print(b.o == none)
 
-fail "audit-ownership-e05 take while field lent", "cannot change `h.o` while a read view of it is still in use"
+fail "audit-ownership-e05 take while field viewed", "cannot change `h.o` while a read view of it is still in use"
   obj Tok
     n: Int
 
@@ -2933,7 +2933,7 @@ fail "audit-ownership-f06 nested closure store", "`y` is dropped here, at the en
   f()
   print(vw.b.n)
 
-fail "audit-ownership-f07 lent closure stores", "`y` is dropped here, at the end of its scope, while a read view of it is still in use"
+fail "audit-ownership-f07 viewed closure stores", "`y` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj Tok
     n: Int
 
@@ -3109,7 +3109,7 @@ test "audit-ownership-f16 closure param stored into capture vec", '''
   f(*Tok(n: 2))
   print(keep.len)
 
-test "audit-ownership-f19 stack closure lent call returns", '''
+test "audit-ownership-f19 stack closure viewed call returns", '''
   drop 5
   6
 '''

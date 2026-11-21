@@ -219,9 +219,9 @@ test "ctfun enum value", '''
 
   print(Int(E.a), Int(E.b))
 
-test "ctfun lent array", 14
-  # A call is a value made where it is written, so `?` lends a temporary
-  # of it, as it lends one of an array literal.
+test "ctfun viewed array", 14
+  # A call is a value made where it is written, so `?` makes a view of a
+  # temporary of it, as it does for an array literal.
   fun squares[n: Int] -> [n]Int
     t = [n of 0]
     for i in 0..n
@@ -825,7 +825,7 @@ fail "ctfun scalar call assigned", "cannot assign to this expression", errors: 2
     cap[3] += 1
     print(cap[3])
 
-fail "ctfun write lent to a call", "a view of the temporary `sq[3]` outlives its statement", whole: true
+fail "ctfun write view given to a call", "a view of the temporary `sq[3]` outlives its statement", whole: true
   fun sq[n: Int] -> [n]Int
     [n of 1]
   sub main()

@@ -46,7 +46,7 @@ fail "review-syntax-b-2-c05 call ret write ok", "a view reached through `get(!h)
   !h.t.add("x")
   print(h.t)
 
-fail "review-syntax-b-2-c07 branch lends write", "a view reached through `!x if c else !y` outlives its statement, which holds `!x if c else !y`, itself a view, only while it runs; bind `!x if c else !y` to a name first"
+fail "review-syntax-b-2-c07 branch views write", "a view reached through `!x if c else !y` outlives its statement, which holds `!x if c else !y`, itself a view, only while it runs; bind `!x if c else !y` to a name first"
   fun keep(s: ?String) -> ?String
     s
 
@@ -89,7 +89,7 @@ fail "review-syntax-b-2-c12 writeview moved slice", "cannot move `w` while a rea
   t = String("hello")
   f(!t)
 
-fail "review-syntax-b-2-c13 writeview relend slice", "cannot change `w` while a read view of it is still in use"
+fail "review-syntax-b-2-c13 writeview view of a view slice", "cannot change `w` while a read view of it is still in use"
   fun keep(s: ?String) -> ?String
     s
 
@@ -295,7 +295,7 @@ fail "review-syntax-b-2-m02 match bang bound written", "cannot change `t` while 
       print(s)
     .b => print("b")
 
-fail "review-syntax-b-2-m03 match bang readlend", "cannot change `t` while a read view of it is still in use"
+fail "review-syntax-b-2-m03 match bang readview", "cannot change `t` while a read view of it is still in use"
   fun keep(s: ?String) -> ?String
     s
 

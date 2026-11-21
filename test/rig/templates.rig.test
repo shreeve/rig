@@ -280,14 +280,14 @@ fail "template view in a header binding", "a view of the temporary `k{n}=v` outl
   if text.cut(`k{n}=v`, "=") as kv
     print(kv.after)
 
-fail "template slot read and lent to write later", "cannot change `v` while an earlier argument's read of it is still in use"
+fail "template slot read and given a write view later", "cannot change `v` while an earlier argument's read of it is still in use"
   fun grow(v: !List[Int]) -> Int
     !v.push(1)
     v.len
   v: List[Int] = List()
   print(`{v} {grow(!v)}`)
 
-fail "template argument read and lent to write later", "cannot change `v` while an earlier argument's read of it is still in use"
+fail "template argument read and given a write view later", "cannot change `v` while an earlier argument's read of it is still in use"
   fun grow(v: !List[Int]) -> Int
     !v.push(1)
     v.len

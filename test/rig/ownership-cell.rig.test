@@ -93,10 +93,10 @@ test "cell holder temp array slice", '''
   1
   5
 '''
-  # An array literal lent as a `![]T` argument lives in a slot through the
-  # call; when its elements are handles to values that hold a Cell, the
-  # callee changes them there, and reads its own changes. (A `[]T` is a
-  # read view of its elements, which changes nothing.)
+  # An array literal given as a `![]T` argument lives in a slot through
+  # the call; when its elements are handles to values that hold a Cell,
+  # the callee changes them there, and reads its own changes. (A `[]T`
+  # is a read view of its elements, which changes nothing.)
 
   obj Counter
     hits: Cell[Int]
@@ -155,13 +155,13 @@ fail "cell holder whole value", "30:6: `swap` moves values whole, and `S` holds 
   bump(!w.h)
   print(o.a.n, w.h.n.get())
 
-test "cell mark lends the place to read", '''
+test "cell mark makes a read view of the place", '''
   2
   3
 '''
-  # `!c.set(5)` lends `c` to read (Core §4): the Cell is never replaced
-  # whole and every handle reaches it, so a view of `c` held across the
-  # mark sees the change, as a view of another handle does.
+  # `!c.set(5)` makes a read view of `c` (Core §4): the Cell is never
+  # replaced whole and every handle reaches it, so a view of `c` held
+  # across the mark sees the change, as a view of another handle does.
 
   c: *Cell[Int] = *Cell(1)
   d = +c
@@ -179,10 +179,10 @@ test "cell marked handle views", release: true, '''
   6 1
   3 12
 '''
-  # A marked call lends the handle, so a write view of a handle reaches the
-  # value it holds through every form that reaches a value through a
-  # handle: a method, a field, a branch, a header, a parameter lent on,
-  # and a result.
+  # A marked call makes a view of the handle, so a write view of a
+  # handle reaches the value it holds through every form that reaches a
+  # value through a handle: a method, a field, a branch, a header, a
+  # parameter passed on to, and a result.
 
   obj C
     hits: Cell[Int]
@@ -311,13 +311,13 @@ fail "cell store value holding view", "cannot store a view of `vw` in a `Cell`",
   park(+a)
   print("done")
 
-fail "cell temporary lent named leaf", "35:8: cannot make a view of `a if c else mkc()`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on", "37:8: cannot make a view of `mkh().e if c else mkh().d`: it may be `mkh().e`, a part of the temporary `mkh()`, which a view of the branching value would copy; put the sigil on", "39:14: cannot make a view of `r if c else mkr()`: it may be `r`, a value a name holds, which a view of the branching value would copy; put the sigil on", errors: 3
-  # A temporary lent to read lives in its statement's slot (Core §3). A
-  # branching value with a leaf a name holds, or a part of a temporary, is
-  # no temporary: lending it would copy that leaf into the slot, which
-  # forks a Cell the value holds (a type holding a Cell, or declared
-  # `unique`, is unique, Core §1), as it would duplicate an owner or a
-  # `*` handle. Each branch is lent instead (`?a if c else ?mkc()`).
+fail "cell temporary viewed named leaf", "35:8: cannot make a view of `a if c else mkc()`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on", "37:8: cannot make a view of `mkh().e if c else mkh().d`: it may be `mkh().e`, a part of the temporary `mkh()`, which a view of the branching value would copy; put the sigil on", "39:14: cannot make a view of `r if c else mkr()`: it may be `r`, a value a name holds, which a view of the branching value would copy; put the sigil on", errors: 3
+  # A temporary given as a read view lives in its statement's slot (Core §3).
+  # A branching value with a leaf a name holds, or a part of a temporary, is
+  # no temporary: viewing it would copy that leaf into the slot, which forks
+  # a Cell the value holds (a type holding a Cell, or declared `unique`, is
+  # unique, Core §1), as it would duplicate an owner or a `*` handle. A view
+  # is made of each branch instead (`?a if c else ?mkc()`).
 
   obj C
     c: Cell[Int]
@@ -354,9 +354,9 @@ fail "cell temporary lent named leaf", "35:8: cannot make a view of `a if c else
   print(a.c.get(), r.seed)
 
 fail "cell temporary view kept", "19:11: a view of the temporary `mkc()` outlives its statement", "20:11: a view of the temporary `mkc()` outlives its statement"
-  # A temporary handle to a value that holds a Cell, lent to read, lives in its statement's
-  # slot and is dropped when the statement ends (Core §3), so a view of it
-  # kept past the statement is rejected, as for any temporary.
+  # A temporary handle to a value that holds a Cell, given as a read view, lives
+  # in its statement's slot and is dropped when the statement ends (Core §3), so
+  # a view of it kept past the statement is rejected, as for any temporary.
   #
   # oracle: main reject C5
 
@@ -408,9 +408,9 @@ fail "cell vec push bare handle", "9:10: `a` is a `*N` handle, which can't be co
   !hs.push(a)
   print(hs.len, a.id)
 
-test "cell lend nested marked calls", "5 5 5 1 1"
-  # A marked call lends the place that holds the handle to read (Core
-  # §4), so a second marked call through it may run in the first's
+test "cell views nested marked calls", "5 5 5 1 1"
+  # A marked call makes a read view of the place that holds the handle
+  # (Core §4), so a second marked call through it may run in the first's
   # arguments, whether `c` is a `*Cell`, a `!*Cell`, or a `!Cell`, and a
   # Cell's List answers its members the same way.
 
@@ -429,7 +429,7 @@ test "cell lend nested marked calls", "5 5 5 1 1"
   !l.push((!l).pop() ?? 0)
   print(a.get(), through_handle(!b), through_view(!c), l.len, l[0])
 
-test "cell lend view across marked calls", '''
+test "cell views a view across marked calls", '''
   5 7 2
   4 2
 '''
@@ -459,9 +459,9 @@ test "cell lend view across marked calls", '''
   print(r.get(), s.get(), v.n.get())
   show(?h, !h.bump() - 2)
 
-test "cell lend a handle field of an owned object", "7 2"
-  # A handle a field of an owned object holds is lent to read by a
-  # marked call through it, so the object may be read meanwhile.
+test "cell views a handle field of an owned object", "7 2"
+  # A marked call through a handle held in a field of an owned object
+  # makes a read view of it, so the object may be read meanwhile.
 
   obj Box
     c: *Cell[Int]
@@ -473,9 +473,9 @@ test "cell lend a handle field of an owned object", "7 2"
   o = Box(c: *Cell(1), tag: 7)
   show(?o, !o.c.add(1))
 
-test "cell lend self nested", "2 6"
-  # Through a handle, or as `!@` inside a method, a value that holds a
-  # Cell is lent to read by each call.
+test "cell views self nested", "2 6"
+  # Through a handle, or as `!@` inside a method, each call makes a read
+  # view of a value that holds a Cell.
 
   obj Hits
     n: Cell[Int]
@@ -490,9 +490,9 @@ test "cell lend self nested", "2 6"
   a = (!h).bump((!h).bump(1))
   print(a, (!h).twice())
 
-test "cell lend a write view twice", "2 2 2"
-  # `!h` lending a `!Hits` or a `!Cell[Int]` lends `h` to read, so two
-  # of them may go to one call; so may two `!{Bump}` of one `*Hits`.
+test "cell views a write view twice", "2 2 2"
+  # `!h` passing on a `!Hits` or a `!Cell[Int]` makes a read view of `h`,
+  # so two of them may go to one call; so may two `!{Bump}` of one `*Hits`.
 
   api Bump
     sub bump(!@)
@@ -523,11 +523,11 @@ test "cell lend a write view twice", "2 2 2"
   both(!g, !g)
   print(h.n.get(), c.get(), g.n.get())
 
-test "cell lend a result that views self", '''
+test "cell views a result that views self", '''
   0
   1 home
 '''
-  # A result that views self keeps the read loan its call put on the
+  # A result that views self keeps the read view its call made of the
   # place, so the handle may be read while it lives.
 
   obj Page
@@ -551,9 +551,9 @@ test "cell lend a result that views self", '''
   !p.hit()
   print(p.hits.get() - 1, t)
 
-test "cell lend shared map ensure", "2 ten"
+test "cell views shared map ensure", "2 ten"
   # std.shared's `ensure` views a value the map never moves, and keeps a
-  # read loan, so the map takes more keys while the view lives.
+  # read view, so the map takes more keys while the view lives.
   use std.shared
 
   m = shared.Map[Int, String].new()
@@ -561,9 +561,9 @@ test "cell lend shared map ensure", "2 ten"
   _ = !m.put_new(2, String("twenty"))
   print(m.len(), r)
 
-fail "cell lend the handle itself twice", "cannot make a write view of the handle `h` while a write view of it is still in use", errors: 1
-  # `!h` lending the handle itself, a `!*Hits` the callee may point
-  # elsewhere, is a write loan.
+fail "cell views the handle itself twice", "cannot make a write view of the handle `h` while a write view of it is still in use", errors: 1
+  # `!h` viewing the handle itself, a `!*Hits` the callee may point
+  # elsewhere, is an ordinary write view.
 
   obj Hits
     n: Cell[Int]
@@ -574,8 +574,8 @@ fail "cell lend the handle itself twice", "cannot make a write view of the handl
   h = *Hits(n: Cell(0))
   both(!h, !h)
 
-fail "cell lend a write to the place in the arguments", "cannot make a write view of the handle `c` while a write view of it is still in use", "cannot change `cs` while a write view of it is still in use", "cannot move `c` while a write view of it is still in use", errors: 3
-  # The read loan begins before the call's arguments are evaluated, so
+fail "cell views a write to the place in the arguments", "cannot make a write view of the handle `c` while a write view of it is still in use", "cannot change `cs` while a write view of it is still in use", "cannot move `c` while a write view of it is still in use", errors: 3
+  # The read view begins before the call's arguments are evaluated, so
   # they may not point the handle elsewhere, grow what holds it, or move
   # it.
 
@@ -597,9 +597,9 @@ fail "cell lend a write to the place in the arguments", "cannot make a write vie
   _ = !cs[0].add(grow(!cs))
   _ = !c.add(gone(<c))
 
-fail "cell lend a result view, then rebind or drop", "cannot reassign `h` while a write view of it is still in use", "cannot drop `g` while a write view of it is still in use", errors: 2
-  # A read loan still keeps the place from being reassigned or dropped
-  # while the view it carries lives.
+fail "cell views a result view, then rebind or drop", "cannot reassign `h` while a write view of it is still in use", "cannot drop `g` while a write view of it is still in use", errors: 2
+  # A read view of the handle still keeps the place from being
+  # reassigned or dropped while a view carried from it lives.
 
   obj Hits
     n: Cell[Int]
@@ -616,10 +616,10 @@ fail "cell lend a result view, then rebind or drop", "cannot reassign `h` while 
   <g
   _ = !v.add(1)
 
-fail "cell lend an erased value twice", "cannot change `b` while a write view of it is still in use", "cannot change `s` while a write view of it is still in use", errors: 2
-  # Only the type where it is lent decides: an owned value lent as an
-  # API object, or an API object itself, is lent to write, whatever the
-  # value may hold.
+fail "cell views an erased value twice", "cannot change `b` while a write view of it is still in use", "cannot change `s` while a write view of it is still in use", errors: 2
+  # Only the type where it is passed decides: an owned value given as an
+  # API object, or an API object itself, takes a write view, whatever
+  # the value may hold.
 
   api Grow
     sub grow(!@)
@@ -640,9 +640,9 @@ fail "cell lend an erased value twice", "cannot change `b` while a write view of
   sub twice(s: !{Grow})
     both(!s, !s)
 
-fail "cell lend a type parameter twice", "cannot change `x` while a write view of it is still in use", errors: 1
-  # A value of a type parameter is lent to write, whatever an instance's
-  # type is.
+fail "cell views a type parameter twice", "cannot change `x` while a write view of it is still in use", errors: 1
+  # A value of a type parameter takes a write view, whatever an
+  # instance's type is.
 
   sub both[T](a: !T, b: !T)
     print(0)
@@ -653,7 +653,7 @@ fail "cell lend a type parameter twice", "cannot change `x` while a write view o
   c = *Cell(0)
   twice(!c)
 
-test "cell lend breaker ensure view across puts", "first-value-long-enough-for-heap 19999"
+test "cell views breaker ensure view across puts", "first-value-long-enough-for-heap 19999"
   # A view `ensure` gives lives across 20,000 puts through the same
   # handle, which grow the map: the map never moves a value (attack 1).
   use std.shared
@@ -665,7 +665,7 @@ test "cell lend breaker ensure view across puts", "first-value-long-enough-for-h
   _ = !m.ensure(1, String("second"))
   print(r, m.len())
 
-test "cell lend breaker nested write views", "8 8"
+test "cell views breaker nested write views", "8 8"
   # Two `!Hits` views of one object a handle holds, one passed into a
   # call through the other (attack 6).
   obj Hits
@@ -687,7 +687,7 @@ test "cell lend breaker nested write views", "8 8"
   y = !o.inner()
   print(!x.bump((!y).bump(1)), o.h.n.get())
 
-test "cell lend breaker handle field", "8 t 8"
+test "cell views breaker handle field", "8 t 8"
   # Calls through a handle field nest while views of the owner and of
   # the field live (attack 7).
   obj Hits
@@ -706,7 +706,7 @@ test "cell lend breaker handle field", "8 t 8"
   v = ?o.h
   print(!o.h.bump((!o.h).bump(1)), t, v.n.get())
 
-test "cell lend breaker channel of handles", "2"
+test "cell views breaker channel of handles", "2"
   # A view of a channel of handles lives across a send and a receive
   # (attack 9).
   ch = *Chan[*Cell[Int]](2)
@@ -719,7 +719,7 @@ test "cell lend breaker channel of handles", "2"
   _ = ?r
   print(c.get())
 
-test "cell lend breaker signal set from a subscriber", '''
+test "cell views breaker signal set from a subscriber", '''
   now 1
   now 2
   now 3
@@ -738,7 +738,7 @@ test "cell lend breaker signal set from a subscriber", '''
   !sig.set(1)
   print(r.get())
 
-test "cell lend breaker reentrant call through a weak handle", "9"
+test "cell views breaker reentrant call through a weak handle", "9"
   # A call that reenters through an upgraded weak handle, nested in a
   # call through the same place (attack 13).
   obj Node
@@ -768,7 +768,7 @@ test "cell lend breaker reentrant call through a weak handle", "9"
   !h.me.push(~h)
   print(!h.poke((!h).poke(3)))
 
-test "cell lend breaker a call drops another handle", '''
+test "cell views breaker a call drops another handle", '''
   released a handle, name still node-name-long-enough-heap
   node-name-long-enough-heap
 '''
@@ -803,7 +803,7 @@ test "cell lend breaker a call drops another handle", '''
   _ = !h.release()
   print(t)
 
-test "cell lend breaker compare and swap", "false 7 7"
+test "cell views breaker compare and swap", "false 7 7"
   # `compare_swap` and `swap` nest while a view of the Cell lives
   # (attack 12).
   c = *Cell(1)
@@ -811,9 +811,9 @@ test "cell lend breaker compare and swap", "false 7 7"
   ok = (!c).compare_swap(r.get(), (!c).swap(7) + 1)
   print(ok, r.get(), c.get())
 
-test "cell lend breaker generic object of a Cell", "b"
-  # A generic object whose field is a `Cell[T]` lends as any value that
-  # holds a Cell (attack 16).
+test "cell views breaker generic object of a Cell", "b"
+  # A generic object whose field is a `Cell[T]` takes views as any value
+  # that holds a Cell does (attack 16).
   obj Box2[T: Owned]
     c: Cell[T]
 
@@ -824,7 +824,7 @@ test "cell lend breaker generic object of a Cell", "b"
   x = !b.put((!b).put(String("b")))
   print(x)
 
-test "cell lend breaker swap of an owned value", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+test "cell views breaker swap of an owned value", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
   # Two `swap`s of a `Cell[String]` nest, each moving a String whole
   # (attack 12).
   c = *Cell(String("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
@@ -854,8 +854,8 @@ fail "cell swap of Cells", "`swap` moves values whole, and a `Cell[Int]` changes
   swap(!c, !d)
   print(c.get(), d.get())
 
-fail "cell lend an API object's handle", "expected `!{Grow}`, got `!*{Grow}`", errors: 2
-  # A `*{A}` only reads, as any handle: `!s` lends the handle itself,
+fail "cell views an API object's handle", "expected `!{Grow}`, got `!*{Grow}`", errors: 2
+  # A `*{A}` only reads, as any handle: `!s` views the handle itself,
   # never an `!{A}` of the value it holds, whatever that value is.
 
   api Grow

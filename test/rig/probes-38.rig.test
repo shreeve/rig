@@ -543,7 +543,7 @@ fail "seam3-review1-a10 vec of box push later", "cannot change `v` while a read 
   !v.push(2)
   print(bs[0].len)
 
-fail "seam3-review1-c01 closure lend box", "cannot change `v` while a read view of it is still in use"
+fail "seam3-review1-c01 closure view box", "cannot change `v` while a read view of it is still in use"
   v: List[Int] = List()
   !v.push(1)
   b = ^?v
@@ -567,7 +567,7 @@ fail "seam3-review1-c04 owned closure box", "an owned closure cannot capture `b`
   <v
   print(f())
 
-test "seam3-review1-c07 closure lend ok", '''
+test "seam3-review1-c07 closure view ok", '''
   1
   2
 '''

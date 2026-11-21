@@ -1033,7 +1033,7 @@ test "review258-p51 value pops", '''
   slot(!v, 0) = (!v).pop() ?? String("z")
   print(v)
 
-fail "review258-p52 value moves lent", "use of `v` after move"
+fail "review258-p52 value moves viewed", "use of `v` after move"
   fun slot(v: !List[Int], i: Int) -> !Int from v
     !v[i]
 

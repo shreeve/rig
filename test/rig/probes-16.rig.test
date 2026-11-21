@@ -175,9 +175,9 @@ test "rev220-cell-set", '''
   50
   42
 '''
-  # A marked call in an index of a Cell's List lends the place to read
-  # (Core §4): the index runs first, and the element is copied from the
-  # List the call put in.
+  # A marked call in an index of a Cell's List makes a read view of the
+  # place (Core §4): the index runs first, and the element is copied
+  # from the List the call put in.
   obj K
     c: Cell[List[Int]]
 
@@ -450,8 +450,8 @@ test "rev224-inline-views", '''
   0 3
   bag
 '''
-  # Review of #224: `inline` functions and methods that move, lend, and hand
-  # back views run as they do when called.
+  # Review of #224: `inline` functions and methods that move, view, and
+  # hand back views run as they do when called.
 
   obj Bag
     items: List[String]
@@ -632,7 +632,7 @@ test "rev227-empty-generic-field", "1 0 1 0"
       pub ?s: String = String()
 
 fail "rev227-ro-while", "cannot change `t.last`: field `last` of `lib.Tally` is read-only outside module `lib`, which declares it `pub ?last`"
-  # A while header that lends a read-only field to write is rejected.
+  # A while header that makes a write view of a read-only field is rejected.
 
   use lib
 

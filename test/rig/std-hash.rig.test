@@ -252,7 +252,7 @@ test "hash compound keys", '''
 
 test "hash ensure chain", "[5, 6] 1"
   # The write view `ensure` returns takes a write call in the same
-  # statement, with no `!` before self it already lends.
+  # statement, with no `!` before self it already views.
 
 
   b = Map[Int, List[Int]].new()
@@ -260,9 +260,9 @@ test "hash ensure chain", "[5, 6] 1"
   (!b).ensure(1, List()).push(6)
   print(b.get(1), b.len)
 
-fail "hash ensure keeps lent", "cannot use `m.len` while a write view of `m` is still in use"
-  # The write view `ensure` returns is `from @`: it keeps the Map lent
-  # to write, so the Map cannot be read or written while the view lives.
+fail "hash ensure keeps a view", "cannot use `m.len` while a write view of `m` is still in use"
+  # The write view `ensure` returns is `from @`: it keeps a view of the Map in use
+  # as a write view, so the Map cannot be read or written while the view lives.
 
 
   m = Map[Int, Int].new()
@@ -283,7 +283,7 @@ test "hash ensure with", '''
   ef ["ef!", "ef"]
   10 10 13 85
 '''
-  # `ensure_with` lends the value under a key to write, making it with
+  # `ensure_with` makes a write view of the value under a key, making it with
   # `make` only when the key is new: a `|!count|` capture counts the calls,
   # and a `|!added|` capture reports whether the key was new. Values that
   # own memory are made, kept, and dropped clean.
@@ -319,8 +319,8 @@ test "hash ensure with", '''
     k * k
 
 fail "hash ensure with no map", "cannot change `m` while a read view of it is still in use"
-  # `ensure_with` holds the Map lent to write while `make` runs, so `make`
-  # cannot capture the Map.
+  # `ensure_with` holds the Map given as a write view while `make` runs, so
+  # `make` cannot capture the Map.
 
 
   m = Map[Int, Int].new()
@@ -364,9 +364,9 @@ test "hash ensure by", '''
   if sq.get(3) as l
     print(sq.len, l)
 
-fail "hash ensure by view keys stay lent", "cannot change `buf` while a read view of it is still in use"
+fail "hash ensure by view keys stay viewed", "cannot change `buf` while a read view of it is still in use"
   # A Map of view keys keeps what `key` made from the viewed key, so the
-  # buffer stays lent while the Map is used.
+  # buffer stays in use while the Map is used.
 
   m = Map[?String, Int].new()
   buf = String("to")
@@ -383,8 +383,8 @@ bomb "hash ensure by key other than k", "Map: `ensure_by`'s `key(k)` made a key 
   (!m).ensure_by("a", |s| String("b"), 5) += 0
   print(m)
 
-fail "hash get keeps lent","cannot change `m` while a read view of it is still in use"
-  # The view `get` returns is `from @`: it keeps the Map lent to read,
+fail "hash get keeps a view","cannot change `m` while a read view of it is still in use"
+  # The view `get` returns is `from @`: it keeps the Map given as a read view,
   # so the Map cannot be written while the view lives.
 
 
@@ -394,7 +394,7 @@ fail "hash get keeps lent","cannot change `m` while a read view of it is still i
   print(r)
 
 fail "hash items then put", "cannot change `m` while a read view of it is still in use"
-  # The iterator `items` returns views the Map, which stays lent to read
+  # The iterator `items` returns views the Map, which stays read-only
   # while the loop walks it.
 
 
@@ -586,8 +586,8 @@ test "hash results", '''
   2 c 1
   after take c 1
 '''
-  # `Map.ensure_added` lends the value under a key to write, with whether
-  # the key was new; `Map.at` gives the entry at an index, in order.
+  # `Map.ensure_added` makes a write view of the value under a key, with
+  # whether the key was new; `Map.at` gives the entry at an index, in order.
 
   sub count(m: !Map[String, Int], word: ?String)
     w, added = (!m).ensure_added(String(word), 0)
@@ -611,8 +611,8 @@ test "hash results", '''
     print("below the start", k, v)
 
 fail "hash retain no map", "cannot change `m` while a read view of it is still in use"
-  # `retain` holds the Map lent to write while its closure runs, so the
-  # closure cannot capture the Map, to read it or to write it.
+  # `retain` holds the Map given as a write view while its closure runs, so
+  # the closure cannot capture the Map, to read it or to write it.
 
 
   m = Map[Int, Int].new()
@@ -705,9 +705,9 @@ test "hash writes", '''
   drop 11
   drop 1
 '''
-  # Map's writes beyond `put`: `ensure` lends the value under a key,
-  # putting one first when the key is new; `put_new` puts only a new key,
-  # so the first value wins; `edit` then `put` makes a value only for a
+  # Map's writes beyond `put`: `ensure` makes a write view of the value under
+  # a key, putting one first when the key is new; `put_new` puts only a new
+  # key, so the first value wins; `edit` then `put` makes a value only for a
   # new key; and `retain` keeps, in order, the entries a closure says to,
   # writing values as it goes and dropping each entry it rejects then.
 

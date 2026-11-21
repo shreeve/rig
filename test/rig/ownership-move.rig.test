@@ -402,7 +402,7 @@ test "move leaves source done", '''
 '''
   # `<` always leaves its source done. `<n` ends a local of any type, and
   # assigning it makes it usable again; `<s.o` and `<v[i]` of an optional
-  # take the value and leave `none`, also through a write lend; a field or
+  # take the value and leave `none`, also through a write view; a field or
   # element that copies is copied by a plain read, with no `<`. A
   # branching value moves each leaf where it is (`<a if c else <b`,
   # `(<o)?`), and `<` of a value made there takes it (`<(mk() if c else
@@ -638,7 +638,7 @@ fail "move part of made value", "44:3: cannot move a part out of the temporary `
     x = <mk().o?
     x
 
-  sub through_lend()
+  sub through_view()
     b = <gw(!mk()).o
     print(b)
 
@@ -654,7 +654,7 @@ fail "move part of made value", "44:3: cannot move a part out of the temporary `
   for_copying()
   print(generic(1))
   branch_leaves(true)
-  through_lend()
+  through_view()
   h = mkh()
   print(through_handle(~h))
   print(made_leaf_value(true).len, made_optional())
@@ -1014,10 +1014,10 @@ fail "move through branch or exit", "16:8: `<` here would copy `o` out without m
   z = <(s.b if c else R(n: 4))
   print(x, z, f(none), g(!s))
 
-fail "move through lend", "30:8: cannot move out of `p.items`: `p` is a view; exchange it instead: `old = swap(!p.items, v)`", "37:8: cannot move out of `(!s if c else !t).items`: it is reached through `!s if c else !t`, a view", "44:8: cannot move out of `(?s if c else ?t).items`: it is reached through `?s if c else ?t`, a view", "49:8: cannot move out of `wrap(!s).items`: it is reached through `wrap(!s)`, a view", "54:6: cannot move out of `ws.items`: `ws` is a view", "56:6: cannot move out of `rs.items`: `rs` is a view", "57:6: cannot move out of `rd(?mk(2)).items`: it is reached through `rd(?mk(2))`, a view", "61:6: cannot move out of `rv[0]`: `rv` is a view; exchange it instead: `old = swap(!rv[0], v)`", "63:6: cannot move out of `wv[0]`: `wv` is a view; exchange it instead: `old = swap(!wv[0], v)`", errors: 9
+fail "move through view", "30:8: cannot move out of `p.items`: `p` is a view; exchange it instead: `old = swap(!p.items, v)`", "37:8: cannot move out of `(!s if c else !t).items`: it is reached through `!s if c else !t`, a view", "44:8: cannot move out of `(?s if c else ?t).items`: it is reached through `?s if c else ?t`, a view", "49:8: cannot move out of `wrap(!s).items`: it is reached through `wrap(!s)`, a view", "54:6: cannot move out of `ws.items`: `ws` is a view", "56:6: cannot move out of `rs.items`: `rs` is a view", "57:6: cannot move out of `rd(?mk(2)).items`: it is reached through `rd(?mk(2))`, a view", "61:6: cannot move out of `rv[0]`: `rv` is a view; exchange it instead: `old = swap(!rv[0], v)`", "63:6: cannot move out of `wv[0]`: `wv` is a view; exchange it instead: `old = swap(!wv[0], v)`", errors: 9
   # A field or element path that reaches its place through a view, by the
   # type of a value on the path (`!S`, `?S`, a view a call returns, a
-  # branching value of lends), lets `<` move nothing out of it, as
+  # branching value of views), lets `<` move nothing out of it, as
   # `<v.items` through a view `v` does not: the part stays owned by the
   # value viewed, a name, a parameter's caller's value, or a temporary.
   # Exchange it instead.
@@ -1080,7 +1080,7 @@ fail "move through lend", "30:8: cannot move out of `p.items`: `p` is a view; ex
   u = <wv[0]
   print(x, y, z, w, u)
 
-fail "move through lent handle", "8:6: cannot move out of `h.items`: it is reached through a shared handle and other handles may still use it"
+fail "move through viewed handle", "8:6: cannot move out of `h.items`: it is reached through a shared handle and other handles may still use it"
   # A path through a shared handle reaches the handle's value, which other
   # handles may still use: nothing is moved out of it.
 
@@ -1123,7 +1123,7 @@ fail "move vec element", "12:6: cannot move out of `v[0]`: elements cannot be mo
   !v.push(*P(n: 7))
   eat(<v[0])
 
-fail "move view payload keeps loan", "22:11: cannot change `x` while a read view of it is still in use"
+fail "move view payload keeps view", "22:11: cannot change `x` while a read view of it is still in use"
   # A payload copied out of the matched value still views what it views:
   # `x` cannot be written while `k` is used.
 

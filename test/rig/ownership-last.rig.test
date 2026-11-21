@@ -1,13 +1,13 @@
 # ownership: tests whose names start `last`.
 #
-# A loan a statement takes ends at the last use of the value carrying it
+# A view a statement makes ends at the last use of the value carrying it
 # (Core sentence 6), in the order Core §6 gives: a binding's last use
 # within its statement, an operand or argument once its consumer is done
 # with it. Plain data read as a value is copied where it stands, through
-# a view too, and keeps nothing lent there. Each `bump` grows the List
+# a view too, and keeps nothing in use there. Each `bump` grows the List
 # past its capacity, so a wrong acceptance reads freed memory.
 
-test "last binding copied out before a write lend", "2"
+test "last binding copied out before a write view", "2"
   obj Item
     n: Int
 
@@ -17,7 +17,7 @@ test "last binding copied out before a write lend", "2"
   !v.push(Item(n: x.n))
   print(v.len)
 
-test "last binding copied out before a growing write lend", "65 1"
+test "last binding copied out before a growing write view", "65 1"
   obj Item
     n: Int
 
@@ -124,7 +124,7 @@ test "last write result's field before a read", "1 1"
   !v.push(Item(n: 1))
   print(firstw(!v).n, v.len)
 
-test "last read result's field before a write lend", "1 0"
+test "last read result's field before a write view", "1 0"
   obj Item
     n: Int
 
@@ -148,7 +148,7 @@ test "last write view of an array operand before a read", "true"
   w = !a
   print(w == a)
 
-test "last read view operand before a write lend", "true [9, 2, 3]"
+test "last read view operand before a write view", "true [9, 2, 3]"
   fun bump(a: ![3]Int) -> [3]Int
     a[0] = 9
     [1, 2, 3]
@@ -157,7 +157,7 @@ test "last read view operand before a write lend", "true [9, 2, 3]"
   r = ?a
   print(r == bump(!a), a)
 
-test "last read view of an Int operand before a write lend", "1 2"
+test "last read view of an Int operand before a write view", "1 2"
   fun bump(a: !Int) -> Int
     a += 1
     0
@@ -166,7 +166,7 @@ test "last read view of an Int operand before a write lend", "1 2"
   r = ?a
   print(r + bump(!a), a)
 
-test "last owning temporary read before a write lend", "2"
+test "last owning temporary read before a write view", "2"
   fun mk(v: ?List[Int]) -> List[?Int]
     out: List[?Int] = List()
     !out.push(?v[0])
@@ -220,7 +220,7 @@ test "last generic comparison then a store of a type parameter's value", "1 0"
   if mm.m.get(1) as left
     print(mm.m.len, left.len)
 
-# A view handed over stays lent until its consumer is done (Core §6).
+# A view handed over stays in use until its consumer is done (Core §6).
 
 fail "last earlier argument's view while a later one writes", "cannot change `v` while a read view of it is still in use"
   fun first(v: ?List[Int]) -> ?Int
@@ -342,7 +342,7 @@ fail "last hoisted argument read after a later one writes", "cannot change `v` w
 
   run() catch print("failed")
 
-fail "last argument beside a lent closure read after a later one writes", "cannot change `v` while a read view of it is still in use"
+fail "last argument beside a viewed closure read after a later one writes", "cannot change `v` while a read view of it is still in use"
   obj Item
     n: Int
 
@@ -421,7 +421,7 @@ fail "last for over a view binding whose body writes", "cannot change `v` while 
       !v.push(Item(n: k))
   print(v.len)
 
-fail "last for over a lend whose body writes", "cannot change `v` while a read view of it is still in use"
+fail "last for over a view whose body writes", "cannot change `v` while a read view of it is still in use"
   obj Item
     n: Int
 

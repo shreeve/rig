@@ -233,7 +233,7 @@ fail "review-step3-m07 held ifas res", "a view of the temporary `mk(1)` outlives
     saved = r
   print(saved.n)
 
-fail "review-step3-m10 held base loans", "cannot drop `x` while a read view of it is still in use"
+fail "review-step3-m10 held base views", "cannot drop `x` while a read view of it is still in use"
   obj Res
     n: Int
     t: String
@@ -255,7 +255,7 @@ fail "review-step3-m10 held base loans", "cannot drop `x` while a read view of i
       print(r.n)
     .b => pass
 
-fail "review-step3-m11 held base loans2", "cannot reassign `x` while a read view of it is still in use"
+fail "review-step3-m11 held base views2", "cannot reassign `x` while a read view of it is still in use"
   obj Res
     n: Int
     t: String
@@ -277,7 +277,7 @@ fail "review-step3-m11 held base loans2", "cannot reassign `x` while a read view
       print(r.n)
     .b => pass
 
-fail "review-step3-m12 held base loans ifas", "cannot drop `x` while a read view of it is still in use"
+fail "review-step3-m12 held base views ifas", "cannot drop `x` while a read view of it is still in use"
   obj Res
     n: Int
     t: String
@@ -772,7 +772,7 @@ test "review-step3-r2-g17 generic concrete payload", '''
   print(clobber(1000))
   print(x.n, x.t)
 
-test "review-step3-r2-g18 write guard lend", '''
+test "review-step3-r2-g18 write guard view", '''
   .a(r: Res(n: 50, t: "x"))
   .a(r: Res(n: 70, t: "x"))
 '''
@@ -824,7 +824,7 @@ fail "review-step3-r2-gen03 payload box", "cannot drop `o` while a read view of 
   <o
   print(x.n)
 
-test "review-step3-r2-i10 ifas lend escape", '''
+test "review-step3-r2-i10 ifas view escape", '''
   1001
   4 four 4 four
 '''
@@ -1042,7 +1042,7 @@ fail "review-step3-t03 for views temp", "a view of the temporary `mk()` outlives
   for x in first(?mk())
     print(x)
 
-fail "review-step3-t04 ifas lends temp", "a view of the temporary `mkres(1)` outlives its statement, which drops it; bind the value to a name first"
+fail "review-step3-t04 ifas views temp", "a view of the temporary `mkres(1)` outlives its statement, which drops it; bind the value to a name first"
   obj Res
     n: Int
     t: String
@@ -1373,7 +1373,7 @@ fail "review-step45-a07 take elem nonopt", "cannot move out of `v[0]`: elements 
   t = <v[0]
   print(t, v)
 
-fail "review-step45-a09 clear while lent", "cannot change `v` while a read view of it is still in use"
+fail "review-step45-a09 clear while viewed", "cannot change `v` while a read view of it is still in use"
   # clear while an element view is live
   v: List[List[Int]] = List()
   r: List[Int] = List()

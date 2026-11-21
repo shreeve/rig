@@ -452,16 +452,16 @@ test "hashmap keys of every kind", '''
 
 test "hashmap ensure chain", "[5, 6] 1"
   # The write view `ensure` returns takes a write call in the same
-  # statement, with no `!` before self it already lends.
+  # statement, with no `!` before self it already views.
 
   b = HashMap[Int, List[Int]].new()
   (!b).ensure(1, List()).push(5)
   (!b).ensure(1, List()).push(6)
   print(b.get(1), b.len)
 
-fail "hashmap ensure keeps lent", "cannot use `m.len` while a write view of `m` is still in use"
-  # The write view `ensure` returns is `from @`: it keeps the HashMap lent
-  # to write, so it cannot be read or written while the view lives.
+fail "hashmap ensure keeps a view", "cannot use `m.len` while a write view of `m` is still in use"
+  # The write view `ensure` returns is `from @`: it keeps the HashMap
+  # unusable, so it cannot be read or written while the view lives.
 
   m = HashMap[Int, Int].new()
   c = (!m).ensure(1, 0)
@@ -479,7 +479,7 @@ test "hashmap ensure with", '''
   ["ab!", "ab", "ab", "ab"] ["cd!", "cd", "cd"] ["ef!", "ef"]
   10 10 13 85
 '''
-  # `ensure_with` lends the value under a key to write, making it with
+  # `ensure_with` makes a write view of the value under a key, making it with
   # `make` only when the key is new. Values that own memory are made,
   # kept, and dropped clean.
 
@@ -512,7 +512,7 @@ test "hashmap ensure with", '''
     k * k
 
 fail "hashmap ensure with no map", "cannot change `m` while a read view of it is still in use"
-  # `ensure_with` holds the HashMap lent to write while `make` runs, so
+  # `ensure_with` holds a write view of the HashMap while `make` runs, so
   # `make` cannot capture it.
 
   m = HashMap[Int, Int].new()
@@ -553,9 +553,9 @@ test "hashmap ensure by", '''
   if sq.get(3) as l
     print(sq.len, l)
 
-fail "hashmap ensure by view keys stay lent", "cannot change `buf` while a read view of it is still in use"
+fail "hashmap ensure by view keys stay viewed", "cannot change `buf` while a read view of it is still in use"
   # A HashMap of view keys keeps what `key` made from the viewed key, so
-  # the buffer stays lent while the HashMap is used.
+  # a view of the buffer stays in use while the HashMap is used.
 
   m = HashMap[?String, Int].new()
   buf = String("to")
@@ -572,9 +572,9 @@ bomb "hashmap ensure by key other than k", "HashMap: `ensure_by`'s `key(k)` made
   (!m).ensure_by("a", |s| String("b"), 5) += 0
   print(m)
 
-fail "hashmap get keeps lent", "cannot change `m` while a read view of it is still in use"
-  # The view `get` returns is `from @`: it keeps the HashMap lent to
-  # read, so it cannot be written while the view lives.
+fail "hashmap get keeps a view", "cannot change `m` while a read view of it is still in use"
+  # The view `get` returns is `from @`: it keeps the HashMap
+  # read-only, so it cannot be written while the view lives.
 
   m = HashMap[String, Int].new()
   r = ?m.get("a")
@@ -582,8 +582,8 @@ fail "hashmap get keeps lent", "cannot change `m` while a read view of it is sti
   print(r)
 
 fail "hashmap items then put", "cannot change `m` while a read view of it is still in use"
-  # The iterator `items` returns views the HashMap, which stays lent to
-  # read while the loop walks it.
+  # The iterator `items` returns views the HashMap, which stays
+  # read-only while the loop walks it.
 
   m = HashMap[String, Int].new()
   !m.put(String("a"), 1)
@@ -591,14 +591,14 @@ fail "hashmap items then put", "cannot change `m` while a read view of it is sti
     !m.put(String("c"), 2)
 
 fail "hashmap keys then take", "cannot change `s` while a read view of it is still in use"
-  # A HashSet's walk keeps it lent to read too.
+  # A HashSet's walk keeps it read-only too.
 
   s = HashSet[Int].new()
   _ = (!s).add(1)
   for k in ?s.items()
     _ = (!s).take(k)
 
-fail "hashmap value view keeps its loan", "cannot drop `t` while a read view of it is still in use"
+fail "hashmap value view keeps its view", "cannot drop `t` while a read view of it is still in use"
   # A value that views text, taken out of a HashMap, still views it.
 
   t = String("x")
@@ -791,7 +791,7 @@ test "hashmap results", '''
   new c
   3 1 3
 '''
-  # `HashMap.ensure_added` lends the value under a key to write, with
+  # `HashMap.ensure_added` makes a write view of the value under a key, with
   # whether the key was new.
 
   sub count(m: !HashMap[String, Int], word: ?String)
@@ -805,7 +805,7 @@ test "hashmap results", '''
   print(m.get("a") ?? 0, m.get("b") ?? 0, m.len)
 
 fail "hashmap retain no map", "cannot change `m` while a read view of it is still in use"
-  # `retain` holds the HashMap lent to write while its closure runs, so
+  # `retain` holds a write view of the HashMap while its closure runs, so
   # the closure cannot capture it.
 
   m = HashMap[Int, Int].new()
@@ -872,10 +872,10 @@ test "hashmap writes", '''
   16 false true [1, 2, 3, 4, 6, 7, 8, 9, 11, 12, 13, 14, 16, 17, 18, 19]
   end
 '''
-  # HashMap's writes beyond `put`: `ensure` lends the value under a key,
-  # putting one first when the key is new; `put_new` puts only a new key,
-  # so the first value wins; `edit` then `put` makes a value only for a
-  # new key; and `retain` keeps the entries a closure says to, writing
+  # HashMap's writes beyond `put`: `ensure` makes a write view of the value
+  # under a key, putting one first when the key is new; `put_new` puts only
+  # a new key, so the first value wins; `edit` then `put` makes a value only
+  # for a new key; and `retain` keeps the entries a closure says to, writing
   # values as it goes and dropping each entry it rejects then.
 
   obj Res

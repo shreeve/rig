@@ -920,7 +920,7 @@ test "enum text builtin", '''
 fail "enum text rules", "11:3: `from_text` is built into every plain enum", "13:7: `text` is built into every plain enum: `e.text` is the name of `e`'s variant; give the method another name", "19:7: `from_text` is built into every plain enum", "27:9: `.text` is the name of a plain enum's variant; `Shape` has variants with payloads", "27:21: `from_text` gives a plain enum's variant by its name; `Shape` has variants with payloads, which a name cannot build", "29:3: cannot assign to `.text`; a variant's name is read-only", "30:9: no method `text` on type `Mode`; a variant's name is a member, read without a call: `m.text`", "30:22: `Mode.from_text(word)` takes its argument by position", "30:50: `Mode.from_text(word)` takes one argument, a `?String`; got 2", "30:86: type mismatch: expected `?String`, got `Int`", "32:5: `m.text` is a variant's name, a `Static`, not a part of the value to view; pass it as it is: `m.text`", "33:9: `.text` is the name of a plain enum's variant; `Tag[Int]` is generic", "33:24: `from_text` gives a plain enum's variant by its name; `Tag` is generic", errors: 13
   # `.text` and `from_text` are a plain enum's: a payload or generic enum
   # has neither, a plain enum declares no member that clashes with them,
-  # and a variant's name is read as it is, never written or lent.
+  # and a variant's name is read as it is, never written or viewed.
 
   enum Shape
     dot

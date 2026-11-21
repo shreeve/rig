@@ -1,11 +1,11 @@
 /-
-λRig: loans lent to a task, held for its whole life.
+λRig: views given to a task, held for its whole life.
 
-`t = g(?y)&` lends `y` to a task, which runs beside the statements that
+`t = g(?y)&` gives a task a view of `y`; the task runs beside the statements that
 follow it in `t`'s scope and is waited for where that scope ends
-(docs/design/concurrency.md, "Loans and structure": "A task keeps the
-loans of its arguments until it ends: `score(?d)&` lends `d` to read for
-the task's whole life"; "A task's drop uses its loans ... `Task` counts
+(docs/design/concurrency.md, "Views and structure": "A task keeps the
+views of its arguments until it ends: `score(?d)&` makes a read view of
+`d` for the task's whole life"; "A task's drop uses its views ... `Task` counts
 as having one"; "Dropping a set cancels every task first, then waits for
 them all"). What the task does with its view, it may do at any moment
 between the spawn and the wait, any number of times, or never, if it is
@@ -37,7 +37,7 @@ namespace LambdaRig
 
 /-! ## A task beside its scope -/
 
-/-- What a task does with the view it was lent, each time it runs: it
+/-- What a task does with the view it was given, each time it runs: it
 reads through a read view (`print(t)`) and writes through a write view
 (`t = t + 1`). -/
 def act : Mode → Var → Expr
@@ -60,15 +60,15 @@ def weave (a : Expr) : List Expr → (Nat → Bool) → Expr
 /-- `t = g(?y)&` (or `g(!y)&`), then the statements `ss`, the rest of
 `t`'s scope, where the task is waited for: the program the checker
 reads, with the task's action after the last statement, since its drop
-uses its loan (concurrency.md, "Loans and structure", rule 1). The
+uses its loan (concurrency.md, "Views and structure", rule 1). The
 statements do not name the task's view: the handle `t` is not a view. -/
 def spawn (t : Var) (m : Mode) (y : Var) (ss : List Expr) : Expr :=
-  .letIn t (.lend m y) (seqs ss (.seq (act m t) (.lit 0)))
+  .letIn t (.view m y) (seqs ss (.seq (act m t) (.lit 0)))
 
 /-- The same task, run at the moments `runs` picks: any number of
 times, at any statement, or never. -/
 def spawnAt (t : Var) (m : Mode) (y : Var) (ss : List Expr) (runs : Nat → Bool) : Expr :=
-  .letIn t (.lend m y) (weave (act m t) ss runs)
+  .letIn t (.view m y) (weave (act m t) ss runs)
 
 theorem fv_seqs (ss : List Expr) (fin : Expr) (v : Var) :
     v ∈ fv (seqs ss fin) ↔ (∃ s ∈ ss, v ∈ fv s) ∨ v ∈ fv fin := by
@@ -166,12 +166,12 @@ theorem check_letIn_eq (Γ : Ctx) (M L : List Var) (x : Var) (e body : Expr) :
       guard ((Γ.lookup x).isNone && !M.contains x)
       let (τe, moved) ← check Γ M ((fv body).filter (· ≠ x) ++ L) e
       let (τ, moved) ← check ((x, τe) :: Γ) moved L body
-      guard (!τ.lentFrom x)
+      guard (!τ.isViewOf x)
       some (τ, moved.filter (· ≠ x))) := by
   simp only [check]
 
 /-- A write view's write through `y` is allowed beside a task holding
-`!y` when no other view of `y` is used: the task's lend checked that. -/
+`!y` when no other view of `y` is used: the task's `!y` checked that. -/
 theorem allows_through_task {Γ : Ctx} {y t : Var} {L0 Ls : List Var}
     (hw : allows Γ y .write Ls = true) (ht : Γ.lookup t = none)
     (hL : ∀ v ∈ L0, v = t ∨ v ∈ Ls) :
@@ -214,8 +214,8 @@ accepts `t = g(?y)&` or `t = g(!y)&`, waited for where its scope ends,
 it accepts the task run at any moments `runs` picks, with the same type
 and moves. So no statement beside the task ends its loan: none writes,
 moves, or drops `y` while a task reads it, and none touches `y` while a
-task writes it (concurrency.md, "Loans and structure": "A task keeps
-the loans of its arguments until it ends"). -/
+task writes it (concurrency.md, "Views and structure": "A task keeps
+the views of its arguments until it ends"). -/
 theorem spawn_any_moment {Γ : Ctx} {M L : List Var} {t : Var} {m : Mode} {y : Var}
     {ss : List Expr} {r : Ty × List Var} (ht : ∀ s ∈ ss, t ∉ fv s)
     (h : check Γ M L (spawn t m y ss) = some r) (runs : Nat → Bool) :
@@ -255,10 +255,10 @@ theorem spawn_any_moment {Γ : Ctx} {M L : List Var} {t : Var} {m : Mode} {y : V
     have hyt : y ≠ t := by rintro rfl; rw [htΓ] at hy; cases hy
     have hw := weave_check (Γ := (t, .view m y) :: Γ) (L := L) (a := act m t) (t := t)
       (P := fun v => v = t ∨ v ∈ Ls) ?_ ss runs (fun v hv => ?_) ht htM hb
-    · rw [check_mono (.lend m y) hl hsub]
+    · rw [check_mono (.view m y) hl hsub]
       simp [hw]
       refine ⟨⟨fun a b hab hta => not_mem_of_lookup_none (b := b) htΓ (by subst hta; exact hab), htM⟩, ?_⟩
-      cases h' : τb.lentFrom t
+      cases h' : τb.isViewOf t
       · rfl
       · simp [h', guard] at hlt
     · intro M0 L0 htM0 hL0
@@ -344,7 +344,7 @@ theorem owner_task_runs {y t : Var} {e : Expr} {m : Mode} {ss : List Expr}
 
 /-! ### Examples -/
 
-namespace TaskLoans
+namespace TaskViews
 open Expr
 
 /-- At every moment. -/
@@ -352,12 +352,12 @@ def always : Nat → Bool := fun _ => true
 
 /-- `y = ^1`, `t = show(?y)&`, `print(?y)`: the owner reads beside a task
 that reads. -/
-def readBeside : Expr := letIn "y" (box (lit 1)) (spawn "t" .read "y" [out (lend .read "y")])
+def readBeside : Expr := letIn "y" (box (lit 1)) (spawn "t" .read "y" [out (view .read "y")])
 
 #guard accepts readBeside
 
 /-- info: LambdaRig.Outcome.ok [1, 1, 1] -/
-#guard_msgs in #eval run (letIn "y" (box (lit 1)) (spawnAt "t" .read "y" [out (lend .read "y")] always))
+#guard_msgs in #eval run (letIn "y" (box (lit 1)) (spawnAt "t" .read "y" [out (view .read "y")] always))
 
 /-- Rejected: `y = 1`, `t = show(?y)&`, `y = 5`: the owner writes while
 the task reads. -/
@@ -394,6 +394,6 @@ def readWhileWrite : Expr := letIn "y" (lit 1) (spawn "t" .write "y" [out (name 
 /-- info: LambdaRig.Outcome.fault (LambdaRig.Fault.deadTag 1) -/
 #guard_msgs in #eval run readWhileWrite
 
-end TaskLoans
+end TaskViews
 
 end LambdaRig

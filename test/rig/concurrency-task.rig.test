@@ -20,11 +20,11 @@ test "task wait", seeds: 20, '''
   u = total(?xs)&
   print(>t, >u)
 
-test "task read loan ends at wait", seeds: 20, '''
+test "task read view ends at wait", seeds: 20, '''
   1
 '''
   # A task keeps its loans until it is waited for; then `xs` can be
-  # lent to write again.
+  # viewed to write again.
   fun total(xs: ?List[Int]) -> Int
     xs.len
 
@@ -34,11 +34,11 @@ test "task read loan ends at wait", seeds: 20, '''
   !xs.push(n)
   print(xs.len)
 
-test "task write loan", seeds: 20, release: true, '''
+test "task write view", seeds: 20, release: true, '''
   3
   3 4
 '''
-  # A task lent to write runs where it is bound, and is waited for there.
+  # A task given as a write view runs where it is bound, and is waited for there.
   sub fill(xs: !List[Int], n: Int)
     for i in 0..n
       !xs.push(i)
@@ -60,7 +60,7 @@ test "task methods", seeds: 20, '''
   3
   n is 3
 '''
-  # A method runs as a task with its self lent as the method takes
+  # A method runs as a task with its self viewed as the method takes
   # it: `(!c).bump(2)&` to write, `?c.get()&` to read, `(<c).into()&`
   # moved in.
   obj Counter
@@ -92,9 +92,9 @@ test "task methods through a handle", seeds: 20, '''
   5
 '''
   # A method task through a shared handle reaches the method through the
-  # handle as a plain call does: `(!h).bump()&` lends the shared value to
-  # write, `?h.peek()&` to read. An actor's method task is the contrast:
-  # the call goes to the actor's own task.
+  # handle as a plain call does: `(!h).bump()&` makes a write view of the
+  # shared value, `?h.peek()&` a read view. An actor's method task is the
+  # contrast: the call goes to the actor's own task.
   obj Hits
     n: Cell[Int]
 
@@ -329,7 +329,7 @@ test "task methods through a handle give views", seeds: 20, '''
   one
 '''
   # A method task through a handle may give a view of the shared value,
-  # which keeps the handle lent while it lives.
+  # which keeps a view of the handle in use while it lives.
   use std.shared
 
   obj Hits
@@ -347,7 +347,7 @@ test "task methods through a handle give views", seeds: 20, '''
   u = (!m).ensure(1, String("one"))&
   print(>u)
 
-fail "task methods through a handle keep it lent", "cannot drop `h` while a write view of it is still in use", "cannot reassign `g` while a write view of it is still in use", "cannot drop `k` while a write view of it is still in use", errors: 3
+fail "task methods through a handle keep it viewed", "cannot drop `h` while a write view of it is still in use", "cannot reassign `g` while a write view of it is still in use", "cannot drop `k` while a write view of it is still in use", errors: 3
   obj Hits
     n: Cell[Int]
     title: String
@@ -531,8 +531,8 @@ test "task local", seeds: 20, '''
   3
   5050
 '''
-  # A task given or lent a value that stays on one thread (a `*` handle
-  # whose count is not atomic, anywhere inside what it is passed) is
+  # A task given a value, or a view of one, that stays on one thread (a `*`
+  # handle whose count is not atomic, anywhere inside what it is passed) is
   # local: it and the task making it run on one thread from then on
   # (docs/design/concurrency.md, "Local tasks").
   obj Node
@@ -589,9 +589,9 @@ test "task local signal", seeds: 20, '''
   >u
   print(sig.get())
 
-fail "task local task lent", "`?a` is passed to a task as a read view: `?Task[Int]` views a task, which only the one that holds it may wait for", errors: 1
-  # A task moves to another task, but is never lent: only the one that
-  # holds it may wait for it, even on one thread.
+fail "task local task viewed", "`?a` is passed to a task as a read view: `?Task[Int]` views a task, which only the one that holds it may wait for", errors: 1
+  # A task moves to another task, but is never given as a view: only the one
+  # that holds it may wait for it, even on one thread.
   fun one() -> Int
     1
 
@@ -614,9 +614,9 @@ fail "task local tasks given", "`!ts` is passed to a task as a write view: `!Tas
   t = more(!ts)&
   >t
 
-fail "task local function lent", "`?f` is passed to a task as a read view: `?fun(Int) -> Int` views a closure or function passed to a call as a view, whose captures its type does not show", errors: 1
-  # A function lent to read could lend what it captures to write, which
-  # no two tasks may hold at once, even on one thread.
+fail "task local function viewed", "`?f` is passed to a task as a read view: `?fun(Int) -> Int` views a closure or function passed to a call as a view, whose captures its type does not show", errors: 1
+  # A function given as a read view could make a write view of what it
+  # captures, which no two tasks may hold at once, even on one thread.
   fun call(f: ?fun(Int) -> Int) -> Int
     f(1)
 
@@ -624,8 +624,8 @@ fail "task local function lent", "`?f` is passed to a task as a read view: `?fun
   t = call(?f)&
   print(>t)
 
-fail "task closure literal lent", "10:14: this closure is passed to a task as a read view: `?fun(Int) -> Int` views a closure or function passed to a call as a view, whose captures its type does not show", errors: 1
-  # A closure literal written in the call is lent to it, as `?f` is: its
+fail "task closure literal viewed", "10:14: this closure is passed to a task as a read view: `?fun(Int) -> Int` views a closure or function passed to a call as a view, whose captures its type does not show", errors: 1
+  # A closure literal written in the call is given to it, as `?f` is: its
   # captures live in the caller's block, which ends before the task does.
   fun apply(n: Int, f: ?fun(Int) -> Int) -> Int
     s = 0
@@ -638,8 +638,8 @@ fail "task closure literal lent", "10:14: this closure is passed to a task as a 
   print(>t)
 
 fail "task closure literal writes a capture", "this closure is passed to a task as a read view: `?fun(Int) -> Int` views a closure or function passed to a call as a view", errors: 1
-  # Lent to a task, a closure that writes `total` would race the maker's
-  # own writes to it.
+  # Given to a task as a view, a closure that writes `total` would race the
+  # maker's own writes to it.
   fun apply(n: Int, f: ?fun(Int) -> Int) -> Int
     s = 0
     for i in 0..n
@@ -723,7 +723,7 @@ test "task crossing passed", seeds: 20, '''
   7
 '''
   # Each argument, and a method's self (`@`), crosses as it is passed: a
-  # List lent to read shares, one lent to write moves, and self as the
+  # List given as a read view shares, one given a write view moves, and self as the
   # method takes it, `?@` or `!@`.
   obj Counter
     n: Int
@@ -773,7 +773,7 @@ test "task moved into a task", seeds: 20, "17"
   u = later(<t)&
   print(>u)
 
-fail "task moved keeps its loans", "cannot change `xs` while a read view of it is still in use", errors: 1
+fail "task moved keeps its views", "cannot change `xs` while a read view of it is still in use", errors: 1
   # A task moved to another keeps its loans for the other's whole life.
   fun total(xs: ?List[Int]) -> Int
     xs.len
@@ -787,7 +787,7 @@ fail "task moved keeps its loans", "cannot change `xs` while a read view of it i
   !xs.push(2)
   print(>u)
 
-fail "task write loan bound", "this task holds a write view while it runs, so it stays where it is bound: `t = fill(!xs, 3)&`, then `>t`", errors: 1
+fail "task write view bound", "this task holds a write view while it runs, so it stays where it is bound: `t = fill(!xs, 3)&`, then `>t`", errors: 1
   fun fill(xs: !List[Int], n: Int) -> Int
     !xs.push(n)
     n
@@ -796,8 +796,8 @@ fail "task write loan bound", "this task holds a write view while it runs, so it
   ts: List[Task[Int]] = List()
   !ts.push(fill(!xs, 3)&)
 
-fail "task write loan bound self", "this task holds a write view while it runs, so it stays where it is bound: `t = !b.bump()&`, then `>t`", errors: 2
-  # The hint keeps the `!` that lends self to write.
+fail "task write view bound self", "this task holds a write view while it runs, so it stays where it is bound: `t = !b.bump()&`, then `>t`", errors: 2
+  # The hint keeps the `!` that makes a write view of self.
   use std.task
 
   obj Box
@@ -811,7 +811,7 @@ fail "task write loan bound self", "this task holds a write view while it runs, 
   c = Box(n: 1)
   x, y = task.all(!b.bump()&, !c.bump()&)
 
-test "task write loan bound self hint", "11"
+test "task write view bound self hint", "11"
   # What the hint writes is accepted.
   obj Box
     n: Int
@@ -824,7 +824,7 @@ test "task write loan bound self hint", "11"
   t = !b.bump()&
   >t
 
-fail "task write loan moved", "`t` is a task that holds a write view while it runs, so it is only waited for or canceled where it is bound: `>t`", errors: 1
+fail "task write view moved", "`t` is a task that holds a write view while it runs, so it is only waited for or canceled where it is bound: `>t`", errors: 1
   # oracle: main reject T2
   fun fill(xs: !List[Int], n: Int) -> Int
     !xs.push(n)
@@ -835,7 +835,7 @@ fail "task write loan moved", "`t` is a task that holds a write view while it ru
   t = fill(!xs, 4)&
   !ts.push(<t)
 
-fail "task write loan moved to a local", "`t` is a task that holds a write view while it runs, so it is only waited for or canceled where it is bound: `>t`", errors: 1
+fail "task write view moved to a local", "`t` is a task that holds a write view while it runs, so it is only waited for or canceled where it is bound: `>t`", errors: 1
   # oracle: main reject T2
   sub fill(xs: !List[Int], n: Int)
     for i in 0..n
@@ -846,8 +846,8 @@ fail "task write loan moved to a local", "`t` is a task that holds a write view 
   u = <t
   >u
 
-fail "task write loan read", "cannot use `xs` while a write view of it is still in use", errors: 1
-  # A task keeps what its call was lent to write as a write loan.
+fail "task write view read", "cannot use `xs` while a write view of it is still in use", errors: 1
+  # A task keeps what its call was given a write view of as a write view.
   # oracle: main reject C4
   sub fill(xs: !List[Int], n: Int)
     for i in 0..n
@@ -859,8 +859,8 @@ fail "task write loan read", "cannot use `xs` while a write view of it is still 
   >t
 
 test "task returned with from", seeds: 20, "2 3"
-  # A task with read loans only is returned as any result is: `from v`
-  # says it views `v`, so the caller keeps `xs` lent to read until it
+  # A task with read views only is returned as any result is: `from v`
+  # says it views `v`, so the caller keeps `xs` read-only until it
   # waits for the task.
   # oracle: start accept
   # oracle: main accept
@@ -897,7 +897,7 @@ test "task returned", seeds: 20, "6"
   t = start(?xs, 1)
   print(>t)
 
-fail "task returned keeps its loan", "cannot change `xs` while a read view of it is still in use", errors: 1
+fail "task returned keeps its view", "cannot change `xs` while a read view of it is still in use", errors: 1
   # oracle: main reject C4
   fun total(v: ?List[Int]) -> Int
     v.len
@@ -923,7 +923,7 @@ fail "task returned keeps its owner", "cannot drop `xs` while a read view of it 
   <xs
   print(>t)
 
-test "task returned through a lent closure literal", seeds: 20, "3"
+test "task returned through a viewed closure literal", seeds: 20, "3"
   # The closure's capture `?xs` is the task's loan, which `t` keeps
   # until it is waited for; the closure ends with its statement.
   # oracle: call accept
@@ -943,7 +943,7 @@ test "task returned through a lent closure literal", seeds: 20, "3"
   t = call(|?xs| total(?xs)&)
   print(>t)
 
-fail "task returned through a lent closure literal keeps its loan", "cannot change `xs` while a read view of it is still in use", errors: 1
+fail "task returned through a viewed closure literal keeps its view", "cannot change `xs` while a read view of it is still in use", errors: 1
   # oracle: main reject C4
   fun total(v: ?List[Int]) -> Int
     v.len
@@ -1006,9 +1006,9 @@ test "task returned from a write view reads", seeds: 20, '''
   1
   1
 '''
-  # A task lent to read through a write view the function was lent is
+  # A task given as a read view through a write view the function was given is
   # returned as a result that holds no write view: the caller's write
-  # lend ends at the call, and `xs` is read, not written, while the task
+  # view ends at the call, and `xs` is read, not written, while the task
   # lives.
   # oracle: main accept
   fun total(v: ?List[Int]) -> Int
@@ -1036,7 +1036,7 @@ fail "task returned from a write view keeps it read", "cannot change `xs` while 
   !xs.push(4)
   print(>t)
 
-fail "task write loan returned", "this task holds a write view while it runs, so it stays where it is bound: `t = fill(!v)&`, then `>t`", errors: 1
+fail "task write view returned", "this task holds a write view while it runs, so it stays where it is bound: `t = fill(!v)&`, then `>t`", errors: 1
   fun fill(v: !List[Int]) -> Int
     !v.push(1)
     v.len
@@ -1048,7 +1048,7 @@ fail "task write loan returned", "this task holds a write view while it runs, so
   t = start(!xs)
   print(>t)
 
-fail "task write loan bound then returned", "`t` is a task that holds a write view while it runs, so it is only waited for or canceled where it is bound: `>t`", errors: 1
+fail "task write view bound then returned", "`t` is a task that holds a write view while it runs, so it is only waited for or canceled where it is bound: `>t`", errors: 1
   fun fill(v: !List[Int]) -> Int
     !v.push(1)
     v.len
@@ -1061,7 +1061,7 @@ fail "task write loan bound then returned", "`t` is a task that holds a write vi
   t = start(!xs)
   print(>t)
 
-fail "task write loan bound then returned by return", "`t` is a task that holds a write view while it runs, so it is only waited for or canceled where it is bound: `>t`", errors: 1
+fail "task write view bound then returned by return", "`t` is a task that holds a write view while it runs, so it is only waited for or canceled where it is bound: `>t`", errors: 1
   fun fill(v: !List[Int]) -> Int
     !v.push(1)
     v.len
@@ -1074,7 +1074,7 @@ fail "task write loan bound then returned by return", "`t` is a task that holds 
   t = start(!xs)
   print(>t)
 
-fail "task write loan broken out of a loop", "`t` is a task that holds a write view while it runs, so it is only waited for or canceled where it is bound: `>t`", errors: 1
+fail "task write view broken out of a loop", "`t` is a task that holds a write view while it runs, so it is only waited for or canceled where it is bound: `>t`", errors: 1
   fun fill(v: !List[Int]) -> Int
     !v.push(1)
     v.len
@@ -1085,7 +1085,7 @@ fail "task write loan broken out of a loop", "`t` is a task that holds a write v
     break t
   print(>r)
 
-fail "task write loan stored by a function", "this task holds a write view while it runs, so it stays where it is bound: `t = fill(!v)&`, then `>t`", errors: 1
+fail "task write view stored by a function", "this task holds a write view while it runs, so it stays where it is bound: `t = fill(!v)&`, then `>t`", errors: 1
   fun fill(v: !List[Int]) -> Int
     !v.push(1)
     v.len
@@ -1117,7 +1117,7 @@ test "task returned in a set", seeds: 20, "[3, 3]"
   ts = group(?xs)
   print(>ts)
 
-fail "task returned in a set keeps its loans", "cannot change `xs` while a read view of it is still in use", errors: 1
+fail "task returned in a set keeps its views", "cannot change `xs` while a read view of it is still in use", errors: 1
   fun total(v: ?List[Int]) -> Int
     v.len
 
@@ -1132,7 +1132,7 @@ fail "task returned in a set keeps its loans", "cannot change `xs` while a read 
   print(>ts)
 
 test "task added to a set by a function", seeds: 20, "[6]"
-  # A function that adds a task lent its parameter keeps that parameter.
+  # A function that adds a task given a view of its parameter keeps that parameter.
   fun total(v: ?List[Int]) -> Int
     n = 0
     for x in v
@@ -1157,7 +1157,7 @@ fail "task added to a set keeps its parameter", "`add` stores a view of `v` in `
 
   print(1)
 
-fail "task added to a set by a function keeps its loan", "cannot change `xs` while a read view of it is still in use", errors: 1
+fail "task added to a set by a function keeps its view", "cannot change `xs` while a read view of it is still in use", errors: 1
   fun total(v: ?List[Int]) -> Int
     v.len
 
@@ -1191,7 +1191,7 @@ test "task returned in an object", seeds: 20, "5"
   t = <j.t
   print(>t)
 
-fail "task returned in an object keeps its loan", "cannot change `xs` while a read view of it is still in use", errors: 1
+fail "task returned in an object keeps its view", "cannot change `xs` while a read view of it is still in use", errors: 1
   # oracle: main reject C4
   obj Job
     t: Task[Int]
@@ -1222,7 +1222,7 @@ test "task returned through a generic", seeds: 20, "5"
   t = same(total(?xs)&)
   print(>t)
 
-fail "task returned through a generic keeps its loan", "cannot change `xs` while a read view of it is still in use", errors: 1
+fail "task returned through a generic keeps its view", "cannot change `xs` while a read view of it is still in use", errors: 1
   fun same[T](x: T) -> T
     x
 
@@ -1265,7 +1265,7 @@ test "task returned fallible or absent", seeds: 20, '''
   if maybe(?xs, true) as u
     print(>u)
 
-fail "task returned fallible keeps its loan", "cannot change `xs` while a read view of it is still in use", errors: 1
+fail "task returned fallible keeps its view", "cannot change `xs` while a read view of it is still in use", errors: 1
   # oracle: main reject C4
   error E
     bad
@@ -1282,7 +1282,7 @@ fail "task returned fallible keeps its loan", "cannot change `xs` while a read v
   !xs.push(2)
   print(>t)
 
-fail "task returned absent keeps its loan", "cannot change `xs` while a read view of it is still in use", errors: 1
+fail "task returned absent keeps its view", "cannot change `xs` while a read view of it is still in use", errors: 1
   # oracle: main reject C4
   fun total(v: ?List[Int]) -> Int
     v.len
@@ -1323,7 +1323,7 @@ test "task of a returned task", seeds: 20, "3 2"
   w = later(start(?xs))&
   print(>u, >w - 1)
 
-fail "task of a returned task keeps its loan", "cannot change `xs` while a read view of it is still in use", errors: 1
+fail "task of a returned task keeps its view", "cannot change `xs` while a read view of it is still in use", errors: 1
   # oracle: main reject C4
   fun total(v: ?List[Int]) -> Int
     v.len
@@ -1395,7 +1395,7 @@ test "task returned into a list", seeds: 20, "2"
     n += >t
   print(n)
 
-fail "task returned into a list keeps its loan", "cannot change `xs` while a read view of it is still in use", errors: 1
+fail "task returned into a list keeps its view", "cannot change `xs` while a read view of it is still in use", errors: 1
   # oracle: main reject C4
   fun total(v: ?List[Int]) -> Int
     v.len
@@ -1440,7 +1440,7 @@ fail "task returned with a text view keeps it", "cannot change `s` while a read 
   !s.add("d")
   print(>t)
 
-fail "task in a local object keeps its loan", "cannot change `xs` while a read view of it is still in use", errors: 1
+fail "task in a local object keeps its view", "cannot change `xs` while a read view of it is still in use", errors: 1
   # An object holding a task keeps the task's loans while it lives.
   # oracle: main reject C4
   obj Job
@@ -1474,7 +1474,7 @@ fail "task in a local object keeps its owner", "cannot drop `xs` while a read vi
   t = <j.t
   print(>t)
 
-fail "task in an optional keeps its loan", "cannot change `xs` while a read view of it is still in use", errors: 1
+fail "task in an optional keeps its view", "cannot change `xs` while a read view of it is still in use", errors: 1
   # oracle: main reject C4
   fun total(v: ?List[Int]) -> Int
     v.len
@@ -1485,7 +1485,7 @@ fail "task in an optional keeps its loan", "cannot change `xs` while a read view
   if <o as t
     print(>t)
 
-fail "task in a shared object keeps its loan", "cannot change `xs` while a read view of it is still in use", errors: 1
+fail "task in a shared object keeps its view", "cannot change `xs` while a read view of it is still in use", errors: 1
   # A count of a `*Job` keeps the loans of the task the Job holds.
   # oracle: main reject C4
   obj Job
@@ -1502,7 +1502,7 @@ fail "task in a shared object keeps its loan", "cannot change `xs` while a read 
   <k
   print(xs.len)
 
-fail "task returned out of a deadline's closure keeps its loan", "cannot change `xs` while a read view of it is still in use", errors: 1
+fail "task returned out of a deadline's closure keeps its view", "cannot change `xs` while a read view of it is still in use", errors: 1
   # oracle: main reject C4
   use std.time
 
@@ -1540,7 +1540,7 @@ fail "task set in a Cell", "a Cell holds no task, and `Tasks[Int]` is one", erro
   c = *Cell(Tasks[Int]())
   print(1)
 
-fail "task read loan live", "cannot change `xs` while a read view of it is still in use", errors: 1
+fail "task read view live", "cannot change `xs` while a read view of it is still in use", errors: 1
   # oracle: main reject C4
   fun total(xs: ?List[Int]) -> Int
     xs.len
@@ -1565,8 +1565,8 @@ fail "task defer after", "cannot change `xs` while a read view of it is still in
   defer clear(!xs)
   print(xs.len)
 
-fail "task dropped where its scope ends keeps its loans", "cannot change `xs` while a read view of it is still in use", errors: 1
-  # A task's drop waits for it, so it uses what the task was lent.
+fail "task dropped where its scope ends keeps its views", "cannot change `xs` while a read view of it is still in use", errors: 1
+  # A task's drop waits for it, so it uses what the task views.
   # oracle: main reject C4
   fun total(xs: ?List[Int]) -> Int
     xs.len
@@ -1606,7 +1606,7 @@ fail "task in an owned closure", "an owned closure holds no task: `t` is a `Task
   f = *|<t| >t
   print(f())
 
-test "task canceled ends its loans", seeds: 20, "0"
+test "task canceled ends its views", seeds: 20, "0"
   # oracle: main accept
   use std.time
 
@@ -1950,8 +1950,8 @@ code "task a fold counts the turns of its loop", "s = rig.fold(.add, s, xs, &__r
   t = total(?w)&
   print(>t)
 
-test "task folds over a lent List", seeds: 20, "499999500000 499999500000"
-  # Tasks fold a List lent to both of them, long enough to pass many
+test "task folds over a viewed List", seeds: 20, "499999500000 499999500000"
+  # Tasks fold a List viewed by both of them, long enough to pass many
   # yield checks inside the fold.
   fun total(xs: ?[]Int) -> Int
     s = 0
@@ -1967,8 +1967,8 @@ test "task folds over a lent List", seeds: 20, "499999500000 499999500000"
   b = total(?w)&
   print(>a, >b)
 
-test "task loops over lent containers", seeds: 20, "6100091 6100091 999 1999 1143 9030 24884"
-  # Loops over a List and a Table lent to several tasks at once, long
+test "task loops over viewed containers", seeds: 20, "6100091 6100091 999 1999 1143 9030 24884"
+  # Loops over a List and a Table viewed by several tasks at once, long
   # enough to pass many yield checks, with `continue`, `return`, a
   # `loop`'s `break` values, a nested loop, and small and negative
   # bounds.
@@ -2030,7 +2030,7 @@ test "task loops over lent containers", seeds: 20, "6100091 6100091 999 1999 114
   g = small()&
   print(>a, >b, >c, >d, >e, >f, >g)
 
-test "task loops over lent containers released", seeds: 20, release: true, "6100091 999 9030"
+test "task loops over viewed containers released", seeds: 20, release: true, "6100091 999 9030"
   # The same, built for release, where the yield checks keep the
   # registers the loops hold their values in.
   fun make(n: Int) -> List[Int]
@@ -2071,7 +2071,7 @@ test "task loops over lent containers released", seeds: 20, release: true, "6100
   f = nested(300)&
   print(>a, >c, >f)
 
-fail "task loan holds across yields", "15:11: cannot change `xs` while a read view of it is still in use"
+fail "task view holds across yields", "15:11: cannot change `xs` while a read view of it is still in use"
   # A task reading a List in a loop holds its loan across every yield
   # check, so no task may write the List until it is done.
   sub grow(xs: !List[Int])
@@ -2247,7 +2247,7 @@ test "task.fast_cores needs no task and gives one answer", seeds: 20, "true true
 
 test "task function value given", seeds: 20, "42 9 4"
   # A function value is a named function's address and holds nothing, so
-  # it goes to a task on any core, alone or inside what is given or lent.
+  # it goes to a task on any core, alone or inside what is given or viewed.
   fun inc(x: Int) -> Int
     x + 1
 
@@ -2292,7 +2292,7 @@ code "task function value spawns", ".spawn(use_it, .{"
 
 test "task function value results and writes", seeds: 20, "4 1 7"
   # A task gives back a function value, a fallible one crosses, and a
-  # write view of a function local is lent to a task that sets it.
+  # write view of a function local is given to a task that sets it.
   fun inc(x: Int) -> Int
     x + 1
 
@@ -2359,7 +2359,7 @@ fail "task once callable forwarded", "5:12: `f` is passed to a task as a read vi
   print(run(|+n, x| x + n))
 
 fail "task callable forwarded from a function", "passed to a task as a read view: `?fun(Int) -> Int` views a closure or function passed to a call as a view", errors: 1
-  # A `?fun` may view a closure, whatever the caller lent; a named
+  # A `?fun` may view a closure, whatever view the caller gave; a named
   # function goes to a task by value.
   fun inc(x: Int) -> Int
     x + 1
@@ -2373,7 +2373,7 @@ fail "task callable forwarded from a function", "passed to a task as a read view
 
   print(run(inc))
 
-fail "task captured closure lent", "passed to a task as a read view: `?fun(Int) -> Int` views a closure or function passed to a call as a view", errors: 1
+fail "task captured closure viewed", "passed to a task as a read view: `?fun(Int) -> Int` views a closure or function passed to a call as a view", errors: 1
   fun call(f: ?fun(Int) -> Int) -> Int
     f(1)
 
@@ -2394,7 +2394,7 @@ fail "task owned closure given", "`<cb` is given to a task: `*fun(Int) -> Int` i
   t = call(<cb)&
   print(>t)
 
-fail "task weak closure lent", "an owned closure, whose captures its type does not show", errors: 1
+fail "task weak closure viewed", "an owned closure, whose captures its type does not show", errors: 1
   fun call(f: ?~fun(Int) -> Int) -> Int
     1
 
@@ -2877,8 +2877,8 @@ test "task deep psum on eight workers, many rounds", '''
   print(total)
 
 code "task frame record where the task never leaves its binding", "= rig.Task(i64).frame.spawnDense(f, .{ 1 });", "var t = __rig_task_", "var u = __rig_task_", "= rig.Task(anyerror!i64).frame.spawnDense(h, .{ 3 });", "var v = __rig_task_", "var w = __rig_task_"
-  # A task bound to a fresh name and only waited for (`>t`), lent to
-  # read (`?u`), canceled (`<v.cancel()`), or dropped stays in its
+  # A task bound to a fresh name and only waited for (`>t`), given
+  # as a read view (`?u`), canceled (`<v.cancel()`), or dropped stays in its
   # maker's frame (`task_record`): a fork, whose record is made in a slot
   # of the frame and started there.
   use std.task

@@ -33,7 +33,7 @@ model checks, by hand: several minutes and 8 GB.
 | `LambdaRig/Syntax.lean` | Values and expressions; each constructor names the Rig form it stands for |
 | `LambdaRig/Machine.lean` | Cells, the loans live on each, the ways to touch a cell, and the faults |
 | `LambdaRig/Interp.lean` | `eval`, an interpreter that tags every view with its loan and checks the tag on each use, and `run` |
-| `LambdaRig/Loans.lean` | CORE sentence 5 for one cell, and `Keeps.eval` for the whole machine |
+| `LambdaRig/Views.lean` | CORE sentence 5 for one cell, and `Keeps.eval` for the whole machine |
 | `LambdaRig/Check.lean` | `check`, the ownership checker: the types, what has moved, and which views are used later |
 | `LambdaRig/Facts.lean` | `Rel`, what the checker's facts say of a running machine |
 | `LambdaRig/Steps.lean` | One theorem per form: each step the checker accepts keeps `Rel` |
@@ -42,8 +42,8 @@ model checks, by hand: several minutes and 8 GB.
 | `LambdaRig/Erase.lean` | API objects: erasing a type keeps its loans, and programs whose objects only calls reach |
 | `LambdaRig/Examples.lean` | Programs, whether the checker accepts each, and how each run ends |
 | `LambdaRig/Mono.lean` | `check_mono`: fewer names used later forbid less; `check_moved_fv`: a name a program does not use, it does not move |
-| `LambdaRig/Temps.lean` | A statement's temporary lent to a call: its views die by the statement's end |
-| `LambdaRig/TaskLoans.lean` | A task given `?y` or `!y`: its loan holds at whatever moments it runs, until it is waited for |
+| `LambdaRig/Temps.lean` | A statement's temporary viewed by a call: its views die by the statement's end |
+| `LambdaRig/TaskViews.lean` | A task given `?y` or `!y`: its loan holds at whatever moments it runs, until it is waited for |
 | `LambdaRig/Stores.lean` | Views kept and stored, over values: what a result and a holder carry, at any depth |
 | `LambdaRig/Fields.lean` | An owned object's fields, partial moves, and the drop of the fields still held |
 | `LambdaRig/Wait.lean` | The wait protocol of `sched.Wait`, as atomic steps, and what it guarantees a waker and a cancel |
@@ -64,7 +64,7 @@ model checks, by hand: several minutes and 8 GB.
 ## What the first slice covers
 
 Plain Ints and one kind of owner, a box holding an Int (`^Int`). Every
-binding is a place, so a number can be lent too. The forms are a bare
+binding is a place, so a number can be viewed too. The forms are a bare
 name, `<x` as a value and as a statement, `+x`, `^e`, `?x`, `!x`,
 assignment (to an owner, or through a write view), `+`, `print`,
 sequencing, and a scoped binding.
@@ -91,11 +91,11 @@ It covers these CORE sentences, each by the fault it rules out:
 | 1. A bare name only reads | `stuck` | `readViewsShare` is accepted |
 | 2. `<x` moves, `+x` makes a new owner | `moved`, `freed` | `useAfterMove`; `cloneIsNewOwner` is accepted |
 | 3. Drop points | `leak`, `freed` | `viewOutlivesScope`; `temporariesDrop` is accepted |
-| 4. `?x` and `!x` lend | `deadTag` | `writeWhileRead` |
+| 4. `?x` and `!x` make views | `deadTag` | `writeWhileRead` |
 | 5. Read loans or one write loan | `deadTag` | `assignWhileRead`, `readWhileWrite` |
 | 6. A loan lasts until the last use of its views | `deadTag`, `freed` | `dropWhileRead`, `moveWhileRead` |
 
-**`Keeps.eval`** (Loans.lean): every cell of every state `eval` reaches
+**`Keeps.eval`** (Views.lean): every cell of every state `eval` reaches
 holds read loans or one write loan, never both. This holds by
 construction: every way the interpreter touches a cell builds a cell
 of that shape. It shows the machine models sentence 5 the way CORE
@@ -177,8 +177,8 @@ view of it may be used only within its statement"; a backtick template
 where a `?String` goes is one. `TProg` adds to Calls.lean's programs a
 call whose first argument is a temporary, `r = f(?e, args)` and
 `print(f(?e, args))`. `elab` runs it as CORE says: `e`'s value is held
-in a hidden place whose scope is the statement alone (`tempIn`), lent to
-read as a hidden view, and dropped before the next statement. `checkT`
+in a hidden place whose scope is the statement alone (`tempIn`), read
+through a hidden view, and dropped before the next statement. `checkT`
 reads only the API's clauses. Two results:
 
 - **`temps_run`**: if `checkT` accepts a program and every
@@ -254,9 +254,9 @@ after it moved, which are rejected and stop at `moved`; and `<f.name` of
 a `File` with a `drop` body, rejected, whose drop finds the field moved.
 `fields_run` is pinned to Lean's three axioms.
 
-**Loans lent to a task** (TaskLoans.lean). concurrency.md, "Loans and
-structure": "A task keeps the loans of its arguments until it ends", and
-a task's drop uses its loans, so a task is waited for before its scope
+**Views given to a task** (TaskViews.lean). concurrency.md, "Views and
+structure": "A task keeps the views of its arguments until it ends", and
+a task's drop uses its views, so a task is waited for before its scope
 ends. `spawn t m y ss` is `t = g(?y)&` (or `g(!y)&`) with the
 statements `ss` beside it: the task's action, a read or a write through
 its view, stands after the last statement, where the task is waited
@@ -410,7 +410,7 @@ Not yet: `Tasks` sets, actors and channels (whose contents the crossing
 rule restricts), that dropping a handle cancels and waits (the model
 has a task wait before it ends instead), the deadlock walk, and
 unwinding to a boundary. The task machine carries no loans; the loans a
-task holds are proved over λRig, in TaskLoans.lean, for a task waited
+task holds are proved over λRig, in TaskViews.lean, for a task waited
 for at its scope's end.
 
 ## Model checks of the runtime
@@ -659,13 +659,13 @@ by the compiler alone for rules λRig does not have (an unread local,
   semantics; the test suite and the sanitizer stand in for it.
 - **Anything outside the slice:** objects, optionals, `List`,
   functions, `*T`, `~T`, `Cell`, loops.
-- **Temporaries beyond Temps.lean.** A temporary is lent to read, as
-  the first argument of one call; one lent to write (`!mk().pop()`), a
+- **Temporaries beyond Temps.lean.** A temporary is given a read view, as
+  the first argument of one call; one given a write view (`!mk().pop()`), a
   temporary a call keeps (`!p.watch(?t)`, which needs stores, Next, 4),
   a header's temporaries, and the drop order of several in one statement
   are not modeled. That `src/storage.zig` gives each temporary the
   statement's scope is the compiler's part, held by the suite.
-- **Tasks beyond TaskLoans.lean.** A task holds one loan, of an owner in
+- **Tasks beyond TaskViews.lean.** A task holds one loan, of an owner in
   scope, and is waited for where its scope ends; it moves nowhere. A
   task returned with `from`, held in a `Tasks` set, or given a
   temporary (rejected by the compiler: "a task cannot keep it"), the
@@ -719,7 +719,7 @@ by the compiler alone for rules λRig does not have (an unread local,
   each case.
 - **Stores beyond Stores.lean.** A `V` may hold a write view in a part,
   which CORE forbids ("Write views are not stored"); the results hold
-  without that rule, which they do not use. A view's write lend ending
+  without that rule, which they do not use. A write view passed to a call ending
   as the call returns, the caller recording a write loan as a read one
   (sentence 7), a value never holding a view of itself, and a call
   through a function value (whose type names no `keeps`) are not

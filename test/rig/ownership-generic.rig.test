@@ -116,7 +116,7 @@ test "generic as views the value inside a viewed optional", '''
   n = shown(?t) + shown(?p) + field(?w) + shown(?e)
   print(area_of(?sq), shown(?t) + shown(?t), n / 4, field(?w), shown(?e))
 
-fail "generic as keeps the optional lent", "3:5: cannot reassign `o` while a read view of it is still in use", errors: 1
+fail "generic as keeps the optional viewed", "3:5: cannot reassign `o` while a read view of it is still in use", errors: 1
   fun clear[T: Print](o: !T?) -> Int
     if ?o as v
       o = none
@@ -126,7 +126,7 @@ fail "generic as keeps the optional lent", "3:5: cannot reassign `o` while a rea
   t: String? = String("x")
   print(clear(!t))
 
-test "generic as lends on the value inside a viewed optional", '''
+test "generic as passes on a view of the value inside a viewed optional", '''
   11 22 276
   11 22 276
   short 276
@@ -246,9 +246,9 @@ test "generic as lends on the value inside a viewed optional", '''
     k = deep(20)
     print(v.a, v.b, k)
 
-test "generic as lends on through a write view", "5 22 276"
+test "generic as passes on a view through a write view", "5 22 276"
   # `?o` of a write view `!T?` opens the optional as a read view of it
-  # does; `!o as x` lends the value inside to write.
+  # does; `!o as x` makes a write view of the value inside.
   obj P
     a: Int
     b: Int
@@ -301,7 +301,7 @@ test "generic loop reads a slice's elements where they stand", '''
       t += s.area()
     t
 
-  fun total_lent[T: Shape](xs: []T) -> Float
+  fun total_viewed[T: Shape](xs: []T) -> Float
     t = 0.0
     for s in ?xs
       t += s.area()
@@ -334,7 +334,7 @@ test "generic loop reads a slice's elements where they stand", '''
   !t.push(String("b"))
   us = List[U]()
   !us.push(U(n: 1))
-  print(total(?l[..]), total_lent(?a[..]), total_list(?l), show(?t[..]), count(?t[..]), count(?us[..]))
+  print(total(?l[..]), total_viewed(?a[..]), total_list(?l), show(?t[..]), count(?t[..]), count(?us[..]))
 
 fail "generic loop takes no element of a slice it reads", "`take[String]` cannot use `T = String`: the generic body copies a `T`, which would duplicate the resource `String` owns", errors: 1
   fun take[T](xs: []T) -> T?
@@ -362,9 +362,9 @@ test "generic catch all view guarded", release: true, '''
   # A guarded match in a generic body reads its subject in place, so its
   # catch-all binding is the subject's own (`storage.catchAllByAddress`,
   # which the guarded and unguarded emit both read): a view of it kept
-  # past the arm, or a `*Counter` handle read through it to change a Cell,
-  # reaches the subject (the review-b4b-2 probes p78, p81, p82).
-  # A branch over lends of the subjects is matched where it points.
+  # past the arm, or a `*Counter` handle read through it to change a
+  # Cell, reaches the subject (the review-b4b-2 probes p78, p81, p82). A
+  # branch over views of the subjects is matched where it points.
 
   enum Opt[T]
     some(v: T)
@@ -428,7 +428,7 @@ test "generic catch all view guarded", release: true, '''
     _ = f(saved)
     _ = s(?o)
 
-  sub lends[T](a: T, b: T, k: T, c: Bool)
+  sub views[T](a: T, b: T, k: T, c: Bool)
     o1 = Opt.some(v: <a)
     o2 = Opt.some(v: <b)
     saved = ?k
@@ -443,11 +443,11 @@ test "generic catch all view guarded", release: true, '''
   g(String("two two two two two two two two"))
   two(Pt(x: 3, y: 4), Pt(x: 7, y: 8))
   cell(*Counter(hits: Cell(1)), bump, show)
-  lends(String("one"), String("two"), String("k"), false)
-  lends(Pt(x: 1, y: 2), Pt(x: 3, y: 4), Pt(x: 0, y: 0), true)
+  views(String("one"), String("two"), String("k"), false)
+  views(Pt(x: 1, y: 2), Pt(x: 3, y: 4), Pt(x: 0, y: 0), true)
 
 fail "generic fn value view at string view", "cannot drop `t` while a read view of it is still in use"
-  # A generic function's `T` may hold a view of its `?String` argument, so its result keeps that argument lent.
+  # A generic function's `T` may hold a view of its `?String` argument, so its result keeps that argument in use.
   fun mk(s: ?String) -> ?String
     s
 
@@ -460,7 +460,7 @@ fail "generic fn value view at string view", "cannot drop `t` while a read view 
   print(k)
 
 fail "generic fn value view in list", "cannot drop `t` while a read view of it is still in use"
-  # A generic function's `T` may hold a view of its `?String` argument, so its result keeps that argument lent.
+  # A generic function's `T` may hold a view of its `?String` argument, so its result keeps that argument in use.
   fun mk(s: ?String) -> List[?String]
     l: List[?String] = List()
     !l.push(s)
@@ -475,7 +475,7 @@ fail "generic fn value view in list", "cannot drop `t` while a read view of it i
   print(k)
 
 fail "generic fn value view result", "cannot drop `t` while a read view of it is still in use"
-  # A generic function's `T` may hold a view of its `?String` argument, so its result keeps that argument lent.
+  # A generic function's `T` may hold a view of its `?String` argument, so its result keeps that argument in use.
   obj K
     s: ?String
 
@@ -506,7 +506,7 @@ test "generic fn value view result used", "abc"
   <t
 
 fail "generic fn value view store", "cannot drop `t` while a read view of it is still in use"
-  # A generic function's `T` may hold a view of its `?String` argument, so its result keeps that argument lent.
+  # A generic function's `T` may hold a view of its `?String` argument, so its result keeps that argument in use.
   obj K
     s: ?String
 
@@ -523,7 +523,7 @@ fail "generic fn value view store", "cannot drop `t` while a read view of it is 
   print(k.s)
 
 fail "generic fn value view through write", "cannot drop `t` while a read view of it is still in use"
-  # A generic function's `T` may hold a view of its `?String` argument, so its result keeps that argument lent.
+  # A generic function's `T` may hold a view of its `?String` argument, so its result keeps that argument in use.
   obj K
     s: ?String
 
@@ -702,9 +702,9 @@ fail "generic payload view moved", "24:23: cannot move out of `v`: it is a view 
   print(dropped(?w, 0))
   _ = whole(?w)
 
-fail "generic stores view unlent", "13:7: `cell[?List[Int]]` instantiates `Cell[?List[Int]]`", "13:17: `signal[?List[Int]]` instantiates `Signal[?List[Int]]`", errors: 2
-  # A Cell, a Signal, and an owned closure carry no loan, so a generic
-  # body that stores its `T` there cannot take a view of an owner.
+fail "generic stores a view where none may go", "13:7: `cell[?List[Int]]` instantiates `Cell[?List[Int]]`", "13:17: `signal[?List[Int]]` instantiates `Signal[?List[Int]]`", errors: 2
+  # A Cell, a Signal, and an owned closure carry no tracked view, so a
+  # generic body that stores its `T` there cannot take a view of a place.
 
   fun cell[T](x: T) -> Int
     c = *Cell(x)
@@ -718,9 +718,9 @@ fail "generic stores view unlent", "13:7: `cell[?List[Int]]` instantiates `Cell[
   print(cell(?v), signal(?v))
 
 fail "generic stores view untracked", "9:5: `later[?List[Int]]` cannot use `T = ?List[Int]`"
-  # A generic body that stores its `T` in an owned closure's capture, where
-  # loans are not followed, cannot be instantiated with a view of an owner:
-  # the viewed value could change or end under the closure.
+  # A generic body that stores its `T` in an owned closure's capture,
+  # where no view is followed, cannot be instantiated with a view of a
+  # place: the viewed value could change or end under the closure.
 
   fun later[T](x: T) -> *sub()
     *|+x| print(x)
@@ -853,8 +853,8 @@ test "generic view field escape", release: true, '''
 
 fail "type param method result view", "`pick` returns a view of `x`, but its signature says it views only `y`"
   # A call on a `T` is checked as a call of a function value with no
-  # `from`: its result may carry the loans of self, whatever method an
-  # instance gives.
+  # `from`: its result may view self,
+  # whatever method an instance gives.
 
   obj Named
     s: String
@@ -932,7 +932,7 @@ fail "type param method stores through an owned value", "`stash[Log]` cannot use
 test "generic optional of a Copy parameter copies", "hello 3 world"
   # An `E?` of an `E: Copy` copies as `E` does (SPEC "Generic bodies"):
   # `if value as v` reads its payload, and `return v` copies an `E` out,
-  # which carries what the instance's `E` carried and no loan on
+  # which carries what the instance's `E` carried and no view of
   # `value`, which ends with the call (Core s1, s7).
   # oracle: or_else accept
   # oracle: first_non_zero accept
@@ -1275,7 +1275,7 @@ test "generic plain tells a Static from a viewed String", '''
   g()
 
 test "generic plain splits an instance a view shares with plain data", "true false false false true"
-  # `?Int` is lent as an `i64`, the Zig type of `Int`: each instance
+  # `?Int` is given as an `i64`, the Zig type of `Int`: each instance
   # passes its own answer, so `pl[Int]` and `pl[?Int]` are two.
   obj Box[T]
     v: T
@@ -1287,7 +1287,7 @@ test "generic plain splits an instance a view shares with plain data", "true fal
   b = true
   print(pl[Int](n), pl[?Int](?n), pl[?Bool](?b), pl[Box[?Int]](Box(v: ?n)), pl[Box[Int]](Box(v: n)))
 
-test "generic plain keeps no view of a scalar past its loan", '''
+test "generic plain keeps no view of a scalar past its last use", '''
   none
   kept 3
   n 4
@@ -1397,7 +1397,7 @@ test "generic plain of an iterator's viewed item is false", "false true"
 
 test "generic plain copies a viewed element as a read view does", "ab 1"
   # A read-view `T` copies where an element of `for x in ?v` is taken
-  # and where `as` unwraps a viewed optional, keeping its loans.
+  # and where `as` unwraps a viewed optional, keeping its views.
   fun first[T](xs: ?List[T]) -> T?
     for x in xs
       return x
@@ -1922,8 +1922,8 @@ fail "generic value from a local into self", "`Pairs[List[?String]]` cannot use 
   !p.upd(|k, v| !v.push(k))
   print(p.vs.len)
 
-fail "generic value from a lent parameter through a local into self", "10:5: `upd` stores a view of `xs` in `@`, which its caller reaches, but its signature does not keep `xs`; say so: `keeps xs`"
-  # A view of what the caller lent, put in the body's own `b`, stays
+fail "generic value from a viewed parameter through a local into self", "10:5: `upd` stores a view of `xs` in `@`, which its caller reaches, but its signature does not keep `xs`; say so: `keeps xs`"
+  # A view of what the caller passed, put in the body's own `b`, stays
   # tracked as a `T` the body holds is: `b` goes into self, so `upd`
   # keeps `xs`.
 
@@ -1940,9 +1940,9 @@ fail "generic value from a lent parameter through a local into self", "10:5: `up
   !p.upd(?xs, List(), |k, v| !v.push(k))
   print(p.vs.len)
 
-test "generic value from a lent parameter returned through a local", "a"
+test "generic value from a viewed parameter returned through a local", "a"
   # The view of `xs` that `f` may put in `b` is the caller's to track:
-  # `mk`'s result may view `xs`, so `xs` stays lent while `r` lives.
+  # `mk`'s result may view `xs`, so `xs` keeps a view in use while `r` lives.
 
   fun mk[V](xs: ?List[String], v: V, f: ?sub(?String, !V)) -> V
     b = <v
@@ -1954,7 +1954,7 @@ test "generic value from a lent parameter returned through a local", "a"
   r = mk(?xs, List[?String](), |k, v| !v.push(k))
   print(r[0])
 
-fail "generic value from a lent parameter returned keeps it lent", "cannot drop `xs` while a read view of it is still in use"
+fail "generic value from a viewed parameter returned keeps it viewed", "cannot drop `xs` while a read view of it is still in use"
   fun mk[V](xs: ?List[String], v: V, f: ?sub(?String, !V)) -> V
     b = <v
     f(?xs[0], !b)
@@ -2110,8 +2110,8 @@ test "generic value whose key views", "3"
   !m.update(|k, v| v = k.len)
   print(m.get(?s))
 
-test "generic value from a lent parameter's element", "a-long-text-on-the-heap-0123456789"
-  # Views of what the caller lent are tracked: `keeps xs` keeps it.
+test "generic value from a viewed parameter's element", "a-long-text-on-the-heap-0123456789"
+  # Views of what the caller passed are tracked: `keeps xs` keeps it.
 
   obj P[V]
     vs: List[V]
@@ -2125,7 +2125,7 @@ test "generic value from a lent parameter's element", "a-long-text-on-the-heap-0
   print(p.vs[0])
 
 test "generic value as a sort key that views", "al"
-  # `sort_by_key`'s keys view elements of the List it was lent.
+  # `sort_by_key`'s keys view elements of the List it was given.
 
   use std.sort
 

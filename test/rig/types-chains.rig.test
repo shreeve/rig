@@ -202,7 +202,7 @@ fail "a chain is not a value", "2:9: a chain is not a value: end it with a consu
   evens = xs.filter(|x| x % 2 == 0)
   print(evens)
 
-fail "a chain advances an iterator in a place only when lent to write", "a chain advances the iterator `c`: make a write view of it, `(!c).map(...)`"
+fail "a chain advances an iterator in a place only when under a write view", "a chain advances the iterator `c`: make a write view of it, `(!c).map(...)`"
   obj Countdown
     n: Int
 
@@ -271,10 +271,10 @@ fail "find's function gives a Bool", "`find`'s function gives a `Bool`; this one
   xs = List[Int]([1, 2, 3])
   print(xs.find(|x| x) ?? 0)
 
-test "collect of views keeps its source lent", "ann cy 1"
+test "collect of views keeps its source viewed", "ann cy 1"
   # A chain's items are what its source's `for` gives, views of owner
-  # elements, and `collect` keeps them: the List keeps its source lent
-  # while it lives, so the lend is written where it is bound.
+  # elements, and `collect` keeps them: the List keeps a view of its source
+  # in use while it lives, so the view is written where it is bound.
   obj P
     name: String
     age: Int
@@ -291,8 +291,8 @@ test "collect of views keeps its source lent", "ann cy 1"
   print(old[0].name, old[1].name, long.len)
 
 fail "a chain whose result views its source is marked where it is bound", "5:6: `names.filter(|s| s.len > 2).collect()` keeps a view of `names` while `vs` lives; write `?names.filter(|s| s.len > 2).collect()`", "6:5: `names.find(|s| s.len > 2)` keeps a view of `names` while `f` lives; write `?names.find(|s| s.len > 2)`", "7:5: `names.max_by(|s| s.len)` keeps a view of `names` while `m` lives; write `?names.max_by(|s| s.len)`", errors: 3
-  # As a call that keeps its argument lent, `r = head(?v)`. A chain used
-  # within its statement lends its source there, unmarked.
+  # As a call that keeps a view of its argument in use, `r = head(?v)`. A
+  # chain used within its statement views its source there, unmarked.
   names: List[String] = List()
   !names.push(String("ann"))
   vs = names.filter(|s| s.len > 2).collect()
@@ -300,16 +300,16 @@ fail "a chain whose result views its source is marked where it is bound", "5:6: 
   m = names.max_by(|s| s.len)
   print(vs.len, f ?? "", m ?? "", names.filter(|s| s.len > 2).count())
 
-fail "collected views keep their source lent", "cannot change `names` while a read view of it is still in use"
+fail "collected views keep their source viewed", "cannot change `names` while a read view of it is still in use"
   names: List[String] = List()
   !names.push(String("ann"))
   vs = ?names.filter(|s| s.len > 2).collect()
   !names.push(String("bo"))
   print(vs.len)
 
-fail "a sigil before a chain in a for header lends its source", "8:10: a `<` before a chain is written on the source it takes: `(<xs).filter(...)` takes `xs`, and `xs.filter(...)` walks it where it stands", "10:11: the `?` before this chain reaches no place and does nothing: remove it; the chain walks `mk()` as a `for` over it would", errors: 2
+fail "a sigil before a chain in a for header views its source", "8:10: a `<` before a chain is written on the source it takes: `(<xs).filter(...)` takes `xs`, and `xs.filter(...)` walks it where it stands", "10:11: the `?` before this chain reaches no place and does nothing: remove it; the chain walks `mk()` as a `for` over it would", errors: 2
   # `for x in !xs.filter(f)` walks `(!xs).filter(f)`, as the sigil
-  # lends a method call's self anywhere; one that reaches no place does
+  # views a method call's self anywhere; one that reaches no place does
   # nothing, and a `<` that takes the source is written on it.
   fun mk() -> List[Int]
     List([1, 2])

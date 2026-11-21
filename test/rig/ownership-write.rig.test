@@ -4,7 +4,7 @@ use std.sort
 
 fail "write field stores param view", "13:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A store through local write view `c` lands in local `h`, which then
-  # holds the view of parameter `b`: `b` stays lent while `h` is used.
+  # holds the view of parameter `b`: `b` stays in use while `h` is used.
 
   obj Holder
     r: []Int
@@ -22,7 +22,7 @@ fail "write field stores param view", "13:5: cannot change `b` while a read view
   !v.push(1)
   print(f(!v))
 
-test "write lend as header", '''
+test "write view as header", '''
   4
   14
   16
@@ -61,15 +61,15 @@ test "write lend as header", '''
   if q.o as v
     print(v)
 
-test "write lend branch moved leaf", '''
+test "write view branch moved leaf", '''
   v 101
   v 107
   v 105
   v 102
 '''
   # A value that branches, every leaf of which is made here, `<a` included,
-  # lent to write: the statement's slot keeps the value the branch takes,
-  # moved in, and the change lands there.
+  # given as a write view: the statement's slot keeps the value the branch
+  # takes, moved in, and the change lands there.
 
   obj N
     c: Int
@@ -90,9 +90,9 @@ test "write lend branch moved leaf", '''
   go(true)
   go(false)
 
-fail "write lend branch part of temp", "25:3: cannot make a write view of `mkpair(3).a if c else mk(5)`: it may be `mkpair(3).a`, a part of the temporary `mkpair(3)`, which a view of the branching value would copy; put the sigil on", errors: 1
-  # A branching value that may be a part of a temporary is lent per
-  # branch, as one that may be a name's is: lending it whole would copy
+fail "write view branch part of temp", "25:3: cannot make a write view of `mkpair(3).a if c else mk(5)`: it may be `mkpair(3).a`, a part of the temporary `mkpair(3)`, which a view of the branching value would copy; put the sigil on", errors: 1
+  # A branching value that may be a part of a temporary gets a view per
+  # branch, as one that may be a name's is: a view of it whole would copy
   # the part out of its temporary, which the write would miss.
 
   obj S
@@ -117,7 +117,7 @@ fail "write lend branch part of temp", "25:3: cannot make a write view of `mkpai
   c = f(1) == 1
   !(mkpair(3).a if c else mk(5)).bump()
 
-test "write lend branching part", '''
+test "write view branching part", '''
   drop 30 t1 [3, 2, 1] 0
   1
   3
@@ -131,10 +131,10 @@ test "write lend branching part", '''
   drop 14 t14 [3, 2, 1] 32
   7
 '''
-  # A field of a branching temporary (`if`, `??`, `catch`) lent to write
-  # is written in the statement's slot, never in a copy, whichever site
-  # lends it: `swap`, a write slice of an array field, or a
-  # self whose call evaluates its arguments first (Core sentence 4).
+  # A field of a branching temporary (`if`, `??`, `catch`) given as a write
+  # view is written in the statement's slot, never in a copy, whichever site
+  # makes the view: `swap`, a write slice of an array field, or a self whose
+  # call evaluates its arguments first (Core sentence 4).
 
 
   obj K2
@@ -184,7 +184,7 @@ test "write lend branching part", '''
   !(mk(14) if c else mk(15)).kk.put2(b: f(2), a: f(3))
   print(k)
 
-test "write lend kept", release: true, '''
+test "write view kept", release: true, '''
   3
   13
   1113 1113
@@ -193,11 +193,11 @@ test "write lend kept", release: true, '''
   5
   1116 15
 '''
-  # A write lend `!x` keeps its write view where the slot's type is one:
+  # A write view `!x` keeps its write view where the slot's type is one:
   # a type spelled with `!T` (also as `(!T)?`), a parameter declared
   # `!T`, a write self, and a value whose type it gives (an `if`, a
   # loop's `break`s). A `?T` slot takes `?n`. Each write below reaches
-  # the value lent.
+  # the value viewed.
 
   obj S
     n: Int
@@ -252,7 +252,7 @@ test "write lend kept", release: true, '''
   k += 1
   print(n, m)
 
-test "write lend read result", '''
+test "write view read result", '''
   2 2 two
   15
   1 one
@@ -281,10 +281,10 @@ test "write lend read result", '''
   2
   1
 '''
-  # A call lent `!v` whose result holds no write view reads what it views:
-  # while the result lives, `v` is lent to read, so `v` may be read, and
-  # other read lends of it are fine (Core sentence 7). This holds for an
-  # argument, a write self, a field or element lent to write, a
+  # A call given `!v` whose result holds no write view reads what it views:
+  # while the result lives, `v` is given as a read view, so `v` may be read,
+  # and other read views of it are fine (Core sentence 7). This holds for an
+  # argument, a write self, a field or element given as a write view, a
   # generic call, inside a closure, in a loop, and in deferred code.
   # oracle: main accept
   # oracle: fields accept
@@ -413,10 +413,10 @@ test "write lend read result", '''
   deferred()
   in_closure()
 
-fail "write lend read result is rejected", "43:3: cannot change `v` while a read view of it is still in use", "49:3: cannot reassign `v` while a read view of it is still in use", "55:8: cannot move `v` while a read view of it is still in use", "61:9: cannot use `v` while a write view of it is still in use", "67:3: cannot assign to `b.count` while a read view of `b` is still in use", "73:3: cannot change `b.items` while a read view of it is still in use", "80:3: cannot change `rows` while a read view of it is still in use", "86:3: cannot change `v` while a read view of it is still in use", "94:5: cannot change `v` while a read view of it is still in use", "100:3: cannot change `v` while a read view of it is still in use", "106:3: cannot change `v` while a read view of it is still in use", errors: 11
-  # A call lent `!v` whose result holds no write view leaves `v` lent to
-  # read while the result lives: `v` may not be written, reassigned, or
-  # moved. A result that is a write view keeps `v` lent to write.
+fail "write view read result is rejected", "43:3: cannot change `v` while a read view of it is still in use", "49:3: cannot reassign `v` while a read view of it is still in use", "55:8: cannot move `v` while a read view of it is still in use", "61:9: cannot use `v` while a write view of it is still in use", "67:3: cannot assign to `b.count` while a read view of `b` is still in use", "73:3: cannot change `b.items` while a read view of it is still in use", "80:3: cannot change `rows` while a read view of it is still in use", "86:3: cannot change `v` while a read view of it is still in use", "94:5: cannot change `v` while a read view of it is still in use", "100:3: cannot change `v` while a read view of it is still in use", "106:3: cannot change `v` while a read view of it is still in use", errors: 11
+  # A call given `!v` whose result holds no write view leaves `v`
+  # read-only while the result lives: `v` may not be written, reassigned, or
+  # moved. A result that is a write view keeps a view of `v` in use to write.
   # oracle: writes reject C4
   # oracle: reassigns reject C4
   # oracle: moves reject C4
@@ -524,7 +524,7 @@ fail "write lend read result is rejected", "43:3: cannot change `v` while a read
 
   writes()
 
-test "write lend temporary", '''
+test "write view temporary", '''
   bumped 2
   drop 2
   drop 3
@@ -550,12 +550,12 @@ test "write lend temporary", '''
   5 7
   end
 '''
-  # `!` lends any value to write, named or temporary (Core sentence 4). A
-  # temporary lent to write, or a field or element of one, is kept in its
-  # statement's slot until the statement ends, which drops it: a write
-  # method sees it there, whether or not its result is used, and a view
-  # it returns may be used anywhere in the statement. `clobber` reuses the
-  # stack between the lend and the last use of the view.
+  # `!` makes a write view of any value, named or temporary (Core sentence 4).
+  # A temporary given as a write view, or a field or element of one, is kept
+  # in its statement's slot until the statement ends, which drops it: a write
+  # method sees it there, whether or not its result is used, and a view it
+  # returns may be used anywhere in the statement. `clobber` reuses the stack
+  # between the view and the last use of the view.
   # oracle: main accept
 
   obj P
@@ -643,7 +643,7 @@ test "write lend temporary", '''
   print((!P(k: 4)).pop(), (![mkp(5), mkp(6)][1]).pop())
   print("end")
 
-test "write lend temporary assign", '''
+test "write view temporary assign", '''
   dropH sees text 2 []
   dropS 2
   dropH sees text 3 []
@@ -651,8 +651,8 @@ test "write lend temporary assign", '''
   dropH sees lit []
   end 2
 '''
-  # A store into a temporary lent to write, through a write method or a
-  # write view a call returns, stores in the temporary (Core sentence 4,
+  # A store into a temporary given as a write view, through a write method or
+  # a write view a call returns, stores in the temporary (Core sentence 4,
   # §6). Its value is made first, so its own temporaries are older: the
   # statement drops the holder first, whose `drop` still sees the value it
   # holds. `clobber` reuses the stack.
@@ -695,7 +695,7 @@ test "write lend temporary assign", '''
   !mkh().set("lit")
   print("end", clobber(1))
 
-test "write lend temporary branches", '''
+test "write view temporary branches", '''
   grow 101
   inc 1003
   inc 1006
@@ -708,7 +708,7 @@ test "write lend temporary branches", '''
   30
 '''
   # A branching value whose every branch is made there is one temporary
-  # (Core §3), lent to write as a whole or through a field or element
+  # (Core §3), given as a write view as a whole or through a field or element
   # (Core sentence 4): written in its statement's slot, never in a copy.
   # oracle: main accept
 
@@ -773,13 +773,13 @@ test "write lend temporary branches", '''
   grow(!(+s))
   print(s.n)
 
-test "write lend temporary headers", '''
+test "write view temporary headers", '''
   if
   as 5
   two
 '''
-  # A header's temporary lent to write (Core sentence 4, §3) ends with the
-  # header: an `if` or `while` condition, an `if … as` subject that binds
+  # A header's temporary given as a write view (Core sentence 4, §3) ends with
+  # the header: an `if` or `while` condition, an `if … as` subject that binds
   # plain data of it, and a `match` subject.
 
   obj B
@@ -812,7 +812,7 @@ test "write lend temporary headers", '''
     2 => print("two")
     _ => print("other")
 
-test "write lend temporary hoisted", '''
+test "write view temporary hoisted", '''
   22004
   drop 22
   25004
@@ -823,7 +823,7 @@ test "write lend temporary hoisted", '''
   drop 5
 '''
   # A call whose keyword arguments run before it (reordered) holds a
-  # self lent to write by its address in the statement's slot, a
+  # self given as a write view by its address in the statement's slot, a
   # branching one made in every branch and an element of a made array
   # too, and a field of a temporary is sliced to write there (Core
   # sentence 4, §3). `clobber` reuses the stack before the view is read.
@@ -865,7 +865,7 @@ test "write lend temporary hoisted", '''
   print(show((![mk(3), mk(4)][1]).pick(y: f(1), x: f(2)), clobber(3)))
   print(digits(!mk(5).arr[..]), digits(!mk(6).arr))
 
-test "write lend temporary kinds", '''
+test "write view temporary kinds", '''
   was 1
   now 9
   was 2
@@ -878,11 +878,11 @@ test "write lend temporary kinds", '''
   inserted
   end
 '''
-  # `!` lends a temporary of any kind to write (Core sentence 4): a handle,
-  # lent as the handle itself (`!*P`); a List and an array, whose element
-  # methods write them; a write method whose `Bool` value is used, written
-  # `(!e).insert(k)`; a Box, which lends what it holds; a `Bool`, where a
-  # `!Bool` is expected.
+  # `!` makes a write view of a temporary of any kind (Core sentence 4): a
+  # handle, viewed as the handle itself (`!*P`); a List and an array, whose
+  # element methods write them; a write method whose `Bool` value is used,
+  # written `(!e).insert(k)`; a Box, which gives a view of what it holds; a
+  # `Bool`, where a `!Bool` is expected.
 
   obj P
     n: Int
@@ -944,11 +944,11 @@ test "write lend temporary kinds", '''
   flip(!mkbool())
   print("end")
 
-fail "write lend temporary outlives", "25:5: cannot return a view of `mk()`, which belongs to this function", "27:6: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "29:7: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "31:6: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "33:7: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "35:6: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", errors: 6
-  # `!` lends any value to write, a temporary too, but a temporary lives
-  # only until its statement ends (Core §3): a write view of it, or of a
-  # field or element of it, or one a write method returns, that is held
-  # past the statement, or returned, is rejected, as a read view of it is.
+fail "write view temporary outlives", "25:5: cannot return a view of `mk()`, which belongs to this function", "27:6: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "29:7: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "31:6: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "33:7: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "35:6: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", errors: 6
+  # `!` makes a write view of any value, a temporary too, but a temporary
+  # lives only until its statement ends (Core §3): a write view of it, or of a
+  # field or element of it, or one a write method returns, that is held past
+  # the statement, or returned, is rejected, as a read view of it is.
   # oracle: view reject C5
   # oracle: main reject C5
 
@@ -982,16 +982,16 @@ fail "write lend temporary outlives", "25:5: cannot return a view of `mk()`, whi
   z = !mk().arr[..]
   print(z)
 
-fail "write lend temporary rejected", "36:1: `push` changes `self`, a temporary no name holds; add `!`: `!mkv().push(1)`", "37:3: cannot make a write view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on", "38:28: cannot call method `bump`, which writes `self`, through a shared handle", "39:8: cannot call method `bump`, which writes `self`, through a shared handle", "40:11: the loop would walk the temporary `mk()` after its header drops it", "42:1: cannot assign to a field or element of a temporary", "43:7: cannot change constant `false`: it lives for the whole program"
+fail "write view temporary rejected", "36:1: `push` changes `self`, a temporary no name holds; add `!`: `!mkv().push(1)`", "37:3: cannot make a write view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on", "38:28: cannot call method `bump`, which writes `self`, through a shared handle", "39:8: cannot call method `bump`, which writes `self`, through a shared handle", "40:11: the loop would walk the temporary `mk()` after its header drops it", "42:1: cannot assign to a field or element of a temporary", "43:7: cannot change constant `false`: it lives for the whole program"
   # What `!` on a temporary does not make valid (Core sentences 4, 8, 9,
   # §3): a write method with no `!` (the hint adds it); a branching value
-  # that may be a name's, which would be lent as a copy (each branch is
-  # lent instead); writing through a shared handle, which only reads; a
+  # that may be a name's, which would be viewed as a copy (each branch is
+  # viewed instead); writing through a shared handle, which only reads; a
   # `for` that would walk it after its header; and assigning into it,
   # which no `!` marks. A literal is no temporary but a constant, which
-  # lives for the whole program (Core sentence 7) and is never lent to
-  # write (`test/reject/types/write_lend_constant.rig`). (A view of a temporary held past its statement:
-  # `write_lend_temporary_outlives.rig`.)
+  # lives for the whole program (Core sentence 7) and is never viewed to
+  # write (`test/reject/types/write_view_constant.rig`). (A view of a
+  # temporary held past its statement: `write_view_temporary_outlives.rig`.)
 
   obj S
     n: Int
@@ -1027,7 +1027,7 @@ fail "write lend temporary rejected", "36:1: `push` changes `self`, a temporary 
   mk().n = 5
   setb(!false)
 
-test "write lend temporary siblings", '''
+test "write view temporary siblings", '''
   1
   11
   123 123 123
@@ -1052,9 +1052,9 @@ test "write lend temporary siblings", '''
   deferred 51
   drop 51
 '''
-  # `!` lends any temporary to write (Core sentence 4) wherever a write
-  # lend goes: self of a generic type's `!@` method, also in a
-  # generic body, and of a plain object's; a Text; an array or List lent
+  # `!` makes a write view of any temporary (Core sentence 4) wherever a write
+  # view goes: self of a generic type's `!@` method, also in a
+  # generic body, and of a plain object's; a Text; an array or List viewed
   # whole or sliced as a `![]T`; a generic function's `!List[T]`; a call
   # followed by `?` or `!`, or under `catch`; a self whose method
   # takes a closure, which may capture a name to write; a branching value
@@ -1177,15 +1177,15 @@ test "write lend temporary siblings", '''
   defer print((!mkb(60)).tryit() catch 0)
   print("end")
 
-test "write lend temporary store ok", '''
+test "write view temporary store ok", '''
   drop ["kept"]
   drop ["kept"]
   end kept
 '''
-  # A temporary lent to write as a self holds what the call stores, as
+  # A temporary given as a write view as a self holds what the call stores, as
   # a name does: a view of a value that outlives the statement may be
   # stored there, and the temporary's `drop` reads it before the statement
-  # ends (`test/reject/ownership/write_lend_temporary_stores.rig`). A
+  # ends (`test/reject/ownership/write_view_temporary_stores.rig`). A
   # holder with no `drop` body may even hold a view of a temporary made
   # after it, which the statement drops first: dropping the holder reads
   # nothing (Core sentence 6), as for a name.
@@ -1224,8 +1224,8 @@ test "write lend temporary store ok", '''
   !mkpr().set(?mk(1).t)
   print("end", t)
 
-fail "write lend temporary stores", "33:16: a view of the temporary `mk(1)` is held by `mkh()`, a temporary its statement drops after it; bind the value to a name first", "36:19: a view of the temporary `mk(1)` is held by `mkh()`, a temporary its statement drops after it; bind the value to a name first", "`s` is dropped here, at the end of its scope, while a read view of `s.t` is still in use", "42:20: a read view of `s.t` is made here", errors: 3
-  # A temporary lent to write as a method's self, or a part of one,
+fail "write view temporary stores", "33:16: a view of the temporary `mk(1)` is held by `mkh()`, a temporary its statement drops after it; bind the value to a name first", "36:19: a view of the temporary `mk(1)` is held by `mkh()`, a temporary its statement drops after it; bind the value to a name first", "`s` is dropped here, at the end of its scope, while a read view of `s.t` is still in use", "42:20: a read view of `s.t` is made here", errors: 3
+  # A temporary given as a write view as a method's self, or a part of one,
   # holds what the call stores in it, as a name does
   # (`store_into_unnamed_self.rig`): a view of a temporary made after
   # it, which its statement drops first, would be read by its `drop`.
@@ -1270,7 +1270,7 @@ fail "write lend temporary stores", "33:16: a view of the temporary `mk(1)` is h
 
   stores_string()
 
-test "write lend temporary view", '''
+test "write view temporary view", '''
   grown 2
   grown 2
   grown 4
@@ -1288,7 +1288,7 @@ test "write lend temporary view", '''
   123 12 12 2
   drop 4
 '''
-  # `!` lends any value to write (Core sentence 4): a call's result, a
+  # `!` makes a write view of any value (Core sentence 4): a call's result, a
   # object literal, a clone, a moved or new handle, a branching value made
   # in every branch, or a field or element of one, passed where a `!T` or
   # `![]T` is expected. The temporary lives in its statement's slot, where
@@ -1359,8 +1359,8 @@ test "write lend temporary view", '''
   sort.sort(!mka())
   !mka().fill(0)
 
-fail "write method while lent", "cannot change `u` while a read view of it is still in use"
-  # A `!@` method call needs self not lent.
+fail "write method while viewed", "cannot change `u` while a read view of it is still in use"
+  # A `!@` method call needs self with no view in use.
 
   obj User
     age: Int
@@ -1379,7 +1379,7 @@ test "write param read copy then local store", '''
   outer
 '''
   # A value copied out through a write parameter (`k.a = x.s`) views what
-  # the caller lent, but writes nothing: a view of a local stored in it
+  # the caller passed, but writes nothing: a view of a local stored in it
   # later lands in it alone, not in the caller's value, for a `!H`
   # parameter and for the write view a `(!H)?` parameter holds.
 
@@ -1421,9 +1421,9 @@ test "write param read copy then local store", '''
   print(h.s)
 
 fail "write self note", "20:21: cannot change `b` while a write view of it is still in use", "20:9: a write view of `b` is made here, as `self`, which is read until the call starts"
-  # A write self is lent to write, and read until its call starts
-  # (Core §6), so an argument cannot lend it to write; the note says the
-  # lend was a write.
+  # A write self is given as a write view, and read until its call starts
+  # (Core §6), so an argument cannot make a write view of it; the note says
+  # the view was a write view.
 
   obj Item
     n: Int
@@ -1444,7 +1444,7 @@ fail "write self note", "20:21: cannot change `b` while a write view of it is st
 
 fail "write self outer bang", "20:4: `pop` changes `self`, a temporary no name holds; the `!` here makes a write view of what `pop` returns, not of `self`: write `!(mkopt(n)?).pop()`"
   # A `!` that does not reach a write method's temporary self: one
-  # outside a chain the self-sigil rule stops at (`!o?.pop()` lends
+  # outside a chain the self-sigil rule stops at (`!o?.pop()` views
   # what `pop` returns). The diagnostic says so, and names what works.
 
   obj S
@@ -1490,7 +1490,7 @@ fail "write self temporary", "41:5: `bump` changes `self`, a temporary no name h
   # same holds for a part of such a value, a field or an element, for a
   # branching value whose every branch is made there, for a method that
   # returns a view of self, and in a generic body. Each hint, as
-  # written, runs: `test/behavior/ownership/write_self_temporary_lent.rig`.
+  # written, runs: `test/behavior/ownership/write_self_temporary_viewed.rig`.
   # A write view a call returns is no temporary: the method writes through
   # it (`test/behavior/ownership/write_self_through_returned_view.rig`).
 
@@ -1542,15 +1542,15 @@ fail "write self temporary", "41:5: `bump` changes `self`, a temporary no name h
   Wrap(v: 1).again()
   print(s.n)
 
-test "write self temporary lent", '''
+test "write self temporary viewed", '''
   2
   2
   2 3 2
   1
 '''
   # Each hint `test/reject/ownership/write_self_temporary.rig` gives,
-  # as written: `!` lends the temporary to write (Core sentence 4), which
-  # its statement keeps in a slot until it ends.
+  # as written: `!` makes a write view of the temporary (Core sentence 4),
+  # which its statement keeps in a slot until it ends.
 
   obj S
     n: Int
@@ -1607,7 +1607,7 @@ test "write self temporary lent", '''
 
 test "write self through returned view", "2 11"
   # A write method called on a write view a call returns writes through
-  # it, to the value the call was lent: self is a view, not a
+  # it, to the value the call was given: self is a view, not a
   # temporary (`test/reject/ownership/write_self_temporary.rig`).
 
   obj S
@@ -1670,8 +1670,8 @@ fail "write slice aliasing", "8:8: cannot change `a` while a write view of it is
   two()
 
 fail "write slice as read", "14:3: cannot assign to `w[0]` while a read view of `w` is still in use", "19:9: cannot use `w` while a write view of it is still in use"
-  # A `![]T` lent to read cannot be written while the view lives, nor lent
-  # to write in the same call.
+  # A `![]T` given as a read view cannot be written while the view lives, nor
+  # viewed to write in the same call.
 
   fun id(s: []Int) -> []Int
     s
@@ -1787,9 +1787,9 @@ fail "write through moved view", "9:3: use of `w` after move"
   g(!n)
   print(n)
 
-fail "write through view field keeps loan", "6:6: a write view is never stored inside a value, and `!List[Int]` cannot stand here", errors: 1
+fail "write through view field keeps view", "6:6: a write view is never stored inside a value, and `!List[Int]` cannot stand here", errors: 1
   # An object never holds a `!T` field whose write view would keep what it
-  # views lent while the object is used: a write view is never stored
+  # views in use while the object is used: a write view is never stored
   # inside a value, so the field is rejected where it is declared.
 
   obj H
@@ -2054,8 +2054,8 @@ fail "write view copied by binding", "9:6: a write view is never stored inside a
   h = Holder(v: List())
   print(h.v.len)
 
-fail "write view field lent to struct", "13:6: cannot use `e` while a write view of it is still in use", errors: 1
-  # Building a second write view from a first one lends the first out: it
+fail "write view field given to struct", "13:6: cannot use `e` while a write view of it is still in use", errors: 1
+  # Building a second write view from a first one ties up the first: it
   # cannot be used while the second is live (here the second is read
   # while the first would push, freeing the buffer).
 
@@ -2112,15 +2112,15 @@ fail "write view in struct copied", "9:11: a write view is never stored inside a
   b = Wrap(payload: 1)
   print(b.payload)
 
-test "write view lent as copied read", '''
+test "write view passed as copied read", '''
   3 8
   4 5
 '''
-  # A held write view may be lent where a read view is expected. A read
+  # A held write view may be given where a read view is expected. A read
   # view of a scalar, or of an optional one, is a copy of the value, so
   # the write view is read through there. (A written `!x` there only
   # reads, and is rejected: test/reject/ownership/
-  # ignored_write_lend_read_view.rig.)
+  # ignored_write_view_read_view.rig.)
 
   fun peek(m: ?(Int?)) -> Int
     m ?? 0
@@ -2138,11 +2138,11 @@ test "write view lent as copied read", '''
   g: [2]?Int = [wn, wk]
   print(g[0], g[1])
 
-fail "write view lent bare", "13:5: write `!@bump()`: the call writes `@`", "26:8: write `!c`: the call writes through `c`", "30:3: `fill` writes the elements; make a write view of `self` with `!`: `!xs.fill(0)`", "33:14: write `!c`: the call writes through `c`", "38:1: write `!w.bump()`: the call writes `w`"
-  # Lending a write view always shows its sigil: a held write view (a
-  # `!T` parameter, `@` in a `!@` method, a local) is lent to a `!T`
+fail "write view given bare", "13:5: write `!@bump()`: the call writes `@`", "26:8: write `!c`: the call writes through `c`", "30:3: `fill` writes the elements; make a write view of `self` with `!`: `!xs.fill(0)`", "33:14: write `!c`: the call writes through `c`", "38:1: write `!w.bump()`: the call writes `w`"
+  # Passing a write view on always shows its sigil: a held write view (a
+  # `!T` parameter, `@` in a `!@` method, a local) is passed to a `!T`
   # parameter, a `!@` self, or an element method as `!w`. A held
-  # read view is lent on bare.
+  # read view is passed on bare.
 
   obj Counter
     n: Int
@@ -2183,8 +2183,8 @@ fail "write view lent bare", "13:5: write `!@bump()`: the call writes `@`", "26:
   xs = [1, 2, 3]
   fill(!xs[..])
 
-fail "write view lent bare unwritable", "6:6: a write view is never stored inside a value, and `!Int` cannot stand here", errors: 1
-  # No write view is held in a field of a binding that cannot lend it (a
+fail "write view given bare unwritable", "6:6: a write view is never stored inside a value, and `!Int` cannot stand here", errors: 1
+  # No write view is held in a field of a binding that cannot pass it on (a
   # plain parameter, a fixed binding, a read view): a write view is never
   # stored inside a value, so the field is rejected where it is declared.
 
@@ -2194,8 +2194,8 @@ fail "write view lent bare unwritable", "6:6: a write view is never stored insid
   n = 1
   print(n)
 
-test "write view lent on", "3 4 6"
-  # Passing a held write view on to a call lends it, written `!w`: the
+test "write view passed on", "3 4 6"
+  # Passing a held write view on to a call passes it, written `!w`: the
   # result writes through it.
 
   fun id(t: !List[Int]) -> !List[Int]
@@ -2212,7 +2212,7 @@ test "write view lent on", "3 4 6"
     !t.push(6)
   print(v.len, v[0], v[2])
 
-fail "write view lent through read view", "9:6: a write view is never stored inside a value, and `!Holder` cannot stand here", errors: 1
+fail "write view passed through read view", "9:6: a write view is never stored inside a value, and `!Holder` cannot stand here", errors: 1
   # No two read views of one value reach the same write view: a write view
   # is never stored inside a value, so a field holding one is rejected
   # where it is declared.
@@ -2226,7 +2226,7 @@ fail "write view lent through read view", "9:6: a write view is never stored ins
   h = Holder(v: List())
   print(h.v.len)
 
-fail "write view lent through shared", "9:6: a write view is never stored inside a value, and `!Wrap` cannot stand here", errors: 1
+fail "write view passed through shared", "9:6: a write view is never stored inside a value, and `!Wrap` cannot stand here", errors: 1
   # No shared handle's value holds a write view that other handles could
   # reach: a write view is never stored inside a value, so the field is
   # rejected where it is declared.
@@ -2240,7 +2240,7 @@ fail "write view lent through shared", "9:6: a write view is never stored inside
   x = Wrap(v: List())
   print(x.v.len)
 
-fail "write view lent through shared ownership", "9:6: a write view is never stored inside a value, and `!Wrap` cannot stand here", errors: 1
+fail "write view passed through shared ownership", "9:6: a write view is never stored inside a value, and `!Wrap` cannot stand here", errors: 1
   # No shared handle's value holds a write view, so no clone of a handle,
   # even through a read view of its holder, gives two handles that write
   # through one view: the field is rejected where it is declared.
@@ -2257,8 +2257,8 @@ fail "write view lent through shared ownership", "9:6: a write view is never sto
   x = Wrap(v: List())
   print(x.v.len)
 
-fail "write view lent through slice", "6:6: a write view is never stored inside a value, and `!Int` cannot stand here", errors: 1
-  # No element of a slice holds a write view to lend on: a write view is
+fail "write view passed through slice", "6:6: a write view is never stored inside a value, and `!Int` cannot stand here", errors: 1
+  # No element of a slice holds a write view to pass on: a write view is
   # never stored inside a value, so the field is rejected where it is
   # declared.
 
@@ -2270,7 +2270,7 @@ fail "write view lent through slice", "6:6: a write view is never stored inside 
 
 fail "write view param stores local view", "cannot store a view of `x` through `p`"
   # A value stored through a `!T` parameter lands in the caller's binding,
-  # so it may not lend the function's own locals.
+  # so it may not view the function's own locals.
 
   sub keep(p: !(?Int)?)
     x = 5
@@ -2312,7 +2312,7 @@ test "write view result binding holds view", '''
   # A binding holds the write view its initializer hands over, with or
   # without a type (Core §6, view places): a call's, a branching value's,
   # or a loop value's `!Int` is held, so assigning the binding writes
-  # through to what the call was lent, as `w: !Int = slot(!n)` does. A bare name of type `!Int`
+  # through to what the call was given, as `w: !Int = slot(!n)` does. A bare name of type `!Int`
   # copies the value it reaches.
 
   fun slot(a: !Int) -> !Int
@@ -2345,9 +2345,9 @@ test "write view result binding holds view", '''
   l = 1
   print(n, m)
 
-fail "write view held by a loop value is lent while it lives", "12:7: cannot use `n` while a write view of it is still in use", errors: 1
+fail "write view held by a loop value stays in use while it lives", "12:7: cannot use `n` while a write view of it is still in use", errors: 1
   # A binding of a loop's value that is a write view at every `break`
-  # holds the view, as a binding of an `if` does, so `n` stays lent to
+  # holds the view, as a binding of an `if` does, so `n` stays in use to
   # write while `l` is used. 0.2.9 copied the value instead.
 
   fun slot(a: !Int) -> !Int
@@ -2359,9 +2359,9 @@ fail "write view held by a loop value is lent while it lives", "12:7: cannot use
   l = 1
   print(n, l)
 
-fail "write view result binding lent", "10:7: cannot use `n` while a write view of it is still in use", errors: 1
+fail "write view result binding passed on", "10:7: cannot use `n` while a write view of it is still in use", errors: 1
   # A binding of a call's `!Int` result holds the write view, so the value
-  # the call was lent stays lent to write while the binding is used.
+  # the call was given stays in use as a write view while the binding is used.
 
   fun slot(a: !Int) -> !Int
     a
@@ -2372,11 +2372,11 @@ fail "write view result binding lent", "10:7: cannot use `n` while a write view 
   print(n, w)
 
 fail "write view temporary handle", "14:6: cannot make a write view of `o?`: it may be `o`, a value a name holds, which a view of the branching value would copy; make a view of", errors: 1
-  # A handle no binding holds is lent to write as any value is
-  # (`test/behavior/ownership/write_lend_temporary_view.rig`): `!h` lends the
-  # handle itself. A value that may be a name's, like the value inside an
-  # optional parameter, would be lent as a copy, which the change would
-  # miss: it is rejected.
+  # A handle no binding holds is given as a write view as any value is
+  # (`test/behavior/ownership/write_view_temporary_view.rig`): `!h` makes a
+  # write view of the handle itself. A value that may be a name's, like the
+  # value inside an optional parameter, would be viewed as a copy, which the
+  # change would miss: it is rejected.
 
   obj P
     n: Int
@@ -2392,8 +2392,8 @@ fail "write view temporary handle", "14:6: cannot make a write view of `o?`: it 
 
 fail "write view through read view", "cannot make a write view through a read view", "cannot write-iterate through a read view"
   # A read view cannot be upgraded to a write view of a part of the
-  # value: a field reached through `?T` cannot be lent to write, given to
-  # a `!@` method, or write-iterated.
+  # value: a field reached through `?T` cannot be given as a write view, given
+  # to a `!@` method, or write-iterated.
 
   obj Counter
     n: Int
@@ -2544,7 +2544,7 @@ fail "write view while read live", "cannot change `user` while a read view of it
 
 test "write views in sibling calls", "2 3"
   # A view passed to a call ends when the call returns, so two calls in
-  # one statement may each lend the same value to write.
+  # one statement may each make a write view of the same value.
 
   fun bump(c: !Int) -> Int
     c = c + 1
@@ -2643,8 +2643,8 @@ fail "write a view of self into a field that holds views", "cannot let this call
 
 test "write a call's write view read where a value is stored", "[10, 10] 10"
   # A `!Int` a call gives, where an `Int` is stored, is read there (SPEC
-  # §7 "Second-class views"): the lend of `v` it took ends with the
-  # read, before the place stored into is lent.
+  # §7 "Second-class views"): the view of `v` it took ends with the
+  # read, before the place stored into is viewed.
   # oracle: main accept
 
   fun slot(v: !List[Int], i: Int) -> !Int from v
@@ -2665,7 +2665,7 @@ test "write a call's write view read where a value is stored", "[10, 10] 10"
 
 fail "write a call's write view kept past a write", "cannot use `v` while a write view of it is still in use", errors: 1
   # The sibling shape: a `!Int` the call gives, kept in a binding, keeps
-  # `v` lent to write while it lives.
+  # `v` given as a write view while it lives.
   # oracle: main reject C4
 
   fun slot(v: !List[Int], i: Int) -> !Int from v
@@ -2681,7 +2681,7 @@ fail "write a call's write view kept past a write", "cannot use `v` while a writ
 
 fail "write view returned while a task holds it", "16:14: cannot move `s` while a write view of it is still in use", "22:12: cannot move `s` while a write view of it is still in use", "27:5: cannot move `s` while a write view of it is still in use", errors: 3
   # A returned write view moves, as `<s` would: not while a task it was
-  # lent to, waited for where its scope ends, still holds it.
+  # given to, waited for where its scope ends, still holds it.
   obj Slot
     key: Int
 
@@ -2711,7 +2711,7 @@ fail "write view returned while a task holds it", "16:14: cannot move `s` while 
   t = Tab(xs: List(), o: none)
   print(t.xs.len)
 
-test "write view lent through a binding is returned", '''
+test "write view passed through a binding is returned", '''
   43
   9
   2 33 41
@@ -2853,13 +2853,13 @@ test "write view lent through a binding is returned", '''
     .full(s) => print(s.value)
     .empty => pass
 
-fail "write view lent through a binding stays lent", "24:7: cannot assign to `@slots[j]` while a write view of `@slots` is still in use", "31:7: cannot reassign `s` while a write view of `s.items` is still in use", "37:14: `other` returns a view of `@p`, but its signature says it views only `@o`", "42:13: cannot reassign `s` while a write view of `s.items` is still in use", "50:15: cannot change `s.items` while a write view of `s` is still in use", "56:15: cannot change `s.items` while a write view of `s` is still in use", "61:13: cannot reassign `s` while a write view of `s.items` is still in use", "69:15: cannot reassign `s` while a write view of `s.items` is still in use", "`s` is dropped here, at the end of its scope, while a write view of `s.items` is still in use", "79:12: a write view of `s.items` is made here", "84:11: cannot reassign `s` while a write view of `s.items` is still in use", "90:13: cannot reassign `s` while a write view of `s.items` is still in use", "98:8: cannot return a view of `x`, which belongs to this function", "103:9: cannot return a view of `xs`, which belongs to this function", errors: 13
-  # What a returned view sees stays lent while it lives, and the binding
-  # it was lent through is not used while it lives, by a defer, a
+fail "write view passed through a binding stays in use", "24:7: cannot assign to `@slots[j]` while a write view of `@slots` is still in use", "31:7: cannot reassign `s` while a write view of `s.items` is still in use", "37:14: `other` returns a view of `@p`, but its signature says it views only `@o`", "42:13: cannot reassign `s` while a write view of `s.items` is still in use", "50:15: cannot change `s.items` while a write view of `s` is still in use", "56:15: cannot change `s.items` while a write view of `s` is still in use", "61:13: cannot reassign `s` while a write view of `s.items` is still in use", "69:15: cannot reassign `s` while a write view of `s.items` is still in use", "`s` is dropped here, at the end of its scope, while a write view of `s.items` is still in use", "79:12: a write view of `s.items` is made here", "84:11: cannot reassign `s` while a write view of `s.items` is still in use", "90:13: cannot reassign `s` while a write view of `s.items` is still in use", "98:8: cannot return a view of `x`, which belongs to this function", "103:9: cannot return a view of `xs`, which belongs to this function", errors: 13
+  # What a returned view sees stays in use while it lives, and the binding
+  # it was viewed through is not used while it lives, by a defer, a
   # closure a defer calls, or a task, at a `return`, a block's value, or
-  # a `break`. A view lent through a binding of a local (`s = !x`, a
+  # a `break`. A view made through a binding of a local (`s = !x`, a
   # `for` over `lv = !xs`) is the local's, a `from @o` method returns no
-  # view of `@p`, and a view lent in one pass of a loop does not outlive
+  # view of `@p`, and a view made in one pass of a loop does not outlive
   # that pass's binding.
   obj Slot
     key: Int
@@ -3157,7 +3157,7 @@ test "write view written from a read view", "1 2 3"
   h(!z, ?three)
   print(x, y, z)
 
-test "write lend inside a read argument", '''
+test "write view inside a read argument", '''
   1 0
   1
   0
@@ -3169,10 +3169,10 @@ test "write lend inside a read argument", '''
   0
   5 6
 '''
-  # A place lent to write is reached to write wherever the value its
+  # A place given as a write view is reached to write wherever the value its
   # call makes goes: `swap(!wholes[f], List())` passed to a `?` parameter
   # writes the element, and the read the parameter makes of the result
-  # does not reach the place `!` lends.
+  # does not reach the place `!` views.
 
   sub check(whole: ?List[Int])
     print(whole.len)

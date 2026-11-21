@@ -11,7 +11,7 @@ test "box basic", '''
   drop 1
 '''
   # ^T owns one T on the heap. Fields and methods of a boxed object are
-  # reached through the box; `?b` and `!b` lend the value as `?T` / `!T`;
+  # reached through the box; `?b` and `!b` give the value as `?T` / `!T`;
   # `<b.unbox()` moves the value out and frees the box.
 
   obj Point
@@ -287,7 +287,7 @@ test "box holds read view", '''
   2
   4
 '''
-  # A box holds a read view, of an owner too: `^?v` keeps `v` lent
+  # A box holds a read view, of an owner too: `^?v` keeps a view of `v` in use
   # while the box is used, and the box reaches the viewed value as a
   # view reaches it.
 
@@ -316,7 +316,7 @@ test "box holds read view", '''
   !boxes.push(^?v)
   print(boxes[0].len + boxes[1].len)
 
-test "box lent as value", '''
+test "box viewed as value", '''
   2
   1
   6
@@ -325,7 +325,7 @@ test "box lent as value", '''
   drop 2
   drop 1
 '''
-  # A box lent as its value (`?b` where a `?T` is expected, `!b` where a
+  # A box viewed as its value (`?b` where a `?T` is expected, `!b` where a
   # `!T` is) works wherever a view goes: a typed or rebound
   # view local, an argument evaluated out of order, a generic result, a
   # write view of the box read as the value.
@@ -400,7 +400,7 @@ test "box members compose", '''
   eat 6
   3 true
 '''
-  # A box lends the views of its value (Core §4), so member access reaches
+  # A box passes on the views of its value (Core §4), so member access reaches
   # through it: an object's fields and methods, a List's and a Text's, and
   # a Text through a shared handle.
 
@@ -455,8 +455,8 @@ test "box of handle access", '''
   7
 '''
   # Fields and methods reach through a box and through a shared handle,
-  # read in place, lent to read, and matched. A shared Cell in the value
-  # changes through either, and `<b.unbox()` takes the value out of its
+  # read in place, given as a read view, and matched. A shared Cell in the
+  # value changes through either, and `<b.unbox()` takes the value out of its
   # box.
 
   enum K
@@ -514,7 +514,7 @@ test "box of values", '''
   ["a"]
   2
 '''
-  # A box of a List, an array, or a String is lent as its value (`?b` as a
+  # A box of a List, an array, or a String is viewed as its value (`?b` as a
   # `?List[Int]`, `!b` as a `!List[Int]`) and taken apart with `unbox`. It
   # prints as its value: a boxed String bare at the top, quoted inside.
 
@@ -570,7 +570,7 @@ test "box recursive enum", '''
 '''
   # A recursive enum holds its children in boxes. `match` reaches a boxed
   # enum through a view of the box (`match ?e`, or a `?^E`
-  # parameter), and a payload box is lent on as a view of its value.
+  # parameter), and a payload box is passed on as a view of its value.
 
   enum Expr
     num(n: Int)
@@ -685,7 +685,7 @@ fail "box of a read view only reads", "22:9: method `eat` consumes `self`; canno
   # A box of a read view, `^?T`, reaches its value through the view, as
   # a `?T` does: a consuming method of the value would take what the
   # view's owner still holds (`^<b` of a `b: ?Bag` boxes the view), and
-  # nothing writes through it: not a write method, a field, a write lend,
+  # nothing writes through it: not a write method, a field, a write view,
   # or a `match !m`. The box itself is owned and may be replaced.
 
   obj Bag

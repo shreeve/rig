@@ -255,7 +255,7 @@ test "apis object a set with text among its fields", '''
   long abcdef
   2
 '''
-  # The fields come through the slot the call lends: a String among them
+  # The fields come through the slot the call views: a String among them
   # is moved once and dropped once.
 
   error Bad

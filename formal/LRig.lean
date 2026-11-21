@@ -56,7 +56,7 @@ partial def toExpr : S → Option Expr
   | .list [.atom "move", .atom x] => some (.move x)
   | .list [.atom "clone", .atom x] => some (.clone x)
   | .list [.atom "box", e] => (toExpr e).map .box
-  | .list [.atom "lend", .atom m, .atom x] => (mode m).map (fun m => .lend m x)
+  | .list [.atom "view", .atom m, .atom x] => (mode m).map (fun m => .view m x)
   | .list [.atom "assign", .atom x, e] => (toExpr e).map (.assign x)
   | .list [.atom "drop", .atom x] => some (.drop x)
   | .list [.atom "add", a, b] => do some (.add (← toExpr a) (← toExpr b))

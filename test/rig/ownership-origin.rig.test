@@ -156,8 +156,8 @@ fail "origin from body forms", "17:5: `get` returns a view of `other`, but its s
   pass
 
 fail "origin from keeps named", "14:1: cannot change `x` while a read view of it is still in use", "17:1: cannot change `y` while a read view of it is still in use", errors: 2
-  # The arguments `from` names stay lent while the result lives; a
-  # function lent as a value calls with its type's origins, which keep
+  # The arguments `from` names stay in use while the result lives; a
+  # function given as a value calls with its type's origins, which keep
   # every argument that could hold the result.
 
   fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int] from a
@@ -205,7 +205,7 @@ fail "origin from static", "6:3: `pick` returns a view of `static`, but its sign
 
 fail "origin holder owns target", "22:6: cannot change `c` while a read view of it is still in use"
   # A cursor that also owns items of the type it hands out keeps itself
-  # lent, to read: its result may view its own `scratch`.
+  # read-only: its result may view its own `scratch`.
 
   obj Item
     n: Int
@@ -314,7 +314,7 @@ test "origin read self keeps nothing", '''
 
 fail "origin self stored in argument", "18:2: cannot drop `s` while a read view of it is still in use"
   # A method may store a view of what its self holds in what it was
-  # lent to write: self stays lent while that view lives.
+  # given as a write view: self stays in use while that view lives.
 
   obj Holder
     r: []Int
@@ -335,8 +335,8 @@ fail "origin self stored in argument", "18:2: cannot drop `s` while a read view 
 
 test "origin self stores into argument", "[1, 2, 3] 2"
   # A method may store a view of what it is handed in an argument it was
-  # lent to write; its self is lent to write only for the call, so
-  # the argument keeps what it stored, and self is free after.
+  # given as a write view; its self is given as a write view only for the
+  # call, so the argument keeps what it stored, and self is free after.
 
   obj View
     xs: []Int
@@ -358,7 +358,7 @@ test "origin self stores into argument", "[1, 2, 3] 2"
 
 fail "origin same type keeps both", "10:1: cannot change `y` while a read view of it is still in use"
   # Without `from`, a result carries every argument whose type could hold
-  # what it views: two arguments of the same type stay lent.
+  # what it views: two arguments of the same type stay in use.
 
   fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
     a
@@ -519,8 +519,8 @@ test "origin self path reader", "hi 7 8"
   print(w, a, b)
 
 test "origin self path scanner", "12 50"
-  # A self that is itself a view lends what that view carries: `number`
-  # lends `@` to write again while `whole` lives, since `digits` views
+  # A self that is itself a view passes on what that view carries: `number`
+  # makes a write view of `@` again while `whole` lives, since `digits` views
   # only what `@text` views.
 
   obj Scanner
@@ -545,7 +545,7 @@ test "origin self path scanner", "12 50"
 
 test "origin self path items held", "30"
   # A Map's iterator views the Map, not itself (`from @map`): a function
-  # lent one to write holds two of its items at once.
+  # given a write view of one holds two of its items at once.
 
   fun both(it: !Items[Int, Int]) -> Int
     a = (!it).next() ?? return 0
@@ -558,7 +558,7 @@ test "origin self path items held", "30"
   k = ?m.items()
   print(both(!k))
 
-test "origin self path loans copied", '''
+test "origin self path views copied", '''
   1
   10
 '''
@@ -586,8 +586,8 @@ test "origin self path loans copied", '''
   if a as x
     print(x)
 
-fail "origin self path loans stay", "cannot change `m1` while a read view of it is still in use"
-  # The item keeps the first Map lent after the field is pointed away.
+fail "origin self path views stay", "cannot change `m1` while a read view of it is still in use"
+  # The item keeps a view of the first Map in use after the field is pointed away.
 
   obj Walk
     map: ?Map[Int, Int]
@@ -608,7 +608,7 @@ fail "origin self path loans stay", "cannot change `m1` while a read view of it 
 
 fail "origin self path kept map", "cannot change `m1` while a read view of it is still in use"
   # A method that re-points the field (`keeps m`) may run while an item
-  # lives, and the item still keeps the first Map lent.
+  # lives, and the item still keeps a view of the first Map in use.
 
   obj Walk
     map: ?Map[Int, Int]
@@ -656,7 +656,7 @@ fail "origin self path temporary owner", "a view of the temporary `mk()` outlive
   print(w)
 
 test "origin self path other field", "ab 1 3"
-  # An owned path lends that field alone: self's other fields may be
+  # An owned path views that field alone: self's other fields may be
   # written while the result lives, and `from @text, k` carries both.
 
   obj Buf
@@ -764,7 +764,7 @@ test "origin self path view self reset", "1"
 
 fail "origin self path held views", "cannot change `w` while a read view of it is still in use"
   # An owned path's result also carries the loans self holds: `words`
-  # holds views of `w`, which stays lent while `r` lives.
+  # holds views of `w`, which stays in use while `r` lives.
 
   obj Bag
     words: List[?String]
@@ -815,7 +815,7 @@ fail "origin self path body", "`word` returns a view of `@name`, but its signatu
   print(1)
 
 fail "origin self path body call", "`word` returns a view of `@name`, but its signature says it views only `@text`"
-  # A view a call returns counts for each path it was lent.
+  # A view a call returns counts for each path it was given.
 
   fun pick(a: ?String, b: ?String) -> ?String
     return a if a.len > b.len
@@ -938,7 +938,7 @@ code "origin self path names no function", "pub inline fn set("
 
 fail "origin self path task", "cannot drop `it` while a write view of it is still in use", "cannot assign to `s.at` while a write view of `s` is still in use", errors: 2
   # A task is its call, still running: it keeps all of its self
-  # lent until it is waited for, whatever paths of self `from` names.
+  # in use until it is waited for, whatever paths of self `from` names.
 
   obj Walk
     map: ?Map[Int, String]
@@ -1119,7 +1119,7 @@ test "origin from self of a Map's get", '''
 
 fail "origin from self returns no key", "`bad` returns a view of `k`, but its signature says it views only `@`", "`bad2` returns a view of `k`, but its signature says it views only `@`", errors: 2
   # The sibling shape: a method `from @` that returns the key it was
-  # lent, directly or after a `Map.get`, views what `from` does not name.
+  # given, directly or after a `Map.get`, views what `from` does not name.
   # oracle: Box.bad reject C6
   # oracle: Box.bad2 reject C6
 

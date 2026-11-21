@@ -212,7 +212,7 @@ test "review-step45-r2-c11b branch read escape reuse", '''
   print(r.len, r)
 
 test "review-step45-r2-c12 match value subject temp", "qxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-  # if-as over a match value whose arm lends an element through a temp; grow t
+  # if-as over a match value whose arm views an element through a temp; grow t
   fun idx(s: ?String) -> Int
     s.len - 1
 
@@ -241,7 +241,7 @@ test "review-step45-r2-c13 branch temp in cond plain leaves", "qxxxxxxxxxxxxxxxx
       !t.add("xxxxxxxx")
   print(v[0], w)
 
-fail "review-step45-r2-d01 repoint via lend on move", "cannot reassign `w` while a write view of it is still in use"
+fail "review-step45-r2-d01 repoint via view passed on move", "cannot reassign `w` while a write view of it is still in use"
   # w = !a; w2 = !w; w = <w2: the right side doesn't name w but carries w's view of a
   a = String("a")
   b = String("b")
@@ -252,7 +252,7 @@ fail "review-step45-r2-d01 repoint via lend on move", "cannot reassign `w` while
   !w.add("!")
   print(a, b)
 
-fail "review-step45-r2-d02 repoint via fn of lend on", "cannot reassign `w` while a write view of it is still in use"
+fail "review-step45-r2-d02 repoint via fn of view passed on", "cannot reassign `w` while a write view of it is still in use"
   # w2 = id(!w); w = <w2 : re-point to a view derived from w through a call
   fun id(x: !String) -> !String
     x
@@ -648,7 +648,7 @@ test "review-step45-r2-f05 guarded match readview array elem", "5"
   print(f(?e))
 
 test "review-step45-r2-f06 readview elem forms", "20"
-  # element of a read-view List in each form: while-as, lends of fields, implicit lend args, ?@ method
+  # element of a read-view List in each form: while-as, views of fields, implicit view args, ?@ method
   obj R
     t: String
     n: Int
@@ -923,7 +923,7 @@ fail "review-step45-t03 vec views moved in struct returned", "cannot drop `t` wh
   <t
   print(b.items)
 
-fail "review-step45-t04 vec views elem assign loans", "cannot drop `u` while a read view of it is still in use"
+fail "review-step45-t04 vec of views elem assign", "cannot drop `u` while a read view of it is still in use"
   # w[0] = ?u replaces a view element: old source t freed while w live (sound if loans union)
   t = String("t")
   u = String("u")

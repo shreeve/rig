@@ -459,7 +459,7 @@ test "list keep nested", release: true, '''
   0
 '''
   # `keep` on a List of Lists of String drops the inner Lists and their
-  # text, and works on an inner List lent as an element.
+  # text, and works on an inner List viewed as an element.
 
   fun row(k: Int) -> List[String]
     r: List[String] = List()
@@ -678,7 +678,7 @@ test "list resize", release: true, '''
 '''
   # `!v.resize(n, x)` grows a List to `n` elements with copies of `x`, or
   # shrinks it to `n` as `keep` does; `n == v.len` changes nothing. It
-  # works on any List a write lend reaches: a binding, a field, a write
+  # works on any List a write view reaches: a binding, a field, a write
   # view, a box, and a temporary. `n` is evaluated first, then `x`, once,
   # even when nothing is added.
 
@@ -816,7 +816,7 @@ fail "list from a literal of objects", "5:15: `List(...)` copies plain data, and
   orders = List([Order(who: "ada", qty: 3), Order(who: "bob", qty: 1)])
   print(orders.len)
 
-fail "an array lent as a List", "9:13: type mismatch: expected `?List[Order]`, got `?[2]Order`; a `?List[Order]` views a List alone: declare `[]Order`, which views an array or a List", errors: 1
+fail "an array viewed as a List", "9:13: type mismatch: expected `?List[Order]`, got `?[2]Order`; a `?List[Order]` views a List alone: declare `[]Order`, which views an array or a List", errors: 1
   obj Order
     who: ?String
     qty: Int
@@ -940,7 +940,7 @@ fail "index_of in a generic body is checked per instance", "`bad[F]` cannot use 
 
 test "index_of takes a name, an owner, and an element as they stand", "1 0 1 1 1"
   # It compares and keeps nothing, so its argument is read where it
-  # stands, as `slices.index_of`'s is, and nothing stays lent after it.
+  # stands, as `slices.index_of`'s is, and no view stays in use after it.
   xs = List[Int]([1, 3])
   n = 3
   ss = List[String]()
@@ -984,7 +984,7 @@ test "extend copies plain objects", "4 2 2.5 1"
   q[0].x = 9
   print(ps.len, ps[3].x, ps[3].y, ps[2].x)
 
-test "extend keeps no loan of its source", "[1, 4] [4, 5]"
+test "extend keeps no view of its source", "[1, 4] [4, 5]"
   xs = List([1])
   ys = List([4])
   !xs.extend(?ys[..])

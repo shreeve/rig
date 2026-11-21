@@ -251,8 +251,8 @@ test "sets all subs", seeds: 20, '''
   print(xs.len)
 
 fail "sets all subs write", "this task holds a write view while it runs, so it stays where it is bound", errors: 2
-  # A task lent to write is bound and waited for where it is bound, as a
-  # task that gives a value is.
+  # A task given as a write view is bound and waited for where it is bound, as
+  # a task that gives a value is.
   use std.task
 
   sub fill(xs: !List[Int])
@@ -474,7 +474,7 @@ test "sets wait first within", seeds: 20, '''
   !ts.add(quick()&)
   print(time.within(1, |<ts| <ts.wait_first()!) catch -1)
 
-fail "sets loans", "cannot change `xs` while a read view of it is still in use", errors: 1
+fail "sets keep views", "cannot change `xs` while a read view of it is still in use", errors: 1
   # A set keeps the loans of its tasks.
   # oracle: main reject C4
   fun total(xs: ?List[Int]) -> Int
@@ -486,7 +486,7 @@ fail "sets loans", "cannot change `xs` while a read view of it is still in use",
   !xs.push(1)
   print(>ts)
 
-test "sets waited end their loans", seeds: 20, "[0] 1"
+test "sets waited end their views", seeds: 20, "[0] 1"
   # `>ts` takes the set, and what it gives views nothing.
   # oracle: main accept
   fun total(xs: ?List[Int]) -> Int
@@ -500,7 +500,7 @@ test "sets waited end their loans", seeds: 20, "[0] 1"
   print(r, xs.len)
 
 fail "sets waited give what their tasks view", "cannot change `xs` while a read view of it is still in use", errors: 1
-  # What a set's tasks give may view what they were lent.
+  # What a set's tasks give may view what they were given.
   # oracle: main reject C4
   fun first(v: ?List[String]) -> ?String
     ?v[0]
@@ -513,7 +513,7 @@ fail "sets waited give what their tasks view", "cannot change `xs` while a read 
   !xs.push(String("b"))
   print(r)
 
-fail "sets in a closure keep their loans", "cannot change `xs` while a read view of it is still in use", errors: 1
+fail "sets in a closure keep their views", "cannot change `xs` while a read view of it is still in use", errors: 1
   # A closure that holds a set drops it where the closure's binding
   # ends, which waits for its tasks.
   # oracle: main reject C4
@@ -528,7 +528,7 @@ fail "sets in a closure keep their loans", "cannot change `xs` while a read view
   !xs.push(1)
   print(xs.len)
 
-fail "sets through a generic keep their loans", "cannot change `xs` while a read view of it is still in use", errors: 1
+fail "sets through a generic keep their views", "cannot change `xs` while a read view of it is still in use", errors: 1
   # oracle: main reject C4
   fun total(v: ?List[Int]) -> Int
     v.len
@@ -543,7 +543,7 @@ fail "sets through a generic keep their loans", "cannot change `xs` while a read
   !xs.push(1)
   print(>us)
 
-fail "sets stored by a generic keep their loans", "cannot change `xs` while a read view of it is still in use", errors: 1
+fail "sets stored by a generic keep their views", "cannot change `xs` while a read view of it is still in use", errors: 1
   # oracle: main reject C4
   fun total(v: ?List[Int]) -> Int
     v.len
@@ -557,7 +557,7 @@ fail "sets stored by a generic keep their loans", "cannot change `xs` while a re
   !xs.push(1)
   print(>ts)
 
-fail "sets write loan", "this task holds a write view while it runs, so it stays where it is bound", errors: 1
+fail "sets write view", "this task holds a write view while it runs, so it stays where it is bound", errors: 1
   fun fill(xs: !List[Int]) -> Int
     !xs.push(1)
     1

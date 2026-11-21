@@ -65,7 +65,7 @@ test "seams-surface-f06 receiver sigils", "-4 4 4 3 none"
   w = <p.f
   print(x, y, z, w, p.f)
 
-test "seams-surface-f08 handle lend3", "1 1"
+test "seams-surface-f08 handle view3", "1 1"
   obj P
     x: Int
 

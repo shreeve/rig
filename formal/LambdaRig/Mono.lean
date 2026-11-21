@@ -4,7 +4,7 @@
 `check_mono`: a program `check` accepts with some names used after it,
 it accepts with fewer, with the same type and moves, since `allows` only
 forbids an access while a view is used later. `check_moved_fv`: a name a
-program does not use, it does not move. LambdaRig/TaskLoans.lean and
+program does not use, it does not move. LambdaRig/TaskViews.lean and
 LambdaRig/Temps.lean build on both.
 -/
 import LambdaRig.Calls
@@ -49,7 +49,7 @@ theorem check_mono (e : Expr) : ∀ {Γ M L L' r}, check Γ M L e = some r → (
         cases τx with
         | view m y => cases m <;> simp_all [check]
         | _ => simp_all [check]
-  | lend m x =>
+  | view m x =>
     intro Γ M L L' r h hs
     have k1 := allows_mono (Γ := Γ) (y := x) (k := .read) (L' := L') (L := L)
     have k2 := allows_mono (Γ := Γ) (y := x) (k := .write) (L' := L') (L := L)
@@ -133,7 +133,7 @@ theorem check_moved_fv (e : Expr) : ∀ {Γ M L τ M' z}, check Γ M L e = some 
       cases τx with
       | view m y => simp [hx] at hc; cases hy : Γ.lookup y <;> simp_all
       | _ => simp [hx] at hc; simp_all
-  | lend m x =>
+  | view m x =>
     intro Γ M L τ M' z hc hzm _
     simp only [check] at hc
     cases hx : Γ.lookup x with

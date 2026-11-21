@@ -1086,7 +1086,7 @@ bomb "simd lane index panics", "index out of bounds", prints: "4", release: true
 
 fail "simd lane place", "9:1: a lane of `v` is a value, not a place, so it is not assigned: write `v = v.with(0, x)`", "10:1: a lane of `v` is a value, not a place, so it is not assigned: write `v = v.with(1, x)`", "11:6: a lane of `v` is a value, not a place, so it has no write view: change it with `v = v.with(2, x)`", "12:6: a lane of `v` is a value, not a place, so it has no view: read it as `v[3]`", "13:6: a lane of `v` is a value, not a place, so it is not taken: read it as `v[0]`", errors: 5
   # A lane of a vector is a part of its value, not a place: it is read with
-  # `v[i]`, and never assigned, lent, or taken; `v.with(i, x)` is the copy
+  # `v[i]`, and never assigned, viewed, or taken; `v.with(i, x)` is the copy
   # with one lane changed.
 
   sub inc(x: !U8)
@@ -1452,7 +1452,7 @@ test "simd places", '''
 '''
   # A vector is plain data, one value like an `Int`: a field, an element of
   # a List or an array, an optional, a Cell, and a closure hold copies of
-  # it, and a lend of it views it as a lend of an `Int` does.
+  # it, and a view of it sees it as a view of an `Int` does.
 
   type Block = Simd[U8, 4]
 

@@ -24,8 +24,8 @@ test "for through a frozen List", seeds: 20, '''
   6
   8
 '''
-  # `?f` of a `*Frozen[List[T]]` lends the frozen List, which a loop reads
-  # in place; each task walks the one List through its own handle.
+  # `?f` of a `*Frozen[List[T]]` makes a read view of the frozen List, which a
+  # loop reads in place; each task walks the one List through its own handle.
 
   fun total(f: *Frozen[List[Int]]) -> Int
     n = 0
@@ -179,8 +179,8 @@ fail "frozen in a generic body", "`freeze[Node]` cannot use `T = Node`: the gene
 
   f = freeze(Node(next: none))
 
-fail "frozen lent to a task", "cannot drop `f` while a read view of it is still in use"
-  # A view of a frozen value lent to a task keeps the handle until the
+fail "frozen viewed by a task", "cannot drop `f` while a read view of it is still in use"
+  # A view of a frozen value given to a task keeps the handle until the
   # wait.
   sub read(s: ?*Frozen[String])
     print(s)
@@ -230,13 +230,13 @@ fail "frozen orders only an ordered value", "`*Frozen[P]` cannot be ordered", er
   b = *Frozen(P(x: 2))
   print(a < b)
 
-test "frozen methods, Maps, and lends", '''
+test "frozen methods, Maps, and views", '''
   4 9 9 1
   1 false 1
   3 true
 '''
   # Read methods and indexing reach through the handle; a Map is frozen
-  # whole; `?f` lends the frozen value as a `?T`, so `?a == ?b` compares
+  # whole; `?f` views the frozen value as a `?T`, so `?a == ?b` compares
   # what two handles reach.
   obj C
     n: Int
@@ -263,8 +263,8 @@ test "frozen methods, Maps, and lends", '''
   b = *Frozen(String("abc"))
   print(size(?a), ?a == ?b)
 
-test "frozen List lends its elements", "2 3"
-  # A `*Frozen[List[T]]` lends the `[]T` of the List it froze, to a
+test "frozen List gives views of its elements", "2 3"
+  # A `*Frozen[List[T]]` gives the `[]T` of the List it froze, to a
   # concrete parameter and to a generic one alike.
   fun count(xs: []Int) -> Int
     xs.len

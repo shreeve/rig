@@ -317,9 +317,9 @@ test "closure result takes tail", '''
   drop 5
 '''
   # A closure's value is its result: the tail of an inferred closure, an
-  # expression body or a block body, a branch of it, a `match` arm, and a
-  # value an early `return` gives, leave the closure, as they leave a
-  # function. Lent as `?g`, it returns them the same way.
+  # expression body or a block body, a branch of it, a `match` arm, and
+  # a value an early `return` gives, leave the closure, as they leave a
+  # function. Given as `?g`, it returns them the same way.
 
   obj D
     id: Int
@@ -349,7 +349,7 @@ test "closure result takes tail", '''
   print(k(mk(5), 1).id, t(mk(6)).id, apply(?g, mk(7)).id)
 
 fail "closure result views captured view", "`x` is dropped here, at the end of its scope, while a read view of it is still in use", "13:8: a read view of `x` is made here"
-  # Calling a closure yields a value that may lend what the closure
+  # Calling a closure yields a value that may view what the closure
   # captured, so it cannot outlive the viewed value.
 
   obj Wrap
@@ -408,8 +408,8 @@ fail "closure returns local view", "an owned closure cannot capture `r`, which h
   cb = mk()
   cb()
 
-test "closure literal lent returns a view of its capture", "3"
-  # A closure literal lent to a call lends its captures for that call
+test "closure literal viewed returns a view of its capture", "3"
+  # A closure literal given to a call views its captures for that call
   # (Core §7): the result views what the closure captured, `xs`, and
   # never the closure, which no value holds.
   # oracle: call accept
@@ -424,7 +424,7 @@ test "closure literal lent returns a view of its capture", "3"
   v = call(|?xs| xs)
   print(v.len)
 
-fail "closure literal lent returns a view that keeps its loan", "cannot change `xs` while a read view of it is still in use", errors: 1
+fail "closure literal viewed returns a view that keeps its place viewed", "cannot change `xs` while a read view of it is still in use", errors: 1
   # oracle: main reject C4
   fun call(f: ?fun() -> ?List[Int]) -> ?List[Int]
     f()
@@ -449,7 +449,7 @@ fail "closure tail moves capture", "9:10: `x` is captured by the closure, which 
   print(a.v[0], b.v[0])
 
 fail "closure tail views local", "9:4: cannot return a view of `y`, which belongs to this function"
-  # A closure's value cannot lend the closure's own locals.
+  # A closure's value cannot view the closure's own locals.
 
   obj Wrap
     v: List[Int]
@@ -556,7 +556,7 @@ fail "closure path capture reaches only its place", "the closure captured `p.a`,
   g()
 
 fail "closure path capture overlap", "capture `p` or `p.a`, not both: one holds the other"
-  # Two captures in one list, one inside the other, would lend the same
+  # Two captures in one list, one inside the other, would view the same
   # place twice.
 
   obj P
@@ -574,8 +574,8 @@ fail "closure path capture of an element", "a capture names a local or a field o
   f = |?xs[0]| 1
   print(f())
 
-fail "closure path capture loan", "8:1: cannot change `p.a` while a read view of it is still in use"
-  # The capture's loan is on its place, for the closure's life.
+fail "closure path capture view", "8:1: cannot change `p.a` while a read view of it is still in use"
+  # A capture keeps a view of its place for the closure's life.
 
   obj P
     a: List[Int]
@@ -665,7 +665,7 @@ test "a function value held behind a read view views nothing", "2 2"
   # `Prog.hook` is a function value, a named function's address, which
   # holds nothing (Core §7), so a `?Prog` self holds views no part of a
   # `State`: the call through `action`, known only by its type, stores
-  # nothing in `@` that carries the loan on `n`, and `n` is written after
+  # nothing in `@` that carries a view of `n`, and `n` is written after
   # it.
   # oracle: Checker.run accept
   # oracle: bump accept

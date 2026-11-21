@@ -584,7 +584,7 @@ test "sets a member widens to its union where a view of it goes", '''
   1
   false true
 '''
-  # An error of a set is a value of a union that holds it: lent where a
+  # An error of a set is a value of a union that holds it: viewed where a
   # `?L` goes, a key of a `Map[L, ...]` too, and compared with an `L?`.
   error A
     x
@@ -606,7 +606,7 @@ test "sets a member widens to its union where a view of it goes", '''
   o: L? = A.w
   print(o == A.x, o == .w)
 
-fail "sets a member with fields is bound before it is lent as its union", "14:10: type mismatch: expected `?L`, got `A`; bind it first, `k: L = A.x(n: 3)`, then pass `?k`", errors: 1
+fail "sets a member with fields is bound before it is viewed as its union", "14:10: type mismatch: expected `?L`, got `A`; bind it first, `k: L = A.x(n: 3)`, then pass `?k`", errors: 1
   # A value of a union with fields made where its view goes would be a
   # temporary a view could outlive: it is bound first.
   error A
@@ -636,10 +636,10 @@ fail "sets an optional union with fields compares with its own members", "11:7: 
   p: L? = A.w
   print(p == A.w)
 
-test "sets a member without fields lent where a union with fields goes", "0 0 0 0 1"
-  # An error of a set without fields is a code: lent where a view of a
-  # set with fields that holds it goes, `error` among them, it lends the
-  # error value of the code, a constant. A view of the code lends it too.
+test "sets a member without fields viewed where a union with fields goes", "0 0 0 0 1"
+  # An error of a set without fields is a code: viewed where a view of a
+  # set with fields that holds it goes, `error` among them, it views the
+  # error value of the code, a constant. A view of the code views it too.
   error A
     x(n: Int)
 
@@ -665,7 +665,7 @@ test "sets a member without fields lent where a union with fields goes", "0 0 0 
   v = thru(?B.y)
   print(code(B.y), code(b), code(?b), code(v), any(b))
 
-test "sets a code a handle or a box made here holds, lent where a view of a wider set goes, is dropped", "1 0 1 0 2 1"
+test "sets a code a handle or a box made here holds, viewed where a view of a wider set goes, is dropped", "1 0 1 0 2 1"
   # The view is of the code's error value, a constant, but the handle
   # or box made to hold the code is a temporary its statement drops.
   error X
@@ -692,7 +692,7 @@ test "sets a code a handle or a box made here holds, lent where a view of a wide
   k = X.one
   print(look(*X.one), f(*B.z), look(^X.one), f(^B.z), m.get(*B.z) ?? -1, look(*k))
 
-test "sets a code lent as a key and into an optional view of a union with fields", "2 -1 true\n1 0 1"
+test "sets a code viewed as a key and into an optional view of a union with fields", "2 -1 true\n1 0 1"
   # A Map of a union with fields finds a code by its error value, and a
   # `(?L)?` takes a code, `none`, or a view of one.
   error A
@@ -716,7 +716,7 @@ test "sets a code lent as a key and into an optional view of a union with fields
   b = B.z
   print(opt(b), opt(none), opt(?b))
 
-fail "sets a member with fields is bound before it is lent as `error`", "10:11: type mismatch: expected `?error`, got `A`; bind it first, `k: error = <a`, then pass `?k`", "11:11: type mismatch: expected `?error`, got `A`; bind it first, `k: error = A.x(s: String(\"q\"))`, then pass `?k`", errors: 2
+fail "sets a member with fields is bound before it is viewed as `error`", "10:11: type mismatch: expected `?error`, got `A`; bind it first, `k: error = <a`, then pass `?k`", "11:11: type mismatch: expected `?error`, got `A`; bind it first, `k: error = A.x(s: String(\"q\"))`, then pass `?k`", errors: 2
   # As where a view of its union goes; a place that moves is moved
   # into the binding.
   error A
@@ -729,7 +729,7 @@ fail "sets a member with fields is bound before it is lent as `error`", "10:11: 
   print(any(a))
   print(any(A.x(s: String("q"))))
 
-test "sets a view of a code lent on where a union with fields goes", "0"
+test "sets a view of a code passed on where a union with fields goes", "0"
   error A
     x(n: Int)
 
@@ -749,7 +749,7 @@ test "sets a view of a code lent on where a union with fields goes", "0"
   b = B.y
   print(via(?b))
 
-test "sets a member bound as its union and lent", "0"
+test "sets a member bound as its union and viewed", "0"
   error A
     x(n: Int)
 
@@ -819,7 +819,7 @@ fail "sets an optional's member with fields compared is unwrapped first", "an er
 
 test "sets a catch-all of `error` is a view of the error matched", "1 2 1"
   # A read match's catch-all of an error value is a view of it where it
-  # is, lent on as a view; a write match's is a write view.
+  # is, passed on as a view; a write match's is a write view.
 
   error X
     one
@@ -939,7 +939,7 @@ fail "sets returned error of another set", "8:10: `e` is an `AB` error, which `O
 
   print(f(AB.a) catch 0)
 
-test "a read lend of a code where an error with fields goes", "true 1 true"
+test "a read view of a code where an error with fields goes", "true 1 true"
   # `?B.y` copies out `B.y`, which widens as `B.y` does.
   error A
     x(n: Int)

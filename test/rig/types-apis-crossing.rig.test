@@ -24,9 +24,9 @@ test "apis object crossing a sending box given to a task", seeds: 20, "6"
   t = work(<j)&
   print(>t)
 
-test "apis object crossing a syncing box lent to two tasks", seeds: 20, "8.0 8.0"
-  # A box whose value syncs is read by several tasks at once, lent as the
-  # box or as the read view it lends.
+test "apis object crossing a syncing box given to two tasks", seeds: 20, "8.0 8.0"
+  # A box whose value syncs is read by several tasks at once, given as
+  # the box or as a read view of its value.
   api Shape
     fun area(?@) -> Float
 
@@ -47,9 +47,9 @@ test "apis object crossing a syncing box lent to two tasks", seeds: 20, "8.0 8.0
   u = area_of(?b)&
   print(>t, >u)
 
-test "apis object crossing a syncing read view lent to a task", seeds: 20, "4.0 9.0"
+test "apis object crossing a syncing read view given to a task", seeds: 20, "4.0 9.0"
   # A read view whose value syncs goes to another task, erased where it
-  # is lent or lent on from a view of its own.
+  # is given or passed on from a view of its own.
   api Shape
     fun area(?@) -> Float
 
@@ -70,7 +70,7 @@ test "apis object crossing a syncing read view lent to a task", seeds: 20, "4.0 
   t = area_of(?sq)&
   print(>t, later(?Square(side: 3.0)))
 
-test "apis object crossing a sending write view lent to a task", seeds: 20, "9.0"
+test "apis object crossing a sending write view given to a task", seeds: 20, "9.0"
   # A write view whose value sends goes to one task, to write.
   api Shape
     fun area(?@) -> Float
@@ -118,8 +118,8 @@ test "apis object crossing by the API's bound", seeds: 20, "6 2"
   print(>t, >u)
 
 test "apis object crossing a call through the object as a task", seeds: 20, "4.0 4.0 6"
-  # A call through an object is a task when its self goes to one: lent
-  # to read with `Syncs`, given with `Sends`.
+  # A call through an object is a task when its self goes to one: given
+  # as a read view with `Syncs`, given with `Sends`.
   api Shape
     fun area(?@) -> Float
 
@@ -225,8 +225,8 @@ test "apis object crossing par over boxes", seeds: 20, '''
   3 [4.0, 9.0, 16.0]
 '''
   # `par.map` reads each box from tasks on other cores, which its value
-  # syncing allows; `par.each` lends each one to write, which its value
-  # sending allows.
+  # syncing allows; `par.each` gives each one a write view, which its
+  # value sending allows.
   use std.par
 
   api Shape
@@ -328,8 +328,8 @@ test "apis object crossing a field and an optional", seeds: 20, "4.0 9.0"
 
 test "apis object crossing the bounds in its name", "^{Shape + Sends + Syncs} ^{Shape + Owned + Sends} 1.0 1.0 2.0"
   # The braces are part of the type's name, in one order. A view names
-  # only the bound its form uses, so a box of both lends `?{Shape +
-  # Syncs}` and `!{Shape + Sends}`, and a write view lends `?{Shape}`.
+  # only the bound its form uses, so a box of both makes `?{Shape +
+  # Syncs}` and `!{Shape + Sends}`, and a write view makes `?{Shape}`.
   api Shape
     fun area(?@) -> Float
     sub grow(!@)
@@ -421,7 +421,7 @@ fail "apis object crossing a box given without its bound", "`<j` is given to a t
   t = work(<j)&
   print(>t)
 
-fail "apis object crossing lent without its bound", "`?b` is passed to a task as a read view, and `^{Shape}` hides its value's type without naming `Syncs`: write `^{Shape + Syncs}`", "`?s` is passed to a task as a read view, and `?{Shape}` hides its value's type without naming `Syncs`: write `?{Shape + Syncs}`", "`!w` is passed to a task as a write view, and `!{Shape}` hides its value's type without naming `Sends`: write `!{Shape + Sends}`", "`?c` is passed to a task as a read view, and `^{Shape + Sends}` hides its value's type without naming `Syncs`: write `^{Shape + Sends + Syncs}`", errors: 4
+fail "apis object crossing given without its bound", "`?b` is passed to a task as a read view, and `^{Shape}` hides its value's type without naming `Syncs`: write `^{Shape + Syncs}`", "`?s` is passed to a task as a read view, and `?{Shape}` hides its value's type without naming `Syncs`: write `?{Shape + Syncs}`", "`!w` is passed to a task as a write view, and `!{Shape}` hides its value's type without naming `Sends`: write `!{Shape + Sends}`", "`?c` is passed to a task as a read view, and `^{Shape + Sends}` hides its value's type without naming `Syncs`: write `^{Shape + Sends + Syncs}`", errors: 4
   # oracle: main reject T1
   # oracle: look reject T1
   # oracle: write reject T1
@@ -768,8 +768,8 @@ fail "apis object crossing a generic body erases its parameter's instance withou
   print(mk(), dup(Tok(n: 1)).area(), show(<p))
 
 test "apis object crossing par over read views", seeds: 20, "[1.0, 4.0]"
-  # Review of phase 1: a read view of an object is lent as it is, as
-  # sema lends any read view (the runtime lent its address, which Zig
+  # Review of phase 1: a read view of an object is passed as it is, as
+  # sema passes any read view (the runtime gave its address, which Zig
   # rejected).
   use std.par
 

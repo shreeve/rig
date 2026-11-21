@@ -794,7 +794,7 @@ checkFail = (c) ->
   if c.opts.errors?
     got = all.split('\n').filter((l) -> /(^|\.rig:\d+:\d+: )error: /.test(l)).length
     throw new Error("expected #{c.opts.errors} error(s), got #{got}") unless got is Number(c.opts.errors)
-  # A lend of a place as a path's base: every hint it gives, applied
+  # A sigil on a path's base: every hint it gives, applied
   # alone, draws no error the program did not draw at the same place.
   if /put the sigil on the whole path, not its base|only reads the place it reaches/.test(all)
     h = run(['python3', join(root, 'test', 'hints.py'), rig, c.path], {}, 300)

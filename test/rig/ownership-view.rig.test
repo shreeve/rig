@@ -230,7 +230,7 @@ fail "view chain through long loop", "cannot drop `b` while a read view of it is
 
 fail "view chosen by if", "cannot drop `h` while a read view of it is still in use"
   # A view chosen by an if-expression views from every candidate, so
-  # `h` stays lent while `r` is live.
+  # a view of `h` stays in use while `r` is live.
 
   obj Wrap
     payload: Int

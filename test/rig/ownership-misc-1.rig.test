@@ -164,7 +164,7 @@ fail "alias upgrade result", "10:5: `m` is a `*Wrap?` handle, which can't be cop
 
 fail "argument field of branch then written", "20:33: cannot change `a` while an earlier argument's read of it is still in use", errors: 1
   # A field of a branching argument is read where the branch is: a later
-  # argument cannot lend what the branch may be to write.
+  # argument cannot make a write view of what the branch may be.
 
   obj P
     v: List[Int]
@@ -260,12 +260,12 @@ test "argument read then written", '''
 
 fail "argument read then written is rejected", "50:16: cannot change `v` while an earlier argument's read of it is still in use", "51:15: cannot move `v` while an earlier argument's read of it is still in use", "54:16: cannot change `w` while an earlier argument's read of it is still in use", "56:16: cannot change `s.a` while an earlier argument's read of `s` is still in use", "57:18: cannot change `s.a` while an earlier argument's read of it is still in use", "59:18: cannot change `rc` while an earlier argument's read of it is still in use", "61:17: cannot change `b` while an earlier argument's read of it is still in use", "63:11: cannot change `x` while an earlier argument's read of it is still in use", "65:20: cannot change `z` while a read view of it is still in use", "66:26: cannot change `z` while a read view of it is still in use", "67:27: cannot change `z` while a read view of it is still in use", "69:21: cannot change `s.a` while a read view of `s` is still in use", "71:17: cannot change `o` while an earlier argument's read of it is still in use", errors: 13
   # A call evaluates its arguments left to right and uses them all when
-  # it runs. An argument that reads a value owning storage (a List, a Box,
-  # a shared handle, or an object holding one) shares that storage with
-  # the place it reads, so a later argument cannot lend to write or move
-  # that place: the call would see a stale or freed value. A view, a
-  # slice, or a read self in an earlier argument holds it the same
-  # way.
+  # it runs. An argument that reads a value owning storage (a List, a
+  # Box, a shared handle, or an object holding one) shares that storage
+  # with the place it reads, so a later argument cannot make a write
+  # view of that place or move it: the call would see a stale or freed
+  # value. A view, a slice, or a read self in an earlier argument holds
+  # it the same way.
 
   obj Node
     n: Int
@@ -331,10 +331,10 @@ fail "argument read then written is rejected", "50:16: cannot change `v` while a
   o: List[Int]? = List()
   print(o, clear(!o))
 
-fail "argument write loan held", "32:30: cannot use `b` while a write view of it is still in use", "37:19: cannot use `x` while a write view of it is still in use", "42:20: cannot use `x` while a write view of it is still in use", errors: 3
-  # A value an argument hands a call that carries a write loan keeps its
-  # root lent to write until the call returns, so a later argument cannot
-  # lend it, read it, or move it (Core sentence 5).
+fail "argument write view held", "32:30: cannot use `b` while a write view of it is still in use", "37:19: cannot use `x` while a write view of it is still in use", "42:20: cannot use `x` while a write view of it is still in use", errors: 3
+  # A value an argument hands a call that carries a write view keeps a write
+  # view of its root in use until the call returns, so a later argument
+  # cannot make a view of it, read it, or move it (Core sentence 5).
   # oracle: receiver_result reject C4
   # oracle: moved_view reject C4
   # oracle: closure_arg reject C4
@@ -381,10 +381,10 @@ test "argument write view value read", '''
   7 1
   8
 '''
-  # A write view a method's result keeps of its self holds the
-  # self lent to write only while a call holds the view: read where it
-  # stands, its value is copied out first, and a later argument may read
-  # self (test/reject/ownership/argument_write_loan_held.rig).
+  # A write view a method's result keeps of its self is in use only
+  # while a call holds the view: read where it stands, its value is
+  # copied out first, and a later argument may read self
+  # (test/reject/ownership/argument_write_view_held.rig).
 
   obj Item
     n: Int
@@ -640,8 +640,8 @@ fail "array of owners copied", "8:5: `a` owns a `[2]String`, which can't be copi
   print(a, b, s.arr)
 
 fail "as bare write view", "11:9: `as` over a write view passes it on: write `!o` to make a write view of the value inside"
-  # `as` over a held write view of an optional lends it on, so it is
-  # written `!o`, as when passing it on.
+  # `as` over a held write view of an optional passes the view on, so it
+  # is written `!o`, as when passing it on.
 
   obj Res
     n: Int
@@ -657,10 +657,10 @@ fail "as bare write view", "11:9: `as` over a write view passes it on: write `!o
   r: Res? = Res(n: 1)
   spin(!r)
 
-fail "as binding lent through body", "19:16: cannot change `h` while a write view of it is still in use", "23:23: cannot change `g` while a write view of it is still in use", errors: 2
+fail "as binding viewed through body", "19:16: cannot change `h` while a write view of it is still in use", "23:23: cannot change `g` while a write view of it is still in use", errors: 2
   # What `while … as` binds, and what an earlier part of a joined
   # condition binds, view the value they reach while they are used: a
-  # write lend of it in the body, or in a later part, is rejected.
+  # write view of it in the body, or in a later part, is rejected.
 
   obj H
     o: ^Int?
@@ -726,13 +726,13 @@ test "as chain moves", '''
   try_pair(0, 4)
   try_pair(5, 0)
 
-test "as lends cell and fresh", '''
+test "as views cell and fresh", '''
   C(hits: Cell(value: 1))
   R(n: 2)
 '''
-  # An optional handle to a value holding a Cell is lent by `if !o as x`,
-  # not copied, so a change through the Cell reaches `o`. A write view a
-  # call returns is bound as one, as `!o` is.
+  # An optional handle to a value holding a Cell is viewed by `if !o as
+  # x`, not copied, so a change through the Cell reaches `o`. A write
+  # view a call returns is bound as one, as `!o` is.
 
   obj C
     hits: Cell[Int]
@@ -752,7 +752,7 @@ test "as lends cell and fresh", '''
     x.n += 1
   print(h)
 
-test "as lends optional value", '''
+test "as views optional value", '''
   read 1
   peek 2
   peek 12
@@ -807,7 +807,7 @@ test "as lends optional value", '''
   peek(?none_r)
   print("end")
 
-test "as lends through paths", '''
+test "as views through paths", '''
   field 3
   call 4
   local 4
@@ -1154,8 +1154,8 @@ fail "assign target live through value", "32:16: cannot change `v` while a write
   # An assignment uses its target after its value, so a view the target
   # reads stays live through every statement nested in the value: a
   # `match` arm, a block arm, an `if` block, a `catch` block, as through
-  # a ternary branch. Lending, reading, or moving what it views there is
-  # rejected, also where the target is a write view a store goes through.
+  # a ternary branch. Making a write view of, reading, or moving what it views
+  # there is rejected, also where the target is a write view a store goes through.
   error E
     bad
 
@@ -1254,8 +1254,8 @@ test "assign target nested statement", release: true, '''
   1 21 21
 '''
   # An assignment's value may hold statements of its own (a `match` arm,
-  # a block arm, an `if` block, a `catch` block) that lend, read, or move
-  # what the target does not view; the store lands after them.
+  # a block arm, an `if` block, a `catch` block) that make a view of, read,
+  # or move what the target does not view; the store lands after them.
   error E
     bad
 
@@ -1333,9 +1333,9 @@ test "assign target root takes value read", '''
   take_h(<y, !h).n += y.len
   print(h.n)
 
-fail "assign through call loan", "10:7: cannot change `v` while a read view of it is still in use"
-  # Assigning through a write view a call returns lends to write, so it
-  # waits for the read loans on the owner to end.
+fail "assign through call view", "10:7: cannot change `v` while a read view of it is still in use"
+  # Assigning through a write view a call returns waits for the read
+  # views of its place to end.
 
   fun slot(v: !List[Int], i: Int) -> !Int from v
     !v[i]
@@ -1416,9 +1416,9 @@ fail "assign through call param view", "23:3: cannot store a view of `d`", "27:3
   print(h.s)
 
 fail "assign through call stores view", "15:1: cannot change `t` while a read view of it is still in use"
-  # A value assigned through a write view a call returns lands in what the
-  # view reaches, with the loans of the views it holds: `v` now views `t`,
-  # so `t` is not changed while `v` lives.
+  # A value assigned through a write view a call returns lands in what
+  # the view reaches, carrying the views it holds: `v` now views `t`, so
+  # `t` is not changed while `v` lives.
 
   obj H
     s: ?String
@@ -1902,14 +1902,14 @@ test "bare write view place reads", '''
   deferred 6
 '''
   # A bare name only reads (Core sentence 1): `x = w` of a `!Int` name
-  # reads the Int it sees, and so does an annotated binding (`x: Int = w`).
-  # Changing the copy changes nothing else. So does every place that takes
-  # the value: an assignment that writes through a write view, a
-  # constructor, an argument, arithmetic, a branching value of such names,
-  # a return, in a loop, a closure, and deferred code. `x = !w` lends the
-  # view on.
+  # reads the Int it sees, and so does an annotated binding (`x: Int =
+  # w`). Changing the copy changes nothing else. So does every place
+  # that takes the value: an assignment that writes through a write
+  # view, a constructor, an argument, arithmetic, a branching value of
+  # such names, a return, in a loop, a closure, and deferred code. `x =
+  # !w` passes the view on.
   # oracle: bindings accept
-  # oracle: lent_on accept
+  # oracle: viewed_on accept
   # oracle: through accept
   # oracle: made accept
   # oracle: loops accept
@@ -1939,7 +1939,7 @@ test "bare write view place reads", '''
     v += 1
     print(n)
 
-  sub lent_on()
+  sub viewed_on()
     n = 1
     v = !n
     z = !v
@@ -1993,7 +1993,7 @@ test "bare write view place reads", '''
     w += 1
 
   bindings()
-  lent_on()
+  viewed_on()
   through()
   made()
   n = 6
@@ -2022,10 +2022,10 @@ test "bind resource then use", '''
   m = make_user()
   print(m.age)
 
-fail "box member loans", "15:4: cannot drop `b` while a read view of `b.t` is still in use", "21:3: cannot change `bt` while a read view of it is still in use", "28:3: cannot change `v` while a read view of it is still in use", errors: 3
-  # Member access through a box lends what it reaches, with a loan on the
-  # box's binding: the box may not be dropped or written while a view
-  # through it is used.
+fail "box member views", "15:4: cannot drop `b` while a read view of `b.t` is still in use", "21:3: cannot change `bt` while a read view of it is still in use", "28:3: cannot change `v` while a read view of it is still in use", errors: 3
+  # Member access through a box makes a view of what it reaches and
+  # keeps the box's binding in use: the box may not be dropped or
+  # written while a view through it is used.
 
   obj S
     n: Int
@@ -2110,8 +2110,8 @@ fail "box vec bare iteration", "13:9: type mismatch: expected `^R`, got `?^R`"
   f(?v)
 
 fail "box views", "13:5: cannot assign through a read view (`?T`)", "14:11: cannot make a write view through a read view (`?T`)"
-  # A read view of a boxed value cannot write the value or lend it to
-  # write.
+  # A read view of a boxed value cannot write the value or make a write
+  # view of it.
 
   obj Node
     key: Int
@@ -2165,9 +2165,9 @@ fail "boxed text view", "6:2: cannot drop `b` while a read view of it is still i
   print(w, c)
 
 fail "branch copies cell holder", "29:7: would copy a `S`, which holds a Cell, out of `a.s`", "30:16: cannot make a write view through a read view `?*O`", "31:7: would copy a `S`, which holds a Cell, out of `a.s`", "32:12: would copy a `S`, which holds a Cell, out of `a.s`", "33:7: would copy a `Cell[List[Int]]`, which holds a Cell, out of `a.s.c`", "35:3: put the sigil on each branch", "37:3: put the sigil on each branch", "39:5: put the sigil on each branch", "42:7: would copy a `S`, which holds a Cell, out of `a.s`", errors: 9
-  # A value holding a Cell lives only behind `*`, so a value that branches
-  # between places that hold one would copy it out while another handle
-  # changes the Cell. It is lent on each branch instead.
+  # A value holding a Cell lives only behind `*`, so a value that
+  # branches between places that hold one would copy it out while another
+  # handle changes the Cell. A view is made of each branch instead.
 
   enum E
     p
@@ -2208,11 +2208,11 @@ fail "branch copies cell holder", "29:7: would copy a `S`, which holds a Cell, o
     .q => b.s
   print(a.s if k else b.s)
 
-test "branch of lent cell holders", '''
+test "branch of viewed cell holders", '''
   S(c: Cell(value: [0, 1, 2])) 5
   3
 '''
-  # A value that holds a Cell is read through a branch of lends, never
+  # A value that holds a Cell is read through a branch of views, never
   # copied: another handle's change shows.
 
   obj S
@@ -2234,10 +2234,10 @@ test "branch of lent cell holders", '''
   print(a2.s.c.len)
 
 fail "branch read cell changed later", "21:7: `a.s if k else b.s` would copy a `S`, which holds a Cell, out of `a.s`", "22:14: `b.s if k else a.s` would copy a `S`, which holds a Cell, out of `b.s`", errors: 2
-  # A branching `print` argument would be copied where it runs, before the
-  # later arguments, while a view of the same Cell could change it under
-  # the copy: a branch of places that hold a Cell is rejected, and lent on
-  # each branch instead.
+  # A branching `print` argument would be copied where it runs, before
+  # the later arguments, while a view of the same Cell could change it
+  # under the copy: a branch of places that hold a Cell is rejected, and
+  # a view is made of each branch instead.
 
   obj S
     c: Cell[List[Int]]
@@ -2259,10 +2259,10 @@ fail "branch read cell changed later", "21:7: `a.s if k else b.s` would copy a `
 
 fail "branch self change lands in copy", "25:8: method `inc` writes `self`, and `a if c else b` may be `a`, a value a name holds, which the call would write as a copy", "26:8: method `inc2` writes `self`, and `a if c else b` may be `a`", errors: 2
   # A `!@` method called on a value that branches and may be a value a
-  # name holds would change a copy of that value: each branch is lent
-  # instead (`(!a if c else !b).inc()`). A method that changes its self
-  # through a Cell, called on a branching value or a part of one, changes
-  # the leaf where it is
+  # name holds would change a copy of that value: a view is made of each
+  # branch instead (`(!a if c else !b).inc()`). A method that changes
+  # its self through a Cell, called on a branching value or a part of
+  # one, changes the leaf where it is
   # (`test/behavior/ownership/branch_self_change_through_leaves.rig`).
 
   obj P
@@ -2367,16 +2367,16 @@ test "branch self change through leaves", release: true, '''
   if o as x
     print(x.q.c.get())
 
-test "branch self change through lends", '''
+test "branch self change through views", '''
   2
   4
   4 10
   2 3
   2 3
 '''
-  # A method that changes its self, through a Cell or a `!@`, called
-  # on what each branch lends, changes the value the branch takes, also when
-  # its arguments are evaluated first.
+  # A method that changes its self, through a Cell or a `!@`, called on
+  # what each branch views, changes the value the branch takes, also
+  # when its arguments are evaluated first.
 
   obj Q
     c: Cell[Int]
@@ -2462,8 +2462,8 @@ test "branch write view made leaves", '''
 
 fail "branch write view places matched", "10:10: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?a if c else ?b`", errors: 1
   # A header reads its subject where it stands, so a branch over names
-  # holding write views is lent there, and may not be: each branch is lent
-  # instead.
+  # holding write views would be copied there, and may not be: a view is
+  # made of each branch instead.
 
   enum E
     a(t: String)
@@ -2480,9 +2480,9 @@ fail "branch write view places matched", "10:10: cannot make a view of `a if c e
   f(!x, !y, true)
 
 fail "branch write view places passed", "9:7: cannot make a write view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `!a if c else !b`", errors: 1
-  # A branch whose leaves are names holding write views is a value, never
-  # a place: passed where a write view goes, it would copy a write view.
-  # Each branch is lent instead.
+  # A branch whose leaves are names holding write views is a value,
+  # never a place: passed where a write view goes, it would copy a write
+  # view. A view is made of each branch instead.
 
   sub inc(w: !Int)
     w += 1
@@ -2496,9 +2496,9 @@ fail "branch write view places passed", "9:7: cannot make a write view of `a if 
   f(!x, !y, true)
 
 fail "branch write views narrowed to read", "18:10: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?a if c else ?b`", "19:13: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on", "25:10: cannot make a view of `o?`: it may be `o`, a value a name holds, which a view of the branching value would copy; make a view of what it unwraps, and unwrap it in a header: `if ?o as x`", errors: 3
-  # A write view that goes where a read view does is lent to read where it
-  # stands: a branch of names holding write views, or `o?` of one, is
-  # lent through each branch, so the loan on the name taken is kept.
+  # A write view that goes where a read view does becomes a read view where
+  # it stands: a branch of names holding write views, or `o?` of one, gets
+  # a read view through each branch, so the view of the name taken is kept.
 
   obj W
     v: List[Int]
@@ -2689,8 +2689,8 @@ test "builtin result does not view self", '''
 
 fail "call argument writes place", "24:25: cannot change `v` while a write view of it is still in use", "25:15: cannot change `v` while a write view of it is still in use", "26:19: cannot change `v` while a write view of it is still in use", "27:20: cannot change `v` while a write view of it is still in use", "29:25: cannot change `b` while a write view of `b.xs` is still in use", errors: 5
   # A call whose place argument (a write view, or a self) is taken
-  # before its later arguments run: a later argument cannot lend to write
-  # the place's root, as Rust's two-phase views also forbid.
+  # before its later arguments run: a later argument cannot make a write
+  # view of the place's root, as Rust's two-phase views also forbid.
 
   obj B
     xs: List[Int]
@@ -2761,7 +2761,7 @@ test "call held self values", '''
   s = mk()
   print(s.me().m)
 
-test "call write lend ends at return", '''
+test "call write view ends at return", '''
   1 1
   2 2 2
   1 1
@@ -2780,11 +2780,11 @@ test "call write lend ends at return", '''
   1 1
   1 1
 '''
-  # An argument's write lend ends when the call returns, when the call's
+  # An argument's write view ends when the call returns, when the call's
   # result only reads what it views (Core sentence 7): for the rest of the
-  # statement the result keeps its owner lent to read, so the owner may be
-  # read in the same statement, a `for` body, or a `match` arm, just as
-  # when the result is bound first. Each form is checked whole and split.
+  # statement the result keeps the place it views read-only, so the place
+  # may be read in the same statement, a `for` body, or a `match` arm, just
+  # as when the result is bound first. Each form is checked whole and split.
   # oracle: same_statement accept
   # oracle: split accept
   # oracle: selves accept
@@ -2892,14 +2892,14 @@ test "call write lend ends at return", '''
   match_subject()
   if_as()
 
-fail "call write lend kept", "34:26: cannot change `v` while a read view of it is still in use", "39:5: cannot change `v` while a read view of it is still in use", "44:9: cannot use `v` while a write view of it is still in use", errors: 3
-  # An argument's write lend ends when the call returns only where the
-  # result only reads: the result keeps its owner lent to read while it is
-  # used, through a later argument or a `for` body, so the owner may not
-  # be written there. A result that is a write view keeps the owner lent to
-  # write while it is used. (A `match` arm after the payload's last use,
-  # and a read after a field copied out of a write view, are
-  # ownership-last cases.)
+fail "call write view kept", "34:26: cannot change `v` while a read view of it is still in use", "39:5: cannot change `v` while a read view of it is still in use", "44:9: cannot use `v` while a write view of it is still in use", errors: 3
+  # An argument's write view ends when the call returns only where the
+  # result only reads: the result keeps the place it views read-only
+  # while it is used, through a later argument or a `for` body, so the
+  # place may not be written there. A result that is a write view leaves
+  # the place unusable (read-only, for a cell) while it is used. (A
+  # `match` arm after the payload's last use, and a read after a field
+  # copied out of a write view, are ownership-last cases.)
   # oracle: result_then_write reject C4
   # oracle: for_body_writes reject C4
   # oracle: write_result_split reject C4
@@ -2940,12 +2940,12 @@ fail "call write lend kept", "34:26: cannot change `v` while a read view of it i
 
   result_then_write()
 
-fail "callable call result loans", "12:9: cannot return a view of `c`, which belongs to this function", "`c` is dropped here, at the end of its scope, while a read view of it is still in use", "20:9: a read view of `c` is made here", "`d` is dropped here, at the end of its scope, while a read view of it is still in use", "25:9: a read view of `d` is made here", "`e` is dropped here, at the end of its scope, while a read view of it is still in use", "29:9: a read view of `e` is made here"
+fail "callable call result views", "12:9: cannot return a view of `c`, which belongs to this function", "`c` is dropped here, at the end of its scope, while a read view of it is still in use", "20:9: a read view of `c` is made here", "`d` is dropped here, at the end of its scope, while a read view of it is still in use", "25:9: a read view of `d` is made here", "`e` is dropped here, at the end of its scope, while a read view of it is still in use", "29:9: a read view of `e` is made here"
   # Calling a callable gives a result that views what the callable
   # holds, whatever form the callee takes: a closure binding, a viewed
-  # callable held by a local, a lent closure called in place, or one a
-  # call returned. So `|?c| c` called through any of them cannot outlive
-  # `c`, or be returned from the function that owns `c`.
+  # callable held by a local, a closure given as a view and called in
+  # place, or one a call returned. So `|?c| c` called through any of them
+  # cannot outlive `c`, or be returned from the function that owns `c`.
 
   fun echo(f: ?fun() -> ?List[Int]) -> ?fun() -> ?List[Int]
     f
@@ -2975,10 +2975,10 @@ fail "callable call result loans", "12:9: cannot return a view of `c`, which bel
 
 fail "callable view escape", "25:4: cannot return a view of `g`, which belongs to this function", "28:11: an owned closure cannot capture a view of `f`", "29:12: cannot move-capture view parameter `f`", "`l` is dropped here, at the end of its scope, while a read view of it is still in use", "40:8: a read view of `l` is made here", "45:2: cannot drop `m` while a read view of it is still in use", "48:12: cannot change `c` while a read view of it is still in use", "53:38: cannot change `total` while a write view of it is still in use"
   # A callable view follows the second-class view rules. It may not
-  # outlive the closure it lends or what that closure captured, be
-  # captured by an owned closure, or be returned from a function that was
-  # lent nothing; and a closure literal's captures view for the call, so
-  # they conflict with the call's other views.
+  # outlive the closure it views or what that closure captured, be
+  # captured by an owned closure, or be returned from a function that
+  # was given no view; and a closure literal's captures view for the
+  # call, so they conflict with the call's other views.
 
   obj Res
     id: Int
@@ -3029,9 +3029,9 @@ fail "callable view escape", "25:4: cannot return a view of `g`, which belongs t
   both(|!total, n| print(total + n), |!total, n| print(total - n))
 
 fail "callable view results", "20:6: cannot return a view of `w`, which belongs to this function", "`b` is dropped here, at the end of its scope, while a read view of it is still in use", "26:14: a read view of `b` is made here, and `fill` keeps it in `v` (its signature says `keeps f`), so the view lasts while `v` is used", "`c` is dropped here, at the end of its scope, while a read view of it is still in use", "31:13: a read view of `c` is made here"
-  # What a callable view returns may lend what it captured: a call's
-  # result, and what its write views lead to, carry those views, so
-  # they cannot outlive the captured values; and a callable's result that
+  # What a callable view returns may view what it captured: a call's
+  # result, and what its write views lead to, carry those views, so they
+  # cannot outlive the captured values; and a callable's result that
   # views the callee's own local cannot be returned.
 
   obj Wrap
@@ -3064,7 +3064,7 @@ fail "callable view results", "20:6: cannot return a view of `w`, which belongs 
 
 fail "callee field read then written", "13:18: cannot change `h` while the callee's read of `h.f` is still in use", errors: 1
   # An owned closure held in a field is read before the call's arguments
-  # run: an argument cannot lend the value holding it to write.
+  # run: an argument cannot make a write view of the value holding it.
 
   obj H
     f: *fun(Int) -> Int
@@ -3079,8 +3079,8 @@ fail "callee field read then written", "13:18: cannot change `h` while the calle
 
 fail "callee read then written", "11:16: cannot change `f` while the callee's read of it is still in use", errors: 1
   # The value a call calls is read before its arguments run: an argument
-  # cannot lend an owned closure to write while it is being called, or
-  # the call would run a closure the argument freed.
+  # cannot make a write view of an owned closure while it is being
+  # called, or the call would run a closure the argument freed.
 
   fun reset(f: !*fun(Int) -> Int) -> Int
     f = *|k: Int| k + 2
@@ -3145,8 +3145,8 @@ fail "capture fix by type", "25:16: cannot move captured `v`: the closure keeps 
   print(f(), g(), k(), c())
 
 test "capture write owned match binding", "2"
-  # A `match <s` binding owns the resource moved into it, so a closure may
-  # lend it to write with `|!r|`, as `!r` and an `if <o as r` binding may.
+  # A `match <s` binding owns the resource moved into it, so a closure may take
+  # a write view of it with `|!r|`, as `!r` and an `if <o as r` binding may.
 
   obj R
     v: List[Int]
@@ -3165,8 +3165,8 @@ test "capture write owned match binding", "2"
     .b => print("b")
 
 fail "capture write view of copy", "6:9: cannot change `x`: it is a copy of an element of `xs`; to change the elements in place, loop with `for x in !xs`", errors: 1
-  # `|!x|` lends `x` to write as `!x` does: a loop binding that copies an
-  # element is not written, and the diagnostic says how to loop instead.
+  # `|!x|` makes a write view of `x` as `!x` does: a loop binding that copies
+  # an element is not written, and the diagnostic says how to loop instead.
 
   xs = [1, 2]
   for x in xs
@@ -3174,9 +3174,9 @@ fail "capture write view of copy", "6:9: cannot change `x`: it is a copy of an e
     f()
 
 fail "catch handler break stores", "21:12: `inner` does not live long enough", errors: 1
-  # A `catch` handler that stores a loan on its own local and then
+  # A `catch` handler that stores a view of its own local and then
   # leaves with `break` drops that local on the way out: the outer value
-  # that holds the loan is used after the loop.
+  # that holds the view is used after the loop.
   error E
     bad
 
@@ -3293,7 +3293,7 @@ test "catch handler temporary read", release: true, '''
 
 fail "clone of shared view keeps view", "cannot drop `a` while a read view of it is still in use"
   # A clone of a shared handle whose value holds a view reaches that
-  # view too: the viewed value stays lent while the clone lives.
+  # view too: the viewed value stays in use while the clone lives.
 
   obj Wrap
     payload: Int
@@ -3412,7 +3412,7 @@ fail "coalesce jump checks rest", "14:8: use of `a` after move", "21:3: cannot r
     eat(<a)
     n
 
-  fun lent(k: Int) -> Int
+  fun viewed(k: Int) -> Int
     a: List[Int] = List()
     r = ?a
     n = make(k) ?? return -1
@@ -3434,7 +3434,7 @@ fail "coalesce jump checks rest", "14:8: use of `a` after move", "21:3: cannot r
       eat(<a)
       print(n)
 
-  print(ret(1), lent(1))
+  print(ret(1), viewed(1))
   brk()
   cont()
 
@@ -3503,10 +3503,10 @@ fail "coalesce jump owning place", "11:7: `o` owns a `Res?`, which can't be copi
 
   print(first(Res(id: 1)))
 
-fail "coalesce jump viewed optional", "9:7: a view cannot give up the resource inside it; make a view of the value inside with `if o as value`", "13:7: a view cannot give up the resource inside it; make a view of the value inside with `if !o as value`", "22:5: a view cannot give up the resource inside it; make a view of the value inside with `if lend(?h) as value`"
+fail "coalesce jump viewed optional", "9:7: a view cannot give up the resource inside it; make a view of the value inside with `if o as value`", "13:7: a view cannot give up the resource inside it; make a view of the value inside with `if !o as value`", "22:5: a view cannot give up the resource inside it; make a view of the value inside with `if view(?h) as value`"
   # `x ?? return` hands over the optional's value only when `x` owns it.
-  # Through a view of an optional the handle inside still belongs to
-  # the lender, so taking it out would free it twice.
+  # Through a view of an optional the handle inside still belongs to the
+  # viewed place, so taking it out would free it twice.
 
   obj N
     v: Int
@@ -3519,13 +3519,13 @@ fail "coalesce jump viewed optional", "9:7: a view cannot give up the resource i
     n = <o ?? return
     print(n.v)
 
-  fun lend(o: ?*N?) -> ?*N?
+  fun view(o: ?*N?) -> ?*N?
     o
 
   h: *N? = *N(v: 1)
   take_read(?h)
   take_write(!h)
-  n = lend(?h) ?? return
+  n = view(?h) ?? return
   print(n.v)
 
 test "coalesce view jump", '''
@@ -3537,9 +3537,9 @@ test "coalesce view jump", '''
 '''
   # A jump as the fallback of `??` leaves the view as it is: a binding
   # with no type reads a view of a number as the number, so `n` keeps no
-  # loan, while `p`, a view of an object, keeps the Map lent and is
+  # view, while `p`, a view of an object, keeps the Map in use and is
   # written `?q.get(k)`. The view a fallback form gives copies out where
-  # its value is expected, so `z: Int` keeps no loan either, and `none`
+  # its value is expected, so `z: Int` keeps no view either, and `none`
   # where an optional view is expected keeps the view.
 
 
@@ -3576,8 +3576,8 @@ test "coalesce view jump", '''
   print(x_of(?q, "a"), x_of(?q, "b"))
 
 fail "coalesce view value keeps views", "12:1: cannot change `s` while a read view of it is still in use"
-  # A value `??` copies out of a view keeps the loans of the views it
-  # holds: `h` holds a view of `s`, so `s` is not changed while `h` lives.
+  # A value `??` copies out of a view keeps the views it holds: `h`
+  # holds a view of `s`, so `s` is not changed while `h` lives.
 
 
   obj H
@@ -3798,8 +3798,8 @@ test "copies clone capture", '''
   obj R
     r: ?Int
 
-  # Through a view, the copy keeps what the value holds, not the view's
-  # loan on its holder, which may then change.
+  # Through a view, the copy keeps what the value holds, not the view of
+  # its holder, which may then change.
   sub through_view()
     n = 1
     m = 2
@@ -3941,12 +3941,12 @@ test "copies fill read views", '''
   4
   [2, 2] [3, 2]
 '''
-  # `[n of x]`, `fill`, and `copy` duplicate values that copy, read views
-  # included (Core §5): every copy of a view carries its loan, so the
-  # viewed value may not change while the array is used, and may once it
-  # is not. `copy` copies the views its source's elements hold, not a view
-  # of the source, which may then change. In a generic body, `[n of x]`
-  # of a `?T` copies the view.
+  # `[n of x]`, `fill`, and `copy` duplicate values that copy, read
+  # views included (Core §5): every copy of a view keeps what it views,
+  # so the viewed value may not change while the array is used, and may
+  # once it is not. `copy` copies the views its source's elements hold,
+  # not a view of the source, which may then change. In a generic body,
+  # `[n of x]` of a `?T` copies the view.
 
   fun twice[T](x: ?T) -> [2]?T
     [2 of x]
@@ -4031,8 +4031,8 @@ test "copies out of view", '''
   # expected (Core §4): a plain object, an array, or an optional, as a
   # number is, through a read or a write view, as an argument, a result,
   # a typed binding, an optional, or a branch. The copy holds no view,
-  # so the owner may change while the copy lives. A copy of a value that
-  # holds a view carries that view's loans.
+  # so the viewed place may change while the copy lives. A copy of a
+  # value that holds a view carries that view.
 
   obj P
     x: Int
@@ -4093,17 +4093,17 @@ test "copies out of view", '''
   n = 8
   print(n)
 
-fail "copies view loans", "22:3: cannot reassign `n` while a read view of it is still in use", "30:3: cannot reassign `m` while a read view of it is still in use", "39:3: cannot reassign `m` while a read view of it is still in use", "46:3: cannot reassign `n` while a read view of it is still in use", "53:3: cannot reassign `n` while a read view of it is still in use", "61:3: cannot reassign `n` while a read view of it is still in use", "67:10: an owned closure cannot capture `s`, which holds a view of `n`", errors: 7
-  # Every copy of a read view carries its loan (Core §5, sentence 6): an
-  # array `[n of ?x]` or `fill`ed with views, a copy of an object holding
-  # a view, and a `|+x|` capture of one keep the viewed value lent while
-  # they are used. An owned closure holds no view (Core sentence 9).
-  # oracle: fill_loan reject C4
-  # oracle: fill_method_loan reject C4
-  # oracle: copy_elements_loan reject C4
-  # oracle: copy_loan reject C4
-  # oracle: capture_loan reject C4
-  # oracle: capture_through_view_loan reject C4
+fail "copies keep views", "22:3: cannot reassign `n` while a read view of it is still in use", "30:3: cannot reassign `m` while a read view of it is still in use", "39:3: cannot reassign `m` while a read view of it is still in use", "46:3: cannot reassign `n` while a read view of it is still in use", "53:3: cannot reassign `n` while a read view of it is still in use", "61:3: cannot reassign `n` while a read view of it is still in use", "67:10: an owned closure cannot capture `s`, which holds a view of `n`", errors: 7
+  # Every copy of a read view keeps what it views read-only (Core §5, sentence
+  # 6): an array `[n of ?x]` or `fill`ed with views, a copy of an object
+  # holding a view, and a `|+x|` capture of one keep the viewed value read-only
+  # while they are used. An owned closure holds no view (Core sentence 9).
+  # oracle: fill_view reject C4
+  # oracle: fill_method_view reject C4
+  # oracle: copy_elements_view reject C4
+  # oracle: copy_view reject C4
+  # oracle: capture_view reject C4
+  # oracle: capture_through_view reject C4
   # oracle: owned_capture reject C8
 
   obj S
@@ -4112,13 +4112,13 @@ fail "copies view loans", "22:3: cannot reassign `n` while a read view of it is 
   fun keep(s: ?S) -> S
     s
 
-  sub fill_loan()
+  sub fill_view()
     n = 1
     a = [3 of ?n]
     n = 5
     print(a[2])
 
-  sub fill_method_loan()
+  sub fill_method_view()
     n = 1
     m = 2
     a = [3 of ?n]
@@ -4126,7 +4126,7 @@ fail "copies view loans", "22:3: cannot reassign `n` while a read view of it is 
     m = 7
     print(a[0])
 
-  sub copy_elements_loan()
+  sub copy_elements_view()
     n = 1
     m = 2
     a = [3 of ?n]
@@ -4135,21 +4135,21 @@ fail "copies view loans", "22:3: cannot reassign `n` while a read view of it is 
     m = 7
     print(a[0])
 
-  sub copy_loan()
+  sub copy_view()
     n = 1
     s = S(r: ?n)
     t = keep(?s)
     n = 2
     print(t.r)
 
-  sub capture_loan()
+  sub capture_view()
     n = 1
     s = S(r: ?n)
     f = |+s| s.r
     n = 2
     print(f())
 
-  sub capture_through_view_loan()
+  sub capture_through_view()
     n = 1
     s = S(r: ?n)
     v = ?s
@@ -4163,7 +4163,7 @@ fail "copies view loans", "22:3: cannot reassign `n` while a read view of it is 
     f = *|+s| s.r + 0
     print(f())
 
-  fill_loan()
+  fill_view()
 
 test "copies write view reads", '''
   100 7 3 2
@@ -4202,9 +4202,9 @@ test "copies write view reads", '''
   print(a.x, b.x, b.y, q.x)
   print(pick(!a, !q, false).x)
 
-fail "copy field view keeps loan", "5:6: a write view is never stored inside a value, and `!Int` cannot stand here", errors: 1
+fail "copy field view keeps its place viewed", "5:6: a write view is never stored inside a value, and `!Int` cannot stand here", errors: 1
   # An object cannot hold `!Int`: a write view is never stored inside a
-  # value, so no object carries a write loan past the call that lends it.
+  # value, so no object keeps a write view past the call that makes it.
 
   obj H
     w: !Int
@@ -4258,7 +4258,7 @@ test "copy readable after last write", '''
   20
 '''
   # A write view ends at its last use, so the Copy value it viewed is
-  # readable, and may be lent to write again, after that.
+  # readable, and may be given a write view again, after that.
 
   n = 1
   w = !n
@@ -4425,8 +4425,8 @@ test "discard take plain optional", release: true, '''
   print(v[0] == none)
 
 fail "element place rules", "9:5: `v[0]` owns a `String`, which can't be copied by `=`: write `+v[0]` to clone it or `?v[0]` to view it", "10:6: `take` takes ownership of a `String`, and `v[0]` can't be copied: write `+v[0]` to pass a clone; if `take` only reads it, make its parameter a `?String`", "12:1: cannot change `v` while a read view of it is still in use", "14:6: cannot move out of `v[0]`: elements cannot be moved out of their container", "16:1: cannot assign to `v[0]` while a read view of `v` is still in use"
-  # An element that owns a resource is read where it is, and stays there:
-  # it is not copied out, moved out, or changed while it is lent.
+  # An element that owns a resource is read where it is, and stays there: it
+  # is not copied out, moved out, or changed while a view of it is in use.
 
   sub take(t: String)
     print(t)
@@ -4472,7 +4472,7 @@ fail "equal operand read then moved", "12:19: cannot move `a` while the left ope
 
 fail "equal operand read then written", "11:18: cannot change `a` while the left operand's read of it is still in use", errors: 1
   # `==` and `!=` read their left operand where it runs and compare it
-  # after the right one runs: the right operand cannot lend it to write.
+  # after the right one runs: the right operand cannot make a write view of it.
   # `grow(!a) == a` is accepted (behavior/ownership/operand_read_order.rig).
 
   fun grow(t: !String) -> String
@@ -4498,7 +4498,7 @@ fail "equal optional operand read then written", "11:19: cannot change `a` while
 
 fail "equal struct operand read then written", "13:19: cannot change `q` while the left operand's read of it is still in use", errors: 1
   # An object holding a Text compares field by field after the right
-  # operand runs: the right operand cannot lend the left one to write.
+  # operand runs: the right operand cannot make a write view of the left one.
 
   obj Q
     t: String
@@ -4513,7 +4513,7 @@ fail "equal struct operand read then written", "13:19: cannot change `q` while t
 
 fail "equal write view operand read then written", "10:14: cannot change `w` while the left operand's read of it is still in use", errors: 1
   # What a write view reaches, read as the left operand of `==`, is held
-  # against lending the view on in the right operand.
+  # against passing the write view on in the right operand.
 
   fun grow(t: !String) -> String
     for _ in 0..100
@@ -4761,7 +4761,7 @@ fail "error argument copied", "10:12: `keep` takes ownership of an `error`, and 
 
 fail "error binding copied", "11:7: `err` owns an `error`, which can't be copied by `=`: write `<err` to move it, `+err` to clone it, or `?err` to view it"
   # `error` is owning, so a bare use of an error a handler names copies
-  # nothing: it moves with `<err`, clones with `+err`, or lends.
+  # nothing: it moves with `<err`, clones with `+err`, or gives a view.
 
   error E
     bad
@@ -4859,8 +4859,8 @@ fail "fallback bare owner", "8:15: `d` owns a `String`, which can't be copied by
 
 test "function field through write self", "195 99"
   # A function held in a field is called with its arguments alone, so a
-  # `!@` method may lend it a view of a local: nothing of `@` can
-  # keep the view.
+  # `!@` method may give it a view of a local: nothing of `@` can keep
+  # the view.
 
   obj Map[K]
     hash: fun(?K) -> U64
@@ -4887,7 +4887,7 @@ test "function field through write self", "195 99"
 test "guarded view subject cell", ".a(c: Counter(hits: Cell(value: 2)))"
   # A guarded match on a view a call returns holds the view as the pointer
   # it is, never a copy of the value it views, so a payload's Cell changed
-  # in an arm is the matched value's own: through `!E` lent from a `*E`.
+  # in an arm is the matched value's own: through a `!E` viewed from a `*E`.
 
   obj Counter
     hits: Cell[Int]
@@ -4909,10 +4909,10 @@ test "guarded view subject cell", ".a(c: Counter(hits: Cell(value: 2)))"
     .b => pass
   print(e)
 
-fail "handle lend p03 readview handle set", "6:4: cannot make a write view through a read view `?*Cell[Int]`; take a write view, or share a handle of your own with `+h`", errors: 1
-  # `?` promises that nothing changes through it: a Cell behind a read view of a handle is not set.
-  # (A handle is lent as itself, `!*T`, only where it may be written; the
-  # review probe of that name.)
+fail "handle view p03 readview handle set", "6:4: cannot make a write view through a read view `?*Cell[Int]`; take a write view, or share a handle of your own with `+h`", errors: 1
+  # `?` promises that nothing changes through it: a Cell behind a read
+  # view of a handle is not set. (A handle is viewed as itself, `!*T`,
+  # only where it may be written; the review probe of that name.)
 
   sub f(h: ?*Cell[Int])
     !h.set(5)
@@ -4921,10 +4921,10 @@ fail "handle lend p03 readview handle set", "6:4: cannot make a write view throu
   f(?c)
   print(c.get())
 
-fail "handle lend p09 holder field via readview", "9:4: cannot make a write view through a read view (`?T`); take a write view (`!T`) to mutate", errors: 1
-  # A read view of an object that holds a handle changes nothing the handle reaches.
-  # (A handle is lent as itself, `!*T`, only where it may be written; the
-  # review probe of that name.)
+fail "handle view p09 holder field via readview", "9:4: cannot make a write view through a read view (`?T`); take a write view (`!T`) to mutate", errors: 1
+  # A read view of an object that holds a handle changes nothing the
+  # handle reaches. (A handle is viewed as itself, `!*T`, only where it
+  # may be written; the review probe of that name.)
 
   obj S
     h: *Cell[Int]
@@ -4936,10 +4936,10 @@ fail "handle lend p09 holder field via readview", "9:4: cannot make a write view
   f(?s)
   print(s.h.get())
 
-fail "handle lend p44 repoint const", "9:3: type mismatch: expected `!*Cell[Int]`, got `!Cell[Int]`: this handle is read-only here; pass `+c` to share a new handle, or pass a view of the contents", errors: 1
-  # A fixed (`=!`) handle may not be pointed elsewhere, so `!c` lends only what it holds.
-  # (A handle is lent as itself, `!*T`, only where it may be written; the
-  # review probe of that name.)
+fail "handle view p44 repoint const", "9:3: type mismatch: expected `!*Cell[Int]`, got `!Cell[Int]`: this handle is read-only here; pass `+c` to share a new handle, or pass a view of the contents", errors: 1
+  # A fixed (`=!`) handle may not be pointed elsewhere, so `!c` views
+  # only what it holds. (A handle is viewed as itself, `!*T`, only where
+  # it may be written; the review probe of that name.)
 
   sub g(x: !*Cell[Int])
     x = *Cell(9)
@@ -4948,10 +4948,10 @@ fail "handle lend p44 repoint const", "9:3: type mismatch: expected `!*Cell[Int]
   g(!c)
   print(c.get())
 
-fail "handle lend p45 repoint param", "9:5: type mismatch: expected `!*Cell[Int]`, got `!Cell[Int]`: this handle is read-only here; pass `+c` to share a new handle, or pass a view of the contents", errors: 1
-  # A handle parameter that is not a `!` view may not be pointed elsewhere.
-  # (A handle is lent as itself, `!*T`, only where it may be written; the
-  # review probe of that name.)
+fail "handle view p45 repoint param", "9:5: type mismatch: expected `!*Cell[Int]`, got `!Cell[Int]`: this handle is read-only here; pass `+c` to share a new handle, or pass a view of the contents", errors: 1
+  # A handle parameter that is not a `!` view may not be pointed
+  # elsewhere. (A handle is viewed as itself, `!*T`, only where it may
+  # be written; the review probe of that name.)
 
   sub g(x: !*Cell[Int])
     x = *Cell(9)
@@ -4962,10 +4962,10 @@ fail "handle lend p45 repoint param", "9:5: type mismatch: expected `!*Cell[Int]
 
   f(*Cell(1))
 
-fail "handle lend p46 repoint capture", "10:5: type mismatch: expected `!*Cell[Int]`, got `!Cell[Int]`: this handle is read-only here; pass `+c` to share a new handle, or pass a view of the contents", errors: 1
-  # A `|+c|` capture is fixed when the closure is made, so `!c` lends only what it holds.
-  # (A handle is lent as itself, `!*T`, only where it may be written; the
-  # review probe of that name.)
+fail "handle view p46 repoint capture", "10:5: type mismatch: expected `!*Cell[Int]`, got `!Cell[Int]`: this handle is read-only here; pass `+c` to share a new handle, or pass a view of the contents", errors: 1
+  # A `|+c|` capture is fixed when the closure is made, so `!c` views
+  # only what it holds. (A handle is viewed as itself, `!*T`, only where
+  # it may be written; the review probe of that name.)
 
   sub g(x: !*Cell[Int])
     x = *Cell(9)
@@ -4977,10 +4977,10 @@ fail "handle lend p46 repoint capture", "10:5: type mismatch: expected `!*Cell[I
   f()
   f()
 
-fail "handle lend p49 repoint global", "11:5: type mismatch: expected `!*Cell[Int]`, got `!Cell[Int]`: this handle is read-only here; pass `+d` to share a new handle, or pass a view of the contents", errors: 1
-  # A module-level handle is read-only here, so `!c` lends only what it holds.
-  # (A handle is lent as itself, `!*T`, only where it may be written; the
-  # review probe of that name.)
+fail "handle view p49 repoint global", "11:5: type mismatch: expected `!*Cell[Int]`, got `!Cell[Int]`: this handle is read-only here; pass `+d` to share a new handle, or pass a view of the contents", errors: 1
+  # A module-level handle is read-only here, so `!c` views only what it
+  # holds. (A handle is viewed as itself, `!*T`, only where it may be
+  # written; the review probe of that name.)
 
   sub g(x: !*Cell[Int])
     x = *Cell(9)
@@ -4992,10 +4992,10 @@ fail "handle lend p49 repoint global", "11:5: type mismatch: expected `!*Cell[In
     print(d.get())
   print(c.get())
 
-fail "handle lend p51 repoint for uaf", "14:12: cannot make a write view through a read view `?*Cell[List[Int]]`; take a write view, or share a handle of your own with `+h`", errors: 1
-  # A read loop binds a read view of a handle: nothing is lent to write through it.
-  # (A handle is lent as itself, `!*T`, only where it may be written; the
-  # review probe of that name.)
+fail "handle view p51 repoint for uaf", "14:12: cannot make a write view through a read view `?*Cell[List[Int]]`; take a write view, or share a handle of your own with `+h`", errors: 1
+  # A read loop binds a read view of a handle: no write view is made
+  # through it. (A handle is viewed as itself, `!*T`, only where it may
+  # be written; the review probe of that name.)
 
   sub k(a: ?Cell[List[Int]], b: !*Cell[List[Int]])
     b = *Cell(List[Int]())
@@ -5008,10 +5008,10 @@ fail "handle lend p51 repoint for uaf", "14:12: cannot make a write view through
   for c in v
     k(v[0], !c)
 
-fail "handle lend p52 repoint const uaf", "11:6: type mismatch: expected `!*Cell[List[Int]]`, got `!Cell[List[Int]]`: this handle is read-only here; pass `+c` to share a new handle, or pass a view of the contents", errors: 1
-  # Pointing a fixed (`=!`) handle elsewhere would free a box another view reads.
-  # (A handle is lent as itself, `!*T`, only where it may be written; the
-  # review probe of that name.)
+fail "handle view p52 repoint const uaf", "11:6: type mismatch: expected `!*Cell[List[Int]]`, got `!Cell[List[Int]]`: this handle is read-only here; pass `+c` to share a new handle, or pass a view of the contents", errors: 1
+  # Pointing a fixed (`=!`) handle elsewhere would free a box another
+  # view reads. (A handle is viewed as itself, `!*T`, only where it may
+  # be written; the review probe of that name.)
 
   sub k(a: ?Cell[List[Int]], b: !*Cell[List[Int]])
     b = *Cell(List[Int]())
@@ -5021,10 +5021,10 @@ fail "handle lend p52 repoint const uaf", "11:6: type mismatch: expected `!*Cell
   !c.push(1)
   k(c, !c)
 
-fail "handle lend p69 repoint match read", "14:17: cannot make a write view through a read view `?*Cell[List[Int]]`; `c` is a read view of a field of `e`, which is reached through a read view, so nothing writes through it; take a write view, or share a handle of your own with `+h`", errors: 1
-  # A read `match` binds a read view of a handle: nothing is lent to write through it.
-  # (A handle is lent as itself, `!*T`, only where it may be written; the
-  # review probe of that name.)
+fail "handle view p69 repoint match read", "14:17: cannot make a write view through a read view `?*Cell[List[Int]]`; `c` is a read view of a field of `e`, which is reached through a read view, so nothing writes through it; take a write view, or share a handle of your own with `+h`", errors: 1
+  # A read `match` binds a read view of a handle: no write view is made
+  # through it. (A handle is viewed as itself, `!*T`, only where it may
+  # be written; the review probe of that name.)
 
   enum E
     a(c: *Cell[List[Int]])
@@ -5046,16 +5046,16 @@ fail "handle lend p69 repoint match read", "14:17: cannot make a write view thro
     .a(c) => k(c, ?e)
     .b => print("b")
 
-test "handle lend writable", '''
+test "handle view writable", '''
   9
   9
   9
   5
 '''
-  # `!c` lends the handle itself, which a callee may point elsewhere, only
-  # where `c` may be written: an owned mutable local, a `!*T` parameter, a
-  # handle field of a value reached through a write view. A fixed (`=!`) handle
-  # or a read-only parameter lends what it holds.
+  # `!c` views the handle itself, which a callee may point elsewhere,
+  # only where `c` may be written: an owned mutable local, a `!*T`
+  # parameter, a handle field of a value reached through a write view. A
+  # fixed (`=!`) handle or a read-only parameter views what it holds.
 
   obj W
     h: *Cell[Int]
@@ -5085,7 +5085,7 @@ test "handle lend writable", '''
   set5(!k)
   print(k.get())
 
-test "hoisted implicit lends", '''
+test "hoisted implicit views", '''
   mk 2
   mk 1
   12
@@ -5126,11 +5126,11 @@ test "hoisted implicit lends", '''
   drop 1
   -1
 '''
-  # A value made where a view argument goes is lent as a statement
+  # A value made where a view argument goes is kept as a statement
   # temporary, also when the call's arguments are evaluated first into
-  # names (keyword arguments out of order, a later `!` or `?`, a method's
-  # self): it is kept once, and dropped once at the statement's end,
-  # as `?mk(1)` is (the explicit forms are the controls).
+  # names (keyword arguments out of order, a later `!` or `?`, a
+  # method's self): it is kept once, and dropped once at the statement's
+  # end, as `?mk(1)` is (the explicit forms are the controls).
 
   obj Bag
     n: Int
@@ -5197,10 +5197,10 @@ test "hoisted implicit lends", '''
   print(run_v(9) catch -1)
 
 fail "holder view locks owner", "14:1: cannot change `a` while a read view of it is still in use", "18:6: cannot move `c` while a read view of it is still in use", "22:1: cannot change `e` while a read view of it is still in use", "27:2: cannot drop `f` while a read view of it is still in use", errors: 4
-  # A value that holds a read view keeps the viewed owner lent while the
+  # A value that holds a read view keeps what it views read-only while the
   # value is used: a box, a generic function's result, an optional, and a
-  # generic object, each of a List. The owner can be neither written nor
-  # moved nor dropped until the last use of the holder.
+  # generic object, each of a List. The viewed place can be neither written
+  # nor moved nor dropped until the last use of the value that holds the view.
 
   obj Hold[T]
     v: T
@@ -5381,16 +5381,16 @@ fail "ifas write view header temp", "6:6: a write view is never stored inside a 
   if id(!O(o: !b)).o as x
     print(x)
 
-fail "ignored write lend", "42:3: `!x` here is read, not held: an `Int` goes here. Write `x` to copy the value; to keep a write view of `x`, the type here must be `!Int`", "52:18: `!n` here is read, not held: `Opt.some` stores an `Int`. Write `Opt.some(v: n)` to store a copy", "53:15: `!n` here is read, not held: `Opt.some` stores an `Int`. Write `Opt.some(n)` to store a copy", "54:23: `!n` here is read, not held: `Opt[Int].some` stores an `Int`. Write `Opt[Int].some(v: n)` to store a copy", "55:25: `!n` here is read, not held: `.some` stores an `Int`. Write `.some(v: n)` to store a copy", "56:18: `!p` here is read, not held: `Opt.some` stores a `Q`. Write `Opt.some(v: p)` to store a copy", "57:11: `!n` here is read, not held: `H` stores an `Int`. Write `H(r: n)` to store a copy", "58:16: `!n` here is read, not held: `H[Int]` stores an `Int`. Write `H[Int](r: n)` to store a copy", "59:11: `!n` here is read, not held: `P` stores an `Int`. Write `P(x: n)` to store a copy", "60:11: `!n` here is read, not held: `G` stores an `Int`. Write `G(r: n)` to store a copy", "61:10: `!n` here is read, not held: `get` takes an `Int`. Write `get(n)` to pass a copy; to make a write view of `n`, the parameter must be a `!T`", "62:11: `!n` here is read, not held: `pair` takes an `Int`. Write `pair(n, m)` to pass a copy; to make a write view of `n`, the parameter must be a `!T`", "62:15: `!m` here is read, not held: `pair` takes an `Int`. Write `pair(n, m)` to pass a copy; to make a write view of `m`, the parameter must be a `!T`", "63:8: `!n` here is read, not held: `f` takes an `Int`. Write `f(n)` to pass a copy; to make a write view of `n`, the parameter must be a `!Int`", "64:8: `!!n` here is read, not held: `f` takes an `Int`. Write `f(n)` to pass a copy; to make a write view of `n`, the parameter must be a `!Int`", "65:8: `<!n` here is read, not held: `f` takes an `Int`. Write `f(n)` to pass a copy; to make a write view of `n`, the parameter must be a `!Int`", "66:15: `!n` here is read, not held: `math.max` takes an `Int`. Write `math.max(n, 3)` to pass a copy; to make a write view of `n`, the parameter must be a `!T`", "67:9: `!m` here is read, not held: `set` takes an `Int`. Write `!s4.set(m)` to pass a copy; to make a write view of `m`, the parameter must be a `!T`", "69:9: `!m` here is read, not held: `push` takes an `Int`. Write `!v.push(m)` to pass a copy; to make a write view of `m`, the parameter must be a `!T`", "70:7: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", "71:15: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", "72:11: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", "73:11: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", "73:24: `!m` here is read, not held: an `Int` goes here. Write `m` to copy the value; to keep a write view of `m`, the type here must be `!Int`", "74:16: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", "76:8: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", "78:11: `!mk().x` here is read, not held: an `Int` goes here. Write `mk().x` to copy the value", "80:9: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", errors: 28
-  # A write lend `!x` where a plain value goes would be read, its `!`
+fail "ignored write view", "42:3: `!x` here is read, not held: an `Int` goes here. Write `x` to copy the value; to keep a write view of `x`, the type here must be `!Int`", "52:18: `!n` here is read, not held: `Opt.some` stores an `Int`. Write `Opt.some(v: n)` to store a copy", "53:15: `!n` here is read, not held: `Opt.some` stores an `Int`. Write `Opt.some(n)` to store a copy", "54:23: `!n` here is read, not held: `Opt[Int].some` stores an `Int`. Write `Opt[Int].some(v: n)` to store a copy", "55:25: `!n` here is read, not held: `.some` stores an `Int`. Write `.some(v: n)` to store a copy", "56:18: `!p` here is read, not held: `Opt.some` stores a `Q`. Write `Opt.some(v: p)` to store a copy", "57:11: `!n` here is read, not held: `H` stores an `Int`. Write `H(r: n)` to store a copy", "58:16: `!n` here is read, not held: `H[Int]` stores an `Int`. Write `H[Int](r: n)` to store a copy", "59:11: `!n` here is read, not held: `P` stores an `Int`. Write `P(x: n)` to store a copy", "60:11: `!n` here is read, not held: `G` stores an `Int`. Write `G(r: n)` to store a copy", "61:10: `!n` here is read, not held: `get` takes an `Int`. Write `get(n)` to pass a copy; to make a write view of `n`, the parameter must be a `!T`", "62:11: `!n` here is read, not held: `pair` takes an `Int`. Write `pair(n, m)` to pass a copy; to make a write view of `n`, the parameter must be a `!T`", "62:15: `!m` here is read, not held: `pair` takes an `Int`. Write `pair(n, m)` to pass a copy; to make a write view of `m`, the parameter must be a `!T`", "63:8: `!n` here is read, not held: `f` takes an `Int`. Write `f(n)` to pass a copy; to make a write view of `n`, the parameter must be a `!Int`", "64:8: `!!n` here is read, not held: `f` takes an `Int`. Write `f(n)` to pass a copy; to make a write view of `n`, the parameter must be a `!Int`", "65:8: `<!n` here is read, not held: `f` takes an `Int`. Write `f(n)` to pass a copy; to make a write view of `n`, the parameter must be a `!Int`", "66:15: `!n` here is read, not held: `math.max` takes an `Int`. Write `math.max(n, 3)` to pass a copy; to make a write view of `n`, the parameter must be a `!T`", "67:9: `!m` here is read, not held: `set` takes an `Int`. Write `!s4.set(m)` to pass a copy; to make a write view of `m`, the parameter must be a `!T`", "69:9: `!m` here is read, not held: `push` takes an `Int`. Write `!v.push(m)` to pass a copy; to make a write view of `m`, the parameter must be a `!T`", "70:7: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", "71:15: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", "72:11: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", "73:11: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", "73:24: `!m` here is read, not held: an `Int` goes here. Write `m` to copy the value; to keep a write view of `m`, the type here must be `!Int`", "74:16: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", "76:8: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", "78:11: `!mk().x` here is read, not held: an `Int` goes here. Write `mk().x` to copy the value", "80:9: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", errors: 28
+  # A write view `!x` where a plain value goes would be read, its `!`
   # ignored: a generic's inferred `T` (a scalar's or an object's), a
   # constructor's or variant's field, a declared parameter, a method's
-  # parameter, an array element, a typed binding, a result, and each arm or
-  # `break` of a value that branches. The diagnostic offers a copy, with
-  # every ignored `!` of the call taken off, and, where a write view may
-  # stand (a parameter, a binding, a result), a write view kept; it names a
-  # parameter as declared (`!T`). A field or a type argument never holds a
-  # write view, so there only the copy is offered.
+  # parameter, an array element, a typed binding, a result, and each arm
+  # or `break` of a value that branches. The diagnostic offers a copy,
+  # with every ignored `!` of the call taken off, and, where a write view
+  # may stand (a parameter, a binding, a result), a write view kept; it
+  # names a parameter as declared (`!T`). A field or a type argument
+  # never holds a write view, so there only the copy is offered.
 
 
   enum Opt[T]
@@ -5465,7 +5465,7 @@ fail "ignored write lend", "42:3: `!x` here is read, not held: an `Int` goes her
     break 0
   print(e1, e2, e3, e4, e5, s1.r, s2.r, s3.x, s4.r, g1, g2, g3, g4, g5, g6, a1, a2, b1, b2, b3, b4, b5, b6, ret(!n))
 
-fail "ignored write lend leaves", "15:7: `!n` here is read, not held: only its `Int` is read here. Write `n`", "15:20: `!m` here is read, not held: only its `Int` is read here. Write `m`", "16:6: `!n` here is read, not held: only its `Int` is read here. Write `n`", "16:19: `!m` here is read, not held: only its `Int` is read here. Write `m`", "18:17: `!m` here is read, not held: only its `Int` is read here. Write `m`", "21:9: `!m` here is read, not held: only its `Int` is read here. Write `m`", "24:11: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", "28:8: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", errors: 8
+fail "ignored write view leaves", "15:7: `!n` here is read, not held: only its `Int` is read here. Write `n`", "15:20: `!m` here is read, not held: only its `Int` is read here. Write `m`", "16:6: `!n` here is read, not held: only its `Int` is read here. Write `n`", "16:19: `!m` here is read, not held: only its `Int` is read here. Write `m`", "18:17: `!m` here is read, not held: only its `Int` is read here. Write `m`", "21:9: `!m` here is read, not held: only its `Int` is read here. Write `m`", "24:11: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", "28:8: `!n` here is read, not held: an `Int` goes here. Write `n` to copy the value; to keep a write view of `n`, the type here must be `!Int`", errors: 8
   # A written `!x` that is a leaf of a value that branches or loops is
   # decided as the value is read (`sema.yieldedLeaves`): printed, an
   # operand, or bound beside a held view, each leaf only reads.
@@ -5497,11 +5497,11 @@ fail "ignored write lend leaves", "15:7: `!n` here is read, not held: only its `
     _ => m
   print(k, a, b, d, e)
 
-fail "ignored write lend once", "10:18: a write view is never stored inside a value, and `!Int` cannot stand here", "16:19: `!n` here is read, not held: `Opt.some` stores an `Int`. Write `Opt.some(v: n)` to store a copy", errors: 2
-  # A write lend a construction's field ignores is reported once: the
+fail "ignored write view once", "10:18: a write view is never stored inside a value, and `!Int` cannot stand here", "16:19: `!n` here is read, not held: `Opt.some` stores an `Int`. Write `Opt.some(v: n)` to store a copy", errors: 2
+  # A write view a construction's field ignores is reported once: the
   # construction, built without the view, is not reported again where a
-  # `Opt[!Int]` is expected of it, which is itself rejected, since a write
-  # view is never a generic type argument.
+  # `Opt[!Int]` is expected of it, which is itself rejected, since a
+  # write view is never a generic type argument.
 
   enum Opt[T]
     some(v: T)
@@ -5515,12 +5515,12 @@ fail "ignored write lend once", "10:18: a write view is never stored inside a va
   n = 1
   takeo(Opt.some(v: !n))
 
-fail "ignored write lend read", "13:8: `!p` here is read, not held: only its `Int?` is read here. Write `p`", "24:5: `!n` here is read, not held: only its `Int` is read here. Write `n`", "25:6: `!n` here is read, not held: only its `Int` is read here. Write `n`", "26:5: `!n` here is read, not held", "27:5: `!n` here is read, not held", "28:9: `!i` here is read, not held", "29:13: `!i` here is read, not held", "30:11: `!n` here is read, not held", "31:7: `!n` here is read, not held", "32:12: `!n` here is read, not held", "33:6: `!n` here is read, not held", "34:6: `!n` here is read, not held: `?` passes it on as a read view. Write `?n`", "35:5: `!o` here is read, not held", "37:6: `!n` here is read, not held", "38:11: `!i` here is read, not held", "39:5: `!arr` here is read, not held: only its `[3]Int` is read here. Write `arr`", errors: 16
-  # A write lend `!x` read as a value has its `!` ignored, wherever the
-  # read is: an operator's operand, a comparison, an index, a range bound,
-  # a conversion, a printed value, `+`, `?`, `??`, `?`, a compound
-  # assignment's value, and a method's index argument. Each is rejected by
-  # the one decider that every read of a view as a value passes
+fail "ignored write view read", "13:8: `!p` here is read, not held: only its `Int?` is read here. Write `p`", "24:5: `!n` here is read, not held: only its `Int` is read here. Write `n`", "25:6: `!n` here is read, not held: only its `Int` is read here. Write `n`", "26:5: `!n` here is read, not held", "27:5: `!n` here is read, not held", "28:9: `!i` here is read, not held", "29:13: `!i` here is read, not held", "30:11: `!n` here is read, not held", "31:7: `!n` here is read, not held", "32:12: `!n` here is read, not held", "33:6: `!n` here is read, not held", "34:6: `!n` here is read, not held: `?` passes it on as a read view. Write `?n`", "35:5: `!o` here is read, not held", "37:6: `!n` here is read, not held", "38:11: `!i` here is read, not held", "39:5: `!arr` here is read, not held: only its `[3]Int` is read here. Write `arr`", errors: 16
+  # A write view `!x` read as a value has its `!` ignored, wherever the
+  # read is: an operator's operand, a comparison, an index, a range
+  # bound, a conversion, a printed value, `+`, `?`, `??`, `?`, a compound
+  # assignment's value, and a method's index argument. Each is rejected
+  # by the one decider that every read of a view as a value passes
   # (`writeViewRead`). A held view (`w`) is read as a bare name is.
 
   fun opt() -> Int?
@@ -5557,11 +5557,11 @@ fail "ignored write lend read", "13:8: `!p` here is read, not held: only its `In
   r = !arr == [1, 2, 3]
   print(a, b, c, d, e, f, g, h, k, l, m, t, q, r, unwrap(o))
 
-fail "ignored write lend read view", "30:10: `!n` here is read, not held: `rd` only reads `n`; write `rd(?n)`", "31:11: `!n` here is read, not held: a `?Int` only reads `n`; write `?n`", "32:16: `!n` here is read, not held: `G[?Int]` only reads `n`; write `G[?Int](r: ?n)`", "33:13: `!arr[0..2]` here is read, not held: `total` only reads `arr[0..2]`; write `total(?arr[0..2])`", "33:32: `!arr` here is read, not held: `total` only reads `arr`; write `total(?arr)`", "34:11: `!t` here is read, not held: `len` only reads `t`; write `len(?t)`", "35:8: `!p` here is read, not held: `get` only reads `p`; write `p.get()`", errors: 7
-  # A written `!x` where only a read view goes lends nothing to write:
-  # a `?T` parameter, field, or binding, a `[]T` or a String parameter,
-  # and a `?@` self. It is rejected with `?x`, which lends to
-  # read. A held write view (`w`) passes there as it is.
+fail "ignored write view read view", "30:10: `!n` here is read, not held: `rd` only reads `n`; write `rd(?n)`", "31:11: `!n` here is read, not held: a `?Int` only reads `n`; write `?n`", "32:16: `!n` here is read, not held: `G[?Int]` only reads `n`; write `G[?Int](r: ?n)`", "33:13: `!arr[0..2]` here is read, not held: `total` only reads `arr[0..2]`; write `total(?arr[0..2])`", "33:32: `!arr` here is read, not held: `total` only reads `arr`; write `total(?arr)`", "34:11: `!t` here is read, not held: `len` only reads `t`; write `len(?t)`", "35:8: `!p` here is read, not held: `get` only reads `p`; write `p.get()`", errors: 7
+  # A written `!x` where only a read view goes makes no write view: a
+  # `?T` parameter, field, or binding, a `[]T` or a String parameter,
+  # and a `?@` self. It is rejected with `?x`, which makes a read view.
+  # A held write view (`w`) passes there as it is.
 
   obj P
     x: Int
@@ -5594,7 +5594,7 @@ fail "ignored write lend read view", "30:10: `!n` here is read, not held: `rd` o
   print(len(!t))
   print((!p).get(), h, g.r)
 
-fail "ignored write lend shadowed label", "18:14: `!n` here is read, not held", errors: 1
+fail "ignored write view shadowed label", "18:14: `!n` here is read, not held", errors: 1
   # A loop used as a value is read at each `break` that leaves it. An
   # inner loop of the same label keeps its own `break $a`, so a
   # `break $a !n` after it leaves the outer loop, and its `!` would be
@@ -5617,10 +5617,10 @@ fail "ignored write lend shadowed label", "18:14: `!n` here is read, not held", 
     1
   print(k)
 
-fail "implicit lend loans", "26:4: cannot drop `b` while a read view of it is still in use", "32:3: cannot change `v` while a read view of it is still in use", "38:3: cannot change `t` while a read view of it is still in use", "43:11: cannot use `n` while a write view of it is still in use", "46:12: a view of the temporary `mk()` outlives its statement", errors: 5
-  # A bare argument lent to read keeps its owner lent for as long as the
-  # view is used, as `?x` does, and a value made there is a temporary of
-  # its statement.
+fail "implicit views keep their places", "26:4: cannot drop `b` while a read view of it is still in use", "32:3: cannot change `v` while a read view of it is still in use", "38:3: cannot change `t` while a read view of it is still in use", "43:11: cannot use `n` while a write view of it is still in use", "46:12: a view of the temporary `mk()` outlives its statement", errors: 5
+  # A bare argument given as a read view keeps its place read-only for
+  # as long as the view is used, as `?x` does, and a value made there is
+  # a temporary of its statement.
 
   obj Bag
     v: List[Int]
@@ -5676,7 +5676,7 @@ test "implicit slice of temporary owners", '''
   1
   4
 '''
-  # A temporary array of owners lent as a `[]T` argument with no `?` is
+  # A temporary array of owners given as a `[]T` argument with no `?` is
   # held and dropped in its statement's slot, as `?[...]` is: nothing
   # leaks, also where a later argument runs first or the call is nested.
 
@@ -5708,8 +5708,8 @@ test "implicit slice of temporary owners", '''
 
 fail "index base read then written", "21:32: cannot change `a` while the indexed value's read of it is still in use", errors: 1
   # A value that is no place is read where it runs and indexed after its
-  # index runs: the index cannot lend what the value may be to write. A
-  # place is found after its index (`a[grow(!a)]` is accepted).
+  # index runs: the index cannot make a write view of what the value may
+  # be. A place is found after its index (`a[grow(!a)]` is accepted).
 
   obj P
     v: List[Int]
@@ -5729,12 +5729,12 @@ fail "index base read then written", "21:32: cannot change `a` while the indexed
   c = true
   print((a if c else b).v[growp(!a)])
 
-fail "index of lent place", "27:21: cannot change `ps` in an index of a view being made of it", "28:21: cannot change `ps` in an index of a view being made of it", "29:26: cannot change `ps` in an index of a view being made of it", "30:16: cannot change `ps` in an index of a view being made of it", "31:16: cannot change `ps` in an index of a view being made of it", "32:20: cannot move `ps` in an index of a view being made of it", errors: 6
-  # A view, a slice, or a method's self takes the address of its
-  # place, found up to each index before the index runs: an index cannot
-  # lend the place's root to write, or move it, which could grow or free the
-  # memory the place is in. (An assignment's target is found after its
-  # indices run, so there an index may.)
+fail "index of viewed place", "27:21: cannot change `ps` in an index of a view being made of it", "28:21: cannot change `ps` in an index of a view being made of it", "29:26: cannot change `ps` in an index of a view being made of it", "30:16: cannot change `ps` in an index of a view being made of it", "31:16: cannot change `ps` in an index of a view being made of it", "32:20: cannot move `ps` in an index of a view being made of it", errors: 6
+  # A view, a slice, or a method's self takes the address of its place,
+  # found up to each index before the index runs: an index cannot make a
+  # write view of the place's root, or move it, which could grow or free
+  # the memory the place is in. (An assignment's target is found after
+  # its indices run, so there an index may.)
 
   obj P
     a: [4]Int
@@ -5769,8 +5769,8 @@ fail "index of read place", "46:14: cannot change `v` in an index of a view bein
   # A place that is read or taken is found up to each index before the
   # index runs. Where what the index is applied to lies past a List's
   # buffer, a box, or a handle, or is a handle itself, a write of the root
-  # could move or free it, so the index cannot lend the root to write, or
-  # move it. (Where it is an array or a List in the root's own storage, or
+  # could move or free it, so the index cannot make a write view of the root,
+  # or move it. (Where it is an array or a List in the root's own storage, or
   # in an assignment's target, which is found after its indices run, the
   # index may: test/behavior/ownership/index_writes_place_root.rig.)
 
@@ -5935,10 +5935,10 @@ test "index writes slice root", release: true, '''
   3 [8, 3]
   5 [6, 5]
 '''
-  # A slice root's index may lend it to write: a lend of a slice writes the
-  # elements it views but never moves or frees them, so the element is
-  # read after the index runs, as it left it (the sorting shape,
-  # `xs[partition(!xs)]`).
+  # A slice root's index may make a write view of it: a write view of a
+  # slice writes the elements it views but never moves or frees them, so
+  # the element is read after the index runs, as it left it (the sorting
+  # shape, `xs[partition(!xs)]`).
 
 
   fun partition(xs: ![]Int) -> Int
@@ -6045,12 +6045,12 @@ fail "jump outside loop", "`break` is not inside a loop (a closure body cannot l
   sub stray()
     continue
 
-fail "kept lend unwritten function value", "18:7: `f(!b, t)` keeps a view of `t` in what `f` stores; write `f(!b, ?t)`"
+fail "kept view unwritten function value", "18:7: `f(!b, t)` keeps a view of `t` in what `f` stores; write `f(!b, ?t)`"
   # Why: a call through a function value keeps what its type could hold
-  # (Core sentence 7), so `f` may keep `t` in `b`; the lend outlasts the
+  # (Core sentence 7), so `f` may keep `t` in `b`; the view outlasts the
   # statement and is written `?t`.
-  # Rule: a lend is written wherever its view may outlast its statement,
-  # as when the call it is lent to keeps it (Core sentence 4).
+  # Rule: a view is written wherever it may outlast its statement, as
+  # when the call it is given to keeps it (Core sentence 4).
   # From: the keeps Core review (Rust expert).
 
   obj B
@@ -6066,12 +6066,12 @@ fail "kept lend unwritten function value", "18:7: `f(!b, t)` keeps a view of `t`
   f(!b, t)
   print(b.n)
 
-fail "kept lend unwritten owned closure", "15:7: `f(!b, t)` keeps a view of `t` in what `f` stores; write `f(!b, ?t)`"
-  # Why: an owned closure keeps what its type could hold (Core sentence 7,
-  # §7), and this one stores `s` in `k`; the lend of `t` outlasts the
+fail "kept view unwritten owned closure", "15:7: `f(!b, t)` keeps a view of `t` in what `f` stores; write `f(!b, ?t)`"
+  # Why: an owned closure keeps what its type could hold (Core sentence
+  # 7, §7), and this one stores `s` in `k`; the view of `t` outlasts the
   # statement and is written `?t`.
-  # Rule: a lend is written wherever its view may outlast its statement,
-  # as when the call it is lent to keeps it (Core sentence 4).
+  # Rule: a view is written wherever it may outlast its statement, as
+  # when the call it is given to keeps it (Core sentence 4).
   # From: the keeps Core review (Rust expert).
 
   obj B
@@ -6084,12 +6084,12 @@ fail "kept lend unwritten owned closure", "15:7: `f(!b, t)` keeps a view of `t` 
   f(!b, t)
   print(b.src)
 
-fail "kept lend unwritten push", "10:13: `names.push(t)` keeps a view of `t` in what `push` stores; write `!names.push(?t)`"
-  # Why: a built-in generic's method keeps every argument, so `push` keeps
-  # the view of `t` in `names`, a `List[?String]`; the lend outlasts the
-  # statement and is written `?t`.
-  # Rule: a lend is written wherever its view may outlast its statement,
-  # as when the call it is lent to keeps it (Core sentence 4).
+fail "kept view unwritten push", "10:13: `names.push(t)` keeps a view of `t` in what `push` stores; write `!names.push(?t)`"
+  # Why: a built-in generic's method keeps every argument, so `push`
+  # keeps the view of `t` in `names`, a `List[?String]`; the view
+  # outlasts the statement and is written `?t`.
+  # Rule: a view is written wherever it may outlast its statement, as
+  # when the call it is given to keeps it (Core sentence 4).
   # From: the keeps Core review (Rust expert).
 
   t = String("abc")
@@ -6097,11 +6097,11 @@ fail "kept lend unwritten push", "10:13: `names.push(t)` keeps a view of `t` in 
   !names.push(t)
   print(names.len)
 
-test "kept lend written function value", "3"
-  # Rule: a lend is written wherever its view may outlast its statement,
-  # as when the call it is lent to keeps it (Core sentence 4): a call
-  # through a function value keeps what its type could hold (sentence 7),
-  # so the lend is written `?t`.
+test "kept view written function value", "3"
+  # Rule: a view is written wherever it may outlast its statement, as
+  # when the call it is given to keeps it (Core sentence 4): a call
+  # through a function value keeps what its type could hold (sentence
+  # 7), so the view is written `?t`.
   # From: the keeps Core review (Rust expert).
 
   obj B
@@ -6117,11 +6117,11 @@ test "kept lend written function value", "3"
   f(!b, ?t)
   print(b.n)
 
-test "kept lend written owned closure", "abc"
-  # Rule: a lend is written wherever its view may outlast its statement,
-  # as when the call it is lent to keeps it (Core sentence 4): an owned
+test "kept view written owned closure", "abc"
+  # Rule: a view is written wherever it may outlast its statement, as
+  # when the call it is given to keeps it (Core sentence 4): an owned
   # closure keeps what its type could hold (sentence 7), and this one
-  # stores `s` in `k`, so the lend is written `?t`.
+  # stores `s` in `k`, so the view is written `?t`.
   # From: the keeps Core review (Rust expert).
 
   obj B
@@ -6134,11 +6134,11 @@ test "kept lend written owned closure", "abc"
   f(!b, ?t)
   print(b.src)
 
-test "kept lend written push", "1 abc"
-  # Rule: a lend is written wherever its view may outlast its statement,
-  # as when the call it is lent to keeps it (Core sentence 4): a built-in
+test "kept view written push", "1 abc"
+  # Rule: a view is written wherever it may outlast its statement, as
+  # when the call it is given to keeps it (Core sentence 4): a built-in
   # generic's method keeps every argument, so `push` into a
-  # `List[?String]` keeps the view, and the lend is written `?t`.
+  # `List[?String]` keeps the view, and the view is written `?t`.
   # From: the keeps Core review (Rust expert).
 
   t = String("abc")
@@ -6209,9 +6209,9 @@ fail "kept self view leaves tail", "35:3: cannot return a view of `mk(42)`, whic
 fail "kept self view outlives statement", "38:5: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "41:7: a view of the temporary `mkh()` outlives its statement", errors: 2
   # A temporary self of a method that may keep a view of it, or a
   # Cell-holding part of one, is kept in its statement's slot, also when
-  # the call's arguments run first: a view of it that the method returns,
-  # or stores in what it was lent to write, may be used within the
-  # statement (`test/behavior/ownership/cell_part_self_view_in_statement.rig`),
+  # the call's arguments run first: a view of it that the method returns, or
+  # stores in a value it writes through, may be used within the statement
+  # (`test/behavior/ownership/cell_part_self_view_in_statement.rig`),
   # and nowhere after.
 
   obj S
@@ -6298,16 +6298,16 @@ fail "labeled break carries move", "use of `rc` after move"
       break $outer
   print(rc.payload)
 
-fail "lend branch of places", "31:9: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?a if c else ?b`", "35:9: cannot make a write view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `!a if c else !b`", "39:17: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?a if c else ?b`", "42:9: cannot make a write view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `!(!a if c else !b)[0].o`", "46:9: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?(?a if c else ?b)[0].v`", "50:11: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?a if c else ?b`", "55:11: cannot make a write view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `!a if c else !b`", "60:11: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?(?a if c else ?b).e`", "65:8: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?(?a if c else ?b).o`", "69:11: cannot make a write view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `!(!a if c else !b).o`", "74:15: cannot make a write view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `!a if c else !b`", "79:9: cannot make a view of `o ?? !d`: it may be `o`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?o ?? !d`", "83:9: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?a if c else ?b`", errors: 13
-  # A branch is a value, never a place: a lend (`?` or `!`) of a branch
-  # (`a if c else b`, `a ?? b`, `e catch h`, `e?`, `e!`), or of a path of
-  # fields, elements, and method calls from one, stands only where every
-  # leaf is a value made there, a constant, or a lend itself
-  # (`Checker.viewsBranch`).
-  # One with a leaf a place holds would lend a copy of that leaf's value,
-  # a write view included (Core §3: a lend of a branching value that may
-  # be a name's is planned). Each branch is lent instead, in a statement,
-  # an argument, a method's self, and every header.
+fail "a view of a branch of places", "31:9: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?a if c else ?b`", "35:9: cannot make a write view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `!a if c else !b`", "39:17: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?a if c else ?b`", "42:9: cannot make a write view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `!(!a if c else !b)[0].o`", "46:9: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?(?a if c else ?b)[0].v`", "50:11: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?a if c else ?b`", "55:11: cannot make a write view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `!a if c else !b`", "60:11: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?(?a if c else ?b).e`", "65:8: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?(?a if c else ?b).o`", "69:11: cannot make a write view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `!(!a if c else !b).o`", "74:15: cannot make a write view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `!a if c else !b`", "79:9: cannot make a view of `o ?? !d`: it may be `o`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?o ?? !d`", "83:9: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?a if c else ?b`", errors: 13
+  # A branch is a value, never a place: a view (`?` or `!`) of a branch
+  # (`a if c else b`, `a ?? b`, `e catch h`, `e?`, `e!`), or of a path
+  # of fields, elements, and method calls from one, stands only where
+  # every leaf is a value made there, a constant, or a view itself
+  # (`Checker.viewsBranch`). One with a leaf a place holds would view a
+  # copy of that leaf's value, a write view included (Core §3: a view of
+  # a branching value that may be a name's is planned). A view is made
+  # of each branch instead, in a statement, an argument, a method's
+  # self, and every header.
 
   obj Res
     n: Int
@@ -6386,9 +6386,9 @@ fail "lend branch of places", "31:9: cannot make a view of `a if c else b`: it m
 
   pass
 
-fail "lend branching names owner", "9:20: cannot make a view of `o?`: it may be `o`, a value a name holds, which a view of the branching value would copy; make a view of", "15:14: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on", errors: 2
-  # A lend of a branching value that may be an owner a name holds would
-  # lend a copy of that owner: lend each branch instead.
+fail "a view of a branch names the owner", "9:20: cannot make a view of `o?`: it may be `o`, a value a name holds, which a view of the branching value would copy; make a view of", "15:14: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on", errors: 2
+  # A view of a branching value that may be a value a name holds would
+  # view a copy of it: make a view of each branch instead.
 
 
   fun size(s: ?String) -> Int
@@ -6404,16 +6404,16 @@ fail "lend branching names owner", "9:20: cannot make a view of `o?`: it may be 
   print(size(?(a if c else b)))
   print(size(?a if c else ?b), g(none))
 
-test "lend each branch", release: true, '''
+test "a view of each branch", release: true, '''
   13
   13
   3
   6 [2, 3, 4] .a(r: Res(n: 50, v: [13]))
 '''
-  # Where a branch reaches a place, each branch is lent instead of the
-  # branch (`Checker.viewsBranch`): `(?a if c else ?b).v` in a `for`,
-  # `if … as`, `while … as`, and `match`, and a branch of write lends named
-  # first (`t = (!a if c else !b)`), then lent on with `!t.v` and `!t.o`.
+  # Where a branch reaches a place, a view is made of each branch instead of
+  # the branch (`Checker.viewsBranch`): `(?a if c else ?b).v` in a `for`,
+  # `if … as`, `while … as`, and `match`, and a branch of write views named
+  # first (`t = (!a if c else !b)`), then viewed on with `!t.v` and `!t.o`.
 
   obj Res
     n: Int
@@ -6496,8 +6496,8 @@ test "lend each branch", release: true, '''
   y = mkw(3)
   _ = f(!x, !y, true)
 
-fail "lend held write view needs mutable", "6:6: a write view is never stored inside a value, and `!Int` cannot stand here", errors: 1
-  # A write view is never held in a field, so no lend of one (`!h.w`)
+fail "a view of a held write view needs mutable", "6:6: a write view is never stored inside a value, and `!Int` cannot stand here", errors: 1
+  # A write view is never held in a field, so no view of one (`!h.w`)
   # writes through what holds it: the field is rejected where it is
   # declared.
 
@@ -6510,13 +6510,13 @@ fail "lend held write view needs mutable", "6:6: a write view is never stored in
   n = 1
   poke(!n)
 
-fail "lend path base", "70:11: `for x in !xs` writes each element in place; `xs` must be a binding, or a field or element of one", "74:12: method `push` needs a write view of `self`; write `!p.items.push(3)`", "75:14: method `insert` needs a write view of `self`; write `(!p.s).insert(1)`", "82:13: only a named array, List, or String, or a field or element of one, can be sliced; bind this value to a name first", "40:4: `(!v)[0]`: put the sigil on the whole path, not its base: `v[0] = 4`", "41:4: `(!q).x`: put the sigil on the whole path, not its base: `q.x += 1`", "50:2: `(!p).x`: put the sigil on the whole path, not its base: `p.x = 5`", "51:2: `(!arr)[i]`: put the sigil on the whole path, not its base: `arr[i] += 7`", "52:2: `(!(!p).a)[0]`: put the sigil on the whole path, not its base: `p.a[0] = 3`", "52:4: `(!p).a`: put the sigil on the whole path, not its base: `p.a[0] = 3`", "53:2: `(!p).a`: put the sigil on the whole path, not its base: `p.a[1] = 4`", "54:2: `(!qs)[0]`: put the sigil on the whole path, not its base: `qs[0].n = 5`", "55:6: `(!o)[0]`: put the sigil on the whole path, not its base: `if !o[0] as w`", "57:6: `(!o)[0]`: put the sigil on the whole path, not its base: `if <o[0] as m`", "59:5: `(!p).o`: put the sigil on the whole path, not its base: `if !p.o as k`", "61:8: `(!p).o`: put the sigil on the whole path, not its base: `while !p.o as k`", "64:9: `(!p).e`: put the sigil on the whole path, not its base: `match !p.e`", "67:8: `(?p).e`: put the sigil on the whole path, not its base: `match ?p.e`", "70:12: `(!p).items`: put the sigil on the whole path, not its base: `for x in !p.items`", "72:11: `(!p).items`: put the sigil on the whole path, not its base: `for x in !p.items`", "74:2: `(!p).items`: put the sigil on the whole path, not its base", "75:8: `(!p).s`: put the sigil on the whole path, not its base", "76:3: `(!qs)[1]`: put the sigil on the whole path, not its base: `!qs[1].bump()`", "77:8: `(!arr)[0]`: put the sigil on the whole path, not its base: `bump(!arr[0])`", "78:6: `(!p).x`: put the sigil on the whole path, not its base: `f = p.x`", "79:6: `(?v).len`: put the sigil on the whole path, not its base: `g = v.len`", "80:6: `(!t).len`: put the sigil on the whole path, not its base: `h = t.len`", "81:7: `(!arr)[0..1]`: put the sigil on the whole path, not its base: `s = ?arr[0..1]`", "82:13: `(!arr)[0..2]`: put the sigil on the whole path, not its base: `n = total(!arr[0..2])`", "83:7: `(!p).o`: put the sigil on the whole path, not its base: `c = <p.o`", errors: 30
-  # A lend is never the base of a path: `(!p).x`, `(?v).len`, and
+fail "sigil on a path's base", "70:11: `for x in !xs` writes each element in place; `xs` must be a binding, or a field or element of one", "74:12: method `push` needs a write view of `self`; write `!p.items.push(3)`", "75:14: method `insert` needs a write view of `self`; write `(!p.s).insert(1)`", "82:13: only a named array, List, or String, or a field or element of one, can be sliced; bind this value to a name first", "40:4: `(!v)[0]`: put the sigil on the whole path, not its base: `v[0] = 4`", "41:4: `(!q).x`: put the sigil on the whole path, not its base: `q.x += 1`", "50:2: `(!p).x`: put the sigil on the whole path, not its base: `p.x = 5`", "51:2: `(!arr)[i]`: put the sigil on the whole path, not its base: `arr[i] += 7`", "52:2: `(!(!p).a)[0]`: put the sigil on the whole path, not its base: `p.a[0] = 3`", "52:4: `(!p).a`: put the sigil on the whole path, not its base: `p.a[0] = 3`", "53:2: `(!p).a`: put the sigil on the whole path, not its base: `p.a[1] = 4`", "54:2: `(!qs)[0]`: put the sigil on the whole path, not its base: `qs[0].n = 5`", "55:6: `(!o)[0]`: put the sigil on the whole path, not its base: `if !o[0] as w`", "57:6: `(!o)[0]`: put the sigil on the whole path, not its base: `if <o[0] as m`", "59:5: `(!p).o`: put the sigil on the whole path, not its base: `if !p.o as k`", "61:8: `(!p).o`: put the sigil on the whole path, not its base: `while !p.o as k`", "64:9: `(!p).e`: put the sigil on the whole path, not its base: `match !p.e`", "67:8: `(?p).e`: put the sigil on the whole path, not its base: `match ?p.e`", "70:12: `(!p).items`: put the sigil on the whole path, not its base: `for x in !p.items`", "72:11: `(!p).items`: put the sigil on the whole path, not its base: `for x in !p.items`", "74:2: `(!p).items`: put the sigil on the whole path, not its base", "75:8: `(!p).s`: put the sigil on the whole path, not its base", "76:3: `(!qs)[1]`: put the sigil on the whole path, not its base: `!qs[1].bump()`", "77:8: `(!arr)[0]`: put the sigil on the whole path, not its base: `bump(!arr[0])`", "78:6: `(!p).x`: put the sigil on the whole path, not its base: `f = p.x`", "79:6: `(?v).len`: put the sigil on the whole path, not its base: `g = v.len`", "80:6: `(!t).len`: put the sigil on the whole path, not its base: `h = t.len`", "81:7: `(!arr)[0..1]`: put the sigil on the whole path, not its base: `s = ?arr[0..1]`", "82:13: `(!arr)[0..2]`: put the sigil on the whole path, not its base: `n = total(!arr[0..2])`", "83:7: `(!p).o`: put the sigil on the whole path, not its base: `c = <p.o`", errors: 30
+  # A view is never the base of a path: `(!p).x`, `(?v).len`, and
   # `(!arr)[0..1]` are rejected wherever they stand, each once, with the
-  # statement written as it should be. The lend goes on the whole path
-  # (`!p.items.push(3)`, `if !o[0] as w`, `match !p.e`, `for x in !p.items`,
-  # `?arr[0..1]`), and an assignment or a read needs none (`p.x = 5`,
-  # `arr[i] += 7`, `v.len`).
+  # statement written as it should be. The view goes on the whole path
+  # (`!p.items.push(3)`, `if !o[0] as w`, `match !p.e`, `for x in
+  # !p.items`, `?arr[0..1]`), and an assignment or a read needs none
+  # (`p.x = 5`, `arr[i] += 7`, `v.len`).
 
   enum E
     a(n: Int)
@@ -6596,12 +6596,12 @@ fail "lend path base", "70:11: `for x in !xs` writes each element in place; `xs`
   c = <(!p).o
   print(f, g, h, s, n, c)
 
-fail "lend path base contexts", "47:10: method `insert` needs a write view of `self`; write `(!p.s).insert(1)`", "80:2: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate", "81:8: method `insert` needs a write view of `self`; write `!p.s.insert(1)`", "83:1: cannot assign through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.", "84:8: method `push` needs a write view of `self`; write `!h.v.push(4)`", "44:4: `(!p).x`: put the sigil on the whole path, not its base: `p.x`", "47:4: `(!p).s`: put the sigil on the whole path, not its base", "50:4: `(<(!p)).a`: put the sigil on the whole path, not its base: `p.a[0]`", "56:12: `(!p.v)[0]`: put the sigil on the whole path, not its base: `f1 = |!p| p.v[0]`", "57:19: `(!p.a)[1]`: put the sigil on the whole path, not its base: `f2 = |!p| twice(!p.a[1])`", "58:12: `(!p).q`: put the sigil on the whole path, not its base: `f3 = |!p| p.q.get()`", "59:12: `(<(!p)).x`: put the sigil on the whole path, not its base: `f4 = |!p| p.x`", "62:4: `(!p).a`: put the sigil on the whole path, not its base: `p.a[k]`", "64:4: `(!p).x`: put the sigil on the whole path, not its base: `p.x`", "66:4: `(<(?q)).x`: put the sigil on the whole path, not its base: `q.x`", "68:2: `(<(!p)).x`: put the sigil on the whole path, not its base: `p.x = 5`", "69:2: `(<(!arr))[0]`: put the sigil on the whole path, not its base: `arr[0] = 7`", "70:7: `(<(!p)).o`: put the sigil on the whole path, not its base: `z = <p.o`", "71:6: `(<(?p)).a`: put the sigil on the whole path, not its base: `n = p.a.len`", "72:6: `!arr[..]` here is read, not held: `(!arr[..])[0]` only reads the place it reaches. Write `(?arr[..])[0]`", "73:6: `!arr[..]` here is read, not held: `(!arr[..]).len` only reads the place it reaches. Write `(?arr[..]).len`", "74:8: `!arr[..]` here is read, not held: `(!arr[..])[0]` only reads the place it reaches. Write `(?arr[..])[0]`", "78:8: `(!t).ops`: put the sigil on the whole path, not its base: `print(t.ops[1](5))`", "79:6: `(?p).items`: put the sigil on the whole path, not its base: `x = ?p.items`", "80:2: `(?p).x`: put the sigil on the whole path, not its base; and nothing is written through a read view", "81:2: `(?p).s`: put the sigil on the whole path, not its base; and nothing is written through a read view", "83:2: `(!h).x`: put the sigil on the whole path, not its base; and nothing is written through a shared handle (`*T`), which other handles may see", "84:2: `(!h).v`: put the sigil on the whole path, not its base; and nothing is written through a shared handle (`*T`), which other handles may see", errors: 28
-  # A lend of a place is never the base of a path in any context: a
-  # closure's expression body, a closure's or a block's last value, and a
-  # function's last value, each its own statement for the hint. A lend
-  # moved, `<(!p)`, is the lend. A written `!` on a slice only read, a
-  # field holding functions indexed and called, a read lend written
+fail "sigil on a path's base contexts", "47:10: method `insert` needs a write view of `self`; write `(!p.s).insert(1)`", "80:2: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate", "81:8: method `insert` needs a write view of `self`; write `!p.s.insert(1)`", "83:1: cannot assign through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.", "84:8: method `push` needs a write view of `self`; write `!h.v.push(4)`", "44:4: `(!p).x`: put the sigil on the whole path, not its base: `p.x`", "47:4: `(!p).s`: put the sigil on the whole path, not its base", "50:4: `(<(!p)).a`: put the sigil on the whole path, not its base: `p.a[0]`", "56:12: `(!p.v)[0]`: put the sigil on the whole path, not its base: `f1 = |!p| p.v[0]`", "57:19: `(!p.a)[1]`: put the sigil on the whole path, not its base: `f2 = |!p| twice(!p.a[1])`", "58:12: `(!p).q`: put the sigil on the whole path, not its base: `f3 = |!p| p.q.get()`", "59:12: `(<(!p)).x`: put the sigil on the whole path, not its base: `f4 = |!p| p.x`", "62:4: `(!p).a`: put the sigil on the whole path, not its base: `p.a[k]`", "64:4: `(!p).x`: put the sigil on the whole path, not its base: `p.x`", "66:4: `(<(?q)).x`: put the sigil on the whole path, not its base: `q.x`", "68:2: `(<(!p)).x`: put the sigil on the whole path, not its base: `p.x = 5`", "69:2: `(<(!arr))[0]`: put the sigil on the whole path, not its base: `arr[0] = 7`", "70:7: `(<(!p)).o`: put the sigil on the whole path, not its base: `z = <p.o`", "71:6: `(<(?p)).a`: put the sigil on the whole path, not its base: `n = p.a.len`", "72:6: `!arr[..]` here is read, not held: `(!arr[..])[0]` only reads the place it reaches. Write `(?arr[..])[0]`", "73:6: `!arr[..]` here is read, not held: `(!arr[..]).len` only reads the place it reaches. Write `(?arr[..]).len`", "74:8: `!arr[..]` here is read, not held: `(!arr[..])[0]` only reads the place it reaches. Write `(?arr[..])[0]`", "78:8: `(!t).ops`: put the sigil on the whole path, not its base: `print(t.ops[1](5))`", "79:6: `(?p).items`: put the sigil on the whole path, not its base: `x = ?p.items`", "80:2: `(?p).x`: put the sigil on the whole path, not its base; and nothing is written through a read view", "81:2: `(?p).s`: put the sigil on the whole path, not its base; and nothing is written through a read view", "83:2: `(!h).x`: put the sigil on the whole path, not its base; and nothing is written through a shared handle (`*T`), which other handles may see", "84:2: `(!h).v`: put the sigil on the whole path, not its base; and nothing is written through a shared handle (`*T`), which other handles may see", errors: 28
+  # A view of a place is never the base of a path in any context: a
+  # closure's expression body, a closure's or a block's last value, and
+  # a function's last value, each its own statement for the hint. A view
+  # moved, `<(!p)`, is the view. A written `!` on a slice only read, a
+  # field holding functions indexed and called, a read view written
   # through, and a write through a shared handle are reported too, each
   # once, with a hint that compiles or none.
 
@@ -6683,11 +6683,11 @@ fail "lend path base contexts", "47:10: method `insert` needs a write view of `s
   (!h).v.push(4)
   print(z, n, w, m, x)
 
-fail "lend path base function field", "32:8: `(!t).f`: put the sigil on the whole path, not its base: `print(t.f(1), t.f(1))`", "32:19: `(?t).f`: put the sigil on the whole path, not its base: `print(t.f(1), t.f(1))`", "33:6: `(<(?t)).f`: put the sigil on the whole path, not its base: `y = t.f(3)`", "34:6: `(<(!t)).f`: put the sigil on the whole path, not its base: `z = t.f(1) + 1`", "35:5: `(<(!t)).g`: put the sigil on the whole path, not its base: `if t.g(1)`", "37:6: `(<(?w.ts[1])).f`: put the sigil on the whole path, not its base: `u = w.ts[1].f(5) + 1`", "38:11: `(<(!w.t)).f`: put the sigil on the whole path, not its base: `v: Int = w.t.f(5)`", "39:14: `(?c).cb`: put the sigil on the whole path, not its base: `print(u, v, c.cb(1), c.cb(2), h.f(1), w.ts[0].f(2))`", "39:26: `(!c).cb`: put the sigil on the whole path, not its base: `print(u, v, c.cb(1), c.cb(2), h.f(1), w.ts[0].f(2))`", "39:38: `(?h).f`: put the sigil on the whole path, not its base: `print(u, v, c.cb(1), c.cb(2), h.f(1), w.ts[0].f(2))`", "39:49: `(?w.ts[0]).f`: put the sigil on the whole path, not its base: `print(u, v, c.cb(1), c.cb(2), h.f(1), w.ts[0].f(2))`", "40:6: `(<(?t)).f`: put the sigil on the whole path, not its base: `arr[t.f(4)] = 1`", "41:8: `(!t).ops`: put the sigil on the whole path, not its base: `print(t.ops[1](5), arr)`", errors: 13
-  # A field holding a function, called, is a path like any field: a lend
-  # of a place as its base is rejected, through a lend, a moved lend, a
-  # shared handle, an element, and an owned closure's field, wherever the
-  # call's value goes. A method's self is not a path.
+fail "sigil on a path's base function field", "32:8: `(!t).f`: put the sigil on the whole path, not its base: `print(t.f(1), t.f(1))`", "32:19: `(?t).f`: put the sigil on the whole path, not its base: `print(t.f(1), t.f(1))`", "33:6: `(<(?t)).f`: put the sigil on the whole path, not its base: `y = t.f(3)`", "34:6: `(<(!t)).f`: put the sigil on the whole path, not its base: `z = t.f(1) + 1`", "35:5: `(<(!t)).g`: put the sigil on the whole path, not its base: `if t.g(1)`", "37:6: `(<(?w.ts[1])).f`: put the sigil on the whole path, not its base: `u = w.ts[1].f(5) + 1`", "38:11: `(<(!w.t)).f`: put the sigil on the whole path, not its base: `v: Int = w.t.f(5)`", "39:14: `(?c).cb`: put the sigil on the whole path, not its base: `print(u, v, c.cb(1), c.cb(2), h.f(1), w.ts[0].f(2))`", "39:26: `(!c).cb`: put the sigil on the whole path, not its base: `print(u, v, c.cb(1), c.cb(2), h.f(1), w.ts[0].f(2))`", "39:38: `(?h).f`: put the sigil on the whole path, not its base: `print(u, v, c.cb(1), c.cb(2), h.f(1), w.ts[0].f(2))`", "39:49: `(?w.ts[0]).f`: put the sigil on the whole path, not its base: `print(u, v, c.cb(1), c.cb(2), h.f(1), w.ts[0].f(2))`", "40:6: `(<(?t)).f`: put the sigil on the whole path, not its base: `arr[t.f(4)] = 1`", "41:8: `(!t).ops`: put the sigil on the whole path, not its base: `print(t.ops[1](5), arr)`", errors: 13
+  # A field holding a function, called, is a path like any field: a view
+  # of a place as its base is rejected, through a view, a moved view, a
+  # shared handle, an element, and an owned closure's field, wherever
+  # the call's value goes. A method's self is not a path.
 
   fun double(n: Int) -> Int
     n * 2
@@ -6726,15 +6726,15 @@ fail "lend path base function field", "32:8: `(!t).f`: put the sigil on the whol
   arr[(<(?t)).f(4)] = 1
   print((!t).ops[1](5), arr)
 
-fail "lend path base hints", "48:20: type mismatch: expected `(?List[Int])?`, got `List[Int]`", "51:11: type mismatch: expected `[]Int`, got `[3]Int`; write `?p.arr` or `?p.arr[..]`", "56:2: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate", "57:12: no method `len` on type `List[Int]`; `len` is a field: write `p.v.len`", "58:6: type `!String` has no method `push_str`", "61:14: type mismatch: expected `?String`, got `String`; pass it as a `?String` with `?p.name` or `?p.name[..]`", "37:4: `(?k).log`: put the sigil on the whole path, not its base; and nothing is written through a read view", "43:12: `(?p).items`: put the sigil on the whole path, not its base: `print(own(+p.items))`", "44:10: `(?p).items`: put the sigil on the whole path, not its base: `a = gid(+p.items)`", "45:17: `(?p).items`: put the sigil on the whole path, not its base: `b: List[Int] = +p.items`", "46:8: `(?p).items`: put the sigil on the whole path, not its base: `ys = [?p.items, ?p.items]`", "46:20: `(?p).items`: put the sigil on the whole path, not its base: `ys = [?p.items, ?p.items]`", "47:7: `(!p).items`: put the sigil on the whole path, not its base; and `<` takes out only an optional field or element, leaving `none`", "48:21: `(?p).items`: put the sigil on the whole path, not its base: `w: (?List[Int])? = ?p.items`", "49:8: `(?t)[1..3]`: put the sigil on the whole path, not its base: `print(?t[1..3])`", "50:6: `(?t)[1..3]`: put the sigil on the whole path, not its base: `d = ?t[1..3]`", "51:12: `(?p).arr`: put the sigil on the whole path, not its base: `print(sum(?p.arr))`", "52:9: `(!mk()).x`: put the sigil on the whole path, not its base; and a part of a temporary is changed or bound only through a name: bind the temporary first, in a statement of its own", "54:9: `(!mk()).x`: put the sigil on the whole path, not its base; and a part of a temporary is changed or bound only through a name: bind the temporary first, in a statement of its own", "56:2: `(?p).x`: put the sigil on the whole path, not its base; and nothing is written through a read view", "57:6: `(?p).v`: put the sigil on the whole path, not its base", "59:7: `(?p).items`: put the sigil on the whole path, not its base; and nothing is written through a read view", "61:15: `(?p).name`: put the sigil on the whole path, not its base: `s: ?String = ?p.name`", "62:78: `(?p).x`: put the sigil on the whole path, not its base: `yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy = add(1111111111, 2222222222, 3333333333, p.x) + add(1111111111, 2222222222, 3333333333, 4)`", "64:3: `(?p).x`: put the sigil on the whole path, not its base", "66:3: `((!p)).x`: put the sigil on the whole path, not its base: `p.x = 6`", errors: 26
-  # Each hint of a lend as a path's base compiles where it is given: the
-  # sigil follows the type the context takes (an owned or generic argument
-  # a clone, an element or a binding of a value that does not copy its
-  # lend, an optional view a `?`, a slice of an array or a Text a `?`), and
-  # none is given where no plain form fits: a part taken that is no
-  # optional, a temporary bound where no statement can go first, a path
-  # that draws another error of its own, or a path spread over lines. A
-  # method a call does not find is the call's to report.
+fail "sigil on a path's base hints", "48:20: type mismatch: expected `(?List[Int])?`, got `List[Int]`", "51:11: type mismatch: expected `[]Int`, got `[3]Int`; write `?p.arr` or `?p.arr[..]`", "56:2: cannot assign through a read view (`?T`); take a write view (`!T`) to mutate", "57:12: no method `len` on type `List[Int]`; `len` is a field: write `p.v.len`", "58:6: type `!String` has no method `push_str`", "61:14: type mismatch: expected `?String`, got `String`; pass it as a `?String` with `?p.name` or `?p.name[..]`", "37:4: `(?k).log`: put the sigil on the whole path, not its base; and nothing is written through a read view", "43:12: `(?p).items`: put the sigil on the whole path, not its base: `print(own(+p.items))`", "44:10: `(?p).items`: put the sigil on the whole path, not its base: `a = gid(+p.items)`", "45:17: `(?p).items`: put the sigil on the whole path, not its base: `b: List[Int] = +p.items`", "46:8: `(?p).items`: put the sigil on the whole path, not its base: `ys = [?p.items, ?p.items]`", "46:20: `(?p).items`: put the sigil on the whole path, not its base: `ys = [?p.items, ?p.items]`", "47:7: `(!p).items`: put the sigil on the whole path, not its base; and `<` takes out only an optional field or element, leaving `none`", "48:21: `(?p).items`: put the sigil on the whole path, not its base: `w: (?List[Int])? = ?p.items`", "49:8: `(?t)[1..3]`: put the sigil on the whole path, not its base: `print(?t[1..3])`", "50:6: `(?t)[1..3]`: put the sigil on the whole path, not its base: `d = ?t[1..3]`", "51:12: `(?p).arr`: put the sigil on the whole path, not its base: `print(sum(?p.arr))`", "52:9: `(!mk()).x`: put the sigil on the whole path, not its base; and a part of a temporary is changed or bound only through a name: bind the temporary first, in a statement of its own", "54:9: `(!mk()).x`: put the sigil on the whole path, not its base; and a part of a temporary is changed or bound only through a name: bind the temporary first, in a statement of its own", "56:2: `(?p).x`: put the sigil on the whole path, not its base; and nothing is written through a read view", "57:6: `(?p).v`: put the sigil on the whole path, not its base", "59:7: `(?p).items`: put the sigil on the whole path, not its base; and nothing is written through a read view", "61:15: `(?p).name`: put the sigil on the whole path, not its base: `s: ?String = ?p.name`", "62:78: `(?p).x`: put the sigil on the whole path, not its base: `yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy = add(1111111111, 2222222222, 3333333333, p.x) + add(1111111111, 2222222222, 3333333333, 4)`", "64:3: `(?p).x`: put the sigil on the whole path, not its base", "66:3: `((!p)).x`: put the sigil on the whole path, not its base: `p.x = 6`", errors: 26
+  # Each hint of a view as a path's base compiles where it is given: the
+  # sigil follows the type the context takes (an owned or generic
+  # argument a clone, an element or a binding of a value that does not
+  # copy its view, an optional view a `?`, a slice of an array or a Text
+  # a `?`), and none is given where no plain form fits: a part taken
+  # that is no optional, a temporary bound where no statement can go
+  # first, a path that draws another error of its own, or a path spread
+  # over lines. A method a call does not find is the call's to report.
 
   obj Log
     log: Cell[List[Int]]
@@ -6795,13 +6795,13 @@ fail "lend path base hints", "48:20: type mismatch: expected `(?List[Int])?`, go
   ((!p)).x = 6
   print(a, b, ys, c, w, d, f, e, g, s, yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy, h, arr)
 
-fail "lend path base temporary", "44:2: `(!mkh()).r`: put the sigil on the whole path, not its base; to change or bind a part of a temporary, bind it to a name first: `tmp = mkh()`, then `tmp.r = \"lit\"`", "45:2: `(!mkh()).r`: put the sigil on the whole path, not its base; to change or bind a part of a temporary, bind it to a name first: `tmp = mkh()`, then `tmp.r = ?t`", "46:2: `(!arr())[0]`: put the sigil on the whole path, not its base; to change or bind a part of a temporary, bind it to a name first: `tmp = arr()`, then `tmp[0] = 6`", "47:2: `(!mk(1)).n`: put the sigil on the whole path, not its base; to change or bind a part of a temporary, bind it to a name first: `tmp = mk(1)`, then `tmp.n += 1`", "48:2: `(!(mkopt(5) ?? mk(6))).e`: put the sigil on the whole path, not its base; to change or bind a part of a temporary, bind it to a name first: `tmp = mkopt(5) ?? mk(6)`, then `tmp.e = E.b`", "49:2: `(!(mkf(0) catch mk(8))).items`: put the sigil on the whole path, not its base; to change or bind a part of a temporary, bind it to a name first: `tmp = mkf(0) catch mk(8)`, then `tmp.items[0] *= 7`", "50:2: `(!(mk(3) if c else mk(4))).t`: put the sigil on the whole path, not its base; to change or bind a part of a temporary, bind it to a name first: `tmp = mk(3) if c else mk(4)`, then `tmp.t = String(\"new\")`", "53:8: `(?(mk(1) if c else mk(2))).n`: put the sigil on the whole path, not its base: `print((mk(1) if c else mk(2)).n, (mkopt(1) ?? mk(2)).n)`", "53:38: `(?(mkopt(1) ?? mk(2))).n`: put the sigil on the whole path, not its base: `print((mk(1) if c else mk(2)).n, (mkopt(1) ?? mk(2)).n)`", "54:8: `(?(mkf(1) catch mk(2))).n`: put the sigil on the whole path, not its base: `print((mkf(1) catch mk(2)).n, (+a).n, (<b).n, arr()[0])`", "54:35: `(?+a).n`: put the sigil on the whole path, not its base: `print((mkf(1) catch mk(2)).n, (+a).n, (<b).n, arr()[0])`", "54:44: `(?<b).n`: put the sigil on the whole path, not its base: `print((mkf(1) catch mk(2)).n, (+a).n, (<b).n, arr()[0])`", "54:53: `(?arr())[0]`: put the sigil on the whole path, not its base: `print((mkf(1) catch mk(2)).n, (+a).n, (<b).n, arr()[0])`", errors: 13
-  # A field or element of a temporary lent to write is not assigned to:
-  # the temporary is dropped where its statement ends. The hint binds it
-  # to a name first, whatever makes the temporary: a call, a constructor,
-  # `??`, `catch`, or a value that branches. A temporary's path only read
-  # is written bare, in parentheses where a postfix would not reach all
-  # of it: `(a if c else b).n`, `(+a).n`, `(<b).n`.
+fail "sigil on a path's base temporary", "44:2: `(!mkh()).r`: put the sigil on the whole path, not its base; to change or bind a part of a temporary, bind it to a name first: `tmp = mkh()`, then `tmp.r = \"lit\"`", "45:2: `(!mkh()).r`: put the sigil on the whole path, not its base; to change or bind a part of a temporary, bind it to a name first: `tmp = mkh()`, then `tmp.r = ?t`", "46:2: `(!arr())[0]`: put the sigil on the whole path, not its base; to change or bind a part of a temporary, bind it to a name first: `tmp = arr()`, then `tmp[0] = 6`", "47:2: `(!mk(1)).n`: put the sigil on the whole path, not its base; to change or bind a part of a temporary, bind it to a name first: `tmp = mk(1)`, then `tmp.n += 1`", "48:2: `(!(mkopt(5) ?? mk(6))).e`: put the sigil on the whole path, not its base; to change or bind a part of a temporary, bind it to a name first: `tmp = mkopt(5) ?? mk(6)`, then `tmp.e = E.b`", "49:2: `(!(mkf(0) catch mk(8))).items`: put the sigil on the whole path, not its base; to change or bind a part of a temporary, bind it to a name first: `tmp = mkf(0) catch mk(8)`, then `tmp.items[0] *= 7`", "50:2: `(!(mk(3) if c else mk(4))).t`: put the sigil on the whole path, not its base; to change or bind a part of a temporary, bind it to a name first: `tmp = mk(3) if c else mk(4)`, then `tmp.t = String(\"new\")`", "53:8: `(?(mk(1) if c else mk(2))).n`: put the sigil on the whole path, not its base: `print((mk(1) if c else mk(2)).n, (mkopt(1) ?? mk(2)).n)`", "53:38: `(?(mkopt(1) ?? mk(2))).n`: put the sigil on the whole path, not its base: `print((mk(1) if c else mk(2)).n, (mkopt(1) ?? mk(2)).n)`", "54:8: `(?(mkf(1) catch mk(2))).n`: put the sigil on the whole path, not its base: `print((mkf(1) catch mk(2)).n, (+a).n, (<b).n, arr()[0])`", "54:35: `(?+a).n`: put the sigil on the whole path, not its base: `print((mkf(1) catch mk(2)).n, (+a).n, (<b).n, arr()[0])`", "54:44: `(?<b).n`: put the sigil on the whole path, not its base: `print((mkf(1) catch mk(2)).n, (+a).n, (<b).n, arr()[0])`", "54:53: `(?arr())[0]`: put the sigil on the whole path, not its base: `print((mkf(1) catch mk(2)).n, (+a).n, (<b).n, arr()[0])`", errors: 13
+  # A field or element of a temporary under a write view is not assigned
+  # to: the temporary is dropped where its statement ends. The hint
+  # binds it to a name first, whatever makes the temporary: a call, a
+  # constructor, `??`, `catch`, or a value that branches. A temporary's
+  # path only read is written bare, in parentheses where a postfix would
+  # not reach all of it: `(a if c else b).n`, `(+a).n`, `(<b).n`.
 
   error Bad
     oops
@@ -6851,12 +6851,12 @@ fail "lend path base temporary", "44:2: `(!mkh()).r`: put the sigil on the whole
   print((?(mk(1) if c else mk(2))).n, (?(mkopt(1) ?? mk(2))).n)
   print((?(mkf(1) catch mk(2))).n, (?+a).n, (?<b).n, (?arr())[0])
 
-fail "lend path base view context", "32:3: type mismatch: expected `?List[Int]`, got `List[Int]`", "35:3: type mismatch: expected `!Int`, got `Int`", "38:10: type mismatch: expected `!Int`, got `Int`", "42:6: type mismatch: expected `!Int`, got `Int`", "43:6: type mismatch: expected `!List[Int]`, got `List[Int]`", "44:7: type mismatch: expected `!Q`, got `Q`", "45:6: type mismatch: expected `!Int`, got `Int`", "47:11: type mismatch: expected `!Int`, got `Int`", "49:10: type mismatch: expected `?List[Int]`, got `List[Int]`", "51:22: `!p.q` here is read, not held: a `Q` goes here. Write `p.q` to copy the value; to keep a write view of `p.q`, the type here must be `!Q`", "32:4: `(?p).items`: put the sigil on the whole path, not its base: `?p.items`", "35:4: `(!p.a)[0]`: put the sigil on the whole path, not its base: `!p.a[0]`", "38:11: `(!p).x`: put the sigil on the whole path, not its base: `return !p.x`", "42:7: `(!p).x`: put the sigil on the whole path, not its base: `bump(!p.x)`", "43:7: `(!p).items`: put the sigil on the whole path, not its base: `grow(!p.items)`", "44:8: `(!p).q`: put the sigil on the whole path, not its base: `bumpq(!p.q)`", "45:7: `(!p.a)[1]`: put the sigil on the whole path, not its base: `bump(!p.a[1])`", "46:14: `(?p).items`: put the sigil on the whole path, not its base: `print(count(p.items), count(p.items))`", "46:33: `(!p).items`: put the sigil on the whole path, not its base: `print(count(p.items), count(p.items))`", "47:12: `(!p).x`: put the sigil on the whole path, not its base: `w: !Int = !p.x`", "49:11: `(?p).items`: put the sigil on the whole path, not its base: `k = W(r: ?p.items)`", "51:6: `(!p).q`: put the sigil on the whole path, not its base: `m = !p.q if c else !p.q`", errors: 22
+fail "sigil on a path's base view context", "32:3: type mismatch: expected `?List[Int]`, got `List[Int]`", "35:3: type mismatch: expected `!Int`, got `Int`", "38:10: type mismatch: expected `!Int`, got `Int`", "42:6: type mismatch: expected `!Int`, got `Int`", "43:6: type mismatch: expected `!List[Int]`, got `List[Int]`", "44:7: type mismatch: expected `!Q`, got `Q`", "45:6: type mismatch: expected `!Int`, got `Int`", "47:11: type mismatch: expected `!Int`, got `Int`", "49:10: type mismatch: expected `?List[Int]`, got `List[Int]`", "51:22: `!p.q` here is read, not held: a `Q` goes here. Write `p.q` to copy the value; to keep a write view of `p.q`, the type here must be `!Q`", "32:4: `(?p).items`: put the sigil on the whole path, not its base: `?p.items`", "35:4: `(!p.a)[0]`: put the sigil on the whole path, not its base: `!p.a[0]`", "38:11: `(!p).x`: put the sigil on the whole path, not its base: `return !p.x`", "42:7: `(!p).x`: put the sigil on the whole path, not its base: `bump(!p.x)`", "43:7: `(!p).items`: put the sigil on the whole path, not its base: `grow(!p.items)`", "44:8: `(!p).q`: put the sigil on the whole path, not its base: `bumpq(!p.q)`", "45:7: `(!p.a)[1]`: put the sigil on the whole path, not its base: `bump(!p.a[1])`", "46:14: `(?p).items`: put the sigil on the whole path, not its base: `print(count(p.items), count(p.items))`", "46:33: `(!p).items`: put the sigil on the whole path, not its base: `print(count(p.items), count(p.items))`", "47:12: `(!p).x`: put the sigil on the whole path, not its base: `w: !Int = !p.x`", "49:11: `(?p).items`: put the sigil on the whole path, not its base: `k = W(r: ?p.items)`", "51:6: `(!p).q`: put the sigil on the whole path, not its base: `m = !p.q if c else !p.q`", errors: 22
   # A hint gives the whole path the sigil its context takes, by the type
-  # expected there: `!` where a write view goes, `?` where a read view is
-  # kept (a binding, a field, a result), and none where a value goes or a
-  # read view is lent for an argument. A leaf of a value that branches
-  # takes the branch's, as its other leaves show.
+  # expected there: `!` where a write view goes, `?` where a read view
+  # is kept (a binding, a field, a result), and none where a value goes
+  # or a read view is given for an argument. A leaf of a value that
+  # branches takes the branch's, as its other leaves show.
 
   obj Q
     n: Int
@@ -6906,7 +6906,7 @@ fail "lend path base view context", "32:3: type mismatch: expected `?List[Int]`,
   m.n += 1
   print(p.x, items(?p).len, first(!p), xof(!p))
 
-test "lend path function field", "2 10 11 6 2 8", release: true
+test "sigil on a whole path function field", "2 10 11 6 2 8", release: true
   # A field holding a function is called through the path to it, bare:
   # through a value, an element, a field, a shared handle, and an owned
   # closure's field.
@@ -6934,7 +6934,7 @@ test "lend path function field", "2 10 11 6 2 8", release: true
   h = *mk()
   print(t.f(1), t.ops[1](5), w.ts[1].f(5) + 1, w.t.f(3), c.cb(1), h.f(4))
 
-test "lend path plain forms", release: true, '''
+test "sigil on a whole path plain forms", release: true, '''
   [7, 9]
   [10]
   6
@@ -6950,16 +6950,16 @@ test "lend path plain forms", release: true, '''
   6 2 2
   97 27 2
 '''
-  # The forms a lend written as a path's base is written as: the path
-  # assigned bare (`arr[i] += 7`, `p.a[0] = 3`), the lend on the whole
-  # path (`if !o[0] as w`, `!qs[1].bump()`, `match !p.e`), for an array, a
-  # List, a field holding an array, a nested path, and a `!` parameter.
-  # Three forms keep their parentheses, being no lend of a place as a
-  # path's base: a lend as a method's self (`(!s).insert(k)`,
+  # The forms a view written as a path's base is written as: the path
+  # assigned bare (`arr[i] += 7`, `p.a[0] = 3`), the view on the whole
+  # path (`if !o[0] as w`, `!qs[1].bump()`, `match !p.e`), for an array,
+  # a List, a field holding an array, a nested path, and a `!`
+  # parameter. Three forms keep their parentheses, being no view of a
+  # place as a path's base: a view as a method's self (`(!s).insert(k)`,
   # `(!w).put[2](3)`, `(!t.pickw()).b += 1`), a value that branches,
-  # whose lends pick the place written (`(!a if c else !b)[0] = 5`), and a
-  # lend of a slice, which makes the view indexed (`(?t[..])[0]`). Each
-  # later read shows the write landed.
+  # whose views pick the place written (`(!a if c else !b)[0] = 5`), and
+  # a view of a slice, which makes the view indexed (`(?t[..])[0]`).
+  # Each later read shows the write landed.
 
   enum E
     a(n: Int)
@@ -7057,11 +7057,11 @@ test "lend path plain forms", release: true, '''
   t = String("abc")
   print((?t[..])[0], (?arr[1..])[0], (?t[1..]).len)
 
-fail "lend table loans", "29:3: cannot change `v` while a read view of it is still in use", "35:4: cannot drop `h` while a read view of it is still in use", "42:3: cannot reassign `o` while a read view of it is still in use", "48:4: cannot drop `b` while a read view of it is still in use", "54:4: cannot drop `b` while a read view of it is still in use", "60:4: cannot drop `h` while a read view of it is still in use", "66:4: cannot drop `v` while a read view of it is still in use", "72:13: cannot change `v` while a write view of it is still in use", errors: 8
-  # A view the lend table makes (Core §4) carries the loan of what was
-  # lent, whatever rows made it: a List's elements, a handle's value, an
+fail "view of a table keeps it viewed", "29:3: cannot change `v` while a read view of it is still in use", "35:4: cannot drop `h` while a read view of it is still in use", "42:3: cannot reassign `o` while a read view of it is still in use", "48:4: cannot drop `b` while a read view of it is still in use", "54:4: cannot drop `b` while a read view of it is still in use", "60:4: cannot drop `h` while a read view of it is still in use", "66:4: cannot drop `v` while a read view of it is still in use", "72:13: cannot change `v` while a write view of it is still in use", errors: 8
+  # A view the view table makes (Core §4) keeps what it views in use,
+  # whatever rows made it: a List's elements, a handle's value, an
   # optional's value, a box's array, a box's box, a handle's Text, and a
-  # view a parameter holds. Each owner below is changed while its view
+  # view a parameter holds. Each place below is changed while its view
   # is still used.
 
   obj S
@@ -7134,7 +7134,7 @@ fail "lend table loans", "29:3: cannot change `v` while a read view of it is sti
 
   vec_elems()
 
-test "lend table rows", '''
+test "views of table rows", '''
   [1, 2, 3] 6 6
   [0, 1, 2, 3]
   4 h
@@ -7143,11 +7143,11 @@ test "lend table rows", '''
   7 15 b
   8
 '''
-  # Each row of the lend table (Core §4) makes the view its context
-  # expects: a List lends `[]T` and `![]T` as an array does, a `*T` lends
-  # the read views of its `T`, an `X?` lends a `View?`, a box lends the
-  # views of its value through any number of boxes, and a view a
-  # parameter holds lends what it views.
+  # Each row of the view table (Core §4) makes the view its context
+  # expects: a List gives `[]T` and `![]T` as an array does, a `*T`
+  # gives the read views of its `T`, an `X?` gives a `View?`, a box
+  # gives the views of its value through any number of boxes, and a view
+  # a parameter holds gives what it views.
 
   obj S
     n: Int
@@ -7224,9 +7224,9 @@ test "lend table rows", '''
   sub zero_boxed(b: !^List[Int])
     zero(!b)
 
-fail "list filled loans", "7:1: cannot change `s` while a read view of it is still in use", "10:1: cannot assign to `a[0]` while a read view of `a` is still in use", errors: 2
-  # Each copy `List.filled` and `resize` make of a read view carries its
-  # loan: the List keeps what it views lent while the List is used.
+fail "list filled views", "7:1: cannot change `s` while a read view of it is still in use", "10:1: cannot assign to `a[0]` while a read view of `a` is still in use", errors: 2
+  # Each copy `List.filled` and `resize` make of a read view keeps what
+  # it views read-only: the List keeps it so while the List is used.
 
   s = String("abc")
   a = [1, 2, 3]
@@ -7237,13 +7237,13 @@ fail "list filled loans", "7:1: cannot change `s` while a read view of it is sti
   a[0] = 5
   print(vs, rs)
 
-test "list filled loans end", '''
+test "list filled views end", '''
   ["abc", "abc"] [[1, 2]]
   abcd [5, 2, 3]
 '''
-  # The loans the copies of a read view carry, in a List `List.filled` or
-  # `resize` makes, end at the List's last use, so the owner may change
-  # after it.
+  # The copies of a read view in a List that `List.filled` or `resize`
+  # makes stop holding their place at the List's last use, so the viewed
+  # place may change after it.
 
   s = String("abc")
   a = [1, 2, 3]
@@ -7277,7 +7277,7 @@ fail "list keep while viewed", "8:1: cannot change `v` while a read view of it i
   !v.keep(1)
   print(s)
 
-test "loan ends at last use", '''
+test "view ends at last use", '''
   read 1
   x 3
   view 3
@@ -7359,7 +7359,7 @@ test "loan ends at last use", '''
   eat(<y)
   print("end")
 
-test "loan ends with scope", '''
+test "view ends with scope", '''
   3
   drop
   end
@@ -7380,7 +7380,7 @@ test "loan ends with scope", '''
   <a
   print("end")
 
-test "loan released by drop", '''
+test "view released by drop", '''
   1
   drop
   end
@@ -7429,7 +7429,7 @@ fail "loop element of made array views", "11:2: cannot drop `v` while a read vie
 
 fail "loop element stores param view", "13:5: cannot change `b` while a read view of it is still in use", errors: 1
   # A store through a `for k in !hs` element lands in local `hs`, which
-  # then holds the view of parameter `b`: `b` stays lent while `hs` is used.
+  # then holds the view of parameter `b`: `b` keeps a view in use while `hs` is used.
 
   obj Holder
     r: []Int
@@ -7601,7 +7601,7 @@ test "loop value moves out", '''
 '''
   # A `break` value leaves its loop like a returned value leaves its
   # function: an owning value moves out (the rest of a consumed List is
-  # dropped), and a view keeps what it views lent.
+  # dropped), and a view keeps what it views in use.
 
   obj Wrap
     n: Int
@@ -7651,7 +7651,7 @@ fail "loop value owning without move", "8:9: `b` is a `*Wrap` handle, which can'
   print(x.n)
 
 fail "loop value views loop local", "10:10: `p` does not live long enough"
-  # A `break` value may not lend what the loop declared: it goes out of
+  # A `break` value may not view what the loop declared: it goes out of
   # scope as the loop ends.
 
   obj P
@@ -7672,9 +7672,9 @@ test "loop view call arg", '''
   1.0
   3.0
 '''
-  # A bare loop view passed to a view parameter is lent on for the call, as
-  # `?s` lends it: over Lists of Strings, objects, and boxes (a boxed
-  # element reaches the boxed value's view).
+  # A bare loop view passed to a view parameter is passed on for the
+  # call, as `?s` does: over Lists of Strings, objects, and boxes (a
+  # boxed element reaches the boxed value's view).
 
   obj Circle
     r: Float
@@ -7715,7 +7715,7 @@ test "loop view call arg", '''
   for c in ?shapes
     round(c)
 
-test "method plain self keeps no loan", '''
+test "method plain self keeps no view", '''
   [2, 1, 3]
   [1, 2, 3] 2
 '''
@@ -7741,7 +7741,7 @@ test "method plain self keeps no loan", '''
   !c.bump_each(!a)
   print(a, c.n)
 
-fail "method self keeps loan", "cannot change `a` while a read view of it is still in use", errors: 1
+fail "method self keeps view", "cannot change `a` while a read view of it is still in use", errors: 1
   # A `!@` self whose type holds a view may keep what the
   # method's arguments view, so the view lives as long as it does,
   # even when self is written through a write view.
@@ -7775,12 +7775,12 @@ test "method returns view", "3"
   b = ?h.get()
   print(b.payload)
 
-test "moved loan ends with call", '''
+test "moved view ends with call", '''
   1
   3
 '''
-  # The loans of a view moved into a call end when the call returns, so
-  # the next statement can write the root again.
+  # A view moved into a call stops holding its place when the call
+  # returns, so the next statement can write the root again.
 
   obj Wrap
     v: List[Int]
@@ -7797,10 +7797,10 @@ test "moved loan ends with call", '''
   !w.v.push(3)
   show(?x)
 
-fail "moved view keeps loans in call", "34:13: cannot change `x` while a read view of it is still in use", "39:14: cannot change `x` while a read view of it is still in use", "44:20: cannot move `x` while a read view of it is still in use", "50:3: cannot change `x` while a read view of it is still in use", "55:26: cannot move `x` while a read view of it is still in use"
+fail "moved view keeps views in call", "34:13: cannot change `x` while a read view of it is still in use", "39:14: cannot change `x` while a read view of it is still in use", "44:20: cannot move `x` while a read view of it is still in use", "50:3: cannot change `x` while a read view of it is still in use", "55:26: cannot move `x` while a read view of it is still in use"
   # Moving a view (or a value holding one) into an argument or a field
-  # keeps its loans in force until the call or construction ends, so a
-  # later argument cannot lend or move the same root.
+  # keeps its place in use until the call or construction ends, so a
+  # later argument cannot make a write view of the same root or move it.
 
   obj Wrap
     v: List[Int]
@@ -8047,7 +8047,7 @@ fail "nll guarded statement", "cannot change `x` while a read view of it is stil
   r = ?x
   pair(r, !x) if flag
 
-fail "nll lend on through write", "cannot use `x.n` while a write view of `x` is still in use"
+fail "nll write view passed on", "cannot use `x.n` while a write view of `x` is still in use"
   # A write view passed on keeps its holder viewed while the result
   # is used.
 
@@ -8060,12 +8060,12 @@ fail "nll lend on through write", "cannot use `x.n` while a write view of `x` is
     drop(!@)
       print("drop", @n)
 
-  fun lend(b: !Wrap) -> !Wrap
+  fun view(b: !Wrap) -> !Wrap
     b
 
   x = Wrap(n: 1)
   w = !x
-  w2 = lend(<w)
+  w2 = view(<w)
   print(x.n)
   !w2.bump()
 
@@ -8237,7 +8237,7 @@ test "none test ternary owners", '''
     print(x[0])
 
 fail "nullish continue stores", "15:10: `inner` does not live long enough", errors: 1
-  # `?? continue` leaves the body's scope: a loan on a body local stored
+  # `?? continue` leaves the body's scope: a view of a body local stored
   # in an outer value cannot survive it.
   obj H
     r: ?List[Int]
@@ -8272,7 +8272,7 @@ test "operand read order", '''
 '''
   # What an operand reads in place is held only until its consumer runs,
   # and only when the value shares storage: a write that finishes before
-  # the read, a read of plain data, a read lend beside the read, a write
+  # the read, a read of plain data, a read view beside the read, a write
   # to another place, and a place indexed after its index runs are all
   # accepted (the rejected shapes are the reject tests named *_read_then_*).
 
@@ -8505,10 +8505,10 @@ fail "owned closure call stores arg", "11:1: cannot change `t` while a read view
 
 fail "owned closure callee writes self", "14:12: cannot change `@` while the callee's read of `@hook` is still in use", "14:5: clone the handle first: `f = +@hook`, then `f(!@)`", "17:16: cannot change `@` while the callee's read of `@hooks` is still in use", "17:5: clone the handle first: `f = +@hooks[0]`, then `f(!@)`", "21:8: cannot change `@` while a read view of `@hook` is still in use", "25:10: cannot change `@` while a read view of `@opt` is still in use", "32:12: cannot change `@` while the callee's read of `@hook` is still in use", "32:5: clone the handle first: `f = +@hook`, then `f(!@, x)`", "35:11: cannot change `b` while the callee's read of `b.hook` is still in use", "39:11: cannot change `w` while the callee's read of `w.hook` is still in use", errors: 7
   # Calling an owned closure reads what holds it until the call returns,
-  # so the call may not lend that holder to write: the closure could
-  # replace itself there and free the environment it runs in. Each form
-  # of the callee is held: a field, an element, a view of the handle, an
-  # `as` binding, a field of a generic type, a box, and a write view.
+  # so the call may not make a write view of that holder: the closure
+  # could replace itself there and free the environment it runs in. Each
+  # form of the callee is held: a field, an element, a view of the handle,
+  # an `as` binding, a field of a generic type, a box, and a write view.
 
   obj Checker
     n: Int
@@ -8569,9 +8569,9 @@ fail "owned closure captures view", "an owned closure cannot capture `v`, which 
   f = *|<vw| print(vw.b.n)
   f()
 
-fail "owned closure generic view loan", "23:4: cannot drop `t` while a read view of it is still in use", "30:4: cannot drop `t` while a read view of it is still in use", "38:4: cannot drop `t` while a read view of it is still in use", errors: 3
+fail "owned closure generic view keeps its place", "23:4: cannot drop `t` while a read view of it is still in use", "30:4: cannot drop `t` while a read view of it is still in use", "38:4: cannot drop `t` while a read view of it is still in use", errors: 3
   # An owned closure's generic `T` may hold a view of a `?String` argument,
-  # so what the call returns, or stores through a `!T`, keeps it lent.
+  # so what the call returns, or stores through a `!T`, keeps it in use.
   obj K
     s: ?String
 
@@ -8615,8 +8615,8 @@ fail "owned closure generic view loan", "23:4: cannot drop `t` while a read view
   through_stored_result()
 
 fail "owned closure result views env", "5:30: cannot return a view of `s`, which belongs to this function"
-  # An owned closure's result views only what the call lent it, never its
-  # environment, which a later call may outlive.
+  # An owned closure's result views only what the call gave it, never
+  # its environment, which a later call may outlive.
 
   s = String("x")
   f: *fun() -> ?String = *|<s| ?s
@@ -8745,10 +8745,10 @@ test "payload literal compare reads", '''
   print(mk("x") == .line(v: String("x")), (b if c else mk("y")) != .line(v: String("y")))
   print(a, b)
 
-fail "print slice loan", "11:15: cannot change `v` while a read view of it is still in use", "13:25: cannot change `w` while a read view of it is still in use", errors: 2
-  # A slice that `print` or `String` reads implicitly is lent to read as
-  # `?v[..]` would be: the loan lasts the statement, so a later argument
-  # may not write the owner.
+fail "print slice view", "11:15: cannot change `v` while a read view of it is still in use", "13:25: cannot change `w` while a read view of it is still in use", errors: 2
+  # A slice that `print` or `String` reads implicitly is viewed to read
+  # as `?v[..]` would be: the view lasts the statement, so a later
+  # argument may not write the place it views.
 
   fun bump(v: !List[Int]) -> Int
     !v.push(1)
@@ -8789,10 +8789,10 @@ fail "propagate none owning binding ownership", "8:7: `m` is a `*Wrap?` handle, 
   print(f(none))
 
 fail "range field call whole self", "20:7: cannot change `@` while a read view of `@ast.kinds` is still in use", "makes a write view of all of `@`: make write views of the fields it writes", errors: 1
-  # A `!@` method lends all of `@`, so it cannot be called while a
-  # `for` walks a field of `@`: the caller does not look into the body
-  # (Core sentence 7). The idiom is a function of the fields it writes.
-  # From Trig's acceptance tests
+  # A `!@` method makes a write view of all of `@`, so it cannot be
+  # called while a `for` walks a field of `@`: the caller does not look
+  # into the body (Core sentence 7). The idiom is a function of the
+  # fields it writes. From Trig's acceptance tests
   # (docs/ownership/acceptance/beyond/range_field_call_whole_receiver.rig).
 
   obj Ast
@@ -8857,10 +8857,10 @@ test "reach generic field instance", '''
   print(xs.len, c.total)
 
 fail "reach generic field instance views", "25:1: cannot change `xs` while a read view of it is still in use"
-  # Why: a `Map[U32, ?List[Int]]` holds views of Lists in its
-  # entries, `Entry[K, V]` instances whose `V` is the Map's `?List[Int]`,
-  # so `count` may store `t`'s view of `xs` in `c`, and `xs` stays lent to
-  # read while `c` is used.
+  # Why: a `Map[U32, ?List[Int]]` holds views of Lists in its entries,
+  # `Entry[K, V]` instances whose `V` is the Map's `?List[Int]`, so
+  # `count` may store `t`'s view of `xs` in `c`, and `xs` stays
+  # read-only while `c` is used.
   # Rule: a call may store an argument taken by value wherever its type
   # fits what the call's write parameters lead to, a generic instance's
   # arguments included (Core sentence 7).
@@ -9329,11 +9329,11 @@ test "rebind local write view by move", "5 3 3"
   w = w3
   print(m, n, k)
 
-fail "recheck implicit lend argument", "cannot change `b` while a write view of it is still in use"
-  # An argument lent implicitly (a closure where a `?fun` goes) in a call
-  # that is checked twice, once to classify the assignment it is the
-  # right side of, keeps its one use: the check goes on to the ownership
-  # rules.
+fail "recheck implicit view argument", "cannot change `b` while a write view of it is still in use"
+  # An argument viewed implicitly (a closure where a `?fun` goes) in a
+  # call that is checked twice, once to classify the assignment it is
+  # the right side of, keeps its one use: the check goes on to the
+  # ownership rules.
 
   fun pick(f: ?fun() -> Int, x: !String, y: !String) -> !String
     y
@@ -9345,10 +9345,10 @@ fail "recheck implicit lend argument", "cannot change `b` while a write view of 
   w = pick(?f, !b, !b)
   print(a)
 
-fail "replace element while sibling lent", "9:13: cannot change `v` while a read view of it is still in use"
+fail "replace element while sibling viewed", "9:13: cannot change `v` while a read view of it is still in use"
   # `swap(!v[1], ...)` writes into `v`'s buffer, and an index is a
-  # run-time value, so it may be `v[0]`, which `r` views: `replace` of an
-  # element lends the whole list to write.
+  # run-time value, so it may be `v[0]`, which `r` views: `replace` of
+  # an element makes a write view of the whole list.
 
   v: List[String] = List()
   !v.push(String("a"))
@@ -9397,10 +9397,10 @@ test "replace error place", '''
   _ = swap(!f.err, <old)
   print(describe(?f.err))
 
-fail "replace place lent during call", "12:22: cannot use `s` while a write view of it is still in use"
-  # `swap(!s, v)` lends `s` to write for the call; the argument
-  # `make(?s)` reads `s` after that lend, so a view of the old value could
-  # meet the new one.
+fail "replace place viewed during call", "12:22: cannot use `s` while a write view of it is still in use"
+  # `swap(!s, v)` makes a write view of `s` for the call; the argument
+  # `make(?s)` reads `s` after that write view is made, so a view of the
+  # old value could meet the new one.
 
   obj S
     name: String
@@ -9413,10 +9413,10 @@ fail "replace place lent during call", "12:22: cannot use `s` while a write view
   print(old.name, s.name)
 
 test "replace save restore field", "1 a.ts 1"
-  # Saving a field by `replace` and restoring it is a take and two stores:
-  # the saved value carries what the field held, not a loan on `@`, so
-  # `@` may be written while it is saved (the save-and-restore of a
-  # checker's flow state).
+  # Saving a field by `replace` and restoring it is a take and two
+  # stores: the saved value carries what the field held, not a view of
+  # `@`, so `@` may be written while it is saved (the save-and-restore
+  # of a checker's flow state).
 
   obj Flow
     file: ?String
@@ -9441,8 +9441,8 @@ test "replace save restore field", "1 a.ts 1"
 
 test "replace take and restore", "abc"
   # `swap(!p, v)` is a take then a store, `t = <p; p = v`: its result
-  # carries what `p`'s value held (here the loan on `src`) and no loan on
-  # `p`, so `s` may be lent to write again while `taken` lives. The value
+  # carries what `p`'s value held (here the view of `src`) and no view of `p`,
+  # so a write view of `s` may be made again while `taken` lives. The value
   # both holds a view and owns a String, which the view could view by type.
 
   obj Scanner
@@ -9455,10 +9455,10 @@ test "replace take and restore", "abc"
   _ = swap(!s, <taken)
   print(s.text)
 
-fail "replace taken carries source loan", "12:2: cannot drop `src` while a read view of it is still in use"
+fail "replace taken carries source view", "12:2: cannot drop `src` while a read view of it is still in use"
   # The value `replace` hands back still views `src`, as `s` did: dropping
   # `src` while it is used would leave `taken.text` dangling. The take
-  # leaves no loan on the place, never fewer loans than the value carries.
+  # leaves no view of the place, and the value keeps every view it held.
 
   obj Scanner
     text: ?String
@@ -9526,8 +9526,8 @@ fail "replace through read view", "8:15: cannot make a write view through a read
 
 test "replace through write local", "v ab"
   # The take-then-store reading of `replace` holds for a place reached
-  # through a write-view local as for a name: `saved` carries the loan on
-  # `src`, and `w` may be written while it lives.
+  # through a write-view local as for a name: `saved` carries the view
+  # of `src`, and `w` may be written while it lives.
 
   obj State
     text: ?String
@@ -9568,7 +9568,7 @@ test "repoint local forms", '''
   [1, 2] [3, 0]
 '''
   # A `!T` or `![]T` local is pointed at another place by any view: a
-  # lend, a moved view, a branch of moved views, or a call returning one.
+  # new view, a moved view, a branch of moved views, or a call returning one.
 
   fun slot(a: !Int) -> !Int
     a
@@ -9622,7 +9622,7 @@ test "repoint releases old view", '''
   c d!
 '''
   # A write-view local re-pointed by a view ends its old view there: the
-  # old one is never used again, so its loan is over (Core sentence 6),
+  # old one is never used again, so it holds nothing (Core sentence 6),
   # also in a loop and when the new view is of the place it viewed.
 
   a = String("a")
@@ -9705,7 +9705,7 @@ test "resource temp member", "5"
   print(a)
 
 fail "resource temp view", "4:7: a view of the temporary `*Cell(0)` outlives its statement, which drops it; bind the value to a name first", errors: 1
-  # Lending a fresh `*Cell(...)` into a binding is rejected: the
+  # Making a view of a fresh `*Cell(...)` in a binding is rejected: the
   # handle is dropped when its statement ends, before the view's use.
 
   c = ?(*Cell(0))
@@ -9939,7 +9939,7 @@ fail "shared consume method", "method `consume` consumes `self`"
 
 fail "shared element write", "5:1: cannot assign through a shared handle", "6:1: cannot assign through a shared handle", "7:6: cannot make a write view through a shared handle", errors: 3
   # A shared handle reads: an element of the value it holds is not
-  # assigned, written by a compound assignment, or lent for writing.
+  # assigned, written by a compound assignment, or given a write view.
 
   h = *[1, 2]
   h[0] = 5
@@ -9959,9 +9959,9 @@ fail "shared field assign", "cannot assign through a shared handle"
   <rc
 
 fail "shared field write view", "cannot make a write view through a shared handle", "cannot write-iterate through a shared handle"
-  # A shared handle is read-only all the way down: a field reached through
-  # it cannot be lent to write, lent to a `!T` parameter, given to a
-  # `!@` method, or write-iterated.
+  # A shared handle is read-only all the way down: a field reached
+  # through it cannot be given a write view, passed to a `!T` parameter,
+  # given to a `!@` method, or write-iterated.
 
   obj Counter
     n: Int
@@ -10073,11 +10073,11 @@ fail "static needs literal text", "12:10: type mismatch: expected `Static`, got 
   !v.push(s)
   print(tag.name, v.len)
 
-fail "static slice view loan", "11:1: cannot change `l` while a read view of it is still in use", "17:1: cannot change `m` while a read view of it is still in use", "22:6: cannot move `a` while a read view of it is still in use", "27:1: cannot reassign `c` while a read view of it is still in use", "33:1: cannot change `n` while a read view of it is still in use", "39:6: cannot move `p` while a read view of it is still in use", "47:1: cannot change `r` while a read view of it is still in use"
-  # A `[]?String` made of a `Static` array or List views its elements, so
-  # it keeps the loan a `[]Static` keeps: the owner is not written, moved,
-  # or replaced while the view lives, in a typed binding, a reassignment,
-  # or a call's result.
+fail "static slice view keeps its place", "11:1: cannot change `l` while a read view of it is still in use", "17:1: cannot change `m` while a read view of it is still in use", "22:6: cannot move `a` while a read view of it is still in use", "27:1: cannot reassign `c` while a read view of it is still in use", "33:1: cannot change `n` while a read view of it is still in use", "39:6: cannot move `p` while a read view of it is still in use", "47:1: cannot change `r` while a read view of it is still in use"
+  # A `[]?String` made of a `Static` array or List views its elements,
+  # so it holds what a `[]Static` holds: the viewed value is not
+  # written, moved, or replaced while the view lives, in a typed
+  # binding, a reassignment, or a call's result.
   fun keep(xs: []?String) -> []?String
     xs
 
@@ -10124,7 +10124,7 @@ fail "static slice view loan", "11:1: cannot change `l` while a read view of it 
   print(t[0])
 
 fail "static slice view origins", "16:1: cannot change `a` while a read view of it is still in use", "22:1: cannot change `b` while a read view of it is still in use", "30:1: cannot change `c` while a read view of it is still in use", "37:1: cannot change `e` while a read view of it is still in use"
-  # A `[]?String` of a `Static` List keeps the List's loan through a
+  # A `[]?String` of a `Static` List keeps the List in use through a
   # function's result, an object's field, a call that stores it, and a
   # List of such objects, as a `[]Static` does.
   obj H
@@ -10166,10 +10166,10 @@ fail "static slice view origins", "16:1: cannot change `a` while a read view of 
 test "store into unnamed self", '''
   ["one", "two"] ["two"] [] two one
 '''
-  # A store reached through a write loan that no named place gives (a
-  # write view a call returns, a branching self) holds the viewed value, as a name would
+  # A store reached through a write view that no named place gives (a write view
+  # a call returns, a branching self) holds the viewed value, as a name would
   # (`test/reject/ownership/store_into_unnamed_self.rig`): values that
-  # outlive the holder may be stored there.
+  # outlive the viewed place may be stored there.
 
   obj H
     r: ?String
@@ -10203,12 +10203,12 @@ test "store into unnamed self", '''
   print(h.rs, a.rs, b.rs, b.r, v[0].r)
 
 fail "store into unnamed self is rejected", "`s` is dropped here, at the end of its scope, while a read view of `s.t` is still in use", "48:19: a read view of `s.t` is made here", "56:28: a read view of `s.t` is made here", "62:23: a read view of `s.t` is made here", "68:25: a read view of `s.t` is made here", "74:18: a read view of `s.t` is made here", "81:19: a read view of `s.t` is made here", errors: 6
-  # A store reached through a write loan lands in what that loan reaches,
-  # whatever the syntax: a write method's self that is no named place
-  # (a write view a call returns, a branching self, one whose
-  # arguments run first, a field of a returned view), and an assignment's
-  # target that starts from a value no var holds (a write view a call
-  # returns, `wrap(!h).r`, an element of one). Each view
+  # A store reached through a write view lands in what that view
+  # reaches, whatever the syntax: a write method's self that is no named
+  # place (a write view a call returns, a branching self, one whose
+  # arguments run first, a field of a returned view), and an
+  # assignment's target that starts from a value no var holds (a write
+  # view a call returns, `wrap(!h).r`, an element of one). Each view
   # stored here outlives `s`, whose block ends first.
   # oracle: recv_part reject C5
   # oracle: assign_view reject C5
@@ -10769,8 +10769,8 @@ fail "string view untracked", "14:1: `put[?String]` cannot use `T = ?String`: th
   print(cell.get(), out)
 
 fail "swap same collection", "9:14: cannot change `a` while a write view of it is still in use: to swap two elements of `a`, write `!a.swap(i, i + 2)`", "11:20: cannot change `d.cards` while a write view of it is still in use: to swap two elements of `d.cards`, write `!d.cards.swap(0, 1)`"
-  # `swap` of two elements of one collection lends to write the collection
-  # twice; the collection's own `swap` exchanges them.
+  # `swap` of two elements of one collection makes a write view of the
+  # collection twice; the collection's own `swap` exchanges them.
 
   obj Deck
     cards: List[Int]
@@ -10940,9 +10940,9 @@ test "take optional field", '''
   print((!s).pop(), (!s).pop())
   print("end")
 
-fail "lend of a branch to a generic with its type inferred", "7:10: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?a if c else ?b`", errors: 1
+fail "a view of a branch to a generic with its type inferred", "7:10: cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?a if c else ?b`", errors: 1
   # Inference checks the argument quietly first; the check that reports
-  # decides the lend again, so its error is not lost with the quiet one's.
+  # decides the view again, so its error is not lost with the quiet one's.
   fun look[T](x: ?T) -> Int
     1
 
@@ -10951,7 +10951,7 @@ fail "lend of a branch to a generic with its type inferred", "7:10: cannot make 
 
   print(pick(String("a"), String("b"), true))
 
-fail "lend of a branch to a generic with its type given", "cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on", errors: 1
+fail "a view of a branch to a generic with its type given", "cannot make a view of `a if c else b`: it may be `a`, a value a name holds, which a view of the branching value would copy; put the sigil on", errors: 1
   fun look[T](x: ?T) -> Int
     1
 
@@ -10960,7 +10960,7 @@ fail "lend of a branch to a generic with its type given", "cannot make a view of
 
   print(pick(String("a"), String("b"), true))
 
-fail "lend of a branch in a closure given to a generic", "cannot make a view of `s if x > 0 else t`: it may be `s`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?s if x > 0 else ?t`", errors: 1
+fail "a view of a branch in a closure given to a generic", "cannot make a view of `s if x > 0 else t`: it may be `s`, a value a name holds, which a view of the branching value would copy; put the sigil on each branch: `?s if x > 0 else ?t`", errors: 1
   fun look(x: ?String) -> Int
     x.len
 

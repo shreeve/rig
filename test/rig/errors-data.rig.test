@@ -748,7 +748,7 @@ test "a dotted member tests an error of a set, a union, or any set", '''
         0
       print(v + w)
 
-test "a function without fields lent where one with them goes", '''
+test "a function without fields viewed where one with them goes", '''
   -1
   M.plain
   -2
@@ -1030,7 +1030,7 @@ test "an error of a set without fields goes where `error` carries fields", '''
     print(l[0])
     print(pick(1) == E.bad)
 
-fail "a field holding a loan", "an error's field never holds a view: hold a `String` or a `Static`"
+fail "a field holding a view", "an error's field never holds a view: hold a `String` or a `Static`"
   error E
     bad(names: List[?String])
 
@@ -1097,7 +1097,7 @@ test "the error a statement holds leaves by every way there is", '''
   # error": a fallible call's statement holds a hidden `E?`, which `!`
   # empties into the caller's failure, `catch |e|` into the handler's
   # own binding, and a nameless catch drops; the binding is moved on,
-  # cloned, lent, and narrowed (`x: E =>`, a view under `match e`, the
+  # cloned, viewed, and narrowed (`x: E =>`, a view under `match e`, the
   # error itself under `match <e`).
   # oracle: passed accept
   # oracle: returned accept
@@ -1364,7 +1364,7 @@ test "a short-form member where `error` or a union goes, and as a default", '''
   sub joined(e: Both = .plain)
     print(e)
 
-  sub lend(e: ?Both)
+  sub view(e: ?Both)
     print(e)
 
   sub main()
@@ -1378,9 +1378,9 @@ test "a short-form member where `error` or a union goes, and as a default", '''
     !xs.push(.bad(at: 3))
     !xs.push(.gone)
     print(xs[0], xs[1])
-    lend(.gone)
+    view(.gone)
     k: Both = .bad(at: 4)
-    lend(?k)
+    view(?k)
 
 fail "a short-form member with fields made without them", "13:9: variant `bad` carries a payload; construct it with `.bad(...)`", "14:9: variant `bad` carries a payload; construct it with `.bad(...)`", errors: 2
   error Oops
@@ -1398,7 +1398,7 @@ fail "a short-form member with fields made without them", "13:9: variant `bad` c
     take(.bad,
       u: .bad)
 
-fail "a short-form member with fields lent where a view of a union or `error` goes", "type mismatch: expected `?Both`, got `Oops`; bind it first, `k: Both = .bad(at: 1)`, then pass `?k`", "type mismatch: expected `?error`, got `Oops`; bind it first, `k: error = .plain`, then pass `?k`", errors: 2
+fail "a short-form member with fields viewed where a view of a union or `error` goes", "type mismatch: expected `?Both`, got `Oops`; bind it first, `k: Both = .bad(at: 1)`, then pass `?k`", "type mismatch: expected `?error`, got `Oops`; bind it first, `k: error = .plain`, then pass `?k`", errors: 2
   error Oops
     bad(at: Int)
     plain
@@ -1408,11 +1408,11 @@ fail "a short-form member with fields lent where a view of a union or `error` go
 
   error Both = Oops | Other
 
-  sub lend(u: ?Both, e: ?error)
+  sub view(u: ?Both, e: ?error)
     print(u, e)
 
   sub main()
-    lend(.bad(at: 1), .plain)
+    view(.bad(at: 1), .plain)
 
 fail "a short-form member with fields where a `T!` goes", "5:11: `.bad` is not a value of `Int`; to fail, name the error set: `Oops.bad`"
   error Oops

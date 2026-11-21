@@ -1275,7 +1275,7 @@ test "syntax-review-ux-rs8", '''
     print(p.name, p.tags)
 
 fail "t-b", "`p` is assigned but never read; use it, or discard the value with `_ = ...`"
-  # A `break` value may not lend what the loop declared: it goes out of
+  # A `break` value may not view what the loop declared: it goes out of
   # scope as the loop ends.
 
   obj P

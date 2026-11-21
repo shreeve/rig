@@ -506,8 +506,8 @@ test "review-step10-a15 hoisted arg text explicit", '''
   g
   hello world, long enough to be on the heap
 '''
-  # a13 with an explicit lend `?String(...)`: keyword arguments written out of order hoist each
-  # argument into `__rig_arg_N_k`. A Text temporary lent as a `?String`
+  # a13 with an explicit view `?String(...)`: keyword arguments written out of order hoist each
+  # argument into `__rig_arg_N_k`. A Text temporary viewed as a `?String`
   # parameter is declared `var __rig_arg: rig.Text = keep(...).bytes()`
   # with a drop: the fact says owned, but the value is a view of the
   # statement's slot. Accepted; the Zig does not compile.
@@ -522,9 +522,9 @@ test "review-step10-a15 hoisted arg text explicit", '''
 
   print(pick(n: g(1), s: ?String("hello world, long enough to be on the heap")))
 
-test "review-step10-a16 hoisted arg plain made lend", "5 6"
+test "review-step10-a16 hoisted arg plain made view", "5 6"
   # argument (`owned`, not walked by B3): a plain made value implicitly
-  # lent to a `?Q` parameter in a hoisted call is `&mkq()`, the address of
+  # given to a `?Q` parameter in a hoisted call is `&mkq()`, the address of
   # a Zig rvalue in the call's block; the result views it after the block.
   obj Q
     xs: [4]Int
@@ -562,11 +562,11 @@ test "review-step10-a17 slot compound realloc", '''
   w[0] += grow(!w)
   print(w[0], w.len)
 
-test "review-step10-a18 lent optional made", '''
+test "review-step10-a18 viewed optional made", '''
   3
   4
 '''
-  # lent (pointer): `?mko(k)` where a `(?Q)?` is expected lends the value
+  # viewed (pointer): `?mko(k)` where a `(?Q)?` is expected views the value
   # inside the made optional, captured `|*__rig_lent_N|`. Is the operand an
   # lvalue (a slot) or a Zig rvalue? The result views it after the call.
   obj Q
@@ -610,7 +610,7 @@ test "review-step10-a24 defer temp", '''
   deferred text that is long enough for the heap
 '''
   # temp in a `defer` body, and a hoisted call (keyword arguments out of
-  # order) in a `defer` body with a Text temporary lent as `?String`.
+  # order) in a `defer` body with a Text temporary viewed as `?String`.
   fun g(k: Int) -> Int
     k
 
@@ -847,7 +847,7 @@ test "review-step10-a37 match box hdrtemp", '''
   7 7
 '''
   # a05 sibling through a Box: `match ?bs[idx(?String("a"))]` on a
-  # `[2]^E` lends the boxed E (lend table). Guarded, the header
+  # `[2]^E` views the boxed E (view table). Guarded, the header
   # temporary makes the match copy its subject; the plain catch-all view
   # escapes into `r`.
   enum E
@@ -1222,8 +1222,8 @@ test "review-step10-r2-c13 for made vec header temp", '''
   for y in mka(idx(?String("ab")))
     print(y)
 
-test "review-step10-r2-h01 lent string opt", "hello, a text long enough for the heap"
-  # H1: a Text temporary lent as `(?String)?`, as an argument of a hoisted call (keyword
+test "review-step10-r2-h01 viewed string opt", "hello, a text long enough for the heap"
+  # H1: a Text temporary viewed as `(?String)?`, as an argument of a hoisted call (keyword
   # arguments out of order), held as the view its parameter expects.
   obj Q
     xs: [4]Int
@@ -1250,8 +1250,8 @@ test "review-step10-r2-h01 lent string opt", "hello, a text long enough for the 
 
   print(pick(n: g(1), s: String("hello, a text long enough for the heap")) ?? "none")
 
-test "review-step10-r2-h03 lent write slice", "5 [5, 99, 7, 8]"
-  # H1: a List place lent as `![]Int`, as an argument of a hoisted call (keyword
+test "review-step10-r2-h03 viewed write slice", "5 [5, 99, 7, 8]"
+  # H1: a List place viewed as `![]Int`, as an argument of a hoisted call (keyword
   # arguments out of order), held as the view its parameter expects.
   obj Q
     xs: [4]Int
@@ -1280,8 +1280,8 @@ test "review-step10-r2-h03 lent write slice", "5 [5, 99, 7, 8]"
   v = mkv(5)
   print(pick(n: g(1), s: !v), v)
 
-test "review-step10-r2-h05 lent handle", "a long text that lives on the heap"
-  # H1: a shared handle temporary lent as `?Q`, as an argument of a hoisted call (keyword
+test "review-step10-r2-h05 viewed handle", "a long text that lives on the heap"
+  # H1: a shared handle temporary viewed as `?Q`, as an argument of a hoisted call (keyword
   # arguments out of order), held as the view its parameter expects.
   obj Q
     xs: [4]Int
@@ -1308,8 +1308,8 @@ test "review-step10-r2-h05 lent handle", "a long text that lives on the heap"
 
   print(pick(n: g(1), q: *mkq(5)).t)
 
-test "review-step10-r2-h06 lent struct", "a long text that lives on the heap"
-  # H1: a made object lent as `?Q`, as an argument of a hoisted call (keyword
+test "review-step10-r2-h06 viewed struct", "a long text that lives on the heap"
+  # H1: a made object viewed as `?Q`, as an argument of a hoisted call (keyword
   # arguments out of order), held as the view its parameter expects.
   obj Q
     xs: [4]Int
@@ -1336,8 +1336,8 @@ test "review-step10-r2-h06 lent struct", "a long text that lives on the heap"
 
   print(pick(n: g(1), q: mkq(5)).t)
 
-test "review-step10-r2-h07 lent text place", "place text long enough for the heap"
-  # H1: a Text place lent as `?String`, as an argument of a hoisted call (keyword
+test "review-step10-r2-h07 viewed text place", "place text long enough for the heap"
+  # H1: a Text place viewed as `?String`, as an argument of a hoisted call (keyword
   # arguments out of order), held as the view its parameter expects.
   obj Q
     xs: [4]Int
@@ -1365,8 +1365,8 @@ test "review-step10-r2-h07 lent text place", "place text long enough for the hea
   t = String("place text long enough for the heap")
   print(pick(n: g(1), s: t))
 
-test "review-step10-r2-h08 lent optional inside", "5 6 7"
-  # H1: a made `Q?` lent as `(?Q)?`, as an argument of a hoisted call (keyword
+test "review-step10-r2-h08 viewed optional inside", "5 6 7"
+  # H1: a made `Q?` viewed as `(?Q)?`, as an argument of a hoisted call (keyword
   # arguments out of order), held as the view its parameter expects.
   obj Q
     xs: [4]Int
@@ -1401,8 +1401,8 @@ test "review-step10-r2-h08 lent optional inside", "5 6 7"
   o: Q? = mkq(5)
   print(pick(n: g(1), q: ?o), pick(n: g(1), q: ?mko(6)), pick(n: g(1), q: mko(7)))
 
-test "review-step10-r2-h09 lent generic", "a long text that lives on the heap 7"
-  # H1: a made value lent to a generic `?T`, as an argument of a hoisted call (keyword
+test "review-step10-r2-h09 viewed generic", "a long text that lives on the heap 7"
+  # H1: a made value given to a generic `?T`, as an argument of a hoisted call (keyword
   # arguments out of order), held as the view its parameter expects.
   obj Q
     xs: [4]Int
@@ -1429,8 +1429,8 @@ test "review-step10-r2-h09 lent generic", "a long text that lives on the heap 7"
 
   print(pick(n: g(1), q: mkq(5)).t, pick(n: g(1), q: g(7)))
 
-test "review-step10-r2-h10 lent array slice", "[2, 3, 4] [5, 5]"
-  # H1: an array place lent as `[]Int`, and a field array of a temporary, as an argument of a hoisted call (keyword
+test "review-step10-r2-h10 viewed array slice", "[2, 3, 4] [5, 5]"
+  # H1: an array place viewed as `[]Int`, and a field array of a temporary, as an argument of a hoisted call (keyword
   # arguments out of order), held as the view its parameter expects.
   obj Q
     xs: [4]Int
@@ -1458,8 +1458,8 @@ test "review-step10-r2-h10 lent array slice", "[2, 3, 4] [5, 5]"
   a = [1, 2, 3, 4]
   print(pick(n: g(1), s: a), pick(n: g(2), s: mkq(5).xs))
 
-test "review-step10-r2-h12 lent box place write", "9 9"
-  # H1: a Box place lent as `!Q`, as an argument of a hoisted call (keyword
+test "review-step10-r2-h12 viewed box place write", "9 9"
+  # H1: a Box place viewed as `!Q`, as an argument of a hoisted call (keyword
   # arguments out of order), held as the view its parameter expects.
   obj Q
     xs: [4]Int
@@ -1488,7 +1488,7 @@ test "review-step10-r2-h12 lent box place write", "9 9"
   b = ^mkq(5)
   print(pick(n: g(9), q: !b), b.xs[0])
 
-test "review-step10-r2-h13 lent generic body", '''
+test "review-step10-r2-h13 viewed generic body", '''
   5 6
   1
   [1, 2] [3, 4]
@@ -1496,9 +1496,9 @@ test "review-step10-r2-h13 lent generic body", '''
   [2]
   handle text long enough for the heap
 '''
-  # H1: inside a generic body, a `T` local and a `?T` parameter lent to a
+  # H1: inside a generic body, a `T` local and a `?T` parameter given to a
   # `?T` parameter of a hoisted call (keyword arguments out of order); and
-  # a `?List[Int]` parameter lent as `[]Int`, a `*Q` place as `?Q`.
+  # a `?List[Int]` parameter viewed as `[]Int`, a `*Q` place as `?Q`.
   obj Q
     xs: [4]Int
     t: String
@@ -1533,13 +1533,13 @@ test "review-step10-r2-h13 lent generic body", '''
   h = *Q(xs: [1, 2, 3, 4], t: String("handle text long enough for the heap"))
   print(pq(n: g(1), q: h).t)
 
-test "review-step10-r2-h15 lent generic local explicit", '''
+test "review-step10-r2-h15 viewed generic local explicit", '''
   5
   1
   5
   1
 '''
-  # h14 with an explicit `?x`: a generic `T` local lent to `?T`, directly
+  # h14 with an explicit `?x`: a generic `T` local given to `?T`, directly
   # and in a hoisted call.
   fun g(k: Int) -> Int
     k
@@ -1936,7 +1936,7 @@ test "review-step3-b03 generic infer view", '''
   print(k)
   !t.add("z")
 
-fail "review-step3-b04 copy arg loan", "cannot use `p` while a write view of it is still in use"
+fail "review-step3-b04 copy arg view", "cannot use `p` while a write view of it is still in use"
   obj P
     x: Int
 
@@ -2050,7 +2050,7 @@ test "review-step3-f03 text forms", '''
     for b in s
       print(b)
 
-fail "review-step3-k01 closure lend move", "an owned closure cannot capture a view of `k`: it can be stored anywhere, so it could outlive `k`; capture an owned value, or use a stack closure (`|...|`)"
+fail "review-step3-k01 closure view move", "an owned closure cannot capture a view of `k`: it can be stored anywhere, so it could outlive `k`; capture an owned value, or use a stack closure (`|...|`)"
   fun twice(f: ?fun(Int) -> Int, x: Int) -> Int
     f(f(x))
 
@@ -2061,7 +2061,7 @@ fail "review-step3-k01 closure lend move", "an owned closure cannot capture a vi
   cb = *|?k, x: Int| x * k
   print(twice(cb, eat(<cb)))
 
-fail "review-step3-k02 vec lend then move", "cannot move `v` while a read view of it is still in use"
+fail "review-step3-k02 vec view then move", "cannot move `v` while a read view of it is still in use"
   fun total(xs: []Int, n: Int) -> Int
     t = n
     for x in xs
@@ -2075,7 +2075,7 @@ fail "review-step3-k02 vec lend then move", "cannot move `v` while a read view o
   !v.push(1)
   print(total(v, eat(<v)))
 
-fail "review-step3-k03 vec lend then write", "cannot change `v` while a read view of it is still in use"
+fail "review-step3-k03 vec view then write", "cannot change `v` while a read view of it is still in use"
   fun total(xs: []Int, n: Int) -> Int
     t = n
     for x in xs
@@ -2091,7 +2091,7 @@ fail "review-step3-k03 vec lend then write", "cannot change `v` while a read vie
   !v.push(1)
   print(total(v, grow(!v)))
 
-fail "review-step3-k04 text lend then write", "cannot change `t` while a read view of it is still in use"
+fail "review-step3-k04 text view then write", "cannot change `t` while a read view of it is still in use"
   fun both(s: ?String, n: Int) -> Int
     s.len + n
 
@@ -2104,7 +2104,7 @@ fail "review-step3-k04 text lend then write", "cannot change `t` while a read vi
   b = ^String("abc")
   print(both(b, grow(!b)))
 
-fail "review-step3-k05 handle lend then drop", "cannot move `h` while a read view of it is still in use"
+fail "review-step3-k05 handle view then drop", "cannot move `h` while a read view of it is still in use"
   obj S
     n: Int
     t: String
@@ -2118,7 +2118,7 @@ fail "review-step3-k05 handle lend then drop", "cannot move `h` while a read vie
   h = *S(n: 1, t: String("x"))
   print(get(h, eat(<h)))
 
-fail "review-step3-l01 opt loans", "cannot reassign `o` while a read view of it is still in use"
+fail "review-step3-l01 opt views", "cannot reassign `o` while a read view of it is still in use"
   obj S
     n: Int
     t: String
@@ -2132,7 +2132,7 @@ fail "review-step3-l01 opt loans", "cannot reassign `o` while a read view of it 
   if k as x
     print(x.n)
 
-fail "review-step3-l02 opt loans bare", "cannot drop `o` while a read view of it is still in use"
+fail "review-step3-l02 opt views bare", "cannot drop `o` while a read view of it is still in use"
   obj S
     n: Int
     t: String
@@ -2176,7 +2176,7 @@ test "review-step3-l03 opt temp", '''
   o: S? = S(n: 3, t: String("o"))
   print(maybe(o))
 
-fail "review-step3-l05 handle loans", "cannot drop `h` while a read view of it is still in use"
+fail "review-step3-l05 handle views", "cannot drop `h` while a read view of it is still in use"
   obj S
     n: Int
     t: String
@@ -2189,7 +2189,7 @@ fail "review-step3-l05 handle loans", "cannot drop `h` while a read view of it i
   <h
   print(k.n)
 
-fail "review-step3-l06 handle loans2", "cannot reassign `h` while a read view of it is still in use"
+fail "review-step3-l06 handle views2", "cannot reassign `h` while a read view of it is still in use"
   obj S
     n: Int
     t: String

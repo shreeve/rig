@@ -194,13 +194,13 @@ test "partial whole assignment", '''
 
 fail "partial whole uses reject", "40:9: `p` is partly moved: `p.a` was moved out; assign it first", "45:15: `p` is partly moved: `p.a` was moved out; assign it first", "50:4: `p` is partly moved: `p.a` was moved out; assign it first", "56:9: `p` is partly moved: `p.a` was moved out; assign it first", "61:14: `p` is partly moved: `p.a` was moved out; assign it first", "66:8: `p` is partly moved: `p.a` was moved out; assign it first", "72:10: `p` is partly moved: `p.a` was moved out; assign it first", "77:3: `p` is partly moved: `p.a` was moved out; assign it first", "82:13: use of `p.a` after move", "88:9: `p` is partly moved: `p.a` was moved out; assign it first", "93:15: `p` is partly moved: `p.a` was moved out; assign it first", "99:4: `p` is partly moved: `p.a` was moved out; assign it first", errors: 12
   # 4. No use touches all of a partly moved name but `p = x`: printing,
-  # lending, a method, moving, cloning, returning, a last value, `swap` of
-  # the hole, a capture, deferred code, and a drop.
+  # viewing, a method, moving, cloning, returning, a last value, `swap`
+  # of the hole, a capture, deferred code, and a drop.
   # oracle: P.size accept
   # oracle: P.touch accept
   # oracle: printed reject C1
-  # oracle: lent_read reject C1
-  # oracle: lent_write reject C1
+  # oracle: read_viewed reject C1
+  # oracle: write_viewed reject C1
   # oracle: read_method reject C1
   # oracle: moved_whole reject C1
   # oracle: cloned reject C1
@@ -234,12 +234,12 @@ fail "partial whole uses reject", "40:9: `p` is partly moved: `p.a` was moved ou
     x = <p.a
     print(p, x)
 
-  sub lent_read()
+  sub read_viewed()
     p = P(a: String("a"), b: String("b"))
     x = <p.a
     print(look(?p), x)
 
-  sub lent_write()
+  sub write_viewed()
     p = P(a: String("a"), b: String("b"))
     x = <p.a
     !p.touch()

@@ -1,10 +1,10 @@
 # ownership: tests whose names start `slice`.
 
-fail "slice argument lend", "23:1: cannot assign to `w[0]` while a read view of `w` is still in use", "25:20: cannot change `v` while a read view of it is still in use", "26:10: a view of the temporary `mk()` outlives its statement", "29:1: cannot change `t` while a read view of it is still in use", errors: 4
-  # A slice argument is lent to read as `?xs[a..b]` is: it keeps what it
-  # slices lent while its view is used, a later argument cannot write
-  # what it slices, and a view of a temporary's slice ends with its
-  # statement.
+fail "slice argument view", "23:1: cannot assign to `w[0]` while a read view of `w` is still in use", "25:20: cannot change `v` while a read view of it is still in use", "26:10: a view of the temporary `mk()` outlives its statement", "29:1: cannot change `t` while a read view of it is still in use", errors: 4
+  # A slice argument is given as a read view as `?xs[a..b]` is: it keeps
+  # what it slices read-only while its view is used, a later argument
+  # cannot write what it slices, and a view of a temporary's slice ends
+  # with its statement.
 
   fun keep(xs: []Int) -> []Int
     xs
@@ -34,7 +34,7 @@ fail "slice argument lend", "23:1: cannot assign to `w[0]` while a read view of 
 
   # oracle: main reject C4
 
-test "slice argument lent", release: true, '''
+test "slice argument viewed", release: true, '''
   5 30 7 2
   4 he 2 hel
   8 3 40 4
@@ -43,11 +43,11 @@ test "slice argument lent", release: true, '''
   [1, 0]
   [9, 0, 3, 4]
 '''
-  # A slice argument is lent to read the way its name is: `total(w[1..3])`
-  # is `total(?w[1..3])`, of an array, a List, a Text, a field, and a write
-  # view, where a `[]T`, a String, or an optional of one goes: a function,
-  # a method, a nested call, a closure, and a generic function. The slice
-  # keeps what it slices lent while its view is used, as `?w[1..3]` does.
+  # A slice argument is given as a read view the way its name is: `total(w[1..3])`
+  # is `total(?w[1..3])`, of an array, a List, a Text, a field, and a write view,
+  # where a `[]T`, a String, or an optional of one goes: a function, a method, a
+  # nested call, a closure, and a generic function. The slice keeps what it slices
+  # read-only while its view is used, as `?w[1..3]` does.
 
   fun total(xs: []Int) -> Int
     n = 0
@@ -194,10 +194,10 @@ test "slice of read view through write", release: true, '''
   ello
   ello other
 '''
-  # A read view held in a field or an element reached through a write view
-  # (`?String`, `?^String`, `?*String`) is sliced as a value: what it views
-  # cannot change while its loan lives, which the slice carries, so the
-  # field or element may be re-pointed while the slice is used.
+  # A read view held in a field or an element reached through a write
+  # view (`?String`, `?^String`, `?*String`) is sliced as a value: what
+  # it views cannot change while the slice, which carries that view, is
+  # used, so the field or element may be re-pointed meanwhile.
 
   obj R
     f: ?String
@@ -263,10 +263,10 @@ test "slice of text view", release: true, '''
   ello?
   hello?! he
 '''
-  # A slice of a read view of a Text (`?String`, `?*String`, `?^String`) is
-  # a String of its own: the Text cannot change while the read view's loan
-  # lives, which the String carries. A slice of a write view of a Text
-  # lends the view until its last use, after which the view writes again.
+  # A slice of a read view of a Text (`?String`, `?*String`, `?^String`)
+  # is a String of its own: the Text cannot change while the String, which
+  # carries the read view, lives. A slice of a write view of a Text keeps
+  # the view in use until its last use, after which the view writes again.
 
   fun word(s: ?String) -> ?String
     s
@@ -313,8 +313,8 @@ test "slice of view bound first", release: true, '''
   hellox
 '''
   # The forms the slice-of-a-view hints write: a view a call returns,
-  # bound first, then sliced; and a branch of write views, each lent to
-  # read, then sliced. Each lends what it views until the slice's last use.
+  # bound first, then sliced; and a branch of write views, each given as a read
+  # view, then sliced. Each keeps what it views in use until the slice's last use.
 
   fun keep(s: ?String) -> ?String
     s
@@ -368,11 +368,11 @@ fail "slice of view result", "18:11: a view reached through `get(!h)` outlives i
   print(r)
 
 fail "slice of write view text", "12:3: cannot change `t` while a read view of it is still in use", "17:3: cannot reassign `t` while a read view of it is still in use", "24:3: cannot change `w` while a read view of it is still in use", "29:3: cannot reassign `h` while a read view of it is still in use", "34:3: cannot change `b` while a read view of it is still in use", "39:3: cannot reassign `b` while a read view of it is still in use", errors: 6
-  # A slice of a write view of a Text lends that view, as `?t[1..]` does:
-  # the holder of a write view may add to the Text or assign it, which
-  # frees the bytes the slice views, so it cannot while the slice is used.
-  # A `!String` parameter and local, a `!*String`, and a `!^String`,
-  # each written through by `add` or by assignment.
+  # A slice of a write view of a Text keeps that view in use, as
+  # `?t[1..]` does: a write view may add to the Text or assign it, which
+  # frees the bytes the slice views, so it cannot while the slice is
+  # used. A `!String` parameter and local, a `!*String`, and a
+  # `!^String`, each written through by `add` or by assignment.
 
   fun word(s: ?String) -> ?String
     s
@@ -432,10 +432,10 @@ fail "slice push while live", "10:1: cannot change `v` while a read view of it i
   print(s)
 
 fail "slice return array copy", "10:4: cannot return a view of `a`: a parameter taken by value belongs to this function and ends with it; take `a: ?[3]Int`", "13:4: cannot return a view of `p`", "17:13: cannot return a view of `x`, which belongs to this function", "`b` is dropped here, at the end of its scope, while a read view of it is still in use", errors: 4
-  # A parameter taken by value, and a loop's copy of an element, belong to
-  # the function, so a view of them cannot be returned. A view returned
-  # from a lent to read array parameter views the caller's array, which
-  # must outlive it.
+  # A parameter taken by value, and a loop's copy of an element, belong
+  # to the function, so a view of them cannot be returned. A view
+  # returned from an array parameter that is a read view views the
+  # caller's array, which must outlive it.
 
   obj Pt
     x: Int
@@ -468,11 +468,11 @@ test "slice return array param", '''
   8
   [2, 3]
 '''
-  # A lent to read array parameter points at the caller's array, so a
-  # slice or element view of it, or of an array field of a lent to read
-  # object, may be returned or stored in the caller's values: it views
-  # what the parameter views. A local read view of an array is a
-  # pointer too, so a slice of it may outlive the view.
+  # An array parameter that is a read view points at the caller's array,
+  # so a slice or element view of it, or of an array field of an object
+  # that is a read view, may be returned or stored in the caller's
+  # values: it views what the parameter views. A local read view of an
+  # array is a pointer too, so a slice of it may outlive the view.
 
   obj View
     xs: []Int

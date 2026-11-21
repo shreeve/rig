@@ -153,11 +153,11 @@ test "cancel finished", seeds: 20, "4"
   t = four()&
   <t.cancel() catch -1
 
-test "cancel write loan", seeds: 20, '''
+test "cancel write view", seeds: 20, '''
   -1
   0
 '''
-  # A task lent to write is canceled where it is bound.
+  # A task given as a write view is canceled where it is bound.
   use std.time
 
   fun fill(xs: !List[Int]) -> Int!

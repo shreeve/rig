@@ -4,7 +4,7 @@
 λRig keeps what the Core (docs/CORE.md) rules on and leaves out syntax,
 generics, modules, and text. This first slice has one kind of owner, a
 box holding an Int (`^Int`); every binding is a place in memory, so a
-plain Int can be lent too (CORE sentence 5: "numbers included").
+plain Int can be viewed too (CORE sentence 5: "numbers included").
 -/
 
 namespace LambdaRig
@@ -19,13 +19,13 @@ inductive Mode where
   | write
   deriving DecidableEq, Repr
 
-/-- A value. A view carries the tag of the loan it was lent under. -/
+/-- A value. A view carries the tag of the loan it was made under. -/
 inductive Val where
   | unit
   | int (n : Int)
   /-- `^Int`: the one owner of heap cell `l`. -/
   | box (l : Loc)
-  /-- `?Int` or `!Int`: a view of cell `l`, lent under tag `t`. -/
+  /-- `?Int` or `!Int`: a view of cell `l`, made under tag `t`. -/
   | view (m : Mode) (l : Loc) (t : Tag)
   deriving DecidableEq, Repr
 
@@ -42,7 +42,7 @@ inductive Expr where
   /-- `^e`: a new box. -/
   | box (e : Expr)
   /-- `?x` and `!x` (sentence 4). -/
-  | lend (m : Mode) (x : Var)
+  | view (m : Mode) (x : Var)
   /-- `x = e`; through a write view, it writes what the view sees. -/
   | assign (x : Var) (e : Expr)
   /-- `<x` as a statement: drop now (sentence 2). -/

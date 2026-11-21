@@ -87,8 +87,8 @@ test "closure args", '''
   drop 9
 '''
   # A `?fun` / `?sub` parameter takes a callable view: a closure
-  # literal written in the call, a named stack closure lent as `?f`, a
-  # function, or an owned closure lent as `?cb`. The callee calls it and
+  # literal written in the call, a named stack closure viewed as `?f`, a
+  # function, or an owned closure viewed as `?cb`. The callee calls it and
   # forwards it, here into a recursive helper. A literal's environment
   # lives for the call: one that moved a resource in drops it when the
   # call returns.
@@ -1058,9 +1058,9 @@ test "owned closure signatures", '''
   x
 '''
   # An owned closure's parameters and result are any a function's may be:
-  # a write view it is lent for the call, a read view its result views, an
+  # a write view it is given for the call, a read view its result views, an
   # owner it stores through a write parameter, a write view it returns of
-  # what the call lent it, a callable view, and another owned closure.
+  # what the call gave it, a callable view, and another owned closure.
 
   obj H
     name: String
@@ -1084,9 +1084,9 @@ test "owned closure signatures", '''
   outer: *fun(*fun(Int) -> Int, Int) -> Int = *|f, x| f(x) + 1
   inner: *fun(Int) -> Int = *|x| x * 2
   print(outer(<inner, 5))
-  lent: *fun(?fun(Int) -> Int) -> Int = *|f| f(3)
+  viewed: *fun(?fun(Int) -> Int) -> Int = *|f| f(3)
   k = 4
-  print(lent(|+k, x| x + k))
+  print(viewed(|+k, x| x + k))
   maybe: *fun(?String) -> (?String)? = *|s| s if s.len > 0 else none
   if maybe("x") as y
     print(y)
@@ -1173,7 +1173,7 @@ test "owned closure view param", '''
   2 3
   11
 '''
-  # A named owned closure can be lent to a `?*fun` parameter; the caller
+  # A named owned closure can be given to a `?*fun` parameter; the caller
   # keeps it.
 
   fun apply(f: ?*fun(Int) -> Int, x: Int) -> Int
@@ -1197,8 +1197,8 @@ test "owned closure write param reentrant", '''
   rec 0 back
   5
 '''
-  # A stored closure that writes what it is lent calls, through that, a
-  # second handle to itself, three levels deep. Re-entry only reads the
+  # A stored closure that writes what it has a write view of calls, through
+  # that, a second handle to itself, three levels deep. Re-entry only reads the
   # environment, and the innermost call replaces the stored handle while
   # the outer calls run, each on a handle of its own.
 
@@ -1835,7 +1835,7 @@ test "reactive cascade", '''
     sub subscribe(!@, cb: *sub())
       !@subs.push(<cb)
 
-    # A Cell lends no view of the List inside it, so the list is swapped
+    # A Cell views no view of the List inside it, so the list is swapped
     # out to be walked, and swapped back.
     sub set(!@, v: Int)
       !@value.set(v)
@@ -1885,7 +1885,7 @@ test "reactive int source", '''
     sub subscribe(!@, cb: *sub())
       !@subs.push(<cb)
 
-    # A Cell lends no view of the List inside it, so the list is swapped
+    # A Cell views no view of the List inside it, so the list is swapped
     # out to be walked, and swapped back.
     sub set(!@, v: Int)
       !@value.set(v)
@@ -2114,8 +2114,8 @@ bomb "stack overflow frame", "rig: stack overflow", prints: "before"
 
 bomb "stack overflow recursion", "rig: stack overflow", prints: "before", release: true
   # Recursion that runs out of stack stops the program with a
-  # stack-overflow error. Each level lends its array to the next, so debug
-  # and release builds keep a frame per level.
+  # stack-overflow error. Each level passes a view of its array to the next,
+  # so debug and release builds keep a frame per level.
 
   fun dive(depth: Int, prev: ?[1000]Int) -> Int
     a = [1000 of depth]

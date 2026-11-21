@@ -3,7 +3,7 @@ CORE sentence 5, on the machine: a place has any number of read loans,
 or one write loan, never both.
 
 The first part is about one cell: each of the five ways to touch it
-leaves it well formed, and the lends end the loans the Core says they
+leaves it well formed, and the views end the loans the Core says they
 end. The second part lifts that to the whole machine: every cell of
 every state the interpreter reaches is well formed.
 -/
@@ -14,24 +14,24 @@ namespace LambdaRig
 /-! ## One cell -/
 
 theorem Cell.fresh_wf (v : Val) : (Cell.fresh v).WF := Or.inl rfl
-theorem Cell.lendRead_wf (c : Cell) (t : Tag) : (c.lendRead t).WF := Or.inl rfl
-theorem Cell.lendWrite_wf (c : Cell) (t : Tag) : (c.lendWrite t).WF := Or.inr rfl
+theorem Cell.readView_wf (c : Cell) (t : Tag) : (c.readView t).WF := Or.inl rfl
+theorem Cell.writeView_wf (c : Cell) (t : Tag) : (c.writeView t).WF := Or.inr rfl
 theorem Cell.ownerRead_wf (c : Cell) : c.ownerRead.WF := Or.inl rfl
 theorem Cell.ownerWrite_wf (c : Cell) (v : Option Val) : (c.ownerWrite v).WF := Or.inl rfl
 theorem Cell.viewWrite_wf (c : Cell) (v : Val) : (c.viewWrite v).WF := Or.inr rfl
 
 /-- `!x` ends every loan but its own. -/
-theorem Cell.lendWrite_ends (c : Cell) (t t' : Tag) (h : t' ≠ t) :
-    (c.lendWrite t).live .read t' = false ∧ (c.lendWrite t).live .write t' = false := by
-  simp [Cell.lendWrite, Cell.live, Ne.symm h]
+theorem Cell.writeView_ends (c : Cell) (t t' : Tag) (h : t' ≠ t) :
+    (c.writeView t).live .read t' = false ∧ (c.writeView t).live .write t' = false := by
+  simp [Cell.writeView, Cell.live, Ne.symm h]
 
 /-- `?x` ends a write loan and keeps every read loan. -/
-theorem Cell.lendRead_ends (c : Cell) (t t' : Tag) :
-    (c.lendRead t).live .write t' = false ∧
-    (c.live .read t' = true → (c.lendRead t).live .read t' = true) := by
-  refine ⟨by simp [Cell.lendRead, Cell.live], ?_⟩
+theorem Cell.readView_ends (c : Cell) (t t' : Tag) :
+    (c.readView t).live .write t' = false ∧
+    (c.live .read t' = true → (c.readView t).live .read t' = true) := by
+  refine ⟨by simp [Cell.readView, Cell.live], ?_⟩
   intro h
-  simp_all [Cell.lendRead, Cell.live]
+  simp_all [Cell.readView, Cell.live]
 
 /-- Writing, moving out of, or dropping a place ends every loan on it. -/
 theorem Cell.ownerWrite_ends (c : Cell) (v : Option Val) (m : Mode) (t : Tag) :
@@ -145,8 +145,8 @@ macro_rules
       | apply Keeps.setCell
       | apply Keeps.bind
       | split
-      | simp [Cell.WF, Cell.fresh, Cell.ownerRead, Cell.ownerWrite, Cell.lendRead,
-          Cell.lendWrite, Cell.viewWrite] <;> done))
+      | simp [Cell.WF, Cell.fresh, Cell.ownerRead, Cell.ownerWrite, Cell.readView,
+          Cell.writeView, Cell.viewWrite] <;> done))
 
 theorem Keeps.cell (l : Loc) : Keeps (cell l) := by unfold LambdaRig.cell; keeps
 
@@ -226,8 +226,8 @@ macro_rules
       | apply Keeps.setCell
       | apply Keeps.bind
       | split
-      | simp [Cell.WF, Cell.fresh, Cell.ownerRead, Cell.ownerWrite, Cell.lendRead,
-          Cell.lendWrite, Cell.viewWrite] <;> done))
+      | simp [Cell.WF, Cell.fresh, Cell.ownerRead, Cell.ownerWrite, Cell.readView,
+          Cell.writeView, Cell.viewWrite] <;> done))
 
 /-- The interpreter keeps every cell well formed: whatever a program
 does, no place ever holds read loans and a write loan at once. -/

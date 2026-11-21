@@ -81,7 +81,7 @@ test "cell word operations", seeds: 20, '''
 '''
   # `swap` gives the old value, `compare_swap` whether it stored, and
   # `add` and `sub` the new value; a Cell of one word holds an Int, a
-  # Bool, a Float, or a plain enum, and a task may be lent one to read.
+  # Bool, a Float, or a plain enum, and a task may be given one as a read view.
   enum Phase
     idle
     busy
@@ -359,8 +359,8 @@ code "cell object synced", "pub const __rig_synced = {};"
   h = *Hits(n: Cell(0), step: 2)
   print(h.step)
 
-test "cell lend a task through a handle", seeds: 20, "2 true 4000 200000"
-  # A task of a call through a value that holds a Cell keeps a read loan
+test "cell views a task through a handle", seeds: 20, "2 true 4000 200000"
+  # A task of a call through a value that holds a Cell keeps a read view
   # on the place for its life (Core §4), so the place is read, and
   # called through again, while the task runs; a Cell of a List keeps
   # its task on this thread.
@@ -393,8 +393,8 @@ test "cell lend a task through a handle", seeds: 20, "2 true 4000 200000"
   _ = >u
   print(step, done, h.n.get(), b.items.len)
 
-test "cell lend tasks that hold read loans move", seeds: 20, "true true 4000"
-  # A task that holds only read loans may go into a set, or be returned,
+test "cell views tasks that hold read views move", seeds: 20, "true true 4000"
+  # A task that holds only read views may go into a set, or be returned,
   # as `work(+h)&` may.
 
   obj Hits
@@ -419,8 +419,8 @@ test "cell lend tasks that hold read loans move", seeds: 20, "true true 4000"
   done = >t >= 2000
   print(all, done, h.n.get())
 
-fail "cell lend a task keeps its loan", "cannot reassign `h` while a write view of it is still in use", "cannot reassign `g` while a write view of it is still in use", errors: 2
-  # The read loan a task keeps lasts while it runs: the place is not
+fail "cell views a task keeps its view", "cannot reassign `h` while a write view of it is still in use", "cannot reassign `g` while a write view of it is still in use", errors: 2
+  # The read view a task keeps lasts while it runs: the place is not
   # reassigned under it, in a set too.
 
   obj Hits
@@ -440,7 +440,7 @@ fail "cell lend a task keeps its loan", "cannot reassign `h` while a write view 
   for r in >ts
     print(r)
 
-test "cell lend breaker ensure view across a task", seeds: 20, "first-value-long-enough-for-heap 20002"
+test "cell views breaker ensure view across a task", seeds: 20, "first-value-long-enough-for-heap 20002"
   # A view `ensure` gives lives while a task fills the map through a
   # handle of its own and main puts through the same place (attack 1).
   use std.shared
@@ -456,7 +456,7 @@ test "cell lend breaker ensure view across a task", seeds: 20, "first-value-long
   >t
   print(r, m.len())
 
-test "cell lend breaker a Cell view in a task", seeds: 20, "3000"
+test "cell views breaker a Cell view in a task", seeds: 20, "3000"
   # A task holds a `!Cell` view from `!h.cell()` while main calls
   # through `h` (attack 2).
   obj Hits
@@ -487,7 +487,7 @@ test "cell lend breaker a Cell view in a task", seeds: 20, "3000"
   >t
   print(h.n.get())
 
-test "cell lend breaker a task beside a call", seeds: 20, "true 4000"
+test "cell views breaker a task beside a call", seeds: 20, "true 4000"
   # A task of `(!h).bump()` runs beside `!h.bump()` (attack 3).
   obj Hits
     n: Cell[Int]
@@ -516,7 +516,7 @@ test "cell lend breaker a task beside a call", seeds: 20, "true 4000"
   _ = !h.bump()
   print(>t >= 2000, h.n.get())
 
-test "cell lend breaker a task in a set", seeds: 20, "true"
+test "cell views breaker a task in a set", seeds: 20, "true"
   # A task of `(!h).bump()` goes into a set while main calls through
   # `h` (attack 5).
   obj Hits

@@ -46,7 +46,7 @@ expect_has "$(cat run.txt)" '4' "the program's output"
 
 # A value emit reaches by address where Zig holds it, in no slot, is a
 # fact too (`zig_temp`): a leaf made there no slot keeps, and a temporary
-# array lent to a call.
+# array given to a call as a view.
 cat >zig_temp.rig <<'EOF2'
 obj R unique
   n: Int
@@ -74,7 +74,7 @@ EOF2
 "$RIG" check --facts=storage zig_temp.rig >zt.txt 2>err.txt || fail "rig check --facts=storage: $(cat err.txt)"
 out=$(cat zt.txt)
 expect_has "$out" 'zig_temp call 18:22-18:28 "mkr(5)" owned statement' "a made leaf no slot keeps"
-expect_has "$out" 'zig_temp array 18:41-18:50 "[1, 2, 3]" owned statement' "a temporary array lent to a call"
+expect_has "$out" 'zig_temp array 18:41-18:50 "[1, 2, 3]" owned statement' "a temporary array given to a call as a view"
 rig run zig_temp.rig >run.txt 2>err.txt || fail "rig run: $(cat err.txt)"
 expect_has "$(cat run.txt)" '5 6' "the program's output"
 
