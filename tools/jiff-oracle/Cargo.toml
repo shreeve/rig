@@ -1,0 +1,20 @@
+[package]
+name = "jiff-oracle"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Jiff 1.0.0's answers for std.datetime's oracle (README.md). Only the
+# bundled zone data: without "tzdb-zoneinfo", "tzdb-concatenated" and
+# "tz-system", Jiff never reads the machine's zone files, TZDIR or TZ.
+# jiff-core and jiff-tzdb are named too, so that each is the 1.0.0 that
+# Jiff 1.0.0 was released with (its own manifest allows any 1.x), and the
+# zone data is jiff-tzdb 1.0.0's, 2026f.
+[dependencies]
+jiff = { version = "=1.0.0", default-features = false, features = ["std", "tzdb-bundle-always"] }
+jiff-core = { version = "=1.0.0", default-features = false }
+jiff-tzdb = "=1.0.0"
+
+[profile.release]
+codegen-units = 1
+panic = "abort"

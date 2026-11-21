@@ -125,6 +125,11 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
+- **Datetime** (owner's design v3, 2026-11-17; branch `datetime-p0`):
+  phase 0 measured the `Duration` layout, generated and checked the zone
+  tables, and built the Jiff oracle (records/2026-11/datetime-phase0).
+  The owner chose `Duration` as one `Int` of nanoseconds, saturating like
+  Go's beyond ±292 years; phase 1, `std.time`, follows.
 - **The view vocabulary** (owner, 2026-11-20; #1192 landed PR 1):
   places, read and write views, read-only, unusable, and cells are the
   words of the docs, the messages, and the code. PR 1 is the wording; PR 2

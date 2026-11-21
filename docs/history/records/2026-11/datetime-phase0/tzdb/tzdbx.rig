@@ -1,0 +1,7 @@
+# The measuring module of the zone tables (tools/gen-tzdb.py), in a copy
+# of std made for the measurement (measure.sh), never in std.
+
+extern zig "tzdbx.zig"
+  # The offset, in seconds east of UTC, of the zone named `name` (in any
+  # ASCII case) at `t` seconds since 1970; none for an unknown name.
+  pub fun offset_at(name: ?String, t: Int) -> Int?
