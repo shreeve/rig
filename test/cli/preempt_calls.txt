@@ -49,7 +49,7 @@ clock_gettime               reads the clock
 close*                      a system call
 sched_yield                 a system call
 sysctlbyname                a system call, once at start
-__rig_std_time.sleep        a wait: enters the scheduler (a std function written in Zig)
+__rig_std_time.sleep_ns     a wait: enters the scheduler (a std function written in Zig)
 mem.eql                     the runtime's start, once (an environment variable's value); the program's comparisons are inline (rig.eql)
 mem.eqlBytes                as mem.eql, where Zig's safe mode leaves its body a call
 compiler_rt.*memcpy*        copies bytes, in Zig's compiler-rt where no C library is linked: as memcpy

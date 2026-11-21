@@ -87,8 +87,8 @@ unit keywords is phase 1b's.
 ## The design against the code
 
 The line numbers of §10 were read again: `resolve.zig:2557`
-`paramDurations` and the checker's sites stood where §10 says, give or
-take the lines landed since. Nothing in the code made a part of the
+`paramDurations` stood where §10 says, and the other sites within about
+150 lines of it. Nothing in the code made a part of the
 design wrong or impossible. Two things the design does not say, and
 the code needed:
 
@@ -126,4 +126,29 @@ registry), with a Rig program answering the same lines:
 
 ## Verification
 
-(Filled in below as each run finished.)
+On the Mac, through `tools/heavy`:
+
+- `zig build` and `zig build test`; swarm's `unit` and `oracle` jobs.
+- Each area touched, alone: `std-time` (25 jobs), `std-time-forms`
+  (20), `std-time-waits` (7), `std-misc`, `std-net`, the six
+  `concurrency-*` files, `probes-29`, `types-generic`; the doc examples
+  of SPEC, STD, MIGRATING-0.3, learn 06 and 09, and INTERNALS; and the
+  scripts `migrate_datetime`, `migrate_durations`, `emit`,
+  `preempt_cover`, `preempt_forks`, `preempt_reads`, `preempt_section`,
+  `run_next_fair`, `sched_service`, `std_file_ops`, `std_http`, and
+  `jiff_oracle`, which also skipped as it should with cargo offline and
+  an empty registry.
+- The whole core suite once: 12,246 jobs, one died,
+  `cli.preempt_section`, whose list of calls outside the program's
+  section named `__rig_std_time.sleep`, now `sleep_ns`; it passed alone
+  after the rename.
+- `tools/emit-diff origin/main` (main is one PR past this branch's base,
+  #1201, typecheck only): the emitted Zig differs in `rig/runtime.zig`
+  alone, the duration helpers (`durationInt` and `durationFloat` given
+  the type, `durationOf`, `durationNs`), for the 24 programs that carry
+  it; 12 benches the migration rewrote do not emit with main's `rig`,
+  since they name `time.monotonic()`; examples, std, and Trig emit the
+  same Zig otherwise.
+- Trig: `git apply --check` of the patch on Trig at `f06b9c59`. The
+  coordinator runs the bench guards, the Trig and loco light gates, and
+  the Linux checks.
