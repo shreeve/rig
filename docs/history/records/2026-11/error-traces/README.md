@@ -227,7 +227,11 @@ On the Mac, through `tools/heavy`, at the branch's last commit:
   embedded zero bytes, which crashed `rig`; errors-trace's nested tasks
   without seeds; the deep trace and the `defer` that catches, which
   pass as SPEC now says), and the same gates passed again with the
-  fixes and the function names.
+  fixes and the function names. That core suite found a batch of 300
+  programs whose site tables passed Zig's default comptime branch quota
+  (`rig.siteTables` now sets the runtime's), and build_store.sh's
+  comparison of the store's root with emit's, which the root's list of
+  modules moved.
 - The release guards were measured before the review's fixes; those
   add nothing to a release build: the tables and `__rig_sites_of` are
   compiled only where traces are kept, and the runtime's new code is
