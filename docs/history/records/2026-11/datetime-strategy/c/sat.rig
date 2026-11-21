@@ -1,0 +1,8 @@
+use std.datetime
+sub main()!
+  a = datetime.Instant.parse("9999-01-01T00:00:00Z")!
+  b = datetime.Instant.parse("1000-01-01T00:00:00Z")!
+  c = datetime.Instant.parse("2000-01-01T00:00:00Z")!
+  print(a.since(b) == a.since(c))
+  print(a.since(b).hours(), a.since(c).hours())
+  print(b.unix() == c.add(seconds: 0).unix(), b.unix())

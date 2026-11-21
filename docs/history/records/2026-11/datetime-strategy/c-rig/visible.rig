@@ -1,0 +1,18 @@
+use std.time
+use std.datetime
+
+# A function that cannot fail, choosing the panic in its own source.
+fun tomorrow(d: datetime.Date) -> datetime.Date
+  d.checked_add(days: 1) catch panic("no tomorrow after", d)
+
+# Saturating by choice, with no constant to name the end.
+fun clamp_add(d: datetime.Date, n: Int) -> datetime.Date
+  d.checked_add(days: n) catch (datetime.Date.new(9999, 12, 31) catch d)
+
+sub main()!
+  print(tomorrow(datetime.Date.new(2026, 12, 31)!))
+  print(clamp_add(datetime.Date.new(2026, 12, 31)!, 99_999_999))
+  m = time.monotonic()
+  print(m.elapsed() < time.duration(ms: 50))
+  d = time.duration(ms: 1500)
+  print(d.neg(), d.round(seconds: 1))

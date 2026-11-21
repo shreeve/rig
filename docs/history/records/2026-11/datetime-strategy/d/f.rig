@@ -1,0 +1,9 @@
+use std.datetime
+use std.text
+
+fun main() -> Int!
+  ms = text.parse_int("9300000000000000")!
+  i = datetime.now()
+  j = i.checked_add(ms: ms) catch i
+  print("caught", j)
+  0

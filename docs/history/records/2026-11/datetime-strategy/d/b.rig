@@ -1,0 +1,7 @@
+use std.datetime
+use std.text
+
+sub main()
+  f = text.parse_float("nan") catch 0.0
+  print(f)
+  print(datetime.Instant.from_unix(f))

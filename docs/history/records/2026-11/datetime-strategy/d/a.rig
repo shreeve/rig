@@ -1,0 +1,16 @@
+use std.datetime
+use std.time
+use std.text
+
+fun main() -> Int!
+  print(datetime.Instant.from_unix(1_700_000_000))
+  print(datetime.Instant.from_unix(ms: 1_700_000_000_123))
+  print(datetime.Instant.from_unix(1.7e9))
+  print(datetime.Instant.from_unix(1_700_000_000.000_000_1))
+  i = datetime.Instant.from_unix(-1)
+  print(i, i.unix_s())
+  hi = datetime.Instant.parse("9999-12-30T22:00:00Z")!
+  print(hi.unix_s(), hi.unix())
+  x = text.parse_int("10000000000") catch 0
+  print(datetime.Instant.from_unix(x))
+  0

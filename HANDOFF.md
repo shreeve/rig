@@ -125,11 +125,10 @@ A new session, human or agent, takes these steps in order:
 
 ## In flight
 
-- **Datetime** (owner's design v3, 2026-11-17, amended 2026-11-20;
+- **Datetime** (owner's design v3, 2026-11-17, amended 2026-11-20 and 2026-11-22;
   [design/datetime.md](docs/design/datetime.md)): phase 0 measured the
   `Duration` layout, generated and checked the zone tables, and built the
-  Jiff oracle (records/2026-11/datetime-phase0); the owner chose one
-  `Int` of nanoseconds. Phase 1 (branch `datetime-p1`) builds
+  Jiff oracle (records/2026-11/datetime-phase0). Phase 1 (branch `datetime-p1`) builds
   `std.time`: `Duration` with its forms, its readers,
   arithmetic, rounding and text, `Monotonic`, and waiting; it removes
   `time.now()`, `time.Instant`, and the constants of nanoseconds, with
@@ -142,7 +141,13 @@ A new session, human or agent, takes these steps in order:
   (records/2026-11/datetime-phase2). Phase 3 (branch `datetime-p3`)
   builds `Instant` and `datetime.now()`, with RFC 3339, and removes
   `time.unix_ns()`, with its migration and a patch for Trig
-  (records/2026-11/datetime-phase3); `TimeZone` (phase 4) is next.
+  (records/2026-11/datetime-phase3). The owner then approved the strategy
+  "total or visible" (2026-11-22; records/2026-11/datetime-strategy): no
+  call in `std.time` or `std.datetime` panics, each is total or returns
+  `!`, and `Duration` takes Jiff's 16 bytes, so `since` and `unix()` are
+  total. Next, in order: error traces, the constant-argument rule, the
+  change that applies the strategy to phases 1 to 3 (the design's 10.5 to
+  10.7), then `TimeZone` (phase 4), written to it.
 - **The view vocabulary** (owner, 2026-11-20; #1192 landed PR 1):
   places, read and write views, read-only, unusable, and cells are the
   words of the docs, the messages, and the code. PR 1 is the wording; PR 2

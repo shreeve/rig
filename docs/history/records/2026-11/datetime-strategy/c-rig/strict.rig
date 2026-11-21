@@ -1,0 +1,21 @@
+use std.time
+use std.datetime
+use std.text
+
+# Same program, as it would read if `add` returned `!` (simulated with checked_add).
+fun nth_renewal(start: datetime.Date, period: Int, k: Int) -> datetime.Date!
+  start.checked_add(months: period * k)!
+
+sub main()!
+  start = datetime.Date.parse("2027-01-31")!
+  period = text.parse_int("1")!
+  for k in 0..4
+    print(nth_renewal(start, period, k)!)
+  steps = [time.duration(ms: 120), time.duration(ms: 80), time.duration(ms: 100)]
+  total = time.duration(0)
+  for s in steps
+    total = total.checked_add(s)!
+  print(total, total.div(3))
+  bad = text.parse_int("200000")!
+  print(nth_renewal(start, bad, 1) catch |e| start)
+  nth_renewal(start, bad, 1) catch |e| print("renewal beyond 9999:", e)

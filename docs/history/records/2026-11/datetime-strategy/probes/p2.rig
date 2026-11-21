@@ -1,0 +1,13 @@
+use std.time
+use std.datetime
+
+fun big() -> Int
+  9_000_000_000
+
+sub main()!
+  a = datetime.Instant.parse("1500-01-01T00:00:00Z")!
+  b = datetime.Instant.parse("2500-01-01T00:00:00Z")!
+  print(b.since(a), b.since(a).hours())
+  print(a.unix(), a.unix().seconds(), a.unix_s())
+  print(datetime.Date.new(9999, 12, 31)!.checked_add(days: 1) catch datetime.Date.new(1, 1, 1)!)
+  print(time.duration(seconds: big()))

@@ -51,6 +51,10 @@ The concurrency plan the owner approved from that review is on the ROADMAP, unde
   - The runtime already reserves address space for task stacks.
   - Source: the Goose review (grow-only arrays).
   - Needs: a CORE paragraph, since it changes what a push ends; then a design round.
+- **No panic in normal code, for the language's own arithmetic.** std.time and std.datetime promise that no call panics on any value: each is total or returns `!` ([design/datetime.md](design/datetime.md), "Total or visible"). Rig's `Int` `+`, `-` and `*` still panic on overflow in every build, so a user's number that drives a program's own arithmetic can end the process: `n * 1000` with `n` read from a file, or `Int(f)` on a NaN, for which there is no checked conversion. Whether the language holds the same bar is open.
+  - Forms it could take: fallible arithmetic by name beside the operators (as Zig's `std.math.add` beside `+`), a checked numeric conversion that returns `!`, wider integers where input is read, or none, with `Int`'s range left as the line between input and a bug.
+  - Source: the datetime strategy's committee, 2026-11-22 ([datetime-strategy/](history/records/2026-11/datetime-strategy/README.md)).
+  - Needs: the owner's call, then a design round; any change to the operators rejects or changes programs a release accepts.
 - **A region freed at once.** Values made in a named region are views of it, and dropping the region frees them all in one step, for data that dies together: a file's tree, a parse's temporaries, one request's data.
   - Source: the Goose review (data stacks freed at scope exit).
   - Needs: a CORE paragraph and a design round; first, a measure of the share of Trig's time and memory in data that dies together.
@@ -114,8 +118,6 @@ The concurrency plan the owner approved from that review is on the ROADMAP, unde
 - **A benchmarks page written by its scripts,** dated, naming its machines and build modes, its losses, and how any average is formed, so it cannot go stale by hand.
   - Source: the Goose review (`bench/results.md`, generated).
   - Needs: nothing but the work; it goes with the next measurement of docs/launch/benchmarks.md.
-- **A failure's trace in debug builds.** When a failure leaves `main`, print each `f()!` site it passed through, not only `error: E.name`, from Zig's error return trace. No syntax.
-  - Source: the Crystal review (Rust).
 - **C structs and pointers through views.** In an `extern fun`, `!T` becomes `*T` and `?T` `*const T`, and `extern obj` declares a C-layout object. A write view is then an out-parameter, with no `out` keyword. Today Rig passes only integers, floats, and `Bool` to C. This carries the ROADMAP's C-ABI-friendly `extern` types.
   - Source: the Crystal review (Zig).
   - Needs: a design round with the ROADMAP's raw pointers.

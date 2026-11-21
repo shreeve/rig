@@ -1,0 +1,22 @@
+use std.time
+use std.datetime
+use std.text
+
+# Renewal dates for a plan read from a file: start date, period in months.
+fun nth_renewal(start: datetime.Date, period: Int, k: Int) -> datetime.Date
+  start.add(months: period * k)
+
+sub main()!
+  start = datetime.Date.parse("2027-01-31")!
+  period = text.parse_int("1")!
+  for k in 0..4
+    print(nth_renewal(start, period, k))
+  # Total time of a list of steps, then the mean
+  steps = [time.duration(ms: 120), time.duration(ms: 80), time.duration(ms: 100)]
+  total = time.duration(0)
+  for s in steps
+    total = total.add(s)
+  print(total, total.div(3))
+  # a bad period from a file: years 10000+
+  bad = text.parse_int("200000")!
+  print(nth_renewal(start, bad, 1))

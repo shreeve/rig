@@ -1,0 +1,36 @@
+use std.time
+use std.datetime
+
+sub main()!
+  n = 10_000_000
+  d = datetime.Date.new(2024, 1, 31)!
+  t = time.monotonic()
+  acc = 0
+  for k in 0..n
+    acc += d.add(days: k % 10000).day()
+  e1 = t.elapsed()
+  t = time.monotonic()
+  for k in 0..n
+    acc += d.add(months: k % 1000).day()
+  e2 = t.elapsed()
+  t = time.monotonic()
+  base = datetime.Date.new(1900, 1, 1)!
+  for k in 0..n
+    acc += d.add(days: k % 50000).months_since(base)
+  e3 = t.elapsed()
+  t = time.monotonic()
+  for _ in 0..1_000_000
+    acc += datetime.Instant.parse("2026-11-17T08:07:03.512094-07:00")!.unix_s() % 7
+  e4 = t.elapsed()
+  t = time.monotonic()
+  for _ in 0..1_000_000
+    acc += datetime.Date.parse("2026-11-17")!.day()
+  e5 = t.elapsed()
+  t = time.monotonic()
+  for k in 0..1_000_000
+    s = String(datetime.Instant.from_unix(seconds: k))
+    acc += s.len
+  e6 = t.elapsed()
+  print(acc)
+  print("add days ns/op", e1.ns() / n, "add months", e2.ns() / n, "add+months_since", e3.ns() / n)
+  print("Instant.parse ns/op", e4.ns() / 1_000_000, "Date.parse", e5.ns() / 1_000_000, "String(Instant)", e6.ns() / 1_000_000)
