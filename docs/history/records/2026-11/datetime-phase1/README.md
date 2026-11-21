@@ -191,6 +191,11 @@ On the Mac, through `tools/heavy`:
   it; 12 benches the migration rewrote do not emit with main's `rig`,
   since they name `time.monotonic()`; examples, std, and Trig emit the
   same Zig otherwise.
+- After the review's fixes: the touched areas again (`std-time-forms`
+  27 jobs, `std-time-waits` 7, `migrate_datetime`, `migrate_durations`),
+  the new cases checked to fail with the branch's previous `rig`
+  (f6e564c10), `tools/emit-diff origin/main` with the same result as
+  above, and the whole core suite once: 12,258 jobs, none died.
 - Trig: `git apply --check` of the patch on Trig at `f06b9c59`. The
   coordinator runs the bench guards, the Trig and loco light gates, and
   the Linux checks.
