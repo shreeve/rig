@@ -173,6 +173,53 @@ fail "cell by value", "8:13: a value of `Counter` holds a Cell, so it lives only
   v: List[Counter] = List()
   print(a, v.len)
 
+fail "signal by value", "11:13: a value of `Signal[Int]` holds a Cell, so it lives only behind a shared handle: write `*Signal[Int]`", "14:13: a value of `Ui` holds a Cell, so it lives only behind a shared handle: write `*Ui`", "17:4: a value of `Signal[Int]` holds a Cell, so it lives only behind a shared handle: write `*Signal[Int]`", "18:5: a value of `Signal[Int]` holds a Cell, so it lives only behind a shared handle: write `*Signal[Int]`", "19:4: a value of `Ui` holds a Cell, so it lives only behind a shared handle: write `*Ui`", "20:4: a value of `Signal[Int]` holds a Cell, so it lives only behind a shared handle: write `*Signal[Int]`", errors: 6
+  # A Signal holds a Cell, as a channel and an actor do, so it lives
+  # only behind a shared handle: no parameter, local, element, object
+  # kept by value, or type argument holds one by value.
+
+  obj Ui
+    sig: Signal[Int]
+
+  obj Wrap[T]
+    v: T
+
+  sub take(s: Signal[Int])
+    print(s.get())
+
+  sub show(u: Ui)
+    print(u.sig.get())
+
+  a: Signal[Int]? = none
+  v = List[Signal[Int]]()
+  w: List[Ui] = List()
+  z: Wrap[Signal[Int]]? = none
+  print(a == none, v.len, w.len, z == none)
+
+test "signal behind a handle", "4 1 4"
+  # A Signal behind `*` is accepted wherever a handle goes: a parameter,
+  # an element, a field; and a view of the Signal itself, `?Signal[Int]`
+  # or `!Signal[Int]`, changes it by its marked calls.
+
+  obj Ui
+    sig: *Signal[Int]
+
+  sub bump(s: *Signal[Int])
+    !s.set(s.get() + 1)
+
+  fun look(s: ?Signal[Int]) -> Int
+    s.get()
+
+  s = *Signal(1)
+  bump(+s)
+  w: !Signal[Int] = !s
+  !w.set(w.get() + 1)
+  xs = List[*Signal[Int]]()
+  !xs.push(+s)
+  u = Ui(sig: +s)
+  !u.sig.set(4)
+  print(look(?s), xs.len, u.sig.get())
+
 fail "cell holder no clone", "12:6: `+x` cannot clone a `Counter`: it is unique, and a copy would duplicate it; move it with `<x`", "13:6: `+x` cannot clone a `Cell[Int]`: it is unique, and a copy would duplicate it; move it with `<x`", "14:13: `[n of x]` copies its element into every slot, and a `Counter` is unique, so it cannot be copied, and it has no clone: write a loop that makes each element anew"
   # A value that holds a Cell is unique, also as a field of a value behind
   # `*`: it has no `+x` clone, and `[n of x]` does not copy one.

@@ -43,6 +43,19 @@ comprehension, `x => ...`, `lambda`, `if let`, `o or 0` for an
 optional, `range(3)`, and `enumerate(xs)` are rejected with the Rig
 spelling, where each got a parse error or an unbound name.
 
+**A `Signal` is a cell, kept only behind a shared handle** (accepted
+by 0.3.0). A `Signal[T]` by value is rejected wherever a channel or an
+actor by value is: as a parameter or a result (`sub show(s:
+Signal[Int])`), a local's type (`s: Signal[Int]? = none`), an element
+(`List[Signal[Int]]()`), a type argument (`Wrap[Signal[Int]]`), or
+inside an object kept by value (`sub show(u: Ui)` where `Ui` has a
+`Signal[Int]` field). The message is the one a channel gets: "a value
+of `Signal[Int]` holds a Cell, so it lives only behind a shared handle:
+write `*Signal[Int]`". No `Signal` could be made by value, so no such
+program ever held one; the fix is the handle, `*Signal[Int]`, or a view
+of the Signal, `?Signal[Int]` or `!Signal[Int]`. Trig, loco, std,
+examples, and bench hold no `Signal` by value; no migration is needed.
+
 **`swap` exchanges no Cell, and `!s` of a `*{A}` lends only the
 handle** (both accepted by 0.3.0). `swap(!a, !b)` of two `Cell`s, a
 `Cell` reached through a `!Cell[T]`, a `*Cell[T]` that may not be

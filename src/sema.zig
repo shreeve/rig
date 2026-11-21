@@ -7779,10 +7779,11 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
                 for (pn.args) |a| r = r.with(try reachOf(ctx, a, mask, into));
                 break :blk r;
             }
-            // An actor, as a Cell, lives only behind `*` and changes by a
-            // marked call through a handle.
-            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id) {
-                var r: Reach = .{ .cell = pn.sym == ctx.cell_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id };
+            // A Signal, a channel, and an actor hold a Cell of their own,
+            // so each lives only behind `*` and changes by a marked call
+            // through a handle (`isCellBuiltin`).
+            if (isCellBuiltin(ctx, pn.sym)) {
+                var r: Reach = .{ .cell = true };
                 for (pn.args) |a| r = r.with(try reachOf(ctx, a, mask.within(Reach.string_only), into));
                 break :blk r;
             }
@@ -11073,6 +11074,13 @@ pub fn isBuiltinEnum(ctx: *const SemContext, sym: SymbolId) bool {
     return sym == ctx.endian_sym_id or sym == ctx.arch_sym_id or sym == ctx.os_sym_id or sym == ctx.feature_sym_id or sym == ctx.order_sym_id;
 }
 
+/// A built-in generic that is or holds a Cell of its own, whatever its
+/// arguments: a `Cell`, a `Signal`, a channel, or an actor (Core
+/// sentence 9). The one list `reachOf` and `holdsOwnCell` read.
+fn isCellBuiltin(ctx: *const SemContext, sym: SymbolId) bool {
+    return sym == ctx.cell_sym_id or sym == ctx.signal_sym_id or sym == ctx.actor_sym_id or sym == ctx.chan_sym_id;
+}
+
 /// One of the built-in generic types: `Cell`, `List`, `^T`, `Signal`,
 /// `Task`, `Tasks`.
 pub fn isBuiltinGeneric(ctx: *const SemContext, sym: SymbolId) bool {
@@ -11603,25 +11611,25 @@ fn fieldsLayout(ctx: *SemContext, home: *const SemContext, sym: Symbol, shown: [
     return .{ .record = .{ .size = at, .alignment = alignment, .checks = checks.items } };
 }
 
-/// Whether a value of `ty` holds a `Cell` inline (not behind a handle,
-/// a view, or a List's buffer). A read view of such a value is held as
-/// a pointer, since the cell can change while it is viewed.
+/// Whether a value of `ty` is or holds a `Cell` inline (not behind a
+/// handle, a view, or a List's buffer); a `Signal`, a channel, and an
+/// actor each hold one (`isCellBuiltin`). A read view of such a value
+/// is held as a pointer, since the cell can change while it is viewed.
 pub fn holdsCellByValue(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).cell;
 }
 
 /// Whether a value of `ty` changes through a shared handle, by a marked
-/// call (`!c.set(5)`): a `Cell`, a `Signal`, a channel, an actor, or a
-/// value that holds a Cell by value, judged by its concrete type. The
-/// one list of what a write view may reach through a `*`; a write view
-/// of such a value changes only its Cells and Signals, never its other
-/// fields (`Checker.placeOf`). An API object, which may hold anything,
+/// call (`!c.set(5)`): a value that is or holds a Cell by value
+/// (`holdsCellByValue`), a `Signal`, a channel, and an actor among them,
+/// judged by its concrete type. The one list of what a write view may
+/// reach through a `*`; a write view of such a value changes only its
+/// Cells and Signals, never its other fields (`Checker.placeOf`). An API object, which may hold anything,
 /// and a type parameter are no such value, so a `*{A}` gives only its
 /// handle (Core §4).
 pub fn changesByMark(ctx: *const SemContext, ty: TypeId) bool {
     const t = unwrapAccess(ctx, ty);
     return switch (ctx.types.get(t)) {
-        .parameterized_nominal => |pn| pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id or holdsCellByValue(ctx, t),
         .api_object, .type_var => false,
         else => holdsCellByValue(ctx, t),
     };
@@ -12021,7 +12029,7 @@ fn nestsWriteView(ctx: *const SemContext, ty: TypeId) bool {
 fn holdsOwnCell(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .nominal, .imported_nominal => holdsCellByValue(ctx, ty),
-        .parameterized_nominal => |pn| pn.sym == ctx.cell_sym_id or pn.sym == ctx.actor_sym_id or pn.sym == ctx.chan_sym_id or (holdsCellByValue(ctx, ty) and for (pn.args) |a| {
+        .parameterized_nominal => |pn| isCellBuiltin(ctx, pn.sym) or (holdsCellByValue(ctx, ty) and for (pn.args) |a| {
             if (holdsCellByValue(ctx, a)) break false;
         } else true),
         else => false,

@@ -11395,8 +11395,20 @@ cannot store a view of `s` in a `Cell`
 
 `Signal[T]` holds a value of plain data, or a value that copies and
 whose only views are `?String`s, and a list of subscribers, owned
-closures of type `*sub()`. It lives behind a shared handle: a stack
-`Signal` is rejected.
+closures of type `*sub()`. It holds a Cell
+([CORE §9](docs/CORE.md)), so it lives only behind a shared handle,
+`*Signal[T]`: never a local, parameter, element, or type argument by
+value, nor in an object kept by value. A view of the Signal itself,
+`?Signal[T]` or `!Signal[T]`, is made from that handle.
+
+```rig reject
+sub show(s: Signal[Int])
+  print(s.get())
+```
+
+```error
+a value of `Signal[Int]` holds a Cell, so it lives only behind a shared handle: write `*Signal[Int]`
+```
 
 | Member | Meaning |
 |---|---|
