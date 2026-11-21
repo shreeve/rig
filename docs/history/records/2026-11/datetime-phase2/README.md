@@ -233,18 +233,19 @@ model. Its findings, each fixed with a case that failed before the fix
 
 ## Verification
 
-On the Mac, through `tools/heavy`:
+On the Mac, through `tools/heavy`, after the rebase on c2f90250a and the
+review's fixes:
 
 - `zig build`, and `zig build test`.
-- Swarm on what changed with `oracle` and `unit`: `std-datetime`,
-  `std-datetime-clock`, `std-datetime-checks`, `std-time`,
-  `std-time-forms`, `std-time-waits`, `doc-STD`, `cli.jiff_oracle`: 228
-  jobs, none died.
-- `tools/emit-diff origin/main` (main at 199b14631, this branch's base):
-  identical, 38 programs, 583 files. No program outside the new tests
-  uses std.datetime, and the checker's new variants change no emitted
-  Zig.
+- Swarm on what changed with `oracle` and `unit`: the five
+  `std-datetime*` files, `std-time`, `std-time-forms`, `std-time-waits`,
+  the generic files `errors-generic`, `ownership-generic`, `types-apis`,
+  `types-generic`, `doc-STD`, and `cli.jiff_oracle` (which compares the
+  oracle's 1.74 million cases): 840 jobs, none died.
+- `tools/emit-diff origin/main` (main at c2f90250a): identical, 38
+  programs, 583 files.
 - The whole core suite once (`tools/heavy --class correctness swarm
-  test/rig.rip -w 4`): 12,330 jobs in 587 s, none died.
+  test/rig.rip -w 4`): 12,373 jobs in 596 s, none died. (Before the
+  rebase and the review: 12,330 jobs, none died.)
 - A plain `tools/heavy zig build` last. The coordinator runs the guards,
   the Trig and loco light gates, and the Linux checks.
