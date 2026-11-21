@@ -7834,7 +7834,12 @@ pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn
 
         fn run(p: *anyopaque) callconv(.c) void {
             const call: *@This() = @ptrCast(@alignCast(p));
-            call.result = callCode(@TypeOf(call.result), f, call.args);
+            // This frame holds Zig's trace of a failure leaving `main`,
+            // whose sites Zig drops once it is stored in memory: they
+            // are kept from the `const` first.
+            const result = callCode(@TypeOf(call.result), f, call.args);
+            keepMainTrace(result);
+            call.result = result;
         }
     };
     var call: Call = .{ .args = args };
@@ -8594,15 +8599,192 @@ pub fn finish() void {
 }
 
 /// A failure that left `main`, after its drops and `finish`: report the
-/// error as a Rig program shows it and exit 1. The cancel an interrupt
-/// sent ends the program as that signal does, with nothing shown.
+/// error as a Rig program shows it, with its trace, and exit 1. The
+/// cancel an interrupt sent ends the program as that signal does, with
+/// nothing shown.
 pub fn failMain(err: anyerror) noreturn {
     @branchHint(.cold);
+    var stack: [256]u8 = undefined;
+    var report: Spill = .init(&stack);
+    defer report.deinit();
+    if (comptime traced) {
+        report.writer.print("error: {s}\n", .{errorShown(err)}) catch {};
+        writeFailureTrace(&report.writer, @errorReturnTrace());
+    }
     lockOutput();
     flushQuietly();
     if (err == error.@"std.task.Stop.canceled") if (interruptedBy()) |sig| endBy(sig);
-    std.debug.print("error: {s}\n", .{errorShown(err)});
+    if (comptime traced) writeStderr(report.writer.buffered()) else std.debug.print("error: {s}\n", .{errorShown(err)});
     std.process.exit(1);
+}
+
+// Failure traces. In a build with Zig's error return traces (a debug
+// build), a failure that leaves `main` or a test is shown with the Rig
+// place of each site it passed, innermost first: where it began (a
+// failing `return`), then each `!` that passed it on, out to `main`.
+// Zig's trace holds the address of each `try` and failing `return` the
+// failure left a function by, and drops what a `catch` handled; the
+// debug information names the line and column of emitted Zig at each
+// address; and the sites file `bin/rig` writes beside each module
+// names the Rig place of each (`emit.placeSites`). A site in the
+// runtime or in Zig's library has no Rig place and is left out.
+
+/// Whether failures are traced: Zig keeps error return traces, and the
+/// program keeps the debug information that names their lines.
+pub const traced = builtin.have_error_return_tracing and !builtin.strip_debug_info and std.debug.SelfInfo != void;
+
+/// A trace kept past the frame that held it: Zig keeps one in each
+/// frame that starts a stack (`onOwnStack`, a task's fiber), as many
+/// addresses as it has room for, counting the rest in `index`.
+pub const KeptTrace = struct {
+    addresses: [32]usize = undefined,
+    index: usize = 0,
+
+    /// Keep Zig's trace `t`, of a failure leaving the frame that holds
+    /// it.
+    pub fn keep(self: *KeptTrace, t: ?*const std.lang.StackTrace) void {
+        const from = t orelse return;
+        const n = @min(from.index, from.instruction_addresses.len, self.addresses.len);
+        @memcpy(self.addresses[0..n], from.instruction_addresses[0..n]);
+        self.index = from.index;
+    }
+};
+
+/// The trace of a task's failure, for its waiter: Zig keeps a trace in
+/// the frame that starts each fiber, so a failure that leaves a task
+/// takes its sites to its waiter here, kept as the task ends (`keep`)
+/// and added to the waiter's trace where the waiter takes the failure
+/// (`pass`), or dropped with it. Kept only once a failure leaves the
+/// task, and only in a traced build: otherwise it has no bits.
+pub const TaskTrace = struct {
+    kept: if (traced) ?*KeptTrace else void = if (traced) null else {},
+
+    /// Keep the trace of `result` when it is a failure, read from the
+    /// trace of the frame this is inlined into.
+    pub inline fn keep(self: *TaskTrace, result: anytype) void {
+        if (comptime !traced or @typeInfo(@TypeOf(result)) != .error_union) return;
+        if (failed(result)) self.keepLive(@errorReturnTrace());
+    }
+
+    /// Out of line, as are `free` and `passTo`: Zig's allocator takes a
+    /// lock of its own, which a task must not hold where a signal may
+    /// stop it (`preempt_section`).
+    noinline fn keepLive(self: *TaskTrace, t: ?*const std.lang.StackTrace) void {
+        if (comptime !traced) return;
+        self.drop();
+        const k = std.heap.smp_allocator.create(KeptTrace) catch return;
+        k.* = .{};
+        k.keep(t);
+        self.kept = k;
+    }
+
+    /// Add the kept sites to the trace of the frame this is inlined into,
+    /// as if the failure had passed them there, and let them go.
+    pub inline fn pass(self: *TaskTrace) void {
+        if (comptime !traced) return;
+        self.passTo(@errorReturnTrace());
+    }
+
+    noinline fn passTo(self: *TaskTrace, live: ?*std.lang.StackTrace) void {
+        if (comptime !traced) return;
+        const k = self.kept orelse return;
+        if (live) |t| for (k.addresses[0..@min(k.index, k.addresses.len)]) |addr| {
+            if (t.index < t.instruction_addresses.len) t.instruction_addresses[t.index] = addr;
+            t.index += 1;
+        };
+        self.drop();
+    }
+
+    pub inline fn drop(self: *TaskTrace) void {
+        if (comptime traced) self.free();
+    }
+
+    noinline fn free(self: *TaskTrace) void {
+        if (comptime !traced) return;
+        if (self.kept) |k| std.heap.smp_allocator.destroy(k);
+        self.kept = null;
+    }
+
+    /// The kept sites, moved out of `self`.
+    pub fn take(self: *TaskTrace) TaskTrace {
+        const t = self.*;
+        if (comptime traced) self.kept = null;
+        return t;
+    }
+};
+
+/// Whether `result`, an error union, is a failure.
+pub fn failed(result: anytype) bool {
+    return if (result) |_| false else |_| true;
+}
+
+/// The trace of a failure that left `main`'s frame on the stack the
+/// runtime maps, which held Zig's trace (`onOwnStack`).
+var main_trace_var: KeptTrace = .{};
+const main_trace = split.cell(&main_trace_var, "runtime.main_trace");
+
+/// Keep the trace of `result` as `main`'s when it is a failure leaving
+/// the frame that holds Zig's trace.
+inline fn keepMainTrace(result: anytype) void {
+    if (comptime !traced or @typeInfo(@TypeOf(result)) != .error_union) return;
+    if (result) |_| {} else |_| main_trace.keep(@errorReturnTrace());
+}
+
+/// The trace of the failure being shown, `live` (Zig's trace where it
+/// is shown), or the one `main`'s frame kept, on a line of `w` each.
+fn writeFailureTrace(w: *std.Io.Writer, live: ?*const std.lang.StackTrace) void {
+    if (comptime !traced) return;
+    if (main_trace.index > 0) return writeTrace(w, main_trace.addresses[0..], main_trace.index);
+    const t = live orelse return;
+    writeTrace(w, t.instruction_addresses, t.index);
+}
+
+/// The Rig place of each site among `addresses`, the first of a trace's
+/// `count`, as `  file.rig:L:C` on a line of `w`; a count of those the
+/// trace had no room for.
+fn writeTrace(w: *std.Io.Writer, addresses: []const usize, count: usize) void {
+    if (comptime !traced) return;
+    const debug_io = std.Options.debug_io;
+    const info = std.debug.getSelfDebugInfo() catch return;
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var files: std.ArrayList(SitesFile) = .empty;
+    const n = @min(count, addresses.len);
+    for (addresses[0..n]) |addr| {
+        var symbols: std.ArrayList(std.debug.Symbol) = .empty;
+        // A return address is the instruction after the call.
+        info.getSymbols(debug_io, a, a, addr -| 1, false, &symbols) catch continue;
+        for (symbols.items) |sym| {
+            const loc = sym.source_location orelse continue;
+            const sites = sitesOf(a, debug_io, &files, loc.file_name) orelse continue;
+            if (placeAt(sites, loc.line, loc.column)) |place| w.print("  {s}\n", .{place}) catch {};
+        }
+    }
+    if (count > n) w.print("  ({d} more)\n", .{count - n}) catch {};
+}
+
+/// A file of emitted Zig and its sites, null for one with none.
+const SitesFile = struct { zig: []const u8, sites: ?[]const u8 };
+
+/// The sites of the emitted Zig file `zig`, read once from the file
+/// beside it (`emit.sites_suffix`).
+fn sitesOf(a: std.mem.Allocator, debug_io: std.Io, files: *std.ArrayList(SitesFile), zig: []const u8) ?[]const u8 {
+    for (files.items) |f| if (std.mem.eql(u8, f.zig, zig)) return f.sites;
+    const path = std.mem.concat(a, u8, &.{ zig, ".sites" }) catch return null;
+    const sites = std.Io.Dir.cwd().readFileAlloc(debug_io, path, a, .limited(1 << 30)) catch null;
+    files.append(a, .{ .zig = zig, .sites = sites }) catch {};
+    return sites;
+}
+
+/// The Rig place of the site at `line` and `column` of emitted Zig, from
+/// its sites, a line `L:C place` each.
+fn placeAt(sites: []const u8, line: u64, column: u64) ?[]const u8 {
+    var buf: [48]u8 = undefined;
+    const key = std.fmt.bufPrint(&buf, "{d}:{d} ", .{ line, column }) catch return null;
+    var lines = std.mem.splitScalar(u8, sites, '\n');
+    while (lines.next()) |l| if (std.mem.startsWith(u8, l, key)) return l[key.len..];
+    return null;
 }
 
 /// A failure leaving `main` or a test with its fields in `data`: shown as
@@ -8620,6 +8802,7 @@ pub fn reportFailure(err: anyerror, data: *ErrData) void {
     var report: Spill = .init(&stack);
     defer report.deinit();
     showFailure(err, data, &report.writer);
+    writeFailureTrace(&report.writer, @errorReturnTrace());
     lockOutput();
     defer unlockOutput();
     flushQuietly();
@@ -9867,6 +10050,7 @@ fn runTestsHere(modules: []const TestModule) void {
             w.print("FAIL  {f}: ", .{name}) catch {};
             if (error_glue) |g| g.print(err, &slot, w) catch {} else w.writeAll(errorShown(err)) catch {};
             w.writeAll("\n") catch {};
+            writeFailureTrace(w, @errorReturnTrace());
             dropErrorData(err, &slot);
             tests_failed.* += 1;
         }

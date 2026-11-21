@@ -83,8 +83,11 @@ pub fn Task(comptime T: type) type {
                     defer control.finish();
                     // A call that may fail with fields writes them into
                     // the task's record.
-                    if (comptime takesSlot(@TypeOf(f))) return rt.callCode(T, f, a ++ .{rt.failSlot(&control.err)});
-                    return rt.callCode(T, f, a);
+                    const result = if (comptime takesSlot(@TypeOf(f))) rt.callCode(T, f, a ++ .{rt.failSlot(&control.err)}) else rt.callCode(T, f, a);
+                    // This fiber's first frame holds Zig's trace of a
+                    // failure leaving the task, which its waiter takes.
+                    control.trace.keep(result);
+                    return result;
                 }
 
                 /// The record's arguments: the deadline of the task
@@ -274,7 +277,7 @@ pub fn Task(comptime T: type) type {
             if (canceledHere()) {
                 var result = t.stop();
                 if (comptime !fallible) return result;
-                dropResult(T, &result, &t.control.err);
+                dropResult(T, &result, t.control);
                 return canceled_error;
             }
             var result: T = undefined;
@@ -292,7 +295,7 @@ pub fn Task(comptime T: type) type {
             }
             result = job.taken();
             if (comptime fallible) if (timed_out) {
-                dropResult(T, &result, &t.control.err);
+                dropResult(T, &result, t.control);
                 return timeout_error;
             };
             // Canceled while it waited, even when the task ended before
@@ -300,9 +303,9 @@ pub fn Task(comptime T: type) type {
             // counts: a task its owner canceled, as `par.map` cancels its
             // helpers after a failure, leaves the owner as it was.
             const canceled = if (mine) |c| c.load(.acquire) else false;
-            if (!canceled) return keepResult(T, result, &t.control.err, out);
+            if (!canceled) return keepResult(T, result, t.control, out);
             if (comptime !fallible) return result;
-            dropResult(T, &result, &t.control.err);
+            dropResult(T, &result, t.control);
             return canceled_error;
         }
 
@@ -314,7 +317,7 @@ pub fn Task(comptime T: type) type {
         pub fn cancelInto(self: Self, out: anytype) T {
             var t = self;
             defer t.release();
-            return keepResult(T, t.stop(), &t.control.err, out);
+            return keepResult(T, t.stop(), t.control, out);
         }
 
         pub fn __rig_print(_: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
@@ -326,7 +329,7 @@ pub fn Task(comptime T: type) type {
         pub fn __rig_drop(self: *Self) void {
             defer self.release();
             var result = if (fallible or canceledHere()) self.stop() else self.job.join();
-            dropResult(T, &result, &self.control.err);
+            dropResult(T, &result, self.control);
         }
 
         /// The task has ended, as its waiter read (`Done`'s `ended`): let
@@ -379,30 +382,34 @@ fn takesSlot(comptime F: type) bool {
     return last == rt.ErrSlot;
 }
 
-/// Drop `result`, a task's: its value, or its failure's fields, which
-/// `data` holds.
-fn dropResult(comptime T: type, result: *T, data: *rt.ErrData) void {
+/// Drop `result`, a task's: its value, or its failure's fields and
+/// trace, which `control` holds.
+fn dropResult(comptime T: type, result: *T, control: *Control) void {
     if (comptime @typeInfo(T) == .error_union) {
-        if (result.*) |_| {} else |err| return rt.dropErrorData(err, data);
+        control.trace.drop();
+        if (result.*) |_| {} else |err| return rt.dropErrorData(err, &control.err);
     }
     dropElement(T, result);
 }
 
 /// `result`, a task's, as its waiter takes it: a failure's fields, which
-/// `data` holds, move into the waiter's slot `out`, or are dropped where
-/// the waiter has none.
-fn keepResult(comptime T: type, result: T, data: *rt.ErrData, out: anytype) T {
-    keepFailure(T, &result, data, out);
+/// `control` holds, move into the waiter's slot `out`, or are dropped
+/// where the waiter has none; its trace joins the waiter's.
+fn keepResult(comptime T: type, result: T, control: *Control, out: anytype) T {
+    keepFailure(T, &result, control, out);
     return result;
 }
 
-/// `keepResult`'s part for a failure: its fields, which `data` holds, move
-/// into `out`, or are dropped where there is none.
-fn keepFailure(comptime T: type, result: *const T, data: *rt.ErrData, out: anytype) void {
+/// `keepResult`'s part for a failure: its fields, which `control` holds,
+/// move into `out`, or are dropped where there is none, and the sites
+/// it passed in the task join the waiter's trace, outside any handling
+/// of the failure, which would drop them.
+fn keepFailure(comptime T: type, result: *const T, control: *Control, out: anytype) void {
     if (comptime @typeInfo(T) == .error_union) {
         if (result.*) |_| {} else |err| {
-            if (comptime @TypeOf(out) == rt.ErrSlot) rt.putFields(out, data) else rt.dropErrorData(err, data);
+            if (comptime @TypeOf(out) == rt.ErrSlot) rt.putFields(out, &control.err) else rt.dropErrorData(err, &control.err);
         }
+        control.trace.pass();
     }
 }
 
@@ -418,6 +425,9 @@ pub const Control = struct {
     /// takes a slot (`rt.ErrSlot`), until a waiter takes them or the
     /// task's result is dropped.
     err: rt.ErrData = undefined,
+    /// The sites the task's failure passed, which its waiter's trace
+    /// takes (`rt.TaskTrace`).
+    trace: rt.TaskTrace = .{},
     canceled: std.atomic.Value(bool) = .init(false),
     done: std.atomic.Value(bool) = .init(false),
     /// Listed among the ended tasks of its `Wakeup`, by its end or by the
@@ -692,7 +702,7 @@ pub fn waitTasksInto(tasks: anytype, out: anytype, comptime gives: bool) TaskVal
                 const result = ts[i].job.join();
                 // The first failure's fields move out of its record before
                 // the record is freed.
-                keepFailure(@TypeOf(result), &result, &ts[i].control.err, out);
+                keepFailure(@TypeOf(result), &result, ts[i].control, out);
                 ts[i].job.free();
                 const R = @TypeOf(result);
                 if (@typeInfo(R) == .error_union) {
@@ -719,7 +729,7 @@ pub fn waitTasksInto(tasks: anytype, out: anytype, comptime gives: bool) TaskVal
     inline for (0..n) |i| if (!taken[i]) ts[i].control.cancel();
     inline for (0..n) |i| if (!taken[i]) {
         var result = ts[i].job.join();
-        dropResult(@TypeOf(result), &result, &ts[i].control.err);
+        dropResult(@TypeOf(result), &result, ts[i].control);
         ts[i].job.free();
     };
     inline for (0..n) |i| if (got[i]) dropElement(@TypeOf(values[i]), &values[i]);
@@ -913,7 +923,7 @@ pub fn Tasks(comptime T: type) type {
                     const result = t.job.join();
                     // Its failure's fields are taken from its record
                     // before the record is freed.
-                    keepFailure(T, &result, &t.control.err, out);
+                    keepFailure(T, &result, t.control, out);
                     t.job.free();
                     if (result) |v| {
                         results[i] = v;
@@ -959,6 +969,7 @@ pub fn Tasks(comptime T: type) type {
             // before, whose fields are dropped.
             var last: ?Err = null;
             var last_data: rt.ErrData = undefined;
+            var last_trace: rt.TaskTrace = .{};
             while (true) {
                 const seen = s.wakeup.?.ticks.load(.seq_cst);
                 for (s.items.items, 0..) |*t, i| {
@@ -970,10 +981,13 @@ pub fn Tasks(comptime T: type) type {
                         if (last) |l| rt.dropErrorData(l, &last_data);
                         last = err;
                         last_data = t.control.err;
+                        last_trace.drop();
+                        last_trace = t.control.trace.take();
                     }
                     t.job.free();
                     if (result) |v| {
                         if (last) |l| rt.dropErrorData(l, &last_data);
+                        last_trace.drop();
                         s.stopUntaken(taken);
                         s.items.items.len = 0;
                         return v;
@@ -983,6 +997,7 @@ pub fn Tasks(comptime T: type) type {
                     s.items.items.len = 0;
                     const l = last.?;
                     if (comptime @TypeOf(out) == rt.ErrSlot) rt.putFields(out, &last_data) else rt.dropErrorData(l, &last_data);
+                    last_trace.pass();
                     return l;
                 }
                 rt.sched.block(&b);
@@ -990,6 +1005,7 @@ pub fn Tasks(comptime T: type) type {
                 rt.sched.unblock();
                 slept catch |err| {
                     if (last) |l| rt.dropErrorData(l, &last_data);
+                    last_trace.drop();
                     s.stopUntaken(taken);
                     s.items.items.len = 0;
                     return err;
@@ -1006,7 +1022,7 @@ pub fn Tasks(comptime T: type) type {
             for (self.items.items, taken) |*t, k| {
                 if (k) continue;
                 var result = t.job.join();
-                dropResult(T, &result, &t.control.err);
+                dropResult(T, &result, t.control);
                 t.job.free();
             }
         }
@@ -1034,7 +1050,7 @@ pub fn Tasks(comptime T: type) type {
             }
             for (self.items.items) |*t| {
                 var result = if (fallible or canceledHere()) t.job.join() else t.job.join();
-                dropResult(T, &result, &t.control.err);
+                dropResult(T, &result, t.control);
                 t.job.free();
             }
         }
@@ -1070,14 +1086,18 @@ const ParState = struct {
     failure: anyerror = undefined,
     /// The first failure's fields.
     failure_data: rt.ErrData = undefined,
+    /// The sites the first failure passed (`rt.TaskTrace`).
+    trace: rt.TaskTrace = .{},
 
-    /// Record `err`, with its fields in `data`, unless a failure came
-    /// first, whose fields are kept and these dropped.
+    /// Record `err`, with its fields in `data` and the sites it passed in
+    /// the caller's trace, unless a failure came first, whose fields are
+    /// kept and these dropped.
     fn fail(self: *ParState, err: anyerror, data: *rt.ErrData) void {
         // A flag set once, not a lock: uncounted for preemption.
         if (self.failed.cmpxchgStrong(false, true, .acq_rel, .acquire) == null) {
             self.failure = err;
             self.failure_data = data.*;
+            self.trace.keep(@as(anyerror!void, err));
         } else rt.dropErrorData(err, data);
     }
 };
@@ -1133,6 +1153,7 @@ fn parRun(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, comptime 
     for (helpers) |t| t.waitInto(rt.no_slot);
     if (comptime fallible) if (state.failed.load(.acquire)) {
         if (comptime @TypeOf(out) == rt.ErrSlot) rt.putFields(out, &state.failure_data) else rt.dropErrorData(state.failure, &state.failure_data);
+        state.trace.pass();
         return state.failure;
     };
 }
@@ -1301,6 +1322,7 @@ pub fn parWorkersInto(states: anytype, items: anytype, f: anytype, out_slot: any
         failed: std.atomic.Value(bool) = .init(false),
         failure: anyerror = undefined,
         failure_data: rt.ErrData = undefined,
+        trace: rt.TaskTrace = .{},
 
         const marked = fallible and gives and rt.needsDrop(V);
         const Ctx = @This();
@@ -1321,6 +1343,7 @@ pub fn parWorkersInto(states: anytype, items: anytype, f: anytype, out_slot: any
                         if (c.failed.cmpxchgStrong(false, true, .acq_rel, .acquire) == null) {
                             c.failure = err;
                             c.failure_data = slot;
+                            c.trace.keep(@as(anyerror!void, err));
                         } else rt.dropErrorData(err, &slot);
                         return;
                     };
@@ -1351,6 +1374,7 @@ pub fn parWorkersInto(states: anytype, items: anytype, f: anytype, out_slot: any
     }
     if (comptime fallible) if (ctx.failed.load(.acquire)) {
         if (comptime @TypeOf(out_slot) == rt.ErrSlot) rt.putFields(out_slot, &ctx.failure_data) else rt.dropErrorData(ctx.failure, &ctx.failure_data);
+        ctx.trace.pass();
         if (comptime marked) for (ctx.out, ctx.made) |*v, m| if (m) dropElement(V, v);
         if (comptime gives) rt.drop(&out);
         // Every failure is `f`'s, or a wait's `task.Stop` in it.
@@ -1537,10 +1561,17 @@ fn isolateWith(f: anytype, slot: rt.ErrSlot) IsolateOut(@TypeOf(f)) {
         rec: *Isolate,
         slot: rt.ErrSlot,
         result: R = undefined,
+        /// The sites a failure of `f` passed (`rt.TaskTrace`).
+        trace: rt.TaskTrace = .{},
 
         fn entry(p: *anyopaque) callconv(.c) noreturn {
             const run: *@This() = @ptrCast(@alignCast(p));
-            run.result = run.f.call(rt.argsWithSlot(F, .{}, run.slot));
+            // This frame starts a stack, and holds Zig's trace, whose
+            // sites of a failure Zig drops once it is stored in memory:
+            // they are kept from the `const` first.
+            const result = run.f.call(rt.argsWithSlot(F, .{}, run.slot));
+            run.trace.keep(result);
+            run.result = result;
             rt.sched.leaveApart(run.rec.home);
         }
     };
@@ -1549,7 +1580,11 @@ fn isolateWith(f: anytype, slot: rt.ErrSlot) IsolateOut(@TypeOf(f)) {
     rt.sched.runApart(&rec.home, &run, Run.entry);
     task().isolate = rec.outer;
     rec.giveBack();
-    if (rec.panicked.load(.seq_cst)) return panicked_error;
+    if (rec.panicked.load(.seq_cst)) {
+        run.trace.drop();
+        return panicked_error;
+    }
+    run.trace.pass();
     return run.result;
 }
 
