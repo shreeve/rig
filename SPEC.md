@@ -708,6 +708,12 @@ writes an element, with an index of any integer type; an index outside the half-
 panics, and a constant one is rejected where the length is known.
 `xs.get(i)` reads one as a `T?`, `none` when `i` is out of range, as a
 List's does.
+A `Map`, a `HashMap`, a `Set`, and a `HashSet` take no index: `xs[i]` is a
+place, and `m[k]` cannot be one without panicking on an absent key or giving
+an optional, and an assignment would hide an insertion and an allocation. They
+are read with `get` and `has`, written with `put`, `add`, and `edit`, and
+changed in place with `ensure`; the error names the one that fits the form
+written.
 An array holds any value, as a List does, and drops its elements with
 itself; `for x in <a` hands them over one at a time. `[n of x]`
 copies `x` into every slot, so it needs a value that copies. An array
