@@ -183,5 +183,7 @@ On the Mac, through `tools/heavy`:
   identical, 38 programs, 583 files. No program outside the new tests
   uses std.datetime, and the checker's new variants change no emitted
   Zig.
-- The whole core suite once, and a plain `tools/heavy zig build` last
-  (below).
+- The whole core suite once (`tools/heavy --class correctness swarm
+  test/rig.rip -w 4`): 12,330 jobs in 587 s, none died.
+- A plain `tools/heavy zig build` last. The coordinator runs the guards,
+  the Trig and loco light gates, and the Linux checks.
