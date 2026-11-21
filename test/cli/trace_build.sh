@@ -23,7 +23,7 @@ sub main()
   print(twice("x")!)
 R
 rig build -o v1 prog.rig >/dev/null 2>&1 || fail "rig build v1"
-want=$'error: E.bad\n  prog.rig:5:3\n  prog.rig:9:7\n  prog.rig:13:9'
+want=$'error: E.bad\n  prog.rig:5:3 in parse\n  prog.rig:9:7 in twice\n  prog.rig:13:9 in main'
 out=$(./v1 2>&1); expect_rc $? 1 "v1 fails"
 expect_eq "$out" "$want" "v1's trace"
 
@@ -48,7 +48,7 @@ sub main()
   print(twice("x")!)
 R
 rig build -o v2 prog.rig >/dev/null 2>&1 || fail "rig build v2"
-out=$(./v2 2>&1); expect_eq "$out" $'error: E.bad\n  prog.rig:9:3\n  prog.rig:14:7\n  prog.rig:18:9' "v2's trace"
+out=$(./v2 2>&1); expect_eq "$out" $'error: E.bad\n  prog.rig:9:3 in parse\n  prog.rig:14:7 in twice\n  prog.rig:18:9 in main' "v2's trace"
 out=$(./v1 2>&1); expect_eq "$out" "$want" "v1's trace after v2 was built from the same root"
 
 # Embedded bytes with one zero byte, and with two around a place.

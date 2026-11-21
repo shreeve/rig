@@ -9,22 +9,27 @@ leaves `main` printed only `error: E.name`, with no place.
 
 ```text
 error: E.worse
-  a.rig:6:3
-  a.rig:10:7
-  a.rig:14:22
-  a.rig:19:9
+  a.rig:6:3 in parse
+  a.rig:10:7 in twice
+  a.rig:14:22 in convert
+  a.rig:19:9 in main
 ```
 
 The `error:` line stays first and unchanged, so whatever reads it still
-works. A line `  file.rig:L:C` follows for each site, innermost first:
+works. A line `  file.rig:L:C in NAME` follows for each site, innermost first:
 the failing `return` where the failure began, each `!` that passed it on,
 and, for a failure made in a handler (`twice(s) catch |e| return
 E.worse`, line 14 above), the handled failure's sites before the
 handler's `return`. Innermost first is Zig's own order (and a panic's
 stack trace's), and it puts the line that matters most, where the
 failure began, right under the `error:` line. A site is shown as Rig's
-diagnostics and `panic` show a place, `file.rig:L:C`, with no other word:
-the source at that place says whether it is a `return` or a `!`.
+diagnostics and `panic` show a place, `file.rig:L:C` first, so
+terminals and editors link it, then ` in` and the function it is in,
+as Zig, Rust, and Go traces name theirs: `Box.take` for a method, `a
+closure in main` for a closure, `test "name"` for a test, and a task's
+function for its body. The owner chose the name over the bare place
+(2026-11-21), after review; emit knows the function where it marks the
+site, so the name rides in the sites table at no cost to the run.
 `rig test` prints a failing test's trace after its `FAIL` line, on
 stdout with it.
 
@@ -56,8 +61,8 @@ handled. Probes (Zig 0.17.0, aarch64-macos) settled what it holds:
 Each address's Zig line and column come from the debug information,
 read as Zig's own traces read it (`SelfInfo.getSymbols`). The Rig place
 of each Zig line and column comes from a table each module carries,
-one line `L:C file.rig:L:C` per site. Emit
-marks each site in its text, `\0file.rig:L:C\0` before the `try` or the
+one line `L:C file.rig:L:C in NAME` per site. Emit
+marks each site in its text, `\0file.rig:L:C in NAME\0` before the `try` or the
 `return` (a zero byte, which Zig source never holds), and the marks stay
 until `writePackage` writes the file, after the last change to its text:
 an `$embed`'s directory, a batch's rewritten import paths, and

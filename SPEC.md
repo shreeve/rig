@@ -12813,8 +12813,11 @@ fun find(n: Int) -> Int!
 
 In a debug build (`rig run`, `rig test`, `rig build` without
 `--release`), a failure that leaves `main` is shown with its trace: after
-the `error:` line, a line `  file.rig:L:C` for each site the failure
-passed, innermost first. The first is the failing `return` where it
+the `error:` line, a line `  file.rig:L:C in NAME` for each site the
+failure passed, innermost first: its place, then the function it is in,
+named as Rig names it elsewhere (`Date.add` for a method, `a closure in
+main` for a closure, `test "name"` for a test; a task's body is its
+function). The first is the failing `return` where it
 began, and each after it a `!` that passed it on, out to the `!` in
 `main`. `rig test` shows a failing test's trace the same way, after its
 `FAIL` line. The trace is what happened:
@@ -12866,9 +12869,9 @@ sub main()
 
 ```stderr exit=1
 error: Config.missing
-  main.rig:5:3
-  main.rig:9:14
-  main.rig:13:9
+  main.rig:5:3 in port
+  main.rig:9:14 in ports
+  main.rig:13:9 in main
 ```
 
 ### Naming the error

@@ -98,7 +98,7 @@ sub main()!
   print(twice(half.half, 6)!)
 EOF2
 out=$(RIG_STD="$PWD/lib" rig run main.rig 2>&1); expect_rc $? 1 "fallible shim: $out"
-expect_eq "$out" $'4 3\nOdd.odd true\nodd -1\n3 5 1.5\nerror: Odd.odd\n  main.rig:4:3\n  main.rig:17:9' "fallible shim"
+expect_eq "$out" $'4 3\nOdd.odd true\nodd -1\n3 5 1.5\nerror: Odd.odd\n  main.rig:4:3 in twice\n  main.rig:17:9 in main' "fallible shim"
 
 # A shim whose function's type differs from what its Rig signature
 # lowers to fails the build, naming the declaration, so the program does

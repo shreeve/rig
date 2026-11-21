@@ -908,8 +908,8 @@ checkRunWith = (c, seedEnv, seedNote) ->
   exitWant = Number(c.opts.exit ?? (if panic? then 134 else 0))
   throw new Error("expected exit #{exitWant}, got #{r.code}#{mode}: #{firstLine(r.err)}") unless r.code is exitWant
   # A release build shows a failure with no trace: its expected stderr
-  # is the debug build's without the trace's lines (`  file.rig:L:C`).
-  untraced = (text) -> if c.release then text.split('\n').filter((l) -> not /^  \S+\.rig:\d+:\d+$/.test(l)).join('\n') else text
+  # is the debug build's without the trace's lines (`  file.rig:L:C in f`).
+  untraced = (text) -> if c.release then text.split('\n').filter((l) -> not /^  \S+\.rig:\d+:\d+( in .*)?$/.test(l)).join('\n') else text
   if c.opts.stderr?
     shown = r.err.split('\n').filter((l) -> not /^error: rig: the program was killed by signal \d+$/.test(l)).join('\n')
     throw new Error("stderr differs#{mode}") unless shown is untraced(c.opts.stderr + '\n')

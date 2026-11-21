@@ -3,7 +3,7 @@
 # began, then each `!` that passed it on; a release build shows none (the
 # runner drops the trace's lines from what it expects there).
 
-test "a trace names where a failure began and each `!` that passed it", exit: 1, file: "began.rig", stderr: "error: E.bad\n  began.rig:5:3\n  began.rig:9:7\n  began.rig:14:9", release: true, '''
+test "a trace names where a failure began and each `!` that passed it", exit: 1, file: "began.rig", stderr: "error: E.bad\n  began.rig:5:3 in parse\n  began.rig:9:7 in twice\n  began.rig:14:9 in main", release: true, '''
   4
 '''
   error E
@@ -21,7 +21,7 @@ test "a trace names where a failure began and each `!` that passed it", exit: 1,
     print(twice("ab")!)
     print(twice("x")!)
 
-test "a trace leaves out a failure `catch` handled, and keeps one it made another", exit: 1, file: "caught.rig", stderr: "error: E.worse\n  caught.rig:6:3\n  caught.rig:10:7\n  caught.rig:16:22\n  caught.rig:20:9", '''
+test "a trace leaves out a failure `catch` handled, and keeps one it made another", exit: 1, file: "caught.rig", stderr: "error: E.worse\n  caught.rig:6:3 in parse\n  caught.rig:10:7 in twice\n  caught.rig:16:22 in convert\n  caught.rig:20:9 in main", '''
   errdefer ran
 '''
   error E
@@ -45,7 +45,7 @@ test "a trace leaves out a failure `catch` handled, and keeps one it made anothe
   sub main()
     print(convert("x")!)
 
-test "a trace passes through a closure and the function that calls it", exit: 1, file: "closure.rig", stderr: "error: E.bad\n  closure.rig:5:3\n  closure.rig:14:58\n  closure.rig:10:5\n  closure.rig:14:3"
+test "a trace passes through a closure and the function that calls it", exit: 1, file: "closure.rig", stderr: "error: E.bad\n  closure.rig:5:3 in parse\n  closure.rig:14:58 in a closure in main\n  closure.rig:10:5 in each\n  closure.rig:14:3 in main"
   error E
     bad
 
@@ -61,7 +61,7 @@ test "a trace passes through a closure and the function that calls it", exit: 1,
     total = *Cell(0)
     each(["ab", "x"], |+total, l| !total.set(total.get() + parse(l)!))!
 
-test "a trace carries a task's sites to its waiter", exit: 1, file: "task.rig", stderr: "error: E.bad\n  task.rig:7:3\n  task.rig:11:3\n  task.rig:15:9", seeds: 20
+test "a trace carries a task's sites to its waiter", exit: 1, file: "task.rig", stderr: "error: E.bad\n  task.rig:7:3 in parse\n  task.rig:11:3 in work\n  task.rig:15:9 in main", seeds: 20
   use std.task
 
   error E
@@ -78,7 +78,7 @@ test "a trace carries a task's sites to its waiter", exit: 1, file: "task.rig", 
     t = work(String("x"))&
     print(>t!)
 
-test "a trace carries the sites of the last failure `wait_first` gives", exit: 1, file: "first.rig", stderr: "error: E.bad\n  first.rig:7:3\n  first.rig:14:10", seeds: 20
+test "a trace carries the sites of the last failure `wait_first` gives", exit: 1, file: "first.rig", stderr: "error: E.bad\n  first.rig:7:3 in fails\n  first.rig:14:10 in main", seeds: 20
   use std.task
 
   error E
@@ -94,7 +94,7 @@ test "a trace carries the sites of the last failure `wait_first` gives", exit: 1
     !ts.add(fails(2)&)
     print(<ts.wait_first()!)
 
-test "a trace carries the sites of a failure in `task.isolate`", exit: 1, file: "isolate.rig", stderr: "error: E.bad\n  isolate.rig:7:3\n  isolate.rig:11:23\n  isolate.rig:11:7"
+test "a trace carries the sites of a failure in `task.isolate`", exit: 1, file: "isolate.rig", stderr: "error: E.bad\n  isolate.rig:7:3 in parse\n  isolate.rig:11:23 in a closure in main\n  isolate.rig:11:7 in main"
   use std.task
 
   error E
@@ -108,7 +108,7 @@ test "a trace carries the sites of a failure in `task.isolate`", exit: 1, file: 
     n = task.isolate(|| parse("x")!)!
     print(n)
 
-test "a trace carries the sites of the failure that stopped `par.map`", exit: 1, file: "par.rig", stderr: "error: E.bad\n  par.rig:7:3\n  par.rig:14:25\n  par.rig:14:8", seeds: 20
+test "a trace carries the sites of the failure that stopped `par.map`", exit: 1, file: "par.rig", stderr: "error: E.bad\n  par.rig:7:3 in parse\n  par.rig:14:25 in a closure in main\n  par.rig:14:8 in main", seeds: 20
   use std.par
 
   error E
@@ -125,7 +125,7 @@ test "a trace carries the sites of the failure that stopped `par.map`", exit: 1,
     ys = par.map(?xs, |x| parse(x)! * 2, limit: 4)!
     print(ys)
 
-test "a trace passes through an actor's method", exit: 1, file: "actor.rig", stderr: "error: E.bad\n  actor.rig:10:5\n  actor.rig:17:9", '''
+test "a trace passes through an actor's method", exit: 1, file: "actor.rig", stderr: "error: E.bad\n  actor.rig:10:5 in Box.take\n  actor.rig:17:9 in main", '''
   1
 '''
   use std.task
@@ -146,7 +146,7 @@ test "a trace passes through an actor's method", exit: 1, file: "actor.rig", std
     print((!a).take(2)!)
     print((!a).take(5)!)
 
-test "a trace of nested tasks names each site once on the threaded scheduler", exit: 1, file: "nested.rig", stderr: "error: E.bad\n  nested.rig:7:3\n  nested.rig:11:3\n  nested.rig:15:3\n  nested.rig:19:3\n  nested.rig:23:9"
+test "a trace of nested tasks names each site once on the threaded scheduler", exit: 1, file: "nested.rig", stderr: "error: E.bad\n  nested.rig:7:3 in parse\n  nested.rig:11:3 in l3\n  nested.rig:15:3 in l2\n  nested.rig:19:3 in l1\n  nested.rig:23:9 in main"
   use std.task
 
   error E
@@ -171,7 +171,7 @@ test "a trace of nested tasks names each site once on the threaded scheduler", e
     t = l1(1)&
     print(>t!)
 
-test "a trace of nested tasks names each site once under a seed", exit: 1, file: "nested_seeded.rig", stderr: "error: E.bad\n  nested_seeded.rig:7:3\n  nested_seeded.rig:11:3\n  nested_seeded.rig:15:3\n  nested_seeded.rig:19:3\n  nested_seeded.rig:23:9", seeds: 20
+test "a trace of nested tasks names each site once under a seed", exit: 1, file: "nested_seeded.rig", stderr: "error: E.bad\n  nested_seeded.rig:7:3 in parse\n  nested_seeded.rig:11:3 in l3\n  nested_seeded.rig:15:3 in l2\n  nested_seeded.rig:19:3 in l1\n  nested_seeded.rig:23:9 in main", seeds: 20
   use std.task
 
   error E
@@ -196,7 +196,7 @@ test "a trace of nested tasks names each site once under a seed", exit: 1, file:
     t = l1(1)&
     print(>t!)
 
-test "a trace keeps the first 32 returns and counts the rest", exit: 1, file: "deep.rig", stderr: "error: E.bad\n  deep.rig:5:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  deep.rig:6:3\n  (10 more)"
+test "a trace keeps the first 32 returns and counts the rest", exit: 1, file: "deep.rig", stderr: "error: E.bad\n  deep.rig:5:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  deep.rig:6:3 in down\n  (10 more)"
   error E
     bad
 
@@ -207,7 +207,7 @@ test "a trace keeps the first 32 returns and counts the rest", exit: 1, file: "d
   sub main()
     print(down(40)!)
 
-test "a trace leaves out where a failure began when a `defer` handled another", exit: 1, file: "deferred.rig", stderr: "error: E.bad\n  deferred.rig:14:3\n  deferred.rig:17:9", '''
+test "a trace leaves out where a failure began when a `defer` handled another", exit: 1, file: "deferred.rig", stderr: "error: E.bad\n  deferred.rig:14:3 in work\n  deferred.rig:17:9 in main", '''
   defer -2
 '''
   error E

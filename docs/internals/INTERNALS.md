@@ -5504,9 +5504,10 @@ runs what is named below:
   last change to the text (an `$embed`'s directory, a batch's import
   paths, `RIG_MAP_TRACE`'s wrappers), where `emit.placeSites` takes them
   out of each module emit wrote (`PackageFile.module`; an embedded file
-  keeps its bytes) and gives its sites: a line `L:C file.rig:L:C` for
-  each, the Zig line and column of the `try` or `return`, then the Rig
-  place. The module carries them at its end as `__rig_sites`
+  keeps its bytes) and gives its sites: a line `L:C file.rig:L:C in
+  NAME` for each, the Zig line and column of the `try` or `return`,
+  then the Rig place and the function it is in (`FunState.name`:
+  `Type.method`, `test "name"`, `a closure in NAME`). The module carries them at its end as `__rig_sites`
   (`emit.writeSiteTable`): the text, and `__rig_sites_anchor`, a
   function of its own whose address the debug information names the
   module's file by. So the places travel with the executable, and one

@@ -404,8 +404,9 @@ serve no HTTP.
 ### Added
 
 - **A failure's trace in debug builds.** A failure that leaves `main`
-  writes `error: E.name` as before, then a line `  file.rig:L:C` for
-  each site it passed, innermost first: the `return` where it began,
+  writes `error: E.name` as before, then a line `  file.rig:L:C in
+  NAME` for each site it passed, innermost first, naming the function
+  each is in (`Box.take`, `a closure in main`): the `return` where it began,
   then each `!` that passed it on, out to `main`. `rig test` shows a
   failing test's trace after its `FAIL` line. A failure a `catch`
   handled leaves no site, one made in a handler keeps the sites of the

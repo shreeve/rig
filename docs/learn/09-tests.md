@@ -95,8 +95,8 @@ ok    test "a negative quantity is refused"
 ok    test "a crowd is refused"
 FAIL  test "twelve items, written wrongly": total(100, 12)! == 1200 is false
 FAIL  test "the total can fail": Price.negative
-  price.rig:7:3
-  price.rig:35:3
+  price.rig:7:3 in total
+  price.rig:35:3 in test "the total can fail"
 1
 ok    test "it prints and passes"
 5 passed, 2 failed
