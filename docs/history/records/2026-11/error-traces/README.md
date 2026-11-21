@@ -55,23 +55,42 @@ handled. Probes (Zig 0.17.0, aarch64-macos) settled what it holds:
 
 Each address's Zig line and column come from the debug information,
 read as Zig's own traces read it (`SelfInfo.getSymbols`). The Rig place
-of each Zig line and column comes from a file `bin/rig` writes beside
-each module, `X.zig.sites`, one line `L:C file.rig:L:C` per site. Emit
+of each Zig line and column comes from a table each module carries,
+one line `L:C file.rig:L:C` per site. Emit
 marks each site in its text, `\0file.rig:L:C\0` before the `try` or the
 `return` (a zero byte, which Zig source never holds), and the marks stay
 until `writePackage` writes the file, after the last change to its text:
 an `$embed`'s directory, a batch's rewritten import paths, and
 `RIG_MAP_TRACE`'s wrappers all shift columns on their lines, so
-taking the marks out any earlier would name wrong columns. A table
-compiled into the program was the other choice; it needs a way for the
-runtime to reach every module's table (a batch's root is not the
-program's), costs the program bytes, and changes the code; the file
-beside each module costs nothing, and is there exactly when the debug
-information is (both live in the package and the Zig cache).
+taking the marks out any earlier would name wrong columns. Only the
+modules emit wrote are read (`PackageFile.module`): an embedded file
+is its bytes, zero bytes among them.
 
-A site is matched by its exact Zig line and column; an address in the
-runtime, Zig's library, or a shim matches nothing and is left out, so a
-wrong place cannot be shown, only a missing one.
+The table is `__rig_sites` at the module's end (`emit.writeSiteTable`):
+the text, and a function of the module's own, `__rig_sites_anchor`,
+whose address the debug information names the module's file by,
+exactly as it names a trace's addresses, so a site is found in the
+table whose anchor names the same file. The root names the program's
+other modules (`__rig_sites_of`); a batch's root and `rig test`'s
+driver name the programs (`__rig_site_programs`), and a split build's
+unit reaches its program through `__rig_program`; `rig.siteTables`
+gathers the tables when the program is compiled, and a release build,
+which never reads them, compiles none.
+
+The first build wrote the sites beside each module in the package, in
+`X.zig.sites`, and read them from there. Review found that wrong: an
+executable `rig build` made keeps its code and debug information, but
+the package directory is rewritten by the next build of the same root,
+so an older executable printed the newer source's places
+(test/cli/trace_build.sh). The table travels with the executable, so
+that cannot happen. The objections first raised against a table did not
+hold: a release build compiles none of it, and the registry is a list
+in the root.
+
+A site is matched by its exact Zig line and column in its module's own
+table; an address in the runtime, Zig's library, or a shim matches
+nothing and is left out, so a wrong place cannot be shown, only a
+missing one.
 
 ## Across stacks
 
@@ -92,6 +111,20 @@ unit owns through that unit's exported C thunk, a fresh trace too: the
 thunk keeps a failure's sites in a thread-local, and `split.call` adds
 them to the caller's (test/cli/units.sh found it: three units printed
 fewer sites than one).
+
+Review found a fork run on its waiter's stack (`sched.runHere`, which
+the threaded scheduler uses and `--seed` does not) printed its sites
+twice per level of nesting: its runner shares the waiter's trace, so
+the sites it kept were already there when the waiter added them. The
+runner now keeps only what its trace recorded since it began
+(`rt.traceIndex`), and a waiter does not add sites kept from its own
+trace, where they stayed (`KeptTrace.shared`); `par`'s chunk run by the
+caller is caught there, so its sites are added. errors-trace has the
+nested case with and without seeds.
+
+`failMain` reads no trace when an interrupt canceled `main`, which
+ends with nothing shown: in a debug build reading the debug
+information takes about 70 ms.
 
 ## Build modes
 
@@ -151,12 +184,14 @@ files when it is shown, once, as the program ends.
 
 ## Tests
 
-- New: test/rig/errors-trace.rig.test, eight cases: the sites of a
+- New: test/cli/trace_build.sh, an executable's places after a later
+  build of the same root, and embedded zero bytes; test/rig/errors-trace.rig.test, twelve cases: the sites of a
   plain failure (debug and release), `catch` dropping a handled failure
   and keeping one made in a handler with `errdefer` between, a closure
   and the function calling it, a task, a set's `wait_first`,
-  `task.isolate`, `par.map`, an actor's method. A unit test of
-  `placeSites`.
+  `task.isolate`, `par.map`, an actor's method, nested tasks with and
+  without seeds, the `(N more)` line, and a `defer` that catches. A unit
+  test of `placeSites`.
 - Updated to the new output: four cases' `stderr:` (errors-data
   467 and 478, runtime-misc 681, runtime-stack-guard 9), test/cli's
   exit_status.sh (two), std_shims.sh (one) and test_blocks.sh (three
@@ -184,7 +219,8 @@ On the Mac, through `tools/heavy`, at the branch's last commit:
   build's debug information lives in, so a second run printed no trace.
 - tools/emit-diff against main (a27de8024, whose changes since the base
   are docs only) differs in 36 of 38 programs, every difference
-  explained: a new `X.zig.sites` beside each module with a site; the
+  explained: a table of sites (`__rig_sites`) at the end of each module
+  with a site, and the list of modules (`__rig_sites_of`) in the root; the
   runtime's own files (rig/runtime.zig, rig/tasks.zig, rig/split.zig);
   and, in the modules, only `var __rig_v_N = f(...)` written as `const
   __rig_c_N = f(...); var __rig_v_N = __rig_c_N;` for each call that
@@ -201,4 +237,9 @@ On the Mac, through `tools/heavy`, at the branch's last commit:
   executable whose package was removed shows the `error:` line alone,
   as its panics show no Zig trace.
 - Zig's trace holds 32 returns, the runtime's among them; a failure
-  that made more shows the first 32 and a count.
+  that made more shows the first 32 (the innermost) and a count, and
+  in deep recursion `main`'s line is among those counted
+  (errors-trace's deep case).
+- A `defer` or `errdefer` that handles another failure with `catch` as
+  the failure leaves drops the place it began: Zig's own trace does the
+  same (a plain Zig program shows it), and SPEC §13 says so.

@@ -411,8 +411,9 @@ serve no HTTP.
   handled leaves no site, one made in a handler keeps the sites of the
   one it handled, and one a task, `task.isolate`, or `par` passes to its
   waiter keeps the sites it passed there. It comes from Zig's error
-  return traces and the debug information, with a file of each module's
-  sites beside it (`X.zig.sites`). A release build leaves Zig's traces
+  return traces and the debug information, with a table of each
+  module's sites it carries, so an executable's places are its own. A
+  release build leaves Zig's traces
   out, as they would cost std.json 0.2 to 5.0% more instructions, and
   writes the `error:` line alone; its std.json, table, and std.text
   guards, and `rig check`'s, are level with main (SPEC §13, "A

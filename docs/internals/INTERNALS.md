@@ -5494,7 +5494,8 @@ program-wide mode.
 A debug build shows a failure that leaves `main`, or a test, with the
 Rig place of each site it passed (SPEC §13, "A failure's trace"), from
 Zig's error return trace, which a debug build keeps and a release build
-leaves out. Nothing is added to the code that runs:
+leaves out. A release build runs none of what follows; a debug build
+runs what is named below:
 
 - **Sites.** Emit marks each `!`, before its `try`, and each `return`
   whose value may be an error, with its Rig place between two zero
@@ -5502,10 +5503,19 @@ leaves out. Nothing is added to the code that runs:
   stay in the package's text until `writePackage` writes it, after the
   last change to the text (an `$embed`'s directory, a batch's import
   paths, `RIG_MAP_TRACE`'s wrappers), where `emit.placeSites` takes them
-  out and writes, beside each module, `X.zig.sites`: a line `L:C
-  file.rig:L:C` for each, the Zig line and column of the `try` or
-  `return`, then the Rig place. `rig emit` prints the root module
-  without its marks.
+  out of each module emit wrote (`PackageFile.module`; an embedded file
+  keeps its bytes) and gives its sites: a line `L:C file.rig:L:C` for
+  each, the Zig line and column of the `try` or `return`, then the Rig
+  place. The module carries them at its end as `__rig_sites`
+  (`emit.writeSiteTable`): the text, and `__rig_sites_anchor`, a
+  function of its own whose address the debug information names the
+  module's file by. So the places travel with the executable, and one
+  built from older source never reads a newer build's. The root names
+  the program's other modules (`__rig_sites_of`), and a batch's root,
+  or `rig test`'s driver, the programs (`__rig_site_programs`);
+  `rig.siteTables` collects their tables when the program is compiled,
+  and a release build, which never reads them, compiles none. `rig emit`
+  prints the root module without its marks or table.
 - **The trace.** Zig keeps a trace in the first frame of each stack
   (`onOwnStack`'s, each fiber's): the address of each `try` and failing
   `return` the failure left a function by, with what a `catch` handled
@@ -5516,16 +5526,20 @@ leaves out. Nothing is added to the code that runs:
   it stores it.
 - **Showing it.** `rig.writeTrace` reads each address's Zig line and
   column from the debug information, as Zig's own traces do, then the
-  Rig place from the module's sites file; an address in the runtime or
-  in Zig's library has none and is left out. `failMain` and
-  `reportFailure` show `main`'s, which a `main` that runs on the
-  runtime's stack keeps as it leaves (`keepMainTrace`), and
-  `runTests` a test's, after its `FAIL` line.
+  Rig place from the table of the module whose anchor names the same
+  file; an address in the runtime or in Zig's library matches none and
+  is left out. `failMain` and `reportFailure` show `main`'s, which a
+  `main` that runs on the runtime's stack keeps as it leaves
+  (`keepMainTrace`), and `runTests` a test's, after its `FAIL` line. A
+  `main` an interrupt canceled shows nothing and reads no trace.
 - **Across stacks.** A task's failure takes its sites to its waiter in
-  `rt.TaskTrace`: the task's `Control` keeps them as the task ends
-  (`Runner.run`), and the waiter adds them to its own trace where it
-  takes the failure (`keepFailure`), outside any handling of it, which
-  would drop them; `dropResult` frees them. `wait_first` keeps its last
+  `rt.TaskTrace`: the task's `Control` keeps what its trace recorded
+  since the task began (`Runner.run`, `rt.traceIndex`), and the waiter
+  adds them to its own trace where it takes the failure (`keepFailure`),
+  outside any handling of it, which would drop them; `dropResult` frees
+  them. A fork run on its waiter's stack (`sched.runHere`) shares the
+  waiter's trace, where its sites stay, so they are not added again
+  (`KeptTrace.shared`). `wait_first` keeps its last
   failure's, `task.isolate` its run's, and `par.map`, `par.each` and
   `par.workers` the first failure's, kept where it is caught. In a
   split build a call into the unit that owns a cut function goes

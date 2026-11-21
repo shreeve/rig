@@ -12829,12 +12829,20 @@ began, and each after it a `!` that passed it on, out to the `!` in
   the task, then the waiter's.
 - A failure that began in the runtime or a Zig shim starts at the first
   `!` in Rig code.
+- A `defer` or `errdefer` that handles another failure with `catch`, as
+  the failure leaves its function, drops the place where the failure
+  began: the trace then starts at the first `!` that passed it on.
 
 A trace holds the first 32 returns the failure made, the runtime's
-among them, and counts the rest on a last line, `  (N more)`. A
-release build (`--release`) shows the `error:` line
-alone: the trace comes from Zig's error return traces, which a release
-build leaves out, as they cost a few percent on code that can fail.
+among them, and counts the rest on a last line, `  (N more)`. An
+executable carries its own places, and reads each address's line from
+its debug information: without it, as from `rig build --strip`, or on
+the Mac once the objects Zig left in the package are removed, a failure
+shows the `error:` line alone. So does an interrupt that ends `main`,
+which shows nothing at all. A release build (`--release`) shows the
+`error:` line alone: the trace comes from Zig's error return traces,
+which a release build leaves out, as they cost a few percent on code
+that can fail.
 
 ```rig
 error Config
