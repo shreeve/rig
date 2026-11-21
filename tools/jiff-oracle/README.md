@@ -90,13 +90,23 @@ its offset rounded to the minute), a duration in ISO 8601.
 | `zoned.add ZONE INSTANT Y M W D DUR` | ZONED | `z.checked_add(d, years:, …)` |
 | `time.add TIME DUR` | the wrapped TIME, then `checked_add`'s | `t.add(d)`, `t.checked_add(d)` |
 | `instant.add INSTANT DUR` | INSTANT | `i.checked_add(d)` |
+| `date.nth_weekday DATE N WEEKDAY` | DATE | `d.nth_weekday(n, w)` |
+| `date.nth_weekday_of_month DATE N WEEKDAY` | DATE | `d.nth_weekday_of_month(n, w)` |
+| `date.with DATE Y M D` | DATE | `d.with(year:, month:, day:)` |
+| `time.since TIME TIME` | DUR, or `skip` | `a.since(b)` |
+| `datetime.since DATETIME DATETIME` | DUR, or `skip` beyond `Duration`'s range | `a.since(b)` |
 
 Every date of 19 years (-9999, -9998, -1, 0, 1, 4, 100, 1600, 1900, 1969,
 1970, 2000, 2023, 2024, 2025, 2100, 2400, 9998, 9999) against each month
 offset from -24 to 24, against ±1, 4, 100, 400 and 19,998 years and
 19,999, and three mixed amounts; then dates and times, zoned values (in
 the zones of `gen.py`'s `ZONES` and every name) and times of day with
-random amounts.
+random amounts. Then, from a stream of their own, each date of the 19
+years with `nth_weekday` of 1, -1, and one of ±2, ±5, ±53, 0 and
+±1,000,000, `nth_weekday_of_month` twice with `n` from -6 to 6, and
+`with` of a random date's parts or an impossible one; and 10,000
+`time.since` and 20,000 `datetime.since`, which answers `skip` beyond an
+`Int` of nanoseconds, where Rig saturates (§6.6).
 
 ### 2. Zones (`zones.in`)
 
@@ -171,6 +181,19 @@ ISO 8601: Rig's `print` of a duration is its own (§9 item 8).
 `RoundMode::Floor`. Only increments Rig allows (§6.8) are given; values
 fall often on a multiple or exactly half way.
 
+## std.datetime's answers
+
+`answer.rig` gives std.datetime's answers to the same lines, for the
+cases it has so far; a case it has not yet prints `-`, and so does a
+`datetime.add` or `time.add` whose duration is beyond a `Duration`'s
+range (§5.1).
+
+```bash
+bin/rig build --release tools/jiff-oracle/answer.rig -o DIR/answer
+DIR/answer DIR/calendar.in > DIR/calendar.rig
+paste -d '\t' DIR/calendar.in DIR/calendar.out DIR/calendar.rig    # compare
+```
+
 ## Left out
 
 The oracle does not check where Rig differs from Jiff on purpose
@@ -196,5 +219,5 @@ The oracle does not check where Rig differs from Jiff on purpose
 
 ## Size
 
-About 1.67 million cases. `gen.py` writes them in about 2.3 s and the
-oracle answers them in about 0.6 s.
+About 1.74 million cases. `gen.py` writes them in about 3.4 s and the
+oracle answers them in about 1 s.

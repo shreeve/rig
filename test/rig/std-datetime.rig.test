@@ -405,3 +405,32 @@ test "invalid days", '''
     "ok"
 
   print(try_date(1998, 1, 0), try_date(1998, 1, -1), try_date(1998, 2, 29), try_date(2004, 2, 29), try_date(2026, 3, 0), try_date(2026, 3, -1))
+
+test "what a date, a time, and a datetime read", '''
+  date only: 2024-03-10 invalid 2024-03-10T00:00:00
+  date and time: invalid invalid 2024-03-10T03:30:00
+  time only: invalid 03:30:00 invalid
+  offset: invalid invalid invalid
+  zone: invalid invalid invalid
+  Z: invalid invalid invalid
+'''
+  # §8.1, the table of what `Date`, `Time`, and `DateTime` read: each
+  # only its own form, where Jiff drops the rest without a word; a date
+  # alone is a `DateTime` at midnight.
+  fun show[T](r: T?) -> String
+    if r as v
+      return String(v)
+    String("invalid")
+
+  fun row(what: ?String, s: ?String) -> String
+    d = show(datetime.Date.parse(s) catch none)
+    t = show(datetime.Time.parse(s) catch none)
+    dt = show(datetime.DateTime.parse(s) catch none)
+    `{what}: {d} {t} {dt}`
+
+  print(row("date only", "2024-03-10"))
+  print(row("date and time", "2024-03-10T03:30"))
+  print(row("time only", "03:30"))
+  print(row("offset", "2024-03-10T03:30-06:00"))
+  print(row("zone", "2024-03-10T03:30[America/Denver]"))
+  print(row("Z", "2024-03-10T03:30Z"))

@@ -122,3 +122,8 @@ test "a closure passes a checked method", '''
 
 fail "the parts are private", "1:14: only the standard library's module `std.datetime` can construct `std.datetime.Date`: its fields `y`, `m`, `d` are private; make one with its `pub` functions", errors: 1
   _ = datetime.Date(y: 2024, m: 2, d: 30)
+
+test "sizes", "1 4 8 12"
+  # §7.3: a `Weekday` is a byte, a `Date` four, a `Time` eight, and a
+  # `DateTime` the two.
+  print($size(datetime.Weekday), $size(datetime.Date), $size(datetime.Time), $size(datetime.DateTime))
