@@ -8607,16 +8607,19 @@ pub fn finish() void {
 /// nothing shown.
 pub fn failMain(err: anyerror) noreturn {
     @branchHint(.cold);
+    // An interrupt ends the program at once, with nothing shown and no
+    // trace read.
+    const interrupt = if (err == error.@"std.task.Stop.canceled") interruptedBy() else null;
     var stack: [256]u8 = undefined;
     var report: Spill = .init(&stack);
     defer report.deinit();
-    if (comptime traced) {
+    if (comptime traced) if (interrupt == null) {
         report.writer.print("error: {s}\n", .{errorShown(err)}) catch {};
         writeFailureTrace(&report.writer, @errorReturnTrace());
-    }
+    };
     lockOutput();
     flushQuietly();
-    if (err == error.@"std.task.Stop.canceled") if (interruptedBy()) |sig| endBy(sig);
+    if (interrupt) |sig| endBy(sig);
     if (comptime traced) writeStderr(report.writer.buffered()) else std.debug.print("error: {s}\n", .{errorShown(err)});
     std.process.exit(1);
 }
@@ -8628,9 +8631,9 @@ pub fn failMain(err: anyerror) noreturn {
 // Zig's trace holds the address of each `try` and failing `return` the
 // failure left a function by, and drops what a `catch` handled; the
 // debug information names the line and column of emitted Zig at each
-// address; and the sites file `bin/rig` writes beside each module
-// names the Rig place of each (`emit.placeSites`). A site in the
-// runtime or in Zig's library has no Rig place and is left out.
+// address; and the table of sites each module carries names the Rig
+// place of each (`emit.writeSiteTable`). A site in the runtime or in
+// Zig's library has no Rig place and is left out.
 
 /// Whether failures are traced: Zig keeps error return traces, and the
 /// program keeps the debug information that names their lines.
@@ -8642,14 +8645,20 @@ pub const traced = builtin.have_error_return_tracing and !builtin.strip_debug_in
 pub const KeptTrace = struct {
     addresses: [32]usize = undefined,
     index: usize = 0,
+    /// The trace they were kept from, where they stay: a task's run on
+    /// its waiter's stack shares the waiter's (`TaskTrace.keep`).
+    shared: ?*const std.lang.StackTrace = null,
 
-    /// Keep Zig's trace `t`, of a failure leaving the frame that holds
-    /// it.
-    pub fn keep(self: *KeptTrace, t: ?*const std.lang.StackTrace) void {
-        const from = t orelse return;
-        const n = @min(from.index, from.instruction_addresses.len, self.addresses.len);
-        @memcpy(self.addresses[0..n], from.instruction_addresses[0..n]);
-        self.index = from.index;
+    /// Keep what Zig's trace `t` has recorded since it held `from`
+    /// addresses: the sites of a failure leaving the frame that read
+    /// `from` as it began.
+    pub fn keep(self: *KeptTrace, t: ?*const std.lang.StackTrace, from: usize) void {
+        const trace = t orelse return;
+        const have = trace.instruction_addresses.len;
+        const first = @min(from, have);
+        const n = @min(@min(trace.index, have) - first, self.addresses.len);
+        @memcpy(self.addresses[0..n], trace.instruction_addresses[first..][0..n]);
+        self.index = trace.index -| from;
     }
 };
 
@@ -8662,27 +8671,33 @@ pub const KeptTrace = struct {
 pub const TaskTrace = struct {
     kept: if (traced) ?*KeptTrace else void = if (traced) null else {},
 
-    /// Keep the trace of `result` when it is a failure, read from the
-    /// trace of the frame this is inlined into.
-    pub inline fn keep(self: *TaskTrace, result: anytype) void {
+    /// Keep the sites of `result` when it is a failure: what the trace
+    /// of the frame this is inlined into recorded since it held `from`
+    /// addresses (`traceIndex`). `stays`: the failure leaves this frame
+    /// unhandled, so its sites stay in this trace, which a task run on
+    /// its waiter's stack (`sched.runHere`) shares with the waiter.
+    pub inline fn keep(self: *TaskTrace, result: anytype, from: usize, comptime stays: bool) void {
         if (comptime !traced or @typeInfo(@TypeOf(result)) != .error_union) return;
-        if (failed(result)) self.keepLive(@errorReturnTrace());
+        if (failed(result)) self.keepLive(@errorReturnTrace(), from, stays);
     }
 
     /// Out of line, as are `free` and `passTo`: Zig's allocator takes a
     /// lock of its own, which a task must not hold where a signal may
     /// stop it (`preempt_section`).
-    noinline fn keepLive(self: *TaskTrace, t: ?*const std.lang.StackTrace) void {
+    noinline fn keepLive(self: *TaskTrace, t: ?*const std.lang.StackTrace, from: usize, stays: bool) void {
         if (comptime !traced) return;
         self.drop();
         const k = std.heap.smp_allocator.create(KeptTrace) catch return;
         k.* = .{};
-        k.keep(t);
+        k.keep(t, from);
+        if (stays) k.shared = t;
         self.kept = k;
     }
 
     /// Add the kept sites to the trace of the frame this is inlined into,
-    /// as if the failure had passed them there, and let them go.
+    /// as if the failure had passed them there, and let them go. Sites
+    /// that stayed in this trace (`keep`'s `stays`), a task's run on
+    /// its waiter's stack, are there already and not added again.
     pub inline fn pass(self: *TaskTrace) void {
         if (comptime !traced) return;
         self.passTo(@errorReturnTrace());
@@ -8691,7 +8706,7 @@ pub const TaskTrace = struct {
     noinline fn passTo(self: *TaskTrace, live: ?*std.lang.StackTrace) void {
         if (comptime !traced) return;
         const k = self.kept orelse return;
-        if (live) |t| for (k.addresses[0..@min(k.index, k.addresses.len)]) |addr| {
+        if (live) |t| if (k.shared != t) for (k.addresses[0..@min(k.index, k.addresses.len)]) |addr| {
             if (t.index < t.instruction_addresses.len) t.instruction_addresses[t.index] = addr;
             t.index += 1;
         };
@@ -8739,7 +8754,14 @@ const main_trace = split.cell(&main_trace_var, "runtime.main_trace");
 /// the frame that holds Zig's trace.
 inline fn keepMainTrace(result: anytype) void {
     if (comptime !traced or @typeInfo(@TypeOf(result)) != .error_union) return;
-    if (result) |_| {} else |_| main_trace.keep(@errorReturnTrace());
+    if (result) |_| {} else |_| main_trace.keep(@errorReturnTrace(), 0);
+}
+
+/// How many addresses the trace of the frame this is inlined into holds:
+/// where the sites of a failure that begins after it start (`TaskTrace`).
+pub inline fn traceIndex() usize {
+    if (comptime !traced) return 0;
+    return if (@errorReturnTrace()) |t| t.index else 0;
 }
 
 /// The trace of the failure being shown, `live` (Zig's trace where it
@@ -8761,7 +8783,11 @@ fn writeTrace(w: *std.Io.Writer, addresses: []const usize, count: usize) void {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var files: std.ArrayList(SitesFile) = .empty;
+    // The file each table's module is, by its anchor's address, named as
+    // the debug information names a trace's addresses.
+    const tables = comptime siteTables();
+    var files: [tables.len]?[]const u8 = @splat(null);
+    for (tables, &files) |t, *file| file.* = fileAt(info, debug_io, a, @intFromPtr(t.anchor));
     const n = @min(count, addresses.len);
     for (addresses[0..n]) |addr| {
         var symbols: std.ArrayList(std.debug.Symbol) = .empty;
@@ -8769,24 +8795,44 @@ fn writeTrace(w: *std.Io.Writer, addresses: []const usize, count: usize) void {
         info.getSymbols(debug_io, a, a, addr -| 1, false, &symbols) catch continue;
         for (symbols.items) |sym| {
             const loc = sym.source_location orelse continue;
-            const sites = sitesOf(a, debug_io, &files, loc.file_name) orelse continue;
-            if (placeAt(sites, loc.line, loc.column)) |place| w.print("  {s}\n", .{place}) catch {};
+            for (tables, files) |t, file| {
+                if (!std.mem.eql(u8, file orelse continue, loc.file_name)) continue;
+                if (placeAt(t.text, loc.line, loc.column)) |place| w.print("  {s}\n", .{place}) catch {};
+                break;
+            }
         }
     }
     if (count > n) w.print("  ({d} more)\n", .{count - n}) catch {};
 }
 
-/// A file of emitted Zig and its sites, null for one with none.
-const SitesFile = struct { zig: []const u8, sites: ?[]const u8 };
+/// A module's sites (`emit.writeSiteTable`): `text`, a line `L:C
+/// place` each, and `anchor`, a function of the module, whose address
+/// names its file.
+pub const SiteTable = struct { anchor: *const fn () callconv(.c) void, text: []const u8 };
 
-/// The sites of the emitted Zig file `zig`, read once from the file
-/// beside it (`emit.sites_suffix`).
-fn sitesOf(a: std.mem.Allocator, debug_io: std.Io, files: *std.ArrayList(SitesFile), zig: []const u8) ?[]const u8 {
-    for (files.items) |f| if (std.mem.eql(u8, f.zig, zig)) return f.sites;
-    const path = std.mem.concat(a, u8, &.{ zig, ".sites" }) catch return null;
-    const sites = std.Io.Dir.cwd().readFileAlloc(debug_io, path, a, .limited(1 << 30)) catch null;
-    files.append(a, .{ .zig = zig, .sites = sites }) catch {};
-    return sites;
+/// The emitted Zig file holding the code at `addr`.
+fn fileAt(info: anytype, debug_io: std.Io, a: std.mem.Allocator, addr: usize) ?[]const u8 {
+    var symbols: std.ArrayList(std.debug.Symbol) = .empty;
+    info.getSymbols(debug_io, a, a, addr, false, &symbols) catch return null;
+    for (symbols.items) |sym| if (sym.source_location) |loc| return loc.file_name;
+    return null;
+}
+
+/// The site tables of the program's modules: of each program the root
+/// names (several in a batch, `__rig_site_programs`; the program a split
+/// build's unit or `rig test`'s driver is the root of), its own, then
+/// those of the modules it names (`__rig_sites_of`).
+fn siteTables() []const SiteTable {
+    const programs = if (@hasDecl(root, "__rig_site_programs")) root.__rig_site_programs else if (@hasDecl(root, "__rig_program")) .{root.__rig_program} else .{root};
+    var tables: []const SiteTable = &.{};
+    inline for (programs) |p| {
+        if (@hasDecl(p, "__rig_sites")) tables = tables ++ &[_]SiteTable{p.__rig_sites};
+        if (@hasDecl(p, "__rig_sites_of")) inline for (p.__rig_sites_of) |m| {
+            if (@hasDecl(m, "__rig_sites")) tables = tables ++ &[_]SiteTable{m.__rig_sites};
+        };
+    }
+    const out = tables;
+    return out;
 }
 
 /// The Rig place of the site at `line` and `column` of emitted Zig, from
@@ -8795,7 +8841,7 @@ fn placeAt(sites: []const u8, line: u64, column: u64) ?[]const u8 {
     var buf: [48]u8 = undefined;
     const key = std.fmt.bufPrint(&buf, "{d}:{d} ", .{ line, column }) catch return null;
     var lines = std.mem.splitScalar(u8, sites, '\n');
-    while (lines.next()) |l| if (std.mem.startsWith(u8, l, key)) return l[key.len..];
+    while (lines.next()) |l| if (std.mem.startsWith(u8, l, key) and l.len > key.len) return l[key.len..];
     return null;
 }
 

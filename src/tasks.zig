@@ -88,8 +88,9 @@ pub fn Task(comptime T: type) type {
                     // kept from a `const`: Zig drops it once the failure
                     // is stored in memory.
                     if (comptime rt.traced) {
+                        const start = rt.traceIndex();
                         const result = if (comptime takesSlot(@TypeOf(f))) rt.callCode(T, f, a ++ .{rt.failSlot(&control.err)}) else rt.callCode(T, f, a);
-                        control.trace.keep(result);
+                        control.trace.keep(result, start, true);
                         return result;
                     }
                     if (comptime takesSlot(@TypeOf(f))) return rt.callCode(T, f, a ++ .{rt.failSlot(&control.err)});
@@ -1098,12 +1099,12 @@ const ParState = struct {
     /// Record `err`, with its fields in `data` and the sites it passed in
     /// the caller's trace, unless a failure came first, whose fields are
     /// kept and these dropped.
-    fn fail(self: *ParState, err: anyerror, data: *rt.ErrData) void {
+    fn fail(self: *ParState, err: anyerror, data: *rt.ErrData, start: usize) void {
         // A flag set once, not a lock: uncounted for preemption.
         if (self.failed.cmpxchgStrong(false, true, .acq_rel, .acquire) == null) {
             self.failure = err;
             self.failure_data = data.*;
-            self.trace.keep(@as(anyerror!void, err));
+            self.trace.keep(@as(anyerror!void, err), start, false);
         } else rt.dropErrorData(err, data);
     }
 };
@@ -1146,7 +1147,8 @@ fn parRun(comptime fallible: bool, n: usize, limit: Int, ctx: anytype, comptime 
                     // Each chunk fails into a slot of its own, which the
                     // run keeps if it fails first.
                     var slot: rt.ErrData = undefined;
-                    callChunk(body, c, lo, hi, rt.failSlot(&slot)) catch |err| return s.fail(err, &slot);
+                    const start = rt.traceIndex();
+                    callChunk(body, c, lo, hi, rt.failSlot(&slot)) catch |err| return s.fail(err, &slot, start);
                 } else callChunk(body, c, lo, hi, undefined) catch unreachable;
             }
         }
@@ -1344,12 +1346,13 @@ pub fn parWorkersInto(states: anytype, items: anytype, f: anytype, out_slot: any
                     // Each call fails into a slot of its own, which the
                     // run keeps if it fails first.
                     var slot: rt.ErrData = undefined;
+                    const start = rt.traceIndex();
                     const v = c.f.call(rt.argsWithSlot(F, .{ s, x }, rt.failSlot(&slot))) catch |err| {
                         // A flag set once, not a lock: uncounted for preemption.
                         if (c.failed.cmpxchgStrong(false, true, .acq_rel, .acquire) == null) {
                             c.failure = err;
                             c.failure_data = slot;
-                            c.trace.keep(@as(anyerror!void, err));
+                            c.trace.keep(@as(anyerror!void, err), start, false);
                         } else rt.dropErrorData(err, &slot);
                         return;
                     };
@@ -1577,7 +1580,7 @@ fn isolateWith(f: anytype, slot: rt.ErrSlot) IsolateOut(@TypeOf(f)) {
             // they are kept from a `const` first.
             if (comptime rt.traced) {
                 const result = run.f.call(rt.argsWithSlot(F, .{}, run.slot));
-                run.trace.keep(result);
+                run.trace.keep(result, 0, false);
                 run.result = result;
             } else run.result = run.f.call(rt.argsWithSlot(F, .{}, run.slot));
             rt.sched.leaveApart(run.rec.home);

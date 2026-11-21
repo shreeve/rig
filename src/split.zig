@@ -235,7 +235,7 @@ pub fn exportFn(comptime f: anytype, comptime sym: []const u8, comptime owner: u
             // since Zig drops them once the failure is stored in memory.
             if (comptime rt.traced) {
                 const result = @call(.auto, f, args.*);
-                rt.acrossTrace().keep(result);
+                rt.acrossTrace().keep(result, 0, false);
                 rp.* = result;
             } else rp.* = @call(.auto, f, args.*);
         }
