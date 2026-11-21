@@ -1,9 +1,11 @@
-# std.datetime: the calendar and the clock face. A `Date` is a day on the
-# proleptic Gregorian calendar, from -9999-01-01 to 9999-12-31, with a
-# year 0 (1 BCE, as in ISO 8601); a `Time` a time of day on the clock
-# face, to the nanosecond; a `DateTime` a date and a time of day with no
-# zone, every day of it 24 hours; a `Weekday` a day of the week. Each is
-# plain data, and nothing here allocates.
+# std.datetime: the calendar, the clock face, and the wall clock. A
+# `Date` is a day on the proleptic Gregorian calendar, from -9999-01-01
+# to 9999-12-31, with a year 0 (1 BCE, as in ISO 8601); a `Time` a time
+# of day on the clock face, to the nanosecond; a `DateTime` a date and a
+# time of day with no zone, every day of it 24 hours; a `Weekday` a day
+# of the week; an `Instant` an exact point on the shared timeline, which
+# `now()` reads from the wall clock. Each is plain data, and nothing
+# here allocates.
 #
 # The calendar math is Jiff 1.0.0's (`jiff-core`, MIT): the conversions
 # between a date and a day count, the month's length, the clamp of a

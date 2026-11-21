@@ -871,9 +871,10 @@ nanoseconds, and `per:` given one.
 0.3.1 gives lengths of time a type: what a clock gives back is a
 `time.Duration`, one `Int` of nanoseconds that prints as `1ms 234us`,
 and a reading of the monotonic clock is a `time.Monotonic`.
-`time.now()`, `time.Instant`, and the constants `NS`, `US`, `MS`,
-`SECOND`, and `MINUTE` are gone, each rejected with its fix, and a
-duration takes `seconds:`, `minutes:`, and `hours:` too ([SPEC
+`time.now()`, `time.Instant`, the constants `NS`, `US`, `MS`,
+`SECOND`, and `MINUTE`, and `time.unix_ns()` are gone, each rejected
+with its fix, the wall clock being std.datetime's `datetime.now()`, and
+a duration takes `seconds:`, `minutes:`, and `hours:` too ([SPEC
 "Durations"](../SPEC.md#durations)):
 
 ```rig
@@ -907,6 +908,7 @@ python3 tools/migrate-datetime.py src/             # rewrite in place
 | `print(t.elapsed())`, `took = t.since(u)`, `time.since_start()`, any other reading | `.ns()` after it: `print(t.elapsed().ns())`, the `Int` it was |
 | `t.add(ns: u.since(v))`, `time.sleep(ns: 5 * time.MS)` | `t.add(u.since(v))`, `time.sleep(ms: 5)` |
 | `TIMEOUT = 30 * time.SECOND`, any other constant | `TIMEOUT = 30 * 1_000_000_000`, its nanoseconds |
+| `time.unix_ns()` | `datetime.now().unix().ns()`, with `use std.datetime` |
 
 It rewrites `.rig` and `.rig.test` files that use std.time and the
 ```` ```rig ```` blocks of Markdown, and prints each rewrite. It prints
@@ -915,10 +917,12 @@ a constant it kept as a number: a duration a program keeps is better
 written as its seconds, `TIMEOUT_S = 30`, passed bare. It prints
 `MANUAL` for `time.since_start` taken as a function value, which gives
 a `Duration` now, and for `time.sleep` or `time.within` taken as one,
-which takes a `Duration`.
+which takes a `Duration`, and for `time.unix_ns` taken as one. Where it
+writes `datetime.now()` it adds `use std.datetime` beside `use
+std.time`, and drops a `use std.time` that nothing names any more.
 
-The compiler rejects, each with its fix: `time.now()`, `time.Instant`
-and the constants; `days:` or `weeks:` where a duration is taken
+The compiler rejects, each with its fix: `time.now()`, `time.Instant`,
+the constants, and `time.unix_ns()`; `days:` or `weeks:` where a duration is taken
 (`hours: 24`); a negative constant given to `sleep`, `within`, `after`,
 or `per:` (`time.sleep(ns: -1)`, which slept not at all); a number
 given through a function value, `s = time.sleep` then `s(1)!`, which

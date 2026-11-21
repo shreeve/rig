@@ -11824,6 +11824,10 @@ const Checker = struct {
         /// constant is refused: `time.sleep`, `time.within`, `time.after`,
         /// and `per:` (`sema.duration.waits`).
         waits: bool = false,
+        /// The callee adds a duration to a value with no calendar,
+        /// `datetime.Instant`'s `add` and `checked_add`, so the fix for
+        /// `days:` names a zone (`sema.duration.zoneless`).
+        zoneless: bool = false,
 
         fn default(self: ParamInfo, i: usize) ?Sexp {
             const d = self.defaults orelse return null;
@@ -12070,7 +12074,7 @@ const Checker = struct {
                     // `days:` and `weeks:` are said once, with the fix for
                     // every unit the call gives.
                     if (sema.duration.isCalendar(kname)) {
-                        if (!calendar) try self.calendarKeyword(kname_node, kname, keyword);
+                        if (!calendar) try self.calendarKeyword(kname_node, kname, keyword, if (info.zoneless) callee else null);
                         calendar = true;
                     } else try self.badDurationKeyword(kname_node, kname, ir.Kwarg.value(kw), callee);
                     // The duration it meant is not missing too.
@@ -12374,7 +12378,7 @@ const Checker = struct {
     fn stdArgChecks(self: *Checker, module: ?u32, owner: []const u8, method: []const u8, args: []const Sexp, pos: u32) Error!bool {
         const home = if (module) |m| self.ctx.foreign_semas.get(m) orelse self.ctx else self.ctx;
         return switch (sema.stdArgCheck(home, owner, method) orelse return true) {
-            .unit_increment, .clock_increment, .day_increment => |kind| self.checkUnitIncrement(method, args, pos, kind),
+            .unit_increment, .clock_increment, .day_increment, .instant_increment => |kind| self.checkUnitIncrement(method, args, pos, kind),
             .calendar_add => self.checkCalendarAdd(method, args),
             .duration_add => self.checkDurationAdd(method, args),
             .by_name => self.checkByName(owner, method, args),
@@ -12452,7 +12456,7 @@ const Checker = struct {
         const home = if (module) |m| self.ctx.foreign_semas.get(m) orelse self.ctx else self.ctx;
         switch (sema.stdArgCheck(home, owner, method) orelse return) {
             .calendar_add, .duration_add, .by_name => {},
-            .unit_increment, .clock_increment, .day_increment => for (args) |a| {
+            .unit_increment, .clock_increment, .day_increment, .instant_increment => for (args) |a| {
                 if (!a.isKind(.kwarg)) continue;
                 const value = ir.Kwarg.value(a);
                 const ty = self.canonical(self.ctx.typeOf(value) orelse continue);
@@ -12467,7 +12471,8 @@ const Checker = struct {
     /// exactly one unit's keyword and its increment, and no positional
     /// argument; an increment written as a constant is from 1 to
     /// 1,000,000,000, and on a `Time` or a `DateTime` divides the next
-    /// larger unit and is smaller than it, or for `days:` is 1.
+    /// larger unit and is smaller than it, or for `days:` is 1, and on an
+    /// `Instant` divides a day.
     fn checkUnitIncrement(self: *Checker, method: []const u8, args: []const Sexp, pos: u32, kind: sema.ArgCheck) Error!bool {
         for (args) |a| if (!a.isKind(.kwarg)) {
             try self.errAt(a, "`{s}` takes a unit and its increment by name, `{s}(minutes: 15)`, and no positional argument", .{ method, method });
@@ -12496,6 +12501,12 @@ const Checker = struct {
             return false;
         }
         if (kind == .unit_increment) return true;
+        if (kind == .instant_increment) {
+            if (incrementAllowed(kind, unit_ns.?, v)) return true;
+            const per_day: Wide = @divTrunc(86_400_000_000_000, unit_ns.?);
+            try self.errAt(value, "an increment of `{s}` on an `Instant` divides a day, so `{s}:` takes a number that divides {s}, and `{s}` does not", .{ method, name, try groupedInt(self.ctx.arena.allocator(), per_day), try self.plainText(value) });
+            return false;
+        }
         if (days) {
             if (v == 1) return true;
             try self.errAt(value, "`{s}` takes `days: 1` and no other number of days, and `{s}` is not 1", .{ method, try self.plainText(value) });
@@ -12508,7 +12519,7 @@ const Checker = struct {
             3_600_000_000_000 => 24,
             else => 60,
         };
-        if (v < limit and @mod(limit, v) == 0) return true;
+        if (incrementAllowed(kind, unit_ns.?, v)) return true;
         var list: std.ArrayList(u8) = .empty;
         const a = self.ctx.arena.allocator();
         var k: Wide = 1;
@@ -12548,18 +12559,72 @@ const Checker = struct {
         if (total) |sum| for (sema.duration.units) |unit| {
             if (@rem(sum, unit[1]) != 0 or @divTrunc(sum, unit[1]) < 1 or @divTrunc(sum, unit[1]) > 1_000_000_000) continue;
             const n = @divTrunc(sum, unit[1]);
-            if (kind != .unit_increment) {
-                const limit: i128 = switch (unit[1]) {
+            if (!incrementAllowed(kind, unit[1], @intCast(n))) break;
+            return std.fmt.allocPrint(a, "write the increment in one unit, `{s}({s}: {d})`", .{ method, unit[0], n });
+        };
+        if (kind != .unit_increment) {
+            // The first unit given, with its increment when the check
+            // takes it, or the largest increment below it that it takes.
+            const name = self.text(ir.Kwarg.name(args[0]));
+            const unit = sema.duration.unitNs(name) orelse return std.fmt.allocPrint(a, "name one of them, `{s}({s})`", .{ method, try self.plainText(args[0]) });
+            const v = self.constInt(ir.Kwarg.value(args[0])) orelse return std.fmt.allocPrint(a, "name one of them, `{s}({s})`", .{ method, try self.plainText(args[0]) });
+            if (v >= 1 and v <= 1_000_000_000 and incrementAllowed(kind, unit, v)) return std.fmt.allocPrint(a, "name one of them, `{s}({s})`", .{ method, try self.plainText(args[0]) });
+            return std.fmt.allocPrint(a, "name one unit and an increment it takes, `{s}({s}: {d})`", .{ method, name, largestIncrement(kind, unit, v) });
+        }
+        return std.fmt.allocPrint(a, "write the increment in one unit, the smallest given, `{s}:`", .{sema.duration.unitName(u)});
+    }
+
+    /// Whether `n`, from 1 to 1,000,000,000, is an increment of a unit of
+    /// `unit_ns` nanoseconds that `round` and `floor` of `kind` take: any
+    /// for a `Duration`; one that divides a day for an `Instant`; one that
+    /// divides the next larger unit and is smaller than it for a `Time`
+    /// and a `DateTime` (docs/design/datetime.md §6.8).
+    fn incrementAllowed(kind: sema.ArgCheck, unit_ns: i64, n: Wide) bool {
+        return switch (kind) {
+            .instant_increment => @rem(@divTrunc(@as(Wide, 86_400_000_000_000), unit_ns), n) == 0,
+            .clock_increment, .day_increment => blk: {
+                const limit: Wide = switch (unit_ns) {
                     1, 1_000, 1_000_000 => 1_000,
                     3_600_000_000_000 => 24,
                     else => 60,
                 };
-                if (n >= limit or @rem(limit, n) != 0) break;
-            }
-            return std.fmt.allocPrint(a, "write the increment in one unit, `{s}({s}: {d})`", .{ method, unit[0], n });
+                break :blk n < limit and @rem(limit, n) == 0;
+            },
+            else => true,
         };
-        if (kind != .unit_increment) return std.fmt.allocPrint(a, "name one of them, `{s}({s})`", .{ method, try self.plainText(args[0]) });
-        return std.fmt.allocPrint(a, "write the increment in one unit, the smallest given, `{s}:`", .{sema.duration.unitName(u)});
+    }
+
+    /// The largest increment of a unit of `unit_ns` nanoseconds at most
+    /// `v` that `round` and `floor` of `kind`, a `Time`, a `DateTime`, or
+    /// an `Instant`, take (`incrementAllowed`); 1 when `v` is below 1. An
+    /// instant's increments divide a day, whose count in any unit has no
+    /// prime factor but 2, 3, and 5, so they are found among those.
+    fn largestIncrement(kind: sema.ArgCheck, unit_ns: i64, v: Wide) Wide {
+        const top = @min(v, 1_000_000_000);
+        var best: Wide = 1;
+        var p2: Wide = 1;
+        while (p2 <= top) : (p2 *= 2) {
+            var p3: Wide = p2;
+            while (p3 <= top) : (p3 *= 3) {
+                var p5: Wide = p3;
+                while (p5 <= top) : (p5 *= 5) {
+                    if (p5 > best and incrementAllowed(kind, unit_ns, p5)) best = p5;
+                }
+            }
+        }
+        return best;
+    }
+
+    /// `n` with its thousands grouped by commas, as the docs write a
+    /// number: `86,400`.
+    fn groupedInt(a: std.mem.Allocator, n: Wide) Error![]const u8 {
+        const digits = try std.fmt.allocPrint(a, "{d}", .{n});
+        var out: std.ArrayList(u8) = .empty;
+        for (digits, 0..) |c, i| {
+            if (i > 0 and (digits.len - i) % 3 == 0) try out.append(a, ',');
+            try out.append(a, c);
+        }
+        return out.items;
     }
 
     /// `arg`, filling a duration parameter of type `param` (`sema.duration`):
@@ -12766,9 +12831,16 @@ const Checker = struct {
     /// `days:` or `weeks:` where a duration is taken, said once for the
     /// call with the fix for every unit its `keyword` arguments give: the
     /// days, the weeks and any `hours:` become one `hours:` where the first
-    /// of them stood (`calendarHours`), the other units as written.
-    fn calendarKeyword(self: *Checker, at: Sexp, kname: []const u8, keyword: []const Sexp) Error!void {
+    /// of them stood (`calendarHours`), the other units as written. On an
+    /// `Instant`'s `add` or `checked_add` (`zoneless`, its name) a day on
+    /// the clock is a zone's, which the message says before the exact
+    /// hours.
+    fn calendarKeyword(self: *Checker, at: Sexp, kname: []const u8, keyword: []const Sexp, zoneless: ?[]const u8) Error!void {
         const days = std.mem.eql(u8, kname, "days");
+        if (zoneless) |method| {
+            try self.errAt(at, "an `Instant` has no calendar, so `{s}` takes no `{s}:`: a {s} on the clock is a zone's; write `{s}`, exactly {d} hours {s}", .{ method, kname, if (days) "day" else "week", try self.calendarFix(keyword), @as(i64, if (days) 24 else 168), if (days) "a day" else "a week" });
+            return;
+        }
         try self.errAt(at, "a duration takes no `{s}:`, since a day is not always 24 hours: write `{s}`, exactly {d} hours {s}", .{ kname, try self.calendarFix(keyword), @as(i64, if (days) 24 else 168), if (days) "a day" else "a week" });
     }
 
@@ -14723,7 +14795,8 @@ const Checker = struct {
             try self.checkSelfMode(obj, self_mode, classifySelfType(self.ctx, obj_ty, resolved.nominal_sym), method, pos, resolved.fn_ty.returns);
         }
         if (!try self.stdArgChecks(resolved.module, resolved.owner, method, args, pos)) return self.skipCall(args);
-        const info = methodParams(resolved.field, true, resolved.source);
+        var info = methodParams(resolved.field, true, resolved.source);
+        info.zoneless = sema.duration.zoneless(if (resolved.module) |m| self.ctx.foreign_semas.get(m) orelse self.ctx else self.ctx, resolved.owner, method);
         const f = (try self.instantiateCall(resolved.fn_ty, ct, args, info, 1, method, pos, false, self.selfArgs(obj_ty))) orelse return self.skipCall(args);
         // The type's parameters are bound by the object self
         // reaches, through views, handles, and boxes, as the method was
@@ -17547,7 +17620,8 @@ const Checker = struct {
                 const after_self = if (m.self_mode != .none and args.len > 0 and !args[0].isKind(.kwarg)) args[1..] else args;
                 if (!try self.stdArgChecks(if (nt.foreign) |fo| fo.module_id else null, nt.sym.name, name, after_self, pos)) return self.skipCall(args);
                 const source = if (nt.foreign) |fo| fo.ctx.source else self.declSource(nt.id);
-                const info = methodParams(m, false, source);
+                var info = methodParams(m, false, source);
+                info.zoneless = sema.duration.zoneless(if (nt.foreign) |fo| fo.ctx else self.ctx, nt.sym.name, name);
                 f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.self_mode != .none, recv)) orelse return self.skipCall(args);
                 try self.noteMethodTarget(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, recv, if (recv.args.len > 0) try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = nt.id, .args = try self.ctx.dupeIds(recv.args) } }) else sema.type_invalid, pos);
                 if (!try self.meetsNeeds(m, nt.id, recv.args, pos, if (m.self_mode != .none and args.len > 0) args[1..] else args)) return self.skipCall(args);

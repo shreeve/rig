@@ -94,6 +94,8 @@ its offset rounded to the minute), a duration in ISO 8601.
 | `zoned.add ZONE INSTANT Y M W D DUR` | ZONED | `z.checked_add(d, years:, …)` |
 | `time.add TIME DUR` | the wrapped TIME, then `checked_add`'s | `t.add(d)`, `t.checked_add(d)` |
 | `instant.add INSTANT DUR` | INSTANT | `i.checked_add(d)` |
+| `instant.unix INSTANT` | DUR, or `skip` beyond `Duration`'s range; the whole seconds, floored; INSTANT again from that DUR, or `skip` | `i.unix()`, `i.unix_s()`, `Instant.from_unix(i.unix())` |
+| `instant.since INSTANT INSTANT` | DUR, or `skip` beyond `Duration`'s range | `a.since(b)` |
 | `date.nth_weekday DATE N WEEKDAY` | DATE | `d.nth_weekday(n, w)` |
 | `date.nth_weekday_of_month DATE N WEEKDAY` | DATE | `d.nth_weekday_of_month(n, w)` |
 | `date.with DATE Y M D` | DATE | `d.with(year:, month:, day:)` |
@@ -110,7 +112,11 @@ years with `nth_weekday` of 1, -1, and one of ±2, ±5, ±53, 0 and
 ±1,000,000, `nth_weekday_of_month` twice with `n` from -6 to 6, and
 `with` of a random date's parts or an impossible one; and 10,000
 `time.since` and 20,000 `datetime.since`, which answers `skip` beyond an
-`Int` of nanoseconds, where Rig saturates (§6.6).
+`Int` of nanoseconds, where Rig saturates (§6.6). Then, from a stream of
+their own, 10,000 `instant.unix`, three in four within a `Duration` of
+1970 and the rest across the whole range, the ends of each among them,
+and 20,000 `instant.since`, which answers `skip` beyond an `Int` of
+nanoseconds as `datetime.since` does (§5.1, §7.8).
 
 ### 2. Zones (`zones.in`)
 
@@ -189,9 +195,9 @@ fall often on a multiple or exactly half way.
 
 `answer.rig` gives std.datetime's and std.time's answers to the same
 lines, for the cases they have so far; a case not answered yet prints
-`-`, and so does a `datetime.add` or `time.add` whose duration, or a
-`duration.round` whose input and increment, reach past a `Duration`'s
-range (§5.1). `compare.awk` compares them part for part, passing over
+`-`, and so does a `datetime.add`, `time.add`, or `instant.add` whose
+duration, or a `duration.round` whose input and increment, reach past a
+`Duration`'s range (§5.1). `compare.awk` compares them part for part, passing over
 `-` and each `skip`, and prints each difference and the counts;
 `jiff_oracle.sh` requires no difference.
 
@@ -227,5 +233,5 @@ The oracle does not check where Rig differs from Jiff on purpose
 
 ## Size
 
-About 1.74 million cases. `gen.py` writes them in about 3.4 s and the
+About 1.77 million cases. `gen.py` writes them in about 3.4 s and the
 oracle answers them in about 1 s.

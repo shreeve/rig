@@ -119,6 +119,138 @@ fun year_month(s: ?String) -> Bool
   month = two_digits(s, i) catch return false
   within(month, 1, 12)
 
+# The offset from UTC at `at` in `s`, in seconds east of it, and where
+# it ends: `Z` or `z` when `subminute`; else a sign and the hours, then
+# the minutes, each of two digits, joined by `:` or none at all, and
+# when `subminute` the seconds, with a fraction rounded to the nearest
+# second. At most 25:59:59, and with no seconds after the minutes when
+# not `subminute`, as in a zone in brackets (Jiff's `offset::Parser`,
+# `fmt/offset.rs:422` to `:658`).
+fun offset_text(s: ?String, at: Int, subminute: Bool) -> (Int, Int)!
+  if at >= s.len
+    return DateTimeError.invalid
+  if subminute and (s[at] == 'Z' or s[at] == 'z')
+    return at + 1, 0
+  if s[at] != '+' and s[at] != '-'
+    return DateTimeError.invalid
+  sign = -1 if s[at] == '-' else 1
+  hours = two_digits(s, at + 1)!
+  if hours > 25
+    return DateTimeError.invalid
+  i = at + 3
+  extended = i < s.len and s[i] == ':'
+  more = false
+  i, more = time_separator(s, i, extended)
+  if not more
+    return i, sign * hours * 3600
+  minutes = two_digits(s, i)!
+  if minutes > 59
+    return DateTimeError.invalid
+  i += 2
+  total = hours * 3600 + minutes * 60
+  if not subminute
+    if i < s.len and s[i] == ':'
+      return DateTimeError.invalid
+    return i, sign * total
+  i, more = time_separator(s, i, extended)
+  if not more
+    return i, sign * total
+  seconds = two_digits(s, i)!
+  if seconds > 59
+    return DateTimeError.invalid
+  i += 2
+  total += seconds
+  if i < s.len and (s[i] == '.' or s[i] == ',')
+    frac = 0
+    i, frac = fraction_text(s, i + 1)!
+    if frac >= 500_000_000
+      total += 1
+  if total > 93_599
+    return DateTimeError.invalid
+  return i, sign * total
+
+# Where the annotations of RFC 9557 at `at` in `s` end: a zone in
+# brackets, its name or its offset, then any `[key=value]`, each with a
+# `!` that marks it critical or not. Each is checked as written and none
+# is used; a critical `[!key=value]` fails, since none is understood
+# (Jiff's `rfc9557::Parser`, `fmt/rfc9557.rs:238`).
+fun annotations_text(s: ?String, at: Int) -> Int!
+  i = zone_annotation(s, at)!
+  while i < s.len and s[i] == '['
+    i = key_annotation(s, i)!
+  i
+
+# Past a zone in brackets at `at`, `[America/Denver]` or `[-07:00]`; `at`
+# when there is none, or the brackets hold a key and a value
+# (`parse_time_zone_annotation`, `rfc9557.rs:261`).
+fun zone_annotation(s: ?String, at: Int) -> Int!
+  if at >= s.len or s[at] != '['
+    return at
+  i = at + 1
+  if i < s.len and s[i] == '!'
+    i += 1
+  if i < s.len and (s[i] == '+' or s[i] == '-')
+    j, _ = offset_text(s, i, false)!
+    return close_bracket(s, j)!
+  i = zone_component(s, i)!
+  if i < s.len and s[i] == '='
+    return at
+  while i < s.len and s[i] == '/'
+    i = zone_component(s, i + 1)!
+  close_bracket(s, i)!
+
+# Past one part of a zone's name at `at`: a letter, `.`, or `_`, then
+# any of those, a digit, `+`, or `-`.
+fun zone_component(s: ?String, at: Int) -> Int!
+  if at >= s.len or not (is_alpha(s[at]) or s[at] == '.' or s[at] == '_')
+    return DateTimeError.invalid
+  i = at + 1
+  while i < s.len and (is_alpha(s[i]) or is_digit(s[i]) or s[i] == '.' or s[i] == '_' or s[i] == '+' or s[i] == '-')
+    i += 1
+  i
+
+# Past `[key=value]` at `at`, its key a lowercase letter or `_`, then
+# any of those, a digit, or `-`; its value letters and digits, in parts
+# joined by `-` (`parse_annotation`, `rfc9557.rs:331`).
+fun key_annotation(s: ?String, at: Int) -> Int!
+  i = at + 1
+  critical = i < s.len and s[i] == '!'
+  if critical
+    i += 1
+  if i >= s.len or not (is_lower(s[i]) or s[i] == '_')
+    return DateTimeError.invalid
+  i += 1
+  while i < s.len and (is_lower(s[i]) or is_digit(s[i]) or s[i] == '_' or s[i] == '-')
+    i += 1
+  if i >= s.len or s[i] != '='
+    return DateTimeError.invalid
+  i = value_component(s, i + 1)!
+  while i < s.len and s[i] == '-'
+    i = value_component(s, i + 1)!
+  i = close_bracket(s, i)!
+  if critical
+    return DateTimeError.invalid
+  i
+
+fun value_component(s: ?String, at: Int) -> Int!
+  i = at
+  while i < s.len and (is_alpha(s[i]) or is_digit(s[i]))
+    i += 1
+  if i == at
+    return DateTimeError.invalid
+  i
+
+fun close_bracket(s: ?String, at: Int) -> Int!
+  if at >= s.len or s[at] != ']'
+    return DateTimeError.invalid
+  at + 1
+
+fun is_alpha(b: U8) -> Bool
+  is_lower(b) or (b >= 'A' and b <= 'Z')
+
+fun is_lower(b: U8) -> Bool
+  b >= 'a' and b <= 'z'
+
 # The two digits at `at` as a number.
 fun two_digits(s: ?String, at: Int) -> Int!
   digits_value(s, at, 2)!

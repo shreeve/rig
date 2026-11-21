@@ -4739,7 +4739,8 @@ pub inline fn durationInt(comptime T: type, n: i64, comptime unit: i64) T {
 /// holds panics.
 pub fn durationFloat(comptime T: type, x: f64, comptime unit: i64) T {
     const ns = @round(x * @as(f64, @floatFromInt(unit)));
-    if (!(ns >= -0x1p63 and ns < 0x1p63)) @panic("a duration is not a finite number of nanoseconds a Duration holds");
+    if (std.math.isNan(ns) or std.math.isInf(ns)) @panic("a duration is not a finite number of nanoseconds a Duration holds");
+    if (!(ns >= -0x1p63 and ns < 0x1p63)) @panic("a duration is more nanoseconds than a Duration holds");
     return durationOf(T, @intFromFloat(ns));
 }
 

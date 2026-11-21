@@ -139,7 +139,10 @@ A new session, human or agent, takes these steps in order:
   (records/2026-11/datetime-phase1b). Phase 2 (branch `datetime-p2`)
   builds `std.datetime`'s `Date`, `Time`, `DateTime`, and `Weekday`
   with Jiff's calendar math and the checks of their arguments
-  (records/2026-11/datetime-phase2); `Instant` (phase 3) is next.
+  (records/2026-11/datetime-phase2). Phase 3 (branch `datetime-p3`)
+  builds `Instant` and `datetime.now()`, with RFC 3339, and removes
+  `time.unix_ns()`, with its migration and a patch for Trig
+  (records/2026-11/datetime-phase3); `TimeZone` (phase 4) is next.
 - **The view vocabulary** (owner, 2026-11-20; #1192 landed PR 1):
   places, read and write views, read-only, unusable, and cells are the
   words of the docs, the messages, and the code. PR 1 is the wording; PR 2

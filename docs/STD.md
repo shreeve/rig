@@ -785,7 +785,6 @@ be mixed up with the wall clock.
 | `after(`*duration*`)` | a deadline arm of `task.select`, `late: time.after(ms: 50)`, which completes once the duration has passed since the select made it; it stands only in a select ([SPEC §18](../SPEC.md#channels)) |
 | `within[R](`*duration*`, f: once ?fun() -> R!) -> R!` | run `f` with a deadline a duration from now, `time.within(ms: 50, \|\| work()!)`, and give what it gives: every fallible waiting point `f` reaches after the deadline fails with `task.Stop.timeout`, and the tasks it starts keep the deadline. `f` is called once, so it may move in a task, or a set, started before it and wait for it: `time.within(2, \|<t\| >t!)`. Inside another deadline, the earlier one holds ([SPEC §18](../SPEC.md#deadlines)) |
 | `since_start() -> Duration` | the time since the program started, which a function value can read with no `Monotonic` to hold. Only a program that names it reads the clock as it starts |
-| `unix_ns() -> Int` | the wall clock, in nanoseconds since 1970-01-01 00:00 UTC; it can be set, so it may jump |
 
 A negative constant given to `sleep`, `within`, `after`, or `per:` (of
 `task.supervise` and `*Actor.supervised`, which takes seconds or a
@@ -802,11 +801,9 @@ sub main()!
   print(start.elapsed() >= time.duration(ms: 5))
   print(time.monotonic().since(start) > time.duration(0))
   print(time.since_start() >= time.duration(ms: 5))
-  print(time.unix_ns() / 1_000_000_000 > 1_700_000_000)
 ```
 
 ```output
-true
 true
 true
 true
@@ -877,14 +874,17 @@ true 1h 30m
 
 ## std.datetime
 
-The calendar and the clock face: a `Date` is a day on the proleptic
-Gregorian calendar, from -9999-01-01 to 9999-12-31, with a year 0 (1
-BCE, as in ISO 8601); a `Time` a time of day on the clock face, to the
-nanosecond; a `DateTime` a date and a time of day with no zone, as a
-Postgres `timestamp` or an HTML `datetime-local` holds one, every day of
-it 24 hours; and a `Weekday` a day of the week, `.monday` to `.sunday`.
-Each is plain data: `==` compares two, `<` orders them, a `Map` keys on
-one, and `print` writes ISO 8601. Nothing here allocates. The calendar
+The calendar, the clock face, and the wall clock: a `Date` is a day on
+the proleptic Gregorian calendar, from -9999-01-01 to 9999-12-31, with a
+year 0 (1 BCE, as in ISO 8601); a `Time` a time of day on the clock
+face, to the nanosecond; a `DateTime` a date and a time of day with no
+zone, as a Postgres `timestamp` or an HTML `datetime-local` holds one,
+every day of it 24 hours; a `Weekday` a day of the week, `.monday` to
+`.sunday`; and an `Instant` an exact point on the shared timeline, the
+same everywhere, from -9999-01-02T01:59:59Z to
+9999-12-30T22:00:00.999999999Z. Each is plain data: `==` compares two,
+`<` orders them, a `Map` keys on one, and `print` writes ISO 8601, an
+`Instant` RFC 3339 in UTC. Nothing here allocates. The calendar
 math is Jiff 1.0.0's ([design/datetime.md](design/datetime.md)), and a
 program that only sleeps or times, using `std.time` alone, loads none of
 it.
@@ -916,10 +916,18 @@ Arithmetic that walks past the range panics, as `Int`'s does, and each
 | `round(`*unit*`: n)`, `floor(`*unit*`: n)` | on a `Time` and a `DateTime`, the nearest multiple of one unit's increment, a half going to the later, and the one at or before it: `t.round(minutes: 15)`. The unit is `ns:` to `hours:`, with an increment that divides the next larger unit and is smaller than it, or on a `DateTime` `days: 1`; checked where it is called when it is a constant. A `Time` wraps past midnight; a `DateTime` carries into the next day |
 | `parse(s)!` | a `Date`, `Time`, or `DateTime` from ISO 8601 as Jiff reads it, in the type's own form only: `2026-11-17`, `08:07:03.5`, `2026-11-17T08:07`, or a date alone for a `DateTime` at midnight; no offset, `Z`, or zone, and no date with a `Time` or time with a `Date`. A second of 60 is read as 59, and a year below 0 is written `-000001` |
 | `w.iso_number()` | a `Weekday`'s number, Monday 1 to Sunday 7 |
+| `now() -> Instant` | the wall clock: the system's idea of the current instant, which can be set, so it may jump; to time something, `time.monotonic()`. It is the real clock under the deterministic scheduler too |
+| `Instant.from_unix(`*duration*`) -> Instant` | the instant a duration after 1970-01-01T00:00Z, before it when negative: `Instant.from_unix(1_700_000_000)`, `Instant.from_unix(ms: t)` for a JavaScript time. It does not fail: a `Duration` reaches the years 1677 to 2262, all within the range, and a number beyond one panics, as any duration form does |
+| `i.unix() -> time.Duration` | the time since 1970-01-01T00:00Z, negative before it: `i.unix().seconds()`, which truncates, so half a second before 1970 is 0. Outside 1677 to 2262 the largest or smallest `Duration` |
+| `i.unix_s() -> Int` | the whole seconds since 1970, floored, as Unix tools count them: half a second before 1970 is -1. Exact at any instant |
+| `i.add(`*duration*`) -> Instant` | the instant a duration later: `i.add(90)`, `i.add(hours: 1, minutes: 30)`. An instant has no calendar, so `i.add(days: 1)` is a compile error: a day on the clock is a zone's |
+| `i.since(other: Instant) -> time.Duration` | the time from `other`; beyond about 292 years the largest or smallest `Duration` |
+| `i.round(`*unit*`: n)`, `i.floor(`*unit*`: n)` | the nearest multiple of one unit's increment counted from 1970, a half going to the later, before 1970 too, and the one at or before it: `i.round(seconds: 1)` prints without a fraction. The unit is `ns:` to `hours:`, with an increment that divides a day |
+| `Instant.parse(s)!` | an instant from RFC 3339 with any offset, as Jiff reads it: `2026-11-17T15:07:03.5Z`, `2026-11-17 08:07:03,5-07:00`, `t` and `z` in small letters. A zone in brackets after the offset is read and not used; text with no offset fails |
 
-`add`, `checked_add`, `with`, `round`, and `floor` check their
-arguments where they are called, so none is taken as a value; a closure
-passes one. A recurrence anchors to its start: the k-th of a monthly
+`add` of a `Date` and a `DateTime`, their `checked_add`, every `with`,
+`round`, and `floor` check their arguments where they are called, so
+none is taken as a value; a closure passes one. A recurrence anchors to its start: the k-th of a monthly
 series is `start.add(months: k)`, since stepping from the previous one
 drifts (Jan 31, Feb 28, Mar 28).
 
@@ -961,13 +969,43 @@ sub main()!
 DateTimeError.invalid
 ```
 
-### Instants and zones
+An instant prints in UTC, and reads any offset:
+
+```rig
+use std.datetime
+
+sub main()!
+  i = datetime.Instant.parse("2026-11-17T08:07:03.512094-07:00[America/Denver]")!
+  print(i, i.unix_s(), i.round(seconds: 1), i.floor(hours: 1))
+  print(i.add(minutes: 90), i.add(minutes: 90).since(i), datetime.Instant.from_unix(ms: -1500))
+  print(datetime.Instant.from_unix(-0.5).unix().seconds(), datetime.Instant.from_unix(-0.5).unix_s())
+  print(datetime.now() > i)
+```
+
+```output
+2026-11-17T15:07:03.512094Z 1794928023 2026-11-17T15:07:04Z 2026-11-17T15:00:00Z
+2026-11-17T16:37:03.512094Z 1h 30m 1969-12-31T23:59:58.5Z
+0 -1
+true
+```
+
+### Zones
 
 The rest of `std.datetime` is planned
-([design/datetime.md](design/datetime.md)): the wall clock's `Instant`,
-`ZonedDateTime`, `TimeZone`, and `format`, each built on `std.time`'s
-`Duration`. `time.unix_ns()` reads the wall clock (planned to move to
-`Instant`). The whole surface, as it will read:
+([design/datetime.md](design/datetime.md)): `ZonedDateTime`, `TimeZone`,
+and `format`, each built on `std.time`'s `Duration`. A day on the clock
+needs a zone, so a day later than an instant is one in a zone:
+
+```rig pending
+use std.datetime
+
+sub main()!
+  i = datetime.Instant.parse("2026-03-07T12:00:00Z")!
+  denver = datetime.TimeZone.named("America/Denver")!
+  print(i.in_zone(denver).add(days: 1))
+```
+
+The whole surface, as it will read:
 
 ```rig pending
 use std.time

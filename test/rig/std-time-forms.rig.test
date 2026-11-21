@@ -145,7 +145,7 @@ bomb "duration past an Int", "a duration is more nanoseconds than a Duration hol
 
   print(time.duration(big()))
 
-bomb "duration of a Float past an Int", "a duration is not a finite number of nanoseconds a Duration holds"
+bomb "duration of a Float past an Int", "a duration is more nanoseconds than a Duration holds"
   fun big() -> Float
     1e19
 
@@ -264,7 +264,7 @@ test "duration round through a closure", "2s"
   f = |d: time.Duration, k: Int| d.round(seconds: k)
   print(f(time.duration(1.5), 1))
 
-fail "time's removed names", "1:12: no member `now` in module `time`; for timing, `time.monotonic()` reads the monotonic clock, and `start.elapsed()` gives a `time.Duration`; for the date and time, `time.unix_ns()` reads the wall clock", "2:12: no member `MS` in module `time`; a length of time is a `time.Duration`: `time.duration(ms: 1)`, or `ms: 1` where a duration is taken", "3:12: no member `SECOND` in module `time`; a length of time is a `time.Duration`: `time.duration(1)`, or a bare number of seconds where a duration is taken", "4:12: no member `NS` in module `time`; a length of time is a `time.Duration`: `time.duration(ns: 1)`, or `ns: 1` where a duration is taken", "5:12: no member `US` in module `time`; a length of time is a `time.Duration`: `time.duration(us: 1)`, or `us: 1` where a duration is taken", "6:12: no member `MINUTE` in module `time`; a length of time is a `time.Duration`: `time.duration(minutes: 1)`, or `minutes: 1` where a duration is taken", "7:9: no type `Instant` in module `time`; a reading of the monotonic clock is a `time.Monotonic`, from `time.monotonic()` or `time.Monotonic.at(d)`", errors: 7
+fail "time's removed names", "1:12: no member `now` in module `time`; for timing, `time.monotonic()` reads the monotonic clock, and `start.elapsed()` gives a `time.Duration`; for the date and time, `datetime.now()` reads the wall clock", "2:12: no member `MS` in module `time`; a length of time is a `time.Duration`: `time.duration(ms: 1)`, or `ms: 1` where a duration is taken", "3:12: no member `SECOND` in module `time`; a length of time is a `time.Duration`: `time.duration(1)`, or a bare number of seconds where a duration is taken", "4:12: no member `NS` in module `time`; a length of time is a `time.Duration`: `time.duration(ns: 1)`, or `ns: 1` where a duration is taken", "5:12: no member `US` in module `time`; a length of time is a `time.Duration`: `time.duration(us: 1)`, or `us: 1` where a duration is taken", "6:12: no member `MINUTE` in module `time`; a length of time is a `time.Duration`: `time.duration(minutes: 1)`, or `minutes: 1` where a duration is taken", "7:9: no type `Instant` in module `time`; a reading of the monotonic clock is a `time.Monotonic`, from `time.monotonic()` or `time.Monotonic.at(d)`", "8:12: no member `unix_ns` in module `time`; the wall clock is std.datetime's: `datetime.now()` reads it, and `datetime.now().unix().ns()` gives its nanoseconds since 1970", errors: 8
   print(time.now())
   print(time.MS)
   print(time.SECOND)
@@ -272,13 +272,15 @@ fail "time's removed names", "1:12: no member `now` in module `time`; for timing
   print(time.US)
   print(time.MINUTE)
   x: time.Instant = time.Monotonic.at(0)
+  print(time.unix_ns())
 
-fail "a reading is not a number", "5:24: operator `-` requires numeric operands", "6:13: only the standard library's module `std.time` can construct `std.time.Monotonic`: its field `n` is private; make one with its `pub` functions", errors: 2
+fail "a reading is not a number", "6:36: operator `-` requires numeric operands", "7:13: only the standard library's module `std.time` can construct `std.time.Monotonic`: its field `n` is private; make one with its `pub` functions", errors: 2
   # A reading of the monotonic clock is a `Monotonic`, not a number: it
   # cannot be mixed with the wall clock, nor made from its field; only
   # `Monotonic.at` says a duration is one.
+  use std.datetime
   start = time.monotonic()
-  print(time.unix_ns() - start)
+  print(datetime.now().unix().ns() - start)
   fake = time.Monotonic(n: 5)
   print(fake.elapsed())
 

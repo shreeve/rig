@@ -263,6 +263,21 @@ impl Oracle {
                 let a = args(rest, 2)?;
                 Ok(since(datetime(a[0])?.duration_since(datetime(a[1])?)))
             }
+            // An instant's Unix time (§7.8): `unix()`, or `skip` beyond an
+            // `Int` of nanoseconds, where Rig saturates (§5.1); `unix_s()`,
+            // the whole seconds floored; and `from_unix` of that `unix()`.
+            "instant.unix" => {
+                let a = args(rest, 1)?;
+                let t = instant(a[0])?;
+                let d = t.as_duration();
+                let floored = t.as_nanosecond().div_euclid(1_000_000_000);
+                let back = if fits(d) { show(Timestamp::from_duration(d)) } else { "skip".into() };
+                Ok(format!("{} {} {}", since(d), floored, back))
+            }
+            "instant.since" => {
+                let a = args(rest, 2)?;
+                Ok(since(instant(a[0])?.duration_since(instant(a[1])?)))
+            }
             "datetime.add" => {
                 let a = args(rest, 6)?;
                 let dt = datetime(a[0])?;

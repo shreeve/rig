@@ -268,7 +268,3 @@ test "since start", "true true true", seeds: 3
   time.sleep(ms: 2)!
   b = time.since_start()
   print(a >= time.duration(0), b.sub(a) >= time.duration(ms: 2), b < time.duration(10))
-
-test "time unix_ns", "true"
-  # The wall clock is past 2023.
-  print(time.unix_ns() > 1_700_000_000 * 1_000_000_000)

@@ -5,7 +5,9 @@
 # compared with a constant becomes a comparison of durations, and any
 # other keeps its nanoseconds. A reading it takes for a clock's, and a
 # constant kept as a number, are reported (CHECK); a function value of
-# `time.since_start` is reported for a person (MANUAL).
+# `time.since_start` is reported for a person (MANUAL). `time.unix_ns()`
+# becomes std.datetime's wall clock, with `use std.datetime` added in the
+# order of the `use` lines, and a `use std.time` nothing names dropped.
 source "$ROOT/test/cli/_lib.sh"
 
 cat >old.rig <<'EOF'
@@ -106,3 +108,80 @@ true true true
 1 1000 1000000 1000000000 60000000000
 40000000 7
 true" "old.rig prints what it printed"
+
+# The wall clock is std.datetime's: in a program, where `use std.time`
+# is left with nothing to name and goes; in a test file, whose case
+# reads the file's `use std.time`; and in a Markdown block that still
+# times with std.time, which keeps it.
+cat >wall.rig <<'EOF'
+use std.file
+use std.time
+
+fun clock() -> Int
+  time.unix_ns()
+
+sub main()
+  f: fun() -> Int = time.unix_ns
+  print(clock() / 1_000_000_000 > 1_700_000_000, f() > 0)
+EOF
+cat >wall.rig.test <<'EOF'
+use std.math
+use std.time
+
+test "the wall clock", "true"
+  print(time.unix_ns() > 0)
+EOF
+cat >wall.md <<'EOF'
+```rig
+use std.time
+
+sub main()
+  start = time.monotonic()
+  print(time.unix_ns() > 0, start.elapsed() >= time.duration(0))
+```
+EOF
+python3 "$ROOT/tools/migrate-datetime.py" wall.rig wall.rig.test wall.md >out3.txt 2>&1 || fail "migrate: $(cat out3.txt)"
+expect_has "$(cat out3.txt)" "wall.rig:5: time.unix_ns() -> datetime.now().unix().ns()" "the reading rewritten"
+expect_has "$(cat out3.txt)" "MANUAL wall.rig:8: \`time.unix_ns\` as a value is gone" "the function value left for a person"
+expect_has "$(cat out3.txt)" "3 rewritten" "each reading rewritten"
+expect_eq "$(head -3 wall.rig)" "use std.datetime
+use std.file
+use std.time" "use std.datetime added, use std.time kept for the value it names"
+expect_eq "$(head -3 wall.rig.test)" "use std.datetime
+use std.math
+use std.time" "the test file's header gains use std.datetime"
+grep -q '^  print(datetime.now().unix().ns() > 0)$' wall.rig.test || fail "the case not rewritten: $(cat wall.rig.test)"
+expect_eq "$(sed -n 2,3p wall.md)" "use std.datetime
+use std.time" "the block keeps use std.time, which it times with"
+sed -i.bak 's/^  f: fun() -> Int = time.unix_ns$/  f = || datetime.now().unix().ns()/' wall.rig
+python3 "$ROOT/tools/migrate-datetime.py" wall.rig >out4.txt 2>&1 || fail "second run: $(cat out4.txt)"
+expect_has "$(cat out4.txt)" "0 rewritten" "a second run rewrites nothing"
+cat >only.rig <<'EOF'
+use std.os
+use std.time
+
+sub main()
+  print(time.unix_ns() > 0)
+EOF
+python3 "$ROOT/tools/migrate-datetime.py" only.rig >out5.txt 2>&1 || fail "migrate only.rig: $(cat out5.txt)"
+expect_eq "$(head -2 only.rig)" "use std.datetime
+use std.os" "use std.time, naming nothing now, dropped"
+out=$("$RIG" run only.rig 2>&1) || fail "only.rig after: $out"
+expect_eq "$out" "true" "only.rig prints what it printed"
+out=$("$RIG" run wall.rig 2>&1) || fail "wall.rig after: $out"
+expect_eq "$out" "true true" "wall.rig prints what it printed"
+# A file that names std.datetime by another name reads the wall clock
+# by it; a `use std.time as t` that names nothing any more goes too.
+cat >alias.rig <<'EOF'
+use std.datetime as dt
+use std.time as t
+
+sub main()
+  print(t.unix_ns() > 0, dt.Instant.from_unix(0))
+EOF
+python3 "$ROOT/tools/migrate-datetime.py" alias.rig >out6.txt 2>&1 || fail "migrate alias.rig: $(cat out6.txt)"
+grep -q '^  print(dt.now().unix().ns() > 0, dt.Instant.from_unix(0))$' alias.rig || fail "the alias not used: $(cat alias.rig)"
+expect_eq "$(head -1 alias.rig)" "use std.datetime as dt" "use std.datetime as dt kept"
+grep -q 'use std.time' alias.rig && fail "use std.time as t, naming nothing now, kept: $(cat alias.rig)"
+out=$("$RIG" run alias.rig 2>&1) || fail "alias.rig after: $out"
+expect_eq "$out" "true 1970-01-01T00:00:00Z" "alias.rig prints what it printed"

@@ -111,4 +111,4 @@ for kind in calendar counts text round; do
 done
 # Every case these phases answer: fewer means answer.rig stopped
 # answering some.
-(( answered >= 842612 )) || fail "std.datetime answered $answered cases the same as Jiff, fewer than 842,612"
+(( answered >= 891707 )) || fail "std.datetime answered $answered cases the same as Jiff, fewer than 891,707"
