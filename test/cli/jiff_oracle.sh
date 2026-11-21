@@ -5,7 +5,8 @@
 # zone data Jiff bundles (2026f), never the machine's (`gen.py
 # --bundle-check`). Jiff's answers to the generated inputs are not
 # committed; std.datetime's tests compare with them as each phase lands.
-# Skipped where there is no Rust toolchain.
+# Skipped where there is no Rust toolchain, and where the pinned crates
+# are neither in Cargo's registry nor to be fetched (offline).
 source "$ROOT/test/cli/_lib.sh"
 
 if ! cargo --version >/dev/null 2>&1; then
@@ -14,7 +15,11 @@ if ! cargo --version >/dev/null 2>&1; then
 fi
 dir=$ROOT/tools/jiff-oracle
 export CARGO_TARGET_DIR=$RIG_OUT_DIR/jiff-oracle
-(cd "$dir" && cargo build --release --locked --quiet) || fail "the oracle does not build"
+if ! (cd "$dir" && { cargo fetch --locked --offline --quiet >/dev/null 2>&1 || cargo fetch --locked --quiet >/dev/null 2>&1; }); then
+    echo "the pinned crates cannot be fetched (offline, and not in Cargo's registry): skipped"
+    exit 0
+fi
+(cd "$dir" && cargo build --release --locked --offline --quiet) || fail "the oracle does not build"
 bin=$CARGO_TARGET_DIR/release/jiff-oracle
 
 ver=$("$bin" --version)
