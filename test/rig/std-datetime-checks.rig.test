@@ -195,3 +195,10 @@ test "datetime add of several units", '''
   print(dt.add(days: 1, hours: 2, minutes: 30), dt.add(days: 1, hours: 2, minutes: -30), dt.add(minutes: 30, seconds: -0.5))
   top = datetime.DateTime.new(9999, 12, 31, 22)!
   print(dt.checked_add(days: 1, hours: 2, minutes: 30)!, step(top, 2), dt.checked_add(days: -1, hours: -1, minutes: 30)!)
+
+fail "two units on a time or a datetime get one increment it takes", "3:27: `round` takes one unit and its increment, not 2: name one unit and an increment it takes, `round(minutes: 6)`", "4:26: `floor` takes one unit and its increment, not 2: name one unit and an increment it takes, `floor(hours: 4)`", "5:28: `round` takes one unit and its increment, not 2: name one unit and an increment it takes, `round(seconds: 6)`", errors: 3
+  t = datetime.Time.new(1, 0)!
+  dt = datetime.Date.new(2027, 1, 31)!.at(t)
+  print(t.round(minutes: 7, seconds: 1))
+  print(dt.floor(hours: 5, minutes: 1))
+  print(dt.round(seconds: 7, ms: 1))

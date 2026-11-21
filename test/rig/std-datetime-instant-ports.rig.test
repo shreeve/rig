@@ -16,7 +16,7 @@ test "sub_assign", '''
   1970-01-01T00:09:59.999999999Z 1970-01-01T00:23:20.000000001Z 1970-01-01T00:16:40Z
 '''
   # jiff-core `timestamp.rs:870`: no `sub`, so `add` of the negation.
-  ts = datetime.Instant.from_unix(1000)!
+  ts = datetime.Instant.from_unix(1000)
   print(ts.add(-400), ts.add(400), ts.add(0))
   print(ts.add(ns: -400_000_000_001), ts.add(ns: 400_000_000_001), ts.add(ns: 0))
 
@@ -36,10 +36,10 @@ test "new_ok", '''
   # `subsec_nanosecond` are `unix().seconds()` and `unix().subsec_ns()`,
   # truncated toward zero; `unix_s()` is floored, as Unix tools count.
   fun parts(ns: Int) -> String
-    i = datetime.Instant.from_unix(ns: ns) catch panic("range")
+    i = datetime.Instant.from_unix(ns: ns)
     `{i.unix().seconds()} {i.unix().subsec_ns()} {i.unix_s()}`
 
-  print(datetime.Instant.from_unix(0)! == datetime.Instant.parse("1970-01-01T00:00:00Z")!)
+  print(datetime.Instant.from_unix(0) == datetime.Instant.parse("1970-01-01T00:00:00Z")!)
   for ns in [123_000_000, -123_000_000, 1_000_000_000, -1_000_000_000, 1_123_000_000, -1_123_000_000, 877_000_000, -877_000_000]
     print(parts(ns))
   lo = datetime.Instant.parse("-009999-01-02T01:59:59Z")!
@@ -79,7 +79,7 @@ test "checked_arithmetic_below_min and _overflow", '''
 
   lo = datetime.Instant.parse("-009999-01-02T01:59:59Z")!
   hi = datetime.Instant.parse("9999-12-30T22:00:00.999999999Z")!
-  epoch = datetime.Instant.from_unix(0)!
+  epoch = datetime.Instant.from_unix(0)
   print(step(lo, time.duration(ns: -1)))
   print(step(lo, time.duration(ns: Int.min)), step(hi, time.duration(ns: Int.max)))
   print(step(epoch, time.duration(ns: Int.max)), step(epoch, time.duration(ns: Int.min)))
@@ -90,7 +90,7 @@ test "checked_seconds_across_epoch", '''
 '''
   # jiff-core `timestamp.rs:995`.
   fun at(ns: Int) -> datetime.Instant
-    datetime.Instant.from_unix(ns: ns) catch panic("range")
+    datetime.Instant.from_unix(ns: ns)
 
   print(at(-1_500_000_000).add(2), at(1_500_000_000).add(-2), at(-1_000_000_001).add(3))
   print(at(1_000_000_001).add(-3), at(-1).add(1), at(1).add(-1))
@@ -108,7 +108,7 @@ test "checked_arithmetic_boundaries", "605 sums, each in the range exactly when 
     r = i.checked_add(d) catch return none
     r
 
-  stamps = [lo, lo.add(ns: 1), datetime.Instant.from_unix(ns: -1_999_999_999)!, datetime.Instant.from_unix(-1)!, datetime.Instant.from_unix(ns: -1)!, datetime.Instant.from_unix(0)!, datetime.Instant.from_unix(ns: 1)!, datetime.Instant.from_unix(1)!, datetime.Instant.from_unix(ns: 1_999_999_999)!, hi.add(ns: -1), hi]
+  stamps = [lo, lo.add(ns: 1), datetime.Instant.from_unix(ns: -1_999_999_999), datetime.Instant.from_unix(-1), datetime.Instant.from_unix(ns: -1), datetime.Instant.from_unix(0), datetime.Instant.from_unix(ns: 1), datetime.Instant.from_unix(1), datetime.Instant.from_unix(ns: 1_999_999_999), hi.add(ns: -1), hi]
   seconds = [-9_223_372_035, -9_223_372_034, -1, 0, 1, 9_223_372_034, 9_223_372_035, -2, 2, -9_223_372_000, 9_223_372_000]
   nanos = [-999_999_999, -1, 0, 1, 999_999_999]
   count = 0
@@ -138,7 +138,7 @@ test "to_datetime_no_subsec and _with_subsec", '''
   # offset is that offset's clock; here, the clock and the offset read
   # back as the instant.
   fun at(ns: Int) -> datetime.Instant
-    datetime.Instant.from_unix(ns: ns) catch panic("range")
+    datetime.Instant.from_unix(ns: ns)
 
   fun read(s: ?String) -> datetime.Instant
     datetime.Instant.parse(s) catch panic("not an instant:", s)
@@ -176,7 +176,7 @@ test "to_datetime_specific_examples", '''
   lo = datetime.Instant.parse("-009999-01-02T01:59:59Z")!
   hi = datetime.Instant.parse("9999-12-30T22:00:00Z")!
   fun at(ns: Int) -> datetime.Instant
-    datetime.Instant.from_unix(ns: ns) catch panic("range")
+    datetime.Instant.from_unix(ns: ns)
 
   for i in [lo, lo.add(ns: 1), at(-999_999_999), hi, hi.add(-1), hi.add(ns: -1), hi.add(ns: 999_999_999), at(-2_000_000_001), at(-86_398_000_000_001), at(-86_399_000_000_001), at(-86_400_000_000_001)]
     if datetime.Instant.parse(String(i))! != i
@@ -238,7 +238,7 @@ test "for_timestamp", '''
 '''
   # jiff `util/round.rs:734`: the increments it takes, each dividing a
   # day; those it refuses are compile errors (below).
-  i = datetime.Instant.from_unix(0)!
+  i = datetime.Instant.from_unix(0)
   print(i.round(ns: 1), i.round(ns: 500), i.round(ns: 1_000), i.round(ns: 1_000_000_000))
   print(i.round(us: 1), i.round(us: 500), i.round(us: 1_000), i.round(us: 2_000))
   print(i.round(ms: 1), i.round(ms: 500), i.round(ms: 1_000), i.round(ms: 2_000), i.round(ms: 86_400_000))
@@ -247,7 +247,7 @@ test "for_timestamp", '''
   print(i.round(hours: 1), i.round(hours: 6), i.round(hours: 12), i.round(hours: 24))
 
 fail "for_timestamp refuses", "2:19: an increment of `round` on an `Instant` divides a day, so `ns:` takes a number that divides 86,400,000,000,000, and `7` does not", "3:19: an increment of `round` is from 1 to 1,000,000,000, and `1_000_000_001` is not", "4:19: an increment of `round` on an `Instant` divides a day, so `us:` takes a number that divides 86,400,000,000, and `1_000_000_000` does not", "5:19: an increment of `round` on an `Instant` divides a day, so `ms:` takes a number that divides 86,400,000, and `1_000_000_000` does not", "6:24: an increment of `round` on an `Instant` divides a day, so `seconds:` takes a number that divides 86,400, and `1_000` does not", "7:24: an increment of `round` on an `Instant` divides a day, so `seconds:` takes a number that divides 86,400, and `172_800` does not", "8:24: an increment of `round` on an `Instant` divides a day, so `minutes:` takes a number that divides 1,440, and `1_441` does not", "9:22: an increment of `round` on an `Instant` divides a day, so `hours:` takes a number that divides 24, and `18` does not", "10:22: an increment of `round` is from 1 to 1,000,000,000, and `-1` is not", "11:15: `round` takes a unit from `ns:` to `hours:` and its increment, and `days:` is none of them", "12:19: an increment of `round` is from 1 to 1,000,000,000, and `Int.min` is not", "13:22: an increment of `round` is from 1 to 1,000,000,000, and `Int.max` is not", errors: 12
-  i = datetime.Instant.from_unix(0)!
+  i = datetime.Instant.from_unix(0)
   print(i.round(ns: 7))
   print(i.round(ns: 1_000_000_001))
   print(i.round(us: 1_000_000_000))
@@ -270,14 +270,14 @@ test "docs: parsing and printing", '''
 '''
   # `timestamp.rs:40`, `:52`, `:77`, `:92`; `:235` (its parses), `:273`,
   # `:290`; `:2303`.
-  print(datetime.Instant.parse("2024-06-19 15:22:45-04")!, datetime.Instant.parse("2024-06-19T15:22:45-04[America/New_York]")!, datetime.Instant.parse("2016-12-31 23:59:60Z")!, datetime.Instant.from_unix(123_456_789)! < datetime.Instant.from_unix(123_456_790)!)
+  print(datetime.Instant.parse("2024-06-19 15:22:45-04")!, datetime.Instant.parse("2024-06-19T15:22:45-04[America/New_York]")!, datetime.Instant.parse("2016-12-31 23:59:60Z")!, datetime.Instant.from_unix(123_456_789) < datetime.Instant.from_unix(123_456_790))
   fun read(s: ?String) -> String
     r = datetime.Instant.parse(s) catch |e| return String(e)
     String(r)
 
   bad = read("2024-06-30 08:30[America/New_York]")
   print(datetime.Instant.parse("2024-03-10 02:30-04")!, datetime.Instant.parse("2024-03-10 02:30-05")!, datetime.Instant.parse("2024-06-30 08:36-04")!, bad)
-  print(datetime.Instant.from_unix(1_123_456_789)!, datetime.Instant.from_unix(ns: 1_123_456_789_123_000_000)!)
+  print(datetime.Instant.from_unix(1_123_456_789), datetime.Instant.from_unix(ns: 1_123_456_789_123_000_000))
 
 test "docs: arithmetic", '''
   2024-02-24T15:45:00Z 1648h 30m 123ms 1648h 30m 123ms
@@ -298,9 +298,9 @@ test "docs: arithmetic", '''
   c = datetime.Instant.parse("2024-05-03 23:30:59.123Z")!
   d = datetime.Instant.parse("2024-05-02 07Z")!
   print(c.since(d).floor(minutes: 1), c.since(d).round(minutes: 1))
-  epoch = datetime.Instant.from_unix(0)!
+  epoch = datetime.Instant.from_unix(0)
   print(epoch.checked_add(hours: 5)!, epoch.checked_add(hours: -5)!)
-  t = datetime.Instant.from_unix(2_999_999_999)!
+  t = datetime.Instant.from_unix(2_999_999_999)
   print(t, t.add(hours: 1, minutes: 30, ns: 123), t.checked_add(time.duration(ns: 5_400_000_000_123))!)
   print(t.add(hours: -1, minutes: -30, ns: -123), t.checked_add(time.duration(ns: -5_400_000_000_123))!)
   ts = datetime.Instant.parse("2024-02-28T00:00:00Z")!
@@ -339,12 +339,12 @@ test "docs: made from Unix time", '''
 '''
   # `timestamp.rs:416`, `:538`, `:611`, `:684`, `:757`; `:385`, `:1192`
   # (no `is_zero`: equal to 1970-01-01T00:00Z).
-  print(datetime.Instant.from_unix(123_456_789)!)
-  print(datetime.Instant.from_unix(1)!, datetime.Instant.from_unix(-1)!)
-  print(datetime.Instant.from_unix(ms: 1)!, datetime.Instant.from_unix(ms: -1)!)
-  print(datetime.Instant.from_unix(us: 1)!, datetime.Instant.from_unix(us: -1)!)
-  print(datetime.Instant.from_unix(ns: 1)!, datetime.Instant.from_unix(ns: -1)!)
-  epoch = datetime.Instant.from_unix(0)!
+  print(datetime.Instant.from_unix(123_456_789))
+  print(datetime.Instant.from_unix(1), datetime.Instant.from_unix(-1))
+  print(datetime.Instant.from_unix(ms: 1), datetime.Instant.from_unix(ms: -1))
+  print(datetime.Instant.from_unix(us: 1), datetime.Instant.from_unix(us: -1))
+  print(datetime.Instant.from_unix(ns: 1), datetime.Instant.from_unix(ns: -1))
+  epoch = datetime.Instant.from_unix(0)
   print(datetime.now() > epoch, epoch == datetime.Instant.parse("1970-01-01T00:00:00Z")!)
 
 test "docs: Unix time read back", '''
@@ -367,7 +367,7 @@ test "docs: Unix time read back", '''
   # part below the second at each end); `:1165` (no `signum`: compared
   # with 1970).
   fun at(ns: Int) -> datetime.Instant
-    datetime.Instant.from_unix(ns: ns) catch panic("range")
+    datetime.Instant.from_unix(ns: ns)
 
   a = at(1_000_000_001)
   b = at(-1_000_000_001)

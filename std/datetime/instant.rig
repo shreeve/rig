@@ -24,14 +24,14 @@ pub obj Instant: Eq + Ord + Hash + Print
   ns: U32
 
   # The instant a duration after 1970-01-01T00:00Z, before it when the
-  # duration is negative: `Instant.from_unix(1_700_000_000)!`, or
-  # `Instant.from_unix(ms: t)!` for a JavaScript time. A `Float` near
+  # duration is negative: `Instant.from_unix(1_700_000_000)`, or
+  # `Instant.from_unix(ms: t)` for a JavaScript time. A `Float` near
   # 1.7e9 resolves only about 240 ns, so a time finer than a microsecond
-  # is given with `us:` or `ns:`. Fails with `DateTimeError.range`
-  # outside the range of instants; a `Duration` reaches the years 1677
-  # to 2262, which are inside it.
-  pub fun from_unix(d: time.Duration) -> Instant!
-    instant_of(I128(d.ns())) ?? return DateTimeError.range
+  # is given with `us:` or `ns:`. It does not fail: a `Duration` reaches
+  # the years 1677 to 2262, inside the range, and a number beyond one
+  # panics where the call makes the duration, as any duration form does.
+  pub fun from_unix(d: time.Duration) -> Instant
+    instant_of(I128(d.ns())) ?? panic("datetime.Instant.from_unix:", d, "is beyond the range of instants")
 
   # The instant `text` writes in RFC 3339: a date, `T`, `t`, or a space,
   # a time of day, and an offset, `Z`, `z`, or a sign and the hours, then
@@ -138,6 +138,7 @@ fun clamp_duration(n: I128) -> time.Duration
 fun instant_increment(what: ?String, given: [6]Int?) -> I128
   units = [1, 1_000, 1_000_000, SECOND_NS, MINUTE_NS, HOUR_NS]
   names = ["nanoseconds", "microseconds", "milliseconds", "seconds", "minutes", "hours"]
+  per_day_text = ["86,400,000,000,000", "86,400,000,000", "86,400,000", "86,400", "1,440", "24"]
   out: I128 = 0
   for i in 0..6
     if given[i] == none
@@ -149,7 +150,7 @@ fun instant_increment(what: ?String, given: [6]Int?) -> I128
       panic(`datetime.Instant.{what}: the increment {k} is not from 1 to 1,000,000,000`)
     per_day = DAY_NS / units[i]
     if per_day % k != 0
-      panic(`datetime.Instant.{what}: the increment {k} does not divide {per_day}, the {names[i]} in a day`)
+      panic(`datetime.Instant.{what}: the increment {k} does not divide {per_day_text[i]}, the {names[i]} in a day`)
     out = I128(k) * I128(units[i])
   if out == 0
     panic(`datetime.Instant.{what} takes one unit and its increment`)

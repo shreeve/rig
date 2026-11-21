@@ -18,8 +18,8 @@ test "from_unix forms", '''
   # position or by its name `d:`; and a value of an `Int`.
   t = -1500
   five = time.duration(5)
-  print(datetime.Instant.from_unix(1_700_000_000)!, datetime.Instant.from_unix(1.5)!, datetime.Instant.from_unix(ms: t)!, datetime.Instant.from_unix(us: 1)!, datetime.Instant.from_unix(ns: 7)!)
-  print(datetime.Instant.from_unix(hours: 1, minutes: 30)!, datetime.Instant.from_unix(minutes: 1, seconds: 30)!, datetime.Instant.from_unix(1_000_000_000)!, datetime.Instant.from_unix(five)!, datetime.Instant.from_unix(d: 0)!)
+  print(datetime.Instant.from_unix(1_700_000_000), datetime.Instant.from_unix(1.5), datetime.Instant.from_unix(ms: t), datetime.Instant.from_unix(us: 1), datetime.Instant.from_unix(ns: 7))
+  print(datetime.Instant.from_unix(hours: 1, minutes: 30), datetime.Instant.from_unix(minutes: 1, seconds: 30), datetime.Instant.from_unix(1_000_000_000), datetime.Instant.from_unix(five), datetime.Instant.from_unix(d: 0))
 
 test "add forms at each kind of call", '''
   2026-11-17T15:07:04Z 2026-11-17T15:07:03.5Z 2026-11-17T16:37:03Z 2026-11-17T15:07:03.04Z 2026-11-17T15:07:08Z 2026-11-17T15:07:01Z
@@ -73,17 +73,17 @@ test "unix and unix_s", '''
   # §7.8: `unix()` truncates in its readers, half a second before 1970
   # is 0 seconds; `unix_s()` floors, -1, as Unix tools count. Outside
   # 1677 to 2262 `unix()` saturates, and `unix_s()` stays exact.
-  a = datetime.Instant.from_unix(ms: -500)!
-  b = datetime.Instant.from_unix(ms: -1500)!
-  c = datetime.Instant.from_unix(ms: 1_700_000_000_500)!
+  a = datetime.Instant.from_unix(ms: -500)
+  b = datetime.Instant.from_unix(ms: -1500)
+  c = datetime.Instant.from_unix(ms: 1_700_000_000_500)
   print(a.unix().seconds(), a.unix().ms() / 1000, a.unix_s(), a.unix())
   print(b.unix().seconds(), b.unix().ms() / 1000, b.unix_s(), b.unix())
-  print(c.unix().seconds(), c.unix().ms(), c.unix_s(), datetime.Instant.from_unix(c.unix())!.unix_s())
+  print(c.unix().seconds(), c.unix().ms(), c.unix_s(), datetime.Instant.from_unix(c.unix()).unix_s())
   lo = datetime.Instant.parse("1600-01-01T00:00:00Z")!
   hi = datetime.Instant.parse("2300-01-01T00:00:00Z")!
   print(lo.unix(), hi.unix())
   # The ends of a `Duration`, as instants: 1677-09-21 and 2262-04-11.
-  print(datetime.Instant.from_unix(ns: Int.min)!.unix_s(), datetime.Instant.from_unix(ns: Int.max)!.unix_s())
+  print(datetime.Instant.from_unix(ns: Int.min).unix_s(), datetime.Instant.from_unix(ns: Int.max).unix_s())
 
 test "unix_s at both ends of the range", '''
   -377705023201 253402207200
@@ -108,7 +108,7 @@ test "since", '''
   hi = datetime.Instant.parse("9999-12-30T22:00:00.999999999Z")!
   print(hi.since(lo), lo.since(hi))
   # 292 years and a day apart: past the largest by a day.
-  print(datetime.Instant.parse("2262-04-12T23:47:16.854775807Z")!.since(datetime.Instant.from_unix(0)!))
+  print(datetime.Instant.parse("2262-04-12T23:47:16.854775807Z")!.since(datetime.Instant.from_unix(0)))
 
 test "round and floor", '''
   2026-11-17T15:07:00Z 2026-11-17T15:00:00Z 2026-11-17T15:00:00Z 2026-11-17T15:07:03.5Z 2026-11-18T00:00:00Z
@@ -130,11 +130,11 @@ test "round before 1970", '''
   # [Owner] §6.8: a half goes to the later value before 1970 too, where
   # Jiff takes it away from 1970; `floor` goes to the multiple at or
   # before the instant, toward the past.
-  half = datetime.Instant.from_unix(-1.5)!
+  half = datetime.Instant.from_unix(-1.5)
   print(half.round(seconds: 1), half.floor(seconds: 1))
-  print(datetime.Instant.from_unix(-1.25)!.round(seconds: 1), datetime.Instant.from_unix(-1.25)!.floor(seconds: 1))
-  print(datetime.Instant.from_unix(minutes: -30)!.round(hours: 1), datetime.Instant.from_unix(minutes: -31)!.floor(hours: 1))
-  print(datetime.Instant.from_unix(hours: -12)!.round(hours: 24), datetime.Instant.from_unix(hours: -1)!.floor(hours: 24))
+  print(datetime.Instant.from_unix(-1.25).round(seconds: 1), datetime.Instant.from_unix(-1.25).floor(seconds: 1))
+  print(datetime.Instant.from_unix(minutes: -30).round(hours: 1), datetime.Instant.from_unix(minutes: -31).floor(hours: 1))
+  print(datetime.Instant.from_unix(hours: -12).round(hours: 24), datetime.Instant.from_unix(hours: -1).floor(hours: 24))
 
 bomb "round panics past the end", "datetime.Instant.round: 9999-12-30T22:00:00.999999999Z rounds beyond the range of instants, -009999-01-02T01:59:59Z to 9999-12-30T22:00:00.999999999Z"
   hi = datetime.Instant.parse("9999-12-30T22:00:00.999999999Z")!
@@ -144,18 +144,18 @@ bomb "floor panics before the start", "datetime.Instant.floor: -009999-01-02T01:
   lo = datetime.Instant.parse("-009999-01-02T01:59:59Z")!
   print(lo.floor(minutes: 1))
 
-bomb "an increment from a variable must divide a day", "datetime.Instant.round: the increment 7 does not divide 1440, the minutes in a day"
-  i = datetime.Instant.from_unix(0)!
+bomb "an increment from a variable must divide a day", "datetime.Instant.round: the increment 7 does not divide 1,440, the minutes in a day"
+  i = datetime.Instant.from_unix(0)
   k = 7
   print(i.round(minutes: k))
 
 bomb "an increment from a variable is at most a billion", "datetime.Instant.floor: the increment 2000000000 is not from 1 to 1,000,000,000"
-  i = datetime.Instant.from_unix(0)!
+  i = datetime.Instant.from_unix(0)
   k = 2_000_000_000
   print(i.floor(ns: k))
 
 fail "round and floor on an instant take an increment that divides a day", "2:24: an increment of `round` on an `Instant` divides a day, so `minutes:` takes a number that divides 1,440, and `7` does not", "3:22: an increment of `floor` on an `Instant` divides a day, so `hours:` takes a number that divides 24, and `25` does not", "4:24: an increment of `round` on an `Instant` divides a day, so `seconds:` takes a number that divides 86,400, and `86_401` does not", "5:19: an increment of `floor` on an `Instant` divides a day, so `ns:` takes a number that divides 86,400,000,000,000, and `7` does not", "6:22: an increment of `round` is from 1 to 1,000,000,000, and `0` is not", "7:15: `round` takes a unit from `ns:` to `hours:` and its increment, and `days:` is none of them", "8:15: `round` takes a unit and its increment by name, `round(minutes: 15)`, and no positional argument", "9:25: `floor` takes one unit and its increment, not 2: write the increment in one unit, `floor(minutes: 90)`", "10:27: `round` takes one unit and its increment, not 2: write the increment in one unit, `round(seconds: 450)`", "11:9: `round` takes a unit and its increment: `round(seconds: 1)`", errors: 10
-  i = datetime.Instant.from_unix(0)!
+  i = datetime.Instant.from_unix(0)
   print(i.round(minutes: 7))
   print(i.floor(hours: 25))
   print(i.round(seconds: 86_401))
@@ -167,15 +167,15 @@ fail "round and floor on an instant take an increment that divides a day", "2:24
   print(i.round(minutes: 7, seconds: 30))
   print(i.round())
 
-fail "an instant takes no days", "2:13: an `Instant` has no calendar, so `add` takes no `days:`: a day on the clock is a zone's, `i.in_zone(tz).add(days: 1)`; or write `hours: 24`, exactly 24 hours a day", "3:21: an `Instant` has no calendar, so `checked_add` takes no `weeks:`: a week on the clock is a zone's, `i.in_zone(tz).checked_add(weeks: 1, hours: 2)`; or write `hours: 170`, exactly 168 hours a week", "4:31: an `Instant` has no calendar, so `add` takes no `days:`: a day on the clock is a zone's, `i.in_zone(tz).add(days: 2, minutes: 5)`; or write `hours: 48, minutes: 5`, exactly 24 hours a day", "5:34: a duration takes no `days:`, since a day is not always 24 hours: write `hours: 24`, exactly 24 hours a day", errors: 4
-  i = datetime.Instant.from_unix(0)!
+fail "an instant takes no days", "2:13: an `Instant` has no calendar, so `add` takes no `days:`: a day on the clock is a zone's; write `hours: 24`, exactly 24 hours a day", "3:21: an `Instant` has no calendar, so `checked_add` takes no `weeks:`: a week on the clock is a zone's; write `hours: 170`, exactly 168 hours a week", "4:31: an `Instant` has no calendar, so `add` takes no `days:`: a day on the clock is a zone's; write `hours: 48, minutes: 5`, exactly 24 hours a day", "5:34: a duration takes no `days:`, since a day is not always 24 hours: write `hours: 24`, exactly 24 hours a day", errors: 4
+  i = datetime.Instant.from_unix(0)
   print(i.add(days: 1))
   print(i.checked_add(weeks: 1, hours: 2)!)
   print(datetime.Instant.add(i, days: 2, minutes: 5))
-  print(datetime.Instant.from_unix(days: 1)!)
+  print(datetime.Instant.from_unix(days: 1))
 
 fail "add takes one duration", "2:9: call to `add` expects 1 argument, got 2", "3:16: `add` takes one duration: `1` or `ms: 5`, not both", errors: 2
-  i = datetime.Instant.from_unix(0)!
+  i = datetime.Instant.from_unix(0)
   print(i.add(1, 2))
   print(i.add(1, ms: 5))
 
@@ -186,13 +186,13 @@ fail "round is checked, so not a value", "1:22: `std.datetime.Instant.round` che
 fail "a generic body cannot round an instant", "3:7: `nearest[datetime.Instant]` cannot use `T = datetime.Instant`: the generic body calls `x.round(k, k, k, k, k, k)`, and `datetime.Instant.round` checks its arguments where it is called, by name, which a call in a generic body cannot give; call it where its type is written, or pass a closure that does", errors: 1
   fun nearest[T](x: T, k: Int?) -> T
     x.round(k, k, k, k, k, k)
-  print(nearest(datetime.Instant.from_unix(0)!, 1))
+  print(nearest(datetime.Instant.from_unix(0), 1))
 
 test "a closure rounds an instant", "1970-01-01T00:15:00Z"
   fun on(x: datetime.Instant, f: ?fun(datetime.Instant) -> datetime.Instant) -> datetime.Instant
     f(x)
 
-  print(on(datetime.Instant.from_unix(minutes: 17)!, |x| x.floor(minutes: 15)))
+  print(on(datetime.Instant.from_unix(minutes: 17), |x| x.floor(minutes: 15)))
 
 test "compare, order, and key", '''
   true false true true
@@ -200,8 +200,8 @@ test "compare, order, and key", '''
 '''
   a = datetime.Instant.parse("2026-11-17T15:07:03Z")!
   b = datetime.Instant.parse("2026-11-17T08:07:03-07:00")!
-  c = datetime.Instant.from_unix(0)!
-  print(a == b, a == c, c < a, datetime.Instant.from_unix(-0.5)! < c)
+  c = datetime.Instant.from_unix(0)
+  print(a == b, a == c, c < a, datetime.Instant.from_unix(-0.5) < c)
   m: Map[datetime.Instant, Int] = Map()
   !m.put(a, 1)
   !m.put(b, 2)
@@ -223,7 +223,7 @@ test "print and String", '''
   # zero, without its trailing zeros; a year below 0 with its sign and
   # six digits.
   i = datetime.Instant.parse("2026-11-17T15:07:03.512094000Z")!
-  print(i, i.round(seconds: 1), datetime.Instant.from_unix(ns: -1)!, datetime.Instant.parse("-000001-12-31T00:00:00Z")!)
+  print(i, i.round(seconds: 1), datetime.Instant.from_unix(ns: -1), datetime.Instant.parse("-000001-12-31T00:00:00Z")!)
   s = String(i)
   print(s, datetime.Instant.parse(s)! == i)
 
@@ -257,6 +257,7 @@ test "parse refuses", '''
   DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid
   DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid
   DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid
+  DateTimeError.invalid
 '''
   # An instant needs a time of day and an offset; the offset is at most
   # 25:59:59, of two digits each, and its fraction rounds within it; a
@@ -269,20 +270,43 @@ test "parse refuses", '''
   print(read("2024-03-10T03:30:00"), read("2024-03-10"), read("2024-03-10Z"), read("2024-03-10T03:30:00 Z"), read("2024-03-10T03:30:00+26:00"), read("2024-03-10T03:30:00+05:60"))
   print(read("2024-03-10T03:30:00+5"), read("2024-03-10T03:30:00+05:3015"), read("2024-03-10T03:30:00+25:59:59.5"), read("2024-03-10T03:30:00Z["), read("2024-03-10T03:30:00Z[America/Denver"), read("2024-03-10T03:30:00Z[!u-ca=iso8601]"))
   print(read("2024-03-10T03:30:00Z[-07:00:00]"), read("2024-03-10T03:30:00Z[Foo=bar]"), read("9999-12-30T22:00:01Z"), read("-009999-01-02T01:59:58Z"), read("9999-12-31T23:59:59+25:59"))
+  # A nanosecond before the first instant, which Jiff 1.0.0 reads though
+  # it is below its own minimum (§7.1).
+  print(read("-009999-01-02T01:59:58.999999999Z"))
 
 test "now reads the wall clock", "true true"
   # The wall clock moves with the monotonic one, as far as nothing sets
-  # it, and reads after 2026.
-  a = datetime.now()
-  m = time.monotonic()
-  time.sleep(ms: 20)!
-  wall = datetime.now().since(a)
-  mono = m.elapsed()
-  print(wall.sub(mono).abs() < time.duration(ms: 500), a > datetime.Instant.parse("2026-11-01T00:00:00Z")!)
+  # it, and reads after 2026. A clock set while it runs is tried again.
+  together = false
+  for _ in 0..5
+    a = datetime.now()
+    m = time.monotonic()
+    time.sleep(ms: 20)!
+    wall = datetime.now().since(a)
+    if wall.sub(m.elapsed()).abs() < time.duration(ms: 500)
+      together = true
+      break
+  print(together, datetime.now() > datetime.Instant.parse("2026-11-01T00:00:00Z")!)
 
 test "now is real under the deterministic scheduler", "true true", seeds: 3
   # §7.8: only the monotonic clock is virtual, starting at its zero; a
-  # virtual wall clock would read 1970.
+  # virtual wall clock would read 1970. Neither check needs the clock to
+  # move forward, so a clock set while it runs does not fail it.
   a = datetime.now()
   time.sleep(ms: 20)!
-  print(a > datetime.Instant.parse("2026-11-01T00:00:00Z")!, datetime.now() >= a)
+  print(a > datetime.Instant.parse("2026-11-01T00:00:00Z")!, a < datetime.Instant.parse("2262-01-01T00:00:00Z")!)
+
+bomb "from_unix past a Duration panics", "a duration is more nanoseconds than a Duration holds"
+  # [Owner] §7.8: `from_unix` does not fail; a number beyond a
+  # `Duration`, here the year 2286, panics as any duration form does.
+  fun read() -> Float
+    10_000_000_000.0
+
+  print(datetime.Instant.from_unix(read()))
+
+fail "two units get one increment the instant takes", "2:27: `round` takes one unit and its increment, not 2: name one unit and an increment it takes, `round(minutes: 6)`", "3:27: `round` takes one unit and its increment, not 2: name one unit and an increment it takes, `round(seconds: 6)`", "4:25: `floor` takes one unit and its increment, not 2: name one unit and an increment it takes, `floor(hours: 4)`", "5:28: `round` takes one unit and its increment, not 2: name one of them, `round(minutes: 15)`", errors: 4
+  i = datetime.Instant.from_unix(0)
+  print(i.round(minutes: 7, seconds: 1))
+  print(i.round(seconds: 7, ms: 1))
+  print(i.floor(hours: 5, minutes: 1))
+  print(i.round(minutes: 15, seconds: 1))

@@ -917,7 +917,7 @@ Arithmetic that walks past the range panics, as `Int`'s does, and each
 | `parse(s)!` | a `Date`, `Time`, or `DateTime` from ISO 8601 as Jiff reads it, in the type's own form only: `2026-11-17`, `08:07:03.5`, `2026-11-17T08:07`, or a date alone for a `DateTime` at midnight; no offset, `Z`, or zone, and no date with a `Time` or time with a `Date`. A second of 60 is read as 59, and a year below 0 is written `-000001` |
 | `w.iso_number()` | a `Weekday`'s number, Monday 1 to Sunday 7 |
 | `now() -> Instant` | the wall clock: the system's idea of the current instant, which can be set, so it may jump; to time something, `time.monotonic()`. It is the real clock under the deterministic scheduler too |
-| `Instant.from_unix(`*duration*`)!` | the instant a duration after 1970-01-01T00:00Z, before it when negative: `Instant.from_unix(1_700_000_000)!`, `Instant.from_unix(ms: t)!` for a JavaScript time. A `Duration` reaches the years 1677 to 2262, all within the range |
+| `Instant.from_unix(`*duration*`) -> Instant` | the instant a duration after 1970-01-01T00:00Z, before it when negative: `Instant.from_unix(1_700_000_000)`, `Instant.from_unix(ms: t)` for a JavaScript time. It does not fail: a `Duration` reaches the years 1677 to 2262, all within the range, and a number beyond one panics, as any duration form does |
 | `i.unix() -> time.Duration` | the time since 1970-01-01T00:00Z, negative before it: `i.unix().seconds()`, which truncates, so half a second before 1970 is 0. Outside 1677 to 2262 the largest or smallest `Duration` |
 | `i.unix_s() -> Int` | the whole seconds since 1970, floored, as Unix tools count them: half a second before 1970 is -1. Exact at any instant |
 | `i.add(`*duration*`) -> Instant` | the instant a duration later: `i.add(90)`, `i.add(hours: 1, minutes: 30)`. An instant has no calendar, so `i.add(days: 1)` is a compile error: a day on the clock is a zone's |
@@ -977,8 +977,8 @@ use std.datetime
 sub main()!
   i = datetime.Instant.parse("2026-11-17T08:07:03.512094-07:00[America/Denver]")!
   print(i, i.unix_s(), i.round(seconds: 1), i.floor(hours: 1))
-  print(i.add(minutes: 90), i.add(minutes: 90).since(i), datetime.Instant.from_unix(ms: -1500)!)
-  print(datetime.Instant.from_unix(-0.5)!.unix().seconds(), datetime.Instant.from_unix(-0.5)!.unix_s())
+  print(i.add(minutes: 90), i.add(minutes: 90).since(i), datetime.Instant.from_unix(ms: -1500))
+  print(datetime.Instant.from_unix(-0.5).unix().seconds(), datetime.Instant.from_unix(-0.5).unix_s())
   print(datetime.now() > i)
 ```
 

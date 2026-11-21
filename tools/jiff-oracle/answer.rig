@@ -52,7 +52,7 @@ sub answer(op: ?String, rest: ?String)
     # `unix()` saturates beyond a `Duration` (§5.1), where Jiff answers
     # `skip`.
     i = instant(a[0])
-    print(i.unix().iso(), i.unix_s(), show(datetime.Instant.from_unix(i.unix()) catch none))
+    print(i.unix().iso(), i.unix_s(), datetime.Instant.from_unix(i.unix()))
   else if op == "instant.since"
     print(instant(a[0]).since(instant(a[1])).iso())
   else if op == "instant.parse"

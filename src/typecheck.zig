@@ -12562,7 +12562,15 @@ const Checker = struct {
             if (!incrementAllowed(kind, unit[1], @intCast(n))) break;
             return std.fmt.allocPrint(a, "write the increment in one unit, `{s}({s}: {d})`", .{ method, unit[0], n });
         };
-        if (kind != .unit_increment) return std.fmt.allocPrint(a, "name one of them, `{s}({s})`", .{ method, try self.plainText(args[0]) });
+        if (kind != .unit_increment) {
+            // The first unit given, with its increment when the check
+            // takes it, or the largest increment below it that it takes.
+            const name = self.text(ir.Kwarg.name(args[0]));
+            const unit = sema.duration.unitNs(name) orelse return std.fmt.allocPrint(a, "name one of them, `{s}({s})`", .{ method, try self.plainText(args[0]) });
+            const v = self.constInt(ir.Kwarg.value(args[0])) orelse return std.fmt.allocPrint(a, "name one of them, `{s}({s})`", .{ method, try self.plainText(args[0]) });
+            if (v >= 1 and v <= 1_000_000_000 and incrementAllowed(kind, unit, v)) return std.fmt.allocPrint(a, "name one of them, `{s}({s})`", .{ method, try self.plainText(args[0]) });
+            return std.fmt.allocPrint(a, "name one unit and an increment it takes, `{s}({s}: {d})`", .{ method, name, largestIncrement(kind, unit, v) });
+        }
         return std.fmt.allocPrint(a, "write the increment in one unit, the smallest given, `{s}:`", .{sema.duration.unitName(u)});
     }
 
@@ -12584,6 +12592,27 @@ const Checker = struct {
             },
             else => true,
         };
+    }
+
+    /// The largest increment of a unit of `unit_ns` nanoseconds at most
+    /// `v` that `round` and `floor` of `kind`, a `Time`, a `DateTime`, or
+    /// an `Instant`, take (`incrementAllowed`); 1 when `v` is below 1. An
+    /// instant's increments divide a day, whose count in any unit has no
+    /// prime factor but 2, 3, and 5, so they are found among those.
+    fn largestIncrement(kind: sema.ArgCheck, unit_ns: i64, v: Wide) Wide {
+        const top = @min(v, 1_000_000_000);
+        var best: Wide = 1;
+        var p2: Wide = 1;
+        while (p2 <= top) : (p2 *= 2) {
+            var p3: Wide = p2;
+            while (p3 <= top) : (p3 *= 3) {
+                var p5: Wide = p3;
+                while (p5 <= top) : (p5 *= 5) {
+                    if (p5 > best and incrementAllowed(kind, unit_ns, p5)) best = p5;
+                }
+            }
+        }
+        return best;
     }
 
     /// `n` with its thousands grouped by commas, as the docs write a
@@ -12804,28 +12833,15 @@ const Checker = struct {
     /// days, the weeks and any `hours:` become one `hours:` where the first
     /// of them stood (`calendarHours`), the other units as written. On an
     /// `Instant`'s `add` or `checked_add` (`zoneless`, its name) a day on
-    /// the clock is a zone's, and the fix names both:
-    /// `i.in_zone(tz).add(days: 1)`, and the exact hours.
+    /// the clock is a zone's, which the message says before the exact
+    /// hours.
     fn calendarKeyword(self: *Checker, at: Sexp, kname: []const u8, keyword: []const Sexp, zoneless: ?[]const u8) Error!void {
         const days = std.mem.eql(u8, kname, "days");
         if (zoneless) |method| {
-            try self.errAt(at, "an `Instant` has no calendar, so `{s}` takes no `{s}:`: a {s} on the clock is a zone's, `i.in_zone(tz).{s}({s})`; or write `{s}`, exactly {d} hours {s}", .{ method, kname, if (days) "day" else "week", method, try self.calendarText(keyword), try self.calendarFix(keyword), @as(i64, if (days) 24 else 168), if (days) "a day" else "a week" });
+            try self.errAt(at, "an `Instant` has no calendar, so `{s}` takes no `{s}:`: a {s} on the clock is a zone's; write `{s}`, exactly {d} hours {s}", .{ method, kname, if (days) "day" else "week", try self.calendarFix(keyword), @as(i64, if (days) 24 else 168), if (days) "a day" else "a week" });
             return;
         }
         try self.errAt(at, "a duration takes no `{s}:`, since a day is not always 24 hours: write `{s}`, exactly {d} hours {s}", .{ kname, try self.calendarFix(keyword), @as(i64, if (days) 24 else 168), if (days) "a day" else "a week" });
-    }
-
-    /// The keywords of `keyword` as written, `days: 1, hours: 2`.
-    fn calendarText(self: *Checker, keyword: []const Sexp) Error![]const u8 {
-        const a = self.ctx.arena.allocator();
-        var out: std.ArrayList(u8) = .empty;
-        for (keyword) |kw| {
-            const name = self.text(ir.Kwarg.name(kw));
-            if (!sema.duration.isCalendar(name) and sema.duration.unitNs(name) == null) continue;
-            if (out.items.len > 0) try out.appendSlice(a, ", ");
-            try out.appendSlice(a, try self.plainText(kw));
-        }
-        return out.items;
     }
 
     /// The units of `keyword` with its `days:`, `weeks:` and `hours:` as one

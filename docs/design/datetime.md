@@ -170,7 +170,7 @@ sub main()!
 |---|---|---|---|---|
 | `time.Duration` | a duration form (5.2); `time.duration(…)`; `Duration.parse(s)!`; `Duration.from_parts(s, ns)` | `hours()` `minutes()` `seconds()` `ms()` `us()` `ns()`, `float_seconds()`, `subsec_ns()`, `iso()` | `add` `sub` `times` `div` `neg` `abs` `round` `floor`, and `checked_add` `checked_sub` `checked_times` | `Eq` `Ord` `Hash` |
 | `time.Monotonic` | `time.monotonic()`; `Monotonic.at(…)` | `elapsed()` | `add(…)` | `since`; `Eq` `Ord` `Hash` |
-| `datetime.Instant` | `datetime.now()`; `Instant.from_unix(…)!`; `Instant.parse(s)!` | `unix()` `unix_s()` | `add(…)` `checked_add(…)!` `round(…)` `floor(…)` `in_zone(tz)` | `since`; `Eq` `Ord` `Hash` |
+| `datetime.Instant` | `datetime.now()`; `Instant.from_unix(…)`; `Instant.parse(s)!` | `unix()` `unix_s()` | `add(…)` `checked_add(…)!` `round(…)` `floor(…)` `in_zone(tz)` | `since`; `Eq` `Ord` `Hash` |
 | `datetime.Date` | `Date.new(y, m, d)!`; `Date.parse(s)!`; `datetime.today(tz)` | `year()` `month()` `day()` `weekday()` `day_of_year()` `days_in_month()` `iso_week()` `iso_week_year()` | `add(…)` `checked_add(…)!` `with(…)!` `at(t)` `in_zone(tz)!` `first_of_month()` `last_of_month()` `nth_weekday(n, w)!` `nth_weekday_of_month(n, w)!` | the counts (6.4); `Eq` `Ord` `Hash` |
 | `datetime.Time` | `Time.new(h, m, s, ns)!`; `Time.parse(s)!` | `hour()` `minute()` `second()` `nanosecond()` | `add(…)` (wraps) `checked_add(…)!` `with(…)!` `round(…)` `floor(…)` | `since`; `Eq` `Ord` `Hash` |
 | `datetime.DateTime` | `DateTime.new(y, m, d, h, mi, s, ns)!`; `date.at(t)`; `DateTime.parse(s)!` | `date()` `time()`, and the readers of both | `add(…)` `checked_add(…)!` `with(…)!` `round(…)` `floor(…)` `in_zone(tz, …)!` | `since`; the counts; `Eq` `Ord` `Hash` |
@@ -782,7 +782,7 @@ days = d1.days_since(d0.add(months: m))
 ## 7.2 What fails, and what panics
 
 - **Building a value from parts or text is fallible:** `Date.new`, `Time.new`,
-  `DateTime.new`, every `parse`, `Instant.from_unix`, `with`, `dt.in_zone`, `d.in_zone`,
+  `DateTime.new`, every `parse`, `with`, `dt.in_zone`, `d.in_zone`,
   `nth_weekday`, `nth_weekday_of_month`, `TimeZone.named`, `TimeZone.parse`,
   `datetime.local`, `try_format`.
   - `Date.new(year, month, day)`.
@@ -807,8 +807,10 @@ days = d1.days_since(d0.add(months: m))
   - `round` or `floor` given an increment that is not a literal and is not allowed
     (6.8).
 - A program that takes a number from a user checks it before it reaches one of these.
-  `Instant.from_unix(x)!` with a `Float` from a user is a case: a value outside the
-  range fails, and one that is not finite panics.
+  `Instant.from_unix(x)` with a `Float` from a user is a case: it does not fail, since
+  every `Duration` is an instant in range, and a number that is not finite or is beyond
+  a `Duration` (the years 1677 to 2262) panics, as any duration form does (5.2).
+  **[Owner, 2026-11-21]**
 
 ## 7.3 Sizes
 
@@ -985,9 +987,11 @@ program gives the same answer on every machine.
 - `datetime.now() -> Instant` reads the wall clock.
   - **[Owner]** It is the real clock under the deterministic scheduler too; only the
     monotonic clock is virtual there.
-- **`Instant.from_unix(<duration form>)!`** is the instant that long after
-  1970-01-01T00:00Z: `Instant.from_unix(1_700_000_000)!`, or
-  `Instant.from_unix(ms: t)!` for a JavaScript time. It fails outside the range.
+- **`Instant.from_unix(<duration form>)`** is the instant that long after
+  1970-01-01T00:00Z: `Instant.from_unix(1_700_000_000)`, or
+  `Instant.from_unix(ms: t)` for a JavaScript time. **[Owner, 2026-11-21]** It does
+  not fail: a `Duration` reaches the years 1677 to 2262, all inside the range. A
+  number beyond a `Duration` panics, as any duration form does (5.2).
   - A `Float` near 1.7e9 resolves only about 240 ns, so a Unix time finer than a
     microsecond is given with `us:` or `ns:`.
 - **`i.unix() -> Duration`**, negative before 1970. Then `i.unix().seconds()`, `.ms()`.

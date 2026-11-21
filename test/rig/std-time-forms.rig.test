@@ -145,7 +145,7 @@ bomb "duration past an Int", "a duration is more nanoseconds than a Duration hol
 
   print(time.duration(big()))
 
-bomb "duration of a Float past an Int", "a duration is not a finite number of nanoseconds a Duration holds"
+bomb "duration of a Float past an Int", "a duration is more nanoseconds than a Duration holds"
   fun big() -> Float
     1e19
 
