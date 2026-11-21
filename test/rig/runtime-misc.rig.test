@@ -678,13 +678,14 @@ test "main exit status", '''
       return 1
     0
 
-test "main fails with error", exit: 1, stderr: "error: IoErr.eof", '''
+test "main fails with error", exit: 1, stderr: "error: IoErr.eof\n  lib.rig:5:3\n  main.rig:16:9", '''
   2 2 1
   drop 1
 '''
   # A failure that leaves `main` ends the program: what it printed is
   # written out, what it owns is dropped and checked for leaks, and the
-  # error is reported as Rig shows it, `IoErr.eof`, with exit status 1.
+  # error is reported as Rig shows it, `IoErr.eof`, with the place it
+  # began and each `!` that passed it on, and exit status 1.
   use lib
 
   obj Tok

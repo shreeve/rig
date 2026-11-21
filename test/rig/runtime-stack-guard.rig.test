@@ -6,7 +6,7 @@ test "the exit status passes through the program's stack", exit: 7, release: tru
   fun main() -> Int
     7
 
-test "a failure out of main passes through the program's stack", "before", exit: 1, stderr: "error: Bad.broken", release: true
+test "a failure out of main passes through the program's stack", "before", exit: 1, stderr: "error: Bad.broken\n  a_failure_out_of_main_passes_through_the_program_s_stack.rig:6:3", release: true
   error Bad
     broken
 
