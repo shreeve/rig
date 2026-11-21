@@ -360,3 +360,48 @@ test "date text refused", '''
 
   print(read("2024-03-10T03:30"), read("2024-03-10 03:30"), read("2024-03-10-06:00"), read("2024-03-10[America/Denver]"), read("2024-03-10Z"), read("03:30"))
   print(read("2023-02-29"), read("2024-0310"), read("-0001-01-01"), read("-000000-01-01"), read("24-03-10"), read(""))
+
+test "counts from Jiff's own tests", '''
+  4 1 24 3 10 7 19998 11 30
+  5 2 4 23 1 24 49 24 3 2 144 -144
+  1 1 2 2 2 1
+  10 30 0 30 10 29 10 29
+'''
+  # jiff civil/date.rs:3552 `since_years`, 3576 `since_months`, 3613
+  # `since_weeks`, 3623 `since_days`, 3633 `until_month_lengths`, 3648
+  # `since_until_not_commutative`, 3698 `until_months_no_balance`, 3709
+  # `until_extremes`. Rig counts forward from the earlier date whichever
+  # way it is asked (§9 item 3): where Jiff's `since` measures backward
+  # from the later date (`4.years().months(1).days(21)`, `2.months()` from
+  # 2020-04-30, `-10.months().days(30)`), Rig gives the count forward,
+  # Jiff's `until` from the earlier (24 days, 2 months and 1 day, 10
+  # months and 29 days).
+  fun ymd(a: datetime.Date, b: datetime.Date) -> String
+    early = a if a < b else b
+    late = b if a < b else a
+    m = late.months_since(early)
+    `{m / 12} {m % 12} {late.days_since(early.add(months: m))}`
+
+  fun md(a: datetime.Date, b: datetime.Date) -> String
+    early = a if a < b else b
+    late = b if a < b else a
+    m = late.months_since(early)
+    `{m} {late.days_since(early.add(months: m))}`
+
+  print(ymd(datetime.Date.new(2023, 4, 15)!, datetime.Date.new(2019, 2, 22)!), ymd(datetime.Date.new(2023, 2, 22)!, datetime.Date.new(2019, 4, 15)!), ymd(datetime.Date.new(9999, 12, 31)!, datetime.Date.new(-9999, 1, 1)!))
+  print(md(datetime.Date.new(2024, 7, 24)!, datetime.Date.new(2024, 2, 22)!), md(datetime.Date.new(2024, 7, 15)!, datetime.Date.new(2024, 2, 22)!), md(datetime.Date.new(2023, 4, 15)!, datetime.Date.new(2023, 2, 22)!), md(datetime.Date.new(2023, 4, 15)!, datetime.Date.new(2019, 2, 22)!), datetime.Date.new(2024, 7, 15)!.weeks_since(datetime.Date.new(2024, 6, 22)!), datetime.Date.new(2024, 7, 15)!.days_since(datetime.Date.new(2024, 6, 22)!) % 7, datetime.Date.new(2024, 7, 15)!.days_since(datetime.Date.new(2024, 2, 22)!), datetime.Date.new(2024, 2, 22)!.days_since(datetime.Date.new(2024, 7, 15)!))
+  jan1 = datetime.Date.new(2020, 1, 1)!
+  feb1 = datetime.Date.new(2020, 2, 1)!
+  mar1 = datetime.Date.new(2020, 3, 1)!
+  print(feb1.months_since(jan1), mar1.months_since(feb1), mar1.months_since(jan1), datetime.Date.new(2020, 4, 30)!.months_since(datetime.Date.new(2020, 2, 29)!), md(datetime.Date.new(2020, 4, 30)!, datetime.Date.new(2020, 2, 29)!))
+  print(md(datetime.Date.new(2023, 5, 31)!, datetime.Date.new(2024, 4, 30)!), md(datetime.Date.new(2023, 5, 31)!, datetime.Date.new(2023, 6, 30)!), md(datetime.Date.new(-9999, 12, 1)!, datetime.Date.new(-9999, 1, 2)!), md(datetime.Date.new(9999, 1, 2)!, datetime.Date.new(9999, 12, 1)!))
+
+test "invalid days", '''
+  range range range ok range range
+'''
+  # jiff civil/date.rs:3874 `date_invalid_day`.
+  fun try_date(y: Int, m: Int, d: Int) -> ?String
+    _ = datetime.Date.new(y, m, d) catch return "range"
+    "ok"
+
+  print(try_date(1998, 1, 0), try_date(1998, 1, -1), try_date(1998, 2, 29), try_date(2004, 2, 29), try_date(2026, 3, 0), try_date(2026, 3, -1))

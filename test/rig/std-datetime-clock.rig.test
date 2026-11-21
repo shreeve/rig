@@ -336,3 +336,45 @@ test "datetime text refused", '''
     String(dt)
 
   print(read("2024-03-10T03:30:00Z"), read("2024-03-10T03:30:00-06:00"), read("2024-03-10T03:30:00[America/Denver]"), read("2024-03-10[UTC]"), read("03:30"), read("2024-03-10T"))
+
+test "time ends and invalid parts", '''
+  0 0 0 0 23 59 59 999999999
+  range range range range range range range range range range range
+'''
+  # jiff civil/time.rs:3202 `min`, 3211 `max`, 3220 `invalid`.
+  lo = datetime.Time.new(0, 0)!
+  hi = datetime.Time.new(23, 59, 59, 999_999_999)!
+  print(lo.hour(), lo.minute(), lo.second(), lo.nanosecond(), hi.hour(), hi.minute(), hi.second(), hi.nanosecond())
+  fun try_time(h: Int, m: Int, s: Int, ns: Int) -> ?String
+    _ = datetime.Time.new(h, m, s, ns) catch return "range"
+    "ok"
+
+  print(try_time(24, 0, 0, 0), try_time(23, 60, 0, 0), try_time(23, 59, 60, 0), try_time(23, 59, 61, 0), try_time(-1, 0, 0, 0), try_time(0, -1, 0, 0), try_time(0, 0, -1, 0), try_time(0, 0, 0, 1_000_000_000), try_time(0, 0, 0, -1), try_time(23, 59, 59, 1_000_000_000), try_time(23, 59, 59, -1))
+
+test "datetime since and counts from Jiff's own tests", '''
+  1995-12-07T03:00:00 1995-12-07T03:30:00 1995-12-07T03:00:00
+  23h -1 1h 0 1 -1 0
+  23h -23h 8456 12h 5m 29s 999ms 996us 500ns 23 1 24 23 1 24
+  730641929999996500 ns 31 1 1 2
+'''
+  # jiff civil/datetime.rs:4419 `from_temporal_docs`, 4449 `since`, 4468
+  # `until`, 4530 `until_month_lengths`. Rig's `since` is a `Duration`;
+  # a span of days and hours is the counts and what is left.
+  fun ymd(a: datetime.DateTime, b: datetime.DateTime) -> String
+    early = a if a < b else b
+    late = b if a < b else a
+    n = late.days_since(early)
+    d0 = early.date()
+    d1 = d0.add(days: n)
+    m = d1.months_since(d0)
+    `{m / 12} {m % 12} {d1.days_since(d0.add(months: m))}`
+
+  dt = datetime.DateTime.new(1995, 12, 7, 3, 24, 30, 3500)!
+  print(dt.round(hours: 1), dt.round(minutes: 30), dt.floor(minutes: 30))
+  later = datetime.DateTime.new(2024, 5, 9, 2)!
+  print(later.since(datetime.DateTime.new(2024, 5, 8, 3)!), later.since(datetime.DateTime.new(2024, 5, 10, 3)!).hours() / 24, "1h", later.days_since(datetime.DateTime.new(2024, 5, 8, 3)!), datetime.DateTime.new(2024, 5, 9, 3)!.days_since(datetime.DateTime.new(2024, 5, 8, 2)!), later.days_since(datetime.DateTime.new(2024, 5, 10, 3)!), datetime.DateTime.new(2024, 5, 9, 3)!.days_since(datetime.DateTime.new(2024, 5, 10, 2)!))
+  a = datetime.DateTime.new(1995, 12, 7, 3, 24, 30, 3500)!
+  b = datetime.DateTime.new(2019, 1, 31, 15, 30)!
+  print(datetime.DateTime.new(9999, 12, 31, 2)!.since(datetime.DateTime.new(9999, 12, 30, 3)!), datetime.DateTime.new(-9999, 1, 1, 3)!.since(datetime.DateTime.new(-9999, 1, 2, 2)!), b.days_since(a), b.since(a.add(days: b.days_since(a))), ymd(a, b), ymd(b, a))
+  jan1 = datetime.DateTime.new(2020, 1, 1)!
+  print(b.since(a).ns(), "ns", datetime.DateTime.new(2020, 2, 1)!.days_since(jan1), datetime.DateTime.new(2020, 2, 1)!.months_since(jan1), datetime.DateTime.new(2020, 3, 1)!.months_since(datetime.DateTime.new(2020, 2, 1)!), datetime.DateTime.new(2020, 3, 1)!.months_since(jan1))
