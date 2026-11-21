@@ -35,7 +35,9 @@ takes for a reading's and prints as `CHECK path:line` once a line. A
 `time.since_start` taken as a function value now gives a `Duration`,
 and `time.sleep` or `time.within` taken as one takes a `Duration`; each
 is printed as `MANUAL path:line`. In a Markdown file it rewrites the
-```rig blocks only. A program is migrated once.
+```rig blocks only, and a test file case by case. A file, a block, or a
+case that names none of the removed forms is left as it is, so a second
+run changes nothing.
 
 usage: tools/migrate-datetime.py [--dry-run] PATH...
   Each PATH is a file or a directory searched for .rig, .rig.test, and
@@ -49,7 +51,8 @@ CLOSE = set(OPEN.values())
 UNITS = {"NS": 1, "US": 1_000, "MS": 1_000_000, "SECOND": 1_000_000_000, "MINUTE": 60_000_000_000}
 NUMBER = {"NS": "1", "US": "1_000", "MS": "1_000_000", "SECOND": "1_000_000_000", "MINUTE": "60_000_000_000"}
 INT = re.compile(r"^-?\d[\d_]*$")
-FENCE = re.compile(r"^```rig[^\n]*\n(.*?)^```", re.S | re.M)
+FENCE = re.compile(r"^```rig([^\n]*)\n(.*?)^```", re.S | re.M)
+CASE = re.compile(r"^(?:test|fail|bomb|code) ", re.M)
 COMPARE = re.compile(r"\s*(<=|>=|==|!=|<|>)\s*")
 
 
@@ -331,23 +334,43 @@ def uses_time(text):
     return re.search(r"^\s*use std\.time\b", text, re.M) is not None
 
 
+def names_removed(text, aliases):
+    """Whether `text` names a form std.time no longer has, `now()`,
+    `Instant`, or a constant of nanoseconds: what a program not yet
+    migrated names, so a second run leaves a migrated one alone."""
+    a = "|".join(re.escape(x) for x in aliases)
+    return re.search(r"(?<![\w.@])(?:%s)\.(?:now\(\)|Instant\b|(?:%s)\b)" % (a, "|".join(UNITS)), text) is not None
+
+
 def migrate(text, path):
-    """`text` of the file at `path` migrated, its count, and its report."""
+    """`text` of the file at `path` migrated, its count, and its report.
+    A test file is migrated case by case, and a Markdown file block by
+    block (not a ```rig reject block, which shows a refused program), each
+    only where it names a removed form."""
     out = []
     if not path.endswith(".md"):
         if not uses_time(text):
             return text, 0, out
-        new, n = rewrite(text, path, 1, aliases_of(text), out)
-        return new, n, out
+        aliases = aliases_of(text)
+        starts = [0] + [m.start() for m in CASE.finditer(text)] if path.endswith(".rig.test") else [0]
+        pieces, n = [], 0
+        for i, start in enumerate(starts):
+            end = starts[i + 1] if i + 1 < len(starts) else len(text)
+            piece = text[start:end]
+            if names_removed(piece, aliases):
+                piece, k = rewrite(piece, path, text.count("\n", 0, start) + 1, aliases, out)
+                n += k
+            pieces.append(piece)
+        return "".join(pieces), n, out
     pieces, n, last = [], 0, 0
     for m in FENCE.finditer(text):
-        body = m.group(1)
+        body = m.group(2)
         k = 0
-        if uses_time(body):
-            body, k = rewrite(body, path, text.count("\n", 0, m.start(1)) + 1, aliases_of(body), out)
-        pieces.append(text[last : m.start(1)])
+        if "reject" not in m.group(1) and uses_time(body) and names_removed(body, aliases_of(body)):
+            body, k = rewrite(body, path, text.count("\n", 0, m.start(2)) + 1, aliases_of(body), out)
+        pieces.append(text[last : m.start(2)])
         pieces.append(body)
-        last = m.end(1)
+        last = m.end(2)
         n += k
     pieces.append(text[last:])
     return "".join(pieces), n, out

@@ -89,6 +89,12 @@ expect_has "$(cat out.txt)" "CHECK old.rig:20: \`later.since(start)\` taken as a
 expect_has "$(cat out.txt)" "CHECK old.rig:26: a constant of nanoseconds kept as a number" "a constant kept as a number"
 expect_has "$(cat out.txt)" "MANUAL old.rig:29: \`time.since_start\` as a value gives a \`time.Duration\` now" "a function value it leaves"
 diff old.rig new.rig >diff.txt || fail "old.rig migrated differs: $(cat diff.txt)"
+# A second run changes nothing: what it migrated names no removed form.
+cp doc.md doc1.md
+python3 "$ROOT/tools/migrate-datetime.py" old.rig doc.md >out2.txt 2>&1 || fail "second run: $(cat out2.txt)"
+expect_has "$(cat out2.txt)" "0 rewritten" "a second run rewrites nothing"
+diff old.rig new.rig >diff.txt || fail "a second run changed old.rig: $(cat diff.txt)"
+cmp -s doc.md doc1.md || fail "a second run changed doc.md"
 expect_has "$(head -1 doc.md)" "time.now()" "prose left as it is"
 grep -q '^  print(start.elapsed() < time.duration(5))$' doc.md || fail "the rig block not rewritten: $(cat doc.md)"
 # The function value, left for a person, is the one line it does not fix.
