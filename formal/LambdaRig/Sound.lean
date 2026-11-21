@@ -44,7 +44,7 @@ theorem check_fresh (e : Expr) : ∀ {Γ M L τ M' z}, check Γ M L e = some (τ
       cases τx with
       | view m y => simp [hx] at hc; cases hy : Γ.lookup y <;> simp_all
       | _ => simp [hx] at hc; simp_all
-  | lend m x =>
+  | view m x =>
     intro Γ M L τ M' z hc hzm _
     simp only [check] at hc
     cases hx : Γ.lookup x with
@@ -122,7 +122,7 @@ theorem lookup_none_of {Γ : Ctx} {x : Var} (h : ∀ a b, (a, b) ∈ Γ → ¬x 
 /-- Leaving a `let` frees `x`'s place, then drops what it held; the value
 in hand, no view of `x`, keeps its type. -/
 theorem Rel.leave {Γ x τe M L σ β s w τ l c} (r : Rel ((x, τe) :: Γ) M L (reboxed σ x l) β s (owned w))
-    (hf : VFits ((x, τe) :: Γ) M (reboxed σ x l) β s τ w) (hτ : τ.lentFrom x = false)
+    (hf : VFits ((x, τe) :: Γ) M (reboxed σ x l) β s τ w) (hτ : τ.isViewOf x = false)
     (hxΓ : Γ.lookup x = none)
     (hctx : ∀ z m y, Γ.lookup z = some (.view m y) → ∃ τ, Γ.lookup y = some τ ∧ τ.owner = true)
     (hc : s.heap l = some c) {s0 : Machine} (h0 : s0.heap = upd s.heap l none)
@@ -140,7 +140,7 @@ theorem Rel.leave {Γ x τe M L σ β s w τ l c} (r : Rel ((x, τe) :: Γ) M L 
       refine ⟨fun h => h1 x τe lookup_cons_self (by rw [reboxed_self]; exact h.symm), fun b' hb' => ?_⟩
       obtain ⟨hxm, rfl, rfl⟩ := r.slot_owned lookup_cons_self hcx hb'
       exact fun h => h2 x lookup_cons_self hxm h.symm
-    · have hyx : y ≠ x := by simpa [Ty.lentFrom] using hτ
+    · have hyx : y ≠ x := by simpa [Ty.isViewOf] using hτ
       obtain ⟨t, -, hym, ⟨τy, hy, -⟩, -⟩ := hf
       refine ⟨fun h => hyx (r.slot_inj y x τy τe hy lookup_cons_self
         (by rw [reboxed_other hyx, reboxed_self]; exact h)), fun b' hb' => ?_⟩
@@ -224,7 +224,7 @@ theorem sound (e : Expr) : Sound e := by
   | move x => exact sound_move x
   | clone x => exact sound_clone x
   | box e ih => exact sound_box e ih
-  | lend m x => exact sound_lend m x
+  | view m x => exact sound_view m x
   | assign x e ih => exact sound_assign x e ih
   | drop x => exact sound_drop x
   | add a b iha ihb => exact sound_add a b iha ihb

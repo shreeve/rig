@@ -1500,7 +1500,7 @@ fail "string owner expected", "9:12: type mismatch: expected `String`, got `Stat
   print(size(?t))
   x: String = "lit"
 
-fail "string place not lent to write", "12:7: cannot make a write view of `a`: it holds a read view of text, `?String`", "12:11: cannot make a write view of `b`", "14:13: cannot make a write view of `p.left`", "17:15: cannot make a write view of `names[0]`", "20:6: cannot make a write view of `v`", "21:7: cannot make a write view of `a`", errors: 6
+fail "string place not under a write view", "12:7: cannot make a write view of `a`: it holds a read view of text, `?String`", "12:11: cannot make a write view of `b`", "14:13: cannot make a write view of `p.left`", "17:15: cannot make a write view of `names[0]`", "20:6: cannot make a write view of `v`", "21:7: cannot make a write view of `a`", errors: 6
   # A `?String` is a read view of text, and nothing lends a view's own slot
   # to write: `swap`, `replace`, and `!` on a place that holds one are
   # rejected, as for any read view. Assign to it to point it at other
@@ -2528,7 +2528,7 @@ fail "text is owned", "3:5: `String` is a reserved built-in nominal name and can
   ys: [2]String = [String("a"), String("b")]
   print(xs.len, ys.len)
 
-test "text lent as string", "5 3 1 2 3"
+test "text viewed as string", "5 3 1 2 3"
   # A Text is lent where a String is expected: `?t` means `?t[..]`, a
   # view of one lends it as is, and a bare Text argument is lent to read
   # as `?t` would be.

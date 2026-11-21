@@ -253,10 +253,10 @@ test "take through branch of write views", '''
   lends(false)
   bindings(false)
 
-test "take through lend", "2 [1] none"
+test "take through view", "2 [1] none"
   # `<` through a write view takes an optional field or element, leaving
   # `none`, since the take writes the place it reaches; a plain field is
-  # read with no `<` (`test/reject/ownership/move_through_lend.rig` and
+  # read with no `<` (`test/reject/ownership/move_through_view.rig` and
   # `move_part_that_copies.rig` have the moves rejected).
 
   obj S
@@ -287,7 +287,7 @@ fail "take through view of temporary", "9:6: a write view is never stored inside
   b = B(o: 3)
   print(b.o ?? 0)
 
-test "taken cell holder lends", release: true, '''
+test "taken cell holder views", release: true, '''
   touch 1
   touch 2
   touch 6
@@ -937,7 +937,7 @@ fail "text view escaping closure", "6:8: an owned closure cannot capture a view 
   !c.set(?t[1..])
   print(c.get())
 
-test "text view loans", '''
+test "text views keep their places", '''
   Span(label: "alpha", width: 5)
   ["alpha", "beta", "literal"] 3
   show alp
@@ -1622,7 +1622,7 @@ test "value tails leave", '''
     mk(25)
   print(y.id, z.id, q.id)
 
-test "variant literal lent to view", '''
+test "variant literal made a view", '''
   table 3
   num 3
   empty
@@ -2108,7 +2108,7 @@ test "vec of views", '''
   !s.push(?arr[..2])
   print(s)
 
-fail "vec of views loans", "6:1: cannot reassign `a` while a read view of it is still in use"
+fail "vec of views keeps its places viewed", "6:1: cannot reassign `a` while a read view of it is still in use"
   # A List of views keeps each pushed view's loan while it lives.
 
   a = 1

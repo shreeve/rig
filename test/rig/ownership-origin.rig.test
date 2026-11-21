@@ -558,7 +558,7 @@ test "origin self path items held", "30"
   k = ?m.items()
   print(both(!k))
 
-test "origin self path loans copied", '''
+test "origin self path views copied", '''
   1
   10
 '''
@@ -586,7 +586,7 @@ test "origin self path loans copied", '''
   if a as x
     print(x)
 
-fail "origin self path loans stay", "cannot change `m1` while a read view of it is still in use"
+fail "origin self path views stay", "cannot change `m1` while a read view of it is still in use"
   # The item keeps the first Map lent after the field is pointed away.
 
   obj Walk

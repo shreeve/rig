@@ -297,7 +297,7 @@ test "review-rule2-cell-handle-forms", '''
   swapLocals()
   fixed()
 
-test "review-rule2-cell-handle-lend-binding", '''
+test "review-rule2-cell-handle-view-binding", '''
   2
   6 2
   6 2 8 2

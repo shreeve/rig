@@ -1,11 +1,11 @@
 /-
-λRig: a statement's temporary, lent to a call.
+λRig: a statement's temporary, viewed by a call.
 
 CORE §3, "What counts as a temporary": "A value made where it is only
 read has no name: a call's result, a constructor, `+x`, or a block or
 `match` value. Its statement is its scope, so it is a *temporary*,
-dropped when the statement ends ... A temporary may be lent to read or
-to write (sentence 4), and a view of it may be used only within its
+dropped when the statement ends ... A temporary may be given a read view or
+a write view (sentence 4), and a view of it may be used only within its
 statement." A backtick template where a `?String` is expected is such a
 temporary (docs/history/records/2026-11/templates-t1.md, "The place
 decides").
@@ -13,7 +13,7 @@ decides").
 `TProg` adds to the programs of Calls.lean a call whose first argument
 is a temporary, `r = f(?e, args)` and `print(f(?e, args))`. `elab` runs
 it as CORE says: the value `e` makes is held in a hidden place `h`, whose
-scope is the statement and no more, and lent to read as the hidden view
+scope is the statement and no more, and read through the hidden view
 `hv`; the place drops where the statement ends, before the rest of the
 program. `checkT` reads the API's clauses, never the implementation, and
 rejects a binding whose result views the temporary, since that view
@@ -37,16 +37,16 @@ inductive TProg where
   | bind (x : Var) (e : Expr) (rest : TProg)
   /-- `r = f(?e, args)` followed by `rest`, the scope of `r`: the value
   `e` makes is the statement's temporary, held in the hidden place `h`
-  and lent to the call's first parameter as the hidden view `hv`. -/
+  and given to the call's first parameter as the hidden view `hv`. -/
   | callTemp (r : Var) (api : Clauses) (impl : Impl) (h hv : Var) (e : Expr) (args : List Var)
       (rest : TProg)
   /-- `print(f(?e, args))` followed by `rest`: the call's result is used
   within its statement. -/
   | printTemp (api : Clauses) (impl : Impl) (h hv : Var) (e : Expr) (args : List Var) (rest : TProg)
 
-/-- The temporary `e` makes, held in `h` and lent to read as `hv` for
+/-- The temporary `e` makes, held in `h` and read through the view `hv` for
 `use`, the rest of its statement: its statement is its scope. -/
-def tempIn (h hv : Var) (e use : Expr) : Expr := .letIn h e (.letIn hv (.lend .read h) use)
+def tempIn (h hv : Var) (e use : Expr) : Expr := .letIn h e (.letIn hv (.view .read h) use)
 
 /-- The λRig program that runs: each call in place, each temporary in a
 scope that ends with its statement. -/
@@ -70,7 +70,7 @@ either. A temporary has no name. -/
 def hidden (Γ : Ctx) (moved : List Var) (h hv : Var) (args : List Var) : Bool :=
   (Γ.lookup h).isNone && (Γ.lookup hv).isNone && h != hv &&
   !moved.contains h && !moved.contains hv &&
-  Γ.all (fun p => !p.2.lentFrom h && !p.2.lentFrom hv) &&
+  Γ.all (fun p => !p.2.isViewOf h && !p.2.isViewOf hv) &&
   !args.contains h && !args.contains hv
 
 /-- `rig check` for a program whose calls may take a temporary. A call
@@ -81,7 +81,7 @@ def checkT (Γ : Ctx) (moved later : List Var) : TProg → Option (Ty × List Va
     guard ((Γ.lookup x).isNone && !moved.contains x)
     let (τe, moved) ← check Γ moved (rest.fv.filter (· ≠ x) ++ later) e
     let (τ, moved) ← checkT ((x, τe) :: Γ) moved later rest
-    guard (!τ.lentFrom x)
+    guard (!τ.isViewOf x)
     some (τ, moved.filter (· ≠ x))
   | .callTemp r api _ h hv e args rest => do
     guard ((Γ.lookup r).isNone && !moved.contains r)
@@ -90,9 +90,9 @@ def checkT (Γ : Ctx) (moved later : List Var) : TProg → Option (Ty × List Va
     guard τe.owner
     let τc ← checkCall ((hv, .view .read h) :: (h, τe) :: Γ) moved api (hv :: args)
     -- CORE §3: "a view of it may be used only within its statement".
-    guard (!τc.lentFrom h)
+    guard (!τc.isViewOf h)
     let (τ, moved) ← checkT ((r, τc) :: Γ) moved later rest
-    guard (!τ.lentFrom r)
+    guard (!τ.isViewOf r)
     some (τ, moved.filter (· ≠ r))
   | .printTemp api _ h hv e args rest => do
     guard (hidden Γ moved h hv args)
@@ -152,7 +152,7 @@ theorem fv_telab (p : TProg) (v : Var) : v ∈ fv p.elab → v ∈ p.fv := by
       · exact Or.inl (Or.inr (fv_inline_temp (by simpa [fv] using hm) hne))
     · exact Or.inr (ih v hm)
 
-/-! ## A temporary, lent for its statement -/
+/-! ## A temporary, viewed for its statement -/
 
 theorem guard_some {p : Prop} [Decidable p] {u : Unit} : (guard p : Option Unit) = some u ↔ p := by
   by_cases h : p <;> simp [guard, h, failure]
@@ -160,7 +160,7 @@ theorem guard_some {p : Prop} [Decidable p] {u : Unit} : (guard p : Option Unit)
 theorem hidden_spec {Γ : Ctx} {M : List Var} {h hv : Var} {args : List Var}
     (hid : hidden Γ M h hv args = true) :
     Γ.lookup h = none ∧ Γ.lookup hv = none ∧ h ≠ hv ∧ h ∉ M ∧ hv ∉ M ∧
-    (∀ p ∈ Γ, p.2.lentFrom h = false ∧ p.2.lentFrom hv = false) ∧ h ∉ args ∧ hv ∉ args := by
+    (∀ p ∈ Γ, p.2.isViewOf h = false ∧ p.2.isViewOf hv = false) ∧ h ∉ args ∧ hv ∉ args := by
   simp only [hidden, Bool.and_eq_true, Option.isNone_iff_eq_none, bne_iff_ne, ne_eq,
     List.all_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true] at hid
   obtain ⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩ := hid
@@ -169,9 +169,9 @@ theorem hidden_spec {Γ : Ctx} {M : List Var} {h hv : Var} {args : List Var}
   have := h6 p hp
   simpa [Bool.and_eq_true] using this
 
-/-- Nothing in scope views the temporary, so lending it is allowed. -/
+/-- Nothing in scope views the temporary, so a view of it is allowed. -/
 theorem allows_hidden {Γ : Ctx} {h : Var} {τe : Ty} (ho : τe.owner = true)
-    (hn : ∀ p ∈ Γ, p.2.lentFrom h = false) (k : Access) (L : List Var) :
+    (hn : ∀ p ∈ Γ, p.2.isViewOf h = false) (k : Access) (L : List Var) :
     allows ((h, τe) :: Γ) h k L = true := by
   unfold allows
   rw [List.all_cons, Bool.and_eq_true]
@@ -181,7 +181,7 @@ theorem allows_hidden {Γ : Ctx} {h : Var} {τe : Ty} (ho : τe.owner = true)
     obtain ⟨z, τ⟩ := p
     have := hn (z, τ) hp
     cases τ with
-    | view m y => simp [Ty.lentFrom] at this; simp [this]
+    | view m y => simp [Ty.isViewOf] at this; simp [this]
     | _ => rfl
 
 theorem filter_ne_self {M : List Var} {x : Var} (h : x ∉ M) : M.filter (· ≠ x) = M := by
@@ -191,17 +191,17 @@ theorem filter_ne_self {M : List Var} {x : Var} (h : x ∉ M) : M.filter (· ≠
   rintro rfl
   exact h ha
 
-/-- **A temporary lent for its statement.** The value `e` makes, held in
-the hidden `h` and lent to read as `hv` for `use`, the rest of its
+/-- **A temporary viewed for its statement.** The value `e` makes, held in
+the hidden `h` and read through the view `hv` for `use`, the rest of its
 statement, checks as `use` does, provided what `use` gives views neither:
 the temporary drops where the statement ends, and with it every view of
 it. -/
 theorem check_tempIn {Γ : Ctx} {M L : List Var} {h hv : Var} {args : List Var} {e use : Expr}
     {τe τu : Ty} {M1 : List Var} (hid : hidden Γ M h hv args = true)
-    (he : check Γ M ((fv (.letIn hv (.lend .read h) use)).filter (· ≠ h) ++ L) e = some (τe, M1))
+    (he : check Γ M ((fv (.letIn hv (.view .read h) use)).filter (· ≠ h) ++ L) e = some (τe, M1))
     (ho : τe.owner = true)
     (hu : ∀ L', check ((hv, .view .read h) :: (h, τe) :: Γ) M1 L' use = some (τu, M1))
-    (hτv : τu.lentFrom hv = false) (hτh : τu.lentFrom h = false) :
+    (hτv : τu.isViewOf hv = false) (hτh : τu.isViewOf h = false) :
     check Γ M L (tempIn h hv e use) = some (τu, M1) := by
   obtain ⟨hhΓ, hvΓ, hne, hhM, hvM, hn, -, -⟩ := hidden_spec hid
   have hh1 : h ∉ M1 := check_fresh e he hhM hhΓ
@@ -219,10 +219,10 @@ theorem check_tempIn {Γ : Ctx} {M L : List Var} {h hv : Var} {args : List Var} 
 neither hidden name but, when the API's `from` names that argument, the
 temporary. -/
 theorem checkCall_temp {Γ : Ctx} {M : List Var} {api : Clauses} {h hv : Var} {τe : Ty}
-    {args : List Var} {τc : Ty} (hid : ∀ p ∈ Γ, p.2.lentFrom h = false ∧ p.2.lentFrom hv = false)
+    {args : List Var} {τc : Ty} (hid : ∀ p ∈ Γ, p.2.isViewOf h = false ∧ p.2.isViewOf hv = false)
     (hne : h ≠ hv) (hh : h ∉ args) (hhv : hv ∉ args)
     (hc : checkCall ((hv, .view .read h) :: (h, τe) :: Γ) M api (hv :: args) = some τc) :
-    τc.lentFrom hv = false ∧ (0 ∈ api.src → τc.lentFrom h = true) := by
+    τc.isViewOf hv = false ∧ (0 ∈ api.src → τc.isViewOf h = true) := by
   obtain ⟨-, y, rfl, hy⟩ := checkCall_spec hc
   have hsrc : ∃ i, i ∈ api.src := by
     simp only [checkCall] at hc
@@ -237,7 +237,7 @@ theorem checkCall_temp {Γ : Ctx} {M : List Var} {api : Clauses} {h hv : Var} {�
     | zero =>
       simp at hyi
       subst hyi
-      simp [Ty.lentFrom, hne]
+      simp [Ty.isViewOf, hne]
     | succ j =>
       simp only [List.getElem?_cons_succ] at hyi
       cases hx : args[j]? with
@@ -252,13 +252,13 @@ theorem checkCall_temp {Γ : Ctx} {M : List Var} {api : Clauses} {h hv : Var} {�
         | some τx =>
           have := (hid (x, τx) (mem_of_lookup hl)).2
           cases τx with
-          | view m y' => cases m <;> simp_all [Ty.lentFrom]
+          | view m y' => cases m <;> simp_all [Ty.isViewOf]
           | _ => simp [hl] at hyi
   · have hy0 := hy 0 h0
     unfold argOwner at hy0
     simp at hy0
     subst hy0
-    simp [Ty.lentFrom]
+    simp [Ty.isViewOf]
 
 /-- A program `checkT` accepts, whose calls run implementations within
 their APIs' clauses, runs as one `check` accepts with the same type. -/
@@ -287,10 +287,10 @@ theorem checkT_elab (p : TProg) (hf : p.Fits) :
     obtain ⟨ho, τc, hcc, hlh, ⟨τ, M2⟩, hrest, hlr, hres⟩ := hc
     obtain ⟨hhΓ, hvΓ, hne, hhM, hvM, hn, hha, hva⟩ := hidden_spec hid
     have hct := checkCall_temp hn hne hha hva hcc
-    have hlh' : τc.lentFrom h = false := by simpa using hlh
+    have hlh' : τc.isViewOf h = false := by simpa using hlh
     have hue : ∀ L', check ((hv, .view .read h) :: (h, τe) :: Γ) M1 L' (f.inline (hv :: args)) =
         some (τc, M1) := fun L' => inline_check f hm hw hcc
-    have he' := check_mono e he (L' := (fv (.letIn hv (.lend .read h) (f.inline (hv :: args)))).filter
+    have he' := check_mono e he (L' := (fv (.letIn hv (.view .read h) (f.inline (hv :: args)))).filter
       (· ≠ h) ++ ((fv rest.elab).filter (· ≠ r) ++ L)) (by
         intro v hv'
         simp only [List.mem_append, List.mem_filter] at hv' ⊢
@@ -318,7 +318,7 @@ theorem checkT_elab (p : TProg) (hf : p.Fits) :
     have hue : ∀ L', check ((hv, .view .read h) :: (h, τe) :: Γ) M1 L' (.out (f.inline (hv :: args))) =
         some (.unit, M1) := fun L' => by
       simp [check, inline_check f hm hw hcc, guard]
-    have he' := check_mono e he (L' := (fv (.letIn hv (.lend .read h) (.out (f.inline (hv :: args))))).filter
+    have he' := check_mono e he (L' := (fv (.letIn hv (.view .read h) (.out (f.inline (hv :: args))))).filter
       (· ≠ h) ++ (fv rest.elab ++ L)) (by
         intro v hv'
         simp only [List.mem_append, List.mem_filter] at hv' ⊢
@@ -385,7 +385,7 @@ def retA : Impl := { clauses := pickA, reads := [0, 1], ret := 0 }
 /-- `a = 1`, `ra = ?a`, `r = pick(?^5, ra)`, `print(r)`: the temporary
 `^5` is dropped where the call's statement ends, and `r` views `a`. -/
 def viewsArg (api : Clauses) (f : Impl) : TProg :=
-  .bind "a" (.lit 1) <| .bind "ra" (.lend .read "a") <|
+  .bind "a" (.lit 1) <| .bind "ra" (.view .read "a") <|
   .callTemp "r" api f "%t" "%v" (.box (.lit 5)) ["ra"] <|
   .expr (.out (.name "r"))
 
@@ -405,7 +405,7 @@ def viewsArg (api : Clauses) (f : Impl) : TProg :=
 /-- `a = 1`, `ra = ?a`, `print(pick(?^5, ra))`: a result that views the
 temporary, used within its statement. -/
 def usedWithin : TProg :=
-  .bind "a" (.lit 1) <| .bind "ra" (.lend .read "a") <|
+  .bind "a" (.lit 1) <| .bind "ra" (.view .read "a") <|
   .printTemp pickA retA "%t" "%v" (.box (.lit 5)) ["ra"] <|
   .expr (.lit 0)
 

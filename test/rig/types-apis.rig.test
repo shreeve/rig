@@ -4458,7 +4458,7 @@ fail "apis object method of an API built on", "`Named.label` names `Self` outsid
 
 # ---- Stage 4, phase 2: API objects lend and call through a table ----
 
-test "apis object lends a value, a box's, a handle's", "4.0 9.0 1.0 6.25"
+test "apis object views a value, a box's, a handle's", "4.0 9.0 1.0 6.25"
   # A value lends a `?{Shape}` by the lend table's last row, unwritten
   # where the view lasts only for the call; a box and a handle lend
   # their value's views first, and a frozen handle the value it froze.
@@ -4567,7 +4567,7 @@ test "apis object reaches defaults and additions", "44.0 33.0"
 
   print(both(Square(side: 2.0)), both(3))
 
-test "apis object lends to write", "4.0 5.0"
+test "apis object makes a write view", "4.0 5.0"
   # `!{Shape}` writes through the table, and the owner sees it.
 
   api Shape
@@ -4594,7 +4594,7 @@ test "apis object lends to write", "4.0 5.0"
   !w.grow(2.0)
   print(sq.side, c.side)
 
-test "apis object a write view lends to read", "16.0"
+test "apis object a write view makes a read view", "16.0"
   api Shape
     fun area(?@) -> Float
     sub grow(!@, by: Float)
@@ -4952,7 +4952,7 @@ fail "apis object meets no bound by an API, at a view", "`total[?{Shape}]` canno
 
   print(1)
 
-fail "apis object a read loan lasts while the object is used", "cannot change `v` while a read view of it is still in use"
+fail "apis object a read view lasts while the object is used", "cannot change `v` while a read view of it is still in use"
   # The object carries the loan of the element it views.
 
   api Shape
@@ -5058,7 +5058,7 @@ test "apis object a table beside names of the module's own", whole: true, "4.0 4
     sq: W = Square(side: 2.0)
     print(sq.area(), area(1), area_of(sq))
 
-test "apis object a write view lent to read where it is written", "8.0 4.0 4.0"
+test "apis object a write view made a read view where it is written", "8.0 4.0 4.0"
   # `?w` of a `!{Shape}` is the read view it lends, a value of another
   # Zig type: as an argument, as a function's result, and inside an
   # optional result.
@@ -5147,7 +5147,7 @@ test "apis object of a copy in a branch of one line", "18.0 4.0 9.0"
 
   print(bound(3, true), bound(2, false), last(3, true))
 
-test "apis object a write view lent to read by a capture and a field", "12.0 4.0"
+test "apis object a write view made a read view by a capture and a field", "12.0 4.0"
   # `|?w|` of a `!{Shape}` captures the read view it lends, and a field
   # of type `?{Shape}` takes the one a bare `w` lends.
 
@@ -5410,7 +5410,7 @@ dropped 2.0
   b = ^Circle(r: 2.0)
   print(b.area())
 
-test "apis object box lends its views", "9.0 9.0 16.0"
+test "apis object box passes on its views", "9.0 9.0 16.0"
   # `?b` lends a `?{Shape}`, `!b` a `!{Shape}`; a box's value is reached
   # where it lives.
 
@@ -5541,7 +5541,7 @@ xx
   print(String(o, "?"), l, w)
   print(String(b, r))
 
-test "apis inference sees through a box or a handle lent as a view", '''
+test "apis inference sees through a box or a handle given as a view", '''
   4.0 4.0 8.0
   5.0 9.0 1
   Square(side: 2.0)
@@ -5648,7 +5648,7 @@ test "apis object result that holds no view says no from", "4 4 4 5 1"
   m = f.maybe() ?? ^Work(n: 0)
   print(first(?f).run(), f.shared().run(), f.counted().run(), m.run(), f.many().len)
 
-fail "apis object result that may hold a loan says from", "`Factory.view` gives `?{Job + Owned}`, which may view what it is passed", "`Factory.boxed` gives `^{Job}`, which may view what it is passed", "`make` returns `^{Job + Owned}`, which views nothing; `from` names what a result views"
+fail "apis object result that may hold a view says from", "`Factory.view` gives `?{Job + Owned}`, which may view what it is passed", "`Factory.boxed` gives `^{Job}`, which may view what it is passed", "`make` returns `^{Job + Owned}`, which views nothing; `from` names what a result views"
   api Job
     fun run(?@) -> Int
 

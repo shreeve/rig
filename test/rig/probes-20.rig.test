@@ -1719,7 +1719,7 @@ fail "review-copies-2-q01d-return-local-view-opt-fallible", "cannot return a vie
   if v as q
     print(q.x)
 
-fail "review-copies-2-q02-catch-result-keeps-loans", "cannot assign to `a.x` while a read view of `a` is still in use"
+fail "review-copies-2-q02-catch-result-keeps-views", "cannot assign to `a.x` while a read view of `a` is still in use"
   # The view a `catch` gives carries the loans of both sides.
   error Bad
     oops
@@ -1737,7 +1737,7 @@ fail "review-copies-2-q02-catch-result-keeps-loans", "cannot assign to `a.x` whi
   a.x = 5
   print(v.x)
 
-fail "review-copies-2-q02b-catch-result-keeps-handler-loan", "cannot assign to `b.x` while a read view of `b` is still in use"
+fail "review-copies-2-q02b-catch-result-keeps-handler-view", "cannot assign to `b.x` while a read view of `b` is still in use"
   error Bad
     oops
 
@@ -1790,7 +1790,7 @@ fail "review-copies-2-q02e-write-catch-read-owner", "cannot use `a.x` while a wr
   w.x = 9
   print(a.x, b.x)
 
-test "review-copies-2-q03b-ret-field-lend", "4 2"
+test "review-copies-2-q03b-ret-field-view", "4 2"
   error Bad
     oops
 
@@ -2800,7 +2800,7 @@ test "review-copies-2-q07g-store-in-struct-and-vec", "1 2 1 1 2 2"
   t.r = get(?b, true) catch ?a
   print(s.r.x, vs[0].x, cs[0].x, arr[0].x, arr[1].x, t.r.x)
 
-fail "review-copies-2-q07h-store-in-struct-loan", "cannot assign to `a.x` while a read view of `a` is still in use"
+fail "review-copies-2-q07h-store-in-struct-view", "cannot assign to `a.x` while a read view of `a` is still in use"
   error Bad
     oops
 
@@ -2824,7 +2824,7 @@ fail "review-copies-2-q07h-store-in-struct-loan", "cannot assign to `a.x` while 
   a.x = 5
   print(s.r.x)
 
-fail "review-copies-2-q07i-store-in-vec-loan", "cannot assign to `b.x` while a read view of `b` is still in use"
+fail "review-copies-2-q07i-store-in-vec-view", "cannot assign to `b.x` while a read view of `b` is still in use"
   error Bad
     oops
 
@@ -2846,7 +2846,7 @@ fail "review-copies-2-q07i-store-in-vec-loan", "cannot assign to `b.x` while a r
   b.x = 5
   print(vs[0].x)
 
-test "review-copies-2-q07j-copyout-into-vec-no-loan", "1"
+test "review-copies-2-q07j-copyout-into-vec-no-view", "1"
   error Bad
     oops
 
@@ -2869,7 +2869,7 @@ test "review-copies-2-q07j-copyout-into-vec-no-loan", "1"
   b.x = 6
   print(cs[0].x)
 
-fail "review-copies-2-q07k-assign-field-loan", "cannot assign to `a.x` while a read view of `a` is still in use"
+fail "review-copies-2-q07k-assign-field-view", "cannot assign to `a.x` while a read view of `a` is still in use"
   error Bad
     oops
 

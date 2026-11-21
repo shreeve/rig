@@ -116,7 +116,7 @@ test "generic as views the value inside a viewed optional", '''
   n = shown(?t) + shown(?p) + field(?w) + shown(?e)
   print(area_of(?sq), shown(?t) + shown(?t), n / 4, field(?w), shown(?e))
 
-fail "generic as keeps the optional lent", "3:5: cannot reassign `o` while a read view of it is still in use", errors: 1
+fail "generic as keeps the optional viewed", "3:5: cannot reassign `o` while a read view of it is still in use", errors: 1
   fun clear[T: Print](o: !T?) -> Int
     if ?o as v
       o = none
@@ -126,7 +126,7 @@ fail "generic as keeps the optional lent", "3:5: cannot reassign `o` while a rea
   t: String? = String("x")
   print(clear(!t))
 
-test "generic as lends on the value inside a viewed optional", '''
+test "generic as passes on a view of the value inside a viewed optional", '''
   11 22 276
   11 22 276
   short 276
@@ -246,7 +246,7 @@ test "generic as lends on the value inside a viewed optional", '''
     k = deep(20)
     print(v.a, v.b, k)
 
-test "generic as lends on through a write view", "5 22 276"
+test "generic as passes on a view through a write view", "5 22 276"
   # `?o` of a write view `!T?` opens the optional as a read view of it
   # does; `!o as x` lends the value inside to write.
   obj P
@@ -702,7 +702,7 @@ fail "generic payload view moved", "24:23: cannot move out of `v`: it is a view 
   print(dropped(?w, 0))
   _ = whole(?w)
 
-fail "generic stores view unlent", "13:7: `cell[?List[Int]]` instantiates `Cell[?List[Int]]`", "13:17: `signal[?List[Int]]` instantiates `Signal[?List[Int]]`", errors: 2
+fail "generic stores a view where none may go", "13:7: `cell[?List[Int]]` instantiates `Cell[?List[Int]]`", "13:17: `signal[?List[Int]]` instantiates `Signal[?List[Int]]`", errors: 2
   # A Cell, a Signal, and an owned closure carry no loan, so a generic
   # body that stores its `T` there cannot take a view of an owner.
 
@@ -1287,7 +1287,7 @@ test "generic plain splits an instance a view shares with plain data", "true fal
   b = true
   print(pl[Int](n), pl[?Int](?n), pl[?Bool](?b), pl[Box[?Int]](Box(v: ?n)), pl[Box[Int]](Box(v: n)))
 
-test "generic plain keeps no view of a scalar past its loan", '''
+test "generic plain keeps no view of a scalar past its last use", '''
   none
   kept 3
   n 4
@@ -1922,7 +1922,7 @@ fail "generic value from a local into self", "`Pairs[List[?String]]` cannot use 
   !p.upd(|k, v| !v.push(k))
   print(p.vs.len)
 
-fail "generic value from a lent parameter through a local into self", "10:5: `upd` stores a view of `xs` in `@`, which its caller reaches, but its signature does not keep `xs`; say so: `keeps xs`"
+fail "generic value from a viewed parameter through a local into self", "10:5: `upd` stores a view of `xs` in `@`, which its caller reaches, but its signature does not keep `xs`; say so: `keeps xs`"
   # A view of what the caller lent, put in the body's own `b`, stays
   # tracked as a `T` the body holds is: `b` goes into self, so `upd`
   # keeps `xs`.
@@ -1940,7 +1940,7 @@ fail "generic value from a lent parameter through a local into self", "10:5: `up
   !p.upd(?xs, List(), |k, v| !v.push(k))
   print(p.vs.len)
 
-test "generic value from a lent parameter returned through a local", "a"
+test "generic value from a viewed parameter returned through a local", "a"
   # The view of `xs` that `f` may put in `b` is the caller's to track:
   # `mk`'s result may view `xs`, so `xs` stays lent while `r` lives.
 
@@ -1954,7 +1954,7 @@ test "generic value from a lent parameter returned through a local", "a"
   r = mk(?xs, List[?String](), |k, v| !v.push(k))
   print(r[0])
 
-fail "generic value from a lent parameter returned keeps it lent", "cannot drop `xs` while a read view of it is still in use"
+fail "generic value from a viewed parameter returned keeps it viewed", "cannot drop `xs` while a read view of it is still in use"
   fun mk[V](xs: ?List[String], v: V, f: ?sub(?String, !V)) -> V
     b = <v
     f(?xs[0], !b)
@@ -2110,7 +2110,7 @@ test "generic value whose key views", "3"
   !m.update(|k, v| v = k.len)
   print(m.get(?s))
 
-test "generic value from a lent parameter's element", "a-long-text-on-the-heap-0123456789"
+test "generic value from a viewed parameter's element", "a-long-text-on-the-heap-0123456789"
   # Views of what the caller lent are tracked: `keeps xs` keeps it.
 
   obj P[V]

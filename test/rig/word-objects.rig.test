@@ -65,7 +65,7 @@ code "word field of a record", "p: P align(4) =", "pub const Rec = struct {"
     r = Rec(p: P(a: 1, b: 2), k: 3)
     print(Int(r.p.a) + Int(r.k))
 
-code "word field lent to write stays plain", /pub const P = struct \{\n    pub const __rig_word_sized = \{\};/
+code "word field under a write view stays plain", /pub const P = struct \{\n    pub const __rig_word_sized = \{\};/
   # A write lend of a field takes its address, which a word's field does
   # not have: the object stays a plain object.
   obj P
@@ -93,7 +93,7 @@ code "word read view copies", /fn sum\(__rig_in_self: P\)/
     p = P(a: 1, b: 2)
     print(p.sum())
 
-test "word field lent to write", "1 0"
+test "word field under a write view", "1 0"
   obj P
     a: U32 = 0
     b: U32 = 0
@@ -106,7 +106,7 @@ test "word field lent to write", "1 0"
     bump(!p.a)
     print(p.a, p.b)
 
-test "word field lent to write in another module", "2 1"
+test "word field under a write view in another module", "2 1"
   # The lend in one module keeps the type another declares plain.
   use lib
 
@@ -123,7 +123,7 @@ test "word field lent to write in another module", "2 1"
       pub a: U32 = 0
       pub b: U32 = 0
 
-test "word in a record lent to write", "5 7 9"
+test "word in a record under a write view", "5 7 9"
   # A write lend of a 64-bit word held in a record takes an address at
   # the record's alignment: the word stays a plain object.
   obj P
@@ -254,7 +254,7 @@ code "word inside a word", "pub const N = packed struct(u32) {", "pub const R = 
     r.n.id += 1
     print(r.is_none(), r.n.id, r)
 
-code "word inside a word lent to write", /pub const N = struct \{/, /pub const R = struct \{/
+code "word inside a word under a write view", /pub const N = struct \{/, /pub const R = struct \{/
   # A write lend of the inner word's field keeps it plain, and so the
   # word around it.
   obj N
@@ -410,7 +410,7 @@ test "a write view of a one-word object rebound", "7 5 102"
     r.x = 5
     print(a.x, c.x, b.x)
 
-test "a boxed or shared one-word object lent into an optional view", "shown\ntrue true"
+test "a boxed or shared one-word object viewed into an optional view", "shown\ntrue true"
   # The view of a one-word object is a copy, whose optional is held
   # beside a flag: the view a box or handle lends is packed into it.
   obj P

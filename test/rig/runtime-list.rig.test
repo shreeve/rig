@@ -816,7 +816,7 @@ fail "list from a literal of objects", "5:15: `List(...)` copies plain data, and
   orders = List([Order(who: "ada", qty: 3), Order(who: "bob", qty: 1)])
   print(orders.len)
 
-fail "an array lent as a List", "9:13: type mismatch: expected `?List[Order]`, got `?[2]Order`; a `?List[Order]` views a List alone: declare `[]Order`, which views an array or a List", errors: 1
+fail "an array viewed as a List", "9:13: type mismatch: expected `?List[Order]`, got `?[2]Order`; a `?List[Order]` views a List alone: declare `[]Order`, which views an array or a List", errors: 1
   obj Order
     who: ?String
     qty: Int
@@ -984,7 +984,7 @@ test "extend copies plain objects", "4 2 2.5 1"
   q[0].x = 9
   print(ps.len, ps[3].x, ps[3].y, ps[2].x)
 
-test "extend keeps no loan of its source", "[1, 4] [4, 5]"
+test "extend keeps no view of its source", "[1, 4] [4, 5]"
   xs = List([1])
   ys = List([4])
   !xs.extend(?ys[..])

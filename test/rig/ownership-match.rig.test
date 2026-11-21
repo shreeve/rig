@@ -504,7 +504,7 @@ fail "match guard stores", "24:27: `x` does not live long enough", "35:3: cannot
   payload()
   outer(3)
 
-fail "match guard stores payload loan", "21:23: `v` does not live long enough", errors: 1
+fail "match guard stores payload view", "21:23: `v` does not live long enough", errors: 1
   # A guard that fails leaves its arm's scope: a loan on the arm's own
   # payload binding, stored in an outer value, cannot survive it, even
   # when the arm leaves a labeled `match`.
@@ -636,7 +636,7 @@ test "match made part cell holder", '''
       print(c.hits.get())
     .b => pass
 
-test "match made write view lent on", release: true, '''
+test "match made write view passed on", release: true, '''
   .a(r: Res(n: 60, t: "x"))
   .a(r: Res(n: 60, t: "x")) .a(r: Res(n: 3, t: "y!"))
   .a(r: Res(n: 10, t: "x")) .a(r: Res(n: 20, t: "y!")) .a(r: Res(n: 30, t: "z"))
@@ -1465,7 +1465,7 @@ fail "match read payload assign", "11:5: cannot assign to `r`: it is a copy of a
     .square(s) => print(s)
   print(c)
 
-fail "match subject lent through arms", "32:20: cannot change `v` while a write view of it is still in use", "38:26: cannot change `v` while a write view of it is still in use", "43:22: cannot change `v` while a write view of it is still in use", "49:16: cannot change `h` while a write view of it is still in use", "52:15: cannot change `v` while a read view of it is still in use", errors: 5
+fail "match subject viewed through arms", "32:20: cannot change `v` while a write view of it is still in use", "38:26: cannot change `v` while a write view of it is still in use", "43:22: cannot change `v` while a write view of it is still in use", "49:16: cannot change `h` while a write view of it is still in use", "52:15: cannot change `v` while a read view of it is still in use", errors: 5
   # A `match` reads its subject again after a guard runs, to test the next
   # arm's pattern: what the subject views stays lent through every guard,
   # in a nested match too. A write lend of it there is rejected, as is one
@@ -1519,7 +1519,7 @@ fail "match subject lent through arms", "32:20: cannot change `v` while a write 
   for s in first(?v)
     print(grow(!v), s)
 
-test "match subject loan ends with bindings", '''
+test "match subject view ends with bindings", '''
   4
   6
 '''
@@ -1807,7 +1807,7 @@ test "match write payload", '''
   print(c)
   print("end")
 
-test "match write payload lend ends", release: true, '''
+test "match write payload view ends", release: true, '''
   ello
   ello! he
   hello!?
@@ -2047,7 +2047,7 @@ test "match write payload lend ends", release: true, '''
   forms()
   read_match()
 
-fail "match write payload lent", "67:7: cannot change `t` while a read view of it is still in use", "76:7: cannot change `t` while a read view of it is still in use", "85:7: cannot change `t` while a read view of it is still in use", "94:7: cannot reassign `t` while a read view of it is still in use", "102:7: cannot change `t` while a read view of it is still in use", "111:7: cannot change `t` while a read view of it is still in use", "120:7: cannot change `x` while a read view of it is still in use", "129:7: cannot reassign `b` while a read view of it is still in use", "140:7: cannot change `xs` while a read view of it is still in use", "143:7: cannot change `xs` while a read view of it is still in use", "152:7: cannot change `p.t` while a read view of it is still in use", "155:7: cannot change `p.xs` while a read view of it is still in use", "164:7: cannot reassign `x` while a read view of it is still in use", "174:11: cannot change `t` while a read view of it is still in use", "184:7: cannot change `t` while a read view of it is still in use", "194:7: cannot change `t` while a read view of it is still in use", "203:7: cannot change `t` while a read view of it is still in use", "211:7: cannot reassign `t` while a read view of it is still in use", "217:7: cannot change `xs` while a read view of it is still in use", errors: 19
+fail "match write payload viewed", "67:7: cannot change `t` while a read view of it is still in use", "76:7: cannot change `t` while a read view of it is still in use", "85:7: cannot change `t` while a read view of it is still in use", "94:7: cannot reassign `t` while a read view of it is still in use", "102:7: cannot change `t` while a read view of it is still in use", "111:7: cannot change `t` while a read view of it is still in use", "120:7: cannot change `x` while a read view of it is still in use", "129:7: cannot reassign `b` while a read view of it is still in use", "140:7: cannot change `xs` while a read view of it is still in use", "143:7: cannot change `xs` while a read view of it is still in use", "152:7: cannot change `p.t` while a read view of it is still in use", "155:7: cannot change `p.xs` while a read view of it is still in use", "164:7: cannot reassign `x` while a read view of it is still in use", "174:11: cannot change `t` while a read view of it is still in use", "184:7: cannot change `t` while a read view of it is still in use", "194:7: cannot change `t` while a read view of it is still in use", "203:7: cannot change `t` while a read view of it is still in use", "211:7: cannot reassign `t` while a read view of it is still in use", "217:7: cannot change `xs` while a read view of it is still in use", errors: 19
   # A binding of `match !e` is a write view of the payload it binds, so a
   # lend of it is a loan on the binding, as a lend of any write view is
   # (`!T` parameters, `if !o as w`, `for x in !v`): while a view of it is
@@ -2270,7 +2270,7 @@ fail "match write payload lent", "67:7: cannot change `t` while a read view of i
 
   slice()
 
-fail "match write payload lent forms", "37:7: cannot change `t` while a read view of it is still in use", "46:9: cannot change `t` while a read view of it is still in use", "55:9: cannot change `t` while a read view of it is still in use", "64:7: cannot change `t` while a read view of it is still in use", "74:7: cannot change `t` while a read view of it is still in use", "83:7: cannot change `r.t` while a read view of `r` is still in use", "92:7: cannot change `t` while a read view of it is still in use", errors: 7
+fail "match write payload viewed forms", "37:7: cannot change `t` while a read view of it is still in use", "46:9: cannot change `t` while a read view of it is still in use", "55:9: cannot change `t` while a read view of it is still in use", "64:7: cannot change `t` while a read view of it is still in use", "74:7: cannot change `t` while a read view of it is still in use", "83:7: cannot change `r.t` while a read view of `r` is still in use", "92:7: cannot change `t` while a read view of it is still in use", errors: 7
   # Every form of lend of a `match !e` binding puts a loan on the binding,
   # which a write through it while the view is live conflicts with: a
   # `|?t|` capture, a `for` source, an `if … as` subject, a view stored in
@@ -2523,7 +2523,7 @@ test "match as a pattern owns and drops", '''
     print("loop", p.n, q.n)
   print("end")
 
-fail "match as a pattern moves and lends", "11:7: use of `s` after move", "18:9: cannot use `u` while a write view of it is still in use", errors: 2
+fail "match as a pattern moves and views", "11:7: use of `s` after move", "18:9: cannot use `u` while a write view of it is still in use", errors: 2
   obj Res
     n: Int
 

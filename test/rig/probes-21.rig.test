@@ -283,7 +283,7 @@ test "review-copies-2-q13a-ret-write-as-read-fallible", '''
   if z as zz
     print(zz.x)
 
-test "review-copies-2-q13b-ret-write-as-read-fallible-loan", '''
+test "review-copies-2-q13b-ret-write-as-read-fallible-view", '''
   1
   1
 '''
@@ -348,7 +348,7 @@ test "review-copies-2-q14b-fallible-view-fn-inside-closure", "1 2"
   b = P(x: 2)
   print(outer(?a, ?b, 1), outer(?a, ?b, 0))
 
-fail "review-copies-p02-copy-out-view-holder-loan", "cannot change `xs` while a read view of it is still in use"
+fail "review-copies-p02-copy-out-view-holder-view", "cannot change `xs` while a read view of it is still in use"
   obj S
     v: ?List[Int]
 
@@ -360,7 +360,7 @@ fail "review-copies-p02-copy-out-view-holder-loan", "cannot change `xs` while a 
   !xs.push(2)
   print(c.v.len)
 
-fail "review-copies-p03-write-view-read-holder-loan", "cannot change `xs` while a read view of it is still in use"
+fail "review-copies-p03-write-view-read-holder-view", "cannot change `xs` while a read view of it is still in use"
   obj S
     v: ?List[Int]
 
@@ -1168,7 +1168,7 @@ test "review-copies-p57-clone-capture-copy-through-views", '''
   o = none
   print(g(), h(), arr[1])
 
-test "review-copies-p58-clone-capture-through-write-view-keeps-loan", "2 1"
+test "review-copies-p58-clone-capture-through-write-view-keeps-view", "2 1"
   # `|+w|` deep-clones the List a write view sees; the closure owns its
   # clone, so the List may be used while the closure lives (Core §7: the
   # capture carries what the copied value holds, not the view's loan).

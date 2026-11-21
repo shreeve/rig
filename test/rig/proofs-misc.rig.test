@@ -535,7 +535,7 @@ test "len equal write", "99", release: true
 
   print(get("abc", 2))
 
-test "lend arg", "4", release: true
+test "view arg", "4", release: true
   # `bump(!j)` writes another binding: `a[i]` is proven.
 
   sub bump(n: !Int)
@@ -552,7 +552,7 @@ test "lend arg", "4", release: true
   a = [1, 2, 3]
   print(pick(a[..], 2))
 
-bomb "lend arg mut", "index out of bounds", release: true
+bomb "view arg mut", "index out of bounds", release: true
   # `bump(!i)` writes `i` after the guard: `a[i]` keeps its test.
 
   sub bump(n: !Int)

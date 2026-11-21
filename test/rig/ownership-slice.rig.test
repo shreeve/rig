@@ -1,6 +1,6 @@
 # ownership: tests whose names start `slice`.
 
-fail "slice argument lend", "23:1: cannot assign to `w[0]` while a read view of `w` is still in use", "25:20: cannot change `v` while a read view of it is still in use", "26:10: a view of the temporary `mk()` outlives its statement", "29:1: cannot change `t` while a read view of it is still in use", errors: 4
+fail "slice argument view", "23:1: cannot assign to `w[0]` while a read view of `w` is still in use", "25:20: cannot change `v` while a read view of it is still in use", "26:10: a view of the temporary `mk()` outlives its statement", "29:1: cannot change `t` while a read view of it is still in use", errors: 4
   # A slice argument is lent to read as `?xs[a..b]` is: it keeps what it
   # slices lent while its view is used, a later argument cannot write
   # what it slices, and a view of a temporary's slice ends with its
@@ -34,7 +34,7 @@ fail "slice argument lend", "23:1: cannot assign to `w[0]` while a read view of 
 
   # oracle: main reject C4
 
-test "slice argument lent", release: true, '''
+test "slice argument viewed", release: true, '''
   5 30 7 2
   4 he 2 hel
   8 3 40 4

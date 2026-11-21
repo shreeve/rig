@@ -419,7 +419,7 @@ fail "slice write", "7:8: cannot change parameter `a`", "8:8: cannot make a writ
   # `!xs[a..b]` needs elements the code may write: not a String's, not a
   # `[]T`'s, and not those of a fixed binding, a loop binding (a copy), a
   # by-value or lent to read parameter. (A temporary's are written in its
-  # statement's slot: `test/behavior/ownership/write_lend_temporary_view.rig`.)
+  # statement's slot: `test/behavior/ownership/write_view_temporary_view.rig`.)
 
   sub f(a: [2]Int, b: ?[2]Int, xs: []Int)
     p = !a[..]

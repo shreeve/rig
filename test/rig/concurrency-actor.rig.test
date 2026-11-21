@@ -495,7 +495,7 @@ test "actor marked call while a task reads the handle", seeds: 20, "true 1"
   !a.add(String("one"))
   print(>t <= 1, a.count())
 
-fail "actor task keeps argument loans", "cannot change `ys` while a read view of it is still in use"
+fail "actor task keeps argument views", "cannot change `ys` while a read view of it is still in use"
   # oracle: main reject C4
   obj C
     n: Int
@@ -998,7 +998,7 @@ fail "actor supervised option given twice", "parameter `restarts` of `Actor.supe
   c = *Actor.supervised(*|| Box(hits: 0), restarts: 2, restarts: 3)
   print(c.get())
 
-test "actor argument lent bare to a view parameter", seeds: 20, "5"
+test "actor argument given bare to a view parameter", seeds: 20, "5"
   # A bare place where a `?T` goes is lent, as `?p` would lend it (Core
   # sentence 1): the actor's method keeps nothing of it.
   obj Plain
@@ -1014,7 +1014,7 @@ test "actor argument lent bare to a view parameter", seeds: 20, "5"
   p = Plain(n: 4)
   print(d.peek(p))
 
-fail "actor argument lent bare crosses as a view", "an actor runs its methods on a task of its own, and `Holder(j: ^Sum(xs: List([1, 2])))` is passed to it as a read view: `?Holder` holds `{Job + Sends}`"
+fail "actor argument given bare crosses as a view", "an actor runs its methods on a task of its own, and `Holder(j: ^Sum(xs: List([1, 2])))` is passed to it as a read view: `?Holder` holds `{Job + Sends}`"
   # A value lent bare where a `?T` goes is shared with the actor's task,
   # so `T` syncs (SPEC §18), as when `?` is written.
   api Job

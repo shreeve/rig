@@ -388,12 +388,12 @@ test "field method result on field", "2 true"
   !p.collect(1)
   print(p.imports.len, p.uses_node)
 
-fail "field move whole while field lent", "16:10: cannot move `p` while a read view of `p.name` is still in use", errors: 1
+fail "field move whole while field viewed", "16:10: cannot move `p` while a read view of `p.name` is still in use", errors: 1
   # Moving `p` moves every field, the one `r` views included; the moved
   # value may be dropped or changed through its new owner.
   # Rule: `<p` touches all of `p`.
   # From Trig's acceptance tests
-  # (docs/ownership/acceptance/reject/field_move_whole_while_field_lent.rig).
+  # (docs/ownership/acceptance/reject/field_move_whole_while_field_viewed.rig).
 
   obj P
     name: String
@@ -541,7 +541,7 @@ fail "field read view field carries source", "12:1: cannot change `src` while a 
   !src.add("e")
   print(t)
 
-test "field read view field no holder loan", "ab 1"
+test "field read view field leaves its holder free", "ab 1"
   # A path ends where a read view begins: a slice of `@text`, itself a
   # `?String`, carries the loans of that view, not a loan on `@`, so
   # even a call that lends all of `@` may run while it lives.
@@ -562,11 +562,11 @@ test "field read view field no holder loan", "ab 1"
   s = Scanner(text: ?src, pos: 0)
   !s.scan()
 
-fail "field reassign whole while field lent", "12:1: cannot reassign `p` while a read view of `p.name` is still in use", errors: 1
+fail "field reassign whole while field viewed", "12:1: cannot reassign `p` while a read view of `p.name` is still in use", errors: 1
   # Assigning `p` drops its old value, the String `r` views included.
   # Rule: `p = x` touches all of `p`.
   # From Trig's acceptance tests
-  # (docs/ownership/acceptance/reject/field_reassign_whole_while_field_lent.rig).
+  # (docs/ownership/acceptance/reject/field_reassign_whole_while_field_viewed.rig).
 
   obj P
     name: String
@@ -864,14 +864,14 @@ test "field swap general", "y x"
   swap(!p.a, !p.b)
   print(p.a, p.b)
 
-test "field take while other lent", '''
+test "field take while other viewed", '''
   4 n
   true
 '''
   # `<p.f` takes only `p.f` (an optional field, left `none`), so it may
   # happen while a view of `p.g` lives.
   # From Trig's acceptance tests
-  # (docs/ownership/acceptance/accept/field_take_while_other_lent.rig).
+  # (docs/ownership/acceptance/accept/field_take_while_other_viewed.rig).
 
   obj State
     pos: Int
@@ -1055,7 +1055,7 @@ test "field view loop elements view the list", '''
     !s.short.push(?n)
   print(s.short)
 
-fail "field view loop elements keep the list lent", "cannot change `names` while a read view of it is still in use", errors: 1
+fail "field view loop elements keep the list viewed", "cannot change `names` while a read view of it is still in use", errors: 1
   # The loop's elements view the List the field views, so the List
   # cannot change while the loop walks it.
 
@@ -1167,7 +1167,7 @@ test "a view through a read-view field of self outlives a write of self", "8 8 7
   emit_from(!c)
   print(x, y, c.builder.out[0] - 1, c.builder.out.len)
 
-fail "a view through an owned field of self is a loan on self", "cannot change `@` while a read view of `@program.files` is still in use"
+fail "a view through an owned field of self views self", "cannot change `@` while a read view of `@program.files` is still in use"
   # The sibling shape: `program` is owned, so the view is a loan on `@`.
   # oracle: Checker.look reject C4
 
@@ -1192,7 +1192,7 @@ fail "a view through an owned field of self is a loan on self", "cannot change `
 
   print(1)
 
-fail "a view through a held read view is a loan on what it views", "cannot change `p.files` while a read view of `p` is still in use"
+fail "a view through a held read view views what it views", "cannot change `p.files` while a read view of `p` is still in use"
   # The view `?c.program.files[0].ast` carries the loan `c.program`
   # holds, on `p`: `p` is not written while it lives.
   # oracle: main reject C4
@@ -1217,7 +1217,7 @@ fail "a view through a held read view is a loan on what it views", "cannot chang
   !p.files.clear()
   print(tree[0])
 
-fail "a read through a read-view field of self while self is lent to write", "cannot use `@program` while a write view of `@` is still in use"
+fail "a read through a read-view field of self while self is under a write view", "cannot use `@program` while a write view of `@` is still in use"
   # Reading the read view self holds reads `@`: not while a write loan
   # on all of `@` is live.
   # oracle: Checker.look reject C4

@@ -57,14 +57,14 @@ def eval : Expr → M Val
     match ← eval e with
     | .int n => return .box (← alloc (.int n))
     | _ => throw (.stuck "a box of something that is not an Int")
-  | .lend m x => do
+  | .view m x => do
     let (l, c, v) ← held x
     match v with
     | .int _ | .box _ =>
       let t ← fresh
-      setCell l (match m with | .read => c.lendRead t | .write => c.lendWrite t)
+      setCell l (match m with | .read => c.readView t | .write => c.writeView t)
       pure (.view m l t)
-    | _ => throw (.stuck "lending a view")
+    | _ => throw (.stuck "a view of a view")
   | .assign x e => do
     let v ← eval e
     let l ← slotOf x

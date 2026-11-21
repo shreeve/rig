@@ -1,6 +1,6 @@
 # ownership: tests whose names start `self`.
 
-fail "self branch view keeps leaf loans", "17:3: cannot assign to `a.t` while a read view of `a` is still in use", "24:3: cannot assign to `b.t` while a read view of `b` is still in use", "32:3: cannot assign to `ts[1].t` while a read view of `ts` is still in use", errors: 3
+fail "self branch view keeps leaf views", "17:3: cannot assign to `a.t` while a read view of `a` is still in use", "24:3: cannot assign to `b.t` while a read view of `b` is still in use", "32:3: cannot assign to `ts[1].t` while a read view of `ts` is still in use", errors: 3
   # A method runs on its self where it is: called on a value that
   # branches, it runs on the leaf the branch picks, so the view it returns
   # keeps every leaf lent (Core sentence 7), through `if`, `??`, `catch`,
@@ -337,7 +337,7 @@ fail "self temporary view outlives statement", "36:5: a view of the temporary `m
   t = (mkf(1) catch b).arr()
   print(r, s.n, t, mk().arr()[0])
 
-fail "self view of branch lends it", "60:6: a view of the temporary `fails(false)` outlives its statement", "67:1: cannot assign to `a.t` while a read view of `a` is still in use", "68:1: cannot change `vs` while a read view of it is still in use", errors: 3
+fail "self view of branch views it", "60:6: a view of the temporary `fails(false)` outlives its statement", "67:1: cannot assign to `a.t` while a read view of `a` is still in use", "68:1: cannot change `vs` while a read view of it is still in use", errors: 3
   # A `?@` method whose result may keep a view of its self lends the
   # self, as `?e` does. A self that branches lends each leaf it may
   # be, where it is: whether the branch is self itself, the value a
@@ -345,7 +345,7 @@ fail "self view of branch lends it", "60:6: a view of the temporary `fails(false
   # view of it keeps a loan on each name a leaf names, and a change to one
   # of them while the view is live is rejected; a view of a leaf made there
   # may not outlive its statement. (The forms that keep working:
-  # `test/behavior/ownership/self_view_of_branch_lends_leaves.rig`.)
+  # `test/behavior/ownership/self_view_of_branch_views_leaves.rig`.)
 
   obj S
     t: String
@@ -408,7 +408,7 @@ fail "self view of branch lends it", "60:6: a view of the temporary `fails(false
   !vs.clear()
   print(r, n, x, w, u, e, y, first(maybe(true)) ?? 0)
 
-test "self view of branch lends leaves", '''
+test "self view of branch views leaves", '''
   a text long enough to live on the heap: wa 41
   [1, 1, 1, 1] 51
   [4, 4, 4, 4] 31
@@ -422,7 +422,7 @@ test "self view of branch lends leaves", '''
   # points into that leaf, and keeps a loan on every name a leaf names, so
   # it may be used after the statement, while those names live unchanged.
   # A field or element of such a self is reached the same way. (Changing one while the view is live
-  # is rejected: `test/reject/ownership/self_view_of_branch_lends_it.rig`.)
+  # is rejected: `test/reject/ownership/self_view_of_branch_views_it.rig`.)
   # A branching value of plain data is read as a copy, which its statement
   # keeps: a view of it is used within the statement.
 
@@ -709,7 +709,7 @@ fail "self view with move arg", "cannot move `rc` while a read view of it is sti
   rc = *Wrap(inner: *Inner(x: 5))
   rc.show(<rc)
 
-test "self element lent in place", '''
+test "self element viewed in place", '''
   1.0 .matte(albedo: 0.5)
   1.0 .matte(albedo: 0.5)
   1.0 .matte(albedo: 0.5)
@@ -808,7 +808,7 @@ test "self element lent in place", '''
   if first_of(w.balls[..]) as h
     print(h.t, h.mat)
 
-test "self element lent to write in place", ".glass(index: 9.0) .glass(index: 8.0)"
+test "self element under a write view in place", ".glass(index: 9.0) .glass(index: 8.0)"
   # A write method's self is reached in place along its path, a field of
   # an element and an element of an element, so a result that keeps it
   # writes the element itself.
@@ -838,7 +838,7 @@ test "self element lent to write in place", ".glass(index: 9.0) .glass(index: 8.
   g = Mat.glass(index: 8.0)
   print(pairs[0].b.mat, grid[0][0].mat)
 
-test "self element lent in place in an as header", "1.0 .matte(albedo: 0.5)"
+test "self element viewed in place in an as header", "1.0 .matte(albedo: 0.5)"
   # `if ?@balls[i].hit(lo) as h` views the element in the List, so the
   # first ball's hit keeps the first ball's material.
 

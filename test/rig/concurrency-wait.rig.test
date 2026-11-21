@@ -126,7 +126,7 @@ test "wait set", seeds: 20, '''
   >vs
   print("done")
 
-test "wait void and write loan", seeds: 20, "[0, 1, 2]"
+test "wait void and write view", seeds: 20, "[0, 1, 2]"
   # A task lent to write is waited for where it is bound.
   sub fill(xs: !List[Int], n: Int)
     for i in 0..n

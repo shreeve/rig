@@ -12,17 +12,17 @@ import LambdaRig.Interp
 
 namespace LambdaRig
 
-/-- The type of a value. A view's type names the owner it was lent from. -/
+/-- The type of a value. A view's type names the owner whose place it views. -/
 inductive Ty where
   | unit
   | int
   | box
-  /-- A view lent from the owner named `y`: `?Int` or `!Int` if `y` holds
+  /-- A view of the owner named `y`: `?Int` or `!Int` if `y` holds
   an Int, `?^Int` or `!^Int` if it holds a box. It sees `y`'s place. -/
   | view (m : Mode) (y : Var)
   deriving DecidableEq, Repr
 
-/-- An owner: a name whose place can be lent. -/
+/-- An owner: a name whose place a view can be made of. -/
 def Ty.owner : Ty → Bool
   | .int | .box => true
   | _ => false
@@ -33,7 +33,7 @@ abbrev Ctx := List (Var × Ty)
 /-- The names an expression uses. -/
 def fv : Expr → List Var
   | .lit _ => []
-  | .name x | .move x | .clone x | .lend _ x | .drop x => [x]
+  | .name x | .move x | .clone x | .view _ x | .drop x => [x]
   | .assign x e => x :: fv e
   | .box e | .out e => fv e
   | .add a b | .seq a b => fv a ++ fv b
@@ -41,9 +41,9 @@ def fv : Expr → List Var
 
 /-- How an access touches an owner's place. -/
 inductive Access where
-  /-- The owner reads it, or lends it to read: write loans end. -/
+  /-- The owner reads it, or makes a read view of it: write loans end. -/
   | read
-  /-- The owner writes, moves, drops, or lends it to write: every loan ends. -/
+  /-- The owner writes, moves, drops, or makes a write view of it: every loan ends. -/
   | write
   /-- A write view writes through: read loans end. -/
   | through
@@ -62,8 +62,8 @@ def allows (Γ : Ctx) (y : Var) (k : Access) (later : List Var) : Bool :=
     | (v, .view m y') => !(y' == y && later.contains v && k.ends m)
     | _ => true
 
-/-- Is this a view lent from `x`? -/
-def Ty.lentFrom : Ty → Var → Bool
+/-- Is this a view of `x`? -/
+def Ty.isViewOf : Ty → Var → Bool
   | .view _ y, x => y == x
   | _, _ => false
 
@@ -86,7 +86,7 @@ def check (Γ : Ctx) (moved : List Var) (later : List Var) : Expr → Option (Ty
     | .view .read y => some (.view .read y, moved)
     | .view .write y => do guard (Γ.lookup y == some .int); some (.int, moved)
     | .unit => some (.unit, moved)
-    -- A box is not copied by a bare name: it moves, clones, or lends.
+    -- A box is not copied by a bare name: it moves, clones, or is viewed.
     | .box => none
   | .move x => do
     let τ ← Γ.lookup x
@@ -109,7 +109,7 @@ def check (Γ : Ctx) (moved : List Var) (later : List Var) : Expr → Option (Ty
     let (τ, moved) ← check Γ moved later e
     guard (τ == .int)
     some (.box, moved)
-  | .lend m x => do
+  | .view m x => do
     let τ ← Γ.lookup x
     guard (!moved.contains x && τ.owner)
     guard (allows Γ x (match m with | .read => .read | .write => .write) later)
@@ -147,7 +147,7 @@ def check (Γ : Ctx) (moved : List Var) (later : List Var) : Expr → Option (Ty
     guard ((Γ.lookup x).isNone && !moved.contains x)
     let (τe, moved) ← check Γ moved ((fv body).filter (· ≠ x) ++ later) e
     let (τ, moved) ← check ((x, τe) :: Γ) moved later body
-    guard (!τ.lentFrom x)
+    guard (!τ.isViewOf x)
     some (τ, moved.filter (· ≠ x))
 
 /-- `rig check` for a whole program. -/

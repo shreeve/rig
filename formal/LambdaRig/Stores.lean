@@ -15,11 +15,11 @@ closure, a result." Sentence 7: a result "carries the loans of the
 arguments whose types could hold what it views, or, when the result
 says `from a`, of `a` alone"; "A view reached through a read view that a
 value holds carries that view's loans, not a loan on the holder"; and
-what a call stores "in what a write view lent to it sees carries, in the
-same way, the loans of the arguments whose types could hold it", which
+what a call stores "through a write view passed to it counts, in the
+same way, as a view of each argument whose type could hold it", which
 `keeps` narrows. "A kept loan lasts while the holder is used." The
 compiler checks each body against its signature ("a body that stores a
-lent parameter, on any path ... names it in `keeps`"): `Body.Meets`.
+view parameter, on any path ... names it in `keeps`"): `Body.Meets`.
 
 The results:
 

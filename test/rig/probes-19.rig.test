@@ -1246,7 +1246,7 @@ test "review-box-repro-m4 vec box loop type", "s 3"
       .c(r) => print("c", r)
       .s(k) => print("s", k)
 
-test "review-box-repro-m5 box not lent into optional", "1"
+test "review-box-repro-m5 box not viewed into optional", "1"
   obj Node
     key: Int
     left: ^Node?

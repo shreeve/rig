@@ -41,20 +41,20 @@ test/reject/probes/review-syntax-b-2-v06_if_bang_as_escape_written.rig f prod-re
 test/reject/probes/review-syntax-b-2-v09_match_bang_escape_ok.rig main prod-rejects prod-strict `s = keep(t[1..])` of a `match !e` binding is used past the match
 test/reject/probes/review-syntax-b-2-v11_if_bang_as_owned_escape.rig main prod-rejects prod-strict `s = keep(r[1..])` of an `if !o as r` binding is used past the `if`
 test/reject/probes/review-syntax-b-2-v12_match_bang_param_escape.rig f prod-rejects prod-strict `s = keep(t[1..])` of a `match !e` binding is used past the match
-test/reject/probes/review-payload-loan-3-f02_write_binding_break_out.rig main prod-rejects prod-strict a bare `break t` of a `match !e` binding, which must be written `<t`
-test/reject/probes/review-payload-loan-3-f02b_write_binding_break_move.rig main prod-rejects prod-strict `break <t` of a `match !e` binding moves out of the view of `e`
-test/reject/probes/review-payload-loan-3-f04_for_write_moved_out.rig main prod-rejects prod-strict a bare `break t` of a `for t in !v` binding, which must be written `<t`
+test/reject/probes/review-payload-view-3-f02_write_binding_break_out.rig main prod-rejects prod-strict a bare `break t` of a `match !e` binding, which must be written `<t`
+test/reject/probes/review-payload-view-3-f02b_write_binding_break_move.rig main prod-rejects prod-strict `break <t` of a `match !e` binding moves out of the view of `e`
+test/reject/probes/review-payload-view-3-f04_for_write_moved_out.rig main prod-rejects prod-strict a bare `break t` of a `for t in !v` binding, which must be written `<t`
 
 # A view of a write-view binding moved out of its construct keeps what
 # it views lent (Core s6): `!v.clear()` while `r`, a write view of an
 # element of `v`, is printed after, frees what `r` views. The oracle does
 # not keep the loan through `break <t`.
-test/reject/probes/review-payload-loan-3-f04b_for_write_break_move.rig main prod-rejects ref-gap `!v.clear()` while `r = for t in !v` with `break <t` lives
+test/reject/probes/review-payload-view-3-f04b_for_write_break_move.rig main prod-rejects ref-gap `!v.clear()` while `r = for t in !v` with `break <t` lives
 
 # A match of a branch of write lends (`match (!e if c else !d)`) lends
 # every leaf for as long as its bindings' views live (Core s5), so a view
 # kept across loop passes keeps both lent, though the passes alternate.
-test/reject/probes/review-payload-loan-4-e15_loop_hold_across.rig main prod-rejects prod-strict `keep = ?r.v[..]` held across passes of `match (!e if i % 2 == 0 else !d)`
+test/reject/probes/review-payload-view-4-e15_loop_hold_across.rig main prod-rejects prod-strict `keep = ?r.v[..]` held across passes of `match (!e if i % 2 == 0 else !d)`
 
 # A call whose write arguments can hold views may store one in another
 # (Core s7), so `f(!h1, !h2, true)` keeps `h1` lent while the result of
@@ -66,9 +66,9 @@ test/reject/probes/review-payload-loan-4-e15_loop_hold_across.rig main prod-reje
 # every use in deferred code, so a view whose last use comes before the
 # deferred code runs still holds its loan there.
 test/reject/probes/r3-or-defer-strict.rig main prod-rejects prod-strict `defer !v.push(3)` before `w = !v`, whose last use precedes the exit
-test/reject/probes/review-payload-loan-1-p15_defer_write_after_view.rig main prod-rejects prod-strict `defer !t.add("x")` of a `match !e` binding before `s = ?t[1..]`, whose last use precedes the exit
-test/reject/probes/review-payload-loan-1-v15_defer_param.rig f prod-rejects prod-strict `defer !t.add("x")` of a `!String` parameter before `s = ?t[1..]`, whose last use precedes the exit
-test/reject/probes/review-payload-loan-1-v15b_defer_ifas.rig main prod-rejects prod-strict `defer !t.add("x")` of an `if !o as t` binding before `s = ?t[1..]`, whose last use precedes the exit
+test/reject/probes/review-payload-view-1-p15_defer_write_after_view.rig main prod-rejects prod-strict `defer !t.add("x")` of a `match !e` binding before `s = ?t[1..]`, whose last use precedes the exit
+test/reject/probes/review-payload-view-1-v15_defer_param.rig f prod-rejects prod-strict `defer !t.add("x")` of a `!String` parameter before `s = ?t[1..]`, whose last use precedes the exit
+test/reject/probes/review-payload-view-1-v15b_defer_ifas.rig main prod-rejects prod-strict `defer !t.add("x")` of an `if !o as t` binding before `s = ?t[1..]`, whose last use precedes the exit
 test/reject/probes/review-step45-k04_defer_elem_write.rig main prod-rejects prod-strict `defer !v[0].add("!")` before `x = ?v[0]`, whose last use precedes the exit
 test/reject/probes/review-step45-k04b_defer_push_plain.rig main prod-rejects prod-strict `defer !v.push(2)` before `x = ?v`, whose last use precedes the exit
 test/reject/probes/review-step45-r2-d08_repoint_defer_uses_w.rig main prod-rejects prod-strict the deferred `!w.add("d")` runs at the inner block's end, before `print(b)`
@@ -80,7 +80,7 @@ test/reject/probes/review-take-p54.rig main prod-rejects prod-strict deferred `<
 # Defer). The oracle does not keep the `break` value's loans in force
 # there, nor after the loop while the value lives.
 test/reject/ownership/defer_runs_after_its_block's_value.rig Tab.broke prod-rejects ref-gap `defer !@xs.clear()` in a loop body whose `break !@xs[0]` value is returned
-test/reject/ownership/write_view_lent_through_a_binding_stays_lent.rig Tab.broke prod-rejects ref-gap `defer s = Slot(...)` in a loop body whose `break !s.items[0]` value is returned
+test/reject/ownership/write_view_passed_through_a_binding_stays_in_use.rig Tab.broke prod-rejects ref-gap `defer s = Slot(...)` in a loop body whose `break !s.items[0]` value is returned
 
 # A `for k in ?v` element over a List of handles is a read view of the
 # slot (Core §4); storing it in a binding declared before the loop keeps
@@ -93,7 +93,7 @@ test/reject/probes/review-step1-p33b_vec_store_opt.rig main prod-rejects prod-st
 # caller's loan for the closure's life as `|?x|` would (Core §7).
 test/reject/probes/R16-c6.rig outer prod-rejects prod-strict `|<f|` of a `?fun` parameter
 test/reject/ownership/move_capture_view_param_lambda.rig f prod-rejects prod-strict `|<rc|` of a `?*Wrap` parameter
-test/reject/types/closure_lending_hints_ownership.rig outer prod-rejects prod-strict `|<f|` of a `?fun` parameter
+test/reject/types/closure_view_hints_ownership.rig outer prod-rejects prod-strict `|<f|` of a `?fun` parameter
 
 # A closure's loans end with its last use, deferred code included; the
 # compiler holds them wherever deferred code mentions the closure, or
@@ -189,7 +189,7 @@ test/reject/probes/review-copies-2-q07l-write-catch-same-owner.rig main prod-rej
 test/reject/probes/review-while-step-w48-grow-then-return-ok.rig run prod-rejects prod-strict `!v.push(2)` before a `return`, while the step reads `h`, a view of `v`
 test/reject/probes/review-while-step-w32-outer-repoint-after-grow-ok.rig main prod-rejects prod-strict `!v.push(2)` before `s` is re-pointed, where the step reads `s`
 step.vec.view.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h`, a view of `v`
-test/reject/probes/review-payload-loan-1-v10_loop_outer_var.rig main prod-rejects prod-strict `!t.add("!")` in a loop, while `s`, declared before it, holds a view of `t` from the same pass
+test/reject/probes/review-payload-view-1-v10_loop_outer_var.rig main prod-rejects prod-strict `!t.add("!")` in a loop, while `s`, declared before it, holds a view of `t` from the same pass
 test/reject/ownership/field_loop_carried.rig main prod-rejects prod-strict `!p.items.push(i)` in a loop, while `prev`, declared before it, holds a view of `p.items` it re-points before its next use
 step.vec.field.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h.r`, a view of `v`
 step.vec.method.break.grow main prod-rejects prod-strict `grow(!v)` before a `break`, while the step reads `h.get()`, a view of `v`
@@ -314,13 +314,13 @@ test/reject/probes/review258-p139b_loop_binding_local.rig main prod-rejects ref-
 test/reject/ownership/origin_self_path_body.rig Reader.word prod-rejects ref-gap `from @text` returns a view of `@name`
 test/reject/ownership/origin_self_path_body_call.rig Reader.word prod-rejects ref-gap `from @text` returns `pick(?@text, ?@name)`
 test/reject/ownership/origin_self_path_body_bound.rig Two.next prod-rejects ref-gap `from @a` returns `(!@b).next()` through a bound
-test/reject/ownership/write_view_lent_through_a_binding_stays_lent.rig Tab.other prod-rejects ref-gap `from @o` returns `!s.items[0]` of an `if !@p as s` binding
+test/reject/ownership/write_view_passed_through_a_binding_stays_in_use.rig Tab.other prod-rejects ref-gap `from @o` returns `!s.items[0]` of an `if !@p as s` binding
 doc/CORE/35dae348303b Reader.word prod-rejects ref-gap `from @text` returns a view of `@name`
 
 # A binding of a loop's value that is a write view at every `break` holds
 # the view, as an `if`'s does (the compiler, since 384290706); the oracle
 # still reads the loop's value as a copy.
-test/reject/ownership/write_view_held_by_a_loop_value_is_lent_while_it_lives.rig main prod-rejects ref-gap a loop's write view held by the binding, read while it lives
+test/reject/ownership/write_view_held_by_a_loop_value_stays_in_use_while_it_lives.rig main prod-rejects ref-gap a loop's write view held by the binding, read while it lives
 
 # The ownership checker bounds its work: a store it would follow through
 # more write views than its bound is rejected, never accepted unchecked
@@ -333,5 +333,5 @@ test/reject/ownership/write_view_chain_past_the_checker_bound.rig main prod-reje
 # call to start (self's reservation, a place found up to an index, a
 # value read for a later consumer). The call never runs, so Core §7
 # allows the defer to write what the lend reaches.
-test/reject/ownership/defer_at_a_failure_after_a_lend_in_the_call.rig lent prod-rejects prod-strict `keep(!nums, g()!)` under an `errdefer` that writes `nums`
-test/reject/ownership/defer_at_a_failure_after_a_lend_in_the_call.rig started prod-rejects prod-strict `keep(!b.slot(), g()!)` under an `errdefer` that writes `b.v`
+test/reject/ownership/defer_at_a_failure_after_a_view_in_the_call.rig lent prod-rejects prod-strict `keep(!nums, g()!)` under an `errdefer` that writes `nums`
+test/reject/ownership/defer_at_a_failure_after_a_view_in_the_call.rig started prod-rejects prod-strict `keep(!b.slot(), g()!)` under an `errdefer` that writes `b.v`

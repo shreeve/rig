@@ -1,6 +1,6 @@
-# Probes from past reviews and audits, 23 of 41: review-lend-base-3-j-j16 to review-never-data-1-g09_branch_set_vec.
+# Probes from past reviews and audits, 23 of 41: review-view-base-3-j-j16 to review-never-data-1-g09_branch_set_vec.
 
-test "review-lend-base-3-j-j16", "1 2 42 2"
+test "review-view-base-3-j-j16", "1 2 42 2"
   obj Q
     x: Int
 
@@ -18,7 +18,7 @@ test "review-lend-base-3-j-j16", "1 2 42 2"
   w.x = 42
   print(arr[0], arr[1], qs[0].x, qs[1].x)
 
-test "review-lend-base-3-k-k01", "1 5 1 1 1 2 2 2 0 0"
+test "review-view-base-3-k-k01", "1 5 1 1 1 2 2 2 0 0"
   obj P
     x: Int
     arr: [3]Int
@@ -40,7 +40,7 @@ test "review-lend-base-3-k-k01", "1 5 1 1 1 2 2 2 0 0"
   (!p if d else <w).x = 5
   print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)
 
-test "review-lend-base-3-k-k02", "1 6 1 1 1 2 2 2 0 0"
+test "review-view-base-3-k-k02", "1 6 1 1 1 2 2 2 0 0"
   obj P
     x: Int
     arr: [3]Int
@@ -61,7 +61,7 @@ test "review-lend-base-3-k-k02", "1 6 1 1 1 2 2 2 0 0"
   (!p if d else id(!q)).x = 6
   print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)
 
-test "review-lend-base-3-k-k03", "1 7 1 1 1 2 2 2 0 0"
+test "review-view-base-3-k-k03", "1 7 1 1 1 2 2 2 0 0"
   obj P
     x: Int
     arr: [3]Int
@@ -83,7 +83,7 @@ test "review-lend-base-3-k-k03", "1 7 1 1 1 2 2 2 0 0"
   (<o ?? !p).x = 7
   print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)
 
-test "review-lend-base-3-k-k04", "1 2 1 8 1 2 2 2 0 0"
+test "review-view-base-3-k-k04", "1 2 1 8 1 2 2 2 0 0"
   obj P
     x: Int
     arr: [3]Int
@@ -105,7 +105,7 @@ test "review-lend-base-3-k-k04", "1 2 1 8 1 2 2 2 0 0"
   (<o ?? !p).arr[1] = 8
   print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)
 
-test "review-lend-base-3-k-k05", "1 2 1 1 1 2 2 2 0 1"
+test "review-view-base-3-k-k05", "1 2 1 1 1 2 2 2 0 1"
   obj P
     x: Int
     arr: [3]Int
@@ -126,7 +126,7 @@ test "review-lend-base-3-k-k05", "1 2 1 1 1 2 2 2 0 1"
   !(!p if d else !q).items.push(3)
   print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)
 
-test "review-lend-base-3-k-k06", "1 2 1 1 9 2 2 2 0 0"
+test "review-view-base-3-k-k06", "1 2 1 1 9 2 2 2 0 0"
   obj P
     x: Int
     arr: [3]Int
@@ -147,7 +147,7 @@ test "review-lend-base-3-k-k06", "1 2 1 1 9 2 2 2 0 0"
   (id(!p) if c else id(!q)).arr[2] = 9
   print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)
 
-test "review-lend-base-3-k-k07", "1 10 1 1 1 2 2 2 0 0"
+test "review-view-base-3-k-k07", "1 10 1 1 1 2 2 2 0 0"
   obj P
     x: Int
     arr: [3]Int
@@ -168,7 +168,7 @@ test "review-lend-base-3-k-k07", "1 10 1 1 1 2 2 2 0 0"
   ((!p if c else !q) if d else !q).x = 10
   print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)
 
-fail "review-lend-base-3-k-k09", "`?p if c else ?q.items` owns a `List[Int]`, which can't be copied by `=`: write `+?p if c else ?q.items` to clone it or `??p if c else ?q.items` to view it"
+fail "review-view-base-3-k-k09", "`?p if c else ?q.items` owns a `List[Int]`, which can't be copied by `=`: write `+?p if c else ?q.items` to clone it or `??p if c else ?q.items` to view it"
   obj P
     x: Int
     arr: [3]Int
@@ -190,7 +190,7 @@ fail "review-lend-base-3-k-k09", "`?p if c else ?q.items` owns a `List[Int]`, wh
   print(y.len)
   print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)
 
-fail "review-lend-base-3-k-k13", "cannot move out of `(!p if d else !q).items`: it is reached through `!p if d else !q`, a view, which gives up nothing of what it views; exchange the part where it is owned, with `swap`"
+fail "review-view-base-3-k-k13", "cannot move out of `(!p if d else !q).items`: it is reached through `!p if d else !q`, a view, which gives up nothing of what it views; exchange the part where it is owned, with `swap`"
   obj P
     x: Int
     arr: [3]Int
@@ -212,7 +212,7 @@ fail "review-lend-base-3-k-k13", "cannot move out of `(!p if d else !q).items`: 
   print(y.len)
   print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)
 
-test "review-lend-base-3-k-k14", '''
+test "review-view-base-3-k-k14", '''
   1
   1 2 1 1 1 2 2 2 0 0
 '''
@@ -237,7 +237,7 @@ test "review-lend-base-3-k-k14", '''
   print(t[0])
   print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)
 
-test "review-lend-base-3-n-n01", "6 3"
+test "review-view-base-3-n-n01", "6 3"
   obj Bag[T]
     items: List[T]
     n: Int
@@ -258,14 +258,14 @@ test "review-lend-base-3-n-n01", "6 3"
   (!b).add(5)
   print((?b).count(), b.items.len)
 
-test "review-lend-base-3-n-n03", "3"
+test "review-view-base-3-n-n03", "3"
   fun firsts[T](xs: []T) -> T
     (?xs[..])[0]
 
   a = [3, 4]
   print(firsts(?a[..]))
 
-test "review-lend-base-3-n-n04", "9"
+test "review-view-base-3-n-n04", "9"
   sub setf[T](xs: ![]T, v: T)
     (!xs[..])[0] = v
 
@@ -273,7 +273,7 @@ test "review-lend-base-3-n-n04", "9"
   setf(!a[..], 9)
   print(a[0])
 
-test "review-lend-base-3-n-n06", "1 2"
+test "review-view-base-3-n-n06", "1 2"
   sub put[T](v: !List[T], x: T)
     (!v).push(<x)
 
@@ -299,7 +299,7 @@ test "review-lend-base-3-n-n06", "1 2"
   !b.add(String("y"))
   print(v.len, b.size())
 
-test "review-lend-base-3-r-r09", '''
+test "review-view-base-3-r-r09", '''
   1
   1 1 0
 '''
@@ -2389,7 +2389,7 @@ fail "review-move-done-2-g03 generic leaf", "`<` here would copy `a` out without
   # oracle: orr reject C3
   # oracle: mkv accept
 
-test "review-move-done-2-grid drop brlend.paren.ret", '''
+test "review-move-done-2-grid drop brview.paren.ret", '''
   drop 5
   drop 4
   drop 3
@@ -2644,7 +2644,7 @@ fail "review-move-done-2-grid vec brelem.catch.arg", "`<` here would copy `(v if
   # oracle: cell reject C3
   # oracle: main accept
 
-test "review-move-done-2-grid vec brlend.none.bind", '''
+test "review-move-done-2-grid vec brview.none.bind", '''
   3
   11 18
   0
@@ -3524,7 +3524,7 @@ test "review-move-done-p73 advice works", '''
   # oracle: ret accept
   # oracle: main accept
 
-test "review-move-done-p74 print read then write lend", "1 2"
+test "review-move-done-p74 print read then write view", "1 2"
   # A field copied out of a read view keeps nothing lent (Core §6), so a
   # later argument may lend `s` to write.
   obj S

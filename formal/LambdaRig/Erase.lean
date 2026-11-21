@@ -191,13 +191,13 @@ def checkE (Γ : Ctx) (moved later objs : List Var) : EProg → Option (Ty × Li
     guard ((Γ.lookup x).isNone && !moved.contains x)
     let (τe, moved) ← check Γ moved (rest.fv.filter (· ≠ x) ++ later) e
     let (τ, moved) ← checkE ((x, τe) :: Γ) moved later objs rest
-    guard (!τ.lentFrom x)
+    guard (!τ.isViewOf x)
     some (τ, moved.filter (· ≠ x))
   | .call r api _ args rest => do
     guard ((Γ.lookup r).isNone && !moved.contains r)
     let τc ← checkCall Γ moved api args
     let (τ, moved) ← checkE ((r, τc) :: Γ) moved later objs rest
-    guard (!τ.lentFrom r)
+    guard (!τ.isViewOf r)
     some (τ, moved.filter (· ≠ r))
   | .erase r k x rest => do
     guard ((Γ.lookup r).isNone && !moved.contains r)
@@ -207,7 +207,7 @@ def checkE (Γ : Ctx) (moved later objs : List Var) : EProg → Option (Ty × Li
     let (_, moved) ← check Γ moved (rest.fv.filter (· ≠ r) ++ later) (k.operand x)
     let τo ← o.ty
     let (τ, moved) ← checkE ((r, τo) :: Γ) moved later (r :: objs) rest
-    guard (!τ.lentFrom r)
+    guard (!τ.isViewOf r)
     some (τ, moved.filter (· ≠ r))
 
 /-- `rig check` for a program with API objects. -/
@@ -381,7 +381,7 @@ def areaImpl : Impl := { clauses := area, reads := [0], ret := 0 }
 
 /-- `v = 3`, `rv = ?v`, `s: ?{Shape} = rv`, `a = area(s)`, then `tail`. -/
 def shape (tail : EProg) : EProg :=
-  .bind "v" (.lit 3) <| .bind "rv" (.lend .read "v") <| .erase "s" (.view .read) "rv" tail
+  .bind "v" (.lit 3) <| .bind "rv" (.view .read "v") <| .erase "s" (.view .read) "rv" tail
 
 /-- `print(area(s))`, then `v = 4`: the loans of `s` end at its last use. -/
 def areaOf : EProg :=

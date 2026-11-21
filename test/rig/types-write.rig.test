@@ -1,7 +1,7 @@
 # types: tests whose names start `write`.
 
 
-fail "write call already lent", "`(!b)` already makes a write view of `b`: remove the outer `!` and write `(!b).ensure(1, List())`"
+fail "write call already viewed", "`(!b)` already makes a write view of `b`: remove the outer `!` and write `(!b).ensure(1, List())`"
   # A self already lent to write, `(!b)`, takes no second `!`: the
   # outer one is removed, not parenthesized again.
 
@@ -195,7 +195,7 @@ code "write call long form emit", "const x: i64 = (v.pop() orelse 0);", "const n
   b = Box(items: List([2]))
   print(x, (!b).take())
 
-fail "write lend constant", "56:7: cannot change constant `Color.red`: it lives for the whole program and never changes", "57:7: cannot change constant `E.bad`", "58:7: cannot change constant `false`", "59:7: cannot change constant `\"abc\"`", "60:7: cannot change constant `none`", "61:6: cannot change constant `5`", "62:6: cannot change constant `-5`", "63:7: cannot change constant `2 + 3`", "64:8: cannot change constant `not true`", "65:8: cannot change constant `Color.red if f(1) == 1 else Color.green`", "66:6: cannot change constant `Int.max`", "67:7: cannot change constant `U8.max`", "68:7: cannot change constant `Int.max - 1`", "69:7: cannot change constant `f`", "70:7: cannot change constant `P.origin`", errors: 15
+fail "write view constant", "56:7: cannot change constant `Color.red`: it lives for the whole program and never changes", "57:7: cannot change constant `E.bad`", "58:7: cannot change constant `false`", "59:7: cannot change constant `\"abc\"`", "60:7: cannot change constant `none`", "61:6: cannot change constant `5`", "62:6: cannot change constant `-5`", "63:7: cannot change constant `2 + 3`", "64:8: cannot change constant `not true`", "65:8: cannot change constant `Color.red if f(1) == 1 else Color.green`", "66:6: cannot change constant `Int.max`", "67:7: cannot change constant `U8.max`", "68:7: cannot change constant `Int.max - 1`", "69:7: cannot change constant `f`", "70:7: cannot change constant `P.origin`", errors: 15
   # A constant lives for the whole program and never changes (Core
   # sentence 7), so it is never lent to write: a literal, `none`, an enum
   # variant that holds no payload, an error value, a number type's limit,
@@ -203,8 +203,8 @@ fail "write lend constant", "56:7: cannot change constant `Color.red`: it lives 
   # applied to constants, or a value that branches, every value of which
   # is a constant. One that may be a value made at run time is a
   # temporary instead, lent to write in its statement's slot
-  # (`test/behavior/ownership/write_lend_temporary_branches.rig`); a binding that holds a function is a name like any
-  # other (`test/behavior/types/write_lend_function_binding.rig`).
+  # (`test/behavior/ownership/write_view_temporary_branches.rig`); a binding that holds a function is a name like any
+  # other (`test/behavior/types/write_view_function_binding.rig`).
   # (Another module's: `modules/foreign_variant_write`.)
 
   enum Color
@@ -267,13 +267,13 @@ fail "write lend constant", "56:7: cannot change constant `Color.red`: it lives 
   setf(!f)
   setp(!P.origin)
 
-test "write lend function binding", '''
+test "write view function binding", '''
   1
   20
 '''
   # A binding that holds a function is a name like any other: it may be
   # lent to write, and the callee may re-point it. A function itself is a
-  # constant (`test/reject/types/write_lend_constant.rig`).
+  # constant (`test/reject/types/write_view_constant.rig`).
 
   fun f(n: Int) -> Int
     n
@@ -770,7 +770,7 @@ test "write view calls mutating method", '''
   !b.push(3)
   print(v.len, v[2])
 
-test "taken bindings lent to write", '''
+test "taken bindings given write views", '''
   2
   a!
   1
@@ -1073,7 +1073,7 @@ fail "write call hint for source", "12:12: method `drain` needs a write view of 
   for z in (!b).drain()
     print(z)
 
-test "a read lend of a call that gives a write view", '''
+test "a read view of a call that gives a write view", '''
   7
   12 6 6
 '''
@@ -1114,7 +1114,7 @@ test "a view of an array copied into a List", "[1, 2] [1, 2] 26"
     !t.push(block, keep: 10)
     print(ys, copy(?a, !block), t.len)
 
-fail "a write lend of an array or vector only read", "2:11: `!a` here is read, not held: only its `[2]Int` is read here. Write `a`", "5:9: `!block` here is read, not held: only its `Simd[U8, 16]` is read here. Write `block`"
+fail "a write view of an array or vector only read", "2:11: `!a` here is read, not held: only its `[2]Int` is read here. Write `a`", "5:9: `!block` here is read, not held: only its `Simd[U8, 16]` is read here. Write `block`"
   a = [1, 2]
   ys = List(!a)
   block = Simd[U8, 16].splat(1)

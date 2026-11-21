@@ -316,7 +316,7 @@ test "box holds read view", '''
   !boxes.push(^?v)
   print(boxes[0].len + boxes[1].len)
 
-test "box lent as value", '''
+test "box viewed as value", '''
   2
   1
   6

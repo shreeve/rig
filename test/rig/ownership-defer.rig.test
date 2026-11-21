@@ -200,7 +200,7 @@ test "defer effects at continuing exits", '''
   print(looped(true) catch -1)
   print(looped(false) catch -1)
 
-fail "defer ends loan at propagate", "19:4: cannot drop `x` while a read view of it is still in use", errors: 1
+fail "defer ends view at propagate", "19:4: cannot drop `x` while a read view of it is still in use", errors: 1
   # The defers run at `e!` only on the path that fails. On the path that
   # goes on, `r` still views `x`: the defer that re-points it has not
   # run, so `x` cannot be dropped while `r` is in use.
@@ -240,7 +240,7 @@ fail "defer fallthrough stores", "`inner` is dropped here, at the end of its sco
     print("in")
   print(h.r[0])
 
-fail "defer in loop keeps lent", "32:17: cannot change `v` while a read view of it is still in use", "38:17: cannot change `v` while a read view of it is still in use", "43:17: cannot change `v` while a read view of it is still in use", "48:17: cannot change `b.xs` while a read view of `b` is still in use", errors: 4
+fail "defer in loop keeps a view", "32:17: cannot change `v` while a read view of it is still in use", "38:17: cannot change `v` while a read view of it is still in use", "43:17: cannot change `v` while a read view of it is still in use", "48:17: cannot change `b.xs` while a read view of `b` is still in use", errors: 4
   # A `defer` in a loop's body runs inside the loop, before the loop reads
   # its source again, so it cannot write what that source views: a slice
   # the condition reads, an iterator a `while … as` advances, or one a
@@ -847,7 +847,7 @@ test "defer at a return or jump in a pending call", '''
   skip(!m, xs)
   print(m)
 
-fail "defer at a failure after a lend in the call", "cannot use `nums` while a write view of it is still in use", "cannot use `b.v` while a write view of `b` is still in use", errors: 2
+fail "defer at a failure after a view in the call", "cannot use `nums` while a write view of it is still in use", "cannot use `b.v` while a write view of `b` is still in use", errors: 2
   # A lend an argument has already made stays in force while the defers
   # of a failure in a later argument run: `!nums` given to `keep`, and the
   # write view `slot` returned once its call had started and run. Only a

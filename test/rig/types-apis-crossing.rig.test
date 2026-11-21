@@ -24,7 +24,7 @@ test "apis object crossing a sending box given to a task", seeds: 20, "6"
   t = work(<j)&
   print(>t)
 
-test "apis object crossing a syncing box lent to two tasks", seeds: 20, "8.0 8.0"
+test "apis object crossing a syncing box given to two tasks", seeds: 20, "8.0 8.0"
   # A box whose value syncs is read by several tasks at once, lent as the
   # box or as the read view it lends.
   api Shape
@@ -47,7 +47,7 @@ test "apis object crossing a syncing box lent to two tasks", seeds: 20, "8.0 8.0
   u = area_of(?b)&
   print(>t, >u)
 
-test "apis object crossing a syncing read view lent to a task", seeds: 20, "4.0 9.0"
+test "apis object crossing a syncing read view given to a task", seeds: 20, "4.0 9.0"
   # A read view whose value syncs goes to another task, erased where it
   # is lent or lent on from a view of its own.
   api Shape
@@ -70,7 +70,7 @@ test "apis object crossing a syncing read view lent to a task", seeds: 20, "4.0 
   t = area_of(?sq)&
   print(>t, later(?Square(side: 3.0)))
 
-test "apis object crossing a sending write view lent to a task", seeds: 20, "9.0"
+test "apis object crossing a sending write view given to a task", seeds: 20, "9.0"
   # A write view whose value sends goes to one task, to write.
   api Shape
     fun area(?@) -> Float
@@ -421,7 +421,7 @@ fail "apis object crossing a box given without its bound", "`<j` is given to a t
   t = work(<j)&
   print(>t)
 
-fail "apis object crossing lent without its bound", "`?b` is passed to a task as a read view, and `^{Shape}` hides its value's type without naming `Syncs`: write `^{Shape + Syncs}`", "`?s` is passed to a task as a read view, and `?{Shape}` hides its value's type without naming `Syncs`: write `?{Shape + Syncs}`", "`!w` is passed to a task as a write view, and `!{Shape}` hides its value's type without naming `Sends`: write `!{Shape + Sends}`", "`?c` is passed to a task as a read view, and `^{Shape + Sends}` hides its value's type without naming `Syncs`: write `^{Shape + Sends + Syncs}`", errors: 4
+fail "apis object crossing given without its bound", "`?b` is passed to a task as a read view, and `^{Shape}` hides its value's type without naming `Syncs`: write `^{Shape + Syncs}`", "`?s` is passed to a task as a read view, and `?{Shape}` hides its value's type without naming `Syncs`: write `?{Shape + Syncs}`", "`!w` is passed to a task as a write view, and `!{Shape}` hides its value's type without naming `Sends`: write `!{Shape + Sends}`", "`?c` is passed to a task as a read view, and `^{Shape + Sends}` hides its value's type without naming `Syncs`: write `^{Shape + Sends + Syncs}`", errors: 4
   # oracle: main reject T1
   # oracle: look reject T1
   # oracle: write reject T1

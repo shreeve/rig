@@ -1302,7 +1302,7 @@ test "view result operands", '''
   # An operator reads through a view that an expression yields: a call
   # returning `!Int` or `?Int`. (A `!x` written as an operand is read,
   # its `!` ignored, and is rejected: test/reject/ownership/
-  # ignored_write_lend_read.rig.)
+  # ignored_write_view_read.rig.)
 
   fun wr(a: !Int) -> !Int
     a
@@ -1647,7 +1647,7 @@ test "write view copy element", '''
   # reaches: an array element, an `if` branch, and a `match` arm read
   # through it, whether the view is a name or a call's result. (A `!m`
   # written there would be read, its `!` ignored, and is rejected:
-  # test/reject/ownership/ignored_write_lend.rig.)
+  # test/reject/ownership/ignored_write_view.rig.)
 
   obj S
     n: Int
@@ -1750,7 +1750,7 @@ bomb "a cloned constant is a run-time value", "integer overflow"
   match e
     .v(x) => print(x + 1)
 
-bomb "a constant copied out of a read lend is a run-time value", "integer overflow"
+bomb "a constant copied out of a read view is a run-time value", "integer overflow"
   obj P
     a: Int
 

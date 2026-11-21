@@ -1053,7 +1053,7 @@ fail "cell in literal field", "11:7: `P(c: Cell(1))` makes a `P`, which holds a 
 
   bump(?P(c: Cell(1)))
 
-test "cell part lent in slot", '''
+test "cell part viewed in slot", '''
   42
   P(c: Cell(value: 1), n: 1) P(c: Cell(value: 1), n: 2)
   11
@@ -2224,7 +2224,7 @@ test "handle reached through pointer", '''
   print((?h1 if c else ?h2).n, (h1 if c else h2).n)
   print((?h1 if c else ?h2).get(k: g(1), j: g(2)))
 
-test "hoisted argument lent", '''
+test "hoisted argument viewed", '''
   g
   hello world, long enough to be on the heap
   g

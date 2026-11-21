@@ -366,7 +366,7 @@ code "apis object shared a frozen value's table", "__rig_table_Shape_of(Square, 
   f: *{Shape + Syncs} = *Frozen(Square(side: 1.0))
   print(f.area())
 
-code "apis object shared counts, lends, and calls through the table", "const t = s.cloneStrong();", "area_of(s.read())", "t.vt.area(t.ptr)", "if (w.upgrade()) |"
+code "apis object shared counts, views, and calls through the table", "const t = s.cloneStrong();", "area_of(s.read())", "t.vt.area(t.ptr)", "if (w.upgrade()) |"
   api Shape
     fun area(?@) -> Float
 

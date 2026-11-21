@@ -459,7 +459,7 @@ test "hashmap ensure chain", "[5, 6] 1"
   (!b).ensure(1, List()).push(6)
   print(b.get(1), b.len)
 
-fail "hashmap ensure keeps lent", "cannot use `m.len` while a write view of `m` is still in use"
+fail "hashmap ensure keeps a view", "cannot use `m.len` while a write view of `m` is still in use"
   # The write view `ensure` returns is `from @`: it keeps the HashMap lent
   # to write, so it cannot be read or written while the view lives.
 
@@ -553,7 +553,7 @@ test "hashmap ensure by", '''
   if sq.get(3) as l
     print(sq.len, l)
 
-fail "hashmap ensure by view keys stay lent", "cannot change `buf` while a read view of it is still in use"
+fail "hashmap ensure by view keys stay viewed", "cannot change `buf` while a read view of it is still in use"
   # A HashMap of view keys keeps what `key` made from the viewed key, so
   # the buffer stays lent while the HashMap is used.
 
@@ -572,7 +572,7 @@ bomb "hashmap ensure by key other than k", "HashMap: `ensure_by`'s `key(k)` made
   (!m).ensure_by("a", |s| String("b"), 5) += 0
   print(m)
 
-fail "hashmap get keeps lent", "cannot change `m` while a read view of it is still in use"
+fail "hashmap get keeps a view", "cannot change `m` while a read view of it is still in use"
   # The view `get` returns is `from @`: it keeps the HashMap lent to
   # read, so it cannot be written while the view lives.
 
@@ -598,7 +598,7 @@ fail "hashmap keys then take", "cannot change `s` while a read view of it is sti
   for k in ?s.items()
     _ = (!s).take(k)
 
-fail "hashmap value view keeps its loan", "cannot drop `t` while a read view of it is still in use"
+fail "hashmap value view keeps its view", "cannot drop `t` while a read view of it is still in use"
   # A value that views text, taken out of a HashMap, still views it.
 
   t = String("x")

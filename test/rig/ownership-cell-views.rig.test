@@ -1,11 +1,11 @@
-# ownership: tests whose names start `shared lend`: `!x` of a value that
+# ownership: tests whose names start `cell views`: `!x` of a value that
 # changes by a marked call (a Cell, a Signal, a channel, an actor, or a
 # value that holds a Cell) puts only a read loan on `x`, while `!h`
 # lending the handle itself, assigning, and dropping stay writes (Core
 # §4, SPEC "Lending a shared value to write"). Each case states the
 # reference checker's verdict, one for each kind of handle SPEC names.
 
-test "shared lend cell calls nest", "5 7"
+test "cell views cell calls nest", "5 7"
   # oracle: main accept
   c = *Cell(1)
   !c.add((!c).swap(4))
@@ -14,7 +14,7 @@ test "shared lend cell calls nest", "5 7"
   !c.set(7)
   print(five, r.get())
 
-fail "shared lend cell holder written during call", "cannot change `cs` while a write view of it is still in use"
+fail "cell views cell holder written during call", "cannot change `cs` while a write view of it is still in use"
   # oracle: main reject C4
   fun grow(cs: !List[*Cell[Int]]) -> Int
     !cs.push(*Cell(0))
@@ -24,21 +24,21 @@ fail "shared lend cell holder written during call", "cannot change `cs` while a 
   !cs.push(*Cell(1))
   _ = !cs[0].add(grow(!cs))
 
-fail "shared lend cell reassigned while viewed", "cannot reassign `c` while a read view of it is still in use"
+fail "cell views cell reassigned while viewed", "cannot reassign `c` while a read view of it is still in use"
   # oracle: main reject C4
   c = *Cell(1)
   r = ?c
   c = *Cell(2)
   print(r.get())
 
-test "shared lend cell list members", "1 1"
+test "cell views cell list members", "1 1"
   # oracle: main accept
   c = *Cell(List[Int]())
   !c.push(1)
   !c.push((!c).pop() ?? 0)
   print(c.len, c[0])
 
-fail "shared lend cell through read view", "cannot make a write view through a read view `?*Cell[Int]`"
+fail "cell views cell through read view", "cannot make a write view through a read view `?*Cell[Int]`"
   # oracle: peek accept
   # oracle: bump reject C10
   fun peek(c: ?*Cell[Int]) -> Int
@@ -50,28 +50,28 @@ fail "shared lend cell through read view", "cannot make a write view through a r
   c = *Cell(3)
   print(peek(?c))
 
-test "shared lend signal viewed across set", "7"
+test "cell views signal viewed across set", "7"
   # oracle: main accept
   sig: *Signal[Int] = *Signal(0)
   r = ?sig
   !sig.set(7)
   print(r.get())
 
-fail "shared lend signal through read view", "cannot make a write view through a read view `?*Signal[Int]`"
+fail "cell views signal through read view", "cannot make a write view through a read view `?*Signal[Int]`"
   # oracle: poke reject C10
   sub poke(s: ?*Signal[Int])
     !s.set(1)
 
   print(0)
 
-test "shared lend chan receive feeds send", "6"
+test "cell views chan receive feeds send", "6"
   # oracle: main accept
   ch = *Chan[Int](2)
   !ch.send(1)!
   !ch.send((!ch.recv()! ?? 0) + 5)!
   print(!ch.recv()! ?? -1)
 
-fail "shared lend chan holder written during send", "cannot change `xs` while a write view of it is still in use"
+fail "cell views chan holder written during send", "cannot change `xs` while a write view of it is still in use"
   # oracle: main reject C4
   fun grow(xs: !List[*Chan[Int]]) -> Int
     !xs.push(*Chan[Int](1))
@@ -81,7 +81,7 @@ fail "shared lend chan holder written during send", "cannot change `xs` while a 
   !xs.push(*Chan[Int](1))
   !xs[0].send(grow(!xs))!
 
-test "shared lend select arms of one channel", "got 7"
+test "cell views select arms of one channel", "got 7"
   # oracle: main accept
   use std.task
 
@@ -92,7 +92,7 @@ test "shared lend select arms of one channel", "got 7"
     .got(none) => print("closed")
     .put => print("put")
 
-test "shared lend select arm on a task", "9"
+test "cell views select arm on a task", "9"
   # oracle: main accept
   use std.task
 
@@ -103,7 +103,7 @@ test "shared lend select arm on a task", "9"
   match task.select(done: ?t.on_end())!
     .done => print(>t)
 
-test "shared lend actor calls nest", "2"
+test "cell views actor calls nest", "2"
   # oracle: main accept
   obj Counter
     n: Int
@@ -115,7 +115,7 @@ test "shared lend actor calls nest", "2"
   a = *Actor(Counter(n: 0))
   print((!a).add((!a).add(1)))
 
-fail "shared lend actor holder written during call", "cannot change `xs` while a write view of it is still in use"
+fail "cell views actor holder written during call", "cannot change `xs` while a write view of it is still in use"
   # oracle: main reject C4
   obj Counter
     n: Int
@@ -132,7 +132,7 @@ fail "shared lend actor holder written during call", "cannot change `xs` while a
   !xs.push(*Actor(Counter(n: 0)))
   print(!xs[0].add(grow(!xs)))
 
-test "shared lend actor task keeps no loan", "1 5"
+test "cell views actor task keeps no view", "1 5"
   # oracle: main accept
   obj Counter
     n: Int
@@ -146,7 +146,7 @@ test "shared lend actor task keeps no loan", "1 5"
   a = *Actor(Counter(n: 5))
   print(>t, (!a).add(0))
 
-fail "shared lend actor through read view", "cannot make a write view through a read view `?*Actor[Counter]`"
+fail "cell views actor through read view", "cannot make a write view through a read view `?*Actor[Counter]`"
   # oracle: poke reject C10
   obj Counter
     n: Int
@@ -159,7 +159,7 @@ fail "shared lend actor through read view", "cannot make a write view through a 
 
   print(0)
 
-test "shared lend frozen value only read", "1 1"
+test "cell views frozen value only read", "1 1"
   # oracle: size accept
   # oracle: main accept
   obj Page
@@ -171,7 +171,7 @@ test "shared lend frozen value only read", "1 1"
   p = *Frozen(Page(n: 1))
   print(size(?p), p.n)
 
-test "shared lend plain handle lends itself", "0"
+test "cell views plain handle views itself", "0"
   # oracle: reset accept
   # oracle: main accept
   obj User
@@ -184,7 +184,7 @@ test "shared lend plain handle lends itself", "0"
   reset(!h)
   print(h.age)
 
-test "shared lend cell holder calls nest", '''
+test "cell views cell holder calls nest", '''
   2
   5 5
 '''
@@ -203,7 +203,7 @@ test "shared lend cell holder calls nest", '''
   print((!h).bump((!h).bump(1)))
   show(?h, !h.bump(3))
 
-fail "shared lend cell holder through read view", "cannot make a write view through a read view `?*Hits`"
+fail "cell views cell holder through read view", "cannot make a write view through a read view `?*Hits`"
   # oracle: poke reject C10
   obj Hits
     n: Cell[Int]
@@ -216,7 +216,7 @@ fail "shared lend cell holder through read view", "cannot make a write view thro
 
   print(0)
 
-test "shared lend cell holder tasks read", '''
+test "cell views cell holder tasks read", '''
   2
   true true 4
 '''
@@ -236,7 +236,7 @@ test "shared lend cell holder tasks read", '''
   b = >u
   print(a > 0, b > 0, h.n.get())
 
-fail "shared lend cell holder reassigned while a task runs", "cannot reassign `h` while a write view of it is still in use"
+fail "cell views cell holder reassigned while a task runs", "cannot reassign `h` while a write view of it is still in use"
   # oracle: main reject C4
   obj Hits
     n: Cell[Int]
@@ -250,7 +250,7 @@ fail "shared lend cell holder reassigned while a task runs", "cannot reassign `h
   h = *Hits(n: Cell(5), step: 1)
   print(>t)
 
-test "shared lend result viewing self keeps a read loan", '''
+test "cell views result viewing self keeps a read view", '''
   0
   1
 '''
@@ -267,7 +267,7 @@ test "shared lend result viewing self keeps a read loan", '''
   _ = !w.add(1)
   print(h.n.get())
 
-fail "shared lend result viewing self forbids reassigning", "cannot reassign `h` while a write view of it is still in use"
+fail "cell views result viewing self forbids reassigning", "cannot reassign `h` while a write view of it is still in use"
   # oracle: main reject C4
   obj Hits
     n: Cell[Int]
@@ -280,7 +280,7 @@ fail "shared lend result viewing self forbids reassigning", "cannot reassign `h`
   h = *Hits(n: Cell(5))
   _ = !w.add(1)
 
-test "shared lend value through handle twice", "2"
+test "cell views value through handle twice", "2"
   # oracle: hit2 accept
   # oracle: main accept
   obj Hits
@@ -294,7 +294,7 @@ test "shared lend value through handle twice", "2"
   hit2(!h, !h)
   print(h.n.get())
 
-fail "shared lend handle itself twice", "cannot make a write view of the handle `h` while a write view of it is still in use"
+fail "cell views handle itself twice", "cannot make a write view of the handle `h` while a write view of it is still in use"
   # oracle: main reject C4
   obj Hits
     n: Cell[Int]
@@ -305,7 +305,7 @@ fail "shared lend handle itself twice", "cannot make a write view of the handle 
   h = *Hits(n: Cell(0))
   both(!h, !h)
 
-test "shared lend handle parameter calls nest", "5"
+test "cell views handle parameter calls nest", "5"
   # oracle: bump accept
   # oracle: main accept
   fun bump(c: !*Cell[Int]) -> Int
@@ -314,7 +314,7 @@ test "shared lend handle parameter calls nest", "5"
   c = *Cell(1)
   print(bump(!c))
 
-fail "shared lend handle parameter reassigned while viewed", "cannot reassign `c` while a read view of it is still in use"
+fail "cell views handle parameter reassigned while viewed", "cannot reassign `c` while a read view of it is still in use"
   # oracle: f reject C4
   sub f(c: !*Cell[Int])
     r = ?c
@@ -324,7 +324,7 @@ fail "shared lend handle parameter reassigned while viewed", "cannot reassign `c
   c = *Cell(1)
   f(!c)
 
-test "shared lend write view of a cell", "2 5"
+test "cell views write view of a cell", "2 5"
   # oracle: Hits.twice accept
   # oracle: swapped accept
   # oracle: main accept
@@ -344,7 +344,7 @@ test "shared lend write view of a cell", "2 5"
   c = *Cell(1)
   print((!h).twice(), swapped(!c))
 
-test "shared lend api object of a cell holder", "2"
+test "cell views api object of a cell holder", "2"
   # oracle: both accept
   # oracle: main accept
   api Bump
@@ -369,7 +369,7 @@ test "shared lend api object of a cell holder", "2"
   s: *{Bump} = +h
   print(s.count())
 
-fail "shared lend api object of an owned value twice", "cannot change `b` while a write view of it is still in use"
+fail "cell views api object of an owned value twice", "cannot change `b` while a write view of it is still in use"
   # oracle: both accept
   # oracle: main reject C4
   api Grow
@@ -388,7 +388,7 @@ fail "shared lend api object of an owned value twice", "cannot change `b` while 
   b = Bag(xs: List[Int]())
   both(!b, !b)
 
-test "shared lend weak handle upgraded", "2"
+test "cell views weak handle upgraded", "2"
   # oracle: main accept
   c = *Cell(1)
   w = ~c
@@ -396,7 +396,7 @@ test "shared lend weak handle upgraded", "2"
     !h.set(2)
   print(c.get())
 
-test "shared lend set of tasks takes a task", "1"
+test "cell views set of tasks takes a task", "1"
   # oracle: work accept
   # oracle: main accept
   obj Hits
@@ -411,7 +411,7 @@ test "shared lend set of tasks takes a task", "1"
   >ts
   print(h.n.get())
 
-fail "shared lend set of tasks lent to write", "cannot change `ts` while a read view of it is still in use"
+fail "cell views set of tasks under a write view", "cannot change `ts` while a read view of it is still in use"
   # oracle: main reject C4
   sub work(n: Int)
     print(n)

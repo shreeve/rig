@@ -1,15 +1,15 @@
-# Probes from past reviews and audits, 14 of 41: r3-s36-loans-text_st02_loop_view_into_vec to r3-s36-reads-x04_text_for_q.
+# Probes from past reviews and audits, 14 of 41: r3-s36-views-text_st02_loop_view_into_vec to r3-s36-reads-x04_text_for_q.
 
 use std.text
 
-fail "r3-s36-loans-text st02 loop view into vec", "`t` is dropped here, at the end of its scope, while a read view of it is still in use"
+fail "r3-s36-views-text st02 loop view into vec", "`t` is dropped here, at the end of its scope, while a read view of it is still in use"
   names: List[?String] = List()
   for i in 0..3
     t = String("n", i)
     !names.push(?t[..])
   print(names)
 
-fail "r3-s36-loans-text st03 payload copy keeps loan", "cannot change `t` while a read view of it is still in use"
+fail "r3-s36-views-text st03 payload copy keeps view", "cannot change `t` while a read view of it is still in use"
   enum H
     has(s: ?String)
     no
@@ -24,14 +24,14 @@ fail "r3-s36-loans-text st03 payload copy keeps loan", "cannot change `t` while 
       print(w)
     .no => print("no")
 
-fail "r3-s36-loans-text st04 closure view then mutate", "cannot change `t` while a read view of it is still in use"
+fail "r3-s36-views-text st04 closure view then mutate", "cannot change `t` while a read view of it is still in use"
   t = String("abc")
   s: ?String = ?t[..]
   f = |?s| print(s)
   !t.add("d")
   f()
 
-fail "r3-s36-loans-text st05 over lend key", "cannot change `k` while a read view of it is still in use"
+fail "r3-s36-views-text st05 needless view key", "cannot change `k` while a read view of it is still in use"
   # Over-lending with Strings: the result can only view `hay`, but it
   # views the key's Text too.
   fun after(hay: ?String, key: ?String) -> ?String
@@ -43,7 +43,7 @@ fail "r3-s36-loans-text st05 over lend key", "cannot change `k` while a read vie
   !k.add("x")
   print(v)
 
-fail "r3-s36-loans-text st07 defer view at propagate", "cannot drop `x` while a read view of it is still in use"
+fail "r3-s36-views-text st07 defer view at propagate", "cannot drop `x` while a read view of it is still in use"
   error E
     bad
 
@@ -63,7 +63,7 @@ fail "r3-s36-loans-text st07 defer view at propagate", "cannot drop `x` while a 
 
   print(f(true) catch 0)
 
-fail "r3-s36-loans-text st08 for view elems push", "cannot change `t` while a read view of it is still in use"
+fail "r3-s36-views-text st08 for view elems push", "cannot change `t` while a read view of it is still in use"
   t = String("a b")
   names: List[?String] = List()
   !names.push(?t[0..1])
@@ -71,7 +71,7 @@ fail "r3-s36-loans-text st08 for view elems push", "cannot change `t` while a re
     !t.add("!")
     print(s)
 
-fail "r3-s36-loans-text st09 optional view coalesce", "cannot change `t` while a read view of it is still in use"
+fail "r3-s36-views-text st09 optional view coalesce", "cannot change `t` while a read view of it is still in use"
   fun find(hay: ?String, b: U8) -> (?String)?
     for c, i in hay
       return hay[i..] if c == b
@@ -82,7 +82,7 @@ fail "r3-s36-loans-text st09 optional view coalesce", "cannot change `t` while a
   !t.add("c")
   print(rest)
 
-fail "r3-s36-loans-text st10 match temp view", "a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first"
+fail "r3-s36-views-text st10 match temp view", "a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first"
   fun mk() -> String
     String("temp")
 
@@ -111,7 +111,7 @@ test "r3-s36-n03 tail match drops", '''
   x = pick(0)
   print(x.n)
 
-fail "r3-s36-n06 box lend then reassign", "cannot reassign `b` while a read view of it is still in use"
+fail "r3-s36-n06 box view then reassign", "cannot reassign `b` while a read view of it is still in use"
   obj S
     n: Int
 
@@ -217,7 +217,7 @@ test "r3-s36-n23 wb param reassign write through", "4"
   set(!m, 4)
   print(m)
 
-test "r3-s36-n24 overlend counter", "5 2"
+test "r3-s36-n24 needless view counter", "5 2"
   fun find(xs: ?List[Int], n: !Int) -> ?Int
     n += 1
     ?xs[0]
@@ -964,7 +964,7 @@ test "r3-s36-reads-l15 handle text member", "3 true"
   h = *String("abc")
   print(h.len, ?h == "abc")
 
-test "r3-s36-reads-l16 owned closure lend", '''
+test "r3-s36-reads-l16 owned closure view", '''
   3
   3
 '''
@@ -1349,7 +1349,7 @@ test "r3-s36-reads-q13 coalesce bind", '''
   d = mko(0) ?? mk(3)
   print(d.n)
 
-test "r3-s36-reads-q14 lend temp arg", '''
+test "r3-s36-reads-q14 view temp arg", '''
   7
   drop 7
   after

@@ -1,7 +1,7 @@
 import LambdaRig.Syntax
 import LambdaRig.Machine
 import LambdaRig.Interp
-import LambdaRig.Loans
+import LambdaRig.Views
 import LambdaRig.Check
 import LambdaRig.Facts
 import LambdaRig.Steps
@@ -15,7 +15,7 @@ import LambdaRig.TasksSound
 import LambdaRig.Inline
 import LambdaRig.Crossing
 import LambdaRig.Mono
-import LambdaRig.TaskLoans
+import LambdaRig.TaskViews
 import LambdaRig.Temps
 import LambdaRig.Stores
 import LambdaRig.Fields

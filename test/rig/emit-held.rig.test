@@ -66,7 +66,7 @@ test "held through a break and a callee", "AABBBB 6"
   s = String()
   fill(!s)
 
-test "held lent to a task", seeds: 20, "3 6"
+test "held viewed by a task", seeds: 20, "3 6"
   # A task lent the String to write holds its header for the call; its
   # owner reads it once the task is done.
   sub fill(xs: !List[Int], n: Int)
@@ -81,7 +81,7 @@ test "held lent to a task", seeds: 20, "3 6"
   v: List[Int] = List()
   twice(!v, 3)
 
-test "held not when lent on as the result", "abc!! 5"
+test "held not when passed on as the result's view", "abc!! 5"
   # A function whose result is the write view it was lent hands back the
   # caller's String, not a header of its own.
   fun loud(s: !String) -> !String

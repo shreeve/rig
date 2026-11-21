@@ -59,7 +59,7 @@ test "supervise stops", seeds: 20, "Stop.timeout 1"
 fail "supervise options", "`task.supervise` takes the function to run, then `restarts:` and `per:`"
   _ = task.supervise(|| 1, retries: 3) catch 0
 
-fail "supervise lends nothing to write", "`task.supervise` drops what a panic in it half-changed"
+fail "supervise makes no write view", "`task.supervise` drops what a panic in it half-changed"
   n = 0
   _ = task.supervise(|!n| n) catch 0
 

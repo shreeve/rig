@@ -511,7 +511,7 @@ fail "header held temporary", "30:7: this header holds `mkh(?mkres(1))` for its 
   if mkh(?mkres(5)).o as c
     print("o", c.hits)
 
-fail "header lent made cell holder", "8:12: `Counter(hits: Cell(1))` makes a `Counter`, which holds a Cell, so it lives only behind a shared handle: write `*Counter(hits: Cell(1))`", errors: 1
+fail "header viewed made cell holder", "8:12: `Counter(hits: Cell(1))` makes a `Counter`, which holds a Cell, so it lives only behind a shared handle: write `*Counter(hits: Cell(1))`", errors: 1
   # A value that holds a Cell lives only behind a shared handle, so a
   # `for` header cannot make one by value to lend: the made value is
   # rejected where it is written.
@@ -1696,7 +1696,7 @@ fail "header temporary view bound", "20:5: this header binds a copy of its subje
     .a(t) => print(t)
     .z => pass
 
-fail "header view loans", "22:5: cannot change `v` while a read view of it is still in use", "27:5: cannot reassign `o` while a read view of it is still in use", "34:8: cannot drop `b` while a read view of it is still in use", "42:8: a view of the temporary `mkh()` outlives its statement", errors: 4
+fail "header views keep their places", "22:5: cannot change `v` while a read view of it is still in use", "27:5: cannot reassign `o` while a read view of it is still in use", "34:8: cannot drop `b` while a read view of it is still in use", "42:8: a view of the temporary `mkh()` outlives its statement", errors: 4
   # A header that reads a bare place keeps it lent while what it binds is
   # used, as `?p` does; a value it holds ends with the construct.
 
@@ -1744,7 +1744,7 @@ fail "header view loans", "22:5: cannot change `v` while a read view of it is st
 
   loops()
 
-test "header ternary bindings own and lend as if does", '''
+test "header ternary bindings own and view as if does", '''
   drop 4
   8
   7 7

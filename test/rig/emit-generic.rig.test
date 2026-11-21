@@ -1,6 +1,6 @@
 # emit: tests whose names start `generic`.
 
-test "generic bare variant lent", '''
+test "generic bare variant viewed", '''
   nothing
   nothing
   nothing
@@ -201,7 +201,7 @@ test "generic eq optional view", '''
   m: String? = String("b")
   print(held[String](<o, ?t), held[String](<m, ?t))
 
-test "generic local lent implicitly", '''
+test "generic local viewed implicitly", '''
   5 5
   6 6
   1 2

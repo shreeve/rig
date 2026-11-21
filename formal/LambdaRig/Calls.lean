@@ -65,7 +65,7 @@ theorem Leaves.Meets.within {lv : Leaves} {c d : Clauses} (hm : lv.Meets c) (hw 
 
 /-! ## Loans -/
 
-/-- A loan lent to a call, by its view: the view's mode, the owner's
+/-- A loan a call's view carries, by that view: the view's mode, the owner's
 place it sees, and the loan's tag. -/
 structure Loan where
   m : Mode
@@ -101,20 +101,20 @@ theorem records_created {api c : Clauses} {lv : Leaves} (hm : lv.Meets c) (hw : 
   ⟨Loan.at_mono h.1, Loan.at_mono h.2⟩
 
 /-- The machine's ways to touch a cell (LambdaRig/Machine.lean), by the
-access each is: the owner reads or lends to read; the owner writes,
-moves, drops, or lends to write; a write view writes through. -/
+access each is: the owner reads or makes a read view; the owner writes,
+moves, drops, or makes a write view; a write view writes through. -/
 inductive Touch : Access → Cell → Cell → Prop
   | read (c : Cell) : Touch .read c c.ownerRead
-  | lendRead (c : Cell) (t : Tag) : Touch .read c (c.lendRead t)
+  | readView (c : Cell) (t : Tag) : Touch .read c (c.readView t)
   | write (c : Cell) (v : Option Val) : Touch .write c (c.ownerWrite v)
-  | lendWrite (c : Cell) (t : Tag) : Touch .write c (c.lendWrite t)
+  | writeView (c : Cell) (t : Tag) : Touch .write c (c.writeView t)
   | through (c : Cell) (v : Val) : Touch .through c (c.viewWrite v)
 
 /-- A touch keeps every loan its access does not end. -/
 theorem Touch.keeps {k : Access} {c c' : Cell} (h : Touch k c c') {m : Mode} {t : Tag}
     (hk : k.ends m = false) (hl : c.live m t = true) : c'.live m t = true := by
   cases h <;> cases m <;>
-    simp_all [Access.ends, Cell.live, Cell.ownerRead, Cell.lendRead, Cell.viewWrite]
+    simp_all [Access.ends, Cell.live, Cell.ownerRead, Cell.readView, Cell.viewWrite]
 
 /-- An access to the place at `l` is allowed by a record of loans when
 it ends none of them: `allows`, over the loans of a call. -/
@@ -157,8 +157,8 @@ theorem After.live {rec : List Loan} {h h' : Loc → Option Cell} (hr : After re
     · exact ⟨c0, by simp [upd_other _ _ he, hc0], hlv⟩
 
 /-- **A call checked against wider clauses keeps every loan its
-implementation creates.** The caller lent the call the live loans
-`args` and checked it against the API's clauses `api`; the
+implementation creates.** The caller gave the call the views
+`args`, whose loans are live, and checked it against the API's clauses `api`; the
 implementation it runs meets clauses `c` within them and leaves `lv`
 behind. Whatever the caller then does that the API's `from` allows,
 every view the result holds is still live, and whatever it does that
@@ -274,13 +274,13 @@ def checkP (Γ : Ctx) (moved later : List Var) : Prog → Option (Ty × List Var
     guard ((Γ.lookup x).isNone && !moved.contains x)
     let (τe, moved) ← check Γ moved (rest.fv.filter (· ≠ x) ++ later) e
     let (τ, moved) ← checkP ((x, τe) :: Γ) moved later rest
-    guard (!τ.lentFrom x)
+    guard (!τ.isViewOf x)
     some (τ, moved.filter (· ≠ x))
   | .call r api _ args rest => do
     guard ((Γ.lookup r).isNone && !moved.contains r)
     let τc ← checkCall Γ moved api args
     let (τ, moved) ← checkP ((r, τc) :: Γ) moved later rest
-    guard (!τ.lentFrom r)
+    guard (!τ.isViewOf r)
     some (τ, moved.filter (· ≠ r))
 
 /-- `rig check` for a program with calls. -/
@@ -312,7 +312,7 @@ theorem check_later (e : Expr) : ∀ {Γ M L L'}, (∀ v, v ∈ L ↔ v ∈ L') 
     check Γ M L e = check Γ M L' e := by
   induction e with
   | lit => intros; rfl
-  | name x | move x | drop x | clone x | lend _ x =>
+  | name x | move x | drop x | clone x | view _ x =>
     intro Γ M L L' h; simp only [check, allows_later h]
   | box e ih | out e ih => intro Γ M L L' h; simp only [check, ih h]
   | assign x e ih =>
@@ -566,7 +566,7 @@ def pickB : Impl := { clauses := { src := [1], keeps := [] }, reads := [], ret :
 written while `r` lives. -/
 def writeAfterCall (f : Impl) : Prog :=
   .bind "a" (.lit 1) <| .bind "b" (.lit 2) <|
-  .bind "ra" (.lend .read "a") <| .bind "rb" (.lend .read "b") <|
+  .bind "ra" (.view .read "a") <| .bind "rb" (.view .read "b") <|
   .call "r" pick f ["ra", "rb"] <|
   .expr (.seq (.assign "b" (.lit 5)) (.out (.name "r")))
 
@@ -592,7 +592,7 @@ def pick2 : Clauses := { src := [0, 1], keeps := [] }
 
 def narrower : Prog :=
   .bind "a" (.lit 1) <|
-  .bind "ra" (.lend .read "a") <| .bind "rb" (.lend .read "a") <|
+  .bind "ra" (.view .read "a") <| .bind "rb" (.view .read "a") <|
   .call "r" pick2 pickB ["ra", "rb"] <|
   .expr (.out (.name "r"))
 

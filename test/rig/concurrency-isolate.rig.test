@@ -208,7 +208,7 @@ test "isolate leaves a handle it holds", seeds: 20, "-1 after"
   r = task.isolate(|+b| boom(+b, 9)) catch -1
   print(r, "after")
 
-test "isolate leaves a lent String it grew", seeds: 20, "-1 after"
+test "isolate leaves a viewed String it grew", seeds: 20, "-1 after"
   # A panic in a function lent a String to write, after the String grew
   # past several buffers, leaves the String's newest buffer, not leaked,
   # wherever the function kept its header when it panicked.

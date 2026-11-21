@@ -281,7 +281,7 @@ fail "array as slice is rejected", "20:6: type mismatch: expected `![]Int`, got 
   # A bare named array where a `![]T` is expected would be written unseen:
   # it is written `!a`. A temporary array kept in a field is lent nowhere.
   # (A bare array, or a temporary one, as a `[]T` argument is lent to
-  # read: test/behavior/types/implicit_argument_lends.rig.)
+  # read: test/behavior/types/implicit_argument_views.rig.)
 
   fun total(xs: []Int) -> Int
     xs.len
@@ -890,7 +890,7 @@ test "bytes page", '''
       total += Int(byte)
     print(body.len, total)
 
-test "bytes read lent string", "1684234849 25701 abcde"
+test "bytes read viewed string", "1684234849 25701 abcde"
   # `read` on a String lent to read, `(?s).read[T, e](at)`, reads its bytes,
   # and the String may change once the call is done.
 
@@ -3278,7 +3278,7 @@ fail "fallback not fresh", "15:16: `e` owns a `String`, which can't be copied by
   y = mko(0) ?? (e if c else g)
   print(y, f(none))
 
-fail "fallback variant literal lent hint", "18:6: make the fallback a view, so the result is one, and clone that for a `Val` of its own: `+(o ?? ?(Val.empty))`", "19:6: make the fallback a view, so the result is one, and clone that for a `Val` of its own: `+(o ?? ?(Val.table(m: List())))`"
+fail "fallback variant literal viewed hint", "18:6: make the fallback a view, so the result is one, and clone that for a `Val` of its own: `+(o ?? ?(Val.empty))`", "19:6: make the fallback a view, so the result is one, and clone that for a `Val` of its own: `+(o ?? ?(Val.table(m: List())))`"
   # A `??` whose fallback is a value copies out what its left side views;
   # the hint lends the fallback in a form that parses and types: a
   # variant literal names its enum, and a call through a type is
@@ -4676,7 +4676,7 @@ fail "if value without else", "5:5: `if` used as a value requires an `else` bran
 
   print(f(true))
 
-test "implicit argument lends", '''
+test "implicit argument views", '''
   1 1 3 3
   6 h z
   4 5 1 1
@@ -5364,13 +5364,13 @@ fail "labeled match at function end", "5:3: this labeled `match` (a label makes 
 
   print(f(0), g(1))
 
-test "lasting lend forms", '''
+test "lasting view forms", '''
   [1] [3] [1] 2 1 1 [3]
   1 [3] 2 1
   [2, 3] ello he!
 '''
   # A lend kept past its statement is written; one that ends with the
-  # statement lends implicitly (test/reject/types/lasting_lend_written.rig
+  # statement lends implicitly (test/reject/types/lasting_view_written.rig
   # rejects the unwritten kept forms).
 
   obj Bag
@@ -5411,9 +5411,9 @@ test "lasting lend forms", '''
   t = String("hello")
   print(w[1..3], t[1..], String(t[..2], "!"))
 
-test "lasting lend stored", "1 1 [7]"
+test "lasting view stored", "1 1 [7]"
   # A result stored by a callee keeps its argument lent, so the lend is
-  # written (test/reject/types/lasting_lend_stored.rig); one the call only
+  # written (test/reject/types/lasting_view_stored.rig); one the call only
   # reads lends implicitly.
 
   fun head(xs: []Int) -> []Int
@@ -5428,7 +5428,7 @@ test "lasting lend stored", "1 1 [7]"
   !xs.push(head(?v))
   print(count(head(v)), xs.len, xs[0])
 
-fail "lasting lend stored is rejected", "19:15: `head(v)` keeps a view of `v` in what `push` stores; write `head(?v)`", "21:16: `head(v)` keeps a view of `v` in what `push` stores; write `head(?v)`", "22:28: `head(v)` keeps a view of `v` in what `push` stores; write `head(?v)`", errors: 3
+fail "lasting view stored is rejected", "19:15: `head(v)` keeps a view of `v` in what `push` stores; write `head(?v)`", "21:16: `head(v)` keeps a view of `v` in what `push` stores; write `head(?v)`", "22:28: `head(v)` keeps a view of `v` in what `push` stores; write `head(?v)`", errors: 3
   # A lend kept beyond its statement is written, also when a callee stores
   # it: a result handed to a call that may store it keeps its argument
   # lent inside what the call stores into. A result the call only reads
@@ -5453,7 +5453,7 @@ fail "lasting lend stored is rejected", "19:15: `head(v)` keeps a view of `v` in
   !hs.push(Holder(seen: head(v)))
   print(count(head(v)), xs.len, hs.len)
 
-fail "lasting lend written", "26:8: `head(b.items[..])` keeps a view of `b.items[..]` in the value it returns; write `head(?b.items[..])`", "35:10: `head(v)` keeps a view of `v` while `r` lives; write `head(?v)`", "36:6: `b.all()` keeps a view of `b` while `xs` lives; write `?b.all()`", "37:23: `head(v)` keeps a view of `v` while `h` lives; write `head(?v)`", "38:15: `head(v)` keeps a view of `v` while `h.seen` lives; write `head(?v)`", "44:20: `head(v)` keeps a view of `v` while `nested` lives; write `head(?v)`", errors: 6
+fail "lasting view written", "26:8: `head(b.items[..])` keeps a view of `b.items[..]` in the value it returns; write `head(?b.items[..])`", "35:10: `head(v)` keeps a view of `v` while `r` lives; write `head(?v)`", "36:6: `b.all()` keeps a view of `b` while `xs` lives; write `?b.all()`", "37:23: `head(v)` keeps a view of `v` while `h` lives; write `head(?v)`", "38:15: `head(v)` keeps a view of `v` while `h.seen` lives; write `head(?v)`", "44:20: `head(v)` keeps a view of `v` while `nested` lives; write `head(?v)`", errors: 6
   # A lend kept in a binding is written (Core sentence 4). A call whose
   # result keeps an argument or its self lent, and whose result is
   # stored in a binding, a field, or a return, writes that lend: the loan
@@ -5513,7 +5513,7 @@ fail "len is a field", "5:6: no method `len` on type `[]Int`; `len` is a field: 
   a = [1, 2]
   print(v.len(), s.len(), a.len(), ?v.len(), count(?a[..]))
 
-fail "lent closure to generic view", "13:7: `use_it` cannot take a view of a closure for `T`: a closure is passed as a view", "14:5: `View` cannot take a view of a closure for `T`: a closure is passed as a view", "16:5: a call never changes what a closure captures, so a closure is passed as a read view: write `?f`"
+fail "viewed closure to generic view", "13:7: `use_it` cannot take a view of a closure for `T`: a closure is passed as a view", "14:5: `View` cannot take a view of a closure for `T`: a closure is passed as a view", "16:5: a call never changes what a closure captures, so a closure is passed as a read view: write `?f`"
   # A closure is lent only where a `?fun(...)` / `?sub(...)` is declared:
   # a `?T` of a generic function, field, or payload takes a read view of
   # a value, and a stack closure is not one. `!f` does not lend it.
@@ -6695,7 +6695,7 @@ test "owned closure in generic", '''
   t = String("ab")
   print(same(?t), apply(?up.f, String("hey")))
 
-fail "owned closure literal lent", "8:25: `*fun(Int) -> Int` is an owned closure; write `*|...| body` to make one"
+fail "owned closure literal viewed", "8:25: `*fun(Int) -> Int` is an owned closure; write `*|...| body` to make one"
   # A stack closure bound where an owned closure is expected is rejected,
   # and the passes after the checker still read its uses, such as lending
   # the binding as a callable view.

@@ -1,4 +1,4 @@
-# Probes from past reviews and audits, 13 of 41: r3-s36-containers-br_t01_vec_text to r3-s36-loans-t11_owned_closure_args.
+# Probes from past reviews and audits, 13 of 41: r3-s36-containers-br_t01_vec_text to r3-s36-views-t11_owned_closure_args.
 
 use std.math
 use std.os
@@ -70,7 +70,7 @@ test "r3-s36-containers-br x05 text field struct vec box", "x 1"
   for r in ?v
     print(r.name, r.n)
 
-test "r3-s36-containers-br x07 field text lend", '''
+test "r3-s36-containers-br x07 field text view", '''
   true el
   true
 '''
@@ -484,7 +484,7 @@ fail "r3-s36-docs-p10 star bare name", "`x` owns an `S`, which can't be copied i
   h = *x
   print(h.n)
 
-test "r3-s36-docs-p13 sort vec bare lend", "[1, 2]"
+test "r3-s36-docs-p13 sort vec bare view", "[1, 2]"
   # Core §4: `sort.sort(!v)` works for a List as for an array
 
   v: List[Int] = List()
@@ -500,7 +500,7 @@ test "r3-s36-docs-p15 plus vec", "[1]"
   w = +v
   print(w)
 
-test "r3-s36-docs-p17 handle lends view", '''
+test "r3-s36-docs-p17 handle gives a view", '''
   4 9
   16
 '''
@@ -552,7 +552,7 @@ test "r3-s36-docs-p20 print nullish owner", '''
   print(o ?? R(n: 9))
   print(o == none)
 
-test "r3-s36-docs-p21 bare read lend", "3"
+test "r3-s36-docs-p21 bare read view", "3"
   # Core sentence 1/4: a read lend may go unwritten
   obj Packet
     size: Int
@@ -815,14 +815,14 @@ test "r3-s36-kinds-k41 clone struct of handles", "1 2"
   q = Pair(a: +p.a, b: +p.b)
   print(q.a.n, q.b.n)
 
-fail "r3-s36-loans-a01 int read then write", "cannot reassign `n` while a read view of it is still in use"
+fail "r3-s36-views-a01 int read then write", "cannot reassign `n` while a read view of it is still in use"
   # Sentence 5 for numbers: a read loan excludes a write.
   n = 1
   r = ?n
   n += 1
   print(r)
 
-fail "r3-s36-loans-a03 int field read then write", "cannot assign to `p.x` while a read view of it is still in use"
+fail "r3-s36-views-a03 int field read then write", "cannot assign to `p.x` while a read view of it is still in use"
   obj P
     x: Int
 
@@ -831,7 +831,7 @@ fail "r3-s36-loans-a03 int field read then write", "cannot assign to `p.x` while
   p.x = 5
   print(r)
 
-fail "r3-s36-loans-a04 vec int elem view then push", "cannot change `v` while a read view of it is still in use"
+fail "r3-s36-views-a04 vec int elem view then push", "cannot change `v` while a read view of it is still in use"
   # A read view of a List[Int] element, then a push that may realloc.
   v: List[Int] = List()
   !v.push(1)
@@ -840,13 +840,13 @@ fail "r3-s36-loans-a04 vec int elem view then push", "cannot change `v` while a 
     !v.push(i)
   print(r)
 
-fail "r3-s36-loans-a05 int closure read then write", "cannot reassign `n` while a read view of it is still in use"
+fail "r3-s36-views-a05 int closure read then write", "cannot reassign `n` while a read view of it is still in use"
   n = 1
   f = |?n| n + 1
   n = 7
   print(f())
 
-fail "r3-s36-loans-a06 vec of views", "cannot reassign `n` while a read view of it is still in use"
+fail "r3-s36-views-a06 vec of views", "cannot reassign `n` while a read view of it is still in use"
   # A loan carried into a List element lasts while the List is used.
   n = 1
   v: List[?Int] = List()
@@ -854,14 +854,14 @@ fail "r3-s36-loans-a06 vec of views", "cannot reassign `n` while a read view of 
   n = 2
   print(v[0])
 
-fail "r3-s36-loans-a07 optional of view", "cannot reassign `n` while a read view of it is still in use"
+fail "r3-s36-views-a07 optional of view", "cannot reassign `n` while a read view of it is still in use"
   n = 1
   o: (?Int)? = ?n
   n = 2
   if o as r
     print(r)
 
-test "r3-s36-loans-a08 result of view", "1"
+test "r3-s36-views-a08 result of view", "1"
   fun id(a: ?Int) -> ?Int
     a
 
@@ -870,7 +870,7 @@ test "r3-s36-loans-a08 result of view", "1"
   n = 2
   print(r)
 
-fail "r3-s36-loans-a09 match binding of view", "cannot reassign `n` while a read view of it is still in use"
+fail "r3-s36-views-a09 match binding of view", "cannot reassign `n` while a read view of it is still in use"
   enum H
     has(r: ?Int)
     no
@@ -883,7 +883,7 @@ fail "r3-s36-loans-a09 match binding of view", "cannot reassign `n` while a read
       print(r)
     .no => print("no")
 
-fail "r3-s36-loans-a10 loop var of views", "cannot reassign `a` while a read view of it is still in use"
+fail "r3-s36-views-a10 loop var of views", "cannot reassign `a` while a read view of it is still in use"
   a = 1
   b = 2
   xs = [?a, ?b]
@@ -891,7 +891,7 @@ fail "r3-s36-loans-a10 loop var of views", "cannot reassign `a` while a read vie
     a = 5
     print(r)
 
-test "r3-s36-loans-a11 fallible result view", "1"
+test "r3-s36-views-a11 fallible result view", "1"
   error E
     bad
 
@@ -904,7 +904,7 @@ test "r3-s36-loans-a11 fallible result view", "1"
   n = 2
   print(r)
 
-fail "r3-s36-loans-a12 write loan number twice", "cannot change `n` while a write view of it is still in use"
+fail "r3-s36-views-a12 write view number twice", "cannot change `n` while a write view of it is still in use"
   n = 1
   w1 = !n
   w2 = !n
@@ -912,7 +912,7 @@ fail "r3-s36-loans-a12 write loan number twice", "cannot change `n` while a writ
   w2 += 1
   print(n)
 
-fail "r3-s36-loans-a13 fallible view result", "cannot drop `x` while a read view of it is still in use"
+fail "r3-s36-views-a13 fallible view result", "cannot drop `x` while a read view of it is still in use"
   error E
     bad
 
@@ -935,7 +935,7 @@ fail "r3-s36-loans-a13 fallible view result", "cannot drop `x` while a read view
   <x
   print(r.n, s.n)
 
-test "r3-s36-loans-c01 share struct with view", '''
+test "r3-s36-views-c01 share struct with view", '''
   1
   drop 1
 '''
@@ -953,7 +953,7 @@ test "r3-s36-loans-c01 share struct with view", '''
   h = *V(r: ?a)
   print(h.r.n)
 
-fail "r3-s36-loans-c02 share escapes scope", "`a` is dropped here, at the end of its scope, while a read view of it is still in use"
+fail "r3-s36-views-c02 share escapes scope", "`a` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj R
     n: Int
     drop(!@)
@@ -971,7 +971,7 @@ fail "r3-s36-loans-c02 share escapes scope", "`a` is dropped here, at the end of
   if h2 as h3
     print(h3.r.n)
 
-fail "r3-s36-loans-c06 owned closure captures view holder", "an owned closure cannot capture `vv`, which holds a view of `a`; capture an owned value, or use a stack closure (`|...|`)"
+fail "r3-s36-views-c06 owned closure captures view holder", "an owned closure cannot capture `vv`, which holds a view of `a`; capture an owned value, or use a stack closure (`|...|`)"
   obj R
     n: Int
 
@@ -983,13 +983,13 @@ fail "r3-s36-loans-c06 owned closure captures view holder", "an owned closure ca
   f = *|<vv| vv.r.n
   print(f())
 
-test "r3-s36-loans-c07 owned closure literal string", "hi rig"
+test "r3-s36-views-c07 owned closure literal string", "hi rig"
   # An owned closure capturing a literal String (static on main).
   name = "rig"
   f = *|+name| print("hi", name)
   f()
 
-fail "r3-s36-loans-c12 shared view weak upgrade", "`a` is dropped here, at the end of its scope, while a read view of it is still in use"
+fail "r3-s36-views-c12 shared view weak upgrade", "`a` is dropped here, at the end of its scope, while a read view of it is still in use"
   # A weak handle to a box holding a view, upgraded after the viewed
   # value's scope ended.
   obj R
@@ -1013,7 +1013,7 @@ fail "r3-s36-loans-c12 shared view weak upgrade", "`a` is dropped here, at the e
       print(s.r.n)
   print(hold.r.n)
 
-fail "r3-s36-loans-c13 shared view in vec", "`a` is dropped here, at the end of its scope, while a read view of it is still in use"
+fail "r3-s36-views-c13 shared view in vec", "`a` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj R
     n: Int
     drop(!@)
@@ -1028,7 +1028,7 @@ fail "r3-s36-loans-c13 shared view in vec", "`a` is dropped here, at the end of 
     !hs.push(*V(r: ?a))
   print(hs[0].r.n)
 
-fail "r3-s36-loans-c14 owned closure captures shared view", "an owned closure cannot capture `h`, which holds a view of `a`; capture an owned value, or use a stack closure (`|...|`)"
+fail "r3-s36-views-c14 owned closure captures shared view", "an owned closure cannot capture `h`, which holds a view of `a`; capture an owned value, or use a stack closure (`|...|`)"
   obj R
     n: Int
 
@@ -1040,7 +1040,7 @@ fail "r3-s36-loans-c14 owned closure captures shared view", "an owned closure ca
   f = *|+h| h.r.n
   print(f())
 
-fail "r3-s36-loans-c16 shared view through fn", "`a` is dropped here, at the end of its scope, while a read view of it is still in use"
+fail "r3-s36-views-c16 shared view through fn", "`a` is dropped here, at the end of its scope, while a read view of it is still in use"
   obj R
     n: Int
     drop(!@)
@@ -1062,7 +1062,7 @@ fail "r3-s36-loans-c16 shared view through fn", "`a` is dropped here, at the end
   if k as kk
     print(kk.h.r.n)
 
-fail "r3-s36-loans-f01 coalesce return keeps loan", "cannot drop `r` while a read view of it is still in use"
+fail "r3-s36-views-f01 coalesce return keeps view", "cannot drop `r` while a read view of it is still in use"
   # `?? return` leaves; the rest stays reachable and a loan taken
   # before it must stay in force after.
   obj R
@@ -1080,7 +1080,7 @@ fail "r3-s36-loans-f01 coalesce return keeps loan", "cannot drop `r` while a rea
 
   print(f(3))
 
-fail "r3-s36-loans-f02 labeled break stores inner view", "`inner` does not live long enough"
+fail "r3-s36-views-f02 labeled break stores inner view", "`inner` does not live long enough"
   # A labeled block's break leaves a scope; a view of a var declared
   # in it, stored into an outer var before the break, must be reported.
   obj R
@@ -1101,7 +1101,7 @@ fail "r3-s36-loans-f02 labeled break stores inner view", "`inner` does not live 
     _ => print("x")
   print(v.r.n)
 
-fail "r3-s36-loans-f03 continue stores body view", "`inner` does not live long enough"
+fail "r3-s36-views-f03 continue stores body view", "`inner` does not live long enough"
   # `continue` leaves the body scope: a view of a body local held by
   # an outer var is used on the next iteration.
   obj R
@@ -1122,7 +1122,7 @@ fail "r3-s36-loans-f03 continue stores body view", "`inner` does not live long e
     if i < 5
       continue
 
-fail "r3-s36-loans-f04 catch handler view", "`inner` is dropped here, at the end of its scope, while a read view of it is still in use"
+fail "r3-s36-views-f04 catch handler view", "`inner` is dropped here, at the end of its scope, while a read view of it is still in use"
   # A catch handler's local, viewed into an outer var.
   error E
     bad
@@ -1146,7 +1146,7 @@ fail "r3-s36-loans-f04 catch handler view", "`inner` is dropped here, at the end
     0
   print(v.r.n, k)
 
-fail "r3-s36-loans-f07 while as view escapes", "`r` is dropped here, at the end of its scope, while a read view of it is still in use"
+fail "r3-s36-views-f07 while as view escapes", "`r` is dropped here, at the end of its scope, while a read view of it is still in use"
   # `while … as` binding's view stored outward then the iteration ends.
   obj R
     n: Int
@@ -1170,7 +1170,7 @@ fail "r3-s36-loans-f07 while as view escapes", "`r` is dropped here, at the end 
     v = V(r: ?r)
   print(v.r.n)
 
-fail "r3-s36-loans-f08 defer stores later local", "`a` is dropped here, at the end of its scope, while a read view of it is still in use"
+fail "r3-s36-views-f08 defer stores later local", "`a` is dropped here, at the end of its scope, while a read view of it is still in use"
   # A defer that stores a view of a local declared after it.
   obj R
     n: Int
@@ -1188,7 +1188,7 @@ fail "r3-s36-loans-f08 defer stores later local", "`a` is dropped here, at the e
     print("in")
   print(v.r.n)
 
-test "r3-s36-loans-f12 and rhs move", '''
+test "r3-s36-views-f12 and rhs move", '''
   end
   drop 1
 '''
@@ -1210,7 +1210,7 @@ test "r3-s36-loans-f12 and rhs move", '''
     print("both")
   print("end")
 
-fail "r3-s36-loans-m01 match write copy payload", "cannot reassign `h` while a write view of it is still in use"
+fail "r3-s36-views-m01 match write copy payload", "cannot reassign `h` while a write view of it is still in use"
   # A `match !h` payload of plain data is a write view into `h`; `h`
   # may not be replaced while it is live.
   enum H
@@ -1225,14 +1225,14 @@ fail "r3-s36-loans-m01 match write copy payload", "cannot reassign `h` while a w
     .no => print("no")
   print(h)
 
-fail "r3-s36-loans-m02 if write as copy", "cannot reassign `o` while a write view of it is still in use"
+fail "r3-s36-views-m02 if write as copy", "cannot reassign `o` while a write view of it is still in use"
   o: Int? = 1
   if !o as v
     o = none
     v += 1
   print(o)
 
-test "r3-s36-loans-m03 match read string payload", "a"
+test "r3-s36-views-m03 match read string payload", "a"
   enum H
     has(s: ?String)
     no
@@ -1244,7 +1244,7 @@ test "r3-s36-loans-m03 match read string payload", "a"
       print(s)
     .no => print("no")
 
-test "r3-s36-loans-m04 match read int payload", "1"
+test "r3-s36-views-m04 match read int payload", "1"
   # Sentence 5 says a read loan excludes a write "for numbers too", but a
   # `match ?h` payload of plain data is a copy and holds no view.
   enum H
@@ -1258,7 +1258,7 @@ test "r3-s36-loans-m04 match read int payload", "1"
       print(n)
     .no => print("no")
 
-fail "r3-s36-loans-m05 for read int elem", "cannot assign to `xs[0]` while a read view of `xs` is still in use"
+fail "r3-s36-views-m05 for read int elem", "cannot assign to `xs[0]` while a read view of `xs` is still in use"
   # Loop element of a read loop over plain data: a copy; the source stays
   # lent to read for the loop.
   xs = [1, 2, 3]
@@ -1266,7 +1266,7 @@ fail "r3-s36-loans-m05 for read int elem", "cannot assign to `xs[0]` while a rea
     xs[0] = 9
     print(x)
 
-test "r3-s36-loans-o01 plain read through then grow", "7 7 65"
+test "r3-s36-views-o01 plain read through then grow", "7 7 65"
   # A read-through of plain data ends its loan at once; a later argument
   # may then grow the List. Does the call still read the old element?
   obj P
@@ -1294,7 +1294,7 @@ test "r3-s36-loans-o01 plain read through then grow", "7 7 65"
   !ps.push(P(a: 7, b: 7, c: 7, d: 7, e: 7, f: 7, g: 7, h: 7))
   show(at0(?ps), grow(!ps))
 
-test "r3-s36-loans-r01 overlend key", "b 2"
+test "r3-s36-views-r01 needless view key", "b 2"
   # Sentence 7 over-lends: the result views `key` too, though no
   # `?Entry` can come from a `?Key`. Editing the key while the entry is
   # in use is rejected.
@@ -1317,7 +1317,7 @@ test "r3-s36-loans-r01 overlend key", "b 2"
   k.id = 2
   print(e.name, k.id)
 
-test "r3-s36-loans-r02 overlend int param", "a 1"
+test "r3-s36-views-r02 needless view int param", "a 1"
   # The result views the `?Int` argument as well.
   obj Entry
     name: ?String
@@ -1334,7 +1334,7 @@ test "r3-s36-loans-r02 overlend int param", "a 1"
   i += 1
   print(e.name, i)
 
-test "r3-s36-loans-r03 overlend method arg", "a 1"
+test "r3-s36-views-r03 needless view method arg", "a 1"
   # A `?@` method whose result can only view self still views
   # every viewed argument.
   obj Entry
@@ -1355,7 +1355,7 @@ test "r3-s36-loans-r03 overlend method arg", "a 1"
   p.which = 1
   print(e.name, p.which)
 
-test "r3-s36-loans-r04 overlend write arg", '''
+test "r3-s36-views-r04 needless view write arg", '''
   1
   b
 '''
@@ -1377,14 +1377,14 @@ test "r3-s36-loans-r04 overlend write arg", '''
   print(n)
   print(e.name)
 
-test "r3-s36-loans-t04 closure captures module const", "hello"
+test "r3-s36-views-t04 closure captures module const", "hello"
   GREETING = "hello"
 
   sub main()
     f = *|| print(GREETING)
     f()
 
-test "r3-s36-loans-t11 owned closure args", "true"
+test "r3-s36-views-t11 owned closure args", "true"
   args = os.args()
   first = args[0]
   g = *|+first| print(first != "")

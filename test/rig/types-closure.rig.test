@@ -53,7 +53,7 @@ test "closure ends with else if", "two"
       print("two")
   f()
 
-fail "closure lending hints", "22:9: `|+f|` captures what `+x` gives (a copy, a new count of a handle, or a deep copy), but `f` is `?fun(Int) -> Int`; capture it with `|?f|`", "30:7: but `f` is a closure of type `fun(Int) -> Int`; capture it with `|?f|`", "33:5: `keep` cannot take a callable view for `T`", "34:5: `Cell` cannot take a callable view for `T`", "35:7: only a local can be captured; `double` is declared at module level", "36:11: a closure literal is not a function value `fun(Int) -> Int`; declare the parameter `?fun(Int) -> Int`", "36:27: a view of a closure goes to a parameter declared `?fun(Int) -> Int`", "39:14: `*sub()` is an owned closure; write `*|...| body` to make one"
+fail "closure view hints", "22:9: `|+f|` captures what `+x` gives (a copy, a new count of a handle, or a deep copy), but `f` is `?fun(Int) -> Int`; capture it with `|?f|`", "30:7: but `f` is a closure of type `fun(Int) -> Int`; capture it with `|?f|`", "33:5: `keep` cannot take a callable view for `T`", "34:5: `Cell` cannot take a callable view for `T`", "35:7: only a local can be captured; `double` is declared at module level", "36:11: a closure literal is not a function value `fun(Int) -> Int`; declare the parameter `?fun(Int) -> Int`", "36:27: a view of a closure goes to a parameter declared `?fun(Int) -> Int`", "39:14: `*sub()` is an owned closure; write `*|...| body` to make one"
   # Each mistake in lending a closure gets one diagnostic whose hint
   # compiles: a closure or a view is captured with `|?f|`, a closure
   # literal goes to a parameter declared `?fun(...)`, and no type argument
@@ -94,7 +94,7 @@ fail "closure lending hints", "22:9: `|+f|` captures what `+x` gives (a copy, a 
   x = 1
   !s.subscribe(|?x| print(x))
 
-fail "closure lending hints ownership", "9:9: cannot move-capture view parameter `f`; the caller still owns what it views. Capture the view with `|?f|`", "18:8: cannot move captured view `r`; the closure holds it for every call"
+fail "closure view hints ownership", "9:9: cannot move-capture view parameter `f`; the caller still owns what it views. Capture the view with `|?f|`", "18:8: cannot move captured view `r`; the closure holds it for every call"
   # A closure does not move a view out of its capture: a viewed
   # parameter is captured with `|?f|`, and a captured view stays with the
   # closure for every call.

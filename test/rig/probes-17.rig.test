@@ -274,7 +274,7 @@ test "review-arm-temps-2-m28 if block name moved", '''
   run(true)
   run(false)
 
-test "review-arm-temps-2-m29 target index temp lend after grow", "4 4"
+test "review-arm-temps-2-m29 target index temp view after grow", "4 4"
   # The target's index lends `v` (a temporary) after the value grows it: the
   # checker walks the target after the value, as emit evaluates it.
   fun grow(v: !List[Int]) -> Int

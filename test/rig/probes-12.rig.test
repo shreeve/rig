@@ -183,7 +183,7 @@ fail "r3-or-formal-hr store", "cannot store a view of `x` through captured `h`: 
     each(?arr, ?f)
   print(h.r.n)
 
-test "r3-or-formal-lend on2", '''
+test "r3-or-formal-view on2", '''
   7
   2 7
 '''
@@ -1115,7 +1115,7 @@ fail "r3-or-power-table get free", "cannot change `q` while a read view of it is
   !q.add("X")
   print(v, q)
 
-test "r3-or-red-c2 wcap call twice lent", '''
+test "r3-or-red-c2 wcap call twice viewed", '''
   1 2
   3 4
   4
@@ -1195,7 +1195,7 @@ fail "r3-or-red-f1 fun reassign", "cannot reassign closure binding `g`; closure 
   r = call(?g, ?x, ?y)
   print(r.n)
 
-fail "r3-or-red-f2 fun lent var", "cannot assign to `y.n` while a read view of `y` is still in use"
+fail "r3-or-red-f2 fun viewed var", "cannot assign to `y.n` while a read view of `y` is still in use"
   # Must stay rejected once `left` says `from a` and `right` says `from b`:
   # a `?fun` local re-pointed in a branch holds the join of both.
   obj Item
@@ -1256,7 +1256,7 @@ fail "r3-or-red-r10 main local holder", "cannot change `b` while a read view of 
   !v.push(1)
   print(f(!v))
 
-fail "r3-or-red-r11 param selfloan", "cannot store in `a.r` a view of `a.own`: a value never holds a view of itself"
+fail "r3-or-red-r11 param self view", "cannot store in `a.r` a view of `a.own`: a value never holds a view of itself"
   obj Holder
     r: []Int
     own: List[Int]
@@ -1272,7 +1272,7 @@ fail "r3-or-red-r11 param selfloan", "cannot store in `a.r` a view of `a.own`: a
     !h.own.push(i)
   print(h.r[0])
 
-fail "r3-or-red-r12 param selfloan in body", "cannot store in `a.r` a view of `a.own`: a value never holds a view of itself"
+fail "r3-or-red-r12 param self view in body", "cannot store in `a.r` a view of `a.own`: a value never holds a view of itself"
   obj Holder
     r: []Int
     own: List[Int]

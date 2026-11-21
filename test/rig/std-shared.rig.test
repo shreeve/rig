@@ -152,7 +152,7 @@ fail "shared map value that stays on one thread", "`shared.Map[String, *Node]` c
   m = shared.Map[String, *Node].new()
   print(m.len())
 
-fail "shared map value that holds a loan", "`shared.Map[String, ?String]` cannot use `V = ?String`: `?String` may hold a view"
+fail "shared map value that holds a view", "`shared.Map[String, ?String]` cannot use `V = ?String`: `?String` may hold a view"
   m = shared.Map[String, ?String].new()
   print(m.len())
 

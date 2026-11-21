@@ -424,7 +424,7 @@ test "keeps into write argument", "2 y"
   collect(!names, ?b)
   print(names.len, names[1])
 
-fail "keeps kept loan conflicts", "19:1: cannot change `t` while a read view of it is still in use", "18:10: a read view of `t` is made here, and `watch` keeps it in `b` (its signature says `keeps s`), so the view lasts while `b` is used", "23:1: cannot assign to `a.n` while a read view of `a` is still in use", "22:2: a read view of `a` is made here, and `register` keeps it in `out` (its signature says `keeps @`), so the view lasts while `out` is used", errors: 2
+fail "keeps kept view conflicts", "19:1: cannot change `t` while a read view of it is still in use", "18:10: a read view of `t` is made here, and `watch` keeps it in `b` (its signature says `keeps s`), so the view lasts while `b` is used", "23:1: cannot assign to `a.n` while a read view of `a` is still in use", "22:2: a read view of `a` is made here, and `register` keeps it in `out` (its signature says `keeps @`), so the view lasts while `out` is used", errors: 2
   # A kept lend lasts while its holder is used, and the note says which
   # call kept it, in what.
 
@@ -450,7 +450,7 @@ fail "keeps kept loan conflicts", "19:1: cannot change `t` while a read view of 
   a.n = 2
   print(b.src, out.len)
 
-test "keeps lent kinds", '''
+test "keeps viewed kinds", '''
   4
   [2, 3] ada bob
   ada
@@ -498,7 +498,7 @@ test "keeps lent kinds", '''
   put_first(!names[..], ?s)
   print(names[0])
 
-test "keeps local lend ends", "1"
+test "keeps local view ends", "1"
   # Rule: a lend to a parameter the callee does not keep ends when the call
   # returns, so `m` may be dropped while `p` lives.
   # From: proposal-call-stores §1 ("`note(!p, ?m)` ... keeps `m` lent while

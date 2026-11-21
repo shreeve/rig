@@ -98,7 +98,7 @@ test "review-step45-f09 slice swap", '''
   flip(!v)
   print(v)
 
-fail "review-step45-g01 repoint lend on uaf", "cannot reassign `w` while a read view of it is still in use"
+fail "review-step45-g01 repoint view passed on uaf", "cannot reassign `w` while a read view of it is still in use"
   # w = !m; r = ?w; w = !n (re-point) then replace m while r still views m
   m = String("mmmm")
   n = String("nnnn")
@@ -253,7 +253,7 @@ test "review-step45-i02 clone struct with view", "own viewed"
   <s
   print(c.own, c.see)
 
-fail "review-step45-i03 clone vec views loans", "cannot drop `t` while a read view of it is still in use"
+fail "review-step45-i03 clone vec of views", "cannot drop `t` while a read view of it is still in use"
   # +v of a List of views must carry the views' loans
   t = String("viewed")
   v: List[?String] = List()
@@ -769,7 +769,7 @@ test "review-step45-m08 while as elem", '''
     i += 1
   print(v)
 
-fail "review-step45-m09 take while other elem lent", "cannot change `v` while a read view of it is still in use"
+fail "review-step45-m09 take while other elem viewed", "cannot change `v` while a read view of it is still in use"
   # <v[1] while ?v[0] is live (take writes v)
   v: List[String?] = List()
   !v.push(String("a"))

@@ -1069,7 +1069,7 @@ test "audit-ownership-n07 if as then return store"
     return
   print("after", vw.b.v.len)
 
-fail "audit-ownership-o07 closure lent with write", "cannot use `v` while a write view of it is still in use"
+fail "audit-ownership-o07 closure viewed with write", "cannot use `v` while a write view of it is still in use"
   sub run(v: !List[Int], f: ?fun() -> Int)
     !v.push(f())
 
@@ -1088,7 +1088,7 @@ fail "audit-ownership-o09 two returned wb", "cannot change `v` while a write vie
   !a.push(1)
   !b.push(2)
 
-test "audit-ownership-o12 lend on local wb then use", "[3, 4]"
+test "audit-ownership-o12 view passed on local wb then use", "[3, 4]"
   sub add(v: !List[Int])
     !v.push(3)
 

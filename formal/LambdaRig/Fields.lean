@@ -92,7 +92,7 @@ def A.dropAbove : A → Path → Bool
 
 /-- What a program does with the local. -/
 inductive Op where
-  /-- `p.f`, `?p.f`, `!p.f`, or `p` itself: reads or lends the path. -/
+  /-- `p.f`, `?p.f`, `!p.f`, or `p` itself: reads the path or makes a view of it. -/
   | use (p : Path)
   /-- `<p.f`, or `<p`: moves the path out to a new owner. -/
   | take (p : Path)

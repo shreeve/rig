@@ -1834,7 +1834,7 @@ test "review-b4b-2-p80 generic guarded catchall writeparam", '''
   print(big(9))
   print(q)
 
-fail "review-box-bug as temp loan", "cannot reassign `h` while a read view of it is still in use"
+fail "review-box-bug as temp view", "cannot reassign `h` while a read view of it is still in use"
   obj R
     n: Int
 

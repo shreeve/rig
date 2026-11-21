@@ -593,7 +593,7 @@ fail "drop self without parens", "6:8: a drop body takes self in parentheses: `d
     drop !@
       print(@fd)
 
-fail "drop statement lend", "11:1: this expression does nothing as a statement: `<?a` moves a view nowhere, and a view owns nothing to drop", "12:1: this expression does nothing as a statement: `<!a` moves a view nowhere, and a view owns nothing to drop", errors: 2
+fail "drop statement view", "11:1: this expression does nothing as a statement: `<?a` moves a view nowhere, and a view owns nothing to drop", "12:1: this expression does nothing as a statement: `<!a` moves a view nowhere, and a view owns nothing to drop", errors: 2
   # A statement `<?a` or `<!a` moves a view nowhere. A view owns nothing,
   # so the statement does nothing, and is rejected; `<a` drops `a`.
 
@@ -1063,7 +1063,7 @@ fail "for iterator source", "29:10: a `for` advances an iterator named by a name
   for n, i in c
     print(n, i)
 
-test "for lent made iterator", '''
+test "for viewed made iterator", '''
   4
   5
   40

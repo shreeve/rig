@@ -2525,7 +2525,7 @@ fail "optwrite-p01-closure-capture", "cannot let this call store a view of `d` i
   set(!h)
   print(h.s)
 
-fail "optwrite-p02-local-lend-on", "cannot store a view of `d` through `y`: `w` outlives it"
+fail "optwrite-p02-local-view-passed-on", "cannot store a view of `d` through `y`: `w` outlives it"
   obj H
     s: ?String
 
