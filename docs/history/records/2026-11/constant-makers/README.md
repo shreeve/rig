@@ -130,3 +130,13 @@ through `tools/heavy`:
   removed it.
 - Trig and loc light gates were not run here: they run once the
   branch is rebased onto main, after the error-traces change lands.
+
+Again after rebasing onto main 517e8d282 (error traces): `zig build`,
+`zig build test`, and every area above plus `errors-trace` green, with
+a case showing a constant call is never a site of a failure's trace
+(its unwrap has no `try`); the core suite, 12,488 jobs, none failed;
+`tools/emit-diff origin/main`, only `makerPanic`'s 8 runtime lines; the
+check guard, branch first, four rounds each at a load of 7.2 to 8.4:
+2,178,778,517 instructions for the branch and 2,178,250,872 for main,
+level (0.02%). The migration script, run again, finds no new literal
+call outside the records and the design's own before-and-after table.
