@@ -9538,11 +9538,25 @@ pub const Emitter = struct {
                 .send => "rig.sendArm(",
                 else => "rig.endArm(",
             });
+            const handle_ty = self.typeOf(handle) orelse return self.unsupported(handle, "an untyped channel");
+            // A view of the channel itself (`!Chan[T]`) holds the address
+            // of the value in its handle's allocation, the only place a
+            // `Chan[T]` stands: the arm reaches that allocation, as one
+            // through the handle does.
+            const of_chan = kind != .end and self.facts.types.get(self.facts.unwrapViews(handle_ty)) != .shared;
+            if (of_chan) {
+                try self.w.writeAll("@as(*rig.Shared(");
+                try self.emitTypeTy(self.facts.unwrapViews(handle_ty));
+                try self.w.writeAll("), @alignCast(@fieldParentPtr(\"value\", ");
+            }
             // A channel or task its select evaluated in the arm's turn is
             // read where it was held (`hoistSelf`).
             if (self.hoistedOf(handle)) |h| {
                 try self.w.print("{s}{s}", .{ h.name, if (self.facts.storageOf(handle, .self).?.by == .pointer) ".*" else "" });
-            } else try self.emitMemberBase(handle, self.typeOf(handle) orelse return self.unsupported(handle, "an untyped channel"));
+            } else if (of_chan) {
+                try self.emitExpr(ir.Member.object(callee));
+            } else try self.emitMemberBase(handle, handle_ty);
+            if (of_chan) try self.w.writeAll(")))");
             // A task's end: the task alone, read where it is held.
             if (kind == .end) return self.w.writeAll(")");
             try self.w.writeAll(", ");

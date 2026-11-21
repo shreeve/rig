@@ -9473,7 +9473,8 @@ cannot change `xs` while a write view of it is still in use
 ```
 
 **`*Chan[T]`, a select's arms.** Two arms may name one channel; an arm
-through a read view is rejected.
+through a write view, of the handle or of the channel, leaves the handle
+read-only, and one through a read view is rejected.
 
 ```rig
 use std.task
@@ -15181,12 +15182,37 @@ a `match` on the value runs the winner's body:
   and takes nothing.
 
 A receive or send arm changes its channel, so its `!` needs a handle
-the task holds, as `!ch.recv()` does, and leaves the handle's place
-read-only until the select returns: two arms may name one channel, and a
-write to that place before the select returns (`grow(!chs)` in an arm)
-is rejected. A read view of one changes nothing, however it is reached (a `?*Chan` parameter, a field of a
-`?W`, an element of a `[]*Chan`, a read binding, a closure's `|?h|`).
-What a send arm sends goes into the channel as `send`'s value does.
+the task holds or a write view, as `!ch.recv()` does, and leaves the
+handle's place read-only until the select returns: two arms may name one
+channel, and a write to that place before the select returns
+(`grow(!chs)` in an arm) is rejected. A write view of the channel
+itself, a `!Chan[T]`, is an arm as the handle is, so a function that
+selects takes one, and a task of it leaves its caller's channel
+read-only, not unusable, until the task is waited for. A read view of
+one changes nothing, however it is reached (a `?*Chan` parameter, a
+`?Chan` one, a field of a `?W`, an element of a `[]*Chan`, a read
+binding, a closure's `|?h|`). What a send arm sends goes into the
+channel as `send`'s value does.
+
+```rig
+use std.task
+
+fun take(ch: !Chan[Int]) -> Int!
+  match task.select(got: !ch.on_recv())!
+    .got(v?) => v
+    .got(none) => -1
+
+sub main()!
+  c = *Chan[Int](2)
+  t = take(!c)&
+  !c.send(5)!
+  !c.send(6)!
+  print(>t!, !c.recv()! ?? -1)
+```
+
+```output
+5 6
+```
 
 ```rig reject
 use std.task

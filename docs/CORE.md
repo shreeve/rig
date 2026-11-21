@@ -1260,7 +1260,7 @@ stays put and keeps the cell alive. Each call is one step; two calls
 are two steps, and another task may act between them. So
 `!c.add((!c).swap(4))` is accepted, and so is a view `r = ?c` kept
 across `!c.set(5)`, whether `c` is a `*Cell[Int]`, a `!*Cell[Int]`, or a
-`!Cell[Int]`. What a write view leaves its place is judged by the
+`!Cell[Int]`; a select's arm takes a `!Chan[T]` as it takes the handle. What a write view leaves its place is judged by the
 concrete type of the value it sees, not by the view it becomes: `!h` of
 a `*Hits` passed where a `!{A}` goes leaves `h` read-only. A value whose
 type is an API object `{A}` or a type parameter is no cell, so two

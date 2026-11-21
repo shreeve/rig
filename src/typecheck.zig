@@ -16497,8 +16497,9 @@ const Checker = struct {
 
     /// The handle of a receive or send arm, `ch` of `!ch.on_recv()`, whose
     /// `!` is checked as a marked method's self is (`synthView`): the arm
-    /// changes its channel, so it needs a handle the task holds, and a
-    /// read view of one, however it is reached, is rejected there. The
+    /// changes its channel, so it needs a handle the task holds or a
+    /// write view (`!*Chan[T]`, or `!Chan[T]` of the channel itself), and
+    /// a read view, however it is reached, is rejected there. The
     /// handle's type, or poison once that is reported. What is no
     /// channel gives its type alone, with no view's diagnostic, so the
     /// caller says it is no channel.
