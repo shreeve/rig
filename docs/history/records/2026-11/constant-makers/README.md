@@ -18,7 +18,7 @@ e38454865.
 | `!` and `catch` on such a call: the error of any call that cannot fail, saying why this one cannot | `src/typecheck.zig` (`synthPropagate`'s and `synthCatch`'s non-fallible errors) |
 | The fact, `const_makers`, and its reader | `src/sema.zig` (`Facts`, `recordConstMaker`, `isConstMaker`), `src/facts.zig` |
 | Emit: the call in a block that gives it a slot for a failure's fields, its `T!` unwrapped by a `catch` that panics as a bug in Rig (`rig.makerPanic`), never Zig's `unreachable` | `src/emit.zig` (`emitCall`, `emitConstMaker`), `src/runtime.zig` |
-| Tests | `test/rig/std-datetime-makers.rig.test`: the plain type, by position, by name and with defaults; each kind of constant; each kind of run-time argument; the refusals and their messages; `!` and `catch`; the emitted Zig; every boundary of each maker made or refused by a constant call, and std's own `new` given the same values at run time; a binding named `e` beside the call; a task of the call |
+| Tests | `test/rig/std-datetime-makers.rig.test`: the plain type, by position, by name and with defaults; each kind of constant; each kind of run-time argument; the refusals and their messages; `!` and `catch`; the emitted Zig; every boundary of each maker made or refused by a constant call, and std's own `new` given the same values at run time; a binding named `e` beside the call; a task of the call; a failure's trace, of which a constant call is never a site |
 | The migration | `tools/migrate-constant-makers.py` |
 | Docs | SPEC §13 (the rule, an example, a rejection), `docs/STD.md` std.datetime (the makers' signatures and the rule), the comments of `Date.new` and `Time.new`, CHANGELOG (Added), HANDOFF, AGENTS' map |
 

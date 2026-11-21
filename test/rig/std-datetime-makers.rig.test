@@ -157,3 +157,17 @@ test "a task of a constant maker's call holds what it declares", "2026-01-31"
   # The rule is the call's: a task of it waits for a `Date!`.
   t = datetime.Date.new(2026, 1, 31)&
   print(>t!)
+
+test "a constant maker's call is never a site of a failure's trace", exit: 1, file: "sites.rig", stderr: "error: DateTimeError.range\n  std/datetime/date.rig:18:7 in Date.new\n  sites.rig:5:7 in make\n  sites.rig:11:7 in main", release: true, '''
+  2026-01-31 2026-03-01
+'''
+  # The constant call before the failing one passes on no failure.
+  fun make(m: Int) -> datetime.Date!
+    base = datetime.Date.new(2026, 1, 31)
+    d = datetime.Date.new(2026, m, 1)!
+    print(base, d)
+    d
+
+  sub main()!
+    _ = make(3)!
+    _ = make(13)!
