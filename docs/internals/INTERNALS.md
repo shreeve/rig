@@ -5527,7 +5527,11 @@ leaves out. Nothing is added to the code that runs:
   takes the failure (`keepFailure`), outside any handling of it, which
   would drop them; `dropResult` frees them. `wait_first` keeps its last
   failure's, `task.isolate` its run's, and `par.map`, `par.each` and
-  `par.workers` the first failure's, kept where it is caught.
+  `par.workers` the first failure's, kept where it is caught. In a
+  split build a call into the unit that owns a cut function goes
+  through its exported thunk, whose frame starts a trace of its own: it
+  keeps a failure's sites in a thread-local (`rt.acrossTrace`), which
+  `split.call` adds to the caller's trace.
 
 ### Symbols
 
