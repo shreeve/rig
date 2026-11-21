@@ -14,7 +14,7 @@ stay `rig pending` in STD.
 
 | Part | Where |
 |---|---|
-| `Instant`: `from_unix`, `parse`, `unix`, `unix_s`, `add`, `checked_add`, `since`, `round`, `floor`, `Eq`, `Ord`, `Hash`, `print`; `now()` | `std/datetime/instant.rig` |
+| `Instant`: `from_unix` (which does not fail: the owner's decision of 2026-11-21), `parse`, `unix`, `unix_s`, `add`, `checked_add`, `since`, `round`, `floor`, `Eq`, `Ord`, `Hash`, `print`; `now()` | `std/datetime/instant.rig` |
 | The wall clock, read as `time.unix_ns()` read it: `std.Io.Timestamp.now(io, .real)` | `std/datetime.zig` (`wall_ns`), `std/embed.zig` |
 | RFC 3339's offset and RFC 9557's annotations, by Jiff's grammar | `std/datetime/text.rig` (`offset_text`, `annotations_text`, `zone_annotation`, `key_annotation`) |
 | `time.unix_ns()` removed, with its fix in the hint table; the fix for `time.now()` names `datetime.now()` | `std/time.rig`, `std/time.zig`, `src/sema.zig` (`stdRenamed`) |
@@ -44,19 +44,19 @@ phase 1's and 2's mechanisms, given one more type.
    real under the deterministic scheduler, which virtualizes only the
    monotonic clock. An `i64` of nanoseconds holds 1677 to 2262, inside
    the range, so `now()`'s panic beyond the range cannot be reached.
-3. **The errors**: `from_unix` and `checked_add` fail with
-   `DateTimeError.range`; `parse` fails with `DateTimeError.invalid` for
+3. **The errors**: `checked_add` fails with `DateTimeError.range`;
+   `parse` fails with `DateTimeError.invalid` for
    any text it refuses, an instant past the range among them, as phase 2
    decided for `parse` (its decision 1).
-4. **The message for `days:` on an instant** names both fixes, the
-   pending one first: "an `Instant` has no calendar, so `add` takes no
-   `days:`: a day on the clock is a zone's, `i.in_zone(tz).add(days:
-   1)`; or write `hours: 24`, exactly 24 hours a day", keeping every
-   amount written (`i.in_zone(tz).checked_add(weeks: 1, hours: 2)`; or
-   `hours: 170`). `in_zone` is phase 5, so STD shows it as `rig pending`;
-   the second fix compiles today. It is phase 1's calendar refusal with
-   the callee known (`ParamInfo.zoneless`), so `Instant.from_unix(days:
-   1)` keeps phase 1's message, `hours: 24`.
+4. **The message for `days:` on an instant** says why and names the
+   one fix that compiles: "an `Instant` has no calendar, so `add` takes
+   no `days:`: a day on the clock is a zone's; write `hours: 24`, exactly
+   24 hours a day", keeping every amount written (`hours: 170` for
+   `weeks: 1, hours: 2`). The fix in a zone, `i.in_zone(tz).add(days:
+   1)`, is phase 5's to add to the message, with its test; STD shows it
+   as `rig pending`. It is phase 1's calendar refusal with the callee
+   known (`ParamInfo.zoneless`), so `Instant.from_unix(days: 1)` keeps
+   phase 1's message.
 5. **`add` and `checked_add` are not checked methods**: their only check
    is of a keyword, which only a direct call writes, so an `Instant`'s
    `add` stays usable as a function value, as `Monotonic.add` and
@@ -67,9 +67,16 @@ phase 1's and 2's mechanisms, given one more type.
    its unit. A constant that breaks it is "an increment of `round` on an
    `Instant` divides a day, so `minutes:` takes a number that divides
    1,440, and `7` does not"; another panics, "datetime.Instant.round: the
-   increment 7 does not divide 1440, the minutes in a day". Two units
-   given are offered as one increment only when the sum divides a day
-   (`round(seconds: 450)` for `minutes: 7, seconds: 30`).
+   increment 7 does not divide 1,440, the minutes in a day", the count
+   grouped as the compile error groups it (from a table of the six
+   counts, so the panic allocates nothing). Two units given are offered
+   as their sum only when it divides a day (`round(seconds: 450)` for
+   `minutes: 7, seconds: 30`); else as the first unit, with its
+   increment when the check takes it and otherwise the largest below it
+   that it takes (`round(minutes: 6)` for `minutes: 7, seconds: 1`). The
+   review found phase 2's `Time` and `DateTime` offering the refused
+   increment too (`round(minutes: 7)`); `oneIncrement` now offers only
+   what `incrementAllowed` takes, for all three, each with a case.
 7. **Panics** name the operation and its value: "datetime.Instant.add:
    9999-12-30T22:00:00.999999999Z plus 1ns is beyond the range of
    instants, -009999-01-02T01:59:59Z to 9999-12-30T22:00:00.999999999Z";
@@ -82,14 +89,16 @@ phase 1's and 2's mechanisms, given one more type.
    annotation that is not a zone) fail. The oracle compares every one of
    §8.1's spellings.
 9. **The test of `now()`** compares its progress with the monotonic
-   clock's across a sleep (within half a second), and under seeds checks
-   it reads after 2026-11-01, where a virtual clock would read 1970.
-   Neither prints the time.
+   clock's across a sleep (within half a second), trying again up to
+   five times so a clock set meanwhile does not fail it, and under seeds
+   checks it reads between 2026-11-01 and 2262, where a virtual clock
+   would read 1970, needing no forward move. Neither prints the time.
 10. **The migration** writes `datetime.now().unix().ns()`, adds `use
     std.datetime` in the order of the `use std.` lines beside `use
     std.time` (the file's, the test case's or else the test file's
-    header, or the Markdown block's), drops a `use std.time` that no code
-    names any more, and leaves `time.unix_ns` as a function value for a
+    header, or the Markdown block's), or uses the file's own name for it
+    (`dt.now()` beside `use std.datetime as dt`), drops a `use std.time`,
+    under any name, that no code names any more, and leaves `time.unix_ns` as a function value for a
     person (MANUAL). It runs phase 1's rewrites only where a phase 1
     form is named: phase 1's `.ns()` after a reading is not idempotent,
     and a file migrated for phase 1 that still read `time.unix_ns()`
@@ -104,18 +113,30 @@ phase 1's and 2's mechanisms, given one more type.
 
 ## The design against the code
 
-**`from_unix` cannot fail.** §7.8 gives `Instant.from_unix(<duration
-form>)!`, failing outside the range, and §7.2 says `from_unix(x)!` with a
-`Float` from a user "fails outside the range and panics when not
-finite". Since the amendment of 2026-11-20 a `Duration` is one `Int` of
-nanoseconds, the years 1677 to 2262, inside the range of instants, so
-`from_unix` never fails, and a `Float` beyond ±292 years panics at the
-duration form (as every duration form does, §5.2) rather than failing.
-It is built as the design gives it, `-> Instant!`; whether it should
-drop the `!`, and whether an instant outside 1677 to 2262 needs a maker
-from Unix seconds (the inverse of `unix_s()`; today only `parse` and
-`add` reach one), is for the designer. Nothing else in the code made the
-design wrong or impossible.
+**`from_unix` could not fail.** §7.8 gave `Instant.from_unix(<duration
+form>)!`, failing outside the range, and §7.2 said `from_unix(x)!` with a
+`Float` from a user fails outside the range. Since the amendment of
+2026-11-20 a `Duration` is one `Int` of nanoseconds, the years 1677 to
+2262, inside the range of instants, so `from_unix` could never fail. The
+owner decided (2026-11-21, through the coordinator) to drop the `!`:
+`from_unix` returns an `Instant`, and a number beyond a `Duration`
+panics where the call makes the duration, as any duration form does;
+§7.2, §7.8, and §2's table say so. That panic said "a duration is not a
+finite number of nanoseconds a Duration holds" for a finite `Float` out
+of range; it now says "a duration is more nanoseconds than a Duration
+holds", as an `Int` out of range does, and keeps the first for a NaN or
+an infinity (`src/runtime.zig`, `durationFloat`; cases in
+`std-time-forms` and `std-datetime-instant`). A maker from whole Unix
+seconds, the inverse of `unix_s()` for instants outside 1677 to 2262,
+waits on the owner. Nothing else in the code made the design wrong or
+impossible.
+
+**A deviation from Jiff found by the review:** Jiff 1.0.0 reads
+`-009999-01-02T01:59:58.999999999Z`, a nanosecond below its own minimum
+(its doc test at `timestamp.rs:461` refuses the same value from parts).
+Rig refuses it, as §7.1's range says ("parse refuses", and the ports of
+`new_err` and `invalid_time`). The oracle never writes it: its minimum
+has no fraction.
 
 ## Ported from Jiff
 
@@ -204,5 +225,12 @@ On the Mac, through `tools/heavy`:
   checks with no error but the stubs' missing members.
 - The whole core suite once (`tools/heavy --class correctness swarm
   test/rig.rip -w 4 -q`): 12,423 jobs in 623 s, none died.
+- After the review's fixes (from_unix with no `!`, each refusal's fix
+  one the checker takes, the migration's alias, the wall-clock tests):
+  swarm on the same set, 1,865 jobs, none died (the oracle's 891,707
+  answers the same, none different); `tools/emit-diff origin/main`, the
+  same 12 benches by the removed `unix_ns`, and `rig/runtime.zig` in 36
+  programs by the panic message of a `Float` past a `Duration`; the
+  whole core suite, 12,426 jobs in 905 s, none died.
 - A plain `tools/heavy zig build` last. The coordinator runs the review,
   the guards, the Trig and loco light gates, and the Linux checks.
