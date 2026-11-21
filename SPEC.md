@@ -15011,6 +15011,33 @@ makes another, for a holder of its own; a read view `?a` views one; and
 `~a` is weak. The actor lives until its last handle goes, and then its
 value drops, once.
 
+An actor is reached only through its handle. Its value has no methods
+of its own, so it stands only behind `*` or `~`: `Actor[T]`,
+`?Actor[T]`, and `!Actor[T]` are written nowhere, not as a parameter,
+a result, a local, a field, an element, or a type argument, and the
+value is viewed as no API object. A view of an actor is a view of its
+handle, `?*Actor[T]` or `!*Actor[T]`, which is what `?a` and `!a`
+make, and what a generic `?T` given `?a` stands for.
+
+```rig reject
+obj Counter
+  n: Int
+
+  fun get(?@) -> Int
+    @n
+
+fun look(c: ?Actor[Counter]) -> Int
+  c.get()
+
+sub main()
+  c = *Actor(Counter(n: 1))
+  print(look(?c))
+```
+
+```error
+an actor is reached only through its handle, so a view of one views the handle: write `?*Actor[Counter]`
+```
+
 A method called through a handle is a message: the actor runs its
 methods one at a time, each to its end, and the call waits for the
 answer.

@@ -3315,6 +3315,12 @@ pub const TypeResolver = struct {
             try self.ctx.errAt(node, sema.frozen_misplaced, .{try sema.formatType(self.ctx, ty)});
             return true;
         }
+        // An actor's value lives only behind `*` or `~`, whose methods are
+        // messages (a view of one is reported with its sigil, `resolveType`).
+        if (sema.actorMisplaced(self.ctx, ty, home)) {
+            try self.ctx.errAt(node, sema.actor_misplaced, .{try sema.formatType(self.ctx, ty)});
+            return true;
+        }
         switch (home) {
             .field, .handle, .viewed, .type_arg => {},
             .signature, .binding, .element, .optional => try self.checkWhenResolved(.{ .cell_home = .{ .node = node, .ty = ty, .home = home } }),
@@ -4054,6 +4060,11 @@ pub const TypeResolver = struct {
                             .weak => .handle,
                             else => .element,
                         };
+                        // `?Actor[T]`: a view of an actor views its handle.
+                        if (home == .viewed and sema.actorMisplaced(self.ctx, inner, home)) {
+                            try self.ctx.errAt(sexp, sema.actor_viewed, .{ if (head == .read_view) "?" else "!", try sema.formatType(self.ctx, inner) });
+                            return t.invalid_id;
+                        }
                         if (try self.misplacedAt(inner_node, inner, home)) return t.invalid_id;
                         // Nothing makes a write view of a read view's place
                         // (`sema.writesView`).

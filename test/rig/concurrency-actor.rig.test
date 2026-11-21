@@ -452,6 +452,115 @@ fail "actor fields", "an actor's fields are its own: reach `n` through a method 
   c = *Actor(C(n: 0))
   print(c.n)
 
+fail "actor views", "11:13: an actor is reached only through its handle, so a view of one views the handle: write `?*Actor[C]`", "13:13: an actor is reached only through its handle, so a view of one views the handle: write `!*Actor[C]`", "16:16: an actor is reached only through its handle, so a view of one views the handle: write `?*Actor[C]`", "16:30: an actor is reached only through its handle, so a view of one views the handle: write `?*Actor[C]`", "20:6: an actor is reached only through its handle, so a view of one views the handle: write `?*Actor[C]`", "22:17: an actor is reached only through its handle, so a view of one views the handle: write `?*Actor[C]`", "26:4: an actor is reached only through its handle, so a view of one views the handle: write `!*Actor[C]`", "27:10: an actor is reached only through its handle, so a view of one views the handle: write `?*Actor[C]`", "28:5: an actor is reached only through its handle, so a view of one views the handle: write `?*Actor[C]`", errors: 9
+  # An actor is reached only through its handle, whose methods are
+  # messages: its value has no methods, so no view of it is written, in
+  # a parameter, a result, a field, an element, a type argument, a
+  # binding, or a function's type.
+  obj C
+    n: Int
+
+    fun get(?@) -> Int
+      @n
+
+  sub look(a: ?Actor[C])
+    print(1)
+  sub poke(a: !Actor[C])
+    print(2)
+
+  fun pick(xs: []?Actor[C]) -> ?Actor[C]
+    xs[0]
+
+  obj Holder
+    a: ?Actor[C]
+
+  sub each(f: fun(?Actor[C]) -> Int)
+    print(3)
+
+  x = *Actor(C(n: 0))
+  w: !Actor[C] = !x
+  v = List[?Actor[C]]()
+  o: (?Actor[C])? = none
+  print(x.get())
+
+fail "actor value as a type", "9:13: an actor is reached only through its handle: write `*Actor[C]`", "13:6: an actor is reached only through its handle: write `*Actor[C]`", "15:5: an actor is reached only through its handle: write `*Actor[C]`", "16:4: an actor is reached only through its handle: write `*Actor[C]`", errors: 4
+  # Its value stands nowhere else: `Actor(x)` stands only as the
+  # operand of `*`.
+  obj C
+    n: Int
+
+    fun get(?@) -> Int
+      @n
+
+  sub take(a: Actor[C])
+    print(1)
+
+  obj Holder
+    a: Actor[C]
+
+  v = List[Actor[C]]()
+  o: Actor[C]? = none
+  print(v.len)
+
+fail "actor viewed as an API object", "14:12: an actor is reached only through its handle, whose methods are messages, so `x` is no `?{G}`"
+  api G
+    fun one(?@) -> Int
+      1
+
+  obj C
+    n: Int
+
+  add Actor[T]: G
+
+  fun look(g: ?{G}) -> Int
+    g.one()
+
+  x = *Actor(C(n: 0))
+  print(look(?x))
+
+test "actor views of its handle", seeds: 20, '''
+  1 1
+  3
+  6 6
+  1 9 6
+'''
+  # A view of an actor views its handle, `?*Actor[T]` or `!*Actor[T]`,
+  # written or made by `?a` and `!a`, and a generic `?T` stands for one.
+  # A call takes no view: `!a.add(1)` and `a.get()` work through the
+  # handle, and a call made with `&` gives the actor a count. `swap`
+  # exchanges two handles.
+  obj C
+    n: Int
+
+    fun add(!@, k: Int) -> Int
+      @n += k
+      @n
+
+    fun get(?@) -> Int
+      @n
+
+  sub poke(a: !*Actor[C])
+    _ = !a.add(1)
+
+  fun look(a: ?*Actor[C]) -> Int
+    a.get()
+
+  fun peek[T](v: ?T) -> Int
+    1
+
+  a = *Actor(C(n: 0))
+  poke(!a)
+  r = ?a
+  print(look(?a), r.get())
+  print((!a).add((!a).add(1)) - 1)
+  w = !a
+  _ = !w.add(1)
+  t = !a.add(1)&
+  print(>t, a.get())
+  b = *Actor(C(n: 9))
+  swap(!a, !b)
+  print(peek(?a), a.get(), b.get())
+
 fail "actor view result", "`first` gives a `?Int`, which may view the actor's state; a method called through a handle gives a value"
   obj C
     items: List[Int]

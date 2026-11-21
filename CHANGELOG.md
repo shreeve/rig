@@ -56,6 +56,24 @@ program ever held one; the fix is the handle, `*Signal[Int]`, or a view
 of the Signal, `?Signal[Int]` or `!Signal[Int]`. Trig, loco, std,
 examples, and bench hold no `Signal` by value; no migration is needed.
 
+**An actor is reached only through its handle** (accepted by 0.3.0).
+A view of an actor's value, `?Actor[T]` or `!Actor[T]`, is rejected
+wherever a type is written: a parameter (`sub poke(a: !Actor[C])`), a
+result, a local's type (`w: !Actor[C] = !a`), a field, an element, a
+type argument (`List[?Actor[C]]()`), or a function type. So is a field
+of the value itself, `a: Actor[C]`, and a view of the value as an API
+object (`look(?a)` where `look` takes a `?{G}` and `add Actor[T]: G`
+is written). Such a view had no methods: `!w.add(1)` and `w.get()`
+were rejected with "no method `add` on type `Actor`". The message is
+"an actor is reached only through its handle, so a view of one views
+the handle: write `?*Actor[C]`" (or `!*Actor[C]`); a value of
+`Actor[C]` elsewhere now gets "an actor is reached only through its
+handle: write `*Actor[C]`" in place of the Cell's message. The fix is
+the handle's view, `?*Actor[C]` or `!*Actor[C]`, or the handle,
+`*Actor[C]`; `?a`, `!a`, `!a.add(x)`, and `a.get()` are unchanged.
+Trig, loco, std, examples, and bench hold no view of an actor's value;
+no migration is needed.
+
 **`swap` exchanges no Cell, and `!s` of a `*{A}` lends only the
 handle** (both accepted by 0.3.0). `swap(!a, !b)` of two `Cell`s, a
 `Cell` reached through a `!Cell[T]`, a `*Cell[T]` that may not be

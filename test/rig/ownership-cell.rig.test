@@ -909,20 +909,11 @@ fail "cell move out of a Cell field", "exchange its value with the Cell's own sw
   h = *H(n: Cell(1))
   print(f(!h))
 
-fail "cell swap of a channel or an actor", "a `Chan[Int]` changes only by its sends and receives", "an `Actor[Counter]` changes only by its own methods", errors: 2
-  # `swap` names what each kind that changes by a marked call is.
-
-  obj Counter
-    n: Int
-
-    fun add(!@, k: Int) -> Int
-      @n += k
-      @n
+fail "cell swap of a channel", "a `Chan[Int]` changes only by its sends and receives", errors: 1
+  # `swap` names what each kind that changes by a marked call is. An
+  # actor has no view of its value to exchange: its handles exchange.
 
   sub chans(a: !Chan[Int], b: !Chan[Int])
-    swap(!a, !b)
-
-  sub actors(a: !Actor[Counter], b: !Actor[Counter])
     swap(!a, !b)
 
 test "cell write views of an API object and a Signal", "2 7"
