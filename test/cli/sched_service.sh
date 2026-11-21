@@ -16,14 +16,14 @@ obj Node
   v: Int
 
 fun nap(n: ?*Node, ms: Int) -> Int!
-  t = time.now()
+  t = time.monotonic()
   time.sleep(ms: ms)!
-  t.elapsed() / 1000000
+  t.elapsed().ns() / 1000000
 
 fun napfree(ms: Int) -> Int!
-  t = time.now()
+  t = time.monotonic()
   time.sleep(ms: ms)!
-  t.elapsed() / 1000000
+  t.elapsed().ns() / 1000000
 
 fun one() -> Int
   1
@@ -40,13 +40,13 @@ sub main()
   time.sleep(ms: 20) catch print("x")
   n = *Node(v: 1)
   t = nap(?n, 10)&
-  s = time.now()
+  s = time.monotonic()
   x = spin(150000000)
-  print("local", s.elapsed() / 1000000, >t catch -1, x)
+  print("local", s.elapsed().ns() / 1000000, >t catch -1, x)
   u = napfree(10)&
-  s2 = time.now()
+  s2 = time.monotonic()
   y = spin(150000000)
-  print("free", s2.elapsed() / 1000000, >u catch -1, y)
+  print("free", s2.elapsed().ns() / 1000000, >u catch -1, y)
 EOF
 
 cat >sockets.rig <<'EOF'
@@ -70,12 +70,12 @@ fun driver(c: net.Stream) -> Int!
   new s = <c
   worst = 0
   for 0..3
-    t = time.now()
+    t = time.monotonic()
     (!s).write("ping")!
     got = String()
     while got.len < 4
       _ = (!s).read(!got, 100)!
-    us = t.elapsed() / 1000
+    us = t.elapsed().ns() / 1000
     if us > worst
       worst = us
   worst
@@ -92,9 +92,9 @@ sub main()!
   e = echo(<l)&
   c = net.connect(String("127.0.0.1:", port))!
   d = driver(<c)&
-  s = time.now()
+  s = time.monotonic()
   x = spin(150000000)
-  spun = s.elapsed() / 1000
+  spun = s.elapsed().ns() / 1000
   print("sockets", spun, >d!, x)
   _ = >e!
 EOF

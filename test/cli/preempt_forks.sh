@@ -55,7 +55,7 @@ sub main()
   task.workers(1)
   m = 1 << 20
   ok = 1
-  t = time.now()
+  t = time.monotonic()
   for round in 0..8
     ys: List[Int] = List(capacity: m)
     for i in 0..m
@@ -63,7 +63,7 @@ sub main()
     zs = qsort(<ys)
     for i in 1..zs.len
       ok = 0 if zs[i - 1] > zs[i]
-  print(ok, t.elapsed() / 1_000_000)
+  print(ok, t.elapsed().ns() / 1_000_000)
 RIG
 
 out=$(RIG_PREEMPT_SLICE_US=1000000 RIG_SCHED_STATS=1 "$TIMEOUT_CMD" 120 "$RIG" run --release qsort.rig 2>err-qsort.txt) || fail "qsort.rig (timeout 120 s): $out $(cat err-qsort.txt)"
@@ -118,17 +118,17 @@ sub main()
   c = *Cell(0)
   d = *Cell(0)
   spins = 0
-  t0 = time.now()
+  t0 = time.monotonic()
   t = setter(+c)&
   while c.get() == 0
     spins += 1
-  fork_ms = t0.elapsed() / 1_000_000
+  fork_ms = t0.elapsed().ns() / 1_000_000
   ts = Tasks[Int]()
-  t1 = time.now()
+  t1 = time.monotonic()
   !ts.add(setter(+d)&)
   while d.get() == 0
     spins += 1
-  held_ms = t1.elapsed() / 1_000_000
+  held_ms = t1.elapsed().ns() / 1_000_000
   xs = >ts
   print(>t + xs.len + spins % 1, fork_ms, held_ms)
 RIG

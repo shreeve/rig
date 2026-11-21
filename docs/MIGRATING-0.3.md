@@ -863,12 +863,68 @@ Instant's `add` of a value with no constant in it, `t.add(n)`, it does
 not find: write `t.add(ns: n)` by hand.
 
 The compiler rejects the forms that would change meaning silently: a
-bare duration that names one of std.time's constants, which count
-nanoseconds (`time.sleep(5 * time.MS)`, rejected for `ms: 5`), and
-`per: time.MINUTE`. What a clock gives back is still an `Int` of
-nanoseconds, so `t.elapsed() < 5 * time.MS` stays as it was, and a
-duration taken from one is passed on with `ns:`, `t.add(ns:
-t.since(u))`.
+bare duration that names one of std.time's constants, which counted
+nanoseconds, and `per:` given one.
+
+### `time.Duration` and `time.Monotonic`
+
+0.3.1 gives lengths of time a type: what a clock gives back is a
+`time.Duration`, one `Int` of nanoseconds that prints as `1ms 234us`,
+and a reading of the monotonic clock is a `time.Monotonic`.
+`time.now()`, `time.Instant`, and the constants `NS`, `US`, `MS`,
+`SECOND`, and `MINUTE` are gone, each rejected with its fix, and a
+duration takes `seconds:`, `minutes:`, and `hours:` too ([SPEC
+"Durations"](../SPEC.md#durations)):
+
+```rig
+use std.time
+
+sub main()!
+  start = time.monotonic()
+  time.sleep(ms: 2)!
+  took = start.elapsed()
+  print(took >= time.duration(ms: 2), took.ns() > 0, time.duration(minutes: 90))
+```
+
+```output
+true true 1h 30m
+```
+
+`tools/migrate-datetime.py` rewrites a program so that it means what
+it meant and prints what it printed. On a 0.3.0 program, run
+`tools/migrate-durations.py` first.
+
+```sh
+python3 tools/migrate-datetime.py --dry-run src/   # what would change
+python3 tools/migrate-datetime.py src/             # rewrite in place
+```
+
+| Before | 0.3.1 |
+|---|---|
+| `time.now()` | `time.monotonic()` |
+| `time.Instant`, `time.Instant.at(x)` | `time.Monotonic`, `time.Monotonic.at(x)` |
+| `t.elapsed() < 250 * time.MS`, a reading compared with a constant | `t.elapsed() < time.duration(ms: 250)` |
+| `print(t.elapsed())`, `took = t.since(u)`, `time.since_start()`, any other reading | `.ns()` after it: `print(t.elapsed().ns())`, the `Int` it was |
+| `t.add(ns: u.since(v))`, `time.sleep(ns: 5 * time.MS)` | `t.add(u.since(v))`, `time.sleep(ms: 5)` |
+| `TIMEOUT = 30 * time.SECOND`, any other constant | `TIMEOUT = 30 * 1_000_000_000`, its nanoseconds |
+
+It rewrites `.rig` and `.rig.test` files that use std.time and the
+```` ```rig ```` blocks of Markdown, and prints each rewrite. It prints
+`CHECK` for an `.elapsed()` or `.since(` it took for a clock's, and for
+a constant it kept as a number: a duration a program keeps is better
+written as its seconds, `TIMEOUT_S = 30`, passed bare. It prints
+`MANUAL` for `time.since_start` taken as a function value, which gives
+a `Duration` now, and for `time.sleep` or `time.within` taken as one,
+which takes a `Duration`.
+
+The compiler rejects, each with its fix: `time.now()`, `time.Instant`
+and the constants; `days:` or `weeks:` where a duration is taken
+(`hours: 24`); a negative constant given to `sleep`, `within`, `after`,
+or `per:` (`time.sleep(ns: -1)`, which slept not at all); a number
+given through a function value, `s = time.sleep` then `s(1)!`, which
+takes a `Duration` now, `s(time.duration(ns: 1))!`; and a parameter
+named `ns`, `us`, `ms`, `seconds`, `minutes`, or `hours` in a function
+that takes a `Duration`.
 
 ### `loop` for `while true`, and no loop `else`
 

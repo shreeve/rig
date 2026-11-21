@@ -12,6 +12,44 @@ release's notes, its summary, are in [docs/releases/](docs/releases/).
 
 ### Upgrading from v0.3.0
 
+**A length of time is a `time.Duration`, and a reading of the
+monotonic clock a `time.Monotonic`** ([design/datetime.md](docs/design/datetime.md), phase 1). What a
+clock gives back, `t.elapsed()`, `t.since(u)` and `time.since_start()`,
+is a `Duration`, one `Int` of nanoseconds that prints as `1ms 234us`,
+where 0.3.0 gave an `Int` of nanoseconds. `tools/migrate-datetime.py
+PATH` rewrites a program so that it means what it meant and prints what
+it printed ([docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md), "`time.Duration`
+and `time.Monotonic`"); on a 0.3.0 program run
+`tools/migrate-durations.py` first. These are rejected now, each with
+its fix in the message:
+
+- `time.now()`: "for timing, `time.monotonic()` reads the monotonic
+  clock, and `start.elapsed()` gives a `time.Duration`; for the date and
+  time, `time.unix_ns()` reads the wall clock";
+- `time.Instant`, for `time.Monotonic` (`Monotonic.at(d)`, `m.add(d)`,
+  `m.since(u)`, `m.elapsed()` as before, each giving a `Duration`);
+- the constants `time.NS`, `US`, `MS`, `SECOND`, and `MINUTE`, for
+  `time.duration(ms: 1)`, or a unit where a duration is taken;
+- a reading used as an `Int`: `t.elapsed() < 5 * time.MS` is
+  `t.elapsed() < time.duration(ms: 5)`, and `print(t.elapsed())` that
+  meant nanoseconds is `print(t.elapsed().ns())`;
+- `days:` or `weeks:` where a duration is taken, since a day is not
+  always 24 hours: "write `hours: 24`, exactly 24 hours a day";
+- a negative constant given to `time.sleep`, `time.within`,
+  `time.after`, or `per:`, which 0.3.0 waited as zero:
+  `time.sleep(ns: -1)` is "a wait of `-1` is negative";
+- a parameter named `ns`, `us`, `ms`, `seconds`, `minutes`, or `hours`
+  in a function that takes a `Duration`;
+- `time.Duration.round` or `floor` taken as a value;
+- a number given to `time.sleep` or `time.within` through a function
+  value, `s = time.sleep` then `s(1)!`, which slept a nanosecond: a
+  function value takes a `Duration`, `s(time.duration(ns: 1))!`.
+
+Trig times its checker's bench with `time.now()` on two lines of
+`tools/checker/bench.rig`, which the patch in
+`docs/history/records/2026-11/datetime-phase1/trig.patch` rewrites;
+loco uses none of these.
+
 **`loop` is a keyword, and the one loop that gives a value**:
 `loop` repeats its block until a `break` leaves it, and
 `r = loop` ... `break v` gives `v`. `tools/migrate-loops.py PATH`
@@ -358,6 +396,7 @@ serve no HTTP.
 
 ### Added
 
+- **`time.Duration`** ([design/datetime.md](docs/design/datetime.md) §5): an exact, signed length of time, one `Int` of nanoseconds. Any parameter typed `Duration`, or `Duration?`, in any module takes the duration forms: a bare number of seconds, one unit's keyword from `ns:` to `hours:` (`seconds:`, `minutes:`, and `hours:` are new), or a `Duration`. Its totals (`hours()` to `ns()`, `float_seconds()`), `subsec_ns()` and `Duration.from_parts(s, ns)`; `add`, `sub`, `times`, `div`, `neg`, `abs`, which panic past the range, and `checked_add`, `checked_sub`, `checked_times`, which fail with `time.TimeError.range`; `round` and `floor` to one unit's increment, checked where they are called; `print`'s friendly form, `2h 30m`, `iso()`, `PT2H30M`, and `Duration.parse(s)!`, which reads ISO 8601 and Jiff's friendly grammar; `time.duration(form)`. `time.Monotonic`, `time.monotonic()`, and `time.since_start()` give and take `Duration`s, and `sleep`, `within`, `time.after`, and `per:` take one in any form.
 - **A write view of a channel is an arm of `task.select`.** `!ch.on_recv()` and `!ch.on_send(<v)` take a `!Chan[T]` as they take the handle, with the same meaning: the arm waits on the channel the view reaches and leaves the handle's place read-only until the select returns. So a function that selects takes `ch: !Chan[T]`, and a task of it leaves the caller's channel read-only, not unusable: its own sends and receives, other views, and other handles go on, while reassigning or dropping it is refused until the task is waited for. It was refused with "`ch` is a `!Chan[Int]`, not a channel", which left `!*Chan[T]`, a write view of the handle itself, as the only way. A read view, `?Chan[T]`, is still no arm (SPEC "Channels").
 - **`hint.opaque(x)`** of std.hint gives back `x` through an empty `asm volatile` the optimizer cannot see into, as Rust's `std::hint::black_box` does, so the code after it is compiled for any value of its type rather than specialized for the one written. bench/tasks hides `leaf`'s value, `spin`'s count, and `churn`'s rounds with it where its Rust program uses `black_box`: there `spin(10000)` had been inlined, its count folded, and its loop unrolled ten times, 7% more cycles than Rust's on pup's P-cores (docs/history/records, produce panel).
 - **`!xs.extend(?ys[a..b])`** appends to a `List[T]` a copy of each element of a slice, an array, or a List, growing once and copying them with one `@memcpy`, where a loop of `push` tested the room for each. `T` copies and holds no view, as for `List(a)`: an owning `T` is rejected with the loop that clones each element, `for y in ys` with `!xs.push(+y)`, and a `T` that holds a view with `!xs.push(y)`; a generic body's `T` is checked in each instance. A source that views the List, `!xs.extend(?xs[..2])`, is rejected by the ownership checker (SPEC "List").

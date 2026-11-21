@@ -51,7 +51,7 @@ fun yielder(n: Int) -> Int!
   n
 
 called sub spawn()
-  t = time.now()
+  t = time.monotonic()
   sum = 0
   for 0..WAVES
     ts = Tasks[Int]()
@@ -60,18 +60,18 @@ called sub spawn()
     xs = >ts
     for x in xs
       sum += x
-  print("spawn", t.elapsed(), sum)
+  print("spawn", t.elapsed().ns(), sum)
 
 called sub chain()
-  t = time.now()
+  t = time.monotonic()
   sum = 0
   for i in 0..CHAIN
     u = leaf(i)&
     sum += >u
-  print("chain", t.elapsed(), sum)
+  print("chain", t.elapsed().ns(), sum)
 
 called sub fanout()
-  t = time.now()
+  t = time.monotonic()
   ts = Tasks[Int]()
   for i in 0..FAN_TASKS
     !ts.add(spin(FAN_WORK + i)&)
@@ -79,10 +79,10 @@ called sub fanout()
   sum = 0
   for x in xs
     sum += x
-  print("fanout", t.elapsed(), sum)
+  print("fanout", t.elapsed().ns(), sum)
 
 called sub yields()
-  t = time.now()
+  t = time.monotonic()
   ts = Tasks[Int!]()
   for 0..YIELD_TASKS
     !ts.add(yielder(YIELDS)&)
@@ -90,14 +90,14 @@ called sub yields()
   sum = 0
   for x in xs
     sum += x
-  print("yield", t.elapsed(), sum)
+  print("yield", t.elapsed().ns(), sum)
 
 called sub hog()
   hogs = Tasks[Int]()
   for i in 0..HOG_TASKS
     !hogs.add(spin(HOG_WORK + i)&)
   slices = Tasks[Int]()
-  t = time.now()
+  t = time.monotonic()
   sum = 0
   for i in 0..HOG_CHAIN
     !slices.add(spin(HOG_SLICE + i)&)
@@ -105,7 +105,7 @@ called sub hog()
     b = leaf(i)&
     sum += >a
     sum += >b
-  ns = t.elapsed()
+  ns = t.elapsed().ns()
   xs = >hogs
   for x in xs
     sum += x
@@ -118,13 +118,13 @@ called sub hog()
 # that starts a parse for each file it finds does: its own finish time,
 # which idle workers taking what it makes leave at its own work's.
 called sub produce()
-  t = time.now()
+  t = time.monotonic()
   ts = Tasks[Int]()
   mine = 0
   for i in 0..PRODUCE
     !ts.add(spin(PRODUCE_WORK + i)&)
     mine = (mine + spin(PRODUCE_WORK)) % 1000003
-  ns = t.elapsed()
+  ns = t.elapsed().ns()
   xs = >ts
   sum = mine
   for x in xs
@@ -136,7 +136,7 @@ fun nap(ms: Int) -> Int!
   1
 
 called sub many(ms: Int)
-  t = time.now()
+  t = time.monotonic()
   ts = Tasks[Int!]()
   for 0..MANY
     !ts.add(nap(ms)&)
@@ -144,12 +144,12 @@ called sub many(ms: Int)
   sum = 0
   for x in xs
     sum += x
-  print("many", t.elapsed(), sum)
+  print("many", t.elapsed().ns(), sum)
 
 called sub idle(ms: Int)
-  t = time.now()
+  t = time.monotonic()
   n = nap(ms) catch 0
-  print("idle", t.elapsed(), n)
+  print("idle", t.elapsed().ns(), n)
 
 # The scaling benchmarks (bench/tasks/bench-scale), each run alone as
 # `tasks scale NAME W`, with W 1 for the work and 0 for none (the
@@ -223,7 +223,7 @@ fun by_tasks(kind: Int, w: Int) -> Int
   total_of(?xs)
 
 called sub scale(name: ?String, w: Int)
-  t = time.now()
+  t = time.monotonic()
   check = 0
   if name == "tree"
     check = tree(0, CHUNKS, w)
@@ -239,7 +239,7 @@ called sub scale(name: ?String, w: Int)
     check = by_tasks(1, w)
   else
     check = by_tasks(2, w)
-  print(name, t.elapsed(), check)
+  print(name, t.elapsed().ns(), check)
 
 sub main()
   args = os.args()

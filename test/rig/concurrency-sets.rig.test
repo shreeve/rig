@@ -56,9 +56,9 @@ test "sets first error", seeds: 20, release: true, '''
     xs = >ts!
     xs.len
 
-  start = time.now()
+  start = time.monotonic()
   run() catch |e| print(e)
-  print(start.elapsed() < 5 * time.SECOND)
+  print(start.elapsed() < time.duration(5))
 
 test "sets deadline", seeds: 20, '''
   slow stops
@@ -446,7 +446,7 @@ fail "sets wait first infallible", "`wait_first` takes the first task to succeed
   !ts.add(sq(2)&)
   print(<ts.wait_first())
 
-fail "sets wait first args", "`wait_first` takes nothing; to give it a deadline, call it in `time.within`: `time.within(2 * time.SECOND, |<ts| <ts.wait_first()!)`", errors: 1
+fail "sets wait first args", "`wait_first` takes nothing; to give it a deadline, call it in `time.within`: `time.within(2, |<ts| <ts.wait_first()!)`", errors: 1
   fun sq(x: Int) -> Int!
     x * x
 

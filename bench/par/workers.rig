@@ -152,7 +152,7 @@ sub main()
   for _ in 0..REPS
     for form in 0..3
       work: List[Int] = List()
-      t = time.now()
+      t = time.monotonic()
       out = List[Int]()
       if form == 0
         out = run_fixed(?weights, !work)
@@ -160,7 +160,7 @@ sub main()
         out = run_chan(?weights, ?order, !work)
       else
         out = run_workers(?weights, ?order, !work)
-      ns = t.elapsed()
+      ns = t.elapsed().ns()
       best[form] = ns if best[form] == 0 or ns < best[form]
       checks[form] = sum(?out)
       works[form] = <work

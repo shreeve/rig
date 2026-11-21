@@ -220,14 +220,14 @@ test "net small writes go at once", "true"
   port = l.port()
   t = serve(<l, 20)&
   c = net.connect(String("127.0.0.1:", port))!
-  start = time.now()
+  start = time.monotonic()
   for 0..20
     (!c).write("x")!
     (!c).write("y")!
     got = String()
     while got.len < 2
       _ = (!c).read(!got, 16)!
-  ms = start.elapsed() / 1000000
+  ms = start.elapsed().ms()
   _ = >t!
   print(ms < 300)
 

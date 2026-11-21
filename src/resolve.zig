@@ -2261,7 +2261,7 @@ pub const TypeResolver = struct {
                 .self_mode = self_mode,
                 .param_names = try self.paramNames(params),
                 .param_defaults = try self.paramDefaults(params),
-                .param_durations = self.paramDurations(params),
+                .param_durations = try self.paramDurations(fn_ty, params),
                 .is_default = of == .api and ir.get(m, .body) != .nil,
             });
         }
@@ -2517,7 +2517,7 @@ pub const TypeResolver = struct {
                 self.ctx.symbols.items[fid].ty = fn_ty;
                 self.ctx.symbols.items[fid].param_names = try self.paramNames(params);
                 self.ctx.symbols.items[fid].param_defaults = try self.paramDefaults(params);
-                self.ctx.symbols.items[fid].param_durations = self.paramDurations(params);
+                self.ctx.symbols.items[fid].param_durations = try self.paramDurations(fn_ty, params);
             }
         }
         return fn_ty;
@@ -2584,14 +2584,27 @@ pub const TypeResolver = struct {
         return if (any) out else null;
     }
 
-    /// The parameters that take a duration (`sema.duration`): those
-    /// std.time declares `ns: Duration`, its `Int` of nanoseconds.
-    fn paramDurations(self: *TypeResolver, params: Sexp) sema.ParamMask {
-        if (params == .nil or !self.ctx.is_std or !std.mem.eql(u8, self.ctx.name, "std.time")) return 0;
+    /// The parameters that take a duration form (`sema.duration`):
+    /// those typed std.time's `Duration` or `Duration?`, in any module. A
+    /// call writes a unit's keyword where one goes, so none of such a
+    /// function's parameters is named for a unit.
+    fn paramDurations(self: *TypeResolver, fn_ty: TypeId, params: Sexp) Error!sema.ParamMask {
+        if (params == .nil) return 0;
+        const f = switch (self.ctx.types.get(fn_ty)) {
+            .function => |f| f,
+            else => return 0,
+        };
         var mask: sema.ParamMask = 0;
-        for (params.items(), 0..) |p, i| {
-            if (!p.isKind(.@":") or i >= @bitSizeOf(sema.ParamMask)) continue;
-            if (std.mem.eql(u8, identAt(self.ctx.source, ir.get(p, .type)) orelse "", "Duration")) mask |= sema.paramBit(i);
+        for (f.params, 0..) |p, i| {
+            if (i >= @bitSizeOf(sema.ParamMask)) break;
+            if (sema.durationParam(self.ctx, p) != null) mask |= sema.paramBit(i);
+        }
+        if (mask == 0) return 0;
+        for (params.items()) |p| {
+            const name = sema.paramNameNode(p) orelse continue;
+            const text = identAt(self.ctx.source, name) orelse continue;
+            if (sema.duration.unitNs(text) == null) continue;
+            try self.ctx.err(name.src.pos, "a function that takes a `Duration` names no parameter `{s}`: a call writes a duration with a unit's keyword, `ms: 40`, so rename it", .{text});
         }
         return mask;
     }
@@ -2879,7 +2892,7 @@ pub const TypeResolver = struct {
         const id = self.ctx.symbolOf(name) orelse return;
         self.ctx.symbols.items[id].ty = fn_ty;
         self.ctx.symbols.items[id].param_names = try self.paramNames(params);
-        self.ctx.symbols.items[id].param_durations = self.paramDurations(params);
+        self.ctx.symbols.items[id].param_durations = try self.paramDurations(fn_ty, params);
         try self.recordFrom(node, params, returns);
         try self.checkExternSignature(name, fn_ty);
     }
@@ -3863,7 +3876,7 @@ pub const TypeResolver = struct {
             .self_mode = self_mode,
             .param_names = try self.paramNames(params),
             .param_defaults = try self.paramDefaults(params),
-            .param_durations = self.paramDurations(params),
+            .param_durations = try self.paramDurations(fn_ty, params),
         });
     }
 

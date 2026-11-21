@@ -455,7 +455,7 @@ pub const Emitter = struct {
     widening: Sexp = .nil,
     /// The scalar operand being written splatted (`sema.splatOf`).
     splatting: Sexp = .nil,
-    /// The duration argument being written in nanoseconds (`sema.durationOf`).
+    /// The duration argument being written (`sema.durationOf`).
     durationing: Sexp = .nil,
     /// The box being erased to a box of an API object (`emitValue`).
     erasing_box: Sexp = .nil,
@@ -6003,15 +6003,28 @@ pub const Emitter = struct {
             try self.emitBare(sexp);
             return self.w.writeAll(")))");
         };
-        // An argument filling a duration parameter counts its unit; the
-        // parameter takes nanoseconds (`sema.Duration`).
-        if (self.facts.durationOf(sexp)) |d| if (!sameNode(sexp, self.durationing)) {
+        // An argument given as a duration form (`sema.Duration`): a
+        // number of its unit, which becomes the `Duration` its parameter
+        // takes or an `Int` of nanoseconds, or a `Duration` whose
+        // nanoseconds an `Int` parameter takes. A hoisted one is read
+        // from its temporary, which holds what it became.
+        if (self.facts.durationOf(sexp)) |d| if (!sameNode(sexp, self.durationing) and self.hoistedOf(sexp) == null) {
             const saved = self.durationing;
             defer self.durationing = saved;
             self.durationing = sexp;
+            if (d.unit_ns == 0) {
+                try self.w.writeAll("rig.durationNs(");
+                try self.emitBare(sexp);
+                return self.w.writeAll(")");
+            }
+            if (d.opt != facts.type_invalid) try self.w.print("rig.pack({s}, ", .{try self.typeText(d.opt)});
             try self.w.writeAll(if (d.float) "rig.durationFloat(" else "rig.durationInt(");
+            if (d.ty == facts.type_invalid) try self.w.writeAll("i64") else try self.emitTypeTy(d.ty);
+            try self.w.writeAll(", ");
             try self.emitBare(sexp);
-            return self.w.print(", {d})", .{d.unit_ns});
+            try self.w.print(", {d})", .{d.unit_ns});
+            if (d.opt != facts.type_invalid) try self.w.writeAll(")");
+            return;
         };
         // A box moved into a box of an API object keeps its allocation,
         // its value's type erased (`sema.Erasure`): `rig.ApiBox(T).of(Square,
@@ -10363,7 +10376,8 @@ pub const Emitter = struct {
             try self.w.writeAll(";\n");
             return self.hoisted.append(self.allocator, .{ .node = h.node, .name = h.name });
         }
-        const ty = self.typeOf(h.node);
+        // A duration form is held as what it becomes (`sema.Duration`).
+        const ty = if (self.facts.durationOf(h.node)) |d| d.written(self.facts.types.int_id) else self.typeOf(h.node);
         const ptr = slot < params.len and self.isPtrViewTy(params[slot]);
         // A value passed as the view its parameter expects is held as that
         // view, of the parameter's type, which owns nothing.

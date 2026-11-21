@@ -1,0 +1,26 @@
+--- a/tools/checker/bench.rig
++++ b/tools/checker/bench.rig
+@@ -108,13 +108,13 @@
+   stack: List[ast.Node] = List()
+   kids: List[ast.Node] = List()
+   for _ in 0..n
+-    t0 = time.now()
++    t0 = time.monotonic()
+     c = checker.new_checker(?program, ?names)
+-    setup = t0.elapsed()
++    setup = t0.elapsed().ns()
+     decls = 0
+     k = 0
+     next = 0
+-    t1 = time.now()
++    t1 = time.monotonic()
+     for f in walked
+       tree = ?program.files[f].ast
+       !stack.push(program.files[f].root)
+@@ -139,5 +139,5 @@
+         while i > 0
+           i -= 1
+           !stack.push(kids[i])
+-    walk = t1.elapsed()
++    walk = t1.elapsed().ns()
+     print(setup, walk, c.type_count, c.signature_count, c.total_instantiation_count, decls)

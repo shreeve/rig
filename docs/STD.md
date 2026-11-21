@@ -38,7 +38,7 @@ never read as the library's.
 | [`std.os`](#stdos) | the program's arguments and environment, and ending it now |
 | [`std.file`](#stdfile) | reading and writing files, whole or open, making, moving, and removing them, and asking what is at a path |
 | [`std.io`](#stdio) | the standard streams and copying bytes between files and sockets: `stdin`, `stdout`, `stderr`, `copy` |
-| [`std.time`](#stdtime) | clocks and sleeping |
+| [`std.time`](#stdtime) | the monotonic clock, durations, and waiting |
 | [`std.task`](#stdtask) | stopping a task, waiting for several, and isolating a panic: `Stop`, `check`, `all`, `isolate`, `workers` |
 | [`std.par`](#stdpar) | calling a function on each element on several tasks: `map`, `each`, `workers` |
 | [`std.shared`](#stdshared) | a map several tasks fill and read at once: `shared.Map` |
@@ -754,46 +754,52 @@ fun send_file(l: ?net.Listener, path: ?String) -> Int!
 
 ## std.time
 
-The monotonic clock, the wall clock, and sleeping. A call writes a
-duration in one of four forms ([SPEC §18](../SPEC.md#durations)): bare,
-an `Int` or a `Float` of seconds, `time.sleep(2)`, `time.sleep(0.5)`;
-or with one unit's keyword, `time.sleep(ms: 40)`, `time.sleep(us: 40)`,
-`time.sleep(ns: 40)`, whose value is an `Int` or a `Float` too. A
-`Float` is rounded to the nearest whole nanosecond, a half away from
-zero (`ns: 2.5` is 3 nanoseconds); a NaN, an infinity, or more
-nanoseconds than an `Int` holds panics, and is rejected when it is a
-constant. Every parameter below that takes a duration, written
-*duration*, takes it so. What a clock gives back, `t.since`,
-`t.elapsed`, and `since_start`, is an `Int` of nanoseconds, which the
-constants `NS`, `US`, `MS`, `SECOND`, and `MINUTE` count:
-`t.elapsed() < 250 * time.MS`. A reading of the monotonic clock is an
-`Instant`, which only gives the time between readings, so it cannot be
-mixed up with the wall clock's nanoseconds; only `Instant.at` names a
-number as one.
+The monotonic clock, lengths of time, and waiting. A length of time is
+a `Duration`: an exact, signed length, one `Int` of nanoseconds, so
+about 292 years either way. A call gives one wherever a parameter is
+typed `Duration`, in any module, in a duration form ([SPEC
+§18](../SPEC.md#durations)): bare, a number of seconds, an `Int` or a
+`Float`, `time.sleep(2)`, `time.sleep(0.5)`; one unit's keyword and a
+number, from `ns:` to `hours:`, `time.sleep(ms: 40)`; or a `Duration`,
+`time.sleep(d)`. A `Float` is rounded to the nearest whole nanosecond,
+a half away from zero (`ns: 2.5` is 3 nanoseconds); a NaN, an
+infinity, or more nanoseconds than a `Duration` holds panics, and is
+rejected when it is a constant. A duration takes no `days:` or
+`weeks:`, since a day is not always 24 hours. Every parameter below
+typed *duration* takes these forms. A reading of the monotonic clock is
+a `Monotonic`, which only gives the time between readings, so it cannot
+be mixed up with the wall clock.
 
 | Member | Result |
 |---|---|
-| `now() -> Instant` | the monotonic clock now: it never goes back |
-| `Instant.at(`*duration*`) -> Instant` | the instant a duration after the monotonic clock's zero, for a test or code handed the time rather than reading it: `Instant.at(0)` |
-| `t.add(`*duration*`) -> Instant` | the instant a duration after `t`, `t.add(ms: 40)`; before it when the duration is negative, `t.add(ns: t.since(u))` |
-| `t.since(earlier: Instant) -> Int` | the nanoseconds from `earlier` to `t`; negative when `earlier` is the later one |
-| `t.elapsed() -> Int` | the nanoseconds from `t` to now |
+| `monotonic() -> Monotonic` | the monotonic clock now: it never goes back |
+| `duration(`*duration*`) -> Duration` | a duration form as a value: `time.duration(ms: 250)`, `time.duration(5)` |
+| `Monotonic.at(`*duration*`) -> Monotonic` | the reading a duration after the monotonic clock's zero, for a test or code handed the time rather than reading it: `Monotonic.at(0)` |
+| `m.add(`*duration*`) -> Monotonic` | the reading a duration after `m`, a deadline, `m.add(120)`; before it when the duration is negative. Panics beyond 292 years |
+| `m.since(earlier: Monotonic) -> Duration` | the time from `earlier` to `m`; negative when `earlier` is the later one |
+| `m.elapsed() -> Duration` | the time from `m` to now |
 | `sleep(`*duration*`)!task.Stop` | wait at least a duration, `time.sleep(ms: 40)`; not at all when it is not positive. In a canceled task it fails with `task.Stop.canceled` ([std.task](#stdtask)), and past a deadline with `task.Stop.timeout`, sleeping only until the deadline |
 | `after(`*duration*`)` | a deadline arm of `task.select`, `late: time.after(ms: 50)`, which completes once the duration has passed since the select made it; it stands only in a select ([SPEC §18](../SPEC.md#channels)) |
 | `within[R](`*duration*`, f: once ?fun() -> R!) -> R!` | run `f` with a deadline a duration from now, `time.within(ms: 50, \|\| work()!)`, and give what it gives: every fallible waiting point `f` reaches after the deadline fails with `task.Stop.timeout`, and the tasks it starts keep the deadline. `f` is called once, so it may move in a task, or a set, started before it and wait for it: `time.within(2, \|<t\| >t!)`. Inside another deadline, the earlier one holds ([SPEC §18](../SPEC.md#deadlines)) |
-| `since_start() -> Int` | the nanoseconds on the monotonic clock since the program started: a duration, which a function value can read with no `Instant` to hold. Only a program that names it reads the clock as it starts |
+| `since_start() -> Duration` | the time since the program started, which a function value can read with no `Monotonic` to hold. Only a program that names it reads the clock as it starts |
 | `unix_ns() -> Int` | the wall clock, in nanoseconds since 1970-01-01 00:00 UTC; it can be set, so it may jump |
+
+A negative constant given to `sleep`, `within`, `after`, or `per:` (of
+`task.supervise` and `*Actor.supervised`, which takes seconds or a
+`Duration` by its own name) is rejected; a negative value as the
+program runs counts as zero. Under the deterministic scheduler every
+clock here is virtual.
 
 ```rig
 use std.time
 
 sub main()!
-  start = time.now()
+  start = time.monotonic()
   time.sleep(ms: 5)!
-  print(start.elapsed() >= 5 * time.MS)
-  print(time.now().since(start) > 0)
-  print(time.since_start() >= 5 * time.MS)
-  print(time.unix_ns() / time.SECOND > 1_700_000_000)
+  print(start.elapsed() >= time.duration(ms: 5))
+  print(time.monotonic().since(start) > time.duration(0))
+  print(time.since_start() >= time.duration(ms: 5))
+  print(time.unix_ns() / 1_000_000_000 > 1_700_000_000)
 ```
 
 ```output
@@ -803,26 +809,100 @@ true
 true
 ```
 
-Instants order by time (`: Ord`), so `<`, `math.max`, and a `Map`'s
-keys take them. Code handed the time, a protocol's timers or a test,
-names instants with `Instant.at` and moves them with `add`:
+Readings order by time, so `<`, `math.max`, and a `Map`'s keys take
+them. Code handed the time, a protocol's timers or a test, names
+readings with `Monotonic.at` and moves them with `add`:
 
 ```rig
 use std.math
 use std.time
 
 sub main()
-  start = time.Instant.at(0)
+  start = time.Monotonic.at(0)
   rekey = start.add(120)
   reject = start.add(180)
   now = start.add(150)
   print(now >= rekey, now >= reject, math.max(rekey, reject) == reject)
-  print(reject.since(now) / time.SECOND)
+  print(reject.since(now))
 ```
 
 ```output
 true false true
-30
+30s
+```
+
+### Duration
+
+A `Duration` compares with `==`, orders with `<`, and keys a `Map`.
+Its own arithmetic panics when the result leaves the range, as `Int`'s
+does; the `checked_` methods fail with `TimeError.range` instead. A
+method that takes a `Duration` takes a duration form: `d.add(ms: 5)`.
+
+| Member | Result |
+|---|---|
+| `d.hours()`, `d.minutes()`, `d.seconds()`, `d.ms()`, `d.us()`, `d.ns()` | the whole total in each unit, an `Int`, truncated toward zero: -1.5 seconds has `seconds()` of -1 |
+| `d.float_seconds() -> Float` | the seconds, with their fraction |
+| `d.subsec_ns() -> Int` | the part below a whole second, with the duration's sign: not a total |
+| `Duration.from_parts(seconds: Int, ns: Int) -> Duration` | the duration of `seconds` and `ns` more nanoseconds, which agree in sign, `ns` within ±999,999,999, or it panics |
+| `d.add(`*duration*`)`, `d.sub(`*duration*`)` | the sum and the difference |
+| `d.times(n: Int)`, `d.div(n: Int)` | the duration `n` times over, and divided by `n`, truncated toward zero; `div(0)` panics |
+| `d.neg()`, `d.abs()` | the duration negated, and without its sign |
+| `d.checked_add(`*duration*`)!`, `d.checked_sub(`*duration*`)!`, `d.checked_times(n: Int)!` | the same, failing with `TimeError.range` beyond the range |
+| `d.round(`*unit*`: n)`, `d.floor(`*unit*`: n)` | the nearest multiple of `n` of one unit, from `ns:` to `hours:`, a half away from zero, and the one at or before it, toward negative infinity: `d.round(minutes: 15)`. A call names exactly one unit by its keyword, and an increment from 1 to 1,000,000,000, checked where it is called when it is a constant; neither is taken as a value |
+| `print(d)`, `String(d)` | the friendly form: each unit that is not zero, from the hour down, `2h 30m`, `1ms 234us 567ns`, `-1s 500ms`, `0s`, `9600h` |
+| `d.iso() -> String` | ISO 8601: `PT2H30M`, `PT0.001234567S`, `-PT1.5S`, `PT0S`, `PT9600H` |
+| `Duration.parse(s: ?String) -> Duration!` | ISO 8601, or the friendly form as Jiff reads it: `1.5h`, `1h30m`, `1 hour, 30 minutes`, `01:30:00`, `2h 30m ago`, `1500ms`, `+1h`, `µs` as well as `us`, and a leading `-` for the whole. Units run from the hour down, each once, a fraction only on the last; a unit of a day or more is refused. Fails with `TimeError.invalid` |
+
+```rig
+use std.time
+
+sub main()!
+  d = time.duration(minutes: 90)
+  print(d.hours(), d, d.iso())
+  print(d.add(ms: 1500), d.round(hours: 1), time.duration(-1.5).floor(seconds: 1))
+  print(time.Duration.parse("1 hour, 30 minutes")! == d, time.Duration.parse("PT1.5H")!)
+  late = time.duration(ns: Int.max).checked_add(1) catch time.duration(0)
+  print(late)
+```
+
+```output
+1 1h 30m PT1H30M
+1h 30m 1s 500ms 2h -2s
+true 1h 30m
+0s
+```
+
+### Dates, times and zones
+
+`std.datetime` is planned ([design/datetime.md](design/datetime.md)):
+the wall clock's `Instant`, `Date`, `Time`, `DateTime`,
+`ZonedDateTime`, and `TimeZone`, each built on `std.time`'s `Duration`.
+`time.unix_ns()` reads the wall clock. The whole
+surface, as it will read:
+
+```rig pending
+use std.time
+use std.datetime
+
+sub main()!
+  start = time.monotonic()
+  time.sleep(ms: 20)!
+  print(start.elapsed() < time.duration(ms: 50))
+  d = time.duration(minutes: 90)
+  print(d.hours(), d)
+
+  denver = datetime.TimeZone.named("America/Denver")!
+  z = datetime.now().in_zone(denver)
+  print(z.date(), z.weekday())
+  print(z.add(days: 1))
+  print(z.add(hours: 24))
+  due = datetime.Date.new(2027, 1, 31)!.add(months: 1)
+  print(due.days_since(z.date()))
+  dt = datetime.DateTime.parse("2026-03-08T02:30")!
+  print(dt.in_zone(denver)!)
+  launch = datetime.ZonedDateTime.parse("2027-01-01T00:00:00+00:00[UTC]")!
+  print(launch.since(z).hours())
+  print(z.format("%A, %B %-d, %Y"))
 ```
 
 ## std.task

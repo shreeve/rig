@@ -397,13 +397,13 @@ fun run(l: net.Listener) -> Int!
 # Seconds until the server closes `c`, after it sends `first`.
 fun closes(port: Int, first: ?String) -> Int!
   c = net.connect(String("127.0.0.1:", port))!
-  t0 = time.now()
+  t0 = time.monotonic()
   if first.len > 0
     (!c).write(first)!
   got = String()
   while (!c).read(!got, 4096)! > 0
     pass
-  t0.elapsed() / time.SECOND
+  t0.elapsed().ns() / 1_000_000_000
 
 # Seconds until the server closes `c` after the last of 21 requests,
 # each answered, and 5 s apart.
@@ -414,17 +414,17 @@ fun kept(port: Int) -> Int!
     (!c).write("GET /k HTTP/1.1\r\nHost: x\r\n\r\n")!
     _ = (!c).read(!got, 4096)!
     time.sleep(5)!
-  t0 = time.now()
+  t0 = time.monotonic()
   (!c).write("GET /k HTTP/1.1\r\nHost: x\r\n\r\n")!
   while (!c).read(!got, 4096)! > 0
     pass
-  t0.elapsed() / time.SECOND
+  t0.elapsed().ns() / 1_000_000_000
 
 # Seconds until the server closes `c`, which sends the head of a
 # chunked body, then a byte of it every 30 s, nine of them.
 fun trickled(port: Int) -> Int!
   c = net.connect(String("127.0.0.1:", port))!
-  t0 = time.now()
+  t0 = time.monotonic()
   (!c).write("POST /t HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n")!
   for 0..9
     time.sleep(30)!
@@ -432,7 +432,7 @@ fun trickled(port: Int) -> Int!
   got = String()
   while (!c).read(!got, 4096)! > 0
     pass
-  t0.elapsed() / time.SECOND
+  t0.elapsed().ns() / 1_000_000_000
 
 sub main()!
   l = net.listen("127.0.0.1:0")!

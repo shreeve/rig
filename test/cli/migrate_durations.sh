@@ -3,7 +3,8 @@
 # the program means what it meant: each Instant below is the nanoseconds
 # 0.3.0 gave it. A `per:` it cannot count in seconds is reported
 # (MANUAL), and a Markdown file's ```rig blocks are rewritten, not its
-# prose.
+# prose. tools/migrate-datetime.py then takes it to `time.Monotonic` and
+# `time.Duration`, where it means the same again.
 source "$ROOT/test/cli/_lib.sh"
 
 cat >old.rig <<'EOF'
@@ -69,6 +70,9 @@ expect_has "$(cat out.txt)" "CHECK old.rig:11: \`.add(40 * time.MS)\` taken as a
 diff old.rig new.rig >diff.txt || fail "old.rig migrated differs: $(cat diff.txt)"
 expect_has "$(head -1 doc.md)" "time.sleep(5 * time.MS)" "prose left as it is"
 grep -q '^  time.sleep(ms: 5)!$' doc.md || fail "the rig block not rewritten: $(cat doc.md)"
+python3 "$ROOT/tools/migrate-datetime.py" old.rig >out.txt 2>&1 || fail "migrate-datetime: $(cat out.txt)"
+expect_has "$(cat out.txt)" "old.rig: 13" "every reading and Instant of old.rig rewritten"
+grep -q '^  z = time.Monotonic.at(0)$' old.rig || fail "Instant not rewritten: $(cat old.rig)"
 out=$("$RIG" run old.rig 2>&1) || fail "old.rig after: $out"
 expect_eq "$out" "40000000 5000 2000000000 1000000
 1000000 7 180000000000 3000

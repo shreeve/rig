@@ -4725,20 +4725,34 @@ pub inline fn namedTag(e: anytype) @TypeOf(e) {
 }
 
 /// A duration of `n` units of `unit` nanoseconds (`sema.Duration`):
-/// `time.sleep(2)`, `time.sleep(ms: 40)`. Checked, as a conversion is:
-/// more nanoseconds than an `Int` holds panics.
-pub inline fn durationInt(n: i64, comptime unit: i64) i64 {
-    if (comptime unit == 1) return n;
-    return std.math.mul(i64, n, unit) catch @panic("a duration is more nanoseconds than an Int holds");
+/// `time.sleep(2)`, `time.sleep(ms: 40)`, as `T`, std.time's `Duration`,
+/// or an `Int` of nanoseconds (`time.after`, `per:`). Checked, as a
+/// conversion is: more nanoseconds than an `Int` holds panics.
+pub inline fn durationInt(comptime T: type, n: i64, comptime unit: i64) T {
+    const ns = if (comptime unit == 1) n else std.math.mul(i64, n, unit) catch @panic("a duration is more nanoseconds than a Duration holds");
+    return durationOf(T, ns);
 }
 
 /// A duration of `x` units of `unit` nanoseconds, rounded to the nearest
-/// whole nanosecond, a half away from zero: `time.sleep(0.5)`. A NaN, an
-/// infinity, or more nanoseconds than an `Int` holds panics.
-pub fn durationFloat(x: f64, comptime unit: i64) i64 {
+/// whole nanosecond, a half away from zero: `time.sleep(0.5)`, as `T`
+/// (`durationInt`). A NaN, an infinity, or more nanoseconds than an `Int`
+/// holds panics.
+pub fn durationFloat(comptime T: type, x: f64, comptime unit: i64) T {
     const ns = @round(x * @as(f64, @floatFromInt(unit)));
-    if (!(ns >= -0x1p63 and ns < 0x1p63)) @panic("a duration is not a finite number of nanoseconds an Int holds");
-    return @intFromFloat(ns);
+    if (!(ns >= -0x1p63 and ns < 0x1p63)) @panic("a duration is not a finite number of nanoseconds a Duration holds");
+    return durationOf(T, @intFromFloat(ns));
+}
+
+/// `ns` nanoseconds as `T`: std.time's `Duration`, whose one field is
+/// its nanoseconds (`sema.duration.field`), or the `Int` itself.
+inline fn durationOf(comptime T: type, ns: i64) T {
+    return if (comptime T == i64) ns else .{ .n = ns };
+}
+
+/// The nanoseconds of `d`, std.time's `Duration`, for a call that takes
+/// an `Int` of them (`time.after`, `per:`).
+pub inline fn durationNs(d: anytype) i64 {
+    return d.n;
 }
 
 /// A float about to be converted to an integer type, panicking if it is

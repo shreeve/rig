@@ -133,12 +133,12 @@ sub main()!
   t = waits()&
   print(<t.cancel() catch |e| -2)
   print(file.read("never.txt")! == none)
-  t0 = time.now()
+  t0 = time.monotonic()
   print(slow_within() catch |e| -3)
   r = slow()&
   time.sleep(ms: 50)!
   print(<r.cancel() catch |e| -4)
-  print(t0.elapsed() < 5 * time.SECOND)
+  print(t0.elapsed() < time.duration(5))
 EOF2
 
 # A FIFO opened with `wait: false`, which no writer has opened: the open

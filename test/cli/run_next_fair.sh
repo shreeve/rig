@@ -34,8 +34,8 @@ sub main()!
   at = *Cell(0)
   m = marker(+at)&
   p = producer(+stop)&
-  t = time.now()
-  while at.get() == 0 and t.elapsed() < 2000000000
+  t = time.monotonic()
+  while at.get() == 0 and t.elapsed().ns() < 2000000000
     time.sleep(ms: 1)!
   ran = at.get() != 0
   !stop.add(1)

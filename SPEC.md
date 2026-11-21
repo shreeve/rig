@@ -4838,7 +4838,7 @@ fails the same way every time:
 
 - the tasks run on one thread, and a seed picks which ready task runs
   next, and whether a long loop lets another run;
-- the monotonic clock (`time.now`, `time.sleep`, deadlines) is virtual:
+- the monotonic clock (`time.monotonic`, `time.sleep`, deadlines) is virtual:
   it starts at 0, and when no task can run, it jumps to the next timer,
   so a sleep takes no time. Each yield check and `task.check()` moves it
   1 µs, so a computation that never waits still reaches its deadline;
@@ -14892,59 +14892,90 @@ Stop.panicked
 
 ### Durations
 
-A call of `std.time` that takes a length of time writes it in one of
-four forms: bare, a number of seconds, `time.sleep(2)` or
-`time.sleep(0.5)`; or with one unit's keyword, `time.sleep(ms: 40)`,
-`time.sleep(us: 40)`, or `time.sleep(ns: 40)`. The value is an `Int`
-or a `Float` in each. The parameter's body sees the nanoseconds, an
-`Int`: a `Float` is rounded to the nearest whole nanosecond, a half
-away from zero, and a NaN, an infinity, or more nanoseconds than an
-`Int` holds panics as a conversion does ([Numeric
-conversions](#numeric-conversions)), and is rejected when it is a
-constant. `time.sleep`, `time.after`, `time.within`, `Instant.at`, and
-an Instant's `add` take a duration so. An option that takes one by its
-own name, `per:` of `task.supervise` and `*Actor.supervised`, is in
-seconds, `per: 0.5`.
+A length of time is std.time's `Duration`: an exact, signed length, one
+`Int` of nanoseconds, so about 292 years either way. Wherever a
+parameter is typed `Duration`, or `Duration?`, in any module, a call
+gives it in one of the **duration forms**: bare, a number of seconds,
+an `Int` or a `Float`, `time.sleep(2)`, `time.sleep(0.5)`; one unit's
+keyword and a number, `ns:`, `us:`, `ms:`, `seconds:`, `minutes:`, or
+`hours:`, `time.sleep(ms: 40)`; or a value that is already a
+`Duration`, which passes as it is, `time.sleep(d)`. A `Float` is
+rounded to the nearest whole nanosecond, a half away from zero; a NaN,
+an infinity, or more nanoseconds than a `Duration` holds panics as a
+conversion does ([Numeric conversions](#numeric-conversions)), and is
+rejected when it is a constant. `time.duration(form)` makes one as a
+value: `time.duration(ms: 250)`.
 
-A call takes one form: two units, a keyword with a bare number, and
-`seconds:` are rejected, each with its fix. What a clock gives back
-(`t.elapsed()`, `t.since(u)`) is an `Int` of nanoseconds, which
-std.time's constants `NS`, `US`, `MS`, `SECOND`, and `MINUTE` count; a
-bare duration is seconds, so it takes none of them: `time.sleep(5 *
-time.MS)` is rejected for `time.sleep(ms: 5)`, and `t.add(ns:
-t.since(u))` passes nanoseconds on.
+- A call gives one form for each duration: two units, a unit with a
+  bare number, and a unit with a `Duration` (`ms: d`) are rejected.
+- A duration takes no `days:` or `weeks:`, since a day is not always 24
+  hours: the error's fix is `hours: 24`, or `hours: 24 * n`. (A function with a parameter
+  of its own named `days` takes it by name.)
+- Unit keywords fill a function's one `Duration` parameter. A function
+  with two or more takes each by its own name, with a bare number of
+  seconds or a `Duration`; and any `Duration` parameter may be given by
+  its name so, `time.sleep(d: 5)`. No parameter of a function that
+  takes a `Duration` is named for a unit.
+- An optional one is declared `d: Duration? = none`, and `none` or an
+  optional value passes as it is. A `Duration` is made as the program
+  runs, so `none` is the only default one takes.
+- A bare number is positional, so it fills the parameter of its place:
+  `time.within(0.5, f)`. After a keyword only a closure literal follows
+  by position: `time.within(ms: 500, || f()!)`.
+- The forms apply where the call names the function or method, through
+  an API too. A function value has no parameter names: its caller
+  passes a `Duration`.
+- A negative constant given to a wait, `time.sleep`, `time.within`,
+  `time.after`, or `per:` of `task.supervise` and `*Actor.supervised`,
+  is rejected, a constant being what Rig computes as one, for an `Int`
+or a `Float` alike (`x = -0.5` then `time.sleep(x)`); a negative value
+as the program runs counts as zero. So is a constant duration that is
+not finite or that a `Duration` cannot hold.
+  `per:` is an option given by its own name, a number of seconds or a
+  `Duration`, `per: 0.5`.
+
+What a clock gives back is a `Duration`: `m.elapsed()` and `m.since(u)`
+of a `Monotonic`, a reading of the monotonic clock, and
+`time.since_start()`. A `Duration` compares and orders, and its methods
+give its totals (`d.ms()`), its arithmetic (`d.add(ms: 5)`, which
+panics past the range, and `d.checked_add(ms: 5)!`, which fails), its
+rounding, and its text ([std.time](docs/STD.md#stdtime)). `round` and
+`floor` take exactly one unit's keyword and an increment, checked where
+they are called: `d.round(minutes: 15)`; neither is taken as a value.
 
 ```rig
 use std.time
 
 sub main()!
-  z = time.Instant.at(0)
+  z = time.Monotonic.at(0)
   print(z.add(2).since(z), z.add(0.5).since(z), z.add(ms: 40).since(z))
-  print(z.add(us: 1.5).since(z), z.add(ns: 2.5).since(z))
-  start = time.now()
+  print(z.add(us: 1.5).since(z), z.add(ns: 2.5).since(z), time.duration(hours: 1.5))
+  start = time.monotonic()
   time.sleep(ms: 2)!
-  print(start.elapsed() >= 2 * time.MS)
+  print(start.elapsed() >= time.duration(ms: 2), start.elapsed().ns() > 0)
 ```
 
 ```output
-2000000000 500000000 40000000
-1500 3
-true
+2s 500ms 40ms
+1us 500ns 3ns 1h 30m
+true true
 ```
 
 ```rig reject
 use std.time
 
 sub main()!
-  time.sleep(5 * time.MS)!
   time.sleep(ms: 1, us: 500)!
-  time.sleep(seconds: 2)!
+  time.sleep(days: 1)!
+  time.sleep(-1)!
+  time.sleep(5 * time.MS)!
 ```
 
 ```error
-a bare duration is in seconds, and `time.MS` counts nanoseconds: write `time.sleep(ms: 5)`
 `time.sleep` takes one duration, in one unit: `ms: 1` or `us: 500`, not both
-a duration in seconds is written bare, with no keyword: `time.sleep(2)`
+a duration takes no `days:`, since a day is not always 24 hours: write `hours: 24`, exactly 24 hours a day
+a wait of `-1` is negative: a constant wait is zero or more
+no member `MS` in module `time`; a length of time is a `time.Duration`: `time.duration(ms: 1)`, or `ms: 1` where a duration is taken
 ```
 
 ### Deadlines

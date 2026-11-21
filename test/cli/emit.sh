@@ -39,16 +39,16 @@ use std.os
 use std.time
 
 sub main()
-  t = time.now()
-  print(os.args().len > 0, t.elapsed() >= 0)
+  t = time.monotonic()
+  print(os.args().len > 0, t.elapsed() >= time.duration(0))
 EOF
 cat >reads.rig <<'EOF'
 use std.os
 use std.time
 
 sub main()
-  read: fun() -> Int = time.since_start
-  print(read() >= 0, os.memory().allocs >= 0)
+  read: fun() -> time.Duration = time.since_start
+  print(read() >= time.duration(0), os.memory().allocs >= 0)
 EOF
 "$RIG" emit clock.rig >clock.zig 2>/dev/null || fail "rig emit clock.rig"
 grep -qE "__rig_since_start|__rig_memory" clock.zig && fail "a program naming neither asks for them: $(grep __rig_ clock.zig)"

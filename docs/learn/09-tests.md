@@ -401,10 +401,10 @@ test "a call inside its deadline answers"
   r == 20
 
 test "a minute of sleep is a minute of virtual time"
-  start = time.now()
+  start = time.monotonic()
   time.sleep(60)!
-  print(start.elapsed() / time.SECOND)
-  start.elapsed() >= time.MINUTE
+  print(start.elapsed().seconds())
+  start.elapsed() >= time.duration(minutes: 1)
 ```
 
 ```text

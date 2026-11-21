@@ -31,9 +31,9 @@ use std.time
 N = 20000000
 
 fun sleeper() -> Int!
-  t = time.now()
+  t = time.monotonic()
   time.sleep(ms: 20)!
-  t.elapsed() / 1000000
+  t.elapsed().ns() / 1000000
 
 fun cpu_closure() -> Int
   f = |n: Int|

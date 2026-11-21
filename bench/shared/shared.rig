@@ -130,18 +130,18 @@ sub main()
     m: Map[String, Int] = Map()
     for i in 0..KEYS
       !m.put(String(keys[i]), i)
-    start = time.now()
+    start = time.monotonic()
     for w in 0..tasks
       !ts.add(hit_map(?keys, ?m, w, n)&)
     for v in >ts
       sum += v
-    ns = start.elapsed()
+    ns = start.elapsed().ns()
   else if shape == "shared"
     m = shared.Map[String, Int].new()
     if phase == "hit"
       for i in 0..KEYS
         _ = !m.ensure(String(keys[i]), i)
-    start = time.now()
+    start = time.monotonic()
     for w in 0..tasks
       if phase == "insert"
         !ts.add(insert_shared(?keys, +m, w, tasks)&)
@@ -151,7 +151,7 @@ sub main()
         !ts.add(mixed_shared(?keys, +m, w, n)&)
     for v in >ts
       sum += v
-    ns = start.elapsed()
+    ns = start.elapsed().ns()
   else
     s: List[*Actor[Ints]] = List()
     for _ in 0..(1 if shape == "actor" else SHARDS)
@@ -160,7 +160,7 @@ sub main()
       for i in 0..KEYS
         c = shard(?s, keys[i])
         _ = (!c).put(String(keys[i]), i)
-    start = time.now()
+    start = time.monotonic()
     for w in 0..tasks
       if phase == "insert"
         !ts.add(insert_actors(?keys, ?s, w, tasks)&)
@@ -170,5 +170,5 @@ sub main()
         !ts.add(mixed_actors(?keys, ?s, w, n)&)
     for v in >ts
       sum += v
-    ns = start.elapsed()
+    ns = start.elapsed().ns()
   print(shape, phase, tasks, ns, sum)

@@ -1,0 +1,95 @@
+# std.time: waiting, `sleep`, `within`, the deadline arm `time.after`,
+# and `per:`, in each duration form; a negative wait.
+
+use std.task
+use std.time
+
+test "durations of select, within, and supervise", "-1 7 3 -1 8 3 4", seeds: 20
+  # The deadline arm, `within`, and `per:` take the duration forms;
+  # `per:` and `after` give the runtime the nanoseconds of a `Duration`
+  # too, and `per:` is given by its own name.
+  obj Count
+    n: Int
+
+    fun get(?@) -> Int
+      @n
+
+  ch = *Chan[Int](1)
+  v = match task.select(got: !ch.on_recv(), late: time.after(ms: 1))!
+    .got(x) => x ?? 0
+    .late => -1
+  r = time.within(0.5, || 7)!
+  s = task.supervise(|| 3, restarts: 1, per: 0.5) catch 0
+  d = time.duration(ms: 1)
+  w = match task.select(got: !ch.on_recv(), late: time.after(d))!
+    .got(x) => x ?? 0
+    .late => -1
+  q = time.within(d: time.duration(1), f: || 8)!
+  t = task.supervise(|| 3, restarts: 1, per: time.duration(ms: 500)) catch 0
+  a = *Actor.supervised(*|| Count(n: 4), restarts: 1, per: d)
+  print(v, r, s, w, q, t, a.get())
+
+test "sleep in each form", "true", seeds: 20
+  start = time.monotonic()
+  time.sleep(0.001)!
+  time.sleep(ms: 1)!
+  time.sleep(us: 1)!
+  time.sleep(ns: 1)!
+  time.sleep(seconds: 0)!
+  time.sleep(minutes: 0)!
+  time.sleep(hours: 0)!
+  time.sleep(time.duration(0))!
+  time.sleep(d: 0)!
+  time.sleep(0)!
+  print(start.elapsed() >= time.duration(ms: 2))
+
+test "a negative wait at run time is none", '''
+  true
+  Stop.timeout
+  late
+'''
+  # A wait whose duration turns out negative as the program runs counts
+  # as zero: `sleep` returns at once, a `within` is already due, and an
+  # `after` arm is ready.
+  fun minus(n: Int) -> Int
+    -n
+
+  start = time.monotonic()
+  time.sleep(minus(5))!
+  time.sleep(ms: minus(5))!
+  time.sleep(time.duration(minus(5)))!
+  print(start.elapsed() < time.duration(5))
+  time.within(ms: minus(5), ||
+    time.sleep(1)!
+    print("slept")
+  ) catch |e| print(e)
+  ch = *Chan[Int](1)
+  v = match task.select(got: !ch.on_recv(), late: time.after(minus(1)))!
+    .got => "got"
+    .late => "late"
+  print(v)
+
+fail "a negative wait written as a constant", "2:12: a wait of `-1` is negative: a constant wait is zero or more", "3:16: a wait of `-5` is negative: a constant wait is zero or more", "4:17: a wait of `-0.5` is negative: a constant wait is zero or more", "5:58: a wait of `-2` is negative: a constant wait is zero or more", "6:44: a wait of `-1` is negative: a constant wait is zero or more", "11:58: a wait of `-3` is negative: a constant wait is zero or more", errors: 6
+  ch = *Chan[Int](1)
+  time.sleep(-1)!
+  time.sleep(ms: -5)!
+  _ = time.within(-0.5, || 7)!
+  _ = task.select(got: !ch.on_recv(), late: time.after(us: -2))!
+  _ = task.supervise(|| 3, restarts: 1, per: -1) catch 0
+
+  obj Count
+    n: Int
+
+  a = *Actor.supervised(*|| Count(n: 4), restarts: 1, per: -3)
+
+fail "a negative wait of a constant name or sum", "3:12: a wait of `x` is negative, -0.5: a constant wait is zero or more", "4:12: a wait of `-0.5 * 2` is negative, -1: a constant wait is zero or more", "5:16: a wait of `k` is negative, -3: a constant wait is zero or more", "6:12: a wait of `0 - 1` is negative, -1: a constant wait is zero or more", errors: 4
+  x = -0.5
+  k = -3
+  time.sleep(x)!
+  time.sleep(-0.5 * 2)!
+  time.sleep(ms: k)!
+  time.sleep(0 - 1)!
+
+test "a duration other than a wait may be negative", "-1s -5ms"
+  # Only a wait refuses a negative constant.
+  print(time.duration(-1), time.Monotonic.at(0).add(ms: -5).since(time.Monotonic.at(0)))
