@@ -145,3 +145,33 @@ test "a wait of several units of mixed signs", "true", seeds: 20
   time.sleep(hours: 0, minutes: 1, seconds: -60)!
   time.sleep(ms: 2, us: -1500)!
   print(true)
+
+test "several units to a task and an actor's method", seeds: 20, '''
+  5
+  1
+  1006
+  1005
+  2
+  1008
+'''
+  # A call run as a task and an actor's method take several units, the
+  # parts evaluated where the call is made, in the order written.
+  obj Counter
+    total: Int
+
+    fun add(!@, d: time.Duration) -> Int
+      @total += d.ms()
+      @total
+
+  fun wait_ms(d: time.Duration, k: Int) -> Int
+    d.ms() + k
+
+  fun note(n: Int) -> Int
+    print(n)
+    n
+
+  t = wait_ms(seconds: 1, ms: note(5), k: note(1))&
+  print(>t)
+  c = *Actor(Counter(total: 0))
+  print(!c.add(seconds: 1, ms: 5))
+  print(!c.add(ms: note(2), us: 1000))
