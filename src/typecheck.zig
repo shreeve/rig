@@ -169,6 +169,9 @@ const Checker = struct {
     /// branch there is read in place, by address, never copied
     /// (`cellMadeAway`).
     in_place: Sexp = .nil,
+    /// How the element `index_use.at` is used (`indexUse`), so the error
+    /// for a type with no index names the form that fits that use.
+    index_use: IndexUse = .{},
     /// The member pattern being checked, `E.name =>`, which tests the
     /// member whether or not it has fields.
     member_pattern: Sexp = .nil,
@@ -2031,7 +2034,18 @@ const Checker = struct {
             },
             else => {},
         }
+        const saved_use = self.index_use;
+        defer self.index_use = saved_use;
+        if (head == .index) self.index_use = .{
+            .at = target,
+            .form = if (kind.operator() != null) .compound else .assign,
+            .rhs_text = try self.plainText(rhs),
+            .op = switch (kind) {
+                inline else => |c| @tagName(c),
+            },
+        };
         const place_ty = try self.synthExpr(target);
+        self.index_use = saved_use;
         if (through) return self.assignThroughCall(kind, target, place_ty, rhs);
         if (try self.rejectLane(target, .assign)) {
             _ = try self.synthExpr(rhs);
@@ -7223,6 +7237,9 @@ const Checker = struct {
         if (rig.isRangeIndex(operand)) {
             return self.viewSlice(operand, kind);
         }
+        const saved_use = self.index_use;
+        defer self.index_use = saved_use;
+        if (operand.isKind(.index)) self.index_use = .{ .at = operand, .form = if (kind == .write) .write_view else .read };
         const saved_outer = self.outer_write;
         defer self.outer_write = saved_outer;
         if (kind == .write and operand.isKind(.call)) self.outer_write = operand;
@@ -9404,6 +9421,13 @@ const Checker = struct {
         // A slot of a table: with a `Slot[n]` of its own `n`, a place with
         // no test; with an integer, tested against `n`.
         if (sema.tableElem(self.ctx, sema.unwrapReadAccess(self.ctx, obj_ty))) |elem| return self.tableIndex(index, sema.unwrapReadAccess(self.ctx, obj_ty), elem);
+        // A type an integer cannot index is said so first, whatever the
+        // index is: one error, not two.
+        if (!self.integerIndexed(obj_ty)) {
+            const quiet_ty = try self.synthQuiet(index);
+            if (self.isPoison(quiet_ty)) return quiet_ty;
+            return self.rejectIndexed(e, obj_ty, quiet_ty);
+        }
         const idx_ty = try self.synthValue(index);
         if (self.isPoison(idx_ty)) return idx_ty;
         if (!sema.isInteger(self.ctx, idx_ty)) {
@@ -9447,12 +9471,104 @@ const Checker = struct {
             },
             else => {},
         }
+        return self.rejectIndexed(e, obj_ty, idx_ty);
+    }
+
+    /// Whether an integer indexes a value of type `obj_ty`: a vector, an
+    /// array, a slice, a `?String` or `Static`, a List, or a Cell's List.
+    fn integerIndexed(self: *Checker, obj_ty: TypeId) bool {
+        if (sema.simdOf(self.ctx, obj_ty) != null) return true;
+        const peeled = sema.unwrapReadAccess(self.ctx, obj_ty);
+        return switch (self.ctx.types.get(peeled)) {
+            .array, .slice, .string_view, .static => true,
+            .parameterized_nominal => listElementType(self.ctx, peeled) != null or cellListElement(self.ctx, peeled) != null,
+            else => false,
+        };
+    }
+
+    /// `m[k]` of a value `obj_ty` an integer cannot index, whose index has
+    /// type `idx_ty`. A Map, HashMap, Set, or HashSet is told its own way
+    /// of doing what the program wrote (`hashFix`).
+    fn rejectIndexed(self: *Checker, e: Sexp, obj_ty: TypeId, idx_ty: TypeId) Error!TypeId {
+        const object = ir.get(e, .object);
         if (sema.unwrapViews(self.ctx, obj_ty) == self.t().string_id) {
             try self.errAt(object, "cannot index a value of type `{s}`; index its `?String` view: `(?{s}[..])[i]`", .{ try self.tyName(obj_ty), try self.plainText(stripSigil(object)) });
             return self.t().invalid_id;
         }
+        if (try self.hashFix(e, obj_ty, idx_ty)) return self.t().invalid_id;
         try self.errAt(object, "cannot index a value of type `{s}`", .{try self.tyName(obj_ty)});
         return self.t().invalid_id;
+    }
+
+    /// The error for `m[k]` on a Map, HashMap, Set, or HashSet, whose
+    /// entry is no place (an absent key has none, and an assignment would
+    /// hide an insertion), with the form of what the program wrote, built
+    /// from its own text. True when reported.
+    fn hashFix(self: *Checker, e: Sexp, obj_ty: TypeId, idx_ty: TypeId) Error!bool {
+        const peeled = sema.unwrapReadAccess(self.ctx, obj_ty);
+        const pn = switch (self.ctx.types.get(peeled)) {
+            .parameterized_nominal => |pn| pn,
+            else => return false,
+        };
+        const sym = self.ctx.symbols.items[pn.sym];
+        const is_map = std.mem.eql(u8, sym.name, "Map") or std.mem.eql(u8, sym.name, "HashMap");
+        const is_set = std.mem.eql(u8, sym.name, "Set") or std.mem.eql(u8, sym.name, "HashSet");
+        if (!is_map and !is_set) return false;
+        // Only the prelude's, which hold their entries in a table.
+        const fields = sym.fields orelse return false;
+        const table = (try findDataField(self.ctx, fields, "t")) orelse return false;
+        const tsym = switch (self.ctx.types.get(table.ty)) {
+            .parameterized_nominal => |tp| tp.sym,
+            else => return false,
+        };
+        if (!sema.isHashTable(self.ctx, tsym)) return false;
+        if (pn.args.len != (if (is_set) @as(usize, 1) else 2)) return false;
+        const key = pn.args[0];
+        const object = ir.get(e, .object);
+        const index = ir.Index.index(e);
+        const shown = try self.tyName(peeled);
+        const m = try self.selfText(object);
+        const m_plain = try self.plainText(object);
+        const alloc = self.ctx.arena.allocator();
+        // The key as the Map's own type takes it: a literal String where
+        // the key is a String is made one.
+        const k_text = try self.plainText(index);
+        const key_fits = compatible(self.ctx, idx_ty, key) or (sema.isStringLiteralText(k_text) and key == self.t().string_id and idx_ty == self.t().static_id);
+        const k = try self.asType(k_text, key);
+        const use = if (sameExpr(e, self.index_use.at)) self.index_use else IndexUse{};
+        if (is_set) {
+            try self.errAt(object, "cannot index a value of type `{s}`: a {s} holds keys and no values, so `{s}[k]` is no place; test a key with `{s}.has({s})`, add one with `!{s}.add({s})`", .{ shown, sym.name, m_plain, m, if (key_fits) k_text else "k", m_plain, if (key_fits) k else "k" });
+            return true;
+        }
+        const val = pn.args[1];
+        const what: []const u8 = switch (use.form) {
+            .assign => "an assignment would hide an insertion, so it is written",
+            .compound => "to change a value in place, or add the key with a starting value, write",
+            .write_view => "to write the value in place, take its write view, which is `none` when the key is absent",
+            .read => "read the value, which is `none` when the key is absent, with",
+        };
+        const head = try alloc.print("cannot index a value of type `{s}`: a key may be absent, so `{s}[k]` is no place; ", .{ shown, m_plain });
+        if (!key_fits) {
+            try self.errAt(object, "{s}{s} `{s}.put(k, v)`, `{s}.get(k)`, `{s}.edit(k)` (its keys are `{s}`)", .{ head, "use", m, m, m, try self.tyName(key) });
+            return true;
+        }
+        const numeric = sema.isNumeric(self.ctx, val);
+        const zero: []const u8 = if (sema.isFloatType(self.ctx, val)) "0.0" else "0";
+        const fix: []const u8 = switch (use.form) {
+            .assign => try alloc.print("`!{s}.put({s}, {s})`", .{ m, k, try self.asType(use.rhs_text, val) }),
+            .compound => if (numeric) try alloc.print("`(!{s}).ensure({s}, {s}) {s} {s}`", .{ m, k, zero, use.op, use.rhs_text }) else try alloc.print("`if !{s}.edit({s}) as v`", .{ m, k_text }),
+            .write_view => try alloc.print("`if !{s}.edit({s}) as v`", .{ m, k_text }),
+            .read => if (numeric) try alloc.print("`{s}.get({s}) ?? {s}`", .{ m, k_text, zero }) else try alloc.print("`if {s}.get({s}) as v`", .{ m, k_text }),
+        };
+        try self.errAt(object, "{s}{s}: {s}", .{ head, what, fix });
+        return true;
+    }
+
+    /// `text`, an argument of type `ty` where the program wrote a
+    /// literal: a string literal is made a `String` where one is taken.
+    fn asType(self: *Checker, written: []const u8, ty: TypeId) Error![]const u8 {
+        if (ty == self.t().string_id and sema.isStringLiteralText(written)) return self.ctx.arena.allocator().print("String({s})", .{written});
+        return written;
     }
 
     /// Slot `index` of a table of type `table` (Core §10, "Tables"): a
@@ -11385,6 +11501,17 @@ const Checker = struct {
     }
 
     // ---- vectors --------------------------------------------------------------
+
+    /// How an element is used, for the error of an element a type has no
+    /// index for: assigned, changed by an operator, viewed for writing, or
+    /// read.
+    const IndexUse = struct {
+        at: Sexp = .nil,
+        form: enum { read, assign, compound, write_view } = .read,
+        /// The assigned value's text, and the operator written (`+=`).
+        rhs_text: []const u8 = "",
+        op: []const u8 = "",
+    };
 
     /// What is done to a lane where a place would be.
     const LaneUse = enum { assign, read_viewed, write_viewed, take };

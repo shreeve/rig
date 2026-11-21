@@ -535,6 +535,7 @@ reaches `lib`: the checker says so, and the call in parentheses,
 | `if (!s).insert(k)` | none | a `Bool` value used keeps its parentheses |
 | `(<conn).close()` | `<conn.close()` | move `conn` into `close` |
 | `(?p).dist(q)` | `?p.dist(q)` | make a read view of `p`; the same as `p.dist(q)` |
+| `(!m).ensure(k, 0) += 1` | `!m.ensure(k, 0) += 1` | the target of an assignment: the self sigil reaches `m`, and the write view the call returns is assigned through |
 
 Only `?`, `!`, and `<` reach self, since they are the modes a
 method declares (`?@`, `!@`, `<@`). Every other prefix, and

@@ -4787,6 +4787,61 @@ fail "index int", "4:5: cannot index a value of type `Int`"
   y = x[0]
   print(y)
 
+fail "index map forms", "5:1: cannot index a value of type `Map[String, Int]`: a key may be absent, so `m[k]` is no place; an assignment would hide an insertion, so it is written: `!m.put(String(\"a\"), 1)`", "6:1: cannot index a value of type `Map[String, Int]`: a key may be absent, so `m[k]` is no place; to change a value in place, or add the key with a starting value, write: `(!m).ensure(String(\"a\"), 0) += 5`", "7:5: cannot index a value of type `Map[String, Int]`: a key may be absent, so `m[k]` is no place; read the value, which is `none` when the key is absent, with: `m.get(\"a\") ?? 0`", "8:5: cannot index a value of type `Map[String, Int]`: a key may be absent, so `m[k]` is no place; to write the value in place, take its write view, which is `none` when the key is absent: `if !m.edit(\"a\") as v`", "11:5: cannot index a value of type `Map[Int, String]`: a key may be absent, so `n[k]` is no place; read the value, which is `none` when the key is absent, with: `if n.get(1) as v`", "12:1: cannot index a value of type `Map[String, Int]`: a key may be absent, so `m[k]` is no place; use `m.put(k, v)`, `m.get(k)`, `m.edit(k)` (its keys are `String`)", errors: 6
+  # A Map's entry is no place, so an index is refused once, first, with
+  # the form that does what was written.
+
+  m = Map[String, Int]()
+  m["a"] = 1
+  m["a"] += 5
+  x = m["a"]
+  if !m["a"] as v
+    v += 1
+  n = Map[Int, String]()
+  z = n[1]
+  m[3] = 1
+
+fail "index set forms", "4:5: cannot index a value of type `Set[String]`: a Set holds keys and no values, so `s[k]` is no place; test a key with `s.has(\"a\")`, add one with `!s.add(String(\"a\"))`", "6:5: cannot index a value of type `HashSet[Int]`: a HashSet holds keys and no values, so `h[k]` is no place; test a key with `h.has(3)`, add one with `!h.add(3)`", "8:5: cannot index a value of type `HashMap[Int, Int]`: a key may be absent, so `m[k]` is no place; read the value, which is `none` when the key is absent, with: `m.get(1) ?? 0`", errors: 3
+  # A Set, a HashSet, and a HashMap are told so as a Map is.
+
+  s = Set[String]()
+  q = s["a"]
+  h = HashSet[Int]()
+  r = h[3]
+  m = HashMap[Int, Int]()
+  t = m[1]
+
+test "map forms the index message gives", '''
+  7 true
+  {"a": 7} {"b": 1.5} {1: "onex"} {"a"}
+'''
+  # Each form that the message for an index gives compiles and runs.
+
+  m = Map[String, Int]()
+  !m.put(String("a"), 1)
+  (!m).ensure(String("a"), 0) += 5
+  if !m.edit("a") as v
+    v += 1
+  f = Map[String, Float]()
+  (!f).ensure(String("b"), 0.0) += 1.5
+  n = Map[Int, String]()
+  !n.put(1, String("one"))
+  if !n.edit(1) as w
+    !w.push("x")
+  s = Set[String]()
+  !s.add(String("a"))
+  print(m.get("a") ?? 0, s.has("a"))
+  print(m, f, n, s)
+
+test "ensure through a self sigil", "{\"a\": 3}"
+  # A self sigil before a method call reaches the self when the call's
+  # write view is assigned through.
+
+  m = Map[String, Int]()
+  !m.ensure(String("a"), 0) += 1
+  !m.ensure(String("a"), 0) += 2
+  print(m)
+
 fail "index not integer", "an index must be an integer; got `Static`"
   # An index must be an integer.
 

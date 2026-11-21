@@ -731,8 +731,8 @@ dtargets = postfix "," postfix                      → (1 3)
 rvals    = value "," value                          → (1 3)
          | rvals "," value                          → (...1 3)
 
-assign   = target:postfix "="   value:vtail         → (set)
-         | target:postfix
+assign   = target:unary "="   value:vtail           → (set)
+         | target:unary
            op:("+=" | "-=" | "*=" | "/=" | "%=" | "+%=" | "-%=" | "*%=" | "+|=" | "-|=" | "&=" | "|=" | "^=" | "<<=" | "<<%=" | ">>=")
            value:tail                               → (set)
 

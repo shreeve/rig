@@ -1780,6 +1780,10 @@ arms.
   source line
   ([mac-port-2026-11-05.md](docs/history/records/2026-11/preempt/mac-port-2026-11-05.md)).
 
+### Fixed
+
+- **A type with no index says so first, with a fix that compiles.** `m["a"] = 1` on a `Map` said first that an index must be an integer, then that the Map cannot be indexed; it now says once that the key may be absent and gives the form that does what was written (`!m.put(k, v)`, `m.get(k) ?? 0`, `(!m).ensure(k, 0) += 5`, `if !m.edit(k) as v`, `s.has(k)`), for a `Map`, `HashMap`, `Set`, and `HashSet`. An assignment whose target is a self sigil before a method call, `!m.ensure(k, 0) += 1`, parses as `(!m).ensure(k, 0) += 1` does.
+
 ## v0.3.0 (2026-11-04)
 
 `v0.3.0` follows `v0.2.9` (Zig 0.17.0, Nexus 2.0.0) and changes the
