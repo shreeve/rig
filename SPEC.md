@@ -14896,9 +14896,10 @@ A length of time is std.time's `Duration`: an exact, signed length, one
 `Int` of nanoseconds, so about 292 years either way. Wherever a
 parameter is typed `Duration`, or `Duration?`, in any module, a call
 gives it in one of the **duration forms**: bare, a number of seconds,
-an `Int` or a `Float`, `time.sleep(2)`, `time.sleep(0.5)`; one unit's
-keyword and a number, `ns:`, `us:`, `ms:`, `seconds:`, `minutes:`, or
-`hours:`, `time.sleep(ms: 40)`; or a value that is already a
+an `Int` or a `Float`, `time.sleep(2)`, `time.sleep(0.5)`; units'
+keywords and their numbers, `ns:`, `us:`, `ms:`, `seconds:`,
+`minutes:`, and `hours:`, `time.sleep(ms: 40)`, which add up,
+`time.sleep(hours: 1, minutes: 30)`; or a value that is already a
 `Duration`, which passes as it is, `time.sleep(d)`. A `Float` is
 rounded to the nearest whole nanosecond, a half away from zero; a NaN,
 an infinity, or more nanoseconds than a `Duration` holds panics as a
@@ -14906,11 +14907,20 @@ conversion does ([Numeric conversions](#numeric-conversions)), and is
 rejected when it is a constant. `time.duration(form)` makes one as a
 value: `time.duration(ms: 250)`.
 
-- A call gives one form for each duration: two units, a unit with a
-  bare number, and a unit with a `Duration` (`ms: d`) are rejected.
+- Several units' keywords give each unit at most once, in any order
+  and of any sign: `hours: 1, minutes: -30` is 30 minutes. Each part
+  becomes its nanoseconds, as one unit alone does (a `Float` rounded
+  first, each part a number a `Duration` holds), and the parts are
+  added in an `Int`: a sum past the range panics, and is rejected when
+  every part is a constant. The parts are evaluated in the order
+  written, as any arguments are.
+- A call gives one form for each duration: a unit with a bare number,
+  with the parameter's name, or with a `Duration` (`ms: d`) is rejected,
+  and so is a unit given twice.
 - A duration takes no `days:` or `weeks:`, since a day is not always 24
-  hours: the error's fix is `hours: 24`, or `hours: 24 * n`. (A function with a parameter
-  of its own named `days` takes it by name.)
+  hours: the error's fix is `hours: 24`, or `hours: 24 * n`, with the
+  call's other units. (A function with a parameter of its own named
+  `days` takes it by name.)
 - Unit keywords fill a function's one `Duration` parameter. A function
   with two or more takes each by its own name, with a bare number of
   seconds or a `Duration`; and any `Duration` parameter may be given by
@@ -14928,8 +14938,9 @@ value: `time.duration(ms: 250)`.
 - A negative constant given to a wait, `time.sleep`, `time.within`,
   `time.after`, or `per:` of `task.supervise` and `*Actor.supervised`,
   is rejected, a constant being what Rig computes as one, for an `Int`
-or a `Float` alike (`x = -0.5` then `time.sleep(x)`); a negative value
-as the program runs counts as zero. So is a constant duration that is
+or a `Float` alike (`x = -0.5` then `time.sleep(x)`), and so is a
+negative sum of constant units (`hours: 1, minutes: -90`); a negative
+value as the program runs counts as zero. So is a constant duration that is
 not finite or that a `Duration` cannot hold.
   `per:` is an option given by its own name, a number of seconds or a
   `Duration`, `per: 0.5`.
@@ -14940,8 +14951,9 @@ of a `Monotonic`, a reading of the monotonic clock, and
 give its totals (`d.ms()`), its arithmetic (`d.add(ms: 5)`, which
 panics past the range, and `d.checked_add(ms: 5)!`, which fails), its
 rounding, and its text ([std.time](docs/STD.md#stdtime)). `round` and
-`floor` take exactly one unit's keyword and an increment, checked where
-they are called: `d.round(minutes: 15)`; neither is taken as a value.
+`floor` take exactly one unit's keyword and an increment, not a
+duration's several, checked where they are called: `d.round(minutes:
+15)`; neither is taken as a value.
 
 ```rig
 use std.time
@@ -14950,14 +14962,16 @@ sub main()!
   z = time.Monotonic.at(0)
   print(z.add(2).since(z), z.add(0.5).since(z), z.add(ms: 40).since(z))
   print(z.add(us: 1.5).since(z), z.add(ns: 2.5).since(z), time.duration(hours: 1.5))
+  print(time.duration(hours: 1, minutes: 30), z.add(minutes: 1, seconds: -30).since(z))
   start = time.monotonic()
-  time.sleep(ms: 2)!
-  print(start.elapsed() >= time.duration(ms: 2), start.elapsed().ns() > 0)
+  time.sleep(ms: 1, us: 500)!
+  print(start.elapsed() >= time.duration(ms: 1.5), start.elapsed().ns() > 0)
 ```
 
 ```output
 2s 500ms 40ms
 1us 500ns 3ns 1h 30m
+1h 30m 30s
 true true
 ```
 
@@ -14965,16 +14979,20 @@ true true
 use std.time
 
 sub main()!
-  time.sleep(ms: 1, us: 500)!
-  time.sleep(days: 1)!
+  time.sleep(ms: 1, us: 500, ms: 2)!
+  time.sleep(2, ms: 500)!
+  time.sleep(days: 1, hours: 2)!
   time.sleep(-1)!
+  time.sleep(hours: 1, minutes: -90)!
   time.sleep(5 * time.MS)!
 ```
 
 ```error
-`time.sleep` takes one duration, in one unit: `ms: 1` or `us: 500`, not both
-a duration takes no `days:`, since a day is not always 24 hours: write `hours: 24`, exactly 24 hours a day
+the unit `ms:` is given twice: a duration's units add up, each given at most once
+`time.sleep` takes one duration: `2` or `ms: 500`, not both
+a duration takes no `days:`, since a day is not always 24 hours: write `hours: 26`, exactly 24 hours a day
 a wait of `-1` is negative: a constant wait is zero or more
+a wait of `hours: 1, minutes: -90` is negative, -30m: a constant wait is zero or more
 no member `MS` in module `time`; a length of time is a `time.Duration`: `time.duration(ms: 1)`, or `ms: 1` where a duration is taken
 ```
 
