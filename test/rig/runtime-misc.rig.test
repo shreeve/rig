@@ -678,7 +678,7 @@ test "main exit status", '''
       return 1
     0
 
-test "main fails with error", exit: 1, stderr: "error: IoErr.eof\n  lib.rig:5:3\n  main.rig:16:9", '''
+test "main fails with error", exit: 1, stderr: "error: IoErr.eof\n  lib.rig:5:3\n  main.rig:17:9", '''
   2 2 1
   drop 1
 '''
