@@ -1447,6 +1447,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
     , .{emit.runtime_module});
     try env.writeRootFlags(&root.writer, true, null, false, .{});
     try root.writer.writeAll("\nconst programs = .{\n");
+    var site_programs: std.Io.Writer.Allocating = .init(allocator);
     var links_libc = false;
     var makes_tasks = false;
     var makes_actors = false;
@@ -1494,6 +1495,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         try placeBatchFiles(allocator, sub, graph.root().out_basename, pkg.files.items, &placed, &seen);
         try list.writer.print("{d}\t{s}\n", .{ n, file });
         try root.writer.print("    .{{ {d}, @import(\"{s}/{s}\") }},\n", .{ n, sub, graph.root().out_basename });
+        try site_programs.writer.print(" @import(\"{s}/{s}\"),", .{ sub, graph.root().out_basename });
         built += 1;
     }
     if (built == 0) {
@@ -1501,6 +1503,8 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         return 1;
     }
     try root.writer.writeAll("};\n");
+    // The programs whose sites a failure's trace reads (`rig.siteTables`).
+    try root.writer.print("\npub const __rig_site_programs = .{{{s} }};\n", .{site_programs.written()});
     // One runtime serves the batch: it runs tasks if any program makes them.
     if (makes_tasks) try root.writer.print("\npub const __rig_tasks = true;\npub const __rig_task_guard: usize = {d};\n", .{sema.taskGuard(largest_frame)});
     if (makes_tasks and preempt) try root.writer.writeAll("pub const __rig_preempt = true;\n");
@@ -1863,6 +1867,8 @@ fn testDriver(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGrap
     );
     try w.print("        .{{ .module = \"\", .tests = testsOf(@import(\"{s}\")) }},\n", .{graph.root().out_basename});
     try w.writeAll("    });\n}\n");
+    // The program whose sites a failure's trace reads (`rig.siteTables`).
+    try w.print("\npub const __rig_site_programs = .{{@import(\"{s}\")}};\n", .{graph.root().out_basename});
     return driver.written();
 }
 
@@ -2070,7 +2076,9 @@ const Package = struct {
     }
 };
 
-const PackageFile = struct { path: []const u8, contents: []const u8 };
+/// A file of a package; `module` for a module emit wrote, whose sites
+/// `writePackage` places (`emit.placeSites`).
+const PackageFile = struct { path: []const u8, contents: []const u8, module: bool = false };
 
 /// Whether a program built here may be preempted by signal: on x86-64
 /// Linux and arm64 macOS (`sched.preempt_built` decides for the build
@@ -2258,7 +2266,14 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         if (i == 0 and glue) try file_buffer.writer.print("\npub const __rig_error_glue = @import(\"{s}\").Glue;\n", .{emit.errors_filename});
         // Zig addresses a file with u32 offsets (`std.zig.Ast.ByteOffset`).
         if (file_buffer.written().len > std.math.maxInt(u32)) fatal("error: cannot emit `{s}`: its Zig is 4 GiB or larger, more than Zig reads in one file; split it into modules", .{m.display});
-        try files.append(allocator, .{ .path = m.out_basename, .contents = file_buffer.written() });
+        // The root names the program's other modules, whose sites a
+        // failure's trace reads (`rig.siteTables`).
+        if (i == 0) {
+            try file_buffer.writer.writeAll("\npub const __rig_sites_of = .{");
+            for (graph.modules.items[1..]) |*other| try file_buffer.writer.print(" @import(\"{s}\"),", .{other.out_basename});
+            try file_buffer.writer.writeAll(" };\n");
+        }
+        try files.append(allocator, .{ .path = m.out_basename, .contents = file_buffer.written(), .module = true });
         for (m.shims.items) |shim| {
             // A shim beside the runtime imports it by its path; in a batch
             // it imports the module the batch shares.
@@ -2434,14 +2449,17 @@ fn writePackage(allocator: std.mem.Allocator, io: std.Io, dir: []const u8, files
             const here = try std.fs.path.join(allocator, &.{ root, std.fs.path.dirname(f.path) orelse "" });
             contents = try std.mem.replaceOwned(u8, allocator, contents, emit.embed_dir_mark, try allocator.print("{f}/", .{std.zig.fmtString(here)}));
         }
-        // A module's sites, beside it, once nothing more changes its
-        // text (`emit.placeSites`); a file with none has no sites file,
-        // so none an older build wrote names its lines.
-        if (std.mem.endsWith(u8, f.path, ".zig")) {
+        // A module's sites, in a table it carries, once nothing more
+        // changes its text (`emit.placeSites`, `emit.writeSiteTable`).
+        if (f.module) {
             const placed = try emit.placeSites(allocator, contents);
             contents = placed.zig;
-            const sites_path = try std.mem.concat(allocator, u8, &.{ path, emit.sites_suffix });
-            if (placed.sites.len > 0) try writeChanged(allocator, io, sites_path, placed.sites) else std.Io.Dir.cwd().deleteFile(io, sites_path) catch {};
+            if (placed.sites.len > 0) {
+                var with: std.Io.Writer.Allocating = .init(allocator);
+                try with.writer.writeAll(contents);
+                try emit.writeSiteTable(&with.writer, placed.sites);
+                contents = with.written();
+            }
         }
         try writeChanged(allocator, io, path, contents);
     }
@@ -2630,7 +2648,7 @@ fn placeBatchFiles(allocator: std.mem.Allocator, sub: []const u8, root: []const 
         if (seen.contains(place)) continue;
         try seen.put(allocator, place, {});
         if (!whole) {
-            try placed.append(allocator, .{ .path = place, .contents = f.contents });
+            try placed.append(allocator, .{ .path = place, .contents = f.contents, .module = f.module });
             continue;
         }
         var out: std.Io.Writer.Allocating = .init(allocator);
@@ -2641,7 +2659,7 @@ fn placeBatchFiles(allocator: std.mem.Allocator, sub: []const u8, root: []const 
             from = imp.end;
         }
         try out.writer.writeAll(f.contents[from..]);
-        try placed.append(allocator, .{ .path = place, .contents = out.written() });
+        try placed.append(allocator, .{ .path = place, .contents = out.written(), .module = f.module });
     }
 }
 

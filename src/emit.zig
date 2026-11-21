@@ -60,17 +60,14 @@ pub const embed_dir_mark = "\\u{0}rig-package\\u{0}/";
 /// which Zig source never holds, so a mark is never taken for code.
 pub const site_mark: u8 = 0;
 
-/// What a site's file of Zig adds to its name: `__rig_main.zig.sites`.
-pub const sites_suffix = ".sites";
-
 /// A module's Zig, `text`, without its site marks (`Emitter.markSite`),
 /// and its sites: a line `L:C file.rig:L:C` for each, the line and
 /// column in the Zig of the `try` or `return` after the mark, then the
 /// Rig place. `rig` takes the marks out as it writes the package, after
-/// the last change to the text (`writePackage`), and writes the sites
-/// beside the module, where the runtime finds a failure's trace's
-/// places (`rig.writeTrace`). A text with no marks is itself, with no
-/// sites.
+/// the last change to the text (`writePackage`), and the module carries
+/// its sites in a table (`writeSiteTable`), where the runtime finds a
+/// failure's trace's places (`rig.writeTrace`). A text with no marks is
+/// itself, with no sites.
 pub fn placeSites(allocator: std.mem.Allocator, text: []const u8) error{OutOfMemory}!struct { zig: []const u8, sites: []const u8 } {
     if (std.mem.findScalar(u8, text, site_mark) == null) return .{ .zig = text, .sites = "" };
     var zig: Writer.Allocating = .init(allocator);
@@ -93,6 +90,16 @@ pub fn placeSites(allocator: std.mem.Allocator, text: []const u8) error{OutOfMem
     }
     zig.writer.writeAll(text[at..]) catch return error.OutOfMemory;
     return .{ .zig = zig.written(), .sites = sites.written() };
+}
+
+/// The table of a module's `sites` (`placeSites`), written at its end,
+/// after every line a site names: the text, and a function of the
+/// module's whose address the debug information names the module's file
+/// by, which a trace's addresses are matched against (`rig.SiteTable`).
+/// So the places travel with the executable. Only a build that keeps
+/// traces reads it; any other compiles none of it.
+pub fn writeSiteTable(w: *Writer, sites: []const u8) Writer.Error!void {
+    try w.print("\nfn __rig_sites_anchor() callconv(.c) void {{}}\npub const __rig_sites: rig.SiteTable = .{{ .anchor = &__rig_sites_anchor, .text = \"{f}\" }};\n", .{std.zig.fmtString(sites)});
 }
 /// The runtime's tasks (`src/tasks.zig`), written beside it.
 pub const tasks_filename = "rig/tasks.zig";
