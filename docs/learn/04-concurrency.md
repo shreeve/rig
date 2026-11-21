@@ -471,8 +471,9 @@ sub main()
 ## Deadlines
 
 `time.within(d, f)` runs `f` with a deadline. A duration, here and in
-`time.sleep`, is a bare number of seconds, `2` or `0.5`, or a count of
-one unit, `ms: 50`, `us: 50`, or `ns: 50`. Every waiting point reached
+`time.sleep`, is a bare number of seconds, `2` or `0.5`, or counts of
+units, from `ns:` to `hours:`, which add up: `ms: 50`, or `seconds: 1,
+ms: 500`. Every waiting point reached
 past the deadline fails with `task.Stop.timeout`, in `f` and in every
 task `f` starts:
 

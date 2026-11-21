@@ -4405,6 +4405,7 @@ const Lowerer = struct {
         for (slots, 0..) |s, pi| switch (s) {
             .arg => |ai| if (ai == arg) return pi,
             .default => {},
+            .parts => |p| for (p.args) |ai| if (ai == arg) return pi,
         };
         return null;
     }

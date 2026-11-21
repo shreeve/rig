@@ -298,8 +298,8 @@ Wherever a parameter is typed `Duration`, a call gives it in one of these forms.
   kept bare seconds. The docs for those `add`s show `add(days: 1)` beside it.
 - A unit keyword: `ns:`, `us:`, `ms:`, `seconds:`, `minutes:`, `hours:`.
 - **[Owner]** Several unit keywords add up, each unit at most once:
-  `add(hours: 1, minutes: 30)`. This lands as its own change after the rest (section
-  11, phase 1b); until then a call takes one unit keyword.
+  `add(hours: 1, minutes: 30)`. Built as its own change after the rest (section 11,
+  phase 1b; `records/2026-11/datetime-phase1b`).
   - Signs may differ, and the parts simply add: `hours: 1, minutes: -30` is 30 minutes.
   - An `Int` part is exact. A `Float` part is rounded to the nanosecond, half away from
     zero. Then the parts are added; a sum too large for a `Duration` panics.

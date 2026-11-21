@@ -370,7 +370,8 @@ Stop.timeout
 ```
 
 A length of time is a `time.Duration`, which a call writes in seconds,
-`time.duration(1)`, or with a unit, `time.duration(ms: 5)`. A reading is
+`time.duration(1)`, or with units, `time.duration(ms: 5)` or
+`time.duration(minutes: 1, seconds: 30)`. A reading is
 a `Monotonic`, which only gives the time between two readings, so it
 cannot be mixed up with the wall clock. A timing differs on every run,
 so this program prints facts about it. A tool would print `took`, which

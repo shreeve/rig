@@ -759,12 +759,14 @@ a `Duration`: an exact, signed length, one `Int` of nanoseconds, so
 about 292 years either way. A call gives one wherever a parameter is
 typed `Duration`, in any module, in a duration form ([SPEC
 §18](../SPEC.md#durations)): bare, a number of seconds, an `Int` or a
-`Float`, `time.sleep(2)`, `time.sleep(0.5)`; one unit's keyword and a
-number, from `ns:` to `hours:`, `time.sleep(ms: 40)`; or a `Duration`,
-`time.sleep(d)`. A `Float` is rounded to the nearest whole nanosecond,
-a half away from zero (`ns: 2.5` is 3 nanoseconds); a NaN, an
-infinity, or more nanoseconds than a `Duration` holds panics, and is
-rejected when it is a constant. A duration takes no `days:` or
+`Float`, `time.sleep(2)`, `time.sleep(0.5)`; units' keywords and their
+numbers, from `ns:` to `hours:`, `time.sleep(ms: 40)`, which add up,
+each unit at most once, `time.sleep(hours: 1, minutes: 30)`; or a
+`Duration`, `time.sleep(d)`. A `Float` is rounded to the nearest whole
+nanosecond, a half away from zero (`ns: 2.5` is 3 nanoseconds), before
+the parts are added; a NaN, an infinity, or more nanoseconds than a
+`Duration` holds panics, a part or the sum, and is rejected when it is
+a constant. A duration takes no `days:` or
 `weeks:`, since a day is not always 24 hours. Every parameter below
 typed *duration* takes these forms. A reading of the monotonic clock is
 a `Monotonic`, which only gives the time between readings, so it cannot
@@ -848,7 +850,7 @@ method that takes a `Duration` takes a duration form: `d.add(ms: 5)`.
 | `d.times(n: Int)`, `d.div(n: Int)` | the duration `n` times over, and divided by `n`, truncated toward zero; `div(0)` panics |
 | `d.neg()`, `d.abs()` | the duration negated, and without its sign |
 | `d.checked_add(`*duration*`)!`, `d.checked_sub(`*duration*`)!`, `d.checked_times(n: Int)!` | the same, failing with `TimeError.range` beyond the range |
-| `d.round(`*unit*`: n)`, `d.floor(`*unit*`: n)` | the nearest multiple of `n` of one unit, from `ns:` to `hours:`, a half away from zero, and the one at or before it, toward negative infinity: `d.round(minutes: 15)`. A call names exactly one unit by its keyword, and an increment from 1 to 1,000,000,000, checked where it is called when it is a constant; neither is taken as a value |
+| `d.round(`*unit*`: n)`, `d.floor(`*unit*`: n)` | the nearest multiple of `n` of one unit, from `ns:` to `hours:`, a half away from zero, and the one at or before it, toward negative infinity: `d.round(minutes: 15)`. A call names exactly one unit by its keyword, never a duration's several, and an increment from 1 to 1,000,000,000, checked where it is called when it is a constant; neither is taken as a value |
 | `print(d)`, `String(d)` | the friendly form: each unit that is not zero, from the hour down, `2h 30m`, `1ms 234us 567ns`, `-1s 500ms`, `0s`, `9600h` |
 | `d.iso() -> String` | ISO 8601: `PT2H30M`, `PT0.001234567S`, `-PT1.5S`, `PT0S`, `PT9600H` |
 | `Duration.parse(s: ?String) -> Duration!` | ISO 8601, or the friendly form as Jiff reads it: `1.5h`, `1h30m`, `1 hour, 30 minutes`, `01:30:00`, `2h 30m ago`, `1500ms`, `+1h`, `µs` as well as `us`, and a leading `-` for the whole. Units run from the hour down, each once, a fraction only on the last; a unit of a day or more is refused. Fails with `TimeError.invalid` |
