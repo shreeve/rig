@@ -12,10 +12,10 @@ test "time new and readers", '''
   00:00:00 23:59:59.999999999 12:30:00
   range range range range range
 '''
-  t = datetime.Time.new(8, 7, 3, 512_094_000)!
+  t = datetime.Time.new(8, 7, 3, 512_094_000)
   print(t, t.hour(), t.minute(), t.second(), t.nanosecond())
-  print(datetime.Time.new(0, 0)!, datetime.Time.new(23, 59, 59, 999_999_999)!, datetime.Time.new(12, 30)!)
-  # §7.2: `Time.new(23, 59, 60)` fails; only parsing reads `:60`.
+  print(datetime.Time.new(0, 0), datetime.Time.new(23, 59, 59, 999_999_999), datetime.Time.new(12, 30))
+  # §7.2: a second of 60 fails; only parsing reads `:60`.
   fun try_time(h: Int, m: Int, s: Int, ns: Int) -> ?String
     _ = datetime.Time.new(h, m, s, ns) catch return "range"
     "ok"
@@ -36,10 +36,10 @@ test "time add wraps past midnight", '''
     r = t.checked_add(d) catch return String("range")
     String(r)
 
-  late = datetime.Time.new(23, 0)!
-  print(late.add(hours: 2), checked(late, time.duration(hours: 2)), datetime.Time.new(1, 0)!.add(hours: -3), checked(datetime.Time.new(1, 0)!, time.duration(hours: -3)))
-  t = datetime.Time.new(15, 23, 30, 123_456_789)!
-  midnight = datetime.Time.new(0, 0)!
+  late = datetime.Time.new(23, 0)
+  print(late.add(hours: 2), checked(late, time.duration(hours: 2)), datetime.Time.new(1, 0).add(hours: -3), checked(datetime.Time.new(1, 0), time.duration(hours: -3)))
+  t = datetime.Time.new(15, 23, 30, 123_456_789)
+  midnight = datetime.Time.new(0, 0)
   print(t.add(hours: 16), midnight.add(time.Duration.parse("PT1.03125H")!), midnight.add(time.Duration.parse("-PT1.03125H")!))
   print(t.add(minutes: 45), t.add(seconds: 800), t.add(ms: 800), t.add(us: 800), t.add(ns: 300))
   print(checked(t, time.duration(hours: 2)), checked(t, time.duration(hours: 9)), checked(t, time.duration(hours: -10)))
@@ -50,7 +50,7 @@ test "time add of the largest durations", '''
   # tests/tc39_262/civil/time/add.rs:37 and 83 add the largest spans
   # Jiff holds; here the largest and smallest `Duration` (§5.1): the
   # wrap is what is left of whole days.
-  midnight = datetime.Time.new(0, 0)!
+  midnight = datetime.Time.new(0, 0)
   print(midnight.add(ns: Int.max), midnight.add(ns: -Int.max), midnight.add(ns: Int.min), midnight.add(hours: 24 * 100_000))
 
 test "time since", '''
@@ -59,11 +59,11 @@ test "time since", '''
 '''
   # §6.6: the difference on the clock face, negative when the other is
   # later; tests/tc39_262/civil/time/until.rs:52 `basic`.
-  one = datetime.Time.new(15, 23, 30, 123_456_789)!
-  two = datetime.Time.new(16, 23, 30, 123_456_789)!
-  three = datetime.Time.new(17, 0, 30, 123_456_789)!
-  print(two.since(one), one.since(two), three.since(one), one.since(three), datetime.Time.new(1, 0)!.since(datetime.Time.new(23, 0)!), datetime.Time.new(23, 0)!.since(datetime.Time.new(1, 0)!))
-  print(datetime.Time.new(23, 59, 59, 999_999_999)!.since(datetime.Time.new(0, 0)!), one.since(one))
+  one = datetime.Time.new(15, 23, 30, 123_456_789)
+  two = datetime.Time.new(16, 23, 30, 123_456_789)
+  three = datetime.Time.new(17, 0, 30, 123_456_789)
+  print(two.since(one), one.since(two), three.since(one), one.since(three), datetime.Time.new(1, 0).since(datetime.Time.new(23, 0)), datetime.Time.new(23, 0).since(datetime.Time.new(1, 0)))
+  print(datetime.Time.new(23, 59, 59, 999_999_999).since(datetime.Time.new(0, 0)), one.since(one))
 
 test "time round and its increments", '''
   04:00:00 04:00:00 03:00:00 04:00:00 06:00:00 00:00:00 00:00:00
@@ -74,7 +74,7 @@ test "time round and its increments", '''
 '''
   # tests/tc39_262/civil/time/round.rs: `rounding_increment_hours`,
   # `_minutes`, `_seconds`, `_milliseconds`, `_microseconds`.
-  t = datetime.Time.new(3, 34, 56, 987_654_321)!
+  t = datetime.Time.new(3, 34, 56, 987_654_321)
   print(t.round(hours: 1), t.round(hours: 2), t.round(hours: 3), t.round(hours: 4), t.round(hours: 6), t.round(hours: 8), t.round(hours: 12))
   print(t.round(minutes: 1), t.round(minutes: 2), t.round(minutes: 3), t.round(minutes: 4), t.round(minutes: 5), t.round(minutes: 6), t.round(minutes: 10), t.round(minutes: 12), t.round(minutes: 15), t.round(minutes: 20), t.round(minutes: 30))
   print(t.round(seconds: 1), t.round(seconds: 2), t.round(seconds: 3), t.round(seconds: 4), t.round(seconds: 5), t.round(seconds: 6), t.round(seconds: 10), t.round(seconds: 12), t.round(seconds: 15), t.round(seconds: 20), t.round(seconds: 30))
@@ -89,15 +89,15 @@ test "time round wraps, halves go later, floor", '''
   # tests/tc39_262/civil/time/round.rs `rounding_cross_midnight`; jiff
   # civil/time.rs:1480 and 1483; §6.8: 23:59:59.6 rounds to 00:00:00, a
   # half goes to the later value, and `floor` to the one at or before.
-  last = datetime.Time.new(23, 59, 59, 999_999_999)!
+  last = datetime.Time.new(23, 59, 59, 999_999_999)
   print(last.round(ns: 1), last.round(ms: 1), last.round(us: 1), last.round(seconds: 1), last.round(minutes: 1), last.round(hours: 1))
-  half = datetime.Time.new(15, 27, 30)!
-  print(half.round(minutes: 5), half.floor(minutes: 5), datetime.Time.new(15, 27, 29, 999_999_999)!.round(minutes: 5), datetime.Time.new(15, 29, 59)!.floor(minutes: 5), datetime.Time.new(23, 59, 59, 600_000_000)!.round(seconds: 1), datetime.Time.new(23, 59, 59, 600_000_000)!.floor(seconds: 1))
-  print(datetime.Time.new(12, 0, 0, 500_000_000)!.round(seconds: 1), datetime.Time.new(12, 0, 0, 499_999_999)!.round(seconds: 1), datetime.Time.new(12, 15)!.round(minutes: 30), datetime.Time.new(12, 14, 59)!.round(minutes: 30))
+  half = datetime.Time.new(15, 27, 30)
+  print(half.round(minutes: 5), half.floor(minutes: 5), datetime.Time.new(15, 27, 29, 999_999_999).round(minutes: 5), datetime.Time.new(15, 29, 59).floor(minutes: 5), datetime.Time.new(23, 59, 59, 600_000_000).round(seconds: 1), datetime.Time.new(23, 59, 59, 600_000_000).floor(seconds: 1))
+  print(datetime.Time.new(12, 0, 0, 500_000_000).round(seconds: 1), datetime.Time.new(12, 0, 0, 499_999_999).round(seconds: 1), datetime.Time.new(12, 15).round(minutes: 30), datetime.Time.new(12, 14, 59).round(minutes: 30))
 
 bomb "time round with an increment that does not divide panics", "datetime.Time.round: the increment 7 does not divide 60 or is not smaller than it"
   k = 7
-  print(datetime.Time.new(1, 0)!.round(minutes: k))
+  print(datetime.Time.new(1, 0).round(minutes: k))
 
 test "time with", '''
   08:00:00 08:07:00 range 23:07:03.5
@@ -106,21 +106,21 @@ test "time with", '''
     r = t.with(hour: hour, minute: minute, second: second, ns: ns) catch return String("range")
     String(r)
 
-  t = datetime.Time.new(8, 7, 3, 512_094_000)!
+  t = datetime.Time.new(8, 7, 3, 512_094_000)
   print(change(t, minute: 0, second: 0, ns: 0), change(t, second: 0, ns: 0), change(t, second: 60), change(t, hour: 23, ns: 500_000_000))
 
 test "times compare, order, and hash", '''
   true false true
   2 1
 '''
-  a = datetime.Time.new(8, 0)!
-  b = datetime.Time.new(8, 0, 0, 1)!
-  print(a == datetime.Time.new(8, 0, 0, 0)!, a == b, a < b)
+  a = datetime.Time.new(8, 0)
+  b = datetime.Time.new(8, 0, 0, 1)
+  print(a == datetime.Time.new(8, 0, 0, 0), a == b, a < b)
   seen = Map[datetime.Time, Int]()
   !seen.put(a, 1)
   !seen.put(b, 2)
-  !seen.put(datetime.Time.new(8, 0)!, 1)
-  print(seen.len, seen.get(datetime.Time.new(8, 0)!) ?? 0)
+  !seen.put(datetime.Time.new(8, 0), 1)
+  print(seen.len, seen.get(datetime.Time.new(8, 0)) ?? 0)
 
 test "time text", '''
   08:07:03.512094 08:07:00 08:00:00 08:07:03 08:07:03.5 08:07:03.5 23:59:59
@@ -130,7 +130,7 @@ test "time text", '''
   # `.` or `,`, and `:60` read as `:59`; jiff fmt/temporal/parser.rs
   # `ok_time_basic`, `ok_time_fractional`, `ok_time_leap`.
   print(datetime.Time.parse("08:07:03.512094")!, datetime.Time.parse("08:07")!, datetime.Time.parse("08")!, datetime.Time.parse("T080703")!, datetime.Time.parse("08:07:03,5")!, datetime.Time.parse("T080703.500")!, datetime.Time.parse("23:59:60")!)
-  t = datetime.Time.new(23, 30, 45)!
+  t = datetime.Time.new(23, 30, 45)
   print(datetime.Time.parse("T1230")!, datetime.Time.parse("12:30")!, datetime.Time.parse("t123045")!, datetime.Time.parse("233045")!, datetime.Time.parse("0230")!, datetime.Time.parse("1232")!, datetime.Time.parse(String(t))! == t)
 
 test "time text refused", '''
@@ -152,14 +152,14 @@ test "datetime new, parts, and readers", '''
   2026 11 17 Tuesday 321 30 47 2026 8 7 3 512094000
   2026-11-17T00:00:00 range range
 '''
-  dt = datetime.DateTime.new(2026, 11, 17, 8, 7, 3, 512_094_000)!
+  dt = datetime.DateTime.new(2026, 11, 17, 8, 7, 3, 512_094_000)
   print(dt, dt.date(), dt.time())
   print(dt.year(), dt.month(), dt.day(), dt.weekday(), dt.day_of_year(), dt.days_in_month(), dt.iso_week(), dt.iso_week_year(), dt.hour(), dt.minute(), dt.second(), dt.nanosecond())
   fun try_dt(y: Int, m: Int, d: Int, h: Int) -> String
     r = datetime.DateTime.new(y, m, d, h) catch return String("range")
     String(r)
 
-  print(datetime.DateTime.new(2026, 11, 17)!, try_dt(2023, 2, 29, 0), try_dt(2024, 2, 29, 24))
+  print(datetime.DateTime.new(2026, 11, 17), try_dt(2023, 2, 29, 0), try_dt(2024, 2, 29, 24))
 
 test "datetime add: duration, then the calendar", '''
   2020-02-29T15:00:00 2020-06-01T01:12:38.271986102 2019-10-28T22:46:38.271986102
@@ -170,8 +170,8 @@ test "datetime add: duration, then the calendar", '''
   # `balance_negative_time_units`; §5.2 and §6.2: a bare number is
   # seconds, never days; the calendar amounts by name, and signs may
   # differ between the groups: a day and minus an hour.
-  print(datetime.DateTime.new(2020, 1, 31, 15)!.add(months: 1), datetime.DateTime.new(2020, 5, 31, 23, 12, 38, 271_986_102)!.add(hours: 2), datetime.DateTime.new(2019, 10, 29, 10, 46, 38, 271_986_102)!.add(hours: -12))
-  b = datetime.DateTime.new(1996, 5, 2, 1, 1, 1, 1_001_001)!
+  print(datetime.DateTime.new(2020, 1, 31, 15).add(months: 1), datetime.DateTime.new(2020, 5, 31, 23, 12, 38, 271_986_102).add(hours: 2), datetime.DateTime.new(2019, 10, 29, 10, 46, 38, 271_986_102).add(hours: -12))
+  b = datetime.DateTime.new(1996, 5, 2, 1, 1, 1, 1_001_001)
   print(b.add(ns: -2), b.add(ms: -2), b.add(seconds: -2), b.add(hours: -2))
   dt = datetime.DateTime.parse("2026-03-08T02:30")!
   print(dt.add(days: 1), dt.add(1), dt.add(0.5), dt.add(days: 1, hours: 2), dt.add(days: 1, hours: -1))
@@ -183,8 +183,8 @@ test "datetime add: the order of the groups", '''
   # §6.2: months, then days, then the duration: Jan 31 + 1 month + 1 day
   # at 23:00; Jan 31 + 1 month + 2 hours from 23:00 (clamp, then carry);
   # Feb 29 with `years: 1, months: -12`.
-  print(datetime.DateTime.new(2027, 1, 31, 23)!.add(months: 1, days: 1), datetime.DateTime.new(2027, 1, 31, 23)!.add(time.duration(hours: 2), months: 1), datetime.DateTime.new(2027, 1, 31, 23)!.add(time.duration(hours: -1), months: 1))
-  print(datetime.DateTime.new(2024, 2, 29)!.add(years: 1, months: -12), datetime.DateTime.new(2024, 2, 1)!.add(months: 2, days: -3))
+  print(datetime.DateTime.new(2027, 1, 31, 23).add(months: 1, days: 1), datetime.DateTime.new(2027, 1, 31, 23).add(time.duration(hours: 2), months: 1), datetime.DateTime.new(2027, 1, 31, 23).add(time.duration(hours: -1), months: 1))
+  print(datetime.DateTime.new(2024, 2, 29).add(years: 1, months: -12), datetime.DateTime.new(2024, 2, 1).add(months: 2, days: -3))
 
 test "datetime add at the ends of the range", '''
   9999-12-31T23:59:59.999999999 range range -009999-01-01T00:00:00 range
@@ -193,12 +193,12 @@ test "datetime add at the ends of the range", '''
     r = dt.checked_add(d, days: days) catch return String("range")
     String(r)
 
-  top = datetime.DateTime.new(9999, 12, 31, 23, 59, 59, 999_999_998)!
-  low = datetime.DateTime.new(-9999, 1, 1, 0, 0, 0, 1)!
+  top = datetime.DateTime.new(9999, 12, 31, 23, 59, 59, 999_999_998)
+  low = datetime.DateTime.new(-9999, 1, 1, 0, 0, 0, 1)
   print(top.add(ns: 1), step(top, time.duration(ns: 2), 0), step(top, time.duration(0), 1), low.add(ns: -1), step(low, time.duration(ns: -2), 0))
 
 bomb "datetime add past the last instant panics", "datetime.DateTime.add: 9999-12-31T23:59:59 plus 1s and years: 0, months: 0, weeks: 0, days: 0 is beyond the range, -9999-01-01 to 9999-12-31"
-  dt = datetime.DateTime.new(9999, 12, 31, 23, 59, 59)!
+  dt = datetime.DateTime.new(9999, 12, 31, 23, 59, 59)
   print(dt.add(1))
 
 test "datetime since", '''
@@ -207,11 +207,11 @@ test "datetime since", '''
 '''
   # §6.6: every day 24 hours, exact within 292 years, and beyond them
   # the largest or smallest `Duration`.
-  a = datetime.DateTime.new(2000, 5, 2, 9)!
-  b = datetime.DateTime.new(2000, 5, 5, 10, 30)!
+  a = datetime.DateTime.new(2000, 5, 2, 9)
+  b = datetime.DateTime.new(2000, 5, 5, 10, 30)
   print(b.since(a), a.since(b), a.since(a))
-  top = datetime.DateTime.new(9999, 12, 31)!
-  low = datetime.DateTime.new(-9999, 1, 1)!
+  top = datetime.DateTime.new(9999, 12, 31)
+  low = datetime.DateTime.new(-9999, 1, 1)
   print(top.since(low), low.since(top))
 
 test "datetime counts", '''
@@ -237,16 +237,16 @@ test "datetime counts", '''
     m = d1.months_since(d0)
     `{m} {d1.days_since(d0.add(months: m))} {rest.seconds()}s`
 
-  x = datetime.DateTime.new(2000, 5, 2, 9)!
-  y = datetime.DateTime.new(2000, 5, 5, 10)!
-  z = datetime.DateTime.new(2000, 5, 5, 8)!
+  x = datetime.DateTime.new(2000, 5, 2, 9)
+  y = datetime.DateTime.new(2000, 5, 5, 10)
+  z = datetime.DateTime.new(2000, 5, 5, 8)
   print(y.days_since(x), x.days_since(y), z.days_since(x), x.days_since(z), z.weeks_since(x), z.months_since(x), x.months_since(z), z.years_since(x))
   a = datetime.DateTime.parse("2017-10-05T08:07:14")!
   b = datetime.DateTime.parse("2021-03-05T03:32:45")!
   c = datetime.DateTime.parse("2021-03-05T09:32:45")!
   print(ymd(a, b), a.months_since(b), b.years_since(a), c.years_since(c), a.days_since(a))
-  print(ymd(datetime.DateTime.new(2023, 2, 28, 3)!, datetime.DateTime.new(2023, 4, 1, 2)!), ymd(datetime.DateTime.new(2023, 3, 1, 2)!, datetime.DateTime.new(2023, 1, 1, 3)!))
-  print(datetime.DateTime.new(2022, 2, 28)!.months_since(datetime.DateTime.new(2021, 2, 28)!), datetime.DateTime.new(2022, 2, 28)!.years_since(datetime.DateTime.new(2021, 2, 28)!), datetime.DateTime.new(2022, 2, 27, 23)!.years_since(datetime.DateTime.new(2021, 2, 28)!), datetime.DateTime.new(2021, 3, 28)!.months_since(datetime.DateTime.new(2021, 2, 28, 1)!))
+  print(ymd(datetime.DateTime.new(2023, 2, 28, 3), datetime.DateTime.new(2023, 4, 1, 2)), ymd(datetime.DateTime.new(2023, 3, 1, 2), datetime.DateTime.new(2023, 1, 1, 3)))
+  print(datetime.DateTime.new(2022, 2, 28).months_since(datetime.DateTime.new(2021, 2, 28)), datetime.DateTime.new(2022, 2, 28).years_since(datetime.DateTime.new(2021, 2, 28)), datetime.DateTime.new(2022, 2, 27, 23).years_since(datetime.DateTime.new(2021, 2, 28)), datetime.DateTime.new(2021, 3, 28).months_since(datetime.DateTime.new(2021, 2, 28, 1)))
 
 test "datetime counts in both directions", '''
   61 -61 1 -1 0 0
@@ -270,11 +270,11 @@ test "datetime round and floor", '''
   # tests/tc39_262/civil/datetime/round.rs `balance`, `roundingmode_basic`,
   # `roundingincrement_one_day`, `roundingmode_halfexpand`,
   # `roundingmode_floor`.
-  e = datetime.DateTime.new(1976, 11, 18, 23, 59, 59, 999_999_999)!
+  e = datetime.DateTime.new(1976, 11, 18, 23, 59, 59, 999_999_999)
   print(e.round(days: 1), e.round(hours: 1), e.round(minutes: 1), e.round(seconds: 1), e.round(ms: 1), e.round(us: 1), e.round(ns: 1))
-  dt = datetime.DateTime.new(1976, 11, 18, 14, 23, 30, 123_456_789)!
+  dt = datetime.DateTime.new(1976, 11, 18, 14, 23, 30, 123_456_789)
   print(dt.round(hours: 4), dt.round(minutes: 15), dt.round(seconds: 30), dt.round(ms: 10), dt.round(us: 10), dt.round(ns: 10), dt.round(days: 1))
-  h = datetime.DateTime.new(1976, 11, 18, 14, 23, 30, 123_987_500)!
+  h = datetime.DateTime.new(1976, 11, 18, 14, 23, 30, 123_987_500)
   print(h.round(days: 1), h.round(hours: 1), h.round(minutes: 1), h.round(seconds: 1), h.round(ms: 1), h.round(us: 1))
   print(h.floor(days: 1), h.floor(hours: 1), h.floor(minutes: 1), h.floor(seconds: 1), h.floor(ms: 1), h.floor(us: 1))
 
@@ -286,11 +286,11 @@ test "datetime round past midnight in every year", '''
   # day in a year at or below 0 too, where Jiff 1.0.0 stays on the same
   # day; tests/tc39_262/civil/datetime/round.rs `rounding_direction` (a
   # half to the later) and `limits`.
-  print(datetime.DateTime.new(0, 12, 31, 23, 30)!.round(hours: 1), datetime.DateTime.new(-99, 12, 15, 12)!.round(days: 1), datetime.DateTime.new(-1, 12, 31, 23, 59, 59, 600_000_000)!.round(seconds: 1), datetime.DateTime.new(-99, 12, 15, 12, 0, 0, 500_000_000)!.round(seconds: 1))
-  print(datetime.DateTime.new(-9999, 1, 1, 0, 0, 0, 1)!.floor(us: 1), datetime.DateTime.new(9999, 12, 31, 23, 59, 59, 999_999_499)!.round(us: 1))
+  print(datetime.DateTime.new(0, 12, 31, 23, 30).round(hours: 1), datetime.DateTime.new(-99, 12, 15, 12).round(days: 1), datetime.DateTime.new(-1, 12, 31, 23, 59, 59, 600_000_000).round(seconds: 1), datetime.DateTime.new(-99, 12, 15, 12, 0, 0, 500_000_000).round(seconds: 1))
+  print(datetime.DateTime.new(-9999, 1, 1, 0, 0, 0, 1).floor(us: 1), datetime.DateTime.new(9999, 12, 31, 23, 59, 59, 999_999_499).round(us: 1))
 
 bomb "datetime round past the last day panics", "datetime.DateTime.round: 9999-12-31T23:59:59.999999999 rounds past 9999-12-31"
-  dt = datetime.DateTime.new(9999, 12, 31, 23, 59, 59, 999_999_999)!
+  dt = datetime.DateTime.new(9999, 12, 31, 23, 59, 59, 999_999_999)
   print(dt.round(days: 1))
 
 test "datetime with", '''
@@ -300,20 +300,20 @@ test "datetime with", '''
     r = dt.with(year: year, day: day, hour: hour, minute: minute, second: second) catch return String("range")
     String(r)
 
-  dt = datetime.DateTime.new(2026, 11, 17, 8, 7, 3)!
-  print(change(dt, hour: 0, minute: 0, second: 0), dt.with(year: 2024, month: 2, day: 29)!, change(datetime.DateTime.new(2024, 2, 29)!, year: 2023), change(dt, hour: 24))
+  dt = datetime.DateTime.new(2026, 11, 17, 8, 7, 3)
+  print(change(dt, hour: 0, minute: 0, second: 0), dt.with(year: 2024, month: 2, day: 29)!, change(datetime.DateTime.new(2024, 2, 29), year: 2023), change(dt, hour: 24))
 
 test "datetimes compare, order, and hash", '''
   true false true true
   2
 '''
-  a = datetime.DateTime.new(2024, 2, 29, 23, 59)!
-  b = datetime.DateTime.new(2024, 3, 1)!
-  print(a == datetime.DateTime.new(2024, 2, 29, 23, 59, 0, 0)!, a == b, a < b, a.date() < b.date())
+  a = datetime.DateTime.new(2024, 2, 29, 23, 59)
+  b = datetime.DateTime.new(2024, 3, 1)
+  print(a == datetime.DateTime.new(2024, 2, 29, 23, 59, 0, 0), a == b, a < b, a.date() < b.date())
   seen = Map[datetime.DateTime, Int]()
   !seen.put(a, 1)
   !seen.put(b, 2)
-  !seen.put(datetime.DateTime.new(2024, 3, 1)!, 3)
+  !seen.put(datetime.DateTime.new(2024, 3, 1), 3)
   print(seen.len)
 
 test "datetime text", '''
@@ -323,7 +323,7 @@ test "datetime text", '''
   # §8.1: a date and a time joined by `T`, `t`, or a space; a date alone
   # is midnight; the basic form; `:60` is read as `:59`.
   print(datetime.DateTime.parse("2026-11-17T08:07:03.512094")!, datetime.DateTime.parse("2024-03-10")!, datetime.DateTime.parse("2024-03-10 03:30")!, datetime.DateTime.parse("2024-03-10t0330")!, datetime.DateTime.parse("20240310T1030")!, datetime.DateTime.parse("2024-06-30T23:59:60")!)
-  dt = datetime.DateTime.new(2026, 11, 17, 8, 7, 3, 512_094_000)!
+  dt = datetime.DateTime.new(2026, 11, 17, 8, 7, 3, 512_094_000)
   print(datetime.DateTime.parse(String(dt))! == dt, datetime.DateTime.parse("-000001-01-01")!)
 
 test "datetime text refused", '''
@@ -342,8 +342,8 @@ test "time ends and invalid parts", '''
   range range range range range range range range range range range
 '''
   # jiff civil/time.rs:3202 `min`, 3211 `max`, 3220 `invalid`.
-  lo = datetime.Time.new(0, 0)!
-  hi = datetime.Time.new(23, 59, 59, 999_999_999)!
+  lo = datetime.Time.new(0, 0)
+  hi = datetime.Time.new(23, 59, 59, 999_999_999)
   print(lo.hour(), lo.minute(), lo.second(), lo.nanosecond(), hi.hour(), hi.minute(), hi.second(), hi.nanosecond())
   fun try_time(h: Int, m: Int, s: Int, ns: Int) -> ?String
     _ = datetime.Time.new(h, m, s, ns) catch return "range"
@@ -369,13 +369,13 @@ test "datetime since and counts from Jiff's own tests", '''
     m = d1.months_since(d0)
     `{m / 12} {m % 12} {d1.days_since(d0.add(months: m))}`
 
-  dt = datetime.DateTime.new(1995, 12, 7, 3, 24, 30, 3500)!
+  dt = datetime.DateTime.new(1995, 12, 7, 3, 24, 30, 3500)
   print(dt.round(hours: 1), dt.round(minutes: 30), dt.floor(minutes: 30))
-  later = datetime.DateTime.new(2024, 5, 9, 2)!
-  ahead = datetime.DateTime.new(2024, 5, 10, 3)!
-  print(later.since(datetime.DateTime.new(2024, 5, 8, 3)!), later.days_since(ahead), ahead.since(later.add(days: ahead.days_since(later))), later.days_since(datetime.DateTime.new(2024, 5, 8, 3)!), datetime.DateTime.new(2024, 5, 9, 3)!.days_since(datetime.DateTime.new(2024, 5, 8, 2)!), later.days_since(datetime.DateTime.new(2024, 5, 10, 3)!), datetime.DateTime.new(2024, 5, 9, 3)!.days_since(datetime.DateTime.new(2024, 5, 10, 2)!))
-  a = datetime.DateTime.new(1995, 12, 7, 3, 24, 30, 3500)!
-  b = datetime.DateTime.new(2019, 1, 31, 15, 30)!
-  print(datetime.DateTime.new(9999, 12, 31, 2)!.since(datetime.DateTime.new(9999, 12, 30, 3)!), datetime.DateTime.new(-9999, 1, 1, 3)!.since(datetime.DateTime.new(-9999, 1, 2, 2)!), b.days_since(a), b.since(a.add(days: b.days_since(a))), ymd(a, b), ymd(b, a))
-  jan1 = datetime.DateTime.new(2020, 1, 1)!
-  print(b.since(a).ns(), "ns", datetime.DateTime.new(2020, 2, 1)!.days_since(jan1), datetime.DateTime.new(2020, 2, 1)!.months_since(jan1), datetime.DateTime.new(2020, 3, 1)!.months_since(datetime.DateTime.new(2020, 2, 1)!), datetime.DateTime.new(2020, 3, 1)!.months_since(jan1))
+  later = datetime.DateTime.new(2024, 5, 9, 2)
+  ahead = datetime.DateTime.new(2024, 5, 10, 3)
+  print(later.since(datetime.DateTime.new(2024, 5, 8, 3)), later.days_since(ahead), ahead.since(later.add(days: ahead.days_since(later))), later.days_since(datetime.DateTime.new(2024, 5, 8, 3)), datetime.DateTime.new(2024, 5, 9, 3).days_since(datetime.DateTime.new(2024, 5, 8, 2)), later.days_since(datetime.DateTime.new(2024, 5, 10, 3)), datetime.DateTime.new(2024, 5, 9, 3).days_since(datetime.DateTime.new(2024, 5, 10, 2)))
+  a = datetime.DateTime.new(1995, 12, 7, 3, 24, 30, 3500)
+  b = datetime.DateTime.new(2019, 1, 31, 15, 30)
+  print(datetime.DateTime.new(9999, 12, 31, 2).since(datetime.DateTime.new(9999, 12, 30, 3)), datetime.DateTime.new(-9999, 1, 1, 3).since(datetime.DateTime.new(-9999, 1, 2, 2)), b.days_since(a), b.since(a.add(days: b.days_since(a))), ymd(a, b), ymd(b, a))
+  jan1 = datetime.DateTime.new(2020, 1, 1)
+  print(b.since(a).ns(), "ns", datetime.DateTime.new(2020, 2, 1).days_since(jan1), datetime.DateTime.new(2020, 2, 1).months_since(jan1), datetime.DateTime.new(2020, 3, 1).months_since(datetime.DateTime.new(2020, 2, 1)), datetime.DateTime.new(2020, 3, 1).months_since(jan1))

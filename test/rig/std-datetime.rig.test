@@ -32,7 +32,7 @@ test "weekdays of a week", '''
   for day in 14..22
     !line.add(`{datetime.Date.new(2026, 2, day)!.weekday()} `)
   print(text.trim(line))
-  print(datetime.Date.new(1970, 1, 1)!.weekday(), datetime.Date.new(-9999, 1, 1)!.weekday(), datetime.Date.new(9999, 12, 31)!.weekday())
+  print(datetime.Date.new(1970, 1, 1).weekday(), datetime.Date.new(-9999, 1, 1).weekday(), datetime.Date.new(9999, 12, 31).weekday())
 
 test "date new and readers", '''
   2024-02-29 2024 2 29 60 29
@@ -40,13 +40,13 @@ test "date new and readers", '''
   -000001-01-01 -1 1 1
   0000-12-31 366
 '''
-  d = datetime.Date.new(2024, 2, 29)!
+  d = datetime.Date.new(2024, 2, 29)
   print(d, d.year(), d.month(), d.day(), d.day_of_year(), d.days_in_month())
-  c = datetime.Date.new(1900, 2, 28)!
+  c = datetime.Date.new(1900, 2, 28)
   print(c, c.days_in_month(), c.day_of_year())
-  b = datetime.Date.new(-1, 1, 1)!
+  b = datetime.Date.new(-1, 1, 1)
   print(b, b.year(), b.month(), b.day())
-  print(datetime.Date.new(0, 12, 31)!, datetime.Date.new(0, 12, 31)!.day_of_year())
+  print(datetime.Date.new(0, 12, 31), datetime.Date.new(0, 12, 31).day_of_year())
 
 test "date new refuses what is not a date", '''
   range range range range range range range ok ok
@@ -86,11 +86,11 @@ test "add months clamps to the month's end", '''
   # §6.2 and §12: Jan 31 + 1 month, Feb 29 + 1 year, Jan 31 + 1 month +
   # 1 day (clamp, then days); years and months cancel before the clamp;
   # from the 1st, a month less a day is the month's last day.
-  print(datetime.Date.new(2027, 1, 31)!.add(months: 1), datetime.Date.new(2024, 1, 31)!.add(months: 1), datetime.Date.new(2024, 3, 31)!.add(months: 1), datetime.Date.new(2024, 2, 29)!.add(years: 1))
-  print(datetime.Date.new(2027, 1, 31)!.add(months: 1, days: 1), datetime.Date.new(2024, 1, 31)!.add(months: 1, days: 1))
-  leap = datetime.Date.new(2024, 2, 29)!
+  print(datetime.Date.new(2027, 1, 31).add(months: 1), datetime.Date.new(2024, 1, 31).add(months: 1), datetime.Date.new(2024, 3, 31).add(months: 1), datetime.Date.new(2024, 2, 29).add(years: 1))
+  print(datetime.Date.new(2027, 1, 31).add(months: 1, days: 1), datetime.Date.new(2024, 1, 31).add(months: 1, days: 1))
+  leap = datetime.Date.new(2024, 2, 29)
   print(leap.add(years: 1, months: -12), leap.add(years: -1, months: 12))
-  print(datetime.Date.new(2026, 11, 1)!.add(months: 1, days: -1), datetime.Date.new(2027, 1, 1)!.add(months: 2, days: -1))
+  print(datetime.Date.new(2026, 11, 1).add(months: 1, days: -1), datetime.Date.new(2027, 1, 1).add(months: 2, days: -1))
 
 test "add basic", '''
   2019-11-18 1977-02-18 1976-12-08 2019-02-28
@@ -101,11 +101,11 @@ test "add basic", '''
   # tests/tc39_262/civil/date/add.rs:58 `basic`, 88 `overflow_constrain`,
   # 94 `overflow_reject` (Rig, as Jiff, clamps); jiff civil/date.rs:3543
   # `add_constrained` and the doc examples of `checked_add`.
-  d = datetime.Date.new(1976, 11, 18)!
-  print(d.add(years: 43), d.add(months: 3), d.add(days: 20), datetime.Date.new(2019, 1, 31)!.add(months: 1))
-  print(datetime.Date.new(2019, 11, 18)!.add(years: -43), datetime.Date.new(1977, 2, 18)!.add(months: -3), datetime.Date.new(1976, 12, 8)!.add(days: -20), datetime.Date.new(2019, 2, 28)!.add(months: -1))
-  print(datetime.Date.new(2020, 1, 31)!.add(months: 1), datetime.Date.new(2020, 1, 31)!.add(months: 1))
-  e = datetime.Date.new(2024, 2, 29)!
+  d = datetime.Date.new(1976, 11, 18)
+  print(d.add(years: 43), d.add(months: 3), d.add(days: 20), datetime.Date.new(2019, 1, 31).add(months: 1))
+  print(datetime.Date.new(2019, 11, 18).add(years: -43), datetime.Date.new(1977, 2, 18).add(months: -3), datetime.Date.new(1976, 12, 8).add(days: -20), datetime.Date.new(2019, 2, 28).add(months: -1))
+  print(datetime.Date.new(2020, 1, 31).add(months: 1), datetime.Date.new(2020, 1, 31).add(months: 1))
+  e = datetime.Date.new(2024, 2, 29)
   print(e.add(days: 3), e.add(months: 1, days: 2), e.add(weeks: 0), e.add(years: 1))
 
 test "add weeks, and amounts of mixed sign", '''
@@ -113,7 +113,7 @@ test "add weeks, and amounts of mixed sign", '''
   2024-02-29 2024-03-28 2024-01-31
 '''
   # §6.2: each group with its own sign, in order: months, then days.
-  d = datetime.Date.new(2024, 2, 29)!
+  d = datetime.Date.new(2024, 2, 29)
   print(d.add(weeks: 2), d.add(weeks: -2), d.add(weeks: 1, days: -6))
   print(d.add(weeks: 1, days: -7), d.add(months: 1, days: -1), d.add(months: -1, days: 2))
 
@@ -127,17 +127,17 @@ test "add at the ends of the range", '''
     _ = d.checked_add(years: years, days: days) catch return "range"
     "ok"
 
-  top = datetime.Date.new(9999, 12, 30)!
-  low = datetime.Date.new(-9999, 1, 2)!
+  top = datetime.Date.new(9999, 12, 30)
+  low = datetime.Date.new(-9999, 1, 2)
   print(top.add(days: 1), low.add(days: -1), step(top, 0, 2), step(low, 0, -2), step(top, Int.max, 0), step(low, 0, Int.min))
-  print(datetime.Date.new(9999, 12, 31)!.add(years: -19998, days: -364), datetime.Date.new(-9999, 1, 1)!.add(years: 19998, months: 11, days: 30))
+  print(datetime.Date.new(9999, 12, 31).add(years: -19998, days: -364), datetime.Date.new(-9999, 1, 1).add(years: 19998, months: 11, days: 30))
 
 bomb "add past the last date panics", "datetime.Date.add: 9999-12-31 plus years: 0, months: 0, weeks: 0, days: 1 is beyond the range of dates, -9999-01-01 to 9999-12-31"
-  d = datetime.Date.new(9999, 12, 31)!
+  d = datetime.Date.new(9999, 12, 31)
   print(d.add(days: 1))
 
 bomb "add of more months than an Int holds panics", "datetime.Date.add: 2000-01-01 plus years: 9223372036854775807, months: 0, weeks: 0, days: 0 is beyond the range of dates"
-  d = datetime.Date.new(2000, 1, 1)!
+  d = datetime.Date.new(2000, 1, 1)
   print(d.add(years: Int.max))
 
 test "counts in both directions", '''
@@ -148,14 +148,14 @@ test "counts in both directions", '''
 '''
   # §6.4: `a.days_since(b)` is `-b.days_since(a)`; Jan 31 to Feb 28 is 0
   # months and 28 days; tests/tc39_262/civil/date/until.rs:9 `basic`.
-  a = datetime.Date.new(1969, 7, 24)!
-  b = datetime.Date.new(1969, 10, 5)!
+  a = datetime.Date.new(1969, 7, 24)
+  b = datetime.Date.new(1969, 10, 5)
   print(b.days_since(a), a.days_since(b), b.weeks_since(a), a.weeks_since(b), b.months_since(a), a.months_since(b), b.years_since(a), a.years_since(b))
-  c = datetime.Date.new(2027, 1, 31)!
-  e = datetime.Date.new(2027, 3, 1)!
-  print(e.months_since(c), c.months_since(e), datetime.Date.new(2027, 2, 28)!.months_since(c), c.years_since(e), c.days_since(c), c.months_since(c))
-  print(datetime.Date.new(2027, 2, 28)!.days_since(c), datetime.Date.new(2027, 2, 28)!.months_since(c), datetime.Date.new(2024, 2, 29)!.days_since(datetime.Date.new(2024, 2, 1)!), datetime.Date.new(2024, 2, 29)!.months_since(datetime.Date.new(2024, 2, 1)!))
-  print(datetime.Date.new(2024, 2, 29)!.months_since(datetime.Date.new(2024, 1, 29)!), datetime.Date.new(2024, 2, 29)!.months_since(datetime.Date.new(2024, 1, 30)!), datetime.Date.new(2024, 3, 30)!.months_since(datetime.Date.new(2024, 2, 29)!), datetime.Date.new(2024, 3, 28)!.months_since(datetime.Date.new(2024, 2, 29)!))
+  c = datetime.Date.new(2027, 1, 31)
+  e = datetime.Date.new(2027, 3, 1)
+  print(e.months_since(c), c.months_since(e), datetime.Date.new(2027, 2, 28).months_since(c), c.years_since(e), c.days_since(c), c.months_since(c))
+  print(datetime.Date.new(2027, 2, 28).days_since(c), datetime.Date.new(2027, 2, 28).months_since(c), datetime.Date.new(2024, 2, 29).days_since(datetime.Date.new(2024, 2, 1)), datetime.Date.new(2024, 2, 29).months_since(datetime.Date.new(2024, 2, 1)))
+  print(datetime.Date.new(2024, 2, 29).months_since(datetime.Date.new(2024, 1, 29)), datetime.Date.new(2024, 2, 29).months_since(datetime.Date.new(2024, 1, 30)), datetime.Date.new(2024, 3, 30).months_since(datetime.Date.new(2024, 2, 29)), datetime.Date.new(2024, 3, 28).months_since(datetime.Date.new(2024, 2, 29)))
 
 test "counts of years, weeks, and days", '''
   50 1 12 52 1 12 52
@@ -163,9 +163,9 @@ test "counts of years, weeks, and days", '''
 '''
   # tests/tc39_262/civil/date/until.rs:24 `largestunit_higher_units`, and
   # jiff-core civil/date.rs `until`'s example: the whole range.
-  print(datetime.Date.new(2019, 7, 24)!.years_since(datetime.Date.new(1969, 7, 24)!), datetime.Date.new(2021, 2, 1)!.years_since(datetime.Date.new(2020, 2, 1)!), datetime.Date.new(2021, 2, 1)!.months_since(datetime.Date.new(2020, 2, 1)!), datetime.Date.new(2021, 2, 1)!.weeks_since(datetime.Date.new(2020, 2, 1)!), datetime.Date.new(2022, 2, 28)!.years_since(datetime.Date.new(2021, 2, 28)!), datetime.Date.new(2022, 2, 28)!.months_since(datetime.Date.new(2021, 2, 28)!), datetime.Date.new(2022, 2, 28)!.weeks_since(datetime.Date.new(2021, 2, 28)!))
-  a = datetime.Date.new(1969, 7, 24)!
-  print(datetime.Date.new(1996, 3, 3)!.days_since(a), datetime.Date.new(2019, 7, 24)!.days_since(a), datetime.Date.new(9999, 12, 31)!.days_since(datetime.Date.new(-9999, 1, 1)!), datetime.Date.new(-9999, 1, 1)!.days_since(datetime.Date.new(9999, 12, 31)!))
+  print(datetime.Date.new(2019, 7, 24).years_since(datetime.Date.new(1969, 7, 24)), datetime.Date.new(2021, 2, 1).years_since(datetime.Date.new(2020, 2, 1)), datetime.Date.new(2021, 2, 1).months_since(datetime.Date.new(2020, 2, 1)), datetime.Date.new(2021, 2, 1).weeks_since(datetime.Date.new(2020, 2, 1)), datetime.Date.new(2022, 2, 28).years_since(datetime.Date.new(2021, 2, 28)), datetime.Date.new(2022, 2, 28).months_since(datetime.Date.new(2021, 2, 28)), datetime.Date.new(2022, 2, 28).weeks_since(datetime.Date.new(2021, 2, 28)))
+  a = datetime.Date.new(1969, 7, 24)
+  print(datetime.Date.new(1996, 3, 3).days_since(a), datetime.Date.new(2019, 7, 24).days_since(a), datetime.Date.new(9999, 12, 31).days_since(datetime.Date.new(-9999, 1, 1)), datetime.Date.new(-9999, 1, 1).days_since(datetime.Date.new(9999, 12, 31)))
 
 test "years, months, and days between dates", '''
   0 1 1 0 2 0 -1 -30
@@ -184,15 +184,15 @@ test "years, months, and days between dates", '''
     m = late.months_since(early)
     `{m / 12} {m % 12} {late.days_since(early.add(months: m))}`
 
-  print(ymd(datetime.Date.new(2019, 1, 29)!, datetime.Date.new(2019, 3, 1)!), ymd(datetime.Date.new(2019, 1, 31)!, datetime.Date.new(2019, 3, 31)!), datetime.Date.new(2019, 1, 31)!.months_since(datetime.Date.new(2019, 3, 30)!), datetime.Date.new(2019, 1, 30)!.days_since(datetime.Date.new(2019, 3, 1)!))
-  end = datetime.Date.new(1970, 2, 28)!
-  print(ymd(datetime.Date.new(1970, 1, 29)!, end), ymd(datetime.Date.new(1970, 1, 30)!, end), ymd(datetime.Date.new(1970, 1, 31)!, end))
-  leap_end = datetime.Date.new(1972, 2, 29)!
-  print(ymd(datetime.Date.new(1972, 1, 29)!, leap_end), ymd(datetime.Date.new(1972, 1, 30)!, leap_end), ymd(datetime.Date.new(1972, 1, 31)!, leap_end))
-  nov = datetime.Date.new(1970, 11, 30)!
-  apr = datetime.Date.new(1973, 4, 30)!
-  print(ymd(datetime.Date.new(1970, 8, 30)!, nov), ymd(datetime.Date.new(1970, 8, 31)!, nov), ymd(datetime.Date.new(1970, 12, 30)!, apr), ymd(datetime.Date.new(1970, 12, 31)!, apr))
-  print(ymd(datetime.Date.new(1970, 1, 29)!, datetime.Date.new(1970, 3, 28)!), ymd(datetime.Date.new(1970, 1, 31)!, datetime.Date.new(1971, 5, 30)!), ymd(datetime.Date.new(1969, 7, 24)!, datetime.Date.new(1969, 9, 4)!))
+  print(ymd(datetime.Date.new(2019, 1, 29), datetime.Date.new(2019, 3, 1)), ymd(datetime.Date.new(2019, 1, 31), datetime.Date.new(2019, 3, 31)), datetime.Date.new(2019, 1, 31).months_since(datetime.Date.new(2019, 3, 30)), datetime.Date.new(2019, 1, 30).days_since(datetime.Date.new(2019, 3, 1)))
+  end = datetime.Date.new(1970, 2, 28)
+  print(ymd(datetime.Date.new(1970, 1, 29), end), ymd(datetime.Date.new(1970, 1, 30), end), ymd(datetime.Date.new(1970, 1, 31), end))
+  leap_end = datetime.Date.new(1972, 2, 29)
+  print(ymd(datetime.Date.new(1972, 1, 29), leap_end), ymd(datetime.Date.new(1972, 1, 30), leap_end), ymd(datetime.Date.new(1972, 1, 31), leap_end))
+  nov = datetime.Date.new(1970, 11, 30)
+  apr = datetime.Date.new(1973, 4, 30)
+  print(ymd(datetime.Date.new(1970, 8, 30), nov), ymd(datetime.Date.new(1970, 8, 31), nov), ymd(datetime.Date.new(1970, 12, 30), apr), ymd(datetime.Date.new(1970, 12, 31), apr))
+  print(ymd(datetime.Date.new(1970, 1, 29), datetime.Date.new(1970, 3, 28)), ymd(datetime.Date.new(1970, 1, 31), datetime.Date.new(1971, 5, 30)), ymd(datetime.Date.new(1969, 7, 24), datetime.Date.new(1969, 9, 4)))
 
 test "years, months, and days from Feb 29", '''
   0 11 30 1 0 1 4 0 0 3 11 30
@@ -206,9 +206,9 @@ test "years, months, and days from Feb 29", '''
     m = late.months_since(early)
     `{m / 12} {m % 12} {late.days_since(early.add(months: m))}`
 
-  leap = datetime.Date.new(2024, 2, 29)!
-  print(ymd(leap, datetime.Date.new(2025, 2, 28)!), ymd(leap, datetime.Date.new(2025, 3, 1)!), ymd(leap, datetime.Date.new(2028, 2, 29)!), ymd(leap, datetime.Date.new(2028, 2, 28)!))
-  print(ymd(datetime.Date.new(2024, 1, 31)!, leap), ymd(leap, datetime.Date.new(2024, 3, 29)!))
+  leap = datetime.Date.new(2024, 2, 29)
+  print(ymd(leap, datetime.Date.new(2025, 2, 28)), ymd(leap, datetime.Date.new(2025, 3, 1)), ymd(leap, datetime.Date.new(2028, 2, 29)), ymd(leap, datetime.Date.new(2028, 2, 28)))
+  print(ymd(datetime.Date.new(2024, 1, 31), leap), ymd(leap, datetime.Date.new(2024, 3, 29)))
 
 test "a Feb 29 birthday", '''
   0 1 1 4
@@ -216,9 +216,9 @@ test "a Feb 29 birthday", '''
 '''
   # §6.4: someone born on Feb 29 turns a year older on Mar 1 in a common
   # year (`years_since` is 0 on Feb 28), while `add(years: 1)` clamps.
-  born = datetime.Date.new(2024, 2, 29)!
-  print(datetime.Date.new(2025, 2, 28)!.years_since(born), datetime.Date.new(2025, 3, 1)!.years_since(born), datetime.Date.new(2026, 2, 28)!.years_since(datetime.Date.new(2025, 2, 28)!), datetime.Date.new(2028, 2, 29)!.years_since(born))
-  print(born.add(years: 1), datetime.Date.new(2025, 2, 28)!, born.add(years: 4))
+  born = datetime.Date.new(2024, 2, 29)
+  print(datetime.Date.new(2025, 2, 28).years_since(born), datetime.Date.new(2025, 3, 1).years_since(born), datetime.Date.new(2026, 2, 28).years_since(datetime.Date.new(2025, 2, 28)), datetime.Date.new(2028, 2, 29).years_since(born))
+  print(born.add(years: 1), datetime.Date.new(2025, 2, 28), born.add(years: 4))
 
 test "the period of a recurrence", '''
   0 1 3 4
@@ -226,20 +226,20 @@ test "the period of a recurrence", '''
   # §6.4 and §12: from 2027-01-31 the periods start at `add(months: k)`,
   # so on a clamped month end the count is one short and the index
   # steps up.
-  start = datetime.Date.new(2027, 1, 31)!
+  start = datetime.Date.new(2027, 1, 31)
   fun period(start: datetime.Date, today: datetime.Date) -> Int
     k = today.months_since(start)
     if start.add(months: k + 1) <= today
       k = k + 1
     k
 
-  print(period(start, datetime.Date.new(2027, 2, 27)!), period(start, datetime.Date.new(2027, 2, 28)!), period(start, datetime.Date.new(2027, 4, 30)!), period(start, datetime.Date.new(2027, 5, 31)!))
+  print(period(start, datetime.Date.new(2027, 2, 27)), period(start, datetime.Date.new(2027, 2, 28)), period(start, datetime.Date.new(2027, 4, 30)), period(start, datetime.Date.new(2027, 5, 31)))
 
 test "first and last of the month", '''
   2024-02-01 2024-02-29 2023-02-28 2024-12-31 -009999-01-01 9999-12-31
 '''
   # jiff-core civil/date.rs:1566 `first_of_last_of`.
-  print(datetime.Date.new(2024, 2, 17)!.first_of_month(), datetime.Date.new(2024, 2, 17)!.last_of_month(), datetime.Date.new(2023, 2, 1)!.last_of_month(), datetime.Date.new(2024, 12, 1)!.last_of_month(), datetime.Date.new(-9999, 1, 31)!.first_of_month(), datetime.Date.new(9999, 12, 1)!.last_of_month())
+  print(datetime.Date.new(2024, 2, 17).first_of_month(), datetime.Date.new(2024, 2, 17).last_of_month(), datetime.Date.new(2023, 2, 1).last_of_month(), datetime.Date.new(2024, 12, 1).last_of_month(), datetime.Date.new(-9999, 1, 31).first_of_month(), datetime.Date.new(9999, 12, 1).last_of_month())
 
 test "nth weekday", '''
   2024-03-11 2024-03-17 2024-03-21 2024-03-04 2024-03-03 2024-02-29
@@ -255,14 +255,14 @@ test "nth weekday", '''
     r = d.nth_weekday(n, w) catch return String("range")
     String(r)
 
-  d = datetime.Date.new(2024, 3, 10)!
+  d = datetime.Date.new(2024, 3, 10)
   print(nth(d, 1, .monday), nth(d, 1, .sunday), nth(d, 2, .thursday), nth(d, -1, .monday), nth(d, -1, .sunday), nth(d, -2, .thursday))
-  monday = datetime.Date.new(2026, 11, 16)!
+  monday = datetime.Date.new(2026, 11, 16)
   print(nth(monday, 1, .monday), nth(monday, -1, .monday))
-  print(nth(datetime.Date.new(9999, 12, 24)!, 1, .friday), nth(datetime.Date.new(9999, 12, 30)!, 1, .friday), nth(datetime.Date.new(9999, 12, 31)!, -1, .friday), nth(datetime.Date.new(9999, 12, 31)!, 1, .friday))
-  print(nth(datetime.Date.new(-9999, 1, 8)!, -1, .monday), nth(datetime.Date.new(-9999, 1, 2)!, -1, .monday), nth(datetime.Date.new(-9999, 1, 1)!, 1, .monday), nth(datetime.Date.new(-9999, 1, 1)!, -1, .monday))
-  low = datetime.Date.new(-9999, 1, 1)!
-  top = datetime.Date.new(9999, 12, 31)!
+  print(nth(datetime.Date.new(9999, 12, 24), 1, .friday), nth(datetime.Date.new(9999, 12, 30), 1, .friday), nth(datetime.Date.new(9999, 12, 31), -1, .friday), nth(datetime.Date.new(9999, 12, 31), 1, .friday))
+  print(nth(datetime.Date.new(-9999, 1, 8), -1, .monday), nth(datetime.Date.new(-9999, 1, 2), -1, .monday), nth(datetime.Date.new(-9999, 1, 1), 1, .monday), nth(datetime.Date.new(-9999, 1, 1), -1, .monday))
+  low = datetime.Date.new(-9999, 1, 1)
+  top = datetime.Date.new(9999, 12, 31)
   print(nth(d, 0, .monday), nth(low, 1_043_497, .monday), nth(low, 1_043_498, .monday), nth(top, -1_043_497, .friday), nth(low, Int.min, .monday))
 
 test "nth weekday of the month", '''
@@ -277,10 +277,10 @@ test "nth weekday of the month", '''
     r = d.nth_weekday_of_month(n, w) catch return String("range")
     String(r)
 
-  print(nth(datetime.Date.new(2017, 3, 1)!, 2, .friday), nth(datetime.Date.new(2024, 3, 1)!, -1, .thursday), nth(datetime.Date.new(2024, 3, 25)!, 5, .monday), nth(datetime.Date.new(2024, 3, 25)!, -5, .monday), nth(datetime.Date.new(1998, 1, 1)!, 5, .saturday))
-  d = datetime.Date.new(2017, 3, 1)!
+  print(nth(datetime.Date.new(2017, 3, 1), 2, .friday), nth(datetime.Date.new(2024, 3, 1), -1, .thursday), nth(datetime.Date.new(2024, 3, 25), 5, .monday), nth(datetime.Date.new(2024, 3, 25), -5, .monday), nth(datetime.Date.new(1998, 1, 1), 5, .saturday))
+  d = datetime.Date.new(2017, 3, 1)
   print(nth(d, 0, .tuesday), nth(d, 5, .tuesday), nth(d, -5, .tuesday), nth(d, 6, .tuesday), nth(d, -6, .tuesday), nth(d, 5, .friday), nth(d, -5, .friday))
-  nov = datetime.Date.new(2026, 11, 1)!
+  nov = datetime.Date.new(2026, 11, 1)
   print(nth(nov, 4, .thursday), nth(nov, -1, .friday))
 
 test "nth weekday of every month near the ends", '''
@@ -292,8 +292,8 @@ test "nth weekday of every month near the ends", '''
     r = d.nth_weekday_of_month(n, w) catch return String("range")
     String(r)
 
-  low = datetime.Date.new(-9999, 1, 1)!
-  top = datetime.Date.new(9999, 12, 31)!
+  low = datetime.Date.new(-9999, 1, 1)
+  top = datetime.Date.new(9999, 12, 31)
   print(nth(low, 1, .monday), nth(low, -1, .monday), nth(top, -1, .friday), nth(top, 1, .friday), nth(top, 5, .monday))
 
 test "ISO weeks", '''
@@ -318,7 +318,7 @@ test "with", '''
     r = d.with(year: year, month: month, day: day) catch return String("range")
     String(r)
 
-  d = datetime.Date.new(2024, 2, 29)!
+  d = datetime.Date.new(2024, 2, 29)
   print(change(d, day: 1), change(d, year: 2025, day: 28), change(d, year: 2023), change(d, year: 2023, month: 3, day: 1), change(d, month: 13), change(d, year: 10000))
 
 test "dates compare, order, and hash", '''
@@ -326,16 +326,16 @@ test "dates compare, order, and hash", '''
   -000001-12-31 0000-01-01 2024-02-29
   3 2
 '''
-  a = datetime.Date.new(2024, 2, 29)!
-  b = datetime.Date.new(2024, 3, 1)!
-  print(a == datetime.Date.new(2024, 2, 29)!, a == b, a < b, datetime.Date.new(-1, 12, 31)! < datetime.Date.new(0, 1, 1)!)
-  print(datetime.Date.new(-1, 12, 31)!, datetime.Date.new(0, 1, 1)!, a)
+  a = datetime.Date.new(2024, 2, 29)
+  b = datetime.Date.new(2024, 3, 1)
+  print(a == datetime.Date.new(2024, 2, 29), a == b, a < b, datetime.Date.new(-1, 12, 31) < datetime.Date.new(0, 1, 1))
+  print(datetime.Date.new(-1, 12, 31), datetime.Date.new(0, 1, 1), a)
   seen = Map[datetime.Date, Int]()
   !seen.put(a, 1)
   !seen.put(b, 2)
-  !seen.put(datetime.Date.new(2025, 1, 1)!, 3)
-  !seen.put(datetime.Date.new(2024, 3, 1)!, 2)
-  print(seen.len, seen.get(datetime.Date.new(2024, 3, 1)!) ?? 0)
+  !seen.put(datetime.Date.new(2025, 1, 1), 3)
+  !seen.put(datetime.Date.new(2024, 3, 1), 2)
+  print(seen.len, seen.get(datetime.Date.new(2024, 3, 1)) ?? 0)
 
 test "date text", '''
   2026-11-17 2026-11-17 -000001-01-01 2024-03-10 0000-01-01 9999-12-31
@@ -344,8 +344,8 @@ test "date text", '''
   # §8.1: ISO 8601, a year below 0 with its sign and six digits, and the
   # basic form; `String(d)` is the same text, which reads back.
   print(datetime.Date.parse("2026-11-17")!, datetime.Date.parse("20261117")!, datetime.Date.parse("-000001-01-01")!, datetime.Date.parse("+002024-03-10")!, datetime.Date.parse("0000-01-01")!, datetime.Date.parse("9999-12-31")!)
-  d = datetime.Date.new(2026, 11, 17)!
-  print(datetime.Date.parse(String(d))! == d, String(datetime.Date.new(-1, 1, 1)!))
+  d = datetime.Date.new(2026, 11, 17)
+  print(datetime.Date.parse(String(d))! == d, String(datetime.Date.new(-1, 1, 1)))
 
 test "date text refused", '''
   DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid
@@ -388,13 +388,13 @@ test "counts from Jiff's own tests", '''
     m = late.months_since(early)
     `{m} {late.days_since(early.add(months: m))}`
 
-  print(ymd(datetime.Date.new(2023, 4, 15)!, datetime.Date.new(2019, 2, 22)!), ymd(datetime.Date.new(2023, 2, 22)!, datetime.Date.new(2019, 4, 15)!), ymd(datetime.Date.new(9999, 12, 31)!, datetime.Date.new(-9999, 1, 1)!))
-  print(md(datetime.Date.new(2024, 7, 24)!, datetime.Date.new(2024, 2, 22)!), md(datetime.Date.new(2024, 7, 15)!, datetime.Date.new(2024, 2, 22)!), md(datetime.Date.new(2023, 4, 15)!, datetime.Date.new(2023, 2, 22)!), md(datetime.Date.new(2023, 4, 15)!, datetime.Date.new(2019, 2, 22)!), datetime.Date.new(2024, 7, 15)!.weeks_since(datetime.Date.new(2024, 6, 22)!), datetime.Date.new(2024, 7, 15)!.days_since(datetime.Date.new(2024, 6, 22)!) % 7, datetime.Date.new(2024, 7, 15)!.days_since(datetime.Date.new(2024, 2, 22)!), datetime.Date.new(2024, 2, 22)!.days_since(datetime.Date.new(2024, 7, 15)!))
-  jan1 = datetime.Date.new(2020, 1, 1)!
-  feb1 = datetime.Date.new(2020, 2, 1)!
-  mar1 = datetime.Date.new(2020, 3, 1)!
-  print(feb1.months_since(jan1), mar1.months_since(feb1), mar1.months_since(jan1), datetime.Date.new(2020, 4, 30)!.months_since(datetime.Date.new(2020, 2, 29)!), md(datetime.Date.new(2020, 4, 30)!, datetime.Date.new(2020, 2, 29)!))
-  print(md(datetime.Date.new(2023, 5, 31)!, datetime.Date.new(2024, 4, 30)!), md(datetime.Date.new(2023, 5, 31)!, datetime.Date.new(2023, 6, 30)!), md(datetime.Date.new(-9999, 12, 1)!, datetime.Date.new(-9999, 1, 2)!), md(datetime.Date.new(9999, 1, 2)!, datetime.Date.new(9999, 12, 1)!))
+  print(ymd(datetime.Date.new(2023, 4, 15), datetime.Date.new(2019, 2, 22)), ymd(datetime.Date.new(2023, 2, 22), datetime.Date.new(2019, 4, 15)), ymd(datetime.Date.new(9999, 12, 31), datetime.Date.new(-9999, 1, 1)))
+  print(md(datetime.Date.new(2024, 7, 24), datetime.Date.new(2024, 2, 22)), md(datetime.Date.new(2024, 7, 15), datetime.Date.new(2024, 2, 22)), md(datetime.Date.new(2023, 4, 15), datetime.Date.new(2023, 2, 22)), md(datetime.Date.new(2023, 4, 15), datetime.Date.new(2019, 2, 22)), datetime.Date.new(2024, 7, 15).weeks_since(datetime.Date.new(2024, 6, 22)), datetime.Date.new(2024, 7, 15).days_since(datetime.Date.new(2024, 6, 22)) % 7, datetime.Date.new(2024, 7, 15).days_since(datetime.Date.new(2024, 2, 22)), datetime.Date.new(2024, 2, 22).days_since(datetime.Date.new(2024, 7, 15)))
+  jan1 = datetime.Date.new(2020, 1, 1)
+  feb1 = datetime.Date.new(2020, 2, 1)
+  mar1 = datetime.Date.new(2020, 3, 1)
+  print(feb1.months_since(jan1), mar1.months_since(feb1), mar1.months_since(jan1), datetime.Date.new(2020, 4, 30).months_since(datetime.Date.new(2020, 2, 29)), md(datetime.Date.new(2020, 4, 30), datetime.Date.new(2020, 2, 29)))
+  print(md(datetime.Date.new(2023, 5, 31), datetime.Date.new(2024, 4, 30)), md(datetime.Date.new(2023, 5, 31), datetime.Date.new(2023, 6, 30)), md(datetime.Date.new(-9999, 12, 1), datetime.Date.new(-9999, 1, 2)), md(datetime.Date.new(9999, 1, 2), datetime.Date.new(9999, 12, 1)))
 
 test "invalid days", '''
   range range range ok range range
