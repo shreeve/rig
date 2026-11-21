@@ -84,7 +84,7 @@ pub obj DateTime: Eq + Ord + Hash + Print
   # days; then the duration, every day 24 hours. Each is of either sign.
   # Panics when a step leaves the range; `checked_add` fails instead.
   pub fun add(?@, d: time.Duration? = none, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> DateTime
-    datetime_add(@, d, total_months(years, months), total_days(weeks, days)) ?? panic("datetime.DateTime.add: the date and time", @, "and", years, "years,", months, "months,", weeks, "weeks,", days, "days and", d ?? time.duration(0), "is beyond the range, -9999-01-01 to 9999-12-31")
+    datetime_add(@, d, total_months(years, months), total_days(weeks, days)) ?? panic("datetime.DateTime.add:", @, "plus", d ?? time.duration(0), `and years: {years}, months: {months}, weeks: {weeks}, days: {days} is beyond the range, -9999-01-01 to 9999-12-31`)
 
   # `add`, failing with `DateTimeError.range` where it would panic.
   pub fun checked_add(?@, d: time.Duration? = none, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> DateTime!
@@ -186,5 +186,5 @@ fun datetime_multiple(dt: DateTime, inc: Int, down: Bool) -> DateTime
   n = clock_multiple(dt.at.total(), inc, down)
   if n < DAY_NS
     return DateTime(on: dt.on, at: time_at(n))
-  next = day_step(dt.on.number(), 1) ?? panic("datetime.DateTime.round: the date and time", dt, "rounds past 9999-12-31")
+  next = day_step(dt.on.number(), 1) ?? panic("datetime.DateTime.round:", dt, "rounds past 9999-12-31")
   DateTime(on: date_of(next), at: time_at(n - DAY_NS))

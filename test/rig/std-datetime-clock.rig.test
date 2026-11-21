@@ -197,7 +197,7 @@ test "datetime add at the ends of the range", '''
   low = datetime.DateTime.new(-9999, 1, 1, 0, 0, 0, 1)!
   print(top.add(ns: 1), step(top, time.duration(ns: 2), 0), step(top, time.duration(0), 1), low.add(ns: -1), step(low, time.duration(ns: -2), 0))
 
-bomb "datetime add past the last instant panics", "datetime.DateTime.add: the date and time 9999-12-31T23:59:59 and 0 years, 0 months, 0 weeks, 0 days and 1s is beyond the range"
+bomb "datetime add past the last instant panics", "datetime.DateTime.add: 9999-12-31T23:59:59 plus 1s and years: 0, months: 0, weeks: 0, days: 0 is beyond the range, -9999-01-01 to 9999-12-31"
   dt = datetime.DateTime.new(9999, 12, 31, 23, 59, 59)!
   print(dt.add(1))
 
@@ -289,7 +289,7 @@ test "datetime round past midnight in every year", '''
   print(datetime.DateTime.new(0, 12, 31, 23, 30)!.round(hours: 1), datetime.DateTime.new(-99, 12, 15, 12)!.round(days: 1), datetime.DateTime.new(-1, 12, 31, 23, 59, 59, 600_000_000)!.round(seconds: 1), datetime.DateTime.new(-99, 12, 15, 12, 0, 0, 500_000_000)!.round(seconds: 1))
   print(datetime.DateTime.new(-9999, 1, 1, 0, 0, 0, 1)!.floor(us: 1), datetime.DateTime.new(9999, 12, 31, 23, 59, 59, 999_999_499)!.round(us: 1))
 
-bomb "datetime round past the last day panics", "datetime.DateTime.round: the date and time 9999-12-31T23:59:59.999999999 rounds past 9999-12-31"
+bomb "datetime round past the last day panics", "datetime.DateTime.round: 9999-12-31T23:59:59.999999999 rounds past 9999-12-31"
   dt = datetime.DateTime.new(9999, 12, 31, 23, 59, 59, 999_999_999)!
   print(dt.round(days: 1))
 
@@ -372,7 +372,8 @@ test "datetime since and counts from Jiff's own tests", '''
   dt = datetime.DateTime.new(1995, 12, 7, 3, 24, 30, 3500)!
   print(dt.round(hours: 1), dt.round(minutes: 30), dt.floor(minutes: 30))
   later = datetime.DateTime.new(2024, 5, 9, 2)!
-  print(later.since(datetime.DateTime.new(2024, 5, 8, 3)!), later.since(datetime.DateTime.new(2024, 5, 10, 3)!).hours() / 24, "1h", later.days_since(datetime.DateTime.new(2024, 5, 8, 3)!), datetime.DateTime.new(2024, 5, 9, 3)!.days_since(datetime.DateTime.new(2024, 5, 8, 2)!), later.days_since(datetime.DateTime.new(2024, 5, 10, 3)!), datetime.DateTime.new(2024, 5, 9, 3)!.days_since(datetime.DateTime.new(2024, 5, 10, 2)!))
+  ahead = datetime.DateTime.new(2024, 5, 10, 3)!
+  print(later.since(datetime.DateTime.new(2024, 5, 8, 3)!), later.days_since(ahead), ahead.since(later.add(days: ahead.days_since(later))), later.days_since(datetime.DateTime.new(2024, 5, 8, 3)!), datetime.DateTime.new(2024, 5, 9, 3)!.days_since(datetime.DateTime.new(2024, 5, 8, 2)!), later.days_since(datetime.DateTime.new(2024, 5, 10, 3)!), datetime.DateTime.new(2024, 5, 9, 3)!.days_since(datetime.DateTime.new(2024, 5, 10, 2)!))
   a = datetime.DateTime.new(1995, 12, 7, 3, 24, 30, 3500)!
   b = datetime.DateTime.new(2019, 1, 31, 15, 30)!
   print(datetime.DateTime.new(9999, 12, 31, 2)!.since(datetime.DateTime.new(9999, 12, 30, 3)!), datetime.DateTime.new(-9999, 1, 1, 3)!.since(datetime.DateTime.new(-9999, 1, 2, 2)!), b.days_since(a), b.since(a.add(days: b.days_since(a))), ymd(a, b), ymd(b, a))

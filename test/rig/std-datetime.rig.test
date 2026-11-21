@@ -132,11 +132,11 @@ test "add at the ends of the range", '''
   print(top.add(days: 1), low.add(days: -1), step(top, 0, 2), step(low, 0, -2), step(top, Int.max, 0), step(low, 0, Int.min))
   print(datetime.Date.new(9999, 12, 31)!.add(years: -19998, days: -364), datetime.Date.new(-9999, 1, 1)!.add(years: 19998, months: 11, days: 30))
 
-bomb "add past the last date panics", "datetime.Date.add: the date 9999-12-31 and 0 years, 0 months, 0 weeks and 1 days is beyond the range of dates"
+bomb "add past the last date panics", "datetime.Date.add: 9999-12-31 plus years: 0, months: 0, weeks: 0, days: 1 is beyond the range of dates, -9999-01-01 to 9999-12-31"
   d = datetime.Date.new(9999, 12, 31)!
   print(d.add(days: 1))
 
-bomb "add of more months than an Int holds panics", "and 9223372036854775807 years, 0 months, 0 weeks and 0 days is beyond the range of dates"
+bomb "add of more months than an Int holds panics", "datetime.Date.add: 2000-01-01 plus years: 9223372036854775807, months: 0, weeks: 0, days: 0 is beyond the range of dates"
   d = datetime.Date.new(2000, 1, 1)!
   print(d.add(years: Int.max))
 

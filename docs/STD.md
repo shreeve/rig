@@ -966,8 +966,8 @@ DateTimeError.invalid
 The rest of `std.datetime` is planned
 ([design/datetime.md](design/datetime.md)): the wall clock's `Instant`,
 `ZonedDateTime`, `TimeZone`, and `format`, each built on `std.time`'s
-`Duration`. Until `Instant` lands, `time.unix_ns()` reads the wall
-clock. The whole surface, as it will read:
+`Duration`. `time.unix_ns()` reads the wall clock (planned to move to
+`Instant`). The whole surface, as it will read:
 
 ```rig pending
 use std.time

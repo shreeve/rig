@@ -105,7 +105,7 @@ pub obj Date: Eq + Ord + Hash + Print
   # Mar 1. Panics when either step leaves the range; `checked_add`
   # fails instead.
   pub fun add(?@, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> Date
-    date_add(@, total_months(years, months), total_days(weeks, days)) ?? panic("datetime.Date.add: the date", @, "and", years, "years,", months, "months,", weeks, "weeks and", days, "days is beyond the range of dates, -9999-01-01 to 9999-12-31")
+    date_add(@, total_months(years, months), total_days(weeks, days)) ?? panic("datetime.Date.add:", @, `plus years: {years}, months: {months}, weeks: {weeks}, days: {days} is beyond the range of dates, -9999-01-01 to 9999-12-31`)
 
   # `add`, failing with `DateTimeError.range` where it would panic.
   pub fun checked_add(?@, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> Date!
