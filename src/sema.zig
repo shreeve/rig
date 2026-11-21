@@ -11681,12 +11681,15 @@ pub fn chanValue(ctx: *const SemContext, ty: TypeId) ?TypeId {
     };
 }
 
-/// The `T` of the `Chan[T]` a handle `*Chan[T]`, or a view of one,
-/// reaches; null for any other type.
+/// The `T` of the `Chan[T]` a handle `*Chan[T]`, a view of one, or a
+/// view of the channel itself (`!Chan[T]`) reaches; null for any other
+/// type. A `Chan[T]` stands only behind a handle, so a view of one is
+/// a view of the value a handle holds.
 pub fn chanOfHandle(ctx: *const SemContext, ty: TypeId) ?TypeId {
-    return switch (ctx.types.get(unwrapViews(ctx, ty))) {
-        .shared => |inner| chanValue(ctx, inner),
-        else => null,
+    const inner = unwrapViews(ctx, ty);
+    return switch (ctx.types.get(inner)) {
+        .shared => |held| chanValue(ctx, held),
+        else => if (inner != ty) chanValue(ctx, inner) else null,
     };
 }
 

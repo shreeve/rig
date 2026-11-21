@@ -1234,3 +1234,157 @@ fail "chan views a write in the arguments", "cannot change `xs` while a write vi
   xs = List[*Chan[Int]]()
   !xs.push(*Chan[Int](1))
   !xs[0].send(grow(!xs))!
+
+test "chan select through a write view of the channel", seeds: 20, '''
+  got 1
+  put
+  got 7
+  late
+  got 3
+'''
+  # A write view of a channel, `!Chan[T]`, is an arm as its handle is:
+  # it receives and sends, and a deadline arm stands beside it.
+  use std.time
+
+  sub take(ch: !Chan[Int])!
+    !ch.send(1)!
+    match task.select(got: !ch.on_recv())!
+      .got(v?) => print("got", v)
+      .got(none) => print("closed")
+    match task.select(got: !ch.on_recv(), put: !ch.on_send(7))!
+      .got(v?) => print("got", v)
+      .got(none) => print("closed")
+      .put => print("put")
+
+  sub poll(ch: !Chan[Int])!
+    match task.select(got: !ch.on_recv(), late: time.after(ms: 1))!
+      .got(v?) => print("got", v)
+      .got(none) => print("closed")
+      .late => print("late")
+
+  # The handle's own form, beside it.
+  sub takeh(ch: !*Chan[Int])!
+    match task.select(got: !ch.on_recv())!
+      .got(v?) => print("got", v)
+      .got(none) => print("closed")
+
+  c = *Chan[Int](2)
+  take(!c)!
+  takeh(!c)!
+  poll(!c)!
+  w: !Chan[Int] = !c
+  !w.send(3)!
+  match task.select(got: !w.on_recv())!
+    .got(v?) => print("got", v)
+    .got(none) => print("closed")
+
+test "chan select through a write view leaves the handle read-only", seeds: 20, timeout: 10, "5 6 7"
+  # A task that selects through a write view of the caller's channel
+  # leaves the handle read-only, not unusable: its own calls, another
+  # read view, and another write view go on while the task runs.
+  fun take(ch: !Chan[Int]) -> Int!
+    match task.select(got: !ch.on_recv())!
+      .got(v?) => v
+      .got(none) => -1
+
+  sub give(ch: !Chan[Int], v: Int)!
+    !ch.send(v)!
+
+  c = *Chan[Int](2)
+  t = take(!c)&
+  !c.send(5)!
+  r = ?c
+  give(!c, 6)!
+  got = >t!
+  !c.send(7)!
+  _ = r
+  print(got, !c.recv()! ?? -1, !c.recv()! ?? -1)
+
+fail "chan select through a write view keeps the handle", "13:1: cannot reassign `c` while a write view of it is still in use", "17:2: cannot drop `d` while a write view of it is still in use", "21:8: cannot make a write view of the handle `e` while a write view of it is still in use", errors: 3
+  # While the task holds its write view, the handle is neither
+  # reassigned, dropped, nor given as a write view of itself.
+  fun take(ch: !Chan[Int]) -> Int!
+    match task.select(got: !ch.on_recv())!
+      .got(v?) => v
+      .got(none) => -1
+
+  sub reset(h: !*Chan[Int])
+    h = *Chan[Int](1)
+
+  c = *Chan[Int](2)
+  t = take(!c)&
+  c = *Chan[Int](1)
+  >t!
+  d = *Chan[Int](2)
+  u = take(!d)&
+  <d
+  >u!
+  e = *Chan[Int](2)
+  v = take(!e)&
+  reset(!e)
+  >v!
+
+test "chan select races two write views", seeds: 20, timeout: 10, "3 3"
+  # Two write views race in one select, named arms and the old spelling
+  # alike; each closed channel ends its side.
+  use std.time
+
+  sub feed(ch: *Chan[Int], n: Int)!
+    for i in 1..=n
+      !ch.send(i)!
+    !ch.close()
+
+  fun drain(a: !Chan[Int], b: !Chan[Int]) -> Int!
+    n = 0
+    a_open = true
+    b_open = true
+    while a_open or b_open
+      match task.select(add: !a.on_recv(), sub: !b.on_recv(), late: time.after(1))!
+        .add(v?) => n += v
+        .add(none) => a_open = false
+        .sub(v?) => n -= v
+        .sub(none) => b_open = false
+        .late => n += 0
+    n
+
+  fun first(a: !Chan[Int], b: !Chan[Int]) -> Int!
+    task.select((!a).on_recv(|v| v ?? -1), (!b).on_recv(|v| v ?? -2))!
+
+  a = *Chan[Int](4)
+  b = *Chan[Int](4)
+  fa = feed(+a, 3)&
+  fb = feed(+b, 3)&
+  n = drain(!a, !b)!
+  >fa!
+  >fb!
+  c = *Chan[Int](1)
+  d = *Chan[Int](1)
+  !d.send(3)!
+  print(n + 3, first(!c, !d)!)
+
+test "chan select through a write view its select holds first", seeds: 20, "y v"
+  # A write view an arm makes by a call is evaluated in its turn, before
+  # a later arm's value that can fail, and the arm reads it where it is
+  # held.
+  error Bad
+    neg
+
+  fun via(ch: !Chan[String]) -> !Chan[String] from ch
+    ch
+
+  fun mk(n: Int) -> String!
+    if n < 0
+      return Bad.neg
+    String("v")
+
+  e = *Chan[String](1)
+  f = *Chan[String](1)
+  !e.send(String("full"))!
+  match task.select(x: !via(!e).on_send(String("a")), y: !via(!f).on_send(mk(1)!))!
+    .x => print("x")
+    .y => print("y", !f.recv()! ?? String(""))
+
+fail "chan select through a read view of the channel", "3:25: cannot make a write view through a read view `?Chan[Int]`", errors: 1
+  # A read view of a channel changes nothing, so it is no arm.
+  sub take(ch: ?Chan[Int])!
+    _ = task.select(got: !ch.on_recv())!

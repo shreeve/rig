@@ -5112,6 +5112,7 @@ test/reject/concurrency/chan_select_arms_make_write_views.rig main
 test/reject/concurrency/chan_select_named_sends_what_it_moves.rig main
 test/reject/concurrency/chan_select_named_in_a_block_a_view_escapes.rig main
 test/reject/concurrency/chan_select_end_keeps_the_task_viewed.rig main
+test/reject/concurrency/chan_select_through_a_write_view_keeps_the_handle.rig main
 test/reject/concurrency/chan_send_arm_stores_no_view.rig stash
 test/reject/concurrency/chan_send_arm_stores_no_view.rig old
 test/reject/concurrency/task_write_view_read.rig main
