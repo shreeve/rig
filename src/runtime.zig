@@ -8784,10 +8784,12 @@ fn writeTrace(w: *std.Io.Writer, addresses: []const usize, count: usize) void {
     defer arena.deinit();
     const a = arena.allocator();
     // The file each table's module is, by its anchor's address, named as
-    // the debug information names a trace's addresses.
+    // the debug information names a trace's addresses: read for a table
+    // only once it has a site at an address's line and column, so a
+    // batch of many programs reads a few.
     const tables = comptime siteTables();
     var files: [tables.len]?[]const u8 = @splat(null);
-    for (tables, &files) |t, *file| file.* = fileAt(info, debug_io, a, @intFromPtr(t.anchor));
+    var read: [tables.len]bool = @splat(false);
     const n = @min(count, addresses.len);
     for (addresses[0..n]) |addr| {
         var symbols: std.ArrayList(std.debug.Symbol) = .empty;
@@ -8795,9 +8797,14 @@ fn writeTrace(w: *std.Io.Writer, addresses: []const usize, count: usize) void {
         info.getSymbols(debug_io, a, a, addr -| 1, false, &symbols) catch continue;
         for (symbols.items) |sym| {
             const loc = sym.source_location orelse continue;
-            for (tables, files) |t, file| {
-                if (!std.mem.eql(u8, file orelse continue, loc.file_name)) continue;
-                if (placeAt(t.text, loc.line, loc.column)) |place| w.print("  {s}\n", .{place}) catch {};
+            for (tables, &files, &read) |t, *file, *done| {
+                const place = placeAt(t.text, loc.line, loc.column) orelse continue;
+                if (!done.*) {
+                    file.* = fileAt(info, debug_io, a, @intFromPtr(t.anchor));
+                    done.* = true;
+                }
+                if (!std.mem.eql(u8, file.* orelse continue, loc.file_name)) continue;
+                w.print("  {s}\n", .{place}) catch {};
                 break;
             }
         }
@@ -8823,6 +8830,7 @@ fn fileAt(info: anytype, debug_io: std.Io, a: std.mem.Allocator, addr: usize) ?[
 /// build's unit or `rig test`'s driver is the root of), its own, then
 /// those of the modules it names (`__rig_sites_of`).
 fn siteTables() []const SiteTable {
+    @setEvalBranchQuota(eval_quota);
     const programs = if (@hasDecl(root, "__rig_site_programs")) root.__rig_site_programs else if (@hasDecl(root, "__rig_program")) .{root.__rig_program} else .{root};
     var tables: []const SiteTable = &.{};
     inline for (programs) |p| {

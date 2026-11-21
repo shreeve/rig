@@ -222,6 +222,16 @@ On the Mac, through `tools/heavy`, at the branch's last commit:
   to bring up to date, a split build that dropped the owner unit's
   sites (fixed, above), and units.sh's removing the objects a kept
   build's debug information lives in, so a second run printed no trace.
+- After review: each finding has a case that failed first
+  (test/cli/trace_build.sh for the older executable's places and the
+  embedded zero bytes, which crashed `rig`; errors-trace's nested tasks
+  without seeds; the deep trace and the `defer` that catches, which
+  pass as SPEC now says), and the same gates passed again with the
+  fixes and the function names.
+- The release guards were measured before the review's fixes; those
+  add nothing to a release build: the tables and `__rig_sites_of` are
+  compiled only where traces are kept, and the runtime's new code is
+  behind the same test.
 - tools/emit-diff against main (a27de8024, whose changes since the base
   are docs only) differs in 36 of 38 programs, every difference
   explained: a table of sites (`__rig_sites`) at the end of each module
