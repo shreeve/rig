@@ -1,0 +1,21 @@
+# An HTTP-ish client, v1 of the library, called positionally (accepted today).
+use std.time
+
+obj Req
+  url: Static
+  timeout: time.Duration
+  retries: Int
+  follow: Bool
+
+fun request(url: Static, timeout: time.Duration? = none, retries: Int = 3, follow: Bool = true) -> Req
+  Req(url: url, timeout: timeout ?? time.duration(10), retries: retries, follow: follow)
+
+sub show(r: Req)
+  print(r.url, "timeout", r.timeout, "retries", r.retries, "follow", r.follow)
+
+sub main()
+  show(request("/a", 30, 2))          # meant: 30 s, 2 retries
+  show(request("/b", 2, 30))          # swapped by mistake: 2 s, 30 retries; compiles
+  show(request("/c", 30, 2, false))
+  show(request("/d", seconds: 30, retries: 2))   # unit keyword names the Duration
+  show(request("/e", timeout: 30, retries: 2))   # bare number by the parameter's name

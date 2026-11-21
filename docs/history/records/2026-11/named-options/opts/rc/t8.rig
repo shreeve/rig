@@ -1,0 +1,6 @@
+obj Inner
+  a: Int = 1
+fun g(i: Inner = Inner(), n: Int = 0) -> Int
+  i.a + n
+sub main()
+  print(g())

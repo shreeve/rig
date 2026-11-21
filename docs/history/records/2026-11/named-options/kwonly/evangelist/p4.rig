@@ -1,0 +1,10 @@
+fun scaled(n: Int, by: Int = 10) -> Int
+  n * by
+fun twice[T](x: T, f: fun(T) -> T) -> T
+  f(f(x))
+fun big[T: Ord](x: T) -> Int
+  scaled(3, by: 2)
+sub main()
+  print(big(1))
+  g = scaled
+  print(g(3, 4))

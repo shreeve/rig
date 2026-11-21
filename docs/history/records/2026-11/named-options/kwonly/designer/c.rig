@@ -1,0 +1,11 @@
+sub repeat(times: Int = 1, f: ?sub(Int))
+  for i in 0..times
+    f(i)
+
+fun fmt(n: Int, base: Int = 10, upper: Bool = false) -> Int
+  n + base
+
+sub main()
+  repeat(|i| print("x", i))
+  m = Map[Int, Int].new(16)
+  print(m.len)

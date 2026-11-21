@@ -1,0 +1,27 @@
+use std.bigint
+use std.file
+use std.hint
+use std.http
+use std.io
+use std.json
+use std.math
+use std.net
+use std.os
+use std.par
+use std.random
+use std.shared
+use std.slices
+use std.sort
+use std.target
+use std.task
+use std.terminal
+use std.text
+use std.time
+use std.unicode
+use std.utf16
+use std.utf8
+use std.crypto
+use std.datetime
+
+sub main()
+  print(1)

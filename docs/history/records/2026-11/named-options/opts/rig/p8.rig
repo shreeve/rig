@@ -1,0 +1,6 @@
+fun connect(host: ?String, port: Int, timeout: Int = 30, retry: Bool = true) -> Int
+  port + timeout
+sub main()
+  g = connect
+  print(g("h", 1, 2, false))
+  o = ..x

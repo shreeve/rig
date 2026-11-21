@@ -1,0 +1,6 @@
+sub add(dst: !List[Int], n: Int)
+  !dst.push(n)
+sub main()
+  dst = List[Int]()
+  add(dst: dst, n: 1)
+  print(dst.len)

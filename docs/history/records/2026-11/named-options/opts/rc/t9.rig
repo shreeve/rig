@@ -1,0 +1,4 @@
+fun g(xs: List[Int] = List(), n: Int = 0) -> Int
+  xs.len + n
+sub main()
+  print(g())

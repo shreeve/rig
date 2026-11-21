@@ -1,0 +1,5 @@
+obj R
+  n: Int = 3
+sub main()
+  r = R(5)
+  print(r.n)

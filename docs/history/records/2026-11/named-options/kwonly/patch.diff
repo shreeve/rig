@@ -1,0 +1,238 @@
+diff --git i/src/kwonly.zig w/src/kwonly.zig
+new file mode 100644
+index 000000000..096f4a1dc
+--- /dev/null
++++ w/src/kwonly.zig
+@@ -0,0 +1,36 @@
++//! TEMPORARY measurement: logs calls that pass a defaulted non-first
++//! parameter by position, and functions with one used as values.
++const std = @import("std");
++const diag = @import("diag.zig");
++
++pub var cur_path: []const u8 = "";
++pub var root_path: []const u8 = "";
++var fd: ?std.posix.fd_t = null;
++var failed = false;
++const log_path = "/private/tmp/claude-501/-Users-shreeve-Data-Code-undat/6fff74ce-077f-4bc9-afce-9c419f622ac3/scratchpad/kwonly/raw.log";
++
++fn clean(buf: []u8, s: []const u8) []const u8 {
++    const n = @min(buf.len, s.len);
++    for (s[0..n], 0..) |c, i| buf[i] = if (c == '\t' or c == '\n' or c == '\r') ' ' else c;
++    return buf[0..n];
++}
++
++/// kind, root, path, line:col, callee, param index, param name, argument text, source line
++pub fn log(kind: []const u8, source: []const u8, pos: u32, callee: []const u8, pidx: usize, pname: []const u8, arg: []const u8) void {
++    if (fd == null) {
++        if (failed) return;
++        fd = std.posix.openat(std.posix.AT.FDCWD, log_path, .{ .ACCMODE = .WRONLY, .CREAT = true, .APPEND = true }, 0o644) catch {
++            failed = true;
++            return;
++        };
++    }
++    const lc = diag.lineCol(source, pos);
++    const p = @min(pos, source.len);
++    const start = if (std.mem.lastIndexOfScalar(u8, source[0..p], '\n')) |i| i + 1 else 0;
++    const end = std.mem.indexOfScalarPos(u8, source, p, '\n') orelse source.len;
++    var b1: [400]u8 = undefined;
++    var b2: [600]u8 = undefined;
++    var buf: [4096]u8 = undefined;
++    const line = std.mem.print(&buf, "{s}\t{s}\t{s}\t{d}:{d}\t{s}\t{d}\t{s}\t{s}\t{s}\n", .{ kind, root_path, cur_path, lc.line, lc.col, callee, pidx, pname, clean(&b1, arg), clean(&b2, std.mem.trim(u8, source[start..end], " \t")) }) catch return;
++    _ = std.c.write(fd.?, line.ptr, line.len);
++}
+diff --git i/src/modules.zig w/src/modules.zig
+index b92413e85..5ab9fd7dc 100644
+--- i/src/modules.zig
++++ w/src/modules.zig
+@@ -46,6 +46,7 @@ const proofs = @import("proofs.zig");
+ const ownership = @import("ownership.zig");
+ const diag = @import("diag.zig");
+ const timing = @import("timing.zig");
++const kwonly = @import("kwonly.zig");
+ const ir = parser.ir;
+ const std_lib = @import("rig_std");
+ 
+@@ -867,6 +868,8 @@ pub const ModuleGraph = struct {
+             .timing = self.timing,
+             .parts = m.parts,
+         };
++        kwonly.cur_path = m.display;
++        kwonly.root_path = self.get(1).display;
+         m.sema.deinit();
+         m.sema.* = try sema.check(self.allocator, m.source, m.ir, opts);
+         // A `for` over an iterator is the `while` it means, and a string
+diff --git i/src/typecheck.zig w/src/typecheck.zig
+index b6c9ad118..531709203 100644
+--- i/src/typecheck.zig
++++ w/src/typecheck.zig
+@@ -35,6 +35,7 @@ const std = @import("std");
+ const parser = @import("parser.zig");
+ const rig = @import("rig.zig");
+ const diag = @import("diag.zig");
++const kwonly = @import("kwonly.zig");
+ const sema = @import("sema.zig");
+ const storage = @import("storage.zig");
+ const Wide = sema.Wide;
+@@ -5500,12 +5501,23 @@ const Checker = struct {
+                     try self.errAt(leaf, entry_point_use, .{});
+                     return self.t().invalid_id;
+                 }
++                self.kwFnValue(sym.param_defaults, sym.param_names, 0, s, leaf.src.pos);
+                 return self.functionValue(sym.ty, s, leaf.src.pos, sym.flags.inline_marked);
+             },
+             else => return sym.ty,
+         }
+     }
+ 
++    /// TEMPORARY: log a function with a defaulted non-first parameter used as a value.
++    fn kwFnValue(self: *Checker, defaults: ?[]const ?Sexp, names: ?[]const []const u8, first: usize, name: []const u8, pos: u32) void {
++        const d = defaults orelse return;
++        for (d, 0..) |x, i| {
++            if (i <= first or x == null) continue;
++            const pname = if (names) |n| (if (i < n.len) n[i] else "?") else "?";
++            kwonly.log("fnvalue", self.ctx.source, pos, name, i - first, pname, "");
++        }
++    }
++
+     const entry_point_use = "`main` is the program's entry point; it cannot be called or used as a value";
+ 
+     /// The root module's `main`, which only the program calls.
+@@ -8727,6 +8739,7 @@ const Checker = struct {
+             return self.t().invalid_id;
+         }
+         const ty = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
++        if (found.sym.kind == .function) self.kwFnValue(found.sym.param_defaults, found.sym.param_names, 0, field, pos);
+         if (found.sym.kind == .function) return try self.functionValue(ty, try self.ctx.arena.allocator().print("{s}.{s}", .{ self.text(obj), field }), pos, found.sym.flags.inline_marked);
+         return ty;
+     }
+@@ -8850,6 +8863,7 @@ const Checker = struct {
+                     return self.t().invalid_id;
+                 }
+                 const name = try self.ctx.arena.allocator().print("{s}.{s}", .{ tname, field });
++                self.kwFnValue(m.param_defaults, m.param_names, @intFromBool(m.self_mode != .none), name, pos);
+                 return self.functionValue(try self.memberType(nt.foreign, m.ty), name, pos, m.inline_marked);
+             }
+             if (!m.is_variant) break :found;
+@@ -10271,7 +10285,7 @@ const Checker = struct {
+         // A generic function's callee has the instance's signature.
+         if (fty.function.ct_params.len > 0) try self.ctx.recordType(callee, try self.ctx.internCopy(.{ .function = f }));
+         self.view_call = true;
+-        try self.checkArgs(args, f, info, name, callee.src.pos, .{ .origins = sym.origins, .declared = fty.function.params });
++        try self.checkArgs(args, f, info, name, callee.src.pos, .{ .origins = sym.origins, .declared = fty.function.params, .kw_tag = "pos:fn" });
+         return f.returns;
+     }
+ 
+@@ -11872,6 +11886,9 @@ const Checker = struct {
+         /// instance is substituted, when known: what a diagnostic says
+         /// a parameter would have to be (`Slot`).
+         declared: []const TypeId = &.{},
++        /// TEMPORARY: the index of the first parameter past self, and the path's tag.
++        kw_first: usize = 0,
++        kw_tag: []const u8 = "",
+     };
+ 
+     /// The parameter or field of a call or constructor that an argument
+@@ -12037,6 +12054,10 @@ const Checker = struct {
+         const slots = try self.ctx.arena.allocator().alloc(?sema.ArgSlot, f.params.len);
+         @memset(slots, null);
+         for (positional, 0..) |a, i| {
++            if (i > site.kw_first and info.default(i) != null) {
++                const pname = if (info.names) |n| (if (i < n.len) n[i] else "?") else "?";
++                kwonly.log(if (site.kw_tag.len > 0) site.kw_tag else "pos", self.ctx.source, self.startOf(a), callee, i - site.kw_first, pname, self.sourceText(a));
++            }
+             slots[i] = .{ .arg = @intCast(i) };
+             if (info.isDuration(i)) {
+                 _ = try self.checkDurationArg(a, f.params[i], null, info, false);
+@@ -12050,6 +12071,10 @@ const Checker = struct {
+                 try self.synthArgs(args);
+                 return;
+             };
++            if (idx > site.kw_first and info.default(idx) != null) {
++                const pname = if (info.names) |n| (if (idx < n.len) n[idx] else "?") else "?";
++                kwonly.log("trailing", self.ctx.source, self.startOf(a), callee, idx - site.kw_first, pname, self.sourceText(a));
++            }
+             slots[idx] = .{ .arg = @intCast(args.len - 1) };
+             try self.checkArg(a, f, idx, views);
+         }
+@@ -14756,7 +14781,7 @@ const Checker = struct {
+         self.view_call = true;
+         self.view_recv = f.params[0];
+         const mark = self.ctx.diagnostics.items.len;
+-        try self.checkArgs(args, rest, info, method, pos, .{ .has_self = true, .origins = resolved.field.origins, .declared = self.declaredParams(resolved.field, resolved.module, 1) orelse resolved.fn_ty.params[1..] });
++        try self.checkArgs(args, rest, info, method, pos, .{ .has_self = true, .origins = resolved.field.origins, .declared = self.declaredParams(resolved.field, resolved.module, 1) orelse resolved.fn_ty.params[1..], .kw_tag = "pos:method" });
+         try self.stdArgTypes(resolved.module, resolved.owner, method, args);
+         if (self_mode == .read and !misplaced_sigil) try self.wastedCloneSelf(obj, args);
+         // A self the method keeps is viewed with `?` written (Core
+@@ -15016,7 +15041,7 @@ const Checker = struct {
+         const f = (try self.instantiateCall(fn_ty, ct, args, info, 0, shown, pos, true, .empty)) orelse return self.skipCall(args);
+         try self.noteCallee(f);
+         self.view_call = true;
+-        try self.checkArgs(args, f, info, shown, pos, .{ .origins = m.field.origins, .declared = fn_ty.params });
++        try self.checkArgs(args, f, info, shown, pos, .{ .origins = m.field.origins, .declared = fn_ty.params, .kw_first = 1, .kw_tag = "pos:object-self-arg" });
+         if (self.current_call) |call| try self.ctx.recordDispatch(call, .{ .dynamic = .{ .api = m.api, .method = m.field.name, .table = o.api, .slot = m.slot.?, .self_mode = m.field.self_mode, .self_arg = true } });
+         return f.returns;
+     }
+@@ -15107,7 +15132,7 @@ const Checker = struct {
+         self.view_call = true;
+         self.view_recv = f.params[0];
+         const mark = self.ctx.diagnostics.items.len;
+-        try self.checkArgs(args, rest, info, method, pos, .{ .has_self = true, .origins = m.field.origins, .declared = fn_ty.params[1..] });
++        try self.checkArgs(args, rest, info, method, pos, .{ .has_self = true, .origins = m.field.origins, .declared = fn_ty.params[1..], .kw_tag = "pos:api-method" });
+         // A self the method keeps is viewed with `?` written (Core
+         // sentence 4).
+         const o = m.field.origins;
+@@ -15231,7 +15256,7 @@ const Checker = struct {
+         const own: OwnArgs = .{ .args = self.inst_own.args, .slots = self.inst_slots };
+         try self.noteCallee(f);
+         self.view_call = true;
+-        try self.checkArgs(args, f, info, shown, pos, .{ .origins = m.field.origins, .declared = fn_ty.params });
++        try self.checkArgs(args, f, info, shown, pos, .{ .origins = m.field.origins, .declared = fn_ty.params, .kw_first = @intFromBool(m.field.self_mode != .none), .kw_tag = "pos:api-name" });
+         if (self.current_call) |call| try self.ctx.recordDispatch(call, .{ .static = .{ .witness = witness, .api = m.api, .method = m.field.name, .self_arg = true, .self_mode = m.field.self_mode } });
+         try self.recordApiCall(value, m, own, pos);
+         return f.returns;
+@@ -15511,7 +15536,7 @@ const Checker = struct {
+         // The handle stands for self, which the actor's task holds: what the
+         // call passes on is the method's own, past its self.
+         const passed: sema.Origins = .{ .result = o.result >> 1, .stores = o.stores >> 1, .viewed = o.viewed >> 1, .once = o.once >> 1 };
+-        try self.checkArgs(args, rest, info, method, pos, .{ .origins = passed, .declared = rest.params });
++        try self.checkArgs(args, rest, info, method, pos, .{ .origins = passed, .declared = rest.params, .kw_tag = "pos:actor" });
+         if (self.ctx.diagnostics.items.len != mark) return f.returns;
+         // What crosses to the actor's task.
+         for (args) |a| {
+@@ -17554,7 +17579,7 @@ const Checker = struct {
+                 if (!try self.meetsOwnerBounds(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, recv.args, pos, m.self_mode != .none)) return self.skipCall(args);
+                 try self.noteCallee(f);
+                 self.view_call = true;
+-                try self.checkArgs(args, f, info, name, pos, .{ .origins = m.origins, .declared = fty.function.params });
++                try self.checkArgs(args, f, info, name, pos, .{ .origins = m.origins, .declared = fty.function.params, .kw_first = @intFromBool(m.self_mode != .none), .kw_tag = "pos:assoc" });
+                 try self.stdArgTypes(if (nt.foreign) |fo| fo.module_id else null, nt.sym.name, name, after_self);
+                 return f.returns;
+             }
+@@ -17692,7 +17717,7 @@ const Checker = struct {
+                 // A generic function's callee has the instance's signature.
+                 try self.noteCallee(f);
+                 self.view_call = true;
+-                try self.checkArgs(args, f, info, qualified, pos, .{ .origins = found.sym.origins, .declared = fty.function.params });
++                try self.checkArgs(args, f, info, qualified, pos, .{ .origins = found.sym.origins, .declared = fty.function.params, .kw_tag = "pos:module" });
+                 return f.returns;
+             },
+             .nominal_type => if (ct == null) return self.construct(found.id, args, pos, TypeSubst.empty, .{ .ctx = found.ctx, .module_id = found.module_id }) else return self.badCall(args, ct.?, "`{s}` is not a generic type; it takes no type arguments", .{qualified}),
+@@ -23404,6 +23429,18 @@ fn checkMethodCall(ctx: *SemContext, c: sema.GenericMethodCall, subst: TypeSubst
+         }
+         break :blk null;
+     };
++    if (why == null) if (m.field.param_defaults) |d| {
++        // TEMPORARY: a generic body's call passes every argument by position.
++        const src_ctx: *const SemContext = if (c.module_id == 0 or c.module_id == ctx.module_id) ctx else ctx.foreign_semas.get(c.module_id) orelse ctx;
++        const saved = kwonly.cur_path;
++        defer kwonly.cur_path = saved;
++        if (src_ctx != ctx) kwonly.cur_path = src_ctx.name;
++        for (d, 0..) |x, i| {
++            if (i <= 1 or x == null) continue;
++            const pn = if (m.field.param_names) |n| (if (i < n.len) n[i] else "?") else "?";
++            kwonly.log("pos:generic-body", src_ctx.source, c.pos, c.method, i - 1, pn, c.call);
++        }
++    };
+     const reason = why orelse return true;
+     try ctx.err(at, cannot ++ "calls `{s}`, {s}", .{ inst, pname, aname, c.call, reason });
+     try ctx.noteIn(c.module_id, c.pos, "`{s}` called here", .{c.call});

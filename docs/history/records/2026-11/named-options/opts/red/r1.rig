@@ -1,0 +1,7 @@
+use std.time
+obj Net
+  timeout: time.Duration? = none
+  retries: Int = 3
+sub main()
+  n = Net(ms: 500)
+  print(n.retries)

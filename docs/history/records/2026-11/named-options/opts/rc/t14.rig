@@ -1,0 +1,9 @@
+fun connect(host: Int, retries: Int = 3, redirects: Int = 5) -> Int
+  host * 100 + retries * 10 + redirects
+sub run(g: ?fun(Int, Int, Int) -> Int)
+  print(g(1, 2, 3))
+sub main()
+  g = connect
+  print(g(1, 2, 3))
+  run(connect)
+  print(connect(1, redirects: 9))

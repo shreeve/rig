@@ -1,0 +1,4 @@
+fun id[T](x: T, n: Int = 2) -> T
+  x
+sub main()
+  print(id(5), id(5, n: 3))

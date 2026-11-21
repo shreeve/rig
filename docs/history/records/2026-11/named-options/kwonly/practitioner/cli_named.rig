@@ -1,0 +1,22 @@
+use std.text
+use std.os
+
+obj Opts
+  width: Int
+  base: Int
+  upper: Bool
+  color: Bool
+  dry_run: Bool
+
+fun opts(width: Int = 16, base: Int = 16, upper: Bool = false, color: Bool = true, dry_run: Bool = false) -> Opts
+  Opts(width: width, base: base, upper: upper, color: color, dry_run: dry_run)
+
+fun cell(n: Int, o: Opts) -> String
+  text.format_int(n, base: o.base, upper: o.upper)
+
+sub main()!
+  o = opts(width: 8, upper: true, color: false)
+  p = opts(width: 8, dry_run: true)
+  print(cell(255, o), cell(255, p), o.color, p.dry_run)
+  print(text.parse_int("ff", base: 16)!, text.parse_int("0777", base: 8)!)
+  print(text.format_int(255, base: 2), text.format_int(255, base: 16, upper: true))

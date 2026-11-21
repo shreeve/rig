@@ -1,0 +1,4 @@
+fun g(s: String = "hi") -> Int
+  s.len
+sub main()
+  print(g())

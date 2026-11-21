@@ -1,0 +1,4 @@
+obj Q
+  n: Int = 1 + 2
+sub main()
+  print(Q().n)

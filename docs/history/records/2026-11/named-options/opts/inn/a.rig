@@ -1,0 +1,21 @@
+obj ConnectOpts
+  timeout: Int = 30
+  retry: Bool = true
+  name: ?String = "anon"
+
+fun connect(host: ?String, port: Int, timeout: Int = 30, retry: Bool = true) -> Int
+  if retry
+    return port + timeout
+  port
+
+fun connect2(host: ?String, o: ConnectOpts) -> Int
+  if o.retry
+    return o.timeout
+  0
+
+sub main()
+  print(connect("h", 1, timeout: 5))
+  o = ConnectOpts(timeout: 9)
+  print(connect2("h", o), connect2("h", ConnectOpts()))
+  p = o
+  print(p.name)

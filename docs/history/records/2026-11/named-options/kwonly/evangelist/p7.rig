@@ -1,0 +1,6 @@
+obj Point
+  x: Int
+  y: Int = 0
+sub main()
+  p = Point(1, 2)
+  print(p.x)

@@ -1,0 +1,5 @@
+fun f(a: Int, b: Int = 2) -> Int
+  a + b
+sub main()
+  print(f(b: 5, a: 1))
+  print(f(1, 7))

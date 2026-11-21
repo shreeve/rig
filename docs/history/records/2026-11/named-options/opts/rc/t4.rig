@@ -1,0 +1,14 @@
+obj O
+  name: ?String = "dflt"
+  n: Int = 3
+fun reset(o: !O, s: ?String) -> Int keeps s
+  o.name = s
+  0
+fun f(name: ?String = "a", n: Int = 0, k: Int = 0) -> Int
+  name.len + n
+sub main()
+  s = String("hello")
+  t = String("worldwide")
+  o = O(name: ?s)
+  print(f(name: o.name, n: o.n, k: reset(!o, ?t)))
+  print(o.name)

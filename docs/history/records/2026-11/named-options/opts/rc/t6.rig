@@ -1,0 +1,7 @@
+fun f(name: ?String = "localhost", n: Int = 0) -> Int
+  name.len + n
+obj Net
+  name: ?String = "x"
+  s: String = String("y")
+sub main()
+  print(f())

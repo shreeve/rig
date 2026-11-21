@@ -35,9 +35,24 @@ The concurrency plan the owner approved from that review is on the ROADMAP, unde
   - Only plain objects qualify, so `+` can never hide an allocation.
   - Source: the Crystal review (Swift).
   - Needs: the owner's call, since it touches "effects stay visible".
-- **A parameter with a default is passed by name.** Rejects `format_int(255, 16, true)` for `format_int(255, base: 16, upper: true)`.
-  - Source: the Crystal review (Swift).
-  - Needs: the owner's call. It rejects programs a release accepts, so a migration script and a note to Trig come first.
+- **A function's options as a type, `f.Options`.** A wrapper takes "whatever `connect` takes" and gains each option `connect` adds, as TypeScript's `Parameters<typeof f>` does for a whole list.
+  - Form: `o = connect.Options(timeout: 5)`, `fun connect_logged(host: ?String, port: Int, ..o: connect.Options)`. When a function's options are exactly one group, `f.Options` is that group's type, not a new one, so wrappers do not build towers of identical, incompatible types.
+  - A wrapper that forwards `..o: connect.Options` grows its public options whenever `connect` gains one, which a wrapper meant to restrict does not want.
+  - Source: the options committee and its red team, 2026-11-22 ([named-options/](history/records/2026-11/named-options/README.md)); deferred from [design/options.md](design/options.md).
+  - Needs: a wrapper that wants it, then a design round on its identity and on methods and generic functions.
+- **Groups in APIs.** An API method takes options through a named group, `fun render(?@, ..o: RenderOpts) -> String`, so "a method meets its API exactly" compares one type, and a call through a bound takes keywords and spreads. Inline defaults in an API method stay refused.
+  - Source: the options committee, 2026-11-22 ([named-options/](history/records/2026-11/named-options/README.md)).
+  - Needs: a real API that wants options; then conformance and calls through API objects ([design/apis.md](design/apis.md)).
+- **Function values that keep their options.** A function type names a group, `fun(?String, ..Net) -> Response!`, and a call through the value takes keywords and spreads, filling omitted fields from the group's defaults at the call. The compatibility rules are decided ([design/options.md](design/options.md), "Function types"); v1 refuses a function with options as a value.
+  - Form: `cb: fun(?String, ..Net) -> Response! = fetch`, `cb(url, retries: 2)`; a closure that takes a group, `|u, ..net| ...`.
+  - Source: the options committee and both red teams, 2026-11-22 ([named-options/](history/records/2026-11/named-options/README.md)).
+  - Needs: a callback that wants options; `..T` in function types and closures.
+- **Generic groups.** `..o: Opts[T]`, flattened for each instance.
+  - Source: the options committee, 2026-11-22 ([named-options/](history/records/2026-11/named-options/README.md)).
+  - Needs: a program that wants one; a group generic over "whatever `F` takes" stays out (row polymorphism).
+- **Groups passed by pointer.** `..o: ?Net` passes a large options value as one read view instead of a field per argument; keywords build a temporary the call views.
+  - Source: the Zig review of the options design, 2026-11-22, which measured the copy a large group costs ([named-options/](history/records/2026-11/named-options/README.md)).
+  - Needs: a group large enough to spill, measured; it follows owners and read views in groups (ROADMAP).
 - **Forwarding an API to a field.**
   - Form: `obj Counted: Writer by @out`; Crystal's `delegate`.
   - Source: the Crystal review (Swift).

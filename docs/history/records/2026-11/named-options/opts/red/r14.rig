@@ -1,0 +1,6 @@
+fun f(n: Int, timeout: Int = 30) -> Int
+  n + timeout
+sub main()
+  print(f(1, timeout: 2))
+  x = 3
+  print(f(..x))

@@ -1,0 +1,4 @@
+fun g(s: ?String = "hi", f: ?fun(Int) -> Int = none) -> Int
+  s.len
+sub main()
+  print(g())

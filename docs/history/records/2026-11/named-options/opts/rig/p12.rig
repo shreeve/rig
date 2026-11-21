@@ -1,0 +1,7 @@
+fun f(a: Int, g: (?fun(Int) -> Int)? = none) -> Int
+  if g as h
+    return h(a)
+  a
+sub main()
+  print(f(1, |x| x + 1))
+  print(f(2))

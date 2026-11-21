@@ -1,0 +1,6 @@
+use std.datetime
+sub main()
+  d = datetime.Date.new(2024, 1, 31)!
+  dt = datetime.DateTime.new(2024, 1, 31)!
+  print(dt.add(1))
+  print(d.add(1))

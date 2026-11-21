@@ -1,0 +1,10 @@
+fun bump(x: !Int) -> Int
+  x += 100
+  x
+
+fun f(a: Int, b: Int) -> Int
+  a * 1000 + b
+
+sub main()
+  x = 1
+  print(f(b: x, a: bump(!x)))

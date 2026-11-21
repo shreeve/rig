@@ -146,8 +146,11 @@ A new session, human or agent, takes these steps in order:
   call in `std.time` or `std.datetime` panics, each is total or returns
   `!`, and `Duration` takes Jiff's 16 bytes, so `since` and `unix()` are
   total. Next, in order: error traces, the constant-argument rule, the
-  change that applies the strategy to phases 1 to 3 (the design's 10.5 to
-  10.7), then `TimeZone` (phase 4), written to it.
+  keyword rule, then groups and spreads, then owners and read views in
+  groups (the owner, 2026-11-22; [design/options.md](docs/design/options.md),
+  its build plan's steps 1 to 3); the change that applies the strategy to
+  phases 1 to 3 (the design's 10.5 to 10.7) can follow the keyword rule;
+  then `TimeZone` (phase 4), written to it.
 - **The view vocabulary** (owner, 2026-11-20; #1192 landed PR 1):
   places, read and write views, read-only, unusable, and cells are the
   words of the docs, the messages, and the code. PR 1 is the wording; PR 2

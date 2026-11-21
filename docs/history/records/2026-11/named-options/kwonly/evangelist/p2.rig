@@ -1,0 +1,5 @@
+sub repeat(times: Int = 1, f: ?sub(Int))
+  for i in 0..times
+    f(i)
+sub main()
+  repeat(|i| print("once", i))

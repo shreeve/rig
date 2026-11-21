@@ -1,0 +1,6 @@
+sub show(r: Int)
+  print(r)
+
+sub main()
+  x = 3
+  show(..x)

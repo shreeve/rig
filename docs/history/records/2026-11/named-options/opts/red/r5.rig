@@ -1,0 +1,8 @@
+fun f(a: Int = 1, b: Int = 2) -> Int
+  a * 10 + b
+sub main()
+  a = 7
+  print(f(
+    a:
+    b: 3
+  ))

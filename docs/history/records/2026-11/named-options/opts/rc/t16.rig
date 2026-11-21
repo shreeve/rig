@@ -1,0 +1,8 @@
+fun take(s: String, n: Int = 0) -> Int
+  s.len + n
+fun look(s: ?String, n: Int = 0) -> Int
+  s.len + n
+sub main()
+  s = String("abc")
+  print(look(s: s))
+  print(take(s: s))

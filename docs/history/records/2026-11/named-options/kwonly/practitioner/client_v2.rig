@@ -1,0 +1,19 @@
+# v2 of the library adds connect_timeout before retries. The callers did not change.
+use std.time
+
+obj Req
+  url: Static
+  timeout: time.Duration
+  connect: Int
+  retries: Int
+  follow: Bool
+
+fun request(url: Static, timeout: time.Duration? = none, connect: Int = 5, retries: Int = 3, follow: Bool = true) -> Req
+  Req(url: url, timeout: timeout ?? time.duration(10), connect: connect, retries: retries, follow: follow)
+
+sub show(r: Req)
+  print(r.url, "timeout", r.timeout, "connect", r.connect, "retries", r.retries, "follow", r.follow)
+
+sub main()
+  show(request("/a", 30, 2))                      # positional caller: 2 now goes to connect, retries silently 3
+  show(request("/a", timeout: 30, retries: 2))    # named caller: still right

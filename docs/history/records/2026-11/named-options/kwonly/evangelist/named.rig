@@ -1,0 +1,30 @@
+use std.text
+use std.datetime
+use std.time
+
+obj Conn
+  host: Static
+  timeout: Int
+  retry: Bool
+  verbose: Bool
+
+fun connect(host: Static, timeout: Int = 10, retry: Bool = false, verbose: Bool = false) -> Conn
+  Conn(host: host, timeout: timeout, retry: retry, verbose: verbose)
+
+fun excerpt(s: ?String, width: Int = 40, ellipsis: Bool = true) -> String
+  if s.len <= width
+    return `{s}`
+  `{s[0..width]}{"..." if ellipsis else ""}`
+
+sub main()
+  c = connect("db.local", timeout: 30, retry: true)
+  print(c.host, c.timeout, c.retry, c.verbose)
+  print(text.format_int(255, base: 16, upper: true), text.parse_int("ff", base: 16)!)
+  print(excerpt("the quick brown fox jumps", width: 9, ellipsis: false))
+  m = Map[Static, Int].new(capacity: 16)
+  !m.put("a", 1)
+  print(m.len)
+  dt = datetime.DateTime.new(2024, 3, 10, hour: 14, minute: 30)!
+  print(dt, dt.add(seconds: 0.5), dt.add(minutes: 1, seconds: 30))
+  t = datetime.Time.new(8, 7, 3, ns: 500)!
+  print(t, datetime.Time.new(8, 7, 0)!)

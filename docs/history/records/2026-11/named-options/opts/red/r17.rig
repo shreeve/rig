@@ -1,0 +1,8 @@
+obj Net
+  timeout: Int = 30
+  name: ?String = "x"
+sub main()
+  s = String("abc")
+  n = Net(name: ?s)
+  t = <s
+  print(n.name, t)

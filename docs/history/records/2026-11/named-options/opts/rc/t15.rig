@@ -1,0 +1,4 @@
+fun f(a: Int, b: Int = 2) -> Int
+  a + b
+sub main()
+  print(f(1, a: 2))

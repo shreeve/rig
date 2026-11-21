@@ -1,0 +1,7 @@
+obj P
+  x: Int
+  y: Int
+fun f(p: P) -> Int
+  p.x
+sub main()
+  print(f(P(x: 1, y: 2)))

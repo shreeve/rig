@@ -1,0 +1,4 @@
+use std.time
+sub main()
+  d = time.duration(seconds: 100)
+  r = d.round
