@@ -246,7 +246,7 @@ test "for_timestamp", '''
   print(i.round(minutes: 1), i.round(minutes: 15), i.round(minutes: 1_440))
   print(i.round(hours: 1), i.round(hours: 6), i.round(hours: 12), i.round(hours: 24))
 
-fail "for_timestamp refuses", "2:19: an increment of `round` on an `Instant` divides a day, so `ns:` takes a number that divides 86,400,000,000,000, and `7` does not", "3:19: an increment of `round` is from 1 to 1,000,000,000, and `1_000_000_001` is not", "4:19: an increment of `round` on an `Instant` divides a day, so `us:` takes a number that divides 86,400,000,000, and `1_000_000_000` does not", "5:19: an increment of `round` on an `Instant` divides a day, so `ms:` takes a number that divides 86,400,000, and `1_000_000_000` does not", "6:24: an increment of `round` on an `Instant` divides a day, so `seconds:` takes a number that divides 86,400, and `1_000` does not", "7:24: an increment of `round` on an `Instant` divides a day, so `seconds:` takes a number that divides 86,400, and `172_800` does not", "8:24: an increment of `round` on an `Instant` divides a day, so `minutes:` takes a number that divides 1,440, and `1_441` does not", "9:22: an increment of `round` on an `Instant` divides a day, so `hours:` takes a number that divides 24, and `18` does not", "10:22: an increment of `round` is from 1 to 1,000,000,000, and `-1` is not", "11:15: `round` takes a unit from `ns:` to `hours:` and its increment, and `days:` is none of them", errors: 10
+fail "for_timestamp refuses", "2:19: an increment of `round` on an `Instant` divides a day, so `ns:` takes a number that divides 86,400,000,000,000, and `7` does not", "3:19: an increment of `round` is from 1 to 1,000,000,000, and `1_000_000_001` is not", "4:19: an increment of `round` on an `Instant` divides a day, so `us:` takes a number that divides 86,400,000,000, and `1_000_000_000` does not", "5:19: an increment of `round` on an `Instant` divides a day, so `ms:` takes a number that divides 86,400,000, and `1_000_000_000` does not", "6:24: an increment of `round` on an `Instant` divides a day, so `seconds:` takes a number that divides 86,400, and `1_000` does not", "7:24: an increment of `round` on an `Instant` divides a day, so `seconds:` takes a number that divides 86,400, and `172_800` does not", "8:24: an increment of `round` on an `Instant` divides a day, so `minutes:` takes a number that divides 1,440, and `1_441` does not", "9:22: an increment of `round` on an `Instant` divides a day, so `hours:` takes a number that divides 24, and `18` does not", "10:22: an increment of `round` is from 1 to 1,000,000,000, and `-1` is not", "11:15: `round` takes a unit from `ns:` to `hours:` and its increment, and `days:` is none of them", "12:19: an increment of `round` is from 1 to 1,000,000,000, and `Int.min` is not", "13:22: an increment of `round` is from 1 to 1,000,000,000, and `Int.max` is not", errors: 12
   i = datetime.Instant.from_unix(0)!
   print(i.round(ns: 7))
   print(i.round(ns: 1_000_000_001))
@@ -258,6 +258,8 @@ fail "for_timestamp refuses", "2:19: an increment of `round` on an `Instant` div
   print(i.round(hours: 18))
   print(i.round(hours: -1))
   print(i.round(days: 1))
+  print(i.round(ns: Int.min))
+  print(i.round(hours: Int.max))
 
 # ---- The examples of jiff's `timestamp.rs` documentation -----------------
 
