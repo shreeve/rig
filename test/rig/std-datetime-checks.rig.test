@@ -1,0 +1,124 @@
+# std.datetime: each form of `add`, `checked_add`, `with`, `round`, and
+# `floor` at each kind of call, built and run, and the checks of their
+# arguments where they are called (docs/design/datetime.md §10.2): no
+# positional argument to a date's `add` or any `with`, at most one to a
+# `DateTime`'s `add`, no time of day for a date, and the increments of
+# `round` and `floor`.
+
+use std.datetime
+use std.time
+
+test "date add forms at each kind of call", '''
+  2027-02-28 2027-02-28 2027-03-07 2026-02-01 2027-01-30
+  2027-02-28 2027-02-28 2027-01-31
+'''
+  # A method call, a call through the type with self first, each amount
+  # by name, a value of an `Int` and a constant, and `checked_add`.
+  d = datetime.Date.new(2027, 1, 31)!
+  k = -1
+  print(d.add(months: 1), datetime.Date.add(d, months: 1), d.add(weeks: 5), d.add(years: k, days: 1), d.add(days: k))
+  print(d.checked_add(months: 1)!, datetime.Date.checked_add(d, months: 1)!, d.checked_add()!)
+
+test "datetime add forms at each kind of call", '''
+  2026-03-08T02:30:01 2026-03-08T02:30:00.5 2026-03-08T04:30:00 2026-03-08T02:30:00.04 2026-03-09T02:30:00 2026-03-09T04:30:00
+  2026-03-08T02:30:05 2026-03-09T02:30:02 2026-04-08T02:30:00 2026-03-08T02:30:03 2026-03-08T02:30:02 2026-03-08T02:30:00
+'''
+  # The duration first, bare in seconds, an `Int` or a `Float`, with a
+  # unit's keyword, or a `Duration`, by position or by its name `d:`;
+  # the calendar amounts by name, beside it or alone; through the type,
+  # with self first; and `checked_add`.
+  dt = datetime.DateTime.parse("2026-03-08T02:30")!
+  five = time.duration(5)
+  print(dt.add(1), dt.add(0.5), dt.add(hours: 2), dt.add(ms: 40), dt.add(days: 1), dt.add(days: 1, hours: 2))
+  print(dt.add(five), dt.add(d: 2, days: 1), datetime.DateTime.add(dt, months: 1), datetime.DateTime.add(dt, 3), dt.checked_add(2)!, dt.checked_add()!)
+
+test "time add forms at each kind of call", '''
+  01:00:00 23:00:01 23:00:00.5 01:00:00 range
+'''
+  t = datetime.Time.new(23, 0)!
+  fun checked(t: datetime.Time, d: time.Duration) -> String
+    r = t.checked_add(d) catch return String("range")
+    String(r)
+
+  print(t.add(hours: 2), t.add(1), datetime.Time.add(t, 0.5), datetime.Time.add(t, d: time.duration(hours: 2)), checked(t, time.duration(hours: 1)))
+
+test "with, round, and floor forms at each kind of call", '''
+  2027-01-01 08:00:00 2026-11-17T00:00:00 2027-01-31
+  08:00:00 08:00:00 2026-11-17T08:00:00 2026-11-17T00:00:00 08:07:00
+'''
+  # Each field by name, an optional `Int` for a field; through the type
+  # with self first; an increment from a variable, checked as the
+  # program runs.
+  d = datetime.Date.new(2027, 1, 31)!
+  t = datetime.Time.new(8, 7, 3)!
+  dt = d.at(t).with(year: 2026, month: 11, day: 17)!
+  day: Int? = none
+  print(d.with(day: 1, month: 1)!, t.with(minute: 0, second: 0)!, dt.with(hour: 0, minute: 0, second: 0)!, datetime.Date.with(d, day: day)!)
+  k = 15
+  print(t.round(hours: 1), datetime.Time.round(t, minutes: k), dt.floor(hours: 1), datetime.DateTime.round(dt, days: 1), t.floor(minutes: 1))
+
+fail "a date's add takes its amounts by name", "3:13: `add` of a `Date` takes its amounts by name, and no positional argument: `add(days: 1)`", "4:21: `checked_add` of a `Date` takes its amounts by name, and no positional argument: `checked_add(days: n)`", "5:28: `add` of a `Date` takes its amounts by name, and no positional argument: `add(days: 1)`", "6:24: `add` of a `Date` takes its amounts by name, and no positional argument: `add(days: 2)`", errors: 4
+  d = datetime.Date.new(2027, 1, 31)!
+  n = 3
+  print(d.add(1))
+  print(d.checked_add(n)!)
+  print(datetime.Date.add(d, 1))
+  print(d.add(months: 1, 2))
+
+fail "a date has no time of day", "2:13: a `Date` has no time of day, so `add` takes no `hours:`: a date and a time of day is a `DateTime`, `d.at(t).add(hours: 1)`", "3:22: a `Date` has no time of day, so `add` takes no `minutes:`: a date and a time of day is a `DateTime`, `d.at(t).add(minutes: 30)`", "4:21: a `Date` has no time of day, so `checked_add` takes no `seconds:`: a date and a time of day is a `DateTime`, `d.at(t).checked_add(seconds: 1)`", "5:13: a `Date` has no time of day, so `add` takes no `ns:`: a date and a time of day is a `DateTime`, `d.at(t).add(ns: 5)`", errors: 4
+  d = datetime.Date.new(2027, 1, 31)!
+  print(d.add(hours: 1))
+  print(d.add(days: 1, minutes: 30))
+  print(d.checked_add(seconds: 1)!)
+  print(d.add(ns: 5))
+
+fail "a datetime's add takes one positional argument", "3:17: `add` takes one duration by position and its calendar amounts by name: `add(1, years: 2)`, not a second positional argument", "4:25: `checked_add` takes one duration by position and its calendar amounts by name: `checked_add(1, years: 2)`, not a second positional argument", "5:38: `add` takes one duration by position and its calendar amounts by name: `add(0.5, years: 2)`, not a second positional argument", errors: 3
+  d = datetime.Date.new(2027, 1, 31)!
+  dt = d.at(datetime.Time.new(1, 0)!)
+  print(dt.add(1, 2))
+  print(dt.checked_add(1, 2, 3)!)
+  print(datetime.DateTime.add(dt, 0.5, 2))
+
+fail "with takes its fields by name", "3:14: `with` takes the fields it replaces by name, `with(day: 1)`, and no positional argument", "4:15: `with` takes the fields it replaces by name, `with(hour: 0)`, and no positional argument", "5:22: `with` takes the fields it replaces by name, `with(second: 0)`, and no positional argument", "6:37: `with` takes the fields it replaces by name, `with(second: 0)`, and no positional argument", errors: 4
+  d = datetime.Date.new(2027, 1, 31)!
+  dt = d.at(datetime.Time.new(1, 0)!)
+  print(d.with(2024)!)
+  print(dt.with(2024, month: 1)!)
+  print(dt.time().with(1)!)
+  print(datetime.Time.with(dt.time(), 1)!)
+
+fail "time and datetime round take one allowed unit", "3:15: `round` takes a unit from `ns:` to `hours:` and its increment, and `days:` is none of them", "4:24: an increment of `round` divides the next larger unit and is smaller than it, so `minutes:` takes 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, or 30, and `45` is not one of them", "5:22: `round` takes `days: 1` and no other number of days, and `2` is not 1", "6:16: `round` takes a unit from `ns:` to `hours:`, or `days: 1`, and its increment, and `weeks:` is none of them", "7:20: an increment of `floor` divides the next larger unit and is smaller than it, so `ns:` takes 1, 2, 4, 5, 8, 10, 20, 25, 40, 50, 100, 125, 200, 250, or 500, and `3` is not one of them", "8:23: an increment of `round` divides the next larger unit and is smaller than it, so `hours:` takes 1, 2, 3, 4, 6, 8, or 12, and `24` is not one of them", "9:15: `round` takes a unit and its increment by name, `round(minutes: 15)`, and no positional argument", "10:26: `floor` takes one unit and its increment, not two: `hours: 1` or `minutes: 1`", errors: 8
+  t = datetime.Time.new(1, 0)!
+  dt = datetime.Date.new(2027, 1, 31)!.at(t)
+  print(t.round(days: 1))
+  print(t.round(minutes: 45))
+  print(dt.round(days: 2))
+  print(dt.round(weeks: 1))
+  print(dt.floor(ns: 3))
+  print(dt.round(hours: 24))
+  print(t.round(5))
+  print(dt.floor(hours: 1, minutes: 1))
+
+fail "checked methods are not values", "1:19: `std.datetime.Date.add` checks its arguments where it is called, so it must be called; wrap it in a closure to pass it as a value", "2:23: `std.datetime.DateTime.checked_add` checks its arguments where it is called, so it must be called; wrap it in a closure to pass it as a value", "3:19: `std.datetime.Time.with` checks its arguments where it is called, so it must be called; wrap it in a closure to pass it as a value", "5:7: method `round` must be called; wrap it in a closure to pass it as a value", errors: 4
+  f = datetime.Date.add
+  g = datetime.DateTime.checked_add
+  h = datetime.Time.with
+  t = datetime.Time.new(1, 0)!
+  r = t.round
+
+test "a closure passes a checked method", '''
+  2027-02-28 01:00:00
+'''
+  # §10.2: what a function value cannot carry, a closure can.
+  d = datetime.Date.new(2027, 1, 31)!
+  t = datetime.Time.new(1, 7)!
+  fun on_date(x: datetime.Date, f: ?fun(datetime.Date) -> datetime.Date) -> datetime.Date
+    f(x)
+
+  fun on_time(x: datetime.Time, f: ?fun(datetime.Time) -> datetime.Time) -> datetime.Time
+    f(x)
+
+  print(on_date(d, |x| x.add(months: 1)), on_time(t, |x| x.round(minutes: 15)))
+
+fail "the parts are private", "1:14: only the standard library's module `std.datetime` can construct `std.datetime.Date`: its fields `y`, `m`, `d` are private; make one with its `pub` functions", errors: 1
+  _ = datetime.Date(y: 2024, m: 2, d: 30)
