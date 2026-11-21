@@ -994,7 +994,7 @@ fn emitCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
 
     var buffer: [4096]u8 = undefined;
     var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
-    try writer.interface.writeAll(pkg.root_source);
+    try writer.interface.writeAll((try emit.placeSites(allocator, pkg.root_source)).zig);
     try writer.interface.flush();
     std.debug.print("note: the package (every module and the runtime, {s}) is in {s}\n", .{ emit.runtime_filename, dir });
     // Not in any file of the package, but in what `run` and `build` hand Zig.
@@ -2434,11 +2434,25 @@ fn writePackage(allocator: std.mem.Allocator, io: std.Io, dir: []const u8, files
             const here = try std.fs.path.join(allocator, &.{ root, std.fs.path.dirname(f.path) orelse "" });
             contents = try std.mem.replaceOwned(u8, allocator, contents, emit.embed_dir_mark, try allocator.print("{f}/", .{std.zig.fmtString(here)}));
         }
-        if (std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(contents.len + 1))) |old| {
-            if (std.mem.eql(u8, old, contents)) continue;
-        } else |_| {}
-        try writeFile(io, path, contents);
+        // A module's sites, beside it, once nothing more changes its
+        // text (`emit.placeSites`); a file with none has no sites file,
+        // so none an older build wrote names its lines.
+        if (std.mem.endsWith(u8, f.path, ".zig")) {
+            const placed = try emit.placeSites(allocator, contents);
+            contents = placed.zig;
+            const sites_path = try std.mem.concat(allocator, u8, &.{ path, emit.sites_suffix });
+            if (placed.sites.len > 0) try writeChanged(allocator, io, sites_path, placed.sites) else std.Io.Dir.cwd().deleteFile(io, sites_path) catch {};
+        }
+        try writeChanged(allocator, io, path, contents);
     }
+}
+
+/// Write `contents` to `path`, unless the file already holds them.
+fn writeChanged(allocator: std.mem.Allocator, io: std.Io, path: []const u8, contents: []const u8) !void {
+    if (std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(contents.len + 1))) |old| {
+        if (std.mem.eql(u8, old, contents)) return;
+    } else |_| {}
+    try writeFile(io, path, contents);
 }
 
 /// The entry of `RIG_BUILD_STORE` for a package: a directory named by a
