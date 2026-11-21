@@ -427,7 +427,7 @@ The other way is a yield check. Each yield check and each `task.check()`
 moves the clock one microsecond, so a loop that never waits still
 reaches its deadline. Two calls of `task.check()` after a start read
 2,000 nanoseconds there, and a sleep of two seconds then reads
-2,000,002,000. The wall clock, `time.unix_ns()`, stays real.
+2,000,002,000. The wall clock, `datetime.now()`, stays real.
 
 Suppose every task waits on another and no timer is set. None can ever
 run. Run normally, a wait on a channel that nothing will send to hangs,

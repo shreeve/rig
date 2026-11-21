@@ -6386,8 +6386,8 @@ to Rig.
   entropy, and similar leaf calls work through it. Anything that
   allocates through the `Io`, spawning a child process for one, fails
   with `error.OutOfMemory`; code that spawns processes or runs tasks
-  takes a real `Io`. Rig's standard library uses the clocks (`std/time.zig`
-  reads `Io.Timestamp.now(io, .real)`), `sleep`, and `random`
+  takes a real `Io`. Rig's standard library uses the clocks (`std/datetime.zig`
+  reads `Io.Timestamp.now(io, .real)`, the wall clock), `sleep`, and `random`
   (`std/random.zig`); it uses no `Io` locks or concurrency, which are
   the scheduler's (`src/sched.zig`).
 - **Output.** The runtime keeps one process-wide stdout writer with an

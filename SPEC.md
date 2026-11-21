@@ -4849,7 +4849,7 @@ The seed is 1, `--seed=N` gives another, and `--seeds=K` runs the
 tests with each seed from 1 to K, stopping at the first that fails. A
 run with failures ends with the seed that runs it the same way again.
 `rig run --seed=N`, or a program started with `RIG_SEED=N` set, runs
-so too. The wall clock, `time.unix_ns()`, stays real.
+so too. The wall clock, `datetime.now()`, stays real.
 
 ```rig
 error Parse
