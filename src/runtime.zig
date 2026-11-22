@@ -4725,46 +4725,114 @@ pub inline fn namedTag(e: anytype) @TypeOf(e) {
     return e;
 }
 
-/// A duration of `n` units of `unit` nanoseconds (`sema.Duration`):
-/// `time.sleep(2)`, `time.sleep(ms: 40)`, as `T`, std.time's `Duration`,
-/// or an `Int` of nanoseconds (`time.after`, `per:`). Checked, as a
-/// conversion is: more nanoseconds than an `Int` holds panics.
+// A duration form becomes a value here (`sema.Duration`): `T` is
+// std.time's `Duration`, whose fields are its whole seconds `s` and the
+// nanoseconds after them `nano`, of one sign (`sema.duration.fields`);
+// an `i128` of nanoseconds, one part of a sum (`sema.DurationParts`); or
+// an `i64` of nanoseconds, what the scheduler takes (`time.after`,
+// `per:`). Each form converts one of three ways, as the checker decided
+// (`sema.Duration.how`): `total`, which cannot fail (a constant the
+// checker checked, an `Int` of seconds or a smaller unit); `folded`, the
+// `Try` twins, which give the callee's own error for the call's `!`; and
+// `clamped`, a wait's, the `Clamp` twins, which wait as long as they
+// can. None panics on a value the checker let through.
+
+/// The least and greatest whole seconds of a `Duration`: the range is
+/// symmetric (docs/design/datetime.md §5.1).
+const duration_max_s: i128 = std.math.maxInt(i64);
+const ns_per_s: i128 = 1_000_000_000;
+
+/// `ns` nanoseconds as `T`, or null beyond its range; an `i64` is
+/// clamped.
+inline fn durationOf(comptime T: type, ns: i128) ?T {
+    if (comptime T == i128) return ns;
+    if (comptime T == i64) return @intCast(std.math.clamp(ns, std.math.minInt(i64), std.math.maxInt(i64)));
+    const s = @divTrunc(ns, ns_per_s);
+    if (s > duration_max_s or s < -duration_max_s) return null;
+    return .{ .s = @intCast(s), .nano = @intCast(@rem(ns, ns_per_s)) };
+}
+
+/// `ns` nanoseconds as `T`, the longest or shortest beyond its range.
+inline fn durationClamped(comptime T: type, ns: i128) T {
+    const limit = duration_max_s * ns_per_s + (ns_per_s - 1);
+    return durationOf(T, std.math.clamp(ns, -limit, limit)).?;
+}
+
+/// A form the checker found cannot fail did: a bug in Rig.
+fn durationBug() noreturn {
+    @branchHint(.cold);
+    @panic("rig: a duration the compiler checked is beyond a Duration's range (compiler bug)");
+}
+
+/// The nanoseconds of `x` units of `unit`, rounded to the nearest, a
+/// half away from zero; null when `x` is not finite, and an infinity's
+/// sign beyond any `Duration` when it is past 2^100.
+inline fn floatNs(x: f64, comptime unit: i64) ?i128 {
+    const ns = @round(x * @as(f64, @floatFromInt(unit)));
+    if (std.math.isNan(ns) or std.math.isInf(ns)) return null;
+    const cap: f64 = 0x1p100;
+    return @intFromFloat(std.math.clamp(ns, -cap, cap));
+}
+
+/// A duration of `n` units of `unit` nanoseconds, which cannot fail: a
+/// unit of a second or less, or a constant the checker checked.
 pub inline fn durationInt(comptime T: type, n: i64, comptime unit: i64) T {
-    const ns = if (comptime unit == 1) n else std.math.mul(i64, n, unit) catch @panic("a duration is more nanoseconds than a Duration holds");
-    return durationOf(T, ns);
+    return durationOf(T, @as(i128, n) * unit) orelse durationBug();
+}
+
+/// `durationInt` that fails with `range`, the callee's own error.
+pub inline fn durationIntTry(comptime T: type, n: i64, comptime unit: i64, comptime range: anyerror) anyerror!T {
+    return durationOf(T, @as(i128, n) * unit) orelse range;
+}
+
+/// `durationInt` for a wait: the longest duration beyond the range.
+pub inline fn durationIntClamp(comptime T: type, n: i64, comptime unit: i64) T {
+    return durationClamped(T, @as(i128, n) * unit);
 }
 
 /// A duration of `x` units of `unit` nanoseconds, rounded to the nearest
-/// whole nanosecond, a half away from zero: `time.sleep(0.5)`, as `T`
-/// (`durationInt`). A NaN, an infinity, or more nanoseconds than an `Int`
-/// holds panics.
+/// whole nanosecond, a half away from zero: a constant the checker
+/// checked.
 pub fn durationFloat(comptime T: type, x: f64, comptime unit: i64) T {
-    const ns = @round(x * @as(f64, @floatFromInt(unit)));
-    if (std.math.isNan(ns) or std.math.isInf(ns)) @panic("a duration is not a finite number of nanoseconds a Duration holds");
-    if (!(ns >= -0x1p63 and ns < 0x1p63)) @panic("a duration is more nanoseconds than a Duration holds");
-    return durationOf(T, @intFromFloat(ns));
+    return durationOf(T, floatNs(x, unit) orelse durationBug()) orelse durationBug();
 }
 
-/// The sum of `parts`, each an `Int` of nanoseconds, as `T`
-/// (`durationInt`): a duration given by several units' keywords,
-/// `time.sleep(hours: 1, minutes: 30)` (`sema.DurationParts`). Added
-/// in the order written, checked: a sum past an `Int` panics.
+/// `durationFloat` that fails with `invalid` for a number that is not
+/// finite and `range` beyond the range, the callee's own errors.
+pub fn durationFloatTry(comptime T: type, x: f64, comptime unit: i64, comptime range: anyerror, comptime invalid: anyerror) anyerror!T {
+    return durationOf(T, floatNs(x, unit) orelse return invalid) orelse range;
+}
+
+/// The sum of `parts`, each an `i128` of nanoseconds, as `T`: a duration
+/// given by several units' keywords, `time.sleep(hours: 1, minutes:
+/// 30)` (`sema.DurationParts`), every part a constant the checker
+/// checked.
 pub inline fn durationSum(comptime T: type, parts: anytype) T {
-    var ns: i64 = 0;
-    inline for (parts) |p| ns = std.math.add(i64, ns, p) catch @panic("a duration is more nanoseconds than a Duration holds");
-    return durationOf(T, ns);
+    return durationOf(T, partsNs(parts)) orelse durationBug();
 }
 
-/// `ns` nanoseconds as `T`: std.time's `Duration`, whose one field is
-/// its nanoseconds (`sema.duration.field`), or the `Int` itself.
-inline fn durationOf(comptime T: type, ns: i64) T {
-    return if (comptime T == i64) ns else .{ .n = ns };
+/// `durationSum` that fails with `range`, the callee's own error.
+pub inline fn durationSumTry(comptime T: type, parts: anytype, comptime range: anyerror) anyerror!T {
+    return durationOf(T, partsNs(parts)) orelse range;
 }
 
-/// The nanoseconds of `d`, std.time's `Duration`, for a call that takes
-/// an `Int` of them (`time.after`, `per:`).
+/// `durationSum` for a wait: the longest duration beyond the range.
+pub inline fn durationSumClamp(comptime T: type, parts: anytype) T {
+    return durationClamped(T, partsNs(parts));
+}
+
+/// The sum of a duration's parts, each within 2^100 nanoseconds, so
+/// that six never leave an `i128`.
+inline fn partsNs(parts: anytype) i128 {
+    var ns: i128 = 0;
+    inline for (parts) |p| ns += p;
+    return ns;
+}
+
+/// The nanoseconds of `d`, std.time's `Duration`, for a wait that takes
+/// an `i64` of them (`time.after`, `per:`): clamped, as a wait is.
 pub inline fn durationNs(d: anytype) i64 {
-    return d.n;
+    return durationOf(i64, @as(i128, d.s) * ns_per_s + d.nano).?;
 }
 
 /// A float about to be converted to an integer type, panicking if it is

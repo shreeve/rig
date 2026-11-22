@@ -9,9 +9,13 @@
 
 use std.task
 
-# Why a duration failed: its text is not a duration as written
-# (`Duration.parse`), or the result is beyond a `Duration`'s range
-# (`checked_add`, `checked_sub`, `checked_times`).
+# Why a call failed: its text is not a duration as written
+# (`Duration.parse`), its parts are not a duration's (`from_parts`), a
+# number is not finite, an increment is not one `round` takes, or it
+# divides by zero (`div(0)`): `invalid`; or the result is beyond the
+# range (`add`, `sub`, `times`, `round`, `floor`, `Monotonic.at` and
+# `add`, and a duration form's conversion where the call takes it):
+# `range`.
 pub error TimeError
   invalid
   range
@@ -23,23 +27,44 @@ SECOND_NS = 1_000_000_000
 MS_NS = 1_000_000
 US_NS = 1_000
 
-# An exact, signed length of time: an `Int` of nanoseconds, so about 292
-# years either way. `==` compares two, `<` orders them, a `Map` keys on
-# one, and `print` writes the friendly form, `2h 30m`, `1ms 234us
-# 567ns`, `-1s 500ms`, `0s`; `iso` gives ISO 8601. Its own arithmetic
-# panics when the result leaves the range, as `Int`'s does, and the
-# `checked_` methods fail instead.
+# The greatest whole seconds a `Duration` holds, either way: `Int.max`,
+# so that the range is symmetric and no duration's negation leaves it.
+MAX_S = 9_223_372_036_854_775_807
+
+# The greatest reading of the monotonic clock: 2^62 nanoseconds, about
+# 146 years, so that the difference of two readings is an `Int`.
+MAX_READING = 4_611_686_018_427_387_904
+
+# An exact, signed length of time, to the nanosecond, about 292 billion
+# years either way: its whole seconds, an `Int`, and the nanoseconds
+# after them, of the same sign. The range is symmetric, so `neg()` and
+# `abs()` never leave it. `==` compares two, `<` orders them, a `Map`
+# keys on one, and `print` writes the friendly form, `2h 30m`, `1ms
+# 234us 567ns`, `-1s 500ms`, `0s`; `iso` gives ISO 8601. Each call that
+# can leave the range returns `!`, and nothing here panics.
 pub obj Duration: Eq + Ord + Hash + Print
-  # The nanoseconds (`sema.duration.field`).
-  n: Int
+  # The whole seconds, within ±`MAX_S`, and the nanoseconds after them,
+  # within ±999,999,999, of the same sign (either may be zero).
+  s: Int
+  nano: I32
 
   # The duration of `seconds` and `ns` more nanoseconds: the two agree
-  # in sign (either may be zero), and `ns` is within ±999,999,999, or
-  # it panics. With `subsec_ns`, the parts `std.datetime` keeps.
-  pub fun from_parts(seconds: Int, ns: Int) -> Duration
-    if ns <= -SECOND_NS or ns >= SECOND_NS or (seconds < 0 and ns > 0) or (seconds > 0 and ns < 0)
-      panic("time.Duration.from_parts: the parts", seconds, "and", ns, "do not agree in sign, or the nanoseconds are not within 999,999,999")
-    Duration(n: seconds * SECOND_NS + ns)
+  # in sign (either may be zero), `ns` is within ±999,999,999, and
+  # `seconds` is not `Int.min`, or it fails with `TimeError.invalid`.
+  # With `subsec_ns`, the parts of a duration; with constant arguments
+  # it is checked as Rig compiles and takes no `!`.
+  pub fun from_parts(seconds: Int, ns: Int) -> Duration!
+    if ns <= -SECOND_NS or ns >= SECOND_NS or seconds < -MAX_S or (seconds < 0 and ns > 0) or (seconds > 0 and ns < 0)
+      return TimeError.invalid
+    Duration(s: seconds, nano: I32(ns))
+
+  # The shortest and the longest duration: -(2^63 - 1) seconds and
+  # 999,999,999 nanoseconds, and that positive.
+  pub fun min() -> Duration
+    Duration(s: -MAX_S, nano: -999_999_999)
+
+  pub fun max() -> Duration
+    Duration(s: MAX_S, nano: 999_999_999)
 
   # The duration `s` writes: ISO 8601, `PT1H30M` or `-PT1.5S`, or the
   # friendly form, as `print` writes it and as Jiff reads it: `1.5h`,
@@ -63,107 +88,96 @@ pub obj Duration: Eq + Ord + Hash + Print
       return TimeError.invalid
     signed(total, neg or ago)!
 
-  # The whole hours, minutes, seconds, milliseconds, microseconds, and
-  # nanoseconds, each truncated toward zero: -1.5 seconds has
-  # `seconds()` of -1.
+  # The whole hours, minutes, and seconds, each an `Int`, and the whole
+  # milliseconds, microseconds, and nanoseconds, each an `I128`, since
+  # 292 billion years of them do not fit an `Int`; each truncated toward
+  # zero: -1.5 seconds has `seconds()` of -1.
   pub fun hours(?@) -> Int
-    @n / HOUR_NS
+    @s / 3600
 
   pub fun minutes(?@) -> Int
-    @n / MINUTE_NS
+    @s / 60
 
   pub fun seconds(?@) -> Int
-    @n / SECOND_NS
+    @s
 
-  pub fun ms(?@) -> Int
-    @n / MS_NS
+  pub fun ms(?@) -> I128
+    I128(@s) * 1_000 + I128(@nano) / I128(MS_NS)
 
-  pub fun us(?@) -> Int
-    @n / US_NS
+  pub fun us(?@) -> I128
+    I128(@s) * 1_000_000 + I128(@nano) / I128(US_NS)
 
-  pub fun ns(?@) -> Int
-    @n
+  pub fun ns(?@) -> I128
+    I128(@s) * I128(SECOND_NS) + I128(@nano)
 
   # The seconds, with their fraction.
   pub fun float_seconds(?@) -> Float
-    Float(@n / SECOND_NS) + Float(@n % SECOND_NS) / 1e9
+    Float(@s) + Float(@nano) / 1e9
 
   # The part below a whole second, with the duration's sign: 500,000,000
   # of 1.5 seconds, and -500,000,000 of -1.5. Not a total: with
-  # `from_parts`, the parts `std.datetime` keeps.
+  # `from_parts`, the parts of a duration.
   pub fun subsec_ns(?@) -> Int
-    @n % SECOND_NS
+    Int(@nano)
 
-  # The sum of two durations, and their difference.
-  pub fun add(?@, d: Duration) -> Duration
-    Duration(n: @n + d.n)
+  # The sum of two durations, and their difference. Fail with
+  # `TimeError.range` beyond the range.
+  pub fun add(?@, d: Duration) -> Duration!
+    of_parts(I128(@s) + I128(d.s), I128(@nano) + I128(d.nano)) ?? return TimeError.range
 
-  pub fun sub(?@, d: Duration) -> Duration
-    Duration(n: @n - d.n)
+  pub fun sub(?@, d: Duration) -> Duration!
+    of_parts(I128(@s) - I128(d.s), I128(@nano) - I128(d.nano)) ?? return TimeError.range
 
-  # The duration `n` times over, and divided by `n`, truncated toward
-  # zero; `div(0)` panics.
-  pub fun times(?@, n: Int) -> Duration
-    Duration(n: @n * n)
+  # The duration `n` times over, failing with `TimeError.range` beyond
+  # the range; and divided by `n`, truncated toward zero, failing with
+  # `TimeError.invalid` for `div(0)` and only then.
+  pub fun times(?@, n: Int) -> Duration!
+    of_parts(I128(@s) * I128(n), I128(@nano) * I128(n)) ?? return TimeError.range
 
-  pub fun div(?@, n: Int) -> Duration
-    Duration(n: @n / n)
+  pub fun div(?@, n: Int) -> Duration!
+    if n == 0
+      return TimeError.invalid
+    of_ns(@ns() / I128(n)) ?? return TimeError.range
 
   # The duration negated, and without its sign.
   pub fun neg(?@) -> Duration
-    Duration(n: -@n)
+    Duration(s: -@s, nano: -@nano)
 
   pub fun abs(?@) -> Duration
-    Duration(n: -@n if @n < 0 else @n)
-
-  # `add`, `sub`, and `times`, failing with `TimeError.range` where they
-  # would panic.
-  pub fun checked_add(?@, d: Duration) -> Duration!
-    s = @n +% d.n
-    if (@n < 0) == (d.n < 0) and (s < 0) != (@n < 0)
-      return TimeError.range
-    Duration(n: s)
-
-  pub fun checked_sub(?@, d: Duration) -> Duration!
-    s = @n -% d.n
-    if (@n < 0) != (d.n < 0) and (s < 0) != (@n < 0)
-      return TimeError.range
-    Duration(n: s)
-
-  pub fun checked_times(?@, n: Int) -> Duration!
-    p = I128(@n) * I128(n)
-    if p < I128(Int.min) or p > I128(Int.max)
-      return TimeError.range
-    Duration(n: Int(p))
+    if @s < 0 or @nano < 0
+      return @neg()
+    @
 
   # The nearest multiple of one unit's increment, a half away from zero:
-  # `d.round(minutes: 15)`, `d.round(seconds: 1)`. A call names exactly
+  # `d.round(minutes: 15)!`, `d.round(seconds: 1)!`. A call names exactly
   # one unit, from `ns:` to `hours:`, and an increment from 1 to
   # 1,000,000,000, checked where it is called when it is a constant;
-  # another increment panics, and so does a result beyond the range.
-  pub fun round(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none) -> Duration
-    Duration(n: to_multiple(@n, increment_ns("round", [ns, us, ms, seconds, minutes, hours]), false))
+  # another fails with `TimeError.invalid`, and a result beyond the
+  # range with `TimeError.range`.
+  pub fun round(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none) -> Duration!
+    of_ns(to_multiple(@ns(), increment_ns([ns, us, ms, seconds, minutes, hours])!, false)) ?? return TimeError.range
 
   # The multiple of one unit's increment at or before the duration,
-  # toward negative infinity: `d.floor(seconds: 1)`. Its argument is
-  # `round`'s.
-  pub fun floor(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none) -> Duration
-    Duration(n: to_multiple(@n, increment_ns("floor", [ns, us, ms, seconds, minutes, hours]), true))
+  # toward negative infinity: `d.floor(seconds: 1)!`. Its argument and
+  # its failures are `round`'s.
+  pub fun floor(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none) -> Duration!
+    of_ns(to_multiple(@ns(), increment_ns([ns, us, ms, seconds, minutes, hours])!, true)) ?? return TimeError.range
 
   # ISO 8601, in hours, minutes, and seconds: `PT2H30M`,
   # `PT0.001234567S`, `-PT1.5S`, `PT0S`. Allocates the String.
   pub fun iso(?@) -> String
     out = String()
-    if @n < 0
+    if @s < 0 or @nano < 0
       !out.add("-")
     !out.add("PT")
-    if @n == 0
+    if @s == 0 and @nano == 0
       !out.add("0S")
       return out
-    h = magnitude(@n / HOUR_NS)
-    m = magnitude(@n % HOUR_NS / MINUTE_NS)
-    s = magnitude(@n % MINUTE_NS / SECOND_NS)
-    f = magnitude(@n % SECOND_NS)
+    whole = magnitude(@s)
+    h = whole / 3600
+    m = whole % 3600 / 60
+    s = whole % 60
+    f = magnitude(Int(@nano))
     if h != 0
       !out.add(`{h}H`)
     if m != 0
@@ -184,51 +198,57 @@ pub obj Duration: Eq + Ord + Hash + Print
   # `2h 30m`, `1ms 234us 567ns`, with a leading `-` when negative; `0s`
   # for zero.
   sub print(?@, out: !Printer)
-    if @n == 0
+    if @s == 0 and @nano == 0
       !out.text("0s")
       return
-    if @n < 0
+    if @s < 0 or @nano < 0
       !out.text("-")
-    parts = [@n / HOUR_NS, @n % HOUR_NS / MINUTE_NS, @n % MINUTE_NS / SECOND_NS, @n % SECOND_NS / MS_NS, @n % MS_NS / US_NS, @n % US_NS]
+    whole = magnitude(@s)
+    f = magnitude(Int(@nano))
+    parts = [whole / 3600, whole % 3600 / 60, whole % 60, f / MS_NS, f % MS_NS / US_NS, f % US_NS]
     names = ["h", "m", "s", "ms", "us", "ns"]
     first = true
     for i in 0..6
       if parts[i] != 0
         if not first
           !out.text(" ")
-        !out.value(magnitude(parts[i]))
+        !out.value(parts[i])
         !out.text(names[i])
         first = false
 
 # A reading of the monotonic clock, which never goes back: only the
 # time between two readings means anything, and nothing mixes a reading
-# with the wall clock. `==` compares two, `<` orders them, so
-# `time.monotonic() >= deadline`, and a `Map` keys on one; what `print`
-# shows of one means nothing. Under the deterministic scheduler the
-# clock is virtual.
+# with the wall clock. A reading is never negative and stays within
+# 146 years of the clock's zero, which counts from the system's boot,
+# so `since` and `elapsed` cannot fail. `==` compares two, `<` orders
+# them, so `time.monotonic() >= deadline`, and a `Map` keys on one; what
+# `print` shows of one means nothing. Under the deterministic scheduler
+# the clock is virtual.
 pub obj Monotonic: Eq + Ord + Hash
-  # Nanoseconds since the clock's zero (`sema.duration.field`).
+  # Nanoseconds since the clock's zero, 0 to 2^62.
   n: Int
 
   # The reading a duration after the clock's zero, for a test or code
   # that is handed the time rather than reading it:
-  # `Monotonic.at(0).add(1)`. Panics beyond 292 years.
-  pub fun at(d: Duration) -> Monotonic
-    Monotonic(n: d.n)
+  # `Monotonic.at(0)!.add(1)!`. Fails with `TimeError.range` when that is
+  # negative or past 146 years.
+  pub fun at(d: Duration) -> Monotonic!
+    reading(d.ns()) ?? return TimeError.range
 
   # The reading a duration after this one, before it when the duration
-  # is negative: a deadline, `start.add(120)`. Panics beyond 292 years.
-  pub fun add(?@, d: Duration) -> Monotonic
-    Monotonic(n: @n + d.n)
+  # is negative: a deadline, `start.add(120)!`. Fails with
+  # `TimeError.range` when that is negative or past 146 years.
+  pub fun add(?@, d: Duration) -> Monotonic!
+    reading(I128(@n) + d.ns()) ?? return TimeError.range
 
   # The duration from `earlier` to this reading; negative when
   # `earlier` is the later one.
   pub fun since(?@, earlier: Monotonic) -> Duration
-    Duration(n: @n - earlier.n)
+    of_int_ns(@n - earlier.n)
 
   # The duration from this reading to now.
   pub fun elapsed(?@) -> Duration
-    Duration(n: monotonic_ns() - @n)
+    of_int_ns(monotonic_ns() - @n)
 
 # The monotonic clock now.
 pub fun monotonic() -> Monotonic
@@ -238,19 +258,26 @@ pub fun monotonic() -> Monotonic
 # taken first, which a function value can read with no `Monotonic` to
 # hold.
 pub fun since_start() -> Duration
-  Duration(n: start_ns())
+  of_int_ns(start_ns())
 
 # A duration form as a value: `time.duration(ms: 250)`,
-# `time.duration(5)`.
-pub fun duration(d: Duration) -> Duration
+# `time.duration(5)`. A form that cannot fail gives a `Duration`: a
+# constant, checked as Rig compiles, a `Duration`, an `Int` of seconds
+# or of a smaller unit. One that can, a `Float`, an `Int` of minutes or
+# hours, or several units summed, known only as the program runs, gives
+# a `Duration!`, which fails with `TimeError.invalid` for a number that
+# is not finite and `TimeError.range` beyond the range:
+# `time.duration(minutes: n)!`.
+pub fun duration(d: Duration) -> Duration!
   d
 
 # Wait at least a duration; not at all when it is not positive. A
 # fallible waiting point: in a canceled task it fails with
 # `task.Stop.canceled` (std.task), and past a deadline (`within`) with
-# `task.Stop.timeout`, sleeping only until the deadline.
+# `task.Stop.timeout`, sleeping only until the deadline. A wait longer
+# than the scheduler holds, about 292 years, waits as long as it can.
 pub sub sleep(d: Duration)!task.Stop
-  sleep_ns(d.n)!
+  sleep_ns(wait_ns(d))!
 
 # Run `f` with a deadline a duration from now, and give what it
 # gives. Every fallible waiting point `f` reaches after the deadline
@@ -258,43 +285,84 @@ pub sub sleep(d: Duration)!task.Stop
 # task or a set that can fail, whose tasks are canceled first. The tasks
 # `f` starts keep the deadline. Inside another deadline, the earlier
 # one holds, and the outer one is back once `f` returns. A duration
-# that is not positive is due at once.
+# that is not positive is due at once, and one longer than the
+# scheduler holds is as far off as it can be.
 #
 # `within` calls `f` once, `f: once`, so a closure written in the call
 # may move out what it moved in, `time.within(ms: 50, |<t| >t!)`, and
 # drops what it keeps.
 pub fun within[R](d: Duration, f: once ?fun() -> R!) -> R!
-  outer = enter_deadline(d.n)
+  outer = enter_deadline(wait_ns(d))
   defer restore_deadline(outer)
   f()!
+
+# The duration of `n` nanoseconds, or `none` beyond the range.
+fun of_ns(n: I128) -> Duration?
+  of_parts(n / I128(SECOND_NS), n % I128(SECOND_NS))
+
+# The duration of `s` seconds and `n` nanoseconds, of any signs and
+# sizes an `I128` holds, or `none` beyond the range.
+fun of_parts(s: I128, n: I128) -> Duration?
+  whole = s + n / I128(SECOND_NS)
+  rest = n % I128(SECOND_NS)
+  if whole > 0 and rest < 0
+    whole -= 1
+    rest += I128(SECOND_NS)
+  else if whole < 0 and rest > 0
+    whole += 1
+    rest -= I128(SECOND_NS)
+  if whole > I128(MAX_S) or whole < -I128(MAX_S)
+    return none
+  Duration(s: Int(whole), nano: I32(rest))
+
+# The duration of `n` nanoseconds, an `Int`, which a `Duration` always
+# holds.
+fun of_int_ns(n: Int) -> Duration
+  Duration(s: n / SECOND_NS, nano: I32(n % SECOND_NS))
+
+# The reading `n` nanoseconds after the clock's zero, or `none` when
+# that is negative or past 2^62.
+fun reading(n: I128) -> Monotonic?
+  if n < 0 or n > I128(MAX_READING)
+    return none
+  Monotonic(n: Int(n))
+
+# The nanoseconds of a wait, as the scheduler holds them: none for a
+# negative duration, and an `Int`'s most for one longer than that.
+fun wait_ns(d: Duration) -> Int
+  n = d.ns()
+  if n < 0
+    return 0
+  if n > I128(Int.max)
+    return Int.max
+  Int(n)
 
 # `n` without its sign, for a part of a duration, which is never
 # `Int.min`.
 fun magnitude(n: Int) -> Int
   -n if n < 0 else n
 
-# The nanoseconds of the one unit and increment `round` or `floor`
-# (`what`) is given, as `[ns, us, ms, seconds, minutes, hours]`.
-fun increment_ns(what: ?String, given: [6]Int?) -> I128
+# The nanoseconds of the one unit and increment `round` or `floor` is
+# given, as `[ns, us, ms, seconds, minutes, hours]`, or
+# `TimeError.invalid` for anything but one unit and an increment from 1
+# to 1,000,000,000.
+fun increment_ns(given: [6]Int?) -> I128!
   units = [1, US_NS, MS_NS, SECOND_NS, MINUTE_NS, HOUR_NS]
   out: I128 = 0
   for i in 0..6
     k = given[i] ?? 0
     if given[i] == none
       continue
-    if out != 0
-      panic(`time.Duration.{what} takes one unit and its increment`)
-    if k < 1 or k > 1_000_000_000
-      panic(`time.Duration.{what}: the increment {k} is not from 1 to 1,000,000,000`)
+    if out != 0 or k < 1 or k > 1_000_000_000
+      return TimeError.invalid
     out = I128(k) * I128(units[i])
   if out == 0
-    panic(`time.Duration.{what} takes one unit and its increment`)
+    return TimeError.invalid
   out
 
-# The multiple of `inc` nearest `n`, a half away from zero, or with
-# `down`, the one at or before it. Panics when it is beyond an `Int`.
-fun to_multiple(n: Int, inc: I128, down: Bool) -> Int
-  x = I128(n)
+# The multiple of `inc` nearest `x`, a half away from zero, or with
+# `down`, the one at or before it.
+fun to_multiple(x: I128, inc: I128, down: Bool) -> I128
   q = x / inc
   r = x % inc
   if down
@@ -304,20 +372,14 @@ fun to_multiple(n: Int, inc: I128, down: Bool) -> Int
     q += 1
   else if r < 0 and -r * 2 >= inc
     q -= 1
-  Int(q * inc)
+  q * inc
 
 # ---- Text ----------------------------------------------------------------
 
 # The duration of `total` nanoseconds, negated when `neg`, or
 # `TimeError.invalid` beyond the range.
 fun signed(total: I128, neg: Bool) -> Duration!
-  if neg
-    if total > I128(Int.max) + 1
-      return TimeError.invalid
-    return Duration(n: Int(-total))
-  if total > I128(Int.max)
-    return TimeError.invalid
-  Duration(n: Int(total))
+  of_ns(-total if neg else total) ?? return TimeError.invalid
 
 # The nanoseconds of ISO 8601's time part, from just after its `P`:
 # `T`, then hours, minutes, and seconds, each at most once and in that

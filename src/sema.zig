@@ -3019,15 +3019,17 @@ pub const ArgSlot = union(enum) {
 /// A duration parameter filled by several units' keywords, which add
 /// up, `time.sleep(hours: 1, minutes: 30)` (`duration`): the indexes of
 /// the parts in the call's argument list, in the order written. Each
-/// part is an argument whose nanoseconds emit writes as an `Int`
-/// (`Duration` with no `ty`), and emit adds them with a checked add
-/// (`rig.durationSum`) into the `Duration` `ty`, packed as the
-/// `Duration?` `opt` when the parameter is one, or into an `Int` of
-/// nanoseconds where `ty` is `type_invalid` (`time.after`).
+/// part is an argument whose nanoseconds emit writes as an `I128`
+/// (`Duration.part`), and emit adds them (`rig.durationSum`) into the
+/// `Duration` `ty`, packed as the `Duration?` `opt` when the parameter is
+/// one, or into an `Int` of nanoseconds where `ty` is `type_invalid`
+/// (`time.after`), converted as `how` says.
 pub const DurationParts = struct {
     args: []const u32,
     ty: TypeId = type_invalid,
     opt: TypeId = type_invalid,
+    /// How the sum becomes the value (`DurationHow`).
+    how: DurationHow = .total,
 };
 
 /// The parameter slot of `slots` that argument `ai` fills, alone or as
@@ -12254,10 +12256,10 @@ pub const duration = struct {
         .{ "hours", 3_600_000_000_000 }, .{ "minutes", 60_000_000_000 }, .{ "seconds", 1_000_000_000 },
         .{ "ms", 1_000_000 },            .{ "us", 1_000 },               .{ "ns", 1 },
     };
-    /// The one field of std.time's `Duration` and `Monotonic`, an `Int`
-    /// of nanoseconds, which the runtime fills and reads by its name
-    /// (`rig.durationInt`, `rig.durationNs`).
-    pub const field = "n";
+    /// The fields of std.time's `Duration`, its whole seconds and the
+    /// nanoseconds after them, which the runtime fills and reads by
+    /// their names (`rig.durationInt`, `rig.durationNs`).
+    pub const fields = [_][]const u8{ "s", "nano" };
     /// Keywords of a length that is not always the same, which no
     /// duration takes (docs/design/datetime.md §5.2).
     pub const calendar = [_][]const u8{ "days", "weeks" };
@@ -12280,6 +12282,23 @@ pub const duration = struct {
         return false;
     }
 
+    /// Whether an `Int` known only as the program runs, of the unit of
+    /// `unit_ns` nanoseconds, always fits a `Duration`: one of `ns:`,
+    /// `us:` or `ms:` does. An `Int` of seconds is `Int.min` seconds at
+    /// its least, one past the range, which is symmetric so that `neg()`
+    /// cannot fail; so a bare `Int`, `seconds:`, `minutes:` and `hours:`
+    /// can leave it, as a `Float` and a sum of several units can
+    /// (docs/design/datetime.md §5.2).
+    pub fn totalInt(unit_ns: i64) bool {
+        return unit_ns < second_ns;
+    }
+
+    /// Whether `name`, a function of `home`, is `time.duration`, whose
+    /// call gives the plain `Duration` when its form cannot fail.
+    pub fn isMaker(home: *const SemContext, name: []const u8) bool {
+        return home.is_std and std.mem.eql(u8, home.name, "std.time") and std.mem.eql(u8, name, "duration");
+    }
+
     /// Whether `name`, a function of `home`, waits a duration it is
     /// given: `time.sleep` and `time.within`, whose negative constant is
     /// refused (with `time.after` and `per:`, which the checker types).
@@ -12289,12 +12308,12 @@ pub const duration = struct {
     }
 
     /// Whether `method` of `owner`, declared in `home`, adds a duration to
-    /// a value with no calendar, `datetime.Instant`'s `add` and
-    /// `checked_add`: a day on the clock needs a zone, so its fix for
+    /// a value with no calendar, `datetime.Instant`'s `add`: a day on the
+    /// clock needs a zone, so its fix for
     /// `days:` names `in_zone` (docs/design/datetime.md §5.2).
     pub fn zoneless(home: *const SemContext, owner: []const u8, method: []const u8) bool {
         if (!home.is_std or !std.mem.eql(u8, home.name, "std.datetime") or !std.mem.eql(u8, owner, "Instant")) return false;
-        return std.mem.eql(u8, method, "add") or std.mem.eql(u8, method, "checked_add");
+        return std.mem.eql(u8, method, "add");
     }
 };
 
@@ -12332,8 +12351,8 @@ pub const ArgCheck = enum {
     /// `round` and `floor` of `datetime.DateTime`: as `clock_increment`,
     /// and also `days: 1`.
     day_increment,
-    /// `add` and `checked_add` of `datetime.Date`: no duration, by
-    /// position or by a unit's keyword, since a date has no time of day.
+    /// `add` of `datetime.Date`: no duration, by position or by a unit's
+    /// keyword, since a date has no time of day.
     calendar_add,
     /// `round` and `floor` of `datetime.Instant`: as `unit_increment`,
     /// with an increment that divides a day.
@@ -12345,7 +12364,7 @@ pub fn stdArgCheck(home: *const SemContext, owner: []const u8, method: []const u
     if (!home.is_std) return null;
     const eq = std.mem.eql;
     const rounds = eq(u8, method, "round") or eq(u8, method, "floor");
-    const adds = eq(u8, method, "add") or eq(u8, method, "checked_add");
+    const adds = eq(u8, method, "add");
     if (eq(u8, home.name, "std.time")) {
         return if (eq(u8, owner, "Duration") and rounds) .unit_increment else null;
     }
@@ -12369,6 +12388,14 @@ pub const ConstMaker = enum {
     time,
     /// `datetime.DateTime.new(year, month, day, hour, minute, second, ns)`.
     date_time,
+    /// `time.Duration.from_parts(seconds, ns)`.
+    duration_parts,
+    /// `datetime.Instant.from_unix_s(s, ns)`.
+    unix_s,
+    /// `datetime.Instant.from_unix_ms(ms)`.
+    unix_ms,
+    /// `datetime.Instant.from_unix_us(us)`.
+    unix_us,
 
     /// The parameters it checks, in order, as its declaration names them.
     pub fn params(m: ConstMaker) []const MakerPart {
@@ -12376,18 +12403,38 @@ pub const ConstMaker = enum {
             .date => &.{ .year, .month, .day },
             .time => &.{ .hour, .minute, .second, .ns },
             .date_time => &.{ .year, .month, .day, .hour, .minute, .second, .ns },
+            .duration_parts => &.{ .duration_s, .duration_ns },
+            .unix_s => &.{ .unix_s, .unix_ns },
+            .unix_ms => &.{.unix_ms},
+            .unix_us => &.{.unix_us},
         };
     }
 };
 
 /// The maker of function `name` of type `owner`, declared in `home`.
 pub fn constMaker(home: *const SemContext, owner: []const u8, name: []const u8) ?ConstMaker {
-    if (!home.is_std or !std.mem.eql(u8, home.name, "std.datetime") or !std.mem.eql(u8, name, "new")) return null;
-    if (std.mem.eql(u8, owner, "Date")) return .date;
-    if (std.mem.eql(u8, owner, "Time")) return .time;
-    if (std.mem.eql(u8, owner, "DateTime")) return .date_time;
+    if (!home.is_std) return null;
+    const eq = std.mem.eql;
+    if (eq(u8, home.name, "std.time")) return if (eq(u8, owner, "Duration") and eq(u8, name, "from_parts")) .duration_parts else null;
+    if (!eq(u8, home.name, "std.datetime")) return null;
+    if (eq(u8, owner, "Instant")) {
+        if (eq(u8, name, "from_unix_s")) return .unix_s;
+        if (eq(u8, name, "from_unix_ms")) return .unix_ms;
+        if (eq(u8, name, "from_unix_us")) return .unix_us;
+        return null;
+    }
+    if (!eq(u8, name, "new")) return null;
+    if (eq(u8, owner, "Date")) return .date;
+    if (eq(u8, owner, "Time")) return .time;
+    if (eq(u8, owner, "DateTime")) return .date_time;
     return null;
 }
+
+/// The range of instants in nanoseconds from 1970-01-01T00:00Z:
+/// -009999-01-02T01:59:59Z to 9999-12-30T22:00:00.999999999Z
+/// (std.datetime's `MIN_UNIX_S` and `MAX_UNIX_S`).
+pub const instant_min_ns: Wide = -377_705_023_201 * 1_000_000_000;
+pub const instant_max_ns: Wide = 253_402_207_200 * 1_000_000_000 + 999_999_999;
 
 /// A part of a maker's value: what one of its parameters gives.
 pub const MakerPart = enum {
@@ -12398,9 +12445,20 @@ pub const MakerPart = enum {
     minute,
     second,
     ns,
+    /// A `Duration`'s whole seconds, and the nanoseconds after them, of
+    /// their sign.
+    duration_s,
+    duration_ns,
+    /// A Unix time's seconds and the nanoseconds summed with them, and
+    /// a Unix time in milliseconds and in microseconds.
+    unix_s,
+    unix_ns,
+    unix_ms,
+    unix_us,
 
-    /// The least and greatest value std.datetime takes for a part other
-    /// than the day, whose greatest is its month's length (`monthDays`).
+    /// The least and greatest value std takes for a part other than the
+    /// day, whose greatest is its month's length (`monthDays`), and a
+    /// Unix time's, whose range is the instants' (`makerFault`).
     pub fn range(p: MakerPart) struct { Wide, Wide } {
         return switch (p) {
             .year => .{ -9999, 9999 },
@@ -12409,6 +12467,11 @@ pub const MakerPart = enum {
             .hour => .{ 0, 23 },
             .minute, .second => .{ 0, 59 },
             .ns => .{ 0, 999_999_999 },
+            .duration_s => .{ -std.math.maxInt(i64), std.math.maxInt(i64) },
+            .duration_ns, .unix_ns => .{ -999_999_999, 999_999_999 },
+            .unix_s => .{ @divFloor(instant_min_ns, 1_000_000_000), @divFloor(instant_max_ns, 1_000_000_000) },
+            .unix_ms => .{ @divFloor(instant_min_ns, 1_000_000), @divFloor(instant_max_ns, 1_000_000) },
+            .unix_us => .{ @divFloor(instant_min_ns, 1_000), @divFloor(instant_max_ns, 1_000) },
         };
     }
 };
@@ -12442,6 +12505,13 @@ pub fn makerFault(maker: ConstMaker, values: []const Wide) ?usize {
         switch (p) {
             .year => year = v,
             .month => month = v,
+            // The nanoseconds agree with the seconds in sign.
+            .duration_ns => if ((values[0] < 0 and v > 0) or (values[0] > 0 and v < 0)) return i,
+            // The sum of the two is an instant.
+            .unix_ns => {
+                const total = values[0] * 1_000_000_000 + v;
+                if (total < instant_min_ns or total > instant_max_ns) return i;
+            },
             else => {},
         }
     }
@@ -12463,6 +12533,18 @@ test "a maker's check agrees with the calendar at each boundary" {
     try std.testing.expectEqual(@as(?usize, null), makerFault(.time, &.{ 23, 59, 59, 999_999_999 }));
     try std.testing.expectEqual(@as(?usize, 3), makerFault(.time, &.{ 0, 0, 0, 1_000_000_000 }));
     try std.testing.expectEqual(@as(?usize, 3), makerFault(.date_time, &.{ 2026, 1, 1, 24, 0, 0, 0 }));
+    try std.testing.expectEqual(@as(?usize, null), makerFault(.duration_parts, &.{ std.math.maxInt(i64), 999_999_999 }));
+    try std.testing.expectEqual(@as(?usize, 0), makerFault(.duration_parts, &.{ std.math.minInt(i64), 0 }));
+    try std.testing.expectEqual(@as(?usize, 1), makerFault(.duration_parts, &.{ 1, -1 }));
+    try std.testing.expectEqual(@as(?usize, 1), makerFault(.duration_parts, &.{ 0, 1_000_000_000 }));
+    try std.testing.expectEqual(@as(?usize, null), makerFault(.unix_s, &.{ 253_402_207_200, 999_999_999 }));
+    try std.testing.expectEqual(@as(?usize, 0), makerFault(.unix_s, &.{ 253_402_207_201, 0 }));
+    try std.testing.expectEqual(@as(?usize, null), makerFault(.unix_s, &.{ -377_705_023_201, 0 }));
+    try std.testing.expectEqual(@as(?usize, 1), makerFault(.unix_s, &.{ -377_705_023_201, -1 }));
+    try std.testing.expectEqual(@as(?usize, null), makerFault(.unix_s, &.{ 0, -1 }));
+    try std.testing.expectEqual(@as(?usize, null), makerFault(.unix_ms, &.{253_402_207_200_999}));
+    try std.testing.expectEqual(@as(?usize, 0), makerFault(.unix_ms, &.{253_402_207_201_000}));
+    try std.testing.expectEqual(@as(?usize, 0), makerFault(.unix_us, &.{-377_705_023_201_000_001}));
 }
 
 /// An argument given as a duration form (`duration`): what emit writes
@@ -12479,13 +12561,40 @@ pub const Duration = struct {
     float: bool = false,
     ty: TypeId = type_invalid,
     opt: TypeId = type_invalid,
+    /// How a number becomes the value (`DurationHow`).
+    how: DurationHow = .total,
+    /// A part of a sum (`DurationParts`), written as an `I128` of
+    /// nanoseconds.
+    part: bool = false,
 
     /// The type of what emit writes for the argument: the `Duration?`,
-    /// the `Duration`, or `int`, the `Int` of nanoseconds.
+    /// the `Duration`, or `int`, the `Int` of nanoseconds (a part's is
+    /// an `I128`, which emit names itself).
     pub fn written(d: Duration, int: TypeId) TypeId {
         if (d.unit_ns == 0 or d.ty == type_invalid) return int;
         return if (d.opt != type_invalid) d.opt else d.ty;
     }
+};
+
+/// How a duration form becomes its value (docs/design/datetime.md
+/// §5.2), decided once by the checker on a positive list: `total`, a form
+/// that cannot fail (a constant it checked, a `Duration`, an `Int` of
+/// seconds or a smaller unit, `rig.durationInt`); `clamped`, in a wait,
+/// which waits as long as the scheduler can (`rig.durationIntClamp`);
+/// `folded`, into a call that returns `!`, whose failure the conversion
+/// joins with the callee's own `range` and `invalid` (`rig.durationIntTry`).
+pub const DurationHow = union(enum) {
+    total,
+    clamped,
+    folded: FoldInto,
+};
+
+/// The error set a duration form's conversion fails with, the callee's
+/// own (`DurationHow.folded`), as emit names its members: the module
+/// that declares it, empty for the root, and the set.
+pub const FoldInto = struct {
+    module: []const u8,
+    set: []const u8,
 };
 
 /// Whether `sym` is the type of a `task.select`'s value (`selectType`).

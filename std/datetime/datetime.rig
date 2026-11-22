@@ -31,6 +31,14 @@ pub obj DateTime: Eq + Ord + Hash + Print
       return DateTimeError.invalid
     DateTime(on: d, at: t)
 
+  # The first and the last date and time: -9999-01-01T00:00 and
+  # 9999-12-31T23:59:59.999999999.
+  pub fun min() -> DateTime
+    DateTime(on: Date.min(), at: Time.min())
+
+  pub fun max() -> DateTime
+    DateTime(on: Date.max(), at: Time.max())
+
   # The date, and the time of day.
   pub fun date(?@) -> Date
     @on
@@ -76,18 +84,15 @@ pub obj DateTime: Eq + Ord + Hash + Print
     Int(@at.ns)
 
   # The date and time a duration and the calendar amounts later, each
-  # given by name: the duration by units, `dt.add(hours: 2)`, or by its
-  # name in a duration form, `dt.add(duration: 0.5)` (half a second); the
-  # calendar amounts, `dt.add(days: 1)`; and both, `dt.add(days: 1,
-  # hours: 2)`. A bare number is seconds, never days. Years and months come first, together as months, with a
-  # day past the month's end becoming its last day; then weeks and
-  # days; then the duration, every day 24 hours. Each is of either sign.
-  # Panics when a step leaves the range; `checked_add` fails instead.
-  pub fun add(?@, duration: time.Duration? = none, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> DateTime
-    datetime_add(@, duration, total_months(years, months), total_days(weeks, days)) ?? panic("datetime.DateTime.add:", @, "plus", duration ?? time.duration(0), `and years: {years}, months: {months}, weeks: {weeks}, days: {days} is beyond the range, -9999-01-01 to 9999-12-31`)
-
-  # `add`, failing with `DateTimeError.range` where it would panic.
-  pub fun checked_add(?@, duration: time.Duration? = none, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> DateTime!
+  # given by name: the duration by units, `dt.add(hours: 2)!`, or by its
+  # name in a duration form, `dt.add(duration: 0.5)!` (half a second);
+  # the calendar amounts, `dt.add(days: 1)!`; and both, `dt.add(days: 1,
+  # hours: 2)!`. A bare number is seconds, never days. Years and months
+  # come first, together as months, with a day past the month's end
+  # becoming its last day; then weeks and days; then the duration, every
+  # day 24 hours. Each is of either sign. Fails with
+  # `DateTimeError.range` when a step leaves the range.
+  pub fun add(?@, duration: time.Duration? = none, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> DateTime!
     datetime_add(@, duration, total_months(years, months), total_days(weeks, days)) ?? return DateTimeError.range
 
   # The date and time with the fields given by name replaced:
@@ -97,15 +102,9 @@ pub obj DateTime: Eq + Ord + Hash + Print
     DateTime(on: @on.with(year: year, month: month, day: day)!, at: @at.with(hour: hour, minute: minute, second: second, ns: ns)!)
 
   # The time from `other` to this date and time, every day 24 hours:
-  # negative when `other` is the later, and beyond about 292 years the
-  # largest or smallest `Duration`.
+  # negative when `other` is the later, and exact for any two.
   pub fun since(?@, other: DateTime) -> time.Duration
-    n = I128(@on.days_since(other.on)) * I128(DAY_NS) + I128(@at.total() - other.at.total())
-    if n > I128(Int.max)
-      return time.duration(ns: Int.max)
-    if n < I128(Int.min)
-      return time.duration(ns: Int.min)
-    time.duration(ns: Int(n))
+    span(I128(@on.days_since(other.on)) * I128(DAY_NS) + I128(@at.total() - other.at.total()))
 
   # The whole days, weeks, months, and years from `other`, positive when
   # this is the later, and `a.days_since(b)` is `-b.days_since(a)`. Days
@@ -129,20 +128,21 @@ pub obj DateTime: Eq + Ord + Hash + Print
     @months_since(other) / 12
 
   # The nearest multiple of one unit's increment, a half going to the
-  # later: `dt.round(minutes: 15)`, `dt.round(days: 1)`. A round past
+  # later: `dt.round(minutes: 15)!`, `dt.round(days: 1)!`. A round past
   # midnight carries into the next day. A call names exactly one unit,
   # from `ns:` to `hours:`, with an increment that divides the next
   # larger unit and is smaller than it, or `days: 1`, checked where it
-  # is called when it is a constant; another panics, and so does a
-  # result beyond the range.
-  pub fun round(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none, days: Int? = none) -> DateTime
-    datetime_multiple(@, clock_increment("DateTime.round", [ns, us, ms, seconds, minutes, hours], days), false)
+  # is called when it is a constant; another fails with
+  # `DateTimeError.invalid`, and a result beyond the range with
+  # `DateTimeError.range`.
+  pub fun round(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none, days: Int? = none) -> DateTime!
+    datetime_multiple(@, clock_increment([ns, us, ms, seconds, minutes, hours], days)!, false) ?? return DateTimeError.range
 
   # The multiple of one unit's increment at or before the date and
-  # time: `dt.floor(hours: 1)`, `dt.floor(days: 1)`. Its argument is
-  # `round`'s.
-  pub fun floor(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none, days: Int? = none) -> DateTime
-    datetime_multiple(@, clock_increment("DateTime.floor", [ns, us, ms, seconds, minutes, hours], days), true)
+  # time: `dt.floor(hours: 1)!`, `dt.floor(days: 1)!`. Its argument and
+  # its failures are `round`'s.
+  pub fun floor(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none, days: Int? = none) -> DateTime!
+    datetime_multiple(@, clock_increment([ns, us, ms, seconds, minutes, hours], days)!, true) ?? return DateTimeError.range
 
   sub print(?@, out: !Printer)
     print_date(!out, @on)
@@ -157,7 +157,7 @@ fun datetime_add(dt: DateTime, d: time.Duration?, months: I128, days: I128) -> D
   ns = (d ?? time.duration(0)).ns()
   if ns == 0
     return DateTime(on: on, at: dt.at)
-  total = I128(dt.at.total()) + I128(ns)
+  total = I128(dt.at.total()) + ns
   carry = total / I128(DAY_NS)
   rest = total % I128(DAY_NS)
   if rest < 0
@@ -181,10 +181,9 @@ fun whole_months(early: DateTime, late: DateTime) -> Int
 # nanoseconds of its day, carrying a round past midnight into the next
 # day in every year (Jiff's `DateTimeRound::round`,
 # `civil/datetime.rs:3570`, without its sign on the day in years at or
-# below 0: DATETIME-DESIGN §6.8).
-fun datetime_multiple(dt: DateTime, inc: Int, down: Bool) -> DateTime
+# below 0: DATETIME-DESIGN §6.8); `none` past 9999-12-31.
+fun datetime_multiple(dt: DateTime, inc: Int, down: Bool) -> DateTime?
   n = clock_multiple(dt.at.total(), inc, down)
   if n < DAY_NS
     return DateTime(on: dt.on, at: time_at(n))
-  next = day_step(dt.on.number(), 1) ?? panic("datetime.DateTime.round:", dt, "rounds past 9999-12-31")
-  DateTime(on: date_of(next), at: time_at(n - DAY_NS))
+  DateTime(on: date_of(day_step(dt.on.number(), 1)?), at: time_at(n - DAY_NS))

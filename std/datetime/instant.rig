@@ -23,15 +23,63 @@ pub obj Instant: Eq + Ord + Hash + Print
   s: Int
   ns: U32
 
-  # The instant a duration after 1970-01-01T00:00Z, before it when the
-  # duration is negative: `Instant.from_unix(1_700_000_000)`, or
-  # `Instant.from_unix(ms: t)` for a JavaScript time. A `Float` near
-  # 1.7e9 resolves only about 240 ns, so a time finer than a microsecond
-  # is given with `us:` or `ns:`. It does not fail: a `Duration` reaches
-  # the years 1677 to 2262, inside the range, and a number beyond one
-  # panics where the call makes the duration, as any duration form does.
-  pub fun from_unix(d: time.Duration) -> Instant
-    instant_of(I128(d.ns())) ?? panic("datetime.Instant.from_unix:", d, "is beyond the range of instants")
+  # The first and the last instant: -009999-01-02T01:59:59Z and
+  # 9999-12-30T22:00:00.999999999Z.
+  pub fun min() -> Instant
+    Instant(s: MIN_UNIX_S, ns: 0)
+
+  pub fun max() -> Instant
+    Instant(s: MAX_UNIX_S, ns: 999_999_999)
+
+  # The instant `s` seconds and `ns` nanoseconds after
+  # 1970-01-01T00:00Z, before it when negative, as Unix tools count:
+  # `Instant.from_unix_s(1_700_000_000)`. The two may differ in sign and
+  # are summed: `from_unix_s(0, ns: -1)` is
+  # 1969-12-31T23:59:59.999999999Z. Fails with `DateTimeError.range`
+  # beyond the range of instants and for an `ns` outside ±999,999,999.
+  # With constant arguments it is checked as Rig compiles and takes no
+  # `!`.
+  pub fun from_unix_s(s: Int, ns: Int = 0) -> Instant!
+    if ns <= -SECOND_NS or ns >= SECOND_NS
+      return DateTimeError.range
+    instant_of(I128(s) * I128(SECOND_NS) + I128(ns)) ?? return DateTimeError.range
+
+  # The instant `ms` milliseconds after 1970-01-01T00:00Z, a JavaScript
+  # or Java time, and `us` microseconds after it. Fail with
+  # `DateTimeError.range` beyond the range of instants; with a constant
+  # argument each is checked as Rig compiles and takes no `!`.
+  pub fun from_unix_ms(ms: Int) -> Instant!
+    instant_of(I128(ms) * 1_000_000) ?? return DateTimeError.range
+
+  pub fun from_unix_us(us: Int) -> Instant!
+    instant_of(I128(us) * 1_000) ?? return DateTimeError.range
+
+  # The instant `ns` nanoseconds after 1970-01-01T00:00Z: an `Int` of
+  # them reaches the years 1677 to 2262, inside the range, so it does
+  # not fail. Go's `UnixNano` read back.
+  pub fun from_unix_ns(ns: Int) -> Instant
+    Instant(s: floor_div(ns, SECOND_NS), ns: U32(floor_mod(ns, SECOND_NS)))
+
+  # The instant `s` seconds after 1970-01-01T00:00Z, a `Float` as
+  # Python's `time.time()` and many JSON APIs write it, to the nearest
+  # nanosecond, a half away from zero. A `Float` near 1.7e9 resolves
+  # only about 240 ns, so a finer time is given as `Int`s. Fails with
+  # `DateTimeError.invalid` for a NaN and `DateTimeError.range` for an
+  # infinity or a time beyond the range of instants.
+  pub fun from_unix_float(s: Float) -> Instant!
+    if s != s
+      return DateTimeError.invalid
+    if s < Float(MIN_UNIX_S - 1) or s > Float(MAX_UNIX_S + 1)
+      return DateTimeError.range
+    whole = Int(s)
+    n = (s - Float(whole)) * 1e9
+    ns = Int(n)
+    rest = n - Float(ns)
+    if rest >= 0.5
+      ns += 1
+    else if rest <= -0.5
+      ns -= 1
+    instant_of(I128(whole) * I128(SECOND_NS) + I128(ns)) ?? return DateTimeError.range
 
   # The instant `text` writes in RFC 3339: a date, `T`, `t`, or a space,
   # a time of day, and an offset, `Z`, `z`, or a sign and the hours, then
@@ -54,46 +102,51 @@ pub obj Instant: Eq + Ord + Hash + Print
     secs = I128(d.number()) * I128(DAY_S) + I128(t.total() / SECOND_NS) - I128(offset)
     instant_of(secs * I128(SECOND_NS) + I128(t.ns)) ?? return DateTimeError.invalid
 
-  # The duration since 1970-01-01T00:00Z, negative before it:
-  # `i.unix().seconds()`, `i.unix().ms()`. Outside the years 1677 to 2262,
-  # beyond a `Duration`'s range, the largest or smallest `Duration`.
+  # The duration since 1970-01-01T00:00Z, negative before it, exact at
+  # any instant: `i.unix().seconds()`, truncated toward zero, or
+  # `i.unix().ns()`, an `I128`.
   pub fun unix(?@) -> time.Duration
-    clamp_duration(@total())
+    span(@total())
 
-  # The whole seconds since 1970-01-01T00:00Z, floored, as Unix tools
-  # count them: half a second before 1970 is -1. Exact at any instant.
+  # The whole seconds, milliseconds, and microseconds since
+  # 1970-01-01T00:00Z, each floored, as Unix tools count them: half a
+  # second before 1970 is -1 second. Exact at any instant, and each the
+  # inverse of its maker.
   pub fun unix_s(?@) -> Int
     @s
 
-  # The instant a duration later, or earlier when it is negative:
-  # `i.add(90)`, `i.add(hours: 1, minutes: 30)`. Panics beyond the range;
-  # `checked_add` fails instead. An instant has no calendar: a day on the
-  # clock is a zone's.
-  pub fun add(?@, d: time.Duration) -> Instant
-    instant_of(@total() + I128(d.ns())) ?? panic("datetime.Instant.add:", @, "plus", d, "is beyond the range of instants, -009999-01-02T01:59:59Z to 9999-12-30T22:00:00.999999999Z")
+  pub fun unix_ms(?@) -> Int
+    @s * 1_000 + Int(@ns) / 1_000_000
 
-  # `add`, failing with `DateTimeError.range` where it would panic.
-  pub fun checked_add(?@, d: time.Duration) -> Instant!
-    instant_of(@total() + I128(d.ns())) ?? return DateTimeError.range
+  pub fun unix_us(?@) -> Int
+    @s * 1_000_000 + Int(@ns) / 1_000
+
+  # The instant a duration later, or earlier when it is negative:
+  # `i.add(90)!`, `i.add(hours: 1, minutes: 30)!`. Fails with
+  # `DateTimeError.range` beyond the range. An instant has no calendar: a
+  # day on the clock is a zone's.
+  pub fun add(?@, d: time.Duration) -> Instant!
+    instant_of(@total() + d.ns()) ?? return DateTimeError.range
 
   # The time from `other` to this instant, negative when `other` is the
-  # later; beyond about 292 years the largest or smallest `Duration`.
+  # later; exact for any two instants.
   pub fun since(?@, other: Instant) -> time.Duration
-    clamp_duration(@total() - other.total())
+    span(@total() - other.total())
 
   # The nearest multiple of one unit's increment, counted from
   # 1970-01-01T00:00Z, a half going to the later, before 1970 too:
-  # `i.round(seconds: 1)` prints without a fraction. A call names exactly
-  # one unit, from `ns:` to `hours:`, and an increment that divides a
-  # day, `minutes: 15`, `hours: 6`, checked where it is called when it is
-  # a constant; another panics, and so does a result beyond the range.
-  pub fun round(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none) -> Instant
-    instant_multiple(@, instant_increment("round", [ns, us, ms, seconds, minutes, hours]), false)
+  # `i.round(seconds: 1)!` prints without a fraction. A call names
+  # exactly one unit, from `ns:` to `hours:`, and an increment that
+  # divides a day, `minutes: 15`, `hours: 6`, checked where it is called
+  # when it is a constant; another fails with `DateTimeError.invalid`,
+  # and a result beyond the range with `DateTimeError.range`.
+  pub fun round(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none) -> Instant!
+    instant_multiple(@, instant_increment([ns, us, ms, seconds, minutes, hours])!, false) ?? return DateTimeError.range
 
   # The multiple of one unit's increment at or before the instant:
-  # `i.floor(hours: 1)`. Its argument is `round`'s.
-  pub fun floor(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none) -> Instant
-    instant_multiple(@, instant_increment("floor", [ns, us, ms, seconds, minutes, hours]), true)
+  # `i.floor(hours: 1)!`. Its argument and its failures are `round`'s.
+  pub fun floor(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none) -> Instant!
+    instant_multiple(@, instant_increment([ns, us, ms, seconds, minutes, hours])!, true) ?? return DateTimeError.range
 
   sub print(?@, out: !Printer)
     print_date(!out, date_of(floor_div(@s, DAY_S)))
@@ -107,9 +160,11 @@ pub obj Instant: Eq + Ord + Hash + Print
 
 # The wall clock now: the system's idea of the current instant, which
 # can be set, so it may jump; to time something, `time.monotonic()`.
-# It is the real clock under the deterministic scheduler too.
+# It is the real clock under the deterministic scheduler too. It reads
+# an `Int` of nanoseconds since 1970, inside the range, so it does not
+# fail.
 pub fun now() -> Instant
-  instant_of(I128(wall_ns())) ?? panic("datetime.now: the wall clock reads beyond the range of instants")
+  Instant.from_unix_ns(wall_ns())
 
 # The instant `n` nanoseconds after 1970-01-01T00:00Z, or `none` beyond
 # the range.
@@ -123,44 +178,36 @@ fun instant_of(n: I128) -> Instant?
     return none
   Instant(s: Int(s), ns: U32(r))
 
-# `n` nanoseconds as a `Duration`, or the largest or smallest one.
-fun clamp_duration(n: I128) -> time.Duration
-  if n > I128(Int.max)
-    return time.duration(ns: Int.max)
-  if n < I128(Int.min)
-    return time.duration(ns: Int.min)
-  time.duration(ns: Int(n))
+# `n` nanoseconds as a `Duration`, for the span between two instants or
+# two dates and times, which a `Duration` always holds: the standard
+# library makes one from its parts.
+fun span(n: I128) -> time.Duration
+  time.Duration(s: Int(n / I128(SECOND_NS)), nano: I32(n % I128(SECOND_NS)))
 
-# The nanoseconds of the one unit and increment `round` or `floor`
-# (`what`) is given, as `[ns, us, ms, seconds, minutes, hours]`: from 1
-# to 1,000,000,000, and dividing a day (Jiff's
-# `Increment::for_timestamp`, `util/round.rs:148`).
-fun instant_increment(what: ?String, given: [6]Int?) -> I128
+# The nanoseconds of the one unit and increment `round` or `floor` is
+# given, as `[ns, us, ms, seconds, minutes, hours]`: from 1 to
+# 1,000,000,000, and dividing a day (Jiff's `Increment::for_timestamp`,
+# `util/round.rs:148`); `DateTimeError.invalid` for anything else.
+fun instant_increment(given: [6]Int?) -> I128!
   units = [1, 1_000, 1_000_000, SECOND_NS, MINUTE_NS, HOUR_NS]
-  names = ["nanoseconds", "microseconds", "milliseconds", "seconds", "minutes", "hours"]
-  per_day_text = ["86,400,000,000,000", "86,400,000,000", "86,400,000", "86,400", "1,440", "24"]
   out: I128 = 0
   for i in 0..6
     if given[i] == none
       continue
     k = given[i] ?? 0
-    if out != 0
-      panic(`datetime.Instant.{what} takes one unit and its increment`)
-    if k < 1 or k > 1_000_000_000
-      panic(`datetime.Instant.{what}: the increment {k} is not from 1 to 1,000,000,000`)
-    per_day = DAY_NS / units[i]
-    if per_day % k != 0
-      panic(`datetime.Instant.{what}: the increment {k} does not divide {per_day_text[i]}, the {names[i]} in a day`)
+    if out != 0 or k < 1 or k > 1_000_000_000 or (DAY_NS / units[i]) % k != 0
+      return DateTimeError.invalid
     out = I128(k) * I128(units[i])
   if out == 0
-    panic(`datetime.Instant.{what} takes one unit and its increment`)
+    return DateTimeError.invalid
   out
 
 # `i` rounded, a half going to the later, or with `down` floored, to a
 # multiple of `inc` nanoseconds from 1970-01-01T00:00Z (Jiff's
 # `TimestampRound::round`, `timestamp.rs:3471`, with a half before 1970
-# going to the later too: DATETIME-DESIGN §6.8). Panics beyond the range.
-fun instant_multiple(i: Instant, inc: I128, down: Bool) -> Instant
+# going to the later too: DATETIME-DESIGN §6.8); `none` beyond the
+# range.
+fun instant_multiple(i: Instant, inc: I128, down: Bool) -> Instant?
   t = i.total()
   q = t / inc
   r = t % inc
@@ -169,11 +216,7 @@ fun instant_multiple(i: Instant, inc: I128, down: Bool) -> Instant
     r += inc
   if not down and r * 2 >= inc
     q += 1
-  if instant_of(q * inc) as out
-    return out
-  if down
-    panic("datetime.Instant.floor:", i, "floors before -009999-01-02T01:59:59Z")
-  panic("datetime.Instant.round:", i, "rounds beyond the range of instants, -009999-01-02T01:59:59Z to 9999-12-30T22:00:00.999999999Z")
+  instant_of(q * inc)
 
 extern zig "datetime.zig"
   # Nanoseconds since 1970-01-01T00:00Z on the wall clock.

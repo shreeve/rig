@@ -56,18 +56,22 @@ pub obj Time: Eq + Ord + Hash + Print
   pub fun nanosecond(?@) -> Int
     Int(@ns)
 
-  # The time a duration later, or earlier when it is negative, wrapping
-  # past midnight: 23:00 and two hours is 01:00.
-  pub fun add(?@, d: time.Duration) -> Time
-    time_at(floor_mod(@total() + d.ns() % DAY_NS, DAY_NS))
+  # The first and the last time of a day: 00:00 and
+  # 23:59:59.999999999.
+  pub fun min() -> Time
+    clock(0, 0, 0, 0)
 
-  # `add`, failing with `DateTimeError.range` where it would wrap past
-  # midnight.
-  pub fun checked_add(?@, d: time.Duration) -> Time!
-    r = I128(@total()) + I128(d.ns())
-    if r < 0 or r >= I128(DAY_NS)
-      return DateTimeError.range
-    time_at(Int(r))
+  pub fun max() -> Time
+    clock(23, 59, 59, 999_999_999)
+
+  # The time a duration later, or earlier when it is negative, wrapping
+  # past midnight: 23:00 and two hours is 01:00. It is the sum on the
+  # clock face, exact modulo a day for any duration, so it does not
+  # fail; a sum that must not pass midnight is a `DateTime`'s, whose
+  # date shows whether it did.
+  pub fun add(?@, d: time.Duration) -> Time
+    r = (I128(@total()) + d.ns() % I128(DAY_NS)) % I128(DAY_NS)
+    time_at(Int(r + I128(DAY_NS) if r < 0 else r))
 
   # The time with the fields given by name replaced:
   # `t.with(second: 0, ns: 0)`. Fails with `DateTimeError.range` when
@@ -84,16 +88,17 @@ pub obj Time: Eq + Ord + Hash + Print
   # The nearest multiple of one unit's increment, a half going to the
   # later, wrapping past midnight: `t.round(minutes: 15)`; 23:59:59.6
   # with `round(seconds: 1)` is 00:00:00. A call names exactly one unit,
-  # from `ns:` to `hours:`, and an increment that divides the next
-  # larger unit and is smaller than it (`minutes: 15`, `hours: 6`),
-  # checked where it is called when it is a constant; another panics.
+  # from `ns:` to `hours:`, and a constant increment that divides the
+  # next larger unit and is smaller than it (`minutes: 15`, `hours: 6`),
+  # checked where it is called, so it does not fail. A step known only
+  # as the program runs rounds a `DateTime`.
   pub fun round(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none) -> Time
-    time_at(floor_mod(clock_multiple(@total(), clock_increment("Time.round", [ns, us, ms, seconds, minutes, hours], none), false), DAY_NS))
+    time_at(floor_mod(clock_multiple(@total(), clock_step([ns, us, ms, seconds, minutes, hours]), false), DAY_NS))
 
   # The multiple of one unit's increment at or before the time:
   # `t.floor(minutes: 15)`. Its argument is `round`'s.
   pub fun floor(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none) -> Time
-    time_at(clock_multiple(@total(), clock_increment("Time.floor", [ns, us, ms, seconds, minutes, hours], none), true))
+    time_at(clock_multiple(@total(), clock_step([ns, us, ms, seconds, minutes, hours]), true))
 
   sub print(?@, out: !Printer)
     print_time(!out, @)
@@ -115,12 +120,13 @@ fun starts_with_date(s: ?String) -> Bool
   _, _ = date_text(s, 0) catch return false
   true
 
-# The nanoseconds of the one unit and increment `round` or `floor`
-# (`what`) is given, as `[ns, us, ms, seconds, minutes, hours]` and,
-# for a `DateTime`, `days`: an increment that divides the next larger
-# unit and is smaller than it, and for days only 1 (Jiff's
-# `Increment::for_time` and `for_datetime`, `util/round.rs:109`).
-fun clock_increment(what: ?String, given: [6]Int?, days: Int?) -> Int
+# The nanoseconds of the one unit and increment `round` or `floor` is
+# given, as `[ns, us, ms, seconds, minutes, hours]` and, for a
+# `DateTime`, `days`: an increment that divides the next larger unit and
+# is smaller than it, and for days only 1 (Jiff's `Increment::for_time`
+# and `for_datetime`, `util/round.rs:109`); `DateTimeError.invalid` for
+# anything else.
+fun clock_increment(given: [6]Int?, days: Int?) -> Int!
   units = [1, 1_000, 1_000_000, SECOND_NS, MINUTE_NS, HOUR_NS]
   limits = [1_000, 1_000, 1_000, 60, 60, 24]
   out = 0
@@ -128,21 +134,23 @@ fun clock_increment(what: ?String, given: [6]Int?, days: Int?) -> Int
     if given[i] == none
       continue
     k = given[i] ?? 0
-    if out != 0
-      panic(`datetime.{what} takes one unit and its increment`)
-    if k < 1 or k >= limits[i] or limits[i] % k != 0
-      panic(`datetime.{what}: the increment {k} does not divide {limits[i]} or is not smaller than it`)
+    if out != 0 or k < 1 or k >= limits[i] or limits[i] % k != 0
+      return DateTimeError.invalid
     out = k * units[i]
   if days != none
-    k = days ?? 0
-    if out != 0
-      panic(`datetime.{what} takes one unit and its increment`)
-    if k != 1
-      panic(`datetime.{what}: the increment of days is 1, not {k}`)
+    if out != 0 or days != 1
+      return DateTimeError.invalid
     out = DAY_NS
   if out == 0
-    panic(`datetime.{what} takes one unit and its increment`)
+    return DateTimeError.invalid
   out
+
+# A `Time`'s increment, which Rig takes only as a constant that
+# `clock_increment` allows, checked where `round` or `floor` is called
+# (`sema.ArgCheck.clock_increment`); no other reaches here, and one would
+# round to the nanosecond.
+fun clock_step(given: [6]Int?) -> Int
+  clock_increment(given, none) catch 1
 
 # The multiple of `inc` nearest `n`, which is not negative, a half
 # going up, or with `down` the one at or before it (Jiff's

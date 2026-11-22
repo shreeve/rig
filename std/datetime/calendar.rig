@@ -16,10 +16,13 @@
 # under the MIT license.
 
 
-# Why a value could not be made: its text is not that type's form, or
-# names no real value (`parse`); or the result is not a real value or
-# lies beyond the type's range (`new`, `with`, `checked_add`,
-# `nth_weekday`, `nth_weekday_of_month`).
+# Why a call failed: its text is not that type's form, or names no
+# real value (`parse`); an argument is not one the call takes (a
+# rounding increment, a `Float` that is not finite): `invalid`. Or the
+# result is not a real value or lies beyond the type's range (`new`,
+# `with`, `add`, `round`, `floor`, `nth_weekday`,
+# `nth_weekday_of_month`, the Unix makers, and a duration form's
+# conversion where the call takes it): `range`.
 pub error DateTimeError
   invalid
   range

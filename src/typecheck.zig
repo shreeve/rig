@@ -6990,7 +6990,7 @@ const Checker = struct {
             .fallible => |i| i.ok,
             else => {
                 if (self.ctx.isConstMaker(value)) {
-                    try self.errAt(value, "`catch` needs a fallible expression, and `{s}` cannot fail: its arguments are constants that pass its check, so it gives a `{s}`; write it without `catch`", .{ try self.plainText(value), try self.tyName(ty) });
+                    try self.errAt(value, "`catch` needs a fallible expression, and `{s}` cannot fail: {s}, so it gives a `{s}`; write it without `catch`", .{ try self.plainText(value), self.whyCannotFail(value), try self.tyName(ty) });
                 } else try self.errAt(value, "`catch` needs a fallible expression; this expression has type `{s}` and cannot fail", .{try self.tyName(ty)});
                 _ = try self.synthExpr(handler);
                 return self.t().invalid_id;
@@ -7051,11 +7051,27 @@ const Checker = struct {
             .unknown, .invalid => ty,
             else => {
                 if (self.ctx.isConstMaker(operand)) {
-                    try self.errAt(operand, "`!` needs a fallible operand, and `{s}` cannot fail: its arguments are constants that pass its check, so it gives a `{s}`; write it without `!`", .{ try self.plainText(operand), try self.tyName(self.canonical(ty)) });
+                    try self.errAt(operand, "`!` needs a fallible operand, and `{s}` cannot fail: {s}, so it gives a `{s}`; write it without `!`", .{ try self.plainText(operand), self.whyCannotFail(operand), try self.tyName(self.canonical(ty)) });
                 } else try self.errAt(operand, "`!` needs a fallible operand; this expression has type `{s}` and cannot fail", .{try self.tyName(self.canonical(ty))});
                 return ty;
             },
         };
+    }
+
+    /// Why a maker's call (`sema.ConstMaker`) cannot fail: its arguments
+    /// are constants that pass its check, or, for `time.duration`, its
+    /// duration form is one that cannot fail.
+    fn whyCannotFail(self: *Checker, call: Sexp) []const u8 {
+        if (call.isKind(.call)) {
+            const callee = ir.Call.callee(call);
+            if (callee.isKind(.member) and std.mem.eql(u8, self.text(ir.Member.name(callee)), "duration")) {
+                for (ir.Call.args(call)) |a| {
+                    const v = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
+                    if (self.constInt(v) == null and self.floatConst(v) == .unknown) return "its duration form cannot fail: a `Duration`, or an `Int` of `ns:`, `us:` or `ms:`";
+                }
+            }
+        }
+        return "its arguments are constants that pass its check";
     }
 
     /// A failure with an error of `set` passes out of the function being
@@ -11979,9 +11995,15 @@ const Checker = struct {
         /// and `per:` (`sema.duration.waits`).
         waits: bool = false,
         /// The callee adds a duration to a value with no calendar,
-        /// `datetime.Instant`'s `add` and `checked_add`, so the fix for
-        /// `days:` names a zone (`sema.duration.zoneless`).
+        /// `datetime.Instant`'s `add`, so the fix for `days:` names a
+        /// zone (`sema.duration.zoneless`).
         zoneless: bool = false,
+        /// The callee is std.datetime's, whose failures are its
+        /// `DateTimeError` (`durationFold`).
+        datetime: bool = false,
+        /// The error set a duration form that can fail joins, the
+        /// callee's own, when the callee returns `!` (`durationFold`).
+        fold: ?sema.FoldInto = null,
 
         fn default(self: ParamInfo, i: usize) ?Sexp {
             const d = self.defaults orelse return null;
@@ -12058,7 +12080,9 @@ const Checker = struct {
     /// by parameter name, and defaults for omitted parameters. A call
     /// that uses keywords or defaults records its argument slots, and
     /// every complete call what fills each parameter (`CallParams`).
-    fn checkArgs(self: *Checker, args: []const Sexp, f: FunctionType, info: ParamInfo, callee: []const u8, pos: u32, site: CallSite) Error!void {
+    fn checkArgs(self: *Checker, args: []const Sexp, f: FunctionType, info_in: ParamInfo, callee: []const u8, pos: u32, site: CallSite) Error!void {
+        var info = info_in;
+        if (info.durations != 0) info.fold = self.durationFold(f.returns, info.datetime);
         const call = self.current_call;
         const mark = self.ctx.diagnostics.items.len;
         const saved_slot = self.slot;
@@ -12285,7 +12309,15 @@ const Checker = struct {
         if (unit_param) |u| if (units > 1) {
             const target = sema.durationParam(self.ctx, f.params[u]);
             const opt = if (target != null and !sema.isDurationType(self.ctx, f.params[u])) f.params[u] else sema.type_invalid;
-            slots[u] = .{ .parts = .{ .args = parts.items, .ty = target orelse sema.type_invalid, .opt = opt } };
+            // A sum of constants is checked here; one with a part known
+            // only as the program runs can leave the range, so it is
+            // clamped in a wait, joins a call that can fail, and is
+            // refused anywhere else.
+            const how: sema.DurationHow = if (parts_ns != null) .total else if (info.waits) .clamped else if (info.fold) |into| .{ .folded = into } else {
+                try self.errAt(args[parts.items[0]], "`{s}` can be beyond a `Duration`'s range as the program runs, and `{s}` cannot fail: make the duration first, `time.duration({s})!`, and pass that", .{ try self.unitsText(keyword), callee, try self.unitsText(keyword) });
+                return;
+            };
+            slots[u] = .{ .parts = .{ .args = parts.items, .ty = target orelse sema.type_invalid, .opt = opt, .how = how } };
             if (parts_ns) |sum| try self.checkDurationSum(args[parts.items[0]], keyword, sum, info);
         };
         if (self.ctx.diagnostics.items.len == mark) try self.wastedClones(args, slots, f, recv_param);
@@ -12641,6 +12673,18 @@ const Checker = struct {
             .minute => .{ try a.print("{d} is not a minute of the hour", .{v}), "write a minute from 0 to 59" },
             .second => .{ try a.print("{d} is not a second of the minute", .{v}), "write a second from 0 to 59" },
             .ns => .{ try a.print("{d} is not a nanosecond of the second", .{v}), "write `ns` from 0 to 999_999_999" },
+            .duration_s => .{ try a.print("{d} is not whole seconds a `Duration` holds, within ±(2^63 - 1)", .{v}), "write seconds from -9_223_372_036_854_775_807 to 9_223_372_036_854_775_807" },
+            .duration_ns => if (v > -1_000_000_000 and v < 1_000_000_000)
+                .{ try a.print("{d} nanoseconds and {d} seconds differ in sign", .{ v, values[0] }), "write the two of one sign, or either as 0" }
+            else
+                .{ try a.print("{d} is not nanoseconds below a second", .{v}), "write `ns` within ±999_999_999" },
+            .unix_s => .{ try a.print("{d} seconds is beyond the range of instants, -009999-01-02T01:59:59Z to 9999-12-30T22:00:00.999999999Z", .{v}), "write seconds from -377_705_023_201 to 253_402_207_200" },
+            .unix_ns => if (v > -1_000_000_000 and v < 1_000_000_000)
+                .{ try a.print("{d} seconds and {d} nanoseconds is beyond the range of instants, -009999-01-02T01:59:59Z to 9999-12-30T22:00:00.999999999Z", .{ values[0], v }), "write an instant within the range" }
+            else
+                .{ try a.print("{d} is not nanoseconds within ±999,999,999", .{v}), "write `ns` within ±999_999_999, and the whole seconds as `s`" },
+            .unix_ms => .{ try a.print("{d} milliseconds is beyond the range of instants, -009999-01-02T01:59:59Z to 9999-12-30T22:00:00.999999999Z", .{v}), "write milliseconds from -377_705_023_201_000 to 253_402_207_200_999" },
+            .unix_us => .{ try a.print("{d} microseconds is beyond the range of instants, -009999-01-02T01:59:59Z to 9999-12-30T22:00:00.999999999Z", .{v}), "write microseconds from -377_705_023_201_000_000 to 253_402_207_200_999_999" },
         };
         // The call as written, without the `&` of a task of it.
         const shown = std.mem.trimEnd(u8, try self.plainText(call), "& ");
@@ -12729,7 +12773,15 @@ const Checker = struct {
             return false;
         }
         const value = ir.Kwarg.value(args[0]);
-        const v = self.constInt(value) orelse return true;
+        const v = self.constInt(value) orelse {
+            // A `Time`'s `round` and `floor` cannot fail, so their
+            // increment is a constant; a step known only as the program
+            // runs rounds a `DateTime`, whose `round` can fail with
+            // `invalid` (docs/design/datetime.md §6.8).
+            if (kind != .clock_increment) return true;
+            try self.errAt(value, "an increment of a `Time`'s `{s}` is a constant, checked as Rig compiles, since its `{s}` cannot fail, and `{s}` is not one: a step known only as the program runs rounds a date and time, `d.at(t).{s}({s}: {s})!.time()`", .{ method, method, try self.plainText(value), method, name, try self.plainText(value) });
+            return false;
+        };
         if (v < 1 or v > 1_000_000_000) {
             try self.errAt(value, "an increment of `{s}` is from 1 to 1,000,000,000, and `{s}` is not", .{ method, try self.plainText(value) });
             return false;
@@ -12874,7 +12926,7 @@ const Checker = struct {
     /// counts, which emit adds up; its sign is the sum's to check
     /// (`checkDurationSum`), so the nanoseconds of a constant part are
     /// returned, null for any other.
-    fn checkDurationArg(self: *Checker, arg: Sexp, param: TypeId, unit: ?i64, info: ParamInfo, part: bool) Error!?i64 {
+    fn checkDurationArg(self: *Checker, arg: Sexp, param: TypeId, unit: ?i64, info: ParamInfo, part: bool) Error!?i128 {
         try self.recordUse(arg, .take);
         const ty = try self.synthExpr(arg);
         if (self.isPoison(ty)) return null;
@@ -12903,24 +12955,25 @@ const Checker = struct {
         }
         const unit_ns = unit orelse sema.duration.second_ns;
         const unit_name = if (unit != null) sema.duration.unitName(unit_ns) else "seconds";
-        var known: ?i64 = null;
+        var known: ?i128 = null;
         if (!float) {
             if (self.constInt(arg)) |v| {
-                if (v * unit_ns > std.math.maxInt(i64) or v * unit_ns < std.math.minInt(i64)) {
-                    try self.errAt(arg, "`{s}` {s} is more nanoseconds than a `Duration` holds", .{ shown, unit_name });
+                const wide = v * unit_ns;
+                if (!durationHolds(wide)) {
+                    try self.errAt(arg, "`{s}` {s} is beyond a `Duration`'s range, about 292 billion years either way", .{ shown, unit_name });
                     return null;
                 }
                 if (v < 0 and info.waits and !part) {
                     try self.negativeWait(arg, shown, try std.fmt.allocPrint(self.ctx.arena.allocator(), "{d}", .{v}));
                     return null;
                 }
-                known = @intCast(v * unit_ns);
+                known = @intCast(wide);
             }
         } else switch (self.floatConst(arg)) {
             .value => |v| {
                 const ns = @round(v * @as(f64, @floatFromInt(unit_ns)));
-                if (!(ns >= -0x1p63 and ns < 0x1p63)) {
-                    try self.errAt(arg, "`{s}` {s} is more nanoseconds than a `Duration` holds", .{ shown, unit_name });
+                if (!(ns > -0x1p100 and ns < 0x1p100) or !durationHolds(@as(i128, @intFromFloat(ns)))) {
+                    try self.errAt(arg, "`{s}` {s} is beyond a `Duration`'s range, about 292 billion years either way", .{ shown, unit_name });
                     return null;
                 }
                 if (v < 0 and info.waits and !part) {
@@ -12935,13 +12988,86 @@ const Checker = struct {
             },
             .unknown => {},
         }
+        // How the number becomes a `Duration` (docs/design/datetime.md
+        // §5.2): a constant, checked above, and an `Int` of a unit below
+        // a second always fit; any other number known only as the program
+        // runs can leave the range, so a wait clamps an `Int` and refuses
+        // a `Float`, a call that can fail joins the failure to its own,
+        // and anywhere else the conversion is to be written.
+        const how: sema.DurationHow = if (known != null or (!float and sema.duration.totalInt(unit_ns))) .total else if (info.waits) blk: {
+            if (float) {
+                try self.errAt(arg, "a wait takes no `Float` known only as the program runs, which may not be finite: make the duration first, `time.duration({s}{s})!`, and pass that", .{ if (unit != null) try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}: ", .{unit_name}) else "", shown });
+                return null;
+            }
+            break :blk .clamped;
+        } else if (part) .total else if (info.fold) |into| .{ .folded = into } else {
+            const form = if (unit != null) try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}: {s}", .{ unit_name, shown }) else shown;
+            const why = if (float) "is a `Float`, which may not be finite or may be" else "can be";
+            try self.errAt(arg, "`{s}` {s} beyond a `Duration`'s range as the program runs, and this call cannot fail: make the duration first, `time.duration({s})!`, and pass that", .{ form, why, form });
+            return null;
+        };
         if (part) {
-            try self.ctx.recordDuration(arg, .{ .unit_ns = unit_ns, .float = float });
+            // A part is an `I128` of nanoseconds; a `Float` known only as
+            // the program runs fails, as the sum does, where the sum may
+            // (`checkArgs`).
+            const part_how: sema.DurationHow = if (known == null and float) (if (info.fold) |into| .{ .folded = into } else .total) else .total;
+            try self.ctx.recordDuration(arg, .{ .unit_ns = unit_ns, .float = float, .part = true, .how = part_how });
             return known;
         }
         const opt = if (target != null and !sema.isDurationType(self.ctx, param)) param else sema.type_invalid;
-        try self.ctx.recordDuration(arg, .{ .unit_ns = unit_ns, .float = float, .ty = target orelse sema.type_invalid, .opt = opt });
+        try self.ctx.recordDuration(arg, .{ .unit_ns = unit_ns, .float = float, .ty = target orelse sema.type_invalid, .opt = opt, .how = how });
         return known;
+    }
+
+    /// Whether a duration form among `args` of `call` joins the call's
+    /// failure (`sema.DurationHow.folded`).
+    fn formFolds(self: *Checker, call: Sexp, args: []const Sexp) bool {
+        for (args) |a| {
+            const v = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
+            if (self.ctx.durationOf(v)) |d| if (d.how == .folded) return true;
+        }
+        if (self.ctx.callSlotsOf(call)) |slots| for (slots) |sl| switch (sl) {
+            .parts => |p| if (p.how == .folded) return true,
+            else => {},
+        };
+        return false;
+    }
+
+    /// Whether `ns` nanoseconds is within a `Duration`'s range: whole
+    /// seconds within ±(2^63 - 1), symmetric (docs/design/datetime.md
+    /// §5.1).
+    fn durationHolds(ns: Wide) bool {
+        const limit: Wide = @as(Wide, std.math.maxInt(i64)) * 1_000_000_000 + 999_999_999;
+        return ns >= -limit and ns <= limit;
+    }
+
+    /// The error set a duration form that can fail joins in a call of a
+    /// function returning `returns` (docs/design/datetime.md §5.2): the
+    /// callee's own set when it has members `range` and `invalid`; for
+    /// a callee that may fail with any error, std.datetime's
+    /// `DateTimeError` for its own functions (`datetime`) and std.time's
+    /// `TimeError` for every other; none for a callee that cannot fail
+    /// or whose set has no such members.
+    fn durationFold(self: *Checker, returns: TypeId, datetime: bool) ?sema.FoldInto {
+        const fl = switch (self.ctx.types.get(returns)) {
+            .fallible => |x| x,
+            else => return null,
+        };
+        if (fl.set == self.t().any_error_id) return if (datetime) .{ .module = "std.datetime", .set = "DateTimeError" } else .{ .module = "std.time", .set = "TimeError" };
+        if (sema.isSetParam(self.ctx, fl.set)) return null;
+        var leaves: std.ArrayList(sema.SetKey) = .empty;
+        sema.errorSetLeaves(self.ctx, fl.set, &leaves, self.ctx.arena.allocator()) catch return null;
+        for (leaves.items) |key| {
+            var range = false;
+            var invalid = false;
+            for (sema.setMembers(key)) |m| {
+                if (!m.is_variant) continue;
+                range = range or std.mem.eql(u8, m.name, "range");
+                invalid = invalid or std.mem.eql(u8, m.name, "invalid");
+            }
+            if (range and invalid) return .{ .module = if (key.ctx.is_root) "" else key.ctx.name, .set = key.ctx.symbols.items[key.sym].name };
+        }
+        return null;
     }
 
     /// The sum of a duration's parts (`sema.DurationParts`), `ns`, when
@@ -12949,8 +13075,8 @@ const Checker = struct {
     /// callee waits it, not negative. Said at `at`, the first part, of
     /// every unit the call's `keyword` arguments give.
     fn checkDurationSum(self: *Checker, at: Sexp, keyword: []const Sexp, ns: i128, info: ParamInfo) Error!void {
-        if (ns > std.math.maxInt(i64) or ns < std.math.minInt(i64))
-            return self.errAt(at, "`{s}` is more nanoseconds than a `Duration` holds", .{try self.unitsText(keyword)});
+        if (!durationHolds(ns))
+            return self.errAt(at, "`{s}` is beyond a `Duration`'s range, about 292 billion years either way", .{try self.unitsText(keyword)});
         if (ns < 0 and info.waits) try self.negativeWait(at, try self.unitsText(keyword), try friendlyNs(self.ctx.arena.allocator(), @intCast(ns)));
     }
 
@@ -15032,7 +15158,9 @@ const Checker = struct {
         }
         if (!try self.stdArgChecks(resolved.module, resolved.owner, method, args, pos)) return self.skipCall(args);
         var info = methodParams(resolved.field, true, resolved.source);
-        info.zoneless = sema.duration.zoneless(if (resolved.module) |m| self.ctx.foreign_semas.get(m) orelse self.ctx else self.ctx, resolved.owner, method);
+        const home_ctx = if (resolved.module) |m| self.ctx.foreign_semas.get(m) orelse self.ctx else self.ctx;
+        info.zoneless = sema.duration.zoneless(home_ctx, resolved.owner, method);
+        info.datetime = home_ctx.is_std and std.mem.eql(u8, home_ctx.name, "std.datetime");
         const f = (try self.instantiateCall(resolved.fn_ty, ct, args, info, 1, method, pos, false, self.selfArgs(obj_ty))) orelse return self.skipCall(args);
         // The type's parameters are bound by the object self
         // reaches, through views, handles, and boxes, as the method was
@@ -17858,7 +17986,9 @@ const Checker = struct {
                 if (!try self.stdArgChecks(if (nt.foreign) |fo| fo.module_id else null, nt.sym.name, name, after_self, pos)) return self.skipCall(args);
                 const source = if (nt.foreign) |fo| fo.ctx.source else self.declSource(nt.id);
                 var info = methodParams(m, false, source);
-                info.zoneless = sema.duration.zoneless(if (nt.foreign) |fo| fo.ctx else self.ctx, nt.sym.name, name);
+                const home_ctx = if (nt.foreign) |fo| fo.ctx else self.ctx;
+                info.zoneless = sema.duration.zoneless(home_ctx, nt.sym.name, name);
+                info.datetime = home_ctx.is_std and std.mem.eql(u8, home_ctx.name, "std.datetime");
                 f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.self_mode != .none, recv)) orelse return self.skipCall(args);
                 try self.noteMethodTarget(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, recv, if (recv.args.len > 0) try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = nt.id, .args = try self.ctx.dupeIds(recv.args) } }) else sema.type_invalid, pos);
                 if (!try self.meetsNeeds(m, nt.id, recv.args, pos, if (m.self_mode != .none and args.len > 0) args[1..] else args)) return self.skipCall(args);
@@ -18009,6 +18139,16 @@ const Checker = struct {
                 try self.noteCallee(f);
                 self.view_call = true;
                 try self.checkArgs(args, f, info, qualified, pos, .{ .origins = found.sym.origins, .declared = fty.function.params });
+                // `time.duration` of a form that cannot fail gives the
+                // plain `Duration` (docs/design/datetime.md §5.2), unwrapped
+                // as a maker's call of constants is (`sema.ConstMaker`).
+                if (sema.duration.isMaker(found.ctx, name)) if (self.current_call) |call| if (!self.formFolds(call, args) and ir.Call.task(call) == .nil) {
+                    try self.ctx.recordConstMaker(call);
+                    return switch (self.ctx.types.get(f.returns)) {
+                        .fallible => |fl| fl.ok,
+                        else => f.returns,
+                    };
+                };
                 return f.returns;
             },
             .nominal_type => if (ct == null) return self.construct(found.id, args, pos, TypeSubst.empty, .{ .ctx = found.ctx, .module_id = found.module_id }) else return self.badCall(args, ct.?, "`{s}` is not a generic type; it takes no type arguments", .{qualified}),
