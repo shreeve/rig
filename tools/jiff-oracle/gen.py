@@ -837,6 +837,21 @@ def gen_round(w, zones, alias):
             inc = r.pick(clock[u])
         at = near_transition(r, zones[name]) if r.below(3) else r.range(-2208988800, 4102444800)
         w("zoned.round %s %s %s %d" % (name, fmt_instant(at, rand_ns(r)), u, inc))
+    # Near the ends of the range, in zones east and west and in fixed zones
+    # of ±25:59, where a day's start can lie beyond it, and in years at or
+    # below 0 about midnight.
+    for name in ("UTC", "Asia/Tokyo", "America/Denver", "Pacific/Kiritimati", "Etc/GMT+12", "+25:59", "-25:59"):
+        for base, sign in ((MIN_INSTANT, 1), (MAX_INSTANT, -1)):
+            for h in (0, 1, 2, 11, 12, 13, 22, 23, 24, 25, 26, 47, 48, 49):
+                at = base + sign * h * 3600
+                for u, inc in (("days", 1), ("hours", 1), ("hours", 12), ("minutes", 30), ("seconds", 1)):
+                    w("zoned.round %s %s %s %d" % (name, fmt_instant(at, 999_999_999 if base == MAX_INSTANT else 0), u, inc))
+    for name in ("UTC", "Asia/Tokyo", "America/Denver", "-25:59"):
+        for y in (-9999, -1, 0):
+            for secs in (DAY - 1800, DAY - 1, DAY // 2):
+                at = days_from_civil(y, 6, 15) * DAY + secs
+                for u, inc in (("days", 1), ("hours", 1), ("minutes", 30), ("seconds", 1)):
+                    w("zoned.round %s %s %s %d" % (name, fmt_instant(at, 600_000_000), u, inc))
     for _ in range(10000):
         u = r.pick(units)
         inc = r.pick((1, 2, 3, 5, 7, 10, 15, 30, 60, 90, 1000, 999999999, 1000000000))

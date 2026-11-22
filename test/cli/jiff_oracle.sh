@@ -109,9 +109,10 @@ for kind in calendar zones counts text round; do
     tally=$(paste -d '\t' "$cases_dir/$kind.in" "$cases_dir/$kind.jiff" "$cases_dir/$kind.rig" | awk -f "$dir/compare.awk")
     echo "$kind: ${tally##*$'\n'}"
     [[ $tally == *"differ 0 "* ]] || fail "std.datetime differs from Jiff on $kind.in: $tally"
+    [[ $tally == *" open 0" ]] || fail "std.datetime leaves cases of $kind.in unanswered: $tally"
     read -r _ same _ <<<"${tally##*$'\n'}"
     answered=$((answered + same))
 done
 # Every case these phases answer: fewer means answer.rig stopped
 # answering some.
-(( answered >= 2186455 )) || fail "std.datetime answered $answered cases the same as Jiff, fewer than 2,186,455"
+(( answered >= 2187579 )) || fail "std.datetime answered $answered cases the same as Jiff, fewer than 2,187,579"
