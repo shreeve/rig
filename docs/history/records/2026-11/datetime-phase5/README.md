@@ -220,3 +220,23 @@ examples and `oracle`; the whole core once, 12,597 jobs in 448 s, none
 died; a plain `tools/heavy zig build`; `tools/emit-diff origin/main`,
 identical where compared, as before. The compiler did not change, so the
 check guard was not rerun.
+
+## After groups landed (2026-11-22)
+
+origin/main (47b6e27c9, #1220, groups and spreads) was merged in, and
+`ZonedDateTime` takes `DateTime`'s groups: `add(duration:, ..period:
+Period)` and `with(..date: DateFields, ..clock: ClockFields, resolve:)`,
+so `z.add(..monthly, days: 3)!` and `z.with(hour: 12)!` read as
+`DateTime`'s do; `round` and `floor` keep their unit keywords
+(options.md §4). The emitted call stays flat. STD and §6.2 show the
+groups, and a case tests them.
+
+Gates: the datetime and options areas, `cli.jiff_oracle`, the doc
+examples of STD, the design and options, and `oracle`; the whole core
+once, 12,653 jobs in 454 s, none died; a plain `tools/heavy zig build`;
+`tools/emit-diff origin/main`, identical in 37 of 38 programs (Trig's
+fails on both sides); the check guard under `tools/mac-claim`,
+interleaved four rounds, branch first, against `tools/baseline
+origin/main`, at a load of 2.9 to 3.3: the fewest 2,171,848,774
+instructions for the branch and 2,171,972,182 for main, 0.006% fewer,
+0.7% over the committed baseline.
