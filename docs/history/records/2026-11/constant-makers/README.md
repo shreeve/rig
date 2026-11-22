@@ -183,3 +183,9 @@ Fixed on the branch, each with its case first:
 7. CHANGELOG's account of the script, MIGRATING-0.3.md (which now names
    it), HANDOFF (which no longer names the branch), and this record.
 
+
+Verified after the review's fixes, on main 517e8d282: every area above,
+`errors-trace`, `doc-MIGRATING-0.3`, `cli.migrate_constant_makers`,
+`oracle`, and `unit` green; `tools/emit-diff origin/main`, only
+`makerPanic`'s 8 runtime lines; the core suite, 12,495 jobs, none
+failed; a final plain `zig build`.
