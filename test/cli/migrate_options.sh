@@ -2,8 +2,10 @@
 # `rig check`'s own error says to, and gives `datetime.Time.new` its
 # second: in a program, in each case of a test file, and in each ```rig
 # block of a Markdown file, leaving a `pending` block and the prose as
-# they are. The program it writes runs and prints what it printed, and a
-# second run changes nothing.
+# they are. The name goes before the whole argument, outside its
+# parentheses, and what it cannot rewrite it names (MANUAL). The program
+# it writes runs and prints what it printed, and a second run changes
+# nothing.
 source "$ROOT/test/cli/_lib.sh"
 
 cat >prog.rig <<'EOF'
@@ -95,3 +97,26 @@ expect_has "$(cat out2.txt)" "0 rewritten" "a second run rewrites nothing"
 cmp -s prog.rig prog1.rig || fail "a second run changed prog.rig"
 cmp -s cases.rig.test cases1.rig.test || fail "a second run changed cases.rig.test"
 cmp -s doc.md doc1.md || fail "a second run changed doc.md"
+# The name goes outside an argument's parentheses; a positional argument
+# left after the option it named is still refused, and named for a person.
+cat >more.rig <<'EOF'
+fun scaled(n: Int, by: Int = 10) -> Int
+  n * by
+
+sub each(n: Int, step: Int = 1, f: ?sub(Int))
+  i = 0
+  while i < n
+    f(i)
+    i += step
+
+sub show(i: Int)
+  print(i)
+
+sub main()
+  print(scaled(1, (2)))
+  each(3, 2, show)
+EOF
+python3 "$ROOT/tools/migrate-options.py" --rig "$RIG" more.rig >out3.txt 2>&1 || fail "migrate more.rig: $(cat out3.txt)"
+expect_eq "$(sed -n 14p more.rig)" "  print(scaled(1, by: (2)))" "the name outside the parentheses"
+expect_eq "$(sed -n 15p more.rig)" "  each(3, step: 2, show)" "the option named"
+expect_has "$(cat out3.txt)" "MANUAL more.rig:15: still refused: positional arguments must come before keyword arguments" "the argument after it named for a person"

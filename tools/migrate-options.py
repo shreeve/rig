@@ -22,9 +22,12 @@ until nothing more is refused, since an error in a module the program uses
 hides the program's own. In a test file it checks each case as the test
 runner writes it out, and in a Markdown file each ```rig block, with the
 `file=` blocks before it, leaving the `pending` and `fragment` blocks as
-they are. A refusal it cannot place, or a call whose arguments it cannot
-read, it prints as `MANUAL path:line` for a person. A second run changes
-nothing.
+they are. The name goes before the whole argument, outside any
+parentheses it opens with. A refusal it cannot place, a call whose
+arguments it cannot read, and anything still refused in a file it changed
+(a positional argument after the option it named, `each(3, step: 2,
+show)`) it prints as `MANUAL path:line` for a person. A second run
+changes nothing.
 
 The named form compiles under a Rig without the rule too, so a program
 rewritten by it builds with either.
@@ -83,6 +86,32 @@ def arguments(text, open_at):
             spans.append((start, i))
             start = i + 1
         i += 1
+    return None
+
+
+def argument_start(text, offset):
+    """Where the argument of a call holding `offset` begins, past its
+    spaces; None when no call's argument holds it."""
+    depth, i = 0, offset - 1
+    while i >= 0:
+        c = text[i]
+        if c in ")]}":
+            depth += 1
+        elif c in "([{":
+            if depth == 0:
+                if c != "(":
+                    return None
+                # A parenthesis that only groups, `(a)`, is no call's.
+                if i == 0 or not (text[i - 1].isalnum() or text[i - 1] in "_])"):
+                    i -= 1
+                    continue
+                got = arguments(text, i)
+                for a, b in (got[0] if got else []):
+                    if a <= offset <= b:
+                        return a + len(text[a:b]) - len(text[a:b].lstrip())
+                return None
+            depth -= 1
+        i -= 1
     return None
 
 
@@ -267,7 +296,7 @@ def test_program(c):
     return lines, where
 
 
-def doc_units(text):
+def doc_units(text, rejects=True):
     """Each program of a Markdown file's ```rig blocks: its main lines with
     the file line of each, and its `file=` modules, as (path, lines, at)."""
     lines = text.split("\n")
@@ -290,7 +319,7 @@ def doc_units(text):
         if fname:
             modules.append((fname, body, at))
             continue
-        if "pending" not in words and "fragment" not in words:
+        if "pending" not in words and "fragment" not in words and (rejects or "reject" not in words):
             out.append((body, at, modules))
         modules = []
     return out
@@ -337,9 +366,16 @@ class Edits:
         m = OPTION.match(message)
         if m:
             name = m.group(1)
-            if text.startswith(name + ":", offset):
+            # The name goes before the whole argument, which may open
+            # with parentheses the refusal points inside: `(by: a)` is no
+            # argument.
+            at = argument_start(text, offset)
+            if at is None:
+                self.manual.append("MANUAL %s:%d: %s" % (path, line, message))
                 return
-            self.by_path.setdefault(path, set()).add((offset, name + ": "))
+            if text.startswith(name + ":", at):
+                return
+            self.by_path.setdefault(path, set()).add((at, name + ": "))
             return
         edit = second_edit(text, offset)
         if edit is None:
@@ -348,7 +384,7 @@ class Edits:
         self.by_path.setdefault(path, set()).add(edit)
 
 
-def unit_errors(rig, unit, tmp):
+def unit_errors(rig, unit, tmp, every=False):
     """Write a test case or a doc block out as its program and check it:
     the refusals it is given, each placed at its file line and column, or
     with no line when it lies outside the case's own lines."""
@@ -381,7 +417,7 @@ def unit_errors(rig, unit, tmp):
     maps[os.path.realpath(main)] = where
     out = []
     for path, line, col, msg in check(rig, main):
-        if not wanted(msg):
+        if not every and not wanted(msg):
             continue
         m = maps.get(os.path.realpath(path))
         if m is None:
@@ -491,6 +527,35 @@ def main(argv):
         if dry:
             break
         todo = sorted(set(todo) | set(edits.by_path))
+    # What is still refused in a file the script changed, it could not
+    # rewrite: a person finishes it (a positional argument after the
+    # option it named, `each(3, step: 2, show)`, is one).
+    if counts and not dry:
+        changed = set(counts)
+        units = []
+        for path in todo:
+            text = text_of(path)
+            if text is None:
+                continue
+            if path.endswith(".rig.test"):
+                units += [(path, ("case", c)) for c in test_cases(text) if c["verb"] != "fail"]
+            elif path.endswith(".md"):
+                units += [(path, ("block", u)) for u in doc_units(text, rejects=False)]
+            elif path in changed:
+                units.append((path, ("file", path)))
+
+        def final(item):
+            path, unit = item
+            if unit[0] == "file":
+                return path, [(p, l, c, m, False) for p, l, c, m in check(rig, path)]
+            return path, unit_errors(rig, unit, tmp, every=True)
+
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            for path, found in pool.map(final, units):
+                for p, line, col, msg, own in found:
+                    target = path if own else os.path.realpath(p)
+                    if target in changed:
+                        manual.append("MANUAL %s:%s: still refused: %s" % (os.path.relpath(target), line, msg))
     shutil.rmtree(tmp, ignore_errors=True)
     for line in sorted(set(manual)):
         print(line)
