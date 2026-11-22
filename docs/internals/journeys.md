@@ -62,7 +62,7 @@ from the journey before it, and from the docs map's question table in
 
 ## The journeys still to write
 
-**12. A real program, end to end.** What a whole Rig program looks like,
+**13. A real program, end to end.** What a whole Rig program looks like,
 from the first file to a tested concurrent service. Written last.
 - Outline: modules and directory modules; errors at the boundaries; an
   actor for shared state; an HTTP front; seeded tests; a benchmark; a

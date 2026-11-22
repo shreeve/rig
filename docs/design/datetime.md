@@ -1390,8 +1390,8 @@ A small strftime, with Jiff's meanings for each directive.
 
   (Jiff accepts `%.f` on a `Date` and prints nothing. Rig refuses it, so the test of
   every directive does not use the oracle there.)
-- **`x.try_format(s)!`** (spelling) takes a string made at run time, and fails where
-  `format` would not compile.
+- **`x.try_format(s)!`** takes a string made at run time, and fails with `.invalid`
+  where `format` would not compile.
 - The directive table exists twice, in the compiler and in the library. A test checks
   every directive on every type both ways.
 - **Kept:** `%Y %m %d %e %H %M %S %I %p %A %a %B %b %j %F %T %R %z %:z %Z %s %u %G %V
@@ -1399,9 +1399,9 @@ A small strftime, with Jiff's meanings for each directive.
   - `%e` pads with a space (`March  8`); `%-d` is the day with no padding.
   - `%f` drops trailing zeros and `%.f` prints nothing for zero, so a fixed width needs
     a precision.
-  - `%Z` is the zone's abbreviation at that instant (`MST`, `MDT`). A fixed zone has
-    none and prints its offset in Jiff's short form (`-07`, `+05:30`), and `utc()`
-    prints `UTC`.
+  - `%Z` is the zone's abbreviation at that instant (`MST`, `MDT`), in capitals as
+    Jiff writes it (Guam's `ChST` is `CHST`). A fixed zone has none and prints its
+    offset in Jiff's short form (`-07`, `+05:30`), and `utc()` prints `UTC`.
   - A year below 0 follows Jiff: `%Y` of year -1 is `-001` and `%F` is `-0001-01-01`,
     which does not read back. `print` is the form that does (8.1).
 - **Not in v1:** `%c %r %x %X` (locale forms), `%y %g` (two-digit years), `%Q %q %::z
@@ -1550,7 +1550,7 @@ type's tests of it land with the type.
   - `std.datetime`, `DateTimeError`: `invalid` and `range` in the same senses, and
     then unknown zone (`unknown_zone`), a skipped or repeated time under `.reject`
     (`skipped_or_repeated`), an offset conflict (`offset_conflict`), no system zone
-    (`no_system_zone`), a bad format string (`try_format`).
+    (`no_system_zone`); a bad format string given `try_format` fails `invalid`.
   - A duration form's conversion fails with the member of that name in the callee's
     own set, so both sets keep `invalid` and `range` (5.2).
 - SPEC "Durations" (`SPEC.md:14850`) is rewritten. `docs/STD.md` "std.time" is
@@ -1764,7 +1764,8 @@ in them panics.
 5. **`ZonedDateTime`** (built; `records/2026-11/datetime-phase5`): `in_zone` (from an
    `Instant`, a `DateTime` and a `Date`), the readers, `add`, counts, `with`,
    `start_of_day`, `round`, `floor`, `since`, RFC 9557, `today`.
-6. **`format` and `try_format`**; then the teaching text in `docs/learn`.
+6. **`format` and `try_format`** (built; `records/2026-11/datetime-phase6`); then the
+   teaching text in `docs/learn` (built: [journey 12](../learn/12-dates.md)).
 
 Phase 1 puts section 2's sample into `docs/STD.md` as `rig pending` examples, and each
 phase turns its own into tests. A doc example prints a fixed instant or a comparison,

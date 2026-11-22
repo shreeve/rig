@@ -22,7 +22,8 @@ Read them in order; each builds on the ones before it.
 | 09 | [Tests that fail the same way twice](09-tests.md) | How do you test Rig code, concurrent code included, so a failure repeats? |
 | 10 | [Safety you can trust](10-safety.md) | What does Rig guarantee, and how do we know? |
 | 11 | [What it costs: reading the Zig a program becomes](11-performance.md) | What does a Rig program become, and what does it cost? |
-| 12 | A real program, end to end | What does a whole Rig program look like? |
+| 12 | [Dates and times that mean what they say](12-dates.md) | How do you handle dates, times on the clock, and zones without surprises? |
+| 13 | A real program, end to end | What does a whole Rig program look like? |
 
 Journeys without a link are being written. Until then,
 [the welcome page](00-welcome.md) introduces the language for programmers

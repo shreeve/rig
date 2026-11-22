@@ -179,8 +179,13 @@ A new session, human or agent, takes these steps in order:
   `default_zone:` and `conflict:`; and `today`. The oracle compares
   every zoned case, 2,186,455 answers in all, none different. Groups
   and spreads, then owners and read views in groups (the owner,
-  2026-11-22; the build plan's steps 2 and 3) are built beside it;
-  `format` (phase 6) follows.
+  2026-11-22; the build plan's steps 2 and 3) are built beside it.
+  Phase 6 (branch `format-phase6`; records/2026-11/datetime-phase6)
+  builds `format`, its string checked against the type as Rig compiles,
+  and `try_format`, with `%Z` from the zone tables; the oracle compares
+  every format case and every zone's abbreviation, 2,344,534 answers in
+  all, none different; and journey 12, on dates, times and zones. The
+  datetime library is complete.
 - **The view vocabulary** (owner, 2026-11-20; #1192 landed PR 1):
   places, read and write views, read-only, unusable, and cells are the
   words of the docs, the messages, and the code. PR 1 is the wording; PR 2

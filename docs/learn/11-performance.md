@@ -515,8 +515,9 @@ there to check.**
   the leak check that these builds differ on.
 - [Concurrency without async](04-concurrency.md) explains the tasks that
   the benchmarks time.
-- A real program, end to end, is the next journey, not written yet: a
-  small service, tested and built for release.
+- [Dates and times that mean what they say](12-dates.md) is the next
+  journey: dates, times on the clock, instants, and zones in
+  `std.datetime`.
 - [The welcome page](00-welcome.md) holds the full Rig-to-Zig table,
   [INTERNALS](../internals/INTERNALS.md) the emitter and runtime,
   [the SIMD records](../history/records/simd/simd.md) how vectors were
