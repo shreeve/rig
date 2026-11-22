@@ -3247,6 +3247,7 @@ test {
     _ = frames;
     _ = pgo;
     _ = bolt;
+    _ = inlining;
     _ = map_trace;
     _ = @import("ownership.zig");
     _ = @import("runtime.zig");

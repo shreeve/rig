@@ -4223,7 +4223,7 @@ test "fun default param", '''
     n * by
 
   print(scaled(3))
-  print(scaled(3, 2))
+  print(scaled(3, by: 2))
   print(scaled(by: 4, n: 5))
 
 fail "fun return without value", "`return` needs a value of type `Int`"

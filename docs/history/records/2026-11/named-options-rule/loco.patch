@@ -1,0 +1,137 @@
+diff --git i/rig/loc/flags.rig w/rig/loc/flags.rig
+index 553dcef..245ef93 100644
+--- i/rig/loc/flags.rig
++++ w/rig/loc/flags.rig
+@@ -103,10 +103,10 @@ pub fun parse(args: []Static, table: ?Table) -> Command!Usage
+       "--no-color" => opts.no_color = true
+       "--no-ignore" => opts.no_ignore = true
+       "--by-file", "-f" => opts.by_file = true
+-      _ if is(arg, "--exclude", "-e") => !opts.excludes.push(pattern(args, !i, "--exclude")!)
+-      _ if is(arg, "--only", "-o") => !opts.only.push(pattern(args, !i, "--only")!)
+-      _ if is(arg, "--exclude-lang", "-x") => opts.excluded_langs[language(table, args, !i, "--exclude-lang")!] = true
+-      _ if is(arg, "--only-lang", "-l") => opts.only_langs[language(table, args, !i, "--only-lang")!] = true
++      _ if is(arg, "--exclude", short: "-e") => !opts.excludes.push(pattern(args, !i, "--exclude")!)
++      _ if is(arg, "--only", short: "-o") => !opts.only.push(pattern(args, !i, "--only")!)
++      _ if is(arg, "--exclude-lang", short: "-x") => opts.excluded_langs[language(table, args, !i, "--exclude-lang")!] = true
++      _ if is(arg, "--only-lang", short: "-l") => opts.only_langs[language(table, args, !i, "--only-lang")!] = true
+       _ if is(arg, "--jobs")
+         digits = value(args, !i, "--jobs") ?? ""
+         n = text.parse_int(digits) catch return Usage.bad_jobs
+diff --git i/rig/loc/lang.rig w/rig/loc/lang.rig
+index 005f500..96c6908 100644
+--- i/rig/loc/lang.rig
++++ w/rig/loc/lang.rig
+@@ -46,7 +46,7 @@ fun sq() -> StrKind
+   kind("'", "'", true, false)
+ 
+ fun tick() -> StrKind
+-  kind("`", "`", true, true, .dollar)
++  kind("`", "`", true, true, interp: .dollar)
+ 
+ # Words after which a / opens a regex literal.
+ JS_REGEX_WORDS = ["return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw", "case", "do", "else", "yield", "await"]
+@@ -255,10 +255,10 @@ pub fun languages() -> Table
+     block_close: "###",
+     block_at_line_start: true,
+     strings: List([
+-      kind("\"\"\"", "\"\"\"", true, true, .rip),
++      kind("\"\"\"", "\"\"\"", true, true, interp: .rip),
+       kind("'''", "'''", true, true),
+-      kind("///", "///", true, true, .hash),
+-      kind("\"", "\"", true, false, .rip),
++      kind("///", "///", true, true, interp: .hash),
++      kind("\"", "\"", true, false, interp: .rip),
+       sq(),
+     ]),
+     regex: List(RIP_REGEX_WORDS),
+@@ -310,10 +310,10 @@ pub fun languages() -> Table
+     block_close: "*/",
+     nests: true,
+     strings: List([
+-      kind("\"\"\"", "\"\"\"", true, true, .dollar),
+-      kind("'''", "'''", true, true, .dollar),
+-      kind("\"", "\"", true, false, .dollar),
+-      kind("'", "'", true, false, .dollar),
++      kind("\"\"\"", "\"\"\"", true, true, interp: .dollar),
++      kind("'''", "'''", true, true, interp: .dollar),
++      kind("\"", "\"", true, false, interp: .dollar),
++      kind("'", "'", true, false, interp: .dollar),
+     ]),
+     color: [0x00, 0xb4, 0xab],
+   ))
+@@ -326,11 +326,11 @@ pub fun languages() -> Table
+     block_close: "###",
+     block_at_line_start: true,
+     strings: List([
+-      kind("\"\"\"", "\"\"\"", true, true, .hash),
++      kind("\"\"\"", "\"\"\"", true, true, interp: .hash),
+       kind("'''", "'''", true, true),
+-      kind("///", "///", true, true, .hash),
++      kind("///", "///", true, true, interp: .hash),
+       kind("```", "```", false, true),
+-      kind("\"", "\"", true, false, .hash),
++      kind("\"", "\"", true, false, interp: .hash),
+       sq(),
+       kind("`", "`", false, false),
+     ]),
+@@ -346,7 +346,7 @@ pub fun languages() -> Table
+     block_open: "=begin",
+     block_close: "=end",
+     block_at_line_start: true,
+-    strings: List([kind("\"", "\"", true, true, .hash), kind("'", "'", true, true), kind("`", "`", true, false)]),
++    strings: List([kind("\"", "\"", true, true, interp: .hash), kind("'", "'", true, true), kind("`", "`", true, false)]),
+     regex: List(RUBY_REGEX_WORDS),
+     heredoc: .ruby,
+     color: [0x70, 0x15, 0x16],
+@@ -381,7 +381,7 @@ pub fun languages() -> Table
+     block_open: "/*",
+     block_close: "*/",
+     nests: true,
+-    strings: List([kind("\"\"\"", "\"\"\"", false, true, .dollar), kind("\"", "\"", true, false, .dollar)]),
++    strings: List([kind("\"\"\"", "\"\"\"", false, true, interp: .dollar), kind("\"", "\"", true, false, interp: .dollar)]),
+     chars: .always,
+     color: [0xa9, 0x7b, 0xff],
+   ))
+@@ -392,7 +392,7 @@ pub fun languages() -> Table
+     block_open: "/*",
+     block_close: "*/",
+     nests: true,
+-    strings: List([kind("\"\"\"", "\"\"\"", false, true, .dollar), kind("\"", "\"", true, false, .dollar)]),
++    strings: List([kind("\"\"\"", "\"\"\"", false, true, interp: .dollar), kind("\"", "\"", true, false, interp: .dollar)]),
+     chars: .rust,
+     color: [0xc2, 0x2d, 0x40],
+   ))
+@@ -403,9 +403,9 @@ pub fun languages() -> Table
+     block_open: "/*",
+     block_close: "*/",
+     strings: List([
+-      kind("\"\"\"", "\"\"\"", true, true, .dollar),
++      kind("\"\"\"", "\"\"\"", true, true, interp: .dollar),
+       kind("'''", "'''", true, true),
+-      kind("\"", "\"", true, false, .dollar),
++      kind("\"", "\"", true, false, interp: .dollar),
+       sq(),
+     ]),
+     color: [0x42, 0x98, 0xb8],
+@@ -444,7 +444,7 @@ pub fun languages() -> Table
+     hash_attribute: true,
+     block_open: "/*",
+     block_close: "*/",
+-    strings: List([kind("\"", "\"", true, true, .php), kind("'", "'", true, true), kind("`", "`", true, false)]),
++    strings: List([kind("\"", "\"", true, true, interp: .php), kind("'", "'", true, true), kind("`", "`", true, false)]),
+     heredoc: .php,
+   ))
+   !langs.push(Lang(
+diff --git i/rig/loc/walk.rig w/rig/loc/walk.rig
+index dd2b4d3..2f24a38 100644
+--- i/rig/loc/walk.rig
++++ w/rig/loc/walk.rig
+@@ -402,7 +402,7 @@ sub walk(root: ?String, opts: ?Options, c: Root, sender: !Sender)!
+   )
+   cx = Walk(pats: ?pats, no_ignore: opts.no_ignore)
+   above = Ignores(files: ?stack)
+-  walk_dir(root, rel, above, pats.only == none, cx, !sender, <c.entries)!
++  walk_dir(root, rel, above, pats.only == none, cx, !sender, listed: <c.entries)!
+ 
+ # What every directory of one walk reads.
+ obj Walk

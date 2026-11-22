@@ -2260,7 +2260,7 @@ pub const TypeResolver = struct {
                 .is_method = true,
                 .self_mode = self_mode,
                 .param_names = try self.paramNames(params),
-                .param_defaults = try self.paramDefaults(params),
+                .param_defaults = try self.paramDefaults(fn_ty, params),
                 .param_durations = try self.paramDurations(fn_ty, params),
                 .is_default = of == .api and ir.get(m, .body) != .nil,
             });
@@ -2516,7 +2516,7 @@ pub const TypeResolver = struct {
             if (self.ctx.symbolOf(name)) |fid| {
                 self.ctx.symbols.items[fid].ty = fn_ty;
                 self.ctx.symbols.items[fid].param_names = try self.paramNames(params);
-                self.ctx.symbols.items[fid].param_defaults = try self.paramDefaults(params);
+                self.ctx.symbols.items[fid].param_defaults = try self.paramDefaults(fn_ty, params);
                 self.ctx.symbols.items[fid].param_durations = try self.paramDurations(fn_ty, params);
             }
         }
@@ -2572,14 +2572,34 @@ pub const TypeResolver = struct {
         return self.ctx.intern(.{ .type_var = id });
     }
 
-    /// The default value of each parameter, or null when none has one.
-    fn paramDefaults(self: *TypeResolver, params: Sexp) Error!?[]const ?Sexp {
+    /// The default value of each parameter, or null when none has one. A
+    /// parameter with a default is an option, given by name (SPEC
+    /// "Functions"), so `_` has none, and a required parameter follows an
+    /// option only when it takes a function, which a closure written last
+    /// fills.
+    fn paramDefaults(self: *TypeResolver, fn_ty: TypeId, params: Sexp) Error!?[]const ?Sexp {
         if (params == .nil) return null;
         var any = false;
         const out = try self.ctx.arena.allocator().alloc(?Sexp, params.items().len);
+        const types: []const TypeId = switch (self.ctx.types.get(fn_ty)) {
+            .function => |f| f.params,
+            else => &.{},
+        };
+        var option: ?[]const u8 = null;
         for (params.items(), 0..) |p, i| {
             out[i] = if (p.isKind(.default)) ir.Default.value(p) else null;
-            if (out[i] != null) any = true;
+            const name = sema.paramName(self.ctx.source, p) orelse "";
+            if (out[i] != null) {
+                any = true;
+                if (std.mem.eql(u8, name, "_")) {
+                    try self.ctx.err(sema.paramPos(p, self.ctx.startOf(p)), "`_` cannot have a default: an option is given by name, and `_` has none", .{});
+                }
+                if (option == null) option = name;
+                continue;
+            }
+            const before = option orelse continue;
+            if (i < types.len and (sema.callableFnTy(self.ctx, types[i]) != null or self.ctx.types.get(types[i]) == .function)) continue;
+            try self.ctx.err(sema.paramPos(p, self.ctx.startOf(p)), "`{s}` has no default but follows the option `{s}`, so it could only be given by name: move it before `{s}`, or give it a default", .{ name, before, before });
         }
         return if (any) out else null;
     }
@@ -3875,7 +3895,7 @@ pub const TypeResolver = struct {
             .inline_marked = marked,
             .self_mode = self_mode,
             .param_names = try self.paramNames(params),
-            .param_defaults = try self.paramDefaults(params),
+            .param_defaults = try self.paramDefaults(fn_ty, params),
             .param_durations = try self.paramDurations(fn_ty, params),
         });
     }

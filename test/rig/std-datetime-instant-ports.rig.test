@@ -197,7 +197,7 @@ test "to_datetime_many_seconds_in_some_days", "372 instants read back"
       for nano in [0, 1, 5, 999_999_999]
         rest = (second + 86_400) % 86_400
         d = epoch.checked_add(days: day + (second + 86_400) / 86_400 - 1) catch continue
-        clock = datetime.Time.new(rest / 3600, rest / 60 % 60, rest % 60, nano)!
+        clock = datetime.Time.new(rest / 3600, rest / 60 % 60, rest % 60, ns: nano)!
         text = String(`{d}T{clock}Z`)
         t = datetime.Instant.parse(text) catch continue
         if datetime.Instant.parse(String(t))! != t or String(t) != text

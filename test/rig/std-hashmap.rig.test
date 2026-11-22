@@ -1008,11 +1008,11 @@ test "hashmap own map", "2 0"
 
 bomb "hashmap reserve past the entry limit", "a HashMap holds at most 4294967295 entries"
   # The limit is tested before the table is made: no memory is touched.
-  m = HashMap[Int, Int].new(5000000000)
+  m = HashMap[Int, Int].new(capacity: 5000000000)
   print(m.len)
 
 bomb "hashmap set reserve past the entry limit", "a HashSet holds at most 4294967295 keys"
-  s = HashSet[Int].new(5000000000)
+  s = HashSet[Int].new(capacity: 5000000000)
   print(s.len)
 
 test "hashmap release", "true 4000 1000", release: true

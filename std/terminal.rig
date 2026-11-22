@@ -541,7 +541,7 @@ pub obj Terminal
   sub full_reset(!@)
     sent = String()
     swap(!sent, !@replies)
-    @ = Terminal.new(@cols, @rows, @scrollback)
+    @ = Terminal.new(@cols, @rows, scrollback: @scrollback)
     swap(!sent, !@replies)
 
   # The pen changed: find its index, and the index of an erased cell.
@@ -728,7 +728,7 @@ pub obj Terminal
     i = base + x
     first = rune(@cells[i])
     return false if first == 0
-    b = text.CharBreak.new(true)
+    b = text.CharBreak.new(tailored: true)
     _ = !b.next(first)
     last = first
     if @cells[i] & EXTRA != 0
@@ -942,7 +942,7 @@ pub obj Terminal
   sub index(!@)
     @pending_wrap = false
     if @row == @bottom
-      !@shift_up(@top, @bottom, 1, @top == 0 and @keeps())
+      !@shift_up(@top, @bottom, 1, keep: @top == 0 and @keeps())
     else if @row < @rows - 1
       @row += 1
 
@@ -1128,7 +1128,7 @@ pub obj Terminal
     return if n == 0
     keep = @top == 0 and @keeps()
     !@unwrap_rows(@top, @bottom) if @top > 0 or (not keep and @bottom < @rows - 1)
-    !@shift_up(@top, @bottom, n, keep)
+    !@shift_up(@top, @bottom, n, keep: keep)
 
   # The scroll region moves down `n` rows (SD, and RI at the top margin);
   # the cursor stays. As IL at its top in Ghostty, it unwraps its rows.
@@ -1265,10 +1265,10 @@ pub obj Terminal
     keep = selective or @prot_mode == PROT_ISO
     match how
       0
-        !@erase_line(0, selective)
+        !@erase_line(0, selective: selective)
         !@erase_rows(@row + 1, @rows, keep)
       1
-        !@erase_line(1, selective)
+        !@erase_line(1, selective: selective)
         !@erase_rows(0, @row, keep)
       2
         !@erase_rows(0, @rows, keep)
@@ -1310,7 +1310,7 @@ pub obj Terminal
     return if n == 0
     kept = @blank_cell
     @blank_cell = 0
-    !@shift_up(0, @rows - 1, n, @keeps())
+    !@shift_up(0, @rows - 1, n, keep: @keeps())
     @blank_cell = kept
     if @row < n
       @row = 0
@@ -2126,8 +2126,8 @@ sub Terminal.csi_final(!@, b: U8)
     'Z' if count >= 0 => !@tab_back(count)
     # Ghostty's TBC needs its parameter: `CSI g` alone does nothing.
     'g' if n == 1 => !@tab_clear(p0)
-    'J' if n <= 1 => !@erase_display(p0, selective)
-    'K' if n <= 1 => !@erase_line(p0, selective)
+    'J' if n <= 1 => !@erase_display(p0, selective: selective)
+    'K' if n <= 1 => !@erase_line(p0, selective: selective)
     'X' if count >= 0 => !@erase_chars(count)
     'L' if count >= 0 => !@insert_lines(count)
     'M' if count >= 0 => !@delete_lines(count)

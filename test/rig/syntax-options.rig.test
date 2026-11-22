@@ -1,0 +1,168 @@
+use std.text
+use std.time
+
+test "options by name, in any order, after the required values", "5437 5433 5462"
+  # A parameter with a default is an option, given by name (SPEC
+  # "Functions").
+  fun connect(host: ?String, port: Int, timeout: Int = 30, retry: Bool = true) -> Int
+    port + timeout
+
+  print(connect("db", 5432, timeout: 5), connect("db", 5432, retry: false, timeout: 1), connect(port: 5432, host: "db"))
+
+fail "an option by position, at each kind of call", "16:19: `by` has a default, so it is an option, given by name: `by: 2`", "16:28: `width` has a default, so it is an option, given by name: `width: 24`", "18:15: `n` has a default, so it is an option, given by name: `n: 3`", "18:31: `n` has a default, so it is an option, given by name: `n: 4`", "18:56: `base` has a default, so it is an option, given by name: `base: 16`", errors: 5
+  # A function, the first parameter too, a method, an associated
+  # function through its type, and std's.
+  obj Box
+    v: Int
+
+    fun add(?@, n: Int = 1) -> Int
+      @v + n
+
+  fun scaled(n: Int, by: Int = 10) -> Int
+    n * by
+
+  fun area(width: Int = 80, height: Int = 24) -> Int
+    width * height
+
+  sub main()!
+    print(scaled(3, 2), area(24))
+    b = Box(v: 1)
+    print(b.add(3), Box.add(?b, 4), text.parse_int("ff", 16)!)
+
+fail "a duration option by position", "4:15: `timeout` has a default, so it is an option, given by name: `timeout: 0.5`", errors: 1
+  sub wait_for(url: ?String, timeout: time.Duration? = none)
+    print(url)
+
+  wait_for("u", 0.5)
+
+test "a duration option by name or by its unit", "u none\nu 500ms\nu 2s"
+  sub wait_for(url: ?String, timeout: time.Duration? = none)
+    print(url, timeout)
+
+  wait_for("u")
+  wait_for("u", ms: 500)
+  wait_for("u", timeout: 2)
+
+test "a closure written last fills the callback", '''
+  once 0
+  twice 0
+  twice 1
+  each 0
+  each 2
+'''
+  # Where its position would give an option, and after the options.
+  sub repeat(times: Int = 1, f: ?sub(Int))
+    for i in 0..times
+      f(i)
+
+  sub each(n: Int, step: Int = 1, f: ?sub(Int))
+    i = 0
+    while i < n
+      f(i)
+      i += step
+
+  repeat(|i| print("once", i))
+  repeat(times: 2, |i| print("twice", i))
+  each(3, step: 2, |i| print("each", i))
+
+test "a closure fills a required callback by position", "7"
+  fun apply(f: ?fun(Int) -> Int, x: Int = 3) -> Int
+    f(x)
+
+  print(apply(|n| n + 4))
+
+fail "an option's declaration", "1:34: `_` cannot have a default: an option is given by name, and `_` has none", "3:29: `c` has no default but follows the option `b`, so it could only be given by name: move it before `b`, or give it a default", "9:28: `n` has no default but follows the option `by`", errors: 3
+  fun scaled(n: Int, by: Int = 10, _: Bool = false) -> Int
+    n * by
+  fun mid(a: Int, b: Int = 2, c: Int) -> Int
+    a + b + c
+
+  obj Box
+    v: Int
+
+    fun add(?@, by: Int = 1, n: Int) -> Int
+      @v + n * by
+
+  print(scaled(3), mid(1, c: 2), Box(v: 1).add(n: 2))
+
+test "a callback may follow the options", "hi\nhi"
+  sub run(times: Int = 1, f: ?sub())
+    for _ in 0..times
+      f()
+
+  run(times: 2, || print("hi"))
+
+fail "a function with options is not a value", "11:7: `scaled` has options, given by name, so it is not a value: write a closure that calls it", "12:12: `text.parse_int` has options, given by name, so it is not a value", "13:11: `Box.add` has options, given by name, so it is not a value", errors: 3
+  obj Box
+    v: Int
+
+    fun add(?@, n: Int = 1) -> Int
+      @v + n
+
+  fun scaled(n: Int, by: Int = 10) -> Int
+    n * by
+
+  sub main()
+    f = scaled
+    g = text.parse_int
+    h = Box.add
+    print(f, g, h)
+
+test "a closure passes a function with options", "6 30"
+  fun scaled(n: Int, by: Int = 10) -> Int
+    n * by
+
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  print(apply(|n| scaled(n, by: 2), 3), apply(|n| scaled(n), 3))
+
+fail "a generic body cannot call a method with options", "has options, given by name, which a call in a generic body cannot give", errors: 1
+  obj Box
+    v: Int
+
+    fun add(?@, n: Int = 1) -> Int
+      @v + n
+
+  fun bump[T](x: T) -> Int
+    x.add(2)
+
+  print(bump(Box(v: 1)))
+
+fail "a provider gives an API's parameter no default", "7:7: `Square.area` meets `area` of `Shape`, so `scale` has no default: a call through the API gives each argument by position", errors: 1
+  api Shape
+    fun area(?@, scale: Float) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@, scale: Float = 1.0) -> Float
+      @side * @side * scale
+
+  fun show(s: ?{Shape}) -> Float
+    s.area(2.0)
+
+  sub main()
+    sq = Square(side: 2.0)
+    print(show(?sq))
+
+fail "a function given last where an option is fills the callback by name", "9:10: `times` has a default, so it is an option, given by name, and a function given last fills `f`: `f: show`", "11:10: `f: ?cb`", errors: 2
+  sub repeat(times: Int = 1, f: ?sub(Int))
+    for i in 0..times
+      f(i)
+
+  sub show(i: Int)
+    print("show", i)
+
+  sub main()
+    repeat(show)
+    cb = |i: Int| print("cb", i)
+    repeat(?cb)
+
+fail "an unknown keyword where a duration option is", "5:17: `wait_for` has no parameter `delay`; its duration is an option, given by name, `timeout: 2`", errors: 1
+  sub wait_for(url: ?String, timeout: time.Duration? = none)
+    print(url)
+
+  sub main()
+    wait_for("u", delay: 2)
+

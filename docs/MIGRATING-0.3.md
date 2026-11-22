@@ -971,3 +971,33 @@ names:
 python3 tools/migrate-constant-makers.py --dry-run src/   # what would change
 python3 tools/migrate-constant-makers.py src/             # rewrite in place
 ```
+
+### Options by name
+
+A parameter with a default is an option, and an option is given by name
+([SPEC "Functions"](../SPEC.md#functions)): the required parameters come
+first, by position, and the options after them by name, in any order. A
+0.3.0 program that gives an option by position is rejected, with the fix
+in the message: `text.parse_int(s, 16)` is written `text.parse_int(s,
+base: 16)`, and `connect("db", 5432, 5)` is `connect("db", 5432,
+timeout: 5)`. `tools/migrate-options.py` runs `rig check` and writes the
+name each error gives before its argument, in `.rig` files, in each case
+of a test file, and in each ```rig block of a Markdown file; it gives
+`datetime.Time.new` the second it now takes, `Time.new(8, 30, 0)`. Run it
+with a `rig` that has the rule, and with `RIG_STD` set for a copy of std
+read from disk; the named form compiles under 0.3.0 too, so a program it
+rewrites builds with either:
+
+```sh
+python3 tools/migrate-options.py --dry-run src/   # what would change, one round
+python3 tools/migrate-options.py src/             # rewrite in place
+```
+
+Also refused, and left to you:
+
+| 0.3.0 | Now |
+|---|---|
+| `fun f(n: Int, _: Bool = false)` | `fun f(n: Int)`, or a name for the option |
+| `fun mid(a: Int, b: Int = 2, c: Int)` | `c` before `b`, or a default for `c` |
+| `g = connect`, a function with options as a value | `g = \|h, p\| connect(h, p)` |
+| `dt.add(span)`, `dt.add(d: span)` on a `DateTime` | `dt.add(duration: span)`, or a unit, `dt.add(seconds: 0.5)` |

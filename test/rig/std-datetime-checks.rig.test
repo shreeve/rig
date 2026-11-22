@@ -29,13 +29,13 @@ test "datetime add forms at each kind of call", '''
   # with self first; and `checked_add`.
   dt = datetime.DateTime.parse("2026-03-08T02:30")!
   five = time.duration(5)
-  print(dt.add(1), dt.add(0.5), dt.add(hours: 2), dt.add(ms: 40), dt.add(days: 1), dt.add(days: 1, hours: 2))
-  print(dt.add(five), dt.add(d: 2, days: 1), datetime.DateTime.add(dt, months: 1), datetime.DateTime.add(dt, 3), dt.checked_add(2)!, dt.checked_add()!)
+  print(dt.add(duration: 1), dt.add(duration: 0.5), dt.add(hours: 2), dt.add(ms: 40), dt.add(days: 1), dt.add(days: 1, hours: 2))
+  print(dt.add(duration: five), dt.add(duration: 2, days: 1), datetime.DateTime.add(dt, months: 1), datetime.DateTime.add(dt, duration: 3), dt.checked_add(duration: 2)!, dt.checked_add()!)
 
 test "time add forms at each kind of call", '''
   01:00:00 23:00:01 23:00:00.5 01:00:00 range
 '''
-  t = datetime.Time.new(23, 0)
+  t = datetime.Time.new(23, 0, 0)
   fun checked(t: datetime.Time, d: time.Duration) -> String
     r = t.checked_add(d) catch return String("range")
     String(r)
@@ -57,7 +57,7 @@ test "with, round, and floor forms at each kind of call", '''
   k = 15
   print(t.round(hours: 1), datetime.Time.round(t, minutes: k), dt.floor(hours: 1), datetime.DateTime.round(dt, days: 1), t.floor(minutes: 1))
 
-fail "a date's add takes its amounts by name", "3:13: `add` of a `Date` takes its amounts by name, and no positional argument: `add(days: 1)`", "4:21: `checked_add` of a `Date` takes its amounts by name, and no positional argument: `checked_add(days: n)`", "5:28: `add` of a `Date` takes its amounts by name, and no positional argument: `add(days: 1)`", "6:24: `add` of a `Date` takes its amounts by name, and no positional argument: `add(days: 2)`", errors: 4
+fail "a date's amounts are options, given by name", "3:13: `add` of a `Date` takes its amounts as options, given by name: `add(days: 1)` for days", "4:21: `checked_add` of a `Date` takes its amounts as options, given by name: `checked_add(days: n)` for days", "5:28: `add` of a `Date` takes its amounts as options, given by name: `add(days: 1)` for days", "6:24: `add` of a `Date` takes its amounts as options, given by name: `add(days: 2)` for days", errors: 4
   d = datetime.Date.new(2027, 1, 31)
   n = 3
   print(d.add(1))
@@ -72,23 +72,23 @@ fail "a date has no time of day", "2:13: a `Date` has no time of day, so `add` t
   print(d.checked_add(seconds: 1)!)
   print(d.add(ns: 5))
 
-fail "a datetime's add takes one positional argument", "3:17: `add` takes one duration by position and its calendar amounts by name: `add(1, years: 2)`, not a second positional argument", "4:25: `checked_add` takes one duration by position and its calendar amounts by name: `checked_add(1, years: 2)`, not a second positional argument", "5:38: `add` takes one duration by position and its calendar amounts by name: `add(0.5, years: 2)`, not a second positional argument", errors: 3
+fail "a datetime's duration and amounts are options, given by name", "3:14: `duration` has a default, so it is an option, given by name: `duration: 1`", "3:17: `years` has a default, so it is an option, given by name: `years: 2`", "4:22: `duration` has a default, so it is an option, given by name: `duration: 1`", "4:25: `years` has a default, so it is an option, given by name: `years: 2`", "4:28: `months` has a default, so it is an option, given by name: `months: 3`", "5:33: `duration` has a default, so it is an option, given by name: `duration: 0.5`", "5:38: `years` has a default, so it is an option, given by name: `years: 2`", errors: 7
   d = datetime.Date.new(2027, 1, 31)
-  dt = d.at(datetime.Time.new(1, 0))
+  dt = d.at(datetime.Time.new(1, 0, 0))
   print(dt.add(1, 2))
   print(dt.checked_add(1, 2, 3)!)
   print(datetime.DateTime.add(dt, 0.5, 2))
 
-fail "with takes its fields by name", "3:14: `with` takes the fields it replaces by name, `with(day: 1)`, and no positional argument", "4:15: `with` takes the fields it replaces by name, `with(hour: 0)`, and no positional argument", "5:22: `with` takes the fields it replaces by name, `with(second: 0)`, and no positional argument", "6:37: `with` takes the fields it replaces by name, `with(second: 0)`, and no positional argument", errors: 4
+fail "with takes its fields by name", "3:14: `year` has a default, so it is an option, given by name: `year: 2024`", "4:15: `year` has a default, so it is an option, given by name: `year: 2024`", "5:22: `hour` has a default, so it is an option, given by name: `hour: 1`", "6:37: `hour` has a default, so it is an option, given by name: `hour: 1`", errors: 4
   d = datetime.Date.new(2027, 1, 31)
-  dt = d.at(datetime.Time.new(1, 0))
+  dt = d.at(datetime.Time.new(1, 0, 0))
   print(d.with(2024)!)
   print(dt.with(2024, month: 1)!)
   print(dt.time().with(1)!)
   print(datetime.Time.with(dt.time(), 1)!)
 
-fail "time and datetime round take one allowed unit", "3:15: `round` takes a unit from `ns:` to `hours:` and its increment, and `days:` is none of them", "4:24: an increment of `round` divides the next larger unit and is smaller than it, so `minutes:` takes 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, or 30, and `45` is not one of them", "5:22: `round` takes `days: 1` and no other number of days, and `2` is not 1", "6:16: `round` takes a unit from `ns:` to `hours:`, or `days: 1`, and its increment, and `weeks:` is none of them", "7:20: an increment of `floor` divides the next larger unit and is smaller than it, so `ns:` takes 1, 2, 4, 5, 8, 10, 20, 25, 40, 50, 100, 125, 200, 250, or 500, and `3` is not one of them", "8:23: an increment of `round` divides the next larger unit and is smaller than it, so `hours:` takes 1, 2, 3, 4, 6, 8, or 12, and `24` is not one of them", "9:15: `round` takes a unit and its increment by name, `round(minutes: 15)`, and no positional argument", "10:26: `floor` takes one unit and its increment, not 2: name one of them, `floor(hours: 1)`", "11:27: `round` takes one unit and its increment, not 2: name one of them, `round(minutes: 1)`", "12:27: `round` takes one unit and its increment, not 2: write the increment in one unit, `round(ms: 250)`", "13:25: `round` takes one unit and its increment, not 2: name one of them, `round(days: 1)`", errors: 11
-  t = datetime.Time.new(1, 0)
+fail "time and datetime round take one allowed unit", "3:15: `round` takes a unit from `ns:` to `hours:` and its increment, and `days:` is none of them", "4:24: an increment of `round` divides the next larger unit and is smaller than it, so `minutes:` takes 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, or 30, and `45` is not one of them", "5:22: `round` takes `days: 1` and no other number of days, and `2` is not 1", "6:16: `round` takes a unit from `ns:` to `hours:`, or `days: 1`, and its increment, and `weeks:` is none of them", "7:20: an increment of `floor` divides the next larger unit and is smaller than it, so `ns:` takes 1, 2, 4, 5, 8, 10, 20, 25, 40, 50, 100, 125, 200, 250, or 500, and `3` is not one of them", "8:23: an increment of `round` divides the next larger unit and is smaller than it, so `hours:` takes 1, 2, 3, 4, 6, 8, or 12, and `24` is not one of them", "9:15: `ns` has a default, so it is an option, given by name: `ns: 5`", "10:26: `floor` takes one unit and its increment, not 2: name one of them, `floor(hours: 1)`", "11:27: `round` takes one unit and its increment, not 2: name one of them, `round(minutes: 1)`", "12:27: `round` takes one unit and its increment, not 2: write the increment in one unit, `round(ms: 250)`", "13:25: `round` takes one unit and its increment, not 2: name one of them, `round(days: 1)`", errors: 11
+  t = datetime.Time.new(1, 0, 0)
   dt = datetime.Date.new(2027, 1, 31).at(t)
   print(t.round(days: 1))
   print(t.round(minutes: 45))
@@ -102,11 +102,11 @@ fail "time and datetime round take one allowed unit", "3:15: `round` takes a uni
   print(t.round(seconds: 0, ms: 250))
   print(dt.round(days: 1, hours: 1))
 
-fail "checked methods are not values", "1:19: `std.datetime.Date.add` checks its arguments where it is called, so it must be called; wrap it in a closure to pass it as a value", "2:23: `std.datetime.DateTime.checked_add` checks its arguments where it is called, so it must be called; wrap it in a closure to pass it as a value", "3:19: `std.datetime.Time.with` checks its arguments where it is called, so it must be called; wrap it in a closure to pass it as a value", "5:7: method `round` must be called; wrap it in a closure to pass it as a value", errors: 4
+fail "methods with options are not values", "1:19: `std.datetime.Date.add` has options, given by name, so it is not a value: write a closure that calls it", "2:23: `std.datetime.DateTime.checked_add` has options, given by name, so it is not a value: write a closure that calls it", "3:19: `std.datetime.Time.with` has options, given by name, so it is not a value: write a closure that calls it", "5:7: method `round` must be called; wrap it in a closure to pass it as a value", errors: 4
   f = datetime.Date.add
   g = datetime.DateTime.checked_add
   h = datetime.Time.with
-  t = datetime.Time.new(1, 0)
+  t = datetime.Time.new(1, 0, 0)
   r = t.round
 
 test "a closure passes a checked method", '''
@@ -114,7 +114,7 @@ test "a closure passes a checked method", '''
 '''
   # §10.2: what a function value cannot carry, a closure can.
   d = datetime.Date.new(2027, 1, 31)
-  t = datetime.Time.new(1, 7)
+  t = datetime.Time.new(1, 7, 0)
   fun on_date(x: datetime.Date, f: ?fun(datetime.Date) -> datetime.Date) -> datetime.Date
     f(x)
 
@@ -131,10 +131,10 @@ test "sizes", "1 4 8 12"
   # `DateTime` the two.
   print($size(datetime.Weekday), $size(datetime.Date), $size(datetime.Time), $size(datetime.DateTime))
 
-fail "a date's add refuses a duration by position", "6:13: a `Date` has no time of day, so `add` takes no duration, `0.5`: a date and a time of day is a `DateTime`, `d.at(t).add(0.5)`", "7:13: a `Date` has no time of day, so `add` takes no duration, `time.duration(hours: 24)`: a date and a time of day is a `DateTime`, `d.at(t).add(time.duration(hours: 24))`", "8:21: a `Date` has no time of day, so `checked_add` takes no duration, `half`: a date and a time of day is a `DateTime`, `d.at(t).checked_add(half, days: 1)`", "9:13: `add` of a `Date` takes its amounts by name, an `Int` of each, and no positional argument: `add(days: 1)`", "10:23: a `Date` has no time of day, so `add` takes no `hours:`: a date and a time of day is a `DateTime`, `d.at(t).add(weeks: 1, hours: 2)`", errors: 5
-  # The fix for a positional argument is `days:` only for an `Int`; for a
-  # `Float` or a `Duration`, and for a unit beside other amounts, it is a
-  # `DateTime` with every amount written.
+fail "a date's add refuses a duration by position", "6:13: a `Date` has no time of day, so `add` takes no duration, `0.5`: a date and a time of day is a `DateTime`, `d.at(t).add(duration: 0.5)`", "7:13: a `Date` has no time of day, so `add` takes no duration, `time.duration(hours: 24)`: a date and a time of day is a `DateTime`, `d.at(t).add(duration: time.duration(hours: 24))`", "8:21: a `Date` has no time of day, so `checked_add` takes no duration, `half`: a date and a time of day is a `DateTime`, `d.at(t).checked_add(duration: half, days: 1)`", "9:13: `years` has a default, so it is an option, given by name", "10:23: a `Date` has no time of day, so `add` takes no `hours:`: a date and a time of day is a `DateTime`, `d.at(t).add(weeks: 1, hours: 2)`", errors: 6
+  # A `Float` or a `Duration` by position, and a unit beside other
+  # amounts, is a time of day, whose fix is a `DateTime` with every amount
+  # written; any other argument by position gives an option.
   d = datetime.Date.new(2027, 1, 31)
   half = time.duration(0.5)
   print(d.add(0.5))
@@ -143,11 +143,10 @@ fail "a date's add refuses a duration by position", "6:13: a `Date` has no time 
   print(d.add("x"))
   print(d.add(weeks: 1, hours: 2))
 
-fail "a generic body cannot call a checked method", "19:7: `bump[datetime.DateTime]` cannot use `T = datetime.DateTime`: the generic body calls `x.add(d, 2, 0, 0, 0)`, and `datetime.DateTime.add` checks its arguments where it is called, by name, which a call in a generic body cannot give; call it where its type is written, or pass a closure that does", "20:7: `next[datetime.Date]` cannot use `T = datetime.Date`: the generic body calls `x.add(0, 0, 0, 1)`, and `datetime.Date.add` checks its arguments where it is called", "21:7: `change[datetime.Date]` cannot use `T = datetime.Date`: the generic body calls `x.with(y, y, y)`, and `datetime.Date.with` checks its arguments where it is called", "22:7: `near[datetime.Time]` cannot use `T = datetime.Time`: the generic body calls `x.round(k, k, k, k, k, k)`, and `datetime.Time.round` checks its arguments where it is called", "23:7: `near[time.Duration]` cannot use `T = time.Duration`: the generic body calls `x.round(k, k, k, k, k, k)`, and `time.Duration.round` checks its arguments where it is called", errors: 5
-  # §10.2: a generic body passes every argument by position, so each
-  # check would be passed by: `x.add(d, 2, …)` on a `DateTime` would be
-  # two years. A checked method is refused there, as it is as a value,
-  # for std.datetime's checks and std.time's alike.
+fail "a generic body cannot call a method with options", "18:7: `bump[datetime.DateTime]` cannot use `T = datetime.DateTime`: the generic body calls `x.add(d, 2, 0, 0, 0)`, and `datetime.DateTime.add` has options, given by name, which a call in a generic body cannot give; call it where its type is written, or pass a closure that does", "19:7: `next[datetime.Date]` cannot use `T = datetime.Date`: the generic body calls `x.add(0, 0, 0, 1)`, and `datetime.Date.add` has options, given by name", "20:7: `change[datetime.Date]` cannot use `T = datetime.Date`: the generic body calls `x.with(y, y, y)`, and `datetime.Date.with` has options, given by name", "21:7: `near[datetime.Time]` cannot use `T = datetime.Time`: the generic body calls `x.round(k, k, k, k, k, k)`, and `datetime.Time.round` has options, given by name", "22:7: `near[time.Duration]` cannot use `T = time.Duration`: the generic body calls `x.round(k, k, k, k, k, k)`, and `time.Duration.round` has options, given by name", errors: 5
+  # A generic body passes every argument by position, so it would give
+  # options by position: `x.add(d, 2, …)` on a `DateTime` would be two
+  # years. A method with options is refused there, as it is as a value.
   fun bump[T](x: T, d: time.Duration?) -> T
     x.add(d, 2, 0, 0, 0)
 
@@ -160,12 +159,12 @@ fail "a generic body cannot call a checked method", "19:7: `bump[datetime.DateTi
   fun near[T](x: T, k: Int?) -> T
     x.round(k, k, k, k, k, k)
 
-  dt = datetime.DateTime.new(2027, 1, 31, 1)
+  dt = datetime.DateTime.new(2027, 1, 31, hour: 1)
   d = datetime.Date.new(2027, 1, 31)
   print(bump(dt, time.duration(1)))
   print(next(d))
   print(change(d, 1)!)
-  print(near(datetime.Time.new(1, 7), 15))
+  print(near(datetime.Time.new(1, 7, 0), 15))
   print(near(time.duration(90), none))
 
 test "a generic body calls an unchecked method", '''
@@ -179,7 +178,7 @@ test "a generic body calls an unchecked method", '''
   fun apply[T](x: T, f: ?fun(T) -> T) -> T
     f(x)
 
-  print(later(datetime.Time.new(1, 0), time.duration(1)), apply(datetime.DateTime.new(2027, 1, 31, 1), |x| x.add(1)))
+  print(later(datetime.Time.new(1, 0, 0), time.duration(1)), apply(datetime.DateTime.new(2027, 1, 31, hour: 1), |x| x.add(duration: 1)))
 
 test "datetime add of several units", '''
   2026-03-09T05:00:00 2026-03-09T04:00:00 2026-03-08T02:59:59.5
@@ -193,12 +192,16 @@ test "datetime add of several units", '''
 
   dt = datetime.DateTime.parse("2026-03-08T02:30")!
   print(dt.add(days: 1, hours: 2, minutes: 30), dt.add(days: 1, hours: 2, minutes: -30), dt.add(minutes: 30, seconds: -0.5))
-  top = datetime.DateTime.new(9999, 12, 31, 22)
+  top = datetime.DateTime.new(9999, 12, 31, hour: 22)
   print(dt.checked_add(days: 1, hours: 2, minutes: 30)!, step(top, 2), dt.checked_add(days: -1, hours: -1, minutes: 30)!)
 
 fail "two units on a time or a datetime get one increment it takes", "3:27: `round` takes one unit and its increment, not 2: name one unit and an increment it takes, `round(minutes: 6)`", "4:26: `floor` takes one unit and its increment, not 2: name one unit and an increment it takes, `floor(hours: 4)`", "5:28: `round` takes one unit and its increment, not 2: name one unit and an increment it takes, `round(seconds: 6)`", errors: 3
-  t = datetime.Time.new(1, 0)
+  t = datetime.Time.new(1, 0, 0)
   dt = datetime.Date.new(2027, 1, 31).at(t)
   print(t.round(minutes: 7, seconds: 1))
   print(dt.floor(hours: 5, minutes: 1))
   print(dt.round(seconds: 7, ms: 1))
+
+fail "an unknown keyword where a duration option is", "2:14: `add` has no parameter `delay`; its duration is an option, given by name, `duration: 2`, or by units' keywords", errors: 1
+  dt = datetime.DateTime.new(2026, 1, 2, hour: 3)
+  print(dt.add(delay: 2))

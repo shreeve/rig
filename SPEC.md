@@ -1609,12 +1609,69 @@ Parameters are immutable; assigning a `!T` parameter writes through to
 the value it views ([§4](#view-places)). A parameter the body ignores
 may be named `_`, any number of times. A parameter may have a default
 value: a literal or a module constant (`LIMIT`, `lib.LIMIT`, `U8.max`),
-which means the same value at every call, in any module. A call passes
-arguments by position, by keyword, or both, positional arguments first
+which means the same value at every call, in any module.
+
+**A parameter with a default is an option, and an option is given by
+name.** The required parameters come first and are given by position (or
+by keyword), and the options after them by keyword, in any order
 ([SYNTAX §11](docs/SYNTAX.md#calls)). Each parameter gets exactly one
 argument, and every parameter without a default needs one; arity,
 keyword names, and argument types are checked. Arguments are evaluated
-in the order written.
+in the order written. No parameter is exempt, the first included, and a
+method's self is never an option.
+
+```rig
+fun connect(host: ?String, port: Int, timeout: Int = 30, retry: Bool = true) -> Int
+  port + timeout
+
+sub main()
+  print(connect("db", 5432))
+  print(connect("db", 5432, timeout: 5))
+  print(connect("db", 5432, retry: false, timeout: 1))
+```
+
+```output
+5462
+5437
+5433
+```
+
+An option given by position is refused, with the fix: a parameter with
+a default is an option, passed by name, and one without is passed by
+position, so to pass it by position, remove its default. A function
+with options is not a value, since a call through a value gives every
+argument by position: write a closure that calls it. For the same reason
+an API's method has no option, nor does a method that meets one. `_` has no
+default, since an option is given by name and `_` has none, and a
+required parameter follows an option only when it takes a function,
+which a closure written last fills (below); any other could be given
+only by name.
+
+```rig reject
+fun area(width: Int = 80, height: Int = 24) -> Int
+  width * height
+
+fun scaled(n: Int, by: Int = 10, _: Bool = false) -> Int
+  n * by
+
+fun mid(a: Int, b: Int = 2, c: Int) -> Int
+  a + b + c
+
+sub main()
+  print(area(24), scaled(3, 2), mid(1, c: 3))
+  f = area
+```
+
+```error
+`width` has a default, so it is an option, given by name: `width: 24`; to pass it by position, remove its default
+`by` has a default, so it is an option, given by name: `by: 2`
+`_` cannot have a default: an option is given by name, and `_` has none
+`c` has no default but follows the option `b`, so it could only be given by name: move it before `b`, or give it a default
+`area` has options, given by name, so it is not a value: write a closure that calls it
+```
+
+A unit's keyword, `ms: 500`, gives a function's one `Duration`
+parameter, an option as well as a required one ([Durations](#durations)).
 
 ```rig reject
 fun scaled(n: Int, by: Int = 10) -> Int
@@ -1631,33 +1688,47 @@ parameter `n` of `scaled` is given twice
 ```
 
 A closure written as a call's last argument may follow the keyword
-arguments. It fills the parameter whose type is a function (`?fun`,
-`?sub`, `fun`, or `sub`) that no other argument fills, the last of them
-when several are open, so a closure, inline or a block below its bar
-list, comes last and the call's options come before it. Arguments are
-still evaluated in the order written.
+arguments. There, or where its position would give an option, it fills
+the parameter whose type is a function (`?fun`, `?sub`, `fun`, or `sub`)
+that no other argument fills, the last of them when several are open, so
+a closure, inline or a block below its bar list, comes last and the
+call's options come before it. Arguments are still evaluated in the
+order written.
 
 ```rig
 sub repeat(times: Int = 1, f: ?sub(Int))
   for i in 0..times
     f(i)
 
+sub each(n: Int, step: Int = 1, f: ?sub(Int))
+  i = 0
+  while i < n
+    f(i)
+    i += step
+
 sub main()
+  repeat(|i| print("once", i))
   repeat(times: 2, |i| print("inline", i))
   repeat(times: 2, |i|
     print("block", i)
   )
+  each(3, |i| print("each", i))
 ```
 
 ```output
+once 0
 inline 0
 inline 1
 block 0
 block 1
+each 0
+each 1
+each 2
 ```
 
 A function name is a value of its function type, so it can be passed
-where a `fun(...)` or `sub(...)` is expected ([§11](#function-types)).
+where a `fun(...)` or `sub(...)` is expected ([§11](#function-types)),
+unless the function has options.
 
 Declarations are only allowed at module level; there are no nested
 functions (use a closure). Two module-level declarations may not share a
@@ -15039,10 +15110,13 @@ value: `time.duration(ms: 250)`.
   takes a `Duration` is named for a unit.
 - An optional one is declared `d: Duration? = none`, and `none` or an
   optional value passes as it is. A `Duration` is made as the program
-  runs, so `none` is the only default one takes.
-- A bare number is positional, so it fills the parameter of its place:
-  `time.within(0.5, f)`. After a keyword only a closure literal follows
-  by position: `time.within(ms: 500, || f()!)`.
+  runs, so `none` is the only default one takes. Having a default, it
+  is an option ([Functions](#functions)), given by its name or by units'
+  keywords, `dt.add(duration: 0.5)` or `dt.add(ms: 500)`, never by
+  position.
+- A bare number is positional, so it fills the required parameter of
+  its place: `time.within(0.5, f)`. After a keyword only a closure
+  literal follows by position: `time.within(ms: 500, || f()!)`.
 - The forms apply where the call names the function or method, through
   an API too. A function value has no parameter names: its caller
   passes a `Duration`.

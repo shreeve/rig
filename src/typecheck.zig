@@ -5518,6 +5518,7 @@ const Checker = struct {
                     try self.errAt(leaf, entry_point_use, .{});
                     return self.t().invalid_id;
                 }
+                if (try self.optionsValue(sym.param_defaults, s, leaf.src.pos)) return self.t().invalid_id;
                 return self.functionValue(sym.ty, s, leaf.src.pos, sym.flags.inline_marked);
             },
             else => return sym.ty,
@@ -5525,6 +5526,18 @@ const Checker = struct {
     }
 
     const entry_point_use = "`main` is the program's entry point; it cannot be called or used as a value";
+
+    /// A function with options named as a value, which is refused: a call
+    /// through a value gives every argument by position, and an option is
+    /// given by name (SPEC "Functions"). True after the diagnostic.
+    fn optionsValue(self: *Checker, defaults: ?[]const ?Sexp, name: []const u8, pos: u32) Error!bool {
+        const d = defaults orelse return false;
+        for (d) |x| if (x != null) {
+            try self.err(pos, "`{s}` has options, given by name, so it is not a value: write a closure that calls it", .{name});
+            return true;
+        };
+        return false;
+    }
 
     /// The root module's `main`, which only the program calls.
     fn isEntryPoint(self: *Checker, sym: sema.Symbol) bool {
@@ -8626,7 +8639,11 @@ const Checker = struct {
         };
         const owner = decl.symbol();
         if ((try self.findMethod(obj_ty, field)) != null) {
-            if (owner.kind == .generic_type or sema.stdArgCheck(decl.ctx, owner.name, field) != null) {
+            const m = (try self.findMethod(obj_ty, field)).?;
+            const options = if (m.field.param_defaults) |d| for (d) |x| {
+                if (x != null) break true;
+            } else false else false;
+            if (owner.kind == .generic_type or options) {
                 try self.err(pos, "method `{s}` must be called; wrap it in a closure to pass it as a value", .{field});
             } else {
                 const tname = if (decl.module_id != null) try self.ctx.arena.allocator().print("{s}.{s}", .{ decl.ctx.name, owner.name }) else owner.name;
@@ -8752,7 +8769,11 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         const ty = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
-        if (found.sym.kind == .function) return try self.functionValue(ty, try self.ctx.arena.allocator().print("{s}.{s}", .{ self.text(obj), field }), pos, found.sym.flags.inline_marked);
+        if (found.sym.kind == .function) {
+            const name = try self.ctx.arena.allocator().print("{s}.{s}", .{ self.text(obj), field });
+            if (try self.optionsValue(found.sym.param_defaults, name, pos)) return self.t().invalid_id;
+            return try self.functionValue(ty, name, pos, found.sym.flags.inline_marked);
+        }
         return ty;
     }
 
@@ -8869,12 +8890,8 @@ const Checker = struct {
                     try self.err(pos, "method `{s}.{s}` of a generic type must be called; wrap it in a closure to pass it as a value", .{ tname, field });
                     return self.t().invalid_id;
                 }
-                const home = if (nt.foreign) |fo| fo.ctx else self.ctx;
-                if (sema.stdArgCheck(home, nt.sym.name, field) != null) {
-                    try self.err(pos, "`{s}.{s}` checks its arguments where it is called, so it must be called; wrap it in a closure to pass it as a value", .{ tname, field });
-                    return self.t().invalid_id;
-                }
                 const name = try self.ctx.arena.allocator().print("{s}.{s}", .{ tname, field });
+                if (try self.optionsValue(m.param_defaults, name, pos)) return self.t().invalid_id;
                 return self.functionValue(try self.memberType(nt.foreign, m.ty), name, pos, m.inline_marked);
             }
             if (!m.is_variant) break :found;
@@ -12062,10 +12079,16 @@ const Checker = struct {
                 return;
             }
         }
-        const positional = args[0 .. first_kw orelse args.len];
-        // A closure written last, after the keyword arguments, is the
-        // next positional argument.
-        const trailing: ?Sexp = if (first_kw != null and !args[args.len - 1].isKind(.kwarg)) args[args.len - 1] else null;
+        // A closure written last fills the parameter that takes a
+        // function (`closureParam`): after the keyword arguments, or where
+        // its position would give an option.
+        const trailing: ?Sexp = if (first_kw != null and !args[args.len - 1].isKind(.kwarg))
+            args[args.len - 1]
+        else if (first_kw == null and self.closureParam(args, f.params, info) != null)
+            args[args.len - 1]
+        else
+            null;
+        const positional = args[0 .. first_kw orelse args.len - @intFromBool(trailing != null)];
         const keyword = args[positional.len .. args.len - @intFromBool(trailing != null)];
         if (keyword.len > 0 and info.names == null) {
             try self.errAt(keyword[0], "`{s}` takes positional arguments only", .{callee});
@@ -12179,6 +12202,25 @@ const Checker = struct {
         @memset(slots, null);
         for (positional, 0..) |a, i| {
             slots[i] = .{ .arg = @intCast(i) };
+            // A parameter with a default is an option, given by name
+            // (SPEC "Functions").
+            if (info.default(i) != null) if (info.names) |names| if (i < names.len) {
+                const shown = try self.plainText(a);
+                // A function given last, where an option takes no function,
+                // is meant for the parameter that takes one, which only a
+                // closure fills by position.
+                if (i == args.len - 1 and !self.takesFunction(f.params[i])) if (self.trailingParam(args, f.params, info.names)) |cb| {
+                    const saved = self.under_poison;
+                    self.under_poison = true;
+                    const ty = self.canonical(try self.synthExpr(a));
+                    self.under_poison = saved;
+                    if (self.takesFunction(sema.unwrapAccess(self.ctx, ty))) {
+                        try self.errAt(a, "`{s}` has a default, so it is an option, given by name, and a function given last fills `{s}`: `{s}: {s}`", .{ names[i], names[cb], names[cb], shown });
+                        return self.synthArgs(args);
+                    }
+                };
+                try self.errAt(a, "`{s}` has a default, so it is an option, given by name: `{s}: {s}`; to pass it by position, remove its default", .{ names[i], names[i], shown });
+            };
             if (info.isDuration(i)) {
                 _ = try self.checkDurationArg(a, f.params[i], null, info, false);
                 continue;
@@ -12213,7 +12255,7 @@ const Checker = struct {
                     if (sema.duration.isCalendar(kname)) {
                         if (!calendar) try self.calendarKeyword(kname_node, kname, keyword, if (info.zoneless) callee else null);
                         calendar = true;
-                    } else try self.badDurationKeyword(kname_node, kname, ir.Kwarg.value(kw), callee);
+                    } else try self.badDurationKeyword(kname_node, kname, ir.Kwarg.value(kw), callee, if (unit_param) |u| (if (info.default(u) != null) info.names.?[u] else null) else null);
                     // The duration it meant is not missing too.
                     repeated = true;
                 } else try self.errAt(kname_node, "`{s}` has no parameter `{s}`", .{ callee, kname });
@@ -12448,9 +12490,9 @@ const Checker = struct {
         const a = self.ctx.arena.allocator();
         const values = try a.alloc(Sexp, args.len);
         const types = try a.alloc(TypeId, args.len);
-        // A closure written last, after the keyword arguments, fills the
-        // parameter that takes a function (`trailingParam`).
-        const trailing: ?usize = if (hasTrailingClosure(args)) self.trailingParam(args, f.params, info.names) else null;
+        // A closure written last may fill the parameter that takes a
+        // function (`closureParam`).
+        const trailing: ?usize = self.closureParam(args, f.params, info);
         for (args, values, types, 0..) |arg, *v, *ty, at| {
             v.* = .nil;
             ty.* = sema.type_invalid;
@@ -12486,6 +12528,30 @@ const Checker = struct {
         return false;
     }
 
+    /// Whether a parameter or value of type `ty` is a function: `fun`,
+    /// `sub`, or a view of one.
+    fn takesFunction(self: *Checker, ty: TypeId) bool {
+        const inner = switch (self.ctx.types.get(ty)) {
+            .read_view => |v| v,
+            else => ty,
+        };
+        return switch (self.ctx.types.get(inner)) {
+            .function, .callable => true,
+            else => false,
+        };
+    }
+
+    /// The parameter a closure written as a call's last argument fills
+    /// when it is the callback (`trailingParam`): after the keyword
+    /// arguments, or where its position would give an option, so
+    /// `repeat(|i| ...)` fills `f` of `repeat(times: Int = 1, f: ?sub(Int))`.
+    /// Null when it fills its position, or no parameter is open.
+    fn closureParam(self: *Checker, args: []const Sexp, params: []const TypeId, info: ParamInfo) ?usize {
+        if (args.len == 0 or !args[args.len - 1].isKind(.lambda)) return null;
+        if (!hasTrailingClosure(args) and info.default(args.len - 1) == null) return null;
+        return self.trailingParam(args, params, info.names);
+    }
+
     /// The parameter a closure written last, after the keyword
     /// arguments, fills: the parameter that takes a function and no
     /// other argument fills, the last of them when several do. Null
@@ -12517,8 +12583,6 @@ const Checker = struct {
         return switch (sema.stdArgCheck(home, owner, method) orelse return true) {
             .unit_increment, .clock_increment, .day_increment, .instant_increment => |kind| self.checkUnitIncrement(method, args, pos, kind),
             .calendar_add => self.checkCalendarAdd(method, args),
-            .duration_add => self.checkDurationAdd(method, args),
-            .by_name => self.checkByName(owner, method, args),
         };
     }
 
@@ -12585,33 +12649,32 @@ const Checker = struct {
     }
 
     /// `add` or `checked_add` of a `Date` (`sema.ArgCheck.calendar_add`):
-    /// its amounts by name, `add(days: 1)` and never `add(1)`, and no
-    /// unit of a duration, since a date has no time of day.
+    /// no duration, by position or by a unit's keyword, since a date has
+    /// no time of day.
     fn checkCalendarAdd(self: *Checker, method: []const u8, args: []const Sexp) Error!bool {
         for (args) |a| {
             const time_of_day = if (!a.isKind(.kwarg)) blk: {
-                // Whole days by name, when the argument is an `Int`; a
-                // `Float` or a `Duration` is a time of day, which a date
-                // has none of.
+                // A `Float` or a `Duration` is a time of day, which a date
+                // has none of; any other argument by position is an
+                // amount, an option given by name (`checkArgs`).
                 const saved = self.under_poison;
                 self.under_poison = true;
                 defer self.under_poison = saved;
                 const ty = self.canonical(try self.synthExpr(a));
                 if (self.isPoison(ty)) return false;
+                // An `Int` by position is most likely days.
                 if (ty == self.t().int_id or ty == self.t().int_literal_id) {
-                    try self.errAt(a, "`{s}` of a `Date` takes its amounts by name, and no positional argument: `{s}(days: {s})`", .{ method, method, try self.plainText(a) });
+                    try self.errAt(a, "`{s}` of a `Date` takes its amounts as options, given by name: `{s}(days: {s})` for days, or `years:`, `months:`, `weeks:`", .{ method, method, try self.plainText(a) });
                     return false;
                 }
-                if (ty != self.t().float_id and ty != self.t().float_literal_id and !sema.isDurationType(self.ctx, sema.unwrapOptionals(self.ctx, ty))) {
-                    try self.errAt(a, "`{s}` of a `Date` takes its amounts by name, an `Int` of each, and no positional argument: `{s}(days: 1)`", .{ method, method });
-                    return false;
-                }
+                if (ty != self.t().float_id and ty != self.t().float_literal_id and !sema.isDurationType(self.ctx, sema.unwrapOptionals(self.ctx, ty))) continue;
                 break :blk a;
             } else if (sema.duration.unitNs(self.text(ir.Kwarg.name(a))) != null) ir.Kwarg.name(a) else continue;
-            // The fix keeps every amount written, on a `DateTime`.
+            // The fix keeps every amount written, on a `DateTime`, whose
+            // duration is an option, given by name.
             var all: std.ArrayList(u8) = .empty;
             const al = self.ctx.arena.allocator();
-            for (args, 0..) |b, i| try all.print(al, "{s}{s}", .{ if (i > 0) ", " else "", try self.plainText(b) });
+            for (args, 0..) |b, i| try all.print(al, "{s}{s}{s}", .{ if (i > 0) ", " else "", if (b.isKind(.kwarg)) "" else "duration: ", try self.plainText(b) });
             const what = if (a.isKind(.kwarg))
                 try std.fmt.allocPrint(al, "`{s}:`", .{self.text(ir.Kwarg.name(a))})
             else
@@ -12622,39 +12685,13 @@ const Checker = struct {
         return true;
     }
 
-    /// `add` or `checked_add` of a `DateTime`
-    /// (`sema.ArgCheck.duration_add`): at most one positional argument,
-    /// the duration, and the calendar amounts by name.
-    fn checkDurationAdd(self: *Checker, method: []const u8, args: []const Sexp) Error!bool {
-        var first: ?Sexp = null;
-        for (args) |a| {
-            if (a.isKind(.kwarg)) continue;
-            if (first) |f| {
-                try self.errAt(a, "`{s}` takes one duration by position and its calendar amounts by name: `{s}({s}, years: {s})`, not a second positional argument", .{ method, method, try self.plainText(f), try self.plainText(a) });
-                return false;
-            }
-            first = a;
-        }
-        return true;
-    }
-
-    /// `with` (`sema.ArgCheck.by_name`): the fields it replaces by name.
-    fn checkByName(self: *Checker, owner: []const u8, method: []const u8, args: []const Sexp) Error!bool {
-        const field = if (std.mem.eql(u8, owner, "Time")) "second: 0" else if (std.mem.eql(u8, owner, "DateTime")) "hour: 0" else "day: 1";
-        for (args) |a| if (!a.isKind(.kwarg)) {
-            try self.errAt(a, "`{s}` takes the fields it replaces by name, `{s}({s})`, and no positional argument", .{ method, method, field });
-            return false;
-        };
-        return true;
-    }
-
     /// The checks of `stdArgChecks` that read the arguments' types, once
     /// `checkArgs` has given them: an increment is an `Int`, not an
     /// optional nor `none`, which the declared `Int?` lets through.
     fn stdArgTypes(self: *Checker, module: ?u32, owner: []const u8, method: []const u8, args: []const Sexp) Error!void {
         const home = if (module) |m| self.ctx.foreign_semas.get(m) orelse self.ctx else self.ctx;
         switch (sema.stdArgCheck(home, owner, method) orelse return) {
-            .calendar_add, .duration_add, .by_name => {},
+            .calendar_add => {},
             .unit_increment, .clock_increment, .day_increment, .instant_increment => for (args) |a| {
                 if (!a.isKind(.kwarg)) continue;
                 const value = ir.Kwarg.value(a);
@@ -12667,16 +12704,14 @@ const Checker = struct {
     }
 
     /// `round` or `floor` (`sema.ArgCheck.unit_increment` and its kin):
-    /// exactly one unit's keyword and its increment, and no positional
-    /// argument; an increment written as a constant is from 1 to
-    /// 1,000,000,000, and on a `Time` or a `DateTime` divides the next
-    /// larger unit and is smaller than it, or for `days:` is 1, and on an
-    /// `Instant` divides a day.
+    /// exactly one unit's keyword and its increment; an increment written
+    /// as a constant is from 1 to 1,000,000,000, and on a `Time` or a
+    /// `DateTime` divides the next larger unit and is smaller than it, or
+    /// for `days:` is 1, and on an `Instant` divides a day.
     fn checkUnitIncrement(self: *Checker, method: []const u8, args: []const Sexp, pos: u32, kind: sema.ArgCheck) Error!bool {
-        for (args) |a| if (!a.isKind(.kwarg)) {
-            try self.errAt(a, "`{s}` takes a unit and its increment by name, `{s}(minutes: 15)`, and no positional argument", .{ method, method });
-            return false;
-        };
+        // An argument by position gives an option, which `checkArgs`
+        // refuses.
+        for (args) |a| if (!a.isKind(.kwarg)) return true;
         if (args.len == 0) {
             try self.err(pos, "`{s}` takes a unit and its increment: `{s}(seconds: 1)`", .{ method, method });
             return false;
@@ -13005,8 +13040,10 @@ const Checker = struct {
     /// A keyword no parameter of `callee`, which takes a duration, is
     /// named, and no unit nor length of the calendar (`calendarKeyword`):
     /// a spelling of `seconds:`, or neither.
-    fn badDurationKeyword(self: *Checker, at: Sexp, kname: []const u8, value: Sexp, callee: []const u8) Error!void {
+    fn badDurationKeyword(self: *Checker, at: Sexp, kname: []const u8, value: Sexp, callee: []const u8, option: ?[]const u8) Error!void {
         if (isSecondsName(kname)) return self.errAt(at, "`{s}` has no parameter `{s}`; did you mean `seconds: {s}`?", .{ callee, kname, try self.plainText(value) });
+        // A duration with a default is an option, given by its name.
+        if (option) |name| return self.errAt(at, "`{s}` has no parameter `{s}`; its duration is an option, given by name, `{s}: {s}`, or by units' keywords, `ms: 40` or `minutes: 1, seconds: 30`, from `ns:` to `hours:`", .{ callee, kname, name, try self.plainText(value) });
         try self.errAt(at, "`{s}` has no parameter `{s}`; a duration is written bare in seconds, `{s}(2)`, or with units' keywords, `ms: 40` or `minutes: 1, seconds: 30`, from `ns:` to `hours:`", .{ callee, kname, callee });
     }
 
@@ -13478,9 +13515,9 @@ const Checker = struct {
                         break :blk null;
                     },
                 };
-            } else if (number == args.len and hasTrailingClosure(args)) {
-                // A closure written after the keyword arguments fills the
-                // parameter that takes a function (`trailingParam`).
+            } else if (number == args.len and (hasTrailingClosure(args) or (from == .params and self.closureParam(args, from.params.params, .{ .names = from.params.names, .defaults = from.params.defaults }) != null))) {
+                // A closure written last may fill the parameter that takes
+                // a function (`closureParam`).
                 pattern = switch (from) {
                     .fields, .payload => null,
                     .params => |p| if (self.trailingParam(args, p.params, p.names)) |i| p.params[i] else null,
@@ -13843,7 +13880,7 @@ const Checker = struct {
     /// diagnostic.
     fn inferCallTypeArgs(self: *Checker, f: FunctionType, own: []const SymbolId, args: []const Sexp, info: ParamInfo, skip: usize, callee: []const u8, pos: u32) Error!?[]TypeId {
         const call = self.current_call orelse Sexp.nil;
-        const inf = try self.inferBindings(own, args, .{ .params = .{ .params = f.params[@min(skip, f.params.len)..], .names = info.names } }, self.expectedResult(f.returns));
+        const inf = try self.inferBindings(own, args, .{ .params = .{ .params = f.params[@min(skip, f.params.len)..], .names = info.names, .defaults = info.defaults } }, self.expectedResult(f.returns));
         const result = try self.ctx.arena.allocator().alloc(TypeId, own.len);
         for (inf.bound, result) |b, *r| r.* = b.ty;
         if (call == .list and call.list.id != 0) try self.noteResultBinding(call.list.id, f, own, inf, callee);
@@ -17811,7 +17848,7 @@ const Checker = struct {
                 if (generic) {
                     // The type's arguments are given (`Pair[Int, ?String].make`)
                     // or come from the call's arguments.
-                    const subst = if (nt.args) |given| TypeSubst{ .params = nt.sym.type_params orelse &.{}, .args = given } else (try self.inferTypeArgs(nt.id, args, .{ .params = .{ .params = f.params, .names = m.param_names } }, pos, self.expectedResult(f.returns), name)) orelse return self.skipCall(args);
+                    const subst = if (nt.args) |given| TypeSubst{ .params = nt.sym.type_params orelse &.{}, .args = given } else (try self.inferTypeArgs(nt.id, args, .{ .params = .{ .params = f.params, .names = m.param_names, .defaults = m.param_defaults } }, pos, self.expectedResult(f.returns), name)) orelse return self.skipCall(args);
                     if (nt.args == null) try self.ctx.recordType(obj, try self.instantiate(nt.id, subst.args, pos));
                     f = self.ctx.types.get(try sema.substituteType(self.ctx, m.ty, subst)).function;
                     recv = subst;
@@ -17875,7 +17912,7 @@ const Checker = struct {
     const InferFrom = union(enum) {
         fields: []const Field,
         payload: []const Field,
-        params: struct { params: []const TypeId, names: ?[]const []const u8 },
+        params: struct { params: []const TypeId, names: ?[]const []const u8, defaults: ?[]const ?Sexp = null },
     };
 
     /// The type arguments of generic type `sym_id` that make `args` fit:
@@ -23645,13 +23682,12 @@ fn checkMethodCall(ctx: *SemContext, c: sema.GenericMethodCall, subst: TypeSubst
             break :blk try a.print("and `{s}` is private to module `{s}`; declare it `pub` there", .{ owner, mname });
         }
         if (m.field.self_mode == .none) break :blk try a.print("and `{s}` takes no `self`", .{owner});
-        // A std method whose arguments are checked where it is called
-        // (`sema.stdArgCheck`) takes them by name, which a generic body's
-        // call, by position only, never gives: refused as a function
-        // value is (`typeMember`).
-        const home: *const SemContext = if (declared == ctx.module_id) ctx else ctx.foreign_semas.get(declared) orelse ctx;
-        if (sema.stdArgCheck(home, m.owner.name, c.method) != null)
-            break :blk try a.print("and `{s}` checks its arguments where it is called, by name, which a call in a generic body cannot give; call it where its type is written, or pass a closure that does", .{owner});
+        // A method with options takes them by name, which a generic
+        // body's call, by position only, never gives: refused as a
+        // function value is (`optionsValue`).
+        if (m.field.param_defaults) |d| for (d) |x| {
+            if (x != null) break :blk try a.print("and `{s}` has options, given by name, which a call in a generic body cannot give; call it where its type is written, or pass a closure that does", .{owner});
+        };
         if (m.field.self_mode != c.self_mode) break :blk try a.print("which {s} `{s}`, but `{s}` takes `self` as `{s}`", .{ verb, c.recv, owner, switch (m.field.self_mode) {
             .read => "?@",
             .write => "!@",
@@ -24224,6 +24260,14 @@ fn checkConformance(ctx: *SemContext, index: usize) Error!void {
             continue;
         }
         try checkMethodMeets(ctx, conf, tname, w, have);
+        // A call through the API gives each argument by position, so a
+        // method that meets it has no option (SPEC "Functions"); the API's
+        // own method has none either (`checkApiDecl`).
+        for (have.param_defaults orelse &.{}, 0..) |d, i| if (d != null) {
+            const pname = if (have.param_names) |ns| (if (i < ns.len) ns[i] else "?") else "?";
+            try ctx.err(have.decl_pos, "`{s}.{s}` meets `{s}` of `{s}`, so `{s}` has no default: a call through the API gives each argument by position", .{ tname, have.name, w.field.name, try sema.apiName(ctx, w.api), pname });
+            break;
+        };
         // A method that meets a `pub` API on a `pub` type is `pub`.
         if (conf.kind == .header and api_sym.flags.is_public and ctx.symbols.items[decl.?.sym].flags.is_public and !have.is_pub) {
             try ctx.err(have.decl_pos, "`{s}.{s}` meets `{s}`, a `pub` API, on `{s}`, a `pub` type, so it is `pub`: write `pub {s}`", .{ tname, have.name, api_name, tname, headerText(ctx.source, have.decl_pos) });

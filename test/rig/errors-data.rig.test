@@ -1368,9 +1368,9 @@ test "a short-form member where `error` or a union goes, and as a default", '''
     print(e)
 
   sub main()
-    any(.bad(at: 1))
+    any(e: .bad(at: 1))
     any()
-    joined(.bad(at: 2))
+    joined(e: .bad(at: 2))
     joined()
     h = Holder()
     print(h.e, h.a, h.u)

@@ -58,10 +58,10 @@ test "text int go", "lines 462386 invalid 56368 overflow 18082 digest 1923786210
     kind = next(!g) % 8
     if kind == 0
       sign(!g, !s)
-      n = 1 + next(!g) % (text.format_int(Int.max, base).len + 3)
+      n = 1 + next(!g) % (text.format_int(Int.max, base: base).len + 3)
       digits(!g, !s, base, n)
     else if kind == 1 or kind == 2
-      t = text.format_int(Int.max if kind == 1 else Int.min, base)
+      t = text.format_int(Int.max if kind == 1 else Int.min, base: base)
       tv = ?t[..]
       pos = kind - 1 + next(!g) % (t.len - kind + 1)
       for i in 0..t.len
@@ -97,7 +97,7 @@ test "text int go", "lines 462386 invalid 56368 overflow 18082 digest 1923786210
       v = -v if next(!g) % 2 == 0 else v
       up = next(!g) % 2 == 0
       !s.push(43) if v >= 0 and next(!g) % 4 == 0
-      !s.add(text.format_int(v, base, upper: up))
+      !s.add(text.format_int(v, base: base, upper: up))
 
   # The digest of the lines Go's program writes: two polynomial hashes of
   # every byte of every line, its newline included, each byte counted as
@@ -124,7 +124,7 @@ test "text int go", "lines 462386 invalid 56368 overflow 18082 digest 1923786210
     for b in s
       !line.push(HEX[Int(b) >> 4])
       !line.push(HEX[Int(b) & 15])
-    v = text.parse_int(s, base) catch |err|
+    v = text.parse_int(s, base: base) catch |err|
       over = err == text.ParseError.overflow
       !line.add(" ", "overflow" if over else "invalid")
       d.overflow += 1 if over else 0
@@ -149,8 +149,8 @@ test "text int go", "lines 462386 invalid 56368 overflow 18082 digest 1923786210
     for _ in 0..70
       !zeros.push(48)
     for base in 2..37
-      max = text.format_int(Int.max, base)
-      min = text.format_int(Int.min, base)
+      max = text.format_int(Int.max, base: base)
+      min = text.format_int(Int.min, base: base)
       edges = [String(max), String(min), String(min[1..]), String("+", min[1..]), String("-", max),
                String(max, "0"), String(min, "0"), String(zeros, max), String("-", zeros, min[1..]),
                String("+", zeros, min[1..]), String(min, "1")]
@@ -184,7 +184,7 @@ test "text int go", "lines 462386 invalid 56368 overflow 18082 digest 1923786210
       for v in values
         for w in [v, -v, -v - 1]
           !line.clear()
-          !line.add(base, " ", text.format_int(w, base), " ", text.format_int(w, base, upper: true))
+          !line.add(base, " ", text.format_int(w, base: base), " ", text.format_int(w, base: base, upper: true))
           take(!d, ?line)
       while values.len > 0 and q > 1
         q /= base

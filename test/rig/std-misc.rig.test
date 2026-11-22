@@ -272,12 +272,12 @@ test "bigint arith", '''
 bomb "bigint bad base panics", "bigint.parse: the base is not 0 or between 2 and 36"
   # A base is 0, for one the text names, or from 2 to 36.
 
-  print((bigint.parse("1", 37) catch bigint.from_int(0)).text())
+  print((bigint.parse("1", base: 37) catch bigint.from_int(0)).text())
 
 bomb "bigint base one panics", "bigint.parse: the base is not 0 or between 2 and 36"
   # A base of 1 reads nothing, so it is a misuse too.
 
-  print((bigint.parse("0", 1) catch bigint.from_int(0)).text())
+  print((bigint.parse("0", base: 1) catch bigint.from_int(0)).text())
 
 fail "std old names", "no member `new_doc` in module `json`; an empty Doc is `json.Doc()`, and `json.parse(?src)!` parses into a new one", "no method `parse` on type `Doc`; `json.parse(?src)!` makes a Doc, and `(!doc).load(?src)!` fills one again", "no method `size` on type `Doc`; the number of tape entries is the field `doc.len`", "no method `get_int` on type `Doc`; write `doc.int(i)`", "no method `get_str` on type `Doc`; write `doc.string(i)`", "no method `get_bool` on type `Doc`; write `doc.bool(i)`", "no method `get_float` on type `Doc`; write `doc.float(i)`", "no field `error` on type `Doc`; `json.parse` and `load` fail with a `JsonError` that carries the offset", "no field `error_pos` on type `Doc`", "no member `error_name` in module `json`; a `JsonError` names its reason and offset", "no member `compare` in module `text`; order two texts with `a.order(?b)`", "no member `powf` in module `math`; `math.pow` takes floats too", "no method `compare` on type `BigInt`; compare with `<` and its kin, or write `a.order(?b)`", "no method `equals` on type `BigInt`; a BigInt compares with `==`", "no method `to_f64` on type `BigInt`; write `a.to_float()`", "no variant `bad` on enum `json.JsonError`; each reason is a member of its own with its offset", errors: 17
   # Each name the standard library gave up for 0.3.0 is rejected with the
@@ -431,7 +431,7 @@ test "bigint parse", '''
   # number in base 10, or the error.
 
   sub show(s: ?String, base: Int)
-    n = bigint.parse(s, base) catch |e|
+    n = bigint.parse(s, base: base) catch |e|
       print(String("\"", s, "\""), base, e)
       return
     print(String("\"", s, "\""), base, n.text())
@@ -2848,7 +2848,7 @@ test "unicode space", release: true, '''
   r = -1
   while r <= 0x110000 : r += 1
     if unicode.is_space(r)
-      !found.add(",", text.format_int(r, 16))
+      !found.add(",", text.format_int(r, base: 16))
       n += 1
   print(n)
   print(found)

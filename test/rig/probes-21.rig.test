@@ -1731,7 +1731,7 @@ test "review-errors-a1", '''
   v = List[Disk]()
   !v.push(.full)
   !v.push(Disk.timeout)
-  print(v, dflt(), dflt(.full))
+  print(v, dflt(), dflt(e: .full))
   print(r.e == .full, r.e != Disk.timeout)
   <v
 
@@ -1968,7 +1968,7 @@ test "review-errors-m2", '''
 
   sub main()
     r = lib.Rec()
-    print(r, lib.dflt(), lib.dflt(.full), lib.dflt(lib.Disk.full))
+    print(r, lib.dflt(), lib.dflt(e: .full), lib.dflt(e: lib.Disk.full))
     print(lib.opt(0), r.e == .full, r.e == lib.Disk.full)
     x = lib.fail(1) catch 5
     print(x)

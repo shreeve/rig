@@ -12319,11 +12319,11 @@ pub fn durationParam(ctx: *const SemContext, ty: TypeId) ?TypeId {
 }
 
 /// A std method whose arguments are checked beyond their types where it
-/// is called (docs/design/datetime.md §10.2), so it is never taken as a value.
+/// is called (docs/design/datetime.md §10.2).
 pub const ArgCheck = enum {
     /// `round` and `floor` of `time.Duration`: exactly one unit's keyword
-    /// and its increment, no positional argument, and an increment from 1
-    /// to 1,000,000,000 when it is a literal.
+    /// and its increment, and an increment from 1 to 1,000,000,000 when it
+    /// is a literal.
     unit_increment,
     /// `round` and `floor` of `datetime.Time`: as `unit_increment`, with
     /// an increment that divides the next larger unit and is smaller
@@ -12332,17 +12332,9 @@ pub const ArgCheck = enum {
     /// `round` and `floor` of `datetime.DateTime`: as `clock_increment`,
     /// and also `days: 1`.
     day_increment,
-    /// `add` and `checked_add` of `datetime.Date`: the calendar amounts
-    /// by name, no positional argument, and no unit of a duration, since
-    /// a date has no time of day.
+    /// `add` and `checked_add` of `datetime.Date`: no duration, by
+    /// position or by a unit's keyword, since a date has no time of day.
     calendar_add,
-    /// `add` and `checked_add` of `datetime.DateTime`: at most one
-    /// positional argument, the duration, so `add(1, 2)` is not a second
-    /// and two years.
-    duration_add,
-    /// `with` of `datetime.Date`, `Time`, and `DateTime`: the fields by
-    /// name, no positional argument.
-    by_name,
     /// `round` and `floor` of `datetime.Instant`: as `unit_increment`,
     /// with an increment that divides a day.
     instant_increment,
@@ -12358,9 +12350,7 @@ pub fn stdArgCheck(home: *const SemContext, owner: []const u8, method: []const u
         return if (eq(u8, owner, "Duration") and rounds) .unit_increment else null;
     }
     if (!eq(u8, home.name, "std.datetime")) return null;
-    if (eq(u8, method, "with") and (eq(u8, owner, "Date") or eq(u8, owner, "Time") or eq(u8, owner, "DateTime"))) return .by_name;
     if (eq(u8, owner, "Date") and adds) return .calendar_add;
-    if (eq(u8, owner, "DateTime") and adds) return .duration_add;
     if (eq(u8, owner, "Time") and rounds) return .clock_increment;
     if (eq(u8, owner, "DateTime") and rounds) return .day_increment;
     if (eq(u8, owner, "Instant") and rounds) return .instant_increment;
@@ -17843,8 +17833,11 @@ test "facts: keyword and omitted arguments record their slots" {
         \\  n * by + plus
         \\
         \\sub main()
-        \\  print(scaled(1, 2, 3))
+        \\  print(plain(1, 2))
         \\  print(scaled(plus: 5, n: 4))
+        \\
+        \\fun plain(n: Int, by: Int) -> Int
+        \\  n * by
         \\
     );
     defer r.deinit();

@@ -1430,9 +1430,12 @@ fn originOf(c: *const SemContext, sym: sema.SymbolId) sema.ForeignRef {
     return if (sema.isProxy(s)) s.from else .{ .module_id = c.module_id, .sym = sym };
 }
 
-/// The forms in `e`, each node of the tree once.
+/// The forms in `e`, each node of the tree once. A keyword argument
+/// counts as its value: its name emits nothing, so `f(1, by: 2)` is as
+/// large as `f(1, 2)`, and naming an option never changes a decision.
 pub fn size(e: Sexp) u32 {
     if (e != .list) return 0;
+    if (e.isKind(.kwarg)) return size(ir.Kwarg.value(e));
     var n: u32 = if (e.kind() != null) 1 else 0;
     for (e.items()) |c| n += size(c);
     return n;
@@ -1557,4 +1560,19 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
         } else true;
         if (fits) try mods[site.module].sema.dense_calls.put(allocator, site.id, most);
     }
+}
+
+test "size: a keyword argument counts as its value" {
+    const sources = [_][]const u8{
+        "fun f(a: Int, by: Int = 1) -> Int\n  a * by\n\nsub main()\n  print(f(1, 2 + 3))\n",
+        "fun f(a: Int, by: Int = 1) -> Int\n  a * by\n\nsub main()\n  print(f(1, by: 2 + 3))\n",
+    };
+    var sizes: [2]u32 = undefined;
+    for (sources, &sizes) |src, *n| {
+        var p = parser.Parser.init(std.testing.allocator, src);
+        defer p.deinit();
+        const tree = try p.parseProgram();
+        n.* = size(tree);
+    }
+    try std.testing.expectEqual(sizes[0], sizes[1]);
 }

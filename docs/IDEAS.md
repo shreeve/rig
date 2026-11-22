@@ -131,6 +131,9 @@ The concurrency plan the owner approved from that review is on the ROADMAP, unde
 
 ## Compiler, runtime, and tooling
 
+- **One copy of the datetime makers' check.** The constant-argument rule's check of `Date.new`, `Time.new`, and `DateTime.new` lives twice, in std and in `sema.makerFault`. Once compile-time evaluation can run a std maker that returns an object or fails, the compiler's copy can go.
+  - Source: the named-options rule's build, 2026-11.
+  - Needs: compile-time evaluation of a function that returns an object or fails.
 - **A function that must have no bounds checks.** A mark on a function makes any check left in its body, after `src/proofs.zig`, a compile error that names the check, so a hot loop in Trig, std.json, or the tables cannot regain a check after an unrelated change.
   - Source: the Goose review (`checkfree fn`).
   - Needs: a name from the owner; no CORE change.

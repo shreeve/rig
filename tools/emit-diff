@@ -10,8 +10,10 @@ $TRIG, default ~/Data/Code/trig, which is only read; skipped when absent).
 The sources are this checkout's for both compilers, and neither reads
 RIG_STD. Prints `identical`, or each file that differs with its lines
 added and removed (a runtime file once, for every program that carries
-it) and the directory holding both emits. Exits 0 when identical, 1 when
-not, 2 on a usage error or a failed baseline build.
+it) and the directory holding both emits; a program whose emit fails on
+both sides is named as not compared. Exits 0 when identical, 1 when not
+or when a program was not compared, 2 on a usage error or a failed
+baseline build.
 """
 
 import argparse
@@ -43,7 +45,8 @@ def programs(work, base_sha):
     here = {n[:-4] for n in os.listdir(os.path.join(ROOT, "std")) if n.endswith(".rig")}
     listed = subprocess.run(["git", "-C", ROOT, "ls-tree", "--name-only", base_sha, "std/"], capture_output=True, text=True, check=True).stdout
     there = {os.path.basename(p)[:-4] for p in listed.split() if p.endswith(".rig")}
-    mods = sorted(m for m in here & there if not m.startswith("__"))
+    # The prelude is built in, never `use`d.
+    mods = sorted(m for m in here & there if not m.startswith("__") and m != "prelude")
     std_dir = os.path.join(work, "std")
     os.makedirs(std_dir)
     with open(os.path.join(std_dir, "all.rig"), "w") as f:
@@ -124,11 +127,18 @@ def main():
             status[(side, label)] = (code, err)
 
     differ = []  # (shown path, added, removed)
+    uncompared = []  # programs whose emit fails on both sides
     programs_differ = set()
     runtime = {}  # runtime path -> {(base hash, cur hash): [labels]}
     total = 0
     for label, _, _ in progs:
         (bc, be), (cc, ce) = status[("base", label)], status[("cur", label)]
+        if bc and cc and (bc, be) == (cc, ce):
+            # Refused alike on both sides: nothing is compared, which is
+            # no evidence that the emits agree.
+            first = next((l for l in be.splitlines() if "error" in l), be.strip()[:200])
+            uncompared.append("%s: emit fails with both: %s" % (label, first))
+            continue
         if bc or cc:
             if (bc, be) != (cc, ce):
                 programs_differ.add(label)
@@ -158,6 +168,13 @@ def main():
             differ.append(("%s (in %d programs)" % (rel, len(labels)), added, removed))
 
     names = "rig at %s and %s" % (sha[:12], os.path.relpath(a.rig, os.getcwd()) if a.rig.startswith(ROOT) else a.rig)
+    for line in uncompared:
+        print("emit-diff: not compared, %s" % line)
+    if not differ and uncompared:
+        print("emit-diff: identical where compared: %d of %d programs, %d files, %s" % (len(progs) - len(uncompared), len(progs), total, names))
+        if not a.keep:
+            shutil.rmtree(work, ignore_errors=True)
+        return 1
     if not differ:
         print("emit-diff: identical: %d programs, %d files, %s" % (len(progs), total, names))
         if a.keep:

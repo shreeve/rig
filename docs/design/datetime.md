@@ -142,8 +142,8 @@ Rig is an indentation-sensitive language that compiles to Zig 0.17.0.
   - A type has no constants, and a module constant cannot be an object. So it is
     `TimeZone.utc()`, and a program's own constant holds a number (`TIMEOUT_S = 30`).
   - A method is always called with parentheses: `d.year()`.
-  - There are no keyword-only parameters: a positional argument binds to the first
-    parameter.
+  - A parameter with a default is an option, given by name (SPEC "Functions"), so a
+    positional argument never reaches one.
   - Two modules may not import each other, and a method is declared in the module that
     declares its type.
   - `when` is a reserved word. `in`, `with`, `add`, `sub`, `round` and `format` may all
@@ -381,9 +381,11 @@ whole seconds are within ±(2^63 − 1), never `Int.min`, and the nanoseconds wi
 Wherever a parameter is typed `Duration`, a call gives it in one of these forms.
 
 - **[Owner]** A bare number is **seconds**, an `Int` or a `Float`: `sleep(90)`,
-  `z.add(0.5)`. This holds on `add` for `DateTime`, `ZonedDateTime` and `Time` too, so
-  `dt.add(1)` is one second, not a day; the owner considered requiring a unit there and
-  kept bare seconds. The docs for those `add`s show `add(days: 1)` beside it.
+  `z.add(duration: 0.5)`. This holds on `add` for `DateTime`, `ZonedDateTime` and `Time`
+  too, so `dt.add(duration: 1)` is one second, not a day; the owner considered requiring
+  a unit there and kept bare seconds. On a `DateTime` the duration is an option, given
+  by name or by a unit, `z.add(seconds: 0.5)`, so `dt.add(1)` is refused, and the docs
+  for those `add`s show `add(days: 1)` beside it.
 - A unit keyword: `ns:`, `us:`, `ms:`, `seconds:`, `minutes:`, `hours:`.
 - **[Owner]** Several unit keywords add up, each unit at most once:
   `add(hours: 1, minutes: 30)`. Built as its own change after the rest (section 11,
@@ -599,10 +601,11 @@ counts.
 
 - **The signatures** **[Owner, 2026-11-22]** (each but `Time`'s returns `!`):
   - `Date`: `add(years: 0, months: 0, weeks: 0, days: 0) -> Date!`, by keyword only.
-  - `DateTime` and `ZonedDateTime`: `add(d: Duration? = none, years: 0, months: 0,
-    weeks: 0, days: 0)`, returning `DateTime!` and `ZonedDateTime!`. The duration form
-    comes first, so `z.add(0.5)!` is half a second, `z.add(hours: 2)!` is two hours,
-    and `z.add(days: 1, hours: 2)!` is both.
+  - `DateTime` and `ZonedDateTime`: `add(duration: Duration? = none, years: 0,
+    months: 0, weeks: 0, days: 0)`, returning `DateTime!` and `ZonedDateTime!`. Each is
+    an option, given by name, so `z.add(seconds: 0.5)!` or `z.add(duration: 0.5)!` is
+    half a second, `z.add(hours: 2)!` is two hours, and `z.add(days: 1, hours: 2)!` is
+    both.
   - `Instant` and `Monotonic`: `add(d: Duration)`, returning `Instant!` and
     `Monotonic!`.
   - `Time`: `add(d: Duration) -> Time`, total: it wraps (below).
@@ -630,7 +633,7 @@ counts.
   `d.add(years: n)!` fails for an `n` whose months overflow an `Int`, and never panics.
   A duration form with a run-time number fails inside the same `!` (5.2).
 - **On a `Date`:**
-  - `d.add(1)` is a compile error with the fix `add(days: 1)` (10.2).
+  - `d.add(1)` is a compile error: each amount is an option, given by name.
   - `d.add(hours: 1)` is a compile error that says a date has no time of day. (Jiff
     accepts it and adds the whole days.)
 - **On a `DateTime`:** every day is 24 hours, since there is no zone.
@@ -801,7 +804,7 @@ days = d1.days_since(d0.add(months: m)!)
   - `Date`: `year:`, `month:`, `day:`;
   - `Time`: `hour:`, `minute:`, `second:`, `ns:`;
   - `DateTime` and `ZonedDateTime`: all of those.
-  - A positional argument is a compile error (10.2).
+  - A positional argument is a compile error: each field is an option, given by name.
 - **The start of a date `d` in a zone** is 00:00 on `d`, turned into an instant by
   "compatible". That is the first instant of the day, which is not always 00:00. In São
   Paulo on 2015-10-18 it is 01:00. In the Azores on 2026-10-25, when 00:00 to 00:59
@@ -968,7 +971,8 @@ panics**, on any value.
     `datetime.local`, `try_format`, `Duration.from_parts`, `Monotonic.at`, and
     `Instant.from_unix_s`, `from_unix_ms`, `from_unix_us`, `from_unix_float`;
     - `Date.new(year, month, day)`.
-    - `Time.new(hour, minute, second = 0, ns = 0)`.
+    - `Time.new(hour, minute, second, ns = 0)`, so `Time.new(8, 7, 3, ns: 500)` says
+      nanoseconds.
     - `DateTime.new(year, month, day, hour = 0, minute = 0, second = 0, ns = 0)`.
     - `Time.new(23, 59, 60)` fails; only parsing reads `:60` as `:59`.
   - **arithmetic that can leave the range:** `add` on `Date`; `add`, `round` and
@@ -1507,8 +1511,10 @@ type's tests of it land with the type.
 - **Removed names** get a fix through the existing hint table (`sema.zig:6471`), which
   can name two replacements: `time.now`, `time.unix_ns`, `time.Instant`, and the five
   constants.
-- A keyword-only parameter in the language would replace the positional checks. It is
-  a separate proposal, outside this work.
+- The rule that a parameter with a default is an option, given by name
+  ([options.md](options.md)), replaced the positional checks and the refusal of a
+  checked method as a value: a function with options is not a value. The increment
+  checks of `round` and `floor` remain, since they check values.
 
 ## 10.3 std
 

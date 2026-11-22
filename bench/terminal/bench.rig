@@ -23,7 +23,7 @@ sub main()!
   ns = 0
   check = U64(0)
   for i in 0..n
-    t = terminal.Terminal.new(cols, rows, scrollback)
+    t = terminal.Terminal.new(cols, rows, scrollback: scrollback)
     start = time.monotonic()
     !t.feed(data)
     ns += start.elapsed().ns()

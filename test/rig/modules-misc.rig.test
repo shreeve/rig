@@ -661,7 +661,7 @@ test "default constants", '''
     !c.tags.push("x")
     d = lib.Config(size: 1)
     print(c.size, c.label, c.rate, c.tags.len, d.size, d.tags.len)
-    print(pad("ab"), pad("ab", 1), pad("ab", fill: 0), lib.scaled(2), lib.scaled(2, 1), lib.scaled(1, rate: 1.0))
+    print(pad("ab"), pad("ab", width: 1), pad("ab", fill: 0), lib.scaled(2), lib.scaled(2, by: 1), lib.scaled(1, rate: 1.0))
 
   file "lib.rig"
     pub LIMIT = 8
@@ -1199,7 +1199,7 @@ test "error sets per module", '''
     c = parse.parse(2) catch |e|
       print(e, e == io.IoError.eof, e == parse.ParseError.eof)
       0
-    print(a + b + c, io.kind(), io.kind(io.IoError.eof))
+    print(a + b + c, io.kind(), io.kind(e: io.IoError.eof))
 
   file "io.rig"
     pub error IoError

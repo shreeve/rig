@@ -14,7 +14,7 @@ pub obj DateTime: Eq + Ord + Hash + Print
   # `DateTimeError.range` when they are not a real date and time, as
   # `Date.new` and `Time.new`.
   pub fun new(year: Int, month: Int, day: Int, hour: Int = 0, minute: Int = 0, second: Int = 0, ns: Int = 0) -> DateTime!
-    DateTime(on: Date.new(year, month, day)!, at: Time.new(hour, minute, second, ns)!)
+    DateTime(on: Date.new(year, month, day)!, at: Time.new(hour, minute, second, ns: ns)!)
 
   # The date and time `s` writes in ISO 8601, a date and a time joined
   # by `T` or a space, `2026-11-17T08:07:03.5`, or a date alone, which
@@ -75,20 +75,20 @@ pub obj DateTime: Eq + Ord + Hash + Print
   pub fun nanosecond(?@) -> Int
     Int(@at.ns)
 
-  # The date and time a duration and the calendar amounts later: the
-  # duration in a duration form first, `dt.add(0.5)` (half a second),
-  # `dt.add(hours: 2)`; the calendar amounts by name, `dt.add(days: 1)`,
-  # and both, `dt.add(days: 1, hours: 2)`. A bare number is seconds,
-  # never days. Years and months come first, together as months, with a
+  # The date and time a duration and the calendar amounts later, each
+  # given by name: the duration by units, `dt.add(hours: 2)`, or by its
+  # name in a duration form, `dt.add(duration: 0.5)` (half a second); the
+  # calendar amounts, `dt.add(days: 1)`; and both, `dt.add(days: 1,
+  # hours: 2)`. A bare number is seconds, never days. Years and months come first, together as months, with a
   # day past the month's end becoming its last day; then weeks and
   # days; then the duration, every day 24 hours. Each is of either sign.
   # Panics when a step leaves the range; `checked_add` fails instead.
-  pub fun add(?@, d: time.Duration? = none, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> DateTime
-    datetime_add(@, d, total_months(years, months), total_days(weeks, days)) ?? panic("datetime.DateTime.add:", @, "plus", d ?? time.duration(0), `and years: {years}, months: {months}, weeks: {weeks}, days: {days} is beyond the range, -9999-01-01 to 9999-12-31`)
+  pub fun add(?@, duration: time.Duration? = none, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> DateTime
+    datetime_add(@, duration, total_months(years, months), total_days(weeks, days)) ?? panic("datetime.DateTime.add:", @, "plus", duration ?? time.duration(0), `and years: {years}, months: {months}, weeks: {weeks}, days: {days} is beyond the range, -9999-01-01 to 9999-12-31`)
 
   # `add`, failing with `DateTimeError.range` where it would panic.
-  pub fun checked_add(?@, d: time.Duration? = none, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> DateTime!
-    datetime_add(@, d, total_months(years, months), total_days(weeks, days)) ?? return DateTimeError.range
+  pub fun checked_add(?@, duration: time.Duration? = none, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> DateTime!
+    datetime_add(@, duration, total_months(years, months), total_days(weeks, days)) ?? return DateTimeError.range
 
   # The date and time with the fields given by name replaced:
   # `dt.with(hour: 0, minute: 0, second: 0, ns: 0)`. Fails with

@@ -2066,7 +2066,7 @@ test "audit-fuzz-pf2-accepted-f9f37a33c7", '''
 bomb "audit-fuzz-pf2-accepted-fc50cbcf57", "index out of bounds"
   K1 = 2
 
-  fun sc1(n: Int, by: Int = K1, off: Int = (-1), _: Bool = false) -> Int
+  fun sc1(n: Int, by: Int = K1, off: Int = (-1), flag: Bool = false) -> Int
     n * by + off
 
   obj Acct2

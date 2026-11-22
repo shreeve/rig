@@ -931,5 +931,5 @@ fail "hash no module", "3:1: the standard library has no module `hash`"
 
 bomb "hash reserve past the entry limit", "a Map holds at most 4294967295 entries"
   # The limit is tested before the index is built: no memory is touched.
-  m = Map[Int, Int].new(5000000000)
+  m = Map[Int, Int].new(capacity: 5000000000)
   print(m.len)
