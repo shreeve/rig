@@ -28,12 +28,18 @@
 # `TZ` or a system zone it cannot read, or one newer than the data,
 # whose version `tzdb_version()` gives): `unknown_zone`. No system zone
 # to be found (`local()`): `no_system_zone`; setting `TZ` to a zone's
-# name, `TZ=America/Denver`, gives one.
+# name, `TZ=America/Denver`, gives one. A time on the clock that the zone
+# skips or repeats, under `resolve: .reject` (`dt.in_zone`, `with`,
+# `ZonedDateTime.parse`): `skipped_or_repeated`. Text whose offset the
+# zone does not give that time on the clock, under `conflict: .reject`
+# (`ZonedDateTime.parse`): `offset_conflict`.
 pub error DateTimeError
   invalid
   range
   unknown_zone
   no_system_zone
+  skipped_or_repeated
+  offset_conflict
 
 # The ends of the range of years, and their days counted from
 # 1970-01-01: -9999-01-01 and 9999-12-31.

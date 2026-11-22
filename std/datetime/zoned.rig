@@ -1,0 +1,487 @@
+# std.datetime: an instant in a time zone, and how a time on the clock
+# becomes an instant (DATETIME-DESIGN §6.3 to §6.8, §8.1 to §8.3). Ported
+# from Jiff 1.0.0's `zoned.rs`, `tz/ambiguous.rs`, `tz/offset.rs`
+# (`OffsetConflict`), and `fmt/temporal`; each routine ported names the
+# part of Jiff it follows.
+#
+# Copyright (c) 2023 Andrew Gallant, for the parts ported from Jiff,
+# under the MIT license.
+
+use std.time
+
+# How a time on the clock that a zone skips or repeats becomes an
+# instant, where a date and a time of day become one: `.compatible`,
+# the default, takes a skipped time forward by the length of the gap
+# (02:30 becomes 03:30) and a repeated time's first; `.earlier` and
+# `.later` take a repeated time's first and second, and a skipped time
+# as the gap's length before it and after it; `.reject` fails with
+# `DateTimeError.skipped_or_repeated` for either.
+pub enum Resolve: Eq
+  compatible
+  earlier
+  later
+  reject
+
+# What `ZonedDateTime.parse` does with text whose offset no longer fits
+# its zone, as a string stored before the zone's rules changed:
+# `.reject`, the default, fails with `DateTimeError.offset_conflict`;
+# `.keep_instant` keeps the instant the offset gives, shown in the zone;
+# `.keep_clock` keeps the time on the clock, at the zone's offset.
+pub enum Conflict: Eq
+  reject
+  keep_instant
+  keep_clock
+
+# An instant in a time zone: the instant, the zone, and the zone's offset
+# at that instant, which give its date and time of day on the zone's
+# clock. It is plain data, 24 bytes. `==`, `<`, and `Hash` take the
+# instant alone: noon in New York and 18:00 in Paris of one instant are
+# equal, and one key in a `Map`; `a.zone() == b.zone()` compares the
+# zones. `print` writes RFC 9557, the offset rounded to the minute and
+# the zone's name in brackets:
+# `2026-11-17T08:07:03.512094-07:00[America/Denver]`.
+pub obj ZonedDateTime: Eq + Ord + Hash + Print
+  at: Instant
+  tz: TimeZone
+  # The zone's offset at the instant, in seconds east of UTC.
+  off: I32
+
+  # The instant and zone `text` writes in RFC 9557: a date, a time of day
+  # (midnight when there is none), an offset, and a zone in brackets,
+  # a name or an offset: `2026-11-17T08:07:03-07:00[America/Denver]`,
+  # `2026-11-17T08:07:03[America/Denver]`, `…-07:00[-07:00]`. Text with
+  # no offset is placed in the zone as `resolve` says; text ending in
+  # `Z` is that instant shown in the zone; an offset the zone does not
+  # give that time on the clock, as in text stored before the zone's
+  # rules changed, is as `conflict` says. An offset with seconds is
+  # rounded to the minute in such text, and that rounded offset agrees
+  # with the zone's. Without a zone in brackets the text is placed in
+  # `default_zone`, its offset agreeing with it, and is refused without
+  # one. Fails with `DateTimeError.invalid` for other text and an instant
+  # beyond the range, `unknown_zone` for a name the data does not hold,
+  # `skipped_or_repeated` under `resolve: .reject`, and `offset_conflict`
+  # under `conflict: .reject`.
+  pub fun parse(text: ?String, default_zone: TimeZone? = none, resolve: Resolve = .compatible, conflict: Conflict = .reject) -> ZonedDateTime!
+    i, d = date_text(text, 0)!
+    t = clock(0, 0, 0, 0)
+    # Where the offset is written, and the seconds east of UTC it gives.
+    off_at = -1
+    given = 0
+    if i < text.len and (text[i] == 'T' or text[i] == 't' or text[i] == ' ')
+      i, t, _ = time_text(text, i + 1)!
+      if i < text.len and text[i] != '['
+        off_at = i
+        i, given = offset_text(text, i, true)!
+    zone_end = zone_annotation(text, i)!
+    k = zone_end
+    while k < text.len and text[k] == '['
+      k = key_annotation(text, k)!
+    if k != text.len
+      return DateTimeError.invalid
+    tz = TimeZone.utc()
+    if zone_end > i
+      tz = bracket_zone(text[i + 1..zone_end - 1])!
+    else
+      tz = default_zone ?? return DateTimeError.invalid
+    dt = DateTime(on: d, at: t)
+    if off_at < 0
+      return resolved(dt, tz, resolve, text: true)!
+    if text[off_at] == 'Z' or text[off_at] == 'z'
+      return zoned_at(dt, 0, tz) ?? return DateTimeError.invalid
+    seconds = digit_count(text[off_at + 1..i]) > 4
+    if conflict == .keep_instant
+      return zoned_at(dt, given, tz) ?? return DateTimeError.invalid
+    if conflict == .keep_clock
+      return resolved(dt, tz, resolve, text: true)!
+    agreeing(dt, given, seconds, tz)!
+
+  # The instant.
+  pub fun instant(?@) -> Instant
+    @at
+
+  # The date and time of day on the zone's clock, and each alone.
+  pub fun datetime(?@) -> DateTime
+    @on_clock()
+
+  pub fun date(?@) -> Date
+    @on_clock().on
+
+  pub fun time(?@) -> Time
+    @on_clock().at
+
+  # The zone.
+  pub fun zone(?@) -> TimeZone
+    @tz
+
+  # The zone's offset from UTC at the instant, east positive: `-7h` in
+  # Denver's winter, and a historic offset's seconds exactly.
+  pub fun offset(?@) -> time.Duration
+    time.Duration(s: Int(@off), nano: 0)
+
+  # The offset as text, `-07:00`, with its seconds when it has them,
+  # `-00:44:30` (Monrovia before 1972), and `+00:00` for UTC.
+  pub fun offset_text(?@) -> String
+    out = String()
+    o = Int(@off)
+    a = -o if o < 0 else o
+    h = a / 3600
+    m = a / 60 % 60
+    !out.add("-" if o < 0 else "+")
+    !out.add(`{h / 10}{h % 10}:{m / 10}{m % 10}`)
+    if a % 60 != 0
+      !out.add(`:{a % 60 / 10}{a % 10}`)
+    out
+
+  # The readers of the date and of the time of day on the zone's clock.
+  pub fun year(?@) -> Int
+    Int(@on_clock().on.y)
+
+  pub fun month(?@) -> Int
+    Int(@on_clock().on.m)
+
+  pub fun day(?@) -> Int
+    Int(@on_clock().on.d)
+
+  pub fun weekday(?@) -> Weekday
+    @on_clock().on.weekday()
+
+  pub fun day_of_year(?@) -> Int
+    @on_clock().on.day_of_year()
+
+  pub fun days_in_month(?@) -> Int
+    @on_clock().on.days_in_month()
+
+  pub fun iso_week(?@) -> Int
+    @on_clock().on.iso_week()
+
+  pub fun iso_week_year(?@) -> Int
+    @on_clock().on.iso_week_year()
+
+  pub fun hour(?@) -> Int
+    Int(@on_clock().at.h)
+
+  pub fun minute(?@) -> Int
+    Int(@on_clock().at.m)
+
+  pub fun second(?@) -> Int
+    Int(@on_clock().at.s)
+
+  pub fun nanosecond(?@) -> Int
+    Int(@at.ns)
+
+  # The same instant shown in `tz`.
+  pub fun in_zone(?@, tz: TimeZone) -> ZonedDateTime
+    zoned_of(@at, tz)
+
+  # The instant a duration and the calendar amounts later, each given by
+  # name: `z.add(days: 1)!` is the same time on the clock tomorrow, or
+  # just after it where it is skipped, and `z.add(hours: 24)!` exactly 24
+  # hours later; `z.add(days: 1, hours: 2)!` is both. Years and months
+  # come first, together as months, with a day past the month's end
+  # becoming its last day, then weeks and days, all on the clock; that
+  # time on the clock becomes an instant as `Resolve.compatible` says;
+  # then the duration is added on the timeline. Each is of either sign.
+  # When the months and the days each come to zero the instant is kept
+  # as it is, so `z.add(days: 0)!` on a repeated time stays on it. Fails
+  # with `DateTimeError.range` when a step leaves the range.
+  pub fun add(?@, duration: time.Duration? = none, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> ZonedDateTime!
+    m = total_months(years, months)
+    n = total_days(weeks, days)
+    i = @at
+    if m != 0 or n != 0
+      dt = datetime_add(@on_clock(), none, m, n) ?? return DateTimeError.range
+      z = resolved(dt, @tz, .compatible) catch return DateTimeError.range
+      i = z.at
+    if duration as d
+      i = i.add(d) catch return DateTimeError.range
+    zoned_of(i, @tz)
+
+  # The date and time on the clock with the fields given by name
+  # replaced, in the same zone: `z.with(hour: 0, minute: 0)!`. Where the
+  # new time on the clock is repeated, the value's own offset is kept
+  # when it is one of the two: the second 01:30 in Denver on 2026-11-01
+  # (-07:00), with the minute set to 45, is 01:45-07:00. Otherwise a
+  # skipped or repeated time is as `resolve` says. Fails with
+  # `DateTimeError.range` when that is not a real date and time or lies
+  # beyond the range, and with `skipped_or_repeated` under
+  # `resolve: .reject`.
+  pub fun with(?@, year: Int? = none, month: Int? = none, day: Int? = none, hour: Int? = none, minute: Int? = none, second: Int? = none, ns: Int? = none, resolve: Resolve = .compatible) -> ZonedDateTime!
+    dt = @on_clock().with(year: year, month: month, day: day, hour: hour, minute: minute, second: second, ns: ns)!
+    keeping(dt, Int(@off), @tz, resolve)!
+
+  # The first instant of the value's date in its zone: 00:00 on that date,
+  # or the first time after it where 00:00 is skipped (01:00 in São Paulo
+  # on 2015-10-18); where 00:00 is repeated, the first 00:00. Fails with
+  # `DateTimeError.range` when that is before the first instant, on the
+  # first date of the range.
+  pub fun start_of_day(?@) -> ZonedDateTime!
+    day_start(@on_clock().on, @tz) ?? return DateTimeError.range
+
+  # The nearest multiple of one unit's increment on the zone's clock, a
+  # half going to the later: `z.round(minutes: 15)!`. A call names
+  # exactly one unit, from `ns:` to `hours:`, with an increment that
+  # divides the next larger unit and is smaller than it, or `days: 1`,
+  # checked where it is called when it is a constant. Below a day, the
+  # value's own offset is kept where the rounded time is repeated, and a
+  # skipped one moves past the gap; so the first 01:50 in Denver on
+  # 2026-11-01 rounded to 30 minutes is 02:00-07:00, 70 minutes later.
+  # To `days: 1` the multiples are the starts of days: the latest start
+  # at or before the value, or the next day's start, by the day's real
+  # length. Fails with `DateTimeError.invalid` for another increment and
+  # `DateTimeError.range` for a result beyond the range.
+  pub fun round(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none, days: Int? = none) -> ZonedDateTime!
+    zoned_multiple(@, clock_increment([ns, us, ms, seconds, minutes, hours], days)!, false)!
+
+  # The multiple of one unit's increment at or before the value on the
+  # zone's clock: `z.floor(hours: 1)!`; where that time is skipped, the
+  # time past the gap, which can be later than the value (Lord Howe's
+  # 02:35 on 2026-10-04 floored to 20 minutes is 02:50). `floor(days: 1)`
+  # is the latest start of a day at or before the value. Its argument and
+  # its failures are `round`'s.
+  pub fun floor(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none, days: Int? = none) -> ZonedDateTime!
+    zoned_multiple(@, clock_increment([ns, us, ms, seconds, minutes, hours], days)!, true)!
+
+  # The time from `other` to this instant, negative when `other` is the
+  # later; exact for any two, in any two zones.
+  pub fun since(?@, other: ZonedDateTime) -> time.Duration
+    @at.since(other.at)
+
+  # The whole days, weeks, months, and years from `other`, positive when
+  # this is the later, and `a.days_since(b)` is `-b.days_since(a)`. A
+  # count walks forward on the calendar of the earlier of the two, the
+  # later shown in its zone: the days are the most `earlier.add(days:
+  # n)` reaches without passing the later, so 24 hours 10 minutes across
+  # a repeated hour is 0 days; months and years are counted as for two
+  # dates, from the earlier's date to that date and the whole days.
+  pub fun days_since(?@, other: ZonedDateTime) -> Int
+    if @ < other
+      return -zoned_days(@, other)
+    zoned_days(other, @)
+
+  pub fun weeks_since(?@, other: ZonedDateTime) -> Int
+    @days_since(other) / 7
+
+  pub fun months_since(?@, other: ZonedDateTime) -> Int
+    if @ < other
+      return -zoned_months(@, other)
+    zoned_months(other, @)
+
+  pub fun years_since(?@, other: ZonedDateTime) -> Int
+    @months_since(other) / 12
+
+  sub print(?@, out: !Printer)
+    dt = @on_clock()
+    print_date(!out, dt.on)
+    !out.text("T")
+    print_time(!out, dt.at)
+    m = rounded_minutes(Int(@off))
+    !out.text("-" if @off < 0 else "+")
+    a = -m if m < 0 else m
+    pad(!out, a / 60, 2)
+    !out.text(":")
+    pad(!out, a % 60, 2)
+    !out.text("[")
+    !out.value(@tz)
+    !out.text("]")
+
+  # By the instant alone.
+  fun eq(?@, other: ?ZonedDateTime) -> Bool
+    @at == other.at
+
+  fun order(?@, other: ?ZonedDateTime) -> Order
+    @at.order(?other.at)
+
+  sub hash_into(?@, h: !Hasher)
+    !h.add(@at)
+
+  # The date and time of day on the zone's clock.
+  fun on_clock(?@) -> DateTime
+    secs = @at.s + Int(@off)
+    DateTime(on: date_of(floor_div(secs, DAY_S)), at: time_at(floor_mod(secs, DAY_S) * SECOND_NS + Int(@at.ns)))
+
+# The date in `tz` now: `now().in_zone(tz).date()`.
+pub fun today(tz: TimeZone) -> Date
+  now().in_zone(tz).date()
+
+# ---- from a time on the clock to an instant -------------------------------
+
+# `i` in `tz`, with the zone's offset there.
+fun zoned_of(i: Instant, tz: TimeZone) -> ZonedDateTime
+  ZonedDateTime(at: i, tz: tz, off: I32(offset_seconds(tz, i)))
+
+# The zone's offset at `i`, in seconds east of UTC.
+fun offset_seconds(tz: TimeZone, i: Instant) -> Int
+  if tz.id == FIXED_ID
+    return Int(tz.mins) * 60
+  zone_offset(Int(tz.id), i.s)
+
+# The instant that shows `dt` at the offset `off` seconds east, shown in
+# `tz`, or `none` beyond the range.
+fun zoned_at(dt: DateTime, off: Int, tz: TimeZone) -> ZonedDateTime?
+  secs = dt.on.number() * DAY_S + clock_seconds(dt.at)
+  i = instant_of(I128(secs - off) * I128(SECOND_NS) + I128(dt.at.ns))?
+  zoned_of(i, tz)
+
+# The whole seconds of `t` since midnight.
+fun clock_seconds(t: Time) -> Int
+  Int(t.h) * 3600 + Int(t.m) * 60 + Int(t.s)
+
+# The offsets `tz` may give the time on the clock `dt`, as Jiff's
+# `AmbiguousOffset`: one offset twice where it is shown once, and the
+# offsets before and after a change where it is skipped (the first the
+# smaller) or repeated (the first the larger).
+fun offsets_at(tz: TimeZone, dt: DateTime) -> (Int, Int)
+  if tz.id == FIXED_ID
+    o = Int(tz.mins) * 60
+    return o, o
+  p = zone_local(Int(tz.id), dt.on.number() * DAY_S + clock_seconds(dt.at))
+  return p / 2_097_152 - 1_048_576, p % 2_097_152 - 1_048_576
+
+# `dt` in `tz`, a skipped or repeated time chosen by `how` (Jiff's
+# `AmbiguousTimestamp::disambiguate`, `tz/ambiguous.rs:700`). An instant
+# beyond the range fails with `DateTimeError.range`, or `invalid` for
+# one read from `text`.
+fun resolved(dt: DateTime, tz: TimeZone, how: Resolve, text: Bool = false) -> ZonedDateTime!
+  before, after = offsets_at(tz, dt)
+  off = before
+  if before != after
+    match how
+      .compatible => off = before
+      .earlier => off = after if before < after else before
+      .later => off = before if before < after else after
+      .reject => return DateTimeError.skipped_or_repeated
+  zoned_at(dt, off, tz) ?? return beyond(text)
+
+# `dt` in `tz` at the offset `own` where `dt` is repeated and `own` is one
+# of its two offsets, else as `how` says (Jiff's
+# `OffsetConflict::PreferOffset`, `tz/offset.rs:2065`).
+fun keeping(dt: DateTime, own: Int, tz: TimeZone, how: Resolve) -> ZonedDateTime!
+  before, after = offsets_at(tz, dt)
+  if before > after and (own == before or own == after)
+    return zoned_at(dt, own, tz) ?? return DateTimeError.range
+  resolved(dt, tz, how)!
+
+# `dt` in `tz` at the offset `given`, which must be one the zone gives
+# that time on the clock: rounded to the minute it agrees with an offset
+# that has seconds, unless `seconds`, it was written with its own
+# (Jiff's `OffsetConflict::Reject`, `tz/offset.rs:2102`, with the
+# equality of `fmt/temporal/parser.rs:100`). A skipped time never
+# agrees.
+fun agreeing(dt: DateTime, given: Int, seconds: Bool, tz: TimeZone) -> ZonedDateTime!
+  before, after = offsets_at(tz, dt)
+  if before == after
+    if not same_offset(given, before, seconds)
+      return DateTimeError.offset_conflict
+    return zoned_at(dt, before, tz) ?? return DateTimeError.invalid
+  if before < after or not (same_offset(given, before, seconds) or same_offset(given, after, seconds))
+    return DateTimeError.offset_conflict
+  zoned_at(dt, given, tz) ?? return DateTimeError.invalid
+
+# Whether an offset read from text agrees with a zone's.
+fun same_offset(given: Int, zone: Int, seconds: Bool) -> Bool
+  if given == zone or seconds or zone % 60 == 0
+    return given == zone
+  given == rounded_minutes(zone) * 60
+
+# The failure of an instant beyond the range: `DateTimeError.range`, or
+# for one read from text, which then names no value, `invalid`.
+fun beyond(text: Bool) -> DateTimeError
+  DateTimeError.invalid if text else DateTimeError.range
+
+# The zone a bracket holds: an offset, as a fixed zone, or a name.
+fun bracket_zone(s: ?String) -> TimeZone!
+  inner = s[1..] if s.len > 0 and s[0] == '!' else s
+  if inner.len > 0 and (inner[0] == '+' or inner[0] == '-')
+    _, secs = offset_text(inner, 0, false)!
+    return TimeZone(id: FIXED_ID, mins: I16(secs / 60))
+  TimeZone.named(inner)!
+
+# How many digits `s` holds.
+fun digit_count(s: ?String) -> Int
+  n = 0
+  for i in 0..s.len
+    if is_digit(s[i])
+      n += 1
+  n
+
+# An offset in seconds rounded to the minute, a half away from zero,
+# and within ±25:59 (Jiff's `Offset::round_to_nearest_minute`,
+# `tz/offset.rs:1090`).
+fun rounded_minutes(off: Int) -> Int
+  a = -off if off < 0 else off
+  m = a / 60
+  if a % 60 >= 30
+    m += 1
+  if m > MAX_FIXED_MINUTES
+    m = MAX_FIXED_MINUTES
+  -m if off < 0 else m
+
+# ---- days and multiples ---------------------------------------------------
+
+# The first instant of date `d` in `tz`: 00:00 by `Resolve.compatible`,
+# or `none` beyond the range (DATETIME-DESIGN §6.7).
+fun day_start(d: Date, tz: TimeZone) -> ZonedDateTime?
+  resolved(DateTime(on: d, at: clock(0, 0, 0, 0)), tz, .compatible) catch return none
+
+# The latest start of a day at or before `z`, and its date: `z`'s own
+# date's, the next date's where a repeated time crossed midnight, or the
+# day before's where `z`'s date starts after it (DATETIME-DESIGN §6.8).
+fun day_floor(z: ZonedDateTime) -> (ZonedDateTime, Date)!
+  d = z.date()
+  s = day_start(d, z.tz) ?? return DateTimeError.range
+  if s > z
+    back = date_of(day_step(d.number(), -1) ?? return DateTimeError.range)
+    s2 = day_start(back, z.tz) ?? return DateTimeError.range
+    return s2, back
+  if day_step(d.number(), 1) as n
+    next = date_of(n)
+    if day_start(next, z.tz) as s3
+      if s3 <= z
+        return s3, next
+  return s, d
+
+# `z` rounded, or with `down` floored, to a multiple of `inc` nanoseconds
+# (Jiff's `ZonedDateTimeRound::round`, `zoned.rs:4971`). Below a day, on
+# the clock, keeping the offset where it can; to a day, between the
+# starts of days, by the day's real length.
+fun zoned_multiple(z: ZonedDateTime, inc: Int, down: Bool) -> ZonedDateTime!
+  if inc == DAY_NS
+    lo, d = day_floor(z)!
+    if down or lo == z
+      return lo
+    n = day_step(d.number(), 1) ?? return DateTimeError.range
+    hi = day_start(date_of(n), z.tz) ?? return DateTimeError.range
+    if z.at.since(lo.at).ns() * 2 >= hi.at.since(lo.at).ns()
+      return hi
+    return lo
+  dt = datetime_multiple(z.on_clock(), inc, down) ?? return DateTimeError.range
+  keeping(dt, Int(z.off), z.tz, .compatible)!
+
+# ---- counts ---------------------------------------------------------------
+
+# The whole days from `early` to `late`, which is not before it, on
+# `early`'s calendar: the most `n` for which `early.add(days: n)` is not
+# after `late`, and no more than the days between their dates
+# (DATETIME-DESIGN §6.4).
+fun zoned_days(early: ZonedDateTime, late: ZonedDateTime) -> Int
+  n = late.in_zone(early.tz).date().days_since(early.date())
+  while n > 0
+    step = early.add(days: n) catch |_|
+      n -= 1
+      continue
+    if step <= late
+      return n
+    n -= 1
+  0
+
+# The whole months from `early` to `late`: the date rule from `early`'s
+# date to that date and the whole days.
+fun zoned_months(early: ZonedDateTime, late: ZonedDateTime) -> Int
+  d0 = early.date()
+  months_between(d0, date_of(d0.number() + zoned_days(early, late)))
+
+extern zig "datetime.zig"
+  # The offsets zone `id` may give the time on the clock `secs`, in
+  # seconds since 1970-01-01T00:00 on it: the offset before and after,
+  # each plus 2^20, as one number, the first times 2^21.
+  fun zone_local(id: Int, secs: Int) -> Int

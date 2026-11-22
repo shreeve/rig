@@ -8,6 +8,7 @@ source "$ROOT/test/cli/_lib.sh"
 
 files=("$ROOT/std/time.rig" "$ROOT"/std/datetime/*.rig)
 (( ${#files[@]} > 1 )) || fail "no std.datetime files under $ROOT/std/datetime"
+[[ " ${files[*]} " == *"/datetime/zoned.rig "* ]] || fail "std/datetime/zoned.rig is not among the files read"
 found=$(grep -nE '\bpanic\(|\bunreachable\b' "${files[@]}" | grep -vE '^[^:]+:[0-9]+:\s*#')
 [[ -z $found ]] || fail "std's time code can panic: $found"
 shims=("$ROOT/std/time.zig" "$ROOT/std/datetime.zig" "$ROOT"/std/tzdb_*.zig)

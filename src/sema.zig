@@ -12362,8 +12362,8 @@ pub const ArgCheck = enum {
     /// an increment that divides the next larger unit and is smaller
     /// than it.
     clock_increment,
-    /// `round` and `floor` of `datetime.DateTime`: as `clock_increment`,
-    /// and also `days: 1`.
+    /// `round` and `floor` of `datetime.DateTime` and
+    /// `datetime.ZonedDateTime`: as `clock_increment`, and also `days: 1`.
     day_increment,
     /// `add` of `datetime.Date`: no duration, by position or by a unit's
     /// keyword, since a date has no time of day.
@@ -12385,7 +12385,7 @@ pub fn stdArgCheck(home: *const SemContext, owner: []const u8, method: []const u
     if (!eq(u8, home.name, "std.datetime")) return null;
     if (eq(u8, owner, "Date") and adds) return .calendar_add;
     if (eq(u8, owner, "Time") and rounds) return .clock_increment;
-    if (eq(u8, owner, "DateTime") and rounds) return .day_increment;
+    if ((eq(u8, owner, "DateTime") or eq(u8, owner, "ZonedDateTime")) and rounds) return .day_increment;
     if (eq(u8, owner, "Instant") and rounds) return .instant_increment;
     return null;
 }

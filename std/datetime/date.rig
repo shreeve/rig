@@ -126,6 +126,14 @@ pub obj Date: Eq + Ord + Hash + Print
   pub fun at(?@, t: Time) -> DateTime
     DateTime(on: @, at: t)
 
+  # The first instant of this date in the zone `tz`: 00:00, or where the
+  # zone skips it the first time after (01:00 in São Paulo on
+  # 2015-10-18), and where it repeats it the first 00:00. A date the zone
+  # skips whole gives the start of the next (2011-12-30 in Apia). Fails
+  # with `DateTimeError.range` when that is beyond the range of instants.
+  pub fun in_zone(?@, tz: TimeZone) -> ZonedDateTime!
+    day_start(@, tz) ?? return DateTimeError.range
+
   # The whole days, weeks, months, and years from `other` to this date:
   # positive when this date is the later, negative when it is the
   # earlier, and `a.days_since(b)` is `-b.days_since(a)`. A count walks

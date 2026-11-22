@@ -101,6 +101,15 @@ pub obj DateTime: Eq + Ord + Hash + Print
   pub fun with(?@, year: Int? = none, month: Int? = none, day: Int? = none, hour: Int? = none, minute: Int? = none, second: Int? = none, ns: Int? = none) -> DateTime!
     DateTime(on: @on.with(year: year, month: month, day: day)!, at: @at.with(hour: hour, minute: minute, second: second, ns: ns)!)
 
+  # The instant this date and time shows on the clock of the zone `tz`.
+  # Where the zone skips or repeats it, `resolve` chooses
+  # (`Resolve.compatible`, the default, takes a skipped time forward by the
+  # gap and a repeated time's first). Fails with `DateTimeError.range`
+  # beyond the range of instants, and `skipped_or_repeated` under
+  # `resolve: .reject`.
+  pub fun in_zone(?@, tz: TimeZone, resolve: Resolve = .compatible) -> ZonedDateTime!
+    resolved(@, tz, resolve)!
+
   # The time from `other` to this date and time, every day 24 hours:
   # negative when `other` is the later, and exact for any two.
   pub fun since(?@, other: DateTime) -> time.Duration
