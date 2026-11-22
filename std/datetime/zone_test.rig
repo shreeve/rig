@@ -1,0 +1,59 @@
+# std.datetime's tests of zone rules that do not change with the data,
+# on the test table (tools/gen-tzdb.py): Europe/Dublin in the standard
+# form, whose winter is the half flagged as daylight saving, and
+# Test/Morocco, a made-up rule of daylight saving all year (Jiff's issue
+# 386). Only a test file of the module reaches the table: run by
+# `rig test std.datetime` (DATETIME-DESIGN §7.5, §12).
+
+use std.time
+
+# The zone of the test table named `name`.
+fun test_zone(name: ?String) -> TimeZone
+  TimeZone(id: I16(test_zone_find(name)), mins: 0)
+
+fun instant_at(text: ?String) -> Instant
+  Instant.parse(text) catch Instant.min()
+
+test "the test table's zones keep their names"
+  test_zone("Europe/Dublin").name() == "Europe/Dublin" and test_zone("Test/Morocco").name() == "Test/Morocco"
+
+test "a test zone is not the data's zone of the same name"
+  test_zone("Europe/Dublin") != TimeZone.named("Europe/Dublin") and test_zone("Europe/Dublin") == test_zone("Europe/Dublin")
+
+test "Dublin in the standard form: Irish Standard Time in summer, GMT in winter"
+  d = test_zone("Europe/Dublin")
+  winter = d.offset_at(instant_at("2026-01-15T12:00:00Z")).seconds()
+  summer = d.offset_at(instant_at("2026-07-15T12:00:00Z")).seconds()
+  winter == 0 and summer == 3600
+
+test "Dublin's changes in 2026, a second either side"
+  d = test_zone("Europe/Dublin")
+  # The last Sunday of March at 01:00 UTC, and of October at 01:00 UTC.
+  spring = [d.offset_at(instant_at("2026-03-29T00:59:59Z")).seconds(), d.offset_at(instant_at("2026-03-29T01:00:00Z")).seconds()]
+  fall = [d.offset_at(instant_at("2026-10-25T00:59:59Z")).seconds(), d.offset_at(instant_at("2026-10-25T01:00:00Z")).seconds()]
+  spring == [0, 3600] and fall == [3600, 0]
+
+test "Dublin's rule after its last transition, in 2087 and 9999"
+  d = test_zone("Europe/Dublin")
+  d.offset_at(instant_at("2087-07-01T00:00:00Z")).seconds() == 3600 and d.offset_at(instant_at("9999-12-30T00:00:00Z")).seconds() == 0
+
+test "Dublin's historic offset before 1916, with its seconds"
+  d = test_zone("Europe/Dublin")
+  d.offset_at(instant_at("1900-01-01T00:00:00Z")) == time.duration(minutes: -25, seconds: -21)
+
+test "Test/Morocco: daylight saving all year, +01:00 at each end of a year"
+  m = test_zone("Test/Morocco")
+  hour = time.duration(hours: 1)
+  ok = true
+  for y in ["1970", "2026", "2087", "2199"]
+    for t in ["-01-01T00:00:00Z", "-07-01T12:00:00Z", "-12-31T23:59:59Z"]
+      ok = ok and m.offset_at(instant_at(`{y}{t}`)) == hour
+  ok
+
+test "Test/Morocco at the first and last instants"
+  m = test_zone("Test/Morocco")
+  m.offset_at(Instant.min()).seconds() == 3600 and m.offset_at(Instant.max()).seconds() == 3600
+
+extern zig "datetime.zig"
+  # The zone of the test table named `name` exactly, or -1.
+  fun test_zone_find(name: ?String) -> Int

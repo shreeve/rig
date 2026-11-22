@@ -582,6 +582,20 @@ def gen_zones(w, zones, alias):
                 w("datetime.in_zone %s %s" % (fmt_datetime(d * DAY + secs), name))
         for at in (MIN_INSTANT, MIN_INSTANT + 1, MAX_INSTANT - 1, MAX_INSTANT):
             w("instant.in_zone %s %s" % (fmt_instant(at), name))
+    # The offset alone (`tz.offset_at(i)`, §7.4), for every name, its
+    # rules' too: an hour and a second before each transition through
+    # 2040 and each of its rule's in RULE_YEARS, at it and an hour after;
+    # then the first and last instants, and fixed zones.
+    for name in names:
+        z = zones[name]
+        for t in [x[0] for x in z.transitions()] + [x[0] for x in z.rule_transitions()]:
+            for at in (t - 3600, t - 1, t, t + 3600):
+                w("zone.offset %s %s" % (name, fmt_instant(at)))
+        for at in (MIN_INSTANT, MAX_INSTANT):
+            w("zone.offset %s %s" % (name, fmt_instant(at)))
+    for name in ("+25:59", "-25:59", "+05:30", "-00:44", "+00:00"):
+        for at in (MIN_INSTANT, 0, MAX_INSTANT):
+            w("zone.offset %s %s" % (name, fmt_instant(at)))
 
 
 # --- 3. Counts, in both directions.

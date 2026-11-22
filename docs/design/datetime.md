@@ -1113,9 +1113,10 @@ program gives the same answer on every machine.
     `rig test std.datetime`. That is how a test gets rules that do not change with the
     data, and a user's program cannot reach them.
   - A shim searches the tables and returns numbers. Nothing is parsed at run time.
-- **What a program pays:** nothing unless it uses a `TimeZone` or a `ZonedDateTime`. A
-  program that uses only `Date` grows by about 1 KB (measured). One that uses a zone
-  carries the tables, about 210 KB of data before the table layout is settled.
+- **What a program pays:** nothing unless it uses a named zone. A program that uses
+  only `Date` is the same size as before the zones were built, and one that uses only
+  fixed zones grows by 1 KB. One that uses a named zone carries the tables, about
+  100 KB (measured, `records/2026-11/datetime-phase4`).
 - `datetime.tzdb_version()` returns `"2026f"`. Each Rig release refreshes the data.
 - **A one-way door.** A `ZonedDateTime` holds its `TimeZone`, and a plain value cannot
   hold an owning one. So zone data loaded at run time could only ever be loaded once
@@ -1147,12 +1148,18 @@ program gives the same answer on every machine.
      `:/etc/localtime`, which is read as a link and what it points at is cut the same
      way;
    - **[Owner]** a rule with no daylight-saving part, as a fixed offset: `UTC0`,
-     `EST5`, `<+08>-8`. Not after a `:`, which marks a name;
+     `EST5`, `<+08>-8`. Not after a `:`, which marks a name. **[Owner, 2026-11-22]**
+     Its hours run from 0 to 25, as `fixed`'s do, where POSIX stops at 24;
    - anything else fails. A set `TZ` never falls through to the files below.
 2. Otherwise, the name the `/etc/localtime` link points at, cut the same way (macOS
    points it at `/var/db/timezone/zoneinfo/America/Denver`).
 3. Otherwise, the name in `/etc/timezone`.
 4. Otherwise it fails, with a message that names `TZ`.
+
+**[Owner, 2026-11-22]** The error members carry no fields, so a failure prints its
+member's name (`DateTimeError.no_system_zone`, `DateTimeError.unknown_zone`); the
+member's documentation and STD say to set `TZ`, and that `tzdb_version()` gives the
+data's version. "A message" below means that documentation.
 
 - **Not read:** a `TZ` rule with a daylight-saving part or with seconds
   (`EST5EDT,M3.2.0,M11.1.0`), and the bytes of `/etc/localtime`. Either would need a
@@ -1750,8 +1757,9 @@ Phases 4 to 6 are written to "Total or visible" from the start: `TimeZone.fixed`
 every `ZonedDateTime` `add`, `round`, `floor` and `start_of_day` return `!`, and nothing
 in them panics.
 
-4. **`TimeZone`**: the tables, `named` and its literal check, `fixed`, `utc`, `parse`,
-   `name`, `offset_at`, `zone_names`, `tzdb_version`, `local` (with `file.read_link`).
+4. **`TimeZone`** (built; `records/2026-11/datetime-phase4`): the tables, `named` and
+   its literal check, `fixed`, `utc`, `parse`, `name`, `offset_at`, `zone_names`,
+   `tzdb_version`, `local` (with `file.read_link`).
 5. **`ZonedDateTime`**: `in_zone` (from an `Instant`, a `DateTime` and a `Date`), the
    readers, `add`, counts, `with`, `start_of_day`, `round`, `floor`, `since`, RFC 9557,
    `today`.

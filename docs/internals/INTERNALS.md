@@ -5368,7 +5368,13 @@ and a query that decides more than that is a recorded fact.
   waits the task with `>t`, which then gives the result at once.
 - **Zig-backed declarations.** An `extern zig "file.zig"` block imports
   the file, which `rig` writes into the package as `rig/std/file.zig`
-  from the module graph (`Module.shims`, read where the module is), and
+  from the module graph (`Module.shims`, read where the module is, with
+  each Zig file of the standard library it imports by its plain name,
+  and once for a directory module whose files each name it). The names
+  file of std.datetime's zone data, `tzdb_names.zig`, is one, and the
+  graph hands it to that module's sema (`SemContext.zone_names`), whose
+  check of a literal given `TimeZone.named` reads it, so a std given by
+  `RIG_STD` checks against its own names. The block
   binds each declaration to the Zig function of its name:
   `pub const sqrt = __rig_shim_1.sqrt;`. Beside each it writes
   `comptime { rig.expectShim(__rig_shim_1.sqrt, fn (f64) f64, error{}, "std.math.sqrt"); }`,

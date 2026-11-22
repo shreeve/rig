@@ -57,6 +57,12 @@ sub answer(op: ?String, rest: ?String)
     print(u.iso(), i.unix_s(), i.unix_ms(), i.unix_us(), show(datetime.Instant.from_unix_s(u.seconds(), ns: u.subsec_ns()) catch none))
   else if op == "instant.since"
     print(instant(a[0]).since(instant(a[1])).iso())
+  else if op == "zone.offset"
+    print(zone(a[0]).offset_at(instant(a[1])).seconds())
+  else if op == "zone.name"
+    print(zone(a[0]).name())
+  else if op == "zone.eq"
+    print(zone(a[0]) == zone(a[1]))
   else if op == "instant.parse"
     print(show(datetime.Instant.parse(rest) catch none))
   else if op == "instant.round"
@@ -186,6 +192,9 @@ fun date(s: ?String) -> datetime.Date
 
 fun time_of(s: ?String) -> datetime.Time
   datetime.Time.parse(s) catch panic("not a time:", s)
+
+fun zone(s: ?String) -> datetime.TimeZone
+  datetime.TimeZone.parse(s) catch panic("not a zone:", s)
 
 fun instant(s: ?String) -> datetime.Instant
   datetime.Instant.parse(s) catch panic("not an instant:", s)
