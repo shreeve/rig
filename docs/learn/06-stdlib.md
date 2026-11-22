@@ -670,6 +670,42 @@ an argument of any call. A duration option may be given by its unit
 instead, `ms: 500`, and a closure written last fills the parameter that
 takes a function, after the options.
 
+Options that belong together are an object, a group. `..net: Net` among
+the parameters makes `Net`'s fields the function's options, which the
+body reads as `net.timeout`; `..v` among a call's arguments gives a stored
+value's fields to the group of its type, and a field named beside it
+wins. std.datetime's `add` takes its calendar amounts as the group
+`period`, a `Period`, so a program can keep a period and apply it:
+
+```rig
+use std.datetime
+
+obj Net
+  timeout: Int = 30
+  retries: Int = 3
+
+sub fetch(url: ?String, ..net: Net)
+  print(url, net.timeout, net.retries)
+
+sub main()!
+  slow = Net(timeout: 120)
+  fetch("a", retries: 5)
+  fetch("b", ..slow, retries: 1)
+  monthly = datetime.Period(months: 1)
+  due = datetime.Date.new(2027, 1, 31)
+  print(due.add(..monthly)!, due.add(..monthly, days: 1)!)
+```
+
+```output
+a 30 5
+b 120 1
+2027-02-28 2027-03-01
+```
+
+The same spread updates an object, `Net(retries: 0, ..slow)`, a copy of
+`slow` with `retries` set, and `retries:` alone, before `,` or `)`, is
+`retries: retries`.
+
 ## Summary
 
 | To | Write |
@@ -684,6 +720,7 @@ takes a function, after the options.
 | draw at random | `random.Random.seeded(n)`, `!r.shuffle(!xs)` |
 | count past 64 bits | `bigint.parse(s)!`, `a.add(b)`, `a < b` |
 | give an option | by name, after the operands: `text.parse_int(s, base: 16)!` |
+| share options, keep them, pass them on | a group, `..net: Net`, and a spread, `fetch(url, ..saved)` |
 | check color | `terminal.Terminal.new(c, r)`, `!t.feed(s)`, `t.dump()` |
 | serve | `http.serve(<l, f)!` |
 

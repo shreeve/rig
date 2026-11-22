@@ -4489,6 +4489,51 @@ coverage, a constant's value, and emit need nothing of their own. A
 literal of the wrong size is not recorded, and the second check reports
 it again. Each round rewrites what it found, so the checks end.
 
+### Groups and spreads
+
+A group, `..net: Net` among a function's parameters, and a spread, `..v`
+among a call's arguments (docs/design/options.md), are rewritten as
+`for` loops over an iterator are, since what they stand for, an object's
+fields, is known only from types. The first check sees a group as one
+parameter `net` of type `Net` (`SymbolFlags.group`): `Checker.checkGroups`
+checks it (an object of plain data, no name twice among the parameters
+and the groups' fields, 64 parameters at most) and records it
+(`SemContext.groups`); every use of `net` in the body is recorded too
+(`SemContext.group_uses`), a field read `net.timeout` by its node, any
+other as a use of the group whole. A call with a spread, or of a function
+whose group is as written, is checked no further than its spreads
+(`optionsCall`): each must be a name or a field path of exactly a group's
+type, one to a group, and a call's spreads are recorded
+(`SemContext.spreads`) together or not at all, with the fields each
+gives, those no keyword of the call names. A constructor's spread is an
+object update (`objectUpdate`), recorded the same way.
+
+`Parser.desugarOptions` then writes each recorded group as one parameter
+per field, `(: timeout (field_of Net timeout net Int))`, whose type
+`resolve` reads from `field_of` (the field's type as its declaration
+writes it, for a type of the same module, else the field's type in its
+module), marks the parameter's symbol `group_field`, and records each
+parameter's `GroupParam` in `SemContext.group_params`, by where the
+function's name is declared, which a call reads from the declaring
+module (`SymbolFlags.has_groups` says there is one); each field read becomes a leaf that names its parameter
+(`Parser.group_targets`, which `useName` reads before any scope, so a
+local of the same name never captures it); a body that uses the group
+whole binds it first, `net =! Net(timeout: timeout, ...)`, under the
+group's own name leaf. Each spread becomes, where it stands, the keyword
+arguments `timeout: v.timeout` of the fields it gives, each node spanning
+the spread. Every name these rewrites write is a named leaf
+(`Parser.namedLeaf`): an id from a process-wide table of texts, so a
+field declared in any module is written, at a hidden position homed in
+the source, and a name copied from the source is looked up at its home
+(`SemContext.fileModule`, `useName`). The module is checked again, and
+every pass after typecheck sees parameters and keyword arguments: the
+declaration side of ownership, storage, and emit indexes the parameters
+emitted, and a call's argument slots are a keyword call's. A field's
+default is a parameter's (`resolve.fillGroupDefaults`), filled at the
+call from its type's module (`emitDefault`). A group or a spread the
+first check refused is not rewritten, and the second check reports it
+again.
+
 ### Assignments
 
 Every assignment, to a name, a field, or an element, plain or compound,

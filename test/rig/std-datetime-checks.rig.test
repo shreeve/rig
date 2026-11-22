@@ -70,14 +70,14 @@ fail "a date has no time of day", "2:13: a `Date` has no time of day, so `add` t
   print(d.add(seconds: 1)!)
   print(d.add(ns: 5))
 
-fail "a datetime's duration and amounts are options, given by name", "3:14: `duration` has a default, so it is an option, given by name: `duration: 1`", "3:17: `years` has a default, so it is an option, given by name: `years: 2`", "4:14: `duration` has a default, so it is an option, given by name: `duration: 1`", "4:17: `years` has a default, so it is an option, given by name: `years: 2`", "4:20: `months` has a default, so it is an option, given by name: `months: 3`", "5:33: `duration` has a default, so it is an option, given by name: `duration: 0.5`", "5:38: `years` has a default, so it is an option, given by name: `years: 2`", errors: 7
+fail "a datetime's duration and amounts are options, given by name", "3:14: `duration` has a default, so it is an option, given by name: `duration: 1`", "3:17: `years` is a field of group `period` of `add`, so it is given by name: `years: 2`", "4:14: `duration` has a default, so it is an option, given by name: `duration: 1`", "4:17: `years` is a field of group `period` of `add`, so it is given by name: `years: 2`", "4:20: `months` is a field of group `period` of `add`, so it is given by name: `months: 3`", "5:33: `duration` has a default, so it is an option, given by name: `duration: 0.5`", "5:38: `years` is a field of group `period` of `add`, so it is given by name: `years: 2`", errors: 7
   d = datetime.Date.new(2027, 1, 31)
   dt = d.at(datetime.Time.new(1, 0, 0))
   print(dt.add(1, 2)!)
   print(dt.add(1, 2, 3)!)
   print(datetime.DateTime.add(dt, 0.5, 2)!)
 
-fail "with takes its fields by name", "3:14: `year` has a default, so it is an option, given by name: `year: 2024`", "4:15: `year` has a default, so it is an option, given by name: `year: 2024`", "5:22: `hour` has a default, so it is an option, given by name: `hour: 1`", "6:37: `hour` has a default, so it is an option, given by name: `hour: 1`", errors: 4
+fail "with takes its fields by name", "3:14: `year` is a field of group `date` of `with`, so it is given by name: `year: 2024`", "4:15: `year` is a field of group `date` of `with`, so it is given by name: `year: 2024`", "5:22: `hour` is a field of group `clock` of `with`, so it is given by name: `hour: 1`", "6:37: `hour` is a field of group `clock` of `with`, so it is given by name: `hour: 1`", errors: 4
   d = datetime.Date.new(2027, 1, 31)
   dt = d.at(datetime.Time.new(1, 0, 0))
   print(d.with(2024)!)
@@ -129,7 +129,7 @@ test "sizes", "1 4 8 12"
   # `DateTime` the two.
   print($size(datetime.Weekday), $size(datetime.Date), $size(datetime.Time), $size(datetime.DateTime))
 
-fail "a date's add refuses a duration by position", "6:13: a `Date` has no time of day, so `add` takes no duration, `0.5`: a date and a time of day is a `DateTime`, `d.at(t).add(duration: 0.5)`", "7:13: a `Date` has no time of day, so `add` takes no duration, `time.duration(hours: 24)`: a date and a time of day is a `DateTime`, `d.at(t).add(duration: time.duration(hours: 24))`", "8:13: a `Date` has no time of day, so `add` takes no duration, `half`: a date and a time of day is a `DateTime`, `d.at(t).add(duration: half, days: 1)`", "9:13: `years` has a default, so it is an option, given by name", "10:23: a `Date` has no time of day, so `add` takes no `hours:`: a date and a time of day is a `DateTime`, `d.at(t).add(weeks: 1, hours: 2)`", errors: 6
+fail "a date's add refuses a duration by position", "6:13: a `Date` has no time of day, so `add` takes no duration, `0.5`: a date and a time of day is a `DateTime`, `d.at(t).add(duration: 0.5)`", "7:13: a `Date` has no time of day, so `add` takes no duration, `time.duration(hours: 24)`: a date and a time of day is a `DateTime`, `d.at(t).add(duration: time.duration(hours: 24))`", "8:13: a `Date` has no time of day, so `add` takes no duration, `half`: a date and a time of day is a `DateTime`, `d.at(t).add(duration: half, days: 1)`", "9:13: `years` is a field of group `period` of `add`, so it is given by name", "10:23: a `Date` has no time of day, so `add` takes no `hours:`: a date and a time of day is a `DateTime`, `d.at(t).add(weeks: 1, hours: 2)`", errors: 6
   # A `Float` or a `Duration` by position, and a unit beside other
   # amounts, is a time of day, whose fix is a `DateTime` with every amount
   # written; any other argument by position gives an option.

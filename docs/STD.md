@@ -938,10 +938,11 @@ value that gives a wrong date without a word, as `?? d` would.
 | `d.at(t: Time) -> DateTime`, `dt.date()`, `dt.time()` | a date and a time joined, and taken apart |
 | `year()`, `month()`, `day()`, `weekday()`, `day_of_year()`, `days_in_month()`, `iso_week()`, `iso_week_year()` | a `Date`'s and a `DateTime`'s readers, each an `Int` but `weekday()`: the month is 1 to 12, the day of the year 1 to 366; 2025-12-29 is in ISO week 1 of 2026 |
 | `hour()`, `minute()`, `second()`, `nanosecond()` | a `Time`'s and a `DateTime`'s readers; `nanosecond()` is the whole part below the second, 0 to 999,999,999 |
-| `d.add(years: 0, months: 0, weeks: 0, days: 0) -> Date!` | the date the calendar amounts later, each by name and of either sign: years and months first, together as months, a day past the month's end becoming its last day (Jan 31 and a month is Feb 28, or 29); then weeks and days (Jan 31, a month and a day, is Mar 1). Fails with `range` when a step leaves the range, also for amounts too large to sum. `d.add(hours: 1)` is a compile error |
-| `dt.add(duration: time.Duration? = none, years: 0, months: 0, weeks: 0, days: 0) -> DateTime!` | the same, then a duration, every day 24 hours: by units' keywords, `dt.add(days: 1, hours: 2)!`, or by its name in a duration form ([std.time](#stdtime)), `dt.add(duration: span)!`, where a bare number is seconds, never a day; a duration form with a number known only as the program runs fails within the same `!` |
+| `d.add(..period: Period) -> Date!` | the date the calendar amounts later, the fields of the group `period` (`years:`, `months:`, `weeks:`, `days:`, each 0 when left out), each by name and of either sign: years and months first, together as months, a day past the month's end becoming its last day (Jan 31 and a month is Feb 28, or 29); then weeks and days (Jan 31, a month and a day, is Mar 1). Fails with `range` when a step leaves the range, also for amounts too large to sum. `d.add(hours: 1)` is a compile error |
+| `dt.add(duration: time.Duration? = none, ..period: Period) -> DateTime!` | the same, then a duration, every day 24 hours: by units' keywords, `dt.add(days: 1, hours: 2)!`, or by its name in a duration form ([std.time](#stdtime)), `dt.add(duration: span)!`, where a bare number is seconds, never a day; a duration form with a number known only as the program runs fails within the same `!` |
 | `t.add(`*duration*`) -> Time` | the time a duration later, wrapping past midnight: 23:00 and two hours is 01:00. It is the sum on the clock face, exact for any duration, so it does not fail; a sum that must not pass midnight is a `DateTime`'s, whose date shows whether it did |
-| `with(…)!` | the value with the fields given by name replaced, `d.with(day: 1)!`: `year:`, `month:`, `day:`, `hour:`, `minute:`, `second:`, `ns:` as the type has them; fails when that is not a real value |
+| `with(…)!` | the value with the fields given by name replaced, `d.with(day: 1)!`: a `Date`'s are the group `..date: DateFields` (`year:`, `month:`, `day:`), a `Time`'s the group `..clock: ClockFields` (`hour:`, `minute:`, `second:`, `ns:`), and a `DateTime`'s both; fails when that is not a real value |
+| `Period`, `DateFields`, `ClockFields` | the groups of `add` and `with` ([design/options.md](design/options.md), section 2): objects whose fields are the options, `Period(months: 1)`, each `Int` field 0 and each `Int?` field `none` when left out, kept as values and given with a spread, `d.add(..monthly)!`, a field named beside the spread winning |
 | `days_since(other)`, `weeks_since(other)`, `months_since(other)`, `years_since(other)` | the whole units from `other`, on a `Date` and a `DateTime`: positive when the value is the later, and `a.days_since(b)` is `-b.days_since(a)`. A count walks forward from the earlier value, so Jan 31 to Feb 28 is 0 months, and someone born on Feb 29 is a year older on Mar 1 in a common year |
 | `since(other) -> time.Duration` | the time from `other`, on a `Time` (on the clock face, so 01:00 since 23:00 is -22 hours) and a `DateTime` (every day 24 hours), exact for any two values |
 | `d.first_of_month()`, `d.last_of_month()` | the first and last day of the date's month |
@@ -967,7 +968,9 @@ Every argument of `add` of a `Date` and a `DateTime`, every `with`,
 name ([SPEC "Functions"](../SPEC.md#functions)), so none is taken as a
 value; a closure passes one. A recurrence anchors to its start: the k-th of a monthly
 series is `start.add(months: k)!`, since stepping from the previous one
-drifts (Jan 31, Feb 28, Mar 28).
+drifts (Jan 31, Feb 28, Mar 28). A period kept as a value is applied with
+a spread, `start.add(..monthly)!`; `round` and `floor` name exactly one
+unit, so they take no group and no spread.
 
 ```rig
 use std.datetime
@@ -979,6 +982,9 @@ sub main()!
   born = datetime.Date.new(2024, 2, 29)
   print(datetime.Date.new(2025, 2, 28).years_since(born), datetime.Date.new(2025, 3, 1).years_since(born))
   print(datetime.Date.new(2026, 11, 1).nth_weekday_of_month(4, .thursday)!, datetime.Date.new(2025, 12, 29).iso_week())
+  quarterly = datetime.Period(months: 3)
+  first = datetime.DateFields(day: 1)
+  print(due.add(..quarterly)!, due.add(..quarterly, days: -1)!, due.with(..first)!)
 ```
 
 ```output
@@ -986,6 +992,7 @@ sub main()!
 2025-02-28 2026-11-30
 0 1
 2026-11-26 1
+2027-05-28 2027-05-27 2027-02-01
 ```
 
 ```rig

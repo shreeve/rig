@@ -113,14 +113,14 @@ pub obj Date: Eq + Ord + Hash + Print
   # day, is Mar 1. Fails with `DateTimeError.range` when either step
   # leaves the range, -9999-01-01 to 9999-12-31: `d.add(days: n) catch
   # datetime.Date.max()` keeps the last date.
-  pub fun add(?@, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> Date!
-    date_add(@, total_months(years, months), total_days(weeks, days)) ?? return DateTimeError.range
+  pub fun add(?@, ..period: Period) -> Date!
+    date_add(@, total_months(period.years, period.months), total_days(period.weeks, period.days)) ?? return DateTimeError.range
 
   # The date with the fields given by name replaced: `d.with(day: 1)`.
   # Fails with `DateTimeError.range` when that is not a real date:
   # Feb 29 of 2024 `with(year: 2023)` fails.
-  pub fun with(?@, year: Int? = none, month: Int? = none, day: Int? = none) -> Date!
-    Date.new(year ?? Int(@y), month ?? Int(@m), day ?? Int(@d))!
+  pub fun with(?@, ..date: DateFields) -> Date!
+    Date.new(date.year ?? Int(@y), date.month ?? Int(@m), date.day ?? Int(@d))!
 
   # The date at the time of day `t`.
   pub fun at(?@, t: Time) -> DateTime
@@ -189,3 +189,20 @@ fun months_between(early: Date, late: Date) -> Int
 
 fun math_min(a: Int, b: Int) -> Int
   a if a < b else b
+
+# The calendar amounts `Date.add` and `DateTime.add` take, a group
+# (docs/design/options.md, section 2): each given by name, `d.add(months:
+# 1)`, or whole from a stored value, `d.add(..monthly)`, and each of
+# either sign.
+pub obj Period
+  pub years: Int = 0
+  pub months: Int = 0
+  pub weeks: Int = 0
+  pub days: Int = 0
+
+# The fields of a date `Date.with` and `DateTime.with` replace, a group:
+# each left out keeps the date's own.
+pub obj DateFields
+  pub year: Int? = none
+  pub month: Int? = none
+  pub day: Int? = none
