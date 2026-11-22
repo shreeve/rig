@@ -10495,7 +10495,14 @@ pub const Emitter = struct {
         try self.w.print("__rig_call_{d}: ", .{id});
         try self.openBrace();
         const first = self.hoisted.items.len;
-        try self.hoistParts(call, id);
+        {
+            // A duration form that joins the call's failure, held first,
+            // leaves the call's block with the callee's error.
+            const saved = self.fold_label;
+            defer self.fold_label = saved;
+            self.fold_label = if (self.callFolds(call)) try self.fmt("__rig_call_{d}", .{id}) else null;
+            try self.hoistParts(call, id);
+        }
         try self.writeIndent(self.indent);
         try self.w.print("break :__rig_call_{d} ", .{id});
         try self.emitCallDirect(call);
@@ -10570,7 +10577,12 @@ pub const Emitter = struct {
         // field, or element that holds the view) is read here, in argument
         // order. A value viewed has the parameter's type.
         const shown: ?TypeId = if (viewed) (if (slot < params.len) params[slot] else null) else ty;
-        if (shown) |t| if (!ptr) {
+        // A part of a duration given by several units is an `i128` of
+        // nanoseconds (`sema.Duration.part`).
+        const part = if (self.facts.durationOf(h.node)) |d| d.part else false;
+        if (part) {
+            try self.w.writeAll(": i128");
+        } else if (shown) |t| if (!ptr) {
             try self.w.writeAll(": ");
             try self.emitTypeTy(if (self.facts.readsThrough(h.node) and self.isPtrViewExpr(h.node)) self.peelViews(t) else t);
         };
