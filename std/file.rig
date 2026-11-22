@@ -2,8 +2,8 @@
 # working directory, or absolute. Each call that reaches the file system
 # blocks only the task that makes it: a whole read of a regular file,
 # and a call that only looks at a path (`exists`, `stat`, `realpath`,
-# `read_dir`), runs in the task, and every other call on the blocking
-# pool. Each is a fallible waiting point: in a canceled task it fails with
+# `read_link`, `read_dir`), runs in the task, and every other call on
+# the blocking pool. Each is a fallible waiting point: in a canceled task it fails with
 # `task.Stop.canceled` (std.task), and past a deadline (`time.within`)
 # with `task.Stop.timeout`. A call that looks for something gives `none`
 # only when nothing is there (nothing by its name, or a file where a
@@ -266,6 +266,13 @@ extern zig "file.zig"
   # The absolute path `path` names, every symbolic link in it resolved,
   # or `none` when nothing is there.
   pub fun realpath(path: ?String) -> String?!
+
+  # What the symbolic link at `path` holds: the path it names, as written
+  # in the link and not resolved, so it may be relative to the link's
+  # directory; `none` when nothing is at `path`. A path that is not a
+  # link fails with `FileError.invalid`, the system's own reason. To
+  # follow every link to the end, `realpath`.
+  pub fun read_link(path: ?String) -> String?!
 
   # What `stat` gives, onto `info`: its kind (0 a file, 1 a directory, 2
   # other), 1 when the path is a link, its size, and when it changed;
