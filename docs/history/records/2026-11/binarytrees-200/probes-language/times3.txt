@@ -1,0 +1,44 @@
+tools/mac-claim: waiting 1 min for the claim: bt200-perf3, at most 2 min, started 21:46, pid 58557
+tools/mac-claim: waiting 1 min for the Mac to go quiet (161% of a core in use, under 150% wanted). Busiest:
+  PID 75357 at 100.0%: /Users/shreeve/.local/share/mise/installs/zig/0.17.0/zig build-exe -Osafe --dep build_options --dep rig_std -M
+  PID 407 at 27.8%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+  PID 1040 at 13.3%: /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Render
+tools/mac-claim: waiting 3 min for the Mac to go quiet (92% of a core in use, under 150% wanted). Busiest:
+  PID 407 at 28.3%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+  PID 1040 at 22.9%: /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Render
+  PID 1023 at 9.4%: /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=gpu-process
+1 model_ptr16 0.28 1.85 172
+1 model_ptr16pre 0.23 1.58 172
+1 model_rel32 0.25 1.74 87
+1 model_rel32pre 0.26 1.61 87
+1 fast 0.28 1.7 358
+2 model_ptr16 0.28 1.84 172
+2 model_ptr16pre 0.23 1.58 172
+2 model_rel32 0.24 1.76 87
+2 model_rel32pre 0.22 1.58 87
+2 fast 0.22 1.72 305
+3 model_ptr16 0.32 1.92 172
+3 model_ptr16pre 0.31 1.62 172
+3 model_rel32 0.26 1.77 87
+3 model_rel32pre 0.25 1.6 87
+3 fast 0.30 1.79 352
+4 model_ptr16 0.29 1.8 172
+4 model_ptr16pre 0.37 1.69 172
+4 model_rel32 0.24 1.75 87
+4 model_rel32pre 0.22 1.56 87
+4 fast 0.21 1.72 374
+5 model_ptr16 0.27 1.81 172
+5 model_ptr16pre 0.25 1.57 172
+5 model_rel32 0.26 1.77 87
+5 model_rel32pre 0.22 1.55 87
+5 fast 0.22 1.77 333
+6 model_ptr16 0.26 1.8 172
+6 model_ptr16pre 0.23 1.58 172
+6 model_rel32 0.24 1.75 87
+6 model_rel32pre 0.21 1.56 87
+6 fast 0.22 1.76 353
+7 model_ptr16 0.35 1.86 172
+7 model_ptr16pre 0.23 1.59 172
+7 model_rel32 0.25 1.76 87
+7 model_rel32pre 0.22 1.57 87
+7 fast 0.24 1.81 328

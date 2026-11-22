@@ -1,0 +1,74 @@
+# The Computer Language Benchmarks Game: binary-trees, perfect binary trees built, walked, and
+# dropped, the depths on as many tasks and each depth's trees on as many again. A tree's nodes
+# live in a pool, a List of nodes linked by index, one pool for each run of trees, emptied
+# before each tree.
+# Ports benchmarksgame/sources/binarytrees/binarytrees.rust-5 (the Rust Project Developers,
+# TeXitoi, Cristi Cobzarenco, Matt Brubeck, Tom Kaitchuck, Volodymyr M. Lisivka, Ryohei Machida).
+use std.math
+use std.os
+use std.par
+use std.text
+
+MIN_DEPTH = 4
+RUNS = 64
+
+obj Node
+  left: I32 = -1
+  right: I32 = -1
+
+# A tree of `depth` in `pool`, each node before its right subtree and then its left: the
+# root's index.
+fun bottom_up_tree(pool: !List[Node], depth: Int) -> I32
+  at = pool.len
+  !pool.push(Node())
+  if depth > 0
+    right = bottom_up_tree(!pool, depth - 1)
+    left = bottom_up_tree(!pool, depth - 1)
+    pool[at] = Node(left: left, right: right)
+  I32(at)
+
+fun item_check(pool: ?List[Node], at: I32) -> Int
+  n = pool[Int(at)]
+  return 1 if n.left < 0
+  1 + item_check(pool, n.right) + item_check(pool, n.left)
+
+# The checks of `count` trees of `depth` summed, each made in the same pool, emptied first.
+fun run(depth: Int, count: Int) -> Int
+  pool = List[Node]()
+  chk = 0
+  for 0..count
+    !pool.keep(0)
+    root = bottom_up_tree(!pool, depth)
+    chk += item_check(pool, root)
+  chk
+
+fun inner(depth: Int, iterations: Int) -> String
+  runs = List[Int]()
+  per = (iterations + RUNS - 1) / RUNS
+  left = iterations
+  while left > 0 : left -= per
+    !runs.push(math.min(per, left))
+  chk = run(depth, iterations)
+  String(iterations, "\t trees of depth ", depth, "\t check: ", chk)
+
+sub main()!
+  args = os.args()
+  n = text.parse_int(args[1])! if args.len > 1 else 10
+  max_depth = math.max(n, MIN_DEPTH + 2)
+
+  stretch = max_depth + 1
+  print(String("stretch tree of depth ", stretch, "\t check: ", run(stretch, 1)))
+
+  long_lived = List[Node]()
+  long_root = bottom_up_tree(!long_lived, max_depth)
+
+  depths = List[Int]()
+  depth = MIN_DEPTH
+  while depth <= max_depth : depth += 2
+    !depths.push(depth)
+  messages = par.map(?depths, |+max_depth, d| inner(d, 1 << (max_depth - d + MIN_DEPTH)))
+  for message in messages
+    print(message)
+
+  check = item_check(long_lived, long_root)
+  print(String("long lived tree of depth ", max_depth, "\t check: ", check))

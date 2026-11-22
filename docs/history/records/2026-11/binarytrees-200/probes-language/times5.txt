@@ -1,0 +1,30 @@
+tools/mac-claim: waiting 1 min for the claim: bt200-compiler-n32, at most 3 min, started 22:02, pid 97566
+tools/mac-claim: waiting 1 min for the Mac to go quiet (152% of a core in use, under 150% wanted). Busiest:
+  PID 30337 at 24.2%: /usr/libexec/PerfPowerServices
+  PID 407 at 21.1%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+  PID 1040 at 16.5%: /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Render
+tools/mac-claim: waiting 3 min for the Mac to go quiet (65% of a core in use, under 150% wanted). Busiest:
+  PID 407 at 20.9%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+  PID 1040 at 13.6%: /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Render
+  PID 1023 at 7.3%: /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=gpu-process
+1 model_ptr16rev 0.38 1.82 172
+1 model_ptr16down 0.29 1.88 172
+1 model_ptr16pre 0.23 1.58 172
+2 model_ptr16rev 0.24 1.75 172
+2 model_ptr16down 0.25 1.8 172
+2 model_ptr16pre 0.22 1.58 172
+3 model_ptr16rev 0.25 1.76 172
+3 model_ptr16down 0.29 1.81 172
+3 model_ptr16pre 0.33 1.61 172
+4 model_ptr16rev 0.24 1.74 172
+4 model_ptr16down 0.26 1.81 172
+4 model_ptr16pre 0.23 1.59 172
+5 model_ptr16rev 0.25 1.74 172
+5 model_ptr16down 0.25 1.81 172
+5 model_ptr16pre 0.22 1.58 172
+6 model_ptr16rev 0.25 1.74 172
+6 model_ptr16down 0.25 1.81 172
+6 model_ptr16pre 0.23 1.57 172
+7 model_ptr16rev 0.26 1.76 172
+7 model_ptr16down 0.25 1.79 172
+7 model_ptr16pre 0.23 1.58 172

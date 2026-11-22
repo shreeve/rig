@@ -1,0 +1,56 @@
+# The plain port's boxes with the fast port's split: 64 runs per depth on par.map.
+use std.math
+use std.os
+use std.par
+use std.text
+
+MIN_DEPTH = 4
+RUNS = 64
+
+obj Tree
+  left: ^Tree? = none
+  right: ^Tree? = none
+
+fun bottom_up_tree(depth: Int) -> Tree
+  return Tree() if depth == 0
+  Tree(left: ^bottom_up_tree(depth - 1), right: ^bottom_up_tree(depth - 1))
+
+fun item_check(t: ?Tree) -> Int
+  if t.left as l and t.right as r
+    return 1 + item_check(l) + item_check(r)
+  1
+
+fun run(depth: Int, count: Int) -> Int
+  chk = 0
+  for 0..count
+    chk += item_check(bottom_up_tree(depth))
+  chk
+
+fun inner(depth: Int, iterations: Int) -> String
+  runs = List[Int]()
+  per = (iterations + RUNS - 1) / RUNS
+  left = iterations
+  while left > 0 : left -= per
+    !runs.push(math.min(per, left))
+  chk = par.map(?runs, |+depth, count| run(depth, count)).sum()
+  String(iterations, "\t trees of depth ", depth, "\t check: ", chk)
+
+sub main()!
+  args = os.args()
+  n = text.parse_int(args[1])! if args.len > 1 else 10
+  max_depth = math.max(n, MIN_DEPTH + 2)
+
+  stretch = max_depth + 1
+  print(String("stretch tree of depth ", stretch, "\t check: ", run(stretch, 1)))
+
+  long_lived = bottom_up_tree(max_depth)
+
+  depths = List[Int]()
+  depth = MIN_DEPTH
+  while depth <= max_depth : depth += 2
+    !depths.push(depth)
+  messages = par.map(?depths, |+max_depth, d| inner(d, 1 << (max_depth - d + MIN_DEPTH)))
+  for message in messages
+    print(message)
+
+  print(String("long lived tree of depth ", max_depth, "\t check: ", item_check(long_lived)))

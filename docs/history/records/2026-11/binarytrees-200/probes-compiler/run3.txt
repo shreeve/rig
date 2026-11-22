@@ -1,0 +1,27 @@
+ok
+baf0dcbc307297f68bd9459833db9f73
+tools/mac-claim: waiting 1 min for the claim: bt200-language-order, at most 4 min, started 21:50, pid 68515
+tools/mac-claim: waiting 1 min for the Mac to go quiet (148% of a core in use, under 150% wanted). Busiest:
+  PID 87958 at 76.1%: /usr/libexec/sysmond
+  PID 407 at 18.7%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+  PID 1040 at 13.2%: /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Render
+v_region_inline md5 baf0dcbc307297f68bd9459833db9f73
+v_region_split10 md5 baf0dcbc307297f68bd9459833db9f73
+bt-fast md5 baf0dcbc307297f68bd9459833db9f73
+v_region_inline wall 0.330 cpu 2.03 rss 239 MB
+v_region_split10 wall 0.310 cpu 2.13 rss 561 MB
+bt-fast wall 0.210 cpu 1.72 rss 320 MB
+v_region_inline wall 0.320 cpu 2.07 rss 239 MB
+v_region_split10 wall 0.320 cpu 2.16 rss 566 MB
+bt-fast wall 0.220 cpu 1.75 rss 375 MB
+v_region_inline wall 0.350 cpu 2.08 rss 239 MB
+v_region_split10 wall 0.320 cpu 2.18 rss 553 MB
+bt-fast wall 0.220 cpu 1.72 rss 305 MB
+v_region_inline wall 0.330 cpu 2.07 rss 239 MB
+v_region_split10 wall 0.350 cpu 2.21 rss 496 MB
+bt-fast wall 0.220 cpu 1.79 rss 308 MB
+v_region_inline wall 0.330 cpu 2.05 rss 239 MB
+v_region_split10 wall 0.320 cpu 2.16 rss 562 MB
+bt-fast wall 0.230 cpu 1.78 rss 318 MB
+
+[exited with code 0]
