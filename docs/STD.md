@@ -906,7 +906,7 @@ offset ([Zones](#zones)); and a `ZonedDateTime` an instant in a zone
 ([Zoned values](#zoned-values)). Each is plain data: `==` compares two,
 `<` orders them (not zones), a `Map` keys on one, and `print` writes ISO 8601, an
 `Instant` RFC 3339 in UTC, a zone its name, and a zoned value RFC 9557. Nothing here allocates but a zone's `name()`,
-a zoned value's `offset_text()`, and `local()`. The calendar
+a zoned value's `offset_text()`, `format` and `try_format`, and `local()`. The calendar
 math is Jiff 1.0.0's ([design/datetime.md](design/datetime.md)), and a
 program that only sleeps or times, using `std.time` alone, loads none of
 it.
@@ -1186,10 +1186,85 @@ DateTimeError.offset_conflict
 7188 299 true
 ```
 
-`format` is planned ([design/datetime.md](design/datetime.md)).
-The whole surface, as it will read:
+### Writing by a format string
 
-```rig pending
+`format` writes a `Date`, a `Time`, a `DateTime`, or a `ZonedDateTime`
+by a small strftime, with Jiff's meaning for each directive
+([design/datetime.md](design/datetime.md) §8.4). Its string is known as
+Rig compiles, a string literal or a module constant bound to one, and
+is checked against the type where it is called, so a directive the type
+lacks or one `format` does not take is a compile error naming both, and
+the call cannot fail: it gives a `String` and takes no `!`. A string
+made as the program runs is `try_format`'s, which fails with
+`DateTimeError.invalid` exactly where `format` would not compile.
+
+| Member | Result |
+|---|---|
+| `x.format(pattern: ?String) -> String` | the value written by `pattern`, a string literal or a module constant bound to one, each directive checked against the type as Rig compiles: `d.format("%A, %B %-d, %Y")` is `Tuesday, November 17, 2026`. A string made as the program runs is refused, with `try_format` as the fix |
+| `x.try_format(pattern: ?String) -> String!` | the same for a string made as the program runs; fails with `invalid` at a directive `format` would refuse |
+
+| Directive | Writes | `Date` | `Time` | `DateTime` | `ZonedDateTime` |
+|---|---|---|---|---|---|
+| `%Y`, `%G` | the year, the ISO week year: four digits, below 0 a sign and three or more, `-001` | yes | | yes | yes |
+| `%m`, `%d`, `%e`, `%j`, `%V` | the month, the day (`%e` padded with a space, ` 8`), the day of the year (three digits), the ISO week | yes | | yes | yes |
+| `%A`, `%a`, `%B`, `%b` | the weekday and the month in English, whole and in three letters | yes | | yes | yes |
+| `%F`, `%u` | `%Y-%m-%d` with four digits after a sign, `-0001-01-01`; the ISO weekday, Monday 1 | yes | | yes | yes |
+| `%H`, `%M`, `%S`, `%I`, `%p` | the hour, minute, and second, two digits; the hour on a clock of 12; `AM` or `PM` | | yes | yes | yes |
+| `%T`, `%R` | `%H:%M:%S`, `%H:%M` | | yes | yes | yes |
+| `%f`, `%.f`, `%.3f` | the fraction of a second without its trailing zeros (`0` for none); the same after `.`, nothing for none; `.` and that many digits, 1 to 9, cut and not rounded | | yes | yes | yes |
+| `%z`, `%:z` | the offset, `-0700` and `-07:00`, with its seconds where it has them, `-00:44:30` | | | | yes |
+| `%Z` | the zone's abbreviation at the instant, in capitals, `MST`; a fixed zone's offset, `+05:30` or `-07`; `UTC` | | | | yes |
+| `%s` | the whole seconds since 1970, toward zero | | | | yes |
+| `%%` | `%` | yes | yes | yes | yes |
+
+`-` after the `%` drops a number's padding: `%-d` is `8`, `%-H` is `9`.
+It is the one flag, and takes only a directive that pads. Nothing else
+is taken: no locale forms (`%c`, `%x`), no two-digit years (`%y`), no
+other flags (`%_d`, `%^B`), and no widths (`%05d`, `%3f`); the one number
+is the precision `%.3f`. A fixed width comes from a precision: a
+fraction of zero prints nothing by `%.f` and `.000` by `%.3f`. Text
+outside the directives is written as it is.
+
+```rig
+use std.datetime
+
+STAMP = "%Y-%m-%dT%H:%M:%S%.3f%:z"
+
+sub main()!
+  denver = datetime.TimeZone.named("America/Denver")
+  z = datetime.DateTime.new(2026, 3, 8, hour: 9, minute: 5).in_zone(denver)!
+  print(z.format("%A, %B %-d, %Y at %-I:%M %p %Z"))
+  print(z.format(STAMP), z.date().format("%G-W%V-%u"), z.time().format("%T%.f"))
+  print(datetime.Date.new(-1, 12, 31).format("%Y %F"))
+  pattern = String("%d.%m.%Y")
+  print(z.date().try_format(pattern)!)
+  _ = z.date().try_format(String("%H:%M")) catch |e| print(e)
+```
+
+```output
+Sunday, March 8, 2026 at 9:05 AM MDT
+2026-03-08T09:05:00.000-06:00 2026-W10-7 09:05:00
+-001 -0001-12-31
+08.03.2026
+DateTimeError.invalid
+```
+
+A directive the type lacks is a compile error:
+
+```rig reject
+use std.datetime
+
+sub main()
+  print(datetime.Date.new(2026, 3, 8).format("%d %H"))
+```
+
+```error
+4:46: `datetime.Date.new(2026, 3, 8).format("%d %H")`: `%H` in the format string does not suit a `Date`: a `Date` has no time of day
+```
+
+The whole surface, in one program:
+
+```rig
 use std.time
 use std.datetime
 

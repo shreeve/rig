@@ -316,7 +316,10 @@ impl Oracle {
                 let tz = self.zone(a[1])?;
                 let info = tz.to_offset_info(i);
                 let z = i.to_zoned_datetime(tz.clone());
-                Ok(format!("{} {} {}", z, info.offset(), info.abbreviation()))
+                // The abbreviation as `%Z` writes it, in capitals (`ChST`
+                // is `CHST`).
+                let abbr = jiff::fmt::strtime::format("%Z", &z).map_err(|e| e.to_string())?;
+                Ok(format!("{} {} {}", z, info.offset(), abbr))
             }
             "datetime.in_zone" => {
                 let a = args(rest, 2)?;
@@ -540,6 +543,27 @@ impl Oracle {
                     return Ok("skip".into());
                 }
                 Ok(format!("{} {}", show(round), show(floor)))
+            }
+
+            // 6. Format strings (§8.4): the value, then the string, the
+            // rest of the line, spaces included.
+            "format.date" => {
+                let (v, f) = rest.split_once(' ').unwrap_or((rest, ""));
+                Ok(show(jiff::fmt::strtime::format(f, date(v)?)))
+            }
+            "format.time" => {
+                let (v, f) = rest.split_once(' ').unwrap_or((rest, ""));
+                Ok(show(jiff::fmt::strtime::format(f, time(v)?)))
+            }
+            "format.datetime" => {
+                let (v, f) = rest.split_once(' ').unwrap_or((rest, ""));
+                Ok(show(jiff::fmt::strtime::format(f, datetime(v)?)))
+            }
+            "format.zoned" => {
+                let (zone, more) = rest.split_once(' ').ok_or("expected a zone")?;
+                let (at, f) = more.split_once(' ').unwrap_or((more, ""));
+                let z = self.zoned(zone, at)?;
+                Ok(show(jiff::fmt::strtime::format(f, &z)))
             }
 
             _ => Err(format!("unknown case {op:?}")),

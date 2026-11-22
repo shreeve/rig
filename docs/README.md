@@ -33,6 +33,7 @@ and [DESIGN](DESIGN.md) say why; [SYNTAX](SYNTAX.md),
 | What is planned? | [ROADMAP.md](ROADMAP.md), and the engineering detail in [internals/backlog.md](internals/backlog.md) |
 | What does Rig guarantee, and how is it checked? | [learn/10-safety.md](learn/10-safety.md), then [formal/README.md](../formal/README.md) |
 | What does a program become, and what does it cost? | [learn/11-performance.md](learn/11-performance.md), then [DESIGN's cost model](DESIGN.md#cost-model) |
+| How do I work with dates, times, and zones? | [learn/12-dates.md](learn/12-dates.md), then [STD.md, std.datetime](STD.md#stddatetime) and [design/datetime.md](design/datetime.md) |
 | Where do things stand right now? | [HANDOFF.md](../HANDOFF.md) |
 | How do I work on the compiler? | [AGENTS.md](../AGENTS.md), then [internals/](internals/) and its [weak spots](internals/weak-spots.md) |
 | How do I write code once for many types? | [learn/07-generics.md](learn/07-generics.md), then [SPEC, Generic bodies](../SPEC.md#generic-bodies) and [design/apis.md](design/apis.md) |
@@ -50,7 +51,8 @@ for your language, then the journeys in order: [sigils](learn/01-sigils.md),
 [concurrency](learn/04-concurrency.md), [text](learn/05-text.md),
 [the standard library](learn/06-stdlib.md), [generics](learn/07-generics.md),
 [APIs](learn/08-apis.md), [tests](learn/09-tests.md),
-[safety](learn/10-safety.md), [performance](learn/11-performance.md). Then the
+[safety](learn/10-safety.md), [performance](learn/11-performance.md),
+[dates and times](learn/12-dates.md). Then the
 [examples](../examples/README.md), and the [FAQ](FAQ.md) when a
 "why" comes up.
 

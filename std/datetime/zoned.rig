@@ -273,6 +273,28 @@ pub obj ZonedDateTime: Eq + Ord + Hash + Print
   pub fun years_since(?@, other: ZonedDateTime) -> Int
     @months_since(other) / 12
 
+  # The value written by `pattern`, a strftime string known as Rig
+  # compiles, a string literal or a module constant bound to one:
+  # `z.format("%Y-%m-%d %H:%M %Z")` is `2026-11-17 08:07 MST`. A
+  # `ZonedDateTime` takes the directives of a `DateTime` and `%z`
+  # (`-0700`), `%:z` (`-07:00`), each with its seconds where the offset
+  # has them, `%Z`, the zone's abbreviation at the instant in capitals
+  # (`MST`; a fixed zone's offset, `+05:30`; `UTC`), and `%s`, the whole
+  # seconds since 1970, toward zero. An unknown directive is a compile
+  # error, and the call cannot fail: it gives a plain `String`, though
+  # declared with the `!` of `try_format`, whose failures the check
+  # rules out.
+  pub fun format(?@, pattern: ?String) -> String!
+    @try_format(pattern)!
+
+  # The value written by `pattern`, a string made as the program runs.
+  # Fails with `DateTimeError.invalid` exactly where `format` would not
+  # compile.
+  pub fun try_format(?@, pattern: ?String) -> String!
+    dt = @on_clock()
+    abbr = "" if @tz.id == FIXED_ID else zone_abbreviation(Int(@tz.id), @at.s)
+    formatted(pattern, HAS_DATE + HAS_TIME + HAS_ZONE, dt.on, dt.at, @at, @tz, Int(@off), abbr)!
+
   sub print(?@, out: !Printer)
     dt = @on_clock()
     print_date(!out, dt.on)
