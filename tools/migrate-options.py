@@ -315,7 +315,7 @@ def column(line, col):
 
 
 def wanted(message):
-    return OPTION.match(message) or SECOND.match(message)
+    return OPTION.match(message) or SECOND.match(message) or message.startswith("timed out: ")
 
 
 class Edits:
@@ -466,6 +466,9 @@ def main(argv):
             for path, found in pool.map(run, units):
                 for p, line, col, msg, own in found:
                     target = path if own else os.path.realpath(p)
+                    if msg.startswith("timed out: "):
+                        edits.manual.append("MANUAL %s: `rig check` timed out, so it is not rewritten" % path)
+                        continue
                     if own and line is None:
                         edits.manual.append("MANUAL %s: %s" % (path, msg))
                         continue
