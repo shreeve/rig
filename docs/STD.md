@@ -39,7 +39,7 @@ never read as the library's.
 | [`std.file`](#stdfile) | reading and writing files, whole or open, making, moving, and removing them, and asking what is at a path |
 | [`std.io`](#stdio) | the standard streams and copying bytes between files and sockets: `stdin`, `stdout`, `stderr`, `copy` |
 | [`std.time`](#stdtime) | the monotonic clock, durations, and waiting |
-| [`std.datetime`](#stddatetime) | the calendar and the clock face: `Date`, `Time`, `DateTime`, `Weekday`, their sums, counts, rounding, and ISO 8601 text |
+| [`std.datetime`](#stddatetime) | the calendar, the clock face, and zones: `Date`, `Time`, `DateTime`, `Weekday`, `Instant`, `TimeZone`, `ZonedDateTime`, their sums, counts, rounding, and ISO 8601 and RFC 9557 text |
 | [`std.task`](#stdtask) | stopping a task, waiting for several, and isolating a panic: `Stop`, `check`, `all`, `isolate`, `workers` |
 | [`std.par`](#stdpar) | calling a function on each element on several tasks: `map`, `each`, `workers` |
 | [`std.shared`](#stdshared) | a map several tasks fill and read at once: `shared.Map` |
@@ -901,11 +901,12 @@ zone, as a Postgres `timestamp` or an HTML `datetime-local` holds one,
 every day of it 24 hours; a `Weekday` a day of the week, `.monday` to
 `.sunday`; an `Instant` an exact point on the shared timeline, the
 same everywhere, from -9999-01-02T01:59:59Z to
-9999-12-30T22:00:00.999999999Z; and a `TimeZone` a named zone or a fixed
-offset ([Zones](#zones)). Each is plain data: `==` compares two,
+9999-12-30T22:00:00.999999999Z; a `TimeZone` a named zone or a fixed
+offset ([Zones](#zones)); and a `ZonedDateTime` an instant in a zone
+([Zoned values](#zoned-values)). Each is plain data: `==` compares two,
 `<` orders them (not zones), a `Map` keys on one, and `print` writes ISO 8601, an
-`Instant` RFC 3339 in UTC, and a zone its name. Nothing here allocates but a zone's `name()`
-and `local()`. The calendar
+`Instant` RFC 3339 in UTC, a zone its name, and a zoned value RFC 9557. Nothing here allocates but a zone's `name()`,
+a zoned value's `offset_text()`, and `local()`. The calendar
 math is Jiff 1.0.0's ([design/datetime.md](design/datetime.md)), and a
 program that only sleeps or times, using `std.time` alone, loads none of
 it.
@@ -921,7 +922,8 @@ refuses is a compile error ([SPEC §13](../SPEC.md#13-errors)):
 Every call is total or returns `!`, and none panics on any value
 ([design/datetime.md](design/datetime.md), "Total or visible"):
 arithmetic that walks past the range, `add`, `round`, and `floor` of a
-`Date`, a `DateTime`, and an `Instant`, fails with `DateTimeError.range`,
+`Date`, a `DateTime`, an `Instant`, and a `ZonedDateTime`, and a zoned
+value's `start_of_day()`, fails with `DateTimeError.range`,
 and a computed increment `round` does not take with
 `DateTimeError.invalid`. A program that wants the end of a range asks
 for it by name, `d.add(days: n) catch datetime.Date.max()`, never with a
@@ -961,7 +963,7 @@ value that gives a wrong date without a word, as `?? d` would.
 | `i.round(`*unit*`: n)!`, `i.floor(`*unit*`: n)!` | the nearest multiple of one unit's increment counted from 1970, a half going to the later, before 1970 too, and the one at or before it: `i.round(seconds: 1)!` prints without a fraction. The unit is `ns:` to `hours:`, with an increment that divides a day; fails with `range` past either end, and with `invalid` for a computed increment it does not take |
 | `Instant.parse(s)!` | an instant from RFC 3339 with any offset, as Jiff reads it: `2026-11-17T15:07:03.5Z`, `2026-11-17 08:07:03,5-07:00`, `t` and `z` in small letters. A zone in brackets after the offset is read and not used; text with no offset fails |
 
-Every argument of `add` of a `Date` and a `DateTime`, every `with`,
+Every argument of `add` of a `Date`, a `DateTime`, and a `ZonedDateTime`, every `with`,
 `round`, and `floor` is an option, given by
 name ([SPEC "Functions"](../SPEC.md#functions)), so none is taken as a
 value; a closure passes one. A recurrence anchors to its start: the k-th of a monthly
@@ -1090,20 +1092,101 @@ DateTimeError.unknown_zone
 2026f 598
 ```
 
-The rest of `std.datetime` is planned
-([design/datetime.md](design/datetime.md)): `ZonedDateTime` and
-`format`, each built on `std.time`'s `Duration` and `TimeZone`. A day on
-the clock needs a zone, so a day later than an instant is one in a zone:
+### Zoned values
 
-```rig pending
+A `ZonedDateTime` is an instant in a time zone: the instant, the zone,
+and the zone's offset at that instant, which give its date and time of
+day on the zone's clock. It is plain data, 24 bytes. `==`, `<`, and
+`Hash` take the instant alone, so noon in New York and 18:00 in Paris of
+one instant are equal and one key in a `Map`, and `a.zone() == b.zone()`
+compares the zones. It prints in RFC 9557, the offset rounded to the
+minute and the zone's name in brackets,
+`2026-11-17T08:07:03.512094-07:00[America/Denver]`, and `String(z)` read
+back by `ZonedDateTime.parse` gives the same instant in the same zone,
+except at a historic repeated time whose offsets have seconds, before
+1972, where the offset written rounded to the minute is the one read:
+New York's 12:01:58 on 1883-11-18, which local mean time (-04:56:02)
+repeated, reads back 2 seconds off, as in Jiff
+([design/datetime.md](design/datetime.md) §6.3 to §6.8, §8.1 to §8.3).
+
+A time on the clock can be one a zone skips, as 02:30 when Denver's
+clocks go from 02:00 to 03:00, or repeats, as 01:30 when they go back.
+Where a date and time become an instant, `resolve:` chooses, by a
+`Resolve`: `.compatible`, the default, takes a skipped time forward by
+the length of the gap (02:30 is 03:30) and a repeated time's first;
+`.earlier` and `.later` take a repeated time's first and second, and a
+skipped time as the gap's length before it and after it (01:30-07:00
+and 03:30-06:00); `.reject` fails with
+`DateTimeError.skipped_or_repeated`. Gaps and repeats are found by
+comparing offsets, so a zone whose data flags its winter as daylight
+saving, as Dublin's does, gives the same answers.
+
+| Member | Result |
+|---|---|
+| `i.in_zone(tz: TimeZone) -> ZonedDateTime` | the instant shown in `tz`; also on a zoned value, keeping its instant |
+| `dt.in_zone(tz: TimeZone, resolve: Resolve = .compatible) -> ZonedDateTime!` | the instant a `DateTime` shows on `tz`'s clock, a skipped or repeated time as `resolve` says; fails with `range` beyond the range of instants |
+| `d.in_zone(tz: TimeZone) -> ZonedDateTime!` | the first instant of a `Date` in `tz`: 00:00, or where the zone skips it the first time after (01:00 in São Paulo on 2015-10-18), and where it repeats it the first 00:00. A date skipped whole gives the next one's start (2011-12-30 in Apia is 2011-12-31T00:00). Fails with `range` beyond the range of instants: 9999-12-31 fails in UTC and not in Tokyo |
+| `z.instant()`, `z.datetime()`, `z.date()`, `z.time()`, `z.zone()` | its parts |
+| `z.offset() -> time.Duration`, `z.offset_text() -> String` | the zone's offset at the instant, `-7h`, and as text, `-07:00`, each with a historic offset's seconds, `-00:44:30` (Monrovia before 1972) |
+| `year()` to `iso_week_year()`, `hour()` to `nanosecond()` | the readers of the date and time on the zone's clock |
+| `z.add(duration: time.Duration? = none, ..period: Period) -> ZonedDateTime!` | years and months, then weeks and days, the group `period`, on the clock, as a `DateTime` adds them, a stored `Period` given whole, `z.add(..monthly, days: 3)!`; that time on the clock becomes an instant by `.compatible`; then the duration on the timeline. So `z.add(days: 1)!` is the same time tomorrow and `z.add(hours: 24)!` exactly 24 hours later, an hour apart across a change. When the months and the days each come to zero the instant is kept, so `add(days: 0)` on the second of a repeated time stays on it. The groups may differ in sign. Fails with `range` when a step leaves the range |
+| `z.with(..date: DateFields, ..clock: ClockFields, resolve: Resolve = .compatible) -> ZonedDateTime!` | the fields given by name replaced, on the clock, as `DateTime.with` takes them, `z.with(hour: 12)!`: where the new time is repeated, the value's own offset is kept when it is one of the two, so the second 01:30 in Denver on 2026-11-01 with the minute set to 45 is 01:45-07:00; otherwise as `resolve` says. Fails with `range` when that is not a real value |
+| `z.start_of_day() -> ZonedDateTime!` | the start of the value's date, as `d.in_zone(z.zone())!`; fails with `range` on the first date of the range |
+| `z.round(`*unit*`: n)!`, `z.floor(`*unit*`: n)!` | as a `DateTime`'s, on the zone's clock, keeping the value's offset where the result is repeated and moving a skipped one past the gap: the first 01:50 in Denver on 2026-11-01 rounded to 30 minutes is 02:00-07:00. To `days: 1`, the multiples are the starts of days: `floor` is the latest start at or before the value, and `round` chooses it or the next day's start by the day's real length, so noon on Denver's 23-hour day rounds down; a day at either end of the range is measured too. Fails with `range` only for a result beyond the range and `invalid` for a computed increment it does not take |
+| `z.since(other) -> time.Duration` | the time from `other`, exact for any two, in any two zones |
+| `days_since(other)`, `weeks_since(other)`, `months_since(other)`, `years_since(other)` | the whole units, counted on the calendar of the earlier of the two, the later shown in its zone: the days are the most `earlier.add(days: n)` reaches without passing the later, so 24 hours 10 minutes across a repeated hour is 0 days; months and years as for two dates, from the earlier's date to that date and the whole days |
+| `ZonedDateTime.parse(text: ?String, default_zone: TimeZone? = none, resolve: Resolve = .compatible, conflict: Conflict = .reject) -> ZonedDateTime!` | RFC 9557 as Jiff reads it: a date, a time of day (midnight when there is none), an offset, and a zone in brackets, a name or an offset. Text with no offset is placed as `resolve` says; `Z` is that instant, shown in the zone. An offset the zone does not give that time on the clock, as in text stored before the zone's rules changed, is as `conflict` says: `.reject` fails with `offset_conflict`, `.keep_instant` keeps the instant the offset gives, `.keep_clock` the time on the clock. Text with no zone in brackets is placed in `default_zone`, its offset agreeing with it, and fails without one. Fails with `invalid` for other text and an instant beyond the range, and `unknown_zone` for a name the data does not hold |
+| `today(tz: TimeZone) -> Date` | the date in `tz` now, `now().in_zone(tz).date()` |
+
+A day's range runs from its start to the next date's start, taken
+through the date, `d.in_zone(tz)!` to `d.add(days: 1)!.in_zone(tz)!`: in
+Nuuk, from 2026-03-27T23:30, `z.add(days: 1)!.start_of_day()!` gives the
+29th, since 23:30 on the 28th is skipped. In RFC 9557 text an offset is
+rounded to the minute, and that rounded offset agrees with the zone's,
+but `Instant.parse` uses it and ignores the zone, so Monrovia's
+`1968-02-01T23:15:00-00:45[Africa/Monrovia]` reads 30 seconds off as an
+instant and exactly as a zoned value.
+
+```rig
 use std.datetime
 
 sub main()!
   i = datetime.Instant.parse("2026-03-07T12:00:00Z")!
   denver = datetime.TimeZone.named("America/Denver")
-  print(i.in_zone(denver).add(days: 1)!)
+  z = i.in_zone(denver)
+  print(z, z.add(days: 1)!, z.add(hours: 24)!)
+  print(z.date(), z.weekday(), z.offset(), z.offset_text())
+  dt = datetime.DateTime.parse("2026-03-08T02:30")!
+  print(dt.in_zone(denver)!, dt.in_zone(denver, resolve: .earlier)!)
+  dt.in_zone(denver, resolve: .reject) catch |e| print(e)
+  second = datetime.ZonedDateTime.parse("2026-11-01T01:30:00-07:00[America/Denver]")!
+  print(second.with(minute: 45)!, second.round(hours: 1)!)
+  monthly = datetime.Period(months: 1)
+  print(z.add(..monthly, days: 3)!)
+  print(datetime.Date.new(2015, 10, 18).in_zone(datetime.TimeZone.named("America/Sao_Paulo"))!)
+  stored = "2030-12-01T12:00-02:00[America/Sao_Paulo]"
+  datetime.ZonedDateTime.parse(stored) catch |e| print(e)
+  print(datetime.ZonedDateTime.parse(stored, conflict: .keep_instant)!)
+  print(datetime.ZonedDateTime.parse("2026-11-17T08:07:03", default_zone: denver)!)
+  launch = datetime.ZonedDateTime.parse("2027-01-01T00:00:00+00:00[UTC]")!
+  print(launch.since(z).hours(), launch.days_since(z), launch == launch.in_zone(denver))
 ```
 
+```output
+2026-03-07T05:00:00-07:00[America/Denver] 2026-03-08T05:00:00-06:00[America/Denver] 2026-03-08T06:00:00-06:00[America/Denver]
+2026-03-07 Saturday -7h -07:00
+2026-03-08T03:30:00-06:00[America/Denver] 2026-03-08T01:30:00-07:00[America/Denver]
+DateTimeError.skipped_or_repeated
+2026-11-01T01:45:00-07:00[America/Denver] 2026-11-01T02:00:00-07:00[America/Denver]
+2026-04-10T05:00:00-06:00[America/Denver]
+2015-10-18T01:00:00-02:00[America/Sao_Paulo]
+DateTimeError.offset_conflict
+2030-12-01T11:00:00-03:00[America/Sao_Paulo]
+2026-11-17T08:07:03-07:00[America/Denver]
+7188 299 true
+```
+
+`format` is planned ([design/datetime.md](design/datetime.md)).
 The whole surface, as it will read:
 
 ```rig pending

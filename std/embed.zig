@@ -14,6 +14,7 @@ pub const files = [_]struct { []const u8, []const u8 }{
     .{ "datetime/weekday.rig", @embedFile("datetime/weekday.rig") },
     .{ "datetime/zone.rig", @embedFile("datetime/zone.rig") },
     .{ "datetime/zone_test.rig", @embedFile("datetime/zone_test.rig") },
+    .{ "datetime/zoned.rig", @embedFile("datetime/zoned.rig") },
     .{ "datetime.zig", @embedFile("datetime.zig") },
     .{ "tzdb_data.zig", @embedFile("tzdb_data.zig") },
     .{ "tzdb_names.zig", @embedFile("tzdb_names.zig") },

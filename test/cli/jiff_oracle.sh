@@ -70,6 +70,9 @@ cases=(
     # the instant 30 seconds off: the trap of DATETIME-DESIGN §7.6.
     "zoned.parse 1968-02-01T23:15:00-00:45[Africa/Monrovia]" "1968-02-01T23:15:00-00:45[Africa/Monrovia] 1968-02-01T23:15:30-00:45[Africa/Monrovia] 1968-02-01T23:15:00-00:45[Africa/Monrovia]"
     "instant.in_zone 1968-02-01T23:59:30Z Africa/Monrovia" "1968-02-01T23:15:00-00:45[Africa/Monrovia] -00:44:30 MMT"
+    # docs/design/datetime.md §6.5, measured: the second 01:30 in Denver on
+    # 2026-11-01 with the minute set to 45 keeps its offset
+    "zoned.with America/Denver 2026-11-01T08:30:00Z 2026-11-01T01:45:00" "2026-11-01T01:45:00-07:00[America/Denver] 2026-11-01T01:45:00-07:00[America/Denver] 2026-11-01T01:45:00-07:00[America/Denver] 2026-11-01T01:45:00-07:00[America/Denver]"
 )
 input=""
 want=""
@@ -106,9 +109,10 @@ for kind in calendar zones counts text round; do
     tally=$(paste -d '\t' "$cases_dir/$kind.in" "$cases_dir/$kind.jiff" "$cases_dir/$kind.rig" | awk -f "$dir/compare.awk")
     echo "$kind: ${tally##*$'\n'}"
     [[ $tally == *"differ 0 "* ]] || fail "std.datetime differs from Jiff on $kind.in: $tally"
+    [[ $tally == *" open 0" ]] || fail "std.datetime leaves cases of $kind.in unanswered: $tally"
     read -r _ same _ <<<"${tally##*$'\n'}"
     answered=$((answered + same))
 done
 # Every case these phases answer: fewer means answer.rig stopped
 # answering some.
-(( answered >= 1095068 )) || fail "std.datetime answered $answered cases the same as Jiff, fewer than 1,095,068"
+(( answered >= 2187579 )) || fail "std.datetime answered $answered cases the same as Jiff, fewer than 2,187,579"

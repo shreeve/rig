@@ -121,6 +121,11 @@ pub obj Instant: Eq + Ord + Hash + Print
   pub fun add(?@, d: time.Duration) -> Instant!
     instant_of(@total() + d.ns()) ?? return DateTimeError.range
 
+  # The instant shown in the zone `tz`, with its date and time of day on
+  # that zone's clock.
+  pub fun in_zone(?@, tz: TimeZone) -> ZonedDateTime
+    zoned_of(@, tz)
+
   # The time from `other` to this instant, negative when `other` is the
   # later; exact for any two instants.
   pub fun since(?@, other: Instant) -> time.Duration

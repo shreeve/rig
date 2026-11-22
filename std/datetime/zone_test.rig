@@ -54,6 +54,55 @@ test "Test/Morocco at the first and last instants"
   m = test_zone("Test/Morocco")
   m.offset_at(Instant.min()).seconds() == 3600 and m.offset_at(Instant.max()).seconds() == 3600
 
+# A time on the clock in a zone of the test table, each way it can be
+# resolved, as text.
+fun resolved_text(dt: DateTime, tz: TimeZone) -> String
+  out = String()
+  for how in [Resolve.compatible, Resolve.earlier, Resolve.later, Resolve.reject]
+    !out.add(" ") if out.len > 0
+    z = dt.in_zone(tz, resolve: how) catch |e|
+      !out.add(`{e}`)
+      continue
+    !out.add(`{z}`)
+  out
+
+fun clock_at(y: Int, m: Int, d: Int, h: Int, mi: Int) -> DateTime
+  DateTime.new(y, m, d, hour: h, minute: mi) catch DateTime.min()
+
+test "Dublin in the standard form: the gap and the repeat are found by the offsets, not the flag"
+  d = test_zone("Europe/Dublin")
+  # Spring skips 01:00 to 02:00, autumn repeats 01:00 to 02:00, in a
+  # year of the transitions and in one of the rule after them.
+  ok = resolved_text(clock_at(2026, 3, 29, 1, 30), d) == "2026-03-29T02:30:00+01:00[Europe/Dublin] 2026-03-29T00:30:00+00:00[Europe/Dublin] 2026-03-29T02:30:00+01:00[Europe/Dublin] DateTimeError.skipped_or_repeated"
+  ok = ok and resolved_text(clock_at(2026, 10, 25, 1, 30), d) == "2026-10-25T01:30:00+01:00[Europe/Dublin] 2026-10-25T01:30:00+01:00[Europe/Dublin] 2026-10-25T01:30:00+00:00[Europe/Dublin] DateTimeError.skipped_or_repeated"
+  ok = ok and resolved_text(clock_at(2087, 3, 30, 1, 30), d) == "2087-03-30T02:30:00+01:00[Europe/Dublin] 2087-03-30T00:30:00+00:00[Europe/Dublin] 2087-03-30T02:30:00+01:00[Europe/Dublin] DateTimeError.skipped_or_repeated"
+  ok and resolved_text(clock_at(2087, 10, 26, 1, 30), d) == "2087-10-26T01:30:00+01:00[Europe/Dublin] 2087-10-26T01:30:00+01:00[Europe/Dublin] 2087-10-26T01:30:00+00:00[Europe/Dublin] DateTimeError.skipped_or_repeated"
+
+test "Dublin in the standard form: a day on the clock across each change"
+  d = test_zone("Europe/Dublin")
+  spring = clock_at(2087, 3, 29, 12, 0).in_zone(d) catch return false
+  fall = clock_at(2087, 10, 25, 12, 0).in_zone(d) catch return false
+  a = spring.add(days: 1) catch return false
+  b = fall.add(days: 1) catch return false
+  a.since(spring) == time.duration(hours: 23) and b.since(fall) == time.duration(hours: 25)
+
+test "Test/Morocco: daylight saving all year, so every time on the clock is at +01:00"
+  m = test_zone("Test/Morocco")
+  ok = true
+  for y in [1970, 2026, 2087, 2199]
+    for dt in [clock_at(y, 1, 1, 0, 30), clock_at(y, 7, 1, 12, 0)]
+      z = dt.in_zone(m, resolve: .reject) catch return false
+      ok = ok and z.offset() == time.duration(hours: 1) and z.datetime() == dt
+    # The rule's daylight saving ends at 23:00 on December 31, the start
+    # of the next year's, which Jiff's reading of the clock
+    # (`dst_info_wall`) takes for an hour's gap: `.compatible` and
+    # `.later` give the time as it is, as Jiff's do.
+    last = clock_at(y, 12, 31, 23, 30)
+    for how in [Resolve.compatible, Resolve.later]
+      z = last.in_zone(m, resolve: how) catch return false
+      ok = ok and z.offset() == time.duration(hours: 1) and z.datetime() == last
+  ok
+
 extern zig "datetime.zig"
   # The zone of the test table named `name` exactly, or -1.
   fun test_zone_find(name: ?String) -> Int

@@ -1,17 +1,20 @@
 # The comparison of std.datetime's answers with Jiff's (README.md):
 # read as `paste -d '\t' CASES JIFF RIG`. A Rig answer of `-` is a case
-# not answered yet, and a Jiff answer of `skip`, or a part of one, is
-# where Rig differs on purpose; any other part must be the same. Prints
+# not answered, as is a Rig third part of `-` in `instant.in_zone` (the
+# abbreviation, phase 6's `format("%Z")`), and a Jiff answer of `skip`,
+# or a part of one, is where Rig differs on purpose; any other part must
+# be the same. Prints
 # each difference, at most 20, then `same N differ N skip N open N`.
 BEGIN { FS = "\t" }
 {
     if ($3 == "-") { open++; next }
     if ($2 == "skip") { skip++; next }
+    abbr = $1 ~ /^instant\.in_zone /
     nj = split($2, j, " ")
     nr = split($3, r, " ")
     bad = nj != nr
     for (k = 1; k <= nj && !bad; k++)
-        if (j[k] != "skip" && j[k] != r[k]) bad = 1
+        if (j[k] != "skip" && !(abbr && k == 3 && r[k] == "-") && j[k] != r[k]) bad = 1
     if (bad) {
         differ++
         if (differ <= 20) print "differs: " $1 " | jiff: " $2 " | rig: " $3

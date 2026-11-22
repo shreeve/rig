@@ -123,6 +123,7 @@ each among them, and 20,000 `instant.since` (§5.1, §7.8).
 | `instant.in_zone INSTANT ZONE` | ZONED, its exact offset (`-00:44:30`), its abbreviation | `i.in_zone(tz)`, `offset_text()`, `format("%Z")` |
 | `datetime.in_zone DATETIME ZONE` | four ZONEDs: `.compatible`, `.earlier`, `.later`, `.reject` | `dt.in_zone(tz, resolve:)` |
 | `date.in_zone DATE ZONE` | ZONED: the start of the date | `d.in_zone(tz)` |
+| `zoned.with ZONE INSTANT DATETIME` | four ZONEDs, the date and time on the clock replaced by DATETIME's: `.compatible`, `.earlier`, `.later`, `.reject` | `z.with(year:, …, ns:, resolve:)` |
 | `zoned.start_of_day ZONE INSTANT` | ZONED | `z.start_of_day()` |
 | `zone.name ZONE` | the name in the data's spelling | `tz.name()` |
 | `zone.eq ZONE ZONE` | `true` or `false` | `==` |
@@ -134,7 +135,9 @@ rule's in 2100, 2400 and 9998): the instant an hour before, a second
 before, at, a second after and an hour after it; the clock an hour
 before, a second before, at and a second after each side of the change,
 and in its middle; the start of the dates on each side; the start of the
-day a second either side; and a day and 24 hours added and taken away
+day a second either side; `with` from half an hour either side to the
+clock a second before the change, at either end of it, in its middle and
+a second before its end; and a day and 24 hours added and taken away
 half an hour either side. A name whose rules are another's (the same
 bytes in the bundle) is tested a second either side of each transition,
 and the rest once under the first name. Then the ends of the range, in
@@ -192,16 +195,19 @@ ISO 8601: Rig's `print` of a duration is its own (§9 item 8).
 
 `round` is Jiff's `RoundMode::HalfExpand` and `floor` its
 `RoundMode::Floor`. Only increments Rig allows (§6.8) are given; values
-fall often on a multiple or exactly half way.
+fall often on a multiple or exactly half way. Zoned values are also
+rounded within 49 hours of each end of the range, in zones east and
+west and at ±25:59, and about midnight in the years -9999, -1 and 0.
 
 ## std.datetime's answers
 
 `answer.rig` gives std.datetime's and std.time's answers to the same
-lines, for the cases they have so far; a case not answered yet prints
-`-`, and a call that fails prints `error`, as Jiff's does (§7.2).
-`compare.awk` compares them part for part, passing over
-`-` and each `skip`, and prints each difference and the counts;
-`jiff_oracle.sh` requires no difference.
+lines, every case but one part: the abbreviation of `instant.in_zone`,
+`format("%Z")`'s, which phase 6 builds, prints `-`. A call that fails
+prints `error`, as Jiff's does (§7.2). `compare.awk` compares them part
+for part, passing over each `skip` and that one part's `-`, and prints
+each difference and the counts; `jiff_oracle.sh` requires no difference
+and no case left unanswered (`open 0`).
 
 ```bash
 bin/rig build --release tools/jiff-oracle/answer.rig -o DIR/answer
@@ -218,10 +224,13 @@ The oracle does not check where Rig differs from Jiff on purpose
   exactly half way (Jiff takes it away from 1970, §9 item 12); for a
   `DateTime` or `ZonedDateTime` in a year at or below 0 that reaches the
   next midnight (Jiff 1.0.0 does not carry it into the next day there,
-  item 14), the `DateTime`'s round as one part of its answer; and for `round(days: 1)` on a
+  item 14), the round as one part of its answer; for `round(days: 1)` on a
   `ZonedDateTime` unless the value lies in its own date's range and that
-  date's start plus a day on the clock is the next date's start (item 14).
-  `floor` is checked in each of these.
+  date's start plus a day on the clock is the next date's start (item 14);
+  and for `floor(days: 1)` on a `ZonedDateTime` where Jiff cannot measure
+  the day, its start or that start plus a day being beyond the range,
+  which Rig measures (item 22). `floor` is otherwise checked in each of
+  these.
 - **The one duration past Rig's range.** Jiff's `SignedDuration` holds
   `i64::MIN` seconds, which Rig's symmetric range leaves out so that no
   negation fails (§5.1, §9 item 17); a duration case at it prints `skip`.
@@ -238,5 +247,5 @@ The oracle does not check where Rig differs from Jiff on purpose
 
 ## Size
 
-About 1.94 million cases. `gen.py` writes them in about 3.4 s and the
+About 2.19 million cases. `gen.py` writes them in about 3.4 s and the
 oracle answers them in about 1 s.

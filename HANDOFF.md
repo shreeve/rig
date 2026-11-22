@@ -176,9 +176,17 @@ A new session, human or agent, takes these steps in order:
   records/2026-11/named-options-groups) are a rewrite of the signature
   and the call checked twice, as iterator chains are, with
   std.datetime's `Period`, `DateFields`, and `ClockFields` as groups;
-  they hold plain data only. Next, in order: owners and read views in
-  groups and object update, lifting the plain-data limit (the owner,
-  2026-11-22; the build plan's step 3); `ZonedDateTime` (phase 5).
+  they hold plain data only. Phase 5 (branch `zoned-phase5`;
+  records/2026-11/datetime-phase5) builds `ZonedDateTime`, written to
+  total or visible: `in_zone` from an instant, a date and time
+  (`resolve:`), and a date; the readers; `add` (with the group
+  `period`), `with` (with `date` and `clock`), `start_of_day`, `round`,
+  `floor`, `since`, and the counts; equality, order and hashing by the
+  instant; RFC 9557 with `default_zone:` and `conflict:`; and `today`.
+  The oracle compares every zoned case, 2,187,579 answers in all, none
+  different. Next, in order: owners and read views in groups and object
+  update, lifting the plain-data limit (the owner, 2026-11-22; the build
+  plan's step 3); `format` (phase 6).
 - **The view vocabulary** (owner, 2026-11-20; #1192 landed PR 1):
   places, read and write views, read-only, unusable, and cells are the
   words of the docs, the messages, and the code. PR 1 is the wording; PR 2
