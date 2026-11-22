@@ -491,21 +491,6 @@ def column(line, col):
     return len(line.encode("utf-8")[: col - 1].decode("utf-8", "ignore"))
 
 
-def check(rig, root):
-    """The refusals `rig check` gives for the program `root`: (path, line,
-    column, message)."""
-    try:
-        r = subprocess.run([rig, "check", root], capture_output=True, text=True, timeout=300)
-    except subprocess.TimeoutExpired:
-        return [("", 0, 0, "timed out: " + root)]
-    return [(m.group(1), int(m.group(2)), int(m.group(3)), m.group(4)) for m in DIAG.finditer(r.stdout + r.stderr)]
-
-
-def column(line, col):
-    """The character index of byte column `col` (1-based) of `line`."""
-    return len(line.encode("utf-8")[: col - 1].decode("utf-8", "ignore"))
-
-
 WANTED = (BARE, NO_PROPAGATE, NOT_FALLIBLE, CHECKED, WIDE, FORM, WAIT_FLOAT, UNIX_ARG, TIME_STEP)
 
 
@@ -662,18 +647,6 @@ def unit_errors(rig, unit, tmp, every=False):
         out.append((None, w[0], col + w[1], msg, True))
     shutil.rmtree(d, ignore_errors=True)
     return out
-
-
-def files(paths):
-    for p in paths:
-        if os.path.isdir(p):
-            for root, dirs, names in os.walk(p):
-                dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d not in ("zig-cache", "zig-out", "node_modules", "history"))
-                for name in sorted(names):
-                    if name.endswith((".rig", ".rig.test", ".md")):
-                        yield os.path.join(root, name)
-        else:
-            yield p
 
 
 def files(paths):

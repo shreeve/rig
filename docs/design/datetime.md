@@ -497,7 +497,9 @@ sub main()
   - `d.subsec_ns()`: the part below a whole second, with the duration's sign, an `Int`;
   - `Duration.from_parts(seconds, ns)!`: the two must agree in sign and `ns` must be
     within ±999,999,999, or it fails `.invalid`. **[Owner, 2026-11-22]** It is the
-    representation itself, so it fails on nothing else.
+    representation itself, so it fails on nothing else, but `Int.min` seconds, past the
+    symmetric range, which fails `.range` as that number of seconds does as a duration
+    form.
 
 ## 5.5 Text
 

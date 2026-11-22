@@ -252,3 +252,43 @@ test "a duration is 16 bytes", "16 8"
   # §7.3: its whole seconds and its nanoseconds; a monotonic reading is
   # one word.
   print($size(time.Duration), $size(time.Monotonic))
+
+test "a Float converts from its exact value", '''
+  6m 24s 228ms 815us 182ns
+  -7s 790ms 868us 905ns
+  1970-01-01T00:06:24.228815182Z 1969-12-31T23:59:52.209131095Z 1970-01-01T00:01:57.393815235Z
+  TimeError.range
+  DateTimeError.range
+'''
+  # §5.2 and §7.8: a `Float`'s exact value, rounded to the nanosecond, a
+  # half away from zero. 384.2288151825 is the double
+  # 384.22881518249999999..., so its nanosecond is ...182, not ...183,
+  # which rounding its product in floating point gives. A finite `Float`
+  # past the range fails with `range`, however large.
+  fun f(x: Float) -> Float
+    x
+
+  print(time.duration(f(384.2288151825))!)
+  print(time.duration(f(-7.7908689055))!)
+  print(datetime.Instant.from_unix_float(f(384.2288151825))!, datetime.Instant.from_unix_float(f(-7.7908689055))!, datetime.Instant.from_unix_float(f(117.3938152355))!)
+  time.duration(f(1e300)) catch |e| print(e)
+  datetime.Instant.parse("2026-01-01T00:00:00Z")!.add(f(1e300)) catch |e| print(e)
+
+fail "a removed checked_ method names its replacement", "3:3: no method `checked_add` on type `Date`; it is `add(...)!`, which fails past the range", "4:3: no method `checked_times` on type `Duration`; it is `times(...)!`, which fails past the range"
+  d = datetime.Date.new(2026, 1, 1)
+  t = time.duration(1)
+  d.checked_add(days: 1) catch d
+  t.checked_times(2) catch t
+
+fail "a form refused in a function that cannot fail suggests catch", "2:18: `minutes: n` can be beyond a `Duration`'s range as the program runs, and this call cannot fail: make the duration first, `time.duration(minutes: n) catch ...`, handling its failure, and pass that"
+  fun later(t: datetime.Time, n: Int) -> datetime.Time
+    t.add(minutes: n)
+
+  print(later(datetime.Time.new(1, 0, 0), 3))
+
+fail "a fallible duration given as a duration is said once", "5:25: fallible call to `time.duration` must be wrapped with `!`", errors: 1
+  fun k(n: Int) -> Int
+    n
+
+  n = k(1)
+  print(time.Monotonic.at(time.duration(seconds: n))!)

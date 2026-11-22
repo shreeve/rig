@@ -751,9 +751,20 @@ fn nowNs() i96 {
 }
 
 /// `time.monotonic()`: the monotonic clock, which a deterministic run
-/// keeps virtual.
+/// keeps virtual. A reading stays within 0 and 2^62 nanoseconds, about
+/// 146 years, as std.time's `Monotonic` holds it, so that the difference
+/// of two cannot overflow: the real clock counts from boot, nowhere near
+/// it, and a virtual one that a long wait moved past it reads there.
 pub fn monotonicNs() Int {
-    return @intCast(nowNs());
+    return readingNs(nowNs());
+}
+
+/// The largest reading of the monotonic clock: 2^62 nanoseconds.
+pub const max_reading: Int = 1 << 62;
+
+/// `ns` as a reading, within 0 and `max_reading`.
+pub fn readingNs(ns: i96) Int {
+    return @intCast(std.math.clamp(ns, 0, max_reading));
 }
 
 /// The earlier of two deadlines, either of which may be none.

@@ -12316,7 +12316,7 @@ const Checker = struct {
             // clamped in a wait, joins a call that can fail, and is
             // refused anywhere else.
             const how: sema.DurationHow = if (parts_ns != null) .total else if (info.waits) .clamped else if (info.fold) |into| .{ .folded = into } else {
-                try self.errAt(args[parts.items[0]], "`{s}` can be beyond a `Duration`'s range as the program runs, and {s}: make the duration first, `time.duration({s})!`, and pass that", .{ try self.unitsText(keyword), self.noFold(), try self.unitsText(keyword) });
+                try self.errAt(args[parts.items[0]], "`{s}` can be beyond a `Duration`'s range as the program runs, and {s}: make the duration first, {s}, and pass that", .{ try self.unitsText(keyword), self.noFold(), try self.durationFix(try self.unitsText(keyword)) });
                 return;
             };
             slots[u] = .{ .parts = .{ .args = parts.items, .ty = target orelse sema.type_invalid, .opt = opt, .how = how } };
@@ -12934,6 +12934,9 @@ const Checker = struct {
         if (self.isPoison(ty)) return null;
         const shown = try self.plainText(arg);
         const value = self.canonical(ty);
+        // A fallible value, `time.duration(seconds: n)` with no `!`, is
+        // said once, by the call's own error.
+        if (self.ctx.types.get(value) == .fallible) return null;
         const float = value == self.t().float_id;
         const target = sema.durationParam(self.ctx, param);
         if (!float and value != self.t().int_id) {
@@ -12973,8 +12976,8 @@ const Checker = struct {
             }
         } else switch (self.floatConst(arg)) {
             .value => |v| {
-                const ns = @round(v * @as(f64, @floatFromInt(unit_ns)));
-                if (!(ns > -0x1p100 and ns < 0x1p100) or !durationHolds(@as(i128, @intFromFloat(ns)))) {
+                const ns = sema.floatToNs(v, unit_ns).?;
+                if (!durationHolds(ns)) {
                     try self.errAt(arg, "`{s}` {s} is beyond a `Duration`'s range, about 292 billion years either way", .{ shown, unit_name });
                     return null;
                 }
@@ -12982,7 +12985,7 @@ const Checker = struct {
                     try self.negativeWait(arg, shown, try std.fmt.allocPrint(self.ctx.arena.allocator(), "{d}", .{v}));
                     return null;
                 }
-                known = @intFromFloat(ns);
+                known = ns;
             },
             .not_finite => {
                 try self.errAt(arg, "a duration is a finite number, and `{s}` is not", .{shown});
@@ -12998,14 +13001,15 @@ const Checker = struct {
         // and anywhere else the conversion is to be written.
         const how: sema.DurationHow = if (known != null or (!float and sema.duration.totalInt(unit_ns))) .total else if (info.waits) blk: {
             if (float) {
-                try self.errAt(arg, "a wait takes no `Float` known only as the program runs, which may not be finite: make the duration first, `time.duration({s}{s})!`, and pass that", .{ if (unit != null) try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}: ", .{unit_name}) else "", shown });
+                const form = if (unit != null) try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}: {s}", .{ unit_name, shown }) else shown;
+                try self.errAt(arg, "a wait takes no `Float` known only as the program runs, which may not be finite: make the duration first, {s}, and pass that", .{try self.durationFix(form)});
                 return null;
             }
             break :blk .clamped;
         } else if (part) .total else if (info.fold) |into| .{ .folded = into } else {
             const form = if (unit != null) try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}: {s}", .{ unit_name, shown }) else shown;
             const why = if (float) "is a `Float`, which may not be finite or may be" else "can be";
-            try self.errAt(arg, "`{s}` {s} beyond a `Duration`'s range as the program runs, and {s}: make the duration first, `time.duration({s})!`, and pass that", .{ form, why, self.noFold(), form });
+            try self.errAt(arg, "`{s}` {s} beyond a `Duration`'s range as the program runs, and {s}: make the duration first, {s}, and pass that", .{ form, why, self.noFold(), try self.durationFix(form) });
             return null;
         };
         if (part) {
@@ -13019,6 +13023,15 @@ const Checker = struct {
         const opt = if (target != null and !sema.isDurationType(self.ctx, param)) param else sema.type_invalid;
         try self.ctx.recordDuration(arg, .{ .unit_ns = unit_ns, .float = float, .ty = target orelse sema.type_invalid, .opt = opt, .how = how });
         return known;
+    }
+
+    /// The fix that makes a duration form's conversion visible: passing
+    /// its failure on, `time.duration(minutes: n)!`, where the function
+    /// being checked can, else handling it.
+    fn durationFix(self: *Checker, form: []const u8) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        if (self.body.fail_to == .caller) return std.fmt.allocPrint(a, "`time.duration({s})!`", .{form});
+        return std.fmt.allocPrint(a, "`time.duration({s}) catch ...`, handling its failure", .{form});
     }
 
     /// Why a duration form that can fail joins no failure in the call

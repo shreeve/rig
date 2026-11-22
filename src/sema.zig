@@ -6576,6 +6576,13 @@ pub fn stdRenamed(foreign: *const SemContext, owner: []const u8, member: []const
         .{ "std.time", "", "MS", "; a length of time is a `time.Duration`: `time.duration(ms: 1)`, or `ms: 1` where a duration is taken" },
         .{ "std.time", "", "SECOND", "; a length of time is a `time.Duration`: `time.duration(1)`, or a bare number of seconds where a duration is taken" },
         .{ "std.time", "", "MINUTE", "; a length of time is a `time.Duration`: `time.duration(minutes: 1)`, or `minutes: 1` where a duration is taken" },
+        .{ "std.time", "Duration", "checked_add", "; it is `add(...)!`, which fails past the range" },
+        .{ "std.time", "Duration", "checked_sub", "; it is `sub(...)!`, which fails past the range" },
+        .{ "std.time", "Duration", "checked_times", "; it is `times(...)!`, which fails past the range" },
+        .{ "std.datetime", "Date", "checked_add", "; it is `add(...)!`, which fails past the range" },
+        .{ "std.datetime", "DateTime", "checked_add", "; it is `add(...)!`, which fails past the range" },
+        .{ "std.datetime", "Instant", "checked_add", "; it is `add(...)!`, which fails past the range" },
+        .{ "std.datetime", "Time", "checked_add", "; a `Time`'s `add` wraps past midnight and does not fail, and a sum that must not pass midnight is a `DateTime`'s, `d.at(t).add(...)!`" },
     };
     for (table) |r| {
         if (std.mem.eql(u8, r[0], foreign.name) and std.mem.eql(u8, r[1], owner) and std.mem.eql(u8, r[2], member)) return r[3];
@@ -12576,10 +12583,44 @@ pub const Duration = struct {
     }
 };
 
+/// `x * unit`, `x` a finite double and `unit` a positive integer, rounded
+/// from its exact value to the nearest integer, a half away from zero,
+/// and held within ±2^100; null when `x` is not finite. A double is an
+/// integer times a power of two, so the product is exact before the one
+/// rounding (the runtime's `rig.floatToNs` is the same, as a constant must
+/// convert as the program would).
+pub fn floatToNs(x: f64, unit: i64) ?i128 {
+    if (!std.math.isFinite(x)) return null;
+    const cap: i128 = 1 << 100;
+    const bits: u64 = @bitCast(x);
+    const exp_bits: i32 = @intCast((bits >> 52) & 0x7ff);
+    const frac: u64 = bits & ((@as(u64, 1) << 52) - 1);
+    const m: u64 = if (exp_bits == 0) frac else frac | (@as(u64, 1) << 52);
+    const e: i32 = (if (exp_bits == 0) @as(i32, 1) else exp_bits) - 1075;
+    const neg = bits >> 63 == 1;
+    // |x * unit| = m * unit * 2^e, m below 2^53 and unit below 2^42.
+    const num: u128 = @as(u128, m) * @as(u128, @intCast(unit));
+    var q: u128 = 0;
+    if (e >= 0) {
+        if (num != 0 and (e >= 100 or (@as(u128, cap) >> @intCast(e)) < num)) {
+            q = cap;
+        } else q = num << @intCast(e);
+    } else {
+        const shift: u32 = @intCast(-e);
+        if (shift < 128) {
+            q = num >> @intCast(shift);
+            const rest = num - (q << @intCast(shift));
+            if (rest >= (@as(u128, 1) << @intCast(shift - 1))) q += 1;
+        }
+    }
+    const n: i128 = @intCast(@min(q, cap));
+    return if (neg) -n else n;
+}
+
 /// How a duration form becomes its value (docs/design/datetime.md
 /// §5.2), decided once by the checker on a positive list: `total`, a form
-/// that cannot fail (a constant it checked, a `Duration`, an `Int` of
-/// seconds or a smaller unit, `rig.durationInt`); `clamped`, in a wait,
+/// that cannot fail (a constant it checked, a `Duration`, an `Int` of a
+/// unit below a second, `rig.durationInt`); `clamped`, in a wait,
 /// which waits as long as the scheduler can (`rig.durationIntClamp`);
 /// `folded`, into a call that returns `!`, whose failure the conversion
 /// joins with the callee's own `range` and `invalid` (`rig.durationIntTry`).

@@ -116,3 +116,27 @@ and datetime areas, `std-datetime-total`, `cli.jiff_oracle`,
 `cli.migrate_tov`, `cli.datetime_no_panic`. Not run here, by the
 coordinator: the json, hash and text guards, the Trig and loco light
 gates, pup.
+
+## After review (2026-11-22)
+
+Two independent reviews of 91d3d942b; decision 1 stands, put to the
+owner. Fixed, each with its failing case first:
+
+1. A deterministic run's virtual clock, moved past 2^62 ns by a clamped
+   wait, panicked in `monotonicNs` and `sinceStartNs` (`@intCast` of the
+   i96 clock): a reading is now clamped within 0 and 2^62
+   (`tasks.readingNs`), keeping `Monotonic`'s promise
+   (`cli.virtual_clock_far`, deterministic only).
+2. Comments that still called an `Int` of seconds total.
+3. A `Float` now converts from its exact value (the double is an integer
+   times a power of two, so the product is exact before the one
+   rounding): `rig.floatToNs` and its copy `sema.floatToNs` for duration
+   forms and constants, and `exact_ns` in std.datetime for
+   `from_unix_float`. `384.2288151825` gives ...182 ns, not ...183; a
+   finite `Float` past the range fails `range`, not `invalid`.
+4. `Duration.from_parts(Int.min, 0)` fails `range`, as `Int.min` seconds
+   does as a form.
+5. Minor: `migrate-tov.py`'s duplicate definitions removed; a removed
+   `checked_*` names its replacement; a fallible `time.duration(...)`
+   given as a duration is said once; in a function that cannot fail, the
+   fix offered is `time.duration(...) catch ...`.

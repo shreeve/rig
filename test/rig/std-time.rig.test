@@ -33,12 +33,13 @@ test "duration from parts refuses", '''
   TimeError.invalid
   TimeError.invalid
   TimeError.invalid
-  TimeError.invalid
+  TimeError.range
   2562047788015215h 30m 7s 999ms 999us 999ns
 '''
-  # Known only as the program runs, parts of two signs, nanoseconds of a
-  # second or more, and `Int.min` seconds, one past the symmetric range,
-  # each fail with `TimeError.invalid`.
+  # Known only as the program runs, parts of two signs and nanoseconds
+  # of a second or more each fail with `TimeError.invalid`; `Int.min`
+  # seconds, one past the symmetric range, with `TimeError.range`, as
+  # the same number of seconds does as a duration form.
   sub show(s: Int, n: Int)
     d = time.Duration.from_parts(s, n) catch |e|
       print(e)

@@ -61,8 +61,9 @@ pub obj Instant: Eq + Ord + Hash + Print
     Instant(s: floor_div(ns, SECOND_NS), ns: U32(floor_mod(ns, SECOND_NS)))
 
   # The instant `s` seconds after 1970-01-01T00:00Z, a `Float` as
-  # Python's `time.time()` and many JSON APIs write it, to the nearest
-  # nanosecond, a half away from zero. A `Float` near 1.7e9 resolves
+  # Python's `time.time()` and many JSON APIs write it, from its exact
+  # value to the nearest nanosecond, a half away from zero: 384.2288151825
+  # is the double 384.22881518249999..., whose nanosecond is ...182. A `Float` near 1.7e9 resolves
   # only about 240 ns, so a finer time is given as `Int`s. Fails with
   # `DateTimeError.invalid` for a NaN and `DateTimeError.range` for an
   # infinity or a time beyond the range of instants.
@@ -71,15 +72,7 @@ pub obj Instant: Eq + Ord + Hash + Print
       return DateTimeError.invalid
     if s < Float(MIN_UNIX_S - 1) or s > Float(MAX_UNIX_S + 1)
       return DateTimeError.range
-    whole = Int(s)
-    n = (s - Float(whole)) * 1e9
-    ns = Int(n)
-    rest = n - Float(ns)
-    if rest >= 0.5
-      ns += 1
-    else if rest <= -0.5
-      ns -= 1
-    instant_of(I128(whole) * I128(SECOND_NS) + I128(ns)) ?? return DateTimeError.range
+    instant_of(exact_ns(s)) ?? return DateTimeError.range
 
   # The instant `text` writes in RFC 3339: a date, `T`, `t`, or a space,
   # a time of day, and an offset, `Z`, `z`, or a sign and the hours, then
@@ -177,6 +170,26 @@ fun instant_of(n: I128) -> Instant?
   if s < I128(MIN_UNIX_S) or s > I128(MAX_UNIX_S)
     return none
   Instant(s: Int(s), ns: U32(r))
+
+# The nanoseconds of `x` seconds, a finite `Float` within 2^40, from its
+# exact value, rounded to the nearest, a half away from zero. A `Float`
+# is a whole number `m` below 2^53 times 2^`e`, so `m` times 10^9 is
+# exact in an `I128` before the one rounding.
+fun exact_ns(x: Float) -> I128
+  a = -x if x < 0.0 else x
+  if a == 0.0
+    return 0
+  m = Int(a.fraction() * 9_007_199_254_740_992.0)
+  e = a.exponent() - 53
+  num = I128(m) * I128(SECOND_NS)
+  q: I128 = 0
+  if e >= 0
+    q = num * (I128(1) << e)
+  else if -e < 120
+    q = num >> -e
+    if num - (q << -e) >= I128(1) << (-e - 1)
+      q += 1
+  -q if x < 0.0 else q
 
 # `n` nanoseconds as a `Duration`, for the span between two instants or
 # two dates and times, which a `Duration` always holds: the standard

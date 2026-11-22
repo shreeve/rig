@@ -49,13 +49,17 @@ pub obj Duration: Eq + Ord + Hash + Print
   nano: I32
 
   # The duration of `seconds` and `ns` more nanoseconds: the two agree
-  # in sign (either may be zero), `ns` is within ±999,999,999, and
-  # `seconds` is not `Int.min`, or it fails with `TimeError.invalid`.
+  # in sign (either may be zero) and `ns` is within ±999,999,999, or it
+  # fails with `TimeError.invalid`; `Int.min` seconds, one past the
+  # symmetric range, fails with `TimeError.range`, as it does as a
+  # duration form.
   # With `subsec_ns`, the parts of a duration; with constant arguments
   # it is checked as Rig compiles and takes no `!`.
   pub fun from_parts(seconds: Int, ns: Int) -> Duration!
-    if ns <= -SECOND_NS or ns >= SECOND_NS or seconds < -MAX_S or (seconds < 0 and ns > 0) or (seconds > 0 and ns < 0)
+    if ns <= -SECOND_NS or ns >= SECOND_NS or (seconds < 0 and ns > 0) or (seconds > 0 and ns < 0)
       return TimeError.invalid
+    if seconds < -MAX_S
+      return TimeError.range
     Duration(s: seconds, nano: I32(ns))
 
   # The shortest and the longest duration: -(2^63 - 1) seconds and
@@ -262,9 +266,10 @@ pub fun since_start() -> Duration
 
 # A duration form as a value: `time.duration(ms: 250)`,
 # `time.duration(5)`. A form that cannot fail gives a `Duration`: a
-# constant, checked as Rig compiles, a `Duration`, an `Int` of seconds
-# or of a smaller unit. One that can, a `Float`, an `Int` of minutes or
-# hours, or several units summed, known only as the program runs, gives
+# constant, checked as Rig compiles, a `Duration`, an `Int` of a unit
+# below a second. One that can, a `Float`, an `Int` of seconds (bare or
+# `seconds:`, `Int.min` seconds being past the range), minutes or hours,
+# or several units summed, known only as the program runs, gives
 # a `Duration!`, which fails with `TimeError.invalid` for a number that
 # is not finite and `TimeError.range` beyond the range:
 # `time.duration(minutes: n)!`.

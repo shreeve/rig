@@ -4732,7 +4732,7 @@ pub inline fn namedTag(e: anytype) @TypeOf(e) {
 // an `i64` of nanoseconds, what the scheduler takes (`time.after`,
 // `per:`). Each form converts one of three ways, as the checker decided
 // (`sema.Duration.how`): `total`, which cannot fail (a constant the
-// checker checked, an `Int` of seconds or a smaller unit); `folded`, the
+// checker checked, an `Int` of a unit below a second); `folded`, the
 // `Try` twins, which give the callee's own error for the call's `!`; and
 // `clamped`, a wait's, the `Clamp` twins, which wait as long as they
 // can. None panics on a value the checker let through.
@@ -4764,18 +4764,49 @@ fn durationBug() noreturn {
     @panic("rig: a duration the compiler checked is beyond a Duration's range (compiler bug)");
 }
 
-/// The nanoseconds of `x` units of `unit`, rounded to the nearest, a
-/// half away from zero; null when `x` is not finite, and an infinity's
-/// sign beyond any `Duration` when it is past 2^100.
+/// The nanoseconds of `x` units of `unit`, from `x`'s exact value,
+/// rounded to the nearest, a half away from zero; null when `x` is not
+/// finite. A value past 2^100 nanoseconds, beyond any `Duration`, is
+/// 2^100 with its sign (`floatToNs`).
 inline fn floatNs(x: f64, comptime unit: i64) ?i128 {
-    const ns = @round(x * @as(f64, @floatFromInt(unit)));
-    if (std.math.isNan(ns) or std.math.isInf(ns)) return null;
-    const cap: f64 = 0x1p100;
-    return @intFromFloat(std.math.clamp(ns, -cap, cap));
+    return floatToNs(x, unit);
+}
+
+/// `x * unit`, `x` a finite double and `unit` a positive integer, rounded
+/// from its exact value to the nearest integer, a half away from zero,
+/// and held within ±2^100; null when `x` is not finite. A double is an
+/// integer times a power of two, so the product is exact before the one
+/// rounding (the compiler's `sema.floatToNs` is the same).
+pub fn floatToNs(x: f64, unit: i64) ?i128 {
+    if (!std.math.isFinite(x)) return null;
+    const cap: i128 = 1 << 100;
+    const bits: u64 = @bitCast(x);
+    const exp_bits: i32 = @intCast((bits >> 52) & 0x7ff);
+    const frac: u64 = bits & ((@as(u64, 1) << 52) - 1);
+    const m: u64 = if (exp_bits == 0) frac else frac | (@as(u64, 1) << 52);
+    const e: i32 = (if (exp_bits == 0) @as(i32, 1) else exp_bits) - 1075;
+    const neg = bits >> 63 == 1;
+    // |x * unit| = m * unit * 2^e, m below 2^53 and unit below 2^42.
+    const num: u128 = @as(u128, m) * @as(u128, @intCast(unit));
+    var q: u128 = 0;
+    if (e >= 0) {
+        if (num != 0 and (e >= 100 or (@as(u128, cap) >> @intCast(e)) < num)) {
+            q = cap;
+        } else q = num << @intCast(e);
+    } else {
+        const shift: u32 = @intCast(-e);
+        if (shift < 128) {
+            q = num >> @intCast(shift);
+            const rest = num - (q << @intCast(shift));
+            if (rest >= (@as(u128, 1) << @intCast(shift - 1))) q += 1;
+        }
+    }
+    const n: i128 = @intCast(@min(q, cap));
+    return if (neg) -n else n;
 }
 
 /// A duration of `n` units of `unit` nanoseconds, which cannot fail: a
-/// unit of a second or less, or a constant the checker checked.
+/// unit below a second, or a constant the checker checked.
 pub inline fn durationInt(comptime T: type, n: i64, comptime unit: i64) T {
     return durationOf(T, @as(i128, n) * unit) orelse durationBug();
 }
@@ -8375,10 +8406,10 @@ var started_ns_var: i96 = 0;
 const started_ns = split.cell(&started_ns_var, "runtime.started_ns");
 
 /// `time.since_start()`: nanoseconds on the monotonic clock since the
-/// program started.
+/// program started, within a reading's range (`tasks.readingNs`).
 pub fn sinceStartNs() i64 {
     if (!reads_start) @compileError("time.since_start in a program whose root does not declare __rig_since_start");
-    return @intCast(sched.nowNs() - started_ns.*);
+    return tasks.readingNs(sched.nowNs() - started_ns.*);
 }
 
 /// What the process started with, which Zig hands only to `main`:
