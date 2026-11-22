@@ -432,6 +432,17 @@ tokens
     assoc_bound                 owner:leaf name:leaf apis:group   # `[S: Source, S.Item: Ord]`: bounds on an associated type
     once                        name:leaf type   # `f: once ?fun() -> T`; the Parser wrapper makes it a `:`
     default                     name:leaf type value
+    # `..net: Net`: a group, whose fields are the function's name-only
+    # options (docs/design/options.md, section 2). The Parser wrapper
+    # rewrites it, once typecheck has found its fields, into one
+    # parameter per field typed `(field_of type name group)`
+    # (`Parser.flattenGroups`).
+    group_param                 name:leaf type
+    # The type of a group's field, as its parameter has it: field `name`
+    # of the group type `type`, of the group named `group`; `ftype` is
+    # the field's type as its declaration writes it, for a type of the
+    # same module. Only the rewrite writes it.
+    field_of                    type name:leaf group:leaf ftype? @wrapper
     valued                      name:leaf value
     none_value                  marker:leaf field:leaf value    # `none id == 0`; the checker requires `none`
     variant                     name:leaf params:group
@@ -512,6 +523,10 @@ tokens
     array_fill                  size value
     tuple                       ...elems         # `(a, b)`: parsed only to be rejected
     kwarg                       name:leaf value
+    # `..v`: the fields of a stored value, given to the group of its type
+    # or to the object it updates (docs/design/options.md, section 3);
+    # rewritten into keyword arguments (`Parser.expandSpreads`).
+    spread                      value
 
     # Operators
     "+", "-", "*", "/", "%"     left right
@@ -851,6 +866,7 @@ field    = fname
          | "?" operand:fname                        → (read)       # `?@`
          | "!" operand:fname                        → (write)      # `!@`
          | "<" operand:fname                        → (move)       # `<@`
+         | ".." name:fname ":" type:type            → (group_param) # `..net: Net`, a group
 
 # Inside ( ) the rewriter turns a name followed by `:` into KWARG_NAME.
 fname    = name | KWARG_NAME
@@ -1403,6 +1419,8 @@ callargs = callarg                                  → (1)
          | callargs "," callarg                     → (...1 3)
 
 callarg  = name:KWARG_NAME ":" value:expr           → (kwarg)
+         | KWARG_NAME ":"                           → (kwarg 1 1)  # `retries:`, which is `retries: retries`
+         | ".." value:unary                         → (spread)     # `..cfg.net`
          | expr
 
 atom     = name

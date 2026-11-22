@@ -1,0 +1,615 @@
+use std.datetime
+use std.time
+
+test "a group's fields are the function's options, by name", '''
+  a 30 3 true
+  b 30 5 true
+  c 2 3 false
+'''
+  # docs/design/options.md, section 2.
+  obj Net
+    timeout: Int = 30
+    retries: Int = 3
+    follow: Bool = true
+
+  sub fetch(url: ?String, ..net: Net)
+    print(url, net.timeout, net.retries, net.follow)
+
+  fetch("a")
+  fetch("b", retries: 5)
+  fetch("c", follow: false, timeout: 2)
+
+test "a field without a default is a required name-only argument", '''
+  a.txt -> b.txt false
+  a.txt -> c.txt true
+'''
+  obj CopyArgs
+    src: Static
+    dst: Static
+    overwrite: Bool = false
+
+  sub copy(..a: CopyArgs)
+    print(a.src, "->", a.dst, a.overwrite)
+
+  copy(src: "a.txt", dst: "b.txt")
+  copy(dst: "c.txt", src: "a.txt", overwrite: true)
+
+code "a call with a group passes its fields as arguments, defaults filled", "fetch(\"a\", 30, 9)"
+  obj Net
+    timeout: Int = 30
+    retries: Int = 3
+
+  sub fetch(url: ?String, ..net: Net)
+    print(url, net.timeout, net.retries)
+
+  fetch("a", retries: 9)
+
+code "a spread is field reads as arguments", "fetch(\"b\", cfg.net.timeout, 9)"
+  obj Net
+    timeout: Int = 30
+    retries: Int = 3
+
+  obj Config
+    name: Static
+    net: Net
+
+  sub fetch(url: ?String, ..net: Net)
+    print(url, net.timeout, net.retries)
+
+  cfg = Config(name: "prod", net: Net(retries: 5))
+  fetch("b", ..cfg.net, retries: 9)
+
+test "inline options and several groups", "1 2 3 4"
+  obj A
+    a: Int = 0
+    b: Int = 0
+
+  obj B
+    c: Int = 0
+
+  fun sum(x: Int, scale: Int = 1, ..p: A, ..q: B) -> Int
+    (x + p.a + p.b + q.c) * scale
+
+  print(sum(1), sum(1, a: 1), sum(1, b: 1, c: 1), sum(1, scale: 2, a: 1))
+
+test "a body that uses its group whole binds it", "show 7 3\nw 7"
+  obj Net
+    timeout: Int = 30
+    retries: Int = 3
+
+  sub show(n: Net)
+    print("show", n.timeout, n.retries)
+
+  sub fetch(url: ?String, ..net: Net)
+    show(net)
+    print(url, net.timeout)
+
+  fetch("w", timeout: 7)
+
+test "a closure captures its group whole", "4"
+  obj Net
+    retries: Int = 3
+
+  sub fetch(..net: Net)
+    f = |?net| net.retries + 1
+    print(f())
+
+  fetch()
+
+test "a group's fields are no names of the body, which may declare them", "1 99"
+  obj Net
+    timeout: Int = 30
+
+  sub fetch(..net: Net)
+    new timeout = 99
+    print(net.timeout, timeout)
+
+  fetch(timeout: 1)
+
+fail "a group's field named in the body by itself", "5:9: `timeout` is a field of group `net`, not a name of the body: read it as `net.timeout`", errors: 1
+  obj Net
+    timeout: Int = 30
+
+  sub fetch(..net: Net)
+    print(timeout)
+
+  fetch()
+
+fail "a group's field is not assigned", "5:3: cannot assign to `net.timeout`; group `net` is a parameter, and parameters are immutable", errors: 1
+  obj Net
+    timeout: Int = 30
+
+  sub fetch(..net: Net)
+    net.timeout = 4
+
+  fetch()
+
+fail "the group's declaration refuses collisions", "14:42: `retries` is both a parameter of `post` and a field of its group `net`, a `Net`", "17:20: `timeout` is a field of both group `a`, a `Net`, and group `b`, a `Wait`, of `both`", "20:23: `net` is both group `net` of `named` and a field of its group `w`, a `Wrap`: name the group otherwise", errors: 3
+  obj Net
+    timeout: Int = 30
+    retries: Int = 3
+
+  obj Wait
+    timeout: Int = 5
+
+  obj Wrap
+    net: Int = 0
+
+  sub fetch(url: ?String, ..net: Net)
+    print(url)
+
+  sub post(url: ?String, retries: Int = 0, ..net: Net)
+    print(url)
+
+  sub both(..a: Net, ..b: Wait)
+    print(a.timeout)
+
+  sub named(..net: Net, ..w: Wrap)
+    print(w.net)
+
+  fetch("u")
+
+fail "a group holds an object's plain data", "8:16: group `n` of `count` is a `Int`, which is not an object", "11:10: group `r` of `send` is a `Req`, which holds `body: ?String`, a view; a group holds plain data", "14:10: group `o` of `keep` is a `Own`, which holds `name: String`, an owner; a group holds plain data", errors: 3
+  obj Req
+    body: ?String
+    retries: Int = 0
+
+  obj Own
+    name: String
+
+  sub count(..n: Int)
+    print(n)
+
+  sub send(..r: Req)
+    print(r.retries)
+
+  sub keep(..o: Own)
+    print(o.name)
+
+  count()
+
+fail "a pub function's group has pub fields", "7:15: `fetch` is `pub`, so the fields of its group `net`, a `Net`, are public too: declare `timeout` `pub`", errors: 1
+  obj Net
+    timeout: Int = 30
+
+  sub main()
+    fetch()
+
+  pub sub fetch(..net: Net)
+    print(net.timeout)
+
+fail "a required parameter after a group", "4:23: `n` has no default but follows the group `net`, so it could only be given by name", errors: 1
+  obj Net
+    timeout: Int = 30
+
+  sub fetch(..net: Net, n: Int)
+    print(n)
+
+  fetch(1)
+
+fail "a group is a parameter of a fun or a sub", "5:3: a group, `..net: Net`, is a parameter of a `fun` or `sub`, whose options its fields become", errors: 1
+  obj Net
+    timeout: Int = 30
+
+  obj Holder
+    ..net: Net
+
+  print(1)
+
+fail "at most 64 parameters with a group's fields", "a function takes at most 64", errors: 1
+  obj Big
+    f0: Int = 0
+    f1: Int = 0
+    f2: Int = 0
+    f3: Int = 0
+    f4: Int = 0
+    f5: Int = 0
+    f6: Int = 0
+    f7: Int = 0
+    f8: Int = 0
+    f9: Int = 0
+    f10: Int = 0
+    f11: Int = 0
+    f12: Int = 0
+    f13: Int = 0
+    f14: Int = 0
+    f15: Int = 0
+    f16: Int = 0
+    f17: Int = 0
+    f18: Int = 0
+    f19: Int = 0
+    f20: Int = 0
+    f21: Int = 0
+    f22: Int = 0
+    f23: Int = 0
+    f24: Int = 0
+    f25: Int = 0
+    f26: Int = 0
+    f27: Int = 0
+    f28: Int = 0
+    f29: Int = 0
+    f30: Int = 0
+    f31: Int = 0
+
+  sub big(x: Int, ..a: Big, ..b: Big2)
+    print(x)
+
+  obj Big2
+    g0: Int = 0
+    g1: Int = 0
+    g2: Int = 0
+    g3: Int = 0
+    g4: Int = 0
+    g5: Int = 0
+    g6: Int = 0
+    g7: Int = 0
+    g8: Int = 0
+    g9: Int = 0
+    g10: Int = 0
+    g11: Int = 0
+    g12: Int = 0
+    g13: Int = 0
+    g14: Int = 0
+    g15: Int = 0
+    g16: Int = 0
+    g17: Int = 0
+    g18: Int = 0
+    g19: Int = 0
+    g20: Int = 0
+    g21: Int = 0
+    g22: Int = 0
+    g23: Int = 0
+    g24: Int = 0
+    g25: Int = 0
+    g26: Int = 0
+    g27: Int = 0
+    g28: Int = 0
+    g29: Int = 0
+    g30: Int = 0
+    g31: Int = 0
+
+  big(1)
+
+fail "a call gives a group's fields by name, never by unit", "21:14: `ms:` cannot fill `timeout`, a field of group `net`: give it by name, `timeout: time.duration(ms: 500)`", "22:8: `src` is a field of group `a` of `copy`, so it is given by name: `src: \"a.txt\"`", "23:3: call to `copy` is missing `src:`, a field of its group `a`, which has no default", "24:14: a closure written last fills the parameter that takes a function, and `fetch` has none: `timeout` is a field of group `net`, given by name", errors: 4
+  obj Net
+    timeout: time.Duration? = none
+    retries: Int = 3
+
+  obj CopyArgs
+    src: Static
+    dst: Static
+
+  sub fetch(url: ?String, ..net: Net)
+    print(url)
+
+  sub copy(..a: CopyArgs)
+    print(a.src)
+
+  sub main()
+    fetch("u")
+    copy(src: "a", dst: "b")
+    other()
+
+  sub other()
+    fetch("u", ms: 500)
+    copy("a.txt", dst: "b.txt")
+    copy(dst: "b.txt")
+    fetch("u", |x| x)
+
+fail "a function with a group is not a value", "7:5: `twice` has options, given by name, so it is not a value: write a closure that calls it", errors: 1
+  obj Req
+    n: Int
+
+  fun twice(..r: Req) -> Int
+    r.n * 2
+
+  g = twice
+  print(g(Req(n: 1)))
+
+test "a spread gives a stored value's fields, and named fields win", '''
+  a 30 5
+  b 30 9
+  c 1 5
+'''
+  # docs/design/options.md, section 3.
+  obj Net
+    timeout: Int = 30
+    retries: Int = 3
+
+  obj Config
+    name: Static
+    net: Net
+
+  sub fetch(url: ?String, ..net: Net)
+    print(url, net.timeout, net.retries)
+
+  cfg = Config(name: "prod", net: Net(retries: 5))
+  fetch("a", ..cfg.net)
+  fetch("b", ..cfg.net, retries: 9)
+  fetch("c", timeout: 1, ..cfg.net)
+
+test "a spread is read where it is written", '''
+  db 5432 5 4
+  db 5432 25 4
+  25 3
+'''
+  obj Net
+    timeout: Int = 30
+    retries: Int = 3
+
+  sub connect(host: ?String, port: Int, ..net: Net)
+    print(host, port, net.timeout, net.retries)
+
+  fun longer(o: !Net) -> Int
+    o.timeout += 10
+    o.retries + 1
+
+  o = Net(timeout: 5)
+  connect("db", 5432, ..o, retries: longer(!o))
+  connect("db", 5432, retries: longer(!o), ..o)
+  print(o.timeout, o.retries)
+
+test "a wrapper forwards its group, a field pinned", '''
+  w 7 1
+  w 7 3
+'''
+  obj Net
+    timeout: Int = 30
+    retries: Int = 3
+
+  sub fetch(url: ?String, ..net: Net)
+    print(url, net.timeout, net.retries)
+
+  sub wrapper(url: ?String, ..net: Net)
+    fetch(url, retries: 1, ..net)
+    fetch(url, ..net)
+
+  wrapper("w", timeout: 7)
+
+test "a spread of a field of a group", "1 2\n9"
+  obj Inner
+    a: Int = 1
+    b: Int = 2
+
+  obj Outer
+    inner: Inner = Inner()
+    c: Int = 9
+
+  sub show(..i: Inner)
+    print(i.a, i.b)
+
+  sub outer(..o: Outer)
+    show(..o.inner)
+    print(o.c)
+
+  outer()
+
+fail "a spread passes a value of a group's own type, once, from a place", "27:12: `..r` is a `Retry`, but group `net` of `fetch` is a `Net`: a spread passes a value of the group's own type", "28:17: group `net` of `fetch` is filled by two spreads", "29:12: a spread passes a name or a field: bind `defaults()` to a name first", "30:12: `..m` is a `Net?`, an optional: a spread passes a value; take it out first", "31:7: `plain` has no group for `..n` to fill", "32:5: `..r` is a `Retry`, and no group of `two` is one: its groups are `net`, a `Net`, and `w`, a `Wait`", errors: 6
+  obj Net
+    timeout: Int = 30
+    retries: Int = 3
+
+  obj Retry
+    timeout: Int = 30
+    retries: Int = 3
+
+  obj Wait
+    ms: Int = 0
+
+  sub fetch(url: ?String, ..net: Net)
+    print(url, net.retries)
+
+  fun defaults() -> Net
+    Net(retries: 1)
+
+  sub plain(x: Int = 1)
+    print(x)
+
+  sub two(..net: Net, ..w: Wait)
+    print(w.ms)
+
+  n = Net()
+  r = Retry()
+  m: Net? = n
+  fetch("a", ..r)
+  fetch("b", ..n, ..n)
+  fetch("c", ..defaults())
+  fetch("d", ..m)
+  plain(..n)
+  two(..r)
+
+fail "a spread anywhere but a call's arguments", "a spread gives a stored value's fields to a group of a function", errors: 1
+  obj Net
+    timeout: Int = 30
+
+  n = Net()
+  print(..n)
+
+test "object update copies a value with the fields named set", "9 2 3 1 8 3 1"
+  # docs/design/options.md, "Object update".
+  obj Point
+    x: Int
+    y: Int
+    z: Int = 0
+
+  p = Point(x: 1, y: 2, z: 3)
+  q = Point(x: 9, ..p)
+  r = Point(..p, y: 8)
+  print(q.x, q.y, q.z, r.x, r.y, r.z, p.x)
+
+code "object update is the constructor of the fields", "Point{ .x = 9, .y = p.y }"
+  obj Point
+    x: Int
+    y: Int
+
+  p = Point(x: 1, y: 2)
+  q = Point(x: 9, ..p)
+  print(q.x)
+
+fail "object update copies plain data, from one place of the type it makes", "14:19: object update copies plain data, and `Doc` holds `name: String`, which owns: write its fields", "15:17: `..q` is a `Other`, but this makes a `Point`: a spread passes a value of the type it updates", "16:16: a `Point` is updated from one spread", "17:11: an object update names each field it sets", errors: 4
+  obj Doc
+    name: String
+    pages: Int
+
+  obj Point
+    x: Int = 0
+
+  obj Other
+    x: Int = 0
+
+  d = Doc(name: String("a"), pages: 1)
+  p = Point()
+  q = Other()
+  e = Doc(pages: 2, ..d)
+  f = Point(x: 1, ..q)
+  g = Point(..p, ..p)
+  h = Point(1, ..p)
+  print(e.pages, f.x, g.x, h.x)
+
+test "the shorthand names a local or a parameter", "a 7\n1 2\n3"
+  # docs/design/options.md, "The shorthand".
+  obj Point
+    x: Int
+    y: Int
+
+  sub fetch(url: ?String, retries: Int = 3)
+    print(url, retries)
+
+  fun first(x: Int, y: Int = 0) -> Int
+    p = Point(x:, y:)
+    p.x + p.y
+
+  x = 1
+  y = 2
+  p = Point(x:, y:)
+  retries = 7
+  fetch("a", retries:)
+  print(p.x, p.y)
+  print(first(1, y: 2))
+
+fail "the shorthand never names a module's constant or a function", "7:12: `size:` alone needs a local or a parameter named `size`", errors: 1
+  obj Page
+    size: Int
+
+  size = 30
+
+  sub main()
+    p = Page(size:)
+    print(p.size)
+
+fail "the shorthand never hides a move", "5:6: `take` takes ownership of a `List[Int]`, and `buf` can't be copied", errors: 1
+  sub take(buf: List[Int])
+    print(buf.len)
+
+  buf = List[Int]()
+  take(buf:)
+
+fail "the shorthand ends on its line", "5:3: `a:` at the end of a line takes the next line as its value", errors: 1
+  sub f(a: Int = 1)
+    print(a)
+
+  a = 2
+  f(a:
+  )
+
+test "a name at the end of a line takes the next line", "3"
+  sub f(a: Int = 1)
+    print(a)
+
+  f(a:
+    3)
+
+test "a method takes a group", "cl /p 1 4\ncl /q 30 3"
+  obj Net
+    timeout: Int = 30
+    retries: Int = 3
+
+  obj Client
+    name: Static
+
+    sub get(?@, path: ?String, ..net: Net)
+      print(@name, path, net.timeout, net.retries)
+
+  c = Client(name: "cl")
+  n = Net(timeout: 1)
+  c.get("/p", ..n, retries: 4)
+  c.get("/q")
+
+test "a generic function and a generic type's method take a group", "3 80 5"
+  obj Opts
+    width: Int = 80
+    fill: Static = " "
+
+  fun pad[T](x: T, ..o: Opts) -> Int
+    o.width
+
+  obj Box[T]
+    item: T
+
+    fun show(?@, ..o: Opts) -> Int
+      o.width + 1
+
+  b = Box(item: 3)
+  print(pad(1, width: 3), pad("s"), b.show(width: 4))
+
+test "a group's field defaults: a constant, an object, an array", "9 0 0 3"
+  LIMIT = 9
+
+  obj Pt
+    x: Int = 0
+
+  obj Net
+    retries: Int = LIMIT
+    at: Pt = Pt()
+    grid: [3]Int = [3 of 0]
+
+  sub fetch(..net: Net)
+    print(net.retries, net.at.x, net.grid[1], net.grid.len)
+
+  sub main()
+    fetch()
+
+test "a group whose type is another module's", '''
+  a 30 9 0 t 0
+  b 30 2 0 u 0
+  c 1 9 0 t 0
+  cl /p 1 4
+  mine 3 9 0 t 0
+  5 1
+'''
+  use lib
+
+  sub mine(..n: lib.Net)
+    lib.fetch("mine", ..n)
+
+  sub main()
+    lib.fetch("a")
+    lib.fetch("b", retries: 2, tag: "u")
+    n = lib.Net(timeout: 1)
+    lib.fetch("c", ..n)
+    c = lib.Client(name: "cl")
+    c.get("/p", ..n, retries: 4)
+    mine(timeout: 3)
+    m = lib.Net(at: lib.Pt(x: 5), ..n)
+    print(m.at.x, m.timeout)
+  file "lib.rig"
+    LIMIT = 9
+
+    pub obj Pt
+      pub x: Int = 0
+
+    pub obj Net
+      pub timeout: Int = 30
+      pub retries: Int = LIMIT
+      pub at: Pt = Pt()
+      pub tag: Static = "t"
+      pub grid: [2]Int = [2 of 0]
+
+    pub sub fetch(url: ?String, ..net: Net)
+      print(url, net.timeout, net.retries, net.at.x, net.tag, net.grid[0])
+
+    pub obj Client
+      pub name: Static
+
+      pub sub get(?@, path: ?String, ..net: Net)
+        print(@name, path, net.timeout, net.retries)

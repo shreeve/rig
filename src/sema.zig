@@ -1141,13 +1141,41 @@ pub const SymbolFlags = packed struct(u64) {
     /// declaration order with no padding, a Zig `extern struct`, so its
     /// bytes are its fields' (`fieldsLayout`).
     exact: bool = false,
-    _: u10 = 0,
+    /// A group parameter as written, `..net: Net`, before the Parser
+    /// wrapper makes its fields parameters (`rig.GroupSite`).
+    group: bool = false,
+    /// A parameter that is a field of a group (`GroupParam`): a call
+    /// names it, the body reads it as `net.timeout`, never by its name.
+    group_field: bool = false,
+    _: u8 = 0,
     /// Room for flags to come.
     spare: u30 = 0,
 };
 
 /// How a method takes its self, from the declared first parameter.
 pub const SelfMode = enum { none, read, write, value };
+
+/// A parameter that belongs to a group (docs/design/options.md, section
+/// 2): the group as written, `..net: Net`, which the first check sees, or
+/// one of its fields, a name-only option, once the Parser wrapper has made
+/// each field a parameter.
+pub const GroupParam = struct {
+    /// The group's name, `net`.
+    group: []const u8,
+    /// The group's type, `Net`, in the declaring module's types.
+    ty: TypeId,
+    /// The type's declaration, by module and symbol, which a spread's
+    /// value must have (`nominalRef`), and its name.
+    ref: ?ForeignRef = null,
+    type_name: []const u8 = "",
+    /// The parameter is the group as written, not one of its fields.
+    whole: bool = false,
+    /// A field's default, filled at a call that leaves the field out, in
+    /// the source of the module that declares the group's type; null for
+    /// a field without one, a required name-only argument.
+    default: ?Sexp = null,
+    source: []const u8 = "",
+};
 
 /// What a built-in method needs of its type's parameter `T`, declared in
 /// its entry of `resolve.registerBuiltins` and checked at every call,
@@ -1209,6 +1237,8 @@ pub const Field = struct {
     param_defaults: ?[]const ?Sexp = null,
     /// A method's parameters that take a duration (`duration`).
     param_durations: ParamMask = 0,
+    /// A method's parameters that belong to a group (null where none).
+    param_groups: ?[]const ?GroupParam = null,
     /// A method: which arguments a call passes loans on from.
     origins: Origins = .{},
     /// A built-in method: what it needs of its type's parameter `T`.
@@ -1281,6 +1311,8 @@ pub const Symbol = struct {
     param_defaults: ?[]const ?Sexp = null,
     /// A function's parameters that take a duration (`duration`).
     param_durations: ParamMask = 0,
+    /// A function's parameters that belong to a group (null where none).
+    param_groups: ?[]const ?GroupParam = null,
     /// A function: which arguments a call passes loans on from.
     origins: Origins = .{},
     /// A capture: the enclosing binding it captures.
@@ -4685,6 +4717,18 @@ pub const SemContext = struct {
     /// rewritten into the loop it means; checked again, as for
     /// `iter_loops`.
     chains: std.ArrayList(rig.Chain) = .empty,
+    /// The groups typecheck found (`rig.GroupSite`), each to be made the
+    /// parameters it means, and the uses of each in its function's body,
+    /// by the position of the group's name; the spreads (`rig.SpreadSite`),
+    /// each to be made the keyword arguments it means. Checked again, as
+    /// for `iter_loops`.
+    groups: std.ArrayList(rig.GroupSite) = .empty,
+    /// The group each parameter that is a group's field belongs to, by
+    /// name (`GroupParam`), for the message that the body reads it through
+    /// its group.
+    group_fields: std.AutoHashMapUnmanaged(SymbolId, []const u8) = .empty,
+    group_uses: std.ArrayList(rig.GroupUse) = .empty,
+    spreads: std.ArrayList(rig.SpreadSite) = .empty,
     /// Every node that writes a binding, and how (`recordWrite`). Kept
     /// beside the facts table, not in `check --facts=sema`.
     write_sites: FastMap(NodeKey, WriteSite) = .empty,
@@ -4769,6 +4813,10 @@ pub const SemContext = struct {
         self.declared_once.deinit(self.allocator);
         self.iter_loops.deinit(self.allocator);
         self.chains.deinit(self.allocator);
+        self.groups.deinit(self.allocator);
+        self.group_fields.deinit(self.allocator);
+        self.group_uses.deinit(self.allocator);
+        self.spreads.deinit(self.allocator);
         self.byte_literals.deinit(self.allocator);
         self.embed_sites.deinit(self.allocator);
         self.embed_records.deinit(self.allocator);
@@ -4983,7 +5031,9 @@ pub const SemContext = struct {
     /// module symbol is in no scope: a lookup that reaches the module's
     /// scope asks here first.
     pub fn fileModule(self: *const SemContext, name: []const u8, pos: u32) ?SymbolId {
-        const file = fileIndex(self.parts, pos);
+        // A name a rewrite wrote is in the file of its home.
+        const at = if (self.parser) |p| p.homeOf(pos) else pos;
+        const file = fileIndex(self.parts, at);
         for (self.file_uses.items) |u| {
             if (u.file == file and std.mem.eql(u8, self.symbols.items[u.sym].name, name)) return u.sym;
         }
@@ -16585,9 +16635,9 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
     const tag = node.kind() orelse return .none;
     return switch (tag) {
         // Declarations and their parts.
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .bound, .assoc_bound, .default, .valued, .none_value, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .bound, .assoc_bound, .default, .group_param, .valued, .none_value, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
         // Statements, and the parts of statements, conditions, and calls.
-        .set, .destructure, .results, .drop, .pass, .@"defer", .@"errdefer", .as, .as_results, .as_pattern, .as_match, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
+        .set, .destructure, .results, .drop, .pass, .@"defer", .@"errdefer", .as, .as_results, .as_pattern, .as_match, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg, .spread => .none,
         // Patterns and arms.
         .arm, .item_type, .item_value, .alt_pattern, .paren_alts, .range_pattern, .variant_pattern, .set_pattern, .some_pattern, .none_pattern, .matches => .none,
         // `>t`, `f: once T`, `a..=b`, `(e)`'s `paren`, and `loop`, which
@@ -16596,7 +16646,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // A function's marker.
         .outside => .none,
         // Types.
-        .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .results_type, .api_object, .fails, .unique, .exact, .fixed, .task, .inclusive => .none,
+        .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .results_type, .api_object, .field_of, .fails, .unique, .exact, .fixed, .task, .inclusive => .none,
         .@"return", .@"break", .@"continue", .panic => .jump,
         .read, .write => .view,
         .member, .index => .path,
@@ -17356,10 +17406,31 @@ pub fn tparamsOf(node: Sexp) Sexp {
 /// `(read @)`, `(write @)`, `(move @)`, or a bare name.
 pub fn paramNameNode(param: Sexp) ?Sexp {
     return switch (param.kind() orelse return if (param == .src) param else null) {
-        .@":", .default => ir.get(param, .name),
+        .@":", .default, .group_param => ir.get(param, .name),
         .read, .write, .move => ir.get(param, .operand),
         else => null,
     };
+}
+
+/// The declaration of a nominal type `ty` names, by module and symbol, the
+/// same from every module, and its name; null for another type.
+pub fn nominalRef(ctx: *const SemContext, ty: TypeId) ?struct { ref: ForeignRef, name: []const u8 } {
+    return switch (ctx.types.get(ty)) {
+        .nominal => |id| .{ .ref = .{ .module_id = ctx.module_id, .sym = id }, .name = ctx.symbols.items[id].name },
+        .imported_nominal => |n| blk: {
+            const foreign = ctx.foreign_semas.get(n.module_id) orelse break :blk null;
+            break :blk .{ .ref = .{ .module_id = n.module_id, .sym = n.sym_id }, .name = foreign.symbols.items[n.sym_id].name };
+        },
+        else => null,
+    };
+}
+
+/// The `field_of` type of a parameter that is a group's field, which the
+/// Parser wrapper made of a group (`Parser.flattenGroups`), or null.
+pub fn groupFieldOf(param: Sexp) ?Sexp {
+    if (!param.isKind(.@":")) return null;
+    const ty = ir.get(param, .type);
+    return if (ty.isKind(.field_of)) ty else null;
 }
 
 pub fn paramName(source: []const u8, param: Sexp) ?[]const u8 {

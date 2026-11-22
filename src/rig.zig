@@ -301,7 +301,7 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
         .set, .destructure, .tuple, .drop, .pass, .rarely, .@"return", .@"break", .@"continue", .panic, .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .ct_call, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box, .template => .unit,
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .assoc_bound, .default, .valued, .none_value, .variant, .as, .as_results, .as_pattern, .as_match, .matches, .item_type, .item_value, .results, .result_part, .results_type, .arm, .alt_pattern, .paren_alts, .range_pattern, .set_pattern, .variant_pattern, .some_pattern, .none_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .api_object, .fails, .unique, .exact, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive, .show => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .error_join, .generic_struct, .generic_enum, .api, .api_type, .api_add, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .@":", .bound, .assoc_bound, .default, .group_param, .field_of, .valued, .none_value, .variant, .as, .as_results, .as_pattern, .as_match, .matches, .item_type, .item_value, .results, .result_part, .results_type, .arm, .alt_pattern, .paren_alts, .range_pattern, .set_pattern, .variant_pattern, .some_pattern, .none_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .spread, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .api_object, .fails, .unique, .exact, .fixed, .task, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .inclusive, .show => .none,
         // `>t`, rewritten to a call; `f: once T`, rewritten to a
         // parameter; `a..=b`, rewritten to an inclusive `..`; and `(e)`,
         // whose `paren` is dropped; `loop`, rewritten to a `while`: each
@@ -2968,6 +2968,39 @@ const byte_id_base: u16 = 0xFE00;
 /// leaf does (the path's root holds its own), and reads as the path.
 const path_capture_id: u16 = byte_id_base - 1;
 
+/// Leaf ids from here to `path_capture_id` are names a rewrite wrote
+/// whose text no source of the module need hold (`Parser.namedLeaf`): a
+/// group's field, declared in any module, where a group or a spread
+/// becomes the parameters and keyword arguments it means. Each id is one
+/// text, the same in every module (`named_texts`).
+const named_id_base: u16 = 0xC000;
+
+/// The texts of the named leaves, by id from `named_id_base`, and the id
+/// of each: kept for the process, since a tree of any module may hold
+/// them, and one text has one id. The compiler checks modules on one
+/// thread.
+var named_texts: std.ArrayList([]const u8) = .empty;
+var named_ids: std.StringHashMapUnmanaged(u16) = .empty;
+
+/// The id of a named leaf of `text` (`named_texts`); out of memory past
+/// the ids there are.
+fn namedId(text: []const u8) std.mem.Allocator.Error!u16 {
+    if (named_ids.get(text)) |id| return id;
+    if (named_texts.items.len >= path_capture_id - named_id_base) return error.OutOfMemory;
+    const a = std.heap.page_allocator;
+    const copy = try a.dupe(u8, text);
+    const id: u16 = @intCast(named_id_base + named_texts.items.len);
+    try named_texts.append(a, copy);
+    try named_ids.put(a, copy, id);
+    return id;
+}
+
+/// Whether `leaf` is a named leaf a rewrite wrote (`Parser.namedLeaf`),
+/// which stands where its home is: a name in it is looked up there.
+pub fn isNamedLeaf(leaf: Sexp) bool {
+    return leaf == .src and leaf.src.id >= named_id_base and leaf.src.id < path_capture_id;
+}
+
 /// Whether `leaf` names a capture of a field path, `|?@template|`: the
 /// capture's value is then what its sigil makes (`Parser.capturePlace`).
 pub fn isPathCapture(leaf: Sexp) bool {
@@ -3021,10 +3054,12 @@ pub const Api = enum {
 };
 
 /// The text of a leaf: the source it spans, or its name when the rewrite
-/// built it (`hiddenLeaf`). Every pass reads a name through this.
+/// built it (`hiddenLeaf`, `Parser.namedLeaf`). Every pass reads a name
+/// through this.
 pub fn leafText(source: []const u8, leaf: parser.Src) []const u8 {
     if (leaf.id >= hidden_id_base) return @as(HiddenName, @enumFromInt(leaf.id - hidden_id_base)).text();
     if (leaf.id >= byte_id_base) return byte_texts[leaf.id - byte_id_base];
+    if (leaf.id >= named_id_base and leaf.id < path_capture_id) return named_texts.items[leaf.id - named_id_base];
     if (leaf.id == path_capture_id) return diag.textBetween(source, leaf.pos + 1, leafEnd(source, leaf));
     return diag.textBetween(source, leaf.pos, leafEnd(source, leaf));
 }
@@ -3133,6 +3168,35 @@ pub const ChainSource = enum { iterator, elements, range };
 /// `zip` and `zip_copies` say the same of a `zip`'s second source.
 pub const Chain = struct { node: parser.NodeId, source: ChainSource, copies: bool = true, zip: ChainSource = .elements, zip_copies: bool = true };
 
+/// A group typecheck found (`Parser.flattenGroups`), `..net: Net` in a
+/// function's parameters, whose fields become the function's name-only
+/// parameters: its `(group_param ...)` node, its type's fields in the
+/// order declared, and, for a type declared in this module, each field's
+/// type as written there, copied into its parameter's `field_of`.
+pub const GroupSite = struct {
+    node: parser.NodeId,
+    fields: []const []const u8,
+    field_types: []const Sexp = &.{},
+};
+
+/// A name in a function's body that names its group (`GroupSite`), by
+/// the position of the group's name: `member` is the node of a field
+/// read, `net.timeout`, which reads the field's parameter, or 0 where the
+/// body uses the group whole, at the leaf at `pos`, which then binds the
+/// group's value at the body's start.
+pub const GroupUse = struct { group: u32, pos: u32, member: parser.NodeId = 0 };
+
+/// A spread typecheck found (`Parser.expandSpreads`), `..cfg.net` in a
+/// call or a constructor: its node, the fields it gives, those no
+/// keyword of the call names, in the order declared, and, where its
+/// operand is a group the function received, the position of the
+/// group's name, whose fields are its parameters.
+pub const SpreadSite = struct {
+    node: parser.NodeId,
+    fields: []const []const u8,
+    group: ?u32 = null,
+};
+
 /// The stages a chain may take, in a call on a `for` source whose type
 /// declares no method of the name.
 pub const chain_stages = [_][]const u8{ "map", "filter", "take", "skip", "enumerate", "zip" };
@@ -3178,6 +3242,12 @@ pub const Parser = struct {
     /// loop binds in its body (`lowerForChain`): loop bindings, as
     /// immutable as any `for`'s (`isLoopName`).
     loop_names: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    /// The leaves a group's rewrite wrote that read one of its fields'
+    /// parameters (`net.timeout` as `timeout`, and the fields a spread of
+    /// the group gives), by position, with the name leaf of the parameter
+    /// each names: each is that parameter, whatever the body declares of
+    /// its name (`Parser.desugarOptions`).
+    group_targets: std.AutoHashMapUnmanaged(u32, Sexp) = .empty,
     /// The node ids of the `(share x)` and `(weak x)` whose operand has a
     /// `?` suffix inside parentheses that open right after the sigil
     /// (`*(T?)`), which the tree does not keep.
@@ -4200,6 +4270,8 @@ pub const Parser = struct {
         dropParens(sexp.kind(), walked);
         const out: Sexp = .{ .list = parser.List.withId(walked, sexp.list.id) };
         try self.lowerMatches(out.kind(), walked);
+        self.strayGroups(out);
+        if (out.isKind(.kwarg)) self.shorthandLine(out);
         switch (out.kind() orelse return out) {
             .module => {
                 stripParens(out);
@@ -4303,6 +4375,38 @@ pub const Parser = struct {
     /// `loop`, and a `while` takes a condition that can end it. Only the
     /// literal `true`; a `loop` is a `while` whose `true` is hidden
     /// (`loopBlock`).
+    /// A group, `..net: Net`, anywhere but among a `fun`'s or a `sub`'s
+    /// parameters: a member of a type, or a parameter of an `extern`
+    /// function, a variant, or a `drop`, none of which has options.
+    fn strayGroups(self: *Parser, node: Sexp) void {
+        const items: []const Sexp = switch (node.kind() orelse return) {
+            .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .api, .api_add => node.items(),
+            .extern_fun, .extern_sub, .variant, .drop_decl => if (ir.get(node, .params) == .list) ir.get(node, .params).items() else return,
+            else => return,
+        };
+        for (items) |m| if (m.isKind(.group_param)) {
+            const at = self.span(m);
+            self.reject(m, self.format("a group, `{s}`, is a parameter of a `fun` or `sub`, whose options its fields become", .{self.base.source[at.start..at.end]}));
+        };
+    }
+
+    /// `name:` alone is `name: name` only when `,` or `)` follows it on
+    /// its line (docs/design/options.md, "The shorthand"): at the end of a
+    /// line, `name:` takes the next line as its value.
+    fn shorthandLine(self: *Parser, kw: Sexp) void {
+        const name = ir.Kwarg.name(kw);
+        const value = ir.Kwarg.value(kw);
+        if (name != .src or value != .src or name.src.pos != value.src.pos) return;
+        const src = self.base.source;
+        var i = leafEnd(src, name.src);
+        if (i >= src.len or src[i] != ':') return;
+        i += 1;
+        while (i < src.len and (src[i] == ' ' or src[i] == '\t')) i += 1;
+        if (i < src.len and (src[i] == ',' or src[i] == ')')) return;
+        const text = leafText(src, name.src);
+        self.reject(kw, self.format("`{s}:` at the end of a line takes the next line as its value; `{s}:` alone, meaning `{s}: {s}`, is followed by `,` or `)` on its line", .{ text, text, text, text }));
+    }
+
     fn whileTrue(self: *Parser, node: Sexp) void {
         const cond = ir.While.cond(node);
         if (self.failure != null or cond != .src or isHiddenLeaf(cond)) return;
@@ -5661,6 +5765,209 @@ pub const Parser = struct {
         };
     }
 
+    // -------------------------------------------------------------------------
+    // Groups and spreads
+    //
+    // Typecheck finds each group, `..net: Net` in a function's parameters,
+    // and each spread, `..v` in a call or constructor, since the fields
+    // they stand for are known only from types, and the module is checked
+    // again on this rewrite (docs/design/options.md, section 11). A group
+    // becomes one name-only parameter per field, typed `(field_of ...)`;
+    // a read of a field in the body, `net.timeout`, becomes a leaf that
+    // names the field's parameter (`group_targets`), and a body that uses
+    // the group whole binds it first, `net =! Net(timeout: timeout, ...)`.
+    // A spread becomes, where it stands, the keyword arguments of the
+    // fields it gives, `timeout: v.timeout`, each node spanning the spread.
+    // Every name it writes is a named leaf (`namedLeaf`) homed in the
+    // source; every other node keeps its position and id.
+    // -------------------------------------------------------------------------
+
+    const OptionsRewrite = struct {
+        groups: []const GroupSite,
+        uses: []const GroupUse,
+        spreads: []const SpreadSite,
+        /// Each flattened group, by the position of its name.
+        flat: std.AutoHashMapUnmanaged(u32, FlatGroup) = .empty,
+        /// The group and field each field read reads, by its node id.
+        reads: std.AutoHashMapUnmanaged(parser.NodeId, u32) = .empty,
+
+        fn spread(self: *const OptionsRewrite, node: Sexp) ?SpreadSite {
+            if (node != .list or !node.isKind(.spread)) return null;
+            for (self.spreads) |sp| if (sp.node == node.list.id) return sp;
+            return null;
+        }
+
+        fn group(self: *const OptionsRewrite, node: Sexp) ?GroupSite {
+            if (node != .list or !node.isKind(.group_param)) return null;
+            for (self.groups) |g| if (g.node == node.list.id) return g;
+            return null;
+        }
+
+        fn usedWhole(self: *const OptionsRewrite, pos: u32) bool {
+            for (self.uses) |u| if (u.group == pos and u.member == 0) return true;
+            return false;
+        }
+    };
+
+    /// A group made parameters: its fields, the name leaf of each field's
+    /// parameter, in the same order, and its type as written.
+    const FlatGroup = struct { fields: []const []const u8, params: []const Sexp, ty: Sexp };
+
+    /// Each group of `groups` in `tree` as the parameters it means, each
+    /// field read in a body as its parameter, and each spread of `spreads`
+    /// as the keyword arguments it gives (`OptionsRewrite`).
+    pub fn desugarOptions(self: *Parser, tree: Sexp, groups: []const GroupSite, uses: []const GroupUse, spreads: []const SpreadSite) std.mem.Allocator.Error!void {
+        const a = self.allocator();
+        var st: OptionsRewrite = .{ .groups = groups, .uses = uses, .spreads = spreads };
+        for (uses) |u| if (u.member != 0) try st.reads.put(a, u.member, u.group);
+        try self.flattenIn(tree, &st);
+        try self.optionsIn(tree, &st);
+    }
+
+    /// Every function in `node` with a group of `st`, its groups made
+    /// parameters.
+    fn flattenIn(self: *Parser, node: Sexp, st: *OptionsRewrite) std.mem.Allocator.Error!void {
+        if (node != .list) return;
+        if (node.isKind(.fun) or node.isKind(.sub)) try self.flattenGroups(node, st);
+        for (node.items()) |c| try self.flattenIn(c, st);
+    }
+
+    /// Function `def`'s groups as parameters, one per field in the order
+    /// declared, each typed `(field_of type field group ftype)`, and a
+    /// binding of each group the body uses whole at the body's start.
+    fn flattenGroups(self: *Parser, def: Sexp, st: *OptionsRewrite) std.mem.Allocator.Error!void {
+        const a = self.allocator();
+        const items = @constCast(def.items());
+        const is_fun = def.isKind(.fun);
+        const pslot = if (is_fun) ir.slot(.fun, .params) else ir.slot(.sub, .params);
+        const params = items[pslot];
+        if (params != .list) return;
+        var any = false;
+        for (params.items()) |p| if (st.group(p) != null) {
+            any = true;
+        };
+        if (!any) return;
+        var out: std.ArrayList(Sexp) = .empty;
+        var binds: std.ArrayList(Sexp) = .empty;
+        for (params.items()) |p| {
+            const site = st.group(p) orelse {
+                try out.append(a, p);
+                continue;
+            };
+            const at = self.span(p);
+            const name = ir.GroupParam.name(p);
+            const gname = leafText(self.base.source, name.src);
+            const ty = ir.GroupParam.type(p);
+            const field_params = try a.alloc(Sexp, site.fields.len);
+            for (site.fields, field_params, 0..) |f, *leaf, k| {
+                leaf.* = try self.namedLeaf(at.start, f);
+                const ftype = if (k < site.field_types.len) try self.copyTree(site.field_types[k]) else Sexp.nil;
+                const of = try self.base.newNode(.field_of, &.{ try self.copyTree(ty), try self.namedLeaf(at.start, f), try self.namedLeaf(at.start, gname), ftype }, at);
+                try out.append(a, try self.base.newNode(.@":", &.{ leaf.*, of }, at));
+            }
+            try st.flat.put(a, name.src.pos, .{ .fields = site.fields, .params = field_params, .ty = ty });
+            if (!st.usedWhole(name.src.pos)) continue;
+            // `net =! Net(timeout: timeout, ...)`, under the group's own
+            // name leaf, which no parameter holds now.
+            const args = try a.alloc(Sexp, site.fields.len + 2);
+            args[0] = .nil;
+            args[1] = try self.copyTree(ty);
+            for (site.fields, field_params, args[2..]) |f, leaf, *arg| {
+                arg.* = try self.base.newNode(.kwarg, &.{ try self.namedLeaf(at.start, f), try self.fieldParam(at.start, f, leaf) }, at);
+            }
+            const made = try self.base.newNode(.call, args, at);
+            try binds.append(a, try self.base.newNode(.set, &.{ .{ .tag = .fixed }, name, .nil, made }, at));
+        }
+        items[pslot] = .{ .list = parser.List.withId(try out.toOwnedSlice(a), params.list.id) };
+        if (binds.items.len == 0) return;
+        const bslot = if (is_fun) ir.slot(.fun, .body) else ir.slot(.sub, .body);
+        const body = items[bslot];
+        if (!body.isKind(.block)) return;
+        const stmts = try a.alloc(Sexp, body.items().len + binds.items.len);
+        stmts[0] = body.items()[0];
+        @memcpy(stmts[1 .. 1 + binds.items.len], binds.items);
+        @memcpy(stmts[1 + binds.items.len ..], body.items()[1..]);
+        items[bslot] = .{ .list = parser.List.withId(stmts, body.list.id) };
+    }
+
+    /// A leaf of field `field` that names its parameter, `param`, homed at
+    /// `home` (`group_targets`).
+    fn fieldParam(self: *Parser, home: u32, field: []const u8, param: Sexp) std.mem.Allocator.Error!Sexp {
+        const leaf = try self.namedLeaf(home, field);
+        try self.group_targets.put(self.allocator(), leaf.src.pos, param);
+        return leaf;
+    }
+
+    /// The field's parameter that a field read of a flattened group, or a
+    /// spread of one, names: a leaf (`fieldParam`), or null.
+    fn readParam(self: *Parser, st: *const OptionsRewrite, group: u32, field: []const u8, home: u32) std.mem.Allocator.Error!?Sexp {
+        const flat = st.flat.get(group) orelse return null;
+        for (flat.fields, flat.params) |f, param| if (std.mem.eql(u8, f, field)) return try self.fieldParam(home, field, param);
+        return null;
+    }
+
+    /// Each field read of a flattened group in `node` as its parameter,
+    /// and each spread as its keyword arguments.
+    fn optionsIn(self: *Parser, node: Sexp, st: *OptionsRewrite) std.mem.Allocator.Error!void {
+        if (node != .list) return;
+        const items = @constCast(node.items());
+        for (items) |*slot| {
+            if (slot.* != .list) continue;
+            if (slot.isKind(.member)) if (st.reads.get(slot.list.id)) |group| {
+                const field = leafText(self.base.source, ir.Member.name(slot.*).src);
+                if (try self.readParam(st, group, field, self.span(slot.*).start)) |leaf| {
+                    slot.* = leaf;
+                    continue;
+                }
+            };
+            try self.optionsIn(slot.*, st);
+            if (slot.isKind(.call)) try self.expandSpreads(slot, st);
+        }
+    }
+
+    /// Call `slot`'s spreads as the keyword arguments they give, where
+    /// each stands, the call keeping its id.
+    fn expandSpreads(self: *Parser, slot: *Sexp, st: *const OptionsRewrite) std.mem.Allocator.Error!void {
+        const a = self.allocator();
+        const call = slot.*;
+        var any = false;
+        for (call.items()) |c| if (st.spread(c) != null) {
+            any = true;
+        };
+        if (!any) return;
+        var out: std.ArrayList(Sexp) = .empty;
+        for (call.items()) |c| {
+            const sp = st.spread(c) orelse {
+                try out.append(a, c);
+                continue;
+            };
+            const at = self.span(c);
+            const operand = ir.Spread.value(c);
+            for (sp.fields) |f| {
+                const value = if (sp.group) |g|
+                    (try self.readParam(st, g, f, at.start)) orelse try self.base.newNode(.member, &.{ try self.copyPlace(operand, st), try self.namedLeaf(at.start, f) }, at)
+                else
+                    try self.base.newNode(.member, &.{ try self.copyPlace(operand, st), try self.namedLeaf(at.start, f) }, at);
+                try out.append(a, try self.base.newNode(.kwarg, &.{ try self.namedLeaf(at.start, f), value }, at));
+            }
+        }
+        slot.* = .{ .list = parser.List.withId(try out.toOwnedSlice(a), call.list.id) };
+    }
+
+    /// A copy of a spread's operand, a name or a field path, for one
+    /// field it gives (`copyTree`): a field read of a flattened group in
+    /// it names the field's parameter.
+    fn copyPlace(self: *Parser, place: Sexp, st: *const OptionsRewrite) std.mem.Allocator.Error!Sexp {
+        if (place.isKind(.member)) {
+            if (st.reads.get(place.list.id)) |group| {
+                const field = leafText(self.base.source, ir.Member.name(place).src);
+                if (try self.readParam(st, group, field, self.span(place).start)) |leaf| return leaf;
+            }
+            return self.base.newNode(.member, &.{ try self.copyPlace(ir.Member.object(place), st), try self.copyTree(ir.Member.name(place)) }, self.span(place));
+        }
+        return self.copyTree(place);
+    }
+
     /// Rewrite each `for` of `loops` in `tree` into the `while` it means.
     /// Every other node keeps its position and id.
     /// Each chain of `chains` in `tree` as the loop it means
@@ -5958,6 +6265,41 @@ pub const Parser = struct {
     /// which `span` reads as `home`.
     fn synthLeaf(self: *Parser, home: u32, name: HiddenName) std.mem.Allocator.Error!Sexp {
         return hiddenLeaf(try self.hiddenPos(home), name);
+    }
+
+    /// A leaf whose text is `text`, at a position past the source's end
+    /// that `span` reads as `home` (`named_id_base`).
+    pub fn namedLeaf(self: *Parser, home: u32, text: []const u8) std.mem.Allocator.Error!Sexp {
+        return .{ .src = .{ .pos = try self.hiddenPos(home), .len = 1, .id = try namedId(text) } };
+    }
+
+    /// Where a position past the source's end belongs (`hiddenPos`): its
+    /// home in the source. A position in the source is its own.
+    pub fn homeOf(self: *const Parser, pos: u32) u32 {
+        if (pos < self.base.source.len) return pos;
+        const k = pos - self.base.source.len;
+        if (k >= 1 and k <= self.pad_homes.items.len) return self.pad_homes.items[k - 1];
+        return pos;
+    }
+
+    /// A copy of `node` whose every leaf is a named leaf of the same text
+    /// at its own new position, homed at the leaf it copies, and whose
+    /// every list is a new node of the same span: a name in it is looked
+    /// up where the original stands, and no fact of the original is
+    /// shared.
+    pub fn copyTree(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
+        switch (node) {
+            .src => |leaf| return self.namedLeaf(self.homeOf(leaf.pos), leafText(self.base.source, leaf)),
+            .list => {
+                const items = node.items();
+                const kind = node.kind();
+                const kids = try self.allocator().alloc(Sexp, items.len - @intFromBool(kind != null));
+                for (items[@intFromBool(kind != null)..], kids) |c, *k| k.* = try self.copyTree(c);
+                const at = self.span(node);
+                return if (kind) |t| self.base.newNode(t, kids, at) else self.base.newList(kids, at);
+            },
+            else => return node,
+        }
     }
 
     /// The next position past the source's end, for a hidden leaf that
