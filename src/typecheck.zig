@@ -1027,31 +1027,56 @@ const Checker = struct {
         return .{ .name = sym.name, .fields = fields.items, .tys = tys.items, .module = module, .sym = id };
     }
 
-    /// Why a group's or an update's type `ty` is not plain data, its kind
-    /// as a phrase ("has a `drop` body", "is `unique`", or the field at
-    /// fault), or null when it is plain data (`sema.isPlain` of the type,
-    /// the one meaning of plain). A field whose type is invalid was
-    /// reported, and gives "".
-    fn notPlainType(self: *Checker, ty: TypeId, gt: ?GroupType) Error!?[]const u8 {
-        if (try sema.isPlain(self.ctx, ty)) return null;
-        const a = self.ctx.arena.allocator();
-        const g = gt orelse return "is not plain data";
-        for (g.tys) |ft| if (sema.containsPoison(self.ctx, ft)) return "";
-        const sym = if (g.module) |m| self.ctx.foreign_semas.get(m).?.symbols.items[g.sym] else self.ctx.symbols.items[g.sym];
-        if (sym.flags.unique) return "is `unique`";
-        for (sym.fields orelse &.{}) |f| if (f.is_drop_method) return "has a `drop` body";
-        if (try self.notPlainField(g)) |np| return try a.print("holds `{s}: {s}`, {s}", .{ np.field, np.ty, if (np.owns) "an owner" else "a view" });
-        return "is not plain data";
+    /// Which of the types `tys` of a group's or an update's fields move
+    /// (Core §1: an owner or a handle), and so take a spread's sigil.
+    fn fieldMoves(self: *Checker, tys: []const TypeId) Error![]const bool {
+        const out = try self.ctx.arena.allocator().alloc(bool, tys.len);
+        for (tys, out) |ty, *o| o.* = sema.copies(self.ctx, ty) != .yes;
+        return out;
     }
 
-    /// The first data field of `gt` that is not plain data, and why: it
-    /// owns, or it views; null when every field is plain data.
-    fn notPlainField(self: *Checker, gt: GroupType) Error!?struct { field: []const u8, ty: []const u8, owns: bool } {
-        for (gt.fields, gt.tys) |f, ty| {
-            if (try sema.isPlain(self.ctx, ty)) continue;
-            return .{ .field = f.name, .ty = try self.tyName(ty), .owns = sema.copies(self.ctx, ty) != .yes };
-        }
+    /// The symbol of group type `g`, here or in its module.
+    fn groupSymbol(self: *Checker, g: GroupType) sema.Symbol {
+        return if (g.module) |m| self.ctx.foreign_semas.get(m).?.symbols.items[g.sym] else self.ctx.symbols.items[g.sym];
+    }
+
+    /// Whether group type `g` has a `drop` body.
+    fn hasDropBody(self: *Checker, g: GroupType) bool {
+        for (self.groupSymbol(g).fields orelse &.{}) |f| if (f.is_drop_method) return true;
+        return false;
+    }
+
+    /// Why object `g` is no group's type, as a phrase, or null when it may
+    /// be one: a group passes its fields one by one, as parameters, so its
+    /// type is only its fields, with no `drop` body and not `unique`. (No
+    /// field holds a callable view, which a closure written last fills,
+    /// so that rule needs nothing of a group.) A field whose type is
+    /// invalid was reported, and gives "".
+    fn notGroupType(self: *Checker, g: GroupType) ?[]const u8 {
+        for (g.tys) |ft| if (sema.containsPoison(self.ctx, ft)) return "";
+        if (self.groupSymbol(g).flags.unique) return "is `unique`, whose fields a group would copy";
+        if (self.hasDropBody(g)) return "has a `drop` body, which expects every field: a group passes its fields one by one";
         return null;
+    }
+
+    /// The object an update makes, `result`, as a group's type: an
+    /// instance of a generic object (`Box(n: 2, ..b)`) has its fields'
+    /// types at the instance's arguments.
+    fn updateType(self: *Checker, result: TypeId, fields: []const Field) Error!?GroupType {
+        const pn = switch (self.ctx.types.get(result)) {
+            .parameterized_nominal => |pn| pn,
+            else => return self.groupType(result),
+        };
+        const a = self.ctx.arena.allocator();
+        const subst: TypeSubst = .{ .params = self.ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args };
+        var data: std.ArrayList(Field) = .empty;
+        var tys: std.ArrayList(TypeId) = .empty;
+        for (fields) |f| {
+            if (f.is_method or f.is_variant) continue;
+            try data.append(a, f);
+            try tys.append(a, try sema.substituteType(self.ctx, f.ty, subst));
+        }
+        return .{ .name = self.ctx.symbols.items[pn.sym].name, .fields = data.items, .tys = tys.items, .module = null, .sym = pn.sym };
     }
 
     /// Where field `f` of `gt` is declared, as a note.
@@ -1139,8 +1164,8 @@ const Checker = struct {
                 ok = false;
                 continue;
             };
-            if (try self.notPlainType(ty, g)) |why| {
-                if (why.len > 0) try self.errAt(p, "group `{s}` of `{s}` is a `{s}`, which {s}; a group holds plain data", .{ gname, fname, g.name, why });
+            if (self.notGroupType(g)) |why| {
+                if (why.len > 0) try self.errAt(p, "group `{s}` of `{s}` is a `{s}`, which {s}", .{ gname, fname, g.name, why });
                 ok = false;
                 continue;
             }
@@ -1211,7 +1236,7 @@ const Checker = struct {
             const fields = try a.alloc([]const u8, g.fields.len);
             for (g.fields, fields) |f, *o| o.* = f.name;
             const written = if (g.module == null) try self.writtenFieldTypes(self.ctx.symbols.items[g.sym], g.fields) else &.{};
-            try self.ctx.groups.append(self.ctx.allocator, .{ .node = id, .name = ir.GroupParam.name(p).src.pos, .fields = fields, .field_types = written });
+            try self.ctx.groups.append(self.ctx.allocator, .{ .node = id, .name = ir.GroupParam.name(p).src.pos, .fields = fields, .field_types = written, .moves = try self.fieldMoves(g.tys) });
         }
     }
 
@@ -1240,7 +1265,14 @@ const Checker = struct {
     /// its type, or null after a diagnostic. A name that names a group as
     /// written is read field by field, so it is no use of the group whole.
     fn spreadOperand(self: *Checker, spread: Sexp) Error!?TypeId {
-        const operand = ir.Spread.value(spread);
+        const written = ir.Spread.value(spread);
+        if (written.isKind(.read) or written.isKind(.write)) {
+            const place = try self.plainText(ir.get(written, .operand));
+            try self.errAt(spread, "a spread gives a value's fields: write `..{s}`, `..<{s}` to move its owners, or `..+{s}` to clone them", .{ place, place, place });
+            _ = try self.synthQuiet(ir.get(written, .operand));
+            return null;
+        }
+        const operand = rig.Parser.spreadPlace(written);
         if (!self.isSpreadPlace(operand)) {
             try self.errAt(spread, "a spread passes a name or a field: bind `{s}` to a name first", .{try self.plainText(operand)});
             _ = try self.synthQuiet(operand);
@@ -1270,7 +1302,7 @@ const Checker = struct {
     /// of one (its name's position), else null: its fields are its
     /// parameters.
     fn spreadGroup(self: *Checker, spread: Sexp) ?u32 {
-        const operand = ir.Spread.value(spread);
+        const operand = rig.Parser.spreadPlace(ir.Spread.value(spread));
         if (operand != .src) return null;
         const id = self.ctx.symbolOf(operand) orelse return null;
         const sym = self.ctx.symbols.items[id];
@@ -1281,7 +1313,7 @@ const Checker = struct {
     /// use of the group whole, so the second check, which sees it again,
     /// finds the group's value bound.
     fn spreadRefused(self: *Checker, spread: Sexp) Error!void {
-        var place = ir.Spread.value(spread);
+        var place = rig.Parser.spreadPlace(ir.Spread.value(spread));
         while (place.isKind(.member)) : (place = ir.Member.object(place)) {
             // A field read in it stays as written, so the message about it
             // reads the same.
@@ -1294,40 +1326,83 @@ const Checker = struct {
                 } else i += 1;
             }
         }
-        if (self.spreadGroup(spread)) |g| try self.ctx.group_uses.append(self.ctx.allocator, .{ .group = g, .pos = ir.Spread.value(spread).src.pos });
+        if (self.spreadGroup(spread)) |g| try self.ctx.group_uses.append(self.ctx.allocator, .{ .group = g, .pos = rig.Parser.spreadPlace(ir.Spread.value(spread)).src.pos });
     }
 
     /// Record spread `spread`, which gives `fields`.
-    fn recordSpread(self: *Checker, spread: Sexp, fields: []const []const u8) Error!void {
+    fn recordSpread(self: *Checker, spread: Sexp, given: Given) Error!void {
         const id = nodeId(spread);
         for (self.ctx.spreads.items) |sp| if (sp.node == id) return;
-        try self.ctx.spreads.append(self.ctx.allocator, .{ .node = id, .fields = fields, .group = self.spreadGroup(spread) });
+        try self.ctx.spreads.append(self.ctx.allocator, .{ .node = id, .fields = given.fields, .group = self.spreadGroup(spread), .sigil = spreadSigil(spread), .moves = given.moves });
+    }
+
+    /// The fields a spread gives, those no keyword of its call names, in
+    /// the order declared, and which of them move.
+    const Given = struct { fields: []const []const u8, moves: []const bool };
+
+    /// The sigil spread `spread` is written with.
+    fn spreadSigil(spread: Sexp) rig.SpreadSigil {
+        const v = ir.Spread.value(spread);
+        return if (v.isKind(.move)) .move else if (v.isKind(.clone)) .clone else .none;
+    }
+
+    /// The fields of object `gt` that spread `spread` gives, those no
+    /// keyword among `args` names, checked against its sigil: a spread
+    /// gives each field as the keyword argument written out would
+    /// (docs/design/options.md, section 11, step 3), so a field that
+    /// moves needs `..<v` or `..+v`, and `..<v` needs a field to move. An
+    /// object update (`update`, of the type made) of a type with a `drop`
+    /// body, which expects every field, is only `..+v`, and of a `unique`
+    /// type none. Null after a diagnostic.
+    fn spreadGiven(self: *Checker, spread: Sexp, gt: GroupType, args: []const Sexp, update: bool) Error!?Given {
+        const a = self.ctx.arena.allocator();
+        const sigil = spreadSigil(spread);
+        const place = try self.plainText(rig.Parser.spreadPlace(ir.Spread.value(spread)));
+        if (update and self.groupSymbol(gt).flags.unique) {
+            try self.errAt(spread, "object update copies the fields of `{s}`, which is `unique`: write its fields", .{gt.name});
+            return null;
+        }
+        if (update and self.hasDropBody(gt)) switch (sigil) {
+            .clone => {},
+            .move => {
+                try self.errAt(spread, "`{s}` has a `drop` body, which expects every field: update it from `..+{s}`, or move `{s}` whole and set the field", .{ gt.name, place, place });
+                return null;
+            },
+            .none => {
+                try self.errAt(spread, "`{s}` has a `drop` body, so object update copies its fields only by `..+{s}`", .{ gt.name, place });
+                return null;
+            },
+        };
+        var fields: std.ArrayList([]const u8) = .empty;
+        var moves: std.ArrayList(bool) = .empty;
+        var moving: ?usize = null;
+        for (gt.fields, gt.tys, 0..) |f, ty, i| {
+            if (self.namesKeyword(args, f.name)) continue;
+            const m = sema.copies(self.ctx, ty) != .yes;
+            if (m and moving == null) moving = i;
+            try fields.append(a, f.name);
+            try moves.append(a, m);
+        }
+        switch (sigil) {
+            .none => if (moving) |i| {
+                const ty = gt.tys[i];
+                const kind = if (sema.cloneable(self.ctx, ty) == .bump) "a handle" else "which owns";
+                try self.errAt(spread, "`..{s}` gives `{s}`, a `{s}`, {s}: write `..<{s}` to move it, or `..+{s}` to clone it", .{ place, gt.fields[i].name, try self.tyName(ty), kind, place, place });
+                return null;
+            },
+            .move => if (moving == null) {
+                try self.errAt(spread, "`..<{s}` moves nothing, since every field it gives copies: write `..{s}`", .{ place, place });
+                return null;
+            },
+            .clone => {},
+        }
+        return .{ .fields = fields.items, .moves = moves.items };
     }
 
     /// Whether keyword argument `name` is among `args`.
     fn namesKeyword(self: *Checker, args: []const Sexp, name: []const u8) bool {
         for (args) |a| if (a.isKind(.kwarg) and std.mem.eql(u8, self.text(ir.Kwarg.name(a)), name)) return true;
         return false;
-    }
-
-    /// The fields of a group with `name`, as `info` has them: the names of
-    /// its fields' parameters, or, for a group as written, its type's
-    /// fields.
-    fn groupFields(self: *Checker, info: ParamInfo, name: []const u8) Error![]const []const u8 {
-        const a = self.ctx.arena.allocator();
-        const groups = info.groups orelse return &.{};
-        var out: std.ArrayList([]const u8) = .empty;
-        for (groups, 0..) |g, i| {
-            const x = g orelse continue;
-            if (!std.mem.eql(u8, x.group, name)) continue;
-            if (x.whole) {
-                const gt = (try self.groupType(x.ty)) orelse return &.{};
-                for (gt.fields) |f| try out.append(a, f.name);
-                return out.items;
-            }
-            if (info.names) |n| if (i < n.len) try out.append(a, n[i]);
-        }
-        return out.items;
     }
 
     /// A call with a spread, or of a function whose group is as written,
@@ -1345,6 +1420,7 @@ const Checker = struct {
         if (!spreads and !whole) return false;
         const a = self.ctx.arena.allocator();
         var filled: std.ArrayList([]const u8) = .empty;
+        var given: std.ArrayList(Given) = .empty;
         var rest: std.ArrayList(Sexp) = .empty;
         var ok = true;
         for (args) |x| {
@@ -1370,6 +1446,15 @@ const Checker = struct {
                 continue;
             }
             try filled.append(a, target);
+            const gt = (try self.groupType(value)) orelse {
+                ok = false;
+                continue;
+            };
+            const g = (try self.spreadGiven(x, gt, args, false)) orelse {
+                ok = false;
+                continue;
+            };
+            try given.append(a, g);
         }
         // A call's spreads are rewritten together or not at all, so a
         // check of the call after the rewrite sees what this one saw.
@@ -1380,10 +1465,8 @@ const Checker = struct {
                 try self.spreadRefused(x);
                 continue;
             }
-            var fields: std.ArrayList([]const u8) = .empty;
-            for (try self.groupFields(info, filled.items[k])) |f| if (!self.namesKeyword(args, f)) try fields.append(a, f);
+            try self.recordSpread(x, given.items[k]);
             k += 1;
-            try self.recordSpread(x, fields.items);
         }
         try self.synthArgs(rest.items);
         return true;
@@ -1455,18 +1538,11 @@ const Checker = struct {
             try self.errAt(sp, "`..{s}` is a `{s}`, but this makes a `{s}`: a spread passes a value of the type it updates", .{ shown, try self.tyName(value), try self.tyName(result) });
             return self.spreadRefused(sp);
         }
-        if (try self.notPlainType(result, try self.groupType(result))) |why| {
-            const said = if (std.mem.startsWith(u8, why, "holds ") and std.mem.endsWith(u8, why, ", an owner")) try std.fmt.allocPrint(a, "{s}, which owns", .{why[0 .. why.len - ", an owner".len]}) else why;
-            if (why.len > 0) try self.errAt(sp, "object update copies plain data, and `{s}` {s}: write its fields", .{ owner, said });
-            return self.spreadRefused(sp);
-        }
+        const gt = (try self.updateType(result, fields)) orelse return self.spreadRefused(sp);
+        for (gt.tys) |ft| if (sema.containsPoison(self.ctx, ft)) return self.spreadRefused(sp);
+        const given = (try self.spreadGiven(sp, gt, args, true)) orelse return self.spreadRefused(sp);
         if (!ok) return self.spreadRefused(sp);
-        var given: std.ArrayList([]const u8) = .empty;
-        for (fields) |f| {
-            if (f.is_method or f.is_variant) continue;
-            if (!self.namesKeyword(args, f.name)) try given.append(a, f.name);
-        }
-        try self.recordSpread(sp, given.items);
+        try self.recordSpread(sp, given);
     }
 
     /// `name:` alone, `name: name` (docs/design/options.md, "The
@@ -10998,7 +11074,7 @@ const Checker = struct {
         // An update makes the instance its spread's value is
         // (`objectUpdate`).
         for (args) |a| if (a.isKind(.spread)) {
-            const ty = sema.unwrapAccess(self.ctx, try self.synthQuiet(ir.Spread.value(a)));
+            const ty = sema.unwrapAccess(self.ctx, try self.synthQuiet(rig.Parser.spreadPlace(ir.Spread.value(a))));
             const result = switch (self.ctx.types.get(ty)) {
                 .parameterized_nominal => |pn| if (pn.sym == sym_id) ty else null,
                 else => null,
@@ -12710,6 +12786,18 @@ const Checker = struct {
         return out;
     }
 
+    /// The names a diagnostic gives the parameters of `info`, as `from`
+    /// and `keeps` name them: a group's field by its group's name.
+    fn clauseNames(self: *Checker, info: ParamInfo) Error!?[]const []const u8 {
+        const names = info.names orelse return null;
+        const groups = info.groups orelse return names;
+        const out = try self.ctx.arena.allocator().dupe([]const u8, names);
+        for (out, 0..) |*n, i| if (i < groups.len) if (groups[i]) |g| {
+            n.* = g.group;
+        };
+        return out;
+    }
+
     /// The first parameter of `f` that is a group's field and takes a
     /// duration, which a unit's keyword never fills, or null.
     fn groupDuration(self: *Checker, f: FunctionType, info: ParamInfo) ?usize {
@@ -12897,7 +12985,7 @@ const Checker = struct {
                 // A function given last, where an option takes no function,
                 // is meant for the parameter that takes one, which only a
                 // closure fills by position.
-                if (i == args.len - 1 and !self.takesFunction(f.params[i])) if (self.trailingParam(args, f.params, info.names)) |cb| {
+                if (i == args.len - 1 and !self.takesFunction(f.params[i])) if (self.trailingParam(args, f.params, info.names, info.groups)) |cb| {
                     const saved = self.under_poison;
                     self.under_poison = true;
                     const ty = self.canonical(try self.synthExpr(a));
@@ -12916,7 +13004,7 @@ const Checker = struct {
             try self.checkArg(a, f, i, views);
         }
         if (trailing) |a| {
-            const idx = self.trailingParam(args, f.params, info.names) orelse {
+            const idx = self.trailingParam(args, f.params, info.names, info.groups) orelse {
                 try self.errAt(a, "a closure written after the keyword arguments fills the parameter that takes a function, and `{s}` has none left open", .{callee});
                 try self.synthArgs(args);
                 return;
@@ -13033,7 +13121,7 @@ const Checker = struct {
             origins.declared = false;
             origins.self_paths = &.{};
         }
-        const recorded: sema.CallParams = .{ .fills = fills, .origins = origins, .names = info.names };
+        const recorded: sema.CallParams = .{ .fills = fills, .origins = origins, .names = try self.clauseNames(info) };
         try self.ctx.recordCallParams(call_node, recorded);
         // A closure literal passed to a parameter the callee calls at most
         // once owns what it moves in, as its own parameters would.
@@ -13263,14 +13351,14 @@ const Checker = struct {
     fn closureParam(self: *Checker, args: []const Sexp, params: []const TypeId, info: ParamInfo) ?usize {
         if (args.len == 0 or !args[args.len - 1].isKind(.lambda)) return null;
         if (!hasTrailingClosure(args) and info.default(args.len - 1) == null) return null;
-        return self.trailingParam(args, params, info.names);
+        return self.trailingParam(args, params, info.names, info.groups);
     }
 
     /// The parameter a closure written last, after the keyword
     /// arguments, fills: the parameter that takes a function and no
-    /// other argument fills, the last of them when several do. Null
-    /// when none is open.
-    fn trailingParam(self: *Checker, args: []const Sexp, params: []const TypeId, names: ?[]const []const u8) ?usize {
+    /// other argument fills, the last of them when several do, never a
+    /// group's field (`groups`). Null when none is open.
+    fn trailingParam(self: *Checker, args: []const Sexp, params: []const TypeId, names: ?[]const []const u8, groups: ?[]const ?sema.GroupParam) ?usize {
         var positional: usize = 0;
         for (args[0 .. args.len - 1]) |a| {
             if (!a.isKind(.kwarg)) positional += 1;
@@ -13282,6 +13370,7 @@ const Checker = struct {
                 if (a.isKind(.kwarg) and i < ns.len and std.mem.eql(u8, ns[i], self.text(ir.Kwarg.name(a)))) break true;
             } else false else false;
             if (named) continue;
+            if (groups) |gs| if (i < gs.len and gs[i] != null) continue;
             const ty = params[i];
             if (sema.callableFnTy(self.ctx, ty) != null or self.ctx.types.get(ty) == .function) return i;
         }
@@ -14385,7 +14474,7 @@ const Checker = struct {
                 // a function (`closureParam`).
                 pattern = switch (from) {
                     .fields, .payload => null,
-                    .params => |p| if (self.trailingParam(args, p.params, p.names)) |i| p.params[i] else null,
+                    .params => |p| if (self.trailingParam(args, p.params, p.names, null)) |i| p.params[i] else null,
                 };
             } else {
                 // An object's or variant's one field may be given

@@ -1,0 +1,442 @@
+test "a group's fields may own and view", '''
+  rig/1  /a 3
+  curl /v1 /b 3
+'''
+  # docs/design/options.md, sections 2 and 11, step 3.
+  obj Http
+    agent: ?String = "rig/1"
+    prefix: String = String()
+    retries: Int = 3
+
+  sub get(path: ?String, ..h: Http)
+    print(h.agent, h.prefix, path, h.retries)
+
+  get("/a")
+  get("/b", agent: "curl", prefix: String("/v1"))
+
+test "a spread moves or clones the owners it gives, and copies the rest", '''
+  rig/1 /v1 /a 5
+  rig/1 /v2 /b 5
+  rig/1 /v1 /c 5
+  5
+'''
+  obj Http
+    agent: ?String = "rig/1"
+    prefix: String = String()
+    retries: Int = 3
+
+  obj Config
+    http: Http
+
+  sub get(path: ?String, ..h: Http)
+    print(h.agent, h.prefix, path, h.retries)
+
+  cfg = Config(http: Http(prefix: String("/v1"), retries: 5))
+  get("/a", ..+cfg.http)
+  get("/b", prefix: String("/v2"), ..cfg.http)
+  get("/c", ..<cfg.http)
+  print(cfg.http.retries)
+
+code "a moving spread is field moves as arguments", "get(\"/c\", "
+  obj Http
+    prefix: String = String()
+    retries: Int = 3
+
+  sub get(path: ?String, ..h: Http)
+    print(h.prefix, path, h.retries)
+
+  h = Http(prefix: String("/v1"))
+  get("/c", ..<h)
+
+test "a wrapper forwards a group that owns, a field pinned", '''
+  get /x
+  rig/1 /p /x 1
+  rig/1 /p /y 3
+  rig/1 /p /y 3
+'''
+  obj Http
+    agent: ?String = "rig/1"
+    prefix: String = String()
+    retries: Int = 3
+
+  sub get(path: ?String, ..h: Http)
+    print(h.agent, h.prefix, path, h.retries)
+
+  sub logged(path: ?String, ..h: Http)
+    print("get", path)
+    get(path, retries: 1, ..<h)
+
+  sub twice(path: ?String, ..h: Http)
+    get(path, ..+h)
+    get(path, ..<h)
+
+  logged("/x", prefix: String("/p"))
+  twice("/y", prefix: String("/p"))
+
+test "a group used whole is spread from its binding", "2\n/p /x 1"
+  obj Http
+    prefix: String = String()
+    retries: Int = 3
+
+  fun size(h: ?Http) -> Int
+    h.prefix.len
+
+  sub get(path: ?String, ..h: Http)
+    print(h.prefix, path, h.retries)
+
+  sub logged(path: ?String, ..h: Http)
+    print(size(?h))
+    get(path, retries: 1, ..<h)
+
+  logged("/x", prefix: String("/p"))
+
+test "a group's owner moves out in the body", "a 1\ntrue\nb"
+  obj Job
+    name: String
+    tries: Int = 1
+
+  fun take_name(..j: Job) -> String
+    print(j.name, j.tries)
+    <j.name
+
+  fun first(..j: Job) -> String
+    n = <j.name
+    n
+
+  print(take_name(name: String("a")) == "a")
+  print(first(name: String("b")))
+
+fail "a group's owner is read in place, as an object parameter's field is", "6:3: `j.name` owns a `String`, which can't be copied out by `return`: write `+j.name` to clone it", errors: 1
+  obj Job
+    name: String
+    tries: Int = 1
+
+  fun take_name(..j: Job) -> String
+    j.name
+
+  print(take_name(name: String("a")))
+
+test "a body that uses an owning group whole binds it", "abc\n5\n2 7"
+  obj Job
+    name: String
+    tries: Int = 1
+
+  fun describe(j: ?Job) -> Int
+    j.name.len + j.tries
+
+  fun run(..j: Job) -> Int
+    print(j.name)
+    describe(?j)
+
+  sub enqueue(q: !List[Job], ..j: Job)
+    !q.push(<j)
+
+  print(run(name: String("abc"), tries: 2))
+  q: List[Job] = List()
+  j = Job(name: String("x"), tries: 7)
+  enqueue(!q, ..+j)
+  enqueue(!q, ..<j)
+  print(q.len, q[1].tries)
+
+fail "a group used whole is partly moved by a field's move", "7:9: `j` is partly moved: `j.name` was moved out; assign it first", errors: 1
+  obj Job
+    name: String
+    tries: Int = 1
+
+  sub run(..j: Job)
+    n = <j.name
+    keep(<j)
+    print(n)
+
+  sub keep(j: Job)
+    print(j.tries)
+
+  run(name: String("a"))
+
+test "a result viewed from a group says `from`", "he 8\nhe\nhello"
+  obj Label
+    text: ?String
+    width: Int = 8
+
+  fun text_of(..l: Label) -> ?String from l
+    l.text
+
+  fun shown(..l: Label) -> ?String from l
+    print(l.text, l.width)
+    pick(?l)
+
+  fun pick(l: ?Label) -> ?String
+    l.text
+
+  s = String("hello")
+  t = text_of(text: ?s)
+  u = shown(text: ?s[0..2])
+  print(u)
+  print(t)
+
+fail "a view in a group never outlives what it views", "which belongs to this function", errors: 1
+  obj Label
+    text: ?String
+    width: Int = 8
+
+  fun text_of(..l: Label) -> ?String from l
+    l.text
+
+  fun made() -> ?String
+    s = String("x")
+    text_of(text: ?s)
+
+  print(made())
+
+fail "`from` names a group that could hold the view", "4:52: `from l`: no field of group `l`, a `Size`, could hold a view of what `wide` returns", errors: 1
+  obj Size
+    width: Int = 8
+
+  fun wide(name: ?String, ..l: Size) -> ?String from l
+    name
+
+  print(wide("a"))
+
+fail "a result that views a group's field says so", "5:3: `text_of` returns a view of `l.text`, but its signature says it views only `n`", errors: 1
+  obj Label
+    text: ?String
+
+  fun text_of(n: ?String, ..l: Label) -> ?String from n
+    l.text
+
+  print(text_of("a", text: "b"))
+
+test "a method keeps a view from its group", "[\"a\", \"b\"]"
+  obj Tag
+    name: ?String
+
+  obj Board
+    names: List[?String]
+
+    sub pin(!@, ..t: Tag) keeps t
+      !@names.push(t.name)
+
+  s = String("a")
+  b = Board(names: List())
+  !b.pin(name: ?s)
+  !b.pin(name: "b")
+  print(b.names)
+
+fail "a method that keeps a group's view says `keeps`", "8:5: `pin` stores a view of `t.name` in `@`, which its caller reaches, but its signature does not keep `t`; say so: `keeps t`", errors: 1
+  obj Tag
+    name: ?String
+
+  obj Board
+    names: List[?String]
+
+    sub pin(!@, ..t: Tag)
+      !@names.push(t.name)
+
+  b = Board(names: List())
+  !b.pin(name: "a")
+  print(b.names)
+
+fail "a kept view of a group keeps its place read-only", "13:1: cannot change `s` while a read view of it is still in use", errors: 1
+  obj Tag
+    name: ?String
+
+  obj Board
+    names: List[?String]
+
+    sub pin(!@, ..t: Tag) keeps t
+      !@names.push(t.name)
+
+  s = String("a")
+  b = Board(names: List())
+  !b.pin(name: ?s)
+  !s.add("b")
+  print(b.names)
+
+test "object update moves the owners and copies the rest", "a 2 x 1\na a 3\n1 2"
+  obj Doc
+    name: String
+    pages: Int
+    tag: ?String
+
+  d = Doc(name: String("a"), pages: 1, tag: "x")
+  e = Doc(pages: 2, ..<d)
+  print(e.name, e.pages, e.tag, d.pages)
+  f = Doc(pages: 3, ..+e)
+  print(e.name, f.name, f.pages)
+  g = Doc(pages: f.name.len, ..<f)
+  h = Doc(name: String("b"), ..g)
+  print(g.pages, h.name.len + h.pages)
+
+fail "a moving spread is read where it is written", "6:22: use of `d.name` after move", errors: 1
+  obj Doc
+    name: String
+    pages: Int
+
+  d = Doc(name: String("a"), pages: 1)
+  e = Doc(..<d, pages: d.name.len)
+  print(e.pages)
+
+test "object update of a type with a drop body clones its fields", "a 4\nclose a\nclose a"
+  obj File
+    name: String
+    fd: Int
+
+    drop(!@)
+      print("close", @name)
+
+  f = File(name: String("a"), fd: 3)
+  g = File(fd: 4, ..+f)
+  print(g.name, g.fd)
+
+fail "the sigils of a spread", "20:10: `..cfg` gives `prefix`, a `String`, which owns: write `..<cfg` to move it, or `..+cfg` to clone it", "21:25: `..<n` moves nothing, since every field it gives copies: write `..n`", "22:7: a spread gives a value's fields: write `..n`, `..<n` to move its owners, or `..+n` to clone them", "23:17: `File` has a `drop` body, which expects every field: update it from `..+f`, or move `f` whole and set the field", "24:17: `File` has a `drop` body, so object update copies its fields only by `..+f`", errors: 5
+  obj Http
+    prefix: String = String()
+    retries: Int = 3
+
+  obj File
+    fd: Int
+
+    drop(!@)
+      print("close", @fd)
+
+  sub get(path: ?String, ..h: Http)
+    print(path, h.prefix)
+
+  sub plain(..n: Http)
+    print(n.retries)
+
+  cfg = Http()
+  n = Http()
+  f = File(fd: 1)
+  get("a", ..cfg)
+  plain(prefix: String(), ..<n)
+  plain(..?n)
+  g = File(fd: 2, ..<f)
+  h = File(fd: 2, ..f)
+  print(cfg.retries, g.fd, h.fd)
+
+fail "a group's type is its fields: no drop body, not unique", "10:10: group `d` of `take` is a `D`, which has a `drop` body, which expects every field: a group passes its fields one by one", "14:14: group `s` of `use_seed` is a `Seed`, which is `unique`, whose fields a group would copy", errors: 2
+  obj D
+    n: String
+
+    drop(!@)
+      print("drop", @n)
+
+  obj Seed unique
+    n: Int = 1
+
+  sub take(..d: D)
+    e = <d
+    print(e.n)
+
+  sub use_seed(..s: Seed)
+    print(s.n)
+
+  take(n: String("a"))
+  use_seed()
+
+test "a closure written last never fills a group's field", "1\n2"
+  obj Hook
+    run: fun(Int) -> Int
+
+  fun twice(n: Int) -> Int
+    n * 2
+
+  sub each(n: Int, ..h: Hook, f: ?sub(Int))
+    f(n)
+    print(h.run(n))
+
+  each(1, run: twice, |i| print(i))
+
+fail "a closure written last fills no group's field", "a closure written last fills the parameter that takes a function", errors: 1
+  obj Hook
+    run: fun(Int) -> Int
+
+  sub each(n: Int, ..h: Hook)
+    print(h.run(n))
+
+  each(1, |i| i)
+
+test "arguments and a spread are evaluated in the order written", "1 1\n1 2"
+  obj Buf
+    data: List[Int]
+    n: Int = 0
+
+  sub show(..b: Buf)
+    print(b.data.len, b.n)
+
+  fun grow(b: !Buf) -> Int
+    !b.data.push(1)
+    b.data.len
+
+  b = Buf(data: List())
+  show(n: grow(!b), ..+b)
+  show(..+b, n: grow(!b))
+
+fail "a moving spread takes its place before a later write view", "13:21: `b` is partly moved: `b.data` was moved out; assign it first", errors: 1
+  obj Buf
+    data: List[Int]
+    n: Int = 0
+
+  sub show(..b: Buf)
+    print(b.data.len, b.n)
+
+  fun grow(b: !Buf) -> Int
+    !b.data.push(1)
+    b.data.len
+
+  b = Buf(data: List())
+  show(..<b, n: grow(!b))
+
+test "a generic function takes an owning group", "0 []\n3\n1 [1]\ntrue"
+  obj Opts
+    label: String = String()
+    seen: List[Int] = List()
+
+  fun tagged[T](x: T, ..o: Opts) -> T
+    print(o.label.len, o.seen)
+    x
+
+  print(tagged(3))
+  xs: List[Int] = List()
+  !xs.push(1)
+  print(tagged(String("y"), label: String("y"), seen: <xs) == "y")
+
+test "a group that owns, whose type is another module's", '''
+  a /v1 3
+  b /w 9
+  /v1
+'''
+  use lib
+
+  sub mine(..h: lib.Http)
+    lib.get("b", ..<h)
+
+  sub main()
+    h = lib.Http(prefix: String("/v1"))
+    lib.get("a", ..+h)
+    mine(prefix: String("/w"), retries: 9)
+    k = lib.Http(retries: 1, ..<h)
+    print(k.prefix)
+  file "lib.rig"
+    pub obj Http
+      pub prefix: String = String()
+      pub agent: ?String = "rig"
+      pub retries: Int = 3
+
+    pub sub get(path: ?String, ..h: Http)
+      print(path, h.prefix, h.retries)
+
+test "a call with an owning group runs as a task", "/a 3\n/b 1", seeds: 20
+  obj Http
+    prefix: String = String()
+    retries: Int = 3
+
+  sub get(..h: Http)
+    print(h.prefix, h.retries)
+
+  h = Http(prefix: String("/a"))
+  t = get(..<h)&
+  >t
+  u = get(prefix: String("/b"), retries: 1)&
+  >u

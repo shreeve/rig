@@ -14012,6 +14012,19 @@ fn declaredOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos
         if (std.mem.eql(u8, text, "@")) whole_self = n;
         const i = for (d.params.items(), 0..) |p, i| {
             if (paramName(ctx.source, p)) |pn| if (std.mem.eql(u8, pn, text)) break i;
+        } else if (groupFieldsNamed(ctx.source, d.params, text)) |fields| {
+            // A group's name stands for those of its fields' parameters
+            // that could hold what the result views.
+            var held: ParamMask = 0;
+            for (d.params.items(), 0..) |_, k| {
+                if (k >= f.params.len or fields & paramBit(k) == 0) continue;
+                if (try viewReachOf(ctx, a, f.params[k], .{ .view = f.returns }, .views) != .none) held |= paramBit(k);
+            }
+            if (held == 0) {
+                try ctx.errAt(n, "`from {s}`: no field of group `{s}`, a `{s}`, could hold a view of what `{s}` returns", .{ text, text, try groupTypeText(ctx, d.params, text), name });
+            }
+            named |= held;
+            continue;
         } else {
             if (std.mem.eql(u8, text, "static")) {
                 try ctx.errAt(n, "`static` stands alone (`from static`): a result may always view what lives for the whole program, so a list names only parameters", .{});
@@ -14137,11 +14150,30 @@ fn declKeeps(ctx: *SemContext, name: []const u8, pos: u32, f: FunctionType, o: *
             const text = identAt(ctx.source, n) orelse continue;
             const i = for (d.params.items(), 0..) |p, i| {
                 if (paramName(ctx.source, p)) |pn| if (std.mem.eql(u8, pn, text)) break i;
+            } else if (groupFieldsNamed(ctx.source, d.params, text)) |fields| {
+                // A group's name stands for those of its fields'
+                // parameters that are views the function may keep.
+                var kept: ParamMask = 0;
+                for (d.params.items(), 0..) |_, k| {
+                    if (k >= f.params.len or fields & paramBit(k) == 0) continue;
+                    if (viewParam(ctx, f.params[k]) and o.stores & paramBit(k) != 0) kept |= paramBit(k);
+                }
+                if (named & fields != 0) {
+                    try ctx.errAt(n, "`keeps {s}`: `{s}` is named twice", .{ text, text });
+                } else if (kept == 0) {
+                    try ctx.errAt(n, "`keeps {s}`: no field of group `{s}`, a `{s}`, is a view that `{s}` could keep", .{ text, text, try groupTypeText(ctx, d.params, text), name });
+                }
+                named |= kept;
+                continue;
             } else {
                 try ctx.errAt(n, "`{s}` has no parameter `{s}`; `keeps` names view parameters, `@` among them", .{ name, text });
                 continue;
             };
             if (i >= f.params.len) continue;
+            // A group as written, in a module's first check, which the
+            // check after its rewrite checks as its fields
+            // (`groupFieldsNamed`).
+            if (d.params.items()[i].isKind(.group_param)) continue;
             if (named & paramBit(i) != 0) {
                 try ctx.errAt(n, "`keeps {s}`: `{s}` is named twice", .{ text, text });
                 continue;
@@ -17576,6 +17608,32 @@ pub fn groupFieldOf(param: Sexp) ?Sexp {
     if (!param.isKind(.@":")) return null;
     const ty = ir.get(param, .type);
     return if (ty.isKind(.field_of)) ty else null;
+}
+
+/// The parameters among `params` that are fields of the group named
+/// `group` (`groupFieldOf`), as a mask, or null when none is: `from net`
+/// and `keeps net` name them by their group's name.
+pub fn groupFieldsNamed(source: []const u8, params: Sexp, group: []const u8) ?ParamMask {
+    var mask: ParamMask = 0;
+    for (params.items(), 0..) |p, i| {
+        const of = groupFieldOf(p) orelse continue;
+        if (!std.mem.eql(u8, identAt(source, ir.FieldOf.group(of)) orelse "", group)) continue;
+        if (i < @bitSizeOf(ParamMask)) mask |= paramBit(i);
+    }
+    return if (mask == 0) null else mask;
+}
+
+/// The type of the group named `group` among `params`, as written:
+/// `Net`, or `lib.Net`.
+fn groupTypeText(ctx: *SemContext, params: Sexp, group: []const u8) std.mem.Allocator.Error![]const u8 {
+    for (params.items()) |p| {
+        const of = groupFieldOf(p) orelse continue;
+        if (!std.mem.eql(u8, identAt(ctx.source, ir.FieldOf.group(of)) orelse "", group)) continue;
+        const ty = ir.FieldOf.type(of);
+        if (ty.isKind(.member)) return memberText(ctx.arena.allocator(), identAt(ctx.source, ir.Member.object(ty)) orelse "?", identAt(ctx.source, ir.Member.name(ty)) orelse "?");
+        return identAt(ctx.source, ty) orelse "?";
+    }
+    return "?";
 }
 
 pub fn paramName(source: []const u8, param: Sexp) ?[]const u8 {

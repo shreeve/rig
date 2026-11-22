@@ -5088,8 +5088,11 @@ pub const Checker = struct {
                     try self.err(pos, "`{s}` is captured by the closure, which keeps it for every call, so a {s} can't take it{s}", .{ name, sink.text(), try self.captureFix(name, v.ty) });
                     return;
                 }
-                if (top_return) return;
-                if (self.owningKind(v.ty)) |k| return self.reportAlias(pos, name, .name, k, sink, v.ty, null);
+                // A read of a group's field is a field's read, which no
+                // result moves out (docs/design/options.md, section 2).
+                const field = try self.groupFieldRead(expr);
+                if (top_return and field == null) return;
+                if (self.owningKind(v.ty)) |k| return self.reportAlias(pos, field orelse name, if (field != null) .field else .name, k, sink, v.ty, null);
                 if (sink == .argument) return;
                 // A write view of a Copy value is copied where the
                 // value is read; where a `!T` goes, the view would be.
@@ -7310,6 +7313,28 @@ pub const Checker = struct {
         };
     }
 
+    /// `net.timeout`, when `leaf` is a read of a group's field that the
+    /// options rewrite wrote as the field's parameter
+    /// (`rig.Parser.group_targets`), else null.
+    fn groupFieldRead(self: *Checker, leaf: Sexp) Error!?[]const u8 {
+        if (leaf != .src or !rig.isNamedLeaf(leaf)) return null;
+        const p = self.sema.parser orelse return null;
+        if (!p.group_targets.contains(leaf.src.pos)) return null;
+        const id = self.sema.symbolOf(leaf) orelse return null;
+        const group = self.sema.group_fields.get(id) orelse return null;
+        return try sema.memberText(self.arena(), group, self.text(leaf));
+    }
+
+    /// How parameter `param` is named to a reader: its name, or, for a
+    /// group's field, `group.field`; and how `from` and `keeps` name it:
+    /// its name, or its group's.
+    fn paramShown(self: *Checker, param: Sexp) Error!struct { shown: []const u8, clause: []const u8 } {
+        const pn = if (sema.paramNameNode(param)) |n| self.text(n) else "?";
+        const of = sema.groupFieldOf(param) orelse return .{ .shown = pn, .clause = pn };
+        const group = self.text(ir.FieldOf.group(of));
+        return .{ .shown = try sema.memberText(self.arena(), group, pn), .clause = group };
+    }
+
     /// A body passes on only the loans its signature shows (Core
     /// sentence 7): what it returns and stores comes from the parameters
     /// its origins name. `params` are its run-time parameters.
@@ -7337,11 +7362,12 @@ pub const Checker = struct {
         const n = @min(items.len, @bitSizeOf(sema.ParamMask));
         for (0..n) |i| {
             const bit = sema.paramBit(i);
-            const pname = if (sema.paramNameNode(items[i])) |pn| self.text(pn) else "?";
+            const named = try self.paramShown(items[i]);
+            const pname = named.shown;
             if (self.func.returned & bit != 0 and o.result & bit == 0) {
                 if (o.declared) {
                     const only = try self.paramList(items, o.result, true, name);
-                    const at = self.resultPos(self.func.returned_by[i], pname) orelse self.func.returned_at[i];
+                    const at = self.resultPos(self.func.returned_by[i], if (sema.paramNameNode(items[i])) |pn| self.text(pn) else pname) orelse self.func.returned_at[i];
                     if (only.len == 0) {
                         try self.err(at, "{s} returns a view of `{s}`, but its signature says it views only what lives for the whole program", .{ what, pname });
                     } else try self.err(at, "{s} returns a view of `{s}`, but its signature says it views only {s}", .{ what, pname, only });
@@ -7360,7 +7386,7 @@ pub const Checker = struct {
                     // A view parameter is kept only where `keeps` names it.
                     const into = self.func.stored_in[i];
                     const kept = try self.paramList(items, (o.stores & o.viewed) | (self.func.stored & o.viewed), false, .nil);
-                    try self.err(self.func.stored_at[i], "{s} stores a view of `{s}` in `{s}`, which its caller reaches, but its signature does not keep `{s}`; say so: `keeps {s}`", .{ what, pname, into, pname, kept });
+                    try self.err(self.func.stored_at[i], "{s} stores a view of `{s}` in `{s}`, which its caller reaches, but its signature does not keep `{s}`; say so: `keeps {s}`", .{ what, pname, into, named.clause, kept });
                 } else try self.err(self.func.stored_at[i], "{s} stores a view of `{s}` where its caller can reach it, but a call of it keeps no view of `{s}`: its type cannot hold what the write parameters hold", .{ what, pname, pname });
             }
         }
@@ -7421,9 +7447,19 @@ pub const Checker = struct {
     fn paramList(self: *Checker, items: []const Sexp, mask: sema.ParamMask, quoted: bool, name: Sexp) Error![]const u8 {
         var out: std.ArrayList(u8) = .empty;
         const clause: []const Sexp = if (self.func.origins.self_paths.len == 0) &.{} else if (self.declaredFrom(name)) |d| d.names.items() else &.{};
+        var groups: std.ArrayList([]const u8) = .empty;
         for (items, 0..) |p, i| {
             if (mask & sema.paramBit(i) == 0) continue;
-            const pn = if (sema.paramNameNode(p)) |n| self.text(n) else continue;
+            if (sema.paramNameNode(p) == null) continue;
+            // A group's fields are named by the group's name, once.
+            const pn = (try self.paramShown(p)).clause;
+            if (sema.groupFieldOf(p) != null) {
+                const seen = for (groups.items) |g| {
+                    if (std.mem.eql(u8, g, pn)) break true;
+                } else false;
+                if (seen) continue;
+                try groups.append(self.arena(), pn);
+            }
             var paths: usize = 0;
             if (std.mem.eql(u8, pn, "@")) for (clause) |c| if (c.isKind(.member)) {
                 try self.appendListName(&out, self.spanText(c), quoted);
