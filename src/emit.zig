@@ -10265,6 +10265,16 @@ pub const Emitter = struct {
             self.keep_comptime = true;
             return self.emitBare(e);
         }
+        // A group's field's default from another module (a field's default
+        // is a literal, a constant, `T()`, or `[n of x]`): `T()` is the
+        // value its fields' defaults make, and `[n of x]` the array of `x`,
+        // each as the parameter's type takes it.
+        if (e.isKind(.call) and ir.Call.args(e).len == 0) return self.w.writeAll(".{}");
+        if (e.isKind(.array_fill)) {
+            try self.w.writeAll("@splat(");
+            try self.emitDefault(decl, ir.ArrayFill.value(e), facts.type_invalid, field);
+            return self.w.writeAll(")");
+        }
         if (e.isKind(.member)) {
             const obj = ir.Member.object(e);
             const name = rig.leafText(decl.source, ir.Member.name(e).src);

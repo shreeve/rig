@@ -1,11 +1,11 @@
 # Named options, groups and spreads: the design
 
 This is the design of how a Rig call gives a function's options: by name,
-one at a time, or whole from a stored value. The rule of section 1 is
-built, and its examples are ordinary ones; groups, spreads, object update
-and the shorthand are not yet, and every example of what they add is a
-`rig pending` block, which becomes an ordinary example when its rule is
-built. Each decision the owner made is
+one at a time, or whole from a stored value. The rule of section 1, and
+groups, spreads, object update and the shorthand (sections 2 and 3, under
+the limits of section 4), are built, and their examples are ordinary ones;
+lifting the limit to plain data is the next step (section 11). Each
+decision the owner made is
 tagged **[Owner, 2026-11-22]**; an untagged rule follows from those or is
 forced by Rig. A panel of three wrote the reports behind the keyword rule,
 a committee of three the reports behind groups and spreads, and two red
@@ -13,7 +13,7 @@ teams attacked the result; they are kept in
 [named-options/](../history/records/2026-11/named-options/README.md). Where
 a report and this page differ, this page holds.
 
-```rig pending
+```rig
 obj Net
   timeout: Int = 30
   retries: Int = 3
@@ -118,7 +118,7 @@ The message teaches the split: a parameter without a default is an operand,
 passed by position; one with a default is an option, passed by name. Its
 full text ends "to pass it by position, remove its default", since that is
 the other way out. Options may be given in any order, after the positional
-arguments, as keywords may be today.
+arguments, as keywords may be.
 
 **No first-parameter exemption.** `area(24)` above is refused although
 `width` is the first parameter. An exemption would keep open the calls the
@@ -201,7 +201,7 @@ u
 **group**. The body sees one value, `net`, of type `Net`; the field names do
 not enter the body's scope (`net.timeout`, never `timeout`).
 
-```rig pending
+```rig
 obj Net
   timeout: Int = 30
   retries: Int = 3
@@ -250,7 +250,7 @@ c 2 3 false
 - **A trailing closure never fills a group's field.**
 - A `pub` function's group type has `pub` fields.
 
-```rig pending
+```rig
 obj CopyArgs
   src: Static
   dst: Static
@@ -269,7 +269,7 @@ a.txt -> b.txt false
 a.txt -> c.txt true
 ```
 
-```rig pending
+```rig reject
 use std.time
 
 obj Net
@@ -313,7 +313,7 @@ group `r` of `send` is a `Req`, which holds `body: ?String`, a view; a group hol
 **[Owner, 2026-11-22]** `..v` in a call supplies the fields of a stored
 value `v` to the group of its type.
 
-```rig pending
+```rig
 obj Net
   timeout: Int = 30
   retries: Int = 3
@@ -355,7 +355,8 @@ c 1 5
   documents it, or takes a group without that field.
 - **One spread per group.** Two spreads that fill one group are refused, so
   no rule of "the later wins" between spreads is needed.
-- **The operand is a place:** a name or a field path (`..cfg.net`), whose
+- **The operand is a place:** a name, self, or a field path (`..cfg.net`,
+  `..@`, `..@net`), whose
   type is a group's type, not an optional and not a type parameter. A field
   read never runs code, so reading a place once per field is safe; a made
   value (`..defaults()`) is bound to a name first, which also keeps its `!`
@@ -365,7 +366,7 @@ c 1 5
   order. With a write view among the arguments, the order is visible, and it
   is the one written: **[Owner, 2026-11-22]** targeted tests check it.
 
-```rig pending
+```rig
 obj Net
   timeout: Int = 30
   retries: Int = 3
@@ -392,7 +393,7 @@ In the first call the spread reads `o.timeout` (5) before `longer` writes
 it; in the second, `longer` runs first and the spread reads 25. Each reads
 `o.retries` never, since `retries` is named.
 
-```rig pending
+```rig reject
 obj Net
   timeout: Int = 30
   retries: Int = 3
@@ -427,7 +428,7 @@ a spread passes a name or a field: bind `defaults()` to a name first
 `Point(x: 3, ..p)` is a copy of `p` with `x` set, under the same rules
 (nominal, complete, named fields win in any order, one spread, a place).
 
-```rig pending
+```rig
 obj Point
   x: Int
   y: Int
@@ -453,9 +454,9 @@ Rust's `Point { x: 3, ..p }`, OCaml's `{ p with x = 3 }`, Kotlin's
 **[Owner, 2026-11-22]** `name:` alone means `name: name`, in a call and in
 a constructor. It is a shorthand only when `,` or `)` follows it on the
 same line; `name:` at the end of a line takes the next line as its value,
-as it does today.
+as it does elsewhere.
 
-```rig pending
+```rig
 obj Point
   x: Int
   y: Int
@@ -482,30 +483,30 @@ a 7
   else of that name.
 - It never hides a move: an owner given to a parameter that takes one still
   needs `<` (`buf: <buf`), so a bare `buf:` of a `List` is refused with
-  "write `buf: <buf`", as `buf: buf` is today.
+  "write `<buf` to move it", as `buf: buf` is.
 - It covers forwarding (`connect(host, timeout:, retry:)`) and, more often,
   construction: of the 650 `x: x` lines in Trig, most build an object.
 
-```rig pending
+```rig reject
 obj Doc
   name: String
   pages: Int
 
-timeout = 30
+obj Page
+  size: Int
 
-sub fetch(url: ?String, timeout: Int = 5)
-  print(url, timeout)
+size = 30
 
 sub main()
   d = Doc(name: String("a"), pages: 1)
   e = Doc(pages: 2, ..d)
-  fetch("u", timeout:)
-  print(e.pages)
+  p = Page(size:)
+  print(e.pages, p.size)
 ```
 
 ```error
 object update copies plain data, and `Doc` holds `name: String`, which owns: write its fields
-`timeout:` alone needs a local or a parameter named `timeout`
+`size:` alone needs a local or a parameter named `size`
 ```
 
 ## 4. The limits of v1
@@ -718,7 +719,7 @@ That is the pitch, not the whole. Honestly listed, a programmer learns:
 7. `..v` passes a value's fields to the group of exactly its type.
 8. A field named beside a spread wins, before it or after it; one spread
    fills a group.
-9. A spread's operand is a name or a field path.
+9. A spread's operand is a name, self, or a field path.
 10. `T(x: 1, ..v)` is a copy of `v` with `x` set.
 11. `name:` before `,` or `)` on its line means `name: name`, for a local
     or a parameter.
@@ -762,8 +763,9 @@ design is tried:
 - **Groups.** `Period` (`years`, `months`, `weeks`, `days`, each `= 0`) for
   `Date.add` and `DateTime.add`; `DateFields` (`year`, `month`, `day`, each
   `Int? = none`) and `ClockFields` (`hour`, `minute`, `second`, `ns`) for
-  `with`. Their flat signatures are today's, so their emitted Zig is
-  unchanged, and a program can now hold a period in a table and apply it.
+  `with`, the groups `period`, `date` and `clock`. Their flat signatures
+  are the parameters the methods had, so their emitted Zig is the same, and
+  a program can hold a period in a table and apply it.
 - **`round` and `floor` keep their units inline** and declare no group
   (section 4).
 - **What the rule deletes:** `ArgCheck`'s `by_name` and `duration_add`, the
@@ -771,7 +773,7 @@ design is tried:
   of the round checks. The increment checks of `round` and `floor` stay:
   they check values, not positions.
 
-```rig pending
+```rig
 use std.datetime
 
 sub main()!
@@ -835,38 +837,37 @@ one-line note for Trig and loco.
    its callback, the deletions from `ArgCheck`, std's reviewed names, and
    the datetime makers and `duration` of section 9. Whether an argument
    is written by name never changes code generation (section 5).
-2. **Groups, spreads, object update and the shorthand**, about 1.4k to 1.8k
-   compiler lines, built as a rewrite of the call and of the signature in
-   the tree, not as new kinds of argument slot: the module is typed, each
-   spread and group is recorded, the Parser wrapper rewrites the call into
-   keyword arguments and the signature into name-only parameters, and the
-   module is checked again, as iterator chains are. Every pass after the
-   rewrite then sees keyword calls and plain parameters, which it handles
-   today. The code red team's findings are constraints on it:
-   - A spread's synthesized nodes need a leaf whose text is any field name,
-     declared in any module: the hidden names are a fixed enum of 256 ids
-     and `leafText` reads only them or the source. Budget a synthesized-name
-     leaf kind (a per-module name table, positions from `hiddenPos`, one
-     position per leaf), or carry the spread as its own node the matcher
-     expands.
+2. **Groups, spreads, object update and the shorthand** *(built)*, about
+   1.2k compiler lines, a rewrite of the call and of the signature in the
+   tree, not new kinds of argument slot: the module is typed, each spread
+   and group is recorded, the Parser wrapper rewrites the call into keyword
+   arguments and the signature into name-only parameters, and the module
+   is checked again, as iterator chains are. Every pass after the rewrite
+   sees keyword calls and plain parameters. The code red team's findings
+   shaped it ([the record](../history/records/2026-11/named-options-groups/README.md)):
+   - A spread's and a group's nodes are written with named leaves, whose
+     text is any field name, declared in any module: an id from a
+     process-wide table of texts, at a position past the source's end
+     homed at the spread or the group, one position per leaf. A name
+     copied from the source is looked up where its home is.
    - A group is rewritten in the tree's signature, into one name-only
-     parameter node per field and a real body binding, not only in sema's
-     function type: the declaration side of ownership (`paramBit(i)`
-     against the i-th written parameter), storage (`planHeldHeaders`) and
-     emit's parameter walks index the written list.
-   - The first check accepts a spread quietly and gives the call no type,
-     as a chain's is given today; the second check's messages carry the
-     spread's span and name the spread.
-   - The trailing-closure rule has three copies (argument checking,
-     `argViews`, generic inference), each of which learns that a closure
-     never fills a group's field; one argument matcher that all three read
-     is worth building first.
-   - Field defaults differ from parameter defaults (`T()`, `[n of x]`):
-     the flattened parameter is filled by the field's rule.
-   - `ParamMask` has 64 bits and a parameter past bit 63 is "in every
-     set"; flattening spends bits per field.
-   - The language server's signature help shows a group's fields, and a
-     rename follows spreads and the shorthand.
+     parameter per field, typed `(field_of ...)`, and a real body binding
+     where the body uses the group whole, so the declaration side of
+     ownership, storage and emit indexes the parameters it emits.
+   - The first check accepts a spread quietly and checks the call no
+     further; a call's spreads are rewritten together or not at all, so
+     the second check sees what the first saw, and its messages carry the
+     spread's span.
+   - A closure written last never fills a group's field: a field holds
+     plain data, never a function, so the trailing-closure rule's copies
+     need no change.
+   - A field's default is filled by the field's rule, from its type's
+     module (`T()` and `[n of x]` included).
+   - A function whose parameters with its groups' fields pass 64 is
+     refused, so `ParamMask` never runs out of bits.
+   - The language server has no signature help or rename yet; when it
+     does, it shows a group's fields and follows spreads and the
+     shorthand.
 3. **Owners and read views in groups and object update** **[Owner,
    2026-11-22]**, the first step after v1, before any other deferred item.
    It needs the ownership, storage and emit work the code red team

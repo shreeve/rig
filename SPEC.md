@@ -1726,9 +1726,100 @@ each 1
 each 2
 ```
 
+**A group**, `..net: Net` among the parameters, makes an object's fields
+the function's name-only options ([docs/design/options.md](docs/design/options.md),
+section 2). The body sees one value, `net`, of type `Net`, and reads its
+fields as `net.timeout`, never by their names alone; a call gives the
+fields exactly as it gives inline options. A field without a default is
+a required argument, given by name; a field's default is filled at the
+call. A function may have inline options and several groups, after its
+required parameters and before a parameter a closure written last fills.
+A group's type is an object of plain data ([Kinds of value](#kinds-of-value)) whose fields
+share no name with the function's parameters or its other groups' fields,
+`pub` where the function is, and a function takes at most 64 parameters
+with its groups' fields. A unit's keyword never fills a group's field,
+and a closure written last never does.
+
+```rig
+obj Net
+  timeout: Int = 30
+  retries: Int = 3
+
+obj CopyArgs
+  src: Static
+  dst: Static
+
+sub fetch(url: ?String, ..net: Net)
+  print(url, net.timeout, net.retries)
+
+sub copy(..a: CopyArgs)
+  print(a.src, "->", a.dst)
+
+sub main()
+  fetch("a")
+  fetch("b", retries: 5, timeout: 2)
+  copy(dst: "y", src: "x")
+```
+
+```output
+a 30 3
+b 2 5
+x -> y
+```
+
+**A spread**, `..v` among a call's arguments, gives the fields of a stored
+value to the group of exactly its type: a field named beside it, before
+it or after it, wins, and the spread gives the rest. Its operand is a
+name, self, or a field path (`..cfg.net`, `..@`), read where it is written, field by field, and one
+spread fills a group. `name:` before `,` or `)` on its line is `name:
+name`, for a local or a parameter only.
+
+```rig
+obj Net
+  timeout: Int = 30
+  retries: Int = 3
+
+sub fetch(url: ?String, ..net: Net)
+  print(url, net.timeout, net.retries)
+
+sub main()
+  saved = Net(retries: 5)
+  fetch("a", ..saved)
+  fetch("b", timeout: 1, ..saved)
+  retries = 7
+  fetch("c", retries:)
+```
+
+```output
+a 30 5
+b 1 5
+c 30 7
+```
+
+```rig reject
+obj Net
+  timeout: Int = 30
+
+obj Retry
+  timeout: Int = 30
+
+sub fetch(url: ?String, ..net: Net)
+  print(url, net.timeout)
+
+sub main()
+  r = Retry()
+  fetch("a", ..r)
+  fetch("b", ms: 500)
+```
+
+```error
+`..r` is a `Retry`, but group `net` of `fetch` is a `Net`: a spread passes a value of the group's own type
+`fetch` has no parameter `ms`
+```
+
 A function name is a value of its function type, so it can be passed
 where a `fun(...)` or `sub(...)` is expected ([§11](#function-types)),
-unless the function has options.
+unless the function has options, inline or in a group.
 
 Declarations are only allowed at module level; there are no nested
 functions (use a closure). Two module-level declarations may not share a
@@ -2242,6 +2333,49 @@ sub main()
 
 ```output
 3 anon 5 1 0 2
+```
+
+**Object update** copies a stored value with the fields named set:
+`Point(x: 3, ..p)` ([docs/design/options.md](docs/design/options.md),
+"Object update"). The spread is a name, self, or a field path of exactly the type
+made, read where it is written; a field named beside it, before or after,
+wins; one spread updates a value; and every argument beside it is given
+by name. It copies plain data ([Kinds of value](#kinds-of-value)): an
+object that owns or views is updated by writing its fields. It is allowed
+only where the type could be constructed. `name:` alone, before `,` or
+`)` on its line, is `name: name`, for a local or a parameter.
+
+```rig
+obj Point
+  x: Int
+  y: Int
+  z: Int = 0
+
+sub main()
+  p = Point(x: 1, y: 2, z: 3)
+  q = Point(x: 9, ..p)
+  y = 8
+  r = Point(..p, y:)
+  print(q.x, q.y, q.z, r.x, r.y, r.z)
+```
+
+```output
+9 2 3 1 8 3
+```
+
+```rig reject
+obj Doc
+  name: String
+  pages: Int
+
+sub main()
+  d = Doc(name: String("a"), pages: 1)
+  e = Doc(pages: 2, ..d)
+  print(e.pages)
+```
+
+```error
+object update copies plain data, and `Doc` holds `name: String`, which owns: write its fields
 ```
 
 **An `exact` object is held as declared.** `obj Name exact` holds its
@@ -11757,8 +11891,10 @@ sub main()
 | `?fun(Int) -> Int`, `?sub()` | a callable view ([below](#callable-views)) |
 
 Function types describe closures bound to locals and function names
-used as values. A function type writes its result after `->`, as a
-declaration does; a suffix belongs to the result, so `fun(Int) -> Int!`
+used as values. A function type carries no options: a function with
+options, inline or in a group, is not a value, and a closure that calls
+it names the options it gives ([Functions](#functions)). A function type
+writes its result after `->`, as a declaration does; a suffix belongs to the result, so `fun(Int) -> Int!`
 returns an `Int!`, and an optional function is `(fun(Int) -> Int)?`. An owned closure is a
 shared handle, so `~f` makes a weak handle to it, which upgrades like
 any other ([§9](#weak-handles)).
