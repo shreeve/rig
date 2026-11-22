@@ -399,6 +399,7 @@ directory.
 | `stat(path: ?String) -> Stat?!` | what is at `path`: its `kind`, whether it is a `link`, its `size`, and when it was `modified`; `none` when nothing is there |
 | `read_dir(path: ?String) -> List[Entry]?!` | the entries of the directory at `path`, sorted by name, each with its `name`, `kind`, and `link`; `none` when nothing is there |
 | `realpath(path: ?String) -> String?!` | the absolute path `path` names, every symbolic link in it resolved; `none` when nothing is there |
+| `read_link(path: ?String) -> String?!` | what the symbolic link at `path` holds, the path it names as written in the link, not resolved, so it may be relative to the link's directory; `none` when nothing is there, and `FileError.invalid` when `path` is not a link |
 | `mkdir(path: ?String, parents: Bool = false)!` | makes the directory `path`; a directory there already is fine |
 | `rename(from: ?String, to: ?String)!` | moves what is at `from` to `to`, replacing a file there |
 | `remove(path: ?String) -> Bool!` | removes the file, or empty directory, at `path`, whichever is there, as C's `remove` does: `true`, or `false` when nothing was there |
@@ -492,8 +493,8 @@ f: No such file or directory
 the blocking pool while its task waits, so other tasks go on: a read of
 anything but a regular file (a FIFO, a device), every open of a `File`,
 and every write, rename, `mkdir`, and removal. A read of a regular file,
-and `exists`, `stat`, `realpath`, and `read_dir`, which only look at a
-path, run in the task, as Go's and Rust's do: on a local disk the call
+and `exists`, `stat`, `realpath`, `read_link`, and `read_dir`, which
+only look at a path, run in the task, as Go's and Rust's do: on a local disk the call
 takes less time than a trip to the pool and back, and none of them
 waits on another process. To do several at once, make them tasks and
 wait with `>`, as for any call. Like a socket's calls
@@ -898,11 +899,13 @@ year 0 (1 BCE, as in ISO 8601); a `Time` a time of day on the clock
 face, to the nanosecond; a `DateTime` a date and a time of day with no
 zone, as a Postgres `timestamp` or an HTML `datetime-local` holds one,
 every day of it 24 hours; a `Weekday` a day of the week, `.monday` to
-`.sunday`; and an `Instant` an exact point on the shared timeline, the
+`.sunday`; an `Instant` an exact point on the shared timeline, the
 same everywhere, from -9999-01-02T01:59:59Z to
-9999-12-30T22:00:00.999999999Z. Each is plain data: `==` compares two,
-`<` orders them, a `Map` keys on one, and `print` writes ISO 8601, an
-`Instant` RFC 3339 in UTC. Nothing here allocates. The calendar
+9999-12-30T22:00:00.999999999Z; and a `TimeZone` a named zone or a fixed
+offset ([Zones](#zones)). Each is plain data: `==` compares two,
+`<` orders them (not zones), a `Map` keys on one, and `print` writes ISO 8601, an
+`Instant` RFC 3339 in UTC. Nothing here allocates but a zone's `name()`
+and `local()`. The calendar
 math is Jiff 1.0.0's ([design/datetime.md](design/datetime.md)), and a
 program that only sleeps or times, using `std.time` alone, loads none of
 it.
@@ -1031,10 +1034,58 @@ true
 
 ### Zones
 
+A `TimeZone` is a named zone of the zone data compiled into the
+program, which carries every offset its place has had, historic seconds
+included, or a fixed offset from UTC in whole minutes. It is plain data,
+four bytes, and never allocates. The data is the IANA Time Zone Database
+as Jiff 1.0.0 bundles it, `2026f`, and is never read from the system, so
+a program gives the same answer on every machine; a program that uses no
+zone carries none of it, and one that does carries about 100 KB of
+tables ([design/datetime.md](design/datetime.md) §7.4 to §7.7).
+
+| Member | Result |
+|---|---|
+| `TimeZone.named(name: ?String) -> TimeZone!` | the zone the data names `name`, in any ASCII case: `named("america/denver")` is `America/Denver`, and `UTC`, in any case, is `utc()`. Fails with `unknown_zone` for a name the data does not hold; nothing falls back to UTC. A string literal is checked as Rig compiles and takes no `!`, `TimeZone.named("America/Denver")`, and one that names no zone is a compile error offering the nearest name |
+| `TimeZone.fixed(hours: Int = 0, minutes: Int = 0) -> TimeZone!` | the fixed offset `hours` × 60 + `minutes` east of UTC, whole minutes within ±25:59, given by name and of one sign: -05:30 is `fixed(hours: -5, minutes: -30)`, and `fixed(minutes: 330)` is +05:30. Fails with `invalid` for two signs and `range` beyond ±25:59; with constant arguments it is checked as Rig compiles and takes no `!`. `fixed(hours: 0)` is `utc()` |
+| `TimeZone.utc()` | UTC, the fixed zone of offset 0 |
+| `TimeZone.parse(text: ?String) -> TimeZone!` | a name, as `named` reads one, or an offset of whole minutes, `+05:30`, `+0530`, or `+05`; `Z`, `z`, `+00:00`, and `-00:00` are `utc()`. An offset with seconds, with one digit (`-7`), or beyond ±25:59 fails with `invalid`, and a name the data does not hold, `UTC+5` among them, with `unknown_zone`. `TimeZone.parse(tz.name())!` is `tz` |
+| `tz.name() -> String` | a named zone's name as the data spells it, the one asked for, so `named("Asia/Calcutta")` stays `Asia/Calcutta`; a fixed zone's offset, `-07:00`; `UTC` for `utc()` |
+| `tz.offset_at(i: Instant) -> time.Duration` | the zone's offset from UTC at the instant, east positive, `-7h` in Denver's winter, with a historic offset's seconds, `-44m 30s` in Monrovia before 1972 |
+| `==`, `Hash` | two names of one zone are one zone: `Asia/Calcutta` equals `Asia/Kolkata`, the same primary identifier, but `Africa/Accra` does not equal `Africa/Abidjan`, whose rules are the same. A named zone never equals a fixed one (`Etc/GMT+7` and `fixed(hours: -7)`), and `utc()`, `fixed(hours: 0)`, and `named("UTC")` are one value, apart from `named("Etc/UTC")` |
+| `zone_names() -> []Static` | every name of the data, 598, in the order of their ASCII-lowercase bytes |
+| `tzdb_version() -> Static` | the data's version, `2026f` |
+| `local() -> TimeZone!` | the system's own zone, read each time it is called and never kept. `TZ`, when it is set: empty is `utc()`; a zone's name, a leading `:` dropped and a path cut to what follows `zoneinfo/`; an absolute path with no `zoneinfo/`, read as a link and what it names cut the same way; or, not after a `:`, a rule with no daylight-saving part, `UTC0`, `EST5`, `<+08>-8`, as a fixed zone. Anything else fails with `unknown_zone`, and a set `TZ` never falls through. Otherwise the name the link `/etc/localtime` names, cut the same way, and otherwise the name in `/etc/timezone`. A name the data does not hold fails with `unknown_zone`, and no zone to be found with `no_system_zone`: where `/etc/localtime` is a copy and not a link, as in some container images, and on Windows, set `TZ` to the zone's name. It reads the environment and the file system, so it allocates and may wait |
+
+```rig
+use std.datetime
+
+sub main()!
+  denver = datetime.TimeZone.named("America/Denver")
+  winter = datetime.Instant.parse("2026-01-15T12:00:00Z")!
+  summer = datetime.Instant.parse("2026-07-15T12:00:00Z")!
+  print(denver.name(), denver.offset_at(winter), denver.offset_at(summer))
+  print(datetime.TimeZone.named("asia/calcutta").name(), datetime.TimeZone.named("Asia/Calcutta") == datetime.TimeZone.named("Asia/Kolkata"))
+  india = datetime.TimeZone.fixed(hours: 5, minutes: 30)
+  print(india.name(), india == datetime.TimeZone.parse("+05:30")!, datetime.TimeZone.fixed(hours: 0) == datetime.TimeZone.utc())
+  monrovia = datetime.TimeZone.named("Africa/Monrovia")
+  print(monrovia.offset_at(datetime.Instant.parse("1968-02-01T23:59:30Z")!))
+  _ = datetime.TimeZone.parse("Mars/Base") catch |e| print(e)
+  print(datetime.tzdb_version(), datetime.zone_names().len)
+```
+
+```output
+America/Denver -7h -6h
+Asia/Calcutta true
++05:30 true true
+-44m 30s
+DateTimeError.unknown_zone
+2026f 598
+```
+
 The rest of `std.datetime` is planned
-([design/datetime.md](design/datetime.md)): `ZonedDateTime`, `TimeZone`,
-and `format`, each built on `std.time`'s `Duration`. A day on the clock
-needs a zone, so a day later than an instant is one in a zone:
+([design/datetime.md](design/datetime.md)): `ZonedDateTime` and
+`format`, each built on `std.time`'s `Duration` and `TimeZone`. A day on
+the clock needs a zone, so a day later than an instant is one in a zone:
 
 ```rig pending
 use std.datetime

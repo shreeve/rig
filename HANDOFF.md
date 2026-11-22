@@ -163,9 +163,17 @@ A new session, human or agent, takes these steps in order:
   failure, clamped in a wait, or refused; no `panic(` in std's time
   code, with its test; the oracle with no saturation left out; and
   `tools/migrate-tov.py`, with a patch for Trig.
-  Next, in order: groups and spreads, then owners and read views in
-  groups (the owner, 2026-11-22; the build plan's steps 2 and 3); then
-  `TimeZone` (phase 4), written to total or visible.
+  Phase 4 (branch `tz-phase4`; records/2026-11/datetime-phase4) builds
+  `TimeZone`, written to total or visible: the zone tables of IANA
+  2026f committed in std with their freshness test, `named` with its
+  check of a literal as Rig compiles, `fixed`, `utc`, `parse`, `name`,
+  `offset_at`, equality and hashing by primary identifier, `zone_names`,
+  `tzdb_version`, `local()` with `file.read_link`, and the pinned test
+  table reached only from `std/datetime/zone_test.rig`; the oracle
+  compares every zone's offset about each transition, none different.
+  Groups and spreads, then owners and read views in groups (the owner,
+  2026-11-22; the build plan's steps 2 and 3) are built beside it;
+  `ZonedDateTime` (phase 5) follows.
 - **The view vocabulary** (owner, 2026-11-20; #1192 landed PR 1):
   places, read and write views, read-only, unusable, and cells are the
   words of the docs, the messages, and the code. PR 1 is the wording; PR 2
