@@ -12698,8 +12698,9 @@ done
 
 A bare call to a fallible function is rejected, and so is `!` on a call
 that cannot fail. A call of one of std's listed makers, `Date.new`,
-`Time.new`, and `DateTime.new` of `std.datetime` ([STD](docs/STD.md#stddatetime)),
-whose every argument is an integer Rig computes as it checks the
+`Time.new`, `DateTime.new`, and `Instant.from_unix_s`, `from_unix_ms`,
+and `from_unix_us` of `std.datetime` ([STD](docs/STD.md#stddatetime)),
+and `Duration.from_parts` of `std.time`, whose every argument is an integer Rig computes as it checks the
 program (a literal, a constant ([§3](#constants)), a compile-time
 function's value, a type's limit such as `Int.max`, a binding of the
 same function that never changes and holds one, and operators and
@@ -12708,7 +12709,9 @@ parameter in its function's body) is checked as Rig compiles: it cannot
 fail, so it gives the plain type and takes no `!`, and a constant the
 maker refuses is rejected, a task of the call too. With any argument
 known only as the program runs, the call is fallible, as declared, and
-the error that asks for its `!` names that argument:
+the error that asks for its `!` names that argument. `time.duration` of
+a duration form that cannot fail gives the plain `Duration` the same way
+([Durations](#durations)):
 
 ```rig
 use std.datetime
@@ -15074,28 +15077,54 @@ Stop.panicked
 
 ### Durations
 
-A length of time is std.time's `Duration`: an exact, signed length, one
-`Int` of nanoseconds, so about 292 years either way. Wherever a
-parameter is typed `Duration`, or `Duration?`, in any module, a call
+A length of time is std.time's `Duration`: an exact, signed length, its
+whole seconds, an `Int` within ±(2^63 - 1), and the nanoseconds after
+them, so about 292 billion years either way, a symmetric range. Wherever
+a parameter is typed `Duration`, or `Duration?`, in any module, a call
 gives it in one of the **duration forms**: bare, a number of seconds,
 an `Int` or a `Float`, `time.sleep(2)`, `time.sleep(0.5)`; units'
 keywords and their numbers, `ns:`, `us:`, `ms:`, `seconds:`,
 `minutes:`, and `hours:`, `time.sleep(ms: 40)`, which add up,
 `time.sleep(hours: 1, minutes: 30)`; or a value that is already a
 `Duration`, which passes as it is, `time.sleep(d)`. A `Float` is
-rounded to the nearest whole nanosecond, a half away from zero; a NaN,
-an infinity, or more nanoseconds than a `Duration` holds panics as a
-conversion does ([Numeric conversions](#numeric-conversions)), and is
-rejected when it is a constant. `time.duration(form)` makes one as a
-value: `time.duration(ms: 250)`.
+rounded to the nearest whole nanosecond, a half away from zero.
+`time.duration(form)` makes one as a value: `time.duration(ms: 250)`.
+
+A form never panics. One whose number is a constant is checked as Rig
+compiles: one not finite or beyond the range is rejected. One whose
+number is known only as the program runs cannot leave the range when it
+is an `Int` of `ns:`, `us:`, or `ms:`, and these are taken anywhere.
+Any other, a `Float`, an `Int` of seconds (`Int.min` seconds is one past
+the range), of minutes, or of hours, or several units summed, can leave
+it, and where it is given decides:
+
+- in a call that returns `!`, its conversion joins the call's own
+  failure, `i.add(minutes: n)!`: it fails with the member `range` of the
+  callee's own error set beyond the range, and `invalid` for a `Float`
+  that is not finite. A std function fails so with its module's set; a
+  program's function that may fail with any error, with std.time's
+  `TimeError`; one whose declared set has members `range` and
+  `invalid`, with those; any other call is not one that returns `!`
+  here, and nor is a task's (`f(minutes: n)&`), whose arguments are made
+  as it starts;
+- in a wait, `time.sleep`, `time.within`, `time.after`, or `per:`, an
+  `Int` beyond what the scheduler holds waits as long as it can, and a
+  `Float` is rejected, with the fix `time.duration(x)!`;
+- anywhere else it is rejected, with the fix that makes the conversion
+  visible: `time.duration(minutes: n)!`, then the `Duration` passed as
+  it is.
+
+`time.duration` of a form that cannot fail gives a `Duration`, and of
+one that can, a `Duration!`: `time.duration(ms: n)`,
+`time.duration(minutes: n)!`.
 
 - Several units' keywords give each unit at most once, in any order
   and of any sign: `hours: 1, minutes: -30` is 30 minutes. Each part
-  becomes its nanoseconds, as one unit alone does (a `Float` rounded
-  first, each part a number a `Duration` holds), and the parts are
-  added in an `Int`: a sum past the range panics, and is rejected when
-  every part is a constant. The parts are evaluated in the order
-  written, as any arguments are.
+  becomes its nanoseconds exactly (a `Float` rounded first), and the
+  parts are added: a sum of constants past the range is rejected, and a
+  sum with a part known only as the program runs is a form that can
+  fail, above. The parts are evaluated in the order written, as any
+  arguments are.
 - A call gives one form for each duration: a unit with a bare number,
   with the parameter's name, or with a `Duration` (`ms: d`) is rejected,
   and so is a unit given twice.
@@ -15125,29 +15154,28 @@ value: `time.duration(ms: 250)`.
   is rejected, a constant being what Rig computes as one, for an `Int`
 or a `Float` alike (`x = -0.5` then `time.sleep(x)`), and so is a
 negative sum of constant units (`hours: 1, minutes: -90`); a negative
-value as the program runs counts as zero. So is a constant duration that is
-not finite or that a `Duration` cannot hold.
+value as the program runs counts as zero.
   `per:` is an option given by its own name, a number of seconds or a
   `Duration`, `per: 0.5`.
 
 What a clock gives back is a `Duration`: `m.elapsed()` and `m.since(u)`
 of a `Monotonic`, a reading of the monotonic clock, and
 `time.since_start()`. A `Duration` compares and orders, and its methods
-give its totals (`d.ms()`), its arithmetic (`d.add(ms: 5)`, which
-panics past the range, and `d.checked_add(ms: 5)!`, which fails), its
-rounding, and its text ([std.time](docs/STD.md#stdtime)). `round` and
-`floor` take exactly one unit's keyword and an increment, not a
-duration's several, checked where they are called: `d.round(minutes:
-15)`; neither is taken as a value.
+give its totals (`d.seconds()`, an `Int`, and `d.ns()`, an `I128`), its
+arithmetic (`d.add(ms: 5)!`, which fails past the range; there are no
+operators), its rounding, and its text ([std.time](docs/STD.md#stdtime)).
+`round` and `floor` take exactly one unit's keyword and an increment,
+not a duration's several, checked where they are called:
+`d.round(minutes: 15)!`; neither is taken as a value.
 
 ```rig
 use std.time
 
 sub main()!
-  z = time.Monotonic.at(0)
-  print(z.add(2).since(z), z.add(0.5).since(z), z.add(ms: 40).since(z))
-  print(z.add(us: 1.5).since(z), z.add(ns: 2.5).since(z), time.duration(hours: 1.5))
-  print(time.duration(hours: 1, minutes: 30), z.add(minutes: 1, seconds: -30).since(z))
+  z = time.Monotonic.at(0)!
+  print(z.add(2)!.since(z), z.add(0.5)!.since(z), z.add(ms: 40)!.since(z))
+  print(z.add(us: 1.5)!.since(z), z.add(ns: 2.5)!.since(z), time.duration(hours: 1.5))
+  print(time.duration(hours: 1, minutes: 30), z.add(minutes: 1, seconds: -30)!.since(z))
   start = time.monotonic()
   time.sleep(ms: 1, us: 500)!
   print(start.elapsed() >= time.duration(ms: 1.5), start.elapsed().ns() > 0)
@@ -15170,6 +15198,11 @@ sub main()!
   time.sleep(-1)!
   time.sleep(hours: 1, minutes: -90)!
   time.sleep(5 * time.MS)!
+  n = Int(time.since_start().ns())
+  print(count(minutes: n))
+
+fun count(d: time.Duration) -> Int
+  Int(d.seconds())
 ```
 
 ```error
@@ -15179,6 +15212,7 @@ a duration takes no `days:`, since a day is not always 24 hours: write `hours: 2
 a wait of `-1` is negative: a constant wait is zero or more
 a wait of `hours: 1, minutes: -90` is negative, -30m: a constant wait is zero or more
 no member `MS` in module `time`; a length of time is a `time.Duration`: `time.duration(ms: 1)`, or `ms: 1` where a duration is taken
+`minutes: n` can be beyond a `Duration`'s range as the program runs, and this call cannot fail: make the duration first, `time.duration(minutes: n)!`, and pass that
 ```
 
 ### Deadlines

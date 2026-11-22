@@ -102,11 +102,10 @@ fn weekday_named(s: &str) -> Res<Weekday> {
     })
 }
 
-// A duration as ISO 8601, or `skip` beyond an `Int` of nanoseconds,
-// where Rig's `since` saturates (DATETIME-DESIGN §5.1, §6.6).
+// A duration as ISO 8601: Rig's `Duration` holds every one Jiff's
+// `SignedDuration` does (DATETIME-DESIGN §5.1, §6.6).
 fn since(d: SignedDuration) -> String {
-    let n = d.as_nanos();
-    if n > i64::MAX as i128 || n < i64::MIN as i128 { "skip".into() } else { d.to_string() }
+    d.to_string()
 }
 
 fn args<'a>(rest: &'a str, n: usize) -> Res<Vec<&'a str>> {
@@ -263,16 +262,16 @@ impl Oracle {
                 let a = args(rest, 2)?;
                 Ok(since(datetime(a[0])?.duration_since(datetime(a[1])?)))
             }
-            // An instant's Unix time (§7.8): `unix()`, or `skip` beyond an
-            // `Int` of nanoseconds, where Rig saturates (§5.1); `unix_s()`,
-            // the whole seconds floored; and `from_unix` of that `unix()`.
+            // An instant's Unix time (§7.8): `unix()`, exact at any instant;
+            // `unix_s()`, `unix_ms()` and `unix_us()`, each floored; and the
+            // instant again from that `unix()`.
             "instant.unix" => {
                 let a = args(rest, 1)?;
                 let t = instant(a[0])?;
                 let d = t.as_duration();
-                let floored = t.as_nanosecond().div_euclid(1_000_000_000);
-                let back = if fits(d) { show(Timestamp::from_duration(d)) } else { "skip".into() };
-                Ok(format!("{} {} {}", since(d), floored, back))
+                let n = t.as_nanosecond();
+                let back = show(Timestamp::from_duration(d));
+                Ok(format!("{} {} {} {} {}", since(d), n.div_euclid(1_000_000_000), n.div_euclid(1_000_000), n.div_euclid(1_000), back))
             }
             "instant.since" => {
                 let a = args(rest, 2)?;
@@ -300,7 +299,9 @@ impl Oracle {
                 let a = args(rest, 2)?;
                 let t = time(a[0])?;
                 let d = duration(a[1])?;
-                Ok(format!("{} {}", t.wrapping_add(d), show(t.checked_add(d))))
+                // Rig's `add` wraps, as Jiff's `wrapping_add` does; it has
+                // no twin that fails past midnight (§6.2, §9 item 20).
+                Ok(t.wrapping_add(d).to_string())
             }
             "instant.add" => {
                 let a = args(rest, 2)?;
@@ -422,10 +423,10 @@ impl Oracle {
             "time.parse" => Ok(show(rest.parse::<Time>())),
             "datetime.parse" => Ok(show(rest.parse::<DateTime>())),
             "instant.parse" => Ok(show(rest.parse::<Timestamp>())),
-            // A duration past an `Int` of nanoseconds, which Rig's
-            // `Duration` does not hold (DATETIME-DESIGN §5.1), is `skip`.
+            // A duration of `i64::MIN` seconds is past Rig's symmetric range
+            // (DATETIME-DESIGN §5.1), and is `skip`.
             "duration.parse" => Ok(match rest.parse::<SignedDuration>() {
-                Ok(d) if !fits(d) => "skip".into(),
+                Ok(d) if !symmetric(d) => "skip".into(),
                 r => show(r),
             }),
             "zoned.parse" => {
@@ -499,8 +500,8 @@ impl Oracle {
                 let (u, i) = (unit(a[1])?, int(a[2])?);
                 let r = |m| d.round(jiff::SignedDurationRound::new().smallest(u).increment(i).mode(m));
                 let (round, floor) = (r(RoundMode::HalfExpand), r(RoundMode::Floor));
-                // An input or an answer past an `Int` of nanoseconds (§5.1).
-                if !fits(d) || round.as_ref().map_or(false, |x| !fits(*x)) || floor.as_ref().map_or(false, |x| !fits(*x)) {
+                // An input or an answer past Rig's symmetric range (§5.1).
+                if !symmetric(d) || round.as_ref().map_or(false, |x| !symmetric(*x)) || floor.as_ref().map_or(false, |x| !symmetric(*x)) {
                     return Ok("skip".into());
                 }
                 Ok(format!("{} {}", show(round), show(floor)))
@@ -529,10 +530,10 @@ fn counts(sign: i64, d: Span, w: Span, m: Span, y: Span) -> String {
     )
 }
 
-// Whether a duration is within an `Int` of nanoseconds, Rig's `Duration`.
-fn fits(d: SignedDuration) -> bool {
-    let n = d.as_nanos();
-    n >= i64::MIN as i128 && n <= i64::MAX as i128
+// Whether a duration is within Rig's range, which is Jiff's but for
+// `i64::MIN` seconds: symmetric, so that no negation fails (§5.1).
+fn symmetric(d: SignedDuration) -> bool {
+    d.as_secs() != i64::MIN
 }
 
 // Whether time of day `t` rounded to `i` of unit `u`, a half up, reaches

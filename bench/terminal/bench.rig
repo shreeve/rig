@@ -26,7 +26,7 @@ sub main()!
     t = terminal.Terminal.new(cols, rows, scrollback: scrollback)
     start = time.monotonic()
     !t.feed(data)
-    ns += start.elapsed().ns()
+    ns += Int(start.elapsed().ns())
     if i == n - 1
       check = fnv(t.dump(history: false))
   print(ns, check)

@@ -92,6 +92,7 @@ pub const Lift = sema.Lift;
 pub const TypedInt = sema.TypedInt;
 pub const ArgSlot = sema.ArgSlot;
 pub const DurationParts = sema.DurationParts;
+pub const DurationHow = sema.DurationHow;
 pub const slotOf = sema.slotOf;
 pub const Instance = sema.Instance;
 pub const HandsKind = sema.Hands.Kind;

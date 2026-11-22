@@ -510,6 +510,10 @@ pub const Emitter = struct {
     splatting: Sexp = .nil,
     /// The duration argument being written (`sema.durationOf`).
     durationing: Sexp = .nil,
+    /// The label of the call being written whose duration forms join
+    /// its failure (`sema.DurationHow.folded`): a conversion that fails
+    /// breaks out of it with the callee's error (`emitCallPlain`).
+    fold_label: ?[]const u8 = null,
     /// The box being erased to a box of an API object (`emitValue`).
     erasing_box: Sexp = .nil,
     /// Arguments and selves of the calls being emitted that were
@@ -6079,11 +6083,15 @@ pub const Emitter = struct {
                 return self.w.writeAll(")");
             }
             if (d.opt != facts.type_invalid) try self.w.print("rig.pack({s}, ", .{try self.typeText(d.opt)});
-            try self.w.writeAll(if (d.float) "rig.durationFloat(" else "rig.durationInt(");
-            if (d.ty == facts.type_invalid) try self.w.writeAll("i64") else try self.emitTypeTy(d.ty);
+            if (d.how == .folded) try self.w.writeAll("(");
+            try self.w.print("rig.duration{s}{s}(", .{ if (d.float) "Float" else "Int", durationTwin(d.how) });
+            if (d.part) try self.w.writeAll("i128") else if (d.ty == facts.type_invalid) try self.w.writeAll("i64") else try self.emitTypeTy(d.ty);
             try self.w.writeAll(", ");
             try self.emitBare(sexp);
-            try self.w.print(", {d})", .{d.unit_ns});
+            try self.w.print(", {d}", .{d.unit_ns});
+            try self.writeFoldErrors(d.how, d.float);
+            try self.w.writeAll(")");
+            try self.writeFoldBreak(d.how, sexp);
             if (d.opt != facts.type_invalid) try self.w.writeAll(")");
             return;
         };
@@ -9494,6 +9502,26 @@ pub const Emitter = struct {
     }
 
     fn emitCallPlain(self: *Emitter, sexp: Sexp) Error!void {
+        // A call whose duration form joins its failure is a block the
+        // conversion's failure breaks out of, with the callee's error,
+        // as the call's own failure: `i.add(ms: t)!`.
+        if (self.callFolds(sexp)) {
+            const label = try self.fmt("__rig_fd_{d}", .{self.nextId()});
+            const saved = self.fold_label;
+            defer self.fold_label = saved;
+            self.fold_label = label;
+            try self.w.print("({s}: {{ break :{s} ", .{ label, label });
+            try self.emitCallArgs(sexp);
+            return self.w.writeAll("; })");
+        }
+        const saved = self.fold_label;
+        defer self.fold_label = saved;
+        self.fold_label = null;
+        return self.emitCallArgs(sexp);
+    }
+
+    /// `emitCallPlain`, the call itself.
+    fn emitCallArgs(self: *Emitter, sexp: Sexp) Error!void {
         const callee = self.facts.calleeOf(sexp);
         const args = ir.Call.args(sexp);
 
@@ -10003,15 +10031,55 @@ pub const Emitter = struct {
     /// parameter takes when it is one.
     fn emitDurationParts(self: *Emitter, args: []const Sexp, p: facts.DurationParts) Error!void {
         if (p.opt != facts.type_invalid) try self.w.print("rig.pack({s}, ", .{try self.typeText(p.opt)});
-        try self.w.writeAll("rig.durationSum(");
+        if (p.how == .folded) try self.w.writeAll("(");
+        try self.w.print("rig.durationSum{s}(", .{durationTwin(p.how)});
         if (p.ty == facts.type_invalid) try self.w.writeAll("i64") else try self.emitTypeTy(p.ty);
         try self.w.writeAll(", .{ ");
         for (p.args, 0..) |ai, k| {
             if (k > 0) try self.w.writeAll(", ");
             try self.emitBare(argValue(args[ai]));
         }
-        try self.w.writeAll(" })");
+        try self.w.writeAll(" }");
+        try self.writeFoldErrors(p.how, false);
+        try self.w.writeAll(")");
+        try self.writeFoldBreak(p.how, if (p.args.len > 0) args[p.args[0]] else .nil);
         if (p.opt != facts.type_invalid) try self.w.writeAll(")");
+    }
+
+    /// The errors a duration form that joins its call's failure passes
+    /// the runtime (`sema.DurationHow.folded`): the callee's own `range`,
+    /// and its `invalid` for a `Float`, which may not be finite.
+    fn writeFoldErrors(self: *Emitter, how: facts.DurationHow, float: bool) Error!void {
+        const into = switch (how) {
+            .folded => |x| x,
+            else => return,
+        };
+        const members: []const []const u8 = if (float) &.{ "range", "invalid" } else &.{"range"};
+        for (members) |m| {
+            try self.w.writeAll(", error.");
+            if (into.module.len == 0) try self.w.print("@\"{s}.{s}\"", .{ into.set, m }) else try self.w.print("@\"{s}.{s}.{s}\"", .{ into.module, into.set, m });
+        }
+    }
+
+    /// A conversion that joins its call's failure leaves the call with
+    /// its error (`fold_label`).
+    fn writeFoldBreak(self: *Emitter, how: facts.DurationHow, node: Sexp) Error!void {
+        if (how != .folded) return;
+        const label = self.fold_label orelse return self.unsupported(node, "a duration form whose failure joins no call");
+        try self.w.print(" catch |__rig_fe| break :{s} __rig_fe)", .{label});
+    }
+
+    /// Whether a duration form of `call` joins its failure
+    /// (`sema.DurationHow.folded`), a part of a sum among them.
+    fn callFolds(self: *Emitter, call: Sexp) bool {
+        for (ir.Call.args(call)) |a| {
+            if (self.facts.durationOf(argValue(a))) |d| if (d.how == .folded) return true;
+        }
+        if (self.facts.callSlotsOf(call)) |slots| for (slots) |sl| switch (sl) {
+            .parts => |p| if (p.how == .folded) return true,
+            else => {},
+        };
+        return false;
     }
 
     /// Whether `call`'s callee takes the slot a failure's fields go in:
@@ -10427,7 +10495,14 @@ pub const Emitter = struct {
         try self.w.print("__rig_call_{d}: ", .{id});
         try self.openBrace();
         const first = self.hoisted.items.len;
-        try self.hoistParts(call, id);
+        {
+            // A duration form that joins the call's failure, held first,
+            // leaves the call's block with the callee's error.
+            const saved = self.fold_label;
+            defer self.fold_label = saved;
+            self.fold_label = if (self.callFolds(call)) try self.fmt("__rig_call_{d}", .{id}) else null;
+            try self.hoistParts(call, id);
+        }
         try self.writeIndent(self.indent);
         try self.w.print("break :__rig_call_{d} ", .{id});
         try self.emitCallDirect(call);
@@ -10502,7 +10577,12 @@ pub const Emitter = struct {
         // field, or element that holds the view) is read here, in argument
         // order. A value viewed has the parameter's type.
         const shown: ?TypeId = if (viewed) (if (slot < params.len) params[slot] else null) else ty;
-        if (shown) |t| if (!ptr) {
+        // A part of a duration given by several units is an `i128` of
+        // nanoseconds (`sema.Duration.part`).
+        const part = if (self.facts.durationOf(h.node)) |d| d.part else false;
+        if (part) {
+            try self.w.writeAll(": i128");
+        } else if (shown) |t| if (!ptr) {
             try self.w.writeAll(": ");
             try self.emitTypeTy(if (self.facts.readsThrough(h.node) and self.isPtrViewExpr(h.node)) self.peelViews(t) else t);
         };
@@ -12060,6 +12140,17 @@ fn ident(name: []const u8) Ident {
 /// library Zig file (`rig.ZigSpelling.exact`).
 fn exactIdent(name: []const u8) Ident {
     return .{ .name = name, .spelling = .exact };
+}
+
+/// The twin of a runtime duration helper for how a form converts
+/// (`sema.DurationHow`): `rig.durationInt`, `durationIntClamp`,
+/// `durationIntTry`.
+fn durationTwin(how: facts.DurationHow) []const u8 {
+    return switch (how) {
+        .total => "",
+        .clamped => "Clamp",
+        .folded => "Try",
+    };
 }
 
 /// The Zig name of member `name` of error set `set`, declared in the

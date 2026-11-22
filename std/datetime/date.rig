@@ -28,6 +28,13 @@ pub obj Date: Eq + Ord + Hash + Print
       return DateTimeError.invalid
     out
 
+  # The first and the last date: -9999-01-01 and 9999-12-31.
+  pub fun min() -> Date
+    Date(y: I16(MIN_YEAR), m: 1, d: 1)
+
+  pub fun max() -> Date
+    Date(y: I16(MAX_YEAR), m: 12, d: 31)
+
   # The year, the month (1 to 12), and the day of the month.
   pub fun year(?@) -> Int
     Int(@y)
@@ -99,17 +106,14 @@ pub obj Date: Eq + Ord + Hash + Print
     Date.new(Int(@y), Int(@m), Int(last.d) - weekday_since(last.weekday(), w) - (-n - 1) * 7)!
 
   # The date the calendar amounts after this one, each by name and of
-  # either sign: `d.add(months: 1)`, `d.add(days: -3)`. Years and months
-  # are added first, together as months, and a day past the month's end
-  # becomes its last day: Jan 31 and one month is Feb 28, or Feb 29 in a
-  # leap year. Then weeks and days: Jan 31, one month and one day, is
-  # Mar 1. Panics when either step leaves the range; `checked_add`
-  # fails instead.
-  pub fun add(?@, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> Date
-    date_add(@, total_months(years, months), total_days(weeks, days)) ?? panic("datetime.Date.add:", @, `plus years: {years}, months: {months}, weeks: {weeks}, days: {days} is beyond the range of dates, -9999-01-01 to 9999-12-31`)
-
-  # `add`, failing with `DateTimeError.range` where it would panic.
-  pub fun checked_add(?@, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> Date!
+  # either sign: `d.add(months: 1)!`, `d.add(days: -3)!`. Years and
+  # months are added first, together as months, and a day past the
+  # month's end becomes its last day: Jan 31 and one month is Feb 28, or
+  # Feb 29 in a leap year. Then weeks and days: Jan 31, one month and one
+  # day, is Mar 1. Fails with `DateTimeError.range` when either step
+  # leaves the range, -9999-01-01 to 9999-12-31: `d.add(days: n) catch
+  # datetime.Date.max()` keeps the last date.
+  pub fun add(?@, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> Date!
     date_add(@, total_months(years, months), total_days(weeks, days)) ?? return DateTimeError.range
 
   # The date with the fields given by name replaced: `d.with(day: 1)`.

@@ -86,11 +86,11 @@ test "add months clamps to the month's end", '''
   # §6.2 and §12: Jan 31 + 1 month, Feb 29 + 1 year, Jan 31 + 1 month +
   # 1 day (clamp, then days); years and months cancel before the clamp;
   # from the 1st, a month less a day is the month's last day.
-  print(datetime.Date.new(2027, 1, 31).add(months: 1), datetime.Date.new(2024, 1, 31).add(months: 1), datetime.Date.new(2024, 3, 31).add(months: 1), datetime.Date.new(2024, 2, 29).add(years: 1))
-  print(datetime.Date.new(2027, 1, 31).add(months: 1, days: 1), datetime.Date.new(2024, 1, 31).add(months: 1, days: 1))
+  print(datetime.Date.new(2027, 1, 31).add(months: 1)!, datetime.Date.new(2024, 1, 31).add(months: 1)!, datetime.Date.new(2024, 3, 31).add(months: 1)!, datetime.Date.new(2024, 2, 29).add(years: 1)!)
+  print(datetime.Date.new(2027, 1, 31).add(months: 1, days: 1)!, datetime.Date.new(2024, 1, 31).add(months: 1, days: 1)!)
   leap = datetime.Date.new(2024, 2, 29)
-  print(leap.add(years: 1, months: -12), leap.add(years: -1, months: 12))
-  print(datetime.Date.new(2026, 11, 1).add(months: 1, days: -1), datetime.Date.new(2027, 1, 1).add(months: 2, days: -1))
+  print(leap.add(years: 1, months: -12)!, leap.add(years: -1, months: 12)!)
+  print(datetime.Date.new(2026, 11, 1).add(months: 1, days: -1)!, datetime.Date.new(2027, 1, 1).add(months: 2, days: -1)!)
 
 test "add basic", '''
   2019-11-18 1977-02-18 1976-12-08 2019-02-28
@@ -102,11 +102,11 @@ test "add basic", '''
   # 94 `overflow_reject` (Rig, as Jiff, clamps); jiff civil/date.rs:3543
   # `add_constrained` and the doc examples of `checked_add`.
   d = datetime.Date.new(1976, 11, 18)
-  print(d.add(years: 43), d.add(months: 3), d.add(days: 20), datetime.Date.new(2019, 1, 31).add(months: 1))
-  print(datetime.Date.new(2019, 11, 18).add(years: -43), datetime.Date.new(1977, 2, 18).add(months: -3), datetime.Date.new(1976, 12, 8).add(days: -20), datetime.Date.new(2019, 2, 28).add(months: -1))
-  print(datetime.Date.new(2020, 1, 31).add(months: 1), datetime.Date.new(2020, 1, 31).add(months: 1))
+  print(d.add(years: 43)!, d.add(months: 3)!, d.add(days: 20)!, datetime.Date.new(2019, 1, 31).add(months: 1)!)
+  print(datetime.Date.new(2019, 11, 18).add(years: -43)!, datetime.Date.new(1977, 2, 18).add(months: -3)!, datetime.Date.new(1976, 12, 8).add(days: -20)!, datetime.Date.new(2019, 2, 28).add(months: -1)!)
+  print(datetime.Date.new(2020, 1, 31).add(months: 1)!, datetime.Date.new(2020, 1, 31).add(months: 1)!)
   e = datetime.Date.new(2024, 2, 29)
-  print(e.add(days: 3), e.add(months: 1, days: 2), e.add(weeks: 0), e.add(years: 1))
+  print(e.add(days: 3)!, e.add(months: 1, days: 2)!, e.add(weeks: 0)!, e.add(years: 1)!)
 
 test "add weeks, and amounts of mixed sign", '''
   2024-03-14 2024-02-15 2024-03-01
@@ -114,8 +114,8 @@ test "add weeks, and amounts of mixed sign", '''
 '''
   # §6.2: each group with its own sign, in order: months, then days.
   d = datetime.Date.new(2024, 2, 29)
-  print(d.add(weeks: 2), d.add(weeks: -2), d.add(weeks: 1, days: -6))
-  print(d.add(weeks: 1, days: -7), d.add(months: 1, days: -1), d.add(months: -1, days: 2))
+  print(d.add(weeks: 2)!, d.add(weeks: -2)!, d.add(weeks: 1, days: -6)!)
+  print(d.add(weeks: 1, days: -7)!, d.add(months: 1, days: -1)!, d.add(months: -1, days: 2)!)
 
 test "add at the ends of the range", '''
   9999-12-31 -009999-01-01 range range range range
@@ -124,21 +124,28 @@ test "add at the ends of the range", '''
   # §7.2: `checked_add` fails beyond the range, also for amounts whose
   # months overflow an `Int`; jiff-core civil/date.rs:1926 `add`.
   fun step(d: datetime.Date, years: Int, days: Int) -> ?String
-    _ = d.checked_add(years: years, days: days) catch return "range"
+    _ = d.add(years: years, days: days) catch return "range"
     "ok"
 
   top = datetime.Date.new(9999, 12, 30)
   low = datetime.Date.new(-9999, 1, 2)
-  print(top.add(days: 1), low.add(days: -1), step(top, 0, 2), step(low, 0, -2), step(top, Int.max, 0), step(low, 0, Int.min))
-  print(datetime.Date.new(9999, 12, 31).add(years: -19998, days: -364), datetime.Date.new(-9999, 1, 1).add(years: 19998, months: 11, days: 30))
+  print(top.add(days: 1)!, low.add(days: -1)!, step(top, 0, 2), step(low, 0, -2), step(top, Int.max, 0), step(low, 0, Int.min))
+  print(datetime.Date.new(9999, 12, 31).add(years: -19998, days: -364)!, datetime.Date.new(-9999, 1, 1).add(years: 19998, months: 11, days: 30)!)
 
-bomb "add past the last date panics", "datetime.Date.add: 9999-12-31 plus years: 0, months: 0, weeks: 0, days: 1 is beyond the range of dates, -9999-01-01 to 9999-12-31"
+test "add past the last date fails", '''
+  DateTimeError.range
+  DateTimeError.range
+  DateTimeError.range
+  9999-12-31 -009999-01-01
+'''
+  # Past either end, and with more months than an `Int` holds, `add`
+  # fails with `DateTimeError.range`, never panics; the ends are asked
+  # for by name.
   d = datetime.Date.new(9999, 12, 31)
-  print(d.add(days: 1))
-
-bomb "add of more months than an Int holds panics", "datetime.Date.add: 2000-01-01 plus years: 9223372036854775807, months: 0, weeks: 0, days: 0 is beyond the range of dates"
-  d = datetime.Date.new(2000, 1, 1)
-  print(d.add(years: Int.max))
+  d.add(days: 1) catch |e| print(e)
+  datetime.Date.min().add(weeks: -1) catch |e| print(e)
+  datetime.Date.new(2000, 1, 1).add(years: Int.max) catch |e| print(e)
+  print(d.add(days: 1) catch datetime.Date.max(), datetime.Date.min())
 
 test "counts in both directions", '''
   73 -73 10 -10 2 -2 0 0
@@ -182,7 +189,7 @@ test "years, months, and days between dates", '''
     early = a if a < b else b
     late = b if a < b else a
     m = late.months_since(early)
-    `{m / 12} {m % 12} {late.days_since(early.add(months: m))}`
+    `{m / 12} {m % 12} {late.days_since((early.add(months: m) catch panic("early.add(months: m) failed")))}`
 
   print(ymd(datetime.Date.new(2019, 1, 29), datetime.Date.new(2019, 3, 1)), ymd(datetime.Date.new(2019, 1, 31), datetime.Date.new(2019, 3, 31)), datetime.Date.new(2019, 1, 31).months_since(datetime.Date.new(2019, 3, 30)), datetime.Date.new(2019, 1, 30).days_since(datetime.Date.new(2019, 3, 1)))
   end = datetime.Date.new(1970, 2, 28)
@@ -204,7 +211,7 @@ test "years, months, and days from Feb 29", '''
     early = a if a < b else b
     late = b if a < b else a
     m = late.months_since(early)
-    `{m / 12} {m % 12} {late.days_since(early.add(months: m))}`
+    `{m / 12} {m % 12} {late.days_since((early.add(months: m) catch panic("early.add(months: m) failed")))}`
 
   leap = datetime.Date.new(2024, 2, 29)
   print(ymd(leap, datetime.Date.new(2025, 2, 28)), ymd(leap, datetime.Date.new(2025, 3, 1)), ymd(leap, datetime.Date.new(2028, 2, 29)), ymd(leap, datetime.Date.new(2028, 2, 28)))
@@ -218,7 +225,7 @@ test "a Feb 29 birthday", '''
   # year (`years_since` is 0 on Feb 28), while `add(years: 1)` clamps.
   born = datetime.Date.new(2024, 2, 29)
   print(datetime.Date.new(2025, 2, 28).years_since(born), datetime.Date.new(2025, 3, 1).years_since(born), datetime.Date.new(2026, 2, 28).years_since(datetime.Date.new(2025, 2, 28)), datetime.Date.new(2028, 2, 29).years_since(born))
-  print(born.add(years: 1), datetime.Date.new(2025, 2, 28), born.add(years: 4))
+  print(born.add(years: 1)!, datetime.Date.new(2025, 2, 28), born.add(years: 4)!)
 
 test "the period of a recurrence", '''
   0 1 3 4
@@ -229,7 +236,7 @@ test "the period of a recurrence", '''
   start = datetime.Date.new(2027, 1, 31)
   fun period(start: datetime.Date, today: datetime.Date) -> Int
     k = today.months_since(start)
-    if start.add(months: k + 1) <= today
+    if (start.add(months: k + 1) catch panic("start.add(months: k + 1) failed")) <= today
       k = k + 1
     k
 
@@ -380,13 +387,13 @@ test "counts from Jiff's own tests", '''
     early = a if a < b else b
     late = b if a < b else a
     m = late.months_since(early)
-    `{m / 12} {m % 12} {late.days_since(early.add(months: m))}`
+    `{m / 12} {m % 12} {late.days_since((early.add(months: m) catch panic("early.add(months: m) failed")))}`
 
   fun md(a: datetime.Date, b: datetime.Date) -> String
     early = a if a < b else b
     late = b if a < b else a
     m = late.months_since(early)
-    `{m} {late.days_since(early.add(months: m))}`
+    `{m} {late.days_since((early.add(months: m) catch panic("early.add(months: m) failed")))}`
 
   print(ymd(datetime.Date.new(2023, 4, 15), datetime.Date.new(2019, 2, 22)), ymd(datetime.Date.new(2023, 2, 22), datetime.Date.new(2019, 4, 15)), ymd(datetime.Date.new(9999, 12, 31), datetime.Date.new(-9999, 1, 1)))
   print(md(datetime.Date.new(2024, 7, 24), datetime.Date.new(2024, 2, 22)), md(datetime.Date.new(2024, 7, 15), datetime.Date.new(2024, 2, 22)), md(datetime.Date.new(2023, 4, 15), datetime.Date.new(2023, 2, 22)), md(datetime.Date.new(2023, 4, 15), datetime.Date.new(2019, 2, 22)), datetime.Date.new(2024, 7, 15).weeks_since(datetime.Date.new(2024, 6, 22)), datetime.Date.new(2024, 7, 15).days_since(datetime.Date.new(2024, 6, 22)) % 7, datetime.Date.new(2024, 7, 15).days_since(datetime.Date.new(2024, 2, 22)), datetime.Date.new(2024, 2, 22).days_since(datetime.Date.new(2024, 7, 15)))

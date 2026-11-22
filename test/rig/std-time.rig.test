@@ -27,19 +27,33 @@ test "duration from parts", '''
   # one sign; with `seconds` and `subsec_ns` it gives a duration back.
   print(time.Duration.from_parts(1, 500_000_000), time.Duration.from_parts(-1, -500_000_000), time.Duration.from_parts(0, 0), time.Duration.from_parts(0, -500_000_000), time.Duration.from_parts(2, 0))
   d = time.duration(ns: -123_456_789_012)
-  print(time.Duration.from_parts(d.seconds(), d.subsec_ns()) == d, time.Duration.from_parts(seconds: 3, ns: 4).ns() == 3_000_000_004)
+  print(time.Duration.from_parts(d.seconds(), d.subsec_ns())! == d, time.Duration.from_parts(seconds: 3, ns: 4).ns() == 3_000_000_004)
 
-bomb "duration from parts of two signs", "time.Duration.from_parts: the parts 1 and -1 do not agree in sign"
-  fun minus() -> Int
-    -1
+test "duration from parts refuses", '''
+  TimeError.invalid
+  TimeError.invalid
+  TimeError.invalid
+  TimeError.range
+  2562047788015215h 30m 7s 999ms 999us 999ns
+'''
+  # Known only as the program runs, parts of two signs and nanoseconds
+  # of a second or more each fail with `TimeError.invalid`; `Int.min`
+  # seconds, one past the symmetric range, with `TimeError.range`, as
+  # the same number of seconds does as a duration form.
+  sub show(s: Int, n: Int)
+    d = time.Duration.from_parts(s, n) catch |e|
+      print(e)
+      return
+    print(d)
 
-  print(time.Duration.from_parts(1, minus()))
+  fun k(n: Int) -> Int
+    n
 
-bomb "duration from parts past a second", "do not agree in sign, or the nanoseconds are not within 999,999,999"
-  fun big() -> Int
-    1_000_000_000
-
-  print(time.Duration.from_parts(0, big()))
+  show(1, k(-1))
+  show(0, k(1_000_000_000))
+  show(k(-1), 999_999_999)
+  show(k(Int.min), 0)
+  show(k(Int.max), 999_999_999)
 
 test "duration arithmetic", '''
   1h 30m 30m 2h 2h 30m 15m -1h -1h 1h
@@ -48,76 +62,83 @@ test "duration arithmetic", '''
   # `add`, `sub`, `times`, `div` (truncating), `neg`, and `abs`; `add`
   # and `sub` take a duration form.
   h = time.duration(hours: 1)
-  print(h.add(minutes: 30), h.sub(1800), h.times(2), h.add(h).add(ms: 1_800_000), h.div(4), h.neg(), h.neg().times(1), h.neg().abs())
-  print(time.duration(ns: 7).div(2) == time.duration(ns: 3), time.duration(ns: -7).div(2) == time.duration(ns: -3))
+  print(h.add(minutes: 30)!, h.sub(1800)!, h.times(2)!, h.add(h)!.add(ms: 1_800_000)!, h.div(4)!, h.neg(), h.neg().times(1)!, h.neg().abs())
+  print(time.duration(ns: 7).div(2)! == time.duration(ns: 3), time.duration(ns: -7).div(2)! == time.duration(ns: -3))
 
-test "duration checked arithmetic", '''
+test "duration arithmetic past the range", '''
   1h true true
   TimeError.range
   TimeError.range
   TimeError.range
-  TimeError.range
-  2562047h 47m 16s 854ms 775us 807ns
+  2562047788015215h 30m 7s 999ms 999us 999ns
+  2562047788015215h 30m 7s 999ms 999us 999ns
 '''
-  # The `checked_` methods fail with `TimeError.range` where the others
-  # panic, at either end of the range.
+  # `add`, `sub`, and `times` fail with `TimeError.range` past either end
+  # of the range, which is symmetric, so the shortest duration times -1
+  # is the longest.
   sub add(a: time.Duration, b: time.Duration)
-    d = a.checked_add(b) catch |e|
+    d = a.add(b) catch |e|
       print(e)
       return
     print(d)
 
   sub sub_(a: time.Duration, b: time.Duration)
-    d = a.checked_sub(b) catch |e|
+    d = a.sub(b) catch |e|
       print(e)
       return
     print(d)
 
   sub times(a: time.Duration, k: Int)
-    d = a.checked_times(k) catch |e|
+    d = a.times(k) catch |e|
       print(e)
       return
     print(d)
 
-  big = time.duration(ns: Int.max)
-  small = time.duration(ns: Int.min)
-  print(time.duration(1800).checked_add(1800)!, big.checked_sub(big)! == time.duration(0), small.checked_times(1)! == small)
+  big = time.Duration.max()
+  small = time.Duration.min()
+  print(time.duration(1800).add(1800)!, big.sub(big)! == time.duration(0), small.times(1)! == small)
   add(big, time.duration(ns: 1))
   sub_(small, time.duration(ns: 1))
   times(big, 2)
   times(small, -1)
   add(big, time.duration(0))
 
-bomb "duration add past the range", "integer overflow"
-  big = time.duration(ns: Int.max)
-  print(big.add(ns: 1))
-
-bomb "duration neg of the smallest", "integer overflow"
-  print(time.duration(ns: Int.min).neg())
-
-bomb "duration times past the range", "integer overflow"
-  print(time.duration(hours: 1_000_000).times(10))
-
-bomb "duration div by zero", "division by zero"
+test "duration neg, abs, and div at the ends", '''
+  true true true true
+  TimeError.invalid
+  true true
+'''
+  # The range is symmetric: `neg` and `abs` of either end do not fail,
+  # and nor does dividing either end by -1; `div(0)` fails with
+  # `TimeError.invalid`, and only it.
   fun zero() -> Int
     0
 
-  print(time.duration(1).div(zero()))
+  big = time.Duration.max()
+  small = time.Duration.min()
+  print(big.neg() == small, small.neg() == big, small.abs() == big, big.abs() == big)
+  time.duration(1).div(zero()) catch |e| print(e)
+  print(small.div(-1)! == big, big.div(-1)! == small)
 
 test "duration ends of the range", '''
-  2562047h 47m 16s 854ms 775us 807ns PT2562047H47M16.854775807S
-  -2562047h 47m 16s 854ms 775us 808ns -PT2562047H47M16.854775808S
+  2562047788015215h 30m 7s 999ms 999us 999ns PT2562047788015215H30M7.999999999S
+  -2562047788015215h 30m 7s 999ms 999us 999ns -PT2562047788015215H30M7.999999999S
   true true
   true true
+  9223372036854775807 9223372036854775807999 9223372036854775807999999 9223372036854775807999999999
+  -9223372036854775807 -9223372036854775807999999999
 '''
-  # One `Int` of nanoseconds: about 292 years either way; each end prints
-  # and reads back as itself.
-  big = time.duration(ns: Int.max)
-  small = time.duration(ns: Int.min)
+  # Whole seconds within ±(2^63 - 1) and nanoseconds: about 292 billion
+  # years either way; each end prints and reads back as itself, and the
+  # readers below a second are `I128`s, exact at the ends.
+  big = time.Duration.max()
+  small = time.Duration.min()
   print(big, big.iso())
   print(small, small.iso())
   print(time.Duration.parse(big.iso())! == big, time.Duration.parse(small.iso())! == small)
   print(time.Duration.parse(String(big))! == big, time.Duration.parse(String(small))! == small)
+  print(big.seconds(), big.ms(), big.us(), big.ns())
+  print(small.seconds(), small.ns())
 
 test "duration text both ways", '''
   2h 30m PT2H30M
@@ -174,7 +195,7 @@ test "duration parse refuses", '''
     !line.add(" ") if line.len > 0
     !line.add(`{code(s)}`)
   print(line)
-  worse = ["1h, ", "-1h ago", "1.5ns", "1h 01:00:00", " 1h", "9223372036854775808ns", "PT2562047H47M16.854775808S", "1.0000000001s", "1.5h 30m"]
+  worse = ["1h, ", "-1h ago", "1.5ns", "1h 01:00:00", " 1h", "9223372036854775808s", "PT2562047788015216H", "1.0000000001s", "1.5h 30m"]
   line = String()
   for s in worse
     !line.add(" ") if line.len > 0
@@ -192,22 +213,30 @@ test "duration round and floor", '''
   # infinity, each to a multiple of one unit's increment.
   p = time.duration(1.5)
   n = time.duration(-1.5)
-  print(p.round(seconds: 1), n.round(seconds: 1), time.duration(1.4).round(seconds: 1), time.duration(-1.4).round(seconds: 1))
-  print(p.floor(seconds: 1), n.floor(seconds: 1), time.duration(1.9).floor(ms: 1000), n.floor(seconds: 2))
+  print(p.round(seconds: 1)!, n.round(seconds: 1)!, time.duration(1.4).round(seconds: 1)!, time.duration(-1.4).round(seconds: 1)!)
+  print(p.floor(seconds: 1)!, n.floor(seconds: 1)!, time.duration(1.9).floor(ms: 1000)!, n.floor(seconds: 2)!)
   m = time.duration(minutes: 22)
-  print(m.round(minutes: 15), m.round(minutes: 30), m.round(hours: 2), time.duration(minutes: 60).round(hours: 1))
-  print(time.duration(us: 1500).round(ms: 1), time.duration(us: 1499).round(ms: 1), time.duration(1.5).round(ns: 1_000_000_000), time.duration(17).floor(hours: 5), time.duration(-17).floor(hours: 10))
+  print(m.round(minutes: 15)!, m.round(minutes: 30)!, m.round(hours: 2)!, time.duration(minutes: 60).round(hours: 1)!)
+  print(time.duration(us: 1500).round(ms: 1)!, time.duration(us: 1499).round(ms: 1)!, time.duration(1.5).round(ns: 1_000_000_000)!, time.duration(17).floor(hours: 5)!, time.duration(-17).floor(hours: 10)!)
   k = 15
-  print(time.duration(minutes: 95).round(minutes: 30), time.duration(946).round(minutes: 1), time.duration(946).floor(minutes: k))
+  print(time.duration(minutes: 95).round(minutes: 30)!, time.duration(946).round(minutes: 1)!, time.duration(946).floor(minutes: k)!)
 
-bomb "duration round's increment not a literal", "time.Duration.round: the increment 0 is not from 1 to 1,000,000,000"
-  fun zero() -> Int
-    0
+test "duration round and floor fail", '''
+  TimeError.invalid
+  TimeError.invalid
+  TimeError.range
+  TimeError.range
+'''
+  # An increment known only as the program runs that is not from 1 to
+  # 1,000,000,000 fails with `TimeError.invalid`, and a multiple beyond
+  # the range with `TimeError.range`.
+  fun k(n: Int) -> Int
+    n
 
-  print(time.duration(1).round(ms: zero()))
-
-bomb "duration floor past the range", "integer does not fit"
-  print(time.duration(ns: Int.min).floor(hours: 1_000_000))
+  time.duration(1).round(ms: k(0)) catch |e| print(e)
+  time.duration(1).floor(hours: k(1_000_000_001)) catch |e| print(e)
+  time.Duration.min().floor(hours: 1_000_000) catch |e| print(e)
+  time.Duration.max().round(hours: 7) catch |e| print(e)
 
 test "durations compare, order, and key a Map", '''
   true false true true
@@ -225,20 +254,20 @@ test "durations compare, order, and key a Map", '''
 
 test "monotonic at, add, since, order", '''
   true false true true
-  3s -6ns
+  3s -2ns
   2 true
 '''
   # `Monotonic.at` names a reading, for code handed the time; `add` moves
   # one by a duration form, `since` gives a Duration, and readings order
   # by time, so `<`, `math.max`, and a Map's keys take them.
-  a = time.Monotonic.at(ns: 5)
-  b = a.add(3)
-  print(a < b, b <= a, a == time.Monotonic.at(ns: 5), math.max(a, b) == b)
-  print(b.since(a), a.add(ns: -6).since(a))
+  a = time.Monotonic.at(ns: 5)!
+  b = a.add(3)!
+  print(a < b, b <= a, a == time.Monotonic.at(ns: 5)!, math.max(a, b) == b)
+  print(b.since(a), a.add(ns: -2)!.since(a))
   m = Map[time.Monotonic, Int]()
   !m.put(a, 1)
   !m.put(b, 2)
-  !m.put(time.Monotonic.at(ns: 5), 3)
+  !m.put(time.Monotonic.at(ns: 5)!, 3)
   start = time.monotonic()
   print(m.len, time.monotonic() >= start)
 
@@ -249,15 +278,29 @@ test "monotonic elapsed and a deadline", '''
   # The clock never goes back: `elapsed` and `since` of a later reading
   # are at least the time slept, and a deadline made with `add` passes.
   start = time.monotonic()
-  deadline = start.add(ms: 2)
+  deadline = start.add(ms: 2)!
   time.sleep(ms: 3)!
   later = time.monotonic()
   took = later.since(start)
   print(took >= time.duration(ms: 3), took < time.duration(10), start.since(later) == took.neg())
   print(start.elapsed() >= took, time.monotonic() >= deadline)
 
-bomb "monotonic add past 292 years", "integer overflow"
-  print(time.Monotonic.at(ns: Int.max).add(1))
+test "monotonic readings stay within 146 years", '''
+  TimeError.range
+  TimeError.range
+  TimeError.range
+  TimeError.range
+  true
+'''
+  # A reading is never negative and never past 2^62 nanoseconds, about
+  # 146 years: `at` and `add` fail with `TimeError.range` beyond, so
+  # `since` between any two cannot fail.
+  last = time.Monotonic.at(ns: 4_611_686_018_427_387_904)!
+  time.Monotonic.at(ns: -1) catch |e| print(e)
+  last.add(ns: 1) catch |e| print(e)
+  time.Monotonic.at(0)!.add(ns: -1) catch |e| print(e)
+  time.Monotonic.at(hours: 1_000_000_000) catch |e| print(e)
+  print(time.Monotonic.at(0)!.since(last) == time.duration(ns: -4_611_686_018_427_387_904))
 
 test "since start", "true true true", seeds: 3
   # `since_start()`: the time since the program started, which a function
@@ -267,4 +310,4 @@ test "since start", "true true true", seeds: 3
   a = read()
   time.sleep(ms: 2)!
   b = time.since_start()
-  print(a >= time.duration(0), b.sub(a) >= time.duration(ms: 2), b < time.duration(10))
+  print(a >= time.duration(0), b.sub(a)! >= time.duration(ms: 2), b < time.duration(10))

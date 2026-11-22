@@ -33,7 +33,7 @@ N = 20000000
 fun sleeper() -> Int!
   t = time.monotonic()
   time.sleep(ms: 20)!
-  t.elapsed().ns() / 1000000
+  Int(t.elapsed().ms())
 
 fun cpu_closure() -> Int
   f = |n: Int|

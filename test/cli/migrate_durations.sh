@@ -73,6 +73,9 @@ grep -q '^  time.sleep(ms: 5)!$' doc.md || fail "the rig block not rewritten: $(
 python3 "$ROOT/tools/migrate-datetime.py" old.rig >out.txt 2>&1 || fail "migrate-datetime: $(cat out.txt)"
 expect_has "$(cat out.txt)" "old.rig: 13" "every reading and Instant of old.rig rewritten"
 grep -q '^  z = time.Monotonic.at(0)$' old.rig || fail "Instant not rewritten: $(cat old.rig)"
+# Total or visible came after, and tools/migrate-tov.py, run next as
+# docs/MIGRATING-0.3.md says, gives each call that now fails its `!`.
+python3 "$ROOT/tools/migrate-tov.py" --rig "$RIG" old.rig >tov.txt 2>&1 || fail "migrate-tov: $(cat tov.txt)"
 out=$("$RIG" run old.rig 2>&1) || fail "old.rig after: $out"
 expect_eq "$out" "40000000 5000 2000000000 1000000
 1000000 7 180000000000 3000

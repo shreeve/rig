@@ -2,7 +2,9 @@
 # (README.md): one line out for each line of the file named first, in the
 # line format, for the cases they answer so far. A case not answered yet
 # prints `-`, which the comparison passes over, as it passes over each
-# part Jiff answers `skip` (test/cli/jiff_oracle.sh).
+# part Jiff answers `skip`, where Rig differs on purpose
+# (test/cli/jiff_oracle.sh). A value that fails prints `error`, as Jiff's
+# does.
 #
 #   bin/rig build --release tools/jiff-oracle/answer.rig -o DIR/answer
 #   DIR/answer DIR/calendar.in > DIR/calendar.rig
@@ -31,28 +33,28 @@ sub answer(op: ?String, rest: ?String)
     n += 1
   if op == "date.add"
     d = date(a[0])
-    print(show(d.checked_add(years: int(a[1]), months: int(a[2]), weeks: int(a[3]), days: int(a[4])) catch none))
+    print(show(d.add(years: int(a[1]), months: int(a[2]), weeks: int(a[3]), days: int(a[4])) catch none))
   else if op == "date.info"
     d = date(a[0])
     print(d.weekday(), d.day_of_year(), d.days_in_month(), d.iso_week(), d.iso_week_year(), d.first_of_month(), d.last_of_month())
   else if op == "datetime.add"
     dt = datetime_of(a[0])
-    # A duration beyond a `Duration`'s 292 years is left out (§5.1).
     if maybe_duration(a[5]) as d
-      print(show(dt.checked_add(duration: d, years: int(a[1]), months: int(a[2]), weeks: int(a[3]), days: int(a[4])) catch none))
+      print(show(dt.add(duration: d, years: int(a[1]), months: int(a[2]), weeks: int(a[3]), days: int(a[4])) catch none))
     else
       print("-")
   else if op == "instant.add"
     i = instant(a[0])
     if maybe_duration(a[1]) as d
-      print(show(i.checked_add(d) catch none))
+      print(show(i.add(d) catch none))
     else
       print("-")
   else if op == "instant.unix"
-    # `unix()` saturates beyond a `Duration` (§5.1), where Jiff answers
-    # `skip`.
+    # `unix()` is exact at any instant (§7.8), and the instant again from
+    # its parts.
     i = instant(a[0])
-    print(i.unix().iso(), i.unix_s(), datetime.Instant.from_unix(i.unix()))
+    u = i.unix()
+    print(u.iso(), i.unix_s(), i.unix_ms(), i.unix_us(), show(datetime.Instant.from_unix_s(u.seconds(), ns: u.subsec_ns()) catch none))
   else if op == "instant.since"
     print(instant(a[0]).since(instant(a[1])).iso())
   else if op == "instant.parse"
@@ -64,7 +66,7 @@ sub answer(op: ?String, rest: ?String)
   else if op == "time.add"
     t = time_of(a[0])
     if maybe_duration(a[1]) as d
-      print(t.add(d), show(t.checked_add(d) catch none))
+      print(t.add(d))
     else
       print("-")
   else if op == "date.count"
@@ -73,7 +75,7 @@ sub answer(op: ?String, rest: ?String)
     early = x if x < y else y
     late = y if x < y else x
     m = late.months_since(early)
-    print(x.days_since(y), x.weeks_since(y), x.months_since(y), x.years_since(y), m / 12, m % 12, late.days_since(early.add(months: m)))
+    print(x.days_since(y), x.weeks_since(y), x.months_since(y), x.years_since(y), m / 12, m % 12, days_after(early, late, m))
   else if op == "datetime.count"
     x = datetime_of(a[0])
     y = datetime_of(a[1])
@@ -81,12 +83,19 @@ sub answer(op: ?String, rest: ?String)
     late = y if x < y else x
     # DATETIME-DESIGN §6.4: whole days and the rest, then years, months
     # and days between the two dates.
+    # The steps from the earlier value stay within the later one, so none
+    # fails; were one to, the line shows it.
     days = late.days_since(early)
-    left = late.since(early.add(days: days))
+    step = early.add(days: days) catch |e|
+      print("-", e)
+      return
+    left = late.since(step)
     d0 = early.date()
-    d1 = d0.add(days: days)
+    d1 = d0.add(days: days) catch |e|
+      print("-", e)
+      return
     m = d1.months_since(d0)
-    print(x.days_since(y), x.weeks_since(y), x.months_since(y), x.years_since(y), m / 12, m % 12, d1.days_since(d0.add(months: m)), left.iso())
+    print(x.days_since(y), x.weeks_since(y), x.months_since(y), x.years_since(y), m / 12, m % 12, days_after(d0, d1, m), left.iso())
   else if op == "date.parse"
     print(show(datetime.Date.parse(rest) catch none))
   else if op == "time.parse"
@@ -96,16 +105,11 @@ sub answer(op: ?String, rest: ?String)
   else if op == "duration.parse"
     print(show_iso(maybe_duration(rest)))
   else if op == "duration.round"
-    # An input, or a multiple near it, past a `Duration`'s range is left
-    # out (§5.1): Rig panics there, and the oracle answers `skip`.
-    d = maybe_duration(a[0])
-    k = int(a[2])
-    big = I128((d ?? time.duration(0)).ns())
-    if d == none or (-big if big < 0 else big) + I128(k) * I128(unit_ns(a[1])) > I128(Int.max)
-      print("-")
+    if maybe_duration(a[0]) as d
+      k = int(a[2])
+      print(show_iso(duration_round(d, a[1], k, false)), show_iso(duration_round(d, a[1], k, true)))
     else
-      x = d ?? time.duration(0)
-      print(duration_round(x, a[1], k, false).iso(), duration_round(x, a[1], k, true).iso())
+      print("-")
   else if op == "time.round"
     t = time_of(a[0])
     k = int(a[2])
@@ -139,32 +143,36 @@ fun show_iso(r: time.Duration?) -> String
     return v.iso()
   String("error")
 
-# The nanoseconds in a rounding unit of the line format.
-fun unit_ns(unit: ?String) -> Int
-  if unit == "us"
-    return 1_000
-  if unit == "ms"
-    return 1_000_000
-  if unit == "seconds"
-    return 1_000_000_000
-  if unit == "minutes"
-    return 60_000_000_000
-  if unit == "hours"
-    return 3_600_000_000_000
-  1
+# The days from `early` plus `m` months to `late`, which is not before
+# it, as §6.4 counts what is left after the years and months.
+fun days_after(early: datetime.Date, late: datetime.Date, m: Int) -> String
+  at = early.add(months: m) catch return String("-")
+  String(late.days_since(at))
 
-fun duration_round(d: time.Duration, unit: ?String, k: Int, down: Bool) -> time.Duration
+fun duration_round(d: time.Duration, unit: ?String, k: Int, down: Bool) -> time.Duration?
   if unit == "ns"
-    return d.floor(ns: k) if down else d.round(ns: k)
+    if down
+      return d.floor(ns: k) catch none
+    return d.round(ns: k) catch none
   if unit == "us"
-    return d.floor(us: k) if down else d.round(us: k)
+    if down
+      return d.floor(us: k) catch none
+    return d.round(us: k) catch none
   if unit == "ms"
-    return d.floor(ms: k) if down else d.round(ms: k)
+    if down
+      return d.floor(ms: k) catch none
+    return d.round(ms: k) catch none
   if unit == "seconds"
-    return d.floor(seconds: k) if down else d.round(seconds: k)
+    if down
+      return d.floor(seconds: k) catch none
+    return d.round(seconds: k) catch none
   if unit == "minutes"
-    return d.floor(minutes: k) if down else d.round(minutes: k)
-  d.floor(hours: k) if down else d.round(hours: k)
+    if down
+      return d.floor(minutes: k) catch none
+    return d.round(minutes: k) catch none
+  if down
+    return d.floor(hours: k) catch none
+  return d.round(hours: k) catch none
 
 # The duration `s` writes, or `none` beyond a `Duration`'s range.
 fun maybe_duration(s: ?String) -> time.Duration?
@@ -191,43 +199,68 @@ fun weekday(s: ?String) -> datetime.Weekday
       return w
   panic("not a weekday:", s)
 
-fun time_round(t: datetime.Time, unit: ?String, k: Int, down: Bool) -> datetime.Time
-  if unit == "ns"
-    return t.floor(ns: k) if down else t.round(ns: k)
-  if unit == "us"
-    return t.floor(us: k) if down else t.round(us: k)
-  if unit == "ms"
-    return t.floor(ms: k) if down else t.round(ms: k)
-  if unit == "seconds"
-    return t.floor(seconds: k) if down else t.round(seconds: k)
-  if unit == "minutes"
-    return t.floor(minutes: k) if down else t.round(minutes: k)
-  t.floor(hours: k) if down else t.round(hours: k)
+# A `Time` rounded by an increment read from the line: a `Time`'s
+# `round` takes a constant increment only, so it rounds as a date and
+# time, whose time of day is the same answer, wrapped past midnight.
+fun time_round(t: datetime.Time, unit: ?String, k: Int, down: Bool) -> String
+  on = datetime.Date.new(2000, 1, 1).at(t)
+  if datetime_rounded(on, unit, k, down) as r
+    return String(r.time())
+  String("error")
 
-fun datetime_round(t: datetime.DateTime, unit: ?String, k: Int, down: Bool) -> datetime.DateTime
+fun datetime_round(t: datetime.DateTime, unit: ?String, k: Int, down: Bool) -> String
+  show(datetime_rounded(t, unit, k, down))
+
+fun datetime_rounded(t: datetime.DateTime, unit: ?String, k: Int, down: Bool) -> datetime.DateTime?
   if unit == "ns"
-    return t.floor(ns: k) if down else t.round(ns: k)
+    if down
+      return t.floor(ns: k) catch none
+    return t.round(ns: k) catch none
   if unit == "us"
-    return t.floor(us: k) if down else t.round(us: k)
+    if down
+      return t.floor(us: k) catch none
+    return t.round(us: k) catch none
   if unit == "ms"
-    return t.floor(ms: k) if down else t.round(ms: k)
+    if down
+      return t.floor(ms: k) catch none
+    return t.round(ms: k) catch none
   if unit == "seconds"
-    return t.floor(seconds: k) if down else t.round(seconds: k)
+    if down
+      return t.floor(seconds: k) catch none
+    return t.round(seconds: k) catch none
   if unit == "minutes"
-    return t.floor(minutes: k) if down else t.round(minutes: k)
+    if down
+      return t.floor(minutes: k) catch none
+    return t.round(minutes: k) catch none
   if unit == "hours"
-    return t.floor(hours: k) if down else t.round(hours: k)
-  t.floor(days: k) if down else t.round(days: k)
+    if down
+      return t.floor(hours: k) catch none
+    return t.round(hours: k) catch none
+  if down
+    return t.floor(days: k) catch none
+  return t.round(days: k) catch none
 
-fun instant_round(t: datetime.Instant, unit: ?String, k: Int, down: Bool) -> datetime.Instant
+fun instant_round(t: datetime.Instant, unit: ?String, k: Int, down: Bool) -> String
   if unit == "ns"
-    return t.floor(ns: k) if down else t.round(ns: k)
+    if down
+      return show(t.floor(ns: k) catch none)
+    return show(t.round(ns: k) catch none)
   if unit == "us"
-    return t.floor(us: k) if down else t.round(us: k)
+    if down
+      return show(t.floor(us: k) catch none)
+    return show(t.round(us: k) catch none)
   if unit == "ms"
-    return t.floor(ms: k) if down else t.round(ms: k)
+    if down
+      return show(t.floor(ms: k) catch none)
+    return show(t.round(ms: k) catch none)
   if unit == "seconds"
-    return t.floor(seconds: k) if down else t.round(seconds: k)
+    if down
+      return show(t.floor(seconds: k) catch none)
+    return show(t.round(seconds: k) catch none)
   if unit == "minutes"
-    return t.floor(minutes: k) if down else t.round(minutes: k)
-  t.floor(hours: k) if down else t.round(hours: k)
+    if down
+      return show(t.floor(minutes: k) catch none)
+    return show(t.round(minutes: k) catch none)
+  if down
+    return show(t.floor(hours: k) catch none)
+  return show(t.round(hours: k) catch none)

@@ -59,9 +59,9 @@ several parts they are separated by single spaces.
   `reject`, text it does not read) prints `error`.
 - A case where Rig differs from Jiff on purpose prints `skip`, as a whole
   or as one part of its answer, and the comparison passes over that
-  (below). A duration past an `Int` of nanoseconds, Rig's `Duration`
-  (§5.1), is one: `duration.parse` of such a text, and `duration.round`
-  of such an input or with such an answer.
+  (below). A duration of `i64::MIN` seconds, one past Rig's symmetric
+  range (§5.1), is one: `duration.parse` of such a text, and
+  `duration.round` of such an input or with such an answer.
 - A line the oracle cannot read (an unknown operation, a malformed
   argument, amounts of both signs) is a mistake in the generator, not an
   answer: the oracle stops with exit status 2 and names the line.
@@ -88,19 +88,19 @@ its offset rounded to the minute), a duration in ISO 8601.
 
 | Case | Answer | Rig |
 |---|---|---|
-| `date.add DATE Y M W D` | DATE | `d.checked_add(years:, months:, weeks:, days:)` |
+| `date.add DATE Y M W D` | DATE | `d.add(years:, months:, weeks:, days:)` |
 | `date.info DATE` | weekday, day of year, days in month, ISO week, ISO week year, first and last of the month | `weekday()` … `last_of_month()` |
-| `datetime.add DATETIME Y M W D DUR` | DATETIME | `dt.checked_add(d, years:, …)` |
-| `zoned.add ZONE INSTANT Y M W D DUR` | ZONED | `z.checked_add(d, years:, …)` |
-| `time.add TIME DUR` | the wrapped TIME, then `checked_add`'s | `t.add(d)`, `t.checked_add(d)` |
-| `instant.add INSTANT DUR` | INSTANT | `i.checked_add(d)` |
-| `instant.unix INSTANT` | DUR, or `skip` beyond `Duration`'s range; the whole seconds, floored; INSTANT again from that DUR, or `skip` | `i.unix()`, `i.unix_s()`, `Instant.from_unix(i.unix())` |
-| `instant.since INSTANT INSTANT` | DUR, or `skip` beyond `Duration`'s range | `a.since(b)` |
+| `datetime.add DATETIME Y M W D DUR` | DATETIME | `dt.add(duration: d, years:, …)` |
+| `zoned.add ZONE INSTANT Y M W D DUR` | ZONED | `z.add(duration: d, years:, …)` |
+| `time.add TIME DUR` | the wrapped TIME | `t.add(d)` |
+| `instant.add INSTANT DUR` | INSTANT | `i.add(d)` |
+| `instant.unix INSTANT` | DUR; the whole seconds, milliseconds and microseconds, each floored; INSTANT again from that DUR | `i.unix()`, `i.unix_s()`, `i.unix_ms()`, `i.unix_us()`, `Instant.from_unix_s(u.seconds(), ns: u.subsec_ns())` |
+| `instant.since INSTANT INSTANT` | DUR | `a.since(b)` |
 | `date.nth_weekday DATE N WEEKDAY` | DATE | `d.nth_weekday(n, w)` |
 | `date.nth_weekday_of_month DATE N WEEKDAY` | DATE | `d.nth_weekday_of_month(n, w)` |
 | `date.with DATE Y M D` | DATE | `d.with(year:, month:, day:)` |
-| `time.since TIME TIME` | DUR, or `skip` | `a.since(b)` |
-| `datetime.since DATETIME DATETIME` | DUR, or `skip` beyond `Duration`'s range | `a.since(b)` |
+| `time.since TIME TIME` | DUR | `a.since(b)` |
+| `datetime.since DATETIME DATETIME` | DUR | `a.since(b)` |
 
 Every date of 19 years (-9999, -9998, -1, 0, 1, 4, 100, 1600, 1900, 1969,
 1970, 2000, 2023, 2024, 2025, 2100, 2400, 9998, 9999) against each month
@@ -111,12 +111,10 @@ random amounts. Then, from a stream of their own, each date of the 19
 years with `nth_weekday` of 1, -1, and one of ±2, ±5, ±53, 0 and
 ±1,000,000, `nth_weekday_of_month` twice with `n` from -6 to 6, and
 `with` of a random date's parts or an impossible one; and 10,000
-`time.since` and 20,000 `datetime.since`, which answers `skip` beyond an
-`Int` of nanoseconds, where Rig saturates (§6.6). Then, from a stream of
-their own, 10,000 `instant.unix`, three in four within a `Duration` of
-1970 and the rest across the whole range, the ends of each among them,
-and 20,000 `instant.since`, which answers `skip` beyond an `Int` of
-nanoseconds as `datetime.since` does (§5.1, §7.8).
+`time.since` and 20,000 `datetime.since`, each exact (§6.6). Then, from a
+stream of their own, 10,000 `instant.unix`, three in four within an `Int`
+of nanoseconds of 1970 and the rest across the whole range, the ends of
+each among them, and 20,000 `instant.since` (§5.1, §7.8).
 
 ### 2. Zones (`zones.in`)
 
@@ -195,9 +193,8 @@ fall often on a multiple or exactly half way.
 
 `answer.rig` gives std.datetime's and std.time's answers to the same
 lines, for the cases they have so far; a case not answered yet prints
-`-`, and so does a `datetime.add`, `time.add`, or `instant.add` whose
-duration, or a `duration.round` whose input and increment, reach past a
-`Duration`'s range (§5.1). `compare.awk` compares them part for part, passing over
+`-`, and a call that fails prints `error`, as Jiff's does (§7.2).
+`compare.awk` compares them part for part, passing over
 `-` and each `skip`, and prints each difference and the counts;
 `jiff_oracle.sh` requires no difference.
 
@@ -220,6 +217,9 @@ The oracle does not check where Rig differs from Jiff on purpose
   `ZonedDateTime` unless the value lies in its own date's range and that
   date's start plus a day on the clock is the next date's start (item 14).
   `floor` is checked in each of these.
+- **The one duration past Rig's range.** Jiff's `SignedDuration` holds
+  `i64::MIN` seconds, which Rig's symmetric range leaves out so that no
+  negation fails (§5.1, §9 item 17); a duration case at it prints `skip`.
 - **Mixed signs.** Amounts of both signs are never given: Rig applies
   each group with its own sign, which Jiff's span cannot (§6.2, item 4).
 - **Counts across two zones**, which Jiff refuses (§6.4, item 3).

@@ -869,8 +869,8 @@ nanoseconds, and `per:` given one.
 ### `time.Duration` and `time.Monotonic`
 
 0.3.1 gives lengths of time a type: what a clock gives back is a
-`time.Duration`, one `Int` of nanoseconds that prints as `1ms 234us`,
-and a reading of the monotonic clock is a `time.Monotonic`.
+`time.Duration`, its whole seconds and nanoseconds, which prints as
+`1ms 234us`, and a reading of the monotonic clock is a `time.Monotonic`.
 `time.now()`, `time.Instant`, the constants `NS`, `US`, `MS`,
 `SECOND`, and `MINUTE`, and `time.unix_ns()` are gone, each rejected
 with its fix, the wall clock being std.datetime's `datetime.now()`, and
@@ -905,7 +905,7 @@ python3 tools/migrate-datetime.py src/             # rewrite in place
 | `time.now()` | `time.monotonic()` |
 | `time.Instant`, `time.Instant.at(x)` | `time.Monotonic`, `time.Monotonic.at(x)` |
 | `t.elapsed() < 250 * time.MS`, a reading compared with a constant | `t.elapsed() < time.duration(ms: 250)` |
-| `print(t.elapsed())`, `took = t.since(u)`, `time.since_start()`, any other reading | `.ns()` after it: `print(t.elapsed().ns())`, the `Int` it was |
+| `print(t.elapsed())`, `took = t.since(u)`, `time.since_start()`, any other reading | `.ns()` after it: `print(t.elapsed().ns())`, the nanoseconds it was, an `I128` (`tools/migrate-tov.py`, below, reads one through `Int(...)` where an `Int` is wanted) |
 | `t.add(ns: u.since(v))`, `time.sleep(ns: 5 * time.MS)` | `t.add(u.since(v))`, `time.sleep(ms: 5)` |
 | `TIMEOUT = 30 * time.SECOND`, any other constant | `TIMEOUT = 30 * 1_000_000_000`, its nanoseconds |
 | `time.unix_ns()` | `datetime.now().unix().ns()`, with `use std.datetime` |
@@ -952,6 +952,44 @@ python3 tools/migrate-loops.py src/             # rewrite in place
 | `r = for x in xs` ... `break x if f(x)` ... `else d` | `r = xs.find(f) ?? d`, or a function that returns from its loop |
 | `i = for x, j in xs` ... `break j if x == t` ... `else -1` | `i = xs.index_of(t) ?? -1` on a List |
 | a name `loop`, `file.FileError.loop` | another name, `file.FileError.link_loop` |
+
+### Total or visible
+
+`std.datetime` is new since 0.3.0, and so is `time.Duration`; a program
+written against `main` may meet this, and a 0.3.0 program does once
+`tools/migrate-datetime.py` has run. Every call of `std.time` and
+`std.datetime` is total or returns `!`, and none panics on any value
+([design/datetime.md](design/datetime.md), "Total or visible"): `add`,
+`round`, and `floor` of a `Date`, a `DateTime`, and an `Instant`,
+`Monotonic.at` and `add`, and `Duration`'s `add`, `sub`, `times`, `div`,
+`round`, and `floor` return `!`, and the `checked_` methods are gone.
+`tools/migrate-tov.py` runs `rig check` and rewrites what each error
+asks for, in `.rig` files, in each case of a test file, and in each
+```` ```rig ```` block of a Markdown file; run it with a `rig` that has
+the rule:
+
+```sh
+python3 tools/migrate-tov.py --dry-run src/   # what would change, one round
+python3 tools/migrate-tov.py src/             # rewrite in place
+```
+
+| Before | Now |
+|---|---|
+| `d.add(days: 1)`, `i.round(seconds: 1)`, `m.add(120)`, `d.times(2)` | the same with `!`; in a function that cannot fail, `(d.add(days: 1) catch panic("d.add(days: 1) failed"))`, printed as `MANUAL` |
+| `a.checked_add(b)`, `checked_sub`, `checked_times` | `a.add(b)`, `sub`, `times` |
+| `t.checked_add(d)` of a `Time` | `MANUAL`: a `Time`'s `add` wraps past midnight; a sum that must not pass it is a `DateTime`'s |
+| `Instant.from_unix(x)`, `from_unix(1.5)`, `from_unix(ms: t)`, `from_unix(ns: t)` | `Instant.from_unix_s(x)!`, `from_unix_float(1.5)!`, `from_unix_ms(t)!`, `from_unix_ns(t)` |
+| `Instant.from_unix(d)` of a `Duration` | `Instant.from_unix_s(d.seconds(), ns: d.subsec_ns())!` |
+| `Instant.from_unix(minutes: t)`, several units | `MANUAL` |
+| `n = t.elapsed().ns()` kept in an `Int` | `n = Int(t.elapsed().ns())` |
+| `t.add(minutes: n)` of a `Time`, a function that cannot fail given a duration known only as the program runs | `t.add(time.duration(minutes: n)!)` |
+| `time.sleep(x)` of a `Float` known only as the program runs | `time.sleep(time.duration(x)!)!` |
+| a computed increment of a `Time`'s `round` or `floor` | `MANUAL`: a constant, or `d.at(t).round(minutes: k)!.time()` |
+
+The docs show `!` to pass a failure on and `catch` to handle it; a
+program that wants an end of a range asks for it by name, `d.add(days:
+n) catch datetime.Date.max()`. A value fallback, `d.add(days: n) ?? d`,
+gives a wrong date without a word.
 
 ### A datetime maker called with constants
 

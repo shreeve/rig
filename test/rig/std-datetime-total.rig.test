@@ -1,0 +1,294 @@
+# Total or visible (docs/design/datetime.md, "Total or visible", §5.2,
+# §7.2): every call of std.time and std.datetime is total, giving an
+# answer for every value of its argument types, tested at the ends of
+# each range, or returns `!` and fails cleanly; the committee's three
+# programs that a panicking library ended; a duration form with a number
+# known only as the program runs, at each kind of call; and the layout
+# of a `Duration`.
+
+use std.datetime
+use std.time
+use std.text
+
+test "a user's last date plus a day fails", '''
+  9999-12-31
+  failed: DateTimeError.range
+  DateTimeError.range
+'''
+  # records/2026-11/datetime-strategy: a stored "no end" date, read from
+  # a database row, and a count of days read from text.
+  fun next_day(d: datetime.Date) -> datetime.Date!
+    d.add(days: 1)!
+
+  stop = datetime.Date.parse("9999-12-31")!
+  print(next_day(stop) catch stop)
+  s = text.parse_int("8000000")!
+  start = datetime.Date.new(2026, 11, 21)
+  start.add(days: s) catch |e| print("failed:", e)
+  n = text.parse_int("99999999")!
+  datetime.Date.new(2027, 1, 31).add(days: n) catch |e| print(e)
+
+test "a renewal period from text fails", '''
+  2027-01-31 2027-02-28 2027-03-31 2027-04-30
+  300ms 100ms
+  renewal beyond 9999: DateTimeError.range
+'''
+  # The k-th renewal anchors to the start; a period read from a file
+  # that reaches past 9999 fails, never panics; a mean divides by `n`.
+  fun nth_renewal(start: datetime.Date, period: Int, k: Int) -> datetime.Date!
+    start.add(months: period * k)!
+
+  start = datetime.Date.parse("2027-01-31")!
+  period = text.parse_int("1")!
+  line = String()
+  for k in 0..4
+    !line.add(" ") if line.len > 0
+    !line.add(`{nth_renewal(start, period, k)!}`)
+  print(line)
+  steps = [time.duration(ms: 120), time.duration(ms: 80), time.duration(ms: 100)]
+  total = time.duration(0)
+  for d in steps
+    total = total.add(d)!
+  print(total, total.div(3)!)
+  bad = text.parse_int("200000")!
+  nth_renewal(start, bad, 1) catch |e| print("renewal beyond 9999:", e)
+
+test "the last instant rounded to the second fails", '''
+  DateTimeError.range
+  9999-12-30T22:00:00Z
+'''
+  hi = datetime.Instant.parse("9999-12-30T22:00:00.9Z")!
+  hi.round(seconds: 1) catch |e| print(e)
+  print(hi.floor(seconds: 1)!)
+
+test "readers and counts at the ends of the range", '''
+  -9999 1 1 Monday 1 31 1 -9999
+  9999 12 31 Friday 365 31 52 9999
+  7304484 1043497 239987 19998
+  -7304484 -1043497 -239987 -19998
+  -009999-01-01 -009999-01-31 9999-12-01 9999-12-31
+  -009999-01-01T00:00:00 9999-12-31T23:59:59.999999999
+  0 0 0 0 23 59 59 999999999
+  true true true true true
+'''
+  # §7.2: each reader, each count, and comparison is total.
+  lo = datetime.Date.min()
+  hi = datetime.Date.max()
+  print(lo.year(), lo.month(), lo.day(), lo.weekday(), lo.day_of_year(), lo.days_in_month(), lo.iso_week(), lo.iso_week_year())
+  print(hi.year(), hi.month(), hi.day(), hi.weekday(), hi.day_of_year(), hi.days_in_month(), hi.iso_week(), hi.iso_week_year())
+  print(hi.days_since(lo) + 1, hi.weeks_since(lo), hi.months_since(lo), hi.years_since(lo))
+  print(lo.days_since(hi) - 1, lo.weeks_since(hi), lo.months_since(hi), lo.years_since(hi))
+  print(lo.first_of_month(), lo.last_of_month(), hi.first_of_month(), hi.last_of_month())
+  print(datetime.DateTime.min(), datetime.DateTime.max())
+  t = datetime.Time.min()
+  u = datetime.Time.max()
+  print(t.hour(), t.minute(), t.second(), t.nanosecond(), u.hour(), u.minute(), u.second(), u.nanosecond())
+  print(lo < hi, datetime.DateTime.min() < datetime.DateTime.max(), datetime.Instant.min() < datetime.Instant.max(), time.Duration.min() < time.Duration.max(), t < u)
+
+test "calls past the ends fail with their member", '''
+  DateTimeError.range
+  DateTimeError.range
+  DateTimeError.range
+  DateTimeError.range
+  DateTimeError.range
+  DateTimeError.range
+  DateTimeError.range
+  TimeError.range
+  TimeError.range
+  TimeError.range
+  TimeError.invalid
+'''
+  # §7.2: each fallible call at each end fails with `range`, and
+  # `div(0)` with `invalid`.
+  fun k(n: Int) -> Int
+    n
+
+  datetime.Date.min().add(days: -1) catch |e| print(e)
+  datetime.Date.max().nth_weekday(1, .monday) catch |e| print(e)
+  datetime.DateTime.max().add(ns: 1) catch |e| print(e)
+  datetime.DateTime.max().round(ns: 2) catch |e| print(e)
+  datetime.Instant.max().add(ns: 1) catch |e| print(e)
+  datetime.Instant.min().add(ns: -1) catch |e| print(e)
+  datetime.Instant.min().floor(hours: 24) catch |e| print(e)
+  time.Duration.max().add(ns: 1) catch |e| print(e)
+  time.Duration.min().sub(ns: 1) catch |e| print(e)
+  time.Duration.max().times(k(2)) catch |e| print(e)
+  time.Duration.max().div(k(0)) catch |e| print(e)
+
+test "time's total calls at the ends", '''
+  00:00:00 23:59:59.999999999 08:29:52.000000001 15:30:07.999999999 00:00:00
+  00:00:00 23:00:00 00:00:00 00:00:00
+  true true
+'''
+  # A `Time`'s `add`, `round`, and `floor` wrap or stay within the day,
+  # for any duration and at either end of the day; a monotonic reading's
+  # `since` and `elapsed` cannot fail.
+  t = datetime.Time.min()
+  u = datetime.Time.max()
+  print(u.add(ns: 1), t.add(ns: -1), t.add(time.Duration.min()), t.add(time.Duration.max()), u.round(seconds: 1))
+  print(u.round(hours: 1), u.floor(hours: 1), t.round(ns: 1), t.floor(hours: 12))
+  m = time.monotonic()
+  print(m.elapsed() >= time.duration(0), time.monotonic().since(m) >= time.duration(0))
+
+test "a duration form folded into a std call's failure", '''
+  2026-11-17T15:08:03Z
+  DateTimeError.range
+  DateTimeError.invalid
+  TimeError.range
+  TimeError.range
+  1h 1m
+'''
+  # §5.2: a number known only as the program runs that can leave the
+  # range joins the failure of a call that returns `!`, with the
+  # callee's own `range`, and `invalid` for a `Float` that is not finite.
+  fun k(n: Int) -> Int
+    n
+
+  fun f(x: Float) -> Float
+    x
+
+  i = datetime.Instant.parse("2026-11-17T15:07:03Z")!
+  print(i.add(minutes: k(1))!)
+  i.add(minutes: k(Int.max)) catch |e| print(e)
+  i.add(seconds: f(Float.nan())) catch |e| print(e)
+  time.duration(1).add(hours: k(Int.max)) catch |e| print(e)
+  time.Monotonic.at(0)!.add(hours: k(1), minutes: k(Int.max)) catch |e| print(e)
+  print(time.duration(1).add(hours: k(1), minutes: k(1), seconds: -1)!)
+
+test "a duration form folded into a program's call", '''
+  2m
+  TimeError.range
+  E.range
+  10
+'''
+  # A program's function that may fail with any error takes the failure
+  # as std.time's; one whose declared set has `range` and `invalid`
+  # takes it as its own.
+  error E
+    range
+    invalid
+    other
+
+  fun twice(d: time.Duration) -> time.Duration!
+    d.times(2)!
+
+  fun span(d: time.Duration) -> Int!E
+    return E.other if d < time.duration(0)
+    Int(d.seconds())
+
+  fun k(n: Int) -> Int
+    n
+
+  print(twice(minutes: k(1))!)
+  twice(hours: k(Int.max)) catch |e| print(e)
+  span(minutes: k(Int.max)) catch |e| print(e)
+  print(span(seconds: k(10))!)
+
+test "a wait clamps a duration form", '''
+  1
+  Stop.timeout
+'''
+  # §5.8: a wait never fails on its duration: one longer than the
+  # scheduler holds waits as long as it can, so a deadline that far off
+  # does not come; a negative one is zero.
+  fun k(n: Int) -> Int
+    n
+
+  print(time.within(hours: k(Int.max), || 1)!)
+  time.within(minutes: k(Int.min), ||
+    time.sleep(1)!
+    print("slept")
+  ) catch |e| print(e)
+
+fail "a form that can fail where nothing takes the failure", "9:22: `minutes: k(1)` can be beyond a `Duration`'s range as the program runs, and this call cannot fail: make the duration first, `time.duration(minutes: k(1))!`, and pass that", "10:22: `seconds: k(1)`", "11:13: `x` is a `Float`, which may not be finite or may be beyond a `Duration`'s range as the program runs, and this call cannot fail", "12:12: a wait takes no `Float` known only as the program runs, which may not be finite: make the duration first, `time.duration(x)!`, and pass that", "13:7: fallible call to `time.duration` must be wrapped with `!`", "14:33: `minutes: k(1)` can be beyond a `Duration`'s range as the program runs, and this call cannot fail", errors: 6
+  fun k(n: Int) -> Int
+    n
+
+  fun plain(d: time.Duration) -> Int
+    1
+
+  t = datetime.Time.new(1, 0, 0)
+  x = Float(k(2))
+  print(t.add(minutes: k(1)))
+  print(plain(seconds: k(1)))
+  print(plain(x))
+  time.sleep(x)!
+  print(time.duration(hours: k(1), minutes: k(2)))
+  print(t.add(ms: 1).add(minutes: k(1)))
+
+fail "a program's declared set without range and invalid takes no failure", "11:18: `minutes: k(1)` can be beyond a `Duration`'s range as the program runs, and this call cannot fail", errors: 1
+  error Mine
+    bad
+
+  fun f(d: time.Duration) -> Int!Mine
+    return Mine.bad if d < time.duration(0)
+    1
+
+  fun k(n: Int) -> Int
+    n
+
+  print(f(minutes: k(1))!)
+
+test "time.duration of a form that cannot fail is plain", '''
+  1ms 2s 3us
+  TimeError.range
+'''
+  fun k(n: Int) -> Int
+    n
+
+  d = time.duration(ms: k(1))
+  two = time.duration(time.duration(2))
+  print(d, two, time.duration(us: k(3)))
+  time.duration(k(Int.min)) catch |e| print(e)
+
+fail "time.duration of a form that cannot fail takes no !", "4:7: `!` needs a fallible operand, and `time.duration(ms: k(1))` cannot fail: its duration form cannot fail: a `Duration`, or an `Int` of `ns:`, `us:` or `ms:`, so it gives a `time.Duration`; write it without `!`", "5:7: fallible call to `time.duration` must be wrapped with `!` (propagate) or `catch` (handle)", errors: 2
+  fun k(n: Int) -> Int
+    n
+
+  print(time.duration(ms: k(1))!)
+  print(time.duration(k(1)))
+
+test "a duration is 16 bytes", "16 8"
+  # §7.3: its whole seconds and its nanoseconds; a monotonic reading is
+  # one word.
+  print($size(time.Duration), $size(time.Monotonic))
+
+test "a Float converts from its exact value", '''
+  6m 24s 228ms 815us 182ns
+  -7s 790ms 868us 905ns
+  1970-01-01T00:06:24.228815182Z 1969-12-31T23:59:52.209131095Z 1970-01-01T00:01:57.393815235Z
+  TimeError.range
+  DateTimeError.range
+'''
+  # §5.2 and §7.8: a `Float`'s exact value, rounded to the nanosecond, a
+  # half away from zero. 384.2288151825 is the double
+  # 384.22881518249999999..., so its nanosecond is ...182, not ...183,
+  # which rounding its product in floating point gives. A finite `Float`
+  # past the range fails with `range`, however large.
+  fun f(x: Float) -> Float
+    x
+
+  print(time.duration(f(384.2288151825))!)
+  print(time.duration(f(-7.7908689055))!)
+  print(datetime.Instant.from_unix_float(f(384.2288151825))!, datetime.Instant.from_unix_float(f(-7.7908689055))!, datetime.Instant.from_unix_float(f(117.3938152355))!)
+  time.duration(f(1e300)) catch |e| print(e)
+  datetime.Instant.parse("2026-01-01T00:00:00Z")!.add(f(1e300)) catch |e| print(e)
+
+fail "a removed checked_ method names its replacement", "3:3: no method `checked_add` on type `Date`; it is `add(...)!`, which fails past the range", "4:3: no method `checked_times` on type `Duration`; it is `times(...)!`, which fails past the range"
+  d = datetime.Date.new(2026, 1, 1)
+  t = time.duration(1)
+  d.checked_add(days: 1) catch d
+  t.checked_times(2) catch t
+
+fail "a form refused in a function that cannot fail suggests catch", "2:18: `minutes: n` can be beyond a `Duration`'s range as the program runs, and this call cannot fail: make the duration first, `time.duration(minutes: n) catch ...`, handling its failure, and pass that"
+  fun later(t: datetime.Time, n: Int) -> datetime.Time
+    t.add(minutes: n)
+
+  print(later(datetime.Time.new(1, 0, 0), 3))
+
+fail "a fallible duration given as a duration is said once", "5:25: fallible call to `time.duration` must be wrapped with `!`", errors: 1
+  fun k(n: Int) -> Int
+    n
+
+  n = k(1)
+  print(time.Monotonic.at(time.duration(seconds: n))!)

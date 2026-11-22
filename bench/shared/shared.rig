@@ -135,7 +135,7 @@ sub main()
       !ts.add(hit_map(?keys, ?m, w, n)&)
     for v in >ts
       sum += v
-    ns = start.elapsed().ns()
+    ns = Int(start.elapsed().ns())
   else if shape == "shared"
     m = shared.Map[String, Int].new()
     if phase == "hit"
@@ -151,7 +151,7 @@ sub main()
         !ts.add(mixed_shared(?keys, +m, w, n)&)
     for v in >ts
       sum += v
-    ns = start.elapsed().ns()
+    ns = Int(start.elapsed().ns())
   else
     s: List[*Actor[Ints]] = List()
     for _ in 0..(1 if shape == "actor" else SHARDS)
@@ -170,5 +170,5 @@ sub main()
         !ts.add(mixed_actors(?keys, ?s, w, n)&)
     for v in >ts
       sum += v
-    ns = start.elapsed().ns()
+    ns = Int(start.elapsed().ns())
   print(shape, phase, tasks, ns, sum)

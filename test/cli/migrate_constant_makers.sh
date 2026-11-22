@@ -92,6 +92,9 @@ expect_eq "$(sed -n 4p cases.rig.test)" "  print(datetime.Date.new(2026, 1, 31))
 expect_eq "$(sed -n 7p cases.rig.test)" "  d = datetime.Date.new(2026, 1, 31)!" "the fail case left as it is"
 expect_eq "$(head -1 doc.md)" "\`datetime.Date.new(2026, 1, 31)!\` in prose is left for a person." "prose left"
 expect_eq "$(sed -n 7p doc.md)" "  print(datetime.Date.new(2026, 1, 31))" "the block's call"
+# Total or visible came after, and tools/migrate-tov.py, run next as
+# docs/MIGRATING-0.3.md says, gives each call that now fails its `!`.
+python3 "$ROOT/tools/migrate-tov.py" --rig "$RIG" prog.rig >tov.txt 2>&1 || fail "migrate-tov: $(cat tov.txt)"
 out=$("$RIG" run prog.rig 2>&1) || fail "prog.rig after: $out"
 expect_eq "$out" "8 2026-01-31 2026-03-01 08:30:00
 dt.Date.new(2026, 1, 31)! 2026-01-31 dt.Time.new(1, 2)!" "prog.rig prints what it printed"

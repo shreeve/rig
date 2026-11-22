@@ -42,7 +42,7 @@ test "every date of the range", "7304484 0"
     n += 1
     if d.year() == 9999 and d.month() == 12 and d.day() == 31
       break
-    next = d.add(days: 1)
+    next = d.add(days: 1)!
     w = w % 7 + 1
     doy = 1 if next.year() != d.year() else doy + 1
     d = next
@@ -58,10 +58,10 @@ test "the day of the year in a common and a leap year", "365 366 0"
     k = 1
     d = jan1
     while d.year() == y
-      if d.day_of_year() != k or jan1.add(days: k - 1) != d
+      if d.day_of_year() != k or jan1.add(days: k - 1)! != d
         bad += 1
       k += 1
-      d = d.add(days: 1)
+      d = d.add(days: 1)!
   print(datetime.Date.new(2026, 12, 31).day_of_year(), datetime.Date.new(2024, 12, 31).day_of_year(), bad)
 
 test "every month has four of each weekday", "0"
@@ -105,12 +105,12 @@ test "a day either way, and the ends", '''
     datetime.Date.new(y, m, day) catch panic("no such date")
 
   fun step(x: datetime.Date, days: Int) -> String
-    r = x.checked_add(days: days) catch return String("range")
+    r = x.add(days: days) catch return String("range")
     String(r)
 
-  print(d(2024, 7, 3).add(days: -1), d(2024, 7, 1).add(days: -1), d(2024, 6, 1).add(days: -1), d(2024, 3, 1).add(days: -1), d(2023, 3, 1).add(days: -1), d(2023, 1, 1).add(days: -1), d(-9999, 1, 2).add(days: -1), d(9999, 12, 31).add(days: -1))
-  print(d(2024, 7, 3).add(days: 1), d(2024, 6, 30).add(days: 1), d(2024, 5, 30).add(days: 1), d(2024, 5, 31).add(days: 1), d(2024, 2, 28).add(days: 1), d(2024, 2, 29).add(days: 1), d(2023, 2, 28).add(days: 1), d(2023, 12, 31).add(days: 1), d(-9999, 1, 1).add(days: 1), d(9999, 12, 30).add(days: 1))
-  print(d(2024, 7, 3).add(days: 2), d(2024, 6, 29).add(days: 2), d(2024, 5, 29).add(days: 2), d(2024, 5, 30).add(days: 2), d(2024, 2, 27).add(days: 2), d(2024, 2, 28).add(days: 2), d(2023, 2, 27).add(days: 2), d(2023, 12, 30).add(days: 2), d(-9999, 1, 1).add(days: 2), d(9999, 12, 29).add(days: 2))
+  print(d(2024, 7, 3).add(days: -1)!, d(2024, 7, 1).add(days: -1)!, d(2024, 6, 1).add(days: -1)!, d(2024, 3, 1).add(days: -1)!, d(2023, 3, 1).add(days: -1)!, d(2023, 1, 1).add(days: -1)!, d(-9999, 1, 2).add(days: -1)!, d(9999, 12, 31).add(days: -1)!)
+  print(d(2024, 7, 3).add(days: 1)!, d(2024, 6, 30).add(days: 1)!, d(2024, 5, 30).add(days: 1)!, d(2024, 5, 31).add(days: 1)!, d(2024, 2, 28).add(days: 1)!, d(2024, 2, 29).add(days: 1)!, d(2023, 2, 28).add(days: 1)!, d(2023, 12, 31).add(days: 1)!, d(-9999, 1, 1).add(days: 1)!, d(9999, 12, 30).add(days: 1)!)
+  print(d(2024, 7, 3).add(days: 2)!, d(2024, 6, 29).add(days: 2)!, d(2024, 5, 29).add(days: 2)!, d(2024, 5, 30).add(days: 2)!, d(2024, 2, 27).add(days: 2)!, d(2024, 2, 28).add(days: 2)!, d(2023, 2, 27).add(days: 2)!, d(2023, 12, 30).add(days: 2)!, d(-9999, 1, 1).add(days: 2)!, d(9999, 12, 29).add(days: 2)!)
   most = 7_304_483
   print(step(d(-9999, 1, 1), most), step(d(9999, 12, 31), -most), step(d(-9999, 1, 1), -1), step(d(9999, 12, 31), 1), step(d(-9999, 1, 1), most + 1), step(d(9999, 12, 31), -(most + 1)))
   print(step(d(-9999, 1, 1), 1), step(d(-9999, 1, 1), 2), step(d(-9999, 1, 1), -1), step(d(-9999, 1, 1), Int.min), step(d(9999, 12, 31), Int.max))
@@ -182,8 +182,8 @@ test "datetime counts and since from tc39's until", '''
   print(y.since(x).ns(), y.since(x).ms(), z.years_since(x), z.months_since(x), z.weeks_since(x), z.days_since(x) % 7, z.days_since(x), z.since(x).hours(), z.since(x).seconds())
   dt = datetime.DateTime.new(1996, 5, 2, hour: 1, minute: 1, second: 1, ns: 1_001_001)
   print(dt.since(datetime.DateTime.new(1996, 5, 2, hour: 0, minute: 0, second: 0, ns: 2)), dt.since(datetime.DateTime.new(1996, 5, 2, hour: 0, minute: 0, second: 0, ns: 2_000)), dt.since(datetime.DateTime.new(1996, 5, 2, hour: 0, minute: 0, second: 0, ns: 2_000_000)), dt.since(datetime.DateTime.new(1996, 5, 2, hour: 0, minute: 0, second: 2)), dt.since(datetime.DateTime.new(1996, 5, 2, hour: 0, minute: 2, second: 0)), dt.since(datetime.DateTime.new(1996, 5, 2, hour: 2)))
-  c = a.add(hours: 3, days: 42)
+  c = a.add(hours: 3, days: 42)!
   n = c.days_since(a)
   d0 = a.date()
-  m = d0.add(days: n).months_since(d0)
-  print(c.weeks_since(a), n % 7, c.since(a.add(days: n)), m, d0.add(days: n).days_since(d0.add(months: m)), c.since(a.add(days: n)))
+  m = d0.add(days: n)!.months_since(d0)
+  print(c.weeks_since(a), n % 7, c.since(a.add(days: n)!), m, d0.add(days: n)!.days_since(d0.add(months: m)!), c.since(a.add(days: n)!))
