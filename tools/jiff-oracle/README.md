@@ -9,7 +9,7 @@ committed: they are made where they are compared.
 ```bash
 cd tools/jiff-oracle
 cargo build --release --locked             # target/release/jiff-oracle
-python3 gen.py DIR                         # DIR/calendar.in … round.in
+python3 gen.py DIR                         # DIR/calendar.in … format.in
 target/release/jiff-oracle < DIR/zones.in > DIR/zones.out
 python3 gen.py --kind counts               # one kind, to stdout
 python3 gen.py --bundle-check target/release/jiff-oracle
@@ -120,7 +120,7 @@ each among them, and 20,000 `instant.since` (§5.1, §7.8).
 
 | Case | Answer | Rig |
 |---|---|---|
-| `instant.in_zone INSTANT ZONE` | ZONED, its exact offset (`-00:44:30`), its abbreviation | `i.in_zone(tz)`, `offset_text()`, `format("%Z")` |
+| `instant.in_zone INSTANT ZONE` | ZONED, its exact offset (`-00:44:30`), its abbreviation as `%Z` writes it, in capitals | `i.in_zone(tz)`, `offset_text()`, `format("%Z")` |
 | `datetime.in_zone DATETIME ZONE` | four ZONEDs: `.compatible`, `.earlier`, `.later`, `.reject` | `dt.in_zone(tz, resolve:)` |
 | `date.in_zone DATE ZONE` | ZONED: the start of the date | `d.in_zone(tz)` |
 | `zoned.with ZONE INSTANT DATETIME` | four ZONEDs, the date and time on the clock replaced by DATETIME's: `.compatible`, `.earlier`, `.later`, `.reject` | `z.with(year:, …, ns:, resolve:)` |
@@ -197,14 +197,40 @@ ISO 8601: Rig's `print` of a duration is its own (§9 item 8).
 `RoundMode::Floor`. Only increments Rig allows (§6.8) are given; values
 fall often on a multiple or exactly half way.
 
+### 6. Format strings (`format.in`)
+
+| Case | Answer | Rig |
+|---|---|---|
+| `format.date DATE STRING` | the text, or `error` | `d.try_format(s)` |
+| `format.time TIME STRING` | the same | `t.try_format(s)` |
+| `format.datetime DATETIME STRING` | the same | `dt.try_format(s)` |
+| `format.zoned ZONE INSTANT STRING` | the same | `z.try_format(s)` |
+
+The string is the rest of the line, spaces included, and its answer is
+compared whole (§8.4). Jiff's answer is `jiff::fmt::strtime::format`'s.
+Rig answers by `try_format`, since the string is read as the program
+runs; `format`, whose string is known as Rig compiles, is held to it
+for every directive on every type by `test/cli/datetime_format_table.sh`.
+
+Every directive a type takes alone, with `-` on each that pads, and
+strings of several with text between them; then each directive of
+another type's, which Jiff refuses too. Dates about the ends of the year
+and of the ISO week year in each of the 19 years, and random dates;
+every hour of the day with fractions of each length, and random times;
+dates and times at the ends of the range and random; every name a second
+before and at each of its transitions through 2040 and its rule's, with
+every directive of a zone (`%Z` there besides `instant.in_zone`'s); the
+zones of `ZONES`, Guam (`ChST`, written `CHST`) and fixed zones with
+every string, at random instants and at the ends of the range; and `%s`
+of instants a part of a second before 1970.
+
 ## std.datetime's answers
 
 `answer.rig` gives std.datetime's and std.time's answers to the same
-lines, every case but one part: the abbreviation of `instant.in_zone`,
-`format("%Z")`'s, which phase 6 builds, prints `-`, as a case or a part
-not answered does. A call that fails prints `error`, as Jiff's does
-(§7.2). `compare.awk` compares them part for part, passing over each `-`
-and each `skip`, and prints each difference and the counts;
+lines, every case; one it did not answer would print `-`. A call that
+fails prints `error`, as Jiff's does (§7.2). `compare.awk` compares
+them part for part (a format string's answer whole), passing over each
+`-` and each `skip`, and prints each difference and the counts;
 `jiff_oracle.sh` requires no difference.
 
 ```bash
@@ -238,9 +264,15 @@ The oracle does not check where Rig differs from Jiff on purpose
   a word (§8.1, item 15). No bare number is given as a duration (item 7).
 - **What Rig does not have:** a `TimeZone.parse` of Rig's own forms, a
   default zone in parsing (§8.2), a calendar keyword on a `Date` that is
-  not a calendar unit, `format` (phase 6).
+  not a calendar unit.
+- **Format strings Rig refuses and Jiff takes** (§8.4, §9 item 9): the
+  directives and flags not in v1 (`%y`, `%c`, `%_d`, `%^B`), widths
+  (`%3f`, `%05d`), `-` on a directive that does not pad (`%-A`, `%-F`),
+  and `%.f` on a `Date`, which Jiff writes as nothing. None is generated;
+  `format` refuses each as Rig compiles and `try_format` fails, which
+  `std-datetime-format` and `datetime_format_table.sh` test.
 
 ## Size
 
-About 2.19 million cases. `gen.py` writes them in about 3.4 s and the
+About 2.34 million cases. `gen.py` writes them in about 3.4 s and the
 oracle answers them in about 1 s.

@@ -70,6 +70,22 @@ cases=(
     # the instant 30 seconds off: the trap of DATETIME-DESIGN §7.6.
     "zoned.parse 1968-02-01T23:15:00-00:45[Africa/Monrovia]" "1968-02-01T23:15:00-00:45[Africa/Monrovia] 1968-02-01T23:15:30-00:45[Africa/Monrovia] 1968-02-01T23:15:00-00:45[Africa/Monrovia]"
     "instant.in_zone 1968-02-01T23:59:30Z Africa/Monrovia" "1968-02-01T23:15:00-00:45[Africa/Monrovia] -00:44:30 MMT"
+    # src/fmt/strtime/printer.rs, its tests of each directive
+    "format.date 2024-07-09 %e|%-e|%d|%-d|%F" " 9|9|09|9|2024-07-09"
+    "format.date -000024-07-14 %Y" "-024"
+    "format.date -002025-01-13 %Y" "-2025"
+    "format.date 0019-11-30 %G" "0019"
+    "format.date 2019-12-30 %G" "2020"
+    "format.date 2024-07-14 %u %B %b" "7 July Jul"
+    "format.time 00:00:00 %I %H%p" "12 00AM"
+    "format.time 23:59:08 %R %T %I" "23:59 23:59:08 11"
+    "format.time 00:00:00.123 %f %.f %.3f" "123 .123 .123"
+    "format.time 00:00:00 %f|%.f|%.3f" "0||.000"
+    "format.time 00:00:00.123456789 %.3f" ".123"
+    "format.zoned America/New_York 2024-07-15T20:00:00Z %z %:z %Z" "-0400 -04:00 EDT"
+    "format.zoned America/New_York 2024-01-15T20:00:00Z %z %:z %Z" "-0500 -05:00 EST"
+    "format.zoned UTC 2025-01-20T18:09:00Z %s" "1737396540"
+    "format.date 2024-07-09 %H" "error"
     # docs/design/datetime.md §6.5, measured: the second 01:30 in Denver on
     # 2026-11-01 with the minute set to 45 keeps its offset
     "zoned.with America/Denver 2026-11-01T08:30:00Z 2026-11-01T01:45:00" "2026-11-01T01:45:00-07:00[America/Denver] 2026-11-01T01:45:00-07:00[America/Denver] 2026-11-01T01:45:00-07:00[America/Denver] 2026-11-01T01:45:00-07:00[America/Denver]"
@@ -96,13 +112,13 @@ fi
 (cd "$dir" && python3 gen.py --bundle-check "$bin") || fail "the oracle does not answer from Jiff's bundled data"
 
 # std.datetime's and std.time's answers against Jiff's, on every case
-# gen.py writes; a case std.datetime does not answer yet is `-`.
+# gen.py writes.
 cases_dir=$RIG_OUT_DIR/jiff-cases
 mkdir -p "$cases_dir"
 (cd "$dir" && python3 gen.py "$cases_dir" >/dev/null) || fail "gen.py does not write the cases"
 rig build --release "$ROOT/tools/jiff-oracle/answer.rig" -o "$cases_dir/answer" || fail "answer.rig does not build"
 answered=0
-for kind in calendar zones counts text round; do
+for kind in calendar zones counts text round format; do
     "$bin" < "$cases_dir/$kind.in" > "$cases_dir/$kind.jiff" || fail "the oracle stopped on $kind.in"
     "$cases_dir/answer" "$cases_dir/$kind.in" > "$cases_dir/$kind.rig" || fail "answer.rig stopped on $kind.in"
     expect_eq "$(wc -l < "$cases_dir/$kind.rig")" "$(wc -l < "$cases_dir/$kind.in")" "answers to $kind.in"
@@ -114,4 +130,4 @@ for kind in calendar zones counts text round; do
 done
 # Every case these phases answer: fewer means answer.rig stopped
 # answering some.
-(( answered >= 2186455 )) || fail "std.datetime answered $answered cases the same as Jiff, fewer than 2,186,455"
+(( answered >= 2344534 )) || fail "std.datetime answered $answered cases the same as Jiff, fewer than 2,344,534"
