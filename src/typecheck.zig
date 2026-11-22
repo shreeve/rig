@@ -7073,6 +7073,10 @@ const Checker = struct {
                 }
             }
         }
+        if (call.isKind(.call)) {
+            const callee = ir.Call.callee(call);
+            if (callee.isKind(.member) and std.mem.eql(u8, self.text(ir.Member.name(callee)), "format")) return "its format string is known as Rig compiles and suits its type";
+        }
         return "its arguments are constants that pass its check";
     }
 
@@ -12732,6 +12736,80 @@ const Checker = struct {
         return self.t().invalid_id;
     }
 
+    /// std.datetime's `format` (`sema.FormatType`): a format string known
+    /// as Rig compiles, a string literal or a module constant bound to
+    /// one, whose directives all suit the type, gives the plain `String`
+    /// of `returns`, its `String!` (docs/design/datetime.md §8.4). A
+    /// directive the type does not take is an error naming it and the
+    /// type, and a string made as the program runs an error whose fix is
+    /// `try_format`. The call is recorded as a maker's of constants is
+    /// (`recordConstMaker`), so emit unwraps it as one.
+    fn formatCall(self: *Checker, ft: sema.FormatType, args: []const Sexp, returns: TypeId) Error!TypeId {
+        const call = self.current_call orelse return returns;
+        const ok = switch (self.ctx.types.get(returns)) {
+            .fallible => |fl| fl.ok,
+            else => return returns,
+        };
+        if (args.len != 1) return returns;
+        const value = if (args[0].isKind(.kwarg)) ir.Kwarg.value(args[0]) else args[0];
+        const shown = std.mem.trimEnd(u8, try self.plainText(call), "& ");
+        const fmt_text = self.formatString(self.ctx, value, 0) orelse {
+            const k = std.mem.findLast(u8, shown, ".format(") orelse return returns;
+            try self.errAt(value, "`{s}` takes a format string known as Rig compiles, a string literal or a module constant bound to one, which is checked against the `{s}`; for `{s}`, made as the program runs, write `{s}.try_format({s}!`", .{ shown, ft.name(), try self.plainText(value), shown[0..k], shown[k + ".format(".len ..] });
+            return self.t().invalid_id;
+        };
+        const fault = sema.formatFault(ft, fmt_text) orelse {
+            if (ir.Call.task(call) != .nil) return returns;
+            try self.ctx.recordConstMaker(call);
+            return ok;
+        };
+        const a = self.ctx.arena.allocator();
+        const directive = fmt_text[fault.at..fault.end];
+        const why: []const u8 = switch (fault.why) {
+            .ends => "the string ends before its directive does; `%%` writes a `%`",
+            .unknown => "it is not a directive `format` takes",
+            .lacks => switch (fault.needs) {
+                sema.format_date => try a.print("a `{s}` has no date", .{ft.name()}),
+                sema.format_time => try a.print("a `{s}` has no time of day", .{ft.name()}),
+                else => if (ft == .date_time)
+                    "a `DateTime` has no zone: `dt.in_zone(tz)!` gives a `ZonedDateTime`, which has one"
+                else
+                    try a.print("a `{s}` has no zone", .{ft.name()}),
+            },
+            .flag => try a.print("`format` takes no flag `{c}`; `-`, which drops the padding, is its one flag", .{directive[1]}),
+            .width => "`format` takes no width; a precision on the fraction, `%.3f`, is the one number it takes",
+            .nopad => try a.print("`-` drops the padding, and `%{c}` has none", .{directive[directive.len - 1]}),
+            .precision => "a precision is one digit, 1 to 9: `%.3f`",
+        };
+        const takes: []const u8 = switch (ft) {
+            .date => "`%Y %m %d %e %A %a %B %b %j %F %u %G %V %%`",
+            .time => "`%H %M %S %I %p %T %R %f %.f %%` and a precision, `%.3f`",
+            .date_time => "the directives of a `Date` and of a `Time`",
+            .zoned => "the directives of a `DateTime`, and `%z %:z %Z %s`",
+        };
+        try self.errAt(value, "`{s}`: `{s}` in the format string does not suit a `{s}`: {s}; a `{s}` takes {s}", .{ shown, directive, ft.name(), why, ft.name(), takes });
+        return self.t().invalid_id;
+    }
+
+    /// The bytes of the format string `e` gives, known as Rig compiles: a
+    /// string literal's, or those of the one a module constant is bound
+    /// to, here or in another module (`lib.FMT`), through a chain of such
+    /// constants. Null for any other expression.
+    fn formatString(self: *Checker, ctx: *const SemContext, e: Sexp, depth: u32) ?[]const u8 {
+        if (depth > 64) return null;
+        if (e == .src) {
+            const lit = diag.textOf(ctx.source, rig.leafSpan(ctx.source, e));
+            if (lit.len >= 2 and (lit[0] == '"' or lit[0] == '\'')) return textLiteralBytes(self.ctx.arena.allocator(), lit);
+        }
+        const c = sema.patternConst(ctx, e) orelse return null;
+        if (c.ctx.symbols.items[c.id].flags.per_target) return null;
+        const value = for (c.ctx.const_order.items) |decl| {
+            const set = if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl;
+            if (c.ctx.symbolOf(ir.Set.target(set)) == c.id) break ir.Set.value(set);
+        } else return null;
+        return self.formatString(c.ctx, value, depth + 1);
+    }
+
     /// `add` or `checked_add` of a `Date` (`sema.ArgCheck.calendar_add`):
     /// no duration, by position or by a unit's keyword, since a date has
     /// no time of day.
@@ -15263,6 +15341,10 @@ const Checker = struct {
         if (self_mode == .read and !misplaced_sigil and self.ctx.diagnostics.items.len == mark and o.stores & o.viewed & sema.paramBit(0) != 0 and self.implicitSelf(obj)) {
             if (self.current_call) |call| try self.reportKept(call, obj, .{ .stored = method });
         }
+        // std.datetime's `format` checks its string (§8.4); an argument
+        // with an error of its own asks for no `!` besides.
+        if (sema.formatOwner(home_ctx, resolved.owner, method)) |ft|
+            return if (self.ctx.diagnostics.items.len == mark) self.formatCall(ft, args, f.returns) else self.t().invalid_id;
         return f.returns;
     }
 
@@ -18063,6 +18145,8 @@ const Checker = struct {
                 // unchecked, and asks for no `!` besides.
                 if (sema.constMaker(home, nt.sym.name, name)) |maker|
                     return if (self.ctx.diagnostics.items.len == mark) self.constMakerCall(home, maker, args, f.returns) else self.t().invalid_id;
+                if (sema.formatOwner(home, nt.sym.name, name)) |ft|
+                    return if (self.ctx.diagnostics.items.len == mark) self.formatCall(ft, after_self, f.returns) else self.t().invalid_id;
                 return f.returns;
             }
             if (ct) |b| return self.badCall(args, b, "`{s}.{s}` is not a function; it takes no compile-time arguments", .{ tname, name });

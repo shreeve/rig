@@ -12456,6 +12456,179 @@ pub fn constMaker(home: *const SemContext, owner: []const u8, name: []const u8) 
     return null;
 }
 
+/// A type whose `format` takes a format string known as Rig compiles,
+/// which is checked against it (docs/design/datetime.md §8.4): the
+/// directives it has, as bits of `format_date`, `format_time`, and
+/// `format_zone`.
+pub const FormatType = enum {
+    date,
+    time,
+    date_time,
+    zoned,
+
+    pub fn has(t: FormatType) u3 {
+        return switch (t) {
+            .date => format_date,
+            .time => format_time,
+            .date_time => format_date | format_time,
+            .zoned => format_date | format_time | format_zone,
+        };
+    }
+
+    /// Its name as a program writes it.
+    pub fn name(t: FormatType) []const u8 {
+        return switch (t) {
+            .date => "Date",
+            .time => "Time",
+            .date_time => "DateTime",
+            .zoned => "ZonedDateTime",
+        };
+    }
+};
+
+pub const format_date: u3 = 1;
+pub const format_time: u3 = 2;
+pub const format_zone: u3 = 4;
+
+/// The type whose method `name` of type `owner`, declared in `home`, is
+/// std.datetime's `format`.
+pub fn formatOwner(home: *const SemContext, owner: []const u8, name: []const u8) ?FormatType {
+    if (!home.is_std or !std.mem.eql(u8, home.name, "std.datetime") or !std.mem.eql(u8, name, "format")) return null;
+    if (std.mem.eql(u8, owner, "Date")) return .date;
+    if (std.mem.eql(u8, owner, "Time")) return .time;
+    if (std.mem.eql(u8, owner, "DateTime")) return .date_time;
+    if (std.mem.eql(u8, owner, "ZonedDateTime")) return .zoned;
+    return null;
+}
+
+/// What directive letter `k` needs of a value (`format_date`,
+/// `format_time`, or `format_zone`), or 0 for one `format` does not take.
+/// std.datetime's `directive_needs` holds the same table; a test runs
+/// every directive on every type both ways.
+pub fn formatNeeds(k: u8) u3 {
+    return switch (k) {
+        'Y', 'm', 'd', 'e', 'A', 'a', 'B', 'b', 'j', 'F', 'u', 'G', 'V' => format_date,
+        'H', 'M', 'S', 'I', 'p', 'T', 'R', 'f' => format_time,
+        'z', 'Z', 's' => format_zone,
+        else => 0,
+    };
+}
+
+/// Whether directive `k` pads, which the flag `-` takes away
+/// (std.datetime's `pads`).
+pub fn formatPads(k: u8) bool {
+    return switch (k) {
+        'Y', 'm', 'd', 'e', 'j', 'G', 'V', 'H', 'M', 'S', 'I' => true,
+        else => false,
+    };
+}
+
+/// Why a format string does not suit a type: the directive, `text[at..end]`,
+/// and what is wrong with it.
+pub const FormatFault = struct {
+    at: usize,
+    end: usize,
+    why: Why,
+    /// What the directive needs and the type lacks, for `lacks`.
+    needs: u3 = 0,
+
+    pub const Why = enum {
+        /// A `%` that ends the string, or `%-` that does.
+        ends,
+        /// A letter, or a mark, `format` does not take.
+        unknown,
+        /// A directive the type lacks.
+        lacks,
+        /// A flag other than `-`.
+        flag,
+        /// A width.
+        width,
+        /// `-` on a directive that does not pad.
+        nopad,
+        /// A precision other than one digit, 1 to 9.
+        precision,
+    };
+};
+
+/// The first directive of `text` that type `t`'s `format` does not take,
+/// as std.datetime's `formatted` refuses it as the program runs; null
+/// when every one suits.
+pub fn formatFault(t: FormatType, text: []const u8) ?FormatFault {
+    const has = t.has();
+    var i: usize = 0;
+    while (i < text.len) {
+        if (text[i] != '%') {
+            i += 1;
+            continue;
+        }
+        const at = i;
+        i += 1;
+        if (i >= text.len) return .{ .at = at, .end = i, .why = .ends };
+        const nopad = text[i] == '-';
+        if (nopad) {
+            i += 1;
+            if (i >= text.len) return .{ .at = at, .end = i, .why = .ends };
+        }
+        const k = text[i];
+        i += 1;
+        if (k == '.' and !nopad) {
+            var digits: usize = 0;
+            while (i + digits < text.len and std.ascii.isDigit(text[i + digits])) digits += 1;
+            const precise = digits == 0 or (digits == 1 and text[i] != '0');
+            if (i + digits < text.len and text[i + digits] == 'f') {
+                if (!precise) return .{ .at = at, .end = i + digits + 1, .why = .precision };
+                i += digits + 1;
+                if (has & format_time == 0) return .{ .at = at, .end = i, .why = .lacks, .needs = format_time };
+                continue;
+            }
+            return .{ .at = at, .end = @min(i + digits + 1, text.len), .why = .unknown };
+        }
+        if (k == ':' and !nopad) {
+            if (i < text.len and text[i] == 'z') {
+                i += 1;
+                if (has & format_zone == 0) return .{ .at = at, .end = i, .why = .lacks, .needs = format_zone };
+                continue;
+            }
+            var j = i;
+            while (j < text.len and text[j] == ':') j += 1;
+            return .{ .at = at, .end = @min(j + 1, text.len), .why = .unknown };
+        }
+        if (k == '%' and !nopad) continue;
+        if (!nopad and (k == '_' or k == '0' or k == '^' or k == '#')) {
+            var j = i;
+            while (j < text.len and std.ascii.isDigit(text[j])) j += 1;
+            return .{ .at = at, .end = @min(j + 1, text.len), .why = .flag };
+        }
+        if (std.ascii.isDigit(k)) {
+            var j = i;
+            while (j < text.len and std.ascii.isDigit(text[j])) j += 1;
+            return .{ .at = at, .end = @min(j + 1, text.len), .why = .width };
+        }
+        const needs = formatNeeds(k);
+        if (needs == 0) return .{ .at = at, .end = i, .why = .unknown };
+        if (has & needs == 0) return .{ .at = at, .end = i, .why = .lacks, .needs = needs };
+        if (nopad and !formatPads(k)) return .{ .at = at, .end = i, .why = .nopad };
+    }
+    return null;
+}
+
+test "a format string is checked against its type as std checks it" {
+    try std.testing.expect(formatFault(.date, "%A, %B %-d, %Y %%") == null);
+    try std.testing.expect(formatFault(.zoned, "%Y-%m-%dT%H:%M:%S%.3f%:z %Z %s") == null);
+    try std.testing.expectEqual(FormatFault.Why.lacks, formatFault(.date, "%H").?.why);
+    try std.testing.expectEqual(FormatFault.Why.lacks, formatFault(.date, "%.f").?.why);
+    try std.testing.expectEqual(FormatFault.Why.lacks, formatFault(.date_time, "%:z").?.why);
+    try std.testing.expectEqual(FormatFault.Why.unknown, formatFault(.zoned, "%y").?.why);
+    try std.testing.expectEqual(FormatFault.Why.unknown, formatFault(.zoned, "%::z").?.why);
+    try std.testing.expectEqual(FormatFault.Why.flag, formatFault(.date, "%_d").?.why);
+    try std.testing.expectEqual(FormatFault.Why.width, formatFault(.time, "%3f").?.why);
+    try std.testing.expectEqual(FormatFault.Why.precision, formatFault(.time, "%.0f").?.why);
+    try std.testing.expectEqual(FormatFault.Why.precision, formatFault(.time, "%.10f").?.why);
+    try std.testing.expectEqual(FormatFault.Why.nopad, formatFault(.date, "%-A").?.why);
+    try std.testing.expectEqual(FormatFault.Why.ends, formatFault(.date, "100%").?.why);
+    try std.testing.expectEqual(FormatFault.Why.ends, formatFault(.date, "%-").?.why);
+}
+
 /// The farthest a fixed zone is from UTC, in minutes: 25:59
 /// (std.datetime's `MAX_FIXED_MINUTES`).
 pub const zone_fixed_max: Wide = 25 * 60 + 59;

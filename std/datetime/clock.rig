@@ -100,6 +100,24 @@ pub obj Time: Eq + Ord + Hash + Print
   pub fun floor(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none) -> Time
     time_at(clock_multiple(@total(), clock_step([ns, us, ms, seconds, minutes, hours]), true))
 
+  # The time written by `pattern`, a strftime string known as Rig
+  # compiles, a string literal or a module constant bound to one:
+  # `t.format("%I:%M %p")` is `08:07 AM`. A `Time` takes
+  # `%H %M %S %I %p %T %R %f %.f` and a precision, `%.3f`, and `%%`,
+  # with Jiff's meanings, and `-` on a number to drop its padding.
+  # Rig checks the string against the `Time` where it is called, so a
+  # directive it lacks (`%Y`) or an unknown one is a compile error, and
+  # the call cannot fail: it gives a plain `String`, though declared
+  # with the `!` of `try_format`, whose failures the check rules out.
+  pub fun format(?@, pattern: ?String) -> String!
+    @try_format(pattern)!
+
+  # The time written by `pattern`, a string made as the program runs.
+  # Fails with `DateTimeError.invalid` exactly where `format` would not
+  # compile.
+  pub fun try_format(?@, pattern: ?String) -> String!
+    formatted(pattern, HAS_TIME, Date.min(), @, Instant.min(), TimeZone.utc(), 0, "")!
+
   sub print(?@, out: !Printer)
     print_time(!out, @)
 

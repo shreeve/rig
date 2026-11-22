@@ -1,0 +1,174 @@
+# std.datetime's `format` and `try_format` (docs/design/datetime.md §8.4):
+# every directive on every type, written by `format` with its string
+# known as Rig compiles and by `try_format` with the same string made as
+# the program runs, which must agree; the refusals as Rig compiles, each
+# naming the directive and the type; and `try_format` failing
+# `DateTimeError.invalid` where `format` would not compile. Which
+# directive each type takes is held to std's own table both ways by
+# test/cli/datetime_format_table.sh, and the values to Jiff's by
+# test/cli/jiff_oracle.sh.
+
+use std.datetime
+
+test "every directive of a Date, by format and by try_format", '''
+  [2026 03 08  8 Sunday Sun March Mar 067 2026-03-08 7 2026 10 %]
+  [2026 3 8 8 67 2026 10]
+  true true
+'''
+  sub main()!
+    d = datetime.Date.new(2026, 3, 8)
+    a = d.format("[%Y %m %d %e %A %a %B %b %j %F %u %G %V %%]")
+    b = d.format("[%-Y %-m %-d %-e %-j %-G %-V]")
+    print(a)
+    print(b)
+    print(a == d.try_format(String("[%Y %m %d %e %A %a %B %b %j %F %u %G %V %%]"))!, b == d.try_format(String("[%-Y %-m %-d %-e %-j %-G %-V]"))!)
+
+test "every directive of a Time, by format and by try_format", '''
+  [00 07 03 12 AM 00:07:03 00:07 05 .05 .0 .050000000 0 7 3 12]
+  [12 PM 0||.000|.000000000]
+  true true
+'''
+  sub main()!
+    t = datetime.Time.new(0, 7, 3, ns: 50_000_000)
+    n = datetime.Time.new(12, 0, 0)
+    a = t.format("[%H %M %S %I %p %T %R %f %.f %.1f %.9f %-H %-M %-S %-I]")
+    b = n.format("[%I %p %f|%.f|%.3f|%.9f]")
+    print(a)
+    print(b)
+    print(a == t.try_format(String("[%H %M %S %I %p %T %R %f %.f %.1f %.9f %-H %-M %-S %-I]"))!, b == n.try_format(String("[%I %p %f|%.f|%.3f|%.9f]"))!)
+
+test "every directive of a DateTime, by format and by try_format", '''
+  2025-12-29 23:59:59.999999999 2026-W01-1 363 Monday 11 PM
+  true
+'''
+  sub main()!
+    dt = datetime.DateTime.new(2025, 12, 29, hour: 23, minute: 59, second: 59, ns: 999_999_999)
+    a = dt.format("%F %T%.f %G-W%V-%u %j %A %I %p")
+    print(a)
+    print(a == dt.try_format(String("%F %T%.f %G-W%V-%u %j %A %I %p"))!)
+
+test "every directive of a ZonedDateTime, by format and by try_format", '''
+  2025-12-29T23:59:59.999999999-07:00 -0700 MST 1767077999
+  2026-07-04 12:00:00 MDT -06:00
+  true
+'''
+  sub main()!
+    denver = datetime.TimeZone.named("America/Denver")
+    z = datetime.DateTime.new(2025, 12, 29, hour: 23, minute: 59, second: 59, ns: 999_999_999).in_zone(denver)!
+    a = z.format("%Y-%m-%dT%H:%M:%S%.f%:z %z %Z %s")
+    print(a)
+    print(datetime.DateTime.new(2026, 7, 4, hour: 12).in_zone(denver)!.format("%F %T %Z %:z"))
+    print(a == z.try_format(String("%Y-%m-%dT%H:%M:%S%.f%:z %z %Z %s"))!)
+
+test "years below 0 and the ends of the range, as Jiff writes them", '''
+  -001|-0001-12-31|-1|-001
+  0005 5 0005-01-01
+  -9999 -9999-01-01 -9999 01 001
+  9999 9999-12-31 9999 52 365
+'''
+  print(datetime.Date.new(-1, 12, 31).format("%Y|%F|%-Y|%G"))
+  print(datetime.Date.new(5, 1, 1).format("%Y %-Y %F"))
+  print(datetime.Date.min().format("%Y %F %G %V %j"))
+  print(datetime.Date.max().format("%Y %F %G %V %j"))
+
+test "%Z and %z: a named zone's abbreviation in capitals, a fixed zone's offset, UTC, and an offset with seconds", '''
+  CHST +1000
+  -004430 -00:44:30 MMT
+  UTC +0000 +00:00
+  +05:30 -07 -0700 -00:30
+'''
+  sub main()!
+    guam = datetime.Instant.from_unix_s(1_700_000_000).in_zone(datetime.TimeZone.named("Pacific/Guam"))
+    print(guam.format("%Z %z"))
+    monrovia = datetime.Instant.parse("1968-02-01T23:59:30Z")!.in_zone(datetime.TimeZone.named("Africa/Monrovia"))
+    print(monrovia.format("%z %:z %Z"))
+    i = datetime.Instant.from_unix_s(0)
+    print(i.in_zone(datetime.TimeZone.utc()).format("%Z %z %:z"))
+    print(i.in_zone(datetime.TimeZone.fixed(hours: 5, minutes: 30)).format("%Z"), i.in_zone(datetime.TimeZone.fixed(hours: -7)).format("%Z %z"), i.in_zone(datetime.TimeZone.fixed(minutes: -30)).format("%Z"))
+
+test "%s counts whole seconds toward zero, at the ends of the range too", '''
+  -5 0 -1
+  -377705023201 253402207200
+'''
+  utc = datetime.TimeZone.utc()
+  print(datetime.Instant.from_unix_s(-5, ns: -500_000_000).in_zone(utc).format("%s"), datetime.Instant.from_unix_s(0, ns: -1).in_zone(utc).format("%s"), datetime.Instant.from_unix_s(-1).in_zone(utc).format("%s"))
+  print(datetime.Instant.min().in_zone(utc).format("%s"), datetime.Instant.max().in_zone(utc).format("%s"))
+
+test "a fixed width comes from a precision", '''
+  2026-11-17T15:07:03.000Z 2026-11-17T15:07:03.512Z
+'''
+  sub main()!
+    utc = datetime.TimeZone.utc()
+    a = datetime.Instant.parse("2026-11-17T15:07:03Z")!
+    b = datetime.Instant.parse("2026-11-17T15:07:03.512094Z")!
+    print(a.in_zone(utc).format("%Y-%m-%dT%H:%M:%S%.3fZ"), b.in_zone(utc).format("%Y-%m-%dT%H:%M:%S%.3fZ"))
+
+test "a module constant bound to a literal is known as Rig compiles, through a chain and from another module", '''
+  2026-03-08 2026-03-08 08 March
+'''
+  FMT = "%Y-%m-%d"
+  SAME = FMT
+  RAW = '%d %B'
+
+  sub main()
+    d = datetime.Date.new(2026, 3, 8)
+    print(d.format(FMT), d.format(SAME), d.format(RAW))
+
+test "the format string by its name, through the type, and text outside directives as it is", '''
+  067 2026-03-08 ünï 2026 · 0
+'''
+  d = datetime.Date.new(2026, 3, 8)
+  print(d.format(pattern: "%j"), datetime.Date.format(d, "%F"), d.format("ünï %Y ·"), d.format("").len)
+
+fail "a directive a type lacks is refused, naming it and the type", "4:16: `d.format(\"%H\")`: `%H` in the format string does not suit a `Date`: a `Date` has no time of day; a `Date` takes `%Y %m %d %e %A %a %B %b %j %F %u %G %V %%`", "5:16: `t.format(\"%Y\")`: `%Y` in the format string does not suit a `Time`: a `Time` has no date", "6:17: `dt.format(\"%z\")`: `%z` in the format string does not suit a `DateTime`: a `DateTime` has no zone: `dt.in_zone(tz)!` gives a `ZonedDateTime`, which has one; a `DateTime` takes the directives of a `Date` and of a `Time`", "7:16: `d.format(\"%.f\")`: `%.f` in the format string does not suit a `Date`: a `Date` has no time of day", "8:16: `d.format(\"%Z\")`: `%Z` in the format string does not suit a `Date`: a `Date` has no zone", errors: 5
+  d = datetime.Date.new(2026, 3, 8)
+  t = datetime.Time.new(8, 0, 0)
+  dt = d.at(t)
+  print(d.format("%H"))
+  print(t.format("%Y"))
+  print(dt.format("%z"))
+  print(d.format("%.f"))
+  print(d.format("%Z"))
+
+fail "a directive, a flag, or a width format does not take is refused", "4:16: `%y` in the format string does not suit a `Date`: it is not a directive `format` takes", "5:16: `%_d` in the format string does not suit a `Date`: `format` takes no flag `_`; `-`, which drops the padding, is its one flag", "6:16: `%05d` in the format string does not suit a `Date`: `format` takes no flag `0`", "7:16: `%3f` in the format string does not suit a `Time`: `format` takes no width; a precision on the fraction, `%.3f`, is the one number it takes", "8:16: `%-A` in the format string does not suit a `Date`: `-` drops the padding, and `%A` has none", "9:16: `%.0f` in the format string does not suit a `Time`: a precision is one digit, 1 to 9: `%.3f`", "10:16: `%.10f` in the format string does not suit a `Time`: a precision is one digit", "11:16: `%` in the format string does not suit a `Date`: the string ends before its directive does; `%%` writes a `%`", "12:16: `%::z` in the format string does not suit a `ZonedDateTime`: it is not a directive `format` takes; a `ZonedDateTime` takes the directives of a `DateTime`, and `%z %:z %Z %s`", errors: 9
+  d = datetime.Date.new(2026, 3, 8)
+  t = datetime.Time.new(8, 0, 0)
+  z = datetime.Instant.from_unix_s(0).in_zone(datetime.TimeZone.utc())
+  print(d.format("%y"))
+  print(d.format("%_d"))
+  print(d.format("%05d"))
+  print(t.format("%3f"))
+  print(d.format("%-A"))
+  print(t.format("%.0f"))
+  print(t.format("%.10f"))
+  print(d.format("100%"))
+  print(z.format("%::z"))
+
+fail "a format string made as the program runs is refused, with try_format as the fix", "3:16: `d.format(s)` takes a format string known as Rig compiles, a string literal or a module constant bound to one, which is checked against the `Date`; for `s`, made as the program runs, write `d.try_format(s)!`", "4:16: made as the program runs, write `d.try_format(`%{s}`)!`", errors: 2
+  d = datetime.Date.new(2026, 3, 8)
+  s = String("%Y")
+  print(d.format(s))
+  print(d.format(`%{s}`))
+
+fail "! and catch on format are refused: it cannot fail", "2:5: `!` needs a fallible operand, and `d.format(\"%Y\")` cannot fail: its format string is known as Rig compiles and suits its type, so it gives a `String`; write it without `!`", "3:5: `catch` needs a fallible expression, and `d.format(\"%F\")` cannot fail", errors: 2
+  d = datetime.Date.new(2026, 3, 8)
+  a = d.format("%Y")!
+  b = d.format("%F") catch String()
+  print(a, b)
+
+test "try_format fails with DateTimeError.invalid where format would not compile", '''
+  DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid
+  DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid
+'''
+  fun show(x: ?datetime.ZonedDateTime, s: ?String) -> String
+    x.try_format(s) catch |e| String(`{e}`)
+
+  sub main()
+    z = datetime.Instant.from_unix_s(0).in_zone(datetime.TimeZone.utc())
+    d = z.date()
+    t = z.time()
+    a = d.try_format(String("%H")) catch |e| String(`{e}`)
+    b = t.try_format(String("%Y")) catch |e| String(`{e}`)
+    c = d.at(t).try_format(String("%Z")) catch |e| String(`{e}`)
+    print(a, b, c, show(z, "%y"))
+    print(show(z, "%-u"), show(z, "%.0f"), show(z, "50%"))

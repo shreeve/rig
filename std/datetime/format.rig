@@ -1,0 +1,234 @@
+# std.datetime: a value written by a format string, a small strftime
+# with Jiff 1.0.0's meaning for each directive (`fmt/strtime/printer.rs`;
+# DATETIME-DESIGN §8.4). Which directives each type takes is decided
+# twice: here, as the program runs (`try_format`), and as Rig compiles
+# (`format`, the compiler's `sema.formatFault`). The two must agree, and
+# a test runs every directive on every type both ways.
+#
+# Copyright (c) 2023 Andrew Gallant, for the parts ported from Jiff,
+# under the MIT license.
+
+# What a value gives a format string, as bits: a date, a time of day,
+# and an instant in a zone.
+HAS_DATE = 1
+HAS_TIME = 2
+HAS_ZONE = 4
+
+MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+
+# The text `pattern` writes for a value: its date `d`, its time of day
+# `t`, and in a zone its instant `at`, its zone `tz`, the zone's offset
+# there, `off` seconds east of UTC, and a named zone's abbreviation
+# there, `abbr`; `has` says which of them the value has. Each byte outside a directive is written as it is. Fails
+# with `DateTimeError.invalid` at the first directive the value lacks or
+# `format` does not take: a letter not among §8.4's, a flag but `-` or
+# `-` on a directive that does not pad, a width, a precision other than
+# one digit 1 to 9, and a `%` that ends the string.
+fun formatted(pattern: ?String, has: Int, d: Date, t: Time, at: Instant, tz: TimeZone, off: Int, abbr: ?String) -> String!
+  out = String()
+  i = 0
+  while i < pattern.len
+    c = pattern[i]
+    i += 1
+    if c != '%'
+      !out.push(c)
+      continue
+    if i >= pattern.len
+      return DateTimeError.invalid
+    nopad = pattern[i] == '-'
+    if nopad
+      i += 1
+      if i >= pattern.len
+        return DateTimeError.invalid
+    k = pattern[i]
+    i += 1
+    if k == '.' and not nopad
+      # `%.f`, or `%.3f` with a precision of one digit, 1 to 9.
+      digits = 0
+      if i < pattern.len and pattern[i] >= '1' and pattern[i] <= '9'
+        digits = Int(pattern[i] - '0')
+        i += 1
+      if i >= pattern.len or pattern[i] != 'f' or has & HAS_TIME == 0
+        return DateTimeError.invalid
+      i += 1
+      write_fraction(!out, Int(t.ns), digits, true)
+    else if k == ':' and not nopad
+      if i >= pattern.len or pattern[i] != 'z' or has & HAS_ZONE == 0
+        return DateTimeError.invalid
+      i += 1
+      write_offset(!out, off, true)
+    else if k == '%' and not nopad
+      !out.push('%')
+    else
+      need = directive_needs(k)
+      if need == 0 or has & need == 0 or (nopad and not pads(k))
+        return DateTimeError.invalid
+      write_directive(!out, k, nopad, d, t, at, tz, off, abbr)
+  out
+
+# What directive `k` needs of a value (`HAS_DATE`, `HAS_TIME`, or
+# `HAS_ZONE`), or 0 for a letter `format` does not take (§8.4's table).
+fun directive_needs(k: U8) -> Int
+  match k
+    'Y', 'm', 'd', 'e', 'A', 'a', 'B', 'b', 'j', 'F', 'u', 'G', 'V' => HAS_DATE
+    'H', 'M', 'S', 'I', 'p', 'T', 'R', 'f' => HAS_TIME
+    'z', 'Z', 's' => HAS_ZONE
+    _ => 0
+
+# Whether directive `k` pads, which the flag `-` takes away.
+fun pads(k: U8) -> Bool
+  match k
+    'Y', 'm', 'd', 'e', 'j', 'G', 'V', 'H', 'M', 'S', 'I' => true
+    _ => false
+
+# Directive `k` of a value, the flag `-` given when `nopad`.
+sub write_directive(out: !String, k: U8, nopad: Bool, d: Date, t: Time, at: Instant, tz: TimeZone, off: Int, abbr: ?String)
+  match k
+    'Y' => write_int(!out, Int(d.y), 4, '0', nopad)
+    'm' => write_int(!out, Int(d.m), 2, '0', nopad)
+    'd' => write_int(!out, Int(d.d), 2, '0', nopad)
+    'e' => write_int(!out, Int(d.d), 2, ' ', nopad)
+    'j' => write_int(!out, d.day_of_year(), 3, '0', nopad)
+    'G' => write_int(!out, d.iso_week_year(), 4, '0', nopad)
+    'V' => write_int(!out, d.iso_week(), 2, '0', nopad)
+    'u' => write_int(!out, d.weekday().iso_number(), 0, '0', nopad)
+    'A' => !out.add(WEEKDAY_NAMES[Int(d.weekday())])
+    'a' => !out.add(WEEKDAY_NAMES[Int(d.weekday())][..3])
+    'B' => !out.add(MONTH_NAMES[Int(d.m) - 1])
+    'b' => !out.add(MONTH_NAMES[Int(d.m) - 1][..3])
+    'F'
+      # A year below 0 has its sign and four digits, `-0001-01-01`
+      # (Jiff's `fmt_iso_date`).
+      y = Int(d.y)
+      if y < 0
+        !out.push('-')
+      write_int(!out, -y if y < 0 else y, 4, '0', false)
+      !out.push('-')
+      write_int(!out, Int(d.m), 2, '0', false)
+      !out.push('-')
+      write_int(!out, Int(d.d), 2, '0', false)
+    'H' => write_int(!out, Int(t.h), 2, '0', nopad)
+    'M' => write_int(!out, Int(t.m), 2, '0', nopad)
+    'S' => write_int(!out, Int(t.s), 2, '0', nopad)
+    'I' => write_int(!out, twelve_hour(Int(t.h)), 2, '0', nopad)
+    'p' => !out.add("AM" if t.h < 12 else "PM")
+    'T'
+      write_int(!out, Int(t.h), 2, '0', false)
+      !out.push(':')
+      write_int(!out, Int(t.m), 2, '0', false)
+      !out.push(':')
+      write_int(!out, Int(t.s), 2, '0', false)
+    'R'
+      write_int(!out, Int(t.h), 2, '0', false)
+      !out.push(':')
+      write_int(!out, Int(t.m), 2, '0', false)
+    'f'
+      # At least one digit: `0` for no fraction (Jiff's `fmt_fractional`).
+      if t.ns == 0
+        !out.push('0')
+      else
+        write_fraction(!out, Int(t.ns), 0, false)
+    'z' => write_offset(!out, off, false)
+    'Z' => write_abbreviation(!out, tz, abbr)
+    's'
+      # The whole seconds since 1970, truncated toward zero, as Jiff's
+      # `Timestamp::as_second`: -0.5 seconds is 0.
+      write_int(!out, at.s + 1 if at.s < 0 and at.ns > 0 else at.s, 0, '0', false)
+    _ => pass
+
+# The hour on a clock of 12: 12 for 0 and 12, else the hour past 12.
+fun twelve_hour(h: Int) -> Int
+  if h == 0
+    return 12
+  h - 12 if h > 12 else h
+
+# `n` padded with `fill` to `width` characters, none with `nopad`; below
+# 0 its sign counts toward the width, ahead of zeros and after spaces, so
+# year -1 is `-001` (Jiff's `Extension::write_int`).
+sub write_int(out: !String, n: Int, width: Int, fill: U8, nopad: Bool)
+  w = 0 if nopad else width
+  a = -n if n < 0 else n
+  if n < 0 and w > 0
+    w -= 1
+  count = 1
+  limit = 10
+  while a >= limit and count < 19
+    count += 1
+    limit *= 10
+  if n < 0 and fill == ' '
+    for _ in count..w
+      !out.push(' ')
+    !out.push('-')
+    w = 0
+  else if n < 0
+    !out.push('-')
+  for _ in count..w
+    !out.push(fill)
+  write_digits(!out, a)
+
+# The decimal digits of `n`, which is not negative.
+sub write_digits(out: !String, n: Int)
+  if n >= 10
+    write_digits(!out, n / 10)
+  !out.push(U8(n % 10) + '0')
+
+# The fraction of a second `ns`: with `digits` 1 to 9, that many digits,
+# cut and not rounded; with 0, all nine without their trailing zeros.
+# With `dot`, `.` first, and nothing at all for a fraction of zero with
+# no precision (Jiff's `fmt_dot_fractional`, `write_fraction`).
+sub write_fraction(out: !String, ns: Int, digits: Int, dot: Bool)
+  n = digits
+  if n == 0
+    if ns == 0
+      return
+    n = 9
+    rest = ns
+    while rest % 10 == 0
+      n -= 1
+      rest /= 10
+  if dot
+    !out.push('.')
+  unit = 100_000_000
+  for _ in 0..n
+    !out.push(U8(ns / unit % 10) + '0')
+    unit /= 10
+
+# An offset of `off` seconds east: a sign, the hours and the minutes,
+# joined by `:` with `colon`, then the seconds where they are not zero,
+# `-00:44:30` (Jiff's `write_offset`, with the minutes always written).
+sub write_offset(out: !String, off: Int, colon: Bool)
+  a = -off if off < 0 else off
+  !out.push('-' if off < 0 else '+')
+  write_int(!out, a / 3600, 2, '0', false)
+  if colon
+    !out.push(':')
+  write_int(!out, a / 60 % 60, 2, '0', false)
+  if a % 60 != 0
+    if colon
+      !out.push(':')
+    write_int(!out, a % 60, 2, '0', false)
+
+# The zone's abbreviation, in capitals, as Jiff's `%Z` writes it: a
+# named zone's `abbr`, from the data (`MST`, `CHST`), `UTC` for `utc()`,
+# and a fixed zone's offset in Jiff's short form, `-07` or `+05:30`,
+# since a fixed zone has no abbreviation.
+sub write_abbreviation(out: !String, tz: TimeZone, abbr: ?String)
+  if tz.id != FIXED_ID
+    for c in abbr
+      !out.push(c - 32 if c >= 'a' and c <= 'z' else c)
+    return
+  m = Int(tz.mins)
+  if m == 0
+    !out.add("UTC")
+    return
+  a = -m if m < 0 else m
+  !out.push('-' if m < 0 else '+')
+  write_int(!out, a / 60, 2, '0', false)
+  if a % 60 != 0
+    !out.push(':')
+    write_int(!out, a % 60, 2, '0', false)
+
+extern zig "datetime.zig"
+  # Zone `id`'s abbreviation at `t` seconds since 1970-01-01T00:00Z, as
+  # the data spells it: `MST`, `ChST`, `-03`.
+  fun zone_abbreviation(id: Int, t: Int) -> Static

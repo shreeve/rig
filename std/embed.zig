@@ -9,6 +9,7 @@ pub const files = [_]struct { []const u8, []const u8 }{
     .{ "datetime/clock.rig", @embedFile("datetime/clock.rig") },
     .{ "datetime/date.rig", @embedFile("datetime/date.rig") },
     .{ "datetime/datetime.rig", @embedFile("datetime/datetime.rig") },
+    .{ "datetime/format.rig", @embedFile("datetime/format.rig") },
     .{ "datetime/instant.rig", @embedFile("datetime/instant.rig") },
     .{ "datetime/text.rig", @embedFile("datetime/text.rig") },
     .{ "datetime/weekday.rig", @embedFile("datetime/weekday.rig") },
