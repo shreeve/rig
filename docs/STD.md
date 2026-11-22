@@ -904,7 +904,7 @@ same everywhere, from -9999-01-02T01:59:59Z to
 9999-12-30T22:00:00.999999999Z; and a `TimeZone` a named zone or a fixed
 offset ([Zones](#zones)). Each is plain data: `==` compares two,
 `<` orders them (not zones), a `Map` keys on one, and `print` writes ISO 8601, an
-`Instant` RFC 3339 in UTC. Nothing here allocates but a zone's `name()`
+`Instant` RFC 3339 in UTC, and a zone its name. Nothing here allocates but a zone's `name()`
 and `local()`. The calendar
 math is Jiff 1.0.0's ([design/datetime.md](design/datetime.md)), and a
 program that only sleeps or times, using `std.time` alone, loads none of
@@ -1050,11 +1050,12 @@ tables ([design/datetime.md](design/datetime.md) §7.4 to §7.7).
 | `TimeZone.utc()` | UTC, the fixed zone of offset 0 |
 | `TimeZone.parse(text: ?String) -> TimeZone!` | a name, as `named` reads one, or an offset of whole minutes, `+05:30`, `+0530`, or `+05`; `Z`, `z`, `+00:00`, and `-00:00` are `utc()`. An offset with seconds, with one digit (`-7`), or beyond ±25:59 fails with `invalid`, and a name the data does not hold, `UTC+5` among them, with `unknown_zone`. `TimeZone.parse(tz.name())!` is `tz` |
 | `tz.name() -> String` | a named zone's name as the data spells it, the one asked for, so `named("Asia/Calcutta")` stays `Asia/Calcutta`; a fixed zone's offset, `-07:00`; `UTC` for `utc()` |
+| `print(tz)`, `String(tz)`, `` `{tz}` `` | the zone's name, as `name()` gives it, written with no allocation |
 | `tz.offset_at(i: Instant) -> time.Duration` | the zone's offset from UTC at the instant, east positive, `-7h` in Denver's winter, with a historic offset's seconds, `-44m 30s` in Monrovia before 1972 |
 | `==`, `Hash` | two names of one zone are one zone: `Asia/Calcutta` equals `Asia/Kolkata`, the same primary identifier, but `Africa/Accra` does not equal `Africa/Abidjan`, whose rules are the same. A named zone never equals a fixed one (`Etc/GMT+7` and `fixed(hours: -7)`), and `utc()`, `fixed(hours: 0)`, and `named("UTC")` are one value, apart from `named("Etc/UTC")` |
 | `zone_names() -> []Static` | every name of the data, 598, in the order of their ASCII-lowercase bytes |
 | `tzdb_version() -> Static` | the data's version, `2026f` |
-| `local() -> TimeZone!` | the system's own zone, read each time it is called and never kept. `TZ`, when it is set: empty is `utc()`; a zone's name, a leading `:` dropped and a path cut to what follows `zoneinfo/`; an absolute path with no `zoneinfo/`, read as a link and what it names cut the same way; or, not after a `:`, a rule with no daylight-saving part, `UTC0`, `EST5`, `<+08>-8`, as a fixed zone. Anything else fails with `unknown_zone`, and a set `TZ` never falls through. Otherwise the name the link `/etc/localtime` names, cut the same way, and otherwise the name in `/etc/timezone`. A name the data does not hold fails with `unknown_zone`, and no zone to be found with `no_system_zone`: where `/etc/localtime` is a copy and not a link, as in some container images, and on Windows, set `TZ` to the zone's name. It reads the environment and the file system, so it allocates and may wait |
+| `local() -> TimeZone!` | the system's own zone, read each time it is called and never kept. `TZ`, when it is set: empty is `utc()`; a zone's name, a leading `:` dropped and a path cut to what follows `zoneinfo/`; an absolute path with no `zoneinfo/`, read as a link and what it names, followed through up to eight links, cut the same way; or, not after a `:`, a rule with no daylight-saving part, `UTC0`, `EST5`, `<+08>-8`, as a fixed zone. Anything else fails with `unknown_zone`, and a set `TZ` never falls through. Otherwise the name the link `/etc/localtime` names, followed and cut the same way, and otherwise the name in `/etc/timezone`. A name the data does not hold fails with `unknown_zone`, and no zone to be found with `no_system_zone`: where `/etc/localtime` is a copy and not a link, as in some container images, and on Windows, set `TZ` to the zone's name. It reads the environment and the file system, so it allocates and may wait |
 
 ```rig
 use std.datetime
@@ -1063,7 +1064,7 @@ sub main()!
   denver = datetime.TimeZone.named("America/Denver")
   winter = datetime.Instant.parse("2026-01-15T12:00:00Z")!
   summer = datetime.Instant.parse("2026-07-15T12:00:00Z")!
-  print(denver.name(), denver.offset_at(winter), denver.offset_at(summer))
+  print(denver, denver.offset_at(winter), denver.offset_at(summer))
   print(datetime.TimeZone.named("asia/calcutta").name(), datetime.TimeZone.named("Asia/Calcutta") == datetime.TimeZone.named("Asia/Kolkata"))
   india = datetime.TimeZone.fixed(hours: 5, minutes: 30)
   print(india.name(), india == datetime.TimeZone.parse("+05:30")!, datetime.TimeZone.fixed(hours: 0) == datetime.TimeZone.utc())

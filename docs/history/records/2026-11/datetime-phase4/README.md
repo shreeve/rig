@@ -16,12 +16,12 @@ STD examples that need them stay `rig pending`.
 |---|---|
 | The zone tables of IANA 2026f from Jiff 1.0.0's bundle, as phase 0 laid them out: the zones, the names file, and the pinned test table (Dublin in the standard form, Test/Morocco) | `std/tzdb_data.zig`, `std/tzdb_names.zig`, `std/tzdb_test_data.zig`, written by `tools/gen-tzdb.py` (its default output is now `std/`) |
 | The search: a name in any ASCII case by binary search, a zone's offset at a second (transitions in two u32 halves, the POSIX rule after the last as Jiff reads it), a name's primary identifier, every name as a `[]Static` built when Zig compiles a program that asks | `std/datetime.zig`, ported from phase 0's measured `tzdbx.zig` |
-| `TimeZone`: `named`, `fixed`, `utc`, `parse`, `name`, `offset_at`, `==` and `Hash` by primary identifier; `zone_names`, `tzdb_version`, `local` | `std/datetime/zone.rig` |
+| `TimeZone`: `named`, `fixed`, `utc`, `parse`, `name`, `offset_at`, `==` and `Hash` by primary identifier, `print` as its name (§8.1); `zone_names`, `tzdb_version`, `local` | `std/datetime/zone.rig` |
 | `DateTimeError.unknown_zone` and `no_system_zone` | `std/datetime/calendar.rig` |
 | `file.read_link` | `std/file.rig`, `std/file.zig` (NotLink maps to `FileError.invalid`) |
 | The checks as Rig compiles: `TimeZone.fixed` of constants (`sema.ConstMaker.zone_fixed`, `makerFault`), and `TimeZone.named` of a string literal against the names file (`zone_named`, `zoneNamed`, `nearestZoneName`); the names file reaches std.datetime's sema through the module graph's std reader (`SemContext.zone_names`), so `RIG_STD` agrees | `src/sema.zig`, `src/typecheck.zig` (`zoneNamedCall`), `src/modules.zig` |
 | A directory module whose files each have an `extern zig` block of one file loads that shim once | `src/modules.zig` (`loadShims`) |
-| Tests | `test/rig/std-datetime-zone.rig.test` (23 cases), `std/datetime/zone_test.rig` (8, on the test table, run by `rig test std.datetime`), `test/cli/datetime_local.sh` (31 `TZ` cases and the system's own), `file_read_link.sh`, `tzdb_tables_fresh.sh`, `datetime_zone_tests.sh`, and `datetime_no_panic.sh` extended to the shims and tables |
+| Tests | `test/rig/std-datetime-zone.rig.test` (28 cases), `std/datetime/zone_test.rig` (8, on the test table, run by `rig test std.datetime`), `test/cli/datetime_local.sh` (35 `TZ` cases, chains of links among them, and the system's own), `file_read_link.sh`, `tzdb_tables_fresh.sh`, `datetime_zone_tests.sh`, and `datetime_no_panic.sh` extended to the shims and tables |
 | The oracle: `zone.offset` for every name; `answer.rig` answers it, `zone.name` and `zone.eq` | `tools/jiff-oracle/gen.py`, `src/main.rs`, `answer.rig`, `README.md`; `test/cli/jiff_oracle.sh` |
 | Docs | STD (Zones, read_link), SPEC §13 (the listed makers), the design (phase 4 built, what a program pays), INTERNALS (the names file as a shim), CHANGELOG, HANDOFF |
 
@@ -51,8 +51,11 @@ STD examples that need them stay `rig pending`.
    after fail. A `TZ` it cannot read fails `unknown_zone`. Reading
    `/etc/localtime` or `/etc/timezone`, a `FileError` (not a link, denied)
    counts as nothing there and the next source is tried; a `task.Stop`
-   fails `local()`, which is a waiting point. A link that names no path
-   with `zoneinfo/` falls through to `/etc/timezone`.
+   fails `local()`, which is a waiting point. A link is followed through
+   a chain of links, each relative one from its link's directory, until
+   a path with `zoneinfo/` (at most eight links, so a cycle ends); one
+   that reaches no such path falls through to `/etc/timezone`. A cut
+   that starts `posix/` or `right/` is looked up as it is (and fails).
 5. **The literal check:** a plain literal, double-quoted with no escape
    or `{`, or single-quoted with no `''`; any other argument, a binding of
    a literal among them, is not a constant and takes `!`, as §10.6's list
@@ -70,21 +73,47 @@ STD examples that need them stay `rig pending`.
    `test_zone_find`, is declared only in `std/datetime/zone_test.rig`
    (`cli.datetime_zone_tests` checks a program cannot reach it).
 
-## Open questions
+## The two questions put to the owner
+
+Both defaults were approved, as the coordinator relayed his words
+("Approve defaults", 2026-11-22). A relayed approval is not the owner's
+own, so neither is tagged [Owner] in the design until he confirms it
+directly.
 
 1. **"A message that names TZ" and "a message that gives the data's
    version"** (§7.7): an error member without fields prints only its
    name, `DateTimeError.no_system_zone`, so the member's documentation
    and STD say to set `TZ`, and that `tzdb_version()` gives the version.
-   Fields on the two members (a `Static` hint) would put the words in
-   the failure itself, at the price of a set whose members differ in
-   shape. Proposed default: no fields.
+   The default kept: no fields.
 2. **Hours in a `TZ` rule** are taken from 0 to 25 with `:mm`, as
-   `fixed`'s range; POSIX writes 0 to 24. Proposed default: keep 25.
+   `fixed`'s range; POSIX writes 0 to 24. The default kept: 25.
+
+## After review (2026-11-22)
+
+An independent review of ed6cbea57 (2.5 million offsets against macOS's
+zone files and Python's zoneinfo, none different) found six things,
+each fixed with its failing case first:
+
+1. `TimeZone` printed its private layout, `TimeZone(id: 322, mins: 0)`:
+   it is now `Print`, writing `name()` with no allocation, so `print`,
+   `String(tz)` and `{tz}` give `Asia/Tokyo`, `-07:00`, `UTC` (§8.1);
+   `name()` is that text.
+2. `named(name: "Mars/Base")` skipped the literal check: the argument by
+   its name is checked as by position, and a valid one needs no `!`.
+3. The note for a name that is not a plain literal (a module constant,
+   an escape) said "is not a constant"; it says "is not a plain string
+   literal".
+4. `named("")` offered `"GB"` and `named("PST")` `"EST"`: no name is
+   offered under four bytes, and the distance allowed is a fifth of the
+   length (decision 5).
+5. `local()` followed one link only: it follows a chain of up to eight
+   (decision 4).
+6. The freshness test passed silently without its inputs: it prints
+   "skipped", as `text_go.sh` does without Go.
 
 ## The surface against the design
 
-Every row of §7.4 is built as written. §12's rows phase 4 reaches, each
+Every row of §7.4 is built as written, and §8.1's printing of a zone. §12's rows phase 4 reaches, each
 with a case: zone equality and hashing (the six rows; hashing through a
 `Map` and a `Set`); Monrovia's offset with its seconds (its printing in
 text is phase 5's `offset_text`); every `TZ` case (empty, a name,
