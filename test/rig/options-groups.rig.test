@@ -613,3 +613,34 @@ test "a group whose type is another module's", '''
 
       pub sub get(?@, path: ?String, ..net: Net)
         print(@name, path, net.timeout, net.retries)
+
+test "a period held as a value and applied", '''
+  2027-02-28T09:00:00
+  2027-03-03T09:00:00
+  2027-02-01T21:00:00
+  2027-01-31T12:00:00
+  2027-03-28
+'''
+  # docs/design/options.md, section 9.
+  sub main()!
+    start = datetime.DateTime.parse("2027-01-31T09:00:00")!
+    monthly = datetime.Period(months: 1)
+    print(start.add(..monthly)!)
+    print(start.add(..monthly, days: 3)!)
+    print(start.add(hours: 36)!)
+    print(start.with(hour: 12, minute: 0)!)
+    d = datetime.Date.new(2027, 2, 28)
+    print(d.add(..monthly)!)
+
+test "with takes stored fields", "2024-01-31T01:02:00"
+  sub main()!
+    dt = datetime.Date.new(2027, 1, 31).at(datetime.Time.new(1, 0, 0))
+    day = datetime.DateFields(year: 2024)
+    clock = datetime.ClockFields(minute: 2)
+    print(dt.with(..day, ..clock)!)
+
+fail "no spread into round or a maker", "3:15: `round` has no group for `..p` to fill", "4:25: `new` has no group for `..p` to fill", errors: 2
+  t = datetime.Time.new(1, 2, 3)
+  p = datetime.Period(days: 1)
+  print(t.round(..p))
+  print(datetime.Date.new(..p))
