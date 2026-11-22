@@ -1148,12 +1148,18 @@ program gives the same answer on every machine.
      `:/etc/localtime`, which is read as a link and what it points at is cut the same
      way;
    - **[Owner]** a rule with no daylight-saving part, as a fixed offset: `UTC0`,
-     `EST5`, `<+08>-8`. Not after a `:`, which marks a name;
+     `EST5`, `<+08>-8`. Not after a `:`, which marks a name. **[Owner, 2026-11-22]**
+     Its hours run from 0 to 25, as `fixed`'s do, where POSIX stops at 24;
    - anything else fails. A set `TZ` never falls through to the files below.
 2. Otherwise, the name the `/etc/localtime` link points at, cut the same way (macOS
    points it at `/var/db/timezone/zoneinfo/America/Denver`).
 3. Otherwise, the name in `/etc/timezone`.
 4. Otherwise it fails, with a message that names `TZ`.
+
+**[Owner, 2026-11-22]** The error members carry no fields, so a failure prints its
+member's name (`DateTimeError.no_system_zone`, `DateTimeError.unknown_zone`); the
+member's documentation and STD say to set `TZ`, and that `tzdb_version()` gives the
+data's version. "A message" below means that documentation.
 
 - **Not read:** a `TZ` rule with a daylight-saving part or with seconds
   (`EST5EDT,M3.2.0,M11.1.0`), and the bytes of `/etc/localtime`. Either would need a

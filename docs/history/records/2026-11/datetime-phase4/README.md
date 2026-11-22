@@ -75,10 +75,8 @@ STD examples that need them stay `rig pending`.
 
 ## The two questions put to the owner
 
-Both defaults were approved, as the coordinator relayed his words
-("Approve defaults", 2026-11-22). A relayed approval is not the owner's
-own, so neither is tagged [Owner] in the design until he confirms it
-directly.
+The owner approved both defaults in his own words to the coordinator
+("Approve defaults", 2026-11-22), and the design tags them [Owner].
 
 1. **"A message that names TZ" and "a message that gives the data's
    version"** (§7.7): an error member without fields prints only its
