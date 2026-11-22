@@ -99,7 +99,7 @@ mkdir -p "$cases_dir"
 (cd "$dir" && python3 gen.py "$cases_dir" >/dev/null) || fail "gen.py does not write the cases"
 rig build --release "$ROOT/tools/jiff-oracle/answer.rig" -o "$cases_dir/answer" || fail "answer.rig does not build"
 answered=0
-for kind in calendar counts text round; do
+for kind in calendar zones counts text round; do
     "$bin" < "$cases_dir/$kind.in" > "$cases_dir/$kind.jiff" || fail "the oracle stopped on $kind.in"
     "$cases_dir/answer" "$cases_dir/$kind.in" > "$cases_dir/$kind.rig" || fail "answer.rig stopped on $kind.in"
     expect_eq "$(wc -l < "$cases_dir/$kind.rig")" "$(wc -l < "$cases_dir/$kind.in")" "answers to $kind.in"
@@ -111,4 +111,4 @@ for kind in calendar counts text round; do
 done
 # Every case these phases answer: fewer means answer.rig stopped
 # answering some.
-(( answered >= 920982 )) || fail "std.datetime answered $answered cases the same as Jiff, fewer than 920,982"
+(( answered >= 1095068 )) || fail "std.datetime answered $answered cases the same as Jiff, fewer than 1,095,068"

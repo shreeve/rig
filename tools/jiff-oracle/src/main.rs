@@ -350,6 +350,11 @@ impl Oracle {
                     None => "none".into(),
                 })
             }
+            "zone.offset" => {
+                let a = args(rest, 2)?;
+                let tz = self.zone(a[0])?;
+                Ok(tz.to_offset(instant(a[1])?).seconds().to_string())
+            }
             "zone.eq" => {
                 let a = args(rest, 2)?;
                 Ok((self.zone(a[0])? == self.zone(a[1])?).to_string())
