@@ -1658,7 +1658,7 @@ fun scaled(n: Int, by: Int = 10, _: Bool = false) -> Int
   n * by
 
 sub main()
-  print(scaled(3, 2), scaled(by: 4, n: 5), scaled(3, by: 2), scaled(3))
+  print(scaled(3, by: 2), scaled(by: 4, n: 5), scaled(3, by: 2), scaled(3))
 ```
 
 ```output

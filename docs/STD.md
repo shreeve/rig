@@ -225,7 +225,7 @@ sub main()!
   print(bigint.parse("0xffff_ffff_ffff_ffff")!.add(bigint.from_int(1)).text())
   print(bigint.from_int(1).shl(100).text(), b.shr(4).text())
   print(bigint.from_int(3).pow(50).text(), bigint.from_int(10).pow(400).to_float())
-  print(bigint.parse("9007199254740993")!.to_float(), (bigint.parse("1_000", 10) catch bigint.from_int(-1)).text())
+  print(bigint.parse("9007199254740993")!.to_float(), (bigint.parse("1_000", base: 10) catch bigint.from_int(-1)).text())
 ```
 
 ```output
@@ -960,10 +960,10 @@ use std.datetime
 
 sub main()!
   dt = datetime.DateTime.parse("2026-03-08T02:30")!
-  print(dt.add(days: 1), dt.add(0.5), dt.add(days: 1, hours: -1))
+  print(dt.add(days: 1), dt.add(duration: 0.5), dt.add(days: 1, hours: -1))
   print(dt.round(hours: 1), dt.floor(days: 1), dt.time().add(hours: 23))
-  late = datetime.Time.new(23, 0)
-  print(datetime.Time.new(1, 0).since(late), late.checked_add(hours: 2) catch late)
+  late = datetime.Time.new(23, 0, 0)
+  print(datetime.Time.new(1, 0, 0).since(late), late.checked_add(hours: 2) catch late)
   _ = datetime.Date.parse("2026-03-08T02:30") catch |e| print(e)
 ```
 
@@ -3080,9 +3080,9 @@ that compares one name with many candidates allocates once:
 use std.text
 
 sub main()
-  print(text.parse_int("ff", 16)!, text.parse_int("-101", 2)!, text.parse_int("zz", 36)!)
-  print(text.parse_int("12", 2) catch -1)
-  print(text.format_int(255, 16), text.format_int(255, 16, upper: true), text.format_int(-8, 8))
+  print(text.parse_int("ff", base: 16)!, text.parse_int("-101", base: 2)!, text.parse_int("zz", base: 36)!)
+  print(text.parse_int("12", base: 2) catch -1)
+  print(text.format_int(255, base: 16), text.format_int(255, base: 16, upper: true), text.format_int(-8, base: 8))
   row: List[Int] = List()
   print(text.edit_distance("kitten", "sitting", !row), text.edit_distance("", "abc", !row))
   print(text.edit_distance("\u{e9}a", "ea", !row), text.edit_distance("kitten", "sitting", !row, max: 2))
@@ -3183,7 +3183,7 @@ use std.text
 use std.utf8
 
 fun starts(tailored: Bool, s: ?String) -> Int
-  b = text.CharBreak.new(tailored)
+  b = text.CharBreak.new(tailored: tailored)
   n = 0
   for r in utf8.runes(s)
     n += 1 if (!b).next(r) else 0

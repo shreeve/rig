@@ -39,7 +39,7 @@ sub answer(op: ?String, rest: ?String)
     dt = datetime_of(a[0])
     # A duration beyond a `Duration`'s 292 years is left out (§5.1).
     if maybe_duration(a[5]) as d
-      print(show(dt.checked_add(d, years: int(a[1]), months: int(a[2]), weeks: int(a[3]), days: int(a[4])) catch none))
+      print(show(dt.checked_add(duration: d, years: int(a[1]), months: int(a[2]), weeks: int(a[3]), days: int(a[4])) catch none))
     else
       print("-")
   else if op == "instant.add"
