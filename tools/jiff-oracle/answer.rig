@@ -1,10 +1,9 @@
 # std.datetime's and std.time's answers to the oracle's cases
 # (README.md): one line out for each line of the file named first, in the
-# line format, for the cases they answer so far. A case not answered yet
-# prints `-`, which the comparison passes over, as it passes over each
-# part Jiff answers `skip`, where Rig differs on purpose
-# (test/cli/jiff_oracle.sh). A value that fails prints `error`, as Jiff's
-# does.
+# line format. A case not answered prints `-`, which the comparison
+# passes over, as it passes over each part Jiff answers `skip`, where Rig
+# differs on purpose (test/cli/jiff_oracle.sh). A value that fails prints
+# `error`, as Jiff's does.
 #
 #   bin/rig build --release tools/jiff-oracle/answer.rig -o DIR/answer
 #   DIR/answer DIR/calendar.in > DIR/calendar.rig
@@ -25,10 +24,10 @@ sub main()!
       answer(row, "")
 
 sub answer(op: ?String, rest: ?String)
-  a: [6]?String = ["", "", "", "", "", ""]
+  a: [7]?String = ["", "", "", "", "", "", ""]
   n = 0
   for w in text.words(rest)
-    if n < 6
+    if n < 7
       a[n] = w
     n += 1
   if op == "date.add"
@@ -57,6 +56,52 @@ sub answer(op: ?String, rest: ?String)
     print(u.iso(), i.unix_s(), i.unix_ms(), i.unix_us(), show(datetime.Instant.from_unix_s(u.seconds(), ns: u.subsec_ns()) catch none))
   else if op == "instant.since"
     print(instant(a[0]).since(instant(a[1])).iso())
+  else if op == "zoned.add"
+    z = zoned(a[0], a[1])
+    if maybe_duration(a[6]) as d
+      print(show(z.add(duration: d, years: int(a[2]), months: int(a[3]), weeks: int(a[4]), days: int(a[5])) catch none))
+    else
+      print("-")
+  else if op == "instant.in_zone"
+    # The offset as Jiff writes it, `offset_text()` with no `:00` of
+    # minutes alone, and the abbreviation, `format("%Z")`.
+    z = instant(a[0]).in_zone(zone(a[1]))
+    print(z, short_offset(z.offset_text()), z.format("%Z"))
+  else if op == "datetime.in_zone"
+    dt = datetime_of(a[0])
+    tz = zone(a[1])
+    print(show(dt.in_zone(tz) catch none), show(dt.in_zone(tz, resolve: .earlier) catch none), show(dt.in_zone(tz, resolve: .later) catch none), show(dt.in_zone(tz, resolve: .reject) catch none))
+  else if op == "date.in_zone"
+    print(show(date(a[0]).in_zone(zone(a[1])) catch none))
+  else if op == "zoned.with"
+    z = zoned(a[0], a[1])
+    dt = datetime_of(a[2])
+    print(zoned_with(z, dt, .compatible), zoned_with(z, dt, .earlier), zoned_with(z, dt, .later), zoned_with(z, dt, .reject))
+  else if op == "zoned.start_of_day"
+    print(show(zoned(a[0], a[1]).start_of_day() catch none))
+  else if op == "zoned.count"
+    x = zoned(a[0], a[1])
+    y = zoned(a[0], a[2])
+    early = x if x < y else y
+    late = y if x < y else x
+    # DATETIME-DESIGN §6.4, as for dates and times.
+    days = late.days_since(early)
+    step = early.add(days: days) catch |e|
+      print("-", e)
+      return
+    left = late.since(step)
+    d0 = early.date()
+    d1 = d0.add(days: days) catch |e|
+      print("-", e)
+      return
+    m = d1.months_since(d0)
+    print(x.days_since(y), x.weeks_since(y), x.months_since(y), x.years_since(y), m / 12, m % 12, days_after(d0, d1, m), left.iso())
+  else if op == "zoned.parse"
+    print(show(datetime.ZonedDateTime.parse(rest) catch none), show(datetime.ZonedDateTime.parse(rest, conflict: .keep_instant) catch none), show(datetime.ZonedDateTime.parse(rest, conflict: .keep_clock) catch none))
+  else if op == "zoned.round"
+    z = zoned(a[0], a[1])
+    k = int(a[3])
+    print(zoned_round(z, a[2], k, false), zoned_round(z, a[2], k, true))
   else if op == "zone.offset"
     print(zone(a[0]).offset_at(instant(a[1])).seconds())
   else if op == "zone.name"
@@ -134,8 +179,29 @@ sub answer(op: ?String, rest: ?String)
     print(time_of(a[0]).since(time_of(a[1])).iso())
   else if op == "datetime.since"
     print(datetime_of(a[0]).since(datetime_of(a[1])).iso())
+  else if op.len > 7 and ?op[..7] == "format."
+    # The value, then the format string, the rest of the line: read as
+    # the program runs, so by `try_format`, which a test holds to
+    # `format` for every directive on every type
+    # (test/cli/datetime_format_table.sh).
+    if text.cut(rest, " ") as c
+      print(formatted(op, c.before, c.after))
+    else
+      print("-")
   else
     print("-")
+
+# A value written by a format string read from the line, or `error`.
+fun formatted(op: ?String, v: ?String, f: ?String) -> String
+  if op == "format.date"
+    return date(v).try_format(f) catch String("error")
+  if op == "format.time"
+    return time_of(v).try_format(f) catch String("error")
+  if op == "format.datetime"
+    return datetime_of(v).try_format(f) catch String("error")
+  if text.cut(f, " ") as c
+    return zoned(v, c.before).try_format(c.after) catch String("error")
+  String("-")
 
 # A value, or `error` when there is none.
 fun show[T](r: T?) -> String
@@ -195,6 +261,19 @@ fun time_of(s: ?String) -> datetime.Time
 
 fun zone(s: ?String) -> datetime.TimeZone
   datetime.TimeZone.parse(s) catch panic("not a zone:", s)
+
+# `z` with its date and time on the clock replaced by `dt`'s.
+fun zoned_with(z: datetime.ZonedDateTime, dt: datetime.DateTime, how: datetime.Resolve) -> String
+  show(z.with(year: dt.year(), month: dt.month(), day: dt.day(), hour: dt.hour(), minute: dt.minute(), second: dt.second(), ns: dt.nanosecond(), resolve: how) catch none)
+
+# An offset as Jiff writes it: `+03` for `+03:00`.
+fun short_offset(o: ?String) -> String
+  if o.len == 6 and ?o[3..] == ":00"
+    return String(?o[..3])
+  String(o)
+
+fun zoned(z: ?String, at: ?String) -> datetime.ZonedDateTime
+  instant(at).in_zone(zone(z))
 
 fun instant(s: ?String) -> datetime.Instant
   datetime.Instant.parse(s) catch panic("not an instant:", s)
@@ -273,3 +352,32 @@ fun instant_round(t: datetime.Instant, unit: ?String, k: Int, down: Bool) -> Str
   if down
     return show(t.floor(hours: k) catch none)
   return show(t.round(hours: k) catch none)
+
+fun zoned_round(t: datetime.ZonedDateTime, unit: ?String, k: Int, down: Bool) -> String
+  if unit == "ns"
+    if down
+      return show(t.floor(ns: k) catch none)
+    return show(t.round(ns: k) catch none)
+  if unit == "us"
+    if down
+      return show(t.floor(us: k) catch none)
+    return show(t.round(us: k) catch none)
+  if unit == "ms"
+    if down
+      return show(t.floor(ms: k) catch none)
+    return show(t.round(ms: k) catch none)
+  if unit == "seconds"
+    if down
+      return show(t.floor(seconds: k) catch none)
+    return show(t.round(seconds: k) catch none)
+  if unit == "minutes"
+    if down
+      return show(t.floor(minutes: k) catch none)
+    return show(t.round(minutes: k) catch none)
+  if unit == "hours"
+    if down
+      return show(t.floor(hours: k) catch none)
+    return show(t.round(hours: k) catch none)
+  if down
+    return show(t.floor(days: k) catch none)
+  return show(t.round(days: k) catch none)

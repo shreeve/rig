@@ -104,8 +104,110 @@ pub fn zone_primary(id: i64) i64 {
 /// Zone `id`'s offset, in seconds east of UTC, at `t` seconds since
 /// 1970-01-01T00:00Z.
 pub fn zone_offset(id: i64, t: i64) i64 {
-    if (id >= test_base) return zoneOffset(tests, tests.zones[@intCast(id - test_base)], t);
-    return zoneOffset(data, data.zones[data.name_zones[@intCast(id)]], t);
+    if (id >= test_base) return tests.type_offsets[zoneType(tests, tests.zones[@intCast(id - test_base)], t)];
+    return data.type_offsets[zoneType(data, data.zones[data.name_zones[@intCast(id)]], t)];
+}
+
+/// Zone `id`'s abbreviation at `t` seconds since 1970-01-01T00:00Z, as
+/// the data spells it (`MST`, `ChST`, `-03`): the abbreviation of the
+/// local type whose offset `zone_offset` gives.
+pub fn zone_abbreviation(id: i64, t: i64) []const u8 {
+    if (id >= test_base) return abbreviation(tests, zoneType(tests, tests.zones[@intCast(id - test_base)], t));
+    return abbreviation(data, zoneType(data, data.zones[data.name_zones[@intCast(id)]], t));
+}
+
+fn abbreviation(comptime T: type, ty: usize) []const u8 {
+    const a = T.type_abbrs[ty];
+    return T.abbr_text[T.abbr_starts[a]..T.abbr_starts[a + 1]];
+}
+
+// ---- a time on the clock, as an instant
+
+/// The offsets zone `id` may give the time on the clock `local`, in
+/// seconds since 1970-01-01T00:00 on that clock, packed as one number
+/// by `pack`: one offset twice where the time is shown once; the offset
+/// before a change and the one after it where the time is skipped (the
+/// first smaller) or repeated (the first larger). Jiff's
+/// `to_ambiguous_timestamp` (jiff-core's tz/tzif/query.rs and
+/// tz/posix.rs), on the same transitions and rules.
+pub fn zone_local(id: i64, local: i64) i64 {
+    if (id >= test_base) return zoneLocal(tests, tests.zones[@intCast(id - test_base)], local);
+    return zoneLocal(data, data.zones[data.name_zones[@intCast(id)]], local);
+}
+
+/// `before` and `after`, each within ±2^20 seconds, as one number.
+fn pack(before: i64, after: i64) i64 {
+    return (before + (1 << 20)) * (1 << 21) + (after + (1 << 20));
+}
+
+/// Transition `k`'s time, of zone `z` of table `T`.
+fn transitionTime(comptime T: type, z: data.Zone, k: usize) i64 {
+    const t: i64 = T.times[z.first + k];
+    return if (k < z.early) t - (1 << 32) else t;
+}
+
+/// The offset from transition `k` on, of zone `z` of table `T`.
+fn transitionOffset(comptime T: type, z: data.Zone, k: usize) i64 {
+    return T.type_offsets[T.zone_types[z.types + T.transition_types[z.first + k]]];
+}
+
+/// The offset before transition `k`: the zone's first type before its
+/// first transition.
+fn offsetBefore(comptime T: type, z: data.Zone, k: usize) i64 {
+    if (k == 0) return T.type_offsets[T.zone_types[z.types]];
+    return transitionOffset(T, z, k - 1);
+}
+
+/// The earliest time on the clock that transition `k` makes skipped or
+/// repeated, or at which it shows: its time at the smaller of the
+/// offsets before and after it.
+fn civilStart(comptime T: type, z: data.Zone, k: usize) i64 {
+    return transitionTime(T, z, k) + @min(offsetBefore(T, z, k), transitionOffset(T, z, k));
+}
+
+fn zoneLocal(comptime T: type, z: data.Zone, local: i64) i64 {
+    // n: how many transitions start at or before `local` on the clock.
+    var lo: usize = 0;
+    var hi: usize = z.count;
+    while (lo < hi) {
+        const mid = lo + (hi - lo) / 2;
+        if (civilStart(T, z, mid) <= local) lo = mid + 1 else hi = mid;
+    }
+    const n = lo;
+    if (n > 0) {
+        const before = offsetBefore(T, z, n - 1);
+        const after = transitionOffset(T, z, n - 1);
+        if (before != after and local < transitionTime(T, z, n - 1) + @max(before, after)) return pack(before, after);
+    }
+    if (n == z.count and z.rule != data.no_rule) return ruleLocal(T, T.rules[z.rule], local);
+    const o = if (n == 0) T.type_offsets[T.zone_types[z.types]] else transitionOffset(T, z, n - 1);
+    return pack(o, o);
+}
+
+/// The offsets of a rule at the time on the clock `local`: daylight
+/// saving's start and end are times on the clock in `local`'s year
+/// (Jiff's `dst_info_wall`), and the gap or the repeat each change makes
+/// lies after it or before it by the difference of the two offsets.
+fn ruleLocal(comptime T: type, r: data.Rule, local: i64) i64 {
+    const std_off: i64 = T.type_offsets[r.std];
+    if (r.dst == data.no_dst) return pack(std_off, std_off);
+    const dst_off: i64 = T.type_offsets[r.dst];
+    const diff = dst_off - std_off;
+    if (diff == 0) return pack(std_off, std_off);
+    const year = yearOf(local);
+    const start = dayTime(r.start, year, 0);
+    const end = dayTime(r.end, year, 0);
+    const in_dst = if (start <= end) start <= local and local < end else !(end <= local and local < start);
+    if (diff < 0) {
+        if (in_dst) return pack(dst_off, dst_off);
+        if (start + diff <= local and local < start) return pack(std_off, dst_off);
+        if (end <= local and local < end - diff) return pack(dst_off, std_off);
+        return pack(std_off, std_off);
+    }
+    if (!in_dst) return pack(std_off, std_off);
+    if (start <= local and local < start + diff) return pack(std_off, dst_off);
+    if (end - diff <= local and local < end) return pack(dst_off, std_off);
+    return pack(dst_off, dst_off);
 }
 
 /// How many of `xs` are at most `key`.
@@ -119,10 +221,11 @@ fn atMost(xs: []const u32, key: u32) usize {
     return lo;
 }
 
-/// The offset of zone `z` of table `T` at `t`. A transition before 1970
-/// is held as its time plus 2^32, after one at or after 1970 as its
-/// time, so each half is a sorted u32 array.
-fn zoneOffset(comptime T: type, z: data.Zone, t: i64) i64 {
+/// The local type of zone `z` of table `T` at `t`, an index into
+/// `type_offsets` and `type_abbrs`. A transition before 1970 is held as
+/// its time plus 2^32, after one at or after 1970 as its time, so each
+/// half is a sorted u32 array.
+fn zoneType(comptime T: type, z: data.Zone, t: i64) usize {
     const types = T.zone_types[z.types..];
     const times = T.times[z.first..][0..z.count];
     const bias: i64 = 1 << 32;
@@ -133,16 +236,18 @@ fn zoneOffset(comptime T: type, z: data.Zone, t: i64) i64 {
         z.count
     else
         z.early + atMost(times[z.early..], @intCast(t));
-    if (n == z.count and z.rule != data.no_rule) return ruleOffset(T, T.rules[z.rule], t);
-    if (n == 0) return T.type_offsets[types[0]];
-    return T.type_offsets[types[T.transition_types[z.first + n - 1]]];
+    if (n == z.count and z.rule != data.no_rule) return ruleType(T, T.rules[z.rule], t);
+    if (n == 0) return types[0];
+    return types[T.transition_types[z.first + n - 1]];
 }
 
 // ---- the rule after the last transition, as jiff-core's tz/posix.rs
 
-fn ruleOffset(comptime T: type, r: data.Rule, t: i64) i64 {
+/// The local type of rule `r` at `t`: daylight saving's or standard
+/// time's.
+fn ruleType(comptime T: type, r: data.Rule, t: i64) usize {
     const std_off: i64 = T.type_offsets[r.std];
-    if (r.dst == data.no_dst) return std_off;
+    if (r.dst == data.no_dst) return r.std;
     const dst_off: i64 = T.type_offsets[r.dst];
     const year = yearOf(t);
     const start = dayTime(r.start, year, std_off);
@@ -152,7 +257,7 @@ fn ruleOffset(comptime T: type, r: data.Rule, t: i64) i64 {
     // `dst_info_utc`).
     if (start == yearStart(year) and yearOf(end + std_off) != year) end = yearStart(year + 1);
     const in_dst = if (start <= end) start <= t and t < end else !(end <= t and t < start);
-    return if (in_dst) dst_off else std_off;
+    return if (in_dst) r.dst else r.std;
 }
 
 /// The instant, clamped to `year`, at which `d` falls in `year` in local

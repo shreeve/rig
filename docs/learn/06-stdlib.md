@@ -380,6 +380,10 @@ duration. A duration reaches about 292 billion years either way, and
 its arithmetic, which can pass that, returns `!`: `took.add(ms: 5)!`.
 No call of `std.time` panics on a value it is given.
 
+A reading of the wall clock, a date, or a time in a zone is
+`std.datetime`'s, which [Dates and times that mean what they
+say](12-dates.md) teaches.
+
 `time.within(d, f)` is the deadline of [chapter four](04-concurrency.md).
 The audit that sleeps a minute is cut short at 5 ms and fails with
 `Stop.timeout`, and `catch` turns that into `-1`. `slow_audit` knows

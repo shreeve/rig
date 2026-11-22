@@ -1,0 +1,477 @@
+# std.datetime's `ZonedDateTime` (docs/design/datetime.md §6.3 to §6.8,
+# §7.2, §7.6, §8.1 to §8.3): `in_zone` from an instant, a date and time,
+# and a date; the readers; `add`, the counts, `with`, `start_of_day`,
+# `round`, `floor`, `since`; equality, order and hashing by the instant;
+# RFC 9557 text with `default_zone:`, `resolve:` and `conflict:`; and
+# `today`. The zoned rows of §12's table, each fallible call failing at
+# each end of its range with the member §7.2 names, and each total one
+# answering at its ends. The same calls are compared with Jiff's line for
+# line by test/cli/jiff_oracle.sh; the rules of the pinned test table are
+# std/datetime/zone_test.rig.
+
+use std.datetime
+use std.time
+
+test "an instant in a zone, its readers, and RFC 9557", '''
+  2026-11-17T08:07:03.512094-07:00[America/Denver]
+  2026-11-17T15:07:03.512094Z 2026-11-17T08:07:03.512094 2026-11-17 08:07:03.512094 America/Denver
+  -7h -07:00 2026 11 17 Tuesday 321 30 47 2026 8 7 3 512094000
+'''
+  denver = datetime.TimeZone.named("America/Denver")
+  z = datetime.Instant.parse("2026-11-17T15:07:03.512094Z")!.in_zone(denver)
+  print(z)
+  print(z.instant(), z.datetime(), z.date(), z.time(), z.zone())
+  print(z.offset(), z.offset_text(), z.year(), z.month(), z.day(), z.weekday(), z.day_of_year(), z.days_in_month(), z.iso_week(), z.iso_week_year(), z.hour(), z.minute(), z.second(), z.nanosecond())
+
+test "a zoned value is 24 bytes", "24"
+  print($size(datetime.ZonedDateTime))
+
+test "in_zone on a zoned value keeps the instant", "2026-11-18T00:07:03+09:00[Asia/Tokyo] true"
+  z = datetime.ZonedDateTime.parse("2026-11-17T08:07:03-07:00[America/Denver]")!
+  t = z.in_zone(datetime.TimeZone.named("Asia/Tokyo"))
+  print(t, t == z)
+
+test "a time on the clock in a zone: compatible, earlier, later, reject", '''
+  2026-03-08T03:30:00-06:00[America/Denver] 2026-03-08T01:30:00-07:00[America/Denver] 2026-03-08T03:30:00-06:00[America/Denver] DateTimeError.skipped_or_repeated
+  2026-11-01T01:30:00-06:00[America/Denver] 2026-11-01T01:30:00-06:00[America/Denver] 2026-11-01T01:30:00-07:00[America/Denver] DateTimeError.skipped_or_repeated
+  2026-07-01T12:00:00-06:00[America/Denver] 2026-07-01T12:00:00-06:00[America/Denver]
+'''
+  fun shown(dt: datetime.DateTime, how: datetime.Resolve) -> String
+    z = dt.in_zone(datetime.TimeZone.named("America/Denver"), resolve: how) catch |e|
+      return String(`{e}`)
+    String(z)
+
+  sub main()!
+    for dt in [datetime.DateTime.new(2026, 3, 8, hour: 2, minute: 30), datetime.DateTime.new(2026, 11, 1, hour: 1, minute: 30)]
+      print(shown(dt, .compatible), shown(dt, .earlier), shown(dt, .later), shown(dt, .reject))
+    noon = datetime.DateTime.new(2026, 7, 1, hour: 12)
+    print(noon.in_zone(datetime.TimeZone.named("America/Denver"))!, shown(noon, .reject))
+
+test "spring forward and fall back: a day on the clock and 24 hours", '''
+  2026-03-08T12:00:00-04:00[America/New_York] 2026-03-08T13:00:00-04:00[America/New_York] 23h
+  2026-11-01T12:00:00-05:00[America/New_York] 2026-11-01T11:00:00-05:00[America/New_York] 25h
+'''
+  for s in ["2026-03-07T12:00:00-05:00[America/New_York]", "2026-10-31T12:00:00-04:00[America/New_York]"]
+    z = datetime.ZonedDateTime.parse(s)!
+    print(z.add(days: 1)!, z.add(hours: 24)!, z.add(days: 1)!.since(z))
+
+test "Apia skipped 2011-12-30: the date starts the next day", '''
+  2011-12-31T00:00:00+14:00[Pacific/Apia] 2011-12-29T00:00:00-10:00[Pacific/Apia]
+  2011-12-31T10:00:00+14:00[Pacific/Apia] 2
+'''
+  apia = datetime.TimeZone.named("Pacific/Apia")
+  print(datetime.Date.new(2011, 12, 30).in_zone(apia)!, datetime.Date.new(2011, 12, 29).in_zone(apia)!)
+  z = datetime.ZonedDateTime.parse("2011-12-29T10:00:00-10:00[Pacific/Apia]")!
+  print(z.add(days: 1)!, z.add(days: 1)!.days_since(z))
+
+test "Lord Howe's half hour: a gap and a repeat", '''
+  2026-10-04T02:45:00+11:00[Australia/Lord_Howe] 2026-10-04T01:45:00+10:30[Australia/Lord_Howe] 2026-10-04T02:45:00+11:00[Australia/Lord_Howe]
+  2026-04-05T01:45:00+11:00[Australia/Lord_Howe] 2026-04-05T01:45:00+10:30[Australia/Lord_Howe]
+'''
+  lh = datetime.TimeZone.named("Australia/Lord_Howe")
+  g = datetime.DateTime.new(2026, 10, 4, hour: 2, minute: 15)
+  print(g.in_zone(lh)!, g.in_zone(lh, resolve: .earlier)!, g.in_zone(lh, resolve: .later)!)
+  f = datetime.DateTime.new(2026, 4, 5, hour: 1, minute: 45)
+  print(f.in_zone(lh)!, f.in_zone(lh, resolve: .later)!)
+
+test "add: months clamp, then days, then the duration", '''
+  2024-02-29T09:00:00-07:00[America/Denver] 2024-03-01T09:00:00-07:00[America/Denver] 2025-02-28T09:00:00-07:00[America/Denver]
+  2024-01-31T09:30:00-07:00[America/Denver] 2024-01-31T09:00:00.5-07:00[America/Denver]
+'''
+  z = datetime.ZonedDateTime.parse("2024-01-31T09:00:00-07:00[America/Denver]")!
+  print(z.add(months: 1)!, z.add(months: 1, days: 1)!, z.add(years: 1, months: 1)!)
+  print(z.add(minutes: 30)!, z.add(duration: 0.5)!)
+
+test "add: the groups may differ in sign", "2026-03-31T09:00:00-06:00[America/Denver] 2026-03-02T08:00:00-07:00[America/Denver]"
+  z = datetime.ZonedDateTime.parse("2026-03-01T09:00:00-07:00[America/Denver]")!
+  print(z.add(months: 1, days: -1)!, z.add(days: 1, hours: -1)!)
+
+test "add of no calendar amount keeps a repeated time", '''
+  2026-11-01T01:30:00-07:00[America/Denver] 2026-11-01T02:30:00-07:00[America/Denver] 2026-11-01T01:30:00-07:00[America/Denver]
+  2026-11-01T01:30:00-06:00[America/Denver]
+'''
+  second = datetime.ZonedDateTime.parse("2026-11-01T01:30:00-07:00[America/Denver]")!
+  print(second.add(days: 0)!, second.add(days: 0, hours: 1)!, second.add(weeks: 1, days: -7)!)
+  # The second 01:30 does not survive a day there and back.
+  print(second.add(days: 1)!.add(days: -1)!)
+
+test "with keeps a repeated time's own offset", '''
+  2026-11-01T01:45:00-07:00[America/Denver] 2026-11-01T01:45:00-06:00[America/Denver]
+  2026-11-01T01:45:00-07:00[America/Denver] DateTimeError.skipped_or_repeated
+  DateTimeError.range
+'''
+  fun at(z: datetime.ZonedDateTime, month: Int, day: Int, hour: Int, how: datetime.Resolve) -> String
+    r = z.with(month: month, day: day, hour: hour, minute: 45, resolve: how) catch |e|
+      return String(`{e}`)
+    String(r)
+
+  sub main()!
+    second = datetime.ZonedDateTime.parse("2026-11-01T01:30:00-07:00[America/Denver]")!
+    first = datetime.ZonedDateTime.parse("2026-11-01T01:30:00-06:00[America/Denver]")!
+    print(second.with(minute: 45)!, first.with(minute: 45)!)
+    noon = datetime.ZonedDateTime.parse("2026-11-01T12:00:00-07:00[America/Denver]")!
+    # A repeated time keeps the value's own offset before `resolve` is
+    # asked; a skipped one is as `resolve` says.
+    print(at(noon, 11, 1, 1, .earlier), at(noon, 3, 8, 2, .reject))
+    noon.with(month: 2, day: 30) catch |e| print(e)
+
+test "counts in a zone, both ways", '''
+  0 0 23h 30m
+  26 0 0
+  24h 10m 0 0
+  2 -2 0 10m
+'''
+  denver = datetime.TimeZone.named("America/Denver")
+  x = datetime.DateTime.new(2026, 3, 7, hour: 2, minute: 30).in_zone(denver)!
+  y = datetime.DateTime.new(2026, 3, 8, hour: 3).in_zone(denver)!
+  print(y.days_since(x), x.days_since(y), y.since(x))
+  # Antarctica/Casey went from +11:00 to +08:00 on 2010-03-04.
+  c1 = datetime.ZonedDateTime.parse("2010-03-04T00:00:00+11:00[Antarctica/Casey]")!
+  c2 = datetime.ZonedDateTime.parse("2010-03-04T23:00:00+08:00[Antarctica/Casey]")!
+  print(c2.since(c1).hours(), c2.days_since(c1), c1.days_since(c2))
+  # 24 hours 10 minutes across a repeated hour is no whole day.
+  n1 = datetime.ZonedDateTime.parse("2024-11-03T01:50:00-04:00[America/New_York]")!
+  n2 = datetime.ZonedDateTime.parse("2024-11-04T01:00:00-05:00[America/New_York]")!
+  print(n2.since(n1), n2.days_since(n1), n1.days_since(n2))
+  m1 = datetime.ZonedDateTime.parse("2024-11-01T01:50:00-04:00[America/New_York]")!
+  m2 = datetime.ZonedDateTime.parse("2024-11-03T01:00:00-05:00[America/New_York]")!
+  print(m2.days_since(m1), m1.days_since(m2), m2.months_since(m1), m2.since(m1.add(days: m2.days_since(m1))!))
+
+test "counts of months and years, and the rest after whole days", '''
+  1 0 8 21h
+  -1 0 -8 21h
+'''
+  sub show(start: datetime.ZonedDateTime, launch: datetime.ZonedDateTime)!
+    early = start
+    late = launch
+    if launch < start
+      early = launch
+      late = start
+    n = late.days_since(early)
+    rest = late.since(early.add(days: n)!)
+    print(launch.months_since(start), launch.years_since(start), launch.weeks_since(start), rest)
+
+  sub main()!
+    a = datetime.ZonedDateTime.parse("2026-01-31T12:00:00-07:00[America/Denver]")!
+    b = datetime.ZonedDateTime.parse("2026-03-31T09:00:00-06:00[America/Denver]")!
+    show(a, b)!
+    show(b, a)!
+
+test "counts across two zones use the earlier value's calendar", "23h 1 0 0 1"
+  utc = datetime.TimeZone.utc()
+  p = datetime.ZonedDateTime.parse("2026-03-07T12:00:00-05:00[America/New_York]")!
+  q = datetime.ZonedDateTime.parse("2026-03-08T12:00:00-04:00[America/New_York]")!
+  print(q.since(p), q.days_since(p), q.in_zone(utc).days_since(p.in_zone(utc)), q.days_since(p.in_zone(utc)), q.in_zone(utc).days_since(p))
+
+test "start_of_day where midnight is skipped or repeated", '''
+  2015-10-18T01:00:00-02:00[America/Sao_Paulo]
+  2026-10-25T00:00:00+00:00[Atlantic/Azores]
+  2026-03-08T01:00:00-04:00[America/Havana] 2026-03-08T01:00:00-04:00[America/Havana]
+'''
+  print(datetime.ZonedDateTime.parse("2015-10-18T12:00:00-02:00[America/Sao_Paulo]")!.start_of_day()!)
+  print(datetime.ZonedDateTime.parse("2026-10-25T12:00:00-01:00[Atlantic/Azores]")!.start_of_day()!)
+  havana = datetime.TimeZone.named("America/Havana")
+  print(datetime.Date.new(2026, 3, 8).in_zone(havana)!, datetime.ZonedDateTime.parse("2026-03-08T12:45:00-04:00[America/Havana]")!.start_of_day()!)
+
+test "a day's range goes through the date", '''
+  2026-03-27T00:00:00-02:00[America/Nuuk] 2026-03-28T00:00:00-02:00[America/Nuuk]
+  2026-03-29T00:00:00-01:00[America/Nuuk]
+  DateTimeError.range
+  9999-12-31T00:00:00+09:00[Asia/Tokyo]
+  DateTimeError.range
+'''
+  z = datetime.ZonedDateTime.parse("2026-03-27T23:30:00-02:00[America/Nuuk]")!
+  d = z.date()
+  print(d.in_zone(z.zone())!, d.add(days: 1)!.in_zone(z.zone())!)
+  # The shorter way skips a day: the 28th's 23:30 is skipped.
+  print(z.add(days: 1)!.start_of_day()!)
+  last = datetime.Date.max()
+  last.in_zone(datetime.TimeZone.utc()) catch |e| print(e)
+  print(last.in_zone(datetime.TimeZone.named("Asia/Tokyo"))!)
+  datetime.Date.new(-9999, 1, 3).in_zone(datetime.TimeZone.fixed(hours: 25, minutes: 59)) catch |e| print(e)
+
+test "round and floor to a day use the starts of days", '''
+  2026-03-08T00:00:00-07:00[America/Denver] 2026-11-02T00:00:00-07:00[America/Denver] 2026-03-08T00:00:00-07:00[America/Denver]
+  2026-03-09T00:00:00-04:00[America/Havana] 2026-03-09T00:00:00-04:00[America/Havana] 2026-03-08T01:00:00-04:00[America/Havana]
+  2004-10-30T00:00:00-02:30[America/St_Johns] 2004-10-31T00:00:00-02:30[America/St_Johns]
+  1919-03-31T01:00:00-04:00[America/Toronto] 1919-03-30T00:00:00-05:00[America/Toronto]
+'''
+  # Noon on Denver's 23-hour day rounds down, and on its 25-hour day up.
+  short = datetime.ZonedDateTime.parse("2026-03-08T12:00:00-06:00[America/Denver]")!
+  long = datetime.ZonedDateTime.parse("2026-11-01T12:00:00-07:00[America/Denver]")!
+  print(short.round(days: 1)!, long.round(days: 1)!, short.floor(days: 1)!)
+  # Havana's 2026-03-08 starts at 01:00 and is 23 hours long.
+  h1 = datetime.ZonedDateTime.parse("2026-03-08T12:45:00-04:00[America/Havana]")!
+  h2 = datetime.ZonedDateTime.parse("2026-03-08T18:00:00-04:00[America/Havana]")!
+  print(h1.round(days: 1)!, h2.round(days: 1)!, h2.floor(days: 1)!)
+  # St. John's: 00:01 went back to 23:01, so the 31st began before this.
+  sj = datetime.ZonedDateTime.parse("2004-10-30T23:30:00-03:30[America/St_Johns]")!
+  print(sj.start_of_day()!, sj.floor(days: 1)!)
+  # Toronto went from 23:30 to 00:30 on 1919-03-31: its start is 01:00.
+  to = datetime.ZonedDateTime.parse("1919-03-31T00:45:00-04:00[America/Toronto]")!
+  print(to.start_of_day()!, to.floor(days: 1)!)
+
+test "round and floor below a day keep the offset where they can", '''
+  2026-11-01T02:00:00-07:00[America/Denver] 1h 10m
+  2026-10-04T02:50:00+11:00[Australia/Lord_Howe]
+  2026-11-01T01:45:00-07:00[America/Denver] 2026-11-01T01:00:00-07:00[America/Denver]
+'''
+  first = datetime.ZonedDateTime.parse("2026-11-01T01:50:00-06:00[America/Denver]")!
+  print(first.round(minutes: 30)!, first.round(minutes: 30)!.since(first))
+  # 02:20 is skipped in Lord Howe, so the floor moves past the gap.
+  print(datetime.ZonedDateTime.parse("2026-10-04T02:35:00+11:00[Australia/Lord_Howe]")!.floor(minutes: 20)!)
+  second = datetime.ZonedDateTime.parse("2026-11-01T01:50:00-07:00[America/Denver]")!
+  print(second.floor(minutes: 15)!, second.floor(hours: 1)!)
+
+test "a round past midnight carries into the next day in year 0", "0000-01-02T00:00:00+00:00[UTC]"
+  print(datetime.ZonedDateTime.parse("0000-01-01T23:30:00+00:00[UTC]")!.round(hours: 1)!)
+
+fail "a constant increment that round or floor refuses", "2:22: an increment of `round` divides the next larger unit and is smaller than it, so `minutes:` takes 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, or 30, and `7` is not one of them", "3:19: `floor` takes `days: 1` and no other number of days, and `2` is not 1", "4:13: `round` takes a unit from `ns:` to `hours:`, or `days: 1`, and its increment, and `weeks:` is none of them", "5:25: `round` takes one unit and its increment, not 2: name one of them, `round(minutes: 1)`", errors: 4
+  z = datetime.Instant.min().in_zone(datetime.TimeZone.utc())
+  _ = z.round(minutes: 7)
+  _ = z.floor(days: 2)
+  _ = z.round(weeks: 1)
+  _ = z.round(minutes: 1, seconds: 30)
+
+fail "add takes its amounts by name", "2:11: `duration` has a default, so it is an option, given by name: `duration: 1`", "2:14: `years` is a field of group `period` of `add`, so it is given by name: `years: 2`", errors: 2
+  z = datetime.Instant.min().in_zone(datetime.TimeZone.utc())
+  _ = z.add(1, 2)!
+
+test "a computed increment that round refuses fails invalid", "DateTimeError.invalid DateTimeError.invalid 2026-11-17T08:00:00-07:00[America/Denver]"
+  fun rounded(z: datetime.ZonedDateTime, k: Int, d: Int?) -> String
+    r = z.round(minutes: k) catch |e|
+      return String(`{e}`)
+    if d as days
+      r = z.round(days: days) catch |e|
+        return String(`{e}`)
+    String(r)
+
+  sub main()!
+    z = datetime.ZonedDateTime.parse("2026-11-17T08:07:03-07:00[America/Denver]")!
+    print(rounded(z, 7, none), rounded(z, 15, 2), rounded(z, 15, none))
+
+test "since is exact between any two, in any zones", '''
+  -2h 0s
+  175307564h 1s 999ms 999us 999ns
+'''
+  a = datetime.ZonedDateTime.parse("2026-11-17T08:00:00-07:00[America/Denver]")!
+  b = datetime.ZonedDateTime.parse("2026-11-17T08:00:00-05:00[America/New_York]")!
+  print(b.since(a), a.since(a.in_zone(datetime.TimeZone.named("Asia/Tokyo"))))
+  first = datetime.Instant.min().in_zone(datetime.TimeZone.named("Asia/Tokyo"))
+  last = datetime.Instant.max().in_zone(datetime.TimeZone.fixed(hours: -25, minutes: -59))
+  print(last.since(first))
+
+test "equality, order and hashing go by the instant", '''
+  2026-06-01T18:00:00+02:00[Europe/Paris] true false 1 two
+  true true false
+'''
+  ny = datetime.ZonedDateTime.parse("2026-06-01T12:00:00-04:00[America/New_York]")!
+  paris = ny.in_zone(datetime.TimeZone.named("Europe/Paris"))
+  m = Map[datetime.ZonedDateTime, String]()
+  !m.put(ny, String("one"))
+  !m.put(paris, String("two"))
+  print(paris, ny == paris, ny.zone() == paris.zone(), m.len, m.get(ny) ?? "none")
+  later = ny.add(ns: 1)!
+  print(ny < later, later > paris, ny != paris)
+
+test "Monrovia: the offset with seconds, rounded in text, and the 30-second trap", '''
+  1968-02-01T23:15:00-00:45[Africa/Monrovia] -00:44:30 -44m 30s
+  1968-02-01T23:59:30Z 1968-02-02T00:00:00Z
+  1968-02-01T23:15:30-00:45[Africa/Monrovia] 1968-02-01T23:15:00-00:45[Africa/Monrovia]
+  DateTimeError.offset_conflict
+'''
+  text = "1968-02-01T23:15:00-00:45[Africa/Monrovia]"
+  z = datetime.ZonedDateTime.parse(text)!
+  print(z, z.offset_text(), z.offset())
+  # As an instant the zone is not read, and the rounded offset is 30 seconds off.
+  print(z.instant(), datetime.Instant.parse(text)!)
+  print(datetime.ZonedDateTime.parse(text, conflict: .keep_instant)!, datetime.ZonedDateTime.parse(text, conflict: .keep_clock)!)
+  # An offset written with its seconds agrees only exactly.
+  datetime.ZonedDateTime.parse("1968-02-01T23:15:00-00:45:00[Africa/Monrovia]") catch |e| print(e)
+
+test "a stored string whose offset no longer fits its zone", '''
+  DateTimeError.offset_conflict
+  2030-12-01T11:00:00-03:00[America/Sao_Paulo] 2030-12-01T12:00:00-03:00[America/Sao_Paulo]
+  2030-12-01T09:00:00-03:00[America/Sao_Paulo]
+'''
+  s = "2030-12-01T12:00-02:00[America/Sao_Paulo]"
+  datetime.ZonedDateTime.parse(s) catch |e| print(e)
+  print(datetime.ZonedDateTime.parse(s, conflict: .keep_instant)!, datetime.ZonedDateTime.parse(s, conflict: .keep_clock)!)
+  # `Z` with a zone means that instant shown in the zone: no conflict.
+  print(datetime.ZonedDateTime.parse("2030-12-01T12:00Z[America/Sao_Paulo]")!)
+
+test "text with a default zone: the four cases, and none", '''
+  2026-11-17T08:07:03+09:00[Asia/Tokyo]
+  2026-11-17T08:07:03-07:00[America/Denver]
+  2026-11-17T08:07:03-07:00[America/Denver]
+  DateTimeError.offset_conflict
+  2026-11-17T08:07:03-07:00[America/Denver]
+  DateTimeError.invalid DateTimeError.invalid
+'''
+  fun read(s: ?String, tz: datetime.TimeZone?) -> String
+    z = datetime.ZonedDateTime.parse(s, default_zone: tz) catch |e|
+      return String(`{e}`)
+    String(z)
+
+  sub main()
+    denver = datetime.TimeZone.named("America/Denver")
+    print(read("2026-11-17T08:07:03[Asia/Tokyo]", denver))
+    print(read("2026-11-17T08:07:03", denver))
+    print(read("2026-11-17T08:07:03-07:00", denver))
+    print(read("2026-11-17T15:07:03+00:00", denver))
+    print(read("2026-11-17T15:07:03Z", denver))
+    print(read("2026-11-17T08:07:03-07:00", none), read("2026-11-17T15:07:03Z", none))
+
+test "RFC 9557 text: spellings read and refused", '''
+  2024-03-10T03:30:00-06:00[America/Denver] 2024-03-10T03:30:00-06:00[America/Denver] 2024-03-10T00:00:00-07:00[America/Denver]
+  2024-03-10T03:30:00-07:00[-07:00] 2024-03-10T03:30:00-07:00[-07:00] 2024-03-10T03:30:00-07:00[-07:00]
+  2024-03-10T03:30:00+00:00[UTC] 2024-03-10T03:30:00+00:00[Etc/UTC] 2024-03-10T03:30:00.5-06:00[America/Denver]
+  DateTimeError.invalid DateTimeError.unknown_zone DateTimeError.unknown_zone DateTimeError.invalid
+  DateTimeError.skipped_or_repeated
+  DateTimeError.invalid DateTimeError.invalid
+'''
+  fun read(s: ?String) -> String
+    z = datetime.ZonedDateTime.parse(s) catch |e|
+      return String(`{e}`)
+    String(z)
+
+  sub main()
+    print(read("2024-03-10T02:30:00[America/Denver]"), read("2024-03-10T03:30:00-06:00[america/denver]"), read("2024-03-10[America/Denver]"))
+    print(read("2024-03-10T03:30:00-07:00[-07:00]"), read("2024-03-10T03:30:00-07:00[-0700]"), read("2024-03-10T03:30:00[-07]"))
+    print(read("2024-03-10T03:30:00Z[utc]"), read("2024-03-10T03:30:00Z[Etc/UTC]"), read("2024-03-10t03:30:00,5-06:00[America/Denver][u-ca=iso8601]"))
+    print(read("2024-03-10T03:30:00-06:00"), read("2024-03-10T03:30:00Z[Z]"), read("2024-03-10T03:30:00Z[No/Such_Zone]"), read("2024-03-10T03:30:00-06:00[America/Denver][!u-ca=iso8601]"))
+    datetime.ZonedDateTime.parse("2024-03-10T02:30:00[America/Denver]", resolve: .reject) catch |e| print(e)
+    print(read("9999-12-31T23:00:00+00:00[UTC]"), read("-009999-01-01T00:00:00+00:00[UTC]"))
+
+test "text round trips: String(z), then parse, gives the instant and the zone", "true true true true"
+  line = String()
+  for s in ["2026-11-17T08:07:03.512094-07:00[America/Denver]", "2026-11-01T01:30:00-07:00[America/Denver]", "-000001-06-30T23:59:59.999999999+05:30[+05:30]", "9999-12-30T22:00:00.999999999+00:00[UTC]"]
+    z = datetime.ZonedDateTime.parse(s)!
+    back = datetime.ZonedDateTime.parse(String(z))!
+    !line.add(" ") if line.len > 0
+    !line.add(`{back == z and back.zone() == z.zone() and String(back) == s}`)
+  print(line)
+
+test "add fails at each end of the range", '''
+  DateTimeError.range DateTimeError.range DateTimeError.range DateTimeError.range DateTimeError.range
+  9999-12-30T22:00:00.999999999+00:00[UTC] -009999-01-02T01:59:59+00:00[UTC]
+'''
+  fun added(z: datetime.ZonedDateTime, d: time.Duration, days: Int, years: Int) -> String
+    r = z.add(duration: d, days: days, years: years) catch |e|
+      return String(`{e}`)
+    String(r)
+
+  sub main()
+    utc = datetime.TimeZone.utc()
+    last = datetime.Instant.max().in_zone(utc)
+    first = datetime.Instant.min().in_zone(utc)
+    one = time.duration(ns: 1)
+    print(added(last, one, 0, 0), added(first, one.neg(), 0, 0), added(last, time.duration(0), 1, 0), added(first, time.duration(0), -1, 0), added(first, time.duration(0), 0, 9_223_372_036_854_775_807))
+    print(added(last, time.duration(0), 0, 0), added(first, time.duration(0), 0, 0))
+
+test "a duration form with a run-time number folds into add's !", "DateTimeError.range"
+  fun later(z: datetime.ZonedDateTime, h: Int) -> datetime.ZonedDateTime!
+    z.add(hours: h)!
+
+  sub main()
+    z = datetime.Instant.min().in_zone(datetime.TimeZone.utc())
+    _ = later(z, 9_223_372_036_854_775_807) catch |e|
+      print(e)
+      return
+
+test "round, floor, start_of_day, with and in_zone fail at each end of the range", '''
+  DateTimeError.range DateTimeError.range DateTimeError.range DateTimeError.range
+  DateTimeError.range
+  DateTimeError.range
+  DateTimeError.range
+  9999-12-31T23:59:00.999999999+25:59[+25:59]
+  DateTimeError.range
+  -009999-01-02T00:00:00-05:00[-05:00]
+  DateTimeError.range
+'''
+  sub main()!
+    utc = datetime.TimeZone.utc()
+    last = datetime.Instant.max().in_zone(utc)
+    first = datetime.Instant.min().in_zone(utc)
+    line = String()
+    last.round(seconds: 1) catch |e| !line.add(`{e} `)
+    first.floor(hours: 1) catch |e| !line.add(`{e} `)
+    last.round(days: 1) catch |e| !line.add(`{e} `)
+    first.start_of_day() catch |e| !line.add(`{e}`)
+    print(line)
+    first.with(hour: 0) catch |e| print(e)
+    last.with(hour: 23) catch |e| print(e)
+    east = datetime.TimeZone.fixed(hours: 25, minutes: 59)
+    end = datetime.DateTime.max()
+    end.in_zone(utc) catch |e| print(e)
+    print(end.with(second: 0, ns: 999_999_999)!.in_zone(east)!)
+    end.with(second: 1, ns: 0)!.in_zone(east) catch |e| print(e)
+    west = datetime.TimeZone.fixed(hours: -5)
+    print(datetime.Date.new(-9999, 1, 2).in_zone(west)!)
+    datetime.Date.min().in_zone(west) catch |e| print(e)
+
+test "in_zone of an instant is total at its ends", '''
+  -009999-01-01T00:00:59-25:59[-25:59] 9999-12-31T23:59:00.999999999+25:59[+25:59]
+  -009999-01-02T01:59:59+00:00[UTC] 9999-12-30T22:00:00.999999999+00:00[UTC]
+'''
+  west = datetime.TimeZone.fixed(hours: -25, minutes: -59)
+  east = datetime.TimeZone.fixed(hours: 25, minutes: 59)
+  print(datetime.Instant.min().in_zone(west), datetime.Instant.max().in_zone(east))
+  print(datetime.Instant.min().in_zone(datetime.TimeZone.utc()), datetime.Instant.max().in_zone(datetime.TimeZone.utc()))
+
+test "today is the date in the zone now", "true"
+  utc = datetime.TimeZone.utc()
+  a = datetime.today(utc)
+  b = datetime.now().in_zone(utc).date()
+  print(a == b or b.days_since(a) == 1)
+
+test "round and floor to a day near the range's ends fail only when the result is beyond it", '''
+  9999-12-30T00:00:00+00:00[UTC] 9999-12-30T00:00:00+00:00[UTC] DateTimeError.range
+  9999-12-31T00:00:00+25:59[+25:59] 9999-12-31T00:00:00+25:59[+25:59]
+  -009999-01-03T00:00:00+00:00[UTC] DateTimeError.range
+'''
+  fun shown(z: datetime.ZonedDateTime, down: Bool) -> String
+    if down
+      f = z.floor(days: 1) catch |e|
+        return String(`{e}`)
+      return String(f)
+    r = z.round(days: 1) catch |e|
+      return String(`{e}`)
+    String(r)
+
+  sub main()!
+    utc = datetime.TimeZone.utc()
+    # The next day's start, 9999-12-31T00:00Z, is past the last instant,
+    # but the nearer start is not.
+    early = datetime.Instant.parse("9999-12-30T01:00:00Z")!.in_zone(utc)
+    late = datetime.Instant.parse("9999-12-30T13:00:00Z")!.in_zone(utc)
+    print(shown(early, false), shown(late, true), shown(late, false))
+    # The last date at +25:59 starts in the range, its next date does not.
+    east = datetime.Instant.parse("9999-12-30T01:00:00Z")!.in_zone(datetime.TimeZone.fixed(hours: 25, minutes: 59))
+    print(shown(east, false), shown(east, true))
+    # The first date's start is before the first instant.
+    first = datetime.Instant.parse("-009999-01-02T13:00:00Z")!.in_zone(utc)
+    print(shown(first, false), shown(first, true))
+
+test "RFC 9557 text gives the instant back, except a historic repeated time whose offsets have seconds", '''
+  1883-11-18T12:01:58-04:56[America/New_York] 1883-11-18T16:58:00Z 1883-11-18T16:57:58Z
+'''
+  # New York's local mean time, -04:56:02, ended at 12:03:58 on
+  # 1883-11-18, which then went back to 12:00 at -05:00: 12:01:58
+  # happened twice, and its first offset is written rounded to the
+  # minute, which text keeps (Jiff's answer, §8.1).
+  i = datetime.Instant.parse("1883-11-18T16:58:00Z")!
+  z = i.in_zone(datetime.TimeZone.named("America/New_York"))
+  back = datetime.ZonedDateTime.parse(String(z))!
+  print(z, z.instant(), back.instant())
+
+test "add takes the group period and with the groups date and clock, as a DateTime's", '''
+  2026-02-28T09:00:00-07:00[America/Denver] 2026-03-03T09:00:00-07:00[America/Denver] 2026-03-30T11:00:00-06:00[America/Denver]
+  2026-01-31T12:00:00-07:00[America/Denver] 2026-07-04T12:30:00-06:00[America/Denver]
+'''
+  z = datetime.ZonedDateTime.parse("2026-01-31T09:00:00-07:00[America/Denver]")!
+  monthly = datetime.Period(months: 1)
+  print(z.add(..monthly)!, z.add(..monthly, days: 3)!, z.add(..monthly, months: 2, days: -1, hours: 2)!)
+  noon = datetime.DateFields(month: 7, day: 4)
+  half = datetime.ClockFields(hour: 12, minute: 30)
+  print(z.with(hour: 12)!, z.with(..noon, ..half)!)

@@ -316,7 +316,10 @@ impl Oracle {
                 let tz = self.zone(a[1])?;
                 let info = tz.to_offset_info(i);
                 let z = i.to_zoned_datetime(tz.clone());
-                Ok(format!("{} {} {}", z, info.offset(), info.abbreviation()))
+                // The abbreviation as `%Z` writes it, in capitals (`ChST`
+                // is `CHST`).
+                let abbr = jiff::fmt::strtime::format("%Z", &z).map_err(|e| e.to_string())?;
+                Ok(format!("{} {} {}", z, info.offset(), abbr))
             }
             "datetime.in_zone" => {
                 let a = args(rest, 2)?;
@@ -338,6 +341,25 @@ impl Oracle {
                 let a = args(rest, 2)?;
                 let d = date(a[0])?;
                 Ok(show(d.to_zoned_datetime(self.zone(a[1])?)))
+            }
+            "zoned.with" => {
+                // The date and time on the clock replaced, keeping the
+                // value's own offset where the new time is repeated (Jiff's
+                // default, `OffsetConflict::PreferOffset`, §6.5), then each
+                // disambiguation.
+                let a = args(rest, 3)?;
+                let z = self.zoned(a[0], a[1])?;
+                let dt = datetime(a[2])?;
+                let r: Vec<String> = [
+                    Disambiguation::Compatible,
+                    Disambiguation::Earlier,
+                    Disambiguation::Later,
+                    Disambiguation::Reject,
+                ]
+                .into_iter()
+                .map(|d| show(z.with().date(dt.date()).time(dt.time()).disambiguation(d).build()))
+                .collect();
+                Ok(r.join(" "))
             }
             "zoned.start_of_day" => {
                 let a = args(rest, 2)?;
@@ -492,12 +514,23 @@ impl Oracle {
                 let z = self.zoned(a[0], a[1])?;
                 let (u, i) = (unit(a[2])?, int(a[3])?);
                 let r = |m| show(z.round(jiff::ZonedDateTimeRound::new().smallest(u).increment(i).mode(m)));
-                let round = if z.year() <= 0 || (u == Unit::Day && !day_round_agrees(&z)) {
+                // Below a day, Jiff 1.0.0 does not carry a round past
+                // midnight into the next day in years at or below 0 (§6.8,
+                // §9 item 14). To a day, Rig measures to the next date's
+                // start, and finds a day's starts beyond the range too,
+                // failing only for a result beyond it, where Jiff fails
+                // when it cannot measure the day (§9): the round is
+                // compared only where the two measure alike, and the floor
+                // where Jiff can measure the day.
+                let round = if u == Unit::Day {
+                    if day_round_agrees(&z) { r(RoundMode::HalfExpand) } else { "skip".into() }
+                } else if z.year() <= 0 && passes_midnight(z.time(), u, i) {
                     "skip".into()
                 } else {
                     r(RoundMode::HalfExpand)
                 };
-                Ok(format!("{} {}", round, r(RoundMode::Floor)))
+                let floor = if u == Unit::Day && !day_measured(&z) { "skip".into() } else { r(RoundMode::Floor) };
+                Ok(format!("{} {}", round, floor))
             }
             "duration.round" => {
                 let a = args(rest, 3)?;
@@ -510,6 +543,27 @@ impl Oracle {
                     return Ok("skip".into());
                 }
                 Ok(format!("{} {}", show(round), show(floor)))
+            }
+
+            // 6. Format strings (§8.4): the value, then the string, the
+            // rest of the line, spaces included.
+            "format.date" => {
+                let (v, f) = rest.split_once(' ').unwrap_or((rest, ""));
+                Ok(show(jiff::fmt::strtime::format(f, date(v)?)))
+            }
+            "format.time" => {
+                let (v, f) = rest.split_once(' ').unwrap_or((rest, ""));
+                Ok(show(jiff::fmt::strtime::format(f, time(v)?)))
+            }
+            "format.datetime" => {
+                let (v, f) = rest.split_once(' ').unwrap_or((rest, ""));
+                Ok(show(jiff::fmt::strtime::format(f, datetime(v)?)))
+            }
+            "format.zoned" => {
+                let (zone, more) = rest.split_once(' ').ok_or("expected a zone")?;
+                let (at, f) = more.split_once(' ').unwrap_or((more, ""));
+                let z = self.zoned(zone, at)?;
+                Ok(show(jiff::fmt::strtime::format(f, &z)))
             }
 
             _ => Err(format!("unknown case {op:?}")),
@@ -571,6 +625,15 @@ fn is_half(past: SignedDuration, u: Unit, i: i64) -> bool {
         _ => return false,
     };
     past.as_nanos() * 2 == per * i as i128
+}
+
+// Whether Jiff can measure the day of `z`: its start, and that start plus
+// one day on the clock, are both instants in the range.
+fn day_measured(z: &ZonedDateTime) -> bool {
+    match z.start_of_day() {
+        Ok(start) => start.checked_add(Span::new().days(1)).is_ok(),
+        Err(_) => false,
+    }
 }
 
 // Whether Jiff's `round(days: 1)` measures what Rig's does (§6.8): the value

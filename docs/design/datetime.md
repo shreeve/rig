@@ -324,7 +324,7 @@ What the smaller members give:
 
 - **Two small enums** name the choices of two keywords: how a skipped or repeated time
   is resolved (6.5), and what to do with a stored offset that no longer fits (8.3).
-  Their type names are the builder's (say `datetime.Resolve` and `datetime.Conflict`).
+  They are `datetime.Resolve` and `datetime.Conflict`.
 - **Not types:** a span or period (6.1), an offset (7.6), builders (keywords), a handle
   on the zone data (module functions), an ISO week date (methods).
 - **[Owner] There is a zoneless `DateTime`.**
@@ -606,12 +606,13 @@ counts.
 **[Jiff]** except where marked.
 
 - **The signatures** **[Owner, 2026-11-22]** (each but `Time`'s returns `!`):
-  - `Date`: `add(years: 0, months: 0, weeks: 0, days: 0) -> Date!`, by keyword only.
-  - `DateTime` and `ZonedDateTime`: `add(duration: Duration? = none, years: 0,
-    months: 0, weeks: 0, days: 0)`, returning `DateTime!` and `ZonedDateTime!`. Each is
-    an option, given by name, so `z.add(seconds: 0.5)!` or `z.add(duration: 0.5)!` is
-    half a second, `z.add(hours: 2)!` is two hours, and `z.add(days: 1, hours: 2)!` is
-    both.
+  - `Date`: `add(..period: Period) -> Date!`, by keyword only: the group `Period`
+    (`docs/design/options.md` §9) holds `years: 0, months: 0, weeks: 0, days: 0`.
+  - `DateTime` and `ZonedDateTime`: `add(duration: Duration? = none, ..period:
+    Period)`, returning `DateTime!` and `ZonedDateTime!`. Each is an option, given by
+    name, so `z.add(seconds: 0.5)!` or `z.add(duration: 0.5)!` is half a second,
+    `z.add(hours: 2)!` is two hours, and `z.add(days: 1, hours: 2)!` is both; a stored
+    period is spread, `z.add(..monthly, days: 3)!`.
   - `Instant` and `Monotonic`: `add(d: Duration)`, returning `Instant!` and
     `Monotonic!`.
   - `Time`: `add(d: Duration) -> Time`, total: it wraps (below).
@@ -913,6 +914,9 @@ days = d1.days_since(d0.add(months: m)!)
     18:00 rounds to 01:00 on the 9th (measured). Rig gives 00:00 on the 9th. The oracle
     checks `round(days: 1)` only for a value inside its own date's range, on a day
     whose start plus one day on the clock is the next date's start.
+  - At the ends of the range a day's starts are found even beyond it, so `round` and
+    `floor` fail only when their result is beyond it (9, item 22). The oracle checks
+    `floor(days: 1)` only where Jiff can measure the day.
 - `Time.round` wraps: 23:59:59.6 rounds to 00:00:00. The others fail `.range` when the
   result leaves the range.
 - **A round that passes midnight carries into the next day, in every year.** Jiff 1.0.0
@@ -1133,7 +1137,10 @@ program gives the same answer on every machine.
   counts as agreeing with the zone.
 - **A trap** [Jiff], which the docs state: parsing such a string as an `Instant`
   ignores the zone and uses the rounded offset, so it reads back 30 seconds off.
-  Parsing it as a `ZonedDateTime` is exact. It affects only dates before 1972.
+  Parsing it as a `ZonedDateTime` is exact, except at a repeated time whose two
+  offsets have seconds, where the offset the text gives, rounded, is used as written
+  [Jiff]: New York's 12:01:58 on 1883-11-18, repeated when local mean time (-04:56:02)
+  ended, reads back 2 seconds off. It affects only dates before 1972.
 
 ## 7.7 The system's zone
 
@@ -1294,7 +1301,7 @@ sub main()!
 
 - `String(x)` gives the same text as a `String`, which is how a value is stored:
   `String(z)` and later `ZonedDateTime.parse(text)!` give back the same instant in the
-  same zone.
+  same zone, except at a historic repeated time whose offsets have seconds (7.6).
 - Seconds are always printed. A fraction is printed only when it is not zero, with its
   trailing zeros dropped. So printed instants do not sort as text. A fixed width comes
   from `format` on the zoned form:
@@ -1390,8 +1397,8 @@ A small strftime, with Jiff's meanings for each directive.
 
   (Jiff accepts `%.f` on a `Date` and prints nothing. Rig refuses it, so the test of
   every directive does not use the oracle there.)
-- **`x.try_format(s)!`** (spelling) takes a string made at run time, and fails where
-  `format` would not compile.
+- **`x.try_format(s)!`** takes a string made at run time, and fails with `.invalid`
+  where `format` would not compile.
 - The directive table exists twice, in the compiler and in the library. A test checks
   every directive on every type both ways.
 - **Kept:** `%Y %m %d %e %H %M %S %I %p %A %a %B %b %j %F %T %R %z %:z %Z %s %u %G %V
@@ -1399,9 +1406,9 @@ A small strftime, with Jiff's meanings for each directive.
   - `%e` pads with a space (`March  8`); `%-d` is the day with no padding.
   - `%f` drops trailing zeros and `%.f` prints nothing for zero, so a fixed width needs
     a precision.
-  - `%Z` is the zone's abbreviation at that instant (`MST`, `MDT`). A fixed zone has
-    none and prints its offset in Jiff's short form (`-07`, `+05:30`), and `utc()`
-    prints `UTC`.
+  - `%Z` is the zone's abbreviation at that instant (`MST`, `MDT`), in capitals as
+    Jiff writes it (Guam's `ChST` is `CHST`). A fixed zone has none and prints its
+    offset in Jiff's short form (`-07`, `+05:30`), and `utc()` prints `UTC`.
   - A year below 0 follows Jiff: `%Y` of year -1 is `-001` and `%F` is `-0001-01-01`,
     which does not read back. `print` is the form that does (8.1).
 - **Not in v1:** `%c %r %x %X` (locale forms), `%y %g` (two-digit years), `%Q %q %::z
@@ -1467,6 +1474,12 @@ A small strftime, with Jiff's meanings for each directive.
     cannot fail where Jiff's `from_nanosecond` takes an `i128` and can; and
     `from_unix_float`, which Jiff does not have. Their inverses `unix_ms()` and
     `unix_us()` are `Int`s, floored.
+22. **`round` and `floor` to `days: 1` on a `ZonedDateTime` at the ends of the
+    range** (the builder's, from "Total or visible", pending the owner): a day's
+    starts are found even beyond the range, so the call fails `.range` only when its
+    result is beyond it. Jiff fails whenever a start it needs is: `round(days: 1)` of
+    9999-12-30T01:00Z in UTC is 9999-12-30T00:00Z, and `floor(days: 1)` on the last
+    date succeeds.
 
 ---
 
@@ -1548,8 +1561,9 @@ type's tests of it land with the type.
     `times`, `round`, `floor`, `Monotonic.add` and `at`, and a duration form's
     conversion).
   - `std.datetime`, `DateTimeError`: `invalid` and `range` in the same senses, and
-    then unknown zone, a skipped or repeated time under `.reject`, an offset conflict,
-    no system zone, a bad format string (`try_format`).
+    then unknown zone (`unknown_zone`), a skipped or repeated time under `.reject`
+    (`skipped_or_repeated`), an offset conflict (`offset_conflict`), no system zone
+    (`no_system_zone`); a bad format string given `try_format` fails `invalid`.
   - A duration form's conversion fails with the member of that name in the callee's
     own set, so both sets keep `invalid` and `range` (5.2).
 - SPEC "Durations" (`SPEC.md:14850`) is rewritten. `docs/STD.md` "std.time" is
@@ -1760,10 +1774,11 @@ in them panics.
 4. **`TimeZone`** (built; `records/2026-11/datetime-phase4`): the tables, `named` and
    its literal check, `fixed`, `utc`, `parse`, `name`, `offset_at`, `zone_names`,
    `tzdb_version`, `local` (with `file.read_link`).
-5. **`ZonedDateTime`**: `in_zone` (from an `Instant`, a `DateTime` and a `Date`), the
-   readers, `add`, counts, `with`, `start_of_day`, `round`, `floor`, `since`, RFC 9557,
-   `today`.
-6. **`format` and `try_format`**; then the teaching text in `docs/learn`.
+5. **`ZonedDateTime`** (built; `records/2026-11/datetime-phase5`): `in_zone` (from an
+   `Instant`, a `DateTime` and a `Date`), the readers, `add`, counts, `with`,
+   `start_of_day`, `round`, `floor`, `since`, RFC 9557, `today`.
+6. **`format` and `try_format`** (built; `records/2026-11/datetime-phase6`); then the
+   teaching text in `docs/learn` (built: [journey 12](../learn/12-dates.md)).
 
 Phase 1 puts section 2's sample into `docs/STD.md` as `rig pending` examples, and each
 phase turns its own into tests. A doc example prints a fixed instant or a comparison,

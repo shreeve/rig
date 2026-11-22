@@ -180,8 +180,21 @@ A new session, human or agent, takes these steps in order:
   `group-owners`, the build plan's step 3;
   records/2026-11/named-options-owners) put a spread's sigil on each
   field that moves, read a group in its body as an object parameter, and
-  let `from net` and `keeps net` name a group's view fields. Next, in
-  order: `ZonedDateTime` (phase 5).
+  let `from net` and `keeps net` name a group's view fields; an update
+  of a `drop` type waits on the owner. Phase 5 (branch `zoned-phase5`;
+  records/2026-11/datetime-phase5) builds `ZonedDateTime`, written to
+  total or visible: `in_zone` from an instant, a date and time
+  (`resolve:`), and a date; the readers; `add` (with the group
+  `period`), `with` (with `date` and `clock`), `start_of_day`, `round`,
+  `floor`, `since`, and the counts; equality, order and hashing by the
+  instant; RFC 9557 with `default_zone:` and `conflict:`; and `today`.
+  The oracle compares every zoned case, 2,187,579 answers in all, none
+  different. Phase 6 (branch `format-phase6`;
+  records/2026-11/datetime-phase6) builds `format`, its string checked
+  against the type as Rig compiles, and `try_format`, with `%Z` from the
+  zone tables; the oracle compares every format case and every zone's
+  abbreviation, 2,345,658 answers in all, none different; and journey
+  12, on dates, times and zones. The datetime library is complete.
 - **The view vocabulary** (owner, 2026-11-20; #1192 landed PR 1):
   places, read and write views, read-only, unusable, and cells are the
   words of the docs, the messages, and the code. PR 1 is the wording; PR 2

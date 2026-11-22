@@ -126,6 +126,14 @@ pub obj Date: Eq + Ord + Hash + Print
   pub fun at(?@, t: Time) -> DateTime
     DateTime(on: @, at: t)
 
+  # The first instant of this date in the zone `tz`: 00:00, or where the
+  # zone skips it the first time after (01:00 in São Paulo on
+  # 2015-10-18), and where it repeats it the first 00:00. A date the zone
+  # skips whole gives the start of the next (2011-12-30 in Apia). Fails
+  # with `DateTimeError.range` when that is beyond the range of instants.
+  pub fun in_zone(?@, tz: TimeZone) -> ZonedDateTime!
+    day_start(@, tz) ?? return DateTimeError.range
+
   # The whole days, weeks, months, and years from `other` to this date:
   # positive when this date is the later, negative when it is the
   # earlier, and `a.days_since(b)` is `-b.days_since(a)`. A count walks
@@ -146,6 +154,24 @@ pub obj Date: Eq + Ord + Hash + Print
 
   pub fun years_since(?@, other: Date) -> Int
     @months_since(other) / 12
+
+  # The date written by `pattern`, a strftime string known as Rig
+  # compiles, a string literal or a module constant bound to one:
+  # `d.format("%A, %B %-d, %Y")` is `Tuesday, November 17, 2026`. A
+  # `Date` takes `%Y %m %d %e %A %a %B %b %j %F %u %G %V` and `%%`, with
+  # Jiff's meanings, and `-` on a number to drop its padding (`%-d`).
+  # Rig checks the string against the `Date` where it is called, so a
+  # directive it lacks (`%H`) or an unknown one is a compile error, and
+  # the call cannot fail: it gives a plain `String`, though declared
+  # with the `!` of `try_format`, whose failures the check rules out.
+  pub fun format(?@, pattern: ?String) -> String!
+    @try_format(pattern)!
+
+  # The date written by `pattern`, a string made as the program runs.
+  # Fails with `DateTimeError.invalid` exactly where `format` would not
+  # compile.
+  pub fun try_format(?@, pattern: ?String) -> String!
+    formatted(pattern, HAS_DATE, @, clock(0, 0, 0, 0), Instant.min(), TimeZone.utc(), 0, "")!
 
   sub print(?@, out: !Printer)
     print_date(!out, @)

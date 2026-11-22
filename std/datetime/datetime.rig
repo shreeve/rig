@@ -101,6 +101,15 @@ pub obj DateTime: Eq + Ord + Hash + Print
   pub fun with(?@, ..date: DateFields, ..clock: ClockFields) -> DateTime!
     DateTime(on: @on.with(..date)!, at: @at.with(..clock)!)
 
+  # The instant this date and time shows on the clock of the zone `tz`.
+  # Where the zone skips or repeats it, `resolve` chooses
+  # (`Resolve.compatible`, the default, takes a skipped time forward by the
+  # gap and a repeated time's first). Fails with `DateTimeError.range`
+  # beyond the range of instants, and `skipped_or_repeated` under
+  # `resolve: .reject`.
+  pub fun in_zone(?@, tz: TimeZone, resolve: Resolve = .compatible) -> ZonedDateTime!
+    resolved(@, tz, resolve)!
+
   # The time from `other` to this date and time, every day 24 hours:
   # negative when `other` is the later, and exact for any two.
   pub fun since(?@, other: DateTime) -> time.Duration
@@ -143,6 +152,22 @@ pub obj DateTime: Eq + Ord + Hash + Print
   # its failures are `round`'s.
   pub fun floor(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none, days: Int? = none) -> DateTime!
     datetime_multiple(@, clock_increment([ns, us, ms, seconds, minutes, hours], days)!, true) ?? return DateTimeError.range
+
+  # The date and time written by `pattern`, a strftime string known as
+  # Rig compiles, a string literal or a module constant bound to one:
+  # `dt.format("%Y-%m-%d %H:%M")`. A `DateTime` takes the directives of
+  # a `Date` and of a `Time`; one of a zone (`%z %:z %Z %s`) or an
+  # unknown one is a compile error, and the call cannot fail: it gives a
+  # plain `String`, though declared with the `!` of `try_format`, whose
+  # failures the check rules out.
+  pub fun format(?@, pattern: ?String) -> String!
+    @try_format(pattern)!
+
+  # The date and time written by `pattern`, a string made as the program
+  # runs. Fails with `DateTimeError.invalid` exactly where `format` would
+  # not compile.
+  pub fun try_format(?@, pattern: ?String) -> String!
+    formatted(pattern, HAS_DATE + HAS_TIME, @on, @at, Instant.min(), TimeZone.utc(), 0, "")!
 
   sub print(?@, out: !Printer)
     print_date(!out, @on)

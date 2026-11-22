@@ -12874,6 +12874,12 @@ the error that asks for its `!` names that argument. `TimeZone.named`
 of `std.datetime` given a string literal is checked the same against
 the names of its zone data: a name the data holds gives the plain
 `TimeZone`, and one it does not is rejected, offering the nearest name.
+The `format` of a `Date`, `Time`, `DateTime`, or `ZonedDateTime` takes
+only a format string Rig knows as it checks the program, a string
+literal or a constant bound to one, and checks its directives against
+the type: a string that suits gives the plain `String`, one that does
+not is rejected naming the directive, and any other argument is
+rejected with `try_format`, which is fallible, as the fix.
 `time.duration` of
 a duration form that cannot fail gives the plain `Duration` the same way
 ([Durations](#durations)):

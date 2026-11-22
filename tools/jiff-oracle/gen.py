@@ -2,7 +2,7 @@
 """The inputs of the Jiff oracle (README.md), and the check of its zone data.
 
     gen.py DIR                 write DIR/calendar.in, zones.in, counts.in,
-                               text.in and round.in
+                               text.in, round.in and format.in
     gen.py --kind KIND         write one kind to stdout
     gen.py --bundle-check BIN  check that BIN, the oracle, answers from
                                Jiff's bundled 2026f data and nothing else
@@ -568,6 +568,11 @@ def gen_zones(w, zones, alias):
                 w("date.in_zone %s %s" % (fmt_date_days(d), name))
             for at in (t - 1, t + 1):
                 w("zoned.start_of_day %s %s" % (name, fmt_instant(at)))
+            # `with` from a value either side of the change to a time on
+            # the clock in, at, and either side of the gap or the repeat.
+            for at in (t - 1800, t + 1800):
+                for c in sorted({lo - 1, lo, (lo + hi) // 2, hi - 1, hi}):
+                    w("zoned.with %s %s %s" % (name, fmt_instant(at), fmt_datetime(c)))
             for at in (t - 1800, t + 1800):
                 i = fmt_instant(at)
                 w("zoned.add %s %s 0 0 0 1 PT0S" % (name, i))
@@ -832,6 +837,21 @@ def gen_round(w, zones, alias):
             inc = r.pick(clock[u])
         at = near_transition(r, zones[name]) if r.below(3) else r.range(-2208988800, 4102444800)
         w("zoned.round %s %s %s %d" % (name, fmt_instant(at, rand_ns(r)), u, inc))
+    # Near the ends of the range, in zones east and west and in fixed zones
+    # of ±25:59, where a day's start can lie beyond it, and in years at or
+    # below 0 about midnight.
+    for name in ("UTC", "Asia/Tokyo", "America/Denver", "Pacific/Kiritimati", "Etc/GMT+12", "+25:59", "-25:59"):
+        for base, sign in ((MIN_INSTANT, 1), (MAX_INSTANT, -1)):
+            for h in (0, 1, 2, 11, 12, 13, 22, 23, 24, 25, 26, 47, 48, 49):
+                at = base + sign * h * 3600
+                for u, inc in (("days", 1), ("hours", 1), ("hours", 12), ("minutes", 30), ("seconds", 1)):
+                    w("zoned.round %s %s %s %d" % (name, fmt_instant(at, 999_999_999 if base == MAX_INSTANT else 0), u, inc))
+    for name in ("UTC", "Asia/Tokyo", "America/Denver", "-25:59"):
+        for y in (-9999, -1, 0):
+            for secs in (DAY - 1800, DAY - 1, DAY // 2):
+                at = days_from_civil(y, 6, 15) * DAY + secs
+                for u, inc in (("days", 1), ("hours", 1), ("minutes", 30), ("seconds", 1)):
+                    w("zoned.round %s %s %s %d" % (name, fmt_instant(at, 600_000_000), u, inc))
     for _ in range(10000):
         u = r.pick(units)
         inc = r.pick((1, 2, 3, 5, 7, 10, 15, 30, 60, 90, 1000, 999999999, 1000000000))
@@ -842,12 +862,105 @@ def gen_round(w, zones, alias):
         w("duration.round %s %s %d" % (fmt_dur(d), u, inc))
 
 
+# --- 6. Format strings (§8.4).
+
+DATE_DIRECTIVES = ["%Y", "%m", "%d", "%e", "%A", "%a", "%B", "%b", "%j", "%F", "%u", "%G", "%V"]
+TIME_DIRECTIVES = ["%H", "%M", "%S", "%I", "%p", "%T", "%R", "%f", "%.f"] + ["%%.%df" % p for p in range(1, 10)]
+ZONE_DIRECTIVES = ["%z", "%:z", "%Z", "%s"]
+PADDED = "YmdejGVHMSI"
+
+
+def format_set(date, time, zone):
+    """Every directive a type takes alone, with `-` where it pads, then
+    strings of several with text between them; and, last, each directive
+    of the others' that Jiff refuses too, which Rig must refuse."""
+    took = (DATE_DIRECTIVES if date else []) + (TIME_DIRECTIVES if time else []) + (ZONE_DIRECTIVES if zone else [])
+    out = list(took) + ["%%-%s" % d[1] for d in took if len(d) == 2 and d[1] in PADDED] + ["%%"]
+    if date:
+        out += ["%A, %B %-d, %Y", "[%e] %j %G-W%V-%u", "%a %b %d %Y"]
+    if time:
+        out += ["%I:%M:%S %p", "%T%.f", "%H%M%S.%f"]
+    if date and time:
+        out += ["%Y-%m-%dT%H:%M:%S%.3f", "%F %R"]
+    if zone:
+        out += ["%Y-%m-%dT%H:%M:%S%.f%:z", "%F %T %Z (%z) %s"]
+    # Jiff refuses these too: a date's on a value with no date, and so on.
+    # `%.f`, which Jiff writes as nothing on a date, is tested in Rig.
+    if not date:
+        out += DATE_DIRECTIVES
+    if not time:
+        out += [d for d in TIME_DIRECTIVES if not d.startswith("%.")]
+    if not zone:
+        out += ZONE_DIRECTIVES
+    return out
+
+
+def gen_format(w, zones, alias):
+    r = Rand(8)
+    date_formats = format_set(True, False, False)
+    time_formats = format_set(False, True, False)
+    datetime_formats = format_set(True, True, False)
+    zoned_formats = format_set(True, True, True)
+    # Dates: about the ISO week years' ends, and the year's ends, in each
+    # sample year, and random dates.
+    days = set()
+    for y in SAMPLE_YEARS:
+        for m, d in ((1, 1), (1, 3), (1, 4), (2, 28), (3, 1), (6, 15), (12, 28), (12, 29), (12, 31)):
+            days.add(days_from_civil(y, m, d))
+    days = sorted(x for x in days if MIN_DAY <= x <= MAX_DAY)
+    days += [rand_date_days(r) for _ in range(300)]
+    for d in days:
+        for f in date_formats:
+            w("format.date %s %s" % (fmt_date_days(d), f))
+    # Times: each hour, with no fraction and with fractions of each length.
+    fractions = (0, 1, 10, 500_000_000, 50_000_000, 123_456_789, 999_999_999, 120_000)
+    for h in range(24):
+        secs = h * 3600 + r.range(0, 3599)
+        for ns in fractions:
+            for f in time_formats:
+                w("format.time %s %s" % (fmt_time(secs, ns), f))
+    for _ in range(300):
+        secs, ns = r.range(0, DAY - 1), rand_ns(r)
+        for f in time_formats:
+            w("format.time %s %s" % (fmt_time(secs, ns), f))
+    # Dates and times, random and at the ends of the range.
+    for secs, ns in [(MIN_DAY * DAY, 0), (MAX_DAY * DAY + DAY - 1, NS - 1)] + [(rand_date_days(r) * DAY + r.range(0, DAY - 1), rand_ns(r)) for _ in range(500)]:
+        for f in datetime_formats:
+            w("format.datetime %s %s" % (fmt_datetime(secs, ns), f))
+    # Zoned values: every name a second before and at each of its first
+    # transitions through 2040 and its rule's, with every directive of a
+    # zone; the zones of ZONES with every format; fixed zones and the
+    # ends of the range.
+    whole = "%Y-%m-%dT%H:%M:%S%.f %z %:z %Z %s"
+    for name in sorted(zones):
+        z = zones[name]
+        ts = [t for t, _, _ in z.transitions()] + [t for t, _, _ in z.rule_transitions()]
+        if name in alias:
+            ts = ts[-2:]
+        for t in ts:
+            for at in (t - 1, t):
+                w("format.zoned %s %s %s" % (name, fmt_instant(at), whole))
+    for name in ZONES + ["Pacific/Guam", "+05:30", "-07:00", "-00:30", "+25:59", "-25:59", "+00:00"]:
+        for _ in range(20):
+            at = r.range(MIN_INSTANT, MAX_INSTANT) if r.below(4) == 0 else r.range(-2208988800, 4102444800)
+            ns = rand_ns(r)
+            for f in zoned_formats:
+                w("format.zoned %s %s %s" % (name, fmt_instant(at, ns), f))
+        for at in (MIN_INSTANT, MAX_INSTANT, -1, 0):
+            for f in zoned_formats:
+                w("format.zoned %s %s %s" % (name, fmt_instant(at, NS - 1 if at == MAX_INSTANT else 0), f))
+    # Before 1970, a part of a second: `%s` is toward zero.
+    for ns in (1, 500_000_000, 999_999_999):
+        w("format.zoned UTC %s %%s" % fmt_instant(-6, ns))
+
+
 KINDS = {
     "calendar": gen_calendar,
     "zones": gen_zones,
     "counts": gen_counts,
     "text": gen_text,
     "round": gen_round,
+    "format": gen_format,
 }
 
 
