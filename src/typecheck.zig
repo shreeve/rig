@@ -125,6 +125,10 @@ const Checker = struct {
     callee_node: ?Sexp = null,
     /// The call being checked, for its argument-slot fact.
     current_call: ?Sexp = null,
+    /// A std maker's call left fallible by an argument that is not a
+    /// constant (`constMakerCall`), and that argument: the error that
+    /// asks for its `!` names it.
+    maker_runtime: struct { call: Sexp = .nil, arg: Sexp = .nil } = .{},
     /// The `for` whose source is being checked, which a chain of stages
     /// may be (`chainCall`).
     chain_for: Sexp = .nil,
@@ -6972,7 +6976,9 @@ const Checker = struct {
         const inner = switch (self.ctx.types.get(ty)) {
             .fallible => |i| i.ok,
             else => {
-                try self.errAt(value, "`catch` needs a fallible expression; this expression has type `{s}` and cannot fail", .{try self.tyName(ty)});
+                if (self.ctx.isConstMaker(value)) {
+                    try self.errAt(value, "`catch` needs a fallible expression, and `{s}` cannot fail: its arguments are constants that pass its check, so it gives a `{s}`; write it without `catch`", .{ try self.plainText(value), try self.tyName(ty) });
+                } else try self.errAt(value, "`catch` needs a fallible expression; this expression has type `{s}` and cannot fail", .{try self.tyName(ty)});
                 _ = try self.synthExpr(handler);
                 return self.t().invalid_id;
             },
@@ -7031,7 +7037,9 @@ const Checker = struct {
             },
             .unknown, .invalid => ty,
             else => {
-                try self.errAt(operand, "`!` needs a fallible operand; this expression has type `{s}` and cannot fail", .{try self.tyName(self.canonical(ty))});
+                if (self.ctx.isConstMaker(operand)) {
+                    try self.errAt(operand, "`!` needs a fallible operand, and `{s}` cannot fail: its arguments are constants that pass its check, so it gives a `{s}`; write it without `!`", .{ try self.plainText(operand), try self.tyName(self.canonical(ty)) });
+                } else try self.errAt(operand, "`!` needs a fallible operand; this expression has type `{s}` and cannot fail", .{try self.tyName(self.canonical(ty))});
                 return ty;
             },
         };
@@ -9912,6 +9920,8 @@ const Checker = struct {
             const callee = ir.Call.callee(node);
             const name = try self.calleeName(callee);
             try self.errAt(callee, "fallible call to `{s}` must be wrapped with `!` (propagate) or `catch` (handle)", .{name});
+            if (sameNode(self.maker_runtime.call, node))
+                try self.noteAt(self.maker_runtime.arg, "`{s}` is not a constant, so `{s}` can fail as the program runs; with every argument a constant it is checked as Rig compiles", .{ try self.plainText(self.maker_runtime.arg), try self.plainText(node) });
             if (self.ctx.symbolOf(callee)) |id| {
                 const sym = self.ctx.symbols.items[id];
                 if (sym.decl_pos != sema.builtin_decl_pos) try self.note(sym.decl_pos, "`{s}` declared as fallible here", .{name});
@@ -12510,6 +12520,68 @@ const Checker = struct {
             .duration_add => self.checkDurationAdd(method, args),
             .by_name => self.checkByName(owner, method, args),
         };
+    }
+
+    /// A call of a std maker (`sema.ConstMaker`), once its arguments are
+    /// checked: when every argument, and every default it leaves out, is
+    /// a constant (`constInt`), the check std's maker makes runs as Rig
+    /// compiles, and the call gives the plain `T` of `returns`, its `T!`,
+    /// or an error naming the part it refuses. An argument known only as
+    /// the program runs leaves the call `returns` (`maker_runtime`). The
+    /// answer is the call's own, the same in every instance of a generic
+    /// body: a compile-time parameter is not a constant there. A task of
+    /// the call is checked the same, and holds what the maker gives as
+    /// declared, `Task[T!]`, as a task of any fallible call does.
+    fn constMakerCall(self: *Checker, home: *const SemContext, maker: sema.ConstMaker, args: []const Sexp, returns: TypeId) Error!TypeId {
+        const call = self.current_call orelse return returns;
+        const ok = switch (self.ctx.types.get(returns)) {
+            .fallible => |fl| fl.ok,
+            else => return returns,
+        };
+        const parts = maker.params();
+        var values: [7]Wide = undefined;
+        var nodes: [7]Sexp = @splat(.nil);
+        const slots = self.ctx.callSlotsOf(call);
+        if (slots == null and args.len != parts.len) return returns;
+        for (0..parts.len) |i| {
+            const slot: sema.ArgSlot = if (slots) |sl| (if (i < sl.len) sl[i] else return returns) else .{ .arg = @intCast(i) };
+            switch (slot) {
+                .arg => |ai| {
+                    const value = if (args[ai].isKind(.kwarg)) ir.Kwarg.value(args[ai]) else args[ai];
+                    values[i] = self.constInt(value) orelse {
+                        self.maker_runtime = .{ .call = call, .arg = value };
+                        return returns;
+                    };
+                    nodes[i] = value;
+                },
+                .default => |d| values[i] = sema.constIntOf(home, d.expr) orelse return returns,
+                .parts => return returns,
+            }
+        }
+        const i = sema.makerFault(maker, values[0..parts.len]) orelse {
+            if (ir.Call.task(call) != .nil) return returns;
+            try self.ctx.recordConstMaker(call);
+            return ok;
+        };
+        const a = self.ctx.arena.allocator();
+        const v = values[i];
+        const why: []const u8, const fix: []const u8 = switch (parts[i]) {
+            .year => .{ try a.print("{d} is beyond the years of a date, -9999 to 9999", .{v}), "write a year from -9999 to 9999" },
+            .month => .{ try a.print("{d} is not a month", .{v}), "write a month from 1 to 12" },
+            .day => blk: {
+                const names = [_][]const u8{ "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December" };
+                const n = sema.monthDays(values[0], values[1]);
+                break :blk .{ try a.print("{s} {d} has {d} days", .{ names[@intCast(values[1] - 1)], values[0], n }), try a.print("write a day from 1 to {d}", .{n}) };
+            },
+            .hour => .{ try a.print("{d} is not an hour of the day", .{v}), "write an hour from 0 to 23" },
+            .minute => .{ try a.print("{d} is not a minute of the hour", .{v}), "write a minute from 0 to 59" },
+            .second => .{ try a.print("{d} is not a second of the minute", .{v}), "write a second from 0 to 59" },
+            .ns => .{ try a.print("{d} is not a nanosecond of the second", .{v}), "write `ns` from 0 to 999_999_999" },
+        };
+        // The call as written, without the `&` of a task of it.
+        const shown = std.mem.trimEnd(u8, try self.plainText(call), "& ");
+        try self.errAt(if (nodes[i] != .nil) nodes[i] else call, "`{s}` always fails, its arguments being constants: {s}; {s}", .{ shown, why, fix });
+        return self.t().invalid_id;
     }
 
     /// `add` or `checked_add` of a `Date` (`sema.ArgCheck.calendar_add`):
@@ -17745,6 +17817,7 @@ const Checker = struct {
                     recv = subst;
                 }
                 const after_self = if (m.self_mode != .none and args.len > 0 and !args[0].isKind(.kwarg)) args[1..] else args;
+                const mark = self.ctx.diagnostics.items.len;
                 if (!try self.stdArgChecks(if (nt.foreign) |fo| fo.module_id else null, nt.sym.name, name, after_self, pos)) return self.skipCall(args);
                 const source = if (nt.foreign) |fo| fo.ctx.source else self.declSource(nt.id);
                 var info = methodParams(m, false, source);
@@ -17757,6 +17830,11 @@ const Checker = struct {
                 self.view_call = true;
                 try self.checkArgs(args, f, info, name, pos, .{ .origins = m.origins, .declared = fty.function.params });
                 try self.stdArgTypes(if (nt.foreign) |fo| fo.module_id else null, nt.sym.name, name, after_self);
+                const home = if (nt.foreign) |fo| fo.ctx else self.ctx;
+                // An argument with an error of its own leaves the call
+                // unchecked, and asks for no `!` besides.
+                if (sema.constMaker(home, nt.sym.name, name)) |maker|
+                    return if (self.ctx.diagnostics.items.len == mark) self.constMakerCall(home, maker, args, f.returns) else self.t().invalid_id;
                 return f.returns;
             }
             if (ct) |b| return self.badCall(args, b, "`{s}.{s}` is not a function; it takes no compile-time arguments", .{ tname, name });

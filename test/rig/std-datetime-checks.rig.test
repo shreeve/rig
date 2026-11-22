@@ -14,7 +14,7 @@ test "date add forms at each kind of call", '''
 '''
   # A method call, a call through the type with self first, each amount
   # by name, a value of an `Int` and a constant, and `checked_add`.
-  d = datetime.Date.new(2027, 1, 31)!
+  d = datetime.Date.new(2027, 1, 31)
   k = -1
   print(d.add(months: 1), datetime.Date.add(d, months: 1), d.add(weeks: 5), d.add(years: k, days: 1), d.add(days: k))
   print(d.checked_add(months: 1)!, datetime.Date.checked_add(d, months: 1)!, d.checked_add()!)
@@ -35,7 +35,7 @@ test "datetime add forms at each kind of call", '''
 test "time add forms at each kind of call", '''
   01:00:00 23:00:01 23:00:00.5 01:00:00 range
 '''
-  t = datetime.Time.new(23, 0)!
+  t = datetime.Time.new(23, 0)
   fun checked(t: datetime.Time, d: time.Duration) -> String
     r = t.checked_add(d) catch return String("range")
     String(r)
@@ -49,8 +49,8 @@ test "with, round, and floor forms at each kind of call", '''
   # Each field by name, an optional `Int` for a field; through the type
   # with self first; an increment from a variable, checked as the
   # program runs.
-  d = datetime.Date.new(2027, 1, 31)!
-  t = datetime.Time.new(8, 7, 3)!
+  d = datetime.Date.new(2027, 1, 31)
+  t = datetime.Time.new(8, 7, 3)
   dt = d.at(t).with(year: 2026, month: 11, day: 17)!
   day: Int? = none
   print(d.with(day: 1, month: 1)!, t.with(minute: 0, second: 0)!, dt.with(hour: 0, minute: 0, second: 0)!, datetime.Date.with(d, day: day)!)
@@ -58,7 +58,7 @@ test "with, round, and floor forms at each kind of call", '''
   print(t.round(hours: 1), datetime.Time.round(t, minutes: k), dt.floor(hours: 1), datetime.DateTime.round(dt, days: 1), t.floor(minutes: 1))
 
 fail "a date's add takes its amounts by name", "3:13: `add` of a `Date` takes its amounts by name, and no positional argument: `add(days: 1)`", "4:21: `checked_add` of a `Date` takes its amounts by name, and no positional argument: `checked_add(days: n)`", "5:28: `add` of a `Date` takes its amounts by name, and no positional argument: `add(days: 1)`", "6:24: `add` of a `Date` takes its amounts by name, and no positional argument: `add(days: 2)`", errors: 4
-  d = datetime.Date.new(2027, 1, 31)!
+  d = datetime.Date.new(2027, 1, 31)
   n = 3
   print(d.add(1))
   print(d.checked_add(n)!)
@@ -66,30 +66,30 @@ fail "a date's add takes its amounts by name", "3:13: `add` of a `Date` takes it
   print(d.add(months: 1, 2))
 
 fail "a date has no time of day", "2:13: a `Date` has no time of day, so `add` takes no `hours:`: a date and a time of day is a `DateTime`, `d.at(t).add(hours: 1)`", "3:22: a `Date` has no time of day, so `add` takes no `minutes:`: a date and a time of day is a `DateTime`, `d.at(t).add(days: 1, minutes: 30)`", "4:21: a `Date` has no time of day, so `checked_add` takes no `seconds:`: a date and a time of day is a `DateTime`, `d.at(t).checked_add(seconds: 1)`", "5:13: a `Date` has no time of day, so `add` takes no `ns:`: a date and a time of day is a `DateTime`, `d.at(t).add(ns: 5)`", errors: 4
-  d = datetime.Date.new(2027, 1, 31)!
+  d = datetime.Date.new(2027, 1, 31)
   print(d.add(hours: 1))
   print(d.add(days: 1, minutes: 30))
   print(d.checked_add(seconds: 1)!)
   print(d.add(ns: 5))
 
 fail "a datetime's add takes one positional argument", "3:17: `add` takes one duration by position and its calendar amounts by name: `add(1, years: 2)`, not a second positional argument", "4:25: `checked_add` takes one duration by position and its calendar amounts by name: `checked_add(1, years: 2)`, not a second positional argument", "5:38: `add` takes one duration by position and its calendar amounts by name: `add(0.5, years: 2)`, not a second positional argument", errors: 3
-  d = datetime.Date.new(2027, 1, 31)!
-  dt = d.at(datetime.Time.new(1, 0)!)
+  d = datetime.Date.new(2027, 1, 31)
+  dt = d.at(datetime.Time.new(1, 0))
   print(dt.add(1, 2))
   print(dt.checked_add(1, 2, 3)!)
   print(datetime.DateTime.add(dt, 0.5, 2))
 
 fail "with takes its fields by name", "3:14: `with` takes the fields it replaces by name, `with(day: 1)`, and no positional argument", "4:15: `with` takes the fields it replaces by name, `with(hour: 0)`, and no positional argument", "5:22: `with` takes the fields it replaces by name, `with(second: 0)`, and no positional argument", "6:37: `with` takes the fields it replaces by name, `with(second: 0)`, and no positional argument", errors: 4
-  d = datetime.Date.new(2027, 1, 31)!
-  dt = d.at(datetime.Time.new(1, 0)!)
+  d = datetime.Date.new(2027, 1, 31)
+  dt = d.at(datetime.Time.new(1, 0))
   print(d.with(2024)!)
   print(dt.with(2024, month: 1)!)
   print(dt.time().with(1)!)
   print(datetime.Time.with(dt.time(), 1)!)
 
 fail "time and datetime round take one allowed unit", "3:15: `round` takes a unit from `ns:` to `hours:` and its increment, and `days:` is none of them", "4:24: an increment of `round` divides the next larger unit and is smaller than it, so `minutes:` takes 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, or 30, and `45` is not one of them", "5:22: `round` takes `days: 1` and no other number of days, and `2` is not 1", "6:16: `round` takes a unit from `ns:` to `hours:`, or `days: 1`, and its increment, and `weeks:` is none of them", "7:20: an increment of `floor` divides the next larger unit and is smaller than it, so `ns:` takes 1, 2, 4, 5, 8, 10, 20, 25, 40, 50, 100, 125, 200, 250, or 500, and `3` is not one of them", "8:23: an increment of `round` divides the next larger unit and is smaller than it, so `hours:` takes 1, 2, 3, 4, 6, 8, or 12, and `24` is not one of them", "9:15: `round` takes a unit and its increment by name, `round(minutes: 15)`, and no positional argument", "10:26: `floor` takes one unit and its increment, not 2: name one of them, `floor(hours: 1)`", "11:27: `round` takes one unit and its increment, not 2: name one of them, `round(minutes: 1)`", "12:27: `round` takes one unit and its increment, not 2: write the increment in one unit, `round(ms: 250)`", "13:25: `round` takes one unit and its increment, not 2: name one of them, `round(days: 1)`", errors: 11
-  t = datetime.Time.new(1, 0)!
-  dt = datetime.Date.new(2027, 1, 31)!.at(t)
+  t = datetime.Time.new(1, 0)
+  dt = datetime.Date.new(2027, 1, 31).at(t)
   print(t.round(days: 1))
   print(t.round(minutes: 45))
   print(dt.round(days: 2))
@@ -106,15 +106,15 @@ fail "checked methods are not values", "1:19: `std.datetime.Date.add` checks its
   f = datetime.Date.add
   g = datetime.DateTime.checked_add
   h = datetime.Time.with
-  t = datetime.Time.new(1, 0)!
+  t = datetime.Time.new(1, 0)
   r = t.round
 
 test "a closure passes a checked method", '''
   2027-02-28 01:00:00
 '''
   # §10.2: what a function value cannot carry, a closure can.
-  d = datetime.Date.new(2027, 1, 31)!
-  t = datetime.Time.new(1, 7)!
+  d = datetime.Date.new(2027, 1, 31)
+  t = datetime.Time.new(1, 7)
   fun on_date(x: datetime.Date, f: ?fun(datetime.Date) -> datetime.Date) -> datetime.Date
     f(x)
 
@@ -135,7 +135,7 @@ fail "a date's add refuses a duration by position", "6:13: a `Date` has no time 
   # The fix for a positional argument is `days:` only for an `Int`; for a
   # `Float` or a `Duration`, and for a unit beside other amounts, it is a
   # `DateTime` with every amount written.
-  d = datetime.Date.new(2027, 1, 31)!
+  d = datetime.Date.new(2027, 1, 31)
   half = time.duration(0.5)
   print(d.add(0.5))
   print(d.add(time.duration(hours: 24)))
@@ -160,12 +160,12 @@ fail "a generic body cannot call a checked method", "19:7: `bump[datetime.DateTi
   fun near[T](x: T, k: Int?) -> T
     x.round(k, k, k, k, k, k)
 
-  dt = datetime.DateTime.new(2027, 1, 31, 1)!
-  d = datetime.Date.new(2027, 1, 31)!
+  dt = datetime.DateTime.new(2027, 1, 31, 1)
+  d = datetime.Date.new(2027, 1, 31)
   print(bump(dt, time.duration(1)))
   print(next(d))
   print(change(d, 1)!)
-  print(near(datetime.Time.new(1, 7)!, 15))
+  print(near(datetime.Time.new(1, 7), 15))
   print(near(time.duration(90), none))
 
 test "a generic body calls an unchecked method", '''
@@ -179,7 +179,7 @@ test "a generic body calls an unchecked method", '''
   fun apply[T](x: T, f: ?fun(T) -> T) -> T
     f(x)
 
-  print(later(datetime.Time.new(1, 0)!, time.duration(1)), apply(datetime.DateTime.new(2027, 1, 31, 1)!, |x| x.add(1)))
+  print(later(datetime.Time.new(1, 0), time.duration(1)), apply(datetime.DateTime.new(2027, 1, 31, 1), |x| x.add(1)))
 
 test "datetime add of several units", '''
   2026-03-09T05:00:00 2026-03-09T04:00:00 2026-03-08T02:59:59.5
@@ -193,12 +193,12 @@ test "datetime add of several units", '''
 
   dt = datetime.DateTime.parse("2026-03-08T02:30")!
   print(dt.add(days: 1, hours: 2, minutes: 30), dt.add(days: 1, hours: 2, minutes: -30), dt.add(minutes: 30, seconds: -0.5))
-  top = datetime.DateTime.new(9999, 12, 31, 22)!
+  top = datetime.DateTime.new(9999, 12, 31, 22)
   print(dt.checked_add(days: 1, hours: 2, minutes: 30)!, step(top, 2), dt.checked_add(days: -1, hours: -1, minutes: 30)!)
 
 fail "two units on a time or a datetime get one increment it takes", "3:27: `round` takes one unit and its increment, not 2: name one unit and an increment it takes, `round(minutes: 6)`", "4:26: `floor` takes one unit and its increment, not 2: name one unit and an increment it takes, `floor(hours: 4)`", "5:28: `round` takes one unit and its increment, not 2: name one unit and an increment it takes, `round(seconds: 6)`", errors: 3
-  t = datetime.Time.new(1, 0)!
-  dt = datetime.Date.new(2027, 1, 31)!.at(t)
+  t = datetime.Time.new(1, 0)
+  dt = datetime.Date.new(2027, 1, 31).at(t)
   print(t.round(minutes: 7, seconds: 1))
   print(dt.floor(hours: 5, minutes: 1))
   print(dt.round(seconds: 7, ms: 1))

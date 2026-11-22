@@ -10,8 +10,9 @@ pub obj Date: Eq + Ord + Hash + Print
   d: U8
 
   # The date `year`-`month`-`day`. Fails with `DateTimeError.range`
-  # when it is not a real date in the range: `Date.new(2023, 2, 29)!`
-  # fails.
+  # when it is not a real date in the range: February 29 of 2023 fails,
+  # and `Date.new(2023, 2, 29)`, its arguments constants, is refused as
+  # Rig compiles.
   pub fun new(year: Int, month: Int, day: Int) -> Date!
     if not within(year, MIN_YEAR, MAX_YEAR) or not within(month, 1, 12) or not within(day, 1, month_days(year, month))
       return DateTimeError.range
@@ -84,7 +85,7 @@ pub obj Date: Eq + Ord + Hash + Print
 
   # The `n`-th weekday `w` of the date's month, from its end when `n` is
   # negative: the fourth Thursday of November 2026 is
-  # `Date.new(2026, 11, 1)!.nth_weekday_of_month(4, .thursday)!`, the
+  # `Date.new(2026, 11, 1).nth_weekday_of_month(4, .thursday)!`, the
   # 26th. Fails with `DateTimeError.range` for an `n` other than 1 to 5
   # or -1 to -5, and when the month has no such day (jiff-core
   # `civil/date.rs:332`).

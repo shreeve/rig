@@ -7103,18 +7103,7 @@ pub const Emitter = struct {
                 try self.emitExpr(ir.Weak.operand(sexp));
                 try self.w.writeAll(".weakRef()");
             },
-            .call => if (self.facts.elemCallOf(self.facts.calleeOf(sexp))) |ec|
-                try self.emitElemCall(sexp, ec)
-            else if (self.simdConversion(sexp)) |vt| {
-                // `Simd[T, n](a)`: the vector of an array's elements.
-                try self.writeVectorOpen(vt);
-                try self.emitBare(ir.Call.args(sexp)[0]);
-                try self.w.writeAll("))");
-            }
-            else if (try self.hoistsArgs(sexp))
-                try self.emitHoistedCall(sexp)
-            else
-                try self.emitCallDirect(sexp),
+            .call => if (self.facts.isConstMaker(sexp)) try self.emitConstMaker(sexp) else try self.emitCall(sexp),
             // Compile-time arguments are emitted by the call or type that
             // takes them; sema rejects a bracket list as a value.
             .inst => return self.unsupported(sexp, "a bracket list of compile-time arguments as a value"),
@@ -9340,6 +9329,37 @@ pub const Emitter = struct {
             return self.w.print("{s}.bytes()", .{reach});
         }
         try self.emitBare(place);
+    }
+
+    /// A call, by the form that writes it.
+    fn emitCall(self: *Emitter, sexp: Sexp) Error!void {
+        if (self.facts.elemCallOf(self.facts.calleeOf(sexp))) |ec| return self.emitElemCall(sexp, ec);
+        if (self.simdConversion(sexp)) |vt| {
+            // `Simd[T, n](a)`: the vector of an array's elements.
+            try self.writeVectorOpen(vt);
+            try self.emitBare(ir.Call.args(sexp)[0]);
+            return self.w.writeAll("))");
+        }
+        if (try self.hoistsArgs(sexp)) return self.emitHoistedCall(sexp);
+        try self.emitCallDirect(sexp);
+    }
+
+    /// A std maker's call checked as Rig compiles
+    /// (`facts.isConstMaker`): its callee's `T!` unwrapped, a failure the
+    /// checker ruled out reported as a bug in Rig (`rig.makerPanic`),
+    /// never Zig's `unreachable`. The callee takes a slot for a failure's
+    /// fields, which the call is given in a block of its own, as a
+    /// `catch` gives one (`openCatchSlot`).
+    fn emitConstMaker(self: *Emitter, call: Sexp) Error!void {
+        const id = self.nextId();
+        const name = try self.fmt("__rig_fail_{d}", .{id});
+        const label = try self.fmt("__rig_fb_{d}", .{id});
+        const saved = self.fail_slot;
+        defer self.fail_slot = saved;
+        try self.w.print("({s}: {{ var {s}: rig.ErrData = undefined; break :{s} ", .{ label, name, label });
+        self.fail_slot = .{ .call = call, .expr = try self.fmt("rig.failSlot(&{s})", .{name}) };
+        try self.emitCall(call);
+        try self.w.print(" catch |{s}_e| rig.makerPanic({s}_e); }})", .{ name, name });
     }
 
     /// A call. One that may reach an inlined function is read through

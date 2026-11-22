@@ -4976,6 +4976,14 @@ pub fn proofPanic() noreturn {
     @panic("rig: a proven check failed (compiler bug)");
 }
 
+/// A std maker called with constants the compiler checked failed
+/// (SPEC §13): the compiler's check and the library's disagree, a bug
+/// in Rig.
+pub fn makerPanic(e: anyerror) noreturn {
+    @branchHint(.cold);
+    std.debug.panic("rig: a std maker failed with {s} on constants the compiler checked (compiler bug)", .{@errorName(e)});
+}
+
 /// `i` as the start of `width` elements within `count`, or null when a
 /// test `p` does not prove fails. A proven test is made only as an
 /// assertion (`verify_proofs`).

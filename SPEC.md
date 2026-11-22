@@ -12626,7 +12626,45 @@ done
 ```
 
 A bare call to a fallible function is rejected, and so is `!` on a call
-that cannot fail. A `drop` body and a `defer` cannot propagate, and a
+that cannot fail. A call of one of std's listed makers, `Date.new`,
+`Time.new`, and `DateTime.new` of `std.datetime` ([STD](docs/STD.md#stddatetime)),
+whose every argument is an integer Rig computes as it checks the
+program (a literal, a constant ([§3](#constants)), a compile-time
+function's value, a type's limit such as `Int.max`, a binding of the
+same function that never changes and holds one, and operators and
+ternaries over these; not a closure's capture, nor a compile-time
+parameter in its function's body) is checked as Rig compiles: it cannot
+fail, so it gives the plain type and takes no `!`, and a constant the
+maker refuses is rejected, a task of the call too. With any argument
+known only as the program runs, the call is fallible, as declared, and
+the error that asks for its `!` names that argument:
+
+```rig
+use std.datetime
+
+fun new_year(y: Int) -> datetime.Date!
+  datetime.Date.new(y, 1, 1)!
+
+sub main()!
+  print(datetime.Date.new(2026, 1, 31), new_year(2027)!)
+```
+
+```output
+2026-01-31 2027-01-01
+```
+
+```rig reject
+use std.datetime
+
+sub main()
+  print(datetime.Date.new(2023, 2, 29))
+```
+
+```error
+February 2023 has 28 days; write a day from 1 to 28
+```
+
+A `drop` body and a `defer` cannot propagate, and a
 closure propagates only when its type can fail: one checked against
 `?fun(?String) -> Int!`, `?sub(?String)!`, or `*fun(?String) -> Int!`
 sends the failure of its `!` to whoever calls it, as a function does.

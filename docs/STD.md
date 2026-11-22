@@ -892,14 +892,19 @@ it.
 A value is made from parts or text by a fallible function, which fails
 with `DateTimeError.range` when the parts are not a real value in the
 range and `DateTimeError.invalid` when the text is not the type's form.
+A maker from parts whose every argument is a constant is checked as Rig
+compiles and gives the plain type, with no `!`, and a constant it
+refuses is a compile error ([SPEC §13](../SPEC.md#13-errors)):
+`Date.new(2026, 1, 31)` is a `Date`, and `Date.new(y, 1, 31)!` with a
+`y` known only as the program runs is fallible.
 Arithmetic that walks past the range panics, as `Int`'s does, and each
 `checked_add` fails instead.
 
 | Member | Result |
 |---|---|
-| `Date.new(year, month, day)!` | the date: `Date.new(2024, 2, 29)!`; `Date.new(2023, 2, 29)!` fails |
-| `Time.new(hour, minute, second = 0, ns = 0)!` | the time of day; `Time.new(23, 59, 60)!` fails |
-| `DateTime.new(year, month, day, hour = 0, minute = 0, second = 0, ns = 0)!` | the date and time |
+| `Date.new(year: Int, month: Int, day: Int) -> Date!` | the date, failing with `range` when it is not a real one; with every argument a constant, a `Date` checked as Rig compiles: `Date.new(2024, 2, 29)`, and `Date.new(2023, 2, 29)` is refused |
+| `Time.new(hour: Int, minute: Int, second: Int = 0, ns: Int = 0) -> Time!` | the time of day, as `Date.new`: `Time.new(8, 30)`, and `Time.new(23, 59, 60)` is refused |
+| `DateTime.new(year: Int, month: Int, day: Int, hour: Int = 0, minute: Int = 0, second: Int = 0, ns: Int = 0) -> DateTime!` | the date and time, as `Date.new` |
 | `d.at(t: Time) -> DateTime`, `dt.date()`, `dt.time()` | a date and a time joined, and taken apart |
 | `year()`, `month()`, `day()`, `weekday()`, `day_of_year()`, `days_in_month()`, `iso_week()`, `iso_week_year()` | a `Date`'s and a `DateTime`'s readers, each an `Int` but `weekday()`: the month is 1 to 12, the day of the year 1 to 366; 2025-12-29 is in ISO week 1 of 2026 |
 | `hour()`, `minute()`, `second()`, `nanosecond()` | a `Time`'s and a `DateTime`'s readers; `nanosecond()` is the whole part below the second, 0 to 999,999,999 |
@@ -935,12 +940,12 @@ drifts (Jan 31, Feb 28, Mar 28).
 use std.datetime
 
 sub main()!
-  due = datetime.Date.new(2027, 1, 31)!.add(months: 1)
+  due = datetime.Date.new(2027, 1, 31).add(months: 1)
   print(due, due.weekday(), due.add(days: 1))
-  print(datetime.Date.new(2024, 2, 29)!.add(years: 1), datetime.Date.new(2026, 11, 1)!.add(months: 1, days: -1))
-  born = datetime.Date.new(2024, 2, 29)!
-  print(datetime.Date.new(2025, 2, 28)!.years_since(born), datetime.Date.new(2025, 3, 1)!.years_since(born))
-  print(datetime.Date.new(2026, 11, 1)!.nth_weekday_of_month(4, .thursday)!, datetime.Date.new(2025, 12, 29)!.iso_week())
+  print(datetime.Date.new(2024, 2, 29).add(years: 1), datetime.Date.new(2026, 11, 1).add(months: 1, days: -1))
+  born = datetime.Date.new(2024, 2, 29)
+  print(datetime.Date.new(2025, 2, 28).years_since(born), datetime.Date.new(2025, 3, 1).years_since(born))
+  print(datetime.Date.new(2026, 11, 1).nth_weekday_of_month(4, .thursday)!, datetime.Date.new(2025, 12, 29).iso_week())
 ```
 
 ```output
@@ -957,8 +962,8 @@ sub main()!
   dt = datetime.DateTime.parse("2026-03-08T02:30")!
   print(dt.add(days: 1), dt.add(0.5), dt.add(days: 1, hours: -1))
   print(dt.round(hours: 1), dt.floor(days: 1), dt.time().add(hours: 23))
-  late = datetime.Time.new(23, 0)!
-  print(datetime.Time.new(1, 0)!.since(late), late.checked_add(hours: 2) catch late)
+  late = datetime.Time.new(23, 0)
+  print(datetime.Time.new(1, 0).since(late), late.checked_add(hours: 2) catch late)
   _ = datetime.Date.parse("2026-03-08T02:30") catch |e| print(e)
 ```
 
@@ -1023,7 +1028,7 @@ sub main()!
   print(z.date(), z.weekday())
   print(z.add(days: 1))
   print(z.add(hours: 24))
-  due = datetime.Date.new(2027, 1, 31)!.add(months: 1)
+  due = datetime.Date.new(2027, 1, 31).add(months: 1)
   print(due.days_since(z.date()))
   dt = datetime.DateTime.parse("2026-03-08T02:30")!
   print(dt.in_zone(denver)!)
