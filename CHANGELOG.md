@@ -464,6 +464,25 @@ serve no HTTP.
 
 ### Added
 
+- **Groups, spreads, object update, and the `name:` shorthand**
+  ([SPEC "Functions"](SPEC.md#functions), [design/options.md](docs/design/options.md),
+  sections 2 to 4). `..net: Net` among a function's parameters makes an
+  object's fields its name-only options, which the body reads as
+  `net.timeout`; a field without a default is a required argument, given
+  by name. `..v` among a call's arguments gives a stored value's fields to
+  the group of exactly its type, a field named beside it winning in any
+  order, and `Point(x: 3, ..p)` is a copy of `p` with `x` set. `name:`
+  before `,` or `)` on its line is `name: name`, for a local or a
+  parameter. A call lowers to the code written by hand: a spread is field
+  reads as arguments, defaults filled at the call. Groups and object
+  update hold plain data; a function with a group is not a value; a
+  unit's keyword never fills a group's field; and a spread's operand is a
+  name or a field path, read where it is written, one per group.
+  std.datetime's `add` takes its calendar amounts as the group `period`,
+  a `Period`, and `with` its fields as `date`, a `DateFields`, and
+  `clock`, a `ClockFields`, with the parameters they had, so a program can
+  keep a period and apply it, `start.add(..monthly)!`. No released program
+  changes.
 - **A maker called with constants is checked as Rig compiles** ([SPEC §13](SPEC.md#13-errors)): a call of `Date.new`, `Time.new`, `DateTime.new`, `Instant.from_unix_s`, `from_unix_ms`, or `from_unix_us` of `std.datetime`, or `Duration.from_parts` of `std.time`, whose every argument is an integer Rig computes as it checks the program (a literal, a constant, a compile-time function's value, a type's limit, a binding of the same function that never changes and holds one, and operators and ternaries over these) cannot fail, so it gives the plain `Date`, `Time`, or `DateTime` and takes no `!`: `datetime.Date.new(2026, 1, 31)`. A constant the maker refuses is a compile error naming why and the fix, a task of the call too, "`datetime.Date.new(2023, 2, 29)` always fails, its arguments being constants: February 2023 has 28 days; write a day from 1 to 28"; `!` or `catch` on a call that cannot fail is rejected, as on any such call; with any argument known only as the program runs, the call is fallible as declared, and the error that asks for its `!` names that argument. The check is std's, held a second time in the compiler, and a test runs each value either side of every boundary through both. `std.datetime` came after 0.3.0, so no released program changes; `tools/migrate-constant-makers.py PATH` drops the `!` from a program's calls whose arguments are integer literals, reached through the names `use std.datetime` binds, and names each literal call it leaves for a person; a call whose constants are names it leaves to the compiler's error.
 - **A failure's trace in debug builds.** A failure that leaves `main`
   writes `error: E.name` as before, then a line `  file.rig:L:C in

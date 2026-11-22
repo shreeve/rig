@@ -162,10 +162,15 @@ A new session, human or agent, takes these steps in order:
   number known only as the program runs folded into a fallible call's
   failure, clamped in a wait, or refused; no `panic(` in std's time
   code, with its test; the oracle with no saturation left out; and
-  `tools/migrate-tov.py`, with a patch for Trig.
-  Next, in order: groups and spreads, then owners and read views in
-  groups (the owner, 2026-11-22; the build plan's steps 2 and 3); then
-  `TimeZone` (phase 4), written to total or visible.
+  `tools/migrate-tov.py`, with a patch for Trig. Groups, spreads,
+  object update, and the `name:` shorthand (branch `named-groups`, the
+  build plan's step 2; records/2026-11/named-options-groups) are a
+  rewrite of the signature and the call checked twice, as iterator
+  chains are, with std.datetime's `Period`, `DateFields`, and
+  `ClockFields` as groups; they hold plain data only.
+  Next, in order: owners and read views in groups and object update,
+  lifting the plain-data limit (the owner, 2026-11-22; the build plan's
+  step 3); then `TimeZone` (phase 4), written to total or visible.
 - **The view vocabulary** (owner, 2026-11-20; #1192 landed PR 1):
   places, read and write views, read-only, unusable, and cells are the
   words of the docs, the messages, and the code. PR 1 is the wording; PR 2
