@@ -1381,8 +1381,8 @@ const Checker = struct {
         switch (sigil) {
             .none => if (moving) |i| {
                 const ty = gt.tys[i];
-                const kind = if (sema.cloneable(self.ctx, ty) == .bump) "a handle" else "which owns";
-                try self.errAt(spread, "`..{s}` gives `{s}`, a `{s}`, {s}: write `..<{s}` to move it, or `..+{s}` to clone it", .{ place, gt.fields[i].name, try self.tyName(ty), kind, place, place });
+                const handle = sema.cloneable(self.ctx, ty) == .bump;
+                try self.errAt(spread, "`..{s}` gives `{s}`, a `{s}`, {s}: write `..<{s}` to move it, or `..+{s}` to {s} it", .{ place, gt.fields[i].name, try self.tyName(ty), if (handle) "a handle" else "which owns", place, place, if (handle) "share" else "clone" });
                 return null;
             },
             .move => if (moving == null) {

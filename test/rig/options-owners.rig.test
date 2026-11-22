@@ -587,7 +587,7 @@ test "a spread shares a handle field by `..+` and moves it by `..<`", "1 2\n1 2"
   show(..+a)
   show(..<a)
 
-fail "a bare spread of a handle field is refused", "`..a` gives `b`, a `*Box`, a handle: write `..<a` to move it, or `..+a` to clone it", errors: 1
+fail "a bare spread of a handle field is refused", "`..a` gives `b`, a `*Box`, a handle: write `..<a` to move it, or `..+a` to share it", errors: 1
   obj Box
     n: Int
 
