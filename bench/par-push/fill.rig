@@ -87,7 +87,7 @@ sub main()
         c = serial(?sources, ?bases)
       else
         c = pushed(?sources, ?bases, ?sizes, limits[form])
-      ns = t.elapsed().ns()
+      ns = Int(t.elapsed().ns())
       best[form] = ns if best[form] == 0 or ns < best[form]
       checks[form] = c
   for form in 0..5

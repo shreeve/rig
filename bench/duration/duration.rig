@@ -52,53 +52,53 @@ fun nothing() -> Int!
 called fun elapsed_a(n: Int) -> Int
   t = time.monotonic()
   for _ in 0..n
-    d = DurA.from_ns(t.elapsed().ns())
+    d = DurA.from_ns(Int(t.elapsed().ns()))
     hint.keep(?d)
   n
 
 called fun elapsed_b(n: Int) -> Int
   t = time.monotonic()
   for _ in 0..n
-    d = DurB(ns: t.elapsed().ns())
+    d = DurB(ns: Int(t.elapsed().ns()))
     hint.keep(?d)
   n
 
 # `t.since(u)` between two readings.
 called fun since_a(n: Int) -> Int
   u = time.monotonic()
-  t = u.add(ns: 1_234_567_891)
+  t = (u.add(ns: 1_234_567_891) catch panic("u.add(ns: 1_234_567_891) failed"))
   for _ in 0..n
-    d = DurA.from_ns(hint.opaque(t).since(u).ns())
+    d = DurA.from_ns(Int(hint.opaque(t).since(u).ns()))
     hint.keep(?d)
   n
 
 called fun since_b(n: Int) -> Int
   u = time.monotonic()
-  t = u.add(ns: 1_234_567_891)
+  t = (u.add(ns: 1_234_567_891) catch panic("u.add(ns: 1_234_567_891) failed"))
   for _ in 0..n
-    d = DurB(ns: hint.opaque(t).since(u).ns())
+    d = DurB(ns: Int(hint.opaque(t).since(u).ns()))
     hint.keep(?d)
   n
 
 # A deadline, `start.add(d)`, and its comparison with a reading.
 called fun deadline_a(n: Int) -> Int
   start = time.monotonic()
-  probe = start.add(ns: 60 * NS_PER_S)
+  probe = (start.add(ns: 60 * NS_PER_S) catch panic("start.add(ns: 60 * NS_PER_S) failed"))
   d = DurA(s: 120, ns: 5)
   hits = 0
   for _ in 0..n
-    dl = start.add(ns: hint.opaque(d).total_ns())
+    dl = (start.add(ns: hint.opaque(d).total_ns()) catch panic("start.add(ns: hint.opaque(d).total_ns()) failed"))
     if probe >= dl
       hits += 1
   hits + n
 
 called fun deadline_b(n: Int) -> Int
   start = time.monotonic()
-  probe = start.add(ns: 60 * NS_PER_S)
+  probe = (start.add(ns: 60 * NS_PER_S) catch panic("start.add(ns: 60 * NS_PER_S) failed"))
   d = DurB(ns: 120 * NS_PER_S + 5)
   hits = 0
   for _ in 0..n
-    dl = start.add(ns: hint.opaque(d).ns)
+    dl = (start.add(ns: hint.opaque(d).ns) catch panic("start.add(ns: hint.opaque(d).ns) failed"))
     if probe >= dl
       hits += 1
   hits + n
@@ -202,7 +202,7 @@ fun run(k: Int, b: Bool, n: Int) -> Int!
     got = select_b(n)! if b else select_a(n)!
   else
     got = after0_b(n)! if b else after0_a(n)!
-  ns = start.elapsed().ns()
+  ns = Int(start.elapsed().ns())
   if got != WANT[k] * n
     panic("a loop gave a different total")
   ns

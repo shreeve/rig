@@ -56,7 +56,7 @@ sub main()
         t = flat(?xs, ?keys, AHEAD[k])
       else
         t = branchy(?xs, ?keys, AHEAD[k - n])
-      ns = start.elapsed().ns()
+      ns = Int(start.elapsed().ns())
       if t != want[k / n]
         panic("a different total")
       if ns < best[k]

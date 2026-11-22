@@ -38,7 +38,7 @@ called fun int_insert(m: !IntMap, n: Int) -> Row
   t = time.monotonic()
   for i in 0..n
     !m.put(i *% -7046029254386353131, i)
-  Row(ns: t.elapsed().ns(), check: m.len)
+  Row(ns: Int(t.elapsed().ns()), check: m.len)
 
 called fun int_hit(m: ?IntMap, n: Int) -> Row
   sum = 0
@@ -46,7 +46,7 @@ called fun int_hit(m: ?IntMap, n: Int) -> Row
   for i in 0..n
     if m.get(i *% -7046029254386353131) as v
       sum += v
-  Row(ns: t.elapsed().ns(), check: sum)
+  Row(ns: Int(t.elapsed().ns()), check: sum)
 
 called fun int_miss(m: ?IntMap, n: Int) -> Row
   found = 0
@@ -54,14 +54,14 @@ called fun int_miss(m: ?IntMap, n: Int) -> Row
   for i in n..2 * n
     if m.has(i *% -7046029254386353131)
       found += 1
-  Row(ns: t.elapsed().ns(), check: found)
+  Row(ns: Int(t.elapsed().ns()), check: found)
 
 called fun int_walk(m: ?IntMap) -> Row
   sum = 0
   t = time.monotonic()
   for e in m.items()
     sum += e.value
-  Row(ns: t.elapsed().ns(), check: sum)
+  Row(ns: Int(t.elapsed().ns()), check: sum)
 
 called sub ints(n: Int)
   m = IntMap.new()
@@ -78,7 +78,7 @@ called fun string_insert(m: !StringMap, put: List[String]) -> Row
   t = time.monotonic()
   for k, i in <put
     !m.put(<k, i)
-  Row(ns: t.elapsed().ns(), check: m.len)
+  Row(ns: Int(t.elapsed().ns()), check: m.len)
 
 called fun string_hit(m: ?StringMap, look: ?List[String]) -> Row
   sum = 0
@@ -86,7 +86,7 @@ called fun string_hit(m: ?StringMap, look: ?List[String]) -> Row
   for k in look
     if m.get(k) as v
       sum += v
-  Row(ns: t.elapsed().ns(), check: sum)
+  Row(ns: Int(t.elapsed().ns()), check: sum)
 
 called fun string_miss(m: ?StringMap, miss: ?List[String]) -> Row
   found = 0
@@ -94,14 +94,14 @@ called fun string_miss(m: ?StringMap, miss: ?List[String]) -> Row
   for k in miss
     if m.has(k)
       found += 1
-  Row(ns: t.elapsed().ns(), check: found)
+  Row(ns: Int(t.elapsed().ns()), check: found)
 
 called fun string_walk(m: ?StringMap) -> Row
   sum = 0
   t = time.monotonic()
   for e in m.items()
     sum += e.value
-  Row(ns: t.elapsed().ns(), check: sum)
+  Row(ns: Int(t.elapsed().ns()), check: sum)
 
 called sub strings(n: Int)
   put: List[String] = List()
@@ -135,7 +135,7 @@ called fun pair_insert(m: !PairMap, n: Int) -> Row
   t = time.monotonic()
   for i in 0..n
     !m.put(pair(i), i)
-  Row(ns: t.elapsed().ns(), check: m.len)
+  Row(ns: Int(t.elapsed().ns()), check: m.len)
 
 called fun pair_hit(m: ?PairMap, n: Int) -> Row
   sum = 0
@@ -143,7 +143,7 @@ called fun pair_hit(m: ?PairMap, n: Int) -> Row
   for i in 0..n
     if m.get(pair(i)) as v
       sum += v
-  Row(ns: t.elapsed().ns(), check: sum)
+  Row(ns: Int(t.elapsed().ns()), check: sum)
 
 called fun pair_miss(m: ?PairMap, n: Int) -> Row
   found = 0
@@ -151,7 +151,7 @@ called fun pair_miss(m: ?PairMap, n: Int) -> Row
   for i in n..2 * n
     if m.has(pair(i))
       found += 1
-  Row(ns: t.elapsed().ns(), check: found)
+  Row(ns: Int(t.elapsed().ns()), check: found)
 
 called sub pairs(n: Int)
   m = PairMap.new()
@@ -177,7 +177,7 @@ called fun triple_insert(m: !TripleMap, n: Int) -> Row
   t = time.monotonic()
   for i in 0..n
     !m.put(triple(i), i)
-  Row(ns: t.elapsed().ns(), check: m.len)
+  Row(ns: Int(t.elapsed().ns()), check: m.len)
 
 called fun triple_hit(m: ?TripleMap, n: Int) -> Row
   sum = 0
@@ -185,7 +185,7 @@ called fun triple_hit(m: ?TripleMap, n: Int) -> Row
   for i in 0..n
     if m.get(triple(i)) as v
       sum += v
-  Row(ns: t.elapsed().ns(), check: sum)
+  Row(ns: Int(t.elapsed().ns()), check: sum)
 
 called fun triple_miss(m: ?TripleMap, n: Int) -> Row
   found = 0
@@ -193,7 +193,7 @@ called fun triple_miss(m: ?TripleMap, n: Int) -> Row
   for i in n..2 * n
     if m.has(triple(i))
       found += 1
-  Row(ns: t.elapsed().ns(), check: found)
+  Row(ns: Int(t.elapsed().ns()), check: found)
 
 called sub triples(n: Int)
   m = TripleMap.new()
@@ -212,7 +212,7 @@ called fun small_hit(m: ?IntMap, n: Int, size: Int) -> Row
   for i in 0..n
     if m.get((i % size) *% -7046029254386353131) as v
       sum += v
-  Row(ns: t.elapsed().ns(), check: sum)
+  Row(ns: Int(t.elapsed().ns()), check: sum)
 
 called sub small(n: Int, size: Int)
   m = IntMap.new()
@@ -233,7 +233,7 @@ called fun intern_words(names: !text.Interner, words: ?List[String]) -> WordsRow
   t = time.monotonic()
   for w in words
     sum +%= U64(!names.intern(w))
-  WordsRow(ns: t.elapsed().ns(), sum: sum)
+  WordsRow(ns: Int(t.elapsed().ns()), sum: sum)
 
 called sub intern(n: Int)
   words: List[String] = List()
@@ -265,7 +265,7 @@ called fun int_ensure_pass(m: !IntMap, n: Int) -> Int
   for i in 0..n
     w = !m.ensure(i *% -7046029254386353131, 0)
     w += 1
-  t.elapsed().ns()
+  Int(t.elapsed().ns())
 
 called sub int_ensure(n: Int)
   m = IntMap.new()
@@ -279,7 +279,7 @@ called fun int_ensure_with_pass(m: !IntMap, n: Int) -> Int
   for i in 0..n
     w = !m.ensure_with(i *% -7046029254386353131, one)
     w += 1
-  t.elapsed().ns()
+  Int(t.elapsed().ns())
 
 called sub int_ensure_with(n: Int)
   m = IntMap.new()
@@ -296,7 +296,7 @@ called fun int_edit_put_pass(m: !IntMap, n: Int) -> Int
       w += 1
     else
       !m.put(k, 1)
-  t.elapsed().ns()
+  Int(t.elapsed().ns())
 
 called sub int_edit_put(n: Int)
   m = IntMap.new()
@@ -310,7 +310,7 @@ called fun string_ensure_pass(m: !StringMap, ks: List[String]) -> Int
   for k in <ks
     w = !m.ensure(<k, 0)
     w += 1
-  t.elapsed().ns()
+  Int(t.elapsed().ns())
 
 called sub string_ensure(n: Int)
   put = keys(n)
@@ -326,7 +326,7 @@ called fun string_ensure_with_pass(m: !StringMap, ks: List[String]) -> Int
   for k in <ks
     w = !m.ensure_with(<k, one_of)
     w += 1
-  t.elapsed().ns()
+  Int(t.elapsed().ns())
 
 called sub string_ensure_with(n: Int)
   put = keys(n)
@@ -344,7 +344,7 @@ called fun string_edit_put_pass(m: !StringMap, ks: List[String]) -> Int
       w += 1
     else
       !m.put(<k, 1)
-  t.elapsed().ns()
+  Int(t.elapsed().ns())
 
 called sub string_edit_put(n: Int)
   put = keys(n)
@@ -384,7 +384,7 @@ called fun rnd_insert(maps: !List[IntMap], ks: ?List[Int], k: Int, s: Int) -> In
     base = j * s
     for i in 0..s
       !m.put(ks[base + i], i)
-  t.elapsed().ns()
+  Int(t.elapsed().ns())
 
 called fun rnd_remove(maps: !List[IntMap], ks: ?List[Int], k: Int, s: Int) -> Row
   check = 0
@@ -394,7 +394,7 @@ called fun rnd_remove(maps: !List[IntMap], ks: ?List[Int], k: Int, s: Int) -> Ro
     base = j * s
     for i in 0..s
       check += !m.take(ks[base + i]) ?? 0
-  Row(ns: t.elapsed().ns(), check: check)
+  Row(ns: Int(t.elapsed().ns()), check: check)
 
 called fun rnd_hit(m: ?IntMap, hit: ?List[Int], rounds: Int) -> Row
   sum = 0
@@ -403,7 +403,7 @@ called fun rnd_hit(m: ?IntMap, hit: ?List[Int], rounds: Int) -> Row
     for key in hit
       if m.get(key) as v
         sum += v
-  Row(ns: t.elapsed().ns(), check: sum)
+  Row(ns: Int(t.elapsed().ns()), check: sum)
 
 called fun rnd_miss(m: ?IntMap, miss: ?List[Int], rounds: Int) -> Row
   found = 0
@@ -411,7 +411,7 @@ called fun rnd_miss(m: ?IntMap, miss: ?List[Int], rounds: Int) -> Row
   for _ in 0..rounds
     for key in miss
       found += 1 if m.has(key)
-  Row(ns: t.elapsed().ns(), check: found)
+  Row(ns: Int(t.elapsed().ns()), check: found)
 
 called fun walk_rounds(m: ?IntMap, rounds: Int) -> Row
   sum = 0
@@ -419,7 +419,7 @@ called fun walk_rounds(m: ?IntMap, rounds: Int) -> Row
   for _ in 0..rounds
     for e in m.items()
       sum += e.value
-  Row(ns: t.elapsed().ns(), check: sum)
+  Row(ns: Int(t.elapsed().ns()), check: sum)
 
 called sub random(s: Int)
   total = 4 * N
@@ -473,7 +473,7 @@ called fun int_insert_maps(maps: !List[IntMap], k: Int, s: Int) -> Int
     base = j * s
     for i in 0..s
       !m.put((base + i) *% -7046029254386353131, i)
-  t.elapsed().ns()
+  Int(t.elapsed().ns())
 
 called fun int_remove_maps(maps: !List[IntMap], k: Int, s: Int) -> Row
   check = 0
@@ -483,7 +483,7 @@ called fun int_remove_maps(maps: !List[IntMap], k: Int, s: Int) -> Row
     base = j * s
     for i in 0..s
       check += !m.take((base + i) *% -7046029254386353131) ?? 0
-  Row(ns: t.elapsed().ns(), check: check)
+  Row(ns: Int(t.elapsed().ns()), check: check)
 
 called fun int_hit_rounds(m: ?IntMap, s: Int, rounds: Int) -> Row
   sum = 0
@@ -492,7 +492,7 @@ called fun int_hit_rounds(m: ?IntMap, s: Int, rounds: Int) -> Row
     for i in 0..s
       if m.get(i *% -7046029254386353131) as v
         sum += v
-  Row(ns: t.elapsed().ns(), check: sum)
+  Row(ns: Int(t.elapsed().ns()), check: sum)
 
 called fun int_miss_rounds(m: ?IntMap, s: Int, rounds: Int) -> Row
   found = 0
@@ -500,7 +500,7 @@ called fun int_miss_rounds(m: ?IntMap, s: Int, rounds: Int) -> Row
   for _ in 0..rounds
     for i in s..2 * s
       found += 1 if m.has(i *% -7046029254386353131)
-  Row(ns: t.elapsed().ns(), check: found)
+  Row(ns: Int(t.elapsed().ns()), check: found)
 
 called sub sized(s: Int)
   total = 4 * N
@@ -568,7 +568,7 @@ called fun lat_chain(m: ?IntMap, start: Int, total: Int) -> Row
   for _ in 0..total
     if m.get(key) as v
       key = v
-  Row(ns: t.elapsed().ns(), check: key)
+  Row(ns: Int(t.elapsed().ns()), check: key)
 
 called sub latency(s: Int)
   total = 4 * N
@@ -589,7 +589,7 @@ called fun churn_turns(m: !IntMap, ks: ?List[Int], s: Int, turns: Int) -> Row
   for i in 0..turns
     check +%= !m.take(ks[i]) ?? 0
     !m.put(ks[s + i], s + i)
-  Row(ns: t.elapsed().ns(), check: check)
+  Row(ns: Int(t.elapsed().ns()), check: check)
 
 # A Map of `s` keys turned over: each step takes the oldest key and puts
 # a new one.
@@ -628,7 +628,7 @@ called fun str_insert(maps: !List[StringMap], put: List[String], s: Int) -> Int
     if i == s
       i = 0
       j += 1
-  t.elapsed().ns()
+  Int(t.elapsed().ns())
 
 called fun str_remove(maps: !List[StringMap], take: ?List[String], s: Int) -> Row
   check = 0
@@ -641,7 +641,7 @@ called fun str_remove(maps: !List[StringMap], take: ?List[String], s: Int) -> Ro
     if i == s
       i = 0
       j += 1
-  Row(ns: t.elapsed().ns(), check: check)
+  Row(ns: Int(t.elapsed().ns()), check: check)
 
 called fun str_hit(m: ?StringMap, hit: ?List[String], rounds: Int) -> Row
   sum = 0
@@ -650,7 +650,7 @@ called fun str_hit(m: ?StringMap, hit: ?List[String], rounds: Int) -> Row
     for key in hit
       if m.get(key) as v
         sum += v
-  Row(ns: t.elapsed().ns(), check: sum)
+  Row(ns: Int(t.elapsed().ns()), check: sum)
 
 called fun str_miss(m: ?StringMap, miss: ?List[String], rounds: Int) -> Row
   found = 0
@@ -658,7 +658,7 @@ called fun str_miss(m: ?StringMap, miss: ?List[String], rounds: Int) -> Row
   for _ in 0..rounds
     for key in miss
       found += 1 if m.has(key)
-  Row(ns: t.elapsed().ns(), check: found)
+  Row(ns: Int(t.elapsed().ns()), check: found)
 
 # Text keys, each moved into the Map and found by an equal text made
 # apart; a million operations a row.
@@ -709,7 +709,7 @@ called fun big_insert(maps: !List[BigMap], ks: ?List[Int], k: Int, s: Int) -> In
     base = j * s
     for i in 0..s
       !m.put(ks[base + i], big(i))
-  t.elapsed().ns()
+  Int(t.elapsed().ns())
 
 called fun big_remove(maps: !List[BigMap], ks: ?List[Int], k: Int, s: Int) -> Row
   check = 0
@@ -720,7 +720,7 @@ called fun big_remove(maps: !List[BigMap], ks: ?List[Int], k: Int, s: Int) -> Ro
     for i in 0..s
       if !m.take(ks[base + i]) as v
         check += v.h
-  Row(ns: t.elapsed().ns(), check: check)
+  Row(ns: Int(t.elapsed().ns()), check: check)
 
 called fun big_hit(m: ?BigMap, hit: ?List[Int], rounds: Int) -> Row
   sum = 0
@@ -729,7 +729,7 @@ called fun big_hit(m: ?BigMap, hit: ?List[Int], rounds: Int) -> Row
     for key in hit
       if m.get(key) as v
         sum += v.h
-  Row(ns: t.elapsed().ns(), check: sum)
+  Row(ns: Int(t.elapsed().ns()), check: sum)
 
 called fun big_walk(m: ?BigMap, rounds: Int) -> Row
   sum = 0
@@ -737,7 +737,7 @@ called fun big_walk(m: ?BigMap, rounds: Int) -> Row
   for _ in 0..rounds
     for e in m.items()
       sum += e.value.a
-  Row(ns: t.elapsed().ns(), check: sum)
+  Row(ns: Int(t.elapsed().ns()), check: sum)
 
 # `random`'s insert, remove, hit, and iterate with a value of eight Ints.
 called sub bigs(s: Int)

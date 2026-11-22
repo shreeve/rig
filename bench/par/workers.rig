@@ -160,7 +160,7 @@ sub main()
         out = run_chan(?weights, ?order, !work)
       else
         out = run_workers(?weights, ?order, !work)
-      ns = t.elapsed().ns()
+      ns = Int(t.elapsed().ns())
       best[form] = ns if best[form] == 0 or ns < best[form]
       checks[form] = sum(?out)
       works[form] = <work
