@@ -12552,8 +12552,15 @@ pub const FormatFault = struct {
 
 /// The first directive of `text` that type `t`'s `format` does not take,
 /// as std.datetime's `formatted` refuses it as the program runs; null
-/// when every one suits.
+/// when every one suits. The directive ends on a whole UTF-8 character,
+/// so a message names `%é`, never half of it.
 pub fn formatFault(t: FormatType, text: []const u8) ?FormatFault {
+    var f = firstFormatFault(t, text) orelse return null;
+    while (f.end < text.len and text[f.end] & 0xC0 == 0x80) f.end += 1;
+    return f;
+}
+
+fn firstFormatFault(t: FormatType, text: []const u8) ?FormatFault {
     const has = t.has();
     var i: usize = 0;
     while (i < text.len) {
@@ -12627,6 +12634,8 @@ test "a format string is checked against its type as std checks it" {
     try std.testing.expectEqual(FormatFault.Why.nopad, formatFault(.date, "%-A").?.why);
     try std.testing.expectEqual(FormatFault.Why.ends, formatFault(.date, "100%").?.why);
     try std.testing.expectEqual(FormatFault.Why.ends, formatFault(.date, "%-").?.why);
+    const f = formatFault(.date, "x%\u{e9}y").?;
+    try std.testing.expectEqualStrings("%\u{e9}", "x%\u{e9}y"[f.at..f.end]);
 }
 
 /// The farthest a fixed zone is from UTC, in minutes: 25:59

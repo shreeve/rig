@@ -348,6 +348,17 @@ direction is in [ROADMAP](../ROADMAP.md), where the work stands in
   optional field takes no test"). Lowering it would let such tests
   cover a member as they cover an enum's variant; it waits for a program
   that wants it. Found reviewing #923 (2026-11-04).
+- **`format`'s fact is kept per call, not per instance of a generic
+  body.** A call of std.datetime's `format` whose string passes its check
+  is recorded once on its node (`recordConstMaker`), which types it
+  `String` and has emit unwrap it as a maker of constants. A generic body
+  cannot call `format` today: its check refuses a `Static` argument for
+  any `?String` parameter. If that is lifted, `show[T](x: T) =
+  x.format("%H")` instantiated with a `Time` (checked, recorded) and with
+  a type whose own `format -> String!` fails would unwrap that failure as
+  `rig.makerPanic`. Whoever opens generic bodies to such arguments makes
+  the fact per instance, or refuses the maker rule in generic bodies.
+  Found reviewing datetime phase 6 (2026-11-22).
 
 Found while writing the Learn Rig journeys. Check each before fixing.
 

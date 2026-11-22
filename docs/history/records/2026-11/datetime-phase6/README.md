@@ -74,6 +74,45 @@ adds one file, `std/datetime/format.rig`, and only the `format` and
     house limit of 3,000. The end-to-end journey, not yet written,
     becomes 13.
 
+## Pending the owner: `format` and §10.6's list
+
+How it works today: std declares `format(?@, pattern: ?String) ->
+String!`, its body `@try_format(pattern)!`. A call whose string passes
+the check is recorded as a maker of constants is (§10.6), so it types as
+`String`, `!` and `catch` on it are refused, a task of it keeps
+`Task[String!]` as a maker's does, and emit unwraps it with
+`rig.makerPanic`. §10.6's list, the owner's, does not name `format`. And
+a function value is the declared `String!` with no check:
+`f = datetime.Date.format; f(d, "%H")!` compiles and fails
+`DateTimeError.invalid` as the program runs. That is visible (it needs
+`!`), but STD's row `x.format(pattern) -> String` and SPEC §13's sentence
+hold only for calls. Whether `format` joins §10.6's list, and whether
+`Date.format` as a value is refused, is the owner's to decide; the
+mechanism is unchanged until he does.
+
+## After review (2026-11-22)
+
+An independent review (no soundness bug found) gave four fixes, each
+with its failing case first:
+
+1. The fix offered for a string made as the program runs searched the
+   call's text for `.format(` and found a nested call's:
+   `d.format(t.format("%H"))` offered `d.format(t.try_format("%H"))!`. It
+   now rewrites the call's own member name by its source span:
+   `d.try_format(t.format("%H"))!`.
+2. A directive ended at the byte after `%`, so `d.format("%é")` named
+   `%\303`; it ends on a whole UTF-8 character (`formatFault`, with a
+   unit test).
+3. The case named "from another module" had none: it uses `lib.CLOCK`
+   from a second file, and a new case refuses it on a `Date` and refuses
+   another module's template constant with the `try_format` fix.
+4. docs/internals/backlog.md records that the fact is kept per call, so
+   a generic body that could call `format` would need it per instance.
+
+The review also notes two clarifying edits to owner-tagged text in the
+design (`%Z` in capitals, `try_format` failing `.invalid`), which change
+no rule.
+
 ## Both ways
 
 `test/cli/datetime_format_table.sh` writes, for each of the four types,

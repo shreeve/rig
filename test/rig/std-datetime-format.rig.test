@@ -104,15 +104,34 @@ test "a fixed width comes from a precision", '''
     print(a.in_zone(utc).format("%Y-%m-%dT%H:%M:%S%.3fZ"), b.in_zone(utc).format("%Y-%m-%dT%H:%M:%S%.3fZ"))
 
 test "a module constant bound to a literal is known as Rig compiles, through a chain and from another module", '''
-  2026-03-08 2026-03-08 08 March
+  2026-03-08 2026-03-08 08 March 08:07
 '''
+  use lib
+
   FMT = "%Y-%m-%d"
   SAME = FMT
   RAW = '%d %B'
 
   sub main()
     d = datetime.Date.new(2026, 3, 8)
-    print(d.format(FMT), d.format(SAME), d.format(RAW))
+    print(d.format(FMT), d.format(SAME), d.format(RAW), datetime.Time.new(8, 7, 0).format(lib.CLOCK))
+
+  file "lib.rig"
+    pub CLOCK = "%H:%M"
+
+fail "another module's constant is checked against the type", "6:18: `d.format(lib.CLOCK)`: `%H` in the format string does not suit a `Date`: a `Date` has no time of day", "7:18: for `lib.LATER`, made as the program runs, write `d.try_format(lib.LATER)!`", errors: 2
+  use lib
+
+  sub main()
+    d = datetime.Date.new(2026, 3, 8)
+    n = 1
+    print(d.format(lib.CLOCK))
+    print(d.format(lib.LATER), n)
+
+  file "lib.rig"
+    pub CLOCK = "%H:%M"
+    pub YEAR = "%Y"
+    pub LATER = `{YEAR}-%m`
 
 test "the format string by its name, through the type, and text outside directives as it is", '''
   067 2026-03-08 ünï 2026 · 0
@@ -172,3 +191,12 @@ test "try_format fails with DateTimeError.invalid where format would not compile
     c = d.at(t).try_format(String("%Z")) catch |e| String(`{e}`)
     print(a, b, c, show(z, "%y"))
     print(show(z, "%-u"), show(z, "%.0f"), show(z, "50%"))
+
+fail "the fix for a string made as the program runs names the outer call, around a nested format", "3:16: for `t.format(\"%H\")`, made as the program runs, write `d.try_format(t.format(\"%H\"))!`", errors: 1
+  d = datetime.Date.new(2026, 3, 8)
+  t = datetime.Time.new(8, 0, 0)
+  print(d.format(t.format("%H")))
+
+fail "a directive is named by whole characters", "2:16: `%é` in the format string does not suit a `Date`: it is not a directive `format` takes", errors: 1
+  d = datetime.Date.new(2026, 3, 8)
+  print(d.format("%é"))

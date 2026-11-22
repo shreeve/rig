@@ -12754,8 +12754,16 @@ const Checker = struct {
         const value = if (args[0].isKind(.kwarg)) ir.Kwarg.value(args[0]) else args[0];
         const shown = std.mem.trimEnd(u8, try self.plainText(call), "& ");
         const fmt_text = self.formatString(self.ctx, value, 0) orelse {
-            const k = std.mem.findLast(u8, shown, ".format(") orelse return returns;
-            try self.errAt(value, "`{s}` takes a format string known as Rig compiles, a string literal or a module constant bound to one, which is checked against the `{s}`; for `{s}`, made as the program runs, write `{s}.try_format({s}!`", .{ shown, ft.name(), try self.plainText(value), shown[0..k], shown[k + ".format(".len ..] });
+            // The fix is the call as written with its own member's name,
+            // `format`, made `try_format`, by the source spans of the two.
+            const callee = ir.Call.callee(call);
+            const name = if (callee.isKind(.member)) ir.Member.name(callee) else return returns;
+            const whole = self.ctx.span(call);
+            const at = self.ctx.span(name);
+            const written = std.mem.trimEnd(u8, self.ctx.source[whole.start..whole.end], "& ");
+            const before = self.ctx.source[whole.start..at.start];
+            const after = written[@min(at.end - whole.start, written.len)..];
+            try self.errAt(value, "`{s}` takes a format string known as Rig compiles, a string literal or a module constant bound to one, which is checked against the `{s}`; for `{s}`, made as the program runs, write `{s}try_format{s}!`", .{ shown, ft.name(), try self.plainText(value), before, after });
             return self.t().invalid_id;
         };
         const fault = sema.formatFault(ft, fmt_text) orelse {
