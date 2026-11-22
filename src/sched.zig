@@ -4222,12 +4222,15 @@ fn freeWorkers(all: []Worker) void {
 }
 
 /// Write the `i`th worker's fields, before it is published or starts.
-/// Until its thread runs it is `waiting`, as if in its poller, so
-/// `os.exit` can claim it before it starts (`workerMain`); one whose
-/// thread is never started stays so.
+/// A worker given a thread of its own, every one but worker 0, is
+/// `waiting` until that thread runs, as if in its poller, so `os.exit`
+/// can claim it before it starts (`workerMain`); one whose thread is
+/// never started stays so. Worker 0 is `main`'s thread, running from the
+/// start, which never passes `workerMain`: marked so, it would read as
+/// claimable while it runs fibers, and be counted stopped while it ran.
 fn initWorker(i: usize) void {
     all_workers.*[i] = .{ .rng = @intCast(i * 2654435761 % 4294967291 + 1) };
-    if (tears_down) all_workers.*[i].poller.parked.raw = .waiting;
+    if (tears_down and i != 0) all_workers.*[i].poller.parked.raw = .waiting;
 }
 
 /// Start the other workers, when `main` makes its first task: by then
@@ -4285,6 +4288,7 @@ fn startRest(n: usize) void {
         v.thread = std.Thread.spawn(.{}, workerMain, .{ v, 0 }) catch rt.oom();
         if (builtin.is_test) test_started += 1;
     }
+    if (programEnding()) return;
     // A deterministic run starts no worker 1.
     if (preempt) startMonitor();
 }
@@ -5177,7 +5181,14 @@ fn giveUp(why: []const u8) []const u8 {
 /// its share once told to, and sleeps until the process ends.
 noinline fn stopForExit(w: *Worker, claimed: bool) noreturn {
     const ex = exit_state;
-    if (!claimed) _ = ex.stopped.fetchAdd(1, .seq_cst);
+    if (!claimed) {
+        // Counted once: a worker claimed (in its poller, or before its
+        // thread ran) never comes back to its loop, so one stopping there
+        // was never claimed. A stale `waiting` mark on a running worker
+        // would break this, and count it twice.
+        std.debug.assert(w.poller.parked.load(.seq_cst) != .claimed);
+        _ = ex.stopped.fetchAdd(1, .seq_cst);
+    }
     while (true) switch (ex.phase.load(.seq_cst)) {
         .go => break,
         .plain => sleepForever(),

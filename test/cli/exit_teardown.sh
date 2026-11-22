@@ -171,6 +171,73 @@ for workers in 4 10; do
     done
 done
 
+# `os.exit` from `main` resumed on another worker, while worker 0, which
+# runs `main` first and has never slept, runs tasks that never wait: a
+# task wakes `main` from its own worker, often not worker 0. Worker 0 is
+# never claimable while it runs (`sched.initWorker`), so it stops at its
+# loop's top, where a safe build asserts no claim counted it, or the exit
+# is plain. Never a crash: at two workers about one run in six reaches
+# that assertion.
+cat >elsewhere.rig <<'EOF'
+use std.os
+use std.task
+
+obj Big
+  t: Table[Int, 3000000]
+
+fun touch(keep: ?List[Big], i: Int) -> Int
+  xs: List[Int] = List()
+  for j in 0..4
+    !xs.push(i + j)
+  xs.len + keep[i % 64].t.len
+
+# Keeps a worker busy, never asleep, touching the heap and the Tables
+# between its turns.
+fun busy(keep: ?List[Big]) -> Int!
+  n = 0
+  loop
+    task.check()!
+    n = n + touch(?keep, n)
+  n
+
+# Wakes `main` from whichever worker it runs on.
+sub ping(keep: ?List[Big], ch: *Chan[Int])!
+  n = 0
+  for j in 0..200
+    task.check()!
+    n = n + touch(?keep, j)
+  !ch.send(n)!
+
+sub main()!
+  keep: List[Big] = List()
+  for i in 0..64
+    b = Big(t: Table())
+    !b.t.push(i)
+    !keep.push(<b)
+  ts = Tasks[Int!]()
+  for _ in 0..task.worker_count() + 1
+    !ts.add(busy(?keep)&)
+  ch = *Chan[Int](1)
+  p = ping(?keep, +ch)&
+  _ = !ch.recv()!
+  print("exiting", keep.len)
+  os.exit(5)
+  _ = >ts!
+  >p!
+EOF
+rig build --release -o elsewhere elsewhere.rig >build.log 2>&1 || fail "build elsewhere: $(cat build.log)"
+for workers in 2 2 2 2 3; do
+    for round in 1 2 3 4 5; do
+        RIG_SCHED_STATS=1 RIG_WORKERS=$workers ./elsewhere >out.txt 2>err.txt; expect_rc $? 5 "elsewhere on $workers: $(cat err.txt)"
+        expect_eq "$(cat out.txt)" "exiting 64" "elsewhere's output on $workers"
+        if [[ $mac == 1 ]]; then
+            exits=$(grep '^rig: exit:' err.txt)
+            [[ $exits == "rig: exit: torn down on "* || $exits == "rig: exit: plain, a task runs" || $exits == "rig: exit: plain, the workers did not stop" ]] ||
+                fail "elsewhere on $workers workers: $exits"
+        fi
+    done
+done
+
 # Preempted by signal, the stopped workers and the exiting task are never
 # stopped by one mid-teardown.
 rig build --release -o parked_pre parked.rig >build.log 2>&1 || fail "build parked_pre: $(cat build.log)"
