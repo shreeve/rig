@@ -128,7 +128,9 @@ const Checker = struct {
     /// A std maker's call left fallible by an argument that is not a
     /// constant (`constMakerCall`), and that argument: the error that
     /// asks for its `!` names it.
-    maker_runtime: struct { call: Sexp = .nil, arg: Sexp = .nil } = .{},
+    /// `literal` when the maker takes a plain string literal
+    /// (`TimeZone.named`), so the error says that is what it lacks.
+    maker_runtime: struct { call: Sexp = .nil, arg: Sexp = .nil, literal: bool = false } = .{},
     /// The `for` whose source is being checked, which a chain of stages
     /// may be (`chainCall`).
     chain_for: Sexp = .nil,
@@ -9953,8 +9955,12 @@ const Checker = struct {
             const callee = ir.Call.callee(node);
             const name = try self.calleeName(callee);
             try self.errAt(callee, "fallible call to `{s}` must be wrapped with `!` (propagate) or `catch` (handle)", .{name});
-            if (sameNode(self.maker_runtime.call, node))
-                try self.noteAt(self.maker_runtime.arg, "`{s}` is not a constant, so `{s}` can fail as the program runs; with every argument a constant it is checked as Rig compiles", .{ try self.plainText(self.maker_runtime.arg), try self.plainText(node) });
+            if (sameNode(self.maker_runtime.call, node)) {
+                if (self.maker_runtime.literal)
+                    try self.noteAt(self.maker_runtime.arg, "`{s}` is not a plain string literal, so `{s}` can fail as the program runs; with a plain string literal it is checked as Rig compiles", .{ try self.plainText(self.maker_runtime.arg), try self.plainText(node) })
+                else
+                    try self.noteAt(self.maker_runtime.arg, "`{s}` is not a constant, so `{s}` can fail as the program runs; with every argument a constant it is checked as Rig compiles", .{ try self.plainText(self.maker_runtime.arg), try self.plainText(node) });
+            }
             if (self.ctx.symbolOf(callee)) |id| {
                 const sym = self.ctx.symbols.items[id];
                 if (sym.decl_pos != sema.builtin_decl_pos) try self.note(sym.decl_pos, "`{s}` declared as fallible here", .{name});
@@ -12706,9 +12712,11 @@ const Checker = struct {
     /// an error offering the nearest name. Any other argument leaves the
     /// call `returns`, its `T!` (`maker_runtime`).
     fn zoneNamedCall(self: *Checker, home: *const SemContext, call: Sexp, args: []const Sexp, returns: TypeId, ok: TypeId) Error!TypeId {
-        if (args.len != 1 or args[0].isKind(.kwarg) or home.zone_names.len == 0) return returns;
-        const name = sema.zoneNameLiteral(self.ctx.source, args[0]) orelse {
-            self.maker_runtime = .{ .call = call, .arg = args[0] };
+        if (args.len != 1 or home.zone_names.len == 0) return returns;
+        // By position or by its name, `name: "..."`, the one argument.
+        const value = if (args[0].isKind(.kwarg)) ir.Kwarg.value(args[0]) else args[0];
+        const name = sema.zoneNameLiteral(self.ctx.source, value) orelse {
+            self.maker_runtime = .{ .call = call, .arg = value, .literal = true };
             return returns;
         };
         if (sema.zoneNamed(home.zone_names, name)) {
@@ -12718,9 +12726,9 @@ const Checker = struct {
         }
         const shown = std.mem.trimEnd(u8, try self.plainText(call), "& ");
         if (sema.nearestZoneName(home.zone_names, name)) |near|
-            try self.errAt(args[0], "`{s}` always fails, its argument being a constant: the zone data has no zone named `{s}`; did you mean `\"{s}\"`?", .{ shown, name, near })
+            try self.errAt(value, "`{s}` always fails, its argument being a constant: the zone data has no zone named `{s}`; did you mean `\"{s}\"`?", .{ shown, name, near })
         else
-            try self.errAt(args[0], "`{s}` always fails, its argument being a constant: the zone data has no zone named `{s}`; `datetime.zone_names()` lists every name", .{ shown, name });
+            try self.errAt(value, "`{s}` always fails, its argument being a constant: the zone data has no zone named `{s}`; `datetime.zone_names()` lists every name", .{ shown, name });
         return self.t().invalid_id;
     }
 

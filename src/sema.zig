@@ -12505,9 +12505,11 @@ pub fn zoneNamed(names: []const u8, name: []const u8) bool {
 
 /// The zone's name nearest `name`, a name `zoneNamed` does not find: one
 /// whose last part is `name` (`America/Denver` for `denver`), else the
-/// closest in ASCII case within a third of its length in edits (at
-/// least two); null when none is that close.
+/// closest in ASCII case within a fifth of its length in edits (at least
+/// one); null when none is that close, and for a name shorter than four
+/// bytes, which is as near to unrelated names as to its own.
 pub fn nearestZoneName(names: []const u8, name: []const u8) ?[]const u8 {
+    if (name.len < 4) return null;
     var it: ZoneNames = .init(names);
     while (it.next()) |n| {
         const last = n[if (std.mem.findScalarLast(u8, n, '/')) |k| k + 1 else 0..];
@@ -12517,7 +12519,7 @@ pub fn nearestZoneName(names: []const u8, name: []const u8) ?[]const u8 {
     if (name.len > max) return null;
     var a: [max]u8 = undefined;
     const lower = std.ascii.lowerString(&a, name);
-    const limit = @max(2, name.len / 3);
+    const limit = @max(1, name.len / 5);
     var best: ?[]const u8 = null;
     var best_d: usize = limit + 1;
     it = .init(names);
@@ -12542,6 +12544,8 @@ test "a zone's name is found in any case, and a near one offered" {
     try std.testing.expectEqualStrings("America/Denver", nearestZoneName(names, "denver").?);
     try std.testing.expectEqualStrings("America/New_York", nearestZoneName(names, "america/new york").?);
     try std.testing.expect(nearestZoneName(names, "Mars/Base") == null);
+    try std.testing.expect(nearestZoneName(names, "") == null);
+    try std.testing.expect(nearestZoneName(names, "UTX") == null);
 }
 
 /// The range of instants in nanoseconds from 1970-01-01T00:00Z:
