@@ -35,12 +35,13 @@ body), and a `unique` type must not be copied (§1, and a spread that
 leaves its source whole copies the fields that copy), and a `drop` type
 has no `+` (§2).
 
-**Pending the owner: an update of a `drop` type.** options.md section 11
-says a `drop` type "is updated only by `..+p` or a whole move"; Core
-sentence 2 gives such a type no `+`, and `Lock(..+a)` duplicates `a`,
-whose drop then runs twice (the review's finding 2). Until he rules, the
-safe side is built: no update makes a `drop` type, `..+p` included, and
-the message points to sentence 2 and to moving the value whole.
+**The owner's ruling: a `drop` type is never updated.** options.md
+section 11 first said a `drop` type "is updated only by `..+p` or a whole
+move"; Core sentence 2 gives such a type no `+`, and `Lock(..+a)`
+duplicates `a`, whose drop then runs twice (the review's finding 2).
+Asked whether to keep it never or allow `..+p`, the owner answered
+"Never" (2026-11-22). No update makes a `drop` type, `..+p` included,
+and the message points to sentence 2 and to moving the value whole.
 
 ## What is built
 
@@ -138,7 +139,7 @@ with a failing case in `options-owners`:
    copied operand is homed at the spread. Cases spread values that hold
    views, valid and not, in a loop and through a call.
 2. **`..+a` of a `drop` type** duplicated a value whose drop ran twice:
-   refused now, pending the owner (above).
+   refused, as the owner ruled (above).
 3. **`from text` and `keeps text`** with a field's bare name were
    accepted: refused in sema. The compiler refuses them before ownership,
    so the oracle, which decides only modules that type-check, compares
