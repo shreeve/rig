@@ -12082,8 +12082,10 @@ const Checker = struct {
     /// every complete call what fills each parameter (`CallParams`).
     fn checkArgs(self: *Checker, args: []const Sexp, f: FunctionType, info_in: ParamInfo, callee: []const u8, pos: u32, site: CallSite) Error!void {
         var info = info_in;
-        if (info.durations != 0) info.fold = self.durationFold(f.returns, info.datetime);
         const call = self.current_call;
+        // A task's arguments are made as it starts, and its failure is
+        // taken where it is waited, so a conversion joins no failure there.
+        if (info.durations != 0) info.fold = if (call != null and ir.Call.task(call.?) != .nil) null else self.durationFold(f.returns, info.datetime);
         const mark = self.ctx.diagnostics.items.len;
         const saved_slot = self.slot;
         defer self.slot = saved_slot;
@@ -12314,7 +12316,7 @@ const Checker = struct {
             // clamped in a wait, joins a call that can fail, and is
             // refused anywhere else.
             const how: sema.DurationHow = if (parts_ns != null) .total else if (info.waits) .clamped else if (info.fold) |into| .{ .folded = into } else {
-                try self.errAt(args[parts.items[0]], "`{s}` can be beyond a `Duration`'s range as the program runs, and `{s}` cannot fail: make the duration first, `time.duration({s})!`, and pass that", .{ try self.unitsText(keyword), callee, try self.unitsText(keyword) });
+                try self.errAt(args[parts.items[0]], "`{s}` can be beyond a `Duration`'s range as the program runs, and {s}: make the duration first, `time.duration({s})!`, and pass that", .{ try self.unitsText(keyword), self.noFold(), try self.unitsText(keyword) });
                 return;
             };
             slots[u] = .{ .parts = .{ .args = parts.items, .ty = target orelse sema.type_invalid, .opt = opt, .how = how } };
@@ -13003,7 +13005,7 @@ const Checker = struct {
         } else if (part) .total else if (info.fold) |into| .{ .folded = into } else {
             const form = if (unit != null) try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}: {s}", .{ unit_name, shown }) else shown;
             const why = if (float) "is a `Float`, which may not be finite or may be" else "can be";
-            try self.errAt(arg, "`{s}` {s} beyond a `Duration`'s range as the program runs, and this call cannot fail: make the duration first, `time.duration({s})!`, and pass that", .{ form, why, form });
+            try self.errAt(arg, "`{s}` {s} beyond a `Duration`'s range as the program runs, and {s}: make the duration first, `time.duration({s})!`, and pass that", .{ form, why, self.noFold(), form });
             return null;
         };
         if (part) {
@@ -13017,6 +13019,14 @@ const Checker = struct {
         const opt = if (target != null and !sema.isDurationType(self.ctx, param)) param else sema.type_invalid;
         try self.ctx.recordDuration(arg, .{ .unit_ns = unit_ns, .float = float, .ty = target orelse sema.type_invalid, .opt = opt, .how = how });
         return known;
+    }
+
+    /// Why a duration form that can fail joins no failure in the call
+    /// being checked: it cannot fail, or it is a task's, whose arguments
+    /// are made as it starts.
+    fn noFold(self: *Checker) []const u8 {
+        if (self.current_call) |call| if (ir.Call.task(call) != .nil) return "this call cannot fail, a task's arguments being made as it starts";
+        return "this call cannot fail";
     }
 
     /// Whether a duration form among `args` of `call` joins the call's
@@ -18138,10 +18148,13 @@ const Checker = struct {
                 // A generic function's callee has the instance's signature.
                 try self.noteCallee(f);
                 self.view_call = true;
+                const mark = self.ctx.diagnostics.items.len;
                 try self.checkArgs(args, f, info, qualified, pos, .{ .origins = found.sym.origins, .declared = fty.function.params });
                 // `time.duration` of a form that cannot fail gives the
                 // plain `Duration` (docs/design/datetime.md §5.2), unwrapped
-                // as a maker's call of constants is (`sema.ConstMaker`).
+                // as a maker's call of constants is (`sema.ConstMaker`); one
+                // whose form has an error of its own asks for no `!` besides.
+                if (sema.duration.isMaker(found.ctx, name) and self.ctx.diagnostics.items.len > mark) return self.t().invalid_id;
                 if (sema.duration.isMaker(found.ctx, name)) if (self.current_call) |call| if (!self.formFolds(call, args) and ir.Call.task(call) == .nil) {
                     try self.ctx.recordConstMaker(call);
                     return switch (self.ctx.types.get(f.returns)) {
