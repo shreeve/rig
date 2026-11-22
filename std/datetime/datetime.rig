@@ -83,12 +83,12 @@ pub obj DateTime: Eq + Ord + Hash + Print
   # day past the month's end becoming its last day; then weeks and
   # days; then the duration, every day 24 hours. Each is of either sign.
   # Panics when a step leaves the range; `checked_add` fails instead.
-  pub fun add(?@, d: time.Duration? = none, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> DateTime
-    datetime_add(@, d, total_months(years, months), total_days(weeks, days)) ?? panic("datetime.DateTime.add:", @, "plus", d ?? time.duration(0), `and years: {years}, months: {months}, weeks: {weeks}, days: {days} is beyond the range, -9999-01-01 to 9999-12-31`)
+  pub fun add(?@, duration: time.Duration? = none, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> DateTime
+    datetime_add(@, duration, total_months(years, months), total_days(weeks, days)) ?? panic("datetime.DateTime.add:", @, "plus", duration ?? time.duration(0), `and years: {years}, months: {months}, weeks: {weeks}, days: {days} is beyond the range, -9999-01-01 to 9999-12-31`)
 
   # `add`, failing with `DateTimeError.range` where it would panic.
-  pub fun checked_add(?@, d: time.Duration? = none, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> DateTime!
-    datetime_add(@, d, total_months(years, months), total_days(weeks, days)) ?? return DateTimeError.range
+  pub fun checked_add(?@, duration: time.Duration? = none, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> DateTime!
+    datetime_add(@, duration, total_months(years, months), total_days(weeks, days)) ?? return DateTimeError.range
 
   # The date and time with the fields given by name replaced:
   # `dt.with(hour: 0, minute: 0, second: 0, ns: 0)`. Fails with

@@ -30,7 +30,7 @@ test "datetime add forms at each kind of call", '''
   dt = datetime.DateTime.parse("2026-03-08T02:30")!
   five = time.duration(5)
   print(dt.add(1), dt.add(0.5), dt.add(hours: 2), dt.add(ms: 40), dt.add(days: 1), dt.add(days: 1, hours: 2))
-  print(dt.add(five), dt.add(d: 2, days: 1), datetime.DateTime.add(dt, months: 1), datetime.DateTime.add(dt, 3), dt.checked_add(2)!, dt.checked_add()!)
+  print(dt.add(five), dt.add(duration: 2, days: 1), datetime.DateTime.add(dt, months: 1), datetime.DateTime.add(dt, 3), dt.checked_add(2)!, dt.checked_add()!)
 
 test "time add forms at each kind of call", '''
   01:00:00 23:00:01 23:00:00.5 01:00:00 range
