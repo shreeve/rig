@@ -70,9 +70,6 @@ The concurrency plan the owner approved from that review is on the ROADMAP, unde
   - Forms it could take: fallible arithmetic by name beside the operators (as Zig's `std.math.add` beside `+`), a checked numeric conversion that returns `!`, wider integers where input is read, or none, with `Int`'s range left as the line between input and a bug.
   - Source: the datetime strategy's committee, 2026-11-22 ([datetime-strategy/](history/records/2026-11/datetime-strategy/README.md)).
   - Needs: the owner's call, then a design round; any change to the operators rejects or changes programs a release accepts.
-- **A region freed at once.** Values made in a named region are views of it, and dropping the region frees them all in one step, for data that dies together: a file's tree, a parse's temporaries, one request's data.
-  - Source: the Goose review (data stacks freed at scope exit). The benchmarks game's binarytrees port keeps its nodes in a `List[Node]` pool in place of Rust's bumpalo arena, and is 6% slower than Rust on pup ([compare/rig/benchmarksgame](../compare/rig/benchmarksgame/README.md)).
-  - Needs: a CORE paragraph and a design round; first, a measure of the share of Trig's time and memory in data that dies together.
 - **A result built where it lands.** A function that returns a large value, an array or an object holding one, writes it straight into the caller's place through any depth of calls, so a return never copies it. Goose promises this; Rig leaves it to Zig's code generation and promises nothing.
   - Form: no new syntax; a SPEC rule, and a test that returns a large array through several calls and checks that no copy is made.
   - Source: the Goose review (construction in place), weighed 2026-11-21; that record lists it among Goose's features but not among what Rig can take or set aside.

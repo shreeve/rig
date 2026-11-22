@@ -1,0 +1,17 @@
+obj Tree
+  left: (?Tree)? = none
+  right: (?Tree)? = none
+
+fun check(t: ?Tree) -> Int
+  if t.left as l and t.right as r
+    return 1 + check(l) + check(r)
+  1
+
+fun build(depth: Int) -> Tree
+  return Tree() if depth == 0
+  l = build(depth - 1)
+  r = build(depth - 1)
+  Tree(left: ?l, right: ?r)
+
+sub main()
+  print(check(build(3)))

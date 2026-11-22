@@ -1,0 +1,10 @@
+obj Tree
+  left: (?Tree)? = none
+  right: (?Tree)? = none
+
+obj Node
+  left: I32 = -1
+  right: I32 = -1
+
+sub main()
+  print($size(Tree), $size(Node))

@@ -1,0 +1,49 @@
+# The Computer Language Benchmarks Game: binary-trees, perfect binary trees built, walked, and
+# dropped, a task for each depth. Each node is a box of its own.
+# Ports benchmarksgame/sources/binarytrees/binarytrees.rust (the Rust Project Developers,
+# TeXitoi).
+use std.math
+use std.os
+use std.text
+
+MIN_DEPTH = 4
+
+obj Tree
+  left: ^Tree? = none
+  right: ^Tree? = none
+
+fun bottom_up_tree(depth: Int) -> Tree
+  return Tree() if depth == 0
+  Tree(left: ^bottom_up_tree(depth - 1), right: ^bottom_up_tree(depth - 1))
+
+fun item_check(t: ?Tree) -> Int
+  if t.left as l and t.right as r
+    return 1 + item_check(l) + item_check(r)
+  1
+
+fun inner(depth: Int, iterations: Int) -> String
+  chk = 0
+  for 0..iterations
+    chk += item_check(bottom_up_tree(depth))
+  String(iterations, "\t trees of depth ", depth, "\t check: ", chk)
+
+sub main()!
+  args = os.args()
+  n = text.parse_int(args[1])! if args.len > 1 else 10
+  max_depth = math.max(n, MIN_DEPTH + 2)
+
+  stretch = max_depth + 1
+  check = item_check(bottom_up_tree(stretch))
+  print(String("stretch tree of depth ", stretch, "\t check: ", check))
+
+  long_lived = bottom_up_tree(max_depth)
+
+  messages = Tasks[String]()
+  depth = MIN_DEPTH
+  while depth <= max_depth : depth += 2
+    !messages.add(inner(depth, 1 << (max_depth - depth + MIN_DEPTH))&)
+  done = >messages
+  for message in done
+    print(message)
+
+  print(String("long lived tree of depth ", max_depth, "\t check: ", item_check(long_lived)))

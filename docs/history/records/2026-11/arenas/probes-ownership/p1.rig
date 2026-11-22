@@ -1,0 +1,11 @@
+use std.shared
+
+fun put(m: !shared.Map[Int, Int], k: Int) -> ?Int from m
+  !m.ensure(k, k * 10)
+
+sub main()
+  m = shared.Map[Int, Int].new()
+  a = !m.ensure(1, 10)
+  b = put(!m, 2)
+  c = !m.ensure(3, 30)
+  print(a, b, c)

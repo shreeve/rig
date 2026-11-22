@@ -1,0 +1,9 @@
+use std.shared
+
+sub main()
+  m = shared.Map[Int, String].new()
+  out: List[?String] = List()
+  a = !m.ensure(1, String("x"))
+  !out.push(?a)
+  <m
+  print(out.len)

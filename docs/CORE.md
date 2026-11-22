@@ -921,6 +921,58 @@ sub main()
 a write view is never stored inside a value, and `!Int` cannot stand here
 ```
 
+**Arenas.** An `Arena[T]` (std.arena) holds values that die together.
+It is a cell, so it lives behind `*`: `a = arena.Arena[Node].new()`.
+`!a.add(x)` moves `x` into the arena and gives a read view of it there,
+a `?T` from `a`. `T` must copy (§1), so nothing in an arena needs a
+drop, and dropping the arena's last handle frees all of it in one step.
+An arena never moves or changes what it holds, so any number of its
+views may be in use at once, and more may be added while they are. A
+value added may hold views of the arena's own values or of places
+outside it; the arena keeps them (sentence 7), so places outside stay
+read-only while the arena is used, and a view the arena keeps of itself
+ends at the arena's last use, since no drop reads it: an arena's values
+are the one value that may view itself (§5). The rest is sentences 5 to
+7: an arena is dropped or reassigned only after its views' last use, a
+function returns them only `from` an arena passed to it, an owner that
+keeps one keeps the arena limited, and a task given one keeps it limited
+until `>t`. No call empties an arena, and nothing is allocated in one
+but by `add`: the compiler never chooses an arena. *(planned)*
+
+```rig pending
+use std.arena
+
+obj Node
+  left: (?Node)?
+  right: (?Node)?
+
+fun make(a: !*arena.Arena[Node], d: Int) -> ?Node from a
+  if d == 0
+    return !a.add(Node(left: none, right: none))
+  l = make(!a, d - 1)
+  r = make(!a, d - 1)
+  !a.add(Node(left: l, right: r))
+
+fun check(n: ?Node) -> Int
+  c = 1
+  if n.left as l
+    c += check(l)
+  if n.right as r
+    c += check(r)
+  c
+
+sub main()
+  total = 0
+  for d in 0..3
+    a = arena.Arena[Node].new()
+    total += check(make(!a, d))
+  print(total)
+```
+
+```output
+11
+```
+
 **10. `e!` propagates a failure, and `e?` propagates an absence.** Every
 fallible call says what happens to its failure: `!` or `catch`.
 *(built)* Failing is always written: an error value meets a `T!` only as
@@ -1682,7 +1734,9 @@ it names: `?p.a`, `!p.a`, `<p.a`, `p.a = x`, `!p.a.m()`, and
 `swap(!p.a, !p.b)` touch `p.a` (and `p.b`); `p`, `<p`, `p = x`,
 `(!p).m()`, and `!p.m()` touch all of `p`. A value never holds a view
 of itself: storing in a part of `p` a value that views a part of `p`
-is rejected. *(built)*
+is rejected. *(built)* An arena is the one exception: the values in it
+may view one another, and the arena keeps those views (sentence 9,
+"Arenas"). *(planned)*
 
 ```rig
 obj Arena

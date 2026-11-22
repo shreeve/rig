@@ -1,0 +1,8 @@
+use std.shared
+
+sub main()
+  m = shared.Map[Int, Int].new()
+  a = !m.ensure(1, 10)
+  n = +m
+  <m
+  print(a, n.len())
