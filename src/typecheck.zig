@@ -12636,6 +12636,7 @@ const Checker = struct {
             .fallible => |fl| fl.ok,
             else => return returns,
         };
+        if (maker == .zone_named) return self.zoneNamedCall(home, call, args, returns, ok);
         const parts = maker.params();
         var values: [7]Wide = undefined;
         var nodes: [7]Sexp = @splat(.nil);
@@ -12687,10 +12688,39 @@ const Checker = struct {
                 .{ try a.print("{d} is not nanoseconds within ±999,999,999", .{v}), "write `ns` within ±999_999_999, and the whole seconds as `s`" },
             .unix_ms => .{ try a.print("{d} milliseconds is beyond the range of instants, -009999-01-02T01:59:59Z to 9999-12-30T22:00:00.999999999Z", .{v}), "write milliseconds from -377_705_023_201_000 to 253_402_207_200_999" },
             .unix_us => .{ try a.print("{d} microseconds is beyond the range of instants, -009999-01-02T01:59:59Z to 9999-12-30T22:00:00.999999999Z", .{v}), "write microseconds from -377_705_023_201_000_000 to 253_402_207_200_999_999" },
+            .zone_hours => .{ try a.print("{d} hours is beyond a fixed zone's offset, within ±25:59", .{v}), "write hours from -25 to 25" },
+            .zone_minutes => if ((values[0] < 0 and v > 0) or (values[0] > 0 and v < 0))
+                .{ try a.print("{d} hours and {d} minutes differ in sign", .{ values[0], v }), try a.print("write the two of one sign: `fixed(hours: {d}, minutes: {d})`", .{ values[0], -v }) }
+            else
+                .{ try a.print("{d} hours and {d} minutes is beyond a fixed zone's offset, within ±25:59", .{ values[0], v }), "write an offset from -25:59 to +25:59" },
         };
         // The call as written, without the `&` of a task of it.
         const shown = std.mem.trimEnd(u8, try self.plainText(call), "& ");
         try self.errAt(if (nodes[i] != .nil) nodes[i] else call, "`{s}` always fails, its arguments being constants: {s}; {s}", .{ shown, why, fix });
+        return self.t().invalid_id;
+    }
+
+    /// `TimeZone.named` (`sema.ConstMaker.zone_named`): a string literal
+    /// that names a zone of the data in std.datetime's names file, as
+    /// std reads one, gives the plain `TimeZone`; one that names none is
+    /// an error offering the nearest name. Any other argument leaves the
+    /// call `returns`, its `T!` (`maker_runtime`).
+    fn zoneNamedCall(self: *Checker, home: *const SemContext, call: Sexp, args: []const Sexp, returns: TypeId, ok: TypeId) Error!TypeId {
+        if (args.len != 1 or args[0].isKind(.kwarg) or home.zone_names.len == 0) return returns;
+        const name = sema.zoneNameLiteral(self.ctx.source, args[0]) orelse {
+            self.maker_runtime = .{ .call = call, .arg = args[0] };
+            return returns;
+        };
+        if (sema.zoneNamed(home.zone_names, name)) {
+            if (ir.Call.task(call) != .nil) return returns;
+            try self.ctx.recordConstMaker(call);
+            return ok;
+        }
+        const shown = std.mem.trimEnd(u8, try self.plainText(call), "& ");
+        if (sema.nearestZoneName(home.zone_names, name)) |near|
+            try self.errAt(args[0], "`{s}` always fails, its argument being a constant: the zone data has no zone named `{s}`; did you mean `\"{s}\"`?", .{ shown, name, near })
+        else
+            try self.errAt(args[0], "`{s}` always fails, its argument being a constant: the zone data has no zone named `{s}`; `datetime.zone_names()` lists every name", .{ shown, name });
         return self.t().invalid_id;
     }
 

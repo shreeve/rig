@@ -1,0 +1,312 @@
+# std.datetime: time zones, from the zone data compiled into the
+# program (the IANA Time Zone Database, `tzdb_version()`, as Jiff 1.0.0
+# bundles it; tools/gen-tzdb.py writes the tables, std/datetime.zig
+# searches them). The data is never read from the system, so a program
+# gives the same answer on every machine; only `local()` asks the system
+# which zone is its own (DATETIME-DESIGN §7.4 to §7.7).
+
+use std.file
+use std.os
+use std.task
+use std.time
+
+# A fixed zone's `id`, and the first `id` of a zone of the test table
+# (std/datetime.zig's `test_base`).
+FIXED_ID = I16(-1)
+TEST_BASE = 0x4000
+
+# The farthest a fixed zone is from UTC: 25:59, in minutes.
+MAX_FIXED_MINUTES = 1559
+
+# A time zone: a named zone of the data, which carries every offset its
+# place has had, historic seconds included, or a fixed offset from UTC
+# in whole minutes. It is plain data, four bytes, and never allocates.
+# `==` and `Hash` take two names of one zone as one: `Asia/Calcutta`
+# equals `Asia/Kolkata`, the same primary identifier, but
+# `Africa/Accra` does not equal `Africa/Abidjan`, whose rules are the
+# same; a named zone never equals a fixed one (`Etc/GMT+7` and
+# `fixed(hours: -7)`), and `utc()`, `fixed(hours: 0)`, and
+# `named("UTC")` are one value, apart from `named("Etc/UTC")`.
+pub obj TimeZone: Eq + Hash
+  # A named zone's index in the names (`zone_names()`), a zone of the
+  # test table's from `TEST_BASE`, or `FIXED_ID`; and a fixed zone's
+  # offset in minutes east of UTC, 0 for a named one.
+  id: I16
+  mins: I16
+
+  # UTC, the fixed zone of offset 0, which prints as `UTC`.
+  pub fun utc() -> TimeZone
+    TimeZone(id: FIXED_ID, mins: 0)
+
+  # The zone the data names `name`, in any ASCII case:
+  # `named("america/denver")` is `America/Denver`. `UTC`, in any case,
+  # is `utc()`. Fails with `DateTimeError.unknown_zone` for a name the
+  # data does not hold; nothing falls back to UTC. A string literal is
+  # checked as Rig compiles, a name that is no zone is a compile error,
+  # and the call takes no `!`: `TimeZone.named("America/Denver")`.
+  pub fun named(name: ?String) -> TimeZone!
+    if is_utc(name)
+      return TimeZone.utc()
+    id = zone_find(name)
+    if id < 0
+      return DateTimeError.unknown_zone
+    TimeZone(id: I16(id), mins: 0)
+
+  # The zone of the fixed offset `hours` × 60 + `minutes` east of UTC,
+  # whole minutes within ±25:59; the two are given by name and agree in
+  # sign: -05:30 is `fixed(hours: -5, minutes: -30)`, and minutes may
+  # pass 59, `fixed(minutes: 330)` is +05:30. `fixed(hours: 0)` is
+  # `utc()`. Fails with `DateTimeError.invalid` for two signs and
+  # `DateTimeError.range` beyond ±25:59; with constant arguments it is
+  # checked as Rig compiles and takes no `!`.
+  pub fun fixed(hours: Int = 0, minutes: Int = 0) -> TimeZone!
+    if (hours < 0 and minutes > 0) or (hours > 0 and minutes < 0)
+      return DateTimeError.invalid
+    if hours < -25 or hours > 25 or minutes < -MAX_FIXED_MINUTES or minutes > MAX_FIXED_MINUTES
+      return DateTimeError.range
+    total = hours * 60 + minutes
+    if total < -MAX_FIXED_MINUTES or total > MAX_FIXED_MINUTES
+      return DateTimeError.range
+    TimeZone(id: FIXED_ID, mins: I16(total))
+
+  # The zone `text` writes: a name, as `named` reads one, or an offset of
+  # whole minutes within ±25:59, `+05:30`, `+0530`, or `+05`; `Z`, `z`,
+  # `+00:00`, and `-00:00` are `utc()`. `TimeZone.parse(tz.name())!` is
+  # `tz`. An offset with seconds (`+05:30:00`), with one digit (`-7`),
+  # or beyond ±25:59 fails with `DateTimeError.invalid`, and a name the
+  # data does not hold, `UTC+5` among them, with
+  # `DateTimeError.unknown_zone`.
+  pub fun parse(text: ?String) -> TimeZone!
+    if text == "Z" or text == "z"
+      return TimeZone.utc()
+    if text.len > 0 and (text[0] == '+' or text[0] == '-')
+      return offset_zone(text)!
+    TimeZone.named(text)!
+
+  # The zone's name: a named zone's as the data spells it, the name that
+  # was asked for, so `named("Asia/Calcutta")` stays `Asia/Calcutta`; a
+  # fixed zone's offset, `-07:00`; and `UTC` for `utc()`.
+  pub fun name(?@) -> String
+    if @id != FIXED_ID
+      return String(zone_name(Int(@id)))
+    if @mins == 0
+      return String("UTC")
+    out = String()
+    m = Int(@mins)
+    !out.add("-" if m < 0 else "+")
+    a = -m if m < 0 else m
+    !out.add(`{a / 600}{a / 60 % 10}:{a % 60 / 10}{a % 10}`)
+    out
+
+  # The zone's offset from UTC at the instant `i`, east positive:
+  # `-7h` in Denver's winter, and a historic offset's seconds exactly
+  # (Monrovia's -44m 30s before 1972).
+  pub fun offset_at(?@, i: Instant) -> time.Duration
+    if @id == FIXED_ID
+      return time.Duration(s: Int(@mins) * 60, nano: 0)
+    time.Duration(s: zone_offset(Int(@id), i.s), nano: 0)
+
+  # Two zones are equal when both are fixed with one offset, or both are
+  # named with one primary identifier (Jiff's `tz/timezone.rs:2749`).
+  fun eq(?@, other: ?TimeZone) -> Bool
+    if @id == FIXED_ID or other.id == FIXED_ID
+      return @id == other.id and @mins == other.mins
+    zone_primary(Int(@id)) == zone_primary(Int(other.id))
+
+  # What equal zones share: the offset, or the primary identifier.
+  sub hash_into(?@, h: !Hasher)
+    plain = @id == FIXED_ID
+    !h.add(plain)
+    !h.add(Int(@mins) if plain else zone_primary(Int(@id)))
+
+# The system's own zone, read when it is called and never kept
+# (DATETIME-DESIGN §7.7). `TZ`, when it is set: empty is `utc()`; a
+# zone's name, a leading `:` dropped and a path cut to what follows
+# `zoneinfo/`; an absolute path with no `zoneinfo/`, read as a link and
+# what it names cut the same way; or, not after a `:`, a rule with no
+# daylight-saving part, `UTC0`, `EST5`, `<+08>-8`, as a fixed zone.
+# Anything else fails with `DateTimeError.unknown_zone`, and a set `TZ`
+# never falls through. Otherwise the name the link `/etc/localtime`
+# names (macOS's names `/var/db/timezone/zoneinfo/America/Denver`), cut
+# the same way, and otherwise the name in `/etc/timezone`. A name the
+# data does not hold fails with `DateTimeError.unknown_zone`, and no
+# zone to be found with `DateTimeError.no_system_zone`: where
+# `/etc/localtime` is a copy and not a link, as in some container
+# images, and on Windows, `TZ` names the zone. It reads the environment
+# and the file system, so it allocates and may wait, and fails as a
+# waiting point does (`task.Stop`).
+pub fun local() -> TimeZone!
+  if os.env("TZ") as tz
+    return tz_zone(tz)!
+  if link_target("/etc/localtime")! as target
+    if after_zoneinfo(?target) as cut
+      return TimeZone.named(cut)!
+  if file_text("/etc/timezone")! as text
+    name = trimmed(?text)
+    if name.len > 0
+      return TimeZone.named(name)!
+  return DateTimeError.no_system_zone
+
+# ---- local's readers ------------------------------------------------------
+
+# The zone a set `TZ` names: `utc()` for empty text, a path or a name
+# after `:`, else a path, a name, or a rule with no daylight saving.
+fun tz_zone(tz: ?String) -> TimeZone!
+  if tz.len == 0
+    return TimeZone.utc()
+  if tz[0] == ':'
+    return path_zone(tz[1..])!
+  if tz[0] == '/' or after_zoneinfo(tz) != none
+    return path_zone(tz)!
+  id = zone_find(tz)
+  if id >= 0 or is_utc(tz)
+    return TimeZone.named(tz)!
+  if rule_minutes(tz) as m
+    return TimeZone(id: FIXED_ID, mins: I16(m))
+  return DateTimeError.unknown_zone
+
+# The zone a name or a path names: a path cut to what follows
+# `zoneinfo/`, an absolute path with none read as a link and what it
+# names cut so, and any other text a name.
+fun path_zone(p: ?String) -> TimeZone!
+  if after_zoneinfo(p) as cut
+    return TimeZone.named(cut)!
+  if p.len > 0 and p[0] == '/'
+    target = link_target(p)! ?? return DateTimeError.unknown_zone
+    cut = after_zoneinfo(?target) ?? return DateTimeError.unknown_zone
+    return TimeZone.named(cut)!
+  TimeZone.named(p)!
+
+# What follows the last `zoneinfo/` in `p`, or `none` when it has none or
+# nothing follows it.
+fun after_zoneinfo(p: ?String) -> (?String)?
+  key = "zoneinfo/"
+  i = p.len - key.len
+  while i >= 0
+    if p[i..i + key.len] == key
+      if i + key.len == p.len
+        return none
+      return p[i + key.len..]
+    i -= 1
+  none
+
+# What the link at `path` names; `none` when nothing is there, it is not
+# a link, or the system refuses (`std.file`'s `FileError`). A stop of the
+# task fails.
+fun link_target(path: ?String) -> String?!
+  file.read_link(path) catch |e|
+    match e
+      s: task.Stop => return s
+      _ => return none
+
+# The file at `path`; `none` when nothing is there or it cannot be read.
+# A stop of the task fails.
+fun file_text(path: ?String) -> String?!
+  file.read(path) catch |e|
+    match e
+      s: task.Stop => return s
+      _ => return none
+
+# `s` without the spaces, tabs, and line ends around it.
+fun trimmed(s: ?String) -> ?String
+  a = 0
+  b = s.len
+  while a < b and is_space(s[a])
+    a += 1
+  while b > a and is_space(s[b - 1])
+    b -= 1
+  s[a..b]
+
+fun is_space(c: U8) -> Bool
+  c == ' ' or c == "\t" or c == "\n" or c == "\r"
+
+# The offset east of UTC, in minutes, of a POSIX TZ rule with no
+# daylight-saving part, `EST5`, `UTC0`, `<+08>-8`: a name of three
+# letters or more, or of three or more letters, digits, `+`, or `-` in
+# `<` and `>`, then the hours west of UTC, 0 to 25, with `+` or `-`,
+# and the minutes after `:`. `none` for anything else: seconds in the
+# offset, a daylight-saving part, or an offset beyond ±25:59.
+fun rule_minutes(s: ?String) -> Int?
+  i = 0
+  if s.len > 0 and s[0] == '<'
+    i = 1
+    while i < s.len and (is_alpha(s[i]) or is_digit(s[i]) or s[i] == '+' or s[i] == '-')
+      i += 1
+    if i < 4 or i >= s.len or s[i] != '>'
+      return none
+    i += 1
+  else
+    while i < s.len and is_alpha(s[i])
+      i += 1
+    if i < 3
+      return none
+  sign = 1
+  if i < s.len and (s[i] == '+' or s[i] == '-')
+    sign = -1 if s[i] == '-' else 1
+    i += 1
+  start = i
+  hours = 0
+  while i < s.len and i < start + 2 and is_digit(s[i])
+    hours = hours * 10 + Int(s[i] - '0')
+    i += 1
+  if i == start or hours > 25
+    return none
+  minutes = 0
+  if i < s.len and s[i] == ':'
+    if i + 3 != s.len or not is_digit(s[i + 1]) or not is_digit(s[i + 2])
+      return none
+    minutes = Int(s[i + 1] - '0') * 10 + Int(s[i + 2] - '0')
+    if minutes > 59
+      return none
+    i += 3
+  if i != s.len
+    return none
+  # The rule counts west of UTC; a zone counts east.
+  total = -sign * (hours * 60 + minutes)
+  if total < -MAX_FIXED_MINUTES or total > MAX_FIXED_MINUTES
+    return none
+  total
+
+# ---- the zone's readers ---------------------------------------------------
+
+# Whether `s` is `UTC`, in any ASCII case.
+fun is_utc(s: ?String) -> Bool
+  s.len == 3 and (s[0] == 'U' or s[0] == 'u') and (s[1] == 'T' or s[1] == 't') and (s[2] == 'C' or s[2] == 'c')
+
+# The fixed zone of an offset written `+05:30`, `+0530`, or `+05`, within
+# ±25:59; `DateTimeError.invalid` for any other text.
+fun offset_zone(s: ?String) -> TimeZone!
+  sign = -1 if s[0] == '-' else 1
+  hours = two_digits(s, 1)!
+  minutes = 0
+  if s.len == 6 and s[3] == ':'
+    minutes = two_digits(s, 4)!
+  else if s.len == 5
+    minutes = two_digits(s, 3)!
+  else if s.len != 3
+    return DateTimeError.invalid
+  if hours > 25 or minutes > 59
+    return DateTimeError.invalid
+  TimeZone(id: FIXED_ID, mins: I16(sign * (hours * 60 + minutes)))
+
+extern zig "datetime.zig"
+  # Every name of the data's zones, in the order of their ASCII-lowercase
+  # bytes, as `TimeZone.named` reads them: 598 in IANA 2026f.
+  pub fun zone_names() -> []Static
+
+  # The version of the IANA Time Zone Database compiled into the
+  # program, `2026f`.
+  pub fun tzdb_version() -> Static
+
+  # The index of the name `name`, in any ASCII case, or -1.
+  fun zone_find(name: ?String) -> Int
+
+  # Zone `id`'s name, in the data's spelling.
+  fun zone_name(id: Int) -> Static
+
+  # The zone of zone `id`'s primary identifier.
+  fun zone_primary(id: Int) -> Int
+
+  # Zone `id`'s offset in seconds east of UTC at `t` seconds since
+  # 1970-01-01T00:00Z.
+  fun zone_offset(id: Int, t: Int) -> Int

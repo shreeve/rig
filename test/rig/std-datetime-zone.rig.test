@@ -1,0 +1,225 @@
+# std.datetime's `TimeZone` (docs/design/datetime.md §7.4 to §7.7):
+# `named` and its check of a literal, `fixed`, `utc`, `parse`, `name`,
+# `offset_at`, equality and hashing, `zone_names`, and `tzdb_version`.
+# Each fallible call fails with the member §7.2 names, at each end of
+# its range; each total one gives an answer at its ends. `local()`'s
+# readings of `TZ` and the system's files are test/cli/datetime_local.sh;
+# the rules of the pinned test table are std/datetime/zone_test.rig.
+
+use std.datetime
+use std.time
+
+test "a literal name is checked as Rig compiles and needs no !", '''
+  America/Denver America/Denver UTC Etc/UTC
+  -05:30 +05:30 UTC
+'''
+  print(datetime.TimeZone.named("America/Denver").name(), datetime.TimeZone.named("america/DENVER").name(), datetime.TimeZone.named("utc").name(), datetime.TimeZone.named("Etc/UTC").name())
+  print(datetime.TimeZone.fixed(hours: -5, minutes: -30).name(), datetime.TimeZone.fixed(minutes: 330).name(), datetime.TimeZone.fixed().name())
+
+test "a name known only as the program runs needs the !", '''
+  Asia/Calcutta
+  DateTimeError.unknown_zone
+'''
+  fun zone(s: ?String) -> datetime.TimeZone!
+    datetime.TimeZone.named(s)!
+
+  sub main()!
+    print(zone("asia/calcutta")!.name())
+    zone("Mars/Base") catch |e| print(e)
+
+fail "a literal that names no zone is refused, offering the nearest", "1:29: `datetime.TimeZone.named(\"America/Denvr\")` always fails, its argument being a constant: the zone data has no zone named `America/Denvr`; did you mean `\"America/Denver\"`?", "2:29: `datetime.TimeZone.named(\"denver\")` always fails, its argument being a constant: the zone data has no zone named `denver`; did you mean `\"America/Denver\"`?", "3:29: the zone data has no zone named `Mars/Base`; `datetime.zone_names()` lists every name", errors: 3
+  _ = datetime.TimeZone.named("America/Denvr")
+  _ = datetime.TimeZone.named("denver")
+  _ = datetime.TimeZone.named("Mars/Base")
+
+fail "a fixed zone of constants beyond ±25:59 or of two signs is refused", "1:49: -5 hours and 30 minutes differ in sign; write the two of one sign: `fixed(hours: -5, minutes: -30)`", "2:36: 26 hours is beyond a fixed zone's offset, within ±25:59; write hours from -25 to 25", "3:49: 25 hours and 60 minutes is beyond a fixed zone's offset", "4:38: 0 hours and -1560 minutes is beyond a fixed zone's offset", errors: 4
+  _ = datetime.TimeZone.fixed(hours: -5, minutes: 30)
+  _ = datetime.TimeZone.fixed(hours: 26)
+  _ = datetime.TimeZone.fixed(hours: 25, minutes: 60)
+  _ = datetime.TimeZone.fixed(minutes: -1560)
+
+fail "! on a constant zone maker is refused", "1:5: `!` needs a fallible operand, and `datetime.TimeZone.named(\"Asia/Tokyo\")` cannot fail: its arguments are constants that pass its check, so it gives a `datetime.TimeZone`; write it without `!`", "2:5: `!` needs a fallible operand, and `datetime.TimeZone.fixed(hours: 9)` cannot fail", errors: 2
+  a = datetime.TimeZone.named("Asia/Tokyo")!
+  b = datetime.TimeZone.fixed(hours: 9)!
+  print(a == b)
+
+fail "fixed takes its offset by name", "1:29: `hours` has a default, so it is an option, given by name: `hours: -7`", errors: 1
+  _ = datetime.TimeZone.fixed(-7)
+
+test "fixed at run time: each end of its range, and each failure", '''
+  +25:59 -25:59 +25:59 -25:59
+  DateTimeError.range DateTimeError.range DateTimeError.range
+  DateTimeError.invalid DateTimeError.invalid
+  UTC true
+'''
+  fun fixed(h: Int, m: Int) -> String
+    z = datetime.TimeZone.fixed(hours: h, minutes: m) catch |e|
+      return String(`{e}`)
+    z.name()
+
+  sub main()
+    print(fixed(25, 59), fixed(-25, -59), fixed(0, 1559), fixed(0, -1559))
+    print(fixed(26, 0), fixed(25, 60), fixed(Int.max, 0))
+    print(fixed(-5, 30), fixed(Int.min, 1))
+    print(fixed(0, 0), datetime.TimeZone.fixed(hours: 0) == datetime.TimeZone.utc())
+
+test "zone equality: the six rows of §7.4", '''
+  true true false false true false
+  true true
+'''
+  calcutta = datetime.TimeZone.named("Asia/Calcutta")
+  kolkata = datetime.TimeZone.named("Asia/Kolkata")
+  denver = datetime.TimeZone.named("America/Denver")
+  shiprock = datetime.TimeZone.named("America/Shiprock")
+  accra = datetime.TimeZone.named("Africa/Accra")
+  abidjan = datetime.TimeZone.named("Africa/Abidjan")
+  utc = datetime.TimeZone.utc()
+  etc_utc = datetime.TimeZone.named("Etc/UTC")
+  zero = datetime.TimeZone.fixed(hours: 0)
+  named_utc = datetime.TimeZone.named("UTC")
+  gmt7 = datetime.TimeZone.named("Etc/GMT+7")
+  minus7 = datetime.TimeZone.fixed(hours: -7)
+  print(calcutta == kolkata, denver == shiprock, accra == abidjan, utc == etc_utc, utc == zero and zero == named_utc, gmt7 == minus7)
+  # A name keeps its spelling though it equals another.
+  print(calcutta.name() == "Asia/Calcutta", gmt7 != datetime.TimeZone.named("Etc/GMT-7"))
+
+test "zone hashing follows equality", '''
+  Kolkata Denver none none UTC none
+  5
+'''
+  m = Map[datetime.TimeZone, Static]()
+  !m.put(datetime.TimeZone.named("Asia/Kolkata"), "Kolkata")
+  !m.put(datetime.TimeZone.named("America/Shiprock"), "Denver")
+  !m.put(datetime.TimeZone.named("Africa/Abidjan"), "Abidjan")
+  !m.put(datetime.TimeZone.utc(), "UTC")
+  !m.put(datetime.TimeZone.named("Etc/GMT+7"), "GMT+7")
+  look = [datetime.TimeZone.named("Asia/Calcutta"), datetime.TimeZone.named("America/Denver"), datetime.TimeZone.named("Africa/Accra"), datetime.TimeZone.named("Etc/UTC"), datetime.TimeZone.fixed(hours: 0), datetime.TimeZone.fixed(hours: -7)]
+  line = String()
+  for z in look
+    !line.add(" ") if line.len > 0
+    !line.add(m.get(z) ?? "none")
+  print(line)
+  # Two spellings of a zone, and its fixed twin, keyed apart where they
+  # differ.
+  s = Set[datetime.TimeZone]()
+  for z in [datetime.TimeZone.named("Asia/Calcutta"), datetime.TimeZone.named("Asia/Kolkata"), datetime.TimeZone.named("UTC"), datetime.TimeZone.named("Etc/UTC"), datetime.TimeZone.fixed(hours: 5, minutes: 30), datetime.TimeZone.parse("+05:30")!, datetime.TimeZone.named("Etc/GMT-5")]
+    !s.add(z)
+  print(s.len)
+
+test "a zone is four bytes", "4"
+  print($size(datetime.TimeZone))
+
+test "parse reads a name or an offset of whole minutes", '''
+  +05:30 +05:30 +05:00 -07:00 UTC UTC UTC UTC
+  America/Denver UTC +25:59 -25:59
+'''
+  p = datetime.TimeZone.parse
+  print(p("+05:30")!.name(), p("+0530")!.name(), p("+05")!.name(), p("-07:00")!.name(), p("Z")!.name(), p("z")!.name(), p("+00:00")!.name(), p("-00:00")!.name())
+  print(p("america/denver")!.name(), p("utc")!.name(), p("+25:59")!.name(), p("-2559")!.name())
+
+test "parse refuses an offset with seconds, one digit, or beyond ±25:59", '''
+  DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid
+  DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid DateTimeError.invalid
+  DateTimeError.unknown_zone DateTimeError.unknown_zone DateTimeError.unknown_zone
+'''
+  fun parsed(s: ?String) -> String
+    z = datetime.TimeZone.parse(s) catch |e|
+      return String(`{e}`)
+    z.name()
+
+  sub main()
+    print(parsed("+05:30:00"), parsed("-7"), parsed("+26:00"), parsed("+05:60"))
+    print(parsed("+05:3"), parsed("+05:"), parsed("+"), parsed("-0530x"))
+    print(parsed("UTC+5"), parsed(""), parsed("Not/A_Zone"))
+
+test "parse of a zone's name gives the zone back", "Asia/Calcutta -07:00 UTC Etc/UTC +05:45"
+  line = String()
+  for z in [datetime.TimeZone.named("Asia/Calcutta"), datetime.TimeZone.fixed(hours: -7), datetime.TimeZone.utc(), datetime.TimeZone.named("Etc/UTC"), datetime.TimeZone.fixed(hours: 5, minutes: 45)]
+    back = datetime.TimeZone.parse(z.name())!
+    !line.add(" ") if line.len > 0
+    !line.add(back.name() if back == z else String("differs"))
+  print(line)
+
+test "offsets in the US: spring forward and fall back", '''
+  -7h -6h -6h -7h
+  -5h -4h -4h -5h
+'''
+  fun at(s: ?String) -> datetime.Instant
+    datetime.Instant.parse(s) catch datetime.Instant.min()
+
+  sub main()
+    d = datetime.TimeZone.named("America/Denver")
+    print(d.offset_at(at("2026-03-08T08:59:59Z")), d.offset_at(at("2026-03-08T09:00:00Z")), d.offset_at(at("2026-11-01T07:59:59Z")), d.offset_at(at("2026-11-01T08:00:00Z")))
+    ny = datetime.TimeZone.named("America/New_York")
+    print(ny.offset_at(at("2024-03-10T06:59:59Z")), ny.offset_at(at("2024-03-10T07:00:00Z")), ny.offset_at(at("2024-11-03T05:59:59Z")), ny.offset_at(at("2024-11-03T06:00:00Z")))
+
+test "Lord Howe moves its clocks by half an hour", '''
+  10h 30m 11h 11h 10h 30m
+  1800
+'''
+  fun at(s: ?String) -> datetime.Instant
+    datetime.Instant.parse(s) catch datetime.Instant.min()
+
+  sub main()
+    lh = datetime.TimeZone.named("Australia/Lord_Howe")
+    # 2026-10-04 at 02:00 local (+10:30) goes to 02:30 (+11:00); back on
+    # 2027-04-04 at 02:00 local (+11:00).
+    print(lh.offset_at(at("2026-10-03T15:29:59Z")), lh.offset_at(at("2026-10-03T15:30:00Z")), lh.offset_at(at("2027-04-03T14:59:59Z")), lh.offset_at(at("2027-04-03T15:00:00Z")))
+    print(lh.offset_at(at("2026-10-03T15:30:00Z")).sub(lh.offset_at(at("2026-10-03T15:29:59Z")))!.seconds())
+
+test "Apia skips 2011-12-30", '''
+  -10h 14h
+  2011-12-29T23:59:59 2011-12-31T00:00:00
+'''
+  fun at(s: ?String) -> datetime.Instant
+    datetime.Instant.parse(s) catch datetime.Instant.min()
+
+  sub main()!
+    apia = datetime.TimeZone.named("Pacific/Apia")
+    before = at("2011-12-30T09:59:59Z")
+    after = at("2011-12-30T10:00:00Z")
+    print(apia.offset_at(before), apia.offset_at(after))
+    # The clock on each side: a day of the calendar never shown.
+    print(datetime.DateTime.parse("1970-01-01T00:00:00")!.add(duration: before.unix().add(apia.offset_at(before))!)!, datetime.DateTime.parse("1970-01-01T00:00:00")!.add(duration: after.unix().add(apia.offset_at(after))!)!)
+
+test "Monrovia's historic offset keeps its seconds", '''
+  -44m 30s -2670 0s
+'''
+  fun at(s: ?String) -> datetime.Instant
+    datetime.Instant.parse(s) catch datetime.Instant.min()
+
+  sub main()
+    m = datetime.TimeZone.named("Africa/Monrovia")
+    o = m.offset_at(at("1968-02-01T23:59:30Z"))
+    print(o, o.seconds(), m.offset_at(at("1972-01-07T00:44:30Z")))
+
+test "offset_at is total: the first and last instants in zones east and west, a zone's first offset its local mean time", '''
+  -1h -11h 19m 40s 9h 18m 59s -10h 29m 20s 25h 59m
+  -7h -11h 9h 14h 25h 59m
+'''
+  zones = [datetime.TimeZone.named("Etc/GMT+1"), datetime.TimeZone.named("Pacific/Niue"), datetime.TimeZone.named("Asia/Tokyo"), datetime.TimeZone.named("Pacific/Kiritimati"), datetime.TimeZone.fixed(hours: 25, minutes: 59)]
+  lo = String()
+  for z in zones
+    !lo.add(" ") if lo.len > 0
+    !lo.add(`{z.offset_at(datetime.Instant.min())}`)
+  print(lo)
+  hi = String()
+  for z in [datetime.TimeZone.named("America/Denver"), datetime.TimeZone.named("Pacific/Niue"), datetime.TimeZone.named("Asia/Tokyo"), datetime.TimeZone.named("Pacific/Kiritimati"), datetime.TimeZone.fixed(hours: 25, minutes: 59)]
+    !hi.add(" ") if hi.len > 0
+    !hi.add(`{z.offset_at(datetime.Instant.max())}`)
+  print(hi)
+
+test "zone_names and tzdb_version", '''
+  598 Africa/Abidjan Zulu 2026f
+  true true
+'''
+  names = datetime.zone_names()
+  print(names.len, names[0], names[names.len - 1], datetime.tzdb_version())
+  every = true
+  for n in names
+    every = every and datetime.TimeZone.parse(n)!.name() == n or n == "UTC"
+  print(every, datetime.TimeZone.named("Asia/Kolkata") == datetime.TimeZone.parse("ASIA/KOLKATA")!)
+
+test "named stays usable as a function value", "Europe/Paris"
+  f = datetime.TimeZone.named
+  print(f("europe/paris")!.name())

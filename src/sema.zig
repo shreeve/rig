@@ -4340,6 +4340,10 @@ pub const SemContext = struct {
     zig_file: []const u8 = "",
     /// A module of the standard library.
     is_std: bool = false,
+    /// std.datetime's: the names file of its zone data (`ZoneNames`),
+    /// which `TimeZone.named`'s check of a literal reads; empty in any
+    /// other module.
+    zone_names: []const u8 = "",
     imports: []const ImportEntry = &.{},
     /// `use NAME` symbol -> origin module id.
     module_refs: FastMap(SymbolId, u32) = .empty,
@@ -6530,6 +6534,8 @@ pub const CheckOptions = struct {
     zig_file: []const u8 = "",
     /// A module of the standard library.
     is_std: bool = false,
+    /// The names file of std.datetime's zone data (`SemContext.zone_names`).
+    zone_names: []const u8 = "",
     /// Where `rig check --time` adds the time of each pass.
     timing: ?*timing.Timing = null,
     /// A directory module: where each of its files starts in the source.
@@ -6632,6 +6638,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     ctx.name = opts.name;
     ctx.zig_file = opts.zig_file;
     ctx.is_std = opts.is_std;
+    ctx.zone_names = opts.zone_names;
     ctx.parts = opts.parts;
     // The caller's slice is temporary; the emitter reads the imports later.
     ctx.imports = try ctx.arena.allocator().dupe(ImportEntry, opts.imports);
@@ -12403,6 +12410,11 @@ pub const ConstMaker = enum {
     unix_ms,
     /// `datetime.Instant.from_unix_us(us)`.
     unix_us,
+    /// `datetime.TimeZone.fixed(hours:, minutes:)`.
+    zone_fixed,
+    /// `datetime.TimeZone.named(name)` with a string literal, checked
+    /// against the names of the zone data (`zoneNamed`), not by parts.
+    zone_named,
 
     /// The parameters it checks, in order, as its declaration names them.
     pub fn params(m: ConstMaker) []const MakerPart {
@@ -12414,6 +12426,8 @@ pub const ConstMaker = enum {
             .unix_s => &.{ .unix_s, .unix_ns },
             .unix_ms => &.{.unix_ms},
             .unix_us => &.{.unix_us},
+            .zone_fixed => &.{ .zone_hours, .zone_minutes },
+            .zone_named => &.{},
         };
     }
 };
@@ -12424,6 +12438,11 @@ pub fn constMaker(home: *const SemContext, owner: []const u8, name: []const u8) 
     const eq = std.mem.eql;
     if (eq(u8, home.name, "std.time")) return if (eq(u8, owner, "Duration") and eq(u8, name, "from_parts")) .duration_parts else null;
     if (!eq(u8, home.name, "std.datetime")) return null;
+    if (eq(u8, owner, "TimeZone")) {
+        if (eq(u8, name, "fixed")) return .zone_fixed;
+        if (eq(u8, name, "named")) return .zone_named;
+        return null;
+    }
     if (eq(u8, owner, "Instant")) {
         if (eq(u8, name, "from_unix_s")) return .unix_s;
         if (eq(u8, name, "from_unix_ms")) return .unix_ms;
@@ -12435,6 +12454,94 @@ pub fn constMaker(home: *const SemContext, owner: []const u8, name: []const u8) 
     if (eq(u8, owner, "Time")) return .time;
     if (eq(u8, owner, "DateTime")) return .date_time;
     return null;
+}
+
+/// The farthest a fixed zone is from UTC, in minutes: 25:59
+/// (std.datetime's `MAX_FIXED_MINUTES`).
+pub const zone_fixed_max: Wide = 25 * 60 + 59;
+
+/// The name a string literal given `TimeZone.named` holds, when it is a
+/// plain one: double-quoted with no escape or slot, or single-quoted
+/// with no `''`. Null for any other expression, which is not a constant.
+pub fn zoneNameLiteral(source: []const u8, e: Sexp) ?[]const u8 {
+    if (e != .src) return null;
+    const t = diag.textOf(source, rig.leafSpan(source, e));
+    if (t.len < 2 or t[t.len - 1] != t[0]) return null;
+    const body = t[1 .. t.len - 1];
+    return switch (t[0]) {
+        '"' => if (std.mem.findAny(u8, body, "\\{}\"") == null) body else null,
+        '\'' => if (std.mem.findScalar(u8, body, '\'') == null) body else null,
+        else => null,
+    };
+}
+
+/// Each name of the zone data, from the names file tools/gen-tzdb.py
+/// writes (`tzdb_names.zig`, one name a line, `\\Africa/Abidjan`), which
+/// the module graph reads with std.datetime's shims.
+pub const ZoneNames = struct {
+    lines: std.mem.SplitIterator(u8, .scalar),
+
+    pub fn init(text: []const u8) ZoneNames {
+        return .{ .lines = std.mem.splitScalar(u8, text, '\n') };
+    }
+
+    pub fn next(it: *ZoneNames) ?[]const u8 {
+        while (it.lines.next()) |line| {
+            const t = std.mem.trimStart(u8, line, " ");
+            if (std.mem.startsWith(u8, t, "\\\\")) return t[2..];
+        }
+        return null;
+    }
+};
+
+/// Whether std.datetime's `TimeZone.named` finds `name`, as it reads
+/// one: `UTC`, or a name of the data, in any ASCII case.
+pub fn zoneNamed(names: []const u8, name: []const u8) bool {
+    if (std.ascii.eqlIgnoreCase(name, "UTC")) return true;
+    var it: ZoneNames = .init(names);
+    while (it.next()) |n| if (std.ascii.eqlIgnoreCase(n, name)) return true;
+    return false;
+}
+
+/// The zone's name nearest `name`, a name `zoneNamed` does not find: one
+/// whose last part is `name` (`America/Denver` for `denver`), else the
+/// closest in ASCII case within a third of its length in edits (at
+/// least two); null when none is that close.
+pub fn nearestZoneName(names: []const u8, name: []const u8) ?[]const u8 {
+    var it: ZoneNames = .init(names);
+    while (it.next()) |n| {
+        const last = n[if (std.mem.findScalarLast(u8, n, '/')) |k| k + 1 else 0..];
+        if (std.ascii.eqlIgnoreCase(last, name)) return n;
+    }
+    const max = 32;
+    if (name.len > max) return null;
+    var a: [max]u8 = undefined;
+    const lower = std.ascii.lowerString(&a, name);
+    const limit = @max(2, name.len / 3);
+    var best: ?[]const u8 = null;
+    var best_d: usize = limit + 1;
+    it = .init(names);
+    while (it.next()) |n| {
+        if (n.len > max) continue;
+        var b: [max]u8 = undefined;
+        const d = editDistance(lower, std.ascii.lowerString(&b, n), limit) orelse continue;
+        if (d < best_d) {
+            best = n;
+            best_d = d;
+        }
+    }
+    return best;
+}
+
+test "a zone's name is found in any case, and a near one offered" {
+    const names = "pub const text =\n    \\\\America/Denver\n    \\\\America/New_York\n    \\\\Asia/Kolkata\n    \\\\UTC\n;\n";
+    try std.testing.expect(zoneNamed(names, "america/denver"));
+    try std.testing.expect(zoneNamed(names, "utc"));
+    try std.testing.expect(!zoneNamed(names, "America/Denvr"));
+    try std.testing.expectEqualStrings("America/Denver", nearestZoneName(names, "America/Denvr").?);
+    try std.testing.expectEqualStrings("America/Denver", nearestZoneName(names, "denver").?);
+    try std.testing.expectEqualStrings("America/New_York", nearestZoneName(names, "america/new york").?);
+    try std.testing.expect(nearestZoneName(names, "Mars/Base") == null);
 }
 
 /// The range of instants in nanoseconds from 1970-01-01T00:00Z:
@@ -12462,6 +12569,10 @@ pub const MakerPart = enum {
     unix_ns,
     unix_ms,
     unix_us,
+    /// A fixed zone's hours and minutes, which agree in sign and come to
+    /// at most 25:59 either way (`makerFault`).
+    zone_hours,
+    zone_minutes,
 
     /// The least and greatest value std takes for a part other than the
     /// day, whose greatest is its month's length (`monthDays`), and a
@@ -12479,6 +12590,8 @@ pub const MakerPart = enum {
             .unix_s => .{ @divFloor(instant_min_ns, 1_000_000_000), @divFloor(instant_max_ns, 1_000_000_000) },
             .unix_ms => .{ @divFloor(instant_min_ns, 1_000_000), @divFloor(instant_max_ns, 1_000_000) },
             .unix_us => .{ @divFloor(instant_min_ns, 1_000), @divFloor(instant_max_ns, 1_000) },
+            .zone_hours => .{ -25, 25 },
+            .zone_minutes => .{ -zone_fixed_max, zone_fixed_max },
         };
     }
 };
@@ -12519,6 +12632,13 @@ pub fn makerFault(maker: ConstMaker, values: []const Wide) ?usize {
                 const total = values[0] * 1_000_000_000 + v;
                 if (total < instant_min_ns or total > instant_max_ns) return i;
             },
+            // The minutes agree with the hours in sign, and the offset
+            // is within ±25:59.
+            .zone_minutes => {
+                if ((values[0] < 0 and v > 0) or (values[0] > 0 and v < 0)) return i;
+                const total = values[0] * 60 + v;
+                if (total < -zone_fixed_max or total > zone_fixed_max) return i;
+            },
             else => {},
         }
     }
@@ -12552,6 +12672,17 @@ test "a maker's check agrees with the calendar at each boundary" {
     try std.testing.expectEqual(@as(?usize, null), makerFault(.unix_ms, &.{253_402_207_200_999}));
     try std.testing.expectEqual(@as(?usize, 0), makerFault(.unix_ms, &.{253_402_207_201_000}));
     try std.testing.expectEqual(@as(?usize, 0), makerFault(.unix_us, &.{-377_705_023_201_000_001}));
+    try std.testing.expectEqual(@as(?usize, null), makerFault(.zone_fixed, &.{ 25, 59 }));
+    try std.testing.expectEqual(@as(?usize, 1), makerFault(.zone_fixed, &.{ 25, 60 }));
+    try std.testing.expectEqual(@as(?usize, null), makerFault(.zone_fixed, &.{ -25, -59 }));
+    try std.testing.expectEqual(@as(?usize, 1), makerFault(.zone_fixed, &.{ -25, -60 }));
+    try std.testing.expectEqual(@as(?usize, 0), makerFault(.zone_fixed, &.{ 26, 0 }));
+    try std.testing.expectEqual(@as(?usize, null), makerFault(.zone_fixed, &.{ 0, 1559 }));
+    try std.testing.expectEqual(@as(?usize, 1), makerFault(.zone_fixed, &.{ 0, 1560 }));
+    try std.testing.expectEqual(@as(?usize, null), makerFault(.zone_fixed, &.{ 0, 330 }));
+    try std.testing.expectEqual(@as(?usize, 1), makerFault(.zone_fixed, &.{ -5, 30 }));
+    try std.testing.expectEqual(@as(?usize, 1), makerFault(.zone_fixed, &.{ 5, -30 }));
+    try std.testing.expectEqual(@as(?usize, null), makerFault(.zone_fixed, &.{ 0, -30 }));
 }
 
 /// An argument given as a duration form (`duration`): what emit writes

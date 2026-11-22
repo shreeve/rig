@@ -683,7 +683,10 @@ pub const ModuleGraph = struct {
                 try self.errorAt(id, at, "`extern zig` names a Zig file of the standard library, `name.zig`", .{});
                 return false;
             }
-            if (!try self.addShim(id, at, file)) return false;
+            // A directory module's files may each have a block of one file.
+            for (self.get(id).shims.items) |shim| {
+                if (std.mem.eql(u8, shim.name, file)) break;
+            } else if (!try self.addShim(id, at, file)) return false;
         }
         var next: usize = 0;
         while (next < self.get(id).shims.items.len) : (next += 1) {
@@ -699,6 +702,15 @@ pub const ModuleGraph = struct {
             }
         }
         return true;
+    }
+
+    /// std.datetime's names file of its zone data, which it reads as a
+    /// shim (`tzdb_names.zig`, imported by `datetime.zig`), so a std
+    /// given by `$RIG_STD` gives its own; empty for any other module.
+    fn zoneNames(m: *const Module) []const u8 {
+        if (!m.is_std or !std.mem.eql(u8, m.name, "std.datetime")) return "";
+        for (m.shims.items) |shim| if (std.mem.eql(u8, shim.name, "tzdb_names.zig")) return shim.source;
+        return "";
     }
 
     /// Read `file` of the standard library as a shim of module `id`;
@@ -864,6 +876,7 @@ pub const ModuleGraph = struct {
             .is_root = id == 1,
             .zig_file = m.out_basename,
             .is_std = m.is_std,
+            .zone_names = zoneNames(m),
             .timing = self.timing,
             .parts = m.parts,
         };
