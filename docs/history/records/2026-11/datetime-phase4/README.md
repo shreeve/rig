@@ -195,5 +195,13 @@ On the Mac, through `tools/heavy`:
   for the branch and 2,164,427,230 for main, 0.03% more, and 0.4% over
   the committed baseline, within its 2%.
 
+After the review's fixes: the touched areas (`std-datetime-zone`,
+`cli.datetime_local`, `cli.tzdb_tables_fresh`); the whole core once,
+12,562 jobs in 513 s, none died; a plain `tools/heavy zig build`;
+`tools/emit-diff origin/main`, the same 12 programs by `read_link`
+alone; and the check guard as before (load 2.9 to 3.0), the fewest
+2,173,354,081 instructions for the branch and 2,176,917,026 for main,
+0.16% fewer, 0.7% over the committed baseline.
+
 Not run here: the json, hash and text guards (the change touches no
 code they time), the Trig and loco light gates, and pup.
