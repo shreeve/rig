@@ -1,0 +1,8 @@
+use std.shared
+
+fun leak() -> ?Int
+  m = shared.Map[Int, Int].new()
+  !m.ensure(1, 10)
+
+sub main()
+  print(leak())

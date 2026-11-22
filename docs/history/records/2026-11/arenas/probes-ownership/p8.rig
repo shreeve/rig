@@ -1,0 +1,7 @@
+use std.shared
+
+sub main()
+  m = shared.Map[String, String].new()
+  a = !m.ensure(String("k"), String("value-held"))
+  m = shared.Map[String, String].new()
+  print(a)

@@ -1,0 +1,14 @@
+obj Tree
+  left: (?Tree)? = none
+  right: (?Tree)? = none
+
+fun check(t: ?Tree) -> Int
+  if t.left as l and t.right as r
+    return 1 + check(l) + check(r)
+  1
+
+sub main()
+  a = Tree()
+  b = Tree()
+  c = Tree(left: ?a, right: ?b)
+  print(check(?c))

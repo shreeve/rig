@@ -1,0 +1,11 @@
+use std.shared
+
+fun twice(x: ?Int) -> Int
+  x * 2
+
+sub main()
+  m = shared.Map[Int, Int].new()
+  a = !m.ensure(1, 10)
+  t = twice(a)&
+  b = !m.ensure(2, 20)
+  print(>t, b)

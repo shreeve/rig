@@ -1,0 +1,17 @@
+obj Node
+  left: (?Node)?
+  right: (?Node)?
+
+fun check(n: ?Node) -> Int
+  c = 1
+  if n.left as l
+    c += check(l)
+  if n.right as r
+    c += check(r)
+  c
+
+sub main()
+  a = Node(left: none, right: none)
+  b = Node(left: none, right: none)
+  root = Node(left: ?a, right: ?b)
+  print(check(?root))

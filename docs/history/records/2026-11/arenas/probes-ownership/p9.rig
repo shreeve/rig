@@ -1,0 +1,7 @@
+use std.shared
+
+sub main()
+  m = shared.Map[Int, Int].new()
+  a = ?m.get(1)
+  m = shared.Map[Int, Int].new()
+  print(a)

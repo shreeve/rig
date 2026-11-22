@@ -1,0 +1,11 @@
+use std.shared
+
+fun size(s: ?String) -> Int
+  s.len
+
+sub main()
+  m = shared.Map[Int, String].new()
+  a = !m.ensure(1, String("xy"))
+  t = size(?a)&
+  b = !m.ensure(2, String("abc"))
+  print(>t, b)

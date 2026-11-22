@@ -1,0 +1,11 @@
+obj Tree
+  left: (?Tree)? = none
+  right: (?Tree)? = none
+
+sub main()
+  pool: List[Tree] = List()
+  !pool.push(Tree())
+  !pool.push(Tree())
+  c = Tree(left: ?pool[0], right: ?pool[1])
+  !pool.push(c)
+  print(pool.len)

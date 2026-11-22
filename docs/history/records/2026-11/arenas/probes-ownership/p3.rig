@@ -1,0 +1,9 @@
+use std.shared
+
+sub main()
+  out: List[?Int] = List()
+  if true
+    m = shared.Map[Int, Int].new()
+    a = !m.ensure(1, 10)
+    !out.push(a)
+  print(out.len)
