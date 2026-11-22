@@ -175,10 +175,13 @@ A new session, human or agent, takes these steps in order:
   `named-groups`, the build plan's step 2;
   records/2026-11/named-options-groups) are a rewrite of the signature
   and the call checked twice, as iterator chains are, with
-  std.datetime's `Period`, `DateFields`, and `ClockFields` as groups;
-  they hold plain data only. Next, in order: owners and read views in
-  groups and object update, lifting the plain-data limit (the owner,
-  2026-11-22; the build plan's step 3); `ZonedDateTime` (phase 5).
+  std.datetime's `Period`, `DateFields`, and `ClockFields` as groups.
+  Owners and read views in groups and object update (branch
+  `group-owners`, the build plan's step 3;
+  records/2026-11/named-options-owners) put a spread's sigil on each
+  field that moves, read a group in its body as an object parameter, and
+  let `from net` and `keeps net` name a group's view fields. Next, in
+  order: `ZonedDateTime` (phase 5).
 - **The view vocabulary** (owner, 2026-11-20; #1192 landed PR 1):
   places, read and write views, read-only, unusable, and cells are the
   words of the docs, the messages, and the code. PR 1 is the wording; PR 2

@@ -1898,6 +1898,35 @@ sub main()
 `File` has a `drop` body, which expects every field
 ```
 
+**A spread gives an object's fields one by one.** `..v` in a call or a
+constructor ([design/options.md](design/options.md)) is one keyword
+argument per field it gives, `f: v.f`, evaluated where it is written; a
+field that moves takes the spread's sigil, `<v.f` from `..<v` or `+v.f`
+from `..+v`, and one that copies is copied, so a bare `..v` gives only
+fields that copy and `..<v` gives at least one that moves. A group,
+`..net: Net` among a function's parameters, is one parameter per field;
+the body reads `net` as an object parameter whose fields those are, and
+`from net` and `keeps net` name those of them that could hold the view.
+A type whose fields are not all of it is not taken apart: one with a
+`drop` body is no group and is updated only by `..+v`, and a `unique`
+one is neither. *(built)*
+
+```rig
+obj Doc
+  name: String
+  pages: Int
+
+sub main()
+  d = Doc(name: String("a"), pages: 1)
+  e = Doc(pages: d.name.len + 1, ..<d)
+  f = Doc(pages: 9, ..+e)
+  print(e.name, e.pages, f.name, f.pages, d.pages)
+```
+
+```output
+a 2 a 9 1
+```
+
 **A list of owners works as a list of plain data does.** `List[String]`, `List[List[Int]]`, and a `List` of objects that each own a string take their elements by move and drop each one once. `swap` and `sort_by` only move elements, so they work for any element; `sort` also needs `<`. *(built)*
 
 **Only a value that copies is duplicated without `+`.** An operation that writes copies of a value it leaves in place, as `copy`, `fill`, `[n of x]`, `List.filled`, and `resize` do, needs an element type that copies (§1). A read view copies, and each copy limits what the view limits. Anything else is rejected, since each copy would be a clone no `+x` wrote (sentences 1 and 2): write a loop that makes each element with `+x`. The element type decides, so `resize` needs one that copies even when it only shrinks; `!xs.keep(n)` shrinks any list. *(built)*

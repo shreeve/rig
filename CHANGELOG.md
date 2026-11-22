@@ -474,10 +474,17 @@ serve no HTTP.
   order, and `Point(x: 3, ..p)` is a copy of `p` with `x` set. `name:`
   before `,` or `)` on its line is `name: name`, for a local or a
   parameter. A call lowers to the code written by hand: a spread is field
-  reads as arguments, defaults filled at the call. Groups and object
-  update hold plain data; a function with a group is not a value; a
-  unit's keyword never fills a group's field; and a spread's operand is a
-  name or a field path, read where it is written, one per group.
+  reads as arguments, defaults filled at the call. A group's fields, and
+  an updated object's, may own and view: a spread gives each field as its
+  keyword written out would, `..<v` moving the fields that move, `..+v`
+  cloning them, and a bare `..v` giving only fields that copy; the body
+  reads a group as an object parameter, and `from net` and `keeps net`
+  name those of its fields that could hold the view. A type with a `drop`
+  body is updated only by `..+p`, a `unique` type not at all, and neither
+  is a group's type. A function with a group is not a value; a unit's
+  keyword never fills a group's field, nor does a closure written last;
+  and a spread's operand is a name or a field path, read where it is
+  written, one per group.
   std.datetime's `add` takes its calendar amounts as the group `period`,
   a `Period`, and `with` its fields as `date`, a `DateFields`, and
   `clock`, a `ClockFields`, with the parameters they had, so a program can
