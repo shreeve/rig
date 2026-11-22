@@ -937,7 +937,10 @@ are the one value that may view itself (§5). The rest is sentences 5 to
 function returns them only `from` an arena passed to it, an owner that
 keeps one keeps the arena limited, and a task given one keeps it limited
 until `>t`. No call empties an arena, and nothing is allocated in one
-but by `add`: the compiler never chooses an arena. *(planned)*
+but by `add`: the compiler never chooses an arena. *(planned)* It is
+never built, this rule or the type, until it has been discussed in full
+with the owner and he has approved building it ([ROADMAP](ROADMAP.md),
+"Arenas").
 
 ```rig pending
 use std.arena
