@@ -214,3 +214,9 @@ found three things, each fixed with its failing case first:
 
 The oracle after the fixes: 2,187,579 answers the same as Jiff's, none
 different, none open (`round.in` 76,124 lines).
+
+Gates after the fixes: the datetime areas, `cli.jiff_oracle`, the doc
+examples and `oracle`; the whole core once, 12,597 jobs in 448 s, none
+died; a plain `tools/heavy zig build`; `tools/emit-diff origin/main`,
+identical where compared, as before. The compiler did not change, so the
+check guard was not rerun.
