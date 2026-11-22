@@ -1,0 +1,33 @@
+tools/mac-claim: waiting 1 min for the claim: bt200-compiler-ab, at most 5 min, started 21:41, pid 49184
+tools/mac-claim: waiting 1 min for the Mac to go quiet (235% of a core in use, under 150% wanted). Busiest:
+  PID 63640 at 63.8%: /private/var/run/com.apple.security.cryptexd/mnt/iOS_23E244/Library/Developer/CoreSimulator/Profiles/Runtimes/
+  PID 27191 at 46.3%: /usr/libexec/diskimagesiod
+  PID 73126 at 26.1%: /private/var/run/com.apple.security.cryptexd/mnt/iOS_23E244/Library/Developer/CoreSimulator/Profiles/Runtimes/
+1 model_ptr16 0.26 1.81 172
+1 model_rel32 0.25 1.76 87
+1 model_idx32 0.25 1.75 87
+1 fast 0.28 1.82 340
+2 model_ptr16 0.26 1.84 172
+2 model_rel32 0.25 1.76 87
+2 model_idx32 0.24 1.75 87
+2 fast 0.22 1.78 323
+3 model_ptr16 0.27 1.84 172
+3 model_rel32 0.24 1.77 87
+3 model_idx32 0.24 1.74 87
+3 fast 0.22 1.71 291
+4 model_ptr16 0.26 1.82 172
+4 model_rel32 0.27 1.74 87
+4 model_idx32 0.29 1.77 87
+4 fast 0.29 1.74 352
+5 model_ptr16 0.29 1.8 172
+5 model_rel32 0.30 1.81 87
+5 model_idx32 0.25 1.75 87
+5 fast 0.23 1.73 349
+6 model_ptr16 0.25 1.82 172
+6 model_rel32 0.25 1.76 87
+6 model_idx32 0.24 1.73 87
+6 fast 0.22 1.73 333
+7 model_ptr16 0.26 1.82 172
+7 model_rel32 0.25 1.74 87
+7 model_idx32 0.24 1.75 87
+7 fast 0.23 1.81 355

@@ -1,0 +1,25 @@
+tools/mac-claim: waiting 1 min for the claim: bt200-language-down, at most 3 min, started 22:04, pid 99987
+v_region_inline md5 baf0dcbc307297f68bd9459833db9f73
+v_region_all md5 baf0dcbc307297f68bd9459833db9f73
+v_region_all_split10 md5 baf0dcbc307297f68bd9459833db9f73
+bt-fast md5 baf0dcbc307297f68bd9459833db9f73
+v_region_inline wall 0.320 cpu 2.05 rss 239 MB
+v_region_all wall 0.280 cpu 2.05 rss 239 MB
+v_region_all_split10 wall 0.280 cpu 2.14 rss 555 MB
+bt-fast wall 0.210 cpu 1.70 rss 330 MB
+v_region_inline wall 0.330 cpu 2.09 rss 239 MB
+v_region_all wall 0.340 cpu 2.05 rss 239 MB
+v_region_all_split10 wall 0.380 cpu 2.30 rss 446 MB
+bt-fast wall 0.260 cpu 1.74 rss 366 MB
+v_region_inline wall 0.340 cpu 2.08 rss 239 MB
+v_region_all wall 0.290 cpu 2.03 rss 239 MB
+v_region_all_split10 wall 0.280 cpu 2.09 rss 541 MB
+bt-fast wall 0.290 cpu 1.76 rss 313 MB
+v_region_inline wall 0.330 cpu 2.05 rss 239 MB
+v_region_all wall 0.290 cpu 2.06 rss 239 MB
+v_region_all_split10 wall 0.280 cpu 2.11 rss 541 MB
+bt-fast wall 0.260 cpu 1.77 rss 339 MB
+v_region_inline wall 0.370 cpu 2.17 rss 239 MB
+v_region_all wall 0.280 cpu 1.98 rss 239 MB
+v_region_all_split10 wall 0.270 cpu 2.08 rss 525 MB
+bt-fast wall 0.220 cpu 1.77 rss 356 MB

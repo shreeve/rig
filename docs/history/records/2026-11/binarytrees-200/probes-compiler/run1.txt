@@ -1,0 +1,43 @@
+tools/mac-claim: waiting 1 min for the claim: bt200-perf, at most 6 min, started 21:36, pid 46672
+tools/mac-claim: waiting 1 min for the Mac to go quiet (62% of a core in use, under 150% wanted). Busiest:
+  PID 407 at 15.0%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+  PID 1040 at 12.2%: /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Render
+  PID 87958 at 7.4%: /usr/libexec/sysmond
+bt-base md5 baf0dcbc307297f68bd9459833db9f73
+bt-man md5 baf0dcbc307297f68bd9459833db9f73
+v_directdrop md5 baf0dcbc307297f68bd9459833db9f73
+v_freelist md5 baf0dcbc307297f68bd9459833db9f73
+v_region_call md5 baf0dcbc307297f68bd9459833db9f73
+v_region_inline md5 baf0dcbc307297f68bd9459833db9f73
+bt-base wall 0.980 cpu 5.70 rss 174 MB
+bt-man wall 1.340 cpu 5.92 rss 174 MB
+v_directdrop wall 0.680 cpu 4.13 rss 174 MB
+v_freelist wall 0.640 cpu 3.56 rss 174 MB
+v_region_call wall 0.350 cpu 2.16 rss 239 MB
+v_region_inline wall 0.350 cpu 2.12 rss 239 MB
+bt-base wall 0.890 cpu 5.94 rss 174 MB
+bt-man wall 0.950 cpu 6.13 rss 174 MB
+v_directdrop wall 0.650 cpu 3.98 rss 174 MB
+v_freelist wall 0.690 cpu 3.56 rss 174 MB
+v_region_call wall 0.370 cpu 2.20 rss 239 MB
+v_region_inline wall 0.420 cpu 2.13 rss 239 MB
+bt-base wall 1.100 cpu 6.06 rss 174 MB
+bt-man wall 1.270 cpu 6.08 rss 174 MB
+v_directdrop wall 1.020 cpu 4.59 rss 174 MB
+v_freelist wall 0.600 cpu 3.45 rss 174 MB
+v_region_call wall 0.430 cpu 2.21 rss 239 MB
+v_region_inline wall 0.340 cpu 2.11 rss 239 MB
+bt-base wall 0.870 cpu 5.94 rss 174 MB
+bt-man wall 0.870 cpu 6.04 rss 174 MB
+v_directdrop wall 0.630 cpu 4.09 rss 174 MB
+v_freelist wall 0.640 cpu 3.66 rss 174 MB
+v_region_call wall 0.340 cpu 2.20 rss 239 MB
+v_region_inline wall 0.370 cpu 2.23 rss 239 MB
+bt-base wall 0.890 cpu 6.04 rss 174 MB
+bt-man wall 0.910 cpu 6.00 rss 174 MB
+v_directdrop wall 0.620 cpu 4.14 rss 174 MB
+v_freelist wall 0.690 cpu 3.56 rss 174 MB
+v_region_call wall 0.350 cpu 2.21 rss 239 MB
+v_region_inline wall 0.440 cpu 2.17 rss 239 MB
+
+[exited with code 0]

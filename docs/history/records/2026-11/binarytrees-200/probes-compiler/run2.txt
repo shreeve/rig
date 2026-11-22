@@ -1,0 +1,31 @@
+tools/mac-claim: waiting 1 min for the claim: bt200-language-model, at most 4 min, started 21:43, pid 58115
+tools/mac-claim: waiting 1 min for the Mac to go quiet (207% of a core in use, under 150% wanted). Busiest:
+  PID 70401 at 99.5%: /usr/libexec/biomesyncd
+  PID 87958 at 25.3%: /usr/libexec/sysmond
+  PID 407 at 21.8%: /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
+bt-base md5 baf0dcbc307297f68bd9459833db9f73
+v_region_inline md5 baf0dcbc307297f68bd9459833db9f73
+v_region_split md5 baf0dcbc307297f68bd9459833db9f73
+bt-fast md5 baf0dcbc307297f68bd9459833db9f73
+bt-base wall 0.870 cpu 5.71 rss 174 MB
+v_region_inline wall 0.350 cpu 2.03 rss 239 MB
+v_region_split wall 0.360 cpu 2.23 rss 770 MB
+bt-fast wall 0.340 cpu 1.65 rss 295 MB
+bt-base wall 1.040 cpu 5.91 rss 174 MB
+v_region_inline wall 0.330 cpu 2.06 rss 239 MB
+v_region_split wall 0.470 cpu 2.28 rss 871 MB
+bt-fast wall 0.270 cpu 1.76 rss 350 MB
+bt-base wall 0.910 cpu 5.93 rss 174 MB
+v_region_inline wall 0.340 cpu 2.14 rss 239 MB
+v_region_split wall 0.380 cpu 2.22 rss 610 MB
+bt-fast wall 0.270 cpu 1.81 rss 351 MB
+bt-base wall 0.910 cpu 5.92 rss 174 MB
+v_region_inline wall 0.360 cpu 2.12 rss 239 MB
+v_region_split wall 0.480 cpu 2.45 rss 1206 MB
+bt-fast wall 0.240 cpu 1.82 rss 353 MB
+bt-base wall 1.130 cpu 5.99 rss 174 MB
+v_region_inline wall 0.350 cpu 2.13 rss 239 MB
+v_region_split wall 0.360 cpu 2.25 rss 671 MB
+bt-fast wall 0.240 cpu 1.83 rss 357 MB
+
+[exited with code 0]
