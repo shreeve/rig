@@ -68,9 +68,9 @@ test "duration forms of another module", '''
 
   sub main()
     print(lib.twice(1.5), lib.twice(ms: 3), lib.twice(us: 2))
-    print(lib.maybe(1), lib.maybe(1, 5), lib.maybe(1, d: 7), lib.maybe(1, seconds: 9), lib.maybe(1, minutes: 0.1833333333333))
+    print(lib.maybe(1), lib.maybe(1, d: 5), lib.maybe(1, d: 7), lib.maybe(1, seconds: 9), lib.maybe(1, minutes: 0.1833333333333))
     w = lib.W(k: 1)
-    print(w.wait(ms: 1000), lib.maybe(2, lib.none_yet()))
+    print(w.wait(ms: 1000), lib.maybe(2, d: lib.none_yet()))
 
   file "lib.rig"
     use std.time
@@ -225,7 +225,7 @@ test "a duration's default of none", "5s 1s"
   fun pause(d: time.Duration? = none) -> time.Duration
     d ?? time.duration(5)
 
-  print(pause(), pause(1))
+  print(pause(), pause(d: 1))
 
 fail "a number compared with a duration", "2:25: operator `<` orders two values of one type, and `5` is an `Int` beside a `time.Duration`: a number is no duration, so write `time.duration(5)`", "3:7: cannot compare `time.Duration` with `Int`: a number is no duration, so write `time.duration(0)`", errors: 2
   start = time.monotonic()

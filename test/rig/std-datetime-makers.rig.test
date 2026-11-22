@@ -14,8 +14,8 @@ test "constant makers give the plain type", '''
   08:30:00 2026-11-17T00:05:00 2026-11-17T08:00:00
 '''
   # Positional arguments, a keyword argument, and the defaults left out.
-  print(datetime.Date.new(2024, 2, 29), datetime.Time.new(23, 59, 59, 999_999_999), datetime.DateTime.new(-9999, 1, 1))
-  print(datetime.Time.new(hour: 8, minute: 30), datetime.DateTime.new(2026, 11, 17, minute: 5), datetime.DateTime.new(day: 17, month: 11, year: 2026, hour: 8))
+  print(datetime.Date.new(2024, 2, 29), datetime.Time.new(23, 59, 59, ns: 999_999_999), datetime.DateTime.new(-9999, 1, 1))
+  print(datetime.Time.new(hour: 8, minute: 30, second: 0), datetime.DateTime.new(2026, 11, 17, minute: 5), datetime.DateTime.new(day: 17, month: 11, year: 2026, hour: 8))
 
 test "a constant is what Rig's constant evaluation calls one", '''
   2026-12-31 2026-02-28 2026-12-01 2026-01-31
@@ -52,11 +52,11 @@ test "an argument known only as the program runs needs the !", '''
     make = datetime.Date.new
     print(at(5)!, month_start[3]()!, "range" if bad == none else "made", make(2026, 1, 31)!, keep(1))
 
-fail "a constant the check refuses is an error", "1:32: `datetime.Date.new(2023, 2, 29)` always fails, its arguments being constants: February 2023 has 28 days; write a day from 1 to 28", "2:29: `datetime.Date.new(2026, 13, 1)` always fails, its arguments being constants: 13 is not a month; write a month from 1 to 12", "3:23: `datetime.Date.new(10000, 1, 1)` always fails, its arguments being constants: 10000 is beyond the years of a date, -9999 to 9999; write a year from -9999 to 9999", "4:23: `datetime.Time.new(24, 0)` always fails, its arguments being constants: 24 is not an hour of the day; write an hour from 0 to 23", "5:43: `datetime.DateTime.new(2026, 4, 1, ns: 1_000_000_000)` always fails, its arguments being constants: 1000000000 is not a nanosecond of the second; write `ns` from 0 to 999_999_999", errors: 5
+fail "a constant the check refuses is an error", "1:32: `datetime.Date.new(2023, 2, 29)` always fails, its arguments being constants: February 2023 has 28 days; write a day from 1 to 28", "2:29: `datetime.Date.new(2026, 13, 1)` always fails, its arguments being constants: 13 is not a month; write a month from 1 to 12", "3:23: `datetime.Date.new(10000, 1, 1)` always fails, its arguments being constants: 10000 is beyond the years of a date, -9999 to 9999; write a year from -9999 to 9999", "4:23: `datetime.Time.new(24, 0, 0)` always fails, its arguments being constants: 24 is not an hour of the day; write an hour from 0 to 23", "5:43: `datetime.DateTime.new(2026, 4, 1, ns: 1_000_000_000)` always fails, its arguments being constants: 1000000000 is not a nanosecond of the second; write `ns` from 0 to 999_999_999", errors: 5
   a = datetime.Date.new(2023, 2, 29)
   b = datetime.Date.new(2026, 13, 1)!
   c = datetime.Date.new(10000, 1, 1)
-  t = datetime.Time.new(24, 0) catch datetime.Time.new(0, 0)
+  t = datetime.Time.new(24, 0, 0) catch datetime.Time.new(0, 0, 0)
   d = datetime.DateTime.new(2026, 4, 1, ns: 1_000_000_000)
 
 fail "a refused constant through a name shows its value", "4:33: `datetime.Date.new(2026, LIMIT, 1)` always fails, its arguments being constants: 13 is not a month; write a month from 1 to 12", "5:36: `datetime.Date.new(2026, 4, m * 31)` always fails, its arguments being constants: April 2026 has 30 days; write a day from 1 to 30", errors: 2
@@ -66,9 +66,9 @@ fail "a refused constant through a name shows its value", "4:33: `datetime.Date.
     print(datetime.Date.new(2026, LIMIT, 1))
     print(datetime.Date.new(2026, 4, m * 31))
 
-fail "! and catch on a call that cannot fail", "1:5: `!` needs a fallible operand, and `datetime.Date.new(2026, 1, 31)` cannot fail: its arguments are constants that pass its check, so it gives a `datetime.Date`; write it without `!`", "2:5: `catch` needs a fallible expression, and `datetime.Time.new(8, 30)` cannot fail: its arguments are constants that pass its check, so it gives a `datetime.Time`; write it without `catch`", errors: 2
+fail "! and catch on a call that cannot fail", "1:5: `!` needs a fallible operand, and `datetime.Date.new(2026, 1, 31)` cannot fail: its arguments are constants that pass its check, so it gives a `datetime.Date`; write it without `!`", "2:5: `catch` needs a fallible expression, and `datetime.Time.new(8, 30, 0)` cannot fail: its arguments are constants that pass its check, so it gives a `datetime.Time`; write it without `catch`", errors: 2
   d = datetime.Date.new(2026, 1, 31)!
-  t = datetime.Time.new(8, 30) catch datetime.Time.new(0, 0)
+  t = datetime.Time.new(8, 30, 0) catch datetime.Time.new(0, 0, 0)
   print(d, t)
 
 fail "a value known only as the program runs still needs the !", "3:7: fallible call to `new` must be wrapped with `!` (propagate) or `catch` (handle)", "5:7: fallible call to `make` must be wrapped", errors: 2
@@ -117,31 +117,31 @@ test "each date either side of a boundary: std's new at run time agrees", '''
 test "each time either side of a boundary: made by a constant call", '''
   00:00:00 23:59:59.999999999 2026-11-17T00:00:00 9999-12-31T23:59:59.999999999
 '''
-  print(datetime.Time.new(0, 0, 0, 0), datetime.Time.new(23, 59, 59, 999_999_999), datetime.DateTime.new(2026, 11, 17, 0, 0, 0, 0), datetime.DateTime.new(9999, 12, 31, 23, 59, 59, 999_999_999))
+  print(datetime.Time.new(0, 0, 0, ns: 0), datetime.Time.new(23, 59, 59, ns: 999_999_999), datetime.DateTime.new(2026, 11, 17, hour: 0, minute: 0, second: 0, ns: 0), datetime.DateTime.new(9999, 12, 31, hour: 23, minute: 59, second: 59, ns: 999_999_999))
 
-fail "each time either side of a boundary: refused by a constant call", "1:23: -1 is not an hour", "2:23: 24 is not an hour", "3:26: -1 is not a minute", "4:26: 60 is not a minute", "5:29: -1 is not a second", "6:29: 60 is not a second", "7:32: -1 is not a nanosecond", "8:32: 1000000000 is not a nanosecond", "9:41: 24 is not an hour", "10:47: 60 is not a second", "11:36: February 2023 has 28 days", errors: 11
-  a = datetime.Time.new(-1, 0)
-  b = datetime.Time.new(24, 0)
-  c = datetime.Time.new(0, -1)
-  d = datetime.Time.new(0, 60)
+fail "each time either side of a boundary: refused by a constant call", "1:23: -1 is not an hour", "2:23: 24 is not an hour", "3:26: -1 is not a minute", "4:26: 60 is not a minute", "5:29: -1 is not a second", "6:29: 60 is not a second", "7:36: -1 is not a nanosecond", "8:36: 1000000000 is not a nanosecond", "9:47: 24 is not an hour", "10:69: 60 is not a second", "11:36: February 2023 has 28 days", errors: 11
+  a = datetime.Time.new(-1, 0, 0)
+  b = datetime.Time.new(24, 0, 0)
+  c = datetime.Time.new(0, -1, 0)
+  d = datetime.Time.new(0, 60, 0)
   e = datetime.Time.new(0, 0, -1)
   f = datetime.Time.new(0, 0, 60)
-  g = datetime.Time.new(0, 0, 0, -1)
-  h = datetime.Time.new(0, 0, 0, 1_000_000_000)
-  i = datetime.DateTime.new(2026, 11, 17, 24)
-  j = datetime.DateTime.new(2026, 11, 17, 0, 0, 60)
-  k = datetime.DateTime.new(2023, 2, 29, 0)
+  g = datetime.Time.new(0, 0, 0, ns: -1)
+  h = datetime.Time.new(0, 0, 0, ns: 1_000_000_000)
+  i = datetime.DateTime.new(2026, 11, 17, hour: 24)
+  j = datetime.DateTime.new(2026, 11, 17, hour: 0, minute: 0, second: 60)
+  k = datetime.DateTime.new(2023, 2, 29, hour: 0)
 
 test "each time either side of a boundary: std's new at run time agrees", '''
   ok ok ok ok
   range range range range range range range range range range range
 '''
   fun clock(h: Int, m: Int, s: Int, ns: Int) -> String
-    _ = datetime.Time.new(h, m, s, ns) catch return String("range")
+    _ = datetime.Time.new(h, m, s, ns: ns) catch return String("range")
     String("ok")
 
   fun stamp(y: Int, mo: Int, d: Int, h: Int, mi: Int, s: Int, ns: Int) -> String
-    _ = datetime.DateTime.new(y, mo, d, h, mi, s, ns) catch return String("range")
+    _ = datetime.DateTime.new(y, mo, d, hour: h, minute: mi, second: s, ns: ns) catch return String("range")
     String("ok")
 
   sub main()
@@ -151,7 +151,7 @@ test "each time either side of a boundary: std's new at run time agrees", '''
 test "a constant maker beside a binding the program names e", "2026-01-31 1 2026-01-31T08:00:00"
   # What emit writes for the call names nothing the program can.
   e = 1
-  print(datetime.Date.new(2026, 1, 31), e, datetime.DateTime.new(2026, 1, 31, 8))
+  print(datetime.Date.new(2026, 1, 31), e, datetime.DateTime.new(2026, 1, 31, hour: 8))
 
 test "a task of a constant maker's call holds what it declares", "2026-01-31"
   # The rule is the call's: a task of it waits for a `Date!`.

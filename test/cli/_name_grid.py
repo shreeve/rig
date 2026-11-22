@@ -267,7 +267,7 @@ fun gv{i}(g: G{i}[Int]) -> Int
 sub t{i}()
   b = B{i}()
   k: K{i} = .{n}
-  print(Int(b.k), Int(b.v), pick{i}(), pick{i}(.zz), k == .{n}, k == K{i}.{n}, b.v == .{n})
+  print(Int(b.k), Int(b.v), pick{i}(), pick{i}(k: .zz), k == .{n}, k == K{i}.{n}, b.v == .{n})
   match k
     .{n} => print("m1")
     .zz => print("m0")
@@ -473,7 +473,7 @@ fun gv{i}(g: lib.G{i}[Int]) -> Int
 
 sub t{i}()
   b = lib.Box{i}()
-  print(Int(b.k), b.{n}, b.{n}2(), lib.pick{i}(), lib.pick{i}(.zz), lib.{n}(1), {n}.two())
+  print(Int(b.k), b.{n}, b.{n}2(), lib.pick{i}(), lib.pick{i}(k: .zz), lib.{n}(1), {n}.two())
   k: lib.K{i} = .{n}
   print(k == lib.K{i}.{n}, k == .{n})
   match k

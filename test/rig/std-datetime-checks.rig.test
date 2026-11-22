@@ -29,13 +29,13 @@ test "datetime add forms at each kind of call", '''
   # with self first; and `checked_add`.
   dt = datetime.DateTime.parse("2026-03-08T02:30")!
   five = time.duration(5)
-  print(dt.add(1), dt.add(0.5), dt.add(hours: 2), dt.add(ms: 40), dt.add(days: 1), dt.add(days: 1, hours: 2))
-  print(dt.add(five), dt.add(duration: 2, days: 1), datetime.DateTime.add(dt, months: 1), datetime.DateTime.add(dt, 3), dt.checked_add(2)!, dt.checked_add()!)
+  print(dt.add(duration: 1), dt.add(duration: 0.5), dt.add(hours: 2), dt.add(ms: 40), dt.add(days: 1), dt.add(days: 1, hours: 2))
+  print(dt.add(duration: five), dt.add(duration: 2, days: 1), datetime.DateTime.add(dt, months: 1), datetime.DateTime.add(dt, duration: 3), dt.checked_add(duration: 2)!, dt.checked_add()!)
 
 test "time add forms at each kind of call", '''
   01:00:00 23:00:01 23:00:00.5 01:00:00 range
 '''
-  t = datetime.Time.new(23, 0)
+  t = datetime.Time.new(23, 0, 0)
   fun checked(t: datetime.Time, d: time.Duration) -> String
     r = t.checked_add(d) catch return String("range")
     String(r)
@@ -106,7 +106,7 @@ fail "checked methods are not values", "1:19: `std.datetime.Date.add` checks its
   f = datetime.Date.add
   g = datetime.DateTime.checked_add
   h = datetime.Time.with
-  t = datetime.Time.new(1, 0)
+  t = datetime.Time.new(1, 0, 0)
   r = t.round
 
 test "a closure passes a checked method", '''
@@ -114,7 +114,7 @@ test "a closure passes a checked method", '''
 '''
   # §10.2: what a function value cannot carry, a closure can.
   d = datetime.Date.new(2027, 1, 31)
-  t = datetime.Time.new(1, 7)
+  t = datetime.Time.new(1, 7, 0)
   fun on_date(x: datetime.Date, f: ?fun(datetime.Date) -> datetime.Date) -> datetime.Date
     f(x)
 
@@ -160,12 +160,12 @@ fail "a generic body cannot call a checked method", "19:7: `bump[datetime.DateTi
   fun near[T](x: T, k: Int?) -> T
     x.round(k, k, k, k, k, k)
 
-  dt = datetime.DateTime.new(2027, 1, 31, 1)
+  dt = datetime.DateTime.new(2027, 1, 31, hour: 1)
   d = datetime.Date.new(2027, 1, 31)
   print(bump(dt, time.duration(1)))
   print(next(d))
   print(change(d, 1)!)
-  print(near(datetime.Time.new(1, 7), 15))
+  print(near(datetime.Time.new(1, 7, 0), 15))
   print(near(time.duration(90), none))
 
 test "a generic body calls an unchecked method", '''
@@ -179,7 +179,7 @@ test "a generic body calls an unchecked method", '''
   fun apply[T](x: T, f: ?fun(T) -> T) -> T
     f(x)
 
-  print(later(datetime.Time.new(1, 0), time.duration(1)), apply(datetime.DateTime.new(2027, 1, 31, 1), |x| x.add(1)))
+  print(later(datetime.Time.new(1, 0, 0), time.duration(1)), apply(datetime.DateTime.new(2027, 1, 31, hour: 1), |x| x.add(duration: 1)))
 
 test "datetime add of several units", '''
   2026-03-09T05:00:00 2026-03-09T04:00:00 2026-03-08T02:59:59.5
@@ -193,11 +193,11 @@ test "datetime add of several units", '''
 
   dt = datetime.DateTime.parse("2026-03-08T02:30")!
   print(dt.add(days: 1, hours: 2, minutes: 30), dt.add(days: 1, hours: 2, minutes: -30), dt.add(minutes: 30, seconds: -0.5))
-  top = datetime.DateTime.new(9999, 12, 31, 22)
+  top = datetime.DateTime.new(9999, 12, 31, hour: 22)
   print(dt.checked_add(days: 1, hours: 2, minutes: 30)!, step(top, 2), dt.checked_add(days: -1, hours: -1, minutes: 30)!)
 
 fail "two units on a time or a datetime get one increment it takes", "3:27: `round` takes one unit and its increment, not 2: name one unit and an increment it takes, `round(minutes: 6)`", "4:26: `floor` takes one unit and its increment, not 2: name one unit and an increment it takes, `floor(hours: 4)`", "5:28: `round` takes one unit and its increment, not 2: name one unit and an increment it takes, `round(seconds: 6)`", errors: 3
-  t = datetime.Time.new(1, 0)
+  t = datetime.Time.new(1, 0, 0)
   dt = datetime.Date.new(2027, 1, 31).at(t)
   print(t.round(minutes: 7, seconds: 1))
   print(dt.floor(hours: 5, minutes: 1))

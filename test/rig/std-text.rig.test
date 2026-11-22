@@ -250,7 +250,7 @@ test "text char break", '''
   use std.utf8
 
   fun splits(tailored: Bool, s: ?String) -> String
-    b = text.CharBreak.new(tailored)
+    b = text.CharBreak.new(tailored: tailored)
     out = String()
     for r in utf8.runes(s)
       !out.add("|" if (!b).next(r) else "")
@@ -657,7 +657,7 @@ bomb "text first chars negative panics", "text.first_chars: the count is negativ
 bomb "text format base panics", "text.format_int: the base is not between 2 and 36"
   # Bases run from 2 to 36.
 
-  print(text.format_int(1, 1))
+  print(text.format_int(1, base: 1))
 
 fail "text iterators", "5:10: field `rest` of `std.text.Split` is private to the standard library's module `std.text`", "6:10: only the standard library's module `std.text` can construct `std.text.Split`: its fields `rest`, `sep`, `done` are private", "7:10: method `next` needs a write view of `self`; write `!it.next()`", errors: 3
   # std.text's iterators are made by `split`, `lines`, and `words`, which
@@ -865,21 +865,21 @@ test "text radix", '''
   # `parse_int` and `format_int` in bases 2 to 36, with base 10 the default.
 
   fun overflows(s: ?String, base: Int) -> Bool
-    text.parse_int(s, base) catch |err|
+    text.parse_int(s, base: base) catch |err|
       return err == text.ParseError.overflow
     false
 
-  print(text.parse_int("ff", 16)!, text.parse_int("-101", 2)!, text.parse_int("zz", 36)!)
-  print(text.parse_int("FF", 16)!, text.parse_int("+17", 8)!, text.parse_int("42")!)
-  print(text.parse_int("12", 2) catch -1)
-  print(text.parse_int("", 16) catch -1, text.parse_int("-", 2) catch -1, text.parse_int("0x1f", 16) catch -1)
-  print(text.parse_int("1_0", 10) catch -1, text.parse_int(" 1", 10) catch -1)
-  print(text.format_int(255, 16), text.format_int(255, 16, upper: true), text.format_int(-8, 8))
-  print(text.format_int(0, 2), text.format_int(5), text.format_int(35, 36), text.format_int(35, 36, upper: true))
+  print(text.parse_int("ff", base: 16)!, text.parse_int("-101", base: 2)!, text.parse_int("zz", base: 36)!)
+  print(text.parse_int("FF", base: 16)!, text.parse_int("+17", base: 8)!, text.parse_int("42")!)
+  print(text.parse_int("12", base: 2) catch -1)
+  print(text.parse_int("", base: 16) catch -1, text.parse_int("-", base: 2) catch -1, text.parse_int("0x1f", base: 16) catch -1)
+  print(text.parse_int("1_0", base: 10) catch -1, text.parse_int(" 1", base: 10) catch -1)
+  print(text.format_int(255, base: 16), text.format_int(255, base: 16, upper: true), text.format_int(-8, base: 8))
+  print(text.format_int(0, base: 2), text.format_int(5), text.format_int(35, base: 36), text.format_int(35, base: 36, upper: true))
   for base in [2, 8, 10, 16, 36]
-    s = text.format_int(Int.min, base)
-    t = text.format_int(Int.max, base)
-    print(base, s, t, text.parse_int(s, base)! == Int.min, text.parse_int(t, base)! == Int.max)
+    s = text.format_int(Int.min, base: base)
+    t = text.format_int(Int.max, base: base)
+    print(base, s, t, text.parse_int(s, base: base)! == Int.min, text.parse_int(t, base: base)! == Int.max)
   big = String("1")
   for _ in 0..64
     !big.add("0")
@@ -890,17 +890,17 @@ test "text radix", '''
   edge = String("-1")
   for _ in 0..63
     !edge.add("0")
-  print(text.parse_int(?edge[..], 2)! == Int.min)
+  print(text.parse_int(?edge[..], base: 2)! == Int.min)
 
 bomb "text radix base high panics", "text.parse_int: the base is not between 2 and 36"
   # Bases run from 2 to 36.
 
-  print(text.parse_int("1", 37) catch 0)
+  print(text.parse_int("1", base: 37) catch 0)
 
 bomb "text radix base low panics", "text.parse_int: the base is not between 2 and 36"
   # Bases run from 2 to 36.
 
-  print(text.parse_int("1", 1) catch 0)
+  print(text.parse_int("1", base: 1) catch 0)
 
 test "text search", '''
   1 4 none none

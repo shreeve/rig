@@ -1230,7 +1230,7 @@ test "variant default zig names", '''
 
   b = Box()
   print(Int(b.a), Int(b.b), Int(b.c), Int(b.d), Int(b.e))
-  print(pick(), pick(.var), Int(last()), Int(mk()))
+  print(pick(), pick(k: .var), Int(last()), Int(mk()))
   k: K = .struct
   print(k == .struct, k == K.null)
   match last()
