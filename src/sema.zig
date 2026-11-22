@@ -12860,6 +12860,8 @@ pub fn monthDays(y: Wide, m: Wide) Wide {
 /// order, that std.datetime's maker refuses, as its `new` checks them in
 /// turn; null when it makes a value. The day is checked against its
 /// month once the year and the month pass.
+/// Held equal to std's own makers by test/cli/maker_agree.sh, which makes
+/// each maker's values at every edge both ways and fails on a difference.
 pub fn makerFault(maker: ConstMaker, values: []const Wide) ?usize {
     const parts = maker.params();
     var year: Wide = 0;
