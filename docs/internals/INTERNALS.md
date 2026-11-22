@@ -4512,8 +4512,10 @@ object update (`objectUpdate`), recorded the same way.
 per field, `(: timeout (field_of Net timeout net Int))`, whose type
 `resolve` reads from `field_of` (the field's type as its declaration
 writes it, for a type of the same module, else the field's type in its
-module), and marks the parameter's symbol `group_field` with its
-`GroupParam`; each field read becomes a leaf that names its parameter
+module), marks the parameter's symbol `group_field`, and records each
+parameter's `GroupParam` in `SemContext.group_params`, by where the
+function's name is declared, which a call reads from the declaring
+module (`SymbolFlags.has_groups` says there is one); each field read becomes a leaf that names its parameter
 (`Parser.group_targets`, which `useName` reads before any scope, so a
 local of the same name never captures it); a body that uses the group
 whole binds it first, `net =! Net(timeout: timeout, ...)`, under the

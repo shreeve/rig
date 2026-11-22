@@ -18,7 +18,7 @@ that limit is step 3.
 | The first check: `checkGroups` (an object of plain data, no name twice among the parameters, the groups and their fields, `pub` fields for a `pub` function, 64 parameters at most) records each valid group with its fields and, for a type of the same module, each field's written type; every use of a group's name in its body is recorded, a field read by its node | `src/typecheck.zig` |
 | `optionsCall`: a call with a spread, or of a function whose group is as written, is checked only for its spreads (a name or field path, nominal, one per group); a call's spreads are recorded together or not at all, so the second check sees what the first saw. `objectUpdate` for a constructor | `src/typecheck.zig` |
 | `Parser.desugarOptions`: a group becomes one parameter per field, `(: f (field_of T f g ftype))`; a field read becomes a leaf that names its parameter (`group_targets`, read by `useName` before any scope); a body that uses the group whole binds it, `net =! Net(timeout: timeout, ...)`; a spread becomes the keyword arguments `f: v.f` where it stands, or `f: f` for a group's own name | `src/rig.zig`, `src/modules.zig` |
-| Resolve: `field_of` typed from the written field type or the foreign field's; `GroupParam` on each parameter (symbol and method), `SymbolFlags.group` and `group_field`; field defaults filled once types are resolved (`fillGroupDefaults`); a group counts as an option for the order rule; a unit's keyword never fills a field | `src/resolve.zig`, `src/sema.zig` |
+| Resolve: `field_of` typed from the written field type or the foreign field's; `GroupParam` of each parameter in the module's `group_params` (a function or method with a group sets `has_groups`), `SymbolFlags.group` and `group_field`; field defaults filled once types are resolved (`fillGroupDefaults`); a group counts as an option for the order rule; a unit's keyword never fills a field | `src/resolve.zig`, `src/sema.zig` |
 | The second check's messages: a field by position, a field left out, `ms:` for a group's `Duration`, a closure written last, a field named in the body, an assignment to `net.timeout`; a function with a group is not a value (also through its type, and in a generic body), and an API's method takes none | `src/typecheck.zig` |
 | Emit: a group field's default from another module, `T()` as `.{}` and `[n of x]` as `@splat(x)` | `src/emit.zig` |
 | A group anywhere but a `fun`'s or a `sub`'s parameters is refused by the Parser wrapper; the shorthand at a line's end is refused there too | `src/rig.zig` |
@@ -118,6 +118,17 @@ spread. Inside the 2% gate against the committed baseline, but more than
 the first reading's 0.5% over main; the likeliest cause is the 16 bytes
 `param_groups` adds to every `Symbol` and `Field`, which a side table
 would take back. A quiet machine has not been found to confirm it.
+
+The coordinator asked for the gap to be closed, so a function's
+`GroupParam`s moved off `Symbol` and `Field` into a side table,
+`SemContext.group_params`, keyed by where the function's name is
+declared and filled only for a function with a group; a flag
+(`SymbolFlags.has_groups`, `Field.has_groups`) says to read it, which
+`checkArgs` does from the declaring module. Measured after a plain
+`zig build`, under `tools/mac-claim`, four rounds each, branch first, at
+a load of 2.6 to 2.8: the branch's fewest 2,172,499,467 instructions,
+main's 2,160,051,182, a gap of 0.6% (from 1.3%); against `guard.txt`
+the branch is 0.7% above.
 
 ## The independent review's fixes
 
