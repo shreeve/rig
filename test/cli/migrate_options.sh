@@ -85,6 +85,9 @@ expect_eq "$(sed -n 7p cases.rig.test)" "  print(text.format_int(5, base: 2, wid
 expect_eq "$(head -1 doc.md)" "\`text.parse_int(\"ff\", 16)\` in prose is left for a person." "prose left"
 expect_eq "$(sed -n 7p doc.md)" "  print(text.parse_int(\"ff\", base: 16)!)" "the block's call"
 expect_eq "$(sed -n 14p doc.md)" "  print(text.parse_int(\"ff\", 16)!)" "the pending block left"
+# Total or visible came after, and tools/migrate-tov.py, run next as
+# docs/MIGRATING-0.3.md says, gives each call that now fails its `!`.
+python3 "$ROOT/tools/migrate-tov.py" --rig "$RIG" prog.rig >tov.txt 2>&1 || fail "migrate-tov: $(cat tov.txt)"
 out=$("$RIG" run prog.rig 2>&1) || fail "prog.rig after: $out"
 expect_eq "$out" "5438 5433
 255 11111111

@@ -18,12 +18,12 @@ obj Node
 fun nap(n: ?*Node, ms: Int) -> Int!
   t = time.monotonic()
   time.sleep(ms: ms)!
-  t.elapsed().ns() / 1000000
+  Int(t.elapsed().ms())
 
 fun napfree(ms: Int) -> Int!
   t = time.monotonic()
   time.sleep(ms: ms)!
-  t.elapsed().ns() / 1000000
+  Int(t.elapsed().ms())
 
 fun one() -> Int
   1
@@ -42,11 +42,11 @@ sub main()
   t = nap(?n, 10)&
   s = time.monotonic()
   x = spin(150000000)
-  print("local", s.elapsed().ns() / 1000000, >t catch -1, x)
+  print("local", Int(s.elapsed().ms()), >t catch -1, x)
   u = napfree(10)&
   s2 = time.monotonic()
   y = spin(150000000)
-  print("free", s2.elapsed().ns() / 1000000, >u catch -1, y)
+  print("free", Int(s2.elapsed().ms()), >u catch -1, y)
 EOF
 
 cat >sockets.rig <<'EOF'
@@ -75,7 +75,7 @@ fun driver(c: net.Stream) -> Int!
     got = String()
     while got.len < 4
       _ = (!s).read(!got, 100)!
-    us = t.elapsed().ns() / 1000
+    us = Int(t.elapsed().us())
     if us > worst
       worst = us
   worst
@@ -94,7 +94,7 @@ sub main()!
   d = driver(<c)&
   s = time.monotonic()
   x = spin(150000000)
-  spun = s.elapsed().ns() / 1000
+  spun = Int(s.elapsed().us())
   print("sockets", spun, >d!, x)
   _ = >e!
 EOF

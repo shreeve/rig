@@ -403,7 +403,7 @@ fun closes(port: Int, first: ?String) -> Int!
   got = String()
   while (!c).read(!got, 4096)! > 0
     pass
-  t0.elapsed().ns() / 1_000_000_000
+  t0.elapsed().seconds()
 
 # Seconds until the server closes `c` after the last of 21 requests,
 # each answered, and 5 s apart.
@@ -418,7 +418,7 @@ fun kept(port: Int) -> Int!
   (!c).write("GET /k HTTP/1.1\r\nHost: x\r\n\r\n")!
   while (!c).read(!got, 4096)! > 0
     pass
-  t0.elapsed().ns() / 1_000_000_000
+  t0.elapsed().seconds()
 
 # Seconds until the server closes `c`, which sends the head of a
 # chunked body, then a byte of it every 30 s, nine of them.
@@ -432,7 +432,7 @@ fun trickled(port: Int) -> Int!
   got = String()
   while (!c).read(!got, 4096)! > 0
     pass
-  t0.elapsed().ns() / 1_000_000_000
+  t0.elapsed().seconds()
 
 sub main()!
   l = net.listen("127.0.0.1:0")!

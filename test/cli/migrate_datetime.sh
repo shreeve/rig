@@ -101,6 +101,11 @@ expect_has "$(head -1 doc.md)" "time.now()" "prose left as it is"
 grep -q '^  print(start.elapsed() < time.duration(5))$' doc.md || fail "the rig block not rewritten: $(cat doc.md)"
 # The function value, left for a person, is the one line it does not fix.
 sed -i.bak 's/^  f: fun() -> Int = time.since_start$/  f = || time.since_start().ns()/' old.rig
+# Total or visible came after, and tools/migrate-tov.py, run next as
+# docs/MIGRATING-0.3.md says, gives each call that now fails its `!`.
+python3 "$ROOT/tools/migrate-tov.py" --rig "$RIG" old.rig >tov.txt 2>&1 || fail "migrate-tov: $(cat tov.txt)"
+expect_has "$(cat tov.txt)" "MANUAL old.rig:22" "an Int compared with an I128, left for a person"
+sed -i.bak 's/waited(start) >= took)$/waited(start) >= Int(took))/' old.rig
 out=$("$RIG" run old.rig 2>&1) || fail "old.rig after: $out"
 expect_eq "$out" "true true true
 true true true
@@ -168,6 +173,7 @@ expect_eq "$(head -2 only.rig)" "use std.datetime
 use std.os" "use std.time, naming nothing now, dropped"
 out=$("$RIG" run only.rig 2>&1) || fail "only.rig after: $out"
 expect_eq "$out" "true" "only.rig prints what it printed"
+python3 "$ROOT/tools/migrate-tov.py" --rig "$RIG" wall.rig >tov-wall.rig.txt 2>&1 || fail "migrate-tov: $(cat tov-wall.rig.txt)"
 out=$("$RIG" run wall.rig 2>&1) || fail "wall.rig after: $out"
 expect_eq "$out" "true true" "wall.rig prints what it printed"
 # A file that names std.datetime by another name reads the wall clock
@@ -183,5 +189,6 @@ python3 "$ROOT/tools/migrate-datetime.py" alias.rig >out6.txt 2>&1 || fail "migr
 grep -q '^  print(dt.now().unix().ns() > 0, dt.Instant.from_unix(0))$' alias.rig || fail "the alias not used: $(cat alias.rig)"
 expect_eq "$(head -1 alias.rig)" "use std.datetime as dt" "use std.datetime as dt kept"
 grep -q 'use std.time' alias.rig && fail "use std.time as t, naming nothing now, kept: $(cat alias.rig)"
+python3 "$ROOT/tools/migrate-tov.py" --rig "$RIG" alias.rig >tov-alias.rig.txt 2>&1 || fail "migrate-tov: $(cat tov-alias.rig.txt)"
 out=$("$RIG" run alias.rig 2>&1) || fail "alias.rig after: $out"
 expect_eq "$out" "true 1970-01-01T00:00:00Z" "alias.rig prints what it printed"

@@ -67,3 +67,7 @@ Io.Threaded.Thread.futex*   a contended lock's wait and wake, inlined into the p
 process.Environ.getPosix    the runtime's start, once (an environment variable's value)
 rig.runtime.onAltStack      the runtime's start, once: installs a signal handler again
 rig.runtime.holdStandardDescriptors  the runtime's start, once: /dev/null on a closed stdin, stdout, or stderr
+*__modti3                   a 128-bit remainder, in compiler-rt: a few dozen instructions, bounded (a Duration's nanoseconds)
+*__divti3                   a 128-bit quotient, in compiler-rt: as __modti3
+*__umodti3                  as __modti3, unsigned
+*__udivti3                  as __divti3, unsigned

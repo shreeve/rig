@@ -519,6 +519,8 @@ class Edits:
     def __init__(self):
         self.by_path = {}
         self.manual = []
+        # What a rewrite leaves for a person to judge, kept across rounds.
+        self.notes = []
 
     def put(self, path, start, end, s):
         self.by_path.setdefault(path, set()).add((start, end, s))
@@ -557,7 +559,7 @@ class Edits:
             shown = re.sub(r'["\\`{}]', "", call) if len(call) <= 60 else name
             self.put(path, offset, offset, "(")
             self.put(path, end - 1, end, ' catch panic("%s failed"))' % shown)
-            self.manual.append("MANUAL %s: `%s` cannot pass a failure on, so it panics there: handle it, or make the function fallible" % (where, call))
+            self.notes.append("MANUAL %s: `%s` cannot pass a failure on, so it panics there: handle it, or make the function fallible" % (where, call))
             return
         if NOT_FALLIBLE.match(message):
             end = postfix_end(text, offset, bang=True)
@@ -569,7 +571,7 @@ class Edits:
         m = CHECKED.match(message)
         if m:
             if m.group(2) == "Time":
-                self.manual.append("MANUAL %s: `Time.checked_add` is gone: `Time.add` wraps past midnight; a sum that must not pass it is a `DateTime`'s" % where)
+                self.notes.append("MANUAL %s: `Time.checked_add` is gone: `Time.add` wraps past midnight; a sum that must not pass it is a `DateTime`'s" % where)
                 return
             at = text.find(".checked_" + m.group(1), offset - 1)
             if at < 0:
@@ -714,7 +716,7 @@ def main(argv):
         return 2
     rig = os.path.abspath(rig) if os.sep in rig else (shutil.which(rig) or rig)
     tmp = tempfile.mkdtemp(prefix="rig-tov-")
-    texts, counts, manual = {}, {}, []
+    texts, counts, manual, notes = {}, {}, [], []
 
     def text_of(path):
         path = os.path.realpath(path)
@@ -778,7 +780,8 @@ def main(argv):
                     if target.startswith(os.path.realpath(tmp)):
                         continue
                     edits.add(target, line, col, msg, text_of)
-        manual = early + edits.manual
+        notes += edits.notes
+        manual = early + edits.manual + notes
         if not edits.by_path:
             break
         for path, eds in edits.by_path.items():
@@ -787,6 +790,35 @@ def main(argv):
         if dry:
             break
         todo = sorted(set(todo) | set(edits.by_path))
+    # What is still refused in a file the script changed, it could not
+    # rewrite: a person finishes it (an `Int` compared with an `I128` it
+    # gave, `n >= took`, is one).
+    if counts and not dry:
+        changed = set(counts)
+        units = []
+        for path in todo:
+            text = text_of(path)
+            if text is None or path not in changed:
+                continue
+            if path.endswith(".rig.test"):
+                units += [(path, ("case", c)) for c in test_cases(text) if c["verb"] != "fail"]
+            elif path.endswith(".md"):
+                units += [(path, ("block", u)) for u in doc_units(text, rejects=False)]
+            else:
+                units.append((path, ("file", path)))
+
+        def final(item):
+            path, unit = item
+            if unit[0] == "file":
+                return path, [(p, l, c, m, False) for p, l, c, m in check(rig, path)]
+            return path, unit_errors(rig, unit, tmp, every=True)
+
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            for path, found in pool.map(final, units):
+                for p, line, col, msg, own in found:
+                    target = path if own else os.path.realpath(p)
+                    if target in changed:
+                        manual.append("MANUAL %s:%s: still refused: %s" % (os.path.relpath(target), line, msg))
     shutil.rmtree(tmp, ignore_errors=True)
     for line in sorted(set(manual)):
         print(line)
