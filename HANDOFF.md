@@ -175,8 +175,13 @@ A new session, human or agent, takes these steps in order:
   `named-groups`, the build plan's step 2;
   records/2026-11/named-options-groups) are a rewrite of the signature
   and the call checked twice, as iterator chains are, with
-  std.datetime's `Period`, `DateFields`, and `ClockFields` as groups;
-  they hold plain data only. Phase 5 (branch `zoned-phase5`;
+  std.datetime's `Period`, `DateFields`, and `ClockFields` as groups.
+  Owners and read views in groups and object update (branch
+  `group-owners`, the build plan's step 3;
+  records/2026-11/named-options-owners) put a spread's sigil on each
+  field that moves, read a group in its body as an object parameter, and
+  let `from net` and `keeps net` name a group's view fields; an update
+  of a `drop` type waits on the owner. Phase 5 (branch `zoned-phase5`;
   records/2026-11/datetime-phase5) builds `ZonedDateTime`, written to
   total or visible: `in_zone` from an instant, a date and time
   (`resolve:`), and a date; the readers; `add` (with the group
@@ -184,9 +189,7 @@ A new session, human or agent, takes these steps in order:
   `floor`, `since`, and the counts; equality, order and hashing by the
   instant; RFC 9557 with `default_zone:` and `conflict:`; and `today`.
   The oracle compares every zoned case, 2,187,579 answers in all, none
-  different. Next, in order: owners and read views in groups and object
-  update, lifting the plain-data limit (the owner, 2026-11-22; the build
-  plan's step 3). Phase 6 (branch `format-phase6`;
+  different. Phase 6 (branch `format-phase6`;
   records/2026-11/datetime-phase6) builds `format`, its string checked
   against the type as Rig compiles, and `try_format`, with `%Z` from the
   zone tables; the oracle compares every format case and every zone's

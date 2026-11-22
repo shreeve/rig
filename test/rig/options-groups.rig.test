@@ -167,7 +167,7 @@ fail "the group's declaration refuses collisions", "14:42: `retries` is both a p
 
   fetch("u")
 
-fail "a group holds an object's plain data", "8:16: group `n` of `count` is a `Int`, which is not an object", "11:10: group `r` of `send` is a `Req`, which holds `body: ?String`, a view; a group holds plain data", "14:10: group `o` of `keep` is a `Own`, which holds `name: String`, an owner; a group holds plain data", errors: 3
+fail "a group's type is an object, which may own and view", "8:16: group `n` of `count` is a `Int`, which is not an object", errors: 1
   obj Req
     body: ?String
     retries: Int = 0
@@ -464,7 +464,7 @@ code "object update is the constructor of the fields", "Point{ .x = 9, .y = p.y 
   q = Point(x: 9, ..p)
   print(q.x)
 
-fail "object update copies plain data, from one place of the type it makes", "14:19: object update copies plain data, and `Doc` holds `name: String`, which owns: write its fields", "15:17: `..q` is a `Other`, but this makes a `Point`: a spread passes a value of the type it updates", "16:16: a `Point` is updated from one spread", "17:11: an object update names each field it sets", errors: 4
+fail "object update gives the fields as written, from one place of the type it makes", "14:19: `..d` gives `name`, a `String`, which owns: write `..<d` to move it, or `..+d` to clone it", "15:17: `..q` is a `Other`, but this makes a `Point`: a spread passes a value of the type it updates", "16:16: a `Point` is updated from one spread", "17:11: an object update names each field it sets", errors: 4
   obj Doc
     name: String
     pages: Int
@@ -663,7 +663,7 @@ fail "no spread into round or a maker", "3:15: `round` has no group for `..p` to
   print(t.round(..p))
   print(datetime.Date.new(..p))
 
-fail "object update copies only a plain type: no drop body, not unique", "13:7: object update copies plain data, and `D` has a `drop` body: write its fields", "14:16: object update copies plain data, and `Seed` is `unique`: write its fields", errors: 2
+fail "object update of a type with a drop body or a unique type is refused", "13:7: `D` has a `drop` body, so no update makes one", "14:16: object update copies the fields of `Seed`, which is `unique`: write its fields", errors: 2
   obj D
     n: Int = 0
 
@@ -680,7 +680,7 @@ fail "object update copies only a plain type: no drop body, not unique", "13:7: 
   t = Seed(k: 9, ..s)
   print(b.n, t.n)
 
-fail "a group holds only a plain type: no drop body, not unique", "10:10: group `d` of `take` is a `D`, which has a `drop` body; a group holds plain data", "14:14: group `s` of `use_seed` is a `Seed`, which is `unique`; a group holds plain data", errors: 2
+fail "a group's type has no drop body and is not unique", "10:10: group `d` of `take` is a `D`, which has a `drop` body, which expects every field: a group passes its fields one by one", "14:14: group `s` of `use_seed` is a `Seed`, which is `unique`, whose fields a group would copy", errors: 2
   obj D
     n: Int = 0
 
@@ -701,7 +701,7 @@ fail "a group holds only a plain type: no drop body, not unique", "10:10: group 
   take(..a)
   use_seed()
 
-fail "an ownership error after a spread is said once, at the spread", "13:14: use of `m` after move", errors: 1
+fail "an ownership error after a spread is said once, at the spread", "13:12: use of `m` after move", errors: 1
   obj Net
     timeout: Int = 30
     retries: Int = 3

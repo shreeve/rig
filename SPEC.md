@@ -1734,11 +1734,14 @@ fields exactly as it gives inline options. A field without a default is
 a required argument, given by name; a field's default is filled at the
 call. A function may have inline options and several groups, after its
 required parameters and before a parameter a closure written last fills.
-A group's type is an object of plain data ([Kinds of value](#kinds-of-value)) whose fields
-share no name with the function's parameters or its other groups' fields,
-`pub` where the function is, and a function takes at most 64 parameters
-with its groups' fields. A unit's keyword never fills a group's field,
-and a closure written last never does.
+A group's type is an object, with no `drop` body and not `unique`, whose
+fields may own and view, share no name with the function's parameters or
+its other groups' fields, and are `pub` where the function is; a function
+takes at most 64 parameters with its groups' fields. Each field is checked
+as the parameter it is, and the body reads the group as an object
+parameter: `<net.name` moves a field out, and `from net` and `keeps net`
+name those of its fields that could hold the view. A unit's keyword never
+fills a group's field, and a closure written last never does.
 
 ```rig
 obj Net
@@ -1771,8 +1774,11 @@ x -> y
 value to the group of exactly its type: a field named beside it, before
 it or after it, wins, and the spread gives the rest. Its operand is a
 name, self, or a field path (`..cfg.net`, `..@`), read where it is written, field by field, and one
-spread fills a group. `name:` before `,` or `)` on its line is `name:
-name`, for a local or a parameter only.
+spread fills a group. It gives each field as the keyword argument written
+out would: `..<v` moves the fields that move ([Kinds of value](#kinds-of-value)), `..+v` clones
+them, and the rest are copied, so a bare `..v` gives only fields that
+copy. `name:` before `,` or `)` on its line is `name: name`, for a local
+or a parameter only.
 
 ```rig
 obj Net
@@ -2340,9 +2346,12 @@ sub main()
 "Object update"). The spread is a name, self, or a field path of exactly the type
 made, read where it is written; a field named beside it, before or after,
 wins; one spread updates a value; and every argument beside it is given
-by name. It copies plain data ([Kinds of value](#kinds-of-value)): an
-object that owns or views is updated by writing its fields. It is allowed
-only where the type could be constructed. `name:` alone, before `,` or
+by name. It gives each field as a spread in a call does: `..<p` moves
+the fields that move and copies the rest, `..+p` clones them, and a bare
+`..p` gives only fields that copy. A type with a `drop` body is not
+updated, since an update would take its fields apart or duplicate a value
+that has no clone ([CORE](docs/CORE.md) sentence 2), and neither is a
+`unique` type. It is allowed only where the type could be constructed. `name:` alone, before `,` or
 `)` on its line, is `name: name`, for a local or a parameter.
 
 ```rig
@@ -2363,6 +2372,22 @@ sub main()
 9 2 3 1 8 3
 ```
 
+```rig
+obj Doc
+  name: String
+  pages: Int
+
+sub main()
+  d = Doc(name: String("a"), pages: 1)
+  e = Doc(pages: d.name.len + 1, ..<d)
+  f = Doc(pages: 9, ..+e)
+  print(e.name, e.pages, f.name, d.pages)
+```
+
+```output
+a 2 a 1
+```
+
 ```rig reject
 obj Doc
   name: String
@@ -2375,7 +2400,7 @@ sub main()
 ```
 
 ```error
-object update copies plain data, and `Doc` holds `name: String`, which owns: write its fields
+`..d` gives `name`, a `String`, which owns: write `..<d` to move it, or `..+d` to clone it
 ```
 
 **An `exact` object is held as declared.** `obj Name exact` holds its

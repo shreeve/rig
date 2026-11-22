@@ -208,10 +208,25 @@ fn declaredFrom(ctx: *const sema.SemContext, pos: u32) ?u64 {
         var root = n;
         while (root.isKind(.member)) root = ir.Member.object(root);
         const text = leafText(root, m.source);
-        for (ir.get(d, .params).items(), 0..) |p, i| {
-            const pn = sema.paramNameNode(p) orelse continue;
-            if (std.mem.eql(u8, leafText(pn, m.source), text) and i < 64) mask |= @as(u64, 1) << @intCast(i);
-        }
+        mask |= namedParams(ir.get(d, .params), text, m.source);
+    }
+    return mask;
+}
+
+/// The parameters among `params` that name `text` in a `from` or `keeps`
+/// clause, a bit each: the parameter of that name, or, for a group's name,
+/// each of its fields' parameters (Core s5, "A spread gives an object's
+/// fields one by one"). It over-approximates on purpose: a group's name
+/// stands for all its fields, not only those that could hold the view
+/// (one that cannot carries no loan), and a field's bare name, which the
+/// compiler refuses before ownership, is matched rather than refused.
+fn namedParams(params: Sexp, text: []const u8, source: []const u8) u64 {
+    var mask: u64 = 0;
+    for (params.items(), 0..) |p, i| {
+        if (i >= 64) break;
+        const pn = sema.paramNameNode(p) orelse continue;
+        const named = if (sema.groupFieldOf(p)) |of| leafText(ir.FieldOf.group(of), source) else leafText(pn, source);
+        if (std.mem.eql(u8, named, text) or std.mem.eql(u8, leafText(pn, source), text)) mask |= @as(u64, 1) << @intCast(i);
     }
     return mask;
 }
@@ -281,13 +296,7 @@ fn declaredKeeps(ctx: *const sema.SemContext, pos: u32) ?u64 {
     const names = ir.get(d, .keeps);
     if (names == .nil) return 0;
     var mask: u64 = 0;
-    for (names.items()) |n| {
-        const text = leafText(n, m.source);
-        for (ir.get(d, .params).items(), 0..) |p, i| {
-            const pn = sema.paramNameNode(p) orelse continue;
-            if (std.mem.eql(u8, leafText(pn, m.source), text) and i < 64) mask |= @as(u64, 1) << @intCast(i);
-        }
-    }
+    for (names.items()) |n| mask |= namedParams(ir.get(d, .params), leafText(n, m.source), m.source);
     return mask;
 }
 

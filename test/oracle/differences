@@ -336,3 +336,9 @@ test/reject/ownership/write_view_chain_past_the_checker_bound.rig main prod-reje
 # allows the defer to write what the view reaches.
 test/reject/ownership/defer_at_a_failure_after_a_view_in_the_call.rig viewed prod-rejects prod-strict `keep(!nums, g()!)` under an `errdefer` that writes `nums`
 test/reject/ownership/defer_at_a_failure_after_a_view_in_the_call.rig started prod-rejects prod-strict `keep(!b.slot(), g()!)` under an `errdefer` that writes `b.v`
+
+# A group's field read in its body, `j.name`, is a field of an object
+# parameter (Core s5, "A spread gives an object's fields one by one"),
+# which no result moves out without `<`; the oracle sees the parameter
+# the options rewrite made of it, a bare name, which a result moves.
+test/reject/options/a_group's_owner_is_read_in_place,_as_an_object_parameter's_field_is.rig take_name prod-rejects ref-gap `j.name` of an owning group's field as a result

@@ -2,10 +2,9 @@
 
 This is the design of how a Rig call gives a function's options: by name,
 one at a time, or whole from a stored value. The rule of section 1, and
-groups, spreads, object update and the shorthand (sections 2 and 3, under
-the limits of section 4), are built, and their examples are ordinary ones;
-lifting the limit to plain data is the next step (section 11). Each
-decision the owner made is
+groups, spreads, object update and the shorthand, whose fields may own and
+view (sections 2 and 3, under the limits of section 4), are built, and
+their examples are ordinary ones. Each decision the owner made is
 tagged **[Owner, 2026-11-22]**; an untagged rule follows from those or is
 forced by Rig. A panel of three wrote the reports behind the keyword rule,
 a committee of three the reports behind groups and spreads, and two red
@@ -240,15 +239,19 @@ c 2 3 false
   a parameter, that share a name. The message names the group's field and
   its declaration, since the group's author cannot see every function that
   uses it.
-- **A group's fields keep their field defaults.** A group holds plain data
-  (section 4), so its defaults are literals, module constants, `[n of x]`,
-  or `T()` of a plain object: none runs code or allocates, and each is
-  filled at the call, as a parameter default is.
+- **A group's fields keep their field defaults,** the defaults an object's
+  field may have (a literal, a module constant, `[n of x]`, `T()`, or an
+  empty `String()` or `List()`), each filled at the call, as a parameter
+  default is.
 - **Declaration order.** The required positional parameters come first,
   then the options and groups, in any order, then a callback parameter,
   which may follow them (section 1).
 - **A trailing closure never fills a group's field.**
 - A `pub` function's group type has `pub` fields.
+- **A group's type is only its fields.** Its fields may own and view
+  (section 3, "Owners and views"), but a type with a `drop` body, which
+  expects every field, or a `unique` one, whose fields a group would copy,
+  is no group's type.
 
 ```rig
 obj CopyArgs
@@ -277,8 +280,11 @@ obj Net
   retries: Int = 3
 
 obj Req
-  body: ?String
+  body: String
   retries: Int = 0
+
+  drop(!@)
+    print("sent", @body)
 
 obj CopyArgs
   src: Static
@@ -303,7 +309,7 @@ sub main()
 
 ```error
 `retries` is both a parameter of `post` and a field of its group `net`, a `Net`
-group `r` of `send` is a `Req`, which holds `body: ?String`, a view; a group holds plain data
+group `r` of `send` is a `Req`, which has a `drop` body, which expects every field: a group passes its fields one by one
 `ms:` cannot fill `timeout`, a field of group `net`: give it by name, `timeout: time.duration(ms: 500)`
 `src` is a field of group `a` of `copy`, so it is given by name: `src: "a.txt"`
 ```
@@ -449,6 +455,118 @@ Object update is allowed only where the type could be constructed. It is
 Rust's `Point { x: 3, ..p }`, OCaml's `{ p with x = 3 }`, Kotlin's
 `p.copy(x = 3)`, and C#'s `p with { X = 3 }`.
 
+### Owners and views
+
+**[Owner, 2026-11-22]** A group's fields may own (`String`, `List`, a
+handle) and view (`?String`), and so may an updated object's: text
+options (a user agent, a path, a prefix) are common, and ride in a stored
+or forwarded group. A spread gives each field as the keyword argument
+written out would, so a move or a clone is written once, on the spread:
+`..<v` moves each field it gives that moves, `..+v` clones it, and every
+field that copies is copied. A bare `..v` gives only fields that copy, so
+a field that owns is given by `..<v`, by `..+v`, or by name.
+
+```rig
+obj Http
+  agent: ?String = "rig/1"
+  prefix: String = String()
+  retries: Int = 3
+
+sub get(path: ?String, ..h: Http)
+  print(h.agent, h.prefix, path, h.retries)
+
+sub logged(path: ?String, ..h: Http)
+  print("get", path)
+  get(path, retries: 1, ..<h)
+
+sub main()
+  saved = Http(prefix: String("/v1"))
+  get("/a", ..+saved)
+  get("/b", prefix: String("/v2"), ..saved)
+  logged("/c", ..<saved)
+```
+
+```output
+rig/1 /v1 /a 3
+rig/1 /v2 /b 3
+get /c
+rig/1 /v1 /c 1
+```
+
+- **In the body, a group is an object parameter.** `h.prefix` reads the
+  field in place, `<h.prefix` moves it out, and a result that would copy
+  an owner out is refused, as it is of any object's field. Each field is
+  checked as the parameter it is, so `from h` and `keeps h` name those of
+  the group's fields that could hold the view: a result or a stored value
+  that keeps a view taken from a field says so, as it would of a
+  parameter.
+- **A spread is evaluated where it is written**, so `Doc(pages: size(?d),
+  ..<d)` reads `d` before the spread takes its fields, and `Doc(..<d,
+  pages: size(?d))` is refused, since `d` is partly moved by then.
+- **Object update** moves the fields that own with `..<p` and copies the
+  rest, so `p` is partly moved. A type with a `drop` body is not updated:
+  its body expects every field, and an update by `..+p` would duplicate a
+  value that Core sentence 2 gives no clone. It is moved whole and its
+  field set. A `unique` type, whose fields would be copied, is not
+  updated either.
+
+```rig
+obj Doc
+  name: String
+  pages: Int
+  tag: ?String
+
+obj Label
+  text: ?String
+  width: Int = 8
+
+fun text_of(..l: Label) -> ?String from l
+  l.text
+
+sub main()
+  d = Doc(name: String("a"), pages: 1, tag: "draft")
+  e = Doc(pages: d.name.len + 1, ..<d)
+  print(e.name, e.pages, e.tag, d.pages)
+  s = String("hello")
+  t = text_of(text: ?s)
+  print(t)
+```
+
+```output
+a 2 draft 1
+hello
+```
+
+```rig reject
+obj Http
+  prefix: String = String()
+  retries: Int = 3
+
+obj File
+  fd: Int
+
+  drop(!@)
+    print("close", @fd)
+
+sub get(path: ?String, ..h: Http)
+  print(path, h.prefix)
+
+sub main()
+  saved = Http()
+  n = Http(retries: 1)
+  f = File(fd: 1)
+  get("a", ..saved)
+  get("b", prefix: String(), ..<n)
+  g = File(fd: 2, ..<f)
+  print(g.fd)
+```
+
+```error
+`..saved` gives `prefix`, a `String`, which owns: write `..<saved` to move it, or `..+saved` to clone it
+`..<n` moves nothing, since every field it gives copies: write `..n`
+`File` has a `drop` body, so no update makes one: an update would take its fields apart or duplicate it, and a `drop` type has no clone (Core sentence 2); move `f` whole and set the field
+```
+
 ### The shorthand
 
 **[Owner, 2026-11-22]** `name:` alone means `name: name`, in a call and in
@@ -505,7 +623,7 @@ sub main()
 ```
 
 ```error
-object update copies plain data, and `Doc` holds `name: String`, which owns: write its fields
+`..d` gives `name`, a `String`, which owns: write `..<d` to move it, or `..+d` to clone it
 `size:` alone needs a local or a parameter named `size`
 ```
 
@@ -514,17 +632,6 @@ object update copies plain data, and `Doc` holds `name: String`, which owns: wri
 Each limit can be lifted later without breaking a program that compiles
 under it.
 
-- **Groups and object update hold plain data only** **[Owner,
-  2026-11-22]**: no owners and no read views (SPEC, "plain data": numbers,
-  `Bool`, plain enums, `Static`, `Symbol`, vectors, and objects, arrays and
-  optionals of them). A spread then copies, never moves or clones, and an
-  override drops nothing. *Why:* a group normalized into ordinary parameters
-  misaligns the declaration side of the ownership checker, storage and emit,
-  which index the function type's parameter bits by the written parameter
-  list, and `from net` or `keeps net` has no meaning while `net` is a body
-  local; object update of an owner needs a sigil per field, `<` only on the
-  fields that move. **[Owner, 2026-11-22]** This limit is lifted in the
-  next step after v1, before any other deferred item (section 11).
 - **A function with options is not a value** **[Owner, 2026-11-22]**:
   write a closure. *Why:* today a function taken as a value is called with
   every argument by position, options included (`g = connect; g(h, 1, 5)`),
@@ -721,11 +828,13 @@ That is the pitch, not the whole. Honestly listed, a programmer learns:
    fills a group.
 9. A spread's operand is a name, self, or a field path.
 10. `T(x: 1, ..v)` is a copy of `v` with `x` set.
-11. `name:` before `,` or `)` on its line means `name: name`, for a local
+11. A spread gives each field as its keyword argument written out would:
+    `..<v` moves the fields that own, `..+v` clones them, and `..v` alone
+    gives fields that copy.
+12. `name:` before `,` or `)` on its line means `name: name`, for a local
     or a parameter.
-12. The v1 limits: plain data only in groups and object update; a function
-    with options is not a value; no unit keyword fills a group's field; no
-    spread into `round` or `floor`.
+13. The v1 limits: a function with options is not a value; no unit
+    keyword fills a group's field; no spread into `round` or `floor`.
 
 `..` then means a range, an open slice, a range pattern, a group, and a
 spread; the bracket and the position tell them apart (`xs[..b]` in
@@ -858,9 +967,8 @@ one-line note for Trig and loco.
      further; a call's spreads are rewritten together or not at all, so
      the second check sees what the first saw, and its messages carry the
      spread's span.
-   - A closure written last never fills a group's field: a field holds
-     plain data, never a function, so the trailing-closure rule's copies
-     need no change.
+   - A closure written last never fills a group's field, which the
+     rule's three copies skip.
    - A field's default is filled by the field's rule, from its type's
      module (`T()` and `[n of x]` included).
    - A function whose parameters with its groups' fields pass 64 is
@@ -869,14 +977,33 @@ one-line note for Trig and loco.
      does, it shows a group's fields and follows spreads and the
      shorthand.
 3. **Owners and read views in groups and object update** **[Owner,
-   2026-11-22]**, the first step after v1, before any other deferred item.
-   It needs the ownership, storage and emit work the code red team
-   described: parameter bits per written position, so that a group's
-   fields have their own bits on the declaration side, and `from net` and
-   `keeps net` for a group that holds read views. Object update of owners
-   puts `<` only on the fields that move and copies the rest; a type with a
-   `drop` body is updated only by `..+p` or a whole move; and since a spread
-   is evaluated where it is written, `P(n: size(?p), ..<p)` reads `p`
-   before the spread takes its fields.
+   2026-11-22]** *(built)*, the first step after v1, before any other
+   deferred item. Object update of owners puts `<` only on the fields that
+   move and copies the rest; a type with a `drop` body is never updated,
+   by any sigil, only moved whole and its field set; and since a spread is
+   evaluated where it is written, `P(n: size(?p), ..<p)` reads `p` before
+   the spread takes its fields. **[Owner, 2026-11-22]** Never: `..+p`
+   would make a second value of a type that Core sentence 2 gives no
+   clone, and its drop would run twice. How it was built
+   ([the record](../history/records/2026-11/named-options-owners/README.md)):
+   - The declaration side needs no work of its own: step 2 rewrites a
+     group into one parameter per field in the tree, so ownership, storage
+     and emit already index the parameters they emit, each with its own
+     bits.
+   - A spread's sigil is recorded with it, and the rewrite writes `<v.f` or
+     `+v.f` for each field that moves (Core §1) and `v.f` for each that
+     copies. The first check refuses a bare spread that would give a field
+     that moves, `..<v` that moves nothing, `..?v` and `..!v`, and any
+     update of a `drop` type or a `unique` type.
+   - A body that uses a group whole binds it, `net =! Net(name: <name,
+     ...)`, taking each field that moves; its field reads and spreads then
+     read the binding, as an object's. A field read is no name in the
+     return position, so a result moves a field out only by `<net.name`,
+     as it would of an object parameter.
+   - `from net` and `keeps net` stand, in sema, for those of the group's
+     fields' parameters that could hold the view; a message about one
+     names it `net.name`, and its fix `from net` or `keeps net`.
+   - A closure written last skips a group's field: a field may hold a
+     function value (`fun(Int) -> Int`), never a callable view.
 
 The other deferred items wait in IDEAS for a program that needs them.

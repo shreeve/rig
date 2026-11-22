@@ -3179,6 +3179,10 @@ pub const GroupSite = struct {
     name: u32 = 0,
     fields: []const []const u8,
     field_types: []const Sexp = &.{},
+    /// Which fields move (Core §1: an owner, a handle), in the order of
+    /// `fields`: the binding of a group used whole takes each with `<`,
+    /// and its field reads then read the binding.
+    moves: []const bool = &.{},
 };
 
 /// A name in a function's body that names its group (`GroupSite`), by
@@ -3197,7 +3201,15 @@ pub const SpreadSite = struct {
     node: parser.NodeId,
     fields: []const []const u8,
     group: ?u32 = null,
+    /// The sigil the spread is written with, `..<v` or `..+v`, which each
+    /// field it gives that moves takes (`moves`, in the order of
+    /// `fields`); a field that copies is copied.
+    sigil: SpreadSigil = .none,
+    moves: []const bool = &.{},
 };
+
+/// The sigil of a spread: none (`..v`), `<` (`..<v`), or `+` (`..+v`).
+pub const SpreadSigil = enum { none, move, clone };
 
 /// The stages a chain may take, in a call on a `for` source whose type
 /// declares no method of the name.
@@ -5812,8 +5824,10 @@ pub const Parser = struct {
     };
 
     /// A group made parameters: its fields, the name leaf of each field's
-    /// parameter, in the same order, and its type as written.
-    const FlatGroup = struct { fields: []const []const u8, params: []const Sexp, ty: Sexp };
+    /// parameter, in the same order, and its type as written. `bound`
+    /// when the body binds it whole and a field moves into the binding:
+    /// its field reads and spreads then read the binding, as an object's.
+    const FlatGroup = struct { fields: []const []const u8, params: []const Sexp, ty: Sexp, bound: bool = false };
 
     /// Each group of `groups` in `tree` as the parameters it means, each
     /// field read in a body as its parameter, and each spread of `spreads`
@@ -5867,15 +5881,20 @@ pub const Parser = struct {
                 const of = try self.base.newNode(.field_of, &.{ try self.copyTree(ty), try self.namedLeaf(at.start, f), try self.namedLeaf(at.start, gname), ftype }, at);
                 try out.append(a, try self.base.newNode(.@":", &.{ leaf.*, of }, at));
             }
-            try st.flat.put(a, name.src.pos, .{ .fields = site.fields, .params = field_params, .ty = ty });
-            if (!st.usedWhole(name.src.pos)) continue;
-            // `net =! Net(timeout: timeout, ...)`, under the group's own
-            // name leaf, which no parameter holds now.
+            const whole = st.usedWhole(name.src.pos);
+            const moves = whole and std.mem.indexOfScalar(bool, site.moves, true) != null;
+            try st.flat.put(a, name.src.pos, .{ .fields = site.fields, .params = field_params, .ty = ty, .bound = moves });
+            if (!whole) continue;
+            // `net =! Net(timeout: timeout, name: <name, ...)`, under the
+            // group's own name leaf, which no parameter holds now: each
+            // field that moves moves into it.
             const args = try a.alloc(Sexp, site.fields.len + 2);
             args[0] = .nil;
             args[1] = try self.copyTree(ty);
-            for (site.fields, field_params, args[2..]) |f, leaf, *arg| {
-                arg.* = try self.base.newNode(.kwarg, &.{ try self.namedLeaf(at.start, f), try self.fieldParam(at.start, f, leaf) }, at);
+            for (site.fields, field_params, args[2..], 0..) |f, leaf, *arg, k| {
+                const param = try self.fieldParam(at.start, f, leaf);
+                const value = if (k < site.moves.len and site.moves[k]) try self.base.newNode(.move, &.{param}, at) else param;
+                arg.* = try self.base.newNode(.kwarg, &.{ try self.namedLeaf(at.start, f), value }, at);
             }
             const made = try self.base.newNode(.call, args, at);
             try binds.append(a, try self.base.newNode(.set, &.{ .{ .tag = .fixed }, name, .nil, made }, at));
@@ -5904,6 +5923,7 @@ pub const Parser = struct {
     /// spread of one, names: a leaf (`fieldParam`), or null.
     fn readParam(self: *Parser, st: *const OptionsRewrite, group: u32, field: []const u8, home: u32) std.mem.Allocator.Error!?Sexp {
         const flat = st.flat.get(group) orelse return null;
+        if (flat.bound) return null;
         for (flat.fields, flat.params) |f, param| if (std.mem.eql(u8, f, field)) return try self.fieldParam(home, field, param);
         return null;
     }
@@ -5944,29 +5964,48 @@ pub const Parser = struct {
                 continue;
             };
             const at = self.span(c);
-            const operand = ir.Spread.value(c);
-            for (sp.fields) |f| {
-                const value = if (sp.group) |g|
-                    (try self.readParam(st, g, f, at.start)) orelse try self.base.newNode(.member, &.{ try self.copyPlace(operand, st), try self.namedLeaf(at.start, f) }, at)
+            const operand = spreadPlace(ir.Spread.value(c));
+            for (sp.fields, 0..) |f, k| {
+                const read = if (sp.group) |g|
+                    (try self.readParam(st, g, f, at.start)) orelse try self.base.newNode(.member, &.{ try self.copyPlace(operand, st, at), try self.namedLeaf(at.start, f) }, at)
                 else
-                    try self.base.newNode(.member, &.{ try self.copyPlace(operand, st), try self.namedLeaf(at.start, f) }, at);
+                    try self.base.newNode(.member, &.{ try self.copyPlace(operand, st, at), try self.namedLeaf(at.start, f) }, at);
+                // `<v.f` or `+v.f` for a field that moves, by the
+                // spread's sigil; a field that copies is copied.
+                const moves = k < sp.moves.len and sp.moves[k];
+                const value = if (!moves) read else switch (sp.sigil) {
+                    .none => read,
+                    .move => try self.base.newNode(.move, &.{read}, at),
+                    .clone => try self.base.newNode(.clone, &.{read}, at),
+                };
                 try out.append(a, try self.base.newNode(.kwarg, &.{ try self.namedLeaf(at.start, f), value }, at));
             }
         }
         slot.* = .{ .list = parser.List.withId(try out.toOwnedSlice(a), call.list.id) };
     }
 
+    /// The place a spread's operand names: `v` of `..v`, `..<v`, or
+    /// `..+v`.
+    pub fn spreadPlace(operand: Sexp) Sexp {
+        if (operand.isKind(.move)) return ir.Move.operand(operand);
+        if (operand.isKind(.clone)) return ir.Clone.operand(operand);
+        return operand;
+    }
+
     /// A copy of a spread's operand, a name or a field path, for one
-    /// field it gives (`copyTree`): a field read of a flattened group in
-    /// it names the field's parameter.
-    fn copyPlace(self: *Parser, place: Sexp, st: *const OptionsRewrite) std.mem.Allocator.Error!Sexp {
+    /// field it gives, every node and leaf of it at the spread `at`, so a
+    /// diagnostic about it is said there once (`copyTree` homes a leaf at
+    /// the leaf it copies): a field read of a flattened group in it names
+    /// the field's parameter.
+    fn copyPlace(self: *Parser, place: Sexp, st: *const OptionsRewrite, at: parser.Span) std.mem.Allocator.Error!Sexp {
         if (place.isKind(.member)) {
             if (st.reads.get(place.list.id)) |group| {
                 const field = leafText(self.base.source, ir.Member.name(place).src);
-                if (try self.readParam(st, group, field, self.span(place).start)) |leaf| return leaf;
+                if (try self.readParam(st, group, field, at.start)) |leaf| return leaf;
             }
-            return self.base.newNode(.member, &.{ try self.copyPlace(ir.Member.object(place), st), try self.copyTree(ir.Member.name(place)) }, self.span(place));
+            return self.base.newNode(.member, &.{ try self.copyPlace(ir.Member.object(place), st, at), try self.namedLeaf(at.start, leafText(self.base.source, ir.Member.name(place).src)) }, at);
         }
+        if (place == .src) return self.namedLeaf(at.start, leafText(self.base.source, place.src));
         return self.copyTree(place);
     }
 
