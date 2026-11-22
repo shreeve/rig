@@ -1147,7 +1147,11 @@ pub const SymbolFlags = packed struct(u64) {
     /// A parameter that is a field of a group (`GroupParam`): a call
     /// names it, the body reads it as `net.timeout`, never by its name.
     group_field: bool = false,
-    _: u8 = 0,
+    /// A function with a parameter that belongs to a group: its
+    /// `GroupParam`s are in its module's `SemContext.group_params`, by
+    /// `decl_pos`.
+    has_groups: bool = false,
+    _: u7 = 0,
     /// Room for flags to come.
     spare: u30 = 0,
 };
@@ -1237,8 +1241,10 @@ pub const Field = struct {
     param_defaults: ?[]const ?Sexp = null,
     /// A method's parameters that take a duration (`duration`).
     param_durations: ParamMask = 0,
-    /// A method's parameters that belong to a group (null where none).
-    param_groups: ?[]const ?GroupParam = null,
+    /// A method with a parameter that belongs to a group: its
+    /// `GroupParam`s are in its module's `SemContext.group_params`, by
+    /// `decl_pos`.
+    has_groups: bool = false,
     /// A method: which arguments a call passes loans on from.
     origins: Origins = .{},
     /// A built-in method: what it needs of its type's parameter `T`.
@@ -1311,8 +1317,6 @@ pub const Symbol = struct {
     param_defaults: ?[]const ?Sexp = null,
     /// A function's parameters that take a duration (`duration`).
     param_durations: ParamMask = 0,
-    /// A function's parameters that belong to a group (null where none).
-    param_groups: ?[]const ?GroupParam = null,
     /// A function: which arguments a call passes loans on from.
     origins: Origins = .{},
     /// A capture: the enclosing binding it captures.
@@ -4731,6 +4735,11 @@ pub const SemContext = struct {
     /// name (`GroupParam`), for the message that the body reads it through
     /// its group.
     group_fields: std.AutoHashMapUnmanaged(SymbolId, []const u8) = .empty,
+    /// The `GroupParam` of each parameter of a function or method with a
+    /// group (`SymbolFlags.has_groups`, `Field.has_groups`), null where a
+    /// parameter belongs to none, by where its name is declared: kept
+    /// apart, so no other symbol or field carries room for them.
+    group_params: std.AutoHashMapUnmanaged(u32, []?GroupParam) = .empty,
     group_uses: std.ArrayList(rig.GroupUse) = .empty,
     spreads: std.ArrayList(rig.SpreadSite) = .empty,
     /// Every node that writes a binding, and how (`recordWrite`). Kept
@@ -4819,6 +4828,7 @@ pub const SemContext = struct {
         self.chains.deinit(self.allocator);
         self.groups.deinit(self.allocator);
         self.group_fields.deinit(self.allocator);
+        self.group_params.deinit(self.allocator);
         self.group_uses.deinit(self.allocator);
         self.spreads.deinit(self.allocator);
         self.byte_literals.deinit(self.allocator);

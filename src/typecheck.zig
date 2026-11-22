@@ -6058,7 +6058,7 @@ const Checker = struct {
                     try self.errAt(leaf, entry_point_use, .{});
                     return self.t().invalid_id;
                 }
-                if (try self.optionsValue(sym.param_defaults, sym.param_groups, s, leaf.src.pos)) return self.t().invalid_id;
+                if (try self.optionsValue(sym.param_defaults, sym.flags.has_groups, s, leaf.src.pos)) return self.t().invalid_id;
                 return self.functionValue(sym.ty, s, leaf.src.pos, sym.flags.inline_marked);
             },
             else => return sym.ty,
@@ -6070,9 +6070,9 @@ const Checker = struct {
     /// A function with options named as a value, which is refused: a call
     /// through a value gives every argument by position, and an option is
     /// given by name (SPEC "Functions"). True after the diagnostic.
-    fn optionsValue(self: *Checker, defaults: ?[]const ?Sexp, groups: ?[]const ?sema.GroupParam, name: []const u8, pos: u32) Error!bool {
+    fn optionsValue(self: *Checker, defaults: ?[]const ?Sexp, groups: bool, name: []const u8, pos: u32) Error!bool {
         // A group's fields are options, a default or none.
-        if (groups != null) {
+        if (groups) {
             try self.err(pos, "`{s}` has options, given by name, so it is not a value: write a closure that calls it", .{name});
             return true;
         }
@@ -9243,7 +9243,7 @@ const Checker = struct {
         const owner = decl.symbol();
         if ((try self.findMethod(obj_ty, field)) != null) {
             const m = (try self.findMethod(obj_ty, field)).?;
-            const options = m.field.param_groups != null or if (m.field.param_defaults) |d| for (d) |x| {
+            const options = m.field.has_groups or if (m.field.param_defaults) |d| for (d) |x| {
                 if (x != null) break true;
             } else false else false;
             if (owner.kind == .generic_type or options) {
@@ -9374,7 +9374,7 @@ const Checker = struct {
         const ty = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
         if (found.sym.kind == .function) {
             const name = try self.ctx.arena.allocator().print("{s}.{s}", .{ self.text(obj), field });
-            if (try self.optionsValue(found.sym.param_defaults, found.sym.param_groups, name, pos)) return self.t().invalid_id;
+            if (try self.optionsValue(found.sym.param_defaults, found.sym.flags.has_groups, name, pos)) return self.t().invalid_id;
             return try self.functionValue(ty, name, pos, found.sym.flags.inline_marked);
         }
         return ty;
@@ -9494,7 +9494,7 @@ const Checker = struct {
                     return self.t().invalid_id;
                 }
                 const name = try self.ctx.arena.allocator().print("{s}.{s}", .{ tname, field });
-                if (try self.optionsValue(m.param_defaults, m.param_groups, name, pos)) return self.t().invalid_id;
+                if (try self.optionsValue(m.param_defaults, m.has_groups, name, pos)) return self.t().invalid_id;
                 return self.functionValue(try self.memberType(nt.foreign, m.ty), name, pos, m.inline_marked);
             }
             if (!m.is_variant) break :found;
@@ -12596,8 +12596,12 @@ const Checker = struct {
         source: []const u8 = "",
         /// The parameters that take a duration form (`sema.duration`).
         durations: sema.ParamMask = 0,
-        /// The parameters that belong to a group (`sema.GroupParam`).
+        /// The parameters that belong to a group (`sema.GroupParam`), once
+        /// read (`withGroups`) from the declaring module's
+        /// `group_params` at `group_pos`, after `group_skip` of them.
         groups: ?[]const ?sema.GroupParam = null,
+        group_pos: ?u32 = null,
+        group_skip: u32 = 0,
         /// The callee waits the duration it is given, so a negative
         /// constant is refused: `time.sleep`, `time.within`, `time.after`,
         /// and `per:` (`sema.duration.waits`).
@@ -12640,7 +12644,7 @@ const Checker = struct {
 
     /// The parameters of function `sym`, declared in `source`.
     fn paramsOf(sym: sema.Symbol, source: []const u8) ParamInfo {
-        return .{ .names = sym.param_names, .defaults = sym.param_defaults, .source = source, .durations = sym.param_durations, .groups = sym.param_groups };
+        return .{ .names = sym.param_names, .defaults = sym.param_defaults, .source = source, .durations = sym.param_durations, .group_pos = if (sym.flags.has_groups) sym.decl_pos else null };
     }
 
     /// The parameters of method `f`, declared in `source`, after the
@@ -12652,7 +12656,8 @@ const Checker = struct {
             .defaults = if (f.param_defaults) |d| d[@min(skip, d.len)..] else null,
             .source = source,
             .durations = f.param_durations >> @intCast(skip),
-            .groups = if (f.param_groups) |g| g[@min(skip, g.len)..] else null,
+            .group_pos = if (f.has_groups) f.decl_pos else null,
+            .group_skip = @intCast(skip),
         };
     }
 
@@ -12691,6 +12696,20 @@ const Checker = struct {
         views: []const Sexp = &.{},
     };
 
+    /// `info` with its groups read from the module that declares the
+    /// callee (`ParamInfo.group_pos`), whose source is `info.source`.
+    fn withGroups(self: *Checker, info: ParamInfo) ParamInfo {
+        const at = info.group_pos orelse return info;
+        var out = info;
+        const home: *const SemContext = if (info.source.ptr == self.ctx.source.ptr) self.ctx else blk: {
+            for (self.ctx.foreign_semas.items.items) |m| if (m) |fc| if (fc.source.ptr == info.source.ptr) break :blk fc;
+            return info;
+        };
+        const g = home.group_params.get(at) orelse return info;
+        out.groups = g[@min(info.group_skip, g.len)..];
+        return out;
+    }
+
     /// The first parameter of `f` that is a group's field and takes a
     /// duration, which a unit's keyword never fills, or null.
     fn groupDuration(self: *Checker, f: FunctionType, info: ParamInfo) ?usize {
@@ -12706,7 +12725,8 @@ const Checker = struct {
     /// by parameter name, and defaults for omitted parameters. A call
     /// that uses keywords or defaults records its argument slots, and
     /// every complete call what fills each parameter (`CallParams`).
-    fn checkArgs(self: *Checker, args: []const Sexp, f: FunctionType, info_in: ParamInfo, callee: []const u8, pos: u32, site: CallSite) Error!void {
+    fn checkArgs(self: *Checker, args: []const Sexp, f: FunctionType, info_grouped: ParamInfo, callee: []const u8, pos: u32, site: CallSite) Error!void {
+        const info_in = self.withGroups(info_grouped);
         if (try self.optionsCall(args, info_in, callee)) return;
         var info = info_in;
         const call = self.current_call;
@@ -24553,7 +24573,7 @@ fn checkMethodCall(ctx: *SemContext, c: sema.GenericMethodCall, subst: TypeSubst
         // A method with options takes them by name, which a generic
         // body's call, by position only, never gives: refused as a
         // function value is (`optionsValue`).
-        if (m.field.param_groups != null) break :blk try a.print("and `{s}` has options, given by name, which a call in a generic body cannot give; call it where its type is written, or pass a closure that does", .{owner});
+        if (m.field.has_groups) break :blk try a.print("and `{s}` has options, given by name, which a call in a generic body cannot give; call it where its type is written, or pass a closure that does", .{owner});
         if (m.field.param_defaults) |d| for (d) |x| {
             if (x != null) break :blk try a.print("and `{s}` has options, given by name, which a call in a generic body cannot give; call it where its type is written, or pass a closure that does", .{owner});
         };
@@ -24994,7 +25014,7 @@ fn checkApiDecl(ctx: *SemContext, id: SymbolId) Error!void {
         };
         // A call through the API passes every argument: an implementation
         // has no default to fill, and one of the API's would be a second.
-        for (m.param_groups orelse &.{}) |g| if (g) |x| {
+        if (m.has_groups) for (ctx.group_params.get(m.decl_pos) orelse &.{}) |g| if (g) |x| {
             try ctx.err(m.decl_pos, "`{s}.{s}` takes the group `{s}`, and an API's method takes none: a call through the API passes each argument", .{ sym.name, m.name, x.group });
             break;
         };
@@ -25136,7 +25156,7 @@ fn checkConformance(ctx: *SemContext, index: usize) Error!void {
         // A call through the API gives each argument by position, so a
         // method that meets it has no option (SPEC "Functions"); the API's
         // own method has none either (`checkApiDecl`).
-        for (have.param_groups orelse &.{}) |g| if (g) |x| {
+        if (have.has_groups) for (ctx.group_params.get(have.decl_pos) orelse &.{}) |g| if (g) |x| {
             try ctx.err(have.decl_pos, "`{s}.{s}` meets `{s}` of `{s}`, so it takes no group, and it takes `{s}`: a call through the API gives each argument by position", .{ tname, have.name, w.field.name, try sema.apiName(ctx, w.api), x.group });
             break;
         };

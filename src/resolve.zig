@@ -1463,20 +1463,21 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
 /// its type, filled at a call that leaves the field out, as a parameter's
 /// default is. A field without one is a required name-only argument.
 fn fillGroupDefaults(ctx: *SemContext) Error!void {
+    if (ctx.group_params.count() == 0) return;
     for (ctx.symbols.items) |*sym| {
-        if (sym.kind == .function) try fillGroupFields(ctx, sym.param_groups, sym.param_names, &sym.param_defaults);
+        if (sym.kind == .function and sym.flags.has_groups) try fillGroupFields(ctx, ctx.group_params.get(sym.decl_pos), sym.param_names, &sym.param_defaults);
         if (sym.kind != .nominal_type and sym.kind != .generic_type) continue;
         const fields = sym.fields orelse continue;
-        for (@constCast(fields)) |*f| if (f.is_method) try fillGroupFields(ctx, f.param_groups, f.param_names, &f.param_defaults);
+        for (@constCast(fields)) |*f| if (f.is_method and f.has_groups) try fillGroupFields(ctx, ctx.group_params.get(f.decl_pos), f.param_names, &f.param_defaults);
     }
 }
 
-fn fillGroupFields(ctx: *SemContext, groups_in: ?[]const ?sema.GroupParam, names_in: ?[]const []const u8, defaults: *?[]const ?Sexp) Error!void {
+fn fillGroupFields(ctx: *SemContext, groups_in: ?[]?sema.GroupParam, names_in: ?[]const []const u8, defaults: *?[]const ?Sexp) Error!void {
     const groups = groups_in orelse return;
     const names = names_in orelse return;
     const out = try ctx.arena.allocator().alloc(?Sexp, groups.len);
     if (defaults.*) |d| @memcpy(out, d[0..out.len]) else @memset(out, null);
-    for (@constCast(groups), 0..) |*slot, i| {
+    for (groups, 0..) |*slot, i| {
         if (slot.* == null) continue;
         const g = &slot.*.?;
         if (g.whole or i >= names.len) continue;
@@ -2310,7 +2311,7 @@ pub const TypeResolver = struct {
                 .param_names = try self.paramNames(params),
                 .param_defaults = try self.paramDefaults(fn_ty, params),
                 .param_durations = try self.paramDurations(fn_ty, params),
-                .param_groups = try self.paramGroups(fn_ty, params),
+                .has_groups = try self.paramGroups(fn_ty, params, name.src.pos),
                 .is_default = of == .api and ir.get(m, .body) != .nil,
             });
         }
@@ -2567,7 +2568,7 @@ pub const TypeResolver = struct {
                 self.ctx.symbols.items[fid].param_names = try self.paramNames(params);
                 self.ctx.symbols.items[fid].param_defaults = try self.paramDefaults(fn_ty, params);
                 self.ctx.symbols.items[fid].param_durations = try self.paramDurations(fn_ty, params);
-                self.ctx.symbols.items[fid].param_groups = try self.paramGroups(fn_ty, params);
+                self.ctx.symbols.items[fid].flags.has_groups = try self.paramGroups(fn_ty, params, name.src.pos);
             }
         }
         return fn_ty;
@@ -2737,8 +2738,8 @@ pub const TypeResolver = struct {
     /// when none does: a group as written, the first check's, or a field
     /// of one, which the Parser wrapper made a parameter. Each is marked on
     /// its symbol, so the body names none by itself.
-    fn paramGroups(self: *TypeResolver, fn_ty: TypeId, params: Sexp) Error!?[]const ?sema.GroupParam {
-        if (params == .nil) return null;
+    fn paramGroups(self: *TypeResolver, fn_ty: TypeId, params: Sexp, pos: u32) Error!bool {
+        if (params == .nil) return false;
         const types: []const TypeId = switch (self.ctx.types.get(fn_ty)) {
             .function => |f| f.params,
             else => &.{},
@@ -2769,7 +2770,9 @@ pub const TypeResolver = struct {
                 out.?[i].?.type_name = r.name;
             }
         }
-        return out;
+        const groups = out orelse return false;
+        try self.ctx.group_params.put(self.ctx.allocator, pos, groups);
+        return true;
     }
 
     fn paramNames(self: *TypeResolver, params: Sexp) Error!?[]const []const u8 {
@@ -4040,7 +4043,7 @@ pub const TypeResolver = struct {
             .param_names = try self.paramNames(params),
             .param_defaults = try self.paramDefaults(fn_ty, params),
             .param_durations = try self.paramDurations(fn_ty, params),
-            .param_groups = try self.paramGroups(fn_ty, params),
+            .has_groups = try self.paramGroups(fn_ty, params, mpos),
         });
     }
 
