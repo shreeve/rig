@@ -4222,8 +4222,12 @@ fn freeWorkers(all: []Worker) void {
 }
 
 /// Write the `i`th worker's fields, before it is published or starts.
+/// Until its thread runs it is `waiting`, as if in its poller, so
+/// `os.exit` can claim it before it starts (`workerMain`); one whose
+/// thread is never started stays so.
 fn initWorker(i: usize) void {
     all_workers.*[i] = .{ .rng = @intCast(i * 2654435761 % 4294967291 + 1) };
+    if (tears_down) all_workers.*[i].poller.parked.raw = .waiting;
 }
 
 /// Start the other workers, when `main` makes its first task: by then
@@ -4261,10 +4265,10 @@ fn startWorkers() void {
 /// first spawn, and only `main` may write its stacks.
 ///
 /// Once the program is ending (`programEnding`) it maps and starts no
-/// more, and no monitor: `main`'s end then waits on no thread start, and an
-/// `os.exit` that tears down counts the workers it never starts as
-/// stopped, so its wait (`exit_stop_wait`) is for the workers that run,
-/// not for threads still to start while the stopped ones spin.
+/// more, and no monitor: `main`'s end then waits on no thread start. An
+/// `os.exit` that tears down claims every worker whose thread has not
+/// yet run (`initWorker`), started or not, so its wait (`exit_stop_wait`)
+/// is for the workers that run, not for threads still to start.
 fn startRest(n: usize) void {
     defer {
         starting.store(0, .release);
@@ -4276,14 +4280,8 @@ fn startRest(n: usize) void {
         if (programEnding()) break;
         mapFirstStacks(v);
     }
-    for (ws[2..], 2..) |*v, i| {
-        if (programEnding()) {
-            // Never to run a fiber: stopped, for a teardown that waits.
-            // An exit under way counts them; past it none is counted.
-            if (tears_down and exit_state.phase.load(.seq_cst) != .idle)
-                _ = exit_state.stopped.fetchAdd(@intCast(n - i), .seq_cst);
-            return;
-        }
+    for (ws[2..]) |*v| {
+        if (programEnding()) return;
         v.thread = std.Thread.spawn(.{}, workerMain, .{ v, 0 }) catch rt.oom();
         if (builtin.is_test) test_started += 1;
     }
@@ -4418,7 +4416,13 @@ fn workerMain(w: *Worker, n: usize) void {
     me_slot().* = w;
     if (preempt) preOf(w).tid = rt.threadId();
     defer leavePreempt(w);
+    // Claimed by `os.exit` before it ran (`initWorker`): it stops, as one
+    // claimed in its poller does, having touched nothing of the program's.
+    // Worker 1 first runs `startRest`, which, the program ending, maps and
+    // starts nothing and clears `starting`.
+    const claimed = tears_down and w.poller.parked.swap(.awake, .seq_cst) == .claimed;
     if (n > 0) startRest(n);
+    if (claimed) stopForExit(w, true);
     if (started_ahead.*) takeFirstSegment();
     loop(w);
 }

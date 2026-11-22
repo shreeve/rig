@@ -129,9 +129,10 @@ if [[ $mac == 1 ]]; then
 fi
 
 # `os.exit` at once after the workers start, while worker 1 may still be
-# starting the others (`sched.startRest`): the workers it has not started
-# count as stopped, so the teardown never waits out its 2 ms for threads
-# yet to start. It may still end plainly while a task runs. The program
+# starting the others (`sched.startRest`): a worker whose thread has not
+# yet run, started or never to be, is claimed as one waiting in its
+# poller is, so the teardown never waits out its 2 ms for threads the
+# system has yet to schedule. It may still end plainly while a task runs. The program
 # names `task.workers`, so its workers start at its first task, not as
 # `main` starts.
 {

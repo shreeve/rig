@@ -87,7 +87,12 @@ then `_exit` runs as now. In outline:
    the mark back to `awake` as the call returns, before it reads a single
    event. The caller compare-and-swaps each other worker's mark from
    `waiting` to `claimed`: a worker claimed so is stopped at once, and
-   when it wakes it sees `claimed` and stops there. A worker not waiting
+   when it wakes it sees `claimed` and stops there. A worker whose thread
+   has not yet run, whether started or never to be, is marked `waiting`
+   from when it is made (`initWorker`) and is claimed the same way; its
+   thread swaps the mark as it starts, before `startRest` or its loop,
+   and if claimed stops there, so the wait is never for a thread the
+   system has yet to schedule. A worker not waiting
    in its poller stops at the top of its loop, which checks `exit_phase`
    before it takes any fiber to run, and in `sleep`, which checks it as
    it checks `stopping`. Every other worker is kicked, so it wakes to
@@ -147,7 +152,9 @@ and why none does:
   handling what woke it; once stopped it never runs one again: the stop
   is a function that does not return. A worker is claimed in its poller
   only by a compare-and-swap that finds it `waiting`, inside the system
-  call or about to enter it with nothing between; its own swap as it
+  call or about to enter it with nothing between, or with its thread not
+  yet run, or run only as far as its signal stack and thread-local
+  slot; its own swap as it
   wakes and the caller's compare-and-swap are ordered, so either the
   caller finds it `awake` (and waits for it to stop at its loop's top) or
   the worker finds itself `claimed`. Unmapping begins only once every
