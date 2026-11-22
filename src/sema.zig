@@ -14010,6 +14010,10 @@ fn declaredOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos
         }
         const text = identAt(ctx.source, n) orelse continue;
         if (std.mem.eql(u8, text, "@")) whole_self = n;
+        if (groupFieldName(ctx.source, d.params, text)) |group| {
+            try ctx.errAt(n, "`from {s}`: `{s}` is a field of group `{s}`, not a parameter: write `from {s}`", .{ text, text, group, group });
+            continue;
+        }
         const i = for (d.params.items(), 0..) |p, i| {
             if (paramName(ctx.source, p)) |pn| if (std.mem.eql(u8, pn, text)) break i;
         } else if (groupFieldsNamed(ctx.source, d.params, text)) |fields| {
@@ -14148,6 +14152,10 @@ fn declKeeps(ctx: *SemContext, name: []const u8, pos: u32, f: FunctionType, o: *
                 continue;
             }
             const text = identAt(ctx.source, n) orelse continue;
+            if (groupFieldName(ctx.source, d.params, text)) |group| {
+                try ctx.errAt(n, "`keeps {s}`: `{s}` is a field of group `{s}`, not a parameter: write `keeps {s}`", .{ text, text, group, group });
+                continue;
+            }
             const i = for (d.params.items(), 0..) |p, i| {
                 if (paramName(ctx.source, p)) |pn| if (std.mem.eql(u8, pn, text)) break i;
             } else if (groupFieldsNamed(ctx.source, d.params, text)) |fields| {
@@ -17621,6 +17629,17 @@ pub fn groupFieldsNamed(source: []const u8, params: Sexp, group: []const u8) ?Pa
         if (i < @bitSizeOf(ParamMask)) mask |= paramBit(i);
     }
     return if (mask == 0) null else mask;
+}
+
+/// The group whose field's parameter among `params` is named `name`, or
+/// null: a field's name is no name of its function (docs/design/options.md,
+/// section 2), so `from` and `keeps` name its group instead.
+fn groupFieldName(source: []const u8, params: Sexp, name: []const u8) ?[]const u8 {
+    for (params.items()) |p| {
+        const of = groupFieldOf(p) orelse continue;
+        if (std.mem.eql(u8, paramName(source, p) orelse "", name)) return identAt(source, ir.FieldOf.group(of));
+    }
+    return null;
 }
 
 /// The type of the group named `group` among `params`, as written:
