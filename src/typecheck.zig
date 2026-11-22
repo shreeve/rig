@@ -123,6 +123,9 @@ const Checker = struct {
     /// spread's operand being checked: a group's name there reads its
     /// fields, not the group whole (`noteGroupUse`).
     group_member: u32 = std.math.maxInt(u32),
+    /// The function being checked has a group as written, whose field
+    /// reads its body records (`synthMember`).
+    in_group_body: bool = false,
     /// The function, method, closure, test, or drop body being checked.
     body: Body,
     nominal: NominalContext = NominalContext.none,
@@ -961,6 +964,11 @@ const Checker = struct {
             try self.checkDefaultValue(ir.Default.value(p), ty, "parameter", self.text(ir.Default.name(p)));
         };
         try self.checkGroups(node);
+        const saved_groups = self.in_group_body;
+        defer self.in_group_body = saved_groups;
+        self.in_group_body = for (ir.get(node, .params).items()) |p| {
+            if (p.isKind(.group_param)) break true;
+        } else false;
         // `main` lowers to a fallible Zig `main`.
         const fallible = is_main or rig.subFails(node) or rig.returnType(node).isKind(.error_union);
         if (node.isKind(.fun) and !is_main) try self.checkFunReturns(node, ret);
@@ -1133,10 +1141,9 @@ const Checker = struct {
                     try self.noteGroupField(g, f);
                     ok = false;
                 }
-                for (gnames.items, 0..) |other, k| {
+                for (gnames.items) |other| {
                     if (!std.mem.eql(u8, other, f.name)) continue;
                     try self.errAt(p, "`{s}` is both group `{s}` of `{s}` and a field of its group `{s}`, a `{s}`: name the group otherwise", .{ f.name, other, fname, gname, g.name });
-                    _ = k;
                     ok = false;
                 }
             }
@@ -9056,7 +9063,7 @@ const Checker = struct {
         if (!self.hands(obj).hasStorage()) return self.memberOf(e, obj, try self.synthReadTemp(obj));
         // A field read of a group as written reads the field's parameter
         // once the group is rewritten (`rig.GroupUse`).
-        if (obj == .src) if (self.lookupQuiet(obj)) |id| if (self.ctx.symbols.items[id].flags.group) {
+        if (self.in_group_body and obj == .src) if (self.lookupQuiet(obj)) |id| if (self.ctx.symbols.items[id].flags.group) {
             const saved = self.group_member;
             defer self.group_member = saved;
             self.group_member = obj.src.pos;

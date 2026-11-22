@@ -106,6 +106,24 @@ test "a group's fields are no names of the body, which may declare them", "1 99"
 
   fetch(timeout: 1)
 
+test "a body's local, closure parameter, or loop binding may take a field's name", "2 5\n31\n0\n1"
+  obj Net
+    timeout: Int = 30
+
+  sub f(..net: Net)
+    timeout = 1
+    timeout += 1
+    print(timeout, net.timeout)
+
+  sub g(..net: Net)
+    h = |?net, timeout: Int| timeout + net.timeout
+    print(h(1))
+    for timeout in 0..2
+      print(timeout)
+
+  f(timeout: 5)
+  g()
+
 fail "a group's field named in the body by itself", "5:9: `timeout` is a field of group `net`, not a name of the body: read it as `net.timeout`", errors: 1
   obj Net
     timeout: Int = 30

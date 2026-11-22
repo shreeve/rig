@@ -310,7 +310,7 @@ const SymbolResolver = struct {
         var sid: ?ScopeId = from;
         while (sid) |s| {
             if (s == self.module_scope or s == sema.scope_invalid) return null;
-            if (self.ctx.lookupInScopeOnly(s, name)) |id| return id;
+            if (self.ctx.lookupInScopeOnly(s, name)) |id| if (!self.ctx.symbols.items[id].flags.group_field) return id;
             const scope = self.ctx.scopes.items[s];
             if (scope.kind == .function) return null;
             sid = scope.parent;
@@ -551,7 +551,9 @@ const SymbolResolver = struct {
                 _ = try self.declare(name_node, .generic_param, .{});
                 continue;
             }
-            _ = try self.declare(name_node, .param, .{ .comptime_known = ct });
+            // A group's field is no name of the body: a local, a closure's
+            // parameter, or a binding may take its name.
+            _ = try self.declare(name_node, .param, .{ .comptime_known = ct, .group_field = sema.groupFieldOf(p) != null });
         }
     }
 
@@ -1012,7 +1014,7 @@ const SymbolResolver = struct {
         if (std.mem.eql(u8, identAt(self.ctx.source, target).?, "_")) return;
         switch (kind) {
             .default => {
-                if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
+                if (self.assignable(target)) |existing| {
                     try self.ctx.recordName(target, existing);
                     try self.ctx.recordWrite(node, existing, .assign);
                     return;
@@ -1040,7 +1042,7 @@ const SymbolResolver = struct {
                 _ = try self.declare(target, .local, .{ .closure = ir.Set.value(node).isKind(.lambda), .pattern_bound = loop_name });
             },
             .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=" => {
-                if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
+                if (self.assignable(target)) |existing| {
                     try self.ctx.recordWrite(node, existing, .compound);
                 } else if (self.scope == self.module_scope) {
                     // A module-level `K += 1` declares nothing it could
@@ -1069,8 +1071,13 @@ const SymbolResolver = struct {
     /// The existing binding `x = ...` assigns to: a local or parameter of
     /// the current body, or a module-level constant (which typecheck then
     /// rejects as a reassignment).
-    fn assignable(self: *SymbolResolver, name: []const u8) ?SymbolId {
+    fn assignable(self: *SymbolResolver, target: Sexp) ?SymbolId {
+        const name = identAt(self.ctx.source, target).?;
         if (self.ctx.lookupLocal(self.scope, name)) |id| {
+            // A group's field is no name of the body: `timeout = 1` binds a
+            // local of its own. `net.timeout = 1`, which the rewrite wrote
+            // as the field's parameter, assigns it, and is refused.
+            if (self.ctx.symbols.items[id].flags.group_field and !rig.isNamedLeaf(target)) return null;
             const k = self.ctx.symbols.items[id].kind;
             if (k == .local or k == .param or k == .capture) return id;
             return null;
