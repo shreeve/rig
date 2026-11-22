@@ -4780,8 +4780,9 @@ pub inline fn durationInt(comptime T: type, n: i64, comptime unit: i64) T {
     return durationOf(T, @as(i128, n) * unit) orelse durationBug();
 }
 
-/// `durationInt` that fails with `range`, the callee's own error.
-pub inline fn durationIntTry(comptime T: type, n: i64, comptime unit: i64, comptime range: anyerror) anyerror!T {
+/// `durationInt` that fails with `range`, the callee's own error, of a
+/// set of its own, so that it joins the callee's declared set.
+pub inline fn durationIntTry(comptime T: type, n: i64, comptime unit: i64, comptime range: anytype) @TypeOf(range)!T {
     return durationOf(T, @as(i128, n) * unit) orelse range;
 }
 
@@ -4799,7 +4800,7 @@ pub fn durationFloat(comptime T: type, x: f64, comptime unit: i64) T {
 
 /// `durationFloat` that fails with `invalid` for a number that is not
 /// finite and `range` beyond the range, the callee's own errors.
-pub fn durationFloatTry(comptime T: type, x: f64, comptime unit: i64, comptime range: anyerror, comptime invalid: anyerror) anyerror!T {
+pub fn durationFloatTry(comptime T: type, x: f64, comptime unit: i64, comptime range: anytype, comptime invalid: anytype) (@TypeOf(range) || @TypeOf(invalid))!T {
     return durationOf(T, floatNs(x, unit) orelse return invalid) orelse range;
 }
 
@@ -4812,7 +4813,7 @@ pub inline fn durationSum(comptime T: type, parts: anytype) T {
 }
 
 /// `durationSum` that fails with `range`, the callee's own error.
-pub inline fn durationSumTry(comptime T: type, parts: anytype, comptime range: anyerror) anyerror!T {
+pub inline fn durationSumTry(comptime T: type, parts: anytype, comptime range: anytype) @TypeOf(range)!T {
     return durationOf(T, partsNs(parts)) orelse range;
 }
 
