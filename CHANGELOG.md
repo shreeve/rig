@@ -1900,6 +1900,7 @@ arms.
 
 ### Fixed
 
+- **An `os.exit` just after the workers start tears down on a busy machine too.** A worker whose thread the system had not yet run counted as running, so on a loaded Mac an `os.exit` at the first task could wait out its 2 ms for threads yet to be scheduled and end plainly (1 in 180 such exits under load). Until its thread runs a worker is claimable as one waiting in its poller is, and stops as it starts, so the teardown waits only for workers that run.
 - **A type with no index says so first, with a fix that compiles.** `m["a"] = 1` on a `Map` said first that an index must be an integer, then that the Map cannot be indexed; it now says once that the key may be absent and gives the form that does what was written (`!m.put(k, v)`, `m.get(k) ?? 0`, `(!m).ensure(k, 0) += 5`, `if !m.edit(k) as v`, `s.has(k)`), for a `Map`, `HashMap`, `Set`, and `HashSet`. An assignment whose target is a self sigil before a method call, `!m.ensure(k, 0) += 1`, parses as `(!m).ensure(k, 0) += 1` does.
 
 ## v0.3.0 (2026-11-04)

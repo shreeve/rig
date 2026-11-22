@@ -37,9 +37,14 @@ alone and 160 in the ramp of ten threads
 (docs/history/records/2026-11/concurrency-startup). A reservation the
 system refuses is left for the worker to map as it needs one. Once the
 program is ending, as `main` returns or `os.exit` tears down, worker 1
-maps and starts no more (`programEnding`): a teardown counts the workers
-it never starts as stopped, so its wait is for the workers that run, and
-`main`'s end, which waits for worker 1 to finish before it stops the
+maps and starts no more (`programEnding`). A worker given a thread of
+its own, every one but worker 0, whose thread is `main`'s and runs from
+the start, is marked as waiting until that thread runs, as one in its
+poller is (`initWorker`), so a teardown claims it whether its thread has
+been started or never will be, and a thread claimed so stops as it
+starts (`workerMain`): the
+teardown's wait is for the workers that run, not for threads the system
+has yet to schedule. `main`'s end, which waits for worker 1 to finish before it stops the
 monitor and joins the threads (`waitStarting`), waits on no thread
 start. A later `task.workers(n)`
 raises the number and never lowers it (`growWorkers`): the array of

@@ -156,3 +156,4 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-11-15 | the same board | tokio | 236 ns | 213 ns | 65.4 ms | 32 ns | 3.2 ms | 373 B | 5.5 ms |
 | 2026-11-15 | the same board | go | 210 ns | 234 ns | 55.1 ms | 244 ns | 3.0 ms | 2.8 KiB | 4.9 ms |
 | 2026-11-19 | main 636fd02a5 (#1181, #1183), medians of 8 rounds at two placements (records/2026-11/spawn-1119; pup cores 0-11) | rig-safe | 103.5 ns | 48 ns | 59.8 ms | 7 ns | 152.5 ns | | 6.0 ms |
+| 2026-11-22 | #1224: os.exit claims a worker whose thread has not yet run | rig-safe | 152 ns | 25 ns | 66.9 ms | 6 ns | 91 ns | 16.6 KiB | 5.2 ms |
