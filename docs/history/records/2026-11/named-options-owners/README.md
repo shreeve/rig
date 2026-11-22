@@ -22,25 +22,32 @@ a name", with an example:
 > least one that moves. A group, `..net: Net` among a function's
 > parameters, is one parameter per field; the body reads `net` as an
 > object parameter whose fields those are, and `from net` and `keeps net`
-> name those of them that could hold the view. A type whose fields are
-> not all of it is not taken apart: one with a `drop` body is no group and
-> is updated only by `..+v`, and a `unique` one is neither. *(built)*
+> name those of them that could hold the view. A type whose `drop` body
+> or `unique` mark makes it more than its fields is never taken apart this
+> way: it is no group, and no update makes one, since an update would move
+> its fields apart or copy them, and sentence 2 gives such a type no `+`.
+> *(built)*
 
 No other sentence of CORE changes. The last sentence follows two facts
 CORE already states: a `drop` body expects every field (§5, so no
 partial move and no group, whose fields would drop one by one without the
 body), and a `unique` type must not be copied (§1, and a spread that
-leaves its source whole copies the fields that copy). `..+v` of a `drop`
-type is the owner's decision (section 11): it builds a new value by its
-constructor from a clone of each field that moves, which writing the
-constructor out does too; it is not `+v`, which such a type has none of.
+leaves its source whole copies the fields that copy), and a `drop` type
+has no `+` (§2).
+
+**Pending the owner: an update of a `drop` type.** options.md section 11
+says a `drop` type "is updated only by `..+p` or a whole move"; Core
+sentence 2 gives such a type no `+`, and `Lock(..+a)` duplicates `a`,
+whose drop then runs twice (the review's finding 2). Until he rules, the
+safe side is built: no update makes a `drop` type, `..+p` included, and
+the message points to sentence 2 and to moving the value whole.
 
 ## What is built
 
 | Part | Where |
 |---|---|
 | The sigil of a spread, `..<v` and `..+v` (parsed already as `(spread (move v))` and `(spread (clone v))`), and which fields it gives move (`sema.copies` is not `.yes`), recorded on `rig.SpreadSite`; a group's moving fields on `rig.GroupSite` | `src/rig.zig`, `src/typecheck.zig` |
-| `spreadGiven`: the fields a spread gives, checked against its sigil, in a call and in an update; `..?v` and `..!v` refused; an update of a `drop` type only by `..+v`, of a `unique` type never; a generic instance's update types its fields at the instance (`updateType`) | `src/typecheck.zig` |
+| `spreadGiven`: the fields a spread gives, checked against its sigil, in a call and in an update; `..?v` and `..!v` refused; no update of a `drop` type or a `unique` type; a generic instance's update types its fields at the instance (`updateType`) | `src/typecheck.zig` |
 | `notGroupType`: a group's type has no `drop` body and is not `unique`; owners and views pass | `src/typecheck.zig` |
 | The rewrite: `<v.f` or `+v.f` for a field that moves, `v.f` for one that copies; a body that uses a group whole binds it with `<` on each moving field, and then its field reads and spreads read the binding (`FlatGroup.bound`) | `src/rig.zig` |
 | `from net` and `keeps net`: a group's name stands for those of its fields' parameters that could hold the result's view, or that are views the function may store (`groupFieldsNamed`); a name of no such field is refused | `src/sema.zig` |
@@ -74,7 +81,10 @@ see one parameter per field. Nothing in storage or emit changed.
    `net` whole elsewhere.
 5. **A `drop` type's update by "a whole move"** is read as moving the
    value whole and setting the field (`e = <d`, `e.name = x`), which the
-   refusal of `..<d` says; no new form desugars it.
+   refusal says; no new form desugars it.
+6. **A field's name is no name of `from` or `keeps`:** `from text` of a
+   group's field is refused ("write `from l`"), since a field's name does
+   not enter the function's scope.
 
 ## Tests
 
@@ -90,7 +100,7 @@ view, the message naming `l.text` and `from l`; `keeps` on a method,
 refused without it, and the kept view keeping its place read-only;
 object update moving some fields and copying others, `..+p`, and a spread
 read where it is written (accepted keyword-first, refused spread-first);
-a `drop` type updated by `..+f`; every sigil refusal; group types with a
+a `drop` type refused even by `..+f`; every sigil refusal; group types with a
 `drop` body or `unique`; a closure written last beside a group with a
 function-valued field, and refused where only that field is open;
 evaluation order with a write view and a cloning spread, and a moving
@@ -112,6 +122,33 @@ difference is recorded, a ref-gap in `test/oracle/differences`: the
 compiler refuses `j.name` of an owning field as a result, as it refuses
 an object parameter's field, where the oracle sees the parameter the
 rewrite made of it, a bare name, which a result moves.
+
+## The independent review's fixes
+
+An adversarial review of 03ce971b7 (about 75 probes, kept beside the
+branch, not committed) found no memory-safety hole; each fix below began
+with a failing case in `options-owners`:
+
+1. **A crash.** A spread of a value that holds a view (`w = Label(width:
+   9, ..l)`, then `<s`) panicked in `noteHolderUse`: the rewrite's copies
+   of the operand sat at positions past the source's end, which liveness
+   took for uses after every statement. Liveness now records a use, a
+   walked use, and the position it asks from at the leaf's home
+   (`usePos`), the note reads the source only inside it, and a spread's
+   copied operand is homed at the spread. Cases spread values that hold
+   views, valid and not, in a loop and through a call.
+2. **`..+a` of a `drop` type** duplicated a value whose drop ran twice:
+   refused now, pending the owner (above).
+3. **`from text` and `keeps text`** with a field's bare name were
+   accepted: refused in sema. The compiler refuses them before ownership,
+   so the oracle, which decides only modules that type-check, compares
+   nothing and lists no difference.
+4. **Messages:** a group's field is named `net.name` in ownership's
+   messages (`varText`); a move seen through a spread is said once, at the
+   spread; a refused spread shows its sigil (`..<h`); a spread whose group
+   or field type was refused says nothing more.
+5. **The Core paragraph** says "a type whose `drop` body or `unique` mark
+   makes it more than its fields".
 
 ## Gates
 
