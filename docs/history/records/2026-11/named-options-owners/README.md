@@ -169,6 +169,16 @@ with a failing case in `options-owners`:
   the new checks' reach on every call and parameter (`groupFieldRead` is
   a test of a leaf's id range, `clauseNames` copies names only for a
   callee with a group).
+- **After the review's fixes and a merge of origin/main 549e189c3**
+  (datetime phases 5 and 6, whose `ZonedDateTime` takes the groups): the
+  options, ownership, datetime and doc areas and the oracle pass; the
+  core suite 12,723 jobs, none failed; emit-diff identical on 37 of 38
+  programs, 635 files (Trig not compared, as before); the check guard
+  under `tools/mac-claim`, two passes of four interleaved rounds, branch
+  first, at a load of 1.6 to 2.2: the fewest of each pass 0.44% and
+  0.13% above main's (2,180,044,877 against 2,170,434,972, and
+  2,193,574,237 against 2,190,719,704), the branch 1.0% above
+  `guard.txt` at its fewest.
 - Trig's and loco's light gates were not run (the brief keeps this
   build on the Mac).
 
