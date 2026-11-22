@@ -568,6 +568,11 @@ def gen_zones(w, zones, alias):
                 w("date.in_zone %s %s" % (fmt_date_days(d), name))
             for at in (t - 1, t + 1):
                 w("zoned.start_of_day %s %s" % (name, fmt_instant(at)))
+            # `with` from a value either side of the change to a time on
+            # the clock in, at, and either side of the gap or the repeat.
+            for at in (t - 1800, t + 1800):
+                for c in sorted({lo - 1, lo, (lo + hi) // 2, hi - 1, hi}):
+                    w("zoned.with %s %s %s" % (name, fmt_instant(at), fmt_datetime(c)))
             for at in (t - 1800, t + 1800):
                 i = fmt_instant(at)
                 w("zoned.add %s %s 0 0 0 1 PT0S" % (name, i))

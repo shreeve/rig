@@ -123,6 +123,7 @@ each among them, and 20,000 `instant.since` (§5.1, §7.8).
 | `instant.in_zone INSTANT ZONE` | ZONED, its exact offset (`-00:44:30`), its abbreviation | `i.in_zone(tz)`, `offset_text()`, `format("%Z")` |
 | `datetime.in_zone DATETIME ZONE` | four ZONEDs: `.compatible`, `.earlier`, `.later`, `.reject` | `dt.in_zone(tz, resolve:)` |
 | `date.in_zone DATE ZONE` | ZONED: the start of the date | `d.in_zone(tz)` |
+| `zoned.with ZONE INSTANT DATETIME` | four ZONEDs, the date and time on the clock replaced by DATETIME's: `.compatible`, `.earlier`, `.later`, `.reject` | `z.with(year:, …, ns:, resolve:)` |
 | `zoned.start_of_day ZONE INSTANT` | ZONED | `z.start_of_day()` |
 | `zone.name ZONE` | the name in the data's spelling | `tz.name()` |
 | `zone.eq ZONE ZONE` | `true` or `false` | `==` |
@@ -134,7 +135,9 @@ rule's in 2100, 2400 and 9998): the instant an hour before, a second
 before, at, a second after and an hour after it; the clock an hour
 before, a second before, at and a second after each side of the change,
 and in its middle; the start of the dates on each side; the start of the
-day a second either side; and a day and 24 hours added and taken away
+day a second either side; `with` from half an hour either side to the
+clock a second before the change, at either end of it, in its middle and
+a second before its end; and a day and 24 hours added and taken away
 half an hour either side. A name whose rules are another's (the same
 bytes in the bundle) is tested a second either side of each transition,
 and the rest once under the first name. Then the ends of the range, in
@@ -197,10 +200,11 @@ fall often on a multiple or exactly half way.
 ## std.datetime's answers
 
 `answer.rig` gives std.datetime's and std.time's answers to the same
-lines, for the cases they have so far; a case not answered yet prints
-`-`, and a call that fails prints `error`, as Jiff's does (§7.2).
-`compare.awk` compares them part for part, passing over
-`-` and each `skip`, and prints each difference and the counts;
+lines, every case but one part: the abbreviation of `instant.in_zone`,
+`format("%Z")`'s, which phase 6 builds, prints `-`, as a case or a part
+not answered does. A call that fails prints `error`, as Jiff's does
+(§7.2). `compare.awk` compares them part for part, passing over each `-`
+and each `skip`, and prints each difference and the counts;
 `jiff_oracle.sh` requires no difference.
 
 ```bash
@@ -238,5 +242,5 @@ The oracle does not check where Rig differs from Jiff on purpose
 
 ## Size
 
-About 1.94 million cases. `gen.py` writes them in about 3.4 s and the
+About 2.19 million cases. `gen.py` writes them in about 3.4 s and the
 oracle answers them in about 1 s.

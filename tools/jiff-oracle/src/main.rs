@@ -339,6 +339,25 @@ impl Oracle {
                 let d = date(a[0])?;
                 Ok(show(d.to_zoned_datetime(self.zone(a[1])?)))
             }
+            "zoned.with" => {
+                // The date and time on the clock replaced, keeping the
+                // value's own offset where the new time is repeated (Jiff's
+                // default, `OffsetConflict::PreferOffset`, §6.5), then each
+                // disambiguation.
+                let a = args(rest, 3)?;
+                let z = self.zoned(a[0], a[1])?;
+                let dt = datetime(a[2])?;
+                let r: Vec<String> = [
+                    Disambiguation::Compatible,
+                    Disambiguation::Earlier,
+                    Disambiguation::Later,
+                    Disambiguation::Reject,
+                ]
+                .into_iter()
+                .map(|d| show(z.with().date(dt.date()).time(dt.time()).disambiguation(d).build()))
+                .collect();
+                Ok(r.join(" "))
+            }
             "zoned.start_of_day" => {
                 let a = args(rest, 2)?;
                 Ok(show(self.zoned(a[0], a[1])?.start_of_day()))
