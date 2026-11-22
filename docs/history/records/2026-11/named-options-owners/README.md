@@ -190,3 +190,12 @@ with a failing case in `options-owners`:
 2. **`..+v` of a `unique` type** builds a copy of a type that has no
    `+`; it is refused with every other update of a `unique` type.
    Default: as built.
+
+## The CORE panel
+
+The paragraph this change adds to CORE §5 was revised, as the owner's rule
+for CORE asks, by four experts working apart: a Core purist, a Rust and
+Swift veteran, a technical writer, and a compiler engineer who checked each
+sentence against the code and tests. The coordinator wrote the final text
+from their four revisions. The brief, the four reports, and the final text
+with its reasons are in [core-panel/](core-panel/).
