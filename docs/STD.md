@@ -756,29 +756,41 @@ fun send_file(l: ?net.Listener, path: ?String) -> Int!
 ## std.time
 
 The monotonic clock, lengths of time, and waiting. A length of time is
-a `Duration`: an exact, signed length, one `Int` of nanoseconds, so
-about 292 years either way. A call gives one wherever a parameter is
-typed `Duration`, in any module, in a duration form ([SPEC
-§18](../SPEC.md#durations)): bare, a number of seconds, an `Int` or a
-`Float`, `time.sleep(2)`, `time.sleep(0.5)`; units' keywords and their
-numbers, from `ns:` to `hours:`, `time.sleep(ms: 40)`, which add up,
-each unit at most once, `time.sleep(hours: 1, minutes: 30)`; or a
-`Duration`, `time.sleep(d)`. A `Float` is rounded to the nearest whole
-nanosecond, a half away from zero (`ns: 2.5` is 3 nanoseconds), before
-the parts are added; a NaN, an infinity, or more nanoseconds than a
-`Duration` holds panics, a part or the sum, and is rejected when it is
-a constant. A duration takes no `days:` or
-`weeks:`, since a day is not always 24 hours. Every parameter below
-typed *duration* takes these forms. A reading of the monotonic clock is
-a `Monotonic`, which only gives the time between readings, so it cannot
-be mixed up with the wall clock.
+a `Duration`: an exact, signed length, its whole seconds, an `Int`, and
+the nanoseconds after them, so about 292 billion years either way; the
+range is symmetric, so negating a duration never leaves it. A call
+gives one wherever a parameter is typed `Duration`, in any module, in a
+duration form ([SPEC §18](../SPEC.md#durations)): bare, a number of
+seconds, an `Int` or a `Float`, `time.sleep(2)`, `time.sleep(0.5)`;
+units' keywords and their numbers, from `ns:` to `hours:`,
+`time.sleep(ms: 40)`, which add up, each unit at most once,
+`time.sleep(hours: 1, minutes: 30)`; or a `Duration`, `time.sleep(d)`.
+A `Float` is rounded to the nearest whole nanosecond, a half away from
+zero (`ns: 2.5` is 3 nanoseconds), before the parts are added. A
+duration takes no `days:` or `weeks:`, since a day is not always 24
+hours. Every parameter below typed *duration* takes these forms.
+
+Every call of std.time is total or returns `!`; none panics on any
+value, and nothing saturates. A constant form beyond the range, or not
+finite, is a compile error. A number known only as the program runs
+always fits when it is an `Int` of `ns:`, `us:` or `ms:`; any other (a
+`Float`, an `Int` of seconds or more, several units summed) can leave
+the range, so it joins the failure of a call that returns `!`
+(`i.add(minutes: n)!`, failing with the callee's `range`, or `invalid`
+for a `Float` that is not finite), a wait clamps it (below), and
+anywhere else it is a compile error whose fix makes the conversion
+visible: `time.duration(minutes: n)!`. A reading of the monotonic clock
+is a `Monotonic`, which only gives the time between readings, so it
+cannot be mixed up with the wall clock; a reading is never negative and
+stays within 146 years of the clock's zero, so the time between two
+cannot fail.
 
 | Member | Result |
 |---|---|
 | `monotonic() -> Monotonic` | the monotonic clock now: it never goes back |
-| `duration(`*duration*`) -> Duration` | a duration form as a value: `time.duration(ms: 250)`, `time.duration(5)` |
-| `Monotonic.at(`*duration*`) -> Monotonic` | the reading a duration after the monotonic clock's zero, for a test or code handed the time rather than reading it: `Monotonic.at(0)` |
-| `m.add(`*duration*`) -> Monotonic` | the reading a duration after `m`, a deadline, `m.add(120)`; before it when the duration is negative. Panics beyond 292 years |
+| `duration(`*duration*`) -> Duration` | a duration form as a value: `time.duration(ms: 250)`, `time.duration(5)`. A form that cannot fail gives a `Duration`; one that can, given a number known only as the program runs, a `Duration!`: `time.duration(minutes: n)!` |
+| `Monotonic.at(`*duration*`) -> Monotonic!` | the reading a duration after the monotonic clock's zero, for a test or code handed the time rather than reading it: `Monotonic.at(0)!`. Fails with `TimeError.range` when that is negative or past 146 years |
+| `m.add(`*duration*`) -> Monotonic!` | the reading a duration after `m`, a deadline, `m.add(120)!`; before it when the duration is negative. Fails as `at` does |
 | `m.since(earlier: Monotonic) -> Duration` | the time from `earlier` to `m`; negative when `earlier` is the later one |
 | `m.elapsed() -> Duration` | the time from `m` to now |
 | `sleep(`*duration*`)!task.Stop` | wait at least a duration, `time.sleep(ms: 40)`; not at all when it is not positive. In a canceled task it fails with `task.Stop.canceled` ([std.task](#stdtask)), and past a deadline with `task.Stop.timeout`, sleeping only until the deadline |
@@ -788,9 +800,12 @@ be mixed up with the wall clock.
 
 A negative constant given to `sleep`, `within`, `after`, or `per:` (of
 `task.supervise` and `*Actor.supervised`, which takes seconds or a
-`Duration` by its own name) is rejected; a negative value as the
-program runs counts as zero. Under the deterministic scheduler every
-clock here is virtual.
+`Duration` by its own name) is rejected. A wait never fails on its
+duration: a negative value as the program runs counts as zero, and one
+longer than the scheduler holds, about 292 years, waits as long as it
+can; a `Float` known only as the program runs is refused, with the fix
+`time.duration(x)!`, so a number that is not finite never reaches a
+wait. Under the deterministic scheduler every clock here is virtual.
 
 ```rig
 use std.time
@@ -818,10 +833,10 @@ use std.math
 use std.time
 
 sub main()
-  start = time.Monotonic.at(0)
-  rekey = start.add(120)
-  reject = start.add(180)
-  now = start.add(150)
+  start = time.Monotonic.at(0)!
+  rekey = start.add(120)!
+  reject = start.add(180)!
+  now = start.add(150)!
   print(now >= rekey, now >= reject, math.max(rekey, reject) == reject)
   print(reject.since(now))
 ```
@@ -833,25 +848,28 @@ true false true
 
 ### Duration
 
-A `Duration` compares with `==`, orders with `<`, and keys a `Map`.
-Its own arithmetic panics when the result leaves the range, as `Int`'s
-does; the `checked_` methods fail with `TimeError.range` instead. A
-method that takes a `Duration` takes a duration form: `d.add(ms: 5)`.
+A `Duration` compares with `==`, orders with `<`, and keys a `Map`. It
+has no operators: its arithmetic can leave the range, so each call
+that can returns `!`, failing with `TimeError.range` past either end,
+and `div(0)` with `TimeError.invalid`. A method that takes a `Duration`
+takes a duration form: `d.add(ms: 5)!`. A total kept over a loop is
+`total = total.add(d)!`, and a mean `total.div(n)!`.
 
 | Member | Result |
 |---|---|
-| `d.hours()`, `d.minutes()`, `d.seconds()`, `d.ms()`, `d.us()`, `d.ns()` | the whole total in each unit, an `Int`, truncated toward zero: -1.5 seconds has `seconds()` of -1 |
+| `d.hours()`, `d.minutes()`, `d.seconds()` | the whole total in each unit, an `Int`, truncated toward zero: -1.5 seconds has `seconds()` of -1 |
+| `d.ms()`, `d.us()`, `d.ns()` | the whole total in each unit, an `I128`, exact: 292 billion years of nanoseconds do not fit an `Int`; `Int(d.ns())` where an `Int` is wanted and the duration is short, as a monotonic clock's are |
 | `d.float_seconds() -> Float` | the seconds, with their fraction |
 | `d.subsec_ns() -> Int` | the part below a whole second, with the duration's sign: not a total |
-| `Duration.from_parts(seconds: Int, ns: Int) -> Duration` | the duration of `seconds` and `ns` more nanoseconds, which agree in sign, `ns` within ±999,999,999, or it panics |
-| `d.add(`*duration*`)`, `d.sub(`*duration*`)` | the sum and the difference |
-| `d.times(n: Int)`, `d.div(n: Int)` | the duration `n` times over, and divided by `n`, truncated toward zero; `div(0)` panics |
-| `d.neg()`, `d.abs()` | the duration negated, and without its sign |
-| `d.checked_add(`*duration*`)!`, `d.checked_sub(`*duration*`)!`, `d.checked_times(n: Int)!` | the same, failing with `TimeError.range` beyond the range |
-| `d.round(`*unit*`: n)`, `d.floor(`*unit*`: n)` | the nearest multiple of `n` of one unit, from `ns:` to `hours:`, a half away from zero, and the one at or before it, toward negative infinity: `d.round(minutes: 15)`. A call names exactly one unit by its keyword, never a duration's several, and an increment from 1 to 1,000,000,000, checked where it is called when it is a constant; neither is taken as a value |
+| `Duration.from_parts(seconds: Int, ns: Int) -> Duration!` | the duration of `seconds` and `ns` more nanoseconds, which agree in sign, `ns` within ±999,999,999, and `seconds` not `Int.min`, or it fails with `TimeError.invalid`; with constant arguments it is checked as Rig compiles and takes no `!` |
+| `Duration.min()`, `Duration.max()` | the shortest and the longest duration: ±(2^63 - 1) seconds and 999,999,999 nanoseconds |
+| `d.add(`*duration*`)!`, `d.sub(`*duration*`)!` | the sum and the difference; fail with `TimeError.range` beyond the range |
+| `d.times(n: Int)!`, `d.div(n: Int)!` | the duration `n` times over, failing with `TimeError.range` beyond the range; and divided by `n`, truncated toward zero, failing with `TimeError.invalid` for 0 and only then |
+| `d.neg()`, `d.abs()` | the duration negated, and without its sign; they do not fail, the range being symmetric |
+| `d.round(`*unit*`: n)!`, `d.floor(`*unit*`: n)!` | the nearest multiple of `n` of one unit, from `ns:` to `hours:`, a half away from zero, and the one at or before it, toward negative infinity: `d.round(minutes: 15)!`. A call names exactly one unit by its keyword, never a duration's several, and an increment from 1 to 1,000,000,000, checked where it is called when it is a constant, and failing with `TimeError.invalid` when it is not; a result beyond the range fails with `TimeError.range`; neither is taken as a value |
 | `print(d)`, `String(d)` | the friendly form: each unit that is not zero, from the hour down, `2h 30m`, `1ms 234us 567ns`, `-1s 500ms`, `0s`, `9600h` |
 | `d.iso() -> String` | ISO 8601: `PT2H30M`, `PT0.001234567S`, `-PT1.5S`, `PT0S`, `PT9600H` |
-| `Duration.parse(s: ?String) -> Duration!` | ISO 8601, or the friendly form as Jiff reads it: `1.5h`, `1h30m`, `1 hour, 30 minutes`, `01:30:00`, `2h 30m ago`, `1500ms`, `+1h`, `µs` as well as `us`, and a leading `-` for the whole. Units run from the hour down, each once, a fraction only on the last; a unit of a day or more is refused. Fails with `TimeError.invalid` |
+| `Duration.parse(s: ?String) -> Duration!` | ISO 8601, or the friendly form as Jiff reads it: `1.5h`, `1h30m`, `1 hour, 30 minutes`, `01:30:00`, `2h 30m ago`, `1500ms`, `+1h`, `µs` as well as `us`, and a leading `-` for the whole. Units run from the hour down, each once, a fraction only on the last; a unit of a day or more is refused. Fails with `TimeError.invalid`, also beyond the range |
 
 ```rig
 use std.time
@@ -859,9 +877,9 @@ use std.time
 sub main()!
   d = time.duration(minutes: 90)
   print(d.hours(), d, d.iso())
-  print(d.add(ms: 1500), d.round(hours: 1), time.duration(-1.5).floor(seconds: 1))
+  print(d.add(ms: 1500)!, d.round(hours: 1)!, time.duration(-1.5).floor(seconds: 1)!)
   print(time.Duration.parse("1 hour, 30 minutes")! == d, time.Duration.parse("PT1.5H")!)
-  late = time.duration(ns: Int.max).checked_add(1) catch time.duration(0)
+  late = time.Duration.max().add(1) catch time.Duration.max()
   print(late)
 ```
 
@@ -869,7 +887,7 @@ sub main()!
 1 1h 30m PT1H30M
 1h 30m 1s 500ms 2h -2s
 true 1h 30m
-0s
+2562047788015215h 30m 7s 999ms 999us 999ns
 ```
 
 ## std.datetime
@@ -897,53 +915,62 @@ compiles and gives the plain type, with no `!`, and a constant it
 refuses is a compile error ([SPEC §13](../SPEC.md#13-errors)):
 `Date.new(2026, 1, 31)` is a `Date`, and `Date.new(y, 1, 31)!` with a
 `y` known only as the program runs is fallible.
-Arithmetic that walks past the range panics, as `Int`'s does, and each
-`checked_add` fails instead.
+Every call is total or returns `!`, and none panics on any value
+([design/datetime.md](design/datetime.md), "Total or visible"):
+arithmetic that walks past the range, `add`, `round`, and `floor` of a
+`Date`, a `DateTime`, and an `Instant`, fails with `DateTimeError.range`,
+and a computed increment `round` does not take with
+`DateTimeError.invalid`. A program that wants the end of a range asks
+for it by name, `d.add(days: n) catch datetime.Date.max()`, never with a
+value that gives a wrong date without a word, as `?? d` would.
 
 | Member | Result |
 |---|---|
 | `Date.new(year: Int, month: Int, day: Int) -> Date!` | the date, failing with `range` when it is not a real one; with every argument a constant, a `Date` checked as Rig compiles: `Date.new(2024, 2, 29)`, and `Date.new(2023, 2, 29)` is refused |
 | `Time.new(hour: Int, minute: Int, second: Int, ns: Int = 0) -> Time!` | the time of day, as `Date.new`: `Time.new(8, 30, 0)`, `Time.new(8, 7, 3, ns: 500)`, and `Time.new(23, 59, 60)` is refused |
 | `DateTime.new(year: Int, month: Int, day: Int, hour: Int = 0, minute: Int = 0, second: Int = 0, ns: Int = 0) -> DateTime!` | the date and time, as `Date.new`: the date by position and the clock by name, each part 0 when left out, `DateTime.new(2026, 11, 17, hour: 8, minute: 30)` |
+| `Date.min()`, `Date.max()`, and the same of `Time`, `DateTime`, and `Instant` | the ends of each range: -9999-01-01 and 9999-12-31; 00:00 and 23:59:59.999999999; the two joined; and the first and last instant |
 | `d.at(t: Time) -> DateTime`, `dt.date()`, `dt.time()` | a date and a time joined, and taken apart |
 | `year()`, `month()`, `day()`, `weekday()`, `day_of_year()`, `days_in_month()`, `iso_week()`, `iso_week_year()` | a `Date`'s and a `DateTime`'s readers, each an `Int` but `weekday()`: the month is 1 to 12, the day of the year 1 to 366; 2025-12-29 is in ISO week 1 of 2026 |
 | `hour()`, `minute()`, `second()`, `nanosecond()` | a `Time`'s and a `DateTime`'s readers; `nanosecond()` is the whole part below the second, 0 to 999,999,999 |
-| `d.add(years: 0, months: 0, weeks: 0, days: 0) -> Date` | the date the calendar amounts later, each by name and of either sign: years and months first, together as months, a day past the month's end becoming its last day (Jan 31 and a month is Feb 28, or 29); then weeks and days (Jan 31, a month and a day, is Mar 1). `d.add(hours: 1)` is a compile error |
-| `dt.add(duration: time.Duration? = none, years: 0, months: 0, weeks: 0, days: 0) -> DateTime` | the same, then a duration, every day 24 hours: by units' keywords, `dt.add(days: 1, hours: 2)`, or by its name in a duration form ([std.time](#stdtime)), `dt.add(duration: span)`, where a bare number is seconds, never a day |
-| `t.add(`*duration*`) -> Time` | the time a duration later, wrapping past midnight: 23:00 and two hours is 01:00 |
-| `checked_add(…)!` | each `add`, failing with `DateTimeError.range` where it would panic, and on a `Time` where it would wrap |
+| `d.add(years: 0, months: 0, weeks: 0, days: 0) -> Date!` | the date the calendar amounts later, each by name and of either sign: years and months first, together as months, a day past the month's end becoming its last day (Jan 31 and a month is Feb 28, or 29); then weeks and days (Jan 31, a month and a day, is Mar 1). Fails with `range` when a step leaves the range, also for amounts too large to sum. `d.add(hours: 1)` is a compile error |
+| `dt.add(duration: time.Duration? = none, years: 0, months: 0, weeks: 0, days: 0) -> DateTime!` | the same, then a duration, every day 24 hours: by units' keywords, `dt.add(days: 1, hours: 2)!`, or by its name in a duration form ([std.time](#stdtime)), `dt.add(duration: span)!`, where a bare number is seconds, never a day; a duration form with a number known only as the program runs fails within the same `!` |
+| `t.add(`*duration*`) -> Time` | the time a duration later, wrapping past midnight: 23:00 and two hours is 01:00. It is the sum on the clock face, exact for any duration, so it does not fail; a sum that must not pass midnight is a `DateTime`'s, whose date shows whether it did |
 | `with(…)!` | the value with the fields given by name replaced, `d.with(day: 1)!`: `year:`, `month:`, `day:`, `hour:`, `minute:`, `second:`, `ns:` as the type has them; fails when that is not a real value |
 | `days_since(other)`, `weeks_since(other)`, `months_since(other)`, `years_since(other)` | the whole units from `other`, on a `Date` and a `DateTime`: positive when the value is the later, and `a.days_since(b)` is `-b.days_since(a)`. A count walks forward from the earlier value, so Jan 31 to Feb 28 is 0 months, and someone born on Feb 29 is a year older on Mar 1 in a common year |
-| `since(other) -> time.Duration` | the time from `other`, on a `Time` (on the clock face, so 01:00 since 23:00 is -22 hours) and a `DateTime` (every day 24 hours; beyond about 292 years the largest or smallest `Duration`) |
+| `since(other) -> time.Duration` | the time from `other`, on a `Time` (on the clock face, so 01:00 since 23:00 is -22 hours) and a `DateTime` (every day 24 hours), exact for any two values |
 | `d.first_of_month()`, `d.last_of_month()` | the first and last day of the date's month |
 | `d.nth_weekday(n, w: Weekday)!` | the `n`-th weekday `w` after the date, before it when `n` is negative, never the date itself; fails for an `n` of 0 or beyond the range |
 | `d.nth_weekday_of_month(n, w: Weekday)!` | the `n`-th `w` of the date's month, from its end when `n` is negative: `n` is 1 to 5 or -1 to -5; fails when the month has no such day |
-| `round(`*unit*`: n)`, `floor(`*unit*`: n)` | on a `Time` and a `DateTime`, the nearest multiple of one unit's increment, a half going to the later, and the one at or before it: `t.round(minutes: 15)`. The unit is `ns:` to `hours:`, with an increment that divides the next larger unit and is smaller than it, or on a `DateTime` `days: 1`; checked where it is called when it is a constant. A `Time` wraps past midnight; a `DateTime` carries into the next day |
+| `round(`*unit*`: n)`, `floor(`*unit*`: n)` | on a `Time` and a `DateTime`, the nearest multiple of one unit's increment, a half going to the later, and the one at or before it: `t.round(minutes: 15)`, `dt.round(minutes: 15)!`. The unit is `ns:` to `hours:`, with an increment that divides the next larger unit and is smaller than it, or on a `DateTime` `days: 1`; checked where it is called when it is a constant. A `Time` wraps past midnight and does not fail, so its increment is a constant; a `DateTime` carries into the next day, and fails with `range` past 9999-12-31 and with `invalid` for a computed increment it does not take |
 | `parse(s)!` | a `Date`, `Time`, or `DateTime` from ISO 8601 as Jiff reads it, in the type's own form only: `2026-11-17`, `08:07:03.5`, `2026-11-17T08:07`, or a date alone for a `DateTime` at midnight; no offset, `Z`, or zone, and no date with a `Time` or time with a `Date`. A second of 60 is read as 59, and a year below 0 is written `-000001` |
 | `w.iso_number()` | a `Weekday`'s number, Monday 1 to Sunday 7 |
 | `now() -> Instant` | the wall clock: the system's idea of the current instant, which can be set, so it may jump; to time something, `time.monotonic()`. It is the real clock under the deterministic scheduler too |
-| `Instant.from_unix(`*duration*`) -> Instant` | the instant a duration after 1970-01-01T00:00Z, before it when negative: `Instant.from_unix(1_700_000_000)`, `Instant.from_unix(ms: t)` for a JavaScript time. It does not fail: a `Duration` reaches the years 1677 to 2262, all within the range, and a number beyond one panics, as any duration form does |
-| `i.unix() -> time.Duration` | the time since 1970-01-01T00:00Z, negative before it: `i.unix().seconds()`, which truncates, so half a second before 1970 is 0. Outside 1677 to 2262 the largest or smallest `Duration` |
-| `i.unix_s() -> Int` | the whole seconds since 1970, floored, as Unix tools count them: half a second before 1970 is -1. Exact at any instant |
-| `i.add(`*duration*`) -> Instant` | the instant a duration later: `i.add(90)`, `i.add(hours: 1, minutes: 30)`. An instant has no calendar, so `i.add(days: 1)` is a compile error: a day on the clock is a zone's |
-| `i.since(other: Instant) -> time.Duration` | the time from `other`; beyond about 292 years the largest or smallest `Duration` |
-| `i.round(`*unit*`: n)`, `i.floor(`*unit*`: n)` | the nearest multiple of one unit's increment counted from 1970, a half going to the later, before 1970 too, and the one at or before it: `i.round(seconds: 1)` prints without a fraction. The unit is `ns:` to `hours:`, with an increment that divides a day |
+| `Instant.from_unix_s(s: Int, ns: Int = 0) -> Instant!` | the instant `s` seconds and `ns` nanoseconds after 1970-01-01T00:00Z, as Unix tools count; the two may differ in sign and are summed: `from_unix_s(0, ns: -1)` is 1969-12-31T23:59:59.999999999Z. Fails with `range` beyond the range and for an `ns` outside ±999,999,999; with constant arguments it is checked as Rig compiles and takes no `!` |
+| `Instant.from_unix_ms(ms: Int) -> Instant!`, `Instant.from_unix_us(us: Int) -> Instant!` | a JavaScript or Java time, and a count of microseconds; each fails with `range` beyond the range, and takes no `!` with a constant |
+| `Instant.from_unix_ns(ns: Int) -> Instant` | an `Int` of nanoseconds, which reaches the years 1677 to 2262, inside the range, so it does not fail: Go's `UnixNano` read back |
+| `Instant.from_unix_float(s: Float) -> Instant!` | a `Float` of seconds, as Python's `time.time()` writes it, to the nearest nanosecond, a half away from zero; fails with `invalid` for a NaN and `range` for an infinity or beyond the range. A `Float` near 1.7e9 resolves only about 240 ns |
+| `i.unix() -> time.Duration` | the time since 1970-01-01T00:00Z, negative before it, exact at any instant: `i.unix().seconds()`, which truncates, so half a second before 1970 is 0, or `i.unix().ns()`, an `I128` |
+| `i.unix_s()`, `i.unix_ms()`, `i.unix_us()` | the whole seconds, milliseconds, and microseconds since 1970, each an `Int`, floored, as Unix tools count them: half a second before 1970 is -1 second. Exact at any instant, and each the inverse of its maker |
+| `i.add(`*duration*`) -> Instant!` | the instant a duration later: `i.add(90)!`, `i.add(hours: 1, minutes: 30)!`; fails with `range` beyond the range. An instant has no calendar, so `i.add(days: 1)` is a compile error: a day on the clock is a zone's |
+| `i.since(other: Instant) -> time.Duration` | the time from `other`, exact for any two instants |
+| `i.round(`*unit*`: n)!`, `i.floor(`*unit*`: n)!` | the nearest multiple of one unit's increment counted from 1970, a half going to the later, before 1970 too, and the one at or before it: `i.round(seconds: 1)!` prints without a fraction. The unit is `ns:` to `hours:`, with an increment that divides a day; fails with `range` past either end, and with `invalid` for a computed increment it does not take |
 | `Instant.parse(s)!` | an instant from RFC 3339 with any offset, as Jiff reads it: `2026-11-17T15:07:03.5Z`, `2026-11-17 08:07:03,5-07:00`, `t` and `z` in small letters. A zone in brackets after the offset is read and not used; text with no offset fails |
 
-Every argument of `add` of a `Date` and a `DateTime`, their
-`checked_add`, every `with`, `round`, and `floor` is an option, given by
+Every argument of `add` of a `Date` and a `DateTime`, every `with`,
+`round`, and `floor` is an option, given by
 name ([SPEC "Functions"](../SPEC.md#functions)), so none is taken as a
 value; a closure passes one. A recurrence anchors to its start: the k-th of a monthly
-series is `start.add(months: k)`, since stepping from the previous one
+series is `start.add(months: k)!`, since stepping from the previous one
 drifts (Jan 31, Feb 28, Mar 28).
 
 ```rig
 use std.datetime
 
 sub main()!
-  due = datetime.Date.new(2027, 1, 31).add(months: 1)
-  print(due, due.weekday(), due.add(days: 1))
-  print(datetime.Date.new(2024, 2, 29).add(years: 1), datetime.Date.new(2026, 11, 1).add(months: 1, days: -1))
+  due = datetime.Date.new(2027, 1, 31).add(months: 1)!
+  print(due, due.weekday(), due.add(days: 1)!)
+  print(datetime.Date.new(2024, 2, 29).add(years: 1)!, datetime.Date.new(2026, 11, 1).add(months: 1, days: -1)!)
   born = datetime.Date.new(2024, 2, 29)
   print(datetime.Date.new(2025, 2, 28).years_since(born), datetime.Date.new(2025, 3, 1).years_since(born))
   print(datetime.Date.new(2026, 11, 1).nth_weekday_of_month(4, .thursday)!, datetime.Date.new(2025, 12, 29).iso_week())
@@ -961,18 +988,22 @@ use std.datetime
 
 sub main()!
   dt = datetime.DateTime.parse("2026-03-08T02:30")!
-  print(dt.add(days: 1), dt.add(duration: 0.5), dt.add(days: 1, hours: -1))
-  print(dt.round(hours: 1), dt.floor(days: 1), dt.time().add(hours: 23))
+  print(dt.add(days: 1)!, dt.add(duration: 0.5)!, dt.add(days: 1, hours: -1)!)
+  print(dt.round(hours: 1)!, dt.floor(days: 1)!, dt.time().add(hours: 23))
   late = datetime.Time.new(23, 0, 0)
-  print(datetime.Time.new(1, 0, 0).since(late), late.checked_add(hours: 2) catch late)
+  print(datetime.Time.new(1, 0, 0).since(late), late.add(hours: 2))
   _ = datetime.Date.parse("2026-03-08T02:30") catch |e| print(e)
+  datetime.Date.max().add(days: 1) catch |e| print(e)
+  print(datetime.Date.max().add(days: 1) catch datetime.Date.max())
 ```
 
 ```output
 2026-03-09T02:30:00 2026-03-08T02:30:00.5 2026-03-09T01:30:00
 2026-03-08T03:00:00 2026-03-08T00:00:00 01:30:00
--22h 23:00:00
+-22h 01:00:00
 DateTimeError.invalid
+DateTimeError.range
+9999-12-31
 ```
 
 An instant prints in UTC, and reads any offset:
@@ -982,16 +1013,19 @@ use std.datetime
 
 sub main()!
   i = datetime.Instant.parse("2026-11-17T08:07:03.512094-07:00[America/Denver]")!
-  print(i, i.unix_s(), i.round(seconds: 1), i.floor(hours: 1))
-  print(i.add(minutes: 90), i.add(minutes: 90).since(i), datetime.Instant.from_unix(ms: -1500))
-  print(datetime.Instant.from_unix(-0.5).unix().seconds(), datetime.Instant.from_unix(-0.5).unix_s())
+  print(i, i.unix_s(), i.round(seconds: 1)!, i.floor(hours: 1)!)
+  print(i.add(minutes: 90)!, i.add(minutes: 90)!.since(i), datetime.Instant.from_unix_ms(-1500))
+  half = datetime.Instant.from_unix_s(0, ns: -500_000_000)
+  print(half.unix().seconds(), half.unix_s(), half.unix_ms(), datetime.Instant.from_unix_ns(-1))
+  print(datetime.Instant.max().since(datetime.Instant.min()).hours(), datetime.Instant.max().unix().ns())
   print(datetime.now() > i)
 ```
 
 ```output
 2026-11-17T15:07:03.512094Z 1794928023 2026-11-17T15:07:04Z 2026-11-17T15:00:00Z
 2026-11-17T16:37:03.512094Z 1h 30m 1969-12-31T23:59:58.5Z
-0 -1
+0 -1 -500 1969-12-31T23:59:59.999999999Z
+175307564 253402207200999999999
 true
 ```
 
@@ -1007,8 +1041,8 @@ use std.datetime
 
 sub main()!
   i = datetime.Instant.parse("2026-03-07T12:00:00Z")!
-  denver = datetime.TimeZone.named("America/Denver")!
-  print(i.in_zone(denver).add(days: 1))
+  denver = datetime.TimeZone.named("America/Denver")
+  print(i.in_zone(denver).add(days: 1)!)
 ```
 
 The whole surface, as it will read:
@@ -1024,12 +1058,12 @@ sub main()!
   d = time.duration(minutes: 90)
   print(d.hours(), d)
 
-  denver = datetime.TimeZone.named("America/Denver")!
+  denver = datetime.TimeZone.named("America/Denver")
   z = datetime.now().in_zone(denver)
   print(z.date(), z.weekday())
-  print(z.add(days: 1))
-  print(z.add(hours: 24))
-  due = datetime.Date.new(2027, 1, 31).add(months: 1)
+  print(z.add(days: 1)!)
+  print(z.add(hours: 24)!)
+  due = datetime.Date.new(2027, 1, 31).add(months: 1)!
   print(due.days_since(z.date()))
   dt = datetime.DateTime.parse("2026-03-08T02:30")!
   print(dt.in_zone(denver)!)

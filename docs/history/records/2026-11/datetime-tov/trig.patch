@@ -1,0 +1,15 @@
+--- a/tools/trig/main.rig
++++ b/tools/trig/main.rig
+@@ -92,9 +92,10 @@ fun getwd() -> String
+ # Go: cmd/tsc/sys.go:31 osSys.Now: nanoseconds on the wall clock.
+ # PORT: Go's reading carries a monotonic one too; std.time's monotonic
+ # reading is a Monotonic, which a plain function value cannot keep a
+-# start for, so this is the wall clock (datetime.now).
++# start for, so this is the wall clock (datetime.now), its nanoseconds
++# an `Int`, which they fit until 2262.
+ fun clock() -> Int
+-  datetime.now().unix().ns()
++  Int(datetime.now().unix().ns())
+ 
+ # The balanced checkers' bytes of checked source text a checker (see
+ # TRIG_CHECKER_BYTES): fit on mitt, neverthrow, superstruct and zod3,

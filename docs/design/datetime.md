@@ -88,7 +88,7 @@ What a program writes:
 - never a value fallback such as `d.add(days: n) ?? d`, which gives a wrong date
   without a word. The docs show `!`, `catch`, and the ends by name.
 
-```rig pending
+```rig
 use std.datetime
 
 fun renew(start: datetime.Date, months: Int) -> datetime.Date!
@@ -405,10 +405,14 @@ Wherever a parameter is typed `Duration`, a call gives it in one of these forms.
 - **A constant** that is not finite, or beyond the range, is a compile error.
 - **[Owner, 2026-11-22] A number known only at run time** never panics. Which forms can
   fail at all follows from the range:
-  - **Total:** a bare `Int`, or one `Int` keyword from `ns:` to `seconds:`. Every
-    `Int` of seconds or less fits, so these are accepted everywhere, as a constant is.
-  - **Can fail:** a `Float` (not finite, or beyond the range), an `Int` of `minutes:` or
-    `hours:` (`Int.max` hours is past ±292 billion years), and several keywords summed.
+  - **Total:** one `Int` keyword of `ns:`, `us:` or `ms:`. Every `Int` of a unit below
+    a second fits, so these are accepted everywhere, as a constant is.
+  - **Can fail:** a `Float` (not finite, or beyond the range), a bare `Int` or an `Int`
+    of `seconds:` (**[Judgment]** `Int.min` seconds is one past the symmetric range,
+    which keeps `neg()` total; a bare `Int` is total but for that one value, and is
+    treated as the forms that can fail rather than given a range of its own), an
+    `Int` of `minutes:` or `hours:` (`Int.max` hours is past ±292 billion years), and
+    several keywords summed.
   - Where one of these is given, the place decides:
     - **in a call that returns `!`** (a std call, or a program's function whose error
       set can hold the failure, 10.7), the conversion is folded into that call's own
@@ -455,7 +459,7 @@ Wherever a parameter is typed `Duration`, a call gives it in one of these forms.
     nanoseconds do not fit an `Int`. `ns()` of any `Duration` is exact.
   - -1.5 seconds has `seconds()` of -1, not -2.
 
-```rig pending
+```rig
 use std.time
 
 sub main()
@@ -1235,7 +1239,7 @@ program gives the same answer on every machine.
   The same calls with constants are compile errors where they would fail, and take no
   `!` where they would not (10.6).
 
-```rig pending
+```rig
 use std.datetime
 use std.text
 
@@ -1461,8 +1465,8 @@ A small strftime, with Jiff's meanings for each directive.
 
 Line numbers were read from `origin/main` on 2026-11-17 (10.1 to 10.4) and 2026-11-22
 (10.5 to 10.7), and need checking again when the work starts. Sizes are the reviewers'
-estimates. 10.1 to 10.4 are built (phases 1 to 3); 10.5 to 10.7 come next, in that
-order, before phase 4 (11).
+estimates. 10.1 to 10.7 are built (phases 1 to 3, then a to c of section 11), before
+phase 4 (11).
 
 ## 10.1 Durations
 
@@ -1577,7 +1581,9 @@ type's tests of it land with the type.
   `tools/trig/main.rig:97` reads `time.unix_ns()` (phase 3). The builder prepares each
   patch, and the Trig session lands it with the Rig change.
 
-**The migration of phases 1 to 3 to "Total or visible"** (10.7), by the same script:
+**The migration of phases 1 to 3 to "Total or visible"** (10.7), by
+`tools/migrate-tov.py`, which is driven by the compiler's errors, as
+`tools/migrate-options.py` is:
 
 | Old | New |
 |---|---|
@@ -1680,7 +1686,7 @@ after 10.5 and 10.6. Phases 4 to 6 are written to it from the start.
 | `std/datetime/*.rig` | `add`, `round`, `floor` panic; `checked_add`; `from_unix`; `unix()` and `since` saturate; `now()`'s unreachable panic | the signatures of 7.2 and 7.8; `min()`, `max()`; no `panic(` | std, medium |
 | `tools/jiff-oracle` | leaves out what saturates | answers it (12) | small |
 | new test | (none) | no `panic(` in `std/time.rig` or `std/datetime/` (12) | small |
-| `tools/migrate-datetime.py` | phases 1 and 3 | the rows above (10.4) | medium |
+| `tools/migrate-tov.py` | (none) | the rows above (10.4), from the compiler's errors | medium |
 
 - The duration-form rule is about 150 to 250 lines in the compiler; the rest is std and
   the migration.
@@ -1726,10 +1732,10 @@ the same compiler files.
 
 **[Owner, 2026-11-22] Then, before phase 4, in this order** (records/2026-11/datetime-strategy):
 
-- **a. Error traces** (10.5), a language change of its own, so that a failure that
-  leaves `main` says where it came from before more calls become fallible.
-- **b. The constant-argument rule** (10.6), a language rule of its own.
-- **c. Total or visible** (10.7): the 16-byte `Duration` with its `I128` readers; the
+- **a. Error traces** (10.5, built), a language change of its own, so that a failure
+  that leaves `main` says where it came from before more calls become fallible.
+- **b. The constant-argument rule** (10.6, built), a language rule of its own.
+- **c. Total or visible** (10.7, built; `records/2026-11/datetime-tov`): the 16-byte `Duration` with its `I128` readers; the
   duration-form rule (5.2); every signature of 7.2, `!` on each `add`, `round`, `floor`,
   `Monotonic.add` and `at`, and `Duration`'s arithmetic; `checked_*` removed; the Unix
   makers and readers of 7.8; `min()` and `max()`; `TimeZone.fixed`'s and

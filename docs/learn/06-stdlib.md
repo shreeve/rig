@@ -375,7 +375,10 @@ A length of time is a `time.Duration`, which a call writes in seconds,
 a `Monotonic`, which only gives the time between two readings, so it
 cannot be mixed up with the wall clock. A timing differs on every run,
 so this program prints facts about it. A tool would print `took`, which
-reads `1ms 234us 567ns`, or `took.ms()`.
+reads `1ms 234us 567ns`, or `took.ms()`, an `I128`, exact for any
+duration. A duration reaches about 292 billion years either way, and
+its arithmetic, which can pass that, returns `!`: `took.add(ms: 5)!`.
+No call of `std.time` panics on a value it is given.
 
 `time.within(d, f)` is the deadline of [chapter four](04-concurrency.md).
 The audit that sleeps a minute is cut short at 5 ms and fails with
