@@ -913,6 +913,9 @@ days = d1.days_since(d0.add(months: m)!)
     18:00 rounds to 01:00 on the 9th (measured). Rig gives 00:00 on the 9th. The oracle
     checks `round(days: 1)` only for a value inside its own date's range, on a day
     whose start plus one day on the clock is the next date's start.
+  - At the ends of the range a day's starts are found even beyond it, so `round` and
+    `floor` fail only when their result is beyond it (9, item 22). The oracle checks
+    `floor(days: 1)` only where Jiff can measure the day.
 - `Time.round` wraps: 23:59:59.6 rounds to 00:00:00. The others fail `.range` when the
   result leaves the range.
 - **A round that passes midnight carries into the next day, in every year.** Jiff 1.0.0
@@ -1133,7 +1136,10 @@ program gives the same answer on every machine.
   counts as agreeing with the zone.
 - **A trap** [Jiff], which the docs state: parsing such a string as an `Instant`
   ignores the zone and uses the rounded offset, so it reads back 30 seconds off.
-  Parsing it as a `ZonedDateTime` is exact. It affects only dates before 1972.
+  Parsing it as a `ZonedDateTime` is exact, except at a repeated time whose two
+  offsets have seconds, where the offset the text gives, rounded, is used as written
+  [Jiff]: New York's 12:01:58 on 1883-11-18, repeated when local mean time (-04:56:02)
+  ended, reads back 2 seconds off. It affects only dates before 1972.
 
 ## 7.7 The system's zone
 
@@ -1294,7 +1300,7 @@ sub main()!
 
 - `String(x)` gives the same text as a `String`, which is how a value is stored:
   `String(z)` and later `ZonedDateTime.parse(text)!` give back the same instant in the
-  same zone.
+  same zone, except at a historic repeated time whose offsets have seconds (7.6).
 - Seconds are always printed. A fraction is printed only when it is not zero, with its
   trailing zeros dropped. So printed instants do not sort as text. A fixed width comes
   from `format` on the zoned form:
@@ -1467,6 +1473,12 @@ A small strftime, with Jiff's meanings for each directive.
     cannot fail where Jiff's `from_nanosecond` takes an `i128` and can; and
     `from_unix_float`, which Jiff does not have. Their inverses `unix_ms()` and
     `unix_us()` are `Int`s, floored.
+22. **`round` and `floor` to `days: 1` on a `ZonedDateTime` at the ends of the
+    range** (the builder's, from "Total or visible", pending the owner): a day's
+    starts are found even beyond the range, so the call fails `.range` only when its
+    result is beyond it. Jiff fails whenever a start it needs is: `round(days: 1)` of
+    9999-12-30T01:00Z in UTC is 9999-12-30T00:00Z, and `floor(days: 1)` on the last
+    date succeeds.
 
 ---
 

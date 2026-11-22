@@ -227,8 +227,9 @@ pub obj ZonedDateTime: Eq + Ord + Hash + Print
   # 2026-11-01 rounded to 30 minutes is 02:00-07:00, 70 minutes later.
   # To `days: 1` the multiples are the starts of days: the latest start
   # at or before the value, or the next day's start, by the day's real
-  # length. Fails with `DateTimeError.invalid` for another increment and
-  # `DateTimeError.range` for a result beyond the range.
+  # length, measured even where the other start lies beyond the range.
+  # Fails with `DateTimeError.invalid` for another increment and
+  # `DateTimeError.range` only for a result beyond the range.
   pub fun round(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none, days: Int? = none) -> ZonedDateTime!
     zoned_multiple(@, clock_increment([ns, us, ms, seconds, minutes, hours], days)!, false)!
 
@@ -331,10 +332,15 @@ fun clock_seconds(t: Time) -> Int
 # offsets before and after a change where it is skipped (the first the
 # smaller) or repeated (the first the larger).
 fun offsets_at(tz: TimeZone, dt: DateTime) -> (Int, Int)
+  return local_offsets(tz, dt.on.number() * DAY_S + clock_seconds(dt.at))
+
+# The same, of the time on the clock `secs` seconds from 1970-01-01T00:00
+# on it.
+fun local_offsets(tz: TimeZone, secs: Int) -> (Int, Int)
   if tz.id == FIXED_ID
     o = Int(tz.mins) * 60
     return o, o
-  p = zone_local(Int(tz.id), dt.on.number() * DAY_S + clock_seconds(dt.at))
+  p = zone_local(Int(tz.id), secs)
   return p / 2_097_152 - 1_048_576, p % 2_097_152 - 1_048_576
 
 # `dt` in `tz`, a skipped or repeated time chosen by `how` (Jiff's
@@ -423,37 +429,47 @@ fun rounded_minutes(off: Int) -> Int
 fun day_start(d: Date, tz: TimeZone) -> ZonedDateTime?
   resolved(DateTime(on: d, at: clock(0, 0, 0, 0)), tz, .compatible) catch return none
 
-# The latest start of a day at or before `z`, and its date: `z`'s own
-# date's, the next date's where a repeated time crossed midnight, or the
-# day before's where `z`'s date starts after it (DATETIME-DESIGN §6.8).
-fun day_floor(z: ZonedDateTime) -> (ZonedDateTime, Date)!
-  d = z.date()
-  s = day_start(d, z.tz) ?? return DateTimeError.range
-  if s > z
-    back = date_of(day_step(d.number(), -1) ?? return DateTimeError.range)
-    s2 = day_start(back, z.tz) ?? return DateTimeError.range
-    return s2, back
-  if day_step(d.number(), 1) as n
-    next = date_of(n)
-    if day_start(next, z.tz) as s3
-      if s3 <= z
-        return s3, next
+# The start of the day `n` days from 1970-01-01 in `tz`, in nanoseconds
+# from 1970-01-01T00:00Z: 00:00 on that date by `Resolve.compatible`, as
+# `day_start` gives it, but for any `n`, a start beyond the range of
+# instants included, so that a day at either end of the range has a
+# length.
+fun start_ns(n: Int, tz: TimeZone) -> I128
+  before, _ = local_offsets(tz, n * DAY_S)
+  I128(n * DAY_S - before) * I128(SECOND_NS)
+
+# The latest start of a day at or before `t` nanoseconds from
+# 1970-01-01T00:00Z, an instant shown on date `d` in `tz`, and that
+# day's number: `d`'s own start, the next date's where a repeated time
+# crossed midnight, or the day before's where `d` starts after `t`
+# (DATETIME-DESIGN §6.8).
+fun day_floor(t: I128, d: Int, tz: TimeZone) -> (I128, Int)
+  s = start_ns(d, tz)
+  if s > t
+    return start_ns(d - 1, tz), d - 1
+  next = start_ns(d + 1, tz)
+  if next <= t
+    return next, d + 1
   return s, d
 
 # `z` rounded, or with `down` floored, to a multiple of `inc` nanoseconds
 # (Jiff's `ZonedDateTimeRound::round`, `zoned.rs:4971`). Below a day, on
 # the clock, keeping the offset where it can; to a day, between the
-# starts of days, by the day's real length.
+# starts of days, by the day's real length, each start found even beyond
+# the range of instants, so the call fails only when its result is
+# beyond it (where Jiff fails whenever a start it needs is:
+# DATETIME-DESIGN §9).
 fun zoned_multiple(z: ZonedDateTime, inc: Int, down: Bool) -> ZonedDateTime!
   if inc == DAY_NS
-    lo, d = day_floor(z)!
-    if down or lo == z
-      return lo
-    n = day_step(d.number(), 1) ?? return DateTimeError.range
-    hi = day_start(date_of(n), z.tz) ?? return DateTimeError.range
-    if z.at.since(lo.at).ns() * 2 >= hi.at.since(lo.at).ns()
-      return hi
-    return lo
+    t = z.at.total()
+    lo, n = day_floor(t, z.on_clock().on.number(), z.tz)
+    out = lo
+    if not down and lo != t
+      hi = start_ns(n + 1, z.tz)
+      if (t - lo) * 2 >= hi - lo
+        out = hi
+    i = instant_of(out) ?? return DateTimeError.range
+    return zoned_of(i, z.tz)
   dt = datetime_multiple(z.on_clock(), inc, down) ?? return DateTimeError.range
   keeping(dt, Int(z.off), z.tz, .compatible)!
 

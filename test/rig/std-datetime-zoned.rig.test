@@ -424,3 +424,43 @@ test "today is the date in the zone now", "true"
   a = datetime.today(utc)
   b = datetime.now().in_zone(utc).date()
   print(a == b or b.days_since(a) == 1)
+
+test "round and floor to a day near the range's ends fail only when the result is beyond it", '''
+  9999-12-30T00:00:00+00:00[UTC] 9999-12-30T00:00:00+00:00[UTC] DateTimeError.range
+  9999-12-31T00:00:00+25:59[+25:59] 9999-12-31T00:00:00+25:59[+25:59]
+  -009999-01-03T00:00:00+00:00[UTC] DateTimeError.range
+'''
+  fun shown(z: datetime.ZonedDateTime, down: Bool) -> String
+    if down
+      f = z.floor(days: 1) catch |e|
+        return String(`{e}`)
+      return String(f)
+    r = z.round(days: 1) catch |e|
+      return String(`{e}`)
+    String(r)
+
+  sub main()!
+    utc = datetime.TimeZone.utc()
+    # The next day's start, 9999-12-31T00:00Z, is past the last instant,
+    # but the nearer start is not.
+    early = datetime.Instant.parse("9999-12-30T01:00:00Z")!.in_zone(utc)
+    late = datetime.Instant.parse("9999-12-30T13:00:00Z")!.in_zone(utc)
+    print(shown(early, false), shown(late, true), shown(late, false))
+    # The last date at +25:59 starts in the range, its next date does not.
+    east = datetime.Instant.parse("9999-12-30T01:00:00Z")!.in_zone(datetime.TimeZone.fixed(hours: 25, minutes: 59))
+    print(shown(east, false), shown(east, true))
+    # The first date's start is before the first instant.
+    first = datetime.Instant.parse("-009999-01-02T13:00:00Z")!.in_zone(utc)
+    print(shown(first, false), shown(first, true))
+
+test "RFC 9557 text gives the instant back, except a historic repeated time whose offsets have seconds", '''
+  1883-11-18T12:01:58-04:56[America/New_York] 1883-11-18T16:58:00Z 1883-11-18T16:57:58Z
+'''
+  # New York's local mean time, -04:56:02, ended at 12:03:58 on
+  # 1883-11-18, which then went back to 12:00 at -05:00: 12:01:58
+  # happened twice, and its first offset is written rounded to the
+  # minute, which text keeps (Jiff's answer, §8.1).
+  i = datetime.Instant.parse("1883-11-18T16:58:00Z")!
+  z = i.in_zone(datetime.TimeZone.named("America/New_York"))
+  back = datetime.ZonedDateTime.parse(String(z))!
+  print(z, z.instant(), back.instant())
