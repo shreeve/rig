@@ -979,12 +979,13 @@ one-line note for Trig and loco.
 3. **Owners and read views in groups and object update** **[Owner,
    2026-11-22]** *(built)*, the first step after v1, before any other
    deferred item. Object update of owners puts `<` only on the fields that
-   move and copies the rest; a type with a `drop` body is updated only by
-   `..+p` or a whole move; and since a spread is evaluated where it is
-   written, `P(n: size(?p), ..<p)` reads `p` before the spread takes its
-   fields. *(Pending the owner: "updated only by `..+p`" here and Core
-   sentence 2, which gives a `drop` type no `+`, disagree, so a `drop`
-   type is not updated at all, `..+p` included, until he rules.)* How it
+   move and copies the rest; a type with a `drop` body is never updated,
+   by any sigil, only moved whole and its field set; and since a spread is
+   evaluated where it is written, `P(n: size(?p), ..<p)` reads `p` before
+   the spread takes its fields. **[Owner pending]** The design first said
+   "updated only by `..+p` or a whole move"; `..+p` would make a second
+   value of a type that Core sentence 2 gives no clone, so sentence 2
+   decides unless the owner changes it as its own Core change. How it
    was built
    ([the record](../history/records/2026-11/named-options-owners/README.md)):
    - The declaration side needs no work of its own: step 2 rewrites a

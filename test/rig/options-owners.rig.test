@@ -561,3 +561,91 @@ fail "a refused spread says its sigil, and a refused group nothing more", "8:5: 
 
   sub get(..h: Http)
     print(h.prefix)
+
+fail "a spread makes no write view", "a spread gives a value's fields: write `..n`, `..<n` to move its owners, or `..+n` to clone them", errors: 1
+  obj Http
+    retries: Int = 3
+
+  sub plain(..h: Http)
+    print(h.retries)
+
+  n = Http()
+  plain(..!n)
+
+test "a spread shares a handle field by `..+` and moves it by `..<`", "1 2\n1 2"
+  obj Box
+    n: Int
+
+  obj Hold
+    b: *Box
+    k: Int = 1
+
+  sub show(..h: Hold)
+    print(h.k, h.b.n)
+
+  a = Hold(b: *Box(n: 2))
+  show(..+a)
+  show(..<a)
+
+fail "a bare spread of a handle field is refused", "`..a` gives `b`, a `*Box`, a handle: write `..<a` to move it, or `..+a` to clone it", errors: 1
+  obj Box
+    n: Int
+
+  obj Hold
+    b: *Box
+
+  sub show(..h: Hold)
+    print(h.b.n)
+
+  a = Hold(b: *Box(n: 2))
+  show(..a)
+
+fail "`keeps` names a group that holds a view", "`keeps l`: no field of group `l`, a `Size`, is a view that `put` could keep", errors: 1
+  obj Size
+    width: Int = 8
+
+  sub put(out: !List[Int], ..l: Size) keeps l
+    !out.push(l.width)
+
+  xs: List[Int] = List()
+  put(!xs)
+
+fail "a unique type is not updated by any sigil", "object update copies the fields of `Seed`, which is `unique`: write its fields", "object update copies the fields of `Seed`, which is `unique`: write its fields", errors: 2
+  obj Seed unique
+    n: Int = 1
+    name: String = String()
+
+  s = Seed()
+  t = Seed(n: 2, ..<s)
+  u = Seed(n: 3, ..+s)
+  print(t.n, u.n)
+
+test "a field with a drop body or a unique type moves in a group and an update", "a 1\nclose a\nb 2\nclose b\n5"
+  obj File
+    name: String
+
+    drop(!@)
+      print("close", @name)
+
+  obj Seed unique
+    n: Int = 5
+
+  obj Job
+    f: File
+    tries: Int = 1
+
+  obj Gen
+    s: Seed
+
+  sub run(..j: Job)
+    print(j.f.name, j.tries)
+
+  sub gen(..g: Gen)
+    print(g.s.n)
+
+  run(f: File(name: String("a")))
+  j = Job(f: File(name: String("b")))
+  k = Job(tries: 2, ..<j)
+  print(k.f.name, k.tries)
+  <k
+  gen(s: Seed())

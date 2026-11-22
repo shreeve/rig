@@ -216,7 +216,10 @@ fn declaredFrom(ctx: *const sema.SemContext, pos: u32) ?u64 {
 /// The parameters among `params` that name `text` in a `from` or `keeps`
 /// clause, a bit each: the parameter of that name, or, for a group's name,
 /// each of its fields' parameters (Core s5, "A spread gives an object's
-/// fields one by one").
+/// fields one by one"). It over-approximates on purpose: a group's name
+/// stands for all its fields, not only those that could hold the view
+/// (one that cannot carries no loan), and a field's bare name, which the
+/// compiler refuses before ownership, is matched rather than refused.
 fn namedParams(params: Sexp, text: []const u8, source: []const u8) u64 {
     var mask: u64 = 0;
     for (params.items(), 0..) |p, i| {
