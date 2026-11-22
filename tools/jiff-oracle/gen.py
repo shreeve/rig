@@ -497,8 +497,8 @@ def gen_calendar(w, zones, alias):
         b = max(MIN_DAY * DAY, min(MAX_DAY * DAY + DAY - 1, b))
         w("datetime.since %s %s" % (fmt_datetime(a, rand_ns(r)), fmt_datetime(b, rand_ns(r))))
     # An instant's Unix time and `since`, from a stream of their own:
-    # instants within a `Duration` of 1970 most often, and across the
-    # whole range, where `unix()` and `since` saturate (§5.1).
+    # instants within an `Int` of nanoseconds of 1970 most often, and
+    # across the whole range, each exact (§5.1).
     r = Rand(7)
     span = (1 << 63) // NS
     ends = (MIN_INSTANT, MIN_INSTANT + 1, -span - 1, -span, -1, 0, span - 1, span, MAX_INSTANT - 1, MAX_INSTANT)

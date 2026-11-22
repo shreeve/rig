@@ -2,9 +2,8 @@
 # (jiff-core `timestamp.rs`, jiff `timestamp.rs`, and the increments of
 # `util/round.rs`), and the examples of its documentation, ported where
 # Rig keeps the behavior; docs/history/records/2026-11/datetime-phase3
-# lists each left out and why. Jiff's `Timestamp::new(s, ns)` keeps the
-# seconds and the nanoseconds of one sign; here it is
-# `Instant.from_unix_ns(s * 1_000_000_000 + ns)`.
+# lists each left out and why. Jiff's `Timestamp::new(s, ns)` is
+# `Instant.from_unix_s(s, ns: ns)`.
 
 use std.datetime
 use std.time
@@ -94,6 +93,27 @@ test "checked_seconds_across_epoch", '''
 
   print(at(-1_500_000_000).add(2)!, at(1_500_000_000).add(-2)!, at(-1_000_000_001).add(3)!)
   print(at(1_000_000_001).add(-3)!, at(-1).add(1)!, at(1).add(-1)!)
+
+test "checked_arithmetic_at_max", "true true true"
+  # jiff-core timestamp.rs:984: a second after 1970 plus the last
+  # instant's seconds, less a nanosecond, is the last instant, as one sum
+  # and as a `Duration` of its parts.
+  ts = datetime.Instant.from_unix_s(1)
+  seconds = datetime.Instant.max().unix_s()
+  print(ts.add(seconds: 253_402_207_200, ns: -1)! == datetime.Instant.max(), ts.add(time.Duration.from_parts(seconds, 0)!.add(ns: -1)!)! == datetime.Instant.max(), datetime.Instant.max().add(time.Duration.from_parts(seconds, 0)!.neg().add(ns: 1)!)! == ts)
+
+test "nanosecond_roundtrip_boundaries", '''
+  0 true
+  999999999 true
+'''
+  # jiff timestamp.rs:3699: the nanoseconds since 1970 of the first and
+  # the last instant, an `I128`, give the instant back.
+  lo = datetime.Instant.min()
+  n = lo.unix().ns()
+  print(n % 1_000_000_000, datetime.Instant.from_unix_s(Int(n / 1_000_000_000), ns: Int(n % 1_000_000_000))! == lo)
+  hi = datetime.Instant.max()
+  m = hi.unix().ns()
+  print(m % 1_000_000_000, datetime.Instant.from_unix_s(Int(m / 1_000_000_000), ns: Int(m % 1_000_000_000))! == hi)
 
 test "checked_arithmetic_boundaries", "605 sums, each in the range exactly when its total is"
   # jiff-core `timestamp.rs:1012`: each instant near an end or 1970 and
