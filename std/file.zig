@@ -3,7 +3,7 @@
 //! one, open files, and what is at a path. Every call that reaches the
 //! file system is a fallible waiting point. A whole read of a regular
 //! file, and a call that only looks at a path (`exists_at`, `stat_into`,
-//! `realpath`, `dir_entries`), runs in the task making it: on a local
+//! `realpath`, `read_link`, `dir_entries`), runs in the task making it: on a local
 //! disk the system call takes less than a trip to the pool and back.
 //! Every other call runs on the blocking pool (`pool`), so only the task
 //! making it waits: a read of anything but a regular file, and every
@@ -60,7 +60,7 @@ fn failure(err: anyerror) FileError {
         error.DeviceBusy => error.@"std.file.FileError.busy",
         error.CrossDevice => error.@"std.file.FileError.cross_device",
         error.NoSpaceLeft => error.@"std.file.FileError.no_space",
-        error.BadPathName, error.InvalidArgument => error.@"std.file.FileError.invalid",
+        error.BadPathName, error.InvalidArgument, error.NotLink => error.@"std.file.FileError.invalid",
         error.NotOpenForReading, error.NotOpenForWriting => error.@"std.file.FileError.bad_descriptor",
         error.BrokenPipe => error.@"std.file.FileError.broken_pipe",
         error.InputOutput => error.@"std.file.FileError.io",
@@ -439,6 +439,26 @@ fn realpathHere(path: []const u8) Error!?rig.String {
     var s: rig.String = .empty;
     const room = s.roomFor(std.Io.Dir.max_path_bytes);
     const n = std.Io.Dir.cwd().realPathFile(rig.io(), path, room) catch |err| {
+        rig.dropElement(rig.String, &s);
+        try absent(err);
+        return null;
+    };
+    s.list.items.len = n;
+    s.fit();
+    return s;
+}
+
+/// What the symbolic link at `path` holds, the path it names as written
+/// there, or null when nothing is at `path`; a path that is not a link
+/// fails with `FileError.invalid` (EINVAL), as readlink(2) does, and so
+/// does a path with a 0 byte in it. In the task, written straight into
+/// the String's room for the longest path, as `realpathHere` is.
+pub fn read_link(path: []const u8) Error!?rig.String {
+    try rig.checkStop();
+    if (std.mem.findScalar(u8, path, 0) != null) return error.@"std.file.FileError.invalid";
+    var s: rig.String = .empty;
+    const room = s.roomFor(std.Io.Dir.max_path_bytes);
+    const n = std.Io.Dir.cwd().readLink(rig.io(), path, room) catch |err| {
         rig.dropElement(rig.String, &s);
         try absent(err);
         return null;

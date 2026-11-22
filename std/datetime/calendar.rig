@@ -18,14 +18,22 @@
 
 # Why a call failed: its text is not that type's form, or names no
 # real value (`parse`); an argument is not one the call takes (a
-# rounding increment, a `Float` that is not finite): `invalid`. Or the
-# result is not a real value or lies beyond the type's range (`new`,
-# `with`, `add`, `round`, `floor`, `nth_weekday`,
-# `nth_weekday_of_month`, the Unix makers, and a duration form's
-# conversion where the call takes it): `range`.
+# rounding increment, a `Float` that is not finite, a fixed zone's
+# hours and minutes of two signs): `invalid`. Or the result is not a
+# real value or lies beyond the type's range (`new`, `with`, `add`,
+# `round`, `floor`, `nth_weekday`, `nth_weekday_of_month`, the Unix
+# makers, a fixed zone beyond ±25:59, and a duration form's conversion
+# where the call takes it): `range`. A zone's name that the data does
+# not hold (`TimeZone.named`, `TimeZone.parse`, and `local()` for a
+# `TZ` or a system zone it cannot read, or one newer than the data,
+# whose version `tzdb_version()` gives): `unknown_zone`. No system zone
+# to be found (`local()`): `no_system_zone`; setting `TZ` to a zone's
+# name, `TZ=America/Denver`, gives one.
 pub error DateTimeError
   invalid
   range
+  unknown_zone
+  no_system_zone
 
 # The ends of the range of years, and their days counted from
 # 1970-01-01: -9999-01-01 and 9999-12-31.

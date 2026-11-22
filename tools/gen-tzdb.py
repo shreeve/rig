@@ -5,7 +5,7 @@ names), and tzdb_test_data.zig (the test table).
 
     tools/gen-tzdb.py [--cache DIR] [--check] [OUT]
 
-OUT is the directory written (default zig-out/tzdb, which git ignores).
+OUT is the directory written (default std/, where they are committed).
 The inputs are the crates `jiff` and `jiff-tzdb` of JIFF_VERSION, from
 crates.io, and the test zone file below, from Jiff's repository at the
 commit those crates were published from; each is used only when its
@@ -91,7 +91,7 @@ PINNED = {
 MOROCCO_RULE = "XXX-2<+01>-1,0/0,J365/23"
 MOROCCO_SOURCE = "src/tz/posix.rs"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_OUT = os.path.join(ROOT, "zig-out", "tzdb")
+DEFAULT_OUT = os.path.join(ROOT, "std")
 EARLY_BIAS = 1 << 32
 NO_RULE = 255
 NO_DST = 0xFFFF

@@ -126,6 +126,7 @@ each among them, and 20,000 `instant.since` (§5.1, §7.8).
 | `zoned.start_of_day ZONE INSTANT` | ZONED | `z.start_of_day()` |
 | `zone.name ZONE` | the name in the data's spelling | `tz.name()` |
 | `zone.eq ZONE ZONE` | `true` or `false` | `==` |
+| `zone.offset ZONE INSTANT` | the offset in seconds, east positive | `tz.offset_at(i).seconds()` |
 | `zone.transitions ZONE INSTANT` | the offset (seconds) and abbreviation before the first transition, then `UNIX/OFFSET/ABBR` for each transition before the instant | (the bundle check) |
 
 For each of the 598 names, and each transition through 2040 (and its
@@ -137,7 +138,11 @@ day a second either side; and a day and 24 hours added and taken away
 half an hour either side. A name whose rules are another's (the same
 bytes in the bundle) is tested a second either side of each transition,
 and the rest once under the first name. Then the ends of the range, in
-zones east and west and in fixed zones of ±25:59.
+zones east and west and in fixed zones of ±25:59. Last, the offset alone
+of every name, its rules' names too: an hour and a second before each
+transition through 2040 and each of its rule's in 2100, 2400 and 9998,
+at it and an hour after; the first and last instants in each; and five
+fixed zones at the first instant, 1970 and the last.
 
 ### 3. Counts (`counts.in`)
 
@@ -233,5 +238,5 @@ The oracle does not check where Rig differs from Jiff on purpose
 
 ## Size
 
-About 1.77 million cases. `gen.py` writes them in about 3.4 s and the
+About 1.94 million cases. `gen.py` writes them in about 3.4 s and the
 oracle answers them in about 1 s.

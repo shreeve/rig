@@ -12834,8 +12834,8 @@ done
 
 A bare call to a fallible function is rejected, and so is `!` on a call
 that cannot fail. A call of one of std's listed makers, `Date.new`,
-`Time.new`, `DateTime.new`, and `Instant.from_unix_s`, `from_unix_ms`,
-and `from_unix_us` of `std.datetime` ([STD](docs/STD.md#stddatetime)),
+`Time.new`, `DateTime.new`, `Instant.from_unix_s`, `from_unix_ms`,
+`from_unix_us`, and `TimeZone.fixed` of `std.datetime` ([STD](docs/STD.md#stddatetime)),
 and `Duration.from_parts` of `std.time`, whose every argument is an integer Rig computes as it checks the
 program (a literal, a constant ([§3](#constants)), a compile-time
 function's value, a type's limit such as `Int.max`, a binding of the
@@ -12845,7 +12845,11 @@ parameter in its function's body) is checked as Rig compiles: it cannot
 fail, so it gives the plain type and takes no `!`, and a constant the
 maker refuses is rejected, a task of the call too. With any argument
 known only as the program runs, the call is fallible, as declared, and
-the error that asks for its `!` names that argument. `time.duration` of
+the error that asks for its `!` names that argument. `TimeZone.named`
+of `std.datetime` given a string literal is checked the same against
+the names of its zone data: a name the data holds gives the plain
+`TimeZone`, and one it does not is rejected, offering the nearest name.
+`time.duration` of
 a duration form that cannot fail gives the plain `Duration` the same way
 ([Durations](#durations)):
 

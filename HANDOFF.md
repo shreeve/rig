@@ -162,15 +162,23 @@ A new session, human or agent, takes these steps in order:
   number known only as the program runs folded into a fallible call's
   failure, clamped in a wait, or refused; no `panic(` in std's time
   code, with its test; the oracle with no saturation left out; and
-  `tools/migrate-tov.py`, with a patch for Trig. Groups, spreads,
-  object update, and the `name:` shorthand (branch `named-groups`, the
-  build plan's step 2; records/2026-11/named-options-groups) are a
-  rewrite of the signature and the call checked twice, as iterator
-  chains are, with std.datetime's `Period`, `DateFields`, and
-  `ClockFields` as groups; they hold plain data only.
-  Next, in order: owners and read views in groups and object update,
-  lifting the plain-data limit (the owner, 2026-11-22; the build plan's
-  step 3); then `TimeZone` (phase 4), written to total or visible.
+  `tools/migrate-tov.py`, with a patch for Trig.
+  Phase 4 (branch `tz-phase4`; records/2026-11/datetime-phase4) builds
+  `TimeZone`, written to total or visible: the zone tables of IANA
+  2026f committed in std with their freshness test, `named` with its
+  check of a literal as Rig compiles, `fixed`, `utc`, `parse`, `name`,
+  `offset_at`, equality and hashing by primary identifier, `zone_names`,
+  `tzdb_version`, `local()` with `file.read_link`, and the pinned test
+  table reached only from `std/datetime/zone_test.rig`; the oracle
+  compares every zone's offset about each transition, none different.
+  Groups, spreads, object update, and the `name:` shorthand (branch
+  `named-groups`, the build plan's step 2;
+  records/2026-11/named-options-groups) are a rewrite of the signature
+  and the call checked twice, as iterator chains are, with
+  std.datetime's `Period`, `DateFields`, and `ClockFields` as groups;
+  they hold plain data only. Next, in order: owners and read views in
+  groups and object update, lifting the plain-data limit (the owner,
+  2026-11-22; the build plan's step 3); `ZonedDateTime` (phase 5).
 - **The view vocabulary** (owner, 2026-11-20; #1192 landed PR 1):
   places, read and write views, read-only, unusable, and cells are the
   words of the docs, the messages, and the code. PR 1 is the wording; PR 2
