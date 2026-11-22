@@ -157,7 +157,7 @@ type's, which both refuse. The other files are unchanged.
 |---|---|---|---|
 | `format.*` | 158,079 | 158,079 | 0 |
 | `instant.in_zone`, the abbreviation now compared | 157,714 | 157,714 | 0 |
-| every case, phases 1 to 6 | 2,344,535 | 2,344,534 | 0 (1 `skip`) |
+| every case, phases 1 to 6 (after merging main, 3fea85409) | | 2,345,658 | 0 |
 
 ### What a program pays
 
@@ -201,3 +201,17 @@ On the Mac, through `tools/heavy`:
 
 Not run here: the json, hash and text guards (the change touches no code
 they time), the Trig and loco light gates, and pup.
+
+After the review's fixes and the merge of main at 3fea85409 (phase 5
+and groups, under which `add` and `with` take `Period`, `DateFields`
+and `ClockFields`): the touched areas, every `std-datetime*` and
+`std-time*` file, the datetime scripts, `cli.jiff_oracle` (at least
+2,345,658 answers the same as Jiff, none different, none open), the
+docs of STD, SPEC, the design and journeys 06, 11 and 12, and `oracle`;
+`zig build test`; the whole core once, 12,683 jobs in 407 s, none died;
+a plain `tools/heavy zig build`; `tools/emit-diff origin/main`
+(3fea85409), identical in 37 of 38 programs, 635 files, Trig not
+compared as before; and the check guard, four interleaved rounds at a
+load of 2.7 to 3.2, branch first: the fewest instructions 2,184,331,899
+for the branch and 2,182,137,248 for main, 0.1% more, and 1.2% over the
+committed baseline, within its 2% (main is 1.1% over it here).
