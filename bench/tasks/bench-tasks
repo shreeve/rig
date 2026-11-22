@@ -221,6 +221,8 @@ def recorded():
     names = COLUMNS[: len(row) - 3]
     out = {}
     for name, c in zip(names, row[3:]):
+        if not c:
+            continue  # a benchmark the row did not measure
         n, unit = c.split()
         out[name] = float(n) * units[unit]
     return out
