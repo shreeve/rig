@@ -2348,9 +2348,10 @@ made, read where it is written; a field named beside it, before or after,
 wins; one spread updates a value; and every argument beside it is given
 by name. It gives each field as a spread in a call does: `..<p` moves
 the fields that move and copies the rest, `..+p` clones them, and a bare
-`..p` gives only fields that copy. A type with a `drop` body, which
-expects every field, is updated only by `..+p`, and a `unique` type is not
-updated. It is allowed only where the type could be constructed. `name:` alone, before `,` or
+`..p` gives only fields that copy. A type with a `drop` body is not
+updated, since an update would take its fields apart or duplicate a value
+that has no clone ([CORE](docs/CORE.md) sentence 2), and neither is a
+`unique` type. It is allowed only where the type could be constructed. `name:` alone, before `,` or
 `)` on its line, is `name: name`, for a local or a parameter.
 
 ```rig

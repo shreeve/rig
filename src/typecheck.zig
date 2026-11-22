@@ -1286,11 +1286,11 @@ const Checker = struct {
         const value = sema.unwrapAccess(self.ctx, ty);
         switch (self.ctx.types.get(value)) {
             .optional => {
-                try self.errAt(spread, "`..{s}` is a `{s}`, an optional: a spread passes a value; take it out first", .{ try self.plainText(operand), try self.tyName(value) });
+                try self.errAt(spread, "`..{s}` is a `{s}`, an optional: a spread passes a value; take it out first", .{ try self.plainText(written), try self.tyName(value) });
                 return null;
             },
             .type_var => {
-                try self.errAt(spread, "`..{s}` is a value of type parameter `{s}`: a spread passes a value of a group's own type", .{ try self.plainText(operand), try self.tyName(value) });
+                try self.errAt(spread, "`..{s}` is a value of type parameter `{s}`: a spread passes a value of a group's own type", .{ try self.plainText(written), try self.tyName(value) });
                 return null;
             },
             else => {},
@@ -1352,27 +1352,22 @@ const Checker = struct {
     /// (docs/design/options.md, section 11, step 3), so a field that
     /// moves needs `..<v` or `..+v`, and `..<v` needs a field to move. An
     /// object update (`update`, of the type made) of a type with a `drop`
-    /// body, which expects every field, is only `..+v`, and of a `unique`
-    /// type none. Null after a diagnostic.
+    /// body, which expects every field and has no clone, or of a `unique`
+    /// type, is refused. Null after a diagnostic.
     fn spreadGiven(self: *Checker, spread: Sexp, gt: GroupType, args: []const Sexp, update: bool) Error!?Given {
         const a = self.ctx.arena.allocator();
+        // A field whose type was refused is said where it is declared.
+        for (gt.tys) |ft| if (sema.containsPoison(self.ctx, ft)) return null;
         const sigil = spreadSigil(spread);
         const place = try self.plainText(rig.Parser.spreadPlace(ir.Spread.value(spread)));
         if (update and self.groupSymbol(gt).flags.unique) {
             try self.errAt(spread, "object update copies the fields of `{s}`, which is `unique`: write its fields", .{gt.name});
             return null;
         }
-        if (update and self.hasDropBody(gt)) switch (sigil) {
-            .clone => {},
-            .move => {
-                try self.errAt(spread, "`{s}` has a `drop` body, which expects every field: update it from `..+{s}`, or move `{s}` whole and set the field", .{ gt.name, place, place });
-                return null;
-            },
-            .none => {
-                try self.errAt(spread, "`{s}` has a `drop` body, so object update copies its fields only by `..+{s}`", .{ gt.name, place });
-                return null;
-            },
-        };
+        if (update and self.hasDropBody(gt)) {
+            try self.errAt(spread, "`{s}` has a `drop` body, so no update makes one: an update would take its fields apart or duplicate it, and a `drop` type has no clone (Core sentence 2); move `{s}` whole and set the field", .{ gt.name, place });
+            return null;
+        }
         var fields: std.ArrayList([]const u8) = .empty;
         var moves: std.ArrayList(bool) = .empty;
         var moving: ?usize = null;
@@ -1488,6 +1483,8 @@ const Checker = struct {
             try names.append(a, x.group);
             try types.append(a, x.type_name);
         };
+        // A group refused at its declaration has no type to name.
+        for (types.items) |tn| if (tn.len == 0) return null;
         const vname = try self.tyName(value);
         switch (names.items.len) {
             0 => try self.errAt(spread, "`{s}` has no group for `..{s}` to fill: a spread gives a value's fields to a group, `..name: T` among a function's parameters", .{ callee, shown }),

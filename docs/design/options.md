@@ -504,9 +504,11 @@ rig/1 /v1 /c 1
   ..<d)` reads `d` before the spread takes its fields, and `Doc(..<d,
   pages: size(?d))` is refused, since `d` is partly moved by then.
 - **Object update** moves the fields that own with `..<p` and copies the
-  rest, so `p` is partly moved. A type with a `drop` body, which expects
-  every field, is updated only by `..+p`, or moved whole and its field
-  set; a `unique` type, whose fields would be copied, is not updated.
+  rest, so `p` is partly moved. A type with a `drop` body is not updated:
+  its body expects every field, and an update by `..+p` would duplicate a
+  value that Core sentence 2 gives no clone. It is moved whole and its
+  field set. A `unique` type, whose fields would be copied, is not
+  updated either.
 
 ```rig
 obj Doc
@@ -562,7 +564,7 @@ sub main()
 ```error
 `..saved` gives `prefix`, a `String`, which owns: write `..<saved` to move it, or `..+saved` to clone it
 `..<n` moves nothing, since every field it gives copies: write `..n`
-`File` has a `drop` body, which expects every field: update it from `..+f`, or move `f` whole and set the field
+`File` has a `drop` body, so no update makes one: an update would take its fields apart or duplicate it, and a `drop` type has no clone (Core sentence 2); move `f` whole and set the field
 ```
 
 ### The shorthand
@@ -980,7 +982,10 @@ one-line note for Trig and loco.
    move and copies the rest; a type with a `drop` body is updated only by
    `..+p` or a whole move; and since a spread is evaluated where it is
    written, `P(n: size(?p), ..<p)` reads `p` before the spread takes its
-   fields. How it was built
+   fields. *(Pending the owner: "updated only by `..+p`" here and Core
+   sentence 2, which gives a `drop` type no `+`, disagree, so a `drop`
+   type is not updated at all, `..+p` included, until he rules.)* How it
+   was built
    ([the record](../history/records/2026-11/named-options-owners/README.md)):
    - The declaration side needs no work of its own: step 2 rewrites a
      group into one parameter per field in the tree, so ownership, storage
@@ -989,8 +994,8 @@ one-line note for Trig and loco.
    - A spread's sigil is recorded with it, and the rewrite writes `<v.f` or
      `+v.f` for each field that moves (Core §1) and `v.f` for each that
      copies. The first check refuses a bare spread that would give a field
-     that moves, `..<v` that moves nothing, `..?v` and `..!v`, and an
-     update of a `drop` type but by `..+v` or of a `unique` type at all.
+     that moves, `..<v` that moves nothing, `..?v` and `..!v`, and any
+     update of a `drop` type or a `unique` type.
    - A body that uses a group whole binds it, `net =! Net(name: <name,
      ...)`, taking each field that moves; its field reads and spreads then
      read the binding, as an object's. A field read is no name in the

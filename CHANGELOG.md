@@ -480,8 +480,7 @@ serve no HTTP.
   cloning them, and a bare `..v` giving only fields that copy; the body
   reads a group as an object parameter, and `from net` and `keeps net`
   name those of its fields that could hold the view. A type with a `drop`
-  body is updated only by `..+p`, a `unique` type not at all, and neither
-  is a group's type. A function with a group is not a value; a unit's
+  body or a `unique` type is neither updated nor a group's type. A function with a group is not a value; a unit's
   keyword never fills a group's field, nor does a closure written last;
   and a spread's operand is a name or a field path, read where it is
   written, one per group.

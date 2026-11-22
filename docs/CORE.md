@@ -1907,9 +1907,10 @@ fields that copy and `..<v` gives at least one that moves. A group,
 `..net: Net` among a function's parameters, is one parameter per field;
 the body reads `net` as an object parameter whose fields those are, and
 `from net` and `keeps net` name those of them that could hold the view.
-A type whose fields are not all of it is not taken apart: one with a
-`drop` body is no group and is updated only by `..+v`, and a `unique`
-one is neither. *(built)*
+A type whose `drop` body or `unique` mark makes it more than its fields
+is never taken apart this way: it is no group, and no update makes one,
+since an update would move its fields apart or copy them, and sentence 2
+gives such a type no `+`. *(built)*
 
 ```rig
 obj Doc
