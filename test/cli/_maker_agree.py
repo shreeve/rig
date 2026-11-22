@@ -13,7 +13,7 @@ cannot know, so std's own check runs as the program does, and prints
 `ok` or `fail`. `judge` fails on any tuple the two judge differently,
 and on a run that judged too few to mean anything.
 """
-import sys, itertools, os
+import sys, os
 
 I64 = 2**63 - 1
 # The range of instants, from std/datetime/instant.rig's documentation
@@ -141,11 +141,18 @@ def judge(d):
             text = out.stdout + out.stderr
             if "more errors not shown" in text:
                 print(f"FAIL: {f}: the errors passed the limit"); return 1
+            # Every error must be the constant rule's refusal, and the exit
+            # status must agree with the errors: a crash, or an error of
+            # another kind, fails the guard rather than reading as a verdict.
             errs = set()
             for line in text.splitlines():
                 p = line.split(":")
                 if len(p) > 3 and p[0].endswith(".rig") and p[1].isdigit() and p[3].strip() == "error":
+                    if "always fails" not in line:
+                        print(f"FAIL: {f}: an error other than the constant rule's: {line}"); return 1
                     errs.add(int(p[1]))
+            if out.returncode != (1 if errs else 0):
+                print(f"FAIL: {f}: rig check exited {out.returncode} with {len(errs)} refusals:\n{text}"); return 1
             for j, i in enumerate(chunk):
                 verdict[i] = (5 + j) not in errs
     bad = 0
