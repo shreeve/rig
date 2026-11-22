@@ -903,13 +903,13 @@ Arithmetic that walks past the range panics, as `Int`'s does, and each
 | Member | Result |
 |---|---|
 | `Date.new(year: Int, month: Int, day: Int) -> Date!` | the date, failing with `range` when it is not a real one; with every argument a constant, a `Date` checked as Rig compiles: `Date.new(2024, 2, 29)`, and `Date.new(2023, 2, 29)` is refused |
-| `Time.new(hour: Int, minute: Int, second: Int = 0, ns: Int = 0) -> Time!` | the time of day, as `Date.new`: `Time.new(8, 30)`, and `Time.new(23, 59, 60)` is refused |
-| `DateTime.new(year: Int, month: Int, day: Int, hour: Int = 0, minute: Int = 0, second: Int = 0, ns: Int = 0) -> DateTime!` | the date and time, as `Date.new` |
+| `Time.new(hour: Int, minute: Int, second: Int, ns: Int = 0) -> Time!` | the time of day, as `Date.new`: `Time.new(8, 30, 0)`, `Time.new(8, 7, 3, ns: 500)`, and `Time.new(23, 59, 60)` is refused |
+| `DateTime.new(year: Int, month: Int, day: Int, hour: Int = 0, minute: Int = 0, second: Int = 0, ns: Int = 0) -> DateTime!` | the date and time, as `Date.new`: the date by position and the clock by name, each part 0 when left out, `DateTime.new(2026, 11, 17, hour: 8, minute: 30)` |
 | `d.at(t: Time) -> DateTime`, `dt.date()`, `dt.time()` | a date and a time joined, and taken apart |
 | `year()`, `month()`, `day()`, `weekday()`, `day_of_year()`, `days_in_month()`, `iso_week()`, `iso_week_year()` | a `Date`'s and a `DateTime`'s readers, each an `Int` but `weekday()`: the month is 1 to 12, the day of the year 1 to 366; 2025-12-29 is in ISO week 1 of 2026 |
 | `hour()`, `minute()`, `second()`, `nanosecond()` | a `Time`'s and a `DateTime`'s readers; `nanosecond()` is the whole part below the second, 0 to 999,999,999 |
-| `d.add(years: 0, months: 0, weeks: 0, days: 0) -> Date` | the date the calendar amounts later, each by name and of either sign: years and months first, together as months, a day past the month's end becoming its last day (Jan 31 and a month is Feb 28, or 29); then weeks and days (Jan 31, a month and a day, is Mar 1). `d.add(1)` and `d.add(hours: 1)` are compile errors |
-| `dt.add(`*duration*`, years: 0, months: 0, weeks: 0, days: 0) -> DateTime` | the same, then a duration in a duration form ([std.time](#stdtime)), every day 24 hours: `dt.add(days: 1, hours: 2)`; a bare number is seconds, `dt.add(1)`, never a day, and `dt.add(1, 2)` is a compile error |
+| `d.add(years: 0, months: 0, weeks: 0, days: 0) -> Date` | the date the calendar amounts later, each by name and of either sign: years and months first, together as months, a day past the month's end becoming its last day (Jan 31 and a month is Feb 28, or 29); then weeks and days (Jan 31, a month and a day, is Mar 1). `d.add(hours: 1)` is a compile error |
+| `dt.add(duration: time.Duration? = none, years: 0, months: 0, weeks: 0, days: 0) -> DateTime` | the same, then a duration, every day 24 hours: by units' keywords, `dt.add(days: 1, hours: 2)`, or by its name in a duration form ([std.time](#stdtime)), `dt.add(duration: span)`, where a bare number is seconds, never a day |
 | `t.add(`*duration*`) -> Time` | the time a duration later, wrapping past midnight: 23:00 and two hours is 01:00 |
 | `checked_add(…)!` | each `add`, failing with `DateTimeError.range` where it would panic, and on a `Time` where it would wrap |
 | `with(…)!` | the value with the fields given by name replaced, `d.with(day: 1)!`: `year:`, `month:`, `day:`, `hour:`, `minute:`, `second:`, `ns:` as the type has them; fails when that is not a real value |
@@ -930,9 +930,10 @@ Arithmetic that walks past the range panics, as `Int`'s does, and each
 | `i.round(`*unit*`: n)`, `i.floor(`*unit*`: n)` | the nearest multiple of one unit's increment counted from 1970, a half going to the later, before 1970 too, and the one at or before it: `i.round(seconds: 1)` prints without a fraction. The unit is `ns:` to `hours:`, with an increment that divides a day |
 | `Instant.parse(s)!` | an instant from RFC 3339 with any offset, as Jiff reads it: `2026-11-17T15:07:03.5Z`, `2026-11-17 08:07:03,5-07:00`, `t` and `z` in small letters. A zone in brackets after the offset is read and not used; text with no offset fails |
 
-`add` of a `Date` and a `DateTime`, their `checked_add`, every `with`,
-`round`, and `floor` check their arguments where they are called, so
-none is taken as a value; a closure passes one. A recurrence anchors to its start: the k-th of a monthly
+Every argument of `add` of a `Date` and a `DateTime`, their
+`checked_add`, every `with`, `round`, and `floor` is an option, given by
+name ([SPEC "Functions"](../SPEC.md#functions)), so none is taken as a
+value; a closure passes one. A recurrence anchors to its start: the k-th of a monthly
 series is `start.add(months: k)`, since stepping from the previous one
 drifts (Jan 31, Feb 28, Mar 28).
 

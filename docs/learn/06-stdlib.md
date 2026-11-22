@@ -622,6 +622,51 @@ error). `<ts.wait_first()` and `<t.cancel()` of chapter four are the
 same: the `<` consumes the set or the task, and the word names the
 policy. **Words name the policy; sigils mark the mechanics.**
 
+## Operands and options
+
+A call's arguments come in two kinds, and the signature says which is
+which. A parameter without a default is an operand: the call always
+gives it, by position. A parameter with a default is an option: the call
+may leave it out, and gives it by name.
+
+```rig
+use std.text
+
+sub connect(host: ?String, port: Int, timeout: Int = 30, retry: Bool = true)
+  print(host, port, timeout, retry)
+
+sub main()!
+  print(text.parse_int("ff", base: 16)!, text.format_int(255, base: 2))
+  connect("db", 5432)
+  connect("db", 5432, retry: false, timeout: 5)
+```
+
+```output
+255 11111111
+db 5432 30 true
+db 5432 5 false
+```
+
+Options go after the operands, in any order. Given by position, an
+option is refused, and the error gives the fix:
+
+```rig reject
+use std.text
+
+sub main()!
+  print(text.parse_int("ff", 16)!)
+```
+
+```error
+`base` has a default, so it is an option, given by name: `base: 16`
+```
+
+So a call says what each option is, `base: 16` and never a bare `16`,
+and a library may add an option, or reorder its options, without moving
+an argument of any call. A duration option may be given by its unit
+instead, `ms: 500`, and a closure written last fills the parameter that
+takes a function, after the options.
+
 ## Summary
 
 | To | Write |
@@ -635,6 +680,7 @@ policy. **Words name the policy; sigils mark the mechanics.**
 | time a step | `time.monotonic()`, `t.elapsed()`, `time.within(d, f)` |
 | draw at random | `random.Random.seeded(n)`, `!r.shuffle(!xs)` |
 | count past 64 bits | `bigint.parse(s)!`, `a.add(b)`, `a < b` |
+| give an option | by name, after the operands: `text.parse_int(s, base: 16)!` |
 | check color | `terminal.Terminal.new(c, r)`, `!t.feed(s)`, `t.dump()` |
 | serve | `http.serve(<l, f)!` |
 

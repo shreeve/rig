@@ -12,6 +12,48 @@ release's notes, its summary, are in [docs/releases/](docs/releases/).
 
 ### Upgrading from v0.3.0
 
+**A parameter with a default is an option, given by name**
+([SPEC "Functions"](SPEC.md#functions), [design/options.md](docs/design/options.md)).
+The required parameters come first, by position, and the options after
+them by name, in any order; no parameter is exempt, the first included.
+`tools/migrate-options.py PATH`, run with a `rig` that has the rule,
+names each option a call gives by position, as the compiler's own error
+says to ([docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md), "Options by
+name"); the named form compiles under 0.3.0 too. These are rejected now,
+each with its fix in the message:
+
+- an option given by position, `connect("db", 5432, 5)`: "`timeout` has
+  a default, so it is an option, given by name: `timeout: 5`; to pass it
+  by position, remove its default". std's are `text.parse_int(s, base:
+  16)`, `text.format_int(n, base: 16, upper: true)`, `bigint.parse(s,
+  base: 10)`, `text.CharBreak.new(tailored: true)`,
+  `terminal.Terminal.new(cols, rows, scrollback: n)`, and the clock of
+  `datetime.DateTime.new(y, m, d, hour: 8)`;
+- a closure written last now fills the parameter that takes a function
+  where its position would give an option, so `repeat(|i| ...)` fills
+  `f` of `repeat(times: Int = 1, f: ?sub(Int))`;
+- a default on `_`: "`_` cannot have a default: an option is given by
+  name, and `_` has none";
+- a required parameter after an option, unless it takes a function: "`c`
+  has no default but follows the option `b`, so it could only be given
+  by name: move it before `b`, or give it a default";
+- a function with options taken as a value: "`area` has options, given
+  by name, so it is not a value: write a closure that calls it". A
+  method with options called in a generic body, whose calls go by
+  position, is refused the same way.
+
+`datetime.Time.new(hour, minute, second, ns = 0)` takes its second, so
+`Time.new(8, 30)` is `Time.new(8, 30, 0)` and `Time.new(8, 7, 3, ns:
+500)` says nanoseconds (the script writes both), and a `DateTime`'s
+`add` names its duration `duration`, `dt.add(duration: span)` or
+`dt.add(hours: 2)`. The checks std.datetime made of its own calls'
+positions (`dt.add(1, 2)`, `with(2024)`, `d.add(1)`, `round(5)`) are
+the rule's now, with its message; `round` and `floor` still take one
+unit and an increment it allows.
+
+Trig gives 52 calls an option by position and loco 25; the patches in
+`docs/history/records/2026-11/named-options-rule/` name them.
+
 **A length of time is a `time.Duration`, and a reading of the
 monotonic clock a `time.Monotonic`** ([design/datetime.md](docs/design/datetime.md), phase 1). What a
 clock gives back, `t.elapsed()`, `t.since(u)` and `time.since_start()`,

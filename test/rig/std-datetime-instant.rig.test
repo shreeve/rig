@@ -154,7 +154,7 @@ bomb "an increment from a variable is at most a billion", "datetime.Instant.floo
   k = 2_000_000_000
   print(i.floor(ns: k))
 
-fail "round and floor on an instant take an increment that divides a day", "2:24: an increment of `round` on an `Instant` divides a day, so `minutes:` takes a number that divides 1,440, and `7` does not", "3:22: an increment of `floor` on an `Instant` divides a day, so `hours:` takes a number that divides 24, and `25` does not", "4:24: an increment of `round` on an `Instant` divides a day, so `seconds:` takes a number that divides 86,400, and `86_401` does not", "5:19: an increment of `floor` on an `Instant` divides a day, so `ns:` takes a number that divides 86,400,000,000,000, and `7` does not", "6:22: an increment of `round` is from 1 to 1,000,000,000, and `0` is not", "7:15: `round` takes a unit from `ns:` to `hours:` and its increment, and `days:` is none of them", "8:15: `round` takes a unit and its increment by name, `round(minutes: 15)`, and no positional argument", "9:25: `floor` takes one unit and its increment, not 2: write the increment in one unit, `floor(minutes: 90)`", "10:27: `round` takes one unit and its increment, not 2: write the increment in one unit, `round(seconds: 450)`", "11:9: `round` takes a unit and its increment: `round(seconds: 1)`", errors: 10
+fail "round and floor on an instant take an increment that divides a day", "2:24: an increment of `round` on an `Instant` divides a day, so `minutes:` takes a number that divides 1,440, and `7` does not", "3:22: an increment of `floor` on an `Instant` divides a day, so `hours:` takes a number that divides 24, and `25` does not", "4:24: an increment of `round` on an `Instant` divides a day, so `seconds:` takes a number that divides 86,400, and `86_401` does not", "5:19: an increment of `floor` on an `Instant` divides a day, so `ns:` takes a number that divides 86,400,000,000,000, and `7` does not", "6:22: an increment of `round` is from 1 to 1,000,000,000, and `0` is not", "7:15: `round` takes a unit from `ns:` to `hours:` and its increment, and `days:` is none of them", "8:15: `ns` has a default, so it is an option, given by name: `ns: 5`", "9:25: `floor` takes one unit and its increment, not 2: write the increment in one unit, `floor(minutes: 90)`", "10:27: `round` takes one unit and its increment, not 2: write the increment in one unit, `round(seconds: 450)`", "11:9: `round` takes a unit and its increment: `round(seconds: 1)`", errors: 10
   i = datetime.Instant.from_unix(0)
   print(i.round(minutes: 7))
   print(i.floor(hours: 25))
@@ -179,11 +179,11 @@ fail "add takes one duration", "2:9: call to `add` expects 1 argument, got 2", "
   print(i.add(1, 2))
   print(i.add(1, ms: 5))
 
-fail "round is checked, so not a value", "1:22: `std.datetime.Instant.round` checks its arguments where it is called, so it must be called; wrap it in a closure to pass it as a value", "2:22: `std.datetime.Instant.floor` checks its arguments where it is called, so it must be called; wrap it in a closure to pass it as a value", errors: 2
+fail "round has options, so it is not a value", "1:22: `std.datetime.Instant.round` has options, given by name, so it is not a value: write a closure that calls it", "2:22: `std.datetime.Instant.floor` has options, given by name, so it is not a value: write a closure that calls it", errors: 2
   f = datetime.Instant.round
   g = datetime.Instant.floor
 
-fail "a generic body cannot round an instant", "3:7: `nearest[datetime.Instant]` cannot use `T = datetime.Instant`: the generic body calls `x.round(k, k, k, k, k, k)`, and `datetime.Instant.round` checks its arguments where it is called, by name, which a call in a generic body cannot give; call it where its type is written, or pass a closure that does", errors: 1
+fail "a generic body cannot round an instant", "3:7: `nearest[datetime.Instant]` cannot use `T = datetime.Instant`: the generic body calls `x.round(k, k, k, k, k, k)`, and `datetime.Instant.round` has options, given by name, which a call in a generic body cannot give; call it where its type is written, or pass a closure that does", errors: 1
   fun nearest[T](x: T, k: Int?) -> T
     x.round(k, k, k, k, k, k)
   print(nearest(datetime.Instant.from_unix(0), 1))

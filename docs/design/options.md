@@ -1,9 +1,11 @@
 # Named options, groups and spreads: the design
 
 This is the design of how a Rig call gives a function's options: by name,
-one at a time, or whole from a stored value. Nothing in it is built yet;
-every example of what it adds is a `rig pending` block, and each becomes an
-ordinary example when its rule is built. Each decision the owner made is
+one at a time, or whole from a stored value. The rule of section 1 is
+built, and its examples are ordinary ones; groups, spreads, object update
+and the shorthand are not yet, and every example of what they add is a
+`rig pending` block, which becomes an ordinary example when its rule is
+built. Each decision the owner made is
 tagged **[Owner, 2026-11-22]**; an untagged rule follows from those or is
 forced by Rig. A panel of three wrote the reports behind the keyword rule,
 a committee of three the reports behind groups and spreads, and two red
@@ -49,14 +51,13 @@ d 30 7
 
 ## Why
 
-Today any parameter may be given by position or by name. So
-`connect(host, 5432, 30, true)` compiles and says nothing about what `30`
-and `true` are, and a library that inserts a defaulted parameter before
-another of the same type silently shifts every positional caller. A
-reordered `format_int(n, upper, base)` compiles when the types agree. The
-datetime library guards its own calls against this with checks that work
-only for std (`dt.add(1, 2)` refused, `with` by name), are refused in
-generic code, and cannot protect a user's functions.
+Were any parameter given by position or by name,
+`connect(host, 5432, 30, true)` would compile and say nothing about what
+`30` and `true` are, and a library that inserts a defaulted parameter before
+another of the same type would silently shift every positional caller.
+A reordered `format_int(n, upper, base)` would compile when the types
+agree. Checks of std's own calls (`dt.add(1, 2)` refused, `with` by name)
+would work only for std and could not protect a user's functions.
 
 The rule below makes a misplaced option impossible to write. Groups and
 spreads then give what Zig's options struct gives, an options value that is
@@ -87,9 +88,9 @@ sub main()
 5433
 ```
 
-The named form runs today; the rule refuses the positional one:
+The rule refuses the positional form:
 
-```rig pending
+```rig reject
 use std.time
 
 fun connect(host: ?String, port: Int, timeout: Int = 30) -> Int
@@ -142,9 +143,9 @@ method's first argument unlabeled and Swift 3 removed the asymmetry
   operand, the docs recommend its own name, `timeout: 0.5`.
 - **A trailing closure fills the callback parameter**, the open parameter
   whose type is a function, whether or not any keyword comes before it. So
-  `repeat(|i| ...)` no longer lands on `repeat`'s first parameter.
+  `repeat(|i| ...)` never lands on `repeat`'s first parameter.
 
-```rig pending
+```rig reject
 fun scaled(n: Int, by: Int = 10, _: Bool = false) -> Int
   n * by
 
@@ -160,7 +161,7 @@ sub main()
 `c` has no default but follows the option `b`, so it could only be given by name: move it before `b`, or give it a default
 ```
 
-```rig pending
+```rig
 use std.time
 
 sub repeat(times: Int = 1, f: ?sub(Int))
@@ -782,7 +783,7 @@ sub main()!
 2027-01-31T12:00:00
 ```
 
-```rig pending
+```rig reject
 use std.datetime
 
 sub main()!
@@ -816,7 +817,7 @@ and a CHANGELOG entry; the first rejects programs a release accepts, so it
 comes with an "Upgrading" entry, a migration script, and a patch and a
 one-line note for Trig and loco.
 
-1. **The keyword rule**, about 250 compiler lines. 326 call sites change
+1. **The keyword rule** *(built)*, about 250 compiler lines. 326 call sites change
    (534 arguments): Rig's tests 223, Trig 52, loco 25, std 10, docs 9,
    tools 6, bench 1, all in a trailing run of defaulted parameters, 174 of
    them the datetime makers'. The named form is valid today, so the

@@ -748,7 +748,10 @@ sign -1
 - A `sub` that may fail ends its header with `!`:
   `sub save(p: Page)!`. A `fun` that may fail returns `T!`.
 - A parameter is `name: Type`, and may have a default:
-  `by: Int = 10`. A parameter the body ignores may be named `_`. A
+  `by: Int = 10`, which makes it an option, given by name, so the
+  required parameters come before the options (a callback, which a
+  closure written last fills, may follow them). A parameter the body
+  ignores may be named `_`, and has no default. A
   closure the body calls at most once is written `f: once ?fun() -> T`
   ([SPEC](../SPEC.md#closures-called-once)).
 - A function always writes its parameter list, even when empty, as
@@ -1650,19 +1653,33 @@ unexpected `5`
 ```
 
 Arguments go by position, in parameter order, or by keyword,
-`name: value`, in any order. Positional arguments come first, and a
-parameter with a default may be left out.
+`name: value`, in any order. Positional arguments come first. A
+parameter with a default is an option: it may be left out, and it is
+given by keyword, never by position
+([SPEC "Functions"](../SPEC.md#functions)).
 
 ```rig
-fun scaled(n: Int, by: Int = 10, _: Bool = false) -> Int
+fun scaled(n: Int, by: Int = 10) -> Int
   n * by
 
 sub main()
-  print(scaled(3, by: 2), scaled(by: 4, n: 5), scaled(3, by: 2), scaled(3))
+  print(scaled(3, by: 2), scaled(by: 4, n: 5), scaled(3))
 ```
 
 ```output
-6 20 6 30
+6 20 30
+```
+
+```rig reject
+fun scaled(n: Int, by: Int = 10) -> Int
+  n * by
+
+sub main()
+  print(scaled(3, 2))
+```
+
+```error
+`by` has a default, so it is an option, given by name: `by: 2`
 ```
 
 A closure whose body is an assignment (`|!total, n| total += n`) is the
@@ -1679,6 +1696,8 @@ follows, and gives a `Task[T]` at once: `t = sq(4)&`, then
 
 A function's name, or a method named through its type, is a value of a
 function type. A method's first parameter is then what it takes as self.
+A function with options is not a value, since a call through one gives
+every argument by position: a closure that calls it is.
 
 ```rig
 fun twice(n: Int) -> Int

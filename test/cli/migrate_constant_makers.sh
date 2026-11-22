@@ -29,7 +29,7 @@ sub main()!
   t = Time.new(8, 30)!
   a = dt.Date.new(2026, 1, 31)!
   b = D.new(2026, 2, 28)!.add(days: 1)
-  c = dt.Time.new(hour: 8, minute: 30)!
+  c = dt.Time.new(hour: 8, minute: 30, second: 0)!
   print(t.h, a, b, c)
   print("dt.Date.new(2026, 1, 31)!", `{a} dt.Time.new(1, 2)!`)
 EOF
@@ -52,7 +52,7 @@ sub main()!
   t = Time.new(8, 30)!
   a = dt.Date.new(2026, 1, 31)
   b = D.new(2026, 2, 28).add(days: 1)
-  c = dt.Time.new(hour: 8, minute: 30)
+  c = dt.Time.new(hour: 8, minute: 30, second: 0)
   print(t.h, a, b, c)
   print("dt.Date.new(2026, 1, 31)!", `{a} dt.Time.new(1, 2)!`)
 EOF

@@ -75,11 +75,11 @@ pub obj DateTime: Eq + Ord + Hash + Print
   pub fun nanosecond(?@) -> Int
     Int(@at.ns)
 
-  # The date and time a duration and the calendar amounts later: the
-  # duration in a duration form first, `dt.add(0.5)` (half a second),
-  # `dt.add(hours: 2)`; the calendar amounts by name, `dt.add(days: 1)`,
-  # and both, `dt.add(days: 1, hours: 2)`. A bare number is seconds,
-  # never days. Years and months come first, together as months, with a
+  # The date and time a duration and the calendar amounts later, each
+  # given by name: the duration by units, `dt.add(hours: 2)`, or by its
+  # name in a duration form, `dt.add(duration: 0.5)` (half a second); the
+  # calendar amounts, `dt.add(days: 1)`; and both, `dt.add(days: 1,
+  # hours: 2)`. A bare number is seconds, never days. Years and months come first, together as months, with a
   # day past the month's end becoming its last day; then weeks and
   # days; then the duration, every day 24 hours. Each is of either sign.
   # Panics when a step leaves the range; `checked_add` fails instead.

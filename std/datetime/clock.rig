@@ -13,12 +13,13 @@ pub obj Time: Eq + Ord + Hash + Print
   s: U8
   ns: U32
 
-  # The time `hour`:`minute`:`second` and `ns` nanoseconds. Fails with
+  # The time `hour`:`minute`:`second` and `ns` nanoseconds, given by
+  # name, `Time.new(8, 7, 3, ns: 500)`. Fails with
   # `DateTimeError.range` unless the hour is 0 to 23, the minute and the
   # second 0 to 59, and `ns` 0 to 999,999,999: a second of 60 fails,
   # and `Time.new(23, 59, 60)`, its arguments constants, is refused as
   # Rig compiles.
-  pub fun new(hour: Int, minute: Int, second: Int = 0, ns: Int = 0) -> Time!
+  pub fun new(hour: Int, minute: Int, second: Int, ns: Int = 0) -> Time!
     if not within(hour, 0, 23) or not within(minute, 0, 59) or not within(second, 0, 59) or not within(ns, 0, 999_999_999)
       return DateTimeError.range
     clock(hour, minute, second, ns)
