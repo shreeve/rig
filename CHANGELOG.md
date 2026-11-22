@@ -51,7 +51,8 @@ positions (`dt.add(1, 2)`, `with(2024)`, `d.add(1)`, `round(5)`) are
 the rule's now, with its message; `round` and `floor` still take one
 unit and an increment it allows.
 
-Trig gives 52 calls an option by position and loco 25; the patches in
+Trig gives 67 options by position, on 49 lines, and loco 24, on 22;
+`trig.patch` and `loco.patch` in
 `docs/history/records/2026-11/named-options-rule/` name them.
 
 **A length of time is a `time.Duration`, and a reading of the

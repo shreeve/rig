@@ -1,0 +1,500 @@
+diff --git i/src/ast/prebuilt.rig w/src/ast/prebuilt.rig
+index 4c47455..173c5d0 100644
+--- i/src/ast/prebuilt.rig
++++ w/src/ast/prebuilt.rig
+@@ -513,7 +513,7 @@ pub fun decode_bound_file(sections: ?List[Static], records: List[NodeRec], sourc
+   !b.tables.reserve(n)
+   for _ in 0..n
+     m = (!r).list()
+-    t = (!b).new_table(m)
++    t = (!b).new_table(n: m)
+     for _ in 0..m
+       key = atoms[Int((!r).u32())]
+       !b.table_put(t, key, (!r).u32())
+diff --git i/src/ast/utilities.rig w/src/ast/utilities.rig
+index 3f0c3dc..6ebcb5a 100644
+--- i/src/ast/utilities.rig
++++ w/src/ast/utilities.rig
+@@ -2447,7 +2447,7 @@ pub fun Ast.for_each_dynamic_import_or_require_call(?@, file: Node, text: ?Strin
+   size = found.size
+   ordered = last_index >= 0 and @ordered_statements(file)
+   while last_index >= 0
+-    node = @get_node_at_position(file, last_index, is_java_script_file and include_type_space_imports, jsdoc, ordered)
++    node = @get_node_at_position(file, last_index, is_java_script_file and include_type_space_imports, jsdoc, ordered: ordered)
+     if is_java_script_file and @is_require_call(node, require_string_literal_like_argument)
+       if cb(node, @nodes(deref_list(@argument_list(node)))[0])
+         return true
+diff --git i/src/binder/binder.rig w/src/binder/binder.rig
+index ee07a55..d5631e3 100644
+--- i/src/binder/binder.rig
++++ w/src/binder/binder.rig
+@@ -186,7 +186,7 @@ sub bind_source_file_worker(file: !ast.File, names: !ast.Names, frozen: ?ast.Nam
+   is_declaration_file = file.is_declaration_file
+   # Trig: a bundled lib's locals stay a list by node id (Binding.locals).
+   dense_locals = not file.reads_own_text()
+-  b = Binder(file: swap(!file, empty_file()), names: swap(!names, ast.Names()), frozen: frozen, base: base, binding: ast.Binding.new(node_count, is_declaration_file, dense_locals), unreachable_flow: 0, container: Node(id: 0), this_container: none, block_scope_container: Node(id: 0), last_container: none, current_flow: 0, current_break_target: 0, current_continue_target: 0, current_return_target: 0, current_true_target: 0, current_false_target: 0, current_exception_target: 0, pre_switch_case_flow: 0, active_label_list: 0, active_labels: List(), emit_flags: 0, seen_this_keyword: false, has_explicit_return: false, has_flow_effects: false, in_assignment_pattern: false, seen_parse_error: false, symbol_count: 0, not_const_enum_only_modules: Set[SymbolId].new(), expando_assignments: List(), symbol_ids: Map[U32, Int].new(), node_ids: Map[U32, Int].new(), scratch: List(), chain: List())
++  b = Binder(file: swap(!file, empty_file()), names: swap(!names, ast.Names()), frozen: frozen, base: base, binding: ast.Binding.new(node_count, is_declaration_file: is_declaration_file, dense_locals: dense_locals), unreachable_flow: 0, container: Node(id: 0), this_container: none, block_scope_container: Node(id: 0), last_container: none, current_flow: 0, current_break_target: 0, current_continue_target: 0, current_return_target: 0, current_true_target: 0, current_false_target: 0, current_exception_target: 0, pre_switch_case_flow: 0, active_label_list: 0, active_labels: List(), emit_flags: 0, seen_this_keyword: false, has_explicit_return: false, has_flow_effects: false, in_assignment_pattern: false, seen_parse_error: false, symbol_count: 0, not_const_enum_only_modules: Set[SymbolId].new(), expando_assignments: List(), symbol_ids: Map[U32, Int].new(), node_ids: Map[U32, Int].new(), scratch: List(), chain: List())
+   !b.active_labels.push(ActiveLabel(next: 0, break_target: 0, continue_target: 0, name: 0, referenced: false))
+   b.unreachable_flow = (!b).new_flow_node(ast.FLOW_FLAGS_UNREACHABLE)
+   root = b.file.root
+diff --git i/src/binder/dump.rig w/src/binder/dump.rig
+index 84320ce..53e59ff 100644
+--- i/src/binder/dump.rig
++++ w/src/binder/dump.rig
+@@ -117,7 +117,7 @@ sub put_flags(out: !String, flags: U32, bit_names: []Static, sep: Static)
+   rest = flags & known.not()
+   if rest != 0
+     !out.add(sep) if not first
+-    !out.add("0x", stdtext.format_int(Int(rest), 16))
++    !out.add("0x", stdtext.format_int(Int(rest), base: 16))
+     first = false
+   !out.add("-") if first
+ 
+diff --git i/src/checker/nodebuilder.rig w/src/checker/nodebuilder.rig
+index 66a858d..ae8b2ff 100644
+--- i/src/checker/nodebuilder.rig
++++ w/src/checker/nodebuilder.rig
+@@ -196,7 +196,7 @@ pub obj NodeBuilder
+ pub fun new_node_builder(files: []ast.File, bindings: []ast.Binding) -> NodeBuilder
+   pseudo_types: List[PseudoTypeRec] = List()
+   !pseudo_types.push(PseudoTypeRec())
+-  NodeBuilder(tree: printer.new_node_factory(), emit: printer.EmitContext.new(files, bindings), ctx: NodeBuilderContext(), ctx_stack: List(), active: 0, id_to_symbol: Map(), fake_scopes: List(), reuse_bounds: List(), reuse_frames: List(), pseudo_types: <pseudo_types, pseudo_ids: List(), pseudo_nodes: List(), pseudo_params: List(), pseudo_elements: List())
++  NodeBuilder(tree: printer.new_node_factory(), emit: printer.EmitContext.new(files: files, bindings: bindings), ctx: NodeBuilderContext(), ctx_stack: List(), active: 0, id_to_symbol: Map(), fake_scopes: List(), reuse_bounds: List(), reuse_frames: List(), pseudo_types: <pseudo_types, pseudo_ids: List(), pseudo_nodes: List(), pseudo_params: List(), pseudo_elements: List())
+ 
+ # Go: checker/nodebuilder.go:288 getNodeBuilder
+ # Go: checker/nodebuilder.go:299 getNodeBuilderEx
+@@ -204,7 +204,7 @@ pub fun new_node_builder(files: []ast.File, bindings: []ast.Binding) -> NodeBuil
+ # releases the nodes of the last, as Go's `releaseNodes` does.
+ sub NodeBuilder.release_nodes(!@)
+   @tree = printer.new_node_factory()
+-  @emit = printer.EmitContext.new(@emit.files, @emit.bindings)
++  @emit = printer.EmitContext.new(files: @emit.files, bindings: @emit.bindings)
+   !@id_to_symbol.clear()
+   # The types serialized into the last tree, whose nodes are gone.
+   !@serialized_types.clear()
+diff --git i/src/collections/multimap.rig w/src/collections/multimap.rig
+index 3e98a76..9fba84a 100644
+--- i/src/collections/multimap.rig
++++ w/src/collections/multimap.rig
+@@ -63,7 +63,7 @@ pub obj MultiMap[K, V: Eq]
+ 
+ # Go: collections/multimap.go:13 NewMultiMapWithSizeHint
+ pub fun new_multi_map_with_size_hint[K, V](hint: Int) -> MultiMap[K, V]
+-  MultiMap(m: Map.new(hint))
++  MultiMap(m: Map.new(capacity: hint))
+ 
+ # Go: collections/multimap.go:19 GroupBy
+ # PORT: the items are moved into the groups, in order; Go copies them.
+diff --git i/src/collections/set.rig w/src/collections/set.rig
+index bee3438..0c9647c 100644
+--- i/src/collections/set.rig
++++ w/src/collections/set.rig
+@@ -105,7 +105,7 @@ pub obj Set[T]
+ # Go: collections/set.go:10 NewSetWithSizeHint
+ # NewSetWithSizeHint creates a new Set with a hint for the number of elements it will contain.
+ pub fun new_set_with_size_hint[T](hint: Int) -> Set[T]
+-  Set(m: hashset.HashSet[T].new(hint))
++  Set(m: hashset.HashSet[T].new(capacity: hint))
+ 
+ # Go: collections/set.go:138 NewSetFromItems
+ # PORT: Go's variadic `items ...T` is a List the set takes the items from;
+diff --git i/src/core/nodemodules.rig w/src/core/nodemodules.rig
+index 1de52f4..1d22734 100644
+--- i/src/core/nodemodules.rig
++++ w/src/core/nodemodules.rig
+@@ -102,7 +102,7 @@ pub fun is_node_core_module(name: ?String) -> Bool
+ # The set itself, as Go's `NodeCoreModules()` returns it, for a caller that
+ # wants to iterate it or hold it.
+ pub fun node_core_modules() -> Set[String]
+-  set: Set[String] = Set.new(UNPREFIXED_NODE_CORE_MODULES.len * 2 + EXCLUSIVELY_PREFIXED_NODE_CORE_MODULES.len)
++  set: Set[String] = Set.new(capacity: UNPREFIXED_NODE_CORE_MODULES.len * 2 + EXCLUSIVELY_PREFIXED_NODE_CORE_MODULES.len)
+   for m in UNPREFIXED_NODE_CORE_MODULES
+     _ = (!set).add(String(m))
+     _ = (!set).add(String("node:", m))
+diff --git i/src/declarations/checkerpool.rig w/src/declarations/checkerpool.rig
+index 474bac7..68be652 100644
+--- i/src/declarations/checkerpool.rig
++++ w/src/declarations/checkerpool.rig
+@@ -110,7 +110,7 @@ pub fun new_checker_pool(program: ?compiler.Program, names: ?ast.Names, type_log
+   if count > 1 and defer_checkers
+     # Trig: the first checker answers the program's questions before the
+     # pass (get_global_diagnostics); the others are made in their tasks.
+-    !checkers.push(checker.new_checker(program, names, type_log, lazy_members))
++    !checkers.push(checker.new_checker(program, names, type_log: type_log, lazy_members: lazy_members))
+     deferred = count - 1
+   else if count > 1
+     # Trig: the files' associations in a task of their own, beside the
+@@ -118,14 +118,14 @@ pub fun new_checker_pool(program: ?compiler.Program, names: ?ast.Names, type_log
+     assigning = associations_of(program, count)&
+     tasks: List[Task[checker.Checker]] = List()
+     for _ in 0..count
+-      !tasks.push(checker.new_checker(program, names, type_log, lazy_members)&)
++      !tasks.push(checker.new_checker(program, names, type_log: type_log, lazy_members: lazy_members)&)
+     for t in <tasks
+       !checkers.push(>t)
+     for _ in 0..count
+       !resolvers.push(checker.new_emit_resolver())
+     return CheckerPool(program: program, checkers: <checkers, resolvers: <resolvers, associations: >assigning, deferred: deferred, names: names, type_log: type_log, lazy_members: lazy_members)
+   else
+-    !checkers.push(checker.new_checker(program, names, type_log, lazy_members))
++    !checkers.push(checker.new_checker(program, names, type_log: type_log, lazy_members: lazy_members))
+   for _ in 0..count
+     !resolvers.push(checker.new_emit_resolver())
+   associations: List[Int] = List()
+@@ -548,7 +548,7 @@ fun check_pulled(c0: checker.Checker?, me: Int, program: ?compiler.Program, queu
+   first = (!queues).take(me)
+   if first == none
+     return PulledGroup.Done(checker: <c0, files: <files, diagnostics: <diagnostics, owner: <owner, whole: <whole, global: List(), counts: CheckedCounts(), lazy_line: String())
+-  c = <c0 ?? checker.new_checker(program, names, type_log, lazy_members)
++  c = <c0 ?? checker.new_checker(program, names, type_log: type_log, lazy_members: lazy_members)
+   next: Int? = first
+   loop
+     if next == none
+diff --git i/src/declarations/emitter.rig w/src/declarations/emitter.rig
+index ab2ad10..bac8f82 100644
+--- i/src/declarations/emitter.rig
++++ w/src/declarations/emitter.rig
+@@ -422,7 +422,7 @@ sub emit_js_file_text(c: !checker.Checker, resolver: !checker.EmitResolver, f: I
+   # create a printer to print the nodes
+   p = printer.Printer.new(printer_options)
+   emit_maps = should_emit_source_maps(options.source_map.is_true(), options.inline_source_map.is_true(), out_file.file_name)
+-  !print_source_file(!c, !p, js_file_path, source_map_file_path, !out_file, options.source_map.is_true() or options.inline_source_map.is_true(), emit_maps, !result, true)
++  !print_source_file(!c, !p, js_file_path, source_map_file_path, !out_file, options.source_map.is_true() or options.inline_source_map.is_true(), emit_maps, !result, into_js: true)
+   !c.end_declaration_file()
+ 
+ # One script transformer of a file's emit: a ported one, `visit`, or one
+@@ -766,7 +766,7 @@ pub fun get_diagnostics_of_any_program(pool: !CheckerPool, config_index: Int, sk
+         include_any = false
+         for d in ?include_by_file
+           include_any = include_any or d.len > 0
+-        checked_by_file = (!pool).check_groups(may_drop, all_diagnostics.len > config_file_parsing_diagnostics_length or include_any)
++        checked_by_file = (!pool).check_groups(may_drop: may_drop, has_diagnostics: all_diagnostics.len > config_file_parsing_diagnostics_length or include_any)
+         for f in 0..program.files.len
+           # Go: compiler/program.go:1514 getSemanticDiagnosticsWithChecker
+           if not program.skip_type_checking(f, false)
+diff --git i/src/execute/emit.rig w/src/execute/emit.rig
+index bf132cd..a63b41e 100644
+--- i/src/execute/emit.rig
++++ w/src/execute/emit.rig
+@@ -168,7 +168,7 @@ fun check_and_emit(program: ?compiler.Program, names: ?ast.Names, config_index:
+   # Trig: with noEmit the balanced checkers past the first are made in
+   # their tasks, as each takes a file (declarations.CheckerPool.deferred).
+   checkers = count if count > 0 else program.checker_count()
+-  pool = declarations.new_checker_pool(program, names, false, sys.lazy_members, count, sys.dynamic_checkers and program.options.no_emit.is_true() and checkers > DEFER_MIN_CHECKERS)
++  pool = declarations.new_checker_pool(program, names, type_log: false, lazy_members: sys.lazy_members, wanted: count, defer_checkers: sys.dynamic_checkers and program.options.no_emit.is_true() and checkers > DEFER_MIN_CHECKERS)
+   pool.dynamic = sys.dynamic_checkers
+   pool.assign_seed = sys.assign_seed
+   pool.split_files = sys.split_files
+@@ -255,7 +255,7 @@ sub check_and_emit_on(pool: !declarations.CheckerPool, result: !Checked, config_
+     spent = program.clock() - emit_start
+     result.emit_ns = spent if spent > 0 else 1
+     return
+-  emitted = declarations.emit_declarations(!pool, true)
++  emitted = declarations.emit_declarations(!pool, js: true)
+   spent = program.clock() - emit_start
+   result.emit_ns = spent if spent > 0 else 1
+   if emitted.js_unsupported.len > 0
+diff --git i/src/hashset/hashset.rig w/src/hashset/hashset.rig
+index fab3c89..043eef0 100644
+--- i/src/hashset/hashset.rig
++++ w/src/hashset/hashset.rig
+@@ -6,7 +6,7 @@ pub obj HashSet[T: Hash]
+   s: Set[T] = Set[T]()
+ 
+   pub fun new(capacity: Int = 0) -> HashSet[T]
+-    HashSet(s: Set[T].new(capacity))
++    HashSet(s: Set[T].new(capacity: capacity))
+ 
+   pub fun len(?@) -> Int
+     @s.len
+diff --git i/src/lexer/classes_test.rig w/src/lexer/classes_test.rig
+index 0f773d3..b9204de 100644
+--- i/src/lexer/classes_test.rig
++++ w/src/lexer/classes_test.rig
+@@ -12,7 +12,7 @@ test "CHAR_CLASS"
+   for b in 0..256
+     c = CHAR_CLASS[b]
+     ascii = b < stringutil.RUNE_SELF
+-    at = stdtext.format_int(b, 16)
++    at = stdtext.format_int(b, base: 16)
+     !t.check((c & CLASS_ID_PART != 0) == (ascii and is_identifier_part_ex(b, .Standard)), String("CLASS_ID_PART at 0x", at))
+     !t.check((c & CLASS_WHITE_SPACE != 0) == (ascii and stringutil.is_white_space_single_line(b)), String("CLASS_WHITE_SPACE at 0x", at))
+     !t.check((c & CLASS_LINE_BREAK != 0) == (ascii and stringutil.is_line_break(b)), String("CLASS_LINE_BREAK at 0x", at))
+@@ -30,7 +30,7 @@ test "text_to_keyword"
+     !t.check(text_to_keyword(w) == KEYWORD_KINDS[k], String("the keyword ", w))
+     for i in [0, w.len / 2, w.len - 1]
+       s = String(w[0..i], "_", w[i + 1..w.len])
+-      !t.check(text_to_keyword(s) == .Unknown, String(w, " with _ at ", stdtext.format_int(i, 10)))
++      !t.check(text_to_keyword(s) == .Unknown, String(w, " with _ at ", stdtext.format_int(i, base: 10)))
+     !t.check(text_to_keyword(String(w, "s")) == .Unknown or String(w, "s") == "asserts", String(w, " with s after"))
+     !t.check(text_to_keyword(w[0..w.len - 1]) == .Unknown or w == "asserts", String(w, " less its last byte"))
+   t.done()!
+diff --git i/src/lexer/regexp.rig w/src/lexer/regexp.rig
+index ae084e1..157c03a 100644
+--- i/src/lexer/regexp.rig
++++ w/src/lexer/regexp.rig
+@@ -360,7 +360,7 @@ fun scan_decimal_escape(s: !Scanner) -> Bool
+     start = s.pos
+     scan_digits(!s)
+     # Go `strconv.Atoi`, with math.MaxInt on an error.
+-    val = (stdtext.parse_int(s.token_value(), 10) catch Int.max)
++    val = (stdtext.parse_int(s.token_value(), base: 10) catch Int.max)
+     !s.rx.decimal_escapes.push(DecimalEscapeValue(pos: start, end: s.pos, value: val))
+     return true
+   false
+diff --git i/src/lexer/scanner.rig w/src/lexer/scanner.rig
+index 371878f..cd7a904 100644
+--- i/src/lexer/scanner.rig
++++ w/src/lexer/scanner.rig
+@@ -193,7 +193,7 @@ I32_MAX = 2147483647
+ # ignored: the scanner calls it only on digits it has checked, so the
+ # one error is a range error, on which Go returns the int32 limit.
+ fun parse_int32(s: ?String, base: Int) -> Int
+-  v = (stdtext.parse_int(s, base) catch I32_MAX)
++  v = (stdtext.parse_int(s, base: base) catch I32_MAX)
+   I32_MAX if v > I32_MAX else v
+ 
+ # ---- The spelling suggestion (core.GetSpellingSuggestion, as a fold) -----
+@@ -2154,11 +2154,11 @@ pub obj Scanner
+         else
+           # Go `strconv.ParseInt(digits, 8, 64)`, its error ignored: the
+           # int64 limit on a range error.
+-          val = (stdtext.parse_int(digits, 8) catch Int.max)
++          val = (stdtext.parse_int(digits, base: 8) catch Int.max)
+           !@value_set(String(val))
+           @token_flags |= ast.TOKEN_FLAGS_OCTAL
+           with_minus = @token == .MinusToken
+-          literal = String("-" if with_minus else "", "0o", stdtext.format_int(val, 8))
++          literal = String("-" if with_minus else "", "0o", stdtext.format_int(val, base: 8))
+           if with_minus
+             start -= 1
+           !@error_at_with(.Octal_literals_are_not_allowed_Use_the_syntax_0, start, @pos - start, <literal)
+@@ -2389,7 +2389,7 @@ fun has_js_doc_tag(text: ?String, tags: []Static) -> Bool
+ 
+ # Go `fmt.Sprintf("\\x%02x", code)`.
+ fun hex_escape_text(code: Int) -> String
+-  digits = stdtext.format_int(code, 16)
++  digits = stdtext.format_int(code, base: 16)
+   String("\\x", "0" if digits.len < 2 else "", digits)
+ 
+ # Whether `jsnum.FromString(text).String() == text`, known without
+diff --git i/src/parser/jsdoc.rig w/src/parser/jsdoc.rig
+index d5af1b9..13548a9 100644
+--- i/src/parser/jsdoc.rig
++++ w/src/parser/jsdoc.rig
+@@ -21,7 +21,7 @@ use std.utf8
+ # first), which the parser takes for the parse and gives back, where
+ # each call made an arena of its own (docs/DIVERGENCE.md).
+ pub fun parse_jsdoc_for_node(arena: !ast.Ast?, source_file: ?ast.File, node: Node) -> List[Node]
+-  p = Parser.new(?source_file.file_name, ?source_file.text(), source_file.script_kind, false, swap(!arena, none))
++  p = Parser.new(?source_file.file_name, ?source_file.text(), source_file.script_kind, arrow_bits: false, tree_in: swap(!arena, none))
+   tree = ?source_file.ast
+   ranges = get_jsdoc_comment_ranges(tree.kind(node), tree.pos(node), tree.end(node), source_file.text())
+   jsdoc: List[Node] = List()
+diff --git i/src/parser/parser.rig w/src/parser/parser.rig
+index 0266acd..cfd9dad 100644
+--- i/src/parser/parser.rig
++++ w/src/parser/parser.rig
+@@ -611,7 +611,7 @@ pub obj Parser
+   # PORT: the infos move into the cache, the last info for a node winning
+   # as Go's map assignment does.
+   fun create_jsdoc_cache(!@) -> Map[U32, List[Node]]
+-    result = Map[U32, List[Node]].new(@jsdoc_infos.len)
++    result = Map[U32, List[Node]].new(capacity: @jsdoc_infos.len)
+     infos = swap(!@jsdoc_infos, List())
+     while (!infos).pop() as info
+       if not result.has(info.parent.id)
+@@ -6683,7 +6683,7 @@ pub fun parse_source_file_with_options(file_name: ?String, source: ast.SourceTex
+ # file gets the arena's copy fitted to its length, and `scratch` the arena
+ # back, emptied, for the caller's next file. The tree is the same.
+ pub fun parse_source_file_into(file_name: ?String, source: ast.SourceText, script_kind: core.ScriptKind, opts: ?ast.ExternalModuleIndicatorOptions, scratch: !ast.Ast) -> ast.File
+-  file = parse_text(file_name, ?source.get(), script_kind, opts, true, swap(!scratch, ast.Ast.empty()))
++  file = parse_text(file_name, ?source.get(), script_kind, opts, true, tree_in: swap(!scratch, ast.Ast.empty()))
+   file.source = <source
+   if file.reads_own_text()
+     fitted = (!file.ast).take_fitted()
+@@ -6714,7 +6714,7 @@ pub obj IsolatedEntityName
+ 
+ # Go: parser/parser.go:281 ParseIsolatedEntityName
+ pub fun parse_isolated_entity_name(text: ?String) -> IsolatedEntityName?
+-  p = Parser.new("", text, .JS, false)
++  p = Parser.new("", text, .JS, arrow_bits: false)
+   !p.next_token()
+   entity_name = (!p).parse_entity_name(true, false, none)
+   return none if p.token != .EndOfFile or p.diagnostics.len != 0
+diff --git i/src/parser/pieces.rig w/src/parser/pieces.rig
+index f033380..5eaf2f9 100644
+--- i/src/parser/pieces.rig
++++ w/src/parser/pieces.rig
+@@ -87,7 +87,7 @@ pub obj ParsedPiece
+ # piece's positions are the file's, and the piece's end is the text's.
+ # `reserve` is the length of text to size its arena for.
+ pub fun parse_piece(file_name: ?String, source: ?String, start: Int, stop: Int, reserve: Int, script_kind: core.ScriptKind, opts: ?ast.ExternalModuleIndicatorOptions) -> ParsedPiece
+-  p = Parser.new(file_name, source[0..stop], script_kind, true, none, reserve)
++  p = Parser.new(file_name, source[0..stop], script_kind, arrow_bits: true, tree_in: none, reserve_text: reserve)
+   p.force_external_module = opts.force
+   p.jsx_external_module = opts.jsx
+   !p.scanner.reset_pos(start)
+@@ -145,7 +145,7 @@ pub sub rebase_piece(piece: !ParsedPiece)
+ pub fun join_pieces(file_name: ?String, source: ?String, script_kind: core.ScriptKind, opts: ?ast.ExternalModuleIndicatorOptions, pieces: List[ParsedPiece]) -> ast.File
+   new rest = <pieces
+   head = (!rest).remove(0)
+-  p = Parser.new(file_name, source, script_kind, false, swap(!head.tree, ast.Ast.new()))
++  p = Parser.new(file_name, source, script_kind, arrow_bits: false, tree_in: swap(!head.tree, ast.Ast.new()))
+   p.force_external_module = opts.force
+   p.jsx_external_module = opts.jsx
+   p.context_flags |= ast.NODE_FLAGS_AMBIENT
+diff --git i/src/printer/factory.rig w/src/printer/factory.rig
+index dd08305..f9a0c82 100644
+--- i/src/printer/factory.rig
++++ w/src/printer/factory.rig
+@@ -60,9 +60,9 @@ fun new_generated_identifier(tree: !ast.Ast, ctx: !EmitContext, kind: Int, text0
+         base = String(ntree.text(n.node))
+       else
+         g = (?ctx).get_node_for_generated_name_worker(?tree, n, id)
+-        base = String("(generated@", stdtext.format_int(Int(g.file), 10), ":", stdtext.format_int(Int(g.node.id), 10), ")")
++        base = String("(generated@", stdtext.format_int(Int(g.file), base: 10), ":", stdtext.format_int(Int(g.node.id), base: 10), ")")
+     else
+-      base = String("(auto@", stdtext.format_int(Int(id), 10), ")")
++      base = String("(auto@", stdtext.format_int(Int(id), base: 10), ")")
+     text = format_generated_name(false, options.prefix, base, options.suffix)  # privateName
+ 
+   name = (!tree).new_identifier(text)
+@@ -133,9 +133,9 @@ fun new_generated_private_identifier(tree: !ast.Ast, ctx: !EmitContext, kind: In
+         base = String(ntree.text(n.node))
+       else
+         g = (?ctx).get_node_for_generated_name_worker(?tree, n, id)
+-        base = String("(generated@", stdtext.format_int(Int(g.file), 10), ":", stdtext.format_int(Int(g.node.id), 10), ")")
++        base = String("(generated@", stdtext.format_int(Int(g.file), base: 10), ":", stdtext.format_int(Int(g.node.id), base: 10), ")")
+     else
+-      base = String("(auto@", stdtext.format_int(Int(id), 10), ")")
++      base = String("(auto@", stdtext.format_int(Int(id), base: 10), ")")
+     text = format_generated_name(true, options.prefix, base, options.suffix)  # privateName
+   else if not has_leading_hash(text0)
+     debug.fail(String("First character of private identifier must be #: ", text0))
+@@ -375,7 +375,7 @@ pub fun new_function_call_call(tree: !ast.Ast, ctx: !EmitContext, target: ast.No
+ pub fun new_array_slice_call(tree: !ast.Ast, ctx: !EmitContext, array: ast.Node, start: Int) -> ast.Node
+   args: List[ast.Node] = List()
+   if start != 0
+-    !args.push((!tree).new_numeric_literal(stdtext.format_int(start, 10), ast.TOKEN_FLAGS_NONE))
++    !args.push((!tree).new_numeric_literal(stdtext.format_int(start, base: 10), ast.TOKEN_FLAGS_NONE))
+   slice = (!tree).new_identifier("slice")
+   new_method_call(!tree, !ctx, array, slice, args[..])
+ 
+@@ -614,7 +614,7 @@ pub fun new_metadata_helper(tree: !ast.Ast, ctx: !EmitContext, metadata_key: ?St
+ # Go: printer/factory.go:639 NewParamHelper
+ pub fun new_param_helper(tree: !ast.Ast, ctx: !EmitContext, expression: ast.Node, parameter_offset: Int, location: core.TextRange) -> ast.Node
+   !ctx.request_emit_helper(.Param)
+-  offset = (!tree).new_numeric_literal(stdtext.format_int(parameter_offset, 10), ast.TOKEN_FLAGS_NONE)
++  offset = (!tree).new_numeric_literal(stdtext.format_int(parameter_offset, base: 10), ast.TOKEN_FLAGS_NONE)
+   helper = new_helper_call(!tree, !ctx, "__param", [offset, expression][..])
+   !tree.set_loc(helper, location.pos, location.end)
+   helper
+diff --git i/src/printer/namegenerator.rig w/src/printer/namegenerator.rig
+index 0041725..fa6599d 100644
+--- i/src/printer/namegenerator.rig
++++ w/src/printer/namegenerator.rig
+@@ -270,7 +270,7 @@ pub obj NameGenerator
+           !name.push(0x5F)  # '_'
+           !name.push(U8(0x61 + count))  # 'a'+byte(count)
+         else
+-          !name.add("_", stdtext.format_int(count - 26, 10))
++          !name.add("_", stdtext.format_int(count - 26, base: 10))
+         full_name = format_generated_name(private_name, prefix, name, suffix)
+         if (!@).is_unique_name(tree, ctx, src, full_name, private_name)
+           !@reserve_name(full_name, private_name, reserved_in_nested_scopes, true)  # temp
+@@ -302,7 +302,7 @@ pub obj NameGenerator
+ 
+     i = 1
+     loop
+-      full_name = format_generated_name(private_name, prefix, String(base_name, stdtext.format_int(i, 10)), suffix)
++      full_name = format_generated_name(private_name, prefix, String(base_name, stdtext.format_int(i, base: 10)), suffix)
+       if (!@).check_unique_name(tree, ctx, src, full_name, private_name, file_level)
+         !@reserve_name(full_name, private_name, scoped, false)  # temp
+         return full_name
+diff --git i/src/transformers/jsxtransforms_jsx.rig w/src/transformers/jsxtransforms_jsx.rig
+index 804ab77..830b342 100644
+--- i/src/transformers/jsxtransforms_jsx.rig
++++ w/src/transformers/jsxtransforms_jsx.rig
+@@ -584,9 +584,9 @@ fun Transforms.jsx_visit_jsx_opening_like_element_or_fragment_jsx(!@, c: !checke
+       lc = lexer.get_ecma_line_and_utf16_character_of_position(?c.program.files[@file].text(), @jsx_line_starts[..], location.pos)
+       file_name_expression = (!@).jsx_get_current_file_name_expression(!c)
+       file_name_property = jsx_new_named_property(!c, "fileName", file_name_expression)
+-      line_number = (!c.builder.tree).new_numeric_literal(stdtext.format_int(lc.line + 1, 10), ast.TOKEN_FLAGS_NONE)
++      line_number = (!c.builder.tree).new_numeric_literal(stdtext.format_int(lc.line + 1, base: 10), ast.TOKEN_FLAGS_NONE)
+       line_number_property = jsx_new_named_property(!c, "lineNumber", line_number)
+-      column_number = (!c.builder.tree).new_numeric_literal(stdtext.format_int(lc.character + 1, 10), ast.TOKEN_FLAGS_NONE)
++      column_number = (!c.builder.tree).new_numeric_literal(stdtext.format_int(lc.character + 1, base: 10), ast.TOKEN_FLAGS_NONE)
+       column_number_property = jsx_new_named_property(!c, "columnNumber", column_number)
+       source_properties: List[ast.Node] = List()
+       !source_properties.push(file_name_property)
+diff --git i/tools/checker/driver.rig w/tools/checker/driver.rig
+index 0d66ad4..cf5dc3a 100644
+--- i/tools/checker/driver.rig
++++ w/tools/checker/driver.rig
+@@ -304,7 +304,7 @@ fun baselines(out: !String, shared: !Shared, program: ?compiler.Program, baselin
+   flush(!out)
+   configured = harness.compiler_test_configured_name(base, variant)
+   # Lazy member tables (checker/lazymembers.rig): TRIG_LAZY_MEMBERS=0 turns them off.
+-  pool = declarations.pool_of(program, ?shared.names, checker.new_checker(program, ?shared.names, os.env("TRIG_TYPELOG") != none, os.env("TRIG_LAZY_MEMBERS") != "0"))
++  pool = declarations.pool_of(program, ?shared.names, checker.new_checker(program, ?shared.names, type_log: os.env("TRIG_TYPELOG") != none, lazy_members: os.env("TRIG_LAZY_MEMBERS") != "0"))
+   # The emit. Go's harness emits first (compileFilesWithHost's
+   # postProgram.Emit), which asks the checker the JavaScript emit's
+   # questions and the declarations' types before checking, and its checking
+@@ -318,7 +318,7 @@ fun baselines(out: !String, shared: !Shared, program: ?compiler.Program, baselin
+   if (program.options.get_emit_declarations() or not program.options.no_emit.is_true()) and os.env("TRIG_NO_DTS") == none
+     !out.add("!! walk emit\n")
+     flush(!out)
+-    emitted = declarations.emit_declarations(!pool, js)
++    emitted = declarations.emit_declarations(!pool, js: js)
+     # Go: testrunner/compiler_runner.go:417 verifyJavaScriptOutput, which
+     # skips the tests skippedEmitTests names.
+     if not program.options.no_emit.is_true() and not harness.is_skipped_emit_test(base)
+diff --git i/tools/stringutil/std_variant/stringutil.rig w/tools/stringutil/std_variant/stringutil.rig
+index 39f788f..4227f90 100644
+--- i/tools/stringutil/std_variant/stringutil.rig
++++ w/tools/stringutil/std_variant/stringutil.rig
+@@ -135,4 +135,4 @@ pub fun code_point_to_surrogate_pair(ch: Int) -> SurrogatePair
+ # text.parse_int, with `none` for either failure. It reads Int.min, as
+ # Go's strconv.ParseInt does, where the stand-in gives `none`.
+ pub fun parse_int_radix(s: ?String, base: Int) -> Int?
+-  text.parse_int(s, base) catch none
++  text.parse_int(s, base: base) catch none
+diff --git i/tools/trig/main.rig w/tools/trig/main.rig
+index 9f75278..70c71e7 100644
+--- i/tools/trig/main.rig
++++ w/tools/trig/main.rig
+@@ -139,7 +139,7 @@ fun main() -> Int
+   # (execute's System.assign_seed), so a test sees each checker check
+   # other files in another order.
+   if os.env("TRIG_ASSIGN_SEED") as v
+-    sys.assign_seed = (text.parse_int(v, 10) catch 0)
++    sys.assign_seed = (text.parse_int(v, base: 10) catch 0)
+   # Trig, with the balanced checkers: heavy declaration files checked in
+   # pieces on several checkers (execute's System.split_files): unset or
+   # `on` by their weight, `0` or `off` never, `force:K` every checked
+@@ -150,9 +150,9 @@ fun main() -> Int
+     if v == "0" or v == "off"
+       sys.split_files = 0
+     else if text.starts_with(v, "force:")
+-      sys.split_files = max_of((text.parse_int(v[6..], 10) catch 0), 2)
++      sys.split_files = max_of((text.parse_int(v[6..], base: 10) catch 0), 2)
+     else if text.starts_with(v, "max:")
+-      sys.split_max_pieces = max_of((text.parse_int(v[4..], 10) catch 2), 2)
++      sys.split_max_pieces = max_of((text.parse_int(v[4..], base: 10) catch 2), 2)
+   sys.verify_splits = os.env("TRIG_SPLIT_VERIFY") != none
+   # Trig, opt-in with them: the balanced checkers' count by the work
+   # (execute's System.checker_bytes): TRIG_CHECKER_BYTES bytes of checked
+@@ -161,10 +161,10 @@ fun main() -> Int
+   # TRIG_MAX_CHECKERS when it is set.
+   sys.checker_bytes = CHECKER_BYTES
+   if os.env("TRIG_CHECKER_BYTES") as v
+-    sys.checker_bytes = (text.parse_int(v, 10) catch CHECKER_BYTES)
++    sys.checker_bytes = (text.parse_int(v, base: 10) catch CHECKER_BYTES)
+   sys.max_checkers = task.worker_count()
+   if os.env("TRIG_MAX_CHECKERS") as v
+-    sys.max_checkers = (text.parse_int(v, 10) catch sys.max_checkers)
++    sys.max_checkers = (text.parse_int(v, base: 10) catch sys.max_checkers)
+   # Trig: tsc's assignment on no more workers than it can use (execute's
+   # System.fit_workers), unless RIG_WORKERS names them.
+   sys.fit_workers = os.env("RIG_WORKERS") == none
