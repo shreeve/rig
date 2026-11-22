@@ -109,3 +109,25 @@ decision:
    rule, the keyword rule, then groups and spreads, then owners in groups;
    the datetime change that applies "total or visible" can follow the
    keyword rule.
+
+## Revised before step 2 (2026-11-22)
+
+A second outside review of the design, and the coordinator, recommended four
+clarifications, and the owner agreed:
+
+- **A wrapper may override a field of a group it received:**
+  `fetch(url, retries: 1, ..net)!`. Explicit named arguments override a
+  spread's fields whether the spread's value is a local, a field, or a
+  parameter of the enclosing function. Banning it on a received group gave no
+  real guarantee (a wrapper could copy the group into a local and override
+  that), and it blocked the main use of forwarding. The red team's concern (a
+  caller's `insecure: true` ignored by `connect_safe`) is an API design matter:
+  such a wrapper documents its policy or takes a group without the field. The
+  v1 limit is removed.
+- **The `round`/`floor` limit is narrowed** to calls whose contract requires
+  naming exactly one unit; ordinary type and constant checks apply after a
+  spread expands.
+- **Stored options need a declared group**, stated with an example, since
+  `f.Options` is deferred.
+- **A group is normalized into ordinary parameters**; how they reach Zig is
+  the lowering's choice (separate arguments today, by measurement).

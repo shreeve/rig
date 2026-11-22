@@ -347,7 +347,12 @@ c 1 5
   added to `Net` later never leaves a spread short.
 - **Named fields win, in any order.** A field named beside a spread, before
   it or after it, is given by that name, and the spread supplies the rest.
-  An overridden field is never read from `v`.
+  An overridden field is never read from `v`. **[Owner, 2026-11-22]**
+  This holds when `v` is a group the enclosing function received: a
+  wrapper may forward its group and pin a field,
+  `fetch(url, retries: 1, ..net)!`. A function that takes an argument has
+  never promised to pass it on unchanged; a wrapper that enforces a policy
+  documents it, or takes a group without that field.
 - **One spread per group.** Two spreads that fill one group are refused, so
   no rule of "the later wins" between spreads is needed.
 - **The operand is a place:** a name or a field path (`..cfg.net`), whose
@@ -399,9 +404,6 @@ obj Retry
 sub fetch(url: ?String, ..net: Net)
   print(url, net.retries)
 
-sub fetch_once(url: ?String, ..net: Net)
-  fetch(url, ..net, retries: 0)
-
 fun defaults() -> Net
   Net(retries: 1)
 
@@ -411,11 +413,9 @@ sub main()
   fetch("a", ..r)
   fetch("b", ..n, ..n)
   fetch("c", ..defaults())
-  fetch_once("d", retries: 5)
 ```
 
 ```error
-`retries` of `net` is given by the caller of `fetch_once`; overriding it here discards that: declare `retries` as an option of `fetch_once`
 `..r` is a `Retry`, but group `net` of `fetch` is a `Net`: a spread passes a value of the group's own type
 group `net` of `fetch` is filled by two spreads
 a spread passes a name or a field: bind `defaults()` to a name first
@@ -517,7 +517,7 @@ under it.
   2026-11-22]**: no owners and no read views (SPEC, "plain data": numbers,
   `Bool`, plain enums, `Static`, `Symbol`, vectors, and objects, arrays and
   optionals of them). A spread then copies, never moves or clones, and an
-  override drops nothing. *Why:* a group flattened into parameters
+  override drops nothing. *Why:* a group normalized into ordinary parameters
   misaligns the declaration side of the ownership checker, storage and emit,
   which index the function type's parameter bits by the written parameter
   list, and `from net` or `keeps net` has no meaning while `net` is a body
@@ -538,15 +538,10 @@ under it.
   shared group would take the unit keywords from every caller of every
   function that uses it, and a parameter named for a unit beside a new
   `Duration` field would break a declaration elsewhere.
-- **A wrapper cannot override a field of its own group** **[Owner,
-  2026-11-22]**. A spread of the function's own group parameter has no
-  field named beside it, in a call or an object update. *Why:* the caller
-  may have given that field explicitly, and the override would discard it
-  without a word. A wrapper that pins an option or changes its default
-  declares it as its own option and forwards the rest by hand.
-- **No spread into a call whose arguments are checked at compile time**
-  **[Owner, 2026-11-22]**: `round` and `floor` keep their unit keywords
-  inline and declare no group. *Why:* their check counts the call's
+- **No spread into a call whose contract requires naming exactly one
+  unit** **[Owner, 2026-11-22]**: `round` and `floor` keep their unit
+  keywords inline and declare no group. Ordinary type checks and checks of
+  constant values still apply to a call after its spread expands. *Why:* their check counts the call's
   keywords ("exactly one unit") and reads its constants (an increment that
   divides the next unit); a stored value gives it nothing to count, so a
   `Step` group would let a wrong increment through. Value checks of
@@ -554,8 +549,13 @@ under it.
   field read, not a constant), which is harmless where the run time defines
   the result, and a spread's fields are never constant arguments, so a maker
   given a spread keeps its `!` (docs/design/datetime.md, 10.6).
+- **Stored options need a declared group.** A function whose options are
+  written inline (`timeout: Int = 30`) takes them by name, but has no options
+  type to build, store or spread: to keep its settings as a value, its author
+  declares a group, `obj ConnectOptions` with `timeout: Int = 30` and
+  `retry: Bool = true`, and takes `..opts: ConnectOptions`.
 - **Deferred, each to IDEAS until a program needs it:** `f.Options` (a
-  function's options as a type), groups in APIs, function values that keep
+  function's inline options as a type), groups in APIs, function values that keep
   their options, generic groups (`..o: Opts[T]`), and groups passed by
   pointer (`..o: ?Net`).
 
@@ -614,7 +614,9 @@ What the compiler does, as measured:
 fetch("b", cfg.net.timeout, 9);
 ```
 
-- **Groups start as separate arguments.** Built with Zig 0.17.0 in
+- **A group is normalized into ordinary parameters,** and how those reach
+  Zig is the lowering's choice. Today they are separate arguments, by
+  measurement. Built with Zig 0.17.0 in
   ReleaseFast, `noinline`, with run-time values, for aarch64-macos and
   x86_64-linux:
 
@@ -721,9 +723,8 @@ That is the pitch, not the whole. Honestly listed, a programmer learns:
 11. `name:` before `,` or `)` on its line means `name: name`, for a local
     or a parameter.
 12. The v1 limits: plain data only in groups and object update; a function
-    with options is not a value; no unit keyword fills a group's field; a
-    wrapper does not override its own group's fields; no spread into
-    `round` or `floor`.
+    with options is not a value; no unit keyword fills a group's field; no
+    spread into `round` or `floor`.
 
 `..` then means a range, an open slice, a range pattern, a group, and a
 spread; the bracket and the position tell them apart (`xs[..b]` in
