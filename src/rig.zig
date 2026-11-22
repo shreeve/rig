@@ -3175,6 +3175,8 @@ pub const Chain = struct { node: parser.NodeId, source: ChainSource, copies: boo
 /// type as written there, copied into its parameter's `field_of`.
 pub const GroupSite = struct {
     node: parser.NodeId,
+    /// The position of the group's name.
+    name: u32 = 0,
     fields: []const []const u8,
     field_types: []const Sexp = &.{},
 };

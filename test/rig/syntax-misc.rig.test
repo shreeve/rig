@@ -1334,7 +1334,7 @@ fail "guard inside expression", "a postfix `if` guard must end a statement"
   x = 1
   print(x if x > 0)
 
-fail "habit ampersand view", "8:6: unexpected `&`; Rig makes views with `?x` (to read) or `!x` (to write)"
+fail "habit ampersand view", "8:6: unexpected `&`; expected an argument or `)`; Rig makes views with `?x` (to read) or `!x` (to write)"
   # Rust and C take an address or a reference with `&`; Rig views with
   # `?x` to read and `!x` to write.
 

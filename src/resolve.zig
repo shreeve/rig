@@ -521,7 +521,9 @@ const SymbolResolver = struct {
                 }
             };
             if (collides) continue;
-            if (self.ctx.scopes.items[self.scope].kind == .lambda) {
+            // A group's field is no name of the body, so it shadows
+            // nothing; emit names its parameter apart.
+            if (sema.groupFieldOf(p) != null) {} else if (self.ctx.scopes.items[self.scope].kind == .lambda) {
                 try self.checkShadowingThroughLambda(name_node);
             } else {
                 try self.checkShadowsDeclaration(name_node, "parameter");

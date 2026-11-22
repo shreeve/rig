@@ -133,7 +133,7 @@ fail "a group's field named in the body by itself", "5:9: `timeout` is a field o
 
   fetch()
 
-fail "a group's field is not assigned", "5:3: cannot assign to `net.timeout`; group `net` is a parameter, and parameters are immutable", errors: 1
+fail "a group's field is not assigned", "5:3: cannot assign to group `net`: parameters are immutable", errors: 1
   obj Net
     timeout: Int = 30
 
@@ -662,3 +662,137 @@ fail "no spread into round or a maker", "3:15: `round` has no group for `..p` to
   p = datetime.Period(days: 1)
   print(t.round(..p))
   print(datetime.Date.new(..p))
+
+fail "object update copies only a plain type: no drop body, not unique", "13:7: object update copies plain data, and `D` has a `drop` body: write its fields", "14:16: object update copies plain data, and `Seed` is `unique`: write its fields", errors: 2
+  obj D
+    n: Int = 0
+
+    drop(!@)
+      print("drop", @n)
+
+  obj Seed unique
+    n: Int = 1
+    k: Int = 2
+
+  a = D(n: 1)
+  s = Seed(n: 5)
+  b = D(..a)
+  t = Seed(k: 9, ..s)
+  print(b.n, t.n)
+
+fail "a group holds only a plain type: no drop body, not unique", "10:10: group `d` of `take` is a `D`, which has a `drop` body; a group holds plain data", "14:14: group `s` of `use_seed` is a `Seed`, which is `unique`; a group holds plain data", errors: 2
+  obj D
+    n: Int = 0
+
+    drop(!@)
+      print("drop", @n)
+
+  obj Seed unique
+    n: Int = 1
+
+  sub take(..d: D)
+    e = <d
+    print(e.n)
+
+  sub use_seed(..s: Seed)
+    print(s.n)
+
+  a = D(n: 1)
+  take(..a)
+  use_seed()
+
+fail "an ownership error after a spread is said once, at the spread", "13:14: use of `m` after move", errors: 1
+  obj Net
+    timeout: Int = 30
+    retries: Int = 3
+
+  sub fetch(url: ?String, ..net: Net)
+    print(url, net.timeout)
+
+  sub keep(n: Net)
+    print(n.timeout)
+
+  m = ^Net()
+  q = <m
+  fetch("b", ..m)
+  print(q.timeout)
+
+test "a group's field may have the name of a module's function", "1 3"
+  obj Net
+    count: Int = 1
+
+  fun count() -> Int
+    3
+
+  sub go(..n: Net)
+    print(n.count, count())
+
+  sub main()
+    go()
+
+test "a spread of self, and of a field of self", "1 30\n5 9"
+  obj Net
+    timeout: Int = 30
+    retries: Int = 3
+
+    fun with_timeout(?@, t: Int) -> Net
+      Net(timeout: t, ..@)
+
+  obj Holder
+    net: Net
+    k: Int
+
+    sub go(?@)
+      show(..@net, timeout: 5)
+
+  sub show(..n: Net)
+    print(n.timeout, n.retries + 6)
+
+  n = Net().with_timeout(1)
+  print(n.timeout, Net().timeout)
+  h = Holder(net: Net(), k: 1)
+  h.go()
+
+test "a generic object is updated", "2 7"
+  obj Box[T]
+    n: Int
+    item: T
+
+  b = Box(n: 1, item: 7)
+  c = Box(n: 2, ..b)
+  print(c.n, c.item)
+
+fail "the messages of a spread's call and a group's declaration", "8:14: group `o` of `gen` is a `Opts[Int]`, an instance of a generic object; a group's type has no type parameters", "12:3: cannot assign to group `net`: parameters are immutable", "19:12: `timeout` is a field of group `net` of `fetch`, so it is given by name: `timeout: 5`", "20:17: `fetch` has no parameter `bogus`", errors: 4
+  obj Net
+    timeout: Int = 30
+    retries: Int = 3
+
+  obj Opts[T]
+    v: Int = 0
+
+  sub gen(..o: Opts[Int])
+    print(o.v)
+
+  sub f(..net: Net)
+    net = Net(timeout: 2)
+    print(net.timeout)
+
+  sub fetch(url: ?String, ..net: Net)
+    print(url, net.timeout)
+
+  n = Net()
+  fetch("a", 5, ..n)
+  fetch("b", ..n, bogus: 1)
+
+fail "a group of another module's private field", "3:10: group `n` of `mine` is a `lib.Net`, whose field `hidden` is private to module `lib`: every caller gives a group's fields", errors: 1
+  use lib
+
+  sub mine(..n: lib.Net)
+    print(n.shown)
+
+  sub main()
+    mine(shown: 1)
+  file "lib.rig"
+    pub obj Net
+      pub shown: Int = 0
+      hidden: Int = 0

@@ -916,7 +916,26 @@ pub const ModuleGraph = struct {
         try own.check(m.ir);
         timing.stop(self.timing, .ownership, t0);
         const first: u32 = @intCast(m.sema.diagnostics.items.len);
-        for (own.diagnostics.items) |d| try self.addDiagnostic(id, d);
+        // A diagnostic about a node a rewrite wrote (a spread's field read)
+        // is at the node's home in the source, as typecheck's are, and
+        // said once there, not once for each field it gives.
+        var skipping = false;
+        for (own.diagnostics.items) |d_in| {
+            var d = d_in;
+            if (d.module == 0 and d.pos >= m.source.len) {
+                const home = m.parser.homeOf(d.pos);
+                d.pos = home;
+                d.end = home;
+            }
+            if (d.severity == .note) {
+                if (!skipping) try self.addDiagnostic(id, d);
+                continue;
+            }
+            skipping = for (m.sema.diagnostics.items[first..]) |prev| {
+                if (prev.severity == d.severity and prev.pos == d.pos and std.mem.eql(u8, prev.message, d.message)) break true;
+            } else false;
+            if (!skipping) try self.addDiagnostic(id, d);
+        }
         m.own_ran = true;
         m.own_diags = .{ first, @intCast(m.sema.diagnostics.items.len) };
         // What the generic bodies copy, for the modules that import them.

@@ -1770,7 +1770,7 @@ x -> y
 **A spread**, `..v` among a call's arguments, gives the fields of a stored
 value to the group of exactly its type: a field named beside it, before
 it or after it, wins, and the spread gives the rest. Its operand is a
-name or a field path, read where it is written, field by field, and one
+name, self, or a field path (`..cfg.net`, `..@`), read where it is written, field by field, and one
 spread fills a group. `name:` before `,` or `)` on its line is `name:
 name`, for a local or a parameter only.
 
@@ -2337,7 +2337,7 @@ sub main()
 
 **Object update** copies a stored value with the fields named set:
 `Point(x: 3, ..p)` ([docs/design/options.md](docs/design/options.md),
-"Object update"). The spread is a name or a field path of exactly the type
+"Object update"). The spread is a name, self, or a field path of exactly the type
 made, read where it is written; a field named beside it, before or after,
 wins; one spread updates a value; and every argument beside it is given
 by name. It copies plain data ([Kinds of value](#kinds-of-value)): an

@@ -1027,6 +1027,23 @@ const Checker = struct {
         return .{ .name = sym.name, .fields = fields.items, .tys = tys.items, .module = module, .sym = id };
     }
 
+    /// Why a group's or an update's type `ty` is not plain data, its kind
+    /// as a phrase ("has a `drop` body", "is `unique`", or the field at
+    /// fault), or null when it is plain data (`sema.isPlain` of the type,
+    /// the one meaning of plain). A field whose type is invalid was
+    /// reported, and gives "".
+    fn notPlainType(self: *Checker, ty: TypeId, gt: ?GroupType) Error!?[]const u8 {
+        if (try sema.isPlain(self.ctx, ty)) return null;
+        const a = self.ctx.arena.allocator();
+        const g = gt orelse return "is not plain data";
+        for (g.tys) |ft| if (sema.containsPoison(self.ctx, ft)) return "";
+        const sym = if (g.module) |m| self.ctx.foreign_semas.get(m).?.symbols.items[g.sym] else self.ctx.symbols.items[g.sym];
+        if (sym.flags.unique) return "is `unique`";
+        for (sym.fields orelse &.{}) |f| if (f.is_drop_method) return "has a `drop` body";
+        if (try self.notPlainField(g)) |np| return try a.print("holds `{s}: {s}`, {s}", .{ np.field, np.ty, if (np.owns) "an owner" else "a view" });
+        return "is not plain data";
+    }
+
     /// The first data field of `gt` that is not plain data, and why: it
     /// owns, or it views; null when every field is plain data.
     fn notPlainField(self: *Checker, gt: GroupType) Error!?struct { field: []const u8, ty: []const u8, owns: bool } {
@@ -1116,17 +1133,25 @@ const Checker = struct {
                 continue;
             }
             const g = gt orelse {
-                try self.errAt(ir.GroupParam.type(p), "group `{s}` of `{s}` is a `{s}`, which is not an object: a group's type is an object, whose fields become the function's options", .{ gname, fname, try self.tyName(ty) });
+                if (self.ctx.types.get(ty) == .parameterized_nominal) {
+                    try self.errAt(ir.GroupParam.type(p), "group `{s}` of `{s}` is a `{s}`, an instance of a generic object; a group's type has no type parameters", .{ gname, fname, try self.tyName(ty) });
+                } else try self.errAt(ir.GroupParam.type(p), "group `{s}` of `{s}` is a `{s}`, which is not an object: a group's type is an object, whose fields become the function's options", .{ gname, fname, try self.tyName(ty) });
                 ok = false;
                 continue;
             };
-            if (try self.notPlainField(g)) |np| {
-                if (np.owns) {
-                    try self.errAt(p, "group `{s}` of `{s}` is a `{s}`, which holds `{s}: {s}`, an owner; a group holds plain data", .{ gname, fname, g.name, np.field, np.ty });
-                } else try self.errAt(p, "group `{s}` of `{s}` is a `{s}`, which holds `{s}: {s}`, a view; a group holds plain data", .{ gname, fname, g.name, np.field, np.ty });
+            if (try self.notPlainType(ty, g)) |why| {
+                if (why.len > 0) try self.errAt(p, "group `{s}` of `{s}` is a `{s}`, which {s}; a group holds plain data", .{ gname, fname, g.name, why });
                 ok = false;
                 continue;
             }
+            // Every caller gives the fields, so another module's type
+            // has none private to it.
+            if (g.module) |m| if (self.ctx.foreign_semas.get(m)) |fc| if (!(fc.is_std and self.ctx.is_std)) for (g.fields) |f| if (!f.is_pub or f.read_only) {
+                try self.errAt(p, "group `{s}` of `{s}` is a `{s}.{s}`, whose field `{s}` is private to module `{s}`: every caller gives a group's fields", .{ gname, fname, fc.name, g.name, f.name, fc.name });
+                try self.noteGroupField(g, f);
+                ok = false;
+                break;
+            };
             if (is_pub) for (g.fields) |f| if (!f.is_pub or f.read_only) {
                 try self.errAt(p, "`{s}` is `pub`, so the fields of its group `{s}`, a `{s}`, are public too: declare `{s}` `pub`", .{ fname, gname, g.name, f.name });
                 try self.noteGroupField(g, f);
@@ -1186,7 +1211,7 @@ const Checker = struct {
             const fields = try a.alloc([]const u8, g.fields.len);
             for (g.fields, fields) |f, *o| o.* = f.name;
             const written = if (g.module == null) try self.writtenFieldTypes(self.ctx.symbols.items[g.sym], g.fields) else &.{};
-            try self.ctx.groups.append(self.ctx.allocator, .{ .node = id, .fields = fields, .field_types = written });
+            try self.ctx.groups.append(self.ctx.allocator, .{ .node = id, .name = ir.GroupParam.name(p).src.pos, .fields = fields, .field_types = written });
         }
     }
 
@@ -1203,6 +1228,8 @@ const Checker = struct {
     fn isSpreadPlace(self: *Checker, e: Sexp) bool {
         if (e == .src) {
             const word = self.text(e);
+            // Self, `@`, is a place, and `@at` a field of it.
+            if (std.mem.eql(u8, word, "@")) return true;
             return word.len > 0 and rig.isIdentStart(word[0]) and !std.mem.eql(u8, word, "true") and !std.mem.eql(u8, word, "false") and !std.mem.eql(u8, word, "none");
         }
         if (e.isKind(.member)) return self.isSpreadPlace(ir.Member.object(e));
@@ -1428,10 +1455,11 @@ const Checker = struct {
             try self.errAt(sp, "`..{s}` is a `{s}`, but this makes a `{s}`: a spread passes a value of the type it updates", .{ shown, try self.tyName(value), try self.tyName(result) });
             return self.spreadRefused(sp);
         }
-        if (try self.groupType(result)) |gt| if (try self.notPlainField(gt)) |np| {
-            try self.errAt(sp, "object update copies plain data, and `{s}` holds `{s}: {s}`, {s}: write its fields", .{ owner, np.field, np.ty, if (np.owns) "which owns" else "a view" });
+        if (try self.notPlainType(result, try self.groupType(result))) |why| {
+            const said = if (std.mem.startsWith(u8, why, "holds ") and std.mem.endsWith(u8, why, ", an owner")) try std.fmt.allocPrint(a, "{s}, which owns", .{why[0 .. why.len - ", an owner".len]}) else why;
+            if (why.len > 0) try self.errAt(sp, "object update copies plain data, and `{s}` {s}: write its fields", .{ owner, said });
             return self.spreadRefused(sp);
-        };
+        }
         if (!ok) return self.spreadRefused(sp);
         var given: std.ArrayList([]const u8) = .empty;
         for (fields) |f| {
@@ -3112,6 +3140,14 @@ const Checker = struct {
             } else if (!writes) {
                 if (std.mem.eql(u8, name, "@")) {
                     try self.err(pos, "cannot {s} `@`{s}; a method changes self only when it takes `!@`, which writes through to the caller", .{ verb.head, verb.tail });
+                } else if (sym.flags.group) {
+                    // A group as written: it stays so, and this is said
+                    // again by every check (`rig.GroupSite`).
+                    try self.err(pos, "cannot {s} group `{s}`{s}: parameters are immutable (bind a copy with `new copy = {s}`)", .{ verb.head, name, verb.tail, name });
+                    var i: usize = 0;
+                    while (i < self.ctx.groups.items.len) {
+                        if (self.ctx.groups.items[i].name == sym.decl_pos) _ = self.ctx.groups.swapRemove(i) else i += 1;
+                    }
                 } else if (sym.flags.group_field) {
                     // A group's field, read through its group as written.
                     const group = self.ctx.group_fields.get(id) orelse "";
@@ -6090,20 +6126,22 @@ const Checker = struct {
         const at = if (named) if (self.ctx.parser) |p| p.homeOf(leaf.src.pos) else leaf.src.pos else leaf.src.pos;
         var sid: ?ScopeId = self.scope;
         var crossed_lambda: ?ScopeId = null;
+        // A group's fields are no names of the body
+        // (docs/design/options.md, section 2): a name the body writes
+        // passes them for the scopes around, and is said to be a field's
+        // only when nothing else has it.
+        var field_of_group: ?SymbolId = null;
         while (sid) |s| {
             if (s == sema.scope_invalid or s >= self.ctx.scopes.items.len) break;
-            if (self.visibleIn(s, name, at)) |id| {
+            if (self.visibleIn(s, name, at)) |id| found: {
+                if (self.ctx.symbols.items[id].flags.group_field and !named) {
+                    field_of_group = id;
+                    break :found;
+                }
                 try self.ctx.recordName(leaf, id);
                 const sym = self.ctx.symbols.items[id];
                 const kind = sym.kind;
                 if (sym.flags.group) try self.noteGroupUse(leaf, sym);
-                // A group's fields are no names of the body
-                // (docs/design/options.md, section 2).
-                if (sym.flags.group_field and !named) {
-                    const group = self.ctx.group_fields.get(id) orelse "";
-                    try self.errAt(leaf, "`{s}` is a field of group `{s}`, not a name of the body: read it as `{s}.{s}`", .{ name, group, group, name });
-                    return null;
-                }
                 // An API is no value; a call names one of its methods,
                 // `Shape.area(x)` (`apiNameCall`).
                 if (kind == .api) {
@@ -6127,6 +6165,11 @@ const Checker = struct {
             const scope = self.ctx.scopes.items[s];
             if (scope.kind == .lambda and crossed_lambda == null) crossed_lambda = s;
             sid = scope.parent;
+        }
+        if (field_of_group) |id| {
+            const group = self.ctx.group_fields.get(id) orelse "";
+            try self.errAt(leaf, "`{s}` is a field of group `{s}`, not a name of the body: read it as `{s}.{s}`", .{ name, group, group, name });
+            return null;
         }
         // A generic type's type parameters are in scope only as types; its
         // value parameters are compile-time values in its methods.
@@ -10952,6 +10995,20 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         const fields = self.ctx.symbols.items[sym_id].fields orelse &.{};
+        // An update makes the instance its spread's value is
+        // (`objectUpdate`).
+        for (args) |a| if (a.isKind(.spread)) {
+            const ty = sema.unwrapAccess(self.ctx, try self.synthQuiet(ir.Spread.value(a)));
+            const result = switch (self.ctx.types.get(ty)) {
+                .parameterized_nominal => |pn| if (pn.sym == sym_id) ty else null,
+                else => null,
+            } orelse {
+                try self.errAt(a, "`..{s}` is a `{s}`, but this makes a `{s}`: a spread passes a value of the type it updates", .{ try self.plainText(ir.Spread.value(a)), try self.tyName(ty), name });
+                return self.skipCall(args);
+            };
+            try self.objectUpdate(args, fields, result, name);
+            return result;
+        };
         // Fields are set by name, but for one field given positionally.
         if (!(args.len == 1 and soleField(fields) != null)) for (args) |a| if (!a.isKind(.kwarg)) {
             try self.positionalFieldsError(fields, name, pos);
@@ -12785,8 +12842,9 @@ const Checker = struct {
         for (0..f.params.len) |i| {
             if (info.default(i) == null) required += 1;
         }
-        // A group's field left out is said by name, below.
-        if (given > f.params.len or (given < required and info.groups == null)) {
+        // A group's field left out, given by position, or named but no
+        // parameter is said by name, below, as for a spread's call.
+        if ((given > f.params.len and (info.groups == null or positional.len > f.params.len)) or (given < required and info.groups == null)) {
             if (required == f.params.len) {
                 try self.err(pos, "call to `{s}` expects {d} argument{s}, got {d}", .{ callee, f.params.len, plural(f.params.len), given });
             } else {
@@ -12809,6 +12867,7 @@ const Checker = struct {
                 }
                 try self.errAt(a, "`{s}` is a field of group `{s}` of `{s}`, so it is given by name: `{s}: {s}`", .{ names[i], g.group, callee, names[i], try self.plainText(a) });
                 try self.checkArg(a, f, i, views);
+                slots[i] = .{ .default = .{ .expr = .nil, .source = "" } };
                 continue;
             };
             // A parameter with a default is an option, given by name
@@ -12884,6 +12943,13 @@ const Checker = struct {
                 continue;
             }
             if (slots[idx] != null) {
+                // A field given by position was said so; a spread's
+                // keyword for it is no second error.
+                if (slots[idx].? == .default) {
+                    _ = try self.synthExpr(ir.Kwarg.value(kw));
+                    repeated = true;
+                    continue;
+                }
                 try self.errAt(kname_node, "parameter `{s}` of `{s}` is given twice", .{ kname, callee });
                 _ = try self.synthExpr(ir.Kwarg.value(kw));
                 repeated = true;

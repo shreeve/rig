@@ -355,7 +355,8 @@ c 1 5
   documents it, or takes a group without that field.
 - **One spread per group.** Two spreads that fill one group are refused, so
   no rule of "the later wins" between spreads is needed.
-- **The operand is a place:** a name or a field path (`..cfg.net`), whose
+- **The operand is a place:** a name, self, or a field path (`..cfg.net`,
+  `..@`, `..@net`), whose
   type is a group's type, not an optional and not a type parameter. A field
   read never runs code, so reading a place once per field is safe; a made
   value (`..defaults()`) is bound to a name first, which also keeps its `!`
@@ -718,7 +719,7 @@ That is the pitch, not the whole. Honestly listed, a programmer learns:
 7. `..v` passes a value's fields to the group of exactly its type.
 8. A field named beside a spread wins, before it or after it; one spread
    fills a group.
-9. A spread's operand is a name or a field path.
+9. A spread's operand is a name, self, or a field path.
 10. `T(x: 1, ..v)` is a copy of `v` with `x` set.
 11. `name:` before `,` or `)` on its line means `name: name`, for a local
     or a parameter.
