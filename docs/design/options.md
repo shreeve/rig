@@ -133,8 +133,8 @@ method's first argument unlabeled and Swift 3 removed the asymmetry
 - **No default on `_`.** An option is given by name, and `_` has none.
 - **A required parameter after an option** is refused unless it takes a
   function (`fun`, `sub`, `?fun`, `?sub`), the parameter a trailing closure
-  fills. Any other could only be given by name, which a required parameter
-  never is.
+  fills. Any other could be given only by name, so its declaration would
+  hide that it is required: a call reads it as an option.
 - **A unit keyword names the duration option.** `ms:`, `seconds:` and the
   other unit keywords fill a function's one `Duration` parameter
   (docs/design/datetime.md, 5.1), so `wait_for("u", ms: 500)` gives the
@@ -559,7 +559,7 @@ under it.
   their options, generic groups (`..o: Opts[T]`), and groups passed by
   pointer (`..o: ?Net`).
 
-```rig pending
+```rig reject
 fun connect(host: ?String, port: Int, timeout: Int = 30) -> Int
   port + timeout
 
@@ -569,7 +569,7 @@ sub main()
 ```
 
 ```error
-`connect` has options, so it is not a value: write a closure
+`connect` has options, given by name, so it is not a value: write a closure that calls it
 ```
 
 The closure names the options it gives:
@@ -598,9 +598,15 @@ group is passed is the compiler's measured choice, not a language rule.
 
 What the compiler does, as measured:
 
-- **The rule changes nothing emitted.** Arguments already reach Zig by
-  position with defaults filled at the call, so the Zig of a program that
-  passes the rule is byte-identical before and after it.
+- **Whether an argument is written by name never changes code
+  generation.** Arguments reach Zig by position with defaults filled at
+  the call, whichever way the call writes them, and the inliner's size of
+  a function counts a keyword argument as its value, not its label, so
+  naming an option moves no inlining decision: `f(1, by: 2)` and `f(1, 2)`
+  emit the same Zig. Counting labels as nothing changed 41 inlining
+  decisions in Trig, whose keyword calls were counted larger than their
+  positional forms before
+  ([the record](../history/records/2026-11/named-options-rule/README.md)).
 - **A spread is field reads as arguments:**
 
 ```zig
@@ -826,8 +832,8 @@ one-line note for Trig and loco.
    expressions, writes the named form in std, tests, docs, Trig and loco;
    then the rule lands, with the edge rules, the trailing closure that fills
    its callback, the deletions from `ArgCheck`, std's reviewed names, and
-   the datetime makers and `duration` of section 9. Emitted Zig is
-   unchanged.
+   the datetime makers and `duration` of section 9. Whether an argument
+   is written by name never changes code generation (section 5).
 2. **Groups, spreads, object update and the shorthand**, about 1.4k to 1.8k
    compiler lines, built as a rewrite of the call and of the signature in
    the tree, not as new kinds of argument slot: the module is typed, each

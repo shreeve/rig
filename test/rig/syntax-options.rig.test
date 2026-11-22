@@ -128,3 +128,41 @@ fail "a generic body cannot call a method with options", "has options, given by 
     x.add(2)
 
   print(bump(Box(v: 1)))
+
+fail "a provider gives an API's parameter no default", "7:7: `Square.area` meets `area` of `Shape`, so `scale` has no default: a call through the API gives each argument by position", errors: 1
+  api Shape
+    fun area(?@, scale: Float) -> Float
+
+  obj Square: Shape
+    side: Float
+
+    fun area(?@, scale: Float = 1.0) -> Float
+      @side * @side * scale
+
+  fun show(s: ?{Shape}) -> Float
+    s.area(2.0)
+
+  sub main()
+    sq = Square(side: 2.0)
+    print(show(?sq))
+
+fail "a function given last where an option is fills the callback by name", "9:10: `times` has a default, so it is an option, given by name, and a function given last fills `f`: `f: show`", "11:10: `f: ?cb`", errors: 2
+  sub repeat(times: Int = 1, f: ?sub(Int))
+    for i in 0..times
+      f(i)
+
+  sub show(i: Int)
+    print("show", i)
+
+  sub main()
+    repeat(show)
+    cb = |i: Int| print("cb", i)
+    repeat(?cb)
+
+fail "an unknown keyword where a duration option is", "5:17: `wait_for` has no parameter `delay`; its duration is an option, given by name, `timeout: 2`", errors: 1
+  sub wait_for(url: ?String, timeout: time.Duration? = none)
+    print(url)
+
+  sub main()
+    wait_for("u", delay: 2)
+

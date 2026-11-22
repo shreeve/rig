@@ -57,7 +57,7 @@ test "with, round, and floor forms at each kind of call", '''
   k = 15
   print(t.round(hours: 1), datetime.Time.round(t, minutes: k), dt.floor(hours: 1), datetime.DateTime.round(dt, days: 1), t.floor(minutes: 1))
 
-fail "a date's amounts are options, given by name", "3:13: `years` has a default, so it is an option, given by name: `years: 1`", "4:21: `years` has a default, so it is an option, given by name: `years: n`", "5:28: `years` has a default, so it is an option, given by name: `years: 1`", "6:24: positional arguments must come before keyword arguments", errors: 4
+fail "a date's amounts are options, given by name", "3:13: `add` of a `Date` takes its amounts as options, given by name: `add(days: 1)` for days", "4:21: `checked_add` of a `Date` takes its amounts as options, given by name: `checked_add(days: n)` for days", "5:28: `add` of a `Date` takes its amounts as options, given by name: `add(days: 1)` for days", "6:24: `add` of a `Date` takes its amounts as options, given by name: `add(days: 2)` for days", errors: 4
   d = datetime.Date.new(2027, 1, 31)
   n = 3
   print(d.add(1))
@@ -131,7 +131,7 @@ test "sizes", "1 4 8 12"
   # `DateTime` the two.
   print($size(datetime.Weekday), $size(datetime.Date), $size(datetime.Time), $size(datetime.DateTime))
 
-fail "a date's add refuses a duration by position", "6:13: a `Date` has no time of day, so `add` takes no duration, `0.5`: a date and a time of day is a `DateTime`, `d.at(t).add(0.5)`", "7:13: a `Date` has no time of day, so `add` takes no duration, `time.duration(hours: 24)`: a date and a time of day is a `DateTime`, `d.at(t).add(time.duration(hours: 24))`", "8:21: a `Date` has no time of day, so `checked_add` takes no duration, `half`: a date and a time of day is a `DateTime`, `d.at(t).checked_add(half, days: 1)`", "9:13: `years` has a default, so it is an option, given by name", "10:23: a `Date` has no time of day, so `add` takes no `hours:`: a date and a time of day is a `DateTime`, `d.at(t).add(weeks: 1, hours: 2)`", errors: 6
+fail "a date's add refuses a duration by position", "6:13: a `Date` has no time of day, so `add` takes no duration, `0.5`: a date and a time of day is a `DateTime`, `d.at(t).add(duration: 0.5)`", "7:13: a `Date` has no time of day, so `add` takes no duration, `time.duration(hours: 24)`: a date and a time of day is a `DateTime`, `d.at(t).add(duration: time.duration(hours: 24))`", "8:21: a `Date` has no time of day, so `checked_add` takes no duration, `half`: a date and a time of day is a `DateTime`, `d.at(t).checked_add(duration: half, days: 1)`", "9:13: `years` has a default, so it is an option, given by name", "10:23: a `Date` has no time of day, so `add` takes no `hours:`: a date and a time of day is a `DateTime`, `d.at(t).add(weeks: 1, hours: 2)`", errors: 6
   # A `Float` or a `Duration` by position, and a unit beside other
   # amounts, is a time of day, whose fix is a `DateTime` with every amount
   # written; any other argument by position gives an option.
@@ -201,3 +201,7 @@ fail "two units on a time or a datetime get one increment it takes", "3:27: `rou
   print(t.round(minutes: 7, seconds: 1))
   print(dt.floor(hours: 5, minutes: 1))
   print(dt.round(seconds: 7, ms: 1))
+
+fail "an unknown keyword where a duration option is", "2:14: `add` has no parameter `delay`; its duration is an option, given by name, `duration: 2`, or by units' keywords", errors: 1
+  dt = datetime.DateTime.new(2026, 1, 2, hour: 3)
+  print(dt.add(delay: 2))

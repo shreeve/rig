@@ -1640,7 +1640,8 @@ An option given by position is refused, with the fix: a parameter with
 a default is an option, passed by name, and one without is passed by
 position, so to pass it by position, remove its default. A function
 with options is not a value, since a call through a value gives every
-argument by position: write a closure that calls it. `_` has no
+argument by position: write a closure that calls it. For the same reason
+an API's method has no option, nor does a method that meets one. `_` has no
 default, since an option is given by name and `_` has none, and a
 required parameter follows an option only when it takes a function,
 which a closure written last fills (below); any other could be given

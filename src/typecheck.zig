@@ -12206,6 +12206,19 @@ const Checker = struct {
             // (SPEC "Functions").
             if (info.default(i) != null) if (info.names) |names| if (i < names.len) {
                 const shown = try self.plainText(a);
+                // A function given last, where an option takes no function,
+                // is meant for the parameter that takes one, which only a
+                // closure fills by position.
+                if (i == args.len - 1 and !self.takesFunction(f.params[i])) if (self.trailingParam(args, f.params, info.names)) |cb| {
+                    const saved = self.under_poison;
+                    self.under_poison = true;
+                    const ty = self.canonical(try self.synthExpr(a));
+                    self.under_poison = saved;
+                    if (self.takesFunction(sema.unwrapAccess(self.ctx, ty))) {
+                        try self.errAt(a, "`{s}` has a default, so it is an option, given by name, and a function given last fills `{s}`: `{s}: {s}`", .{ names[i], names[cb], names[cb], shown });
+                        return self.synthArgs(args);
+                    }
+                };
                 try self.errAt(a, "`{s}` has a default, so it is an option, given by name: `{s}: {s}`; to pass it by position, remove its default", .{ names[i], names[i], shown });
             };
             if (info.isDuration(i)) {
@@ -12242,7 +12255,7 @@ const Checker = struct {
                     if (sema.duration.isCalendar(kname)) {
                         if (!calendar) try self.calendarKeyword(kname_node, kname, keyword, if (info.zoneless) callee else null);
                         calendar = true;
-                    } else try self.badDurationKeyword(kname_node, kname, ir.Kwarg.value(kw), callee);
+                    } else try self.badDurationKeyword(kname_node, kname, ir.Kwarg.value(kw), callee, if (unit_param) |u| (if (info.default(u) != null) info.names.?[u] else null) else null);
                     // The duration it meant is not missing too.
                     repeated = true;
                 } else try self.errAt(kname_node, "`{s}` has no parameter `{s}`", .{ callee, kname });
@@ -12515,6 +12528,19 @@ const Checker = struct {
         return false;
     }
 
+    /// Whether a parameter or value of type `ty` is a function: `fun`,
+    /// `sub`, or a view of one.
+    fn takesFunction(self: *Checker, ty: TypeId) bool {
+        const inner = switch (self.ctx.types.get(ty)) {
+            .read_view => |v| v,
+            else => ty,
+        };
+        return switch (self.ctx.types.get(inner)) {
+            .function, .callable => true,
+            else => false,
+        };
+    }
+
     /// The parameter a closure written as a call's last argument fills
     /// when it is the callback (`trailingParam`): after the keyword
     /// arguments, or where its position would give an option, so
@@ -12636,13 +12662,19 @@ const Checker = struct {
                 defer self.under_poison = saved;
                 const ty = self.canonical(try self.synthExpr(a));
                 if (self.isPoison(ty)) return false;
+                // An `Int` by position is most likely days.
+                if (ty == self.t().int_id or ty == self.t().int_literal_id) {
+                    try self.errAt(a, "`{s}` of a `Date` takes its amounts as options, given by name: `{s}(days: {s})` for days, or `years:`, `months:`, `weeks:`", .{ method, method, try self.plainText(a) });
+                    return false;
+                }
                 if (ty != self.t().float_id and ty != self.t().float_literal_id and !sema.isDurationType(self.ctx, sema.unwrapOptionals(self.ctx, ty))) continue;
                 break :blk a;
             } else if (sema.duration.unitNs(self.text(ir.Kwarg.name(a))) != null) ir.Kwarg.name(a) else continue;
-            // The fix keeps every amount written, on a `DateTime`.
+            // The fix keeps every amount written, on a `DateTime`, whose
+            // duration is an option, given by name.
             var all: std.ArrayList(u8) = .empty;
             const al = self.ctx.arena.allocator();
-            for (args, 0..) |b, i| try all.print(al, "{s}{s}", .{ if (i > 0) ", " else "", try self.plainText(b) });
+            for (args, 0..) |b, i| try all.print(al, "{s}{s}{s}", .{ if (i > 0) ", " else "", if (b.isKind(.kwarg)) "" else "duration: ", try self.plainText(b) });
             const what = if (a.isKind(.kwarg))
                 try std.fmt.allocPrint(al, "`{s}:`", .{self.text(ir.Kwarg.name(a))})
             else
@@ -13008,8 +13040,10 @@ const Checker = struct {
     /// A keyword no parameter of `callee`, which takes a duration, is
     /// named, and no unit nor length of the calendar (`calendarKeyword`):
     /// a spelling of `seconds:`, or neither.
-    fn badDurationKeyword(self: *Checker, at: Sexp, kname: []const u8, value: Sexp, callee: []const u8) Error!void {
+    fn badDurationKeyword(self: *Checker, at: Sexp, kname: []const u8, value: Sexp, callee: []const u8, option: ?[]const u8) Error!void {
         if (isSecondsName(kname)) return self.errAt(at, "`{s}` has no parameter `{s}`; did you mean `seconds: {s}`?", .{ callee, kname, try self.plainText(value) });
+        // A duration with a default is an option, given by its name.
+        if (option) |name| return self.errAt(at, "`{s}` has no parameter `{s}`; its duration is an option, given by name, `{s}: {s}`, or by units' keywords, `ms: 40` or `minutes: 1, seconds: 30`, from `ns:` to `hours:`", .{ callee, kname, name, try self.plainText(value) });
         try self.errAt(at, "`{s}` has no parameter `{s}`; a duration is written bare in seconds, `{s}(2)`, or with units' keywords, `ms: 40` or `minutes: 1, seconds: 30`, from `ns:` to `hours:`", .{ callee, kname, callee });
     }
 
@@ -24226,6 +24260,14 @@ fn checkConformance(ctx: *SemContext, index: usize) Error!void {
             continue;
         }
         try checkMethodMeets(ctx, conf, tname, w, have);
+        // A call through the API gives each argument by position, so a
+        // method that meets it has no option (SPEC "Functions"); the API's
+        // own method has none either (`checkApiDecl`).
+        for (have.param_defaults orelse &.{}, 0..) |d, i| if (d != null) {
+            const pname = if (have.param_names) |ns| (if (i < ns.len) ns[i] else "?") else "?";
+            try ctx.err(have.decl_pos, "`{s}.{s}` meets `{s}` of `{s}`, so `{s}` has no default: a call through the API gives each argument by position", .{ tname, have.name, w.field.name, try sema.apiName(ctx, w.api), pname });
+            break;
+        };
         // A method that meets a `pub` API on a `pub` type is `pub`.
         if (conf.kind == .header and api_sym.flags.is_public and ctx.symbols.items[decl.?.sym].flags.is_public and !have.is_pub) {
             try ctx.err(have.decl_pos, "`{s}.{s}` meets `{s}`, a `pub` API, on `{s}`, a `pub` type, so it is `pub`: write `pub {s}`", .{ tname, have.name, api_name, tname, headerText(ctx.source, have.decl_pos) });
