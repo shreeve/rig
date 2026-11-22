@@ -1920,11 +1920,16 @@ test/reject/errors/a_narrowed_error_under_`match_e`_is_a_view_of_the_caught_one.
 test/reject/errors/a_narrowed_error_under_`match_e`_is_a_view_of_the_caught_one.rig escaped
 test/reject/options/a_group_used_whole_is_partly_moved_by_a_field's_move.rig run
 test/reject/options/a_kept_view_of_a_group_keeps_its_place_read-only.rig main
+test/reject/options/a_moved_field_is_named_as_the_body_reads_it,_once_at_a_spread.rig other
+test/reject/options/a_moved_field_is_named_as_the_body_reads_it,_once_at_a_spread.rig run
 test/reject/options/a_method_that_keeps_a_group's_view_says_`keeps`.rig Board.pin
 test/reject/options/a_moving_spread_is_read_where_it_is_written.rig main
 test/reject/options/a_moving_spread_takes_its_place_before_a_later_write_view.rig main
 test/reject/options/a_result_that_views_a_group's_field_says_so.rig text_of
 test/reject/options/a_view_in_a_group_never_outlives_what_it_views.rig made
+test/reject/options/a_spread_in_a_loop_of_a_view_dropped_in_the_loop.rig main
+test/reject/options/a_spread_of_a_view_whose_source_was_dropped.rig main
+test/reject/options/an_update_that_holds_a_view_keeps_its_source_read-only.rig main
 test/reject/options/an_ownership_error_after_a_spread_is_said_once,_at_the_spread.rig main
 test/reject/options/the_shorthand_never_hides_a_move.rig main
 test/reject/ownership/apis_a_result_from_the_API's_parameter.rig take

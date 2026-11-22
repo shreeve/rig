@@ -1385,9 +1385,9 @@ pub const Checker = struct {
         // Deferred code runs after the code that follows it, and a
         // loop's step after its body.
         if (self.loop != null and f.at >= (self.step_at orelse use_pos) and !self.in_defer) {
-            try self.note(f.at, "`{s}` was {s} here, in a previous iteration of the loop{s}", .{ v.name, what, why });
+            try self.note(f.at, "`{s}` was {s} here, in a previous iteration of the loop{s}", .{ try self.varText(v), what, why });
         } else {
-            try self.note(f.at, "`{s}` was {s} here{s}", .{ v.name, what, why });
+            try self.note(f.at, "`{s}` was {s} here{s}", .{ try self.varText(v), what, why });
         }
     }
 
@@ -1571,7 +1571,7 @@ pub const Checker = struct {
                 // end) runs again in the loop's next iteration.
                 const before = if (end) |e| u < e else u < self.stmtStart();
                 // A task's use is its wait, `>t`: point at the wait.
-                const wait = u > 0 and self.source[u - 1] == '>' and if (v.ty) |ty| sema.isTask(ctx, ty) or sema.isTaskSet(ctx, ty) else false;
+                const wait = u > 0 and u <= self.source.len and self.source[u - 1] == '>' and if (v.ty) |ty| sema.isTask(ctx, ty) or sema.isTaskSet(ctx, ty) else false;
                 if (!before) return self.note(if (wait) u - 1 else u, "still used here", .{});
                 if (self.inDeferred(u)) return self.note(u, "still used here, in deferred code, which runs at the end of its scope", .{});
                 return self.note(u, "still used here, in the next iteration of the loop", .{});
@@ -1621,7 +1621,8 @@ pub const Checker = struct {
 
     /// The target of an assignment around `at` whose value is being
     /// walked: the use of `sym` not walked yet nearest before `at`.
-    fn targetUse(self: *const Checker, sym: SymbolId, at: u32) ?u32 {
+    fn targetUse(self: *const Checker, sym: SymbolId, at_in: u32) ?u32 {
+        const at = self.usePos(at_in);
         const all = self.uses.get(sym) orelse return null;
         var best: ?u32 = null;
         for (all.items) |p| {
@@ -1636,7 +1637,8 @@ pub const Checker = struct {
     /// the first in the loop around, which runs again. A use that reads
     /// the value comes before one that only assigns the var, which
     /// counts too.
-    fn nextUse(self: *const Checker, v: Var, sym: SymbolId, at: u32, end: ?u32) ?u32 {
+    fn nextUse(self: *const Checker, v: Var, sym: SymbolId, at_in: u32, end: ?u32) ?u32 {
+        const at = self.usePos(at_in);
         const all = self.uses.get(sym) orelse return null;
         const from = self.liveFrom(v.decl, end);
         const any_walked = end != null or from < self.stmtStart();
@@ -2635,7 +2637,17 @@ pub const Checker = struct {
         }
     }
 
-    fn noteUse(self: *Checker, sym: SymbolId, pos: u32, in_defer: bool) Error!void {
+    /// Where a use at `pos` happens: its own position, or, for a leaf a
+    /// rewrite wrote past the source's end (a spread's copied operand),
+    /// its home there, so liveness orders it with the source's uses.
+    fn usePos(self: *const Checker, pos: u32) u32 {
+        if (pos < self.source.len) return pos;
+        const p = self.sema.parser orelse return pos;
+        return p.homeOf(pos);
+    }
+
+    fn noteUse(self: *Checker, sym: SymbolId, written: u32, in_defer: bool) Error!void {
+        const pos = self.usePos(written);
         const gop = try self.last_use.getOrPut(self.gpa, sym);
         if (!gop.found_existing or gop.value_ptr.* < pos) gop.value_ptr.* = pos;
         if (in_defer) try self.defer_used.put(self.gpa, sym, {});
@@ -2740,7 +2752,8 @@ pub const Checker = struct {
 
     /// The use at `pos` is walked: unless a consumer being walked reads
     /// it where it runs (`late`).
-    fn markWalked(self: *Checker, pos: u32) Error!void {
+    fn markWalked(self: *Checker, at: u32) Error!void {
+        const pos = self.usePos(at);
         if (!self.nll or std.mem.findScalar(u32, self.late.items, pos) != null) return;
         try self.walked.append(self.gpa, pos);
     }
@@ -2761,7 +2774,7 @@ pub const Checker = struct {
             .list => if ((e.isKind(.read) or e.isKind(.write) or e.isKind(.move)) and ir.get(e, .operand) == .src) ir.get(e, .operand) else return,
             else => return,
         };
-        try self.late.append(self.gpa, name.src.pos);
+        try self.late.append(self.gpa, self.usePos(name.src.pos));
     }
 
     /// The parts of `node`, a call or an array literal, that it reads
@@ -2787,7 +2800,7 @@ pub const Checker = struct {
     /// enclosing loop the var was declared outside of, one around a
     /// deferred body being walked included (`defer_loops`).
     fn liveFrom(self: *const Checker, decl: u32, at: ?u32) u32 {
-        var from: u32 = loopStartFrom(self.loop, decl, at orelse self.stmtStart());
+        var from: u32 = loopStartFrom(self.loop, decl, if (at) |a| self.usePos(a) else self.stmtStart());
         for (self.defer_loops.items) |outer| from = loopStartFrom(outer, decl, from);
         return from;
     }
@@ -3672,7 +3685,7 @@ pub const Checker = struct {
             return false;
         }
         const what = if (self.flows.items[id].status == .dropped) "drop" else "move";
-        try self.err(pos, "use of `{s}` after {s}", .{ v.name, what });
+        try self.err(pos, "use of `{s}` after {s}", .{ try self.varText(v), what });
         try self.noteInvalidated(id, pos);
         return false;
     }
@@ -7497,7 +7510,7 @@ pub const Checker = struct {
             if (seen) continue;
             if (r.kind == .param) {
                 const shown = if (r.ty) |t| try sema.formatTypeIn(self.sema, self.arena(), t) else "T";
-                try self.err(l.pos, "cannot return a view of `{s}`: a parameter taken by value belongs to this function and ends with it; take `{s}: ?{s}` to return a view of the caller's value", .{ r.name, r.name, shown });
+                try self.err(l.pos, "cannot return a view of `{s}`: a parameter taken by value belongs to this function and ends with it; take `{s}: ?{s}` to return a view of the caller's value", .{ try self.varText(r), r.name, shown });
                 try self.noteStringResultOfString(l, self.func.ret_ty);
                 continue;
             }
@@ -9182,9 +9195,17 @@ pub const Checker = struct {
     }
 
     /// Place `path` of var `root`, as the source names it (`p.a.b`).
+    /// How var `v` is named to a reader: its name, or, for the parameter
+    /// a group's field became, `group.field`, as the body reads it.
+    fn varText(self: *Checker, v: Var) Error![]const u8 {
+        const sym = v.sym orelse return v.name;
+        const group = self.sema.group_fields.get(sym) orelse return v.name;
+        return sema.memberText(self.arena(), group, v.name);
+    }
+
     fn pathText(self: *Checker, root: VarId, path: PathId) Error![]const u8 {
         var out: std.ArrayList(u8) = .empty;
-        try out.appendSlice(self.arena(), self.vars.items[root].name);
+        try out.appendSlice(self.arena(), try self.varText(self.vars.items[root]));
         try self.paths.appendText(self.arena(), &out, path);
         // Self's member is `@name`, with no `.`.
         if (std.mem.eql(u8, self.vars.items[root].name, "@") and out.items.len > 2) _ = out.orderedRemove(1);

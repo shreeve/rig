@@ -5967,9 +5967,9 @@ pub const Parser = struct {
             const operand = spreadPlace(ir.Spread.value(c));
             for (sp.fields, 0..) |f, k| {
                 const read = if (sp.group) |g|
-                    (try self.readParam(st, g, f, at.start)) orelse try self.base.newNode(.member, &.{ try self.copyPlace(operand, st), try self.namedLeaf(at.start, f) }, at)
+                    (try self.readParam(st, g, f, at.start)) orelse try self.base.newNode(.member, &.{ try self.copyPlace(operand, st, at), try self.namedLeaf(at.start, f) }, at)
                 else
-                    try self.base.newNode(.member, &.{ try self.copyPlace(operand, st), try self.namedLeaf(at.start, f) }, at);
+                    try self.base.newNode(.member, &.{ try self.copyPlace(operand, st, at), try self.namedLeaf(at.start, f) }, at);
                 // `<v.f` or `+v.f` for a field that moves, by the
                 // spread's sigil; a field that copies is copied.
                 const moves = k < sp.moves.len and sp.moves[k];
@@ -5993,16 +5993,19 @@ pub const Parser = struct {
     }
 
     /// A copy of a spread's operand, a name or a field path, for one
-    /// field it gives (`copyTree`): a field read of a flattened group in
-    /// it names the field's parameter.
-    fn copyPlace(self: *Parser, place: Sexp, st: *const OptionsRewrite) std.mem.Allocator.Error!Sexp {
+    /// field it gives, every node and leaf of it at the spread `at`, so a
+    /// diagnostic about it is said there once (`copyTree` homes a leaf at
+    /// the leaf it copies): a field read of a flattened group in it names
+    /// the field's parameter.
+    fn copyPlace(self: *Parser, place: Sexp, st: *const OptionsRewrite, at: parser.Span) std.mem.Allocator.Error!Sexp {
         if (place.isKind(.member)) {
             if (st.reads.get(place.list.id)) |group| {
                 const field = leafText(self.base.source, ir.Member.name(place).src);
-                if (try self.readParam(st, group, field, self.span(place).start)) |leaf| return leaf;
+                if (try self.readParam(st, group, field, at.start)) |leaf| return leaf;
             }
-            return self.base.newNode(.member, &.{ try self.copyPlace(ir.Member.object(place), st), try self.copyTree(ir.Member.name(place)) }, self.span(place));
+            return self.base.newNode(.member, &.{ try self.copyPlace(ir.Member.object(place), st, at), try self.namedLeaf(at.start, leafText(self.base.source, ir.Member.name(place).src)) }, at);
         }
+        if (place == .src) return self.namedLeaf(at.start, leafText(self.base.source, place.src));
         return self.copyTree(place);
     }
 

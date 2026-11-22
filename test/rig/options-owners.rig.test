@@ -276,7 +276,7 @@ fail "a moving spread is read where it is written", "6:22: use of `d.name` after
   e = Doc(..<d, pages: d.name.len)
   print(e.pages)
 
-test "object update of a type with a drop body clones its fields", "a 4\nclose a\nclose a"
+fail "a type with a drop body is not updated, `..+f` included", "9:17: `File` has a `drop` body, so no update makes one: an update would take its fields apart or duplicate it, and a `drop` type has no clone (Core sentence 2); move `f` whole and set the field", errors: 1
   obj File
     name: String
     fd: Int
@@ -288,7 +288,7 @@ test "object update of a type with a drop body clones its fields", "a 4\nclose a
   g = File(fd: 4, ..+f)
   print(g.name, g.fd)
 
-fail "the sigils of a spread", "20:10: `..cfg` gives `prefix`, a `String`, which owns: write `..<cfg` to move it, or `..+cfg` to clone it", "21:25: `..<n` moves nothing, since every field it gives copies: write `..n`", "22:7: a spread gives a value's fields: write `..n`, `..<n` to move its owners, or `..+n` to clone them", "23:17: `File` has a `drop` body, which expects every field: update it from `..+f`, or move `f` whole and set the field", "24:17: `File` has a `drop` body, so object update copies its fields only by `..+f`", errors: 5
+fail "the sigils of a spread", "20:10: `..cfg` gives `prefix`, a `String`, which owns: write `..<cfg` to move it, or `..+cfg` to clone it", "21:25: `..<n` moves nothing, since every field it gives copies: write `..n`", "22:7: a spread gives a value's fields: write `..n`, `..<n` to move its owners, or `..+n` to clone them", "23:17: `File` has a `drop` body, so no update makes one", "24:17: `File` has a `drop` body, so no update makes one", errors: 5
   obj Http
     prefix: String = String()
     retries: Int = 3
@@ -440,3 +440,124 @@ test "a call with an owning group runs as a task", "/a 3\n/b 1", seeds: 20
   >t
   u = get(prefix: String("/b"), retries: 1)&
   >u
+
+test "a spread of a value that holds a view ends where it is last used", "hi 9\nhi 1\nend"
+  obj Label
+    text: ?String
+    width: Int = 8
+
+  sub show(..l: Label)
+    print(l.text, l.width)
+
+  s = String("hi")
+  l = Label(text: ?s)
+  w = Label(width: 9, ..l)
+  print(w.text, w.width)
+  show(width: 1, ..l)
+  <s
+  print("end")
+
+fail "an update that holds a view keeps its source read-only", "8:2: cannot drop `s` while a read view of it is still in use", errors: 1
+  obj Label
+    text: ?String
+    width: Int = 8
+
+  s = String("hi")
+  l = Label(text: ?s)
+  w = Label(width: 9, ..l)
+  <s
+  print(w.text)
+
+fail "a spread of a view whose source was dropped", "10:2: cannot drop `s` while a read view of it is still in use", errors: 1
+  obj Label
+    text: ?String
+    width: Int = 8
+
+  sub show(..l: Label)
+    print(l.text, l.width)
+
+  s = String("hi")
+  l = Label(text: ?s)
+  <s
+  show(width: 1, ..l)
+
+fail "a spread in a loop of a view dropped in the loop", "cannot drop `s` while a read view of it is still in use", "cannot reassign `s` while a read view of it is still in use", errors: 2
+  obj Label
+    text: ?String
+    width: Int = 8
+
+  s = String("hi")
+  l = Label(text: ?s)
+  i = 0
+  while i < 2
+    w = Label(width: i, ..l)
+    print(w.text)
+    <s
+    s = String("b")
+    i += 1
+
+test "a group's field that views an object, spread, then its source written", "0\n4"
+  obj Http
+    retries: Int = 3
+
+  obj Ctx
+    h: ?Http
+    k: Int = 0
+
+  sub take(..c: Ctx)
+    print(c.k)
+
+  h = Http()
+  c = Ctx(h: ?h)
+  take(..c)
+  h.retries = 4
+  print(h.retries)
+
+fail "`from` and `keeps` name a group, not its fields", "4:41: `from text`: `text` is a field of group `l`, not a parameter: write `from l`", "7:48: `keeps text`: `text` is a field of group `l`, not a parameter: write `keeps l`", errors: 2
+  obj Label
+    text: ?String
+
+  fun text_of(..l: Label) -> ?String from text
+    l.text
+
+  sub put(out: !List[?String], ..l: Label) keeps text
+    !out.push(l.text)
+
+  print(text_of(text: "a"))
+  xs: List[?String] = List()
+  put(!xs, text: "b")
+
+fail "a moved field is named as the body reads it, once at a spread", "8:9: use of `j.name` after move", "12:15: use of `d.name` after move", errors: 2
+  obj Job
+    name: String
+
+  sub run(c: Bool, ..j: Job)
+    if c
+      n = <j.name
+      print(n)
+    print(j.name)
+
+  sub other(..d: Job)
+    for 0..2
+      run(true, ..<d)
+
+  run(true, name: String("a"))
+  other(name: String("b"))
+
+fail "a refused spread says its sigil, and a refused group nothing more", "8:5: `..<h` is a `Http?`, an optional", "4:15: group `b` of `show` is a `Box[Int]`, an instance of a generic object", errors: 2
+  obj Box[T]
+    x: T
+
+  sub show(..b: Box[Int])
+    print(b.x)
+
+  h: Http? = Http()
+  get(..<h)
+  c = Box(x: 5)
+  show(..c)
+
+  obj Http
+    prefix: String = String()
+
+  sub get(..h: Http)
+    print(h.prefix)
