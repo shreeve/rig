@@ -606,12 +606,13 @@ counts.
 **[Jiff]** except where marked.
 
 - **The signatures** **[Owner, 2026-11-22]** (each but `Time`'s returns `!`):
-  - `Date`: `add(years: 0, months: 0, weeks: 0, days: 0) -> Date!`, by keyword only.
-  - `DateTime` and `ZonedDateTime`: `add(duration: Duration? = none, years: 0,
-    months: 0, weeks: 0, days: 0)`, returning `DateTime!` and `ZonedDateTime!`. Each is
-    an option, given by name, so `z.add(seconds: 0.5)!` or `z.add(duration: 0.5)!` is
-    half a second, `z.add(hours: 2)!` is two hours, and `z.add(days: 1, hours: 2)!` is
-    both.
+  - `Date`: `add(..period: Period) -> Date!`, by keyword only: the group `Period`
+    (`docs/design/options.md` §9) holds `years: 0, months: 0, weeks: 0, days: 0`.
+  - `DateTime` and `ZonedDateTime`: `add(duration: Duration? = none, ..period:
+    Period)`, returning `DateTime!` and `ZonedDateTime!`. Each is an option, given by
+    name, so `z.add(seconds: 0.5)!` or `z.add(duration: 0.5)!` is half a second,
+    `z.add(hours: 2)!` is two hours, and `z.add(days: 1, hours: 2)!` is both; a stored
+    period is spread, `z.add(..monthly, days: 3)!`.
   - `Instant` and `Monotonic`: `add(d: Duration)`, returning `Instant!` and
     `Monotonic!`.
   - `Time`: `add(d: Duration) -> Time`, total: it wraps (below).

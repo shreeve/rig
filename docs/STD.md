@@ -963,7 +963,7 @@ value that gives a wrong date without a word, as `?? d` would.
 | `i.round(`*unit*`: n)!`, `i.floor(`*unit*`: n)!` | the nearest multiple of one unit's increment counted from 1970, a half going to the later, before 1970 too, and the one at or before it: `i.round(seconds: 1)!` prints without a fraction. The unit is `ns:` to `hours:`, with an increment that divides a day; fails with `range` past either end, and with `invalid` for a computed increment it does not take |
 | `Instant.parse(s)!` | an instant from RFC 3339 with any offset, as Jiff reads it: `2026-11-17T15:07:03.5Z`, `2026-11-17 08:07:03,5-07:00`, `t` and `z` in small letters. A zone in brackets after the offset is read and not used; text with no offset fails |
 
-Every argument of `add` of a `Date` and a `DateTime`, every `with`,
+Every argument of `add` of a `Date`, a `DateTime`, and a `ZonedDateTime`, every `with`,
 `round`, and `floor` is an option, given by
 name ([SPEC "Functions"](../SPEC.md#functions)), so none is taken as a
 value; a closure passes one. A recurrence anchors to its start: the k-th of a monthly
@@ -1129,8 +1129,8 @@ saving, as Dublin's does, gives the same answers.
 | `z.instant()`, `z.datetime()`, `z.date()`, `z.time()`, `z.zone()` | its parts |
 | `z.offset() -> time.Duration`, `z.offset_text() -> String` | the zone's offset at the instant, `-7h`, and as text, `-07:00`, each with a historic offset's seconds, `-00:44:30` (Monrovia before 1972) |
 | `year()` to `iso_week_year()`, `hour()` to `nanosecond()` | the readers of the date and time on the zone's clock |
-| `z.add(duration: time.Duration? = none, years: 0, months: 0, weeks: 0, days: 0) -> ZonedDateTime!` | years and months, then weeks and days, on the clock, as a `DateTime` adds them; that time on the clock becomes an instant by `.compatible`; then the duration on the timeline. So `z.add(days: 1)!` is the same time tomorrow and `z.add(hours: 24)!` exactly 24 hours later, an hour apart across a change. When the months and the days each come to zero the instant is kept, so `add(days: 0)` on the second of a repeated time stays on it. The groups may differ in sign. Fails with `range` when a step leaves the range |
-| `z.with(year:, month:, day:, hour:, minute:, second:, ns:, resolve: Resolve = .compatible) -> ZonedDateTime!` | the fields given by name replaced, on the clock: where the new time is repeated, the value's own offset is kept when it is one of the two, so the second 01:30 in Denver on 2026-11-01 with the minute set to 45 is 01:45-07:00; otherwise as `resolve` says. Fails with `range` when that is not a real value |
+| `z.add(duration: time.Duration? = none, ..period: Period) -> ZonedDateTime!` | years and months, then weeks and days, the group `period`, on the clock, as a `DateTime` adds them, a stored `Period` given whole, `z.add(..monthly, days: 3)!`; that time on the clock becomes an instant by `.compatible`; then the duration on the timeline. So `z.add(days: 1)!` is the same time tomorrow and `z.add(hours: 24)!` exactly 24 hours later, an hour apart across a change. When the months and the days each come to zero the instant is kept, so `add(days: 0)` on the second of a repeated time stays on it. The groups may differ in sign. Fails with `range` when a step leaves the range |
+| `z.with(..date: DateFields, ..clock: ClockFields, resolve: Resolve = .compatible) -> ZonedDateTime!` | the fields given by name replaced, on the clock, as `DateTime.with` takes them, `z.with(hour: 12)!`: where the new time is repeated, the value's own offset is kept when it is one of the two, so the second 01:30 in Denver on 2026-11-01 with the minute set to 45 is 01:45-07:00; otherwise as `resolve` says. Fails with `range` when that is not a real value |
 | `z.start_of_day() -> ZonedDateTime!` | the start of the value's date, as `d.in_zone(z.zone())!`; fails with `range` on the first date of the range |
 | `z.round(`*unit*`: n)!`, `z.floor(`*unit*`: n)!` | as a `DateTime`'s, on the zone's clock, keeping the value's offset where the result is repeated and moving a skipped one past the gap: the first 01:50 in Denver on 2026-11-01 rounded to 30 minutes is 02:00-07:00. To `days: 1`, the multiples are the starts of days: `floor` is the latest start at or before the value, and `round` chooses it or the next day's start by the day's real length, so noon on Denver's 23-hour day rounds down; a day at either end of the range is measured too. Fails with `range` only for a result beyond the range and `invalid` for a computed increment it does not take |
 | `z.since(other) -> time.Duration` | the time from `other`, exact for any two, in any two zones |
@@ -1161,6 +1161,8 @@ sub main()!
   dt.in_zone(denver, resolve: .reject) catch |e| print(e)
   second = datetime.ZonedDateTime.parse("2026-11-01T01:30:00-07:00[America/Denver]")!
   print(second.with(minute: 45)!, second.round(hours: 1)!)
+  monthly = datetime.Period(months: 1)
+  print(z.add(..monthly, days: 3)!)
   print(datetime.Date.new(2015, 10, 18).in_zone(datetime.TimeZone.named("America/Sao_Paulo"))!)
   stored = "2030-12-01T12:00-02:00[America/Sao_Paulo]"
   datetime.ZonedDateTime.parse(stored) catch |e| print(e)
@@ -1176,6 +1178,7 @@ sub main()!
 2026-03-08T03:30:00-06:00[America/Denver] 2026-03-08T01:30:00-07:00[America/Denver]
 DateTimeError.skipped_or_repeated
 2026-11-01T01:45:00-07:00[America/Denver] 2026-11-01T02:00:00-07:00[America/Denver]
+2026-04-10T05:00:00-06:00[America/Denver]
 2015-10-18T01:00:00-02:00[America/Sao_Paulo]
 DateTimeError.offset_conflict
 2030-12-01T11:00:00-03:00[America/Sao_Paulo]

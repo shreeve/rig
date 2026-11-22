@@ -176,7 +176,9 @@ pub obj ZonedDateTime: Eq + Ord + Hash + Print
   # The instant a duration and the calendar amounts later, each given by
   # name: `z.add(days: 1)!` is the same time on the clock tomorrow, or
   # just after it where it is skipped, and `z.add(hours: 24)!` exactly 24
-  # hours later; `z.add(days: 1, hours: 2)!` is both. Years and months
+  # hours later; `z.add(days: 1, hours: 2)!` is both. The calendar
+  # amounts are the group `period`, so a stored `Period` applies whole,
+  # `z.add(..monthly)!`, a field named beside it winning. Years and months
   # come first, together as months, with a day past the month's end
   # becoming its last day, then weeks and days, all on the clock; that
   # time on the clock becomes an instant as `Resolve.compatible` says;
@@ -184,9 +186,9 @@ pub obj ZonedDateTime: Eq + Ord + Hash + Print
   # When the months and the days each come to zero the instant is kept
   # as it is, so `z.add(days: 0)!` on a repeated time stays on it. Fails
   # with `DateTimeError.range` when a step leaves the range.
-  pub fun add(?@, duration: time.Duration? = none, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> ZonedDateTime!
-    m = total_months(years, months)
-    n = total_days(weeks, days)
+  pub fun add(?@, duration: time.Duration? = none, ..period: Period) -> ZonedDateTime!
+    m = total_months(period.years, period.months)
+    n = total_days(period.weeks, period.days)
     i = @at
     if m != 0 or n != 0
       dt = datetime_add(@on_clock(), none, m, n) ?? return DateTimeError.range
@@ -197,7 +199,8 @@ pub obj ZonedDateTime: Eq + Ord + Hash + Print
     zoned_of(i, @tz)
 
   # The date and time on the clock with the fields given by name
-  # replaced, in the same zone: `z.with(hour: 0, minute: 0)!`. Where the
+  # replaced, in the same zone: `z.with(hour: 0, minute: 0)!`, the groups
+  # `date` and `clock` as `DateTime.with` takes them. Where the
   # new time on the clock is repeated, the value's own offset is kept
   # when it is one of the two: the second 01:30 in Denver on 2026-11-01
   # (-07:00), with the minute set to 45, is 01:45-07:00. Otherwise a
@@ -205,8 +208,8 @@ pub obj ZonedDateTime: Eq + Ord + Hash + Print
   # `DateTimeError.range` when that is not a real date and time or lies
   # beyond the range, and with `skipped_or_repeated` under
   # `resolve: .reject`.
-  pub fun with(?@, year: Int? = none, month: Int? = none, day: Int? = none, hour: Int? = none, minute: Int? = none, second: Int? = none, ns: Int? = none, resolve: Resolve = .compatible) -> ZonedDateTime!
-    dt = @on_clock().with(year: year, month: month, day: day, hour: hour, minute: minute, second: second, ns: ns)!
+  pub fun with(?@, ..date: DateFields, ..clock: ClockFields, resolve: Resolve = .compatible) -> ZonedDateTime!
+    dt = @on_clock().with(..date, ..clock)!
     keeping(dt, Int(@off), @tz, resolve)!
 
   # The first instant of the value's date in its zone: 00:00 on that date,
