@@ -223,3 +223,35 @@ test "zone_names and tzdb_version", '''
 test "named stays usable as a function value", "Europe/Paris"
   f = datetime.TimeZone.named
   print(f("europe/paris")!.name())
+
+test "each fixed offset either side of a boundary: made by a constant call", '''
+  +25:59 -25:59 +25:59 -25:59
+  +25:00 -25:00 -00:30 +00:30
+'''
+  print(datetime.TimeZone.fixed(hours: 25, minutes: 59).name(), datetime.TimeZone.fixed(hours: -25, minutes: -59).name(), datetime.TimeZone.fixed(minutes: 1559).name(), datetime.TimeZone.fixed(minutes: -1559).name())
+  print(datetime.TimeZone.fixed(hours: 25).name(), datetime.TimeZone.fixed(hours: -25).name(), datetime.TimeZone.fixed(minutes: -30).name(), datetime.TimeZone.fixed(hours: 0, minutes: 30).name())
+
+fail "each fixed offset either side of a boundary: refused by a constant call", "1:49: 25 hours and 60 minutes is beyond", "2:50: -25 hours and -60 minutes is beyond", "3:38: 0 hours and 1560 minutes is beyond", "4:38: 0 hours and -1560 minutes is beyond", "5:36: 26 hours is beyond", "6:36: -26 hours is beyond", "7:49: -1 hours and 1 minutes differ in sign", "8:48: 1 hours and -1 minutes differ in sign", errors: 8
+  _ = datetime.TimeZone.fixed(hours: 25, minutes: 60)
+  _ = datetime.TimeZone.fixed(hours: -25, minutes: -60)
+  _ = datetime.TimeZone.fixed(minutes: 1560)
+  _ = datetime.TimeZone.fixed(minutes: -1560)
+  _ = datetime.TimeZone.fixed(hours: 26)
+  _ = datetime.TimeZone.fixed(hours: -26)
+  _ = datetime.TimeZone.fixed(hours: -1, minutes: 1)
+  _ = datetime.TimeZone.fixed(hours: 1, minutes: -1)
+
+test "each fixed offset either side of a boundary: std's fixed at run time agrees", '''
+  +25:59 -25:59 +25:59 -25:59 +25:00 -25:00
+  DateTimeError.range DateTimeError.range DateTimeError.range DateTimeError.range
+  DateTimeError.range DateTimeError.range DateTimeError.invalid DateTimeError.invalid
+'''
+  fun fixed(h: Int, m: Int) -> String
+    z = datetime.TimeZone.fixed(hours: h, minutes: m) catch |e|
+      return String(`{e}`)
+    z.name()
+
+  sub main()
+    print(fixed(25, 59), fixed(-25, -59), fixed(0, 1559), fixed(0, -1559), fixed(25, 0), fixed(-25, 0))
+    print(fixed(25, 60), fixed(-25, -60), fixed(0, 1560), fixed(0, -1560))
+    print(fixed(26, 0), fixed(-26, 0), fixed(-1, 1), fixed(1, -1))
