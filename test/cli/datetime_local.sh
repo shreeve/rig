@@ -23,6 +23,12 @@ mkdir -p "$zones/Asia" link
 ln -s "$zones/Asia/Tokyo" link/tokyo
 ln -s ../share/zoneinfo/Pacific/Apia link/apia
 ln -s "$PWD/nowhere" link/plain
+# Chains of links: what each names is followed, up to eight, and then cut.
+ln -s tokyo link/hop1
+ln -s hop1 link/hop2
+for i in 3 4 5 6 7 8 9; do ln -s "hop$((i - 1))" "link/hop$i"; done
+ln -s loop2 link/loop1
+ln -s loop1 link/loop2
 : >plainfile
 
 cases=(
@@ -40,6 +46,10 @@ cases=(
     ":$PWD/link/tokyo"                  "Asia/Tokyo"
     "$PWD/link/apia"                    "Pacific/Apia"
     ":$PWD/link/plain"                  "DateTimeError.unknown_zone"
+    ":$PWD/link/hop1"                   "Asia/Tokyo"
+    "$PWD/link/hop7"                    "Asia/Tokyo"
+    "$PWD/link/hop8"                    "DateTimeError.unknown_zone"
+    ":$PWD/link/loop1"                  "DateTimeError.unknown_zone"
     ":$PWD/plainfile"                   "DateTimeError.unknown_zone"
     ":$PWD/missing"                     "DateTimeError.unknown_zone"
     "UTC0"                              "UTC"

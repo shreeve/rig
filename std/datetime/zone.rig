@@ -26,8 +26,9 @@ MAX_FIXED_MINUTES = 1559
 # `Africa/Accra` does not equal `Africa/Abidjan`, whose rules are the
 # same; a named zone never equals a fixed one (`Etc/GMT+7` and
 # `fixed(hours: -7)`), and `utc()`, `fixed(hours: 0)`, and
-# `named("UTC")` are one value, apart from `named("Etc/UTC")`.
-pub obj TimeZone: Eq + Hash
+# `named("UTC")` are one value, apart from `named("Etc/UTC")`. `print`
+# writes its `name()`, `America/Denver`, `-07:00`, or `UTC`.
+pub obj TimeZone: Eq + Hash + Print
   # A named zone's index in the names (`zone_names()`), a zone of the
   # test table's from `TEST_BASE`, or `FIXED_ID`; and a fixed zone's
   # offset in minutes east of UTC, 0 for a named one.
@@ -87,15 +88,8 @@ pub obj TimeZone: Eq + Hash
   # was asked for, so `named("Asia/Calcutta")` stays `Asia/Calcutta`; a
   # fixed zone's offset, `-07:00`; and `UTC` for `utc()`.
   pub fun name(?@) -> String
-    if @id != FIXED_ID
-      return String(zone_name(Int(@id)))
-    if @mins == 0
-      return String("UTC")
     out = String()
-    m = Int(@mins)
-    !out.add("-" if m < 0 else "+")
-    a = -m if m < 0 else m
-    !out.add(`{a / 600}{a / 60 % 10}:{a % 60 / 10}{a % 10}`)
+    !out.add(`{@}`)
     out
 
   # The zone's offset from UTC at the instant `i`, east positive:
@@ -105,6 +99,21 @@ pub obj TimeZone: Eq + Hash
     if @id == FIXED_ID
       return time.Duration(s: Int(@mins) * 60, nano: 0)
     time.Duration(s: zone_offset(Int(@id), i.s), nano: 0)
+
+  # Its name, as `name()` gives it, written with no allocation.
+  sub print(?@, out: !Printer)
+    if @id != FIXED_ID
+      !out.text(zone_name(Int(@id)))
+      return
+    if @mins == 0
+      !out.text("UTC")
+      return
+    m = Int(@mins)
+    !out.text("-" if m < 0 else "+")
+    a = -m if m < 0 else m
+    pad(!out, a / 60, 2)
+    !out.text(":")
+    pad(!out, a % 60, 2)
 
   # Two zones are equal when both are fixed with one offset, or both are
   # named with one primary identifier (Jiff's `tz/timezone.rs:2749`).
@@ -123,12 +132,13 @@ pub obj TimeZone: Eq + Hash
 # (DATETIME-DESIGN §7.7). `TZ`, when it is set: empty is `utc()`; a
 # zone's name, a leading `:` dropped and a path cut to what follows
 # `zoneinfo/`; an absolute path with no `zoneinfo/`, read as a link and
-# what it names cut the same way; or, not after a `:`, a rule with no
-# daylight-saving part, `UTC0`, `EST5`, `<+08>-8`, as a fixed zone.
-# Anything else fails with `DateTimeError.unknown_zone`, and a set `TZ`
-# never falls through. Otherwise the name the link `/etc/localtime`
-# names (macOS's names `/var/db/timezone/zoneinfo/America/Denver`), cut
-# the same way, and otherwise the name in `/etc/timezone`. A name the
+# what it names, followed through up to eight links, cut the same way;
+# or, not after a `:`, a rule with no daylight-saving part, `UTC0`,
+# `EST5`, `<+08>-8`, as a fixed zone. Anything else fails with
+# `DateTimeError.unknown_zone`, and a set `TZ` never falls through.
+# Otherwise the name the link `/etc/localtime` names (macOS's names
+# `/var/db/timezone/zoneinfo/America/Denver`), followed and cut the same
+# way, and otherwise the name in `/etc/timezone`. A name the
 # data does not hold fails with `DateTimeError.unknown_zone`, and no
 # zone to be found with `DateTimeError.no_system_zone`: where
 # `/etc/localtime` is a copy and not a link, as in some container
@@ -138,7 +148,7 @@ pub obj TimeZone: Eq + Hash
 pub fun local() -> TimeZone!
   if os.env("TZ") as tz
     return tz_zone(tz)!
-  if link_target("/etc/localtime")! as target
+  if link_chain("/etc/localtime")! as target
     if after_zoneinfo(?target) as cut
       return TimeZone.named(cut)!
   if file_text("/etc/timezone")! as text
@@ -172,10 +182,39 @@ fun path_zone(p: ?String) -> TimeZone!
   if after_zoneinfo(p) as cut
     return TimeZone.named(cut)!
   if p.len > 0 and p[0] == '/'
-    target = link_target(p)! ?? return DateTimeError.unknown_zone
+    target = link_chain(p)! ?? return DateTimeError.unknown_zone
     cut = after_zoneinfo(?target) ?? return DateTimeError.unknown_zone
     return TimeZone.named(cut)!
   TimeZone.named(p)!
+
+# The most links `link_chain` follows.
+MAX_LINKS = 8
+
+# What the link at `path` names, followed through a chain of links, each
+# relative one from its link's directory, until a path with
+# `zoneinfo/` in it, or one that is not a link; `none` when `path` is not
+# a link, and after `MAX_LINKS` links, which a cycle reaches.
+fun link_chain(path: ?String) -> String?!
+  at = String(path)
+  for _ in 0..MAX_LINKS
+    target = link_target(?at)! ?? return none
+    if after_zoneinfo(?target) != none
+      return target
+    if target.len > 0 and (?target[..])[0] == '/'
+      at = <target
+    else
+      next = String(dir_of(?at))
+      !next.add(?target)
+      at = <next
+  none
+
+# The directory part of `p`, through its last `/`; empty for a name with
+# none.
+fun dir_of(p: ?String) -> ?String
+  i = p.len - 1
+  while i >= 0 and p[i] != '/'
+    i -= 1
+  p[..i + 1]
 
 # What follows the last `zoneinfo/` in `p`, or `none` when it has none or
 # nothing follows it.

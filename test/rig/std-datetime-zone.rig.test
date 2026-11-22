@@ -255,3 +255,30 @@ test "each fixed offset either side of a boundary: std's fixed at run time agree
     print(fixed(25, 59), fixed(-25, -59), fixed(0, 1559), fixed(0, -1559), fixed(25, 0), fixed(-25, 0))
     print(fixed(25, 60), fixed(-25, -60), fixed(0, 1560), fixed(0, -1560))
     print(fixed(26, 0), fixed(-26, 0), fixed(-1, 1), fixed(1, -1))
+
+test "a zone prints as its name", '''
+  Asia/Tokyo -07:00 UTC +05:30 Etc/UTC
+  Asia/Calcutta [-07:00] UTC
+'''
+  print(datetime.TimeZone.named("Asia/Tokyo"), datetime.TimeZone.fixed(hours: -7), datetime.TimeZone.utc(), datetime.TimeZone.fixed(minutes: 330), datetime.TimeZone.named("etc/utc"))
+  tz = datetime.TimeZone.fixed(hours: -7)
+  print(String(datetime.TimeZone.named("asia/calcutta")), `[{tz}]`, String(datetime.TimeZone.fixed(hours: 0)))
+
+test "a literal name given by keyword is checked the same and needs no !", "Asia/Tokyo"
+  print(datetime.TimeZone.named(name: "asia/tokyo").name())
+
+fail "a literal name given by keyword that names no zone is refused", "1:35: `datetime.TimeZone.named(name: \"Mars/Base\")` always fails, its argument being a constant: the zone data has no zone named `Mars/Base`", errors: 1
+  _ = datetime.TimeZone.named(name: "Mars/Base")
+
+fail "a name that is no plain literal needs the !, and the note says why", "4:7: fallible call to `named` must be wrapped", "4:31: `Z` is not a plain string literal, so `datetime.TimeZone.named(Z)` can fail as the program runs; with a plain string literal it is checked as Rig compiles", "5:31: `\"Asia/Tokyo\\n\"` is not a plain string literal", errors: 2
+  Z = "Asia/Tokyo"
+
+  sub main()
+    _ = datetime.TimeZone.named(Z)
+    _ = datetime.TimeZone.named("Asia/Tokyo\n")
+
+fail "no name is offered when none is near", "1:29: `datetime.TimeZone.named(\"\")` always fails, its argument being a constant: the zone data has no zone named ``; `datetime.zone_names()` lists every name", "2:29: the zone data has no zone named `PST`; `datetime.zone_names()` lists every name", "3:29: the zone data has no zone named `Europe/Pariss`; did you mean `\"Europe/Paris\"`?", "4:29: the zone data has no zone named `asia/tokio`; did you mean `\"Asia/Tokyo\"`?", errors: 4
+  _ = datetime.TimeZone.named("")
+  _ = datetime.TimeZone.named("PST")
+  _ = datetime.TimeZone.named("Europe/Pariss")
+  _ = datetime.TimeZone.named("asia/tokio")

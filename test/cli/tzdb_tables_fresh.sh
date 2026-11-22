@@ -25,7 +25,7 @@ expect_eq "$(rig run version.rig 2>&1)" "$version $names" "tzdb_version and zone
 cache=${RIG_TZDB:-$HOME/.cache/rig-tzdb}
 for f in jiff-1.0.0.crate jiff-tzdb-1.0.0.crate europe-dublin.tzif; do
     if [[ ! -f $cache/$f ]]; then
-        echo "$cache/$f is not there: tables not regenerated"
+        echo "the generator's inputs are not cached ($cache/$f): skipped"
         exit 0
     fi
 done
