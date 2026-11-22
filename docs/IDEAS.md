@@ -52,7 +52,7 @@ The concurrency plan the owner approved from that review is on the ROADMAP, unde
   - Needs: a program that wants one; a group generic over "whatever `F` takes" stays out (row polymorphism).
 - **Groups passed by pointer.** `..o: ?Net` passes a large options value as one read view instead of a field per argument; keywords build a temporary the call views.
   - Source: the Zig review of the options design, 2026-11-22, which measured the copy a large group costs ([named-options/](history/records/2026-11/named-options/README.md)).
-  - Needs: a group large enough to spill, measured; it follows owners and read views in groups (ROADMAP).
+  - Needs: a group large enough to spill, measured.
 - **Forwarding an API to a field.**
   - Form: `obj Counted: Writer by @out`; Crystal's `delegate`.
   - Source: the Crystal review (Swift).
