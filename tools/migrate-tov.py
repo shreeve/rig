@@ -271,8 +271,8 @@ def from_unix(text, spans):
             i = m.end()
             manual.append((line, "`Instant.from_unix` of several units or none: write the maker of one unit"))
             continue
-        spans, close = got
-        arg = text[spans[0][0] : spans[0][1]].strip()
+        args, close = got
+        arg = text[args[0][0] : args[0][1]].strip()
         kw = re.match(r"(\w+):\s*(.*)$", arg, re.S)
         unit, value = (kw.group(1), kw.group(2)) if kw else ("seconds", arg)
         bang = text[close + 1 : close + 2] == "!"

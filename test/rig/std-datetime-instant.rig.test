@@ -1,45 +1,47 @@
-# std.datetime's `Instant` and `now()`: each duration form of
-# `from_unix`, `add`, and `checked_add` at each kind of call, built and
-# run; `unix`, `unix_s`, and `since`, saturating beyond a `Duration`;
-# `round` and `floor`, with the checks of their increments where they
-# are called; RFC 3339 text; and the wall clock, real under the
+# std.datetime's `Instant` and `now()`: the Unix makers and readers;
+# each duration form of `add` at each kind of call, built and run;
+# `since`, exact for any two instants; `round` and `floor`, with the
+# checks of their increments where they are called, failing past the
+# range; RFC 3339 text; and the wall clock, real under the
 # deterministic scheduler (docs/design/datetime.md §5.2, §6.6, §6.8,
-# §7.1, §7.8, §8.1).
+# §7.1, §7.2, §7.8, §8.1).
 
 use std.datetime
 use std.time
 
-test "from_unix forms", '''
+test "the unix makers", '''
   2023-11-14T22:13:20Z 1970-01-01T00:00:01.5Z 1969-12-31T23:59:58.5Z 1970-01-01T00:00:00.000001Z 1970-01-01T00:00:00.000000007Z
-  1970-01-01T01:30:00Z 1970-01-01T00:01:30Z 2001-09-09T01:46:40Z 1970-01-01T00:00:05Z 1970-01-01T00:00:00Z
+  1969-12-31T23:59:59.999999999Z 1970-01-01T00:00:05Z 2001-09-09T01:46:40Z 1970-01-01T00:00:05.000000001Z
 '''
-  # Bare seconds, an `Int` or a `Float`; a unit's keyword, `ms:` for a
-  # JavaScript time; several units, which add up; a `Duration`, by
-  # position or by its name `d:`; and a value of an `Int`.
-  t = -1500
+  # Seconds, with nanoseconds summed by name, of either sign; a `Float`
+  # of seconds; milliseconds, a JavaScript time; microseconds and
+  # nanoseconds; with constants checked as Rig compiles, and with values
+  # known only as the program runs.
+  fun k(n: Int) -> Int
+    n
+
   five = time.duration(5)
-  print(datetime.Instant.from_unix(1_700_000_000), datetime.Instant.from_unix(1.5), datetime.Instant.from_unix(ms: t), datetime.Instant.from_unix(us: 1), datetime.Instant.from_unix(ns: 7))
-  print(datetime.Instant.from_unix(hours: 1, minutes: 30), datetime.Instant.from_unix(minutes: 1, seconds: 30), datetime.Instant.from_unix(1_000_000_000), datetime.Instant.from_unix(five), datetime.Instant.from_unix(d: 0))
+  print(datetime.Instant.from_unix_s(1_700_000_000), datetime.Instant.from_unix_float(1.5)!, datetime.Instant.from_unix_ms(k(-1500))!, datetime.Instant.from_unix_us(1), datetime.Instant.from_unix_ns(7))
+  print(datetime.Instant.from_unix_s(0, ns: -1), datetime.Instant.from_unix_s(five.seconds(), ns: five.subsec_ns())!, datetime.Instant.from_unix_s(1_000_000_000), datetime.Instant.from_unix_s(5, ns: 1))
 
 test "add forms at each kind of call", '''
   2026-11-17T15:07:04Z 2026-11-17T15:07:03.5Z 2026-11-17T16:37:03Z 2026-11-17T15:07:03.04Z 2026-11-17T15:07:08Z 2026-11-17T15:07:01Z
   2026-11-17T15:07:05Z 2026-11-17T15:06:33Z 2026-11-17T15:07:03.000000001Z 2026-11-17T15:07:03Z 2026-11-18T15:07:03Z
 '''
   # A method call, and a call through the type with self first; bare, a
-  # `Float`, units, a `Duration` by position or by `d:`, negative; and
-  # `checked_add`.
+  # `Float`, units, a `Duration` by position or by `d:`, negative.
   i = datetime.Instant.parse("2026-11-17T15:07:03Z")!
   five = time.duration(5)
   k = -2
-  print(i.add(1), i.add(0.5), i.add(hours: 1, minutes: 30), i.add(ms: 40), i.add(five), i.add(k))
-  print(datetime.Instant.add(i, 2), datetime.Instant.add(i, seconds: -30), i.checked_add(ns: 1)!, i.checked_add(d: 0)!, datetime.Instant.checked_add(i, hours: 24)!)
+  print(i.add(1)!, i.add(0.5)!, i.add(hours: 1, minutes: 30)!, i.add(ms: 40)!, i.add(five)!, i.add(k)!)
+  print(datetime.Instant.add(i, 2)!, datetime.Instant.add(i, seconds: -30)!, i.add(ns: 1)!, i.add(d: 0)!, datetime.Instant.add(i, hours: 24)!)
 
 test "add is a value", "2026-11-17T15:07:08Z"
   # `add` checks nothing a function value cannot carry: it takes a
   # `Duration`.
   i = datetime.Instant.parse("2026-11-17T15:07:03Z")!
   f = datetime.Instant.add
-  print(f(i, time.duration(5)))
+  print(f(i, time.duration(5))!)
 
 test "the ends of the range", '''
   -009999-01-02T01:59:59Z 9999-12-30T22:00:00.999999999Z
@@ -51,64 +53,65 @@ test "the ends of the range", '''
   lo = datetime.Instant.parse("-009999-01-02T01:59:59Z")!
   hi = datetime.Instant.parse("9999-12-30T22:00:00.999999999Z")!
   fun past(i: datetime.Instant, d: time.Duration) -> String
-    r = i.checked_add(d) catch |e| return String(e)
+    r = i.add(d) catch |e| return String(e)
     String(r)
 
   print(lo, hi)
   print(lo.unix_s(), hi.unix_s())
   print(past(lo, time.duration(ns: -1)), past(lo, time.duration(-1)), past(hi, time.duration(ns: 1)), past(hi, time.duration(1)))
-  print(lo.add(ns: 1).add(ns: -1) == lo, hi.add(ns: -1).add(ns: 1) == hi)
+  print(lo.add(ns: 1)!.add(ns: -1)! == lo, hi.add(ns: -1)!.add(ns: 1)! == hi)
 
-bomb "add panics past the end", "datetime.Instant.add: 9999-12-30T22:00:00.999999999Z plus 1ns is beyond the range of instants, -009999-01-02T01:59:59Z to 9999-12-30T22:00:00.999999999Z"
-  hi = datetime.Instant.parse("9999-12-30T22:00:00.999999999Z")!
-  print(hi.add(ns: 1))
-
-test "unix and unix_s", '''
-  0 0 -1 -500ms
-  -1 -1 -2 -1s 500ms
-  1700000000 1700000000500 1700000000 1700000000
-  -2562047h 47m 16s 854ms 775us 808ns 2562047h 47m 16s 854ms 775us 807ns
+test "unix and its readers", '''
+  0 0 -1 -500ms -500 -500000
+  -1 -1 -2 -1s 500ms -1500 -1500000
+  1700000000 1700000000500 1700000000 1700000000 1700000000500 1700000000500000
+  -3243360h 2892720h
   -9223372037 9223372036
 '''
-  # §7.8: `unix()` truncates in its readers, half a second before 1970
-  # is 0 seconds; `unix_s()` floors, -1, as Unix tools count. Outside
-  # 1677 to 2262 `unix()` saturates, and `unix_s()` stays exact.
-  a = datetime.Instant.from_unix(ms: -500)
-  b = datetime.Instant.from_unix(ms: -1500)
-  c = datetime.Instant.from_unix(ms: 1_700_000_000_500)
-  print(a.unix().seconds(), a.unix().ms() / 1000, a.unix_s(), a.unix())
-  print(b.unix().seconds(), b.unix().ms() / 1000, b.unix_s(), b.unix())
-  print(c.unix().seconds(), c.unix().ms(), c.unix_s(), datetime.Instant.from_unix(c.unix()).unix_s())
+  # §7.8: `unix()` is exact at any instant, and truncates in its
+  # readers, so half a second before 1970 is 0 seconds; `unix_s()`,
+  # `unix_ms()`, and `unix_us()` floor, as Unix tools count, and each is
+  # the inverse of its maker.
+  a = datetime.Instant.from_unix_ms(-500)
+  b = datetime.Instant.from_unix_ms(-1500)
+  c = datetime.Instant.from_unix_ms(1_700_000_000_500)
+  print(a.unix().seconds(), a.unix().ms() / 1000, a.unix_s(), a.unix(), a.unix_ms(), a.unix_us())
+  print(b.unix().seconds(), b.unix().ms() / 1000, b.unix_s(), b.unix(), b.unix_ms(), b.unix_us())
+  print(c.unix().seconds(), c.unix().ms(), c.unix_s(), datetime.Instant.from_unix_s(c.unix().seconds())!.unix_s(), datetime.Instant.from_unix_ms(c.unix_ms())!.unix_ms(), datetime.Instant.from_unix_us(c.unix_us())!.unix_us())
   lo = datetime.Instant.parse("1600-01-01T00:00:00Z")!
   hi = datetime.Instant.parse("2300-01-01T00:00:00Z")!
   print(lo.unix(), hi.unix())
-  # The ends of a `Duration`, as instants: 1677-09-21 and 2262-04-11.
-  print(datetime.Instant.from_unix(ns: Int.min).unix_s(), datetime.Instant.from_unix(ns: Int.max).unix_s())
+  # An `Int` of nanoseconds reaches 1677-09-21 and 2262-04-11.
+  print(datetime.Instant.from_unix_ns(Int.min).unix_s(), datetime.Instant.from_unix_ns(Int.max).unix_s())
 
-test "unix_s at both ends of the range", '''
+test "unix readers at both ends of the range", '''
   -377705023201 253402207200
-  true true
+  -377705023201000000000 253402207200999999999
+  -377705023201000 253402207200999
+  -377705023201000000 253402207200999999
+  true true true true
 '''
-  lo = datetime.Instant.parse("-009999-01-02T01:59:59Z")!
-  hi = datetime.Instant.parse("9999-12-30T22:00:00.999999999Z")!
+  lo = datetime.Instant.min()
+  hi = datetime.Instant.max()
   print(lo.unix_s(), hi.unix_s())
-  print(lo.unix() == time.duration(ns: Int.min), hi.unix() == time.duration(ns: Int.max))
+  print(lo.unix().ns(), hi.unix().ns())
+  print(lo.unix_ms(), hi.unix_ms())
+  print(lo.unix_us(), hi.unix_us())
+  print(lo == datetime.Instant.parse("-009999-01-02T01:59:59Z")!, hi == datetime.Instant.parse("9999-12-30T22:00:00.999999999Z")!, datetime.Instant.from_unix_s(lo.unix().seconds(), ns: lo.unix().subsec_ns())! == lo, datetime.Instant.from_unix_s(hi.unix().seconds(), ns: hi.unix().subsec_ns())! == hi)
 
 test "since", '''
   1h 30m -1h 30m 0s 1ns
-  2562047h 47m 16s 854ms 775us 807ns -2562047h 47m 16s 854ms 775us 808ns
-  2562047h 47m 16s 854ms 775us 807ns
+  175307564h 1s 999ms 999us 999ns -175307564h 1s 999ms 999us 999ns
+  2562071h 47m 16s 854ms 775us 807ns
 '''
-  # Exact within ±292 years, and beyond them the largest or smallest
-  # `Duration` (§6.6).
+  # Exact for any two instants, the ends of the range too (§6.6).
   a = datetime.Instant.parse("2026-11-17T15:07:03Z")!
-  b = a.add(hours: 1, minutes: 30)
-  print(b.since(a), a.since(b), a.since(a), a.add(ns: 1).since(a))
-  lo = datetime.Instant.parse("-009999-01-02T01:59:59Z")!
-  hi = datetime.Instant.parse("9999-12-30T22:00:00.999999999Z")!
+  b = a.add(hours: 1, minutes: 30)!
+  print(b.since(a), a.since(b), a.since(a), a.add(ns: 1)!.since(a))
+  lo = datetime.Instant.min()
+  hi = datetime.Instant.max()
   print(hi.since(lo), lo.since(hi))
-  # 292 years and a day apart: past the largest by a day.
-  print(datetime.Instant.parse("2262-04-12T23:47:16.854775807Z")!.since(datetime.Instant.from_unix(0)))
+  print(datetime.Instant.parse("2262-04-12T23:47:16.854775807Z")!.since(datetime.Instant.from_unix_s(0)))
 
 test "round and floor", '''
   2026-11-17T15:07:00Z 2026-11-17T15:00:00Z 2026-11-17T15:00:00Z 2026-11-17T15:07:03.5Z 2026-11-18T00:00:00Z
@@ -118,8 +121,8 @@ test "round and floor", '''
   # hours; through the type; from a variable, checked as it runs.
   i = datetime.Instant.parse("2026-11-17T15:07:03.512094Z")!
   k = 15
-  print(i.round(minutes: 1), i.round(hours: 1), datetime.Instant.round(i, minutes: k), i.round(ms: 500), i.round(hours: 24))
-  print(i.floor(minutes: 1), i.floor(hours: 1), datetime.Instant.floor(i, hours: 6), i.floor(ms: 1), i.floor(seconds: 86_400))
+  print(i.round(minutes: 1)!, i.round(hours: 1)!, datetime.Instant.round(i, minutes: k)!, i.round(ms: 500)!, i.round(hours: 24)!)
+  print(i.floor(minutes: 1)!, i.floor(hours: 1)!, datetime.Instant.floor(i, hours: 6)!, i.floor(ms: 1)!, i.floor(seconds: 86_400)!)
 
 test "round before 1970", '''
   1969-12-31T23:59:59Z 1969-12-31T23:59:58Z
@@ -130,54 +133,55 @@ test "round before 1970", '''
   # [Owner] §6.8: a half goes to the later value before 1970 too, where
   # Jiff takes it away from 1970; `floor` goes to the multiple at or
   # before the instant, toward the past.
-  half = datetime.Instant.from_unix(-1.5)
-  print(half.round(seconds: 1), half.floor(seconds: 1))
-  print(datetime.Instant.from_unix(-1.25).round(seconds: 1), datetime.Instant.from_unix(-1.25).floor(seconds: 1))
-  print(datetime.Instant.from_unix(minutes: -30).round(hours: 1), datetime.Instant.from_unix(minutes: -31).floor(hours: 1))
-  print(datetime.Instant.from_unix(hours: -12).round(hours: 24), datetime.Instant.from_unix(hours: -1).floor(hours: 24))
+  half = datetime.Instant.from_unix_float(-1.5)!
+  print(half.round(seconds: 1)!, half.floor(seconds: 1)!)
+  print(datetime.Instant.from_unix_float(-1.25)!.round(seconds: 1)!, datetime.Instant.from_unix_float(-1.25)!.floor(seconds: 1)!)
+  print(datetime.Instant.from_unix_s(-1800).round(hours: 1)!, datetime.Instant.from_unix_s(-1860).floor(hours: 1)!)
+  print(datetime.Instant.from_unix_s(-43_200).round(hours: 24)!, datetime.Instant.from_unix_s(-3600).floor(hours: 24)!)
 
-bomb "round panics past the end", "datetime.Instant.round: 9999-12-30T22:00:00.999999999Z rounds beyond the range of instants, -009999-01-02T01:59:59Z to 9999-12-30T22:00:00.999999999Z"
-  hi = datetime.Instant.parse("9999-12-30T22:00:00.999999999Z")!
-  print(hi.round(seconds: 1))
-
-bomb "floor panics before the start", "datetime.Instant.floor: -009999-01-02T01:59:59Z floors before -009999-01-02T01:59:59Z"
-  lo = datetime.Instant.parse("-009999-01-02T01:59:59Z")!
-  print(lo.floor(minutes: 1))
-
-bomb "an increment from a variable must divide a day", "datetime.Instant.round: the increment 7 does not divide 1,440, the minutes in a day"
-  i = datetime.Instant.from_unix(0)
+test "round and floor fail", '''
+  DateTimeError.range
+  DateTimeError.range
+  DateTimeError.invalid
+  DateTimeError.invalid
+  9999-12-30T22:00:00Z
+'''
+  # §6.8 and §7.2: a multiple past either end fails with
+  # `DateTimeError.range`, and an increment known only as the program
+  # runs that does not divide a day, or is past 1,000,000,000, with
+  # `DateTimeError.invalid`.
+  hi = datetime.Instant.max()
+  hi.round(seconds: 1) catch |e| print(e)
+  datetime.Instant.min().floor(minutes: 1) catch |e| print(e)
   k = 7
-  print(i.round(minutes: k))
-
-bomb "an increment from a variable is at most a billion", "datetime.Instant.floor: the increment 2000000000 is not from 1 to 1,000,000,000"
-  i = datetime.Instant.from_unix(0)
-  k = 2_000_000_000
-  print(i.floor(ns: k))
+  datetime.Instant.from_unix_s(0).round(minutes: k) catch |e| print(e)
+  n = 2_000_000_000
+  datetime.Instant.from_unix_s(0).floor(ns: n) catch |e| print(e)
+  print(hi.floor(seconds: 1)!)
 
 fail "round and floor on an instant take an increment that divides a day", "2:24: an increment of `round` on an `Instant` divides a day, so `minutes:` takes a number that divides 1,440, and `7` does not", "3:22: an increment of `floor` on an `Instant` divides a day, so `hours:` takes a number that divides 24, and `25` does not", "4:24: an increment of `round` on an `Instant` divides a day, so `seconds:` takes a number that divides 86,400, and `86_401` does not", "5:19: an increment of `floor` on an `Instant` divides a day, so `ns:` takes a number that divides 86,400,000,000,000, and `7` does not", "6:22: an increment of `round` is from 1 to 1,000,000,000, and `0` is not", "7:15: `round` takes a unit from `ns:` to `hours:` and its increment, and `days:` is none of them", "8:15: `ns` has a default, so it is an option, given by name: `ns: 5`", "9:25: `floor` takes one unit and its increment, not 2: write the increment in one unit, `floor(minutes: 90)`", "10:27: `round` takes one unit and its increment, not 2: write the increment in one unit, `round(seconds: 450)`", "11:9: `round` takes a unit and its increment: `round(seconds: 1)`", errors: 10
-  i = datetime.Instant.from_unix(0)
+  i = datetime.Instant.from_unix_s(0)
   print(i.round(minutes: 7))
   print(i.floor(hours: 25))
   print(i.round(seconds: 86_401))
   print(i.floor(ns: 7))
   print(i.round(hours: 0))
   print(i.round(days: 1))
-  print(i.round(5))
+  print(i.round(5)!)
   print(i.floor(hours: 1, minutes: 30))
   print(i.round(minutes: 7, seconds: 30))
   print(i.round())
 
-fail "an instant takes no days", "2:13: an `Instant` has no calendar, so `add` takes no `days:`: a day on the clock is a zone's; write `hours: 24`, exactly 24 hours a day", "3:21: an `Instant` has no calendar, so `checked_add` takes no `weeks:`: a week on the clock is a zone's; write `hours: 170`, exactly 168 hours a week", "4:31: an `Instant` has no calendar, so `add` takes no `days:`: a day on the clock is a zone's; write `hours: 48, minutes: 5`, exactly 24 hours a day", "5:34: a duration takes no `days:`, since a day is not always 24 hours: write `hours: 24`, exactly 24 hours a day", errors: 4
-  i = datetime.Instant.from_unix(0)
-  print(i.add(days: 1))
-  print(i.checked_add(weeks: 1, hours: 2)!)
-  print(datetime.Instant.add(i, days: 2, minutes: 5))
-  print(datetime.Instant.from_unix(days: 1))
+fail "an instant takes no days", "2:13: an `Instant` has no calendar, so `add` takes no `days:`: a day on the clock is a zone's; write `hours: 24`, exactly 24 hours a day", "3:13: an `Instant` has no calendar, so `add` takes no `weeks:`: a week on the clock is a zone's; write `hours: 170`, exactly 168 hours a week", "4:31: an `Instant` has no calendar, so `add` takes no `days:`: a day on the clock is a zone's; write `hours: 48, minutes: 5`, exactly 24 hours a day", errors: 3
+  i = datetime.Instant.from_unix_s(0)
+  print(i.add(days: 1)!)
+  print(i.add(weeks: 1, hours: 2)!)
+  print(datetime.Instant.add(i, days: 2, minutes: 5)!)
 
 fail "add takes one duration", "2:9: call to `add` expects 1 argument, got 2", "3:16: `add` takes one duration: `1` or `ms: 5`, not both", errors: 2
-  i = datetime.Instant.from_unix(0)
-  print(i.add(1, 2))
-  print(i.add(1, ms: 5))
+  i = datetime.Instant.from_unix_s(0)
+  print(i.add(1, 2)!)
+  print(i.add(1, ms: 5)!)
 
 fail "round has options, so it is not a value", "1:22: `std.datetime.Instant.round` has options, given by name, so it is not a value: write a closure that calls it", "2:22: `std.datetime.Instant.floor` has options, given by name, so it is not a value: write a closure that calls it", errors: 2
   f = datetime.Instant.round
@@ -186,13 +190,13 @@ fail "round has options, so it is not a value", "1:22: `std.datetime.Instant.rou
 fail "a generic body cannot round an instant", "3:7: `nearest[datetime.Instant]` cannot use `T = datetime.Instant`: the generic body calls `x.round(k, k, k, k, k, k)`, and `datetime.Instant.round` has options, given by name, which a call in a generic body cannot give; call it where its type is written, or pass a closure that does", errors: 1
   fun nearest[T](x: T, k: Int?) -> T
     x.round(k, k, k, k, k, k)
-  print(nearest(datetime.Instant.from_unix(0), 1))
+  print(nearest(datetime.Instant.from_unix_s(0), 1))
 
 test "a closure rounds an instant", "1970-01-01T00:15:00Z"
-  fun on(x: datetime.Instant, f: ?fun(datetime.Instant) -> datetime.Instant) -> datetime.Instant
-    f(x)
+  fun on(x: datetime.Instant, f: ?fun(datetime.Instant) -> datetime.Instant!) -> datetime.Instant!
+    f(x)!
 
-  print(on(datetime.Instant.from_unix(minutes: 17), |x| x.floor(minutes: 15)))
+  print(on(datetime.Instant.from_unix_s(1020), |x| x.floor(minutes: 15)!)!)
 
 test "compare, order, and key", '''
   true false true true
@@ -200,8 +204,8 @@ test "compare, order, and key", '''
 '''
   a = datetime.Instant.parse("2026-11-17T15:07:03Z")!
   b = datetime.Instant.parse("2026-11-17T08:07:03-07:00")!
-  c = datetime.Instant.from_unix(0)
-  print(a == b, a == c, c < a, datetime.Instant.from_unix(-0.5) < c)
+  c = datetime.Instant.from_unix_s(0)
+  print(a == b, a == c, c < a, datetime.Instant.from_unix_float(-0.5)! < c)
   m: Map[datetime.Instant, Int] = Map()
   !m.put(a, 1)
   !m.put(b, 2)
@@ -223,7 +227,7 @@ test "print and String", '''
   # zero, without its trailing zeros; a year below 0 with its sign and
   # six digits.
   i = datetime.Instant.parse("2026-11-17T15:07:03.512094000Z")!
-  print(i, i.round(seconds: 1), datetime.Instant.from_unix(ns: -1), datetime.Instant.parse("-000001-12-31T00:00:00Z")!)
+  print(i, i.round(seconds: 1)!, datetime.Instant.from_unix_ns(-1), datetime.Instant.parse("-000001-12-31T00:00:00Z")!)
   s = String(i)
   print(s, datetime.Instant.parse(s)! == i)
 
@@ -283,7 +287,7 @@ test "now reads the wall clock", "true true"
     m = time.monotonic()
     time.sleep(ms: 20)!
     wall = datetime.now().since(a)
-    if wall.sub(m.elapsed()).abs() < time.duration(ms: 500)
+    if wall.sub(m.elapsed())!.abs() < time.duration(ms: 500)
       together = true
       break
   print(together, datetime.now() > datetime.Instant.parse("2026-11-01T00:00:00Z")!)
@@ -296,16 +300,57 @@ test "now is real under the deterministic scheduler", "true true", seeds: 3
   time.sleep(ms: 20)!
   print(a > datetime.Instant.parse("2026-11-01T00:00:00Z")!, a < datetime.Instant.parse("2262-01-01T00:00:00Z")!)
 
-bomb "from_unix past a Duration panics", "a duration is more nanoseconds than a Duration holds"
-  # [Owner] §7.8: `from_unix` does not fail; a number beyond a
-  # `Duration`, here the year 2286, panics as any duration form does.
-  fun read() -> Float
-    10_000_000_000.0
+test "the unix makers at the edges", '''
+  2264-09-14T21:20:00Z
+  9999-12-30T22:00:00.999999999Z
+  DateTimeError.range
+  -009999-01-02T01:59:59Z
+  DateTimeError.range
+  DateTimeError.range
+  DateTimeError.range
+  DateTimeError.range
+  2262-04-11T23:47:16.854775807Z
+  DateTimeError.invalid
+  DateTimeError.range
+  DateTimeError.range
+  2023-11-14T22:13:20.5Z
+'''
+  # §7.8's table: each number known only as the program runs; nothing
+  # overflows, and `Int.max` and `Int.min` fail.
+  fun k(n: Int) -> Int
+    n
 
-  print(datetime.Instant.from_unix(read()))
+  fun f(x: Float) -> Float
+    x
+
+  sub seconds(s: Int, n: Int)
+    i = datetime.Instant.from_unix_s(s, ns: n) catch |e|
+      print(e)
+      return
+    print(i)
+
+  sub floats(x: Float)
+    i = datetime.Instant.from_unix_float(x) catch |e|
+      print(e)
+      return
+    print(i)
+
+  seconds(k(9_300_000_000), 0)
+  seconds(k(253_402_207_200), k(999_999_999))
+  seconds(k(253_402_207_201), 0)
+  seconds(k(-377_705_023_201), 0)
+  seconds(k(-377_705_023_201), k(-1))
+  seconds(k(Int.max), 0)
+  seconds(0, k(1_000_000_000))
+  datetime.Instant.from_unix_ms(k(8_640_000_000_000_000)) catch |e| print(e)
+  print(datetime.Instant.from_unix_ns(k(Int.max)))
+  floats(f(Float.nan()))
+  floats(f(Float.inf()))
+  floats(f(1e12))
+  floats(f(1_700_000_000.5))
 
 fail "two units get one increment the instant takes", "2:27: `round` takes one unit and its increment, not 2: name one unit and an increment it takes, `round(minutes: 6)`", "3:27: `round` takes one unit and its increment, not 2: name one unit and an increment it takes, `round(seconds: 6)`", "4:25: `floor` takes one unit and its increment, not 2: name one unit and an increment it takes, `floor(hours: 4)`", "5:28: `round` takes one unit and its increment, not 2: name one of them, `round(minutes: 15)`", errors: 4
-  i = datetime.Instant.from_unix(0)
+  i = datetime.Instant.from_unix_s(0)
   print(i.round(minutes: 7, seconds: 1))
   print(i.round(seconds: 7, ms: 1))
   print(i.floor(hours: 5, minutes: 1))

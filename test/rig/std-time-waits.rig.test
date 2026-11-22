@@ -57,7 +57,7 @@ test "a negative wait at run time is none", '''
   start = time.monotonic()
   time.sleep(minus(5))!
   time.sleep(ms: minus(5))!
-  time.sleep(time.duration(minus(5)))!
+  time.sleep(time.duration(minus(5))!)!
   print(start.elapsed() < time.duration(5))
   time.within(ms: minus(5), ||
     time.sleep(1)!
@@ -92,7 +92,7 @@ fail "a negative wait of a constant name or sum", "3:12: a wait of `x` is negati
 
 test "a duration other than a wait may be negative", "-1s -5ms"
   # Only a wait refuses a negative constant.
-  print(time.duration(-1), time.Monotonic.at(0).add(ms: -5).since(time.Monotonic.at(0)))
+  print(time.duration(-1), time.Monotonic.at(1)!.add(ms: -5)!.since(time.Monotonic.at(1)!))
 
 test "waits of several units", "true -1 7 8 9 -1", seeds: 20
   # `sleep`, `within` (a closure literal after the units, or `f:` by
@@ -147,7 +147,6 @@ test "a wait of several units of mixed signs", "true", seeds: 20
   print(true)
 
 test "several units to a task and an actor's method", seeds: 20, '''
-  5
   1
   1006
   1005
@@ -155,23 +154,35 @@ test "several units to a task and an actor's method", seeds: 20, '''
   1008
 '''
   # A call run as a task and an actor's method take several units, the
-  # parts evaluated where the call is made, in the order written.
+  # parts evaluated where the call is made, in the order written; a sum
+  # known only as the program runs joins the failure of the actor's
+  # method, which can fail.
   obj Counter
     total: Int
 
-    fun add(!@, d: time.Duration) -> Int
-      @total += d.ms()
+    fun add(!@, d: time.Duration) -> Int!
+      @total += Int(d.ms())
       @total
 
   fun wait_ms(d: time.Duration, k: Int) -> Int
-    d.ms() + k
+    Int(d.ms()) + k
 
   fun note(n: Int) -> Int
     print(n)
     n
 
-  t = wait_ms(seconds: 1, ms: note(5), k: note(1))&
+  t = wait_ms(seconds: 1, ms: 5, k: note(1))&
   print(>t)
   c = *Actor(Counter(total: 0))
-  print(!c.add(seconds: 1, ms: 5))
-  print(!c.add(ms: note(2), us: 1000))
+  print(!c.add(seconds: 1, ms: 5)!)
+  print(!c.add(ms: note(2), us: 1000)!)
+
+fail "a task takes no sum known only as the program runs", "7:13: `seconds: 1, ms: note(5)` can be beyond a `Duration`'s range as the program runs, and this call cannot fail, a task's arguments being made as it starts: make the duration first, `time.duration(seconds: 1, ms: note(5))!`, and pass that"
+  fun wait_ms(d: time.Duration) -> Int!
+    Int(d.ms())
+
+  fun note(n: Int) -> Int
+    n
+
+  t = wait_ms(seconds: 1, ms: note(5))&
+  print(>t!)

@@ -62,7 +62,7 @@ test "date examples: the nth weekday", '''
   top = datetime.Date.new(9999, 12, 31)
   low = datetime.Date.new(-9999, 1, 1)
   print(top.weekday(), nth(top, 1, .saturday), low.weekday(), nth(low, -1, .sunday), mar.nth_weekday_of_month(-1, .sunday)!.nth_weekday(-1, .friday)!)
-  print(datetime.Date.new(2024, 3, 15).add(days: 1).nth_weekday(-1, .sunday)!, datetime.Date.new(2024, 3, 15).add(days: 1).nth_weekday(-1, .monday)!, d.add(days: 1).nth_weekday(-1, .sunday)!, datetime.Date.new(2024, 3, 16).add(days: 1).nth_weekday(-1, .sunday)!)
+  print(datetime.Date.new(2024, 3, 15).add(days: 1)!.nth_weekday(-1, .sunday)!, datetime.Date.new(2024, 3, 15).add(days: 1)!.nth_weekday(-1, .monday)!, d.add(days: 1)!.nth_weekday(-1, .sunday)!, datetime.Date.new(2024, 3, 16).add(days: 1)!.nth_weekday(-1, .sunday)!)
 
 test "date examples: add and the counts", '''
   2024-04-30 2024-05-31 2024-04-30 2024-02-29 range range
@@ -75,40 +75,37 @@ test "date examples: add and the counts", '''
   # (`since`, the days between). Rounding a count (1568) and adding a
   # `Duration` to a date (1328) are not Rig's.
   fun step(d: datetime.Date, years: Int) -> String
-    r = d.checked_add(years: years) catch return String("range")
+    r = d.add(years: years) catch return String("range")
     String(r)
 
   fun ymd(a: datetime.Date, b: datetime.Date) -> String
     m = b.months_since(a)
-    `{m / 12} {m % 12} {b.days_since(a.add(months: m))}`
+    `{m / 12} {m % 12} {b.days_since((a.add(months: m) catch panic("a.add(months: m) failed")))}`
 
   d = datetime.Date.new(2024, 3, 31)
-  print(d.checked_add(months: 1)!, d.checked_add(months: 2)!, d.add(months: 1), d.add(months: -1, days: -1).add(days: 1), step(d, 9000), step(d, -19000))
+  print(d.add(months: 1)!, d.add(months: 2)!, d.add(months: 1)!, d.add(months: -1, days: -1)!.add(days: 1)!, step(d, 9000), step(d, -19000))
   early = datetime.Date.new(2006, 8, 24)
   late = datetime.Date.new(2019, 1, 31)
   print(late.days_since(early), early.days_since(late), datetime.Date.new(2019, 1, 31).days_since(datetime.Date.new(1995, 12, 7)), ymd(datetime.Date.new(1995, 12, 7), datetime.Date.new(2019, 1, 31)), late.days_since(early))
   a = datetime.Date.new(2024, 3, 2)
   b = datetime.Date.new(2024, 5, 1)
   m = b.months_since(a)
-  print(m, b.days_since(a.add(months: m)), b.add(months: -m, days: -b.days_since(a.add(months: m))), b.days_since(a), b.add(days: -b.days_since(a)))
+  print(m, b.days_since(a.add(months: m)!), b.add(months: -m, days: -b.days_since(a.add(months: m)!))!, b.days_since(a), b.add(days: -b.days_since(a))!)
 
 test "time examples", '''
   15:22:45 23:59:59 true 22:00:00 00:00:00
   21 30 5 123456789 range 15:30:24.01 14:27:30 range
   22:00:00 22:35:03.5 22:00:00 20:10:01 00:00:00 00:00:00
-  22:35:03.5 22:00:00 20:10:01 23:59:59.999999999 range range 23:30:00 22:30:00 23:00:00.000000001
+  22:35:03.5 22:00:00 20:10:01 23:59:59.999999999 00:00:00 00:00:00 23:30:00 22:30:00 23:00:00.000000001
   2s 500ms -2s 500ms 12h 5m 29s 999ms 996us 500ns 21h 30m 1h 49m 59s
   15:45:10 15:45:11 15:45:11 15:45:10 15:25:00 15:30:00 00:00:00 15:00:00 15:00:00
 '''
   # jiff civil/time.rs:45, 80 (text, `:60`), 95 (order), 123 (adding), 205
   # (`round`), 259, 273 (`new`), 374, 2896, 2907 (`with`), 624 to 691
-  # (`wrapping_add`, which is Rig's `add`), 831 to 902 (`checked_add`),
+  # (`wrapping_add`, which is Rig's `add`), 831 to 902 (`checked_add`'s
+  # values, which `add` gives wrapped: Rig has no failing twin),
   # 1183, 1201, 1245, 143 (`until` and `since`, one exact `Duration`),
   # 1430 to 1494 (`round` and `floor`, a half to the later, wrapping).
-  fun checked(t: datetime.Time, d: time.Duration) -> String
-    r = t.checked_add(d) catch return String("range")
-    String(r)
-
   fun hour_of(t: datetime.Time, h: Int) -> String
     r = t.with(hour: h) catch return String("range")
     String(r)
@@ -124,7 +121,7 @@ test "time examples", '''
   last = datetime.Time.new(23, 59, 59, ns: 999_999_999)
   print(t.add(hours: 1, minutes: 49, seconds: 59), datetime.Time.new(22, 35, 1).add(2.5), t.add(minutes: 109, seconds: 59), t.add(0), last.add(ns: 1), datetime.Time.new(0, 0, 0).add(hours: 24))
   half = time.duration(minutes: 30)
-  print(checked(datetime.Time.new(22, 35, 1), time.duration(2.5)), checked(t, time.duration(hours: 1, minutes: 49, seconds: 59)), checked(t, time.duration(0)), checked(datetime.Time.new(23, 59, 59, ns: 999_999_998), time.duration(ns: 1)), checked(last, time.duration(ns: 1)), checked(datetime.Time.new(0, 0, 0), time.duration(hours: 24)), checked(datetime.Time.new(23, 0, 0), half), checked(datetime.Time.new(23, 0, 0), half.neg()), checked(datetime.Time.new(23, 0, 0), time.duration(ns: 1)))
+  print(datetime.Time.new(22, 35, 1).add(2.5), t.add(hours: 1, minutes: 49, seconds: 59), t.add(0), datetime.Time.new(23, 59, 59, ns: 999_999_998).add(ns: 1), last.add(ns: 1), datetime.Time.new(0, 0, 0).add(hours: 24), datetime.Time.new(23, 0, 0).add(half), datetime.Time.new(23, 0, 0).add(half.neg()), datetime.Time.new(23, 0, 0).add(ns: 1))
   print(datetime.Time.new(22, 35, 3, ns: 500_000_000).since(datetime.Time.new(22, 35, 1)), datetime.Time.new(22, 35, 1).since(datetime.Time.new(22, 35, 3, ns: 500_000_000)), datetime.Time.new(15, 30, 0).since(datetime.Time.new(3, 24, 30, ns: 3500)), datetime.Time.new(22, 30, 0).since(datetime.Time.new(1, 0, 0)), datetime.Time.new(22, 0, 0).since(t))
   print(datetime.Time.new(15, 45, 10, ns: 123_456_789).round(seconds: 1), datetime.Time.new(15, 45, 10, ns: 500_000_001).round(seconds: 1), datetime.Time.new(15, 45, 10, ns: 999_999_999).round(seconds: 1), datetime.Time.new(15, 45, 10, ns: 999_999_999).floor(seconds: 1), datetime.Time.new(15, 27, 29, ns: 999_999_999).round(minutes: 5), datetime.Time.new(15, 27, 30).round(minutes: 5), last.round(hours: 1), datetime.Time.new(16, 27, 29, ns: 999_999_999).floor(hours: 3), datetime.Time.new(16, 27, 29, ns: 999_999_999).round(hours: 3))
 
@@ -144,7 +141,7 @@ test "datetime examples", '''
   # counts, the recipe of §6.4, and a `Duration`), 2221 to 2297 (`round`
   # and `floor`, `days: 1`, the ends), 3399, 3418 (`DateTimeRound`).
   fun step(dt: datetime.DateTime, years: Int) -> String
-    r = dt.checked_add(years: years) catch return String("range")
+    r = dt.add(years: years) catch return String("range")
     String(r)
 
   fun try_dt(y: Int, m: Int, d: Int, h: Int, mi: Int, s: Int, ns: Int) -> String
@@ -155,27 +152,27 @@ test "datetime examples", '''
     r = dt.with(year: year, month: month, day: day) catch return String("range")
     String(r)
 
-  print(datetime.DateTime.parse("2024-06-19 15:22:45")!, datetime.DateTime.parse("2016-12-31 23:59:60")!, datetime.DateTime.new(2024, 3, 11, hour: 1, minute: 25, second: 15) < datetime.DateTime.new(2025, 1, 31, hour: 0, minute: 30), datetime.DateTime.new(2024, 2, 25, hour: 15, minute: 45).add(weeks: 1))
+  print(datetime.DateTime.parse("2024-06-19 15:22:45")!, datetime.DateTime.parse("2016-12-31 23:59:60")!, datetime.DateTime.new(2024, 3, 11, hour: 1, minute: 25, second: 15) < datetime.DateTime.new(2025, 1, 31, hour: 0, minute: 30), datetime.DateTime.new(2024, 2, 25, hour: 15, minute: 45).add(weeks: 1)!)
   n = datetime.DateTime.new(2024, 2, 29, hour: 21, minute: 30, second: 5, ns: 123_456_789)
   print(n.year(), n.month(), n.day(), n.hour(), n.minute(), n.second(), n.nanosecond(), try_dt(2023, 2, 29, 21, 30, 5, 0), try_dt(2015, 6, 30, 23, 59, 60, 0), try_dt(2024, 6, 20, 19, 58, 0, 1_000_000_000))
   print(change(datetime.DateTime.new(2024, 10, 31), month: 11, day: 30), change(datetime.DateTime.new(2024, 4, 30), day: 31, month: 7), change(datetime.DateTime.new(2023, 1, 1, hour: 12), month: 12, day: 31), change(datetime.DateTime.new(2024, 1, 1, hour: 12), month: 12, day: 31), change(datetime.DateTime.new(2024, 11, 30, hour: 15, minute: 30), day: 31), change(datetime.DateTime.new(2024, 2, 29, hour: 15, minute: 30), year: 2023))
   e = datetime.DateTime.new(1995, 12, 7, hour: 3, minute: 24, second: 30, ns: 3_500)
   m31 = datetime.DateTime.new(2024, 3, 31, hour: 13, minute: 13, second: 13, ns: 13)
-  print(e.add(ns: 500, years: 20, months: 4), datetime.DateTime.new(2019, 1, 31, hour: 15, minute: 30).add(months: 1), datetime.DateTime.new(2024, 3, 31, hour: 19, minute: 5, second: 59, ns: 999_999_999).add(months: -1), step(m31, 9000), step(m31, -19000))
+  print(e.add(ns: 500, years: 20, months: 4)!, datetime.DateTime.new(2019, 1, 31, hour: 15, minute: 30).add(months: 1)!, datetime.DateTime.new(2024, 3, 31, hour: 19, minute: 5, second: 59, ns: 999_999_999).add(months: -1)!, step(m31, 9000), step(m31, -19000))
   f = datetime.DateTime.new(2024, 2, 29)
-  print(f.checked_add(hours: 25)!, f.checked_add(hours: -25)!)
+  print(f.add(hours: 25)!, f.add(hours: -25)!)
   early = datetime.DateTime.new(2006, 8, 24, hour: 22, minute: 30)
   late = datetime.DateTime.new(2019, 1, 31, hour: 21)
   b = datetime.DateTime.new(2019, 1, 31, hour: 15, minute: 30)
   nb = b.days_since(e)
   d0 = e.date()
-  mb = d0.add(days: nb).months_since(d0)
+  mb = d0.add(days: nb)!.months_since(d0)
   x = datetime.DateTime.new(2024, 3, 2)
   y = datetime.DateTime.new(2024, 5, 1)
   mx = y.months_since(x)
-  print(late.days_since(early), late.since(early.add(days: late.days_since(early))), nb, b.since(e.add(days: nb)), mb / 12, mb % 12, d0.add(days: nb).days_since(d0.add(months: mb)), mx, y.date().days_since(x.date().add(months: mx)), y.add(months: -mx, days: -y.date().days_since(x.date().add(months: mx))), y.days_since(x))
+  print(late.days_since(early), late.since(early.add(days: late.days_since(early))!), nb, b.since(e.add(days: nb)!), mb / 12, mb % 12, d0.add(days: nb)!.days_since(d0.add(months: mb)!), mx, y.date().days_since(x.date().add(months: mx)!), y.add(months: -mx, days: -y.date().days_since(x.date().add(months: mx)!))!, y.days_since(x))
   r = datetime.DateTime.parse("2024-06-20 16:24:59.5")!
-  print(datetime.DateTime.new(2024, 6, 19, hour: 15).round(days: 1), datetime.DateTime.new(2024, 6, 19, hour: 10).round(days: 1), datetime.DateTime.new(2024, 6, 19, hour: 15).floor(days: 1), datetime.DateTime.new(2024, 6, 19, hour: 15, minute: 27, second: 29, ns: 999_999_999).round(minutes: 5), datetime.DateTime.new(2024, 6, 19, hour: 15, minute: 27, second: 30).round(minutes: 5), datetime.DateTime.new(9999, 12, 31, hour: 23, minute: 59, second: 59, ns: 999_999_999).floor(days: 1), datetime.DateTime.new(-9999, 1, 1, hour: 0, minute: 0, second: 0, ns: 1).floor(days: 1), r.round(seconds: 1), r.floor(seconds: 1), datetime.DateTime.new(2024, 6, 19, hour: 16, minute: 27, second: 29, ns: 999_999_999).round(hours: 3))
+  print(datetime.DateTime.new(2024, 6, 19, hour: 15).round(days: 1)!, datetime.DateTime.new(2024, 6, 19, hour: 10).round(days: 1)!, datetime.DateTime.new(2024, 6, 19, hour: 15).floor(days: 1)!, datetime.DateTime.new(2024, 6, 19, hour: 15, minute: 27, second: 29, ns: 999_999_999).round(minutes: 5)!, datetime.DateTime.new(2024, 6, 19, hour: 15, minute: 27, second: 30).round(minutes: 5)!, datetime.DateTime.new(9999, 12, 31, hour: 23, minute: 59, second: 59, ns: 999_999_999).floor(days: 1)!, datetime.DateTime.new(-9999, 1, 1, hour: 0, minute: 0, second: 0, ns: 1).floor(days: 1)!, r.round(seconds: 1)!, r.floor(seconds: 1)!, datetime.DateTime.new(2024, 6, 19, hour: 16, minute: 27, second: 29, ns: 999_999_999).round(hours: 3)!)
 
 test "weekday examples", '''
   Monday 1 Sunday 7 true
@@ -202,17 +199,17 @@ test "type-level examples: text, order, sums, counts", '''
   # Rig lacks (`Ceil`, time.rs:2730, datetime.rs:3499) are left out.
   fun md(a: datetime.Date, b: datetime.Date) -> String
     m = a.months_since(b)
-    `{m} {a.days_since(b.add(months: m))}`
+    `{m} {a.days_since((b.add(months: m) catch panic("b.add(months: m) failed")))}`
 
   d1 = datetime.Date.new(2024, 5, 3)
   d2 = datetime.Date.new(2024, 2, 25)
-  print(datetime.Date.parse("2024-06-19")!, datetime.Date.new(2024, 3, 11) < datetime.Date.new(2025, 1, 31), datetime.Date.new(2024, 2, 25).add(weeks: 1), datetime.Date.new(2024, 3, 3).days_since(d2), d1.years_since(d2), md(d1, d2))
+  print(datetime.Date.parse("2024-06-19")!, datetime.Date.new(2024, 3, 11) < datetime.Date.new(2025, 1, 31), datetime.Date.new(2024, 2, 25).add(weeks: 1)!, datetime.Date.new(2024, 3, 3).days_since(d2), d1.years_since(d2), md(d1, d2))
   print(datetime.Time.new(22, 30, 0).since(datetime.Time.new(1, 0, 0)), datetime.Time.new(22, 0, 0).since(datetime.Time.new(20, 10, 1)), datetime.Time.new(23, 30, 0).since(datetime.Time.new(7, 0, 0)).minutes())
   a = datetime.DateTime.new(2024, 5, 3, hour: 23, minute: 30)
   b = datetime.DateTime.new(2024, 2, 25, hour: 7)
   n = a.days_since(b)
-  print(datetime.DateTime.parse("2024-06-19 15:22:45")!, datetime.DateTime.new(2024, 3, 11, hour: 1, minute: 25, second: 15) < datetime.DateTime.new(2025, 1, 31, hour: 0, minute: 30), datetime.DateTime.new(2024, 2, 25, hour: 15, minute: 45).add(weeks: 1), n, a.since(b.add(days: n)), a.months_since(b), b.date().add(days: n).days_since(b.date().add(months: a.months_since(b))))
-  print(datetime.DateTime.new(2024, 6, 20, hour: 3, minute: 25, second: 30).round(minutes: 1), datetime.Time.new(3, 25, 30).round(minutes: 1), datetime.Time.parse("03:24:59")!.round(minutes: 10), datetime.DateTime.parse("2024-06-20 03:24:59")!.round(minutes: 10))
+  print(datetime.DateTime.parse("2024-06-19 15:22:45")!, datetime.DateTime.new(2024, 3, 11, hour: 1, minute: 25, second: 15) < datetime.DateTime.new(2025, 1, 31, hour: 0, minute: 30), datetime.DateTime.new(2024, 2, 25, hour: 15, minute: 45).add(weeks: 1)!, n, a.since(b.add(days: n)!), a.months_since(b), b.date().add(days: n)!.days_since(b.date().add(months: a.months_since(b))!))
+  print(datetime.DateTime.new(2024, 6, 20, hour: 3, minute: 25, second: 30).round(minutes: 1)!, datetime.Time.new(3, 25, 30).round(minutes: 1), datetime.Time.parse("03:24:59")!.round(minutes: 10), datetime.DateTime.parse("2024-06-20 03:24:59")!.round(minutes: 10)!)
 
 test "readers, joining, and with by field", '''
   13 35 56 123456789 0 0 0 0
