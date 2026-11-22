@@ -324,7 +324,7 @@ What the smaller members give:
 
 - **Two small enums** name the choices of two keywords: how a skipped or repeated time
   is resolved (6.5), and what to do with a stored offset that no longer fits (8.3).
-  Their type names are the builder's (say `datetime.Resolve` and `datetime.Conflict`).
+  They are `datetime.Resolve` and `datetime.Conflict`.
 - **Not types:** a span or period (6.1), an offset (7.6), builders (keywords), a handle
   on the zone data (module functions), an ISO week date (methods).
 - **[Owner] There is a zoneless `DateTime`.**
@@ -1548,8 +1548,9 @@ type's tests of it land with the type.
     `times`, `round`, `floor`, `Monotonic.add` and `at`, and a duration form's
     conversion).
   - `std.datetime`, `DateTimeError`: `invalid` and `range` in the same senses, and
-    then unknown zone, a skipped or repeated time under `.reject`, an offset conflict,
-    no system zone, a bad format string (`try_format`).
+    then unknown zone (`unknown_zone`), a skipped or repeated time under `.reject`
+    (`skipped_or_repeated`), an offset conflict (`offset_conflict`), no system zone
+    (`no_system_zone`), a bad format string (`try_format`).
   - A duration form's conversion fails with the member of that name in the callee's
     own set, so both sets keep `invalid` and `range` (5.2).
 - SPEC "Durations" (`SPEC.md:14850`) is rewritten. `docs/STD.md` "std.time" is
@@ -1760,9 +1761,9 @@ in them panics.
 4. **`TimeZone`** (built; `records/2026-11/datetime-phase4`): the tables, `named` and
    its literal check, `fixed`, `utc`, `parse`, `name`, `offset_at`, `zone_names`,
    `tzdb_version`, `local` (with `file.read_link`).
-5. **`ZonedDateTime`**: `in_zone` (from an `Instant`, a `DateTime` and a `Date`), the
-   readers, `add`, counts, `with`, `start_of_day`, `round`, `floor`, `since`, RFC 9557,
-   `today`.
+5. **`ZonedDateTime`** (built; `records/2026-11/datetime-phase5`): `in_zone` (from an
+   `Instant`, a `DateTime` and a `Date`), the readers, `add`, counts, `with`,
+   `start_of_day`, `round`, `floor`, `since`, RFC 9557, `today`.
 6. **`format` and `try_format`**; then the teaching text in `docs/learn`.
 
 Phase 1 puts section 2's sample into `docs/STD.md` as `rig pending` examples, and each
