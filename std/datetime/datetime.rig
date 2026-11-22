@@ -14,7 +14,7 @@ pub obj DateTime: Eq + Ord + Hash + Print
   # `DateTimeError.range` when they are not a real date and time, as
   # `Date.new` and `Time.new`.
   pub fun new(year: Int, month: Int, day: Int, hour: Int = 0, minute: Int = 0, second: Int = 0, ns: Int = 0) -> DateTime!
-    DateTime(on: Date.new(year, month, day)!, at: Time.new(hour, minute, second, ns)!)
+    DateTime(on: Date.new(year, month, day)!, at: Time.new(hour, minute, second, ns: ns)!)
 
   # The date and time `s` writes in ISO 8601, a date and a time joined
   # by `T` or a space, `2026-11-17T08:07:03.5`, or a date alone, which
