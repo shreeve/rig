@@ -171,21 +171,27 @@ A new session, human or agent, takes these steps in order:
   `tzdb_version`, `local()` with `file.read_link`, and the pinned test
   table reached only from `std/datetime/zone_test.rig`; the oracle
   compares every zone's offset about each transition, none different.
-  Phase 5 (branch `zoned-phase5`; records/2026-11/datetime-phase5)
-  builds `ZonedDateTime`, written to total or visible: `in_zone` from an
-  instant, a date and time (`resolve:`), and a date; the readers; `add`,
-  `with`, `start_of_day`, `round`, `floor`, `since`, and the counts;
-  equality, order and hashing by the instant; RFC 9557 with
-  `default_zone:` and `conflict:`; and `today`. The oracle compares
-  every zoned case, 2,186,455 answers in all, none different. Groups
-  and spreads, then owners and read views in groups (the owner,
-  2026-11-22; the build plan's steps 2 and 3) are built beside it.
-  Phase 6 (branch `format-phase6`; records/2026-11/datetime-phase6)
-  builds `format`, its string checked against the type as Rig compiles,
-  and `try_format`, with `%Z` from the zone tables; the oracle compares
-  every format case and every zone's abbreviation, 2,344,534 answers in
-  all, none different; and journey 12, on dates, times and zones. The
-  datetime library is complete.
+  Groups, spreads, object update, and the `name:` shorthand (branch
+  `named-groups`, the build plan's step 2;
+  records/2026-11/named-options-groups) are a rewrite of the signature
+  and the call checked twice, as iterator chains are, with
+  std.datetime's `Period`, `DateFields`, and `ClockFields` as groups;
+  they hold plain data only. Phase 5 (branch `zoned-phase5`;
+  records/2026-11/datetime-phase5) builds `ZonedDateTime`, written to
+  total or visible: `in_zone` from an instant, a date and time
+  (`resolve:`), and a date; the readers; `add` (with the group
+  `period`), `with` (with `date` and `clock`), `start_of_day`, `round`,
+  `floor`, `since`, and the counts; equality, order and hashing by the
+  instant; RFC 9557 with `default_zone:` and `conflict:`; and `today`.
+  The oracle compares every zoned case, 2,187,579 answers in all, none
+  different. Next, in order: owners and read views in groups and object
+  update, lifting the plain-data limit (the owner, 2026-11-22; the build
+  plan's step 3). Phase 6 (branch `format-phase6`;
+  records/2026-11/datetime-phase6) builds `format`, its string checked
+  against the type as Rig compiles, and `try_format`, with `%Z` from the
+  zone tables; the oracle compares every format case and every zone's
+  abbreviation, 2,345,658 answers in all, none different; and journey
+  12, on dates, times and zones. The datetime library is complete.
 - **The view vocabulary** (owner, 2026-11-20; #1192 landed PR 1):
   places, read and write views, read-only, unusable, and cells are the
   words of the docs, the messages, and the code. PR 1 is the wording; PR 2

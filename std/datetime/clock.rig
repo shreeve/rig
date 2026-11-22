@@ -76,8 +76,8 @@ pub obj Time: Eq + Ord + Hash + Print
   # The time with the fields given by name replaced:
   # `t.with(second: 0, ns: 0)`. Fails with `DateTimeError.range` when
   # that is not a real time.
-  pub fun with(?@, hour: Int? = none, minute: Int? = none, second: Int? = none, ns: Int? = none) -> Time!
-    Time.new(hour ?? Int(@h), minute ?? Int(@m), second ?? Int(@s), ns: ns ?? Int(@ns))!
+  pub fun with(?@, ..clock: ClockFields) -> Time!
+    Time.new(clock.hour ?? Int(@h), clock.minute ?? Int(@m), clock.second ?? Int(@s), ns: clock.ns ?? Int(@ns))!
 
   # The time from `other` to this one on the clock face, negative when
   # `other` is the later: 01:00 since 23:00 is -22 hours. A length that
@@ -178,3 +178,12 @@ fun clock_multiple(n: Int, inc: Int, down: Bool) -> Int
   if not down and r * 2 >= inc
     return n - r + inc
   n - r
+
+# The fields of a time of day `Time.with` and `DateTime.with` replace, a
+# group (docs/design/options.md, section 2): each left out keeps the
+# time's own.
+pub obj ClockFields
+  pub hour: Int? = none
+  pub minute: Int? = none
+  pub second: Int? = none
+  pub ns: Int? = none

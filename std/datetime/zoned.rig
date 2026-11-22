@@ -176,7 +176,9 @@ pub obj ZonedDateTime: Eq + Ord + Hash + Print
   # The instant a duration and the calendar amounts later, each given by
   # name: `z.add(days: 1)!` is the same time on the clock tomorrow, or
   # just after it where it is skipped, and `z.add(hours: 24)!` exactly 24
-  # hours later; `z.add(days: 1, hours: 2)!` is both. Years and months
+  # hours later; `z.add(days: 1, hours: 2)!` is both. The calendar
+  # amounts are the group `period`, so a stored `Period` applies whole,
+  # `z.add(..monthly)!`, a field named beside it winning. Years and months
   # come first, together as months, with a day past the month's end
   # becoming its last day, then weeks and days, all on the clock; that
   # time on the clock becomes an instant as `Resolve.compatible` says;
@@ -184,9 +186,9 @@ pub obj ZonedDateTime: Eq + Ord + Hash + Print
   # When the months and the days each come to zero the instant is kept
   # as it is, so `z.add(days: 0)!` on a repeated time stays on it. Fails
   # with `DateTimeError.range` when a step leaves the range.
-  pub fun add(?@, duration: time.Duration? = none, years: Int = 0, months: Int = 0, weeks: Int = 0, days: Int = 0) -> ZonedDateTime!
-    m = total_months(years, months)
-    n = total_days(weeks, days)
+  pub fun add(?@, duration: time.Duration? = none, ..period: Period) -> ZonedDateTime!
+    m = total_months(period.years, period.months)
+    n = total_days(period.weeks, period.days)
     i = @at
     if m != 0 or n != 0
       dt = datetime_add(@on_clock(), none, m, n) ?? return DateTimeError.range
@@ -197,7 +199,8 @@ pub obj ZonedDateTime: Eq + Ord + Hash + Print
     zoned_of(i, @tz)
 
   # The date and time on the clock with the fields given by name
-  # replaced, in the same zone: `z.with(hour: 0, minute: 0)!`. Where the
+  # replaced, in the same zone: `z.with(hour: 0, minute: 0)!`, the groups
+  # `date` and `clock` as `DateTime.with` takes them. Where the
   # new time on the clock is repeated, the value's own offset is kept
   # when it is one of the two: the second 01:30 in Denver on 2026-11-01
   # (-07:00), with the minute set to 45, is 01:45-07:00. Otherwise a
@@ -205,8 +208,8 @@ pub obj ZonedDateTime: Eq + Ord + Hash + Print
   # `DateTimeError.range` when that is not a real date and time or lies
   # beyond the range, and with `skipped_or_repeated` under
   # `resolve: .reject`.
-  pub fun with(?@, year: Int? = none, month: Int? = none, day: Int? = none, hour: Int? = none, minute: Int? = none, second: Int? = none, ns: Int? = none, resolve: Resolve = .compatible) -> ZonedDateTime!
-    dt = @on_clock().with(year: year, month: month, day: day, hour: hour, minute: minute, second: second, ns: ns)!
+  pub fun with(?@, ..date: DateFields, ..clock: ClockFields, resolve: Resolve = .compatible) -> ZonedDateTime!
+    dt = @on_clock().with(..date, ..clock)!
     keeping(dt, Int(@off), @tz, resolve)!
 
   # The first instant of the value's date in its zone: 00:00 on that date,
@@ -227,8 +230,9 @@ pub obj ZonedDateTime: Eq + Ord + Hash + Print
   # 2026-11-01 rounded to 30 minutes is 02:00-07:00, 70 minutes later.
   # To `days: 1` the multiples are the starts of days: the latest start
   # at or before the value, or the next day's start, by the day's real
-  # length. Fails with `DateTimeError.invalid` for another increment and
-  # `DateTimeError.range` for a result beyond the range.
+  # length, measured even where the other start lies beyond the range.
+  # Fails with `DateTimeError.invalid` for another increment and
+  # `DateTimeError.range` only for a result beyond the range.
   pub fun round(?@, ns: Int? = none, us: Int? = none, ms: Int? = none, seconds: Int? = none, minutes: Int? = none, hours: Int? = none, days: Int? = none) -> ZonedDateTime!
     zoned_multiple(@, clock_increment([ns, us, ms, seconds, minutes, hours], days)!, false)!
 
@@ -353,10 +357,15 @@ fun clock_seconds(t: Time) -> Int
 # offsets before and after a change where it is skipped (the first the
 # smaller) or repeated (the first the larger).
 fun offsets_at(tz: TimeZone, dt: DateTime) -> (Int, Int)
+  return local_offsets(tz, dt.on.number() * DAY_S + clock_seconds(dt.at))
+
+# The same, of the time on the clock `secs` seconds from 1970-01-01T00:00
+# on it.
+fun local_offsets(tz: TimeZone, secs: Int) -> (Int, Int)
   if tz.id == FIXED_ID
     o = Int(tz.mins) * 60
     return o, o
-  p = zone_local(Int(tz.id), dt.on.number() * DAY_S + clock_seconds(dt.at))
+  p = zone_local(Int(tz.id), secs)
   return p / 2_097_152 - 1_048_576, p % 2_097_152 - 1_048_576
 
 # `dt` in `tz`, a skipped or repeated time chosen by `how` (Jiff's
@@ -445,37 +454,47 @@ fun rounded_minutes(off: Int) -> Int
 fun day_start(d: Date, tz: TimeZone) -> ZonedDateTime?
   resolved(DateTime(on: d, at: clock(0, 0, 0, 0)), tz, .compatible) catch return none
 
-# The latest start of a day at or before `z`, and its date: `z`'s own
-# date's, the next date's where a repeated time crossed midnight, or the
-# day before's where `z`'s date starts after it (DATETIME-DESIGN §6.8).
-fun day_floor(z: ZonedDateTime) -> (ZonedDateTime, Date)!
-  d = z.date()
-  s = day_start(d, z.tz) ?? return DateTimeError.range
-  if s > z
-    back = date_of(day_step(d.number(), -1) ?? return DateTimeError.range)
-    s2 = day_start(back, z.tz) ?? return DateTimeError.range
-    return s2, back
-  if day_step(d.number(), 1) as n
-    next = date_of(n)
-    if day_start(next, z.tz) as s3
-      if s3 <= z
-        return s3, next
+# The start of the day `n` days from 1970-01-01 in `tz`, in nanoseconds
+# from 1970-01-01T00:00Z: 00:00 on that date by `Resolve.compatible`, as
+# `day_start` gives it, but for any `n`, a start beyond the range of
+# instants included, so that a day at either end of the range has a
+# length.
+fun start_ns(n: Int, tz: TimeZone) -> I128
+  before, _ = local_offsets(tz, n * DAY_S)
+  I128(n * DAY_S - before) * I128(SECOND_NS)
+
+# The latest start of a day at or before `t` nanoseconds from
+# 1970-01-01T00:00Z, an instant shown on date `d` in `tz`, and that
+# day's number: `d`'s own start, the next date's where a repeated time
+# crossed midnight, or the day before's where `d` starts after `t`
+# (DATETIME-DESIGN §6.8).
+fun day_floor(t: I128, d: Int, tz: TimeZone) -> (I128, Int)
+  s = start_ns(d, tz)
+  if s > t
+    return start_ns(d - 1, tz), d - 1
+  next = start_ns(d + 1, tz)
+  if next <= t
+    return next, d + 1
   return s, d
 
 # `z` rounded, or with `down` floored, to a multiple of `inc` nanoseconds
 # (Jiff's `ZonedDateTimeRound::round`, `zoned.rs:4971`). Below a day, on
 # the clock, keeping the offset where it can; to a day, between the
-# starts of days, by the day's real length.
+# starts of days, by the day's real length, each start found even beyond
+# the range of instants, so the call fails only when its result is
+# beyond it (where Jiff fails whenever a start it needs is:
+# DATETIME-DESIGN §9).
 fun zoned_multiple(z: ZonedDateTime, inc: Int, down: Bool) -> ZonedDateTime!
   if inc == DAY_NS
-    lo, d = day_floor(z)!
-    if down or lo == z
-      return lo
-    n = day_step(d.number(), 1) ?? return DateTimeError.range
-    hi = day_start(date_of(n), z.tz) ?? return DateTimeError.range
-    if z.at.since(lo.at).ns() * 2 >= hi.at.since(lo.at).ns()
-      return hi
-    return lo
+    t = z.at.total()
+    lo, n = day_floor(t, z.on_clock().on.number(), z.tz)
+    out = lo
+    if not down and lo != t
+      hi = start_ns(n + 1, z.tz)
+      if (t - lo) * 2 >= hi - lo
+        out = hi
+    i = instant_of(out) ?? return DateTimeError.range
+    return zoned_of(i, z.tz)
   dt = datetime_multiple(z.on_clock(), inc, down) ?? return DateTimeError.range
   keeping(dt, Int(z.off), z.tz, .compatible)!
 

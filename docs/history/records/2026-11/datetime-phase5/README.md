@@ -57,9 +57,13 @@ are phase 6.
    as Jiff's `OffsetConflict::PreferOffset` does; a skipped time goes to
    `resolve:`. So `resolve: .reject` does not fail on a repeated time
    when the value's own offset is one of the two (tested).
-7. **`round(days: 1)`** needs the next day's start only when the value is
-   not itself a start: where that start is beyond the range it fails
-   `range`, as Jiff's (`FailedLengthOfDay`) does.
+7. **`round` and `floor` to `days: 1` at the ends of the range** (after
+   review): a day's starts are found as numbers even beyond the range of
+   instants, so the call fails `range` only when its result is beyond
+   it, as "Total or visible" asks: `round(days: 1)` of 9999-12-30T01:00Z
+   in UTC is 9999-12-30T00:00Z, and `floor` on the last date succeeds.
+   Jiff fails whenever a start it needs is (`FailedLengthOfDay`). Listed
+   as §9 item 22, the builder's, pending the owner.
 8. **The counts' days** start at the days between the two dates (0 when
    the later date is not after the earlier) and step down while
    `earlier.add(days: n)` passes the later value or fails (§6.4).
@@ -81,6 +85,10 @@ are phase 6.
     (`.compatible`, `.later`).
 
 ## Where Rig differs from Jiff on purpose, tested directly
+
+- `round` and `floor(days: 1)` near the ends of the range (§9 item 22,
+  the builder's, pending the owner): 9999-12-30T01:00Z and 13:00Z in
+  UTC, the last date at +25:59, and -009999-01-02T13:00Z in UTC.
 
 - `round(days: 1)` measures to the next day's start (§9 item 14):
   Havana 2026-03-08 at 12:45 and 18:00 round to 00:00 on the 9th.
@@ -147,6 +155,8 @@ for each of the four `resolve:` values. `zones.in` grows from 827,469 to
 | `zoned.round` (round and floor) | 20,000 | 20,000 | 0 |
 | every case, phases 1 to 5 | 2,186,456 | 2,186,455 | 0 (1 `skip`) |
 
+(Before review; after it, with the zoned rounds near the ends, 2,187,579.)
+
 `instant.in_zone`'s abbreviation is phase 6's and is passed over; its
 offset is compared in Jiff's short form (`+03` for `+03:00`), from
 `offset_text()`. No case is left unanswered.
@@ -176,3 +186,57 @@ On the Mac, through `tools/heavy`:
 
 Not run here: the json, hash and text guards (the change touches no code
 they time), the Trig and loco light gates, and pup.
+
+## After review (2026-11-22)
+
+An independent review of 488da206b..1edfdbe9f (REVIEW.md, not kept)
+found three things, each fixed with its failing case first:
+
+1. `round(days: 1)` failed `range` near the ends of the range whenever
+   the next day's start was beyond it, even with the result in range,
+   and `floor(days: 1)` on the last date differed from Jiff without a
+   listing. The starts are now found beyond the range (decision 7, §9
+   item 22), the doc comment says the call fails only for a result
+   beyond the range, and `gen.py` writes 1,124 zoned rounds within 49
+   hours of each end, in seven zones, and about midnight in the years
+   -9999, -1 and 0. The oracle passes over the round where the two
+   measure a day differently (as before) and the floor only where Jiff
+   cannot measure the day: 73 lines of 21,124.
+2. STD, §7.6 and §8.1 claimed that RFC 9557 text gives the instant back
+   always. A repeated time whose two offsets have seconds, before 1972,
+   reads back by the offset as written, rounded: New York's 12:01:58 on
+   1883-11-18 reads back 2 seconds off. That is Jiff's answer, kept; the
+   three now say so, and a case tests it.
+3. The oracle's comparison passes a Rig `-` only as `instant.in_zone`'s
+   third part, the abbreviation; `jiff_oracle.sh` requires `open 0`; and
+   the oracle passes over a zoned round below a day in a year at or below
+   0 only where it passes midnight (§6.8), not every one.
+
+The oracle after the fixes: 2,187,579 answers the same as Jiff's, none
+different, none open (`round.in` 76,124 lines).
+
+Gates after the fixes: the datetime areas, `cli.jiff_oracle`, the doc
+examples and `oracle`; the whole core once, 12,597 jobs in 448 s, none
+died; a plain `tools/heavy zig build`; `tools/emit-diff origin/main`,
+identical where compared, as before. The compiler did not change, so the
+check guard was not rerun.
+
+## After groups landed (2026-11-22)
+
+origin/main (47b6e27c9, #1220, groups and spreads) was merged in, and
+`ZonedDateTime` takes `DateTime`'s groups: `add(duration:, ..period:
+Period)` and `with(..date: DateFields, ..clock: ClockFields, resolve:)`,
+so `z.add(..monthly, days: 3)!` and `z.with(hour: 12)!` read as
+`DateTime`'s do; `round` and `floor` keep their unit keywords
+(options.md §4). The emitted call stays flat. STD and §6.2 show the
+groups, and a case tests them.
+
+Gates: the datetime and options areas, `cli.jiff_oracle`, the doc
+examples of STD, the design and options, and `oracle`; the whole core
+once, 12,653 jobs in 454 s, none died; a plain `tools/heavy zig build`;
+`tools/emit-diff origin/main`, identical in 37 of 38 programs (Trig's
+fails on both sides); the check guard under `tools/mac-claim`,
+interleaved four rounds, branch first, against `tools/baseline
+origin/main`, at a load of 2.9 to 3.3: the fewest 2,171,848,774
+instructions for the branch and 2,171,972,182 for main, 0.006% fewer,
+0.7% over the committed baseline.

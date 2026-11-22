@@ -310,7 +310,7 @@ const SymbolResolver = struct {
         var sid: ?ScopeId = from;
         while (sid) |s| {
             if (s == self.module_scope or s == sema.scope_invalid) return null;
-            if (self.ctx.lookupInScopeOnly(s, name)) |id| return id;
+            if (self.ctx.lookupInScopeOnly(s, name)) |id| if (!self.ctx.symbols.items[id].flags.group_field) return id;
             const scope = self.ctx.scopes.items[s];
             if (scope.kind == .function) return null;
             sid = scope.parent;
@@ -521,7 +521,9 @@ const SymbolResolver = struct {
                 }
             };
             if (collides) continue;
-            if (self.ctx.scopes.items[self.scope].kind == .lambda) {
+            // A group's field is no name of the body, so it shadows
+            // nothing; emit names its parameter apart.
+            if (sema.groupFieldOf(p) != null) {} else if (self.ctx.scopes.items[self.scope].kind == .lambda) {
                 try self.checkShadowingThroughLambda(name_node);
             } else {
                 try self.checkShadowsDeclaration(name_node, "parameter");
@@ -551,7 +553,9 @@ const SymbolResolver = struct {
                 _ = try self.declare(name_node, .generic_param, .{});
                 continue;
             }
-            _ = try self.declare(name_node, .param, .{ .comptime_known = ct });
+            // A group's field is no name of the body: a local, a closure's
+            // parameter, or a binding may take its name.
+            _ = try self.declare(name_node, .param, .{ .comptime_known = ct, .group_field = sema.groupFieldOf(p) != null });
         }
     }
 
@@ -1012,7 +1016,7 @@ const SymbolResolver = struct {
         if (std.mem.eql(u8, identAt(self.ctx.source, target).?, "_")) return;
         switch (kind) {
             .default => {
-                if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
+                if (self.assignable(target)) |existing| {
                     try self.ctx.recordName(target, existing);
                     try self.ctx.recordWrite(node, existing, .assign);
                     return;
@@ -1040,7 +1044,7 @@ const SymbolResolver = struct {
                 _ = try self.declare(target, .local, .{ .closure = ir.Set.value(node).isKind(.lambda), .pattern_bound = loop_name });
             },
             .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=" => {
-                if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
+                if (self.assignable(target)) |existing| {
                     try self.ctx.recordWrite(node, existing, .compound);
                 } else if (self.scope == self.module_scope) {
                     // A module-level `K += 1` declares nothing it could
@@ -1069,8 +1073,13 @@ const SymbolResolver = struct {
     /// The existing binding `x = ...` assigns to: a local or parameter of
     /// the current body, or a module-level constant (which typecheck then
     /// rejects as a reassignment).
-    fn assignable(self: *SymbolResolver, name: []const u8) ?SymbolId {
+    fn assignable(self: *SymbolResolver, target: Sexp) ?SymbolId {
+        const name = identAt(self.ctx.source, target).?;
         if (self.ctx.lookupLocal(self.scope, name)) |id| {
+            // A group's field is no name of the body: `timeout = 1` binds a
+            // local of its own. `net.timeout = 1`, which the rewrite wrote
+            // as the field's parameter, assigns it, and is refused.
+            if (self.ctx.symbols.items[id].flags.group_field and !rig.isNamedLeaf(target)) return null;
             const k = self.ctx.symbols.items[id].kind;
             if (k == .local or k == .param or k == .capture) return id;
             return null;
@@ -1430,6 +1439,7 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
         try tr.resolveDecl(decl);
     }
     try impliedFixpoint(ctx);
+    try fillGroupDefaults(ctx);
     // An addition's value parameter (`add Ring[T, n]`) has the type of the
     // type's, which a type of this module resolves only now.
     for (ctx.conformances.items) |conf| {
@@ -1446,6 +1456,45 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
             else => {},
         };
     }
+}
+
+/// Each group field's default (`sema.GroupParam`), once every type is
+/// resolved: the field's own, in the source of the module that declares
+/// its type, filled at a call that leaves the field out, as a parameter's
+/// default is. A field without one is a required name-only argument.
+fn fillGroupDefaults(ctx: *SemContext) Error!void {
+    if (ctx.group_params.count() == 0) return;
+    for (ctx.symbols.items) |*sym| {
+        if (sym.kind == .function and sym.flags.has_groups) try fillGroupFields(ctx, ctx.group_params.get(sym.decl_pos), sym.param_names, &sym.param_defaults);
+        if (sym.kind != .nominal_type and sym.kind != .generic_type) continue;
+        const fields = sym.fields orelse continue;
+        for (@constCast(fields)) |*f| if (f.is_method and f.has_groups) try fillGroupFields(ctx, ctx.group_params.get(f.decl_pos), f.param_names, &f.param_defaults);
+    }
+}
+
+fn fillGroupFields(ctx: *SemContext, groups_in: ?[]?sema.GroupParam, names_in: ?[]const []const u8, defaults: *?[]const ?Sexp) Error!void {
+    const groups = groups_in orelse return;
+    const names = names_in orelse return;
+    const out = try ctx.arena.allocator().alloc(?Sexp, groups.len);
+    if (defaults.*) |d| @memcpy(out, d[0..out.len]) else @memset(out, null);
+    for (groups, 0..) |*slot, i| {
+        if (slot.* == null) continue;
+        const g = &slot.*.?;
+        if (g.whole or i >= names.len) continue;
+        const found: ?struct { fields: []const Field, source: []const u8 } = switch (ctx.types.get(g.ty)) {
+            .nominal => |id| .{ .fields = ctx.symbols.items[id].fields orelse &.{}, .source = ctx.source },
+            .imported_nominal => |n| if (ctx.foreign_semas.get(n.module_id)) |fc| .{ .fields = fc.symbols.items[n.sym_id].fields orelse &.{}, .source = fc.source } else null,
+            else => null,
+        };
+        const at = found orelse continue;
+        for (at.fields) |f| {
+            if (f.is_method or f.is_variant or !std.mem.eql(u8, f.name, names[i])) continue;
+            g.default = f.default;
+            g.source = at.source;
+            out[i] = f.default;
+        }
+    }
+    defaults.* = out;
 }
 
 /// The bounds each signature implies (`TypeResolver.implyBounds`), once
@@ -2262,6 +2311,7 @@ pub const TypeResolver = struct {
                 .param_names = try self.paramNames(params),
                 .param_defaults = try self.paramDefaults(fn_ty, params),
                 .param_durations = try self.paramDurations(fn_ty, params),
+                .has_groups = try self.paramGroups(fn_ty, params, name.src.pos),
                 .is_default = of == .api and ir.get(m, .body) != .nil,
             });
         }
@@ -2518,6 +2568,7 @@ pub const TypeResolver = struct {
                 self.ctx.symbols.items[fid].param_names = try self.paramNames(params);
                 self.ctx.symbols.items[fid].param_defaults = try self.paramDefaults(fn_ty, params);
                 self.ctx.symbols.items[fid].param_durations = try self.paramDurations(fn_ty, params);
+                self.ctx.symbols.items[fid].flags.has_groups = try self.paramGroups(fn_ty, params, name.src.pos);
             }
         }
         return fn_ty;
@@ -2586,9 +2637,22 @@ pub const TypeResolver = struct {
             else => &.{},
         };
         var option: ?[]const u8 = null;
+        var group = false;
         for (params.items(), 0..) |p, i| {
             out[i] = if (p.isKind(.default)) ir.Default.value(p) else null;
             const name = sema.paramName(self.ctx.source, p) orelse "";
+            // A group is a run of options (docs/design/options.md, section
+            // 2); its fields' defaults are filled in once every type is
+            // resolved (`fillGroupDefaults`), and a field without one is
+            // required, given by name.
+            if (p.isKind(.group_param) or sema.groupFieldOf(p) != null) {
+                any = true;
+                if (option == null) {
+                    option = name;
+                    group = p.isKind(.group_param);
+                }
+                continue;
+            }
             if (out[i] != null) {
                 any = true;
                 if (std.mem.eql(u8, name, "_")) {
@@ -2599,6 +2663,10 @@ pub const TypeResolver = struct {
             }
             const before = option orelse continue;
             if (i < types.len and (sema.callableFnTy(self.ctx, types[i]) != null or self.ctx.types.get(types[i]) == .function)) continue;
+            if (group) {
+                try self.ctx.err(sema.paramPos(p, self.ctx.startOf(p)), "`{s}` has no default but follows the group `{s}`, so it could only be given by name: move it before `{s}`, or give it a default", .{ name, before, before });
+                continue;
+            }
             try self.ctx.err(sema.paramPos(p, self.ctx.startOf(p)), "`{s}` has no default but follows the option `{s}`, so it could only be given by name: move it before `{s}`, or give it a default", .{ name, before, before });
         }
         return if (any) out else null;
@@ -2617,16 +2685,94 @@ pub const TypeResolver = struct {
         var mask: sema.ParamMask = 0;
         for (f.params, 0..) |p, i| {
             if (i >= @bitSizeOf(sema.ParamMask)) break;
+            // A unit's keyword never fills a group's field
+            // (docs/design/options.md, section 4).
+            if (i < params.items().len) {
+                const node = params.items()[i];
+                if (node.isKind(.group_param) or sema.groupFieldOf(node) != null) continue;
+            }
             if (sema.durationParam(self.ctx, p) != null) mask |= sema.paramBit(i);
         }
         if (mask == 0) return 0;
         for (params.items()) |p| {
+            if (sema.groupFieldOf(p) != null) continue;
             const name = sema.paramNameNode(p) orelse continue;
             const text = identAt(self.ctx.source, name) orelse continue;
             if (sema.duration.unitNs(text) == null) continue;
             try self.ctx.err(name.src.pos, "a function that takes a `Duration` names no parameter `{s}`: a call writes a duration with a unit's keyword, `ms: 40`, so rename it", .{text});
         }
         return mask;
+    }
+
+    /// The type of a group's field as its parameter has it (`field_of`):
+    /// the type its declaration writes, resolved where the type is
+    /// declared, for a type of this module; else the field's type in its
+    /// module, brought here.
+    fn groupFieldType(self: *TypeResolver, node: Sexp) Error!TypeId {
+        const written = ir.FieldOf.ftype(node);
+        if (written != .nil) {
+            const prev_scope = self.scope;
+            defer self.scope = prev_scope;
+            const prev = self.nominal;
+            defer self.nominal = prev;
+            self.scope = sema.module_scope;
+            self.nominal = NominalContext.none;
+            return self.resolveType(written);
+        }
+        const group = try self.resolveType(ir.FieldOf.type(node));
+        const name = identAt(self.ctx.source, ir.FieldOf.name(node)) orelse return self.ctx.types.invalid_id;
+        return switch (self.ctx.types.get(group)) {
+            .imported_nominal => |n| blk: {
+                const foreign = self.ctx.foreign_semas.get(n.module_id) orelse break :blk self.ctx.types.invalid_id;
+                for (foreign.symbols.items[n.sym_id].fields orelse &.{}) |f| {
+                    if (f.is_method or f.is_variant or !std.mem.eql(u8, f.name, name)) continue;
+                    break :blk try sema.importType(self.ctx, foreign, f.ty, n.module_id);
+                }
+                break :blk self.ctx.types.invalid_id;
+            },
+            else => self.ctx.types.invalid_id,
+        };
+    }
+
+    /// The parameters that belong to a group (`sema.GroupParam`), or null
+    /// when none does: a group as written, the first check's, or a field
+    /// of one, which the Parser wrapper made a parameter. Each is marked on
+    /// its symbol, so the body names none by itself.
+    fn paramGroups(self: *TypeResolver, fn_ty: TypeId, params: Sexp, pos: u32) Error!bool {
+        if (params == .nil) return false;
+        const types: []const TypeId = switch (self.ctx.types.get(fn_ty)) {
+            .function => |f| f.params,
+            else => &.{},
+        };
+        var out: ?[]?sema.GroupParam = null;
+        for (params.items(), 0..) |p, i| {
+            const whole = p.isKind(.group_param);
+            const of = sema.groupFieldOf(p);
+            if (!whole and of == null) continue;
+            if (out == null) {
+                out = try self.ctx.arena.allocator().alloc(?sema.GroupParam, params.items().len);
+                @memset(out.?, null);
+            }
+            const name = sema.paramNameNode(p) orelse continue;
+            if (whole) {
+                out.?[i] = .{ .group = identAt(self.ctx.source, name) orelse "", .ty = if (i < types.len) types[i] else self.ctx.types.invalid_id, .whole = true };
+                if (self.ctx.symbolOf(name)) |id| self.ctx.symbols.items[id].flags.group = true;
+            } else {
+                const group = identAt(self.ctx.source, ir.FieldOf.group(of.?)) orelse "";
+                out.?[i] = .{ .group = group, .ty = try self.resolveType(ir.FieldOf.type(of.?)) };
+                if (self.ctx.symbolOf(name)) |id| {
+                    self.ctx.symbols.items[id].flags.group_field = true;
+                    try self.ctx.group_fields.put(self.ctx.allocator, id, group);
+                }
+            }
+            if (sema.nominalRef(self.ctx, out.?[i].?.ty)) |r| {
+                out.?[i].?.ref = r.ref;
+                out.?[i].?.type_name = r.name;
+            }
+        }
+        const groups = out orelse return false;
+        try self.ctx.group_params.put(self.ctx.allocator, pos, groups);
+        return true;
     }
 
     fn paramNames(self: *TypeResolver, params: Sexp) Error!?[]const []const u8 {
@@ -2809,7 +2955,7 @@ pub const TypeResolver = struct {
             .list => {
                 const h = param.kind() orelse return self.ctx.types.invalid_id;
                 switch (h) {
-                    .@":", .default => {
+                    .@":", .default, .group_param => {
                         // Self takes no type: it is `?@`, `!@`, or `<@`.
                         if (sema.paramNameNode(param)) |n| if (std.mem.eql(u8, identAt(self.ctx.source, n) orelse "", "@")) {
                             if (self.nominal.isEmpty()) {
@@ -3897,6 +4043,7 @@ pub const TypeResolver = struct {
             .param_names = try self.paramNames(params),
             .param_defaults = try self.paramDefaults(fn_ty, params),
             .param_durations = try self.paramDurations(fn_ty, params),
+            .has_groups = try self.paramGroups(fn_ty, params, mpos),
         });
     }
 
@@ -4100,6 +4247,7 @@ pub const TypeResolver = struct {
                 const head = sexp.kind() orelse return t.invalid_id;
                 switch (head) {
                     .item_type => return self.chainItemType(ir.get(sexp, .name)),
+                    .field_of => return self.groupFieldType(sexp),
                     .item_value => {
                         const item = try self.chainItemType(ir.get(sexp, .name));
                         return switch (t.get(item)) {

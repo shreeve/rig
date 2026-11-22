@@ -1682,6 +1682,35 @@ sub main()
 `by` has a default, so it is an option, given by name: `by: 2`
 ```
 
+`..name: T` among a function's parameters is a group: `T`'s fields
+become the function's name-only options, and the body reads them as
+`name.field`. `..v` among a call's arguments is a spread: it gives a
+stored value's fields to the group of its type, a field named beside it
+winning, before it or after it. `name:` alone, followed by `,` or `)` on
+its line, is `name: name` ([SPEC "Functions"](../SPEC.md#functions)).
+`..` then reads by where it stands: a range or an open slice in brackets,
+`xs[..b]`; a group in a parameter list; a spread in a call's parentheses.
+
+```rig
+obj Net
+  timeout: Int = 30
+  retries: Int = 3
+
+sub fetch(url: ?String, ..net: Net)
+  print(url, net.timeout, net.retries)
+
+sub main()
+  saved = Net(retries: 5)
+  timeout = 1
+  fetch("a", retries: 9)
+  fetch("b", ..saved, timeout:)
+```
+
+```output
+a 30 9
+b 1 5
+```
+
 A closure whose body is an assignment (`|!total, n| total += n`) is the
 last argument of a call. A method is called on a value, `p.m(args)`,
 with a self sigil when it writes or consumes self
@@ -1696,8 +1725,9 @@ follows, and gives a `Task[T]` at once: `t = sq(4)&`, then
 
 A function's name, or a method named through its type, is a value of a
 function type. A method's first parameter is then what it takes as self.
-A function with options is not a value, since a call through one gives
-every argument by position: a closure that calls it is.
+A function with options, inline or in a group, is not a value, since a
+call through one gives every argument by position: a closure that calls
+it is.
 
 ```rig
 fun twice(n: Int) -> Int
@@ -1739,6 +1769,9 @@ generic type's arguments may be given in brackets:
 `Option[Int].some(7)`. A `List` is built empty, `List()` or
 `List(capacity: 16)`. A `String` is built from any values, each written
 as `print` writes it: `String("n=", n)`, or `String()` for an empty one.
+An object of plain data is updated from a stored value with a spread,
+`Point(x: 9, ..p)`: a copy of `p` with `x` set ([SPEC
+"Objects"](../SPEC.md#objects)).
 
 ### Members, indexes, and slices
 

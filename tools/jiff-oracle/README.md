@@ -195,7 +195,9 @@ ISO 8601: Rig's `print` of a duration is its own (§9 item 8).
 
 `round` is Jiff's `RoundMode::HalfExpand` and `floor` its
 `RoundMode::Floor`. Only increments Rig allows (§6.8) are given; values
-fall often on a multiple or exactly half way.
+fall often on a multiple or exactly half way. Zoned values are also
+rounded within 49 hours of each end of the range, in zones east and
+west and at ±25:59, and about midnight in the years -9999, -1 and 0.
 
 ### 6. Format strings (`format.in`)
 
@@ -227,11 +229,11 @@ of instants a part of a second before 1970.
 ## std.datetime's answers
 
 `answer.rig` gives std.datetime's and std.time's answers to the same
-lines, every case; one it did not answer would print `-`. A call that
-fails prints `error`, as Jiff's does (§7.2). `compare.awk` compares
-them part for part (a format string's answer whole), passing over each
-`-` and each `skip`, and prints each difference and the counts;
-`jiff_oracle.sh` requires no difference.
+lines, every case. A call that fails prints `error`, as Jiff's does
+(§7.2). `compare.awk` compares them part for part (a format string's
+answer whole), passing over each `skip`, and prints each difference and
+the counts; `jiff_oracle.sh` requires no difference and no case left
+unanswered (`open 0`, a Rig answer of `-`).
 
 ```bash
 bin/rig build --release tools/jiff-oracle/answer.rig -o DIR/answer
@@ -248,10 +250,13 @@ The oracle does not check where Rig differs from Jiff on purpose
   exactly half way (Jiff takes it away from 1970, §9 item 12); for a
   `DateTime` or `ZonedDateTime` in a year at or below 0 that reaches the
   next midnight (Jiff 1.0.0 does not carry it into the next day there,
-  item 14), the `DateTime`'s round as one part of its answer; and for `round(days: 1)` on a
+  item 14), the round as one part of its answer; for `round(days: 1)` on a
   `ZonedDateTime` unless the value lies in its own date's range and that
-  date's start plus a day on the clock is the next date's start (item 14).
-  `floor` is checked in each of these.
+  date's start plus a day on the clock is the next date's start (item 14);
+  and for `floor(days: 1)` on a `ZonedDateTime` where Jiff cannot measure
+  the day, its start or that start plus a day being beyond the range,
+  which Rig measures (item 22). `floor` is otherwise checked in each of
+  these.
 - **The one duration past Rig's range.** Jiff's `SignedDuration` holds
   `i64::MIN` seconds, which Rig's symmetric range leaves out so that no
   negation fails (§5.1, §9 item 17); a duration case at it prints `skip`.
