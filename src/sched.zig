@@ -6356,8 +6356,9 @@ fn runHere(h: *Header, cancel: ?*const std.atomic.Value(bool), task_cancel: ?*st
     f.inline_top = &in;
     f.state = .{ .stack_guard = in.state.stack_guard };
     // The task makes its own bursts, as one handed the worker does, and
-    // the waiter has waited when it ends (`endInline`, `handoff`).
-    f.made_spills = 0;
+    // the waiter has waited when it ends (`endInline`, `handoff`). Read
+    // first, so the common run, with no burst behind it, stores nothing.
+    if (f.made_spills != 0) f.made_spills = 0;
     // A cancel of the waiter that came after its look above: the task
     // starts canceled, as the waiter's wait would have passed it on.
     if (cancel) |c| if (c.load(.seq_cst)) if (task_cancel) |t| t.store(true, .seq_cst);
@@ -6382,7 +6383,7 @@ pub fn endInline(f: *Fiber, in: *Inline) void {
     f.home = in.home;
     f.held = in.held;
     f.inline_top = in.parent;
-    f.made_spills = 0;
+    if (f.made_spills != 0) f.made_spills = 0;
     if (in.parent) |p| p.child = null;
     in.header.fiber.host.store(null, .seq_cst);
 }
