@@ -104,7 +104,8 @@ const huge: usize = 2 << 20;
 /// `bytes` of address space, zero pages, none committed. On Linux the
 /// first 2 MiB keep small pages, since a huge page would commit 2 MiB at
 /// a small table's first touch, and the rest, from a 2 MiB boundary, asks
-/// for huge pages: a table that grows past 2 MiB is faulted in 2 MiB at a
+/// for huge pages (2 MiB unless `RIG_HUGE_MIN_MB` says more: `alloc.zig`,
+/// `huge_min`): a table that grows past 2 MiB is faulted in 2 MiB at a
 /// time, one fault and one TLB entry where 512 small pages each take
 /// their own, at the cost of the part of its last huge page not yet
 /// written (docs/history/records/2026-10/perf-stage/fault-ahead/). It
@@ -121,7 +122,8 @@ fn reserve(bytes: usize) [*]align(page) u8 {
     if (comptime !leak_checked) if (rt.fast_alloc.reserveTable(bytes)) |p| return p;
     const prot: std.posix.PROT = .{ .READ = true, .WRITE = true };
     const flags: std.posix.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true };
-    if (builtin.os.tag != .linux or bytes <= huge or !rt.fast_alloc.hugeFree()) {
+    const min = if (builtin.os.tag == .linux) rt.fast_alloc.hugeMin() else huge;
+    if (builtin.os.tag != .linux or bytes <= min or !rt.fast_alloc.hugeFree()) {
         const m = std.posix.mmap(null, bytes, prot, flags, -1, 0) catch reservePanic(bytes);
         if (builtin.os.tag == .linux) std.posix.madvise(m.ptr, m.len, std.posix.MADV.NOHUGEPAGE) catch {};
         return m.ptr;
@@ -135,8 +137,8 @@ fn reserve(bytes: usize) [*]align(page) u8 {
     const end = lo + m.len;
     if (end > stop) std.posix.munmap(@as([*]align(page) u8, @ptrFromInt(stop))[0 .. end - stop]);
     const p: [*]align(page) u8 = @ptrFromInt(start);
-    std.posix.madvise(p, huge, std.posix.MADV.NOHUGEPAGE) catch {};
-    std.posix.madvise(@ptrFromInt(start + huge), bytes - huge, std.posix.MADV.HUGEPAGE) catch {};
+    std.posix.madvise(p, min, std.posix.MADV.NOHUGEPAGE) catch {};
+    std.posix.madvise(@ptrFromInt(start + min), bytes - min, std.posix.MADV.HUGEPAGE) catch {};
     return p;
 }
 
