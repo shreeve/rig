@@ -185,6 +185,11 @@ const Worker = struct {
     /// compare-and-swap on the slot then confirms.
     lifo_head: std.atomic.Value(u8) = .init(0),
     lifo_streak: u8 = 0,
+    /// How many tasks its running fiber made while every slot was full
+    /// that took a slot and moved the oldest to the ring, since this
+    /// worker last picked a fiber to run (`wakeMade`). Only this worker
+    /// reads or writes it.
+    made_spills: u8 = 0,
     /// The large stacks it keeps free and has yet to run a fiber on.
     stacks: StackList = .{},
     /// Blocks to reuse (`takeBlock`).
@@ -472,14 +477,20 @@ fn wakeIn(f: *Fiber) void {
 
 /// `wakeIn` for a task just made that is not a fork (`spawn`): when the
 /// slot it would take holds a fiber, every "run next" slot is full, and
-/// it goes to the ring's tail rather than move the oldest there. A burst
-/// of tasks (`Tasks.add` in a loop) so fills the slots once and the ring
-/// after, one locked store a task, where each took a slot and pushed the
-/// slot's fiber, two (on pup's x86 at twelve workers, the slot's swap
-/// alone took 4% of all cycles, its line pulled to and fro by the
-/// workers searching);
-/// and the workers woken for the burst steal half the ring at once. The
-/// newest is still the ring's last, which a wait for it takes back
+/// once its fiber has made `run_next_slots` tasks so since its worker
+/// last picked a fiber (`Worker.made_spills`), it goes to the ring's
+/// tail rather than move the oldest there. A burst of tasks (`Tasks.add`
+/// in a loop) so fills the slots, then swaps as many again, and fills
+/// the ring after, one locked store a task, where each took a slot and
+/// pushed the slot's fiber, two (on pup's x86 at twelve workers, the
+/// slot's swap alone took 4% of all cycles, its line pulled to and fro
+/// by the workers searching); and the workers woken for the burst steal
+/// half the ring at once. A fan-out of up to twice the slots, as a
+/// checker per core, is placed as every fiber made ready is: its newest
+/// in the slots, run next where they were made, and its oldest in the
+/// ring (going to the ring's tail from the first spill raised Trig's
+/// peak memory at eight checkers by 6% on pup). The newest is still the
+/// ring's last or in a slot, where a wait for it takes it back
 /// (`Header.waitEnd`).
 fn wakeMade(f: *Fiber) void {
     return wakeQueued(f, .made);
@@ -520,9 +531,12 @@ inline fn wakeQueued(f: *Fiber, comptime kind: enum { woken, made, fork }) void 
     // Read on its owner's thread, which alone fills a slot: a fiber seen
     // here that a worker took meanwhile only sends this one to the ring.
     if (kind == .made and f.home == null and w.lifo[i].raw != null) {
-        _ = w.ring.push(f);
-        if (keeps_short and w.short.held_since.raw != 0) w.short.held_since.store(0, .monotonic);
-        return notifyNew();
+        if (w.made_spills >= run_next_slots) {
+            _ = w.ring.push(f);
+            if (keeps_short and w.short.held_since.raw != 0) w.short.held_since.store(0, .monotonic);
+            return notifyNew();
+        }
+        w.made_spills += 1;
     }
     w.lifo_head.store(i, .monotonic);
     if (w.lifo[i].swap(f, .seq_cst)) |b| {
@@ -4593,6 +4607,7 @@ fn next(w: *Worker) ?*Fiber {
         return ready.swapRemove(random(ready.items.len));
     }
     w.tick +%= 1;
+    w.made_spills = 0;
     if (w.tick % 61 == 0) {
         service(w);
         if (global.pop()) |f| return f;
@@ -8997,6 +9012,53 @@ test "of the fibers one look at a poller or one firing of timers makes ready, th
     try std.testing.expectEqual(2 * Run.k, Run.woke.load(.seq_cst));
     try std.testing.expectEqual([2]u32{ 1, Run.k - 1 }, Run.after_look);
     try std.testing.expectEqual([2]u32{ 1, Run.k - 1 }, Run.after_fire);
+}
+
+test "a burst of tasks fills the run-next slots, swaps as many again, and goes to the ring's tail after" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        const k = 2 * run_next_slots + 3;
+        var js: [k]*Job(u8) = undefined;
+        /// Each slot's task's index, and the ring's, oldest first.
+        var held: [run_next_slots]?usize = @splat(null);
+        var ring: [k]usize = undefined;
+        var ring_len: u32 = 0;
+        const Unit = struct {};
+        fn task(_: *Unit) u8 {
+            return 1;
+        }
+        fn indexOf(f: *Fiber) usize {
+            for (js, 0..) |j, i| if (&j.header.fiber == f) return i;
+            unreachable;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            const w = me().?;
+            for (0..k) |i| js[i] = spawn(u8, Unit, task, .{}, .{}, false, false, false).job;
+            for (&w.lifo, 0..) |*slot, i| if (slot.load(.seq_cst)) |f| {
+                held[i] = indexOf(f);
+            };
+            const h = w.ring.head.load(.seq_cst);
+            ring_len = w.ring.tail.load(.seq_cst) -% h;
+            for (0..ring_len) |i| ring[i] = indexOf(w.ring.slots[(h +% i) % Ring.size].load(.seq_cst).?);
+            for (js) |j| {
+                _ = j.join();
+                j.free();
+            }
+        }
+    };
+    workers_override.* = 1;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    // The slots hold the second four made; the ring the first four, then
+    // the rest.
+    var slots: [run_next_slots]usize = undefined;
+    for (Run.held, 0..) |i, n| slots[n] = i.?;
+    std.mem.sort(usize, &slots, {}, std.sort.asc(usize));
+    try std.testing.expectEqual([run_next_slots]usize{ 4, 5, 6, 7 }, slots);
+    try std.testing.expectEqual(@as(u32, Run.k - run_next_slots), Run.ring_len);
+    try std.testing.expectEqualSlices(usize, &.{ 0, 1, 2, 3, 8, 9, 10 }, Run.ring[0..Run.ring_len]);
 }
 
 test "a task made while its maker computes runs beside it, from the maker's next yield check" {

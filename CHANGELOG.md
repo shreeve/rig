@@ -1115,11 +1115,15 @@ arms.
   read each back first: at ten workers on an M5 bench/tasks' spawn took
   140 to 190 ns in most runs, and takes 100 to 122 (95 to 130 before
   the fill moved in place); one worker is unchanged.
-- **A burst of tasks goes to the ring:** a task made while every "run
-  next" slot is full goes to the ring's tail (`sched.wakeMade`), where it
+- **A burst of tasks goes to the ring:** once its fiber has made as
+  many tasks again as there are "run next" slots while every slot was
+  full, a task made goes to the ring's tail (`sched.wakeMade`), where it
   took a slot and moved the slot's oldest fiber to the ring: one locked
   store a task where it took two, and the workers woken for the burst
-  steal half the ring at once. On pup at twelve workers the slot's swap
+  steal half the ring at once. A fan-out of up to eight tasks, as Trig's
+  eight checkers, is placed as before, its newest four in the slots
+  (`Worker.made_spills`): sent to the ring's tail from the first, it
+  raised Trig's peak memory at eight checkers by 6% on pup. On pup at twelve workers the slot's swap
   alone had taken 4% of bench/tasks spawn's cycles, its line pulled to
   and fro by the workers searching; a spawn takes 117.5 ns there, where
   it took 123.6, and 96 at one worker, where it took 103. A task's record
