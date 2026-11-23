@@ -1117,10 +1117,10 @@ arms.
   the fill moved in place); one worker is unchanged.
 - **A burst of tasks goes to the ring:** a task made while every "run
   next" slot is full takes a slot and moves the slot's oldest fiber to
-  the ring, as any fiber made ready does, until four tasks made on the
-  worker have so moved one since a task made there last found its slot
-  empty; after that, while the slots stay full, a task made goes to the
-  ring's tail (`sched.wakeMade`, `Worker.made_spills`): one locked store
+  the ring, as any fiber made ready does, until its maker has made four
+  tasks that so moved one since it last slept in a wait; after that,
+  while the slots stay full, a task it makes goes to the ring's tail
+  (`sched.wakeMade`, `Fiber.made_spills`): one locked store
   a task where it took two, and the workers woken for the burst steal
   half the ring at once. A burst of up to eight tasks that starts with
   the slots empty, as Trig's eight checkers, is placed as fibers made

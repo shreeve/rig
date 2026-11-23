@@ -88,6 +88,12 @@ pub const Fiber = struct {
     /// (`storage.taskStaysInFrame`, `tasks.Task(T).frame`). The
     /// preemption monitor leaves it to the slice (`watchSlices`).
     fork: bool = false,
+    /// How many tasks it made took a full "run next" slot and moved the
+    /// slot's oldest fiber to the ring since it last slept in a wait:
+    /// at most `run_next_slots`, past which a task it makes while the
+    /// slots are full goes to the ring's tail (`wakeMade`). Only the
+    /// fiber's own thread reads or writes it.
+    made_spills: u8 = 0,
     /// What its worker does once it has switched away for good: publish
     /// its end (`Header`), or nothing for `main`.
     done: ?*const fn (*Fiber) void = null,
@@ -185,12 +191,6 @@ const Worker = struct {
     /// compare-and-swap on the slot then confirms.
     lifo_head: std.atomic.Value(u8) = .init(0),
     lifo_streak: u8 = 0,
-    /// How many tasks made on it took a full "run next" slot and moved
-    /// the slot's oldest fiber to the ring since a task made on it last
-    /// took an empty slot: at most `run_next_slots`, past which a task
-    /// made while the slots are full goes to the ring's tail
-    /// (`wakeMade`). Only this worker reads or writes it.
-    made_spills: u8 = 0,
     /// The large stacks it keeps free and has yet to run a fiber on.
     stacks: StackList = .{},
     /// Blocks to reuse (`takeBlock`).
@@ -478,20 +478,21 @@ fn wakeIn(f: *Fiber) void {
 
 /// `wakeIn` for a task just made that is not a fork (`spawn`). It
 /// takes a slot as every fiber made ready does, moving the oldest to
-/// the ring when the slot is full, until `run_next_slots` tasks made on
-/// this worker have so moved one since a task made here last found its
-/// slot empty (`Worker.made_spills`); after that, while every slot is
+/// the ring when the slot is full, until its maker has made
+/// `run_next_slots` tasks that so moved one since the maker last slept
+/// in a wait (`Fiber.made_spills`); after that, while every slot is
 /// full, it goes to the ring's tail instead. A burst of tasks
 /// (`Tasks.add` in a loop) that starts with the slots empty so fills
 /// them, swaps as many again, and fills the ring after: past its eighth
 /// task, one locked store a task where each took two, the slot's swap
 /// and the push of the fiber it moved (the slot's line is pulled to and
-/// fro by the workers searching); and the workers woken for the burst
-/// steal half the ring at once. Such a burst of up to eight tasks is
-/// placed as fibers made ready are: its newest four in the slots, run
-/// next where they were made, and the rest in the ring. The newest is
-/// still the ring's last or in a slot, where a wait for it takes it
-/// back (`Header.waitEnd`).
+/// fro by the workers searching), however often the workers searching
+/// empty a slot meanwhile; and the workers woken for the burst steal
+/// half the ring at once. Such a burst of up to eight tasks is placed as
+/// fibers made ready are: its newest four in the slots, run next where
+/// they were made, and the rest in the ring. The newest is still the
+/// ring's last or in a slot, where a wait for it takes it back
+/// (`Header.waitEnd`).
 fn wakeMade(f: *Fiber) void {
     return wakeQueued(f, .made);
 }
@@ -530,15 +531,14 @@ inline fn wakeQueued(f: *Fiber, comptime kind: enum { woken, made, fork }) void 
     const i = (w.lifo_head.raw +% 1) % run_next_slots;
     // Read on its owner's thread, which alone fills a slot: a fiber seen
     // here that a worker took meanwhile only sends this one to the ring.
-    if (kind == .made and f.home == null) {
-        if (w.lifo[i].raw == null) {
-            w.made_spills = 0;
-        } else if (w.made_spills >= run_next_slots) {
+    if (kind == .made and f.home == null and w.lifo[i].raw != null) if (w.current) |maker| {
+        if (maker.made_spills >= run_next_slots) {
             _ = w.ring.push(f);
             if (keeps_short and w.short.held_since.raw != 0) w.short.held_since.store(0, .monotonic);
             return notifyNew();
-        } else w.made_spills += 1;
-    }
+        }
+        maker.made_spills += 1;
+    };
     w.lifo_head.store(i, .monotonic);
     if (w.lifo[i].swap(f, .seq_cst)) |b| {
         if (b.home != null) w.pinned.push(b) else {
@@ -1874,6 +1874,8 @@ noinline fn commitWaitApart(epoch: u32, deadline: ?i96) void {
 
 fn commitWaitIn(epoch: u32, deadline: ?i96) void {
     const f = current().?;
+    // Its next tasks made are a burst of their own (`wakeMade`).
+    f.made_spills = 0;
     if (deadline) |d| {
         f.wait.timer.due = d;
         f.wait.timer_epoch = epoch;
@@ -6247,6 +6249,8 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool), compt
     const waiter = w.current.?;
     const f = &h.fiber;
     pausePoint();
+    // It sleeps as it hands its worker over (`commitWaitIn`).
+    waiter.made_spills = 0;
     const e = if (cancel != null) beginWait(true) else beginPlainWait(waiter);
     if (cancel) |c| if (c.load(.seq_cst)) return;
     // Taken by a worker with nothing else to do meanwhile: wait for it the
