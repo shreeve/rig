@@ -543,15 +543,13 @@ pub const census = struct {
         var maps = Maps.read() orelse return;
         defer maps.deinit();
         const n = @min(count.load(.monotonic), max);
-        const mib = 1 << 20;
-        print("rig-table-rss: table\tseq\ttid\tbytes_reserved\trss\tanon_huge\tasked\tdropped\tn\ttype\n", .{});
         var t_rss: usize = 0;
         var t_huge: usize = 0;
         for (entries.*[0..n], 0..) |*e, i| {
             if (!e.dropped) measure(e, &maps);
             t_rss += e.rss;
             t_huge += e.huge;
-            print("rig-table-rss: table\t{d}\t{d}\t{d}\t{d}\t{d}\t{d}\t{d}\t{d}\t{s}\n", .{ i, e.tid, e.bytes, e.rss, e.huge, @intFromBool(e.asked), @intFromBool(e.dropped), e.n, e.name });
+            print("rig-table-rss: table seq={d} tid={d} base=0x{x} reserved={d} rss={d} anonhuge={d} asked={d} dropped={d} n={d} name={s}\n", .{ i, e.tid, e.start, std.mem.alignForward(usize, e.bytes, page), e.rss, e.huge, @intFromBool(e.asked), @intFromBool(e.dropped), e.n, e.name });
         }
         const regions = rt.fast_alloc.censusRegions();
         var seg: [3]usize = .{ 0, 0, 0 };
@@ -562,24 +560,33 @@ pub const census = struct {
             all[0] += m.rss;
             all[1] += m.huge;
             var into: *[3]usize = &other;
-            if (regions.seg_end != 0 and inside(m.start, m.end, regions.seg_start, regions.seg_end)) into = &seg;
+            var kind: []const u8 = "other";
+            if (regions.seg_end != 0 and inside(m.start, m.end, regions.seg_start, regions.seg_end)) {
+                into = &seg;
+                kind = "segment";
+            }
             for (regions.tables) |r| if (inside(m.start, m.end, r.start, r.start + r.len + huge)) {
                 into = &tab;
+                kind = "tablemap";
             };
             into[0] += m.rss;
             into[1] += m.huge;
             if (m.hg) into[2] += 1;
+            // Each mapping that holds memory, outside the Tables, whose
+            // lines above give theirs: the segments' by address, and the
+            // rest (large blocks, stacks, the binary).
+            if (m.rss > 0 and into != &tab) print("rig-table-rss: {s} base=0x{x} len={d} rss={d} anonhuge={d} hg={d}\n", .{ kind, m.start, m.end - m.start, m.rss, m.huge, @intFromBool(m.hg) });
         }
-        print("rig-table-rss: tables\tcount={d}\trss={d}\tanon_huge={d}\t(sum of the lines above, MiB {d} / {d})\n", .{ n, t_rss, t_huge, t_rss / mib, t_huge / mib });
-        print("rig-table-rss: region\ttables\trss={d}\tanon_huge={d}\thg_maps={d}\n", .{ tab[0], tab[1], tab[2] });
-        print("rig-table-rss: region\tsegments\trss={d}\tanon_huge={d}\thg_maps={d}\n", .{ seg[0], seg[1], seg[2] });
-        print("rig-table-rss: region\tother\trss={d}\tanon_huge={d}\thg_maps={d}\n", .{ other[0], other[1], other[2] });
-        print("rig-table-rss: region\tall\trss={d}\tanon_huge={d}\n", .{ all[0], all[1] });
+        print("rig-table-rss: total kind=tables count={d} rss={d} anonhuge={d} (the table lines summed)\n", .{ n, t_rss, t_huge });
+        print("rig-table-rss: total kind=tablemaps rss={d} anonhuge={d} hg_maps={d}\n", .{ tab[0], tab[1], tab[2] });
+        print("rig-table-rss: total kind=segments base=0x{x} len={d} rss={d} anonhuge={d} hg_maps={d}\n", .{ regions.seg_start, regions.seg_end - regions.seg_start, seg[0], seg[1], seg[2] });
+        print("rig-table-rss: total kind=other rss={d} anonhuge={d} hg_maps={d}\n", .{ other[0], other[1], other[2] });
+        print("rig-table-rss: total kind=all rss={d} anonhuge={d}\n", .{ all[0], all[1] });
         var status: [4096]u8 = undefined;
         const text = readFile("/proc/self/status", &status);
         if (std.mem.indexOf(u8, text, "VmHWM:")) |at| {
             const end = std.mem.indexOfScalarPos(u8, text, at, '\n') orelse text.len;
-            print("rig-table-rss: peak\t{s}\n", .{text[at..end]});
+            print("rig-table-rss: peak {s}\n", .{text[at..end]});
         }
     }
 
