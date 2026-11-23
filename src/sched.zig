@@ -5285,8 +5285,9 @@ fn unmapShare(w: *Worker, ex: *Exit) void {
 /// copies the fibers it would take, then claims them by moving `head`
 /// past them; a slot is written again only once `head` has passed it.
 /// A worker's queue of ready fibers: its owner pushes at the tail and
-/// takes from the head (`pop`) or, for a fork-join, back from the tail
-/// (`takeLast`); thieves take half from the head (`stealFrom`).
+/// takes from the head (`pop`, or `takeFirst` for a task it waits for)
+/// or, for a fork-join, back from the tail (`takeLast`); thieves take
+/// half from the head (`stealFrom`).
 ///
 /// A thief copies the fibers it sees, then claims them by moving the head
 /// past them. The claim checks only the head, so the tail it saw may be
@@ -5371,6 +5372,23 @@ const Ring = struct {
         const won = left == 0 and r.head.cmpxchgStrong(h, h +% 1, .seq_cst, .monotonic) == null;
         r.tail.store(t, .seq_cst);
         return won;
+    }
+
+    fn firstIs(r: *Ring, f: *Fiber) bool {
+        const h = r.head.load(.acquire);
+        if (h == r.tail.load(.monotonic)) return false;
+        return r.slots[h % size].load(.monotonic) == f;
+    }
+
+    /// Take `f` from the ring's head, where it is the oldest, as `pop`
+    /// takes the head: a compare-and-swap of the head, which a thief's
+    /// claim moves too, so the two never both take it. Whether this took
+    /// it; for the ring's owner.
+    fn takeFirst(r: *Ring, f: *Fiber) bool {
+        const h = r.head.load(.acquire);
+        if (h == r.tail.load(.monotonic)) return false;
+        if (r.slots[h % size].load(.monotonic) != f) return false;
+        return r.head.cmpxchgStrong(h, h +% 1, .acq_rel, .monotonic) == null;
     }
 
     fn pop(r: *Ring) ?*Fiber {
@@ -6191,6 +6209,15 @@ pub const Header = struct {
                     // a fork-join's halves are when waited for in turn:
                     // taken back, as Rayon's join pops its own deque.
                     handoff(w, h, cancel, .ring);
+                } else if (w.ring.firstIs(&h.fiber)) {
+                    // Moved from the slots to the ring by the tasks made
+                    // after it, it is the oldest there, as the first of a
+                    // burst is (`wakeMade`) when its maker waits for the
+                    // burst in the order it made it: taken from the head,
+                    // as this worker's loop takes the ring's, so its
+                    // worker runs the task it waits for rather than the
+                    // newest in a slot.
+                    handoff(w, h, cancel, .first);
                 }
             }
         }
@@ -6238,14 +6265,14 @@ pub fn Job(comptime T: type) type {
 }
 
 /// Hand this worker to the task of `h`, which has not started and is
-/// next on it (in one of its "run next" slots, or the newest in its ring,
-/// `from`): switch
+/// queued on it (in one of its "run next" slots, or the newest or the
+/// oldest in its ring, `from`): switch
 /// straight to it, on its own stack, and straight back when it ends,
 /// past the queues. The fiber waiting sleeps as it hands its worker over,
 /// recorded as the task's waiter, so a task that stops on the way ends
 /// the usual way and wakes it. A cancel that came before the wait began,
 /// when `cancel` is given, leaves the task where it is.
-fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool), comptime from: enum { next, ring }) void {
+fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool), comptime from: enum { next, ring, first }) void {
     const waiter = w.current.?;
     const f = &h.fiber;
     pausePoint();
@@ -6255,7 +6282,11 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool), compt
     if (cancel) |c| if (c.load(.seq_cst)) return;
     // Taken by a worker with nothing else to do meanwhile: wait for it the
     // usual way.
-    if (!(if (from == .next) takeFromNext(w, f) else w.ring.takeLast(f))) return;
+    if (!(switch (from) {
+        .next => takeFromNext(w, f),
+        .ring => w.ring.takeLast(f),
+        .first => w.ring.takeFirst(f),
+    })) return;
     // Read on this thread, or by the worker that ends the task once it has
     // stopped and been woken elsewhere: every step of that hand-over is a
     // seq_cst read-modify-write or a queue's release and acquire, so these
@@ -6271,13 +6302,13 @@ fn handoff(w: *Worker, h: *Header, cancel: ?*const std.atomic.Value(bool), compt
     spread(w);
     w.current = f;
     w.ran += 1;
-    // A fiber taken back from the ring is one the worker's loop would
+    // A fiber taken from the ring is one the worker's loop would
     // have run from there, after the waiter parked: the monitor counts
     // it so, and does not stop a fork-join that takes back its own
     // tasks for the work it spilled (`watchSlices`). One from a slot
     // goes on the waiter's count, so a fiber that makes tasks and waits
     // for each at once is stopped as one that computes.
-    if (preempt and from == .ring) preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
+    if (preempt and from != .next) preOf(w).runs.store(preOf(w).runs.raw +% 1, .monotonic);
     noteStarted(w, f);
     if (f.home != null) w.ran_pinned += 1;
     checkOffOwnStack(w);
@@ -9131,6 +9162,44 @@ test "a task handed its waiter's worker after a burst starts its own burst's cou
     for (Run.held, 0..) |i, n| slots[n] = i.?;
     std.mem.sort(usize, &slots, {}, std.sort.asc(usize));
     try std.testing.expectEqual([run_next_slots]usize{ 1, 2, 3, 4 }, slots);
+}
+
+test "a wait for the first of a burst, the oldest in its maker's ring, hands it the worker" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        const k = 2 * run_next_slots;
+        var ts: [k]*Job(u8) = undefined;
+        var order: [k]u8 = undefined;
+        var ran: u8 = 0;
+        var first_in_ring = false;
+        var handed = false;
+        const Unit = struct { i: u8 = 0 };
+        fn task(u: *Unit) u8 {
+            if (u.i == 0) handed = me().?.current == &ts[0].header.fiber;
+            order[ran] = u.i;
+            ran += 1;
+            return u.i;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            for (0..k) |i| ts[i] = spawn(u8, Unit, task, .{}, .{ .i = @as(u8, @intCast(i)) }, false, false, false).job;
+            first_in_ring = me().?.ring.firstIs(&ts[0].header.fiber);
+            for (ts) |j| {
+                _ = j.join();
+                j.free();
+            }
+        }
+    };
+    workers_override.* = 1;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    // The burst's first four went to the ring as its second four took the
+    // slots; the wait for the first takes it from the ring's head and runs
+    // it before the newest in a slot.
+    try std.testing.expect(Run.first_in_ring);
+    try std.testing.expect(Run.handed);
+    try std.testing.expectEqual(@as(u8, 0), Run.order[0]);
 }
 
 test "a maker's count of swaps survives a slot emptied under it, and a wait restarts it" {
