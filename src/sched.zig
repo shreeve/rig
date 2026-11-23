@@ -89,8 +89,8 @@ pub const Fiber = struct {
     /// preemption monitor leaves it to the slice (`watchSlices`).
     fork: bool = false,
     /// How many tasks it made took a full "run next" slot and moved the
-    /// slot's oldest fiber to the ring since it last slept in a wait:
-    /// at most `run_next_slots`, past which a task it makes while the
+    /// slot's oldest fiber to the ring since it last slept in a wait or
+    /// ran a task it waits for inline (`runHere`): at most `run_next_slots`, past which a task it makes while the
     /// slots are full goes to the ring's tail (`wakeMade`). Only the
     /// fiber's own thread reads or writes it.
     made_spills: u8 = 0,
@@ -6355,6 +6355,9 @@ fn runHere(h: *Header, cancel: ?*const std.atomic.Value(bool), task_cancel: ?*st
     if (in.parent) |p| p.child = &in;
     f.inline_top = &in;
     f.state = .{ .stack_guard = in.state.stack_guard };
+    // The task makes its own bursts, as one handed the worker does, and
+    // the waiter has waited when it ends (`endInline`, `handoff`).
+    f.made_spills = 0;
     // A cancel of the waiter that came after its look above: the task
     // starts canceled, as the waiter's wait would have passed it on.
     if (cancel) |c| if (c.load(.seq_cst)) if (task_cancel) |t| t.store(true, .seq_cst);
@@ -6379,6 +6382,7 @@ pub fn endInline(f: *Fiber, in: *Inline) void {
     f.home = in.home;
     f.held = in.held;
     f.inline_top = in.parent;
+    f.made_spills = 0;
     if (in.parent) |p| p.child = null;
     in.header.fiber.host.store(null, .seq_cst);
 }
@@ -9065,7 +9069,7 @@ test "a burst of tasks fills the run-next slots, swaps as many again, and goes t
     try std.testing.expectEqualSlices(usize, &.{ 0, 1, 2, 3, 8, 9, 10 }, Run.ring[0..Run.ring_len]);
 }
 
-test "a task handed its waiter's worker after a burst places its own burst as one that starts with a slot empty" {
+test "a task handed its waiter's worker after a burst starts its own burst's count at zero" {
     if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
     const Run = struct {
         const k = 2 * run_next_slots;
@@ -9124,6 +9128,60 @@ test "a task handed its waiter's worker after a burst places its own burst as on
     for (Run.held, 0..) |i, n| slots[n] = i.?;
     std.mem.sort(usize, &slots, {}, std.sort.asc(usize));
     try std.testing.expectEqual([run_next_slots]usize{ 1, 2, 3, 4 }, slots);
+}
+
+test "a maker's count of swaps survives a slot emptied under it, and a wait restarts it" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        const k = 2 * run_next_slots;
+        var ts: [k + 2 + run_next_slots + 1]*Job(u8) = undefined;
+        var after_burst: u8 = 0;
+        var after_emptied: u8 = 0;
+        var last_to_tail = false;
+        var after_wait: u8 = 0;
+        var after_next: u8 = 0;
+        const Unit = struct {};
+        fn leaf(_: *Unit) u8 {
+            return 1;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            const w = me().?;
+            const f = current().?;
+            for (0..k) |i| ts[i] = spawn(u8, Unit, leaf, .{}, .{}, false, false, false).job;
+            after_burst = f.made_spills;
+            // A worker searching takes the oldest task left in a slot, as
+            // `stealNext` does; here it goes to the ring, to run later.
+            const oldest = &ts[run_next_slots].header.fiber;
+            if (takeFromNext(w, oldest)) _ = w.ring.push(oldest);
+            // The next task takes the emptied slot; the one after finds
+            // the slots full and goes to the ring's tail.
+            ts[k] = spawn(u8, Unit, leaf, .{}, .{}, false, false, false).job;
+            ts[k + 1] = spawn(u8, Unit, leaf, .{}, .{}, false, false, false).job;
+            after_emptied = f.made_spills;
+            last_to_tail = w.ring.lastIs(&ts[k + 1].header.fiber);
+            // A sleep: the worker runs the tasks meanwhile.
+            commitWait(beginWait(false), nowNs() + std.time.ns_per_ms);
+            after_wait = f.made_spills;
+            // The worker ran every task as this one slept: the next four
+            // fill the slots, and the fifth swaps, counted from zero.
+            for (k + 2..ts.len) |i| ts[i] = spawn(u8, Unit, leaf, .{}, .{}, false, false, false).job;
+            after_next = f.made_spills;
+            for (ts) |j| {
+                _ = j.join();
+                j.free();
+            }
+        }
+    };
+    workers_override.* = 1;
+    defer workers_override.* = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(@as(u8, run_next_slots), Run.after_burst);
+    try std.testing.expectEqual(@as(u8, run_next_slots), Run.after_emptied);
+    try std.testing.expect(Run.last_to_tail);
+    try std.testing.expectEqual(@as(u8, 0), Run.after_wait);
+    try std.testing.expectEqual(@as(u8, 1), Run.after_next);
 }
 
 test "a task made while its maker computes runs beside it, from the maker's next yield check" {
