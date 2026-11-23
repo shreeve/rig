@@ -405,9 +405,10 @@ worker after.
   one is.
 - **Inline.** Before a handoff, a waiter whose task has not started and
   is next on its worker runs it on its own stack and fiber when the room
-  left there is at least what the task's own stack would give it
-  (`sched.runHere`, `roomFor`): a dense stack's for a task that fits one
-  (`Fiber.dense`), else a whole task's stack, `rt.task_stack_promise`,
+  left there is at least what the task is promised on a stack of its
+  own (`sched.runHere`, `roomFor`): a dense stack's for a task that fits
+  one (`Fiber.dense`), else the 64 MiB every task is promised,
+  `rt.task_stack_promise` (its own large stack gives up to 1 MiB more),
   which a large stack, `main`'s among them, keeps while its fiber has
   used no more than its extra 1 MiB (`rt.task_stack_extra`). Each adds 16 KiB for the frames
   from the wait to the task's own. No stack, no switch, and no fiber of

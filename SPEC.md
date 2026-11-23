@@ -815,12 +815,15 @@ reach holds it, so the caller is the frame kept out of line. The factor
 4 is measured, not proven: the frames each form takes are checked
 against it, and a form the compiler does not yet model could take more.
 
-A program runs on a stack of 64 MiB, as every task does, with 1 MiB of
-address space past it, as a task's stack has ([§18](#actors)), and a
-guard of 64 GiB of address space below it, or 1 GiB where 64 GiB cannot
+A program runs on a stack of 65 MiB, as each task does: the 64 MiB
+every task is promised and 1 MiB more, the room that lets `main`, while
+it has used no more than that 1 MiB, run an idle actor's method or a
+task it waits for on its own stack
+([docs/internals/scheduler.md](docs/internals/scheduler.md)). Below it
+is a guard of 64 GiB of address space, or 1 GiB where 64 GiB cannot
 be reserved. A program that runs out of stack, through deep recursion or
-a frame no larger than the guard, stops with a stack-overflow error (`error: rig: stack overflow`)
-before writing beyond the stack, in every build mode. A program that
+a frame no larger than the guard, stops with a stack-overflow error
+(`error: rig: stack overflow`) before writing beyond the stack, in every build mode. A program that
 cannot reserve its stack and the guard stops before it runs, with `rig:
 cannot reserve the program's stack and the guard below it` and exit
 status 1 ([INTERNALS](docs/internals/INTERNALS.md#the-programs-stack) describes the
@@ -15174,7 +15177,8 @@ worker thread per core (`task.workers(n)` before the first task, or
 `RIG_WORKERS`, sets how many), with a guard
 below it at least twice the program's largest frame. A task its waiter
 reaches before it has started may run on the waiter's stack instead,
-when the room left there is at least what its own stack would give it.
+when the room left there is at least what it is promised on a stack of
+its own.
 A long loop or
 recursion lets other tasks run when they are waiting
 ([docs/internals/scheduler.md](docs/internals/scheduler.md)).
@@ -15536,10 +15540,13 @@ runs to its end, and its caller waits for it, through a cancel too.
 
 A call that finds the actor idle, with nothing in its mailbox, takes it
 in one atomic step and runs the method at once on the caller's stack,
-with no message and no switch, when that stack has as much room left
-as the actor's own task would give the method: what the compiler
-proves the method takes, or a whole task's stack when it proves no
-bound (a method that recurses, or calls through a function value). The method
+with no message and no switch, when that stack has at least the room
+the method is promised on the actor's own task: what the compiler
+proves the method takes, or the 64 MiB every task is promised when it
+proves no bound (a method that recurses, or calls through a function
+value). A method with no proven bound that needs more than 64 MiB may
+run out of stack inline, where its own task, whose stack gives it up to
+1 MiB more, would run it. The method
 still runs as the actor: it has started, so the caller's cancel and
 deadline do not stop it, and the caller meets them at its own next
 waiting point. Messages sent meanwhile go to the actor's own task.

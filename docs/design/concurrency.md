@@ -458,14 +458,15 @@ step and runs the method on its own core, with no queue and no switch.
 The method still runs as the actor:
 - its cancel state, deadline, and isolate are the actor's, not the
   caller's, so a canceled caller cannot interrupt it;
-- the call is made only when the caller's stack has as much room left
-  as the method's own task would give it: the most stack the compiler
+- the call is made only when the caller's stack has at least the room
+  the method is promised on its own task: the most stack the compiler
   proves the method takes with all it calls (the bound dense stacks
-  use, recorded per call), or else a whole task's stack, which a task,
-  or `main`, has left while it has used no more than the 1 MiB its
-  stack holds past the 64 MiB every task is promised, so a method that
-  runs short of stack inline would run short on the actor's own task
-  too;
+  use, recorded per call), or else the 64 MiB every task is promised,
+  which a task, or `main`, has left while it has used no more than the
+  1 MiB its stack holds past them. A method that keeps within its
+  promise never runs short inline; one with no proven bound that needs
+  more than 64 MiB may run short inline where its own task, with up to
+  1 MiB more, would not;
 - a call through a handle to the same actor type counts as recursion in
   the stack analysis, once there is one.
 
