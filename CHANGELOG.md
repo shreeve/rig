@@ -1125,20 +1125,29 @@ arms.
   140 to 190 ns in most runs, and takes 100 to 122 (95 to 130 before
   the fill moved in place); one worker is unchanged.
 - **A burst of tasks goes to the ring:** a task made while every "run
-  next" slot is full takes a slot and moves the slot's oldest fiber to
-  the ring, as any fiber made ready does, until its maker has made four
-  tasks that so moved one since it last slept in a wait; after that,
-  while the slots stay full, a task it makes goes to the ring's tail
-  (`sched.wakeMade`, `Fiber.made_spills`): one locked store
-  a task where it took two, and the workers woken for the burst steal
-  half the ring at once. A burst of up to eight tasks that starts with
-  the slots empty, as Trig's eight checkers, is placed as fibers made
-  ready are, its newest four in the slots. Sending every task of such a
+  next" slot is full takes the newest's slot and moves the newest to
+  the ring, until its maker has made four tasks that so moved one since
+  it last slept in a wait; after that, while the slots stay full, a task
+  it makes goes to the ring's tail (`sched.wakeMade`,
+  `Fiber.made_spills`): one locked store a task where it took two, and
+  the workers woken for the burst steal half the ring at once. A burst
+  of up to eight tasks that starts with the slots empty, as Trig's
+  eight checkers, keeps its first three and its newest in the slots, so
+  a maker that waits for the burst in the order it made it finds the
+  first there and hands it its worker. Sending every task of such a
   burst to the ring's tail had raised Trig's peak memory on mui at eight
-  checkers by 5.3-6.1% on pup (CPUs 0-11); with the first four placed so,
+  checkers by 5.3-6.1% on pup (CPUs 0-11); with four placed in the slots,
   it is level with the placement before (1156 MB, against 1159 MB with
   the ring's tail never used and 1235 MB with it always used, medians of
-  15 rounds). A task's record is cast from its block with no check of its
+  15 rounds). Moving the oldest to the ring instead of the newest had put
+  the burst's first there, where a thief took it before its maker's
+  wait, and the maker slept while its worker ran the burst's newest: at
+  eight checkers on CPUs 0-11, two of them to a core on two of pup's six,
+  Trig's check lost up to 12% (slot 731, 11 rounds: with the first kept
+  in a slot, Compiler takes 0.888 of the time, Compiler-Unions 0.893,
+  next-packages-next 0.903, storybook 0.956; summed over sixteen
+  projects level at one, two, four and eight checkers, against an A/A
+  of 1.000 to 1.016, and peak memory 0.985 to 1.001). A task's record is cast from its block with no check of its
   alignment, which the allocator proves (`alloc.allocRecord`).
 - **A task's record finds its class at compile time:** `allocRecord`
   and `freeRecord` take the record's size and alignment as constants, so
