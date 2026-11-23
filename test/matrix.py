@@ -1305,7 +1305,7 @@ def iter_program(source, ctx):
     }
     if ctx in ("value_end", "value_break"):
         stop = "7" if ctx == "value_end" else "1"
-        run += ["r = " + head, '  print("body", k)', f"  break k * 10 if k == {stop}", "else", "  -1",
+        run += ["r = $v: loop", "  " + head, '    print("body", k)', f"    break $v k * 10 if k == {stop}", "  break $v -1",
                 'print("value", r)']
     elif ctx in ("tail_end", "tail_break"):
         run = ['print("tail", tailv())']
@@ -1321,7 +1321,7 @@ def iter_program(source, ctx):
     if ctx in ("tail_end", "tail_break"):
         stop = "7" if ctx == "tail_end" else "1"
         lines += ["fun tailv() -> Int"] + ["  " + l for l in src["setup"]] + \
-                 ["  " + head, '    print("body", k)', f"    break k * 10 if k == {stop}", "  else", "    -1", ""]
+                 ["  r = $v: loop", "    " + head, '      print("body", k)', f"      break $v k * 10 if k == {stop}", "    break $v -1", "  r", ""]
     lines += ["sub run()!"] + ["  " + l for l in run] + ["",
               "sub main()", '  run() catch |_| print("failed")', '  print("end")']
     return "\n".join(lines) + "\n"
@@ -1348,7 +1348,7 @@ def iter_output(source, ctx):
     elif ctx == "fail":
         out = b(0, 1) + drop + ["failed"]
     elif ctx == "else":
-        out = b(0, 1, 2) + ["else"] + held_drop + ["after"] + (["rest -1"] if has_rest else []) + persistent_drop
+        return None
     elif ctx == "labeled":
         out = b(0, 1) + held_drop + ["after"] + persistent_drop
     elif ctx == "nested":
