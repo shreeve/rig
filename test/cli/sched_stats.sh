@@ -17,11 +17,15 @@ fun keep(n: ?*Node, k: Int) -> Int
   n.v + k
 
 sub main()
+  # 2 MiB of locals, more than the 1 MiB `main`'s stack has past a task's
+  # promise, so `main` never runs a task it waits for inline, and each
+  # local task runs pinned on its worker.
+  big: [262144]Int = [262144 of 1]
   n = *Node(v: 1)
   sum = 0
   for k in 0..20
     t = keep(?n, k)&
-    sum += >t
+    sum += >t * big[k]
   ts = Tasks[Int]()
   for i in 0..8
     !ts.add(spin(20000000 + i)&)

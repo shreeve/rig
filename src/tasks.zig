@@ -2646,9 +2646,9 @@ pub fn Actor(comptime T: type) type {
         /// the actor, with no message and no switch: under no cancel or
         /// deadline, as its runner runs one, so a canceled caller cannot
         /// stop it partway. What arrived meanwhile goes to a runner after
-        /// it (`release`), when the caller's stack has as much room as the
-        /// method's own task would give it: `depth`, the method's proven
-        /// depth, or 0 for none (`roomInline`).
+        /// it (`release`), when the caller's stack has the room the method
+        /// is promised on its own task: `depth`, the method's proven depth,
+        /// or 0 for none (`roomInline`).
         pub inline fn call(box: *rt.Shared(Self), comptime name: []const u8, args: anytype, comptime depth: u64) Result(name) {
             return callAs(box, name, args, false, depth);
         }
@@ -2937,14 +2937,17 @@ pub fn endInlineLevels() void {
 }
 
 /// Whether the running task's stack has room for an actor's method run
-/// inline (`Actor.claim`): as much room above its guard as the method's
-/// own task would give it, so a method never overflows inline that would
-/// not overflow on the actor's own task. That is `depth`, the most stack
-/// the compiler proves the method takes with all it calls, when it
-/// proves one; else a whole task's stack, `rt.task_stack_promise`, which
-/// a task has left while it has used no more than `rt.task_stack_extra`.
-/// Each adds `inline_slack` for the frames between here and the method.
-/// Otherwise the caller sends a message, which the actor's own task runs
+/// inline (`Actor.claim`): at least the room the method is promised on
+/// the actor's own task. That is `depth`, the most stack the compiler
+/// proves the method takes with all it calls, when it proves one; else
+/// the 64 MiB every task is promised, `rt.task_stack_promise`, which a
+/// task, or `main`, whose stack is mapped as a task's, has left while it
+/// has used no more than `rt.task_stack_extra`. Each adds `inline_slack`
+/// for the frames between here and the method. So a method that keeps
+/// within its promise never overflows inline; one with no proven bound
+/// that needs more than 64 MiB may overflow inline (a clean stack
+/// overflow) where its own task, whose stack gives it up to 1 MiB more,
+/// would run it. Otherwise the caller sends a message, which the actor's own task runs
 /// on a stack of its own. A stack the runtime did not map, or one it
 /// cannot place the frame in, has none.
 fn roomInline(t: *rt.TaskState, comptime depth: u64) bool {

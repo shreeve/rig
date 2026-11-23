@@ -6301,8 +6301,8 @@ pub const Inline = struct {
 /// claimed nothing, and the wait goes on as ever (`handoff`, or a park).
 /// Only the task waited for, only while it is next on this worker (in a
 /// "run next" slot, or the newest in the ring), and only when the room
-/// left on this stack is at least what the task's own stack would give
-/// it (`roomFor`), so no stack runs short. A waiter canceled before the
+/// left on this stack is at least what the task is promised on a stack of
+/// its own (`roomFor`), so no stack runs short of its promise. A waiter canceled before the
 /// wait passes the cancel on first, and the task then runs canceled.
 ///
 /// The task's state is swapped into the waiter's fiber, which stays the
@@ -6375,12 +6375,14 @@ pub fn endInlinePanicked(f: *Fiber, in: *Inline) void {
 }
 
 /// Whether the room left on `f`'s stack here is at least what the task
-/// of `t` would have on a stack of its own: what a dense stack gives, for
-/// one that fits one (`Fiber.dense`), else a whole task's stack,
-/// `rt.task_stack_promise`, which a large stack keeps while its fiber has
-/// used no more than `rt.task_stack_extra`. Each adds `inline_slack` for
-/// the frames from here to the task's own. A stack the runtime did not
-/// map, as `main`'s is not on a worker, has none.
+/// of `t` is promised on a stack of its own: what a dense stack gives, for
+/// one that fits one (`Fiber.dense`), else the 64 MiB every task is
+/// promised, `rt.task_stack_promise` (its own large stack gives up to 1
+/// MiB more), which a large stack, `main`'s among them, keeps while its
+/// fiber has used no more than `rt.task_stack_extra`. Each adds
+/// `inline_slack` for the frames from here to the task's own. A stack the
+/// runtime did not map, as on a target where code runs on the thread's
+/// own stack, has none.
 inline fn roomFor(f: *Fiber, t: *const Fiber) bool {
     const own = if (t.dense and dense.guard != 0) rt.dense_stride - dense.guard - std.heap.pageSize() else rt.task_stack_promise;
     const g = f.state.stack_guard;

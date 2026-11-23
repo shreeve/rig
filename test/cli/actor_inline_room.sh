@@ -6,6 +6,9 @@
 # about 70% of a task's stack deep, which fits the actor's own task;
 # called by a task that has already used about 45% of its stack, with the
 # actor idle, it must not run inline, where it would run out of stack.
+# The same holds for `main`, whose stack is mapped as a task's is: past
+# the extra 1 MiB it must not run the method inline either, and short of
+# it, as a task there, it does, with no message to the actor's task.
 # The depths are found by running the recursion alone, so the case holds
 # whatever a frame takes on the target.
 source "$ROOT/test/cli/_lib.sh"
@@ -39,6 +42,17 @@ sub main()
     # The recursion alone, on a task: no actor.
     t = deep(arg(2), none, 0)&
     print(>t)
+  else if mode == "main"
+    # Called by `main` once it has used part of its stack.
+    a = *Actor(Deep(calls: 0))
+    print(deep(arg(2), ?a, arg(3)))
+  else if mode == "calls"
+    # Called by `main` with its stack all but unused: inline each time.
+    a = *Actor(Deep(calls: 0))
+    total = 0
+    for _ in 0..arg(2)
+      total += a.go(1)
+    print(total)
   else
     a = *Actor(Deep(calls: 0))
     # Alone on the actor's own task the method fits.
@@ -66,3 +80,13 @@ done
 out=$(RIG_SEED=5 ./deep call $burn $need 2>err.txt) || fail "seeded: the method ran out of stack inline: $(tail -2 err.txt)"
 expect_eq "$out" "$need
 $(( burn + need ))" "seeded"
+out=$(./deep main $burn $need 2>err.txt) || fail "main: the method ran out of stack inline (burn $burn, need $need, deepest $lo): $(tail -2 err.txt)"
+expect_eq "$out" "$(( burn + need ))" "main"
+
+# Each call a message would run the actor's task once; run inline, none
+# does, and the fibers the workers ran are `main` and a few of the
+# runtime's.
+out=$(RIG_SCHED_STATS=1 ./deep calls 1000 2>stats.txt) || fail "calls: $(tail -2 stats.txt)"
+expect_eq "$out" "1000" "calls"
+ran=$(awk '/^rig: worker/ { for (i = 1; i <= NF; i++) if ($i == "ran") { n = $(i + 1); sub(",", "", n); s += n } } END { print s + 0 }' stats.txt)
+(( ran < 100 )) || fail "calls: the workers ran $ran fibers for 1000 calls from main, so the calls went as messages: $(cat stats.txt)"

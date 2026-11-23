@@ -1084,6 +1084,15 @@ arms.
 
 ### Runtime
 
+- **`main`'s stack is mapped as a task's:** the 64 MiB every task is
+  promised and 1 MiB more, address space only, so `main`, while it has
+  used no more than that, runs an idle actor's method with no proven
+  bound inline, as a task does, and a fork it waits for that needs a
+  large stack. With 64 MiB it never had a whole task's stack left, and
+  each such call went to the actor's task as a message: 499 calls of
+  Trig's file system cache on Material UI at one checker, from 104 to
+  146 KiB deep, of 120,885, which made it 2.5% slower on pup.
+  `test/cli/actor_inline_room.sh` checks both sides from `main`.
 - **A task's record is written once:** a task made on the heap is
   filled where it lies, as before the fork's record moved into its
   maker's frame, where it was built by a call and copied in, through
@@ -1230,16 +1239,17 @@ arms.
   one worker and both at 10 workers are level, as are bench/actors and
   bench/net.
 - **An actor's method runs inline only with the room its own task
-  would give it:** a call that finds the actor idle runs the method on
+  promises it:** a call that finds the actor idle runs the method on
   the caller's stack when that stack has as much room left as the
   method proves it takes (the bound dense stacks use, now recorded for
   each call), or a whole task's stack when it proves none. It ran inline
   with a quarter of a stack left, 16 MiB, so a method recursing past
   that overflowed when it found the actor idle and ran when it did not.
-  A task's stack holds 1 MiB past `main`'s 64 MiB, address space only,
-  so a task that has used no more than that still runs any method
-  inline; `main`, whose stack is 64 MiB, sends a message for a method
-  with no proven bound.
+  A task's stack holds 1 MiB past the 64 MiB every task is promised,
+  address space only, so a task that has used no more than that still
+  runs any method inline. The room is the promise, so a method with no
+  proven bound that needs more than 64 MiB may overflow inline where
+  its own task, with up to 1 MiB more, would run it.
 - **A thief and a ring's owner never both take one fiber:** a thief
   copied half a ring and claimed it by moving the head, a claim that
   checks only the head, while the owner taking back its newest

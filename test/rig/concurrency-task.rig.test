@@ -3293,8 +3293,10 @@ test "task inline hands off once a waiter has used its stack's extra room", time
   print(>w)
 
 bomb "task inline fork of an actor's method that panics, on its runner", "an actor's method this task called panicked", timeout: 30
-  # `main`'s stack has no room for the method, so the actor's runner runs
-  # it; the task it forks runs inline on the runner's stack and panics.
+  # `main` holds 2 MiB of locals, more than the 1 MiB its stack has past
+  # a task's promise, so its stack has no room for the method, and the
+  # actor's runner runs it; the task it forks runs inline on the runner's
+  # stack and panics.
   # The task ends as on a fiber of its own, not at the runner's isolate,
   # which its level did not begin (`Isolate.here`); the actor dies at its
   # runner, and the panic passes to `main`, which ends the program.
@@ -3314,8 +3316,9 @@ bomb "task inline fork of an actor's method that panics, on its runner", "an act
       >t + @n
 
   task.workers(1)
+  big: [262144]Int = [262144 of 1]
   h = *Actor(Hub(n: 3))
-  print((!h).run(9))
+  print(big[(!h).run(9) % 7])
 
 bomb "task inline deadlock names the task", "deadlock: these calls wait on each other, and none can go on: Hub.run -> a task -> Hub.get", prints: "before", timeout: 30
   # A method waits on a task that calls its own actor; the task runs
