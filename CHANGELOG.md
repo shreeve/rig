@@ -1124,9 +1124,13 @@ arms.
   a task where it took two, and the workers woken for the burst steal
   half the ring at once. A burst of up to eight tasks that starts with
   the slots empty, as Trig's eight checkers, is placed as fibers made
-  ready are, its newest four in the slots. A task's record is cast from
-  its block with no check of its alignment, which the allocator proves
-  (`alloc.allocRecord`).
+  ready are, its newest four in the slots. Sending every task of such a
+  burst to the ring's tail had raised Trig's peak memory on mui at eight
+  checkers by 5.3-6.1% on pup (CPUs 0-11); with the first four placed so,
+  it is level with the placement before (1156 MB, against 1159 MB with
+  the ring's tail never used and 1235 MB with it always used, medians of
+  15 rounds). A task's record is cast from its block with no check of its
+  alignment, which the allocator proves (`alloc.allocRecord`).
 - **A task's record finds its class at compile time:** `allocRecord`
   and `freeRecord` take the record's size and alignment as constants, so
   a spawn and a task's free look up no class (`classAligned` had taken
