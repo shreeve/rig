@@ -815,10 +815,11 @@ reach holds it, so the caller is the frame kept out of line. The factor
 4 is measured, not proven: the frames each form takes are checked
 against it, and a form the compiler does not yet model could take more.
 
-A program runs on a stack of 64 MiB, with a guard of 64 GiB of address
-space below it, or 1 GiB where 64 GiB cannot be reserved. A program that
-runs out of stack, through deep recursion or a frame no larger than the
-guard, stops with a stack-overflow error (`error: rig: stack overflow`)
+A program runs on a stack of 64 MiB, as every task does, with 1 MiB of
+address space past it, as a task's stack has ([§18](#actors)), and a
+guard of 64 GiB of address space below it, or 1 GiB where 64 GiB cannot
+be reserved. A program that runs out of stack, through deep recursion or
+a frame no larger than the guard, stops with a stack-overflow error (`error: rig: stack overflow`)
 before writing beyond the stack, in every build mode. A program that
 cannot reserve its stack and the guard stops before it runs, with `rig:
 cannot reserve the program's stack and the guard below it` and exit

@@ -7862,9 +7862,10 @@ noinline fn leakReport(n: usize, bytes: usize) void {
 // stack by a frame no larger than the guard faults in the guard before it
 // writes anywhere else (docs/internals/INTERNALS.md, "The program's stack").
 
-/// The stack `main` and the tests run on: 64 MiB, four times the 16 MiB
-/// Zig gives the main thread, for deep recursion; a frame keeps at most
-/// 13 MiB of values (`checkFrames` in the compiler).
+/// The stack every task is promised, and `main` and the tests: 64 MiB,
+/// four times the 16 MiB Zig gives the main thread, for deep recursion; a
+/// frame keeps at most 13 MiB of values (`checkFrames` in the compiler).
+/// `main`'s is mapped as a task's is, with `task_stack_extra` more.
 const stack_size: usize = 64 << 20;
 
 /// The inaccessible address space below the stack, the largest that can
@@ -7907,14 +7908,14 @@ pub const StackGuard = struct { lo: usize = 0, hi: usize = 0, len: usize = 0 };
 /// even the smallest guard can be reserved.
 fn mapStack(guards: []const usize) ?usize {
     for (guards) |size| {
-        const got = std.posix.mmap(null, size + stack_size + std.heap.pageSize(), .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch continue;
+        const got = std.posix.mmap(null, size + task_stack_size + std.heap.pageSize(), .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch continue;
         const base = @intFromPtr(got.ptr);
-        if (std.posix.errno(std.posix.system.mprotect(@ptrFromInt(base + size), stack_size, .{ .READ = true, .WRITE = true })) != .SUCCESS) {
+        if (std.posix.errno(std.posix.system.mprotect(@ptrFromInt(base + size), task_stack_size, .{ .READ = true, .WRITE = true })) != .SUCCESS) {
             std.posix.munmap(got);
             continue;
         }
-        task().stack_guard = .{ .lo = base, .hi = base + size, .len = stack_size };
-        return base + size + stack_size;
+        task().stack_guard = .{ .lo = base, .hi = base + size, .len = task_stack_size };
+        return base + size + task_stack_size;
     }
     return null;
 }
@@ -7962,11 +7963,12 @@ pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn
 }
 
 /// A task's stack and its guard, as `sched.zig` maps a fiber's. A task's
-/// stack is `main`'s 64 MiB, for the same frames, and `task_stack_extra`
-/// more, address space no task touches until it runs that deep: a task
-/// that has used no more than the extra still has a whole task's stack
-/// left, so an actor's method may run inline there (`tasks.roomInline`).
-/// Its guard is at
+/// stack, as `main`'s (`mapStack`), is the 64 MiB every task is promised,
+/// and `task_stack_extra` more, address space no task touches until it
+/// runs that deep: a task, or `main`, that has used no more than the
+/// extra still has a whole task's stack left, so an actor's method, or a
+/// task it waits for, may run inline there (`tasks.roomInline`,
+/// `sched.roomFor`). Its guard is at
 /// least twice the largest frame the program's code may take, which
 /// `bin/rig` measures and writes into the root (`__rig_task_guard`,
 /// `sema.taskGuard`): 16 MiB for most programs, so a million tasks fit
@@ -7976,9 +7978,9 @@ pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn
 pub const task_stack_size = stack_size + task_stack_extra;
 pub const task_stack_extra: usize = 1 << 20;
 
-/// The stack every task is promised: `main`'s, 64 MiB. A method run
-/// inline needs this much room left on its caller's stack unless the
-/// compiler proves it needs less (`tasks.roomInline`).
+/// The stack every task is promised, 64 MiB. A method run inline needs
+/// this much room left on its caller's stack unless the compiler proves
+/// it needs less (`tasks.roomInline`).
 pub const task_stack_promise = stack_size;
 pub const task_guard: usize = if (@hasDecl(root, "__rig_task_guard")) root.__rig_task_guard else guard_sizes[guard_sizes.len - 1];
 
@@ -11814,7 +11816,7 @@ test "the program's stack is writable, and the guard below it and the page above
     if (!own_stack) return error.SkipZigTest;
     const top = mapStack(&guard_sizes) orelse return error.TestUnexpectedResult;
     defer std.posix.munmap(@as([*]align(std.heap.page_size_min) u8, @ptrFromInt(task().stack_guard.lo))[0 .. top + std.heap.pageSize() - task().stack_guard.lo]);
-    try std.testing.expectEqual(top - stack_size, task().stack_guard.hi);
+    try std.testing.expectEqual(top - task_stack_size, task().stack_guard.hi);
     try std.testing.expect(task().stack_guard.hi - task().stack_guard.lo >= guard_sizes[guard_sizes.len - 1]);
     writeByte(top - 1);
     writeByte(task().stack_guard.hi);

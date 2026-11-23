@@ -408,8 +408,8 @@ worker after.
   left there is at least what the task's own stack would give it
   (`sched.runHere`, `roomFor`): a dense stack's for a task that fits one
   (`Fiber.dense`), else a whole task's stack, `rt.task_stack_promise`,
-  which a large stack keeps while its fiber has used no more than its
-  extra 1 MiB (`rt.task_stack_extra`). Each adds 16 KiB for the frames
+  which a large stack, `main`'s among them, keeps while its fiber has
+  used no more than its extra 1 MiB (`rt.task_stack_extra`). Each adds 16 KiB for the frames
   from the wait to the task's own. No stack, no switch, and no fiber of
   its own: the task's state is swapped into the waiter's fiber, all but
   its stack guard (`Inline`, in `runHere`'s frame), and the monitor counts
@@ -419,9 +419,9 @@ worker after.
   wait; a signal may stop the task's code, and the fiber may resume on
   another worker unless pinned, so `runHere` reads its worker again after
   the call. Where the room is short the wait hands off as above, so no
-  stack runs short: `main`'s stack is exactly 64 MiB, so the forks
-  `main` waits for hand off, one a level of a fork-join's spine, and each
-  runs its own subtree inline. A wait with a deadline, and every
+  stack runs short: a waiter, `main` too, that has used more than the
+  extra hands off a fork that needs a large stack, which then runs its
+  own subtree inline. A wait with a deadline, and every
   deterministic run, runs nothing inline. A cancel of a task run inline
   reaches the fiber that runs it (`Fiber.host`), whose bit
   (`cancel_below`) makes its next wait a cancel may end, and a look at
@@ -485,12 +485,16 @@ large stack. A dense stack's pages go back to the system past what the
 workers keep, and its address stays reserved (`sched.trimDense`); a build
 that sanitizes makes a finished one inaccessible for good.
 
-A task's stack is 65 MiB of address space, `main`'s 64 MiB, since a
-frame may keep up to 13 MiB of values, and 1 MiB more
-(`rt.task_stack_extra`), committed only as the task touches it. The
-extra lets a task that has used no more than it run an actor's method,
+A task's stack is 65 MiB of address space, the 64 MiB every task is
+promised, since a frame may keep up to 13 MiB of values, and 1 MiB more
+(`rt.task_stack_extra`), committed only as the task touches it.
+`main`'s stack is mapped the same (`rt.mapStack`). The extra lets a
+task, or `main`, that has used no more than it run an actor's method,
 or a task it waits for, inline with a whole task's stack left
-(`tasks.roomInline`, `sched.roomFor`). Stacks never move, since views point into them. They are
+(`tasks.roomInline`, `sched.roomFor`): with only the 64 MiB, `main`
+would never have that room, and each call it makes of a method with no
+proven bound would go to the actor's task as a message.
+Stacks never move, since views point into them. They are
 carved 16 at a time from one reservation, whose stacks stay untouched,
 holding no page, until a task runs on each, and ask for small pages
 where the system gives huge ones unasked (`enabled=always`), since a

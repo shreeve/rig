@@ -2942,8 +2942,8 @@ pub fn endInlineLevels() void {
 /// not overflow on the actor's own task. That is `depth`, the most stack
 /// the compiler proves the method takes with all it calls, when it
 /// proves one; else a whole task's stack, `rt.task_stack_promise`, which
-/// a task has left while it has used no more than `rt.task_stack_extra`.
-/// Each adds `inline_slack` for the frames between here and the method.
+/// a task, or `main`, whose stack is mapped as a task's, has left while it
+/// has used no more than `rt.task_stack_extra`. Each adds `inline_slack` for the frames between here and the method.
 /// Otherwise the caller sends a message, which the actor's own task runs
 /// on a stack of its own. A stack the runtime did not map, or one it
 /// cannot place the frame in, has none.

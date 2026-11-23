@@ -461,10 +461,11 @@ The method still runs as the actor:
 - the call is made only when the caller's stack has as much room left
   as the method's own task would give it: the most stack the compiler
   proves the method takes with all it calls (the bound dense stacks
-  use, recorded per call), or else a whole task's stack, which a task
-  has left while it has used no more than the 1 MiB its stack holds
-  past `main`'s 64 MiB, so a method that runs short of stack inline
-  would run short on the actor's own task too;
+  use, recorded per call), or else a whole task's stack, which a task,
+  or `main`, has left while it has used no more than the 1 MiB its
+  stack holds past the 64 MiB every task is promised, so a method that
+  runs short of stack inline would run short on the actor's own task
+  too;
 - a call through a handle to the same actor type counts as recursion in
   the stack analysis, once there is one.
 

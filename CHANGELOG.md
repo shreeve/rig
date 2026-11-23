@@ -1084,6 +1084,15 @@ arms.
 
 ### Runtime
 
+- **`main`'s stack is mapped as a task's:** the 64 MiB every task is
+  promised and 1 MiB more, address space only, so `main`, while it has
+  used no more than that, runs an idle actor's method with no proven
+  bound inline, as a task does, and a fork it waits for that needs a
+  large stack. With 64 MiB it never had a whole task's stack left, and
+  each such call went to the actor's task as a message: 499 calls of
+  Trig's file system cache on Material UI at one checker, from 104 to
+  146 KiB deep, of 120,885, which made it 2.5% slower on pup.
+  `test/cli/actor_inline_room.sh` checks both sides from `main`.
 - **A task's record is written once:** a task made on the heap is
   filled where it lies, as before the fork's record moved into its
   maker's frame, where it was built by a call and copied in, through

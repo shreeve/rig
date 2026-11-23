@@ -6164,14 +6164,18 @@ debug build.
 A program's Rig code runs on a stack the runtime maps itself
 (`rig.onOwnStack`), not on the stack the system gave its main thread:
 
-1. reserve `guard + 64 MiB + a page` of address space inaccessible, the guard
+1. reserve `guard + 65 MiB + a page` of address space inaccessible, the guard
    64 GiB, or 1 GiB where that cannot be reserved (`guard_sizes`); a
    program that cannot reserve even that prints `rig: cannot reserve
    the program's stack and the guard below it` and exits 1 before it
    runs;
-2. make the 64 MiB above the guard readable and writable: the stack,
+2. make the 65 MiB above the guard readable and writable: the stack,
    with one more page above it left inaccessible, so a read past the
-   stack's top faults whatever else the process maps there;
+   stack's top faults whatever else the process maps there. It is a
+   task's stack (`rt.task_stack_size`), the 64 MiB every task is
+   promised and 1 MiB more (`rt.task_stack_extra`), so `main`, while it
+   has used no more than the extra, has a whole task's stack left to
+   run an actor's method, or a task it waits for, inline;
 3. install the overflow handler, then call the body with the stack
    pointer 256 bytes below the stack's top (`switchStack`,
    `unwind_headroom`), and return with it where it was. A panic's

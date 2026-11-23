@@ -361,7 +361,7 @@ most once. The workers start as `main` starts, or, in a program that
 sets their number with `task.workers(n)`, at its first task.
 
 **The stack.** A task gets a stack only when it first runs, from the
-worker that runs it. A stack is 64 MiB of address space, committed only
+worker that runs it. A stack is 65 MiB of address space, committed only
 as the task touches it, so a sleeping task holds about a page of it.
 Each worker keeps 32 free ones and shares up to 32 more on a spare list,
 returned to the system in runs once the workers are idle, and no stack

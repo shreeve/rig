@@ -6377,10 +6377,11 @@ pub fn endInlinePanicked(f: *Fiber, in: *Inline) void {
 /// Whether the room left on `f`'s stack here is at least what the task
 /// of `t` would have on a stack of its own: what a dense stack gives, for
 /// one that fits one (`Fiber.dense`), else a whole task's stack,
-/// `rt.task_stack_promise`, which a large stack keeps while its fiber has
-/// used no more than `rt.task_stack_extra`. Each adds `inline_slack` for
-/// the frames from here to the task's own. A stack the runtime did not
-/// map, as `main`'s is not on a worker, has none.
+/// `rt.task_stack_promise`, which a large stack, `main`'s among them,
+/// keeps while its fiber has used no more than `rt.task_stack_extra`.
+/// Each adds `inline_slack` for the frames from here to the task's own.
+/// A stack the runtime did not map, as `main`'s is not on a worker, has
+/// none.
 inline fn roomFor(f: *Fiber, t: *const Fiber) bool {
     const own = if (t.dense and dense.guard != 0) rt.dense_stride - dense.guard - std.heap.pageSize() else rt.task_stack_promise;
     const g = f.state.stack_guard;
