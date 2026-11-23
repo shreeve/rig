@@ -8674,6 +8674,7 @@ pub fn exitNow(code: Int) noreturn {
     // profile here, where the optimized one's writer does nothing, before
     // the teardown unmaps what the program holds, and both tear down.
     if (pgo) writeProfile();
+    table_zig.census.report();
     if (scheduled) sched.tearDown();
     endProcess(status);
 }
@@ -8694,6 +8695,7 @@ pub fn finish() void {
     if (scheduled) sched.settleLeftCalls();
     if (pgo) writeProfile();
     if (map_trace) map_tracer.close();
+    table_zig.census.report();
     releaseProcess();
     lockOutput();
     flush();
