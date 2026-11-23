@@ -113,6 +113,7 @@ comptime {
         table_waiting,
         table_waiting_count,
         thp_mode,
+        huge_min,
         table_holes,
         table_hole_count,
         table_live,
@@ -489,7 +490,8 @@ pub const Heap = struct {
         // written. A worker started ahead of the work keeps small pages
         // for its first segment's first 2 MiB (`startSmall`).
         const first_small = h.start_small and h.segment == null;
-        const huge = builtin.os.tag == .linux and if (first_small) firstHalfSmall(@intFromPtr(s)) else ask(@intFromPtr(s), segment_size, .huge);
+        const want = segmentWants(h.taken);
+        const huge = builtin.os.tag == .linux and if (first_small and want == .huge) firstHalfSmall(@intFromPtr(s)) else ask(@intFromPtr(s), segment_size, want);
         // The header's page, of a segment of small pages: with the
         // segment's first window, or alone, each page then faulting in
         // as its class takes it (`faultFresh`).
@@ -937,7 +939,8 @@ inline fn allocLargeFrom(h: *Heap, len: usize, alignment: usize, mapped: ?*bool)
     };
     const got = mapLarge(size) orelse return null;
     if (mapped) |f| f.* = true;
-    if (size >= huge_page) _ = ask(got, size, .huge);
+    const min = hugeMin();
+    if (size >= min) _ = ask(got, size, .huge) else if (size >= huge_page) _ = ask(got, size, .small);
     h.took(size);
     handedOut(h, size);
     trimKept(h);
@@ -1097,6 +1100,29 @@ fn chosenWord(text: []const u8) []const u8 {
 var thp_mode_var: std.atomic.Value(u8) = .init(0);
 const thp_mode = split.cell(&thp_mode_var, "alloc.thp_mode");
 
+/// The bytes from which a range asks for huge pages, read with the mode
+/// (`readThpMode`) from `RIG_HUGE_MIN_MB`, MiB rounded up to whole huge
+/// pages, else `huge_page` (2 MiB, the default): a Table's first
+/// `huge_min` bytes keep small pages and the rest asks; a heap's segment
+/// or span segment asks once the heap has taken more than `huge_min`
+/// bytes, counting it; a large block asks when it is `huge_min` bytes or
+/// more. Below it, a range keeps small pages.
+var huge_min_var: std.atomic.Value(usize) = .init(huge_page);
+const huge_min = split.cell(&huge_min_var, "alloc.huge_min");
+
+/// `huge_min`, the mode read first.
+pub fn hugeMin() usize {
+    if (builtin.os.tag != .linux) return huge_page;
+    if (thp_mode.load(.acquire) == 0) _ = readThpMode();
+    return huge_min.load(.monotonic);
+}
+
+/// What a heap's new segment or span segment, `h.taken` bytes taken with
+/// it, wants (`huge_min`).
+fn segmentWants(taken: usize) Want {
+    return if (taken > hugeMin()) .huge else .small;
+}
+
 fn thpMode() Thp {
     const m = thp_mode.load(.monotonic);
     if (m != 0) return @bitCast(m);
@@ -1114,8 +1140,92 @@ noinline fn readThpMode() Thp {
         readSmallFile("/sys/kernel/mm/transparent_hugepage/hugepages-2048kB/enabled", &enabled_2m),
         readSmallFile("/sys/kernel/mm/transparent_hugepage/defrag", &defrag),
     );
-    thp_mode.store(@bitCast(mode), .monotonic);
+    huge_min.store(hugeMinOfEnviron(), .monotonic);
+    thp_mode.store(@bitCast(mode), .release);
     return mode;
+}
+
+/// `RIG_HUGE_MIN_MB` from `/proc/self/environ`, which holds even before
+/// the program's `main` has its environment: `huge_min`.
+fn hugeMinOfEnviron() usize {
+    if (builtin.os.tag != .linux) return huge_page;
+    const linux = std.os.linux;
+    const rc = linux.openat(linux.AT.FDCWD, "/proc/self/environ", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+    if (@as(isize, @bitCast(rc)) < 0) return huge_page;
+    const fd: linux.fd_t = @intCast(rc);
+    defer _ = linux.close(fd);
+    var m: HugeMinMatch = .{};
+    var buf: [512]u8 = undefined;
+    while (true) {
+        const r: isize = @bitCast(linux.read(fd, &buf, buf.len));
+        if (r <= 0) break;
+        m.feed(buf[0..@intCast(r)]);
+    }
+    m.feed(&.{0});
+    return m.bytes();
+}
+
+/// A reader of `NAME=value` entries, each ended by a 0 byte, fed in
+/// pieces, that keeps the value of `RIG_HUGE_MIN_MB`: whole MiB, else
+/// the entry is not counted.
+const HugeMinMatch = struct {
+    const key = "RIG_HUGE_MIN_MB=";
+    /// How much of `key` the entry has matched; past it, in the value;
+    /// `no` once it cannot be the key, or the value is not a number.
+    at: usize = 0,
+    value: usize = 0,
+    digits: usize = 0,
+    found: ?usize = null,
+    const no = std.math.maxInt(usize);
+
+    fn feed(m: *HugeMinMatch, text: []const u8) void {
+        for (text) |c| {
+            if (c == 0) {
+                if (m.at == key.len and m.digits > 0) m.found = m.value;
+                m.at = 0;
+                m.value = 0;
+                m.digits = 0;
+            } else if (m.at == no) {
+                continue;
+            } else if (m.at < key.len) {
+                m.at = if (c == key[m.at]) m.at + 1 else no;
+            } else if (c >= '0' and c <= '9' and m.digits < 6) {
+                m.value = m.value * 10 + (c - '0');
+                m.digits += 1;
+            } else m.at = no;
+        }
+    }
+
+    /// The bytes it names, in whole huge pages and at least one.
+    fn bytes(m: *const HugeMinMatch) usize {
+        const mib = m.found orelse return huge_page;
+        return @max(huge_page, std.mem.alignForward(usize, mib << 20, huge_page));
+    }
+};
+
+test "RIG_HUGE_MIN_MB is read whole MiB, in whole huge pages" {
+    const cases = [_]struct { text: []const u8, want: usize }{
+        .{ .text = "", .want = 2 << 20 },
+        .{ .text = "A=1\x00RIG_HUGE_MIN_MB=8\x00B=2\x00", .want = 8 << 20 },
+        .{ .text = "RIG_HUGE_MIN_MB=32", .want = 32 << 20 },
+        .{ .text = "RIG_HUGE_MIN_MB=3\x00", .want = 4 << 20 },
+        .{ .text = "RIG_HUGE_MIN_MB=0\x00", .want = 2 << 20 },
+        .{ .text = "RIG_HUGE_MIN_MB=8x\x00", .want = 2 << 20 },
+        .{ .text = "RIG_HUGE_MIN_MB=\x00", .want = 2 << 20 },
+        .{ .text = "XRIG_HUGE_MIN_MB=8\x00", .want = 2 << 20 },
+        .{ .text = "RIG_HUGE_MIN_MBX=8\x00", .want = 2 << 20 },
+    };
+    for (cases) |c| {
+        // Whole, and a byte at a time, as reads may split it anywhere.
+        var whole: HugeMinMatch = .{};
+        whole.feed(c.text);
+        whole.feed(&.{0});
+        try std.testing.expectEqual(c.want, whole.bytes());
+        var bytewise: HugeMinMatch = .{};
+        for (c.text) |b| bytewise.feed(&.{b});
+        bytewise.feed(&.{0});
+        try std.testing.expectEqual(c.want, bytewise.bytes());
+    }
 }
 
 /// Under the mode of `enabled` and `defrag` from now (a test's).
@@ -1767,7 +1877,7 @@ fn carveSpan(h: *Heap, n: usize) ?usize {
     const seg = mapSpanSegment() orelse return null;
     // Huge pages, for all of it, as a segment of small blocks asks: a
     // span's room it has not filled commits up to 2 MiB with them.
-    _ = ask(@intFromPtr(seg), span_segment_size, .huge);
+    _ = ask(@intFromPtr(seg), span_segment_size, segmentWants(h.taken + span_segment_size));
     seg.heap = h;
     seg.used = span_first + n;
     handOutSpan(seg, span_first, n);
@@ -2105,8 +2215,8 @@ pub fn reserveTable(bytes: usize) ?[*]align(huge_page) u8 {
     const len = std.mem.alignForward(usize, bytes, huge_page);
     if (len > table_region_size) return null;
     // Read before `tables_lock`, which a new region's advice is under.
-    if (builtin.os.tag == .linux) _ = thpMode();
-    const wants = builtin.os.tag == .linux and len > huge_page;
+    const min = hugeMin();
+    const wants = builtin.os.tag == .linux and len > min;
     const waits_on = if (wants) tableWaits() else null;
     tables_lock.lock();
     const p = takeTableRange(len);
@@ -2115,7 +2225,7 @@ pub fn reserveTable(bytes: usize) ?[*]align(huge_page) u8 {
     const at = p orelse return null;
     _ = table_live.fetchAdd(1, .monotonic);
     if (wants and !waiting and hugeFree()) askTableHuge(at, bytes);
-    _ = ask(at, huge_page, .small);
+    _ = ask(at, @min(min, len), .small);
     return @ptrFromInt(at);
 }
 
@@ -2193,10 +2303,12 @@ fn stopWaitingTable(at: usize) void {
     }
 }
 
-/// The Table of `bytes` at `at` asks for huge pages past its first 2 MiB.
+/// The Table of `bytes` at `at`, more than `huge_min`, asks for huge
+/// pages past its first `huge_min` bytes.
 fn askTableHuge(at: usize, bytes: usize) void {
     tables_asked_huge.store(true, .monotonic);
-    std.posix.madvise(@ptrFromInt(at + huge_page), bytes - huge_page, std.os.linux.MADV.HUGEPAGE) catch {};
+    const min = huge_min.load(.monotonic);
+    std.posix.madvise(@ptrFromInt(at + min), bytes - min, std.os.linux.MADV.HUGEPAGE) catch {};
 }
 
 /// Give back the range of a Table of `bytes` at `p`, if it is one
@@ -3142,7 +3254,8 @@ fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: u
     // grew from, so a block that had asked asks again only as it moves
     // to pages aligned for huge ones, as the system may have had no free
     // 2 MiB blocks for it when it asked.
-    if (new_pages >= huge_page and (to != 0 or old_pages < huge_page)) _ = ask(rc, new_pages, .huge);
+    const min = hugeMin();
+    if (new_pages >= min and (to != 0 or old_pages < min)) _ = ask(rc, new_pages, .huge);
     // The pages moved stay; of the new ones, those a List is likely to
     // fill are faulted in at once.
     h.took(new_pages - old_pages);
