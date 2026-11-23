@@ -375,9 +375,15 @@ worker after.
   hands it on at that stop. A worker with nothing else to steal
   also takes the oldest task left in another's slots 3 µs
   (`sched.stealNext`), as Go takes a `runnext`. A task made while
-  every slot is full goes to the ring's tail, not into a slot
-  (`sched.wakeMade`), so a burst of tasks fills the slots once and is
-  stolen from the ring. A global queue takes overflow and work from
+  every slot is full takes a slot and moves the oldest to the ring, as
+  any fiber made ready does, until its maker has made four tasks that so
+  moved one since it last slept in a wait; while the slots stay full
+  after that, a task it makes goes to the ring's tail, not into a slot
+  (`sched.wakeMade`, `Fiber.made_spills`), however often the workers
+  searching empty a slot meanwhile. So a burst of
+  tasks that starts with the slots empty fills them, swaps as many
+  again, and is stolen from the ring, and one of up to eight tasks is
+  placed as fibers made ready are. A global queue takes overflow and work from
   outside the workers.
 - **Cache lines.** Each worker begins a cache line and fills whole
   lines, so no line holds two workers' fields, and the fields each

@@ -1125,15 +1125,21 @@ arms.
   140 to 190 ns in most runs, and takes 100 to 122 (95 to 130 before
   the fill moved in place); one worker is unchanged.
 - **A burst of tasks goes to the ring:** a task made while every "run
-  next" slot is full goes to the ring's tail (`sched.wakeMade`), where it
-  took a slot and moved the slot's oldest fiber to the ring: one locked
-  store a task where it took two, and the workers woken for the burst
-  steal half the ring at once. On pup at twelve workers the slot's swap
-  alone had taken 4% of bench/tasks spawn's cycles, its line pulled to
-  and fro by the workers searching; a spawn takes 117.5 ns there, where
-  it took 123.6, and 96 at one worker, where it took 103. A task's record
-  is cast from its block with no check of its alignment, which the
-  allocator proves (`alloc.allocRecord`).
+  next" slot is full takes a slot and moves the slot's oldest fiber to
+  the ring, as any fiber made ready does, until its maker has made four
+  tasks that so moved one since it last slept in a wait; after that,
+  while the slots stay full, a task it makes goes to the ring's tail
+  (`sched.wakeMade`, `Fiber.made_spills`): one locked store
+  a task where it took two, and the workers woken for the burst steal
+  half the ring at once. A burst of up to eight tasks that starts with
+  the slots empty, as Trig's eight checkers, is placed as fibers made
+  ready are, its newest four in the slots. Sending every task of such a
+  burst to the ring's tail had raised Trig's peak memory on mui at eight
+  checkers by 5.3-6.1% on pup (CPUs 0-11); with the first four placed so,
+  it is level with the placement before (1156 MB, against 1159 MB with
+  the ring's tail never used and 1235 MB with it always used, medians of
+  15 rounds). A task's record is cast from its block with no check of its
+  alignment, which the allocator proves (`alloc.allocRecord`).
 - **A task's record finds its class at compile time:** `allocRecord`
   and `freeRecord` take the record's size and alignment as constants, so
   a spawn and a task's free look up no class (`classAligned` had taken
