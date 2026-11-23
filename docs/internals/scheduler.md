@@ -375,15 +375,20 @@ worker after.
   hands it on at that stop. A worker with nothing else to steal
   also takes the oldest task left in another's slots 3 µs
   (`sched.stealNext`), as Go takes a `runnext`. A task made while
-  every slot is full takes a slot and moves the oldest to the ring, as
-  any fiber made ready does, until its maker has made four tasks that so
-  moved one since it last slept in a wait; while the slots stay full
+  every slot is full takes the newest's slot and moves the newest to the
+  ring, until its maker has made four tasks that so moved one since it
+  last slept in a wait; while the slots stay full
   after that, a task it makes goes to the ring's tail, not into a slot
   (`sched.wakeMade`, `Fiber.made_spills`), however often the workers
   searching empty a slot meanwhile. So a burst of
-  tasks that starts with the slots empty fills them, swaps as many
-  again, and is stolen from the ring, and one of up to eight tasks is
-  placed as fibers made ready are. A global queue takes overflow and work from
+  tasks that starts with the slots empty fills them, swaps the newest
+  as many times again, and is stolen from the ring. One of up to eight
+  keeps its first three and its newest in the slots: a maker that waits
+  for the burst in the order it made it, as Trig waits for its
+  checkers, finds the first there and runs it by handoff, where with
+  the first in the ring a thief took it, and the maker slept while its
+  worker ran the burst's newest (at eight checkers on pup's CPUs 0-11,
+  two to a core on two of the six, that cost next-packages-next 5-6%). A global queue takes overflow and work from
   outside the workers.
 - **Cache lines.** Each worker begins a cache line and fills whole
   lines, so no line holds two workers' fields, and the fields each
@@ -395,8 +400,8 @@ worker after.
   its speed.
 - **Cheap until it runs.** A task gets its stack when it first runs,
   from the worker that runs it. A waiter whose task has not started and
-  is still in one of its worker's slots, or is the newest or the oldest
-  in its ring, hands the worker straight to it, on the task's own stack, and the task
+  is still in one of its worker's slots, or is the newest in its ring,
+  hands the worker straight to it, on the task's own stack, and the task
   switches straight back when it ends, past the queues
   (`sched.handoff`). The ring's newest is taken back as a Chase-Lev
   owner pops (`Ring.takeLast`): a fork-join's halves made past the four
@@ -408,13 +413,7 @@ worker after.
   ring's `stealing` flag from its look at the tail to its claim, and
   `takeLast` leaves the fiber while it is held; formal/Models/Ring.lean
   checks that no fiber is then taken twice, and that without the flag
-  one is. The ring's oldest is taken from the head by a compare-and-swap,
-  as the owner's `pop` takes it and a thief's claim moves it
-  (`Ring.takeFirst`): the first of a burst, which the burst's later tasks
-  moved from the slots, when its maker waits for the burst in the order
-  it made it, as Trig waits for its checkers. Its worker so runs the
-  task waited for rather than the burst's newest in a slot while the
-  maker sleeps, as when the first four of a burst stayed in the slots.
+  one is.
 - **Inline.** Before a handoff, a waiter whose task has not started and
   is next on its worker runs it on its own stack and fiber when the room
   left there is at least what the task is promised on a stack of its

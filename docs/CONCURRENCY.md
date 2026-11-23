@@ -383,9 +383,8 @@ is busy sets a flag that the next yield check acts on.
 
 **Handoff.** If the task has not started and still sits in this
 worker's slot when `>t` comes, or is the newest in its ring (a
-fork-join's halves made past the four slots, waited for in turn) or the
-oldest there (the first of a burst, which the burst's later tasks moved
-from the slots, waited for first), the waiter hands its worker straight to it, switching onto the task's stack past every queue, and the task
+fork-join's halves made past the four slots, waited for in turn), the
+waiter hands its worker straight to it, switching onto the task's stack past every queue, and the task
 switches straight back when it ends (`sched.handoff`). A chain of tasks,
 each made and waited for at once, runs on its maker's worker at 51 ns a
 task on the Mac (`chain`, below).
