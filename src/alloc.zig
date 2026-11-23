@@ -2531,6 +2531,19 @@ pub fn exitRanges(out: *[exit_ranges_max]Range) struct { ranges: []Range, dense:
     return .{ .ranges = out[0..n], .dense = dense };
 }
 
+/// The segments' region, `[seg_start, seg_end)` (both 0 when there is
+/// none), and the Tables' regions: what `RIG_TABLE_RSS` (`table.zig`,
+/// `census`) sorts the process's memory by.
+pub fn censusRegions() struct { seg_start: usize, seg_end: usize, tables: []const Range } {
+    const next = region_next.load(.acquire);
+    const has = region_end.* != 0 and next > 1;
+    return .{
+        .seg_start = if (has) region_end.* - region_size else 0,
+        .seg_end = if (has) region_end.* else 0,
+        .tables = table_regions[0..table_region_count.*],
+    };
+}
+
 /// About how many page-table pages the program's segments and Tables
 /// hold, and how many MiB of segments: what `os.exit`'s teardown would
 /// save, read without a lock (an estimate, to decide whether to try).
