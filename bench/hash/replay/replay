@@ -13,7 +13,8 @@ usage: bench/hash/replay/replay gen SPEC -o TRACE
           traces"): the maps chosen by id, by key type, or the N with the
           most operations
   build   each arm's program into DIR (arms: rig-map, rig-hash, hb-fx,
-          hb-fold, std-fx, idx-fx, idx-fold; default all); --cpu builds Zig and Rust for
+          hb-fold, std-fx, idx-fx, idx-fold, zig-ordered, zig-compact;
+          default all); --cpu builds Zig and Rust for
           that CPU (meteorlake) rather than this one's
   time    each arm on each trace, interleaved: N rounds (default 11), the
           arms in an order that rotates each round, the median of each
@@ -29,7 +30,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 RIG = os.environ.get("RIG", os.path.join(ROOT, "bin", "rig"))
 CARGO = os.environ.get("CARGO", "cargo")
-ARMS = ["rig-map", "rig-hash", "hb-fx", "hb-fold", "std-fx", "idx-fx", "idx-fold"]
+ARMS = ["rig-map", "rig-hash", "hb-fx", "hb-fold", "std-fx", "idx-fx", "idx-fold", "zig-ordered", "zig-compact"]
+ZIG = os.environ.get("ZIG", "zig")
 # cargo's jobs, from $CARGO_JOBS (`-j N`).
 JOBS = ["-j", os.environ["CARGO_JOBS"]] if os.environ.get("CARGO_JOBS") else []
 
@@ -475,6 +477,13 @@ def build(arm, out, cpu):
             os.chmod(wrap, 0o755)
             env["ZIG"] = wrap
         subprocess.run([RIG, "build", "--release", "-o", tmp, src], check=True, env=env)
+    elif arm.startswith("zig-"):
+        # replay.zig on the table its module `table` names.
+        cpuf = [f"-mcpu={cpu}"] if cpu else []
+        subprocess.run([ZIG, "build-exe", "-OReleaseFast", *cpuf, "--dep", "table", "-Mroot=" + os.path.join(HERE, "replay.zig"),
+                        "--dep", "ordered", "-Mtable=" + os.path.join(HERE, "table_" + arm[4:] + ".zig"),
+                        "-Mordered=" + os.path.join(os.path.dirname(HERE), "ordered.zig"), "-lc", "-femit-bin=" + tmp,
+                        "--cache-dir", os.path.join(out, "zig-cache")], check=True)
     else:
         # One cargo build makes every Rust arm (rust/src/bin).
         target = os.path.join(out, "cargo")
