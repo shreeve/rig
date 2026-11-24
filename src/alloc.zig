@@ -114,6 +114,7 @@ comptime {
         table_waiting_count,
         thp_mode,
         huge_min,
+        heap_huge_min,
         table_holes,
         table_hole_count,
         table_live,
@@ -417,6 +418,11 @@ pub const Heap = struct {
     /// -2 a blocking-pool thread, -1 not said).
     census_tid: i32 = 0,
     census_role: i32 = -1,
+    /// Whether the main thread made it, on Linux: its segments follow
+    /// `huge_min` where other heaps' follow `heap_huge_min` when set
+    /// (`segmentWants`). The main thread never ends, so its heap is never
+    /// another's.
+    main: bool = false,
 
     /// `n` more bytes taken from the system.
     fn took(h: *Heap, n: usize) void {
@@ -496,7 +502,7 @@ pub const Heap = struct {
         // written. A worker started ahead of the work keeps small pages
         // for its first segment's first 2 MiB (`startSmall`).
         const first_small = h.start_small and h.segment == null;
-        const want = segmentWants(h.taken);
+        const want = segmentWants(h, h.taken);
         const huge = builtin.os.tag == .linux and if (first_small and want == .huge) firstHalfSmall(@intFromPtr(s)) else ask(@intFromPtr(s), segment_size, want);
         // The header's page, of a segment of small pages: with the
         // segment's first window, or alone, each page then faulting in
@@ -1116,6 +1122,15 @@ const thp_mode = split.cell(&thp_mode_var, "alloc.thp_mode");
 var huge_min_var: std.atomic.Value(usize) = .init(huge_page);
 const huge_min = split.cell(&huge_min_var, "alloc.huge_min");
 
+/// The bytes from which a segment or span segment of a heap other than
+/// the main thread's asks for huge pages, read with the mode from
+/// `RIG_HEAP_HUGE_MIN_MB` as `huge_min` is from `RIG_HUGE_MIN_MB`; 0
+/// unset, when such a heap follows `huge_min` as the main thread's does.
+/// Tables and large blocks follow `huge_min` alone. A checker's heap on a
+/// worker holds 3 to 5 MiB of huge pages' room (Trig, scratch).
+var heap_huge_min_var: std.atomic.Value(usize) = .init(0);
+const heap_huge_min = split.cell(&heap_huge_min_var, "alloc.heap_huge_min");
+
 /// `huge_min`, the mode read first.
 pub fn hugeMin() usize {
     if (builtin.os.tag != .linux) return huge_page;
@@ -1123,10 +1138,13 @@ pub fn hugeMin() usize {
     return huge_min.load(.monotonic);
 }
 
-/// What a heap's new segment or span segment, `h.taken` bytes taken with
-/// it, wants (`huge_min`).
-fn segmentWants(taken: usize) Want {
-    return if (taken > hugeMin()) .huge else .small;
+/// What a new segment or span segment of `h`, `taken` bytes taken with
+/// it, wants (`huge_min`, or `heap_huge_min` for a heap other than the
+/// main thread's).
+fn segmentWants(h: *const Heap, taken: usize) Want {
+    const min = hugeMin();
+    const heap_min = heap_huge_min.load(.monotonic);
+    return if (taken > (if (heap_min != 0 and !h.main) heap_min else min)) .huge else .small;
 }
 
 fn thpMode() Thp {
@@ -1146,36 +1164,44 @@ noinline fn readThpMode() Thp {
         readSmallFile("/sys/kernel/mm/transparent_hugepage/hugepages-2048kB/enabled", &enabled_2m),
         readSmallFile("/sys/kernel/mm/transparent_hugepage/defrag", &defrag),
     );
-    huge_min.store(hugeMinOfEnviron(), .monotonic);
+    const mins = minsOfEnviron();
+    huge_min.store(mins.huge, .monotonic);
+    heap_huge_min.store(mins.heap, .monotonic);
     thp_mode.store(@bitCast(mode), .release);
     return mode;
 }
 
-/// `RIG_HUGE_MIN_MB` from `/proc/self/environ`, which holds even before
-/// the program's `main` has its environment: `huge_min`.
-fn hugeMinOfEnviron() usize {
-    if (builtin.os.tag != .linux) return huge_page;
+/// `RIG_HUGE_MIN_MB` and `RIG_HEAP_HUGE_MIN_MB` from
+/// `/proc/self/environ`, which holds even before the program's `main`
+/// has its environment: `huge_min`, and `heap_huge_min` (0 unset).
+fn minsOfEnviron() struct { huge: usize, heap: usize } {
+    if (builtin.os.tag != .linux) return .{ .huge = huge_page, .heap = 0 };
     const linux = std.os.linux;
     const rc = linux.openat(linux.AT.FDCWD, "/proc/self/environ", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
-    if (@as(isize, @bitCast(rc)) < 0) return huge_page;
+    if (@as(isize, @bitCast(rc)) < 0) return .{ .huge = huge_page, .heap = 0 };
     const fd: linux.fd_t = @intCast(rc);
     defer _ = linux.close(fd);
     var m: HugeMinMatch = .{};
+    var hm: HugeMinMatch = .{ .key = heap_huge_key };
     var buf: [512]u8 = undefined;
     while (true) {
         const r: isize = @bitCast(linux.read(fd, &buf, buf.len));
         if (r <= 0) break;
         m.feed(buf[0..@intCast(r)]);
+        hm.feed(buf[0..@intCast(r)]);
     }
     m.feed(&.{0});
-    return m.bytes();
+    hm.feed(&.{0});
+    return .{ .huge = m.bytes(), .heap = hm.bytesIfSet() };
 }
+
+const heap_huge_key = "RIG_HEAP_HUGE_MIN_MB=";
 
 /// A reader of `NAME=value` entries, each ended by a 0 byte, fed in
 /// pieces, that keeps the value of `RIG_HUGE_MIN_MB`: whole MiB, else
 /// the entry is not counted.
 const HugeMinMatch = struct {
-    const key = "RIG_HUGE_MIN_MB=";
+    key: []const u8 = "RIG_HUGE_MIN_MB=",
     /// How much of `key` the entry has matched; past it, in the value;
     /// `no` once it cannot be the key, or the value is not a number.
     at: usize = 0,
@@ -1187,14 +1213,14 @@ const HugeMinMatch = struct {
     fn feed(m: *HugeMinMatch, text: []const u8) void {
         for (text) |c| {
             if (c == 0) {
-                if (m.at == key.len and m.digits > 0) m.found = m.value;
+                if (m.at == m.key.len and m.digits > 0) m.found = m.value;
                 m.at = 0;
                 m.value = 0;
                 m.digits = 0;
             } else if (m.at == no) {
                 continue;
-            } else if (m.at < key.len) {
-                m.at = if (c == key[m.at]) m.at + 1 else no;
+            } else if (m.at < m.key.len) {
+                m.at = if (c == m.key[m.at]) m.at + 1 else no;
             } else if (c >= '0' and c <= '9' and m.digits < 6) {
                 m.value = m.value * 10 + (c - '0');
                 m.digits += 1;
@@ -1207,7 +1233,39 @@ const HugeMinMatch = struct {
         const mib = m.found orelse return huge_page;
         return @max(huge_page, std.mem.alignForward(usize, mib << 20, huge_page));
     }
+
+    /// `bytes`, or 0 when the entry is not there (`heap_huge_min`).
+    fn bytesIfSet(m: *const HugeMinMatch) usize {
+        if (m.found == null) return 0;
+        return m.bytes();
+    }
 };
+
+test "RIG_HEAP_HUGE_MIN_MB is read apart from RIG_HUGE_MIN_MB, 0 when unset" {
+    const cases = [_]struct { text: []const u8, huge: usize, heap: usize }{
+        .{ .text = "", .huge = 2 << 20, .heap = 0 },
+        .{ .text = "RIG_HEAP_HUGE_MIN_MB=32\x00", .huge = 2 << 20, .heap = 32 << 20 },
+        .{ .text = "RIG_HUGE_MIN_MB=8\x00RIG_HEAP_HUGE_MIN_MB=32\x00", .huge = 8 << 20, .heap = 32 << 20 },
+        .{ .text = "RIG_HEAP_HUGE_MIN_MB=3\x00", .huge = 2 << 20, .heap = 4 << 20 },
+        .{ .text = "RIG_HEAP_HUGE_MIN_MB=0\x00", .huge = 2 << 20, .heap = 2 << 20 },
+        .{ .text = "RIG_HEAP_HUGE_MIN_MB=x\x00", .huge = 2 << 20, .heap = 0 },
+        .{ .text = "RIG_HEAP_HUGE_MIN_MB=\x00", .huge = 2 << 20, .heap = 0 },
+        .{ .text = "XRIG_HEAP_HUGE_MIN_MB=8\x00", .huge = 2 << 20, .heap = 0 },
+        .{ .text = "RIG_HEAP_HUGE_MIN_MBX=8\x00RIG_HUGE_MIN_MB=4\x00", .huge = 4 << 20, .heap = 0 },
+    };
+    for (cases) |c| {
+        var m: HugeMinMatch = .{};
+        var hm: HugeMinMatch = .{ .key = heap_huge_key };
+        for (c.text) |b| {
+            m.feed(&.{b});
+            hm.feed(&.{b});
+        }
+        m.feed(&.{0});
+        hm.feed(&.{0});
+        try std.testing.expectEqual(c.huge, m.bytes());
+        try std.testing.expectEqual(c.heap, hm.bytesIfSet());
+    }
+}
 
 test "RIG_HUGE_MIN_MB is read whole MiB, in whole huge pages" {
     const cases = [_]struct { text: []const u8, want: usize }{
@@ -1884,7 +1942,7 @@ fn carveSpan(h: *Heap, n: usize) ?usize {
     if (heap_census.on()) heap_census.mark(@intFromPtr(seg), 2, span_segment_size / segment_size);
     // Huge pages, for all of it, as a segment of small blocks asks: a
     // span's room it has not filled commits up to 2 MiB with them.
-    _ = ask(@intFromPtr(seg), span_segment_size, segmentWants(h.taken + span_segment_size));
+    _ = ask(@intFromPtr(seg), span_segment_size, segmentWants(h, h.taken + span_segment_size));
     seg.heap = h;
     seg.used = span_first + n;
     handOutSpan(seg, span_first, n);
@@ -2689,6 +2747,7 @@ fn newHeap() ?*Heap {
     const bytes = std.posix.mmap(null, std.mem.alignForward(usize, @sizeOf(Heap), std.heap.pageSize()), .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0) catch return null;
     const h: *Heap = @ptrCast(@alignCast(bytes.ptr));
     h.* = .{};
+    if (builtin.os.tag == .linux) h.main = std.os.linux.gettid() == std.os.linux.getpid();
     if (check_owner) h.owner = threadToken();
     my_heap().* = h;
     spare_lock.lock();
