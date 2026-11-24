@@ -21,7 +21,9 @@ usage: bench/hash/replay/replay gen SPEC -o TRACE
           the noise. Prints ns per op by kind and the ratio to --base
           (default hb-fx)
 """
-import argparse, os, random, re, shutil, statistics, struct, subprocess, sys
+import argparse, mmap, os, random, re, shutil, statistics, struct, subprocess, sys
+from array import array
+assert sys.byteorder == "little"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
@@ -52,34 +54,31 @@ def value_words(nbytes):
     return 8
 
 
-def write_trace(path, kind, words, instances, keys, ops, segs):
-    """keys: tuples of ints (fixed kinds) or bytes (text); ops: (op, inst,
-    key) triples; segs: (kind, start, count) triples."""
-    out = bytearray()
+def write_trace(path, kind, words, instances, keys, op, inst, key, segs):
+    """keys: tuples of ints (fixed kinds) or bytes (text); op, inst, key:
+    the ops' codes, maps and keys (array('B'), array('I'), array('I'));
+    segs: (kind, start, count) triples."""
     if kind == "text":
-        offs, blob = [0], bytearray()
+        offs, blob = array("I", [0]), bytearray()
         for k in keys:
             blob += k
             offs.append(len(blob))
-        body = struct.pack(f"<{len(offs)}I", *offs) + bytes(blob)
+        body = offs.tobytes() + bytes(blob)
         body += b"\0" * (-len(body) % 4)
         text = len(blob)
     else:
         w = KEY_WORDS[kind]
-        flat = [x & 0xFFFFFFFFFFFFFFFF for k in keys for x in k]
         assert all(len(k) == w for k in keys)
-        body = struct.pack(f"<{len(flat)}Q", *flat)
+        body = array("Q", (x & 0xFFFFFFFFFFFFFFFF for k in keys for x in k)).tobytes()
         text = 0
-    ops_at = 36 + len(body)
-    n = len(ops)
-    out += struct.pack("<9I", MAGIC, KEY_KINDS[kind], words, instances, len(keys), n, len(segs), text, ops_at)
-    out += body
-    out += bytes(o[0] for o in ops) + b"\0" * (-n % 4)
-    out += struct.pack(f"<{n}I", *(o[1] for o in ops))
-    out += struct.pack(f"<{n}I", *(o[2] for o in ops))
-    out += struct.pack(f"<{3 * len(segs)}I", *(x for s in segs for x in s))
+    n = len(op)
     with open(path, "wb") as f:
-        f.write(out)
+        f.write(struct.pack("<9I", MAGIC, KEY_KINDS[kind], words, instances, len(keys), n, len(segs), text, 36 + len(body)))
+        f.write(body)
+        f.write(bytes(op) + b"\0" * (-n % 4))
+        f.write(array("I", inst).tobytes())
+        f.write(array("I", key).tobytes())
+        f.write(array("I", (x for sg in segs for x in sg)).tobytes())
 
 
 # ---------------------------------------------------------------- specs
@@ -269,7 +268,8 @@ def generate(spec):
 def cmd_gen(a):
     spec = parse_spec(a.spec)
     pool, ops, segs, n_inst = generate(spec)
-    write_trace(a.o, spec["key"], value_words(spec["value"]), n_inst, pool, ops, segs)
+    write_trace(a.o, spec["key"], value_words(spec["value"]), n_inst, pool, array("B", (o[0] for o in ops)),
+                array("I", (o[1] for o in ops)), array("I", (o[2] for o in ops)), segs)
     by = {}
     for op in ops:
         by[op[0]] = by.get(op[0], 0) + 1
@@ -279,7 +279,9 @@ def cmd_gen(a):
 # ---------------------------------------------------------------- real traces
 
 RECORD = struct.Struct("<BBHIIIQ24s")
-T_OPS = ["get", "put", "remove", "clear", "new", "drop", "grow", "retain"]
+# The trace's ops: bits 0-2 of byte 0, and bit 7 of byte 1 as bit 3.
+T_GET, T_PUT, T_REMOVE, T_CLEAR, T_NEW, T_DROP, T_GROW, T_RETAIN, T_ITER, T_AT = range(10)
+T_NAMES = ["get", "put", "remove", "clear", "new", "drop", "grow", "retain", "iter", "at"]
 
 
 def rebuild_key(width, h, head, kind):
@@ -291,8 +293,7 @@ def rebuild_key(width, h, head, kind):
         if width <= 24:
             return head[:width]
         tail = b"%016x" % h
-        filler = (tail * (width // 16 + 1))
-        return (head + filler)[:width]
+        return (head + tail * (width // 16 + 1))[:width]
     w = KEY_WORDS[kind]
     raw = head[:min(width, 24)].ljust(8 * w, b"\0")
     if width > 24:
@@ -313,101 +314,132 @@ def key_kind_of(ktype, width):
     return "triple"
 
 
+def types_of(trace, given):
+    """The trace's map types: id -> (K, V, Map|Set, site), from the file
+    given, or `.types` beside the trace, or the `trace.bin.types` of the
+    directory above a filtered file."""
+    for path in (given, trace + ".types", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(trace))), "trace.bin.types")):
+        if path and os.path.exists(path):
+            types = {}
+            for line in open(path):
+                f = line.rstrip("\n").split("\t")
+                types[int(f[0])] = (f[1], f[2], f[3], f[4] if len(f) > 4 else "")
+            return types
+    return {}
+
+
+def records(mm):
+    return RECORD.iter_unpack(mm)
+
+
 def cmd_import(a):
-    types = {}
-    tpath = a.trace + ".types"
-    if os.path.exists(tpath):
-        for line in open(tpath):
-            mid, k, v, kind = line.rstrip("\n").split("\t")
-            types[int(mid)] = (k, v, kind)
-    data = open(a.trace, "rb").read()
-    if len(data) % RECORD.size:
+    types = types_of(a.trace, a.types_file)
+    with open(a.trace, "rb") as f:
+        mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+    if len(mm) % RECORD.size:
         sys.exit(f"{a.trace}: not a whole number of {RECORD.size}-byte records")
-    recs = RECORD.iter_unpack(data)
-    want = set(int(x) for x in a.ids.split(",")) if a.ids else None
+    # First pass: the maps, their ops, and their keys' widths.
+    count, kwidth, vbytes = {}, {}, {}
+    for b0, b1, width, mid, vb, _, _, _ in records(mm):
+        count[mid] = count.get(mid, 0) + 1
+        op = (b0 & 7) | ((b1 >> 7) << 3)
+        if op in (T_GET, T_PUT, T_REMOVE) and width > kwidth.get(mid, 0):
+            kwidth[mid] = width
+        if vb > vbytes.get(mid, 0):
+            vbytes[mid] = vb
+    want = set(count)
+    if a.ids:
+        want &= set(int(x) for x in a.ids.split(","))
     if a.types:
         rx = re.compile(a.types)
-        tw = set(m for m, t in types.items() if rx.search(t[0]))
-        want = tw if want is None else want & tw
+        want = set(m for m in want if rx.search(types.get(m, ("?",))[0]))
     if a.top:
-        counts = {}
-        for r in RECORD.iter_unpack(data):
-            if want is None or r[3] in want:
-                counts[r[3]] = counts.get(r[3], 0) + 1
-        want = set(sorted(counts, key=counts.get, reverse=True)[:a.top])
-        recs = RECORD.iter_unpack(data)
-    picked = [r for r in recs if want is None or r[3] in want]
-    if not picked:
+        want = set(sorted(want, key=count.get, reverse=True)[:a.top])
+    if not want:
         sys.exit("import: no records for the maps chosen")
-    # One key kind and one value size for the whole replay: the widest.
-    kwidth = max((r[2] for r in picked if (r[0] & 7) in (0, 1, 2)), default=8)
-    ktypes = set(types.get(r[3], ("?",))[0] for r in picked)
+    ktypes = set(types.get(m, ("?",))[0] for m in want)
     if len(ktypes) > 1:
         sys.exit(f"import: the maps chosen have keys of {len(ktypes)} types ({', '.join(sorted(ktypes))}); a replay has one")
-    kind = key_kind_of(next(iter(ktypes)), kwidth)
-    vbytes = max(r[4] for r in picked)
-    inst_of, pool_at, pool = {}, {}, []
-    sim = []  # per instance: set of keys held
-    ops, skipped, mismatch = [], {}, 0
-    for r in picked:
-        op = T_OPS[r[0] & 7]
-        hit = bool(r[1] & 1)
-        mid = r[3]
-        if mid not in inst_of:
-            inst_of[mid] = len(sim)
-            sim.append(set())
-        i = inst_of[mid]
-        if op in ("grow", "retain"):
-            skipped[op] = skipped.get(op, 0) + 1
+    width = max(kwidth.get(m, 0) for m in want) or 8
+    kind = key_kind_of(next(iter(ktypes)), width)
+    vb = max(vbytes.get(m, 0) for m in want)
+    # Second pass: the ops, each map replayed to label its lookups and
+    # puts and to check the hit the trace records.
+    op_a, inst_a, key_a, kind_a = array("B"), array("I"), array("I"), array("B")
+    inst_of, pool_at, pool, held = {}, {}, [], []
+    skipped, mismatch = {}, 0
+    K_INSERT, K_OVER, K_HIT, K_MISS, K_REMOVE, K_ITER, K_NEW, K_DROP, K_CLEAR = range(9)
+    for b0, b1, w, mid, _, _, h, head in records(mm):
+        if mid not in want:
             continue
-        if op in ("new", "drop", "clear"):
-            sim[i] = set()
-            ops.append(({"new": NEW, "drop": DROP, "clear": CLEAR}[op], i, 0, op))
+        op = (b0 & 7) | ((b1 >> 7) << 3)
+        i = inst_of.get(mid)
+        if i is None:
+            i = inst_of[mid] = len(held)
+            held.append(set())
+        if op in (T_GROW, T_RETAIN, T_AT) or op > T_AT:
+            # The table's own rebuild, a test the trace does not hold, a
+            # position only an ordered Map has.
+            skipped[T_NAMES[op] if op < len(T_NAMES) else str(op)] = skipped.get(T_NAMES[op] if op < len(T_NAMES) else str(op), 0) + 1
             continue
-        k = rebuild_key(r[2], r[6], r[7], kind)
-        if k not in pool_at:
-            pool_at[k] = len(pool)
-            pool.append(k)
-        held = k in sim[i]
-        if held != hit:
+        if op in (T_NEW, T_DROP, T_CLEAR, T_ITER):
+            if op != T_ITER:
+                held[i] = set()
+            code, k = {T_NEW: (NEW, K_NEW), T_DROP: (DROP, K_DROP), T_CLEAR: (CLEAR, K_CLEAR), T_ITER: (WALK, K_ITER)}[op]
+            op_a.append(code); inst_a.append(i); key_a.append(0); kind_a.append(k)
+            continue
+        key = rebuild_key(w, h, head, kind)
+        j = pool_at.get(key)
+        if j is None:
+            j = pool_at[key] = len(pool)
+            pool.append(key)
+        there = key in held[i]
+        if there != bool(b1 & 1):
             mismatch += 1
-        if op == "get":
-            ops.append((GET, i, pool_at[k], "hit" if held else "miss"))
-        elif op == "put":
-            ops.append((PUT, i, pool_at[k], "overwrite" if held else "insert"))
-            sim[i].add(k)
+        if op == T_GET:
+            op_a.append(GET); kind_a.append(K_HIT if there else K_MISS)
+        elif op == T_PUT:
+            op_a.append(PUT); kind_a.append(K_OVER if there else K_INSERT)
+            held[i].add(key)
         else:
-            ops.append((TAKE, i, pool_at[k], "remove"))
-            sim[i].discard(k)
+            op_a.append(TAKE); kind_a.append(K_REMOVE)
+            held[i].discard(key)
+        inst_a.append(i); key_a.append(j)
+    mm.close()
     # Segments: runs of one kind at least --run long are timed as that
     # kind; the rest, in their order, as `mixed`.
-    segs, j = [], 0
-    while j < len(ops):
+    segs, j, n = [], 0, len(op_a)
+    while j < n:
         e = j
-        while e < len(ops) and ops[e][3] == ops[j][3] and e - j < 4096:
+        while e < n and kind_a[e] == kind_a[j] and e - j < 4096:
             e += 1
         if e - j >= a.run:
-            segs.append((KINDS.index(ops[j][3]), j, e - j))
+            segs.append((kind_a[j], j, e - j))
             j = e
             continue
         m = j
-        while m < len(ops):
+        while m < n and m - j < 4096:
             e = m
-            while e < len(ops) and ops[e][3] == ops[m][3]:
+            while e < n and kind_a[e] == kind_a[m]:
                 e += 1
-            if e - m >= a.run or m - j >= 4096:
+            if e - m >= a.run:
                 break
             m = e
         segs.append((MIXED, j, m - j))
         j = m
-    write_trace(a.o, kind, value_words(vbytes), len(sim), pool or [rebuild_key(8, 0, b"\0" * 24, kind)],
-                [o[:3] for o in ops], segs)
-    print(f"{a.o}: {len(ops)} ops from {len(inst_of)} maps, keys {kind} (width {kwidth}, types {', '.join(sorted(ktypes))}), "
-          f"values {value_words(vbytes)} Ints ({vbytes} bytes), {len(pool)} keys, {len(segs)} segments")
+    if not pool:
+        pool.append(rebuild_key(8, 0, b"\0" * 24, kind))
+    write_trace(a.o, kind, value_words(vb), len(held), pool, op_a, inst_a, key_a, segs)
+    names = sorted(set(types.get(m, ("?", "?", "?", "?"))[1] for m in want))
+    print(f"{a.o}: {n} ops from {len(inst_of)} maps, keys {kind} (width {width}, type {', '.join(sorted(ktypes))}), "
+          f"values {value_words(vb)} Ints ({vb} bytes; V {', '.join(names)}), {len(pool)} keys, {len(segs)} segments")
+    by = [0] * 16
+    for s_ in segs:
+        by[s_[0]] += s_[2]
+    print("  ops by segment kind: " + ", ".join(f"{(KINDS + ['?'] * 6 + ['mixed'])[k]} {c}" for k, c in enumerate(by) if c))
     if skipped:
-        print("  left out: " + ", ".join(f"{n} {k}" for k, n in skipped.items()))
-    if mismatch:
-        print(f"  {mismatch} ops found or missed their key other than the trace says")
+        print("  left out: " + ", ".join(f"{c} {k}" for k, c in skipped.items()))
+    print(f"  {mismatch} ops found or missed their key other than the trace says")
 
 
 # ---------------------------------------------------------------- build and time
@@ -533,6 +565,7 @@ def main():
     i.add_argument("--ids")
     i.add_argument("--types")
     i.add_argument("--top", type=int)
+    i.add_argument("--types-file", help="the trace's .types (default: beside it, or ../trace.bin.types)")
     i.add_argument("--run", type=int, default=64, help="shortest run of one kind timed as that kind")
     b = sub.add_parser("build")
     b.add_argument("--out", required=True)
