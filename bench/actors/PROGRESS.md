@@ -46,6 +46,7 @@ longer builds; `bench-actors --record` adds `rig-safe` rows (`--release`).
 | 2026-11-15 | the same board | tokio | 138 ns | 267 ns | 30 ns |
 | 2026-11-15 | the same board | go | 3.4 ns | 77 ns | 0.5 ns |
 | 2026-11-23 | #1229: a burst keeps its first task in a slot | rig-safe | 5.1 ns | 14 ns | 0.8 ns |
+| 2026-11-24 | #1242: an actor's method run from its mailbox is stopped by a signal (medians of a 15-round A/B; each row level with main) | rig-safe | 5.2 ns | 18 ns | 1.0 ns |
 
 ## x86-64 (pup)
 
@@ -131,3 +132,4 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-11-15 | the same board | tokio | 241 ns | 232 ns | 25 ns |
 | 2026-11-15 | the same board | go | 11 ns | 52 ns | 1.8 ns |
 | 2026-11-23 | #1229: a burst keeps its first task in a slot (pup E-cores 12-19) | rig-safe | 16 ns | 25 ns | 2.6 ns |
+| 2026-11-24 | #1242: an actor's method run from its mailbox is stopped by a signal (pup P-cores 0-11, slot 750's A/B, medians of 20 rounds; each row level with main, within 0.04%) | rig-safe | 12 ns | 20 ns | 1.9 ns |
