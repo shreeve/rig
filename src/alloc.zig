@@ -5405,7 +5405,7 @@ pub const heap_census = struct {
                 acc[hi].blocks_bad += walkSmall(h.remote[c].load(.acquire), c, start, nslots, nfree, class);
                 const ce = vload(usize, &h.carve_end[c]);
                 const cv = vload(usize, &h.carve[c]);
-                if (ce == 0 or cv > ce or ce <= start) continue;
+                if (ce == 0 or cv > ce or ce - cv > page_size or ce <= start) continue;
                 const page = (ce - 1) & ~(page_size - 1);
                 const cell = cellOf(page, start, nslots) orelse continue;
                 uncarved[cell] = @intCast((ce - cv) / classSize(c));
@@ -5423,7 +5423,7 @@ pub const heap_census = struct {
             const base = start + i * segment_size;
             if (kind == 1) {
                 const seg: *const Segment = @ptrFromInt(base);
-                const hi = indexOf(heaps[0..nh], vload(*Heap, &seg.heap)) orelse continue;
+                const hi = indexOfAddr(heaps[0..nh], vload(usize, @ptrCast(&seg.heap))) orelse continue;
                 const a = &acc[hi];
                 const used = @min(vload(usize, &seg.used), pages_per_segment);
                 const released = vload(u64, &seg.released);
@@ -5480,7 +5480,7 @@ pub const heap_census = struct {
                 });
             } else if (kind == 2) {
                 const seg: *const SpanSegment = @ptrFromInt(base);
-                const hi = indexOf(heaps[0..nh], vload(*Heap, &seg.heap)) orelse continue;
+                const hi = indexOfAddr(heaps[0..nh], vload(usize, @ptrCast(&seg.heap))) orelse continue;
                 const a = &acc[hi];
                 const used = @min(vload(usize, &seg.used), span_units);
                 const r = scan(fd, base, span_segment_size, bits);
@@ -5572,6 +5572,11 @@ pub const heap_census = struct {
         out.print("smaps_tables_rss={d} smaps_other_rss={d} vmrss={d} vmhwm={d} hwm_end={d} rss_anon={d} rss_file={d} counts_live={d} counts_peak={d}\n", .{ s_tab.rss, s_other.rss, statusField(st, "VmRSS:"), statusField(st, "VmHWM:"), maxRss(), statusField(st, "RssAnon:"), statusField(st, "RssFile:"), if (counts) total_live.load(.monotonic) else -1, if (counts) total_peak.load(.monotonic) else -1 });
     }
 
+    fn indexOfAddr(heaps: []const *Heap, a: usize) ?usize {
+        for (heaps, 0..) |x, i| if (@intFromPtr(x) == a) return i;
+        return null;
+    }
+
     fn indexOf(heaps: []const *Heap, h: *const Heap) ?usize {
         for (heaps, 0..) |x, i| if (x == h) return i;
         return null;
@@ -5650,6 +5655,7 @@ pub const heap_census = struct {
                 var local = [1]std.posix.iovec{.{ .base = @ptrCast(&node), .len = @sizeOf(LargeFree) }};
                 const remote = [1]std.posix.iovec_const{.{ .base = @ptrCast(f), .len = @sizeOf(LargeFree) }};
                 if (linux.process_vm_readv(pid, &local, &remote, 0) != @sizeOf(LargeFree)) break;
+                if (node.len > region_size) break;
                 n.* += 1;
                 bytes.* += node.len;
                 rss.* += scan(fd, @intFromPtr(f), std.mem.alignForward(usize, node.len, std.heap.pageSize()), null).rss;
