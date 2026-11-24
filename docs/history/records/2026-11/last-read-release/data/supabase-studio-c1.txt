@@ -1,0 +1,19 @@
+release at: the next safe point (every checker past a file boundary)
+run runs/cen2-supabase-studio-c1.err: 12546 files, front-end bytes 412.2 MiB, names 12.6 MiB (249527), VmHWM 989.6 MiB
+clock (ms from the check pass): load end -6, check 0..5591, exit 5591; checker threads 1
+peak today  989.6 MiB at after the check pass (5591 ms)
+load-end peak 603.9 MiB at -6 ms; check peak 989.6 MiB at after the check pass
+peak w/ release 690.6 MiB at check, 80% through (4494 ms): ceiling 299.0 MiB (30.2% of the peak)
+freed by today's peak time 412.2 MiB; by the check's end 412.2 MiB; at once at the load's end 29.1 MiB
+  freed/held by kind at today's peak (MiB): tree 204.2/204.2, text 70.6/70.6, pos 50.9/50.9, progsym 43.2/43.2, binding 38.5/38.5, names 4.9/4.9
+  freed/held by kind at the new peak (MiB): tree 109.7/204.2, text 54.0/70.6, pos 35.0/50.9, progsym 22.6/43.2, binding 24.1/38.5, names 4.0/4.9
+  freed/held by kind at the check's end (MiB): tree 204.2/204.2, text 70.6/70.6, pos 50.9/50.9, progsym 43.2/43.2, binding 38.5/38.5, names 4.9/4.9
+  freed/held by category at today's peak (MiB): dts 236.2/236.2, src 167.9/167.9, lib 8.1/8.1
+  freed/held by category at the new peak (MiB): dts 155.2/236.2, src 93.9/167.9, lib 0.3/8.1
+  freed/held by category at the check's end (MiB): dts 236.2/236.2, src 167.9/167.9, lib 8.1/8.1
+  freed/held by leaf (imported by no file) at today's peak (MiB): imported/dts 210.8/210.8, imported/src 134.3/134.3, leaf/src 33.6/33.6, leaf/dts 25.4/25.4, leaf/lib 8.1/8.1
+  freed/held by leaf (imported by no file) at the new peak (MiB): imported/dts 138.2/210.8, imported/src 93.8/134.3, leaf/src 0.1/33.6, leaf/dts 17.0/25.4, leaf/lib 0.3/8.1
+  freed/held by leaf (imported by no file) at the check's end (MiB): imported/dts 210.8/210.8, imported/src 134.3/134.3, leaf/src 33.6/33.6, leaf/dts 25.4/25.4, leaf/lib 8.1/8.1
+RELEASED	runs/cen2-supabase-studio-c1.err	0%=29.1	25%=139.8	50%=186.8	75%=234.7	100%=412.2	after=0.0
+SUBSETS	runs/cen2-supabase-studio-c1.err	all=299.0	tree+pos=194.4	tree=156.7	pos=48.7	text=68.4	binder=75.8	names=4.9	leaf=56.0	imported=281.6	lib=1.1	dts=195.0	src=139.6	leaf-src=31.4
+SUMMARY	runs/cen2-supabase-studio-c1.err	989.6	after	690.6	0.80	299.0	603.9	412.2	249.4	tree=109.7,pos=35.0,text=54.0,names=4.0,binding=24.1,progsym=22.6	dts=155.2/236.2,lib=0.3/8.1,src=93.9/167.9	imported=232.0/345.1,leaf=17.4/67.1	412.2

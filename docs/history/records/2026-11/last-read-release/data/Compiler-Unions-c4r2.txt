@@ -1,0 +1,19 @@
+release at: the reader's next safe point (per thread)
+run runs/cen3r2-Compiler-Unions-c4.err: 48 files, front-end bytes 24.1 MiB, names 0.7 MiB (15846), VmHWM 101.8 MiB
+clock (ms from the check pass): load end -1, check 0..144, exit 145; checker threads 4
+peak today  104.7 MiB at check, 57% through (81 ms)
+load-end peak 82.6 MiB at -5 ms; check peak 104.7 MiB at check, 57% through
+peak w/ release 104.3 MiB at check, 57% through (81 ms): ceiling 0.4 MiB (0.3% of the peak)
+freed by today's peak time 0.4 MiB; by the check's end 21.2 MiB; at once at the load's end 0.0 MiB
+  freed/held by kind at today's peak (MiB): tree 0.0/12.4, text 0.2/4.4, pos 0.0/3.2, binding 0.1/2.8, progsym 0.0/1.2, names 0.0/0.1
+  freed/held by kind at the new peak (MiB): tree 0.0/12.4, text 0.2/4.4, pos 0.0/3.2, binding 0.1/2.8, progsym 0.0/1.2, names 0.0/0.1
+  freed/held by kind at the check's end (MiB): tree 12.4/12.4, text 1.6/4.4, pos 3.2/3.2, binding 2.8/2.8, progsym 1.2/1.2, names 0.1/0.1
+  freed/held by category at today's peak (MiB): src 0.3/23.2, lib 0.1/0.9
+  freed/held by category at the new peak (MiB): src 0.3/23.2, lib 0.1/0.9
+  freed/held by category at the check's end (MiB): src 20.3/23.2, lib 0.9/0.9
+  freed/held by leaf (imported by no file) at today's peak (MiB): leaf/src 0.3/23.2, leaf/lib 0.1/0.9
+  freed/held by leaf (imported by no file) at the new peak (MiB): leaf/src 0.3/23.2, leaf/lib 0.1/0.9
+  freed/held by leaf (imported by no file) at the check's end (MiB): leaf/src 20.3/23.2, leaf/lib 0.9/0.9
+RELEASED	runs/cen3r2-Compiler-Unions-c4.err	0%=0.0	25%=0.1	50%=0.3	75%=0.9	100%=21.2	after=2.9
+SUBSETS	runs/cen3r2-Compiler-Unions-c4.err	all=0.4	tree+pos=0.0	tree=0.0	pos=0.0	text=0.2	binder=0.1	names=0.0	leaf=0.4	imported=0.0	lib=0.1	dts=0.0	src=0.3	leaf-src=0.3
+SUMMARY	runs/cen3r2-Compiler-Unions-c4.err	104.7	0.57	104.3	0.57	0.4	82.6	24.1	0.4	tree=0.0,pos=0.0,text=0.2,names=0.0,binding=0.1,progsym=0.0	lib=0.1/0.9,src=0.3/23.2	leaf=0.4/24.1	0.4

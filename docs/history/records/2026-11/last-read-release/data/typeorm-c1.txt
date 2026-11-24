@@ -1,0 +1,19 @@
+release at: the next safe point (every checker past a file boundary)
+run runs/cen2-typeorm-c1.err: 3575 files, front-end bytes 79.3 MiB, names 2.1 MiB (32841), VmHWM 213.4 MiB
+clock (ms from the check pass): load end -1, check 0..1050, exit 1050; checker threads 1
+peak today  213.4 MiB at after the check pass (1050 ms)
+load-end peak 135.2 MiB at -1 ms; check peak 213.4 MiB at after the check pass
+peak w/ release 145.1 MiB at check, 69% through (724 ms): ceiling 68.2 MiB (32.0% of the peak)
+freed by today's peak time 79.3 MiB; by the check's end 79.3 MiB; at once at the load's end 2.4 MiB
+  freed/held by kind at today's peak (MiB): tree 41.4/41.4, text 13.2/13.2, pos 10.2/10.2, binding 7.4/7.4, progsym 6.3/6.3, names 0.7/0.7
+  freed/held by kind at the new peak (MiB): tree 21.8/41.4, text 8.7/13.2, pos 6.6/10.2, binding 3.8/7.4, progsym 3.2/6.3, names 0.4/0.7
+  freed/held by kind at the check's end (MiB): tree 41.4/41.4, text 13.2/13.2, pos 10.2/10.2, binding 7.4/7.4, progsym 6.3/6.3, names 0.7/0.7
+  freed/held by category at today's peak (MiB): src 63.2/63.2, dts 14.7/14.7, lib 1.4/1.4
+  freed/held by category at the new peak (MiB): src 34.9/63.2, dts 9.3/14.7, lib 0.3/1.4
+  freed/held by category at the check's end (MiB): src 63.2/63.2, dts 14.7/14.7, lib 1.4/1.4
+  freed/held by leaf (imported by no file) at today's peak (MiB): leaf/src 33.1/33.1, imported/src 30.1/30.1, leaf/dts 8.3/8.3, imported/dts 6.4/6.4, leaf/lib 1.4/1.4
+  freed/held by leaf (imported by no file) at the new peak (MiB): leaf/src 18.9/33.1, imported/src 16.1/30.1, leaf/dts 6.1/8.3, imported/dts 3.3/6.4, leaf/lib 0.3/1.4
+  freed/held by leaf (imported by no file) at the check's end (MiB): leaf/src 33.1/33.1, imported/src 30.0/30.1, leaf/dts 8.3/8.3, imported/dts 6.4/6.4, leaf/lib 1.4/1.4
+RELEASED	runs/cen2-typeorm-c1.err	0%=2.4	25%=10.7	50%=30.7	75%=49.2	100%=79.3	after=0.1
+SUBSETS	runs/cen2-typeorm-c1.err	all=68.2	tree+pos=47.1	tree=37.5	pos=10.0	text=12.4	binder=12.5	names=0.7	leaf=39.6	imported=32.6	lib=0.7	dts=11.7	src=58.6	leaf-src=32.8
+SUMMARY	runs/cen2-typeorm-c1.err	213.4	after	145.1	0.69	68.2	135.2	79.3	44.5	tree=21.8,pos=6.6,text=8.7,names=0.4,binding=3.8,progsym=3.2	dts=9.3/14.7,lib=0.3/1.4,src=34.9/63.2	imported=19.3/36.5,leaf=25.2/42.9	79.3

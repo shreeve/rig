@@ -1,0 +1,711 @@
+diff --git c/src/ast/ast.rig w/src/ast/ast.rig
+index 9487fb00..ebc93141 100644
+--- c/src/ast/ast.rig
++++ w/src/ast/ast.rig
+@@ -231,6 +231,9 @@ pub obj Ast
+   pub keeps_places: Bool = false
+   pub text_at: Int = -1
+   places: List[U32] = List()
++  # Trig scratch (last-read census): the file's index plus one, 0 for a
++  # tree that is no program file's.
++  pub census: U32 = 0
+ 
+   # An empty Ast: a stand-in for one moved out (NEEDS 26), with no nil
+   # records and no allocation; `new` makes one to be used.
+@@ -461,6 +464,19 @@ pub obj Ast
+   pub fun bytes(?@) -> Int
+     @recs.len * ($size(NodeRec) + $size(NodeLoc)) + @words.len * $size(U32) + @lists.len * $size(ListRec) + @list_nodes.len * $size(Node) + @texts.len * $size(TextRec) + @text_bytes.len + @text_lists.len * $size(TextRec)
+ 
++  # Trig scratch (last-read census): the bytes this tree's lists hold, by
++  # kind: [the tree (records, words, lists, text records, facts), the
++  # positions, the text bytes, the names (name ids, atoms)], each list at
++  # its length (a program file's lists are fitted: copied to their length).
++  pub fun census_bytes(?@) -> List[Int]
++    out: List[Int] = List()
++    tree = @recs.len * $size(NodeRec) + @words.len * $size(U32) + @lists.len * $size(ListRec) + @list_nodes.len * $size(Node) + @texts.len * $size(TextRec) + @text_lists.len * $size(TextRec) + @facts.len * $size(U32) + @name_slots.len * $size(U64) + @places.len * $size(U32)
++    !out.push(tree)
++    !out.push(@locs.len * $size(NodeLoc))
++    !out.push(@text_bytes.len)
++    !out.push(@name_ids.len * $size(U32) + @text_atoms.len * $size(Atom))
++    out
++
+   # Go: ast/ast.go:90 NodeCount
+   pub fun node_count(?@) -> Int
+     @recs.len - 1
+diff --git c/src/ast/binding.rig w/src/ast/binding.rig
+index d589ccba..0ca9adbc 100644
+--- c/src/ast/binding.rig
++++ w/src/ast/binding.rig
+@@ -245,6 +245,18 @@ pub obj Binding
+   pub sub drop_symbols(!@)
+     @symbols = List()
+ 
++  # Trig scratch (last-read census): the bytes the binding's lists hold,
++  # at their lengths (a Map's entries at 16 bytes each, a diagnostic at
++  # its record's size). `file` (its index plus one) is for the census
++  # build's hook, which notes where the binding is.
++  pub fun census_bytes(?@, file: U32) -> Int
++    n = @symbols.len * $size(SymbolRec) + @symbol_extras.len * $size(SymbolExtra) + @more_nodes.len * $size(Node) + @tables.len * $size(TableHead) + @table_entries.len * $size(SymbolEntry)
++    for b in @big_tables
++      n += $size(BigTable) + b.entries.len * $size(SymbolEntry) + b.slots.len * $size(U32)
++    n += @flows.len * $size(FlowRec) + @flow_lists.len * $size(FlowListRec) + @flow_clauses.len * $size(FlowClause) + @flow_reduces.len * $size(FlowReduce) + @flow_runs.len * $size(FlowRun) + @flow_run_names.len * $size(U64)
++    n += @node_fields.len * 16 + @node_locals.len * $size(TableId) + @local_tables.slots.len * $size(U64) + @diagnostics.len * $size(Diagnostic) + @pattern_ambient_modules.len * $size(PatternAmbientModule)
++    n
++
+   # Go `node.Locals()`: the locals of container `n`, 0 for none.
+   # Trig: a bundled lib's are a list by node id, read in one step and
+   # written straight from the pre-built bytes; a file the program reads
+diff --git c/src/ast/names.rig w/src/ast/names.rig
+index bcbe1cfc..2e5856ce 100644
+--- c/src/ast/names.rig
++++ w/src/ast/names.rig
+@@ -128,6 +128,13 @@ pub obj Names
+   # Called: each `intern` here, inlined, keeps room of its own on the
+   # stack, and the command's first function, which every other stands
+   # on, makes the program's names.
++  # Trig scratch (last-read census): the bytes the names hold, and how many.
++  pub fun census_bytes(?@) -> Int
++    @bytes.len + @ends.len * $size(U32) + @hs.len * $size(U64) + @table.tags.len + @table.at.len * $size(U32) + @kinds.reserved.words.len * 8 + @kinds.private.words.len * 8
++
++  pub fun census_count(?@) -> Int
++    @ends.len
++
+   pub called fun new() -> Names
+     names = Names()
+     _ = (!names).intern("")
+diff --git c/src/checker/checker.rig w/src/checker/checker.rig
+index c08be5a8..0b7e5bb9 100644
+--- c/src/checker/checker.rig
++++ w/src/checker/checker.rig
+@@ -593,7 +593,7 @@ pub fun Checker.symbol_export_symbol(?@, s_in: Sym) -> Sym
+   s, k = @data_place(s_in)
+   if k < 0
+     b = ?@ids.binder_sym(s)
+-    return @ids.sym(Int(b.file()), @program.bindings[Int(b.file())].extra_export_symbol(b.extra))
++    return @ids.sym(Int(b.file()), @program.binding_at(Int(b.file())).extra_export_symbol(b.extra))
+   if @symbol_data_extras.get(k) as x
+     return x.export_symbol
+   0
+@@ -612,7 +612,7 @@ pub fun Checker.symbol_exports(?@, s_in: Sym) -> Tab
+   s, k = @data_place(s_in)
+   if k < 0
+     b = ?@ids.binder_sym(s)
+-    return @ids.tab(Int(b.file()), @program.bindings[Int(b.file())].extra_exports(b.extra))
++    return @ids.tab(Int(b.file()), @program.binding_at(Int(b.file())).extra_exports(b.extra))
+   if @symbol_data_extras.get(k) as x
+     return x.exports
+   0
+@@ -636,7 +636,7 @@ pub fun Checker.symbol_declaration_count(?@, s_in: Sym) -> Int
+     b = ?@ids.binder_sym(s)
+     n = b.declaration_count()
+     return Int(n) if n != compiler.MANY_DECLARATIONS
+-    return @program.bindings[Int(b.file())].declaration_count_of(b.first_declaration, b.extra)
++    return @program.binding_at(Int(b.file())).declaration_count_of(b.first_declaration, b.extra)
+   @data_declaration_count(k)
+ 
+ # Go `symbol.Declarations()[k]`
+@@ -645,7 +645,7 @@ pub fun Checker.symbol_declaration(?@, s_in: Sym, k: Int) -> NodeRef
+   if at < 0
+     b = ?@ids.binder_sym(s)
+     return node_ref(Int(b.file()), b.first_declaration) if k == 0   # Trig: from the symbol's one record (ids.BinderSym)
+-    return node_ref(Int(b.file()), @program.bindings[Int(b.file())].declaration_of(b.first_declaration, b.extra, k))
++    return node_ref(Int(b.file()), @program.binding_at(Int(b.file())).declaration_of(b.first_declaration, b.extra, k))
+   @data_declaration(at, k)
+ 
+ # Go `len(symbol.Declarations()) != 0` and, when it holds, its
+@@ -938,9 +938,9 @@ pub fun Checker.table_get(?@, t: Tab, name: ast.Atom) -> Sym
+     loc = ?@ids.binder_tab(t)
+     f = Int(loc.file)
+     if loc.mask & ast.name_bit(name) == 0
+-      debug.fail("table_get: a name the mask lacks is in the binder table") if checks.CHECK_IDS and @program.bindings[f].table_get(loc.local, name) != 0
++      debug.fail("table_get: a name the mask lacks is in the binder table") if checks.CHECK_IDS and @program.binding_at(f).table_get(loc.local, name) != 0
+       return 0
+-    return @ids.sym(f, @program.bindings[f].table_get_unmasked(loc.local, name))
++    return @ids.sym(f, @program.binding_at(f).table_get_unmasked(loc.local, name))
+   h = ?@tab_heads[@checker_table(t)]
+   if h.mask & ast.name_bit(name) == 0
+     debug.fail("table_get: a name the mask lacks is in the table") if checks.CHECK_IDS and (?@).table_get_unmasked(h, name) != 0
+@@ -1142,7 +1142,7 @@ sub Checker.big_remove(!@, b: Int, name: ast.Atom)
+ pub fun Checker.table_len(?@, t: Tab) -> Int
+   return 0 if t == 0
+   if @is_binder_tab(t)
+-    return @program.bindings[@ids.tab_file_of(t)].table_len(@ids.local_tab(t))
++    return @program.binding_at(@ids.tab_file_of(t)).table_len(@ids.local_tab(t))
+   h = ?@tab_heads[@checker_table(t)]
+   return @big_tabs[Int(h.start)].syms.len if h.room == TAB_BIG
+   Int(h.len)
+@@ -1165,7 +1165,7 @@ pub fun Checker.table_entry_at(?@, t: Tab, i: Int) -> TableEntry
+   return TableEntry() if t == 0
+   if @is_binder_tab(t)
+     f = @ids.tab_file_of(t)
+-    e = @program.bindings[f].table_at(@ids.local_tab(t), i)
++    e = @program.binding_at(f).table_at(@ids.local_tab(t), i)
+     return TableEntry(name: e.name, symbol: @ids.sym(f, e.symbol))
+   @checker_table_at(t, i)
+ 
+@@ -1176,7 +1176,7 @@ pub fun Checker.table_entries(?@, t: Tab) -> List[TableEntry]
+   return out if t == 0
+   if @is_binder_tab(t)
+     f = @ids.tab_file_of(t)
+-    b = ?@program.bindings[f]
++    b = ?@program.binding_at(f)
+     lt = @ids.local_tab(t)
+     for k in 0..b.table_len(lt)
+       e = b.table_at(lt, k)
+@@ -1229,13 +1229,13 @@ sub Checker.initialize_checker(!@)
+           !ambient_module_symbols.push(e.symbol)
+         else
+           !@merge_global_symbol(e.symbol)
+-    for p in ?@program.bindings[f].pattern_ambient_modules
++    for p in ?@program.binding_at(f).pattern_ambient_modules
+       !@pattern_ambient_modules.push(CheckerPatternAmbientModule(pattern: core.Pattern(text: String(p.pattern.text), star_index: p.pattern.star_index), symbol: @ids.sym(f, p.symbol)))
+     for a in @program.files[f].module_augmentations()
+       !augmentations.push(node_ref(f, a))
+     if (?@).file_symbol(f) != 0
+       # Merge in UMD exports with first-in-wins semantics (see #9771)
+-      for e in (?@).table_entries(@ids.tab(f, @program.bindings[f].global_exports))
++      for e in (?@).table_entries(@ids.tab(f, @program.binding_at(f).global_exports))
+         if (?@).table_get(@globals, e.name) == 0
+           !@table_put(@globals, e.name, e.symbol)
+   # We do global augmentations separately from module augmentations (and before creating global types) because they
+@@ -1334,7 +1334,7 @@ sub Checker.merge_module_augmentation(!@, module_name: NodeRef)
+ # Go `file.Locals`: the locals of file `f`'s SourceFile.
+ pub fun Checker.file_locals(?@, f: Int) -> Tab
+   root = @program.files[f].root
+-  @ids.tab(f, @program.bindings[f].locals(root))
++  @ids.tab(f, @program.binding_at(f).locals(root))
+ 
+ # Go `file.Symbol`
+ pub fun Checker.file_symbol(?@, f: Int) -> Sym
+@@ -1977,6 +1977,13 @@ pub sub Checker.produce_deferred_diagnostics(!@)
+ # PORT: Go's context is not taken: Trig's checker is never canceled. The
+ # file is the program's, by index.
+ pub sub Checker.check_source_file(!@, source_file: Int, check_unused: Bool)
++  debug.lr_event(10, U32(source_file), 0)
++  !@check_source_file_census(source_file, check_unused)
++  debug.lr_event(11, U32(source_file), 0)
++
++# Trig scratch (last-read census): check_source_file's body, so its
++# start and end are marked on the census clock.
++sub Checker.check_source_file_census(!@, source_file: Int, check_unused: Bool)
+   program = @program
+   file = ?program.files[source_file]
+   root = node_ref(source_file, file.root)
+diff --git c/src/checker/expressions.rig w/src/checker/expressions.rig
+index 330300b3..fd869ff8 100644
+--- c/src/checker/expressions.rig
++++ w/src/checker/expressions.rig
+@@ -1459,7 +1459,7 @@ pub sub Checker.check_var_declared_names_not_shadowed(!@, node: NodeRef)
+ pub sub Checker.check_exports_on_merged_declarations(!@, node: NodeRef)
+   # If localSymbol is defined on node then node itself is exported - check is required.
+   file = Int(node.file) - 1
+-  symbol = @ids.sym(file, @program.bindings[file].local_symbol(node.node.id))
++  symbol = @ids.sym(file, @program.binding_at(file).local_symbol(node.node.id))
+   if symbol == 0
+     # Local symbol is undefined => this declaration is non-exported.
+     # However, symbol might contain other declarations that are exported.
+@@ -7513,7 +7513,7 @@ pub fun Checker.get_widened_literal_like_type_for_contextual_iteration_type_if_n
+ # Go: checker/checker.go:20743 functionHasImplicitReturn
+ pub fun Checker.function_has_implicit_return(!@, fn: NodeRef) -> Bool
+   file = Int(fn.file) - 1
+-  end_flow_node = @program.bindings[file].node_flow_field(fn.node.id, ast.NODE_END_FLOW) ?? return false
++  end_flow_node = @program.binding_at(file).node_flow_field(fn.node.id, ast.NODE_END_FLOW) ?? return false
+   (!@).is_reachable_flow_node(file, end_flow_node)
+ 
+ # Go: checker/checker.go:20748 mayReturnNever
+@@ -9797,14 +9797,14 @@ pub fun Checker.is_post_super_flow_node_worker(!@, f: !FlowState, file: Int, flo
+     else if flags & ast.FLOW_FLAGS_BRANCH_LABEL != 0
+       list = (?@).get_branch_label_antecedents(file, flow, ?f.reduce_labels)
+       while list != 0
+-        item = @program.bindings[file].flow_lists[Int(list)]
++        item = @program.binding_at(file).flow_lists[Int(list)]
+         if not (!@).is_post_super_flow_node_worker(!f, file, item.flow, false)
+           return false
+         list = item.next
+       return true
+     else if flags & ast.FLOW_FLAGS_LOOP_LABEL != 0
+       # A loop is post-super if the control flow path that leads to the top is post-super.
+-      flow = @program.bindings[file].flow_lists[Int(rec.antecedents())].flow
++      flow = @program.binding_at(file).flow_lists[Int(rec.antecedents())].flow
+     else if flags & ast.FLOW_FLAGS_REDUCE_LABEL != 0
+       !f.reduce_labels.push(flow)
+       result = (!@).is_post_super_flow_node_worker(!f, file, rec.antecedent, false)
+diff --git c/src/checker/flow.rig w/src/checker/flow.rig
+index 2b8c62fb..719ee932 100644
+--- c/src/checker/flow.rig
++++ w/src/checker/flow.rig
+@@ -104,18 +104,18 @@ pub fun flow_key(file: Int, flow: ast.FlowId) -> U64
+ # The ids past the binding's flows name the checker's own flow nodes
+ # (synthetic.rig).
+ pub fun Checker.flow_rec(?@, file: Int, flow: ast.FlowId) -> ast.FlowRec
+-  count = @program.bindings[file].flows.len
+-  return @program.bindings[file].flows[Int(flow)] if Int(flow) < count
++  count = @program.binding_at(file).flows.len
++  return @program.binding_at(file).flows[Int(flow)] if Int(flow) < count
+   @synthetic_flows[Int(flow) - count]
+ 
+ # Go's FlowSwitchClauseData of switch clause `rec` of file `file`
+ # (ast.FlowRec's `data`).
+ pub fun Checker.flow_clause(?@, file: Int, rec: ast.FlowRec) -> ast.FlowClause
+-  @program.bindings[file].flow_clauses[Int(rec.data)]
++  @program.binding_at(file).flow_clauses[Int(rec.data)]
+ 
+ # Go's FlowReduceLabelData of reduce label `flow` of file `file`.
+ pub fun Checker.flow_reduce(?@, file: Int, flow: ast.FlowId) -> ast.FlowReduce
+-  @program.bindings[file].flow_reduces[Int(@flow_rec(file, flow).data)]
++  @program.binding_at(file).flow_reduces[Int(@flow_rec(file, flow).data)]
+ 
+ # The file a flow state's walk is in.
+ fun flow_file(f: ?FlowState) -> Int
+@@ -319,7 +319,7 @@ inline fun Checker.get_type_at_flow_node_of(!@, f: !FlowState, flow_in: ast.Flow
+           # of the reference's name at or before this one, or past the
+           # run (ast.Binding.flow_run_target). A node of the name goes
+           # down the whole path.
+-          target = @program.bindings[file].flow_run_target(rec.data, flow, f.ref_atom)
++          target = @program.binding_at(file).flow_run_target(rec.data, flow, f.ref_atom)
+           if target != flow
+             if FLOW_RUN_SHADOW
+               !@flow_run_shadow(!f, file, flow, target)
+@@ -343,13 +343,13 @@ inline fun Checker.get_type_at_flow_node_of(!@, f: !FlowState, flow_in: ast.Flow
+       t = (!@).get_type_at_switch_clause(!f, flow)
+     else if flags & ast.FLOW_FLAGS_BRANCH_LABEL != 0
+       antecedents = (?@).get_branch_label_antecedents(file, flow, ?f.reduce_labels)
+-      list = @program.bindings[file].flow_lists[Int(antecedents)]
++      list = @program.binding_at(file).flow_lists[Int(antecedents)]
+       if list.next == 0
+         flow = list.flow
+         continue
+       t = (!@).get_type_at_flow_branch_label(!f, flow, antecedents)
+     else if flags & ast.FLOW_FLAGS_LOOP_LABEL != 0
+-      list = @program.bindings[file].flow_lists[Int(rec.antecedents())]
++      list = @program.binding_at(file).flow_lists[Int(rec.antecedents())]
+       if list.next == 0
+         flow = list.flow
+         continue
+@@ -1545,7 +1545,7 @@ pub fun Checker.get_type_at_flow_branch_label(!@, f: !FlowState, flow: ast.FlowI
+   bypass_flow: ast.FlowId = 0
+   list = antecedents
+   while list != 0
+-    item = @program.bindings[file].flow_lists[Int(list)]
++    item = @program.binding_at(file).flow_lists[Int(list)]
+     list = item.next
+     antecedent = item.flow
+     if bypass_flow == 0 and (?@).flow_rec(file, antecedent).flags & ast.FLOW_FLAGS_SWITCH_CLAUSE != 0 and (?@).flow_switch_clause_is_empty(file, antecedent)
+@@ -1663,7 +1663,7 @@ pub fun Checker.get_type_at_flow_loop_label(!@, f: !FlowState, flow: ast.FlowId)
+   first_antecedent_type = FlowType()
+   list = (?@).flow_rec(file, flow).antecedents()
+   while list != 0
+-    item = @program.bindings[file].flow_lists[Int(list)]
++    item = @program.binding_at(file).flow_lists[Int(list)]
+     list = item.next
+     flow_type = FlowType()
+     if first_antecedent_type.is_nil()
+@@ -2991,7 +2991,7 @@ pub fun Checker.is_reachable_flow_node_worker(!@, f: !FlowState, file: Int, flow
+         return @last_flow_node_reachable
+       if FLOW_RUN_SHADOW
+         !@flow_run_reach_shadow(file, flow, false)
+-      flow = @program.bindings[file].flow_runs[Int(rec.data) - 1].exit
++      flow = @program.binding_at(file).flow_runs[Int(rec.data) - 1].exit
+     else if flags & (ast.FLOW_FLAGS_ASSIGNMENT | ast.FLOW_FLAGS_CONDITION | ast.FLOW_FLAGS_ARRAY_MUTATION) != 0
+       flow = rec.antecedent
+     else if flags & ast.FLOW_FLAGS_CALL != 0
+@@ -3013,7 +3013,7 @@ pub fun Checker.is_reachable_flow_node_worker(!@, f: !FlowState, file: Int, flow
+       # A branching point is reachable if any branch is reachable.
+       list = (?@).get_branch_label_antecedents(file, flow, ?f.reduce_labels)
+       while list != 0
+-        item = @program.bindings[file].flow_lists[Int(list)]
++        item = @program.binding_at(file).flow_lists[Int(list)]
+         if (!@).is_reachable_flow_node_worker(!f, file, item.flow, false)
+           return true
+         list = item.next
+@@ -3022,7 +3022,7 @@ pub fun Checker.is_reachable_flow_node_worker(!@, f: !FlowState, file: Int, flow
+       if rec.antecedents() == 0
+         return false
+       # A loop is reachable if the control flow path that leads to the top is reachable.
+-      flow = @program.bindings[file].flow_lists[Int(rec.antecedents())].flow
++      flow = @program.binding_at(file).flow_lists[Int(rec.antecedents())].flow
+     else if flags & ast.FLOW_FLAGS_SWITCH_CLAUSE != 0
+       # The control flow path representing an unmatched value in a switch statement with
+       # no default clause is unreachable if the switch statement is exhaustive.
+@@ -3048,8 +3048,8 @@ fun Checker.last_flow_node_in_run(?@, file: Int, run: U32, flow: ast.FlowId) ->
+   last = @last_flow_node
+   return false if last >> 32 != U64(file + 1)
+   id = ast.FlowId(last & 0xFFFFFFFF)
+-  return false if id > flow or Int(id) >= @program.bindings[file].flows.len
+-  rec = @program.bindings[file].flows[Int(id)]
++  return false if id > flow or Int(id) >= @program.binding_at(file).flows.len
++  rec = @program.binding_at(file).flows[Int(id)]
+   rec.flags & ast.FLOW_FLAGS_ASSIGNMENT != 0 and rec.data == run
+ 
+ # Trig: the shadow check of a reachability jump from `flow`, a node of an
+@@ -3058,7 +3058,7 @@ fun Checker.last_flow_node_in_run(?@, file: Int, run: U32, flow: ast.FlowId) ->
+ # non-SHARED assignment.
+ sub Checker.flow_run_reach_shadow(!@, file: Int, flow: ast.FlowId, hit: Bool)
+   run = (?@).flow_rec(file, flow).data
+-  exit = @program.bindings[file].flow_runs[Int(run) - 1].exit
++  exit = @program.binding_at(file).flow_runs[Int(run) - 1].exit
+   cur = flow
+   loop
+     @lazy_stats.flow_reachable_go_steps += 1
+@@ -3499,7 +3499,7 @@ fun Checker.flow_ends_iteration(?@, file: Int, rec: ast.FlowRec) -> Bool
+   flags = rec.flags
+   return true if flags & (ast.FLOW_FLAGS_CONDITION | ast.FLOW_FLAGS_SWITCH_CLAUSE) != 0
+   if flags & (ast.FLOW_FLAGS_BRANCH_LABEL | ast.FLOW_FLAGS_LOOP_LABEL) != 0
+-    return @program.bindings[file].flow_lists[Int(rec.antecedents())].next != 0
++    return @program.binding_at(file).flow_lists[Int(rec.antecedents())].next != 0
+   false
+ 
+ # Trig: a frame that is not free reads none of the counts: its answer
+diff --git c/src/checker/lazymembers.rig w/src/checker/lazymembers.rig
+index c1238986..5e0ac072 100644
+--- c/src/checker/lazymembers.rig
++++ w/src/checker/lazymembers.rig
+@@ -81,7 +81,7 @@ pub obj LazyName
+ pub fun Checker.table_at(?@, t: Tab, i: Int) -> TableEntry
+   if @is_binder_tab(t)
+     f = @ids.tab_file_of(t)
+-    e = @program.bindings[f].table_at(@ids.local_tab(t), i)
++    e = @program.binding_at(f).table_at(@ids.local_tab(t), i)
+     return TableEntry(name: e.name, symbol: @ids.sym(f, e.symbol)) if e.symbol != 0
+     return TableEntry(name: 0, symbol: 0)
+   (?@).checker_table_at(t, i)
+diff --git c/src/checker/modules.rig w/src/checker/modules.rig
+index 49a41b5e..7fe07955 100644
+--- c/src/checker/modules.rig
++++ w/src/checker/modules.rig
+@@ -1479,7 +1479,7 @@ fun Checker.is_readonly_symbol_rest(!@, symbol: Sym, flags: U32) -> Bool
+   if at < 0
+     b = ?@ids.binder_sym(s)
+     f = Int(b.file())
+-    bd = ?@program.bindings[f]
++    bd = ?@program.binding_at(f)
+     for k in 0..bd.declaration_count_of(b.first_declaration, b.extra)
+       node = bd.declaration_of(b.first_declaration, b.extra, k)
+       return true if @program.files[f].ast.is_call_expression(node) and (!@).is_readonly_assignment_declaration(node_ref(f, node))
+diff --git c/src/checker/nameresolver.rig w/src/checker/nameresolver.rig
+index af1798e5..3bda1ac9 100644
+--- c/src/checker/nameresolver.rig
++++ w/src/checker/nameresolver.rig
+@@ -501,8 +501,8 @@ fun Checker.is_global_source_file(?@, f: Int, node: Node) -> Bool
+ pub fun Checker.node_locals(?@, f: Int, node: Node) -> Tab
+   program = @program
+   tree = ?program.files[f].ast
+-  return @ids.tab(f, program.bindings[f].locals(node)) if Int(node.id) > tree.node_count()  # a synthetic node
+-  @ids.tab(f, program.bindings[f].locals_of(node, tree.flags(node)))
++  return @ids.tab(f, program.binding_at(f).locals(node)) if Int(node.id) > tree.node_count()  # a synthetic node
++  @ids.tab(f, program.binding_at(f).locals_of(node, tree.flags(node)))
+ 
+ # Go `node.Symbol()`
+ pub fun Checker.node_symbol(?@, f: Int, node: Node) -> Sym
+@@ -513,4 +513,4 @@ pub fun Checker.node_symbol(?@, f: Int, node: Node) -> Sym
+ 
+ # Go `node.LocalSymbol()`
+ pub fun Checker.node_local_symbol(?@, f: Int, node: Node) -> Sym
+-  @ids.sym(f, @program.bindings[f].local_symbol(node.id))
++  @ids.sym(f, @program.binding_at(f).local_symbol(node.id))
+diff --git c/src/checker/setup.rig w/src/checker/setup.rig
+index 7dba6799..0da9e621 100644
+--- c/src/checker/setup.rig
++++ w/src/checker/setup.rig
+@@ -1076,7 +1076,7 @@ pub sub Checker.on_successfully_resolved_symbol(!@, error_location: NodeRef, res
+     for k in 0..count
+       d = (?@).symbol_declaration(merged, k)
+       dtree = ?program.files[Int(d.file) -% 1].ast
+-      if not (dtree.is_namespace_export_declaration(d.node) or dtree.is_source_file(d.node) and program.bindings[Int(d.file) -% 1].global_exports != 0)
++      if not (dtree.is_namespace_export_declaration(d.node) or dtree.is_source_file(d.node) and program.binding_at(Int(d.file) -% 1).global_exports != 0)
+         every = false
+         break
+     if every
+diff --git c/src/checker/statements.rig w/src/checker/statements.rig
+index 71a393de..6b930aa8 100644
+--- c/src/checker/statements.rig
++++ w/src/checker/statements.rig
+@@ -486,7 +486,7 @@ pub sub Checker.check_switch_statement(!@, node: NodeRef)
+     if @program.options.no_fallthrough_cases_in_switch == .True
+       flow_node: ast.FlowId = 0
+       has_flow_node = false
+-      if @program.bindings[f].node_flow_field(clause.id, ast.NODE_FALLTHROUGH_FLOW) as fallthrough_flow_node  # Go FallthroughFlowNode
++      if @program.binding_at(f).node_flow_field(clause.id, ast.NODE_FALLTHROUGH_FLOW) as fallthrough_flow_node  # Go FallthroughFlowNode
+         flow_node = fallthrough_flow_node
+         has_flow_node = true
+       if has_flow_node
+diff --git c/src/checker/synthetic.rig w/src/checker/synthetic.rig
+index 40522ad9..86b0636f 100644
+--- c/src/checker/synthetic.rig
++++ w/src/checker/synthetic.rig
+@@ -142,7 +142,7 @@ pub fun Checker.node_is_access_expression(?@, n: NodeRef) -> Bool
+ # A new flow node of file `file` (an index), for the flow nodes Go's
+ # checker makes itself.
+ pub fun Checker.new_synthetic_flow(!@, file: Int, rec: ast.FlowRec) -> ast.FlowId
+-  id = @program.bindings[file].flows.len + @synthetic_flows.len
++  id = @program.binding_at(file).flows.len + @synthetic_flows.len
+   !@synthetic_flows.push(rec)
+   U32(id)
+ 
+@@ -180,7 +180,7 @@ pub fun Checker.new_symbol_access_name(!@, file: Int, symbol: Sym) -> NodeRef
+ # Go `n.AsConstructorDeclaration().ReturnFlowNode`,
+ # `n.AsClassStaticBlockDeclaration().ReturnFlowNode`; 0 for none.
+ pub fun Checker.return_flow_node(?@, n: NodeRef) -> ast.FlowId
+-  @program.bindings[Int(n.file) -% 1].node_flow_field(n.node.id, ast.NODE_RETURN_FLOW) ?? 0
++  @program.binding_at(Int(n.file) -% 1).node_flow_field(n.node.id, ast.NODE_RETURN_FLOW) ?? 0
+ 
+ # Go: checker/flow.go:2466 getFlowTypeInConstructor
+ pub fun Checker.get_flow_type_in_constructor(!@, symbol: Sym, constructor: NodeRef) -> TypeId
+diff --git c/src/compiler/ids.rig w/src/compiler/ids.rig
+index 26c5a374..3814c21b 100644
+--- c/src/compiler/ids.rig
++++ w/src/compiler/ids.rig
+@@ -213,8 +213,19 @@ pub obj Ids
+   # Binder symbol `s`, read in one record: Go's symbol is a pointer.
+   pub fun binder_sym(?@, s: U32) -> ?BinderSym from @
+     check_id(Int(s), @binder.len) if checks.CHECK_IDS
++    debug.lr_touch(@binder[s & ID_MASK].file() + 1, 32) if s & ID_MASK != 0
+     ?@binder[s & ID_MASK]
+ 
++  # Trig scratch (last-read census): file `f`'s binder symbols and tables
++  # in the program's records.
++  pub fun census_syms(?@, f: Int) -> Int
++    end = Int(@sym_base[f + 1]) if f + 1 < @sym_base.len else @binder.len
++    end - Int(@sym_base[f])
++
++  pub fun census_tabs(?@, f: Int) -> Int
++    end = Int(@tab_base[f + 1]) if f + 1 < @tab_base.len else @tab_loc.len
++    end - Int(@tab_base[f])
++
+   # The file of binder symbol `s`, and its id there.
+   pub fun sym_file_of(?@, s: U32) -> Int
+     Int(@binder_sym(s).file())
+@@ -222,14 +233,17 @@ pub obj Ids
+   # Binder table `t`, read in one record.
+   pub fun binder_tab(?@, t: U32) -> ?TabLoc from @
+     check_id(Int(t), @tab_loc.len) if checks.CHECK_IDS
++    debug.lr_touch(@tab_loc[t & ID_MASK].file + 1, 32) if t & ID_MASK != 0
+     ?@tab_loc[t & ID_MASK]
+ 
+   pub fun tab_file_of(?@, t: U32) -> Int
+     check_id(Int(t), @tab_loc.len) if checks.CHECK_IDS
++    debug.lr_touch(@tab_loc[t & ID_MASK].file + 1, 32) if t & ID_MASK != 0
+     Int(@tab_loc[t & ID_MASK].file)
+ 
+   pub fun local_tab(?@, t: U32) -> ast.TableId
+     check_id(Int(t), @tab_loc.len) if checks.CHECK_IDS
++    debug.lr_touch(@tab_loc[t & ID_MASK].file + 1, 32) if t & ID_MASK != 0
+     @tab_loc[t & ID_MASK].local
+ 
+ # With `checks.CHECK_IDS`, a lookup by id `i` in an id table written up to
+diff --git c/src/compiler/program.rig w/src/compiler/program.rig
+index 1871f749..db7216ff 100644
+--- c/src/compiler/program.rig
++++ w/src/compiler/program.rig
+@@ -653,6 +653,84 @@ fun source_file_may_be_emitted(f: Int, host: ?Program, force_dts_emit: Bool, for
+ # diagnostics in (`checker_diagnostics`). A file is the program's, by
+ # index; a diagnostic's file is set to it here.
+ 
++# Trig scratch (last-read census): each file's tree marked with its index
++# (Ast.census), so the census build's hooks know whose tree a read is of;
++# the bytes each file holds, by kind (debug.lr_bytes: 0 tree, 1 positions,
++# 2 text, 3 names, 4 binding, 5 the program's binder records, 6 a source
++# text the file owns apart from its tree); and a line per file on stderr:
++# LRF index, lib (1 a bundled lib), declaration file, source (0 in the
++# tree, 1 its own String, 2 a static), node count, its import targets, its
++# name. Then the clock's mark that the check may start (event 1).
++pub sub Program.census_report(!@, names: ?ast.Names)
++  n = @files.len
++  for i in 0..n
++    @files[i].ast.census = U32(i + 1)
++  for i in 0..n
++    f = ?@files[i]
++    b = f.ast.census_bytes()
++    for k in 0..b.len
++      debug.lr_bytes(U32(i + 1), U32(k), b[k])
++    debug.lr_bytes(U32(i + 1), 4, @bindings[i].census_bytes(U32(i + 1)))
++    debug.lr_bytes(U32(i + 1), 5, @ids.census_syms(i) * $size(BinderSym) + @ids.census_tabs(i) * $size(TabLoc))
++    source = 0
++    match f.source
++      .owned(t)
++        source = 1
++        debug.lr_bytes(U32(i + 1), 6, t.len)
++      .static => source = 2
++      .arena => source = 0
++    lib = 1 if @is_source_file_default_library(i) else 0
++    dts = 1 if f.is_declaration_file else 0
++    line = String("LRF\t", String(i), "\t", String(lib), "\t", String(dts), "\t", String(source), "\t", String(f.ast.node_count()), "\t")
++    if i < @resolution_files.len
++      first = true
++      for t in ?@resolution_files[i]
++        if t >= 0
++          !line.add("," if not first else "", String(t))
++          first = false
++    !line.add("\t", f.file_name)
++    warn(line)
++    # LRG index, module (external or CommonJS), module augmentations,
++    # ambient module names, a top-level `declare global`, a UMD
++    # `export as namespace`; then LRI index and each include reason as
++    # KIND:FROM (I import, R reference, T type reference directive, L lib
++    # reference, O root, B lib, A automatic type directive; FROM the
++    # including file's index, -1 for none).
++    glob_aug = 0
++    umd = 0
++    for st in f.ast.nodes_or_empty(f.ast.statement_list(f.root))
++      glob_aug = 1 if f.ast.is_global_scope_augmentation(st) else glob_aug
++      umd = 1 if f.ast.is_namespace_export_declaration(st) else umd
++    is_module = 1 if f.is_external_or_common_js_module() else 0
++    warn(String("LRG\t", String(i), "\t", String(is_module), "\t", String(f.module_augmentations().len), "\t", String(f.ambient_module_names().len), "\t", String(glob_aug), "\t", String(umd)))
++    reasons = String("LRI\t", String(i), "\t")
++    if ?@resolutions as r
++      if i < r.file_ids.len
++        if r.file_include_reasons.get(r.file_ids[i]) as rs
++          for reason in rs
++            k = "?"
++            match reason.kind
++              .Import => k = "I"
++              .ReferenceFile => k = "R"
++              .TypeReferenceDirective => k = "T"
++              .LibReferenceDirective => k = "L"
++              .RootFile => k = "O"
++              .LibFile => k = "B"
++              .AutomaticTypeDirectiveFile => k = "A"
++              .None => k = "N"
++            from = -1
++            if reason.file >= 0 and reason.file < @file_of_id.len
++              from = @file_of_id[reason.file]
++            !reasons.add(k, ":", String(from), ",")
++    warn(reasons)
++  warn(String("LRN\t", String(names.census_bytes()), "\t", String(names.census_count())))
++  debug.lr_event(1, U32(n), 0)
++
++# Trig scratch (last-read census): file `f`'s binding, its read noted.
++pub fun Program.binding_at(?@, f: Int) -> ?ast.Binding from @
++  debug.lr_touch(U32(f + 1), 16)
++  ?@bindings[f]
++
+ # Go: compiler/program.go:771 GetSyntacticDiagnostics, for one file
+ # PORT: getAdditionalJSSyntacticDiagnostics, the parameter decorators of
+ # an unchecked JavaScript file without experimentalDecorators, is not
+@@ -739,6 +817,8 @@ pub fun Program.get_bind_and_check_diagnostics_with_checker(?@, file: Int, check
+     return diags
+   source_file = ?@files[file]
+   # Checker creation forces binding, so bind diagnostics will be populated.
++  # Trig scratch (census): the bind diagnostics, a list of their own (kind 64), not the binder's records.
++  debug.lr_touch(U32(file + 1), 64)
+   for d in @bindings[file].diagnostics
+     !diags.push(with_file(d, file))
+   for d in checker_diagnostics
+diff --git c/src/debug/debug.rig w/src/debug/debug.rig
+index c49d1f26..d5913d6f 100644
+--- c/src/debug/debug.rig
++++ w/src/debug/debug.rig
+@@ -10,3 +10,17 @@ pub sub fail(msg: ?String)
+   rarely
+   print("!! stop", msg)
+   panic(msg)
++
++# Trig scratch: the last-read census (never lands). Hooks the census
++# build's generated Zig fills in (lastread-zig); in Rig they do nothing.
++# `lr_touch`: something of kinds `kinds` of file `file` (its index plus
++# one) was read. `lr_event`: a mark on the census clock. `lr_bytes`: the
++# bytes of kind `kind` file `file` holds.
++pub sub lr_touch(file: U32, kinds: U32)
++  return
++
++pub sub lr_event(code: U32, a: U32, b: U32)
++  return
++
++pub sub lr_bytes(file: U32, kind: U32, bytes: Int)
++  return
+diff --git c/src/declarations/checkerpool.rig w/src/declarations/checkerpool.rig
+index 68be652a..a6dcb2c5 100644
+--- c/src/declarations/checkerpool.rig
++++ w/src/declarations/checkerpool.rig
+@@ -610,6 +610,7 @@ DROP_MIN_TYPES = 16384
+ fun check_group(c: checker.Checker, program: ?compiler.Program, associations: ?List[Int], k: Int, may_drop: Bool, answered: Bool, lazy_stats: Bool, tokens: *Chan[Int]) -> CheckedGroup
+   new c = <c
+   new tokens = <tokens
++  debug.lr_event(40, U32(k), 0)
+   files: List[Int] = List()
+   diagnostics: List[List[ast.Diagnostic]] = List()
+   for f in 0..program.files.len
+@@ -617,6 +618,7 @@ fun check_group(c: checker.Checker, program: ?compiler.Program, associations: ?L
+       !files.push(f)
+       !diagnostics.push((!c).get_diagnostics(f))
+   global = (!c).get_global_diagnostics()
++  debug.lr_event(41, U32(k), 0)
+   counts = CheckedCounts(symbols: c.symbol_count, types: Int(c.type_count), instantiations: Int(c.total_instantiation_count))
+   lazy_line = String()
+   if lazy_stats
+@@ -635,6 +637,8 @@ fun check_group(c: checker.Checker, program: ?compiler.Program, associations: ?L
+           done = true
+           break
+     if done
++      debug.lr_event(42, U32(k), 0)
+       <c
++      debug.lr_event(43, U32(k), 0)
+       return CheckedGroup.Done(checker: none, files: <files, diagnostics: <diagnostics, global: <global, counts: <counts, lazy_line: <lazy_line)
+   CheckedGroup.Done(checker: <c, files: <files, diagnostics: <diagnostics, global: <global, counts: <counts, lazy_line: <lazy_line)
+diff --git c/src/execute/emit.rig w/src/execute/emit.rig
+index a63b41e1..7985d300 100644
+--- c/src/execute/emit.rig
++++ w/src/execute/emit.rig
+@@ -7,6 +7,7 @@
+ use ast
+ use compiler
+ use core
++use debug
+ use declarations
+ use diagnosticwriter
+ use std.sort
+@@ -168,7 +169,9 @@ fun check_and_emit(program: ?compiler.Program, names: ?ast.Names, config_index:
+   # Trig: with noEmit the balanced checkers past the first are made in
+   # their tasks, as each takes a file (declarations.CheckerPool.deferred).
+   checkers = count if count > 0 else program.checker_count()
++  debug.lr_event(20, U32(checkers), 0)
+   pool = declarations.new_checker_pool(program, names, type_log: false, lazy_members: sys.lazy_members, wanted: count, defer_checkers: sys.dynamic_checkers and program.options.no_emit.is_true() and checkers > DEFER_MIN_CHECKERS)
++  debug.lr_event(21, U32(pool.checkers.len), 0)
+   pool.dynamic = sys.dynamic_checkers
+   pool.assign_seed = sys.assign_seed
+   pool.split_files = sys.split_files
+@@ -186,7 +189,9 @@ fun check_and_emit(program: ?compiler.Program, names: ?ast.Names, config_index:
+       pool.write = fs.host_write()
+   pool_done = sys.clock()
+   sys.times.pool = pool_done - pool_start
++  debug.lr_event(30, 0, 0)
+   check_and_emit_on(!pool, !result, config_index)
++  debug.lr_event(31, 0, 0)
+   on_done = sys.clock()
+   # Go's Bind time is of its bind step, which runs only where the program
+   # has no syntactic error, and its clock always moves across it
+@@ -226,7 +231,9 @@ fun check_and_emit(program: ?compiler.Program, names: ?ast.Names, config_index:
+       sys.times.emit = result.emit_ns
+       done = CompileAndEmitResult(emit_skipped: result.emit_skipped, counts: result.counts)
+       report_start = sys.clock()
++      debug.lr_event(50, 0, 0)
+       done.diagnostics = report_diagnostics(!sys, ?program.files, program, swap(!result.diagnostics, List()), config_index, ?result.emitted_files, input)
++      debug.lr_event(51, 0, 0)
+       sys.times.report = sys.clock() - report_start
+       report_statistics_and_status(!sys, program, !done)
+       result.finished = true
+diff --git c/src/execute/tsc.rig w/src/execute/tsc.rig
+index 70b976da..c82501ac 100644
+--- c/src/execute/tsc.rig
++++ w/src/execute/tsc.rig
+@@ -299,6 +299,8 @@ fun perform_compilation(sys: !System, config: tsoptions.ParsedCommandLine, repor
+   program = compiler.new_program(<config, <host, !names)
+   # Trig: the program's names are whole once it is made (ast.Names.fit).
+   !names.fit()
++  # Trig scratch: the last-read census's per-file bytes and marks.
++  !program.census_report(?names)
+   sys.times.bind = program.bind_ns
+   sys.times.parse = sys.clock() - parse_start - program.bind_ns
+   sys.times.load = program.load_ns
+diff --git c/src/printer/namegenerator.rig w/src/printer/namegenerator.rig
+index 542e66d1..44b5c5b5 100644
+--- c/src/printer/namegenerator.rig
++++ w/src/printer/namegenerator.rig
+@@ -376,6 +376,7 @@ fun is_unique_local_name(ctx: ?EmitContext, ntree: ?ast.Ast, name: ?String, cont
+   bindings = ctx.bindings ?? return true
+   ids = ctx.ids ?? return true
+   f = Int(container.file) - 1
++  debug.lr_touch(U32(f + 1), 16)
+   binding = ?bindings[f]
+   symbol = ntree.node_symbol(container.node)
+   return true if symbol == 0
