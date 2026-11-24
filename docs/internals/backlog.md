@@ -366,9 +366,3 @@ Found while writing the Learn Rig journeys. Check each before fixing.
   type's own methods do (`b.area()` on a `^Square`); `b.describe()`, a
   default, says "no method `describe` on type `Square`". Decide whether
   a box takes the shorthand, and name the API in the message either way.
-- **A generic body's `T: Owned` does not stop the keeps check.** `sub
-  move[T: Owned](dst: !List[T], src: !List[T])` that pops from `src` and
-  pushes into `dst` is told to say `keeps src`, though an `Owned` `T`
-  holds no view of `src`; the same body over `String` needs nothing
-  (test/rig/ownership-keeps, "keeps generic owned body values"). Found
-  writing bench/hash/replay (2026-11-23).
