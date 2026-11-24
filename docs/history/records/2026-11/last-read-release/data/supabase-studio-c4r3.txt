@@ -1,0 +1,19 @@
+release at: the reader's next safe point (per thread)
+run runs/cen3r3-supabase-studio-c4.err: 12546 files, front-end bytes 412.4 MiB, names 12.6 MiB (249570), VmHWM 1327.9 MiB
+clock (ms from the check pass): load end -7, check 0..2202, exit 2203; checker threads 4
+peak today  1332.5 MiB at check, 76% through (1680 ms)
+load-end peak 749.7 MiB at -33 ms; check peak 1332.5 MiB at check, 76% through
+peak w/ release 1253.4 MiB at check, 76% through (1680 ms): ceiling 79.1 MiB (5.9% of the peak)
+freed by today's peak time 79.1 MiB; by the check's end 412.4 MiB; at once at the load's end 9.8 MiB
+  freed/held by kind at today's peak (MiB): tree 6.6/204.2, text 40.3/70.8, pos 25.8/50.9, progsym 1.3/43.2, binding 2.2/38.5, names 3.0/4.9
+  freed/held by kind at the new peak (MiB): tree 6.6/204.2, text 40.3/70.8, pos 25.8/50.9, progsym 1.3/43.2, binding 2.2/38.5, names 3.0/4.9
+  freed/held by kind at the check's end (MiB): tree 204.2/204.2, text 70.8/70.8, pos 50.9/50.9, progsym 43.2/43.2, binding 38.5/38.5, names 4.9/4.9
+  freed/held by category at today's peak (MiB): dts 47.8/236.4, src 31.1/167.9, lib 0.3/8.1
+  freed/held by category at the new peak (MiB): dts 47.8/236.4, src 31.1/167.9, lib 0.3/8.1
+  freed/held by category at the check's end (MiB): dts 236.4/236.4, src 167.9/167.9, lib 8.1/8.1
+  freed/held by leaf (imported by no file) at today's peak (MiB): imported/dts 30.9/211.0, imported/src 28.4/134.3, leaf/src 2.7/33.6, leaf/dts 16.9/25.4, leaf/lib 0.3/8.1
+  freed/held by leaf (imported by no file) at the new peak (MiB): imported/dts 30.9/211.0, imported/src 28.4/134.3, leaf/src 2.7/33.6, leaf/dts 16.9/25.4, leaf/lib 0.3/8.1
+  freed/held by leaf (imported by no file) at the check's end (MiB): imported/dts 211.0/211.0, imported/src 134.3/134.3, leaf/src 33.6/33.6, leaf/dts 25.4/25.4, leaf/lib 8.1/8.1
+RELEASED	runs/cen3r3-supabase-studio-c4.err	0%=29.1	25%=42.3	50%=56.5	75%=78.1	100%=412.4	after=0.0
+SUBSETS	runs/cen3r3-supabase-studio-c4.err	all=79.1	tree+pos=32.4	tree=6.6	pos=25.8	text=40.3	binder=3.4	names=3.0	leaf=19.8	imported=59.3	lib=0.3	dts=47.8	src=31.1	leaf-src=2.7
+SUMMARY	runs/cen3r3-supabase-studio-c4.err	1332.5	0.76	1253.4	0.76	79.1	749.7	412.4	79.1	tree=6.6,pos=25.8,text=40.3,names=3.0,binding=2.2,progsym=1.3	dts=47.8/236.4,lib=0.3/8.1,src=31.1/167.9	imported=59.3/345.3,leaf=19.8/67.1	79.1

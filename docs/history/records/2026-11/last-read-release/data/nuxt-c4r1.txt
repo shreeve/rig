@@ -1,0 +1,19 @@
+release at: the reader's next safe point (per thread)
+run runs/cen3r1-nuxt-c4.err: 3705 files, front-end bytes 151.8 MiB, names 4.7 MiB (98607), VmHWM 411.1 MiB
+clock (ms from the check pass): load end -5, check 0..567, exit 567; checker threads 4
+peak today  415.1 MiB at check, 70% through (395 ms)
+load-end peak 306.4 MiB at -8 ms; check peak 415.1 MiB at check, 70% through
+peak w/ release 336.1 MiB at check, 26% through (150 ms): ceiling 79.0 MiB (19.0% of the peak)
+freed by today's peak time 103.3 MiB; by the check's end 151.8 MiB; at once at the load's end 3.3 MiB
+  freed/held by kind at today's peak (MiB): tree 52.0/76.2, text 16.9/24.8, pos 13.9/19.4, progsym 9.8/15.3, binding 9.6/14.6, names 1.1/1.5
+  freed/held by kind at the new peak (MiB): tree 1.0/76.2, text 7.2/24.8, pos 3.9/19.4, progsym 0.2/15.3, binding 0.4/14.6, names 0.4/1.5
+  freed/held by kind at the check's end (MiB): tree 76.2/76.2, text 24.8/24.8, pos 19.4/19.4, progsym 15.3/15.3, binding 14.6/14.6, names 1.5/1.5
+  freed/held by category at today's peak (MiB): dts 79.1/107.9, src 24.0/33.7, lib 0.2/10.2
+  freed/held by category at the new peak (MiB): dts 12.4/107.9, src 0.7/33.7, lib 0.1/10.2
+  freed/held by category at the check's end (MiB): dts 107.9/107.9, src 33.7/33.7, lib 10.2/10.2
+  freed/held by leaf (imported by no file) at today's peak (MiB): imported/dts 74.3/98.5, imported/src 12.0/18.0, leaf/src 12.0/15.7, leaf/lib 0.2/10.2, leaf/dts 4.8/9.4
+  freed/held by leaf (imported by no file) at the new peak (MiB): imported/dts 10.0/98.5, imported/src 0.4/18.0, leaf/src 0.3/15.7, leaf/lib 0.1/10.2, leaf/dts 2.4/9.4
+  freed/held by leaf (imported by no file) at the check's end (MiB): imported/dts 98.5/98.5, imported/src 18.0/18.0, leaf/src 15.7/15.7, leaf/lib 10.2/10.2, leaf/dts 9.4/9.4
+RELEASED	runs/cen3r1-nuxt-c4.err	0%=9.8	25%=12.1	50%=79.3	75%=109.2	100%=151.8	after=0.0
+SUBSETS	runs/cen3r1-nuxt-c4.err	all=79.0	tree+pos=61.3	tree=50.1	pos=13.9	text=16.9	binder=19.4	names=1.1	leaf=15.8	imported=76.2	lib=0.2	dts=78.0	src=22.3	leaf-src=12.0
+SUMMARY	runs/cen3r1-nuxt-c4.err	415.1	0.70	336.1	0.26	79.0	306.4	151.8	13.1	tree=1.0,pos=3.9,text=7.2,names=0.4,binding=0.4,progsym=0.2	dts=12.4/107.9,lib=0.1/10.2,src=0.7/33.7	imported=10.4/116.5,leaf=2.7/35.3	103.3

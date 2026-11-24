@@ -1,0 +1,19 @@
+release at: the reader's next safe point (per thread)
+run runs/cen3r2-typeorm-c4.err: 3575 files, front-end bytes 79.3 MiB, names 2.1 MiB (32841), VmHWM 239.4 MiB
+clock (ms from the check pass): load end -2, check 0..508, exit 508; checker threads 4
+peak today  241.4 MiB at check, 62% through (315 ms)
+load-end peak 186.6 MiB at -2 ms; check peak 241.4 MiB at check, 62% through
+peak w/ release 213.9 MiB at check, 27% through (136 ms): ceiling 27.5 MiB (11.4% of the peak)
+freed by today's peak time 53.8 MiB; by the check's end 79.3 MiB; at once at the load's end 1.1 MiB
+  freed/held by kind at today's peak (MiB): tree 27.2/41.4, text 9.9/13.2, pos 7.5/10.2, binding 4.6/7.4, progsym 4.1/6.3, names 0.5/0.7
+  freed/held by kind at the new peak (MiB): tree 5.3/41.4, text 3.5/13.2, pos 2.4/10.2, binding 1.6/7.4, progsym 0.8/6.3, names 0.2/0.7
+  freed/held by kind at the check's end (MiB): tree 41.4/41.4, text 13.2/13.2, pos 10.2/10.2, binding 7.4/7.4, progsym 6.3/6.3, names 0.7/0.7
+  freed/held by category at today's peak (MiB): src 43.4/63.2, dts 10.1/14.7, lib 0.4/1.4
+  freed/held by category at the new peak (MiB): src 8.7/63.2, dts 5.0/14.7, lib 0.1/1.4
+  freed/held by category at the check's end (MiB): src 63.2/63.2, dts 14.7/14.7, lib 1.4/1.4
+  freed/held by leaf (imported by no file) at today's peak (MiB): leaf/src 25.5/33.1, imported/src 17.9/30.1, leaf/dts 6.2/8.3, imported/dts 3.9/6.4, leaf/lib 0.4/1.4
+  freed/held by leaf (imported by no file) at the new peak (MiB): leaf/src 3.0/33.1, imported/src 5.7/30.1, leaf/dts 2.5/8.3, imported/dts 2.6/6.4, leaf/lib 0.1/1.4
+  freed/held by leaf (imported by no file) at the check's end (MiB): leaf/src 33.1/33.1, imported/src 30.0/30.1, leaf/dts 8.3/8.3, imported/dts 6.4/6.4, leaf/lib 1.4/1.4
+RELEASED	runs/cen3r2-typeorm-c4.err	0%=2.4	25%=12.4	50%=41.9	75%=62.2	100%=79.3	after=0.1
+SUBSETS	runs/cen3r2-typeorm-c4.err	all=27.5	tree+pos=19.1	tree=15.4	pos=7.5	text=9.5	binder=8.7	names=0.5	leaf=15.5	imported=18.1	lib=0.4	dts=10.1	src=22.3	leaf-src=12.0
+SUMMARY	runs/cen3r2-typeorm-c4.err	241.4	0.62	213.9	0.27	27.5	186.6	79.3	13.8	tree=5.3,pos=2.4,text=3.5,names=0.2,binding=1.6,progsym=0.8	dts=5.0/14.7,lib=0.1/1.4,src=8.7/63.2	imported=8.2/36.5,leaf=5.6/42.9	53.8

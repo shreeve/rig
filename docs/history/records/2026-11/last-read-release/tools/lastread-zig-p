@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+"""lastread-zig: a `zig` for `rig build` (ZIG=lastread-zig, REAL_ZIG=the real
+one) that patches Trig's generated Zig for the last-read census (a scratch
+tool, never to land; modeled on tools/cli/ledger-zig).
+
+Before it runs the real Zig, it patches the package rig wrote, once:
+  - debug.zig: the census stubs (`lr_touch`, `lr_event`, `lr_bytes`) call
+    __lr.zig;
+  - ast.zig: every function with a parameter of type Ast (or File) notes, at
+    its entry, the kinds of that tree's records its body reads (`touch`): the
+    tree's lists (1), positions (2), text bytes (4), names (8), by the fields
+    the body names (`recs`, `locs`, `text_bytes`, `text_atoms`, ...), for the
+    tree's `census` (its file's index plus one; 0 is no program file's);
+  - __rig_main.zig and rig/runtime.zig: the clock starts with the program,
+    and the census is written to stderr on the way out.
+One unit only (UNITS=1): a split build would give each unit its own copy of
+__lr.zig's state.
+"""
+import fcntl
+import os
+import re
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+# The validation pass: a tree's records overwritten once the census says no
+# read of them is left (__lr.zig's LR_POISON); a read the hooks miss then
+# reads 0xA5 bytes.
+POISON = """
+pub fn __lr_poison(p: *anyopaque, bits: u32) void {
+    const a: *Ast = @ptrCast(@alignCast(p));
+    const P = struct {
+        fn z(comptime T: type, l: *rig.List(T)) void {
+            @memset(std.mem.sliceAsBytes(l.buf[0..l.len]), 0xA5);
+        }
+    };
+    if (bits & 1 != 0) {
+        P.z(NodeRec, &a.recs);
+        P.z(u32, &a.words);
+        P.z(ListRec, &a.lists);
+        P.z(Node, &a.list_nodes);
+        P.z(TextRec, &a.texts);
+        P.z(TextRec, &a.text_lists);
+    }
+    if (bits & 2 != 0) P.z(NodeLoc, &a.locs);
+    if (bits & 4 != 0) @memset(a.text_bytes.list.items, 0xA5);
+    if (bits & 8 != 0) {
+        P.z(u32, &a.name_ids);
+        P.z(u32, &a.text_atoms);
+    }
+}
+"""
+FN = re.compile(r"^(\s*)(?:pub )?(?:inline )?fn ([A-Za-z_][A-Za-z_0-9]*)\((.*)\) (.+) \{$")
+FIELDS = {
+    "recs": 1, "words": 1, "lists": 1, "list_nodes": 1, "texts": 1, "text_lists": 1, "facts": 1,
+    "name_slots": 1, "places": 1,
+    "locs": 2,
+    "text_bytes": 4,
+    "text_atoms": 8, "name_ids": 8,
+}
+DISTINCT = ["recs", "locs", "list_nodes", "text_lists", "text_bytes", "text_atoms", "name_ids"]
+FIELD_RE = "|".join(sorted(FIELDS, key=len, reverse=True))
+
+
+def split_params(s):
+    out, depth, cur = [], 0, ""
+    for c in s:
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        if c == "," and depth == 0:
+            out.append(cur.strip())
+            cur = ""
+        else:
+            cur += c
+    if cur.strip():
+        out.append(cur.strip())
+    return out
+
+
+def patch_ast(path, report):
+    lines = open(path).read().split("\n")
+    out = []
+    i = 0
+    hooked = 0
+    while i < len(lines):
+        line = lines[i]
+        out.append(line)
+        m = FN.match(line)
+        if m:
+            # the parameters: from the name's '(' to its matching ')' (the
+            # header may go on with `linksection(...)`)
+            k = line.index("(", line.index("fn " + m.group(2)))
+            depth, q = 0, k
+            while True:
+                if line[q] == "(":
+                    depth += 1
+                elif line[q] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                q += 1
+            params = line[k + 1:q]
+        if not m or "comptime" in params:
+            i += 1
+            continue
+        indent = m.group(1)
+        # the body: up to the closing brace at the header's indent
+        j = i + 1
+        while j < len(lines) and lines[j] != indent + "}":
+            j += 1
+        body = "\n".join(lines[i + 1:j])
+        touches = []
+        for p in split_params(params):
+            if ":" not in p:
+                continue
+            name, typ = [x.strip() for x in p.split(":", 1)]
+            local = name[len("__rig_in_"):] if name.startswith("__rig_in_") else name
+            names = {name, local}
+            alt = "|".join(re.escape(n) for n in names)
+            if typ in ("*const Ast", "*Ast"):
+                bits = 0
+                for f in re.findall(r"\b(?:%s)\.(%s)\b" % (alt, FIELD_RE), body):
+                    bits |= FIELDS[f]
+                if bits:
+                    touches.append("@ptrCast(@constCast(%s)), %s.census, %d" % (name, name, bits))
+            elif typ in ("*const File", "*File"):
+                bits = 0
+                for f in re.findall(r"\b(?:%s)\.ast\.(%s)\b" % (alt, FIELD_RE), body):
+                    bits |= FIELDS[f]
+                if bits:
+                    touches.append("@ptrCast(@constCast(&%s.ast)), %s.ast.census, %d" % (name, name, bits))
+        if not touches:
+            # a function that names a tree's own fields with no tree parameter
+            if re.search(r"\.(%s)\b" % "|".join(DISTINCT), body):
+                report.append("unhooked: " + line.strip())
+            i += 1
+            continue
+        stmt = "".join("%s    if (!@inComptime()) __lr.touchp(%s);\n" % (indent, t) for t in touches).rstrip("\n")
+        if i + 1 < len(lines) and lines[i + 1].strip().startswith("@branchHint"):
+            out.append(lines[i + 1])
+            i += 1
+        out.append(stmt)
+        hooked += 1
+        i += 1
+    s = "\n".join(out)
+    s = s.replace("\n", '\nconst __lr = @import("__lr.zig");\n', 1)
+    s += POISON
+    open(path, "w").write(s)
+    return hooked
+
+
+def patch_debug(path):
+    s = open(path).read()
+    for name, call in [("lr_touch", "__lr.touch(file, kinds)"), ("lr_event", "__lr.event(code, a, b)"), ("lr_bytes", "__lr.bytes(file, kind, bytes)")]:
+        m = re.search(r"pub (?:inline )?fn %s\(([^)]*)\) void \{\n(.*?)\n    return;\n\}" % name, s, re.S)
+        if not m:
+            sys.exit("lastread-zig: no stub %s in debug.zig" % name)
+        body = m.group(2)
+        body = re.sub(r"\n\s*_ = [a-z]+;", "", body)
+        new = "pub inline fn %s(%s) void {\n%s\n    %s;\n}" % (name, m.group(1), body, call)
+        s = s[:m.start()] + new + s[m.end():]
+    s = s.replace("\n", '\nconst __lr = @import("__lr.zig");\n', 1)
+    open(path, "w").write(s)
+
+
+def patch(out_dir):
+    # Rig writes the package again for each program it builds into one
+    # RIG_OUT_DIR (gen-libtrees builds its generator there first), so each
+    # file is tested for its own patch, not the package for a marker.
+    with open(os.path.join(out_dir, "__lr.lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        imp = 'const __lr = @import("__lr.zig");'
+        ast_zig = os.path.join(out_dir, "ast.zig")
+        if imp in open(ast_zig).read():
+            return
+        report = []
+        hooked = patch_ast(ast_zig, report)
+        patch_debug(os.path.join(out_dir, "debug.zig"))
+        main = os.path.join(out_dir, "__rig_main.zig")
+        s = open(main).read()
+        if "__lr.zig" not in s:
+            s2 = s.replace("    rig.start(__rig_init);\n", '    rig.start(__rig_init);\n    @import("__lr.zig").start();\n', 1)
+            s2 = re.sub(r"(pub fn main\([^)]*\) u8 \{\n)", r'\1    defer @import("__lr.zig").dump();\n', s2, count=1)
+            if s2.count("__lr.zig") != 2:
+                sys.exit("lastread-zig: __rig_main.zig not patched")
+            open(main, "w").write(s2)
+        rt = os.path.join(out_dir, "rig", "runtime.zig")
+        s = open(rt).read()
+        if "__lr.zig" not in s:
+            s2 = s.replace("fn endProcess(status: u8) noreturn {\n", 'fn endProcess(status: u8) noreturn {\n    @import("../__lr.zig").dump();\n', 1)
+            if s2 == s:
+                sys.exit("lastread-zig: runtime.zig not patched")
+            open(rt, "w").write(s2)
+        open(os.path.join(out_dir, "__lr.zig"), "w").write(open(os.path.join(HERE, "lrp.zig")).read())
+        with open(os.path.join(out_dir, "__lr.report"), "a") as o:
+            o.write("hooked %d functions of ast.zig\n" % hooked)
+            for r in report:
+                o.write(r + "\n")
+        print("lastread-zig: hooked %d functions; %d unhooked readers (see __lr.report)" % (hooked, len(report)), file=sys.stderr)
+
+
+args = sys.argv[1:]
+for a in args:
+    if a.endswith(".zig") and os.path.isfile(a):
+        d = os.path.dirname(os.path.abspath(a))
+        if os.path.exists(os.path.join(d, "ast.zig")):
+            patch(d)
+        break
+real = os.environ.get("REAL_ZIG", "zig")
+os.execvp(real, [real] + args)

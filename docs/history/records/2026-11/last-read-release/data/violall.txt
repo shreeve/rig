@@ -1,0 +1,69 @@
+== fl1t-typeorm-c1: 1087	1087	1087	11
+PATHS: 11 recorded of 11 violations
+    6  checker.Checker.is_binder_sym < checker.Checker.data_place < checker.Checker.symbol_parent < checker.Checker.get_declaration_modifier_flags_from_symbol_ex  [e.g. typeorm/packages/typeorm/test/functional/null-undefined-handling/query-builders.test.ts read (bits 1) while checking typeorm/packages/typeorm/test/github-issues/2251/issue-2251.test.ts]
+    1  checker.Checker.symbol_sort_key < checker.Checker.sort_symbols_by_key < checker.Checker.get_named_members < checker.Checker.set_structured_type_members  [e.g. typeorm/packages/typeorm/test/functional/null-undefined-handling/query-builders.test.ts read (bits 2) while checking typeorm/packages/typeorm/test/github-issues/2251/issue-2251.test.ts]
+    1  checker.Checker.symbol_flags < checker.Checker.get_declaration_non_public_flags_from_symbol < checker.Checker.property_related_to < checker.Checker.properties_related_to  [e.g. typeorm/packages/typeorm/test/functional/null-undefined-handling/query-builders.test.ts read (bits 32) while checking typeorm/packages/typeorm/test/github-issues/2251/issue-2251.test.ts]
+    1  checker.Checker.symbol_flags < checker.Checker.get_declaration_modifier_flags_from_symbol_ex < checker.Checker.get_declaration_modifier_flags_from_symbol < checker.Checker.create_union_or_intersection_property  [e.g. typeorm/packages/typeorm/test/functional/null-undefined-handling/query-builders.test.ts read (bits 32) while checking typeorm/packages/typeorm/test/github-issues/2251/issue-2251.test.ts]
+    1  checker.Checker.get_declaration_write_modifier_flags_from_symbol < checker.Checker.create_union_or_intersection_property < checker.Checker.get_union_or_intersection_property_unshared < checker.Checker.get_union_or_intersection_property  [e.g. typeorm/packages/typeorm/test/functional/null-undefined-handling/query-builders.test.ts read (bits 1) while checking typeorm/packages/typeorm/test/github-issues/2251/issue-2251.test.ts]
+    1  checker.Checker.is_readonly_assignment_declaration < checker.Checker.is_readonly_symbol_rest < checker.Checker.is_readonly_symbol_with_modifiers < checker.Checker.create_union_or_intersection_property  [e.g. typeorm/packages/typeorm/test/functional/null-undefined-handling/query-builders.test.ts read (bits 1) while checking typeorm/packages/typeorm/test/github-issues/2251/issue-2251.test.ts]
+== fl2t-typeorm-c1: 2994	2836	3383	12
+PATHS: 12 recorded of 12 violations
+    6  checker.Checker.is_binder_sym < checker.Checker.data_place < checker.Checker.symbol_parent < checker.Checker.get_declaration_modifier_flags_from_symbol_ex  [e.g. typeorm/packages/typeorm/test/functional/null-undefined-handling/query-builders.test.ts read (bits 1) while checking typeorm/packages/typeorm/test/github-issues/2251/issue-2251.test.ts]
+    1  checker.Checker.symbol_sort_key < checker.Checker.sort_symbols_by_key < checker.Checker.get_named_members < checker.Checker.set_structured_type_members  [e.g. typeorm/packages/typeorm/test/functional/null-undefined-handling/query-builders.test.ts read (bits 2) while checking typeorm/packages/typeorm/test/github-issues/2251/issue-2251.test.ts]
+    1  checker.Checker.symbol_flags < checker.Checker.get_declaration_non_public_flags_from_symbol < checker.Checker.property_related_to < checker.Checker.properties_related_to  [e.g. typeorm/packages/typeorm/test/functional/null-undefined-handling/query-builders.test.ts read (bits 32) while checking typeorm/packages/typeorm/test/github-issues/2251/issue-2251.test.ts]
+    1  checker.Checker.symbol_flags < checker.Checker.get_declaration_modifier_flags_from_symbol_ex < checker.Checker.get_declaration_modifier_flags_from_symbol < checker.Checker.create_union_or_intersection_property  [e.g. typeorm/packages/typeorm/test/functional/null-undefined-handling/query-builders.test.ts read (bits 32) while checking typeorm/packages/typeorm/test/github-issues/2251/issue-2251.test.ts]
+    1  checker.Checker.get_declaration_write_modifier_flags_from_symbol < checker.Checker.create_union_or_intersection_property < checker.Checker.get_union_or_intersection_property_unshared < checker.Checker.get_union_or_intersection_property  [e.g. typeorm/packages/typeorm/test/functional/null-undefined-handling/query-builders.test.ts read (bits 1) while checking typeorm/packages/typeorm/test/github-issues/2251/issue-2251.test.ts]
+    1  checker.Checker.is_readonly_assignment_declaration < checker.Checker.is_readonly_symbol_rest < checker.Checker.is_readonly_symbol_with_modifiers < checker.Checker.create_union_or_intersection_property  [e.g. typeorm/packages/typeorm/test/functional/null-undefined-handling/query-builders.test.ts read (bits 1) while checking typeorm/packages/typeorm/test/github-issues/2251/issue-2251.test.ts]
+    1  compiler.Program.get_diagnostics_with_preceding_directives < compiler.Program.get_bind_and_check_diagnostics_with_checker < core.Tristate.is_true < compiler.filter_no_emit_semantic_diagnostics  [e.g. typeorm/packages/typeorm/src/driver/react-native/ReactNativeQueryRunner.ts read (bits 4) while checking -]
+== fl1p-typeorm-c4: 1087	1087	1087	0
+PATHS: 0 recorded of 0 violations
+== fl2p-typeorm-c4: 2994	2836	3383	3
+PATHS: 3 recorded of 3 violations
+    1  compiler.Program.get_diagnostics_with_preceding_directives < compiler.Program.get_bind_and_check_diagnostics_with_checker < core.Tristate.is_true < compiler.filter_no_emit_semantic_diagnostics  [e.g. typeorm/packages/typeorm/src/driver/react-native/ReactNativeQueryRunner.ts read (bits 4) while checking -]
+    1  diagnosticwriter.add_line_map < diagnosticwriter.compute_line_maps < execute.report_diagnostics < execute.check_and_emit  [e.g. typeorm/packages/typeorm/src/driver/react-native/ReactNativeQueryRunner.ts read (bits 4) while checking -]
+    1  diagnosticwriter.write_format_diagnostic < execute.DiagnosticReporter.report < execute.report_diagnostics < execute.check_and_emit  [e.g. typeorm/packages/typeorm/src/driver/react-native/ReactNativeQueryRunner.ts read (bits 4) while checking -]
+== fl1t-nuxt-c1: 411	411	411	38
+PATHS: 38 recorded of 38 violations
+   16  type printing: get_alternative_containing_modules -> build_external_module_container_index (every module's exports)  [e.g. nuxt/eslint.config.mjs read (bits 1) while checking nuxt/packages/nuxt/src/core/nuxt.ts]
+    7  checker.Checker.symbol_sort_key < checker.Checker.sort_symbols_by_key < checker.Checker.get_named_members < checker.Checker.set_structured_type_members  [e.g. nuxt/packages/kit/test/internal-esm.spec.ts read (bits 2) while checking nuxt/packages/nitro-server/test/server.test.ts]
+    6  checker.Checker.is_binder_sym < checker.Checker.data_place < checker.Checker.symbol_parent < checker.Checker.get_declaration_modifier_flags_from_symbol_ex  [e.g. nuxt/packages/nuxt/test/nuxt-link-ssr.test.ts read (bits 1) while checking nuxt/packages/nuxt/test/route-rules.test.ts]
+    4  checker.Checker.symbol_flags < checker.Checker.get_declaration_non_public_flags_from_symbol < checker.Checker.property_related_to < checker.Checker.properties_related_to  [e.g. nuxt/packages/nuxt/test/nuxt-link-ssr.test.ts read (bits 32) while checking nuxt/packages/nuxt/test/route-rules.test.ts]
+    2  synthetic node ids: Ast.node_count (a length only)  [e.g. nuxt/eslint.config.mjs read (bits 1) while checking nuxt/packages/kit/src/resolve.ts]
+    1  checker.Checker.symbol_flags < checker.Checker.get_declaration_modifier_flags_from_symbol_ex < checker.Checker.get_declaration_modifier_flags_from_symbol < checker.Checker.create_union_or_intersection_property  [e.g. nuxt/packages/nuxt/test/nuxt-link-ssr.test.ts read (bits 32) while checking nuxt/packages/nuxt/test/route-rules.test.ts]
+    1  checker.Checker.get_declaration_write_modifier_flags_from_symbol < checker.Checker.create_union_or_intersection_property < checker.Checker.get_union_or_intersection_property_unshared < checker.Checker.get_union_or_intersection_property  [e.g. nuxt/packages/nuxt/test/nuxt-link-ssr.test.ts read (bits 1) while checking nuxt/packages/nuxt/test/route-rules.test.ts]
+    1  checker.Checker.is_readonly_assignment_declaration < checker.Checker.is_readonly_symbol_rest < checker.Checker.is_readonly_symbol_with_modifiers < checker.Checker.create_union_or_intersection_property  [e.g. nuxt/packages/nuxt/test/nuxt-link-ssr.test.ts read (bits 1) while checking nuxt/packages/nuxt/test/route-rules.test.ts]
+== fl2t-nuxt-c1: 2565	1181	1317	132466
+PATHS: 64 recorded of 132466 violations
+   64  synthetic node ids: Ast.node_count (a length only)  [e.g. nuxt/node_modules/.pnpm/@eslint+core@1.2.1/node_modules/@eslint/core/dist/esm/types.d.ts read (bits 1) while checking nuxt/packages/kit/src/resolve.ts]
+== fl1p-nuxt-c4: 411	411	411	79
+PATHS: 64 recorded of 79 violations
+   47  type printing: get_alternative_containing_modules -> build_external_module_container_index (every module's exports)  [e.g. nuxt/eslint.config.mjs read (bits 1) while checking nuxt/packages/kit/test/module.test.ts]
+   17  synthetic node ids: Ast.node_count (a length only)  [e.g. nuxt/eslint.config.mjs read (bits 1) while checking nuxt/packages/kit/src/loader/config.ts]
+== fl2p-nuxt-c4: 2565	1181	1317	4593
+PATHS: 64 recorded of 4593 violations
+   64  synthetic node ids: Ast.node_count (a length only)  [e.g. nuxt/node_modules/.pnpm/@eslint+core@1.2.1/node_modules/@eslint/core/dist/esm/types.d.ts read (bits 1) while checking nuxt/packages/kit/src/loader/config.ts]
+== fl1t-webpack-c1: 144	144	144	1
+PATHS: 1 recorded of 1 violations
+    1  synthetic node ids: Ast.node_count (a length only)  [e.g. webpack/bin/webpack.js read (bits 1) while checking webpack/lib/serialization/BinaryMiddleware.js]
+== fl2t-webpack-c1: 705	444	1264	1
+PATHS: 1 recorded of 1 violations
+    1  synthetic node ids: Ast.node_count (a length only)  [e.g. webpack/bin/webpack.js read (bits 1) while checking webpack/lib/serialization/BinaryMiddleware.js]
+== fl1p-webpack-c4: 144	144	144	2
+PATHS: 2 recorded of 2 violations
+    2  synthetic node ids: Ast.node_count (a length only)  [e.g. webpack/bin/webpack.js read (bits 1) while checking webpack/lib/javascript/syntax-parser.js]
+== fl2p-webpack-c4: 705	444	1264	2
+PATHS: 2 recorded of 2 violations
+    2  synthetic node ids: Ast.node_count (a length only)  [e.g. webpack/bin/webpack.js read (bits 1) while checking webpack/lib/javascript/syntax-parser.js]
+== fl1t-supabase-studio-c1: 781	781	781	447
+PATHS: 64 recorded of 447 violations
+   40  type printing: get_alternative_containing_modules -> build_external_module_container_index (every module's exports)  [e.g. supabase-studio/apps/studio/instrumentation-client.ts read (bits 1) while checking supabase-studio/apps/studio/components/ui/CodeEditor/CodeEditor.tsx]
+   15  checker.Checker.symbol_sort_key < checker.Checker.sort_symbols_by_key < checker.Checker.get_named_members < checker.Checker.set_structured_type_members  [e.g. supabase-studio/apps/studio/data/content/content-remap.test.ts read (bits 2) while checking supabase-studio/apps/studio/data/content/notebooks/notebook-schema.test.ts]
+    6  checker.Checker.is_binder_sym < checker.Checker.data_place < checker.Checker.symbol_parent < checker.Checker.get_declaration_modifier_flags_from_symbol_ex  [e.g. supabase-studio/apps/studio/data/content/content-remap.test.ts read (bits 1) while checking supabase-studio/apps/studio/lib/ai/tools/notebook-tools.test.ts]
+    1  checker.Checker.symbol_flags < checker.Checker.get_declaration_modifier_flags_from_symbol_ex < checker.Checker.get_declaration_modifier_flags_from_symbol < checker.Checker.create_union_or_intersection_property  [e.g. supabase-studio/apps/studio/data/content/content-remap.test.ts read (bits 32) while checking supabase-studio/apps/studio/lib/ai/tools/notebook-tools.test.ts]
+    1  checker.Checker.get_declaration_write_modifier_flags_from_symbol < checker.Checker.create_union_or_intersection_property < checker.Checker.get_union_or_intersection_property_unshared < checker.Checker.get_union_or_intersection_property  [e.g. supabase-studio/apps/studio/data/content/content-remap.test.ts read (bits 1) while checking supabase-studio/apps/studio/lib/ai/tools/notebook-tools.test.ts]
+    1  checker.Checker.is_readonly_assignment_declaration < checker.Checker.is_readonly_symbol_rest < checker.Checker.is_readonly_symbol_with_modifiers < checker.Checker.create_union_or_intersection_property  [e.g. supabase-studio/apps/studio/data/content/content-remap.test.ts read (bits 1) while checking supabase-studio/apps/studio/lib/ai/tools/notebook-tools.test.ts]
+== fl2t-supabase-studio-c1: 10569	1220	1279	490
+PATHS: 64 recorded of 490 violations
+   64  type printing: get_alternative_containing_modules -> build_external_module_container_index (every module's exports)  [e.g. supabase-studio/apps/studio/instrumentation-client.ts read (bits 1) while checking supabase-studio/apps/studio/components/ui/CodeEditor/CodeEditor.tsx]
+== fl1p-supabase-studio-c4: 
+== fl2p-supabase-studio-c4: 
