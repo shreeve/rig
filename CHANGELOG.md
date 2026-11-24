@@ -1089,6 +1089,16 @@ arms.
 
 ### Runtime
 
+- **An actor's method run from its mailbox is stopped by a signal:** the
+  runtime's functions that run a method (`callAs`, `actorCall`, the
+  mailbox's `Call.run`, and `actorSpawn`'s task) lie in the program's
+  section. A method small enough that Rig emits it `inline` was inlined
+  into the mailbox's `Call.run`, outside that section, where a
+  preemption signal is declined, so a long method a busy actor's runner
+  ran held its worker past every timer: a 20 ms sleeper beside one woke
+  after 41 to 54 ms. `test/cli/preempt_cover.sh` checks the mailbox
+  path, and `test/cli/preempt_section.sh` that no runtime function holds
+  the program's code.
 - **`main`'s stack is mapped as a task's:** the 64 MiB every task is
   promised and 1 MiB more, address space only, so `main`, while it has
   used no more than that, runs an idle actor's method with no proven

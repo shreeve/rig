@@ -21,7 +21,15 @@
 # to a function defined elsewhere must match a line of
 # test/cli/preempt_calls.txt, which says why that function stays out;
 # calls.rig, below, reaches the runtime's helpers of each kind (`%` and
-# `/`, comparisons of text, Map and HashMap, closures, slices, sorting).
+# `/`, comparisons of text, Map and HashMap, closures, slices, sorting,
+# an actor's method).
+#
+# And the converse: the program's own code (a line of one of its modules,
+# or of std's modules written in Rig) may sit outside the section only in
+# a function preempt_calls.txt names. A runtime function that calls the
+# program's code, as an actor's mailbox runs its methods, calls it
+# through `rt.callCode`; were it inlined there instead, a method run
+# that way could not be stopped.
 #
 # Preemption is built for Linux x86-64 and arm64 macOS. On Linux x86-64
 # the benches are built as `rig build` builds them; elsewhere `rig emit`
@@ -127,9 +135,21 @@ fun work(n: Int) -> Int
   s += 1 if fl > 2.0 else 0
   s
 
+obj Acc
+  total: Int
+
+  sub add(!@, n: Int)
+    for i in 0..n
+      @total = (@total +% i) & 1023
+
+  fun get(?@) -> Int
+    @total
+
 sub main()
   t = work(10000)&
-  print(>t > 0)
+  a = *Actor(Acc(total: 0))
+  !a.add(100)
+  print(>t > 0, a.get() >= 0)
 RIG
 
 # calls BIN SECTION NAME: every call from BIN's SECTION to a function
@@ -160,6 +180,42 @@ sys.exit(1 if bad else 0)
 PY
 }
 
+# outside BIN SECTION NAME: no function outside BIN's SECTION holds a line
+# of the program's own modules (the package's `.zig` files, not the
+# runtime's under `rig/` nor Zig's), unless test/cli/preempt_calls.txt
+# names it as a program or std function, not the runtime's (`rig.*`).
+outside() {
+    python3 - "$1" "$2" "$ROOT/test/cli/preempt_calls.txt" >"$3.outside" <<'PY' || fail "$3: the program's code is inlined outside its section, into functions unnamed in test/cli/preempt_calls.txt: $(tr '\n' ' ' <"$3.outside")"
+import fnmatch, re, subprocess, sys
+binary, section, rules = sys.argv[1:4]
+# Only a program or std function that stays out by design is excused: a
+# runtime function (`rig.*`) never holds the program's code.
+allowed = [a for a in (l.split()[0] for l in open(rules) if l.strip() and not l.startswith("#")) if not a.startswith("rig.")]
+heads = subprocess.run(["objdump", "-h", binary], capture_output=True, text=True).stdout
+macho = "mach-o" in heads.lower()
+texts = [f[1] for f in (l.split() for l in heads.splitlines()) if len(f) > 2 and f[1] != section and (f[-1] == "TEXT" or f[1] in (".text", "__text"))]
+def name(sym):
+    if macho: sym = sym.removeprefix("_")
+    return re.sub(r"__func_[0-9]+", "", sym)
+runtime = re.compile(r"/rig/(?:std/)?[A-Za-z0-9_]+\.zig:")
+zig = re.compile(r"/lib/(?:std|compiler_rt|c|libc|init)/|/lib/[a-z_]+\.zig:")
+bad = set()
+for sect in texts:
+    fn = None
+    for line in subprocess.run(["objdump", "-d", "-l", "--section=" + sect, binary], capture_output=True, text=True).stdout.splitlines():
+        m = re.match(r"^[0-9a-f]+ <(.*)>:$", line)
+        if m: fn = name(m.group(1)); continue
+        m = re.search(r"(/[^ ]*\.zig):[0-9]+", line)
+        if not m or fn is None or runtime.search(line) or zig.search(line): continue
+        # The program's Zig entry, which only moves to its own stack and
+        # calls `__rig_run_main`, in the section, stays out.
+        if fn == "__rig_main.main": continue
+        if not any(fnmatch.fnmatchcase(fn, a) for a in allowed): bad.add(fn)
+print("\n".join(sorted(bad)))
+sys.exit(1 if bad else 0)
+PY
+}
+
 # src NAME: the program built: a bench, or calls.rig.
 src() { if [[ $1 == calls ]]; then echo "$PWD/calls.rig"; else echo "$ROOT/bench/$1/$1.rig"; fi; }
 
@@ -177,6 +233,7 @@ for p in tasks actors calls; do
         (( addr % 16384 == 0 )) || fail "bench/$p: the executable's __rig_text starts at $addr, not on a 16 KiB boundary"
         check "$obj" __rig_text "$p"
         calls "$obj" __rig_text "mac-$p"
+        outside "$obj" __rig_text "mac-$p"
         x15='[[:space:],[](x15|w15)([[:space:],]|]|$)'
         ! grep -qE "$x15" "${p}__rig_text.dis" || fail "bench/$p: the program's section uses x15: $(grep -m1 -E "$x15" "${p}__rig_text.dis")"
         objdump -r --section=__rig_text "$obj" >"$p.relocs"
@@ -194,5 +251,6 @@ for p in tasks actors calls; do
     fi
     check "$p" rig_text "$p"
     calls "$p" rig_text "$p"
+    outside "$p" rig_text "$p"
     ! grep -q '%fs:' "${p}rig_text.dis" || fail "bench/$p: the program's section reads a thread-local: $(grep -m1 '%fs:' "${p}rig_text.dis")"
 done

@@ -63,6 +63,7 @@ longer builds; `bench-tasks --record` adds `rig-safe` rows (`--release`).
 | 2026-11-15 | the same boards | go | 228 ns | 199 ns | 67.2 ms | 226 ns | 3.4 ms | 2.9 KiB | 5.8 ms |
 | 2026-11-19 | main 636fd02a5 (#1181, #1183), medians of 10 rounds at two placements against fae440c77 (records/2026-11/spawn-1119; spawn bimodal at ten workers, traced) | rig-safe | 152 ns | 26 ns | 70.4 ms | 6 ns | 100.5 ns | | 5.3 ms |
 | 2026-11-23 | #1229: a burst keeps its first task in a slot | rig-safe | 123 ns | 27 ns | 69.7 ms | 7 ns | 119 ns | 16.6 KiB | 5.3 ms |
+| 2026-11-24 | #1242: an actor's method run from its mailbox is stopped by a signal (medians of a 15-round A/B; bench/tasks' code is identical to main's) | rig-safe | 169 ns | 27 ns | 76.4 ms | 7.5 ns | 121 ns | | 5.3 ms |
 
 ## x86-64 (pup)
 
@@ -160,3 +161,4 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-11-22 | #1224: os.exit claims a worker whose thread has not yet run | rig-safe | 152 ns | 25 ns | 66.9 ms | 6 ns | 91 ns | 16.6 KiB | 5.2 ms |
 | 2026-11-23 | #1229: a burst keeps its first task in a slot (pup E-cores 12-19; fanout about 3% slower than main here, 38 of 48 rounds above it) | rig-safe | 127 ns | 75 ns | 150.4 ms | 11 ns | 265 ns | 4.6 KiB | 9.2 ms |
 | 2026-11-23 | #1229: a burst keeps its first task in a slot (pup P-cores 0-11, slot 736's A/B, medians of 20 rounds; fanout level with main, 0.03% faster) | rig-safe | 110 ns | 51 ns | 60.9 ms | 7.5 ns | 210 ns | | 5.5 ms |
+| 2026-11-24 | #1242: an actor's method run from its mailbox is stopped by a signal (pup P-cores 0-11, slot 750's A/B, medians of 20 rounds; each row within 0.6% of main, hog noise) | rig-safe | 111 ns | 50 ns | 60.9 ms | 7.0 ns | 197 ns | | 5.4 ms |
