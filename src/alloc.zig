@@ -5534,7 +5534,7 @@ pub const heap_census = struct {
             const role = vload(i32, &h.census_role);
             const tid = vload(i32, &h.census_tid);
             var role_buf: [24]u8 = undefined;
-            const role_text = if (role >= 0) std.fmt.bufPrint(&role_buf, "worker{d}", .{role}) catch "?" else if (role == -2) "pool" else "other";
+            const role_text = if (tid == pid) "main" else if (role >= 0) std.fmt.bufPrint(&role_buf, "worker{d}", .{role}) catch "?" else if (role == -2) "pool" else "other";
             out.print("rig-heap-rss: {s} heap={d} tid={d} main={d} role={s} spare={d} leads={d} faults_ahead={d} taken={d} live_est={d} bad_lists={d} ", .{ when, hi, tid, @intFromBool(tid == pid), role_text, @intFromBool(spare[hi]), @intFromBool(leads(h)), @intFromBool(faultsAhead(h)), taken, live_est, a.blocks_bad });
             out.print("segs={d} seg_rss={d} seg_huge={d} seg_hdr_rss={d} seg_room_rss={d} small_held={d} small_free={d} small_free_rss={d} whole_free_pages={d} whole_free_rss={d} released_pages={d} tail_waste={d} full_pages={d} small_inuse={d} ", .{ a.segs, a.seg_rss, a.seg_huge, a.seg_hdr_rss, a.seg_room_rss, a.small_held, a.small_free, a.small_free_rss, a.whole_pages, a.whole_rss, a.released, a.tail, a.full_pages, small_inuse });
             out.print("spansegs={d} spanseg_rss={d} spanseg_huge={d} spanseg_hdr_rss={d} spanseg_room_rss={d} spanseg_uncarved={d} span_live={d} span_peak={d} span_bound={d} warm={d} warm_n={d} warm_rss={d} cold={d} cold_n={d} cold_rss={d} ", .{ a.sspans, a.sspan_rss, a.sspan_huge, a.sspan_hdr_rss, a.sspan_room_rss, a.sspan_tail, span_live, span_peak, (span_peak -| span_live) + keep_large, warm, a.warm_n, a.warm_rss, cold, a.cold_n, a.cold_rss });
@@ -5547,12 +5547,15 @@ pub const heap_census = struct {
         }
 
         // The totals, against the region, smaps, and the process.
+        // smaps read again, beside the scan of the region, so the two
+        // are of one moment, as near as can be.
+        const maps_now = readMaps(arena);
         const region = if (nslots > 0) scan(fd, start, nslots * segment_size, null) else Res{};
         const regions = censusRegions();
         var s_seg: Res = .{};
         var s_tab: Res = .{};
         var s_other: Res = .{};
-        for (maps) |m| {
+        for (maps_now) |m| {
             var into = &s_other;
             if (end != 0 and m.start >= start and m.end <= end) into = &s_seg;
             for (regions.tables) |r| if (m.start >= r.start and m.end <= r.start + r.len + huge_page) {
@@ -5566,7 +5569,7 @@ pub const heap_census = struct {
         out.print("rig-heap-rss: {s} total heaps={d} hwm={d} taken={d} live_est={d} small_inuse={d} span_live={d} large_live={d} ", .{ when, nh, hwm, t_taken, t_live_est, t.small_held -| t.small_free, t_span_live, t_large_live });
         out.print("sum_seg_rss={d} sum_seg_huge={d} small_seg_rss={d} span_seg_rss={d} region_scan_rss={d} region_scan_huge={d} smaps_region_rss={d} smaps_region_huge={d} gap_slots={d} ", .{ sum_seg_rss, t.seg_huge + t.sspan_huge, t.seg_rss, t.sspan_rss, region.rss, region.huge, s_seg.rss, s_seg.huge, gap_slots });
         out.print("small_free={d} small_free_rss={d} whole_free_pages={d} whole_free_rss={d} tail_waste={d} seg_hdr_rss={d} seg_room_rss={d} spanseg_hdr_rss={d} spanseg_room_rss={d} warm_rss={d} cold_rss={d} kept_rss={d} kept_cold_rss={d} ", .{ t.small_free, t.small_free_rss, t.whole_pages, t.whole_rss, t.tail, t.seg_hdr_rss, t.seg_room_rss, t.sspan_hdr_rss, t.sspan_room_rss, t.warm_rss, t.cold_rss, t.kept_rss, t.ckept_rss });
-        out.print("smaps_tables_rss={d} smaps_other_rss={d} vmrss={d} vmhwm={d} rss_anon={d} rss_file={d} counts_live={d} counts_peak={d}\n", .{ s_tab.rss, s_other.rss, statusField(st, "VmRSS:"), statusField(st, "VmHWM:"), statusField(st, "RssAnon:"), statusField(st, "RssFile:"), if (counts) total_live.load(.monotonic) else -1, if (counts) total_peak.load(.monotonic) else -1 });
+        out.print("smaps_tables_rss={d} smaps_other_rss={d} vmrss={d} vmhwm={d} hwm_end={d} rss_anon={d} rss_file={d} counts_live={d} counts_peak={d}\n", .{ s_tab.rss, s_other.rss, statusField(st, "VmRSS:"), statusField(st, "VmHWM:"), maxRss(), statusField(st, "RssAnon:"), statusField(st, "RssFile:"), if (counts) total_live.load(.monotonic) else -1, if (counts) total_peak.load(.monotonic) else -1 });
     }
 
     fn indexOf(heaps: []const *Heap, h: *const Heap) ?usize {
