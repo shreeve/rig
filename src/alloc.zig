@@ -115,6 +115,12 @@ comptime {
         thp_mode,
         huge_min,
         heap_huge_min,
+        heap_census.state,
+        heap_census.slots,
+        heap_census.sampler,
+        heap_census.peak_buf,
+        heap_census.peak_len,
+        heap_census.snapshots,
         table_holes,
         table_hole_count,
         table_live,
@@ -5090,10 +5096,6 @@ pub const heap_census = struct {
     var snapshots_var: usize = 0;
     const snapshots = split.cell(&snapshots_var, "alloc.hc_snapshots");
 
-    comptime {
-        if (split.on and split.main) _ = .{ state, slots, sampler, peak_buf, peak_len, snapshots };
-    }
-
     pub inline fn on() bool {
         if (comptime !here) return false;
         const s = state.load(.monotonic);
@@ -5148,6 +5150,7 @@ pub const heap_census = struct {
         @branchHint(.cold);
         h.census_tid = linux.gettid();
         h.census_role = -1;
+        // uncounted: the sampler's start, taken once, never a lock.
         if (sampler.cmpxchgStrong(0, 1, .acq_rel, .monotonic) != null) return;
         const th = std.Thread.spawn(.{ .stack_size = 512 << 10 }, sample, .{}) catch {
             sampler.store(3, .release);
