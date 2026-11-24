@@ -2628,12 +2628,17 @@ pub fn Actor(comptime T: type) type {
         }
 
         /// Run method `name` on the value with `args`: through its
-        /// address, or on a copy for a method that takes the value.
+        /// address, or on a copy for a method that takes the value. The
+        /// method is the program's code, called through `rt.callCode`, so
+        /// a method emitted `inline` stays in the program's section, where
+        /// a signal stops it, and is never inlined into a runtime function
+        /// that reaches it: the mailbox's `Call.run`, `actorCall`, or a
+        /// runner.
         fn invoke(self: *Self, comptime name: []const u8, args: anytype) Result(name) {
             const method = @field(T, name);
-            const SelfParam = @typeInfo(@TypeOf(method)).@"fn".param_types[0].?;
-            const at = if (@typeInfo(SelfParam) == .pointer) &self.value else self.value;
-            return @call(.auto, method, .{at} ++ args);
+            const info = @typeInfo(@TypeOf(method)).@"fn";
+            const at = if (@typeInfo(info.param_types[0].?) == .pointer) &self.value else self.value;
+            return rt.callCode(info.return_type.?, method, .{at} ++ args);
         }
 
         /// Call method `name` through handle `box` and wait for its
