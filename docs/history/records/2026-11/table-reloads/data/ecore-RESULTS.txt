@@ -1,0 +1,63 @@
+# dload: what Trig's extra c1 memory-bound cycles are (2026-11-24, E-core 18, diagnosis only)
+
+Arms: T = Trig main 3c6d8627, PGO half only (no BOLT; burst pgo-dl3c6 bin), Y = tsrs 0.23.0 from source (PGO on Trig's
+training set, no BOLT): the matched pair of the c1-check study. D = 3c6d8627 one-unit release with debug info.
+perf stat: 3 interleaved rounds x 5 event sets, medians; stdout md5 identical across arms on every run.
+Samples: PEBS ld_head.any_at_ret (IP = the load blocking retirement: 72% of sample IPs are loads),
+load_latency (weight >= 16, data address), all_loads (data address). Analysis on burst (lat.py, ckld.py, headins.py).
+
+## Counters, T against Y (excess = (T - Y*insT/insY) / Y cycles; topdown in slots/6)
+## Compiler  stdout md5s ['b7148b1e']  instr T/Y 0.950  cycles T/Y 1.011  (n=15,15)
+  ld_head.l1_bound_at_ret                    T      3.277e+07  Y      8.597e+06  T/Y  3.812  excess  +2.38% of Y cycles  share T   3.1% Y   0.8%
+  mem_bound_stalls_load.l2_hit               T      7.742e+07  Y      6.147e+07  T/Y  1.260  excess  +1.84% of Y cycles  share T   7.4% Y   5.9%
+  mem_bound_stalls_load.llc_miss             T      1.437e+08  Y      1.943e+08  T/Y  0.739  excess  -3.96% of Y cycles  share T  13.7% Y  18.8%
+  mem_load_uops_retired.l2_hit               T      9.074e+06  Y       7.35e+06  T/Y  1.235  excess  +0.20% of Y cycles  share T   0.9% Y   0.7%
+  mem_scheduler_block.all                    T      8.882e+07  Y      2.191e+07  T/Y  4.053  excess  +6.58% of Y cycles  share T   8.5% Y   2.1%
+  mem_scheduler_block.ld_buf                 T      6.144e+07  Y      6.328e+06  T/Y  9.709  excess  +5.36% of Y cycles  share T   5.9% Y   0.6%
+  mem_uops_retired.all_loads                 T      4.241e+08  Y      3.537e+08  T/Y  1.199  excess  +8.51% of Y cycles  share T  40.6% Y  34.2%
+  topdown_bad_speculation.mispredict         T      9.677e+08  Y      9.458e+08  T/Y  1.023  excess  +1.11% of Y cycles  share T  15.4% Y  15.3%
+  topdown_be_bound.mem_scheduler             T       1.72e+08  Y      3.973e+07  T/Y  4.330  excess  +2.17% of Y cycles  share T   2.7% Y   0.6%
+  topdown_be_bound.non_mem_scheduler         T      5.693e+08  Y      6.681e+08  T/Y  0.852  excess  -1.06% of Y cycles  share T   9.1% Y  10.8%
+  topdown_fe_bound.all                       T      1.922e+09  Y      1.642e+09  T/Y  1.170  excess  +5.83% of Y cycles  share T  30.7% Y  26.5%
+## typeorm  stdout md5s ['ee57683a']  instr T/Y 0.968  cycles T/Y 1.023  (n=15,15)
+  ld_head.l1_bound_at_ret                    T      1.266e+08  Y       5.47e+07  T/Y  2.314  excess  +1.81% of Y cycles  share T   3.0% Y   1.3%
+  mem_bound_stalls_load.l2_hit               T      3.064e+08  Y      2.649e+08  T/Y  1.157  excess  +1.23% of Y cycles  share T   7.4% Y   6.5%
+  mem_bound_stalls_load.llc_miss             T      6.485e+08  Y      6.985e+08  T/Y  0.928  excess  -0.68% of Y cycles  share T  15.6% Y  17.2%
+  mem_load_uops_retired.l2_hit               T      3.766e+07  Y      3.119e+07  T/Y  1.207  excess  +0.18% of Y cycles  share T   0.9% Y   0.8%
+  mem_scheduler_block.all                    T      3.768e+08  Y      1.469e+08  T/Y  2.565  excess  +5.78% of Y cycles  share T   9.1% Y   3.6%
+  mem_scheduler_block.ld_buf                 T      2.399e+08  Y      5.099e+07  T/Y  4.704  excess  +4.69% of Y cycles  share T   5.8% Y   1.3%
+  mem_uops_retired.all_loads                 T      1.508e+09  Y      1.267e+09  T/Y  1.191  excess  +6.95% of Y cycles  share T  36.3% Y  31.2%
+  topdown_bad_speculation.mispredict         T      3.543e+09  Y      3.546e+09  T/Y  0.999  excess  +0.45% of Y cycles  share T  14.2% Y  14.5%
+  topdown_be_bound.mem_scheduler             T      8.322e+08  Y      3.436e+08  T/Y  2.422  excess  +2.05% of Y cycles  share T   3.3% Y   1.4%
+  topdown_be_bound.non_mem_scheduler         T      2.254e+09  Y       2.68e+09  T/Y  0.841  excess  -1.40% of Y cycles  share T   9.0% Y  11.0%
+  topdown_fe_bound.all                       T      8.159e+09  Y      7.398e+09  T/Y  1.103  excess  +4.10% of Y cycles  share T  32.7% Y  30.4%
+## webpack  stdout md5s ['85604e51']  instr T/Y 0.911  cycles T/Y 0.981  (n=15,15)
+  ld_head.l1_bound_at_ret                    T      1.374e+08  Y      7.308e+07  T/Y  1.880  excess  +1.05% of Y cycles  share T   2.1% Y   1.1%
+  mem_bound_stalls_load.l2_hit               T      4.191e+08  Y      3.858e+08  T/Y  1.086  excess  +1.00% of Y cycles  share T   6.3% Y   5.7%
+  mem_bound_stalls_load.llc_miss             T        1.2e+09  Y      1.303e+09  T/Y  0.921  excess  +0.21% of Y cycles  share T  18.1% Y  19.3%
+  mem_load_uops_retired.l2_hit               T      5.059e+07  Y       4.92e+07  T/Y  1.028  excess  +0.09% of Y cycles  share T   0.8% Y   0.7%
+  mem_scheduler_block.all                    T      6.697e+08  Y      2.004e+08  T/Y  3.342  excess  +7.21% of Y cycles  share T  10.1% Y   3.0%
+  mem_scheduler_block.ld_buf                 T      4.865e+08  Y      6.804e+07  T/Y  7.151  excess  +6.28% of Y cycles  share T   7.3% Y   1.0%
+  mem_uops_retired.all_loads                 T      2.546e+09  Y      2.317e+09  T/Y  1.099  excess  +6.46% of Y cycles  share T  38.4% Y  34.3%
+  topdown_bad_speculation.mispredict         T      5.849e+09  Y      6.022e+09  T/Y  0.971  excess  +0.90% of Y cycles  share T  14.7% Y  14.8%
+  topdown_be_bound.mem_scheduler             T      1.263e+09  Y      5.012e+08  T/Y  2.521  excess  +1.99% of Y cycles  share T   3.2% Y   1.2%
+  topdown_be_bound.non_mem_scheduler         T       3.79e+09  Y       4.54e+09  T/Y  0.835  excess  -0.85% of Y cycles  share T   9.5% Y  11.2%
+  topdown_fe_bound.all                       T      1.151e+10  Y      1.057e+10  T/Y  1.089  excess  +4.64% of Y cycles  share T  28.9% Y  26.1%
+
+## Who issues the extra loads (all_loads samples with data address, T, share of all loads)
+Loads that read the Checker object itself: webpack 18.3%, typeorm 16.8%, Compiler 17.7% (23-25% of loads in checker
+functions). Table heads (store.*.slots) 5.4-5.8%, program 2.0-2.5%, ids 1.0-1.7%, binder_syms 0.9-1.0%, syms,
+flow_memo. In absolute loads these match Trig's excess over tsrs: typeorm 0.25G vs excess 0.24G, Compiler 0.075G vs
+0.070G, webpack 0.47G vs 0.23G. Spread thin: no function holds more than 0.35% of all loads in them.
+
+## What blocks retirement (ld_head PEBS, D)
+Table-head loads are 0.1% of the blocking loads (they hit L1 and finish early); the slot loads after them block.
+Blocking loads spread over AST lists (~25%: u32 words 9%, NodeRec 8.5%, NodeLoc 3.7%), store Tables (~10%), maps;
+no chain above ~2%. tsrs: its AST node header 23%. Load-latency (>=16) samples: store Tables ~3-4% of L1-miss
+latency; memcpy 17%.
+
+## Reading
+The memory-bound excess on the E-core is load-buffer occupancy (ld_buf blocks 4.7-9.7x tsrs, +4.7-6.3% of cycles),
+from about 10-20% more load uops per instruction, and those extra loads are reloads of Checker fields (Table heads,
+program, ids, binder_syms) after calls and stores. Not miss latency (L2-miss/LLC stalls are at or below tsrs), and
+not one chain of Tables.

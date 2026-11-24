@@ -1,0 +1,88 @@
+src/parser/jsdoc.rig:307:5 index lower upper
+src/parser/jsdoc.rig:307:47 index lower upper
+src/parser/jsdoc.rig:1278:55 index lower upper
+src/parser/jsdoc.rig:1278:79 index lower upper
+src/parser/jsdoc.rig:1278:99 index lower upper
+src/parser/jsdoc.rig:1279:5 += no_overflow
+src/parser/jsdoc.rig:1305:32 index lower
+src/parser/jsdoc.rig:1309:7 index lower
+src/parser/jsdoc.rig:1333:17 index lower
+src/parser/parser.rig:116:8 + no_overflow
+src/parser/parser.rig:116:29 index lower upper
+src/parser/parser.rig:116:49 index lower upper
+src/parser/parser.rig:116:54 + no_overflow
+src/parser/parser.rig:116:74 index lower upper
+src/parser/parser.rig:116:79 + no_overflow
+src/parser/parser.rig:116:97 index lower upper
+src/parser/parser.rig:116:102 + no_overflow
+src/parser/parser.rig:117:22 index lower upper
+src/parser/parser.rig:117:27 + no_overflow
+src/parser/parser.rig:118:7 += no_overflow
+src/parser/parser.rig:120:17 index lower upper
+src/parser/parser.rig:121:7 += no_overflow
+src/parser/parser.rig:652:30 index lower upper
+src/parser/parser.rig:657:26 index lower upper
+src/parser/parser.rig:667:14 index lower upper
+src/parser/parser.rig:671:30 index lower
+src/parser/parser.rig:671:30 ok index upper
+src/parser/parser.rig:677:31 index lower
+src/parser/parser.rig:693:39 index lower
+src/parser/parser.rig:693:61 + no_overflow
+src/parser/parser.rig:702:24 index upper
+src/parser/parser.rig:704:26 index lower upper
+src/parser/parser.rig:709:32 index upper
+src/parser/parser.rig:709:32 ok index lower
+src/parser/parser.rig:3080:10 index lower upper
+src/parser/parser.rig:4705:30 index lower
+src/parser/parser.rig:6312:36 index lower
+src/parser/parser.rig:6317:18 index lower
+src/parser/parser.rig:6323:16 index lower
+src/parser/parser.rig:6326:16 index lower
+src/parser/parser.rig:6329:16 index lower
+src/parser/parser.rig:6381:19 index lower
+src/parser/parser.rig:6389:38 index lower upper
+src/parser/parser.rig:6393:21 index lower
+src/parser/parser.rig:6394:21 index lower
+src/parser/parser.rig:6842:29 index upper
+src/parser/parser.rig:6842:50 index upper
+src/parser/parser.rig:6843:5 += no_overflow
+src/parser/parser.rig:6849:28 index upper
+src/parser/parser.rig:6849:50 index upper
+src/parser/parser.rig:6849:72 index upper
+src/parser/parser.rig:6849:94 index upper
+src/parser/parser.rig:6850:5 += no_overflow
+src/parser/parser.rig:6859:17 index upper
+src/parser/parser.rig:6859:17 ok index lower
+src/parser/parser.rig:6875:29 index upper
+src/parser/parser.rig:6875:51 index upper
+src/parser/parser.rig:6875:72 index upper
+src/parser/parser.rig:6875:94 index upper
+src/parser/parser.rig:6875:115 index upper
+src/parser/parser.rig:6876:5 += no_overflow
+src/parser/parser.rig:6888:9 + no_overflow
+src/parser/parser.rig:6889:28 index upper
+src/parser/parser.rig:6890:5 += no_overflow
+src/parser/pieces.rig:58:28 index upper
+src/parser/pieces.rig:58:50 index upper
+src/parser/pieces.rig:59:5 += no_overflow
+src/parser/pieces.rig:118:5 index lower upper
+src/parser/pieces.rig:119:19 index lower upper
+src/parser/pieces.rig:125:5 index lower
+src/parser/pieces.rig:125:49 index lower
+src/parser/pieces.rig:135:5 index lower
+src/parser/pieces.rig:135:5 ok index upper
+src/parser/pieces.rig:135:36 index lower
+src/parser/pieces.rig:135:36 ok index upper
+src/parser/pieces.rig:137:5 index lower
+src/parser/pieces.rig:137:5 ok index upper
+src/parser/pieces.rig:137:44 index lower
+src/parser/pieces.rig:137:44 ok index upper
+src/parser/pieces.rig:138:17 index lower
+src/parser/pieces.rig:139:7 index lower
+src/parser/pieces.rig:139:7 ok index upper
+src/parser/pieces.rig:139:49 index lower
+src/parser/pieces.rig:139:49 ok index upper
+src/parser/references.rig:84:19 index lower
+src/parser/references.rig:100:17 index lower
+src/parser/utilities.rig:42:9 index lower upper
+src/parser/utilities.rig:46:7 index lower

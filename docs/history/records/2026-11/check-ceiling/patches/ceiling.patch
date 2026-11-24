@@ -1,0 +1,49 @@
+diff --git i/src/main.zig w/src/main.zig
+index abd0d8296..7de94efbd 100644
+--- i/src/main.zig
++++ w/src/main.zig
+@@ -233,7 +233,7 @@ const Mode = enum {
+     fn zigFlag(mode: Mode) []const u8 {
+         return switch (mode) {
+             .debug => "-Odebug",
+-            .safe => "-Osafe",
++            .safe => "-Ofast", // CEILING: was -Osafe
+         };
+     }
+ 
+diff --git i/src/runtime.zig w/src/runtime.zig
+index fbefc847c..bf512a8de 100644
+--- i/src/runtime.zig
++++ w/src/runtime.zig
+@@ -6436,7 +6436,13 @@ fn bounds(count: usize, lo: anytype, hi: anytype) [2]usize {
+     return .{ l, h };
+ }
+ 
+-fn slicePanic() noreturn {
++// CEILING: no Rig bounds checks in an optimized build without runtime safety.
++const ceiling_unchecked = !builtin.optimize.runtimeSafety();
++inline fn ceilingUnreachable() noreturn {
++    unreachable;
++}
++const slicePanic = if (ceiling_unchecked) ceilingUnreachable else slicePanicChecked;
++fn slicePanicChecked() noreturn {
+     @branchHint(.cold);
+     @panic("slice bounds out of range");
+ }
+@@ -6520,12 +6526,14 @@ pub inline fn heldLen(n: usize) Int {
+ 
+ /// Out of line and cold, so the test costs a caller's inlining one
+ /// compare and a branch.
+-noinline fn lenPanic() noreturn {
++const lenPanic = if (ceiling_unchecked) ceilingUnreachable else lenPanicChecked;
++noinline fn lenPanicChecked() noreturn {
+     @branchHint(.cold);
+     @panic("length out of range");
+ }
+ 
+-fn indexPanic() noreturn {
++const indexPanic = if (ceiling_unchecked) ceilingUnreachable else indexPanicChecked;
++fn indexPanicChecked() noreturn {
+     @branchHint(.cold);
+     @panic("index out of bounds");
+ }

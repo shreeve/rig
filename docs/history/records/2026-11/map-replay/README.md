@@ -68,3 +68,24 @@ including all 40 of Trig's streams (imported exactly, 0 hit/miss mismatches).
 
 Rig: no std Map change for speed. The 8 B compact Map goes to the owner only with a census of how many Maps and
 Sets in Trig's long-lived records are empty or small at peak, and the bytes 8 B would save.
+
+## Addendum: the empty-Map census (2026-11-24)
+
+Whether an 8 B Map would save memory: Maps and Sets alive by length in Trig at c4 (data/census.md; counters under
+`RIG_MAP_CENSUS=PATH` in a traced build, the third commit in patches/rig-trace.patch). A Map is counted at its first
+write or clone and at every drop, named by type and field; a Map never written is seen only at its drop, so at peak RSS
+it is bounded: low, those dropped at teardown; high, every one dropped after the peak (short-lived locals included).
+
+| | supabase-studio | webpack |
+|---|---|---|
+| Maps alive at peak RSS, low bound (0 / 1-4 / 5-16 / >16 entries) | 2,521 / 14,573 / 49,140 / 17,758 | 600 / 1,580 / 11,141 / 4,341 |
+| Peak RSS, plain build | 1,930 MiB | 684 MiB |
+| Net saving at 8 B, low bound | 0.8 MiB (0.04%) | 0.2 MiB (0.02%) |
+| Net saving at 8 B, high bound | 10.3 MiB (0.53%) | 6.0 MiB (0.87%) |
+
+The saving is 56 B for each live Map or Set less 48 B out of line for each non-empty one (compact.zig's header and
+tags). Long-lived Maps are rarely empty; the long-lived empty ones are almost all `ast.Binding.node_fields` and
+`.local_tables` (Map[U32, U32]); the high bound is mostly locals never written, which churn rather than stay alive.
+
+**Decision (Rig):** keep the 64 B Map. The 8 B Map is measured and not worth it: at most 0.9% of peak memory, at the
+low bound nothing, for 0.05-0.40% of the wall. Lazy Binding tables are Trig's call (sent to it as a finding).

@@ -352,6 +352,273 @@ fail "keeps generic field text is rejected", "14:2: cannot drop `n` while a read
   <n
   print(b.last)
 
+test "keeps generic owned body values", "1 0"
+  # Rule (SPEC, Generic functions): an instance's `T` may hold a view, so
+  # the body check counts a view parameter that reaches a `T` as stored
+  # wherever the body stores one; `Owned` (SPEC, Bounds) says no part of
+  # `T` is a view, so a `T` moved out of `src` carries no view of it, as a
+  # `String` does.
+  # From: bench/hash/replay (2026-11-23).
+
+  sub move[T: Owned](dst: !List[T], src: !List[T])
+    x = !src.pop() ?? panic("empty")
+    !dst.push(<x)
+
+  a: List[String] = List()
+  b: List[String] = List()
+  !b.push(String("x"))
+  move(!a, !b)
+  print(a.len, b.len)
+
+fail "keeps generic unbounded body values", "8:3: `move` stores a view of `src` in `dst`, which its caller reaches, but its signature does not keep `src`; say so: `keeps src`"
+  # Why: without a bound an instance's `T` may be a `?String`, and a `T`
+  # popped from `src` may then view what `src`'s elements view.
+  # Rule: SPEC, Generic functions: a view parameter that reaches a `T` is
+  # stored wherever the body stores one.
+
+  sub move[T](dst: !List[T], src: !List[T])
+    x = !src.pop() ?? panic("empty")
+    !dst.push(<x)
+
+  pass
+
+test "keeps generic owned siblings", "1 1 1 1 1 1 0 1 1 0 3 2 2"
+  # Rule: a type parameter whose bounds give `Owned` (SPEC, Bounds), by
+  # name, through an API of the program's own, or held in another type
+  # (`List[T]`, `T?`, a Map's key and value), holds no view, so a body
+  # that moves its values between write parameters keeps none of the
+  # parameters they came from: through a generic it calls, a closure, a
+  # field of self, or a function value given a write view of one; and a
+  # function value's result holds no view of what it was given. Each
+  # caller drops what it viewed once the call returns.
+
+  api Job: Owned
+    fun id(?@) -> Int
+
+  obj J: Job
+    n: Int
+
+    fun id(?@) -> Int
+      @n
+
+  sub inner[T: Owned](dst: !List[T], src: !List[T])
+    x = !src.pop() ?? panic("empty")
+    !dst.push(<x)
+
+  sub outer[T: Owned](dst: !List[T], src: !List[T])
+    inner(!dst, !src)
+
+  sub nested[T: Owned](dst: !List[List[T]], src: !List[List[T]])
+    x = !src.pop() ?? panic("empty")
+    !dst.push(<x)
+
+  sub opt[T: Owned](dst: !List[T?], src: !List[T?])
+    x = !src.pop() ?? panic("empty")
+    !dst.push(<x)
+
+  sub by_api[T: Job](dst: !List[T], src: !List[T])
+    x = !src.pop() ?? panic("empty")
+    !dst.push(<x)
+
+  sub shift[K: Hash + Owned, V: Owned](dst: !Map[K, V], src: !Map[K, V], k: K)
+    v = !src.take(?k) ?? panic("none")
+    !dst.put(<k, <v)
+
+  sub closure[T: Owned](dst: !List[T], src: !List[T])
+    f = |l: !List[T]| !l.pop()
+    x = f(!src) ?? panic("empty")
+    !dst.push(<x)
+
+  obj Bin[T: Owned]
+    items: List[T]
+    last: T?
+
+    sub take_from(!@, src: !List[T])
+      x = !src.pop() ?? panic("empty")
+      !@items.push(<x)
+      @last = !src.pop()
+
+  sub run[T: Owned](f: ?*sub(!T, ?String), k: !T, s: ?String)
+    f(!k, s)
+
+  fun pick[T: Owned](f: ?fun(?String) -> T, a: ?String, b: ?String) -> T from b
+    f(a)
+
+  sub copy_all[T: Copy + Owned](out: !List[T], xs: []T)
+    for x in xs
+      !out.push(x)
+
+  fun two() -> List[String]
+    r: List[String] = List()
+    !r.push(String("x"))
+    !r.push(String("y"))
+    r
+
+  a: List[String] = List()
+  b = two()
+  outer(!a, !b)
+  la: List[List[String]] = List()
+  lb: List[List[String]] = List()
+  !lb.push(two())
+  nested(!la, !lb)
+  oa: List[String?] = List()
+  ob: List[String?] = List()
+  !ob.push(String("x"))
+  opt(!oa, !ob)
+  ja: List[J] = List()
+  jb: List[J] = List()
+  !jb.push(J(n: 1))
+  by_api(!ja, !jb)
+  ma: Map[String, String] = Map()
+  mb: Map[String, String] = Map()
+  !mb.put(String("k"), String("v"))
+  shift(!ma, !mb, String("k"))
+  ca: List[String] = List()
+  cb = two()
+  closure(!ca, !cb)
+  bin = Bin[String](items: List(), last: none)
+  bb = two()
+  !bin.take_from(!bb)
+  n = 0
+  t = String("abc")
+  f: *sub(!Int, ?String) = *|k, s| k = s.len
+  run(?f, !n, ?t)
+  <t
+  u = String("ab")
+  w = String("c")
+  g: *fun(?String) -> Int = *|s| s.len
+  p = pick(?g, ?u, ?w)
+  <u
+  ints: List[Int] = List()
+  xs = [1, 2]
+  copy_all(!ints, xs[..])
+  print(a.len, b.len, la.len, oa.len, ja.len, ma.len, mb.len, ca.len, bin.items.len, bb.len, n, p, ints.len)
+
+fail "keeps generic owned siblings are rejected", "12:3: `two` stores a view of `us` in `ud`, which its caller reaches, but its signature does not keep `us`; say so: `keeps us`", "16:3: `values` stores a view of `src` in `dst`, which its caller reaches, but its signature does not keep `src`; say so: `keeps src`", "20:7: `keys` stores a view of `src` in `dst`, which its caller reaches, but its signature does not keep `src`; say so: `keeps src, k`", "20:7: `keys` stores a view of `k` in `dst`, which its caller reaches, but its signature does not keep `k`; say so: `keeps src, k`", "23:3: `views` stores a view of `src` in `dst`, which its caller reaches, but its signature does not keep `src`; say so: `keeps src`", "27:3: `nested` stores a view of `src` in `dst`, which its caller reaches, but its signature does not keep `src`; say so: `keeps src`", "32:3: `closure` stores a view of `src` in `dst`, which its caller reaches, but its signature does not keep `src`; say so: `keeps src`", "38:9: `take_from` stores a view of `@` in `src`, which its caller reaches, but its signature does not keep `@`; say so: `keeps @, src`", "39:5: `take_from` stores a view of `src` in `@`, which its caller reaches, but its signature does not keep `src`; say so: `keeps @, src`", errors: 9
+  # Why: only a type parameter whose bounds give `Owned` is left out of the
+  # body check. `U`, `V`, and a `Hash` key may hold views of what the body
+  # takes them from; a `?T` is a view whatever `T` is; and without a bound
+  # a `T` nested in a List, taken in a closure, or held in a field of self
+  # counts as before.
+  # Rule: SPEC, Generic functions, and the Bounds table.
+
+  sub two[T: Owned, U](dst: !List[T], src: !List[T], ud: !List[U], us: !List[U])
+    x = !src.pop() ?? panic("empty")
+    !dst.push(<x)
+    y = !us.pop() ?? panic("empty")
+    !ud.push(<y)
+
+  sub values[K: Hash + Owned, V](dst: !Map[K, V], src: !Map[K, V], k: K)
+    v = !src.take(?k) ?? panic("none")
+    !dst.put(<k, <v)
+
+  sub keys[K: Hash](dst: !Set[K], src: !Set[K], k: ?K)
+    x = !src.take(k) ?? panic("none")
+    _ = !dst.add(<x)
+
+  sub views[T: Owned](dst: !List[?T], src: ?T)
+    !dst.push(src)
+
+  sub nested[T](dst: !List[List[T]], src: !List[List[T]])
+    x = !src.pop() ?? panic("empty")
+    !dst.push(<x)
+
+  sub closure[T](dst: !List[T], src: !List[T])
+    f = |l: !List[T]| !l.pop()
+    x = f(!src) ?? panic("empty")
+    !dst.push(<x)
+
+  obj Bin[T]
+    items: List[T]
+
+    sub take_from(!@, src: !List[T])
+      x = !src.pop() ?? panic("empty")
+      !@items.push(<x)
+
+  pass
+
+test "keeps generic implied owned body values", "1 0"
+  # Rule: a bound a signature implies counts as stated (SPEC, Bounds):
+  # `Bag[T]` needs `T: Owned`, so `move`'s `T` holds no view, and a `T`
+  # popped from `src` carries none of it, though `move` names no bound.
+
+  obj Bag[U: Owned]
+    x: U
+
+  sub move[T](b: (?Bag[T])?, dst: !List[T], src: !List[T])
+    x = !src.pop() ?? panic("empty")
+    !dst.push(<x)
+
+  a: List[String] = List()
+  b: List[String] = List()
+  !b.push(String("x"))
+  move(none, !a, !b)
+  print(a.len, b.len)
+
+fail "keeps generic owned instance with a view", "14:1: `move[?String]` cannot use `T = ?String`: `?String` may hold a view"
+  # Why: the body keeps no view through an `Owned` `T` only because no
+  # instance's `T` holds one: a `?String` is refused at the call that
+  # makes the instance.
+  # Rule: SPEC, Bounds: `Owned` holds no view.
+
+  sub move[T: Owned](dst: !List[T], src: !List[T])
+    x = !src.pop() ?? panic("empty")
+    !dst.push(<x)
+
+  s = String("x")
+  a: List[?String] = List()
+  b: List[?String] = List()
+  !b.push(?s)
+  move(!a, !b)
+  <s
+  print(a[0])
+
+fail "keeps generic owned API instance with a view", "8:5: `J` provides `Job`, which builds on `Owned`, but `J` may hold a view: its field `s` is a `?String`", "22:1: `mv[J]` cannot use `T = J`: `J` may hold a view"
+  # Why: a `T: Job` is `Owned` through the API, so an object holding a
+  # `?String` neither provides `Job` nor makes an instance.
+  # Rule: SPEC, Bounds: an API that builds on `Owned` gives it.
+
+  api Job: Owned
+    fun id(?@) -> Int
+
+  obj J: Job
+    s: ?String
+
+    fun id(?@) -> Int
+      @s.len
+
+  sub mv[T: Job](dst: !List[T], src: !List[T])
+    x = !src.pop() ?? panic("empty")
+    !dst.push(<x)
+
+  s = String("x")
+  a: List[J] = List()
+  b: List[J] = List()
+  !b.push(J(s: ?s))
+  mv(!a, !b)
+  <s
+  print(a[0].id())
+
+fail "keeps generic implied owned instance with a view", "16:1: `Bag[?String]` cannot use `U = ?String`: `?String` may hold a view", "16:1: `move[?String]` cannot use `T = ?String`: `?String` may hold a view"
+  # Why: `move`'s `T` is `Owned` because `Bag[T]` needs it, so a
+  # `?String` is refused at the call that makes the instance.
+  # Rule: SPEC, Bounds: a bound a signature implies counts as stated.
+
+  obj Bag[U: Owned]
+    x: U
+
+  sub move[T](b: (?Bag[T])?, dst: !List[T], src: !List[T])
+    x = !src.pop() ?? panic("empty")
+    !dst.push(<x)
+
+  s = String("x")
+  a: List[?String] = List()
+  b: List[?String] = List()
+  !b.push(?s)
+  move(none, !a, !b)
+  <s
+  print(a[0])
+
 fail "keeps generic param stored", "9:5: say so: `keeps x`"
   # Why: a generic `?T` parameter stored in self is a stored view
   # like any other; the body is checked once with `T` opaque.

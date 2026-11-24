@@ -155,3 +155,7 @@ for spawn and the Mac, `early-memory` for memory).
 | `archive/psum-stack-both` | `644e8e694` | 2026-11-20 | psum-gap board arm (2026-11-18): main with the early-start and handoff changes together; measured in records/2026-11/psum-gap (stack-board.md), superseded by #1158/#1170. |
 | `archive/psum-stack-hp` | `ea7217f22` | 2026-11-20 | psum-gap board arm (2026-11-18): main with seg-first-small (first 2 MiB small pages); measured in records/2026-11/psum-gap, superseded by #1170. |
 | `archive/ring-steal-race-pad` | `fc71d5685` | 2026-11-20 | Layout probe (2026-11-18): 32 never-run bytes in the handoff, to test whether a psum gap was code placement; records/2026-11/psum-gap. |
+| `archive/thp-size` | `350c0a007` | 2026-11-24 | RIG_HUGE_MIN_MB, where huge pages start (ce8f7f9ac), and the Table census (scratch); not taken, the owner kept 2 MiB; records/2026-11/thp-size. |
+| `archive/map-trace` | `b104b1bc6` | 2026-11-24 | RIG_MAP_TRACE extended to walks, `at` and creation sites, and RIG_MAP_CENSUS (Maps and Sets alive by length); measurement for records/2026-11/map-replay. |
+| `archive/map-replay` | `9312e3b62` | 2026-11-24 | bench/hash/replay: Trig's real map streams against hashbrown, indexmap and an 8-byte Map; no std Map change; records/2026-11/map-replay. |
+| `archive/heap-census` | `0f044d51c` | 2026-11-24 | RIG_HEAP_RSS per-heap census, the per-heap huge-page knob RIG_HEAP_HUGE_MIN_MB, and the fragmentation ceilings RIG_SMALL_BORROW and 8-byte classes across 96-160 B; not taken; records/2026-11/alloc-frag. |

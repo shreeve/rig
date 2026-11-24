@@ -1,0 +1,74 @@
+src/lexer/regexp.rig:866:21 index lower
+src/lexer/regexp.rig:867:21 index lower
+src/lexer/regexp.rig:868:29 index lower
+src/lexer/regexp.rig:879:18 index lower
+src/lexer/regexp.rig:880:18 index lower
+src/lexer/regexp.rig:884:8 index lower
+src/lexer/regexp.rig:903:23 index lower upper
+src/lexer/regexp.rig:904:5 += no_overflow
+src/lexer/scanner.rig:180:41 += no_overflow
+src/lexer/scanner.rig:181:22 read lower upper
+src/lexer/scanner.rig:237:7 += no_overflow
+src/lexer/scanner.rig:259:9 += no_overflow
+src/lexer/scanner.rig:1175:32 += no_overflow
+src/lexer/scanner.rig:1176:13 read upper
+src/lexer/scanner.rig:1176:84 + no_overflow
+src/lexer/scanner.rig:1178:32 += no_overflow
+src/lexer/scanner.rig:1179:13 read upper
+src/lexer/scanner.rig:1179:84 + no_overflow
+src/lexer/scanner.rig:1181:30 += no_overflow
+src/lexer/scanner.rig:1182:23 index upper
+src/lexer/scanner.rig:1182:23 ok index lower
+src/lexer/scanner.rig:1182:52 index upper
+src/lexer/scanner.rig:1182:52 ok index lower
+src/lexer/scanner.rig:1182:57 + no_overflow
+src/lexer/scanner.rig:1289:9 += no_overflow
+src/lexer/scanner.rig:1292:9 += no_overflow
+src/lexer/scanner.rig:1298:9 += no_overflow
+src/lexer/scanner.rig:1301:7 += no_overflow
+src/lexer/scanner.rig:1442:11 += no_overflow
+src/lexer/scanner.rig:2415:28 index lower upper
+src/lexer/scanner.rig:2416:5 += no_overflow
+src/lexer/scanner.rig:2451:3 ok + no_overflow
+src/lexer/scanner.rig:2451:24 ok index lower upper
+src/lexer/scanner.rig:2451:29 ok + no_overflow
+src/lexer/scanner.rig:2451:49 ok index lower upper
+src/lexer/scanner.rig:2451:54 ok + no_overflow
+src/lexer/scanner.rig:2451:72 ok index lower upper
+src/lexer/scanner.rig:2451:77 ok + no_overflow
+src/lexer/scanner.rig:2467:5 += no_overflow
+src/lexer/scanner.rig:2548:67 index upper
+src/lexer/scanner.rig:2548:72 + no_overflow
+src/lexer/scanner.rig:2549:11 += no_overflow
+src/lexer/scanner.rig:2560:18 index upper
+src/lexer/scanner.rig:2560:23 + no_overflow
+src/lexer/scanner.rig:2561:13 += no_overflow
+src/lexer/scanner.rig:2565:15 += no_overflow
+src/lexer/scanner.rig:2571:22 index upper
+src/lexer/scanner.rig:2571:47 + no_overflow
+src/lexer/scanner.rig:2571:72 index upper
+src/lexer/scanner.rig:2571:77 + no_overflow
+src/lexer/scanner.rig:2572:17 += no_overflow
+src/lexer/scanner.rig:2650:26 index upper
+src/lexer/scanner.rig:2650:26 ok index lower
+src/lexer/scanner.rig:2653:7 += no_overflow
+src/lexer/scanner.rig:2669:5 += no_overflow
+src/lexer/scanner.rig:2828:13 + no_overflow
+src/lexer/scanner.rig:2926:8 + no_overflow
+src/lexer/scanner.rig:2927:18 index lower upper
+src/lexer/scanner.rig:2927:30 + no_overflow
+src/lexer/scanner.rig:2982:42 + no_overflow
+src/lexer/scanner.rig:2982:69 index lower upper
+src/lexer/scanner.rig:2982:74 + no_overflow
+src/lexer/scanner.rig:2983:11 += no_overflow
+src/lexer/scanner.rig:2992:9 += no_overflow
+src/lexer/scanner.rig:2995:25 index lower
+src/lexer/scanner.rig:2995:30 + no_overflow
+src/lexer/scanner.rig:2995:43 + no_overflow
+src/lexer/scanner.rig:3000:11 += no_overflow
+src/lexer/scanner.rig:3007:15 += no_overflow
+src/lexer/scanner.rig:3027:11 += no_overflow
+src/lexer/utilities.rig:49:18 index upper
+src/lexer/utilities.rig:49:30 + no_overflow
+src/lexer/utilities.rig:69:5 += no_overflow
+src/lexer/utilities.rig:151:5 += no_overflow

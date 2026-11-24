@@ -1,0 +1,22 @@
+samples 4750, in disassembled functions 3133; weighted panic branches per instruction 0.049
+   58.1% _rig.runtime.indexPanic
+   13.7% zig.integerOutOfBounds
+   12.2% zig.integerOverflow
+    6.2% _rig.runtime.slicePanic
+    3.5% zig.outOfBounds
+    1.6% zig.startGreaterThanEnd
+    1.3% _rig.runtime.oom
+    0.9% _rig.runtime.lenPanic
+    0.7% _rig.runtime.bytesPanic
+    0.5% zig.incorrectAlignment
+samples 1865, in disassembled functions 1865; weighted panic branches per instruction 0.049
+   58.5% _rig.runtime.indexPanic
+   19.9% zig.integerOutOfBounds
+    9.8% zig.integerOverflow
+    8.3% _rig.runtime.slicePanic
+    1.5% zig.outOfBounds
+    1.2% _rig.runtime.bytesPanic
+    0.4% _rig.runtime.shiftPanic
+    0.2% _rig.runtime.oom
+    0.1% _rig.runtime.lenPanic
+    0.1% zig.incorrectAlignment

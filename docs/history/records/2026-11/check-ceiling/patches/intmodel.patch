@@ -1,0 +1,164 @@
+diff --git i/src/emit.zig w/src/emit.zig
+index 61613ffe2..7fdcaedc3 100644
+--- i/src/emit.zig
++++ w/src/emit.zig
+@@ -3457,6 +3457,14 @@ pub const Emitter = struct {
+     }
+ 
+     /// Whether `ty` is a vector, or a view of one.
++    /// INTMODEL (scratch, measurement only): Rust's release integer model in
++    /// emitted code: `+ - *`, negation and `<<` wrap, and an integer
++    /// conversion truncates (`rig.asInt`). Bounds, slice and length checks stay.
++    fn intWraps(self: *Emitter, ty: ?TypeId) bool {
++        const t = ty orelse return false;
++        return self.facts.types.get(self.peelViews(t)) == .int;
++    }
++
+     fn isSimd(self: *Emitter, ty: ?TypeId) bool {
+         const t = ty orelse return false;
+         return self.facts.types.get(self.peelViews(t)) == .simd;
+@@ -3520,7 +3528,7 @@ pub const Emitter = struct {
+             .rem => "rig.rem",
+             .div => "@divTrunc",
+             .div_generic => "rig.div",
+-            .shl => "@shlExact",
++            .shl => if (self.intWraps(self.typeOf(target))) null else "@shlExact",
+             .lane_checked => self.laneHelper(set, op),
+         } else null;
+         // The value of a shift is its amount, of any integer type.
+@@ -3550,7 +3558,8 @@ pub const Emitter = struct {
+             return self.closeAssign(order);
+         }
+         try self.emitTarget(target);
+-        try self.w.print(" {s}= ", .{if (op == .@"<<%") "<<" else @tagName(op)});
++        const wraps = (op == .@"+" or op == .@"-" or op == .@"*") and self.intWraps(self.typeOf(target));
++        try self.w.print(" {s}{s}= ", .{ if (op == .@"<<%") "<<" else @tagName(op), if (wraps) "%" else "" });
+         if (shift) try self.emitShiftAmount(self.typeOf(target), value) else try self.emitBare(value);
+         try self.w.writeAll(";");
+         return self.closeAssign(order);
+@@ -7164,6 +7173,12 @@ pub const Emitter = struct {
+                     try self.emitBare(operand);
+                     return self.w.writeAll(")");
+                 }
++                if (self.intWraps(self.typeOf(sexp))) {
++                    try self.w.writeAll("(0 -% ");
++                    try self.writeAsOpen(self.peelViews(self.typeOf(sexp).?));
++                    try self.emitBare(operand);
++                    return self.w.writeAll("))");
++                }
+                 try self.w.writeAll("-");
+                 try self.emitExpr(operand);
+             },
+@@ -7219,8 +7234,8 @@ pub const Emitter = struct {
+                     try self.emitBare(ir.get(sexp, .right));
+                     return self.w.writeAll(")");
+                 }
+-                const shl = head == .@"<<";
+-                const wrap = head == .@"<<%";
++                const shl = head == .@"<<" and !self.intWraps(self.typeOf(sexp));
++                const wrap = head == .@"<<%" or head == .@"<<";
+                 const parens = !shl and !bare;
+                 if (parens) try self.w.writeAll("(");
+                 if (shl) try self.w.writeAll("@shlExact(");
+@@ -7566,6 +7581,15 @@ pub const Emitter = struct {
+             try self.emitExpr(operands[1]);
+             return self.w.writeAll(")");
+         }
++        if ((kind == .@"+" or kind == .@"-" or kind == .@"*") and self.intWraps(self.typeOf(sexp))) {
++            if (!bare) try self.w.writeAll("(");
++            try self.writeAsOpen(self.peelViews(self.typeOf(sexp).?));
++            try self.emitBare(operands[0]);
++            try self.w.print(") {s}% ", .{op});
++            try self.emitExpr(operands[1]);
++            if (!bare) try self.w.writeAll(")");
++            return;
++        }
+         if (!bare) try self.w.writeAll("(");
+         try self.emitExpr(operands[0]);
+         try self.w.print(" {s} ", .{op});
+@@ -9931,6 +9955,18 @@ pub const Emitter = struct {
+             return self.w.print("{d})", .{v});
+         };
+         const from_int = self.facts.types.get(from) == .int;
++        // INTMODEL: an integer conversion truncates or extends, as Rust's `as`.
++        if (to_int and from_int) {
++            const saved = self.rt_names;
++            defer self.rt_names = saved;
++            self.rt_names = true;
++            try self.w.writeAll("rig.asInt(");
++            try self.emitTypeTy(target);
++            try self.w.writeAll(", ");
++            try self.writeAsOpen(from);
++            try self.emitBare(arg);
++            return self.w.writeAll("))");
++        }
+         // To an unsigned type, through `openUnsignedCast`.
+         const unsigned = to_int and from_int and !self.facts.types.get(target).int.signed;
+         const builtin = if (to_int) (if (from_int) "@intCast" else "@trunc") else (if (from_int) "@floatFromInt" else "@floatCast");
+diff --git i/src/proofs.zig w/src/proofs.zig
+index c30969586..4935ca44c 100644
+--- i/src/proofs.zig
++++ w/src/proofs.zig
+@@ -717,6 +717,8 @@ const Pass = struct {
+ 
+     /// `i += c` or `i = i + c`, `c` a literal `>= 0`.
+     fn isAdditive(p: *const Pass, node: Sexp, w: sema.WriteSite) bool {
++        // INTMODEL (scratch): an add wraps, so `i += c` keeps no `0 <= i`.
++        if (true) return false;
+         if (!node.isKind(.set)) return false;
+         const target = ir.Set.target(node);
+         if (target != .src or p.ctx.symbolOf(target) != w.sym) return false;
+@@ -1010,6 +1012,8 @@ const Pass = struct {
+             .{ pc.i, pc.c }
+         else
+             return;
++        // INTMODEL (scratch): `i + k` in a guard may have wrapped; it bounds nothing.
++        if (k != 0) return;
+         if (k > max_k) return;
+         try out.add(p.a, .{ .below = .{ .i = i, .k = @min(k + @intFromBool(strict), max_k), .b = b } }, 0);
+     }
+@@ -1095,7 +1099,8 @@ const Pass = struct {
+         const args = ir.Call.args(e);
+         if (args.len != 1 or args[0].isKind(.kwarg)) return false;
+         return switch (p.ctx.types.get(p.ctx.typeOf(args[0]) orelse return false)) {
+-            .int => |info| !info.signed,
++            // INTMODEL (scratch): `Int(u)` truncates, so a U64 may give a negative Int.
++            .int => |info| !info.signed and info.width() < 64,
+             else => false,
+         };
+     }
+diff --git i/src/runtime.zig w/src/runtime.zig
+index fbefc847c..3315f02c1 100644
+--- i/src/runtime.zig
++++ w/src/runtime.zig
+@@ -4036,7 +4036,7 @@ fn recordFromBytes(comptime T: type, b: *const [recordSize(T)]u8) T {
+     switch (@typeInfo(T)) {
+         .int, .float => return @bitCast(b.*),
+         .bool => return b[0] != 0,
+-        .@"enum" => |e| return @enumFromInt(@as(e.tag_type, @intCast(@as(std.meta.Int(.unsigned, 8 * @sizeOf(T)), @bitCast(b.*))))),
++        .@"enum" => |e| return @enumFromInt(@as(e.tag_type, @intCast(@as(@Int(.unsigned, 8 * @sizeOf(T)), @bitCast(b.*))))),
+         .array => |a| {
+             const each = comptime recordSize(a.child);
+             for (&out, 0..) |*e, i| e.* = recordFromBytes(a.child, b[i * each ..][0..each]);
+@@ -5154,6 +5154,21 @@ pub inline fn elemPtrIf(items: anytype, i: Int, comptime p: ?Proven, comptime q:
+     return &items.ptr[offsetIf(i, items.len, 1, p, q, ok, comptime lenHeld(@TypeOf(items))) orelse indexPanic()];
+ }
+ 
++/// INTMODEL (scratch): `x` as the integer type `T`, as Rust's `as`: a
++/// narrower type keeps the low bits, a wider one extends by `x`'s sign.
++pub inline fn asInt(comptime T: type, x: anytype) T {
++    const F = @TypeOf(x);
++    const fw = @typeInfo(F).int.bits;
++    const tw = @typeInfo(T).int.bits;
++    if (tw <= fw) {
++        const UF = @Int(.unsigned, fw);
++        const UT = @Int(.unsigned, tw);
++        return @bitCast(@as(UT, @truncate(@as(UF, @bitCast(x)))));
++    }
++    const W = @Int(@typeInfo(F).int.signedness, tw);
++    return @bitCast(@as(W, x));
++}
++
+ /// `a + b`, which cannot overflow while `ok`; else the add tests it, and
+ /// an overflow panics as any add's does.
+ pub inline fn addIf(a: Int, b: Int, ok: bool) Int {

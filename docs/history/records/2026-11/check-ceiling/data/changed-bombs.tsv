@@ -1,0 +1,104 @@
+concurrency-task.104r: concurrency-task.rig.test:1816 bomb "task stack overflow deep frames": expected panic "rig: stack overflow" (release); got: (nothing)
+emit-inline-grid.012: emit-inline-grid.rig.test:474 bomb "inline grid const overflow reached": expected panic "panic: integer overflow", exited 0
+emit-inline-grid.012r: emit-inline-grid.rig.test:474 bomb "inline grid const overflow reached": expected panic "panic: integer overflow", exited 0 (release)
+emit-inline-grid.013: emit-inline-grid.rig.test:490 bomb "inline grid const overflow8 reached": expected panic "panic: integer overflow", exited 0
+emit-inline-grid.013r: emit-inline-grid.rig.test:490 bomb "inline grid const overflow8 reached": expected panic "panic: integer overflow", exited 0 (release)
+emit-inline-grid.014: emit-inline-grid.rig.test:506 bomb "inline grid const narrow reached": expected panic "panic: integer does not fit in destination type", exited 0
+emit-inline-grid.014r: emit-inline-grid.rig.test:506 bomb "inline grid const narrow reached": expected panic "panic: integer does not fit in destination type", exited 0 (release)
+emit-inline-grid.018: emit-inline-grid.rig.test:570 bomb "inline grid ignored overflow reached": expected panic "panic: integer overflow", exited 0
+emit-inline-grid.018r: emit-inline-grid.rig.test:570 bomb "inline grid ignored overflow reached": expected panic "panic: integer overflow", exited 0 (release)
+emit-inline-grid.019: emit-inline-grid.rig.test:586 bomb "inline grid ignored overflow8 reached": expected panic "panic: integer overflow", exited 0
+emit-inline-grid.019r: emit-inline-grid.rig.test:586 bomb "inline grid ignored overflow8 reached": expected panic "panic: integer overflow", exited 0 (release)
+emit-inline-grid.020: emit-inline-grid.rig.test:602 bomb "inline grid ignored narrow reached": expected panic "panic: integer does not fit in destination type", exited 0
+emit-inline-grid.020r: emit-inline-grid.rig.test:602 bomb "inline grid ignored narrow reached": expected panic "panic: integer does not fit in destination type", exited 0 (release)
+emit-inline-grid.024: emit-inline-grid.rig.test:669 bomb "inline grid transitive overflow reached": expected panic "panic: integer overflow", exited 0
+emit-inline-grid.024r: emit-inline-grid.rig.test:669 bomb "inline grid transitive overflow reached": expected panic "panic: integer overflow", exited 0 (release)
+emit-inline-grid.025: emit-inline-grid.rig.test:688 bomb "inline grid transitive overflow8 reached": expected panic "panic: integer overflow", exited 0
+emit-inline-grid.025r: emit-inline-grid.rig.test:688 bomb "inline grid transitive overflow8 reached": expected panic "panic: integer overflow", exited 0 (release)
+emit-inline-grid.026: emit-inline-grid.rig.test:707 bomb "inline grid transitive narrow reached": expected panic "panic: integer does not fit in destination type", exited 0
+emit-inline-grid.026r: emit-inline-grid.rig.test:707 bomb "inline grid transitive narrow reached": expected panic "panic: integer does not fit in destination type", exited 0 (release)
+emit-inline-grid.030: emit-inline-grid.rig.test:780 bomb "inline grid ctbool overflow8 reached": expected panic "panic: integer overflow", exited 0
+emit-inline-grid.030r: emit-inline-grid.rig.test:780 bomb "inline grid ctbool overflow8 reached": expected panic "panic: integer overflow", exited 0 (release)
+emit-inline-grid.033: emit-inline-grid.rig.test:828 bomb "inline grid ctint overflow8 reached": expected panic "panic: integer overflow", exited 0
+emit-inline-grid.033r: emit-inline-grid.rig.test:828 bomb "inline grid ctint overflow8 reached": expected panic "panic: integer overflow", exited 0 (release)
+emit-inline-grid.036: emit-inline-grid.rig.test:880 bomb "inline grid ctenum overflow8 reached": expected panic "panic: integer overflow", exited 0
+emit-inline-grid.036r: emit-inline-grid.rig.test:880 bomb "inline grid ctenum overflow8 reached": expected panic "panic: integer overflow", exited 0 (release)
+emit-inline-grid.039: emit-inline-grid.rig.test:939 bomb "inline grid ctthrough overflow8 reached": expected panic "panic: integer overflow", exited 0
+emit-inline-grid.039r: emit-inline-grid.rig.test:939 bomb "inline grid ctthrough overflow8 reached": expected panic "panic: integer overflow", exited 0 (release)
+emit-misc-1.051: emit-misc-1.rig.test:1541 bomb "const match binding overflow": expected panic "integer overflow", exited 0
+emit-misc-1.051r: emit-misc-1.rig.test:1541 bomb "const match binding overflow": expected panic "integer overflow", exited 0 (release)
+emit-misc-1.052: emit-misc-1.rig.test:1558 bomb "const optional propagate none": expected panic "integer overflow", exited 0
+emit-misc-1.052r: emit-misc-1.rig.test:1558 bomb "const optional propagate none": expected panic "integer overflow", exited 0 (release)
+emit-misc-1.053: emit-misc-1.rig.test:1578 bomb "const table conversion": expected panic "integer does not fit", exited 0
+emit-misc-1.053r: emit-misc-1.rig.test:1578 bomb "const table conversion": expected panic "integer does not fit", exited 0 (release)
+emit-misc-1.054: emit-misc-1.rig.test:1588 bomb "const table element bound": expected panic "integer overflow", exited 0
+emit-misc-1.054r: emit-misc-1.rig.test:1588 bomb "const table element bound": expected panic "integer overflow", exited 0 (release)
+emit-misc-1.055: emit-misc-1.rig.test:1599 bomb "const table element overflow": expected panic "integer overflow", exited 0
+emit-misc-1.055r: emit-misc-1.rig.test:1599 bomb "const table element overflow": expected panic "integer overflow", exited 0 (release)
+emit-misc-1.056: emit-misc-1.rig.test:1609 bomb "const table row bound": expected panic "integer overflow", exited 0
+emit-misc-1.056r: emit-misc-1.rig.test:1609 bomb "const table row bound": expected panic "integer overflow", exited 0 (release)
+emit-misc-1.058: emit-misc-1.rig.test:1628 bomb "constructed field overflow": expected panic "integer overflow", exited 0
+emit-misc-1.058r: emit-misc-1.rig.test:1628 bomb "constructed field overflow": expected panic "integer overflow", exited 0 (release)
+emit-misc-1.104: emit-misc-1.rig.test:2833 bomb "inline generic member overflow": expected panic "integer overflow", exited 0
+emit-misc-1.104r: emit-misc-1.rig.test:2833 bomb "inline generic member overflow": expected panic "integer overflow", exited 0 (release)
+emit-misc-1.108: emit-misc-1.rig.test:2938 bomb "inline overflow literal": expected panic "integer overflow", exited 0
+emit-misc-1.108r: emit-misc-1.rig.test:2938 bomb "inline overflow literal": expected panic "integer overflow", exited 0 (release)
+emit-misc-1.123: emit-misc-1.rig.test:3344 bomb "literal element overflow": expected panic "integer overflow", exited 0
+emit-misc-1.123r: emit-misc-1.rig.test:3344 bomb "literal element overflow": expected panic "integer overflow", exited 0 (release)
+emit-misc-1.127: emit-misc-1.rig.test:3486 bomb "marker inline overflow literal": expected panic "integer overflow", exited 0
+emit-misc-1.127r: emit-misc-1.rig.test:3486 bomb "marker inline overflow literal": expected panic "integer overflow", exited 0 (release)
+emit-misc-2.045: emit-misc-2.rig.test:1240 bomb "variant payload overflow": expected panic "integer overflow", exited 0
+emit-misc-2.045r: emit-misc-2.rig.test:1240 bomb "variant payload overflow": expected panic "integer overflow", exited 0 (release)
+emit-misc-2.058: emit-misc-2.rig.test:1743 bomb "a cloned constant is a run-time value": expected panic "integer overflow", exited 0
+emit-misc-2.059: emit-misc-2.rig.test:1753 bomb "a constant copied out of a read view is a run-time value": expected panic "integer overflow", exited 0
+emit-misc-2.060: emit-misc-2.rig.test:1761 bomb "a value loop's constant is a run-time value": expected panic "integer overflow", exited 0
+emit-misc-2.061: emit-misc-2.rig.test:1768 bomb "a labeled value loop's constant is a run-time value": expected panic "integer overflow", exited 0
+emit-misc-2.063: emit-misc-2.rig.test:1779 bomb "a value loop's constant byte is a run-time value": expected panic "integer overflow", exited 0
+emit-misc-2.064: emit-misc-2.rig.test:1784 bomb "a read view of a module constant's row is read at run time": expected panic "integer overflow", exited 0
+emit-misc-2.065: emit-misc-2.rig.test:1791 bomb "a read view of a module constant is read at run time": expected panic "integer overflow", exited 0
+emit-misc-2.066: emit-misc-2.rig.test:1798 bomb "a read view of a module constant held in an object is read at run time": expected panic "integer overflow", exited 0
+emit-misc-2.067: emit-misc-2.rig.test:1810 bomb "a read view of a module constant held in an array is read at run time": expected panic "integer overflow", exited 0
+emit-misc-2.068: emit-misc-2.rig.test:1817 bomb "a read view of a module constant held in a nested object is read at run time": expected panic "integer overflow", exited 0
+emit-misc-2.069: emit-misc-2.rig.test:1830 bomb "a read view of a module constant in a temporary object is read at run time": expected panic "integer overflow", exited 0
+emit-misc-2.070: emit-misc-2.rig.test:1839 bomb "a read view of a module constant in an optional is read at run time": expected panic "integer overflow", exited 0
+emit-misc-2.071: emit-misc-2.rig.test:1846 bomb "a read view of a module constant held in an object in an array is read at run time": expected panic "integer overflow", exited 0
+modules-imported.027: modules-imported.rig.test:732 bomb "imported table element overflow": expected panic "integer overflow", exited 0
+modules-imported.027r: modules-imported.rig.test:732 bomb "imported table element overflow": expected panic "integer overflow", exited 0 (release)
+modules-misc.067: modules-misc.rig.test:2008 bomb "inline across modules": expected panic "integer overflow", exited 0
+modules-misc.067r: modules-misc.rig.test:2008 bomb "inline across modules": expected panic "integer overflow", exited 0 (release)
+probes-04.071: probes-04.rig.test:3934 bomb "audit-fuzz-c-ovf-v00441": expected panic "integer overflow", exited 0
+probes-05.000: probes-05.rig.test:3 bomb "audit-fuzz-pf2-accepted-6fc42e2e4d": expected panic "integer overflow", exited 0
+probes-05.021: probes-05.rig.test:1763 bomb "audit-fuzz-pf2-accepted-c6645d8653": expected panic "integer overflow", exited 0
+probes-05.024: probes-05.rig.test:1836 bomb "audit-fuzz-pf2-accepted-ce75805152": expected panic "integer does not fit in destination type", exited 0
+probes-11.033: probes-11.rig.test:731 bomb "purity-rustzig-probes-p5 overflow": expected panic "integer overflow", exited 0
+probes-37.037: probes-37.rig.test:697 bomb "review258-p142 wrap ops": expected panic "left shift overflowed bits", exited 0
+probes-37.095: probes-37.rig.test:2818 bomb "rvtests-w1-convert": expected panic "integer does not fit in destination type", exited 0
+probes-39.089: probes-39.rig.test:1513 bomb "syntax-review-complete-sh1": expected panic "left shift overflowed bits", exited 0
+proofs-misc.011: proofs-misc.rig.test:171 bomb "cond continue mut": expected panic "integer overflow"; got: (nothing)
+proofs-misc.011r: proofs-misc.rig.test:171 bomb "cond continue mut": expected panic "integer overflow" (release); got: (nothing)
+proofs-misc.023: proofs-misc.rig.test:337 bomb "guard overflow mut": expected panic "integer overflow"; got: (nothing)
+proofs-misc.023r: proofs-misc.rig.test:337 bomb "guard overflow mut": expected panic "integer overflow", exited 0 (release)
+proofs-misc.029: proofs-misc.rig.test:443 bomb "int bound mut": expected panic "integer overflow", exited 0
+proofs-misc.029r: proofs-misc.rig.test:443 bomb "int bound mut": expected panic "integer overflow", exited 0 (release)
+proofs-misc.059: proofs-misc.rig.test:922 bomb "result bound huge mut": expected panic "integer overflow"; got: panic: index out of bounds
+proofs-misc.059r: proofs-misc.rig.test:922 bomb "result bound huge mut": expected panic "integer overflow" (release); got: panic: index out of bounds
+proofs-misc.061: proofs-misc.rig.test:995 bomb "result bound mut": expected panic "integer overflow"; got: panic: index out of bounds
+proofs-misc.061r: proofs-misc.rig.test:995 bomb "result bound mut": expected panic "integer overflow" (release); got: panic: index out of bounds
+proofs-misc.062: proofs-misc.rig.test:1018 bomb "result bound write mut": expected panic "integer overflow"; got: panic: index out of bounds
+proofs-misc.062r: proofs-misc.rig.test:1018 bomb "result bound write mut": expected panic "integer overflow" (release); got: panic: index out of bounds
+proofs-misc.076: proofs-misc.rig.test:1461 bomb "step mut": expected panic "integer overflow"; got: (nothing)
+proofs-misc.076r: proofs-misc.rig.test:1461 bomb "step mut": expected panic "integer overflow" (release); got: (nothing)
+runtime-misc.031: runtime-misc.rig.test:762 bomb "module constant overflow": expected panic "integer overflow", exited 0
+runtime-misc.081r: runtime-misc.rig.test:2116 bomb "stack overflow recursion": expected panic "rig: stack overflow" (release); got: (nothing)
+runtime-panic-status.008: runtime-panic-status.rig.test:95 bomb "panic status overflow": expected panic "panic: integer overflow", exited 0
+runtime-panic-status.008r: runtime-panic-status.rig.test:95 bomb "panic status overflow": expected panic "panic: integer overflow", exited 0 (release)
+runtime-panic-status.009: runtime-panic-status.rig.test:104 bomb "panic status convert": expected panic "panic: integer does not fit in destination type", exited 0
+runtime-panic-status.009r: runtime-panic-status.rig.test:104 bomb "panic status convert": expected panic "panic: integer does not fit in destination type", exited 0 (release)
+types-misc-1.088: types-misc-1.rig.test:1822 bomb "comptime param overflow panics": expected panic "integer overflow", exited 0
+types-misc-1.327: types-misc-1.rig.test:6534 bomb "numeric conversion overflow panics": expected panic "integer does not fit in destination type", exited 0
+types-misc-1.328: types-misc-1.rig.test:6544 bomb "negative conversion to unsigned panics": expected panic "integer does not fit in destination type", exited 0
+types-misc-1.328r: types-misc-1.rig.test:6544 bomb "negative conversion to unsigned panics": expected panic "integer does not fit in destination type", exited 0 (release)
+types-misc-2.037: types-misc-2.rig.test:841 bomb "shift overflow panics": expected panic "left shift overflowed bits", exited 0
+types-misc-2.039: types-misc-2.rig.test:864 bomb "shl amount panics": expected panic "left shift overflowed bits", exited 0
+types-misc-2.039r: types-misc-2.rig.test:864 bomb "shl amount panics": expected panic "left shift overflowed bits", exited 0 (release)
+word-objects.014: word-objects.rig.test:230 bomb "word field overflow": expected panic "integer overflow", exited 0

@@ -1,0 +1,55 @@
+diff --git a/src/alloc.zig b/src/alloc.zig
+index da80dbcff..a07d1e12d 100644
+--- a/src/alloc.zig
++++ b/src/alloc.zig
+@@ -257,13 +257,32 @@ pub const max_small: usize = 32 << 10;
+ /// them, which is all a smaller class would save, is often more
+ /// (a 22 KiB class leaves 20), and with more classes each heap keeps
+ /// more pages partly carved, so webpack at four checkers held 2 MiB more.
+-const class_count = quarter_class + 4 * 2;
++const class_count = quarter_class + 4 * 2 + fine_extra;
++
++/// Scratch ceiling: classes of 136 and 152 bytes as well, so 96 to 160
++/// bytes go in steps of 8 (`fine_at` is the first class they move).
++const fine_mid = true;
++const fine_extra: usize = if (fine_mid) 2 else 0;
++const fine_at: usize = 16;
+ 
+ /// The first class past `eighths_max`.
+ const quarter_class = 8 + 8 * 7;
+ const eighths_max: usize = 8 << 10;
+ 
+ fn classSize(c: usize) usize {
++    if (fine_mid and c >= fine_at) {
++        return switch (c - fine_at) {
++            0 => 136,
++            1 => 144,
++            2 => 152,
++            3 => 160,
++            else => classSizeBase(c - fine_extra),
++        };
++    }
++    return classSizeBase(c);
++}
++
++fn classSizeBase(c: usize) usize {
+     if (c < 8) return (c + 1) * 8;
+     if (c < quarter_class) {
+         const k = c - 8;
+@@ -290,6 +309,16 @@ inline fn classOf(len: usize, alignment: std.mem.Alignment) ?usize {
+ /// The class of `n` bytes, 64 < n <= `max_small`: eight per doubling to
+ /// `eighths_max`, four past it.
+ inline fn classAbove(n: usize) usize {
++    const k = classAboveBase(n);
++    if (!fine_mid or k < fine_at) return k;
++    if (n <= 136) return fine_at;
++    if (n <= 144) return fine_at + 1;
++    if (n <= 152) return fine_at + 2;
++    if (n <= 160) return fine_at + 3;
++    return k + fine_extra;
++}
++
++inline fn classAboveBase(n: usize) usize {
+     const log: usize = std.math.log2_int(usize, n - 1); // base < n <= 2 * base
+     if (n > eighths_max) {
+         const step = (n - 1 - (@as(usize, 1) << @intCast(log))) >> @intCast(log - 2); // 0..3

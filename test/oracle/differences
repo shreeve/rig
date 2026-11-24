@@ -342,3 +342,18 @@ test/reject/ownership/defer_at_a_failure_after_a_view_in_the_call.rig started pr
 # which no result moves out without `<`; the oracle sees the parameter
 # the options rewrite made of it, a bare name, which a result moves.
 test/reject/options/a_group's_owner_is_read_in_place,_as_an_object_parameter's_field_is.rig take_name prod-rejects ref-gap `j.name` of an owning group's field as a result
+
+# In an instance a `T` may hold a view unless its bounds give `Owned`
+# (SPEC "Generic functions"), so a view parameter that reaches a `T`, a
+# `U`, a `Hash` key or an unbounded `T` nested in a List, a closure, or a
+# field of self, is stored wherever the body stores one; the oracle
+# tracks no view in a value of a type parameter's type.
+test/reject/ownership/keeps_generic_body_values.rig run prod-rejects ref-gap a function value given `!k` and `s` may store `s` in an unbounded `T`
+test/reject/ownership/keeps_generic_body_values.rig copy_all prod-rejects ref-gap an element of `xs: []T` pushed onto `out`, `T` unbounded
+test/reject/ownership/keeps_generic_unbounded_body_values.rig move prod-rejects ref-gap a `T` popped from `src` pushed onto `dst`, `T` unbounded
+test/reject/ownership/keeps_generic_owned_siblings_are_rejected.rig two prod-rejects ref-gap a `U` popped from `us` pushed onto `ud`, `U` unbounded beside an `Owned` `T`
+test/reject/ownership/keeps_generic_owned_siblings_are_rejected.rig values prod-rejects ref-gap a `V` taken from `src` put into `dst`, `V` unbounded beside an `Owned` key
+test/reject/ownership/keeps_generic_owned_siblings_are_rejected.rig keys prod-rejects ref-gap a `Hash` key taken from `src` added to `dst`
+test/reject/ownership/keeps_generic_owned_siblings_are_rejected.rig nested prod-rejects ref-gap a `List[T]` popped from `src` pushed onto `dst`, `T` unbounded
+test/reject/ownership/keeps_generic_owned_siblings_are_rejected.rig closure prod-rejects ref-gap a `T` a closure pops from `src` pushed onto `dst`, `T` unbounded
+test/reject/ownership/keeps_generic_owned_siblings_are_rejected.rig Bin.take_from prod-rejects ref-gap a `T` popped from `src` pushed onto a field of self, `T` unbounded

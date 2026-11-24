@@ -313,6 +313,13 @@ code "table a slot index has no test", "t.slot(s).*", "t.at(s)", /^(?![\s\S]*Int
   t[s] += 1
   print(t[s])
 
+code "table length read holds no test", "rig.lenOf(t)"
+  # A Table's length is at most its `n` slots, so reading it as an `Int`
+  # tests nothing (`rig.heldLen`, through `lenHeld`).
+  t: Table[Int, 64] = Table()
+  _ = (!t).push(3)
+  print(t.len)
+
 code "table an Int index has a test", "t.atInt(i)"
   t: Table[Int, 64] = Table()
   i = 2
