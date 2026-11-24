@@ -3456,7 +3456,7 @@ test "RIG_SMALL_BORROW: a class whose page is carved takes a free block of the c
     const h = heapForTest();
     const c = classOf(100, .@"8").?;
     // Carve the class's page to its end.
-    var held: [1024][]u8 = undefined;
+    var held: [4096][]u8 = undefined;
     var n: usize = 0;
     while (n == 0 or h.carve[c] + classSize(c) <= h.carve_end[c]) : (n += 1) held[n] = try a.alloc(u8, 100);
     // One block of the class above, freed.
