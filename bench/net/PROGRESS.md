@@ -43,6 +43,7 @@ longer builds; `bench-net --record` adds `rig-safe` rows (`--release`).
 | 2026-11-15 | the same boards | tokio | 13.63 us | 5.81 us | 59.71 us |
 | 2026-11-15 | the same boards | go | 16.39 us | 7.33 us | 61.73 us |
 | 2026-11-15 | main ec0a2a743 (2026-11-09), --release, in an A/B with 7a2efd0f3 (16.42 / 8.63 / 51.19 us) | rig-safe | 16.46 us | 8.60 us | 50.18 us |
+| 2026-11-23 | #1229: a burst keeps its first task in a slot | rig-safe | 12.92 us | 6.10 us | 43.86 us |
 
 ## x86-64 (pup)
 
@@ -125,3 +126,4 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-11-15 | main bfd872b6d (7a2efd0f3's compiler and runtime), --release (records/2026-11/concurrency-bench-remeasure), fastest of 7 (pup cores 0-11) | rig-safe | 5.30 us | 1.10 us | 25.17 us |
 | 2026-11-15 | the same board | tokio | 4.90 us | 1.29 us | 31.28 us |
 | 2026-11-15 | the same board | go | 5.53 us | 957 ns | 43.08 us |
+| 2026-11-23 | #1229: a burst keeps its first task in a slot (pup E-cores 12-19) | rig-safe | 8.43 us | 1.75 us | 44.95 us |

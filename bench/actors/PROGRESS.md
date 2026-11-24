@@ -45,6 +45,7 @@ longer builds; `bench-actors --record` adds `rig-safe` rows (`--release`).
 | 2026-11-15 | main 7a2efd0f3, re-measured with --release (records/2026-11/concurrency-bench-remeasure), fastest of 7 | rig-safe | 5.0 ns | 15 ns | 0.9 ns |
 | 2026-11-15 | the same board | tokio | 138 ns | 267 ns | 30 ns |
 | 2026-11-15 | the same board | go | 3.4 ns | 77 ns | 0.5 ns |
+| 2026-11-23 | #1229: a burst keeps its first task in a slot | rig-safe | 5.1 ns | 14 ns | 0.8 ns |
 
 ## x86-64 (pup)
 
@@ -129,3 +130,4 @@ the crates.io release (pup has no `misc/tokio` clone).
 | 2026-11-15 | main bfd872b6d (7a2efd0f3's compiler and runtime), --release (records/2026-11/concurrency-bench-remeasure), fastest of 7 (pup cores 0-11) | rig-safe | 11 ns | 24 ns | 2.0 ns |
 | 2026-11-15 | the same board | tokio | 241 ns | 232 ns | 25 ns |
 | 2026-11-15 | the same board | go | 11 ns | 52 ns | 1.8 ns |
+| 2026-11-23 | #1229: a burst keeps its first task in a slot (pup E-cores 12-19) | rig-safe | 16 ns | 25 ns | 2.6 ns |
