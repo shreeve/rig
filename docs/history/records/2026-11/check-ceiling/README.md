@@ -93,7 +93,8 @@ runs the three held rules are worth less than on --noCheck. The lever is Trig's 
 
 ## Rust's integer model as a scratch build ([intmodel.md](intmodel.md))
 
-Asked for the owner's question; his decision is pending, so this records the numbers only. The build:
+Asked for the owner's question. His decision (2026-11-24): keep the checks, so overflow and conversion checks stay in
+release builds. The build:
 - Emitted code wraps on `+ - *`, negation and `<<`.
 - Conversions truncate or sign-extend, as Rust's `as` does.
 - Bounds, slice, length, division and shift-amount checks stay, as do the runtime's own traps.

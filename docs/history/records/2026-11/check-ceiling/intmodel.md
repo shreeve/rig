@@ -2,6 +2,9 @@
 
 Rig - Final, for Rig and Trig. A measurement build only; nothing here lands.
 
+**Decision (2026-11-24):** the owner kept the checks. Overflow and conversion checks stay in release builds, so
+this model is not adopted.
+
 Build: Rig main 394b422bf (the same `src` as Trig's pin b4d9e7247) with `patches/intmodel.patch`, built on
 burst for Trig's PGO build and on the Mac for the suite; neither build is kept. The 104 changed bombs are
 `data/changed-bombs.tsv`.
