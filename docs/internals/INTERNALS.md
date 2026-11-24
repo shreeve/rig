@@ -4024,6 +4024,13 @@ of the parameters it carries as stored there, through the write views a
 local holds (`genericStoreIn`), but takes no loan. This is coarser than
 a loan: one read of a `[]T` parameter's element counts it as returned
 wherever the body returns a `T`, and as stored wherever it stores one.
+A type parameter whose bounds give `Owned` is left out
+(`sema.holdsUnownedParam`, `sema.boundOwned`): written, through an API
+of the program's own that builds on it, or implied by the signature
+(`Bag[T]` of a `Bag[U: Owned]`). No instance of it holds a view, since
+the call or type that makes one refuses a type argument that may
+(`lacks`), so a value of it carries none of a parameter's loans, as a
+`String` does not.
 
 A `from` clause is part of a declaration, not of its function type: a function viewed as a
 value (`?first`) is called with its type's origins, which every body
