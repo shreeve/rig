@@ -545,7 +545,8 @@ def cmd_time(a):
         times = {arm: {} for arm in arms}
         checks, counts = {}, {}
         for r in range(a.rounds):
-            order = arms[r % len(arms):] + arms[:r % len(arms)]
+            q = (r + a.rotate) % len(arms)
+            order = arms[q:] + arms[:q]
             for arm in order:
                 for kind, (ns, n, check) in run(exes[arm], trace).items():
                     if checks.setdefault(kind, check) != check:
@@ -631,6 +632,7 @@ def main():
     t.add_argument("--aa")
     t.add_argument("--base", default="hb-fx")
     t.add_argument("--json", help="write each trace's medians here")
+    t.add_argument("--rotate", type=int, default=0, help="start the arms' rotation here (for runs of one round)")
     t.add_argument("--root", help="name traces by their path under ROOT")
     t.add_argument("traces", nargs="+")
     a = ap.parse_args()
