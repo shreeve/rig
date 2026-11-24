@@ -59,3 +59,26 @@ Rig: neither ceiling is taken. The free space is survivors of mixed lifetimes pi
 layout cannot reach. The lever left is lifetime separation, (b), held for the owner. The per-heap huge-page knob built
 on the same branch (`RIG_HEAP_HUGE_MIN_MB`, in patches/rig-heap-census.patch) is raced separately and goes to the owner
 with its own numbers. The scratch commits are kept on an archive tag.
+
+## Addendum: the per-heap huge-page knob, raced (pup slot 751, 2026-11-24)
+
+`RIG_HEAP_HUGE_MIN_MB=N` (in patches/rig-heap-census.patch): a heap other than the main thread's asks for huge pages for
+its segments only once it has taken more than N MiB; the main heap, Tables and large blocks keep the owner's 2 MiB. Trig
+352c2faa, PGO+BOLT: M on the pinned Rig b4d9e7247; R, P and B on the census build (355e32b09), R with the knob unset
+(the A/A), P at N=32, B at N=64. 16 board projects at c1/c2/c4/c8, 11 rounds, wall and peak RSS (data/race-751.md per
+project, data/race-751-runs.txt raw, data/slot-heapknob.sh the slot). Sums of medians, against R at the same count:
+
+| | c1 | c2 | c4 | c8 |
+|---|---:|---:|---:|---:|
+| N=32 RSS | −0.0% | −1.4% | −1.0% | −1.6% |
+| N=64 RSS | −0.0% | −2.9% | −2.6% | −2.9% |
+| N=32 wall | +0.3% | +0.6% | +1.5% | +1.8% |
+| N=64 wall | +0.1% | +2.7% | +3.3% | +5.2% |
+| R/M wall (the census build, unset) | −0.3% | +0.3% | −0.1% | −0.4% |
+
+- **The census build costs nothing unset:** R is level with M on wall at every count, RSS within 0.5%.
+- **Small projects save the most memory:** Compiler's RSS falls 14-23% at N=32 and 26-29% at N=64 above c1.
+- **The cells Trig loses get slower:** at N=32, nuxt +3.0% (c4) and +4.3% (c8), typeorm +6.0% (c4), webpack +2.8% (c4);
+  at N=64, webpack +8.6% (c4) and Compiler +10.2% (c8).
+
+**Decision (Rig):** not landed. The memory saved does not pay for slowing the cells Trig loses to tsrs.
