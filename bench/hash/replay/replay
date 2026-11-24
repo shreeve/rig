@@ -210,9 +210,25 @@ def generate(spec):
 
     ops, segs = [], []
     next_insert = 0
-    for kind, n in plan:
+    needs = ("overwrite", "hit", "remove")
+    stuck = 0
+    p = 0
+    while p < len(plan):
+        kind, n = plan[p]
+        p += 1
         start = len(ops)
-        for _ in range(n):
+        if kind in needs and not nonempty:
+            # Nothing held yet (or any more): this block goes later.
+            plan.append((kind, n))
+            stuck += 1
+            if stuck > len(plan) - p:
+                sys.exit(f"spec: {kind}s with no key held anywhere; give more inserts")
+            continue
+        stuck = 0
+        for done in range(n):
+            if kind in needs and not nonempty:
+                plan.append((kind, n - done))
+                break
             if kind == "insert":
                 i = inserts[next_insert]
                 next_insert += 1
@@ -229,8 +245,6 @@ def generate(spec):
                 i = rng.randrange(n_inst)
                 k = None
             else:
-                if not nonempty:
-                    sys.exit(f"spec: a {kind} with no key held anywhere; give more inserts first")
                 i = nonempty[rng.randrange(len(nonempty))]
                 k = present[i][rng.randrange(len(present[i]))]
                 if kind == "remove":
@@ -239,7 +253,8 @@ def generate(spec):
                 for x in list(present[i]):
                     remove(i, x)
             ops.append((OP_OF[kind], i, keys.ref(k) if k is not None else 0))
-        segs.append((KINDS.index(kind), start, n))
+        if len(ops) > start:
+            segs.append((KINDS.index(kind), start, len(ops) - start))
     if spec["drop"] == "yes":
         start = len(ops)
         ops += [(DROP, i, 0) for i in range(n_inst)]
@@ -326,7 +341,9 @@ def cmd_import(a):
     # One key kind and one value size for the whole replay: the widest.
     kwidth = max((r[2] for r in picked if (r[0] & 7) in (0, 1, 2)), default=8)
     ktypes = set(types.get(r[3], ("?",))[0] for r in picked)
-    kind = key_kind_of(next(iter(ktypes)) if len(ktypes) == 1 else "?", kwidth)
+    if len(ktypes) > 1:
+        sys.exit(f"import: the maps chosen have keys of {len(ktypes)} types ({', '.join(sorted(ktypes))}); a replay has one")
+    kind = key_kind_of(next(iter(ktypes)), kwidth)
     vbytes = max(r[4] for r in picked)
     inst_of, pool_at, pool = {}, {}, []
     sim = []  # per instance: set of keys held
