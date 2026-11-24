@@ -1,0 +1,150 @@
+diff --git a/src/alloc.zig b/src/alloc.zig
+index cde05755b..da80dbcff 100644
+--- a/src/alloc.zig
++++ b/src/alloc.zig
+@@ -115,6 +115,7 @@ comptime {
+         thp_mode,
+         huge_min,
+         heap_huge_min,
++        small_borrow,
+         heap_census.state,
+         heap_census.slots,
+         heap_census.sampler,
+@@ -732,6 +733,9 @@ fn trimPages(h: *Heap, touched: ?*Segment, tails: *[class_count]?*Block) usize {
+         }
+     }
+     if (whole_classes == 0) return 0;
++    // A page's blocks may be on the lists of the classes below its own
++    // (`borrowUp`): every list is walked.
++    if (smallBorrow() != 0) whole_classes = ~@as(u128, 0);
+     for (0..class_count) |c| {
+         if (whole_classes >> @intCast(c) & 1 == 0) continue;
+         var at = &h.free[c];
+@@ -2725,6 +2729,63 @@ const spare_heaps = split.cell(&spare_heaps_var, "alloc.spare_heaps");
+ var spare_lock_var: SpinLock = .{};
+ const spare_lock = split.cell(&spare_lock_var, "alloc.spare_lock");
+ 
++/// `RIG_SMALL_BORROW` (scratch), read once from /proc/self/environ: 0
++/// unread, else 1 + how many classes above its own a small request whose
++/// class would take a new page may take a free block of (at most 4).
++var small_borrow_var: std.atomic.Value(u8) = .init(0);
++const small_borrow = split.cell(&small_borrow_var, "alloc.small_borrow");
++
++fn smallBorrow() usize {
++    const v = small_borrow.load(.monotonic);
++    if (v != 0) return v - 1;
++    return readSmallBorrow();
++}
++
++noinline fn readSmallBorrow() usize {
++    @branchHint(.cold);
++    var n: usize = 0;
++    if (builtin.os.tag == .linux) {
++        const linux = std.os.linux;
++        const rc = linux.openat(linux.AT.FDCWD, "/proc/self/environ", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
++        if (@as(isize, @bitCast(rc)) >= 0) {
++            const fd: linux.fd_t = @intCast(rc);
++            defer _ = linux.close(fd);
++            var m: HugeMinMatch = .{ .key = "RIG_SMALL_BORROW=" };
++            var buf: [512]u8 = undefined;
++            while (true) {
++                const r: isize = @bitCast(linux.read(fd, &buf, buf.len));
++                if (r <= 0) break;
++                m.feed(buf[0..@intCast(r)]);
++            }
++            m.feed(&.{0});
++            n = @min(m.found orelse 0, 4);
++        }
++    }
++    small_borrow.store(@intCast(n + 1), .monotonic);
++    return n;
++}
++
++/// A free block of one of the `smallBorrow` classes above `c`, for a
++/// request of class `c` aligned to 8 or less whose list and remote list
++/// are empty and whose page is carved to its end: so a class reuses the
++/// free blocks of the class above it before it takes a new page. Freed,
++/// the block goes on `c`'s list, as its length says.
++fn borrowUp(h: *Heap, c: usize, alignment: std.mem.Alignment) ?[*]u8 {
++    const n = smallBorrow();
++    if (n == 0 or alignment.toByteUnits() > 8) return null;
++    if (h.free[c] != null or h.remote[c].load(.monotonic) != null) return null;
++    if (h.carve[c] + classSize(c) <= h.carve_end[c]) return null;
++    var k = c + 1;
++    while (k <= c + n and k < class_count) : (k += 1) {
++        if (h.free[k]) |b| {
++            mustOwn(h);
++            h.free[k] = b.next;
++            return @ptrCast(b);
++        }
++    }
++    return null;
++}
++
+ /// The running thread's heap, made as it first allocates. Never
+ /// inlined: a fiber may resume on another thread after any switch, and
+ /// a compiler may reuse a thread-local's address within a function, so
+@@ -2911,6 +2972,12 @@ inline fn fastClass(len: usize, alignment: std.mem.Alignment) ?Class {
+ noinline fn allocSlow(len: usize, alignment: std.mem.Alignment) ?[*]u8 {
+     const h = heap() orelse return null;
+     if (classOf(len, alignment)) |c| {
++        // With `RIG_SMALL_BORROW=N`, a class that would take a new page
++        // takes a free block of one of the N classes above it instead.
++        if (small_borrow.load(.monotonic) != 1) if (borrowUp(h, c, alignment)) |b| {
++            if (counts) h.count(@intCast(classSize(c)), 1);
++            return b;
++        };
+         const p = h.alloc(c);
+         if (counts) if (p != null) h.count(@intCast(classSize(c)), 1);
+         return p;
+@@ -3382,6 +3449,27 @@ test "size classes cover every small size, each a fit for what it holds" {
+     try std.testing.expect(classSize(c16) % 16 == 0 and classSize(c16) >= 24);
+ }
+ 
++test "RIG_SMALL_BORROW: a class whose page is carved takes a free block of the class above" {
++    const a = allocator;
++    small_borrow.store(2, .monotonic);
++    defer small_borrow.store(1, .monotonic);
++    const h = heapForTest();
++    const c = classOf(100, .@"8").?;
++    // Carve the class's page to its end.
++    var held: [4096][]u8 = undefined;
++    var n: usize = 0;
++    while (n == 0 or h.carve[c] + classSize(c) <= h.carve_end[c]) : (n += 1) held[n] = try a.alloc(u8, 100);
++    // One block of the class above, freed.
++    const up = try a.alloc(u8, classSize(c + 1));
++    a.free(up);
++    const got = try a.alloc(u8, 100);
++    try std.testing.expectEqual(@intFromPtr(up.ptr), @intFromPtr(got.ptr));
++    a.free(got);
++    // Freed, it went on the list of its own length's class.
++    try std.testing.expectEqual(@intFromPtr(up.ptr), @intFromPtr(h.free[c].?));
++    for (held[0..n]) |p| a.free(p);
++}
++
+ test "blocks are reused, large ones kept, and a block freed on another thread goes back to its heap" {
+     const a = allocator;
+     var ptrs: [1000][]u8 = undefined;
+@@ -5679,17 +5767,17 @@ pub const heap_census = struct {
+     /// a block that cannot be on such a list ends the walk (another
+     /// thread changed it meanwhile). Gives 1 if the walk ended so.
+     fn walkSmall(first: ?*Block, c: usize, start: usize, nslots: usize, nfree: []u16, class: []u8) usize {
+-        const size = classSize(c);
+-        const cap = page_size / size;
+         var p = first;
+         var steps: usize = 0;
+         while (p) |b| : (steps += 1) {
+             const a = @intFromPtr(b);
+             if (steps > 1 << 26) return 1;
+             const cell = cellOf(a, start, nslots) orelse return 1;
+-            if ((a & (page_size - 1)) % size != 0) return 1;
+-            if (class[cell] == 0xff) class[cell] = @intCast(c) else if (class[cell] != c) return 1;
+-            if (nfree[cell] >= cap) return 1;
++            if ((a & (page_size - 1)) % 8 != 0) return 1;
++            // A page's blocks may be on the lists of the classes below its
++            // own (`borrowUp`): its class is the largest seen.
++            if (class[cell] == 0xff or class[cell] < c) class[cell] = @intCast(c);
++            if (nfree[cell] >= page_size / classSize(class[cell])) return 1;
+             nfree[cell] += 1;
+             p = vload(?*Block, &b.next);
+         }
