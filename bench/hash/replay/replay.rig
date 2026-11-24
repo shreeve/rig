@@ -1,0 +1,257 @@
+# Replays a trace of map operations (bench/hash/replay/README.md, "The
+# trace") on the built-in Map, as a program would make them: one Map per
+# instance, keys of the trace's kind, values of its number of Ints.
+# Prints `KIND NS OPS CHECK` per kind of segment and `total NS OPS
+# CHECK`; every contestant prints the same checks.
+#
+# Each segment's loop is `called`, a function of its own that takes what
+# it reads and reads the clock around its loop (as bench/hash/map.rig's
+# rows do). The driver rewrites every `Map[` here to `HashMap[` for the
+# unordered built-in, so one program times both.
+
+use std.time
+use std.file
+use std.os
+
+obj Row
+  ns: Int
+  check: Int
+
+# A key of two Ints, and of three: ids, pairs of ids, small structs.
+obj Pair
+  a: Int
+  b: Int
+
+obj Triple
+  a: Int
+  b: Int
+  c: Int
+
+# The op codes of the trace.
+PUT = 0
+GET = 1
+TAKE = 2
+WALK = 3
+NEW = 4
+DROP = 5
+CLEAR = 6
+
+# The kinds of segment, reported by name.
+MIXED = 15
+
+fun kind_name(k: Int) -> Static
+  match k
+    0 => "insert"
+    1 => "overwrite"
+    2 => "hit"
+    3 => "miss"
+    4 => "remove"
+    5 => "iterate"
+    6 => "new"
+    7 => "drop"
+    8 => "clear"
+    _ => "mixed"
+
+# The value a put at op `j` writes: `j`, then `j + 1`, ...
+inline fun value[n: Int](j: Int) -> [n]Int
+  v = [n of j]
+  for w in 1..n
+    v[w] = j + w
+  v
+
+called fun put_run[K: Hash + Clone + Owned, n: Int](maps: !List[Map[K, [n]Int]], owned: !List[K], inst: ?List[U32], at: Int, count: Int) -> Row keeps owned
+  check = 0
+  t = time.monotonic()
+  for j in at..at + count
+    m = !maps[Int(inst[j])]
+    k = !owned.pop() ?? panic("replay: a put with no key")
+    !m.put(<k, value[n](j))
+    check +%= m.len
+  Row(ns: Int(t.elapsed().ns()), check: check)
+
+called fun get_run[K: Hash + Clone + Owned, n: Int](maps: ?List[Map[K, [n]Int]], keys: ?List[K], inst: ?List[U32], key: ?List[U32], at: Int, count: Int) -> Row
+  check = 0
+  t = time.monotonic()
+  for j in at..at + count
+    m = ?maps[Int(inst[j])]
+    if m.get(?keys[Int(key[j])]) as v
+      check +%= v[0] + 1
+  Row(ns: Int(t.elapsed().ns()), check: check)
+
+called fun take_run[K: Hash + Clone + Owned, n: Int](maps: !List[Map[K, [n]Int]], keys: ?List[K], inst: ?List[U32], key: ?List[U32], at: Int, count: Int) -> Row
+  check = 0
+  t = time.monotonic()
+  for j in at..at + count
+    m = !maps[Int(inst[j])]
+    if !m.take(?keys[Int(key[j])]) as v
+      check +%= v[n - 1] + 1
+  Row(ns: Int(t.elapsed().ns()), check: check)
+
+called fun walk_run[K: Hash + Clone + Owned, n: Int](maps: ?List[Map[K, [n]Int]], inst: ?List[U32], at: Int, count: Int) -> Row
+  check = 0
+  t = time.monotonic()
+  for j in at..at + count
+    m = ?maps[Int(inst[j])]
+    for e in m.items()
+      check +%= e.value[0]
+    check +%= m.len
+  Row(ns: Int(t.elapsed().ns()), check: check)
+
+# `new`, `drop` and `clear`: a fresh Map in the instance's place (the old
+# one dropped), or its entries dropped. Each adds the length it found.
+called fun life_run[K: Hash + Clone + Owned, n: Int](maps: !List[Map[K, [n]Int]], inst: ?List[U32], op: Int, at: Int, count: Int) -> Row
+  check = 0
+  t = time.monotonic()
+  for j in at..at + count
+    i = Int(inst[j])
+    check +%= maps[i].len + 1
+    if op == CLEAR
+      !maps[i].clear()
+    else
+      maps[i] = Map()
+  Row(ns: Int(t.elapsed().ns()), check: check)
+
+# A segment of any ops, in the order the trace gives them.
+called fun mixed_run[K: Hash + Clone + Owned, n: Int](maps: !List[Map[K, [n]Int]], owned: !List[K], keys: ?List[K], ops: ?List[U8], inst: ?List[U32], key: ?List[U32], at: Int, count: Int) -> Row keeps maps, owned
+  check = 0
+  t = time.monotonic()
+  for j in at..at + count
+    i = Int(inst[j])
+    op = Int(ops[j])
+    if op == GET
+      if maps[i].get(?keys[Int(key[j])]) as v
+        check +%= v[0] + 1
+    else if op == PUT
+      m = !maps[i]
+      k = !owned.pop() ?? panic("replay: a put with no key")
+      !m.put(<k, value[n](j))
+      check +%= m.len
+    else if op == TAKE
+      m = !maps[i]
+      if !m.take(?keys[Int(key[j])]) as v
+        check +%= v[n - 1] + 1
+    else if op == WALK
+      for e in ?maps[i].items()
+        check +%= e.value[0]
+      check +%= maps[i].len
+    else if op == CLEAR
+      check +%= maps[i].len + 1
+      !maps[i].clear()
+    else
+      check +%= maps[i].len + 1
+      maps[i] = Map()
+  Row(ns: Int(t.elapsed().ns()), check: check)
+
+# The whole trace on Maps of `K` to `[n]Int`.
+sub replay[K: Hash + Clone + Owned, n: Int](keys: List[K], data: ?String)
+  instances = Int(data.read[U32, .little](12))
+  nops = Int(data.read[U32, .little](20))
+  nsegs = Int(data.read[U32, .little](24))
+  at = Int(data.read[U32, .little](32))
+  ops: List[U8] = List(capacity: nops)
+  !ops.extend_from_bytes(data[at..at + nops])
+  at += (nops + 3) / 4 * 4
+  inst: List[U32] = List(capacity: nops)
+  !inst.extend_from_bytes(data[at..at + 4 * nops])
+  at += 4 * nops
+  key: List[U32] = List(capacity: nops)
+  !key.extend_from_bytes(data[at..at + 4 * nops])
+  at += 4 * nops
+  # (`keeps owned`: a generic body takes a key popped from `owned` for a
+  # view of it, though `K` is `Owned`.)
+  # The keys each put moves in, made apart from the ones lookups use,
+  # last first, so each put pops its own.
+  owned: List[K] = List()
+  j = nops
+  while j > 0
+    j -= 1
+    !owned.push(+keys[Int(key[j])]) if Int(ops[j]) == PUT
+  maps: List[Map[K, [n]Int]] = List(capacity: instances)
+  for _ in 0..instances
+    !maps.push(Map())
+  ns = [16 of 0]
+  cnt = [16 of 0]
+  chk = [16 of 0]
+  for s in 0..nsegs
+    kind = Int(data.read[U32, .little](at + 12 * s))
+    from = Int(data.read[U32, .little](at + 12 * s + 4))
+    count = Int(data.read[U32, .little](at + 12 * s + 8))
+    r = Row(ns: 0, check: 0)
+    if kind == 0 or kind == 1
+      r = put_run[K, n](!maps, !owned, ?inst, from, count)
+    else if kind == 2 or kind == 3
+      r = get_run[K, n](?maps, ?keys, ?inst, ?key, from, count)
+    else if kind == 4
+      r = take_run[K, n](!maps, ?keys, ?inst, ?key, from, count)
+    else if kind == 5
+      r = walk_run[K, n](?maps, ?inst, from, count)
+    else if kind == 6 or kind == 7
+      r = life_run[K, n](!maps, ?inst, NEW, from, count)
+    else if kind == 8
+      r = life_run[K, n](!maps, ?inst, CLEAR, from, count)
+    else
+      r = mixed_run[K, n](!maps, !owned, ?keys, ?ops, ?inst, ?key, from, count)
+    ns[kind] += r.ns
+    cnt[kind] += count
+    chk[kind] +%= r.check
+  tns = 0
+  tchk = 0
+  for k in 0..16
+    if cnt[k] > 0
+      print(kind_name(k), ns[k], cnt[k], chk[k])
+      tns += ns[k]
+      tchk +%= chk[k]
+  print("total", tns, nops, tchk)
+
+# The trace's keys: each `words` 64-bit words from `at`, or texts.
+fun ints(data: ?String, n: Int, at: Int) -> List[Int]
+  ks: List[Int] = List(capacity: n)
+  for i in 0..n
+    !ks.push(data.read[I64, .little](at + 8 * i))
+  ks
+
+sub by_value[K: Hash + Clone + Owned](keys: List[K], data: ?String)
+  match Int(data.read[U32, .little](8))
+    1 => replay[K, 1](<keys, data)
+    2 => replay[K, 2](<keys, data)
+    4 => replay[K, 4](<keys, data)
+    8 => replay[K, 8](<keys, data)
+    _ => panic("replay: values of 1, 2, 4 or 8 Ints")
+
+sub main()
+  args = os.args()
+  panic("usage: replay TRACE") if args.len < 2
+  got = file.read(args[1]) catch panic("replay: cannot read the trace")
+  data = <got ?? panic("replay: no trace there")
+  d: ?String = ?data
+  panic("replay: not a trace") if d.len < 36 or d.read[U32, .little](0) != 0x314c5052
+  kind = Int(d.read[U32, .little](4))
+  n = Int(d.read[U32, .little](16))
+  at = 36
+  if kind == 0
+    ks: List[U32] = List(capacity: n)
+    for i in 0..n
+      !ks.push(d.read[U32, .little](at + 8 * i))
+    by_value[U32](<ks, d)
+  else if kind == 1
+    by_value[Int](ints(d, n, at), d)
+  else if kind == 2
+    w = ints(d, 2 * n, at)
+    ks: List[Pair] = List(capacity: n)
+    for i in 0..n
+      !ks.push(Pair(a: w[2 * i], b: w[2 * i + 1]))
+    by_value[Pair](<ks, d)
+  else if kind == 3
+    w = ints(d, 3 * n, at)
+    ks: List[Triple] = List(capacity: n)
+    for i in 0..n
+      !ks.push(Triple(a: w[3 * i], b: w[3 * i + 1], c: w[3 * i + 2]))
+    by_value[Triple](<ks, d)
+  else
+    ks: List[String] = List(capacity: n)
+    base = at + 4 * (n + 1)
+    for i in 0..n
+      a = Int(d.read[U32, .little](at + 4 * i))
+      b = Int(d.read[U32, .little](at + 4 * i + 4))
+      !ks.push(+d[base + a..base + b])
+    by_value[String](<ks, d)

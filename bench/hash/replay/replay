@@ -1,0 +1,528 @@
+#!/usr/bin/env python3
+"""Replay one stream of map operations on Rig's Map and HashMap and on
+hashbrown, to say how much faster a program would run with a map as fast
+as hashbrown. bench/hash/replay/README.md says what each part does.
+
+usage: bench/hash/replay/replay gen SPEC -o TRACE
+       bench/hash/replay/replay import MAPTRACE -o TRACE [--ids 3,7] [--types 'Int'] [--top N]
+       bench/hash/replay/replay build --out DIR [--arms a,b] [--cpu CPU]
+       bench/hash/replay/replay time --out DIR [--arms a,b] [--rounds N] [--aa ARM] TRACE...
+
+  gen     a trace from a spec (README, "Specs"), deterministic from its seed
+  import  a trace from the records RIG_MAP_TRACE=1 wrote (README, "Real
+          traces"): the maps chosen by id, by key type, or the N with the
+          most operations
+  build   each arm's program into DIR (arms: rig-map, rig-hash, hb-fx,
+          hb-fold, std-fx; default all); --cpu builds Zig and Rust for
+          that CPU (meteorlake) rather than this one's
+  time    each arm on each trace, interleaved: N rounds (default 11), the
+          arms in an order that rotates each round, the median of each
+          kind's time; --aa ARM runs ARM twice as two arms, whose gap is
+          the noise. Prints ns per op by kind and the ratio to --base
+          (default hb-fx)
+"""
+import argparse, os, random, re, shutil, statistics, struct, subprocess, sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
+RIG = os.environ.get("RIG", os.path.join(ROOT, "bin", "rig"))
+CARGO = os.environ.get("CARGO", "cargo")
+ARMS = ["rig-map", "rig-hash", "hb-fx", "hb-fold", "std-fx"]
+RUST_FEATURES = {"hb-fx": ["fx"], "hb-fold": [], "std-fx": ["std", "fx"]}
+
+MAGIC = 0x314C5052  # "RPL1"
+KEY_KINDS = {"u32": 0, "int": 1, "pair": 2, "triple": 3, "text": 4}
+KEY_WORDS = {"u32": 1, "int": 1, "pair": 2, "triple": 3}
+# Op codes, as the contestants read them.
+PUT, GET, TAKE, WALK, NEW, DROP, CLEAR = range(7)
+# Segment kinds, as they report them.
+KINDS = ["insert", "overwrite", "hit", "miss", "remove", "iterate", "new", "drop", "clear"]
+MIXED = 15
+OP_OF = {"insert": PUT, "overwrite": PUT, "hit": GET, "miss": GET, "remove": TAKE, "iterate": WALK,
+         "new": NEW, "drop": DROP, "clear": CLEAR}
+VALUE_WORDS = (1, 2, 4, 8)
+
+
+def value_words(nbytes):
+    """The fewest Ints of 1, 2, 4 or 8 that hold a value of `nbytes`."""
+    for w in VALUE_WORDS:
+        if 8 * w >= nbytes:
+            return w
+    return 8
+
+
+def write_trace(path, kind, words, instances, keys, ops, segs):
+    """keys: tuples of ints (fixed kinds) or bytes (text); ops: (op, inst,
+    key) triples; segs: (kind, start, count) triples."""
+    out = bytearray()
+    if kind == "text":
+        offs, blob = [0], bytearray()
+        for k in keys:
+            blob += k
+            offs.append(len(blob))
+        body = struct.pack(f"<{len(offs)}I", *offs) + bytes(blob)
+        body += b"\0" * (-len(body) % 4)
+        text = len(blob)
+    else:
+        w = KEY_WORDS[kind]
+        flat = [x & 0xFFFFFFFFFFFFFFFF for k in keys for x in k]
+        assert all(len(k) == w for k in keys)
+        body = struct.pack(f"<{len(flat)}Q", *flat)
+        text = 0
+    ops_at = 36 + len(body)
+    n = len(ops)
+    out += struct.pack("<9I", MAGIC, KEY_KINDS[kind], words, instances, len(keys), n, len(segs), text, ops_at)
+    out += body
+    out += bytes(o[0] for o in ops) + b"\0" * (-n % 4)
+    out += struct.pack(f"<{n}I", *(o[1] for o in ops))
+    out += struct.pack(f"<{n}I", *(o[2] for o in ops))
+    out += struct.pack(f"<{3 * len(segs)}I", *(x for s in segs for x in s))
+    with open(path, "wb") as f:
+        f.write(out)
+
+
+# ---------------------------------------------------------------- specs
+
+def parse_spec(path):
+    spec = {"key": "int", "ids": "dense", "value": 8, "instances": 1, "size": "1000", "order": "interleaved",
+            "block": 256, "seed": 1, "drop": "yes", "mix": "insert=100", "universe": 2}
+    for line in open(path):
+        line = line.split("#")[0].strip()
+        if not line:
+            continue
+        name, _, rest = line.partition(" ")
+        if name not in spec:
+            sys.exit(f"{path}: unknown setting `{name}`")
+        spec[name] = rest.strip()
+    mix = {}
+    for part in spec["mix"].split():
+        k, _, v = part.partition("=")
+        if k not in ("insert", "overwrite", "hit", "miss", "remove", "iterate", "clear"):
+            sys.exit(f"{path}: mix has no kind `{k}`")
+        mix[k] = float(v)
+    if not mix.get("insert"):
+        sys.exit(f"{path}: the mix needs inserts, which set the number of ops")
+    spec["mix"] = mix
+    key = spec["key"].split()
+    spec["key"], spec["text"] = key[0], (tuple(int(x) for x in key[1].split("-")) if len(key) > 1 else (8, 24))
+    if spec["key"] not in KEY_KINDS:
+        sys.exit(f"{path}: key is one of {', '.join(KEY_KINDS)}")
+    lo, _, hi = spec["size"].partition("-")
+    spec["size"] = (int(lo), int(hi or lo))
+    for k in ("value", "instances", "block", "seed"):
+        spec[k] = int(spec[k])
+    spec["universe"] = float(spec["universe"])
+    return spec
+
+
+class Keys:
+    """Key values for a spec: fresh ones for an instance, and the pool
+    every op names keys from."""
+
+    def __init__(self, spec, rng, total):
+        self.spec, self.rng = spec, rng
+        self.index = {}
+        self.pool = []
+        # Dense ids come from 0..U, U the universe times the keys put in
+        # (each component of a pair or triple likewise).
+        self.u = max(16, int(spec["universe"] * total))
+        if spec["key"] in ("pair", "triple"):
+            self.u = max(16, int(spec["universe"] * total ** (1 / KEY_WORDS[spec["key"]])) * 4)
+
+    def draw(self):
+        s, r = self.spec, self.rng
+        kind = s["key"]
+        if kind == "text":
+            lo, hi = s["text"]
+            return bytes(r.choice(b"abcdefghijklmnopqrstuvwxyz0123456789_") for _ in range(r.randint(lo, hi)))
+        if s["ids"] == "dense":
+            comp = lambda: r.randrange(self.u)
+        else:
+            comp = (lambda: r.getrandbits(32)) if kind == "u32" else (lambda: r.getrandbits(64) - (1 << 63))
+        return tuple(comp() for _ in range(KEY_WORDS[kind]))
+
+    def ref(self, k):
+        i = self.index.get(k)
+        if i is None:
+            i = self.index[k] = len(self.pool)
+            self.pool.append(k)
+        return i
+
+
+def generate(spec):
+    rng = random.Random(spec["seed"])
+    n_inst = spec["instances"]
+    lo, hi = spec["size"]
+    sizes = [rng.randint(lo, hi) for _ in range(n_inst)]
+    total = sum(sizes)
+    keys = Keys(spec, rng, total)
+    mix = spec["mix"]
+    t_ops = round(total * 100 / mix["insert"])
+    counts = {k: (total if k == "insert" else round(t_ops * v / 100)) for k, v in mix.items() if v}
+    block = spec["block"]
+
+    def blocks(kind, n):
+        return [(kind, min(block, n - a)) for a in range(0, n, block)]
+
+    plan = []
+    if spec["order"] == "build":
+        plan = blocks("insert", total)
+        rest = [b for k, n in counts.items() if k != "insert" for b in blocks(k, n)]
+        rng.shuffle(rest)
+        plan += rest
+        inserts = [i for i in range(n_inst) for _ in range(sizes[i])]
+    elif spec["order"] == "interleaved":
+        plan = [b for k, n in counts.items() for b in blocks(k, n)]
+        rng.shuffle(plan)
+        # The first segment puts keys in, so the lookups after it have
+        # a key to find.
+        first = next(i for i, b in enumerate(plan) if b[0] == "insert")
+        plan.insert(0, plan.pop(first))
+        inserts = [i for i in range(n_inst) for _ in range(sizes[i])]
+        rng.shuffle(inserts)
+    else:
+        sys.exit("order is `interleaved` or `build`")
+
+    present = [[] for _ in range(n_inst)]  # keys held, as values
+    where = [{} for _ in range(n_inst)]  # key -> index in present
+    nonempty = []  # instances holding a key, and each one's place in it
+    ne_at = {}
+
+    def add(i, k):
+        where[i][k] = len(present[i])
+        present[i].append(k)
+        if len(present[i]) == 1:
+            ne_at[i] = len(nonempty)
+            nonempty.append(i)
+
+    def remove(i, k):
+        p = where[i].pop(k)
+        last = present[i].pop()
+        if p < len(present[i]):
+            present[i][p] = last
+            where[i][last] = p
+        if not present[i]:
+            q = ne_at.pop(i)
+            tail = nonempty.pop()
+            if q < len(nonempty):
+                nonempty[q] = tail
+                ne_at[tail] = q
+
+    ops, segs = [], []
+    next_insert = 0
+    for kind, n in plan:
+        start = len(ops)
+        for _ in range(n):
+            if kind == "insert":
+                i = inserts[next_insert]
+                next_insert += 1
+                k = keys.draw()
+                while k in where[i]:
+                    k = keys.draw()
+                add(i, k)
+            elif kind == "miss":
+                i = rng.randrange(n_inst)
+                k = keys.draw()
+                while k in where[i]:
+                    k = keys.draw()
+            elif kind == "iterate" or kind == "clear":
+                i = rng.randrange(n_inst)
+                k = None
+            else:
+                if not nonempty:
+                    sys.exit(f"spec: a {kind} with no key held anywhere; give more inserts first")
+                i = nonempty[rng.randrange(len(nonempty))]
+                k = present[i][rng.randrange(len(present[i]))]
+                if kind == "remove":
+                    remove(i, k)
+            if kind == "clear":
+                for x in list(present[i]):
+                    remove(i, x)
+            ops.append((OP_OF[kind], i, keys.ref(k) if k is not None else 0))
+        segs.append((KINDS.index(kind), start, n))
+    if spec["drop"] == "yes":
+        start = len(ops)
+        ops += [(DROP, i, 0) for i in range(n_inst)]
+        for a in range(start, len(ops), block):
+            segs.append((KINDS.index("drop"), a, min(block, len(ops) - a)))
+    if not keys.pool:
+        keys.ref(keys.draw())
+    return keys.pool, ops, segs, n_inst
+
+
+def cmd_gen(a):
+    spec = parse_spec(a.spec)
+    pool, ops, segs, n_inst = generate(spec)
+    write_trace(a.o, spec["key"], value_words(spec["value"]), n_inst, pool, ops, segs)
+    by = {}
+    for op in ops:
+        by[op[0]] = by.get(op[0], 0) + 1
+    print(f"{a.o}: {len(ops)} ops in {len(segs)} segments, {len(pool)} keys, {n_inst} instances")
+
+
+# ---------------------------------------------------------------- real traces
+
+RECORD = struct.Struct("<BBHIIIQ24s")
+T_OPS = ["get", "put", "remove", "clear", "new", "drop", "grow", "retain"]
+
+
+def rebuild_key(width, h, head, kind):
+    """The key of a record, from its width, hash and first 24 bytes:
+    exact up to 24 bytes; past that the first 24 bytes, the hash, and
+    filler to the width, so equal keys stay equal and distinct ones stay
+    distinct unless both their hashes and first 24 bytes agree."""
+    if kind == "text":
+        if width <= 24:
+            return head[:width]
+        tail = b"%016x" % h
+        filler = (tail * (width // 16 + 1))
+        return (head + filler)[:width]
+    w = KEY_WORDS[kind]
+    raw = head[:min(width, 24)].ljust(8 * w, b"\0")
+    if width > 24:
+        # A key wider than three words: its first two words and its hash.
+        raw = raw[:16] + struct.pack("<Q", h)
+    return struct.unpack(f"<{w}q", raw[:8 * w])
+
+
+def key_kind_of(ktype, width):
+    if ktype in ("String", "?String", "Static") or width == 65535:
+        return "text"
+    if width <= 4:
+        return "u32"
+    if width <= 8:
+        return "int"
+    if width <= 16:
+        return "pair"
+    return "triple"
+
+
+def cmd_import(a):
+    types = {}
+    tpath = a.trace + ".types"
+    if os.path.exists(tpath):
+        for line in open(tpath):
+            mid, k, v, kind = line.rstrip("\n").split("\t")
+            types[int(mid)] = (k, v, kind)
+    data = open(a.trace, "rb").read()
+    if len(data) % RECORD.size:
+        sys.exit(f"{a.trace}: not a whole number of {RECORD.size}-byte records")
+    recs = RECORD.iter_unpack(data)
+    want = set(int(x) for x in a.ids.split(",")) if a.ids else None
+    if a.types:
+        rx = re.compile(a.types)
+        tw = set(m for m, t in types.items() if rx.search(t[0]))
+        want = tw if want is None else want & tw
+    if a.top:
+        counts = {}
+        for r in RECORD.iter_unpack(data):
+            if want is None or r[3] in want:
+                counts[r[3]] = counts.get(r[3], 0) + 1
+        want = set(sorted(counts, key=counts.get, reverse=True)[:a.top])
+        recs = RECORD.iter_unpack(data)
+    picked = [r for r in recs if want is None or r[3] in want]
+    if not picked:
+        sys.exit("import: no records for the maps chosen")
+    # One key kind and one value size for the whole replay: the widest.
+    kwidth = max((r[2] for r in picked if (r[0] & 7) in (0, 1, 2)), default=8)
+    ktypes = set(types.get(r[3], ("?",))[0] for r in picked)
+    kind = key_kind_of(next(iter(ktypes)) if len(ktypes) == 1 else "?", kwidth)
+    vbytes = max(r[4] for r in picked)
+    inst_of, pool_at, pool = {}, {}, []
+    sim = []  # per instance: set of keys held
+    ops, skipped, mismatch = [], {}, 0
+    for r in picked:
+        op = T_OPS[r[0] & 7]
+        hit = bool(r[1] & 1)
+        mid = r[3]
+        if mid not in inst_of:
+            inst_of[mid] = len(sim)
+            sim.append(set())
+        i = inst_of[mid]
+        if op in ("grow", "retain"):
+            skipped[op] = skipped.get(op, 0) + 1
+            continue
+        if op in ("new", "drop", "clear"):
+            sim[i] = set()
+            ops.append(({"new": NEW, "drop": DROP, "clear": CLEAR}[op], i, 0, op))
+            continue
+        k = rebuild_key(r[2], r[6], r[7], kind)
+        if k not in pool_at:
+            pool_at[k] = len(pool)
+            pool.append(k)
+        held = k in sim[i]
+        if held != hit:
+            mismatch += 1
+        if op == "get":
+            ops.append((GET, i, pool_at[k], "hit" if held else "miss"))
+        elif op == "put":
+            ops.append((PUT, i, pool_at[k], "overwrite" if held else "insert"))
+            sim[i].add(k)
+        else:
+            ops.append((TAKE, i, pool_at[k], "remove"))
+            sim[i].discard(k)
+    # Segments: runs of one kind at least --run long are timed as that
+    # kind; the rest, in their order, as `mixed`.
+    segs, j = [], 0
+    while j < len(ops):
+        e = j
+        while e < len(ops) and ops[e][3] == ops[j][3] and e - j < 4096:
+            e += 1
+        if e - j >= a.run:
+            segs.append((KINDS.index(ops[j][3]), j, e - j))
+            j = e
+            continue
+        m = j
+        while m < len(ops):
+            e = m
+            while e < len(ops) and ops[e][3] == ops[m][3]:
+                e += 1
+            if e - m >= a.run or m - j >= 4096:
+                break
+            m = e
+        segs.append((MIXED, j, m - j))
+        j = m
+    write_trace(a.o, kind, value_words(vbytes), len(sim), pool or [rebuild_key(8, 0, b"\0" * 24, kind)],
+                [o[:3] for o in ops], segs)
+    print(f"{a.o}: {len(ops)} ops from {len(inst_of)} maps, keys {kind} (width {kwidth}, types {', '.join(sorted(ktypes))}), "
+          f"values {value_words(vbytes)} Ints ({vbytes} bytes), {len(pool)} keys, {len(segs)} segments")
+    if skipped:
+        print("  left out: " + ", ".join(f"{n} {k}" for k, n in skipped.items()))
+    if mismatch:
+        print(f"  {mismatch} ops found or missed their key other than the trace says")
+
+
+# ---------------------------------------------------------------- build and time
+
+def build(arm, out, cpu):
+    exe = os.path.join(out, arm)
+    if os.path.exists(exe):
+        return exe
+    tmp = exe + ".new"
+    if arm.startswith("rig-"):
+        src = os.path.join(HERE, "replay.rig")
+        if arm == "rig-hash":
+            text = re.sub(r"\bMap\[", "HashMap[", open(src).read())
+            text = re.sub(r"\bMap\(\)", "HashMap()", text)
+            src = os.path.join(out, "replay-hash.rig")
+            with open(src, "w") as f:
+                f.write(text)
+        env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, "rig-out-" + arm))
+        if cpu:
+            # Rig runs $ZIG for every Zig step: add the CPU to each compile.
+            wrap = os.path.join(out, "zig-cpu")
+            with open(wrap, "w") as f:
+                f.write('#!/bin/sh\nz=${REAL_ZIG:-zig}\ncase "$1" in\nbuild-exe|build-obj|build-lib|test) sub=$1; shift; '
+                        f'exec "$z" "$sub" -mcpu={cpu} "$@" ;;\n*) exec "$z" "$@" ;;\nesac\n')
+            os.chmod(wrap, 0o755)
+            env["ZIG"] = wrap
+        subprocess.run([RIG, "build", "--release", "-o", tmp, src], check=True, env=env)
+    else:
+        feats = RUST_FEATURES[arm]
+        target = os.path.join(out, "cargo-" + arm)
+        flags = f"-C target-cpu={cpu or 'native'}"
+        # Built from a copy, so a patch below leaves rust/Cargo.lock as it is.
+        crate = os.path.join(out, "rust-src")
+        if not os.path.exists(crate):
+            shutil.copytree(os.path.join(HERE, "rust"), crate, ignore=shutil.ignore_patterns("target"))
+        extra = ["--locked"]
+        for name in ("foldhash-0.2.0", "hashbrown-0.17.1", "rustc-hash-2.1.3"):
+            # A crate whose archive cargo's cache lost but whose source it
+            # kept is built from that source: no download either way.
+            reg = os.path.expanduser("~/.cargo/registry")
+            have = [d for d in os.listdir(os.path.join(reg, "cache")) if os.path.exists(os.path.join(reg, "cache", d, name + ".crate"))]
+            src = [os.path.join(reg, "src", d, name) for d in os.listdir(os.path.join(reg, "src"))
+                   if os.path.exists(os.path.join(reg, "src", d, name, ".cargo-ok"))]
+            if not have and src:
+                extra = ["--config", f'patch.crates-io.{name.rsplit("-", 1)[0]}.path="{src[0]}"']
+        subprocess.run([CARGO, "build", "-q", "--release", "--offline", *extra,
+                        *(["--features", ",".join(feats)] if feats else [])],
+                       check=True, cwd=crate,
+                       env=dict(os.environ, CARGO_TARGET_DIR=target, RUSTFLAGS=flags))
+        shutil.copy(os.path.join(target, "release", "replay"), tmp)
+    os.rename(tmp, exe)
+    return exe
+
+
+def run(exe, trace):
+    p = subprocess.run([exe, trace], check=True, capture_output=True, text=True)
+    rows = {}
+    for line in p.stdout.splitlines():
+        kind, ns, n, check = line.split()
+        rows[kind] = (int(ns), int(n), check)
+    return rows
+
+
+def cmd_build(a):
+    os.makedirs(a.out, exist_ok=True)
+    for arm in a.arms.split(","):
+        build(arm, a.out, a.cpu)
+        print(f"built {arm}")
+
+
+def cmd_time(a):
+    arms = a.arms.split(",")
+    exes = {arm: os.path.join(a.out, arm) for arm in arms}
+    if a.aa:
+        exes[a.aa + "'"] = exes[a.aa]
+        arms.append(a.aa + "'")
+    for arm, exe in exes.items():
+        if not os.path.exists(exe):
+            sys.exit(f"{exe}: build it first")
+    base = a.base if a.base in arms else arms[0]
+    for trace in a.traces:
+        times = {arm: {} for arm in arms}
+        checks, counts = {}, {}
+        for r in range(a.rounds):
+            order = arms[r % len(arms):] + arms[:r % len(arms)]
+            for arm in order:
+                for kind, (ns, n, check) in run(exes[arm], trace).items():
+                    if checks.setdefault(kind, check) != check:
+                        sys.exit(f"{trace}: {arm} {kind} check {check}, expected {checks[kind]}")
+                    counts[kind] = n
+                    times[arm].setdefault(kind, []).append(ns)
+        name = os.path.basename(trace)
+        print(f"\n{name}: ns per op, median of {a.rounds} rounds (ratio: the arm's time / {base}'s)")
+        w = max(10, *(len(x) + 1 for x in arms))
+        print(f"{'kind':10} {'ops':>10} " + " ".join(f"{x:>{w}}" for x in arms) + f"   {'check':>22}")
+        for kind in counts:
+            med = {x: statistics.median(times[x][kind]) / counts[kind] for x in arms}
+            print(f"{kind:10} {counts[kind]:10} " + " ".join(f"{med[x]:{w}.2f}" for x in arms) + f"   {checks[kind]:>22}")
+            print(f"{'':10} {'':10} " + " ".join(f"{med[x] / med[base]:{w}.2f}x" for x in arms))
+        if a.aa:
+            x, y = a.aa, a.aa + "'"
+            gaps = [abs(statistics.median(times[x][k]) / statistics.median(times[y][k]) - 1) * 100 for k in counts]
+            print(f"A/A ({x} against itself): total {gaps[-1]:.1f}%, largest kind {max(gaps):.1f}%")
+        spread = {x: (max(times[x]['total']) - min(times[x]['total'])) / min(times[x]['total']) * 100 for x in arms}
+        print("spread of total (max-min)/min: " + ", ".join(f"{x} {s:.1f}%" for x, s in spread.items()))
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    g = sub.add_parser("gen")
+    g.add_argument("spec")
+    g.add_argument("-o", required=True)
+    i = sub.add_parser("import")
+    i.add_argument("trace")
+    i.add_argument("-o", required=True)
+    i.add_argument("--ids")
+    i.add_argument("--types")
+    i.add_argument("--top", type=int)
+    i.add_argument("--run", type=int, default=64, help="shortest run of one kind timed as that kind")
+    b = sub.add_parser("build")
+    b.add_argument("--out", required=True)
+    b.add_argument("--arms", default=",".join(ARMS))
+    b.add_argument("--cpu")
+    t = sub.add_parser("time")
+    t.add_argument("--out", required=True)
+    t.add_argument("--arms", default=",".join(ARMS))
+    t.add_argument("--rounds", type=int, default=11)
+    t.add_argument("--aa")
+    t.add_argument("--base", default="hb-fx")
+    t.add_argument("traces", nargs="+")
+    a = ap.parse_args()
+    {"gen": cmd_gen, "import": cmd_import, "build": cmd_build, "time": cmd_time}[a.cmd](a)
+
+
+main()
