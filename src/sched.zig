@@ -3660,6 +3660,7 @@ fn poolMain(p: *Pool) void {
     const alt = rt.AltStack.attachOrStop();
     defer alt.detach();
     waker().thread = rt.threadId();
+    if (rt.fast_alloc.heap_census.on()) rt.fast_alloc.heap_census.noteRole(-2);
     rt.task().control = &waker().control;
     p.lock.lock();
     p.listWaker(waker());
@@ -4446,6 +4447,7 @@ fn workerMain(w: *Worker, n: usize) void {
     const alt = rt.AltStack.attachOrStop();
     defer alt.detach();
     me_slot().* = w;
+    if (rt.fast_alloc.heap_census.on()) for (workersNow(), 0..) |*v, i| if (v == w) rt.fast_alloc.heap_census.noteRole(@intCast(i));
     if (preempt) preOf(w).tid = rt.threadId();
     defer leavePreempt(w);
     // Claimed by `os.exit` before it ran (`initWorker`): it stops, as one

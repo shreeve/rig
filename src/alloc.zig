@@ -412,6 +412,11 @@ pub const Heap = struct {
     /// Its large blocks under `span_max` bytes: its span segments' free
     /// spans, which other threads free into and take from (`Spans`).
     spans: Spans = .{},
+    /// For the census of heaps (`heap_census`, `RIG_HEAP_RSS=1`): the
+    /// thread that took it last, and its role there (a worker's index,
+    /// -2 a blocking-pool thread, -1 not said).
+    census_tid: i32 = 0,
+    census_role: i32 = -1,
 
     /// `n` more bytes taken from the system.
     fn took(h: *Heap, n: usize) void {
@@ -482,6 +487,7 @@ pub const Heap = struct {
             return p;
         };
         const s = mapSegment() orelse return null;
+        if (heap_census.on()) heap_census.mark(@intFromPtr(s), 1, 1);
         h.took(segment_size);
         // Every segment asks for huge pages, a heap's first as its
         // later ones: a TLB entry then covers 2 MiB of its blocks, and a
@@ -1875,6 +1881,7 @@ fn carveSpan(h: *Heap, n: usize) ?usize {
     };
     sp.lock.unlock();
     const seg = mapSpanSegment() orelse return null;
+    if (heap_census.on()) heap_census.mark(@intFromPtr(seg), 2, span_segment_size / segment_size);
     // Huge pages, for all of it, as a segment of small blocks asks: a
     // span's room it has not filled commits up to 2 MiB with them.
     _ = ask(@intFromPtr(seg), span_segment_size, segmentWants(h.taken + span_segment_size));
@@ -2676,6 +2683,7 @@ fn newHeap() ?*Heap {
         s.next_free = null;
         if (check_owner) s.owner = threadToken();
         my_heap().* = s;
+        if (heap_census.on()) heap_census.adopt(s);
         return s;
     }
     const bytes = std.posix.mmap(null, std.mem.alignForward(usize, @sizeOf(Heap), std.heap.pageSize()), .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0) catch return null;
@@ -2687,6 +2695,7 @@ fn newHeap() ?*Heap {
     h.all_next = all_heaps.load(.monotonic);
     all_heaps.store(h, .release);
     spare_lock.unlock();
+    if (heap_census.on()) heap_census.adopt(h);
     return h;
 }
 
@@ -4978,3 +4987,677 @@ test "a record's block is aligned as its type, small or large" {
         }
     }
 }
+
+// -----------------------------------------------------------------------------
+// The census of heaps (`RIG_HEAP_RSS=1`, scratch)
+// -----------------------------------------------------------------------------
+
+/// With `RIG_HEAP_RSS=1` set, on Linux, every heap's memory is written to
+/// stderr as the process ends (`report`, beside the census of Tables),
+/// and as it stood at the last rise of the process's peak (`VmHWM`): a
+/// thread of the census's own reads the peak (`getrusage`) every
+/// millisecond and, each time it has risen by 1 MiB or a 200th since the
+/// last, measures every heap again and keeps the text. Each segment is
+/// recorded as it is mapped (`mark`); its resident and huge pages are read
+/// with `PAGEMAP_SCAN`, which skips the zero page; free lists are walked
+/// with every block checked against the segments before it is read, so a
+/// list another thread changes meanwhile ends the walk, never a read
+/// outside the segments' region; kept large blocks are read with
+/// `process_vm_readv`, which fails on an address unmapped meanwhile.
+/// Unset, a heap made, a segment mapped, and a worker started each test
+/// one byte, and the exit one more.
+pub const heap_census = struct {
+    const linux = std.os.linux;
+    const here = builtin.os.tag == .linux and !builtin.single_threaded;
+
+    /// 0 unread, 1 off, 2 on.
+    var state_var: std.atomic.Value(u8) = .init(0);
+    const state = split.cell(&state_var, "alloc.hc_state");
+    /// Each 4 MiB of the segments' region: 0 nothing recorded, 1 a
+    /// segment of small blocks, 2 the start of a span segment, 3 the rest
+    /// of one.
+    const slot_count = region_size / segment_size;
+    var slots_var: [slot_count]u8 = @splat(0);
+    const slots = split.cell(&slots_var, "alloc.hc_slots");
+    /// The sampling thread: 0 not started, 1 running, 2 asked to stop, 3
+    /// stopped.
+    var sampler_var: std.atomic.Value(u8) = .init(0);
+    const sampler = split.cell(&sampler_var, "alloc.hc_sampler");
+    /// The text measured at the last rise of the peak.
+    var peak_buf_var: []u8 = &.{};
+    const peak_buf = split.cell(&peak_buf_var, "alloc.hc_peak_buf");
+    var peak_len_var: usize = 0;
+    const peak_len = split.cell(&peak_len_var, "alloc.hc_peak_len");
+    var snapshots_var: usize = 0;
+    const snapshots = split.cell(&snapshots_var, "alloc.hc_snapshots");
+
+    comptime {
+        if (split.on and split.main) _ = .{ state, slots, sampler, peak_buf, peak_len, snapshots };
+    }
+
+    pub inline fn on() bool {
+        if (comptime !here) return false;
+        const s = state.load(.monotonic);
+        if (s != 0) return s == 2;
+        return readOn();
+    }
+
+    noinline fn readOn() bool {
+        @branchHint(.cold);
+        const yes = environHas("RIG_HEAP_RSS=1");
+        state.store(if (yes) 2 else 1, .monotonic);
+        return yes;
+    }
+
+    /// Whether `/proc/self/environ` holds the entry `entry` exactly.
+    fn environHas(comptime entry: []const u8) bool {
+        const rc = linux.openat(linux.AT.FDCWD, "/proc/self/environ", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+        if (@as(isize, @bitCast(rc)) < 0) return false;
+        const fd: linux.fd_t = @intCast(rc);
+        defer _ = linux.close(fd);
+        const no = std.math.maxInt(usize);
+        var at: usize = 0;
+        var buf: [512]u8 = undefined;
+        while (true) {
+            const r: isize = @bitCast(linux.read(fd, &buf, buf.len));
+            if (r <= 0) break;
+            for (buf[0..@intCast(r)]) |c| {
+                if (c == 0) {
+                    if (at == entry.len) return true;
+                    at = 0;
+                } else if (at < entry.len and c == entry[at]) {
+                    at += 1;
+                } else at = no;
+            }
+        }
+        return at == entry.len;
+    }
+
+    /// A segment (`kind` 1) or span segment (2, `n` slots) mapped at `p`.
+    pub noinline fn mark(p: usize, kind: u8, n: usize) void {
+        @branchHint(.cold);
+        const end = region_end.*;
+        if (end == 0 or p < end - region_size or p >= end) return;
+        const i = (p - (end - region_size)) / segment_size;
+        for (1..n) |j| @atomicStore(u8, &slots[i + j], 3, .release);
+        @atomicStore(u8, &slots[i], kind, .release);
+    }
+
+    /// The running thread has taken `h`; the first heap starts the
+    /// sampler.
+    pub noinline fn adopt(h: *Heap) void {
+        @branchHint(.cold);
+        h.census_tid = linux.gettid();
+        h.census_role = -1;
+        if (sampler.cmpxchgStrong(0, 1, .acq_rel, .monotonic) != null) return;
+        const th = std.Thread.spawn(.{ .stack_size = 512 << 10 }, sample, .{}) catch {
+            sampler.store(3, .release);
+            return;
+        };
+        th.detach();
+    }
+
+    /// The running thread is worker `role`, or a blocking-pool thread
+    /// (-2).
+    pub noinline fn noteRole(role: i32) void {
+        @branchHint(.cold);
+        const h = heap() orelse return;
+        h.census_role = role;
+        h.census_tid = linux.gettid();
+    }
+
+    fn maxRss() usize {
+        var ru: linux.rusage = undefined;
+        if (linux.getrusage(linux.rusage.SELF, &ru) != 0) return 0;
+        return @as(usize, @intCast(ru.maxrss)) * 1024;
+    }
+
+    fn sample() void {
+        var last: usize = 0;
+        while (sampler.load(.acquire) == 1) {
+            const hwm = maxRss();
+            if (hwm > last and hwm - last >= @max(1 << 20, last / 200)) {
+                last = hwm;
+                if (peak_buf.*.len == 0) peak_buf.* = std.heap.page_allocator.alloc(u8, 4 << 20) catch &.{};
+                var out: Out = .{ .buf = peak_buf.*, .direct = false };
+                snapshot(&out, "peak", hwm);
+                peak_len.* = out.len;
+                snapshots.* += 1;
+            }
+            const ts: linux.timespec = .{ .sec = 0, .nsec = 1_000_000 };
+            _ = linux.nanosleep(&ts, null);
+        }
+        sampler.store(3, .release);
+    }
+
+    /// The report, as the process ends; nothing unless the census is on.
+    pub fn report() void {
+        if (comptime !here) return;
+        if (state.load(.monotonic) != 2) return;
+        reportAll();
+    }
+
+    noinline fn reportAll() void {
+        @branchHint(.cold);
+        // Stop the sampler, and wait for its measure in progress.
+        if (sampler.cmpxchgStrong(1, 2, .acq_rel, .monotonic) == null) {
+            var waited: usize = 0;
+            while (sampler.load(.acquire) != 3 and waited < 5000) : (waited += 1) {
+                const ts: linux.timespec = .{ .sec = 0, .nsec = 1_000_000 };
+                _ = linux.nanosleep(&ts, null);
+            }
+        }
+        var out: Out = .{ .buf = &.{}, .direct = true };
+        if (sampler.load(.acquire) == 3 and peak_len.* > 0) {
+            _ = linux.write(2, peak_buf.*.ptr, peak_len.*);
+        }
+        out.print("rig-heap-rss: peak snapshots={d}\n", .{snapshots.*});
+        snapshot(&out, "exit", maxRss());
+    }
+
+    const Out = struct {
+        buf: []u8,
+        len: usize = 0,
+        direct: bool,
+        fn print(o: *Out, comptime fmt: []const u8, args: anytype) void {
+            var line: [1536]u8 = undefined;
+            const s = std.fmt.bufPrint(&line, fmt, args) catch return;
+            if (o.direct) {
+                _ = linux.write(2, s.ptr, s.len);
+                return;
+            }
+            if (o.len + s.len > o.buf.len) return;
+            @memcpy(o.buf[o.len..][0..s.len], s);
+            o.len += s.len;
+        }
+    };
+
+    // --- Resident pages ---------------------------------------------------
+
+    const PageRegion = extern struct { start: u64, end: u64, categories: u64 };
+    const ScanArg = extern struct {
+        size: u64,
+        flags: u64,
+        start: u64,
+        end: u64,
+        walk_end: u64,
+        vec: u64,
+        vec_len: u64,
+        max_pages: u64,
+        category_inverted: u64,
+        category_mask: u64,
+        category_anyof_mask: u64,
+        return_mask: u64,
+    };
+    /// `_IOWR('f', 16, struct pm_scan_arg)`, Linux 6.7 and later.
+    const pagemap_scan: u32 = 0xC0606610;
+    const is_present: u64 = 1 << 3;
+    const is_pfnzero: u64 = 1 << 5;
+    const is_huge: u64 = 1 << 6;
+
+    const Res = struct { rss: usize = 0, huge: usize = 0 };
+
+    /// The bytes of `[start, start+len)` present (not the zero page), and
+    /// of them those mapped as huge pages; with `bits`, each system page's
+    /// state too (0 absent, 1 present, 2 in a huge page).
+    fn scan(fd: linux.fd_t, start: usize, len: usize, bits: ?[]u8) Res {
+        const pg = std.heap.pageSize();
+        if (bits) |b| @memset(b[0 .. len / pg], 0);
+        var out: Res = .{};
+        var vec: [128]PageRegion = undefined;
+        var at = start;
+        const end = start + len;
+        while (at < end) {
+            var arg: ScanArg = .{
+                .size = @sizeOf(ScanArg),
+                .flags = 0,
+                .start = at,
+                .end = end,
+                .walk_end = 0,
+                .vec = @intFromPtr(&vec),
+                .vec_len = vec.len,
+                .max_pages = 0,
+                .category_inverted = 0,
+                .category_mask = is_present,
+                .category_anyof_mask = 0,
+                .return_mask = is_present | is_pfnzero | is_huge,
+            };
+            const rc: isize = @bitCast(linux.ioctl(fd, pagemap_scan, @intFromPtr(&arg)));
+            if (rc < 0) return out;
+            for (vec[0..@intCast(rc)]) |r| {
+                if (r.categories & is_pfnzero != 0) continue;
+                const n: usize = @intCast(r.end - r.start);
+                out.rss += n;
+                const huge = r.categories & is_huge != 0;
+                if (huge) out.huge += n;
+                if (bits) |b| @memset(b[(@as(usize, @intCast(r.start)) - start) / pg ..][0 .. n / pg], if (huge) 2 else 1);
+            }
+            if (arg.walk_end <= at) break;
+            at = @intCast(arg.walk_end);
+        }
+        return out;
+    }
+
+    fn countBits(bits: []const u8, from: usize, len: usize) usize {
+        const pg = std.heap.pageSize();
+        var n: usize = 0;
+        for (bits[from / pg ..][0 .. len / pg]) |b| {
+            if (b != 0) n += pg;
+        }
+        return n;
+    }
+
+    // --- /proc ------------------------------------------------------------
+
+    const Map = struct { start: usize, end: usize, rss: usize, huge: usize };
+
+    fn readMaps(pa: std.mem.Allocator) []Map {
+        const rc = linux.openat(linux.AT.FDCWD, "/proc/self/smaps", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+        if (@as(isize, @bitCast(rc)) < 0) return &.{};
+        const fd: linux.fd_t = @intCast(rc);
+        defer _ = linux.close(fd);
+        var text = pa.alloc(u8, 1 << 20) catch return &.{};
+        defer pa.free(text);
+        var len: usize = 0;
+        while (true) {
+            if (len == text.len) text = pa.realloc(text, text.len * 2) catch return &.{};
+            const r: isize = @bitCast(linux.read(fd, text[len..].ptr, text.len - len));
+            if (r <= 0) break;
+            len += @intCast(r);
+        }
+        var list: std.ArrayList(Map) = .empty;
+        var lines = std.mem.splitScalar(u8, text[0..len], '\n');
+        while (lines.next()) |line| {
+            if (line.len == 0) continue;
+            if (std.mem.indexOfScalar(u8, line, '-')) |dash| if (dash > 0 and std.ascii.isHex(line[0]) and std.mem.indexOfScalar(u8, line[0..dash], ' ') == null) {
+                const sp = std.mem.indexOfScalarPos(u8, line, dash, ' ') orelse continue;
+                const a = std.fmt.parseInt(usize, line[0..dash], 16) catch continue;
+                const b = std.fmt.parseInt(usize, line[dash + 1 .. sp], 16) catch continue;
+                list.append(pa, .{ .start = a, .end = b, .rss = 0, .huge = 0 }) catch return list.items;
+                continue;
+            };
+            if (list.items.len == 0) continue;
+            const m = &list.items[list.items.len - 1];
+            if (std.mem.startsWith(u8, line, "Rss:")) m.rss = kib(line[4..]) else if (std.mem.startsWith(u8, line, "AnonHugePages:")) m.huge = kib(line[14..]);
+        }
+        return list.items;
+    }
+
+    fn kib(text: []const u8) usize {
+        var words = std.mem.tokenizeScalar(u8, text, ' ');
+        const w = words.next() orelse return 0;
+        return (std.fmt.parseInt(usize, w, 10) catch 0) * 1024;
+    }
+
+    fn statusField(text: []const u8, comptime key: []const u8) usize {
+        const at = std.mem.indexOf(u8, text, key) orelse return 0;
+        const end = std.mem.indexOfScalarPos(u8, text, at, '\n') orelse text.len;
+        return kib(text[at + key.len .. end]);
+    }
+
+    fn mapOf(maps: []const Map, p: usize) ?Map {
+        for (maps) |m| if (p >= m.start and p < m.end) return m;
+        return null;
+    }
+
+    // --- The measure ------------------------------------------------------
+
+    const max_heaps = 512;
+
+    /// What one heap holds, summed from its segments and lists.
+    const Acc = struct {
+        segs: usize = 0,
+        seg_rss: usize = 0,
+        seg_huge: usize = 0,
+        seg_hdr_rss: usize = 0,
+        seg_room_rss: usize = 0,
+        small_held: usize = 0,
+        small_free: usize = 0,
+        small_free_rss: usize = 0,
+        whole_pages: usize = 0,
+        whole_rss: usize = 0,
+        released: usize = 0,
+        tail: usize = 0,
+        full_pages: usize = 0,
+        sspans: usize = 0,
+        sspan_rss: usize = 0,
+        sspan_huge: usize = 0,
+        sspan_hdr_rss: usize = 0,
+        sspan_room_rss: usize = 0,
+        sspan_tail: usize = 0,
+        warm_n: usize = 0,
+        warm_b: usize = 0,
+        warm_rss: usize = 0,
+        cold_n: usize = 0,
+        cold_b: usize = 0,
+        cold_rss: usize = 0,
+        kept_n: usize = 0,
+        kept_b: usize = 0,
+        kept_rss: usize = 0,
+        ckept_n: usize = 0,
+        ckept_b: usize = 0,
+        ckept_rss: usize = 0,
+        blocks_bad: usize = 0,
+    };
+
+    inline fn vload(comptime T: type, p: *const T) T {
+        return @as(*const volatile T, p).*;
+    }
+
+    fn snapshot(out: *Out, when: []const u8, hwm: usize) void {
+        const pa = std.heap.page_allocator;
+        const pg = std.heap.pageSize();
+        var arena_state: std.heap.ArenaAllocator = .init(pa);
+        defer arena_state.deinit();
+        const arena = arena_state.allocator();
+        const maps = readMaps(arena);
+        const pm_rc = linux.openat(linux.AT.FDCWD, "/proc/self/pagemap", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+        if (@as(isize, @bitCast(pm_rc)) < 0) return;
+        const fd: linux.fd_t = @intCast(pm_rc);
+        defer _ = linux.close(fd);
+
+        // The heaps, oldest first.
+        var heaps: [max_heaps]*Heap = undefined;
+        var nh: usize = 0;
+        var it = all_heaps.load(.acquire);
+        while (it) |h| : (it = vload(?*Heap, &h.all_next)) {
+            if (nh == max_heaps) break;
+            heaps[nh] = h;
+            nh += 1;
+        }
+        std.mem.reverse(*Heap, heaps[0..nh]);
+        var spare: [max_heaps]bool = @splat(false);
+        {
+            var sp = spare_heaps.load(.acquire);
+            var guard: usize = 0;
+            while (sp) |h| : (sp = vload(?*Heap, &h.next_free)) {
+                guard += 1;
+                if (guard > max_heaps) break;
+                if (indexOf(heaps[0..nh], h)) |i| spare[i] = true else break;
+            }
+        }
+        const acc = arena.alloc(Acc, nh) catch return;
+        @memset(acc, .{});
+
+        const end = region_end.*;
+        const start = if (end != 0) end - region_size else 0;
+        const next = region_next.load(.acquire);
+        const nslots = if (end != 0 and next > start) @min((next - start) / segment_size, slot_count) else 0;
+
+        // Every free small block, by its segment and page.
+        const cells = nslots * pages_per_segment;
+        const nfree = arena.alloc(u16, cells) catch return;
+        const uncarved = arena.alloc(u16, cells) catch return;
+        const class = arena.alloc(u8, cells) catch return;
+        @memset(nfree, 0);
+        @memset(uncarved, 0);
+        @memset(class, 0xff);
+        for (heaps[0..nh], 0..) |h, hi| {
+            for (0..class_count) |c| {
+                acc[hi].blocks_bad += walkSmall(vload(?*Block, &h.free[c]), c, start, nslots, nfree, class);
+                acc[hi].blocks_bad += walkSmall(h.remote[c].load(.acquire), c, start, nslots, nfree, class);
+                const ce = vload(usize, &h.carve_end[c]);
+                const cv = vload(usize, &h.carve[c]);
+                if (ce == 0 or cv > ce or ce <= start) continue;
+                const page = (ce - 1) & ~(page_size - 1);
+                const cell = cellOf(page, start, nslots) orelse continue;
+                uncarved[cell] = @intCast((ce - cv) / classSize(c));
+                class[cell] = @intCast(c);
+            }
+        }
+
+        // Each segment.
+        const bits = arena.alloc(u8, span_segment_size / pg) catch return;
+        var sum_seg_rss: usize = 0;
+        var gap_slots: usize = 0;
+        var i: usize = 0;
+        while (i < nslots) : (i += 1) {
+            const kind = @atomicLoad(u8, &slots[i], .acquire);
+            const base = start + i * segment_size;
+            if (kind == 1) {
+                const seg: *const Segment = @ptrFromInt(base);
+                const hi = indexOf(heaps[0..nh], vload(*Heap, &seg.heap)) orelse continue;
+                const a = &acc[hi];
+                const used = @min(vload(usize, &seg.used), pages_per_segment);
+                const released = vload(u64, &seg.released);
+                const r = scan(fd, base, segment_size, bits);
+                const hdr = countBits(bits, 0, page_size);
+                const in_used = countBits(bits, 0, used * page_size);
+                var held: usize = 0;
+                var free_b: usize = 0;
+                var free_rss: usize = 0;
+                var whole: usize = 0;
+                var whole_rss: usize = 0;
+                var rel: usize = 0;
+                var full: usize = 0;
+                for (1..used) |k| {
+                    if (released >> @intCast(k) & 1 != 0) {
+                        rel += 1;
+                        continue;
+                    }
+                    held += page_size;
+                    const cell = i * pages_per_segment + k;
+                    if (class[cell] == 0xff) {
+                        full += 1;
+                        continue;
+                    }
+                    const size = classSize(class[cell]);
+                    const cap = page_size / size;
+                    const f = @min(@as(usize, nfree[cell]) + uncarved[cell], cap);
+                    a.tail += page_size - cap * size;
+                    const page_rss = countBits(bits, k * page_size, page_size);
+                    free_b += f * size;
+                    if (f == cap) {
+                        whole += 1;
+                        whole_rss += page_rss;
+                        free_rss += page_rss;
+                    } else free_rss += f * size * page_rss / page_size;
+                }
+                a.segs += 1;
+                a.seg_rss += r.rss;
+                a.seg_huge += r.huge;
+                a.seg_hdr_rss += hdr;
+                a.seg_room_rss += r.rss - in_used;
+                a.small_held += held;
+                a.small_free += free_b;
+                a.small_free_rss += free_rss;
+                a.whole_pages += whole;
+                a.whole_rss += whole_rss;
+                a.released += rel;
+                a.full_pages += full;
+                sum_seg_rss += r.rss;
+                const m = mapOf(maps, base);
+                out.print("rig-heap-rss: {s} seg heap={d} kind=small base=0x{x} used_pages={d} released={d} asked_huge={d} rss={d} huge={d} hdr_rss={d} room_rss={d} free={d} free_rss={d} whole_free_pages={d} whole_free_rss={d} vma=0x{x}-0x{x} vma_rss={d} vma_huge={d}\n", .{
+                    when,                      hi,                      base,                    used,                     rel, @intFromBool(vload(bool, &seg.huge)), r.rss, r.huge, hdr, r.rss - in_used, free_b, free_rss, whole, whole_rss,
+                    if (m) |x| x.start else 0, if (m) |x| x.end else 0, if (m) |x| x.rss else 0, if (m) |x| x.huge else 0,
+                });
+            } else if (kind == 2) {
+                const seg: *const SpanSegment = @ptrFromInt(base);
+                const hi = indexOf(heaps[0..nh], vload(*Heap, &seg.heap)) orelse continue;
+                const a = &acc[hi];
+                const used = @min(vload(usize, &seg.used), span_units);
+                const r = scan(fd, base, span_segment_size, bits);
+                const hdr = countBits(bits, 0, page_size);
+                const in_used = countBits(bits, 0, used * span_unit);
+                a.sspans += 1;
+                a.sspan_rss += r.rss;
+                a.sspan_huge += r.huge;
+                a.sspan_hdr_rss += hdr;
+                a.sspan_room_rss += r.rss - in_used;
+                a.sspan_tail += (span_units - used) * span_unit;
+                sum_seg_rss += r.rss;
+                const m = mapOf(maps, base);
+                out.print("rig-heap-rss: {s} seg heap={d} kind=span base=0x{x} used_units={d} rss={d} huge={d} hdr_rss={d} room_rss={d} vma=0x{x}-0x{x} vma_rss={d} vma_huge={d}\n", .{
+                    when,                      hi,                      base,                    used,                     r.rss, r.huge, hdr, r.rss - in_used,
+                    if (m) |x| x.start else 0, if (m) |x| x.end else 0, if (m) |x| x.rss else 0, if (m) |x| x.huge else 0,
+                });
+                i += span_segment_size / segment_size - 1;
+            } else if (kind == 0) gap_slots += 1;
+        }
+
+        // Each heap's free spans and kept large blocks.
+        for (heaps[0..nh], 0..) |h, hi| {
+            const a = &acc[hi];
+            walkSpans(fd, &h.spans.warm, start, nslots, &a.warm_n, &a.warm_b, &a.warm_rss);
+            walkSpans(fd, &h.spans.cold, start, nslots, &a.cold_n, &a.cold_b, &a.cold_rss);
+            walkKept(fd, &h.kept, &a.kept_n, &a.kept_b, &a.kept_rss);
+            walkKept(fd, &h.cold, &a.ckept_n, &a.ckept_b, &a.ckept_rss);
+        }
+
+        // Each heap.
+        var t: Acc = .{};
+        var t_taken: usize = 0;
+        var t_large_live: usize = 0;
+        var t_span_live: usize = 0;
+        var t_live_est: usize = 0;
+        const pid = linux.getpid();
+        for (heaps[0..nh], 0..) |h, hi| {
+            const a = acc[hi];
+            const taken = vload(usize, &h.taken);
+            const large_live = vload(usize, &h.large_live);
+            const large_peak = vload(usize, &h.large_peak);
+            const span_live = vload(usize, &h.spans.live);
+            const span_peak = vload(usize, &h.spans.peak);
+            const warm = vload(usize, &h.spans.warm.bytes);
+            const cold = vload(usize, &h.spans.cold.bytes);
+            const kept = vload(usize, &h.kept.bytes);
+            const ckept = vload(usize, &h.cold.bytes);
+            const small_inuse = a.small_held -| a.small_free;
+            const live_est = small_inuse + span_live + large_live;
+            const role = vload(i32, &h.census_role);
+            const tid = vload(i32, &h.census_tid);
+            var role_buf: [24]u8 = undefined;
+            const role_text = if (role >= 0) std.fmt.bufPrint(&role_buf, "worker{d}", .{role}) catch "?" else if (role == -2) "pool" else "other";
+            out.print("rig-heap-rss: {s} heap={d} tid={d} main={d} role={s} spare={d} leads={d} faults_ahead={d} taken={d} " ++
+                "segs={d} seg_rss={d} seg_huge={d} seg_hdr_rss={d} seg_room_rss={d} small_held={d} small_free={d} small_free_rss={d} whole_free_pages={d} whole_free_rss={d} released_pages={d} tail_waste={d} full_pages={d} small_inuse={d} " ++
+                "spansegs={d} spanseg_rss={d} spanseg_huge={d} spanseg_hdr_rss={d} spanseg_room_rss={d} spanseg_uncarved={d} span_live={d} span_peak={d} span_bound={d} warm={d} warm_n={d} warm_rss={d} cold={d} cold_n={d} cold_rss={d} " ++
+                "large_live={d} large_peak={d} keep_bound={d} kept={d} kept_n={d} kept_rss={d} kept_cold={d} kept_cold_n={d} kept_cold_rss={d} live_est={d} bad_lists={d}\n", .{
+                when,             hi,           tid,        @intFromBool(tid == pid), role_text,                               @intFromBool(spare[hi]), @intFromBool(leads(h)), @intFromBool(faultsAhead(h)), taken,
+                a.segs,           a.seg_rss,    a.seg_huge, a.seg_hdr_rss,            a.seg_room_rss,                          a.small_held,            a.small_free,           a.small_free_rss,             a.whole_pages,
+                a.whole_rss,      a.released,   a.tail,     a.full_pages,             small_inuse,                             a.sspans,                a.sspan_rss,            a.sspan_huge,                 a.sspan_hdr_rss,
+                a.sspan_room_rss, a.sspan_tail, span_live,  span_peak,                (span_peak -| span_live) + keep_large,   warm,                    a.warm_n,               a.warm_rss,                   cold,
+                a.cold_n,         a.cold_rss,   large_live, large_peak,               (large_peak -| large_live) + keep_large, kept,                    a.kept_n,               a.kept_rss,                   ckept,
+                a.ckept_n,        a.ckept_rss,  live_est,   a.blocks_bad,
+            });
+            inline for (@typeInfo(Acc).@"struct".fields) |f| @field(t, f.name) += @field(a, f.name);
+            t_taken += taken;
+            t_large_live += large_live;
+            t_span_live += span_live;
+            t_live_est += live_est;
+        }
+
+        // The totals, against the region, smaps, and the process.
+        const region = if (nslots > 0) scan(fd, start, nslots * segment_size, null) else Res{};
+        const regions = censusRegions();
+        var s_seg: Res = .{};
+        var s_tab: Res = .{};
+        var s_other: Res = .{};
+        for (maps) |m| {
+            var into = &s_other;
+            if (end != 0 and m.start >= start and m.end <= end) into = &s_seg;
+            for (regions.tables) |r| if (m.start >= r.start and m.end <= r.start + r.len + huge_page) {
+                into = &s_tab;
+            };
+            into.rss += m.rss;
+            into.huge += m.huge;
+        }
+        var status: [4096]u8 = undefined;
+        const st = readSmallFile("/proc/self/status", &status);
+        out.print("rig-heap-rss: {s} total heaps={d} hwm={d} taken={d} live_est={d} small_inuse={d} span_live={d} large_live={d} " ++
+            "sum_seg_rss={d} sum_seg_huge={d} small_seg_rss={d} span_seg_rss={d} region_scan_rss={d} region_scan_huge={d} smaps_region_rss={d} smaps_region_huge={d} gap_slots={d} " ++
+            "small_free={d} small_free_rss={d} whole_free_pages={d} whole_free_rss={d} tail_waste={d} seg_hdr_rss={d} seg_room_rss={d} spanseg_hdr_rss={d} spanseg_room_rss={d} warm_rss={d} cold_rss={d} kept_rss={d} kept_cold_rss={d} " ++
+            "smaps_tables_rss={d} smaps_other_rss={d} vmrss={d} vmhwm={d} rss_anon={d} rss_file={d} counts_live={d} counts_peak={d}\n", .{
+            when,                      nh,                        t_taken,                     hwm,                         t_live_est,                                      t.small_held -| t.small_free,                    t_span_live,   t_large_live,
+            sum_seg_rss,               t.seg_huge + t.sspan_huge, t.seg_rss,                   t.sspan_rss,                 region.rss,                                      region.huge,                                     s_seg.rss,     s_seg.huge,
+            gap_slots,                 t.small_free,              t.small_free_rss,            t.whole_pages,               t.whole_rss,                                     t.tail,                                          t.seg_hdr_rss, t.seg_room_rss,
+            t.sspan_hdr_rss,           t.sspan_room_rss,          t.warm_rss,                  t.cold_rss,                  t.kept_rss,                                      t.ckept_rss,                                     s_tab.rss,     s_other.rss,
+            statusField(st, "VmRSS:"), statusField(st, "VmHWM:"), statusField(st, "RssAnon:"), statusField(st, "RssFile:"), if (counts) total_live.load(.monotonic) else -1, if (counts) total_peak.load(.monotonic) else -1,
+        });
+    }
+
+    fn indexOf(heaps: []const *Heap, h: *const Heap) ?usize {
+        for (heaps, 0..) |x, i| if (x == h) return i;
+        return null;
+    }
+
+    /// The cell (segment slot and page) of a small block at `p`, if it
+    /// lies in a recorded segment of small blocks, past its header.
+    fn cellOf(p: usize, start: usize, nslots: usize) ?usize {
+        if (p < start) return null;
+        const i = (p - start) / segment_size;
+        if (i >= nslots or @atomicLoad(u8, &slots[i], .acquire) != 1) return null;
+        const k = (p & (segment_size - 1)) / page_size;
+        if (k == 0) return null;
+        return i * pages_per_segment + k;
+    }
+
+    /// Count the blocks of the list from `first`, of class `c`, by page;
+    /// a block that cannot be on such a list ends the walk (another
+    /// thread changed it meanwhile). Gives 1 if the walk ended so.
+    fn walkSmall(first: ?*Block, c: usize, start: usize, nslots: usize, nfree: []u16, class: []u8) usize {
+        const size = classSize(c);
+        const cap = page_size / size;
+        var p = first;
+        var steps: usize = 0;
+        while (p) |b| : (steps += 1) {
+            const a = @intFromPtr(b);
+            if (steps > 1 << 26) return 1;
+            const cell = cellOf(a, start, nslots) orelse return 1;
+            if ((a & (page_size - 1)) % size != 0) return 1;
+            if (class[cell] == 0xff) class[cell] = @intCast(c) else if (class[cell] != c) return 1;
+            if (nfree[cell] >= cap) return 1;
+            nfree[cell] += 1;
+            p = vload(?*Block, &b.next);
+        }
+        return 0;
+    }
+
+    /// Count the free spans of `bins`, their bytes and resident bytes.
+    fn walkSpans(fd: linux.fd_t, bins: *const SpanBins, start: usize, nslots: usize, n: *usize, bytes: *usize, rss: *usize) void {
+        for (0..span_bins) |b| {
+            var p = vload(?*SpanFree, &bins.list[b]);
+            var steps: usize = 0;
+            while (p) |f| : (steps += 1) {
+                const a = @intFromPtr(f);
+                if (steps > 1 << 22 or a < start or a % span_unit != 0) break;
+                const i = (a - start) / segment_size;
+                if (i >= nslots) break;
+                const kind = @atomicLoad(u8, &slots[i], .acquire);
+                if (kind != 2 and kind != 3) break;
+                const seg = spanSegmentOf(a);
+                const s = spanIndex(seg, a);
+                if (s >= span_units) break;
+                const units: usize = vload(u16, &seg.tags[s]) & tag_len;
+                if (units == 0 or s + units > span_units) break;
+                const len = units * span_unit;
+                n.* += 1;
+                bytes.* += len;
+                const lo = std.mem.alignForward(usize, a, std.heap.pageSize());
+                const hi = std.mem.alignBackward(usize, a + len, std.heap.pageSize());
+                if (hi > lo) rss.* += scan(fd, lo, hi - lo, null).rss;
+                p = vload(?*SpanFree, &f.next);
+            }
+        }
+    }
+
+    /// Count the kept large blocks of `k`, read with `process_vm_readv`,
+    /// which fails on an address unmapped meanwhile.
+    fn walkKept(fd: linux.fd_t, k: *const Kept, n: *usize, bytes: *usize, rss: *usize) void {
+        const pid = linux.getpid();
+        for (0..large_buckets) |b| {
+            var p = vload(?*LargeFree, &k.large[b]);
+            var steps: usize = 0;
+            while (p) |f| : (steps += 1) {
+                if (steps > 1 << 16) break;
+                var node: LargeFree = undefined;
+                var local = [1]std.posix.iovec{.{ .base = @ptrCast(&node), .len = @sizeOf(LargeFree) }};
+                const remote = [1]std.posix.iovec_const{.{ .base = @ptrCast(f), .len = @sizeOf(LargeFree) }};
+                if (linux.process_vm_readv(pid, &local, &remote, 0) != @sizeOf(LargeFree)) break;
+                n.* += 1;
+                bytes.* += node.len;
+                rss.* += scan(fd, @intFromPtr(f), std.mem.alignForward(usize, node.len, std.heap.pageSize()), null).rss;
+                p = node.next;
+            }
+        }
+    }
+};

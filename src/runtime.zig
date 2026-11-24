@@ -8675,6 +8675,7 @@ pub fn exitNow(code: Int) noreturn {
     // the teardown unmaps what the program holds, and both tear down.
     if (pgo) writeProfile();
     table_zig.census.report();
+    fast_alloc.heap_census.report();
     if (scheduled) sched.tearDown();
     endProcess(status);
 }
@@ -8696,6 +8697,7 @@ pub fn finish() void {
     if (pgo) writeProfile();
     if (map_trace) map_tracer.close();
     table_zig.census.report();
+    fast_alloc.heap_census.report();
     releaseProcess();
     lockOutput();
     flush();
