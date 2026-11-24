@@ -5475,6 +5475,12 @@ pub const heap_census = struct {
             }
         }
 
+        // Free bytes and pages of each class, by heap.
+        const cls_free = arena.alloc(usize, nh * class_count) catch return;
+        const cls_pages = arena.alloc(usize, nh * class_count) catch return;
+        @memset(cls_free, 0);
+        @memset(cls_pages, 0);
+
         // Each segment.
         const bits = arena.alloc(u8, span_segment_size / pg) catch return;
         var sum_seg_rss: usize = 0;
@@ -5516,6 +5522,8 @@ pub const heap_census = struct {
                     a.tail += page_size - cap * size;
                     const page_rss = countBits(bits, k * page_size, page_size);
                     free_b += f * size;
+                    cls_free[hi * class_count + class[cell]] += f * size;
+                    cls_pages[hi * class_count + class[cell]] += 1;
                     if (f == cap) {
                         whole += 1;
                         whole_rss += page_rss;
@@ -5601,6 +5609,15 @@ pub const heap_census = struct {
             out.print("segs={d} seg_rss={d} seg_huge={d} seg_hdr_rss={d} seg_room_rss={d} small_held={d} small_free={d} small_free_rss={d} whole_free_pages={d} whole_free_rss={d} released_pages={d} tail_waste={d} full_pages={d} small_inuse={d} ", .{ a.segs, a.seg_rss, a.seg_huge, a.seg_hdr_rss, a.seg_room_rss, a.small_held, a.small_free, a.small_free_rss, a.whole_pages, a.whole_rss, a.released, a.tail, a.full_pages, small_inuse });
             out.print("spansegs={d} spanseg_rss={d} spanseg_huge={d} spanseg_hdr_rss={d} spanseg_room_rss={d} spanseg_uncarved={d} span_live={d} span_peak={d} span_bound={d} warm={d} warm_n={d} warm_rss={d} cold={d} cold_n={d} cold_rss={d} ", .{ a.sspans, a.sspan_rss, a.sspan_huge, a.sspan_hdr_rss, a.sspan_room_rss, a.sspan_tail, span_live, span_peak, (span_peak -| span_live) + keep_large, warm, a.warm_n, a.warm_rss, cold, a.cold_n, a.cold_rss });
             out.print("large_live={d} large_peak={d} keep_bound={d} kept={d} kept_n={d} kept_rss={d} kept_cold={d} kept_cold_n={d} kept_cold_rss={d}\n", .{ large_live, large_peak, (large_peak -| large_live) + keep_large, kept, a.kept_n, a.kept_rss, ckept, a.ckept_n, a.ckept_rss });
+            // The classes that hold 256 KiB or more free: size:pages:free.
+            if (a.small_free >= 256 << 10) {
+                out.print("rig-heap-rss: {s} classes heap={d}", .{ when, hi });
+                for (0..class_count) |c| {
+                    const fb = cls_free[hi * class_count + c];
+                    if (fb >= 256 << 10) out.print(" {d}:{d}:{d}", .{ classSize(c), cls_pages[hi * class_count + c], fb });
+                }
+                out.print("\n", .{});
+            }
             inline for (@typeInfo(Acc).@"struct".field_names) |name| @field(t, name) += @field(a, name);
             t_taken += taken;
             t_large_live += large_live;
@@ -5619,7 +5636,10 @@ pub const heap_census = struct {
         var s_other: Res = .{};
         for (maps_now) |m| {
             var into = &s_other;
-            if (end != 0 and m.start >= start and m.end <= end) into = &s_seg;
+            // The region's own mapping starts below its first segment
+            // (`reserveRegion` aligns it), so a mapping that overlaps it
+            // is the region's.
+            if (end != 0 and m.start < end and m.end > start) into = &s_seg;
             for (regions.tables) |r| if (m.start >= r.start and m.end <= r.start + r.len + huge_page) {
                 into = &s_tab;
             };
