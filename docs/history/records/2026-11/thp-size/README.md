@@ -102,5 +102,5 @@ Sums of medians, against M at the same count:
 
 ## Decision
 
-Rig: keep N=2 (no change), and take the threshold to the owner as a speed-for-memory choice. Nothing lands meanwhile.
-If a threshold is chosen, patches/rig-knob.patch is the change, with this race as its measurement.
+The owner (2026-11-24, through Rig): keep 2 MiB, no knob. 8 MiB costs 2-2.7% wall for 4-7% memory, a poor ratio next to
+the +0.3%-for-4-8% trades he takes. The branch is archived as `archive/thp-size`; patches/rig-knob.patch is the knob.

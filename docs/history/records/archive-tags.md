@@ -155,3 +155,4 @@ for spawn and the Mac, `early-memory` for memory).
 | `archive/psum-stack-both` | `644e8e694` | 2026-11-20 | psum-gap board arm (2026-11-18): main with the early-start and handoff changes together; measured in records/2026-11/psum-gap (stack-board.md), superseded by #1158/#1170. |
 | `archive/psum-stack-hp` | `ea7217f22` | 2026-11-20 | psum-gap board arm (2026-11-18): main with seg-first-small (first 2 MiB small pages); measured in records/2026-11/psum-gap, superseded by #1170. |
 | `archive/ring-steal-race-pad` | `fc71d5685` | 2026-11-20 | Layout probe (2026-11-18): 32 never-run bytes in the handoff, to test whether a psum gap was code placement; records/2026-11/psum-gap. |
+| `archive/thp-size` | `350c0a007` | 2026-11-24 | RIG_HUGE_MIN_MB, where huge pages start (ce8f7f9ac), and the Table census (scratch); not taken, the owner kept 2 MiB; records/2026-11/thp-size. |
