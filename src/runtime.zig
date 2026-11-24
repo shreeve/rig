@@ -11989,9 +11989,10 @@ pub fn fastCores() Int {
 /// calls it once).
 pub fn fastThreads() Int {
     if (builtin.os.tag == .linux) {
-        const linux = std.os.linux;
-        var allowed: CpuSet = .empty;
-        if (linux.errno(linux.sched_getaffinity(0, @sizeOf(@TypeOf(allowed.masks)), &allowed.masks)) != .SUCCESS) return 1;
+        // NARROW-PLACE: the process's CPUs at its start, not the running
+        // thread's, which `RIG_PIN=1` may have pinned to one core.
+        const allowed = physicalCores().allowed;
+        if (allowed.count() == 0) return 1;
         var buffer: [512]u8 = undefined;
         if ((LinuxCpuFiles{}).fast(&buffer)) |text| {
             if (parseCpuList(text)) |fast_set| {
@@ -12031,6 +12032,9 @@ pub fn physicalCores() *const Cores {
     const linux = std.os.linux;
     var c: Cores = .{};
     if (linux.errno(linux.sched_getaffinity(0, @sizeOf(@TypeOf(c.allowed.masks)), &c.allowed.masks)) != .SUCCESS) return &cores_var;
+    // Kept even where a file below cannot be read: `fastThreads` and
+    // `pinThread` read it.
+    cores_var.allowed = c.allowed;
     var buffer: [512]u8 = undefined;
     var wanted = c.allowed;
     if ((LinuxCpuFiles{}).fast(&buffer)) |text| {
@@ -12123,9 +12127,10 @@ pub const CpuSet = std.bit_set.Static(1024);
 /// The mask's own count stands in for `getCpuCount`, which a mask wider
 /// than `CpuSet` would crash; such a mask gives 1.
 fn linuxFastCores() usize {
-    const linux = std.os.linux;
-    var allowed: CpuSet = .empty;
-    if (linux.errno(linux.sched_getaffinity(0, @sizeOf(@TypeOf(allowed.masks)), &allowed.masks)) != .SUCCESS) return 1;
+    // NARROW-PLACE: the process's CPUs at its start (`physicalCores`), not
+    // the running thread's, which `RIG_PIN=1` may have pinned.
+    const allowed = physicalCores().allowed;
+    if (allowed.count() == 0) return 1;
     const logical = @max(1, allowed.count());
     const found = countFastCores(&allowed, LinuxCpuFiles{}) catch return logical;
     return @max(1, @min(logical, found));

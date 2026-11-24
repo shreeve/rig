@@ -265,10 +265,13 @@ expect tasks "true true 2" RIG_WIDE=0
 expect actor "32 160000 2" RIG_WIDE=0
 expect cycles "true 2" RIG_WIDE=0
 # Widened, the extra workers ran tasks, and parked after the narrow.
-out=$(RIG_WIDE=1 RIG_SCHED_STATS=1 ./tasks 2>stats.txt) || fail "tasks stats: $out"
-extra=$(grep -cE '^rig: worker [2-9]' stats.txt) || true
 [[ $(uname -s) == Darwin ]] && fast=$(sysctl -n hw.perflevel0.logicalcpu 2>/dev/null || echo 2) || fast=$(nproc)
-(( fast <= 2 || extra >= 1 )) || fail "tasks: no worker past the first two ran under RIG_WIDE=1: $(tr '\n' '|' < stats.txt)"
+for arm in "${arms[@]}"; do
+    [[ $arm == *RIG_WIDE=1* ]] || continue
+    out=$(env $arm RIG_SCHED_STATS=1 ./tasks 2>stats.txt) || fail "tasks stats ($arm): $out"
+    extra=$(grep -cE '^rig: worker [2-9]' stats.txt) || true
+    (( fast <= 2 || extra >= 1 )) || fail "tasks ($arm): no worker past the first two ran: $(tr '\n' '|' < stats.txt)"
+done
 # A debug build, leak-checked and sanitized.
 for p in actor naps cycles; do
     out=$(RIG_WIDE=1 RIG_SANITIZE=1 "$TIMEOUT_CMD" 120 "$RIG" run $p.rig 2>err.txt | tr '\n' ' ') || fail "$p debug: $out $(tail -5 err.txt)"
