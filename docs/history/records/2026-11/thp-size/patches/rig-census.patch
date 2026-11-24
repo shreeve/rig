@@ -1,0 +1,353 @@
+diff --git a/src/alloc.zig b/src/alloc.zig
+index 2c55f1156..d420f0f2b 100644
+--- a/src/alloc.zig
++++ b/src/alloc.zig
+@@ -2531,6 +2531,19 @@ pub fn exitRanges(out: *[exit_ranges_max]Range) struct { ranges: []Range, dense:
+     return .{ .ranges = out[0..n], .dense = dense };
+ }
+ 
++/// The segments' region, `[seg_start, seg_end)` (both 0 when there is
++/// none), and the Tables' regions: what `RIG_TABLE_RSS` (`table.zig`,
++/// `census`) sorts the process's memory by.
++pub fn censusRegions() struct { seg_start: usize, seg_end: usize, tables: []const Range } {
++    const next = region_next.load(.acquire);
++    const has = region_end.* != 0 and next > 1;
++    return .{
++        .seg_start = if (has) region_end.* - region_size else 0,
++        .seg_end = if (has) region_end.* else 0,
++        .tables = table_regions[0..table_region_count.*],
++    };
++}
++
+ /// About how many page-table pages the program's segments and Tables
+ /// hold, and how many MiB of segments: what `os.exit`'s teardown would
+ /// save, read without a lock (an estimate, to decide whether to try).
+diff --git a/src/runtime.zig b/src/runtime.zig
+index fbefc847c..7474821de 100644
+--- a/src/runtime.zig
++++ b/src/runtime.zig
+@@ -8674,6 +8674,7 @@ pub fn exitNow(code: Int) noreturn {
+     // profile here, where the optimized one's writer does nothing, before
+     // the teardown unmaps what the program holds, and both tear down.
+     if (pgo) writeProfile();
++    table_zig.census.report();
+     if (scheduled) sched.tearDown();
+     endProcess(status);
+ }
+@@ -8694,6 +8695,7 @@ pub fn finish() void {
+     if (scheduled) sched.settleLeftCalls();
+     if (pgo) writeProfile();
+     if (map_trace) map_tracer.close();
++    table_zig.census.report();
+     releaseProcess();
+     lockOutput();
+     flush();
+diff --git a/src/table.zig b/src/table.zig
+index 14be7e312..bb34288b5 100644
+--- a/src/table.zig
++++ b/src/table.zig
+@@ -34,6 +34,7 @@ const std = @import("std");
+ const builtin = @import("builtin");
+ const root = @import("root");
+ const rt = @import("runtime.zig");
++const split = @import("split.zig");
+ 
+ /// The Zig type of `Slot[n]`: the fewest of 8, 16, 32, and 64 bits that
+ /// hold `n - 1` (`sema.slotBytes`).
+@@ -188,6 +189,7 @@ pub fn Table(comptime T: type, comptime n: u64) type {
+             switch (how) {
+                 .reserved => {
+                     const p = reserve(bytes);
++                    if (census.on()) census.add(@intFromPtr(p), bytes, @typeName(T), n);
+                     var t: Self = .{ .slots = @ptrCast(@alignCast(p)) };
+                     if (comptime leak_checked) t.token = (rt.allocSlice(u8, 1)).ptr;
+                     return t;
+@@ -306,6 +308,7 @@ pub fn Table(comptime T: type, comptime n: u64) type {
+             if (comptime @sizeOf(T) == 0) return;
+             switch (how) {
+                 .reserved => {
++                    if (census.on()) census.drop(@intFromPtr(self.slots));
+                     unreserve(@ptrCast(@alignCast(self.slots)), bytes);
+                     if (comptime leak_checked) rt.freeSlice(u8, self.token[0..1]);
+                 },
+@@ -325,3 +328,280 @@ pub fn Table(comptime T: type, comptime n: u64) type {
+         }
+     };
+ }
++
++// -----------------------------------------------------------------------------
++// The census of reserved Tables (`RIG_TABLE_RSS=1`)
++// -----------------------------------------------------------------------------
++
++/// With `RIG_TABLE_RSS=1` set, each reserved table is recorded as it is
++/// made, by its element type, `n`, and the thread that made it, and as
++/// the process ends (`os.exit`, or `main` returning) each one's resident
++/// bytes are written to stderr, one line a table: its bytes present and
++/// its own (`/proc/self/pagemap`, so the zero page a read of an unwritten
++/// slot maps is not counted), and of them those in huge pages
++/// (`/proc/self/smaps`, `AnonHugePages`, of the mappings inside its
++/// range, which its advice splits from its neighbours'), then the totals
++/// of the segments' region, the Tables' regions, and the rest. A table
++/// dropped first is measured as it is dropped. Linux only; unset, a
++/// table's making and dropping test one byte and the exit one more.
++pub const census = struct {
++    const Entry = struct {
++        start: usize,
++        bytes: usize,
++        name: []const u8,
++        n: u64,
++        tid: i32,
++        dropped: bool = false,
++        rss: usize = 0,
++        huge: usize = 0,
++        asked: bool = false,
++    };
++    const max = 4096;
++    /// 0 unread, 1 off, 2 on.
++    var state_var: std.atomic.Value(u8) = .init(0);
++    const state = split.cell(&state_var, "table.census_state");
++    var entries_var: [max]Entry = undefined;
++    const entries = split.cell(&entries_var, "table.census_entries");
++    var count_var: std.atomic.Value(usize) = .init(0);
++    const count = split.cell(&count_var, "table.census_count");
++    var lock_var: std.atomic.Value(bool) = .init(false);
++    const lock = split.cell(&lock_var, "table.census_lock");
++
++    comptime {
++        if (split.on and split.main) _ = .{ state, entries, count, lock };
++    }
++
++    /// Whether the census is on, read from the environment once.
++    pub inline fn on() bool {
++        const s = state.load(.monotonic);
++        if (s != 0) return s == 2;
++        return readOn();
++    }
++
++    noinline fn readOn() bool {
++        @branchHint(.cold);
++        if (builtin.os.tag != .linux) {
++            state.store(1, .monotonic);
++            return false;
++        }
++        const p = rt.process.* orelse return false;
++        const v = p.environ.getPosix("RIG_TABLE_RSS");
++        const yes = v != null and std.mem.eql(u8, v.?, "1");
++        state.store(if (yes) 2 else 1, .monotonic);
++        return yes;
++    }
++
++    fn take() void {
++        if (rt.sched.preempting) rt.sched.holdOff();
++        while (lock.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
++    }
++    fn give() void {
++        lock.store(false, .release);
++        if (rt.sched.preempting) rt.sched.holdOn();
++    }
++
++    pub noinline fn add(start: usize, bytes: usize, name: []const u8, n: u64) void {
++        @branchHint(.cold);
++        if (comptime builtin.os.tag != .linux) return;
++        const i = count.fetchAdd(1, .monotonic);
++        if (i >= max) return;
++        entries.*[i] = .{ .start = start, .bytes = bytes, .name = name, .n = n, .tid = std.os.linux.gettid() };
++    }
++
++    /// The table at `start` is about to be dropped: measured now.
++    pub noinline fn drop(start: usize) void {
++        @branchHint(.cold);
++        if (comptime builtin.os.tag != .linux) return;
++        take();
++        defer give();
++        const n = @min(count.load(.monotonic), max);
++        for (entries.*[0..n]) |*e| if (e.start == start and !e.dropped) {
++            var maps = Maps.read() orelse return;
++            defer maps.deinit();
++            measure(e, &maps);
++            e.dropped = true;
++            return;
++        };
++    }
++
++    /// The mappings of `/proc/self/smaps`, in address order.
++    const Map = struct { start: usize, end: usize, rss: usize, huge: usize, hg: bool };
++    const Maps = struct {
++        list: []Map,
++        fn read() ?Maps {
++            const linux = std.os.linux;
++            const pa = std.heap.page_allocator;
++            const rc = linux.openat(linux.AT.FDCWD, "/proc/self/smaps", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
++            if (@as(isize, @bitCast(rc)) < 0) return null;
++            const fd: linux.fd_t = @intCast(rc);
++            defer _ = linux.close(fd);
++            var text = pa.alloc(u8, 1 << 20) catch return null;
++            defer pa.free(text);
++            var len: usize = 0;
++            while (true) {
++                if (len == text.len) text = pa.realloc(text, text.len * 2) catch return null;
++                const r: isize = @bitCast(linux.read(fd, text[len..].ptr, text.len - len));
++                if (r <= 0) break;
++                len += @intCast(r);
++            }
++            var list: std.ArrayList(Map) = .empty;
++            var lines = std.mem.splitScalar(u8, text[0..len], '\n');
++            while (lines.next()) |line| {
++                if (line.len == 0) continue;
++                // A mapping's first line: `start-end perms ...`.
++                if (std.mem.indexOfScalar(u8, line, '-')) |dash| if (dash > 0 and std.ascii.isHex(line[0]) and std.mem.indexOfScalar(u8, line[0..dash], ' ') == null) {
++                    const sp = std.mem.indexOfScalarPos(u8, line, dash, ' ') orelse continue;
++                    const a = std.fmt.parseInt(usize, line[0..dash], 16) catch continue;
++                    const b = std.fmt.parseInt(usize, line[dash + 1 .. sp], 16) catch continue;
++                    list.append(pa, .{ .start = a, .end = b, .rss = 0, .huge = 0, .hg = false }) catch return null;
++                    continue;
++                };
++                if (list.items.len == 0) continue;
++                const m = &list.items[list.items.len - 1];
++                if (std.mem.startsWith(u8, line, "Rss:")) m.rss = kib(line[4..]) else if (std.mem.startsWith(u8, line, "AnonHugePages:")) m.huge = kib(line[14..]) else if (std.mem.startsWith(u8, line, "VmFlags:")) {
++                    var words = std.mem.tokenizeScalar(u8, line[8..], ' ');
++                    while (words.next()) |w| if (std.mem.eql(u8, w, "hg")) {
++                        m.hg = true;
++                    };
++                }
++            }
++            return .{ .list = list.toOwnedSlice(pa) catch return null };
++        }
++        fn deinit(self: *Maps) void {
++            std.heap.page_allocator.free(self.list);
++        }
++        fn kib(text: []const u8) usize {
++            var words = std.mem.tokenizeScalar(u8, text, ' ');
++            const w = words.next() orelse return 0;
++            return (std.fmt.parseInt(usize, w, 10) catch 0) * 1024;
++        }
++    };
++
++    /// `e`'s bytes present and its own, and those of the mappings inside
++    /// its range in huge pages.
++    fn measure(e: *Entry, maps: *const Maps) void {
++        const span = std.mem.alignForward(usize, e.bytes, huge);
++        e.rss = ownBytes(e.start, std.mem.alignForward(usize, e.bytes, page));
++        e.huge = 0;
++        e.asked = false;
++        for (maps.list) |m| if (m.start >= e.start and m.end <= e.start + span) {
++            e.huge += m.huge;
++            e.asked = e.asked or m.hg;
++        };
++    }
++
++    /// The bytes of `len` at `start` present and mapped by this process
++    /// alone (`/proc/self/pagemap`): a page written, not the zero page.
++    fn ownBytes(start: usize, len: usize) usize {
++        const linux = std.os.linux;
++        const rc = linux.openat(linux.AT.FDCWD, "/proc/self/pagemap", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
++        if (@as(isize, @bitCast(rc)) < 0) return 0;
++        const fd: linux.fd_t = @intCast(rc);
++        defer _ = linux.close(fd);
++        const small = std.heap.pageSize();
++        const per = 8192;
++        const buf = std.heap.page_allocator.alloc(u64, per) catch return 0;
++        defer std.heap.page_allocator.free(buf);
++        var total: usize = 0;
++        var at = start / small;
++        const stop = (start + len) / small;
++        while (at < stop) {
++            const want: usize = @min(per, stop - at);
++            const r: isize = @bitCast(linux.pread(fd, @ptrCast(buf.ptr), want * 8, @intCast(at * 8)));
++            if (r <= 0) break;
++            const got: usize = @as(usize, @intCast(r)) / 8;
++            for (buf[0..got]) |v| {
++                // Present (bit 63) and mapped exclusively (bit 56).
++                if (v >> 63 == 1 and (v >> 56) & 1 == 1) total += small;
++            }
++            at += got;
++        }
++        return total;
++    }
++
++    fn print(comptime fmt: []const u8, args: anytype) void {
++        var buf: [512]u8 = undefined;
++        const line = std.fmt.bufPrint(&buf, fmt, args) catch return;
++        _ = std.posix.system.write(2, line.ptr, line.len);
++    }
++
++    fn inside(a: usize, b: usize, lo: usize, hi: usize) bool {
++        return a >= lo and b <= hi;
++    }
++
++    /// The report, as the process ends; nothing unless the census is on.
++    pub fn report() void {
++        if (state.load(.monotonic) != 2) return;
++        reportAll();
++    }
++
++    noinline fn reportAll() void {
++        @branchHint(.cold);
++        if (comptime builtin.os.tag != .linux) return;
++        take();
++        defer give();
++        var maps = Maps.read() orelse return;
++        defer maps.deinit();
++        const n = @min(count.load(.monotonic), max);
++        var t_rss: usize = 0;
++        var t_huge: usize = 0;
++        for (entries.*[0..n], 0..) |*e, i| {
++            if (!e.dropped) measure(e, &maps);
++            t_rss += e.rss;
++            t_huge += e.huge;
++            print("rig-table-rss: table seq={d} tid={d} base=0x{x} reserved={d} rss={d} anonhuge={d} asked={d} dropped={d} n={d} name={s}\n", .{ i, e.tid, e.start, std.mem.alignForward(usize, e.bytes, page), e.rss, e.huge, @intFromBool(e.asked), @intFromBool(e.dropped), e.n, e.name });
++        }
++        const regions = rt.fast_alloc.censusRegions();
++        var seg: [3]usize = .{ 0, 0, 0 };
++        var tab: [3]usize = .{ 0, 0, 0 };
++        var other: [3]usize = .{ 0, 0, 0 };
++        var all: [2]usize = .{ 0, 0 };
++        for (maps.list) |m| {
++            all[0] += m.rss;
++            all[1] += m.huge;
++            var into: *[3]usize = &other;
++            var kind: []const u8 = "other";
++            if (regions.seg_end != 0 and inside(m.start, m.end, regions.seg_start, regions.seg_end)) {
++                into = &seg;
++                kind = "segment";
++            }
++            for (regions.tables) |r| if (inside(m.start, m.end, r.start, r.start + r.len + huge)) {
++                into = &tab;
++                kind = "tablemap";
++            };
++            into[0] += m.rss;
++            into[1] += m.huge;
++            if (m.hg) into[2] += 1;
++            // Each mapping that holds memory, outside the Tables, whose
++            // lines above give theirs: the segments' by address, and the
++            // rest (large blocks, stacks, the binary).
++            if (m.rss > 0 and into != &tab) print("rig-table-rss: {s} base=0x{x} len={d} rss={d} anonhuge={d} hg={d}\n", .{ kind, m.start, m.end - m.start, m.rss, m.huge, @intFromBool(m.hg) });
++        }
++        print("rig-table-rss: total kind=tables count={d} rss={d} anonhuge={d} (the table lines summed)\n", .{ n, t_rss, t_huge });
++        print("rig-table-rss: total kind=tablemaps rss={d} anonhuge={d} hg_maps={d}\n", .{ tab[0], tab[1], tab[2] });
++        print("rig-table-rss: total kind=segments base=0x{x} len={d} rss={d} anonhuge={d} hg_maps={d}\n", .{ regions.seg_start, regions.seg_end - regions.seg_start, seg[0], seg[1], seg[2] });
++        print("rig-table-rss: total kind=other rss={d} anonhuge={d} hg_maps={d}\n", .{ other[0], other[1], other[2] });
++        print("rig-table-rss: total kind=all rss={d} anonhuge={d}\n", .{ all[0], all[1] });
++        var status: [4096]u8 = undefined;
++        const text = readFile("/proc/self/status", &status);
++        if (std.mem.indexOf(u8, text, "VmHWM:")) |at| {
++            const end = std.mem.indexOfScalarPos(u8, text, at, '\n') orelse text.len;
++            print("rig-table-rss: peak {s}\n", .{text[at..end]});
++        }
++    }
++
++    fn readFile(path: [*:0]const u8, buf: []u8) []const u8 {
++        const linux = std.os.linux;
++        const rc = linux.openat(linux.AT.FDCWD, path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
++        if (@as(isize, @bitCast(rc)) < 0) return "";
++        const fd: linux.fd_t = @intCast(rc);
++        defer _ = linux.close(fd);
++        var len: usize = 0;
++        while (len < buf.len) {
++            const r: isize = @bitCast(linux.read(fd, buf[len..].ptr, buf.len - len));
++            if (r <= 0) break;
++            len += @intCast(r);
++        }
++        return buf[0..len];
++    }
++};
