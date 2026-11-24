@@ -141,3 +141,12 @@ alongside allocation into an arena a task chooses. If it is ever built, its name
 
 Sources: slot 731's 12-worker rows (pup `/zfs/trig-pup/c8-check/slot-c8fix-w12/runs`); W′'s verdict (slot 424,
 `target-b1.md`, "W′ verdict", in the Trig revamp inputs); Trig's front-speed notes (slots 733 to 735).
+
+## Measured (2026-11-24)
+
+The owner then approved one race of the scratch build, [race-754.md](race-754.md):
+- Summed wall is level in every arm (0.994-1.002 of main).
+- The front end is 3-7% faster and the check about as much slower.
+- Peak memory is 2.6-6.1% higher at c2 to c8.
+
+It is a measured negative, the shape of W′. The scratch is kept as `archive/phase-wide`.
