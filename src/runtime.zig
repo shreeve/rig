@@ -897,7 +897,7 @@ fn namedNiche(comptime T: type) NicheAt {
     const offset = @offsetOf(T, T.__rig_none_field);
     return switch (@typeInfo(F)) {
         .int => .{ .offset = offset, .Word = F, .value = none, .spare = 1 },
-        .@"enum" => |e| .{ .offset = offset, .Word = e.tag_type, .value = @intFromEnum(none), .spare = 1 },
+        .@"enum" => |e| .{ .offset = offset, .Word = e.tag_type, .value = @backingInt(none), .spare = 1 },
         else => @compileError("rig: an object names its none by an integer or a plain enum"),
     };
 }
@@ -2295,10 +2295,10 @@ pub fn hashAs(comptime T: type, x: T) u64 {
         .@"union" => |u| {
             const Tag = u.tag_type orelse @compileError("rig.hash: no `.hash()` of " ++ @typeName(T));
             return switch (x) {
-                inline else => |v, tag| hashMix(hashInt(@intFromEnum(@as(Tag, tag))), hashAs(@TypeOf(v), v)),
+                inline else => |v, tag| hashMix(hashInt(@backingInt(@as(Tag, tag))), hashAs(@TypeOf(v), v)),
             };
         },
-        .@"enum" => return hashInt(@intFromEnum(x)),
+        .@"enum" => return hashInt(@backingInt(x)),
         .error_set => return hashInt(@intFromError(x)),
         .bool => return hashInt(@intFromBool(x)),
         .int, .comptime_int => return hashInt(x),
@@ -2353,7 +2353,7 @@ inline fn putWords(comptime T: type, x: T, w: []u64, next: *usize) void {
             next.* += 1;
         },
         .@"enum" => {
-            w[next.*] = hashWordOf(@intFromEnum(x));
+            w[next.*] = hashWordOf(@backingInt(x));
             next.* += 1;
         },
         .@"struct" => |st| inline for (st.field_names, st.field_types) |name, F| putWords(F, @field(x, name), w, next),
@@ -2538,7 +2538,7 @@ inline fn scalarRank(x: anytype) switch (@typeInfo(@TypeOf(x))) {
 } {
     return switch (@typeInfo(@TypeOf(x))) {
         .bool => @intFromBool(x),
-        .@"enum" => @intFromEnum(x),
+        .@"enum" => @backingInt(x),
         else => x,
     };
 }
@@ -2568,7 +2568,7 @@ pub fn order(a: anytype, b: @TypeOf(a)) std.math.Order {
         .int, .comptime_int => return intOrder(a, b),
         .float, .comptime_float => return std.math.order(a, b),
         .bool => return intOrder(@intFromBool(a), @intFromBool(b)),
-        .@"enum" => return intOrder(@intFromEnum(a), @intFromEnum(b)),
+        .@"enum" => return intOrder(@backingInt(a), @backingInt(b)),
         .optional => {
             const x = a orelse return if (b == null) .eq else .lt;
             const y = b orelse return .gt;
@@ -2588,7 +2588,7 @@ pub fn order(a: anytype, b: @TypeOf(a)) std.math.Order {
         },
         .@"union" => |u| {
             const Tag = u.tag_type orelse @compileError("rig.order: no order of " ++ @typeName(T));
-            const o = intOrder(@intFromEnum(@as(Tag, a)), @intFromEnum(@as(Tag, b)));
+            const o = intOrder(@backingInt(@as(Tag, a)), @backingInt(@as(Tag, b)));
             if (o != .eq) return o;
             switch (a) {
                 inline else => |x, tag| return order(x, @field(b, @tagName(tag))),
@@ -4036,7 +4036,7 @@ fn recordFromBytes(comptime T: type, b: *const [recordSize(T)]u8) T {
     switch (@typeInfo(T)) {
         .int, .float => return @bitCast(b.*),
         .bool => return b[0] != 0,
-        .@"enum" => |e| return @enumFromInt(@as(e.tag_type, @intCast(@as(std.meta.Int(.unsigned, 8 * @sizeOf(T)), @bitCast(b.*))))),
+        .@"enum" => |e| return @fromBackingInt(@intCast(@as(e.tag_type, @intCast(@as(std.meta.Int(.unsigned, 8 * @sizeOf(T)), @bitCast(b.*)))))),
         .array => |a| {
             const each = comptime recordSize(a.child);
             for (&out, 0..) |*e, i| e.* = recordFromBytes(a.child, b[i * each ..][0..each]);
@@ -4484,7 +4484,7 @@ fn qualifier(comptime module: []const u8, comptime names: anytype) []const u8 {
 /// An error set, by one of its errors' names, which the emitter writes
 /// as `module.Set.error` (`Set.error` in the root).
 fn errorSetName(comptime error_name: []const u8, comptime names: anytype) []const u8 {
-    const set = error_name[0 .. std.mem.lastIndexOfScalar(u8, error_name, '.').?];
+    const set = error_name[0..std.mem.lastIndexOfScalar(u8, error_name, '.').?];
     const dot = std.mem.lastIndexOfScalar(u8, set, '.') orelse return set;
     return qualifier(set[0..dot], names) ++ set[dot + 1 ..];
 }
@@ -4720,7 +4720,7 @@ pub inline fn namedTag(e: anytype) @TypeOf(e) {
     if (comptime hi - lo + 1 != values.len or values.len == 1 << @bitSizeOf(info.tag_type)) return e;
     // `lo <= tag <= hi` by how safe Rig makes an enum (above).
     @setRuntimeSafety(false);
-    const v = @intFromEnum(e);
+    const v = @backingInt(e);
     if (v < lo or v > hi) unreachable;
     return e;
 }
@@ -7180,7 +7180,7 @@ pub const MapTraceKey = struct {
                     self.bytesOf(@TypeOf(v), v);
                 },
             },
-            .@"enum" => self.add(std.mem.asBytes(&@intFromEnum(x))),
+            .@"enum" => self.add(std.mem.asBytes(&@backingInt(x))),
             .int, .bool => self.add(std.mem.asBytes(&x)),
             else => {},
         }
@@ -7332,7 +7332,7 @@ const MapTracer = struct {
         }
         const t = thread().* - 1;
         var rec: [48]u8 = undefined;
-        rec[0] = @as(u8, @intFromEnum(op)) | @as(u8, @truncate(t << 3));
+        rec[0] = @as(u8, @backingInt(op)) | @as(u8, @truncate(t << 3));
         rec[1] = @as(u8, @intFromBool(hit)) | @as(u8, @truncate((t >> 5) << 1));
         std.mem.writeInt(u16, rec[2..4], std.math.cast(u16, key.width) orelse std.math.maxInt(u16), .little);
         std.mem.writeInt(u32, rec[4..8], id, .little);
@@ -11639,20 +11639,19 @@ test "values print the way Rig writes them" {
 
 test "a float prints its shortest digits, in decimal from 1e-6 to below 1e21" {
     const cases = .{
-        .{ @as(f64, 0.0), "0.0" },              .{ @as(f64, -0.0), "-0.0" },
-        .{ @as(f64, 1.0), "1.0" },              .{ @as(f64, 100.0), "100.0" },
-        .{ @as(f64, 0.1), "0.1" },              .{ @as(f64, 123.5), "123.5" },
-        .{ @as(f64, -2.5), "-2.5" },            .{ @as(f64, 0.000001), "0.000001" },
-        .{ @as(f64, 1.5e-6), "0.0000015" },     .{ @as(f64, 1e-7), "1e-7" },
-        .{ @as(f64, -2.5e-7), "-2.5e-7" },      .{ @as(f64, 1e20), "100000000000000000000.0" },
-        .{ @as(f64, 1e21), "1e21" },            .{ @as(f64, 1.5e300), "1.5e300" },
-        .{ @as(f64, 123456789012345680000.0), "123456789012345680000.0" },
-        .{ @as(f64, 5e-324), "5e-324" },        .{ @as(f64, 1.7976931348623157e308), "1.7976931348623157e308" },
-        .{ @as(f64, 0.30000000000000004), "0.30000000000000004" },
-        .{ @as(f32, 0.1), "0.1" },              .{ @as(f32, 1e10), "10000000000.0" },
-        .{ @as(f32, 3.4028235e38), "3.4028235e38" },
-        .{ std.math.inf(f64), "inf" },          .{ -std.math.inf(f64), "-inf" },
-        .{ std.math.nan(f64), "nan" },          .{ 2.0, "2.0" },
+        .{ @as(f64, 0.0), "0.0" },                                         .{ @as(f64, -0.0), "-0.0" },
+        .{ @as(f64, 1.0), "1.0" },                                         .{ @as(f64, 100.0), "100.0" },
+        .{ @as(f64, 0.1), "0.1" },                                         .{ @as(f64, 123.5), "123.5" },
+        .{ @as(f64, -2.5), "-2.5" },                                       .{ @as(f64, 0.000001), "0.000001" },
+        .{ @as(f64, 1.5e-6), "0.0000015" },                                .{ @as(f64, 1e-7), "1e-7" },
+        .{ @as(f64, -2.5e-7), "-2.5e-7" },                                 .{ @as(f64, 1e20), "100000000000000000000.0" },
+        .{ @as(f64, 1e21), "1e21" },                                       .{ @as(f64, 1.5e300), "1.5e300" },
+        .{ @as(f64, 123456789012345680000.0), "123456789012345680000.0" }, .{ @as(f64, 5e-324), "5e-324" },
+        .{ @as(f64, 1.7976931348623157e308), "1.7976931348623157e308" },   .{ @as(f64, 0.30000000000000004), "0.30000000000000004" },
+        .{ @as(f32, 0.1), "0.1" },                                         .{ @as(f32, 1e10), "10000000000.0" },
+        .{ @as(f32, 3.4028235e38), "3.4028235e38" },                       .{ std.math.inf(f64), "inf" },
+        .{ -std.math.inf(f64), "-inf" },                                   .{ std.math.nan(f64), "nan" },
+        .{ 2.0, "2.0" },
     };
     inline for (cases) |c| {
         var buf: [64]u8 = undefined;

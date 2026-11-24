@@ -406,7 +406,19 @@ fn noteThread(w: *Worker) void {
     if (own_records) w.heap.store(rt.fast_alloc.heapNow(), .release);
     w.tid.store(std.os.linux.gettid(), .seq_cst);
     const c = w.core.load(.seq_cst);
-    if (c >= 0) rt.pinThread(0, &rt.physicalCores().sets[@intCast(c)]);
+    if (c >= 0) return rt.pinThread(0, &rt.physicalCores().sets[@intCast(c)]);
+    unpinSelf();
+    // `place` may have given it a core meanwhile, and pinned it before
+    // that unpin.
+    const again = w.core.load(.seq_cst);
+    if (again >= 0) rt.pinThread(0, &rt.physicalCores().sets[@intCast(again)]);
+}
+
+/// NARROW-PLACE: a thread the runtime starts takes its starter's CPUs:
+/// under `RIG_PIN=1` it may run on all the process's CPUs again, unless
+/// it is a worker `place` pins (`noteThread`).
+fn unpinSelf() void {
+    if (builtin.os.tag == .linux and pin_on.*) rt.pinThread(0, null);
 }
 
 /// NARROW-PLACE: under `RIG_PIN=1`, while the workers tasks run on are no
@@ -1766,6 +1778,7 @@ fn stopMonitor() void {
 /// that the rule above hurries; 1 ms while any worker runs a fiber; and
 /// twice as long each period every worker spends without, up to 10 ms. It ends as `main` ends (`stopMonitor`).
 fn watchSlices(slice: i96, wait: i96) void {
+    unpinSelf();
     var seen: [max_workers]u32 = @splat(0);
     var since: [max_workers]i96 = @splat(0);
     var had: [max_workers]bool = @splat(false);
@@ -2745,7 +2758,7 @@ const Poller = struct {
     /// what the system said (`rc`, the call's result).
     fn failed(comptime call: []const u8, rc: i32) noreturn {
         @branchHint(.cold);
-        const e: std.posix.E = if (linux) @enumFromInt(-rc) else std.posix.errno(rc);
+        const e: std.posix.E = if (linux) @fromBackingInt(@intCast(-rc)) else std.posix.errno(rc);
         var buf: [96]u8 = undefined;
         @panic(std.fmt.bufPrint(&buf, "the scheduler's {s} failed: {t}", .{ call, e }) catch call);
     }
@@ -2993,7 +3006,6 @@ const watcher = split.cell(&watcher_var, "sched.watcher");
 
 /// How long at most the watching worker sleeps between looks.
 const watch_every: i96 = std.time.ns_per_ms;
-
 
 /// Whether a worker other than `w`, awake, holds descriptors: what the
 /// watcher looks at every poller for. A watcher letting go reads the
@@ -3755,6 +3767,7 @@ fn performanceCores() u32 {
 /// and look again `grow_after` later; sleep while no call waits. It ends
 /// as `main` ends (`stop`).
 fn monitor(p: *Pool) void {
+    unpinSelf();
     defer rt.fast_alloc.threadExit();
     const alt = rt.AltStack.attachOrStop();
     defer alt.detach();
@@ -3788,7 +3801,6 @@ fn monitor(p: *Pool) void {
     }
 }
 
-
 /// A call for the blocking pool: how to run it, and how to end the wait
 /// of the fiber that made it.
 const Call = struct {
@@ -3802,6 +3814,7 @@ var pool_var: Pool = .{};
 const pool = split.cell(&pool_var, "sched.pool");
 
 fn poolMain(p: *Pool) void {
+    unpinSelf();
     // The thread's heap goes to the next thread as it ends (`alloc.zig`).
     defer rt.fast_alloc.threadExit();
     const alt = rt.AltStack.attachOrStop();

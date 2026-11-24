@@ -184,11 +184,12 @@ RIG
 
 cat > hold.rig <<'RIG'
 use std.task
+use std.time
 use common
 
 fun spin(k: Int) -> Int
   s = 0
-  for i in 0..1000000000
+  for i in 0..100000000
     s = (s +% i *% k) & 1048575
   s
 
@@ -202,6 +203,7 @@ sub main()
     !ts.add(spin(k + 1)&)
   for x in >ts
     total += x
+  time.sleep(ms: 1500) catch return
   print(total > 0, task.worker_count())
 RIG
 
@@ -248,8 +250,8 @@ if [[ $(uname -s) == Linux ]]; then
     for arm in "RIG_WIDE=1 RIG_SPREAD=1 RIG_PIN=1" "RIG_WIDE=1 RIG_SPREAD=1 RIG_PIN=1 RIG_GIVE=1" "RIG_PIN=1"; do
         env $arm ./hold >hold.txt 2>&1 &
         pid=$!
-        sleep 0.4
-        all=$(grep Cpus_allowed_list /proc/$pid/status | awk '{print $2}')
+        sleep 0.8
+        all=$(grep Cpus_allowed_list /proc/self/status | awk '{print $2}')
         lists=$(for t in /proc/$pid/task/*; do grep Cpus_allowed_list $t/status | awk '{print $2}'; done | grep -vx "$all" | sort)
         wait $pid || fail "hold ($arm): $(cat hold.txt)"
         expect_eq "$(tr '\n' ' ' < hold.txt)" "true 2 " "hold ($arm)"
