@@ -2789,6 +2789,11 @@ noinline fn readSmallBorrow() usize {
             m.feed(&.{0});
             n = @min(m.found orelse 0, 4);
         }
+    } else if (builtin.os.tag.isDarwin()) {
+        if (std.c.getenv("RIG_SMALL_BORROW")) |v| {
+            const text = std.mem.span(v);
+            n = @min(std.fmt.parseInt(usize, text, 10) catch 0, 4);
+        }
     }
     small_borrow.store(@intCast(n + 1), .monotonic);
     return n;
