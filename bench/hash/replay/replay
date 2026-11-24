@@ -506,6 +506,12 @@ def cmd_time(a):
             med = {x: statistics.median(times[x][kind]) / counts[kind] for x in arms}
             print(f"{kind:10} {counts[kind]:10} " + " ".join(f"{med[x]:{w}.2f}" for x in arms) + f"   {checks[kind]:>22}")
             print(f"{'':10} {'':10} " + " ".join(f"{med[x] / med[base]:{w}.2f}x" for x in arms))
+        if "iterate" in counts and len(counts) > 2:
+            # The rest of the trace, for a walk-heavy one.
+            n = counts["total"] - counts["iterate"]
+            med = {x: (statistics.median(times[x]["total"]) - statistics.median(times[x]["iterate"])) / n for x in arms}
+            print(f"{'no-walks':10} {n:10} " + " ".join(f"{med[x]:{w}.2f}" for x in arms))
+            print(f"{'':10} {'':10} " + " ".join(f"{med[x] / med[base]:{w}.2f}x" for x in arms))
         if a.aa:
             x, y = a.aa, a.aa + "'"
             gaps = [abs(statistics.median(times[x][k]) / statistics.median(times[y][k]) - 1) * 100 for k in counts]
