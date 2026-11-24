@@ -1,0 +1,7 @@
+events 895132
+walk	first 67863 (tid 41005)	last 68678 (tid 41005)	made 362
+loader	first 6261 (tid 41005)	last 68767 (tid 41005)	made 3007
+bindfit	first 69309 (tid 41007)	last 82957 (tid 41010)	made 285
+bind	first 68784 (tid 41005)	last 84077 (tid 41005)	made 7427
+checker	first 84392 (tid 41010)	last 866220 (tid 41008)	made 395576
+papf	first 6207 (tid 41005)	last 68779 (tid 41005)	made 480

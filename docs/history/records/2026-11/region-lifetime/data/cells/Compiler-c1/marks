@@ -1,0 +1,7 @@
+events 664421
+walk	first 62855 (tid 40978)	last 63390 (tid 40978)	made 362
+loader	first 6258 (tid 40978)	last 63479 (tid 40978)	made 1687
+bindfit	first 65779 (tid 40978)	last 75412 (tid 40978)	made 285
+bind	first 65031 (tid 40978)	last 75422 (tid 40978)	made 5807
+checker	first 75613 (tid 40978)	last 645526 (tid 40978)	made 285385
+papf	first 6204 (tid 40978)	last 63479 (tid 40978)	made 310
