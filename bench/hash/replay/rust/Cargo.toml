@@ -4,13 +4,10 @@ version = "0.0.0"
 edition = "2024"
 publish = false
 
-# One table a build: the hashbrown crate with foldhash (its default, as
-# bench/hash/rust times it), or with `--features fx` rustc-hash's
-# FxHasher, as tsrs hashes; `--features std` times std's HashMap
-# (hashbrown as std vendors it) instead, which is tsrs's `FxHashMap`.
-[features]
-fx = []
-std = []
+# One program an arm (src/bin), all built by one `cargo build`: hashbrown
+# with rustc-hash's FxHasher, as tsrs hashes (hb-fx), or with foldhash,
+# its default (hb-fold), and std's HashMap with FxHasher, tsrs's
+# `FxHashMap` (std-fx).
 
 [dependencies]
 hashbrown = { version = "=0.17.1", default-features = false, features = ["inline-more"] }

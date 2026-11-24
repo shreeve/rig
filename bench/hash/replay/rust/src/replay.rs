@@ -1,20 +1,9 @@
-//! Replays a trace of map operations (bench/hash/replay/README.md, "The
-//! trace") on hashbrown 0.17.1 with foldhash 0.2.0, or with rustc-hash
-//! 2.1.3's FxHasher (`--features fx`), or on std's HashMap (`--features
-//! std`). Prints `KIND NS OPS CHECK` per kind of segment and `total NS OPS
-//! CHECK`, as replay.rig does; the checks must agree.
+// The replay every Rust arm runs (bench/hash/replay/README.md, "The
+// trace"), included by each program in src/bin after it names its table
+// (`Map`) and hash (`S`). Prints `KIND NS OPS CHECK` per kind of segment
+// and `total NS OPS CHECK`, as replay.rig does; the checks must agree.
 use std::hash::Hash;
 use std::time::Instant;
-
-#[cfg(feature = "fx")]
-type S = rustc_hash::FxBuildHasher;
-#[cfg(not(feature = "fx"))]
-type S = foldhash::fast::FixedState;
-
-#[cfg(not(feature = "std"))]
-type Map<K, const N: usize> = hashbrown::HashMap<K, [i64; N], S>;
-#[cfg(feature = "std")]
-type Map<K, const N: usize> = std::collections::HashMap<K, [i64; N], S>;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct Pair {

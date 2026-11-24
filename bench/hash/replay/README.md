@@ -10,9 +10,9 @@ arm replays the same trace and prints the same checks.
 |---|---|---|---|
 | `rig-map` | the built-in ordered `Map` | Rig's | `replay.rig`, `rig build --release` |
 | `rig-hash` | the built-in unordered `HashMap` | Rig's | `replay.rig` with each `Map[` made `HashMap[` |
-| `hb-fx` | hashbrown 0.17.1 | rustc-hash 2.1.3's FxHasher, as tsrs hashes | `rust/`, `--features fx` |
-| `hb-fold` | hashbrown 0.17.1 | foldhash 0.2.0 (`fast::FixedState`) | `rust/` |
-| `std-fx` | std's `HashMap` (hashbrown as std vendors it) | FxHasher: tsrs's `FxHashMap` | `rust/`, `--features std,fx` |
+| `hb-fx` | hashbrown 0.17.1 | rustc-hash 2.1.3's FxHasher, as tsrs hashes | `rust/src/bin/hb-fx.rs` |
+| `hb-fold` | hashbrown 0.17.1 | foldhash 0.2.0 (`fast::FixedState`) | `rust/src/bin/hb-fold.rs` |
+| `std-fx` | std's `HashMap` (hashbrown as std vendors it) | FxHasher: tsrs's `FxHashMap` | `rust/src/bin/std-fx.rs` |
 
 ```sh
 R=bench/hash/replay/replay
