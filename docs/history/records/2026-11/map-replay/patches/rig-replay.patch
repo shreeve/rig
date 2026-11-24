@@ -1,0 +1,2302 @@
+diff --git a/bench/hash/replay/README.md b/bench/hash/replay/README.md
+new file mode 100644
+index 000000000..66c210f52
+--- /dev/null
++++ b/bench/hash/replay/README.md
+@@ -0,0 +1,101 @@
++# Map replay
++
++Replays one stream of map operations on Rig's `Map` and `HashMap` and on
++hashbrown, to answer how much faster a program would run with a std map
++as fast as hashbrown. The stream comes from a spec (synthetic) or from
++the records a program built with `RIG_MAP_TRACE=1` wrote (real). Every
++arm replays the same trace and prints the same checks.
++
++| Arm | Table | Hash | Built from |
++|---|---|---|---|
++| `rig-map` | the built-in ordered `Map` | Rig's | `replay.rig`, `rig build --release` |
++| `rig-hash` | the built-in unordered `HashMap` | Rig's | `replay.rig` with each `Map[` made `HashMap[` |
++| `hb-fx` | hashbrown 0.17.1 | rustc-hash 2.1.3's FxHasher, as tsrs hashes | `rust/src/bin/hb-fx.rs` |
++| `hb-fold` | hashbrown 0.17.1 | foldhash 0.2.0 (`fast::FixedState`) | `rust/src/bin/hb-fold.rs` |
++| `std-fx` | std's `HashMap` (hashbrown as std vendors it) | FxHasher: tsrs's `FxHashMap` | `rust/src/bin/std-fx.rs` |
++| `idx-fx` | indexmap 2.14.2: insertion order, as Rig's `Map` keeps; a take is `shift_remove`, which keeps the order | FxHasher | `rust/src/bin/idx-fx.rs` |
++| `idx-fold` | the same | foldhash 0.2.0 | `rust/src/bin/idx-fold.rs` |
++
++```sh
++R=bench/hash/replay/replay
++$R gen bench/hash/replay/specs/a-large-u32.spec -o a.rpl
++$R import rig-map-trace.bin --types '^Pair$' --top 5 -o real.rpl
++$R build --out D                 # --cpu meteorlake: Zig and Rust for that CPU
++$R time --out D --aa hb-fx a.rpl real.rpl
++```
++
++`build` needs `bin/rig` (or `$RIG`) and `cargo`, which builds offline
++from the crates `rust/Cargo.lock` pins. `time` runs every arm once per
++round, the arms in an order that rotates each round, for 11 rounds
++(`--rounds`), and prints each kind's median ns per op, its ratio to
++`hb-fx` (`--base`), and the checks, which must agree or it stops.
++`--aa ARM` adds ARM again as a second arm: the gap between the two is
++the noise.
++
++## Specs
++
++A spec is one map's shape, one setting a line, `#` to the end of a line
++a comment:
++
++| Setting | Means | Default |
++|---|---|---|
++| `key K` | `u32`, `int`, `pair` (two Ints), `triple` (three), or `text MIN-MAX` (bytes of `[a-z0-9_]`) | `int` |
++| `ids dense\|random` | ids drawn from `0..U`, U `universe` times the keys put (for a pair or triple, each part from a range that size's square or cube root), or random 32- or 64-bit numbers | `dense` |
++| `universe X` | the ratio above | 2 |
++| `value B` | the value's bytes, held as 1, 2, 4 or 8 Ints (the fewest that hold B) | 8 |
++| `instances N` | how many maps | 1 |
++| `size N` or `MIN-MAX` | the keys put into each map, uniform in the range | 1000 |
++| `mix kind=pct ...` | the share of ops of each kind: `insert`, `overwrite`, `hit`, `miss`, `remove`, `iterate`, `clear`; the inserts (the sizes' sum) set the number of ops | `insert=100` |
++| `order interleaved\|build` | segments of every kind shuffled together, inserts spread over the maps at random; or each map's inserts in turn, then the rest shuffled | `interleaved` |
++| `block N` | ops a segment, the unit timed | 256 |
++| `drop yes\|no` | drop every map at the end, timed as `drop` | `yes` |
++| `seed N` | the generator's seed | 1 |
++
++A hit, an overwrite and a remove name a key the chosen map holds (a map
++chosen uniformly among those holding any); a miss names one it does not
++hold; an iterate walks a map chosen uniformly, all of it.
++
++## Real traces
++
++`import` reads `rig-map-trace.bin` and `.types` beside it
++(docs/internals/INTERNALS.md, "The Map trace"), keeps the maps chosen
++(`--ids`, `--types REGEX` on the key type, `--top N` busiest), and
++writes their records as one trace: a `get` is a lookup, a `put` a put
++(`insert` or `overwrite` by whether the map held the key), a `remove` a
++take, `new`, `drop` and `clear` themselves; `grow` (the table's own) and
++`retain` (whose test the trace does not hold) are left out, and counted.
++A run of one kind at least `--run` (64) long is timed as that kind, and
++the ops between such runs, in their order, as `mixed`.
++
++The keys are rebuilt from each record's width, hash and first 24 bytes:
++a key of up to 24 bytes is exact; a wider text keeps its first 24 bytes
++and its length, with the hash's hex after them, so keys equal in the
++trace are equal here and keys distinct there stay distinct unless both
++their hashes and their first 24 bytes agree. `import` replays each map
++as it goes and says how many lookups found or missed their key other
++than the trace says (0 when the keys are faithful). The key kind is the
++one that holds the widest key: up to 4 bytes `u32`, 8 `int`, 16 `pair`,
++24 `triple`, and text for text. A replay holds keys of one type, so the
++maps chosen must share theirs.
++
++## The trace
++
++Little-endian. A header of nine `u32`: the magic `RPL1`, the key kind
++(0 `u32`, 1 `int`, 2 `pair`, 3 `triple`, 4 text), the value's Ints, the
++maps, the keys, the ops, the segments, the text's bytes, and the offset
++of the ops. Then the keys: each as 1 to 3 `u64` words (a `u32` in the
++low half of one), or for text `keys + 1` `u32` offsets and the bytes,
++padded to 4. Then the ops as three arrays, `u8` op codes (0 put, 1 get,
++2 take, 3 walk, 4 new, 5 drop, 6 clear) padded to 4, `u32` maps and
++`u32` keys; then the segments, each `u32` kind (0 insert, 1 overwrite,
++2 hit, 3 miss, 4 remove, 5 iterate, 6 new, 7 drop, 8 clear, 15 mixed),
++first op, and count.
++
++A put at op `j` writes the value `j, j + 1, ...`; the keys each put
++moves in are made before the clock starts, apart from the keys lookups
++use, so a text compare reads two strings. Each segment's loop is a
++function of its own that reads the clock around it; a kind's check
++sums what its ops found: the length after each put, `v[0] + 1` for a
++lookup that finds `v`, `v[last] + 1` for a take, each walked value's
++`v[0]` and the length for a walk, the length plus one for `new`, `drop`
++and `clear`.
+diff --git a/bench/hash/replay/compact.zig b/bench/hash/replay/compact.zig
+new file mode 100644
+index 000000000..4fad1bb4b
+--- /dev/null
++++ b/bench/hash/replay/compact.zig
+@@ -0,0 +1,471 @@
++//! A prototype ordered map whose value is one pointer (8 bytes): every
++//! part of the table, its header included, lives in one block the
++//! pointer names, and an empty map is a null pointer that has allocated
++//! nothing. For bench/hash/replay's `zig-compact` arm; a measurement, not
++//! a part of Rig.
++//!
++//! The block: a header (32 bytes), one tag byte an entry (`etags`, at
++//! least 16; 0 for an entry gone or not written), the entries in the
++//! order their keys were first put, and room for an index: `groups`
++//! groups of 16 control bytes (0 free, 1 a tombstone, 128-255 a tag) and
++//! one u32 entry index a lane.
++//!
++//! Up to `small` (16) entries written a map uses no index: one 16-lane
++//! match of the hash's tag against `etags` finds its candidates. Past
++//! that the index is built in the block's room (or the block grows), and
++//! a key's probe starts at the group its hash's high bits name and walks
++//! groups triangularly to the first group with a free lane; an insert
++//! takes the first free or tombstone lane that probe passed, so a miss
++//! and its insert probe once. A take marks its entry gone and its lane a
++//! tombstone (free when its group has a free lane), so the order of the
++//! rest survives; the entries are compacted when the block is full and a
++//! quarter of them are gone. `clear` keeps the block and goes back to no
++//! index (16 tag bytes zeroed): a cache cleared and filled again to a few
++//! entries never touches its index, and one filled past 16 rebuilds it in
++//! place.
++const std = @import("std");
++const Allocator = std.mem.Allocator;
++
++pub fn Compact(comptime K: type, comptime V: type, comptime Context: type) type {
++    return struct {
++        const Self = @This();
++        pub const KV = struct { key: K, value: V };
++        const E = struct { key: K, value: V };
++        const ctx: Context = undefined;
++        const small = 16;
++        const first_cap = 8;
++
++        const Header = extern struct {
++            cap: u32,
++            /// Entries written, gone or not.
++            len: u32,
++            live: u32,
++            /// The index's groups the block has room for (0 up to `small`).
++            groups: u32,
++            /// Whether the index is in use; when not, `len <= small`.
++            indexed: u32,
++            /// Inserts left before the index must be rebuilt: free lanes
++            /// past the maximum load, tombstones counted as used.
++            room: u32,
++            shift: u32,
++            _pad: u32 = 0,
++        };
++
++        block: ?[*]align(16) u8 = null,
++
++        pub const empty: Self = .{};
++
++        inline fn hdr(self: *const Self) *Header {
++            return @ptrCast(self.block.?);
++        }
++
++        /// The first 16 tags sit at a fixed place after the header and
++        /// the entries at a fixed place after them, so a small map's
++        /// lookup reads no field of the header to find either.
++        const eoff = std.mem.alignForward(usize, @sizeOf(Header) + small, @alignOf(E));
++
++        /// A block past `small` entries keeps a tag for every entry after
++        /// them, used while it is indexed.
++        fn bigTagsOffset(cap: usize) usize {
++            return eoff + cap * @sizeOf(E);
++        }
++
++        fn ctrlOffset(cap: usize) usize {
++            return std.mem.alignForward(usize, bigTagsOffset(cap) + (if (cap > small) cap else 0), 16);
++        }
++
++        fn blockBytes(cap: usize, groups: usize) usize {
++            return ctrlOffset(cap) + groups * 16 * (1 + 4);
++        }
++
++        inline fn smallTags(self: *const Self) [*]u8 {
++            return self.block.? + @sizeOf(Header);
++        }
++
++        inline fn bigTags(self: *const Self) [*]u8 {
++            return self.block.? + bigTagsOffset(self.hdr().cap);
++        }
++
++        /// The entries' tags: the fixed 16 until the index is in use.
++        inline fn etags(self: *const Self) [*]u8 {
++            return if (self.hdr().indexed != 0) self.bigTags() else self.smallTags();
++        }
++
++        inline fn entries(self: *const Self) [*]E {
++            return @ptrCast(@alignCast(self.block.? + eoff));
++        }
++
++        inline fn ctrl(self: *const Self) [*]u8 {
++            return self.block.? + ctrlOffset(self.hdr().cap);
++        }
++
++        inline fn slots(self: *const Self) [*]u32 {
++            const h = self.hdr();
++            return @ptrCast(@alignCast(self.block.? + ctrlOffset(h.cap) + h.groups * 16));
++        }
++
++        pub fn deinit(self: *Self, gpa: Allocator) void {
++            if (self.block) |b| {
++                const h = self.hdr();
++                gpa.free(b[0..blockBytes(h.cap, h.groups)]);
++            }
++            self.* = .{};
++        }
++
++        pub fn count(self: *const Self) usize {
++            return if (self.block == null) 0 else self.hdr().live;
++        }
++
++        inline fn tagOf(h: u64) u8 {
++            return @as(u8, @truncate(h)) | 0x80;
++        }
++
++        inline fn match16(p: [*]const u8, t: u8) u16 {
++            const v: @Vector(16, u8) = p[0..16].*;
++            return @bitCast(v == @as(@Vector(16, u8), @splat(t)));
++        }
++
++        inline fn free16(p: [*]const u8) u16 {
++            const v: @Vector(16, u8) = p[0..16].*;
++            return @bitCast(v < @as(@Vector(16, u8), @splat(2)));
++        }
++
++        inline fn startGroup(hd: *const Header, h: u64) u32 {
++            return @as(u32, @intCast(h >> @intCast(hd.shift))) & (hd.groups - 1);
++        }
++
++        /// The entry index of `k`, or null.
++        inline fn find(self: *const Self, k: K, h: u64) ?u32 {
++            const hd = self.hdr();
++            const es = self.entries();
++            const t = tagOf(h);
++            if (hd.indexed == 0) {
++                var m = match16(self.smallTags(), t);
++                while (m != 0) : (m &= m - 1) {
++                    const i = @ctz(m);
++                    if (ctx.eql(es[i].key, k)) return i;
++                }
++                return null;
++            }
++            const cs = self.ctrl();
++            const ss = self.slots();
++            var g = startGroup(hd, h);
++            var step: u32 = 0;
++            while (true) {
++                const base = g * 16;
++                var m = match16(cs + base, t);
++                while (m != 0) : (m &= m - 1) {
++                    const e = ss[base + @ctz(m)];
++                    if (ctx.eql(es[e].key, k)) return e;
++                }
++                if (match16(cs + base, 0) != 0) return null;
++                step += 1;
++                g = (g + step) & (hd.groups - 1);
++            }
++        }
++
++        pub inline fn getPtr(self: *const Self, k: K) ?*V {
++            if (self.block == null) return null;
++            const i = self.find(k, ctx.hash(k)) orelse return null;
++            return &self.entries()[i].value;
++        }
++
++        /// The lane of the index that holds entry `e` of hash `h`.
++        fn laneOf(self: *const Self, h: u64, e: u32) u32 {
++            const hd = self.hdr();
++            const cs = self.ctrl();
++            const ss = self.slots();
++            const t = tagOf(h);
++            var g = startGroup(hd, h);
++            var step: u32 = 0;
++            while (true) {
++                const base = g * 16;
++                var m = match16(cs + base, t);
++                while (m != 0) : (m &= m - 1) {
++                    if (ss[base + @ctz(m)] == e) return base + @ctz(m);
++                }
++                step += 1;
++                g = (g + step) & (hd.groups - 1);
++            }
++        }
++
++        /// Write entry `e` of hash `h` at lane `l`.
++        inline fn fill(self: *Self, l: u32, h: u64, e: u32) void {
++            const cs = self.ctrl();
++            if (cs[l] == 0) self.hdr().room -= 1;
++            cs[l] = tagOf(h);
++            self.slots()[l] = e;
++        }
++
++        /// The first free or tombstone lane on the probe of `h`.
++        fn freeLane(self: *const Self, h: u64) u32 {
++            const hd = self.hdr();
++            const cs = self.ctrl();
++            var g = startGroup(hd, h);
++            var step: u32 = 0;
++            while (true) {
++                const f = free16(cs + g * 16);
++                if (f != 0) return g * 16 + @ctz(f);
++                step += 1;
++                g = (g + step) & (hd.groups - 1);
++            }
++        }
++
++        fn groupsFor(n: usize) usize {
++            // The entries fill at most 7/8 of the lanes.
++            var g: usize = 2;
++            while (g * 16 * 7 / 8 < n) g *= 2;
++            return g;
++        }
++
++        /// Build the index in the block's room from the live entries,
++        /// compacting them first.
++        fn reindex(self: *Self) void {
++            const hd = self.hdr();
++            self.compactInPlace();
++            if (hd.indexed == 0) @memcpy(self.bigTags()[0..hd.len], self.smallTags()[0..hd.len]);
++            self.buildIndex();
++        }
++
++        /// Index the entries, compacted, whose tags are the big ones.
++        fn buildIndex(self: *Self) void {
++            const hd = self.hdr();
++            @memset(self.ctrl()[0 .. hd.groups * 16], 0);
++            hd.room = hd.groups * 16 * 7 / 8;
++            hd.indexed = 1;
++            const es = self.entries();
++            for (0..hd.len) |i| {
++                const h = ctx.hash(es[i].key);
++                self.fill(self.freeLane(h), h, @intCast(i));
++            }
++        }
++
++        /// Move the live entries down over the gone ones, in order.
++        fn compactInPlace(self: *Self) void {
++            const hd = self.hdr();
++            if (hd.live == hd.len) return;
++            const es = self.entries();
++            const et = self.etags();
++            var j: u32 = 0;
++            for (0..hd.len) |i| {
++                if (et[i] == 0) continue;
++                es[j] = es[i];
++                et[j] = et[i];
++                j += 1;
++            }
++            @memset(et[j..hd.len], 0);
++            hd.len = j;
++        }
++
++        /// A new block of `cap` entries holding the live ones, in order,
++        /// with room for an index when `cap` passes `small`.
++        fn regrow(self: *Self, gpa: Allocator, cap: usize) Allocator.Error!void {
++            const groups: usize = if (cap > small) groupsFor(cap) else 0;
++            const nb = try gpa.alignedAlloc(u8, .@"16", blockBytes(cap, groups));
++            const nh: *Header = @ptrCast(nb.ptr);
++            nh.* = .{ .cap = @intCast(cap), .len = 0, .live = 0, .groups = @intCast(groups), .indexed = 0, .room = 0, .shift = 0 };
++            if (groups != 0) nh.shift = @intCast(64 - @as(u32, std.math.log2_int(usize, groups)));
++            var next: Self = .{ .block = nb.ptr };
++            @memset(next.smallTags()[0..small], 0);
++            if (self.block) |_| {
++                const hd = self.hdr();
++                const es = self.entries();
++                const et = self.etags();
++                const nes = next.entries();
++                const big = hd.live >= small and groups != 0;
++                const net = if (big) next.bigTags() else next.smallTags();
++                var j: u32 = 0;
++                for (0..hd.len) |i| {
++                    if (et[i] == 0) continue;
++                    nes[j] = es[i];
++                    net[j] = et[i];
++                    j += 1;
++                }
++                nh.len = j;
++                nh.live = j;
++                self.deinit(gpa);
++                self.* = next;
++                if (big) self.buildIndex();
++                return;
++            }
++            self.* = next;
++        }
++
++        pub fn put(self: *Self, gpa: Allocator, k: K, v: V) Allocator.Error!void {
++            const h = ctx.hash(k);
++            if (self.block == null) try self.regrow(gpa, first_cap);
++            const hd = self.hdr();
++            if (hd.indexed == 0) {
++                if (self.find(k, h)) |i| {
++                    self.entries()[i].value = v;
++                    return;
++                }
++                return self.insertNew(gpa, k, v, h);
++            }
++            // One probe: the key, or the first free lane it passed.
++            const cs = self.ctrl();
++            const ss = self.slots();
++            const es = self.entries();
++            const t = tagOf(h);
++            var g = startGroup(hd, h);
++            var step: u32 = 0;
++            var lane: u32 = std.math.maxInt(u32);
++            while (true) {
++                const base = g * 16;
++                var m = match16(cs + base, t);
++                while (m != 0) : (m &= m - 1) {
++                    const e = ss[base + @ctz(m)];
++                    if (ctx.eql(es[e].key, k)) {
++                        es[e].value = v;
++                        return;
++                    }
++                }
++                if (lane == std.math.maxInt(u32)) {
++                    const f = free16(cs + base);
++                    if (f != 0) lane = base + @ctz(f);
++                }
++                if (match16(cs + base, 0) != 0) break;
++                step += 1;
++                g = (g + step) & (hd.groups - 1);
++            }
++            if (hd.len == hd.cap or (hd.room == 0 and cs[lane] == 0)) return self.insertNew(gpa, k, v, h);
++            const e = hd.len;
++            self.append(k, v, h);
++            self.fill(lane, h, e);
++        }
++
++        inline fn append(self: *Self, k: K, v: V, h: u64) void {
++            const hd = self.hdr();
++            self.entries()[hd.len] = .{ .key = k, .value = v };
++            self.etags()[hd.len] = tagOf(h);
++            hd.len += 1;
++            hd.live += 1;
++        }
++
++        /// Insert a key known to be absent, making room first.
++        fn insertNew(self: *Self, gpa: Allocator, k: K, v: V, h: u64) Allocator.Error!void {
++            var hd = self.hdr();
++            if (hd.indexed == 0) {
++                if (hd.len < small and hd.len < hd.cap) return self.append(k, v, h);
++                if (hd.live < hd.len) {
++                    // A small map with gone entries: close them up.
++                    self.compactInPlace();
++                    return self.append(k, v, h);
++                }
++                if (hd.groups != 0 and hd.len < hd.cap) {
++                    self.reindex();
++                } else {
++                    try self.regrow(gpa, hd.cap * 2);
++                    hd = self.hdr();
++                    if (hd.indexed == 0) return self.append(k, v, h);
++                }
++            } else if (hd.len == hd.cap) {
++                // Full: compact when a quarter is gone, else grow.
++                const cap: usize = if (hd.cap - hd.live >= hd.cap / 4) hd.cap else hd.cap * 2;
++                try self.regrow(gpa, cap);
++            } else if (hd.room == 0) {
++                self.reindex();
++            }
++            hd = self.hdr();
++            const e = hd.len;
++            self.append(k, v, h);
++            if (hd.indexed != 0) self.fill(self.freeLane(h), h, e);
++        }
++
++        pub fn fetchRemove(self: *Self, k: K) ?KV {
++            if (self.block == null) return null;
++            const h = ctx.hash(k);
++            const e = self.find(k, h) orelse return null;
++            const hd = self.hdr();
++            const ent = self.entries()[e];
++            if (hd.indexed != 0) {
++                const l = self.laneOf(h, e);
++                const cs = self.ctrl();
++                if (match16(cs + (l & ~@as(u32, 15)), 0) != 0) {
++                    cs[l] = 0;
++                    hd.room += 1;
++                } else {
++                    cs[l] = 1;
++                }
++            }
++            self.etags()[e] = 0;
++            hd.live -= 1;
++            if (hd.live == 0) self.clear(undefined);
++            return .{ .key = ent.key, .value = ent.value };
++        }
++
++        /// Drop every entry; the block stays, and the map goes back to no
++        /// index.
++        pub fn clear(self: *Self, gpa: Allocator) void {
++            _ = gpa;
++            if (self.block == null) return;
++            const hd = self.hdr();
++            @memset(self.smallTags()[0..small], 0);
++            hd.len = 0;
++            hd.live = 0;
++            hd.indexed = 0;
++        }
++
++        pub const ValueIterator = struct {
++            es: [*]E,
++            et: [*]const u8,
++            i: u32,
++            n: u32,
++            pub inline fn next(it: *ValueIterator) ?*V {
++                while (it.i < it.n) {
++                    const i = it.i;
++                    it.i += 1;
++                    if (it.et[i] != 0) return &it.es[i].value;
++                }
++                return null;
++            }
++        };
++
++        pub fn valueIterator(self: *const Self) ValueIterator {
++            if (self.block == null) return .{ .es = undefined, .et = undefined, .i = 0, .n = 0 };
++            return .{ .es = self.entries(), .et = self.etags(), .i = 0, .n = self.hdr().len };
++        }
++    };
++}
++
++test "compact against a model" {
++    const Ctx = struct {
++        pub fn hash(_: @This(), x: u32) u64 {
++            const p = @as(u128, @as(u64, x) ^ 0x2d358dccaa6c78a5) * 0x4b33a62ed433d4a3;
++            return @as(u64, @truncate(p)) ^ @as(u64, @truncate(p >> 64));
++        }
++        pub fn eql(_: @This(), a: u32, b: u32) bool {
++            return a == b;
++        }
++    };
++    const gpa = std.testing.allocator;
++    var rng = std.Random.DefaultPrng.init(7);
++    const r = rng.random();
++    for ([_]u32{ 6, 20, 40, 300, 3000 }) |range| {
++        var m: Compact(u32, u64, Ctx) = .empty;
++        defer m.deinit(gpa);
++        var model: std.AutoArrayHashMapUnmanaged(u32, u64) = .empty;
++        defer model.deinit(gpa);
++        for (0..200_000) |step| {
++            const k = r.uintLessThan(u32, range);
++            switch (r.uintLessThan(u8, 10)) {
++                0...3 => {
++                    try m.put(gpa, k, step);
++                    try model.put(gpa, k, step);
++                },
++                4...6 => try std.testing.expectEqual(model.get(k), if (m.getPtr(k)) |p| p.* else null),
++                7, 8 => try std.testing.expectEqual(model.orderedRemove(k), m.fetchRemove(k) != null),
++                else => if (r.uintLessThan(u16, 500) == 0) {
++                    m.clear(gpa);
++                    model.clearRetainingCapacity();
++                },
++            }
++            try std.testing.expectEqual(model.count(), m.count());
++            if (step % 997 == 0) {
++                var it = m.valueIterator();
++                for (model.values()) |v| try std.testing.expectEqual(v, it.next().?.*);
++                try std.testing.expectEqual(null, it.next());
++            }
++        }
++    }
++}
+diff --git a/bench/hash/replay/ctx.zig b/bench/hash/replay/ctx.zig
+new file mode 100644
+index 000000000..e5f6a18e9
+--- /dev/null
++++ b/bench/hash/replay/ctx.zig
+@@ -0,0 +1,40 @@
++//! The hashes the Zig arms use, as Rig hashes its keys (src/runtime.zig):
++//! a number by one full multiply folded (`hashWord`), a key of 64-bit
++//! words two at a time (`hashWords`), and `==` field by field. As
++//! bench/hash/table_ctx.zig's, for the replay's key types.
++const std = @import("std");
++
++inline fn fold(a: u64, b: u64) u64 {
++    const p = @as(u128, a) * b;
++    return @as(u64, @truncate(p)) ^ @as(u64, @truncate(p >> 64));
++}
++
++pub fn Ctx(comptime K: type) type {
++    return switch (@typeInfo(K)) {
++        .int => struct {
++            pub fn hash(_: @This(), x: K) u64 {
++                return fold(@as(u64, @bitCast(@as(i64, x))) ^ 0x2d358dccaa6c78a5, 0x4b33a62ed433d4a3);
++            }
++            pub fn eql(_: @This(), a: K, b: K) bool {
++                return a == b;
++            }
++        },
++        else => struct {
++            const names = std.meta.fieldNames(K);
++            /// As the built-in Map, no hash kept in an entry for a plain
++            /// key of at most four words.
++            pub const keep_hash = false;
++            pub fn hash(_: @This(), k: K) u64 {
++                var h: u64 = 0x2d358dccaa6c78a5;
++                comptime var i: usize = 0;
++                inline while (i + 1 < names.len) : (i += 2) h = fold(@field(k, names[i]) ^ h, @field(k, names[i + 1]) ^ 0x9e3779b97f4a7c15);
++                if (names.len % 2 == 1) h = fold(@field(k, names[names.len - 1]) ^ h, 0x4b33a62ed433d4a3);
++                return h;
++            }
++            pub fn eql(_: @This(), a: K, b: K) bool {
++                inline for (names) |n| if (@field(a, n) != @field(b, n)) return false;
++                return true;
++            }
++        },
++    };
++}
+diff --git a/bench/hash/replay/replay b/bench/hash/replay/replay
+new file mode 100755
+index 000000000..c15e34921
+--- /dev/null
++++ b/bench/hash/replay/replay
+@@ -0,0 +1,642 @@
++#!/usr/bin/env python3
++"""Replay one stream of map operations on Rig's Map and HashMap and on
++hashbrown, to say how much faster a program would run with a map as fast
++as hashbrown. bench/hash/replay/README.md says what each part does.
++
++usage: bench/hash/replay/replay gen SPEC -o TRACE
++       bench/hash/replay/replay import MAPTRACE -o TRACE [--ids 3,7] [--types 'Int'] [--top N]
++       bench/hash/replay/replay build --out DIR [--arms a,b] [--cpu CPU]
++       bench/hash/replay/replay time --out DIR [--arms a,b] [--rounds N] [--aa ARM] TRACE...
++
++  gen     a trace from a spec (README, "Specs"), deterministic from its seed
++  import  a trace from the records RIG_MAP_TRACE=1 wrote (README, "Real
++          traces"): the maps chosen by id, by key type, or the N with the
++          most operations
++  build   each arm's program into DIR (arms: rig-map, rig-hash, hb-fx,
++          hb-fold, std-fx, idx-fx, idx-fold, zig-ordered, zig-compact;
++          default all); --cpu builds Zig and Rust for
++          that CPU (meteorlake) rather than this one's
++  time    each arm on each trace, interleaved: N rounds (default 11), the
++          arms in an order that rotates each round, the median of each
++          kind's time; --aa ARM runs ARM twice as two arms, whose gap is
++          the noise. Prints ns per op by kind and the ratio to --base
++          (default hb-fx)
++"""
++import argparse, mmap, os, random, re, shutil, statistics, struct, subprocess, sys
++from array import array
++assert sys.byteorder == "little"
++
++HERE = os.path.dirname(os.path.abspath(__file__))
++ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
++RIG = os.environ.get("RIG", os.path.join(ROOT, "bin", "rig"))
++CARGO = os.environ.get("CARGO", "cargo")
++ARMS = ["rig-map", "rig-hash", "hb-fx", "hb-fold", "std-fx", "idx-fx", "idx-fold", "zig-ordered", "zig-compact"]
++ZIG = os.environ.get("ZIG", "zig")
++# cargo's jobs, from $CARGO_JOBS (`-j N`).
++JOBS = ["-j", os.environ["CARGO_JOBS"]] if os.environ.get("CARGO_JOBS") else []
++
++MAGIC = 0x314C5052  # "RPL1"
++KEY_KINDS = {"u32": 0, "int": 1, "pair": 2, "triple": 3, "text": 4}
++KEY_WORDS = {"u32": 1, "int": 1, "pair": 2, "triple": 3}
++# Op codes, as the contestants read them.
++PUT, GET, TAKE, WALK, NEW, DROP, CLEAR = range(7)
++# Segment kinds, as they report them.
++KINDS = ["insert", "overwrite", "hit", "miss", "remove", "iterate", "new", "drop", "clear"]
++MIXED = 15
++OP_OF = {"insert": PUT, "overwrite": PUT, "hit": GET, "miss": GET, "remove": TAKE, "iterate": WALK,
++         "new": NEW, "drop": DROP, "clear": CLEAR}
++VALUE_WORDS = (1, 2, 4, 8)
++
++
++def value_words(nbytes):
++    """The fewest Ints of 1, 2, 4 or 8 that hold a value of `nbytes`."""
++    for w in VALUE_WORDS:
++        if 8 * w >= nbytes:
++            return w
++    return 8
++
++
++def write_trace(path, kind, words, instances, keys, op, inst, key, segs):
++    """keys: tuples of ints (fixed kinds) or bytes (text); op, inst, key:
++    the ops' codes, maps and keys (array('B'), array('I'), array('I'));
++    segs: (kind, start, count) triples."""
++    if kind == "text":
++        offs, blob = array("I", [0]), bytearray()
++        for k in keys:
++            blob += k
++            offs.append(len(blob))
++        body = offs.tobytes() + bytes(blob)
++        body += b"\0" * (-len(body) % 4)
++        text = len(blob)
++    else:
++        w = KEY_WORDS[kind]
++        assert all(len(k) == w for k in keys)
++        body = array("Q", (x & 0xFFFFFFFFFFFFFFFF for k in keys for x in k)).tobytes()
++        text = 0
++    n = len(op)
++    with open(path, "wb") as f:
++        f.write(struct.pack("<9I", MAGIC, KEY_KINDS[kind], words, instances, len(keys), n, len(segs), text, 36 + len(body)))
++        f.write(body)
++        f.write(bytes(op) + b"\0" * (-n % 4))
++        f.write(array("I", inst).tobytes())
++        f.write(array("I", key).tobytes())
++        f.write(array("I", (x for sg in segs for x in sg)).tobytes())
++
++
++# ---------------------------------------------------------------- specs
++
++def parse_spec(path):
++    spec = {"key": "int", "ids": "dense", "value": 8, "instances": 1, "size": "1000", "order": "interleaved",
++            "block": 256, "seed": 1, "drop": "yes", "mix": "insert=100", "universe": 2}
++    for line in open(path):
++        line = line.split("#")[0].strip()
++        if not line:
++            continue
++        name, _, rest = line.partition(" ")
++        if name not in spec:
++            sys.exit(f"{path}: unknown setting `{name}`")
++        spec[name] = rest.strip()
++    mix = {}
++    for part in spec["mix"].split():
++        k, _, v = part.partition("=")
++        if k not in ("insert", "overwrite", "hit", "miss", "remove", "iterate", "clear"):
++            sys.exit(f"{path}: mix has no kind `{k}`")
++        mix[k] = float(v)
++    if not mix.get("insert"):
++        sys.exit(f"{path}: the mix needs inserts, which set the number of ops")
++    spec["mix"] = mix
++    key = spec["key"].split()
++    spec["key"], spec["text"] = key[0], (tuple(int(x) for x in key[1].split("-")) if len(key) > 1 else (8, 24))
++    if spec["key"] not in KEY_KINDS:
++        sys.exit(f"{path}: key is one of {', '.join(KEY_KINDS)}")
++    lo, _, hi = spec["size"].partition("-")
++    spec["size"] = (int(lo), int(hi or lo))
++    for k in ("value", "instances", "block", "seed"):
++        spec[k] = int(spec[k])
++    spec["universe"] = float(spec["universe"])
++    return spec
++
++
++class Keys:
++    """Key values for a spec: fresh ones for an instance, and the pool
++    every op names keys from."""
++
++    def __init__(self, spec, rng, total):
++        self.spec, self.rng = spec, rng
++        self.index = {}
++        self.pool = []
++        # Dense ids come from 0..U, U the universe times the keys put in
++        # (each component of a pair or triple likewise).
++        self.u = max(16, int(spec["universe"] * total))
++        if spec["key"] in ("pair", "triple"):
++            self.u = max(16, int(spec["universe"] * total ** (1 / KEY_WORDS[spec["key"]])) * 4)
++
++    def draw(self):
++        s, r = self.spec, self.rng
++        kind = s["key"]
++        if kind == "text":
++            lo, hi = s["text"]
++            return bytes(r.choice(b"abcdefghijklmnopqrstuvwxyz0123456789_") for _ in range(r.randint(lo, hi)))
++        if s["ids"] == "dense":
++            comp = lambda: r.randrange(self.u)
++        else:
++            comp = (lambda: r.getrandbits(32)) if kind == "u32" else (lambda: r.getrandbits(64) - (1 << 63))
++        return tuple(comp() for _ in range(KEY_WORDS[kind]))
++
++    def ref(self, k):
++        i = self.index.get(k)
++        if i is None:
++            i = self.index[k] = len(self.pool)
++            self.pool.append(k)
++        return i
++
++
++def generate(spec):
++    rng = random.Random(spec["seed"])
++    n_inst = spec["instances"]
++    lo, hi = spec["size"]
++    sizes = [rng.randint(lo, hi) for _ in range(n_inst)]
++    total = sum(sizes)
++    keys = Keys(spec, rng, total)
++    mix = spec["mix"]
++    t_ops = round(total * 100 / mix["insert"])
++    counts = {k: (total if k == "insert" else round(t_ops * v / 100)) for k, v in mix.items() if v}
++    block = spec["block"]
++
++    def blocks(kind, n):
++        return [(kind, min(block, n - a)) for a in range(0, n, block)]
++
++    plan = []
++    if spec["order"] == "build":
++        plan = blocks("insert", total)
++        rest = [b for k, n in counts.items() if k != "insert" for b in blocks(k, n)]
++        rng.shuffle(rest)
++        plan += rest
++        inserts = [i for i in range(n_inst) for _ in range(sizes[i])]
++    elif spec["order"] == "interleaved":
++        plan = [b for k, n in counts.items() for b in blocks(k, n)]
++        rng.shuffle(plan)
++        # The first segment puts keys in, so the lookups after it have
++        # a key to find.
++        first = next(i for i, b in enumerate(plan) if b[0] == "insert")
++        plan.insert(0, plan.pop(first))
++        inserts = [i for i in range(n_inst) for _ in range(sizes[i])]
++        rng.shuffle(inserts)
++    else:
++        sys.exit("order is `interleaved` or `build`")
++
++    present = [[] for _ in range(n_inst)]  # keys held, as values
++    where = [{} for _ in range(n_inst)]  # key -> index in present
++    nonempty = []  # instances holding a key, and each one's place in it
++    ne_at = {}
++
++    def add(i, k):
++        where[i][k] = len(present[i])
++        present[i].append(k)
++        if len(present[i]) == 1:
++            ne_at[i] = len(nonempty)
++            nonempty.append(i)
++
++    def remove(i, k):
++        p = where[i].pop(k)
++        last = present[i].pop()
++        if p < len(present[i]):
++            present[i][p] = last
++            where[i][last] = p
++        if not present[i]:
++            q = ne_at.pop(i)
++            tail = nonempty.pop()
++            if q < len(nonempty):
++                nonempty[q] = tail
++                ne_at[tail] = q
++
++    ops, segs = [], []
++    next_insert = 0
++    needs = ("overwrite", "hit", "remove")
++    stuck = 0
++    p = 0
++    while p < len(plan):
++        kind, n = plan[p]
++        p += 1
++        start = len(ops)
++        if kind in needs and not nonempty:
++            # Nothing held yet (or any more): this block goes later.
++            plan.append((kind, n))
++            stuck += 1
++            if stuck > len(plan) - p:
++                sys.exit(f"spec: {kind}s with no key held anywhere; give more inserts")
++            continue
++        stuck = 0
++        for done in range(n):
++            if kind in needs and not nonempty:
++                plan.append((kind, n - done))
++                break
++            if kind == "insert":
++                i = inserts[next_insert]
++                next_insert += 1
++                k = keys.draw()
++                while k in where[i]:
++                    k = keys.draw()
++                add(i, k)
++            elif kind == "miss":
++                i = rng.randrange(n_inst)
++                k = keys.draw()
++                while k in where[i]:
++                    k = keys.draw()
++            elif kind == "iterate" or kind == "clear":
++                i = rng.randrange(n_inst)
++                k = None
++            else:
++                i = nonempty[rng.randrange(len(nonempty))]
++                k = present[i][rng.randrange(len(present[i]))]
++                if kind == "remove":
++                    remove(i, k)
++            if kind == "clear":
++                for x in list(present[i]):
++                    remove(i, x)
++            ops.append((OP_OF[kind], i, keys.ref(k) if k is not None else 0))
++        if len(ops) > start:
++            segs.append((KINDS.index(kind), start, len(ops) - start))
++    if spec["drop"] == "yes":
++        start = len(ops)
++        ops += [(DROP, i, 0) for i in range(n_inst)]
++        for a in range(start, len(ops), block):
++            segs.append((KINDS.index("drop"), a, min(block, len(ops) - a)))
++    if not keys.pool:
++        keys.ref(keys.draw())
++    return keys.pool, ops, segs, n_inst
++
++
++def cmd_gen(a):
++    spec = parse_spec(a.spec)
++    pool, ops, segs, n_inst = generate(spec)
++    write_trace(a.o, spec["key"], value_words(spec["value"]), n_inst, pool, array("B", (o[0] for o in ops)),
++                array("I", (o[1] for o in ops)), array("I", (o[2] for o in ops)), segs)
++    by = {}
++    for op in ops:
++        by[op[0]] = by.get(op[0], 0) + 1
++    print(f"{a.o}: {len(ops)} ops in {len(segs)} segments, {len(pool)} keys, {n_inst} instances")
++
++
++# ---------------------------------------------------------------- real traces
++
++RECORD = struct.Struct("<BBHIIIQ24s")
++# The trace's ops: bits 0-2 of byte 0, and bit 7 of byte 1 as bit 3.
++T_GET, T_PUT, T_REMOVE, T_CLEAR, T_NEW, T_DROP, T_GROW, T_RETAIN, T_ITER, T_AT = range(10)
++T_NAMES = ["get", "put", "remove", "clear", "new", "drop", "grow", "retain", "iter", "at"]
++
++
++def rebuild_key(width, h, head, kind):
++    """The key of a record, from its width, hash and first 24 bytes:
++    exact up to 24 bytes; past that the first 24 bytes, the hash, and
++    filler to the width, so equal keys stay equal and distinct ones stay
++    distinct unless both their hashes and first 24 bytes agree."""
++    if kind == "text":
++        if width <= 24:
++            return head[:width]
++        tail = b"%016x" % h
++        return (head + tail * (width // 16 + 1))[:width]
++    w = KEY_WORDS[kind]
++    raw = head[:min(width, 24)].ljust(8 * w, b"\0")
++    if width > 24:
++        # A key wider than three words: its first two words and its hash.
++        raw = raw[:16] + struct.pack("<Q", h)
++    return struct.unpack(f"<{w}q", raw[:8 * w])
++
++
++def key_kind_of(ktype, width):
++    if ktype in ("String", "?String", "Static") or width == 65535:
++        return "text"
++    if width <= 4:
++        return "u32"
++    if width <= 8:
++        return "int"
++    if width <= 16:
++        return "pair"
++    return "triple"
++
++
++def types_of(trace, given):
++    """The trace's map types: id -> (K, V, Map|Set, site), from the file
++    given, or `.types` beside the trace, or the `trace.bin.types` of the
++    directory above a filtered file."""
++    for path in (given, trace + ".types", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(trace))), "trace.bin.types")):
++        if path and os.path.exists(path):
++            types = {}
++            for line in open(path):
++                f = line.rstrip("\n").split("\t")
++                types[int(f[0])] = (f[1], f[2], f[3], f[4] if len(f) > 4 else "")
++            return types
++    return {}
++
++
++def records(mm):
++    return RECORD.iter_unpack(mm)
++
++
++def cmd_import(a):
++    types = types_of(a.trace, a.types_file)
++    with open(a.trace, "rb") as f:
++        mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
++    if len(mm) % RECORD.size:
++        sys.exit(f"{a.trace}: not a whole number of {RECORD.size}-byte records")
++    # First pass: the maps, their ops, and their keys' widths.
++    count, kwidth, vbytes = {}, {}, {}
++    for b0, b1, width, mid, vb, _, _, _ in records(mm):
++        count[mid] = count.get(mid, 0) + 1
++        op = (b0 & 7) | ((b1 >> 7) << 3)
++        if op in (T_GET, T_PUT, T_REMOVE) and width > kwidth.get(mid, 0):
++            kwidth[mid] = width
++        if vb > vbytes.get(mid, 0):
++            vbytes[mid] = vb
++    want = set(count)
++    if a.ids:
++        want &= set(int(x) for x in a.ids.split(","))
++    if a.types:
++        rx = re.compile(a.types)
++        want = set(m for m in want if rx.search(types.get(m, ("?",))[0]))
++    if a.top:
++        want = set(sorted(want, key=count.get, reverse=True)[:a.top])
++    if not want:
++        sys.exit("import: no records for the maps chosen")
++    ktypes = set(types.get(m, ("?",))[0] for m in want)
++    if len(ktypes) > 1:
++        sys.exit(f"import: the maps chosen have keys of {len(ktypes)} types ({', '.join(sorted(ktypes))}); a replay has one")
++    width = max(kwidth.get(m, 0) for m in want) or 8
++    kind = key_kind_of(next(iter(ktypes)), width)
++    vb = max(vbytes.get(m, 0) for m in want)
++    # Second pass: the ops, each map replayed to label its lookups and
++    # puts and to check the hit the trace records.
++    op_a, inst_a, key_a, kind_a = array("B"), array("I"), array("I"), array("B")
++    inst_of, pool_at, pool, held = {}, {}, [], []
++    skipped, mismatch = {}, 0
++    K_INSERT, K_OVER, K_HIT, K_MISS, K_REMOVE, K_ITER, K_NEW, K_DROP, K_CLEAR = range(9)
++    for b0, b1, w, mid, _, _, h, head in records(mm):
++        if mid not in want:
++            continue
++        op = (b0 & 7) | ((b1 >> 7) << 3)
++        i = inst_of.get(mid)
++        if i is None:
++            i = inst_of[mid] = len(held)
++            held.append(set())
++        if op in (T_GROW, T_RETAIN, T_AT) or op > T_AT:
++            # The table's own rebuild, a test the trace does not hold, a
++            # position only an ordered Map has.
++            skipped[T_NAMES[op] if op < len(T_NAMES) else str(op)] = skipped.get(T_NAMES[op] if op < len(T_NAMES) else str(op), 0) + 1
++            continue
++        if op in (T_NEW, T_DROP, T_CLEAR, T_ITER):
++            if op != T_ITER:
++                held[i] = set()
++            code, k = {T_NEW: (NEW, K_NEW), T_DROP: (DROP, K_DROP), T_CLEAR: (CLEAR, K_CLEAR), T_ITER: (WALK, K_ITER)}[op]
++            op_a.append(code); inst_a.append(i); key_a.append(0); kind_a.append(k)
++            continue
++        key = rebuild_key(w, h, head, kind)
++        j = pool_at.get(key)
++        if j is None:
++            j = pool_at[key] = len(pool)
++            pool.append(key)
++        there = key in held[i]
++        if there != bool(b1 & 1):
++            mismatch += 1
++        if op == T_GET:
++            op_a.append(GET); kind_a.append(K_HIT if there else K_MISS)
++        elif op == T_PUT:
++            op_a.append(PUT); kind_a.append(K_OVER if there else K_INSERT)
++            held[i].add(key)
++        else:
++            op_a.append(TAKE); kind_a.append(K_REMOVE)
++            held[i].discard(key)
++        inst_a.append(i); key_a.append(j)
++    mm.close()
++    # Segments: runs of one kind at least --run long are timed as that
++    # kind; the rest, in their order, as `mixed`.
++    segs, j, n = [], 0, len(op_a)
++    while j < n:
++        e = j
++        while e < n and kind_a[e] == kind_a[j] and e - j < 4096:
++            e += 1
++        if e - j >= a.run:
++            segs.append((kind_a[j], j, e - j))
++            j = e
++            continue
++        m = j
++        while m < n and m - j < 4096:
++            e = m
++            while e < n and kind_a[e] == kind_a[m]:
++                e += 1
++            if e - m >= a.run:
++                break
++            m = e
++        segs.append((MIXED, j, m - j))
++        j = m
++    if not pool:
++        pool.append(rebuild_key(8, 0, b"\0" * 24, kind))
++    write_trace(a.o, kind, value_words(vb), len(held), pool, op_a, inst_a, key_a, segs)
++    names = sorted(set(types.get(m, ("?", "?", "?", "?"))[1] for m in want))
++    print(f"{a.o}: {n} ops from {len(inst_of)} maps, keys {kind} (width {width}, type {', '.join(sorted(ktypes))}), "
++          f"values {value_words(vb)} Ints ({vb} bytes; V {', '.join(names)}), {len(pool)} keys, {len(segs)} segments")
++    by = [0] * 16
++    for s_ in segs:
++        by[s_[0]] += s_[2]
++    print("  ops by segment kind: " + ", ".join(f"{(KINDS + ['?'] * 6 + ['mixed'])[k]} {c}" for k, c in enumerate(by) if c))
++    if skipped:
++        print("  left out: " + ", ".join(f"{c} {k}" for k, c in skipped.items()))
++    print(f"  {mismatch} ops found or missed their key other than the trace says")
++    # What the trace says of the maps, beside the replay: `time` reads it.
++    import json
++    iters = sum(1 for k in kind_a if k == K_ITER)
++    meta = {"source": os.path.abspath(a.trace), "maps": len(inst_of), "ids": sorted(want)[:64],
++            "key": sorted(ktypes)[0], "value": names, "sites": sorted(set(types.get(m, ("", "", "", ""))[3] for m in want))[:8],
++            "ops": n, "iter": iters, "clear": sum(1 for k in kind_a if k == K_CLEAR), "left_out": skipped, "mismatch": mismatch}
++    with open(a.o + ".json", "w") as f:
++        json.dump(meta, f, indent=1)
++
++
++# ---------------------------------------------------------------- build and time
++
++def build(arm, out, cpu):
++    exe = os.path.join(out, arm)
++    if os.path.exists(exe):
++        return exe
++    tmp = exe + ".new"
++    if arm.startswith("rig-"):
++        src = os.path.join(HERE, "replay.rig")
++        if arm == "rig-hash":
++            text = re.sub(r"\bMap\[", "HashMap[", open(src).read())
++            text = re.sub(r"\bMap\(\)", "HashMap()", text)
++            src = os.path.join(out, "replay-hash.rig")
++            with open(src, "w") as f:
++                f.write(text)
++        env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, "rig-out-" + arm))
++        if cpu:
++            # Rig runs $ZIG for every Zig step: add the CPU to each compile.
++            wrap = os.path.join(out, "zig-cpu")
++            with open(wrap, "w") as f:
++                f.write('#!/bin/sh\nz=${REAL_ZIG:-zig}\ncase "$1" in\nbuild-exe|build-obj|build-lib|test) sub=$1; shift; '
++                        f'exec "$z" "$sub" -mcpu={cpu} "$@" ;;\n*) exec "$z" "$@" ;;\nesac\n')
++            os.chmod(wrap, 0o755)
++            env["ZIG"] = wrap
++        subprocess.run([RIG, "build", "--release", "-o", tmp, src], check=True, env=env)
++    elif arm.startswith("zig-"):
++        # replay.zig on the table its module `table` names.
++        cpuf = [f"-mcpu={cpu}"] if cpu else []
++        subprocess.run([ZIG, "build-exe", "-OReleaseFast", *cpuf, "--dep", "table", "-Mroot=" + os.path.join(HERE, "replay.zig"),
++                        "--dep", "ordered", "--dep", "alloc", "-Mtable=" + os.path.join(HERE, "table_" + arm[4:] + ".zig"),
++                        "-Mordered=" + os.path.join(os.path.dirname(HERE), "ordered.zig"),
++                        "-Malloc=" + os.path.join(ROOT, "src", "alloc.zig"), "-lc", "-femit-bin=" + tmp,
++                        "--cache-dir", os.path.join(out, "zig-cache")], check=True)
++    else:
++        # One cargo build makes every Rust arm (rust/src/bin).
++        target = os.path.join(out, "cargo")
++        flags = f"-C target-cpu={cpu or 'native'}"
++        # Built from a copy, so a patch below leaves rust/Cargo.lock as it is.
++        crate = os.path.join(out, "rust-src")
++        if not os.path.exists(os.path.join(target, "release", arm)):
++            shutil.rmtree(crate, ignore_errors=True)
++            shutil.copytree(os.path.join(HERE, "rust"), crate, ignore=shutil.ignore_patterns("target"))
++            extra, patched = ["--locked"], []
++            for name in ("foldhash-0.2.0", "hashbrown-0.17.1", "rustc-hash-2.1.3", "indexmap-2.14.2", "equivalent-1.0.3"):
++                # A crate whose archive cargo's cache lost but whose source
++                # it kept is built from that source: no download either way.
++                reg = os.path.expanduser("~/.cargo/registry")
++                have = [d for d in os.listdir(os.path.join(reg, "cache"))
++                        if os.path.exists(os.path.join(reg, "cache", d, name + ".crate"))]
++                src = [os.path.join(reg, "src", d, name) for d in os.listdir(os.path.join(reg, "src"))
++                       if os.path.exists(os.path.join(reg, "src", d, name, ".cargo-ok"))]
++                if not have and src:
++                    patched += ["--config", f'patch.crates-io.{name.rsplit("-", 1)[0]}.path="{src[0]}"']
++            if patched:
++                extra = patched
++            subprocess.run([CARGO, "build", "-q", "--release", "--offline", "--bins", *extra, *JOBS],
++                           check=True, cwd=crate, env=dict(os.environ, CARGO_TARGET_DIR=target, RUSTFLAGS=flags))
++        shutil.copy(os.path.join(target, "release", arm), tmp)
++    os.rename(tmp, exe)
++    return exe
++
++
++def run(exe, trace):
++    p = subprocess.run([exe, trace], check=True, capture_output=True, text=True)
++    rows = {}
++    for line in p.stdout.splitlines():
++        kind, ns, n, check = line.split()
++        rows[kind] = (int(ns), int(n), check)
++    return rows
++
++
++def cmd_build(a):
++    os.makedirs(a.out, exist_ok=True)
++    for arm in a.arms.split(","):
++        build(arm, a.out, a.cpu)
++        print(f"built {arm}")
++
++
++def cmd_time(a):
++    arms = a.arms.split(",")
++    exes = {arm: os.path.join(a.out, arm) for arm in arms}
++    if a.aa:
++        exes[a.aa + "'"] = exes[a.aa]
++        arms.append(a.aa + "'")
++    for arm, exe in exes.items():
++        if not os.path.exists(exe):
++            sys.exit(f"{exe}: build it first")
++    base = a.base if a.base in arms else arms[0]
++    summary = {}
++    for trace in a.traces:
++        times = {arm: {} for arm in arms}
++        checks, counts = {}, {}
++        for r in range(a.rounds):
++            q = (r + a.rotate) % len(arms)
++            order = arms[q:] + arms[:q]
++            for arm in order:
++                for kind, (ns, n, check) in run(exes[arm], trace).items():
++                    if checks.setdefault(kind, check) != check:
++                        sys.exit(f"{trace}: {arm} {kind} check {check}, expected {checks[kind]}")
++                    counts[kind] = n
++                    times[arm].setdefault(kind, []).append(ns)
++        name = os.path.relpath(trace, a.root) if a.root else os.path.basename(trace)
++        meta = {}
++        if os.path.exists(trace + ".json"):
++            import json
++            meta = json.load(open(trace + ".json"))
++        summary[name] = {"iter": meta.get("iter"), "at": meta.get("left_out", {}).get("at", 0), "ops": counts["total"], "ns": {x: statistics.median(times[x]["total"]) for x in arms},
++                         "kinds": {k: {"ops": counts[k], "ns": {x: statistics.median(times[x][k]) for x in arms}} for k in counts}}
++        print(f"\n{name}: ns per op, median of {a.rounds} rounds (ratio: the arm's time / {base}'s)")
++        w = max(10, *(len(x) + 1 for x in arms))
++        print(f"{'kind':10} {'ops':>10} " + " ".join(f"{x:>{w}}" for x in arms) + f"   {'check':>22}")
++        for kind in counts:
++            med = {x: statistics.median(times[x][kind]) / counts[kind] for x in arms}
++            print(f"{kind:10} {counts[kind]:10} " + " ".join(f"{med[x]:{w}.2f}" for x in arms) + f"   {checks[kind]:>22}")
++            print(f"{'':10} {'':10} " + " ".join(f"{med[x] / med[base]:{w}.2f}x" for x in arms))
++        if "iterate" in counts and len(counts) > 2:
++            # The rest of the trace, for a walk-heavy one.
++            n = counts["total"] - counts["iterate"]
++            med = {x: (statistics.median(times[x]["total"]) - statistics.median(times[x]["iterate"])) / n for x in arms}
++            print(f"{'no-walks':10} {n:10} " + " ".join(f"{med[x]:{w}.2f}" for x in arms))
++            print(f"{'':10} {'':10} " + " ".join(f"{med[x] / med[base]:{w}.2f}x" for x in arms))
++        if a.aa:
++            x, y = a.aa, a.aa + "'"
++            gaps = [abs(statistics.median(times[x][k]) / statistics.median(times[y][k]) - 1) * 100 for k in counts]
++            print(f"A/A ({x} against itself): total {gaps[-1]:.1f}%, largest kind {max(gaps):.1f}%")
++        spread = {x: (max(times[x]['total']) - min(times[x]['total'])) / min(times[x]['total']) * 100 for x in arms}
++        print("spread of total (max-min)/min: " + ", ".join(f"{x} {s:.1f}%" for x, s in spread.items()))
++    if len(summary) > 1:
++        print_summary(summary, arms, base)
++    if a.json:
++        import json
++        with open(a.json, "w") as f:
++            json.dump({"arms": arms, "base": base, "rounds": a.rounds, "traces": summary}, f, indent=1)
++
++
++def print_summary(summary, arms, base):
++    """Each trace's whole time per op, and the sum over the traces."""
++    w = max(10, *(len(x) + 1 for x in arms))
++    n = max(len(t) for t in summary)
++    print(f"\nsummary: ns per op over each whole trace (ratio to {base})")
++    print(f"{'trace':{n}} {'ops':>10} {'walks':>7} {'at':>8} " + " ".join(f"{x:>{w}}" for x in arms) + "  " +
++          " ".join(f"{x:>{w}}" for x in arms if x != base))
++    tot = {x: 0 for x in arms}
++    ops = 0
++    for t, r in summary.items():
++        ops += r["ops"]
++        for x in arms:
++            tot[x] += r["ns"][x]
++        walks = "-" if r.get("iter") is None else r["iter"]
++        print(f"{t:{n}} {r['ops']:10} {walks:>7} {r.get('at', 0):>8} " + " ".join(f"{r['ns'][x] / r['ops']:{w}.2f}" for x in arms) + "  " +
++              " ".join(f"{r['ns'][x] / r['ns'][base]:{w}.2f}x" for x in arms if x != base))
++    print(f"{'all':{n}} {ops:10} {'':7} {'':8} " + " ".join(f"{tot[x] / ops:{w}.2f}" for x in arms) + "  " +
++          " ".join(f"{tot[x] / tot[base]:{w}.2f}x" for x in arms if x != base))
++
++
++def main():
++    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
++    sub = ap.add_subparsers(dest="cmd", required=True)
++    g = sub.add_parser("gen")
++    g.add_argument("spec")
++    g.add_argument("-o", required=True)
++    i = sub.add_parser("import")
++    i.add_argument("trace")
++    i.add_argument("-o", required=True)
++    i.add_argument("--ids")
++    i.add_argument("--types")
++    i.add_argument("--top", type=int)
++    i.add_argument("--types-file", help="the trace's .types (default: beside it, or ../trace.bin.types)")
++    i.add_argument("--run", type=int, default=64, help="shortest run of one kind timed as that kind")
++    b = sub.add_parser("build")
++    b.add_argument("--out", required=True)
++    b.add_argument("--arms", default=",".join(ARMS))
++    b.add_argument("--cpu")
++    t = sub.add_parser("time")
++    t.add_argument("--out", required=True)
++    t.add_argument("--arms", default=",".join(ARMS))
++    t.add_argument("--rounds", type=int, default=11)
++    t.add_argument("--aa")
++    t.add_argument("--base", default="hb-fx")
++    t.add_argument("--json", help="write each trace's medians here")
++    t.add_argument("--rotate", type=int, default=0, help="start the arms' rotation here (for runs of one round)")
++    t.add_argument("--root", help="name traces by their path under ROOT")
++    t.add_argument("traces", nargs="+")
++    a = ap.parse_args()
++    {"gen": cmd_gen, "import": cmd_import, "build": cmd_build, "time": cmd_time}[a.cmd](a)
++
++
++main()
+diff --git a/bench/hash/replay/replay.rig b/bench/hash/replay/replay.rig
+new file mode 100644
+index 000000000..9a836a8f3
+--- /dev/null
++++ b/bench/hash/replay/replay.rig
+@@ -0,0 +1,257 @@
++# Replays a trace of map operations (bench/hash/replay/README.md, "The
++# trace") on the built-in Map, as a program would make them: one Map per
++# instance, keys of the trace's kind, values of its number of Ints.
++# Prints `KIND NS OPS CHECK` per kind of segment and `total NS OPS
++# CHECK`; every contestant prints the same checks.
++#
++# Each segment's loop is `called`, a function of its own that takes what
++# it reads and reads the clock around its loop (as bench/hash/map.rig's
++# rows do). The driver rewrites every `Map[` here to `HashMap[` for the
++# unordered built-in, so one program times both.
++
++use std.time
++use std.file
++use std.os
++
++obj Row
++  ns: Int
++  check: Int
++
++# A key of two Ints, and of three: ids, pairs of ids, small structs.
++obj Pair
++  a: Int
++  b: Int
++
++obj Triple
++  a: Int
++  b: Int
++  c: Int
++
++# The op codes of the trace.
++PUT = 0
++GET = 1
++TAKE = 2
++WALK = 3
++NEW = 4
++DROP = 5
++CLEAR = 6
++
++# The kinds of segment, reported by name.
++MIXED = 15
++
++fun kind_name(k: Int) -> Static
++  match k
++    0 => "insert"
++    1 => "overwrite"
++    2 => "hit"
++    3 => "miss"
++    4 => "remove"
++    5 => "iterate"
++    6 => "new"
++    7 => "drop"
++    8 => "clear"
++    _ => "mixed"
++
++# The value a put at op `j` writes: `j`, then `j + 1`, ...
++inline fun value[n: Int](j: Int) -> [n]Int
++  v = [n of j]
++  for w in 1..n
++    v[w] = j + w
++  v
++
++called fun put_run[K: Hash + Clone + Owned, n: Int](maps: !List[Map[K, [n]Int]], owned: !List[K], inst: ?List[U32], at: Int, count: Int) -> Row keeps owned
++  check = 0
++  t = time.monotonic()
++  for j in at..at + count
++    m = !maps[Int(inst[j])]
++    k = !owned.pop() ?? panic("replay: a put with no key")
++    !m.put(<k, value[n](j))
++    check +%= m.len
++  Row(ns: Int(t.elapsed().ns()), check: check)
++
++called fun get_run[K: Hash + Clone + Owned, n: Int](maps: ?List[Map[K, [n]Int]], keys: ?List[K], inst: ?List[U32], key: ?List[U32], at: Int, count: Int) -> Row
++  check = 0
++  t = time.monotonic()
++  for j in at..at + count
++    m = ?maps[Int(inst[j])]
++    if m.get(?keys[Int(key[j])]) as v
++      check +%= v[0] + 1
++  Row(ns: Int(t.elapsed().ns()), check: check)
++
++called fun take_run[K: Hash + Clone + Owned, n: Int](maps: !List[Map[K, [n]Int]], keys: ?List[K], inst: ?List[U32], key: ?List[U32], at: Int, count: Int) -> Row
++  check = 0
++  t = time.monotonic()
++  for j in at..at + count
++    m = !maps[Int(inst[j])]
++    if !m.take(?keys[Int(key[j])]) as v
++      check +%= v[n - 1] + 1
++  Row(ns: Int(t.elapsed().ns()), check: check)
++
++called fun walk_run[K: Hash + Clone + Owned, n: Int](maps: ?List[Map[K, [n]Int]], inst: ?List[U32], at: Int, count: Int) -> Row
++  check = 0
++  t = time.monotonic()
++  for j in at..at + count
++    m = ?maps[Int(inst[j])]
++    for e in m.items()
++      check +%= e.value[0]
++    check +%= m.len
++  Row(ns: Int(t.elapsed().ns()), check: check)
++
++# `new`, `drop` and `clear`: a fresh Map in the instance's place (the old
++# one dropped), or its entries dropped. Each adds the length it found.
++called fun life_run[K: Hash + Clone + Owned, n: Int](maps: !List[Map[K, [n]Int]], inst: ?List[U32], op: Int, at: Int, count: Int) -> Row
++  check = 0
++  t = time.monotonic()
++  for j in at..at + count
++    i = Int(inst[j])
++    check +%= maps[i].len + 1
++    if op == CLEAR
++      !maps[i].clear()
++    else
++      maps[i] = Map()
++  Row(ns: Int(t.elapsed().ns()), check: check)
++
++# A segment of any ops, in the order the trace gives them.
++called fun mixed_run[K: Hash + Clone + Owned, n: Int](maps: !List[Map[K, [n]Int]], owned: !List[K], keys: ?List[K], ops: ?List[U8], inst: ?List[U32], key: ?List[U32], at: Int, count: Int) -> Row keeps maps, owned
++  check = 0
++  t = time.monotonic()
++  for j in at..at + count
++    i = Int(inst[j])
++    op = Int(ops[j])
++    if op == GET
++      if maps[i].get(?keys[Int(key[j])]) as v
++        check +%= v[0] + 1
++    else if op == PUT
++      m = !maps[i]
++      k = !owned.pop() ?? panic("replay: a put with no key")
++      !m.put(<k, value[n](j))
++      check +%= m.len
++    else if op == TAKE
++      m = !maps[i]
++      if !m.take(?keys[Int(key[j])]) as v
++        check +%= v[n - 1] + 1
++    else if op == WALK
++      for e in ?maps[i].items()
++        check +%= e.value[0]
++      check +%= maps[i].len
++    else if op == CLEAR
++      check +%= maps[i].len + 1
++      !maps[i].clear()
++    else
++      check +%= maps[i].len + 1
++      maps[i] = Map()
++  Row(ns: Int(t.elapsed().ns()), check: check)
++
++# The whole trace on Maps of `K` to `[n]Int`.
++sub replay[K: Hash + Clone + Owned, n: Int](keys: List[K], data: ?String)
++  instances = Int(data.read[U32, .little](12))
++  nops = Int(data.read[U32, .little](20))
++  nsegs = Int(data.read[U32, .little](24))
++  at = Int(data.read[U32, .little](32))
++  ops: List[U8] = List(capacity: nops)
++  !ops.extend_from_bytes(data[at..at + nops])
++  at += (nops + 3) / 4 * 4
++  inst: List[U32] = List(capacity: nops)
++  !inst.extend_from_bytes(data[at..at + 4 * nops])
++  at += 4 * nops
++  key: List[U32] = List(capacity: nops)
++  !key.extend_from_bytes(data[at..at + 4 * nops])
++  at += 4 * nops
++  # (`keeps owned`: a generic body takes a key popped from `owned` for a
++  # view of it, though `K` is `Owned`.)
++  # The keys each put moves in, made apart from the ones lookups use,
++  # last first, so each put pops its own.
++  owned: List[K] = List()
++  j = nops
++  while j > 0
++    j -= 1
++    !owned.push(+keys[Int(key[j])]) if Int(ops[j]) == PUT
++  maps: List[Map[K, [n]Int]] = List(capacity: instances)
++  for _ in 0..instances
++    !maps.push(Map())
++  ns = [16 of 0]
++  cnt = [16 of 0]
++  chk = [16 of 0]
++  for s in 0..nsegs
++    kind = Int(data.read[U32, .little](at + 12 * s))
++    from = Int(data.read[U32, .little](at + 12 * s + 4))
++    count = Int(data.read[U32, .little](at + 12 * s + 8))
++    r = Row(ns: 0, check: 0)
++    if kind == 0 or kind == 1
++      r = put_run[K, n](!maps, !owned, ?inst, from, count)
++    else if kind == 2 or kind == 3
++      r = get_run[K, n](?maps, ?keys, ?inst, ?key, from, count)
++    else if kind == 4
++      r = take_run[K, n](!maps, ?keys, ?inst, ?key, from, count)
++    else if kind == 5
++      r = walk_run[K, n](?maps, ?inst, from, count)
++    else if kind == 6 or kind == 7
++      r = life_run[K, n](!maps, ?inst, NEW, from, count)
++    else if kind == 8
++      r = life_run[K, n](!maps, ?inst, CLEAR, from, count)
++    else
++      r = mixed_run[K, n](!maps, !owned, ?keys, ?ops, ?inst, ?key, from, count)
++    ns[kind] += r.ns
++    cnt[kind] += count
++    chk[kind] +%= r.check
++  tns = 0
++  tchk = 0
++  for k in 0..16
++    if cnt[k] > 0
++      print(kind_name(k), ns[k], cnt[k], chk[k])
++      tns += ns[k]
++      tchk +%= chk[k]
++  print("total", tns, nops, tchk)
++
++# The trace's keys: each `words` 64-bit words from `at`, or texts.
++fun ints(data: ?String, n: Int, at: Int) -> List[Int]
++  ks: List[Int] = List(capacity: n)
++  for i in 0..n
++    !ks.push(data.read[I64, .little](at + 8 * i))
++  ks
++
++sub by_value[K: Hash + Clone + Owned](keys: List[K], data: ?String)
++  match Int(data.read[U32, .little](8))
++    1 => replay[K, 1](<keys, data)
++    2 => replay[K, 2](<keys, data)
++    4 => replay[K, 4](<keys, data)
++    8 => replay[K, 8](<keys, data)
++    _ => panic("replay: values of 1, 2, 4 or 8 Ints")
++
++sub main()
++  args = os.args()
++  panic("usage: replay TRACE") if args.len < 2
++  got = file.read(args[1]) catch panic("replay: cannot read the trace")
++  data = <got ?? panic("replay: no trace there")
++  d: ?String = ?data
++  panic("replay: not a trace") if d.len < 36 or d.read[U32, .little](0) != 0x314c5052
++  kind = Int(d.read[U32, .little](4))
++  n = Int(d.read[U32, .little](16))
++  at = 36
++  if kind == 0
++    ks: List[U32] = List(capacity: n)
++    for i in 0..n
++      !ks.push(d.read[U32, .little](at + 8 * i))
++    by_value[U32](<ks, d)
++  else if kind == 1
++    by_value[Int](ints(d, n, at), d)
++  else if kind == 2
++    w = ints(d, 2 * n, at)
++    ks: List[Pair] = List(capacity: n)
++    for i in 0..n
++      !ks.push(Pair(a: w[2 * i], b: w[2 * i + 1]))
++    by_value[Pair](<ks, d)
++  else if kind == 3
++    w = ints(d, 3 * n, at)
++    ks: List[Triple] = List(capacity: n)
++    for i in 0..n
++      !ks.push(Triple(a: w[3 * i], b: w[3 * i + 1], c: w[3 * i + 2]))
++    by_value[Triple](<ks, d)
++  else
++    ks: List[String] = List(capacity: n)
++    base = at + 4 * (n + 1)
++    for i in 0..n
++      a = Int(d.read[U32, .little](at + 4 * i))
++      b = Int(d.read[U32, .little](at + 4 * i + 4))
++      !ks.push(+d[base + a..base + b])
++    by_value[String](<ks, d)
+diff --git a/bench/hash/replay/replay.zig b/bench/hash/replay/replay.zig
+new file mode 100644
+index 000000000..6aed5372e
+--- /dev/null
++++ b/bench/hash/replay/replay.zig
+@@ -0,0 +1,237 @@
++//! Replays a trace of map operations (bench/hash/replay/README.md, "The
++//! trace") on the Zig table the module `table` names, as replay.rig and
++//! the Rust arms do: one map per instance, values of 1, 2, 4 or 8 words.
++//! Keys of a fixed width only (u32, int, pair, triple); a text trace is
++//! refused. Prints `KIND NS OPS CHECK` per kind of segment and `total NS
++//! OPS CHECK`; the checks must agree with every other arm's.
++//!
++//! `table.Map(K, V)` is a table with `empty`, `deinit(gpa)`, `count()`,
++//! `getPtr(k)`, `put(gpa, k, v)`, `fetchRemove(k)` (a `.value`),
++//! `valueIterator()`, and `clear(gpa)`, which drops every entry and may
++//! keep the memory.
++const std = @import("std");
++const table = @import("table");
++const gpa = table.allocator;
++
++const PUT = 0;
++const GET = 1;
++const TAKE = 2;
++const WALK = 3;
++const CLEAR = 6;
++const MIXED = 15;
++
++const names = [16][]const u8{ "insert", "overwrite", "hit", "miss", "remove", "iterate", "new", "drop", "clear", "mixed", "mixed", "mixed", "mixed", "mixed", "mixed", "mixed" };
++
++pub const Pair = struct { a: u64, b: u64 };
++pub const Triple = struct { a: u64, b: u64, c: u64 };
++
++fn now(io: std.Io) std.Io.Clock.Timestamp {
++    return std.Io.Clock.Timestamp.now(io, .awake);
++}
++
++fn since(io: std.Io, t: std.Io.Clock.Timestamp) i64 {
++    return @intCast(t.durationTo(now(io)).raw.toNanoseconds());
++}
++
++fn u32At(d: []const u8, at: usize) u32 {
++    return std.mem.readInt(u32, d[at..][0..4], .little);
++}
++
++fn u64At(d: []const u8, at: usize) u64 {
++    return std.mem.readInt(u64, d[at..][0..8], .little);
++}
++
++const Ops = struct { op: []const u8, inst: []const u32, key: []const u32 };
++const Row = struct { ns: i64, check: i64 };
++
++fn Replay(comptime K: type, comptime N: usize) type {
++    return struct {
++        const V = [N]i64;
++        const M = table.Map(K, V);
++
++        inline fn value(j: usize) V {
++            var v: V = undefined;
++            inline for (0..N) |w| v[w] = @as(i64, @intCast(j)) + w;
++            return v;
++        }
++
++        noinline fn putRun(io: std.Io, maps: []M, keys: []const K, o: Ops, at: usize, n: usize) Row {
++            var check: i64 = 0;
++            const t = now(io);
++            for (at..at + n) |j| {
++                const m = &maps[o.inst[j]];
++                m.put(gpa, keys[o.key[j]], value(j)) catch @panic("out of memory");
++                check +%= @intCast(m.count());
++            }
++            return .{ .ns = since(io, t), .check = check };
++        }
++
++        noinline fn getRun(io: std.Io, maps: []M, keys: []const K, o: Ops, at: usize, n: usize) Row {
++            var check: i64 = 0;
++            const t = now(io);
++            for (at..at + n) |j| {
++                if (maps[o.inst[j]].getPtr(keys[o.key[j]])) |v| check +%= v[0] + 1;
++            }
++            return .{ .ns = since(io, t), .check = check };
++        }
++
++        noinline fn takeRun(io: std.Io, maps: []M, keys: []const K, o: Ops, at: usize, n: usize) Row {
++            var check: i64 = 0;
++            const t = now(io);
++            for (at..at + n) |j| {
++                if (maps[o.inst[j]].fetchRemove(keys[o.key[j]])) |kv| check +%= kv.value[N - 1] + 1;
++            }
++            return .{ .ns = since(io, t), .check = check };
++        }
++
++        fn walk(m: *const M) i64 {
++            var check: i64 = 0;
++            var it = m.valueIterator();
++            while (it.next()) |v| check +%= v[0];
++            return check +% @as(i64, @intCast(m.count()));
++        }
++
++        noinline fn walkRun(io: std.Io, maps: []M, o: Ops, at: usize, n: usize) Row {
++            var check: i64 = 0;
++            const t = now(io);
++            for (at..at + n) |j| check +%= walk(&maps[o.inst[j]]);
++            return .{ .ns = since(io, t), .check = check };
++        }
++
++        fn life(m: *M, clear: bool) i64 {
++            const c: i64 = @as(i64, @intCast(m.count())) + 1;
++            if (clear) {
++                m.clear(gpa);
++            } else {
++                m.deinit(gpa);
++                m.* = .empty;
++            }
++            return c;
++        }
++
++        noinline fn lifeRun(io: std.Io, maps: []M, o: Ops, clear: bool, at: usize, n: usize) Row {
++            var check: i64 = 0;
++            const t = now(io);
++            for (at..at + n) |j| check +%= life(&maps[o.inst[j]], clear);
++            return .{ .ns = since(io, t), .check = check };
++        }
++
++        noinline fn mixedRun(io: std.Io, maps: []M, keys: []const K, o: Ops, at: usize, n: usize) Row {
++            var check: i64 = 0;
++            const t = now(io);
++            for (at..at + n) |j| {
++                const m = &maps[o.inst[j]];
++                switch (o.op[j]) {
++                    GET => if (m.getPtr(keys[o.key[j]])) |v| {
++                        check +%= v[0] + 1;
++                    },
++                    PUT => {
++                        m.put(gpa, keys[o.key[j]], value(j)) catch @panic("out of memory");
++                        check +%= @intCast(m.count());
++                    },
++                    TAKE => if (m.fetchRemove(keys[o.key[j]])) |kv| {
++                        check +%= kv.value[N - 1] + 1;
++                    },
++                    WALK => check +%= walk(m),
++                    CLEAR => check +%= life(m, true),
++                    else => check +%= life(m, false),
++                }
++            }
++            return .{ .ns = since(io, t), .check = check };
++        }
++
++        fn run(io: std.Io, keys: []const K, d: []const u8, out: *std.Io.Writer) !void {
++            const instances = u32At(d, 12);
++            const nops = u32At(d, 20);
++            const nsegs = u32At(d, 24);
++            var at: usize = u32At(d, 32);
++            const op = d[at..][0..nops];
++            at += (nops + 3) / 4 * 4;
++            const inst = try gpa.alloc(u32, nops);
++            for (inst, 0..) |*x, j| x.* = u32At(d, at + 4 * j);
++            at += 4 * nops;
++            const key = try gpa.alloc(u32, nops);
++            for (key, 0..) |*x, j| x.* = u32At(d, at + 4 * j);
++            at += 4 * nops;
++            const o: Ops = .{ .op = op, .inst = inst, .key = key };
++            const maps = try gpa.alloc(M, instances);
++            for (maps) |*m| m.* = .empty;
++            var ns: [16]i64 = @splat(0);
++            var cnt: [16]usize = @splat(0);
++            var chk: [16]i64 = @splat(0);
++            for (0..nsegs) |s| {
++                const kind = u32At(d, at + 12 * s);
++                const from = u32At(d, at + 12 * s + 4);
++                const count = u32At(d, at + 12 * s + 8);
++                const r = switch (kind) {
++                    0, 1 => putRun(io, maps, keys, o, from, count),
++                    2, 3 => getRun(io, maps, keys, o, from, count),
++                    4 => takeRun(io, maps, keys, o, from, count),
++                    5 => walkRun(io, maps, o, from, count),
++                    6, 7 => lifeRun(io, maps, o, false, from, count),
++                    8 => lifeRun(io, maps, o, true, from, count),
++                    else => mixedRun(io, maps, keys, o, from, count),
++                };
++                ns[kind] += r.ns;
++                cnt[kind] += count;
++                chk[kind] +%= r.check;
++            }
++            var tns: i64 = 0;
++            var tchk: i64 = 0;
++            for (0..16) |k| if (cnt[k] > 0) {
++                try out.print("{s} {d} {d} {d}\n", .{ names[k], ns[k], cnt[k], chk[k] });
++                tns += ns[k];
++                tchk +%= chk[k];
++            };
++            try out.print("total {d} {d} {d}\n", .{ tns, nops, tchk });
++        }
++    };
++}
++
++fn byValue(comptime K: type, io: std.Io, keys: []const K, d: []const u8, out: *std.Io.Writer) !void {
++    switch (u32At(d, 8)) {
++        1 => try Replay(K, 1).run(io, keys, d, out),
++        2 => try Replay(K, 2).run(io, keys, d, out),
++        4 => try Replay(K, 4).run(io, keys, d, out),
++        8 => try Replay(K, 8).run(io, keys, d, out),
++        else => @panic("replay: values of 1, 2, 4 or 8 Ints"),
++    }
++}
++
++pub fn main(init: std.process.Init.Minimal) !void {
++    var args = init.args.iterate();
++    _ = args.skip();
++    const path = args.next() orelse @panic("usage: replay TRACE");
++    const io = std.Io.Threaded.global_single_threaded.io();
++    const d = try std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .unlimited);
++    if (d.len < 36 or u32At(d, 0) != 0x314c5052) @panic("replay: not a trace");
++    var buf: [4096]u8 = undefined;
++    var fw = std.Io.File.stdout().writer(io, &buf);
++    const out = &fw.interface;
++    const n = u32At(d, 16);
++    const at = 36;
++    switch (u32At(d, 4)) {
++        0 => {
++            const ks = try gpa.alloc(u32, n);
++            for (ks, 0..) |*k, i| k.* = u32At(d, at + 8 * i);
++            try byValue(u32, io, ks, d, out);
++        },
++        1 => {
++            const ks = try gpa.alloc(i64, n);
++            for (ks, 0..) |*k, i| k.* = @bitCast(u64At(d, at + 8 * i));
++            try byValue(i64, io, ks, d, out);
++        },
++        2 => {
++            const ks = try gpa.alloc(Pair, n);
++            for (ks, 0..) |*k, i| k.* = .{ .a = u64At(d, at + 16 * i), .b = u64At(d, at + 16 * i + 8) };
++            try byValue(Pair, io, ks, d, out);
++        },
++        3 => {
++            const ks = try gpa.alloc(Triple, n);
++            for (ks, 0..) |*k, i| k.* = .{ .a = u64At(d, at + 24 * i), .b = u64At(d, at + 24 * i + 8), .c = u64At(d, at + 24 * i + 16) };
++            try byValue(Triple, io, ks, d, out);
++        },
++        else => @panic("replay: the Zig arms take keys of a fixed width, not text"),
++    }
++    try out.flush();
++}
+diff --git a/bench/hash/replay/rust/Cargo.lock b/bench/hash/replay/rust/Cargo.lock
+new file mode 100644
+index 000000000..3cc8496b4
+--- /dev/null
++++ b/bench/hash/replay/rust/Cargo.lock
+@@ -0,0 +1,47 @@
++# This file is automatically @generated by Cargo.
++# It is not intended for manual editing.
++version = 4
++
++[[package]]
++name = "equivalent"
++version = "1.0.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
++
++[[package]]
++name = "foldhash"
++version = "0.2.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
++
++[[package]]
++name = "hashbrown"
++version = "0.17.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
++
++[[package]]
++name = "indexmap"
++version = "2.14.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
++dependencies = [
++ "equivalent",
++ "hashbrown",
++]
++
++[[package]]
++name = "replay"
++version = "0.0.0"
++dependencies = [
++ "foldhash",
++ "hashbrown",
++ "indexmap",
++ "rustc-hash",
++]
++
++[[package]]
++name = "rustc-hash"
++version = "2.1.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d"
+diff --git a/bench/hash/replay/rust/Cargo.toml b/bench/hash/replay/rust/Cargo.toml
+new file mode 100644
+index 000000000..8714b05c3
+--- /dev/null
++++ b/bench/hash/replay/rust/Cargo.toml
+@@ -0,0 +1,22 @@
++[package]
++name = "replay"
++version = "0.0.0"
++edition = "2024"
++publish = false
++
++# One program an arm (src/bin), all built by one `cargo build`: hashbrown
++# with rustc-hash's FxHasher, as tsrs hashes (hb-fx), or with foldhash,
++# its default (hb-fold); std's HashMap with FxHasher, tsrs's `FxHashMap`
++# (std-fx); and indexmap, which keeps insertion order as Rig's Map does,
++# with each hash (idx-fx, idx-fold).
++
++[dependencies]
++hashbrown = { version = "=0.17.1", default-features = false, features = ["inline-more"] }
++foldhash = "=0.2.0"
++rustc-hash = "=2.1.3"
++indexmap = "=2.14.2"
++
++[profile.release]
++codegen-units = 1
++lto = true
++panic = "abort"
+diff --git a/bench/hash/replay/rust/src/bin/hb-fold.rs b/bench/hash/replay/rust/src/bin/hb-fold.rs
+new file mode 100644
+index 000000000..8f12b611a
+--- /dev/null
++++ b/bench/hash/replay/rust/src/bin/hb-fold.rs
+@@ -0,0 +1,8 @@
++//! The replay on hashbrown 0.17.1 with foldhash 0.2.0, its default (fixed seed).
++type S = foldhash::fast::FixedState;
++type Map<K, const N: usize> = hashbrown::HashMap<K, [i64; N], S>;
++#[inline(always)]
++fn take<K: std::hash::Hash + Eq, const N: usize>(m: &mut Map<K, N>, k: &K) -> Option<[i64; N]> {
++    m.remove(k)
++}
++include!("../replay.rs");
+diff --git a/bench/hash/replay/rust/src/bin/hb-fx.rs b/bench/hash/replay/rust/src/bin/hb-fx.rs
+new file mode 100644
+index 000000000..47ba364ab
+--- /dev/null
++++ b/bench/hash/replay/rust/src/bin/hb-fx.rs
+@@ -0,0 +1,8 @@
++//! The replay on hashbrown 0.17.1 with rustc-hash 2.1.3's FxHasher, as tsrs hashes.
++type S = rustc_hash::FxBuildHasher;
++type Map<K, const N: usize> = hashbrown::HashMap<K, [i64; N], S>;
++#[inline(always)]
++fn take<K: std::hash::Hash + Eq, const N: usize>(m: &mut Map<K, N>, k: &K) -> Option<[i64; N]> {
++    m.remove(k)
++}
++include!("../replay.rs");
+diff --git a/bench/hash/replay/rust/src/bin/idx-fold.rs b/bench/hash/replay/rust/src/bin/idx-fold.rs
+new file mode 100644
+index 000000000..2180a67fd
+--- /dev/null
++++ b/bench/hash/replay/rust/src/bin/idx-fold.rs
+@@ -0,0 +1,10 @@
++//! The replay on indexmap 2.14.2 (insertion order, as Rig's Map keeps) with foldhash 0.2.0.
++type S = foldhash::fast::FixedState;
++type Map<K, const N: usize> = indexmap::IndexMap<K, [i64; N], S>;
++/// `shift_remove`, which keeps the order of the rest, as a take from
++/// Rig's Map does (at a cost that grows with the entries after it).
++#[inline(always)]
++fn take<K: std::hash::Hash + Eq, const N: usize>(m: &mut Map<K, N>, k: &K) -> Option<[i64; N]> {
++    m.shift_remove(k)
++}
++include!("../replay.rs");
+diff --git a/bench/hash/replay/rust/src/bin/idx-fx.rs b/bench/hash/replay/rust/src/bin/idx-fx.rs
+new file mode 100644
+index 000000000..ee7af4c21
+--- /dev/null
++++ b/bench/hash/replay/rust/src/bin/idx-fx.rs
+@@ -0,0 +1,10 @@
++//! The replay on indexmap 2.14.2 (insertion order, as Rig's Map keeps) with rustc-hash 2.1.3's FxHasher.
++type S = rustc_hash::FxBuildHasher;
++type Map<K, const N: usize> = indexmap::IndexMap<K, [i64; N], S>;
++/// `shift_remove`, which keeps the order of the rest, as a take from
++/// Rig's Map does (at a cost that grows with the entries after it).
++#[inline(always)]
++fn take<K: std::hash::Hash + Eq, const N: usize>(m: &mut Map<K, N>, k: &K) -> Option<[i64; N]> {
++    m.shift_remove(k)
++}
++include!("../replay.rs");
+diff --git a/bench/hash/replay/rust/src/bin/std-fx.rs b/bench/hash/replay/rust/src/bin/std-fx.rs
+new file mode 100644
+index 000000000..5ebcb273b
+--- /dev/null
++++ b/bench/hash/replay/rust/src/bin/std-fx.rs
+@@ -0,0 +1,8 @@
++//! The replay on std's HashMap (hashbrown as std vendors it) with FxHasher: tsrs's `FxHashMap`.
++type S = rustc_hash::FxBuildHasher;
++type Map<K, const N: usize> = std::collections::HashMap<K, [i64; N], S>;
++#[inline(always)]
++fn take<K: std::hash::Hash + Eq, const N: usize>(m: &mut Map<K, N>, k: &K) -> Option<[i64; N]> {
++    m.remove(k)
++}
++include!("../replay.rs");
+diff --git a/bench/hash/replay/rust/src/replay.rs b/bench/hash/replay/rust/src/replay.rs
+new file mode 100644
+index 000000000..73204be9d
+--- /dev/null
++++ b/bench/hash/replay/rust/src/replay.rs
+@@ -0,0 +1,259 @@
++// The replay every Rust arm runs (bench/hash/replay/README.md, "The
++// trace"), included by each program in src/bin after it names its table
++// (`Map`), its hash (`S`), and how it takes a key out (`take`). Prints `KIND NS OPS CHECK` per kind of segment
++// and `total NS OPS CHECK`, as replay.rig does; the checks must agree.
++use std::hash::Hash;
++use std::time::Instant;
++
++#[derive(Clone, PartialEq, Eq, Hash)]
++struct Pair {
++    a: i64,
++    b: i64,
++}
++
++#[derive(Clone, PartialEq, Eq, Hash)]
++struct Triple {
++    a: i64,
++    b: i64,
++    c: i64,
++}
++
++const PUT: u8 = 0;
++const GET: u8 = 1;
++const TAKE: u8 = 2;
++const WALK: u8 = 3;
++const CLEAR: u8 = 6;
++
++const NAMES: [&str; 16] = [
++    "insert", "overwrite", "hit", "miss", "remove", "iterate", "new", "drop", "clear", "mixed", "mixed", "mixed",
++    "mixed", "mixed", "mixed", "mixed",
++];
++
++fn u32_at(d: &[u8], at: usize) -> u32 {
++    u32::from_le_bytes(d[at..at + 4].try_into().unwrap())
++}
++
++fn i64_at(d: &[u8], at: usize) -> i64 {
++    i64::from_le_bytes(d[at..at + 8].try_into().unwrap())
++}
++
++#[inline(always)]
++fn value<const N: usize>(j: usize) -> [i64; N] {
++    let mut v = [j as i64; N];
++    for (w, x) in v.iter_mut().enumerate() {
++        *x = j as i64 + w as i64;
++    }
++    v
++}
++
++fn new_map<K, const N: usize>() -> Map<K, N> {
++    Map::with_hasher(S::default())
++}
++
++struct Ops {
++    op: Vec<u8>,
++    inst: Vec<u32>,
++    key: Vec<u32>,
++}
++
++#[inline(never)]
++fn put_run<K: Hash + Eq, const N: usize>(maps: &mut [Map<K, N>], owned: &mut Vec<K>, o: &Ops, at: usize, n: usize) -> (u128, i64) {
++    let mut check = 0i64;
++    let t = Instant::now();
++    for j in at..at + n {
++        let m = &mut maps[o.inst[j] as usize];
++        let k = owned.pop().unwrap();
++        m.insert(k, value::<N>(j));
++        check = check.wrapping_add(m.len() as i64);
++    }
++    (t.elapsed().as_nanos(), check)
++}
++
++#[inline(never)]
++fn get_run<K: Hash + Eq, const N: usize>(maps: &[Map<K, N>], keys: &[K], o: &Ops, at: usize, n: usize) -> (u128, i64) {
++    let mut check = 0i64;
++    let t = Instant::now();
++    for j in at..at + n {
++        let m = &maps[o.inst[j] as usize];
++        if let Some(v) = m.get(&keys[o.key[j] as usize]) {
++            check = check.wrapping_add(v[0] + 1);
++        }
++    }
++    (t.elapsed().as_nanos(), check)
++}
++
++#[inline(never)]
++fn take_run<K: Hash + Eq, const N: usize>(maps: &mut [Map<K, N>], keys: &[K], o: &Ops, at: usize, n: usize) -> (u128, i64) {
++    let mut check = 0i64;
++    let t = Instant::now();
++    for j in at..at + n {
++        let m = &mut maps[o.inst[j] as usize];
++        if let Some(v) = take(m, &keys[o.key[j] as usize]) {
++            check = check.wrapping_add(v[N - 1] + 1);
++        }
++    }
++    (t.elapsed().as_nanos(), check)
++}
++
++#[inline(never)]
++fn walk_run<K: Hash + Eq, const N: usize>(maps: &[Map<K, N>], o: &Ops, at: usize, n: usize) -> (u128, i64) {
++    let mut check = 0i64;
++    let t = Instant::now();
++    for j in at..at + n {
++        let m = &maps[o.inst[j] as usize];
++        for v in m.values() {
++            check = check.wrapping_add(v[0]);
++        }
++        check = check.wrapping_add(m.len() as i64);
++    }
++    (t.elapsed().as_nanos(), check)
++}
++
++#[inline(never)]
++fn life_run<K: Hash + Eq, const N: usize>(maps: &mut [Map<K, N>], o: &Ops, clear: bool, at: usize, n: usize) -> (u128, i64) {
++    let mut check = 0i64;
++    let t = Instant::now();
++    for j in at..at + n {
++        let i = o.inst[j] as usize;
++        check = check.wrapping_add(maps[i].len() as i64 + 1);
++        if clear {
++            maps[i].clear();
++        } else {
++            maps[i] = new_map();
++        }
++    }
++    (t.elapsed().as_nanos(), check)
++}
++
++#[inline(never)]
++fn mixed_run<K: Hash + Eq, const N: usize>(maps: &mut [Map<K, N>], owned: &mut Vec<K>, keys: &[K], o: &Ops, at: usize, n: usize) -> (u128, i64) {
++    let mut check = 0i64;
++    let t = Instant::now();
++    for j in at..at + n {
++        let i = o.inst[j] as usize;
++        match o.op[j] {
++            GET => {
++                if let Some(v) = maps[i].get(&keys[o.key[j] as usize]) {
++                    check = check.wrapping_add(v[0] + 1);
++                }
++            }
++            PUT => {
++                let k = owned.pop().unwrap();
++                maps[i].insert(k, value::<N>(j));
++                check = check.wrapping_add(maps[i].len() as i64);
++            }
++            TAKE => {
++                if let Some(v) = take(&mut maps[i], &keys[o.key[j] as usize]) {
++                    check = check.wrapping_add(v[N - 1] + 1);
++                }
++            }
++            WALK => {
++                for v in maps[i].values() {
++                    check = check.wrapping_add(v[0]);
++                }
++                check = check.wrapping_add(maps[i].len() as i64);
++            }
++            CLEAR => {
++                check = check.wrapping_add(maps[i].len() as i64 + 1);
++                maps[i].clear();
++            }
++            _ => {
++                check = check.wrapping_add(maps[i].len() as i64 + 1);
++                maps[i] = new_map();
++            }
++        }
++    }
++    (t.elapsed().as_nanos(), check)
++}
++
++fn replay<K: Hash + Eq + Clone, const N: usize>(keys: Vec<K>, d: &[u8]) {
++    let instances = u32_at(d, 12) as usize;
++    let nops = u32_at(d, 20) as usize;
++    let nsegs = u32_at(d, 24) as usize;
++    let mut at = u32_at(d, 32) as usize;
++    let op = d[at..at + nops].to_vec();
++    at += nops.div_ceil(4) * 4;
++    let inst: Vec<u32> = (0..nops).map(|j| u32_at(d, at + 4 * j)).collect();
++    at += 4 * nops;
++    let key: Vec<u32> = (0..nops).map(|j| u32_at(d, at + 4 * j)).collect();
++    at += 4 * nops;
++    let o = Ops { op, inst, key };
++    // The keys each put moves in, made apart from the ones lookups use,
++    // last first, so each put pops its own.
++    let mut owned: Vec<K> = Vec::new();
++    for j in (0..nops).rev() {
++        if o.op[j] == PUT {
++            owned.push(keys[o.key[j] as usize].clone());
++        }
++    }
++    let mut maps: Vec<Map<K, N>> = (0..instances).map(|_| new_map()).collect();
++    let mut ns = [0u128; 16];
++    let mut cnt = [0usize; 16];
++    let mut chk = [0i64; 16];
++    for s in 0..nsegs {
++        let kind = u32_at(d, at + 12 * s) as usize;
++        let from = u32_at(d, at + 12 * s + 4) as usize;
++        let count = u32_at(d, at + 12 * s + 8) as usize;
++        let r = match kind {
++            0 | 1 => put_run(&mut maps, &mut owned, &o, from, count),
++            2 | 3 => get_run(&maps, &keys, &o, from, count),
++            4 => take_run(&mut maps, &keys, &o, from, count),
++            5 => walk_run(&maps, &o, from, count),
++            6 | 7 => life_run(&mut maps, &o, false, from, count),
++            8 => life_run(&mut maps, &o, true, from, count),
++            _ => mixed_run(&mut maps, &mut owned, &keys, &o, from, count),
++        };
++        ns[kind] += r.0;
++        cnt[kind] += count;
++        chk[kind] = chk[kind].wrapping_add(r.1);
++    }
++    let (mut tns, mut tchk) = (0u128, 0i64);
++    for k in 0..16 {
++        if cnt[k] > 0 {
++            println!("{} {} {} {}", NAMES[k], ns[k], cnt[k], chk[k]);
++            tns += ns[k];
++            tchk = tchk.wrapping_add(chk[k]);
++        }
++    }
++    println!("total {} {} {}", tns, nops, tchk);
++}
++
++fn by_value<K: Hash + Eq + Clone>(keys: Vec<K>, d: &[u8]) {
++    match u32_at(d, 8) {
++        1 => replay::<K, 1>(keys, d),
++        2 => replay::<K, 2>(keys, d),
++        4 => replay::<K, 4>(keys, d),
++        8 => replay::<K, 8>(keys, d),
++        _ => panic!("replay: values of 1, 2, 4 or 8 Ints"),
++    }
++}
++
++fn main() {
++    let path = std::env::args().nth(1).expect("usage: replay TRACE");
++    let d = std::fs::read(path).expect("replay: cannot read the trace");
++    assert!(d.len() >= 36 && u32_at(&d, 0) == 0x314c5052, "replay: not a trace");
++    let kind = u32_at(&d, 4);
++    let n = u32_at(&d, 16) as usize;
++    let at = 36;
++    match kind {
++        0 => by_value((0..n).map(|i| u32_at(&d, at + 8 * i)).collect::<Vec<u32>>(), &d),
++        1 => by_value((0..n).map(|i| i64_at(&d, at + 8 * i)).collect::<Vec<i64>>(), &d),
++        2 => by_value((0..n).map(|i| Pair { a: i64_at(&d, at + 16 * i), b: i64_at(&d, at + 16 * i + 8) }).collect(), &d),
++        3 => by_value(
++            (0..n)
++                .map(|i| Triple { a: i64_at(&d, at + 24 * i), b: i64_at(&d, at + 24 * i + 8), c: i64_at(&d, at + 24 * i + 16) })
++                .collect(),
++            &d,
++        ),
++        _ => {
++            let base = at + 4 * (n + 1);
++            let ks: Vec<String> = (0..n)
++                .map(|i| {
++                    let (a, b) = (u32_at(&d, at + 4 * i) as usize, u32_at(&d, at + 4 * i + 4) as usize);
++                    String::from_utf8(d[base + a..base + b].to_vec()).expect("replay: a text key that is not UTF-8")
++                })
++                .collect();
++            by_value(ks, &d)
++        }
++    }
++}
+diff --git a/bench/hash/replay/specs/a-large-u32.spec b/bench/hash/replay/specs/a-large-u32.spec
+new file mode 100644
+index 000000000..99c94cc7d
+--- /dev/null
++++ b/bench/hash/replay/specs/a-large-u32.spec
+@@ -0,0 +1,10 @@
++# (a) One large map of u32 ids grown to 200,000 keys, 8-byte values;
++# inserts, hits, misses and walks interleaved in segments of 256.
++key u32
++ids dense
++value 8
++instances 1
++size 200000
++mix insert=25 hit=50 miss=20 iterate=5
++order interleaved
++seed 1
+diff --git a/bench/hash/replay/specs/b-small-pairs.spec b/bench/hash/replay/specs/b-small-pairs.spec
+new file mode 100644
+index 000000000..bb31021fe
+--- /dev/null
++++ b/bench/hash/replay/specs/b-small-pairs.spec
+@@ -0,0 +1,10 @@
++# (b) 10,000 small maps of 4 to 64 entries keyed by pairs of Ints: each
++# built in turn, then hits and misses across them all, then dropped.
++key pair
++ids dense
++value 8
++instances 10000
++size 4-64
++mix insert=20 hit=60 miss=20
++order build
++seed 2
+diff --git a/bench/hash/replay/table_compact.zig b/bench/hash/replay/table_compact.zig
+new file mode 100644
+index 000000000..38dd02f23
+--- /dev/null
++++ b/bench/hash/replay/table_compact.zig
+@@ -0,0 +1,13 @@
++//! replay.zig's `table` for `zig-compact`: compact.zig, an ordered map of
++//! one pointer, on Rig's hashes and allocator.
++const std = @import("std");
++const compact = @import("compact.zig");
++const Ctx = @import("ctx.zig").Ctx;
++
++/// Rig's release allocator (src/alloc.zig, the module `alloc`), as the
++/// built-in Map allocates from in a release build.
++pub const allocator = @import("alloc").allocator;
++
++pub fn Map(comptime K: type, comptime V: type) type {
++    return compact.Compact(K, V, Ctx(K));
++}
+diff --git a/bench/hash/replay/table_ordered.zig b/bench/hash/replay/table_ordered.zig
+new file mode 100644
+index 000000000..d3795d1dd
+--- /dev/null
++++ b/bench/hash/replay/table_ordered.zig
+@@ -0,0 +1,41 @@
++//! replay.zig's `table` for `zig-ordered`: bench/hash/ordered.zig (the
++//! module `ordered`), the design Rig's Map is built on, on Rig's hashes
++//! and allocator. It has no clear of its own: a clear drops the map
++//! and starts an empty one.
++const std = @import("std");
++const ordered = @import("ordered");
++const Ctx = @import("ctx.zig").Ctx;
++
++/// Rig's release allocator (src/alloc.zig, the module `alloc`), as the
++/// built-in Map allocates from in a release build.
++pub const allocator = @import("alloc").allocator;
++
++pub fn Map(comptime K: type, comptime V: type) type {
++    return struct {
++        const T = ordered.HashMap(K, V, Ctx(K));
++        t: T = .empty,
++        pub const empty: @This() = .{};
++        pub fn deinit(m: *@This(), gpa: std.mem.Allocator) void {
++            m.t.deinit(gpa);
++        }
++        pub inline fn count(m: *const @This()) usize {
++            return m.t.count();
++        }
++        pub inline fn getPtr(m: *const @This(), k: K) ?*V {
++            return m.t.getPtr(k);
++        }
++        pub inline fn put(m: *@This(), gpa: std.mem.Allocator, k: K, v: V) !void {
++            return m.t.put(gpa, k, v);
++        }
++        pub inline fn fetchRemove(m: *@This(), k: K) ?T.KV {
++            return m.t.fetchRemove(k);
++        }
++        pub inline fn valueIterator(m: *const @This()) T.ValueIterator {
++            return m.t.valueIterator();
++        }
++        pub fn clear(m: *@This(), gpa: std.mem.Allocator) void {
++            m.t.deinit(gpa);
++            m.t = .empty;
++        }
++    };
++}

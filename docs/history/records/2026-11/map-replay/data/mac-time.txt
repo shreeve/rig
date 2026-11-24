@@ -1,0 +1,44 @@
+tools/mac-claim: waiting 1 min for the claim: f2-c8-cross, at most 15 min, started 22:01, pid 26838
+tools/mac-claim: waiting 1 min for the Mac to go quiet (119% of a core in use, under 150% wanted). Busiest:
+  PID 9380 at 100.0%: /opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Content
+  PID 94436 at 4.5%: /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Render
+  PID 87958 at 2.2%: /usr/libexec/sysmond
+tools/mac-claim: waiting 3 min for the Mac to go quiet (121% of a core in use, under 150% wanted). Busiest:
+  PID 9380 at 99.8%: /opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Content
+  PID 94436 at 5.7%: /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Render
+  PID 644 at 2.3%: /System/Library/DriverExtensions/com.apple.DriverKit-AppleBCMWLAN.dext/com.apple.DriverKit-AppleBCMWLAN com.ap
+
+b.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops    rig-map   rig-hash      hb-fx    hb-fold     std-fx     hb-fx'                    check
+insert         340431       9.80      12.68      17.92      18.08      18.08      18.01                  7520502
+                            0.55x       0.71x       1.00x       1.01x       1.01x       1.01x
+hit           1021293       8.87      10.65       7.05       6.92       7.01       6.55             173996471462
+                            1.26x       1.51x       1.00x       0.98x       0.99x       0.93x
+miss           340431       4.74       3.87       4.57       4.87       4.64       4.65                        0
+                            1.04x       0.85x       1.00x       1.06x       1.02x       1.02x
+drop            10000       9.61       7.57      16.25      16.38      16.70      16.06                   350431
+                            0.59x       0.47x       1.00x       1.01x       1.03x       0.99x
+total         1712155       8.19       9.63       8.76       8.72       8.79       8.50             174004342395
+                            0.94x       1.10x       1.00x       1.00x       1.00x       0.97x
+A/A (hb-fx against itself): total 3.0%, largest kind 7.6%
+spread of total (max-min)/min: rig-map 30.9%, rig-hash 26.5%, hb-fx 62.8%, hb-fold 28.9%, std-fx 164.1%, hb-fx' 30.5%
+
+a.rpl: ns per op, median of 11 rounds (ratio: the arm's time / hb-fx's)
+kind              ops    rig-map   rig-hash      hb-fx    hb-fold     std-fx     hb-fx'                    check
+insert         200000      11.61      14.78      11.57      14.45      12.24      11.42              20000100000
+                            1.00x       1.28x       1.00x       1.25x       1.06x       0.99x
+hit            400000       6.57       6.82       5.25       5.87       5.27       5.21              80813845594
+                            1.25x       1.30x       1.00x       1.12x       1.00x       0.99x
+miss           160000       4.23       4.38       5.90       7.93       5.90       5.81                        0
+                            0.72x       0.74x       1.00x       1.34x       1.00x       0.98x
+iterate         40000   23866.58  123740.51  143111.19  133813.35  143005.96  142832.25         1096945221617664
+                            0.17x       0.86x       1.00x       0.94x       1.00x       1.00x
+drop                1   16292.00    2041.00    3250.00    3417.00    5833.00    2834.00                   200001
+                            5.01x       0.63x       1.00x       1.05x       1.79x       0.87x
+total          800001    1201.01    6194.95    7161.76    6698.84    7157.25    7148.35         1097046035763259
+                            0.17x       0.87x       1.00x       0.94x       1.00x       1.00x
+no-walks       760001       8.09       8.35       6.54       8.61       7.33       7.10
+                            1.24x       1.28x       1.00x       1.32x       1.12x       1.09x
+A/A (hb-fx against itself): total 0.2%, largest kind 14.7%
+spread of total (max-min)/min: rig-map 2.3%, rig-hash 5.8%, hb-fx 2.4%, hb-fold 1.2%, std-fx 0.9%, hb-fx' 1.3%
+exit 0

@@ -1,0 +1,243 @@
+diff --git a/docs/internals/INTERNALS.md b/docs/internals/INTERNALS.md
+index 4f5674bf5..f610b3e3c 100644
+--- a/docs/internals/INTERNALS.md
++++ b/docs/internals/INTERNALS.md
+@@ -6047,7 +6047,8 @@ trace.
+ The traced operations: `has`, `get`, and `edit` are lookups; `put`,
+ `replace`, `put_new`, the three `ensure`s, and a Set's `add` are puts;
+ then `take`, `clear`, a `grow` (an index built anew, by a write or a
+-`reserve`), and `retain`. A Map gets its id, from 1,
++`reserve`), `retain`, an `iter` (a walk started by `items`, `keys`,
++`values`, or `update`, with the length then), and an `at`. A Map gets its id, from 1,
+ with a `new` record, before its first traced operation; the id is
+ stored in the Map, so it follows the Map as it moves. A Map only read
+ so far, through a read-only pointer, is known by its address until its
+@@ -6056,14 +6057,17 @@ id writes a `drop` record.
+ 
+ The program writes the records to `$RIG_MAP_TRACE_FILE` (default
+ `rig-map-trace.bin`) through a buffer of 1 MiB, flushed when full and
+-by `finish`, and a line `id<TAB>K<TAB>V<TAB>Map` (V is `-` for a Set)
+-for each new id to the file of that name and `.types`. One lock guards
++by `finish`, and a line `id<TAB>K<TAB>V<TAB>Map<TAB>0xSITE` (V is `-`
++for a Set) for each new id to the file of that name and `.types`, SITE
++the return address of the `mapTraceSee` call that first saw the Map, in
++the function whose operation it was (`llvm-symbolizer --inlining`
++names it). One lock guards
+ both, taken for each record. A record is 48 bytes, little-endian:
+ 
+ | Bytes | Field |
+ |---|---|
+-| 0 | the op in bits 0-2 (0 get, 1 put, 2 remove, 3 clear, 4 new, 5 drop, 6 grow, 7 retain), and bits 0-4 of the thread in bits 3-7 |
+-| 1 | the hit in bit 0 (a lookup or a take found its key; a put found it there), and bits 5-11 of the thread in bits 1-7 |
++| 0 | bits 0-2 of the op in bits 0-2 (0 get, 1 put, 2 remove, 3 clear, 4 new, 5 drop, 6 grow, 7 retain, 8 iter, 9 at), and bits 0-4 of the thread in bits 3-7 |
++| 1 | the hit in bit 0 (a lookup or a take found its key; a put found it there), bits 5-10 of the thread in bits 1-6, and bit 3 of the op in bit 7 |
+ | 2-3 | the key's width in bytes, 65535 for any wider |
+ | 4-7 | the Map's id |
+ | 8-11 | the size of `V` in bytes (0 for a Set, and in a `drop` record) |
+diff --git a/src/map_trace.zig b/src/map_trace.zig
+index 7b280b7b5..0c5a633a6 100644
+--- a/src/map_trace.zig
++++ b/src/map_trace.zig
+@@ -47,6 +47,11 @@ const map_methods = [_]Method{
+     .{ .name = "clear", .arity = 1, .op = "clear" },
+     .{ .name = "reserve", .arity = 2, .op = "reserve" },
+     .{ .name = "retain", .arity = 2, .op = "retain" },
++    .{ .name = "at", .arity = 2, .op = "at", .hit = found },
++    .{ .name = "items", .arity = 1, .op = "iter" },
++    .{ .name = "keys", .arity = 1, .op = "iter" },
++    .{ .name = "values", .arity = 1, .op = "iter" },
++    .{ .name = "update", .arity = 2, .op = "iter" },
+ };
+ 
+ const set_methods = [_]Method{
+@@ -56,6 +61,7 @@ const set_methods = [_]Method{
+     .{ .name = "clear", .arity = 1, .op = "clear" },
+     .{ .name = "reserve", .arity = 2, .op = "reserve" },
+     .{ .name = "retain", .arity = 2, .op = "retain" },
++    .{ .name = "items", .arity = 1, .op = "iter" },
+ };
+ 
+ const Traced = struct {
+diff --git a/src/runtime.zig b/src/runtime.zig
+index fbefc847c..bbca9b2be 100644
+--- a/src/runtime.zig
++++ b/src/runtime.zig
+@@ -7137,8 +7137,9 @@ const profile_lock = split.cell(&profile_lock_var, "runtime.profile_lock");
+ /// `edit`), a write that may insert (`put`, `replace`, `put_new`, the
+ /// `ensure`s, a Set's `add`), a `take`, a `clear`, a Map or Set the
+ /// trace first sees, one dropped, its table built anew (`grow`, on a
+-/// growth or a `reserve`), and a `retain`.
+-pub const MapOp = enum(u3) { get, put, remove, clear, new, drop, grow, retain };
++/// growth or a `reserve`), a `retain`, a walk started (`iter`: `items`,
++/// `keys`, `values`, `update`), and an `at`.
++pub const MapOp = enum(u4) { get, put, remove, clear, new, drop, grow, retain, iter, at };
+ 
+ /// The key a record names: its hash, its width in bytes, and its first
+ /// 24 bytes.
+@@ -7221,11 +7222,11 @@ pub fn MapTraceResult(comptime f: anytype) type {
+ /// its id, with a `new` record, before its first operation is done. One
+ /// only read so far (`self` read-only) is known by its address until a
+ /// write stores the id in it.
+-pub fn mapTraceSee(comptime K: type, comptime V: type, self: anytype) void {
++pub noinline fn mapTraceSee(comptime K: type, comptime V: type, self: anytype) void {
+     if (self.__rig_trace != 0) return;
+     map_tracer.lock();
+     defer map_tracer.unlock();
+-    _ = map_tracer.idOf(K, V, self);
++    _ = map_tracer.idOf(K, V, self, @returnAddress());
+ }
+ 
+ /// Record operation `op` on the Map or Set `self` points to, of keys `K`
+@@ -7234,7 +7235,7 @@ pub fn mapTraceSee(comptime K: type, comptime V: type, self: anytype) void {
+ pub fn mapTraceOp(comptime K: type, comptime V: type, self: anytype, op: MapOp, key: MapTraceKey, hit: bool, extra: u64) void {
+     map_tracer.lock();
+     defer map_tracer.unlock();
+-    const id = map_tracer.idOf(K, V, self);
++    const id = map_tracer.idOf(K, V, self, 0);
+     map_tracer.record(op, hit, key, id, if (V == void) 0 else @sizeOf(V), self.len, extra);
+ }
+ 
+@@ -7298,8 +7299,10 @@ const MapTracer = struct {
+     }
+ 
+     /// The id of the Map `self` points to, given at its first record,
+-    /// with a `new` record and a line of `.types`.
+-    fn idOf(self: *MapTracer, comptime K: type, comptime V: type, map: anytype) u32 {
++    /// with a `new` record and a line of `.types`, which ends with
++    /// `site`: the return address of `mapTraceSee`'s call, in the
++    /// function whose traced operation first saw the Map.
++    fn idOf(self: *MapTracer, comptime K: type, comptime V: type, map: anytype, site: usize) u32 {
+         if (map.__rig_trace != 0) return map.__rig_trace;
+         const writable = !@typeInfo(@TypeOf(map)).pointer.attrs.@"const";
+         const addr = @intFromPtr(map);
+@@ -7307,7 +7310,7 @@ const MapTracer = struct {
+             self.last_id += 1;
+             const id = self.last_id;
+             if (!writable) self.read_only.put(std.heap.smp_allocator, addr, id) catch oom();
+-            if (self.types) |*w| w.interface.print("{d}\t{s}\t{s}\t{s}\n", .{ id, comptime traceName(K), if (V == void) "-" else comptime traceName(V), if (V == void) "Set" else "Map" }) catch |err| self.fail("the .types file", err);
++            if (self.types) |*w| w.interface.print("{d}\t{s}\t{s}\t{s}\t0x{x}\n", .{ id, comptime traceName(K), if (V == void) "-" else comptime traceName(V), if (V == void) "Set" else "Map", site }) catch |err| self.fail("the .types file", err);
+             self.record(.new, false, .{}, id, if (V == void) 0 else @sizeOf(V), map.len, 0);
+             break :blk id;
+         };
+@@ -7330,8 +7333,9 @@ const MapTracer = struct {
+         }
+         const t = thread().* - 1;
+         var rec: [48]u8 = undefined;
+-        rec[0] = @as(u8, @intFromEnum(op)) | @as(u8, @truncate(t << 3));
+-        rec[1] = @as(u8, @intFromBool(hit)) | @as(u8, @truncate((t >> 5) << 1));
++        const o: u8 = @intFromEnum(op);
++        rec[0] = (o & 7) | @as(u8, @truncate(t << 3));
++        rec[1] = @as(u8, @intFromBool(hit)) | (@as(u8, @truncate(t >> 5)) & 0x3F) << 1 | (o >> 3) << 7;
+         std.mem.writeInt(u16, rec[2..4], std.math.cast(u16, key.width) orelse std.math.maxInt(u16), .little);
+         std.mem.writeInt(u32, rec[4..8], id, .little);
+         std.mem.writeInt(u32, rec[8..12], std.math.cast(u32, value_bytes) orelse std.math.maxInt(u32), .little);
+diff --git a/test/cli/map_trace.sh b/test/cli/map_trace.sh
+index 9f6fff478..a028af2db 100644
+--- a/test/cli/map_trace.sh
++++ b/test/cli/map_trace.sh
+@@ -19,6 +19,10 @@ sub main()
+   print(m.get("a") ?? 0)
+   print((!m).take("a") ?? 0)
+   !m.put(String("abcdefghijklmnopqrstuvwxyz0123"), 3)
++  n = 0
++  for _ in ?m.items()
++    n += 1
++  print(n)
+   !m.clear()
+   s: Set[Int] = Set()
+   for i in 0..20
+@@ -34,7 +38,7 @@ for mode in "" "--release"; do
+   rm -f trace.bin trace.bin.types
+   out=$(RIG_MAP_TRACE=1 rig build $mode -o ops ops.rig 2>&1); expect_rc $? 0 "rig build $mode ops.rig: $out"
+   out=$(RIG_MAP_TRACE_FILE=trace.bin ./ops 2>&1); expect_rc $? 0 "./ops ($mode): $out"
+-  expect_eq "$out" $'false\n2\n2\n4000 20' "the program runs as it would ($mode)"
++  expect_eq "$out" $'false\n2\n2\n1\n4000 20' "the program runs as it would ($mode)"
+   out=$(python3 - trace.bin <<'PY' 2>&1
+ import struct, sys
+ from collections import Counter
+@@ -42,11 +46,12 @@ path = sys.argv[1]
+ data = open(path, "rb").read()
+ assert len(data) % 48 == 0, len(data)
+ recs = [struct.unpack("<BBHIIIQ24s", data[i:i + 48]) for i in range(0, len(data), 48)]
+-types = dict((int(l.split("\t")[0]), l.rstrip("\n").split("\t")[1:]) for l in open(path + ".types"))
+-ops = ["get", "put", "remove", "clear", "new", "drop", "grow", "retain"]
++types = dict((int(l.split("\t")[0]), l.rstrip("\n").split("\t")[1:4]) for l in open(path + ".types"))
++assert all(l.rstrip("\n").split("\t")[4].startswith("0x") for l in open(path + ".types"))
++ops = ["get", "put", "remove", "clear", "new", "drop", "grow", "retain", "iter", "at"]
+ def rec(r):
+     op, hit, width, mid, vb, ln, h, head = r
+-    return ops[op & 7], hit & 1, width, mid, vb, ln, h, head[:min(width, 24)]
++    return ops[(op & 7) | ((hit >> 7) << 3)], hit & 1, width, mid, vb, ln, h, head[:min(width, 24)]
+ rs = [rec(r) for r in recs]
+ text = [r for r in rs if types[r[3]] == ["String", "Int", "Map"]]
+ assert [(r[0], r[1], r[2], r[4], r[5], r[7]) for r in text] == [
+@@ -57,6 +62,7 @@ assert [(r[0], r[1], r[2], r[4], r[5], r[7]) for r in text] == [
+     ("get", 1, 1, 8, 1, b"a"),
+     ("remove", 1, 1, 8, 0, b"a"),
+     ("put", 0, 30, 8, 1, b"abcdefghijklmnopqrstuvwx"),
++    ("iter", 0, 0, 8, 1, b""),
+     ("clear", 0, 0, 8, 0, b""),
+     ("drop", 0, 0, 0, 0, b""),
+ ], text
+@@ -73,7 +79,7 @@ for i in ints:
+     c = Counter(r[0] for r in rs if r[3] == i)
+     assert c["new"] == 1 and c["put"] == 1000 and c["drop"] == 1 and c["grow"] >= 1, (i, c)
+     assert [r[5] for r in rs if r[3] == i and r[0] == "put"] == list(range(1, 1001)), "every put of each task's Map is there, in order"
+-threads = Counter((r[0] >> 3) | ((r[1] >> 1) << 5) for r in recs)
++threads = Counter((r[0] >> 3) | (((r[1] >> 1) & 0x3F) << 5) for r in recs)
+ assert 0 in threads, threads
+ print("ok", len(recs))
+ PY
+@@ -95,7 +101,7 @@ mv prog plain
+ cp out/__rig_main.zig plain.zig && cp out/__rig_std_prelude.zig plain_builtin.zig
+ RIG_MAP_TRACE=0 RIG_OUT_DIR=$PWD/out "$RIG" build --release -o prog ops.rig >/dev/null 2>&1 || fail "RIG_MAP_TRACE=0 rig build ops.rig"
+ mv prog zero
+-out=$(./plain 2>&1); expect_eq "$out" $'false\n2\n2\n4000 20' "the plain program runs"
++out=$(./plain 2>&1); expect_eq "$out" $'false\n2\n2\n1\n4000 20' "the plain program runs"
+ [[ -e rig-map-trace.bin ]] && fail "a program built without RIG_MAP_TRACE writes no trace"
+ grep -q "__rig_map_trace" plain.zig && fail "the root module declares no trace"
+ grep -q "__rig_trace\|mapTrace" plain_builtin.zig && fail "the built-in Map has no trace without the flag"
+diff --git a/tools/map-trace.py b/tools/map-trace.py
+index 983f94a51..d99634490 100755
+--- a/tools/map-trace.py
++++ b/tools/map-trace.py
+@@ -7,8 +7,8 @@ lookups and writes, and histograms of key width and length after each op.
+ A record is 48 bytes, little-endian (docs/internals/INTERNALS.md, "The
+ Map trace"):
+ 
+-    0   u8   op in bits 0-2, thread bits 0-4 in bits 3-7
+-    1   u8   hit in bit 0, thread bits 5-11 in bits 1-7
++    0   u8   op bits 0-2 in bits 0-2, thread bits 0-4 in bits 3-7
++    1   u8   hit in bit 0, thread bits 5-10 in bits 1-6, op bit 3 in bit 7
+     2   u16  key width in bytes (65535 for any wider)
+     4   u32  map id, from 1 in the order the trace first saw each
+     8   u32  the value's size in bytes (0 for a Set)
+@@ -22,7 +22,7 @@ import struct
+ import sys
+ from collections import Counter, defaultdict
+ 
+-OPS = ["get", "put", "remove", "clear", "new", "drop", "grow", "retain"]
++OPS = ["get", "put", "remove", "clear", "new", "drop", "grow", "retain", "iter", "at"]
+ RECORD = struct.Struct("<BBHIIIQ24s")
+ 
+ 
+@@ -34,8 +34,8 @@ def records(path):
+     for fields in RECORD.iter_unpack(data):
+         op_byte, hit_byte, width, map_id, value_bytes, length, h, head = fields
+         yield {
+-            "op": OPS[op_byte & 7],
+-            "thread": (op_byte >> 3) | ((hit_byte >> 1) << 5),
++            "op": OPS[(op_byte & 7) | ((hit_byte >> 7) << 3)],
++            "thread": (op_byte >> 3) | (((hit_byte >> 1) & 0x3F) << 5),
+             "hit": bool(hit_byte & 1),
+             "width": width,
+             "id": map_id,
+@@ -51,7 +51,7 @@ def types(path):
+     try:
+         with open(path) as f:
+             for line in f:
+-                map_id, k, v, kind = line.rstrip("\n").split("\t")
++                map_id, k, v, kind = line.rstrip("\n").split("\t")[:4]
+                 names[int(map_id)] = (k, v, kind)
+     except FileNotFoundError:
+         pass

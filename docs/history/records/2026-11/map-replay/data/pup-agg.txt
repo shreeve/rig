@@ -1,0 +1,124 @@
+pup E-core 18, 10 rounds: ns per op, median; ratio to rig-map
+stream                             ops  walks      rig-map    rig-hash       hb-fx     hb-fold      std-fx      idx-fx    idx-fold zig-ordered zig-compact
+Compiler-Unions/map1            250995      0         4.49        4.17        3.47        3.96        3.52        4.91        5.20        4.23        5.18
+                                                     1.00x       0.93x       0.77x       0.88x       0.78x       1.09x       1.16x       0.94x       1.15x
+Compiler-Unions/map2            165727      0         8.43        8.33        7.92        8.61        7.86        9.21        9.51        7.79        8.67
+                                                     1.00x       0.99x       0.94x       1.02x       0.93x       1.09x       1.13x       0.92x       1.03x
+Compiler-Unions/map3             88152      0         4.86        4.77        3.48        3.93        3.46        5.35        5.71        4.61        5.26
+                                                     1.00x       0.98x       0.72x       0.81x       0.71x       1.10x       1.18x       0.95x       1.08x
+Compiler-Unions/map4             87820      0         4.84        4.78        3.44        3.86        3.46        5.30        5.76        4.58        5.33
+                                                     1.00x       0.99x       0.71x       0.80x       0.72x       1.10x       1.19x       0.95x       1.10x
+Compiler-Unions/map5             87819      0         4.92        4.76        3.43        3.88        3.46        5.39        5.87        4.69        5.30
+                                                     1.00x       0.97x       0.70x       0.79x       0.70x       1.10x       1.19x       0.95x       1.08x
+Compiler-Unions/site1          1248465     64         5.63        5.36        4.90        5.28        4.75        6.68        6.87        5.22        6.36
+                                                     1.00x       0.95x       0.87x       0.94x       0.84x       1.19x       1.22x       0.93x       1.13x
+Compiler-Unions/site2          1034105      0         4.79        4.75        3.47        3.82        3.55        5.30        5.86        4.59        5.31
+                                                     1.00x       0.99x       0.72x       0.80x       0.74x       1.11x       1.22x       0.96x       1.11x
+Compiler-Unions/site3           447898      0         8.57        8.20        8.49        8.78        8.19       10.00        9.91        7.91        8.65
+                                                     1.00x       0.96x       0.99x       1.03x       0.96x       1.17x       1.16x       0.92x       1.01x
+Compiler-Unions/site4           166845      0         8.40        8.62       11.43       11.69       11.41       13.06       13.29        8.87       12.28
+                                                     1.00x       1.03x       1.36x       1.39x       1.36x       1.56x       1.58x       1.06x       1.46x
+Compiler-Unions/site5           138233      0        10.56        9.75       11.33       12.04       11.09       14.39       14.18       10.86       11.07
+                                                     1.00x       0.92x       1.07x       1.14x       1.05x       1.36x       1.34x       1.03x       1.05x
+supabase-studio/map1           6850674      0         6.52        5.65        5.91        5.86        5.89        6.74        6.98       10.73        7.81
+                                                     1.00x       0.87x       0.91x       0.90x       0.90x       1.03x       1.07x       1.64x       1.20x
+supabase-studio/map2           3531016      0         6.25        5.25        5.40        5.53        5.39        6.35        6.79        8.72        7.82
+                                                     1.00x       0.84x       0.86x       0.88x       0.86x       1.02x       1.09x       1.39x       1.25x
+supabase-studio/map3           3369651      0         5.79        7.48        6.41        6.25        6.25        6.95        7.35        7.71        6.98
+                                                     1.00x       1.29x       1.11x       1.08x       1.08x       1.20x       1.27x       1.33x       1.21x
+supabase-studio/map4           2155505      0        20.35       21.65       33.98       32.08       33.01       41.09       41.45       18.75       27.97
+                                                     1.00x       1.06x       1.67x       1.58x       1.62x       2.02x       2.04x       0.92x       1.37x
+supabase-studio/map5           2482524      0         4.83        8.62        5.90        5.64        5.67        6.35        6.75        5.81        5.49
+                                                     1.00x       1.79x       1.22x       1.17x       1.17x       1.32x       1.40x       1.20x       1.14x
+supabase-studio/site1         16905509      0         6.29        6.82        6.06        6.17        5.96        7.02        7.23        9.16        7.39
+                                                     1.00x       1.08x       0.96x       0.98x       0.95x       1.12x       1.15x       1.46x       1.17x
+supabase-studio/site2          6631153   5418         7.77        7.38        8.91        9.54        8.78       12.23       12.87        7.11        8.85
+                                                     1.00x       0.95x       1.15x       1.23x       1.13x       1.57x       1.66x       0.91x       1.14x
+supabase-studio/site4          1734562      0        12.43       14.44       21.63       21.31       20.77       33.06       33.74       12.20       15.64
+                                                     1.00x       1.16x       1.74x       1.71x       1.67x       2.66x       2.72x       0.98x       1.26x
+supabase-studio/site5          1329010      0         5.93        5.06        5.78        5.96        5.75        7.06        7.20        5.43        6.37
+                                                     1.00x       0.85x       0.97x       1.01x       0.97x       1.19x       1.21x       0.92x       1.07x
+typeorm/map1                    318297      0         8.82        7.93        8.19        8.57        7.48        9.70       10.04        7.32        7.90
+                                                     1.00x       0.90x       0.93x       0.97x       0.85x       1.10x       1.14x       0.83x       0.90x
+typeorm/map2                    215801      0        16.90       19.60       29.81       26.12       25.37       26.14       25.82       16.52       21.22
+                                                     1.00x       1.16x       1.76x       1.55x       1.50x       1.55x       1.53x       0.98x       1.26x
+typeorm/map3                    207449      0         4.66        4.69        3.40        3.89        3.44        5.62        5.66        4.44        5.20
+                                                     1.00x       1.01x       0.73x       0.84x       0.74x       1.21x       1.22x       0.95x       1.12x
+typeorm/map4                    300915      0         5.50        7.04        6.08        5.64        5.51        6.42        6.33        7.51        6.03
+                                                     1.00x       1.28x       1.11x       1.03x       1.00x       1.17x       1.15x       1.37x       1.10x
+typeorm/map5                    135250      0        12.18       12.05       15.84       15.20       14.80       16.21       16.25       12.75       13.10
+                                                     1.00x       0.99x       1.30x       1.25x       1.21x       1.33x       1.33x       1.05x       1.08x
+typeorm/site1                   636279    720         7.40        7.08        7.86        7.94        7.40       10.11        9.96        6.76        8.42
+                                                     1.00x       0.96x       1.06x       1.07x       1.00x       1.37x       1.35x       0.91x       1.14x
+typeorm/site2                   623743      0         7.66        8.40        8.26        8.58        8.11        9.96        9.68        7.80        7.74
+                                                     1.00x       1.10x       1.08x       1.12x       1.06x       1.30x       1.26x       1.02x       1.01x
+typeorm/site4                   285538      0        10.83       11.52       13.70       13.96       12.93       20.33       18.94       10.38       11.30
+                                                     1.00x       1.06x       1.26x       1.29x       1.19x       1.88x       1.75x       0.96x       1.04x
+typeorm/site5                   492051      0         5.52        7.15        5.94        5.57        5.49        6.35        6.38        7.38        5.86
+                                                     1.00x       1.29x       1.08x       1.01x       0.99x       1.15x       1.16x       1.34x       1.06x
+webpack/map1                    518719      0        19.56       21.91       30.00       28.77       29.75       32.91       33.89       15.19       23.63
+                                                     1.00x       1.12x       1.53x       1.47x       1.52x       1.68x       1.73x       0.78x       1.21x
+webpack/map2                    634560      0         5.66        7.26        6.41        5.98        5.97        6.74        6.88        7.09        6.46
+                                                     1.00x       1.28x       1.13x       1.06x       1.06x       1.19x       1.22x       1.25x       1.14x
+webpack/map3                    270623      0         6.42        6.48        7.31        6.96        7.02        8.35        8.00        6.24        7.40
+                                                     1.00x       1.01x       1.14x       1.08x       1.09x       1.30x       1.25x       0.97x       1.15x
+webpack/map4                    193727      0         7.77        7.21        8.54        8.69        8.37        9.58        9.88        6.86        7.92
+                                                     1.00x       0.93x       1.10x       1.12x       1.08x       1.23x       1.27x       0.88x       1.02x
+webpack/map5                    189777      0        12.86       14.24       20.18       17.83       17.45       18.62       18.38       13.11       15.99
+                                                     1.00x       1.11x       1.57x       1.39x       1.36x       1.45x       1.43x       1.02x       1.24x
+webpack/site1                  1317328   1507         8.25        8.40        9.34        9.69        9.22       12.90       13.22        8.15       10.09
+                                                     1.00x       1.02x       1.13x       1.17x       1.12x       1.56x       1.60x       0.99x       1.22x
+webpack/site2                   745634      0         8.81        8.65        9.38        9.25        9.16       11.18       10.75        8.32        9.07
+                                                     1.00x       0.98x       1.06x       1.05x       1.04x       1.27x       1.22x       0.94x       1.03x
+webpack/site3                   744492      0        11.21       10.71       14.12       14.15       14.03       20.23       20.02       10.11       11.79
+                                                     1.00x       0.96x       1.26x       1.26x       1.25x       1.80x       1.79x       0.90x       1.05x
+webpack/site5                   645938      0         5.71        7.28        6.23        5.95        5.82        6.58        6.92        7.11        6.47
+                                                     1.00x       1.28x       1.09x       1.04x       1.02x       1.15x       1.21x       1.25x       1.13x
+
+A/A hb-fx vs hb-fx': median 0.7%, max 4.2% over streams
+
+per project: the disjoint streams; wall = b1r Trig at c1 on E-core 18, median of {'Compiler-Unions': 5, 'typeorm': 5, 'webpack': 5, 'supabase-studio': 5}
+
+Compiler-Unions: 5 streams, 3035546 ops, 79.1% of keyed ops; wall 408.8 ms
+  rig-map         18.68 ms replay   saved vs rig-map   +0.00 ms =  +0.00% of wall; scaled to all keyed ops  +0.00%
+  rig-hash        18.05 ms replay   saved vs rig-map   +0.63 ms =  +0.15% of wall; scaled to all keyed ops  +0.19%
+  hb-fx           16.98 ms replay   saved vs rig-map   +1.70 ms =  +0.42% of wall; scaled to all keyed ops  +0.53%
+  hb-fold         18.08 ms replay   saved vs rig-map   +0.60 ms =  +0.15% of wall; scaled to all keyed ops  +0.19%
+  std-fx          16.71 ms replay   saved vs rig-map   +1.97 ms =  +0.48% of wall; scaled to all keyed ops  +0.61%
+  idx-fx          22.47 ms replay   saved vs rig-map   -3.79 ms =  -0.93% of wall; scaled to all keyed ops  -1.17%
+  idx-fold        23.25 ms replay   saved vs rig-map   -4.56 ms =  -1.12% of wall; scaled to all keyed ops  -1.41%
+  zig-ordered     17.78 ms replay   saved vs rig-map   +0.90 ms =  +0.22% of wall; scaled to all keyed ops  +0.28%
+  zig-compact     20.89 ms replay   saved vs rig-map   -2.21 ms =  -0.54% of wall; scaled to all keyed ops  -0.68%
+
+typeorm: 7 streams, 2706959 ops, 49.2% of keyed ops; wall 1267.8 ms
+  rig-map         23.40 ms replay   saved vs rig-map   +0.00 ms =  +0.00% of wall; scaled to all keyed ops  +0.00%
+  rig-hash        24.94 ms replay   saved vs rig-map   -1.54 ms =  -0.12% of wall; scaled to all keyed ops  -0.25%
+  hb-fx           28.17 ms replay   saved vs rig-map   -4.77 ms =  -0.38% of wall; scaled to all keyed ops  -0.76%
+  hb-fold         27.55 ms replay   saved vs rig-map   -4.14 ms =  -0.33% of wall; scaled to all keyed ops  -0.66%
+  std-fx          26.01 ms replay   saved vs rig-map   -2.61 ms =  -0.21% of wall; scaled to all keyed ops  -0.42%
+  idx-fx          32.49 ms replay   saved vs rig-map   -9.09 ms =  -0.72% of wall; scaled to all keyed ops  -1.46%
+  idx-fold        31.89 ms replay   saved vs rig-map   -8.49 ms =  -0.67% of wall; scaled to all keyed ops  -1.36%
+  zig-ordered     23.38 ms replay   saved vs rig-map   +0.02 ms =  +0.00% of wall; scaled to all keyed ops  +0.00%
+  zig-compact     25.16 ms replay   saved vs rig-map   -1.76 ms =  -0.14% of wall; scaled to all keyed ops  -0.28%
+
+webpack: 8 streams, 4626238 ops, 50.6% of keyed ops; wall 1886.0 ms
+  rig-map         45.30 ms replay   saved vs rig-map   +0.00 ms =  +0.00% of wall; scaled to all keyed ops  +0.00%
+  rig-hash        47.41 ms replay   saved vs rig-map   -2.12 ms =  -0.11% of wall; scaled to all keyed ops  -0.22%
+  hb-fx           56.86 ms replay   saved vs rig-map  -11.56 ms =  -0.61% of wall; scaled to all keyed ops  -1.21%
+  hb-fold         55.90 ms replay   saved vs rig-map  -10.61 ms =  -0.56% of wall; scaled to all keyed ops  -1.11%
+  std-fx          55.44 ms replay   saved vs rig-map  -10.14 ms =  -0.54% of wall; scaled to all keyed ops  -1.06%
+  idx-fx          69.37 ms replay   saved vs rig-map  -24.07 ms =  -1.28% of wall; scaled to all keyed ops  -2.52%
+  idx-fold        69.96 ms replay   saved vs rig-map  -24.66 ms =  -1.31% of wall; scaled to all keyed ops  -2.58%
+  zig-ordered     42.44 ms replay   saved vs rig-map   +2.85 ms =  +0.15% of wall; scaled to all keyed ops  +0.30%
+  zig-compact     51.84 ms replay   saved vs rig-map   -6.54 ms =  -0.35% of wall; scaled to all keyed ops  -0.69%
+
+supabase-studio: 5 streams, 28755739 ops, 57.7% of keyed ops; wall 7111.9 ms
+  rig-map        231.17 ms replay   saved vs rig-map   +0.00 ms =  +0.00% of wall; scaled to all keyed ops  +0.00%
+  rig-hash       242.60 ms replay   saved vs rig-map  -11.43 ms =  -0.16% of wall; scaled to all keyed ops  -0.28%
+  hb-fx          280.02 ms replay   saved vs rig-map  -48.85 ms =  -0.69% of wall; scaled to all keyed ops  -1.19%
+  hb-fold        281.70 ms replay   saved vs rig-map  -50.53 ms =  -0.71% of wall; scaled to all keyed ops  -1.23%
+  std-fx         273.79 ms replay   saved vs rig-map  -42.62 ms =  -0.60% of wall; scaled to all keyed ops  -1.04%
+  idx-fx         355.06 ms replay   saved vs rig-map -123.88 ms =  -1.74% of wall; scaled to all keyed ops  -3.02%
+  idx-fold       365.02 ms replay   saved vs rig-map -133.85 ms =  -1.88% of wall; scaled to all keyed ops  -3.26%
+  zig-ordered    270.70 ms replay   saved vs rig-map  -39.53 ms =  -0.56% of wall; scaled to all keyed ops  -0.96%
+  zig-compact    279.50 ms replay   saved vs rig-map  -48.33 ms =  -0.68% of wall; scaled to all keyed ops  -1.18%
