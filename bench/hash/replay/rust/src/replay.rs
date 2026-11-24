@@ -1,6 +1,6 @@
 // The replay every Rust arm runs (bench/hash/replay/README.md, "The
 // trace"), included by each program in src/bin after it names its table
-// (`Map`) and hash (`S`). Prints `KIND NS OPS CHECK` per kind of segment
+// (`Map`), its hash (`S`), and how it takes a key out (`take`). Prints `KIND NS OPS CHECK` per kind of segment
 // and `total NS OPS CHECK`, as replay.rig does; the checks must agree.
 use std::hash::Hash;
 use std::time::Instant;
@@ -88,7 +88,7 @@ fn take_run<K: Hash + Eq, const N: usize>(maps: &mut [Map<K, N>], keys: &[K], o:
     let t = Instant::now();
     for j in at..at + n {
         let m = &mut maps[o.inst[j] as usize];
-        if let Some(v) = m.remove(&keys[o.key[j] as usize]) {
+        if let Some(v) = take(m, &keys[o.key[j] as usize]) {
             check = check.wrapping_add(v[N - 1] + 1);
         }
     }
@@ -143,7 +143,7 @@ fn mixed_run<K: Hash + Eq, const N: usize>(maps: &mut [Map<K, N>], owned: &mut V
                 check = check.wrapping_add(maps[i].len() as i64);
             }
             TAKE => {
-                if let Some(v) = maps[i].remove(&keys[o.key[j] as usize]) {
+                if let Some(v) = take(&mut maps[i], &keys[o.key[j] as usize]) {
                     check = check.wrapping_add(v[N - 1] + 1);
                 }
             }

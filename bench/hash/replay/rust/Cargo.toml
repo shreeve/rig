@@ -6,13 +6,15 @@ publish = false
 
 # One program an arm (src/bin), all built by one `cargo build`: hashbrown
 # with rustc-hash's FxHasher, as tsrs hashes (hb-fx), or with foldhash,
-# its default (hb-fold), and std's HashMap with FxHasher, tsrs's
-# `FxHashMap` (std-fx).
+# its default (hb-fold); std's HashMap with FxHasher, tsrs's `FxHashMap`
+# (std-fx); and indexmap, which keeps insertion order as Rig's Map does,
+# with each hash (idx-fx, idx-fold).
 
 [dependencies]
 hashbrown = { version = "=0.17.1", default-features = false, features = ["inline-more"] }
 foldhash = "=0.2.0"
 rustc-hash = "=2.1.3"
+indexmap = "=2.14.2"
 
 [profile.release]
 codegen-units = 1

@@ -13,7 +13,7 @@ usage: bench/hash/replay/replay gen SPEC -o TRACE
           traces"): the maps chosen by id, by key type, or the N with the
           most operations
   build   each arm's program into DIR (arms: rig-map, rig-hash, hb-fx,
-          hb-fold, std-fx; default all); --cpu builds Zig and Rust for
+          hb-fold, std-fx, idx-fx, idx-fold; default all); --cpu builds Zig and Rust for
           that CPU (meteorlake) rather than this one's
   time    each arm on each trace, interleaved: N rounds (default 11), the
           arms in an order that rotates each round, the median of each
@@ -29,7 +29,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 RIG = os.environ.get("RIG", os.path.join(ROOT, "bin", "rig"))
 CARGO = os.environ.get("CARGO", "cargo")
-ARMS = ["rig-map", "rig-hash", "hb-fx", "hb-fold", "std-fx"]
+ARMS = ["rig-map", "rig-hash", "hb-fx", "hb-fold", "std-fx", "idx-fx", "idx-fold"]
 # cargo's jobs, from $CARGO_JOBS (`-j N`).
 JOBS = ["-j", os.environ["CARGO_JOBS"]] if os.environ.get("CARGO_JOBS") else []
 
@@ -440,6 +440,14 @@ def cmd_import(a):
     if skipped:
         print("  left out: " + ", ".join(f"{c} {k}" for k, c in skipped.items()))
     print(f"  {mismatch} ops found or missed their key other than the trace says")
+    # What the trace says of the maps, beside the replay: `time` reads it.
+    import json
+    iters = sum(1 for k in kind_a if k == K_ITER)
+    meta = {"source": os.path.abspath(a.trace), "maps": len(inst_of), "ids": sorted(want)[:64],
+            "key": sorted(ktypes)[0], "value": names, "sites": sorted(set(types.get(m, ("", "", "", ""))[3] for m in want))[:8],
+            "ops": n, "iter": iters, "clear": sum(1 for k in kind_a if k == K_CLEAR), "left_out": skipped, "mismatch": mismatch}
+    with open(a.o + ".json", "w") as f:
+        json.dump(meta, f, indent=1)
 
 
 # ---------------------------------------------------------------- build and time
@@ -476,8 +484,8 @@ def build(arm, out, cpu):
         if not os.path.exists(os.path.join(target, "release", arm)):
             shutil.rmtree(crate, ignore_errors=True)
             shutil.copytree(os.path.join(HERE, "rust"), crate, ignore=shutil.ignore_patterns("target"))
-            extra = ["--locked"]
-            for name in ("foldhash-0.2.0", "hashbrown-0.17.1", "rustc-hash-2.1.3"):
+            extra, patched = ["--locked"], []
+            for name in ("foldhash-0.2.0", "hashbrown-0.17.1", "rustc-hash-2.1.3", "indexmap-2.14.2", "equivalent-1.0.3"):
                 # A crate whose archive cargo's cache lost but whose source
                 # it kept is built from that source: no download either way.
                 reg = os.path.expanduser("~/.cargo/registry")
@@ -486,7 +494,9 @@ def build(arm, out, cpu):
                 src = [os.path.join(reg, "src", d, name) for d in os.listdir(os.path.join(reg, "src"))
                        if os.path.exists(os.path.join(reg, "src", d, name, ".cargo-ok"))]
                 if not have and src:
-                    extra = ["--config", f'patch.crates-io.{name.rsplit("-", 1)[0]}.path="{src[0]}"']
+                    patched += ["--config", f'patch.crates-io.{name.rsplit("-", 1)[0]}.path="{src[0]}"']
+            if patched:
+                extra = patched
             subprocess.run([CARGO, "build", "-q", "--release", "--offline", "--bins", *extra, *JOBS],
                            check=True, cwd=crate, env=dict(os.environ, CARGO_TARGET_DIR=target, RUSTFLAGS=flags))
         shutil.copy(os.path.join(target, "release", arm), tmp)
@@ -533,7 +543,11 @@ def cmd_time(a):
                     counts[kind] = n
                     times[arm].setdefault(kind, []).append(ns)
         name = os.path.relpath(trace, a.root) if a.root else os.path.basename(trace)
-        summary[name] = {"ops": counts["total"], "ns": {x: statistics.median(times[x]["total"]) for x in arms},
+        meta = {}
+        if os.path.exists(trace + ".json"):
+            import json
+            meta = json.load(open(trace + ".json"))
+        summary[name] = {"iter": meta.get("iter"), "at": meta.get("left_out", {}).get("at", 0), "ops": counts["total"], "ns": {x: statistics.median(times[x]["total"]) for x in arms},
                          "kinds": {k: {"ops": counts[k], "ns": {x: statistics.median(times[x][k]) for x in arms}} for k in counts}}
         print(f"\n{name}: ns per op, median of {a.rounds} rounds (ratio: the arm's time / {base}'s)")
         w = max(10, *(len(x) + 1 for x in arms))
@@ -567,16 +581,18 @@ def print_summary(summary, arms, base):
     w = max(10, *(len(x) + 1 for x in arms))
     n = max(len(t) for t in summary)
     print(f"\nsummary: ns per op over each whole trace (ratio to {base})")
-    print(f"{'trace':{n}} {'ops':>10} " + " ".join(f"{x:>{w}}" for x in arms) + "  " + " ".join(f"{x:>{w}}" for x in arms if x != base))
+    print(f"{'trace':{n}} {'ops':>10} {'walks':>7} {'at':>8} " + " ".join(f"{x:>{w}}" for x in arms) + "  " +
+          " ".join(f"{x:>{w}}" for x in arms if x != base))
     tot = {x: 0 for x in arms}
     ops = 0
     for t, r in summary.items():
         ops += r["ops"]
         for x in arms:
             tot[x] += r["ns"][x]
-        print(f"{t:{n}} {r['ops']:10} " + " ".join(f"{r['ns'][x] / r['ops']:{w}.2f}" for x in arms) + "  " +
+        walks = "-" if r.get("iter") is None else r["iter"]
+        print(f"{t:{n}} {r['ops']:10} {walks:>7} {r.get('at', 0):>8} " + " ".join(f"{r['ns'][x] / r['ops']:{w}.2f}" for x in arms) + "  " +
               " ".join(f"{r['ns'][x] / r['ns'][base]:{w}.2f}x" for x in arms if x != base))
-    print(f"{'all':{n}} {ops:10} " + " ".join(f"{tot[x] / ops:{w}.2f}" for x in arms) + "  " +
+    print(f"{'all':{n}} {ops:10} {'':7} {'':8} " + " ".join(f"{tot[x] / ops:{w}.2f}" for x in arms) + "  " +
           " ".join(f"{tot[x] / tot[base]:{w}.2f}x" for x in arms if x != base))
 
 

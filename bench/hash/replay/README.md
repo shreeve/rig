@@ -13,6 +13,8 @@ arm replays the same trace and prints the same checks.
 | `hb-fx` | hashbrown 0.17.1 | rustc-hash 2.1.3's FxHasher, as tsrs hashes | `rust/src/bin/hb-fx.rs` |
 | `hb-fold` | hashbrown 0.17.1 | foldhash 0.2.0 (`fast::FixedState`) | `rust/src/bin/hb-fold.rs` |
 | `std-fx` | std's `HashMap` (hashbrown as std vendors it) | FxHasher: tsrs's `FxHashMap` | `rust/src/bin/std-fx.rs` |
+| `idx-fx` | indexmap 2.14.2: insertion order, as Rig's `Map` keeps; a take is `shift_remove`, which keeps the order | FxHasher | `rust/src/bin/idx-fx.rs` |
+| `idx-fold` | the same | foldhash 0.2.0 | `rust/src/bin/idx-fold.rs` |
 
 ```sh
 R=bench/hash/replay/replay
