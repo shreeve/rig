@@ -375,15 +375,20 @@ worker after.
   hands it on at that stop. A worker with nothing else to steal
   also takes the oldest task left in another's slots 3 µs
   (`sched.stealNext`), as Go takes a `runnext`. A task made while
-  every slot is full takes a slot and moves the oldest to the ring, as
-  any fiber made ready does, until its maker has made four tasks that so
-  moved one since it last slept in a wait; while the slots stay full
+  every slot is full takes the newest's slot and moves the newest to the
+  ring, until its maker has made four tasks that so moved one since it
+  last slept in a wait; while the slots stay full
   after that, a task it makes goes to the ring's tail, not into a slot
   (`sched.wakeMade`, `Fiber.made_spills`), however often the workers
   searching empty a slot meanwhile. So a burst of
-  tasks that starts with the slots empty fills them, swaps as many
-  again, and is stolen from the ring, and one of up to eight tasks is
-  placed as fibers made ready are. A global queue takes overflow and work from
+  tasks that starts with the slots empty fills them, swaps the newest
+  as many times again, and is stolen from the ring. One of up to eight
+  keeps its first three and its newest in the slots: a maker that waits
+  for the burst in the order it made it, as Trig waits for its
+  checkers, finds the first there and runs it by handoff, where with
+  the first in the ring a thief took it, and the maker slept while its
+  worker ran the burst's newest (at eight checkers on pup's CPUs 0-11,
+  two to a core on two of the six, that cost next-packages-next 5-6%). A global queue takes overflow and work from
   outside the workers.
 - **Cache lines.** Each worker begins a cache line and fills whole
   lines, so no line holds two workers' fields, and the fields each

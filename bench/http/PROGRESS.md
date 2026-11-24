@@ -44,6 +44,7 @@ longer builds; new Rig rows are `rig-safe` (`--release`).
 | 2026-11-15 | main 7a2efd0f3, re-measured with --release (records/2026-11/concurrency-bench-remeasure), best of 6 over two boards | rig-safe | 128402 | 492 us | 690 us | 16.7 KiB |
 | 2026-11-15 | the same boards | tokio | 139202 | 453 us | 617 us | 18.6 KiB |
 | 2026-11-15 | the same boards | go | 120522 | 521 us | 1014 us | 18.5 KiB |
+| 2026-11-23 | #1229: a burst keeps its first task in a slot | rig-safe | 158351 | 392 us | 598 us | 16.7 KiB |
 
 ## x86-64 (pup, 22 cores, 10,000 idle connections)
 
@@ -128,3 +129,4 @@ which is why that row reads faster.
 | 2026-11-15 | main bfd872b6d and 1f35fc1da (7a2efd0f3's compiler and runtime), --release (records/2026-11/concurrency-bench-remeasure), best of 18 over six boards, 10,000 idle (pup cores 0-11) | rig-safe | 845543 | 59 us | 284 us | 8.8 KiB |
 | 2026-11-15 | the same boards (12 workers, its default; 473k-486k at HYPER_WORKERS=6) | tokio | 365783 | 165 us | 340 us | 10.8 KiB |
 | 2026-11-15 | the same boards | go | 450728 | 98 us | 737 us | 18.9 KiB |
+| 2026-11-23 | #1229: a burst keeps its first task in a slot (pup E-cores 12-19) | rig-safe | 455611 | 109 us | 810 us | 4.8 KiB |
