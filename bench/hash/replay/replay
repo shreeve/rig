@@ -520,6 +520,7 @@ def cmd_time(a):
         if not os.path.exists(exe):
             sys.exit(f"{exe}: build it first")
     base = a.base if a.base in arms else arms[0]
+    summary = {}
     for trace in a.traces:
         times = {arm: {} for arm in arms}
         checks, counts = {}, {}
@@ -531,7 +532,9 @@ def cmd_time(a):
                         sys.exit(f"{trace}: {arm} {kind} check {check}, expected {checks[kind]}")
                     counts[kind] = n
                     times[arm].setdefault(kind, []).append(ns)
-        name = os.path.basename(trace)
+        name = os.path.relpath(trace, a.root) if a.root else os.path.basename(trace)
+        summary[name] = {"ops": counts["total"], "ns": {x: statistics.median(times[x]["total"]) for x in arms},
+                         "kinds": {k: {"ops": counts[k], "ns": {x: statistics.median(times[x][k]) for x in arms}} for k in counts}}
         print(f"\n{name}: ns per op, median of {a.rounds} rounds (ratio: the arm's time / {base}'s)")
         w = max(10, *(len(x) + 1 for x in arms))
         print(f"{'kind':10} {'ops':>10} " + " ".join(f"{x:>{w}}" for x in arms) + f"   {'check':>22}")
@@ -551,6 +554,30 @@ def cmd_time(a):
             print(f"A/A ({x} against itself): total {gaps[-1]:.1f}%, largest kind {max(gaps):.1f}%")
         spread = {x: (max(times[x]['total']) - min(times[x]['total'])) / min(times[x]['total']) * 100 for x in arms}
         print("spread of total (max-min)/min: " + ", ".join(f"{x} {s:.1f}%" for x, s in spread.items()))
+    if len(summary) > 1:
+        print_summary(summary, arms, base)
+    if a.json:
+        import json
+        with open(a.json, "w") as f:
+            json.dump({"arms": arms, "base": base, "rounds": a.rounds, "traces": summary}, f, indent=1)
+
+
+def print_summary(summary, arms, base):
+    """Each trace's whole time per op, and the sum over the traces."""
+    w = max(10, *(len(x) + 1 for x in arms))
+    n = max(len(t) for t in summary)
+    print(f"\nsummary: ns per op over each whole trace (ratio to {base})")
+    print(f"{'trace':{n}} {'ops':>10} " + " ".join(f"{x:>{w}}" for x in arms) + "  " + " ".join(f"{x:>{w}}" for x in arms if x != base))
+    tot = {x: 0 for x in arms}
+    ops = 0
+    for t, r in summary.items():
+        ops += r["ops"]
+        for x in arms:
+            tot[x] += r["ns"][x]
+        print(f"{t:{n}} {r['ops']:10} " + " ".join(f"{r['ns'][x] / r['ops']:{w}.2f}" for x in arms) + "  " +
+              " ".join(f"{r['ns'][x] / r['ns'][base]:{w}.2f}x" for x in arms if x != base))
+    print(f"{'all':{n}} {ops:10} " + " ".join(f"{tot[x] / ops:{w}.2f}" for x in arms) + "  " +
+          " ".join(f"{tot[x] / tot[base]:{w}.2f}x" for x in arms if x != base))
 
 
 def main():
@@ -577,6 +604,8 @@ def main():
     t.add_argument("--rounds", type=int, default=11)
     t.add_argument("--aa")
     t.add_argument("--base", default="hb-fx")
+    t.add_argument("--json", help="write each trace's medians here")
+    t.add_argument("--root", help="name traces by their path under ROOT")
     t.add_argument("traces", nargs="+")
     a = ap.parse_args()
     {"gen": cmd_gen, "import": cmd_import, "build": cmd_build, "time": cmd_time}[a.cmd](a)
