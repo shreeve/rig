@@ -352,6 +352,23 @@ fail "keeps generic field text is rejected", "14:2: cannot drop `n` while a read
   <n
   print(b.last)
 
+test "keeps generic owned body values", "1 0", known: "say so: `keeps src`"
+  # Today the body check asks `move` for `keeps src`, though `T: Owned`.
+  # Rule (SPEC, Generic bodies): an instance's `T` may hold a view, so the
+  # check counts a view parameter that reaches a `T` as stored wherever the
+  # body stores one; `Owned` (SPEC, Bounds) says no part of `T` is a view,
+  # so a `T` moved out of `src` carries no view of it, as a `String` does.
+
+  sub move[T: Owned](dst: !List[T], src: !List[T])
+    x = !src.pop() ?? panic("empty")
+    !dst.push(<x)
+
+  a: List[String] = List()
+  b: List[String] = List()
+  !b.push(String("x"))
+  move(!a, !b)
+  print(a.len, b.len)
+
 fail "keeps generic param stored", "9:5: say so: `keeps x`"
   # Why: a generic `?T` parameter stored in self is a stored view
   # like any other; the body is checked once with `T` opaque.
