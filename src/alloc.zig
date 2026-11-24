@@ -5155,20 +5155,27 @@ pub const heap_census = struct {
         snapshot(&out, "exit", maxRss());
     }
 
+    /// The text of the census: each line built by one or more `print`s
+    /// and written whole as it ends.
     const Out = struct {
         buf: []u8,
         len: usize = 0,
         direct: bool,
+        line: [4096]u8 = undefined,
+        ll: usize = 0,
         fn print(o: *Out, comptime fmt: []const u8, args: anytype) void {
-            var line: [1536]u8 = undefined;
-            const s = std.fmt.bufPrint(&line, fmt, args) catch return;
+            const s = std.fmt.bufPrint(o.line[o.ll..], fmt, args) catch return;
+            o.ll += s.len;
+            if (o.ll == 0 or o.line[o.ll - 1] != '\n') return;
+            const text = o.line[0..o.ll];
+            o.ll = 0;
             if (o.direct) {
-                _ = linux.write(2, s.ptr, s.len);
+                _ = linux.write(2, text.ptr, text.len);
                 return;
             }
-            if (o.len + s.len > o.buf.len) return;
-            @memcpy(o.buf[o.len..][0..s.len], s);
-            o.len += s.len;
+            if (o.len + text.len > o.buf.len) return;
+            @memcpy(o.buf[o.len..][0..text.len], text);
+            o.len += text.len;
         }
     };
 
@@ -5528,18 +5535,11 @@ pub const heap_census = struct {
             const tid = vload(i32, &h.census_tid);
             var role_buf: [24]u8 = undefined;
             const role_text = if (role >= 0) std.fmt.bufPrint(&role_buf, "worker{d}", .{role}) catch "?" else if (role == -2) "pool" else "other";
-            out.print("rig-heap-rss: {s} heap={d} tid={d} main={d} role={s} spare={d} leads={d} faults_ahead={d} taken={d} " ++
-                "segs={d} seg_rss={d} seg_huge={d} seg_hdr_rss={d} seg_room_rss={d} small_held={d} small_free={d} small_free_rss={d} whole_free_pages={d} whole_free_rss={d} released_pages={d} tail_waste={d} full_pages={d} small_inuse={d} " ++
-                "spansegs={d} spanseg_rss={d} spanseg_huge={d} spanseg_hdr_rss={d} spanseg_room_rss={d} spanseg_uncarved={d} span_live={d} span_peak={d} span_bound={d} warm={d} warm_n={d} warm_rss={d} cold={d} cold_n={d} cold_rss={d} " ++
-                "large_live={d} large_peak={d} keep_bound={d} kept={d} kept_n={d} kept_rss={d} kept_cold={d} kept_cold_n={d} kept_cold_rss={d} live_est={d} bad_lists={d}\n", .{
-                when,             hi,           tid,        @intFromBool(tid == pid), role_text,                               @intFromBool(spare[hi]), @intFromBool(leads(h)), @intFromBool(faultsAhead(h)), taken,
-                a.segs,           a.seg_rss,    a.seg_huge, a.seg_hdr_rss,            a.seg_room_rss,                          a.small_held,            a.small_free,           a.small_free_rss,             a.whole_pages,
-                a.whole_rss,      a.released,   a.tail,     a.full_pages,             small_inuse,                             a.sspans,                a.sspan_rss,            a.sspan_huge,                 a.sspan_hdr_rss,
-                a.sspan_room_rss, a.sspan_tail, span_live,  span_peak,                (span_peak -| span_live) + keep_large,   warm,                    a.warm_n,               a.warm_rss,                   cold,
-                a.cold_n,         a.cold_rss,   large_live, large_peak,               (large_peak -| large_live) + keep_large, kept,                    a.kept_n,               a.kept_rss,                   ckept,
-                a.ckept_n,        a.ckept_rss,  live_est,   a.blocks_bad,
-            });
-            inline for (@typeInfo(Acc).@"struct".fields) |f| @field(t, f.name) += @field(a, f.name);
+            out.print("rig-heap-rss: {s} heap={d} tid={d} main={d} role={s} spare={d} leads={d} faults_ahead={d} taken={d} live_est={d} bad_lists={d} ", .{ when, hi, tid, @intFromBool(tid == pid), role_text, @intFromBool(spare[hi]), @intFromBool(leads(h)), @intFromBool(faultsAhead(h)), taken, live_est, a.blocks_bad });
+            out.print("segs={d} seg_rss={d} seg_huge={d} seg_hdr_rss={d} seg_room_rss={d} small_held={d} small_free={d} small_free_rss={d} whole_free_pages={d} whole_free_rss={d} released_pages={d} tail_waste={d} full_pages={d} small_inuse={d} ", .{ a.segs, a.seg_rss, a.seg_huge, a.seg_hdr_rss, a.seg_room_rss, a.small_held, a.small_free, a.small_free_rss, a.whole_pages, a.whole_rss, a.released, a.tail, a.full_pages, small_inuse });
+            out.print("spansegs={d} spanseg_rss={d} spanseg_huge={d} spanseg_hdr_rss={d} spanseg_room_rss={d} spanseg_uncarved={d} span_live={d} span_peak={d} span_bound={d} warm={d} warm_n={d} warm_rss={d} cold={d} cold_n={d} cold_rss={d} ", .{ a.sspans, a.sspan_rss, a.sspan_huge, a.sspan_hdr_rss, a.sspan_room_rss, a.sspan_tail, span_live, span_peak, (span_peak -| span_live) + keep_large, warm, a.warm_n, a.warm_rss, cold, a.cold_n, a.cold_rss });
+            out.print("large_live={d} large_peak={d} keep_bound={d} kept={d} kept_n={d} kept_rss={d} kept_cold={d} kept_cold_n={d} kept_cold_rss={d}\n", .{ large_live, large_peak, (large_peak -| large_live) + keep_large, kept, a.kept_n, a.kept_rss, ckept, a.ckept_n, a.ckept_rss });
+            inline for (@typeInfo(Acc).@"struct".field_names) |name| @field(t, name) += @field(a, name);
             t_taken += taken;
             t_large_live += large_live;
             t_span_live += span_live;
@@ -5563,16 +5563,10 @@ pub const heap_census = struct {
         }
         var status: [4096]u8 = undefined;
         const st = readSmallFile("/proc/self/status", &status);
-        out.print("rig-heap-rss: {s} total heaps={d} hwm={d} taken={d} live_est={d} small_inuse={d} span_live={d} large_live={d} " ++
-            "sum_seg_rss={d} sum_seg_huge={d} small_seg_rss={d} span_seg_rss={d} region_scan_rss={d} region_scan_huge={d} smaps_region_rss={d} smaps_region_huge={d} gap_slots={d} " ++
-            "small_free={d} small_free_rss={d} whole_free_pages={d} whole_free_rss={d} tail_waste={d} seg_hdr_rss={d} seg_room_rss={d} spanseg_hdr_rss={d} spanseg_room_rss={d} warm_rss={d} cold_rss={d} kept_rss={d} kept_cold_rss={d} " ++
-            "smaps_tables_rss={d} smaps_other_rss={d} vmrss={d} vmhwm={d} rss_anon={d} rss_file={d} counts_live={d} counts_peak={d}\n", .{
-            when,                      nh,                        t_taken,                     hwm,                         t_live_est,                                      t.small_held -| t.small_free,                    t_span_live,   t_large_live,
-            sum_seg_rss,               t.seg_huge + t.sspan_huge, t.seg_rss,                   t.sspan_rss,                 region.rss,                                      region.huge,                                     s_seg.rss,     s_seg.huge,
-            gap_slots,                 t.small_free,              t.small_free_rss,            t.whole_pages,               t.whole_rss,                                     t.tail,                                          t.seg_hdr_rss, t.seg_room_rss,
-            t.sspan_hdr_rss,           t.sspan_room_rss,          t.warm_rss,                  t.cold_rss,                  t.kept_rss,                                      t.ckept_rss,                                     s_tab.rss,     s_other.rss,
-            statusField(st, "VmRSS:"), statusField(st, "VmHWM:"), statusField(st, "RssAnon:"), statusField(st, "RssFile:"), if (counts) total_live.load(.monotonic) else -1, if (counts) total_peak.load(.monotonic) else -1,
-        });
+        out.print("rig-heap-rss: {s} total heaps={d} hwm={d} taken={d} live_est={d} small_inuse={d} span_live={d} large_live={d} ", .{ when, nh, hwm, t_taken, t_live_est, t.small_held -| t.small_free, t_span_live, t_large_live });
+        out.print("sum_seg_rss={d} sum_seg_huge={d} small_seg_rss={d} span_seg_rss={d} region_scan_rss={d} region_scan_huge={d} smaps_region_rss={d} smaps_region_huge={d} gap_slots={d} ", .{ sum_seg_rss, t.seg_huge + t.sspan_huge, t.seg_rss, t.sspan_rss, region.rss, region.huge, s_seg.rss, s_seg.huge, gap_slots });
+        out.print("small_free={d} small_free_rss={d} whole_free_pages={d} whole_free_rss={d} tail_waste={d} seg_hdr_rss={d} seg_room_rss={d} spanseg_hdr_rss={d} spanseg_room_rss={d} warm_rss={d} cold_rss={d} kept_rss={d} kept_cold_rss={d} ", .{ t.small_free, t.small_free_rss, t.whole_pages, t.whole_rss, t.tail, t.seg_hdr_rss, t.seg_room_rss, t.sspan_hdr_rss, t.sspan_room_rss, t.warm_rss, t.cold_rss, t.kept_rss, t.ckept_rss });
+        out.print("smaps_tables_rss={d} smaps_other_rss={d} vmrss={d} vmhwm={d} rss_anon={d} rss_file={d} counts_live={d} counts_peak={d}\n", .{ s_tab.rss, s_other.rss, statusField(st, "VmRSS:"), statusField(st, "VmHWM:"), statusField(st, "RssAnon:"), statusField(st, "RssFile:"), if (counts) total_live.load(.monotonic) else -1, if (counts) total_peak.load(.monotonic) else -1 });
     }
 
     fn indexOf(heaps: []const *Heap, h: *const Heap) ?usize {
