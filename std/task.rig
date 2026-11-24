@@ -38,3 +38,11 @@ extern zig "task.zig"
   # it may run on no fast one. A hint for sizing work; the worker count
   # does not follow it. Worked out at the first call and kept.
   pub fun fast_cores() -> Int
+
+  # PHASE-WIDE (scratch, measurement only; never lands). Under
+  # `RIG_WIDE=1`, `widen()` runs tasks on every hardware thread of the
+  # fast cores until `narrow()`, which goes back to the workers that ran
+  # before it: the others park, their heaps' free memory given back and
+  # shared. Without `RIG_WIDE=1` both do nothing.
+  pub sub widen()
+  pub sub narrow()

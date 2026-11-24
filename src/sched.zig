@@ -28,6 +28,9 @@ const split = rt.split;
 comptime {
     if (split.on and split.main) _ = .{
         workers_len,
+        workers_on,
+        wide_on,
+        wide_before,
         connecting,
         zva_64,
         workers_override,
@@ -270,6 +273,10 @@ const Worker = struct {
     /// How long it sleeps before it gives back what its heap holds free
     /// (`trimIdle`).
     trim_wait: i96 = trim_first,
+    /// PHASE-WIDE (scratch, measurement only): set while it is beyond the
+    /// workers tasks run on, as `narrow` leaves it (`setWorkers`): it takes
+    /// no task and waits parked (`parkWorker`).
+    off: std.atomic.Value(bool) = .init(false),
     thread: ?std.Thread align(std.atomic.cache_line) = null,
     /// On the Mac, its fibers' lengths and the batch it keeps
     /// (`keeps_short`); nothing on Linux, whose workers keep none.
@@ -348,6 +355,20 @@ fn keptLate() bool {
 /// `task.workers` (`growWorkers`).
 var workers_len_var: std.atomic.Value(usize) = .init(0);
 const workers_len = split.cell(&workers_len_var, "sched.workers_len");
+
+/// PHASE-WIDE: how many workers tasks run on, the first `workers_on` of
+/// the started ones, the rest parked (`parkWorker`); what
+/// `task.worker_count()` gives.
+var workers_on_var: std.atomic.Value(usize) = .init(0);
+const workers_on = split.cell(&workers_on_var, "sched.workers_on");
+
+/// PHASE-WIDE: whether `RIG_WIDE=1` turns `widen` and `narrow` on, read as
+/// the workers start; and the workers that ran before a `widen`, which
+/// `narrow` goes back to (0: not widened).
+var wide_on_var: bool = false;
+const wide_on = split.cell(&wide_on_var, "sched.wide_on");
+var wide_before_var: usize = 0;
+const wide_before = split.cell(&wide_before_var, "sched.wide_before");
 
 /// The workers, worker 0 first. Their number can grow under a reader, so
 /// a reader calls this once and keeps the slice for its whole walk. A
@@ -693,6 +714,8 @@ pub noinline fn tick() void {
         if (ready.items.len > 0 and random(2) == 0) yield();
         return;
     }
+    // PHASE-WIDE: its worker is off: the fiber moves, and the worker parks.
+    if (w.off.load(.monotonic)) return yield();
     // Timers and the poller are serviced on the worker's stack, after a
     // stop, as a preempted fiber's are (`afterTick`): `Poller.poll`'s
     // frame is a task's deepest, and a check reaches it at most every
@@ -787,6 +810,7 @@ fn serviceNow(w: *Worker) bool {
 /// taken into this worker's ring (`stealWaiting`), as `tick` and
 /// `claimWaiting` decide on the fiber's stack.
 fn yieldsAfterService(w: *Worker) bool {
+    if (w.off.load(.monotonic)) return true;
     if (hasOwnWork(w)) return !leftToIdle(w);
     if (waiting.load(.monotonic) == 0 or !takeWaiting(w) or !othersWait(w)) return false;
     if (leftToIdle(w)) {
@@ -887,6 +911,7 @@ pub noinline fn settleAt(at: usize) void {
 pub noinline fn tickCall() void {
     @branchHint(.cold);
     const w = me() orelse return;
+    if (w.off.load(.monotonic)) return yield();
     claimWaiting(w);
 }
 
@@ -1669,7 +1694,8 @@ fn watchSlices(slice: i96, wait: i96) void {
                 continue;
             }
             busy = true;
-            const waited = work and had[i] and ((woken and woken_had) or pinned or (idle and idle_had));
+            // PHASE-WIDE: a fiber on a worker that is off moves at its next stop.
+            const waited = (work and had[i] and ((woken and woken_had) or pinned or (idle and idle_had))) or w.off.load(.monotonic);
             if (!waited and !serviceDue(w, now) and (now - since[i] < slice or !workWaits(w))) continue;
             // Again until it stops: a signal that finds the fiber outside
             // the program's code does nothing. After `resignal_free` in a
@@ -4120,6 +4146,7 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     all_workers.* = rawWorkers(cap);
     initWorker(0);
     workers_len.store(1, .release);
+    workers_on.store(1, .release);
     const first = &all_workers.*[0];
     first.poller.open();
     openDense();
@@ -4156,6 +4183,8 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     freeSpare();
     freeWorkers(all_workers.*);
     workers_len.store(0, .release);
+    workers_on.store(0, .release);
+    wide_before.* = 0;
     all_workers.* = &.{};
     me_slot().* = null;
     // Workers stopped asleep are still listed; the next run, in a test,
@@ -4278,6 +4307,10 @@ fn startWorkers() void {
     for (ws[1..]) |*w| w.poller.open();
     if (comptime zva_target) zva_64.* = zvaIs64();
     workers_len.store(n, .release);
+    workers_on.store(n, .release);
+    if (rt.process.*) |p| if (p.environ.getPosix("RIG_WIDE")) |v| {
+        wide_on.* = std.mem.eql(u8, v, "1");
+    };
     if (n == 1) {
         if (preempt and !deterministic.*) startMonitor();
         return;
@@ -4390,27 +4423,86 @@ pub noinline fn askWorkers(n: usize) bool {
     return onWorkerStack(growWorkers, .{want});
 }
 
-/// Held across a raise, and as a program's end reads the final workers,
-/// so a raise finishes before the end looks, or makes no worker after it.
+/// Held across a change of the workers, and as a program's end reads the
+/// final workers, so a change finishes before the end looks, or makes no
+/// worker after it.
 var grow_lock_var: SpinLock = .{};
 const grow_lock = split.cell(&grow_lock_var, "sched.grow_lock");
 
-/// Run `n` workers, if that is no fewer than run and the program is not
-/// ending; whether it now runs `n`. The new workers' pollers open before
-/// the length is published, for the walks that touch every published
-/// poller (`kickForInterrupt`, `wakeWorker`); their threads start after
-/// it, so each finds itself among the workers.
+/// `task.workers(n)` after the workers started: only raises, as on main.
 fn growWorkers(n: usize) bool {
+    if (n < workers_on.load(.monotonic)) return false;
+    return setWorkers(n);
+}
+
+/// PHASE-WIDE (scratch, measurement only): `task.widen()`. Under
+/// `RIG_WIDE=1`, run tasks on every hardware thread of the fast cores
+/// (`rt.fastThreads`) until `narrow`, if that is more than run now; else
+/// nothing. Never inlined into the program's own code.
+pub noinline fn widen() void {
+    if (!wide_on.* or !started.* or deterministic.*) return;
+    if (wide_before.* != 0) return;
+    const before = workers_on.load(.acquire);
+    const want: usize = @min(@as(usize, @intCast(rt.fastThreads())), max_workers);
+    if (want <= before) return;
+    if (onWorkerStack(setWorkers, .{want})) wide_before.* = before;
+}
+
+/// PHASE-WIDE: `task.narrow()`. Back to the workers that ran before the
+/// last `widen`: the others are marked off and park (`parkWorker`), and
+/// each one's heap gives back what it holds free and stays a donor while
+/// parked, so the heaps that go on take its free blocks, and the blocks
+/// freed into it later, before they take a page of their own
+/// (`alloc.takeDonated`), and its free spans (`allocLargeFrom`).
+pub noinline fn narrow() void {
+    if (!wide_on.* or deterministic.*) return;
+    const before = wide_before.*;
+    if (before == 0) return;
+    if (onWorkerStack(setWorkers, .{before})) wide_before.* = 0;
+    if (me()) |w| if (w.off.load(.seq_cst)) yield();
+}
+
+/// Run tasks on `n` workers, unless the program is ending; whether it now
+/// does. Fewer than run: the workers past `n` are marked off, and each
+/// asleep is taken off the sleepers and woken, so it parks
+/// (`parkWorker`); a fiber running on one runs on until its next stop,
+/// which moves it (`tick`, `yieldsAfterService`). More: the parked
+/// workers below `n` are marked on and kicked, and new ones start past
+/// them. A new worker's poller opens before the length is published, for
+/// the walks that touch every published poller (`kickForInterrupt`,
+/// `wakeWorker`); its thread starts after it, so it finds itself among
+/// the workers.
+fn setWorkers(n: usize) bool {
     grow_lock.lock();
     defer grow_lock.unlock();
-    const have = workers_len.load(.monotonic);
-    if (n <= have) return n == have;
+    const on = workers_on.load(.monotonic);
+    if (n == on) return true;
     if (stopping.load(.seq_cst) or (tears_down and exit_state.phase.load(.seq_cst) != .idle)) return false;
-    const fresh = all_workers.*[have..n];
-    for (have..n) |i| initWorker(i);
-    for (fresh) |*w| w.poller.open();
-    workers_len.store(n, .release);
-    for (fresh) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{ w, 0 }) catch rt.oom();
+    if (n < on) {
+        workers_on.store(n, .seq_cst);
+        // Off before the sleepers are looked at: a worker going to sleep
+        // lists itself, then reads `off` (`sleep`), so either it sees it
+        // or this finds it listed.
+        for (all_workers.*[n..on]) |*w| w.off.store(true, .seq_cst);
+        for (all_workers.*[n..on]) |*w| if (sleepers.remove(w)) wakeWorker(w);
+        // A fiber running on one of them in a loop or recursion stops at
+        // its next check (`tickCall`).
+        waiting.store(1, .monotonic);
+        return true;
+    }
+    const have = workers_len.load(.monotonic);
+    for (all_workers.*[on..@min(n, have)]) |*w| {
+        w.off.store(false, .seq_cst);
+        w.poller.kick();
+    }
+    if (n > have) {
+        const fresh = all_workers.*[have..n];
+        for (have..n) |i| initWorker(i);
+        for (fresh) |*w| w.poller.open();
+        workers_len.store(n, .release);
+        for (fresh) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{ w, 0 }) catch rt.oom();
+    }
+    workers_on.store(n, .release);
     return true;
 }
 
@@ -4418,7 +4510,7 @@ fn growWorkers(n: usize) bool {
 /// task, without starting them (`startWorkers`): one in a deterministic
 /// run.
 pub fn workerTotal() usize {
-    if (started.*) return workersNow().len;
+    if (started.*) return workers_on.load(.acquire);
     if (deterministic.*) return 1;
     return @min(workerCount(), all_workers.*.len);
 }
@@ -4426,7 +4518,7 @@ pub fn workerTotal() usize {
 /// How many workers run tasks, starting them first if they have not.
 pub fn workersRunning() usize {
     if (!started.*) startWorkers();
-    return workersNow().len;
+    return workers_on.load(.acquire);
 }
 
 fn workerCount() usize {
@@ -4487,6 +4579,11 @@ fn loop(w: *Worker) void {
             runFiber(w, f);
             continue;
         }
+        // PHASE-WIDE: off, it parks (`parkWorker`).
+        if (w.off.load(.monotonic)) {
+            parkWorker(w);
+            continue;
+        }
         const f = next(w) orelse {
             if (w.searching) {
                 searchedPoint();
@@ -4507,6 +4604,79 @@ fn loop(w: *Worker) void {
         if (w.watch_owed) payWatch(w);
         runFiber(w, f);
     }
+}
+
+/// PHASE-WIDE: park the worker `w`, off since a `narrow` left it out,
+/// until it is on again or `main` ends: the fibers in its queues go to
+/// the global queue, for the workers still on (`forwardQueued`), and its
+/// heap gives back the pages it holds free and stays a donor while it
+/// parks (`alloc.trimIdle`), so the heaps that go on take its free blocks
+/// and the blocks freed into it. Then it waits in its poller, which no
+/// other worker sleeps in, with no timeout but its own timers' earliest
+/// deadline: a raise kicks it (`setWorkers`), as `main`'s end and
+/// `os.exit` do. It runs no fiber but those pinned to it: the fibers its
+/// timers and poller wake go to the global queue as well. Marked idle.
+fn parkWorker(w: *Worker) void {
+    if (w.searching) {
+        w.searching = false;
+        _ = searching.fetchSub(1, .seq_cst);
+        // Woken to look for work it now leaves: another looks.
+        if (hasWork()) notify();
+    }
+    forwardQueued(w);
+    _ = rt.fast_alloc.trimIdle();
+    defer rt.fast_alloc.wakeIdle();
+    w.idle.store(1, .seq_cst);
+    defer w.idle.store(0, .seq_cst);
+    while (w.off.load(.seq_cst) and !stopping.load(.seq_cst)) {
+        if (tears_down and exit_state.phase.load(.seq_cst) != .idle) stopForExit(w, false);
+        if (w.pinned.pop()) |f| {
+            w.idle.store(0, .seq_cst);
+            runFiber(w, f);
+            w.idle.store(1, .seq_cst);
+            forwardQueued(w);
+            continue;
+        }
+        const due = w.timers.due.load(.seq_cst);
+        _ = w.poller.poll(if (due == no_due) null else @max(@as(i96, due) - nowNs(), 0));
+        deliverInterrupt();
+        _ = w.timers.fire(nowNs());
+        forwardQueued(w);
+    }
+}
+
+/// PHASE-WIDE: move the fibers in the parked worker `w`'s "run next"
+/// slots and ring to the global queue, and wake a worker for them; those
+/// pinned to `w` go to its pinned queue, which only it runs.
+fn forwardQueued(w: *Worker) void {
+    var head: ?*Fiber = null;
+    var tail: ?*Fiber = null;
+    var n: u32 = 0;
+    for (&w.lifo) |*slot| {
+        if (slot.load(.monotonic) == null) continue;
+        const f = slot.swap(null, .seq_cst) orelse continue;
+        if (f.home != null) {
+            w.pinned.push(f);
+            continue;
+        }
+        f.next = null;
+        if (tail) |t| t.next = f else head = f;
+        tail = f;
+        n += 1;
+    }
+    while (w.ring.pop()) |f| {
+        if (f.home != null) {
+            w.pinned.push(f);
+            continue;
+        }
+        f.next = null;
+        if (tail) |t| t.next = f else head = f;
+        tail = f;
+        n += 1;
+    }
+    const list = head orelse return;
+    global.pushList(list, n);
+    notifyNew();
 }
 
 fn runFiber(w: *Worker, f: *Fiber) void {
@@ -4789,7 +4959,10 @@ fn sleep(w: *Worker) void {
     w.idle.store(1, .seq_cst);
     defer w.idle.store(0, .seq_cst);
     sleepers.push(w);
-    if (stopping.load(.seq_cst) or (tears_down and exit_state.phase.load(.seq_cst) != .idle)) {
+    // PHASE-WIDE: off, it parks instead (`parkWorker`): listed before it
+    // reads `off`, as `setWorkers` marks it off before it looks at the
+    // sleepers.
+    if (stopping.load(.seq_cst) or w.off.load(.seq_cst) or (tears_down and exit_state.phase.load(.seq_cst) != .idle)) {
         if (!sleepers.remove(w)) waitWoken(w);
         return;
     }

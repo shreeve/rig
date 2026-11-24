@@ -11983,6 +11983,32 @@ pub fn fastCores() Int {
     return @intCast(n);
 }
 
+/// PHASE-WIDE (scratch): the hardware threads of the fast cores this
+/// process may run on, at least 1: each fast core's threads all count (on
+/// pup, 6 cores of 2 threads, 12). The logical CPUs allowed where the
+/// system names no fast set. Worked out at each call (`sched.widen`
+/// calls it once).
+pub fn fastThreads() Int {
+    if (builtin.os.tag == .linux) {
+        const linux = std.os.linux;
+        var allowed: CpuSet = .empty;
+        if (linux.errno(linux.sched_getaffinity(0, @sizeOf(@TypeOf(allowed.masks)), &allowed.masks)) != .SUCCESS) return 1;
+        var buffer: [512]u8 = undefined;
+        if ((LinuxCpuFiles{}).fast(&buffer)) |text| {
+            if (parseCpuList(text)) |fast_set| {
+                var fast = fast_set;
+                fast.setIntersection(allowed);
+                if (fast.count() > 0) return @intCast(fast.count());
+            }
+        } else |_| {}
+        return @intCast(@max(1, allowed.count()));
+    }
+    const logical = @max(1, std.Thread.getCpuCount() catch 1);
+    if (builtin.os.tag != .macos) return @intCast(logical);
+    const found = sysctlCount("hw.perflevel0.logicalcpu") orelse return @intCast(logical);
+    return @intCast(@max(1, @min(logical, found)));
+}
+
 /// The fast cores by the system's own account, within the logical CPUs
 /// this process may use; those logical CPUs when the system does not say.
 fn detectFastCores() usize {
