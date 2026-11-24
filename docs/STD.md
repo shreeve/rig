@@ -2958,6 +2958,56 @@ sub main()
 1 3 0
 ```
 
+A store may hold several Tables of one `n`, one for each kind of
+record kept per id. One Table gives the id, by `push`, and the others
+are written at it. A slot of any Table of `n` reads with no test, and
+since every slot exists from the start, no two Tables' lengths need to
+agree: a slot nothing wrote reads `T()`. The ids are objects with a
+slot field, so different kinds of id stay different types. A store
+that is done growing moves behind `*Frozen`, and tasks read it with no
+copy.
+
+```rig
+NODES = 1 << 27
+
+obj Node
+  id: Slot[NODES] = 0
+
+obj NodeRec
+  kind: U32 = 0
+
+obj NodeLoc
+  pos: I32 = 0
+
+obj Nodes
+  recs: Table[NodeRec, NODES]
+  locs: Table[NodeLoc, NODES]
+
+  fun add(!@, kind: U32, pos: I32) -> Node
+    s = !@recs.push(NodeRec(kind: kind))
+    @locs[s] = NodeLoc(pos: pos)
+    Node(id: s)
+
+sub main()
+  ns = Nodes(recs: Table(), locs: Table())
+  _ = !ns.add(0, -1)
+  a = !ns.add(7, 42)
+  nodes = *Frozen(<ns)
+  print(nodes.recs[a.id].kind, nodes.locs[a.id].pos, nodes.recs.len)
+```
+
+```output
+7 42 2
+```
+
+Keep one store per owner of many records, such as a parser or a
+program, not one per small unit such as each file: each Table touched
+takes at least a page of memory, so a store per file of a hundred
+records would hold far more memory than its records. A unit that
+needs its own records is a range of its owner's store. An id used on
+another store of the same `n` reads a record that exists there, never
+memory past its end, so the ids of one store belong with it.
+
 A count that only goes up needs no type of its own: `+%=` wraps
 rather than fails, and a 64-bit count that adds 1 cannot wrap in any
 program's life (2^63 additions take 292 years at one a nanosecond), so
