@@ -537,6 +537,88 @@ fail "keeps generic owned siblings are rejected", "12:3: `two` stores a view of 
 
   pass
 
+test "keeps generic implied owned body values", "1 0"
+  # Rule: a bound a signature implies counts as stated (SPEC, Bounds):
+  # `Bag[T]` needs `T: Owned`, so `move`'s `T` holds no view, and a `T`
+  # popped from `src` carries none of it, though `move` names no bound.
+
+  obj Bag[U: Owned]
+    x: U
+
+  sub move[T](b: (?Bag[T])?, dst: !List[T], src: !List[T])
+    x = !src.pop() ?? panic("empty")
+    !dst.push(<x)
+
+  a: List[String] = List()
+  b: List[String] = List()
+  !b.push(String("x"))
+  move(none, !a, !b)
+  print(a.len, b.len)
+
+fail "keeps generic owned instance with a view", "14:1: `move[?String]` cannot use `T = ?String`: `?String` may hold a view"
+  # Why: the body keeps no view through an `Owned` `T` only because no
+  # instance's `T` holds one: a `?String` is refused at the call that
+  # makes the instance.
+  # Rule: SPEC, Bounds: `Owned` holds no view.
+
+  sub move[T: Owned](dst: !List[T], src: !List[T])
+    x = !src.pop() ?? panic("empty")
+    !dst.push(<x)
+
+  s = String("x")
+  a: List[?String] = List()
+  b: List[?String] = List()
+  !b.push(?s)
+  move(!a, !b)
+  <s
+  print(a[0])
+
+fail "keeps generic owned API instance with a view", "8:5: `J` provides `Job`, which builds on `Owned`, but `J` may hold a view: its field `s` is a `?String`", "22:1: `mv[J]` cannot use `T = J`: `J` may hold a view"
+  # Why: a `T: Job` is `Owned` through the API, so an object holding a
+  # `?String` neither provides `Job` nor makes an instance.
+  # Rule: SPEC, Bounds: an API that builds on `Owned` gives it.
+
+  api Job: Owned
+    fun id(?@) -> Int
+
+  obj J: Job
+    s: ?String
+
+    fun id(?@) -> Int
+      @s.len
+
+  sub mv[T: Job](dst: !List[T], src: !List[T])
+    x = !src.pop() ?? panic("empty")
+    !dst.push(<x)
+
+  s = String("x")
+  a: List[J] = List()
+  b: List[J] = List()
+  !b.push(J(s: ?s))
+  mv(!a, !b)
+  <s
+  print(a[0].id())
+
+fail "keeps generic implied owned instance with a view", "16:1: `Bag[?String]` cannot use `U = ?String`: `?String` may hold a view", "16:1: `move[?String]` cannot use `T = ?String`: `?String` may hold a view"
+  # Why: `move`'s `T` is `Owned` because `Bag[T]` needs it, so a
+  # `?String` is refused at the call that makes the instance.
+  # Rule: SPEC, Bounds: a bound a signature implies counts as stated.
+
+  obj Bag[U: Owned]
+    x: U
+
+  sub move[T](b: (?Bag[T])?, dst: !List[T], src: !List[T])
+    x = !src.pop() ?? panic("empty")
+    !dst.push(<x)
+
+  s = String("x")
+  a: List[?String] = List()
+  b: List[?String] = List()
+  !b.push(?s)
+  move(none, !a, !b)
+  <s
+  print(a[0])
+
 fail "keeps generic param stored", "9:5: say so: `keeps x`"
   # Why: a generic `?T` parameter stored in self is a stored view
   # like any other; the body is checked once with `T` opaque.
