@@ -827,10 +827,18 @@ compiles with LLVM: all of them on the Mac, the optimized ones on Linux
   A helper that takes a lock, allocates, enters the scheduler, or reads
   a thread-local stays outside, and pays a check a signal left owed as
   it returns or at the fiber's next waiting point.
+  The runtime calls the program's own code, a task's function or an
+  actor's method run inline or from its mailbox, through `rt.callCode`,
+  a call never inlined into the runtime's function that lands in
+  `rig_text`, so a function Rig emits `inline` stays where a signal stops
+  it.
   `test/cli/preempt_section.sh` checks every call from `rig_text` to a
   function outside it against `test/cli/preempt_calls.txt`, which names
-  each one with its reason, and `test/cli/preempt_cover.sh` checks that
-  a 20 ms sleeper wakes within 25 ms beside a loop in each kind of code.
+  each one with its reason, and the converse: no function outside
+  `rig_text` holds a line of the program's own modules, unless that file
+  names it as a program or std function. `test/cli/preempt_cover.sh`
+  checks that a 20 ms sleeper wakes within 25 ms beside a loop in each
+  kind of code.
 
 Everywhere else the yield checks run: on other targets, in a debug
 build for Linux (Zig's own backend, which preemption does not support),
