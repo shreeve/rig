@@ -5,7 +5,8 @@
 # sleeps 20 ms beside a task that computes for 70 to 300 ms wakes
 # within 25 ms, in 20 runs of 20. The computation runs in a closure, a
 # sort's comparator, the integer sort's kernel (std/sort.zig), a Map's
-# hashing (the runtime's Zig), an iterator's `next`, an actor's method,
+# hashing (the runtime's Zig), an iterator's `next`, an actor's method
+# (run inline, and from its mailbox by the actor's runner),
 # a `par` element function, a `raw` block, a std function written in
 # Zig (`text.width`), and the runtime's helpers
 # the program's code calls: `%` and `/`, a comparison of text, a
@@ -102,6 +103,36 @@ fun cpu_actor() -> Int
   !a.run(N)
   a.get() + 1
 
+# An actor's method small enough that Rig emits it `inline`, called by a
+# task while the actor is busy: the call waits in the mailbox, and the
+# actor's runner runs it.
+obj Mix
+  total: Int
+
+  sub nap(!@)!
+    time.sleep(ms: 5)!
+
+  sub run(!@, n: Int)
+    for i in 0..n
+      @total = (@total +% i *% 7) & 1048575
+
+  fun get(?@) -> Int
+    @total
+
+fun nap_on(a: *Actor[Mix]) -> Int!
+  !a.nap()!
+  1
+
+fun run_on(a: *Actor[Mix]) -> Int
+  !a.run(N * 4)
+  a.get() + 1
+
+fun cpu_mailbox() -> Int
+  a = *Actor(Mix(total: 0))
+  napping = nap_on(+a)&
+  queued = run_on(+a)&
+  (>napping catch 0) + >queued
+
 fun heavy(n: Int) -> Int
   s = 0
   for i in 0..n
@@ -183,6 +214,7 @@ fun run(which: ?Static) -> Int
   return cpu_map() if which == "map"
   return cpu_iter() if which == "iter"
   return cpu_actor() if which == "actor"
+  return cpu_mailbox() if which == "mailbox"
   return cpu_par() if which == "par"
   return cpu_raw() if which == "raw"
   return cpu_zig() if which == "zig"
@@ -228,7 +260,7 @@ where() {
 # the suite's load alone can delay a sleeper; the second run names where
 # its declined signals were. PREEMPT_COVER_STRICT=1, the quiet gate
 # before a release, takes no second run.
-kinds="closure sort intsort map iter actor par raw zig divrem strcmp hash slice"
+kinds="closure sort intsort map iter actor mailbox par raw zig divrem strcmp hash slice"
 "$RIG" build --release -o cover cover.rig >build.txt 2>&1 || fail "build cover.rig: $(cat build.txt)"
 for k in $kinds; do
     for i in $(seq 1 20); do
