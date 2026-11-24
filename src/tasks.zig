@@ -2628,17 +2628,17 @@ pub fn Actor(comptime T: type) type {
         }
 
         /// Run method `name` on the value with `args`: through its
-        /// address, or on a copy for a method that takes the value. The
-        /// method is the program's code, called through `rt.callCode`, so
-        /// a method emitted `inline` stays in the program's section, where
-        /// a signal stops it, and is never inlined into a runtime function
-        /// that reaches it: the mailbox's `Call.run`, `actorCall`, or a
-        /// runner.
+        /// address, or on a copy for a method that takes the value. A
+        /// method Rig emits `inline` is inlined here, so every function
+        /// that calls `invoke` lies in the program's section (`callAs`,
+        /// `actorCall`, the mailbox's `Call.run`, `actorSpawn`'s `Run`),
+        /// where a signal stops the method as it stops the program's
+        /// own code.
         fn invoke(self: *Self, comptime name: []const u8, args: anytype) Result(name) {
             const method = @field(T, name);
-            const info = @typeInfo(@TypeOf(method)).@"fn";
-            const at = if (@typeInfo(info.param_types[0].?) == .pointer) &self.value else self.value;
-            return rt.callCode(info.return_type.?, method, .{at} ++ args);
+            const SelfParam = @typeInfo(@TypeOf(method)).@"fn".param_types[0].?;
+            const at = if (@typeInfo(SelfParam) == .pointer) &self.value else self.value;
+            return @call(.auto, method, .{at} ++ args);
         }
 
         /// Call method `name` through handle `box` and wait for its
@@ -2661,7 +2661,7 @@ pub fn Actor(comptime T: type) type {
         /// `call`, for a call made with `&` (`slotted`) that holds a slot
         /// of the mailbox, which it gives back once it is answered, run
         /// inline, withdrawn, or refused by a dead actor.
-        fn callAs(box: *rt.Shared(Self), comptime name: []const u8, args: anytype, comptime slotted: bool, comptime depth: u64) Result(name) {
+        fn callAs(box: *rt.Shared(Self), comptime name: []const u8, args: anytype, comptime slotted: bool, comptime depth: u64) linksection(rt.preempt_section) Result(name) {
             const R = Result(name);
             const self = &box.value;
             const fallible = @typeInfo(R) == .error_union;
@@ -2688,7 +2688,7 @@ pub fn Actor(comptime T: type) type {
                 args: @TypeOf(args),
                 result: R = undefined,
 
-                fn run(m: *Message) void {
+                fn run(m: *Message) linksection(rt.preempt_section) void {
                     const c: *@This() = @fieldParentPtr("msg", m);
                     c.result = c.actor.invoke(name, c.args);
                 }
@@ -3038,7 +3038,7 @@ fn BoxOf(comptime H: type) type {
 }
 
 /// `c.m(args)` through an actor handle (`Actor.call`).
-pub fn actorCall(handle: anytype, comptime name: []const u8, args: anytype, comptime depth: u64) ActorResult(@TypeOf(handle), name) {
+pub fn actorCall(handle: anytype, comptime name: []const u8, args: anytype, comptime depth: u64) linksection(rt.preempt_section) ActorResult(@TypeOf(handle), name) {
     const box = boxOf(handle);
     return @TypeOf(box.value).call(box, name, args, depth);
 }
@@ -3060,14 +3060,14 @@ pub fn actorSpawn(handle: anytype, comptime name: []const u8, args: anytype, com
     const A = @TypeOf(self.*);
     self.takeSlot();
     const Run = struct {
-        fn run(b: @TypeOf(box), a: @TypeOf(args)) R {
+        fn run(b: @TypeOf(box), a: @TypeOf(args)) linksection(rt.preempt_section) R {
             defer b.dropStrong();
             return A.callAs(b, name, a, true, depth);
         }
 
         /// `run` of a method that may fail with fields: it is given the
         /// task's slot, last.
-        fn runInto(b: @TypeOf(box), a: @TypeOf(args), slot: rt.ErrSlot) R {
+        fn runInto(b: @TypeOf(box), a: @TypeOf(args), slot: rt.ErrSlot) linksection(rt.preempt_section) R {
             defer b.dropStrong();
             return A.callAs(b, name, a ++ .{slot}, true, depth);
         }

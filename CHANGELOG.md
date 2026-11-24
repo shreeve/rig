@@ -1090,9 +1090,10 @@ arms.
 ### Runtime
 
 - **An actor's method run from its mailbox is stopped by a signal:** the
-  runtime calls a method through `rt.callCode`, as it calls a task's
-  function. A method small enough that Rig emits it `inline` was inlined
-  into the mailbox's `Call.run`, outside the program's section, where a
+  runtime's functions that run a method (`callAs`, `actorCall`, the
+  mailbox's `Call.run`, and `actorSpawn`'s task) lie in the program's
+  section. A method small enough that Rig emits it `inline` was inlined
+  into the mailbox's `Call.run`, outside that section, where a
   preemption signal is declined, so a long method a busy actor's runner
   ran held its worker past every timer: a 20 ms sleeper beside one woke
   after 41 to 54 ms. `test/cli/preempt_cover.sh` checks the mailbox
