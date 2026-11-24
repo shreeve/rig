@@ -6474,9 +6474,9 @@ pub fn len(n: usize) Int {
     return @bitCast(@as(u64, n));
 }
 
-/// `x.len` of a List, a slice, or an array (or a pointer to one) as a
-/// Rig `Int`. A List's and a slice's length is at most `max_len` by
-/// construction (`heldLen`), so the read tests nothing; the test stays
+/// `x.len` of a List, a Table, a slice, or an array (or a pointer to one)
+/// as a Rig `Int`. A List's, a Table's, and a slice's length is at most
+/// `max_len` by construction (`heldLen`), so the read tests nothing; the test stays
 /// only for a slice of zero-bit elements, which no memory bounds, and
 /// for an array, whose length is known at compile time and folds.
 pub inline fn lenOf(x: anytype) Int {
@@ -6485,8 +6485,9 @@ pub inline fn lenOf(x: anytype) Int {
     return len(n);
 }
 
-/// Whether a length of `P`, a List, a slice, or a pointer to one, is at
-/// most `max_len` by construction.
+/// Whether a length of `P`, a List, a Table, a slice, or a pointer to
+/// one, is at most `max_len` by construction. A Table's is at most its
+/// `n` slots, as only its pushes raise it, each up to `n`.
 fn lenHeld(comptime P: type) bool {
     const T = switch (@typeInfo(P)) {
         .pointer => |p| if (p.size == .one) p.child else P,
@@ -6494,7 +6495,7 @@ fn lenHeld(comptime P: type) bool {
     };
     return switch (@typeInfo(T)) {
         .pointer => |p| p.size == .slice and @sizeOf(p.child) > 0,
-        .@"struct" => @hasDecl(T, "__rig_list"),
+        .@"struct" => @hasDecl(T, "__rig_list") or (@hasDecl(T, "__rig_table") and T.__rig_args[1] <= max_len),
         else => false,
     };
 }
@@ -6505,6 +6506,7 @@ fn lenHeld(comptime P: type) bool {
 /// bytes (a 64-bit one at most `2^57`); `allocSlice` and `reallocSlice`
 /// refuse a longer one all the same. A List of zero-bit elements, which
 /// takes no memory, stops at `max_len` where it grows (`ListOf.growBy`).
+/// A Table's length is at most its `n` slots, `n` at most `max_len`.
 /// Debug builds verify it; an optimized build states it to the
 /// optimizer, so the length read as an `Int` is known non-negative: past
 /// a test `i < n` of that length, `heldOffset`'s one unsigned compare
@@ -10629,6 +10631,12 @@ test "textOrder: as std.mem.order at every length to 40, a difference at every b
             b[k] = a[k];
         };
     };
+}
+
+test "lenHeld: a Table's length, at most its slots, is held as a List's is" {
+    try std.testing.expect(comptime lenHeld(Table(u32, 64)));
+    try std.testing.expect(comptime lenHeld(*const Table(u32, 1 << 27)));
+    try std.testing.expect(comptime !lenHeld(u64));
 }
 
 test "prefetch: any index, in range or not" {
