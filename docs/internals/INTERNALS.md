@@ -6047,7 +6047,8 @@ trace.
 The traced operations: `has`, `get`, and `edit` are lookups; `put`,
 `replace`, `put_new`, the three `ensure`s, and a Set's `add` are puts;
 then `take`, `clear`, a `grow` (an index built anew, by a write or a
-`reserve`), and `retain`. A Map gets its id, from 1,
+`reserve`), `retain`, an `iter` (a walk started by `items`, `keys`,
+`values`, or `update`, with the length then), and an `at`. A Map gets its id, from 1,
 with a `new` record, before its first traced operation; the id is
 stored in the Map, so it follows the Map as it moves. A Map only read
 so far, through a read-only pointer, is known by its address until its
@@ -6056,14 +6057,17 @@ id writes a `drop` record.
 
 The program writes the records to `$RIG_MAP_TRACE_FILE` (default
 `rig-map-trace.bin`) through a buffer of 1 MiB, flushed when full and
-by `finish`, and a line `id<TAB>K<TAB>V<TAB>Map` (V is `-` for a Set)
-for each new id to the file of that name and `.types`. One lock guards
+by `finish`, and a line `id<TAB>K<TAB>V<TAB>Map<TAB>0xSITE` (V is `-`
+for a Set) for each new id to the file of that name and `.types`, SITE
+the return address of the `mapTraceSee` call that first saw the Map, in
+the function whose operation it was (`llvm-symbolizer --inlining`
+names it). One lock guards
 both, taken for each record. A record is 48 bytes, little-endian:
 
 | Bytes | Field |
 |---|---|
-| 0 | the op in bits 0-2 (0 get, 1 put, 2 remove, 3 clear, 4 new, 5 drop, 6 grow, 7 retain), and bits 0-4 of the thread in bits 3-7 |
-| 1 | the hit in bit 0 (a lookup or a take found its key; a put found it there), and bits 5-11 of the thread in bits 1-7 |
+| 0 | bits 0-2 of the op in bits 0-2 (0 get, 1 put, 2 remove, 3 clear, 4 new, 5 drop, 6 grow, 7 retain, 8 iter, 9 at), and bits 0-4 of the thread in bits 3-7 |
+| 1 | the hit in bit 0 (a lookup or a take found its key; a put found it there), bits 5-10 of the thread in bits 1-6, and bit 3 of the op in bit 7 |
 | 2-3 | the key's width in bytes, 65535 for any wider |
 | 4-7 | the Map's id |
 | 8-11 | the size of `V` in bytes (0 for a Set, and in a `drop` record) |
