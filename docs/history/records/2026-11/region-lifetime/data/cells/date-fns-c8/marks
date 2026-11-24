@@ -1,0 +1,7 @@
+events 5128961
+walk	first 1547607 (tid 40957)	last 1570035 (tid 40957)	made 11662
+loader	first 339417 (tid 40961)	last 1570818 (tid 40957)	made 53229
+bindfit	first 1579749 (tid 40961)	last 1814515 (tid 40956)	made 13034
+bind	first 1579396 (tid 40957)	last 1815555 (tid 40958)	made 90241
+checker	first 1828931 (tid 40957)	last 4939801 (tid 40959)	made 1107703
+papf	first 339333 (tid 40961)	last 1573867 (tid 40957)	made 8063

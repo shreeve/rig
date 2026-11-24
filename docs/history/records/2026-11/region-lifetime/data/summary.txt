@@ -1,0 +1,15 @@
+MiB. save = M peak - arm peak (model, small pages + live large). page: whole 64 KiB pages, pool pages given back; keep: pool kept resident; touch: carved bytes to 4 KiB.
+RSS: median of 3, burst, 6-core sets; tsrs exact (--checkerAssignment go --noLazyMembers). ratio = (Trig - save)/tsrs.
+cell           trig   tsrs  M_fb |   I_pg I_keep  I_tch  Mp_pg |   P_pg  P_tch  Pm_pg |  I2_pg  P2_pg | r_now r_Ipg r_Itc r_Ppg  r_Mp
+typeorm-c1    221.0  191.6  2.09 |   1.75   1.75   1.53   0.50 |  -3.88  -2.31  -1.44 |   1.75  -2.31 | 1.153 1.144 1.145 1.174 1.151
+typeorm-c4    240.9  224.5  5.69 |  -7.53  -8.28   5.85   4.88 | -16.12  -5.91  -6.69 |  -7.53 -12.34 | 1.073 1.107 1.047 1.145 1.051
+typeorm-c8    285.6  235.6 15.16 |   0.53  -0.72   9.59   2.69 | -19.88  -9.03  -9.19 |   0.53 -19.50 | 1.212 1.210 1.172 1.297 1.201
+date-fns-c1   159.7  140.8  1.32 |   1.25   0.94   1.05   0.31 |  -3.44  -2.05  -1.44 |   1.25  -3.38 | 1.134 1.125 1.126 1.158 1.132
+date-fns-c4   200.2  161.8  3.89 |  -8.16 -12.06   3.40   1.56 | -13.22  -2.48  -3.53 |  -8.16  -9.97 | 1.238 1.288 1.217 1.319 1.228
+date-fns-c8   217.5  178.5  3.76 | -10.87 -11.68   3.65   3.88 | -19.06  -6.74  -8.00 | -10.87 -17.69 | 1.219 1.280 1.198 1.325 1.197
+Compiler-c1    73.2   51.0  0.44 |  -1.37  -1.37   0.21   0.38 |  -2.94  -0.24  -2.88 |  -1.37  -3.25 | 1.435 1.462 1.431 1.492 1.427
+Compiler-c4   119.2   68.0  1.18 |   0.63  -2.10   1.13   5.84 |  -6.54   0.48  -4.79 |   0.63  -8.60 | 1.753 1.744 1.736 1.849 1.667
+Compiler-c8   128.4   75.6  1.12 |   1.44  -1.79   0.93   3.24 |  -8.76  -0.30  -7.70 |   1.44 -14.01 | 1.698 1.679 1.686 1.814 1.655
+
+tsrs default (no flags) medians: typeorm c1 190.8, typeorm c4 225.5, typeorm c8 235.2, date-fns c1 142.6, date-fns c4 160.0, date-fns c8 175.3, Compiler c1 51.1, Compiler c4 66.3, Compiler c8 76.2
+I at typeorm c4: page -7.53, touch 5.85 MiB = -3.1% / 2.4% of Trig peak RSS 240.9 (stop rule 3%)

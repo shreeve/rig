@@ -1,0 +1,30 @@
+# ref peak (M's F-peak) event 68767; live peak event 68940; load_start 6207 load_end 68921 load_end2 84231; heaps 6
+# arm	trim_peak_MiB	trim_ev	save_trim_MiB	keep_peak_MiB	keep_ev	save_keep_MiB	trim_at_ref	keep_at_ref	freeblk_at_live_peak_MiB
+M	61.12	68767	0.00	61.12	68767	0.00	61.12	61.12	1.18
+Mp	55.28	703925	5.84	56.24	68959	4.88	54.49	56.18	0.72
+I	60.49	67141	0.63	63.22	67846	-2.10	54.24	63.18	0.02
+P	67.65	703925	-6.54	68.59	703925	-7.47	56.80	58.49	0.86
+Pm	65.90	703925	-4.79	66.65	703925	-5.54	56.80	58.49	0.83
+I2	60.49	67141	0.63	63.22	67846	-2.10	54.24	63.18	0.02
+P2	69.72	706857	-8.60	70.34	703925	-9.22	56.80	58.49	0.83
+Pm2	67.40	706818	-6.29	68.15	703925	-7.04	56.80	58.49	0.83
+# touch: small bytes counted as each page's carved bytes rounded up to 4 KiB (no prefault; pool pages given back)
+# arm	touch_peak_MiB	touch_ev	save_touch_MiB
+M	41.47	68767	0.00
+Mp	40.77	67850	0.70
+I	40.34	67850	1.13
+P	41.00	68959	0.48
+Pm	40.97	67850	0.51
+I2	40.34	67850	1.13
+P2	40.97	67850	0.51
+Pm2	40.97	67850	0.51
+# F (trim) at key events: load_start 6207, load_end 68921, load_end2 84231, ref 68767, live_peak 68940
+# arm	at_ls	at_le	at_le2	at_ref	at_livepeak
+M	3.44	61.12	52.47	61.12	61.12
+Mp	2.50	54.55	49.22	54.49	54.49
+I	2.50	54.30	49.16	54.24	54.24
+P	2.56	56.87	60.47	56.80	57.05
+Pm	2.56	56.87	57.09	56.80	56.80
+I2	2.50	54.30	49.16	54.24	54.24
+P2	2.56	56.87	51.53	56.80	56.80
+Pm2	2.56	56.87	51.53	56.80	56.80
