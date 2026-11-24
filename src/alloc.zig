@@ -5291,7 +5291,7 @@ pub const heap_census = struct {
     }
 
     fn kib(text: []const u8) usize {
-        var words = std.mem.tokenizeScalar(u8, text, ' ');
+        var words = std.mem.tokenizeAny(u8, text, " \t");
         const w = words.next() orelse return 0;
         return (std.fmt.parseInt(usize, w, 10) catch 0) * 1024;
     }
