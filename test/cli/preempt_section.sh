@@ -207,6 +207,9 @@ for sect in texts:
         if m: fn = name(m.group(1)); continue
         m = re.search(r"(/[^ ]*\.zig):[0-9]+", line)
         if not m or fn is None or runtime.search(line) or zig.search(line): continue
+        # The program's Zig entry, which only moves to its own stack and
+        # calls `__rig_run_main`, in the section, stays out.
+        if fn == "__rig_main.main": continue
         if not any(fnmatch.fnmatchcase(fn, a) for a in allowed): bad.add(fn)
 print("\n".join(sorted(bad)))
 sys.exit(1 if bad else 0)
