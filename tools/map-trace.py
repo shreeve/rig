@@ -7,8 +7,8 @@ lookups and writes, and histograms of key width and length after each op.
 A record is 48 bytes, little-endian (docs/internals/INTERNALS.md, "The
 Map trace"):
 
-    0   u8   op in bits 0-2, thread bits 0-4 in bits 3-7
-    1   u8   hit in bit 0, thread bits 5-11 in bits 1-7
+    0   u8   op bits 0-2 in bits 0-2, thread bits 0-4 in bits 3-7
+    1   u8   hit in bit 0, thread bits 5-10 in bits 1-6, op bit 3 in bit 7
     2   u16  key width in bytes (65535 for any wider)
     4   u32  map id, from 1 in the order the trace first saw each
     8   u32  the value's size in bytes (0 for a Set)
@@ -22,7 +22,7 @@ import struct
 import sys
 from collections import Counter, defaultdict
 
-OPS = ["get", "put", "remove", "clear", "new", "drop", "grow", "retain"]
+OPS = ["get", "put", "remove", "clear", "new", "drop", "grow", "retain", "iter", "at"]
 RECORD = struct.Struct("<BBHIIIQ24s")
 
 
@@ -34,8 +34,8 @@ def records(path):
     for fields in RECORD.iter_unpack(data):
         op_byte, hit_byte, width, map_id, value_bytes, length, h, head = fields
         yield {
-            "op": OPS[op_byte & 7],
-            "thread": (op_byte >> 3) | ((hit_byte >> 1) << 5),
+            "op": OPS[(op_byte & 7) | ((hit_byte >> 7) << 3)],
+            "thread": (op_byte >> 3) | (((hit_byte >> 1) & 0x3F) << 5),
             "hit": bool(hit_byte & 1),
             "width": width,
             "id": map_id,
@@ -51,7 +51,7 @@ def types(path):
     try:
         with open(path) as f:
             for line in f:
-                map_id, k, v, kind = line.rstrip("\n").split("\t")
+                map_id, k, v, kind = line.rstrip("\n").split("\t")[:4]
                 names[int(map_id)] = (k, v, kind)
     except FileNotFoundError:
         pass

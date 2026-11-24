@@ -19,6 +19,10 @@ sub main()
   print(m.get("a") ?? 0)
   print((!m).take("a") ?? 0)
   !m.put(String("abcdefghijklmnopqrstuvwxyz0123"), 3)
+  n = 0
+  for _ in ?m.items()
+    n += 1
+  print(n)
   !m.clear()
   s: Set[Int] = Set()
   for i in 0..20
@@ -34,7 +38,7 @@ for mode in "" "--release"; do
   rm -f trace.bin trace.bin.types
   out=$(RIG_MAP_TRACE=1 rig build $mode -o ops ops.rig 2>&1); expect_rc $? 0 "rig build $mode ops.rig: $out"
   out=$(RIG_MAP_TRACE_FILE=trace.bin ./ops 2>&1); expect_rc $? 0 "./ops ($mode): $out"
-  expect_eq "$out" $'false\n2\n2\n4000 20' "the program runs as it would ($mode)"
+  expect_eq "$out" $'false\n2\n2\n1\n4000 20' "the program runs as it would ($mode)"
   out=$(python3 - trace.bin <<'PY' 2>&1
 import struct, sys
 from collections import Counter
@@ -42,11 +46,12 @@ path = sys.argv[1]
 data = open(path, "rb").read()
 assert len(data) % 48 == 0, len(data)
 recs = [struct.unpack("<BBHIIIQ24s", data[i:i + 48]) for i in range(0, len(data), 48)]
-types = dict((int(l.split("\t")[0]), l.rstrip("\n").split("\t")[1:]) for l in open(path + ".types"))
-ops = ["get", "put", "remove", "clear", "new", "drop", "grow", "retain"]
+types = dict((int(l.split("\t")[0]), l.rstrip("\n").split("\t")[1:4]) for l in open(path + ".types"))
+assert all(l.rstrip("\n").split("\t")[4].startswith("0x") for l in open(path + ".types"))
+ops = ["get", "put", "remove", "clear", "new", "drop", "grow", "retain", "iter", "at"]
 def rec(r):
     op, hit, width, mid, vb, ln, h, head = r
-    return ops[op & 7], hit & 1, width, mid, vb, ln, h, head[:min(width, 24)]
+    return ops[(op & 7) | ((hit >> 7) << 3)], hit & 1, width, mid, vb, ln, h, head[:min(width, 24)]
 rs = [rec(r) for r in recs]
 text = [r for r in rs if types[r[3]] == ["String", "Int", "Map"]]
 assert [(r[0], r[1], r[2], r[4], r[5], r[7]) for r in text] == [
@@ -57,6 +62,7 @@ assert [(r[0], r[1], r[2], r[4], r[5], r[7]) for r in text] == [
     ("get", 1, 1, 8, 1, b"a"),
     ("remove", 1, 1, 8, 0, b"a"),
     ("put", 0, 30, 8, 1, b"abcdefghijklmnopqrstuvwx"),
+    ("iter", 0, 0, 8, 1, b""),
     ("clear", 0, 0, 8, 0, b""),
     ("drop", 0, 0, 0, 0, b""),
 ], text
@@ -73,7 +79,7 @@ for i in ints:
     c = Counter(r[0] for r in rs if r[3] == i)
     assert c["new"] == 1 and c["put"] == 1000 and c["drop"] == 1 and c["grow"] >= 1, (i, c)
     assert [r[5] for r in rs if r[3] == i and r[0] == "put"] == list(range(1, 1001)), "every put of each task's Map is there, in order"
-threads = Counter((r[0] >> 3) | ((r[1] >> 1) << 5) for r in recs)
+threads = Counter((r[0] >> 3) | (((r[1] >> 1) & 0x3F) << 5) for r in recs)
 assert 0 in threads, threads
 print("ok", len(recs))
 PY
@@ -95,7 +101,7 @@ mv prog plain
 cp out/__rig_main.zig plain.zig && cp out/__rig_std_prelude.zig plain_builtin.zig
 RIG_MAP_TRACE=0 RIG_OUT_DIR=$PWD/out "$RIG" build --release -o prog ops.rig >/dev/null 2>&1 || fail "RIG_MAP_TRACE=0 rig build ops.rig"
 mv prog zero
-out=$(./plain 2>&1); expect_eq "$out" $'false\n2\n2\n4000 20' "the plain program runs"
+out=$(./plain 2>&1); expect_eq "$out" $'false\n2\n2\n1\n4000 20' "the plain program runs"
 [[ -e rig-map-trace.bin ]] && fail "a program built without RIG_MAP_TRACE writes no trace"
 grep -q "__rig_map_trace" plain.zig && fail "the root module declares no trace"
 grep -q "__rig_trace\|mapTrace" plain_builtin.zig && fail "the built-in Map has no trace without the flag"

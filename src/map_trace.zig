@@ -47,6 +47,11 @@ const map_methods = [_]Method{
     .{ .name = "clear", .arity = 1, .op = "clear" },
     .{ .name = "reserve", .arity = 2, .op = "reserve" },
     .{ .name = "retain", .arity = 2, .op = "retain" },
+    .{ .name = "at", .arity = 2, .op = "at", .hit = found },
+    .{ .name = "items", .arity = 1, .op = "iter" },
+    .{ .name = "keys", .arity = 1, .op = "iter" },
+    .{ .name = "values", .arity = 1, .op = "iter" },
+    .{ .name = "update", .arity = 2, .op = "iter" },
 };
 
 const set_methods = [_]Method{
@@ -56,6 +61,7 @@ const set_methods = [_]Method{
     .{ .name = "clear", .arity = 1, .op = "clear" },
     .{ .name = "reserve", .arity = 2, .op = "reserve" },
     .{ .name = "retain", .arity = 2, .op = "retain" },
+    .{ .name = "items", .arity = 1, .op = "iter" },
 };
 
 const Traced = struct {

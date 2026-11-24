@@ -7137,8 +7137,9 @@ const profile_lock = split.cell(&profile_lock_var, "runtime.profile_lock");
 /// `edit`), a write that may insert (`put`, `replace`, `put_new`, the
 /// `ensure`s, a Set's `add`), a `take`, a `clear`, a Map or Set the
 /// trace first sees, one dropped, its table built anew (`grow`, on a
-/// growth or a `reserve`), and a `retain`.
-pub const MapOp = enum(u3) { get, put, remove, clear, new, drop, grow, retain };
+/// growth or a `reserve`), a `retain`, a walk started (`iter`: `items`,
+/// `keys`, `values`, `update`), and an `at`.
+pub const MapOp = enum(u4) { get, put, remove, clear, new, drop, grow, retain, iter, at };
 
 /// The key a record names: its hash, its width in bytes, and its first
 /// 24 bytes.
@@ -7221,11 +7222,11 @@ pub fn MapTraceResult(comptime f: anytype) type {
 /// its id, with a `new` record, before its first operation is done. One
 /// only read so far (`self` read-only) is known by its address until a
 /// write stores the id in it.
-pub fn mapTraceSee(comptime K: type, comptime V: type, self: anytype) void {
+pub noinline fn mapTraceSee(comptime K: type, comptime V: type, self: anytype) void {
     if (self.__rig_trace != 0) return;
     map_tracer.lock();
     defer map_tracer.unlock();
-    _ = map_tracer.idOf(K, V, self);
+    _ = map_tracer.idOf(K, V, self, @returnAddress());
 }
 
 /// Record operation `op` on the Map or Set `self` points to, of keys `K`
@@ -7234,7 +7235,7 @@ pub fn mapTraceSee(comptime K: type, comptime V: type, self: anytype) void {
 pub fn mapTraceOp(comptime K: type, comptime V: type, self: anytype, op: MapOp, key: MapTraceKey, hit: bool, extra: u64) void {
     map_tracer.lock();
     defer map_tracer.unlock();
-    const id = map_tracer.idOf(K, V, self);
+    const id = map_tracer.idOf(K, V, self, 0);
     map_tracer.record(op, hit, key, id, if (V == void) 0 else @sizeOf(V), self.len, extra);
 }
 
@@ -7298,8 +7299,10 @@ const MapTracer = struct {
     }
 
     /// The id of the Map `self` points to, given at its first record,
-    /// with a `new` record and a line of `.types`.
-    fn idOf(self: *MapTracer, comptime K: type, comptime V: type, map: anytype) u32 {
+    /// with a `new` record and a line of `.types`, which ends with
+    /// `site`: the return address of `mapTraceSee`'s call, in the
+    /// function whose traced operation first saw the Map.
+    fn idOf(self: *MapTracer, comptime K: type, comptime V: type, map: anytype, site: usize) u32 {
         if (map.__rig_trace != 0) return map.__rig_trace;
         const writable = !@typeInfo(@TypeOf(map)).pointer.attrs.@"const";
         const addr = @intFromPtr(map);
@@ -7307,7 +7310,7 @@ const MapTracer = struct {
             self.last_id += 1;
             const id = self.last_id;
             if (!writable) self.read_only.put(std.heap.smp_allocator, addr, id) catch oom();
-            if (self.types) |*w| w.interface.print("{d}\t{s}\t{s}\t{s}\n", .{ id, comptime traceName(K), if (V == void) "-" else comptime traceName(V), if (V == void) "Set" else "Map" }) catch |err| self.fail("the .types file", err);
+            if (self.types) |*w| w.interface.print("{d}\t{s}\t{s}\t{s}\t0x{x}\n", .{ id, comptime traceName(K), if (V == void) "-" else comptime traceName(V), if (V == void) "Set" else "Map", site }) catch |err| self.fail("the .types file", err);
             self.record(.new, false, .{}, id, if (V == void) 0 else @sizeOf(V), map.len, 0);
             break :blk id;
         };
@@ -7330,8 +7333,9 @@ const MapTracer = struct {
         }
         const t = thread().* - 1;
         var rec: [48]u8 = undefined;
-        rec[0] = @as(u8, @intFromEnum(op)) | @as(u8, @truncate(t << 3));
-        rec[1] = @as(u8, @intFromBool(hit)) | @as(u8, @truncate((t >> 5) << 1));
+        const o: u8 = @intFromEnum(op);
+        rec[0] = (o & 7) | @as(u8, @truncate(t << 3));
+        rec[1] = @as(u8, @intFromBool(hit)) | (@as(u8, @truncate(t >> 5)) & 0x3F) << 1 | (o >> 3) << 7;
         std.mem.writeInt(u16, rec[2..4], std.math.cast(u16, key.width) orelse std.math.maxInt(u16), .little);
         std.mem.writeInt(u32, rec[4..8], id, .little);
         std.mem.writeInt(u32, rec[8..12], std.math.cast(u32, value_bytes) orelse std.math.maxInt(u32), .little);
