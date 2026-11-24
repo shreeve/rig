@@ -1,12 +1,14 @@
 //! replay.zig's `table` for `zig-ordered`: bench/hash/ordered.zig (the
 //! module `ordered`), the design Rig's Map is built on, on Rig's hashes
-//! and libc's malloc. It has no clear of its own: a clear drops the map
+//! and allocator. It has no clear of its own: a clear drops the map
 //! and starts an empty one.
 const std = @import("std");
 const ordered = @import("ordered");
 const Ctx = @import("ctx.zig").Ctx;
 
-pub const allocator = std.heap.c_allocator;
+/// Rig's release allocator (src/alloc.zig, the module `alloc`), as the
+/// built-in Map allocates from in a release build.
+pub const allocator = @import("alloc").allocator;
 
 pub fn Map(comptime K: type, comptime V: type) type {
     return struct {
