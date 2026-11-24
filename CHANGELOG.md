@@ -1049,6 +1049,11 @@ arms.
 
 ### Docs
 
+- STD's "Table and Slot" teaches a store of several Tables of one `n`:
+  one Table gives each id by `push` and the others are written at it,
+  a slot of any of them reads with no test, and their lengths need not
+  agree. It keeps one store per owner of many records, not one per
+  file, since each Table touched takes at least a page.
 - Places and views replace lend and loan. A sigil on a place (a
   variable, a field, or an element) makes a read view or a write view;
   any view leaves its place read-only until its last use, and a write
