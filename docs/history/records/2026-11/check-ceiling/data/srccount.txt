@@ -1,0 +1,20 @@
+| check | parser.zig | lexer.zig | ast.zig |
+|---|---:|---:|---:|
+| List index, unproven (.at/.slot/.constSlot) | 22 | 3 | 714 |
+| List index, one test left (*Proven .lower/.upper) | 35 | 12 | 87 |
+| List index, proven (*Proven .both) | 20 | 4 | 21 |
+| List index, under a flag (*If) | 9 | 6 | 446 |
+| String/slice index, unproven (rig.at/elemPtr) | 12 | 68 | 38 |
+| String/slice index, partly or fully proven (rig.atProven) | 21 | 9 | 9 |
+| String/slice index, under a flag (rig.atIf) | 1 | 6 | 0 |
+| Array index (rig.indexBelow) | 0 | 12 | 80 |
+| Slice s[a..b] (rig.slice) | 68 | 56 | 34 |
+| Byte read/write (rig.readInt etc.) | 0 | 8 | 4 |
+| Narrowing conversion (@intCast to a narrower or unsigned type) | 14 | 16 | 192 |
+| Int + (overflow-checked by Zig) | 45 | 65 | 226 |
+| Int -  | 35 | 102 | 62 |
+| Int *  | 1 | 4 | 25 |
+| += / -= / *= | 44 | 229 | 100 |
+| + proven no overflow (rig.addProven) | 15 | 42 | 8 |
+| + under a flag (rig.addIf) | 0 | 4 | 292 |
+| / and % (divide by zero / overflow) | 9 | 0 | 14 |

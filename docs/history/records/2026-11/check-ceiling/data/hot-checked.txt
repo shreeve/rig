@@ -1,0 +1,20 @@
+  362  7.62% lexer.Scanner.scan                                           ins    239 br    36 panic     7  indexPanic 5, slicePanic 2
+  149  3.14% parser.Parser.create_identifier_with_diagnostic              ins    614 br   100 panic    30  integerOutOfBounds 11, indexPanic 8, slicePanic 6, integerOverflow 4, outOfBounds 1
+  101  2.13% ast.Ast.set_parent_of_children                               ins   2491 br   525 panic   338  indexPanic 338
+   74  1.56% lexer.text_to_keyword                                        ins     59 br    11 panic     0  
+   69  1.45% lexer.Scanner.scan_comment                                   ins    677 br   144 panic    28  integerOverflow 10, indexPanic 10, bytesPanic 4, shiftPanic 2, slicePanic 2
+   63  1.33% ast.Names.intern_hashed                                      ins    997 br   192 panic    26  indexPanic 13, integerOutOfBounds 7, slicePanic 3, integerOverflow 2, outOfBounds 1
+   44  0.93% ast.Binding.index_flow_runs                                  ins    453 br    85 panic    24  indexPanic 17, integerOutOfBounds 3, integerOverflow 3, slicePanic 1
+   43  0.91% parser.Parser.finish_source_file_worker                      ins   2388 br   436 panic   188  indexPanic 121, integerOutOfBounds 27, integerOverflow 15, slicePanic 11, oom 7
+   41  0.86% lexer.Scanner.scan_js_doc_token                              ins    530 br    93 panic    18  indexPanic 14, integerOverflow 4
+   33  0.69% parser.Parser.parse_literal_expression                       ins   1687 br   276 panic    76  integerOutOfBounds 39, indexPanic 15, integerOverflow 9, slicePanic 8, outOfBounds 5
+   33  0.69% ast.Binding.table_put                                        ins    549 br    70 panic    16  indexPanic 8, integerOverflow 5, integerOutOfBounds 3
+   30  0.63% parser.Parser.parse_delimited_list_opt                       ins    261 br    44 panic    13  integerOutOfBounds 8, integerOverflow 2, indexPanic 2, slicePanic 1
+   27  0.57% ast.Ast.get_module_instance_state_cached                     ins    826 br   153 panic    54  indexPanic 45, integerOverflow 6, slicePanic 3
+   25  0.53% parser.Parser.parse_statement                                ins   4246 br   564 panic   187  integerOutOfBounds 120, indexPanic 67
+   24  0.51% ast.Ast.for_each_child_mut                                   ins    201 br    41 panic    13  indexPanic 12, integerOverflow 1
+   24  0.51% parser.Parser.parse_jsdoc_comment                            ins   1979 br   352 panic   122  integerOutOfBounds 59, indexPanic 27, integerOverflow 23, slicePanic 7, outOfBounds 6
+   24  0.51% parser.Parser.is_list_element                                ins   1194 br   120 panic     0  
+   24  0.51% parser.Parser.parse_tag_comments                             ins   1318 br   255 panic    97  integerOutOfBounds 48, integerOverflow 22, indexPanic 17, outOfBounds 6, slicePanic 4
+   23  0.48% parser.Parser.parse_assignment_expression_or_higher_worker   ins   2466 br   337 panic    98  integerOutOfBounds 67, indexPanic 30, integerOverflow 1
+   22  0.46% ast.Ast.deep_clone                                           ins    163 br    24 panic    10  indexPanic 6, integerOutOfBounds 3, integerOverflow 1

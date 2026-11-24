@@ -1,0 +1,38 @@
+ms per run (1 sample = 1 ms): checked 238, ceiling 210
+| area | checked ms/run | ceiling ms/run | less time |
+|---|---:|---:|---:|
+| system (libc, kernel) | 66.3 | 58.8 | 11% |
+| parser | 40.0 | 35.8 | 11% |
+| lexer (scanner) | 32.1 | 29.4 | 8% |
+| binder | 30.2 | 26.0 | 14% |
+| other Trig | 26.5 | 24.3 | 8% |
+| ast | 21.2 | 18.3 | 14% |
+| rig runtime / std | 21.1 | 17.0 | 20% |
+
+| function | checked ms/run | ceiling ms/run |
+|---|---:|---:|
+| lexer.Scanner.scan | 18.10 | 14.67 |
+| parser.Parser.create_identifier_with_diagnostic | 7.45 | 5.08 |
+| ast.Ast.set_parent_of_children | 5.05 | 0.00 |
+| lexer.text_to_keyword | 3.70 | 3.58 |
+| lexer.Scanner.scan_comment | 3.45 | 2.75 |
+| ast.Names.intern_hashed | 3.15 | 2.75 |
+| ast.Binding.index_flow_runs | 2.20 | 1.83 |
+| parser.Parser.finish_source_file_worker | 2.15 | 1.50 |
+| lexer.Scanner.scan_js_doc_token | 2.05 | 2.17 |
+| parser.Parser.parse_literal_expression | 1.65 | 1.42 |
+| ast.Binding.table_put | 1.65 | 1.58 |
+| parser.Parser.parse_delimited_list_opt | 1.50 | 2.08 |
+| ast.Ast.get_module_instance_state_cached | 1.35 | 1.17 |
+| parser.Parser.parse_statement | 1.25 | 0.75 |
+| ast.Ast.for_each_child_mut | 1.20 | 1.00 |
+| parser.Parser.parse_jsdoc_comment | 1.20 | 1.17 |
+| parser.Parser.is_list_element | 1.20 | 1.33 |
+| parser.Parser.parse_tag_comments | 1.20 | 0.50 |
+| parser.Parser.parse_assignment_expression_or_higher_worker | 1.15 | 2.00 |
+| ast.Ast.deep_clone | 1.10 | 1.08 |
+| lexer.Scanner.scan_operator | 1.00 | 0.92 |
+| parser.Parser.parse_left_hand_side_expression_or_higher | 0.95 | 1.00 |
+| lexer.Scanner.scan_js_doc_comment_text_token | 0.90 | 0.83 |
+| parser.Parser.check_js_syntax_worker | 0.85 | 0.58 |
+| parser.Parser.skip_whitespace_or_asterisk | 0.85 | 0.58 |

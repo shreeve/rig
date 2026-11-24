@@ -1,0 +1,6 @@
+checked: functions 5282 instructions 2824186 cond branches 410679 to panic 100427
+checked parser+lexer: functions 230 instructions 135768 cond branches 20141 to panic 6468
+zigfast: functions 5027 instructions 2757637 cond branches 370090 to panic 60456
+zigfast parser+lexer: functions 229 instructions 127084 cond branches 16495 to panic 3222
+ceiling: functions 4964 instructions 2584530 cond branches 309375 to panic 7050
+ceiling parser+lexer: functions 228 instructions 111959 cond branches 12184 to panic 49
